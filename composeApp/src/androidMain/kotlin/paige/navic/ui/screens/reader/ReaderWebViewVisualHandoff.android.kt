@@ -1082,12 +1082,20 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 						!sameGeneration
 					) {
 						retainedRepreparedEvidence = null
-					} else if (!contentValidationExhausted || !sameGeneration) {
-						retainRepreparedEvidenceIfCurrent(request, event)
+						if (
+							repreparedEvidenceMatches(
+								request = request,
+								reprepared = event,
+								state = currentState(),
+								requireLifecycleReady = true
+							)
+						) {
+							releaseRejectedContent(request)
+						}
 					} else {
-						retainedRepreparedEvidence = null
+						retainRepreparedEvidenceIfCurrent(request, event)
 					}
-					false
+					consumeRetainedRepreparedEvidence(request)
 				}
 			}
 			is ReaderPageRelocationVisualRetryEvent.Attached,
@@ -1151,6 +1159,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		val sameGeneration = reprepared.matchesGenerations(request)
 		if (sameGeneration && contentValidationExhausted) {
 			retainedRepreparedEvidence = null
+			releaseRejectedContent(request)
 			return false
 		}
 		retainedRepreparedEvidence = null

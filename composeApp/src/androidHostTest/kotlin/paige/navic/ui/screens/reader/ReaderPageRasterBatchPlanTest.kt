@@ -82,6 +82,55 @@ class ReaderPageRasterBatchPlanTest {
 	}
 
 	@Test
+	fun landscapeProtectedPhysicalSourcesExtendParityRepairEligibility() {
+		val planTargets = listOf(3, 5, 1, 7, 9).mapIndexed { index, pageIndex ->
+			ReaderPageRasterBatchTarget(
+				pageIndex = pageIndex,
+				priority = when (index) {
+					0 -> ReaderPageRasterPriority.Current
+					1 -> ReaderPageRasterPriority.NextTransition
+					2 -> ReaderPageRasterPriority.PreviousTransition
+					else -> ReaderPageRasterPriority.CurrentChapter
+				}
+			)
+		}
+		val profile = ReaderPlayLikeCurlRasterProfile(
+			sourceIdentity = "test",
+			orientation = ReaderPlayLikeCurlOrientation.Landscape,
+			quality = paige.navic.reader.ReaderPageBitmapQuality.Balanced,
+			pageCount = 20,
+			readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+			spreadAnchorParity = 0
+		)
+		val protectedLogicalOrdinals = readerPlayLikeCurlPreparedPageIndices(
+			orientation = profile.orientation,
+			currentOrdinal = 3,
+			pageCount = profile.pageCount,
+			readerDirection = profile.readerDirection,
+			spreadAnchorParity = profile.spreadAnchorParity
+		)
+		val protectedSourcePageIndices = readerPlayLikeCurlProtectedSourcePageIndices(
+			profile = profile,
+			logicalOrdinals = protectedLogicalOrdinals
+		)
+		val planRepairPageIndices = planTargets
+			.filter { target ->
+				target.priority.rank <= ReaderPageRasterPriority.CurrentChapter.rank
+			}
+			.mapTo(linkedSetOf()) { target -> target.pageIndex }
+
+		assertTrue(0 !in planRepairPageIndices)
+		assertTrue(0 in protectedSourcePageIndices)
+		assertTrue(
+			0 in readerPageRasterRepairPageIndices(
+				preparedPageIndices = planRepairPageIndices,
+				protectedSourcePageIndices = protectedSourcePageIndices,
+				pageCount = profile.pageCount
+			)
+		)
+	}
+
+	@Test
 	fun blockingWindowIsCurrentPlusFivePhysicalTurnsInEachDirection() {
 		assertEquals(
 			listOf(14, 16, 12, 18, 20, 22, 24, 10, 8, 6, 4),

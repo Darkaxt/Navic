@@ -938,6 +938,57 @@ class ReaderWebViewVisualHandoffTest {
 	}
 
 	@Test
+	fun exhaustedValidationSameGenerationRepreparationReleasesHeadAndDispatchesQueued() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueVisualRequest(queue, gestureId = 1L)
+		acknowledgeForVisualHandoff(queue, request)
+		val host = FakeVisualHandoffHost(attached = true)
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
+		val terminalRejections = mutableListOf<ReaderPageRelocationRequest>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { visualStateFor(request) },
+			dispatch = dispatched::add,
+			publishRecovery = { _, _ -> },
+			hideSurface = {},
+			validateContent = { _, onValidated ->
+				onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
+				ReaderPageRelocationContentValidationHandle.Completed
+			},
+			onRejectedContentReleased = terminalRejections::add
+		)
+		assertTrue(coordinator.onAcknowledged(request))
+		host.completeVisualState()
+		host.runNextFrame()
+		val queued = enqueueVisualRequest(
+			queue = queue,
+			gestureId = 2L,
+			sourceOrdinal = 4,
+			destinationOrdinal = 5,
+			rasterGeneration = 11L,
+			textureGeneration = 21L
+		)
+		val sameGeneration = ReaderPageRelocationVisualRetryEvent.Reprepared(
+			request.foliateSessionId,
+			request.destinationOrdinal,
+			request.rasterGeneration,
+			request.textureGeneration
+		)
+
+		assertFalse(coordinator.onRetryEvent(sameGeneration))
+		assertEquals(listOf(request), terminalRejections)
+		assertEquals(queued, queue.head())
+		assertEquals(1, queue.ownershipSnapshot().occupied)
+		assertEquals(listOf(queued), dispatched)
+		assertEquals(0, coordinator.pendingCallbackCount())
+
+		assertFalse(coordinator.onRetryEvent(sameGeneration))
+		assertEquals(listOf(request), terminalRejections)
+		assertEquals(listOf(queued), dispatched)
+	}
+
+	@Test
 	fun staleContentValidationCallbackCannotCompleteOrHide() {
 		val queue = ReaderPageRelocationQueue()
 		val request = enqueueVisualRequest(queue, gestureId = 1L)
@@ -1790,7 +1841,7 @@ class ReaderWebViewVisualHandoffTest {
 	}
 
 	@Test
-	fun invalidationsDoNotResetContentRecoveryReplacementBudget() {
+	fun invalidatedExhaustedReplacementReleasesWithoutResettingBudget() {
 		val queue = ReaderPageRelocationQueue()
 		val original = enqueueVisualRequest(queue, gestureId = 1L)
 		acknowledgeForVisualHandoff(queue, original)
@@ -1801,6 +1852,7 @@ class ReaderWebViewVisualHandoffTest {
 			(ReaderPageRelocationContentValidationResult) -> Unit
 		>()
 		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val terminalRejections = mutableListOf<ReaderPageRelocationRequest>()
 		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
 			queue = queue,
 			host = host,
@@ -1808,6 +1860,7 @@ class ReaderWebViewVisualHandoffTest {
 			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
 			hideSurface = {},
+			onRejectedContentReleased = terminalRejections::add,
 			validateContent = { request, onValidated ->
 				if (request.token == original.token) {
 					onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
@@ -1857,10 +1910,19 @@ class ReaderWebViewVisualHandoffTest {
 		validations.single().invoke(
 			ReaderPageRelocationContentValidationResult.Invalidated
 		)
+		val queued = enqueueVisualRequest(
+			queue = queue,
+			gestureId = 2L,
+			sourceOrdinal = 4,
+			destinationOrdinal = 5,
+			rasterGeneration = 13L,
+			textureGeneration = 23L
+		)
 		assertFalse(coordinator.onRetryEvent(secondRepreparation))
 
-		assertEquals(listOf(replacement), dispatched)
-		assertEquals(replacement, queue.head())
+		assertEquals(listOf(replacement), terminalRejections)
+		assertEquals(queued, queue.head())
+		assertEquals(listOf(replacement, queued), dispatched)
 		assertEquals(
 			listOf(
 				ReaderWebViewVisualHandoffFailure.ContentRejected,

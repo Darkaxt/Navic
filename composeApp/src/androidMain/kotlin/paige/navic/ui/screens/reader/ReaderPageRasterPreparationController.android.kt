@@ -262,6 +262,7 @@ internal class ReaderPageRasterPreparationController(
 	private val durableRasterPageIndices = linkedSetOf<Int>()
 	private var preparedRepairPageIndices: Set<Int> = emptySet()
 	private var candidateRepairPageIndices: Set<Int> = emptySet()
+	private var protectedRasterSourcePageIndices: Set<Int> = emptySet()
 	private var candidateBackgroundPrefetch: ReaderPageRasterBackgroundPrefetch? = null
 	private var durableBackgroundPrefetch: ReaderPageRasterBackgroundPrefetch? = null
 	private var currentRasterProfileEpoch: Long? = null
@@ -633,6 +634,11 @@ internal class ReaderPageRasterPreparationController(
 		adjacentChapterPrefetchCoordinator.onPreparedActiveDeckChanged(deck)
 	}
 
+	fun onProtectedRasterSourcePageIndicesChanged(pageIndices: Set<Int>) {
+		if (destroyed) return
+		protectedRasterSourcePageIndices = pageIndices.filterTo(linkedSetOf()) { it >= 0 }
+	}
+
 	fun onWebViewAttachmentChanged(attached: Boolean) {
 		if (destroyed) return
 		adjacentChapterPrefetchCoordinator.onHostAvailabilityChanged(attached)
@@ -724,6 +730,7 @@ internal class ReaderPageRasterPreparationController(
 		durableRasterPageIndices.clear()
 		preparedRepairPageIndices = emptySet()
 		candidateRepairPageIndices = emptySet()
+		protectedRasterSourcePageIndices = emptySet()
 		if (clearVisualPageIndex) currentVisualPageIndex = null
 		publishPreparationState(ReaderPagePreparationPhase.Idle)
 		logLoadingEvent(
@@ -829,6 +836,13 @@ internal class ReaderPageRasterPreparationController(
 		}
 	}
 
+	private fun eligibleRasterRepairPageIndices(): Set<Int> =
+		readerPageRasterRepairPageIndices(
+			preparedPageIndices = preparedRepairPageIndices,
+			protectedSourcePageIndices = protectedRasterSourcePageIndices,
+			pageCount = preparedPageCount
+		)
+
 	fun repairRasterPage(
 		pageIndex: Int,
 		onComplete: (ReaderPageRasterRepairResult) -> Unit
@@ -839,7 +853,7 @@ internal class ReaderPageRasterPreparationController(
 		qaFaultCorrelation: ReaderPageQaFaultCorrelation?,
 		onComplete: (ReaderPageRasterRepairResult) -> Unit
 	) {
-		val repairPages = preparedRepairPageIndices
+		val repairPages = eligibleRasterRepairPageIndices()
 		val immediateFailure = when {
 			destroyed -> ReaderPageRasterRepairResult.Cancelled
 			pageIndex < 0 || pageIndex !in repairPages ->
@@ -953,7 +967,7 @@ internal class ReaderPageRasterPreparationController(
 		val repairShieldSession = allocateRasterRepairShieldSession()
 		activeRasterRepairShieldSession = repairShieldSession
 		val generation = bundleSource.currentGeneration()
-		val repairPages = preparedRepairPageIndices.toSet()
+		val repairPages = eligibleRasterRepairPageIndices()
 		val started = rasterRepairBatchController.start(
 			webView = webView,
 			kind = kind,

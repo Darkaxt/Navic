@@ -60,6 +60,14 @@ internal fun ReaderPageRasterPreparationPlan.preparedRepairPageIndices(): Set<In
 		}
 		.mapTo(linkedSetOf()) { target -> target.pageIndex }
 
+internal fun readerPageRasterRepairPageIndices(
+	preparedPageIndices: Set<Int>,
+	protectedSourcePageIndices: Set<Int>,
+	pageCount: Int
+): Set<Int> = preparedPageIndices.toCollection(linkedSetOf()).apply {
+	addAll(protectedSourcePageIndices.filter { pageIndex -> pageIndex in 0 until pageCount })
+}
+
 internal const val ReaderPageRasterBlockingRadius = 5
 private const val ReaderPageRasterCancellationRestorationTimeoutMillis = 10_000L
 

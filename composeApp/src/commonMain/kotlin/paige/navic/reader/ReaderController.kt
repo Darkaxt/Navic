@@ -299,6 +299,21 @@ data class ReaderController(
 		}
 	}
 
+	fun onPageTurnBoundary(direction: ReaderPageTurnDirection): ReaderControllerStep =
+		if (
+			direction == ReaderPageTurnDirection.Previous &&
+			state.canReturnToShellCover &&
+			!state.shellCoverVisible &&
+			!state.nativeShellCoverUrl.isNullOrBlank()
+		) {
+			showNativeShellCover()
+		} else {
+			ReaderControllerStep(
+				controller = this,
+				engineCommands = listOf(ReaderEngineCommand.TurnPage(direction))
+			)
+		}
+
 	fun onBack(): ReaderControllerBackStep {
 		val closeOverlay = when {
 			state.dialog == ReaderControllerDialog.Search -> closeSearchDialog()
@@ -454,23 +469,26 @@ data class ReaderController(
 				locator = state.chrome.currentLocator
 			)
 		) {
-			ReaderControllerStep(
-				copy(
-					state = state.copy(
-						shellCoverVisible = true,
-						nativeShellCoverReturnLocatorKey = readerNativeShellCoverReturnLocatorKey(state.chrome.currentLocator),
-						menuVisible = false,
-						dialog = null
-					)
-				),
-				readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
-			)
+			showNativeShellCover()
 		} else {
 			ReaderControllerStep(
 				controller = this,
 				engineCommands = listOf(ReaderEngineCommand.TurnPage(direction))
 			)
 		}
+
+	private fun showNativeShellCover(): ReaderControllerStep =
+		ReaderControllerStep(
+			copy(
+				state = state.copy(
+					shellCoverVisible = true,
+					nativeShellCoverReturnLocatorKey = readerNativeShellCoverReturnLocatorKey(state.chrome.currentLocator),
+					menuVisible = false,
+					dialog = null
+				)
+			),
+			readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
+		)
 
 	private fun scrollViewport(direction: ReaderViewportScrollDirection): ReaderControllerStep =
 		ReaderControllerStep(

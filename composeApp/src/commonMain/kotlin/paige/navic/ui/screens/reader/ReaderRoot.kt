@@ -25,6 +25,7 @@ import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderPagePreparationPresentation
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
@@ -58,6 +59,7 @@ internal fun KomikkuReaderRoot(
 	readaloudPlaybackState: ReaderReadaloudPlaybackUiState?,
 	onEngineHostEvent: (ReaderEngineHostEvent) -> Unit,
 	onViewerAction: (ReaderViewerAction) -> Unit,
+	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
 	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
@@ -164,6 +166,7 @@ internal fun KomikkuReaderRoot(
 					}
 				)
 			},
+			onPageTurnBoundary = onPageTurnBoundary,
 			onReadableDragPreview = { deltaX, deltaY, width, height, phase ->
 				onViewerAction(
 					ReaderViewerAction.PreviewPageDrag(

@@ -763,6 +763,62 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun rendererConfirmedPreviousBoundaryReturnsFromLandscapeOrdinalZeroToNativeCover() {
+		val opened = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+		val ordinalOne = opened
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
+					locator = ReaderLocator(
+						href = "OEBPS/Text/sinopsis.xhtml",
+						progress = 0.004370907849029098,
+						pageIndex = 1,
+						pageCount = 270
+					),
+					tocTitle = "Synopsis"
+				)
+			).controller
+		val ordinalZero = ordinalOne.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
+				locator = ReaderLocator(
+					href = "OEBPS/Text/sinopsis.xhtml",
+					pageIndex = 0
+				),
+				tocTitle = "Synopsis"
+			)
+		).controller
+
+		val boundary = ordinalZero.onPageTurnBoundary(ReaderPageTurnDirection.Previous)
+
+		assertTrue(boundary.controller.state.shellCoverVisible)
+		assertFalse(boundary.controller.state.menuVisible)
+		assertEquals(emptyList(), boundary.engineCommands)
+
+		val forward = boundary.controller.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+		val nextReadable = forward.controller.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+
+		assertFalse(forward.controller.state.shellCoverVisible)
+		assertEquals(emptyList(), forward.engineCommands)
+		assertEquals(
+			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Next)),
+			nextReadable.engineCommands
+		)
+	}
+
+	@Test
 	fun previousFromFrontmatterStartReturnsToNativeCoverEvenWhenGlobalPageIndexIsPastOne() {
 		val opened = ReaderController().open(
 			hobbitOpenRequest().copy(

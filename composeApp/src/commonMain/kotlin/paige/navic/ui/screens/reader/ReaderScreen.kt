@@ -595,6 +595,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 			)
 			applyCoordinatorStep(step)
 		},
+		onPageTurnBoundary = { direction ->
+			val beforeShellCoverVisible = coordinator.controller.state.shellCoverVisible
+			val step = coordinator.dispatch { onPageTurnBoundary(direction) }
+			Logger.i(
+				ReaderScreenTag,
+				"Reader renderer boundary direction=$direction " +
+					"shellCover=$beforeShellCoverVisible->${step.coordinator.controller.state.shellCoverVisible}"
+			)
+			applyCoordinatorStep(step)
+		},
 		onWhispersyncPlaybackCommand = { command ->
 			Logger.i(
 				WhispersyncSyncLogTag,

@@ -121,6 +121,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	pagePreparationRetryKey: Int,
 	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
+	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
 	onReadableDragPreview: (deltaX: Float, deltaY: Float, viewWidth: Int, viewHeight: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
 	modifier: Modifier,
@@ -130,6 +131,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	val currentViewerContent by rememberUpdatedState(viewerContent)
 	val currentComposeOverlay by rememberUpdatedState(composeOverlay)
 	val currentOnViewerAction by rememberUpdatedState(onViewerAction)
+	val currentOnPageTurnBoundary by rememberUpdatedState(onPageTurnBoundary)
 	val currentOnReadableDragPreview by rememberUpdatedState(onReadableDragPreview)
 	val currentOnContentLongPress by rememberUpdatedState(onContentLongPress)
 	val currentOnPagePreparationStateChange by rememberUpdatedState(onPagePreparationStateChange)
@@ -163,6 +165,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				setPagePreparationCoverVisible(pagePreparationCoverVisible)
 				setPagePreparationRetryKey(pagePreparationRetryKey)
 				setOnViewerAction { action -> currentOnViewerAction(action) }
+				setOnPageTurnBoundary { direction -> currentOnPageTurnBoundary(direction) }
 				setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
 					currentOnReadableDragPreview(deltaX, deltaY, width, height, phase)
 				}
@@ -197,6 +200,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setViewerContent(viewerKey) { currentViewerContent() }
 			root.setComposeOverlay { currentComposeOverlay() }
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
+			root.setOnPageTurnBoundary { direction -> currentOnPageTurnBoundary(direction) }
 			root.setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
 				currentOnReadableDragPreview(deltaX, deltaY, width, height, phase)
 			}
@@ -344,6 +348,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setOnViewerAction(onAction: (KomikkuNavigationRegion) -> Unit) {
 		viewerContainer.onAction = onAction
+	}
+
+	fun setOnPageTurnBoundary(onBoundary: (ReaderPageTurnDirection) -> Unit) {
+		viewerContainer.onPageTurnBoundary = onBoundary
 	}
 
 	fun setVerticalPageDragPreview(verticalPageDragPreview: Boolean) {
@@ -645,6 +653,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private val shellCoverNavigator = KomikkuReaderNavigator(KomikkuRightAndLeftNavigation())
 	var navigator: KomikkuReaderNavigator = KomikkuReaderNavigator(KomikkuDisabledNavigation())
 	var onAction: (KomikkuNavigationRegion) -> Unit = {}
+	var onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit = {}
 	private var verticalPageDragPreview: Boolean = false
 	var chromeOverlayVisible: Boolean = false
 	var onReadableDragPreview: (
@@ -813,14 +822,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			completePageGesture(gestureId, outcome, detail)
 		},
 		onBoundaryTurn = { direction ->
-			onAction(
-				when (direction) {
-					ReaderPageTurnDirection.Previous -> KomikkuNavigationRegion.PREV
-					ReaderPageTurnDirection.Next -> KomikkuNavigationRegion.NEXT
-				}
-			)
+			onPageTurnBoundary(direction)
 		},
 		onRasterProfileEpochChanged = ::onRasterProfileEpochChanged,
+		onProtectedRasterSourcePageIndicesChanged = {
+			pageRasterPreparationController.onProtectedRasterSourcePageIndicesChanged(it)
+		},
 		onPreparedActiveDeckChanged = { deck ->
 			pageRasterPreparationController.onPreparedActiveDeckChanged(deck)
 		},

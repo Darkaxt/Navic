@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import paige.navic.reader.ReaderPageDragPreviewPhase
 import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
 
 @Composable
@@ -36,6 +37,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	pagePreparationRetryKey: Int,
 	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
+	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
 	onReadableDragPreview: (deltaX: Float, deltaY: Float, viewWidth: Int, viewHeight: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
 	modifier: Modifier,

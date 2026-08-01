@@ -74,6 +74,24 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun protectedLandscapePhysicalSourcesRemainRepairEligible() {
+		val controller = controllerFile.readText()
+		val host = hostFile.readText()
+		val preparation = rasterPreparationFile.readText()
+
+		assertContains(controller, "readerPlayLikeCurlProtectedSourcePageIndices(profile, logicalOrdinals)")
+		assertContains(controller, "onProtectedRasterSourcePageIndicesChanged(sourcePageIndices)")
+		assertContains(host, "onProtectedRasterSourcePageIndicesChanged =")
+		assertContains(
+			host,
+			"pageRasterPreparationController.onProtectedRasterSourcePageIndicesChanged(it)"
+		)
+		assertContains(preparation, "private fun eligibleRasterRepairPageIndices()")
+		assertContains(preparation, "protectedSourcePageIndices = protectedRasterSourcePageIndices")
+		assertContains(preparation, "val repairPages = eligibleRasterRepairPageIndices()")
+	}
+
+	@Test
 	fun productionAdaptersShareTheSurfaceDerivedResidencyBudget() {
 		val controller = controllerFile.readText()
 		val reference = referenceViewFile.readText()
@@ -1545,8 +1563,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 				rejection.indexOf("boundaryTurn?.let(onBoundaryTurn)")
 		)
 		assertContains(wiring, "onBoundaryTurn = { direction ->")
-		assertContains(wiring, "ReaderPageTurnDirection.Previous -> KomikkuNavigationRegion.PREV")
-		assertContains(wiring, "ReaderPageTurnDirection.Next -> KomikkuNavigationRegion.NEXT")
+		assertContains(wiring, "onPageTurnBoundary(direction)")
+		assertFalse(wiring.contains("onAction("))
 	}
 
 	@Test
@@ -1605,7 +1623,47 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun exhaustedContentFailureRestoresInputOnlyBehindCommittedInlineRasterShield() {
+	fun terminalContentFailureRemainsReleaseEligibleAfterRecoveryDeckReplacement() {
+		assertTrue(
+			readerTerminalContentFailureRecoveryStillCurrent(
+				destroyed = false,
+				failedGenerationMatches = true,
+				currentOrdinal = 15,
+				destinationOrdinal = 15,
+				hasNewerSurfacePresentationOwner = false
+			)
+		)
+		assertFalse(
+			readerTerminalContentFailureRecoveryStillCurrent(
+				destroyed = true,
+				failedGenerationMatches = true,
+				currentOrdinal = 15,
+				destinationOrdinal = 15,
+				hasNewerSurfacePresentationOwner = false
+			)
+		)
+		assertFalse(
+			readerTerminalContentFailureRecoveryStillCurrent(
+				destroyed = false,
+				failedGenerationMatches = true,
+				currentOrdinal = 13,
+				destinationOrdinal = 15,
+				hasNewerSurfacePresentationOwner = false
+			)
+		)
+		assertFalse(
+			readerTerminalContentFailureRecoveryStillCurrent(
+				destroyed = false,
+				failedGenerationMatches = true,
+				currentOrdinal = 15,
+				destinationOrdinal = 15,
+				hasNewerSurfacePresentationOwner = true
+			)
+		)
+	}
+
+	@Test
+	fun exhaustedContentFailureRestoresInputBehindValidatedRasterOwnership() {
 		val source = controllerFile.readText()
 		val host = hostFile.readText()
 		val shield = inlineRasterShieldFile.readText()

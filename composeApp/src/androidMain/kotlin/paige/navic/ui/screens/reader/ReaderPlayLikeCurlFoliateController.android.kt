@@ -90,6 +90,18 @@ internal fun readerPageLivePresentationAvailable(
 	otherwiseAvailable: Boolean
 ): Boolean = !hasFailedLivePresentation && otherwiseAvailable
 
+internal fun readerTerminalContentFailureRecoveryStillCurrent(
+	destroyed: Boolean,
+	failedGenerationMatches: Boolean,
+	currentOrdinal: Int,
+	destinationOrdinal: Int,
+	hasNewerSurfacePresentationOwner: Boolean
+): Boolean =
+	!destroyed &&
+		failedGenerationMatches &&
+		currentOrdinal == destinationOrdinal &&
+		!hasNewerSurfacePresentationOwner
+
 internal class ReaderPageLivePresentationRecoveryRequest {
 	var pending: Boolean = false
 		private set
@@ -320,6 +332,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	) -> Boolean,
 	private val onBoundaryTurn: (ReaderPageTurnDirection) -> Unit = {},
 	private val onRasterProfileEpochChanged: (Long?) -> Unit = {},
+	private val onProtectedRasterSourcePageIndicesChanged: (Set<Int>) -> Unit = {},
 	private val onPreparedActiveDeckChanged: (ReaderPagePreparedActiveDeck?) -> Unit = {},
 	private val onPaginationReadinessChanged: (ReaderPagePaginationReadiness) -> Unit = {},
 	private val onProfileBootstrapFailed: () -> Unit = {},
@@ -1102,6 +1115,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			publishedRasterProfile = null
 			publishedRasterProfileEpoch = null
 			notifyPreparedActiveDeckChanged(null)
+			onProtectedRasterSourcePageIndicesChanged(emptySet())
 			onRasterProfileEpochChanged(null)
 			return
 		}
@@ -2916,11 +2930,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val sourcePageIndices = if (profile == null) {
 			emptySet()
 		} else {
-			logicalOrdinals.mapTo(linkedSetOf()) { ordinal ->
-				profile.pageRequest(ordinal).sourcePageIndex
-			}
+			readerPlayLikeCurlProtectedSourcePageIndices(profile, logicalOrdinals)
 		}
 		bundleSource.protectDecodedPageIndices(sourcePageIndices)
+		onProtectedRasterSourcePageIndicesChanged(sourcePageIndices)
 	}
 
 	private fun isLogicalRasterDecoded(logicalOrdinal: Int): Boolean {
@@ -4321,11 +4334,28 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 		val snapshot = takeInlineHandoffSnapshot(request)
 		if (snapshot == null) {
-			Logger.e(
-				ReaderPlayLikeCurlFoliateControllerTag,
-				"PlayLikeCurl terminal handoff has no retained raster " +
-					"gestureId=${request.gestureId}"
-			)
+			val recoveryStillCurrent =
+				readerTerminalContentFailureRecoveryStillCurrent(
+					destroyed = destroyed,
+					failedGenerationMatches =
+						failedLivePresentationGeneration?.matches(request) == true,
+					currentOrdinal = currentOrdinal,
+					destinationOrdinal = request.destinationOrdinal,
+					hasNewerSurfacePresentationOwner =
+						hasNewerSurfacePresentationOwner(request.gestureId)
+				)
+			if (recoveryStillCurrent) {
+				releaseTerminalContentFailureToRetainedCurlSurface(
+					request = request,
+					reason = "terminal-raster-snapshot-unavailable"
+				)
+			} else {
+				Logger.e(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"PlayLikeCurl terminal handoff has no retained raster " +
+						"gestureId=${request.gestureId}"
+				)
+			}
 			return
 		}
 		val generationOwner = generationOwners[request.textureGeneration]
@@ -4342,32 +4372,33 @@ internal class ReaderPlayLikeCurlFoliateController(
 			return
 		}
 		inlineRasterShield.present(snapshot) { presented ->
+			val hasNewerSurfaceOwner =
+				hasNewerSurfacePresentationOwner(request.gestureId)
 			val releaseStillCurrent =
 				!destroyed &&
 					failedLivePresentationGeneration?.matches(request) == true &&
 					activeDeckGenerationId == request.textureGeneration &&
 					generationOwners[request.textureGeneration] === generationOwner &&
 					currentOrdinal == request.destinationOrdinal &&
-					!hasNewerSurfacePresentationOwner(request.gestureId)
+					!hasNewerSurfaceOwner
 			if (!presented || !releaseStillCurrent) {
-				if (!releaseStillCurrent) {
+				val recoveryStillCurrent =
+					readerTerminalContentFailureRecoveryStillCurrent(
+						destroyed = destroyed,
+						failedGenerationMatches =
+							failedLivePresentationGeneration?.matches(request) == true,
+						currentOrdinal = currentOrdinal,
+						destinationOrdinal = request.destinationOrdinal,
+						hasNewerSurfacePresentationOwner = hasNewerSurfaceOwner
+					)
+				if (!recoveryStillCurrent) {
 					if (presented) inlineRasterShield.dismiss()
 					return@present
 				}
-				Logger.e(
-					ReaderPlayLikeCurlFoliateControllerTag,
-					"PlayLikeCurl terminal raster shield presentation failed"
-				)
-				retainsRejectedSurfaceInputShield = true
-				failedLivePresentationGeneration = null
-				livePresentationRecoveryRequest.clear()
-				updateReadiness(
-					interaction = preparedInteractionState(),
-					reason = "visual-handoff-content-rejection-surface-retained"
-				)
-				requestPrewarmIfIdle("terminal-raster-shield-presentation-failed")
-				onOwnershipDiagnosticRequested(
-					ReaderPageOwnershipPhase.SteadyState
+				if (presented) inlineRasterShield.dismiss()
+				releaseTerminalContentFailureToRetainedCurlSurface(
+					request = request,
+					reason = "terminal-raster-shield-surface-retained"
 				)
 				return@present
 			}
@@ -4386,6 +4417,26 @@ internal class ReaderPlayLikeCurlFoliateController(
 			)
 			onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)
 		}
+	}
+
+	private fun releaseTerminalContentFailureToRetainedCurlSurface(
+		request: ReaderPageRelocationRequest,
+		reason: String
+	) {
+		Logger.w(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl terminal raster shield retained curl surface " +
+				"gestureId=${request.gestureId} reason=$reason"
+		)
+		retainsRejectedSurfaceInputShield = true
+		failedLivePresentationGeneration = null
+		livePresentationRecoveryRequest.clear()
+		updateReadiness(
+			interaction = preparedInteractionState(),
+			reason = "visual-handoff-content-rejection-surface-retained"
+		)
+		requestPrewarmIfIdle(reason)
+		onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)
 	}
 
 	private fun publishRelocationVisualRecovery(

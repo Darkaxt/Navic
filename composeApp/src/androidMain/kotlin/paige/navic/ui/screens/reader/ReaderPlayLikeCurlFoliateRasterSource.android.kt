@@ -246,6 +246,19 @@ internal fun readerPlayLikeCurlFoliatePageRequest(
 	)
 }
 
+internal fun readerPlayLikeCurlProtectedSourcePageIndices(
+	profile: ReaderPlayLikeCurlRasterProfile,
+	logicalOrdinals: List<Int>
+): Set<Int> = logicalOrdinals.mapTo(linkedSetOf()) { ordinal ->
+	readerPlayLikeCurlFoliatePageRequest(
+		orientation = profile.orientation,
+		readerDirection = profile.readerDirection,
+		logicalOrdinal = ordinal,
+		pageCount = profile.pageCount,
+		spreadAnchorParity = profile.spreadAnchorParity
+	).sourcePageIndex
+}
+
 internal fun readerPlayLikeCurlQaMissIsEligible(
 	request: ReaderPlayLikeCurlFoliatePageRequest,
 	targetLogicalOrdinal: Int?
