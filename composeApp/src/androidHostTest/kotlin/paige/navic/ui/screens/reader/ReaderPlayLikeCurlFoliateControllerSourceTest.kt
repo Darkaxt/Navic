@@ -1663,6 +1663,60 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun cancelledNewerGestureAtFailedDestinationReleasesRetainedCurlSurface() {
+		assertTrue(
+			readerCancelledGestureCanReleaseTerminalContentFailure(
+				failedGestureId = 6L,
+				cancelledGestureId = 7L,
+				currentOrdinal = 10,
+				settledOrdinal = 10,
+				presentedSurfaceGestureId = 7L
+			)
+		)
+		assertFalse(
+			readerCancelledGestureCanReleaseTerminalContentFailure(
+				failedGestureId = 7L,
+				cancelledGestureId = 7L,
+				currentOrdinal = 10,
+				settledOrdinal = 10,
+				presentedSurfaceGestureId = 7L
+			)
+		)
+		assertFalse(
+			readerCancelledGestureCanReleaseTerminalContentFailure(
+				failedGestureId = 6L,
+				cancelledGestureId = 7L,
+				currentOrdinal = 10,
+				settledOrdinal = 8,
+				presentedSurfaceGestureId = 7L
+			)
+		)
+		assertFalse(
+			readerCancelledGestureCanReleaseTerminalContentFailure(
+				failedGestureId = 6L,
+				cancelledGestureId = 7L,
+				currentOrdinal = 10,
+				settledOrdinal = 10,
+				presentedSurfaceGestureId = 6L
+			)
+		)
+
+		val source = controllerFile.readText()
+		val cancelledSettlement = source.substringAfter(
+			"if (pageChange == PageChange.NONE)"
+		).substringBefore("updateReadiness(")
+		assertContains(
+			cancelledSettlement,
+			"releaseTerminalContentFailureAfterCancelledGesture("
+		)
+		assertTrue(
+			cancelledSettlement.indexOf(
+				"releaseTerminalContentFailureAfterCancelledGesture("
+			) < cancelledSettlement.indexOf("hideSurfaceAfterGesture(gestureId)")
+		)
+	}
+
+	@Test
 	fun exhaustedContentFailureRestoresInputBehindValidatedRasterOwnership() {
 		val source = controllerFile.readText()
 		val host = hostFile.readText()

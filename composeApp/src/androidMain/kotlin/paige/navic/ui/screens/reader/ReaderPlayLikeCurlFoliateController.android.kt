@@ -64,11 +64,13 @@ private const val MAX_RASTER_ADAPTER_OWNERS = 2
 
 private data class FailedLivePresentationGeneration(
 	val rasterGeneration: Long,
-	val textureGeneration: Long
+	val textureGeneration: Long,
+	val gestureId: Long
 ) {
 	constructor(request: ReaderPageRelocationRequest) : this(
 		request.rasterGeneration,
-		request.textureGeneration
+		request.textureGeneration,
+		request.gestureId
 	)
 
 	fun matches(request: ReaderPageRelocationRequest): Boolean =
@@ -101,6 +103,18 @@ internal fun readerTerminalContentFailureRecoveryStillCurrent(
 		failedGenerationMatches &&
 		currentOrdinal == destinationOrdinal &&
 		!hasNewerSurfacePresentationOwner
+
+internal fun readerCancelledGestureCanReleaseTerminalContentFailure(
+	failedGestureId: Long?,
+	cancelledGestureId: Long,
+	currentOrdinal: Int,
+	settledOrdinal: Int,
+	presentedSurfaceGestureId: Long?
+): Boolean =
+	failedGestureId != null &&
+		cancelledGestureId > failedGestureId &&
+		currentOrdinal == settledOrdinal &&
+		presentedSurfaceGestureId == cancelledGestureId
 
 internal class ReaderPageLivePresentationRecoveryRequest {
 	var pending: Boolean = false
@@ -836,6 +850,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 						) {
 							return
 						}
+						releaseTerminalContentFailureAfterCancelledGesture(
+							cancelledGestureId = gestureId,
+							settledOrdinal = currentPageOrdinal
+						)
 						discardPendingDeck("settlement-none")
 						Logger.i(
 							ReaderPlayLikeCurlFoliateControllerTag,
@@ -4346,7 +4364,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 			if (recoveryStillCurrent) {
 				releaseTerminalContentFailureToRetainedCurlSurface(
-					request = request,
+					failedGestureId = request.gestureId,
 					reason = "terminal-raster-snapshot-unavailable"
 				)
 			} else {
@@ -4397,7 +4415,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 				if (presented) inlineRasterShield.dismiss()
 				releaseTerminalContentFailureToRetainedCurlSurface(
-					request = request,
+					failedGestureId = request.gestureId,
 					reason = "terminal-raster-shield-surface-retained"
 				)
 				return@present
@@ -4419,14 +4437,36 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private fun releaseTerminalContentFailureAfterCancelledGesture(
+		cancelledGestureId: Long,
+		settledOrdinal: Int
+	) {
+		val failure = failedLivePresentationGeneration ?: return
+		if (
+			!readerCancelledGestureCanReleaseTerminalContentFailure(
+				failedGestureId = failure.gestureId,
+				cancelledGestureId = cancelledGestureId,
+				currentOrdinal = currentOrdinal,
+				settledOrdinal = settledOrdinal,
+				presentedSurfaceGestureId = presentedSurfaceGestureId
+			)
+		) {
+			return
+		}
+		releaseTerminalContentFailureToRetainedCurlSurface(
+			failedGestureId = failure.gestureId,
+			reason = "terminal-raster-cancelled-gesture-surface-retained"
+		)
+	}
+
 	private fun releaseTerminalContentFailureToRetainedCurlSurface(
-		request: ReaderPageRelocationRequest,
+		failedGestureId: Long,
 		reason: String
 	) {
 		Logger.w(
 			ReaderPlayLikeCurlFoliateControllerTag,
 			"PlayLikeCurl terminal raster shield retained curl surface " +
-				"gestureId=${request.gestureId} reason=$reason"
+				"gestureId=$failedGestureId reason=$reason"
 		)
 		retainsRejectedSurfaceInputShield = true
 		failedLivePresentationGeneration = null
