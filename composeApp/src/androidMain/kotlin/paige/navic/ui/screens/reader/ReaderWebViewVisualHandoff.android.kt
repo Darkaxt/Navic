@@ -795,6 +795,7 @@ internal sealed interface ReaderPageRelocationVisualRetryEvent {
 }
 
 private const val MaximumContentValidationAttempts = 3
+private const val MaximumContentRecoveryReplacements = 1
 
 private class ReaderPageRelocationContentValidationHandleCell {
 	private val lock = Any()
@@ -875,6 +876,8 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	private var contentValidationFailures = 0
 	private var contentValidationEpoch = 0L
 	private var contentValidationExhausted = false
+	private var contentRecoveryGestureId: Long? = null
+	private var contentRecoveryReplacements = 0
 	private var contentValidationTimeoutAction: (() -> Unit)? = null
 	private var contentValidationHandleCell:
 		ReaderPageRelocationContentValidationHandleCell? = null
@@ -964,6 +967,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			return false
 		}
 		val inheritedCorrelation = pendingInheritance?.correlation
+		if (contentRecoveryGestureId != request.gestureId) {
+			contentRecoveryGestureId = request.gestureId
+			contentRecoveryReplacements = 0
+		}
 		head = request
 		contentValidationFailures = 0
 		contentValidationExhausted = false
@@ -1068,8 +1075,16 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 				if (replaceHeadForDifferentGeneration(request, event)) {
 					true
 				} else {
-					if (!contentValidationExhausted || !event.matchesGenerations(request)) {
+					val sameGeneration = event.matchesGenerations(request)
+					if (
+						contentRecoveryReplacementExhausted(request) &&
+						!sameGeneration
+					) {
+						retainedRepreparedEvidence = null
+					} else if (!contentValidationExhausted || !sameGeneration) {
 						retainRepreparedEvidenceIfCurrent(request, event)
+					} else {
+						retainedRepreparedEvidence = null
 					}
 					false
 				}
@@ -1084,6 +1099,12 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		request: ReaderPageRelocationRequest,
 		reprepared: ReaderPageRelocationVisualRetryEvent.Reprepared
 	) {
+		if (
+			contentRecoveryReplacementExhausted(request) &&
+			!reprepared.matchesGenerations(request)
+		) {
+			return
+		}
 		if (
 			repreparedEvidenceMatches(
 				request = request,
@@ -1180,7 +1201,12 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		request: ReaderPageRelocationRequest,
 		reprepared: ReaderPageRelocationVisualRetryEvent.Reprepared
 	): Boolean {
-		if (reprepared.matchesGenerations(request)) return false
+		if (
+			reprepared.matchesGenerations(request) ||
+			contentRecoveryReplacementExhausted(request)
+		) {
+			return false
+		}
 		if (
 			!repreparedEvidenceMatches(
 				request = request,
@@ -1191,6 +1217,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		) {
 			return false
 		}
+		val replacesRejectedContent = contentValidationExhausted
 		val replacement = queue.replaceAcknowledgedHead(
 			token = request.token.value,
 			foliateSessionId = request.foliateSessionId,
@@ -1200,6 +1227,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			replacementRasterGeneration = reprepared.rasterGeneration,
 			replacementTextureGeneration = reprepared.textureGeneration
 		) ?: return false
+		if (replacesRejectedContent) {
+			check(contentRecoveryGestureId == request.gestureId)
+			contentRecoveryReplacements += 1
+		}
 		retainedRepreparedEvidence = null
 		clearContentValidationAttempt()
 		handoff.cancelPendingCapacityRetryEdge(request.token.value)
@@ -1408,7 +1439,20 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			request,
 			ReaderWebViewVisualHandoffFailure.ContentRejected
 		)
-		publishRecovery(request, ReaderWebViewVisualHandoffFailure.ContentRejected)
+		if (!contentRecoveryReplacementExhausted(request)) {
+			publishRecovery(request, ReaderWebViewVisualHandoffFailure.ContentRejected)
+		}
+	}
+
+	private fun contentRecoveryReplacementExhausted(
+		request: ReaderPageRelocationRequest
+	): Boolean =
+		contentRecoveryGestureId == request.gestureId &&
+			contentRecoveryReplacements >= MaximumContentRecoveryReplacements
+
+	private fun clearContentRecoveryLineage() {
+		contentRecoveryGestureId = null
+		contentRecoveryReplacements = 0
 	}
 
 	private fun validationIsCurrent(
@@ -1460,6 +1504,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationEpoch += 1L
 		contentValidationFailures = 0
 		contentValidationExhausted = false
+		clearContentRecoveryLineage()
 		publishPendingVisualTerminal(request)
 		onCompleted(request)
 		head = null
@@ -1570,6 +1615,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	fun cancelForQueueInvalidation() {
 		val request = head
 		if (request == null) {
+			clearContentRecoveryLineage()
 			clearQaFaultCorrelation()
 			return
 		}
@@ -1584,6 +1630,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationEpoch += 1L
 		contentValidationFailures = 0
 		contentValidationExhausted = false
+		clearContentRecoveryLineage()
 		handoff.cancelPendingCapacityRetryEdge(request.token.value)
 		handoff.invalidate()
 		clearQaFaultCorrelation()
@@ -1605,6 +1652,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationEpoch += 1L
 		contentValidationFailures = 0
 		contentValidationExhausted = true
+		clearContentRecoveryLineage()
 		request?.let { handoff.cancelPendingCapacityRetryEdge(it.token.value) }
 		handoff.close()
 		clearQaFaultCorrelation()

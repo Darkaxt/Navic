@@ -1707,7 +1707,7 @@ class ReaderWebViewVisualHandoffTest {
 	}
 
 	@Test
-	fun replacementGenerationFailureRetainsReplacementAndSurface() {
+	fun successiveRejectedGenerationsAreBoundedPerGesture() {
 		val queue = ReaderPageRelocationQueue()
 		val original = enqueueVisualRequest(queue, gestureId = 1L)
 		acknowledgeForVisualHandoff(queue, original)
@@ -1756,16 +1756,434 @@ class ReaderWebViewVisualHandoffTest {
 		host.completeVisualState()
 		host.runNextFrame()
 
+		state = state.copy(rasterGeneration = 12L, textureGeneration = 22L)
+		assertFalse(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					replacement.foliateSessionId,
+					replacement.destinationOrdinal,
+					12L,
+					22L
+				)
+			)
+		)
 		assertEquals(replacement, queue.head())
 		assertEquals(
-			listOf(
-				ReaderWebViewVisualHandoffFailure.ContentRejected,
-				ReaderWebViewVisualHandoffFailure.ContentRejected
-			),
+			listOf(ReaderWebViewVisualHandoffFailure.ContentRejected),
 			recoveries
 		)
 		assertEquals(listOf(replacement), dispatched)
 		assertTrue(hidden.isEmpty())
+	}
+
+	@Test
+	fun invalidationsDoNotResetContentRecoveryReplacementBudget() {
+		val queue = ReaderPageRelocationQueue()
+		val original = enqueueVisualRequest(queue, gestureId = 1L)
+		acknowledgeForVisualHandoff(queue, original)
+		val host = FakeVisualHandoffHost(attached = true)
+		var state = visualStateFor(original)
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
+		val validations = mutableListOf<
+			(ReaderPageRelocationContentValidationResult) -> Unit
+		>()
+		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { state },
+			dispatch = dispatched::add,
+			publishRecovery = { _, reason -> recoveries += reason },
+			hideSurface = {},
+			validateContent = { request, onValidated ->
+				if (request.token == original.token) {
+					onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
+				} else {
+					validations += onValidated
+				}
+				ReaderPageRelocationContentValidationHandle.Completed
+			}
+		)
+		assertTrue(coordinator.onAcknowledged(original))
+		host.completeVisualState()
+		host.runNextFrame()
+		state = state.copy(rasterGeneration = 11L, textureGeneration = 21L)
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					original.foliateSessionId,
+					original.destinationOrdinal,
+					11L,
+					21L
+				)
+			)
+		)
+		val replacement = dispatched.single()
+		assertTrue(
+			queue.acknowledge(
+				replacement.token.value,
+				replacement.destinationOrdinal,
+				replacement.foliateSessionId,
+				replacement.rasterGeneration,
+				replacement.textureGeneration
+			)
+		)
+		assertTrue(coordinator.onAcknowledged(replacement))
+		host.completeVisualState()
+		host.runNextFrame()
+		assertEquals(1, validations.size)
+
+		state = state.copy(rasterGeneration = 12L, textureGeneration = 22L)
+		val secondRepreparation = ReaderPageRelocationVisualRetryEvent.Reprepared(
+			replacement.foliateSessionId,
+			replacement.destinationOrdinal,
+			12L,
+			22L
+		)
+		assertFalse(coordinator.onRetryEvent(secondRepreparation))
+		validations.single().invoke(
+			ReaderPageRelocationContentValidationResult.Invalidated
+		)
+		assertFalse(coordinator.onRetryEvent(secondRepreparation))
+
+		assertEquals(listOf(replacement), dispatched)
+		assertEquals(replacement, queue.head())
+		assertEquals(
+			listOf(
+				ReaderWebViewVisualHandoffFailure.ContentRejected,
+				ReaderWebViewVisualHandoffFailure.Invalidated
+			),
+			recoveries
+		)
+	}
+
+	@Test
+	fun exhaustedReplacementBudgetRetainsSameGenerationInvalidationRetry() {
+		val queue = ReaderPageRelocationQueue()
+		val original = enqueueVisualRequest(queue, gestureId = 1L)
+		acknowledgeForVisualHandoff(queue, original)
+		val host = FakeVisualHandoffHost(attached = true)
+		var state = visualStateFor(original)
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
+		val validations = mutableListOf<
+			(ReaderPageRelocationContentValidationResult) -> Unit
+		>()
+		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { state },
+			dispatch = dispatched::add,
+			publishRecovery = { _, reason -> recoveries += reason },
+			hideSurface = {},
+			validateContent = { request, onValidated ->
+				if (request.token == original.token) {
+					onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
+				} else {
+					validations += onValidated
+				}
+				ReaderPageRelocationContentValidationHandle.Completed
+			}
+		)
+		assertTrue(coordinator.onAcknowledged(original))
+		host.completeVisualState()
+		host.runNextFrame()
+		state = state.copy(rasterGeneration = 11L, textureGeneration = 21L)
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					original.foliateSessionId,
+					original.destinationOrdinal,
+					11L,
+					21L
+				)
+			)
+		)
+		val replacement = dispatched.single()
+		assertTrue(
+			queue.acknowledge(
+				replacement.token.value,
+				replacement.destinationOrdinal,
+				replacement.foliateSessionId,
+				replacement.rasterGeneration,
+				replacement.textureGeneration
+			)
+		)
+		assertTrue(coordinator.onAcknowledged(replacement))
+		host.completeVisualState()
+		host.runNextFrame()
+		assertEquals(1, validations.size)
+		assertFalse(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					replacement.foliateSessionId,
+					replacement.destinationOrdinal,
+					replacement.rasterGeneration,
+					replacement.textureGeneration
+				)
+			)
+		)
+
+		validations.first().invoke(
+			ReaderPageRelocationContentValidationResult.Invalidated
+		)
+		host.completeVisualState()
+		host.runNextFrame()
+		assertEquals(2, validations.size)
+		validations.last().invoke(
+			ReaderPageRelocationContentValidationResult.Accepted
+		)
+
+		assertNull(queue.head())
+		assertEquals(
+			listOf(ReaderWebViewVisualHandoffFailure.ContentRejected),
+			recoveries
+		)
+	}
+
+	@Test
+	fun exhaustedBudgetReplaysPausedSameGenerationRetryOnResume() {
+		val queue = ReaderPageRelocationQueue()
+		val original = enqueueVisualRequest(queue, gestureId = 1L)
+		acknowledgeForVisualHandoff(queue, original)
+		val host = FakeVisualHandoffHost(attached = true)
+		var state = visualStateFor(original)
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
+		val validations = mutableListOf<
+			(ReaderPageRelocationContentValidationResult) -> Unit
+		>()
+		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { state },
+			dispatch = dispatched::add,
+			publishRecovery = { _, reason -> recoveries += reason },
+			hideSurface = {},
+			validateContent = { request, onValidated ->
+				if (request.token == original.token) {
+					onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
+				} else {
+					validations += onValidated
+				}
+				ReaderPageRelocationContentValidationHandle.Completed
+			}
+		)
+		assertTrue(coordinator.onAcknowledged(original))
+		host.completeVisualState()
+		host.runNextFrame()
+		state = state.copy(rasterGeneration = 11L, textureGeneration = 21L)
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					original.foliateSessionId,
+					original.destinationOrdinal,
+					11L,
+					21L
+				)
+			)
+		)
+		val replacement = dispatched.single()
+		assertTrue(
+			queue.acknowledge(
+				replacement.token.value,
+				replacement.destinationOrdinal,
+				replacement.foliateSessionId,
+				replacement.rasterGeneration,
+				replacement.textureGeneration
+			)
+		)
+		assertTrue(coordinator.onAcknowledged(replacement))
+		host.completeVisualState()
+		host.runNextFrame()
+		assertEquals(1, validations.size)
+
+		state = state.copy(resumed = false)
+		validations.first().invoke(
+			ReaderPageRelocationContentValidationResult.Invalidated
+		)
+		assertFalse(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					replacement.foliateSessionId,
+					replacement.destinationOrdinal,
+					replacement.rasterGeneration,
+					replacement.textureGeneration
+				)
+			)
+		)
+		state = state.copy(resumed = true)
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Resumed(
+					replacement.foliateSessionId,
+					replacement.destinationOrdinal
+				)
+			)
+		)
+		host.completeVisualState()
+		host.runNextFrame()
+		assertEquals(2, validations.size)
+		validations.last().invoke(
+			ReaderPageRelocationContentValidationResult.Accepted
+		)
+
+		assertNull(queue.head())
+		assertEquals(
+			listOf(
+				ReaderWebViewVisualHandoffFailure.ContentRejected,
+				ReaderWebViewVisualHandoffFailure.Invalidated
+			),
+			recoveries
+		)
+	}
+
+	@Test
+	fun successfulReplacementClearsBudgetForNextGesture() {
+		val queue = ReaderPageRelocationQueue()
+		val original = enqueueVisualRequest(queue, gestureId = 1L)
+		acknowledgeForVisualHandoff(queue, original)
+		val host = FakeVisualHandoffHost(attached = true)
+		var state = visualStateFor(original)
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { state },
+			dispatch = dispatched::add,
+			publishRecovery = { _, _ -> },
+			hideSurface = {},
+			validateContent = { request, onValidated ->
+				onValidated(
+					if (request.gestureId == original.gestureId && request.token != original.token) {
+						ReaderPageRelocationContentValidationResult.Accepted
+					} else {
+						ReaderPageRelocationContentValidationResult.ContentRejected
+					}
+				)
+				ReaderPageRelocationContentValidationHandle.Completed
+			}
+		)
+		assertTrue(coordinator.onAcknowledged(original))
+		host.completeVisualState()
+		host.runNextFrame()
+		state = state.copy(rasterGeneration = 11L, textureGeneration = 21L)
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					original.foliateSessionId,
+					original.destinationOrdinal,
+					11L,
+					21L
+				)
+			)
+		)
+		val firstReplacement = dispatched.single()
+		assertTrue(
+			queue.acknowledge(
+				firstReplacement.token.value,
+				firstReplacement.destinationOrdinal,
+				firstReplacement.foliateSessionId,
+				firstReplacement.rasterGeneration,
+				firstReplacement.textureGeneration
+			)
+		)
+		assertTrue(coordinator.onAcknowledged(firstReplacement))
+		host.completeVisualState()
+		host.runNextFrame()
+		assertNull(queue.head())
+
+		val next = enqueueVisualRequest(
+			queue = queue,
+			gestureId = 2L,
+			rasterGeneration = 30L,
+			textureGeneration = 40L
+		)
+		acknowledgeForVisualHandoff(queue, next)
+		state = visualStateFor(next)
+		assertTrue(coordinator.onAcknowledged(next))
+		host.completeVisualState()
+		host.runNextFrame()
+		state = state.copy(rasterGeneration = 31L, textureGeneration = 41L)
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					next.foliateSessionId,
+					next.destinationOrdinal,
+					31L,
+					41L
+				)
+			)
+		)
+
+		assertEquals(2, dispatched.size)
+		assertEquals(next.gestureId, dispatched.last().gestureId)
+		assertEquals(dispatched.last(), queue.head())
+	}
+
+	@Test
+	fun queueInvalidationClearsContentRecoveryReplacementBudget() {
+		val queue = ReaderPageRelocationQueue()
+		val original = enqueueVisualRequest(queue, gestureId = 1L)
+		acknowledgeForVisualHandoff(queue, original)
+		val host = FakeVisualHandoffHost(attached = true)
+		var state = visualStateFor(original)
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { state },
+			dispatch = dispatched::add,
+			publishRecovery = { _, _ -> },
+			hideSurface = {},
+			validateContent = { _, onValidated ->
+				onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
+				ReaderPageRelocationContentValidationHandle.Completed
+			}
+		)
+		assertTrue(coordinator.onAcknowledged(original))
+		host.completeVisualState()
+		host.runNextFrame()
+		state = state.copy(rasterGeneration = 11L, textureGeneration = 21L)
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					original.foliateSessionId,
+					original.destinationOrdinal,
+					11L,
+					21L
+				)
+			)
+		)
+
+		coordinator.cancelForQueueInvalidation()
+		queue.cancelAll()
+		val fresh = enqueueVisualRequest(
+			queue = queue,
+			gestureId = original.gestureId,
+			rasterGeneration = 30L,
+			textureGeneration = 40L
+		)
+		acknowledgeForVisualHandoff(queue, fresh)
+		state = visualStateFor(fresh)
+		assertTrue(coordinator.onAcknowledged(fresh))
+		host.completeVisualState()
+		host.runNextFrame()
+		state = state.copy(rasterGeneration = 31L, textureGeneration = 41L)
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					fresh.foliateSessionId,
+					fresh.destinationOrdinal,
+					31L,
+					41L
+				)
+			)
+		)
+
+		assertEquals(2, dispatched.size)
+		assertEquals(fresh.gestureId, dispatched.last().gestureId)
+		assertEquals(dispatched.last(), queue.head())
 	}
 
 	@Test
