@@ -22,6 +22,12 @@ data class ReaderPageTurnSettlementAck(
 	val textureGeneration: Long
 )
 
+data class ReaderShellCoverDismissalRequest(
+	val requestId: Long,
+	val locator: ReaderLocator,
+	val foliateSessionId: String?
+)
+
 data class ReaderControllerState(
 	val publication: ReaderPublicationIdentity? = null,
 	val activeEngine: ReaderPublicationFormat? = null,
@@ -38,6 +44,8 @@ data class ReaderControllerState(
 	val nativeShellCoverUrl: String? = null,
 	val nativeShellCoverReturnLocatorKey: String? = null,
 	val canReturnToShellCover: Boolean = false,
+	val shellCoverDismissalRequestSequence: Long = 0L,
+	val pendingShellCoverDismissal: ReaderShellCoverDismissalRequest? = null,
 	val menuVisible: Boolean = false,
 	val dialog: ReaderControllerDialog? = null,
 	val search: ReaderSearchState = ReaderSearchState(),

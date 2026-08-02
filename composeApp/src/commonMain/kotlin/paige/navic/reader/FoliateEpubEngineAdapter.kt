@@ -81,7 +81,10 @@ sealed class FoliateWebViewEngineAdapter(
 		}
 		return when (command) {
 			is ReaderEngineCommand.OpenPublication -> open(command.request)
-			is ReaderEngineCommand.NavigateTo -> navigateTo(command.locator)
+			is ReaderEngineCommand.NavigateTo -> navigateTo(
+				locator = command.locator,
+				relocationReason = command.relocationReason
+			)
 			is ReaderEngineCommand.Search -> dispatch(ReaderBridgeCommand.Search(command.query))
 			ReaderEngineCommand.ClearSearch -> dispatch(ReaderBridgeCommand.ClearSearch)
 			is ReaderEngineCommand.TurnPage -> turnPage(command.direction)
@@ -109,6 +112,9 @@ sealed class FoliateWebViewEngineAdapter(
 			)
 			is ReaderEngineCommand.ApplyAnnotations -> dispatch(
 				ReaderBridgeCommand.ApplyHighlights(command.annotations)
+			)
+			is ReaderEngineCommand.RequestVisibleTextRange -> dispatch(
+				ReaderBridgeCommand.RequestVisibleTextRange(command.source)
 			)
 			is ReaderEngineCommand.ApplyMediaOverlay -> dispatch(
 				ReaderBridgeCommand.ApplyOverlayFragment(command.fragment)
@@ -211,7 +217,11 @@ sealed class FoliateWebViewEngineAdapter(
 				source = event.source
 			)
 			is ReaderBridgeEvent.OverlayFragmentActive -> ReaderEngineEvent.MediaOverlayActive(event.fragment)
-			is ReaderBridgeEvent.OverlayFragmentInactive -> ReaderEngineEvent.MediaOverlayInactive(event.fragmentId)
+			is ReaderBridgeEvent.OverlayFragmentInactive -> ReaderEngineEvent.MediaOverlayInactive(
+				fragmentId = event.fragmentId,
+				overlayRequestId = event.overlayRequestId,
+				reason = event.reason
+			)
 			is ReaderBridgeEvent.Error -> ReaderEngineEvent.Error(
 				message = event.message,
 				code = event.code
@@ -244,8 +254,15 @@ sealed class FoliateWebViewEngineAdapter(
 		)
 	}
 
-	private fun navigateTo(locator: ReaderLocator): ReaderEngineStep {
-		val bridgeCommand = when {
+	private fun navigateTo(
+		locator: ReaderLocator,
+		relocationReason: String?
+	): ReaderEngineStep {
+		val bridgeCommand = relocationReason
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+			?.let { reason -> ReaderBridgeCommand.GoToLocator(locator, reason) }
+			?: when {
 			!locator.cfi.isNullOrBlank() -> ReaderBridgeCommand.GoToCfi(locator.cfi)
 			!locator.href.isNullOrBlank() && locator.chapterProgress != null ->
 				ReaderBridgeCommand.GoToChapterProgress(

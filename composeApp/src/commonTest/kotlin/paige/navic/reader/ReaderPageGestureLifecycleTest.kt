@@ -48,6 +48,34 @@ class ReaderPageGestureLifecycleTest {
 	}
 
 	@Test
+	fun busyFeedbackIsLimitedToRendererWorkRejections() {
+		val busyOutcomes = setOf(
+			ReaderPageGestureTerminalOutcome.RejectedPreparing,
+			ReaderPageGestureTerminalOutcome.RejectedSettling,
+			ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
+		)
+
+		ReaderPageGestureTerminalOutcome.values().forEach { outcome ->
+			assertEquals(
+				outcome in busyOutcomes,
+				readerPageGestureShouldShowBusyFeedback(outcome),
+				"Unexpected busy-feedback classification for $outcome"
+			)
+		}
+	}
+
+	@Test
+	fun readyFeedbackDelayGuaranteesMinimumVisibility() {
+		assertEquals(500L, ReaderRendererBusyFeedbackMinimumMillis)
+		assertEquals(2_000L, ReaderRendererBusyFeedbackMaximumMillis)
+		assertEquals(500L, readerRendererBusyFeedbackReadyDelayMillis(-1L))
+		assertEquals(500L, readerRendererBusyFeedbackReadyDelayMillis(0L))
+		assertEquals(1L, readerRendererBusyFeedbackReadyDelayMillis(499L))
+		assertEquals(0L, readerRendererBusyFeedbackReadyDelayMillis(500L))
+		assertEquals(0L, readerRendererBusyFeedbackReadyDelayMillis(2_000L))
+	}
+
+	@Test
 	fun unknownGestureCannotReceiveTerminalOutcome() {
 		val lifecycle = ReaderPageGestureLifecycle()
 

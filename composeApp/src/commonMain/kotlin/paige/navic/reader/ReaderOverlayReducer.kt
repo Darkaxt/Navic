@@ -93,36 +93,46 @@ internal object ReaderOverlayReducer {
 		event: ReaderEngineEvent.MediaOverlayActive
 	): ReaderControllerStep {
 		val state = controller.state
-		if (state.activeMediaOverlay == event.fragment) {
-			return ReaderControllerStep(
-				controller.copy(
-					state = state.copy(
-						activeMediaOverlay = event.fragment,
-						audioMetadataLabel = event.fragment.label
-					)
+		if (state.shellCoverVisible) return ReaderControllerStep(controller)
+		val currentWhispersync = state.whispersync
+		val requestId = event.fragment.overlayRequestId
+		val activeRequestId = currentWhispersync.sync.activeOverlayRequestId
+		if (requestId != activeRequestId) return ReaderControllerStep(controller)
+
+		val wasConfirmed = currentWhispersync.sync.hasConfirmedOverlay(requestId)
+		val confirmedSync = currentWhispersync.sync.confirmOverlay(requestId)
+
+		val pendingSeek = currentWhispersync.pendingAudioSeek
+		val audioSeekTarget = pendingSeek
+			?.takeIf { it.overlayRequestId == requestId && !wasConfirmed }
+			?.target
+		val progress = audioSeekTarget?.let {
+			state.publication?.let { publication ->
+				state.chrome.currentLocator?.toBinderyReadingProgress(
+					bookId = publication.bookId,
+					resourceHref = publication.resourceHref,
+					kind = publication.kind
 				)
-			)
+			}
 		}
-		val audioSeekTarget = state.whispersync.audioSeekTargetForActiveOverlay(event.fragment)
 		return ReaderControllerStep(
 			controller = controller.copy(
 				state = state.copy(
-					whispersync = audioSeekTarget?.let { target ->
-						state.whispersync.copy(
-							audioSeekTarget = target,
-							status = ReaderWhispersyncStatus(
-								kind = ReaderWhispersyncStatusKind.SeekingAudio,
-								message = ReaderWhispersyncStatusMessage.SeekingAudio,
-								detail = target.segment.label,
-								audioResource = target.audioResource,
-								positionMs = target.positionMs
-							)
-						)
-					} ?: state.whispersync,
+					whispersync = currentWhispersync.copy(
+						sync = confirmedSync,
+						pendingAudioSeek = pendingSeek
+							?.takeUnless { it.overlayRequestId == requestId },
+						status = if (audioSeekTarget != null) {
+							readerWhispersyncReadyStatus(currentWhispersync.timeline)
+						} else {
+							currentWhispersync.status
+						}
+					),
 					activeMediaOverlay = event.fragment,
 					audioMetadataLabel = event.fragment.label
 				)
 			),
+			progressToSave = progress,
 			whispersyncAudioSeekTarget = audioSeekTarget
 		)
 	}
@@ -131,16 +141,48 @@ internal object ReaderOverlayReducer {
 		controller: ReaderController,
 		event: ReaderEngineEvent.MediaOverlayInactive
 	): ReaderControllerStep {
-		val currentFragmentId = controller.state.activeMediaOverlay?.fragmentId
-		val shouldClear = event.fragmentId == null || event.fragmentId == currentFragmentId
-		return ReaderControllerStep(
-			if (shouldClear) {
-				controller.copy(
-					state = controller.state.copy(activeMediaOverlay = null, audioMetadataLabel = null)
+		val state = controller.state
+		val currentSync = state.whispersync.sync
+		val requestId = event.overlayRequestId
+		if (requestId == null) {
+			if (currentSync.activeOverlayRequestId != null) {
+				return ReaderControllerStep(controller)
+			}
+			val currentFragmentId = state.activeMediaOverlay?.fragmentId
+			val shouldClear = state.activeMediaOverlay != null &&
+				(event.fragmentId == null || event.fragmentId == currentFragmentId)
+			return if (shouldClear) {
+				ReaderControllerStep(
+					controller.copy(
+						state = state.copy(
+							activeMediaOverlay = null,
+							audioMetadataLabel = null
+						)
+					)
 				)
 			} else {
-				controller
+				ReaderControllerStep(controller)
 			}
+		}
+		if (requestId != currentSync.activeOverlayRequestId) {
+			return ReaderControllerStep(controller)
+		}
+		val currentFragmentId = state.activeMediaOverlay?.fragmentId
+		val shouldClear = event.fragmentId == null || event.fragmentId == currentFragmentId
+		return ReaderControllerStep(
+			controller = controller.copy(
+				state = state.copy(
+					whispersync = state.whispersync.copy(
+						sync = currentSync.rejectOverlay(requestId),
+						pendingAudioSeek = null,
+						status = readerWhispersyncReadyStatus(state.whispersync.timeline)
+					),
+					activeMediaOverlay = state.activeMediaOverlay.takeUnless { shouldClear },
+					audioMetadataLabel = state.audioMetadataLabel.takeUnless { shouldClear }
+				)
+			),
+			readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Pause
+				.takeIf { state.chrome.readaloudPlayback.isPlaying }
 		)
 	}
 

@@ -52,6 +52,7 @@ import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderViewerAction
+import paige.navic.reader.ReaderWhispersyncStatusKind
 import paige.navic.reader.ReaderWhispersyncStatusMessage
 import paige.navic.reader.restoreProcessState
 import paige.navic.reader.ReadaloudPlaybackPlan
@@ -233,7 +234,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 					reader = reader,
 					progress = localProgress,
 					updatedAtMs = updatedAtMs,
-					audioSeekTarget = step.whispersyncAudioSeekTarget ?: coordinator.controller.state.whispersync.audioSeekTarget
+					audioSeekTarget = step.whispersyncAudioSeekTarget
 				)?.let { companionProgress ->
 					preferenceManager.binderyWhispersyncCompanionProgressJson =
 						binderyWhispersyncCompanionProgressJsonWithUpdate(
@@ -606,11 +607,22 @@ fun ReaderScreen(reader: Screen.Reader) {
 			applyCoordinatorStep(step)
 		},
 		onWhispersyncPlaybackCommand = { command ->
-			Logger.i(
-				WhispersyncSyncLogTag,
-				"Whispersync playback command command=$command"
-			)
-			audiobookPlaybackManager.dispatch(command)
+			val activationPending = coordinator.controller.state.whispersync.status.kind ==
+				ReaderWhispersyncStatusKind.SeekingAudio
+			val playBlocked = command == ReaderReadaloudPlaybackCommand.Play &&
+				(coordinator.controller.state.shellCoverVisible || activationPending)
+			if (playBlocked) {
+				Logger.w(
+					WhispersyncSyncLogTag,
+					"Whispersync playback command ignored command=Play reason=overlay-unconfirmed"
+				)
+			} else {
+				Logger.i(
+					WhispersyncSyncLogTag,
+					"Whispersync playback command command=$command"
+				)
+				audiobookPlaybackManager.dispatch(command)
+			}
 		},
 		onPreviousChapter = {
 			applyCoordinatorStep(coordinator.dispatch { navigateToPreviousChapter() })

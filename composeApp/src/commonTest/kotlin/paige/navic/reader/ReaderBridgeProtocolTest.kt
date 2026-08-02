@@ -172,6 +172,7 @@ class ReaderBridgeProtocolTest {
 		val script = ReaderBridgeCommand.ApplyOverlayFragment(
 			ReaderOverlayFragment(
 				resourceHref = "EPUB/Audio/chapter1.mp3",
+				overlayRequestId = 47L,
 				fragmentId = "frag-1",
 				textHref = "EPUB/Text/chapter1.xhtml",
 				clipBeginSeconds = 1.25,
@@ -191,6 +192,7 @@ class ReaderBridgeProtocolTest {
 
 		assertContains(script, "\"type\":\"applyOverlayFragment\"")
 		assertContains(script, "\"resourceHref\":\"EPUB/Audio/chapter1.mp3\"")
+		assertContains(script, "\"overlayRequestId\":47")
 		assertContains(script, "\"fragmentId\":\"frag-1\"")
 		assertContains(script, "\"textHref\":\"EPUB/Text/chapter1.xhtml\"")
 		assertContains(script, "\"clipBeginSeconds\":1.25")
@@ -211,6 +213,7 @@ class ReaderBridgeProtocolTest {
 	fun updateOverlayProgressCommandDispatchesFragmentProgressOnly() {
 		val fragment = ReaderOverlayFragment(
 			resourceHref = "EPUB/Audio/chapter1.mp3",
+			overlayRequestId = 48L,
 			fragmentId = "frag-1",
 			textHref = "EPUB/Text/chapter1.xhtml",
 			clipBeginSeconds = 1.25,
@@ -225,9 +228,20 @@ class ReaderBridgeProtocolTest {
 
 		assertContains(script, "\"type\":\"updateOverlayFragmentProgress\"")
 		assertContains(script, "\"fragment\"")
+		assertContains(script, "\"overlayRequestId\":48")
 		assertContains(script, "\"textStart\":10")
 		assertContains(script, "\"textEnd\":42")
 		assertContains(script, "\"textProgressEnd\":24")
+	}
+
+	@Test
+	fun requestVisibleTextRangeCommandDispatchesFreshObservationSource() {
+		val script = ReaderBridgeCommand.RequestVisibleTextRange(
+			source = "shell-cover-dismissed"
+		).toJavaScript()
+
+		assertContains(script, "\"type\":\"requestVisibleTextRange\"")
+		assertContains(script, "\"source\":\"shell-cover-dismissed\"")
 	}
 
 	@Test
@@ -264,6 +278,23 @@ class ReaderBridgeProtocolTest {
 
 		assertContains(script, "\"type\":\"goToCfi\"")
 		assertContains(script, "\"cfi\":\"epubcfi(/6/8!/4/1:0)\"")
+	}
+
+	@Test
+	fun goToLocatorCommandCarriesControlledRelocationReason() {
+		val script = ReaderBridgeCommand.GoToLocator(
+			locator = ReaderLocator(
+				href = "Text/chapter1.xhtml",
+				pageIndex = 42,
+				pageCount = 373
+			),
+			reason = "shell-cover-dismiss:7"
+		).toJavaScript()
+
+		assertContains(script, "\"type\":\"goToLocator\"")
+		assertContains(script, "\"href\":\"Text/chapter1.xhtml\"")
+		assertContains(script, "\"pageIndex\":42")
+		assertContains(script, "\"reason\":\"shell-cover-dismiss:7\"")
 	}
 
 	@Test
@@ -547,6 +578,7 @@ class ReaderBridgeProtocolTest {
 			{
 			  "type": "overlayFragmentActive",
 			  "resourceHref": "audio/part01.mp3",
+			  "overlayRequestId": 47,
 			  "fragmentId": "frag-1",
 			  "textHref": "chapter-01.xhtml#frag-1",
 			  "clipBeginSeconds": 12.4,
@@ -573,6 +605,7 @@ class ReaderBridgeProtocolTest {
 
 		val active = assertIs<ReaderBridgeEvent.OverlayFragmentActive>(overlay)
 		assertEquals("audio/part01.mp3", active.fragment.resourceHref)
+		assertEquals(47L, active.fragment.overlayRequestId)
 		assertEquals("frag-1", active.fragment.fragmentId)
 		assertEquals("chapter-01.xhtml#frag-1", active.fragment.textHref)
 		assertEquals(12.4, active.fragment.clipBeginSeconds)
@@ -581,6 +614,25 @@ class ReaderBridgeProtocolTest {
 		assertEquals(180, active.fragment.textEnd)
 		assertEquals(144, active.fragment.textProgressEnd)
 		assertEquals("Chapter 1 / Paragraph 4", active.fragment.label)
+	}
+
+	@Test
+	fun bridgeEventsDecodeOverlayRejectionIdentityAndReason() {
+		val event = decodeReaderBridgeEvent(
+			"""
+			{
+			  "type": "overlayFragmentInactive",
+			  "fragmentId": "frag-1",
+			  "overlayRequestId": 47,
+			  "reason": "paint-rejected"
+			}
+			""".trimIndent()
+		)
+
+		val inactive = assertIs<ReaderBridgeEvent.OverlayFragmentInactive>(event)
+		assertEquals("frag-1", inactive.fragmentId)
+		assertEquals(47L, inactive.overlayRequestId)
+		assertEquals("paint-rejected", inactive.reason)
 	}
 
 	@Test

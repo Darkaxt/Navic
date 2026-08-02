@@ -167,29 +167,35 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
-	fun whispersyncVisibleTextRangeRoutesOverlayThroughCurrentEngineAndSurfacesAudioSeekTarget() {
+	fun whispersyncVisibleTextRangeWaitsForOverlayActivationBeforeSurfacingAudioSeekTarget() {
 		val synced = ReaderCoordinator()
 			.open(hobbitOpenRequest()).coordinator
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
 
-		val step = synced.onEngineEvent(
+		val pending = synced.onEngineEvent(
 			ReaderEngineEvent.VisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140
 			)
 		)
-		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(pending.coordinator.viewState)
 		val command = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(viewState.bridgeCommand())
 
 		assertEquals("seg-2", command.fragment.fragmentId)
-		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
-		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertNull(pending.whispersyncAudioSeekTarget)
 		assertEquals(1L, viewState.commandKey)
+
+		val active = pending.coordinator.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(command.fragment)
+		)
+
+		assertEquals("Audio/chapter01.m4b", active.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(5_000L, active.whispersyncAudioSeekTarget?.positionMs)
 	}
 
 	@Test
-	fun repairWhispersyncMismatchRoutesSeekTargetThroughCurrentEngine() {
+	fun repairWhispersyncMismatchWaitsForOverlayActivationBeforeSeeking() {
 		val synced = ReaderCoordinator()
 			.open(hobbitOpenRequest()).coordinator
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
@@ -202,13 +208,19 @@ class ReaderCoordinatorTest {
 		).coordinator
 		val mismatched = visible.withRepairableWhispersyncMismatch()
 
-		val step = mismatched.repairWhispersyncMismatch()
+		val pending = mismatched.repairWhispersyncMismatch()
 
-		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(pending.coordinator.viewState)
 		val command = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(viewState.bridgeCommand())
 		assertEquals("seg-2", command.fragment.fragmentId)
-		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
-		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertNull(pending.whispersyncAudioSeekTarget)
+
+		val active = pending.coordinator.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(command.fragment)
+		)
+
+		assertEquals("Audio/chapter01.m4b", active.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(5_000L, active.whispersyncAudioSeekTarget?.positionMs)
 	}
 
 	@Test
@@ -597,10 +609,16 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
-	fun nextFromControllerOwnedShellCoverOnlyDismissesCover() {
+	fun nextFromControllerOwnedShellCoverReplaysSavedLocatorUntilAcknowledged() {
+		val locator = ReaderLocator(
+			href = "chapter-01.xhtml",
+			cfi = "epubcfi(/6/2!/4/1:0)",
+			progress = 0.1
+		)
 		val opened = ReaderCoordinator().open(
 			hobbitOpenRequest().copy(
 				externalShellCover = true,
+				startLocator = locator,
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
@@ -609,9 +627,56 @@ class ReaderCoordinatorTest {
 		val step = opened.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
 
-		assertEquals(false, step.coordinator.controller.state.shellCoverVisible)
-		assertNull(viewState.command)
-		assertEquals(0L, viewState.commandKey)
+		assertTrue(step.coordinator.controller.state.shellCoverVisible)
+		assertEquals(
+			ReaderBridgeCommand.GoToLocator(
+				locator = locator,
+				reason = "shell-cover-dismiss:1"
+			),
+			viewState.bridgeCommand()
+		)
+		assertEquals(1L, viewState.commandKey)
+	}
+
+	@Test
+	fun delayedOverlayActivationCannotReplaceShellCoverDismissalNavigation() {
+		val locator = ReaderLocator(
+			href = "chapter-01.xhtml",
+			cfi = "epubcfi(/6/2!/4/1:0)",
+			progress = 0.1
+		)
+		val opened = ReaderCoordinator().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				startLocator = locator,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).coordinator
+		val dismissing = opened.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		).coordinator
+		val staleFragment = ReaderOverlayFragment(
+			resourceHref = "audio/chapter-01.mp3",
+			overlayRequestId = 41L,
+			fragmentId = "stale-clip"
+		)
+
+		val delayed = dismissing.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(staleFragment)
+		)
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(delayed.coordinator.viewState)
+
+		assertTrue(delayed.coordinator.controller.state.shellCoverVisible)
+		assertEquals(
+			ReaderBridgeCommand.GoToLocator(
+				locator = locator,
+				reason = "shell-cover-dismiss:1"
+			),
+			viewState.bridgeCommand()
+		)
+		assertEquals(1L, viewState.commandKey)
+		assertNull(delayed.whispersyncAudioSeekTarget)
 	}
 
 	@Test

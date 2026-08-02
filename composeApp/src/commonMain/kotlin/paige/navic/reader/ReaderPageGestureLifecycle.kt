@@ -15,6 +15,25 @@ enum class ReaderPageGestureTerminalOutcome {
 	FailedRecovery
 }
 
+internal const val ReaderRendererBusyFeedbackMinimumMillis = 500L
+internal const val ReaderRendererBusyFeedbackMaximumMillis = 2_000L
+
+internal fun readerPageGestureShouldShowBusyFeedback(
+	outcome: ReaderPageGestureTerminalOutcome
+): Boolean = when (outcome) {
+	ReaderPageGestureTerminalOutcome.RejectedPreparing,
+	ReaderPageGestureTerminalOutcome.RejectedSettling,
+	ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable -> true
+	else -> false
+}
+
+internal fun readerRendererBusyFeedbackReadyDelayMillis(
+	elapsedSinceMostRecentRejectionMillis: Long
+): Long = (
+	ReaderRendererBusyFeedbackMinimumMillis -
+		elapsedSinceMostRecentRejectionMillis.coerceAtLeast(0L)
+	).coerceAtLeast(0L)
+
 /**
  * Assigns pointer-sequence identities and enforces one terminal result per sequence.
  *

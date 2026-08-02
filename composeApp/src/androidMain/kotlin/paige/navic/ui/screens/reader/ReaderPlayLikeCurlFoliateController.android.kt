@@ -62,6 +62,17 @@ private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFo
 private const val ReaderPageLiveHandoffCrossfadeMillis = 200L
 private const val MAX_RASTER_ADAPTER_OWNERS = 2
 
+internal fun readerRenderFailureOwnsCurrentPresentation(
+	generationId: Long,
+	activeGenerationId: Long?,
+	pendingGenerationId: Long?,
+	reason: RenderFailureReason,
+	isRecoverable: Boolean
+): Boolean =
+	(reason == RenderFailureReason.CONTEXT && !isRecoverable) ||
+		generationId == activeGenerationId ||
+		generationId == pendingGenerationId
+
 private data class FailedLivePresentationGeneration(
 	val rasterGeneration: Long,
 	val textureGeneration: Long,
@@ -1053,6 +1064,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 					Logger.e(
 						ReaderPlayLikeCurlFoliateControllerTag,
 						"Recovered PlayLikeCurl deck preparation failed " +
+							"generation=$generationId reason=${failure.reason}"
+					)
+					return
+				}
+				if (!readerRenderFailureOwnsCurrentPresentation(
+						generationId = generationId,
+						activeGenerationId = activeDeckGenerationId,
+						pendingGenerationId = pendingDeckGenerationId,
+						reason = failure.reason,
+						isRecoverable = failure.isRecoverable
+					)
+				) {
+					releaseGeneration(generationId)
+					Logger.w(
+						ReaderPlayLikeCurlFoliateControllerTag,
+						"Ignored superseded PlayLikeCurl render failure " +
 							"generation=$generationId reason=${failure.reason}"
 					)
 					return

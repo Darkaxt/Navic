@@ -398,6 +398,8 @@ class NavicReaderRuntime {
     switch (command.type) {
       case 'openPublication':
         return this.openPublication(command)
+      case 'goToLocator':
+        return this.goToLocator(command.locator, command.reason || 'go-to')
       case 'goToCfi':
         return this.goTo(command.cfi)
       case 'goToHref':
@@ -452,6 +454,11 @@ class NavicReaderRuntime {
         return this.applyHighlight(command)
       case 'applyHighlights':
         return this.applyHighlights(command.highlights || [])
+      case 'requestVisibleTextRange':
+        return this.postCurrentVisibleTextRange(
+          this.lastRelocateDetail || this.currentFixedLayoutLocationDetail?.() || {},
+          { source: command.source || 'explicit-refresh', forceDuplicatePost: true }
+        )
       case 'applyOverlayFragment':
         return this.applyOverlayFragment(command.fragment || command)
       case 'updateOverlayFragmentProgress':
@@ -985,7 +992,7 @@ class NavicReaderRuntime {
         }
       }
     }
-    this.mediaOverlayActiveFragment = fragment
+    this.mediaOverlayActiveFragment = highlighted ? fragment : null
     return highlighted
   }
 
@@ -1023,7 +1030,10 @@ class NavicReaderRuntime {
         ...this.mediaOverlayActiveFragment,
         textProgressFraction: progress,
       }
-      this.paintActiveMediaOverlayFragment(animatedFragment)
+      if (!this.paintActiveMediaOverlayFragment(animatedFragment)) {
+        this.rejectOverlayFragment(animatedFragment, 'animation-paint-rejected')
+        return
+      }
       if (progress < 1) {
         this.mediaOverlayProgressAnimationFrame = requestAnimationFrame(tick)
       } else {
@@ -1031,6 +1041,20 @@ class NavicReaderRuntime {
       }
     }
     this.mediaOverlayProgressAnimationFrame = requestAnimationFrame(tick)
+  }
+
+  postOverlayFragmentInactive(fragment, reason) {
+    post({
+      type: 'overlayFragmentInactive',
+      fragmentId: fragment?.fragmentId || null,
+      overlayRequestId: fragment?.overlayRequestId ?? null,
+      reason,
+    })
+  }
+
+  rejectOverlayFragment(fragment, reason) {
+    this.clearOverlay({ preservePlayed: this.readerMediaOverlayPersistentPlayed() })
+    this.postOverlayFragmentInactive(fragment, reason)
   }
 
   async applyOverlayFragment(fragment) {
@@ -1045,6 +1069,7 @@ class NavicReaderRuntime {
           targetHref,
           reason: this.controlledRelocateReason,
         })
+        this.rejectOverlayFragment(fragment, 'user-relocation-active')
         return
       }
       if (this.mediaOverlayFragmentAlreadyVisible(fragment)) {
@@ -1061,21 +1086,41 @@ class NavicReaderRuntime {
           textStart: Number(fragment?.textStart),
           textEnd: Number(fragment?.textEnd),
         })
-        post({ type: 'overlayFragmentInactive', fragmentId: fragment.fragmentId })
+        this.rejectOverlayFragment(fragment, 'outside-visible-page')
         return
       }
     }
     this.prunePlayedMediaOverlayFragments(fragment)
     this.rememberPlayedMediaOverlayFragment(this.mediaOverlayActiveFragment, fragment)
-    this.paintActiveMediaOverlayFragment(fragment)
+    const painted = this.paintActiveMediaOverlayFragment(fragment)
+    if (!painted) {
+      this.rejectOverlayFragment(fragment, 'paint-rejected')
+      return
+    }
     this.startMediaOverlayProgressAnimation(fragment)
     post({ type: 'overlayFragmentActive', ...fragment })
   }
 
   updateOverlayFragmentProgress(fragment) {
     if (!this.view || !fragment) return
+    const activeRequestId = this.mediaOverlayActiveFragment?.overlayRequestId
+    if (
+      fragment.overlayRequestId == null ||
+        activeRequestId == null ||
+        fragment.overlayRequestId !== activeRequestId
+    ) {
+      this.postOverlayFragmentInactive(fragment, 'stale-progress-request')
+      return
+    }
+    if (!this.mediaOverlayFragmentAlreadyVisible(fragment)) {
+      this.rejectOverlayFragment(fragment, 'progress-outside-visible-page')
+      return
+    }
     this.prunePlayedMediaOverlayFragments(fragment)
-    this.paintActiveMediaOverlayFragment(fragment)
+    if (!this.paintActiveMediaOverlayFragment(fragment)) {
+      this.rejectOverlayFragment(fragment, 'progress-paint-rejected')
+      return
+    }
     this.startMediaOverlayProgressAnimation(fragment)
   }
 
@@ -1231,8 +1276,8 @@ class NavicReaderRuntime {
     }
     if (!preservePlayed) {
       this.mediaOverlayPlayedFragments.clear()
-      this.mediaOverlayActiveFragment = null
     }
+    this.mediaOverlayActiveFragment = null
     for (const doc of this.contentDocuments()) {
       for (const marker of Array.from(doc.querySelectorAll(`[${ReaderMediaOverlayRangeAttribute}="true"]`))) {
         removedAny = readerMediaOverlayUnwrapRangeMarker(marker) || removedAny
@@ -1398,7 +1443,11 @@ class NavicReaderRuntime {
       this.updateReaderPageNumberLayer()
       requestAnimationFrame(() => this.logContentLayout('load'))
     })
-    if (this.mediaOverlayEnabled) post({ type: 'overlayFragmentInactive' })
+    if (this.mediaOverlayEnabled) {
+      const invalidatedFragment = this.mediaOverlayActiveFragment
+      this.clearOverlay({ preservePlayed: this.readerMediaOverlayPersistentPlayed() })
+      this.postOverlayFragmentInactive(invalidatedFragment, 'document-loaded')
+    }
   }
 
   logContentLayout(label = 'unknown') {
@@ -1589,7 +1638,8 @@ window.NavicReaderBridge = {
   readerContentActionAtPoint: (x, y, viewWidth, viewHeight) =>
     runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,
   postOverlayFragmentActive: fragment => post({ type: 'overlayFragmentActive', ...fragment }),
-  postOverlayFragmentInactive: fragmentId => post({ type: 'overlayFragmentInactive', fragmentId }),
+  postOverlayFragmentInactive: (fragmentId, overlayRequestId = null, reason = null) =>
+    post({ type: 'overlayFragmentInactive', fragmentId, overlayRequestId, reason }),
 }
 
 readerTrace('runtime:ready', { engine: 'foliate-js' })

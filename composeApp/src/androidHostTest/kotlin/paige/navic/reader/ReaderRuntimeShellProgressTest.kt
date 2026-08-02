@@ -92,16 +92,14 @@ class ReaderRuntimeShellProgressTest {
 		val chapterNavigatorText = readerCommonUiFile("ReaderChapterNavigator.kt").readText()
 
 		assertContains(bridgeText, "case 'goToProgress'")
-		assertContains(bridgeText, "async function goToProgress(progress)")
+		assertContains(bridgeText, "async function goToProgress(progress, reason = 'progress-seek')")
 		assertContains(bridgeText, "case 'diagnosticLocationSnapshot'")
 		assertContains(bridgeText, "postCurrentLocationSnapshot(command.reason || 'diagnostic-snapshot'")
 		assertContains(bridgeText, "this.view?.goToFraction")
 		assertContains(bridgeText, "progress-seek")
 		assertContains(bridgeText, "case 'goToChapterProgress'")
-		assertContains(
-			bridgeText,
-			"async function goToChapterProgress(href, progress, chapterPageIndex = null, chapterPageCount = null)"
-		)
+		assertContains(bridgeText, "async function goToChapterProgress(")
+		assertContains(bridgeText, "reason = 'chapter-progress-seek'")
 		assertContains(bridgeText, "chapter-progress-seek")
 		assertContains(bridgeText, "this.view.renderer.goTo({ index, anchor: targetAnchor })")
 		assertFalse(
@@ -208,20 +206,21 @@ class ReaderRuntimeShellProgressTest {
 	fun androidReaderChapterRailSeekCommitsWithControlledReasonInsteadOfPassiveClamp() {
 		val bridgeText = readerBridgeText()
 		val chapterProgressSeek = bridgeText
-			.substringAfter("async function goToChapterProgress(href, progress, chapterPageIndex = null, chapterPageCount = null) {")
+			.substringAfter("async function goToChapterProgress(")
 			.substringBefore("\nfunction nextPage()")
 		val onRelocate = bridgeText.substringAfter("onRelocate(detail) {")
 			.substringBefore("\n  cancelPendingCommittedRelocation")
 		val scheduleCommittedRelocation = bridgeText.substringAfter("scheduleCommittedRelocation(detail, reason = 'relocate-committed') {")
 			.substringBefore("\n  suppressLoadedCoverDocument")
 
-		assertContains(bridgeText, "beginControlledRelocation('chapter-progress-seek')")
+		assertContains(bridgeText, "reason = 'chapter-progress-seek'")
+		assertContains(bridgeText, "beginControlledRelocation(reason)")
 		assertContains(bridgeText, "consumeControlledRelocationReason('relocate-committed')")
-		assertContains(bridgeText, "scheduleControlledRelocationFallback('chapter-progress-seek')")
+		assertContains(bridgeText, "scheduleControlledRelocationFallback(reason)")
 		assertContains(bridgeText, "readerRelocationReasonIsExplicit(reason)")
 		assertContains(bridgeText, "relocateSequence += 1")
 		assertTrue(
-			chapterProgressSeek.indexOf("beginControlledRelocation('chapter-progress-seek')") <
+			chapterProgressSeek.indexOf("beginControlledRelocation(reason)") <
 				chapterProgressSeek.indexOf("this.view.renderer.goTo({ index, anchor: targetAnchor })"),
 			"Chapter rail seeks must arm their controlled relocation reason before Foliate emits relocate events."
 		)
@@ -911,8 +910,17 @@ class ReaderRuntimeShellProgressTest {
 		)
 		assertContains(
 			shellCoverViewerAction,
-			"shellCoverVisible = false",
-			message = "Next from the native cover must leave the virtual cover before delegating normal page state to Foliate."
+			"ReaderShellCoverDismissalRequest(",
+			message = "Next from the native cover must create a request-bound dismissal and wait for relocation acknowledgement."
+		)
+		assertContains(
+			shellCoverViewerAction,
+			"relocationReason = readerShellCoverDismissalReason(it.requestId)",
+			message = "The controlled relocation must carry the shell-cover dismissal request identity."
+		)
+		assertFalse(
+			shellCoverViewerAction.contains("shellCoverVisible = false"),
+			message = "The virtual cover must remain fail-closed until Foliate acknowledges readable content."
 		)
 		assertContains(
 			pageTurn,
@@ -925,6 +933,47 @@ class ReaderRuntimeShellProgressTest {
 			message = "The shell-cover return boundary must be decided before creating an engine page-turn command."
 		)
 		assertContains(chromeStateText, "fun readerShouldReturnToNativeShellCover(")
+	}
+
+	@Test
+	fun tokenizedShellCoverDismissalNormalizesPersistedLocatorForFoliateNavigation() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val location = readerAssetRoot().resolve("navic-reader-location.js").readText()
+		val pageTurns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val dispatch = runtime
+			.substringAfter("dispatch(command) {")
+			.substringBefore("async openPublication")
+		val goToLocator = location
+			.substringAfter("function goToLocator(locator, reason = 'go-to') {")
+			.substringBefore("\n\nexport const NavicReaderLocationMethods")
+		val goToProgress = pageTurns
+			.substringAfter("async function goToProgress(")
+			.substringBefore("\nasync function goToChapterProgress")
+
+		assertContains(dispatch, "return this.goToLocator(command.locator, command.reason || 'go-to')")
+		assertContains(goToLocator, "const cfi = String(locator?.cfi || '').trim()")
+		assertContains(goToLocator, "if (cfi) return this.goTo(cfi, reason)")
+		assertContains(goToLocator, "const href = String(locator?.href || '').trim()")
+		assertContains(goToLocator, "const chapterProgress = Number(locator?.chapterProgress)")
+		assertContains(goToLocator, "return this.goToChapterProgress(")
+		assertContains(goToLocator, "locator.chapterPageIndex")
+		assertContains(goToLocator, "locator.chapterPageCount")
+		assertContains(goToLocator, "reason")
+		assertContains(goToLocator, "const progress = Number(locator?.progress)")
+		assertContains(goToLocator, "return this.goToProgress(progress, reason)")
+		assertContains(goToLocator, "const pageIndex = Number(locator?.pageIndex)")
+		assertContains(goToLocator, "const pageCount = Number(locator?.pageCount)")
+		assertContains(goToLocator, "return this.goToProgress(pageIndex / (pageCount - 1), reason)")
+		assertContains(goToLocator, "if (href) return this.goTo(href, reason)")
+		assertTrue(goToLocator.indexOf("const cfi") < goToLocator.indexOf("const chapterProgress"))
+		assertTrue(goToLocator.indexOf("const chapterProgress") < goToLocator.indexOf("const progress"))
+		assertTrue(
+			goToLocator.indexOf("return this.goToProgress(progress, reason)") <
+				goToLocator.indexOf("if (href) return this.goTo(href, reason)")
+		)
+		assertContains(goToProgress, "progress, reason = 'progress-seek'")
+		assertContains(goToProgress, "this.beginControlledRelocation(reason)")
+		assertContains(goToProgress, "this.scheduleControlledRelocationFallback(reason)")
 	}
 
 	@Test
@@ -1084,7 +1133,7 @@ class ReaderRuntimeShellProgressTest {
 		val bridgeText = readerBridgeText()
 		val pageTurnsText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val chapterProgressSeek = pageTurnsText
-			.substringAfter("async function goToChapterProgress(href, progress, chapterPageIndex = null, chapterPageCount = null) {")
+			.substringAfter("async function goToChapterProgress(")
 			.substringBefore("\nfunction nextPage()")
 		val boundaryBody = pageTurnsText
 			.substringAfter("function nativeDragPreviewAtSectionBoundary(renderer, direction) {")
@@ -1267,9 +1316,10 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "this.recentPageTurnDirection = null")
 		assertContains(
 			bridgeText,
-			"this.scheduleControlledRelocationFallback('progress-seek')",
-			message = "Progress rail navigation must mark the next relocation as a real jump, not as a passive page-turn aftershock."
+			"async function goToProgress(progress, reason = 'progress-seek')",
+			message = "Progress rail navigation must retain its explicit relocation reason while controlled shell-cover requests can supply their own token."
 		)
+		assertContains(bridgeText, "this.scheduleControlledRelocationFallback(reason)")
 	}
 
 	@Test

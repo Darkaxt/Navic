@@ -48,6 +48,7 @@ data class ReaderController(
 					nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl,
 					nativeShellCoverReturnLocatorKey = null,
 					canReturnToShellCover = normalizedRequest.canReturnToShellCover,
+					pendingShellCoverDismissal = null,
 					menuVisible = false,
 					dialog = null,
 					search = ReaderSearchState(),
@@ -82,10 +83,20 @@ data class ReaderController(
 					progressSaveGate.onEngineEvent(event)
 				}
 				val reduction = ReaderProgressReducer.onRelocated(state, event, decision)
+				val shellCoverDismissed = state.shellCoverVisible && !reduction.state.shellCoverVisible
 				ReaderControllerStep(
 					controller = copy(
 						progressSaveGate = decision.state,
 						state = reduction.state
+					),
+					engineCommands = listOfNotNull(
+						ReaderEngineCommand.RequestVisibleTextRange("shell-cover-dismissed")
+							.takeIf {
+								shellCoverDismissed &&
+									reduction.state.supportsReaderEngineCapability(
+										ReaderEngineCapability.MediaOverlay
+									)
+							}
 					),
 					progressToSave = reduction.progressToSave
 				)
@@ -358,9 +369,13 @@ data class ReaderController(
 					state = state.copy(
 						shellCoverVisible = true,
 						menuVisible = false,
-						dialog = null
+						dialog = null,
+						whispersync = state.whispersync.forShellCoverPresentation(),
+						activeMediaOverlay = null,
+						audioMetadataLabel = null
 					)
 				),
+				engineCommands = state.clearOverlayForShellCoverCommands(),
 				handled = true,
 				readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
 			)
@@ -451,9 +466,39 @@ data class ReaderController(
 				copy(state = state.copy(menuVisible = !state.menuVisible))
 			)
 			action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||
-				action == ReaderViewerAction.ScrollViewport(ReaderViewportScrollDirection.Down) -> ReaderControllerStep(
-				copy(state = state.copy(shellCoverVisible = false, menuVisible = false))
-			)
+				action == ReaderViewerAction.ScrollViewport(ReaderViewportScrollDirection.Down) -> {
+				val locator = state.pendingShellCoverDismissal?.locator
+					?: state.chrome.currentLocator
+				val nextRequestId = state.shellCoverDismissalRequestSequence + 1L
+				val dismissalRequest = locator
+					?.takeIf(ReaderLocator::hasFoliateNavigationIdentity)
+					?.let {
+						ReaderShellCoverDismissalRequest(
+							requestId = nextRequestId,
+							locator = it,
+							foliateSessionId = state.foliateSessionId
+						)
+					}
+				ReaderControllerStep(
+					controller = copy(
+						state = state.copy(
+							shellCoverDismissalRequestSequence = dismissalRequest
+								?.requestId
+								?: state.shellCoverDismissalRequestSequence,
+							pendingShellCoverDismissal = dismissalRequest,
+							menuVisible = false
+						)
+					),
+					engineCommands = listOfNotNull(
+						dismissalRequest?.let {
+							ReaderEngineCommand.NavigateTo(
+								locator = it.locator,
+								relocationReason = readerShellCoverDismissalReason(it.requestId)
+							)
+						}
+					)
+				)
+			}
 			else -> ReaderControllerStep(this)
 		}
 	}
@@ -479,14 +524,21 @@ data class ReaderController(
 
 	private fun showNativeShellCover(): ReaderControllerStep =
 		ReaderControllerStep(
-			copy(
+			controller = copy(
 				state = state.copy(
 					shellCoverVisible = true,
-					nativeShellCoverReturnLocatorKey = readerNativeShellCoverReturnLocatorKey(state.chrome.currentLocator),
+					pendingShellCoverDismissal = null,
+					nativeShellCoverReturnLocatorKey = readerNativeShellCoverReturnLocatorKey(
+						state.chrome.currentLocator
+					),
 					menuVisible = false,
-					dialog = null
+					dialog = null,
+					whispersync = state.whispersync.forShellCoverPresentation(),
+					activeMediaOverlay = null,
+					audioMetadataLabel = null
 				)
 			),
+			engineCommands = state.clearOverlayForShellCoverCommands(),
 			readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
 		)
 
@@ -537,40 +589,29 @@ private fun ReaderControllerState.shellCoverReadaloudResetCommand(): ReaderReada
 		null
 	}
 
-internal fun readerNativeShellCoverReturnLocatorKey(locator: ReaderLocator?): String? {
-	locator ?: return null
-	val href = locator.href
-		?.trim()
-		?.replace('\\', '/')
-		.orEmpty()
-	val pageIndex = locator.pageIndex?.takeIf { it >= 0 }?.toString().orEmpty()
-	val pageCount = locator.pageCount?.takeIf { it > 0 }?.toString().orEmpty()
-	val chapterPageIndex = locator.chapterPageIndex?.takeIf { it >= 0 }?.toString().orEmpty()
-	val chapterPageCount = locator.chapterPageCount?.takeIf { it > 0 }?.toString().orEmpty()
-	return listOf(
-		href.substringBefore('#').substringBefore('?'),
-		pageIndex,
-		pageCount,
-		chapterPageIndex,
-		chapterPageCount
-	).joinToString("|")
-}
+private fun ReaderControllerState.clearOverlayForShellCoverCommands(): List<ReaderEngineCommand> =
+	listOfNotNull(
+		ReaderEngineCommand.ClearMediaOverlay.takeIf {
+			supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay) &&
+				(
+					whispersync.sync.activeOverlayRequestId != null ||
+						activeMediaOverlay != null
+				)
+		}
+	)
 
-internal fun readerExplicitReadableRelocationDismissesNativeShellCover(
-	shellCoverVisible: Boolean,
-	locator: ReaderLocator
-): Boolean {
-	if (!shellCoverVisible) return false
-	val reason = locator.reason?.trim().orEmpty()
-	if (
-		reason.isBlank() ||
-		reason == "relocate-committed" ||
-		reason == "initial-resume" ||
-		reason.startsWith("pagination-profile-")
-	) return false
-	val href = locator.href?.trim().orEmpty()
-	return href.isBlank() || !readerHrefLooksLikeNativeShellCoverBoundary(href)
-}
+private fun ReaderWhispersyncSessionState.forShellCoverPresentation(): ReaderWhispersyncSessionState =
+	copy(
+		sync = sync.rejectOverlay(null),
+		visibleTextRange = null,
+		pendingAudioSeek = null,
+		status = readerWhispersyncReadyStatus(timeline)
+	)
+
+private fun ReaderLocator.hasFoliateNavigationIdentity(): Boolean =
+	!cfi.isNullOrBlank() ||
+		!href.isNullOrBlank() ||
+		progress?.isFinite() == true
 
 private fun ReaderControllerStep.asBackStep(handled: Boolean): ReaderControllerBackStep =
 	ReaderControllerBackStep(

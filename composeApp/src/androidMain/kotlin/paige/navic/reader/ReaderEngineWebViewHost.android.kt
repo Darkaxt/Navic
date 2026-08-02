@@ -439,6 +439,7 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 		is ReaderBridgeCommand.OpenPublication ->
 			"openPublication(url=${url.engineUrlLabel()}, overlay=$mediaOverlayEnabled, " +
 				"tint=${if (nativeShellCoverTint.isNullOrBlank()) "missing" else "present"})"
+		is ReaderBridgeCommand.GoToLocator -> "goToLocator(reason=$reason)"
 		is ReaderBridgeCommand.GoToCfi -> "goToCfi"
 		is ReaderBridgeCommand.GoToHref -> "goToHref(${href.engineUrlLabel()})"
 		is ReaderBridgeCommand.GoToProgress -> "goToProgress(${progress.coerceIn(0.0, 1.0)})"
@@ -457,6 +458,7 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 		is ReaderBridgeCommand.ApplyOverlayFragment -> "applyOverlayFragment(${fragment.fragmentId.orEmpty()})"
 		is ReaderBridgeCommand.UpdateOverlayFragmentProgress ->
 			"updateOverlayFragmentProgress(${fragment.fragmentId.orEmpty()}, ${fragment.textProgressEnd ?: "n/a"})"
+		is ReaderBridgeCommand.RequestVisibleTextRange -> "requestVisibleTextRange"
 		ReaderBridgeCommand.ClearOverlay -> "clearOverlay"
 		is ReaderBridgeCommand.ApplySettings -> "applySettings"
 		is ReaderBridgeCommand.Search -> "search"

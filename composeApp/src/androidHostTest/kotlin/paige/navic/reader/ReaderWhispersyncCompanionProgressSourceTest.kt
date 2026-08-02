@@ -3,17 +3,22 @@ package paige.navic.reader
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertFalse
 
 class ReaderWhispersyncCompanionProgressSourceTest {
 	@Test
-	fun readerScreenPersistsCompanionProgressWithLatestWhispersyncAudioTarget() {
+	fun readerScreenPersistsCompanionProgressOnlyWithDeliveredWhispersyncSeek() {
 		val readerScreen = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt")
 			.readText()
 
 		assertContains(
 			readerScreen,
-			"audioSeekTarget = step.whispersyncAudioSeekTarget ?: coordinator.controller.state.whispersync.audioSeekTarget",
-			message = "ReaderScreen must persist companion progress with the exact seek target carried by the current coordinator step before falling back to controller state."
+			"audioSeekTarget = step.whispersyncAudioSeekTarget",
+			message = "ReaderScreen must persist companion audio progress only from the exact seek delivered by the current coordinator step."
+		)
+		assertFalse(
+			readerScreen.contains("coordinator.controller.state.whispersync.audioSeekTarget"),
+			message = "Pending, unconfirmed overlay seeks must not leak into persisted companion progress."
 		)
 	}
 

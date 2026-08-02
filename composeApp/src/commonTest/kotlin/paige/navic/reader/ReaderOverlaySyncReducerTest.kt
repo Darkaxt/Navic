@@ -36,6 +36,27 @@ class ReaderOverlaySyncReducerTest {
 	}
 
 	@Test
+	fun unconfirmedCueSuppressesProgressUpdates() {
+		val start = ReaderOverlaySyncState().followPlaybackCue(
+			firstCue.copy(
+				fragment = firstCue.fragment.copy(textProgressEnd = 10),
+				progressTextEnd = 10
+			)
+		)
+
+		val suppressed = start.followPlaybackCue(
+			firstCue.copy(
+				fragment = firstCue.fragment.copy(textProgressEnd = 15),
+				progressTextEnd = 15
+			)
+		)
+
+		assertEquals(start.engineCommand, suppressed.engineCommand)
+		assertEquals(start.engineCommandKey, suppressed.engineCommandKey)
+		assertEquals(10, suppressed.activeProgressTextEnd)
+	}
+
+	@Test
 	fun progressiveCueUpdatesOnlyWhenProgressMarkerChanges() {
 		val start = ReaderOverlaySyncState().followPlaybackCue(
 			firstCue.copy(
@@ -43,11 +64,12 @@ class ReaderOverlaySyncReducerTest {
 				progressTextEnd = 10
 			)
 		)
+		val confirmed = start.confirmOverlay(start.activeOverlayRequestId)
 		val progressedCue = firstCue.copy(
 			fragment = firstCue.fragment.copy(textProgressEnd = 15),
 			progressTextEnd = 15
 		)
-		val progressed = start.followPlaybackCue(progressedCue)
+		val progressed = confirmed.followPlaybackCue(progressedCue)
 
 		val command = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(progressed.engineCommand)
 		assertEquals(15, command.fragment.textProgressEnd)

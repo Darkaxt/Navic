@@ -296,7 +296,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	}
 
 	@Test
-	fun whispersyncControlShowsLoadingWhenCurrentPageHasCueButAudioIsNotLoaded() {
+	fun whispersyncControlStaysDisabledUntilOverlayActivationIsConfirmed() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.SeekingAudio,
@@ -304,7 +304,11 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				audioResource = "Audio/chapter01.m4b",
 				positionMs = 42_000L
 			),
-			playbackState = null
+			playbackState = ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				syncEnabled = true
+			)
 		)
 
 		assertTrue(control.visible)

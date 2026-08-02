@@ -218,7 +218,7 @@ function fixedLayoutAdjacentPageTarget(direction) {
   return target >= 0 && target < sectionCount ? target : null
 }
 
-async function goToProgress(progress) {
+async function goToProgress(progress, reason = 'progress-seek') {
   if (!this.view) return
   const numericProgress = Number(progress)
   const fraction = Number.isFinite(numericProgress)
@@ -231,7 +231,7 @@ async function goToProgress(progress) {
       this.view?.book?.splitTOCHref &&
       this.view?.book?.getTOCFragment
     const progressTarget = this.progressTargetForSections(fraction)
-    controlledRelocationOwner = this.beginControlledRelocation('progress-seek')
+    controlledRelocationOwner = this.beginControlledRelocation(reason)
     let committed
     if (canUseFraction) {
       committed = await this.view.goToFraction(fraction)
@@ -245,8 +245,8 @@ async function goToProgress(progress) {
       this.cancelControlledRelocation(controlledRelocationOwner)
       return false
     }
-    this.scheduleControlledRelocationFallback('progress-seek')
-    this.applyReaderViewportLayout('progress-seek')
+    this.scheduleControlledRelocationFallback(reason)
+    this.applyReaderViewportLayout(reason)
     requestAnimationFrame(() => {
       this.logContentLayout('progress-seek')
       log('progress-seek:done', fraction)
@@ -259,7 +259,13 @@ async function goToProgress(progress) {
   }
 }
 
-async function goToChapterProgress(href, progress, chapterPageIndex = null, chapterPageCount = null) {
+async function goToChapterProgress(
+  href,
+  progress,
+  chapterPageIndex = null,
+  chapterPageCount = null,
+  reason = 'chapter-progress-seek',
+) {
   if (!this.view) return
   const targetHref = String(href || '').trim()
   if (!targetHref) return
@@ -286,7 +292,7 @@ async function goToChapterProgress(href, progress, chapterPageIndex = null, chap
     )
     const index = Number(resolved?.index)
     const targetAnchor = this.reflowableChapterProgressAnchor(targetFraction)
-    controlledRelocationOwner = this.beginControlledRelocation('chapter-progress-seek')
+    controlledRelocationOwner = this.beginControlledRelocation(reason)
     let committed
     if (Number.isFinite(index) && this.view.renderer?.goTo) {
       committed = await this.view.renderer.goTo({ index, anchor: targetAnchor })
@@ -303,8 +309,8 @@ async function goToChapterProgress(href, progress, chapterPageIndex = null, chap
       this.cancelControlledRelocation(controlledRelocationOwner)
       return false
     }
-    this.scheduleControlledRelocationFallback('chapter-progress-seek')
-    this.applyReaderViewportLayout('chapter-progress-seek')
+    this.scheduleControlledRelocationFallback(reason)
+    this.applyReaderViewportLayout(reason)
     requestAnimationFrame(() => {
       this.logContentLayout('chapter-progress-seek')
       log('chapter-progress-seek:done', targetHref, targetFraction)

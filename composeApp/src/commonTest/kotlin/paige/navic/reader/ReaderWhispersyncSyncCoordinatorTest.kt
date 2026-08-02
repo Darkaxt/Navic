@@ -95,7 +95,8 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		assertEquals("Opening sentence", firstCommand.fragment.label)
 		assertEquals(1L, first.engineCommandKey)
 
-		val duplicate = first.onAudiobookPlaybackPosition(
+		val confirmedFirst = first.confirmOverlay(first.activeOverlayRequestId)
+		val duplicate = confirmedFirst.onAudiobookPlaybackPosition(
 			timeline = timeline,
 			audioResource = "/Audio/chapter01.m4b",
 			positionMs = 2_000
@@ -143,7 +144,8 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		assertEquals(0.0, startCommand.fragment.textProgressFraction ?: -1.0, 0.0001)
 		assertEquals(1L, start.engineCommandKey)
 
-		val quarter = start.onAudiobookPlaybackPosition(
+		val confirmedStart = start.confirmOverlay(start.activeOverlayRequestId)
+		val quarter = confirmedStart.onAudiobookPlaybackPosition(
 			timeline = timeline,
 			audioResource = "Audio/chapter01.m4b",
 			positionMs = 1_500
@@ -211,7 +213,10 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		assertEquals(ReaderWhispersyncStatusKind.Playing, start.status?.kind)
 		assertEquals(1_000L, start.status?.positionMs)
 
-		val nearEnd = start.state.onAudiobookPlaybackPositionStep(
+		val confirmedStart = start.state.confirmOverlay(
+			start.state.activeOverlayRequestId
+		)
+		val nearEnd = confirmedStart.onAudiobookPlaybackPositionStep(
 			timeline = timeline,
 			audioResource = "Audio/chapter01.m4b",
 			positionMs = 4_500,

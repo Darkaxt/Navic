@@ -267,7 +267,95 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 			"Playback-driven Whispersync overlay updates must not relocate the reader; page-end handling is owned by native."
 		)
 		assertContains(applyOverlay, "media-overlay-follow:outside-visible-page")
-		assertContains(applyOverlay, "overlayFragmentInactive")
+		assertContains(applyOverlay, "rejectOverlayFragment")
+	}
+
+	@Test
+	fun whispersyncOverlayActivationRequiresSuccessfulVisiblePaint() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val applyOverlay = runtime
+			.substringAfter("async applyOverlayFragment(fragment) {")
+			.substringBefore("\n  updateOverlayFragmentProgress")
+
+		val paint = applyOverlay.indexOf(
+			"const painted = this.paintActiveMediaOverlayFragment(fragment)"
+		)
+		val rejection = applyOverlay.indexOf("if (!painted)")
+		val activation = applyOverlay.indexOf("overlayFragmentActive")
+		assertTrue(paint >= 0 && rejection > paint && activation > rejection)
+		assertContains(applyOverlay, "paint-rejected")
+	}
+
+	@Test
+	fun documentLoadInvalidationCarriesTheActiveOverlayRequestIdentity() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val onLoad = runtime
+			.substringAfter("onLoad(detail = {}) {")
+			.substringBefore("\n  logContentLayout")
+
+		assertContains(onLoad, "const invalidatedFragment = this.mediaOverlayActiveFragment")
+		assertContains(
+			onLoad,
+			"this.clearOverlay({ preservePlayed: this.readerMediaOverlayPersistentPlayed() })"
+		)
+		assertContains(
+			onLoad,
+			"this.postOverlayFragmentInactive(invalidatedFragment, 'document-loaded')"
+		)
+		assertTrue(
+			onLoad.indexOf("this.clearOverlay") <
+				onLoad.indexOf("this.postOverlayFragmentInactive")
+		)
+		assertFalse(
+			onLoad.contains("post({ type: 'overlayFragmentInactive', reason: 'document-loaded' })"),
+			"Document invalidation must not post an unscoped inactive event."
+		)
+	}
+
+	@Test
+	fun whispersyncProgressUpdatesRequireMatchingVisibleActiveRequest() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val updateOverlay = runtime
+			.substringAfter("updateOverlayFragmentProgress(fragment) {")
+			.substringBefore("\n  clampedMediaOverlayProgressEnd")
+
+		val identityGate = updateOverlay.indexOf("activeRequestId")
+		val visibilityGate = updateOverlay.indexOf(
+			"this.mediaOverlayFragmentAlreadyVisible(fragment)"
+		)
+		val paint = updateOverlay.indexOf("this.paintActiveMediaOverlayFragment(fragment)")
+		assertTrue(identityGate >= 0 && visibilityGate > identityGate && paint > visibilityGate)
+		assertContains(updateOverlay, "stale-progress-request")
+		assertContains(updateOverlay, "progress-outside-visible-page")
+		assertContains(updateOverlay, "progress-paint-rejected")
+	}
+
+	@Test
+	fun matchingWhispersyncRejectionClearsThePaintedActiveOverlay() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val rejectOverlay = runtime
+			.substringAfter("rejectOverlayFragment(fragment, reason) {")
+			.substringBefore("\n  async applyOverlayFragment")
+		val updateOverlay = runtime
+			.substringAfter("updateOverlayFragmentProgress(fragment) {")
+			.substringBefore("\n  clampedMediaOverlayProgressEnd")
+
+		assertContains(
+			rejectOverlay,
+			"this.clearOverlay({ preservePlayed: this.readerMediaOverlayPersistentPlayed() })"
+		)
+		assertTrue(
+			rejectOverlay.indexOf("this.clearOverlay") <
+				rejectOverlay.indexOf("this.postOverlayFragmentInactive")
+		)
+		assertContains(
+			updateOverlay,
+			"this.rejectOverlayFragment(fragment, 'progress-outside-visible-page')"
+		)
+		assertContains(
+			updateOverlay,
+			"this.rejectOverlayFragment(fragment, 'progress-paint-rejected')"
+		)
 	}
 
 	@Test

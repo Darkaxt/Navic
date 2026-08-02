@@ -22,12 +22,25 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.webkit.WebView
 import android.widget.FrameLayout
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
@@ -35,13 +48,14 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import karacken.curl.PageChange
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.delay
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
 import paige.navic.reader.ReaderPageGestureLifecycle
+import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageLifecycleCancellationReason
 import paige.navic.reader.ReaderPageOperationPolicy
-import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPagePointerOwnership
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
@@ -52,12 +66,16 @@ import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
+import paige.navic.reader.ReaderRendererBusyFeedbackMaximumMillis
 import paige.navic.reader.ReaderTapZoneAction
+import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerNativeReaderSwipeAction
+import paige.navic.reader.readerPageGestureShouldShowBusyFeedback
 import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.reader.readerPublicationCacheRoot
+import paige.navic.reader.readerRendererBusyFeedbackReadyDelayMillis
 import paige.navic.reader.readerShellCoverSwipeAction
 import paige.navic.reader.readerTapZonePageTurnDirectionFor
 import paige.navic.reader.withRendererReadiness
@@ -75,6 +93,24 @@ private const val KomikkuReaderNativeFrameHostTag = "KomikkuReaderNativeFrameHos
 private const val PageTurnPrewarmRequiredStableFrames = 2
 private const val AndroidGestureDoubleTapMinTimeMillis = 40L
 private val ReaderPageDiagnosticSessionIds = AtomicLong()
+
+internal data class ReaderNativePresentationLayerVisibility(
+	val shellCover: Boolean,
+	val preparationShield: Boolean
+)
+
+internal fun readerNativePresentationLayerVisibility(
+	shellCoverVisible: Boolean,
+	pagePreparationCoverVisible: Boolean,
+	hasValidatedRasterPresentation: Boolean
+): ReaderNativePresentationLayerVisibility =
+	ReaderNativePresentationLayerVisibility(
+		shellCover = shellCoverVisible,
+		preparationShield =
+			!shellCoverVisible &&
+				pagePreparationCoverVisible &&
+				!hasValidatedRasterPresentation
+	)
 
 internal fun dispatchClaimedReaderPageCurlEvent(
 	event: MotionEvent,
@@ -135,15 +171,65 @@ actual fun KomikkuReaderNativeFrameHost(
 	val currentOnReadableDragPreview by rememberUpdatedState(onReadableDragPreview)
 	val currentOnContentLongPress by rememberUpdatedState(onContentLongPress)
 	val currentOnPagePreparationStateChange by rememberUpdatedState(onPagePreparationStateChange)
+	var rendererBusyFeedbackToken by remember { mutableLongStateOf(0L) }
+	var rendererBusyFeedbackVisible by remember { mutableStateOf(false) }
+	var nativeFrameRoot by remember { mutableStateOf<KomikkuReaderNativeFrameRoot?>(null) }
+	val hostedComposeOverlay: @Composable () -> Unit = {
+		Box(modifier = Modifier.fillMaxSize()) {
+			currentComposeOverlay()
+			ReaderRendererBusyIndicator(
+				visible = rendererBusyFeedbackVisible,
+				modifier = Modifier
+					.align(Alignment.BottomCenter)
+					.windowInsetsPadding(WindowInsets.navigationBars)
+					.padding(bottom = 96.dp)
+			)
+		}
+	}
+	val onRendererBusyGestureRejected = {
+		rendererBusyFeedbackToken += 1L
+		rendererBusyFeedbackVisible = true
+	}
+
+	LaunchedEffect(rendererBusyFeedbackToken) {
+		val activeToken = rendererBusyFeedbackToken
+		if (activeToken == 0L) return@LaunchedEffect
+
+		var elapsedMillis = 0L
+		val readyDelayMillis = readerRendererBusyFeedbackReadyDelayMillis(elapsedMillis)
+		delay(readyDelayMillis)
+		elapsedMillis += readyDelayMillis
+		while (
+			rendererBusyFeedbackToken == activeToken &&
+			rendererBusyFeedbackVisible
+		) {
+			if (nativeFrameRoot?.canAcceptNewPointer() == true) {
+				rendererBusyFeedbackVisible = false
+				return@LaunchedEffect
+			}
+			if (elapsedMillis >= ReaderRendererBusyFeedbackMaximumMillis) {
+				rendererBusyFeedbackVisible = false
+				return@LaunchedEffect
+			}
+			val nextDelayMillis = minOf(
+				50L,
+				ReaderRendererBusyFeedbackMaximumMillis - elapsedMillis
+			)
+			delay(nextDelayMillis)
+			elapsedMillis += nextDelayMillis
+		}
+	}
 
 	AndroidView(
 		modifier = modifier,
 		factory = { context ->
 			KomikkuReaderNativeFrameRoot(context).apply {
+				nativeFrameRoot = this
 				setOnPagePreparationStateChange { state -> currentOnPagePreparationStateChange(state) }
 				setPageOperationPolicy(pageOperationPolicy)
 				setViewerContent(viewerKey) { currentViewerContent() }
-				setComposeOverlay { currentComposeOverlay() }
+				setComposeOverlay(hostedComposeOverlay)
+				setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
 				setChromeOverlayVisible(chromeOverlayVisible)
 				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
 				setViewerLayerPaint(grayscaleEnabled, invertedColors)
@@ -198,7 +284,8 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setPagePreparationCoverVisible(pagePreparationCoverVisible)
 			root.setPagePreparationRetryKey(pagePreparationRetryKey)
 			root.setViewerContent(viewerKey) { currentViewerContent() }
-			root.setComposeOverlay { currentComposeOverlay() }
+			root.setComposeOverlay(hostedComposeOverlay)
+			root.setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
 			root.setOnPageTurnBoundary { direction -> currentOnPageTurnBoundary(direction) }
 			root.setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
@@ -206,7 +293,10 @@ actual fun KomikkuReaderNativeFrameHost(
 			}
 			root.setOnContentLongPress { x, y, width, height -> currentOnContentLongPress(x, y, width, height) }
 		},
-		onRelease = { root -> root.closeReader() }
+		onRelease = { root ->
+			if (nativeFrameRoot === root) nativeFrameRoot = null
+			root.closeReader()
+		}
 	)
 }
 
@@ -231,6 +321,12 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private val readerContainer = FrameLayout(context)
 	private val viewerContainer = KomikkuReaderNativeViewerContainer(context)
 	private val shellCoverView = KomikkuReaderNativeShellCoverView(context)
+	private val pagePreparationShieldView = View(context).apply {
+		setBackgroundColor(Color.rgb(32, 35, 41))
+		isClickable = false
+		isFocusable = false
+		visibility = GONE
+	}
 	private val navigationOverlay = KomikkuReaderNativeNavigationOverlayView(context)
 	private val composeOverlay = ComposeView(context)
 	private val nestedCompositionDisposalQueue = ReaderNestedComposeDisposalQueue()
@@ -246,6 +342,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		viewerContainer.setShellCoverView(shellCoverView)
 		readerContainer.addView(
 			viewerContainer,
+			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+		)
+		readerContainer.addView(
+			pagePreparationShieldView,
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
 
@@ -298,23 +398,29 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	}
 
 	fun setPagePreparationCoverVisible(visible: Boolean) {
-		if (pagePreparationCoverVisible == visible) return
 		pagePreparationCoverVisible = visible
-		composeOverlay.isClickable = visible
 		updateNativeCoverVisibility()
 	}
 
 	private fun updateNativeCoverVisibility() {
-		val visible = shellCoverVisible || pagePreparationCoverVisible
-		shellCoverView.visibility = if (visible) VISIBLE else GONE
-		shellCoverView.isClickable = shellCoverVisible
+		val layers = readerNativePresentationLayerVisibility(
+			shellCoverVisible = shellCoverVisible,
+			pagePreparationCoverVisible = pagePreparationCoverVisible,
+			hasValidatedRasterPresentation =
+				viewerContainer.hasValidatedRasterPresentation()
+		)
+		shellCoverView.visibility = if (layers.shellCover) VISIBLE else GONE
+		shellCoverView.isClickable = layers.shellCover
+		pagePreparationShieldView.visibility =
+			if (layers.preparationShield) VISIBLE else GONE
 		val trace =
-			"visible=$visible shell=$shellCoverVisible preparation=$pagePreparationCoverVisible"
+			"shell=${layers.shellCover} preparationShield=${layers.preparationShield} " +
+				"preparationRequested=$pagePreparationCoverVisible"
 		if (lastNativeCoverVisibilityTrace != trace) {
 			lastNativeCoverVisibilityTrace = trace
 			Logger.i(
 				KomikkuReaderNativeFrameHostTag,
-				"Reader native cover visibility $trace"
+				"Reader native presentation layers $trace"
 			)
 		}
 	}
@@ -328,7 +434,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	}
 
 	fun setOnPagePreparationStateChange(onChange: (ReaderPagePreparationState) -> Unit) {
-		viewerContainer.onPagePreparationStateChange = onChange
+		viewerContainer.onPagePreparationStateChange = { state ->
+			updateNativeCoverVisibility()
+			onChange(state)
+		}
 	}
 
 	fun setViewerLayerPaint(grayscaleEnabled: Boolean, invertedColors: Boolean) {
@@ -344,6 +453,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	fun setComposeOverlay(content: @Composable () -> Unit) {
 		composeOverlay.setContent(content)
 		composeOverlay.bringToFront()
+	}
+
+	fun setOnRendererBusyGestureRejected(onRejected: () -> Unit) {
+		viewerContainer.onRendererBusyGestureRejected = onRejected
 	}
 
 	fun setOnViewerAction(onAction: (KomikkuNavigationRegion) -> Unit) {
@@ -429,6 +542,8 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 			currentViewerComposeView?.setContent(content)
 		}
 	}
+
+	fun canAcceptNewPointer(): Boolean = viewerContainer.canAcceptNewPointer()
 
 	fun closeReader() {
 		viewerContainer.closeReader()
@@ -654,6 +769,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	var navigator: KomikkuReaderNavigator = KomikkuReaderNavigator(KomikkuDisabledNavigation())
 	var onAction: (KomikkuNavigationRegion) -> Unit = {}
 	var onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit = {}
+	var onRendererBusyGestureRejected: () -> Unit = {}
 	private var verticalPageDragPreview: Boolean = false
 	var chromeOverlayVisible: Boolean = false
 	var onReadableDragPreview: (
@@ -1162,6 +1278,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
 	}
+
+	fun hasValidatedRasterPresentation(): Boolean =
+		latestRendererReadinessState.textureDeck == ReaderTextureDeckState.Ready ||
+			pageRasterPreparationController.hasStaticRasterShieldOwnership()
 
 	fun setShellCoverView(shellCoverView: View) {
 		this.shellCoverView = shellCoverView
@@ -2225,6 +2345,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				} ?: 0L
 			)
 		)
+		if (readerPageGestureShouldShowBusyFeedback(outcome)) {
+			onRendererBusyGestureRejected()
+		}
 	}
 
 	private fun completeHostDelayedTap(
@@ -2396,6 +2519,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		observedHostLifecycle = null
 		super.onDetachedFromWindow()
 	}
+
+	fun canAcceptNewPointer(): Boolean = playLikeCurlController.isAvailable
 
 	fun closeReader() {
 		beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.ReaderClosed)

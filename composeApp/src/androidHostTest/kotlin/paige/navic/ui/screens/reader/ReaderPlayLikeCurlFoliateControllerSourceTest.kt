@@ -1125,8 +1125,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			hostSource,
 			"latestRasterPreparationState.withRendererReadiness("
 		)
-		assertContains(hostSource, "shellCoverView.isClickable = shellCoverVisible")
-		assertContains(hostSource, "composeOverlay.isClickable = visible")
+		assertContains(hostSource, "shellCoverView.isClickable = layers.shellCover")
+		assertContains(hostSource, "composeOverlay.isClickable = false")
+		assertFalse(
+			hostSource.contains("composeOverlay.isClickable = visible"),
+			"Preparation gestures must reach the fail-closed native pointer ledger."
+		)
 	}
 
 	@Test
@@ -2009,6 +2013,13 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("override fun onRenderFailure(failure: RenderFailure) {")
 			.substringBefore("\n\t\t})")
 
+		assertContains(failure, "readerRenderFailureOwnsCurrentPresentation(")
+		assertContains(failure, "Ignored superseded PlayLikeCurl render failure")
+		assertTrue(
+			failure.indexOf("readerRenderFailureOwnsCurrentPresentation(") <
+				failure.indexOf("updateReadiness("),
+			"A superseded generation failure must be rejected before it can fail the current presentation."
+		)
 		assertContains(failure, "finishActiveGesture(")
 		assertContains(failure, "onUnsafeLifecycleEvent(")
 		assertFalse(
@@ -2696,7 +2707,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val teardown = viewer.substringAfter("private fun teardownTask4Resources()")
 		val rootClose = root.substringAfter("fun closeReader()")
 
-		assertContains(hostSource, "onRelease = { root -> root.closeReader() }")
+		assertContains(hostSource, "onRelease = { root ->")
+		assertContains(hostSource, "if (nativeFrameRoot === root) nativeFrameRoot = null")
+		assertContains(hostSource, "root.closeReader()")
 		assertContains(hostSource, "findViewTreeLifecycleOwner()")
 		assertContains(observer, "ReaderPageHostLifecycleEvent.Destroyed")
 		assertFalse(observer.contains("closePhysicalPointerDelivery()"))

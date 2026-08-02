@@ -36,12 +36,18 @@ internal object ReaderProgressReducer {
 			)
 		}
 		val nextReadingProgress = progress?.let(state.readingProgress::upsert) ?: state.readingProgress
+		val dismissShellCover = readerRelocationAcknowledgesShellCoverDismissal(
+			shellCoverVisible = state.shellCoverVisible,
+			pendingRequest = state.pendingShellCoverDismissal,
+			foliateSessionId = event.foliateSessionId,
+			locator = event.locator
+		)
 		val nextNativeShellCoverReturnLocatorKey = state.nativeShellCoverReturnLocatorKey
 			?: if (
 				state.canReturnToShellCover &&
 				readerShouldReturnToNativeShellCover(
 					shellCoverUrl = state.nativeShellCoverUrl,
-					shellCoverVisible = state.shellCoverVisible,
+					shellCoverVisible = state.shellCoverVisible && !dismissShellCover,
 					locator = event.locator
 				)
 			) {
@@ -49,10 +55,6 @@ internal object ReaderProgressReducer {
 			} else {
 				null
 			}
-		val dismissShellCover = readerExplicitReadableRelocationDismissesNativeShellCover(
-			shellCoverVisible = state.shellCoverVisible,
-			locator = event.locator
-		)
 		val sessionChanged = state.foliateSessionId != event.foliateSessionId
 		val nextSettlementAck = event.pageTurnSettlementAck()
 			?: state.pageTurnSettlementAck.takeUnless { sessionChanged }
@@ -65,6 +67,8 @@ internal object ReaderProgressReducer {
 				pageTurnSettlementAck = nextSettlementAck,
 				nativeShellCoverReturnLocatorKey = nextNativeShellCoverReturnLocatorKey,
 				shellCoverVisible = if (dismissShellCover) false else state.shellCoverVisible,
+				pendingShellCoverDismissal = state.pendingShellCoverDismissal
+					.takeUnless { dismissShellCover },
 				menuVisible = if (dismissShellCover) false else state.menuVisible
 			),
 			progressToSave = progress

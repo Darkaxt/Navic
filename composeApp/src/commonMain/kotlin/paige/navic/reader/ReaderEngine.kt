@@ -50,7 +50,10 @@ data class ReaderEngineOpenRequest(
 
 sealed interface ReaderEngineCommand {
 	data class OpenPublication(val request: ReaderEngineOpenRequest) : ReaderEngineCommand
-	data class NavigateTo(val locator: ReaderLocator) : ReaderEngineCommand
+	data class NavigateTo(
+		val locator: ReaderLocator,
+		val relocationReason: String? = null
+	) : ReaderEngineCommand
 	data class Search(val query: String) : ReaderEngineCommand
 	data object ClearSearch : ReaderEngineCommand
 	data class TurnPage(val direction: ReaderPageTurnDirection) : ReaderEngineCommand
@@ -71,6 +74,7 @@ sealed interface ReaderEngineCommand {
 	) : ReaderEngineCommand
 	data class ApplySettings(val settings: ReaderSettings) : ReaderEngineCommand
 	data class ApplyAnnotations(val annotations: List<ReaderAnnotation>) : ReaderEngineCommand
+	data class RequestVisibleTextRange(val source: String) : ReaderEngineCommand
 	data class ApplyMediaOverlay(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
 	data class UpdateMediaOverlayProgress(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
 	data object ClearMediaOverlay : ReaderEngineCommand
@@ -81,6 +85,7 @@ val ReaderEngineCommand.requiredCapability: ReaderEngineCapability?
 		is ReaderEngineCommand.Search,
 		ReaderEngineCommand.ClearSearch -> ReaderEngineCapability.Search
 
+		is ReaderEngineCommand.RequestVisibleTextRange,
 		is ReaderEngineCommand.ApplyMediaOverlay,
 		is ReaderEngineCommand.UpdateMediaOverlayProgress,
 		ReaderEngineCommand.ClearMediaOverlay -> ReaderEngineCapability.MediaOverlay
@@ -205,7 +210,11 @@ sealed interface ReaderEngineEvent {
 	) : ReaderEngineEvent
 
 	data class MediaOverlayActive(val fragment: ReaderOverlayFragment) : ReaderEngineEvent
-	data class MediaOverlayInactive(val fragmentId: String? = null) : ReaderEngineEvent
+	data class MediaOverlayInactive(
+		val fragmentId: String? = null,
+		val overlayRequestId: Long? = null,
+		val reason: String? = null
+	) : ReaderEngineEvent
 	data class Error(val message: String, val code: String? = null) : ReaderEngineEvent
 }
 

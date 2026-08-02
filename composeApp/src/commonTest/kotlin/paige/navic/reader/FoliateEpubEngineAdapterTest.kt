@@ -168,6 +168,35 @@ class FoliateEpubEngineAdapterTest {
 	}
 
 	@Test
+	fun dispatchesTokenizedLocatorNavigationAsControlledRelocation() {
+		val opened = FoliateEpubEngineAdapter()
+			.onCommand(ReaderEngineCommand.OpenPublication(hobbitOpenRequest()))
+			.engine
+		val locator = ReaderLocator(
+			href = "chapter-01.xhtml",
+			progress = 0.375,
+			pageIndex = 42,
+			pageCount = 373
+		)
+
+		val seek = opened.onCommand(
+			ReaderEngineCommand.NavigateTo(
+				locator = locator,
+				relocationReason = "shell-cover-dismiss:7"
+			)
+		)
+
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(seek.viewState)
+		assertEquals(
+			ReaderBridgeCommand.GoToLocator(
+				locator = locator,
+				reason = "shell-cover-dismiss:7"
+			),
+			viewState.bridgeCommand()
+		)
+	}
+
+	@Test
 	fun dispatchesTypedViewportScrollAsRendererScrollCommand() {
 		val opened = FoliateEpubEngineAdapter()
 			.onCommand(ReaderEngineCommand.OpenPublication(hobbitOpenRequest()))

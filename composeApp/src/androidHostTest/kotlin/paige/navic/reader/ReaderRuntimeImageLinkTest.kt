@@ -366,7 +366,22 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(nativeFrameHostText, "onAction(KomikkuNavigationRegion.NEXT)")
 		assertContains(nativeFrameHostText, "onAction(KomikkuNavigationRegion.PREV)")
 		assertContains(controllerText, "private fun onShellCoverViewerAction(action: ReaderViewerAction)")
-		assertContains(controllerText, "shellCoverVisible = false")
+		assertContains(
+			controllerText,
+			"val nextRequestId = state.shellCoverDismissalRequestSequence + 1L"
+		)
+		assertContains(controllerText, "ReaderShellCoverDismissalRequest(")
+		assertContains(
+			controllerText,
+			"relocationReason = readerShellCoverDismissalReason(it.requestId)"
+		)
+		assertFalse(
+			controllerText
+				.substringAfter("private fun onShellCoverViewerAction(action: ReaderViewerAction)")
+				.substringBefore("private fun turnPage")
+				.contains("shellCoverVisible = false"),
+			"Native shell-cover dismissal must wait for a Foliate relocation acknowledgement."
+		)
 		assertContains(controllerText, "readerShouldReturnToNativeShellCover(")
 		assertFalse(
 			readerScreenText.contains("ReaderNativeTapOverlay("),

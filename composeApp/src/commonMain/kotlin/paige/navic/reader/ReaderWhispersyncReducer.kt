@@ -36,6 +36,21 @@ private fun ReaderController.reduceReadaloudPlaybackState(playbackState: ReaderR
 	if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
 		return ReaderControllerStep(this)
 	}
+	if (state.shellCoverVisible) {
+		val stoppedPlaybackState = playbackState.copy(
+			isPlaying = false,
+			positionMs = 0L
+		)
+		return ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					chrome = state.chrome.onReadaloudPlaybackState(stoppedPlaybackState)
+				)
+			),
+			readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.StopAndReset
+				.takeIf { playbackState.isPlaying }
+		)
+	}
 	val currentWhispersync = state.whispersync
 	val baseSync = if (currentWhispersync.sync.syncEnabled == playbackState.syncEnabled) {
 		currentWhispersync.sync
@@ -89,10 +104,8 @@ private fun ReaderController.reduceReadaloudPlaybackState(playbackState: ReaderR
 				state = state.copy(
 					chrome = state.chrome.onReadaloudPlaybackState(playbackState.copy(isPlaying = false)),
 					whispersync = currentWhispersync.copy(
-						sync = syncState.copy(
-							activeCueKey = null,
-							activeProgressTextEnd = null
-						),
+						sync = syncState.rejectOverlay(null),
+						pendingAudioSeek = null,
 						status = ReaderWhispersyncStatus(
 							kind = ReaderWhispersyncStatusKind.NoActiveCue,
 							message = ReaderWhispersyncStatusMessage.VisiblePageEnded,
@@ -131,18 +144,16 @@ private fun ReaderController.reduceReadaloudPlaybackState(playbackState: ReaderR
 				chrome = state.chrome.onReadaloudPlaybackState(playbackState),
 				whispersync = currentWhispersync.copy(
 					sync = syncState,
+					pendingAudioSeek = currentWhispersync.pendingAudioSeek
+						?.takeIf { it.overlayRequestId == syncState.activeOverlayRequestId },
 					status = playbackStep?.status ?: currentWhispersync.status
 				),
-				activeMediaOverlay = when {
-					overlayFragment != null -> overlayFragment
-					shouldClearOverlay -> null
-					else -> state.activeMediaOverlay
-				},
-				audioMetadataLabel = when {
-					overlayFragment != null -> overlayFragment.label
-					shouldClearOverlay -> null
-					else -> state.audioMetadataLabel
-				}
+				activeMediaOverlay = command.confirmedOverlayOrPrevious(
+					state.activeMediaOverlay
+				),
+				audioMetadataLabel = command.confirmedOverlayLabelOrPrevious(
+					state.audioMetadataLabel
+				)
 			)
 		),
 		engineCommands = listOfNotNull(command)
@@ -160,39 +171,36 @@ private fun ReaderController.reduceLoadWhispersyncSidecar(sidecar: WhispersyncSi
 		visibleTextRange = visibleRange,
 		status = readerWhispersyncReadyStatus(sidecar.timeline)
 	)
-	val syncStep = visibleRange?.let { range ->
-		baseWhispersync.sync.onVisibleTextRange(
-			timeline = sidecar.timeline,
-			textHref = range.textHref,
-			visibleStart = range.visibleStart,
-			visibleEnd = range.visibleEnd
-		)
-	}
+	val syncStep = visibleRange
+		?.takeUnless { state.shellCoverVisible }
+		?.let { range ->
+			baseWhispersync.sync.onVisibleTextRange(
+				timeline = sidecar.timeline,
+				textHref = range.textHref,
+				visibleStart = range.visibleStart,
+				visibleEnd = range.visibleEnd
+			)
+		}
 	val command = syncStep?.state?.engineCommand
-	val overlayFragment = command.overlayFragmentOrNull()
-	val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+	val seekDelivery = syncStep?.seekDelivery()
 	return ReaderControllerStep(
 		copy(
 			state = state.copy(
 				whispersync = baseWhispersync.copy(
 					sync = syncStep?.state ?: baseWhispersync.sync,
-					audioSeekTarget = syncStep?.audioSeekTarget,
+					pendingAudioSeek = seekDelivery?.pending,
 					status = syncStep?.status ?: baseWhispersync.status
 				),
-				activeMediaOverlay = when {
-					overlayFragment != null -> overlayFragment
-					shouldClearOverlay -> null
-					else -> state.activeMediaOverlay
-				},
-				audioMetadataLabel = when {
-					overlayFragment != null -> overlayFragment.label
-					shouldClearOverlay -> null
-					else -> state.audioMetadataLabel
-				}
+				activeMediaOverlay = command.confirmedOverlayOrPrevious(
+					state.activeMediaOverlay
+				),
+				audioMetadataLabel = command.confirmedOverlayLabelOrPrevious(
+					state.audioMetadataLabel
+				)
 			)
 		),
 		engineCommands = listOfNotNull(command),
-		whispersyncAudioSeekTarget = syncStep?.audioSeekTarget
+		whispersyncAudioSeekTarget = seekDelivery?.immediate
 	)
 }
 
@@ -220,6 +228,7 @@ private fun ReaderController.reduceRepairWhispersyncMismatch(): ReaderController
 	if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
 		return ReaderControllerStep(this)
 	}
+	if (state.shellCoverVisible) return ReaderControllerStep(this)
 	val currentWhispersync = state.whispersync
 	if (!currentWhispersync.status.repairable) {
 		return ReaderControllerStep(this)
@@ -236,8 +245,7 @@ private fun ReaderController.reduceRepairWhispersyncMismatch(): ReaderController
 		)
 	val command = syncStep.state.engineCommand
 		?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
-	val overlayFragment = command.overlayFragmentOrNull()
-	val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+	val seekDelivery = syncStep.seekDelivery()
 	val progress = syncStep.audioSeekTarget?.let {
 		state.publication?.let { publication ->
 			state.chrome.currentLocator?.toBinderyReadingProgress(
@@ -252,24 +260,23 @@ private fun ReaderController.reduceRepairWhispersyncMismatch(): ReaderController
 			state = state.copy(
 				whispersync = currentWhispersync.copy(
 					sync = syncStep.state,
-					audioSeekTarget = syncStep.audioSeekTarget,
+					pendingAudioSeek = seekDelivery.pendingOrRetained(
+						current = currentWhispersync.pendingAudioSeek,
+						activeOverlayRequestId = syncStep.state.activeOverlayRequestId
+					),
 					status = syncStep.status ?: currentWhispersync.status
 				),
-				activeMediaOverlay = when {
-					overlayFragment != null -> overlayFragment
-					shouldClearOverlay -> null
-					else -> state.activeMediaOverlay
-				},
-				audioMetadataLabel = when {
-					overlayFragment != null -> overlayFragment.label
-					shouldClearOverlay -> null
-					else -> state.audioMetadataLabel
-				}
+				activeMediaOverlay = command.confirmedOverlayOrPrevious(
+					state.activeMediaOverlay
+				),
+				audioMetadataLabel = command.confirmedOverlayLabelOrPrevious(
+					state.audioMetadataLabel
+				)
 			)
 		),
 		engineCommands = listOfNotNull(command),
 		progressToSave = progress,
-		whispersyncAudioSeekTarget = syncStep.audioSeekTarget
+		whispersyncAudioSeekTarget = seekDelivery.immediate
 	)
 }
 
@@ -282,6 +289,32 @@ private fun ReaderController.reduceVisibleTextRange(event: ReaderEngineEvent.Vis
 		source = event.source
 	)
 	val currentWhispersync = state.whispersync
+	if (state.shellCoverVisible) {
+		val shouldClearOverlay =
+			currentWhispersync.sync.activeOverlayRequestId != null ||
+				state.activeMediaOverlay != null
+		return ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					whispersync = currentWhispersync.copy(
+						sync = currentWhispersync.sync.rejectOverlay(null),
+						visibleTextRange = visibleRange,
+						pendingAudioSeek = null,
+						status = readerWhispersyncReadyStatus(
+							currentWhispersync.timeline
+						)
+					),
+					activeMediaOverlay = null,
+					audioMetadataLabel = null
+				)
+			),
+			engineCommands = listOfNotNull(
+				ReaderEngineCommand.ClearMediaOverlay.takeIf {
+					shouldClearOverlay
+				}
+			)
+		)
+	}
 	Logger.i(
 		WhispersyncSyncLogTag,
 		"Whispersync visible range source=${event.source.whispersyncLogValue()} " +
@@ -309,6 +342,7 @@ private fun ReaderController.reduceVisibleTextRange(event: ReaderEngineEvent.Vis
 	)
 	val command = syncStep.state.engineCommand
 		?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
+	val seekDelivery = syncStep.seekDelivery()
 	val overlayFragment = command.overlayFragmentOrNull()
 	val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
 	if (overlayFragment != null) {
@@ -341,28 +375,28 @@ private fun ReaderController.reduceVisibleTextRange(event: ReaderEngineEvent.Vis
 				whispersync = currentWhispersync.copy(
 					sync = syncStep.state,
 					visibleTextRange = visibleRange,
-					audioSeekTarget = syncStep.audioSeekTarget,
+					pendingAudioSeek = seekDelivery.pendingOrRetained(
+						current = currentWhispersync.pendingAudioSeek,
+						activeOverlayRequestId = syncStep.state.activeOverlayRequestId
+					),
 					status = syncStep.status ?: currentWhispersync.status
 				),
-				activeMediaOverlay = when {
-					overlayFragment != null -> overlayFragment
-					shouldClearOverlay -> null
-					else -> state.activeMediaOverlay
-				},
-				audioMetadataLabel = when {
-					overlayFragment != null -> overlayFragment.label
-					shouldClearOverlay -> null
-					else -> state.audioMetadataLabel
-				}
+				activeMediaOverlay = command.confirmedOverlayOrPrevious(
+					state.activeMediaOverlay
+				),
+				audioMetadataLabel = command.confirmedOverlayLabelOrPrevious(
+					state.audioMetadataLabel
+				)
 			)
 		),
 		engineCommands = listOfNotNull(command),
 		progressToSave = progress,
-		whispersyncAudioSeekTarget = syncStep.audioSeekTarget
+		whispersyncAudioSeekTarget = seekDelivery.immediate
 	)
 }
 
 private fun ReaderController.reduceTextPoint(event: ReaderEngineEvent.TextPoint): ReaderControllerStep {
+	if (state.shellCoverVisible) return ReaderControllerStep(this)
 	val currentWhispersync = state.whispersync
 	Logger.i(
 		WhispersyncSyncLogTag,
@@ -377,6 +411,7 @@ private fun ReaderController.reduceTextPoint(event: ReaderEngineEvent.TextPoint)
 	)
 	val command = syncStep.state.engineCommand
 		?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
+	val seekDelivery = syncStep.seekDelivery()
 	val overlayFragment = command.overlayFragmentOrNull()
 	if (overlayFragment != null) {
 		Logger.i(
@@ -393,14 +428,69 @@ private fun ReaderController.reduceTextPoint(event: ReaderEngineEvent.TextPoint)
 			state = state.copy(
 				whispersync = currentWhispersync.copy(
 					sync = syncStep.state,
-					audioSeekTarget = syncStep.audioSeekTarget,
+					pendingAudioSeek = seekDelivery.pendingOrRetained(
+						current = currentWhispersync.pendingAudioSeek,
+						activeOverlayRequestId = syncStep.state.activeOverlayRequestId
+					),
 					status = syncStep.status ?: currentWhispersync.status
 				),
-				activeMediaOverlay = overlayFragment ?: state.activeMediaOverlay,
-				audioMetadataLabel = overlayFragment?.label ?: state.audioMetadataLabel
+				activeMediaOverlay = command.confirmedOverlayOrPrevious(
+					state.activeMediaOverlay
+				),
+				audioMetadataLabel = command.confirmedOverlayLabelOrPrevious(
+					state.audioMetadataLabel
+				)
 			)
 		),
 		engineCommands = listOfNotNull(command),
-		whispersyncAudioSeekTarget = syncStep.audioSeekTarget
+		whispersyncAudioSeekTarget = seekDelivery.immediate
 	)
 }
+
+private data class ReaderWhispersyncSeekDelivery(
+	val pending: ReaderWhispersyncPendingAudioSeek? = null,
+	val immediate: WhispersyncAudioSeekTarget? = null
+)
+
+private fun ReaderWhispersyncVisibleRangeStep.seekDelivery(): ReaderWhispersyncSeekDelivery {
+	val target = audioSeekTarget ?: return ReaderWhispersyncSeekDelivery()
+	val requestId = state.activeOverlayRequestId ?: return ReaderWhispersyncSeekDelivery()
+	return if (state.hasConfirmedOverlay(requestId)) {
+		ReaderWhispersyncSeekDelivery(immediate = target)
+	} else {
+		ReaderWhispersyncSeekDelivery(
+			pending = ReaderWhispersyncPendingAudioSeek(
+				overlayRequestId = requestId,
+				target = target
+			)
+		)
+	}
+}
+
+private fun ReaderWhispersyncSeekDelivery.pendingOrRetained(
+	current: ReaderWhispersyncPendingAudioSeek?,
+	activeOverlayRequestId: Long?
+): ReaderWhispersyncPendingAudioSeek? =
+	pending ?: current?.takeIf {
+		immediate == null && it.overlayRequestId == activeOverlayRequestId
+	}
+
+private fun ReaderEngineCommand?.confirmedOverlayOrPrevious(
+	previous: ReaderOverlayFragment?
+): ReaderOverlayFragment? =
+	when (this) {
+		is ReaderEngineCommand.ApplyMediaOverlay -> null
+		is ReaderEngineCommand.UpdateMediaOverlayProgress -> fragment
+		ReaderEngineCommand.ClearMediaOverlay -> null
+		else -> previous
+	}
+
+private fun ReaderEngineCommand?.confirmedOverlayLabelOrPrevious(
+	previous: String?
+): String? =
+	when (this) {
+		is ReaderEngineCommand.ApplyMediaOverlay -> null
+		is ReaderEngineCommand.UpdateMediaOverlayProgress -> fragment.label ?: previous
+		ReaderEngineCommand.ClearMediaOverlay -> null
+		else -> previous
+	}

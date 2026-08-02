@@ -78,6 +78,7 @@ data class ReaderPaginationProfileStatus(
 
 data class ReaderOverlayFragment(
 	val resourceHref: String,
+	val overlayRequestId: Long? = null,
 	val fragmentId: String? = null,
 	val textHref: String? = null,
 	val clipBeginSeconds: Double? = null,
@@ -219,6 +220,24 @@ sealed interface ReaderBridgeCommand {
 				settings?.let { put("settings", it.toJsonObject()) }
 			}
 		}
+	}
+
+	data class GoToLocator(
+		val locator: ReaderLocator,
+		val reason: String
+	) : ReaderBridgeCommand {
+		init {
+			require(reason.isNotBlank())
+		}
+
+		override val type: String = "goToLocator"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+				put("locator", locator.toJsonObject())
+				put("reason", reason)
+			}
 	}
 
 	data class GoToCfi(val cfi: String) : ReaderBridgeCommand {
@@ -397,6 +416,18 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
+	data class RequestVisibleTextRange(
+		val source: String
+	) : ReaderBridgeCommand {
+		override val type: String = "requestVisibleTextRange"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+				put("source", source)
+			}
+	}
+
 	data class ApplyOverlayFragment(
 		val fragment: ReaderOverlayFragment
 	) : ReaderBridgeCommand {
@@ -570,7 +601,11 @@ sealed interface ReaderBridgeEvent {
 		val source: String? = null
 	) : ReaderBridgeEvent
 	data class OverlayFragmentActive(val fragment: ReaderOverlayFragment) : ReaderBridgeEvent
-	data class OverlayFragmentInactive(val fragmentId: String? = null) : ReaderBridgeEvent
+	data class OverlayFragmentInactive(
+		val fragmentId: String? = null,
+		val overlayRequestId: Long? = null,
+		val reason: String? = null
+	) : ReaderBridgeEvent
 	data class SearchResults(
 		val query: String,
 		val results: List<ReaderSearchResult>,
@@ -750,7 +785,9 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 			"overlayFragmentActive" -> json.toOverlayFragment()
 				?.let(ReaderBridgeEvent::OverlayFragmentActive)
 			"overlayFragmentInactive" -> ReaderBridgeEvent.OverlayFragmentInactive(
-				fragmentId = json.stringValue("fragmentId")
+				fragmentId = json.stringValue("fragmentId"),
+				overlayRequestId = json.longValue("overlayRequestId"),
+				reason = json.stringValue("reason")
 			)
 			"searchResults" -> ReaderBridgeEvent.SearchResults(
 				query = json.stringValue("query").orEmpty(),
@@ -893,6 +930,7 @@ private fun ReaderLocator.toJsonObject(): JsonObject =
 private fun ReaderOverlayFragment.toJsonObject(): JsonObject =
 	buildJsonObject {
 		put("resourceHref", resourceHref)
+		overlayRequestId?.let { put("overlayRequestId", it) }
 		fragmentId?.let { put("fragmentId", it) }
 		textHref?.let { put("textHref", it) }
 		clipBeginSeconds?.let { put("clipBeginSeconds", it) }
@@ -981,6 +1019,7 @@ private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {
 	val resourceHref = stringValue("resourceHref") ?: return null
 	return ReaderOverlayFragment(
 		resourceHref = resourceHref,
+		overlayRequestId = longValue("overlayRequestId"),
 		fragmentId = stringValue("fragmentId"),
 		textHref = stringValue("textHref"),
 		clipBeginSeconds = doubleValue("clipBeginSeconds"),

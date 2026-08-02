@@ -4,6 +4,8 @@ data class ReaderOverlaySyncState(
 	val syncEnabled: Boolean = true,
 	val activeCueKey: String? = null,
 	val activeProgressTextEnd: Int? = null,
+	val activeOverlayRequestId: Long? = null,
+	val confirmedOverlayRequestId: Long? = null,
 	val engineCommand: ReaderEngineCommand? = null,
 	val engineCommandKey: Long = 0L
 )
@@ -62,16 +64,28 @@ fun <T> ReaderOverlaySyncState.followReaderTarget(
 
 private fun ReaderOverlaySyncState.followCue(cue: ReaderOverlayCue): ReaderOverlaySyncState =
 	if (cue.key != activeCueKey) {
+		val requestId = engineCommandKey + 1L
 		copy(
 			activeCueKey = cue.key,
-			activeProgressTextEnd = cue.progressTextEnd
-		).withEngineCommand(ReaderEngineCommand.ApplyMediaOverlay(cue.fragment))
+			activeProgressTextEnd = cue.progressTextEnd,
+			activeOverlayRequestId = requestId,
+			confirmedOverlayRequestId = null,
+			engineCommand = ReaderEngineCommand.ApplyMediaOverlay(
+				cue.fragment.copy(overlayRequestId = requestId)
+			),
+			engineCommandKey = requestId
+		)
 	} else if (
+		confirmedOverlayRequestId == activeOverlayRequestId &&
 		cue.progressTextEnd != null &&
 		cue.progressTextEnd != activeProgressTextEnd
 	) {
 		copy(activeProgressTextEnd = cue.progressTextEnd)
-			.withEngineCommand(ReaderEngineCommand.UpdateMediaOverlayProgress(cue.fragment))
+			.withEngineCommand(
+				ReaderEngineCommand.UpdateMediaOverlayProgress(
+					cue.fragment.copy(overlayRequestId = activeOverlayRequestId)
+				)
+			)
 	} else {
 		this
 	}
@@ -82,9 +96,36 @@ internal fun ReaderOverlaySyncState.clearOverlayIfNeeded(): ReaderOverlaySyncSta
 	} else {
 		copy(
 			activeCueKey = null,
-			activeProgressTextEnd = null
+			activeProgressTextEnd = null,
+			activeOverlayRequestId = null,
+			confirmedOverlayRequestId = null
 		).withEngineCommand(ReaderEngineCommand.ClearMediaOverlay)
 	}
+
+internal fun ReaderOverlaySyncState.confirmOverlay(requestId: Long?): ReaderOverlaySyncState =
+	if (requestId != null && requestId == activeOverlayRequestId) {
+		copy(confirmedOverlayRequestId = requestId)
+	} else {
+		this
+	}
+
+internal fun ReaderOverlaySyncState.rejectOverlay(requestId: Long?): ReaderOverlaySyncState =
+	if (requestId != null && requestId != activeOverlayRequestId) {
+		this
+	} else {
+		copy(
+			activeCueKey = null,
+			activeProgressTextEnd = null,
+			activeOverlayRequestId = null,
+			confirmedOverlayRequestId = null,
+			engineCommand = null
+		)
+	}
+
+internal fun ReaderOverlaySyncState.hasConfirmedOverlay(requestId: Long?): Boolean =
+	requestId != null &&
+		requestId == activeOverlayRequestId &&
+		requestId == confirmedOverlayRequestId
 
 private fun ReaderOverlaySyncState.withEngineCommand(
 	command: ReaderEngineCommand?

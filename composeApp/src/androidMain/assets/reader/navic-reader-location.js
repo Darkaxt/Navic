@@ -588,7 +588,51 @@ function scheduleCommittedRelocation(detail, reason = 'relocate-committed') {
   })
 }
 
+function goToLocator(locator, reason = 'go-to') {
+  if (typeof locator === 'string') return this.goTo(locator, reason)
+  if (!locator || typeof locator !== 'object') return false
+  const cfi = String(locator?.cfi || '').trim()
+  if (cfi) return this.goTo(cfi, reason)
+  const href = String(locator?.href || '').trim()
+  const chapterProgress = Number(locator?.chapterProgress)
+  const chapterPageIndex = Number(locator?.chapterPageIndex)
+  const chapterPageCount = Number(locator?.chapterPageCount)
+  const hasChapterPosition = Number.isFinite(chapterProgress) || (
+    Number.isFinite(chapterPageIndex) &&
+    Number.isFinite(chapterPageCount) &&
+    chapterPageIndex >= 0 &&
+    chapterPageCount > 1
+  )
+  if (href && hasChapterPosition) {
+    return this.goToChapterProgress(
+      href,
+      locator.chapterProgress,
+      locator.chapterPageIndex,
+      locator.chapterPageCount,
+      reason,
+    )
+  }
+  const progress = Number(locator?.progress)
+  if (locator?.progress != null && Number.isFinite(progress)) {
+    return this.goToProgress(progress, reason)
+  }
+  const pageIndex = Number(locator?.pageIndex)
+  const pageCount = Number(locator?.pageCount)
+  if (
+    Number.isFinite(pageIndex) &&
+    Number.isFinite(pageCount) &&
+    pageIndex >= 0 &&
+    pageCount > 1
+  ) {
+    return this.goToProgress(pageIndex / (pageCount - 1), reason)
+  }
+  if (href) return this.goTo(href, reason)
+  return false
+}
+
+
 export const NavicReaderLocationMethods = {
+  goToLocator,
   currentFixedLayoutLocationDetail,
   postCurrentLocationSnapshot,
   postLocationChanged,

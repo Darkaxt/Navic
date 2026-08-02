@@ -143,7 +143,7 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun explicitReadableRelocationDismissesControllerOwnedShellCover() {
+	fun unrelatedReadableRelocationDoesNotDismissControllerOwnedShellCover() {
 		val controller = ReaderController().open(
 			hobbitOpenRequest().copy(
 				externalShellCover = true,
@@ -166,10 +166,162 @@ class ReaderControllerTest {
 			)
 		)
 
-		assertFalse(step.controller.state.shellCoverVisible)
+		assertTrue(step.controller.state.shellCoverVisible)
 		assertFalse(step.controller.state.menuVisible)
 		assertEquals("Chapter 4", step.controller.state.chrome.currentSectionTitle)
 		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun shellCoverNextReassertsResumeLocatorBeforeDismissingCover() {
+		val resumeLocator = ReaderLocator(
+			href = "OEBPS/xhtml/chapter4.xhtml",
+			progress = 0.28,
+			pageIndex = 42,
+			pageCount = 373
+		)
+		val controller = ReaderController().open(
+			hobbitOpenRequest().copy(
+				startLocator = resumeLocator,
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+
+		val requested = controller.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+
+		assertTrue(requested.controller.state.shellCoverVisible)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					resumeLocator,
+					relocationReason = "shell-cover-dismiss:1"
+				)
+			),
+			requested.engineCommands
+		)
+		assertEquals(
+			1L,
+			requested.controller.state.pendingShellCoverDismissal?.requestId
+		)
+
+		val acknowledged = requested.controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
+				locator = resumeLocator.copy(reason = "shell-cover-dismiss:1"),
+				tocTitle = "Chapter 4"
+			)
+		)
+
+		assertFalse(acknowledged.controller.state.shellCoverVisible)
+		assertFalse(acknowledged.controller.state.menuVisible)
+		assertNull(acknowledged.controller.state.pendingShellCoverDismissal)
+		assertEquals(
+			listOf(ReaderEngineCommand.RequestVisibleTextRange("shell-cover-dismissed")),
+			acknowledged.engineCommands
+		)
+	}
+
+	@Test
+	fun shellCoverDismissalRejectsTokenMatchedRelocationForWrongLocator() {
+		val resumeLocator = ReaderLocator(
+			href = "OEBPS/xhtml/chapter4.xhtml",
+			progress = 0.28,
+			pageIndex = 42,
+			pageCount = 373
+		)
+		val controller = ReaderController().open(
+			hobbitOpenRequest().copy(
+				startLocator = resumeLocator,
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+		val requested = controller.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+
+		val unrelated = requested.controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
+				locator = resumeLocator.copy(
+					pageIndex = 43,
+					reason = "shell-cover-dismiss:1"
+				),
+				tocTitle = "Chapter 4"
+			)
+		)
+
+		assertTrue(unrelated.controller.state.shellCoverVisible)
+		assertNotNull(unrelated.controller.state.pendingShellCoverDismissal)
+		assertEquals(emptyList(), unrelated.engineCommands)
+	}
+
+	@Test
+	fun shellCoverDismissalRejectsTokenMatchedRelocationFromWrongSession() {
+		val resumeLocator = ReaderLocator(
+			href = "OEBPS/xhtml/chapter4.xhtml",
+			progress = 0.28,
+			pageIndex = 42,
+			pageCount = 373
+		)
+		val opened = ReaderController().open(
+			hobbitOpenRequest().copy(
+				startLocator = resumeLocator,
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+		val sessionBound = opened.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
+				locator = resumeLocator.copy(reason = "initial-resume"),
+				tocTitle = "Chapter 4"
+			)
+		).controller
+		val requested = sessionBound.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+
+		val staleSession = requested.controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-b",
+				locator = resumeLocator.copy(reason = "shell-cover-dismiss:1"),
+				tocTitle = "Chapter 4"
+			)
+		)
+
+		assertEquals(
+			"session-a",
+			requested.controller.state.pendingShellCoverDismissal?.foliateSessionId
+		)
+		assertTrue(staleSession.controller.state.shellCoverVisible)
+		assertNotNull(staleSession.controller.state.pendingShellCoverDismissal)
+		assertEquals(emptyList(), staleSession.engineCommands)
+	}
+
+	@Test
+	fun shellCoverNextWithoutFoliateNavigationIdentityStaysCovered() {
+		val controller = ReaderController().open(
+			hobbitOpenRequest().copy(
+				startLocator = ReaderLocator(pageIndex = 42, pageCount = 373),
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+
+		val requested = controller.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+
+		assertTrue(requested.controller.state.shellCoverVisible)
+		assertEquals(emptyList(), requested.engineCommands)
 	}
 
 	@Test
@@ -732,8 +884,15 @@ class ReaderControllerTest {
 
 	@Test
 	fun previousFromFirstReadablePageReturnsToNativeCoverInsteadOfSuppressedWebViewCover() {
+		val resumeLocator = ReaderLocator(
+			href = "OEBPS/Text/sinopsis.xhtml",
+			progress = 0.004370907849029098,
+			pageIndex = 1,
+			pageCount = 270
+		)
 		val opened = ReaderController().open(
 			hobbitOpenRequest().copy(
+				startLocator = resumeLocator,
 				externalShellCover = true,
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
@@ -749,7 +908,8 @@ class ReaderControllerTest {
 						href = "OEBPS/Text/sinopsis.xhtml",
 						progress = 0.004370907849029098,
 						pageIndex = 1,
-						pageCount = 270
+						pageCount = 270,
+						reason = "shell-cover-dismiss:1"
 					),
 					tocTitle = "Alcatraz versus the Evil Librarians"
 				)
@@ -764,8 +924,15 @@ class ReaderControllerTest {
 
 	@Test
 	fun rendererConfirmedPreviousBoundaryReturnsFromLandscapeOrdinalZeroToNativeCover() {
+		val resumeLocator = ReaderLocator(
+			href = "OEBPS/Text/sinopsis.xhtml",
+			progress = 0.004370907849029098,
+			pageIndex = 1,
+			pageCount = 270
+		)
 		val opened = ReaderController().open(
 			hobbitOpenRequest().copy(
+				startLocator = resumeLocator,
 				externalShellCover = true,
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
@@ -781,7 +948,8 @@ class ReaderControllerTest {
 						href = "OEBPS/Text/sinopsis.xhtml",
 						progress = 0.004370907849029098,
 						pageIndex = 1,
-						pageCount = 270
+						pageCount = 270,
+						reason = "shell-cover-dismiss:1"
 					),
 					tocTitle = "Synopsis"
 				)
@@ -806,12 +974,37 @@ class ReaderControllerTest {
 		val forward = boundary.controller.onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
 		)
-		val nextReadable = forward.controller.onViewerAction(
+		val returnLocator = requireNotNull(
+			boundary.controller.state.chrome.currentLocator
+		)
+
+		assertTrue(forward.controller.state.shellCoverVisible)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					returnLocator,
+					relocationReason = "shell-cover-dismiss:2"
+				)
+			),
+			forward.engineCommands
+		)
+
+		val acknowledged = forward.controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
+				locator = returnLocator.copy(reason = "shell-cover-dismiss:2"),
+				tocTitle = "Synopsis"
+			)
+		)
+		val nextReadable = acknowledged.controller.onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
 		)
 
-		assertFalse(forward.controller.state.shellCoverVisible)
-		assertEquals(emptyList(), forward.engineCommands)
+		assertFalse(acknowledged.controller.state.shellCoverVisible)
+		assertEquals(
+			listOf(ReaderEngineCommand.RequestVisibleTextRange("shell-cover-dismissed")),
+			acknowledged.engineCommands
+		)
 		assertEquals(
 			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Next)),
 			nextReadable.engineCommands
@@ -840,7 +1033,8 @@ class ReaderControllerTest {
 						pageCount = 1534,
 						chapterProgress = 0.0,
 						chapterPageIndex = 0,
-						chapterPageCount = 2
+						chapterPageCount = 2,
+						reason = "shell-cover-dismiss:1"
 					),
 					tocTitle = "Synopsis"
 				)
@@ -855,8 +1049,18 @@ class ReaderControllerTest {
 
 	@Test
 	fun previousFromLaterFrontmatterPageUsesEngineInsteadOfJumpingBackToNativeCover() {
+		val resumeLocator = ReaderLocator(
+			href = "OEBPS/Text/sinopsis.xhtml",
+			progress = 0.0007927082115140601,
+			pageIndex = 10,
+			pageCount = 1534,
+			chapterProgress = 0.0,
+			chapterPageIndex = 0,
+			chapterPageCount = 2
+		)
 		val opened = ReaderController().open(
 			hobbitOpenRequest().copy(
+				startLocator = resumeLocator,
 				externalShellCover = true,
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
@@ -875,7 +1079,8 @@ class ReaderControllerTest {
 						pageCount = 1534,
 						chapterProgress = 0.0,
 						chapterPageIndex = 0,
-						chapterPageCount = 2
+						chapterPageCount = 2,
+						reason = "shell-cover-dismiss:1"
 					),
 					tocTitle = "Synopsis"
 				)
@@ -911,8 +1116,17 @@ class ReaderControllerTest {
 
 	@Test
 	fun readerBackFromReadablePageReturnsToNativeCoverBeforeLeavingReader() {
+		val resumeLocator = ReaderLocator(
+			href = "OEBPS/Text/chapter-01.xhtml",
+			progress = 0.12,
+			pageIndex = 166,
+			pageCount = 229,
+			chapterPageIndex = 8,
+			chapterPageCount = 14
+		)
 		val opened = ReaderController().open(
 			hobbitOpenRequest().copy(
+				startLocator = resumeLocator,
 				externalShellCover = true,
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
@@ -930,7 +1144,8 @@ class ReaderControllerTest {
 						pageIndex = 166,
 						pageCount = 229,
 						chapterPageIndex = 8,
-						chapterPageCount = 14
+						chapterPageCount = 14,
+						reason = "shell-cover-dismiss:1"
 					),
 					tocTitle = "Chapter I: An Unexpected Party"
 				)
@@ -947,8 +1162,13 @@ class ReaderControllerTest {
 
 	@Test
 	fun readerBackToNativeCoverStopsWhispersyncAudiobookPlayback() {
+		val resumeLocator = ReaderLocator(
+			href = "OEBPS/Text/chapter-01.xhtml",
+			progress = 0.12
+		)
 		val opened = ReaderController().open(
 			hobbitOpenRequest().copy(
+				startLocator = resumeLocator,
 				externalShellCover = true,
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
@@ -957,6 +1177,17 @@ class ReaderControllerTest {
 		val readable = opened
 			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 			.controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
+					locator = ReaderLocator(
+						href = "OEBPS/Text/chapter-01.xhtml",
+						progress = 0.12,
+						reason = "shell-cover-dismiss:1"
+					),
+					tocTitle = "Chapter 1"
+				)
+			).controller
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onReadaloudPlaybackState(
 				ReaderReadaloudPlaybackUiState(
@@ -978,8 +1209,17 @@ class ReaderControllerTest {
 
 	@Test
 	fun readerAppBarBackFromVisibleChromeReturnsToNativeCoverBeforeLeavingReader() {
+		val resumeLocator = ReaderLocator(
+			href = "OEBPS/Text/chapter-01.xhtml",
+			progress = 0.12,
+			pageIndex = 166,
+			pageCount = 229,
+			chapterPageIndex = 8,
+			chapterPageCount = 14
+		)
 		val opened = ReaderController().open(
 			hobbitOpenRequest().copy(
+				startLocator = resumeLocator,
 				externalShellCover = true,
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
@@ -997,7 +1237,8 @@ class ReaderControllerTest {
 						pageIndex = 166,
 						pageCount = 229,
 						chapterPageIndex = 8,
-						chapterPageCount = 14
+						chapterPageCount = 14,
+						reason = "shell-cover-dismiss:1"
 					),
 					tocTitle = "Chapter I: An Unexpected Party"
 				)
@@ -1712,12 +1953,23 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun whispersyncVisibleTextRangeFeedsControllerSyncAndAudioSeekTarget() {
+	fun whispersyncVisibleTextRangeAwaitsPositiveOverlayActivationBeforeSeekingAudio() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
+					locator = ReaderLocator(
+						href = "Text/chapter1.xhtml",
+						progress = 0.12,
+						pageIndex = 4,
+						pageCount = 100
+					)
+				)
+			).controller
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 
-		val step = controller.onEngineEvent(
+		val pending = controller.onEngineEvent(
 			ReaderEngineEvent.VisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
@@ -1726,11 +1978,21 @@ class ReaderControllerTest {
 			)
 		)
 
-		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			pending.engineCommands.single()
+		)
+		val requestId = requireNotNull(overlay.fragment.overlayRequestId)
 		assertEquals("seg-2", overlay.fragment.fragmentId)
 		assertEquals("Second sentence", overlay.fragment.label)
-		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
-		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertNull(pending.whispersyncAudioSeekTarget)
+		assertEquals(
+			5_000L,
+			pending.controller.state.whispersync.pendingAudioSeek?.target?.positionMs
+		)
+		assertEquals(
+			"Audio/chapter01.m4b",
+			pending.controller.state.whispersync.pendingAudioSeek?.target?.audioResource
+		)
 		assertEquals(
 			ReaderWhispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
@@ -1738,12 +2000,12 @@ class ReaderControllerTest {
 				visibleEnd = 140,
 				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
 			),
-			step.controller.state.whispersync.visibleTextRange
+			pending.controller.state.whispersync.visibleTextRange
 		)
-		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
-		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+		assertNull(pending.controller.state.activeMediaOverlay)
+		assertNull(pending.controller.state.audioMetadataLabel)
 
-		val repeated = step.controller.onEngineEvent(
+		val repeated = pending.controller.onEngineEvent(
 			ReaderEngineEvent.VisibleTextRange(
 				textHref = "/Text/chapter1.xhtml",
 				visibleStart = 85,
@@ -1752,28 +2014,371 @@ class ReaderControllerTest {
 		)
 		assertEquals(emptyList(), repeated.engineCommands)
 		assertNull(repeated.whispersyncAudioSeekTarget)
+
+		val confirmed = repeated.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(overlay.fragment)
+		)
+		assertEquals(5_000L, confirmed.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(
+			"Audio/chapter01.m4b",
+			confirmed.whispersyncAudioSeekTarget?.audioResource
+		)
+		assertNotNull(confirmed.progressToSave)
+		assertEquals(overlay.fragment, confirmed.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", confirmed.controller.state.audioMetadataLabel)
+		assertEquals(
+			requestId,
+			confirmed.controller.state.whispersync.sync.confirmedOverlayRequestId
+		)
+		assertNull(confirmed.controller.state.whispersync.pendingAudioSeek?.target)
+
+		val duplicate = confirmed.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(overlay.fragment)
+		)
+		assertNull(duplicate.whispersyncAudioSeekTarget)
 	}
 
 	@Test
-	fun whispersyncOverlayFragmentActiveFeedsAudioSeekTarget() {
+	fun whispersyncMismatchedOverlayActivationIsIgnored() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
-		val fragment = ReaderOverlayFragment(
-			resourceHref = "Audio/chapter01.m4b",
-			textHref = "Text/chapter1.xhtml",
-			clipBeginSeconds = 263.36,
-			clipEndSeconds = 282.92,
-			label = "Injected page cue"
+		val pending = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140
+			)
+		)
+		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			pending.engineCommands.single()
+		).fragment
+		val stale = requested.copy(
+			overlayRequestId = requireNotNull(requested.overlayRequestId) + 1L,
+			label = "Stale page cue"
 		)
 
-		val step = controller.onEngineEvent(ReaderEngineEvent.MediaOverlayActive(fragment))
+		val ignored = pending.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(stale)
+		)
 
-		assertEquals(fragment, step.controller.state.activeMediaOverlay)
-		assertEquals("Injected page cue", step.controller.state.audioMetadataLabel)
-		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
-		assertEquals(263_360L, step.whispersyncAudioSeekTarget?.positionMs)
-		assertEquals("Text/chapter1.xhtml", step.whispersyncAudioSeekTarget?.segment?.textHref)
+		assertEquals(pending.controller, ignored.controller)
+		assertNull(ignored.whispersyncAudioSeekTarget)
+	}
+
+	@Test
+	fun whispersyncMatchingOverlayRejectionClearsCueAndPausesPlayback() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val pending = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140
+			)
+		)
+		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			pending.engineCommands.single()
+		).fragment
+		val confirmed = pending.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(requested)
+		).controller
+		val playing = confirmed.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		).controller
+
+		val rejected = playing.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayInactive(
+				fragmentId = requested.fragmentId,
+				overlayRequestId = requested.overlayRequestId,
+				reason = "paint-rejected"
+			)
+		)
+
+		assertNull(rejected.controller.state.whispersync.sync.activeCueKey)
+		assertNull(rejected.controller.state.whispersync.sync.activeOverlayRequestId)
+		assertNull(rejected.controller.state.whispersync.sync.confirmedOverlayRequestId)
+		assertNull(rejected.controller.state.whispersync.pendingAudioSeek?.target)
+		assertNull(rejected.controller.state.activeMediaOverlay)
+		assertNull(rejected.controller.state.audioMetadataLabel)
+		assertEquals(
+			ReaderReadaloudPlaybackCommand.Pause,
+			rejected.readaloudPlaybackCommand
+		)
+	}
+
+	@Test
+	fun whispersyncStaleOverlayRejectionIsIgnored() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val pending = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140
+			)
+		)
+		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			pending.engineCommands.single()
+		).fragment
+		val confirmed = pending.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(requested)
+		).controller
+
+		val ignored = confirmed.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayInactive(
+				fragmentId = requested.fragmentId,
+				overlayRequestId = requireNotNull(requested.overlayRequestId) + 1L,
+				reason = "stale-progress-request"
+			)
+		)
+
+		assertEquals(confirmed, ignored.controller)
+		assertNull(ignored.readaloudPlaybackCommand)
+	}
+
+	@Test
+	fun whispersyncUnscopedOverlayRejectionCannotClearTrackedRequest() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val pending = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140
+			)
+		)
+		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			pending.engineCommands.single()
+		).fragment
+		val confirmed = pending.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(requested)
+		).controller
+		val playing = confirmed.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		).controller
+
+		val ignored = playing.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayInactive(reason = "document-loaded")
+		)
+
+		assertEquals(playing, ignored.controller)
+		assertNull(ignored.readaloudPlaybackCommand)
+	}
+
+	@Test
+	fun repeatedConfirmedTextPointSeeksImmediatelyWithoutNewOverlayActivation() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val pending = controller.onEngineEvent(
+			ReaderEngineEvent.TextPoint(
+				textHref = "Text/chapter1.xhtml",
+				textOffset = 82
+			)
+		)
+		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			pending.engineCommands.single()
+		).fragment
+		val confirmed = pending.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(requested)
+		).controller
+
+		val repeated = confirmed.onEngineEvent(
+			ReaderEngineEvent.TextPoint(
+				textHref = "Text/chapter1.xhtml",
+				textOffset = 90
+			)
+		)
+
+		assertEquals(emptyList(), repeated.engineCommands)
+		assertEquals(5_000L, repeated.whispersyncAudioSeekTarget?.positionMs)
+		assertNull(repeated.controller.state.whispersync.pendingAudioSeek?.target)
+	}
+
+	@Test
+	fun shellCoverVisibleTextRangeCannotApplyOverlayOrSeekAudio() {
+		val controller = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl =
+					"https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val hiddenRange = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				source = "initial-resume"
+			)
+		)
+
+		assertTrue(hiddenRange.controller.state.shellCoverVisible)
+		assertEquals(emptyList(), hiddenRange.engineCommands)
+		assertNull(hiddenRange.whispersyncAudioSeekTarget)
+		assertNull(hiddenRange.controller.state.whispersync.pendingAudioSeek?.target)
+		assertNull(hiddenRange.controller.state.whispersync.sync.activeCueKey)
+		assertNull(hiddenRange.controller.state.activeMediaOverlay)
+	}
+
+	@Test
+	fun shellCoverDelayedTextPointCannotApplyOverlayOrSeekAudio() {
+		val controller = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl =
+					"https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val delayed = controller.onEngineEvent(
+			ReaderEngineEvent.TextPoint(
+				textHref = "Text/chapter1.xhtml",
+				textOffset = 82,
+				source = "native-long-press-command"
+			)
+		)
+
+		assertEquals(controller, delayed.controller)
+		assertEquals(emptyList(), delayed.engineCommands)
+		assertNull(delayed.whispersyncAudioSeekTarget)
+		assertNull(delayed.controller.state.whispersync.pendingAudioSeek)
+		assertNull(delayed.controller.state.whispersync.sync.activeOverlayRequestId)
+	}
+
+	@Test
+	fun shellCoverStopsLatePlayingCallbackWithoutApplyingOverlay() {
+		val controller = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl =
+					"https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val delayed = controller.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		)
+
+		assertEquals(emptyList(), delayed.engineCommands)
+		assertEquals(ReaderReadaloudPlaybackCommand.StopAndReset, delayed.readaloudPlaybackCommand)
+		assertFalse(delayed.controller.state.chrome.readaloudPlayback.isPlaying)
+		assertNull(delayed.controller.state.whispersync.sync.activeOverlayRequestId)
+	}
+
+	@Test
+	fun returningToShellCoverClearsPendingOverlayBeforeFreshReadableRange() {
+		val readableLocator = ReaderLocator(
+			href = "Text/chapter1.xhtml",
+			progress = 0.12,
+			pageIndex = 4,
+			pageCount = 100,
+			reason = "shell-cover-dismiss:1"
+		)
+		val readable = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				startLocator = readableLocator,
+				nativeShellCoverUrl =
+					"https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.controller
+			.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
+				locator = readableLocator,
+				tocTitle = "Chapter 1"
+			)
+		).controller.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val pending = readable.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140
+			)
+		)
+		val firstFragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			pending.engineCommands.single()
+		).fragment
+		val firstRequest = firstFragment.overlayRequestId
+
+		val covered = pending.controller.onBack()
+
+		assertTrue(covered.controller.state.shellCoverVisible)
+		assertEquals(
+			listOf(ReaderEngineCommand.ClearMediaOverlay),
+			covered.engineCommands
+		)
+		assertNull(covered.controller.state.whispersync.sync.activeCueKey)
+		assertNull(covered.controller.state.whispersync.pendingAudioSeek?.target)
+
+		val delayedActive = covered.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(firstFragment)
+		)
+		assertEquals(covered.controller, delayedActive.controller)
+		assertEquals(emptyList(), delayedActive.engineCommands)
+		assertNull(delayedActive.whispersyncAudioSeekTarget)
+
+		val forward = covered.controller.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+		val acknowledged = forward.controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
+				locator = readableLocator.copy(reason = "shell-cover-dismiss:2"),
+				tocTitle = "Chapter 1"
+			)
+		)
+		assertEquals(
+			listOf(ReaderEngineCommand.RequestVisibleTextRange("shell-cover-dismissed")),
+			acknowledged.engineCommands
+		)
+
+		val fresh = acknowledged.controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				source = "shell-cover-dismissed"
+			)
+		)
+		val freshRequest = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			fresh.engineCommands.single()
+		).fragment.overlayRequestId
+		assertTrue(requireNotNull(freshRequest) > requireNotNull(firstRequest))
+		assertNull(fresh.whispersyncAudioSeekTarget)
 	}
 
 	@Test
@@ -1793,10 +2398,14 @@ class ReaderControllerTest {
 
 		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
 		assertEquals("seg-2", overlay.fragment.fragmentId)
-		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
-		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
-		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
-		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
+		assertNotNull(overlay.fragment.overlayRequestId)
+		assertNull(step.whispersyncAudioSeekTarget)
+		assertEquals(
+			5_000L,
+			step.controller.state.whispersync.pendingAudioSeek?.target?.positionMs
+		)
+		assertNull(step.controller.state.audioMetadataLabel)
+		assertNull(step.controller.state.activeMediaOverlay)
 	}
 
 	@Test
@@ -1817,8 +2426,11 @@ class ReaderControllerTest {
 		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
 		assertEquals("seg-2", overlay.fragment.fragmentId)
 		assertEquals("Second sentence", overlay.fragment.label)
-		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
-		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertNull(step.whispersyncAudioSeekTarget)
+		assertEquals(
+			5_000L,
+			step.controller.state.whispersync.pendingAudioSeek?.target?.positionMs
+		)
 		assertEquals(
 			ReaderWhispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
@@ -1828,8 +2440,8 @@ class ReaderControllerTest {
 			),
 			step.controller.state.whispersync.visibleTextRange
 		)
-		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
-		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+		assertNull(step.controller.state.activeMediaOverlay)
+		assertNull(step.controller.state.audioMetadataLabel)
 	}
 
 	@Test
@@ -1845,9 +2457,9 @@ class ReaderControllerTest {
 					rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
 				)
 			).controller
-		val visibleOverlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+		assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			synced.state.whispersync.sync.engineCommand
-		).fragment
+		)
 
 		val paused = synced.onReadaloudPlaybackState(
 			ReaderReadaloudPlaybackUiState(
@@ -1861,8 +2473,8 @@ class ReaderControllerTest {
 		)
 
 		assertEquals(emptyList(), paused.engineCommands)
-		assertEquals(visibleOverlay, paused.controller.state.activeMediaOverlay)
-		assertEquals("Second sentence", paused.controller.state.audioMetadataLabel)
+		assertNull(paused.controller.state.activeMediaOverlay)
+		assertNull(paused.controller.state.audioMetadataLabel)
 		assertEquals(ReaderWhispersyncStatusKind.SeekingAudio, paused.controller.state.whispersync.status.kind)
 	}
 
@@ -1942,8 +2554,8 @@ class ReaderControllerTest {
 					visibleEnd = 140
 				)
 			).controller
-		assertNotNull(synced.state.whispersync.audioSeekTarget)
-		assertNotNull(synced.state.activeMediaOverlay)
+		assertNotNull(synced.state.whispersync.pendingAudioSeek?.target)
+		assertNull(synced.state.activeMediaOverlay)
 
 		val step = synced.onEngineEvent(
 			ReaderEngineEvent.VisibleTextRange(
@@ -1961,7 +2573,7 @@ class ReaderControllerTest {
 			),
 			step.controller.state.whispersync.status
 		)
-		assertNull(step.controller.state.whispersync.audioSeekTarget)
+		assertNull(step.controller.state.whispersync.pendingAudioSeek?.target)
 		assertNull(step.controller.state.activeMediaOverlay)
 		assertNull(step.controller.state.audioMetadataLabel)
 		assertEquals(listOf(ReaderEngineCommand.ClearMediaOverlay), step.engineCommands)
@@ -1995,6 +2607,13 @@ class ReaderControllerTest {
 			),
 			step.controller.state.whispersync.status
 		)
+
+		val unscopedInactive = step.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayInactive(reason = "document-loaded")
+		)
+		assertNull(unscopedInactive.readaloudPlaybackCommand)
+		assertTrue(unscopedInactive.controller.state.chrome.readaloudPlayback.isPlaying)
+		assertEquals(step.controller.state.whispersync, unscopedInactive.controller.state.whispersync)
 	}
 
 	@Test
@@ -2017,8 +2636,15 @@ class ReaderControllerTest {
 		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
 		assertEquals("seg-2", overlay.fragment.fragmentId)
 		assertEquals("Second sentence", overlay.fragment.label)
-		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
-		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertNull(step.whispersyncAudioSeekTarget)
+		assertEquals(
+			"Audio/chapter01.m4b",
+			step.controller.state.whispersync.pendingAudioSeek?.target?.audioResource
+		)
+		assertEquals(
+			5_000L,
+			step.controller.state.whispersync.pendingAudioSeek?.target?.positionMs
+		)
 		assertEquals(
 			ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.SeekingAudio,
@@ -2029,8 +2655,8 @@ class ReaderControllerTest {
 			),
 			step.controller.state.whispersync.status
 		)
-		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
-		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+		assertNull(step.controller.state.activeMediaOverlay)
+		assertNull(step.controller.state.audioMetadataLabel)
 	}
 
 	@Test
@@ -2100,8 +2726,8 @@ class ReaderControllerTest {
 		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
 		assertEquals("seg-2", overlay.fragment.fragmentId)
 		assertEquals("Second sentence", overlay.fragment.label)
-		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
-		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+		assertNull(step.controller.state.activeMediaOverlay)
+		assertNull(step.controller.state.audioMetadataLabel)
 		assertNull(step.whispersyncAudioSeekTarget)
 	}
 
@@ -2163,7 +2789,7 @@ class ReaderControllerTest {
 
 	@Test
 	fun pausingAudiobookPlaybackClearsPlaybackDrivenOverlayAndStatus() {
-		val playing = ReaderController()
+		val pending = ReaderController()
 			.open(hobbitOpenRequest()).controller
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onReadaloudPlaybackState(
@@ -2175,7 +2801,13 @@ class ReaderControllerTest {
 					positionMs = 5_500L,
 					durationMs = 8_000L
 				)
-			).controller
+			)
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			pending.engineCommands.single()
+		).fragment
+		val playing = pending.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(overlay)
+		).controller
 		assertEquals(ReaderWhispersyncStatusKind.Playing, playing.state.whispersync.status.kind)
 		assertNotNull(playing.state.activeMediaOverlay)
 
@@ -2206,7 +2838,7 @@ class ReaderControllerTest {
 
 	@Test
 	fun audioFollowVisibleRangeDoesNotSeekAudiobookBackToReaderViewport() {
-		val playing = ReaderController()
+		val pending = ReaderController()
 			.open(hobbitOpenRequest()).controller
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onReadaloudPlaybackState(
@@ -2218,7 +2850,13 @@ class ReaderControllerTest {
 					positionMs = 5_500L,
 					durationMs = 8_000L
 				)
-			).controller
+			)
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			pending.engineCommands.single()
+		).fragment
+		val playing = pending.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(overlay)
+		).controller
 		val audioOverlay = playing.state.activeMediaOverlay
 
 		val step = playing.onEngineEvent(
@@ -2330,8 +2968,8 @@ class ReaderControllerTest {
 			audioFollow.controller.state.readingProgress
 		)
 		assertEquals(
-			saved.controller.state.whispersync.audioSeekTarget,
-			audioFollow.controller.state.whispersync.audioSeekTarget
+			saved.controller.state.whispersync.pendingAudioSeek?.target,
+			audioFollow.controller.state.whispersync.pendingAudioSeek?.target
 		)
 	}
 
@@ -2363,8 +3001,15 @@ class ReaderControllerTest {
 			)
 		)
 
-		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
-		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertNull(step.whispersyncAudioSeekTarget)
+		assertEquals(
+			"Audio/chapter01.m4b",
+			step.controller.state.whispersync.pendingAudioSeek?.target?.audioResource
+		)
+		assertEquals(
+			5_000L,
+			step.controller.state.whispersync.pendingAudioSeek?.target?.positionMs
+		)
 		assertEquals(
 			BinderyReadingProgress(
 				bookId = "book-1",

@@ -4,11 +4,16 @@ import paige.navic.util.core.Logger
 
 const val WhispersyncSyncLogTag = "WhispersyncSync"
 
+data class ReaderWhispersyncPendingAudioSeek(
+	val overlayRequestId: Long,
+	val target: WhispersyncAudioSeekTarget
+)
+
 data class ReaderWhispersyncSessionState(
 	val sidecar: WhispersyncSidecar? = null,
 	val sync: ReaderWhispersyncSyncState = ReaderWhispersyncSyncState(),
 	val visibleTextRange: ReaderWhispersyncVisibleTextRange? = null,
-	val audioSeekTarget: WhispersyncAudioSeekTarget? = null,
+	val pendingAudioSeek: ReaderWhispersyncPendingAudioSeek? = null,
 	val status: ReaderWhispersyncStatus = ReaderWhispersyncStatus()
 ) {
 	val timeline: WhispersyncTimeline?

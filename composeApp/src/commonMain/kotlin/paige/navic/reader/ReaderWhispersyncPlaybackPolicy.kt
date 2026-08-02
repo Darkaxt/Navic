@@ -24,6 +24,15 @@ fun readerWhispersyncPlaybackControlState(
 	if (!status.visible) {
 		return ReaderWhispersyncPlaybackControlState()
 	}
+	if (status.kind == ReaderWhispersyncStatusKind.SeekingAudio) {
+		return ReaderWhispersyncPlaybackControlState(
+			visible = true,
+			loading = true,
+			crossed = true,
+			enabled = false,
+			contentDescription = ReaderWhispersyncPlaybackControlDescription.Loading
+		)
+	}
 	val availablePlayback = playbackState?.takeIf { it.isAvailable }
 		?: return ReaderWhispersyncPlaybackControlState(
 			visible = true,
