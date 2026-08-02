@@ -22,6 +22,7 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.webkit.WebView
 import android.widget.FrameLayout
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
@@ -75,6 +77,7 @@ import paige.navic.reader.readerNativeReaderSwipeAction
 import paige.navic.reader.readerPageGestureShouldShowBusyFeedback
 import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.reader.readerPublicationCacheRoot
+import paige.navic.reader.readerRendererBusyFeedbackCanStartMinimumTimer
 import paige.navic.reader.readerRendererBusyFeedbackReadyDelayMillis
 import paige.navic.reader.readerShellCoverSwipeAction
 import paige.navic.reader.readerTapZonePageTurnDirectionFor
@@ -98,6 +101,23 @@ internal data class ReaderNativePresentationLayerVisibility(
 	val shellCover: Boolean,
 	val preparationShield: Boolean
 )
+
+internal class ReaderRetainedValidatedPresentationOwnership {
+	private var retainedRendererPresentation = false
+
+	fun onRendererReadinessChanged(textureDeck: ReaderTextureDeckState) {
+		retainedRendererPresentation = when (textureDeck) {
+			ReaderTextureDeckState.Ready -> true
+			ReaderTextureDeckState.Preparing,
+			ReaderTextureDeckState.Settling -> retainedRendererPresentation
+			ReaderTextureDeckState.Empty,
+			ReaderTextureDeckState.Failed -> false
+		}
+	}
+
+	fun hasPresentation(staticRasterShieldOwnership: Boolean): Boolean =
+		retainedRendererPresentation || staticRasterShieldOwnership
+}
 
 internal fun readerNativePresentationLayerVisibility(
 	shellCoverVisible: Boolean,
@@ -172,13 +192,68 @@ actual fun KomikkuReaderNativeFrameHost(
 	val currentOnContentLongPress by rememberUpdatedState(onContentLongPress)
 	val currentOnPagePreparationStateChange by rememberUpdatedState(onPagePreparationStateChange)
 	var rendererBusyFeedbackToken by remember { mutableLongStateOf(0L) }
-	var rendererBusyFeedbackVisible by remember { mutableStateOf(false) }
 	var nativeFrameRoot by remember { mutableStateOf<KomikkuReaderNativeFrameRoot?>(null) }
 	val hostedComposeOverlay: @Composable () -> Unit = {
+		val rendererBusyFeedbackVisibility = remember { MutableTransitionState(false) }
+		var fullyVisibleRejectionToken by remember { mutableLongStateOf(0L) }
+		val currentNativeFrameRoot by rememberUpdatedState(nativeFrameRoot)
+		val activeToken = rendererBusyFeedbackToken
+
+		LaunchedEffect(activeToken) {
+			if (activeToken == 0L) return@LaunchedEffect
+			rendererBusyFeedbackVisibility.targetState = true
+			while (
+				activeToken == rendererBusyFeedbackToken &&
+				(
+					!rendererBusyFeedbackVisibility.isIdle ||
+					!rendererBusyFeedbackVisibility.currentState ||
+					!rendererBusyFeedbackVisibility.targetState
+				)
+			) {
+				withFrameNanos { }
+			}
+			if (activeToken == rendererBusyFeedbackToken) {
+				fullyVisibleRejectionToken = activeToken
+			}
+		}
+
+		LaunchedEffect(activeToken, fullyVisibleRejectionToken) {
+			if (!readerRendererBusyFeedbackCanStartMinimumTimer(
+					activeRejectionToken = activeToken,
+					fullyVisibleRejectionToken = fullyVisibleRejectionToken
+				)
+			) return@LaunchedEffect
+
+			var elapsedMillis = 0L
+			val readyDelayMillis = readerRendererBusyFeedbackReadyDelayMillis(elapsedMillis)
+			delay(readyDelayMillis)
+			elapsedMillis += readyDelayMillis
+			while (
+				activeToken == rendererBusyFeedbackToken &&
+				fullyVisibleRejectionToken == activeToken &&
+				rendererBusyFeedbackVisibility.targetState
+			) {
+				if (currentNativeFrameRoot?.canAcceptNewPointer() == true) {
+					rendererBusyFeedbackVisibility.targetState = false
+					return@LaunchedEffect
+				}
+				if (elapsedMillis >= ReaderRendererBusyFeedbackMaximumMillis) {
+					rendererBusyFeedbackVisibility.targetState = false
+					return@LaunchedEffect
+				}
+				val nextDelayMillis = minOf(
+					50L,
+					ReaderRendererBusyFeedbackMaximumMillis - elapsedMillis
+				)
+				delay(nextDelayMillis)
+				elapsedMillis += nextDelayMillis
+			}
+		}
+
 		Box(modifier = Modifier.fillMaxSize()) {
 			currentComposeOverlay()
 			ReaderRendererBusyIndicator(
-				visible = rendererBusyFeedbackVisible,
+				visibleState = rendererBusyFeedbackVisibility,
 				modifier = Modifier
 					.align(Alignment.BottomCenter)
 					.windowInsetsPadding(WindowInsets.navigationBars)
@@ -188,36 +263,6 @@ actual fun KomikkuReaderNativeFrameHost(
 	}
 	val onRendererBusyGestureRejected = {
 		rendererBusyFeedbackToken += 1L
-		rendererBusyFeedbackVisible = true
-	}
-
-	LaunchedEffect(rendererBusyFeedbackToken) {
-		val activeToken = rendererBusyFeedbackToken
-		if (activeToken == 0L) return@LaunchedEffect
-
-		var elapsedMillis = 0L
-		val readyDelayMillis = readerRendererBusyFeedbackReadyDelayMillis(elapsedMillis)
-		delay(readyDelayMillis)
-		elapsedMillis += readyDelayMillis
-		while (
-			rendererBusyFeedbackToken == activeToken &&
-			rendererBusyFeedbackVisible
-		) {
-			if (nativeFrameRoot?.canAcceptNewPointer() == true) {
-				rendererBusyFeedbackVisible = false
-				return@LaunchedEffect
-			}
-			if (elapsedMillis >= ReaderRendererBusyFeedbackMaximumMillis) {
-				rendererBusyFeedbackVisible = false
-				return@LaunchedEffect
-			}
-			val nextDelayMillis = minOf(
-				50L,
-				ReaderRendererBusyFeedbackMaximumMillis - elapsedMillis
-			)
-			delay(nextDelayMillis)
-			elapsedMillis += nextDelayMillis
-		}
 	}
 
 	AndroidView(
@@ -815,6 +860,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var rasterPaginationReady = false
 	private var latestRasterPreparationState = ReaderPagePreparationState()
 	private var latestRendererReadinessState = ReaderPageRendererReadinessState()
+	private val retainedValidatedPresentationOwnership =
+		ReaderRetainedValidatedPresentationOwnership()
 	private val ownershipMainHandler = Handler(Looper.getMainLooper())
 	private val ownershipRetryPosted = AtomicBoolean()
 	private val readerDiagnosticSession = ReaderPageDiagnosticSessionIds.incrementAndGet()
@@ -1251,6 +1298,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun onRendererReadinessChanged(state: ReaderPageRendererReadinessState) {
+		retainedValidatedPresentationOwnership.onRendererReadinessChanged(state.textureDeck)
 		latestRendererReadinessState = state
 		publishMergedPagePreparationState()
 	}
@@ -1280,8 +1328,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	fun hasValidatedRasterPresentation(): Boolean =
-		latestRendererReadinessState.textureDeck == ReaderTextureDeckState.Ready ||
-			pageRasterPreparationController.hasStaticRasterShieldOwnership()
+		retainedValidatedPresentationOwnership.hasPresentation(
+			staticRasterShieldOwnership =
+				pageRasterPreparationController.hasStaticRasterShieldOwnership()
+		)
 
 	fun setShellCoverView(shellCoverView: View) {
 		this.shellCoverView = shellCoverView

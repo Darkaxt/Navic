@@ -27,6 +27,12 @@ internal fun readerPageGestureShouldShowBusyFeedback(
 	else -> false
 }
 
+internal fun readerRendererBusyFeedbackCanStartMinimumTimer(
+	activeRejectionToken: Long,
+	fullyVisibleRejectionToken: Long
+): Boolean =
+	activeRejectionToken > 0L && activeRejectionToken == fullyVisibleRejectionToken
+
 internal fun readerRendererBusyFeedbackReadyDelayMillis(
 	elapsedSinceMostRecentRejectionMillis: Long
 ): Long = (

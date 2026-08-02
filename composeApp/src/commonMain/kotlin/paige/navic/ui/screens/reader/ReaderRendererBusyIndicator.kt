@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.reader
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -29,12 +30,12 @@ private val ReaderRendererBusyRed = Color(0xFFE53935)
 
 @Composable
 internal fun ReaderRendererBusyIndicator(
-	visible: Boolean,
+	visibleState: MutableTransitionState<Boolean>,
 	modifier: Modifier = Modifier
 ) {
 	val description = stringResource(Res.string.reader_renderer_busy)
 	AnimatedVisibility(
-		visible = visible,
+		visibleState = visibleState,
 		modifier = modifier,
 		enter = fadeIn(animationSpec = tween(durationMillis = 120)),
 		exit = fadeOut(animationSpec = tween(durationMillis = 180))

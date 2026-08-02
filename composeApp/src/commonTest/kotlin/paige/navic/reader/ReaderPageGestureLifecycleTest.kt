@@ -65,6 +65,34 @@ class ReaderPageGestureLifecycleTest {
 	}
 
 	@Test
+	fun busyFeedbackMinimumTimerWaitsForMatchingFullyVisiblePresentation() {
+		assertFalse(
+			readerRendererBusyFeedbackCanStartMinimumTimer(
+				activeRejectionToken = 1L,
+				fullyVisibleRejectionToken = 0L
+			)
+		)
+		assertFalse(
+			readerRendererBusyFeedbackCanStartMinimumTimer(
+				activeRejectionToken = 2L,
+				fullyVisibleRejectionToken = 1L
+			)
+		)
+		assertTrue(
+			readerRendererBusyFeedbackCanStartMinimumTimer(
+				activeRejectionToken = 2L,
+				fullyVisibleRejectionToken = 2L
+			)
+		)
+		assertFalse(
+			readerRendererBusyFeedbackCanStartMinimumTimer(
+				activeRejectionToken = 0L,
+				fullyVisibleRejectionToken = 0L
+			)
+		)
+	}
+
+	@Test
 	fun readyFeedbackDelayGuaranteesMinimumVisibility() {
 		assertEquals(500L, ReaderRendererBusyFeedbackMinimumMillis)
 		assertEquals(2_000L, ReaderRendererBusyFeedbackMaximumMillis)

@@ -1,10 +1,12 @@
 package paige.navic.ui.screens.reader
 
 import java.io.File
+import paige.navic.reader.ReaderTextureDeckState
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class KomikkuReaderNativeFrameHostTest {
 	private val hostFile = File(
@@ -28,12 +30,52 @@ class KomikkuReaderNativeFrameHostTest {
 			source,
 			"fun canAcceptNewPointer(): Boolean = playLikeCurlController.isAvailable"
 		)
-		assertContains(source, "nativeFrameRoot?.canAcceptNewPointer() == true")
+		assertContains(source, "currentNativeFrameRoot?.canAcceptNewPointer() == true")
 		assertFalse(
 			source.contains(
 				"pageOperationPolicy.newPointer == ReaderPageNewPointerDecision.Accept"
 			)
 		)
+	}
+
+	@Test
+	fun retainedValidatedPresentationSurvivesOnlyTransientRendererReadiness() {
+		val ownership = ReaderRetainedValidatedPresentationOwnership()
+
+		assertFalse(ownership.hasPresentation(staticRasterShieldOwnership = false))
+		ownership.onRendererReadinessChanged(ReaderTextureDeckState.Preparing)
+		assertFalse(ownership.hasPresentation(staticRasterShieldOwnership = false))
+		ownership.onRendererReadinessChanged(ReaderTextureDeckState.Ready)
+		assertTrue(ownership.hasPresentation(staticRasterShieldOwnership = false))
+
+		ownership.onRendererReadinessChanged(ReaderTextureDeckState.Preparing)
+		assertTrue(ownership.hasPresentation(staticRasterShieldOwnership = false))
+		ownership.onRendererReadinessChanged(ReaderTextureDeckState.Settling)
+		assertTrue(ownership.hasPresentation(staticRasterShieldOwnership = false))
+
+		ownership.onRendererReadinessChanged(ReaderTextureDeckState.Empty)
+		assertFalse(ownership.hasPresentation(staticRasterShieldOwnership = false))
+		assertTrue(ownership.hasPresentation(staticRasterShieldOwnership = true))
+
+		ownership.onRendererReadinessChanged(ReaderTextureDeckState.Ready)
+		ownership.onRendererReadinessChanged(ReaderTextureDeckState.Failed)
+		assertFalse(ownership.hasPresentation(staticRasterShieldOwnership = false))
+	}
+
+	@Test
+	fun busyFeedbackMinimumTimerIsOwnedByFullyVisibleNestedOverlay() {
+		val source = hostFile.readText()
+
+		assertContains(
+			source,
+			"val rendererBusyFeedbackVisibility = remember { MutableTransitionState(false) }"
+		)
+		assertContains(source, "fullyVisibleRejectionToken = activeToken")
+		assertContains(
+			source,
+			"readerRendererBusyFeedbackCanStartMinimumTimer("
+		)
+		assertFalse(source.contains("var rendererBusyFeedbackVisible by remember"))
 	}
 
 	@Test
