@@ -1180,6 +1180,7 @@
 	<string name="info_whispersync_seeking_audio">Syncing audiobook</string>
 	<string name="info_whispersync_playing">Whispersync playing</string>
 	<string name="info_whispersync_no_active_cue">No synced text here</string>
+	<string name="info_whispersync_no_audio_cue_on_page">No Whispersync audio on this page</string>
 	<string name="info_whispersync_visible_page_ended">End of visible page</string>
 	<string name="info_whispersync_mismatch">Whispersync mismatch</string>
 	<string name="info_whispersync_unavailable">Whispersync unavailable</string>

@@ -66,7 +66,11 @@ internal fun KomikkuWhispersyncPlaybackControl(
 			)
 		}
 	) {
-		val glyphColor = readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)
+		val glyphColor = if (control.noAudioCueOnPage) {
+			MaterialTheme.colorScheme.error
+		} else {
+			readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)
+		}
 		Box(
 			modifier = Modifier.size(48.dp),
 			contentAlignment = Alignment.Center

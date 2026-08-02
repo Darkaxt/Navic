@@ -4,7 +4,8 @@ enum class ReaderWhispersyncPlaybackControlDescription {
 	Audiobook,
 	Loading,
 	Reset,
-	Play
+	Play,
+	NoAudioCueOnPage
 }
 
 data class ReaderWhispersyncPlaybackControlState(
@@ -12,6 +13,7 @@ data class ReaderWhispersyncPlaybackControlState(
 	val loading: Boolean = false,
 	val crossed: Boolean = true,
 	val enabled: Boolean = false,
+	val noAudioCueOnPage: Boolean = false,
 	val contentDescription: ReaderWhispersyncPlaybackControlDescription =
 		ReaderWhispersyncPlaybackControlDescription.Audiobook,
 	val command: ReaderReadaloudPlaybackCommand? = null
@@ -47,15 +49,17 @@ fun readerWhispersyncPlaybackControlState(
 		)
 	val command = availablePlayback.whispersyncHeadsetCommand(hasConfirmedVisibleCue)
 	val crossed = !availablePlayback.isPlaying || !availablePlayback.syncEnabled
+	val noAudioCueOnPage = !availablePlayback.isPlaying && !hasConfirmedVisibleCue
 	return ReaderWhispersyncPlaybackControlState(
 		visible = true,
 		loading = false,
 		crossed = crossed,
 		enabled = command != null,
-		contentDescription = if (availablePlayback.isPlaying) {
-			ReaderWhispersyncPlaybackControlDescription.Reset
-		} else {
-			ReaderWhispersyncPlaybackControlDescription.Play
+		noAudioCueOnPage = noAudioCueOnPage,
+		contentDescription = when {
+			availablePlayback.isPlaying -> ReaderWhispersyncPlaybackControlDescription.Reset
+			noAudioCueOnPage -> ReaderWhispersyncPlaybackControlDescription.NoAudioCueOnPage
+			else -> ReaderWhispersyncPlaybackControlDescription.Play
 		},
 		command = command
 	)

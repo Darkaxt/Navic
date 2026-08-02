@@ -273,6 +273,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		assertFalse(control.loading)
 		assertTrue(control.crossed)
 		assertTrue(control.enabled)
+		assertFalse(control.noAudioCueOnPage)
 		assertEquals(ReaderReadaloudPlaybackCommand.Play, control.command)
 	}
 
@@ -295,6 +296,11 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		assertFalse(control.loading)
 		assertTrue(control.crossed)
 		assertFalse(control.enabled)
+		assertTrue(control.noAudioCueOnPage)
+		assertEquals(
+			ReaderWhispersyncPlaybackControlDescription.NoAudioCueOnPage,
+			control.contentDescription
+		)
 		assertNull(control.command)
 	}
 
@@ -319,6 +325,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		assertTrue(control.loading)
 		assertTrue(control.crossed)
 		assertFalse(control.enabled)
+		assertFalse(control.noAudioCueOnPage)
 		assertNull(control.command)
 	}
 
@@ -341,6 +348,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		assertFalse(control.loading)
 		assertFalse(control.crossed)
 		assertTrue(control.enabled)
+		assertFalse(control.noAudioCueOnPage)
 		assertEquals(ReaderReadaloudPlaybackCommand.StopAndReset, control.command)
 	}
 
