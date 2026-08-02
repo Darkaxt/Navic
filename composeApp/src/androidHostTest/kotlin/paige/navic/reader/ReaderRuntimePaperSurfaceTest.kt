@@ -1302,6 +1302,49 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderUsesOneFullHeightSettledSpreadGutterOwner() {
+		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val renderSurface = appearanceText
+			.substringAfter("function renderSurfacePaperTextureLayers()")
+			.substringBefore("\nfunction surfacePaperTextureIndex")
+		val surfaceUpdate = appearanceText
+			.substringAfter("function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null)")
+			.substringBefore("\nfunction shouldDeferSurfacePaperTextureUpdate")
+		val settledGutterUpdater = helperText
+			.substringAfter("export const updateReaderSurfaceSpreadGutterOverlayLayer =")
+			.substringBefore("\n\nexport const updateReaderMovingPageSpreadGutterOverlayLayer")
+
+		assertContains(
+			renderSurface,
+			"spreadGutterOverlaySlots.filter(slot => slot?.slot === 'current')",
+			message = "Settled landscape rendering must keep only the current full-spread gutter slot."
+		)
+		assertContains(renderSurface, "updateReaderSurfaceSpreadGutterOverlayLayer(")
+		assertFalse(
+			renderSurface.contains("ensureReaderMovingPageSpreadGutterOverlayLayer(") ||
+				renderSurface.contains("updateReaderMovingPageSpreadGutterOverlayLayer("),
+			"Ordinary settled rendering must not mount a transformed duplicate gutter owner."
+		)
+		assertContains(renderSurface, "this.movingPageSpreadGutterOverlayLayer?.remove?.()")
+		assertFalse(
+			surfaceUpdate.contains("ensureReaderMovingPageSpreadGutterOverlayLayer("),
+			"Committed page updates must not recreate the redundant moving gutter owner."
+		)
+		assertContains(settledGutterUpdater, "position: 'fixed'")
+		assertContains(settledGutterUpdater, "inset: '0px'")
+		assertContains(settledGutterUpdater, "height: heightPx")
+		assertContains(settledGutterUpdater, "'min-height': heightPx")
+		assertContains(settledGutterUpdater, "'background-size': '100% 100%, 100% 100%'")
+		assertContains(
+			settledGutterUpdater,
+			"const settledCurrentSlot = scrollOffset === null && spreadGutterOverlaySlots.every(slot => slot?.slot === 'current')"
+		)
+		assertContains(settledGutterUpdater, "transform: settledCurrentSlot ? 'none' : readerSurfaceTextureSlotTransform(")
+		assertContains(settledGutterUpdater, "'will-change': settledCurrentSlot ? 'auto' : 'transform'")
+	}
+
+	@Test
 	fun androidReaderMovesPageTextureSlotsWithPageDragInsteadOfSwappingOneBackground() {
 		val bridgeText = readerBridgeText()
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()

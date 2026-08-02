@@ -19,12 +19,16 @@ data class ReaderWhispersyncPlaybackControlState(
 
 fun readerWhispersyncPlaybackControlState(
 	status: ReaderWhispersyncStatus,
-	playbackState: ReaderReadaloudPlaybackUiState?
+	playbackState: ReaderReadaloudPlaybackUiState?,
+	hasConfirmedVisibleCue: Boolean
 ): ReaderWhispersyncPlaybackControlState {
 	if (!status.visible) {
 		return ReaderWhispersyncPlaybackControlState()
 	}
-	if (status.kind == ReaderWhispersyncStatusKind.SeekingAudio) {
+	if (
+		status.kind == ReaderWhispersyncStatusKind.SeekingAudio &&
+		playbackState?.isPlaying != true
+	) {
 		return ReaderWhispersyncPlaybackControlState(
 			visible = true,
 			loading = true,
@@ -41,7 +45,7 @@ fun readerWhispersyncPlaybackControlState(
 			enabled = false,
 			contentDescription = ReaderWhispersyncPlaybackControlDescription.Loading
 		)
-	val command = availablePlayback.whispersyncHeadsetCommand()
+	val command = availablePlayback.whispersyncHeadsetCommand(hasConfirmedVisibleCue)
 	val crossed = !availablePlayback.isPlaying || !availablePlayback.syncEnabled
 	return ReaderWhispersyncPlaybackControlState(
 		visible = true,
@@ -57,8 +61,16 @@ fun readerWhispersyncPlaybackControlState(
 	)
 }
 
-private fun ReaderReadaloudPlaybackUiState.whispersyncHeadsetCommand(): ReaderReadaloudPlaybackCommand? =
-	if (!isAvailable) {
+fun readerWhispersyncTransportEnabled(
+	playbackState: ReaderReadaloudPlaybackUiState,
+	hasConfirmedVisibleCue: Boolean
+): Boolean =
+	playbackState.isAvailable && (playbackState.isPlaying || hasConfirmedVisibleCue)
+
+private fun ReaderReadaloudPlaybackUiState.whispersyncHeadsetCommand(
+	hasConfirmedVisibleCue: Boolean
+): ReaderReadaloudPlaybackCommand? =
+	if (!readerWhispersyncTransportEnabled(this, hasConfirmedVisibleCue)) {
 		null
 	} else if (isPlaying) {
 		ReaderReadaloudPlaybackCommand.StopAndReset

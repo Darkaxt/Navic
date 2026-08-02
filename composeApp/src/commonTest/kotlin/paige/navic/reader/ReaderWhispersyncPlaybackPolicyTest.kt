@@ -246,7 +246,8 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	fun whispersyncControlIsHiddenWhenReaderHasNoSyncedAudio() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(),
-			playbackState = null
+			playbackState = null,
+			hasConfirmedVisibleCue = false
 		)
 
 		assertFalse(control.visible)
@@ -264,7 +265,8 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isAvailable = true,
 				isPlaying = false,
 				syncEnabled = false
-			)
+			),
+			hasConfirmedVisibleCue = true
 		)
 
 		assertTrue(control.visible)
@@ -275,7 +277,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	}
 
 	@Test
-	fun whispersyncControlCanRestartListeningWhenAudioIsInTimelineGap() {
+	fun whispersyncControlCannotStartStaleAudioWithoutConfirmedVisibleCue() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.NoActiveCue,
@@ -285,14 +287,15 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isAvailable = true,
 				isPlaying = false,
 				syncEnabled = false
-			)
+			),
+			hasConfirmedVisibleCue = false
 		)
 
 		assertTrue(control.visible)
 		assertFalse(control.loading)
 		assertTrue(control.crossed)
-		assertTrue(control.enabled)
-		assertEquals(ReaderReadaloudPlaybackCommand.Play, control.command)
+		assertFalse(control.enabled)
+		assertNull(control.command)
 	}
 
 	@Test
@@ -308,7 +311,8 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isAvailable = true,
 				isPlaying = false,
 				syncEnabled = true
-			)
+			),
+			hasConfirmedVisibleCue = false
 		)
 
 		assertTrue(control.visible)
@@ -316,6 +320,28 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		assertTrue(control.crossed)
 		assertFalse(control.enabled)
 		assertNull(control.command)
+	}
+
+	@Test
+	fun whispersyncControlKeepsStopAvailableWhileNextCueActivationIsPending() {
+		val control = readerWhispersyncPlaybackControlState(
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SeekingAudio,
+				message = ReaderWhispersyncStatusMessage.SeekingAudio
+			),
+			playbackState = ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				syncEnabled = true
+			),
+			hasConfirmedVisibleCue = false
+		)
+
+		assertTrue(control.visible)
+		assertFalse(control.loading)
+		assertFalse(control.crossed)
+		assertTrue(control.enabled)
+		assertEquals(ReaderReadaloudPlaybackCommand.StopAndReset, control.command)
 	}
 
 	@Test
@@ -329,7 +355,8 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isAvailable = true,
 				isPlaying = true,
 				syncEnabled = true
-			)
+			),
+			hasConfirmedVisibleCue = false
 		)
 
 		assertTrue(control.visible)
@@ -350,7 +377,8 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isAvailable = true,
 				isPlaying = false,
 				syncEnabled = false
-			)
+			),
+			hasConfirmedVisibleCue = true
 		)
 
 		assertTrue(control.visible)

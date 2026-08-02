@@ -112,7 +112,8 @@ internal fun KomikkuReaderRoot(
 	Box(modifier = modifier.fillMaxSize()) {
 		val whispersyncPlaybackControl = readerWhispersyncPlaybackControlState(
 			status = controllerState.whispersync.status,
-			playbackState = readaloudPlaybackState
+			playbackState = readaloudPlaybackState,
+			hasConfirmedVisibleCue = controllerState.activeMediaOverlay != null
 		).let { control ->
 			if (controllerState.shellCoverVisible || !mediaOverlayAvailable) control.copy(visible = false) else control
 		}
@@ -440,6 +441,7 @@ private fun KomikkuComposeOverlay(
 				KomikkuWhispersyncPlayerDialog(
 					status = controllerState.whispersync.status,
 					playbackState = readaloudPlaybackState ?: ReaderReadaloudPlaybackUiState(),
+					hasConfirmedVisibleCue = controllerState.activeMediaOverlay != null,
 					onCommand = onWhispersyncPlaybackCommand,
 					onDismissRequest = onDismissDialog
 				)

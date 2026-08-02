@@ -1892,6 +1892,9 @@ class ReaderKomikkuBackboneResetTest {
 		val statusBadgeText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderWhispersyncStatusBadge.kt"
 		).readText()
+		val playerDialogText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderWhispersyncPlayerDialog.kt"
+		).readText()
 
 		assertTrue(
 			readerScreenText.contains("koinInject<AudiobookPlaybackManager>()"),
@@ -1923,8 +1926,19 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderScreen must expose the native Whispersync control as an audiobook manager command, not as WebView-owned UI."
 		)
 		assertTrue(
-			readerRootText.contains("readerWhispersyncPlaybackControlState("),
-			"ReaderRoot must derive the Whispersync playback control state at the Komikku shell boundary."
+			readerRootText.contains("readerWhispersyncPlaybackControlState(") &&
+				readerRootText.contains("hasConfirmedVisibleCue = controllerState.activeMediaOverlay != null"),
+			"ReaderRoot must derive current-page playback eligibility from the positively acknowledged media overlay."
+		)
+		assertTrue(
+			playerDialogText.contains("readerWhispersyncTransportEnabled(") &&
+				playerDialogText.contains("hasConfirmedVisibleCue = hasConfirmedVisibleCue"),
+			"The full Whispersync player must not start a stopped stale audiobook without a confirmed current-page cue."
+		)
+		assertTrue(
+			readerScreenText.contains("val hasConfirmedVisibleCue = coordinator.controller.state.activeMediaOverlay != null") &&
+				readerScreenText.contains("!hasConfirmedVisibleCue"),
+			"The app-boundary command handler must reject Play when no current-page overlay was acknowledged."
 		)
 		assertTrue(
 			readerRootText.contains("KomikkuWhispersyncPlaybackControl("),

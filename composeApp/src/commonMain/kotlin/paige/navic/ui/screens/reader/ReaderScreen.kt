@@ -609,8 +609,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onWhispersyncPlaybackCommand = { command ->
 			val activationPending = coordinator.controller.state.whispersync.status.kind ==
 				ReaderWhispersyncStatusKind.SeekingAudio
+			val hasConfirmedVisibleCue = coordinator.controller.state.activeMediaOverlay != null
 			val playBlocked = command == ReaderReadaloudPlaybackCommand.Play &&
-				(coordinator.controller.state.shellCoverVisible || activationPending)
+				(
+					coordinator.controller.state.shellCoverVisible ||
+					activationPending ||
+					!hasConfirmedVisibleCue
+				)
 			if (playBlocked) {
 				Logger.w(
 					WhispersyncSyncLogTag,

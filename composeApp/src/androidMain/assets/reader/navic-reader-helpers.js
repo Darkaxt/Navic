@@ -1362,6 +1362,7 @@ export const updateReaderMovingPageStainOverlayLayer = (layer, stainOverlaySlots
 
 export const updateReaderSurfaceSpreadGutterOverlayLayer = (layer, spreadGutterOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
   if (!layer || !Array.isArray(spreadGutterOverlaySlots) || !spreadGutterOverlaySlots.some(slot => slot?.variant?.asset)) return
+  const settledCurrentSlot = scrollOffset === null && spreadGutterOverlaySlots.every(slot => slot?.slot === 'current')
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
@@ -1393,9 +1394,9 @@ export const updateReaderSurfaceSpreadGutterOverlayLayer = (layer, spreadGutterO
       inset: '0px',
       width: widthPx,
       height: heightPx,
-      transform: readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection }),
+      transform: settledCurrentSlot ? 'none' : readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection }),
       'transform-origin': 'center',
-      'will-change': 'transform',
+      'will-change': settledCurrentSlot ? 'auto' : 'transform',
     })
     setStylesImportant(artwork, {
       position: 'absolute',

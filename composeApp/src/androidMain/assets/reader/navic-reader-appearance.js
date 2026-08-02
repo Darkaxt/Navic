@@ -126,7 +126,6 @@ import {
   readerNormalizeChapterOpeningMargins,
   ensureReaderMovingPageBorderOverlayLayer,
   ensureReaderMovingPageStainOverlayLayer,
-  ensureReaderMovingPageSpreadGutterOverlayLayer,
   ensureReaderMovingPageTextureLayer,
   ensureReaderSurfaceTextureLayer,
   ensureReaderSurfaceBorderOverlayLayer,
@@ -140,7 +139,6 @@ import {
   updateReaderStaticPaperBackingLayer,
   updateReaderMovingPageBorderOverlayLayer,
   updateReaderMovingPageStainOverlayLayer,
-  updateReaderMovingPageSpreadGutterOverlayLayer,
   updateReaderMovingPageTextureLayer,
   updateReaderSurfaceTextureLayer,
   updateReaderSurfaceBorderOverlayLayer,
@@ -541,6 +539,7 @@ function renderSurfacePaperTextureLayers() {
   const borderOverlaySlots = this.surfaceBorderOverlaySlots || []
   const stainOverlaySlots = this.surfaceStainOverlaySlots || []
   const spreadGutterOverlaySlots = this.surfaceSpreadGutterOverlaySlots || []
+  const settledSpreadGutterOverlaySlots = spreadGutterOverlaySlots.filter(slot => slot?.slot === 'current')
   if (
     !this.surfaceTextureVariant &&
     !this.surfaceBorderOverlayVariant &&
@@ -633,25 +632,16 @@ function renderSurfacePaperTextureLayers() {
     )
   }
   if (this.surfaceSpreadGutterOverlayVariant) {
+    this.movingPageSpreadGutterOverlayLayer?.remove?.()
+    this.movingPageSpreadGutterOverlayLayer = null
     this.surfaceSpreadGutterOverlayLayer = this.surfaceSpreadGutterOverlayLayer && readerRoot.contains(this.surfaceSpreadGutterOverlayLayer)
       ? this.surfaceSpreadGutterOverlayLayer
       : ensureReaderSurfaceSpreadGutterOverlayLayer()
     updateReaderSurfaceSpreadGutterOverlayLayer(
       this.surfaceSpreadGutterOverlayLayer,
-      spreadGutterOverlaySlots,
+      settledSpreadGutterOverlaySlots,
       this.readerSettings,
       null,
-      this.readerFlowModeValue,
-      readerDirection
-    )
-    this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
-      ? this.movingPageSpreadGutterOverlayLayer
-      : ensureReaderMovingPageSpreadGutterOverlayLayer()
-    updateReaderMovingPageSpreadGutterOverlayLayer(
-      this.movingPageSpreadGutterOverlayLayer,
-      spreadGutterOverlaySlots,
-      this.readerSettings,
-      scrollOffset,
       this.readerFlowModeValue,
       readerDirection
     )
@@ -763,9 +753,8 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     this.surfaceSpreadGutterOverlayLayer = this.surfaceSpreadGutterOverlayLayer && readerRoot.contains(this.surfaceSpreadGutterOverlayLayer)
       ? this.surfaceSpreadGutterOverlayLayer
       : ensureReaderSurfaceSpreadGutterOverlayLayer()
-    this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
-      ? this.movingPageSpreadGutterOverlayLayer
-      : ensureReaderMovingPageSpreadGutterOverlayLayer()
+    this.movingPageSpreadGutterOverlayLayer?.remove?.()
+    this.movingPageSpreadGutterOverlayLayer = null
   } else {
     this.surfaceSpreadGutterOverlayLayer?.remove?.()
     this.surfaceSpreadGutterOverlayLayer = null
