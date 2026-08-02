@@ -977,6 +977,23 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun tokenizedShellCoverDismissalForcesSameLocatorAcknowledgement() {
+		val location = readerAssetRoot().resolve("navic-reader-location.js").readText()
+		val committedRelocation = location
+			.substringAfter("function scheduleCommittedRelocation(detail, reason = 'relocate-committed') {")
+			.substringBefore("\nfunction goToLocator")
+
+		assertContains(
+			committedRelocation,
+			"const forceDuplicatePost = String(pendingReason || '').startsWith('shell-cover-dismiss:')"
+		)
+		assertContains(
+			committedRelocation,
+			"this.postLocationChanged(pendingDetail, pendingReason, { forceDuplicatePost })"
+		)
+	}
+
+	@Test
 	fun androidReaderPreservesProgressOnlyResumeLocatorsForFixedLayoutPublications() {
 		val readerViewerHostText = readerViewerHostFile().readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()

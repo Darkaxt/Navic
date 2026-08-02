@@ -700,7 +700,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		)
 		assertTrue(
 			scheduleCommittedRelocation.indexOf("this.applyThemeToLoadedContent(this.readerSettings)") <
-				scheduleCommittedRelocation.indexOf("this.postLocationChanged(pendingDetail, pendingReason)"),
+				scheduleCommittedRelocation.indexOf("this.postLocationChanged(pendingDetail, pendingReason"),
 			"Content theming must be refreshed before the committed location is posted so page geometry and visible content agree."
 		)
 	}

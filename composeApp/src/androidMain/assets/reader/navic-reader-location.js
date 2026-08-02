@@ -582,7 +582,8 @@ function scheduleCommittedRelocation(detail, reason = 'relocate-committed') {
         this.pendingRelocateReason = 'relocate-committed'
         if (!pendingDetail) return
         this.applyThemeToLoadedContent(this.readerSettings)
-        this.postLocationChanged(pendingDetail, pendingReason)
+        const forceDuplicatePost = String(pendingReason || '').startsWith('shell-cover-dismiss:')
+        this.postLocationChanged(pendingDetail, pendingReason, { forceDuplicatePost })
       }, ReaderRelocationCommitDelayMs)
     })
   })
