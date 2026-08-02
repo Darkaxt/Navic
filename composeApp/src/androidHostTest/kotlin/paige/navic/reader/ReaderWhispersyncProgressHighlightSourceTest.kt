@@ -255,6 +255,63 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 	}
 
 	@Test
+	fun whispersyncOverlayVisibilityAcceptsCueIntersectingVisiblePage() {
+		val visibilityRuntime = sourceFile(
+			"composeApp/src/androidMain/assets/reader/navic-reader-media-overlay.js"
+		).readText()
+		val visibility = visibilityRuntime
+			.substringAfter("mediaOverlayFragmentAlreadyVisible(fragment) {")
+			.substringBefore("\n}\n\nfunction mediaOverlayFragmentProgressAlreadyVisible")
+
+		assertContains(
+			visibility,
+			"textEnd > Number(visibleRange.visibleStart) &&"
+		)
+		assertContains(
+			visibility,
+			"textStart < Number(visibleRange.visibleEnd)"
+		)
+		assertFalse(
+			visibility.contains(
+				"textStart >= Number(visibleRange.visibleStart) && textEnd <= Number(visibleRange.visibleEnd)"
+			),
+			"A cue selected because it intersects the visible page must not require full-page containment."
+		)
+	}
+
+	@Test
+	fun whispersyncProgressVisibilityStopsWhenPageSpanningCueReachesVisibleEnd() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val visibilityRuntime = sourceFile(
+			"composeApp/src/androidMain/assets/reader/navic-reader-media-overlay.js"
+		).readText()
+		val progressVisibility = visibilityRuntime
+			.substringAfter("mediaOverlayFragmentProgressAlreadyVisible(fragment) {")
+			.substringBefore("\n}")
+		val updateOverlay = runtime
+			.substringAfter("updateOverlayFragmentProgress(fragment) {")
+			.substringBefore("\n  clampedMediaOverlayProgressEnd")
+		val animation = runtime
+			.substringAfter("startMediaOverlayProgressAnimation(fragment) {")
+			.substringBefore("\n  postOverlayFragmentInactive")
+
+		assertContains(
+			progressVisibility,
+			"progressEnd < Number(visibleRange.visibleEnd)"
+		)
+		assertContains(
+			updateOverlay,
+			"this.mediaOverlayFragmentProgressAlreadyVisible(fragment)"
+		)
+		assertContains(animation, "textProgressEnd:")
+		assertContains(
+			animation,
+			"this.mediaOverlayFragmentProgressAlreadyVisible(animatedFragment)"
+		)
+		assertContains(animation, "animation-outside-visible-page")
+	}
+
+	@Test
 	fun whispersyncOverlayActivationDoesNotNavigateReaderAcrossPages() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
 
@@ -321,7 +378,7 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 
 		val identityGate = updateOverlay.indexOf("activeRequestId")
 		val visibilityGate = updateOverlay.indexOf(
-			"this.mediaOverlayFragmentAlreadyVisible(fragment)"
+			"this.mediaOverlayFragmentProgressAlreadyVisible(fragment)"
 		)
 		val paint = updateOverlay.indexOf("this.paintActiveMediaOverlayFragment(fragment)")
 		assertTrue(identityGate >= 0 && visibilityGate > identityGate && paint > visibilityGate)

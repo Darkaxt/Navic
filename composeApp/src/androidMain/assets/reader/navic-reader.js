@@ -168,6 +168,7 @@ import { NavicReaderAppearanceMethods } from './navic-reader-appearance.js'
 import { NavicReaderShellCoverMethods } from './navic-reader-shell-cover.js'
 import { NavicReaderViewportMethods } from './navic-reader-viewport.js'
 import { NavicReaderLocationMethods } from './navic-reader-location.js'
+import { NavicReaderMediaOverlayMethods } from './navic-reader-media-overlay.js'
 
 const ReaderSvgNamespace = 'http://www.w3.org/2000/svg'
 const ReaderMediaOverlayRangeAttribute = 'data-navic-media-overlay-range'
@@ -855,15 +856,6 @@ class NavicReaderRuntime {
     return Boolean(reason) && reason !== 'media-overlay-follow'
   }
 
-  mediaOverlayFragmentAlreadyVisible(fragment) {
-    const textStart = Number(fragment?.textStart)
-    const textEnd = Number(fragment?.textEnd)
-    if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return false
-    const visibleRange = this.currentVisibleTextRangeForHref?.(fragment?.textHref || '')
-    if (!visibleRange) return false
-    return textStart >= Number(visibleRange.visibleStart) && textEnd <= Number(visibleRange.visibleEnd)
-  }
-
   mediaOverlayFragmentHasTextRange(fragment) {
     const textStart = Number(fragment?.textStart)
     const textEnd = Number(fragment?.textEnd)
@@ -1028,7 +1020,12 @@ class NavicReaderRuntime {
       const progress = Math.min(1, startFraction + ((elapsedMs * speed) / durationMs))
       const animatedFragment = {
         ...this.mediaOverlayActiveFragment,
+        textProgressEnd: textStart + ((textEnd - textStart) * progress),
         textProgressFraction: progress,
+      }
+      if (!this.mediaOverlayFragmentProgressAlreadyVisible(animatedFragment)) {
+        this.rejectOverlayFragment(animatedFragment, 'animation-outside-visible-page')
+        return
       }
       if (!this.paintActiveMediaOverlayFragment(animatedFragment)) {
         this.rejectOverlayFragment(animatedFragment, 'animation-paint-rejected')
@@ -1112,7 +1109,7 @@ class NavicReaderRuntime {
       this.postOverlayFragmentInactive(fragment, 'stale-progress-request')
       return
     }
-    if (!this.mediaOverlayFragmentAlreadyVisible(fragment)) {
+    if (!this.mediaOverlayFragmentProgressAlreadyVisible(fragment)) {
       this.rejectOverlayFragment(fragment, 'progress-outside-visible-page')
       return
     }
@@ -1564,6 +1561,7 @@ Object.assign(NavicReaderRuntime.prototype,
   NavicReaderShellCoverMethods,
   NavicReaderViewportMethods,
   NavicReaderLocationMethods,
+  NavicReaderMediaOverlayMethods,
   NavicReaderPageTurnMethods,
   NavicReaderPageTurnPreviewMethods,
   NavicReaderContentInteractionMethods,
@@ -1637,6 +1635,8 @@ window.NavicReaderBridge = {
   pageTurnCaptureGeometry: () => runtime.pageTurnCaptureGeometry(),
   readerContentActionAtPoint: (x, y, viewWidth, viewHeight) =>
     runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,
+  activeMediaOverlaySnapshot: () =>
+    runtime.mediaOverlayActiveFragment ? { ...runtime.mediaOverlayActiveFragment } : null,
   postOverlayFragmentActive: fragment => post({ type: 'overlayFragmentActive', ...fragment }),
   postOverlayFragmentInactive: (fragmentId, overlayRequestId = null, reason = null) =>
     post({ type: 'overlayFragmentInactive', fragmentId, overlayRequestId, reason }),

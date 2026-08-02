@@ -1114,6 +1114,41 @@ async function runWhispersyncCompanionProgressProbe(page) {
       }
       return null
     }
+    const isRequestedAppOwnedOverlay = (payload, visibleRange) => {
+      const textStart = Number(payload?.textStart)
+      const textEnd = Number(payload?.textEnd)
+      return payload?.overlayRequestId != null &&
+        payload?.textHref === cueHref &&
+        Number.isFinite(textStart) &&
+        Number.isFinite(textEnd) &&
+        textEnd > Number(visibleRange?.visibleStart) &&
+        textStart < Number(visibleRange?.visibleEnd)
+    }
+    const latestAppOwnedOverlay = (startIndex, visibleRange) => {
+      for (let index = observedPayloads.length - 1; index >= startIndex; index -= 1) {
+        const payload = observedPayloads[index]
+        if (
+          payload?.type === 'overlayFragmentActive' &&
+          isRequestedAppOwnedOverlay(payload, visibleRange)
+        ) {
+          return payload
+        }
+      }
+      return null
+    }
+    const currentAppOwnedOverlay = visibleRange => {
+      const payload = window.NavicReaderBridge?.activeMediaOverlaySnapshot?.()
+      return isRequestedAppOwnedOverlay(payload, visibleRange) ? payload : null
+    }
+    const waitForAppOwnedOverlay = async (startIndex, visibleRange) => {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        await settleFrames(2)
+        const payload = latestAppOwnedOverlay(startIndex, visibleRange) ||
+          currentAppOwnedOverlay(visibleRange)
+        if (payload) return payload
+      }
+      throw new Error('Expected app-owned overlayFragmentActive for the requested cue')
+    }
     const fireReaderNavigation = href => {
       try {
         const result = readerBridgeDispatch({
@@ -1189,31 +1224,23 @@ async function runWhispersyncCompanionProgressProbe(page) {
     }
 
     try {
+      const overlayStartIndex = observedPayloads.length
       const cueCovered = await jumpAndSnapshot(cueHref, 'whispersync-companion-progress-cue')
-      readerBridgeDispatch({
-        type: 'applyOverlayFragment',
-        fragment: {
-          textHref: cueHref,
-          resourceHref: '6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b',
-          clipBeginSeconds: 263.36,
-          clipEndSeconds: 282.92,
-          label: 'Whispersync companion progress probe',
-        },
-      })
-      await settleFrames()
+      const appOwnedOverlay = await waitForAppOwnedOverlay(
+        overlayStartIndex,
+        cueCovered.visibleRange
+      )
 
       return {
         probe: 'whispersync-companion-progress',
         cueHref,
         cueCovered,
+        appOwnedOverlayRequestIdPresent: appOwnedOverlay.overlayRequestId != null,
         observedVisibleRanges: observedPayloads.filter(payload => payload?.type === 'visibleTextRange'),
         observedOverlayFragments: observedPayloads.filter(payload => payload?.type === 'overlayFragmentActive'),
         expectedLogLabels: [
           'Reader bridge event: visibleTextRange',
           'whispersync-companion-progress-cue',
-          'Whispersync audiobook seek',
-          'positionMs=263360',
-          'overlayFragmentActive',
         ],
         pageTitle: document.title,
         pageUrl: window.location.href,

@@ -45,6 +45,7 @@ class ReaderRuntimeAssetsTest {
 		val bridgeSettingsCore = root.resolve("navic-reader-settings-core.js")
 		val bridgeSettings = root.resolve("navic-reader-settings.js")
 		val bridgeMedia = root.resolve("navic-reader-media.js")
+		val bridgeMediaOverlay = root.resolve("navic-reader-media-overlay.js")
 		val bridgeIdentity = root.resolve("navic-reader-identity.js")
 		val bridgePaginationModel = root.resolve("navic-reader-pagination-model.js")
 		val bridgeMotion = root.resolve("navic-reader-motion.js")
@@ -70,6 +71,7 @@ class ReaderRuntimeAssetsTest {
 		assertTrue(bridgeSettingsCore.isFile, "Navic reader settings core module must be packaged")
 		assertTrue(bridgeSettings.isFile, "Navic reader settings module must be packaged")
 		assertTrue(bridgeMedia.isFile, "Navic reader media tap module must be packaged")
+		assertTrue(bridgeMediaOverlay.isFile, "Navic reader media-overlay module must be packaged")
 		assertTrue(bridgeIdentity.isFile, "Navic reader identity module must be packaged")
 		assertTrue(bridgePaginationModel.isFile, "Navic reader pagination model module must be packaged")
 		assertTrue(bridgeMotion.isFile, "Navic reader motion module must be packaged")
@@ -108,6 +110,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "applyHighlights")
 		assertContains(bridgeText, "publicationReady")
 		assertContains(bridgeText, "overlayFragmentActive")
+		assertContains(bridgeText, "activeMediaOverlaySnapshot")
+		assertContains(bridgeText, "mediaOverlayActiveFragment ? { ...runtime.mediaOverlayActiveFragment } : null")
 		assertContains(bridgeText, "normalizeSearchResult")
 		assertContains(bridgeText, "sectionTitle")
 		assertContains(bridgeText, "postToc")
@@ -195,6 +199,7 @@ class ReaderRuntimeAssetsTest {
 			"navic-reader.js should stay below 1650 lines; shell-cover, viewport, and location behavior belong in focused method modules."
 		)
 		listOf(
+			"navic-reader-media-overlay.js",
 			"navic-reader-shell-cover.js",
 			"navic-reader-viewport.js",
 			"navic-reader-location.js"
@@ -580,9 +585,22 @@ class ReaderRuntimeAssetsTest {
 		assertContains(probe, "visibleTextRange")
 		assertContains(probe, "waitForTargetVisibleRange")
 		assertContains(probe, "snapshotAttempt")
-		assertContains(probe, "Whispersync audiobook seek")
-		assertContains(probe, "positionMs=263360")
 		assertContains(probe, "overlayFragmentActive")
+		assertContains(probe, "waitForAppOwnedOverlay")
+		assertContains(probe, "activeMediaOverlaySnapshot")
+		assertContains(probe, "payload?.overlayRequestId != null")
+		assertContains(probe, "payload?.textHref === cueHref")
+		assertContains(probe, "textEnd > Number(visibleRange?.visibleStart)")
+		assertContains(probe, "textStart < Number(visibleRange?.visibleEnd)")
+		assertFalse(
+			probe.contains("cueClipBeginSeconds"),
+			"The app-owned cue identity must come from its overlap with the requested visible range, not a stale synthetic seek timestamp."
+		)
+		assertContains(probe, "Expected app-owned overlayFragmentActive for the requested cue")
+		assertFalse(
+			probe.contains("type: 'applyOverlayFragment'"),
+			"Companion progress must observe the app-owned cue overlay instead of replacing it with a synthetic fragment."
+		)
 		assertFalse(
 			probe.contains("await settleFrames(8)\n      const snapshot"),
 			"Companion progress Whispersync smoke navigation must wait for the requested href, not sample stale saved state after a fixed frame count."
