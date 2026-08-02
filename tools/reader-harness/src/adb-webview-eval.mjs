@@ -1117,12 +1117,18 @@ async function runWhispersyncCompanionProgressProbe(page) {
     const isRequestedAppOwnedOverlay = (payload, visibleRange) => {
       const textStart = Number(payload?.textStart)
       const textEnd = Number(payload?.textEnd)
+      const progressEnd = Number(payload?.textProgressEnd)
       return payload?.overlayRequestId != null &&
         payload?.textHref === cueHref &&
         Number.isFinite(textStart) &&
         Number.isFinite(textEnd) &&
+        textEnd > textStart &&
         textEnd > Number(visibleRange?.visibleStart) &&
-        textStart < Number(visibleRange?.visibleEnd)
+        textStart < Number(visibleRange?.visibleEnd) &&
+        (
+          !Number.isFinite(progressEnd) ||
+          progressEnd < Number(visibleRange?.visibleEnd)
+        )
     }
     const latestAppOwnedOverlay = (startIndex, visibleRange) => {
       for (let index = observedPayloads.length - 1; index >= startIndex; index -= 1) {

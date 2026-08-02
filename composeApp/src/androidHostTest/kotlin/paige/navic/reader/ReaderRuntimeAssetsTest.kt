@@ -590,8 +590,10 @@ class ReaderRuntimeAssetsTest {
 		assertContains(probe, "activeMediaOverlaySnapshot")
 		assertContains(probe, "payload?.overlayRequestId != null")
 		assertContains(probe, "payload?.textHref === cueHref")
+		assertContains(probe, "textEnd > textStart")
 		assertContains(probe, "textEnd > Number(visibleRange?.visibleStart)")
 		assertContains(probe, "textStart < Number(visibleRange?.visibleEnd)")
+		assertContains(probe, "progressEnd < Number(visibleRange?.visibleEnd)")
 		assertFalse(
 			probe.contains("cueClipBeginSeconds"),
 			"The app-owned cue identity must come from its overlap with the requested visible range, not a stale synthetic seek timestamp."
