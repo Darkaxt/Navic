@@ -94,13 +94,13 @@ class ReaderPageGestureLifecycleTest {
 
 	@Test
 	fun readyFeedbackDelayGuaranteesMinimumVisibility() {
-		assertEquals(500L, ReaderRendererBusyFeedbackMinimumMillis)
-		assertEquals(2_000L, ReaderRendererBusyFeedbackMaximumMillis)
-		assertEquals(500L, readerRendererBusyFeedbackReadyDelayMillis(-1L))
-		assertEquals(500L, readerRendererBusyFeedbackReadyDelayMillis(0L))
-		assertEquals(1L, readerRendererBusyFeedbackReadyDelayMillis(499L))
-		assertEquals(0L, readerRendererBusyFeedbackReadyDelayMillis(500L))
+		assertEquals(2_000L, ReaderRendererBusyFeedbackMinimumMillis)
+		assertEquals(4_000L, ReaderRendererBusyFeedbackMaximumMillis)
+		assertEquals(2_000L, readerRendererBusyFeedbackReadyDelayMillis(-1L))
+		assertEquals(2_000L, readerRendererBusyFeedbackReadyDelayMillis(0L))
+		assertEquals(1L, readerRendererBusyFeedbackReadyDelayMillis(1_999L))
 		assertEquals(0L, readerRendererBusyFeedbackReadyDelayMillis(2_000L))
+		assertEquals(0L, readerRendererBusyFeedbackReadyDelayMillis(4_000L))
 	}
 
 	@Test

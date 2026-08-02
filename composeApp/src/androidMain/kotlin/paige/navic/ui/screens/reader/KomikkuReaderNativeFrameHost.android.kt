@@ -24,11 +24,7 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -252,14 +247,11 @@ actual fun KomikkuReaderNativeFrameHost(
 
 		Box(modifier = Modifier.fillMaxSize()) {
 			currentComposeOverlay()
-			ReaderRendererBusyIndicator(
-				visibleState = rendererBusyFeedbackVisibility,
-				modifier = Modifier
-					.align(Alignment.BottomCenter)
-					.windowInsetsPadding(WindowInsets.navigationBars)
-					.padding(bottom = 96.dp)
-			)
 		}
+		ReaderRendererBusyPopup(
+			visibleState = rendererBusyFeedbackVisibility,
+			bottomOffset = 96.dp
+		)
 	}
 	val onRendererBusyGestureRejected = {
 		rendererBusyFeedbackToken += 1L

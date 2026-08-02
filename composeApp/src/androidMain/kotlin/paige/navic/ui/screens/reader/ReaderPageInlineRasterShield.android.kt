@@ -134,14 +134,17 @@ internal class ReaderPageInlineRasterShield(
 			}
 			observer.registerFrameCommitCallback {
 				if (activeRequest != request) return@registerFrameCommitCallback
-				val committed = Runnable { complete(request, true) }
-				committedFrame = committed
-				view.postOnAnimation(committed)
+				awaitDisplayLatch(request)
 			}
 			view.postInvalidateOnAnimation()
 			return
 		}
 
+		awaitDisplayLatch(request)
+		view.postInvalidateOnAnimation()
+	}
+
+	private fun awaitDisplayLatch(request: Long) {
 		val first = Runnable {
 			if (activeRequest != request) return@Runnable
 			firstFrame = null
@@ -151,7 +154,6 @@ internal class ReaderPageInlineRasterShield(
 		}
 		firstFrame = first
 		view.postOnAnimation(first)
-		view.postInvalidateOnAnimation()
 	}
 
 	private fun cancelPendingPresentation() {

@@ -39,6 +39,25 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
+	fun busyFeedbackUsesANonTouchableWindowAboveTheOnTopCurlSurface() {
+		val hostSource = hostFile.readText()
+		val popupSource = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderRendererBusyPopup.android.kt"
+		).readText()
+
+		assertContains(hostSource, "ReaderRendererBusyPopup(")
+		assertContains(popupSource, "PopupWindow(")
+		assertContains(popupSource, "isFocusable = false")
+		assertContains(popupSource, "isTouchable = false")
+		assertContains(
+			popupSource,
+			"windowLayoutType = WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL"
+		)
+		assertFalse(hostSource.contains("androidx.compose.ui.window.Popup"))
+	}
+
+	@Test
 	fun retainedValidatedPresentationSurvivesOnlyTransientRendererReadiness() {
 		val ownership = ReaderRetainedValidatedPresentationOwnership()
 

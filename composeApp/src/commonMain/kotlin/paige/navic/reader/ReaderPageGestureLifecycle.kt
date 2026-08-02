@@ -15,8 +15,8 @@ enum class ReaderPageGestureTerminalOutcome {
 	FailedRecovery
 }
 
-internal const val ReaderRendererBusyFeedbackMinimumMillis = 500L
-internal const val ReaderRendererBusyFeedbackMaximumMillis = 2_000L
+internal const val ReaderRendererBusyFeedbackMinimumMillis = 2_000L
+internal const val ReaderRendererBusyFeedbackMaximumMillis = 4_000L
 
 internal fun readerPageGestureShouldShowBusyFeedback(
 	outcome: ReaderPageGestureTerminalOutcome

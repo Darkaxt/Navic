@@ -3,6 +3,7 @@ package paige.navic.ui.screens.reader
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -28,6 +29,28 @@ class ReaderPlayLikeCurlSurfaceBoundsTest {
 			update.indexOf("params.width = ViewGroup.LayoutParams.MATCH_PARENT") <
 				update.indexOf("surfaceView.requestLayout()")
 		)
+	}
+
+	@Test
+	fun inlineHandoffWaitsPastSubmissionForTheWindowBufferToLatch() {
+		val source = sourceFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPageInlineRasterShield.android.kt"
+		).readText()
+		val api29Fence = source
+			.substringAfter("observer.registerFrameCommitCallback {")
+			.substringBefore("view.postInvalidateOnAnimation()")
+		val displayLatch = source
+			.substringAfter("private fun awaitDisplayLatch(request: Long)")
+			.substringBefore("private fun cancelPendingPresentation()")
+
+		assertContains(api29Fence, "awaitDisplayLatch(request)")
+		assertEquals(
+			2,
+			"view.postOnAnimation".toRegex().findAll(displayLatch).count(),
+			"The shield must survive two display frames after app-window submission before the curl surface is retired."
+		)
+		assertContains(displayLatch, "complete(request, true)")
 	}
 
 	@Test
