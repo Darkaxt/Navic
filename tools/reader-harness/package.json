@@ -7,6 +7,7 @@
     "test:command-ack-runtime": "node --test src/command-ack-runtime.test.mjs",
     "test:page-turn-model": "node --test src/page-turn-model.test.mjs",
     "test:presentation-receipt": "node --no-warnings --test src/presentation-receipt.test.mjs",
+    "test:baseline-hmac": "node --test src/baseline-hmac.test.mjs",
     "test:wordsync-provenance": "node --test src/wordsync-provenance.test.mjs"
   },
   "dependencies": {

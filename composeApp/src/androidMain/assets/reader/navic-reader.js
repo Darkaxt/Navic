@@ -3,7 +3,6 @@
 // tmp/references/anx-reader/assets/foliate-js/src/view.js:115-194 (relocation)
 // :216-327 (link/image taxonomy)
 // :335-397 (annotations)
-
 import './vendor/foliate-js/view.js'
 import './navic-reader-motion.js'
 import { Overlayer } from './vendor/foliate-js/overlayer.js'
@@ -180,7 +179,7 @@ import {
   rejectReaderWordSyncOverlay,
   validatedReaderOverlayCoordinateMode,
 } from './navic-reader-wordsync-provenance.js'
-
+import { ReaderDuplicatePageFingerprintDiagnostics } from './navic-reader-baseline-hmac.js'
 const ReaderSvgNamespace = 'http://www.w3.org/2000/svg'
 const ReaderMediaOverlayRangeAttribute = 'data-navic-media-overlay-range'
 const ReaderMediaOverlayActiveRangeKey = 'navic-media-overlay-active'
@@ -341,6 +340,7 @@ class NavicReaderRuntime {
   mediaOverlayPlayedKeyPrefix = ReaderMediaOverlayPlayedRangeKeyPrefix
   mediaOverlayPlayedFragments = new Map()
   rawTextProvenance = new ReaderWordSyncProvenanceStore({ postStatus: post })
+  duplicatePageFingerprint = new ReaderDuplicatePageFingerprintDiagnostics({ postEvent: post })
   committedVisibleTextRange = null
   mediaOverlayProgressAnimationFrame = null
   mediaOverlayProgressAnimationToken = 0
@@ -523,6 +523,7 @@ class NavicReaderRuntime {
     log('openPublication:start', describeUrl(url), `overlay=${this.mediaOverlayEnabled}`)
     try {
       this.close()
+      this.duplicatePageFingerprint.beginSession()
       this.foliateSessionId = normalizedFoliateSessionId
       this.externalShellCover = Boolean(externalShellCover)
       this.suppressWebShellCover = Boolean(suppressWebShellCover)
@@ -590,7 +591,6 @@ class NavicReaderRuntime {
       reportError(error, 'open_failed')
     }
   }
-
   onInternalLink(event) {
     const href = event?.detail?.href || ''
     if (this.nativeTapZones === true) {
@@ -696,6 +696,7 @@ class NavicReaderRuntime {
     this.destroyPageTurnPreviewRenderer('reader-close')
     this.clearOverlay()
     this.rawTextProvenance.clear()
+    this.duplicatePageFingerprint.endSession()
     this.committedVisibleTextRange = null
     this.clearShellCover()
     this.detachSurfacePaperTextureScrollSync()
@@ -1412,6 +1413,7 @@ class NavicReaderRuntime {
   }
 
   onLoad(detail = {}) {
+    this.captureDuplicatePageBaselines(detail)
     this.applyReaderViewportLayout('load')
     this.applyReaderDirection(this.readerDirectionModeValue, false)
     this.attachSurfacePaperTextureScrollSync()
@@ -1443,7 +1445,6 @@ class NavicReaderRuntime {
       this.postOverlayFragmentInactive(invalidatedFragment, 'document-loaded')
     }
   }
-
   logContentLayout(label = 'unknown') {
     const describeRect = rect => rect
       ? `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)}x${Math.round(rect.height)}`

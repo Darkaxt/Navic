@@ -643,6 +643,19 @@ sealed interface ReaderBridgeEvent {
 			require(foliateSessionId.isNotBlank())
 		}
 	}
+	data class DuplicatePageSuspected(
+		val currentPageOrdinal: Int,
+		val previousPageOrdinal: Int,
+		val plainTextSame: Boolean,
+		val locatorSame: Boolean
+	) : ReaderBridgeEvent {
+		init {
+			require(currentPageOrdinal > 0)
+			require(previousPageOrdinal > 0)
+			require(currentPageOrdinal != previousPageOrdinal)
+			require(plainTextSame)
+		}
+	}
 	data class CfiChanged(val cfi: String) : ReaderBridgeEvent
 	data class TocItemChanged(
 		val href: String? = null,
@@ -765,22 +778,10 @@ sealed interface ReaderBridgeDecodeResult {
 	) : ReaderBridgeDecodeResult
 }
 
-private const val ReaderBridgeDiagnosticRawMessageLimit = 500
 private const val ReaderCueV1CoordinateMode = "cue-v1-dom-utf16"
 private const val ReaderWordSyncV1CoordinateMode = "wordsync-v1-extracted-utf8"
 private const val ReaderRedactedBridgePayload = "[redacted-reader-bridge-payload]"
 private val ReaderCanonicalSha256 = Regex("sha256:[0-9a-f]{64}")
-private val ReaderSensitiveBridgeMarkers = listOf(
-	"rawProvenanceId",
-	"rawSpineIndex",
-	"rawByteStart",
-	"rawByteEnd",
-	"rawByteOffset",
-	"sourceHash",
-	"extractedTextHash",
-	ReaderWordSyncV1CoordinateMode,
-	"rawTextProvenanceStatus"
-)
 
 private val ReaderBridgeEventTypes = setOf(
 	"ready",
@@ -791,6 +792,7 @@ private val ReaderBridgeEventTypes = setOf(
 	"internalLink",
 	"externalLink",
 	"locationChanged",
+	"duplicatePageSuspected",
 	"cfiChanged",
 	"tocItemChanged",
 	"paginationProfileStatus",
@@ -814,7 +816,7 @@ private val ReaderBridgeEventTypes = setOf(
 )
 
 fun decodeReaderBridgeMessage(message: String): ReaderBridgeDecodeResult {
-	val rawMessage = message.toReaderBridgeDiagnosticRawMessage()
+	val rawMessage = ReaderRedactedBridgePayload
 	val element = runCatching { ReaderBridgeJson.parseToJsonElement(message) }
 		.getOrElse {
 			return ReaderBridgeDecodeResult.Rejected(
@@ -869,6 +871,7 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 				anchorHref = json.stringValue("anchorHref")
 			)
 			"locationChanged" -> json.toLocationChanged()
+			"duplicatePageSuspected" -> json.toDuplicatePageSuspected()
 			"cfiChanged" -> json.stringValue("cfi")?.let(ReaderBridgeEvent::CfiChanged)
 			"tocItemChanged" -> ReaderBridgeEvent.TocItemChanged(
 				href = json.stringValue("href"),
@@ -960,16 +963,23 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 			else -> null
 		}
 
-private fun String.toReaderBridgeDiagnosticRawMessage(): String {
-	if (ReaderSensitiveBridgeMarkers.any(::contains)) return ReaderRedactedBridgePayload
-	val sanitized = take(ReaderBridgeDiagnosticRawMessageLimit)
-		.map { character -> if (character.isISOControl()) ' ' else character }
-		.joinToString(separator = "")
-	return if (length > ReaderBridgeDiagnosticRawMessageLimit) {
-		sanitized.dropLast(3) + "..."
-	} else {
-		sanitized
-	}
+private fun JsonObject.toDuplicatePageSuspected(): ReaderBridgeEvent.DuplicatePageSuspected? {
+	val currentPageOrdinal = intValue("currentPageOrdinal") ?: return null
+	val previousPageOrdinal = intValue("previousPageOrdinal") ?: return null
+	val plainTextSame = booleanValue("plainTextSame") ?: return null
+	val locatorSame = booleanValue("locatorSame") ?: return null
+	if (
+		currentPageOrdinal <= 0 ||
+		previousPageOrdinal <= 0 ||
+		currentPageOrdinal == previousPageOrdinal ||
+		!plainTextSame
+	) return null
+	return ReaderBridgeEvent.DuplicatePageSuspected(
+		currentPageOrdinal = currentPageOrdinal,
+		previousPageOrdinal = previousPageOrdinal,
+		plainTextSame = plainTextSame,
+		locatorSame = locatorSame
+	)
 }
 
 private fun JsonObject.toLocationChanged(): ReaderBridgeEvent.LocationChanged? {

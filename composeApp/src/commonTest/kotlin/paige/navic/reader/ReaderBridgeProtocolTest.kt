@@ -1119,15 +1119,39 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
-	fun bridgeEventDecodeBoundsAndSanitizesRejectedRawMessage() {
+	fun bridgeEventDecodeUniversallyRedactsRejectedRawMessage() {
 		val result = assertIs<ReaderBridgeDecodeResult.Rejected>(
 			decodeReaderBridgeMessage("not-json\n\u0001" + "x".repeat(600))
 		)
 
-		assertEquals(500, result.rawMessage.length)
-		assertTrue(result.rawMessage.endsWith("..."))
+		assertEquals("[redacted-reader-bridge-payload]", result.rawMessage)
+		assertFalse(result.rawMessage.contains("not-json"))
 		assertFalse(result.rawMessage.contains('\n'))
 		assertFalse(result.rawMessage.contains('\u0001'))
+	}
+
+	@Test
+	fun duplicatePageDiagnosticDecodesOnlyOrdinalsAndComparisonBooleans() {
+		val event = assertIs<ReaderBridgeEvent.DuplicatePageSuspected>(
+			decodeReaderBridgeEvent(
+				"""{"type":"duplicatePageSuspected","currentPageOrdinal":11,"previousPageOrdinal":7,"plainTextSame":true,"locatorSame":false}"""
+			)
+		)
+
+		assertEquals(11, event.currentPageOrdinal)
+		assertEquals(7, event.previousPageOrdinal)
+		assertTrue(event.plainTextSame)
+		assertFalse(event.locatorSame)
+		assertNull(
+			decodeReaderBridgeEvent(
+				"""{"type":"duplicatePageSuspected","currentPageOrdinal":0,"previousPageOrdinal":7,"plainTextSame":true,"locatorSame":false}"""
+			)
+		)
+		assertNull(
+			decodeReaderBridgeEvent(
+				"""{"type":"duplicatePageSuspected","currentPageOrdinal":11,"previousPageOrdinal":11,"plainTextSame":true,"locatorSame":false}"""
+			)
+		)
 	}
 
 	@Test
@@ -1224,13 +1248,13 @@ class ReaderBridgeProtocolTest {
 		}
 
 		listOf(
-			"""{"type":"overlayFragmentActive","resourceHref":"audio.mp3","coordinateMode":"future-mode"}""" to false,
-			"""{"type":"overlayFragmentActive","resourceHref":"audio.mp3","coordinateMode":"wordsync-v1-extracted-utf8","textHref":"OPS/Text/chapter.xhtml","textStart":1,"textEnd":4,"rawProvenanceId":"chapter-raw-1","rawSpineIndex":3,"rawByteStart":1,"rawByteEnd":4}""" to true,
-			"""{"type":"overlayFragmentActive","resourceHref":"audio.mp3","coordinateMode":"cue-v1-dom-utf16","rawProvenanceId":"chapter-raw-1"}""" to true
-		).forEach { (payload, sensitive) ->
+			"""{"type":"overlayFragmentActive","resourceHref":"audio.mp3","coordinateMode":"future-mode"}""",
+			"""{"type":"overlayFragmentActive","resourceHref":"audio.mp3","coordinateMode":"wordsync-v1-extracted-utf8","textHref":"OPS/Text/chapter.xhtml","textStart":1,"textEnd":4,"rawProvenanceId":"chapter-raw-1","rawSpineIndex":3,"rawByteStart":1,"rawByteEnd":4}""",
+			"""{"type":"overlayFragmentActive","resourceHref":"audio.mp3","coordinateMode":"cue-v1-dom-utf16","rawProvenanceId":"chapter-raw-1"}"""
+		).forEach { payload ->
 			val rejected = assertIs<ReaderBridgeDecodeResult.Rejected>(decodeReaderBridgeMessage(payload))
 			assertEquals(ReaderBridgeDecodeFailure.InvalidPayload, rejected.failure)
-			if (sensitive) assertEquals("[redacted-reader-bridge-payload]", rejected.rawMessage)
+			assertEquals("[redacted-reader-bridge-payload]", rejected.rawMessage)
 		}
 	}
 

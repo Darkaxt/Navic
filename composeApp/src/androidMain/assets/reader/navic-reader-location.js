@@ -381,6 +381,7 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
   this.lastPostedLocationKey = locationKey
   if (settlement) this.consumeNativePageTurnSettlement(settlement.token)
   readerTrace('location:post', { reason })
+  this.compareCommittedDuplicatePage(detail, message)
   const visibleTextRangeResult = this.postCurrentVisibleTextRange(detail, { ...options, source: reason || null })
   log('location-changed:posted', reason)
   if (detail.cfi) post({ type: 'cfiChanged', cfi: detail.cfi })
@@ -395,6 +396,34 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     message,
     visibleTextRangeResult,
   }
+}
+
+function captureDuplicatePageBaselines(detail = {}) {
+  const contents = this.contentEntries(detail)
+  let captured = 0
+  for (const content of contents) {
+    const index = Number(content?.index)
+    const sectionIndex = Number.isFinite(index) ? Math.floor(index) : undefined
+    const section = sectionIndex == null ? undefined : this.view?.book?.sections?.[sectionIndex]
+    const cover = sectionIndex == null ? false : this.sectionTargetsCover(section, sectionIndex)
+    if (this.duplicatePageFingerprint.captureDocument(content?.doc, {
+      section,
+      cover,
+      fixedLayout: this.view?.isFixedLayout === true,
+    })) captured += 1
+  }
+  return captured
+}
+
+function compareCommittedDuplicatePage(detail = {}, message = {}) {
+  const pageIndex = Number(message.pageIndex)
+  if (!Number.isInteger(pageIndex) || pageIndex < 0) return false
+  void this.duplicatePageFingerprint.compareCommittedPage({
+    range: detail.range,
+    pageOrdinal: pageIndex + 1,
+    locator: detail.cfi,
+  })
+  return true
 }
 
 function postCurrentVisibleTextRange(detail = {}, options = {}) {
@@ -795,6 +824,8 @@ export const NavicReaderLocationMethods = {
   onRelocate,
   cancelPendingCommittedRelocation,
   scheduleCommittedRelocation,
+  captureDuplicatePageBaselines,
+  compareCommittedDuplicatePage,
   postCurrentVisibleTextRange,
   currentVisibleTextRangeForHref,
 }

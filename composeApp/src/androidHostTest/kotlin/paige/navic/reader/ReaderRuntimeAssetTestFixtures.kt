@@ -34,6 +34,7 @@ internal fun readerBridgeText(root: File = readerAssetRoot()): String =
 		"navic-reader-shell-cover.js",
 		"navic-reader-viewport.js",
 		"navic-reader-location.js",
+		"navic-reader-baseline-hmac.js",
 		"navic-reader-media-overlay.js",
 		"navic-reader.js"
 	)
@@ -56,6 +57,7 @@ internal fun readerRuntimeImplementationText(root: File = readerAssetRoot()): St
 		"navic-reader-shell-cover.js",
 		"navic-reader-viewport.js",
 		"navic-reader-location.js",
+		"navic-reader-baseline-hmac.js",
 		"navic-reader-media-overlay.js",
 		"navic-reader.js"
 	)

@@ -480,7 +480,7 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 		ReaderBridgeCommand.ClearSearch -> "clearSearch"
 	}
 
-private fun ReaderBridgeEvent.engineDebugLabel(): String =
+fun ReaderBridgeEvent.engineDebugLabel(): String =
 	when (this) {
 		ReaderBridgeEvent.Ready -> "ready"
 		is ReaderBridgeEvent.CommandAcknowledged -> "commandAck($commandId)"
@@ -494,6 +494,9 @@ private fun ReaderBridgeEvent.engineDebugLabel(): String =
 			"locationChanged(${locator.href?.engineUrlLabel().orEmpty()}, " +
 				"reason=${locator.reason.orEmpty()}, " +
 				"rangeCfi=${locator.rangeCfi?.take(80).orEmpty()})"
+		is ReaderBridgeEvent.DuplicatePageSuspected ->
+			"duplicate-page suspected current=$currentPageOrdinal previous=$previousPageOrdinal " +
+				"plainTextSame=$plainTextSame locatorSame=$locatorSame"
 		is ReaderBridgeEvent.CfiChanged -> "cfiChanged"
 		is ReaderBridgeEvent.TocItemChanged -> "tocItemChanged(${href?.engineUrlLabel().orEmpty()})"
 		is ReaderBridgeEvent.PaginationProfileStatusChanged -> "paginationProfileStatus(${profile.status})"
