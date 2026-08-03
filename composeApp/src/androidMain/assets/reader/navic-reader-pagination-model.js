@@ -95,6 +95,43 @@ export const readerBuildPaginationProfile = ({ fingerprint = '', chapters = [], 
   }
 }
 
+export const readerPaginationProfileWithObservedChapterCount = (
+  profile,
+  { spineIndex, pageCount } = {}
+) => {
+  const requestedSpineIndex = Number(spineIndex)
+  const observedPageCount = Number(pageCount)
+  if (
+    !profile?.chapters?.length ||
+    !Number.isInteger(requestedSpineIndex) ||
+    requestedSpineIndex < 0 ||
+    !Number.isInteger(observedPageCount) ||
+    observedPageCount <= 0
+  ) return null
+
+  const chapter = profile.chapters.find(candidate =>
+    Number(candidate?.spineIndex) === requestedSpineIndex
+  )
+  if (
+    !chapter ||
+    Number(chapter.pageCount) === observedPageCount
+  ) return null
+
+  return readerBuildPaginationProfile({
+    fingerprint: profile.fingerprint,
+    render: profile.render,
+    chapters: profile.chapters.map(candidate =>
+      Number(candidate?.spineIndex) === requestedSpineIndex
+        ? {
+            ...candidate,
+            pageCount: observedPageCount,
+            source: 'observed',
+          }
+        : candidate
+    ),
+  })
+}
+
 export const readerPaginationObservedChapterEntries = profile =>
   (profile?.chapters || [])
     .filter(chapter => chapter?.source === 'observed')

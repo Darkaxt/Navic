@@ -19,12 +19,15 @@ import {
 import { readerThemePalette } from './navic-reader-settings.js'
 import { stableHash } from './navic-reader-identity.js'
 import {
+  readerWaitForStableTextPagePosition,
+} from './navic-reader-pagination-stability.js'
+import {
   ReaderPageTurnPresentationScopePreview,
   issueReaderPageTurnPresentationReceipt,
   readerPageTurnPresentationReceiptMatches,
 } from './navic-reader-page-turn-presentation.js'
 
-const nextAnimationFrame = () => new Promise(resolve => requestAnimationFrame(resolve))
+const ReaderPageTurnMaximumPaginationProfileRepairs = 2
 
 export async function readerGoToExactVisualPage(view, locator, reason = 'page-turn:exact') {
   const renderer = view?.renderer
@@ -39,14 +42,93 @@ export async function readerGoToExactVisualPage(view, locator, reason = 'page-tu
   return committed === false ? null : locator
 }
 
-function readerExactVisualPageMatches(view, locator) {
-  const renderer = view?.renderer
-  if (!renderer) return false
-  const actual = renderer.exactTextPagePosition?.()
+function readerExactVisualPageMatches(actual, locator) {
   return actual != null &&
     Number(actual.index) === Number(locator?.spineIndex) &&
-    Number(actual.pageIndex) === Number(locator?.chapterPageIndex) &&
-    Number(actual.pageCount) === Number(locator?.chapterPageCount)
+    Number(actual.pageIndex) ===
+      Number(locator?.chapterPageIndex) &&
+    Number(actual.pageCount) ===
+      Number(locator?.chapterPageCount)
+}
+
+async function resolvePageTurnPreviewLocator(
+  view,
+  pageIndex,
+  reason,
+  label,
+  isCurrent = () => true
+) {
+  let profileRepairs = 0
+  while (
+    profileRepairs <=
+      ReaderPageTurnMaximumPaginationProfileRepairs
+  ) {
+    if (!isCurrent()) return null
+    const locator = readerPageLocatorForVisualIndex(
+      this.paginationProfile,
+      pageIndex
+    )
+    if (!locator) {
+      throw new Error(
+        `${label} page ${pageIndex} is unavailable`
+      )
+    }
+
+    this.applyReaderViewportLayoutToProfilerView(
+      view,
+      this.readerSettings
+    )
+    const reached = await readerGoToExactVisualPage(
+      view,
+      locator,
+      reason
+    )
+    if (!isCurrent()) return null
+    if (!reached) {
+      throw new Error(
+        `${label} navigation to page ${pageIndex} was canceled`
+      )
+    }
+
+    this.applyReaderViewportLayoutToProfilerView(
+      view,
+      this.readerSettings
+    )
+    const actual =
+      await readerWaitForStableTextPagePosition(
+        view.renderer,
+        { isCurrent }
+      )
+    if (!isCurrent()) return null
+    if (readerExactVisualPageMatches(actual, locator)) {
+      return locator
+    }
+
+    const canRepairProfile =
+      profileRepairs <
+        ReaderPageTurnMaximumPaginationProfileRepairs &&
+      Number(actual?.index) === Number(locator.spineIndex) &&
+      Number(actual?.pageCount) !==
+        Number(locator.chapterPageCount)
+    if (
+      canRepairProfile &&
+      this.repairPaginationProfileFromExactPosition?.(
+        locator,
+        actual
+      )
+    ) {
+      profileRepairs += 1
+      continue
+    }
+
+    throw new Error(
+      `${label} position for page ${pageIndex} was not committed`
+    )
+  }
+
+  throw new Error(
+    `${label} pagination for page ${pageIndex} did not stabilize`
+  )
 }
 
 async function ensurePageTurnPreviewRenderer() {
@@ -393,19 +475,15 @@ async function preparePageTurnPreview(generation, token, pageIndex) {
     const previewView = await this.ensurePageTurnPreviewRenderer()
     if (generation !== this.pageTurnPreviewGeneration) return
     if (!previewView) throw new Error('Passive preview renderer is unavailable')
-    const locator = readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)
-    if (!locator) throw new Error(`Passive preview page ${pageIndex} is unavailable`)
-    this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
-    const reached = await readerGoToExactVisualPage(previewView, locator, 'page-turn-preview')
+    const locator = await this.resolvePageTurnPreviewLocator(
+      previewView,
+      pageIndex,
+      'page-turn-preview',
+      'Passive preview',
+      () => generation === this.pageTurnPreviewGeneration
+    )
     if (generation !== this.pageTurnPreviewGeneration) return
-    if (!reached) throw new Error(`Passive preview navigation to page ${pageIndex} was canceled`)
-    this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
-    await nextAnimationFrame()
-    await nextAnimationFrame()
-    if (generation !== this.pageTurnPreviewGeneration) return
-    if (!readerExactVisualPageMatches(previewView, locator)) {
-      throw new Error(`Passive preview position for page ${pageIndex} was not committed`)
-    }
+    if (!locator) return
     this.pageTurnPreviewStateValue = Object.freeze({
       token,
       generation,
@@ -471,19 +549,15 @@ async function preparePageTurnPreviewBatchItem(generation, token, cursor) {
     const previewView = await this.ensurePageTurnPreviewRenderer()
     if (generation !== this.pageTurnPreviewGeneration) return
     if (!previewView) throw new Error('Passive raster renderer is unavailable')
-    const locator = readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)
-    if (!locator) throw new Error(`Passive raster page ${pageIndex} is unavailable`)
-    this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
-    const reached = await readerGoToExactVisualPage(previewView, locator, 'page-turn-raster-batch')
+    const locator = await this.resolvePageTurnPreviewLocator(
+      previewView,
+      pageIndex,
+      'page-turn-raster-batch',
+      'Passive raster',
+      () => generation === this.pageTurnPreviewGeneration
+    )
     if (generation !== this.pageTurnPreviewGeneration) return
-    if (!reached) throw new Error(`Passive raster navigation to page ${pageIndex} was canceled`)
-    this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
-    await nextAnimationFrame()
-    await nextAnimationFrame()
-    if (generation !== this.pageTurnPreviewGeneration) return
-    if (!readerExactVisualPageMatches(previewView, locator)) {
-      throw new Error(`Passive raster position for page ${pageIndex} was not committed`)
-    }
+    if (!locator) return
     const itemToken = `${token}:${generation}:${cursor}:${locator.pageIndex}`
     const identity = Object.freeze({
       token: itemToken,
@@ -695,6 +769,7 @@ function destroyPageTurnPreviewRenderer(reason = 'destroy') {
 
 export const NavicReaderPageTurnPreviewMethods = {
   ensurePageTurnPreviewRenderer,
+  resolvePageTurnPreviewLocator,
   beginPageTurnPreviewPreparation,
   preparePageTurnPreview,
   pageTurnCaptureGeometry,

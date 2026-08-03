@@ -130,6 +130,7 @@ import {
   readerNavigationItemMatches,
   readerPaginationFingerprint,
   readerBuildPaginationProfile,
+  readerPaginationProfileWithObservedChapterCount,
   readerPaginationObservedChapterEntries,
   readerPaginationPositionForLocator,
   readerTypographyCss,
@@ -149,6 +150,9 @@ import {
   flattenTocItems,
   tocLabel
 } from './navic-reader-helpers.js'
+import {
+  readerWaitForStableTextPagePosition,
+} from './navic-reader-pagination-stability.js'
 
 const ReaderPaginationProfileStatusMeasuring = 'measuring'
 const ReaderPaginationProfileStatusReady = 'ready'
@@ -441,7 +445,7 @@ function readerPaginationRenderMetadata() {
     adaptivePageBox,
     publisherCss: readerFontSource(settings) === ReaderFontSourcePublisher ? 'publisher' : 'navic',
     direction: this.readerDirectionModeValue || readerDirectionMode(settings),
-    runtimeVersion: 'navic-reader-pagination-profile-1',
+    runtimeVersion: 'navic-reader-pagination-profile-2',
   }
 }
 
@@ -524,15 +528,47 @@ function postPaginationProfileStatus(status, payload = {}) {
   post(message)
 }
 
-function paginationProfileSectionPageCount(renderer) {
-  let pages
-  try {
-    pages = Number(renderer?.pages)
-  } catch {
-    pages = null
-  }
-  if (!Number.isFinite(pages) || pages <= 1) return 1
-  return this.reflowablePaginatedTextPageCount(pages)
+function repairPaginationProfileFromExactPosition(
+  locator,
+  actualPosition
+) {
+  const spineIndex = Number(actualPosition?.index)
+  const pageCount = Number(actualPosition?.pageCount)
+  if (
+    !Number.isInteger(spineIndex) ||
+    spineIndex !== Number(locator?.spineIndex) ||
+    !Number.isInteger(pageCount) ||
+    pageCount <= 0
+  ) return null
+
+  const repaired = readerPaginationProfileWithObservedChapterCount(
+    this.paginationProfile,
+    { spineIndex, pageCount }
+  )
+  if (!repaired) return null
+
+  this.paginationProfile = repaired
+  this.hydrateObservedChapterPageCountsFromProfile(repaired)
+  this.writeCachedPaginationProfile(repaired)
+  readerTrace('pagination-profile:repaired', {
+    spineIndex,
+    previousChapterPageCount: Number(locator.chapterPageCount),
+    chapterPageCount: pageCount,
+    pageCount: repaired.pageCount,
+  })
+  this.postPaginationProfileStatus(
+    ReaderPaginationProfileStatusReady,
+    {
+      fingerprint: repaired.fingerprint,
+      pageCount: repaired.pageCount,
+      completedSections: repaired.observedChapterCount || 0,
+      totalSections: repaired.observedChapterCount || 0,
+    }
+  )
+  this.postCurrentLocationSnapshot(
+    'pagination-profile-repaired'
+  )
+  return repaired
 }
 
 async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, settings, token }) {
@@ -564,9 +600,31 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
     const measuredPageCounts = new Map()
     for (const { section, index } of readableEntries) {
       if (token !== this.paginationProfileTaskToken) return null
-      await profileView.goTo(index)
-      this.applyReaderViewportLayoutToProfilerView(profileView, settings)
-      const pageCount = this.paginationProfileSectionPageCount(profileView.renderer)
+      const committed = await profileView.goTo(index)
+      if (!committed) {
+        throw new Error(
+          `Pagination profiler navigation to section ${index} was canceled`
+        )
+      }
+      this.applyReaderViewportLayoutToProfilerView(
+        profileView,
+        settings
+      )
+      const position =
+        await readerWaitForStableTextPagePosition(
+          profileView.renderer,
+          {
+            isCurrent: () =>
+              token === this.paginationProfileTaskToken,
+          }
+        )
+      if (token !== this.paginationProfileTaskToken) return null
+      if (!position || position.index !== index) {
+        throw new Error(
+          `Pagination profiler layout for section ${index} did not stabilize`
+        )
+      }
+      const pageCount = position.pageCount
       measuredPageCounts.set(index, pageCount)
       this.postPaginationProfileStatus(ReaderPaginationProfileStatusMeasuring, {
         fingerprint,
@@ -1310,7 +1368,7 @@ export const NavicReaderPaginationMethods = {
   paginationProfileObservedSignature,
   paginationProfileHasObservedCountIncrease,
   postPaginationProfileStatus,
-  paginationProfileSectionPageCount,
+  repairPaginationProfileFromExactPosition,
   buildCompletePaginationProfileInProfilerView,
   ensureCompletePaginationProfile,
   shouldUseFreshPaginationProfile,

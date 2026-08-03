@@ -235,26 +235,27 @@ class ReaderPageTurnDestinationSourceTest {
 	@Test
 	fun passiveRasterReadinessRequiresTheActualPaginatorPosition() {
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val stability = readerAssetRoot().resolve("navic-reader-pagination-stability.js").readText()
 		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
-		val prepareBatchItem = preview
-			.substringAfter("async function preparePageTurnPreviewBatchItem(")
+		val resolve = preview
+			.substringAfter("async function resolvePageTurnPreviewLocator(")
 			.substringBefore("\n}\n")
 		val exactPosition = paginator
 			.substringAfter("exactTextPagePosition() {")
 			.substringBefore("\n    }")
 
-		assertContains(preview, "function readerExactVisualPageMatches(view, locator)")
-		assertContains(preview, "renderer.exactTextPagePosition?.()")
+		assertContains(preview, "function readerExactVisualPageMatches(actual, locator)")
+		assertContains(stability, "renderer.exactTextPagePosition?.()")
 		assertContains(exactPosition, "index: this.#index")
 		assertContains(exactPosition, "pageIndex: this.page - 1")
 		assertContains(exactPosition, "pageCount: this.pages - 2")
-		assertContains(
-			prepareBatchItem,
-			"if (!readerExactVisualPageMatches(previewView, locator))"
-		)
+		assertContains(resolve, "await readerWaitForStableTextPagePosition(")
+		assertContains(resolve, "readerExactVisualPageMatches(actual, locator)")
+		assertContains(resolve, "repairPaginationProfileFromExactPosition")
 		assertTrue(
-			prepareBatchItem.indexOf("readerExactVisualPageMatches(previewView, locator)") <
-				prepareBatchItem.indexOf("status: 'ready'")
+			resolve.indexOf("readerExactVisualPageMatches(actual, locator)") <
+				resolve.indexOf("return locator"),
+			"The passive renderer must prove its exact stable position before exposing a raster."
 		)
 	}
 
@@ -280,6 +281,9 @@ class ReaderPageTurnDestinationSourceTest {
 	fun passiveAndLiveDestinationRenderingShareExactPageNavigation() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val resolve = preview
+			.substringAfter("async function resolvePageTurnPreviewLocator(")
+			.substringBefore("\n}\n")
 		val prepare = preview
 			.substringAfter("async function preparePageTurnPreview(")
 			.substringBefore("\n}\n")
@@ -288,14 +292,13 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringBefore("\n}\n")
 
 		assertContains(turns, "readerGoToExactVisualPage(this.view, locator)")
-		assertContains(prepare, "readerGoToExactVisualPage(previewView, locator, 'page-turn-preview')")
-		assertContains(prepare, "if (!reached) throw new Error")
-		assertContains(prepareBatchItem, "if (!reached) throw new Error")
-		assertTrue(
-			prepare.indexOf("generation !== this.pageTurnPreviewGeneration") <
-				prepare.indexOf("if (!reached) throw new Error"),
-			"Only superseded preview preparation may return silently after canceled navigation."
-		)
+		assertContains(resolve, "readerGoToExactVisualPage(")
+		assertContains(resolve, "if (!reached)")
+		assertContains(resolve, "repairPaginationProfileFromExactPosition")
+		assertContains(prepare, "this.resolvePageTurnPreviewLocator(")
+		assertContains(prepare, "'page-turn-preview'")
+		assertContains(prepareBatchItem, "this.resolvePageTurnPreviewLocator(")
+		assertContains(prepareBatchItem, "'page-turn-raster-batch'")
 		assertFalse(prepare.contains("anchor: locator.anchor"))
 	}
 
@@ -603,13 +606,14 @@ class ReaderPageTurnDestinationSourceTest {
 	fun passiveRendererHasGenerationBasedReadinessAndDeterministicTeardown() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val stability = readerAssetRoot().resolve("navic-reader-pagination-stability.js").readText()
 
 		assertContains(runtime, "NavicReaderPageTurnPreviewMethods")
 		assertContains(runtime, "beginPageTurnPreviewPreparation")
 		assertContains(runtime, "pageTurnPreviewState")
 		assertContains(runtime, "restorePageTurnLiveComposition")
 		assertContains(preview, "pageTurnPreviewGeneration")
-		assertContains(preview, "requestAnimationFrame")
+		assertContains(stability, "requestAnimationFrame")
 		assertContains(preview, "previewView.close?.()")
 		assertContains(preview, "previewView.remove?.()")
 		assertFalse(preview.contains("setTimeout"))
@@ -627,8 +631,10 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(runtime, "beginPageTurnPreviewBatch: (token, pageIndexes) =>")
 		assertContains(runtime, "pageTurnPreviewBatchState: token =>")
 		assertContains(runtime, "advancePageTurnPreviewBatch: (token, pageIndex) =>")
-		assertContains(batch, "readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)")
-		assertContains(batch, "readerGoToExactVisualPage(previewView, locator, 'page-turn-raster-batch')")
+		assertContains(preview, "readerPageLocatorForVisualIndex(")
+		assertContains(preview, "readerGoToExactVisualPage(")
+		assertContains(batch, "this.resolvePageTurnPreviewLocator(")
+		assertContains(batch, "'page-turn-raster-batch'")
 		assertContains(batch, "status: 'ready'")
 		assertContains(batch, "spineIndex: locator.spineIndex")
 		assertContains(batch, "href: locator.href")
