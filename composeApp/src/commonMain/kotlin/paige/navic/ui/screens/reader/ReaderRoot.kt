@@ -159,13 +159,16 @@ internal fun KomikkuReaderRoot(
 			pagePreparationRetryKey = pagePreparationRetryKey,
 			onPagePreparationStateChange = { state -> pagePreparationState = state },
 			onViewerAction = { action ->
-				onViewerAction(
-					if (controllerState.shellCoverVisible) {
-						readerShellCoverViewerActionFor(action)
-					} else {
-						viewer.viewerActionFor(action)
-					}
-				)
+				val viewerAction = if (controllerState.shellCoverVisible) {
+					readerShellCoverViewerActionFor(
+						region = action,
+						pageTurnAllowed = pagePreparationState.interactiveReady &&
+							controllerState.paginationProfile.status != "measuring"
+					)
+				} else {
+					viewer.viewerActionFor(action)
+				}
+				viewerAction?.let(onViewerAction)
 			},
 			onPageTurnBoundary = onPageTurnBoundary,
 			onReadableDragPreview = { deltaX, deltaY, width, height, phase ->
@@ -249,11 +252,13 @@ internal fun KomikkuReaderRoot(
 						modifier = Modifier.matchParentSize()
 					)
 				}
-				ReaderPagePreparationOverlay(
-					state = pagePreparationState,
-					onRetry = { pagePreparationRetryKey += 1 },
-					modifier = Modifier.matchParentSize()
-				)
+				if (controllerState.paginationProfile.status != "measuring") {
+					ReaderPagePreparationOverlay(
+						state = pagePreparationState,
+						onRetry = { pagePreparationRetryKey += 1 },
+						modifier = Modifier.matchParentSize()
+					)
+				}
 			}
 		)
 	}
@@ -361,6 +366,12 @@ private fun KomikkuComposeOverlay(
 			onToggleCurrentBookmark = onToggleCurrentBookmark,
 			modifier = Modifier.matchParentSize()
 		)
+		KomikkuPaginationProfileStatusBadge(
+			profile = controllerState.paginationProfile,
+			modifier = Modifier
+				.align(Alignment.BottomCenter)
+				.padding(bottom = if (controllerState.menuVisible) 92.dp else 28.dp)
+		)
 		if (!controllerState.shellCoverVisible) {
 			KomikkuReaderSelectionActions(
 				selectionActions = controllerState.selectionActions,
@@ -370,12 +381,6 @@ private fun KomikkuComposeOverlay(
 				modifier = Modifier
 					.align(Alignment.TopCenter)
 					.padding(top = if (controllerState.menuVisible) 96.dp else 24.dp)
-			)
-			KomikkuPaginationProfileStatusBadge(
-				profile = controllerState.paginationProfile,
-				modifier = Modifier
-					.align(Alignment.BottomCenter)
-					.padding(bottom = if (controllerState.menuVisible) 92.dp else 28.dp)
 			)
 			if (controllerState.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
 				KomikkuWhispersyncStatusBadge(

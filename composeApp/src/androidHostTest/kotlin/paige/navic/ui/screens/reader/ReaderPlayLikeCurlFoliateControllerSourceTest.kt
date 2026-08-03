@@ -1121,10 +1121,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(hostSource, "latestRasterPreparationState")
 		assertContains(hostSource, "latestRendererReadinessState")
 		assertContains(hostSource, "publishMergedPagePreparationState()")
-		assertContains(
-			hostSource,
-			"latestRasterPreparationState.withRendererReadiness("
-		)
+		assertContains(hostSource, "readerMergedPagePreparationState(")
+		assertContains(hostSource, "rasterState.withRendererReadiness(rendererState)")
 		assertContains(hostSource, "shellCoverView.isClickable = layers.shellCover")
 		assertContains(hostSource, "composeOverlay.isClickable = false")
 		assertFalse(

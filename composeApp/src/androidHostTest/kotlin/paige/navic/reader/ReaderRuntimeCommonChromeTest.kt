@@ -1035,15 +1035,15 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
-	fun commonReaderSuppressesPaginationProfileBadgeOverNativeCover() {
+	fun commonReaderShowsPaginationProgressOverNativeCover() {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val composeOverlayBody = readerRootText.substringAfter("private fun KomikkuComposeOverlay(")
 
 		assertContains(composeOverlayBody, "if (!controllerState.shellCoverVisible)")
 		assertTrue(
-			composeOverlayBody.indexOf("if (!controllerState.shellCoverVisible)") <
-				composeOverlayBody.indexOf("KomikkuPaginationProfileStatusBadge("),
-			"Pagination/profile status is reader diagnostics chrome, not cover content; it must be suppressed while the native shell cover is visible."
+			composeOverlayBody.indexOf("KomikkuPaginationProfileStatusBadge(") <
+				composeOverlayBody.indexOf("if (!controllerState.shellCoverVisible)"),
+			"Pagination progress must remain visible over the native shell cover until the publication is ready."
 		)
 	}
 
@@ -1290,7 +1290,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerRootText, "viewerSlot.update(viewState)")
 		assertContains(readerRootText, "KomikkuReaderNativeFrameHost(")
 		assertContains(readerRootText, "ReaderViewerHost(")
-		assertContains(readerRootText, "readerShellCoverViewerActionFor(action)")
+		assertContains(readerRootText, "readerShellCoverViewerActionFor(")
 		assertContains(readerRootText, "viewer.viewerActionFor(action)")
 		assertContains(readerRootText, "KomikkuReaderContentOverlay(")
 		assertContains(readerRootText, "KomikkuReaderAppBars(")

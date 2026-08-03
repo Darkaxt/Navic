@@ -347,6 +347,36 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun shellCoverPageTurnsWaitForInteractivePagePreparation() {
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+
+		assertContains(
+			readerRootText,
+			"pageTurnAllowed = pagePreparationState.interactiveReady &&"
+		)
+		assertContains(
+			readerRootText,
+			"controllerState.paginationProfile.status != \"measuring\""
+		)
+		assertContains(readerRootText, "?.let(onViewerAction)")
+	}
+
+	@Test
+	fun shellCoverShowsPaginationProgressBeforeEnteringThePublication() {
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val overlay = readerRootText.substringAfter("private fun KomikkuComposeOverlay(")
+		val paginationBadge = overlay.indexOf("KomikkuPaginationProfileStatusBadge(")
+		val contentOnlyOverlays = overlay.indexOf("if (!controllerState.shellCoverVisible)")
+
+		assertTrue(paginationBadge >= 0)
+		assertTrue(contentOnlyOverlays > paginationBadge)
+		assertContains(
+			readerRootText,
+			"if (controllerState.paginationProfile.status != \"measuring\")"
+		)
+	}
+
+	@Test
 	fun readerChromeIsImmersiveAndDrivenByNativeReaderSurfaceTaps() {
 		val runtimeText = readerBridgeText()
 		val readerScreenText = readerScreenFile().readText()
@@ -362,7 +392,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(nativeFrameHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")
 		assertContains(nativeFrameHostText, "navigator.getAction(")
 		assertContains(nativeFrameHostText, "onAction(action)")
-		assertContains(readerRootText, "readerShellCoverViewerActionFor(action)")
+		assertContains(readerRootText, "readerShellCoverViewerActionFor(")
 		assertContains(readerRootText, "viewer.viewerActionFor(action)")
 		assertContains(runtimeText, "attachReaderTapZoneGesture")
 		assertContains(runtimeText, "post({ type: 'readerCenterTap' })")

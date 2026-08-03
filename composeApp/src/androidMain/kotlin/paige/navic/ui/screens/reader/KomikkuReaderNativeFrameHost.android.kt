@@ -51,12 +51,14 @@ import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
 import paige.navic.reader.ReaderPageGestureLifecycle
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
+import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPageLifecycleCancellationReason
 import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePointerOwnership
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
 import paige.navic.reader.ReaderPagePreparationPresentation
+import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderPageReadinessState
@@ -70,6 +72,7 @@ import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerNativeReaderSwipeAction
 import paige.navic.reader.readerPageGestureShouldShowBusyFeedback
+import paige.navic.reader.readerPagePreparationState
 import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.readerRendererBusyFeedbackCanStartMinimumTimer
@@ -112,6 +115,36 @@ internal class ReaderRetainedValidatedPresentationOwnership {
 
 	fun hasPresentation(staticRasterShieldOwnership: Boolean): Boolean =
 		retainedRendererPresentation || staticRasterShieldOwnership
+}
+
+internal fun readerMergedPagePreparationState(
+	pageTurnCanvasEnabled: Boolean,
+	pageTurnContentReady: Boolean,
+	rasterState: ReaderPagePreparationState,
+	rendererState: ReaderPageRendererReadinessState
+): ReaderPagePreparationState = when {
+	!pageTurnContentReady -> readerPagePreparationState(
+		phase = ReaderPagePreparationPhase.Idle,
+		requiredCount = 0,
+		completedCount = 0,
+		interactiveRequiredCount = 0,
+		interactiveCompletedCount = 0,
+		readiness = ReaderPageReadinessState(
+			interaction = ReaderPageInteractionState.BlockingInitialPreparation
+		)
+	)
+	pageTurnCanvasEnabled -> rasterState.withRendererReadiness(rendererState)
+	else -> readerPagePreparationState(
+		phase = ReaderPagePreparationPhase.Ready,
+		requiredCount = 0,
+		completedCount = 0,
+		interactiveRequiredCount = 0,
+		interactiveCompletedCount = 0,
+		readiness = ReaderPageReadinessState(
+			textureDeck = ReaderTextureDeckState.Ready,
+			interaction = ReaderPageInteractionState.Ready
+		)
+	)
 }
 
 internal fun readerNativePresentationLayerVisibility(
@@ -1296,8 +1329,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun publishMergedPagePreparationState() {
-		val merged = latestRasterPreparationState.withRendererReadiness(
-			latestRendererReadinessState
+		val merged = readerMergedPagePreparationState(
+			pageTurnCanvasEnabled = pageTurnCanvasEnabled,
+			pageTurnContentReady = pageTurnContentReadyKey != null,
+			rasterState = latestRasterPreparationState,
+			rendererState = latestRendererReadinessState
 		)
 		setPageOperationPolicy(merged.operationPolicy)
 		onPagePreparationStateChange(merged)
@@ -1372,7 +1408,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
 		val supported = enabled && pageTurnBundleSource.isAvailable
-		if (pageTurnCanvasEnabled == supported) return
+		if (pageTurnCanvasEnabled == supported) {
+			publishMergedPagePreparationState()
+			return
+		}
 		if (!supported) {
 			dispatchPageHostLifecycleEvent(
 				ReaderPageHostLifecycleEvent.CanvasDisabled
@@ -1380,6 +1419,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		}
 		pageTurnCanvasEnabled = supported
 		playLikeCurlController.setEnabled(supported)
+		publishMergedPagePreparationState()
 		if (supported) {
 			requestPageTurnPrewarmWhenReady()
 		} else {
@@ -1426,9 +1466,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	fun setPageTurnContentReadyKey(contentReadyKey: String?) {
-		if (pageTurnContentReadyKey == contentReadyKey) return
+		if (pageTurnContentReadyKey == contentReadyKey) {
+			publishMergedPagePreparationState()
+			return
+		}
 		pageTurnContentReadyKey = contentReadyKey
 		pageRasterHostEventController.contentReadyKeyChanged(contentReadyKey)
+		publishMergedPagePreparationState()
 		if (contentReadyKey == null) return
 		Logger.i(
 			KomikkuReaderNativeFrameHostTag,

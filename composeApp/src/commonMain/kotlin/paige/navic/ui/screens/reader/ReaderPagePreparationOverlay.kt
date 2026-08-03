@@ -71,13 +71,21 @@ internal fun ReaderPagePreparationOverlay(
 						overflow = TextOverflow.Ellipsis
 					)
 				}
-				if (state.phase == ReaderPagePreparationPhase.Preparing) {
-					LinearProgressIndicator(
-						progress = { state.progress.coerceIn(0f, 1f) },
-						modifier = Modifier.fillMaxWidth(),
-						color = MaterialTheme.colorScheme.primary,
-						trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-					)
+				if (state.showsProgress) {
+					if (state.hasDeterminateProgress) {
+						LinearProgressIndicator(
+							progress = { state.progress.coerceIn(0f, 1f) },
+							modifier = Modifier.fillMaxWidth(),
+							color = MaterialTheme.colorScheme.primary,
+							trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+						)
+					} else {
+						LinearProgressIndicator(
+							modifier = Modifier.fillMaxWidth(),
+							color = MaterialTheme.colorScheme.primary,
+							trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+						)
+					}
 				}
 				state.error?.takeIf { it.isNotBlank() }?.let { error ->
 					Text(

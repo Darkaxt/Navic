@@ -1159,7 +1159,7 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderCoordinator must expose one controller-action dispatch boundary to the shell."
 		)
 		assertTrue(
-			readerRootText.contains("readerShellCoverViewerActionFor(action)") &&
+			readerRootText.contains("readerShellCoverViewerActionFor(") &&
 				readerRootText.contains("viewer.viewerActionFor(action)"),
 			"ReaderScreen must translate native tap regions through the shell-cover mapper or active viewer before reaching the controller."
 		)
@@ -1706,7 +1706,7 @@ class ReaderKomikkuBackboneResetTest {
 			"The native frame slot must be keyed by the retained viewer instance, not by a parallel identity calculation."
 		)
 		assertTrue(
-			readerRootText.contains("readerShellCoverViewerActionFor(action)") &&
+			readerRootText.contains("readerShellCoverViewerActionFor(") &&
 				readerRootText.contains("viewer.viewerActionFor(action)"),
 			"Native tap regions must become shell-cover or viewer-owned actions through the retained active viewer."
 		)
@@ -2072,7 +2072,7 @@ class ReaderKomikkuBackboneResetTest {
 			"Native tap classification must switch navigator by shell-cover visibility before emitting a viewer action."
 		)
 		assertTrue(
-			activeReaderText.contains("readerShellCoverViewerActionFor(action)") &&
+			activeReaderText.contains("readerShellCoverViewerActionFor(") &&
 				activeReaderText.contains("if (controllerState.shellCoverVisible)"),
 			"The common shell must map cover side regions physically before the normal reader direction mapping can invert them."
 		)

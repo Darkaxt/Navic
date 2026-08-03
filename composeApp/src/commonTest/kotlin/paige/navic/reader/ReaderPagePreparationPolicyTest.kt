@@ -7,6 +7,60 @@ import kotlin.test.assertTrue
 
 class ReaderPagePreparationPolicyTest {
 	@Test
+	fun blockingCoverShowsIndeterminateProgressBeforeRasterCountsExist() {
+		val state = readerPagePreparationState(
+			phase = ReaderPagePreparationPhase.Idle,
+			requiredCount = 0,
+			completedCount = 0,
+			interactiveRequiredCount = 0,
+			interactiveCompletedCount = 0,
+			readiness = ReaderPageReadinessState(
+				interaction = ReaderPageInteractionState.BlockingInitialPreparation
+			)
+		)
+
+		assertEquals(ReaderPagePreparationPresentation.Cover, state.presentation)
+		assertTrue(state.showsProgress)
+		assertFalse(state.hasDeterminateProgress)
+	}
+
+	@Test
+	fun failedCoverDoesNotShowPreparationProgress() {
+		val state = readerPagePreparationState(
+			phase = ReaderPagePreparationPhase.Failed,
+			requiredCount = 0,
+			completedCount = 0,
+			interactiveRequiredCount = 0,
+			interactiveCompletedCount = 0,
+			readiness = ReaderPageReadinessState(
+				interaction = ReaderPageInteractionState.Failed
+			)
+		)
+
+		assertEquals(ReaderPagePreparationPresentation.Cover, state.presentation)
+		assertFalse(state.showsProgress)
+	}
+
+	@Test
+	fun rendererFinalizationUsesIndeterminateProgressAfterRasterCountsFinish() {
+		val state = readerPagePreparationState(
+			phase = ReaderPagePreparationPhase.Ready,
+			requiredCount = 3,
+			completedCount = 3,
+			interactiveRequiredCount = 3,
+			interactiveCompletedCount = 3,
+			readiness = ReaderPageReadinessState(
+				textureDeck = ReaderTextureDeckState.Preparing,
+				interaction = ReaderPageInteractionState.BlockingInitialPreparation
+			)
+		)
+
+		assertEquals(ReaderPagePreparationPresentation.Cover, state.presentation)
+		assertTrue(state.showsProgress)
+		assertFalse(state.hasDeterminateProgress)
+	}
+
+	@Test
 	fun progressUsesCompletedOverRequired() {
 		val state = readerPagePreparationState(
 			phase = ReaderPagePreparationPhase.Preparing,
@@ -24,6 +78,8 @@ class ReaderPagePreparationPolicyTest {
 
 		assertEquals(0.25f, state.progress)
 		assertEquals(ReaderPagePreparationPresentation.Cover, state.presentation)
+		assertTrue(state.showsProgress)
+		assertTrue(state.hasDeterminateProgress)
 	}
 
 	@Test
