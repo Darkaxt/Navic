@@ -12,6 +12,16 @@ class ReaderWebCommandDispatchTest {
 		startLocator = ReaderLocator(cfi = "epubcfi(/6/2!/4/1:0)")
 	)
 
+	private val descriptor = ReaderRawTextProvenanceDescriptor(
+		id = "wordsync-v1-spine-2",
+		href = "chapter-2.xhtml",
+		spineIndex = 2,
+		sourceHash = "sha256:${"a".repeat(64)}",
+		extractedTextHash = "sha256:${"b".repeat(64)}",
+		byteLength = 12,
+		tokenCount = 3
+	)
+
 	@Test
 	fun runtimeSessionIsMonotonicAcrossRuntimeAndPublicationChanges() {
 		val initial = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
@@ -236,6 +246,113 @@ class ReaderWebCommandDispatchTest {
 			commandKey = 8L
 		)
 		assertEquals(emptyList(), duplicateReady.commands)
+	}
+
+	@Test
+	fun durableProvenanceQueuesBeforeACommandThatReplacedItsViewState() {
+		val first = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = ReaderBridgeCommand.ClearOverlay,
+			commandKey = 9L,
+			rawTextProvenanceDescriptors = listOf(descriptor)
+		)
+
+		assertEquals(
+			listOf("reader-open-1", "reader-provenance-1-1", "reader-command-1-9"),
+			first.state.pendingCommands.map { it.dispatch.id }
+		)
+		val provenance = first.state
+			.acknowledge("reader-open-1")
+			.commandsForReadyReaderRuntime(
+				runtimeGeneration = 0,
+				publicationKey = "book-1",
+				openCommand = firstOpen,
+				command = ReaderBridgeCommand.ClearOverlay,
+				commandKey = 9L,
+				rawTextProvenanceDescriptors = listOf(descriptor)
+			)
+		assertEquals(
+			listOf(ReaderBridgeCommand.InstallRawTextProvenance(descriptor)),
+			provenance.commands.map { it.command }
+		)
+	}
+
+	@Test
+	fun acknowledgedProvenanceReplaysAfterRuntimeRecreation() {
+		val initial = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L,
+			rawTextProvenanceDescriptors = listOf(descriptor)
+		)
+		val provenance = initial.state
+			.acknowledge("reader-open-1")
+			.commandsForReadyReaderRuntime(
+				runtimeGeneration = 0,
+				publicationKey = "book-1",
+				openCommand = firstOpen,
+				command = null,
+				commandKey = 0L,
+				rawTextProvenanceDescriptors = listOf(descriptor)
+			)
+		val acknowledged = provenance.state.acknowledge(provenance.commands.single().id)
+
+		val recreated = acknowledged.commandsForReadyReaderRuntime(
+			runtimeGeneration = 1,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L,
+			rawTextProvenanceDescriptors = listOf(descriptor)
+		)
+
+		assertEquals(
+			listOf("reader-open-1", "reader-provenance-1-2"),
+			recreated.state.pendingCommands.map { it.dispatch.id }
+		)
+	}
+
+	@Test
+	fun replacementProvenanceWithSameIdQueuesANewVerifiedAttempt() {
+		val initial = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L,
+			rawTextProvenanceDescriptors = listOf(descriptor)
+		)
+		val provenance = initial.state
+			.acknowledge("reader-open-1")
+			.commandsForReadyReaderRuntime(
+				runtimeGeneration = 0,
+				publicationKey = "book-1",
+				openCommand = firstOpen,
+				command = null,
+				commandKey = 0L,
+				rawTextProvenanceDescriptors = listOf(descriptor)
+			)
+		val acknowledged = provenance.state.acknowledge(provenance.commands.single().id)
+		val replacement = descriptor.copy(extractedTextHash = "sha256:${"c".repeat(64)}")
+
+		val replaced = acknowledged.commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L,
+			rawTextProvenanceDescriptors = listOf(replacement)
+		)
+
+		assertEquals(listOf("reader-provenance-1-2"), replaced.commands.map { it.id })
+		assertEquals(
+			listOf(ReaderBridgeCommand.InstallRawTextProvenance(replacement)),
+			replaced.commands.map { it.command }
+		)
 	}
 
 	@Test

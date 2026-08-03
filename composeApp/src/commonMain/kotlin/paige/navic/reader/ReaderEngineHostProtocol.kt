@@ -21,6 +21,7 @@ sealed interface ReaderEngineRenderer {
 		val nativeShellCoverTint: String? = null,
 		val settings: ReaderSettings,
 		val startLocator: ReaderLocator?,
+		val rawTextProvenanceDescriptors: List<ReaderRawTextProvenanceDescriptor>,
 		val command: ReaderEngineHostCommand?,
 		val commandKey: Long
 	) : ReaderEngineRenderer {
@@ -36,6 +37,7 @@ sealed interface ReaderEngineRenderer {
 					nativeShellCoverTint = viewState.nativeShellCoverTint,
 					settings = viewState.settings,
 					startLocator = viewState.startLocator,
+					rawTextProvenanceDescriptors = viewState.rawTextProvenanceDescriptors,
 					command = viewState.command,
 					commandKey = viewState.commandKey
 				)

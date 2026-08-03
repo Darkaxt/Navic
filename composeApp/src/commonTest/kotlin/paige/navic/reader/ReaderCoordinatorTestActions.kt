@@ -5,7 +5,6 @@ internal fun ReaderCoordinator.open(request: ReaderEngineOpenRequest) = dispatch
 internal fun ReaderCoordinator.onViewerAction(action: ReaderViewerAction) = dispatch { onViewerAction(action) }
 internal fun ReaderCoordinator.onBack() = dispatchBack { onBack() }
 internal fun ReaderCoordinator.onNavigateBack() = dispatchBack { onNavigateBack() }
-internal fun ReaderCoordinator.onEngineEvent(event: ReaderEngineEvent) = dispatch { onEngineEvent(event) }
 internal fun ReaderCoordinator.search(query: String) = dispatch { search(query) }
 internal fun ReaderCoordinator.updateSearchInput(query: String) = dispatch { updateSearchInput(query) }
 internal fun ReaderCoordinator.clearSearch() = dispatch { clearSearch() }

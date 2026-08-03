@@ -624,6 +624,7 @@ class ReaderBridgeProtocolTest {
 			  "type": "overlayFragmentInactive",
 			  "fragmentId": "frag-1",
 			  "overlayRequestId": 47,
+			  "coordinateMode": "wordsync-v1-extracted-utf8",
 			  "reason": "paint-rejected"
 			}
 			""".trimIndent()
@@ -632,6 +633,7 @@ class ReaderBridgeProtocolTest {
 		val inactive = assertIs<ReaderBridgeEvent.OverlayFragmentInactive>(event)
 		assertEquals("frag-1", inactive.fragmentId)
 		assertEquals(47L, inactive.overlayRequestId)
+		assertEquals(ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8, inactive.coordinateMode)
 		assertEquals("paint-rejected", inactive.reason)
 	}
 

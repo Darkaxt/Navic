@@ -228,6 +228,7 @@ sealed interface ReaderEngineEvent {
 	data class MediaOverlayInactive(
 		val fragmentId: String? = null,
 		val overlayRequestId: Long? = null,
+		val coordinateMode: ReaderOverlayCoordinateMode? = null,
 		val reason: String? = null
 	) : ReaderEngineEvent
 	data class Error(val message: String, val code: String? = null) : ReaderEngineEvent
@@ -281,6 +282,7 @@ sealed interface ReaderEngineViewState {
 		val canReturnToShellCover: Boolean,
 		val settings: ReaderSettings,
 		val startLocator: ReaderLocator?,
+		val rawTextProvenanceDescriptors: List<ReaderRawTextProvenanceDescriptor> = emptyList(),
 		val command: ReaderEngineHostCommand? = null,
 		val commandKey: Long = 0L
 	) : ReaderEngineViewState

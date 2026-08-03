@@ -54,6 +54,10 @@ import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncStatusKind
 import paige.navic.reader.ReaderWhispersyncStatusMessage
+import paige.navic.reader.ReaderWordSyncEffect
+import paige.navic.reader.ReaderWordSyncPlaybackIdentity
+import paige.navic.reader.WordSyncPublicationVerificationSession
+import paige.navic.reader.WordSyncPublicationVerifier
 import paige.navic.reader.restoreProcessState
 import paige.navic.reader.ReadaloudPlaybackPlan
 import paige.navic.reader.WhispersyncSyncLogTag
@@ -188,6 +192,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 	) {
 		mutableStateOf<ReadaloudPlaybackPlan?>(null)
 	}
+	var wordSyncPublicationVerifier by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		mutableStateOf<WordSyncPublicationVerifier?>(null)
+	}
+	var wordSyncVerificationSession by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		mutableStateOf<WordSyncPublicationVerificationSession?>(null)
+	}
 	val controllerState = coordinator.controller.state
 	val settings = controllerState.chrome.settings
 	val runtimeSettings = settings.withReaderListeningSettings(listeningSettings)
@@ -274,6 +284,86 @@ fun ReaderScreen(reader: Screen.Reader) {
 					"Whispersync audio seek ignored audio=${target.audioResource.whispersyncLogValue()} " +
 						"positionMs=${target.positionMs} reason=no-playback-plan-match"
 				)
+			}
+		}
+		step.wordSyncEffects.forEach { effect ->
+			when (effect) {
+				is ReaderWordSyncEffect.LoadIndex -> {
+					val verifier = wordSyncPublicationVerifier
+					if (verifier == null) {
+						applyCoordinatorStep(coordinator.onWordSyncIndexFailed(effect.generation))
+					} else {
+						coroutineScope.launch {
+							val result = withContext(Dispatchers.IO) {
+								binderyRepository.getWordSyncIndex(
+									identity = effect.reference.identity,
+									discovery = effect.reference.discovery
+								).mapCatching { index -> index to verifier.verify(index) }
+							}
+							result.fold(
+								onSuccess = { (index, session) ->
+									if (coordinator.acceptsWordSyncGeneration(effect.generation)) {
+										wordSyncVerificationSession = session
+										applyCoordinatorStep(
+											coordinator.onWordSyncIndexVerified(
+												generation = effect.generation,
+												index = index,
+												provenance = session.provenance
+											)
+										)
+									}
+								},
+								onFailure = {
+									if (coordinator.acceptsWordSyncGeneration(effect.generation)) {
+										wordSyncVerificationSession = null
+										applyCoordinatorStep(coordinator.onWordSyncIndexFailed(effect.generation))
+										Logger.w(ReaderScreenTag, "WordSync index load or verification failed")
+									}
+								}
+							)
+						}
+					}
+				}
+				is ReaderWordSyncEffect.LoadChapter -> {
+					val session = wordSyncVerificationSession
+					if (session == null) {
+						applyCoordinatorStep(
+							coordinator.onWordSyncChapterFailed(effect.generation, effect.summary.chapterKey)
+						)
+					} else {
+						coroutineScope.launch {
+							val result = withContext(Dispatchers.IO) {
+								binderyRepository.getWordSyncChapter(
+									identity = effect.identity,
+									chapter = effect.summary
+								).mapCatching { chapter ->
+									session.verifyChapter(chapter)
+									chapter
+								}
+							}
+							result.fold(
+								onSuccess = { chapter ->
+									if (coordinator.acceptsWordSyncGeneration(effect.generation)) {
+										applyCoordinatorStep(
+											coordinator.onWordSyncChapterVerified(effect.generation, chapter)
+										)
+									}
+								},
+								onFailure = {
+									if (coordinator.acceptsWordSyncGeneration(effect.generation)) {
+										applyCoordinatorStep(
+											coordinator.onWordSyncChapterFailed(
+												effect.generation,
+												effect.summary.chapterKey
+											)
+										)
+										Logger.w(ReaderScreenTag, "WordSync chapter load or verification failed")
+									}
+								}
+							)
+						}
+					}
+				}
 			}
 		}
 	}
@@ -384,7 +474,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 		readaloudSyncEnabled
 	) {
 		whispersyncReadaloudPlaybackState?.let { playbackState ->
-			applyCoordinatorStep(coordinator.dispatch { onReadaloudPlaybackState(playbackState) })
+			applyCoordinatorStep(
+				coordinator.onReadaloudPlaybackState(
+					playbackState = playbackState,
+					playbackIdentity = playbackState.toWordSyncPlaybackIdentity(whispersyncPlaybackPlan)
+				)
+			)
 		}
 	}
 
@@ -405,7 +500,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 				shellCoverUrl,
 				shellCoverTint,
 				savedProgress,
-				_ ->
+				wordSyncVerifier ->
 			val localProgress = ReaderReadingProgressState(
 				decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)
 			).startProgressFor(
@@ -423,7 +518,15 @@ fun ReaderScreen(reader: Screen.Reader) {
 					settings = runtimeSettings
 				)
 			)
-			reader.whispersyncLaunchAttachment()?.let { attachment ->
+			val attachment = reader.whispersyncLaunchAttachment()
+			val wordSyncReference = attachment?.wordSync?.takeIf { reference ->
+				wordSyncVerifier != null &&
+					attachment.audiobookBookFileId.toLongOrNull() == reference.identity.audiobookBookFileId
+			}
+			wordSyncPublicationVerifier = wordSyncVerifier.takeIf { wordSyncReference != null }
+			wordSyncVerificationSession = null
+			applyCoordinatorStep(coordinator.configureWordSync(wordSyncReference))
+			attachment?.let { attachment ->
 				coroutineScope.launch {
 					val sidecar = withContext(Dispatchers.IO) {
 						binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)
@@ -470,7 +573,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 								companionProgressJson = preferenceManager.binderyWhispersyncCompanionProgressJson,
 								bookId = reader.bookId,
 								versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
-								manifest = manifest
+								manifest = manifest,
+								audiobookBookFileId = attachment.audiobookBookFileId
 							)
 							val playbackPlan = binderyAudiobookPlaybackPlan(
 								manifest = manifest,
@@ -478,7 +582,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 								opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
 								requestHeaders = requestHeaders,
 								resumeProgress = resumeProgress,
-								progressBookId = reader.bookId
+								progressBookId = reader.bookId,
+								audiobookBookFileId = attachment.audiobookBookFileId
 							)
 							whispersyncPlaybackPlan = playbackPlan
 							audiobookPlaybackManager.load(
@@ -552,7 +657,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 		playbackCommand = readaloudCommand,
 		playbackCommandKey = readaloudCommandKey,
 		onPlaybackState = { playbackState ->
-			applyCoordinatorStep(coordinator.dispatch { onReadaloudPlaybackState(playbackState) })
+			applyCoordinatorStep(
+				coordinator.onReadaloudPlaybackState(
+					playbackState = playbackState,
+					playbackIdentity = playbackState.toWordSyncPlaybackIdentity(whispersyncPlaybackPlan)
+				)
+			)
 		},
 		onError = { message ->
 			applyCoordinatorStep(
@@ -802,5 +912,24 @@ private fun AudiobookMiniPlayerUiState.toWhispersyncReadaloudPlaybackUiState(
 		playbackSpeed = playbackSpeed,
 		activeAudioMetadata = activeAudioMetadata,
 		syncEnabled = syncEnabled
+	)
+}
+
+private fun ReaderReadaloudPlaybackUiState.toWordSyncPlaybackIdentity(
+	playbackPlan: ReadaloudPlaybackPlan?
+): ReaderWordSyncPlaybackIdentity? {
+	val resourceId = audioResource?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val planResourceId = playbackPlan?.mediaItems
+		?.getOrNull(trackIndex)
+		?.resourceKey
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?: return null
+	if (resourceId != planResourceId) return null
+	return ReaderWordSyncPlaybackIdentity(
+		audioResourceId = planResourceId,
+		audioTrackIndex = trackIndex,
+		positionMs = positionMs.coerceAtLeast(0L),
+		playbackSpeed = playbackSpeed
 	)
 }

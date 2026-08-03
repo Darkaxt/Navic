@@ -12,6 +12,8 @@ data class ReaderWebCommandDispatchState(
 	val foliateSessionId: String? = null,
 	val lastCommandKey: Long? = null,
 	val lastKnownLocator: ReaderLocator? = null,
+	val rawTextProvenanceById: Map<String, ReaderRawTextProvenanceDescriptor> = emptyMap(),
+	val rawTextProvenanceSequence: Long = 0L,
 	val pendingCommands: List<ReaderWebPendingCommand> = emptyList()
 ) {
 	fun observeLocator(locator: ReaderLocator): ReaderWebCommandDispatchState =
@@ -44,7 +46,8 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 	publicationKey: String,
 	openCommand: ReaderBridgeCommand.OpenPublication,
 	command: ReaderBridgeCommand?,
-	commandKey: Long
+	commandKey: Long,
+	rawTextProvenanceDescriptors: List<ReaderRawTextProvenanceDescriptor> = emptyList()
 ): ReaderWebCommandDispatchStep {
 	val publicationChanged = this.publicationKey != publicationKey
 	val generationChanged = this.runtimeGeneration != runtimeGeneration
@@ -60,6 +63,7 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 		)
 		generationChanged -> copy(
 			runtimeGeneration = runtimeGeneration,
+			rawTextProvenanceById = emptyMap(),
 			pendingCommands = emptyList()
 		)
 		else -> this
@@ -85,6 +89,23 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 				)
 			)
 		)
+	}
+
+	rawTextProvenanceDescriptors.forEach { descriptor ->
+		if (nextState.rawTextProvenanceById[descriptor.id] != descriptor) {
+			val nextProvenanceSequence = nextState.rawTextProvenanceSequence + 1L
+			nextState = nextState.copy(
+				rawTextProvenanceById =
+					nextState.rawTextProvenanceById + (descriptor.id to descriptor),
+				rawTextProvenanceSequence = nextProvenanceSequence,
+				pendingCommands = nextState.pendingCommands + ReaderWebPendingCommand(
+					dispatch = ReaderBridgeDispatchCommand(
+						id = "reader-provenance-${nextState.publicationSequence}-$nextProvenanceSequence",
+						command = ReaderBridgeCommand.InstallRawTextProvenance(descriptor)
+					)
+				)
+			)
+		}
 	}
 
 	val shouldQueueCurrentCommand = command != null && when {

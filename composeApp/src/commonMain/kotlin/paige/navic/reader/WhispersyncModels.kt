@@ -182,7 +182,8 @@ data class WhispersyncSegment(
 data class WhispersyncAudioSeekTarget(
 	val audioResource: String,
 	val positionMs: Long,
-	val segment: WhispersyncSegment
+	val segment: WhispersyncSegment,
+	val audioTrackIndex: Int? = null
 )
 
 fun encodeWhispersyncSidecar(sidecar: WhispersyncSidecar): String =

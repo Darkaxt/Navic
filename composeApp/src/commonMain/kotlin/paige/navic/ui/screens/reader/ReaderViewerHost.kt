@@ -89,6 +89,7 @@ private fun ReaderEngineContent(
 			startCfi = engineRenderer.startLocator?.cfi,
 			startHref = engineRenderer.startLocator?.href,
 			startProgress = engineRenderer.startLocator?.progress,
+			rawTextProvenanceDescriptors = engineRenderer.rawTextProvenanceDescriptors,
 			command = engineRenderer.command,
 			commandKey = engineRenderer.commandKey,
 			onEvent = onEngineHostEvent,

@@ -243,6 +243,50 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	}
 
 	@Test
+	fun exactWordSyncTrackIdentityWinsOverLegacyCueTrack() {
+		val command = readerWhispersyncPlaybackCommandForSeekTarget(
+			playbackPlan = whispersyncPlaybackPlan(),
+			seekTarget = WhispersyncAudioSeekTarget(
+				audioResource = "Audio/chapter02.m4b",
+				positionMs = 51_000L,
+				segment = WhispersyncSegment(
+					audioTrackIndex = 0,
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 50_000L,
+					endMs = 53_000L,
+					textHref = "Text/chapter2.xhtml"
+				),
+				audioTrackIndex = 1
+			)
+		)
+
+		val seekCommand = assertIs<ReaderReadaloudPlaybackCommand.SeekToTrack>(command)
+		assertEquals(1, seekCommand.trackIndex)
+		assertEquals(51_000L, seekCommand.positionMs)
+	}
+
+	@Test
+	fun exactWordSyncTrackIdentityFailsClosedOnResourceMismatch() {
+		val command = readerWhispersyncPlaybackCommandForSeekTarget(
+			playbackPlan = whispersyncPlaybackPlan(),
+			seekTarget = WhispersyncAudioSeekTarget(
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 51_000L,
+				segment = WhispersyncSegment(
+					audioTrackIndex = 0,
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 50_000L,
+					endMs = 53_000L,
+					textHref = "Text/chapter2.xhtml"
+				),
+				audioTrackIndex = 1
+			)
+		)
+
+		assertNull(command)
+	}
+
+	@Test
 	fun whispersyncControlIsHiddenWhenReaderHasNoSyncedAudio() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(),

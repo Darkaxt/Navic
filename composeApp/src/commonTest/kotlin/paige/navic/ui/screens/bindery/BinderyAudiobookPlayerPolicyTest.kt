@@ -97,6 +97,46 @@ class BinderyAudiobookPlayerPolicyTest {
 	}
 
 	@Test
+	fun explicitBookFileIdSelectsEditionWhenVersionIdentityIsOpaque() {
+		val manifest = BinderyManifest(
+			id = "book-1",
+			title = "Book",
+			readingOrder = listOf(
+				audioItem("one-a", "Book One - Chapter 1", "file-one"),
+				audioItem("two-a", "Book Two - Chapter 1", "file-two")
+			)
+		)
+
+		val selected = selectedBinderyAudiobookReadingOrder(
+			manifest = manifest,
+			versionRowId = "opaque-row-identity",
+			audiobookBookFileId = "file-two"
+		)
+
+		assertEquals(listOf("two-a"), selected.map { it.href })
+	}
+
+	@Test
+	fun explicitBookFileIdFailsClosedWhenEditionIsMissing() {
+		val manifest = BinderyManifest(
+			id = "book-1",
+			title = "Book",
+			readingOrder = listOf(
+				audioItem("one-a", "Book One - Chapter 1", "file-one"),
+				audioItem("two-a", "Book Two - Chapter 1", "file-two")
+			)
+		)
+
+		val selected = selectedBinderyAudiobookReadingOrder(
+			manifest = manifest,
+			versionRowId = "opaque-row-identity",
+			audiobookBookFileId = "file-missing"
+		)
+
+		assertEquals(emptyList(), selected)
+	}
+
+	@Test
 	fun playbackPlanUsesRememberedPositionForSelectedEdition() {
 		val manifest = BinderyManifest(
 			id = "book-1",

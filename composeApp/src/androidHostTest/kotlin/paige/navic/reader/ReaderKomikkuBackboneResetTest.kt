@@ -156,8 +156,9 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			activeText.contains("coordinator.onReadaloudEngineCommand(command)") &&
-				activeText.contains("coordinator.dispatch { onReadaloudPlaybackState(playbackState) }"),
-			"Readaloud overlay and playback outputs must route through ReaderCoordinator/ReaderController."
+				activeText.contains("coordinator.onReadaloudPlaybackState(") &&
+				activeText.contains("playbackIdentity = playbackState.toWordSyncPlaybackIdentity("),
+			"Readaloud overlay and playback outputs must route through ReaderCoordinator with exact WordSync playback identity."
 		)
 		assertTrue(
 			platformText.contains("readerHostEvent: ReaderEngineHostEvent?") &&
@@ -2014,8 +2015,10 @@ class ReaderKomikkuBackboneResetTest {
 		).readText()
 
 		assertTrue(
-			platformHostsText.contains("onPublicationReady: (String, String?, String?, BinderyReadingProgress?) -> Unit"),
-			"Publication runtime must return saved progress through the app boundary before the engine open request is built."
+			platformHostsText.contains("onPublicationReady: (") &&
+				platformHostsText.contains("BinderyReadingProgress?,") &&
+				platformHostsText.contains("WordSyncPublicationVerifier?"),
+			"Publication runtime must return saved progress and the exact WordSync verifier through the app boundary before the engine open request is built."
 		)
 		assertTrue(
 			readerScreenText.contains("savedProgress = savedProgress"),

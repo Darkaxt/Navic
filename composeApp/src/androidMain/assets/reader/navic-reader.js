@@ -1635,8 +1635,12 @@ window.NavicReaderBridge = {
   activeMediaOverlaySnapshot: () =>
     runtime.mediaOverlayActiveFragment ? { ...runtime.mediaOverlayActiveFragment } : null,
   postOverlayFragmentActive: fragment => post({ type: 'overlayFragmentActive', ...fragment }),
-  postOverlayFragmentInactive: (fragmentId, overlayRequestId = null, reason = null) =>
-    post({ type: 'overlayFragmentInactive', fragmentId, overlayRequestId, reason }),
+  postOverlayFragmentInactive: (
+    fragmentId,
+    overlayRequestId = null,
+    reason = null,
+    coordinateMode = null
+  ) => post({ type: 'overlayFragmentInactive', fragmentId, overlayRequestId, coordinateMode, reason }),
 }
 
 readerTrace('runtime:ready', { engine: 'foliate-js' })

@@ -33,6 +33,7 @@ import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderOverlayCoordinateMode
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPublicationKind
+import paige.navic.reader.ReaderRawTextProvenanceDescriptor
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderUnboundFoliateSessionId
 import paige.navic.reader.ReaderWebCommandDispatchState
@@ -76,6 +77,7 @@ actual fun ReaderEngineWebViewHost(
 	startCfi: String?,
 	startHref: String?,
 	startProgress: Double?,
+	rawTextProvenanceDescriptors: List<ReaderRawTextProvenanceDescriptor>,
 	command: ReaderEngineHostCommand?,
 	commandKey: Long,
 	onEvent: (ReaderEngineHostEvent) -> Unit,
@@ -145,6 +147,7 @@ actual fun ReaderEngineWebViewHost(
 	}
 	val currentPublicationKey by rememberUpdatedState(publicationKey)
 	val currentOpenCommand by rememberUpdatedState(openCommand)
+	val currentRawTextProvenanceDescriptors by rememberUpdatedState(rawTextProvenanceDescriptors)
 	val currentCommand by rememberUpdatedState(command.toReaderBridgeCommandWithEngineNativeTapZones())
 	val currentCommandKey by rememberUpdatedState(commandKey)
 	var webView by remember { mutableStateOf<WebView?>(null) }
@@ -186,7 +189,8 @@ actual fun ReaderEngineWebViewHost(
 			publicationKey = currentPublicationKey,
 			openCommand = currentOpenCommand,
 			command = currentCommand,
-			commandKey = currentCommandKey
+			commandKey = currentCommandKey,
+			rawTextProvenanceDescriptors = currentRawTextProvenanceDescriptors
 		)
 		commandDispatchState = step.state
 		step.commands.forEach { dispatch ->

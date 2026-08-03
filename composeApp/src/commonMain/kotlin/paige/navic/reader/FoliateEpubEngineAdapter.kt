@@ -116,9 +116,7 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineCommand.RequestVisibleTextRange -> dispatch(
 				ReaderBridgeCommand.RequestVisibleTextRange(command.source)
 			)
-			is ReaderEngineCommand.InstallRawTextProvenance -> dispatch(
-				ReaderBridgeCommand.InstallRawTextProvenance(command.descriptor)
-			)
+			is ReaderEngineCommand.InstallRawTextProvenance -> retainRawTextProvenance(command.descriptor)
 			is ReaderEngineCommand.ApplyMediaOverlay -> dispatch(
 				ReaderBridgeCommand.ApplyOverlayFragment(command.fragment)
 			)
@@ -235,6 +233,7 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderBridgeEvent.OverlayFragmentInactive -> ReaderEngineEvent.MediaOverlayInactive(
 				fragmentId = event.fragmentId,
 				overlayRequestId = event.overlayRequestId,
+				coordinateMode = event.coordinateMode,
 				reason = event.reason
 			)
 			is ReaderBridgeEvent.Error -> ReaderEngineEvent.Error(
@@ -306,6 +305,19 @@ sealed class FoliateWebViewEngineAdapter(
 
 	private fun scrollViewport(direction: ReaderViewportScrollDirection): ReaderEngineStep =
 		dispatch(ReaderBridgeCommand.ScrollViewport(direction))
+
+	private fun retainRawTextProvenance(
+		descriptor: ReaderRawTextProvenanceDescriptor
+	): ReaderEngineStep {
+		val nextViewState = currentViewState?.copy(
+			rawTextProvenanceDescriptors =
+				currentViewState.rawTextProvenanceDescriptors.filterNot { it.id == descriptor.id } + descriptor
+		) ?: return ReaderEngineStep(this)
+		return ReaderEngineStep(
+			engine = copyEngine(nextViewState, currentCommandKey),
+			viewState = nextViewState
+		)
+	}
 
 	private fun dispatch(command: ReaderBridgeCommand): ReaderEngineStep {
 		val nextCommandKey = currentCommandKey + 1L

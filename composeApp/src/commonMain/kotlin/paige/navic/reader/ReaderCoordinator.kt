@@ -1,12 +1,14 @@
 package paige.navic.reader
 
 import paige.navic.domain.repositories.BinderyReadingProgress
+import paige.navic.domain.repositories.BinderyWordSyncReference
 
 data class ReaderCoordinatorStep(
 	val coordinator: ReaderCoordinator,
 	val progressToSave: BinderyReadingProgress? = null,
 	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null,
-	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null
+	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null,
+	internal val wordSyncEffects: List<ReaderWordSyncEffect> = emptyList()
 )
 
 data class ReaderCoordinatorBackStep(
@@ -25,6 +27,7 @@ data class ReaderCoordinator(
 		ReaderPublicationFormat.Cbz to FoliatePublicationEngineAdapter(ReaderPublicationFormat.Cbz),
 		ReaderPublicationFormat.Fb2 to FoliatePublicationEngineAdapter(ReaderPublicationFormat.Fb2)
 	),
+	internal val wordSync: ReaderWordSyncPlaybackCoordinator = ReaderWordSyncPlaybackCoordinator(),
 	val viewState: ReaderEngineViewState = ReaderEngineViewState.Empty
 ) {
 	fun dispatch(action: ReaderController.() -> ReaderControllerStep): ReaderCoordinatorStep =
@@ -38,8 +41,48 @@ data class ReaderCoordinator(
 			?.let { format -> engineAdapters[format] }
 			?.onHostEvent(event)
 			?: return ReaderCoordinatorStep(this)
-		return dispatch { onEngineEvent(engineEvent) }
+		return onEngineEvent(engineEvent)
 	}
+
+	fun onEngineEvent(event: ReaderEngineEvent): ReaderCoordinatorStep =
+		applyWordSyncDecision(wordSync.onEngineEvent(controller, event))
+
+	internal fun configureWordSync(reference: BinderyWordSyncReference?): ReaderCoordinatorStep =
+		ReaderCoordinatorStep(copy(wordSync = wordSync.configure(reference)))
+
+	internal fun acceptsWordSyncGeneration(generation: Long): Boolean =
+		wordSync.reference != null && wordSync.generation == generation
+
+	internal fun onReadaloudPlaybackState(
+		playbackState: ReaderReadaloudPlaybackUiState,
+		playbackIdentity: ReaderWordSyncPlaybackIdentity?
+	): ReaderCoordinatorStep = applyWordSyncDecision(
+		wordSync.coordinate(
+			controllerStep = controller.onReadaloudPlaybackState(playbackState),
+			playback = playbackIdentity
+		)
+	)
+
+	internal fun onWordSyncIndexVerified(
+		generation: Long,
+		index: WordSyncIndex,
+		provenance: WordSyncPublicationProvenance
+	): ReaderCoordinatorStep = applyWordSyncDecision(
+		wordSync.onIndexVerified(generation, index, provenance, controller)
+	)
+
+	internal fun onWordSyncIndexFailed(generation: Long): ReaderCoordinatorStep =
+		applyWordSyncDecision(wordSync.onIndexFailed(generation, controller))
+
+	internal fun onWordSyncChapterVerified(
+		generation: Long,
+		chapter: WordSyncChapter
+	): ReaderCoordinatorStep = applyWordSyncDecision(
+		wordSync.onChapterVerified(generation, chapter, controller)
+	)
+
+	internal fun onWordSyncChapterFailed(generation: Long, chapterKey: String): ReaderCoordinatorStep =
+		applyWordSyncDecision(wordSync.onChapterFailed(generation, chapterKey, controller))
 
 	fun onReadaloudEngineCommand(command: ReaderEngineCommand): ReaderCoordinatorStep =
 		when (command) {
@@ -51,7 +94,17 @@ data class ReaderCoordinator(
 		}
 
 	private fun applyControllerStep(step: ReaderControllerStep): ReaderCoordinatorStep {
-		var next = copy(controller = step.controller)
+		val nextWordSync = if (step.engineCommands.any { it is ReaderEngineCommand.OpenPublication }) {
+			wordSync.configure(null)
+		} else {
+			wordSync
+		}
+		return applyWordSyncDecision(nextWordSync.coordinate(step))
+	}
+
+	private fun applyWordSyncDecision(decision: ReaderWordSyncDecision): ReaderCoordinatorStep {
+		val step = decision.controllerStep
+		var next = copy(controller = step.controller, wordSync = decision.coordinator)
 		step.engineCommands.forEach { command ->
 			next = next.applyEngineCommand(command)
 		}
@@ -59,7 +112,8 @@ data class ReaderCoordinator(
 			coordinator = next,
 			progressToSave = step.progressToSave,
 			whispersyncAudioSeekTarget = step.whispersyncAudioSeekTarget,
-			readaloudPlaybackCommand = step.readaloudPlaybackCommand
+			readaloudPlaybackCommand = step.readaloudPlaybackCommand,
+			wordSyncEffects = decision.effects
 		)
 	}
 

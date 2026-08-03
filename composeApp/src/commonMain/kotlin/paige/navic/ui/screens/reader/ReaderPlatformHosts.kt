@@ -13,6 +13,7 @@ import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderPublicationKind
+import paige.navic.reader.ReaderRawTextProvenanceDescriptor
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderSettings
@@ -68,6 +69,7 @@ expect fun ReaderEngineWebViewHost(
 	startCfi: String?,
 	startHref: String?,
 	startProgress: Double?,
+	rawTextProvenanceDescriptors: List<ReaderRawTextProvenanceDescriptor> = emptyList(),
 	command: ReaderEngineHostCommand? = null,
 	commandKey: Long = 0L,
 	onEvent: (ReaderEngineHostEvent) -> Unit,

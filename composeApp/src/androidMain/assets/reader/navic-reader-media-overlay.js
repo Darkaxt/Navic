@@ -40,6 +40,7 @@ function postOverlayFragmentInactive(fragment, reason) {
     type: 'overlayFragmentInactive',
     fragmentId: fragment?.fragmentId || null,
     overlayRequestId: fragment?.overlayRequestId ?? null,
+    coordinateMode: fragment?.coordinateMode ?? null,
     reason,
   })
 }

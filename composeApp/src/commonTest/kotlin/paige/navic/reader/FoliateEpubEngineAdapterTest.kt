@@ -139,6 +139,37 @@ class FoliateEpubEngineAdapterTest {
 	}
 
 	@Test
+	fun retainsRawProvenanceAcrossLaterBridgeCommands() {
+		val opened = FoliateEpubEngineAdapter()
+			.onCommand(ReaderEngineCommand.OpenPublication(hobbitOpenRequest()))
+			.engine
+		val descriptor = ReaderRawTextProvenanceDescriptor(
+			id = "wordsync-v1-spine-2",
+			href = "chapter-02.xhtml",
+			spineIndex = 2,
+			sourceHash = "sha256:${"a".repeat(64)}",
+			extractedTextHash = "sha256:${"b".repeat(64)}",
+			byteLength = 12,
+			tokenCount = 3
+		)
+		val installed = opened.onCommand(ReaderEngineCommand.InstallRawTextProvenance(descriptor))
+		val overlay = installed.engine.onCommand(
+			ReaderEngineCommand.ApplyMediaOverlay(
+				ReaderOverlayFragment(
+					resourceHref = "audio-2",
+					textHref = descriptor.href,
+					textStart = 0,
+					textEnd = 4
+				)
+			)
+		)
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(overlay.viewState)
+
+		assertEquals(listOf(descriptor), viewState.rawTextProvenanceDescriptors)
+		assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(viewState.bridgeCommand())
+	}
+
+	@Test
 	fun dispatchesChapterLocalRailSeekAsFoliateChapterProgressCommand() {
 		val opened = FoliateEpubEngineAdapter()
 			.onCommand(ReaderEngineCommand.OpenPublication(hobbitOpenRequest()))

@@ -141,9 +141,14 @@ fun binderyAudiobookPlaybackPlan(
 	requestHeaders: Map<String, String>,
 	playbackSpeed: Float = 1f,
 	resumeProgress: BinderyAudiobookPlaybackProgress? = null,
-	progressBookId: String? = null
+	progressBookId: String? = null,
+	audiobookBookFileId: String? = null
 ): ReadaloudPlaybackPlan {
-	val absoluteReadingOrder = selectedBinderyAudiobookReadingOrder(manifest, versionRowId)
+	val absoluteReadingOrder = selectedBinderyAudiobookReadingOrder(
+		manifest = manifest,
+		versionRowId = versionRowId,
+		audiobookBookFileId = audiobookBookFileId
+	)
 		.map { item -> item.copy(href = binderyEndpoint(opdsBaseUrl, item.href)) }
 	val basePlan = readaloudAudioSessionFromBindery(
 		manifest = manifest,
@@ -180,14 +185,16 @@ fun binderyAudiobookPlaybackPlan(
 
 fun selectedBinderyAudiobookReadingOrder(
 	manifest: BinderyManifest,
-	versionRowId: String
+	versionRowId: String,
+	audiobookBookFileId: String? = null
 ): List<BinderyReadingOrderItem> {
 	val audioItems = manifest.readingOrder.filter(BinderyReadingOrderItem::isAudiobookAudio)
-	val selectedBookFileId = versionRowId.selectedAudiobookBookFileId()
+	val explicitBookFileId = audiobookBookFileId?.trim()?.takeIf { it.isNotEmpty() }
+	val selectedBookFileId = explicitBookFileId ?: versionRowId.selectedAudiobookBookFileId()
 	val selectedItems = selectedBookFileId?.let { bookFileId ->
 		audioItems.filter { item -> item.bookFileId().equals(bookFileId, ignoreCase = true) }
 	}.orEmpty()
-	return selectedItems.ifEmpty { audioItems }
+	return if (explicitBookFileId != null) selectedItems else selectedItems.ifEmpty { audioItems }
 }
 
 fun binderyAudiobookSavedProgress(
@@ -248,13 +255,18 @@ fun binderyAudiobookProgressForPosition(
 fun binderyAudiobookProgressFromWhispersyncCompanion(
 	progress: BinderyWhispersyncCompanionProgress,
 	manifest: BinderyManifest,
-	versionRowId: String
+	versionRowId: String,
+	audiobookBookFileId: String? = null
 ): BinderyAudiobookPlaybackProgress? {
 	val fraction = progress.progressFraction
 		.takeIf(Double::isFinite)
 		?.coerceIn(0.0, 1.0)
 		?: return null
-	val audioItems = selectedBinderyAudiobookReadingOrder(manifest, versionRowId)
+	val audioItems = selectedBinderyAudiobookReadingOrder(
+		manifest = manifest,
+		versionRowId = versionRowId,
+		audiobookBookFileId = audiobookBookFileId
+	)
 	if (audioItems.isEmpty()) return null
 	val exact = binderyAudiobookExactProgressFromWhispersyncCompanion(
 		progress = progress,
@@ -301,7 +313,8 @@ fun binderyAudiobookResumeProgressForWhispersyncReader(
 	companionProgressJson: String,
 	bookId: String,
 	versionRowId: String,
-	manifest: BinderyManifest
+	manifest: BinderyManifest,
+	audiobookBookFileId: String? = null
 ): BinderyAudiobookPlaybackProgress? {
 	val direct = binderyAudiobookSavedProgress(
 		json = audiobookProgressJson,
@@ -315,7 +328,8 @@ fun binderyAudiobookResumeProgressForWhispersyncReader(
 			binderyAudiobookProgressFromWhispersyncCompanion(
 				progress = progress,
 				manifest = manifest,
-				versionRowId = versionRowId
+				versionRowId = versionRowId,
+				audiobookBookFileId = audiobookBookFileId
 			)
 		}
 	return binderyAudiobookBestResumeProgress(

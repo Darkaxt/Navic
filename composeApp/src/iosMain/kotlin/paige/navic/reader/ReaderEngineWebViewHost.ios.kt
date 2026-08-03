@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import paige.navic.reader.ReaderEngineHostCommand
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderPublicationKind
+import paige.navic.reader.ReaderRawTextProvenanceDescriptor
 import paige.navic.reader.ReaderSettings
 
 @Composable
@@ -24,6 +25,7 @@ actual fun ReaderEngineWebViewHost(
 	startCfi: String?,
 	startHref: String?,
 	startProgress: Double?,
+	rawTextProvenanceDescriptors: List<ReaderRawTextProvenanceDescriptor>,
 	command: ReaderEngineHostCommand?,
 	commandKey: Long,
 	onEvent: (ReaderEngineHostEvent) -> Unit,

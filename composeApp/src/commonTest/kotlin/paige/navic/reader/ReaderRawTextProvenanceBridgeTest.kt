@@ -7,7 +7,7 @@ import kotlin.test.assertNull
 
 class ReaderRawTextProvenanceBridgeTest {
 	@Test
-	fun installCommandRoutesThroughMediaOverlayCapabilityAndFoliateAdapter() {
+	fun installCommandBecomesDurableFoliateProvenanceState() {
 		val descriptor = descriptor()
 		val command = ReaderEngineCommand.InstallRawTextProvenance(descriptor)
 		assertEquals(ReaderEngineCapability.MediaOverlay, command.requiredCapability)
@@ -17,10 +17,8 @@ class ReaderRawTextProvenanceBridgeTest {
 			.engine
 		val installed = opened.onCommand(command)
 		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(installed.viewState)
-		assertEquals(
-			ReaderBridgeCommand.InstallRawTextProvenance(descriptor),
-			(viewState.command as ReaderEngineHostCommand.FoliateBridge).command
-		)
+		assertEquals(listOf(descriptor), viewState.rawTextProvenanceDescriptors)
+		assertNull(viewState.command)
 	}
 
 	@Test

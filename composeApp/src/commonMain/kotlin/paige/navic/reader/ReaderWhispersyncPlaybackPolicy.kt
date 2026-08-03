@@ -97,6 +97,10 @@ fun readerWhispersyncPlaybackCommandForSeekTarget(
 private fun ReadaloudPlaybackPlan.trackIndexForWhispersyncAudioResource(
 	seekTarget: WhispersyncAudioSeekTarget
 ): Int? {
+	seekTarget.audioTrackIndex?.let { trackIndex ->
+		val mediaItem = mediaItems.getOrNull(trackIndex) ?: return null
+		return trackIndex.takeIf { mediaItem.resourceKey == seekTarget.audioResource }
+	}
 	seekTarget.segment.audioTrackIndex
 		?.takeIf { trackIndex -> trackIndex in mediaItems.indices }
 		?.let { return it }

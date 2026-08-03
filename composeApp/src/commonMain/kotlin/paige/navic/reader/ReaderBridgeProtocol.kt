@@ -730,6 +730,7 @@ sealed interface ReaderBridgeEvent {
 	data class OverlayFragmentInactive(
 		val fragmentId: String? = null,
 		val overlayRequestId: Long? = null,
+		val coordinateMode: ReaderOverlayCoordinateMode? = null,
 		val reason: String? = null
 	) : ReaderBridgeEvent
 	data class SearchResults(
@@ -930,6 +931,11 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 			"overlayFragmentInactive" -> ReaderBridgeEvent.OverlayFragmentInactive(
 				fragmentId = json.stringValue("fragmentId"),
 				overlayRequestId = json.longValue("overlayRequestId"),
+				coordinateMode = when (json.stringValue("coordinateMode")) {
+					ReaderCueV1CoordinateMode -> ReaderOverlayCoordinateMode.CueV1DomUtf16
+					ReaderWordSyncV1CoordinateMode -> ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8
+					else -> null
+				},
 				reason = json.stringValue("reason")
 			)
 			"searchResults" -> ReaderBridgeEvent.SearchResults(
