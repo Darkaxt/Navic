@@ -39,6 +39,16 @@ export async function readerGoToExactVisualPage(view, locator, reason = 'page-tu
   return committed === false ? null : locator
 }
 
+function readerExactVisualPageMatches(view, locator) {
+  const renderer = view?.renderer
+  if (!renderer) return false
+  const actual = renderer.exactTextPagePosition?.()
+  return actual != null &&
+    Number(actual.index) === Number(locator?.spineIndex) &&
+    Number(actual.pageIndex) === Number(locator?.chapterPageIndex) &&
+    Number(actual.pageCount) === Number(locator?.chapterPageCount)
+}
+
 async function ensurePageTurnPreviewRenderer() {
   if (
     this.pageTurnPreviewView &&
@@ -393,6 +403,9 @@ async function preparePageTurnPreview(generation, token, pageIndex) {
     await nextAnimationFrame()
     await nextAnimationFrame()
     if (generation !== this.pageTurnPreviewGeneration) return
+    if (!readerExactVisualPageMatches(previewView, locator)) {
+      throw new Error(`Passive preview position for page ${pageIndex} was not committed`)
+    }
     this.pageTurnPreviewStateValue = Object.freeze({
       token,
       generation,
@@ -468,6 +481,9 @@ async function preparePageTurnPreviewBatchItem(generation, token, cursor) {
     await nextAnimationFrame()
     await nextAnimationFrame()
     if (generation !== this.pageTurnPreviewGeneration) return
+    if (!readerExactVisualPageMatches(previewView, locator)) {
+      throw new Error(`Passive raster position for page ${pageIndex} was not committed`)
+    }
     const itemToken = `${token}:${generation}:${cursor}:${locator.pageIndex}`
     const identity = Object.freeze({
       token: itemToken,

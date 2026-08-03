@@ -2006,7 +2006,7 @@ internal class ReaderPageTurnBundleSource(
 					!isStillCurrent() ||
 					!encoded.isJavascriptTrue()
 				) {
-					restoreLiveComposition(webView, token) { onCaptured(null) }
+					restoreLiveComposition(webView, token) { _ -> onCaptured(null) }
 					return@evaluateJavascript
 				}
 				webView.postVisualStateCallback(
@@ -2018,12 +2018,12 @@ internal class ReaderPageTurnBundleSource(
 								!webView.isAttachedToWindow ||
 								!isStillCurrent()
 							) {
-								restoreLiveComposition(webView, token) { onCaptured(null) }
+								restoreLiveComposition(webView, token) { _ -> onCaptured(null) }
 								return
 							}
 							webView.postOnAnimation frame@{
 								if (!isStillCurrent()) {
-									restoreLiveComposition(webView, token) { onCaptured(null) }
+									restoreLiveComposition(webView, token) { _ -> onCaptured(null) }
 									return@frame
 								}
 								webView.evaluateJavascript(
@@ -2035,7 +2035,7 @@ internal class ReaderPageTurnBundleSource(
 										!isStillCurrent() ||
 										!confirmed.isJavascriptTrue()
 									) {
-										restoreLiveComposition(webView, token) { onCaptured(null) }
+										restoreLiveComposition(webView, token) { _ -> onCaptured(null) }
 										return@confirmation
 									}
 									capturePreparedSurface(
@@ -2045,12 +2045,13 @@ internal class ReaderPageTurnBundleSource(
 											generation == activeGeneration && isStillCurrent()
 										}
 									) { captured ->
-										restoreLiveComposition(webView, token) {
+										restoreLiveComposition(webView, token) { restored ->
 											val bitmap = captured?.bitmap
 											val snapshotGeometry = captured?.let {
 												readerPagePreparedSnapshotGeometry(kind, it)
 											}
 											if (
+												!restored ||
 												captured == null ||
 												bitmap == null ||
 												snapshotGeometry == null ||
@@ -2928,26 +2929,35 @@ internal class ReaderPageTurnBundleSource(
 	private fun restoreLiveComposition(
 		webView: WebView,
 		token: String,
-		onRestored: () -> Unit = {}
+		onRestored: (Boolean) -> Unit = {}
 	) {
 		if (!webView.isAttachedToWindow) {
-			onRestored()
+			onRestored(false)
 			return
 		}
 		val quotedToken = JSONObject.quote(token)
 		webView.evaluateJavascript(
 			"window.NavicReaderBridge?.restorePageTurnLiveComposition?.($quotedToken)"
-		) {
-			if (!webView.isAttachedToWindow) {
-				onRestored()
+		) { restored ->
+			if (!restored.isJavascriptTrue() || !webView.isAttachedToWindow) {
+				onRestored(false)
 				return@evaluateJavascript
 			}
 			webView.postVisualStateCallback(
 				visualStateRequestId.incrementAndGet(),
 				object : WebView.VisualStateCallback() {
 					override fun onComplete(requestId: Long) {
-						if (!webView.isAttachedToWindow) onRestored()
-						else webView.postOnAnimation(onRestored)
+						if (!webView.isAttachedToWindow) {
+							onRestored(false)
+						} else {
+							webView.postOnAnimation {
+								if (webView.isAttachedToWindow) {
+									onRestored(true)
+								} else {
+									onRestored(false)
+								}
+							}
+						}
 					}
 				}
 			)

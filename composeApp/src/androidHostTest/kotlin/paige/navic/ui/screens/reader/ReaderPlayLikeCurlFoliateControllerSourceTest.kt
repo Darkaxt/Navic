@@ -1719,7 +1719,26 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun exhaustedContentFailureRestoresInputBehindValidatedRasterOwnership() {
+	fun exhaustedContentFailureFailsClosedInsteadOfRetainingRejectedPixels() {
+		val source = controllerFile.readText()
+		val release = source.substringAfter(
+			"private fun releaseTerminalContentFailure("
+		).substringBefore("private fun publishRelocationVisualRecovery(")
+
+		assertContains(release, "blockTerminalContentFailureRecovery(")
+		assertContains(release, "hideSurface()")
+		assertContains(release, "inlineRasterShield.dismiss()")
+		assertContains(
+			release,
+			"interaction = ReaderPageInteractionState.BlockingProfileRegeneration"
+		)
+		assertContains(release, "requestPrewarmIfIdle(reason)")
+		assertFalse(release.contains("releaseTerminalContentFailureToRetainedCurlSurface"))
+		assertFalse(source.contains("private fun releaseTerminalContentFailureToRetainedCurlSurface("))
+	}
+
+	@Test
+	fun exhaustedContentFailureRevokesRejectedRasterOwnershipBeforeRegeneration() {
 		val source = controllerFile.readText()
 		val host = hostFile.readText()
 		val shield = inlineRasterShieldFile.readText()
@@ -1758,25 +1777,25 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 				validation.indexOf("bundleSource.validateLivePresentation(")
 		)
 		assertContains(validation, "clearRetainedInlineHandoffSnapshot(request)")
-		assertContains(release, "takeInlineHandoffSnapshot(request)")
+		assertContains(release, "takeInlineHandoffSnapshot(request)?.release()")
 		assertFalse(release.contains("runCatching"))
 		assertContains(release, "hasNewerSurfacePresentationOwner(request.gestureId)")
-		assertContains(release, "inlineRasterShield.present(")
-		assertContains(release, "!presented ||")
-		assertContains(release, "hideSurfaceBehindInlineRasterShield()")
+		assertFalse(release.contains("inlineRasterShield.present("))
+		assertFalse(release.contains("hideSurfaceBehindInlineRasterShield()"))
 		assertContains(release, "ReaderPageRelocationDiagnosticState.Rejected")
 		assertContains(
 			release,
 			"ReaderPageRelocationDiagnosticRejectionReason.ContentRejected"
 		)
 		assertContains(release, "failedLivePresentationGeneration = null")
-		assertContains(release, "livePresentationRecoveryRequest.clear()")
-		assertContains(release, "interaction = preparedInteractionState()")
-		val committedRelease = release.substringAfter(
-			"hideSurfaceBehindInlineRasterShield()"
+		assertContains(release, "livePresentationRecoveryRequest.request()")
+		assertContains(
+			release,
+			"interaction = ReaderPageInteractionState.BlockingProfileRegeneration"
 		)
-		assertContains(committedRelease, "retainsRejectedSurfaceInputShield = true")
-		assertContains(committedRelease, "failedLivePresentationGeneration = null")
+		assertContains(release, "inlineRasterShield.dismiss()")
+		assertContains(release, "hideSurface()")
+		assertContains(release, "retainsRejectedSurfaceInputShield = false")
 		assertContains(hostLayers, "playLikeCurlController.inlineRasterShieldView")
 		assertTrue(
 			hostLayers.indexOf("viewerContentContainer") <

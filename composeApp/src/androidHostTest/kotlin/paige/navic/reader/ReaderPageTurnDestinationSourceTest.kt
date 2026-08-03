@@ -233,6 +233,50 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun passiveRasterReadinessRequiresTheActualPaginatorPosition() {
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val prepareBatchItem = preview
+			.substringAfter("async function preparePageTurnPreviewBatchItem(")
+			.substringBefore("\n}\n")
+		val exactPosition = paginator
+			.substringAfter("exactTextPagePosition() {")
+			.substringBefore("\n    }")
+
+		assertContains(preview, "function readerExactVisualPageMatches(view, locator)")
+		assertContains(preview, "renderer.exactTextPagePosition?.()")
+		assertContains(exactPosition, "index: this.#index")
+		assertContains(exactPosition, "pageIndex: this.page - 1")
+		assertContains(exactPosition, "pageCount: this.pages - 2")
+		assertContains(
+			prepareBatchItem,
+			"if (!readerExactVisualPageMatches(previewView, locator))"
+		)
+		assertTrue(
+			prepareBatchItem.indexOf("readerExactVisualPageMatches(previewView, locator)") <
+				prepareBatchItem.indexOf("status: 'ready'")
+		)
+	}
+
+	@Test
+	fun failedPassivePreviewRestorationCannotPublishCapturedPixels() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val capture = source
+			.substringAfter("private fun capturePreparedPage(")
+			.substringBefore("fun cacheCurrentSnapshot(")
+		val restore = source
+			.substringAfter("private fun restoreLiveComposition(")
+			.substringBefore("\n\t}\n}")
+
+		assertContains(capture, "restoreLiveComposition(webView, token) { restored ->")
+		assertContains(capture, "!restored ||")
+		assertContains(restore, "onRestored: (Boolean) -> Unit")
+		assertContains(restore, "restored.isJavascriptTrue()")
+		assertContains(restore, "onRestored(false)")
+		assertContains(restore, "onRestored(true)")
+	}
+
+	@Test
 	fun passiveAndLiveDestinationRenderingShareExactPageNavigation() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()

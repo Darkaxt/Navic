@@ -1028,6 +1028,18 @@ export class Paginator extends HTMLElement {
     get pages() {
         return Math.round(this.viewSize / this.size)
     }
+    exactTextPagePosition() {
+        if (this.#destroyed || this.scrolled || !this.#view?.committed) return null
+        const pageIndex = this.page - 1
+        const pageCount = this.pages - 2
+        if (!Number.isInteger(pageIndex) || !Number.isInteger(pageCount) ||
+            pageIndex < 0 || pageCount <= 0 || pageIndex >= pageCount) return null
+        return Object.freeze({
+            index: this.#index,
+            pageIndex: this.page - 1,
+            pageCount: this.pages - 2,
+        })
+    }
     // this is the current position of the container
     get containerPosition() {
         return this.#container[this.scrollProp]

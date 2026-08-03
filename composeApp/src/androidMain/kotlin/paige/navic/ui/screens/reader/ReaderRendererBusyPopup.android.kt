@@ -2,9 +2,12 @@ package paige.navic.ui.screens.reader
 
 import android.graphics.drawable.ColorDrawable
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.PopupWindow
+import androidx.activity.findViewTreeOnBackPressedDispatcherOwner
+import androidx.activity.setViewTreeOnBackPressedDispatcherOwner
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -21,6 +24,12 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.findViewTreeLifecycleOwner
+import androidx.lifecycle.findViewTreeViewModelStoreOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.savedstate.findViewTreeSavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 
 @Composable
 internal fun ReaderRendererBusyPopup(
@@ -34,6 +43,7 @@ internal fun ReaderRendererBusyPopup(
 	val popupElevationPx = with(density) { 32.dp.toPx() }
 	val popup = remember(anchor, parentComposition, visibleState, popupElevationPx) {
 		val contentView = ComposeView(anchor.context).apply {
+			inheritReaderRendererBusyPopupOwners(anchor, this)
 			setParentCompositionContext(parentComposition)
 			setViewCompositionStrategy(
 				ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
@@ -83,4 +93,16 @@ internal fun ReaderRendererBusyPopup(
 			(popup.contentView as ComposeView).disposeComposition()
 		}
 	}
+}
+
+internal fun inheritReaderRendererBusyPopupOwners(
+	anchor: View,
+	contentView: View
+) {
+	contentView.setViewTreeLifecycleOwner(anchor.findViewTreeLifecycleOwner())
+	contentView.setViewTreeSavedStateRegistryOwner(anchor.findViewTreeSavedStateRegistryOwner())
+	contentView.setViewTreeViewModelStoreOwner(anchor.findViewTreeViewModelStoreOwner())
+	anchor.findViewTreeOnBackPressedDispatcherOwner()?.let(
+		contentView::setViewTreeOnBackPressedDispatcherOwner
+	)
 }

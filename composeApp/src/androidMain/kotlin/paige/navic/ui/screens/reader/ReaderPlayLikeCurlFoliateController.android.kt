@@ -4377,91 +4377,29 @@ internal class ReaderPlayLikeCurlFoliateController(
 				ReaderPageRelocationDiagnosticRejectionReason.ContentRejected,
 			terminal = true
 		)
-		val snapshot = takeInlineHandoffSnapshot(request)
-		if (snapshot == null) {
-			val recoveryStillCurrent =
-				readerTerminalContentFailureRecoveryStillCurrent(
-					destroyed = destroyed,
-					failedGenerationMatches =
-						failedLivePresentationGeneration?.matches(request) == true,
-					currentOrdinal = currentOrdinal,
-					destinationOrdinal = request.destinationOrdinal,
-					hasNewerSurfacePresentationOwner =
-						hasNewerSurfacePresentationOwner(request.gestureId)
-				)
-			if (recoveryStillCurrent) {
-				releaseTerminalContentFailureToRetainedCurlSurface(
-					failedGestureId = request.gestureId,
-					reason = "terminal-raster-snapshot-unavailable"
-				)
-			} else {
-				Logger.e(
-					ReaderPlayLikeCurlFoliateControllerTag,
-					"PlayLikeCurl terminal handoff has no retained raster " +
-						"gestureId=${request.gestureId}"
-				)
-			}
-			return
-		}
-		val generationOwner = generationOwners[request.textureGeneration]
-		if (
-			destroyed ||
-			failedLivePresentationGeneration?.matches(request) != true ||
-			activeDeckGenerationId != request.textureGeneration ||
-			generationOwner == null ||
-			generationOwner.profile.rasterGeneration != request.rasterGeneration ||
-			currentOrdinal != request.destinationOrdinal ||
-			hasNewerSurfacePresentationOwner(request.gestureId)
-		) {
-			snapshot.release()
-			return
-		}
-		inlineRasterShield.present(snapshot) { presented ->
-			val hasNewerSurfaceOwner =
-				hasNewerSurfacePresentationOwner(request.gestureId)
-			val releaseStillCurrent =
-				!destroyed &&
-					failedLivePresentationGeneration?.matches(request) == true &&
-					activeDeckGenerationId == request.textureGeneration &&
-					generationOwners[request.textureGeneration] === generationOwner &&
-					currentOrdinal == request.destinationOrdinal &&
-					!hasNewerSurfaceOwner
-			if (!presented || !releaseStillCurrent) {
-				val recoveryStillCurrent =
-					readerTerminalContentFailureRecoveryStillCurrent(
-						destroyed = destroyed,
-						failedGenerationMatches =
-							failedLivePresentationGeneration?.matches(request) == true,
-						currentOrdinal = currentOrdinal,
-						destinationOrdinal = request.destinationOrdinal,
-						hasNewerSurfacePresentationOwner = hasNewerSurfaceOwner
-					)
-				if (!recoveryStillCurrent) {
-					if (presented) inlineRasterShield.dismiss()
-					return@present
-				}
-				if (presented) inlineRasterShield.dismiss()
-				releaseTerminalContentFailureToRetainedCurlSurface(
-					failedGestureId = request.gestureId,
-					reason = "terminal-raster-shield-surface-retained"
-				)
-				return@present
-			}
-			hideSurfaceBehindInlineRasterShield()
-			retainsRejectedSurfaceInputShield = true
-			failedLivePresentationGeneration = null
-			livePresentationRecoveryRequest.clear()
-			updateReadiness(
-				interaction = preparedInteractionState(),
-				reason = "visual-handoff-content-rejection-released"
+		takeInlineHandoffSnapshot(request)?.release()
+		val recoveryStillCurrent =
+			readerTerminalContentFailureRecoveryStillCurrent(
+				destroyed = destroyed,
+				failedGenerationMatches =
+					failedLivePresentationGeneration?.matches(request) == true,
+				currentOrdinal = currentOrdinal,
+				destinationOrdinal = request.destinationOrdinal,
+				hasNewerSurfacePresentationOwner =
+					hasNewerSurfacePresentationOwner(request.gestureId)
 			)
-			Logger.w(
+		if (!recoveryStillCurrent) {
+			Logger.e(
 				ReaderPlayLikeCurlFoliateControllerTag,
-				"PlayLikeCurl visual handoff transferred terminal raster shield " +
+				"PlayLikeCurl terminal content rejection became stale " +
 					"gestureId=${request.gestureId}"
 			)
-			onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)
+			return
 		}
+		blockTerminalContentFailureRecovery(
+			failedGestureId = request.gestureId,
+			reason = "terminal-content-rejected"
+		)
 	}
 
 	private fun releaseTerminalContentFailureAfterCancelledGesture(
@@ -4480,27 +4418,29 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			return
 		}
-		releaseTerminalContentFailureToRetainedCurlSurface(
+		blockTerminalContentFailureRecovery(
 			failedGestureId = failure.gestureId,
-			reason = "terminal-raster-cancelled-gesture-surface-retained"
+			reason = "terminal-content-rejected-after-cancelled-gesture"
 		)
 	}
 
-	private fun releaseTerminalContentFailureToRetainedCurlSurface(
+	private fun blockTerminalContentFailureRecovery(
 		failedGestureId: Long,
 		reason: String
 	) {
 		Logger.w(
 			ReaderPlayLikeCurlFoliateControllerTag,
-			"PlayLikeCurl terminal raster shield retained curl surface " +
+			"PlayLikeCurl terminal content rejection failed closed " +
 				"gestureId=$failedGestureId reason=$reason"
 		)
-		retainsRejectedSurfaceInputShield = true
+		retainsRejectedSurfaceInputShield = false
 		failedLivePresentationGeneration = null
-		livePresentationRecoveryRequest.clear()
+		livePresentationRecoveryRequest.request()
+		inlineRasterShield.dismiss()
+		hideSurface()
 		updateReadiness(
-			interaction = preparedInteractionState(),
-			reason = "visual-handoff-content-rejection-surface-retained"
+			interaction = ReaderPageInteractionState.BlockingProfileRegeneration,
+			reason = "visual-handoff-content-rejection-blocked"
 		)
 		requestPrewarmIfIdle(reason)
 		onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)
