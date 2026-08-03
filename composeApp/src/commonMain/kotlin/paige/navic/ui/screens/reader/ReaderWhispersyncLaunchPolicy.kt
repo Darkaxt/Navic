@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import paige.navic.domain.repositories.BinderyWordSyncReference
 import paige.navic.reader.ReaderEngineCapability
 import paige.navic.reader.supportsReaderEngineCapability
 import paige.navic.ui.navigation.Screen
@@ -9,7 +10,8 @@ internal data class ReaderWhispersyncLaunchAttachment(
 	val artifactId: String,
 	val audiobookId: String?,
 	val audiobookBookFileId: String,
-	val audiobookTitle: String? = null
+	val audiobookTitle: String? = null,
+	val wordSync: BinderyWordSyncReference? = null
 )
 
 internal fun Screen.Reader.whispersyncLaunchAttachment(): ReaderWhispersyncLaunchAttachment? {
@@ -25,7 +27,8 @@ internal fun Screen.Reader.whispersyncLaunchAttachment(): ReaderWhispersyncLaunc
 		artifactId = artifactId,
 		audiobookId = audiobookId,
 		audiobookBookFileId = audiobookBookFileId,
-		audiobookTitle = whispersyncAudiobookTitle.normalizedWhispersyncRouteValue()
+		audiobookTitle = whispersyncAudiobookTitle.normalizedWhispersyncRouteValue(),
+		wordSync = whispersyncWordSync
 	)
 }
 

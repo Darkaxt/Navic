@@ -3,6 +3,9 @@ package paige.navic.ui.screens.reader
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import paige.navic.domain.repositories.BinderyWhispersyncIdentity
+import paige.navic.domain.repositories.BinderyWordSyncDiscovery
+import paige.navic.domain.repositories.BinderyWordSyncReference
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.ui.navigation.Screen
@@ -74,6 +77,41 @@ class ReaderWhispersyncLaunchPolicyTest {
 	}
 
 	@Test
+	fun readerWhispersyncLaunchAttachmentPreservesOptionalWordSyncReference() {
+		val wordSync = BinderyWordSyncReference(
+			identity = BinderyWhispersyncIdentity(
+				bookId = 3816,
+				ebookBookFileId = 435,
+				audiobookBookFileId = 694,
+				artifactId = 3
+			),
+			discovery = BinderyWordSyncDiscovery(
+				status = "ready",
+				schema = "bindery.whispersync.wordsync.index.v1",
+				opdsIndexHref = "/opds/books/3816/sync/3/words",
+				format = "chapter-sharded-json",
+				compression = "http",
+				timeScale = 1000
+			)
+		)
+
+		assertEquals(
+			wordSync,
+			readerRoute(
+				whispersyncSidecarUrl = "/opds/books/3816/sync/3",
+				whispersyncAudiobookBookFileId = "694",
+				whispersyncWordSync = wordSync
+			).whispersyncLaunchAttachment()?.wordSync
+		)
+		assertNull(
+			readerRoute(
+				whispersyncSidecarUrl = "/opds/books/3816/sync/3",
+				whispersyncAudiobookBookFileId = "694"
+			).whispersyncLaunchAttachment()?.wordSync
+		)
+	}
+
+	@Test
 	fun readerWhispersyncLaunchAttachmentRequiresMediaOverlayCapability() {
 		listOf(
 			ReaderPublicationFormat.Epub,
@@ -107,7 +145,8 @@ class ReaderWhispersyncLaunchPolicyTest {
 		whispersyncArtifactId: String? = null,
 		whispersyncAudiobookId: String? = null,
 		whispersyncAudiobookBookFileId: String? = null,
-		whispersyncAudiobookTitle: String? = null
+		whispersyncAudiobookTitle: String? = null,
+		whispersyncWordSync: BinderyWordSyncReference? = null
 	): Screen.Reader =
 		Screen.Reader(
 			title = "The Hobbit",
@@ -120,6 +159,7 @@ class ReaderWhispersyncLaunchPolicyTest {
 			whispersyncArtifactId = whispersyncArtifactId,
 			whispersyncAudiobookId = whispersyncAudiobookId,
 			whispersyncAudiobookBookFileId = whispersyncAudiobookBookFileId,
-			whispersyncAudiobookTitle = whispersyncAudiobookTitle
+			whispersyncAudiobookTitle = whispersyncAudiobookTitle,
+			whispersyncWordSync = whispersyncWordSync
 		)
 }

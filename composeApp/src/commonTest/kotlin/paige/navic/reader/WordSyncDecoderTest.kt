@@ -3,7 +3,6 @@ package paige.navic.reader
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
-import paige.navic.domain.repositories.BinderyWhispersyncIdentity
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -11,17 +10,12 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class WordSyncDecoderTest {
-	private val identity = BinderyWhispersyncIdentity(
-		bookId = 7,
-		ebookBookFileId = 11,
-		audiobookBookFileId = 13,
-		artifactId = 17
-	)
+	private val identity = WordSyncTestFixtures.identity()
 
 	@Test
 	fun decodesStrictIndexAndPreservesChapterDiscovery() {
 		val index = decodeWordSyncIndex(
-			json = validIndexJson(),
+			json = WordSyncTestFixtures.indexJson(),
 			expectedIdentity = identity
 		)
 
@@ -46,9 +40,9 @@ class WordSyncDecoderTest {
 
 	@Test
 	fun decodesMultiTrackShardWithCumulativeAudioAndChapterRelativeEbookDeltas() {
-		val index = decodeWordSyncIndex(validIndexJson(), identity)
+		val index = decodeWordSyncIndex(WordSyncTestFixtures.indexJson(), identity)
 		val chapter = decodeWordSyncChapter(
-			json = validChapterJson(),
+			json = WordSyncTestFixtures.chapterJson(),
 			expectedIdentity = identity,
 			expectedChapter = index.chapters.single()
 		)
@@ -79,14 +73,14 @@ class WordSyncDecoderTest {
 
 	@Test
 	fun acceptsProtocolOptionalArtifactIdentityAndEnumMaps() {
-		val indexJson = validIndexJson().withoutFields(
+		val indexJson = WordSyncTestFixtures.indexJson().withoutFields(
 			"artifactId",
 			"statusEnum",
 			"methodEnum"
 		)
 		val index = decodeWordSyncIndex(indexJson, identity)
 		val chapter = decodeWordSyncChapter(
-			json = validChapterJson().withoutFields("artifactId"),
+			json = WordSyncTestFixtures.chapterJson().withoutFields("artifactId"),
 			expectedIdentity = identity,
 			expectedChapter = index.chapters.single()
 		)
@@ -100,11 +94,11 @@ class WordSyncDecoderTest {
 	@Test
 	fun acceptsZeroDurationAudioWordsWithoutCreatingAnAudioInterval() {
 		val index = decodeWordSyncIndex(
-			validIndexJson().replace("\"endMs\": 2300", "\"endMs\": 2000"),
+			WordSyncTestFixtures.indexJson().replace("\"endMs\": 2300", "\"endMs\": 2000"),
 			identity
 		)
 		val chapter = decodeWordSyncChapter(
-			json = validChapterJson().replace("\"audioDurMs\": [300]", "\"audioDurMs\": [0]"),
+			json = WordSyncTestFixtures.chapterJson().replace("\"audioDurMs\": [300]", "\"audioDurMs\": [0]"),
 			expectedIdentity = identity,
 			expectedChapter = index.chapters.single()
 		)
@@ -121,8 +115,8 @@ class WordSyncDecoderTest {
 
 	@Test
 	fun overlappingEbookRangesResolveFirstPublishedLookupEntry() {
-		val index = decodeWordSyncIndex(validIndexJson(), identity)
-		val overlappingJson = validChapterJson()
+		val index = decodeWordSyncIndex(WordSyncTestFixtures.indexJson(), identity)
+		val overlappingJson = WordSyncTestFixtures.chapterJson()
 			.replace("\"ebookStartDelta\": [0, 3]", "\"ebookStartDelta\": [0, 1]")
 			.replace("\"ebookLen\": [2, 1]", "\"ebookLen\": [2, 3]")
 			.replace("\"ebookStart\": [100, 103, 105]", "\"ebookStart\": [100, 101, 105]")
@@ -139,7 +133,7 @@ class WordSyncDecoderTest {
 	fun rejectsUnknownSchemasAndIdentityMismatches() {
 		assertFailsWith<IllegalArgumentException> {
 			decodeWordSyncIndex(
-				validIndexJson().replace(
+				WordSyncTestFixtures.indexJson().replace(
 					"bindery.whispersync.wordsync.index.v1",
 					"bindery.whispersync.wordsync.index.v2"
 				),
@@ -148,14 +142,14 @@ class WordSyncDecoderTest {
 		}
 		assertFailsWith<IllegalArgumentException> {
 			decodeWordSyncIndex(
-				validIndexJson().replace("\"artifactId\": 17", "\"artifactId\": 18"),
+				WordSyncTestFixtures.indexJson().replace("\"artifactId\": 17", "\"artifactId\": 18"),
 				identity
 			)
 		}
-		val index = decodeWordSyncIndex(validIndexJson(), identity)
+		val index = decodeWordSyncIndex(WordSyncTestFixtures.indexJson(), identity)
 		assertFailsWith<IllegalArgumentException> {
 			decodeWordSyncChapter(
-				validChapterJson().replace(
+				WordSyncTestFixtures.chapterJson().replace(
 					"bindery.whispersync.wordsync.chapter.v1",
 					"bindery.whispersync.wordsync.chapter.v2"
 				),
@@ -165,7 +159,7 @@ class WordSyncDecoderTest {
 		}
 		assertFailsWith<IllegalArgumentException> {
 			decodeWordSyncChapter(
-				validChapterJson().replace("\"chapterKey\": \"spine-002-chapter\"", "\"chapterKey\": \"other\""),
+				WordSyncTestFixtures.chapterJson().replace("\"chapterKey\": \"spine-002-chapter\"", "\"chapterKey\": \"other\""),
 				identity,
 				index.chapters.single()
 			)
@@ -174,17 +168,17 @@ class WordSyncDecoderTest {
 
 	@Test
 	fun rejectsMalformedParallelArraysAndInconsistentLookup() {
-		val index = decodeWordSyncIndex(validIndexJson(), identity)
+		val index = decodeWordSyncIndex(WordSyncTestFixtures.indexJson(), identity)
 		assertFailsWith<IllegalArgumentException> {
 			decodeWordSyncChapter(
-				validChapterJson().replace("\"audioDurMs\": [200, 220]", "\"audioDurMs\": [200]"),
+				WordSyncTestFixtures.chapterJson().replace("\"audioDurMs\": [200, 220]", "\"audioDurMs\": [200]"),
 				identity,
 				index.chapters.single()
 			)
 		}
 		assertFailsWith<IllegalArgumentException> {
 			decodeWordSyncChapter(
-				validChapterJson().replace("\"wordIndex\": [0, 1, 0]", "\"wordIndex\": [0, 0, 0]"),
+				WordSyncTestFixtures.chapterJson().replace("\"wordIndex\": [0, 1, 0]", "\"wordIndex\": [0, 0, 0]"),
 				identity,
 				index.chapters.single()
 			)
@@ -195,20 +189,20 @@ class WordSyncDecoderTest {
 	fun rejectsInvalidCoordinateBasisEnumsAndRanges() {
 		assertFailsWith<IllegalArgumentException> {
 			decodeWordSyncIndex(
-				validIndexJson().replace("raw-extracted-text-offsets", "dom-utf16-offsets"),
+				WordSyncTestFixtures.indexJson().replace("raw-extracted-text-offsets", "dom-utf16-offsets"),
 				identity
 			)
 		}
 		assertFailsWith<IllegalArgumentException> {
 			decodeWordSyncIndex(
-				validIndexJson().replace("\"3\": \"fuzzy\"", "\"3\": \"approximate\""),
+				WordSyncTestFixtures.indexJson().replace("\"3\": \"fuzzy\"", "\"3\": \"approximate\""),
 				identity
 			)
 		}
-		val index = decodeWordSyncIndex(validIndexJson(), identity)
+		val index = decodeWordSyncIndex(WordSyncTestFixtures.indexJson(), identity)
 		assertFailsWith<IllegalArgumentException> {
 			decodeWordSyncChapter(
-				validChapterJson().replace("\"confidence\": [98, 97]", "\"confidence\": [98, 101]"),
+				WordSyncTestFixtures.chapterJson().replace("\"confidence\": [98, 97]", "\"confidence\": [98, 101]"),
 				identity,
 				index.chapters.single()
 			)
@@ -222,127 +216,4 @@ class WordSyncDecoderTest {
 		).toString()
 	}
 
-	private fun validIndexJson(): String =
-		"""
-		{
-		  "schema": "bindery.whispersync.wordsync.index.v1",
-		  "version": 1,
-		  "bookId": 7,
-		  "ebookBookFileId": 11,
-		  "audiobookBookFileId": 13,
-		  "artifactId": 17,
-		  "generatedAt": "2026-08-03T00:00:00Z",
-		  "timeScale": 1000,
-		  "coordinateBasis": {
-		    "extractor": "bindery-epub-text",
-		    "extractorVersion": "1",
-		    "normalization": "raw-extracted-text-offsets",
-		    "ebookTextHash": "sha256:${"a".repeat(64)}"
-		  },
-		  "statusEnum": {
-		    "0": "unmatched-audio",
-		    "1": "exact",
-		    "2": "normalized",
-		    "3": "fuzzy",
-		    "4": "semantic-number",
-		    "5": "review"
-		  },
-		  "methodEnum": {
-		    "0": "asr-word-timestamp",
-		    "1": "forced-align-cue-window",
-		    "2": "cue-interpolated-review"
-		  },
-		  "chapters": [
-		    {
-		      "chapterKey": "spine-002-chapter",
-		      "spineIndex": 2,
-		      "ebookHref": "Text/chapter.xhtml",
-		      "path": "spine-002-chapter.wsyncw",
-		      "href": "/api/v1/sync/artifacts/17/wordsync/spine-002-chapter",
-		      "opdsHref": "/opds/books/7/sync/17/wordsync/spine-002-chapter",
-		      "ebookStart": 100,
-		      "ebookEnd": 109,
-		      "audioRanges": [
-		        {
-		          "audioResourceId": "audio-a",
-		          "audioTrackIndex": 0,
-		          "audioHref": "Audio/a.mp3",
-		          "startMs": 1000,
-		          "endMs": 1520
-		        },
-		        {
-		          "audioResourceId": "audio-b",
-		          "audioTrackIndex": 1,
-		          "audioHref": "Audio/b.mp3",
-		          "startMs": 2000,
-		          "endMs": 2300
-		        }
-		      ],
-		      "audioWordCount": 3,
-		      "matchedAudioWordCount": 2,
-		      "reviewAudioWordCount": 1,
-		      "unmatchedAudioWordCount": 0,
-		      "unmatchedEbookWordCount": 0,
-		      "minConfidence": 95,
-		      "meanConfidence": 97
-		    }
-		  ]
-		}
-		""".trimIndent()
-
-	private fun validChapterJson(): String =
-		"""
-		{
-		  "schema": "bindery.whispersync.wordsync.chapter.v1",
-		  "version": 1,
-		  "bookId": 7,
-		  "ebookBookFileId": 11,
-		  "audiobookBookFileId": 13,
-		  "artifactId": 17,
-		  "chapterKey": "spine-002-chapter",
-		  "ebookHref": "Text/chapter.xhtml",
-		  "spineIndex": 2,
-		  "ebookStart": 100,
-		  "ebookEnd": 109,
-		  "timeScale": 1000,
-		  "tracks": [
-		    {
-		      "audioResourceId": "audio-a",
-		      "audioTrackIndex": 0,
-		      "audioHref": "Audio/a.mp3",
-		      "baseStartMs": 1000,
-		      "audioStartDeltaMs": [0, 300],
-		      "audioDurMs": [200, 220],
-		      "ebookStartDelta": [0, 3],
-		      "ebookLen": [2, 1],
-		      "cueId": [1, 1],
-		      "status": [1, 3],
-		      "confidence": [98, 97],
-		      "method": [0, 0],
-		      "flags": [0, 0]
-		    },
-		    {
-		      "audioResourceId": "audio-b",
-		      "audioTrackIndex": 1,
-		      "audioHref": "Audio/b.mp3",
-		      "baseStartMs": 2000,
-		      "audioStartDeltaMs": [0],
-		      "audioDurMs": [300],
-		      "ebookStartDelta": [5],
-		      "ebookLen": [4],
-		      "cueId": [2],
-		      "status": [5],
-		      "confidence": [95],
-		      "method": [1],
-		      "flags": [0]
-		    }
-		  ],
-		  "ebookLookup": {
-		    "ebookStart": [100, 103, 105],
-		    "trackIndex": [0, 0, 1],
-		    "wordIndex": [0, 1, 0]
-		  },
-		  "unmatchedEbook": []
-		}
-		""".trimIndent()
 }

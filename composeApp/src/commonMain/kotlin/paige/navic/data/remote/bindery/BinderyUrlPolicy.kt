@@ -54,6 +54,95 @@ internal fun binderyEndpoint(baseUrl: String, path: String): String =
 		path
 	)
 
+internal data class BinderyWordSyncRoute(
+	val requestUrl: String,
+	val cachePath: String
+)
+
+internal fun binderyWordSyncGenerationPrefix(identity: BinderyWhispersyncIdentity): String =
+	"book:${identity.bookId}|ebook:${identity.ebookBookFileId}|" +
+		"audiobook:${identity.audiobookBookFileId}|artifact:"
+
+internal fun binderyWordSyncIndexRoute(
+	baseUrl: String,
+	identity: BinderyWhispersyncIdentity,
+	advertisedHref: String
+): BinderyWordSyncRoute = binderyWordSyncRoute(
+	baseUrl = baseUrl,
+	identity = identity,
+	advertisedHref = advertisedHref,
+	chapterKey = null
+)
+
+internal fun binderyWordSyncChapterRoute(
+	baseUrl: String,
+	identity: BinderyWhispersyncIdentity,
+	chapterKey: String,
+	advertisedHref: String
+): BinderyWordSyncRoute = binderyWordSyncRoute(
+	baseUrl = baseUrl,
+	identity = identity,
+	advertisedHref = advertisedHref,
+	chapterKey = chapterKey
+)
+
+private fun binderyWordSyncRoute(
+	baseUrl: String,
+	identity: BinderyWhispersyncIdentity,
+	advertisedHref: String,
+	chapterKey: String?
+): BinderyWordSyncRoute {
+	val normalizedBaseUrl = normalizeBinderyOpdsBaseUrl(baseUrl)
+	val href = advertisedHref.takeIf { it.isNotBlank() && it == it.trim() }
+		?: throw IllegalArgumentException("Bindery WordSync route is required.")
+	require(href.none { it <= ' ' || it == '\\' || it == '?' || it == '#' || it == '%' }) {
+		"Bindery WordSync route contains unsupported characters."
+	}
+	val safeChapterKey = chapterKey?.takeIf {
+		it.isNotBlank() && it == it.trim() &&
+			it != "." && it != ".." && !it.equals("index", ignoreCase = true) &&
+			it.none { character ->
+				character <= ' ' || character == '/' || character == '\\' ||
+					character == '?' || character == '#' || character == '%'
+			}
+	} ?: chapterKey?.let {
+		throw IllegalArgumentException("Bindery WordSync chapter key is invalid.")
+	}
+	val absolute = href.startsWith("http://", ignoreCase = true) ||
+		href.startsWith("https://", ignoreCase = true)
+	val requestUrl = if (absolute) {
+		require(href.canonicalHttpOriginOrNull() == normalizedBaseUrl.canonicalHttpOriginOrNull()) {
+			"Bindery WordSync route must use the configured origin."
+		}
+		href
+	} else {
+		require(href.startsWith('/') && !href.startsWith("//")) {
+			"Bindery WordSync route must be an absolute path or same-origin URL."
+		}
+		binderyOrigin(normalizedBaseUrl) + href
+	}
+	val suffix = safeChapterKey ?: "index"
+	val expectedOpdsUrl =
+		"$normalizedBaseUrl/books/${identity.bookId}/sync/${identity.artifactId}/wordsync/$suffix"
+	val expectedApiUrl =
+		"${binderyApiRoot(normalizedBaseUrl)}/api/v1/sync/artifacts/" +
+			"${identity.artifactId}/wordsync/$suffix"
+	require(
+		requestUrl.matchesCanonicalHttpRoute(expectedOpdsUrl) ||
+			requestUrl.matchesCanonicalHttpRoute(expectedApiUrl)
+	) {
+		"Bindery WordSync route does not match the expected identity."
+	}
+	require(requestUrl.canonicalHttpOriginOrNull() == normalizedBaseUrl.canonicalHttpOriginOrNull()) {
+		"Bindery WordSync route must use the configured origin."
+	}
+	val cacheSuffix = safeChapterKey?.let { "chapter:$it" } ?: "index"
+	return BinderyWordSyncRoute(
+		requestUrl = requestUrl,
+		cachePath = binderyWordSyncGenerationPrefix(identity) + "${identity.artifactId}|$cacheSuffix"
+	)
+}
+
 internal fun binderyApiEndpoint(baseUrl: String, path: String): String {
 	val normalizedBaseUrl = normalizeBinderyOpdsBaseUrl(baseUrl)
 	val trimmedPath = path.trim()
@@ -203,6 +292,13 @@ private fun String.canonicalHttpOriginOrNull(): CanonicalHttpOrigin? {
 	if (scheme != "http" && scheme != "https") return null
 	val host = parsed.host.trim().trimEnd('.').lowercase().takeIf { it.isNotEmpty() } ?: return null
 	return CanonicalHttpOrigin(scheme = scheme, host = host, port = parsed.port)
+}
+
+private fun String.matchesCanonicalHttpRoute(expected: String): Boolean {
+	val actualUrl = runCatching { Url(this) }.getOrNull() ?: return false
+	val expectedUrl = runCatching { Url(expected) }.getOrNull() ?: return false
+	return canonicalHttpOriginOrNull() == expected.canonicalHttpOriginOrNull() &&
+		actualUrl.encodedPath == expectedUrl.encodedPath
 }
 
 private fun String.httpUrlOriginOrNull(): String? = canonicalHttpOriginOrNull()?.let { origin ->

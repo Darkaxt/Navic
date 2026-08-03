@@ -198,11 +198,18 @@ data class BinderyWhispersyncJob(
 	val updatedAt: String? = null
 )
 
+@Serializable
 data class BinderyWhispersyncIdentity(
 	val bookId: Long,
 	val ebookBookFileId: Long,
 	val audiobookBookFileId: Long,
 	val artifactId: Long
+)
+
+@Serializable
+data class BinderyWordSyncReference(
+	val identity: BinderyWhispersyncIdentity,
+	val discovery: BinderyWordSyncDiscovery
 )
 
 fun BinderySyncPair.whispersyncIdentityOrNull(): BinderyWhispersyncIdentity? {
@@ -213,6 +220,12 @@ fun BinderySyncPair.whispersyncIdentityOrNull(): BinderyWhispersyncIdentity? {
 		audiobookBookFileId = audiobookBookFileId?.takeIf { it > 0L } ?: return null,
 		artifactId = artifactId
 	)
+}
+
+fun BinderySyncPair.wordSyncReferenceOrNull(): BinderyWordSyncReference? {
+	val identity = whispersyncIdentityOrNull() ?: return null
+	val discovery = whispersync?.wordSync ?: return null
+	return BinderyWordSyncReference(identity, discovery)
 }
 
 fun BinderySyncPair.hasReadyWhispersyncArtifact(): Boolean {

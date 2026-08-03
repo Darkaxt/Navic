@@ -22,6 +22,9 @@ internal class FakeBinderyApiClient(
 	private val audiobookManifest: BinderyManifest = BinderyManifest(id = "urn:bindery:audiobook:1", title = "Audiobook"),
 	private val bookSync: BinderyBookSync = BinderyBookSync(),
 	private val whispersyncSidecarJson: String = "{}",
+	private val wordSyncIndexJson: String = "{}",
+	private val wordSyncChapterJson: String = "{}",
+	private val wordSyncFailure: Throwable? = null,
 	private val resourceBytes: ByteArray = ByteArray(0),
 	private val progress: BinderyReadingProgress = BinderyReadingProgress(
 		bookId = "book",
@@ -67,6 +70,13 @@ internal class FakeBinderyApiClient(
 	val whispersyncSidecarBaseUrls = mutableListOf<String>()
 	val whispersyncSidecarHeaders = mutableListOf<Map<String, String>>()
 	val whispersyncSidecarPaths = mutableListOf<String>()
+	val wordSyncIndexIdentities = mutableListOf<BinderyWhispersyncIdentity>()
+	val wordSyncIndexHrefs = mutableListOf<String>()
+	val wordSyncIndexHeaders = mutableListOf<Map<String, String>>()
+	val wordSyncChapterIdentities = mutableListOf<BinderyWhispersyncIdentity>()
+	val wordSyncChapterKeys = mutableListOf<String>()
+	val wordSyncChapterHrefs = mutableListOf<String>()
+	val wordSyncChapterHeaders = mutableListOf<Map<String, String>>()
 	val resourceBaseUrls = mutableListOf<String>()
 	val resourceHeaders = mutableListOf<Map<String, String>>()
 	val resourcePaths = mutableListOf<String>()
@@ -194,6 +204,34 @@ internal class FakeBinderyApiClient(
 		whispersyncSidecarHeaders += requestHeaders
 		whispersyncSidecarPaths += path
 		return whispersyncSidecarJson
+	}
+
+	override suspend fun fetchWordSyncIndexJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		identity: BinderyWhispersyncIdentity,
+		advertisedHref: String
+	): String {
+		wordSyncIndexIdentities += identity
+		wordSyncIndexHrefs += advertisedHref
+		wordSyncIndexHeaders += requestHeaders
+		wordSyncFailure?.let { throw it }
+		return wordSyncIndexJson
+	}
+
+	override suspend fun fetchWordSyncChapterJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		identity: BinderyWhispersyncIdentity,
+		chapterKey: String,
+		advertisedHref: String
+	): String {
+		wordSyncChapterIdentities += identity
+		wordSyncChapterKeys += chapterKey
+		wordSyncChapterHrefs += advertisedHref
+		wordSyncChapterHeaders += requestHeaders
+		wordSyncFailure?.let { throw it }
+		return wordSyncChapterJson
 	}
 
 	override suspend fun fetchResourceBytes(

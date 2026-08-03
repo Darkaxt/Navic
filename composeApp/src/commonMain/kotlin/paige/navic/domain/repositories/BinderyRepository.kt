@@ -2,6 +2,8 @@ package paige.navic.domain.repositories
 
 import paige.navic.data.remote.bindery.*
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -15,14 +17,12 @@ import paige.navic.domain.models.OptionalIntegrationResult
 import paige.navic.domain.models.optionalIntegrationFailure
 import paige.navic.domain.models.optionalIntegrationResult
 import paige.navic.domain.models.optionalIntegrationUnavailable
-import paige.navic.reader.WhispersyncSidecar
-import paige.navic.reader.decodeWhispersyncSidecar
-import paige.navic.reader.encodeWhispersyncSidecar
-import paige.navic.reader.readerPublicationResourceLogLabel
+import paige.navic.reader.*
 import paige.navic.util.core.Logger
 import kotlin.time.Clock
 
 private const val TAG = "BinderyRepository"
+private val BinderyWordSyncCacheMutationMutex = Mutex()
 internal const val BINDERY_OPDS_URL_REQUIRED_MESSAGE = "Enter the Bindery OPDS URL first."
 internal const val BINDERY_OPDS_URL_INVALID_SCHEME_MESSAGE =
 	"Bindery OPDS URL must start with http:// or https://."
@@ -386,6 +386,62 @@ class BinderyRepository(
 			acceptCached = ::acceptCachedWhispersyncSidecar
 		)
 
+	suspend fun getWordSyncIndex(
+		identity: BinderyWhispersyncIdentity,
+		discovery: BinderyWordSyncDiscovery,
+		forceRefresh: Boolean = false
+	): Result<WordSyncIndex> {
+		val indexHref = runCatching { discovery.requiredWordSyncIndexHref() }
+			.getOrElse { return Result.failure(it) }
+		return withConfiguredWordSyncPayload(
+			payloadType = BinderyMetadataPayloadType.WordSyncIndex,
+			forceRefresh = forceRefresh,
+			route = { baseUrl -> binderyWordSyncIndexRoute(baseUrl, identity, indexHref) },
+			fetch = { baseUrl, headers ->
+				apiClient.fetchWordSyncIndexJson(baseUrl, headers, identity, indexHref)
+			},
+			decode = { json ->
+				decodeWordSyncIndex(json, identity).also(discovery::validateWordSyncIndex)
+			},
+			wordSyncIdentity = identity,
+			advancesWordSyncGeneration = true
+		)
+	}
+
+	suspend fun getWordSyncChapter(
+		identity: BinderyWhispersyncIdentity,
+		chapter: WordSyncChapterSummary,
+		forceRefresh: Boolean = false
+	): Result<WordSyncChapter> {
+		val chapterHref = chapter.opdsHref?.takeIf { it.isNotBlank() }
+			?: chapter.href.takeIf { it.isNotBlank() }
+			?: return Result.failure(IllegalArgumentException("Bindery WordSync chapter route is required."))
+		return withConfiguredWordSyncPayload(
+			payloadType = BinderyMetadataPayloadType.WordSyncChapter,
+			forceRefresh = forceRefresh,
+			route = { baseUrl ->
+				binderyWordSyncChapterRoute(
+					baseUrl = baseUrl,
+					identity = identity,
+					chapterKey = chapter.chapterKey,
+					advertisedHref = chapterHref
+				)
+			},
+			fetch = { baseUrl, headers ->
+				apiClient.fetchWordSyncChapterJson(
+					baseUrl = baseUrl,
+					requestHeaders = headers,
+					identity = identity,
+					chapterKey = chapter.chapterKey,
+					advertisedHref = chapterHref
+				)
+			},
+			decode = { json -> decodeWordSyncChapter(json, identity, chapter) },
+			wordSyncIdentity = identity,
+			advancesWordSyncGeneration = false
+		)
+	}
+
 	suspend fun clearMetadataCache(): Result<Unit> =
 		withConfiguredClientAvailability { baseUrl, _ ->
 			metadataCache.clearBaseUrl(baseUrl)
@@ -530,6 +586,154 @@ class BinderyRepository(
 			Logger.i(TAG, "Bindery action completed path=$label")
 		}.onFailure { error ->
 			Logger.w(TAG, "Bindery action failed path=$label", error)
+		}
+	}
+
+	private suspend fun <T> withConfiguredWordSyncPayload(
+		payloadType: String,
+		forceRefresh: Boolean,
+		route: (String) -> BinderyWordSyncRoute,
+		fetch: suspend (baseUrl: String, headers: Map<String, String>) -> String,
+		decode: (String) -> T,
+		wordSyncIdentity: BinderyWhispersyncIdentity,
+		advancesWordSyncGeneration: Boolean
+	): Result<T> = withConfiguredClientAvailability { baseUrl, headers ->
+		val approvedRoute = runCatching { route(baseUrl) }
+			.getOrElse { return@withConfiguredClientAvailability Result.failure(it) }
+		val apiKeyFingerprint = binderyApiKeyFingerprint(headers["X-Api-Key"].orEmpty())
+		val cacheKey = binderyMetadataCacheKey(
+			baseUrl = baseUrl,
+			payloadType = payloadType,
+			path = approvedRoute.cachePath,
+			apiKeyFingerprint = apiKeyFingerprint
+		)
+		val generationPrefix = binderyWordSyncGenerationPrefix(wordSyncIdentity)
+		val markerPath = "${generationPrefix}current"
+		val markerKey = binderyMetadataCacheKey(
+			baseUrl = baseUrl,
+			payloadType = BinderyMetadataPayloadType.WordSyncGeneration,
+			path = markerPath,
+			apiKeyFingerprint = apiKeyFingerprint
+		)
+		val committedArtifactId = metadataCache.get(markerKey)?.payloadJson?.toLongOrNull()
+		val cached = metadataCache.get(cacheKey).takeIf {
+			committedArtifactId == wordSyncIdentity.artifactId
+		}
+		if (!forceRefresh && cached != null && isFresh(cached.updatedAtMillis)) {
+			runCatching { decode(cached.payloadJson) }
+				.onSuccess { cachedPayload ->
+					return@withConfiguredClientAvailability Result.success(cachedPayload)
+				}
+				.onFailure { cacheError ->
+					Logger.w(TAG, "Bindery WordSync cache decode failed type=$payloadType", cacheError)
+				}
+		}
+
+		runCatching {
+			val rawJson = fetch(baseUrl, headers)
+			rawJson to decode(rawJson)
+		}.fold(
+			onSuccess = { (rawJson, live) ->
+				runCatching {
+					cacheValidatedWordSyncPayload(
+						baseUrl = baseUrl,
+						payloadType = payloadType,
+						cacheKey = cacheKey,
+						cachePath = approvedRoute.cachePath,
+						rawJson = rawJson,
+						identity = wordSyncIdentity,
+						advancesGeneration = advancesWordSyncGeneration,
+						apiKeyFingerprint = apiKeyFingerprint
+					)
+				}.onFailure { cacheError ->
+					Logger.w(TAG, "Bindery WordSync cache commit failed type=$payloadType", cacheError)
+				}
+				Logger.i(TAG, "Bindery WordSync metadata fetched type=$payloadType")
+				preferenceManager.markIntegrationServiceAvailable(IntegrationService.Bindery)
+				Result.success(live)
+			},
+			onFailure = { error ->
+				Logger.w(TAG, "Bindery WordSync request failed type=$payloadType", error)
+				preferenceManager.markIntegrationServiceDown(IntegrationService.Bindery)
+				if (cached == null) {
+					Result.failure(error)
+				} else {
+					runCatching { decode(cached.payloadJson) }
+						.onFailure { cacheError ->
+							Logger.w(TAG, "Bindery WordSync cache decode failed type=$payloadType", cacheError)
+						}
+				}
+			}
+		)
+	}
+
+	private suspend fun cacheValidatedWordSyncPayload(
+		baseUrl: String,
+		payloadType: String,
+		cacheKey: String,
+		cachePath: String,
+		rawJson: String,
+		identity: BinderyWhispersyncIdentity,
+		advancesGeneration: Boolean,
+		apiKeyFingerprint: String
+	) {
+		BinderyWordSyncCacheMutationMutex.withLock {
+			val generationPrefix = binderyWordSyncGenerationPrefix(identity)
+			val markerPath = "${generationPrefix}current"
+			val markerKey = binderyMetadataCacheKey(
+				baseUrl = baseUrl,
+				payloadType = BinderyMetadataPayloadType.WordSyncGeneration,
+				path = markerPath,
+				apiKeyFingerprint = apiKeyFingerprint
+			)
+			val previousArtifactId = metadataCache.get(markerKey)
+				?.payloadJson
+				?.toLongOrNull()
+			val artifactId = identity.artifactId
+			if (previousArtifactId != null && artifactId < previousArtifactId) {
+				return@withLock
+			}
+			if (!advancesGeneration && previousArtifactId != null && artifactId != previousArtifactId) {
+				return@withLock
+			}
+			val generationAdvanced =
+				advancesGeneration && (previousArtifactId == null || artifactId > previousArtifactId)
+			if (generationAdvanced) {
+				listOf(
+					BinderyMetadataPayloadType.WordSyncIndex,
+					BinderyMetadataPayloadType.WordSyncChapter
+				).forEach { stalePayloadType ->
+					metadataCache.clearPayload(
+						baseUrl = baseUrl,
+						payloadType = stalePayloadType,
+						path = generationPrefix,
+						pathPrefix = true
+					)
+				}
+			}
+			val updatedAtMillis = currentTimeMillis()
+			metadataCache.put(
+				BinderyMetadataCacheRecord(
+					cacheKey = cacheKey,
+					baseUrl = baseUrl,
+					payloadType = payloadType,
+					path = cachePath,
+					payloadJson = rawJson,
+					updatedAtMillis = updatedAtMillis
+				)
+			)
+			if (generationAdvanced) {
+				metadataCache.put(
+					BinderyMetadataCacheRecord(
+						cacheKey = markerKey,
+						baseUrl = baseUrl,
+						payloadType = BinderyMetadataPayloadType.WordSyncGeneration,
+						path = markerPath,
+						payloadJson = artifactId.toString(),
+						updatedAtMillis = updatedAtMillis
+					)
+				)
+			}
 		}
 	}
 
@@ -753,6 +957,51 @@ class BinderyRepository(
 		}.onFailure {
 			preferenceManager.markIntegrationServiceDown(IntegrationService.Bindery)
 		}
+}
+
+private fun BinderyWordSyncDiscovery.requiredWordSyncIndexHref(): String {
+	require(status?.trim()?.lowercase() in setOf("ready", "partial")) {
+		"Bindery WordSync discovery is not ready."
+	}
+	require(schema == WordSyncIndexSchema) { "Bindery WordSync discovery schema is unsupported." }
+	require(format == "chapter-sharded-json") { "Bindery WordSync discovery format is unsupported." }
+	require(compression == "http") { "Bindery WordSync discovery compression is unsupported." }
+	require(timeScale == WordSyncTimeScale) { "Bindery WordSync discovery time scale is unsupported." }
+	coverage?.let { require(it in 0.0..1.0) { "Bindery WordSync discovery coverage is invalid." } }
+	return opdsIndexHref?.takeIf { it.isNotBlank() }
+		?: indexHref?.takeIf { it.isNotBlank() }
+		?: throw IllegalArgumentException("Bindery WordSync index route is required.")
+}
+
+private fun BinderyWordSyncDiscovery.validateWordSyncIndex(index: WordSyncIndex) {
+	shardCount?.let { require(it == index.chapters.size) { "Bindery WordSync shard count mismatch." } }
+	val chapterAudioWords = index.chapters.sumOf { it.audioWordCount }
+	val unplacedAudioWords = index.unplaced?.audioWordCount ?: 0
+	audioWordCount?.let {
+		require(it == chapterAudioWords + unplacedAudioWords) {
+			"Bindery WordSync audio word count mismatch."
+		}
+	}
+	matchedAudioWordCount?.let {
+		require(it == index.chapters.sumOf(WordSyncChapterSummary::matchedAudioWordCount)) {
+			"Bindery WordSync matched word count mismatch."
+		}
+	}
+	reviewAudioWordCount?.let {
+		require(it == index.chapters.sumOf(WordSyncChapterSummary::reviewAudioWordCount)) {
+			"Bindery WordSync review word count mismatch."
+		}
+	}
+	unmatchedAudioWordCount?.let {
+		require(
+			it == index.chapters.sumOf(WordSyncChapterSummary::unmatchedAudioWordCount) + unplacedAudioWords
+		) { "Bindery WordSync unmatched audio word count mismatch." }
+	}
+	unmatchedEbookWordCount?.let {
+		require(it == index.chapters.sumOf(WordSyncChapterSummary::unmatchedEbookWordCount)) {
+			"Bindery WordSync unmatched ebook word count mismatch."
+		}
+	}
 }
 
 private fun BinderyCatalog.isOptionalIntegrationEmpty(): Boolean =

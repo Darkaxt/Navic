@@ -16,6 +16,8 @@ import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.BinderySyncPair
+import paige.navic.domain.repositories.BinderyWordSyncReference
+import paige.navic.domain.repositories.wordSyncReferenceOrNull
 import paige.navic.data.remote.bindery.binderyEndpoint
 import paige.navic.data.remote.bindery.configuredBinderyOpdsBaseUrl
 import paige.navic.domain.repositories.hasReadyWhispersyncArtifact
@@ -115,7 +117,8 @@ data class BinderyWhispersyncMatch(
 	val oppositeAudiobookBookFileId: String? = null,
 	val oppositeEbookResourceHref: String? = null,
 	val oppositeEbookBookFileId: String? = null,
-	val oppositeEbookFormat: ReaderPublicationFormat? = null
+	val oppositeEbookFormat: ReaderPublicationFormat? = null,
+	val wordSync: BinderyWordSyncReference? = null
 )
 
 data class BinderyBookVersionGroups(
@@ -235,7 +238,8 @@ fun binderyWhispersyncReaderDestinationForMatch(
 		whispersyncArtifactId = match.artifactId,
 		whispersyncAudiobookId = audiobookId,
 		whispersyncAudiobookBookFileId = audiobookBookFileId,
-		whispersyncAudiobookTitle = match.oppositeTitle.takeIf { it.isNotBlank() }
+		whispersyncAudiobookTitle = match.oppositeTitle.takeIf { it.isNotBlank() },
+		whispersyncWordSync = match.wordSync
 	)
 }
 
@@ -276,7 +280,8 @@ fun binderyWhispersyncReaderDestinationForRowMatch(
 				whispersyncArtifactId = match.artifactId,
 				whispersyncAudiobookId = audiobookId,
 				whispersyncAudiobookBookFileId = audiobookBookFileId,
-				whispersyncAudiobookTitle = row.title.takeIf { it.isNotBlank() }
+				whispersyncAudiobookTitle = row.title.takeIf { it.isNotBlank() },
+				whispersyncWordSync = match.wordSync
 			)
 		}
 		else -> null
@@ -476,7 +481,8 @@ private fun BinderySyncPair.toWhispersyncMatch(
 			oppositeRow?.format
 		} else {
 			null
-		}
+		},
+		wordSync = wordSyncReferenceOrNull()
 	)
 }
 

@@ -18,6 +18,9 @@ import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.BinderyFindingMetadata
 import paige.navic.domain.repositories.BinderySyncPair
 import paige.navic.domain.repositories.BinderyWhispersyncArtifact
+import paige.navic.domain.repositories.BinderyWhispersyncIdentity
+import paige.navic.domain.repositories.BinderyWordSyncDiscovery
+import paige.navic.domain.repositories.BinderyWordSyncReference
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
@@ -335,6 +338,60 @@ class BinderyBookVersionPolicyTest {
 				bookTitle = "The Hobbit",
 				opdsBaseUrl = "https://bindery.local/opds"
 			)
+		)
+	}
+
+	@Test
+	fun wordSyncReferenceSurvivesBothWhispersyncLaunchDirections() {
+		val discovery = BinderyWordSyncDiscovery(
+			status = "ready",
+			schema = "bindery.whispersync.wordsync.index.v1",
+			indexHref = "/api/v1/books/3816/sync/3/words",
+			opdsIndexHref = "/opds/books/3816/sync/3/words",
+			format = "chapter-sharded-json",
+			compression = "http",
+			timeScale = 1000,
+			shardCount = 2
+		)
+		val expected = BinderyWordSyncReference(
+			identity = BinderyWhispersyncIdentity(
+				bookId = 3816,
+				ebookBookFileId = 435,
+				audiobookBookFileId = 694,
+				artifactId = 3
+			),
+			discovery = discovery
+		)
+		val rows = hobbitVersionRowsWithWhispersync(
+			status = "ready",
+			wordSync = discovery
+		)
+		val ebook = rows.first { row -> row.kind == BinderyBookVersionKind.Ebook }
+		val audiobook = rows.first { row -> row.kind == BinderyBookVersionKind.Audiobook }
+		val ebookMatch = ebook.whispersyncAudiobookLaunchMatches().single()
+		val audiobookMatch = audiobook.syncMatches.single()
+
+		assertEquals(expected, ebookMatch.wordSync)
+		assertEquals(expected, audiobookMatch.wordSync)
+		assertEquals(
+			expected,
+			binderyWhispersyncReaderDestinationForMatch(
+				ebookRow = ebook,
+				match = ebookMatch,
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)?.whispersyncWordSync
+		)
+		assertEquals(
+			expected,
+			binderyWhispersyncReaderDestinationForRowMatch(
+				row = audiobook,
+				match = audiobookMatch,
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)?.whispersyncWordSync
 		)
 	}
 
@@ -1736,7 +1793,8 @@ class BinderyBookVersionPolicyTest {
 	private fun hobbitVersionRowsWithWhispersync(
 		status: String,
 		artifactHref: String? = "/opds/books/3816/sync/3",
-		extraReadyAudiobook: Boolean = false
+		extraReadyAudiobook: Boolean = false,
+		wordSync: BinderyWordSyncDiscovery? = null
 	): List<BinderyBookVersionRow> =
 		binderyBookVersionRows(
 			manifest = BinderyManifest(id = "urn:bindery:book:3816", title = "The Hobbit"),
@@ -1792,7 +1850,8 @@ class BinderyBookVersionPolicyTest {
 							artifactId = 3,
 							artifactHref = artifactHref,
 							score = .989,
-							coverage = .96
+							coverage = .96,
+							wordSync = wordSync
 						)
 					),
 					if (extraReadyAudiobook) {

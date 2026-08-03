@@ -81,6 +81,21 @@ interface BinderyApiClient {
 		path: String
 	): String
 
+	suspend fun fetchWordSyncIndexJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		identity: BinderyWhispersyncIdentity,
+		advertisedHref: String
+	): String
+
+	suspend fun fetchWordSyncChapterJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		identity: BinderyWhispersyncIdentity,
+		chapterKey: String,
+		advertisedHref: String
+	): String
+
 	suspend fun fetchResourceBytes(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -288,6 +303,47 @@ internal class KtorBinderyApiClient(
 		}
 		if (!response.status.isSuccess()) {
 			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery Whispersync sidecar", response.status))
+		}
+		return response.bodyAsText()
+	}
+
+	override suspend fun fetchWordSyncIndexJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		identity: BinderyWhispersyncIdentity,
+		advertisedHref: String
+	): String = fetchWordSyncJson(
+		baseUrl = baseUrl,
+		requestHeaders = requestHeaders,
+		route = binderyWordSyncIndexRoute(baseUrl, identity, advertisedHref),
+		operation = "Bindery WordSync index"
+	)
+
+	override suspend fun fetchWordSyncChapterJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		identity: BinderyWhispersyncIdentity,
+		chapterKey: String,
+		advertisedHref: String
+	): String = fetchWordSyncJson(
+		baseUrl = baseUrl,
+		requestHeaders = requestHeaders,
+		route = binderyWordSyncChapterRoute(baseUrl, identity, chapterKey, advertisedHref),
+		operation = "Bindery WordSync chapter"
+	)
+
+	private suspend fun fetchWordSyncJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		route: BinderyWordSyncRoute,
+		operation: String
+	): String {
+		val response = client.get(route.requestUrl) {
+			binderyJsonRequest(baseUrl, requestHeaders)
+			accept(ContentType.Application.Json)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage(operation, response.status))
 		}
 		return response.bodyAsText()
 	}

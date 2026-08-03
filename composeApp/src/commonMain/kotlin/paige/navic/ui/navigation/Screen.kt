@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSongListType
+import paige.navic.domain.repositories.BinderyWordSyncReference
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
 
@@ -163,6 +164,7 @@ sealed interface Screen : NavKey {
 		val whispersyncAudiobookId: String? = null,
 		val whispersyncAudiobookBookFileId: String? = null,
 		val whispersyncAudiobookTitle: String? = null,
+		val whispersyncWordSync: BinderyWordSyncReference? = null,
 		val skipNativeShellCover: Boolean = false,
 		val fullscreenCoverUrl: String? = null
 	) : Screen
