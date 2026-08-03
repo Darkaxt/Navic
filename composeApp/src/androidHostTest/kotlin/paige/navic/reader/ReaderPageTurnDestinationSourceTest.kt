@@ -44,7 +44,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(paginator, "await this.#acquireExactNavigationLock()")
 		assertContains(paginator, "async #acquireExactNavigationLock()")
 		assertContains(paginator, "throw new Error('Exact page navigation timed out waiting for paginator unlock')")
-		assertContains(paginator, "await this.#scrollToAnchor(requestedAnchor, reason)")
+		assertContains(paginator, "await this.#scrollToAnchor(actualTargetAnchor, reason)")
 		assertContains(exactNavigation, "this.view.history?.pushState?.(")
 		val applyStableLayout = exactNavigation.indexOf(
 			"this.applyReaderViewportLayout('page-turn:exact', { renderSynchronously: true })"
@@ -120,7 +120,8 @@ class ReaderPageTurnDestinationSourceTest {
 		val commitView = display.indexOf("view.markCommitted()")
 		val applyStyles = display.indexOf("this.setStyles(this.#styles)")
 		val resolveAnchor = display.indexOf("await this.scrollToAnchor(")
-		assertContains(createView, "this.#view = new View({")
+		assertContains(createView, "const view = new View({")
+		assertContains(createView, "this.#view = view")
 		assertTrue(createCandidate >= 0, "The section load must create and install a candidate paginator view.")
 		assertTrue(commitView > createCandidate, "Only the successfully loaded candidate may become committed.")
 		assertTrue(applyStyles > commitView, "Saved reader styles must target the committed section.")
@@ -135,6 +136,9 @@ class ReaderPageTurnDestinationSourceTest {
 	fun paginatorSerializesNavigationAndReleasesLocksAfterFailures() {
 		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
 		val exact = paginator
+			.substringAfter("async commitTextPage(index, pageIndex, reason = 'navigation') {")
+			.substringBefore("\n    validateTextPageCommit(receipt) {")
+		val exactCompatibilityWrapper = paginator
 			.substringAfter("async goToTextPage(index, pageIndex, reason = 'navigation') {")
 			.substringBefore("\n    #scrollPrev(distance) {")
 		val scrollToAnchor = paginator
@@ -147,14 +151,14 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("#afterScroll(reason) {")
 			.substringBefore("\n    async #display(promise) {")
 		val attributeChanged = paginator
-			.substringAfter("attributeChangedCallback(name, _, value) {")
+			.substringAfter("attributeChangedCallback(name, oldValue, value) {")
 			.substringBefore("\n    open(book) {")
 		val setStyles = paginator
 			.substringAfter("setStyles(styles) {")
 			.substringBefore("\n    focusView()")
 		val acquireExactLock = paginator
 			.substringAfter("async #acquireExactNavigationLock() {")
-			.substringBefore("\n    async goToTextPage(")
+			.substringBefore("\n    #interruptedTextPageCommit(")
 		val turn = paginator
 			.substringAfter("async #turnPage(dir, distance) {")
 			.substringBefore("\n    async prev(distance) {")
@@ -162,18 +166,35 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("async #goTo({ index, anchor, select }")
 			.substringBefore("\n    async goTo(target) {")
 
-		assertContains(exact, "if (!Number.isFinite(numericPageIndex)) return false")
-		assertContains(exact, "if (this.scrolled) return false")
-		assertContains(exact, "if (!await this.#acquireExactNavigationLock()) return false")
-		assertContains(exact, "const generation = ++this.#navigationGeneration")
-		assertContains(
-			exact,
-			"const requestedAnchor = Object.freeze({ textPageIndex: requestedPageIndex })"
+		assertContains(exact, "throw new TypeError('Text-page section and page coordinates must be non-negative integers')")
+		assertContains(exact, "status: 'unsupported'")
+		assertContains(exact, "reason: 'unsupported-flow'")
+		assertContains(exact, "if (!await this.#acquireExactNavigationLock())")
+		assertContains(exact, "const navigationGeneration = ++this.#navigationGeneration")
+		assertContains(exact, "const measuredPageCount = this.pages - 2")
+		assertContains(exact, "const actualTargetPageIndex = measuredPageCount > 0")
+		assertContains(exact, "textPageIndex: actualTargetPageIndex")
+		assertContains(exact, "view.expand()")
+		assertContains(exact, "this.#recordContainerLayoutSignature()")
+		assertContains(exact, "const fontLayoutGeneration = this.#layoutGeneration")
+		assertContains(exact, "await view.document?.fonts?.ready")
+		assertContains(exact, "layoutGeneration: fontLayoutGeneration")
+		assertContains(exact, "this.#renderCurrentView()")
+		assertContains(exact, "await this.#scrollToAnchor(actualTargetAnchor, reason)")
+		assertTrue(
+			exact.indexOf("view.expand()") < exact.indexOf("this.#recordContainerLayoutSignature()") &&
+				exact.indexOf("this.#recordContainerLayoutSignature()") <
+				exact.indexOf("const fontLayoutGeneration = this.#layoutGeneration") &&
+				exact.indexOf("const fontLayoutGeneration = this.#layoutGeneration") <
+				exact.indexOf("await view.document?.fonts?.ready") &&
+				exact.indexOf("await view.document?.fonts?.ready") <
+				exact.indexOf("layoutGeneration: fontLayoutGeneration"),
+			"Font readiness must be fenced by the generation captured after initial observer measurements settle."
 		)
-		assertContains(exact, "await this.#scrollToAnchor(requestedAnchor, reason)")
-		assertFalse(
-			exact.contains("this.pages"),
-			"A newly loaded section can report transient page geometry; exact navigation must preserve the requested page identity rather than clamp it to the live count."
+		assertTrue(
+			exact.indexOf("const actualTargetPageIndex = measuredPageCount > 0") <
+				exact.indexOf("await this.#scrollToAnchor(actualTargetAnchor, reason)"),
+			"Out-of-range requests must choose a valid actual page before the only exact-placement relocation."
 		)
 		assertContains(scrollToAnchor, "const exactTextPageIndex = Number(anchor?.textPageIndex)")
 		assertContains(scrollToAnchor, "if (anchor?.textPageIndex != null) {")
@@ -188,8 +209,8 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(setStyles, "this.commitTextPageAnchor()")
 		assertTrue(
 			attributeChanged.indexOf("this.commitTextPageAnchor()") <
-				attributeChanged.indexOf("this.render()"),
-			"Explicit paginator layout changes must retire an exact page identity to its semantic range before reflow."
+				attributeChanged.indexOf("this.#advanceTextLayoutGeneration('attribute-change')"),
+			"Explicit paginator layout changes must retire an exact page identity before reflow invalidation."
 		)
 		assertTrue(
 			setStyles.indexOf("this.commitTextPageAnchor()") <
@@ -197,19 +218,18 @@ class ReaderPageTurnDestinationSourceTest {
 			"Typography changes must retire an exact page identity before mutating document styles."
 		)
 		assertTrue(
-			Regex("""\bthis\.scrolled\b""").findAll(exact).count() >= 3,
-			"Exact navigation must recheck paginated flow after each suspension point."
+			exact.lastIndexOf("ownership({ view, viewGeneration, layoutGeneration })") >
+				exact.indexOf("await this.#scrollToAnchor(actualTargetAnchor, reason)"),
+			"Exact navigation invalidated or superseded during final placement must not issue a receipt."
 		)
-		assertTrue(
-			exact.lastIndexOf("this.#destroyed || generation !== this.#navigationGeneration") >
-				exact.indexOf("await this.#scrollToAnchor(requestedAnchor, reason)"),
-			"Exact navigation destroyed during its final scroll must not report success."
-		)
-		assertContains(exact, "return false")
-		assertContains(exact, "return true")
+		assertContains(exact, "status: committed ? 'committed' : 'mismatch'")
 		assertContains(exact, "try {")
 		assertContains(exact, "finally {")
 		assertContains(exact, "this.#locked = false")
+		assertContains(exactCompatibilityWrapper, "await this.commitTextPage(index, pageIndex, reason)")
+		assertContains(exactCompatibilityWrapper, "return result.status === 'committed'")
+		assertFalse(exactCompatibilityWrapper.contains("#goTo("))
+		assertFalse(exactCompatibilityWrapper.contains("#scrollToAnchor("))
 		assertContains(acquireExactLock, "if (this.#destroyed) return false")
 		assertContains(acquireExactLock, "return true")
 		assertContains(turn, "this.#locked = true")
@@ -224,6 +244,9 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(turn, "try {")
 		assertContains(turn, "finally {")
 		assertContains(turn, "this.#locked = false")
+		assertContains(goTo, "const targetSection = this.sections[index]")
+		assertContains(goTo, "targetSection?.unload?.()")
+		assertContains(goTo, ".then(() => targetSection.load())")
 		assertContains(goTo, "throw e")
 		assertTrue(
 			goTo.lastIndexOf("onCancel()") > goTo.indexOf(".catch(e =>"),

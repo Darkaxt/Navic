@@ -2,6 +2,37 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const exactNavigationUnlockPollMs = 16
 const exactNavigationUnlockTimeoutMs = 5000
 
+const textPageCommitInvalidationReasons = new Set([
+    'attribute-change',
+    'style-change',
+    'explicit-render',
+    'container-resize',
+    'visual-viewport-resize',
+    'view-expansion',
+    'view-replaced',
+    'view-discarded',
+    'section-committed',
+    'section-replaced',
+    'position-moved',
+    'paginator-destroyed',
+])
+
+const frozenTextPageCommitResult = ({
+    status,
+    requestedIndex,
+    requestedPageIndex,
+    position = null,
+    receipt = null,
+    reason,
+}) => Object.freeze({
+    status,
+    requestedIndex,
+    requestedPageIndex,
+    position,
+    receipt,
+    reason,
+})
+
 const debounce = (f, wait, immediate) => {
     let timeout
     return (...args) => {
@@ -325,11 +356,13 @@ class View {
     #column = true
     #size
     #layout = {}
+    #layoutSignature
     #destroyed = false
     #committed = false
     #cancelLoad
-    constructor({ container, onExpand }) {
+    constructor({ container, onBeforeExpand, onExpand }) {
         this.container = container
+        this.onBeforeExpand = onBeforeExpand
         this.onExpand = onExpand
         this.#iframe.setAttribute('part', 'filter')
         this.#element.append(this.#iframe)
@@ -509,55 +542,87 @@ class View {
         }
     }
     expand() {
-        if (this.#destroyed) return
-        const documentElement = this.document?.documentElement
-        if (!documentElement?.isConnected || !this.#contentRange.startContainer?.isConnected) return
+        if (this.#destroyed) return false
+        const doc = this.document
+        const documentElement = doc?.documentElement
+        const contentRoot = documentStyleRoot(doc)
+        if (!documentElement?.isConnected || !contentRoot?.isConnected) return false
+        this.#contentRange.selectNodeContents(contentRoot)
+
+        const side = this.#column
+            ? (this.#vertical ? 'height' : 'width')
+            : (this.#vertical ? 'width' : 'height')
+        const otherSide = this.#column
+            ? (this.#vertical ? 'width' : 'height')
+            : (this.#vertical ? 'height' : 'width')
+        let contentSize
+        let pageCount
+        let expandedSize
+        let padding
         if (this.#column) {
-            const side = this.#vertical ? 'height' : 'width'
-            const otherSide = this.#vertical ? 'width' : 'height'
             const contentRect = this.#contentRange.getBoundingClientRect()
             const rootRect = documentElement.getBoundingClientRect()
             // offset caused by column break at the start of the page
             // which seem to be supported only by WebKit and only for horizontal writing
             const contentStart = this.#vertical ? 0
                 : this.#rtl ? rootRect.right - contentRect.right : contentRect.left - rootRect.left
-            const contentSize = contentStart + contentRect[side]
-            const pageCount = Math.ceil(contentSize / this.#size)
-            const expandedSize = pageCount * this.#size
-            this.#element.style.padding = '0'
-            this.#iframe.style[side] = `${expandedSize}px`
-            this.#element.style[side] = `${expandedSize + this.#size * 2}px`
-            this.#iframe.style[otherSide] = '100%'
-            this.#element.style[otherSide] = '100%'
-            documentElement.style[side] = `${this.#size}px`
-            if (this.#overlayer) {
-                this.#overlayer.element.style.margin = '0'
-                this.#overlayer.element.style.left = this.#vertical ? '0' : `${this.#size}px`
-                this.#overlayer.element.style.top = this.#vertical ? `${this.#size}px` : '0'
-                this.#overlayer.element.style[side] = `${expandedSize}px`
-                this.#overlayer.redraw()
-            }
+            contentSize = contentStart + contentRect[side]
+            pageCount = Math.ceil(contentSize / this.#size)
+            expandedSize = pageCount * this.#size
+            padding = '0'
         } else {
-            const side = this.#vertical ? 'width' : 'height'
-            const otherSide = this.#vertical ? 'height' : 'width'
-            const contentSize = documentElement.getBoundingClientRect()[side]
-            const expandedSize = contentSize
+            contentSize = documentElement.getBoundingClientRect()[side]
+            pageCount = 0
+            expandedSize = contentSize
             const { margin, gap } = this.#layout
-            const padding = this.#vertical ? `0 ${gap}px` : `${margin}px 0`
-            this.#element.style.padding = padding
-            this.#iframe.style[side] = `${expandedSize}px`
-            this.#element.style[side] = `${expandedSize}px`
-            this.#iframe.style[otherSide] = '100%'
-            this.#element.style[otherSide] = '100%'
-            if (this.#overlayer) {
-                this.#overlayer.element.style.margin = padding
-                this.#overlayer.element.style.left = '0'
-                this.#overlayer.element.style.top = '0'
-                this.#overlayer.element.style[side] = `${expandedSize}px`
-                this.#overlayer.redraw()
-            }
+            padding = this.#vertical ? `0 ${gap}px` : `${margin}px 0`
         }
+
+        const rounded = value => Number.isFinite(value)
+            ? Math.round(value * 1000) / 1000
+            : 0
+        const pageAxisSize = this.#column
+            ? this.#size
+            : this.container.getBoundingClientRect()[this.#vertical ? 'width' : 'height']
+        const signature = JSON.stringify([
+            this.#column ? 'paginated' : 'scrolled',
+            this.#vertical ? 'vertical' : 'horizontal',
+            this.#rtl ? 'rtl' : 'ltr',
+            rounded(pageAxisSize),
+            rounded(expandedSize),
+            pageCount,
+            this.#column ? null : [
+                padding,
+                rounded(this.#layout.margin),
+                rounded(this.#layout.gap),
+                rounded(this.#layout.columnWidth),
+            ],
+        ])
+        if (signature === this.#layoutSignature) return false
+        if (this.onBeforeExpand?.(signature) === false || this.#destroyed) return false
+
+        this.#element.style.padding = padding
+        this.#iframe.style[side] = `${expandedSize}px`
+        this.#element.style[side] = this.#column
+            ? `${expandedSize + this.#size * 2}px`
+            : `${expandedSize}px`
+        this.#iframe.style[otherSide] = '100%'
+        this.#element.style[otherSide] = '100%'
+        if (this.#column) documentElement.style[side] = `${this.#size}px`
+        if (this.#overlayer) {
+            this.#overlayer.element.style.margin = padding
+            this.#overlayer.element.style.left = this.#column && !this.#vertical
+                ? `${this.#size}px`
+                : '0'
+            this.#overlayer.element.style.top = this.#column && this.#vertical
+                ? `${this.#size}px`
+                : '0'
+            this.#overlayer.element.style[side] = `${expandedSize}px`
+            this.#overlayer.redraw()
+        }
+        this.#layoutSignature = signature
         if (this.#committed) this.onExpand()
+        return true
     }
     set overlayer(overlayer) {
         this.#overlayer = overlayer
@@ -581,7 +646,8 @@ export class Paginator extends HTMLElement {
         'max-inline-size', 'max-block-size', 'max-column-count', 'column-threshold',
     ]
     #root = this.attachShadow({ mode: 'closed' })
-    #observer = new ResizeObserver(() => this.render())
+    #observer = new ResizeObserver(() => this.#handleContainerResize())
+    #containerLayoutSignature
     #top
     #background
     #container
@@ -594,6 +660,10 @@ export class Paginator extends HTMLElement {
     #index = -1
     #loadedSectionIndex = -1
     #navigationGeneration = 0
+    #layoutGeneration = 0
+    #viewGeneration = 0
+    #commitSequence = 0
+    #activeTextPageCommitReceipt = null
     #anchor = 0 // anchor view to a fraction (0-1), Range, or Element
     #justAnchored = false
     #locked = false // while true, prevent any further navigation
@@ -721,6 +791,7 @@ export class Paginator extends HTMLElement {
         this.#header = this.#root.getElementById('header')
         this.#footer = this.#root.getElementById('footer')
 
+        this.#observer.observe(this)
         this.#observer.observe(this.#container)
         this.#container.addEventListener('scroll', () => this.dispatchEvent(new Event('scroll')))
         this.#container.addEventListener('scroll', debounce(() => {
@@ -792,15 +863,47 @@ export class Paginator extends HTMLElement {
         this.#mediaQuery.addEventListener('change', this.#mediaQueryListener)
         this.#visualViewportResizeListener = debounce(() => {
             this.commitTextPageAnchor()
-            this.render()
+            this.render('visual-viewport-resize')
         }, 100)
         globalThis.visualViewport?.addEventListener('resize', this.#visualViewportResizeListener)
     }
-    attributeChangedCallback(name, _, value) {
+    #dispatchTextPageCommitInvalidated(receipt, reason, layoutGeneration) {
+        const detail = Object.freeze({
+            commitSequence: receipt.commitSequence,
+            layoutGeneration,
+            previousLayoutGeneration: receipt.layoutGeneration,
+            reason,
+            viewGeneration: receipt.viewGeneration,
+        })
+        this.dispatchEvent(new CustomEvent('text-page-commit-invalidated', { detail }))
+    }
+    #invalidateTextPageCommit(reason) {
+        if (!textPageCommitInvalidationReasons.has(reason))
+            throw new TypeError(`Unknown text-page commit invalidation reason: ${reason}`)
+        const receipt = this.#activeTextPageCommitReceipt
+        if (!receipt) return false
+        this.#activeTextPageCommitReceipt = null
+        this.#dispatchTextPageCommitInvalidated(receipt, reason, this.#layoutGeneration)
+        return true
+    }
+    #advanceTextLayoutGeneration(reason) {
+        if (!textPageCommitInvalidationReasons.has(reason))
+            throw new TypeError(`Unknown text-page commit invalidation reason: ${reason}`)
+        const receipt = this.#activeTextPageCommitReceipt
+        if (receipt) this.#activeTextPageCommitReceipt = null
+        const nextLayoutGeneration = this.#layoutGeneration + 1
+        this.#layoutGeneration = nextLayoutGeneration
+        if (receipt)
+            this.#dispatchTextPageCommitInvalidated(receipt, reason, nextLayoutGeneration)
+        return this.#layoutGeneration
+    }
+    attributeChangedCallback(name, oldValue, value) {
+        if (oldValue === value) return
         this.commitTextPageAnchor()
+        this.#advanceTextLayoutGeneration('attribute-change')
         switch (name) {
             case 'flow':
-                this.render()
+                this.#renderCurrentView()
                 break
             case 'gap':
             case 'content-gap':
@@ -811,16 +914,28 @@ export class Paginator extends HTMLElement {
             case 'max-column-count':
             case 'column-threshold':
                 this.#top.style.setProperty('--_' + name, value)
-                this.render()
+                this.#renderCurrentView()
                 break
             case 'max-inline-size':
-                // needs explicit `render()` as it doesn't necessarily resize
+                // needs explicit render as it doesn't necessarily resize
                 this.#top.style.setProperty('--_' + name, value)
-                this.render()
+                this.#renderCurrentView()
                 break
         }
     }
     open(book) {
+        if (this.sections) {
+            this.commitTextPageAnchor()
+            this.#advanceTextLayoutGeneration('section-replaced')
+            ++this.#navigationGeneration
+            if (this.#view) this.#discardCandidateView(this.#view)
+            else {
+                this.#index = -1
+                const loadedSectionIndex = this.#loadedSectionIndex
+                this.#loadedSectionIndex = -1
+                this.sections?.[loadedSectionIndex]?.unload?.()
+            }
+        }
         this.bookDir = book.dir
         this.sections = book.sections
         book.transformTarget?.addEventListener('data', ({ detail }) => {
@@ -841,19 +956,30 @@ export class Paginator extends HTMLElement {
         })
     }
     #createView() {
+        this.#advanceTextLayoutGeneration('view-replaced')
         if (this.#view) {
             this.#view.destroy()
             this.#container.removeChild(this.#view.element)
         }
-        this.#view = new View({
+        ++this.#viewGeneration
+        const view = new View({
             container: this,
+            onBeforeExpand: () => {
+                if (this.#destroyed || view !== this.#view) return false
+                const layoutGeneration = this.#advanceTextLayoutGeneration('view-expansion')
+                return !this.#destroyed && view === this.#view &&
+                    layoutGeneration === this.#layoutGeneration
+            },
             onExpand: () => this.#scrollToAnchor(this.#anchor),
         })
-        this.#container.append(this.#view.element)
-        return this.#view
+        this.#view = view
+        this.#container.append(view.element)
+        return view
     }
     #discardCandidateView(view) {
         if (view !== this.#view) return
+        this.#advanceTextLayoutGeneration('view-discarded')
+        ++this.#viewGeneration
         view.destroy()
         view.element.remove()
         this.#view = null
@@ -887,6 +1013,32 @@ export class Paginator extends HTMLElement {
             column.style.height = '100%'
             this.#background.appendChild(column)
         }
+    }
+    #currentContainerLayoutSignature() {
+        const hostRect = this.getBoundingClientRect()
+        const containerRect = this.#container.getBoundingClientRect()
+        const viewport = visibleViewport(hostRect)
+        const rounded = value => Math.round(value * 1000) / 1000
+        return JSON.stringify([
+            rounded(hostRect.width),
+            rounded(hostRect.height),
+            rounded(containerRect.width),
+            rounded(containerRect.height),
+            rounded(viewport.visualWidth),
+            rounded(viewport.visualHeight),
+        ])
+    }
+    #recordContainerLayoutSignature() {
+        this.#containerLayoutSignature = this.#currentContainerLayoutSignature()
+    }
+    #handleContainerResize() {
+        const nextSignature = this.#currentContainerLayoutSignature()
+        if (nextSignature === this.#containerLayoutSignature) return
+        if (!this.#view) {
+            this.#containerLayoutSignature = nextSignature
+            return
+        }
+        this.render('container-resize')
     }
     #applyVisibleViewport() {
         const rect = this.getBoundingClientRect()
@@ -988,14 +1140,25 @@ export class Paginator extends HTMLElement {
 
         return { height, width, margin, gap, columnWidth }
     }
-    render() {
+    #renderCurrentView() {
         const view = this.#view
-        if (!view) return
+        if (!view) return false
         view.render(this.#beforeRender({
             vertical: this.#vertical,
             rtl: this.#rtl,
         }))
         if (view.committed && view === this.#view) this.#scrollToAnchor(this.#anchor)
+        this.#recordContainerLayoutSignature()
+        return view === this.#view
+    }
+    render(reason = 'explicit-render') {
+        if (!this.#view) return false
+        const invalidationReason = reason === 'container-resize'
+            || reason === 'visual-viewport-resize'
+            ? reason
+            : 'explicit-render'
+        this.#advanceTextLayoutGeneration(invalidationReason)
+        return this.#renderCurrentView()
     }
     get scrolled() {
         return this.getAttribute('flow') === 'scrolled'
@@ -1047,6 +1210,7 @@ export class Paginator extends HTMLElement {
 
     // this is the new position of the containr
     set containerPosition(newVal) {
+        this.#invalidateTextPageCommit('position-moved')
         this.#container[this.scrollProp] = newVal
     }
 
@@ -1157,6 +1321,7 @@ export class Paginator extends HTMLElement {
         return this.#scrollToPage(Math.floor(offset / this.size) + (this.#rtl ? -1 : 1), reason)
     }
     async #scrollTo(offset, reason, smooth) {
+        this.#invalidateTextPageCommit('position-moved')
         const { size } = this
         if (this.containerPosition === offset) {
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
@@ -1193,6 +1358,7 @@ export class Paginator extends HTMLElement {
         return true
     }
     async #scrollToAnchor(anchor, reason = 'anchor') {
+        this.#invalidateTextPageCommit('position-moved')
         this.#anchor = anchor
         const exactTextPageIndex = Number(anchor?.textPageIndex)
         if (anchor?.textPageIndex != null) {
@@ -1287,6 +1453,7 @@ export class Paginator extends HTMLElement {
                 this.#discardCandidateView(view)
                 return false
             }
+            this.#advanceTextLayoutGeneration('section-committed')
             this.#index = index
             view.markCommitted()
             onLoad?.({ doc: view.document, index })
@@ -1321,6 +1488,7 @@ export class Paginator extends HTMLElement {
         if (index === this.#index && this.#view?.committed)
             return await this.#display({ index, anchor, generation, select })
         else {
+            const targetSection = this.sections[index]
             let ownsTargetSection = true
             const onLoad = detail => {
                 if (!ownsTargetSection) return
@@ -1333,10 +1501,10 @@ export class Paginator extends HTMLElement {
             const onCancel = () => {
                 if (!ownsTargetSection) return
                 ownsTargetSection = false
-                this.sections[index]?.unload?.()
+                targetSection?.unload?.()
             }
             return await this.#display(Promise.resolve()
-                .then(() => this.sections[index].load())
+                .then(() => targetSection.load())
                 .then(src => ({
                     index, src, anchor, generation, onLoad, onCancel, select,
                 }))
@@ -1365,30 +1533,167 @@ export class Paginator extends HTMLElement {
         this.#locked = true
         return true
     }
-    async goToTextPage(index, pageIndex, reason = 'navigation') {
-        if (!this.#canGoToIndex(index)) return false
-        if (this.scrolled) return false
-        const numericPageIndex = Number(pageIndex)
-        if (!Number.isFinite(numericPageIndex)) return false
-        if (!await this.#acquireExactNavigationLock()) return false
-        const generation = ++this.#navigationGeneration
+    #interruptedTextPageCommit({
+        requestedIndex,
+        requestedPageIndex,
+        navigationGeneration,
+        sections,
+        section,
+        view,
+        viewGeneration,
+        layoutGeneration,
+    }) {
+        const result = (status, reason) => frozenTextPageCommitResult({
+            status,
+            requestedIndex,
+            requestedPageIndex,
+            reason,
+        })
+        if (this.#destroyed) return result('cancelled', 'paginator-destroyed')
+        if (this.sections !== sections || sections?.[requestedIndex] !== section)
+            return result('cancelled', 'section-replaced')
+        if (navigationGeneration !== this.#navigationGeneration)
+            return result('cancelled', 'navigation-superseded')
+        if (this.scrolled) return result('unsupported', 'unsupported-flow')
+        if (view && (view !== this.#view || viewGeneration !== this.#viewGeneration || !view.committed))
+            return result('invalidated', 'layout-invalidated')
+        if (layoutGeneration != null && layoutGeneration !== this.#layoutGeneration)
+            return result('invalidated', 'layout-invalidated')
+        return null
+    }
+    async commitTextPage(index, pageIndex, reason = 'navigation') {
+        if (!Number.isInteger(index) || index < 0 ||
+            !Number.isInteger(pageIndex) || pageIndex < 0)
+            throw new TypeError('Text-page section and page coordinates must be non-negative integers')
+        if (this.scrolled) return frozenTextPageCommitResult({
+            status: 'unsupported',
+            requestedIndex: index,
+            requestedPageIndex: pageIndex,
+            reason: 'unsupported-flow',
+        })
+        if (!await this.#acquireExactNavigationLock()) return frozenTextPageCommitResult({
+            status: 'cancelled',
+            requestedIndex: index,
+            requestedPageIndex: pageIndex,
+            reason: 'paginator-destroyed',
+        })
+
+        const sections = this.sections
+        const section = sections?.[index]
+        const navigationGeneration = ++this.#navigationGeneration
+        const ownership = (extra = {}) => this.#interruptedTextPageCommit({
+            requestedIndex: index,
+            requestedPageIndex: pageIndex,
+            navigationGeneration,
+            sections,
+            section,
+            ...extra,
+        })
         try {
-            if (this.scrolled) return false
-            const requestedPageIndex = Math.max(0, Math.floor(numericPageIndex))
-            const requestedAnchor = Object.freeze({ textPageIndex: requestedPageIndex })
-            let committed = true
+            if (this.scrolled) return frozenTextPageCommitResult({
+                status: 'unsupported',
+                requestedIndex: index,
+                requestedPageIndex: pageIndex,
+                reason: 'unsupported-flow',
+            })
+            if (!section) return frozenTextPageCommitResult({
+                status: 'cancelled',
+                requestedIndex: index,
+                requestedPageIndex: pageIndex,
+                reason: 'section-replaced',
+            })
+
+            let loaded = true
             if (index !== this.#index || !this.#view?.committed)
-                committed = await this.#goTo({ index, anchor: 0 }, generation)
-            if (!committed || this.#destroyed || index !== this.#index ||
-                this.scrolled || !this.#view?.committed) return false
-            await this.#scrollToAnchor(requestedAnchor, reason)
-            if (this.#destroyed || generation !== this.#navigationGeneration ||
-                this.scrolled || index !== this.#index ||
-                !this.#view?.committed) return false
-            return true
+                loaded = await this.#goTo({ index, anchor: 0 }, navigationGeneration)
+            if (!loaded) return ownership()
+                ?? frozenTextPageCommitResult({
+                    status: 'cancelled',
+                    requestedIndex: index,
+                    requestedPageIndex: pageIndex,
+                    reason: 'navigation-superseded',
+                })
+
+            const view = this.#view
+            const viewGeneration = this.#viewGeneration
+            let interrupted = ownership({ view, viewGeneration })
+            if (interrupted) return interrupted
+
+            view.expand()
+            this.#recordContainerLayoutSignature()
+            const fontLayoutGeneration = this.#layoutGeneration
+            await view.document?.fonts?.ready
+            interrupted = ownership({
+                view,
+                viewGeneration,
+                layoutGeneration: fontLayoutGeneration,
+            })
+            if (interrupted) return interrupted
+
+            this.#renderCurrentView()
+            await Promise.resolve()
+            interrupted = ownership({ view, viewGeneration })
+            if (interrupted) return interrupted
+            const layoutGeneration = this.#layoutGeneration
+            const measuredPageCount = this.pages - 2
+            const actualTargetPageIndex = measuredPageCount > 0
+                ? Math.min(pageIndex, measuredPageCount - 1)
+                : pageIndex
+            const actualTargetAnchor = Object.freeze({
+                textPageIndex: actualTargetPageIndex,
+            })
+            await this.#scrollToAnchor(actualTargetAnchor, reason)
+            interrupted = ownership({ view, viewGeneration, layoutGeneration })
+            if (interrupted) return interrupted
+
+            const position = this.exactTextPagePosition()
+            if (!position) return frozenTextPageCommitResult({
+                status: 'invalidated',
+                requestedIndex: index,
+                requestedPageIndex: pageIndex,
+                reason: 'layout-invalidated',
+            })
+            const receipt = Object.freeze({
+                layoutGeneration,
+                viewGeneration,
+                commitSequence: ++this.#commitSequence,
+                flow: 'paginated',
+                index: position.index,
+                pageIndex: position.pageIndex,
+                pageCount: position.pageCount,
+            })
+            this.#activeTextPageCommitReceipt = receipt
+            const committed = position.index === index && position.pageIndex === pageIndex
+            return frozenTextPageCommitResult({
+                status: committed ? 'committed' : 'mismatch',
+                requestedIndex: index,
+                requestedPageIndex: pageIndex,
+                position,
+                receipt,
+                reason: committed ? 'exact-position' : 'coordinate-mismatch',
+            })
         } finally {
             this.#locked = false
         }
+    }
+    validateTextPageCommit(receipt) {
+        if (!receipt || this.#destroyed || this.scrolled ||
+            receipt !== this.#activeTextPageCommitReceipt)
+            return false
+        if (receipt.layoutGeneration !== this.#layoutGeneration ||
+            receipt.viewGeneration !== this.#viewGeneration ||
+            receipt.commitSequence !== this.#commitSequence ||
+            receipt.flow !== 'paginated' ||
+            receipt.index !== this.#index ||
+            !this.#view?.committed) return false
+        const position = this.exactTextPagePosition()
+        return position?.index === receipt.index &&
+            position.pageIndex === receipt.pageIndex &&
+            position.pageCount === receipt.pageCount
+    }
+    async goToTextPage(index, pageIndex, reason = 'navigation') {
+        const result = await this.commitTextPage(index, pageIndex, reason)
+        return result.status === 'committed'
     }
     #scrollPrev(distance) {
         if (!this.#view) return true
@@ -1474,17 +1779,29 @@ export class Paginator extends HTMLElement {
         return []
     }
     setStyles(styles) {
-        this.commitTextPageAnchor()
-        this.#styles = styles
+        const styleText = value => value == null ? '' : String(value)
+        const nextStyles = Array.isArray(styles)
+            ? [styleText(styles[0]), styleText(styles[1])]
+            : ['', styleText(styles)]
         const view = this.#view
         const $$styles = this.#styleMap.get(view?.document)
-        if (!$$styles) return
+        const appliedStyles = $$styles
+            ? [$$styles[0].textContent, $$styles[1].textContent]
+            : Array.isArray(this.#styles)
+                ? [styleText(this.#styles[0]), styleText(this.#styles[1])]
+                : ['', styleText(this.#styles)]
+        if (nextStyles[0] === appliedStyles[0] && nextStyles[1] === appliedStyles[1]) {
+            this.#styles = styles
+            return false
+        }
+
+        this.commitTextPageAnchor()
+        this.#advanceTextLayoutGeneration('style-change')
+        this.#styles = styles
+        if (!$$styles) return true
         const [$beforeStyle, $style] = $$styles
-        if (Array.isArray(styles)) {
-            const [beforeStyle, style] = styles
-            $beforeStyle.textContent = beforeStyle
-            $style.textContent = style
-        } else $style.textContent = styles
+        $beforeStyle.textContent = nextStyles[0]
+        $style.textContent = nextStyles[1]
 
         // NOTE: needs `requestAnimationFrame` in Chromium
         requestAnimationFrame(() => {
@@ -1494,14 +1811,18 @@ export class Paginator extends HTMLElement {
 
         // needed because the resize observer doesn't work in Firefox
         view?.document?.fonts?.ready?.then(() => view.expand())
+        return true
     }
     focusView() {
         this.#view.document.defaultView.focus()
     }
     destroy() {
+        if (this.#destroyed) return
+        this.#advanceTextLayoutGeneration('paginator-destroyed')
+        ++this.#viewGeneration
         this.#destroyed = true
         ++this.#navigationGeneration
-        this.#observer.unobserve(this.#container)
+        this.#observer.disconnect()
         if (this.#visualViewportResizeListener) {
             globalThis.visualViewport?.removeEventListener('resize', this.#visualViewportResizeListener)
         }

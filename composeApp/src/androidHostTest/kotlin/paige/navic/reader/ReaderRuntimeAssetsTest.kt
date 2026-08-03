@@ -1648,13 +1648,19 @@ class ReaderRuntimeAssetsTest {
 		)
 		assertContains(
 			expand,
-			"const documentElement = this.document?.documentElement",
+			"const documentElement = doc?.documentElement",
 			message = "Late ResizeObserver and font callbacks must tolerate an iframe between documents."
+		)
+		assertContains(expand, "const contentRoot = documentStyleRoot(doc)")
+		assertContains(
+			expand,
+			"if (!documentElement?.isConnected || !contentRoot?.isConnected) return false",
+			message = "Expansion must not measure a detached Foliate content root or transient null document root."
 		)
 		assertContains(
 			expand,
-			"if (!documentElement?.isConnected || !this.#contentRange.startContainer?.isConnected) return",
-			message = "Expansion must not measure a detached Foliate range or transient null document root."
+			"this.#contentRange.selectNodeContents(contentRoot)",
+			message = "Late body growth must refresh the measured range before comparing the layout signature."
 		)
 		assertFalse(
 			expand.contains("const { documentElement } = this.document"),
@@ -1688,6 +1694,173 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidPaginatorOwnsGenerationScopedTextPageCommitReceipts() {
+		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val invalidate = paginator
+			.substringAfter("#invalidateTextPageCommit(reason) {")
+			.substringBefore("\n    #advanceTextLayoutGeneration(reason) {")
+		val advance = paginator
+			.substringAfter("#advanceTextLayoutGeneration(reason) {")
+			.substringBefore("\n    attributeChangedCallback(")
+		val commit = paginator
+			.substringAfter("async commitTextPage(index, pageIndex, reason = 'navigation') {")
+			.substringBefore("\n    validateTextPageCommit(receipt) {")
+		val ownership = paginator
+			.substringAfter("#interruptedTextPageCommit({")
+			.substringBefore("\n    async commitTextPage(")
+		val validate = paginator
+			.substringAfter("validateTextPageCommit(receipt) {")
+			.substringBefore("\n    async goToTextPage(")
+		val wrapper = paginator
+			.substringAfter("async goToTextPage(index, pageIndex, reason = 'navigation') {")
+			.substringBefore("\n    #scrollPrev(distance) {")
+		val expand = paginator
+			.substringAfter("expand() {")
+			.substringBefore("\n    set overlayer(")
+		val attributeChanged = paginator
+			.substringAfter("attributeChangedCallback(name, oldValue, value) {")
+			.substringBefore("\n    open(book) {")
+		val open = paginator
+			.substringAfter("open(book) {")
+			.substringBefore("\n    #createView() {")
+		val setStyles = paginator
+			.substringAfter("setStyles(styles) {")
+			.substringBefore("\n    focusView()")
+		val render = paginator
+			.substringAfter("render(reason = 'explicit-render') {")
+			.substringBefore("\n    get scrolled()")
+		val destroy = paginator
+			.substringAfterLast("destroy() {")
+			.substringBefore("\n    }")
+
+		assertContains(paginator, "#layoutGeneration = 0")
+		assertContains(paginator, "#viewGeneration = 0")
+		assertContains(paginator, "#commitSequence = 0")
+		assertContains(paginator, "#activeTextPageCommitReceipt = null")
+		assertContains(paginator, "text-page-commit-invalidated")
+		assertTrue(
+			invalidate.indexOf("this.#activeTextPageCommitReceipt = null") <
+				invalidate.indexOf("this.#dispatchTextPageCommitInvalidated("),
+			"Receipt authority must be cleared before invalidation is published."
+		)
+		assertTrue(
+			advance.indexOf("this.#activeTextPageCommitReceipt = null") <
+				advance.indexOf("this.#layoutGeneration = nextLayoutGeneration"),
+			"Active receipt authority must be cleared before its layout generation advances."
+		)
+		assertTrue(
+			advance.indexOf("this.#layoutGeneration = nextLayoutGeneration") <
+				advance.indexOf("this.#dispatchTextPageCommitInvalidated("),
+			"Reentrant invalidation listeners must observe the advanced layout generation."
+		)
+
+		assertContains(commit, "view.expand()")
+		assertContains(commit, "this.#recordContainerLayoutSignature()")
+		assertContains(commit, "const fontLayoutGeneration = this.#layoutGeneration")
+		assertContains(commit, "await view.document?.fonts?.ready")
+		assertContains(commit, "layoutGeneration: fontLayoutGeneration")
+		assertContains(commit, "this.#renderCurrentView()")
+		assertContains(commit, "const measuredPageCount = this.pages - 2")
+		assertContains(commit, "const actualTargetPageIndex = measuredPageCount > 0")
+		assertContains(commit, "await this.#scrollToAnchor(actualTargetAnchor, reason)")
+		assertContains(commit, "const position = this.exactTextPagePosition()")
+		assertContains(commit, "const receipt = Object.freeze({")
+		assertTrue(
+			commit.indexOf("view.expand()") < commit.indexOf("this.#recordContainerLayoutSignature()") &&
+				commit.indexOf("this.#recordContainerLayoutSignature()") <
+				commit.indexOf("const fontLayoutGeneration = this.#layoutGeneration") &&
+				commit.indexOf("const fontLayoutGeneration = this.#layoutGeneration") <
+				commit.indexOf("await view.document?.fonts?.ready") &&
+				commit.indexOf("await view.document?.fonts?.ready") <
+				commit.indexOf("layoutGeneration: fontLayoutGeneration") &&
+				commit.indexOf("layoutGeneration: fontLayoutGeneration") <
+				commit.indexOf("this.#renderCurrentView()"),
+			"Exact commitment must settle initial measurements, then fence font readiness with its layout generation before rendering."
+		)
+		assertTrue(
+			commit.indexOf("await view.document?.fonts?.ready") < commit.indexOf("this.#renderCurrentView()") &&
+				commit.indexOf("this.#renderCurrentView()") < commit.indexOf("await this.#scrollToAnchor(actualTargetAnchor, reason)"),
+			"Current-document font readiness must precede transaction render and exact placement."
+		)
+		assertTrue(
+			commit.indexOf("const actualTargetPageIndex = measuredPageCount > 0") <
+				commit.indexOf("await this.#scrollToAnchor(actualTargetAnchor, reason)"),
+			"Out-of-range requests must choose their bounded actual target before emitting relocation."
+		)
+		assertTrue(
+			commit.indexOf("const position = this.exactTextPagePosition()") <
+				commit.indexOf("const receipt = Object.freeze({"),
+			"Paginator receipts must describe the actual position read after placement."
+		)
+		assertContains(commit, "status: 'unsupported'")
+		assertContains(commit, "reason: 'unsupported-flow'")
+		assertContains(ownership, "if (this.scrolled) return result('unsupported', 'unsupported-flow')")
+		assertTrue(
+			commit.indexOf("if (this.scrolled)") < commit.indexOf("await this.#acquireExactNavigationLock()"),
+			"Scrolled flow must return unsupported before exact-navigation work."
+		)
+
+		assertContains(validate, "receipt !== this.#activeTextPageCommitReceipt")
+		assertContains(validate, "const position = this.exactTextPagePosition()")
+		assertContains(wrapper, "const result = await this.commitTextPage(index, pageIndex, reason)")
+		assertContains(wrapper, "return result.status === 'committed'")
+		assertFalse(wrapper.contains("#goTo("), "The Boolean compatibility wrapper must not own layout or section navigation.")
+		assertFalse(wrapper.contains("#scrollToAnchor("), "The Boolean compatibility wrapper must not place pages independently.")
+
+		assertContains(expand, "if (signature === this.#layoutSignature) return false")
+		assertContains(
+			expand,
+			"if (this.onBeforeExpand?.(signature) === false || this.#destroyed) return false"
+		)
+		assertTrue(
+			expand.indexOf("if (signature === this.#layoutSignature) return false") <
+				expand.indexOf("this.onBeforeExpand?.(signature)"),
+			"Duplicate measured expansion signatures must be no-ops before invalidation or DOM writes."
+		)
+		assertContains(paginator, "#observer = new ResizeObserver(() => this.expand())")
+		assertContains(paginator, "this.#observer.observe(doc.body)")
+		assertContains(paginator, "doc.fonts.ready.then(() => this.expand())")
+		assertFalse(
+			paginator.contains("#mutationObserver"),
+			"Navic body injections must not trigger an extra full-range layout measurement hot path."
+		)
+		assertContains(expand, "this.#column ? null : [")
+		assertContains(expand, "padding,")
+		assertContains(expand, "rounded(this.#layout.margin)")
+		assertContains(expand, "rounded(this.#layout.gap)")
+		assertContains(expand, "rounded(this.#layout.columnWidth)")
+		assertContains(paginator, "return !this.#destroyed && view === this.#view &&")
+		assertContains(paginator, "layoutGeneration === this.#layoutGeneration")
+		assertContains(open, "if (this.#view) this.#discardCandidateView(this.#view)")
+		assertTrue(
+			open.indexOf("if (this.#view) this.#discardCandidateView(this.#view)") <
+				open.indexOf("this.sections = book.sections"),
+			"Opening a replacement publication must discard its old committed View before replacing section ownership."
+		)
+
+		assertTrue(
+			attributeChanged.indexOf("this.#advanceTextLayoutGeneration('attribute-change')") <
+				attributeChanged.indexOf("this.#top.style.setProperty("),
+			"Changed layout attributes must advance authority before mutating geometry."
+		)
+		assertTrue(
+			setStyles.indexOf("this.#advanceTextLayoutGeneration('style-change')") <
+				setStyles.indexOf("\$beforeStyle.textContent = nextStyles[0]"),
+			"Changed typography must advance authority before mutating style content."
+		)
+		assertTrue(
+			render.indexOf("this.#advanceTextLayoutGeneration(invalidationReason)") <
+				render.indexOf("return this.#renderCurrentView()"),
+			"Explicit and resize renders must invalidate before applying layout."
+		)
+		assertTrue(
+			destroy.indexOf("this.#advanceTextLayoutGeneration('paginator-destroyed')") <
+				destroy.indexOf("this.#destroyed = true"),
+			"Paginator destruction must invalidate its active receipt before destroying state."
+		)
+	}
+
+	@Test
 	fun androidPaginatorInvalidatesLateCallbacksWhenViewsAreReplacedOrDestroyed() {
 		val paginatorText = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
 		val view = paginatorText
@@ -1707,17 +1880,20 @@ class ReaderRuntimeAssetsTest {
 			.substringAfter("async #display(promise) {")
 			.substringBefore("\n    #canGoToIndex")
 		val renderPaginator = paginator
-			.substringAfter("render() {")
-			.substringBefore("\n    get scrolled()")
+			.substringAfter("#renderCurrentView() {")
+			.substringBefore("\n    render(reason = 'explicit-render')")
 		val afterScroll = paginator
 			.substringAfter("#afterScroll(reason) {")
 			.substringBefore("\n    async #display(promise)")
 		val goTo = paginator
 			.substringAfter("async #goTo({ index, anchor, select }")
 			.substringBefore("\n    async goTo(target)")
-		val goToTextPage = paginator
-			.substringAfter("async goToTextPage(index, pageIndex, reason = 'navigation') {")
-			.substringBefore("\n    #scrollPrev(distance)")
+		val open = paginator
+			.substringAfter("open(book) {")
+			.substringBefore("\n    #createView() {")
+		val commitTextPage = paginator
+			.substringAfter("async commitTextPage(index, pageIndex, reason = 'navigation') {")
+			.substringBefore("\n    validateTextPageCommit(receipt)")
 		val setStyles = paginator
 			.substringAfter("setStyles(styles) {")
 			.substringBefore("\n    focusView()")
@@ -1758,23 +1934,33 @@ class ReaderRuntimeAssetsTest {
 		assertContains(display, "return true")
 		assertContains(goTo, "generation = ++this.#navigationGeneration")
 		assertContains(goTo, "if (this.#destroyed || generation !== this.#navigationGeneration) return false")
+		assertContains(goTo, "const targetSection = this.sections[index]")
 		assertTrue(
 			goTo.indexOf("generation !== this.#navigationGeneration") <
-				goTo.indexOf("this.sections[index].load()"),
+				goTo.indexOf("targetSection.load()"),
 			"Superseded target promises must be rejected before allocating their section source."
 		)
 		assertContains(goTo, "let ownsTargetSection = true")
 		assertContains(goTo, "if (!ownsTargetSection) return")
+		assertContains(goTo, "targetSection?.unload?.()")
+		assertContains(goTo, ".then(() => targetSection.load())")
 		assertContains(goTo, "this.#loadedSectionIndex = index")
 		assertContains(goTo, "index, src, anchor, generation, onLoad, onCancel, select,")
-		assertContains(goToTextPage, "const generation = ++this.#navigationGeneration")
+		assertContains(open, "if (this.#view) this.#discardCandidateView(this.#view)")
+		assertContains(open, "this.sections?.[loadedSectionIndex]?.unload?.()")
+		assertTrue(
+			open.indexOf("if (this.#view) this.#discardCandidateView(this.#view)") <
+				open.indexOf("this.sections = book.sections"),
+			"Replacement publication sections must not be installed until the old View and section ownership are retired."
+		)
+		assertContains(commitTextPage, "const navigationGeneration = ++this.#navigationGeneration")
 		assertContains(
-			goToTextPage,
-			"committed = await this.#goTo({ index, anchor: 0 }, generation)"
+			commitTextPage,
+			"loaded = await this.#goTo({ index, anchor: 0 }, navigationGeneration)"
 		)
 		assertContains(
-			goToTextPage,
-			"if (!committed || this.#destroyed || index !== this.#index ||"
+			commitTextPage,
+			"if (!loaded) return ownership()"
 		)
 		assertContains(setStyles, "const view = this.#view")
 		assertContains(setStyles, "view?.document?.fonts?.ready?.then(() => view.expand())")
