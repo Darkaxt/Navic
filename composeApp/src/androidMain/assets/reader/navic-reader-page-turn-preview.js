@@ -90,10 +90,6 @@ async function resolvePageTurnPreviewLocator(
       )
     }
 
-    this.applyReaderViewportLayoutToProfilerView(
-      view,
-      this.readerSettings
-    )
     const actual =
       await readerWaitForStableTextPagePosition(
         view.renderer,

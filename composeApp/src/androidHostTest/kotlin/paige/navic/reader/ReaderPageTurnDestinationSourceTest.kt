@@ -295,6 +295,15 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(resolve, "readerGoToExactVisualPage(")
 		assertContains(resolve, "if (!reached)")
 		assertContains(resolve, "repairPaginationProfileFromExactPosition")
+		val applyLayout = "this.applyReaderViewportLayoutToProfilerView("
+		assertTrue(
+			resolve.indexOf(applyLayout) < resolve.indexOf("const reached"),
+			"The passive layout must be applied before exact navigation."
+		)
+		assertFalse(
+			resolve.substringAfter("const reached").contains(applyLayout),
+			"Reapplying paginator attributes after navigation destroys the exact text-page anchor."
+		)
 		assertContains(prepare, "this.resolvePageTurnPreviewLocator(")
 		assertContains(prepare, "'page-turn-preview'")
 		assertContains(prepareBatchItem, "this.resolvePageTurnPreviewLocator(")

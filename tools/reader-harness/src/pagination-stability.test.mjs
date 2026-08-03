@@ -187,11 +187,26 @@ const previewPath = new URL(
 const { NavicReaderPageTurnPreviewMethods } =
   await import(previewPath.href)
 
-const exactPreviewRuntime = ({ positionForRequest }) => {
+const exactPreviewRuntime = ({
+  positionForRequest,
+  shiftCommittedPageOnLayout = false,
+}) => {
+  const requests = []
+  let currentPosition = null
+  let navigationCommitted = false
+  let layoutApplications = 0
   const runtime = {
     paginationProfile: sourceProfile,
     readerSettings: {},
-    applyReaderViewportLayoutToProfilerView: () => {},
+    applyReaderViewportLayoutToProfilerView: () => {
+      layoutApplications += 1
+      if (navigationCommitted && shiftCommittedPageOnLayout) {
+        currentPosition = {
+          ...currentPosition,
+          pageIndex: currentPosition.pageIndex + 1,
+        }
+      }
+    },
     repairPaginationProfileFromExactPosition(locator, actual) {
       const repaired =
         readerPaginationProfileWithObservedChapterCount(
@@ -205,8 +220,6 @@ const exactPreviewRuntime = ({ positionForRequest }) => {
       return repaired
     },
   }
-  const requests = []
-  let currentPosition = null
   const renderer = {
     async goToTextPage(spineIndex, chapterPageIndex) {
       requests.push({ spineIndex, chapterPageIndex })
@@ -214,6 +227,7 @@ const exactPreviewRuntime = ({ positionForRequest }) => {
         spineIndex,
         chapterPageIndex,
       })
+      navigationCommitted = true
       return true
     },
     exactTextPagePosition() {
@@ -240,6 +254,7 @@ const exactPreviewRuntime = ({ positionForRequest }) => {
     runtime,
     view: { renderer },
     requests,
+    layoutApplications: () => layoutApplications,
   }
 }
 
@@ -267,6 +282,36 @@ test('passive raster accepts committed coordinates after repairing a larger chap
   assert.equal(locator.chapterPageIndex, 1)
   assert.equal(locator.chapterPageCount, 5)
   assert.equal(runtime.paginationProfile.pageCount, 18)
+})
+
+test('passive raster keeps the exact page anchor after navigation commits', async () => {
+  const {
+    runtime,
+    view,
+    requests,
+    layoutApplications,
+  } = exactPreviewRuntime({
+    shiftCommittedPageOnLayout: true,
+    positionForRequest: ({ spineIndex, chapterPageIndex }) => ({
+      index: spineIndex,
+      pageIndex: chapterPageIndex,
+      pageCount: spineIndex === 8 ? 4 : 3,
+    }),
+  })
+
+  const locator = await runtime.resolvePageTurnPreviewLocator(
+    view,
+    13,
+    'page-turn-raster-batch',
+    'Passive raster',
+  )
+
+  assert.deepEqual(requests, [
+    { spineIndex: 8, chapterPageIndex: 3 },
+  ])
+  assert.equal(layoutApplications(), 1)
+  assert.equal(locator.spineIndex, 8)
+  assert.equal(locator.chapterPageIndex, 3)
 })
 
 test('passive raster remaps the global page before capture when a chapter became shorter', async () => {
