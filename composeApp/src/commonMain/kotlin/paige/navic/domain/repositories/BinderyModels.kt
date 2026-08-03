@@ -165,7 +165,26 @@ data class BinderyWhispersyncArtifact(
 	val coverage: Double? = null,
 	val audioCoverage: Double? = null,
 	val ebookCoverage: Double? = null,
+	val wordSync: BinderyWordSyncDiscovery? = null,
 	val lastJob: BinderyWhispersyncJob? = null
+)
+
+@Serializable
+data class BinderyWordSyncDiscovery(
+	val status: String? = null,
+	val schema: String? = null,
+	val indexHref: String? = null,
+	val opdsIndexHref: String? = null,
+	val format: String? = null,
+	val compression: String? = null,
+	val timeScale: Int? = null,
+	val shardCount: Int? = null,
+	val audioWordCount: Int? = null,
+	val matchedAudioWordCount: Int? = null,
+	val reviewAudioWordCount: Int? = null,
+	val unmatchedAudioWordCount: Int? = null,
+	val unmatchedEbookWordCount: Int? = null,
+	val coverage: Double? = null
 )
 
 @Serializable
@@ -178,6 +197,23 @@ data class BinderyWhispersyncJob(
 	val message: String? = null,
 	val updatedAt: String? = null
 )
+
+data class BinderyWhispersyncIdentity(
+	val bookId: Long,
+	val ebookBookFileId: Long,
+	val audiobookBookFileId: Long,
+	val artifactId: Long
+)
+
+fun BinderySyncPair.whispersyncIdentityOrNull(): BinderyWhispersyncIdentity? {
+	val artifactId = whispersync?.artifactId?.takeIf { it > 0L } ?: return null
+	return BinderyWhispersyncIdentity(
+		bookId = bookId?.takeIf { it > 0L } ?: return null,
+		ebookBookFileId = ebookBookFileId?.takeIf { it > 0L } ?: return null,
+		audiobookBookFileId = audiobookBookFileId?.takeIf { it > 0L } ?: return null,
+		artifactId = artifactId
+	)
+}
 
 fun BinderySyncPair.hasReadyWhispersyncArtifact(): Boolean {
 	val artifact = whispersync ?: return false

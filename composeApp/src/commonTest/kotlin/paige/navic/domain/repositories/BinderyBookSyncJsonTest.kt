@@ -5,6 +5,7 @@ import paige.navic.data.remote.bindery.*
 import kotlinx.serialization.decodeFromString
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 
 class BinderyBookSyncJsonTest {
 	@Test
@@ -236,5 +237,56 @@ class BinderyBookSyncJsonTest {
 		assertEquals("running", lastJob?.status)
 		assertEquals(23.5, lastJob?.progressPercent)
 		assertEquals("2026-06-27T10:05:00Z", lastJob?.updatedAt)
+	}
+
+	@Test
+	fun preservesWordSyncDiscoveryAndBuildsExactArtifactIdentity() {
+		val pair = BinderyJson.decodeFromString<BinderySyncPair>(
+			"""
+			{
+			  "bookId": 3816,
+			  "ebookBookFileId": 435,
+			  "audiobookBookFileId": 694,
+			  "whispersync": {
+			    "status": "ready",
+			    "artifactId": 12,
+			    "artifactHref": "/opds/books/3816/sync/12",
+			    "wordSync": {
+			      "status": "partial",
+			      "schema": "bindery.whispersync.wordsync.index.v1",
+			      "indexHref": "/api/v1/sync/artifacts/12/wordsync/index",
+			      "opdsIndexHref": "/opds/books/3816/sync/12/wordsync/index",
+			      "format": "chapter-sharded-json",
+			      "compression": "http",
+			      "timeScale": 1000,
+			      "shardCount": 19,
+			      "audioWordCount": 81234,
+			      "matchedAudioWordCount": 76110,
+			      "reviewAudioWordCount": 120,
+			      "unmatchedAudioWordCount": 5004,
+			      "unmatchedEbookWordCount": 321,
+			      "coverage": 0.937
+			    }
+			  }
+			}
+			""".trimIndent()
+		)
+
+		val discovery = assertNotNull(pair.whispersync?.wordSync)
+		assertEquals("partial", discovery.status)
+		assertEquals("bindery.whispersync.wordsync.index.v1", discovery.schema)
+		assertEquals("/opds/books/3816/sync/12/wordsync/index", discovery.opdsIndexHref)
+		assertEquals(19, discovery.shardCount)
+		assertEquals(120, discovery.reviewAudioWordCount)
+		assertEquals(0.937, discovery.coverage)
+		assertEquals(
+			BinderyWhispersyncIdentity(
+				bookId = 3816,
+				ebookBookFileId = 435,
+				audiobookBookFileId = 694,
+				artifactId = 12
+			),
+			pair.whispersyncIdentityOrNull()
+		)
 	}
 }
