@@ -58,6 +58,7 @@ data class ReaderController(
 					foliateSessionId = null,
 					pageTurnSettlementAck = null,
 					whispersync = ReaderWhispersyncSessionState(),
+					rawTextProvenanceById = emptyMap(),
 					activeMediaOverlay = null,
 					audioMetadataLabel = null,
 					lastContentActionClaim = null
@@ -146,6 +147,21 @@ data class ReaderController(
 					)
 				)
 			)
+			is ReaderEngineEvent.RawTextProvenanceStatusChanged -> {
+				if (event.provenanceId !in state.rawTextProvenanceById) {
+					ReaderControllerStep(this)
+				} else {
+					ReaderControllerStep(
+						copy(
+							state = state.copy(
+								rawTextProvenanceById = state.rawTextProvenanceById + (
+									event.provenanceId to RawTextProvenanceState(event.status, event.reason)
+								)
+							)
+						)
+					)
+				}
+			}
 			is ReaderEngineEvent.VisibleTextRange ->
 				ReaderWhispersyncReducer.onVisibleTextRange(this, event)
 			is ReaderEngineEvent.TextPoint -> ReaderWhispersyncReducer.onTextPoint(this, event)
@@ -221,6 +237,24 @@ data class ReaderController(
 			),
 			engineCommands = listOf(ReaderEngineCommand.NavigateTo(locator))
 		)
+
+	fun installRawTextProvenance(
+		descriptor: ReaderRawTextProvenanceDescriptor
+	): ReaderControllerStep {
+		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
+			return ReaderControllerStep(this)
+		}
+		return ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					rawTextProvenanceById = state.rawTextProvenanceById + (
+						descriptor.id to RawTextProvenanceState(RawTextProvenanceStatus.Pending)
+					)
+				)
+			),
+			engineCommands = listOf(ReaderEngineCommand.InstallRawTextProvenance(descriptor))
+		)
+	}
 
 	fun applyMediaOverlay(fragment: ReaderOverlayFragment): ReaderControllerStep =
 		ReaderOverlayReducer.apply(this, fragment)

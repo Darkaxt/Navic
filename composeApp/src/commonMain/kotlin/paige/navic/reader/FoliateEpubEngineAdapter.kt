@@ -116,6 +116,9 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineCommand.RequestVisibleTextRange -> dispatch(
 				ReaderBridgeCommand.RequestVisibleTextRange(command.source)
 			)
+			is ReaderEngineCommand.InstallRawTextProvenance -> dispatch(
+				ReaderBridgeCommand.InstallRawTextProvenance(command.descriptor)
+			)
 			is ReaderEngineCommand.ApplyMediaOverlay -> dispatch(
 				ReaderBridgeCommand.ApplyOverlayFragment(command.fragment)
 			)
@@ -208,14 +211,26 @@ sealed class FoliateWebViewEngineAdapter(
 				visibleStart = event.visibleStart,
 				visibleEnd = event.visibleEnd,
 				rangeCfi = event.rangeCfi,
-				source = event.source
+				source = event.source,
+				rawProvenanceId = event.rawProvenanceId,
+				rawSpineIndex = event.rawSpineIndex,
+				rawByteStart = event.rawByteStart,
+				rawByteEnd = event.rawByteEnd
 			)
 			is ReaderBridgeEvent.TextPoint -> ReaderEngineEvent.TextPoint(
 				textHref = event.textHref,
 				textOffset = event.textOffset,
 				rangeCfi = event.rangeCfi,
-				source = event.source
+				source = event.source,
+				rawProvenanceId = event.rawProvenanceId,
+				rawByteOffset = event.rawByteOffset
 			)
+			is ReaderBridgeEvent.RawTextProvenanceStatusChanged ->
+				ReaderEngineEvent.RawTextProvenanceStatusChanged(
+					provenanceId = event.provenanceId,
+					status = event.status,
+					reason = event.reason
+				)
 			is ReaderBridgeEvent.OverlayFragmentActive -> ReaderEngineEvent.MediaOverlayActive(event.fragment)
 			is ReaderBridgeEvent.OverlayFragmentInactive -> ReaderEngineEvent.MediaOverlayInactive(
 				fragmentId = event.fragmentId,

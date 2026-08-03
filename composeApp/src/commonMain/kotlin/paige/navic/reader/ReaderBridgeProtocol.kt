@@ -76,8 +76,55 @@ data class ReaderPaginationProfileStatus(
 		}
 }
 
+enum class ReaderOverlayCoordinateMode {
+	CueV1DomUtf16,
+	WordSyncV1ExtractedUtf8
+}
+
+enum class RawTextProvenanceStatus {
+	Pending,
+	Ready,
+	Rejected
+}
+
+enum class RawTextProvenanceReason {
+	ContentNotLoaded,
+	InvalidDescriptor,
+	SectionMismatch,
+	SourceUnavailable,
+	SourceTooLarge,
+	SourceHashMismatch,
+	InvalidUtf8,
+	ExtractedHashMismatch,
+	ExtractedLengthMismatch,
+	TokenCountMismatch,
+	TokenSequenceMismatch,
+	DocumentChanged
+}
+
+data class ReaderRawTextProvenanceDescriptor(
+	val id: String,
+	val href: String,
+	val spineIndex: Int,
+	val sourceHash: String,
+	val extractedTextHash: String,
+	val byteLength: Int,
+	val tokenCount: Int
+) {
+	init {
+		require(id.isNotBlank() && id == id.trim())
+		require(href.isNotBlank() && href == href.trim())
+		require(spineIndex >= 0)
+		require(sourceHash.matches(ReaderCanonicalSha256))
+		require(extractedTextHash.matches(ReaderCanonicalSha256))
+		require(byteLength >= 0)
+		require(tokenCount >= 0)
+	}
+}
+
 data class ReaderOverlayFragment(
 	val resourceHref: String,
+	val coordinateMode: ReaderOverlayCoordinateMode = ReaderOverlayCoordinateMode.CueV1DomUtf16,
 	val overlayRequestId: Long? = null,
 	val fragmentId: String? = null,
 	val textHref: String? = null,
@@ -94,8 +141,52 @@ data class ReaderOverlayFragment(
 	val nextTextEnd: Int? = null,
 	val nextEbookText: String? = null,
 	val playbackSpeed: Float? = null,
-	val label: String? = null
-)
+	val label: String? = null,
+	val rawProvenanceId: String? = null,
+	val rawSpineIndex: Int? = null,
+	val rawByteStart: Int? = null,
+	val rawByteEnd: Int? = null,
+	val rawProgressByteEnd: Int? = null,
+	val rawProgressFraction: Double? = null
+) {
+	init {
+		val rawFields = listOf(
+			rawProvenanceId,
+			rawSpineIndex,
+			rawByteStart,
+			rawByteEnd,
+			rawProgressByteEnd,
+			rawProgressFraction
+		)
+		when (coordinateMode) {
+			ReaderOverlayCoordinateMode.CueV1DomUtf16 -> require(rawFields.all { it == null })
+			ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 -> {
+				require(textHref?.isNotBlank() == true && textHref == textHref.trim())
+				require(rawProvenanceId?.isNotBlank() == true && rawProvenanceId == rawProvenanceId.trim())
+				require(rawSpineIndex?.let { it >= 0 } == true)
+				val start = requireNotNull(rawByteStart)
+				val end = requireNotNull(rawByteEnd)
+				require(start >= 0 && end > start)
+				require(rawProgressByteEnd?.let { it in start..end } != false)
+				require(rawProgressFraction?.let { it.isFinite() && it in 0.0..1.0 } != false)
+				require(
+					listOf(
+						fragmentId,
+						textStart,
+						textEnd,
+						textProgressEnd,
+						textProgressFraction,
+						ebookText,
+						nextTextHref,
+						nextTextStart,
+						nextTextEnd,
+						nextEbookText
+					).all { it == null }
+				)
+			}
+		}
+	}
+}
 
 data class ReaderSearchResult(
 	val id: String,
@@ -428,6 +519,18 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
+	data class InstallRawTextProvenance(
+		val descriptor: ReaderRawTextProvenanceDescriptor
+	) : ReaderBridgeCommand {
+		override val type: String = "installRawTextProvenance"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+				put("descriptor", descriptor.toJsonObject())
+			}
+	}
+
 	data class ApplyOverlayFragment(
 		val fragment: ReaderOverlayFragment
 	) : ReaderBridgeCommand {
@@ -592,14 +695,37 @@ sealed interface ReaderBridgeEvent {
 		val visibleStart: Int,
 		val visibleEnd: Int,
 		val rangeCfi: String? = null,
-		val source: String? = null
+		val source: String? = null,
+		val rawProvenanceId: String? = null,
+		val rawSpineIndex: Int? = null,
+		val rawByteStart: Int? = null,
+		val rawByteEnd: Int? = null
 	) : ReaderBridgeEvent
 	data class TextPoint(
 		val textHref: String,
 		val textOffset: Int,
 		val rangeCfi: String? = null,
-		val source: String? = null
+		val source: String? = null,
+		val rawProvenanceId: String? = null,
+		val rawByteOffset: Int? = null
 	) : ReaderBridgeEvent
+	data class RawTextProvenanceStatusChanged(
+		val provenanceId: String,
+		val status: RawTextProvenanceStatus,
+		val reason: RawTextProvenanceReason? = null
+	) : ReaderBridgeEvent {
+		init {
+			require(provenanceId.isNotBlank() && provenanceId == provenanceId.trim())
+			when (status) {
+				RawTextProvenanceStatus.Pending ->
+					require(reason == null || reason == RawTextProvenanceReason.ContentNotLoaded)
+				RawTextProvenanceStatus.Ready -> require(reason == null)
+				RawTextProvenanceStatus.Rejected -> require(
+					reason != null && reason != RawTextProvenanceReason.ContentNotLoaded
+				)
+			}
+		}
+	}
 	data class OverlayFragmentActive(val fragment: ReaderOverlayFragment) : ReaderBridgeEvent
 	data class OverlayFragmentInactive(
 		val fragmentId: String? = null,
@@ -639,6 +765,21 @@ sealed interface ReaderBridgeDecodeResult {
 }
 
 private const val ReaderBridgeDiagnosticRawMessageLimit = 500
+private const val ReaderCueV1CoordinateMode = "cue-v1-dom-utf16"
+private const val ReaderWordSyncV1CoordinateMode = "wordsync-v1-extracted-utf8"
+private const val ReaderRedactedBridgePayload = "[redacted-reader-bridge-payload]"
+private val ReaderCanonicalSha256 = Regex("sha256:[0-9a-f]{64}")
+private val ReaderSensitiveBridgeMarkers = listOf(
+	"rawProvenanceId",
+	"rawSpineIndex",
+	"rawByteStart",
+	"rawByteEnd",
+	"rawByteOffset",
+	"sourceHash",
+	"extractedTextHash",
+	ReaderWordSyncV1CoordinateMode,
+	"rawTextProvenanceStatus"
+)
 
 private val ReaderBridgeEventTypes = setOf(
 	"ready",
@@ -663,6 +804,7 @@ private val ReaderBridgeEventTypes = setOf(
 	"pullUp",
 	"visibleTextRange",
 	"textPoint",
+	"rawTextProvenanceStatus",
 	"overlayFragmentActive",
 	"overlayFragmentInactive",
 	"searchResults",
@@ -782,6 +924,7 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 			)
 			"visibleTextRange" -> json.toVisibleTextRange()
 			"textPoint" -> json.toTextPoint()
+			"rawTextProvenanceStatus" -> json.toRawTextProvenanceStatus()
 			"overlayFragmentActive" -> json.toOverlayFragment()
 				?.let(ReaderBridgeEvent::OverlayFragmentActive)
 			"overlayFragmentInactive" -> ReaderBridgeEvent.OverlayFragmentInactive(
@@ -812,6 +955,7 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 		}
 
 private fun String.toReaderBridgeDiagnosticRawMessage(): String {
+	if (ReaderSensitiveBridgeMarkers.any(::contains)) return ReaderRedactedBridgePayload
 	val sanitized = take(ReaderBridgeDiagnosticRawMessageLimit)
 		.map { character -> if (character.isISOControl()) ' ' else character }
 		.joinToString(separator = "")
@@ -862,24 +1006,79 @@ private fun JsonObject.toVisibleTextRange(): ReaderBridgeEvent.VisibleTextRange?
 	val textHref = stringValue("textHref") ?: stringValue("href") ?: return null
 	val visibleStart = intValue("visibleStart") ?: intValue("start") ?: return null
 	val visibleEnd = intValue("visibleEnd") ?: intValue("end") ?: return null
+	val rawProvenanceId = stringValue("rawProvenanceId")
+	val rawSpineIndex = intValue("rawSpineIndex")
+	val rawByteStart = intValue("rawByteStart")
+	val rawByteEnd = intValue("rawByteEnd")
+	val rawValues = listOf(rawProvenanceId, rawSpineIndex, rawByteStart, rawByteEnd)
+	if (rawValues.any { it != null }) {
+		if (rawValues.any { it == null }) return null
+		if (rawSpineIndex!! < 0 || rawByteStart!! < 0 || rawByteEnd!! <= rawByteStart) return null
+	}
 	return ReaderBridgeEvent.VisibleTextRange(
 		textHref = textHref,
 		visibleStart = minOf(visibleStart, visibleEnd),
 		visibleEnd = maxOf(visibleStart, visibleEnd),
 		rangeCfi = stringValue("rangeCfi"),
-		source = stringValue("source") ?: stringValue("reason")
+		source = stringValue("source") ?: stringValue("reason"),
+		rawProvenanceId = rawProvenanceId,
+		rawSpineIndex = rawSpineIndex,
+		rawByteStart = rawByteStart,
+		rawByteEnd = rawByteEnd
 	)
 }
 
 private fun JsonObject.toTextPoint(): ReaderBridgeEvent.TextPoint? {
 	val textHref = stringValue("textHref") ?: stringValue("href") ?: return null
 	val textOffset = intValue("textOffset") ?: intValue("offset") ?: return null
+	val rawProvenanceId = stringValue("rawProvenanceId")
+	val rawByteOffset = intValue("rawByteOffset")
+	if ((rawProvenanceId == null) != (rawByteOffset == null) || rawByteOffset?.let { it < 0 } == true) {
+		return null
+	}
 	return ReaderBridgeEvent.TextPoint(
 		textHref = textHref,
 		textOffset = textOffset.coerceAtLeast(0),
 		rangeCfi = stringValue("rangeCfi"),
-		source = stringValue("source") ?: stringValue("reason")
+		source = stringValue("source") ?: stringValue("reason"),
+		rawProvenanceId = rawProvenanceId,
+		rawByteOffset = rawByteOffset
 	)
+}
+
+private fun JsonObject.toRawTextProvenanceStatus(): ReaderBridgeEvent.RawTextProvenanceStatusChanged? {
+	val provenanceId = stringValue("provenanceId") ?: return null
+	val status = when (stringValue("status")) {
+		"pending" -> RawTextProvenanceStatus.Pending
+		"ready" -> RawTextProvenanceStatus.Ready
+		"rejected" -> RawTextProvenanceStatus.Rejected
+		else -> return null
+	}
+	val reason = stringValue("reason")?.toRawTextProvenanceReason() ?: run {
+		if (stringValue("reason") != null) return null
+		null
+	}
+	return ReaderBridgeEvent.RawTextProvenanceStatusChanged(
+		provenanceId = provenanceId,
+		status = status,
+		reason = reason
+	)
+}
+
+private fun String.toRawTextProvenanceReason(): RawTextProvenanceReason? = when (this) {
+	"content-not-loaded" -> RawTextProvenanceReason.ContentNotLoaded
+	"invalid-descriptor" -> RawTextProvenanceReason.InvalidDescriptor
+	"section-mismatch" -> RawTextProvenanceReason.SectionMismatch
+	"source-unavailable" -> RawTextProvenanceReason.SourceUnavailable
+	"source-too-large" -> RawTextProvenanceReason.SourceTooLarge
+	"source-hash-mismatch" -> RawTextProvenanceReason.SourceHashMismatch
+	"invalid-utf8" -> RawTextProvenanceReason.InvalidUtf8
+	"extracted-hash-mismatch" -> RawTextProvenanceReason.ExtractedHashMismatch
+	"extracted-length-mismatch" -> RawTextProvenanceReason.ExtractedLengthMismatch
+	"token-count-mismatch" -> RawTextProvenanceReason.TokenCountMismatch
+	"token-sequence-mismatch" -> RawTextProvenanceReason.TokenSequenceMismatch
+	"document-changed" -> RawTextProvenanceReason.DocumentChanged
+	else -> null
 }
 
 private fun JsonObject.toContentActionClaim(): ReaderContentActionClaim {
@@ -927,9 +1126,27 @@ private fun ReaderLocator.toJsonObject(): JsonObject =
 		pageItemLabel?.let { put("pageItemLabel", it) }
 	}
 
+private val ReaderOverlayCoordinateMode.wireValue: String
+	get() = when (this) {
+		ReaderOverlayCoordinateMode.CueV1DomUtf16 -> ReaderCueV1CoordinateMode
+		ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 -> ReaderWordSyncV1CoordinateMode
+	}
+
+private fun ReaderRawTextProvenanceDescriptor.toJsonObject(): JsonObject =
+	buildJsonObject {
+		put("id", id)
+		put("href", href)
+		put("spineIndex", spineIndex)
+		put("sourceHash", sourceHash)
+		put("extractedTextHash", extractedTextHash)
+		put("byteLength", byteLength)
+		put("tokenCount", tokenCount)
+	}
+
 private fun ReaderOverlayFragment.toJsonObject(): JsonObject =
 	buildJsonObject {
 		put("resourceHref", resourceHref)
+		put("coordinateMode", coordinateMode.wireValue)
 		overlayRequestId?.let { put("overlayRequestId", it) }
 		fragmentId?.let { put("fragmentId", it) }
 		textHref?.let { put("textHref", it) }
@@ -947,6 +1164,12 @@ private fun ReaderOverlayFragment.toJsonObject(): JsonObject =
 		nextEbookText?.let { put("nextEbookText", it) }
 		playbackSpeed?.let { put("playbackSpeed", it.toDouble()) }
 		label?.let { put("label", it) }
+		rawProvenanceId?.let { put("rawProvenanceId", it) }
+		rawSpineIndex?.let { put("rawSpineIndex", it) }
+		rawByteStart?.let { put("rawByteStart", it) }
+		rawByteEnd?.let { put("rawByteEnd", it) }
+		rawProgressByteEnd?.let { put("rawProgressByteEnd", it) }
+		rawProgressFraction?.let { put("rawProgressFraction", it) }
 	}
 
 private fun ReaderAnnotation.toHighlightJsonObject(): JsonObject =
@@ -1017,8 +1240,14 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 
 private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {
 	val resourceHref = stringValue("resourceHref") ?: return null
+	val coordinateMode = when (val wireValue = stringValue("coordinateMode")) {
+		null, ReaderCueV1CoordinateMode -> ReaderOverlayCoordinateMode.CueV1DomUtf16
+		ReaderWordSyncV1CoordinateMode -> ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8
+		else -> return null
+	}
 	return ReaderOverlayFragment(
 		resourceHref = resourceHref,
+		coordinateMode = coordinateMode,
 		overlayRequestId = longValue("overlayRequestId"),
 		fragmentId = stringValue("fragmentId"),
 		textHref = stringValue("textHref"),
@@ -1035,7 +1264,13 @@ private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {
 		nextTextEnd = intValue("nextTextEnd"),
 		nextEbookText = stringValue("nextEbookText"),
 		playbackSpeed = doubleValue("playbackSpeed")?.toFloat(),
-		label = stringValue("label")
+		label = stringValue("label"),
+		rawProvenanceId = stringValue("rawProvenanceId"),
+		rawSpineIndex = intValue("rawSpineIndex"),
+		rawByteStart = intValue("rawByteStart"),
+		rawByteEnd = intValue("rawByteEnd"),
+		rawProgressByteEnd = intValue("rawProgressByteEnd"),
+		rawProgressFraction = doubleValue("rawProgressFraction")
 	)
 }
 

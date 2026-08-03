@@ -208,9 +208,11 @@ class ReaderRuntimeImageLinkTest {
 
 		assertContains(
 			readerScreenText,
-			"onPublicationReady = { publicationUrl, shellCoverUrl, shellCoverTint, savedProgress ->",
+			"onPublicationReady = {",
 			message = "Publication preparation should pass the resolved shell-cover URL into the controller open request once."
 		)
+		assertContains(readerScreenText, "shellCoverUrl,")
+		assertContains(readerScreenText, "savedProgress,")
 		assertContains(readerScreenText, "toReaderEngineOpenRequest(")
 		assertContains(coordinatorText, "fun dispatch(action: ReaderController.() -> ReaderControllerStep)")
 		assertContains(readerScreenText, "coordinator.dispatch { open(request) }")
@@ -275,9 +277,11 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			runtimeHostText,
-			"currentOnPublicationReady(resolved.publicationUrl, shellCoverUrl, resolved.shellCoverTint, savedProgress)",
+			"currentOnPublicationReady(",
 			message = "The preferred cover URL must be the one passed into the common reader open request."
 		)
+		assertContains(runtimeHostText, "shellCoverUrl,")
+		assertContains(runtimeHostText, "androidWordSyncPublicationVerifierOrNull(")
 	}
 
 	@Test
@@ -627,7 +631,9 @@ class ReaderRuntimeImageLinkTest {
 		val controllerText = readerCommonFile("ReaderController.kt").readText()
 
 		assertContains(webViewHostText, "ReaderEngineHostEvent.FoliateBridge(event)")
-		assertContains(webViewHostText, "webView?.post { handleReaderBridgeEvent(event) }")
+		assertContains(webViewHostText, "targetView.post {")
+		assertContains(webViewHostText, "!generationDisposed.get()")
+		assertContains(webViewHostText, "handleReaderBridgeEvent(event)")
 		assertContains(
 			foliateAdapterText,
 			"is ReaderBridgeEvent.ContentTapHandled -> ReaderEngineEvent.ContentActionClaimed(event.claim)"

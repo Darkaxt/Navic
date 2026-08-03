@@ -16,6 +16,8 @@ import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderPublicationResourceRequest
 import paige.navic.reader.ReaderSessionLease
 import paige.navic.reader.ReaderWebRuntime
+import paige.navic.reader.WordSyncPublicationVerifier
+import paige.navic.reader.androidWordSyncPublicationVerifierOrNull
 import paige.navic.reader.readerManagedStorageRoot
 import paige.navic.reader.readerPublicationResourceLogLabel
 import paige.navic.reader.toReaderStartLocatorForReader
@@ -27,7 +29,13 @@ private const val ReaderPublicationRuntimeLogTag = "ReaderPublicationRuntime"
 @Composable
 actual fun ReaderPublicationRuntimeHost(
 	reader: Screen.Reader,
-	onPublicationReady: (String, String?, String?, BinderyReadingProgress?) -> Unit,
+	onPublicationReady: (
+		String,
+		String?,
+		String?,
+		BinderyReadingProgress?,
+		WordSyncPublicationVerifier?
+	) -> Unit,
 	onError: (String) -> Unit
 ) {
 	if (reader.kind == ReaderPublicationKind.Readaloud && reader.mediaOverlayEnabled) return
@@ -70,7 +78,7 @@ actual fun ReaderPublicationRuntimeHost(
 					"url=${readerPublicationResourceLogLabel(directUrl)} " +
 					directShellCoverLog
 			)
-			currentOnPublicationReady(directUrl, preferredShellCoverUrl, null, savedProgress)
+			currentOnPublicationReady(directUrl, preferredShellCoverUrl, null, savedProgress, null)
 			return@LaunchedEffect
 		}
 		Logger.i(
@@ -125,7 +133,16 @@ actual fun ReaderPublicationRuntimeHost(
 				} else {
 					resolved.shellCoverUrl
 				}
-				currentOnPublicationReady(resolved.publicationUrl, shellCoverUrl, resolved.shellCoverTint, savedProgress)
+				currentOnPublicationReady(
+						resolved.publicationUrl,
+						shellCoverUrl,
+						resolved.shellCoverTint,
+						savedProgress,
+						androidWordSyncPublicationVerifierOrNull(
+							publicationFile = resolved.publicationFile,
+							format = reader.publicationFormat
+						)
+					)
 			},
 			onFailure = { error ->
 				Logger.e(

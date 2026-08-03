@@ -30,6 +30,7 @@ import paige.navic.reader.ReaderEngineHostCommand
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderJavascriptBridge
 import paige.navic.reader.ReaderLocator
+import paige.navic.reader.ReaderOverlayCoordinateMode
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderSettings
@@ -455,9 +456,19 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 			val noteCount = highlights.count { it.note?.trim()?.isNotEmpty() == true }
 			"applyHighlights(count=${highlights.size}, notes=$noteCount)"
 		}
-		is ReaderBridgeCommand.ApplyOverlayFragment -> "applyOverlayFragment(${fragment.fragmentId.orEmpty()})"
+		is ReaderBridgeCommand.InstallRawTextProvenance -> "installRawTextProvenance"
+		is ReaderBridgeCommand.ApplyOverlayFragment ->
+			if (fragment.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8) {
+				"applyOverlayFragment(raw)"
+			} else {
+				"applyOverlayFragment(${fragment.fragmentId.orEmpty()})"
+			}
 		is ReaderBridgeCommand.UpdateOverlayFragmentProgress ->
-			"updateOverlayFragmentProgress(${fragment.fragmentId.orEmpty()}, ${fragment.textProgressEnd ?: "n/a"})"
+			if (fragment.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8) {
+				"updateOverlayFragmentProgress(raw)"
+			} else {
+				"updateOverlayFragmentProgress(${fragment.fragmentId.orEmpty()}, ${fragment.textProgressEnd ?: "n/a"})"
+			}
 		is ReaderBridgeCommand.RequestVisibleTextRange -> "requestVisibleTextRange"
 		ReaderBridgeCommand.ClearOverlay -> "clearOverlay"
 		is ReaderBridgeCommand.ApplySettings -> "applySettings"
@@ -494,9 +505,19 @@ private fun ReaderBridgeEvent.engineDebugLabel(): String =
 		ReaderBridgeEvent.FootnoteClose -> "footnoteClose()"
 		is ReaderBridgeEvent.PullUp -> "pullUp(source=${source.orEmpty()})"
 		is ReaderBridgeEvent.VisibleTextRange ->
-			"visibleTextRange(${textHref.engineUrlLabel()}, $visibleStart-$visibleEnd, source=${source.orEmpty()})"
+			if (rawProvenanceId != null) {
+				"visibleTextRange(raw)"
+			} else {
+				"visibleTextRange(${textHref.engineUrlLabel()}, $visibleStart-$visibleEnd, source=${source.orEmpty()})"
+			}
 		is ReaderBridgeEvent.TextPoint ->
-			"textPoint(${textHref.engineUrlLabel()}, $textOffset, source=${source.orEmpty()})"
+			if (rawProvenanceId != null) {
+				"textPoint(raw)"
+			} else {
+				"textPoint(${textHref.engineUrlLabel()}, $textOffset, source=${source.orEmpty()})"
+			}
+		is ReaderBridgeEvent.RawTextProvenanceStatusChanged ->
+			"rawTextProvenanceStatus(${status.name.lowercase()}, ${reason?.name?.lowercase().orEmpty()})"
 		is ReaderBridgeEvent.OverlayFragmentActive -> "overlayFragmentActive(${fragment.fragmentId.orEmpty()})"
 		is ReaderBridgeEvent.OverlayFragmentInactive -> "overlayFragmentInactive(${fragmentId.orEmpty()})"
 		is ReaderBridgeEvent.SearchResults ->

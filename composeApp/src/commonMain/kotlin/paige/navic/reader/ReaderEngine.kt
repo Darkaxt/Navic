@@ -75,6 +75,9 @@ sealed interface ReaderEngineCommand {
 	data class ApplySettings(val settings: ReaderSettings) : ReaderEngineCommand
 	data class ApplyAnnotations(val annotations: List<ReaderAnnotation>) : ReaderEngineCommand
 	data class RequestVisibleTextRange(val source: String) : ReaderEngineCommand
+	data class InstallRawTextProvenance(
+		val descriptor: ReaderRawTextProvenanceDescriptor
+	) : ReaderEngineCommand
 	data class ApplyMediaOverlay(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
 	data class UpdateMediaOverlayProgress(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
 	data object ClearMediaOverlay : ReaderEngineCommand
@@ -86,6 +89,7 @@ val ReaderEngineCommand.requiredCapability: ReaderEngineCapability?
 		ReaderEngineCommand.ClearSearch -> ReaderEngineCapability.Search
 
 		is ReaderEngineCommand.RequestVisibleTextRange,
+		is ReaderEngineCommand.InstallRawTextProvenance,
 		is ReaderEngineCommand.ApplyMediaOverlay,
 		is ReaderEngineCommand.UpdateMediaOverlayProgress,
 		ReaderEngineCommand.ClearMediaOverlay -> ReaderEngineCapability.MediaOverlay
@@ -200,13 +204,24 @@ sealed interface ReaderEngineEvent {
 		val visibleStart: Int,
 		val visibleEnd: Int,
 		val rangeCfi: String? = null,
-		val source: String? = null
+		val source: String? = null,
+		val rawProvenanceId: String? = null,
+		val rawSpineIndex: Int? = null,
+		val rawByteStart: Int? = null,
+		val rawByteEnd: Int? = null
 	) : ReaderEngineEvent
 	data class TextPoint(
 		val textHref: String,
 		val textOffset: Int,
 		val rangeCfi: String? = null,
-		val source: String? = null
+		val source: String? = null,
+		val rawProvenanceId: String? = null,
+		val rawByteOffset: Int? = null
+	) : ReaderEngineEvent
+	data class RawTextProvenanceStatusChanged(
+		val provenanceId: String,
+		val status: RawTextProvenanceStatus,
+		val reason: RawTextProvenanceReason? = null
 	) : ReaderEngineEvent
 
 	data class MediaOverlayActive(val fragment: ReaderOverlayFragment) : ReaderEngineEvent
@@ -223,6 +238,7 @@ val ReaderEngineEvent.requiredCapability: ReaderEngineCapability?
 		is ReaderEngineEvent.SearchResults -> ReaderEngineCapability.Search
 		is ReaderEngineEvent.VisibleTextRange,
 		is ReaderEngineEvent.TextPoint,
+		is ReaderEngineEvent.RawTextProvenanceStatusChanged,
 		is ReaderEngineEvent.MediaOverlayActive,
 		is ReaderEngineEvent.MediaOverlayInactive -> ReaderEngineCapability.MediaOverlay
 		else -> null

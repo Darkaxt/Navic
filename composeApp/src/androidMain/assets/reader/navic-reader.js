@@ -97,7 +97,6 @@ import {
   readerHrefComparable,
   readerHrefMatches,
   readerHrefMatchesSection,
-  stableHash,
   readerPaperTexturePageLocator,
   readerPaperTextureVariantKey,
   readerSurfaceTextureVariantForPage,
@@ -168,12 +167,23 @@ import { NavicReaderAppearanceMethods } from './navic-reader-appearance.js'
 import { NavicReaderShellCoverMethods } from './navic-reader-shell-cover.js'
 import { NavicReaderViewportMethods } from './navic-reader-viewport.js'
 import { NavicReaderLocationMethods } from './navic-reader-location.js'
-import { NavicReaderMediaOverlayMethods } from './navic-reader-media-overlay.js'
+import {
+  NavicReaderMediaOverlayMethods,
+  ReaderMediaOverlayPlayedRangeKeyPrefix,
+} from './navic-reader-media-overlay.js'
+import {
+  ReaderWordSyncV1ExtractedUtf8Mode,
+  ReaderWordSyncProvenanceStore,
+  applyReaderWordSyncOverlayFragment,
+  paintReaderWordSyncActiveOverlay,
+  paintReaderWordSyncOverlayTextRange,
+  rejectReaderWordSyncOverlay,
+  validatedReaderOverlayCoordinateMode,
+} from './navic-reader-wordsync-provenance.js'
 
 const ReaderSvgNamespace = 'http://www.w3.org/2000/svg'
 const ReaderMediaOverlayRangeAttribute = 'data-navic-media-overlay-range'
 const ReaderMediaOverlayActiveRangeKey = 'navic-media-overlay-active'
-const ReaderMediaOverlayPlayedRangeKeyPrefix = 'navic-media-overlay-played-'
 
 const readerCssColorFromArgb = (argb, fallback) => {
   const value = Number(argb)
@@ -328,7 +338,10 @@ class NavicReaderRuntime {
   lastPostedVisibleTextRangeKey = null
   lastMediaOverlayRangeDiagnosticKey = null
   mediaOverlayActiveFragment = null
+  mediaOverlayPlayedKeyPrefix = ReaderMediaOverlayPlayedRangeKeyPrefix
   mediaOverlayPlayedFragments = new Map()
+  rawTextProvenance = new ReaderWordSyncProvenanceStore({ postStatus: post })
+  committedVisibleTextRange = null
   mediaOverlayProgressAnimationFrame = null
   mediaOverlayProgressAnimationToken = 0
   mediaOverlayProgressAnimationKey = ''
@@ -459,6 +472,12 @@ class NavicReaderRuntime {
         return this.postCurrentVisibleTextRange(
           this.lastRelocateDetail || this.currentFixedLayoutLocationDetail?.() || {},
           { source: command.source || 'explicit-refresh', forceDuplicatePost: true }
+        )
+      case 'installRawTextProvenance':
+        return this.rawTextProvenance.install(
+          command.descriptor,
+          this.view?.book,
+          this.contentEntries()
         )
       case 'applyOverlayFragment':
         return this.applyOverlayFragment(command.fragment || command)
@@ -676,6 +695,8 @@ class NavicReaderRuntime {
   close() {
     this.destroyPageTurnPreviewRenderer('reader-close')
     this.clearOverlay()
+    this.rawTextProvenance.clear()
+    this.committedVisibleTextRange = null
     this.clearShellCover()
     this.detachSurfacePaperTextureScrollSync()
     this.clearDeferredReflowablePageTurn()
@@ -851,28 +872,6 @@ class NavicReaderRuntime {
     }
   }
 
-  mediaOverlayFollowShouldDeferForUserRelocation() {
-    const reason = String(this.controlledRelocateReason || '').trim()
-    return Boolean(reason) && reason !== 'media-overlay-follow'
-  }
-
-  mediaOverlayFragmentHasTextRange(fragment) {
-    const textStart = Number(fragment?.textStart)
-    const textEnd = Number(fragment?.textEnd)
-    return Number.isFinite(textStart) && Number.isFinite(textEnd) && textEnd > textStart
-  }
-
-  mediaOverlayPlayedKeyForFragment(fragment) {
-    return `${ReaderMediaOverlayPlayedRangeKeyPrefix}${stableHash([
-      fragment?.textHref || '',
-      fragment?.clipBeginSeconds ?? '',
-      fragment?.clipEndSeconds ?? '',
-      fragment?.textStart ?? '',
-      fragment?.textEnd ?? '',
-      fragment?.ebookText || '',
-    ].join('|'))}`
-  }
-
   rememberPlayedMediaOverlayFragment(previousFragment, nextFragment) {
     if (!this.readerMediaOverlayPersistentPlayed()) return
     if (!previousFragment || !this.mediaOverlayFragmentHasTextRange(previousFragment)) return
@@ -929,19 +928,6 @@ class NavicReaderRuntime {
       : readerDrawMediaOverlaySelection
   }
 
-  mediaOverlayAnimationKeyForFragment(fragment) {
-    if (!fragment) return ''
-    return [
-      fragment.textHref || '',
-      fragment.resourceHref || '',
-      fragment.clipBeginSeconds ?? '',
-      fragment.clipEndSeconds ?? '',
-      fragment.textStart ?? '',
-      fragment.textEnd ?? '',
-      fragment.ebookText || '',
-    ].join('|')
-  }
-
   stopMediaOverlayProgressAnimation() {
     this.mediaOverlayProgressAnimationToken += 1
     this.mediaOverlayProgressAnimationKey = ''
@@ -971,6 +957,10 @@ class NavicReaderRuntime {
   }
 
   paintActiveMediaOverlayFragment(fragment) {
+    const rawPainted = paintReaderWordSyncActiveOverlay(
+      this, fragment, ReaderMediaOverlayActiveRangeKey
+    )
+    if (rawPainted != null) return rawPainted
     const preservePlayed = this.readerMediaOverlayPersistentPlayed()
     this.clearOverlay({ preservePlayed, preserveAnimation: true })
     if (preservePlayed) this.paintPlayedMediaOverlayFragments()
@@ -990,6 +980,7 @@ class NavicReaderRuntime {
 
   startMediaOverlayProgressAnimation(fragment) {
     this.stopMediaOverlayProgressAnimation()
+    if (validatedReaderOverlayCoordinateMode(fragment) === ReaderWordSyncV1ExtractedUtf8Mode) return
     if (
       !fragment ||
         !this.mediaOverlayFragmentHasTextRange(fragment) ||
@@ -1040,22 +1031,15 @@ class NavicReaderRuntime {
     this.mediaOverlayProgressAnimationFrame = requestAnimationFrame(tick)
   }
 
-  postOverlayFragmentInactive(fragment, reason) {
-    post({
-      type: 'overlayFragmentInactive',
-      fragmentId: fragment?.fragmentId || null,
-      overlayRequestId: fragment?.overlayRequestId ?? null,
-      reason,
-    })
-  }
-
   rejectOverlayFragment(fragment, reason) {
+    if (rejectReaderWordSyncOverlay(this, fragment, reason)) return
     this.clearOverlay({ preservePlayed: this.readerMediaOverlayPersistentPlayed() })
     this.postOverlayFragmentInactive(fragment, reason)
   }
 
   async applyOverlayFragment(fragment) {
     if (!this.view || !fragment) return
+    if (applyReaderWordSyncOverlayFragment(this, fragment)) return
     const targetHref = fragment.textHref && fragment.fragmentId
       ? `${fragment.textHref}#${fragment.fragmentId}`
       : fragment.textHref
@@ -1100,6 +1084,12 @@ class NavicReaderRuntime {
 
   updateOverlayFragmentProgress(fragment) {
     if (!this.view || !fragment) return
+    const coordinateMode = validatedReaderOverlayCoordinateMode(fragment)
+    if (!coordinateMode) {
+      this.rejectOverlayFragment(fragment, 'invalid-coordinate-mode')
+      return
+    }
+    const rawMode = coordinateMode === ReaderWordSyncV1ExtractedUtf8Mode
     const activeRequestId = this.mediaOverlayActiveFragment?.overlayRequestId
     if (
       fragment.overlayRequestId == null ||
@@ -1113,7 +1103,7 @@ class NavicReaderRuntime {
       this.rejectOverlayFragment(fragment, 'progress-outside-visible-page')
       return
     }
-    this.prunePlayedMediaOverlayFragments(fragment)
+    if (!rawMode) this.prunePlayedMediaOverlayFragments(fragment)
     if (!this.paintActiveMediaOverlayFragment(fragment)) {
       this.rejectOverlayFragment(fragment, 'progress-paint-rejected')
       return
@@ -1166,6 +1156,10 @@ class NavicReaderRuntime {
   }
 
   highlightMediaOverlayTextRange(fragment) {
+    const rawPainted = paintReaderWordSyncOverlayTextRange(
+      this, fragment, ReaderMediaOverlayActiveRangeKey
+    )
+    if (rawPainted != null) return rawPainted
     const textStart = Number(fragment?.textStart)
     const textEnd = Number(fragment?.textEnd)
     if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return false
@@ -1432,9 +1426,12 @@ class NavicReaderRuntime {
       title: section?.title || section?.label || undefined,
       sectionId: section?.id || undefined,
     })
-    for (const content of this.contentEntries(detail)) {
+    const loadedContents = this.contentEntries(detail)
+    for (const content of loadedContents) {
       this.attachContentDocumentBehaviors(content.doc, content.index)
     }
+    this.committedVisibleTextRange = null
+    void this.rawTextProvenance.mapLoadedDocuments(this.view?.book, loadedContents)
     requestAnimationFrame(() => {
       this.applyRendererTheme(this.readerSettings)
       this.updateReaderPageNumberLayer()

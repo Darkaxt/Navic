@@ -16,6 +16,7 @@ import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderSettings
+import paige.navic.reader.WordSyncPublicationVerifier
 import paige.navic.ui.navigation.Screen
 
 @Composable
@@ -97,7 +98,13 @@ expect fun komikkuReaderIsTabletUi(): Boolean
 @Composable
 expect fun ReaderPublicationRuntimeHost(
 	reader: Screen.Reader,
-	onPublicationReady: (String, String?, String?, BinderyReadingProgress?) -> Unit,
+	onPublicationReady: (
+		String,
+		String?,
+		String?,
+		BinderyReadingProgress?,
+		WordSyncPublicationVerifier?
+	) -> Unit,
 	onError: (String) -> Unit
 )
 

@@ -400,7 +400,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 
 	ReaderPublicationRuntimeHost(
 		reader = reader,
-		onPublicationReady = { publicationUrl, shellCoverUrl, shellCoverTint, savedProgress ->
+		onPublicationReady = {
+				publicationUrl,
+				shellCoverUrl,
+				shellCoverTint,
+				savedProgress,
+				_ ->
 			val localProgress = ReaderReadingProgressState(
 				decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)
 			).startProgressFor(

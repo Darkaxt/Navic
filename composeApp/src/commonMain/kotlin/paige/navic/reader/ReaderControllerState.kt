@@ -28,6 +28,11 @@ data class ReaderShellCoverDismissalRequest(
 	val foliateSessionId: String?
 )
 
+data class RawTextProvenanceState(
+	val status: RawTextProvenanceStatus,
+	val reason: RawTextProvenanceReason? = null
+)
+
 data class ReaderControllerState(
 	val publication: ReaderPublicationIdentity? = null,
 	val activeEngine: ReaderPublicationFormat? = null,
@@ -59,6 +64,7 @@ data class ReaderControllerState(
 	val foliateSessionId: String? = null,
 	val pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null,
 	val whispersync: ReaderWhispersyncSessionState = ReaderWhispersyncSessionState(),
+	val rawTextProvenanceById: Map<String, RawTextProvenanceState> = emptyMap(),
 	val activeMediaOverlay: ReaderOverlayFragment? = null,
 	val audioMetadataLabel: String? = null,
 	val lastContentActionClaim: ReaderContentActionClaim? = null,

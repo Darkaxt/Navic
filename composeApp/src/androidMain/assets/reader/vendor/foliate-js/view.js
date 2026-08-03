@@ -29,13 +29,21 @@ const isPDF = async file => {
         && arr[4] === 0x2d
 }
 
+export const foliateFirstZipEntryByExactName = entries => {
+    const map = new Map()
+    for (const entry of entries) {
+        if (!map.has(entry.filename)) map.set(entry.filename, entry)
+    }
+    return map
+}
+
 const makeZipLoader = async file => {
     const { configure, ZipReader, BlobReader, TextWriter, BlobWriter } =
         await import('./vendor/zip.js')
     configure({ useWebWorkers: false })
     const reader = new ZipReader(new BlobReader(file))
     const entries = await reader.getEntries()
-    const map = new Map(entries.map(entry => [entry.filename, entry]))
+    const map = foliateFirstZipEntryByExactName(entries)
     const load = f => (name, ...args) =>
         map.has(name) ? f(map.get(name), ...args) : null
     const loadText = load(entry => entry.getData(new TextWriter()))

@@ -1128,6 +1128,176 @@ class ReaderBridgeProtocolTest {
 		assertFalse(result.rawMessage.contains('\u0001'))
 	}
 
+	@Test
+	fun cueOverlayModeSerializesExplicitlyWithoutChangingLegacyFields() {
+		val fragment = ReaderOverlayFragment(
+			resourceHref = "audio/chapter-01.mp3",
+			fragmentId = "cue-1",
+			textHref = "Text/chapter-01.xhtml",
+			textStart = 10,
+			textEnd = 24,
+			textProgressEnd = 18,
+			ebookText = "Exact legacy cue text"
+		)
+
+		assertEquals(ReaderOverlayCoordinateMode.CueV1DomUtf16, fragment.coordinateMode)
+		val script = ReaderBridgeCommand.ApplyOverlayFragment(fragment).toJavaScript()
+		assertContains(script, "\"coordinateMode\":\"cue-v1-dom-utf16\"")
+		assertContains(script, "\"textHref\":\"Text/chapter-01.xhtml\"")
+		assertContains(script, "\"textStart\":10")
+		assertContains(script, "\"textEnd\":24")
+		assertContains(script, "\"textProgressEnd\":18")
+		assertContains(script, "\"ebookText\":\"Exact legacy cue text\"")
+	}
+
+	@Test
+	fun rawProvenanceCommandAndOverlaySerializeExactCoordinates() {
+		val descriptor = rawTextDescriptor()
+		val installScript = ReaderBridgeCommand.InstallRawTextProvenance(descriptor).toJavaScript()
+		val fragment = ReaderOverlayFragment(
+			resourceHref = "Audio/chapter-01.mp3",
+			coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+			textHref = descriptor.href,
+			rawProvenanceId = descriptor.id,
+			rawSpineIndex = descriptor.spineIndex,
+			rawByteStart = 41,
+			rawByteEnd = 54,
+			rawProgressByteEnd = 49,
+			rawProgressFraction = 0.625
+		)
+		val overlayScript = ReaderBridgeCommand.ApplyOverlayFragment(fragment).toJavaScript()
+
+		assertContains(installScript, "\"type\":\"installRawTextProvenance\"")
+		assertContains(installScript, "\"descriptor\"")
+		assertContains(installScript, "\"id\":\"chapter-raw-1\"")
+		assertContains(installScript, "\"href\":\"OPS/Text/chapter.xhtml\"")
+		assertContains(installScript, "\"spineIndex\":3")
+		assertContains(installScript, "\"sourceHash\":\"sha256:aaaaaaaa")
+		assertContains(installScript, "\"extractedTextHash\":\"sha256:bbbbbbbb")
+		assertContains(installScript, "\"byteLength\":144")
+		assertContains(installScript, "\"tokenCount\":22")
+		assertContains(overlayScript, "\"coordinateMode\":\"wordsync-v1-extracted-utf8\"")
+		assertContains(overlayScript, "\"rawProvenanceId\":\"chapter-raw-1\"")
+		assertContains(overlayScript, "\"rawSpineIndex\":3")
+		assertContains(overlayScript, "\"rawByteStart\":41")
+		assertContains(overlayScript, "\"rawByteEnd\":54")
+		assertContains(overlayScript, "\"rawProgressByteEnd\":49")
+		assertContains(overlayScript, "\"rawProgressFraction\":0.625")
+		assertFalse(overlayScript.contains("\"textStart\""))
+		assertFalse(overlayScript.contains("\"fragmentId\""))
+	}
+
+	@Test
+	fun overlayCoordinatesRejectMixedUnknownAndFragmentFallbackPayloads() {
+		assertFailsWith<IllegalArgumentException> {
+			ReaderOverlayFragment(
+				resourceHref = "audio.mp3",
+				coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+				fragmentId = "legacy-fragment",
+				textHref = "OPS/Text/chapter.xhtml",
+				rawProvenanceId = "chapter-raw-1",
+				rawSpineIndex = 3,
+				rawByteStart = 1,
+				rawByteEnd = 4
+			)
+		}
+		assertFailsWith<IllegalArgumentException> {
+			ReaderOverlayFragment(
+				resourceHref = "audio.mp3",
+				coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+				textHref = "OPS/Text/chapter.xhtml",
+				textStart = 1,
+				textEnd = 4,
+				rawProvenanceId = "chapter-raw-1",
+				rawSpineIndex = 3,
+				rawByteStart = 1,
+				rawByteEnd = 4
+			)
+		}
+		assertFailsWith<IllegalArgumentException> {
+			ReaderOverlayFragment(
+				resourceHref = "audio.mp3",
+				rawProvenanceId = "chapter-raw-1"
+			)
+		}
+
+		listOf(
+			"""{"type":"overlayFragmentActive","resourceHref":"audio.mp3","coordinateMode":"future-mode"}""" to false,
+			"""{"type":"overlayFragmentActive","resourceHref":"audio.mp3","coordinateMode":"wordsync-v1-extracted-utf8","textHref":"OPS/Text/chapter.xhtml","textStart":1,"textEnd":4,"rawProvenanceId":"chapter-raw-1","rawSpineIndex":3,"rawByteStart":1,"rawByteEnd":4}""" to true,
+			"""{"type":"overlayFragmentActive","resourceHref":"audio.mp3","coordinateMode":"cue-v1-dom-utf16","rawProvenanceId":"chapter-raw-1"}""" to true
+		).forEach { (payload, sensitive) ->
+			val rejected = assertIs<ReaderBridgeDecodeResult.Rejected>(decodeReaderBridgeMessage(payload))
+			assertEquals(ReaderBridgeDecodeFailure.InvalidPayload, rejected.failure)
+			if (sensitive) assertEquals("[redacted-reader-bridge-payload]", rejected.rawMessage)
+		}
+	}
+
+	@Test
+	fun rawStatusAndExactInverseCoordinatesDecodeWithoutChangingLegacyCoordinates() {
+		val pending = assertIs<ReaderBridgeEvent.RawTextProvenanceStatusChanged>(
+			decodeReaderBridgeEvent(
+				"""{"type":"rawTextProvenanceStatus","provenanceId":"chapter-raw-1","status":"pending","reason":"content-not-loaded"}"""
+			)
+		)
+		val ready = assertIs<ReaderBridgeEvent.RawTextProvenanceStatusChanged>(
+			decodeReaderBridgeEvent(
+				"""{"type":"rawTextProvenanceStatus","provenanceId":"chapter-raw-1","status":"ready"}"""
+			)
+		)
+		val rejectedStatus = assertIs<ReaderBridgeEvent.RawTextProvenanceStatusChanged>(
+			decodeReaderBridgeEvent(
+				"""{"type":"rawTextProvenanceStatus","provenanceId":"chapter-raw-1","status":"rejected","reason":"source-hash-mismatch"}"""
+			)
+		)
+		val visible = assertIs<ReaderBridgeEvent.VisibleTextRange>(
+			decodeReaderBridgeEvent(
+				"""{"type":"visibleTextRange","textHref":"OPS/Text/chapter.xhtml","visibleStart":12,"visibleEnd":31,"rawProvenanceId":"chapter-raw-1","rawSpineIndex":3,"rawByteStart":44,"rawByteEnd":69}"""
+			)
+		)
+		val point = assertIs<ReaderBridgeEvent.TextPoint>(
+			decodeReaderBridgeEvent(
+				"""{"type":"textPoint","textHref":"OPS/Text/chapter.xhtml","textOffset":18,"rawProvenanceId":"chapter-raw-1","rawByteOffset":52}"""
+			)
+		)
+
+		assertEquals(RawTextProvenanceStatus.Pending, pending.status)
+		assertEquals(RawTextProvenanceReason.ContentNotLoaded, pending.reason)
+		assertEquals(RawTextProvenanceStatus.Ready, ready.status)
+		assertNull(ready.reason)
+		assertEquals(RawTextProvenanceStatus.Rejected, rejectedStatus.status)
+		assertEquals(RawTextProvenanceReason.SourceHashMismatch, rejectedStatus.reason)
+		assertEquals(12, visible.visibleStart)
+		assertEquals(31, visible.visibleEnd)
+		assertEquals("chapter-raw-1", visible.rawProvenanceId)
+		assertEquals(3, visible.rawSpineIndex)
+		assertEquals(44, visible.rawByteStart)
+		assertEquals(69, visible.rawByteEnd)
+		assertEquals(18, point.textOffset)
+		assertEquals("chapter-raw-1", point.rawProvenanceId)
+		assertEquals(52, point.rawByteOffset)
+
+		listOf(
+			"""{"type":"rawTextProvenanceStatus","provenanceId":"chapter-raw-1","status":"future","reason":"source-hash-mismatch"}""",
+			"""{"type":"rawTextProvenanceStatus","provenanceId":"chapter-raw-1","status":"rejected","reason":"OPS/Text/chapter.xhtml"}""",
+			"""{"type":"visibleTextRange","textHref":"OPS/Text/chapter.xhtml","visibleStart":12,"visibleEnd":31,"rawProvenanceId":"chapter-raw-1","rawByteStart":44,"rawByteEnd":69}""",
+			"""{"type":"textPoint","textHref":"OPS/Text/chapter.xhtml","textOffset":18,"rawProvenanceId":"chapter-raw-1"}"""
+		).forEach { payload ->
+			val rejected = assertIs<ReaderBridgeDecodeResult.Rejected>(decodeReaderBridgeMessage(payload))
+			assertEquals(ReaderBridgeDecodeFailure.InvalidPayload, rejected.failure)
+		}
+	}
+
+	private fun rawTextDescriptor(): ReaderRawTextProvenanceDescriptor =
+		ReaderRawTextProvenanceDescriptor(
+			id = "chapter-raw-1",
+			href = "OPS/Text/chapter.xhtml",
+			spineIndex = 3,
+			sourceHash = "sha256:${"a".repeat(64)}",
+			extractedTextHash = "sha256:${"b".repeat(64)}",
+			byteLength = 144,
+			tokenCount = 22
+		)
+
 	private fun assertContentActionClaim(
 		source: String,
 		action: ReaderContentAction

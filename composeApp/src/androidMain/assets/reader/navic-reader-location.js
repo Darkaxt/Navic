@@ -128,6 +128,33 @@ const readerVisibleTextNodeOffsets = (doc, entries, bounds) => {
   return offsets
 }
 
+const readerTextPointForOffset = (entries, requestedOffset, side) => {
+  const finalOffset = entries.at(-1)?.end || 0
+  const offset = Math.max(0, Math.min(finalOffset, requestedOffset))
+  const entry = side === 'start'
+    ? entries.find(candidate => offset >= candidate.start && offset < candidate.end) || entries.at(-1)
+    : entries.find(candidate => offset > candidate.start && offset <= candidate.end) || entries[0]
+  if (!entry) return null
+  return {
+    node: entry.node,
+    offset: Math.max(0, Math.min(entry.text.length, offset - entry.start)),
+  }
+}
+
+const readerDomRangeForOffsets = (doc, entries, visibleStart, visibleEnd) => {
+  const start = readerTextPointForOffset(entries, visibleStart, 'start')
+  const end = readerTextPointForOffset(entries, visibleEnd, 'end')
+  if (!start || !end) return null
+  const range = doc.createRange()
+  try {
+    range.setStart(start.node, start.offset)
+    range.setEnd(end.node, end.offset)
+    return range.collapsed ? null : range
+  } catch (_) {
+    return null
+  }
+}
+
 const readerVisibleTextRangeForDocument = doc => {
   const entries = readerTextNodeEntries(doc)
   if (!entries.length) return null
@@ -140,7 +167,100 @@ const readerVisibleTextRangeForDocument = doc => {
   const visibleStart = Math.max(0, Math.floor(Math.min(...offsets)))
   const visibleEnd = Math.max(visibleStart, Math.ceil(Math.max(...offsets)))
   if (visibleEnd <= visibleStart) return null
-  return { visibleStart, visibleEnd }
+  const domRange = readerDomRangeForOffsets(doc, entries, visibleStart, visibleEnd)
+  return {
+    visibleStart,
+    visibleEnd,
+    ...(domRange ? { domRange } : {}),
+  }
+}
+
+const readerRangeDocument = range => {
+  const node = range?.startContainer || range?.commonAncestorContainer
+  if (node?.nodeType === 9) return node
+  return node?.ownerDocument || null
+}
+
+const readerTextOffsetForDomBoundary = (doc, entries, container, requestedOffset) => {
+  if (!container) return null
+  const offset = Number(requestedOffset)
+  if (!Number.isInteger(offset) || offset < 0) return null
+  if (container.nodeType === 3 || container.nodeType === 4) {
+    const entry = entries.find(candidate => candidate.node === container)
+    if (!entry || offset > entry.text.length) return null
+    return entry.start + offset
+  }
+  const childCount = container.childNodes?.length || 0
+  if (offset > childCount) return null
+  const boundary = doc.createRange()
+  try {
+    boundary.setStart(container, offset)
+    boundary.collapse(true)
+    const RangeClass = doc.defaultView?.Range || globalThis.Range
+    for (const entry of entries) {
+      const point = doc.createRange()
+      try {
+        point.setStart(entry.node, 0)
+        point.collapse(true)
+        if (boundary.compareBoundaryPoints(RangeClass.START_TO_START, point) <= 0) {
+          return entry.start
+        }
+      } finally {
+        point.detach?.()
+      }
+    }
+    return entries.at(-1)?.end || 0
+  } catch (_) {
+    return null
+  } finally {
+    boundary.detach?.()
+  }
+}
+
+export const readerVisibleTextRangeForDomRange = range => {
+  const doc = readerRangeDocument(range)
+  const endNode = range?.endContainer
+  const endDocument = endNode?.nodeType === 9 ? endNode : endNode?.ownerDocument
+  if (!doc || endDocument !== doc) return null
+  const entries = readerTextNodeEntries(doc)
+  if (!entries.length) return null
+  const visibleStart = readerTextOffsetForDomBoundary(
+    doc,
+    entries,
+    range.startContainer,
+    range.startOffset
+  )
+  const visibleEnd = readerTextOffsetForDomBoundary(
+    doc,
+    entries,
+    range.endContainer,
+    range.endOffset
+  )
+  if (!Number.isInteger(visibleStart) || !Number.isInteger(visibleEnd) || visibleEnd <= visibleStart) {
+    return null
+  }
+  return { visibleStart, visibleEnd, domRange: range }
+}
+
+export const readerCommittedVisibleDomRange = (
+  detail = {},
+  sampledVisibleRange = {},
+  loadedDocuments = []
+) => {
+  const sampledRange = sampledVisibleRange?.domRange || null
+  const relocationRange = detail?.range || null
+  if (!relocationRange) return sampledRange
+  const relocationDocument = readerRangeDocument(relocationRange)
+  if (sampledRange) {
+    const sampledDocument = readerRangeDocument(sampledRange)
+    return sampledDocument && relocationDocument === sampledDocument
+      ? relocationRange
+      : sampledRange
+  }
+  return relocationDocument && loadedDocuments.some(candidate =>
+    (candidate?.doc || candidate) === relocationDocument)
+    ? relocationRange
+    : null
 }
 
 function currentFixedLayoutLocationDetail() {
@@ -279,10 +399,17 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
 
 function postCurrentVisibleTextRange(detail = {}, options = {}) {
   const targetHref = this.sectionHrefForDetail(detail) || detail?.href || detail?.tocItem?.href || ''
-  const currentVisibleRange = this.currentVisibleTextRangeForHref(targetHref)
+  const contents = this.view?.renderer?.getContents?.() || []
+  const currentVisibleRange = this.currentVisibleTextRangeForHref(targetHref, detail?.range)
+  const committedDomRange = readerCommittedVisibleDomRange(detail, currentVisibleRange, contents)
+  const rawFields = committedDomRange
+    ? this.rawTextProvenance.rawFieldsForRange(committedDomRange) || {}
+    : {}
   const visibleRange = currentVisibleRange
     ? {
         ...currentVisibleRange,
+        ...(committedDomRange ? { domRange: committedDomRange } : {}),
+        ...rawFields,
         rangeCfi: detail?.cfi || null,
         source: options.source || null,
       }
@@ -298,7 +425,12 @@ function postCurrentVisibleTextRange(detail = {}, options = {}) {
     visibleRange.visibleEnd,
     visibleRange.rangeCfi || '',
     visibleRange.source || '',
+    visibleRange.rawProvenanceId || '',
+    visibleRange.rawSpineIndex ?? '',
+    visibleRange.rawByteStart ?? '',
+    visibleRange.rawByteEnd ?? '',
   ].join('|')
+  this.committedVisibleTextRange = visibleRange
   if (key === this.lastPostedVisibleTextRangeKey && !options.forceDuplicatePost) {
     return { posted: false, skipped: 'duplicate', visibleRange }
   }
@@ -310,18 +442,33 @@ function postCurrentVisibleTextRange(detail = {}, options = {}) {
     visibleEnd: visibleRange.visibleEnd,
     rangeCfi: visibleRange.rangeCfi,
     source: visibleRange.source,
+    ...(visibleRange.rawProvenanceId ? {
+      rawProvenanceId: visibleRange.rawProvenanceId,
+      rawSpineIndex: visibleRange.rawSpineIndex,
+      rawByteStart: visibleRange.rawByteStart,
+      rawByteEnd: visibleRange.rawByteEnd,
+    } : {}),
   })
-  log(
-    'visible-text-range:posted',
-    visibleRange.textHref,
-    `${visibleRange.visibleStart}-${visibleRange.visibleEnd}`
-  )
-  readerTrace('visible-text-range:posted', visibleRange)
+  if (visibleRange.rawProvenanceId) {
+    log('visible-text-range:posted', 'raw-exact')
+    readerTrace('visible-text-range:posted', {
+      coordinateMode: 'wordsync-v1-extracted-utf8',
+      source: visibleRange.source,
+    })
+  } else {
+    log(
+      'visible-text-range:posted',
+      visibleRange.textHref,
+      `${visibleRange.visibleStart}-${visibleRange.visibleEnd}`
+    )
+    readerTrace('visible-text-range:posted', visibleRange)
+  }
   return { posted: true, visibleRange }
 }
 
-function currentVisibleTextRangeForHref(href = '') {
+function currentVisibleTextRangeForHref(href = '', preferredDomRange = null) {
   const targetHref = String(href || '').trim()
+  const preferredDocument = readerRangeDocument(preferredDomRange)
   const renderer = this.view?.renderer || {}
   const contents = renderer.getContents?.() || []
   const candidates = []
@@ -331,12 +478,14 @@ function currentVisibleTextRangeForHref(href = '') {
     const textHref = section?.href || content?.href || targetHref
     if (!content?.doc || !textHref) continue
     if (targetHref && textHref && !readerHrefMatches(textHref, targetHref)) continue
-    const range = readerVisibleTextRangeForDocument(content.doc)
+    const range = readerVisibleTextRangeForDocument(content.doc) ||
+      (content.doc === preferredDocument
+        ? readerVisibleTextRangeForDomRange(preferredDomRange)
+        : null)
     if (!range) continue
     candidates.push({
       textHref,
-      visibleStart: range.visibleStart,
-      visibleEnd: range.visibleEnd,
+      ...range,
     })
   }
   return candidates

@@ -635,6 +635,7 @@ function selectReaderTextAtDocumentPoint(doc, x, y, index = null, source = 'cont
     : null
   const textHref = section?.href || section?.id || null
   const rangeCfi = textHref ? this.annotationRangeCfi?.(index, range) : undefined
+  const rawPoint = this.rawTextProvenance.rawFieldsForPoint(range) || {}
   if (textHref && Number.isFinite(textOffset)) {
     post({
       type: 'textPoint',
@@ -642,18 +643,29 @@ function selectReaderTextAtDocumentPoint(doc, x, y, index = null, source = 'cont
       textOffset: Math.floor(textOffset),
       rangeCfi,
       source,
+      ...rawPoint,
     })
   }
   doc.dispatchEvent(new Event('selectionchange', { bubbles: true }))
-  readerTrace('native-tap-zones:text-long-press-selection', {
-    source,
-    index,
-    textHref: textHref || '',
-    textOffset: Number.isFinite(textOffset) ? Math.floor(textOffset) : null,
-    textLength: selection.toString?.().trim?.().length || 0,
-    x: Math.round(Number(x) || 0),
-    y: Math.round(Number(y) || 0),
-  })
+  if (rawPoint.rawProvenanceId) {
+    readerTrace('native-tap-zones:text-long-press-selection', {
+      source,
+      index,
+      coordinateMode: 'wordsync-v1-extracted-utf8',
+      x: Math.round(Number(x) || 0),
+      y: Math.round(Number(y) || 0),
+    })
+  } else {
+    readerTrace('native-tap-zones:text-long-press-selection', {
+      source,
+      index,
+      textHref: textHref || '',
+      textOffset: Number.isFinite(textOffset) ? Math.floor(textOffset) : null,
+      textLength: selection.toString?.().trim?.().length || 0,
+      x: Math.round(Number(x) || 0),
+      y: Math.round(Number(y) || 0),
+    })
+  }
   return true
 }
 
@@ -685,21 +697,33 @@ function postReaderTextPointAtDocumentPoint(doc, x, y, index = null, source = 'c
     })
     return false
   }
+  const rawPoint = this.rawTextProvenance.rawFieldsForPoint(caretRange) || {}
   post({
     type: 'textPoint',
     textHref,
     textOffset: Math.floor(textOffset),
     rangeCfi,
     source,
+    ...rawPoint,
   })
-  readerTrace('native-tap-zones:text-long-press-point', {
-    source,
-    index,
-    textHref,
-    textOffset: Math.floor(textOffset),
-    x: Math.round(Number(x) || 0),
-    y: Math.round(Number(y) || 0),
-  })
+  if (rawPoint.rawProvenanceId) {
+    readerTrace('native-tap-zones:text-long-press-point', {
+      source,
+      index,
+      coordinateMode: 'wordsync-v1-extracted-utf8',
+      x: Math.round(Number(x) || 0),
+      y: Math.round(Number(y) || 0),
+    })
+  } else {
+    readerTrace('native-tap-zones:text-long-press-point', {
+      source,
+      index,
+      textHref,
+      textOffset: Math.floor(textOffset),
+      x: Math.round(Number(x) || 0),
+      y: Math.round(Number(y) || 0),
+    })
+  }
   return true
 }
 
