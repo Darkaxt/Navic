@@ -1,4 +1,9 @@
 import { spawnSync } from 'node:child_process'
+import {
+  createPaginatorCommitReceiptTraceSink,
+  projectPaginatorCommitReceiptTrace,
+  validatePaginatorCommitReceiptSummary,
+} from './paginator-commit-receipt-acceptance.mjs'
 
 const args = new Map()
 for (let index = 2; index < process.argv.length; index += 1) {
@@ -2947,6 +2952,197 @@ async function runImageHitTargetsProbe(page) {
   }})()`)
 }
 
+async function runPaginatorCommitReceiptsProbe(page) {
+  const expectedCount = Math.max(
+    1,
+    Math.min(20, Math.floor(Number(probeSettings.acceptedForwardTurns) || 20)),
+  )
+  const requireChapterTransition = probeSettings.requireChapterTransition === true
+  const client = createCdpClient(page.webSocketDebuggerUrl)
+  const evaluate = async expression => {
+    const evaluation = await client.send('Runtime.evaluate', {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+    })
+    if (evaluation.exceptionDetails) {
+      throw new Error('Reader receipt probe evaluation failed')
+    }
+    return evaluation.result?.value
+  }
+  const projectSource = projectPaginatorCommitReceiptTrace.toString()
+  const sinkSource = createPaginatorCommitReceiptTraceSink.toString()
+  const snapshotExpression = `(() => {
+    const acceptance = window.__navicPaginatorCommitReceiptAcceptance
+    const bridge = window.NavicReaderBridge
+    if (!acceptance?.sink || !bridge) return null
+    let context = null
+    try {
+      const raw = bridge.pageTurnRasterPreparationPlan?.()?.context
+      if (raw) {
+        const integer = value => Number.isSafeInteger(Number(value)) ? Number(value) : null
+        context = {
+          currentPageIndex: integer(raw.centerPageIndex),
+          pageCount: integer(raw.pageCount),
+          step: integer(raw.step),
+          currentChapterIndex: integer(raw.currentChapterIndex),
+          currentChapterPageStartIndex: integer(raw.currentChapterPageStartIndex),
+          currentChapterPageCount: integer(raw.currentChapterPageCount),
+          readerDirection: raw.readerDirection === 'rtl' ? 'rtl' : 'ltr',
+        }
+      }
+    } catch {
+      context = null
+    }
+    let pendingStatePresent = true
+    let settledStatePresent = true
+    try {
+      pendingStatePresent = bridge.nativePageTurnPendingState?.() != null
+      settledStatePresent = bridge.nativePageTurnSettledState?.() != null
+    } catch {
+      pendingStatePresent = true
+      settledStatePresent = true
+    }
+    return {
+      receipts: acceptance.sink.entries.map(receipt => ({
+        state: receipt.state,
+        pageIndex: receipt.pageIndex,
+      })),
+      droppedReceiptCount: Number(acceptance.sink.droppedReceiptCount) || 0,
+      malformedReceiptCount: Number(acceptance.sink.malformedReceiptCount) || 0,
+      pendingStatePresent,
+      settledStatePresent,
+      context,
+    }
+  })()`
+  const readState = async () => evaluate(snapshotExpression)
+  const validContext = context =>
+    Number.isSafeInteger(context?.currentPageIndex) &&
+    Number.isSafeInteger(context?.pageCount) &&
+    context.currentPageIndex >= 0 &&
+    context.pageCount > context.currentPageIndex &&
+    Number.isSafeInteger(context?.step) &&
+    context.step > 0
+  const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
+  let installed = false
+  try {
+    await client.send('Runtime.enable')
+    installed = await evaluate(`(() => {
+      const project = ${projectSource}
+      const createSink = ${sinkSource}
+      const previousTrace = window.__navicReaderTrace
+      const sink = createSink(64, project)
+      window.__navicPaginatorCommitReceiptAcceptance = { previousTrace, sink }
+      window.__navicReaderTrace = sink
+      return true
+    })()`)
+    if (!installed) throw new Error('Reader receipt trace could not be initialized')
+
+    let state = await readState()
+    if (
+      !state ||
+      !validContext(state.context) ||
+      state.receipts.length !== 0 ||
+      state.pendingStatePresent !== false ||
+      state.settledStatePresent !== false
+    ) {
+      throw new Error('Reader receipt probe started without a neutral numeric page context')
+    }
+    const sizeText = runAdb(['shell', 'wm', 'size'])
+    const sizes = Array.from(sizeText.matchAll(/(\d+)x(\d+)/g))
+    const size = sizes.at(-1)
+    if (!size) throw new Error('Reader receipt probe could not determine display size')
+    const width = Number(size[1])
+    const height = Number(size[2])
+    const chapterTransitions = []
+
+    for (let settlement = 1; settlement <= expectedCount; settlement += 1) {
+      const before = state.context
+      const intendedPageIndex = before.currentPageIndex + before.step
+      if (intendedPageIndex >= before.pageCount) {
+        throw new Error(`Reader receipt probe reached the forward boundary at settlement ${settlement}`)
+      }
+      const xFraction = before.readerDirection === 'rtl' ? 0.10 : 0.90
+      const x = Math.round(width * xFraction)
+      const y = Math.round(height * 0.50)
+      runAdb(['shell', 'input', 'tap', String(x), String(y)])
+
+      const deadline = Date.now() + 45_000
+      let accepted = null
+      while (Date.now() < deadline) {
+        await wait(75)
+        state = await readState()
+        if (!state || state.droppedReceiptCount !== 0 || state.malformedReceiptCount !== 0) {
+          throw new Error(`Reader receipt trace became invalid at settlement ${settlement}`)
+        }
+        if (state.receipts.length > settlement) {
+          throw new Error(`Reader receipt probe observed duplicate settlement ${settlement}`)
+        }
+        const receipt = state.receipts[settlement - 1]
+        if (
+          receipt?.state === 'accepted' &&
+          receipt.pageIndex === state.context?.currentPageIndex &&
+          state.pendingStatePresent === false &&
+          state.settledStatePresent === false
+        ) {
+          accepted = receipt
+          break
+        }
+      }
+      if (!accepted) {
+        throw new Error(`Reader receipt probe timed out at settlement ${settlement}`)
+      }
+      if (accepted.pageIndex !== intendedPageIndex || !validContext(state.context)) {
+        throw new Error(`Reader receipt probe settled on an unintended page at settlement ${settlement}`)
+      }
+      const fromChapterIndex = before.currentChapterIndex
+      const toChapterIndex = state.context.currentChapterIndex
+      if (
+        Number.isSafeInteger(fromChapterIndex) &&
+        Number.isSafeInteger(toChapterIndex) &&
+        fromChapterIndex >= 0 &&
+        toChapterIndex >= 0 &&
+        fromChapterIndex !== toChapterIndex
+      ) {
+        chapterTransitions.push({
+          settlement,
+          fromChapterIndex,
+          toChapterIndex,
+        })
+      }
+    }
+
+    const summary = {
+      probe: 'paginator-commit-receipts',
+      state: 'passed',
+      acceptedForwardSettlements: state.receipts.length,
+      terminalState: 'none',
+      droppedReceiptCount: state.droppedReceiptCount,
+      malformedReceiptCount: state.malformedReceiptCount,
+      chapterTransitions,
+    }
+    validatePaginatorCommitReceiptSummary(summary, {
+      expectedCount,
+      requireChapterTransition,
+    })
+    return summary
+  } finally {
+    if (installed) {
+      try {
+        await evaluate(`(() => {
+          const acceptance = window.__navicPaginatorCommitReceiptAcceptance
+          if (acceptance) window.__navicReaderTrace = acceptance.previousTrace
+          delete window.__navicPaginatorCommitReceiptAcceptance
+          return true
+        })()`)
+      } catch {
+        // The reader process may have closed after the terminal state.
+      }
+    }
+    client.close()
+  }
+}
+
 async function main() {
   const pidOutput = runAdb(['shell', 'pidof', packageName])
   const pid = pidOutput.split(/\s+/).find(Boolean)
@@ -2991,6 +3187,7 @@ async function main() {
       'page-number-font': runPageNumberFontProbe,
       'page-number-spread-layout': runPageNumberSpreadLayoutProbe,
       'image-hit-targets': runImageHitTargetsProbe,
+      'paginator-commit-receipts': runPaginatorCommitReceiptsProbe,
     }
     const handler = probeHandlers[probe]
     if (!handler) {

@@ -52,6 +52,8 @@ param(
     [switch] $CaptureReaderDiagnostics,
     [switch] $PrivacySafeEvidence,
     [switch] $PreserveLogcat,
+    [switch] $VerifyPaginatorCommitReceipts,
+    [switch] $RequirePaginatorChapterTransition,
     [switch] $NoLaunch
 )
 
@@ -527,6 +529,55 @@ function Assert-FocusedAndroidPackage {
     Write-Host "Foreground confirmed for $Package"
 }
 
+if ($RequirePaginatorChapterTransition -and -not $VerifyPaginatorCommitReceipts) {
+    throw '-RequirePaginatorChapterTransition requires -VerifyPaginatorCommitReceipts.'
+}
+if ($VerifyPaginatorCommitReceipts) {
+    if (-not $PrivacySafeEvidence) {
+        throw '-VerifyPaginatorCommitReceipts requires -PrivacySafeEvidence.'
+    }
+    if (-not $PreserveLogcat) {
+        throw '-VerifyPaginatorCommitReceipts requires -PreserveLogcat.'
+    }
+    $hasConflictingInput =
+        $Tap.Count -gt 0 -or
+        $TapFraction.Count -gt 0 -or
+        $PostProbeTap.Count -gt 0 -or
+        $PostProbeTapFraction.Count -gt 0 -or
+        $PostProbeAction.Count -gt 0 -or
+        $Swipe.Count -gt 0 -or
+        $SwipeFraction.Count -gt 0 -or
+        $LongPress.Count -gt 0 -or
+        $LongPressFraction.Count -gt 0 -or
+        $TapPreset -ne 'None'
+    $hasConflictingProbe =
+        -not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe) -or
+        -not [string]::IsNullOrWhiteSpace($PostActionReaderDevtoolsProbe) -or
+        $RequireReaderBridgeEvent.Count -gt 0 -or
+        $RequireReaderEngineCommand.Count -gt 0 -or
+        $RequireReaderLog.Count -gt 0
+    $hasConflictingValidation =
+        $ValidateReaderTaps -or
+        $RequireReaderTapAction -or
+        $RequireShellCoverSwipe -or
+        $RequireShellCoverDragDiagnostic -or
+        $RequireShellCoverCommand -or
+        $RequireNativeSwipeAction -or
+        $RequireNativeLongTap -or
+        $RequireContentTapHandled -or
+        $RequireNoReaderConsoleErrors -or
+        $RequireNoReaderCenterDispatch -or
+        $RequireTextureDiagnostics -or
+        $RequirePdfDiagnostics -or
+        $RequireNativeShellCover -or
+        $RequireShellGeometry -or
+        $RequireNeutralReaderVisualState -or
+        $CaptureReaderDiagnostics
+    if ($hasConflictingInput -or $hasConflictingProbe -or $hasConflictingValidation) {
+        throw '-VerifyPaginatorCommitReceipts is an exclusive privacy-safe acceptance mode.'
+    }
+}
+
 if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
     throw "adb was not found on PATH"
 }
@@ -567,6 +618,84 @@ if (-not $NoLaunch) {
         )
     }
     Start-Sleep -Seconds $LaunchWaitSeconds
+}
+
+if ($VerifyPaginatorCommitReceipts) {
+    Assert-FocusedAndroidPackage -Package $Package -ArtifactDir $ArtifactDir
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+    $probeScript = Join-Path $repoRoot "tools\reader-harness\src\adb-webview-eval.mjs"
+    $probeSettings = [ordered]@{
+        acceptedForwardTurns = 20
+        requireChapterTransition = [bool] $RequirePaginatorChapterTransition
+    } | ConvertTo-Json -Compress
+    $probeArguments = @(
+        $probeScript,
+        "--package", $Package,
+        "--probe", "paginator-commit-receipts",
+        "--settings-json", $probeSettings
+    )
+    if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
+        $probeArguments += @("--device", $DeviceSerial)
+    }
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $probeOutput = & node @probeArguments 2>&1
+        $probeExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($probeExitCode -ne 0) {
+        throw "Paginator commit-receipt acceptance failed with exit code $probeExitCode."
+    }
+    $probeEnvelope = (@($probeOutput | ForEach-Object { "$_" }) -join "`n") |
+        ConvertFrom-Json
+    $result = $probeEnvelope.result
+    $allowedResultFields = @(
+        'probe',
+        'state',
+        'acceptedForwardSettlements',
+        'terminalState',
+        'droppedReceiptCount',
+        'malformedReceiptCount',
+        'chapterTransitions'
+    )
+    $unexpectedResultFields = @(
+        $result.PSObject.Properties.Name |
+            Where-Object { $_ -notin $allowedResultFields }
+    )
+    if ($unexpectedResultFields.Count -gt 0 -or
+        $result.probe -cne 'paginator-commit-receipts' -or
+        $result.state -cne 'passed' -or
+        [int] $result.acceptedForwardSettlements -ne 20 -or
+        $result.terminalState -cne 'none' -or
+        [int] $result.droppedReceiptCount -ne 0 -or
+        [int] $result.malformedReceiptCount -ne 0 -or
+        ($RequirePaginatorChapterTransition -and @($result.chapterTransitions).Count -lt 1)) {
+        throw 'Paginator commit-receipt acceptance returned an invalid privacy-safe summary.'
+    }
+    foreach ($transition in @($result.chapterTransitions)) {
+        $transitionFields = @($transition.PSObject.Properties.Name)
+        if (@($transitionFields | Where-Object {
+            $_ -notin @('settlement', 'fromChapterIndex', 'toChapterIndex')
+        }).Count -gt 0 -or
+            [int] $transition.settlement -lt 1 -or
+            [int] $transition.fromChapterIndex -lt 0 -or
+            [int] $transition.toChapterIndex -lt 0 -or
+            [int] $transition.fromChapterIndex -eq [int] $transition.toChapterIndex) {
+            throw 'Paginator commit-receipt acceptance returned an invalid chapter transition.'
+        }
+    }
+    $result | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (
+        Join-Path $ArtifactDir 'paginator-commit-receipts.json'
+    )
+    $artifactFiles = @(Get-ChildItem -LiteralPath $ArtifactDir -File -Recurse)
+    if ($artifactFiles.Count -ne 1 -or
+        $artifactFiles[0].Name -cne 'paginator-commit-receipts.json') {
+        throw 'Paginator commit-receipt acceptance retained unexpected artifacts.'
+    }
+    Write-Host "Paginator commit-receipt artifacts: $ArtifactDir"
+    return
 }
 
 if ($TapPreset -eq "ReaderHorizontalZones") {

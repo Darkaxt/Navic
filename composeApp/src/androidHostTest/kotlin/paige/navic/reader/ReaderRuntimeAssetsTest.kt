@@ -362,6 +362,46 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbReaderSmokeVerifiesTwentyExactTurnsThroughAnExclusivePrivacySafeProbe() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val projectionText = repoFile(
+			"tools/reader-harness/src/paginator-commit-receipt-acceptance.mjs"
+		).readText()
+		val acceptance = helperText
+			.substringAfter("async function runPaginatorCommitReceiptsProbe(page)")
+			.substringBefore("async function main()")
+		val smokeAcceptance = scriptText
+			.substringAfter("if (\$VerifyPaginatorCommitReceipts) {")
+			.substringBefore("if (\$TapPreset -eq \"ReaderHorizontalZones\")")
+
+		assertContains(scriptText, "[switch] \$VerifyPaginatorCommitReceipts")
+		assertContains(scriptText, "[switch] \$RequirePaginatorChapterTransition")
+		assertContains(scriptText, "requires -PrivacySafeEvidence")
+		assertContains(scriptText, "requires -PreserveLogcat")
+		assertContains(scriptText, "exclusive privacy-safe acceptance mode")
+		assertContains(smokeAcceptance, "acceptedForwardTurns = 20")
+		assertContains(smokeAcceptance, "paginator-commit-receipts.json")
+		assertContains(smokeAcceptance, "\$artifactFiles.Count -ne 1")
+		assertContains(helperText, "'paginator-commit-receipts': runPaginatorCommitReceiptsProbe")
+		assertContains(acceptance, "window.__navicReaderTrace = sink")
+		assertContains(acceptance, "for (let settlement = 1; settlement <= expectedCount")
+		assertContains(acceptance, "runAdb(['shell', 'input', 'tap'")
+		assertContains(acceptance, "receipt.pageIndex === state.context?.currentPageIndex")
+		assertContains(acceptance, "state.pendingStatePresent === false")
+		assertContains(acceptance, "state.settledStatePresent === false")
+		assertContains(acceptance, "accepted.pageIndex !== intendedPageIndex")
+		assertContains(acceptance, "chapterTransitions.push")
+		assertContains(projectionText, "entry?.type !== 'page-turn:exact-settled'")
+		assertContains(projectionText, "{ state: 'accepted', pageIndex }")
+		assertFalse(projectionText.contains("href"))
+		assertFalse(projectionText.contains("cfi"))
+		assertFalse(projectionText.contains("title"))
+		assertFalse(projectionText.contains("text"))
+		assertFalse(projectionText.contains("url"))
+	}
+
+	@Test
 	fun adbWebViewEvalHelperInjectsReaderBridgeEventsThroughDevTools() {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 

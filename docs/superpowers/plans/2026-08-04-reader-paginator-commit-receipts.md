@@ -965,19 +965,22 @@ validated requirement-by-requirement against the approved specification.
 
 ### Task 14: Automate 20 forward turns and cross a chapter boundary
 
-**Files:** Local evidence only.
+**Files:**
 
-- [ ] **Step 1: Build the exact 20-action sequence**
+- `scripts/adb-reader-smoke.ps1`
+- `tools/reader-harness/src/adb-webview-eval.mjs`
+- `tools/reader-harness/src/paginator-commit-receipt-acceptance.mjs`
+- Local evidence under `.codex-validation/paginator-receipts/`
 
-  In PowerShell:
+- [ ] **Step 1: Use the condition-based exact-settlement probe**
 
-  ```powershell
-  $twentyForwardTurns = ((1..20 | ForEach-Object {
-      'tapFraction:0.90,0.50,1200'
-  }) -join '|')
-  ```
+  Do not use `-RequireReaderLog page-turn:exact-settled`: `readerTrace()` is
+  JS-local and is not a Logcat event. Use the exclusive privacy-safe probe. It
+  installs a bounded in-memory trace sink, projects only numeric exact-settlement
+  state, injects one forward tap, and waits for that settlement to be consumed
+  before injecting the next tap. Fixed delays are not commitment authority.
 
-- [ ] **Step 2: Run 20 forward turns for each book**
+- [ ] **Step 2: Run 20 accepted forward turns for each book**
 
   With one book open and preprocessing complete:
 
@@ -987,30 +990,29 @@ validated requirement-by-requirement against the approved specification.
     -DeviceSerial emulator-5554 `
     -NoLaunch `
     -PreserveLogcat `
-    -CaptureReaderDiagnostics `
     -PrivacySafeEvidence `
-    -RequireNoReaderConsoleErrors `
-    -RequireReaderLog 'page-turn:exact-settled' `
-    -PostProbeAction $twentyForwardTurns `
+    -VerifyPaginatorCommitReceipts `
     -ArtifactDir .codex-validation/paginator-receipts/book-a-turns
   ```
 
-  Repeat with `book-b-turns` and `book-c-turns` after opening each book
-  independently.
+  Repeat with `book-b-turns` after opening Book B independently. For Book C,
+  add `-RequirePaginatorChapterTransition` and use `book-c-turns`.
 
 - [ ] **Step 3: Validate exact settlements**
 
-  For each run, confirm 20 new accepted turns, each settlement token exactly
-  once, monotonic intended global destinations, no adjacent-page acceptance, no
-  passive raster failure, no stale batch completion, no crash, no black/cover
-  flash, no stuck preparation, and no broken input.
+  For each run, require `paginator-commit-receipts.json` to be the only retained
+  artifact. It must report exactly 20 accepted forward settlements, intended
+  monotonic global destinations, no malformed/dropped/duplicate receipt, and no
+  terminal state. The driver waits for both pending and settled native bridge
+  state to drain after each accepted page before continuing.
 
 - [ ] **Step 4: Validate the chapter transition**
 
-  Book C must cross at least one chapter boundary. Confirm the numeric section
-  changes once at the boundary, local page resets coherently, global page remains
-  monotonic, and passive preparation/settlement continues without a duplicate or
-  skipped chapter transition.
+  Book C must report at least one numeric chapter-index change. Global page must
+  remain monotonic, and passive preparation/settlement must continue without a
+  duplicate or skipped chapter transition. No href, CFI, URL, title, text, book
+  ID, raster data, screenshot, Logcat dump, or reusable reader identity may enter
+  the retained summary.
 
 - [ ] **Step 5: Keep evidence private and local**
 
