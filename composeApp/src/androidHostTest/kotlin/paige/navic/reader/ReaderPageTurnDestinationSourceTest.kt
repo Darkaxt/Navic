@@ -16,10 +16,12 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(turns, "async function goToVisualPage(command = {})")
 		assertContains(turns, "command.pageIndex")
 		assertContains(turns, "command.settleToken")
+		assertContains(turns, "command.settleGestureId")
 		assertContains(turns, "command.settleSessionId")
 		assertContains(turns, "command.settleRasterGeneration")
 		assertContains(turns, "command.settleTextureGeneration")
 		assertContains(turns, "!Number.isInteger(pageIndex) || pageIndex < 0")
+		assertContains(turns, "!Number.isSafeInteger(settleGestureId) || settleGestureId <= 0")
 		assertContains(turns, "settleSessionId !== this.foliateSessionId")
 		assertContains(turns, "!Number.isInteger(settleRasterGeneration)")
 		assertContains(turns, "!Number.isInteger(settleTextureGeneration)")
@@ -453,6 +455,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(runtime, "exactPageTurnNavigationInProgress = false")
 		assertContains(turns, "this.pendingExactPageTurnSettlements.set(token, pending)")
 		assertContains(turns, "this.activeExactPageTurnSettlementToken = token")
+		assertContains(turns, "gestureId: settleGestureId")
 		assertContains(turns, "foliateSessionId: settleSessionId")
 		assertContains(turns, "rasterGeneration: settleRasterGeneration")
 		assertContains(turns, "textureGeneration: settleTextureGeneration")
@@ -466,6 +469,10 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(completeSettlement, "Math.floor(chapterPageIndex) !== pending.chapterPageIndex")
 		assertContains(completeSettlement, "readerCopyTextPageCommit(pending, settlement)")
 		assertContains(completeSettlement, "readerCopyTextPageCommit(settlement, presentationTarget)")
+		assertContains(
+			completeSettlement,
+			"this.lastTracedExactPageTurnGestureId !== pending.gestureId"
+		)
 		assertContains(turns, "readerTrace('page-turn:exact-settle-pending'")
 		assertContains(turns, "requestedSpineIndex: pending.spineIndex")
 		assertContains(turns, "actualSpineIndex: Number.isFinite(spineIndex) ? Math.floor(spineIndex) : null")

@@ -337,12 +337,14 @@ async function goToChapterProgress(
 function exactPageTurnSettlementIdentityMatches(
   settlement,
   locator,
+  gestureId,
   foliateSessionId,
   rasterGeneration,
   textureGeneration,
   paginationProfile
 ) {
-  return settlement?.foliateSessionId === foliateSessionId &&
+  return settlement?.gestureId === gestureId &&
+    settlement?.foliateSessionId === foliateSessionId &&
     settlement?.rasterGeneration === rasterGeneration &&
     settlement?.textureGeneration === textureGeneration &&
     settlement?.pageIndex === locator.pageIndex &&
@@ -354,6 +356,7 @@ function exactPageTurnSettlementIdentityMatches(
 function exactPageTurnSettlementMatches(
   settlement,
   locator,
+  gestureId,
   foliateSessionId,
   rasterGeneration,
   textureGeneration,
@@ -362,6 +365,7 @@ function exactPageTurnSettlementMatches(
   return exactPageTurnSettlementIdentityMatches(
     settlement,
     locator,
+    gestureId,
     foliateSessionId,
     rasterGeneration,
     textureGeneration,
@@ -433,6 +437,7 @@ function pageTurnLivePresentationTargetMatchesCurrent(target) {
   return exactPageTurnSettlementMatches(
     settlement,
     target,
+    target.gestureId,
     target.foliateSessionId,
     target.rasterGeneration,
     target.textureGeneration,
@@ -487,6 +492,7 @@ function pageTurnLivePresentationReceipt() {
 
 function exactPageTurnPendingState({
   token,
+  gestureId,
   foliateSessionId,
   rasterGeneration,
   textureGeneration,
@@ -497,6 +503,7 @@ function exactPageTurnPendingState({
 }) {
   return Object.freeze({
     token,
+    gestureId,
     foliateSessionId,
     rasterGeneration,
     textureGeneration,
@@ -676,6 +683,7 @@ async function commitPendingExactPageTurnSettlement(token) {
 async function goToVisualPage(command = {}) {
   const pageIndex = command.pageIndex
   const token = typeof command.settleToken === 'string' ? command.settleToken.trim() : ''
+  const settleGestureId = Number(command.settleGestureId)
   const settleSessionId = typeof command.settleSessionId === 'string'
     ? command.settleSessionId.trim()
     : ''
@@ -685,6 +693,9 @@ async function goToVisualPage(command = {}) {
     throw new TypeError('Visual page index must be a non-negative integer')
   }
   if (!token) throw new TypeError('Visual page settlement token is required')
+  if (!Number.isSafeInteger(settleGestureId) || settleGestureId <= 0) {
+    throw new TypeError('Visual page settlement gesture must be a positive safe integer')
+  }
   if (!settleSessionId) throw new TypeError('Visual page settlement session is required')
   if (settleSessionId !== this.foliateSessionId) {
     throw new TypeError('Visual page settlement session does not match the active runtime')
@@ -719,6 +730,7 @@ async function goToVisualPage(command = {}) {
       !exactPageTurnSettlementIdentityMatches(
         existing,
         locator,
+        settleGestureId,
         settleSessionId,
         settleRasterGeneration,
         settleTextureGeneration,
@@ -741,6 +753,7 @@ async function goToVisualPage(command = {}) {
   this.clearPageTurnLivePresentationTarget()
   const pending = exactPageTurnPendingState({
     token,
+    gestureId: settleGestureId,
     foliateSessionId: settleSessionId,
     rasterGeneration: settleRasterGeneration,
     textureGeneration: settleTextureGeneration,
@@ -826,6 +839,7 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
   const existingSettlement = this.nativePageTurnSettledState
   const refreshingPresentationAuthority = Boolean(
     existingSettlement?.token === pending.token &&
+    existingSettlement.gestureId === pending.gestureId &&
     existingSettlement.foliateSessionId === pending.foliateSessionId &&
     existingSettlement.rasterGeneration === pending.rasterGeneration &&
     existingSettlement.textureGeneration === pending.textureGeneration &&
@@ -846,6 +860,7 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
   const settledPageIndex = Math.floor(pageIndex)
   const settlement = Object.freeze({
     token: pending.token,
+    gestureId: pending.gestureId,
     foliateSessionId: pending.foliateSessionId,
     rasterGeneration: pending.rasterGeneration,
     textureGeneration: pending.textureGeneration,
@@ -859,6 +874,7 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
   const presentationTarget = this.replacePageTurnLivePresentationTarget({
     scope: ReaderPageTurnPresentationScopeLive,
     token: pending.token,
+    gestureId: pending.gestureId,
     pageIndex: settledPageIndex,
     foliateSessionId: pending.foliateSessionId,
     rasterGeneration: pending.rasterGeneration,
@@ -881,7 +897,11 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
     this.clearPageTurnLivePresentationReceipt()
   }
   this.nativePageTurnSettledToken = pending.token
-  if (!refreshingPresentationAuthority) {
+  if (
+    !refreshingPresentationAuthority &&
+    this.lastTracedExactPageTurnGestureId !== pending.gestureId
+  ) {
+    this.lastTracedExactPageTurnGestureId = pending.gestureId
     readerTrace('page-turn:exact-settled', { pageIndex: settledPageIndex })
   }
   return true

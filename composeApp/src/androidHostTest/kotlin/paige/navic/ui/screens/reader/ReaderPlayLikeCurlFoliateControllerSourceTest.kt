@@ -184,6 +184,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(controller, "private fun dispatchNextRelocation()")
 		assertContains(controller, "put(\"settleToken\", request.token.value)")
+		assertContains(controller, "put(\"settleGestureId\", request.gestureId)")
 		assertContains(controller, "put(\"settleSessionId\", request.foliateSessionId)")
 		assertContains(controller, "put(\"settleRasterGeneration\", request.rasterGeneration)")
 		assertContains(controller, "put(\"settleTextureGeneration\", request.textureGeneration)")

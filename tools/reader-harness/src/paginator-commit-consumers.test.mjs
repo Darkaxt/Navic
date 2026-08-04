@@ -1215,6 +1215,7 @@ const liveSettlementRuntime = ({
     activeExactPageTurnSettlementToken: null,
     nativePageTurnSettledState: null,
     nativePageTurnSettledToken: null,
+    lastTracedExactPageTurnGestureId: null,
     exactPageTurnNavigationToken: null,
     exactPageTurnNavigationInProgress: false,
     liveTextPageCommitInvalidationTarget: null,
@@ -1351,9 +1352,15 @@ const liveSettlementRuntime = ({
     waitForRendererIdle: () => commitTail,
   }
 }
-const liveSettlementCommand = (token, pageIndex, rasterGeneration = 13) => ({
+const liveSettlementCommand = (
+  token,
+  pageIndex,
+  rasterGeneration = 13,
+  gestureId = 101,
+) => ({
   pageIndex,
   settleToken: token,
+  settleGestureId: gestureId,
   settleSessionId: 'live-session',
   settleRasterGeneration: rasterGeneration,
   settleTextureGeneration: rasterGeneration + 100,
@@ -1458,6 +1465,50 @@ test('a new relocation epoch refreshes live presentation authority once', async 
   assert.equal(
     fixture.runtime.pageTurnPresentationSequence,
     initialPresentationSequence + 1,
+  )
+  delete window.__navicReaderTrace
+})
+
+test('same gesture generation replacement emits one logical settlement', async () => {
+  const first = resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 })
+  const replacement = resultFor({
+    requestedIndex: 0,
+    requestedPageIndex: 1,
+    pageCount: 3,
+    receipt: Object.freeze({
+      layoutGeneration: 2,
+      viewGeneration: 1,
+      commitSequence: 2,
+      flow: 'paginated',
+      index: 0,
+      pageIndex: 1,
+      pageCount: 3,
+    }),
+  })
+  const fixture = liveSettlementRuntime({ results: [first, replacement] })
+  window.__navicReaderTrace = []
+
+  await fixture.runtime.goToVisualPage(
+    liveSettlementCommand('live-generation-original', 1, 13, 177),
+  )
+  assert.equal(
+    window.__navicReaderTrace.filter(entry => entry.type === 'page-turn:exact-settled').length,
+    1,
+  )
+  assert.equal(
+    fixture.runtime.consumeNativePageTurnSettlement('live-generation-original'),
+    true,
+  )
+
+  await fixture.runtime.goToVisualPage(
+    liveSettlementCommand('live-generation-replacement', 1, 14, 177),
+  )
+
+  assert.equal(fixture.runtime.nativePageTurnSettledState?.token, 'live-generation-replacement')
+  assert.equal(fixture.runtime.pageTurnLivePresentationTargetValue?.rasterGeneration, 14)
+  assert.equal(
+    window.__navicReaderTrace.filter(entry => entry.type === 'page-turn:exact-settled').length,
+    1,
   )
   delete window.__navicReaderTrace
 })

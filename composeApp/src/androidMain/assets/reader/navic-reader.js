@@ -374,6 +374,7 @@ class NavicReaderRuntime {
   liveTextPageCommitInvalidationTarget = null; liveTextPageCommitInvalidationListener = null
   liveTextPageCommitRetryToken = null; liveTextPageCommitRetryRequestedToken = null
   nativePageTurnSettledState = null
+  lastTracedExactPageTurnGestureId = null
   pageTurnPresentationSequence = 0
   pageTurnPreviewPresentationReceiptValue = null
   pageTurnLivePresentationReceiptValue = null
@@ -723,6 +724,7 @@ class NavicReaderRuntime {
     this.activeExactPageTurnSettlementToken = null; this.exactPageTurnNavigationToken = null; this.exactPageTurnNavigationInProgress = false
     this.liveTextPageCommitRetryToken = null; this.liveTextPageCommitRetryRequestedToken = null
     this.nativePageTurnSettledState = null
+    this.lastTracedExactPageTurnGestureId = null
     this.pageTurnPreviewPresentationReceiptValue = null
     this.pageTurnLivePresentationReceiptValue = null
     this.pageTurnLivePresentationTargetValue = null

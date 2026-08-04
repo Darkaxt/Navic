@@ -4496,6 +4496,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			put("type", "goToVisualPage")
 			put("pageIndex", request.destinationOrdinal)
 			put("settleToken", request.token.value)
+			put("settleGestureId", request.gestureId)
 			put("settleSessionId", request.foliateSessionId)
 			put("settleRasterGeneration", request.rasterGeneration)
 			put("settleTextureGeneration", request.textureGeneration)
