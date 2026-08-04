@@ -230,6 +230,7 @@ runtime.attachLiveTextPageCommitInvalidationListener()
 const settlementCommand = (token, pageIndex, rasterGeneration = pageIndex) => ({
   pageIndex,
   settleToken: token,
+  settleGestureId: pageIndex + 1,
   settleSessionId: runtime.foliateSessionId,
   settleRasterGeneration: rasterGeneration,
   settleTextureGeneration: pageIndex + 100,
@@ -256,6 +257,7 @@ for (let pageIndex = 0; pageIndex < 33; pageIndex += 1) {
   assert.equal(readerTextPageCommitOwnerIsValid(pending), true)
   const settlement = runtime.peekNativePageTurnSettlement()
   assert.equal(settlement?.token, token)
+  assert.equal(settlement?.gestureId, pageIndex + 1)
   assert.equal(settlement?.foliateSessionId, runtime.foliateSessionId)
   assert.equal(settlement?.rasterGeneration, pageIndex)
   assert.equal(settlement?.textureGeneration, pageIndex + 100)
