@@ -7,11 +7,13 @@ const commitModulePath = new URL(
 )
 const {
   readerCommitTextPage,
+  readerCopyTextPageCommit,
   readerForgetTextPageCommit,
   readerRememberTextPageCommit,
   readerTextPageCommitIsValid,
   readerTextPageCommitMatches,
   readerTextPageCommitOwnerIsValid,
+  readerTextPageCommitOwnerWasRemembered,
 } = await import(commitModulePath.href)
 
 const committedResult = ({
@@ -129,6 +131,36 @@ test('receipt ownership remains JS-local and validates through a WeakMap', () =>
   assert.equal(readerTextPageCommitOwnerIsValid(owner), false)
 })
 
+test('receipt authority copies between frozen runtime owners without serialization', () => {
+  const result = committedResult()
+  const renderer = validatingRenderer(result)
+  const source = Object.freeze({ token: 'source-owner' })
+  const target = Object.freeze({ token: 'target-owner' })
+
+  assert.equal(readerRememberTextPageCommit(source, renderer, result.receipt), true)
+  assert.equal(readerCopyTextPageCommit(source, target), true)
+  assert.equal(readerTextPageCommitOwnerIsValid(source), true)
+  assert.equal(readerTextPageCommitOwnerIsValid(target), true)
+  assert.deepEqual(JSON.parse(JSON.stringify(target)), { token: 'target-owner' })
+})
+
+test('remembered ownership remains detectable after paginator invalidation', () => {
+  const result = committedResult()
+  let valid = true
+  const renderer = {
+    validateTextPageCommit: receipt => valid && receipt === result.receipt,
+  }
+  const owner = Object.freeze({ token: 'invalidated-owner' })
+
+  assert.equal(readerRememberTextPageCommit(owner, renderer, result.receipt), true)
+  assert.equal(readerTextPageCommitOwnerWasRemembered(owner), true)
+  valid = false
+  assert.equal(readerTextPageCommitOwnerIsValid(owner), false)
+  assert.equal(readerTextPageCommitOwnerWasRemembered(owner), true)
+  readerForgetTextPageCommit(owner)
+  assert.equal(readerTextPageCommitOwnerWasRemembered(owner), false)
+})
+
 globalThis.window = {
   devicePixelRatio: 1,
   innerWidth: 800,
@@ -161,8 +193,13 @@ const previewModulePath = new URL(
   '../../../composeApp/src/androidMain/assets/reader/navic-reader-page-turn-preview.js',
   import.meta.url,
 )
+const turnsModulePath = new URL(
+  '../../../composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js',
+  import.meta.url,
+)
 const { NavicReaderPaginationMethods } = await import(paginationModulePath.href)
 const { NavicReaderPageTurnPreviewMethods } = await import(previewModulePath.href)
+const { NavicReaderPageTurnMethods } = await import(turnsModulePath.href)
 
 const paginationProfile = (
   counts = [3, 2],
@@ -857,7 +894,7 @@ test('passive ready state retains commitment only through JS-local ownership', a
   assert.equal(state.pageIndex, 1)
   assert.equal(readerTextPageCommitOwnerIsValid(state), true)
   const serialized = JSON.stringify(state)
-  assert.equal(serialized.includes('receipt'), false)
+  assert.equal(serialized.includes('"receipt":'), false)
   assert.equal(serialized.includes('layoutGeneration'), false)
   assert.equal(serialized.includes('viewGeneration'), false)
   assert.equal(serialized.includes('commitSequence'), false)
@@ -1075,4 +1112,602 @@ test('unsupported preview preparation bypasses without a failed state', async ()
   assert.equal(fixture.runtime.pageTurnPreviewStateValue.status, 'unsupported')
 })
 
+const liveSettlementRuntime = ({
+  counts = [3, 2],
+  results = [],
+  currentPagePosition = { pageIndex: 0, spineIndex: 0, chapterPageIndex: 0 },
+  relocateAfterCommit = true,
+  seedReceiptBeforeLayout = false,
+  useProductionProfileRepair = false,
+} = {}) => {
+  let activeReceipt = null
+  let commitIndex = 0
+  let commitTail = Promise.resolve()
+  let concurrentCommits = 0
+  let maxConcurrentCommits = 0
+  let layoutApplications = 0
+  let repairs = 0
+  let cancelledDelayedRelocations = 0
+  const commits = []
+  const controlledRelocationStarts = []
+  const locationPosts = []
+  const relocationDetails = []
+  const scheduledRelocationDetails = []
+  const profile = paginationProfile(counts)
+  let runtime = null
+  const renderer = new EventTarget()
+  const invalidateReceipt = reason => {
+    const hadReceipt = activeReceipt != null
+    activeReceipt = null
+    if (hadReceipt) {
+      const event = new Event('text-page-commit-invalidated')
+      Object.defineProperty(event, 'detail', {
+        configurable: true,
+        value: Object.freeze({ reason }),
+      })
+      renderer.dispatchEvent(event)
+    }
+    return hadReceipt
+  }
+  const globalPageForPosition = position => {
+    const chapter = runtime.paginationProfile.chapters.find(entry =>
+      entry.spineIndex === position.index
+    )
+    return chapter ? chapter.pageStartIndex + position.pageIndex : null
+  }
+  const publishRelocation = result => {
+    if (!relocateAfterCommit || !result?.position) return null
+    const globalPageIndex = globalPageForPosition(result.position)
+    if (!Number.isInteger(globalPageIndex)) return null
+    runtime.currentPagePosition = Object.freeze({
+      pageIndex: globalPageIndex,
+      spineIndex: result.position.index,
+      chapterPageIndex: result.position.pageIndex,
+    })
+    runtime.relocateSequence += 1
+    const detail = Object.freeze({
+      relocationSequence: runtime.relocateSequence,
+      pageIndex: globalPageIndex,
+      spineIndex: result.position.index,
+      chapterPageIndex: result.position.pageIndex,
+    })
+    runtime.lastRelocateDetail = detail
+    relocationDetails.push(detail)
+    return detail
+  }
+  renderer.commitTextPage = (index, pageIndex, reason) => {
+    const resultIndex = commitIndex
+    commitIndex += 1
+    const run = async () => {
+      concurrentCommits += 1
+      maxConcurrentCommits = Math.max(maxConcurrentCommits, concurrentCommits)
+      commits.push({ index, pageIndex, reason })
+      try {
+        const value = results[Math.min(resultIndex, results.length - 1)]
+        const result = typeof value === 'function'
+          ? await value({ index, pageIndex, reason, runtime })
+          : value
+        activeReceipt = result?.receipt || null
+        publishRelocation(result)
+        return result
+      } finally {
+        concurrentCommits -= 1
+      }
+    }
+    const transaction = commitTail.then(run, run)
+    commitTail = transaction.catch(() => {})
+    return transaction
+  }
+  renderer.validateTextPageCommit = receipt => receipt === activeReceipt
+  renderer.render = () => { invalidateReceipt('synchronous-render') }
+
+  runtime = {
+    foliateSessionId: 'live-session',
+    paginationProfile: profile,
+    paginationFingerprint: profile.fingerprint,
+    observedChapterPageCounts: new Map(),
+    currentPagePosition: Object.freeze(currentPagePosition),
+    relocateSequence: 7,
+    lastRelocateDetail: null,
+    pendingExactPageTurnSettlements: new Map(),
+    completedExactPageTurnSettlements: new Map(),
+    retiredExactPageTurnSettlements: new Map(),
+    activeExactPageTurnSettlementToken: null,
+    nativePageTurnSettledState: null,
+    nativePageTurnSettledToken: null,
+    exactPageTurnNavigationToken: null,
+    exactPageTurnNavigationInProgress: false,
+    liveTextPageCommitInvalidationTarget: null,
+    liveTextPageCommitInvalidationListener: null,
+    liveTextPageCommitRetryToken: null,
+    pageTurnPresentationSequence: 0,
+    pageTurnPreviewExposedToken: '',
+    pageTurnLivePresentationReceiptValue: null,
+    pageTurnLivePresentationTargetValue: null,
+    controlledRelocateOwner: null,
+    controlledRelocateReason: null,
+    controlledRelocateStartSequence: 0,
+    view: {
+      renderer,
+      history: { pushState: () => {} },
+    },
+    beginControlledRelocation(reason) {
+      const owner = Object.freeze({
+        sequence: controlledRelocationStarts.length + 1,
+        token: this.activeExactPageTurnSettlementToken,
+      })
+      this.controlledRelocateOwner = owner
+      this.controlledRelocateReason = reason
+      this.controlledRelocateStartSequence = this.relocateSequence
+      controlledRelocationStarts.push({ owner, reason, token: owner.token })
+      return owner
+    },
+    cancelControlledRelocation(owner) {
+      if (owner !== this.controlledRelocateOwner) return false
+      this.controlledRelocateOwner = null
+      this.controlledRelocateReason = null
+      return true
+    },
+    cancelPendingCommittedRelocation() {
+      cancelledDelayedRelocations += 1
+      scheduledRelocationDetails.length = 0
+      this.controlledRelocateOwner = null
+      this.controlledRelocateReason = null
+    },
+    clearPageTurnPreviewPresentationReceipt: () => {},
+    consumeControlledRelocationReason(fallback) {
+      const reason = this.controlledRelocateReason || fallback
+      this.controlledRelocateOwner = null
+      this.controlledRelocateReason = null
+      return reason
+    },
+    scheduleSettledControlledPageTurnRelocation() {
+      if (!this.lastRelocateDetail) return false
+      scheduledRelocationDetails.push(this.lastRelocateDetail)
+      this.consumeControlledRelocationReason('page-turn:exact')
+      return true
+    },
+    scheduleCommittedRelocation(detail) {
+      if (!detail) return false
+      scheduledRelocationDetails.push(detail)
+      return true
+    },
+    scheduleControlledRelocationFallback: () => {},
+    applyReaderViewportLayout() {
+      layoutApplications += 1
+      renderer.render()
+    },
+    postCurrentLocationSnapshot(reason) {
+      locationPosts.push(reason)
+      if (useProductionProfileRepair) {
+        this.readerEnsurePaginationProfile({}, {
+          pageIndex: this.currentPagePosition.chapterPageIndex,
+          pageCount: this.paginationProfile.chapters.find(chapter =>
+            chapter.spineIndex === this.currentPagePosition.spineIndex
+          )?.pageCount,
+        })
+      }
+      return { posted: false }
+    },
+    repairPaginationProfileFromExactPosition(locator, actualPosition) {
+      repairs += 1
+      const repairedCounts = this.paginationProfile.chapters.map(chapter =>
+        chapter.spineIndex === locator.spineIndex
+          ? actualPosition.pageCount
+          : chapter.pageCount
+      )
+      this.paginationProfile = paginationProfile(repairedCounts)
+      return this.paginationProfile
+    },
+  }
+  Object.assign(
+    runtime,
+    useProductionProfileRepair ? NavicReaderPaginationMethods : {},
+    NavicReaderPageTurnMethods,
+    {
+      clearPageTurnPreviewPresentationReceipt: runtime.clearPageTurnPreviewPresentationReceipt,
+      applyReaderViewportLayout: runtime.applyReaderViewportLayout,
+      postCurrentLocationSnapshot: runtime.postCurrentLocationSnapshot,
+      readerPaginationRenderFingerprint: () => profile.fingerprint,
+      postPaginationProfileStatus: () => {},
+      repairPaginationProfileFromExactPosition: useProductionProfileRepair
+        ? function (locator, actualPosition, options) {
+            repairs += 1
+            return NavicReaderPaginationMethods.repairPaginationProfileFromExactPosition.call(
+              this,
+              locator,
+              actualPosition,
+              options,
+            )
+          }
+        : runtime.repairPaginationProfileFromExactPosition,
+    },
+  )
+  runtime.attachLiveTextPageCommitInvalidationListener()
+  if (seedReceiptBeforeLayout) {
+    activeReceipt = Object.freeze({
+      layoutGeneration: 0,
+      viewGeneration: 1,
+      commitSequence: 0,
+      flow: 'paginated',
+      index: 0,
+      pageIndex: 0,
+      pageCount: counts[0],
+    })
+  }
+  return {
+    commits,
+    controlledRelocationStarts,
+    get cancelledDelayedRelocations() { return cancelledDelayedRelocations },
+    get layoutApplications() { return layoutApplications },
+    get maxConcurrentCommits() { return maxConcurrentCommits },
+    get repairs() { return repairs },
+    locationPosts,
+    relocationDetails,
+    scheduledRelocationDetails,
+    renderer,
+    runtime,
+    invalidatePaginatorReceipt: () => invalidateReceipt('test-invalidation'),
+    waitForRendererIdle: () => commitTail,
+  }
+}
+const liveSettlementCommand = (token, pageIndex, rasterGeneration = 13) => ({
+  pageIndex,
+  settleToken: token,
+  settleSessionId: 'live-session',
+  settleRasterGeneration: rasterGeneration,
+  settleTextureGeneration: rasterGeneration + 100,
+})
+
+test('live exact layout and initial commit form one serialized token operation', async () => {
+  const result = resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 })
+  const fixture = liveSettlementRuntime({
+    results: [result],
+    seedReceiptBeforeLayout: true,
+  })
+
+  await fixture.runtime.goToVisualPage(liveSettlementCommand('live-settle-1', 1))
+  await flushTasks()
+  await fixture.waitForRendererIdle()
+
+  assert.deepEqual(fixture.commits, [
+    { index: 0, pageIndex: 1, reason: 'page-turn:exact' },
+  ])
+  assert.equal(fixture.maxConcurrentCommits, 1)
+  assert.equal(fixture.layoutApplications, 1)
+  const pending = fixture.runtime.pendingExactPageTurnSettlements.get('live-settle-1')
+  assert.equal(pending?.transactionAttempts, 1)
+  assert.equal(pending?.profileRepairs, 0)
+  assert.equal(readerTextPageCommitOwnerIsValid(pending), true)
+  assert.equal(fixture.runtime.peekNativePageTurnSettlement()?.token, 'live-settle-1')
+  assert.equal(fixture.runtime.completedExactPageTurnSettlements.has('live-settle-1'), false)
+  assert.equal(fixture.runtime.consumeNativePageTurnSettlement('live-settle-1'), true)
+  assert.equal(fixture.runtime.consumeNativePageTurnSettlement('live-settle-1'), false)
+  assert.equal(fixture.runtime.pendingExactPageTurnSettlements.has('live-settle-1'), false)
+  const serialized = JSON.stringify(
+    fixture.runtime.completedExactPageTurnSettlements.get('live-settle-1')
+  )
+  assert.equal(serialized.includes('"receipt":'), false)
+  assert.equal(serialized.includes('layoutGeneration'), false)
+  assert.equal(serialized.includes('viewGeneration'), false)
+  assert.equal(serialized.includes('commitSequence'), false)
+})
+
+test('live exact settlement rejects receipt coordinates that differ from its locator', async () => {
+  const wrongCoordinates = resultFor({
+    status: 'committed',
+    requestedIndex: 0,
+    requestedPageIndex: 1,
+    index: 0,
+    pageIndex: 0,
+    pageCount: 3,
+  })
+  const fixture = liveSettlementRuntime({ results: [wrongCoordinates] })
+
+  await assert.rejects(
+    fixture.runtime.goToVisualPage(liveSettlementCommand('live-coordinate-mismatch', 1)),
+    /not committed/,
+  )
+  assert.equal(fixture.runtime.nativePageTurnSettledState, null)
+  assert.deepEqual(fixture.locationPosts, [])
+})
+
+test('live exact settlement waits when the current global page is not the committed destination', async () => {
+  const result = resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 })
+  const fixture = liveSettlementRuntime({
+    results: [result],
+    currentPagePosition: { pageIndex: 0, spineIndex: 0, chapterPageIndex: 0 },
+    relocateAfterCommit: false,
+  })
+
+  await fixture.runtime.goToVisualPage(liveSettlementCommand('live-global-mismatch', 1))
+
+  assert.equal(fixture.runtime.nativePageTurnSettledState, null)
+  assert.equal(fixture.runtime.activeExactPageTurnSettlement()?.token, 'live-global-mismatch')
+  assert.deepEqual(fixture.locationPosts, [])
+})
+
+test('invalid undelivered settlement reopens pending state and retries with fresh relocation', async () => {
+  const first = resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 })
+  const second = resultFor({
+    requestedIndex: 0,
+    requestedPageIndex: 1,
+    pageCount: 3,
+    receipt: Object.freeze({
+      layoutGeneration: 2,
+      viewGeneration: 1,
+      commitSequence: 2,
+      flow: 'paginated',
+      index: 0,
+      pageIndex: 1,
+      pageCount: 3,
+    }),
+  })
+  const fixture = liveSettlementRuntime({ results: [first, second] })
+  await fixture.runtime.goToVisualPage(liveSettlementCommand('live-late-retry', 1))
+  const firstDetail = fixture.relocationDetails[0]
+  assert.equal(fixture.runtime.nativePageTurnSettledState?.token, 'live-late-retry')
+  assert.equal(
+    fixture.runtime.pendingExactPageTurnSettlements.get('live-late-retry')?.transactionAttempts,
+    1,
+  )
+  assert.equal(fixture.runtime.completedExactPageTurnSettlements.has('live-late-retry'), false)
+  assert.deepEqual(fixture.scheduledRelocationDetails, [firstDetail])
+
+  assert.equal(fixture.invalidatePaginatorReceipt(), true)
+  await flushTasks()
+  await fixture.waitForRendererIdle()
+  await flushTasks()
+
+  assert.equal(fixture.commits.length, 2)
+  assert.equal(fixture.cancelledDelayedRelocations, 1)
+  assert.deepEqual(
+    fixture.controlledRelocationStarts.map(({ reason, token }) => ({ reason, token })),
+    [
+      { reason: 'page-turn:exact', token: 'live-late-retry' },
+      { reason: 'page-turn:exact', token: 'live-late-retry' },
+    ],
+  )
+  assert.deepEqual(fixture.scheduledRelocationDetails, [fixture.relocationDetails[1]])
+  assert.equal(
+    fixture.runtime.pendingExactPageTurnSettlements.get('live-late-retry')?.transactionAttempts,
+    2,
+  )
+  assert.equal(fixture.runtime.completedExactPageTurnSettlements.has('live-late-retry'), false)
+  assert.equal(
+    fixture.runtime.peekNativePageTurnSettlement()?.token,
+    'live-late-retry',
+  )
+  assert.equal(fixture.runtime.consumeNativePageTurnSettlement('live-late-retry'), true)
+  assert.equal(fixture.runtime.completedExactPageTurnSettlements.has('live-late-retry'), true)
+})
+
+test('live invalidation retries under one token and exhaustion emits no acknowledgement', async () => {
+  const invalidated = ({ index, pageIndex }) => resultFor({
+    status: 'invalidated',
+    requestedIndex: index,
+    requestedPageIndex: pageIndex,
+    pageCount: 1,
+    reason: 'layout-invalidated',
+  })
+  const committed = ({ index, pageIndex }) => resultFor({
+    requestedIndex: index,
+    requestedPageIndex: pageIndex,
+    pageCount: 3,
+  })
+  const recovered = liveSettlementRuntime({ results: [invalidated, committed] })
+
+  await recovered.runtime.goToVisualPage(liveSettlementCommand('live-retry', 1))
+  assert.equal(recovered.commits.length, 2)
+  assert.equal(recovered.runtime.peekNativePageTurnSettlement()?.token, 'live-retry')
+
+  const exhausted = liveSettlementRuntime({ results: [invalidated, invalidated, invalidated] })
+  const preservedPosition = exhausted.runtime.currentPagePosition
+  const exhaustedCommand = liveSettlementCommand('live-exhausted', 1)
+  await assert.rejects(
+    exhausted.runtime.goToVisualPage(exhaustedCommand),
+    /did not stabilize/,
+  )
+  assert.equal(exhausted.commits.length, 3)
+  assert.equal(exhausted.runtime.currentPagePosition, preservedPosition)
+  assert.equal(exhausted.runtime.nativePageTurnSettledState, null)
+  assert.deepEqual(exhausted.locationPosts, [])
+  await exhausted.runtime.goToVisualPage(exhaustedCommand)
+  assert.equal(exhausted.commits.length, 3)
+  assert.equal(
+    exhausted.runtime.completedExactPageTurnSettlements.has('live-exhausted'),
+    false,
+  )
+  assert.equal(
+    exhausted.runtime.retiredExactPageTurnSettlements.has('live-exhausted'),
+    true,
+  )
+})
+
+test('active live cancellation fails without retrying or acknowledging', async () => {
+  const cancelled = ({ index, pageIndex }) => resultFor({
+    status: 'cancelled',
+    requestedIndex: index,
+    requestedPageIndex: pageIndex,
+    pageCount: 1,
+    reason: 'navigation-superseded',
+  })
+  const fixture = liveSettlementRuntime({ results: [cancelled] })
+
+  await assert.rejects(
+    fixture.runtime.goToVisualPage(liveSettlementCommand('live-cancelled', 1)),
+    /cancelled/,
+  )
+  assert.equal(fixture.commits.length, 1)
+  assert.equal(fixture.runtime.nativePageTurnSettledState, null)
+  assert.equal(fixture.runtime.completedExactPageTurnSettlements.has('live-cancelled'), false)
+  assert.equal(fixture.runtime.retiredExactPageTurnSettlements.has('live-cancelled'), true)
+  assert.deepEqual(fixture.locationPosts, [])
+})
+
+test('profile replacement after await remaps the original global page before binding', async () => {
+  let replacementProfile = null
+  const fixture = liveSettlementRuntime({
+    counts: [3, 2],
+    relocateAfterCommit: false,
+    results: [
+      ({ index, pageIndex, runtime }) => {
+        replacementProfile = paginationProfile([2, 2], 'replacement-fingerprint')
+        runtime.paginationProfile = replacementProfile
+        return resultFor({
+          requestedIndex: index,
+          requestedPageIndex: pageIndex,
+          pageCount: 3,
+        })
+      },
+      ({ index, pageIndex }) => resultFor({
+        requestedIndex: index,
+        requestedPageIndex: pageIndex,
+        pageCount: 2,
+      }),
+    ],
+  })
+
+  await fixture.runtime.goToVisualPage(liveSettlementCommand('live-profile-remap', 2))
+
+  assert.deepEqual(fixture.commits.map(({ index, pageIndex }) => ({ index, pageIndex })), [
+    { index: 0, pageIndex: 2 },
+    { index: 1, pageIndex: 0 },
+  ])
+  const pending = fixture.runtime.activeExactPageTurnSettlement()
+  assert.equal(pending?.paginationProfile, replacementProfile)
+  assert.equal(pending?.pageIndex, 2)
+  assert.equal(pending?.spineIndex, 1)
+  assert.equal(pending?.chapterPageIndex, 0)
+  assert.equal(pending?.transactionAttempts, 2)
+  assert.equal(readerTextPageCommitOwnerIsValid(pending), true)
+})
+
+test('trusted live profile repair remains current through its location snapshot', async () => {
+  const fixture = liveSettlementRuntime({
+    counts: [3, 2],
+    currentPagePosition: { pageIndex: 2, spineIndex: 1, chapterPageIndex: 0 },
+    useProductionProfileRepair: true,
+    results: [
+      resultFor({
+        status: 'mismatch',
+        requestedIndex: 0,
+        requestedPageIndex: 2,
+        index: 0,
+        pageIndex: 1,
+        pageCount: 2,
+      }),
+      ({ index, pageIndex }) => {
+        assert.deepEqual({ index, pageIndex }, { index: 1, pageIndex: 0 })
+        return resultFor({
+          requestedIndex: index,
+          requestedPageIndex: pageIndex,
+          pageCount: 2,
+        })
+      },
+    ],
+  })
+
+  await fixture.runtime.goToVisualPage(liveSettlementCommand('live-production-repair', 2))
+
+  assert.equal(fixture.repairs, 1)
+  assert.deepEqual(fixture.commits.map(({ index, pageIndex }) => ({ index, pageIndex })), [
+    { index: 0, pageIndex: 2 },
+    { index: 1, pageIndex: 0 },
+  ])
+  const pending = fixture.runtime.activeExactPageTurnSettlement()
+  assert.deepEqual(fixture.runtime.paginationProfile.chapters.map(chapter => chapter.pageCount), [2, 2])
+  assert.equal(pending?.paginationProfile, fixture.runtime.paginationProfile)
+  assert.equal(pending?.profileRepairs, 1)
+  assert.equal(readerTextPageCommitOwnerIsValid(pending), true)
+})
+
+test('trusted live count changes repair remap and retry while untrusted mismatch never repairs', async () => {
+  const larger = liveSettlementRuntime({
+    counts: [2, 2],
+    results: [
+      resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 }),
+      resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 }),
+    ],
+  })
+  await larger.runtime.goToVisualPage(liveSettlementCommand('live-larger', 1))
+  assert.equal(larger.repairs, 1)
+  assert.deepEqual(larger.commits.map(({ index, pageIndex }) => ({ index, pageIndex })), [
+    { index: 0, pageIndex: 1 },
+    { index: 0, pageIndex: 1 },
+  ])
+
+  const shorter = liveSettlementRuntime({
+    counts: [3, 2],
+    currentPagePosition: { pageIndex: 2, spineIndex: 1, chapterPageIndex: 0 },
+    results: [
+      resultFor({
+        status: 'mismatch',
+        requestedIndex: 0,
+        requestedPageIndex: 2,
+        index: 0,
+        pageIndex: 1,
+        pageCount: 2,
+      }),
+      ({ index, pageIndex }) => resultFor({
+        requestedIndex: index,
+        requestedPageIndex: pageIndex,
+        pageCount: 2,
+      }),
+    ],
+  })
+  await shorter.runtime.goToVisualPage(liveSettlementCommand('live-shorter', 2))
+  assert.equal(shorter.repairs, 1)
+  assert.deepEqual(shorter.commits.map(({ index, pageIndex }) => ({ index, pageIndex })), [
+    { index: 0, pageIndex: 2 },
+    { index: 1, pageIndex: 0 },
+  ])
+  assert.equal(shorter.runtime.peekNativePageTurnSettlement()?.spineIndex, 1)
+
+  const untrusted = liveSettlementRuntime({
+    results: [resultFor({
+      status: 'mismatch',
+      requestedIndex: 0,
+      requestedPageIndex: 1,
+      index: 1,
+      pageIndex: 0,
+      pageCount: 2,
+    })],
+  })
+  await assert.rejects(
+    untrusted.runtime.goToVisualPage(liveSettlementCommand('live-untrusted', 1)),
+    /not committed/,
+  )
+  assert.equal(untrusted.repairs, 0)
+  assert.equal(untrusted.runtime.nativePageTurnSettledState, null)
+})
+
+test('superseded live token publishes no stale settlement or location', async () => {
+  let releaseFirst = () => {}
+  const fixture = liveSettlementRuntime({
+    currentPagePosition: { pageIndex: 2, spineIndex: 0, chapterPageIndex: 2 },
+    results: [
+      async ({ index, pageIndex }) => {
+        await new Promise(resolve => { releaseFirst = resolve })
+        return resultFor({ requestedIndex: index, requestedPageIndex: pageIndex, pageCount: 3 })
+      },
+      ({ index, pageIndex }) => resultFor({
+        requestedIndex: index,
+        requestedPageIndex: pageIndex,
+        pageCount: 3,
+      }),
+    ],
+  })
+
+  const stale = fixture.runtime.goToVisualPage(liveSettlementCommand('live-stale', 1))
+  await Promise.resolve()
+  const current = fixture.runtime.goToVisualPage(liveSettlementCommand('live-current', 2))
+  releaseFirst()
+  await Promise.allSettled([stale, current])
+
+  assert.equal(fixture.runtime.peekNativePageTurnSettlement()?.token, 'live-current')
+  assert.equal(fixture.runtime.completedExactPageTurnSettlements.has('live-stale'), false)
+  assert.equal(fixture.runtime.retiredExactPageTurnSettlements.has('live-stale'), true)
+  assert.equal(fixture.locationPosts.length, 1)
+})
 

@@ -551,7 +551,8 @@ function postPaginationProfileStatus(status, payload = {}) {
 
 function repairPaginationProfileFromExactPosition(
   locator,
-  actualPosition
+  actualPosition,
+  { postLocationSnapshot = true } = {}
 ) {
   const spineIndex = Number(actualPosition?.index)
   const pageCount = Number(actualPosition?.pageCount)
@@ -587,9 +588,11 @@ function repairPaginationProfileFromExactPosition(
       totalSections: repaired.observedChapterCount || 0,
     }
   )
-  this.postCurrentLocationSnapshot(
-    'pagination-profile-repaired'
-  )
+  if (postLocationSnapshot) {
+    this.postCurrentLocationSnapshot(
+      'pagination-profile-repaired'
+    )
+  }
   return repaired
 }
 

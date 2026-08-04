@@ -49,16 +49,12 @@ const readerPageTurnPreviewTraceState = state => ({
 })
 
 export async function readerGoToExactVisualPage(view, locator, reason = 'page-turn:exact') {
-  const renderer = view?.renderer
-  if (typeof renderer?.goToTextPage !== 'function') {
-    throw new Error('Exact paginated text navigation is unavailable')
-  }
-  const committed = await renderer.goToTextPage(
+  return readerCommitTextPage(
+    view?.renderer,
     locator.spineIndex,
     locator.chapterPageIndex,
     reason
   )
-  return committed === false ? null : locator
 }
 
 async function resolvePageTurnPreviewLocator(

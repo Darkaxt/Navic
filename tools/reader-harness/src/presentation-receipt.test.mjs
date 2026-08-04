@@ -132,6 +132,20 @@ const liveRuntime = ({
   mutatePageNumberPosition = false,
 } = {}) => {
   const paginationProfile = Object.freeze({ marker: 'profile-alpha' })
+  const paginatorReceipt = Object.freeze({
+    layoutGeneration: 5,
+    viewGeneration: 7,
+    commitSequence: 11,
+    flow: 'paginated',
+    index: 3,
+    pageIndex: 5,
+    pageCount: 9,
+  })
+  let paginatorReceiptIsValid = true
+  const renderer = {
+    validateTextPageCommit: receipt =>
+      paginatorReceiptIsValid && receipt === paginatorReceipt,
+  }
   const pending = Object.freeze({
     token: liveTarget.token,
     foliateSessionId: liveTarget.foliateSessionId,
@@ -141,6 +155,8 @@ const liveRuntime = ({
     spineIndex: 3,
     chapterPageIndex: 5,
     paginationProfile,
+    transactionAttempts: 1,
+    profileRepairs: 0,
   })
   const style = {
     getPropertyValue: () => '',
@@ -158,6 +174,7 @@ const liveRuntime = ({
     }),
     pendingExactPageTurnSettlements: new Map([[pending.token, pending]]),
     completedExactPageTurnSettlements: new Map(),
+    retiredExactPageTurnSettlements: new Map(),
     activeExactPageTurnSettlementToken: pending.token,
     nativePageTurnSettledState: null,
     nativePageTurnSettledToken: null,
@@ -171,12 +188,16 @@ const liveRuntime = ({
     pageTurnPreviewLivePagePosition: prePreviewPagePosition,
     pageTurnPreviewDecorationPageIndex: null,
     pageTurnPreviewView: null,
-    view: { style },
+    view: { style, renderer },
+    setLivePaginatorReceiptValid: value => {
+      paginatorReceiptIsValid = value === true
+    },
     updateReaderPageNumberLayer: () => {},
     renderSurfacePaperTextureLayers: () => {},
     applyReaderViewportLayoutToProfilerView: () => {},
   }
   Object.assign(runtime, NavicReaderPageTurnMethods, NavicReaderPageTurnPreviewMethods)
+  assert.equal(readerRememberTextPageCommit(pending, renderer, paginatorReceipt), true)
   if (mutatePageNumberPosition) {
     runtime.updateReaderPageNumberLayer = pagePosition => {
       runtime.currentPagePosition = pagePosition
@@ -189,12 +210,33 @@ test('live receipt survives settlement acknowledgement consumption before getter
   const runtime = liveRuntime()
 
   assert.equal(runtime.maybeCompleteNativePageTurnSettlement(), true)
+  assert.equal(
+    runtime.pendingExactPageTurnSettlements.get(liveTarget.token)?.transactionAttempts,
+    1,
+  )
+  assert.equal(runtime.activeExactPageTurnSettlementToken, liveTarget.token)
+  assert.equal(runtime.completedExactPageTurnSettlements.has(liveTarget.token), false)
   assert.equal(runtime.consumeNativePageTurnSettlement(liveTarget.token), true)
   assert.equal(runtime.nativePageTurnSettledState, null)
+  assert.equal(runtime.pendingExactPageTurnSettlements.has(liveTarget.token), false)
+  assert.equal(runtime.completedExactPageTurnSettlements.has(liveTarget.token), true)
 
   const receipt = runtime.pageTurnLivePresentationReceipt()
   assert.notEqual(receipt, null)
   assert.equal(readerPageTurnPresentationReceiptMatches(receipt, liveTarget), true)
+})
+
+test('live presentation rejects paginator authority invalidated after settlement', () => {
+  const runtime = liveRuntime()
+
+  assert.equal(runtime.maybeCompleteNativePageTurnSettlement(), true)
+  assert.notEqual(runtime.pageTurnLivePresentationReceipt(), null)
+
+  runtime.setLivePaginatorReceiptValid(false)
+
+  assert.equal(runtime.pageTurnLivePresentationReceipt(), null)
+  assert.equal(runtime.restorePageTurnLivePresentationReceipt(), null)
+  assert.equal(runtime.pageTurnLivePresentationTargetValue, null)
 })
 
 test('restoring live composition preserves a newer settlement completed behind preview', () => {

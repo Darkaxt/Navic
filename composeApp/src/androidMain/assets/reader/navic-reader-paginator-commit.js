@@ -103,6 +103,23 @@ export function readerRememberTextPageCommit(owner, renderer, receipt) {
   return true
 }
 
+export function readerCopyTextPageCommit(source, owner) {
+  if (
+    !source ||
+    typeof source !== 'object' ||
+    !owner ||
+    typeof owner !== 'object' ||
+    !Object.isFrozen(owner)
+  ) return false
+  const commitment = textPageCommitOwners.get(source)
+  if (
+    !commitment ||
+    commitment.renderer?.validateTextPageCommit?.(commitment.receipt) !== true
+  ) return false
+  textPageCommitOwners.set(owner, commitment)
+  return true
+}
+
 export function readerTextPageCommitOwnerIsValid(owner) {
   const commitment = owner && typeof owner === 'object'
     ? textPageCommitOwners.get(owner)
@@ -110,6 +127,14 @@ export function readerTextPageCommitOwnerIsValid(owner) {
   return Boolean(
     commitment &&
     commitment.renderer?.validateTextPageCommit?.(commitment.receipt) === true
+  )
+}
+
+export function readerTextPageCommitOwnerWasRemembered(owner) {
+  return Boolean(
+    owner &&
+    typeof owner === 'object' &&
+    textPageCommitOwners.has(owner)
   )
 }
 

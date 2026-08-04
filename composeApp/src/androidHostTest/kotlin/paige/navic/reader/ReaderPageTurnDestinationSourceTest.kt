@@ -27,7 +27,7 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun exactVisualPageNavigationUsesOneRendererTarget() {
+	fun exactVisualPageNavigationUsesOneRendererCommitTarget() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 		val viewport = readerAssetRoot().resolve("navic-reader-viewport.js").readText()
@@ -35,55 +35,68 @@ class ReaderPageTurnDestinationSourceTest {
 		val exactNavigation = turns
 			.substringAfter("async function goToVisualPage(")
 			.substringBefore("\n}\n")
+		val exactCommit = turns
+			.substringAfter("async function commitPendingExactPageTurnSettlement(")
+			.substringBefore("\n}\n\nasync function goToVisualPage(")
 
-		assertContains(exactNavigation, "readerGoToExactVisualPage(this.view, locator)")
+		assertContains(exactNavigation, "return await this.commitPendingExactPageTurnSettlement(token)")
 		assertContains(preview, "export async function readerGoToExactVisualPage(view, locator, reason = 'page-turn:exact')")
-		assertContains(preview, "const committed = await renderer.goToTextPage(")
-		assertContains(preview, "return committed === false ? null : locator")
-		assertContains(paginator, "async goToTextPage(index, pageIndex, reason = 'navigation')")
+		assertContains(preview, "return readerCommitTextPage(")
+		assertContains(exactCommit, "await readerGoToExactVisualPage(")
+		assertContains(exactCommit, "readerTextPageCommitIsValid(")
+		assertContains(exactCommit, "readerTextPageCommitMatches(result, expectedPosition)")
+		assertContains(exactCommit, "readerRememberTextPageCommit(")
+		assertContains(paginator, "async commitTextPage(index, pageIndex, reason = 'navigation')")
 		assertContains(paginator, "await this.#acquireExactNavigationLock()")
 		assertContains(paginator, "async #acquireExactNavigationLock()")
 		assertContains(paginator, "throw new Error('Exact page navigation timed out waiting for paginator unlock')")
 		assertContains(paginator, "await this.#scrollToAnchor(actualTargetAnchor, reason)")
-		assertContains(exactNavigation, "this.view.history?.pushState?.(")
+		assertContains(exactCommit, "this.view.history?.pushState?.(")
 		val applyStableLayout = exactNavigation.indexOf(
 			"this.applyReaderViewportLayout('page-turn:exact', { renderSynchronously: true })"
 		)
-		val navigateExactPage = exactNavigation.indexOf("await readerGoToExactVisualPage(this.view, locator)")
-		val exactNavigationStart = exactNavigation.indexOf(
+		val navigateExactPage = exactNavigation.indexOf(
+			"return await this.commitPendingExactPageTurnSettlement(token)"
+		)
+		val exactOperationStart = exactNavigation.indexOf(
 			"this.exactPageTurnNavigationInProgress = true"
 		)
-		val exactNavigationEnd = exactNavigation.indexOf(
+		val exactNavigationStart = exactCommit.indexOf(
+			"this.exactPageTurnNavigationInProgress = true"
+		)
+		val exactNavigationEnd = exactCommit.indexOf(
 			"this.exactPageTurnNavigationInProgress = false"
 		)
+		val exactCommitAwait = exactCommit.indexOf("await readerGoToExactVisualPage(")
+		val exactSettlement = exactCommit.indexOf(
+			"this.maybeCompleteNativePageTurnSettlement("
+		)
 		assertTrue(applyStableLayout >= 0, "Exact navigation must establish the final renderer layout.")
-		assertTrue(navigateExactPage >= 0, "Exact navigation must invoke the renderer target.")
+		assertTrue(navigateExactPage >= 0, "Exact navigation must invoke the receipt transaction.")
+		assertTrue(exactOperationStart >= 0, "Layout must join the token-scoped operation.")
 		assertTrue(exactNavigationStart >= 0, "Exact navigation must publish its active state.")
 		assertTrue(exactNavigationEnd >= 0, "Exact navigation must clear its active state.")
 		assertTrue(
-			applyStableLayout < navigateExactPage,
-			"Applying viewport layout after exact scrolling resets Foliate to its previous anchor."
+			exactOperationStart < applyStableLayout,
+			"Synchronous layout invalidation must observe the transaction as in progress."
 		)
 		assertTrue(
-			exactNavigationStart < applyStableLayout,
-			"Synchronous layout relocation must remain isolated inside exact navigation."
+			applyStableLayout < navigateExactPage,
+			"Applying viewport layout after exact commitment would invalidate its receipt."
 		)
 		assertContains(viewport, "function applyReaderViewportLayout(label = 'unknown', options = {})")
 		assertContains(viewport, "if (options.renderSynchronously) renderer.render?.()")
 		assertContains(viewport, "else requestAnimationFrame(() => renderer?.render?.())")
 		assertContains(
-			exactNavigation,
+			exactCommit,
 			"this.scheduleSettledControlledPageTurnRelocation('exact')"
 		)
-		assertTrue(
-			exactNavigationStart < navigateExactPage
-		)
-		assertTrue(
-			navigateExactPage < exactNavigationEnd
-		)
-		assertFalse(exactNavigation.contains("anchor: locator.anchor"))
-		assertFalse(exactNavigation.contains("this.view?.next?.("))
-		assertFalse(exactNavigation.contains("this.view?.prev?.("))
+		assertTrue(exactCommitAwait >= 0)
+		assertTrue(exactSettlement >= 0)
+		assertTrue(exactCommitAwait < exactSettlement)
+		assertFalse(exactNavigation.substring(navigateExactPage).contains("applyReaderViewportLayout("))
+		assertFalse(exactCommit.contains("this.view?.next?.("))
+		assertFalse(exactCommit.contains("this.view?.prev?.("))
 	}
 
 	@Test
@@ -100,7 +113,9 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(applyLayout, "'viewport-layout:resize'")
 		val refresh = applyLayout.indexOf("this.updateSurfacePaperTexture(")
 		val preload = applyLayout.indexOf("this.preloadPageDragPreviewTargets?.(")
-		assertTrue(refresh >= 0 && refresh < preload)
+		assertTrue(refresh >= 0)
+		assertTrue(preload >= 0)
+		assertTrue(refresh < preload)
 	}
 
 	@Test
@@ -123,6 +138,9 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(createView, "const view = new View({")
 		assertContains(createView, "this.#view = view")
 		assertTrue(createCandidate >= 0, "The section load must create and install a candidate paginator view.")
+		assertTrue(commitView >= 0)
+		assertTrue(applyStyles >= 0)
+		assertTrue(resolveAnchor >= 0)
 		assertTrue(commitView > createCandidate, "Only the successfully loaded candidate may become committed.")
 		assertTrue(applyStyles > commitView, "Saved reader styles must target the committed section.")
 		assertTrue(resolveAnchor > applyStyles, "Exact page geometry must be measured only after reader styles apply.")
@@ -181,19 +199,33 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(exact, "layoutGeneration: fontLayoutGeneration")
 		assertContains(exact, "this.#renderCurrentView()")
 		assertContains(exact, "await this.#scrollToAnchor(actualTargetAnchor, reason)")
+		val expand = exact.indexOf("view.expand()")
+		val layoutSignature = exact.indexOf("this.#recordContainerLayoutSignature()")
+		val fontGeneration = exact.indexOf("const fontLayoutGeneration = this.#layoutGeneration")
+		val fontReady = exact.indexOf("await view.document?.fonts?.ready")
+		val receiptGeneration = exact.indexOf("layoutGeneration: fontLayoutGeneration")
+		assertTrue(expand >= 0)
+		assertTrue(layoutSignature >= 0)
+		assertTrue(fontGeneration >= 0)
+		assertTrue(fontReady >= 0)
+		assertTrue(receiptGeneration >= 0)
 		assertTrue(
-			exact.indexOf("view.expand()") < exact.indexOf("this.#recordContainerLayoutSignature()") &&
-				exact.indexOf("this.#recordContainerLayoutSignature()") <
-				exact.indexOf("const fontLayoutGeneration = this.#layoutGeneration") &&
-				exact.indexOf("const fontLayoutGeneration = this.#layoutGeneration") <
-				exact.indexOf("await view.document?.fonts?.ready") &&
-				exact.indexOf("await view.document?.fonts?.ready") <
-				exact.indexOf("layoutGeneration: fontLayoutGeneration"),
+			expand < layoutSignature &&
+				layoutSignature < fontGeneration &&
+				fontGeneration < fontReady &&
+				fontReady < receiptGeneration,
 			"Font readiness must be fenced by the generation captured after initial observer measurements settle."
 		)
+		val selectActualPage = exact.indexOf(
+			"const actualTargetPageIndex = measuredPageCount > 0"
+		)
+		val exactPlacement = exact.indexOf(
+			"await this.#scrollToAnchor(actualTargetAnchor, reason)"
+		)
+		assertTrue(selectActualPage >= 0)
+		assertTrue(exactPlacement >= 0)
 		assertTrue(
-			exact.indexOf("const actualTargetPageIndex = measuredPageCount > 0") <
-				exact.indexOf("await this.#scrollToAnchor(actualTargetAnchor, reason)"),
+			selectActualPage < exactPlacement,
 			"Out-of-range requests must choose a valid actual page before the only exact-placement relocation."
 		)
 		assertContains(scrollToAnchor, "const exactTextPageIndex = Number(anchor?.textPageIndex)")
@@ -207,19 +239,31 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(afterScroll, "!String(reason || '').startsWith('page-turn')")
 		assertContains(attributeChanged, "this.commitTextPageAnchor()")
 		assertContains(setStyles, "this.commitTextPageAnchor()")
+		val attributeCommit = attributeChanged.indexOf("this.commitTextPageAnchor()")
+		val attributeInvalidation = attributeChanged.indexOf(
+			"this.#advanceTextLayoutGeneration('attribute-change')"
+		)
+		assertTrue(attributeCommit >= 0)
+		assertTrue(attributeInvalidation >= 0)
 		assertTrue(
-			attributeChanged.indexOf("this.commitTextPageAnchor()") <
-				attributeChanged.indexOf("this.#advanceTextLayoutGeneration('attribute-change')"),
+			attributeCommit < attributeInvalidation,
 			"Explicit paginator layout changes must retire an exact page identity before reflow invalidation."
 		)
+		val styleCommit = setStyles.indexOf("this.commitTextPageAnchor()")
+		val styleMutation = setStyles.indexOf("\$style.textContent")
+		assertTrue(styleCommit >= 0)
+		assertTrue(styleMutation >= 0)
 		assertTrue(
-			setStyles.indexOf("this.commitTextPageAnchor()") <
-				setStyles.indexOf("\$style.textContent"),
+			styleCommit < styleMutation,
 			"Typography changes must retire an exact page identity before mutating document styles."
 		)
+		val finalOwnershipFence = exact.lastIndexOf(
+			"ownership({ view, viewGeneration, layoutGeneration })"
+		)
+		assertTrue(finalOwnershipFence >= 0)
+		assertTrue(exactPlacement >= 0)
 		assertTrue(
-			exact.lastIndexOf("ownership({ view, viewGeneration, layoutGeneration })") >
-				exact.indexOf("await this.#scrollToAnchor(actualTargetAnchor, reason)"),
+			finalOwnershipFence > exactPlacement,
 			"Exact navigation invalidated or superseded during final placement must not issue a receipt."
 		)
 		assertContains(exact, "status: committed ? 'committed' : 'mismatch'")
@@ -236,9 +280,14 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(turn, "const generation = ++this.#navigationGeneration")
 		assertContains(turn, "}, generation)")
 		assertContains(turn, "if (this.#destroyed || generation !== this.#navigationGeneration) return false")
+		val turnDelay = turn.indexOf("await wait(100)")
+		val turnOwnershipFence = turn.indexOf(
+			"if (this.#destroyed || generation !== this.#navigationGeneration) return false"
+		)
+		assertTrue(turnDelay >= 0)
+		assertTrue(turnOwnershipFence >= 0)
 		assertTrue(
-			turn.indexOf("if (this.#destroyed || generation !== this.#navigationGeneration) return false") >
-				turn.indexOf("await wait(100)"),
+			turnOwnershipFence > turnDelay,
 			"A turn destroyed or superseded during settlement delay must not report success."
 		)
 		assertContains(turn, "try {")
@@ -248,8 +297,12 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(goTo, "targetSection?.unload?.()")
 		assertContains(goTo, ".then(() => targetSection.load())")
 		assertContains(goTo, "throw e")
+		val loadFailure = goTo.indexOf(".catch(e =>")
+		val releaseTarget = goTo.lastIndexOf("onCancel()")
+		assertTrue(loadFailure >= 0)
+		assertTrue(releaseTarget >= 0)
 		assertTrue(
-			goTo.lastIndexOf("onCancel()") > goTo.indexOf(".catch(e =>"),
+			releaseTarget > loadFailure,
 			"A rejected section load must release its target-section ownership."
 		)
 		assertFalse(goTo.contains("return {}"))
@@ -270,9 +323,12 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(resolve, "ReaderPageTurnMaximumCommitTransactionAttempts")
 		assertFalse(resolve.contains("readerGoToExactVisualPage("))
 		assertFalse(resolve.contains("readerWaitForStableTextPagePosition"))
+		val passiveLayout = resolve.indexOf("this.applyReaderViewportLayoutToProfilerView(")
+		val passiveCommit = resolve.indexOf("await readerCommitTextPage(")
+		assertTrue(passiveLayout >= 0)
+		assertTrue(passiveCommit >= 0)
 		assertTrue(
-			resolve.indexOf("this.applyReaderViewportLayoutToProfilerView(") <
-				resolve.indexOf("await readerCommitTextPage("),
+			passiveLayout < passiveCommit,
 			"Passive viewport layout must precede the paginator transaction."
 		)
 		assertFalse(
@@ -302,12 +358,15 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun passiveRenderingUsesReceiptsWhileLiveExactTurnsRetainTheirStageThreePath() {
+	fun passiveAndLiveRenderingSharePaginatorCommitReceipts() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 		val resolve = preview
 			.substringAfter("async function resolvePageTurnPreviewLocator(")
 			.substringBefore("async function ensurePageTurnPreviewRenderer(")
+		val liveCommit = turns
+			.substringAfter("async function commitPendingExactPageTurnSettlement(")
+			.substringBefore("\n}\n\nasync function goToVisualPage(")
 		val prepare = preview
 			.substringAfter("async function preparePageTurnPreview(")
 			.substringBefore("function pageTurnPreviewBatchState(")
@@ -315,14 +374,24 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("async function preparePageTurnPreviewBatchItem(")
 			.substringBefore("function advancePageTurnPreviewBatch(")
 
-		assertContains(turns, "readerGoToExactVisualPage(this.view, locator)")
+		assertContains(turns, "from './navic-reader-paginator-commit.js'")
+		assertContains(liveCommit, "readerGoToExactVisualPage(")
+		assertContains(liveCommit, "readerTextPageCommitIsValid(")
+		assertContains(liveCommit, "readerTextPageCommitMatches(result, expectedPosition)")
+		assertContains(liveCommit, "readerRememberTextPageCommit(")
+		assertContains(liveCommit, "ReaderLivePageTurnMaximumCommitTransactionAttempts")
+		assertContains(liveCommit, "ReaderLivePageTurnMaximumPaginationProfileRepairs")
 		assertContains(resolve, "readerCommitTextPage(")
 		assertContains(resolve, "receipt: result.receipt")
 		assertContains(resolve, "repairPaginationProfileFromExactPosition")
 		assertFalse(resolve.contains("readerGoToExactVisualPage("))
 		val applyLayout = "this.applyReaderViewportLayoutToProfilerView("
+		val passiveLayoutIndex = resolve.indexOf(applyLayout)
+		val passiveCommitIndex = resolve.indexOf("const result = await readerCommitTextPage(")
+		assertTrue(passiveLayoutIndex >= 0)
+		assertTrue(passiveCommitIndex >= 0)
 		assertTrue(
-			resolve.indexOf(applyLayout) < resolve.indexOf("const result = await readerCommitTextPage("),
+			passiveLayoutIndex < passiveCommitIndex,
 			"The passive layout must be applied before exact commitment."
 		)
 		assertFalse(
@@ -349,6 +418,7 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringBefore("\n  }")
 
 		assertTrue(exactFence >= 0)
+		assertTrue(staleFilter >= 0)
 		assertTrue(staleFilter > exactFence)
 		assertContains(exactBlock, "this.relocateSequence += 1")
 		assertContains(exactBlock, "this.lastRelocateDetail = detail")
@@ -356,13 +426,13 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun settlementRequiresTokenAndExactVisualPage() {
+	fun settlementRequiresTokenExactVisualPageAndValidPaginatorReceipt() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val location = readerAssetRoot().resolve("navic-reader-location.js").readText()
-		val exactNavigation = turns
-			.substringAfter("async function goToVisualPage(")
-			.substringBefore("\n}\n")
+		val exactCommit = turns
+			.substringAfter("async function commitPendingExactPageTurnSettlement(")
+			.substringBefore("\n}\n\nasync function goToVisualPage(")
 		val completeSettlement = turns
 			.substringAfter("function maybeCompleteNativePageTurnSettlement(")
 			.substringBefore("\n}\n")
@@ -384,25 +454,40 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(turns, "spineIndex: locator.spineIndex")
 		assertContains(turns, "chapterPageIndex: locator.chapterPageIndex")
 		assertContains(turns, "paginationProfile: this.paginationProfile")
-		assertContains(turns, "pending.paginationProfile !== this.paginationProfile")
-		assertContains(turns, "Math.floor(spineIndex) !== pending.spineIndex")
-		assertContains(turns, "Math.floor(chapterPageIndex) !== pending.chapterPageIndex")
+		assertContains(completeSettlement, "readerTextPageCommitOwnerIsValid(pending)")
+		assertContains(completeSettlement, "pending.paginationProfile !== this.paginationProfile")
+		assertContains(completeSettlement, "Math.floor(spineIndex) !== pending.spineIndex")
+		assertContains(completeSettlement, "Math.floor(chapterPageIndex) !== pending.chapterPageIndex")
+		assertContains(completeSettlement, "readerCopyTextPageCommit(pending, settlement)")
+		assertContains(completeSettlement, "readerCopyTextPageCommit(settlement, presentationTarget)")
 		assertContains(turns, "readerTrace('page-turn:exact-settle-pending'")
 		assertContains(turns, "requestedSpineIndex: pending.spineIndex")
 		assertContains(turns, "actualSpineIndex: Number.isFinite(spineIndex) ? Math.floor(spineIndex) : null")
 		assertFalse(
 			completeSettlement.contains("commitTextPageAnchor"),
-			"Settlement must retain the exact page identity through asynchronous paginator reflows."
+			"Settlement must retain exact receipt authority through asynchronous relocation."
 		)
+		val commitAwait = exactCommit.indexOf("await readerGoToExactVisualPage(")
+		val settleAfterCommit = exactCommit.indexOf(
+			"this.maybeCompleteNativePageTurnSettlement("
+		)
+		assertTrue(commitAwait >= 0)
+		assertTrue(settleAfterCommit >= 0)
 		assertTrue(
-			exactNavigation.indexOf("await readerGoToExactVisualPage(this.view, locator)") <
-				exactNavigation.indexOf("this.maybeCompleteNativePageTurnSettlement("),
-			"The synchronous exact position may settle only after renderer navigation resolves."
+			commitAwait < settleAfterCommit,
+			"The synchronous exact position may settle only after renderer commitment resolves."
 		)
 		assertContains(postLocationChanged, "this.maybeCompleteNativePageTurnSettlement(pagePosition)")
+		val pageModelUpdate = postLocationChanged.indexOf(
+			"this.tryUpdateReaderPageNumberLayer("
+		)
+		val delayedSettlement = postLocationChanged.indexOf(
+			"this.maybeCompleteNativePageTurnSettlement(pagePosition)"
+		)
+		assertTrue(pageModelUpdate >= 0)
+		assertTrue(delayedSettlement >= 0)
 		assertTrue(
-			postLocationChanged.indexOf("this.tryUpdateReaderPageNumberLayer(") <
-				postLocationChanged.indexOf("this.maybeCompleteNativePageTurnSettlement(pagePosition)"),
+			pageModelUpdate < delayedSettlement,
 			"Settlement must use the delayed committed relocation's exact physical page identity."
 		)
 	}
@@ -411,45 +496,54 @@ class ReaderPageTurnDestinationSourceTest {
 	fun synchronousExactSettlementForcesItsTokenizedLocationDelivery() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val locations = readerAssetRoot().resolve("navic-reader-location.js").readText()
-		val exactNavigation = turns
-			.substringAfter("async function goToVisualPage(")
-			.substringBefore("\n}\n")
+		val exactCommit = turns
+			.substringAfter("async function commitPendingExactPageTurnSettlement(")
+			.substringBefore("\n}\n\nasync function goToVisualPage(")
 		val locationDelivery = locations
 			.substringAfter("function postLocationChanged(")
 			.substringBefore("\n}\n")
-		val navigation = exactNavigation.indexOf(
-			"await readerGoToExactVisualPage(this.view, locator)"
-		)
-		val settlement = exactNavigation.indexOf(
+		val navigation = exactCommit.indexOf("await readerGoToExactVisualPage(")
+		val validation = exactCommit.indexOf("readerTextPageCommitIsValid(")
+		val settlement = exactCommit.indexOf(
 			"const settledSynchronously = this.maybeCompleteNativePageTurnSettlement("
 		)
-		val delivery = exactNavigation.indexOf(
+		val delivery = exactCommit.indexOf(
 			"const synchronousDelivery = this.postCurrentLocationSnapshot("
 		)
-		val successfulDelivery = exactNavigation.indexOf(
+		val successfulDelivery = exactCommit.indexOf(
 			"if (synchronousDelivery?.posted) {"
 		)
-		val delayedDelivery = exactNavigation.indexOf(
+		val delayedDelivery = exactCommit.indexOf(
 			"if (!this.scheduleSettledControlledPageTurnRelocation('exact')) {"
 		)
 
-		assertTrue(navigation >= 0 && navigation < settlement)
+		assertTrue(navigation >= 0)
+		assertTrue(validation >= 0)
+		assertTrue(settlement >= 0)
+		assertTrue(delivery >= 0)
+		assertTrue(successfulDelivery >= 0)
+		assertTrue(delayedDelivery >= 0)
+		assertTrue(navigation < validation)
+		assertTrue(validation < settlement)
 		assertTrue(settlement < delivery)
 		assertTrue(delivery < successfulDelivery)
 		assertTrue(successfulDelivery < delayedDelivery)
-		assertContains(exactNavigation, "if (settledSynchronously) {")
-		assertContains(exactNavigation, "forceDuplicatePost: true")
-		assertContains(exactNavigation, "preserveCurrentPagePosition: true")
+		assertContains(exactCommit, "if (settledSynchronously) {")
+		assertContains(exactCommit, "forceDuplicatePost: true")
+		assertContains(exactCommit, "preserveCurrentPagePosition: true")
 		assertContains(
 			locationDelivery,
 			"options.preserveCurrentPagePosition === true"
 		)
-		assertTrue(
-			locationDelivery.indexOf("? this.currentPagePosition") <
-				locationDelivery.indexOf(": this.tryUpdateReaderPageNumberLayer(")
+		val preservedPosition = locationDelivery.indexOf("? this.currentPagePosition")
+		val recomputedPosition = locationDelivery.indexOf(
+			": this.tryUpdateReaderPageNumberLayer("
 		)
+		assertTrue(preservedPosition >= 0)
+		assertTrue(recomputedPosition >= 0)
+		assertTrue(preservedPosition < recomputedPosition)
 		assertContains(
-			exactNavigation.substring(successfulDelivery, delayedDelivery),
+			exactCommit.substring(successfulDelivery, delayedDelivery),
 			"return locator"
 		)
 	}
@@ -499,23 +593,26 @@ class ReaderPageTurnDestinationSourceTest {
 		val cancel = start.indexOf("this.cancelPendingExactPageTurnSettlement('ordinary-page-turn')")
 		val target = start.indexOf("const currentPageIndex = Number(this.currentPagePosition?.pageIndex)")
 		assertTrue(cancel >= 0, "A stale exact destination must not survive into a normal page turn.")
+		assertTrue(target >= 0)
 		assertTrue(cancel < target, "The stale exact destination must be cancelled before the next target is derived.")
 	}
 
 	@Test
-	fun cancellationClearsPendingAndUndeliveredSettledAcknowledgements() {
+	fun cancellationRetiresPendingAndUndeliveredWorkWithoutSuccessfulCompletion() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val cancellation = turns
 			.substringAfter("function cancelPendingExactPageTurnSettlement(reason = 'superseded')")
 			.substringBefore("\n}\n")
 
+		assertContains(runtime, "retiredExactPageTurnSettlements = new Map()")
 		assertContains(cancellation, "const pending = this.activeExactPageTurnSettlement()")
 		assertContains(cancellation, "const settled = this.nativePageTurnSettledState")
 		assertContains(cancellation, "if (!pending && !settled) return false")
 		assertContains(cancellation, "this.pendingExactPageTurnSettlements.delete(pending.token)")
 		assertContains(cancellation, "this.nativePageTurnSettledState = null")
-		assertContains(cancellation, "rememberCompletedExactPageTurnSettlement(this, pending)")
-		assertContains(cancellation, "rememberCompletedExactPageTurnSettlement(this, settled)")
+		assertContains(cancellation, "rememberRetiredExactPageTurnSettlement(this, retired)")
+		assertFalse(cancellation.contains("rememberCompletedExactPageTurnSettlement"))
 		assertFalse(cancellation.contains("cancelled: true"))
 	}
 
@@ -526,21 +623,40 @@ class ReaderPageTurnDestinationSourceTest {
 		val exactNavigation = turns
 			.substringAfter("async function goToVisualPage(")
 			.substringBefore("\n}\n")
+		val exactCommit = turns
+			.substringAfter("async function commitPendingExactPageTurnSettlement(")
+			.substringBefore("\n}\n\nasync function goToVisualPage(")
 
 		assertContains(runtime, "exactPageTurnNavigationToken = null")
-		assertContains(exactNavigation, "this.exactPageTurnNavigationToken = token")
-		assertContains(exactNavigation, "this.exactPageTurnNavigationToken === token")
-		assertContains(exactNavigation, "this.activeExactPageTurnSettlementToken !== token")
-		assertContains(exactNavigation, "this.pendingExactPageTurnSettlements.get(token) !== pending")
-		val navigation = exactNavigation.indexOf("await readerGoToExactVisualPage(this.view, locator)")
-		val ownershipFence = exactNavigation.indexOf(
+		assertContains(exactCommit, "this.exactPageTurnNavigationToken = token")
+		assertContains(exactCommit, "this.exactPageTurnNavigationToken === token")
+		assertContains(exactCommit, "this.activeExactPageTurnSettlementToken !== token")
+		assertContains(exactCommit, "this.pendingExactPageTurnSettlements.get(token) !== pending")
+		val navigation = exactCommit.indexOf("await readerGoToExactVisualPage(")
+		val ownershipFence = exactCommit.indexOf(
 			"this.activeExactPageTurnSettlementToken !== token",
 			startIndex = navigation
 		)
-		val history = exactNavigation.indexOf("this.view.history?.pushState?.(")
+		val profileFence = exactCommit.indexOf(
+			"pending.paginationProfile !== this.paginationProfile",
+			startIndex = navigation
+		)
+		val receiptValidation = exactCommit.indexOf(
+			"readerTextPageCommitIsValid(",
+			startIndex = navigation
+		)
+		val history = exactCommit.indexOf("this.view.history?.pushState?.(")
 		assertTrue(navigation >= 0)
+		assertTrue(ownershipFence >= 0)
+		assertTrue(profileFence >= 0)
+		assertTrue(receiptValidation >= 0)
+		assertTrue(history >= 0)
 		assertTrue(ownershipFence > navigation)
-		assertTrue(history > ownershipFence)
+		assertTrue(profileFence > ownershipFence)
+		assertTrue(receiptValidation > profileFence)
+		assertTrue(history > receiptValidation)
+		assertContains(exactNavigation, "this.cancelPendingExactPageTurnSettlement('superseded')")
+		assertContains(exactNavigation, "const currentPending = this.pendingExactPageTurnSettlements.get(token)")
 	}
 
 	@Test
@@ -568,10 +684,12 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringBefore("\n}\n")
 
 		assertContains(runtime, "completedExactPageTurnSettlements = new Map()")
+		assertContains(runtime, "retiredExactPageTurnSettlements = new Map()")
 		assertContains(exactNavigation, "this.pendingExactPageTurnSettlements.get(token)")
 		assertContains(exactNavigation, "this.nativePageTurnSettledState?.token === token")
 		assertContains(exactNavigation, "this.completedExactPageTurnSettlements.get(token)")
-		assertContains(exactNavigation, "exactPageTurnSettlementMatches(")
+		assertContains(exactNavigation, "this.retiredExactPageTurnSettlements.get(token)")
+		assertContains(exactNavigation, "exactPageTurnSettlementIdentityMatches(")
 		assertContains(exactNavigation, "throw new TypeError('Visual page settlement token cannot be reused')")
 		assertContains(completion, "runtime.completedExactPageTurnSettlements.set(token, settlement)")
 		assertFalse(completion.contains("runtime.completedExactPageTurnSettlements.delete"))
@@ -579,23 +697,35 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun undeliveredSettlementRetainsAndRevalidatesFullVisualIdentity() {
+	fun undeliveredSettlementRetainsPendingStateAndRevalidatesFullVisualIdentity() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val settled = turns
-			.substringAfter("this.nativePageTurnSettledState = Object.freeze({")
+			.substringAfter("const settlement = Object.freeze({")
 			.substringBefore("\n  })")
+		val completion = turns
+			.substringAfter("function maybeCompleteNativePageTurnSettlement(")
+			.substringBefore("\n}\n")
 		val peek = turns
 			.substringAfter("function peekNativePageTurnSettlement(")
+			.substringBefore("\n}\n")
+		val consume = turns
+			.substringAfter("function consumeNativePageTurnSettlement(")
 			.substringBefore("\n}\n")
 
 		assertContains(settled, "spineIndex: pending.spineIndex")
 		assertContains(settled, "chapterPageIndex: pending.chapterPageIndex")
 		assertContains(settled, "paginationProfile: pending.paginationProfile")
+		assertFalse(completion.contains("pendingExactPageTurnSettlements.delete"))
+		assertFalse(completion.contains("activeExactPageTurnSettlementToken = null"))
+		assertContains(peek, "readerTextPageCommitOwnerIsValid(settlement)")
 		assertContains(peek, "settlement.foliateSessionId !== this.foliateSessionId")
 		assertContains(peek, "settlement.paginationProfile !== this.paginationProfile")
 		assertContains(peek, "Math.floor(spineIndex) !== settlement.spineIndex")
 		assertContains(peek, "Math.floor(chapterPageIndex) !== settlement.chapterPageIndex")
-		assertContains(peek, "this.consumeNativePageTurnSettlement(settlement.token)")
+		assertContains(peek, "this.handleLiveTextPageCommitInvalidation()")
+		assertFalse(peek.contains("this.consumeNativePageTurnSettlement(settlement.token)"))
+		assertContains(consume, "this.pendingExactPageTurnSettlements.delete(normalizedToken)")
+		assertContains(consume, "rememberCompletedExactPageTurnSettlement(this, settlement)")
 	}
 
 	@Test
@@ -781,7 +911,11 @@ class ReaderPageTurnDestinationSourceTest {
 		val currentChapter = plan.indexOf("chapterPages(currentChapter)")
 		val forward = plan.indexOf("physicalPagesInRange(currentChapterEnd, pageCount)")
 		val backward = plan.indexOf("physicalPagesInRange(0, currentChapterStart, true)")
-		assertTrue(blockingEnd >= 0 && currentChapter > blockingEnd)
+		assertTrue(blockingEnd >= 0)
+		assertTrue(currentChapter >= 0)
+		assertTrue(forward >= 0)
+		assertTrue(backward >= 0)
+		assertTrue(currentChapter > blockingEnd)
 		assertTrue(forward > currentChapter)
 		assertTrue(backward > forward)
 		assertContains(plan, "layoutMode === 'spread' ? 2 : 1")
@@ -1023,9 +1157,12 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(capture, "leafGeometry = snapshotGeometry.leafGeometry")
 		assertContains(capture, "reverseFaceColor = snapshotGeometry.reverseFaceColor")
 		assertFalse(capture.contains("leafGeometry = reference.leafGeometry"))
+		val preparedCapture = capture.indexOf("capturePreparedSurface(")
+		val restoreLive = capture.lastIndexOf("restoreLiveComposition(webView, token)")
+		assertTrue(preparedCapture >= 0)
+		assertTrue(restoreLive >= 0)
 		assertTrue(
-			capture.indexOf("capturePreparedSurface(") <
-				capture.lastIndexOf("restoreLiveComposition(webView, token)"),
+			preparedCapture < restoreLive,
 			"The exposed destination must be captured before live composition is restored."
 		)
 		assertContains(preparedSurface, "bitmapSource.capturePresentedSurface(")
@@ -1046,10 +1183,13 @@ class ReaderPageTurnDestinationSourceTest {
 			capture,
 			"readerPageRasterPhysicalLayoutMatches(captured, reference)"
 		)
-		assertTrue(
-			capture.indexOf("readerPageRasterPhysicalLayoutMatches(captured, reference)") <
-				capture.indexOf("putSnapshot(")
+		val physicalLayoutFence = capture.indexOf(
+			"readerPageRasterPhysicalLayoutMatches(captured, reference)"
 		)
+		val snapshotPublication = capture.indexOf("putSnapshot(")
+		assertTrue(physicalLayoutFence >= 0)
+		assertTrue(snapshotPublication >= 0)
+		assertTrue(physicalLayoutFence < snapshotPublication)
 	}
 
 	@Test
@@ -1087,8 +1227,16 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(capture, "webView.draw(canvas)")
 		assertContains(capture, "bitmap.setHasAlpha(false)")
 		assertContains(capture, "bitmap.setPremultiplied(true)")
-		assertTrue(capture.indexOf("webView.draw(canvas)") < capture.indexOf("bitmap.setHasAlpha(false)"))
-		assertTrue(capture.indexOf("bitmap.setPremultiplied(true)") < capture.indexOf("onCaptured(bitmap)"))
+		val draw = capture.indexOf("webView.draw(canvas)")
+		val opaque = capture.indexOf("bitmap.setHasAlpha(false)")
+		val premultiplied = capture.indexOf("bitmap.setPremultiplied(true)")
+		val publish = capture.indexOf("onCaptured(bitmap)")
+		assertTrue(draw >= 0)
+		assertTrue(opaque >= 0)
+		assertTrue(premultiplied >= 0)
+		assertTrue(publish >= 0)
+		assertTrue(draw < opaque)
+		assertTrue(premultiplied < publish)
 	}
 
 	@Test
@@ -1127,8 +1275,12 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(capture, "onPersisted = { persisted ->")
 		assertContains(capture, "onCaptured(persisted)")
 		assertContains(insertion, "onPersisted: (Boolean) -> Unit = {}")
+		val persist = insertion.indexOf("schedulePersistentSnapshot(")
+		val trim = insertion.indexOf("trimSnapshotCacheToCapacity()")
+		assertTrue(persist >= 0)
+		assertTrue(trim >= 0)
 		assertTrue(
-			insertion.indexOf("schedulePersistentSnapshot(") < insertion.indexOf("trimSnapshotCacheToCapacity()"),
+			persist < trim,
 			"Persistence must retain the inserted snapshot before an LRU trim can release cache ownership"
 		)
 	}
@@ -1202,7 +1354,14 @@ class ReaderPageTurnDestinationSourceTest {
 		val restore = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 			.substringAfter("function restorePageTurnLiveComposition(")
 			.substringBefore("function destroyPageTurnPreviewRenderer(")
+		val invalidation = turns
+			.substringAfter("function handleLiveTextPageCommitInvalidation()")
+			.substringBefore("function nextPage()")
 
+		assertContains(turns, "from './navic-reader-paginator-commit.js'")
+		assertContains(complete, "readerTextPageCommitOwnerIsValid(pending)")
+		assertContains(complete, "readerCopyTextPageCommit(pending, settlement)")
+		assertContains(complete, "readerCopyTextPageCommit(settlement, presentationTarget)")
 		assertContains(complete, "scope: ReaderPageTurnPresentationScopeLive")
 		assertContains(complete, "token: pending.token")
 		assertContains(complete, "pageIndex: settledPageIndex")
@@ -1210,12 +1369,20 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(complete, "rasterGeneration: pending.rasterGeneration")
 		assertContains(complete, "textureGeneration: pending.textureGeneration")
 		assertContains(complete, "relocationEpoch: this.relocateSequence")
+		val settlementPublication = complete.indexOf(
+			"this.nativePageTurnSettledState = settlement"
+		)
+		val liveReceiptIssuance = complete.indexOf(
+			"this.issuePageTurnLivePresentationReceipt("
+		)
+		assertTrue(settlementPublication >= 0)
+		assertTrue(liveReceiptIssuance >= 0)
 		assertTrue(
-			complete.indexOf("this.nativePageTurnSettledState = Object.freeze({") <
-				complete.indexOf("this.issuePageTurnLivePresentationReceipt("),
+			settlementPublication < liveReceiptIssuance,
 			"The live receipt must follow exact settlement."
 		)
 		assertContains(turns, "function pageTurnLivePresentationReceipt()")
+		assertContains(getter, "readerTextPageCommitOwnerIsValid(target)")
 		assertContains(getter, "this.pageTurnLivePresentationTargetValue")
 		assertContains(getter, "this.completedExactPageTurnSettlements.get(target.token)")
 		assertContains(getter, "target.relocationEpoch !== this.relocateSequence")
@@ -1225,7 +1392,28 @@ class ReaderPageTurnDestinationSourceTest {
 			"Receipt lookup must survive settlement acknowledgement consumption."
 		)
 		assertContains(cancellation, "this.clearPageTurnLivePresentationTarget()")
+		assertContains(runtime, "this.attachLiveTextPageCommitInvalidationListener()")
+		assertContains(runtime, "this.detachLiveTextPageCommitInvalidationListener()")
 		assertContains(runtime, "runtime.clearPageTurnLivePresentationTarget()")
+		assertContains(invalidation, "readerTextPageCommitOwnerIsValid(settled)")
+		assertContains(invalidation, "readerTextPageCommitOwnerIsValid(liveTarget)")
+		assertContains(invalidation, "readerTextPageCommitOwnerWasRemembered(pending)")
+		assertContains(invalidation, "ReaderLivePageTurnMaximumCommitTransactionAttempts")
+		val cancelDelayedRelocation = invalidation.indexOf(
+			"this.cancelPendingCommittedRelocation()"
+		)
+		val beginRetryRelocation = invalidation.indexOf(
+			"this.beginControlledRelocation('page-turn:exact')"
+		)
+		val retryCommit = invalidation.indexOf(
+			"this.commitPendingExactPageTurnSettlement(pending.token)"
+		)
+		assertTrue(cancelDelayedRelocation >= 0)
+		assertTrue(beginRetryRelocation >= 0)
+		assertTrue(retryCommit >= 0)
+		assertTrue(cancelDelayedRelocation < beginRetryRelocation)
+		assertTrue(beginRetryRelocation < retryCommit)
+		assertFalse(invalidation.contains("rememberCompletedExactPageTurnSettlement"))
 		assertContains(restore, "const retainedLivePositionIsCurrent =")
 		assertContains(restore, "this.pageTurnLivePresentationTargetMatchesCurrent(")
 		assertContains(restore, "? this.currentPagePosition")

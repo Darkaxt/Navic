@@ -369,11 +369,10 @@ class NavicReaderRuntime {
   pageTurnDirection = null
   pendingNativePageTurnSettleToken = null
   nativePageTurnSettledToken = null
-  pendingExactPageTurnSettlements = new Map()
-  completedExactPageTurnSettlements = new Map()
-  activeExactPageTurnSettlementToken = null
-  exactPageTurnNavigationToken = null
-  exactPageTurnNavigationInProgress = false
+  pendingExactPageTurnSettlements = new Map(); completedExactPageTurnSettlements = new Map(); retiredExactPageTurnSettlements = new Map()
+  activeExactPageTurnSettlementToken = null; exactPageTurnNavigationToken = null; exactPageTurnNavigationInProgress = false
+  liveTextPageCommitInvalidationTarget = null; liveTextPageCommitInvalidationListener = null
+  liveTextPageCommitRetryToken = null; liveTextPageCommitRetryRequestedToken = null
   nativePageTurnSettledState = null
   pageTurnPresentationSequence = 0
   pageTurnPreviewPresentationReceiptValue = null
@@ -552,6 +551,7 @@ class NavicReaderRuntime {
       if (settings) this.applySettings(settings)
       this.applyReaderViewportLayout('view-created')
       await this.view.open(url)
+      this.attachLiveTextPageCommitInvalidationListener()
       this.postNavigationState('view-opened')
       this.attachSurfacePaperTextureScrollSync()
       this.applyReaderViewportLayout('view-opened')
@@ -702,6 +702,7 @@ class NavicReaderRuntime {
     this.clearShellCover()
     this.detachSurfacePaperTextureScrollSync()
     this.clearDeferredReflowablePageTurn()
+    this.detachLiveTextPageCommitInvalidationListener()
     this.view?.close?.()
     this.view?.remove?.()
     this.view = null
@@ -718,11 +719,9 @@ class NavicReaderRuntime {
     this.pageTurnDirection = null
     this.pendingNativePageTurnSettleToken = null
     this.nativePageTurnSettledToken = null
-    this.pendingExactPageTurnSettlements.clear()
-    this.completedExactPageTurnSettlements.clear()
-    this.activeExactPageTurnSettlementToken = null
-    this.exactPageTurnNavigationToken = null
-    this.exactPageTurnNavigationInProgress = false
+    this.pendingExactPageTurnSettlements.clear(); this.completedExactPageTurnSettlements.clear(); this.retiredExactPageTurnSettlements.clear()
+    this.activeExactPageTurnSettlementToken = null; this.exactPageTurnNavigationToken = null; this.exactPageTurnNavigationInProgress = false
+    this.liveTextPageCommitRetryToken = null; this.liveTextPageCommitRetryRequestedToken = null
     this.nativePageTurnSettledState = null
     this.pageTurnPreviewPresentationReceiptValue = null
     this.pageTurnLivePresentationReceiptValue = null
