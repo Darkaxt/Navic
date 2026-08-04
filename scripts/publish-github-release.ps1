@@ -193,7 +193,7 @@ if (-not $SkipPush) {
     }
 
     Invoke-LoggedCommand "git" @("rev-parse", "$Tag^{commit}") | Out-Null
-    Invoke-LoggedCommand "git" @("push", $Remote, $Branch) | Out-Null
+    Invoke-LoggedCommand "git" @("push", $Remote, "HEAD:$Branch") | Out-Null
     Invoke-LoggedCommand "git" @("push", $Remote, $Tag) | Out-Null
 } else {
     Write-ReleaseLog "Skipping git push because -SkipPush was supplied."
