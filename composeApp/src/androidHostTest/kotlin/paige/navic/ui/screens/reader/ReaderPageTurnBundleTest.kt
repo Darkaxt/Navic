@@ -83,7 +83,7 @@ class ReaderPageTurnBundleTest {
 	}
 
 	@Test
-	fun exactTwoTimesRendererRoundTripCreditsOnlyFilterConsistentFarPixels() {
+	fun exactTwoTimesRendererRoundTripCreditsFilterConsistentFarPixels() {
 		val target = denseEdgePage(lineOffset = 0)
 		val source = denseEdgePage(lineOffset = 12)
 		val candidate = target.rendererRoundTrip2x()
@@ -92,6 +92,40 @@ class ReaderPageTurnBundleTest {
 		assertTrue(raw.target.mean <= 8.0)
 		assertTrue(raw.target.rms <= 18.0)
 		assertTrue(raw.target.closeRatio < 0.96)
+		assertFalse(
+			readerPageLiveRasterMatchesExpected(
+				candidate = candidate,
+				expectedTarget = target,
+				expectedSource = source,
+				exactTwoTimesRoundTrip = false
+			)
+		)
+		assertTrue(
+			readerPageLiveRasterMatchesExpected(
+				candidate = candidate,
+				expectedTarget = target,
+				expectedSource = source,
+				exactTwoTimesRoundTrip = true
+			)
+		)
+		val normalized = assertNotNull(
+			readerPageLiveRasterDistances(candidate, target, source, exactTwoTimesRoundTrip = true) {}
+		)
+		assertTrue(normalized.target.roundTripCloseCreditRatio > 0.0)
+		assertTrue(normalized.target.effectiveCloseRatio >= 0.96)
+	}
+
+	@Test
+	fun exactTwoTimesRendererRoundTripCreditsFilterConsistentModeratePixels() {
+		val target = moderateEdgePage(lineOffset = 0)
+		val source = moderateEdgePage(lineOffset = 5)
+		val candidate = target.rendererRoundTrip2x()
+		val raw = assertNotNull(readerPageLiveRasterDistances(candidate, target, source) {})
+
+		assertTrue(raw.target.mean <= 8.0)
+		assertTrue(raw.target.rms <= 18.0)
+		assertTrue(raw.target.closeRatio < 0.96)
+		assertEquals(0L, raw.target.farPixelCount)
 		assertFalse(
 			readerPageLiveRasterMatchesExpected(
 				candidate = candidate,
@@ -183,7 +217,7 @@ class ReaderPageTurnBundleTest {
 	}
 
 	@Test
-	fun distributedLowContrastOmissionEarnsNoRoundTripCredit() {
+	fun distributedLowContrastOmissionRemainsRejected() {
 		val target = TestRaster.solid(80, 60, PaperColor).apply {
 			fillRect(4, 4, 44, 10, 0xffcab993.toInt())
 		}
@@ -198,12 +232,44 @@ class ReaderPageTurnBundleTest {
 			) {}
 		)
 
-		assertEquals(0.0, diagnostics.target.roundTripCloseCreditRatio)
+		assertTrue(diagnostics.target.roundTripCloseCreditRatio < 0.01)
+		assertTrue(diagnostics.target.effectiveCloseRatio < 0.96)
 		assertFalse(
 			readerPageLiveRasterMatchesExpected(
 				blank,
 				target,
 				source,
+				exactTwoTimesRoundTrip = true
+			)
+		)
+	}
+
+	@Test
+	fun distributedOnePixelLowContrastOmissionRemainsRejected() {
+		val target = TestRaster.solid(80, 60, PaperColor).apply {
+			(2 until 60 step 4).forEach { y ->
+				fillRect(0, y, 80, y + 1, 0xffcab993.toInt())
+			}
+		}
+		val blank = TestRaster.solid(80, 60, PaperColor)
+		val diagnostics = assertNotNull(
+			readerPageLiveRasterDistances(
+				blank,
+				target,
+				null,
+				exactTwoTimesRoundTrip = true
+			) {}
+		)
+
+		assertEquals(8.0, diagnostics.target.mean)
+		assertEquals(16.0, diagnostics.target.rms)
+		assertEquals(0.75, diagnostics.target.closeRatio)
+		assertEquals(0L, diagnostics.target.farPixelCount)
+		assertFalse(
+			readerPageLiveRasterMatchesExpected(
+				blank,
+				target,
+				null,
 				exactTwoTimesRoundTrip = true
 			)
 		)
@@ -860,6 +926,19 @@ class ReaderPageTurnBundleTest {
 						right = 160,
 						bottom = y + lineOffset + 1,
 						color = 0xff202020.toInt()
+					)
+				}
+			}
+
+		fun moderateEdgePage(lineOffset: Int): TestRaster =
+			TestRaster.create(width = 180, height = 160, color = PaperColor).apply {
+				(10..150 step 10).forEach { y ->
+					fillRect(
+						left = 20,
+						top = y + lineOffset,
+						right = 160,
+						bottom = y + lineOffset + 1,
+						color = 0xff726136.toInt()
 					)
 				}
 			}

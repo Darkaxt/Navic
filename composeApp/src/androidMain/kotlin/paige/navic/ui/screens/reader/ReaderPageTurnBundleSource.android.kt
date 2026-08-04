@@ -98,15 +98,18 @@ private class ReaderPageRasterDistanceAccumulator {
 
 	fun add(firstColor: Int, secondColor: Int, roundTripColor: Int? = null) {
 		val distance = readerPageRasterColorDistance(firstColor, secondColor)
+		val roundTripDistance = roundTripColor?.let {
+			readerPageRasterColorDistance(firstColor, it)
+		}
 		pixelCount += 1L
 		distanceSum += distance
 		squaredDistanceSum += distance.toLong() * distance
 		if (distance <= LiveValidationCloseDistance) closePixelCount += 1L
 		if (
-			distance > LiveValidationFarDistance &&
-			roundTripColor != null &&
-			readerPageRasterColorDistance(firstColor, roundTripColor) <=
-				LiveValidationCloseDistance
+			distance > LiveValidationCloseDistance &&
+			roundTripDistance != null &&
+			roundTripDistance <= LiveValidationCloseDistance &&
+			roundTripDistance + LiveValidationCloseDistance < distance
 		) {
 			roundTripCloseCreditCount += 1L
 		}
@@ -242,7 +245,7 @@ internal fun readerPageLiveRasterDistances(
 			val roundTripColor = if (
 				exactTwoTimesRoundTrip &&
 				readerPageRasterColorDistance(candidateColor, targetColor) >
-					LiveValidationFarDistance
+					LiveValidationCloseDistance
 			) {
 				readerPageExactTwoTimesRoundTripColor(
 					targetPixels = targetPixels,
