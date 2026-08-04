@@ -55,7 +55,14 @@ internal data class ReaderPageRasterWriteReceipt(
 )
 
 internal enum class ReaderPageRasterWriteFailureReason {
+	DiskCapacity,
 	EncodeIdentityReleasing
+}
+
+internal enum class ReaderPageRasterPublicationResult {
+	Durable,
+	CapacityReached,
+	Failed
 }
 
 internal data class ReaderPageRasterWriteResult(

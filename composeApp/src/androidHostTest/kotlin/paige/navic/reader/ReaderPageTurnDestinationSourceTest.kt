@@ -1279,9 +1279,11 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringBefore("private fun trimSnapshotCacheToCapacity()")
 
 		assertFalse(capture.contains("putSnapshot(captured, priority, persist = false)"))
-		assertContains(capture, "onPersisted = { persisted ->")
-		assertContains(capture, "onCaptured(persisted)")
-		assertContains(insertion, "onPersisted: (Boolean) -> Unit = {}")
+		assertContains(capture, "onPersisted = onCaptured")
+		assertContains(
+			insertion,
+			"onPersisted: (ReaderPageRasterPublicationResult) -> Unit = {}"
+		)
 		val persist = insertion.indexOf("schedulePersistentSnapshot(")
 		val trim = insertion.indexOf("trimSnapshotCacheToCapacity()")
 		assertTrue(persist >= 0)

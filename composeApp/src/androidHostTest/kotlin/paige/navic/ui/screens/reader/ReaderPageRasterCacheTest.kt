@@ -214,6 +214,79 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun fartherForwardWriteReportsBoundedDiskCapacity() {
+		val fixture = fixture(maxDiskBytes = 5L, maxDecodedEntries = 0)
+		val blocking = listOf(ownedKey(0), ownedKey(1), ownedKey(2))
+		val retainedForward = listOf(ownedKey(3), ownedKey(4))
+		fixture.cache.protectEncodedWindow(
+			profile = blocking.first().profile,
+			centerPageOrdinal = 0,
+			pinnedPageOrdinals = blocking.mapTo(linkedSetOf()) { key ->
+				key.visualPageOrdinal
+			}
+		)
+		(blocking + retainedForward).forEach { rasterKey ->
+			assertTrue(fixture.cache.write(rasterKey, metadata(), byteArrayOf(1)))
+		}
+
+		val rejectedForward = ownedKey(5)
+		val result = fixture.cache.write(rejectedForward, metadata(), byteArrayOf(1))
+
+		assertFalse(result.persisted)
+		assertEquals(
+			ReaderPageRasterWriteFailureReason.DiskCapacity,
+			result.failureReason
+		)
+		assertFalse(fixture.cache.contains(rejectedForward))
+		blocking.forEach { rasterKey -> assertTrue(fixture.cache.contains(rasterKey)) }
+		retainedForward.forEach { rasterKey -> assertTrue(fixture.cache.contains(rasterKey)) }
+		assertEquals(5, fixture.cache.metrics().diskEntries)
+		assertTrue(fixture.cache.metrics().diskBytes <= 5L)
+	}
+
+	@Test
+	fun rejectedNearerForwardWritePreservesPreviouslyDurableRasters() {
+		val fixture = fixture(maxDiskBytes = 5L, maxDecodedEntries = 0)
+		val pinned = ownedKey(0)
+		val retainedForward = listOf(ownedKey(2), ownedKey(3), ownedKey(4))
+		fixture.cache.protectEncodedWindow(
+			profile = pinned.profile,
+			centerPageOrdinal = pinned.visualPageOrdinal,
+			pinnedPageOrdinals = setOf(pinned.visualPageOrdinal)
+		)
+		assertTrue(
+			fixture.cache.write(
+				pinned,
+				metadata(),
+				byteArrayOf(1, 1)
+			)
+		)
+		retainedForward.forEach { rasterKey ->
+			assertTrue(fixture.cache.write(rasterKey, metadata(), byteArrayOf(1)))
+		}
+
+		val rejectedForward = ownedKey(1)
+		val result = fixture.cache.write(
+			rejectedForward,
+			metadata(),
+			byteArrayOf(1, 1, 1, 1)
+		)
+
+		assertFalse(result.persisted)
+		assertEquals(
+			ReaderPageRasterWriteFailureReason.DiskCapacity,
+			result.failureReason
+		)
+		assertFalse(fixture.cache.contains(rejectedForward))
+		assertTrue(fixture.cache.contains(pinned))
+		retainedForward.forEach { rasterKey ->
+			assertTrue(fixture.cache.contains(rasterKey))
+		}
+		assertEquals(4, fixture.cache.metrics().diskEntries)
+		assertEquals(5L, fixture.cache.metrics().diskBytes)
+	}
+
+	@Test
 	fun stagedEncodedWindowProtectionAppliesToTheNextInFlightWrite() {
 		val fixture = fixture(maxDiskBytes = 4L, maxDecodedEntries = 0)
 		val newBackwardEdge = ownedKey(0)

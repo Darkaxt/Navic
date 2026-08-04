@@ -1785,6 +1785,19 @@ internal class ReaderPageRasterPreparationController(
 					)
 				}
 			}
+			is ReaderPageRasterBatchOutcome.CapacityReached -> {
+				preparationDiagnostic?.let { operation ->
+					diagnostics?.preparation(
+						operation,
+						ReaderPagePreparationDiagnosticState.Failed
+					)
+				}
+				publishPreparationState(
+					phase = ReaderPagePreparationPhase.Failed,
+					error = "Page ${outcome.pageIndex + 1} could not be stored.",
+					retryable = true
+				)
+			}
 			is ReaderPageRasterBatchOutcome.Failed -> {
 				preparationDiagnostic?.let { operation ->
 					diagnostics?.preparation(
@@ -1916,6 +1929,7 @@ internal class ReaderPageRasterPreparationController(
 		)
 		if (
 			state == ReaderPagePrefetchDiagnosticState.Completed ||
+			state == ReaderPagePrefetchDiagnosticState.CapacityReached ||
 			state == ReaderPagePrefetchDiagnosticState.Cancelled ||
 			state == ReaderPagePrefetchDiagnosticState.Failed
 		) {
@@ -2011,6 +2025,7 @@ internal class ReaderPageRasterPreparationController(
 			reference = reference,
 			targets = submission.targets,
 			trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
+			capacityPolicy = ReaderPageRasterCapacityPolicy.StopBackgroundRefill,
 			onStagingStarted = { snapshot, onPresented ->
 				showBackgroundPrefetchShield(snapshot, submission, onPresented)
 			},
@@ -2047,16 +2062,20 @@ internal class ReaderPageRasterPreparationController(
 					when (outcome) {
 						ReaderPageRasterBatchOutcome.Ready ->
 							ReaderPagePrefetchDiagnosticState.Completed
+						is ReaderPageRasterBatchOutcome.CapacityReached ->
+							ReaderPagePrefetchDiagnosticState.CapacityReached
 						ReaderPageRasterBatchOutcome.Cancelled ->
 							ReaderPagePrefetchDiagnosticState.Cancelled
 						else -> ReaderPagePrefetchDiagnosticState.Failed
 					}
 				)
 				logLoadingEvent(
-					event = if (outcome == ReaderPageRasterBatchOutcome.Ready) {
-						"background-prefetch-completed"
-					} else {
-						"background-prefetch-failed"
+					event = when (outcome) {
+						ReaderPageRasterBatchOutcome.Ready ->
+							"background-prefetch-completed"
+						is ReaderPageRasterBatchOutcome.CapacityReached ->
+							"background-prefetch-capacity-reached"
+						else -> "background-prefetch-failed"
 					},
 					detail = "session=${submission.sessionId} outcome=$outcome " +
 						"chapter=${submission.chapter.identity.chapterIndex} " +

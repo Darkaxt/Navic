@@ -68,6 +68,49 @@ class ReaderPageRasterBatchOutcomeTest {
 	}
 
 	@Test
+	fun backgroundRefillStopsCleanlyAtEncodedDiskCapacity() {
+		assertEquals(
+			ReaderPageRasterBatchOutcome.CapacityReached(pageIndex = 231),
+			readerPageRasterPersistenceTerminalOutcome(
+				trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
+				capacityPolicy = ReaderPageRasterCapacityPolicy.StopBackgroundRefill,
+				result = ReaderPageRasterPublicationResult.CapacityReached,
+				pageIndex = 231
+			)
+		)
+	}
+
+	@Test
+	fun blockingPreparationStillFailsClosedAtEncodedDiskCapacity() {
+		val outcome = readerPageRasterPersistenceTerminalOutcome(
+			trigger = ReaderPageRasterAcquisitionTrigger.InitialPreparation,
+			capacityPolicy = ReaderPageRasterCapacityPolicy.FailClosed,
+			result = ReaderPageRasterPublicationResult.CapacityReached,
+			pageIndex = 4
+		)
+
+		assertIs<ReaderPageRasterBatchOutcome.Failed>(outcome)
+		assertEquals("persistent-publication", outcome.stage)
+		assertEquals(4, outcome.pageIndex)
+		assertEquals("disk-capacity-reached", outcome.reason)
+	}
+
+	@Test
+	fun foregroundWorkingSetRefillStillFailsClosedAtEncodedDiskCapacity() {
+		val outcome = readerPageRasterPersistenceTerminalOutcome(
+			trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
+			capacityPolicy = ReaderPageRasterCapacityPolicy.FailClosed,
+			result = ReaderPageRasterPublicationResult.CapacityReached,
+			pageIndex = 9
+		)
+
+		assertIs<ReaderPageRasterBatchOutcome.Failed>(outcome)
+		assertEquals("persistent-publication", outcome.stage)
+		assertEquals(9, outcome.pageIndex)
+		assertEquals("disk-capacity-reached", outcome.reason)
+	}
+
+	@Test
 	fun cancelledPreviewStateIsNotAFailure() {
 		assertEquals(
 			ReaderPageRasterBatchOutcome.Cancelled,

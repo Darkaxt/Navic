@@ -263,6 +263,17 @@ internal class ReaderPageRasterCache<T : Any>(
 				put(key.digest, entry)
 			}
 			val retained = retainedWithinDiskLimit(proposed.values)
+			val retainedIds = retained.mapTo(mutableSetOf()) { retainedEntry ->
+				retainedEntry.key.digest
+			}
+			if (key.digest !in retainedIds) {
+				if (!targetExisted) target.delete()
+				return@synchronized ReaderPageRasterWriteResult(
+					persisted = false,
+					ownership = ReaderPageRasterValueOwnership.Caller,
+					failureReason = ReaderPageRasterWriteFailureReason.DiskCapacity
+				)
+			}
 			if (!manifest.write(retained)) {
 				if (!targetExisted) target.delete()
 				return@synchronized writeFailed(
@@ -272,9 +283,6 @@ internal class ReaderPageRasterCache<T : Any>(
 				)
 			}
 
-			val retainedIds = retained.mapTo(mutableSetOf()) { retainedEntry ->
-				retainedEntry.key.digest
-			}
 			val retiredEntries = entries.values.filter { existing ->
 				existing.key.digest !in retainedIds ||
 					(existing.key.digest == key.digest &&
@@ -290,16 +298,6 @@ internal class ReaderPageRasterCache<T : Any>(
 			}
 			entryRevisions.keys.retainAll(retainedIds)
 			assertDiskBoundLocked()
-
-			if (key.digest !in retainedIds) {
-				if (retained.none { it.rasterFileName == target.name }) {
-					target.delete()
-				}
-				return@synchronized ReaderPageRasterWriteResult(
-					persisted = false,
-					ownership = ReaderPageRasterValueOwnership.Caller
-				)
-			}
 
 			val revision = nextInProcessRevision++
 			entryRevisions[key.digest] = revision

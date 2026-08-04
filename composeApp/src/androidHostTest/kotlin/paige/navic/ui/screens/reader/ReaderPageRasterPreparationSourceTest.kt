@@ -104,6 +104,7 @@ class ReaderPageRasterPreparationSourceTest {
 	@Test
 	fun batchProgressAdvancesOnlyFromDurablePublicationCallbacks() {
 		val source = readerRasterBatchSource()
+		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
 		val hydration = source.substringAfter(
 			"private fun hydrateTarget("
 		).substringBefore("private fun submitMissingTargets(")
@@ -112,15 +113,41 @@ class ReaderPageRasterPreparationSourceTest {
 		).substringBefore("private fun advancePageTurnPreviewBatch(")
 
 		assertContains(hydration, "bundleSource.ensurePersistentSnapshot(")
-		assertContains(hydration, "recordDurability(session, target, persisted)")
-		assertContains(capture, "onCaptured = captured@{ persisted ->")
-		assertContains(capture, "recordDurability(session, target, persisted)")
+		assertContains(hydration, "recordDurability(session, target, publicationResult)")
+		assertContains(capture, "onCaptured = captured@{ publicationResult ->")
+		assertContains(capture, "recordDurability(session, target, publicationResult)")
+		assertContains(source, "ReaderPageRasterPublicationResult.CapacityReached")
+		assertContains(source, "ReaderPageRasterCapacityPolicy.StopBackgroundRefill")
 		assertContains(source, "stage = \"persistent-publication\"")
 		assertContains(source, "reason = \"durable-write-failed\"")
 		assertContains(source, "session.durabilityGate.retryPageIndices()")
 		assertContains(source, "target.pageIndex in candidate.retryPageIndices")
 		assertContains(source, "progressCompletedOffset + completed")
+		assertContains(bundle, "publicationCompletionResults[request] = publicationResult")
+		assertContains(bundle, "ReaderPageRasterWriteFailureReason.DiskCapacity")
 		assertFalse(source.contains("private fun markCompleted("))
+	}
+
+	@Test
+	fun backgroundRefillReportsDiskCapacityAsABoundedCompletion() {
+		val source = readerRasterPreparationSource()
+		val background = source.substringAfter(
+			"private fun startBackgroundPrefetch("
+		).substringBefore("private fun isBackgroundPrefetchActive(")
+
+		assertContains(
+			background,
+			"capacityPolicy = ReaderPageRasterCapacityPolicy.StopBackgroundRefill"
+		)
+		assertContains(
+			background,
+			"is ReaderPageRasterBatchOutcome.CapacityReached ->"
+		)
+		assertContains(
+			background,
+			"ReaderPagePrefetchDiagnosticState.CapacityReached"
+		)
+		assertContains(background, "\"background-prefetch-capacity-reached\"")
 	}
 
 	@Test

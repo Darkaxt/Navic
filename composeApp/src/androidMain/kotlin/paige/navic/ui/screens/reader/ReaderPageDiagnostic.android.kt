@@ -15,6 +15,7 @@ internal enum class ReaderPagePhysicalDirection {
 
 internal enum class ReaderPagePublicationDiagnosticResult {
 	Durable,
+	CapacityReached,
 	Failed,
 	Stale,
 	Cancelled
@@ -44,6 +45,7 @@ internal enum class ReaderPageRasterAcquisitionResult {
 	Hit,
 	Miss,
 	Durable,
+	CapacityReached,
 	Failed,
 	Stale,
 	Cancelled
@@ -121,6 +123,7 @@ internal enum class ReaderPagePrefetchDiagnosticState {
 	Queued,
 	Running,
 	Completed,
+	CapacityReached,
 	Cancelled,
 	Failed
 }

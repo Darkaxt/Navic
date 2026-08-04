@@ -120,6 +120,41 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun encodedCapacityStopsBackgroundRefillWithoutFailingReaderReadiness() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+
+			val refill = assertNotNull(fixture.background.active)
+			assertEquals(
+				ReaderPageRasterCapacityPolicy.StopBackgroundRefill,
+				refill.capacityPolicy
+			)
+			fixture.background.publishDurable(refill.targets.first())
+			fixture.background.completeCapacityReached(refill.targets.last().pageIndex)
+			fixture.drainMainLooper()
+
+			assertEquals(1, fixture.background.starts.size)
+			assertEquals(null, fixture.background.active)
+			assertIs<ReaderPageNewPointerDecision.Accept>(
+				fixture.latestState.operationPolicy.newPointer
+			)
+			assertEquals(
+				ReaderPagePreparationPresentation.Hidden,
+				fixture.latestState.presentation
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun foregroundRepairRestoresCoverWhileCancellingThenResumingBackgroundPrefetch() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
@@ -734,6 +769,7 @@ private data class ReaderPageRasterBatchRequest(
 	val reference: ReaderPageSlideSnapshot,
 	val targets: List<ReaderPageRasterBatchTarget>,
 	val trigger: ReaderPageRasterAcquisitionTrigger,
+	val capacityPolicy: ReaderPageRasterCapacityPolicy,
 	val onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit,
 	val onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
 	val onProgress: (Int, Int) -> Unit,
@@ -761,6 +797,7 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
 		trigger: ReaderPageRasterAcquisitionTrigger,
+		capacityPolicy: ReaderPageRasterCapacityPolicy,
 		onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit,
 		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
 		onHydrationMiss: (ReaderPageRasterBatchTarget) -> Unit,
@@ -773,6 +810,7 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 			reference = reference,
 			targets = targets,
 			trigger = trigger,
+			capacityPolicy = capacityPolicy,
 			onStagingStarted = onStagingStarted,
 			onTargetDurable = onTargetDurable,
 			onProgress = onProgress,
@@ -813,6 +851,13 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		val request = checkNotNull(active)
 		check(target in request.targets)
 		request.onTargetDurable(target)
+	}
+
+	fun completeCapacityReached(pageIndex: Int) {
+		val request = checkNotNull(active)
+		active = null
+		request.reference.release()
+		request.onComplete(ReaderPageRasterBatchOutcome.CapacityReached(pageIndex))
 	}
 
 	fun completeReady(durably: Boolean) {
