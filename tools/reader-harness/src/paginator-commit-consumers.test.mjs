@@ -1423,6 +1423,7 @@ test('a new relocation epoch refreshes live presentation authority once', async 
   const initialPresentationReceipt = fixture.runtime.pageTurnLivePresentationReceiptValue
   const initialPresentationSequence = fixture.runtime.pageTurnPresentationSequence
   fixture.runtime.relocateSequence += 1
+  window.__navicReaderTrace = []
 
   assert.equal(
     fixture.runtime.maybeCompleteNativePageTurnSettlement(fixture.runtime.currentPagePosition),
@@ -1440,6 +1441,10 @@ test('a new relocation epoch refreshes live presentation authority once', async 
     fixture.runtime.pageTurnPresentationSequence,
     initialPresentationSequence + 1,
   )
+  assert.equal(
+    window.__navicReaderTrace.filter(entry => entry.type === 'page-turn:exact-settled').length,
+    0,
+  )
 
   assert.equal(
     fixture.runtime.maybeCompleteNativePageTurnSettlement(fixture.runtime.currentPagePosition),
@@ -1454,6 +1459,7 @@ test('a new relocation epoch refreshes live presentation authority once', async 
     fixture.runtime.pageTurnPresentationSequence,
     initialPresentationSequence + 1,
   )
+  delete window.__navicReaderTrace
 })
 
 test('live exact settlement rejects receipt coordinates that differ from its locator', async () => {

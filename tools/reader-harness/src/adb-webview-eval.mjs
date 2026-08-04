@@ -2,6 +2,8 @@ import { spawnSync } from 'node:child_process'
 import {
   createPaginatorCommitReceiptTraceSink,
   projectPaginatorCommitReceiptTrace,
+  projectPaginatorNativeLogLine,
+  shouldRetryPaginatorWarmup,
   validatePaginatorCommitReceiptSummary,
 } from './paginator-commit-receipt-acceptance.mjs'
 
@@ -47,6 +49,31 @@ function runAdb(argumentsList) {
     throw new Error(`adb ${fullArgs.join(' ')} failed with exit code ${result.status}\n${stderr || stdout}`)
   }
   return result.stdout.trim()
+}
+
+function readPaginatorNativeEventSnapshot(pid, maximumLines = 600) {
+  const output = runAdb([
+    'logcat',
+    '-d',
+    `--pid=${pid}`,
+    '-v',
+    'monotonic',
+    '-t',
+    String(maximumLines),
+    'KomikkuReaderNativeFrameHost:I',
+    'ReaderPlayLikeCurlFoliate:I',
+    '*:S',
+  ])
+  const events = output
+    .split(/\r?\n/)
+    .map(projectPaginatorNativeLogLine)
+    .filter(Boolean)
+  const readiness = events.findLast(event => event.type === 'readiness')?.state ?? null
+  return {
+    events,
+    readiness,
+    latestTimestamp: events.at(-1)?.timestamp ?? 0,
+  }
 }
 
 async function findReaderPage(port) {
@@ -2978,7 +3005,21 @@ async function runPaginatorCommitReceiptsProbe(page) {
     if (!acceptance?.sink || !bridge) return null
     let context = null
     try {
-      const raw = bridge.pageTurnRasterPreparationPlan?.()?.context
+      const authoritativeReceipt = acceptance.sink.entries.at(-1)
+      const pageNumberLayer = document.querySelector(
+        '[data-navic-page-number-layer="true"]',
+      )
+      const visiblePageLabel = pageNumberLayer?.querySelector(
+        '[data-navic-page-number-slot]',
+      )?.textContent ?? pageNumberLayer?.textContent ?? ''
+      const visiblePageMatch = visiblePageLabel.trim().match(/^(\\d+)\\s*\\/\\s*(\\d+)$/)
+      const visiblePageIndex = visiblePageMatch
+        ? Math.max(0, Number(visiblePageMatch[1]) - 1)
+        : undefined
+      const authoritativePageIndex = authoritativeReceipt?.state === 'accepted'
+        ? authoritativeReceipt.pageIndex
+        : visiblePageIndex
+      const raw = bridge.pageTurnRasterPreparationPlan?.(authoritativePageIndex)?.context
       if (raw) {
         const integer = value => Number.isSafeInteger(Number(value)) ? Number(value) : null
         context = {
@@ -3055,6 +3096,25 @@ async function runPaginatorCommitReceiptsProbe(page) {
     const width = Number(size[1])
     const height = Number(size[2])
     const chapterTransitions = []
+    const nativePid = runAdb(['shell', 'pidof', packageName])
+      .split(/\s+/)
+      .find(Boolean)
+    if (!nativePid) throw new Error('Reader receipt probe lost the reader process')
+    let nativeSnapshot = readPaginatorNativeEventSnapshot(nativePid)
+    const waitForNativeReady = async settlement => {
+      const deadline = Date.now() + 45_000
+      while (Date.now() < deadline) {
+        if (
+          nativeSnapshot.readiness == null ||
+          nativeSnapshot.readiness === 'Ready'
+        ) return
+        await wait(150)
+        nativeSnapshot = readPaginatorNativeEventSnapshot(nativePid)
+      }
+      throw new Error(
+        `Reader receipt probe native renderer was not ready at settlement ${settlement}`,
+      )
+    }
 
     for (let settlement = 1; settlement <= expectedCount; settlement += 1) {
       const before = state.context
@@ -3065,32 +3125,142 @@ async function runPaginatorCommitReceiptsProbe(page) {
       const xFraction = before.readerDirection === 'rtl' ? 0.10 : 0.90
       const x = Math.round(width * xFraction)
       const y = Math.round(height * 0.50)
-      runAdb(['shell', 'input', 'tap', String(x), String(y)])
-
-      const deadline = Date.now() + 45_000
       let accepted = null
-      while (Date.now() < deadline) {
-        await wait(75)
-        state = await readState()
-        if (!state || state.droppedReceiptCount !== 0 || state.malformedReceiptCount !== 0) {
-          throw new Error(`Reader receipt trace became invalid at settlement ${settlement}`)
+
+      for (let attempt = 1; attempt <= 3 && !accepted; attempt += 1) {
+        await waitForNativeReady(settlement)
+        const nativeBaselineTimestamp = nativeSnapshot.latestTimestamp
+        let latestNativePollAt = 0
+        let sawNativeTap = false
+        let sawNativeBusy = false
+        let sawNativeReadyAfterBusy = false
+        let committedNativeTurn = false
+        let sawNativeRelocation = false
+        let completedNativeRelocation = false
+        let retryWhenReady = false
+        runAdb(['shell', 'input', 'tap', String(x), String(y)])
+
+        const deadline = Date.now() + 45_000
+        while (Date.now() < deadline) {
+          await wait(75)
+          state = await readState()
+          if (!state || state.droppedReceiptCount !== 0 || state.malformedReceiptCount !== 0) {
+            throw new Error(`Reader receipt trace became invalid at settlement ${settlement}`)
+          }
+          if (state.receipts.length > settlement) {
+            const numericPages = state.receipts
+              .map(receipt => receipt.pageIndex)
+              .filter(Number.isSafeInteger)
+              .join(',')
+            throw new Error(
+              `Reader receipt probe observed duplicate settlement ${settlement} pages=${numericPages}`,
+            )
+          }
+
+          if (Date.now() >= latestNativePollAt) {
+            const latest = readPaginatorNativeEventSnapshot(nativePid)
+            if (latest.readiness != null) nativeSnapshot = latest
+            else nativeSnapshot = { ...latest, readiness: nativeSnapshot.readiness }
+            const newEvents = nativeSnapshot.events.filter(
+              event => event.timestamp > nativeBaselineTimestamp,
+            )
+            for (const event of newEvents) {
+              if (event.type === 'tap') sawNativeTap = true
+              if (event.type === 'readiness') {
+                if (event.state !== 'Ready') sawNativeBusy = true
+                if (sawNativeBusy && event.state === 'Ready') {
+                  sawNativeReadyAfterBusy = true
+                }
+              }
+              if (
+                event.type === 'terminal' &&
+                event.outcome === 'CommittedForward' &&
+                event.won === true
+              ) {
+                committedNativeTurn = true
+              }
+              if (
+                event.type === 'terminal' &&
+                event.outcome.startsWith('Rejected')
+              ) {
+                retryWhenReady = true
+              }
+              if (event.type === 'handoff-failure') {
+                throw new Error(
+                  `Reader receipt probe observed rejected visual handoff at settlement ${settlement}`,
+                )
+              }
+              if (event.type === 'relocation') sawNativeRelocation = true
+              if (
+                event.type === 'relocation' &&
+                event.pageIndex === intendedPageIndex &&
+                event.state === 'Rejected'
+              ) {
+                throw new Error(
+                  `Reader receipt probe observed rejected relocation at settlement ${settlement}`,
+                )
+              }
+              if (
+                event.type === 'relocation' &&
+                event.pageIndex === intendedPageIndex &&
+                event.state === 'Completed' &&
+                event.rejectionReason === 'None'
+              ) {
+                completedNativeRelocation = true
+              }
+            }
+            latestNativePollAt = Date.now() + 225
+          }
+
+          const receipt = state.receipts[settlement - 1]
+          if (
+            receipt?.state === 'accepted' &&
+            receipt.pageIndex !== intendedPageIndex
+          ) {
+            throw new Error(
+              `Reader receipt probe settled on an unintended page at settlement ${settlement}`,
+            )
+          }
+          if (
+            receipt?.state === 'accepted' &&
+            receipt.pageIndex === state.context?.currentPageIndex &&
+            state.pendingStatePresent === false &&
+            state.settledStatePresent === false &&
+            committedNativeTurn &&
+            completedNativeRelocation
+          ) {
+            accepted = receipt
+            break
+          }
+          if (
+            receipt == null &&
+            shouldRetryPaginatorWarmup({
+              sawNativeTap,
+              readiness: nativeSnapshot.readiness,
+              retryWhenReady,
+              sawNativeReadyAfterBusy,
+              committedNativeTurn,
+              sawNativeRelocation,
+            })
+          ) {
+            retryWhenReady = true
+            break
+          }
         }
-        if (state.receipts.length > settlement) {
-          throw new Error(`Reader receipt probe observed duplicate settlement ${settlement}`)
+        if (!accepted && retryWhenReady && attempt < 3) continue
+        if (!accepted) {
+          const lastReceipt = state?.receipts?.at(-1)
+          throw new Error(
+            `Reader receipt probe timed out at settlement ${settlement} ` +
+            `attempt=${attempt} receipts=${state?.receipts?.length ?? -1} ` +
+            `lastPage=${Number.isSafeInteger(lastReceipt?.pageIndex) ? lastReceipt.pageIndex : -1} ` +
+            `currentPage=${Number.isSafeInteger(state?.context?.currentPageIndex) ? state.context.currentPageIndex : -1} ` +
+            `pending=${state?.pendingStatePresent === true} ` +
+            `settled=${state?.settledStatePresent === true} ` +
+            `nativeCommitted=${committedNativeTurn} ` +
+            `nativeCompleted=${completedNativeRelocation}`,
+          )
         }
-        const receipt = state.receipts[settlement - 1]
-        if (
-          receipt?.state === 'accepted' &&
-          receipt.pageIndex === state.context?.currentPageIndex &&
-          state.pendingStatePresent === false &&
-          state.settledStatePresent === false
-        ) {
-          accepted = receipt
-          break
-        }
-      }
-      if (!accepted) {
-        throw new Error(`Reader receipt probe timed out at settlement ${settlement}`)
       }
       if (accepted.pageIndex !== intendedPageIndex || !validContext(state.context)) {
         throw new Error(`Reader receipt probe settled on an unintended page at settlement ${settlement}`)

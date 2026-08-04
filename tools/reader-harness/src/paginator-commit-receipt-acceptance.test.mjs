@@ -3,6 +3,8 @@ import test from 'node:test'
 import {
   createPaginatorCommitReceiptTraceSink,
   projectPaginatorCommitReceiptTrace,
+  projectPaginatorNativeLogLine,
+  shouldRetryPaginatorWarmup,
   validatePaginatorCommitReceiptSummary,
 } from './paginator-commit-receipt-acceptance.mjs'
 
@@ -45,6 +47,101 @@ test('ignores unrelated traces and rejects malformed settlements', () => {
       payload: { pageIndex: 'not-a-page' },
     }),
     { state: 'malformed', pageIndex: null },
+  )
+})
+
+test('projects only whitelisted numeric native turn state', () => {
+  assert.deepEqual(
+    projectPaginatorNativeLogLine(
+      '  131556.873 I Reader native tap action=RIGHT protected-publication-data',
+    ),
+    { timestamp: 131556.873, type: 'tap', action: 'RIGHT' },
+  )
+  assert.deepEqual(
+    projectPaginatorNativeLogLine(
+      '131556.900 I Reader gesture terminal gestureId=41 outcome=CommittedForward won=true detail=protected',
+    ),
+    {
+      timestamp: 131556.9,
+      type: 'terminal',
+      outcome: 'CommittedForward',
+      won: true,
+    },
+  )
+  assert.deepEqual(
+    projectPaginatorNativeLogLine(
+      '131560.201 I Readiness transition ignored-fields interaction=BackgroundPrefetch->Ready reason=protected',
+    ),
+    { timestamp: 131560.201, type: 'readiness', state: 'Ready' },
+  )
+  assert.deepEqual(
+    projectPaginatorNativeLogLine(
+      '131564.000 I reader-relocation session=protected token=protected source=2 target=3 logicalDirection=Next state=Completed rejectionReason=None protected',
+    ),
+    {
+      timestamp: 131564,
+      type: 'relocation',
+      pageIndex: 3,
+      state: 'Completed',
+      rejectionReason: 'None',
+    },
+  )
+  assert.deepEqual(
+    projectPaginatorNativeLogLine(
+      '131559.468 E PlayLikeCurl visual handoff content validation failed reason=ContentRejected protected',
+    ),
+    {
+      timestamp: 131559.468,
+      type: 'handoff-failure',
+      reason: 'ContentRejected',
+    },
+  )
+})
+
+test('drops unrelated and unrecognized native log payloads', () => {
+  assert.equal(
+    projectPaginatorNativeLogLine('131500.000 I protected publication title and location'),
+    null,
+  )
+  assert.equal(
+    projectPaginatorNativeLogLine(
+      '131500.000 I Reader native tap action=PROTECTED protected-publication-data',
+    ),
+    null,
+  )
+  assert.equal(
+    projectPaginatorNativeLogLine(
+      '131500.000 I Readiness transition interaction=Ready->Protected reason=protected',
+    ),
+    null,
+  )
+})
+
+test('retries only a ready warm-up interaction with no committed relocation', () => {
+  const warmup = {
+    sawNativeTap: true,
+    readiness: 'Ready',
+    retryWhenReady: false,
+    sawNativeReadyAfterBusy: true,
+    committedNativeTurn: false,
+    sawNativeRelocation: false,
+  }
+  assert.equal(shouldRetryPaginatorWarmup(warmup), true)
+  assert.equal(
+    shouldRetryPaginatorWarmup({ ...warmup, committedNativeTurn: true }),
+    false,
+  )
+  assert.equal(
+    shouldRetryPaginatorWarmup({ ...warmup, sawNativeRelocation: true }),
+    false,
+  )
+  assert.equal(
+    shouldRetryPaginatorWarmup({
+      ...warmup,
+      sawNativeReadyAfterBusy: false,
+      retryWhenReady: true,
+    }),
+    true,
   )
 })
 

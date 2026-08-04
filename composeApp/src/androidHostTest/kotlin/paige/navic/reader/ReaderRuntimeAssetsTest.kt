@@ -368,6 +368,7 @@ class ReaderRuntimeAssetsTest {
 		val projectionText = repoFile(
 			"tools/reader-harness/src/paginator-commit-receipt-acceptance.mjs"
 		).readText()
+		val receiptProjection = projectionText.substringBefore("const PaginatorNativeTapActions")
 		val acceptance = helperText
 			.substringAfter("async function runPaginatorCommitReceiptsProbe(page)")
 			.substringBefore("async function main()")
@@ -385,6 +386,11 @@ class ReaderRuntimeAssetsTest {
 		assertContains(smokeAcceptance, "\$artifactFiles.Count -ne 1")
 		assertContains(helperText, "'paginator-commit-receipts': runPaginatorCommitReceiptsProbe")
 		assertContains(acceptance, "window.__navicReaderTrace = sink")
+		assertContains(acceptance, "pageTurnRasterPreparationPlan?.(authoritativePageIndex)")
+		assertContains(acceptance, "readPaginatorNativeEventSnapshot(nativePid)")
+		assertContains(acceptance, "committedNativeTurn")
+		assertContains(acceptance, "completedNativeRelocation")
+		assertContains(acceptance, "shouldRetryPaginatorWarmup({")
 		assertContains(acceptance, "for (let settlement = 1; settlement <= expectedCount")
 		assertContains(acceptance, "runAdb(['shell', 'input', 'tap'")
 		assertContains(acceptance, "receipt.pageIndex === state.context?.currentPageIndex")
@@ -393,12 +399,16 @@ class ReaderRuntimeAssetsTest {
 		assertContains(acceptance, "accepted.pageIndex !== intendedPageIndex")
 		assertContains(acceptance, "chapterTransitions.push")
 		assertContains(projectionText, "entry?.type !== 'page-turn:exact-settled'")
+		assertContains(projectionText, "projectPaginatorNativeLogLine(line)")
+		assertContains(projectionText, "state?.committedNativeTurn !== true")
+		assertContains(helperText, "'KomikkuReaderNativeFrameHost:I'")
+		assertContains(helperText, "'ReaderPlayLikeCurlFoliate:I'")
 		assertContains(projectionText, "{ state: 'accepted', pageIndex }")
-		assertFalse(projectionText.contains("href"))
-		assertFalse(projectionText.contains("cfi"))
-		assertFalse(projectionText.contains("title"))
-		assertFalse(projectionText.contains("text"))
-		assertFalse(projectionText.contains("url"))
+		assertFalse(receiptProjection.contains("href"))
+		assertFalse(receiptProjection.contains("cfi"))
+		assertFalse(receiptProjection.contains("title"))
+		assertFalse(receiptProjection.contains("text"))
+		assertFalse(receiptProjection.contains("url"))
 	}
 
 	@Test

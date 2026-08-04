@@ -824,7 +824,7 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
     return false
   }
   const existingSettlement = this.nativePageTurnSettledState
-  if (
+  const refreshingPresentationAuthority = Boolean(
     existingSettlement?.token === pending.token &&
     existingSettlement.foliateSessionId === pending.foliateSessionId &&
     existingSettlement.rasterGeneration === pending.rasterGeneration &&
@@ -834,7 +834,8 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
     existingSettlement.chapterPageIndex === pending.chapterPageIndex &&
     existingSettlement.paginationProfile === pending.paginationProfile &&
     readerTextPageCommitOwnerIsValid(existingSettlement)
-  ) {
+  )
+  if (refreshingPresentationAuthority) {
     const presentationAuthorityIsCurrent = this.pageTurnPreviewExposedToken
       ? this.pageTurnLivePresentationTargetMatchesCurrent(
           this.pageTurnLivePresentationTargetValue
@@ -880,7 +881,9 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
     this.clearPageTurnLivePresentationReceipt()
   }
   this.nativePageTurnSettledToken = pending.token
-  readerTrace('page-turn:exact-settled', { pageIndex: settledPageIndex })
+  if (!refreshingPresentationAuthority) {
+    readerTrace('page-turn:exact-settled', { pageIndex: settledPageIndex })
+  }
   return true
 }
 
