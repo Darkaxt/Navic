@@ -51,7 +51,6 @@ class ReaderRuntimeAssetsTest {
 		val bridgeMotion = root.resolve("navic-reader-motion.js")
 		val bridgePageTurns = root.resolve("navic-reader-page-turns.js")
 		val bridgeContentInteractions = root.resolve("navic-reader-content-interactions.js")
-		val bridgePaginationStability = root.resolve("navic-reader-pagination-stability.js")
 		val bridgePaginatorCommit = root.resolve("navic-reader-paginator-commit.js")
 		val bridgePagination = root.resolve("navic-reader-pagination.js")
 		val bridgeAppearance = root.resolve("navic-reader-appearance.js")
@@ -80,7 +79,6 @@ class ReaderRuntimeAssetsTest {
 		assertTrue(bridgeMotion.isFile, "Navic reader motion module must be packaged")
 		assertTrue(bridgePageTurns.isFile, "Navic reader page-turn module must be packaged")
 		assertTrue(bridgeContentInteractions.isFile, "Navic reader content-interaction module must be packaged")
-		assertTrue(bridgePaginationStability.isFile, "Navic reader pagination-stability module must remain packaged until live migration completes")
 		assertTrue(bridgePaginatorCommit.isFile, "Navic reader paginator-commit module must be packaged")
 		assertTrue(bridgePagination.isFile, "Navic reader pagination module must be packaged")
 		assertTrue(bridgeAppearance.isFile, "Navic reader appearance module must be packaged")
@@ -1597,6 +1595,10 @@ class ReaderRuntimeAssetsTest {
 		assertContains(build, "receiptIsValid")
 		assertFalse(build.contains("profileView.goTo("))
 		assertFalse(build.contains("readerWaitForStableTextPagePosition"))
+		assertFalse(build.contains("exactTextPagePosition"))
+		assertFalse(build.contains("profileView.renderer.page"))
+		assertFalse(build.contains("profileView.renderer.pages"))
+		assertFalse(build.contains("requestAnimationFrame"))
 		assertTrue(
 			build.indexOf("this.applyReaderViewportLayoutToProfilerView(profileView, settings)") <
 				build.indexOf("await readerCommitTextPage("),

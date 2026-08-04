@@ -1710,4 +1710,3 @@ test('superseded live token publishes no stale settlement or location', async ()
   assert.equal(fixture.runtime.retiredExactPageTurnSettlements.has('live-stale'), true)
   assert.equal(fixture.locationPosts.length, 1)
 })
-
