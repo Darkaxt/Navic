@@ -9,6 +9,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.webkit.WebView
 import java.lang.ref.WeakReference
+import java.util.IdentityHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
@@ -767,6 +768,16 @@ internal fun interface ReaderPageRasterHydrationRequest {
 	fun cancel()
 }
 
+internal enum class ReaderPageRasterHydrationDurability {
+	RequiresPublication,
+	PersistentStoreVerified
+}
+
+internal data class ReaderPageRasterHydrationResult(
+	val snapshot: ReaderPageSlideSnapshot,
+	val durability: ReaderPageRasterHydrationDurability
+)
+
 internal data class ReaderPageRasterHydrationOwnerCounts(
 	val descriptorRequests: Int,
 	val descriptorRecipients: Int,
@@ -871,6 +882,8 @@ internal class ReaderPageTurnBundleSource(
 	private val rasterPhysicalLayoutEpoch = AtomicLong()
 	private var physicalLayoutAuthority: ReaderPageRasterPhysicalLayoutAuthority? = null
 	private val snapshotCache = LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)
+	private val snapshotDurability =
+		IdentityHashMap<ReaderPageSlideSnapshot, ReaderPageRasterHydrationDurability>()
 	private val descriptorRequests =
 		mutableMapOf<Long, ReaderPageRasterDescriptorRequest>()
 	private val descriptorRequestTokens =
@@ -1041,6 +1054,12 @@ internal class ReaderPageTurnBundleSource(
 			step = step,
 			pageCount = pageCount
 		).toSet()
+		snapshotCache.values.forEach { snapshot ->
+			if (snapshot.key.visualPageIndex !in protectedEncodedPageIndices) {
+				snapshotDurability[snapshot] =
+					ReaderPageRasterHydrationDurability.RequiresPublication
+			}
+		}
 		protectedEncodedProfile?.let(::stageEncodedWindowProtection)
 		Logger.i(
 			ReaderPageTurnBundleSourceTag,
@@ -1096,13 +1115,23 @@ internal class ReaderPageTurnBundleSource(
 			?: snapshotCache.entries.lastOrNull { (key, _) -> key.kind == kind }?.value
 	).also { snapshot -> snapshot?.retain() }
 
+	private fun removeCachedSnapshot(
+		key: ReaderPageSlideSnapshotKey,
+		expected: ReaderPageSlideSnapshot? = null
+	): ReaderPageSlideSnapshot? {
+		val cached = snapshotCache[key] ?: return null
+		if (expected != null && cached !== expected) return null
+		val removed = snapshotCache.remove(key) ?: return null
+		snapshotDurability.remove(removed)
+		return removed
+	}
+
 	fun trimMemory(reason: String) {
 		val removedSnapshots = snapshotCache.entries
 			.filter { (key, _) -> key.visualPageIndex !in protectedSnapshotPageIndices }
 			.map { it.key to it.value }
 		removedSnapshots.forEach { (key, snapshot) ->
-			snapshotCache.remove(key)
-			snapshot.releaseCacheOwnership()
+			removeCachedSnapshot(key, snapshot)?.releaseCacheOwnership()
 		}
 		val removedDecoded = rasterCache?.trimDecodedToProtectedWindow() ?: 0
 		Logger.i(
@@ -1243,10 +1272,38 @@ internal class ReaderPageTurnBundleSource(
 		reference: ReaderPageSlideSnapshot,
 		publicationFence: () -> Boolean = { true },
 		onHydrated: (ReaderPageSlideSnapshot?) -> Unit
+	): ReaderPageRasterHydrationRequest = hydrateSnapshotWithDurability(
+		webView = webView,
+		pageIndex = pageIndex,
+		kind = kind,
+		reference = reference,
+		publicationFence = publicationFence
+	) { result -> onHydrated(result?.snapshot) }
+
+	fun hydrateSnapshotWithDurability(
+		webView: WebView,
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
+		reference: ReaderPageSlideSnapshot,
+		publicationFence: () -> Boolean = { true },
+		onHydrated: (ReaderPageRasterHydrationResult?) -> Unit
 	): ReaderPageRasterHydrationRequest {
 		activeWebView = WeakReference(webView)
 		retainedSnapshot(pageIndex, kind, reference)?.let { retained ->
-			deliverHydrationResult(onHydrated, retained)
+			deliverHydrationResult(
+				callback = { snapshot ->
+					onHydrated(
+						snapshot?.let { hydrated ->
+							ReaderPageRasterHydrationResult(
+								snapshot = hydrated,
+								durability = snapshotDurability[hydrated]
+									?: ReaderPageRasterHydrationDurability.RequiresPublication
+							)
+						}
+					)
+				},
+				snapshot = retained
+			)
 			return ReaderPageRasterHydrationRequest { }
 		}
 		if (
@@ -1266,7 +1323,17 @@ internal class ReaderPageTurnBundleSource(
 				return ReaderPageRasterHydrationRequest { }
 			},
 			publicationFence = publicationFence,
-			onHydrated = onHydrated
+			onHydrated = { snapshot ->
+				onHydrated(
+					snapshot?.let { hydrated ->
+						ReaderPageRasterHydrationResult(
+							snapshot = hydrated,
+							durability =
+								ReaderPageRasterHydrationDurability.PersistentStoreVerified
+						)
+					}
+				)
+			}
 		)
 	}
 
@@ -1525,6 +1592,7 @@ internal class ReaderPageTurnBundleSource(
 					priority = ReaderPageRasterPriority.NextTransition,
 					persist = false
 				)
+				markCachedSnapshotDurable(cached)
 				rasterOwnershipTransferred = true
 				if (cached !== snapshot) {
 					eligible.forEach { cached.retain() }
@@ -1933,7 +2001,7 @@ internal class ReaderPageTurnBundleSource(
 			return
 		}
 		cachedSnapshot(pageIndex, kind, reference)?.let { cached ->
-			schedulePersistentSnapshot(cached, priority) { result ->
+			persistCachedSnapshot(cached, priority) { result ->
 				if (isStillCurrent()) onCaptured(result)
 			}
 			return
@@ -2107,7 +2175,7 @@ internal class ReaderPageTurnBundleSource(
 		priority: ReaderPageRasterPriority,
 		onPersisted: (ReaderPageRasterPublicationResult) -> Unit
 	) {
-		schedulePersistentSnapshot(snapshot, priority, onPersisted)
+		persistCachedSnapshot(snapshot, priority, onPersisted)
 	}
 
 	private fun cacheSnapshot(
@@ -2212,7 +2280,33 @@ internal class ReaderPageTurnBundleSource(
 			}
 			.map { entry -> entry.key to entry.value }
 		incompatible.forEach { (key, snapshot) ->
-			if (snapshotCache.remove(key) === snapshot) snapshot.releaseCacheOwnership()
+			removeCachedSnapshot(key, snapshot)?.releaseCacheOwnership()
+		}
+	}
+
+	private fun markCachedSnapshotDurable(snapshot: ReaderPageSlideSnapshot) {
+		if (
+			snapshotCache[snapshot.key] === snapshot &&
+			(
+				protectedEncodedPageIndices.isEmpty() ||
+					snapshot.key.visualPageIndex in protectedEncodedPageIndices
+			)
+		) {
+			snapshotDurability[snapshot] =
+				ReaderPageRasterHydrationDurability.PersistentStoreVerified
+		}
+	}
+
+	private fun persistCachedSnapshot(
+		snapshot: ReaderPageSlideSnapshot,
+		priority: ReaderPageRasterPriority,
+		onPersisted: (ReaderPageRasterPublicationResult) -> Unit
+	) {
+		schedulePersistentSnapshot(snapshot, priority) { result ->
+			if (result == ReaderPageRasterPublicationResult.Durable) {
+				markCachedSnapshotDurable(snapshot)
+			}
+			onPersisted(result)
 		}
 	}
 
@@ -2228,11 +2322,13 @@ internal class ReaderPageTurnBundleSource(
 		}
 		snapshotCache[snapshot.key]?.let { cached ->
 			snapshot.releaseCacheOwnership()
-			if (persist) schedulePersistentSnapshot(cached, priority, onPersisted)
+			if (persist) persistCachedSnapshot(cached, priority, onPersisted)
 			return cached
 		}
 		snapshotCache[snapshot.key] = snapshot
-		if (persist) schedulePersistentSnapshot(snapshot, priority, onPersisted)
+		snapshotDurability[snapshot] =
+			ReaderPageRasterHydrationDurability.RequiresPublication
+		if (persist) persistCachedSnapshot(snapshot, priority, onPersisted)
 		trimSnapshotCacheToCapacity()
 		Logger.i(
 			ReaderPageTurnBundleSourceTag,
@@ -2246,8 +2342,7 @@ internal class ReaderPageTurnBundleSource(
 			val eviction = snapshotCache.entries.firstOrNull { (key, _) ->
 				key.visualPageIndex !in protectedSnapshotPageIndices
 			} ?: break
-			snapshotCache.remove(eviction.key)
-			eviction.value.releaseCacheOwnership()
+			removeCachedSnapshot(eviction.key, eviction.value)?.releaseCacheOwnership()
 		}
 	}
 
@@ -2895,8 +2990,7 @@ internal class ReaderPageTurnBundleSource(
 			.filter { (key, _) -> key.visualPageIndex == pageIndex }
 			.map { it.key to it.value }
 		removed.forEach { (key, snapshot) ->
-			snapshotCache.remove(key)
-			snapshot.releaseCacheOwnership()
+			removeCachedSnapshot(key, snapshot)?.releaseCacheOwnership()
 		}
 		Logger.i(
 			ReaderPageTurnBundleSourceTag,
@@ -2932,6 +3026,7 @@ internal class ReaderPageTurnBundleSource(
 			.forEach { recipient -> deliverHydrationResult(recipient.callback, null) }
 		snapshotCache.values.distinctBy { System.identityHashCode(it) }.forEach { it.releaseCacheOwnership() }
 		snapshotCache.clear()
+		snapshotDurability.clear()
 		Logger.i(ReaderPageTurnBundleSourceTag, "Page-turn snapshot cache cleared reason=$reason")
 	}
 

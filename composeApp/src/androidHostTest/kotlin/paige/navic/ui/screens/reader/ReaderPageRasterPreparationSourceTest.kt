@@ -102,7 +102,7 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
-	fun batchProgressAdvancesOnlyFromDurablePublicationCallbacks() {
+	fun batchProgressAdvancesOnlyFromVerifiedHydrationOrPublication() {
 		val source = readerRasterBatchSource()
 		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
 		val hydration = source.substringAfter(
@@ -112,8 +112,25 @@ class ReaderPageRasterPreparationSourceTest {
 			"private fun captureReadyItem("
 		).substringBefore("private fun advancePageTurnPreviewBatch(")
 
+		assertContains(hydration, "bundleSource.hydrateSnapshotWithDurability(")
+		assertContains(
+			hydration,
+			"ReaderPageRasterHydrationDurability.PersistentStoreVerified"
+		)
+		assertContains(
+			hydration,
+			"ReaderPageRasterPublicationResult.Durable"
+		)
 		assertContains(hydration, "bundleSource.ensurePersistentSnapshot(")
 		assertContains(hydration, "recordDurability(session, target, publicationResult)")
+		val ensurePersistent = bundle.substringAfter(
+			"fun ensurePersistentSnapshot("
+		).substringBefore("private fun cacheSnapshot(")
+		assertContains(ensurePersistent, "persistCachedSnapshot(snapshot, priority, onPersisted)")
+		val preparedCapture = bundle.substringAfter(
+			"fun capturePreparedRasterPage("
+		).substringBefore("private fun capturePreparedPage(")
+		assertContains(preparedCapture, "persistCachedSnapshot(cached, priority)")
 		assertContains(capture, "onCaptured = captured@{ publicationResult ->")
 		assertContains(capture, "recordDurability(session, target, publicationResult)")
 		assertContains(source, "ReaderPageRasterPublicationResult.CapacityReached")

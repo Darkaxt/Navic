@@ -690,12 +690,13 @@ internal class ReaderPageRasterBatchController(
 			ReaderPageRasterAcquisitionSource.PersistentHydration
 		)
 		val hydrationToken = ++session.hydrationToken
-		val hydrationRequest = bundleSource.hydrateSnapshot(
+		val hydrationRequest = bundleSource.hydrateSnapshotWithDurability(
 			webView = session.webView,
 			pageIndex = target.pageIndex,
 			kind = session.kind,
 			reference = session.reference
-		) { hydrated ->
+		) { hydration ->
+			val hydrated = hydration?.snapshot
 			if (session.hydrationToken == hydrationToken) {
 				session.hydrationRequest = null
 			}
@@ -710,7 +711,7 @@ internal class ReaderPageRasterBatchController(
 					}
 				)
 				hydrated?.release()
-				return@hydrateSnapshot
+				return@hydrateSnapshotWithDurability
 			}
 			if (hydrated == null) {
 				finishAcquisition(
@@ -721,13 +722,30 @@ internal class ReaderPageRasterBatchController(
 				session.onHydrationMiss(target)
 				session.missingTargets += target
 				hydrateTarget(session, targetIndex + 1)
-				return@hydrateSnapshot
+				return@hydrateSnapshotWithDurability
 			}
 			finishAcquisition(
 				session,
 				target.pageIndex,
 				ReaderPageRasterAcquisitionResult.Hit
 			)
+			if (
+				hydration.durability ==
+				ReaderPageRasterHydrationDurability.PersistentStoreVerified
+			) {
+				hydrated.release()
+				if (
+					!recordDurability(
+						session,
+						target,
+						ReaderPageRasterPublicationResult.Durable
+					)
+				) {
+					return@hydrateSnapshotWithDurability
+				}
+				hydrateTarget(session, targetIndex + 1)
+				return@hydrateSnapshotWithDurability
+			}
 			bundleSource.ensurePersistentSnapshot(
 				hydrated,
 				target.priority

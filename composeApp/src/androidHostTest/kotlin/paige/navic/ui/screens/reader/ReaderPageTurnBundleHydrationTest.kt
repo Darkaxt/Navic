@@ -628,6 +628,97 @@ class ReaderPageTurnBundleHydrationTest {
 	}
 
 	@Test
+	fun capturedSnapshotHydrationStillRequiresPublication() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = WebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val source = ReaderPageTurnBundleSource()
+		val reference = referenceSnapshot()
+		try {
+			assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = 4,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					current = captureResult()
+				)
+			)
+			val result = CompletableDeferred<ReaderPageRasterHydrationResult?>()
+
+			source.hydrateSnapshotWithDurability(
+				webView = webView,
+				pageIndex = 4,
+				kind = ReaderPageTurnTransitionKind.PortraitSlide,
+				reference = reference
+			) { result.complete(it) }
+
+			val hydrated = assertNotNull(result.await())
+			assertEquals(
+				ReaderPageRasterHydrationDurability.RequiresPublication,
+				hydrated.durability
+			)
+			hydrated.snapshot.release()
+		} finally {
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun unprotectedCachedPersistentSnapshotRequiresPublicationAgain() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = WebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val events = mutableListOf<String>()
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = FakeDescriptorPort(events),
+			hydrationStorePort = FakeHydrationStore(events, durablePages = setOf(4))
+		)
+		val reference = referenceSnapshot()
+		try {
+			val first = CompletableDeferred<ReaderPageRasterHydrationResult?>()
+			source.hydrateSnapshotWithDurability(
+				webView = webView,
+				pageIndex = 4,
+				kind = ReaderPageTurnTransitionKind.PortraitSlide,
+				reference = reference
+			) { first.complete(it) }
+			val persistent = assertNotNull(first.await())
+			assertEquals(
+				ReaderPageRasterHydrationDurability.PersistentStoreVerified,
+				persistent.durability
+			)
+			persistent.snapshot.release()
+
+			source.protectEncodedWindow(centerPageIndex = 10, step = 1, pageCount = 20)
+			val retained = CompletableDeferred<ReaderPageRasterHydrationResult?>()
+			source.hydrateSnapshotWithDurability(
+				webView = webView,
+				pageIndex = 4,
+				kind = ReaderPageTurnTransitionKind.PortraitSlide,
+				reference = reference
+			) { retained.complete(it) }
+
+			val unprotected = assertNotNull(retained.await())
+			assertEquals(
+				ReaderPageRasterHydrationDurability.RequiresPublication,
+				unprotected.durability
+			)
+			unprotected.snapshot.release()
+		} finally {
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun cachedDescriptorBypassesWebViewDuringRapidTurnHydration() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activity = Robolectric.buildActivity(Activity::class.java).setup()
@@ -724,22 +815,18 @@ class ReaderPageTurnBundleHydrationTest {
 	}
 
 	@Test
-	fun warmPersistentHitEmitsAcquisitionWithoutStartingWebViewCapture() = runTest {
+	fun warmPersistentHitCompletesWithoutRepublishingTheHydratedRaster() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activity = Robolectric.buildActivity(Activity::class.java).setup()
 		val webView = WebView(activity.get())
 		activity.get().setContentView(webView)
 		Shadows.shadowOf(Looper.getMainLooper()).idle()
 		val messages = mutableListOf<String>()
-		val persistentHit = CompletableDeferred<Unit>()
 		val events = mutableListOf<String>()
 		val diagnostics = ReaderPageRuntimeDiagnostics(
 			readerSession = 17L,
 			nowMs = { 25L },
-			emit = { message ->
-				messages += message
-				if (message.contains("result=Hit")) persistentHit.complete(Unit)
-			}
+			emit = messages::add
 		)
 		val source = ReaderPageTurnBundleSource(
 			descriptorPort = FakeDescriptorPort(events),
@@ -747,8 +834,9 @@ class ReaderPageTurnBundleHydrationTest {
 		)
 		val controller = ReaderPageRasterBatchController(source, diagnostics)
 		val reference = referenceSnapshot()
+		val durableTargets = mutableListOf<Int>()
 		try {
-			val outcomes = mutableListOf<ReaderPageRasterBatchOutcome>()
+			val firstOutcome = CompletableDeferred<ReaderPageRasterBatchOutcome>()
 			reference.retain()
 			assertTrue(
 				controller.start(
@@ -763,11 +851,12 @@ class ReaderPageTurnBundleHydrationTest {
 					),
 					trigger = ReaderPageRasterAcquisitionTrigger.WarmReopen,
 					onStagingStarted = { _, onPresented -> onPresented(true) },
-					onComplete = outcomes::add
+					onTargetDurable = { target -> durableTargets += target.pageIndex },
+					onComplete = firstOutcome::complete
 				)
 			)
-			persistentHit.await()
 
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, firstOutcome.await())
 			assertEquals(listOf("descriptor:4", "persistent:4"), events)
 			val acquisitions = messages.filter {
 				it.startsWith("reader-raster-acquisition ")
@@ -782,11 +871,34 @@ class ReaderPageTurnBundleHydrationTest {
 				acquisitions[1].substringAfter("attempt=").substringBefore(' ')
 			)
 			assertFalse(messages.any { it.contains("source=WebViewCapture") })
-			controller.cancel()
-			assertEquals(
-				listOf<ReaderPageRasterBatchOutcome>(ReaderPageRasterBatchOutcome.Cancelled),
-				outcomes
+			assertEquals(listOf(4), durableTargets)
+
+			events.clear()
+			messages.clear()
+			val retainedOutcome = CompletableDeferred<ReaderPageRasterBatchOutcome>()
+			reference.retain()
+			assertTrue(
+				controller.start(
+					webView = webView,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					reference = reference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = 4,
+							priority = ReaderPageRasterPriority.Current
+						)
+					),
+					trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
+					onStagingStarted = { _, onPresented -> onPresented(true) },
+					onTargetDurable = { target -> durableTargets += target.pageIndex },
+					onComplete = retainedOutcome::complete
+				)
 			)
+
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, retainedOutcome.await())
+			assertTrue(events.isEmpty())
+			assertFalse(messages.any { it.contains("source=WebViewCapture") })
+			assertEquals(listOf(4, 4), durableTargets)
 		} finally {
 			controller.cancel()
 			source.close()

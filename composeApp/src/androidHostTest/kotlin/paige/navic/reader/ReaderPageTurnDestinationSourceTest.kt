@@ -1105,8 +1105,12 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(source, "LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)")
 		assertContains(source, "private const val MaxCachedSnapshots = 5")
 		assertContains(source, "key.visualPageIndex !in protectedSnapshotPageIndices")
-		assertContains(source, "eviction.value.releaseCacheOwnership()")
+		assertContains(
+			source,
+			"removeCachedSnapshot(eviction.key, eviction.value)?.releaseCacheOwnership()"
+		)
 		assertContains(source, "snapshotCache.clear()")
+		assertContains(source, "snapshotDurability.clear()")
 	}
 
 	@Test
@@ -1284,7 +1288,7 @@ class ReaderPageTurnDestinationSourceTest {
 			insertion,
 			"onPersisted: (ReaderPageRasterPublicationResult) -> Unit = {}"
 		)
-		val persist = insertion.indexOf("schedulePersistentSnapshot(")
+		val persist = insertion.indexOf("persistCachedSnapshot(")
 		val trim = insertion.indexOf("trimSnapshotCacheToCapacity()")
 		assertTrue(persist >= 0)
 		assertTrue(trim >= 0)
