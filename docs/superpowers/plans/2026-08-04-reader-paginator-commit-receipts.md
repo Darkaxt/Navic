@@ -882,6 +882,29 @@ one Foliate commitment authority.
 **Stage 4 delivery:** The implementation has no legacy sampling authority and is
 validated requirement-by-requirement against the approved specification.
 
+### Post-audit blocker correction: live renderer presentation ownership
+
+The first frozen emulator checkpoint failed closed because Window `PixelCopy`
+observed a source-like backing buffer even though Foliate receipts remained
+current. Privacy-safe rejection classification and a read-only lifecycle trace
+proved that PlayLikeCurl deck promotion was published before its GL frame and
+that its topmost `GLSurfaceView` was composed independently from the Window
+backing surface.
+
+- [x] Preserve strict initial/final/third Foliate presentation-receipt fences and
+  the source-relative semantic raster comparison.
+- [x] Require `PageSurfaceView.requestNextPresentedFrame()` after the initial
+  receipt on every capture attempt, including presentation-authority refreshes.
+- [x] Recheck acknowledged token, session, destination ordinal, raster generation,
+  texture generation, renderer attachment, and mapped geometry in the callback.
+- [x] `PixelCopy` the mapped page region from `PageSurfaceView.holder.surface`;
+  never use `PixelCopy(Window)` as evidence for PlayLikeCurl content.
+- [x] Add deterministic tests for GL activation ordering, fresh callback ownership,
+  canonical surface selection, stale callback rejection, cancellation, and
+  view-to-buffer crop mapping.
+- [ ] Freeze the pushed checkpoint and rerun the independent multi-book emulator
+  gates below from fresh immutable evidence roots.
+
 ---
 
 ## Stage 5: Emulator Acceptance And Production Release

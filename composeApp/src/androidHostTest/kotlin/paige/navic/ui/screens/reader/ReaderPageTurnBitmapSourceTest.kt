@@ -129,7 +129,7 @@ class ReaderPageTurnBitmapSourceTest {
 	}
 
 	@Test
-	fun liveCaptureUsesWindowPixelCopyAndNeverSoftwareDrawsTheWebView() {
+	fun liveCaptureUsesPresentedPlayLikeCurlSurfacePixelCopy() {
 		val source = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 				"ReaderPageTurnBitmapSource.android.kt"
@@ -139,6 +139,7 @@ class ReaderPageTurnBitmapSourceTest {
 			.substringBefore("fun confirmLivePresentationReceipt(")
 
 		val initialReceipt = liveCapture.indexOf("queryPresentationReceipt(webView, target)")
+		val presentedFrame = liveCapture.indexOf("rendererSurface.requestNextPresentedFrame")
 		val pixelCopy = liveCapture.indexOf("PixelCopy.request(")
 		val finalReceipt = liveCapture.indexOf(
 			"queryPresentationReceipt(webView, target)",
@@ -148,6 +149,9 @@ class ReaderPageTurnBitmapSourceTest {
 		val callback = liveCapture
 			.substringAfter("{ copyResult ->")
 			.substringBefore("mainHandler")
+		val presentedCallback = liveCapture
+			.substringAfter("rendererSurface.requestNextPresentedFrame {")
+			.substringBefore("}.getOrNull()")
 		assertTrue(externalWrite >= 0 && externalWrite < pixelCopy)
 		assertTrue(
 			callback.indexOf("ownership.endExternalWrite()") <
@@ -157,24 +161,29 @@ class ReaderPageTurnBitmapSourceTest {
 			callback.indexOf("ownership.runIfExternalWriteCurrent") <
 				callback.indexOf("bitmap.setHasAlpha")
 		)
-		assertTrue(initialReceipt >= 0 && initialReceipt < pixelCopy)
+		assertTrue(initialReceipt >= 0 && initialReceipt < presentedFrame)
+		assertTrue(initialReceipt < pixelCopy)
 		assertTrue(pixelCopy < finalReceipt)
+		assertTrue(presentedCallback.contains("if (!environmentCurrent())"))
+		assertTrue(presentedCallback.contains("requestPixelCopy()"))
 		assertTrue(liveCapture.contains("acceptedReceipt = finalReceipt"))
 		assertTrue(liveCapture.contains("LiveCaptureMaximumPresentationAuthorityRefreshes"))
 		assertTrue(liveCapture.contains("readerPageTurnLivePresentationAuthorityChanged("))
 		assertTrue(liveCapture.contains("ownership.releaseCandidateForRetry()"))
 		assertTrue(liveCapture.contains("start.run()"))
-		assertTrue(liveCapture.contains("PixelCopy.request("))
+		assertTrue(liveCapture.contains("rendererSurface.cancelPresentedFrameRequest"))
+		assertTrue(liveCapture.contains("rendererSurface.holder.surface"))
+		assertTrue(liveCapture.contains("sourceRectInSurface"))
 		assertTrue(liveCapture.contains("copyResult == PixelCopy.SUCCESS"))
-		assertTrue(liveCapture.contains("activity.window"))
 		assertTrue(liveCapture.contains("sourceRectInWindow"))
 		assertTrue(liveCapture.contains("Bitmap.Config.ARGB_8888"))
+		assertFalse(liveCapture.contains("activity.window"))
+		assertFalse(liveCapture.contains("registerFrameCommitCallback"))
+		assertFalse(liveCapture.contains("addOnPreDrawListener"))
 		assertFalse(liveCapture.contains("readerPageTurnAnimationBitmapDimension("))
 		assertFalse(liveCapture.contains("webView.draw("))
 		assertFalse(liveCapture.contains("drawWebViewIntoBitmap("))
 		assertFalse(liveCapture.contains("captureSurface("))
-		assertFalse(liveCapture.contains("SurfaceView"))
-		assertFalse(liveCapture.contains("Logger."))
 		assertFalse(liveCapture.contains("getPixel("))
 		assertFalse(liveCapture.contains("hash"))
 	}
@@ -210,7 +219,7 @@ class ReaderPageTurnBitmapSourceTest {
 	}
 
 	@Test
-	fun liveCaptureUsesCommittedHardwareFrameOrBoundedLegacyFrameScheduling() {
+	fun everyLiveCaptureAttemptRequiresFreshRendererPresentationEvidence() {
 		val source = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 				"ReaderPageTurnBitmapSource.android.kt"
@@ -218,137 +227,86 @@ class ReaderPageTurnBitmapSourceTest {
 		val liveCapture = source
 			.substringAfter("fun captureLiveCompositedSurface(")
 			.substringBefore("fun confirmLivePresentationReceipt(")
+		val attempt = liveCapture
+			.substringAfter("start = Runnable start@{")
+			.substringBefore("startRunnable = start")
 
-		assertTrue(liveCapture.contains("Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q"))
-		assertTrue(liveCapture.contains("registerFrameCommitCallback"))
-		assertTrue(liveCapture.contains("unregisterFrameCommitCallback"))
-		assertTrue(liveCapture.contains("postInvalidateOnAnimation"))
-		assertTrue(liveCapture.contains("addOnPreDrawListener"))
-		assertTrue(liveCapture.contains("removeOnPreDrawListener"))
-		assertTrue(liveCapture.contains("LegacyLiveCaptureMaximumFrameAttempts"))
+		assertTrue(
+			attempt.indexOf("queryPresentationReceipt(webView, target)") <
+				attempt.indexOf("rendererSurface.requestNextPresentedFrame")
+		)
+		val presentedCallback = attempt
+			.substringAfter("rendererSurface.requestNextPresentedFrame {")
+			.substringBefore("}.getOrNull()")
+		assertTrue(presentedCallback.contains("if (!environmentCurrent())"))
+		assertTrue(presentedCallback.contains("requestPixelCopy()"))
+		assertTrue(attempt.contains("if (!environmentCurrent())"))
+		assertTrue(attempt.contains("start.run()"))
 		assertFalse(liveCapture.contains("postDelayed"))
 	}
 
 	@Test
-	fun liveCaptureValidatesActivityAttachmentGeometryAndDecorBounds() {
-		assertTrue(
-			readerPageTurnLiveCapturePreflightAccepted(
-				activityAvailable = true,
-				webViewAttached = true,
-				decorAttached = true,
-				isStillCurrent = true,
-				geometryMatches = true,
-				left = 10,
-				top = 20,
-				right = 110,
-				bottom = 220,
-				decorWidth = 120,
-				decorHeight = 240
+	fun rendererSurfaceRectMapsWindowCoordinatesIntoTheGlBuffer() {
+		assertEquals(
+			ReaderPageTurnRendererSurfaceRegion(10, 20, 210, 220),
+			readerPageTurnRendererSurfaceRect(
+				sourceLeftInWindow = 110,
+				sourceTopInWindow = 220,
+				sourceRightInWindow = 310,
+				sourceBottomInWindow = 420,
+				rendererWindowLeft = 100,
+				rendererWindowTop = 200,
+				rendererWidth = 400,
+				rendererHeight = 600,
+				bufferWidth = 400,
+				bufferHeight = 600
 			)
 		)
-		assertFalse(
-			readerPageTurnLiveCapturePreflightAccepted(
-				activityAvailable = false,
-				webViewAttached = true,
-				decorAttached = true,
-				isStillCurrent = true,
-				geometryMatches = true,
-				left = 10,
-				top = 20,
-				right = 110,
-				bottom = 220,
-				decorWidth = 120,
-				decorHeight = 240
+		assertEquals(
+			ReaderPageTurnRendererSurfaceRegion(20, 40, 420, 440),
+			readerPageTurnRendererSurfaceRect(
+				sourceLeftInWindow = 110,
+				sourceTopInWindow = 220,
+				sourceRightInWindow = 310,
+				sourceBottomInWindow = 420,
+				rendererWindowLeft = 100,
+				rendererWindowTop = 200,
+				rendererWidth = 400,
+				rendererHeight = 600,
+				bufferWidth = 800,
+				bufferHeight = 1200
 			)
 		)
-		assertFalse(
-			readerPageTurnLiveCapturePreflightAccepted(
-				activityAvailable = true,
-				webViewAttached = false,
-				decorAttached = true,
-				isStillCurrent = true,
-				geometryMatches = true,
-				left = 10,
-				top = 20,
-				right = 110,
-				bottom = 220,
-				decorWidth = 120,
-				decorHeight = 240
+	}
+
+	@Test
+	fun rendererSurfaceRectRejectsGeometryOutsideTheCanonicalSurface() {
+		assertNull(
+			readerPageTurnRendererSurfaceRect(
+				sourceLeftInWindow = 90,
+				sourceTopInWindow = 220,
+				sourceRightInWindow = 310,
+				sourceBottomInWindow = 420,
+				rendererWindowLeft = 100,
+				rendererWindowTop = 200,
+				rendererWidth = 400,
+				rendererHeight = 600,
+				bufferWidth = 400,
+				bufferHeight = 600
 			)
 		)
-		assertFalse(
-			readerPageTurnLiveCapturePreflightAccepted(
-				activityAvailable = true,
-				webViewAttached = true,
-				decorAttached = false,
-				isStillCurrent = true,
-				geometryMatches = true,
-				left = 10,
-				top = 20,
-				right = 110,
-				bottom = 220,
-				decorWidth = 120,
-				decorHeight = 240
-			)
-		)
-		assertFalse(
-			readerPageTurnLiveCapturePreflightAccepted(
-				activityAvailable = true,
-				webViewAttached = true,
-				decorAttached = true,
-				isStillCurrent = false,
-				geometryMatches = true,
-				left = 10,
-				top = 20,
-				right = 110,
-				bottom = 220,
-				decorWidth = 120,
-				decorHeight = 240
-			)
-		)
-		assertFalse(
-			readerPageTurnLiveCapturePreflightAccepted(
-				activityAvailable = true,
-				webViewAttached = true,
-				decorAttached = true,
-				isStillCurrent = true,
-				geometryMatches = false,
-				left = 10,
-				top = 20,
-				right = 110,
-				bottom = 220,
-				decorWidth = 120,
-				decorHeight = 240
-			)
-		)
-		assertFalse(
-			readerPageTurnLiveCapturePreflightAccepted(
-				activityAvailable = true,
-				webViewAttached = true,
-				decorAttached = true,
-				isStillCurrent = true,
-				geometryMatches = true,
-				left = -1,
-				top = 20,
-				right = 110,
-				bottom = 220,
-				decorWidth = 120,
-				decorHeight = 240
-			)
-		)
-		assertFalse(
-			readerPageTurnLiveCapturePreflightAccepted(
-				activityAvailable = true,
-				webViewAttached = true,
-				decorAttached = true,
-				isStillCurrent = true,
-				geometryMatches = true,
-				left = 10,
-				top = 20,
-				right = 121,
-				bottom = 220,
-				decorWidth = 120,
-				decorHeight = 240
+		assertNull(
+			readerPageTurnRendererSurfaceRect(
+				sourceLeftInWindow = 110,
+				sourceTopInWindow = 220,
+				sourceRightInWindow = 310,
+				sourceBottomInWindow = 420,
+				rendererWindowLeft = 100,
+				rendererWindowTop = 200,
+				rendererWidth = 0,
+				rendererHeight = 600,
+				bufferWidth = 400,
+				bufferHeight = 600
 			)
 		)
 	}
@@ -489,20 +447,20 @@ class ReaderPageTurnBitmapSourceTest {
 	}
 
 	@Test
-	fun sourceContractKeepsApiOAvailabilityAndUnwrapsActivitySafely() {
+	fun sourceContractKeepsApiOAvailabilityAndUsesCanonicalRendererSurface() {
 		val source = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 				"ReaderPageTurnBitmapSource.android.kt"
 		).readText()
 
 		assertTrue(source.contains("Build.VERSION.SDK_INT >= Build.VERSION_CODES.O"))
-		assertTrue(source.contains("ContextWrapper"))
-		assertTrue(source.contains("tailrec fun Context.findActivity()"))
-		assertTrue(source.contains("baseContext.findActivity()"))
+		assertTrue(source.contains("import karacken.curl.PageSurfaceView"))
+		assertFalse(source.contains("ContextWrapper"))
+		assertFalse(source.contains("findActivity()"))
 	}
 
 	@Test
-	fun frameSchedulingExceptionsRejectLiveCapture() {
+	fun rendererPresentationSchedulingExceptionsRejectLiveCapture() {
 		val source = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 				"ReaderPageTurnBitmapSource.android.kt"
@@ -511,9 +469,10 @@ class ReaderPageTurnBitmapSourceTest {
 			.substringAfter("fun captureLiveCompositedSurface(")
 			.substringBefore("fun confirmLivePresentationReceipt(")
 
-		assertTrue(liveCapture.contains("runCatching { observer.registerFrameCommitCallback"))
-		assertTrue(liveCapture.contains("runCatching { observer.addOnPreDrawListener"))
-		assertTrue(liveCapture.contains(".onFailure { reject() }"))
+		assertTrue(liveCapture.contains("val requestId = runCatching {"))
+		assertTrue(liveCapture.contains("rendererSurface.requestNextPresentedFrame"))
+		assertTrue(liveCapture.contains("requestId == null"))
+		assertTrue(liveCapture.contains("reject()"))
 	}
 
 	@Test

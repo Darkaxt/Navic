@@ -126,8 +126,19 @@ Paginator commitment and Android presentation commitment remain separate:
 1. the paginator receipt proves DOM pagination and exact placement
 2. the existing Navic presentation receipt proves the intended live or preview
    surface remained selected
-3. `WebView.VisualStateCallback` and capture prove the presented pixels reached
+3. passive `WebView.VisualStateCallback` and capture prove preview pixels reached
    the native capture boundary
+4. live capture requires a PlayLikeCurl presented-frame callback queued after the
+   destination deck activation and copies the matching region from that
+   `PageSurfaceView`'s `Surface`, not from the Window backing surface
+
+The renderer callback is presentation evidence, not page-position authority. Its
+closure must remain bound to the acknowledged relocation token, Foliate session,
+destination ordinal, raster generation, and texture generation. Capture retains
+an initial presentation receipt before arming the callback, an equal final receipt
+after `PixelCopy`, and the existing equal third receipt before handoff. Every
+capture retry must arm a fresh renderer callback; fixed sleeps, Window frame
+callbacks, and prior renderer events cannot substitute for this evidence.
 
 For passive captures, the existing initial and final presentation-receipt checks
 must also validate the associated paginator receipt. A receipt invalidated during
@@ -363,6 +374,15 @@ The live presentation target retains the paginator receipt. Issuing or reading a
 live presentation receipt validates it, so native capture rejects a page that
 was invalidated after settlement.
 
+After Foliate acknowledges the exact destination, live validation queries the
+initial receipt, arms `PageSurfaceView.requestNextPresentedFrame()`, and captures
+only after that generation-current callback. GL queue ordering places the frame
+request after destination deck activation. `PixelCopy` reads the PlayLikeCurl
+surface region corresponding to the exact WebView page box; `PixelCopy(Window)`
+is forbidden because the topmost `GLSurfaceView` is composed independently of the
+Window/ViewRoot backing surface. A stale callback invalidates without capture,
+and an internal or coordinator retry must obtain a new renderer event.
+
 A trusted same-section `mismatch` may invoke the same bounded profile repair and
 remap used by the passive path, then retry. Invalidated work retries only while
 the exact-turn token remains current. Superseded turns remain one-shot and do not
@@ -532,6 +552,10 @@ Tests must prove:
 - passive raster readiness requires a validated receipt
 - live exact settlement and presentation require a validated receipt
 - native presented-surface capture retains its initial/final receipt checks
+- live validation arms a fresh generation-current PlayLikeCurl presented-frame
+  callback before each capture attempt
+- live `PixelCopy` reads the mapped region from the PlayLikeCurl `Surface`; tests
+  reject Window capture, capture before the callback, and stale callback ownership
 - fixed-layout, PDF, and scrolled paths remain bypassed
 - runtime asset imports and vendor manifest hashes are complete
 
@@ -585,8 +609,9 @@ The implementation is ready to ship only when all are true:
 4. Profile counts are recorded only from validated receipts.
 5. Passive rasters are captured and persisted only while the same receipt remains
    valid through native presentation capture.
-6. Live settlement and capture require the same valid receipt and existing native
-   ownership tokens.
+6. Live settlement and capture require the same valid receipt, existing native
+   ownership tokens, a fresh generation-current PlayLikeCurl presented-frame
+   event, and `PixelCopy` from the PlayLikeCurl surface owner.
 7. No host-side frame sampling or raw fallback is used as commitment authority.
 8. Trusted count mismatch recovery is bounded; untrusted mismatch never repairs.
 9. Stale tasks cannot publish profile, preview, raster, location, settlement, or

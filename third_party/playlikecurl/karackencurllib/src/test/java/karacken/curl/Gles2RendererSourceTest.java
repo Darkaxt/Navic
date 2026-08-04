@@ -103,6 +103,22 @@ public class Gles2RendererSourceTest {
     }
 
     @Test
+    public void destinationActivationIsQueuedBeforeSettlementPublication() throws IOException {
+        String source = source("PageSurfaceView.java");
+        String settlement = methodBody(
+                source,
+                "private void completeSettlement(Settlement settlement, SettlementContext context)");
+
+        int activation = settlement.indexOf(
+                "queueEvent(() -> renderer.activateDeck(promoted.getGenerationId()))");
+        int render = settlement.indexOf("requestRender()");
+        int completion = settlement.indexOf("onSettlementCompleted(");
+        assertTrue(activation >= 0);
+        assertTrue(render > activation);
+        assertTrue(completion > render);
+    }
+
+    @Test
     public void rendererClearsTransparentPixelsBeforeAnEmptyDeckReturn() throws IOException {
         String renderer = source("PageRenderer.java");
         String drawFrame = methodBody(renderer, "boolean drawFrame(GL10 ignored)");

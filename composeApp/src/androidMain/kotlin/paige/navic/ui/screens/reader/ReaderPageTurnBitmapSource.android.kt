@@ -1,8 +1,5 @@
 package paige.navic.ui.screens.reader
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
@@ -11,8 +8,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.PixelCopy
-import android.view.ViewTreeObserver
 import android.webkit.WebView
+import karacken.curl.PageSurfaceView
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
@@ -30,6 +27,8 @@ import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.util.core.Logger
 import kotlin.coroutines.resume
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
 
 private const val ReaderPageTurnBitmapSourceTag = "ReaderPageTurnBitmapSource"
 private const val PageTurnCaptureSampleColumns = 48
@@ -42,7 +41,6 @@ private const val PageTurnCaptureMinimumLowContrastLuminanceRange = 16
 private const val PageTurnCaptureLowContrastForegroundDistance = 8
 private const val PageTurnCaptureMinimumForegroundSamples = 3
 private const val PageTurnCaptureForegroundSampleDivisor = 384
-private const val LegacyLiveCaptureMaximumFrameAttempts = 2
 private const val LiveCaptureMaximumPresentationAuthorityRefreshes = 2
 
 internal data class ReaderPageTurnCaptureResult(
@@ -182,31 +180,66 @@ internal class ReaderPageTurnLiveCaptureOwnership<T : Any>(
 	}
 }
 
-internal fun readerPageTurnLiveCapturePreflightAccepted(
-	activityAvailable: Boolean,
-	webViewAttached: Boolean,
-	decorAttached: Boolean,
-	isStillCurrent: Boolean,
-	geometryMatches: Boolean,
-	left: Int,
-	top: Int,
-	right: Int,
-	bottom: Int,
-	decorWidth: Int,
-	decorHeight: Int
-): Boolean = activityAvailable &&
-	webViewAttached &&
-	decorAttached &&
-	isStillCurrent &&
-	geometryMatches &&
-	decorWidth > 0 &&
-	decorHeight > 0 &&
-	left >= 0 &&
-	top >= 0 &&
-	right > left &&
-	bottom > top &&
-	right <= decorWidth &&
-	bottom <= decorHeight
+internal data class ReaderPageTurnRendererSurfaceRegion(
+	val left: Int,
+	val top: Int,
+	val right: Int,
+	val bottom: Int
+)
+
+internal fun readerPageTurnRendererSurfaceRect(
+	sourceLeftInWindow: Int,
+	sourceTopInWindow: Int,
+	sourceRightInWindow: Int,
+	sourceBottomInWindow: Int,
+	rendererWindowLeft: Int,
+	rendererWindowTop: Int,
+	rendererWidth: Int,
+	rendererHeight: Int,
+	bufferWidth: Int,
+	bufferHeight: Int
+): ReaderPageTurnRendererSurfaceRegion? {
+	if (
+		sourceRightInWindow <= sourceLeftInWindow ||
+		sourceBottomInWindow <= sourceTopInWindow ||
+		rendererWidth <= 0 ||
+		rendererHeight <= 0 ||
+		bufferWidth <= 0 ||
+		bufferHeight <= 0
+	) {
+		return null
+	}
+	val localLeft = sourceLeftInWindow.toLong() - rendererWindowLeft
+	val localTop = sourceTopInWindow.toLong() - rendererWindowTop
+	val localRight = sourceRightInWindow.toLong() - rendererWindowLeft
+	val localBottom = sourceBottomInWindow.toLong() - rendererWindowTop
+	if (
+		localLeft < 0L ||
+		localTop < 0L ||
+		localRight > rendererWidth.toLong() ||
+		localBottom > rendererHeight.toLong() ||
+		localRight <= localLeft ||
+		localBottom <= localTop
+	) {
+		return null
+	}
+	val xScale = bufferWidth.toDouble() / rendererWidth
+	val yScale = bufferHeight.toDouble() / rendererHeight
+	val mapped = ReaderPageTurnRendererSurfaceRegion(
+		left = floor(localLeft * xScale).toInt(),
+		top = floor(localTop * yScale).toInt(),
+		right = ceil(localRight * xScale).toInt(),
+		bottom = ceil(localBottom * yScale).toInt()
+	)
+	return mapped.takeIf {
+		it.right > it.left &&
+			it.bottom > it.top &&
+			it.left >= 0 &&
+			it.top >= 0 &&
+			it.right <= bufferWidth &&
+			it.bottom <= bufferHeight
+	}
+}
 
 internal fun readerPageTurnLivePresentationAuthorityChanged(
 	target: ReaderPageTurnPresentationTarget.Live,
@@ -379,6 +412,7 @@ internal class ReaderPageTurnBitmapSource(
 
 	fun captureLiveCompositedSurface(
 		webView: WebView,
+		rendererSurface: PageSurfaceView,
 		target: ReaderPageTurnPresentationTarget.Live,
 		expectedBitmapWidth: Int,
 		expectedBitmapHeight: Int,
@@ -391,47 +425,21 @@ internal class ReaderPageTurnBitmapSource(
 			}
 		)
 		var startRunnable: Runnable? = null
-		var frameCommitObserver: ViewTreeObserver? = null
-		var frameCommitCallback: Runnable? = null
-		var legacyObserver: ViewTreeObserver? = null
-		var legacyPreDrawListener: ViewTreeObserver.OnPreDrawListener? = null
-		var legacyAnimation: Runnable? = null
-		var legacyFallback: Runnable? = null
-		var legacyPixelCopy: Runnable? = null
-		var callbackView: android.view.View? = null
+		var presentedFrameRequestId: Long? = null
 		var presentationAuthorityRefreshes = 0
 
-		fun clearFrameCallbacks() {
+		fun clearPresentedFrameRequest() {
 			startRunnable?.let { callback -> runCatching { mainHandler.removeCallbacks(callback) } }
 			startRunnable = null
-			frameCommitCallback?.let { callback ->
-				frameCommitObserver?.takeIf { it.isAlive }?.let { observer ->
-					runCatching { observer.unregisterFrameCommitCallback(callback) }
-				}
+			presentedFrameRequestId?.let { requestId ->
+				runCatching { rendererSurface.cancelPresentedFrameRequest(requestId) }
 			}
-			frameCommitObserver = null
-			frameCommitCallback = null
-			legacyPreDrawListener?.let { listener ->
-				legacyObserver?.takeIf { it.isAlive }?.let { observer ->
-					runCatching { observer.removeOnPreDrawListener(listener) }
-				}
-			}
-			legacyObserver = null
-			legacyPreDrawListener = null
-			callbackView?.let { view ->
-				legacyAnimation?.let { callback -> runCatching { view.removeCallbacks(callback) } }
-				legacyFallback?.let { callback -> runCatching { view.removeCallbacks(callback) } }
-				legacyPixelCopy?.let { callback -> runCatching { view.removeCallbacks(callback) } }
-			}
-			legacyAnimation = null
-			legacyFallback = null
-			legacyPixelCopy = null
-			callbackView = null
+			presentedFrameRequestId = null
 		}
 
 		fun reject() {
 			val completion = ownership.finish(accepted = false) ?: return
-			clearFrameCallbacks()
+			clearPresentedFrameRequest()
 			check(completion.candidate == null)
 			onCaptured(null)
 		}
@@ -470,41 +478,50 @@ internal class ReaderPageTurnBitmapSource(
 						reject()
 						return@geometry
 					}
-					val activity = runCatching { webView.context.findActivity() }.getOrNull()
-					if (activity == null) {
-						reject()
-						return@geometry
-					}
 					val resolvedEnvironment = runCatching {
-						val decor = activity.window.decorView
-						val location = IntArray(2)
-						webView.getLocationInWindow(location)
+						val webViewLocation = IntArray(2)
+						val rendererLocation = IntArray(2)
+						webView.getLocationInWindow(webViewLocation)
+						rendererSurface.getLocationInWindow(rendererLocation)
 						val pixelRect = geometry.surfaceRectInWindow(
-							webViewWindowLeft = location[0],
-							webViewWindowTop = location[1],
+							webViewWindowLeft = webViewLocation[0],
+							webViewWindowTop = webViewLocation[1],
 							webViewWidth = webView.width,
 							webViewHeight = webView.height
 						) ?: return@runCatching null
-						decor to Rect(
+						val sourceRectInWindow = Rect(
 							pixelRect.left,
 							pixelRect.top,
 							pixelRect.right,
 							pixelRect.bottom
 						)
+						val surfaceFrame = rendererSurface.holder.surfaceFrame
+						val sourceRectInSurface = readerPageTurnRendererSurfaceRect(
+							sourceLeftInWindow = sourceRectInWindow.left,
+							sourceTopInWindow = sourceRectInWindow.top,
+							sourceRightInWindow = sourceRectInWindow.right,
+							sourceBottomInWindow = sourceRectInWindow.bottom,
+							rendererWindowLeft = rendererLocation[0],
+							rendererWindowTop = rendererLocation[1],
+							rendererWidth = rendererSurface.width,
+							rendererHeight = rendererSurface.height,
+							bufferWidth = surfaceFrame.width(),
+							bufferHeight = surfaceFrame.height()
+						) ?: return@runCatching null
+						sourceRectInWindow to sourceRectInSurface
 					}.getOrNull()
 					if (resolvedEnvironment == null) {
 						reject()
 						return@geometry
 					}
-					val (decorView, sourceRectInWindow) = resolvedEnvironment
-					callbackView = decorView
+					val (sourceRectInWindow, sourceRectInSurface) = resolvedEnvironment
 					fun environmentCurrent(): Boolean = requestCurrent() &&
 						readerPageTurnLiveCaptureEnvironmentMatches(
 							webView = webView,
-							activity = activity,
-							decorView = decorView,
+							rendererSurface = rendererSurface,
 							geometry = geometry,
-							expectedRect = sourceRectInWindow
+							expectedRectInWindow = sourceRectInWindow,
+							expectedRectInSurface = sourceRectInSurface
 						)
 					if (!environmentCurrent()) {
 						reject()
@@ -540,12 +557,17 @@ internal class ReaderPageTurnBitmapSource(
 							return
 						}
 						pixelCopyStarted = true
-						clearFrameCallbacks()
+						clearPresentedFrameRequest()
 						if (!ownership.beginExternalWrite()) return
 						try {
 							PixelCopy.request(
-								activity.window,
-								sourceRectInWindow,
+								rendererSurface.holder.surface,
+								Rect(
+									sourceRectInSurface.left,
+									sourceRectInSurface.top,
+									sourceRectInSurface.right,
+									sourceRectInSurface.bottom
+								),
 								bitmap,
 								{ copyResult ->
 									val copyAccepted = try {
@@ -591,7 +613,7 @@ internal class ReaderPageTurnBitmapSource(
 												foregroundSuccess = true
 											)
 										val completion = ownership.finish(accepted) ?: return@final
-										clearFrameCallbacks()
+										clearPresentedFrameRequest()
 										val captured = completion.candidate
 										if (captured == null || finalReceipt == null) {
 											onCaptured(null)
@@ -614,98 +636,24 @@ internal class ReaderPageTurnBitmapSource(
 						}
 					}
 
-					if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-						val observer = decorView.viewTreeObserver
-						if (
-							!observer.isAlive ||
-							!decorView.isHardwareAccelerated ||
-							!webView.isHardwareAccelerated
-						) {
-							reject()
-							return@geometry
-						}
-						lateinit var committedFrame: Runnable
-						committedFrame = Runnable {
-							if (frameCommitCallback !== committedFrame) return@Runnable
-							runCatching { observer.unregisterFrameCommitCallback(committedFrame) }
-							frameCommitObserver = null
-							frameCommitCallback = null
-							requestPixelCopy()
-						}
-						frameCommitObserver = observer
-						frameCommitCallback = committedFrame
-						runCatching { observer.registerFrameCommitCallback(committedFrame) }
-							.mapCatching {
-								webView.postInvalidateOnAnimation()
-								decorView.postInvalidateOnAnimation()
-							}
-							.onFailure { reject() }
-					} else {
-						var attempts = 0
-						lateinit var scheduleLegacyFrame: () -> Unit
-						scheduleLegacyFrame = schedule@{
+					val requestId = runCatching {
+						rendererSurface.requestNextPresentedFrame {
+							presentedFrameRequestId = null
 							if (!environmentCurrent()) {
 								reject()
-								return@schedule
+								return@requestNextPresentedFrame
 							}
-							if (attempts >= LegacyLiveCaptureMaximumFrameAttempts) {
-								reject()
-								return@schedule
-							}
-							attempts += 1
-							val animation = Runnable animation@{
-								legacyAnimation = null
-								if (!environmentCurrent()) {
-									reject()
-									return@animation
-								}
-								val observer = decorView.viewTreeObserver
-								if (!observer.isAlive) {
-									reject()
-									return@animation
-								}
-								var observed = false
-								lateinit var listener: ViewTreeObserver.OnPreDrawListener
-								listener = ViewTreeObserver.OnPreDrawListener {
-									if (legacyPreDrawListener !== listener) return@OnPreDrawListener true
-									observed = true
-									observer.takeIf { it.isAlive }?.removeOnPreDrawListener(listener)
-									legacyObserver = null
-									legacyPreDrawListener = null
-									val pixelCopy = Runnable {
-										legacyPixelCopy = null
-										requestPixelCopy()
-									}
-									legacyPixelCopy = pixelCopy
-									runCatching { decorView.postOnAnimation(pixelCopy) }
-										.onFailure { reject() }
-									true
-								}
-								legacyObserver = observer
-								legacyPreDrawListener = listener
-								val fallback = Runnable {
-									legacyFallback = null
-									if (observed) return@Runnable
-									observer.takeIf { it.isAlive }?.removeOnPreDrawListener(listener)
-									legacyObserver = null
-									legacyPreDrawListener = null
-									scheduleLegacyFrame()
-								}
-								legacyFallback = fallback
-								runCatching { observer.addOnPreDrawListener(listener) }
-									.mapCatching {
-										webView.postInvalidateOnAnimation()
-										decorView.postInvalidateOnAnimation()
-										decorView.postOnAnimation(fallback)
-									}
-									.onFailure { reject() }
-							}
-							legacyAnimation = animation
-							runCatching { decorView.postOnAnimation(animation) }
-								.onFailure { reject() }
+							requestPixelCopy()
 						}
-						scheduleLegacyFrame()
+					}.getOrNull()
+					if (
+						requestId == null ||
+						requestId == PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
+					) {
+						reject()
+						return@geometry
 					}
+					presentedFrameRequestId = requestId
 				}
 				} catch (_: Throwable) {
 					reject()
@@ -721,8 +669,8 @@ internal class ReaderPageTurnBitmapSource(
 		return ReaderPageRelocationContentValidationHandle {
 			val cancelled = ownership.cancel()
 			if (cancelled) {
-				if (Looper.myLooper() == Looper.getMainLooper()) clearFrameCallbacks()
-				else mainHandler.post { clearFrameCallbacks() }
+				if (Looper.myLooper() == Looper.getMainLooper()) clearPresentedFrameRequest()
+				else mainHandler.post { clearPresentedFrameRequest() }
 			}
 			cancelled
 		}
@@ -730,40 +678,47 @@ internal class ReaderPageTurnBitmapSource(
 
 	private fun readerPageTurnLiveCaptureEnvironmentMatches(
 		webView: WebView,
-		activity: Activity,
-		decorView: android.view.View,
+		rendererSurface: PageSurfaceView,
 		geometry: ReaderPageTurnCaptureGeometry,
-		expectedRect: Rect
+		expectedRectInWindow: Rect,
+		expectedRectInSurface: ReaderPageTurnRendererSurfaceRegion
 	): Boolean = runCatching {
-		val location = IntArray(2)
 		if (
-			activity.isFinishing ||
-			activity.isDestroyed ||
-			activity.window.decorView !== decorView ||
-			webView.rootView !== decorView
+			webView.rootView !== rendererSurface.rootView ||
+			!webView.isAttachedToWindow ||
+			!rendererSurface.isAttachedToWindow ||
+			!rendererSurface.isShown ||
+			!rendererSurface.holder.surface.isValid
 		) {
 			return@runCatching false
 		}
-		webView.getLocationInWindow(location)
-		val currentRect = geometry.surfaceRectInWindow(
-			webViewWindowLeft = location[0],
-			webViewWindowTop = location[1],
+		val webViewLocation = IntArray(2)
+		val rendererLocation = IntArray(2)
+		webView.getLocationInWindow(webViewLocation)
+		rendererSurface.getLocationInWindow(rendererLocation)
+		val currentRectInWindow = geometry.surfaceRectInWindow(
+			webViewWindowLeft = webViewLocation[0],
+			webViewWindowTop = webViewLocation[1],
 			webViewWidth = webView.width,
 			webViewHeight = webView.height
 		)?.let { Rect(it.left, it.top, it.right, it.bottom) }
-		readerPageTurnLiveCapturePreflightAccepted(
-			activityAvailable = true,
-			webViewAttached = webView.isAttachedToWindow,
-			decorAttached = decorView.isAttachedToWindow,
-			isStillCurrent = true,
-			geometryMatches = currentRect == expectedRect,
-			left = expectedRect.left,
-			top = expectedRect.top,
-			right = expectedRect.right,
-			bottom = expectedRect.bottom,
-			decorWidth = decorView.width,
-			decorHeight = decorView.height
-		)
+		val surfaceFrame = rendererSurface.holder.surfaceFrame
+		val currentRectInSurface = currentRectInWindow?.let { current ->
+			readerPageTurnRendererSurfaceRect(
+				sourceLeftInWindow = current.left,
+				sourceTopInWindow = current.top,
+				sourceRightInWindow = current.right,
+				sourceBottomInWindow = current.bottom,
+				rendererWindowLeft = rendererLocation[0],
+				rendererWindowTop = rendererLocation[1],
+				rendererWidth = rendererSurface.width,
+				rendererHeight = rendererSurface.height,
+				bufferWidth = surfaceFrame.width(),
+				bufferHeight = surfaceFrame.height()
+			)
+		}
+		currentRectInWindow == expectedRectInWindow &&
+			currentRectInSurface == expectedRectInSurface
 	}.getOrDefault(false)
 
 	fun confirmLivePresentationReceipt(
@@ -1040,12 +995,6 @@ internal class ReaderPageTurnBitmapSource(
 
 	internal fun parseGeometry(encoded: String?): ReaderPageTurnCaptureGeometry? =
 		readerPageTurnCaptureGeometry(encoded)
-}
-
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-	is Activity -> this
-	is ContextWrapper -> if (baseContext === this) null else baseContext.findActivity()
-	else -> null
 }
 
 internal fun <T : Any> readerPageTurnPresentedSurfaceCandidate(

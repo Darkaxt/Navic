@@ -12,6 +12,7 @@ import java.lang.ref.WeakReference
 import java.util.IdentityHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import karacken.curl.PageSurfaceView
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -189,30 +190,61 @@ internal fun readerPageLiveRasterMatchesExpected(
 	expectedSource: ReaderPageRasterPixels?,
 	cancellationCheck: () -> Unit = {}
 ): Boolean {
+	fun rejected(reason: String): Boolean {
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Live page-turn raster match result=Rejected reason=$reason"
+		)
+		return false
+	}
 	val distances = readerPageLiveRasterDistances(
 		candidate = candidate,
 		expectedTarget = expectedTarget,
 		expectedSource = expectedSource,
 		cancellationCheck = cancellationCheck
-	) ?: return false
+	) ?: return rejected("Dimensions")
 	val targetDistance = distances.target
-	if (!targetDistance.isAggregateTargetMatch()) return false
-	val sourceTargetDistance = distances.sourceTarget
-		?: return targetDistance.hasAbsoluteFarPixelAllowance()
-	if (sourceTargetDistance.isAuthoredEquivalent()) {
-		return targetDistance.hasAbsoluteFarPixelAllowance()
+	if (!targetDistance.isAggregateTargetMatch()) {
+		return rejected("TargetAggregate")
 	}
-	val sourceDistance = distances.source ?: return false
+	val sourceTargetDistance = distances.sourceTarget
+		?: return if (targetDistance.hasAbsoluteFarPixelAllowance()) {
+			true
+		} else {
+			rejected("AbsoluteFarPixelLimit")
+		}
+	if (sourceTargetDistance.isAuthoredEquivalent()) {
+		return if (targetDistance.hasAbsoluteFarPixelAllowance()) {
+			true
+		} else {
+			rejected("EquivalentFarPixelLimit")
+		}
+	}
+	val sourceDistance = distances.source ?: return rejected("SourceDistanceUnavailable")
 	if (targetDistance.farPixelCount != sourceDistance.farPixelCount) {
-		return targetDistance.farPixelCount < sourceDistance.farPixelCount
+		return if (targetDistance.farPixelCount < sourceDistance.farPixelCount) {
+			true
+		} else {
+			rejected("SourceFarPixelPreference")
+		}
 	}
 	if (targetDistance.maximumDistance != sourceDistance.maximumDistance) {
-		return targetDistance.maximumDistance < sourceDistance.maximumDistance
+		return if (targetDistance.maximumDistance < sourceDistance.maximumDistance) {
+			true
+		} else {
+			rejected("SourceMaximumDistancePreference")
+		}
 	}
-	return targetDistance.rms <=
+	return if (
+		targetDistance.rms <=
 			sourceDistance.rms * LiveValidationRelativeDistanceRatio + 1.5 &&
 		targetDistance.mean <=
 			sourceDistance.mean * LiveValidationRelativeDistanceRatio + 0.75
+	) {
+		true
+	} else {
+		rejected("SourceRelativeDistancePreference")
+	}
 }
 
 internal fun <T : ReaderPageRasterPixels> readerPageSemanticLiveValidationResult(
@@ -670,27 +702,39 @@ private fun readerPageLiveCaptureMatchesExpected(
 	expectedSource: ReaderPageSlideSnapshot?,
 	cancellationCheck: () -> Unit
 ): Boolean {
+	fun rejected(reason: String): Boolean {
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Live page-turn capture match result=Rejected reason=$reason"
+		)
+		return false
+	}
 	if (
 		candidate.bitmap.isRecycled ||
 		expectedTarget.bitmap.isRecycled ||
 		expectedSource?.bitmap?.isRecycled == true
 	) {
-		return false
+		return rejected("RecycledBitmap")
 	}
 	val kind = expectedTarget.key.kind
 	val candidateGeometry = candidate.geometry.leafGeometry(
 		candidate.bitmap.width,
 		candidate.bitmap.height
-	) ?: return false
-	if (!readerPageRasterGeometryMatches(kind, candidateGeometry)) return false
+	) ?: return rejected("CandidateGeometryUnavailable")
+	if (!readerPageRasterGeometryMatches(kind, candidateGeometry)) {
+		return rejected("CandidateGeometryMismatch")
+	}
 	val candidateLayout = readerPageRasterPhysicalLayout(
 		surfaceRectInWindow = candidate.sourceRectInWindow,
 		bitmapWidth = candidate.bitmap.width,
 		bitmapHeight = candidate.bitmap.height,
 		geometry = candidateGeometry
-	) ?: return false
-	val targetLayout = readerPageRasterPhysicalLayout(expectedTarget) ?: return false
-	if (!candidateLayout.matches(targetLayout)) return false
+	) ?: return rejected("CandidateLayoutUnavailable")
+	val targetLayout = readerPageRasterPhysicalLayout(expectedTarget)
+		?: return rejected("TargetLayoutUnavailable")
+	if (!candidateLayout.matches(targetLayout)) {
+		return rejected("CandidateLayoutMismatch")
+	}
 	if (
 		expectedSource != null &&
 		(
@@ -699,14 +743,19 @@ private fun readerPageLiveCaptureMatchesExpected(
 			readerPageRasterPhysicalLayout(expectedSource)?.matches(targetLayout) != true
 		)
 	) {
-		return false
+		return rejected("SourceLayoutMismatch")
 	}
-	return readerPageLiveRasterMatchesExpected(
-		candidate = ReaderPageBitmapRasterPixels(candidate.bitmap),
-		expectedTarget = ReaderPageBitmapRasterPixels(expectedTarget.bitmap),
-		expectedSource = expectedSource?.bitmap?.let(::ReaderPageBitmapRasterPixels),
-		cancellationCheck = cancellationCheck
-	)
+	if (
+		!readerPageLiveRasterMatchesExpected(
+			candidate = ReaderPageBitmapRasterPixels(candidate.bitmap),
+			expectedTarget = ReaderPageBitmapRasterPixels(expectedTarget.bitmap),
+			expectedSource = expectedSource?.bitmap?.let(::ReaderPageBitmapRasterPixels),
+			cancellationCheck = cancellationCheck
+		)
+	) {
+		return rejected("RasterMismatch")
+	}
+	return true
 }
 
 private fun readerPageLiveCaptureValidationResult(
@@ -1784,6 +1833,7 @@ internal class ReaderPageTurnBundleSource(
 
 	fun validateLivePresentation(
 		webView: WebView,
+		rendererSurface: PageSurfaceView,
 		request: ReaderPageRelocationRequest,
 		expectedTarget: ReaderPageSlideSnapshot,
 		expectedSource: ReaderPageSlideSnapshot?,
@@ -1855,12 +1905,17 @@ internal class ReaderPageTurnBundleSource(
 		val captureHandle = try {
 			bitmapSource.captureLiveCompositedSurface(
 				webView = webView,
+				rendererSurface = rendererSurface,
 				target = target,
 				expectedBitmapWidth = expectedTargetBitmapWidth,
 				expectedBitmapHeight = expectedTargetBitmapHeight,
 				isStillCurrent = ::validationIsCurrent
 			) { captured ->
 				if (captured == null) {
+					Logger.i(
+						ReaderPageTurnBundleSourceTag,
+						"Live page-turn validation capture result=Unavailable"
+					)
 					if (
 						ownership.completeCapture(
 							candidate = null,
@@ -1911,6 +1966,10 @@ internal class ReaderPageTurnBundleSource(
 									expectedTarget = work.expectedTarget,
 									expectedSource = work.expectedSource,
 									cancellationCheck = { workerContext.ensureActive() }
+								)
+								Logger.i(
+									ReaderPageTurnBundleSourceTag,
+									"Live page-turn validation comparison result=$compared"
 								)
 								if (liveValidationGenerationIsCurrent()) compared
 								else ReaderPageRelocationContentValidationResult.Invalidated

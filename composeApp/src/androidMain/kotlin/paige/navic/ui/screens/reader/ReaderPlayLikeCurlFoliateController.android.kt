@@ -4194,6 +4194,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		return try {
 			bundleSource.validateLivePresentation(
 				webView = webView,
+				rendererSurface = surfaceView,
 				request = request,
 				expectedTarget = expectedTarget,
 				expectedSource = expectedSource,

@@ -546,6 +546,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(validation, "expectedQuality = profile.quality")
 		assertContains(validation, "expectedTarget = expectedTarget")
 		assertContains(validation, "expectedSource = expectedSource")
+		assertContains(validation, "rendererSurface = surfaceView")
+		assertContains(validation, "isStillCurrent = { livePresentationValidationIsCurrent(request, generationOwner) }")
 		assertContains(validation, "if (retained == null)")
 		assertContains(validation, "expectedTarget.release()")
 		assertContains(validation, "expectedSource?.release()")
