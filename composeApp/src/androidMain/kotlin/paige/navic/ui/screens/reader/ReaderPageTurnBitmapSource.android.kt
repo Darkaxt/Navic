@@ -38,6 +38,8 @@ private const val PageTurnCapturePrimarySamplePhase = 0.5f
 private const val PageTurnCaptureShiftedSamplePhase = 0f
 private const val PageTurnCaptureMinimumLuminanceRange = 32
 private const val PageTurnCaptureForegroundDistance = 24
+private const val PageTurnCaptureMinimumLowContrastLuminanceRange = 16
+private const val PageTurnCaptureLowContrastForegroundDistance = 8
 private const val PageTurnCaptureMinimumForegroundSamples = 3
 private const val PageTurnCaptureForegroundSampleDivisor = 384
 private const val LegacyLiveCaptureMaximumFrameAttempts = 2
@@ -270,7 +272,13 @@ internal class ReaderPageTurnBitmapSource(
 	fun captureSurface(
 		webView: WebView,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
-	) = capture(webView, onCaptured) { geometry, location ->
+	) = captureSurface(webView, allowStableLowContrast = false, onCaptured)
+
+	private fun captureSurface(
+		webView: WebView,
+		allowStableLowContrast: Boolean,
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
+	) = capture(webView, onCaptured, allowStableLowContrast) { geometry, location ->
 		geometry.surfaceRectInWindow(
 			webViewWindowLeft = location[0],
 			webViewWindowTop = location[1],
@@ -313,7 +321,7 @@ internal class ReaderPageTurnBitmapSource(
 				if (ownership.complete() != null) onCaptured(null)
 				return@initial
 			}
-			captureSurface(webView) { candidate ->
+			captureSurface(webView, allowStableLowContrast = true) { candidate ->
 				if (!ownership.retain(candidate)) {
 					candidate?.bitmap?.takeUnless { it.isRecycled }?.recycle()
 					return@captureSurface
@@ -796,6 +804,7 @@ internal class ReaderPageTurnBitmapSource(
 	private fun capture(
 		webView: WebView,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
+		allowStableLowContrast: Boolean = false,
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
 	) {
 		if (!canCapture(webView)) {
@@ -815,7 +824,14 @@ internal class ReaderPageTurnBitmapSource(
 				onCaptured(null)
 				return@evaluateJavascript
 			}
-			captureResolvedGeometry(webView, geometry, startedAt, onCaptured, resolveRect)
+			captureResolvedGeometry(
+				webView = webView,
+				geometry = geometry,
+				startedAt = startedAt,
+				onCaptured = onCaptured,
+				allowStableLowContrast = allowStableLowContrast,
+				resolveRect = resolveRect
+			)
 		}
 	}
 
@@ -823,6 +839,7 @@ internal class ReaderPageTurnBitmapSource(
 		webView: WebView,
 		geometry: ReaderPageTurnCaptureGeometry,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
+		allowStableLowContrast: Boolean = false,
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
 	) {
 		if (!canCapture(webView)) {
@@ -834,6 +851,7 @@ internal class ReaderPageTurnBitmapSource(
 			geometry = geometry,
 			startedAt = SystemClock.uptimeMillis(),
 			onCaptured = onCaptured,
+			allowStableLowContrast = allowStableLowContrast,
 			resolveRect = resolveRect
 		)
 	}
@@ -843,6 +861,7 @@ internal class ReaderPageTurnBitmapSource(
 		geometry: ReaderPageTurnCaptureGeometry,
 		startedAt: Long,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
+		allowStableLowContrast: Boolean,
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
 	) {
 		if (!webView.isAttachedToWindow) {
@@ -857,7 +876,14 @@ internal class ReaderPageTurnBitmapSource(
 					return
 				}
 				webView.postOnAnimation {
-					captureVisualState(webView, geometry, startedAt, onCaptured, resolveRect)
+					captureVisualState(
+						webView = webView,
+						geometry = geometry,
+						startedAt = startedAt,
+						onCaptured = onCaptured,
+						resolveRect = resolveRect,
+						allowStableLowContrast = allowStableLowContrast
+					)
 				}
 			}
 		})
@@ -869,7 +895,8 @@ internal class ReaderPageTurnBitmapSource(
 		startedAt: Long,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?,
-		previousSparseSignature: Int? = null
+		allowStableLowContrast: Boolean,
+		previousRejectedSignature: ReaderPageTurnRejectedForegroundSignature? = null
 	) {
 		if (!webView.isAttachedToWindow) {
 			onCaptured(null)
@@ -904,9 +931,10 @@ internal class ReaderPageTurnBitmapSource(
 			backgroundColor
 		)
 		val foreground = if (drawn) bitmap.analyzeRenderableForeground() else null
-		val settledSparse = previousSparseSignature != null &&
-			foreground?.sparseSignature == previousSparseSignature
-		if (foreground?.renderable == true || settledSparse) {
+		val rejectedSignature = foreground?.settlementSignature(allowStableLowContrast)
+		val settledRejected = previousRejectedSignature != null &&
+			rejectedSignature == previousRejectedSignature
+		if (foreground?.renderable == true || settledRejected) {
 			bitmap.setHasAlpha(false)
 			bitmap.setPremultiplied(true)
 			val elapsedMs = SystemClock.uptimeMillis() - startedAt
@@ -914,18 +942,18 @@ internal class ReaderPageTurnBitmapSource(
 				ReaderPageTurnBitmapSourceTag,
 				"Page-turn capture success method=webview-draw rect=$sourceRect " +
 					"bitmap=${bitmap.width}x${bitmap.height} " +
-					"settledSparse=$settledSparse elapsedMs=$elapsedMs"
+					"settledRejected=$settledRejected elapsedMs=$elapsedMs"
 			)
 			onCaptured(ReaderPageTurnCaptureResult(bitmap, sourceRect, geometry, elapsedMs))
 			return
 		}
 
 		bitmap.recycle()
-		if (foreground?.sparseSignature != null && previousSparseSignature == null) {
+		if (rejectedSignature != null && previousRejectedSignature == null) {
 			Logger.i(
 				ReaderPageTurnBitmapSourceTag,
-				"Page-turn capture awaiting stable sparse surface rect=$sourceRect " +
-					"samples=${foreground.sampleCount} " +
+				"Page-turn capture awaiting stable ${rejectedSignature.kind.logValue} surface " +
+					"rect=$sourceRect samples=${foreground.sampleCount} " +
 					"range=${foreground.luminanceRange} " +
 					"distant=${foreground.distantSampleCount} " +
 					"required=${foreground.requiredDistantSampleCount}"
@@ -937,10 +965,17 @@ internal class ReaderPageTurnBitmapSource(
 					startedAt = startedAt,
 					onCaptured = onCaptured,
 					resolveRect = resolveRect,
-					previousSparseSignature = foreground.sparseSignature
+					allowStableLowContrast = allowStableLowContrast,
+					previousRejectedSignature = rejectedSignature
 				)
 			}
 			return
+		}
+		if (previousRejectedSignature != null) {
+			Logger.i(
+				ReaderPageTurnBitmapSourceTag,
+				"Page-turn rejected surface changed before second observation"
+			)
 		}
 
 		Logger.i(
@@ -1056,14 +1091,40 @@ private fun drawWebViewIntoBitmap(
 	false
 }
 
+private enum class ReaderPageTurnRejectedForegroundKind(val logValue: String) {
+	Sparse("sparse"),
+	LowContrast("low-contrast")
+}
+
+private data class ReaderPageTurnRejectedForegroundSignature(
+	val kind: ReaderPageTurnRejectedForegroundKind,
+	val pixelHash: Int
+)
+
 private data class ReaderPageTurnForegroundAnalysis(
 	val sampleCount: Int,
 	val luminanceRange: Int,
 	val distantSampleCount: Int,
 	val requiredDistantSampleCount: Int,
 	val renderable: Boolean,
-	val sparseSignature: Int?
-)
+	val sparseSignature: Int?,
+	val lowContrastSignature: Int?
+) {
+	fun settlementSignature(
+		allowStableLowContrast: Boolean
+	): ReaderPageTurnRejectedForegroundSignature? = when {
+		sparseSignature != null -> ReaderPageTurnRejectedForegroundSignature(
+			ReaderPageTurnRejectedForegroundKind.Sparse,
+			sparseSignature
+		)
+		allowStableLowContrast && lowContrastSignature != null ->
+			ReaderPageTurnRejectedForegroundSignature(
+				ReaderPageTurnRejectedForegroundKind.LowContrast,
+				lowContrastSignature
+			)
+		else -> null
+	}
+}
 
 private fun Bitmap.analyzeRenderableForeground(): ReaderPageTurnForegroundAnalysis =
 	readerPageTurnCaptureForegroundAnalysis(width, height) { x, y -> getPixel(x, y) }
@@ -1090,6 +1151,8 @@ private fun readerPageTurnCaptureForegroundAnalysis(
 	return when {
 		primary.sparseSignature != null && shifted.sparseSignature == null -> primary
 		shifted.sparseSignature != null && primary.sparseSignature == null -> shifted
+		primary.lowContrastSignature != null && shifted.lowContrastSignature == null -> primary
+		shifted.lowContrastSignature != null && primary.lowContrastSignature == null -> shifted
 		shifted.luminanceRange > primary.luminanceRange -> shifted
 		shifted.luminanceRange == primary.luminanceRange &&
 			shifted.distantSampleCount > primary.distantSampleCount -> shifted
@@ -1106,7 +1169,7 @@ private fun readerPageTurnSampledForegroundAnalysis(
 	val columns = PageTurnCaptureSampleColumns.coerceAtMost(width)
 	val rows = PageTurnCaptureSampleRows.coerceAtMost(height)
 	if (columns <= 0 || rows <= 0) {
-		return ReaderPageTurnForegroundAnalysis(0, 0, 0, 0, false, null)
+		return ReaderPageTurnForegroundAnalysis(0, 0, 0, 0, false, null, null)
 	}
 	val pixels = ArrayList<Int>(columns * rows)
 	for (row in 0 until rows) {
@@ -1129,7 +1192,7 @@ internal fun readerPageTurnCaptureContainsForeground(
 ): Boolean = readerPageTurnCaptureForegroundAnalysis(width, height, pixelAt).renderable
 
 private fun readerPageTurnForegroundAnalysis(pixels: IntArray): ReaderPageTurnForegroundAnalysis {
-	if (pixels.isEmpty()) return ReaderPageTurnForegroundAnalysis(0, 0, 0, 0, false, null)
+	if (pixels.isEmpty()) return ReaderPageTurnForegroundAnalysis(0, 0, 0, 0, false, null, null)
 	val luminance = IntArray(pixels.size) { index ->
 		val color = pixels[index]
 		val red = color ushr 16 and 0xff
@@ -1147,6 +1210,9 @@ private fun readerPageTurnForegroundAnalysis(pixels: IntArray): ReaderPageTurnFo
 	val distantSamples = luminance.count { value ->
 		abs(value - baseline) >= PageTurnCaptureForegroundDistance
 	}
+	val lowContrastSamples = luminance.count { value ->
+		abs(value - baseline) >= PageTurnCaptureLowContrastForegroundDistance
+	}
 	val renderable =
 		range >= PageTurnCaptureMinimumLuminanceRange &&
 			distantSamples >= requiredDistantSamples
@@ -1159,18 +1225,41 @@ private fun readerPageTurnForegroundAnalysis(pixels: IntArray): ReaderPageTurnFo
 	} else {
 		null
 	}
+	val lowContrastSignature = if (
+		!renderable &&
+		range in PageTurnCaptureMinimumLowContrastLuminanceRange until
+			PageTurnCaptureMinimumLuminanceRange &&
+		lowContrastSamples >= requiredDistantSamples
+	) {
+		luminance.contentHashCode()
+	} else {
+		null
+	}
 	return ReaderPageTurnForegroundAnalysis(
 		sampleCount = pixels.size,
 		luminanceRange = range,
 		distantSampleCount = distantSamples,
 		requiredDistantSampleCount = requiredDistantSamples,
 		renderable = renderable,
-		sparseSignature = sparseSignature
+		sparseSignature = sparseSignature,
+		lowContrastSignature = lowContrastSignature
 	)
 }
 
 internal fun readerPageTurnPixelsContainForeground(pixels: IntArray): Boolean =
 	readerPageTurnForegroundAnalysis(pixels).renderable
+
+internal fun readerPageTurnRejectedForegroundSettled(
+	previousPixels: IntArray,
+	currentPixels: IntArray,
+	allowStableLowContrast: Boolean
+): Boolean {
+	val previous = readerPageTurnForegroundAnalysis(previousPixels)
+		.settlementSignature(allowStableLowContrast)
+	return previous != null &&
+		readerPageTurnForegroundAnalysis(currentPixels)
+			.settlementSignature(allowStableLowContrast) == previous
+}
 
 internal fun readerPageTurnSparseForegroundSettled(
 	previousPixels: IntArray,
@@ -1179,4 +1268,13 @@ internal fun readerPageTurnSparseForegroundSettled(
 	val previous = readerPageTurnForegroundAnalysis(previousPixels).sparseSignature
 	return previous != null &&
 		readerPageTurnForegroundAnalysis(currentPixels).sparseSignature == previous
+}
+
+internal fun readerPageTurnLowContrastForegroundSettled(
+	previousPixels: IntArray,
+	currentPixels: IntArray
+): Boolean {
+	val previous = readerPageTurnForegroundAnalysis(previousPixels).lowContrastSignature
+	return previous != null &&
+		readerPageTurnForegroundAnalysis(currentPixels).lowContrastSignature == previous
 }

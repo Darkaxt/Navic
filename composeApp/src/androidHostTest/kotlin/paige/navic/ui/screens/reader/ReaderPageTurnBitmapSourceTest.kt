@@ -56,16 +56,17 @@ class ReaderPageTurnBitmapSourceTest {
 		val analyze = "bitmap.analyzeRenderableForeground()"
 		val visualFence = "webView.postVisualStateCallback("
 		val nextFrame = "webView.postOnAnimation {"
-		val captureVisualState = "captureVisualState(webView, geometry, startedAt, onCaptured, resolveRect)"
+		val captureVisualState = "captureVisualState("
 
 		assertFalse(capture.contains("PixelCopy"))
 		assertTrue(request.indexOf(visualFence) < request.indexOf(nextFrame))
 		assertTrue(request.indexOf(nextFrame) < request.indexOf(captureVisualState))
 		assertTrue(capture.contains(draw))
 		assertTrue(capture.indexOf(draw) < capture.indexOf(analyze))
-		assertTrue(capture.contains("previousSparseSignature: Int? = null"))
-		assertTrue(capture.contains("foreground?.sparseSignature == previousSparseSignature"))
-		assertTrue(capture.contains("previousSparseSignature == null"))
+		assertTrue(capture.contains("previousRejectedSignature: ReaderPageTurnRejectedForegroundSignature? = null"))
+		assertTrue(capture.contains("foreground?.settlementSignature(allowStableLowContrast)"))
+		assertFalse(capture.contains("previousSparseSignature"))
+		assertFalse(capture.contains("previousLowContrastSignature"))
 		assertTrue(helper.contains("webView.draw(canvas)"))
 		assertTrue(
 			helper.contains(
@@ -106,7 +107,9 @@ class ReaderPageTurnBitmapSourceTest {
 			.substringAfter("fun capturePresentedSurface(")
 			.substringBefore("suspend fun captureSurfaceAwait")
 		val initialReceipt = presented.indexOf("queryPresentationReceipt(")
-		val capture = presented.indexOf("captureSurface(webView)")
+		val capture = presented.indexOf(
+			"captureSurface(webView, allowStableLowContrast = true)"
+		)
 		val finalReceipt = presented.indexOf("queryPresentationReceipt(", initialReceipt + 1)
 
 		assertTrue(initialReceipt >= 0 && initialReceipt < capture)
@@ -116,6 +119,11 @@ class ReaderPageTurnBitmapSourceTest {
 		assertTrue(presented.contains("ownership.complete()"))
 		assertTrue(presented.contains("return ownership"))
 		assertTrue(presented.contains("readerPageTurnPresentedSurfaceCandidate("))
+		assertTrue(
+			source.contains(
+				"captureSurface(webView, allowStableLowContrast = false, onCaptured)"
+			)
+		)
 		assertTrue(source.contains("pageTurnPreviewPresentationReceipt"))
 		assertTrue(source.contains("pageTurnLivePresentationReceipt"))
 	}
@@ -678,6 +686,54 @@ class ReaderPageTurnBitmapSourceTest {
 		pixels[107] = ReaderPageTestLowContrast
 
 		assertFalse(readerPageTurnPixelsContainForeground(pixels))
+	}
+
+	@Test
+	fun stableLowContrastSurfaceIsAcceptedOnlyAfterASecondObservation() {
+		val first = IntArray(1_120) { ReaderPageTestBackground }
+		first[105] = ReaderPageTestLowContrast
+		first[106] = ReaderPageTestLowContrast
+		first[107] = ReaderPageTestLowContrast
+		val second = first.copyOf()
+
+		assertFalse(readerPageTurnPixelsContainForeground(first))
+		assertTrue(readerPageTurnLowContrastForegroundSettled(first, second))
+	}
+
+	@Test
+	fun changingLowContrastSurfaceIsNotAcceptedAsSettled() {
+		val first = IntArray(1_120) { ReaderPageTestBackground }
+		val second = first.copyOf()
+		first[105] = ReaderPageTestLowContrast
+		second[106] = ReaderPageTestLowContrast
+
+		assertFalse(readerPageTurnLowContrastForegroundSettled(first, second))
+	}
+
+	@Test
+	fun stableSinglePixelLowContrastArtifactIsRejected() {
+		val pixels = IntArray(1_120) { ReaderPageTestBackground }
+		pixels[105] = ReaderPageTestLowContrast
+
+		assertFalse(readerPageTurnLowContrastForegroundSettled(pixels, pixels.copyOf()))
+	}
+
+	@Test
+	fun sparseToLowContrastClassificationDoesNotSettle() {
+		val sparse = IntArray(1_120) { ReaderPageTestBackground }
+		val lowContrast = sparse.copyOf()
+		sparse[105] = ReaderPageTestForeground
+		lowContrast[105] = ReaderPageTestLowContrast
+		lowContrast[106] = ReaderPageTestLowContrast
+		lowContrast[107] = ReaderPageTestLowContrast
+
+		assertFalse(
+			readerPageTurnRejectedForegroundSettled(
+				previousPixels = sparse,
+				currentPixels = lowContrast,
+				allowStableLowContrast = true
+			)
+		)
 	}
 
 	@Test
