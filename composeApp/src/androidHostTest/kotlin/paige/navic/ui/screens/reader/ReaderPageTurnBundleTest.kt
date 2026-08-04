@@ -1,6 +1,8 @@
 package paige.navic.ui.screens.reader
 
 import java.io.File
+import kotlin.math.floor
+import kotlin.math.roundToInt
 import paige.navic.reader.ReaderPageBitmapQuality
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -78,6 +80,133 @@ class ReaderPageTurnBundleTest {
 		assertEquals(0L, diagnostics.target.secondNonOpaquePixelCount)
 		assertEquals(2L, assertNotNull(diagnostics.source).firstNonOpaquePixelCount)
 		assertEquals(0L, assertNotNull(diagnostics.sourceTarget).firstNonOpaquePixelCount)
+	}
+
+	@Test
+	fun exactTwoTimesRendererRoundTripCreditsOnlyFilterConsistentFarPixels() {
+		val target = denseEdgePage(lineOffset = 0)
+		val source = denseEdgePage(lineOffset = 12)
+		val candidate = target.rendererRoundTrip2x()
+		val raw = assertNotNull(readerPageLiveRasterDistances(candidate, target, source) {})
+
+		assertTrue(raw.target.mean <= 8.0)
+		assertTrue(raw.target.rms <= 18.0)
+		assertTrue(raw.target.closeRatio < 0.96)
+		assertFalse(
+			readerPageLiveRasterMatchesExpected(
+				candidate = candidate,
+				expectedTarget = target,
+				expectedSource = source,
+				exactTwoTimesRoundTrip = false
+			)
+		)
+		assertTrue(
+			readerPageLiveRasterMatchesExpected(
+				candidate = candidate,
+				expectedTarget = target,
+				expectedSource = source,
+				exactTwoTimesRoundTrip = true
+			)
+		)
+		val normalized = assertNotNull(
+			readerPageLiveRasterDistances(candidate, target, source, exactTwoTimesRoundTrip = true) {}
+		)
+		assertTrue(normalized.target.roundTripCloseCreditRatio > 0.0)
+		assertTrue(normalized.target.effectiveCloseRatio >= 0.96)
+	}
+
+	@Test
+	fun exactTwoTimesPolicyRequiresBothCropDimensions() {
+		val diagnostics = ReaderPageTurnLiveCaptureDiagnostics(
+			bitmapWidth = 915,
+			bitmapHeight = 1480,
+			rendererWidth = 1848,
+			rendererHeight = 2960,
+			bufferWidth = 1848,
+			bufferHeight = 2960,
+			cropLeft = 0,
+			cropTop = 0,
+			cropWidth = 1830,
+			cropHeight = 2960,
+			alphaSampledPixels = 1536,
+			alphaNonOpaquePixels = 0
+		)
+
+		assertTrue(readerPageLiveRasterUsesExactTwoTimesRoundTrip(diagnostics))
+		assertFalse(
+			readerPageLiveRasterUsesExactTwoTimesRoundTrip(
+				diagnostics.copy(cropWidth = diagnostics.cropWidth - 1)
+			)
+		)
+		assertFalse(
+			readerPageLiveRasterUsesExactTwoTimesRoundTrip(
+				diagnostics.copy(cropHeight = diagnostics.cropHeight - 1)
+			)
+		)
+		assertFalse(readerPageLiveRasterUsesExactTwoTimesRoundTrip(null))
+	}
+
+	@Test
+	fun exactTwoTimesAllowanceStillRejectsSparseBlankUnrelatedAndShiftedPages() {
+		val sparseTarget = TestRaster.solid(80, 60, PaperColor).apply {
+			fillRect(20, 20, 23, 23, 0xff202020.toInt())
+		}
+		val sparseBlank = TestRaster.solid(80, 60, PaperColor)
+		assertFalse(
+			readerPageLiveRasterMatchesExpected(
+				sparseBlank,
+				sparseTarget,
+				null,
+				exactTwoTimesRoundTrip = true
+			)
+		)
+
+		val target = denseEdgePage(lineOffset = 0)
+		val source = denseEdgePage(lineOffset = 12)
+		assertFalse(
+			readerPageLiveRasterMatchesExpected(
+				denseEdgePage(lineOffset = 24),
+				target,
+				source,
+				exactTwoTimesRoundTrip = true
+			)
+		)
+		val shiftTarget = verticalEdgePage(columnOffset = 0)
+		assertFalse(
+			readerPageLiveRasterMatchesExpected(
+				shiftTarget.shiftedRightOnePixel(),
+				shiftTarget,
+				verticalEdgePage(columnOffset = 10),
+				exactTwoTimesRoundTrip = true
+			)
+		)
+	}
+
+	@Test
+	fun distributedLowContrastOmissionEarnsNoRoundTripCredit() {
+		val target = TestRaster.solid(80, 60, PaperColor).apply {
+			fillRect(4, 4, 44, 10, 0xffcab993.toInt())
+		}
+		val blank = TestRaster.solid(80, 60, PaperColor)
+		val source = authoredPage(accentX = 51, accentColor = 0xffa03020.toInt())
+		val diagnostics = assertNotNull(
+			readerPageLiveRasterDistances(
+				blank,
+				target,
+				source,
+				exactTwoTimesRoundTrip = true
+			) {}
+		)
+
+		assertEquals(0.0, diagnostics.target.roundTripCloseCreditRatio)
+		assertFalse(
+			readerPageLiveRasterMatchesExpected(
+				blank,
+				target,
+				source,
+				exactTwoTimesRoundTrip = true
+			)
+		)
 	}
 
 	@Test
@@ -722,6 +851,32 @@ class ReaderPageTurnBundleTest {
 	private companion object {
 		val PaperColor: Int = 0xffead9ae.toInt()
 
+		fun denseEdgePage(lineOffset: Int): TestRaster =
+			TestRaster.create(width = 180, height = 160, color = PaperColor).apply {
+				listOf(25, 75, 125).forEach { y ->
+					fillRect(
+						left = 20,
+						top = y + lineOffset,
+						right = 160,
+						bottom = y + lineOffset + 1,
+						color = 0xff202020.toInt()
+					)
+				}
+			}
+
+		fun verticalEdgePage(columnOffset: Int): TestRaster =
+			TestRaster.create(width = 180, height = 160, color = PaperColor).apply {
+				(20..160 step 20).forEach { x ->
+					fillRect(
+						left = x + columnOffset,
+						top = 20,
+						right = x + columnOffset + 1,
+						bottom = 140,
+						color = 0xffae9d72.toInt()
+					)
+				}
+			}
+
 		fun authoredPage(accentX: Int, accentColor: Int): TestRaster =
 			TestRaster.create(width = 80, height = 60, color = PaperColor).apply {
 				fillRect(left = 8, top = 8, right = 72, bottom = 12, color = 0xff303030.toInt())
@@ -752,6 +907,56 @@ class ReaderPageTurnBundleTest {
 		}
 
 		fun copy(): TestRaster = TestRaster(width, height, pixels.copyOf())
+
+		fun rendererRoundTrip2x(): TestRaster =
+			linearScaled(width * 2, height * 2).linearScaled(width, height)
+
+		fun shiftedRightOnePixel(): TestRaster = TestRaster(
+			width = width,
+			height = height,
+			pixels = IntArray(pixels.size) { index ->
+				val x = index % width
+				if (x == 0) PaperColor else pixels[index - 1]
+			}
+		)
+
+		private fun linearScaled(targetWidth: Int, targetHeight: Int): TestRaster {
+			fun channel(color: Int, shift: Int): Int = color ushr shift and 0xff
+			fun sample(x: Int, y: Int): Int = pixels[y * width + x]
+			val scaled = IntArray(targetWidth * targetHeight)
+			for (targetY in 0 until targetHeight) {
+				val sourceY = (targetY + 0.5) * height / targetHeight - 0.5
+				val sourceYFloor = floor(sourceY).toInt()
+				val y0 = sourceYFloor.coerceIn(0, height - 1)
+				val y1 = (sourceYFloor + 1).coerceIn(0, height - 1)
+				val yFraction = sourceY - sourceYFloor
+				for (targetX in 0 until targetWidth) {
+					val sourceX = (targetX + 0.5) * width / targetWidth - 0.5
+					val sourceXFloor = floor(sourceX).toInt()
+					val x0 = sourceXFloor.coerceIn(0, width - 1)
+					val x1 = (sourceXFloor + 1).coerceIn(0, width - 1)
+					val xFraction = sourceX - sourceXFloor
+					val colors = intArrayOf(
+						sample(x0, y0),
+						sample(x1, y0),
+						sample(x0, y1),
+						sample(x1, y1)
+					)
+					var packed = 0
+					for (shift in listOf(24, 16, 8, 0)) {
+						val top = channel(colors[0], shift) * (1.0 - xFraction) +
+							channel(colors[1], shift) * xFraction
+						val bottom = channel(colors[2], shift) * (1.0 - xFraction) +
+							channel(colors[3], shift) * xFraction
+						val value = (top * (1.0 - yFraction) + bottom * yFraction)
+							.roundToInt()
+						packed = packed or (value shl shift)
+					}
+					scaled[targetY * targetWidth + targetX] = packed
+				}
+			}
+			return TestRaster(targetWidth, targetHeight, scaled)
+		}
 
 		fun withChannelNoise(delta: Int): TestRaster = TestRaster(
 			width = width,

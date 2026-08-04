@@ -67,13 +67,22 @@ internal interface ReaderPageRasterPixels {
 }
 
 internal data class ReaderPageRasterDistance(
+	val pixelCount: Long,
 	val mean: Double,
 	val rms: Double,
 	val closeRatio: Double,
+	val roundTripCloseCreditRatio: Double,
+	val effectiveCloseRatio: Double,
 	val farPixelCount: Long,
 	val maximumDistance: Int,
 	val firstNonOpaquePixelCount: Long,
 	val secondNonOpaquePixelCount: Long
+)
+
+private fun readerPageRasterColorDistance(firstColor: Int, secondColor: Int): Int = maxOf(
+	abs((firstColor ushr 16 and 0xff) - (secondColor ushr 16 and 0xff)),
+	abs((firstColor ushr 8 and 0xff) - (secondColor ushr 8 and 0xff)),
+	abs((firstColor and 0xff) - (secondColor and 0xff))
 )
 
 private class ReaderPageRasterDistanceAccumulator {
@@ -81,21 +90,26 @@ private class ReaderPageRasterDistanceAccumulator {
 	private var distanceSum = 0L
 	private var squaredDistanceSum = 0L
 	private var closePixelCount = 0L
+	private var roundTripCloseCreditCount = 0L
 	private var farPixelCount = 0L
 	private var maximumDistance = 0
 	private var firstNonOpaquePixelCount = 0L
 	private var secondNonOpaquePixelCount = 0L
 
-	fun add(firstColor: Int, secondColor: Int) {
-		val distance = maxOf(
-			abs((firstColor ushr 16 and 0xff) - (secondColor ushr 16 and 0xff)),
-			abs((firstColor ushr 8 and 0xff) - (secondColor ushr 8 and 0xff)),
-			abs((firstColor and 0xff) - (secondColor and 0xff))
-		)
+	fun add(firstColor: Int, secondColor: Int, roundTripColor: Int? = null) {
+		val distance = readerPageRasterColorDistance(firstColor, secondColor)
 		pixelCount += 1L
 		distanceSum += distance
 		squaredDistanceSum += distance.toLong() * distance
 		if (distance <= LiveValidationCloseDistance) closePixelCount += 1L
+		if (
+			distance > LiveValidationFarDistance &&
+			roundTripColor != null &&
+			readerPageRasterColorDistance(firstColor, roundTripColor) <=
+				LiveValidationCloseDistance
+		) {
+			roundTripCloseCreditCount += 1L
+		}
 		if (distance > LiveValidationFarDistance) farPixelCount += 1L
 		if (distance > maximumDistance) maximumDistance = distance
 		if (firstColor ushr 24 != 0xff) firstNonOpaquePixelCount += 1L
@@ -105,9 +119,13 @@ private class ReaderPageRasterDistanceAccumulator {
 	fun result(): ReaderPageRasterDistance? {
 		if (pixelCount == 0L) return null
 		return ReaderPageRasterDistance(
+			pixelCount = pixelCount,
 			mean = distanceSum.toDouble() / pixelCount,
 			rms = sqrt(squaredDistanceSum.toDouble() / pixelCount),
 			closeRatio = closePixelCount.toDouble() / pixelCount,
+			roundTripCloseCreditRatio = roundTripCloseCreditCount.toDouble() / pixelCount,
+			effectiveCloseRatio =
+				(closePixelCount + roundTripCloseCreditCount).toDouble() / pixelCount,
 			farPixelCount = farPixelCount,
 			maximumDistance = maximumDistance,
 			firstNonOpaquePixelCount = firstNonOpaquePixelCount,
@@ -122,10 +140,41 @@ internal data class ReaderPageLiveRasterDistances(
 	val source: ReaderPageRasterDistance?
 )
 
+private fun readerPageExactTwoTimesRoundTripColor(
+	targetPixels: IntArray,
+	width: Int,
+	height: Int,
+	haloTop: Int,
+	x: Int,
+	y: Int
+): Int {
+	var red = 0
+	var green = 0
+	var blue = 0
+	for (yOffset in -1..1) {
+		val sourceY = (y + yOffset).coerceIn(0, height - 1)
+		val yWeight = if (yOffset == 0) 6 else 1
+		for (xOffset in -1..1) {
+			val sourceX = (x + xOffset).coerceIn(0, width - 1)
+			val xWeight = if (xOffset == 0) 6 else 1
+			val weight = xWeight * yWeight
+			val color = targetPixels[(sourceY - haloTop) * width + sourceX]
+			red += (color ushr 16 and 0xff) * weight
+			green += (color ushr 8 and 0xff) * weight
+			blue += (color and 0xff) * weight
+		}
+	}
+	return 0xff000000.toInt() or
+		(((red + 32) / 64) shl 16) or
+		(((green + 32) / 64) shl 8) or
+		((blue + 32) / 64)
+}
+
 internal fun readerPageLiveRasterDistances(
 	candidate: ReaderPageRasterPixels,
 	expectedTarget: ReaderPageRasterPixels,
 	expectedSource: ReaderPageRasterPixels?,
+	exactTwoTimesRoundTrip: Boolean = false,
 	cancellationCheck: () -> Unit
 ): ReaderPageLiveRasterDistances? {
 	if (
@@ -145,9 +194,18 @@ internal fun readerPageLiveRasterDistances(
 	}
 	val rowCapacity = minOf(LiveValidationStripRows, candidate.height)
 	val stripPixelCapacity = candidate.width.toLong() * rowCapacity
-	if (stripPixelCapacity <= 0L || stripPixelCapacity > Int.MAX_VALUE) return null
+	val targetRowCapacity = rowCapacity + if (exactTwoTimesRoundTrip) 2 else 0
+	val targetPixelCapacity = candidate.width.toLong() * targetRowCapacity
+	if (
+		stripPixelCapacity <= 0L ||
+		stripPixelCapacity > Int.MAX_VALUE ||
+		targetPixelCapacity <= 0L ||
+		targetPixelCapacity > Int.MAX_VALUE
+	) {
+		return null
+	}
 	val candidatePixels = IntArray(stripPixelCapacity.toInt())
-	val targetPixels = IntArray(stripPixelCapacity.toInt())
+	val targetPixels = IntArray(targetPixelCapacity.toInt())
 	val sourcePixels = expectedSource?.let { IntArray(stripPixelCapacity.toInt()) }
 	val targetDistance = ReaderPageRasterDistanceAccumulator()
 	val sourceTargetDistance = expectedSource?.let { ReaderPageRasterDistanceAccumulator() }
@@ -159,16 +217,48 @@ internal fun readerPageLiveRasterDistances(
 		val pixelCount = candidate.width * rowCount
 		candidate.readRows(top, rowCount, candidatePixels)
 		cancellationCheck()
-		expectedTarget.readRows(top, rowCount, targetPixels)
+		val targetHaloTop = if (exactTwoTimesRoundTrip) maxOf(0, top - 1) else top
+		val targetHaloBottom = if (exactTwoTimesRoundTrip) {
+			minOf(candidate.height, top + rowCount + 1)
+		} else {
+			top + rowCount
+		}
+		expectedTarget.readRows(
+			targetHaloTop,
+			targetHaloBottom - targetHaloTop,
+			targetPixels
+		)
 		if (expectedSource != null && sourcePixels != null) {
 			cancellationCheck()
 			expectedSource.readRows(top, rowCount, sourcePixels)
 		}
 		for (index in 0 until pixelCount) {
-			targetDistance.add(candidatePixels[index], targetPixels[index])
+			val localY = index / candidate.width
+			val x = index - localY * candidate.width
+			val globalY = top + localY
+			val targetIndex = (globalY - targetHaloTop) * candidate.width + x
+			val candidateColor = candidatePixels[index]
+			val targetColor = targetPixels[targetIndex]
+			val roundTripColor = if (
+				exactTwoTimesRoundTrip &&
+				readerPageRasterColorDistance(candidateColor, targetColor) >
+					LiveValidationFarDistance
+			) {
+				readerPageExactTwoTimesRoundTripColor(
+					targetPixels = targetPixels,
+					width = candidate.width,
+					height = candidate.height,
+					haloTop = targetHaloTop,
+					x = x,
+					y = globalY
+				)
+			} else {
+				null
+			}
+			targetDistance.add(candidateColor, targetColor, roundTripColor)
 			if (sourcePixels != null) {
-				sourceTargetDistance?.add(sourcePixels[index], targetPixels[index])
-				sourceDistance?.add(candidatePixels[index], sourcePixels[index])
+				sourceTargetDistance?.add(sourcePixels[index], targetColor)
+				sourceDistance?.add(candidateColor, sourcePixels[index])
 			}
 		}
 		top += rowCount
@@ -186,6 +276,12 @@ private fun ReaderPageRasterDistance?.privacySafeMetrics(prefix: String): String
 		"${prefix}MeanMilli=${(mean * 1_000.0).roundToLong()} " +
 		"${prefix}RmsMilli=${(rms * 1_000.0).roundToLong()} " +
 		"${prefix}ClosePermille=${(closeRatio * 1_000.0).roundToLong()} " +
+		"${prefix}RoundTripCreditPermille=${
+			(roundTripCloseCreditRatio * 1_000.0).roundToLong()
+		} " +
+		"${prefix}EffectiveClosePermille=${
+			(effectiveCloseRatio * 1_000.0).roundToLong()
+		} " +
 		"${prefix}FarPixels=$farPixelCount " +
 		"${prefix}MaximumDistance=$maximumDistance " +
 		"${prefix}FirstNonOpaquePixels=$firstNonOpaquePixelCount " +
@@ -202,10 +298,20 @@ private fun ReaderPageTurnLiveCaptureDiagnostics?.privacySafeMetrics(): String {
 		"alphaSampledPixels=$alphaSampledPixels alphaNonOpaquePixels=$alphaNonOpaquePixels"
 }
 
+internal fun readerPageLiveRasterUsesExactTwoTimesRoundTrip(
+	diagnostics: ReaderPageTurnLiveCaptureDiagnostics?
+): Boolean = diagnostics != null &&
+	diagnostics.bitmapWidth > 0 &&
+	diagnostics.bitmapHeight > 0 &&
+	diagnostics.alphaSampledPixels > 0 &&
+	diagnostics.alphaNonOpaquePixels == 0 &&
+	diagnostics.cropWidth.toLong() == diagnostics.bitmapWidth.toLong() * 2L &&
+	diagnostics.cropHeight.toLong() == diagnostics.bitmapHeight.toLong() * 2L
+
 private fun ReaderPageRasterDistance.isAggregateTargetMatch(): Boolean =
 	mean <= LiveValidationAbsoluteMeanDistance &&
 		rms <= LiveValidationAbsoluteRmsDistance &&
-		closeRatio >= LiveValidationAbsoluteCloseRatio
+		effectiveCloseRatio >= LiveValidationAbsoluteCloseRatio
 
 private fun ReaderPageRasterDistance.hasAbsoluteFarPixelAllowance(): Boolean =
 	farPixelCount <= LiveValidationAbsoluteFarPixelLimit
@@ -219,6 +325,7 @@ internal fun readerPageLiveRasterMatchesExpected(
 	candidate: ReaderPageRasterPixels,
 	expectedTarget: ReaderPageRasterPixels,
 	expectedSource: ReaderPageRasterPixels?,
+	exactTwoTimesRoundTrip: Boolean = false,
 	cancellationCheck: () -> Unit = {}
 ): Boolean {
 	fun rejected(reason: String): Boolean {
@@ -232,9 +339,17 @@ internal fun readerPageLiveRasterMatchesExpected(
 		candidate = candidate,
 		expectedTarget = expectedTarget,
 		expectedSource = expectedSource,
+		exactTwoTimesRoundTrip = exactTwoTimesRoundTrip,
 		cancellationCheck = cancellationCheck
 	) ?: return rejected("Dimensions")
 	val targetDistance = distances.target
+	if (exactTwoTimesRoundTrip && targetDistance.roundTripCloseCreditRatio > 0.0) {
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Live page-turn raster normalization policy=ExactTwoTimesRoundTrip " +
+				targetDistance.privacySafeMetrics("target")
+		)
+	}
 	if (!targetDistance.isAggregateTargetMatch()) {
 		Logger.i(
 			ReaderPageTurnBundleSourceTag,
@@ -790,6 +905,8 @@ private fun readerPageLiveCaptureMatchesExpected(
 			candidate = ReaderPageBitmapRasterPixels(captured.bitmap),
 			expectedTarget = ReaderPageBitmapRasterPixels(expectedTarget.bitmap),
 			expectedSource = expectedSource?.bitmap?.let(::ReaderPageBitmapRasterPixels),
+			exactTwoTimesRoundTrip =
+				readerPageLiveRasterUsesExactTwoTimesRoundTrip(candidate.diagnostics),
 			cancellationCheck = cancellationCheck
 		)
 	) {
