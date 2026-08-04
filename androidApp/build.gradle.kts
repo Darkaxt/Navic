@@ -47,8 +47,8 @@ extensions.configure<ApplicationExtension> {
 		applicationId = "darkaxt.navic"
 		minSdk = libs.versions.android.minSdk.get().toInt()
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
-		versionCode = 576
-		versionName = "v1.0.11-iota49"
+		versionCode = 577
+		versionName = "v1.0.11-iota50"
 		buildConfigField("boolean", "NAVIC_READER_DEV", "false")
 
 		ndk {
