@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "8d839b49b9b5092e15744df7f1f2fd7f855fc1ef",
+  "commit": "44c452bd48f887107c2ef9ec3a2c94aff183cd2b",
   "apiVersion": 3,
-  "sourceManifestSha256": "065241631a8d0c57c2107559beb490c515a393375655adc116ade531cf10b74a",
+  "sourceManifestSha256": "e8768f6c854d7ee5c6840eef7fcb166ef32b8fcb46f7e71fc30265a2e36bb688",
   "licenseBlob": "8aa26455d23acf904be3ed9dfb3a3efe3e49245a",
   "sourceFiles": [
     {
@@ -273,7 +273,7 @@
     },
     {
       "mode": "100644",
-      "blob": "ae7bcc5b2709bc1f31e9cf73966d1cffb99b6ca0",
+      "blob": "81d4581a655bae786052db598277dcbb67056f5c",
       "path": "karackencurllib/src/test/java/karacken/curl/Gles2RendererSourceTest.java"
     },
     {
