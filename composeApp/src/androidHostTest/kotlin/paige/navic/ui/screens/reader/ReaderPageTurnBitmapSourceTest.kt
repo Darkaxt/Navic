@@ -160,6 +160,10 @@ class ReaderPageTurnBitmapSourceTest {
 		assertTrue(initialReceipt >= 0 && initialReceipt < pixelCopy)
 		assertTrue(pixelCopy < finalReceipt)
 		assertTrue(liveCapture.contains("acceptedReceipt = finalReceipt"))
+		assertTrue(liveCapture.contains("LiveCaptureMaximumPresentationAuthorityRefreshes"))
+		assertTrue(liveCapture.contains("readerPageTurnLivePresentationAuthorityChanged("))
+		assertTrue(liveCapture.contains("ownership.releaseCandidateForRetry()"))
+		assertTrue(liveCapture.contains("start.run()"))
 		assertTrue(liveCapture.contains("PixelCopy.request("))
 		assertTrue(liveCapture.contains("copyResult == PixelCopy.SUCCESS"))
 		assertTrue(liveCapture.contains("activity.window"))
@@ -350,6 +354,46 @@ class ReaderPageTurnBitmapSourceTest {
 	}
 
 	@Test
+	fun changedMatchingLiveReceiptRequestsFreshCapture() {
+		val target = liveTarget()
+		val initial = liveReceipt()
+		val refreshed = initial.copy(presentationSequence = initial.presentationSequence + 1)
+
+		assertTrue(
+			readerPageTurnLivePresentationAuthorityChanged(
+				target = target,
+				initialReceipt = initial,
+				finalReceipt = refreshed,
+				isStillCurrent = true
+			)
+		)
+		assertFalse(
+			readerPageTurnLivePresentationAuthorityChanged(
+				target = target,
+				initialReceipt = initial,
+				finalReceipt = initial,
+				isStillCurrent = true
+			)
+		)
+		assertFalse(
+			readerPageTurnLivePresentationAuthorityChanged(
+				target = target,
+				initialReceipt = initial,
+				finalReceipt = refreshed.copy(pageIndex = target.pageIndex + 1),
+				isStillCurrent = true
+			)
+		)
+		assertFalse(
+			readerPageTurnLivePresentationAuthorityChanged(
+				target = target,
+				initialReceipt = initial,
+				finalReceipt = refreshed,
+				isStillCurrent = false
+			)
+		)
+	}
+
+	@Test
 	fun windowPixelCopySuccessTransfersCandidateWithoutRelease() {
 		val candidate = PresentedCandidate()
 		var releases = 0
@@ -367,6 +411,24 @@ class ReaderPageTurnBitmapSourceTest {
 		assertSame(candidate, ownership.finish(accepted = true)?.candidate)
 		assertEquals(0, releases)
 		assertFalse(ownership.cancel())
+	}
+
+	@Test
+	fun refreshedLivePresentationAuthorityReleasesCandidateAndKeepsCaptureOpen() {
+		val first = PresentedCandidate()
+		val second = PresentedCandidate()
+		var releases = 0
+		val ownership = ReaderPageTurnLiveCaptureOwnership<PresentedCandidate> {
+			releases += 1
+		}
+
+		assertTrue(ownership.retain(first))
+		assertTrue(ownership.releaseCandidateForRetry())
+		assertEquals(1, releases)
+		assertTrue(ownership.isOpen)
+		assertTrue(ownership.retain(second))
+		assertSame(second, ownership.finish(accepted = true)?.candidate)
+		assertEquals(1, releases)
 	}
 
 	@Test
@@ -779,6 +841,24 @@ class ReaderPageTurnBitmapSourceTest {
 		token = "neutral-preview-alpha",
 		pageIndex = 7,
 		previewGeneration = 11,
+		presentationSequence = 41
+	)
+
+	private fun liveTarget() = ReaderPageTurnPresentationTarget.Live(
+		token = "neutral-live-alpha",
+		pageIndex = 7,
+		foliateSessionId = "neutral-session-alpha",
+		rasterGeneration = 13,
+		textureGeneration = 17
+	)
+
+	private fun liveReceipt() = ReaderPageTurnPresentationReceipt(
+		scope = ReaderPageTurnPresentationScope.Live,
+		token = "neutral-live-alpha",
+		pageIndex = 7,
+		foliateSessionId = "neutral-session-alpha",
+		rasterGeneration = 13,
+		textureGeneration = 17,
 		presentationSequence = 41
 	)
 

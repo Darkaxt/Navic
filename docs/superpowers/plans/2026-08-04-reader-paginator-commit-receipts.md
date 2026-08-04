@@ -947,6 +947,7 @@ validated requirement-by-requirement against the approved specification.
     -CaptureReaderDiagnostics \
     -PrivacySafeEvidence \
     -RequireNoReaderConsoleErrors \
+    -RequireNeutralReaderVisualState \
     -ArtifactDir .codex-validation/paginator-receipts/book-a-preprocess
   ```
 

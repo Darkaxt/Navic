@@ -43,6 +43,7 @@ private const val PageTurnCaptureLowContrastForegroundDistance = 8
 private const val PageTurnCaptureMinimumForegroundSamples = 3
 private const val PageTurnCaptureForegroundSampleDivisor = 384
 private const val LegacyLiveCaptureMaximumFrameAttempts = 2
+private const val LiveCaptureMaximumPresentationAuthorityRefreshes = 2
 
 internal data class ReaderPageTurnCaptureResult(
 	val bitmap: Bitmap,
@@ -84,6 +85,23 @@ internal class ReaderPageTurnLiveCaptureOwnership<T : Any>(
 		this.candidate = candidate
 		candidateRetained = true
 		true
+	}
+
+	fun releaseCandidateForRetry(): Boolean {
+		var retained: T? = null
+		val released = synchronized(lock) {
+			if (
+				state != State.Open ||
+				externalWriteInFlight ||
+				!candidateRetained
+			) {
+				return false
+			}
+			retained = takeCandidateLocked()
+			true
+		}
+		retained?.let(release)
+		return released
 	}
 
 	fun beginExternalWrite(): Boolean = synchronized(lock) {
@@ -189,6 +207,16 @@ internal fun readerPageTurnLiveCapturePreflightAccepted(
 	bottom > top &&
 	right <= decorWidth &&
 	bottom <= decorHeight
+
+internal fun readerPageTurnLivePresentationAuthorityChanged(
+	target: ReaderPageTurnPresentationTarget.Live,
+	initialReceipt: ReaderPageTurnPresentationReceipt?,
+	finalReceipt: ReaderPageTurnPresentationReceipt?,
+	isStillCurrent: Boolean
+): Boolean = isStillCurrent &&
+	initialReceipt != finalReceipt &&
+	initialReceipt?.matches(target) == true &&
+	finalReceipt?.matches(target) == true
 
 internal class ReaderPageTurnPresentedCaptureOwnership<T : Any>(
 	private val release: (T) -> Unit
@@ -371,6 +399,7 @@ internal class ReaderPageTurnBitmapSource(
 		var legacyFallback: Runnable? = null
 		var legacyPixelCopy: Runnable? = null
 		var callbackView: android.view.View? = null
+		var presentationAuthorityRefreshes = 0
 
 		fun clearFrameCallbacks() {
 			startRunnable?.let { callback -> runCatching { mainHandler.removeCallbacks(callback) } }
@@ -407,7 +436,8 @@ internal class ReaderPageTurnBitmapSource(
 			onCaptured(null)
 		}
 
-		val start = Runnable start@{
+		lateinit var start: Runnable
+		start = Runnable start@{
 			startRunnable = null
 			if (
 				!ownership.isOpen ||
@@ -534,7 +564,26 @@ internal class ReaderPageTurnBitmapSource(
 										return@request
 									}
 									queryPresentationReceipt(webView, target) final@{ finalReceipt ->
-										val accepted = environmentCurrent() &&
+										val environmentIsCurrent = environmentCurrent()
+										if (
+											presentationAuthorityRefreshes <
+												LiveCaptureMaximumPresentationAuthorityRefreshes &&
+											readerPageTurnLivePresentationAuthorityChanged(
+												target = target,
+												initialReceipt = initialReceipt,
+												finalReceipt = finalReceipt,
+												isStillCurrent = environmentIsCurrent
+											)
+										) {
+											if (!ownership.releaseCandidateForRetry()) {
+												reject()
+												return@final
+											}
+											presentationAuthorityRefreshes += 1
+											start.run()
+											return@final
+										}
+										val accepted = environmentIsCurrent &&
 											readerPageTurnPresentationReceiptAccepted(
 												target = target,
 												initialReceipt = initialReceipt,
