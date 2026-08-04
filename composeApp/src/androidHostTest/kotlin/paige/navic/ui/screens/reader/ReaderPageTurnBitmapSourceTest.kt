@@ -38,6 +38,17 @@ class ReaderPageTurnBitmapSourceTest {
 	}
 
 	@Test
+	fun liveCaptureAlphaCoverageSamplesRawSurfaceOpacity() {
+		val pixels = IntArray(16) { 0xffe0d0c0.toInt() }
+		pixels[2 * 4 + 1] = 0x00e0d0c0
+
+		assertEquals(
+			ReaderPageTurnAlphaCoverage(sampledPixels = 16, nonOpaquePixels = 1),
+			readerPageTurnAlphaCoverage(width = 4, height = 4) { x, y -> pixels[y * 4 + x] }
+		)
+	}
+
+	@Test
 	fun currentSurfaceCaptureExcludesWindowOverlays() {
 		val source = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
@@ -157,10 +168,12 @@ class ReaderPageTurnBitmapSourceTest {
 			callback.indexOf("ownership.endExternalWrite()") <
 				callback.indexOf("queryPresentationReceipt(webView, target)")
 		)
-		assertTrue(
-			callback.indexOf("ownership.runIfExternalWriteCurrent") <
-				callback.indexOf("bitmap.setHasAlpha")
-		)
+		assertTrue(callback.contains("ownership.externalWriteIsCurrent()"))
+		assertTrue(callback.contains("bitmap.setHasAlpha(false)"))
+		assertTrue(callback.contains("bitmap.setPremultiplied(true)"))
+		assertTrue(callback.contains("val bitmapAccepted = copyAccepted"))
+		assertFalse(callback.contains("if (captureDiagnostics == null)"))
+		assertFalse(callback.contains("Logger.i("))
 		assertTrue(initialReceipt >= 0 && initialReceipt < presentedFrame)
 		assertTrue(initialReceipt < pixelCopy)
 		assertTrue(pixelCopy < finalReceipt)

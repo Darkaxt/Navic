@@ -50,10 +50,55 @@ internal data class ReaderPageTurnCaptureResult(
 	val elapsedMs: Long
 )
 
+internal data class ReaderPageTurnAlphaCoverage(
+	val sampledPixels: Int,
+	val nonOpaquePixels: Int
+)
+
+internal fun readerPageTurnAlphaCoverage(
+	width: Int,
+	height: Int,
+	pixelAt: (Int, Int) -> Int
+): ReaderPageTurnAlphaCoverage {
+	if (width <= 0 || height <= 0) return ReaderPageTurnAlphaCoverage(0, 0)
+	val columns = minOf(PageTurnCaptureSampleColumns, width)
+	val rows = minOf(PageTurnCaptureSampleRows, height)
+	var sampledPixels = 0
+	var nonOpaquePixels = 0
+	for (row in 0 until rows) {
+		val y = ((row + 0.5f) * height / rows).toInt().coerceIn(0, height - 1)
+		for (column in 0 until columns) {
+			val x = ((column + 0.5f) * width / columns).toInt().coerceIn(0, width - 1)
+			sampledPixels += 1
+			if (pixelAt(x, y) ushr 24 != 0xff) nonOpaquePixels += 1
+		}
+	}
+	return ReaderPageTurnAlphaCoverage(sampledPixels, nonOpaquePixels)
+}
+
+internal data class ReaderPageTurnLiveCaptureDiagnostics(
+	val bitmapWidth: Int,
+	val bitmapHeight: Int,
+	val rendererWidth: Int,
+	val rendererHeight: Int,
+	val bufferWidth: Int,
+	val bufferHeight: Int,
+	val cropLeft: Int,
+	val cropTop: Int,
+	val cropWidth: Int,
+	val cropHeight: Int,
+	val alphaSampledPixels: Int,
+	val alphaNonOpaquePixels: Int
+)
+
 internal data class ReaderPageTurnLiveCaptureResult(
 	val captured: ReaderPageTurnCaptureResult,
-	val acceptedReceipt: ReaderPageTurnPresentationReceipt
+	val acceptedReceipt: ReaderPageTurnPresentationReceipt,
+	val diagnostics: ReaderPageTurnLiveCaptureDiagnostics?
 )
+
+private fun Bitmap.liveCaptureAlphaCoverage(): ReaderPageTurnAlphaCoverage =
+	readerPageTurnAlphaCoverage(width, height, ::getPixel)
 
 internal class ReaderPageTurnLiveCaptureOwnership<T : Any>(
 	private val release: (T) -> Unit
@@ -573,15 +618,39 @@ internal class ReaderPageTurnBitmapSource(
 									val copyAccepted = try {
 										copyResult == PixelCopy.SUCCESS &&
 											environmentCurrent() &&
-											ownership.runIfExternalWriteCurrent {
-												bitmap.setHasAlpha(false)
-												bitmap.setPremultiplied(true)
-											}
+											ownership.externalWriteIsCurrent()
 									} catch (_: Throwable) {
 										false
 									}
+									val captureDiagnostics = if (copyAccepted) {
+										runCatching {
+											val currentSurfaceFrame = rendererSurface.holder.surfaceFrame
+											val alphaCoverage = bitmap.liveCaptureAlphaCoverage()
+											ReaderPageTurnLiveCaptureDiagnostics(
+												bitmapWidth = bitmap.width,
+												bitmapHeight = bitmap.height,
+												rendererWidth = rendererSurface.width,
+												rendererHeight = rendererSurface.height,
+												bufferWidth = currentSurfaceFrame.width(),
+												bufferHeight = currentSurfaceFrame.height(),
+												cropLeft = sourceRectInSurface.left,
+												cropTop = sourceRectInSurface.top,
+												cropWidth = sourceRectInSurface.right - sourceRectInSurface.left,
+												cropHeight = sourceRectInSurface.bottom - sourceRectInSurface.top,
+												alphaSampledPixels = alphaCoverage.sampledPixels,
+												alphaNonOpaquePixels = alphaCoverage.nonOpaquePixels
+											)
+										}.getOrNull()
+									} else {
+										null
+									}
+									val bitmapAccepted = copyAccepted && runCatching {
+										bitmap.setHasAlpha(false)
+										bitmap.setPremultiplied(true)
+										true
+									}.getOrDefault(false)
 									if (!ownership.endExternalWrite()) return@request
-									if (!copyAccepted) {
+									if (!bitmapAccepted) {
 										reject()
 										return@request
 									}
@@ -623,7 +692,8 @@ internal class ReaderPageTurnBitmapSource(
 													captured = captured.copy(
 														elapsedMs = SystemClock.uptimeMillis() - startedAt
 													),
-													acceptedReceipt = finalReceipt
+													acceptedReceipt = finalReceipt,
+													diagnostics = captureDiagnostics
 												)
 											)
 										}

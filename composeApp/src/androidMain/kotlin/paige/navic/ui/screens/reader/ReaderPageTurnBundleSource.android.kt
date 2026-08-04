@@ -44,6 +44,7 @@ import paige.navic.util.core.Logger
 import kotlin.coroutines.resume
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import kotlin.math.sqrt
 
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
@@ -65,12 +66,14 @@ internal interface ReaderPageRasterPixels {
 	fun readRows(top: Int, rowCount: Int, destination: IntArray)
 }
 
-private data class ReaderPageRasterDistance(
+internal data class ReaderPageRasterDistance(
 	val mean: Double,
 	val rms: Double,
 	val closeRatio: Double,
 	val farPixelCount: Long,
-	val maximumDistance: Int
+	val maximumDistance: Int,
+	val firstNonOpaquePixelCount: Long,
+	val secondNonOpaquePixelCount: Long
 )
 
 private class ReaderPageRasterDistanceAccumulator {
@@ -80,6 +83,8 @@ private class ReaderPageRasterDistanceAccumulator {
 	private var closePixelCount = 0L
 	private var farPixelCount = 0L
 	private var maximumDistance = 0
+	private var firstNonOpaquePixelCount = 0L
+	private var secondNonOpaquePixelCount = 0L
 
 	fun add(firstColor: Int, secondColor: Int) {
 		val distance = maxOf(
@@ -93,6 +98,8 @@ private class ReaderPageRasterDistanceAccumulator {
 		if (distance <= LiveValidationCloseDistance) closePixelCount += 1L
 		if (distance > LiveValidationFarDistance) farPixelCount += 1L
 		if (distance > maximumDistance) maximumDistance = distance
+		if (firstColor ushr 24 != 0xff) firstNonOpaquePixelCount += 1L
+		if (secondColor ushr 24 != 0xff) secondNonOpaquePixelCount += 1L
 	}
 
 	fun result(): ReaderPageRasterDistance? {
@@ -102,18 +109,20 @@ private class ReaderPageRasterDistanceAccumulator {
 			rms = sqrt(squaredDistanceSum.toDouble() / pixelCount),
 			closeRatio = closePixelCount.toDouble() / pixelCount,
 			farPixelCount = farPixelCount,
-			maximumDistance = maximumDistance
+			maximumDistance = maximumDistance,
+			firstNonOpaquePixelCount = firstNonOpaquePixelCount,
+			secondNonOpaquePixelCount = secondNonOpaquePixelCount
 		)
 	}
 }
 
-private data class ReaderPageLiveRasterDistances(
+internal data class ReaderPageLiveRasterDistances(
 	val target: ReaderPageRasterDistance,
 	val sourceTarget: ReaderPageRasterDistance?,
 	val source: ReaderPageRasterDistance?
 )
 
-private fun readerPageLiveRasterDistances(
+internal fun readerPageLiveRasterDistances(
 	candidate: ReaderPageRasterPixels,
 	expectedTarget: ReaderPageRasterPixels,
 	expectedSource: ReaderPageRasterPixels?,
@@ -171,6 +180,28 @@ private fun readerPageLiveRasterDistances(
 	)
 }
 
+private fun ReaderPageRasterDistance?.privacySafeMetrics(prefix: String): String {
+	if (this == null) return "${prefix}Available=false"
+	return "${prefix}Available=true " +
+		"${prefix}MeanMilli=${(mean * 1_000.0).roundToLong()} " +
+		"${prefix}RmsMilli=${(rms * 1_000.0).roundToLong()} " +
+		"${prefix}ClosePermille=${(closeRatio * 1_000.0).roundToLong()} " +
+		"${prefix}FarPixels=$farPixelCount " +
+		"${prefix}MaximumDistance=$maximumDistance " +
+		"${prefix}FirstNonOpaquePixels=$firstNonOpaquePixelCount " +
+		"${prefix}SecondNonOpaquePixels=$secondNonOpaquePixelCount"
+}
+
+private fun ReaderPageTurnLiveCaptureDiagnostics?.privacySafeMetrics(): String {
+	if (this == null) return "metricsAvailable=false"
+	return "metricsAvailable=true " +
+		"bitmapWidth=$bitmapWidth bitmapHeight=$bitmapHeight " +
+		"rendererWidth=$rendererWidth rendererHeight=$rendererHeight " +
+		"bufferWidth=$bufferWidth bufferHeight=$bufferHeight " +
+		"cropLeft=$cropLeft cropTop=$cropTop cropWidth=$cropWidth cropHeight=$cropHeight " +
+		"alphaSampledPixels=$alphaSampledPixels alphaNonOpaquePixels=$alphaNonOpaquePixels"
+}
+
 private fun ReaderPageRasterDistance.isAggregateTargetMatch(): Boolean =
 	mean <= LiveValidationAbsoluteMeanDistance &&
 		rms <= LiveValidationAbsoluteRmsDistance &&
@@ -205,6 +236,14 @@ internal fun readerPageLiveRasterMatchesExpected(
 	) ?: return rejected("Dimensions")
 	val targetDistance = distances.target
 	if (!targetDistance.isAggregateTargetMatch()) {
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Live page-turn raster metrics candidateWidth=${candidate.width} " +
+				"candidateHeight=${candidate.height} " +
+				targetDistance.privacySafeMetrics("target") + " " +
+				distances.source.privacySafeMetrics("source") + " " +
+				distances.sourceTarget.privacySafeMetrics("sourceTarget")
+		)
 		return rejected("TargetAggregate")
 	}
 	val sourceTargetDistance = distances.sourceTarget
@@ -697,11 +736,12 @@ private class ReaderPageBitmapRasterPixels(
 }
 
 private fun readerPageLiveCaptureMatchesExpected(
-	candidate: ReaderPageTurnCaptureResult,
+	candidate: ReaderPageTurnLiveCaptureResult,
 	expectedTarget: ReaderPageSlideSnapshot,
 	expectedSource: ReaderPageSlideSnapshot?,
 	cancellationCheck: () -> Unit
 ): Boolean {
+	val captured = candidate.captured
 	fun rejected(reason: String): Boolean {
 		Logger.i(
 			ReaderPageTurnBundleSourceTag,
@@ -710,24 +750,24 @@ private fun readerPageLiveCaptureMatchesExpected(
 		return false
 	}
 	if (
-		candidate.bitmap.isRecycled ||
+		captured.bitmap.isRecycled ||
 		expectedTarget.bitmap.isRecycled ||
 		expectedSource?.bitmap?.isRecycled == true
 	) {
 		return rejected("RecycledBitmap")
 	}
 	val kind = expectedTarget.key.kind
-	val candidateGeometry = candidate.geometry.leafGeometry(
-		candidate.bitmap.width,
-		candidate.bitmap.height
+	val candidateGeometry = captured.geometry.leafGeometry(
+		captured.bitmap.width,
+		captured.bitmap.height
 	) ?: return rejected("CandidateGeometryUnavailable")
 	if (!readerPageRasterGeometryMatches(kind, candidateGeometry)) {
 		return rejected("CandidateGeometryMismatch")
 	}
 	val candidateLayout = readerPageRasterPhysicalLayout(
-		surfaceRectInWindow = candidate.sourceRectInWindow,
-		bitmapWidth = candidate.bitmap.width,
-		bitmapHeight = candidate.bitmap.height,
+		surfaceRectInWindow = captured.sourceRectInWindow,
+		bitmapWidth = captured.bitmap.width,
+		bitmapHeight = captured.bitmap.height,
 		geometry = candidateGeometry
 	) ?: return rejected("CandidateLayoutUnavailable")
 	val targetLayout = readerPageRasterPhysicalLayout(expectedTarget)
@@ -747,19 +787,23 @@ private fun readerPageLiveCaptureMatchesExpected(
 	}
 	if (
 		!readerPageLiveRasterMatchesExpected(
-			candidate = ReaderPageBitmapRasterPixels(candidate.bitmap),
+			candidate = ReaderPageBitmapRasterPixels(captured.bitmap),
 			expectedTarget = ReaderPageBitmapRasterPixels(expectedTarget.bitmap),
 			expectedSource = expectedSource?.bitmap?.let(::ReaderPageBitmapRasterPixels),
 			cancellationCheck = cancellationCheck
 		)
 	) {
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Live page-turn renderer capture metrics " + candidate.diagnostics.privacySafeMetrics()
+		)
 		return rejected("RasterMismatch")
 	}
 	return true
 }
 
 private fun readerPageLiveCaptureValidationResult(
-	candidate: ReaderPageTurnCaptureResult,
+	candidate: ReaderPageTurnLiveCaptureResult,
 	expectedTarget: ReaderPageSlideSnapshot,
 	expectedSource: ReaderPageSlideSnapshot?,
 	cancellationCheck: () -> Unit
@@ -1962,7 +2006,7 @@ internal class ReaderPageTurnBundleSource(
 								ReaderPageRelocationContentValidationResult.Invalidated
 							} else {
 								val compared = readerPageLiveCaptureValidationResult(
-									candidate = work.candidate.captured,
+									candidate = work.candidate,
 									expectedTarget = work.expectedTarget,
 									expectedSource = work.expectedSource,
 									cancellationCheck = { workerContext.ensureActive() }

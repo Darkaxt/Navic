@@ -56,6 +56,31 @@ class ReaderPageTurnBundleTest {
 	}
 
 	@Test
+	fun rasterDiagnosticsRetainDistanceAndAlphaCoverage() {
+		val target = TestRaster.solid(4, 3, 0xffe0d0c0.toInt())
+		val source = TestRaster.solid(4, 3, 0xff403020.toInt())
+		val candidate = target.copy().apply {
+			fillRect(
+				left = 1,
+				top = 1,
+				right = 3,
+				bottom = 2,
+				color = 0x00e0d0c0
+			)
+		}
+
+		val diagnostics = assertNotNull(
+			readerPageLiveRasterDistances(candidate, target, source) {}
+		)
+
+		assertEquals(0.0, diagnostics.target.mean)
+		assertEquals(2L, diagnostics.target.firstNonOpaquePixelCount)
+		assertEquals(0L, diagnostics.target.secondNonOpaquePixelCount)
+		assertEquals(2L, assertNotNull(diagnostics.source).firstNonOpaquePixelCount)
+		assertEquals(0L, assertNotNull(diagnostics.sourceTarget).firstNonOpaquePixelCount)
+	}
+
+	@Test
 	fun staleForegroundSourceIsRejectedAgainstDifferentExpectedTarget() {
 		val source = authoredPage(accentX = 13, accentColor = 0xff204060.toInt())
 		val target = authoredPage(accentX = 51, accentColor = 0xffa03020.toInt())
