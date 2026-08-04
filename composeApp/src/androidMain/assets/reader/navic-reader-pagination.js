@@ -151,13 +151,16 @@ import {
   tocLabel
 } from './navic-reader-helpers.js'
 import {
-  readerWaitForStableTextPagePosition,
-} from './navic-reader-pagination-stability.js'
+  readerCommitTextPage,
+  readerTextPageCommitIsValid,
+} from './navic-reader-paginator-commit.js'
 
 const ReaderPaginationProfileStatusMeasuring = 'measuring'
 const ReaderPaginationProfileStatusReady = 'ready'
 const ReaderPaginationProfileStatusCached = 'cached'
 const ReaderPaginationProfileStatusFailed = 'failed'
+const ReaderPaginationProfileAuthorityCommitReceipt = 'paginator-commit-receipt'
+const ReaderPaginationProfileMaximumCommitTransactionAttempts = 3
 
 function fixedLayoutPagePosition(detail) {
   if (this.view?.isFixedLayout !== true) return null
@@ -445,7 +448,7 @@ function readerPaginationRenderMetadata() {
     adaptivePageBox,
     publisherCss: readerFontSource(settings) === ReaderFontSourcePublisher ? 'publisher' : 'navic',
     direction: this.readerDirectionModeValue || readerDirectionMode(settings),
-    runtimeVersion: 'navic-reader-pagination-profile-2',
+    runtimeVersion: 'navic-reader-pagination-profile-3',
   }
 }
 
@@ -457,12 +460,25 @@ function readerPaginationCacheKey(fingerprint) {
   return `navic-reader-pagination-profile:${fingerprint}`
 }
 
+function paginationProfileIsAuthoritative(profile) {
+  return profile?.authority === ReaderPaginationProfileAuthorityCommitReceipt
+}
+
+function paginationProfileWithCommitReceiptAuthority(profile) {
+  if (!profile) return null
+  return {
+    ...profile,
+    authority: ReaderPaginationProfileAuthorityCommitReceipt,
+  }
+}
+
 function readCachedPaginationProfile(fingerprint) {
   if (!fingerprint) return null
   try {
     const raw = window.localStorage?.getItem?.(this.readerPaginationCacheKey(fingerprint))
     if (!raw) return null
     const profile = JSON.parse(raw)
+    if (!this.paginationProfileIsAuthoritative(profile)) return null
     if (profile?.fingerprint !== fingerprint) return null
     if (!profile?.render) return null
     if (!Number.isFinite(Number(profile.render.viewportWidth))) return null
@@ -476,16 +492,21 @@ function readCachedPaginationProfile(fingerprint) {
 }
 
 function writeCachedPaginationProfile(profile) {
-  if (!profile?.fingerprint) return
+  if (!this.paginationProfileIsAuthoritative(profile)) return null
+  if (!profile?.fingerprint) return null
   try {
     window.localStorage?.setItem?.(this.readerPaginationCacheKey(profile.fingerprint), JSON.stringify(profile))
+    return profile
   } catch (error) {
     log('pagination-profile:cache-write-failed', error?.message || error)
+    return null
   }
 }
 
 function isCompletePaginationProfile(profile) {
-  return Boolean(profile?.chapters?.length) && Number(profile?.estimatedChapterCount) === 0
+  return this.paginationProfileIsAuthoritative(profile) &&
+    Boolean(profile?.chapters?.length) &&
+    Number(profile?.estimatedChapterCount) === 0
 }
 
 function observedChapterKey(index, section) {
@@ -541,10 +562,11 @@ function repairPaginationProfileFromExactPosition(
     pageCount <= 0
   ) return null
 
-  const repaired = readerPaginationProfileWithObservedChapterCount(
+  const repairedProfile = readerPaginationProfileWithObservedChapterCount(
     this.paginationProfile,
     { spineIndex, pageCount }
   )
+  const repaired = this.paginationProfileWithCommitReceiptAuthority(repairedProfile)
   if (!repaired) return null
 
   this.paginationProfile = repaired
@@ -571,8 +593,50 @@ function repairPaginationProfileFromExactPosition(
   return repaired
 }
 
+function paginationProfileTaskIsCurrent({ token, url, fingerprint } = {}) {
+  if (
+    token !== this.paginationProfileTaskToken ||
+    url !== this.publicationUrl ||
+    !fingerprint
+  ) return false
+  return fingerprint === this.readerPaginationRenderFingerprint()
+}
+
+function invalidatePaginationProfileTask(_reason = 'superseded') {
+  this.paginationProfileTaskToken += 1
+  this.paginationProfileMeasurementInProgress = false
+  return this.paginationProfileTaskToken
+}
+
+function clearPaginationProfileOwnership(reason = 'superseded') {
+  this.invalidatePaginationProfileTask(reason)
+  this.paginationProfile = null
+  this.paginationFingerprint = null
+  this.observedChapterPageCounts = new Map()
+}
+
+function startCompletePaginationProfileReplacementAfterLayout(_reason = 'layout-change') {
+  const liveContents = Array.from(this.view?.renderer?.getContents?.() || [])
+  const hasCommittedLiveContent = Boolean(
+    this.publicationUrl &&
+    this.currentPagePosition && liveContents.some(content => content?.doc)
+  )
+  if (!hasCommittedLiveContent) return false
+  void this.ensureCompletePaginationProfile(this.publicationUrl, this.readerSettings)
+  return true
+}
+
 async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, settings, token }) {
-  if (!url || !fingerprint || this.view?.isFixedLayout === true) return null
+  const task = { token, url, fingerprint }
+  const flowMode = readerFlowMode(settings)
+  if (
+    !url ||
+    !fingerprint ||
+    this.view?.isFixedLayout === true ||
+    flowMode === ReaderFlowScrolled ||
+    flowMode === ReaderFlowScrolledGaps ||
+    !this.paginationProfileTaskIsCurrent(task)
+  ) return null
   const profileView = document.createElement('foliate-view')
   profileView.dataset.navicPaginationProfiler = 'true'
   profileView.setAttribute('aria-hidden', 'true')
@@ -584,7 +648,10 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
   try {
     this.applyReaderViewportLayoutToProfilerView(profileView, settings)
     await profileView.open(url)
-    this.applyReaderViewportLayoutToProfilerView(profileView, settings)
+    if (
+      !this.paginationProfileTaskIsCurrent(task) ||
+      profileView?.isFixedLayout === true
+    ) return null
     const sections = Array.from(profileView?.book?.sections || [])
     const readableEntries = sections
       .map((section, index) => ({ section, index }))
@@ -592,48 +659,56 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
         readerSectionIsReadable(section) && !this.sectionTargetsCover(section, index)
       )
     if (!readableEntries.length) return null
+    if (!this.paginationProfileTaskIsCurrent(task)) return null
     this.postPaginationProfileStatus(ReaderPaginationProfileStatusMeasuring, {
       fingerprint,
       completedSections: 0,
       totalSections: readableEntries.length,
     })
     const measuredPageCounts = new Map()
-    for (const { section, index } of readableEntries) {
-      if (token !== this.paginationProfileTaskToken) return null
-      const committed = await profileView.goTo(index)
-      if (!committed) {
-        throw new Error(
-          `Pagination profiler navigation to section ${index} was canceled`
-        )
-      }
-      this.applyReaderViewportLayoutToProfilerView(
-        profileView,
-        settings
-      )
-      const position =
-        await readerWaitForStableTextPagePosition(
+    for (const { index } of readableEntries) {
+      let committedPosition = null
+      let transactionAttempts = 0
+      while (
+        transactionAttempts < ReaderPaginationProfileMaximumCommitTransactionAttempts &&
+        this.paginationProfileTaskIsCurrent(task)
+      ) {
+        this.applyReaderViewportLayoutToProfilerView(profileView, settings)
+        const result = await readerCommitTextPage(
           profileView.renderer,
-          {
-            isCurrent: () =>
-              token === this.paginationProfileTaskToken,
-          }
+          index,
+          0,
+          'pagination-profile'
         )
-      if (token !== this.paginationProfileTaskToken) return null
-      if (!position || position.index !== index) {
-        throw new Error(
-          `Pagination profiler layout for section ${index} did not stabilize`
-        )
+        transactionAttempts += 1
+        if (!this.paginationProfileTaskIsCurrent(task)) return null
+        const receiptIsValid = readerTextPageCommitIsValid(profileView.renderer, result)
+        if (
+          result.status === 'committed' &&
+          receiptIsValid &&
+          result.position.index === index &&
+          result.position.pageIndex === 0
+        ) {
+          committedPosition = result.position
+          break
+        }
+        const retryable = result.status === 'invalidated' ||
+          (result.status === 'committed' && !receiptIsValid)
+        if (!retryable) break
       }
-      const pageCount = position.pageCount
-      measuredPageCounts.set(index, pageCount)
+      if (!committedPosition) {
+        throw new Error(`Pagination profiler could not commit section ${index}`)
+      }
+      measuredPageCounts.set(index, committedPosition.pageCount)
+      if (!this.paginationProfileTaskIsCurrent(task)) return null
       this.postPaginationProfileStatus(ReaderPaginationProfileStatusMeasuring, {
         fingerprint,
         completedSections: measuredPageCounts.size,
         totalSections: readableEntries.length,
-        href: this.readerPaginationSectionHref(section, index),
-        sectionPageCount: pageCount,
+        sectionPageCount: committedPosition.pageCount,
       })
     }
+    if (!this.paginationProfileTaskIsCurrent(task)) return null
     const chapters = sections.map((section, index) => {
       const pageCount = measuredPageCounts.get(index) || 0
       return {
@@ -644,7 +719,13 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
         source: pageCount > 0 ? 'observed' : 'estimated',
       }
     })
-    return readerBuildPaginationProfile({ fingerprint, chapters, render: this.readerPaginationRenderMetadata() })
+    return this.paginationProfileWithCommitReceiptAuthority(
+      readerBuildPaginationProfile({
+        fingerprint,
+        chapters,
+        render: this.readerPaginationRenderMetadata(),
+      })
+    )
   } finally {
     profileView.close?.()
     profileView.remove?.()
@@ -652,8 +733,14 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
 }
 
 async function ensureCompletePaginationProfile(url = this.publicationUrl, settings = this.readerSettings) {
-  if (this.view?.isFixedLayout === true) return null
+  const flowMode = readerFlowMode(settings)
+  if (
+    this.view?.isFixedLayout === true ||
+    flowMode === ReaderFlowScrolled ||
+    flowMode === ReaderFlowScrolledGaps
+  ) return null
   const fingerprint = this.readerPaginationRenderFingerprint()
+  this.invalidatePaginationProfileTask('replacement-task')
   this.paginationFingerprint = fingerprint
   const cachedProfile = this.readCachedPaginationProfile(fingerprint)
   if (
@@ -677,14 +764,20 @@ async function ensureCompletePaginationProfile(url = this.publicationUrl, settin
     this.postCurrentLocationSnapshot('pagination-profile-cached')
     return cachedProfile
   }
-  const token = ++this.paginationProfileTaskToken
+  const token = this.paginationProfileTaskToken
+  const task = { token, url, fingerprint }
   this.paginationProfileMeasurementInProgress = true
   try {
     const profile = await this.buildCompletePaginationProfileInProfilerView({ url, fingerprint, settings, token })
-    if (!profile?.chapters?.length || token !== this.paginationProfileTaskToken) return this.paginationProfile
+    if (!profile?.chapters?.length || !this.paginationProfileTaskIsCurrent(task)) {
+      return this.paginationProfile
+    }
     this.paginationProfile = profile
+    if (!this.paginationProfileTaskIsCurrent(task)) return this.paginationProfile
     this.hydrateObservedChapterPageCountsFromProfile(profile)
+    if (!this.paginationProfileTaskIsCurrent(task)) return this.paginationProfile
     this.writeCachedPaginationProfile(profile)
+    if (!this.paginationProfileTaskIsCurrent(task)) return this.paginationProfile
     readerTrace('pagination-profile:updated', {
       fingerprint,
       pageCount: profile.pageCount,
@@ -693,26 +786,30 @@ async function ensureCompletePaginationProfile(url = this.publicationUrl, settin
       estimatedChapterCount: profile.estimatedChapterCount || 0,
       complete: profile.estimatedChapterCount === 0,
     })
+    if (!this.paginationProfileTaskIsCurrent(task)) return this.paginationProfile
     this.postPaginationProfileStatus(ReaderPaginationProfileStatusReady, {
       fingerprint,
       pageCount: profile.pageCount,
       completedSections: profile.observedChapterCount || 0,
       totalSections: profile.observedChapterCount || 0,
     })
+    if (!this.paginationProfileTaskIsCurrent(task)) return this.paginationProfile
     this.postCurrentLocationSnapshot('pagination-profile-ready')
     return profile
   } catch (error) {
+    if (!this.paginationProfileTaskIsCurrent(task)) return this.paginationProfile
     readerTrace('pagination-profile:failed', {
       fingerprint,
       message: error?.message || String(error),
     })
+    if (!this.paginationProfileTaskIsCurrent(task)) return this.paginationProfile
     this.postPaginationProfileStatus(ReaderPaginationProfileStatusFailed, {
       fingerprint,
       message: error?.message || String(error),
     })
     return this.paginationProfile
   } finally {
-    if (token === this.paginationProfileTaskToken) {
+    if (this.paginationProfileTaskIsCurrent(task)) {
       this.paginationProfileMeasurementInProgress = false
     }
   }
@@ -789,6 +886,7 @@ function readerEnsurePaginationProfile(detail, sectionPosition) {
   const fingerprint = this.readerPaginationRenderFingerprint()
   const exactTurnProfile = this.activeExactPageTurnSettlement()?.paginationProfile
   if (
+    this.paginationProfileIsAuthoritative(exactTurnProfile) &&
     exactTurnProfile?.chapters?.length &&
     exactTurnProfile.fingerprint === fingerprint
   ) {
@@ -815,6 +913,16 @@ function readerEnsurePaginationProfile(detail, sectionPosition) {
   }
   const freshProfile = this.readerBuildPaginationProfileFromSectionPosition(detail, sectionPosition)
   if (freshProfile?.chapters?.length) {
+    if (this.paginationProfileIsAuthoritative(this.paginationProfile)) {
+      readerTrace('pagination-profile:retained', {
+        fingerprint,
+        pageCount: this.paginationProfile.pageCount,
+        chapterCount: this.paginationProfile.chapters?.length || 0,
+        observedChapterCount: this.paginationProfile.observedChapterCount || 0,
+        freshPageCount: freshProfile.pageCount,
+      })
+      return this.paginationProfile
+    }
     if (
       this.paginationProfileMeasurementInProgress &&
       !this.isCompletePaginationProfile(freshProfile) &&
@@ -831,7 +939,6 @@ function readerEnsurePaginationProfile(detail, sectionPosition) {
     }
     if (this.shouldUseFreshPaginationProfile(freshProfile)) {
       this.paginationProfile = freshProfile
-      this.writeCachedPaginationProfile(freshProfile)
       readerTrace('pagination-profile:updated', {
         fingerprint,
         pageCount: freshProfile.pageCount,
@@ -1360,6 +1467,8 @@ export const NavicReaderPaginationMethods = {
   readerPaginationRenderMetadata,
   readerPaginationRenderFingerprint,
   readerPaginationCacheKey,
+  paginationProfileIsAuthoritative,
+  paginationProfileWithCommitReceiptAuthority,
   readCachedPaginationProfile,
   writeCachedPaginationProfile,
   isCompletePaginationProfile,
@@ -1369,6 +1478,10 @@ export const NavicReaderPaginationMethods = {
   paginationProfileHasObservedCountIncrease,
   postPaginationProfileStatus,
   repairPaginationProfileFromExactPosition,
+  paginationProfileTaskIsCurrent,
+  invalidatePaginationProfileTask,
+  clearPaginationProfileOwnership,
+  startCompletePaginationProfileReplacementAfterLayout,
   buildCompletePaginationProfileInProfilerView,
   ensureCompletePaginationProfile,
   shouldUseFreshPaginationProfile,

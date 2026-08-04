@@ -209,12 +209,11 @@ function applyRootReaderFontFaces(settings = this.readerSettings) {
 }
 
 function applySettings(settings) {
+  this.clearPaginationProfileOwnership('settings-change')
+  this.destroyPageTurnPreviewRenderer('settings-change')
   settings = { ...this.readerSettings, ...settings }
   this.readerSettings = settings
   this.reflowableBookPageModel = null
-  this.paginationProfile = null
-  this.paginationFingerprint = null
-  this.observedChapterPageCounts = new Map()
   const rootStyle = document.documentElement.style
   if (typeof settings.tapZone === 'string') this.readerTapZoneMode = settings.tapZone || ReaderTapZoneDefault
   this.smallerTapZone = settings.smallerTapZone === true
@@ -256,6 +255,7 @@ function applySettings(settings) {
     )
   }
   this.scheduleReaderPageNumberRefresh('settings')
+  this.startCompletePaginationProfileReplacementAfterLayout('settings-change')
 }
 
 function applyThemeToLoadedContent(settings = this.readerSettings) {

@@ -1089,7 +1089,11 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "spineIndex: sectionIndex")
 		assertContains(bridgeText, "readerPaginationRenderFingerprint()")
 		assertContains(bridgeText, "readCachedPaginationProfile(fingerprint)")
-		assertContains(bridgeText, "writeCachedPaginationProfile(freshProfile)")
+		assertContains(bridgeText, "paginationProfileIsAuthoritative")
+		assertFalse(
+			bridgeText.contains("writeCachedPaginationProfile(freshProfile)"),
+			"Raw relocation-derived profiles are provisional session state and must not enter persistent cache."
+		)
 		assertContains(bridgeText, "reflowableWholeBookPagePosition(detail)")
 		assertContains(bridgeText, "const renderer = this.view?.renderer")
 		assertContains(bridgeText, "if (!renderer) return null")

@@ -19,8 +19,13 @@ import {
 import { readerThemePalette } from './navic-reader-settings.js'
 import { stableHash } from './navic-reader-identity.js'
 import {
-  readerWaitForStableTextPagePosition,
-} from './navic-reader-pagination-stability.js'
+  readerCommitTextPage,
+  readerForgetTextPageCommit,
+  readerRememberTextPageCommit,
+  readerTextPageCommitIsValid,
+  readerTextPageCommitMatches,
+  readerTextPageCommitOwnerIsValid,
+} from './navic-reader-paginator-commit.js'
 import {
   ReaderPageTurnPresentationScopePreview,
   issueReaderPageTurnPresentationReceipt,
@@ -28,6 +33,20 @@ import {
 } from './navic-reader-page-turn-presentation.js'
 
 const ReaderPageTurnMaximumPaginationProfileRepairs = 2
+const ReaderPageTurnMaximumCommitTransactionAttempts = 3
+
+const readerPageTurnPreviewTraceState = state => ({
+  status: state?.status || 'missing',
+  generation: Number(state?.generation),
+  pageIndex: Number(state?.pageIndex),
+  spineIndex: Number(state?.spineIndex),
+  chapterPageIndex: Number(state?.chapterPageIndex),
+  chapterPageCount: Number(state?.chapterPageCount),
+  cursor: Number(state?.cursor),
+  total: Number(state?.total),
+  transactionAttempts: Number(state?.transactionAttempts),
+  profileRepairs: Number(state?.profileRepairs),
+})
 
 export async function readerGoToExactVisualPage(view, locator, reason = 'page-turn:exact') {
   const renderer = view?.renderer
@@ -42,27 +61,18 @@ export async function readerGoToExactVisualPage(view, locator, reason = 'page-tu
   return committed === false ? null : locator
 }
 
-function readerExactVisualPageMatches(actual, locator) {
-  return actual != null &&
-    Number(actual.index) === Number(locator?.spineIndex) &&
-    Number(actual.pageIndex) ===
-      Number(locator?.chapterPageIndex) &&
-    Number(actual.pageCount) ===
-      Number(locator?.chapterPageCount)
-}
-
 async function resolvePageTurnPreviewLocator(
   view,
   pageIndex,
   reason,
   label,
-  isCurrent = () => true
+  isCurrent = () => true,
+  initialTransactionAttempts = 0,
+  initialProfileRepairs = 0
 ) {
-  let profileRepairs = 0
-  while (
-    profileRepairs <=
-      ReaderPageTurnMaximumPaginationProfileRepairs
-  ) {
+  let profileRepairs = Math.max(0, Math.floor(Number(initialProfileRepairs) || 0))
+  let transactionAttempts = Math.max(0, Math.floor(Number(initialTransactionAttempts) || 0))
+  while (transactionAttempts < ReaderPageTurnMaximumCommitTransactionAttempts) {
     if (!isCurrent()) return null
     const locator = readerPageLocatorForVisualIndex(
       this.paginationProfile,
@@ -78,44 +88,63 @@ async function resolvePageTurnPreviewLocator(
       view,
       this.readerSettings
     )
-    const reached = await readerGoToExactVisualPage(
-      view,
-      locator,
+    const result = await readerCommitTextPage(
+      view?.renderer,
+      locator.spineIndex,
+      locator.chapterPageIndex,
       reason
     )
+    transactionAttempts += 1
     if (!isCurrent()) return null
-    if (!reached) {
-      throw new Error(
-        `${label} navigation to page ${pageIndex} was canceled`
-      )
+    if (result.status === 'unsupported') {
+      return Object.freeze({
+        status: 'unsupported',
+        locator: null,
+        actualPosition: null,
+        receipt: null,
+        transactionAttempts,
+        profileRepairs,
+      })
     }
 
-    const actual =
-      await readerWaitForStableTextPagePosition(
-        view.renderer,
-        { isCurrent }
-      )
-    if (!isCurrent()) return null
-    if (readerExactVisualPageMatches(actual, locator)) {
-      return locator
+    const receiptIsValid = readerTextPageCommitIsValid(view?.renderer, result)
+    const expectedPosition = {
+      index: locator.spineIndex,
+      pageIndex: locator.chapterPageIndex,
+      pageCount: locator.chapterPageCount,
+    }
+    if (
+      result.status === 'committed' &&
+      receiptIsValid &&
+      readerTextPageCommitMatches(result, expectedPosition)
+    ) {
+      return Object.freeze({
+        status: 'committed',
+        locator,
+        actualPosition: result.position,
+        receipt: result.receipt,
+        transactionAttempts,
+        profileRepairs,
+      })
     }
 
+    const actualPosition = receiptIsValid ? result.position : null
     const canRepairProfile =
-      profileRepairs <
-        ReaderPageTurnMaximumPaginationProfileRepairs &&
-      Number(actual?.index) === Number(locator.spineIndex) &&
-      Number(actual?.pageCount) !==
-        Number(locator.chapterPageCount)
+      profileRepairs < ReaderPageTurnMaximumPaginationProfileRepairs &&
+      Number(actualPosition?.index) === Number(locator.spineIndex) &&
+      Number(actualPosition?.pageCount) !== Number(locator.chapterPageCount)
     if (
       canRepairProfile &&
       this.repairPaginationProfileFromExactPosition?.(
         locator,
-        actual
+        actualPosition
       )
     ) {
       profileRepairs += 1
       continue
     }
+    if (result.status === 'invalidated') continue
+    if (result.status === 'cancelled' && !isCurrent()) return null
 
     throw new Error(
       `${label} position for page ${pageIndex} was not committed`
@@ -159,7 +188,7 @@ async function ensurePageTurnPreviewRenderer() {
     }
     this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
     readerTrace('page-turn-preview:opened', {
-      publication: this.pageTurnPreviewPublicationUrl,
+      generation: this.pageTurnPreviewGeneration,
     })
     return previewView
   } catch (error) {
@@ -173,13 +202,120 @@ async function ensurePageTurnPreviewRenderer() {
   }
 }
 
+function forgetPageTurnPreviewCommitment(state) {
+  if (state && typeof state === 'object') readerForgetTextPageCommit(state)
+}
+
+function restartInvalidatedPageTurnPreviewCommitment(state) {
+  if (
+    !state ||
+    state.status !== 'ready' ||
+    state.generation !== this.pageTurnPreviewGeneration
+  ) return false
+  const transactionAttempts = Math.max(0, Math.floor(Number(state.transactionAttempts) || 0))
+  const profileRepairs = Math.max(0, Math.floor(Number(state.profileRepairs) || 0))
+  const batch = this.pageTurnPreviewBatchStateValue
+  const belongsToBatch = batch?.status === 'ready' && (
+    batch === state ||
+    batch.itemToken === state.token ||
+    batch.itemToken === state.itemToken
+  )
+  this.clearPageTurnPreviewPresentationReceipt()
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
+  forgetPageTurnPreviewCommitment(batch)
+
+  if (belongsToBatch) {
+    if (transactionAttempts >= ReaderPageTurnMaximumCommitTransactionAttempts) {
+      this.pageTurnPreviewStateValue = null
+      this.pageTurnPreviewBatchStateValue = Object.freeze({
+        token: batch.token,
+        generation: batch.generation,
+        status: 'failed',
+        cursor: batch.cursor,
+        total: batch.total,
+        pageIndexes: batch.pageIndexes,
+        pageIndex: batch.pageIndex,
+        transactionAttempts,
+        profileRepairs,
+        message: 'Passive raster commitment was invalidated',
+      })
+      return true
+    }
+    const generation = ++this.pageTurnPreviewGeneration
+    this.pageTurnPreviewStateValue = Object.freeze({
+      token: batch.itemToken,
+      generation,
+      status: 'preparing',
+      pageIndex: batch.pageIndex,
+      transactionAttempts,
+      profileRepairs,
+    })
+    this.pageTurnPreviewBatchStateValue = Object.freeze({
+      token: batch.token,
+      generation,
+      status: 'preparing',
+      cursor: batch.cursor,
+      total: batch.total,
+      pageIndexes: batch.pageIndexes,
+      pageIndex: batch.pageIndex,
+      transactionAttempts,
+      profileRepairs,
+    })
+    void this.preparePageTurnPreviewBatchItem(
+      generation,
+      batch.token,
+      batch.cursor,
+      transactionAttempts,
+      profileRepairs
+    )
+    return true
+  }
+
+  if (transactionAttempts >= ReaderPageTurnMaximumCommitTransactionAttempts) {
+    this.pageTurnPreviewStateValue = Object.freeze({
+      token: state.token,
+      generation: state.generation,
+      status: 'failed',
+      pageIndex: state.pageIndex,
+      transactionAttempts,
+      profileRepairs,
+      message: 'Passive preview commitment was invalidated',
+    })
+    return true
+  }
+  const generation = ++this.pageTurnPreviewGeneration
+  this.pageTurnPreviewStateValue = Object.freeze({
+    token: state.token,
+    generation,
+    status: 'preparing',
+    pageIndex: state.pageIndex,
+    transactionAttempts,
+    profileRepairs,
+  })
+  void this.preparePageTurnPreview(
+    generation,
+    state.token,
+    state.pageIndex,
+    transactionAttempts,
+    profileRepairs
+  )
+  return true
+}
+
 function pageTurnPreviewState(token = '') {
   const requestedToken = String(token || '')
-  const state = this.pageTurnPreviewStateValue
+  let state = this.pageTurnPreviewStateValue
   if (!state || (requestedToken && state.token !== requestedToken)) {
     return Object.freeze({ token: requestedToken, status: 'missing' })
   }
-  return state
+  if (
+    state.status === 'ready' &&
+    !readerTextPageCommitOwnerIsValid(state)
+  ) {
+    this.restartInvalidatedPageTurnPreviewCommitment(state)
+    state = this.pageTurnPreviewStateValue
+  }
+  return state || Object.freeze({ token: requestedToken, status: 'missing' })
 }
 
 function clearPageTurnPreviewPresentationReceipt() {
@@ -201,6 +337,14 @@ function issuePageTurnPreviewPresentationReceipt(target) {
 function pageTurnPreviewPresentationReceipt() {
   const receipt = this.pageTurnPreviewPresentationReceiptValue
   const state = this.pageTurnPreviewStateValue
+  if (
+    state?.status === 'ready' &&
+    !readerTextPageCommitOwnerIsValid(state)
+  ) {
+    this.restartInvalidatedPageTurnPreviewCommitment(state)
+    this.clearPageTurnPreviewPresentationReceipt()
+    return null
+  }
   if (
     !receipt ||
     !state ||
@@ -285,6 +429,17 @@ function pageTurnCaptureGeometry() {
 
 function pageTurnRasterDescriptor(pageIndex) {
   const normalizedPageIndex = Math.max(0, Math.floor(Number(pageIndex)))
+  const readyState = this.pageTurnPreviewStateValue?.status === 'ready' &&
+    this.pageTurnPreviewStateValue.pageIndex === normalizedPageIndex
+    ? this.pageTurnPreviewStateValue
+    : this.pageTurnPreviewBatchStateValue?.status === 'ready' &&
+        this.pageTurnPreviewBatchStateValue.pageIndex === normalizedPageIndex
+      ? this.pageTurnPreviewBatchStateValue
+      : null
+  if (readyState && !readerTextPageCommitOwnerIsValid(readyState)) {
+    this.restartInvalidatedPageTurnPreviewCommitment(readyState)
+    return null
+  }
   const locator = readerPageLocatorForVisualIndex(this.paginationProfile, normalizedPageIndex)
   if (!locator) return null
   const geometry = this.pageTurnCaptureGeometry()
@@ -454,33 +609,62 @@ function pageTurnTransitionPlan(physicalDirection = '', currentPageIndexOverride
 
 function beginPageTurnPreviewPreparation(token, pageIndex) {
   const requestedToken = String(token || '')
+  if (this.pageTurnPreviewStateValue || this.pageTurnPreviewBatchStateValue) {
+    this.restorePageTurnLiveComposition()
+  }
   this.clearPageTurnPreviewPresentationReceipt()
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewBatchStateValue)
+  this.pageTurnPreviewStateValue = null
+  this.pageTurnPreviewBatchStateValue = null
   const generation = ++this.pageTurnPreviewGeneration
   this.pageTurnPreviewStateValue = Object.freeze({
     token: requestedToken,
     generation,
     status: 'preparing',
     pageIndex: Number(pageIndex),
+    transactionAttempts: 0,
+    profileRepairs: 0,
   })
-  void this.preparePageTurnPreview(generation, requestedToken, pageIndex)
+  void this.preparePageTurnPreview(generation, requestedToken, pageIndex, 0, 0)
   return this.pageTurnPreviewStateValue
 }
 
-async function preparePageTurnPreview(generation, token, pageIndex) {
+async function preparePageTurnPreview(
+  generation,
+  token,
+  pageIndex,
+  initialTransactionAttempts = 0,
+  initialProfileRepairs = 0
+) {
   try {
     const previewView = await this.ensurePageTurnPreviewRenderer()
     if (generation !== this.pageTurnPreviewGeneration) return
     if (!previewView) throw new Error('Passive preview renderer is unavailable')
-    const locator = await this.resolvePageTurnPreviewLocator(
+    const commitment = await this.resolvePageTurnPreviewLocator(
       previewView,
       pageIndex,
       'page-turn-preview',
       'Passive preview',
-      () => generation === this.pageTurnPreviewGeneration
+      () => generation === this.pageTurnPreviewGeneration,
+      initialTransactionAttempts,
+      initialProfileRepairs
     )
     if (generation !== this.pageTurnPreviewGeneration) return
-    if (!locator) return
-    this.pageTurnPreviewStateValue = Object.freeze({
+    if (!commitment) return
+    if (commitment.status === 'unsupported') {
+      this.pageTurnPreviewStateValue = Object.freeze({
+        token,
+        generation,
+        status: 'unsupported',
+        pageIndex: Number(pageIndex),
+        transactionAttempts: commitment.transactionAttempts,
+        profileRepairs: commitment.profileRepairs,
+      })
+      return
+    }
+    const locator = commitment.locator
+    const state = Object.freeze({
       token,
       generation,
       status: 'ready',
@@ -489,8 +673,36 @@ async function preparePageTurnPreview(generation, token, pageIndex) {
       href: locator.href,
       chapterPageIndex: locator.chapterPageIndex,
       chapterPageCount: locator.chapterPageCount,
+      transactionAttempts: commitment.transactionAttempts,
+      profileRepairs: commitment.profileRepairs,
     })
-    readerTrace('page-turn-preview:ready', this.pageTurnPreviewStateValue)
+    if (!readerRememberTextPageCommit(
+      state,
+      previewView.renderer,
+      commitment.receipt
+    )) {
+      if (commitment.transactionAttempts < ReaderPageTurnMaximumCommitTransactionAttempts) {
+        this.pageTurnPreviewStateValue = Object.freeze({
+          token,
+          generation,
+          status: 'preparing',
+          pageIndex: Number(pageIndex),
+          transactionAttempts: commitment.transactionAttempts,
+          profileRepairs: commitment.profileRepairs,
+        })
+        return this.preparePageTurnPreview(
+          generation,
+          token,
+          pageIndex,
+          commitment.transactionAttempts,
+          commitment.profileRepairs
+        )
+      }
+      throw new Error('Passive preview commitment was invalidated')
+    }
+    forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
+    this.pageTurnPreviewStateValue = state
+    readerTrace('page-turn-preview:ready', readerPageTurnPreviewTraceState(this.pageTurnPreviewStateValue))
   } catch (error) {
     if (generation !== this.pageTurnPreviewGeneration) return
     this.pageTurnPreviewStateValue = Object.freeze({
@@ -500,22 +712,36 @@ async function preparePageTurnPreview(generation, token, pageIndex) {
       pageIndex: Number(pageIndex),
       message: error?.message || String(error),
     })
-    readerTrace('page-turn-preview:failed', this.pageTurnPreviewStateValue)
+    readerTrace('page-turn-preview:failed', readerPageTurnPreviewTraceState(this.pageTurnPreviewStateValue))
   }
 }
 
 function pageTurnPreviewBatchState(token = '') {
   const requestedToken = String(token || '')
-  const state = this.pageTurnPreviewBatchStateValue
+  let state = this.pageTurnPreviewBatchStateValue
   if (!state || (requestedToken && state.token !== requestedToken)) {
     return Object.freeze({ token: requestedToken, status: 'missing' })
   }
-  return state
+  if (
+    state.status === 'ready' &&
+    !readerTextPageCommitOwnerIsValid(state)
+  ) {
+    this.restartInvalidatedPageTurnPreviewCommitment(state)
+    state = this.pageTurnPreviewBatchStateValue
+  }
+  return state || Object.freeze({ token: requestedToken, status: 'missing' })
 }
 
 function beginPageTurnPreviewBatch(token, pageIndexes = []) {
   const requestedToken = String(token || '')
+  if (this.pageTurnPreviewStateValue || this.pageTurnPreviewBatchStateValue) {
+    this.restorePageTurnLiveComposition()
+  }
   this.clearPageTurnPreviewPresentationReceipt()
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewBatchStateValue)
+  this.pageTurnPreviewStateValue = null
+  this.pageTurnPreviewBatchStateValue = null
   const requestedPageIndexes = Array.from(new Set(
     (Array.isArray(pageIndexes) ? pageIndexes : [])
       .map(value => Number(value))
@@ -530,14 +756,22 @@ function beginPageTurnPreviewBatch(token, pageIndexes = []) {
     cursor: 0,
     total: requestedPageIndexes.length,
     pageIndexes: requestedPageIndexes,
+    transactionAttempts: 0,
+    profileRepairs: 0,
   })
   if (requestedPageIndexes.length) {
-    void this.preparePageTurnPreviewBatchItem(generation, requestedToken, 0)
+    void this.preparePageTurnPreviewBatchItem(generation, requestedToken, 0, 0, 0)
   }
   return this.pageTurnPreviewBatchStateValue
 }
 
-async function preparePageTurnPreviewBatchItem(generation, token, cursor) {
+async function preparePageTurnPreviewBatchItem(
+  generation,
+  token,
+  cursor,
+  initialTransactionAttempts = 0,
+  initialProfileRepairs = 0
+) {
   const state = this.pageTurnPreviewBatchState(token)
   if (state.generation !== generation || state.cursor !== cursor) return
   const pageIndex = state.pageIndexes[cursor]
@@ -545,15 +779,32 @@ async function preparePageTurnPreviewBatchItem(generation, token, cursor) {
     const previewView = await this.ensurePageTurnPreviewRenderer()
     if (generation !== this.pageTurnPreviewGeneration) return
     if (!previewView) throw new Error('Passive raster renderer is unavailable')
-    const locator = await this.resolvePageTurnPreviewLocator(
+    const commitment = await this.resolvePageTurnPreviewLocator(
       previewView,
       pageIndex,
       'page-turn-raster-batch',
       'Passive raster',
-      () => generation === this.pageTurnPreviewGeneration
+      () => generation === this.pageTurnPreviewGeneration,
+      initialTransactionAttempts,
+      initialProfileRepairs
     )
     if (generation !== this.pageTurnPreviewGeneration) return
-    if (!locator) return
+    if (!commitment) return
+    if (commitment.status === 'unsupported') {
+      this.pageTurnPreviewStateValue = null
+      this.pageTurnPreviewBatchStateValue = Object.freeze({
+        token,
+        generation,
+        status: 'cancelled',
+        cursor,
+        total: state.total,
+        pageIndexes: state.pageIndexes,
+        transactionAttempts: commitment.transactionAttempts,
+        profileRepairs: commitment.profileRepairs,
+      })
+      return
+    }
+    const locator = commitment.locator
     const itemToken = `${token}:${generation}:${cursor}:${locator.pageIndex}`
     const identity = Object.freeze({
       token: itemToken,
@@ -565,18 +816,60 @@ async function preparePageTurnPreviewBatchItem(generation, token, cursor) {
       href: locator.href,
       chapterPageIndex: locator.chapterPageIndex,
       chapterPageCount: locator.chapterPageCount,
+      transactionAttempts: commitment.transactionAttempts,
+      profileRepairs: commitment.profileRepairs,
     })
-    this.pageTurnPreviewStateValue = identity
-    this.pageTurnPreviewBatchStateValue = Object.freeze({
+    const batchState = Object.freeze({
       ...state,
       ...identity,
       token,
       itemToken,
       cursor,
     })
-    readerTrace('page-turn-raster-batch:ready', this.pageTurnPreviewBatchStateValue)
+    const identityRemembered = readerRememberTextPageCommit(
+      identity,
+      previewView.renderer,
+      commitment.receipt
+    )
+    const batchRemembered = identityRemembered && readerRememberTextPageCommit(
+      batchState,
+      previewView.renderer,
+      commitment.receipt
+    )
+    if (!batchRemembered) {
+      forgetPageTurnPreviewCommitment(identity)
+      forgetPageTurnPreviewCommitment(batchState)
+      if (commitment.transactionAttempts < ReaderPageTurnMaximumCommitTransactionAttempts) {
+        this.pageTurnPreviewBatchStateValue = Object.freeze({
+          token,
+          generation,
+          status: 'preparing',
+          cursor,
+          total: state.total,
+          pageIndexes: state.pageIndexes,
+          transactionAttempts: commitment.transactionAttempts,
+          profileRepairs: commitment.profileRepairs,
+        })
+        return this.preparePageTurnPreviewBatchItem(
+          generation,
+          token,
+          cursor,
+          commitment.transactionAttempts,
+          commitment.profileRepairs
+        )
+      }
+      throw new Error('Passive raster commitment was invalidated')
+    }
+    forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
+    forgetPageTurnPreviewCommitment(this.pageTurnPreviewBatchStateValue)
+    this.pageTurnPreviewStateValue = identity
+    this.pageTurnPreviewBatchStateValue = batchState
+    readerTrace('page-turn-raster-batch:ready', readerPageTurnPreviewTraceState(this.pageTurnPreviewBatchStateValue))
   } catch (error) {
     if (generation !== this.pageTurnPreviewGeneration) return
+    forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
+    forgetPageTurnPreviewCommitment(this.pageTurnPreviewBatchStateValue)
+    this.pageTurnPreviewStateValue = null
     this.pageTurnPreviewBatchStateValue = Object.freeze({
       ...state,
       status: 'failed',
@@ -584,7 +877,7 @@ async function preparePageTurnPreviewBatchItem(generation, token, cursor) {
       paginationReady: this.isCompletePaginationProfile?.(this.paginationProfile) === true,
       message: error?.message || String(error),
     })
-    readerTrace('page-turn-raster-batch:failed', this.pageTurnPreviewBatchStateValue)
+    readerTrace('page-turn-raster-batch:failed', readerPageTurnPreviewTraceState(this.pageTurnPreviewBatchStateValue))
   }
 }
 
@@ -593,6 +886,8 @@ function advancePageTurnPreviewBatch(token, pageIndex) {
   const completedPageIndex = Math.max(0, Math.floor(Number(pageIndex)))
   if (state.status !== 'ready' || state.pageIndex !== completedPageIndex) return state
   this.clearPageTurnPreviewPresentationReceipt()
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
+  forgetPageTurnPreviewCommitment(state)
   const nextCursor = state.cursor + 1
   if (nextCursor >= state.total) {
     this.pageTurnPreviewBatchStateValue = Object.freeze({
@@ -622,6 +917,8 @@ function cancelPageTurnPreviewBatch(token = '') {
   if (state.status === 'missing') return false
   const generation = ++this.pageTurnPreviewGeneration
   this.restorePageTurnLiveComposition()
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewBatchStateValue)
   this.pageTurnPreviewStateValue = null
   this.pageTurnPreviewBatchStateValue = Object.freeze({
     token: state.token,
@@ -631,7 +928,7 @@ function cancelPageTurnPreviewBatch(token = '') {
     total: state.total ?? 0,
     pageIndexes: state.pageIndexes ?? [],
   })
-  readerTrace('page-turn-raster-batch:cancelled', this.pageTurnPreviewBatchStateValue)
+  readerTrace('page-turn-raster-batch:cancelled', readerPageTurnPreviewTraceState(this.pageTurnPreviewBatchStateValue))
   return true
 }
 
@@ -670,7 +967,7 @@ function exposePageTurnPreviewFinal(token = '') {
   })
   this.pageTurnPreviewExposedToken = state.token
   this.clearPageTurnLivePresentationReceipt()
-  readerTrace('page-turn-preview:exposed', state)
+  readerTrace('page-turn-preview:exposed', readerPageTurnPreviewTraceState(state))
   return true
 }
 
@@ -698,7 +995,7 @@ function confirmPageTurnPreviewPresentation(token = '') {
     pageIndex: state.pageIndex,
     previewGeneration: state.generation,
   })
-  readerTrace('page-turn-preview:confirmed', state)
+  readerTrace('page-turn-preview:confirmed', readerPageTurnPreviewTraceState(state))
   return true
 }
 
@@ -711,7 +1008,14 @@ function restorePageTurnLiveComposition(token = '') {
   ) return false
   const restoringExposedPreview = Boolean(this.pageTurnPreviewExposedToken)
   const previewView = this.pageTurnPreviewView
-  if (previewView) this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
+  if (previewView) {
+    setStylesImportant(previewView, {
+      visibility: 'hidden',
+      opacity: '0',
+      'pointer-events': 'none',
+      'z-index': '-1',
+    })
+  }
   const retainedLivePositionIsCurrent = restoringExposedPreview &&
     this.pageTurnLivePresentationTargetMatchesCurrent(
       this.pageTurnLivePresentationTargetValue
@@ -742,7 +1046,9 @@ function restorePageTurnLiveComposition(token = '') {
   this.pageTurnPreviewDecorationPageIndex = null
   this.renderSurfacePaperTextureLayers()
   if (restoringExposedPreview) this.restorePageTurnLivePresentationReceipt()
-  readerTrace('page-turn-preview:restored', { token: requestedToken })
+  readerTrace('page-turn-preview:restored', {
+    restoredExposedPreview: restoringExposedPreview,
+  })
   return true
 }
 
@@ -751,6 +1057,8 @@ function destroyPageTurnPreviewRenderer(reason = 'destroy') {
   this.restorePageTurnLiveComposition()
   this.clearPageTurnPreviewPresentationReceipt()
   this.clearPageTurnLivePresentationTarget()
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewBatchStateValue)
   const previewView = this.pageTurnPreviewView
   this.pageTurnPreviewView = null
   this.pageTurnPreviewPublicationUrl = ''
@@ -774,6 +1082,7 @@ export const NavicReaderPageTurnPreviewMethods = {
   beginPageTurnPreviewBatch,
   preparePageTurnPreviewBatchItem,
   pageTurnPreviewBatchState,
+  restartInvalidatedPageTurnPreviewCommitment,
   advancePageTurnPreviewBatch,
   cancelPageTurnPreviewBatch,
   pageTurnPreviewState,

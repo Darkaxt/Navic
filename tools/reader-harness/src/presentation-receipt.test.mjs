@@ -32,6 +32,10 @@ const previewPath = new URL(
 )
 const { NavicReaderPageTurnMethods } = await import(turnsPath.href)
 const { NavicReaderPageTurnPreviewMethods } = await import(previewPath.href)
+const { readerRememberTextPageCommit } = await import(new URL(
+  '../../../composeApp/src/androidMain/assets/reader/navic-reader-paginator-commit.js',
+  import.meta.url,
+).href)
 
 const previewTarget = Object.freeze({
   scope: ReaderPageTurnPresentationScopePreview,
@@ -235,4 +239,171 @@ test('live receipt cannot resurrect after an unobserved A to B to A relocation',
   runtime.relocateSequence += 1
 
   assert.equal(runtime.pageTurnLivePresentationReceipt(), null)
+})
+
+test('restore keeps committed passive raster authority through descriptor persistence and batch advance', () => {
+  const styleState = () => {
+    const values = new Map()
+    return {
+      getPropertyValue: name => values.get(name) || '',
+      setProperty: (name, value) => values.set(name, String(value)),
+      removeProperty: name => values.delete(name),
+    }
+  }
+  const liveStyle = styleState()
+  const previewStyle = styleState()
+  const paginatorReceipt = Object.freeze({
+    layoutGeneration: 1,
+    viewGeneration: 1,
+    commitSequence: 1,
+    flow: 'paginated',
+    index: 0,
+    pageIndex: 1,
+    pageCount: 3,
+  })
+  let receiptIsValid = true
+  let hiddenLayoutApplications = 0
+  let rendererRenders = 0
+  const renderer = {
+    validateTextPageCommit: receipt => receiptIsValid && receipt === paginatorReceipt,
+    render: () => {
+      rendererRenders += 1
+      receiptIsValid = false
+    },
+  }
+  const identity = Object.freeze({
+    token: 'batch:item',
+    generation: 4,
+    status: 'ready',
+    pageIndex: 1,
+    visualPageOrdinal: 1,
+    spineIndex: 0,
+    href: 'chapter-0',
+    chapterPageIndex: 1,
+    chapterPageCount: 3,
+    transactionAttempts: 1,
+    profileRepairs: 0,
+  })
+  const batch = Object.freeze({
+    ...identity,
+    token: 'batch',
+    itemToken: identity.token,
+    cursor: 0,
+    total: 1,
+    pageIndexes: [1],
+  })
+  const runtime = {
+    publicationUrl: 'https://publication.invalid/book',
+    paginationFingerprint: 'profile-fingerprint',
+    paginationProfile: {
+      render: {},
+      pageCount: 3,
+      chapters: [{
+        spineIndex: 0,
+        href: 'chapter-0',
+        pageStartIndex: 0,
+        pageCount: 3,
+      }],
+    },
+    readerSettings: {},
+    currentPagePosition: { pageIndex: 0, pageCount: 3 },
+    pageTurnPreviewGeneration: 4,
+    pageTurnPreviewStateValue: identity,
+    pageTurnPreviewBatchStateValue: batch,
+    pageTurnPreviewView: { style: previewStyle, renderer },
+    pageTurnPreviewExposedToken: '',
+    pageTurnPreviewPresentationReceiptValue: null,
+    pageTurnPresentationSequence: 0,
+    pageTurnPreviewLiveVisibility: '',
+    pageTurnPreviewLiveOpacity: '',
+    pageTurnPreviewLivePagePosition: null,
+    pageTurnPreviewDecorationPageIndex: null,
+    pageTurnLivePresentationReceiptValue: null,
+    pageTurnLivePresentationTargetValue: null,
+    view: { style: liveStyle },
+    updateReaderPageNumberLayer: () => {},
+    renderSurfacePaperTextureLayers: () => {},
+    pageDragPreviewDimensions: () => ({ width: 800, height: 1200 }),
+    applyReaderViewportLayoutToProfilerView: () => {
+      hiddenLayoutApplications += 1
+      receiptIsValid = false
+    },
+  }
+  Object.assign(runtime, NavicReaderPageTurnMethods, NavicReaderPageTurnPreviewMethods, {
+    updateReaderPageNumberLayer: runtime.updateReaderPageNumberLayer,
+    renderSurfacePaperTextureLayers: runtime.renderSurfacePaperTextureLayers,
+    pageDragPreviewDimensions: runtime.pageDragPreviewDimensions,
+    applyReaderViewportLayoutToProfilerView: runtime.applyReaderViewportLayoutToProfilerView,
+    pageTurnCaptureGeometry: () => ({
+      mode: 'single',
+      pages: [],
+      viewportWidth: 800,
+      viewportHeight: 1200,
+    }),
+    preparePageTurnPreviewBatchItem: async () => {},
+  })
+  const originalGetComputedStyle = window.getComputedStyle
+  window.getComputedStyle = element => ({
+    display: element.style.getPropertyValue('display') || 'block',
+    visibility: element.style.getPropertyValue('visibility') || 'visible',
+    opacity: element.style.getPropertyValue('opacity') || '1',
+  })
+  try {
+    assert.equal(readerRememberTextPageCommit(identity, renderer, paginatorReceipt), true)
+    assert.equal(readerRememberTextPageCommit(batch, renderer, paginatorReceipt), true)
+    assert.equal(runtime.exposePageTurnPreviewFinal(identity.token), true)
+    assert.equal(runtime.confirmPageTurnPreviewPresentation(identity.token), true)
+    assert.notEqual(runtime.pageTurnPreviewPresentationReceipt(), null)
+
+    assert.equal(runtime.restorePageTurnLiveComposition(identity.token), true)
+    assert.equal(hiddenLayoutApplications, 0)
+    assert.equal(rendererRenders, 0)
+    assert.equal(receiptIsValid, true)
+    assert.equal(previewStyle.getPropertyValue('visibility'), 'hidden')
+    assert.equal(previewStyle.getPropertyValue('z-index'), '-1')
+    assert.notEqual(runtime.pageTurnRasterDescriptor(1), null)
+    assert.equal(runtime.advancePageTurnPreviewBatch('batch', 1).status, 'complete')
+  } finally {
+    window.getComputedStyle = originalGetComputedStyle
+  }
+})
+
+test('preview presentation receipt rejects stale paginator authority', () => {
+  const state = Object.freeze({
+    token: previewTarget.token,
+    generation: previewTarget.previewGeneration,
+    status: 'ready',
+    pageIndex: previewTarget.pageIndex,
+    transactionAttempts: 1,
+  })
+  const paginatorReceipt = Object.freeze({
+    layoutGeneration: 1,
+    viewGeneration: 1,
+    commitSequence: 1,
+    flow: 'paginated',
+    index: 2,
+    pageIndex: 3,
+    pageCount: 7,
+  })
+  let paginatorReceiptIsValid = true
+  const renderer = {
+    validateTextPageCommit: receipt =>
+      paginatorReceiptIsValid && receipt === paginatorReceipt,
+  }
+  const runtime = {
+    pageTurnPreviewStateValue: state,
+    pageTurnPreviewBatchStateValue: null,
+    pageTurnPreviewGeneration: previewTarget.previewGeneration,
+    pageTurnPreviewView: { renderer },
+    pageTurnPreviewExposedToken: previewTarget.token,
+    pageTurnPreviewPresentationReceiptValue: null,
+    pageTurnPresentationSequence: 0,
+  }
+  Object.assign(runtime, NavicReaderPageTurnPreviewMethods)
+  assert.equal(readerRememberTextPageCommit(state, renderer, paginatorReceipt), true)
+  runtime.issuePageTurnPreviewPresentationReceipt(previewTarget)
+
+  paginatorReceiptIsValid = false
+
+  assert.equal(runtime.pageTurnPreviewPresentationReceipt(), null)
 })

@@ -807,19 +807,21 @@ internal class ReaderPageRasterBatchController(
 					)
 					return@captureFailed
 				}
-				finishAcquisition(
-					session,
-					pageIndex,
-					ReaderPageRasterAcquisitionResult.Failed
-				)
-				finish(
-					session,
-					ReaderPageRasterBatchOutcome.Failed(
-						stage = "preview-capture",
-						pageIndex = pageIndex,
-						reason = "prepared-raster-capture-failed"
+				repollInvalidatedBatchItem(session, pageIndex, previewGeneration) {
+					finishAcquisition(
+						session,
+						pageIndex,
+						ReaderPageRasterAcquisitionResult.Failed
 					)
-				)
+					finish(
+						session,
+						ReaderPageRasterBatchOutcome.Failed(
+							stage = "preview-capture",
+							pageIndex = pageIndex,
+							reason = "prepared-raster-capture-failed"
+						)
+					)
+				}
 			},
 			onCaptured = captured@{ persisted ->
 				if (!isSessionActive(session)) {
@@ -843,6 +845,44 @@ internal class ReaderPageRasterBatchController(
 				advancePageTurnPreviewBatch(session, pageIndex)
 			}
 		)
+	}
+
+	private fun repollInvalidatedBatchItem(
+		session: Session,
+		pageIndex: Int,
+		previewGeneration: Long,
+		onNotRestarted: () -> Unit
+	) {
+		if (!isSessionActive(session)) return
+		session.webView.evaluateJavascript(
+			"JSON.stringify(window.NavicReaderBridge?.pageTurnPreviewBatchState?.(" +
+				"${JSONObject.quote(session.token)}) ?? null)"
+		) { encodedState ->
+			if (!isSessionActive(session)) {
+				finishAcquisition(
+					session,
+					pageIndex,
+					inactiveAcquisitionResult(session)
+				)
+				return@evaluateJavascript
+			}
+			val state = encodedState.javascriptObject()
+			val restarted =
+				state != null &&
+					state.optString("status") in setOf("preparing", "ready") &&
+					state.optInt("pageIndex", -1) == pageIndex &&
+					state.optLong("generation", -1L) > previewGeneration
+			if (!restarted) {
+				onNotRestarted()
+				return@evaluateJavascript
+			}
+			finishAcquisition(
+				session,
+				pageIndex,
+				ReaderPageRasterAcquisitionResult.Cancelled
+			)
+			session.webView.postOnAnimation { pollBatchState(session) }
+		}
 	}
 
 	private fun advancePageTurnPreviewBatch(session: Session, pageIndex: Int) {

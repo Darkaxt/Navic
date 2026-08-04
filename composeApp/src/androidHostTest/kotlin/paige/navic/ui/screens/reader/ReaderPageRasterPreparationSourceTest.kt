@@ -604,7 +604,7 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
-	fun rejectedPreparedSurfaceCannotPublishOrAdvanceReadiness() {
+	fun rejectedPreparedSurfaceRepollsOnlyWhenJsRestartedTheSameBatchItem() {
 		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
 		val capture = bundle.substringAfter(
 			"fun capturePreparedRasterPage("
@@ -612,12 +612,16 @@ class ReaderPageRasterPreparationSourceTest {
 		val rejection = capture.indexOf("captured == null")
 		val failure = capture.indexOf("onCaptureFailed()", rejection)
 		val publication = capture.indexOf("putSnapshot(")
-		val controller = readerRasterBatchSource().substringAfter(
+		val controllerSource = readerRasterBatchSource()
+		val controller = controllerSource.substringAfter(
 			"private fun captureReadyItem("
 		).substringBefore("private fun advancePageTurnPreviewBatch(")
 		val failedCallback = controller.substringAfter(
 			"onCaptureFailed = captureFailed@{"
 		).substringBefore("onCaptured = captured@{")
+		val repoll = controllerSource.substringAfter(
+			"private fun repollInvalidatedBatchItem("
+		).substringBefore("private fun advancePageTurnPreviewBatch(")
 
 		assertTrue(rejection >= 0 && rejection < failure)
 		assertTrue(failure < publication)
@@ -625,8 +629,21 @@ class ReaderPageRasterPreparationSourceTest {
 			capture.substring(rejection, publication),
 			"return@capturePreparedPage"
 		)
+		assertContains(
+			failedCallback,
+			"repollInvalidatedBatchItem(session, pageIndex, previewGeneration)"
+		)
 		assertContains(failedCallback, "ReaderPageRasterAcquisitionResult.Failed")
 		assertContains(failedCallback, "prepared-raster-capture-failed")
+		assertContains(repoll, "state != null")
+		assertContains(
+			repoll,
+			"state.optString(\"status\") in setOf(\"preparing\", \"ready\")"
+		)
+		assertContains(repoll, "state.optInt(\"pageIndex\", -1) == pageIndex")
+		assertContains(repoll, "state.optLong(\"generation\", -1L) > previewGeneration")
+		assertContains(repoll, "pollBatchState(session)")
+		assertContains(repoll, "onNotRestarted()")
 		assertFalse(failedCallback.contains("advancePageTurnPreviewBatch("))
 	}
 

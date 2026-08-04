@@ -8,6 +8,7 @@
     "test:page-turn-model": "node --test src/page-turn-model.test.mjs",
     "test:pagination-stability": "node --test src/pagination-stability.test.mjs",
     "test:paginator-commit-receipt": "node --test src/paginator-commit-receipt.test.mjs",
+    "test:paginator-commit-consumers": "node --no-warnings --test src/paginator-commit-consumers.test.mjs",
     "test:presentation-receipt": "node --no-warnings --test src/presentation-receipt.test.mjs",
     "test:baseline-hmac": "node --test src/baseline-hmac.test.mjs",
     "test:wordsync-provenance": "node --test src/wordsync-provenance.test.mjs"

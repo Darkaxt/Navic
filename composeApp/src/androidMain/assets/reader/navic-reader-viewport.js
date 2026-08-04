@@ -55,6 +55,10 @@ const normalizedReaderPdfPageGapPercent = value => {
 }
 
 function applyReaderViewportLayout(label = 'unknown', options = {}) {
+  if (label === 'resize') {
+    this.clearPaginationProfileOwnership('viewport-resize')
+    this.destroyPageTurnPreviewRenderer('viewport-resize')
+  }
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
@@ -134,6 +138,9 @@ function applyReaderViewportLayout(label = 'unknown', options = {}) {
   this.renderTapZoneOverlayLayer()
   this.preloadPageDragPreviewTargets?.(`viewport-layout:${label}`)
   log('viewport-layout', `label=${label}`, `${width}x${height}`)
+  if (label === 'resize') {
+    this.startCompletePaginationProfileReplacementAfterLayout('viewport-resize')
+  }
 }
 
 

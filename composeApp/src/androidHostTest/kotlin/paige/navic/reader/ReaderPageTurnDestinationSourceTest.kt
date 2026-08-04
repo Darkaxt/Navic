@@ -256,29 +256,30 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun passiveRasterReadinessRequiresTheActualPaginatorPosition() {
+	fun passiveRasterReadinessRequiresAValidatedPaginatorCommitReceipt() {
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
-		val stability = readerAssetRoot().resolve("navic-reader-pagination-stability.js").readText()
-		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
 		val resolve = preview
 			.substringAfter("async function resolvePageTurnPreviewLocator(")
-			.substringBefore("\n}\n")
-		val exactPosition = paginator
-			.substringAfter("exactTextPagePosition() {")
-			.substringBefore("\n    }")
+			.substringBefore("async function ensurePageTurnPreviewRenderer(")
 
-		assertContains(preview, "function readerExactVisualPageMatches(actual, locator)")
-		assertContains(stability, "renderer.exactTextPagePosition?.()")
-		assertContains(exactPosition, "index: this.#index")
-		assertContains(exactPosition, "pageIndex: this.page - 1")
-		assertContains(exactPosition, "pageCount: this.pages - 2")
-		assertContains(resolve, "await readerWaitForStableTextPagePosition(")
-		assertContains(resolve, "readerExactVisualPageMatches(actual, locator)")
-		assertContains(resolve, "repairPaginationProfileFromExactPosition")
+		assertContains(preview, "from './navic-reader-paginator-commit.js'")
+		assertContains(resolve, "await readerCommitTextPage(")
+		assertContains(resolve, "readerTextPageCommitIsValid(view?.renderer, result)")
+		assertContains(resolve, "readerTextPageCommitMatches(result, expectedPosition)")
+		assertContains(resolve, "receipt: result.receipt")
+		assertContains(resolve, "ReaderPageTurnMaximumCommitTransactionAttempts")
+		assertFalse(resolve.contains("readerGoToExactVisualPage("))
+		assertFalse(resolve.contains("readerWaitForStableTextPagePosition"))
 		assertTrue(
-			resolve.indexOf("readerExactVisualPageMatches(actual, locator)") <
-				resolve.indexOf("return locator"),
-			"The passive renderer must prove its exact stable position before exposing a raster."
+			resolve.indexOf("this.applyReaderViewportLayoutToProfilerView(") <
+				resolve.indexOf("await readerCommitTextPage("),
+			"Passive viewport layout must precede the paginator transaction."
+		)
+		assertFalse(
+			resolve.substringAfter("await readerCommitTextPage(").contains(
+				"this.applyReaderViewportLayoutToProfilerView("
+			),
+			"Passive layout must not be reapplied after exact commitment."
 		)
 	}
 
@@ -301,36 +302,37 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun passiveAndLiveDestinationRenderingShareExactPageNavigation() {
+	fun passiveRenderingUsesReceiptsWhileLiveExactTurnsRetainTheirStageThreePath() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 		val resolve = preview
 			.substringAfter("async function resolvePageTurnPreviewLocator(")
-			.substringBefore("\n}\n")
+			.substringBefore("async function ensurePageTurnPreviewRenderer(")
 		val prepare = preview
 			.substringAfter("async function preparePageTurnPreview(")
-			.substringBefore("\n}\n")
+			.substringBefore("function pageTurnPreviewBatchState(")
 		val prepareBatchItem = preview
 			.substringAfter("async function preparePageTurnPreviewBatchItem(")
-			.substringBefore("\n}\n")
+			.substringBefore("function advancePageTurnPreviewBatch(")
 
 		assertContains(turns, "readerGoToExactVisualPage(this.view, locator)")
-		assertContains(resolve, "readerGoToExactVisualPage(")
-		assertContains(resolve, "if (!reached)")
+		assertContains(resolve, "readerCommitTextPage(")
+		assertContains(resolve, "receipt: result.receipt")
 		assertContains(resolve, "repairPaginationProfileFromExactPosition")
+		assertFalse(resolve.contains("readerGoToExactVisualPage("))
 		val applyLayout = "this.applyReaderViewportLayoutToProfilerView("
 		assertTrue(
-			resolve.indexOf(applyLayout) < resolve.indexOf("const reached"),
-			"The passive layout must be applied before exact navigation."
+			resolve.indexOf(applyLayout) < resolve.indexOf("const result = await readerCommitTextPage("),
+			"The passive layout must be applied before exact commitment."
 		)
 		assertFalse(
-			resolve.substringAfter("const reached").contains(applyLayout),
-			"Reapplying paginator attributes after navigation destroys the exact text-page anchor."
+			resolve.substringAfter("const result = await readerCommitTextPage(").contains(applyLayout),
+			"Reapplying paginator attributes after commitment invalidates its receipt."
 		)
-		assertContains(prepare, "this.resolvePageTurnPreviewLocator(")
-		assertContains(prepare, "'page-turn-preview'")
-		assertContains(prepareBatchItem, "this.resolvePageTurnPreviewLocator(")
-		assertContains(prepareBatchItem, "'page-turn-raster-batch'")
+		assertContains(prepare, "const commitment = await this.resolvePageTurnPreviewLocator(")
+		assertContains(prepare, "readerRememberTextPageCommit(")
+		assertContains(prepareBatchItem, "const commitment = await this.resolvePageTurnPreviewLocator(")
+		assertContains(prepareBatchItem, "readerRememberTextPageCommit(")
 		assertFalse(prepare.contains("anchor: locator.anchor"))
 	}
 
@@ -653,6 +655,71 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun restoringPreviewPresentationDoesNotMutateCommittedPaginatorLayout() {
+			val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+			val restore = preview
+				.substringAfter("function restorePageTurnLiveComposition(token = '') {")
+				.substringBefore("function destroyPageTurnPreviewRenderer(")
+
+			assertContains(restore, "setStylesImportant(previewView")
+			assertContains(restore, "visibility: 'hidden'")
+			assertContains(restore, "'z-index': '-1'")
+			assertFalse(restore.contains("applyReaderViewportLayoutToProfilerView"))
+			assertFalse(restore.contains("renderer?.render"))
+		}
+
+		@Test
+		fun passivePreparationModesAreMutuallyExclusiveAndRejectStaleRestarts() {
+			val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+			val standalone = preview
+				.substringAfter("function beginPageTurnPreviewPreparation(")
+				.substringBefore("async function preparePageTurnPreview(")
+			val batch = preview
+				.substringAfter("function beginPageTurnPreviewBatch(")
+				.substringBefore("async function preparePageTurnPreviewBatchItem(")
+			val restart = preview
+				.substringAfter("function restartInvalidatedPageTurnPreviewCommitment(")
+				.substringBefore("function pageTurnPreviewState(")
+
+			assertContains(standalone, "this.restorePageTurnLiveComposition()")
+			assertContains(standalone, "forgetPageTurnPreviewCommitment(this.pageTurnPreviewBatchStateValue)")
+			assertContains(standalone, "this.pageTurnPreviewBatchStateValue = null")
+			assertContains(batch, "this.restorePageTurnLiveComposition()")
+			assertContains(batch, "forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)")
+			assertContains(batch, "this.pageTurnPreviewStateValue = null")
+			assertContains(restart, "state.generation !== this.pageTurnPreviewGeneration")
+			assertContains(preview, "initialProfileRepairs")
+			assertFalse(preview.contains("function readerExactVisualPageMatches("))
+		}
+
+		@Test
+		fun passiveReadyPresentationDescriptorAndBatchBoundariesRevalidateJsLocalOwnership() {
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val stateGetter = preview
+			.substringAfter("function pageTurnPreviewState(token = '') {")
+			.substringBefore("function clearPageTurnPreviewPresentationReceipt(")
+		val presentationGetter = preview
+			.substringAfter("function pageTurnPreviewPresentationReceipt() {")
+			.substringBefore("const readerCssColorToArgb")
+		val descriptor = preview
+			.substringAfter("function pageTurnRasterDescriptor(pageIndex) {")
+			.substringBefore("function pageTurnRasterPreparationPlan(")
+		val batchGetter = preview
+			.substringAfter("function pageTurnPreviewBatchState(token = '') {")
+			.substringBefore("function beginPageTurnPreviewBatch(")
+
+		assertContains(preview, "readerRememberTextPageCommit(")
+		assertContains(stateGetter, "readerTextPageCommitOwnerIsValid(state)")
+		assertContains(stateGetter, "this.restartInvalidatedPageTurnPreviewCommitment(state)")
+		assertContains(presentationGetter, "readerTextPageCommitOwnerIsValid(state)")
+		assertContains(descriptor, "readerTextPageCommitOwnerIsValid(readyState)")
+		assertContains(batchGetter, "readerTextPageCommitOwnerIsValid(state)")
+		assertContains(preview, "readerForgetTextPageCommit(state)")
+		assertContains(preview, "transactionAttempts")
+		assertContains(preview, "profileRepairs")
+	}
+
+	@Test
 	fun passiveRasterBatchStagesOneExactOrdinalUntilNativeAdvancesIt() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
@@ -664,7 +731,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(runtime, "pageTurnPreviewBatchState: token =>")
 		assertContains(runtime, "advancePageTurnPreviewBatch: (token, pageIndex) =>")
 		assertContains(preview, "readerPageLocatorForVisualIndex(")
-		assertContains(preview, "readerGoToExactVisualPage(")
+		assertContains(preview, "readerCommitTextPage(")
 		assertContains(batch, "this.resolvePageTurnPreviewLocator(")
 		assertContains(batch, "'page-turn-raster-batch'")
 		assertContains(batch, "status: 'ready'")

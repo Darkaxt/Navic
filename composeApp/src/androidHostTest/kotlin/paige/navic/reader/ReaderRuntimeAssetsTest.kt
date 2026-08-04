@@ -52,6 +52,7 @@ class ReaderRuntimeAssetsTest {
 		val bridgePageTurns = root.resolve("navic-reader-page-turns.js")
 		val bridgeContentInteractions = root.resolve("navic-reader-content-interactions.js")
 		val bridgePaginationStability = root.resolve("navic-reader-pagination-stability.js")
+		val bridgePaginatorCommit = root.resolve("navic-reader-paginator-commit.js")
 		val bridgePagination = root.resolve("navic-reader-pagination.js")
 		val bridgeAppearance = root.resolve("navic-reader-appearance.js")
 		val bridgeShellCover = root.resolve("navic-reader-shell-cover.js")
@@ -79,7 +80,8 @@ class ReaderRuntimeAssetsTest {
 		assertTrue(bridgeMotion.isFile, "Navic reader motion module must be packaged")
 		assertTrue(bridgePageTurns.isFile, "Navic reader page-turn module must be packaged")
 		assertTrue(bridgeContentInteractions.isFile, "Navic reader content-interaction module must be packaged")
-		assertTrue(bridgePaginationStability.isFile, "Navic reader pagination-stability module must be packaged")
+		assertTrue(bridgePaginationStability.isFile, "Navic reader pagination-stability module must remain packaged until live migration completes")
+		assertTrue(bridgePaginatorCommit.isFile, "Navic reader paginator-commit module must be packaged")
 		assertTrue(bridgePagination.isFile, "Navic reader pagination module must be packaged")
 		assertTrue(bridgeAppearance.isFile, "Navic reader appearance module must be packaged")
 		assertTrue(bridgeShellCover.isFile, "Navic reader shell-cover module must be packaged")
@@ -106,7 +108,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(index.readText(), "frame-src blob: data: about:")
 		val bridgeText = readerBridgeText(root)
 		assertContains(bridgeText, "./navic-reader-baseline-hmac.js")
-		assertContains(bridgeText, "./navic-reader-pagination-stability.js")
+		assertContains(bridgeText, "./navic-reader-paginator-commit.js")
+		assertContains(bridgePaginatorCommit.readText(), "readerCommitTextPage")
 		assertContains(bridgeBaselineHmac.readText(), "generateKey(ReaderBaselineHmacAlgorithm, false, ['sign'])")
 		assertContains(bridgeText, "window.NavicReaderBridge")
 		assertContains(bridgeText, "selectionChanged")
@@ -1567,6 +1570,114 @@ class ReaderRuntimeAssetsTest {
 		assertContains(paginationModel, "adaptivePageBox:")
 		assertContains(paginationModel, "maxColumnCount: String(input?.adaptivePageBox?.maxColumnCount")
 		assertContains(paginationModel, "columnThreshold: String(input?.adaptivePageBox?.columnThreshold")
+	}
+
+	@Test
+	fun paginationProfilerPublishesOnlyValidatedCurrentCommitReceipts() {
+		val pagination = readerAssetRoot().resolve("navic-reader-pagination.js").readText()
+		val build = pagination
+			.substringAfter("async function buildCompletePaginationProfileInProfilerView(")
+			.substringBefore("async function ensureCompletePaginationProfile(")
+		val ensure = pagination
+			.substringAfter("async function ensureCompletePaginationProfile(")
+			.substringBefore("function shouldUseFreshPaginationProfile(")
+
+		assertContains(pagination, "runtimeVersion: 'navic-reader-pagination-profile-3'")
+		assertContains(pagination, "const ReaderPaginationProfileAuthorityCommitReceipt = 'paginator-commit-receipt'")
+		assertContains(pagination, "const ReaderPaginationProfileMaximumCommitTransactionAttempts = 3")
+		assertContains(pagination, "function paginationProfileTaskIsCurrent(")
+		assertContains(pagination, "function invalidatePaginationProfileTask(")
+		assertContains(build, "await readerCommitTextPage(")
+		assertContains(build, "transactionAttempts < ReaderPaginationProfileMaximumCommitTransactionAttempts")
+		assertContains(build, "result.status === 'invalidated'")
+		assertContains(build, "const receiptIsValid = readerTextPageCommitIsValid(profileView.renderer, result)")
+		assertContains(build, "this.paginationProfileWithCommitReceiptAuthority(")
+		assertContains(build, "'pagination-profile'")
+		assertContains(build, "result.status === 'committed'")
+		assertContains(build, "receiptIsValid")
+		assertFalse(build.contains("profileView.goTo("))
+		assertFalse(build.contains("readerWaitForStableTextPagePosition"))
+		assertTrue(
+			build.indexOf("this.applyReaderViewportLayoutToProfilerView(profileView, settings)") <
+				build.indexOf("await readerCommitTextPage("),
+			"Profiler viewport layout must precede each paginator transaction."
+		)
+		assertFalse(
+			build.substringAfter("await readerCommitTextPage(").contains(
+				"this.applyReaderViewportLayoutToProfilerView(profileView, settings)"
+			),
+			"Profiler layout must not be reapplied after exact commitment."
+		)
+		assertContains(ensure, "this.invalidatePaginationProfileTask('replacement-task')")
+		assertTrue(
+			ensure.indexOf("this.invalidatePaginationProfileTask('replacement-task')") <
+				ensure.indexOf("this.paginationFingerprint = fingerprint")
+		)
+		assertContains(ensure, "this.paginationProfileTaskIsCurrent(task)")
+		assertTrue(
+			ensure.indexOf("this.paginationProfileTaskIsCurrent(task)") <
+				ensure.indexOf("this.paginationProfile = profile")
+		)
+		assertTrue(
+			ensure.lastIndexOf("this.paginationProfileTaskIsCurrent(task)", ensure.indexOf("this.writeCachedPaginationProfile(profile)")) <
+				ensure.indexOf("this.writeCachedPaginationProfile(profile)")
+		)
+		val rawRelocation = pagination
+			.substringAfter("function readerEnsurePaginationProfile(")
+			.substringBefore("function readerPaginationProfilePosition(")
+		assertContains(rawRelocation, "this.paginationProfileIsAuthoritative(this.paginationProfile)")
+		assertFalse(rawRelocation.contains("this.writeCachedPaginationProfile(freshProfile)"))
+		assertContains(pagination, "if (!this.paginationProfileIsAuthoritative(profile)) return null")
+	}
+
+	@Test
+	fun paginationProfileTasksInvalidateBeforeLifecycleFingerprintChanges() {
+		val root = readerAssetRoot()
+		val appearance = root.resolve("navic-reader-appearance.js").readText()
+		val viewport = root.resolve("navic-reader-viewport.js").readText()
+		val runtime = root.resolve("navic-reader.js").readText()
+		val settings = appearance
+			.substringAfter("function applySettings(settings) {")
+			.substringBefore("function applyThemeToLoadedContent(")
+		val resize = viewport
+			.substringAfter("function applyReaderViewportLayout(label = 'unknown', options = {}) {")
+			.substringBefore("function applyReaderViewportLayoutToProfilerView(")
+		val close = runtime
+			.substringAfter("  close() {")
+			.substringBefore("  onLoad(")
+
+		assertTrue(
+			settings.indexOf("this.clearPaginationProfileOwnership('settings-change')") in 0 until
+				settings.indexOf("this.readerSettings = settings")
+		)
+		assertTrue(
+			settings.indexOf("this.destroyPageTurnPreviewRenderer('settings-change')") in 0 until
+				settings.indexOf("this.readerSettings = settings")
+		)
+		assertTrue(
+			resize.indexOf("this.clearPaginationProfileOwnership('viewport-resize')") in 0 until
+				resize.indexOf("setStylesImportant(document.documentElement")
+		)
+		assertTrue(
+			resize.indexOf("this.destroyPageTurnPreviewRenderer('viewport-resize')") in 0 until
+				resize.indexOf("setStylesImportant(document.documentElement")
+		)
+		assertTrue(
+			settings.indexOf("this.startCompletePaginationProfileReplacementAfterLayout('settings-change')") >
+				settings.indexOf("this.applyReaderViewportLayout('settings')")
+		)
+		assertTrue(
+			resize.indexOf("this.startCompletePaginationProfileReplacementAfterLayout('viewport-resize')") >
+				resize.indexOf("setStylesImportant(document.documentElement")
+		)
+		assertContains(
+			readerAssetRoot().resolve("navic-reader-pagination.js").readText(),
+			"this.currentPagePosition && liveContents.some(content => content?.doc)"
+		)
+		assertTrue(
+			close.indexOf("this.invalidatePaginationProfileTask('reader-close')") in 0 until
+				close.indexOf("this.publicationUrl = ''")
+		)
 	}
 
 	@Test

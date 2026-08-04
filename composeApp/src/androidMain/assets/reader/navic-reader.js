@@ -693,6 +693,7 @@ class NavicReaderRuntime {
   }
 
   close() {
+    this.invalidatePaginationProfileTask('reader-close')
     this.destroyPageTurnPreviewRenderer('reader-close')
     this.clearOverlay()
     this.rawTextProvenance.clear()
@@ -757,7 +758,6 @@ class NavicReaderRuntime {
     this.currentPagePosition = null
     this.paginationProfile = null
     this.paginationFingerprint = null
-    this.paginationProfileTaskToken += 1
     this.paginationProfileMeasurementInProgress = false
     this.observedChapterPageCounts = new Map()
     this.committedRelocateDetail = null
