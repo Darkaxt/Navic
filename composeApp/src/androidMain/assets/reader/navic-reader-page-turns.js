@@ -823,6 +823,25 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
     })
     return false
   }
+  const existingSettlement = this.nativePageTurnSettledState
+  if (
+    existingSettlement?.token === pending.token &&
+    existingSettlement.foliateSessionId === pending.foliateSessionId &&
+    existingSettlement.rasterGeneration === pending.rasterGeneration &&
+    existingSettlement.textureGeneration === pending.textureGeneration &&
+    existingSettlement.pageIndex === pending.pageIndex &&
+    existingSettlement.spineIndex === pending.spineIndex &&
+    existingSettlement.chapterPageIndex === pending.chapterPageIndex &&
+    existingSettlement.paginationProfile === pending.paginationProfile &&
+    readerTextPageCommitOwnerIsValid(existingSettlement)
+  ) {
+    const presentationAuthorityIsCurrent = this.pageTurnPreviewExposedToken
+      ? this.pageTurnLivePresentationTargetMatchesCurrent(
+          this.pageTurnLivePresentationTargetValue
+        )
+      : this.pageTurnLivePresentationReceipt() != null
+    if (presentationAuthorityIsCurrent) return true
+  }
   const settledPageIndex = Math.floor(pageIndex)
   const settlement = Object.freeze({
     token: pending.token,

@@ -1393,6 +1393,69 @@ test('live exact layout and initial commit form one serialized token operation',
   assert.equal(serialized.includes('commitSequence'), false)
 })
 
+test('repeated live settlement observation does not reissue presentation authority', async () => {
+  const result = resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 })
+  const fixture = liveSettlementRuntime({ results: [result] })
+
+  await fixture.runtime.goToVisualPage(liveSettlementCommand('live-idempotent', 1))
+  const initialSettlement = fixture.runtime.nativePageTurnSettledState
+  const initialPresentationReceipt = fixture.runtime.pageTurnLivePresentationReceiptValue
+  const initialPresentationSequence = fixture.runtime.pageTurnPresentationSequence
+
+  assert.equal(
+    fixture.runtime.maybeCompleteNativePageTurnSettlement(fixture.runtime.currentPagePosition),
+    true,
+  )
+  assert.equal(fixture.runtime.nativePageTurnSettledState, initialSettlement)
+  assert.equal(
+    fixture.runtime.pageTurnLivePresentationReceiptValue,
+    initialPresentationReceipt,
+  )
+  assert.equal(fixture.runtime.pageTurnPresentationSequence, initialPresentationSequence)
+})
+
+test('a new relocation epoch refreshes live presentation authority once', async () => {
+  const result = resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 })
+  const fixture = liveSettlementRuntime({ results: [result] })
+
+  await fixture.runtime.goToVisualPage(liveSettlementCommand('live-new-epoch', 1))
+  const initialSettlement = fixture.runtime.nativePageTurnSettledState
+  const initialPresentationReceipt = fixture.runtime.pageTurnLivePresentationReceiptValue
+  const initialPresentationSequence = fixture.runtime.pageTurnPresentationSequence
+  fixture.runtime.relocateSequence += 1
+
+  assert.equal(
+    fixture.runtime.maybeCompleteNativePageTurnSettlement(fixture.runtime.currentPagePosition),
+    true,
+  )
+  const refreshedSettlement = fixture.runtime.nativePageTurnSettledState
+  const refreshedPresentationReceipt = fixture.runtime.pageTurnLivePresentationReceiptValue
+  assert.notEqual(refreshedSettlement, initialSettlement)
+  assert.notEqual(refreshedPresentationReceipt, initialPresentationReceipt)
+  assert.equal(
+    fixture.runtime.pageTurnLivePresentationTargetValue.relocationEpoch,
+    fixture.runtime.relocateSequence,
+  )
+  assert.equal(
+    fixture.runtime.pageTurnPresentationSequence,
+    initialPresentationSequence + 1,
+  )
+
+  assert.equal(
+    fixture.runtime.maybeCompleteNativePageTurnSettlement(fixture.runtime.currentPagePosition),
+    true,
+  )
+  assert.equal(fixture.runtime.nativePageTurnSettledState, refreshedSettlement)
+  assert.equal(
+    fixture.runtime.pageTurnLivePresentationReceiptValue,
+    refreshedPresentationReceipt,
+  )
+  assert.equal(
+    fixture.runtime.pageTurnPresentationSequence,
+    initialPresentationSequence + 1,
+  )
+})
+
 test('live exact settlement rejects receipt coordinates that differ from its locator', async () => {
   const wrongCoordinates = resultFor({
     status: 'committed',
