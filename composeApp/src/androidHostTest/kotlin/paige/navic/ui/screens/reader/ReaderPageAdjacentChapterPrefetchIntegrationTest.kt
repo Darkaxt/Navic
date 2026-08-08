@@ -549,6 +549,78 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun livePreemptionJoinsAnOrdinaryCancellationRestorationAlreadyInProgress() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		var live: ReaderForegroundWebViewLiveClaim? = null
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.foreground.delayCancellationRestoration = true
+
+			fixture.controller.invalidate("ordinary-cancellation-before-live")
+			assertEquals(1, fixture.foreground.cancellationCount)
+			assertEquals(1, fixture.ownership.snapshot().passiveOwners)
+
+			live = fixture.ownership.acquireLive(gestureId = 505L)
+			val readiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
+			fixture.ownership.whenLiveReady(live, readiness::add)
+
+			assertTrue(readiness.isEmpty())
+			assertEquals(1, fixture.ownership.snapshot().restorationCallbacks)
+
+			fixture.foreground.completeCancellationRestoration()
+
+			assertEquals(
+				listOf<ReaderForegroundWebViewLiveReadiness>(
+					ReaderForegroundWebViewLiveReadiness.Ready
+				),
+				readiness
+			)
+			assertEquals(0, fixture.ownership.snapshot().restorationCallbacks)
+		} finally {
+			live?.let(fixture.ownership::releaseLive)
+			fixture.foreground.completeCancellationRestoration()
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun ordinaryRepairCancellationRetainsPassiveLeaseUntilRestorationTerminal() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.repair.delayCancellationRestoration = true
+			fixture.controller.repairRasterPage(20) {}
+			assertNotNull(fixture.repair.active)
+
+			fixture.controller.invalidate("ordinary-repair-cancellation")
+
+			assertEquals(1, fixture.repair.cancellationCount)
+			assertEquals(1, fixture.ownership.snapshot().passiveOwners)
+			val competingLease = fixture.ownership.tryAcquirePassive(
+				sessionId = 9_001L,
+				cancelAndRestore = { complete ->
+					complete(ReaderPageRasterCancellationRestoration.Restored)
+				}
+			)
+			competingLease?.let(fixture.ownership::releasePassive)
+			assertEquals(null, competingLease)
+
+			fixture.repair.completeCancellationRestoration()
+
+			assertEquals(0, fixture.ownership.snapshot().passiveOwners)
+		} finally {
+			fixture.repair.completeCancellationRestoration()
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun livePreemptionWaitsForRepairRestorationWithoutCancellingTheRepairResult() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
@@ -929,8 +1001,9 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 	var cancellationCount = 0
 		private set
 	var delayCancellationRestoration = false
-	private var pendingCancellationRestoration:
-		((ReaderPageRasterCancellationRestoration) -> Unit)? = null
+	private val pendingCancellationRestorations = mutableListOf<
+		(ReaderPageRasterCancellationRestoration) -> Unit
+	>()
 	var delayLiveCompositionRestoration = false
 	var liveCompositionRestorationCount = 0
 		private set
@@ -981,10 +1054,9 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		restoration: ReaderPageRasterCancellationRestoration =
 			ReaderPageRasterCancellationRestoration.Restored
 	) {
-		pendingCancellationRestoration?.also {
-			pendingCancellationRestoration = null
-			it(restoration)
-		}
+		val pending = pendingCancellationRestorations.toList()
+		pendingCancellationRestorations.clear()
+		pending.forEach { callback -> callback(restoration) }
 	}
 
 	fun completeLiveCompositionRestoration(
@@ -1067,7 +1139,11 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 	) {
 		val request = active
 		if (request == null) {
-			onRestorationFinished(ReaderPageRasterCancellationRestoration.Restored)
+			if (pendingCancellationRestorations.isNotEmpty()) {
+				pendingCancellationRestorations += onRestorationFinished
+			} else {
+				onRestorationFinished(ReaderPageRasterCancellationRestoration.Restored)
+			}
 			return
 		}
 		active = null
@@ -1075,8 +1151,7 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		request.reference.release()
 		request.onComplete(ReaderPageRasterBatchOutcome.Cancelled)
 		if (delayCancellationRestoration) {
-			check(pendingCancellationRestoration == null)
-			pendingCancellationRestoration = onRestorationFinished
+			pendingCancellationRestorations += onRestorationFinished
 		} else {
 			onRestorationFinished(ReaderPageRasterCancellationRestoration.Restored)
 		}

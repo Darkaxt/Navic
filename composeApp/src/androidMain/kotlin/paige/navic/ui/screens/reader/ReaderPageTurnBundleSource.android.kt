@@ -2801,6 +2801,7 @@ internal class ReaderPageTurnBundleSource(
 									request = registration.request,
 									physicalLayoutEpoch = physicalLayoutEpoch,
 									persistenceAttemptId = persistenceAttemptId,
+									isStillCurrent = isStillCurrent,
 									onQaFaultApplied = { correlation ->
 										publicationQaFaultCorrelation = correlation
 									}
@@ -2868,9 +2869,15 @@ internal class ReaderPageTurnBundleSource(
 		request: ReaderPageRasterPublicationRequest,
 		physicalLayoutEpoch: Long,
 		persistenceAttemptId: ReaderPagePersistenceAttemptId,
+		isStillCurrent: () -> Boolean,
 		onQaFaultApplied: (ReaderPageQaFaultCorrelation) -> Unit
 	) {
 		publicationScheduler.schedule(request) {
+			fun publicationIsCurrent(): Boolean =
+				physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get() &&
+					runCatching(isStillCurrent).getOrDefault(false)
+
+			val currentBeforeAcquisition = publicationIsCurrent()
 			val value = publicationLedger.acquireForPersistence(request)
 				?: return@schedule
 			var write = ReaderPageRasterWriteResult(
@@ -2881,6 +2888,7 @@ internal class ReaderPageTurnBundleSource(
 			var writeFailure: Throwable? = null
 			var publicationQaFault: ReaderPageQaAppliedFault? = null
 			try {
+				if (!currentBeforeAcquisition) return@schedule
 				publicationQaFault = qaFaultRegistry?.consumeAndApply(
 					ReaderPageQaFault.FailNextPersistence,
 					ReaderPageQaFaultOperationContext(
@@ -2897,8 +2905,17 @@ internal class ReaderPageTurnBundleSource(
 						try {
 							val metadata = value.generation.metadata
 							val commitFence = ReaderPageRasterCommitFence { action ->
-								if (physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get()) {
-									publicationLedger.commitFence(request).commit(action)
+								if (publicationIsCurrent()) {
+									publicationLedger.commitFence(request).commit {
+										if (publicationIsCurrent()) {
+											action()
+										} else {
+											ReaderPageRasterWriteResult(
+												persisted = false,
+												ownership = ReaderPageRasterValueOwnership.Caller
+											)
+										}
+									}
 								} else {
 									ReaderPageRasterWriteResult(
 										persisted = false,
@@ -2907,7 +2924,7 @@ internal class ReaderPageTurnBundleSource(
 								}
 							}
 							write = when {
-								physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get() -> write
+								!publicationIsCurrent() -> write
 								store?.contains(value.key, metadata) == true ->
 									ReaderPageRasterWriteResult(
 										persisted = true,
@@ -2950,12 +2967,11 @@ internal class ReaderPageTurnBundleSource(
 						onQaFaultApplied(applied.correlation())
 					}
 			} finally {
-				val physicalLayoutCurrent =
-					physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get()
-				val persistedForCurrentLayout = write.persisted && physicalLayoutCurrent
+				val publicationCurrent = publicationIsCurrent()
+				val persistedForCurrentPublication = write.persisted && publicationCurrent
 				val publicationResult = when {
-					persistedForCurrentLayout -> ReaderPageRasterPublicationResult.Durable
-					physicalLayoutCurrent &&
+					persistedForCurrentPublication -> ReaderPageRasterPublicationResult.Durable
+					publicationCurrent &&
 						write.failureReason == ReaderPageRasterWriteFailureReason.DiskCapacity ->
 						ReaderPageRasterPublicationResult.CapacityReached
 					else -> ReaderPageRasterPublicationResult.Failed
@@ -2964,12 +2980,12 @@ internal class ReaderPageTurnBundleSource(
 				val accepted = try {
 					publicationLedger.complete(
 						request = request,
-						persisted = persistedForCurrentLayout
+						persisted = persistedForCurrentPublication
 					)
 				} finally {
 					publicationCompletionResults.remove(request)
 				}
-				if (!accepted || !persistedForCurrentLayout) {
+				if (!accepted || !persistedForCurrentPublication) {
 					write.receipt?.let { receipt ->
 						var rollbackFailure: Throwable? = null
 						try {

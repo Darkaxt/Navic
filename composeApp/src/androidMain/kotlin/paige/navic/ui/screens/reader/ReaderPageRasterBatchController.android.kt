@@ -486,9 +486,40 @@ internal class ReaderPageRasterBatchController(
 		)
 	}
 
+	private class PendingCancellationRestoration {
+		private val callbacks = mutableListOf<
+			(ReaderPageRasterCancellationRestoration) -> Unit
+		>()
+		private var terminal: ReaderPageRasterCancellationRestoration? = null
+
+		fun join(callback: (ReaderPageRasterCancellationRestoration) -> Unit) {
+			val completed = terminal
+			if (completed == null) callbacks += callback else callback(completed)
+		}
+
+		fun complete(restoration: ReaderPageRasterCancellationRestoration) {
+			if (terminal != null) return
+			terminal = restoration
+			val ownedCallbacks = callbacks.toList()
+			callbacks.clear()
+			var callbackFailure: Throwable? = null
+			ownedCallbacks.forEach { callback ->
+				try {
+					callback(restoration)
+				} catch (failure: Throwable) {
+					val first = callbackFailure
+					if (first == null) callbackFailure = failure
+					else if (failure !== first) first.addSuppressed(failure)
+				}
+			}
+			callbackFailure?.let { failure -> throw failure }
+		}
+	}
+
 	private var nextSessionId = 0L
 	private var nextCancellationVisualStateId = 0L
 	private var activeSession: Session? = null
+	private var pendingCancellationRestoration: PendingCancellationRestoration? = null
 	private var retryState: RetryState? = null
 
 	override fun start(
@@ -526,7 +557,18 @@ internal class ReaderPageRasterBatchController(
 			)
 			return targets.isEmpty()
 		}
-		cancel()
+		if (activeSession != null || pendingCancellationRestoration != null) {
+			cancel()
+			reference.release()
+			onComplete(
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "visual-restoration",
+					pageIndex = targets.firstOrNull()?.pageIndex,
+					reason = "cancellation-restoration-pending"
+				)
+			)
+			return false
+		}
 		val distinctTargets = linkedMapOf<Int, ReaderPageRasterBatchTarget>()
 		targets.forEach { target ->
 			val existing = distinctTargets[target.pageIndex]
@@ -606,6 +648,10 @@ internal class ReaderPageRasterBatchController(
 	override fun cancel(
 		onRestorationFinished: (ReaderPageRasterCancellationRestoration) -> Unit
 	) {
+		pendingCancellationRestoration?.let { pending ->
+			pending.join(onRestorationFinished)
+			return
+		}
 		val session = activeSession ?: run {
 			onRestorationFinished(ReaderPageRasterCancellationRestoration.Restored)
 			return
@@ -615,11 +661,20 @@ internal class ReaderPageRasterBatchController(
 		session.hydrationToken += 1L
 		session.hydrationRequest?.cancel()
 		session.hydrationRequest = null
+		val pending = PendingCancellationRestoration().also { restoration ->
+			restoration.join(onRestorationFinished)
+			pendingCancellationRestoration = restoration
+		}
 		requestVisualRestoration(
 			webView = session.webView,
 			javascript = "window.NavicReaderBridge?.cancelPageTurnPreviewBatch?.(" +
 				"${JSONObject.quote(session.token)})",
-			onRestorationFinished = onRestorationFinished
+			onRestorationFinished = { result ->
+				if (pendingCancellationRestoration === pending) {
+					pendingCancellationRestoration = null
+				}
+				pending.complete(result)
+			}
 		)
 		session.reference.release()
 		session.onComplete(ReaderPageRasterBatchOutcome.Cancelled)

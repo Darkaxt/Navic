@@ -1,14 +1,18 @@
 package paige.navic.ui.screens.reader
 
 import android.app.Activity
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Looper
+import android.webkit.ValueCallback
 import android.webkit.WebView
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -16,6 +20,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -628,6 +633,106 @@ class ReaderPageTurnBundleHydrationTest {
 	}
 
 	@Test
+	fun preemptionAfterPublicationAdmissionCannotCommitAStaleRaster() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val pageIndex = 18
+		val webView = RasterDescriptorWebView(activity.get(), pageIndex)
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val ownershipChanges = Channel<Unit>(Channel.UNLIMITED)
+		val qaFaultRegistry = ReaderPageQaFaultRegistry(
+			onOwnershipMutated = { ownershipChanges.trySend(Unit) }
+		)
+		val source = ReaderPageTurnBundleSource(
+			qaFaultRegistry = qaFaultRegistry,
+			onOwnershipMutated = { ownershipChanges.trySend(Unit) }
+		)
+		val publicationResult = CompletableDeferred<ReaderPageRasterPublicationResult>()
+		val foregroundOwnership = ReaderForegroundWebViewOwnership()
+		val passiveLease = assertNotNull(
+			foregroundOwnership.tryAcquirePassive(
+				sessionId = 7_001L,
+				cancelAndRestore = { complete ->
+					complete(ReaderPageRasterCancellationRestoration.Restored)
+				}
+			)
+		)
+		var liveClaim: ReaderForegroundWebViewLiveClaim? = null
+		try {
+			val snapshot = assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = pageIndex,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					current = captureResult()
+				)
+			)
+			source.initializeRasterCache(webView)
+			val activated = CompletableDeferred<ReaderPageSlideSnapshot?>()
+			source.hydrateSnapshot(
+				webView = webView,
+				pageIndex = pageIndex,
+				kind = ReaderPageTurnTransitionKind.PortraitSlide,
+				reference = snapshot
+			) { activated.complete(it) }
+			assertNotNull(activated.await()).release()
+			val baselineDiskEntries = source.rasterCacheMetrics().diskEntries
+			assertTrue(
+				qaFaultRegistry.enqueue(
+					requestId = "stale-publication-after-admission",
+					fault = ReaderPageQaFault.PauseNextPublication
+				)
+			)
+
+			source.ensurePersistentSnapshot(
+				snapshot = snapshot,
+				priority = ReaderPageRasterPriority.Current,
+				isStillCurrent = { foregroundOwnership.isCurrent(passiveLease) },
+				onPersisted = publicationResult::complete
+			)
+			withContext(Dispatchers.Default.limitedParallelism(1)) {
+				withTimeout(10_000L) {
+					while (
+						qaFaultRegistry.pendingCallbackCount() == 0 &&
+						!publicationResult.isCompleted
+					) {
+						ownershipChanges.receive()
+					}
+				}
+			}
+			assertFalse(
+				publicationResult.isCompleted,
+				"Publication failed before reaching the post-admission QA gate"
+			)
+
+			liveClaim = foregroundOwnership.acquireLive(gestureId = 7_002L)
+			assertFalse(foregroundOwnership.isCurrent(passiveLease))
+			assertTrue(qaFaultRegistry.releasePublication("release-stale-publication"))
+			withContext(Dispatchers.Default.limitedParallelism(1)) {
+				withTimeout(10_000L) {
+					while (source.ownershipMetrics().stagedPublications != 0) {
+						ownershipChanges.receive()
+					}
+				}
+			}
+			source.closeAndJoin()
+
+			assertEquals(
+				baselineDiskEntries,
+				source.rasterCacheMetrics().diskEntries,
+				"A passive publication invalidated after admission must be rolled back"
+			)
+		} finally {
+			liveClaim?.let(foregroundOwnership::releaseLive)
+			foregroundOwnership.releasePassive(passiveLease)
+			qaFaultRegistry.clear("clear-stale-publication-test")
+			source.closeAndJoin()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun capturedSnapshotHydrationStillRequiresPublication() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activity = Robolectric.buildActivity(Activity::class.java).setup()
@@ -1036,6 +1141,72 @@ class ReaderPageTurnBundleHydrationTest {
 
 			assertTrue(checkNotNull(durableBitmap).isRecycled)
 		} finally {
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun repeatedBatchCancellationJoinsTheOriginalRestorationTerminal() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = DelayedRestorationWebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val descriptors = FakeDescriptorPort(mutableListOf(), automatic = false)
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = descriptors,
+			hydrationStorePort = FakeHydrationStore(mutableListOf(), setOf(14))
+		)
+		val controller = ReaderPageRasterBatchController(source)
+		val reference = referenceSnapshot()
+		val outcomes = mutableListOf<ReaderPageRasterBatchOutcome>()
+		val firstRestoration = mutableListOf<ReaderPageRasterCancellationRestoration>()
+		val secondRestoration = mutableListOf<ReaderPageRasterCancellationRestoration>()
+		try {
+			reference.retain()
+			assertTrue(
+				controller.start(
+					webView = webView,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					reference = reference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = 14,
+							priority = ReaderPageRasterPriority.Current
+						)
+					),
+					onStagingStarted = { _, onPresented -> onPresented(true) },
+					onComplete = outcomes::add
+				)
+			)
+
+			controller.cancel(firstRestoration::add)
+			controller.cancel(secondRestoration::add)
+
+			assertEquals(
+				listOf<ReaderPageRasterBatchOutcome>(ReaderPageRasterBatchOutcome.Cancelled),
+				outcomes
+			)
+			assertTrue(firstRestoration.isEmpty())
+			assertTrue(secondRestoration.isEmpty())
+
+			webView.completeRestoration()
+			Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+			assertEquals(
+				listOf(ReaderPageRasterCancellationRestoration.Restored),
+				firstRestoration
+			)
+			assertEquals(
+				listOf(ReaderPageRasterCancellationRestoration.Restored),
+				secondRestoration
+			)
+		} finally {
+			webView.completeRestorationIfPending()
+			controller.cancel()
 			source.close()
 			reference.releaseCacheOwnership()
 			activity.destroy()
@@ -1514,6 +1685,70 @@ class ReaderPageTurnBundleHydrationTest {
 			reference.releaseCacheOwnership()
 			activity.destroy()
 			Dispatchers.resetMain()
+		}
+	}
+
+	private class DelayedRestorationWebView(context: Context) : WebView(context) {
+		private var evaluationCallback: ValueCallback<String>? = null
+		private var visualStateCallback: Pair<Long, VisualStateCallback>? = null
+
+		override fun evaluateJavascript(
+			script: String,
+			resultCallback: ValueCallback<String>?
+		) {
+			check(evaluationCallback == null)
+			evaluationCallback = resultCallback
+		}
+
+		override fun postVisualStateCallback(
+			requestId: Long,
+			callback: VisualStateCallback
+		) {
+			check(visualStateCallback == null)
+			visualStateCallback = requestId to callback
+		}
+
+		fun completeRestoration() {
+			val evaluation = checkNotNull(evaluationCallback)
+			evaluationCallback = null
+			evaluation.onReceiveValue("null")
+			val (requestId, visual) = checkNotNull(visualStateCallback)
+			visualStateCallback = null
+			visual.onComplete(requestId)
+		}
+
+		fun completeRestorationIfPending() {
+			if (evaluationCallback != null) completeRestoration()
+		}
+	}
+
+	private class RasterDescriptorWebView(
+		context: Context,
+		private val pageIndex: Int
+	) : WebView(context) {
+		override fun evaluateJavascript(
+			script: String,
+			resultCallback: ValueCallback<String>?
+		) {
+			val result = if (script.contains("pageTurnRasterDescriptor")) {
+				"""{
+					"publicationUrl":"publication-stale-fence",
+					"paginationFingerprint":"pagination-stale-fence",
+					"layoutFingerprint":"layout-stale-fence",
+					"decorationFingerprint":"decoration-stale-fence",
+					"viewportWidth":20,
+					"viewportHeight":30,
+					"pageCount":20,
+					"spineIndex":0,
+					"href":"chapter-stale-fence",
+					"chapterPageIndex":$pageIndex,
+					"chapterPageCount":20,
+					"visualPageOrdinal":$pageIndex
+				}""".trimIndent()
+			} else {
+				"null"
+			}
+			resultCallback?.onReceiveValue(result)
 		}
 	}
 

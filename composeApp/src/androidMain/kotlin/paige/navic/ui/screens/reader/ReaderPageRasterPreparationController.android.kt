@@ -1374,6 +1374,9 @@ internal class ReaderPageRasterPreparationController(
 		activeRasterRepairPageIndex = null
 		if (!preempted) {
 			activeRasterRepairShieldSession = null
+			if (activeRasterRepairPassiveLease == leaseSession) {
+				activeRasterRepairPassiveLease = null
+			}
 		}
 		deferredRasterRepairSessionId?.let(deferredRetryCoordinator::cancel)
 		deferredRasterRepairSessionId = null
