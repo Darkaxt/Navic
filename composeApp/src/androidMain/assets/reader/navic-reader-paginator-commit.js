@@ -1,4 +1,5 @@
 const textPageCommitOwners = new WeakMap()
+const textPageVisibleContentOwners = new WeakMap()
 const textPageCommitStatuses = new Set([
   'committed',
   'mismatch',
@@ -99,7 +100,21 @@ export function readerRememberTextPageCommit(owner, renderer, receipt) {
     typeof renderer?.validateTextPageCommit !== 'function' ||
     renderer.validateTextPageCommit(receipt) !== true
   ) return false
+  textPageVisibleContentOwners.delete(owner)
   textPageCommitOwners.set(owner, { renderer, receipt })
+  return true
+}
+
+export function readerRememberTextPageVisibleContent(owner) {
+  const commitment = owner && typeof owner === 'object'
+    ? textPageCommitOwners.get(owner)
+    : null
+  if (
+    !commitment ||
+    commitment.renderer?.validateTextPageCommit?.(commitment.receipt) !== true ||
+    commitment.renderer?.validateTextPageVisibleContent?.(commitment.receipt) !== true
+  ) return false
+  textPageVisibleContentOwners.set(owner, commitment)
   return true
 }
 
@@ -117,6 +132,11 @@ export function readerCopyTextPageCommit(source, owner) {
     commitment.renderer?.validateTextPageCommit?.(commitment.receipt) !== true
   ) return false
   textPageCommitOwners.set(owner, commitment)
+  if (textPageVisibleContentOwners.get(source) === commitment) {
+    textPageVisibleContentOwners.set(owner, commitment)
+  } else {
+    textPageVisibleContentOwners.delete(owner)
+  }
   return true
 }
 
@@ -130,6 +150,18 @@ export function readerTextPageCommitOwnerIsValid(owner) {
   )
 }
 
+export function readerTextPageCommitOwnerHasExpectedVisibleContent(owner) {
+  const commitment = owner && typeof owner === 'object'
+    ? textPageVisibleContentOwners.get(owner)
+    : null
+  return Boolean(
+    commitment &&
+    textPageCommitOwners.get(owner) === commitment &&
+    commitment.renderer?.validateTextPageCommit?.(commitment.receipt) === true &&
+    commitment.renderer?.validateTextPageVisibleContent?.(commitment.receipt) === true
+  )
+}
+
 export function readerTextPageCommitOwnerWasRemembered(owner) {
   return Boolean(
     owner &&
@@ -139,5 +171,7 @@ export function readerTextPageCommitOwnerWasRemembered(owner) {
 }
 
 export function readerForgetTextPageCommit(owner) {
-  return Boolean(owner && typeof owner === 'object' && textPageCommitOwners.delete(owner))
+  if (!owner || typeof owner !== 'object') return false
+  textPageVisibleContentOwners.delete(owner)
+  return textPageCommitOwners.delete(owner)
 }

@@ -48,6 +48,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(exactCommit, "readerTextPageCommitIsValid(")
 		assertContains(exactCommit, "readerTextPageCommitMatches(result, expectedPosition)")
 		assertContains(exactCommit, "readerRememberTextPageCommit(")
+		assertContains(exactCommit, "readerRememberTextPageVisibleContent(pending)")
 		assertContains(paginator, "async commitTextPage(index, pageIndex, reason = 'navigation')")
 		assertContains(paginator, "await this.#acquireExactNavigationLock()")
 		assertContains(paginator, "async #acquireExactNavigationLock()")
@@ -414,6 +415,55 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun livePresentationRequiresPrivateReceiptBoundVisibleContentProof() {
+		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val commitment = readerAssetRoot().resolve("navic-reader-paginator-commit.js").readText()
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val exactCommit = turns
+			.substringAfter("async function commitPendingExactPageTurnSettlement(")
+			.substringBefore("\n}\n\nasync function goToVisualPage(")
+		val completion = turns
+			.substringAfter("function maybeCompleteNativePageTurnSettlement(")
+			.substringBefore("\n}\n")
+		val liveTarget = turns
+			.substringAfter("function pageTurnLivePresentationTargetMatchesCurrent(")
+			.substringBefore("\n}\n")
+		val liveReceipt = turns
+			.substringAfter("function issuePageTurnLivePresentationReceipt(")
+			.substringBefore("\n}\n")
+		val receiptIssue = paginator
+			.substringAfter("const receipt = Object.freeze({")
+			.substringBefore("const committed =")
+
+		assertContains(paginator, "#textPageVisibleContent = new WeakMap()")
+		assertContains(paginator, "#normalizedVisibleText()")
+		assertContains(paginator, ".normalize('NFKC')")
+		assertContains(paginator, ".replace(/\\s+/gu, ' ')")
+		assertContains(paginator, "#rememberTextPageVisibleContent(receipt)")
+		assertContains(paginator, "validateTextPageVisibleContent(receipt)")
+		assertContains(commitment, "const textPageVisibleContentOwners = new WeakMap()")
+		assertContains(commitment, "readerRememberTextPageVisibleContent")
+		assertContains(commitment, "readerTextPageCommitOwnerHasExpectedVisibleContent")
+		assertContains(exactCommit, "readerRememberTextPageVisibleContent(pending)")
+		assertContains(
+			completion,
+			"readerTextPageCommitOwnerHasExpectedVisibleContent(pending)"
+		)
+		assertContains(liveTarget, "readerTextPageCommitOwnerHasExpectedVisibleContent(target)")
+		assertContains(
+			liveReceipt,
+			"readerTextPageCommitOwnerHasExpectedVisibleContent("
+		)
+		assertFalse(preview.contains("readerRememberTextPageVisibleContent"))
+		assertFalse(preview.contains("readerTextPageCommitOwnerHasExpectedVisibleContent"))
+		assertFalse(receiptIssue.contains("text:"))
+		assertFalse(receiptIssue.contains("normalized"))
+		assertFalse(receiptIssue.contains("digest"))
+		assertFalse(receiptIssue.contains("fingerprint"))
+	}
+
+	@Test
 	fun synchronousExactRelocationIsCapturedBeforeOrdinaryStaleFiltering() {
 		val location = readerAssetRoot().resolve("navic-reader-location.js").readText()
 		val onRelocate = location
@@ -463,7 +513,10 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(turns, "spineIndex: locator.spineIndex")
 		assertContains(turns, "chapterPageIndex: locator.chapterPageIndex")
 		assertContains(turns, "paginationProfile: this.paginationProfile")
-		assertContains(completeSettlement, "readerTextPageCommitOwnerIsValid(pending)")
+		assertContains(
+			completeSettlement,
+			"readerTextPageCommitOwnerHasExpectedVisibleContent(pending)"
+		)
 		assertContains(completeSettlement, "pending.paginationProfile !== this.paginationProfile")
 		assertContains(completeSettlement, "Math.floor(spineIndex) !== pending.spineIndex")
 		assertContains(completeSettlement, "Math.floor(chapterPageIndex) !== pending.chapterPageIndex")
@@ -730,7 +783,10 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(settled, "paginationProfile: pending.paginationProfile")
 		assertFalse(completion.contains("pendingExactPageTurnSettlements.delete"))
 		assertFalse(completion.contains("activeExactPageTurnSettlementToken = null"))
-		assertContains(peek, "readerTextPageCommitOwnerIsValid(settlement)")
+		assertContains(
+			peek,
+			"readerTextPageCommitOwnerHasExpectedVisibleContent(settlement)"
+		)
 		assertContains(peek, "settlement.foliateSessionId !== this.foliateSessionId")
 		assertContains(peek, "settlement.paginationProfile !== this.paginationProfile")
 		assertContains(peek, "Math.floor(spineIndex) !== settlement.spineIndex")
@@ -1385,7 +1441,7 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringBefore("function nextPage()")
 
 		assertContains(turns, "from './navic-reader-paginator-commit.js'")
-		assertContains(complete, "readerTextPageCommitOwnerIsValid(pending)")
+		assertContains(complete, "readerTextPageCommitOwnerHasExpectedVisibleContent(pending)")
 		assertContains(complete, "readerCopyTextPageCommit(pending, settlement)")
 		assertContains(complete, "readerCopyTextPageCommit(settlement, presentationTarget)")
 		assertContains(complete, "scope: ReaderPageTurnPresentationScopeLive")
@@ -1408,7 +1464,7 @@ class ReaderPageTurnDestinationSourceTest {
 			"The live receipt must follow exact settlement."
 		)
 		assertContains(turns, "function pageTurnLivePresentationReceipt()")
-		assertContains(getter, "readerTextPageCommitOwnerIsValid(target)")
+		assertContains(getter, "readerTextPageCommitOwnerHasExpectedVisibleContent(target)")
 		assertContains(getter, "this.pageTurnLivePresentationTargetValue")
 		assertContains(getter, "this.completedExactPageTurnSettlements.get(target.token)")
 		assertContains(getter, "target.relocationEpoch !== this.relocateSequence")
@@ -1421,8 +1477,8 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(runtime, "this.attachLiveTextPageCommitInvalidationListener()")
 		assertContains(runtime, "this.detachLiveTextPageCommitInvalidationListener()")
 		assertContains(runtime, "runtime.clearPageTurnLivePresentationTarget()")
-		assertContains(invalidation, "readerTextPageCommitOwnerIsValid(settled)")
-		assertContains(invalidation, "readerTextPageCommitOwnerIsValid(liveTarget)")
+		assertContains(invalidation, "readerTextPageCommitOwnerHasExpectedVisibleContent(settled)")
+		assertContains(invalidation, "readerTextPageCommitOwnerHasExpectedVisibleContent(liveTarget)")
 		assertContains(invalidation, "readerTextPageCommitOwnerWasRemembered(pending)")
 		assertContains(invalidation, "ReaderLivePageTurnMaximumCommitTransactionAttempts")
 		val cancelDelayedRelocation = invalidation.indexOf(

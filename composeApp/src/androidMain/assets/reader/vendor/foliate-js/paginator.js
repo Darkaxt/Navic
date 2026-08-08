@@ -664,6 +664,7 @@ export class Paginator extends HTMLElement {
     #viewGeneration = 0
     #commitSequence = 0
     #activeTextPageCommitReceipt = null
+    #textPageVisibleContent = new WeakMap()
     #anchor = 0 // anchor view to a fraction (0-1), Range, or Element
     #justAnchored = false
     #locked = false // while true, prevent any further navigation
@@ -1395,6 +1396,25 @@ export class Paginator extends HTMLElement {
         return getVisibleRange(this.#view.document,
             this.start - size, this.end - size, this.#getRectMapper())
     }
+    #normalizedVisibleText() {
+        try {
+            const range = this.#getVisibleRange()
+            if (!range?.startContainer?.isConnected ||
+                !range?.endContainer?.isConnected) return null
+            return String(range.toString())
+                .normalize('NFKC')
+                .replace(/\s+/gu, ' ')
+                .trim()
+        } catch {
+            return null
+        }
+    }
+    #rememberTextPageVisibleContent(receipt) {
+        const normalized = this.#normalizedVisibleText()
+        if (normalized == null) return false
+        this.#textPageVisibleContent.set(receipt, normalized)
+        return true
+    }
     #afterScroll(reason) {
         if (!this.#view?.committed) return
         const range = this.#getVisibleRange()
@@ -1663,6 +1683,7 @@ export class Paginator extends HTMLElement {
                 pageCount: position.pageCount,
             })
             this.#activeTextPageCommitReceipt = receipt
+            this.#rememberTextPageVisibleContent(receipt)
             const committed = position.index === index && position.pageIndex === pageIndex
             return frozenTextPageCommitResult({
                 status: committed ? 'committed' : 'mismatch',
@@ -1690,6 +1711,12 @@ export class Paginator extends HTMLElement {
         return position?.index === receipt.index &&
             position.pageIndex === receipt.pageIndex &&
             position.pageCount === receipt.pageCount
+    }
+    validateTextPageVisibleContent(receipt) {
+        if (!this.validateTextPageCommit(receipt) ||
+            !this.#textPageVisibleContent.has(receipt)) return false
+        const current = this.#normalizedVisibleText()
+        return current != null && current === this.#textPageVisibleContent.get(receipt)
     }
     async goToTextPage(index, pageIndex, reason = 'navigation') {
         const result = await this.commitTextPage(index, pageIndex, reason)

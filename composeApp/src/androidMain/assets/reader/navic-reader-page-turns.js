@@ -162,9 +162,10 @@ import {
   readerCopyTextPageCommit,
   readerForgetTextPageCommit,
   readerRememberTextPageCommit,
+  readerRememberTextPageVisibleContent,
   readerTextPageCommitIsValid,
   readerTextPageCommitMatches,
-  readerTextPageCommitOwnerIsValid,
+  readerTextPageCommitOwnerHasExpectedVisibleContent,
   readerTextPageCommitOwnerWasRemembered,
 } from './navic-reader-paginator-commit.js'
 import {
@@ -370,7 +371,7 @@ function exactPageTurnSettlementMatches(
     rasterGeneration,
     textureGeneration,
     paginationProfile
-  ) && readerTextPageCommitOwnerIsValid(settlement)
+  ) && readerTextPageCommitOwnerHasExpectedVisibleContent(settlement)
 }
 
 function rememberCompletedExactPageTurnSettlement(runtime, settlement) {
@@ -418,7 +419,7 @@ function pageTurnLivePresentationReceiptTarget(target) {
 }
 
 function pageTurnLivePresentationTargetMatchesCurrent(target) {
-  if (!target || !readerTextPageCommitOwnerIsValid(target)) return false
+  if (!target || !readerTextPageCommitOwnerHasExpectedVisibleContent(target)) return false
   const pagePosition = this.currentPagePosition
   if (
     target.relocationEpoch !== this.relocateSequence ||
@@ -446,7 +447,9 @@ function pageTurnLivePresentationTargetMatchesCurrent(target) {
 }
 
 function issuePageTurnLivePresentationReceipt(target) {
-  if (!readerTextPageCommitOwnerIsValid(this.pageTurnLivePresentationTargetValue)) {
+  if (!readerTextPageCommitOwnerHasExpectedVisibleContent(
+    this.pageTurnLivePresentationTargetValue
+  )) {
     this.clearPageTurnLivePresentationReceipt()
     return null
   }
@@ -601,7 +604,8 @@ async function commitPendingExactPageTurnSettlement(token) {
           pending,
           this.view?.renderer,
           result.receipt
-        )
+        ) &&
+        readerRememberTextPageVisibleContent(pending)
       ) {
         this.view.history?.pushState?.({
           href: locator.href,
@@ -809,7 +813,7 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
   const spineIndex = Number(pagePosition?.spineIndex)
   const chapterPageIndex = Number(pagePosition?.chapterPageIndex)
   if (
-    !readerTextPageCommitOwnerIsValid(pending) ||
+    !readerTextPageCommitOwnerHasExpectedVisibleContent(pending) ||
     pending.paginationProfile !== this.paginationProfile ||
     !Number.isFinite(pageIndex) ||
     Math.floor(pageIndex) !== pending.pageIndex ||
@@ -847,7 +851,7 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
     existingSettlement.spineIndex === pending.spineIndex &&
     existingSettlement.chapterPageIndex === pending.chapterPageIndex &&
     existingSettlement.paginationProfile === pending.paginationProfile &&
-    readerTextPageCommitOwnerIsValid(existingSettlement)
+    readerTextPageCommitOwnerHasExpectedVisibleContent(existingSettlement)
   )
   if (refreshingPresentationAuthority) {
     const presentationAuthorityIsCurrent = this.pageTurnPreviewExposedToken
@@ -913,7 +917,7 @@ function peekNativePageTurnSettlement(pagePosition = this.currentPagePosition) {
   const pageIndex = Number(pagePosition?.pageIndex)
   const spineIndex = Number(pagePosition?.spineIndex)
   const chapterPageIndex = Number(pagePosition?.chapterPageIndex)
-  const receiptIsValid = readerTextPageCommitOwnerIsValid(settlement)
+  const receiptIsValid = readerTextPageCommitOwnerHasExpectedVisibleContent(settlement)
   if (
     !receiptIsValid ||
     settlement.foliateSessionId !== this.foliateSessionId ||
@@ -940,7 +944,7 @@ function consumeNativePageTurnSettlement(token) {
   const normalizedToken = typeof token === 'string' ? token.trim() : ''
   if (!normalizedToken || this.nativePageTurnSettledState?.token !== normalizedToken) return false
   const settlement = this.nativePageTurnSettledState
-  if (!readerTextPageCommitOwnerIsValid(settlement)) {
+  if (!readerTextPageCommitOwnerHasExpectedVisibleContent(settlement)) {
     this.nativePageTurnSettledState = null
     if (this.nativePageTurnSettledToken === normalizedToken) {
       this.nativePageTurnSettledToken = null
@@ -1028,7 +1032,7 @@ function attachLiveTextPageCommitInvalidationListener() {
 
 function handleLiveTextPageCommitInvalidation() {
   const settled = this.nativePageTurnSettledState
-  if (settled && !readerTextPageCommitOwnerIsValid(settled)) {
+  if (settled && !readerTextPageCommitOwnerHasExpectedVisibleContent(settled)) {
     this.nativePageTurnSettledState = null
     if (this.nativePageTurnSettledToken === settled.token) {
       this.nativePageTurnSettledToken = null
@@ -1036,14 +1040,14 @@ function handleLiveTextPageCommitInvalidation() {
     readerForgetTextPageCommit(settled)
   }
   const liveTarget = this.pageTurnLivePresentationTargetValue
-  if (liveTarget && !readerTextPageCommitOwnerIsValid(liveTarget)) {
+  if (liveTarget && !readerTextPageCommitOwnerHasExpectedVisibleContent(liveTarget)) {
     this.clearPageTurnLivePresentationTarget()
   }
 
   const pending = this.activeExactPageTurnSettlement()
   if (
     !pending ||
-    readerTextPageCommitOwnerIsValid(pending) ||
+    readerTextPageCommitOwnerHasExpectedVisibleContent(pending) ||
     !readerTextPageCommitOwnerWasRemembered(pending)
   ) return false
   if (
@@ -1076,7 +1080,7 @@ function handleLiveTextPageCommitInvalidation() {
       if (
         !current ||
         this.activeExactPageTurnSettlementToken !== pending.token ||
-        readerTextPageCommitOwnerIsValid(current) ||
+        readerTextPageCommitOwnerHasExpectedVisibleContent(current) ||
         !readerTextPageCommitOwnerWasRemembered(current)
       ) return null
       this.cancelPendingCommittedRelocation()

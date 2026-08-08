@@ -10,8 +10,10 @@ const {
   readerCopyTextPageCommit,
   readerForgetTextPageCommit,
   readerRememberTextPageCommit,
+  readerRememberTextPageVisibleContent,
   readerTextPageCommitIsValid,
   readerTextPageCommitMatches,
+  readerTextPageCommitOwnerHasExpectedVisibleContent,
   readerTextPageCommitOwnerIsValid,
   readerTextPageCommitOwnerWasRemembered,
 } = await import(commitModulePath.href)
@@ -142,6 +144,43 @@ test('receipt authority copies between frozen runtime owners without serializati
   assert.equal(readerTextPageCommitOwnerIsValid(source), true)
   assert.equal(readerTextPageCommitOwnerIsValid(target), true)
   assert.deepEqual(JSON.parse(JSON.stringify(target)), { token: 'target-owner' })
+})
+
+test('visible-content capability is private current and copied only from an owning source', () => {
+  const result = committedResult()
+  let visibleContentMatches = true
+  const renderer = {
+    validateTextPageCommit: receipt => receipt === result.receipt,
+    validateTextPageVisibleContent: receipt =>
+      visibleContentMatches && receipt === result.receipt,
+  }
+  const source = Object.freeze({ token: 'visible-source' })
+  const target = Object.freeze({ token: 'visible-target' })
+  const ordinaryOnly = Object.freeze({ token: 'ordinary-source' })
+  const ordinaryTarget = Object.freeze({ token: 'ordinary-target' })
+
+  assert.equal(readerRememberTextPageCommit(source, renderer, result.receipt), true)
+  assert.equal(readerRememberTextPageVisibleContent(source), true)
+  assert.equal(readerTextPageCommitOwnerHasExpectedVisibleContent(source), true)
+  assert.equal(readerCopyTextPageCommit(source, target), true)
+  assert.equal(readerTextPageCommitOwnerHasExpectedVisibleContent(target), true)
+
+  assert.equal(readerRememberTextPageCommit(ordinaryOnly, renderer, result.receipt), true)
+  assert.equal(readerCopyTextPageCommit(ordinaryOnly, ordinaryTarget), true)
+  assert.equal(readerTextPageCommitOwnerIsValid(ordinaryTarget), true)
+  assert.equal(
+    readerTextPageCommitOwnerHasExpectedVisibleContent(ordinaryTarget),
+    false,
+  )
+
+  visibleContentMatches = false
+  assert.equal(readerTextPageCommitOwnerIsValid(source), true)
+  assert.equal(readerTextPageCommitOwnerHasExpectedVisibleContent(source), false)
+  assert.equal(readerTextPageCommitOwnerHasExpectedVisibleContent(target), false)
+  assert.deepEqual(JSON.parse(JSON.stringify(source)), { token: 'visible-source' })
+  assert.equal(JSON.stringify(source).includes('receipt'), false)
+  assert.equal(readerForgetTextPageCommit(source), true)
+  assert.equal(readerTextPageCommitOwnerHasExpectedVisibleContent(source), false)
 })
 
 test('remembered ownership remains detectable after paginator invalidation', () => {
@@ -893,6 +932,11 @@ test('passive ready state retains commitment only through JS-local ownership', a
   assert.equal(state.status, 'ready')
   assert.equal(state.pageIndex, 1)
   assert.equal(readerTextPageCommitOwnerIsValid(state), true)
+  assert.equal(
+    readerTextPageCommitOwnerHasExpectedVisibleContent(state),
+    false,
+    'Passive preview ownership must not require live visible-content capability.',
+  )
   const serialized = JSON.stringify(state)
   assert.equal(serialized.includes('"receipt":'), false)
   assert.equal(serialized.includes('layoutGeneration'), false)
@@ -1119,8 +1163,10 @@ const liveSettlementRuntime = ({
   relocateAfterCommit = true,
   seedReceiptBeforeLayout = false,
   useProductionProfileRepair = false,
+  visibleContentMatches = true,
 } = {}) => {
   let activeReceipt = null
+  let visibleContentCurrent = visibleContentMatches
   let commitIndex = 0
   let commitTail = Promise.resolve()
   let concurrentCommits = 0
@@ -1199,6 +1245,8 @@ const liveSettlementRuntime = ({
     return transaction
   }
   renderer.validateTextPageCommit = receipt => receipt === activeReceipt
+  renderer.validateTextPageVisibleContent = receipt =>
+    visibleContentCurrent && receipt === activeReceipt
   renderer.render = () => { invalidateReceipt('synchronous-render') }
 
   runtime = {
@@ -1348,6 +1396,7 @@ const liveSettlementRuntime = ({
     scheduledRelocationDetails,
     renderer,
     runtime,
+    setVisibleContentMatches: value => { visibleContentCurrent = value },
     invalidatePaginatorReceipt: () => invalidateReceipt('test-invalidation'),
     waitForRendererIdle: () => commitTail,
   }
@@ -1398,6 +1447,36 @@ test('live exact layout and initial commit form one serialized token operation',
   assert.equal(serialized.includes('layoutGeneration'), false)
   assert.equal(serialized.includes('viewGeneration'), false)
   assert.equal(serialized.includes('commitSequence'), false)
+})
+
+test('live settlement and presentation are withheld when visible content no longer matches', async () => {
+  const result = resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 })
+  const fixture = liveSettlementRuntime({
+    results: [result],
+    relocateAfterCommit: false,
+  })
+
+  await fixture.runtime.goToVisualPage(liveSettlementCommand('live-visible-mismatch', 1))
+  const pending = fixture.runtime.activeExactPageTurnSettlement()
+  assert.equal(readerTextPageCommitOwnerIsValid(pending), true)
+  assert.equal(readerTextPageCommitOwnerHasExpectedVisibleContent(pending), true)
+
+  fixture.setVisibleContentMatches(false)
+  fixture.runtime.currentPagePosition = Object.freeze({
+    pageIndex: 1,
+    spineIndex: 0,
+    chapterPageIndex: 1,
+  })
+
+  assert.equal(
+    fixture.runtime.maybeCompleteNativePageTurnSettlement(
+      fixture.runtime.currentPagePosition,
+    ),
+    false,
+  )
+  assert.equal(fixture.runtime.nativePageTurnSettledState, null)
+  assert.equal(fixture.runtime.pageTurnLivePresentationTargetValue, null)
+  assert.equal(fixture.runtime.pageTurnLivePresentationReceiptValue, null)
 })
 
 test('repeated live settlement observation does not reissue presentation authority', async () => {

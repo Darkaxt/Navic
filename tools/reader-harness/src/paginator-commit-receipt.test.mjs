@@ -216,6 +216,115 @@ test('commits an exact text page with an immutable identity-scoped receipt', asy
   assert.equal(actual.receiptFrozen, true)
 })
 
+test('privately validates normalized visible text without serializing it', async () => {
+  const actual = await page.evaluate(async html => {
+    const { paginator } = window.__createPaginatorFixture({ html: [html] })
+    const result = await paginator.commitTextPage(0, 0, 'test-visible-content')
+    const textNode = paginator.getContents()[0].doc.querySelector('p')?.firstChild
+    if (!textNode) throw new Error('Synthetic visible text node is unavailable')
+    const original = textNode.data
+    const initiallyValid = paginator.validateTextPageVisibleContent(result.receipt)
+    textNode.data = original.replaceAll(' ', '\n\t')
+    const normalizedWhitespaceValid = paginator.validateTextPageVisibleContent(result.receipt)
+    textNode.data = 'different in-memory fixture text'
+    return {
+      changedTextValid: paginator.validateTextPageVisibleContent(result.receipt),
+      initiallyValid,
+      normalizedWhitespaceValid,
+      resultSerialized: JSON.stringify(result),
+      receiptSerialized: JSON.stringify(result.receipt),
+    }
+  }, sectionHtml('visible-proof'))
+
+  assert.equal(actual.initiallyValid, true)
+  assert.equal(actual.normalizedWhitespaceValid, true)
+  assert.equal(actual.changedTextValid, false)
+  assert.equal(actual.resultSerialized.includes('visible-proof'), false)
+  assert.equal(actual.receiptSerialized.includes('visible-proof'), false)
+  assert.doesNotMatch(actual.resultSerialized, /text|normal|digest|fingerprint/i)
+  assert.doesNotMatch(actual.receiptSerialized, /text|normal|digest|fingerprint/i)
+})
+
+test('accepts empty visible text and fails closed when its range cannot be read', async () => {
+  const actual = await page.evaluate(async html => {
+    const { paginator } = window.__createPaginatorFixture({ html: [html] })
+    const result = await paginator.commitTextPage(0, 0, 'test-empty-visible-content')
+    const emptyVisibleContentValid = paginator.validateTextPageVisibleContent(result.receipt)
+    const contentRange = paginator.getContents()[0]?.doc?.defaultView?.Range
+    if (!contentRange) throw new Error('Synthetic content Range is unavailable')
+    const originalToString = contentRange.prototype.toString
+    let unavailableRangeValid
+    contentRange.prototype.toString = () => { throw new Error('synthetic range read failure') }
+    try {
+      unavailableRangeValid = paginator.validateTextPageVisibleContent(result.receipt)
+    } finally {
+      contentRange.prototype.toString = originalToString
+    }
+    return {
+      emptyVisibleContentValid,
+      receiptValid: paginator.validateTextPageCommit(result.receipt),
+      status: result.status,
+      unavailableRangeValid,
+    }
+  }, `<!doctype html><meta charset="utf-8"><style>
+    html, body { margin: 0; padding: 0; }
+    #blank { width: 240px; height: 120px; }
+  </style><body><div id="blank"></div></body>`)
+
+  assert.equal(actual.status, 'committed')
+  assert.equal(actual.receiptValid, true)
+  assert.equal(actual.emptyVisibleContentValid, true)
+  assert.equal(actual.unavailableRangeValid, false)
+})
+
+test('visible-content proof rejects wrong stale replaced invalidated scrolled and destroyed receipts', async () => {
+  const actual = await page.evaluate(async ({ first, second }) => {
+    const wrongFixture = window.__createPaginatorFixture({ html: [first] })
+    const wrongCommit = await wrongFixture.paginator.commitTextPage(0, 0, 'test-visible-wrong')
+    const copiedReceipt = Object.freeze({ ...wrongCommit.receipt })
+    const wrongIdentity = wrongFixture.paginator.validateTextPageVisibleContent(copiedReceipt)
+    wrongFixture.destroy()
+
+    const staleFixture = window.__createPaginatorFixture({ html: [first] })
+    const staleCommit = await staleFixture.paginator.commitTextPage(0, 0, 'test-visible-stale-first')
+    const currentCommit = await staleFixture.paginator.commitTextPage(0, 1, 'test-visible-stale-second')
+    const stale = staleFixture.paginator.validateTextPageVisibleContent(staleCommit.receipt)
+    const current = staleFixture.paginator.validateTextPageVisibleContent(currentCommit.receipt)
+    staleFixture.destroy()
+
+    const replacedFixture = window.__createPaginatorFixture({ html: [first, second] })
+    const replacedCommit = await replacedFixture.paginator.commitTextPage(0, 0, 'test-visible-replaced')
+    await replacedFixture.paginator.commitTextPage(1, 0, 'test-visible-replacement')
+    const replaced = replacedFixture.paginator.validateTextPageVisibleContent(replacedCommit.receipt)
+    replacedFixture.destroy()
+
+    const invalidatedFixture = window.__createPaginatorFixture({ html: [first] })
+    const invalidatedCommit = await invalidatedFixture.paginator.commitTextPage(0, 0, 'test-visible-invalidated')
+    invalidatedFixture.paginator.setAttribute('gap', '12%')
+    const invalidated = invalidatedFixture.paginator.validateTextPageVisibleContent(invalidatedCommit.receipt)
+    invalidatedFixture.destroy()
+
+    const scrolledFixture = window.__createPaginatorFixture({ html: [first] })
+    const scrolledCommit = await scrolledFixture.paginator.commitTextPage(0, 0, 'test-visible-scrolled')
+    scrolledFixture.paginator.setAttribute('flow', 'scrolled')
+    const scrolled = scrolledFixture.paginator.validateTextPageVisibleContent(scrolledCommit.receipt)
+    scrolledFixture.destroy()
+
+    const destroyedFixture = window.__createPaginatorFixture({ html: [first] })
+    const destroyedCommit = await destroyedFixture.paginator.commitTextPage(0, 0, 'test-visible-destroyed')
+    destroyedFixture.paginator.destroy()
+    const destroyed = destroyedFixture.paginator.validateTextPageVisibleContent(destroyedCommit.receipt)
+
+    return { current, destroyed, invalidated, replaced, scrolled, stale, wrongIdentity }
+  }, { first: sectionHtml('visible-first'), second: sectionHtml('visible-second') })
+
+  assert.equal(actual.current, true)
+  for (const [scenario, valid] of Object.entries(actual)) {
+    if (scenario === 'current') continue
+    assert.equal(valid, false, `${scenario} receipt retained visible-content proof`)
+  }
+})
+
 test('reports out-of-range pages as mismatch and scrolled flow as unsupported', async () => {
   const actual = await page.evaluate(async html => {
     const { paginator } = window.__createPaginatorFixture({ html: [html] })
