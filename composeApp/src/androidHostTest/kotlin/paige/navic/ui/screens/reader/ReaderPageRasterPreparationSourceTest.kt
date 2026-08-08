@@ -126,11 +126,13 @@ class ReaderPageRasterPreparationSourceTest {
 		val ensurePersistent = bundle.substringAfter(
 			"fun ensurePersistentSnapshot("
 		).substringBefore("private fun cacheSnapshot(")
-		assertContains(ensurePersistent, "persistCachedSnapshot(snapshot, priority, onPersisted)")
+		assertContains(ensurePersistent, "persistCachedSnapshot(")
+		assertContains(ensurePersistent, "isStillCurrent = isStillCurrent")
 		val preparedCapture = bundle.substringAfter(
 			"fun capturePreparedRasterPage("
 		).substringBefore("private fun capturePreparedPage(")
-		assertContains(preparedCapture, "persistCachedSnapshot(cached, priority)")
+		assertContains(preparedCapture, "persistCachedSnapshot(")
+		assertContains(preparedCapture, "isStillCurrent = isStillCurrent")
 		assertContains(capture, "onCaptured = captured@{ publicationResult ->")
 		assertContains(capture, "recordDurability(session, target, publicationResult)")
 		assertContains(source, "ReaderPageRasterPublicationResult.CapacityReached")
@@ -206,7 +208,7 @@ class ReaderPageRasterPreparationSourceTest {
 			"private fun removePreparationShield("
 		).substringBefore("private fun shieldDetail(")
 
-		assertContains(cancellation, "rasterBatchController.cancel(")
+		assertContains(cancellation, "rasterBatchController.cancel { result ->")
 		assertContains(cancellation, "trackVisualRestoration {")
 		assertContains(cancellation, "expectedSession = cancelledSession")
 		assertContains(removal, "preparationShieldSession != expectedSession")
@@ -576,7 +578,8 @@ class ReaderPageRasterPreparationSourceTest {
 
 		assertContains(followUp, "targets = followUpTargets")
 		assertContains(batch, "reusePreparationShield(")
-		assertContains(batch, "onPresented = onPresented")
+		assertContains(batch, "activePrewarmPassiveLease == leaseSession")
+		assertContains(batch, "onPresented(false)")
 		assertFalse(source.contains("protectForeground"))
 		assertFalse(source.contains("event = \"shield-skipped\""))
 	}
@@ -762,7 +765,7 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(repair, "onStagingStarted = { snapshot, onPresented ->")
 		assertContains(repair, "reusePreparationShield(")
 		assertContains(repair, "removePreparationShield(")
-		assertContains(repair, "rasterRepairBatchController.cancel(")
+		assertContains(repair, "rasterRepairBatchController.cancel { result ->")
 		assertContains(repair, "trackVisualRestoration {")
 		assertContains(repair, "\"page-repair-completed\"")
 		assertContains(repair, "\"page-repair-failed\"")
@@ -806,12 +809,10 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(background, "event = \"background-prefetch-failed\"")
 		assertContains(background, "activeRasterRepairPageIndex == null")
 		assertContains(background, "rasterRepairCallbacks.isEmpty()")
-		assertContains(
-			background,
-			"showBackgroundPrefetchShield(snapshot, submission, onPresented)"
-		)
+		assertContains(background, "showBackgroundPrefetchShield(")
+		assertContains(background, "activeBackgroundPassiveLease == leaseSession")
 		assertContains(background, "removeBackgroundPrefetchShield(submission.sessionId)")
-		assertContains(background, "rasterBackgroundBatchController.cancel(")
+		assertContains(background, "rasterBackgroundBatchController.cancel { result ->")
 		assertContains(background, "trackVisualRestoration {")
 		assertContains(background, "removeBackgroundPrefetchShield(submission.sessionId)")
 		assertFalse(background.contains("publishPreparationState("))
@@ -893,6 +894,87 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(handoff, "timedOutPreparationShieldSession = null")
 		assertContains(handoff, "timedOutBackgroundPrefetchShieldSessionId")
 		assertContains(handoff, "removeBackgroundPrefetchShield(timedOutBackgroundSession)")
+	}
+	@Test
+	fun passivePersistenceRechecksExactLeaseCurrentnessBeforePublication() {
+		val batch = readerRasterBatchSource()
+		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
+		val hydration = batch.substringAfter(
+			"private fun hydrateTarget(session: Session, targetIndex: Int)"
+		).substringBefore("private fun submitMissingTargets(")
+		val ensure = bundle.substringAfter(
+			"fun ensurePersistentSnapshot("
+		).substringBefore("private fun cacheSnapshot(")
+		val schedule = bundle.substringAfter(
+			"private fun schedulePersistentSnapshot("
+		).substringBefore("private fun scheduleRasterPublication(")
+
+		assertContains(hydration, "isStillCurrent = { isSessionActive(session) }")
+		assertContains(ensure, "isStillCurrent: () -> Boolean")
+		assertContains(ensure, "isStillCurrent = isStillCurrent")
+		assertContains(schedule, "runCatching(isStillCurrent).getOrDefault(false)")
+		assertTrue(
+			schedule.lastIndexOf("runCatching(isStillCurrent).getOrDefault(false)") <
+				schedule.indexOf("publicationLedger.begin("),
+			"Lease currentness must be rechecked before publication admission"
+		)
+	}
+
+	@Test
+	fun everyPassiveRasterPathUsesTheSharedAuthoritativeLeaseHelper() {
+		val preparation = readerRasterPreparationSource()
+		val batch = readerRasterBatchSource()
+		val repair = preparation.substringAfter(
+			"private fun startNextRasterRepair() {"
+		).substringBefore("private fun deferRasterRepair(")
+		val prewarm = preparation.substringAfter(
+			"fun prewarmAdjacent(): Boolean {"
+		).substringBefore("private fun initializeRasterCacheAndQueryPlan(")
+		val background = preparation.substringAfter(
+			"private fun startBackgroundPrefetch("
+		).substringBefore("private fun isBackgroundPrefetchActive(")
+		val acquisition = preparation.substringAfter(
+			"private fun acquirePassiveRasterLease("
+		).substringBefore("private fun trackVisualRestoration(")
+
+		assertContains(
+			preparation,
+			"private val foregroundWebViewOwnership: ReaderForegroundWebViewOwnership ="
+		)
+		assertContains(preparation, "ReaderForegroundWebViewOwnership(),")
+		assertContains(acquisition, "foregroundWebViewOwnership.tryAcquirePassive(")
+		assertContains(acquisition, "ReaderPageRasterCancellationJoin(")
+		assertContains(acquisition, "rasterBatchController.cancel(")
+		assertContains(acquisition, "rasterRepairBatchController.cancel(")
+		assertContains(acquisition, "rasterBackgroundBatchController.cancel(")
+		assertContains(repair, "acquirePassiveRasterLease(")
+		assertContains(prewarm, "acquirePassiveRasterLease(")
+		assertContains(background, "acquirePassiveRasterLease(")
+		assertFalse(preparation.contains("visualCommitPending = false"))
+		assertContains(batch, "mutationGeneration: ReaderForegroundWebViewMutationGeneration")
+		assertContains(batch, "isStillCurrent: () -> Boolean")
+		assertContains(batch, "runCatching(session.isStillCurrent).getOrDefault(false)")
+	}
+
+	@Test
+	fun deniedPassiveAdmissionRemainsTypedDeferredWithoutStartingABatch() {
+		val preparation = readerRasterPreparationSource()
+		val prewarm = preparation.substringAfter(
+			"fun prewarmAdjacent(): Boolean {"
+		).substringBefore("private fun initializeRasterCacheAndQueryPlan(")
+		val repair = preparation.substringAfter(
+			"private fun startNextRasterRepair() {"
+		).substringBefore("private fun deferRasterRepair(")
+		val background = preparation.substringAfter(
+			"private fun startBackgroundPrefetch("
+		).substringBefore("private fun isBackgroundPrefetchActive(")
+
+		assertContains(prewarm, "stage = \"passive-ownership\"")
+		assertContains(repair, "detail = \"passive-ownership-unavailable\"")
+		assertContains(background, "deferredBackgroundPrefetchStart")
+		assertFalse(prewarm.contains("while ("))
+		assertFalse(repair.contains("while ("))
+		assertFalse(background.contains("while ("))
 	}
 }
 

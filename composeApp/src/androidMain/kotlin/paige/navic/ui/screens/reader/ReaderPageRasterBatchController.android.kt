@@ -79,6 +79,47 @@ internal enum class ReaderPageRasterCancellationRestoration(
 	TimedOut(canRevealContent = false)
 }
 
+internal class ReaderPageRasterCancellationJoin(
+	private val expectedCallbackCount: Int,
+	private val onComplete: (ReaderPageRasterCancellationRestoration) -> Unit
+) {
+	private var issuedCallbackCount = 0
+	private var completedCallbackCount = 0
+	private var terminal = ReaderPageRasterCancellationRestoration.Restored
+	private var completed = false
+
+	init {
+		require(expectedCallbackCount > 0)
+	}
+
+	fun callback(): (ReaderPageRasterCancellationRestoration) -> Unit {
+		check(issuedCallbackCount < expectedCallbackCount)
+		issuedCallbackCount += 1
+		var callbackCompleted = false
+		return callback@{ result ->
+			if (completed || callbackCompleted) return@callback
+			callbackCompleted = true
+			terminal = terminal.precedence(result)
+			completedCallbackCount += 1
+			if (completedCallbackCount != expectedCallbackCount) return@callback
+			completed = true
+			onComplete(terminal)
+		}
+	}
+
+	private fun ReaderPageRasterCancellationRestoration.precedence(
+		other: ReaderPageRasterCancellationRestoration
+	): ReaderPageRasterCancellationRestoration = when {
+		this == ReaderPageRasterCancellationRestoration.TimedOut ||
+			other == ReaderPageRasterCancellationRestoration.TimedOut ->
+			ReaderPageRasterCancellationRestoration.TimedOut
+		this == ReaderPageRasterCancellationRestoration.Detached ||
+			other == ReaderPageRasterCancellationRestoration.Detached ->
+			ReaderPageRasterCancellationRestoration.Detached
+		else -> ReaderPageRasterCancellationRestoration.Restored
+	}
+}
+
 internal fun readerPageRasterBlockingWindow(
 	centerPageIndex: Int,
 	step: Int,
@@ -368,6 +409,9 @@ internal interface ReaderPageRasterBatchPort {
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration =
+			ReaderForegroundWebViewMutationGeneration(1L),
+		isStillCurrent: () -> Boolean = { true },
 		trigger: ReaderPageRasterAcquisitionTrigger =
 			ReaderPageRasterAcquisitionTrigger.InitialPreparation,
 		capacityPolicy: ReaderPageRasterCapacityPolicy =
@@ -413,6 +457,8 @@ internal class ReaderPageRasterBatchController(
 		val kind: ReaderPageTurnTransitionKind,
 		val reference: ReaderPageSlideSnapshot,
 		val targets: List<ReaderPageRasterBatchTarget>,
+		val mutationGeneration: ReaderForegroundWebViewMutationGeneration,
+		val isStillCurrent: () -> Boolean,
 		val trigger: ReaderPageRasterAcquisitionTrigger,
 		val capacityPolicy: ReaderPageRasterCapacityPolicy,
 		val originalPageIndices: Set<Int>,
@@ -450,6 +496,8 @@ internal class ReaderPageRasterBatchController(
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration,
+		isStillCurrent: () -> Boolean,
 		trigger: ReaderPageRasterAcquisitionTrigger,
 		capacityPolicy: ReaderPageRasterCapacityPolicy,
 		onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit,
@@ -459,15 +507,22 @@ internal class ReaderPageRasterBatchController(
 		onProgress: (completedCount: Int, requiredCount: Int) -> Unit,
 		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
 	): Boolean {
-		if (!webView.isAttachedToWindow || targets.isEmpty()) {
+		if (!webView.isAttachedToWindow || targets.isEmpty() || !isStillCurrent()) {
 			reference.release()
 			onComplete(
-				if (targets.isEmpty()) ReaderPageRasterBatchOutcome.Ready
-				else ReaderPageRasterBatchOutcome.Deferred(
-					stage = "batch-start",
-					pageIndex = targets.firstOrNull()?.pageIndex,
-					reason = "webview-detached"
-				)
+				when {
+					targets.isEmpty() -> ReaderPageRasterBatchOutcome.Ready
+					!isStillCurrent() -> ReaderPageRasterBatchOutcome.Deferred(
+						stage = "passive-ownership",
+						pageIndex = targets.firstOrNull()?.pageIndex,
+						reason = "passive-lease-stale"
+					)
+					else -> ReaderPageRasterBatchOutcome.Deferred(
+						stage = "batch-start",
+						pageIndex = targets.firstOrNull()?.pageIndex,
+						reason = "webview-detached"
+					)
+				}
 			)
 			return targets.isEmpty()
 		}
@@ -506,6 +561,8 @@ internal class ReaderPageRasterBatchController(
 			kind = kind,
 			reference = reference,
 			targets = sessionTargets,
+			mutationGeneration = mutationGeneration,
+			isStillCurrent = isStillCurrent,
 			trigger = trigger,
 			capacityPolicy = capacityPolicy,
 			originalPageIndices = originalPageIndices,
@@ -748,7 +805,8 @@ internal class ReaderPageRasterBatchController(
 			}
 			bundleSource.ensurePersistentSnapshot(
 				hydrated,
-				target.priority
+				target.priority,
+				isStillCurrent = { isSessionActive(session) }
 			) { publicationResult ->
 				hydrated.release()
 				if (!isSessionActive(session)) {
@@ -1017,6 +1075,7 @@ internal class ReaderPageRasterBatchController(
 	private fun isSessionActive(session: Session): Boolean =
 		activeSession === session &&
 			session.generation == bundleSource.currentGeneration() &&
+			runCatching(session.isStillCurrent).getOrDefault(false) &&
 			session.webView.isAttachedToWindow
 
 	private fun finish(session: Session, outcome: ReaderPageRasterBatchOutcome) {

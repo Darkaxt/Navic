@@ -478,6 +478,152 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun passiveAdmissionWhileLiveIsDeferredWithoutStartingOrLooping() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		val live = fixture.ownership.acquireLive(gestureId = 501L)
+		try {
+			assertTrue(fixture.controller.prewarmAdjacent())
+			fixture.drainMainLooper()
+
+			assertTrue(fixture.foreground.starts.isEmpty())
+			assertEquals(0, fixture.foreground.cancellationCount)
+			assertEquals(0, fixture.ownership.snapshot().passiveOwners)
+			assertTrue(fixture.controller.prewarmAdjacent())
+			fixture.drainMainLooper()
+			assertTrue(fixture.foreground.starts.isEmpty())
+
+			assertTrue(fixture.ownership.releaseLive(live))
+			assertTrue(fixture.controller.prewarmAdjacent())
+			testScheduler.advanceUntilIdle()
+			assertNotNull(fixture.foreground.active)
+		} finally {
+			fixture.ownership.releaseLive(live)
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun livePreemptionWaitsForNormalRestorationAndFencesStaleCallbacks() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		var live: ReaderForegroundWebViewLiveClaim? = null
+		try {
+			fixture.startCurrentChapterPreparation()
+			val stale = checkNotNull(fixture.foreground.active)
+			fixture.foreground.delayCancellationRestoration = true
+
+			live = fixture.ownership.acquireLive(gestureId = 502L)
+			val readiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
+			fixture.ownership.whenLiveReady(live, readiness::add)
+
+			assertEquals(1, fixture.foreground.cancellationCount)
+			assertFalse(stale.isStillCurrent())
+			assertTrue(readiness.isEmpty())
+			assertEquals(1, fixture.ownership.snapshot().restorationCallbacks)
+			var stalePresented: Boolean? = null
+			stale.onStagingStarted(stale.reference) { stalePresented = it }
+			stale.onTargetDurable(stale.targets.first())
+			stale.onProgress(stale.targets.size, stale.targets.size)
+			stale.onComplete(ReaderPageRasterBatchOutcome.Ready)
+			assertEquals(false, stalePresented)
+			assertTrue(fixture.background.starts.isEmpty())
+			assertTrue(readiness.isEmpty())
+
+			fixture.foreground.completeCancellationRestoration()
+
+			assertEquals(
+				listOf<ReaderForegroundWebViewLiveReadiness>(
+					ReaderForegroundWebViewLiveReadiness.Ready
+				),
+				readiness
+			)
+			assertEquals(0, fixture.ownership.snapshot().restorationCallbacks)
+		} finally {
+			live?.let(fixture.ownership::releaseLive)
+			fixture.foreground.completeCancellationRestoration()
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun livePreemptionWaitsForRepairRestorationWithoutCancellingTheRepairResult() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		var live: ReaderForegroundWebViewLiveClaim? = null
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			var repairResult: ReaderPageRasterRepairResult? = null
+			fixture.controller.repairRasterPage(20) { repairResult = it }
+			assertNotNull(fixture.repair.active)
+			fixture.repair.delayCancellationRestoration = true
+
+			live = fixture.ownership.acquireLive(gestureId = 503L)
+			val readiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
+			fixture.ownership.whenLiveReady(live, readiness::add)
+
+			assertEquals(1, fixture.repair.cancellationCount)
+			assertEquals(null, repairResult)
+			assertTrue(readiness.isEmpty())
+			fixture.repair.completeCancellationRestoration()
+			assertEquals(
+				listOf<ReaderForegroundWebViewLiveReadiness>(
+					ReaderForegroundWebViewLiveReadiness.Ready
+				),
+				readiness
+			)
+		} finally {
+			live?.let(fixture.ownership::releaseLive)
+			fixture.repair.completeCancellationRestoration()
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun livePreemptionWaitsForBackgroundRestorationAndKeepsFailureTyped() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		var live: ReaderForegroundWebViewLiveClaim? = null
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			assertNotNull(fixture.background.active)
+			fixture.background.delayCancellationRestoration = true
+
+			live = fixture.ownership.acquireLive(gestureId = 504L)
+			val readiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
+			fixture.ownership.whenLiveReady(live, readiness::add)
+
+			assertEquals(1, fixture.background.cancellationCount)
+			assertTrue(readiness.isEmpty())
+			fixture.background.completeCancellationRestoration(
+				ReaderPageRasterCancellationRestoration.Detached
+			)
+			assertEquals(
+				listOf<ReaderForegroundWebViewLiveReadiness>(
+					ReaderForegroundWebViewLiveReadiness.Failed(
+						ReaderPageRasterCancellationRestoration.Detached
+					)
+				),
+				readiness
+			)
+		} finally {
+			live?.let(fixture.ownership::releaseLive)
+			fixture.background.completeCancellationRestoration()
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun repairCancellationRetainsOneAttemptAndOneTerminalDiagnostic() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
@@ -738,10 +884,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			.substringAfter("private fun scheduleBackgroundPrefetch(")
 			.substringBefore("private fun logPrewarmBoundary(")
 
-		assertContains(
-			background,
-			"showBackgroundPrefetchShield(snapshot, submission, onPresented)"
-		)
+		assertContains(background, "showBackgroundPrefetchShield(")
+		assertContains(background, "activeBackgroundPassiveLease == leaseSession")
 		assertContains(preparation, "ReaderPageStaticWindowShield(host)")
 		assertContains(preparation, "surfaceRectInWindow = snapshot.surfaceRectInWindow")
 		assertContains(preparation, "shield?.dismiss()")
@@ -768,6 +912,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 private data class ReaderPageRasterBatchRequest(
 	val reference: ReaderPageSlideSnapshot,
 	val targets: List<ReaderPageRasterBatchTarget>,
+	val mutationGeneration: ReaderForegroundWebViewMutationGeneration,
+	val isStillCurrent: () -> Boolean,
 	val trigger: ReaderPageRasterAcquisitionTrigger,
 	val capacityPolicy: ReaderPageRasterCapacityPolicy,
 	val onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit,
@@ -796,6 +942,8 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration,
+		isStillCurrent: () -> Boolean,
 		trigger: ReaderPageRasterAcquisitionTrigger,
 		capacityPolicy: ReaderPageRasterCapacityPolicy,
 		onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit,
@@ -809,6 +957,8 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		val request = ReaderPageRasterBatchRequest(
 			reference = reference,
 			targets = targets,
+			mutationGeneration = mutationGeneration,
+			isStillCurrent = isStillCurrent,
 			trigger = trigger,
 			capacityPolicy = capacityPolicy,
 			onStagingStarted = onStagingStarted,
@@ -940,6 +1090,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 	private val testScheduler: TestCoroutineScheduler,
 	private val bundleSource: ReaderPageTurnBundleSource,
 	private val reference: ReaderPageSlideSnapshot,
+	val ownership: ReaderForegroundWebViewOwnership,
 	val controller: ReaderPageRasterPreparationController,
 	val foreground: FakeReaderPageRasterBatchPort,
 	val repair: FakeReaderPageRasterBatchPort,
@@ -1025,11 +1176,13 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 			val foreground = FakeReaderPageRasterBatchPort()
 			val repair = FakeReaderPageRasterBatchPort()
 			val background = FakeReaderPageRasterBatchPort()
+			val ownership = ReaderForegroundWebViewOwnership()
 			val states = mutableListOf<ReaderPagePreparationState>()
 			val diagnosticMessages = mutableListOf<String>()
 			val controller = ReaderPageRasterPreparationController(
 				host = host,
 				webViewProvider = { webView },
+				foregroundWebViewOwnership = ownership,
 				bundleSource = bundleSource,
 				fenceBundleOwners = if (initializeRasterCache == null) {
 					bundleSource::fenceForClose
@@ -1077,6 +1230,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 				testScheduler = testScheduler,
 				bundleSource = bundleSource,
 				reference = reference,
+				ownership = ownership,
 				controller = controller,
 				foreground = foreground,
 				repair = repair,

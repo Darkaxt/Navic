@@ -561,6 +561,54 @@ class ReaderForegroundWebViewOwnershipTest {
 		)
 	}
 
+	@Test
+	fun cancellationJoinUsesFailClosedPrecedenceAfterEveryCallbackCompletes() {
+		val completions = mutableListOf<ReaderPageRasterCancellationRestoration>()
+		val join = ReaderPageRasterCancellationJoin(
+			expectedCallbackCount = 3,
+			onComplete = completions::add
+		)
+		val restored = join.callback()
+		val detached = join.callback()
+		val timedOut = join.callback()
+
+		restored(ReaderPageRasterCancellationRestoration.Restored)
+		detached(ReaderPageRasterCancellationRestoration.Detached)
+		assertTrue(completions.isEmpty())
+		timedOut(ReaderPageRasterCancellationRestoration.TimedOut)
+
+		assertEquals(
+			listOf(ReaderPageRasterCancellationRestoration.TimedOut),
+			completions
+		)
+	}
+
+	@Test
+	fun cancellationJoinFencesDuplicateCallbacksAndCompletesExactlyOnce() {
+		assertFailsWith<IllegalArgumentException> {
+			ReaderPageRasterCancellationJoin(0) { error("must not complete") }
+		}
+		val completions = mutableListOf<ReaderPageRasterCancellationRestoration>()
+		val join = ReaderPageRasterCancellationJoin(
+			expectedCallbackCount = 2,
+			onComplete = completions::add
+		)
+		val first = join.callback()
+		val second = join.callback()
+
+		first(ReaderPageRasterCancellationRestoration.Restored)
+		first(ReaderPageRasterCancellationRestoration.TimedOut)
+		assertTrue(completions.isEmpty())
+		second(ReaderPageRasterCancellationRestoration.Detached)
+		second(ReaderPageRasterCancellationRestoration.TimedOut)
+
+		assertEquals(
+			listOf(ReaderPageRasterCancellationRestoration.Detached),
+			completions
+		)
+		assertFailsWith<IllegalStateException> { join.callback() }
+	}
+
 	private fun ReaderForegroundWebViewOwnership.setMutationGenerationForTest(
 		value: Long
 	) {

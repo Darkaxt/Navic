@@ -2224,7 +2224,11 @@ internal class ReaderPageTurnBundleSource(
 			return
 		}
 		cachedSnapshot(pageIndex, kind, reference)?.let { cached ->
-			persistCachedSnapshot(cached, priority) { result ->
+			persistCachedSnapshot(
+				cached,
+				priority,
+				isStillCurrent = isStillCurrent
+			) { result ->
 				if (isStillCurrent()) onCaptured(result)
 			}
 			return
@@ -2254,6 +2258,7 @@ internal class ReaderPageTurnBundleSource(
 			putSnapshot(
 				snapshot = captured,
 				priority = priority,
+				isStillCurrent = isStillCurrent,
 				onPersisted = onCaptured
 			)
 		}
@@ -2396,9 +2401,15 @@ internal class ReaderPageTurnBundleSource(
 	fun ensurePersistentSnapshot(
 		snapshot: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
+		isStillCurrent: () -> Boolean = { true },
 		onPersisted: (ReaderPageRasterPublicationResult) -> Unit
 	) {
-		persistCachedSnapshot(snapshot, priority, onPersisted)
+		persistCachedSnapshot(
+			snapshot = snapshot,
+			priority = priority,
+			isStillCurrent = isStillCurrent,
+			onPersisted = onPersisted
+		)
 	}
 
 	private fun cacheSnapshot(
@@ -2523,9 +2534,15 @@ internal class ReaderPageTurnBundleSource(
 	private fun persistCachedSnapshot(
 		snapshot: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
+		isStillCurrent: () -> Boolean = { true },
 		onPersisted: (ReaderPageRasterPublicationResult) -> Unit
 	) {
-		schedulePersistentSnapshot(snapshot, priority) { result ->
+		schedulePersistentSnapshot(
+			snapshot = snapshot,
+			priority = priority,
+			isStillCurrent = isStillCurrent
+		) { result ->
+			if (!runCatching(isStillCurrent).getOrDefault(false)) return@schedulePersistentSnapshot
 			if (result == ReaderPageRasterPublicationResult.Durable) {
 				markCachedSnapshotDurable(snapshot)
 			}
@@ -2537,6 +2554,7 @@ internal class ReaderPageTurnBundleSource(
 		snapshot: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
 		persist: Boolean = true,
+		isStillCurrent: () -> Boolean = { true },
 		onPersisted: (ReaderPageRasterPublicationResult) -> Unit = {}
 	): ReaderPageSlideSnapshot {
 		val physicalLayout = checkNotNull(readerPageRasterPhysicalLayout(snapshot))
@@ -2545,13 +2563,17 @@ internal class ReaderPageTurnBundleSource(
 		}
 		snapshotCache[snapshot.key]?.let { cached ->
 			snapshot.releaseCacheOwnership()
-			if (persist) persistCachedSnapshot(cached, priority, onPersisted)
+			if (persist) {
+				persistCachedSnapshot(cached, priority, isStillCurrent, onPersisted)
+			}
 			return cached
 		}
 		snapshotCache[snapshot.key] = snapshot
 		snapshotDurability[snapshot] =
 			ReaderPageRasterHydrationDurability.RequiresPublication
-		if (persist) persistCachedSnapshot(snapshot, priority, onPersisted)
+		if (persist) {
+			persistCachedSnapshot(snapshot, priority, isStillCurrent, onPersisted)
+		}
 		trimSnapshotCacheToCapacity()
 		Logger.i(
 			ReaderPageTurnBundleSourceTag,
@@ -2572,8 +2594,13 @@ internal class ReaderPageTurnBundleSource(
 	private fun schedulePersistentSnapshot(
 		snapshot: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
+		isStillCurrent: () -> Boolean = { true },
 		onPersisted: (ReaderPageRasterPublicationResult) -> Unit = {}
 	) {
+		if (!runCatching(isStillCurrent).getOrDefault(false)) {
+			onPersisted(ReaderPageRasterPublicationResult.Failed)
+			return
+		}
 		val pageIndex = snapshot.key.visualPageIndex
 		if (closed) {
 			rasterPersistenceSkipped(
@@ -2624,6 +2651,7 @@ internal class ReaderPageTurnBundleSource(
 				try {
 				if (
 					closed ||
+					!runCatching(isStillCurrent).getOrDefault(false) ||
 					generation != activeGeneration ||
 					physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get()
 				) {
@@ -2680,6 +2708,7 @@ internal class ReaderPageTurnBundleSource(
 						val scheduler = rasterScheduler(webView)
 						if (
 							closed ||
+							!runCatching(isStillCurrent).getOrDefault(false) ||
 							generation != activeGeneration ||
 							physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get()
 						) {
