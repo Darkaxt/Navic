@@ -332,6 +332,214 @@ internal sealed interface ReaderPageTapDispatchResult {
 	) : ReaderPageTapDispatchResult
 }
 
+internal sealed interface ReaderPageRelocationExactDispatchResult {
+	data object Dispatched : ReaderPageRelocationExactDispatchResult
+
+	data class Rejected(
+		val reason: ReaderPageRelocationDiagnosticRejectionReason
+	) : ReaderPageRelocationExactDispatchResult {
+		init {
+			require(reason != ReaderPageRelocationDiagnosticRejectionReason.None)
+		}
+	}
+}
+
+internal class ReaderPageRelocationLiveDispatchCoordinator(
+	private val foregroundWebViewOwnership: ReaderForegroundWebViewOwnership,
+	private val isDispatchCurrent: (ReaderPageRelocationRequest) -> Boolean,
+	private val dispatchExact: (
+		ReaderPageRelocationRequest,
+		ReaderForegroundWebViewMutationGeneration
+	) -> ReaderPageRelocationExactDispatchResult,
+	private val onRejected: (
+		ReaderPageRelocationRequest,
+		ReaderPageRelocationDiagnosticRejectionReason
+	) -> Unit
+) {
+	private data class Entry(
+		val request: ReaderPageRelocationRequest,
+		val claim: ReaderForegroundWebViewLiveClaim
+	)
+
+	private val claims = linkedMapOf<String, Entry>()
+	private val mutationGenerations =
+		linkedMapOf<String, ReaderForegroundWebViewMutationGeneration>()
+	private val pendingReadiness = mutableSetOf<String>()
+
+	fun transfer(
+		request: ReaderPageRelocationRequest,
+		claim: ReaderForegroundWebViewLiveClaim
+	): Boolean {
+		if (claim.gestureId != request.gestureId) return false
+		val token = request.token.value
+		if (token in claims || token in mutationGenerations || token in pendingReadiness) {
+			return false
+		}
+		claims[token] = Entry(request, claim)
+		return true
+	}
+
+	fun dispatch(request: ReaderPageRelocationRequest): Boolean {
+		val token = request.token.value
+		val entry = claims[token]
+		if (entry?.request != request) {
+			if (isDispatchCurrent(request)) {
+				onRejected(
+					request,
+					ReaderPageRelocationDiagnosticRejectionReason.OwnershipUnavailable
+				)
+			}
+			return false
+		}
+		if (
+			token in pendingReadiness ||
+			token in mutationGenerations ||
+			!isDispatchCurrent(request)
+		) {
+			return false
+		}
+		pendingReadiness += token
+		try {
+			foregroundWebViewOwnership.whenLiveReady(entry.claim) { readiness ->
+				onReadiness(request, entry.claim, readiness)
+			}
+		} catch (_: Throwable) {
+			pendingReadiness.remove(token)
+			fail(
+				request,
+				ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+			)
+		}
+		return true
+	}
+
+	private fun onReadiness(
+		request: ReaderPageRelocationRequest,
+		claim: ReaderForegroundWebViewLiveClaim,
+		readiness: ReaderForegroundWebViewLiveReadiness
+	) {
+		val token = request.token.value
+		if (!pendingReadiness.remove(token)) return
+		if (claims[token] != Entry(request, claim) || !isDispatchCurrent(request)) return
+		when (readiness) {
+			ReaderForegroundWebViewLiveReadiness.Ready -> dispatchReady(request, claim)
+			is ReaderForegroundWebViewLiveReadiness.Failed,
+			ReaderForegroundWebViewLiveReadiness.Invalidated -> fail(
+				request,
+				ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+			)
+		}
+	}
+
+	private fun dispatchReady(
+		request: ReaderPageRelocationRequest,
+		claim: ReaderForegroundWebViewLiveClaim
+	) {
+		val token = request.token.value
+		if (claims[token] != Entry(request, claim) || !isDispatchCurrent(request)) return
+		val generation = foregroundWebViewOwnership.beginLiveMutation(claim)
+		if (generation == null) {
+			fail(
+				request,
+				ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+			)
+			return
+		}
+		if (
+			claims[token] != Entry(request, claim) ||
+			!isDispatchCurrent(request) ||
+			token in mutationGenerations
+		) {
+			return
+		}
+		mutationGenerations[token] = generation
+		if (!foregroundWebViewOwnership.isCurrent(claim, generation)) {
+			fail(
+				request,
+				ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+			)
+			return
+		}
+		val result = try {
+			dispatchExact(request, generation)
+		} catch (_: Throwable) {
+			ReaderPageRelocationExactDispatchResult.Rejected(
+				ReaderPageRelocationDiagnosticRejectionReason.JavascriptDispatchFailed
+			)
+		}
+		if (result is ReaderPageRelocationExactDispatchResult.Rejected) {
+			fail(request, result.reason)
+		}
+	}
+
+	fun isCurrent(request: ReaderPageRelocationRequest): Boolean {
+		val entry = claims[request.token.value]?.takeIf { it.request == request }
+			?: return false
+		val generation = mutationGenerations[request.token.value] ?: return false
+		return foregroundWebViewOwnership.isCurrent(entry.claim, generation)
+	}
+
+	fun replace(
+		original: ReaderPageRelocationRequest,
+		replacement: ReaderPageRelocationRequest
+	): Boolean {
+		if (
+			original.token == replacement.token ||
+			original.gestureId != replacement.gestureId ||
+			original.sourceOrdinal != replacement.sourceOrdinal ||
+			original.destinationOrdinal != replacement.destinationOrdinal ||
+			original.logicalDirection != replacement.logicalDirection ||
+			original.foliateSessionId != replacement.foliateSessionId ||
+			!isCurrent(original)
+		) {
+			return false
+		}
+		val originalToken = original.token.value
+		val replacementToken = replacement.token.value
+		if (
+			replacementToken in claims ||
+			replacementToken in mutationGenerations ||
+			replacementToken in pendingReadiness
+		) {
+			return false
+		}
+		val entry = claims.remove(originalToken)?.takeIf { it.request == original }
+			?: return false
+		mutationGenerations.remove(originalToken)
+		pendingReadiness.remove(originalToken)
+		claims[replacementToken] = Entry(replacement, entry.claim)
+		return true
+	}
+
+	fun fail(
+		request: ReaderPageRelocationRequest,
+		reason: ReaderPageRelocationDiagnosticRejectionReason
+	): Boolean {
+		require(reason != ReaderPageRelocationDiagnosticRejectionReason.None)
+		val entry = remove(request) ?: return false
+		foregroundWebViewOwnership.releaseLive(entry.claim)
+		if (isDispatchCurrent(request)) onRejected(request, reason)
+		return true
+	}
+
+	private fun remove(request: ReaderPageRelocationRequest): Entry? {
+		val token = request.token.value
+		val entry = claims[token]?.takeIf { it.request == request } ?: return null
+		claims.remove(token)
+		mutationGenerations.remove(token)
+		pendingReadiness.remove(token)
+		return entry
+	}
+
+	fun releaseAll() {
+		val ownedClaims = claims.values.map { it.claim }.distinct()
+		claims.clear()
+		mutationGenerations.clear()
+		pendingReadiness.clear()
+		ownedClaims.forEach(foregroundWebViewOwnership::releaseLive)
+	}
+}
+
 /**
  * Production bridge between Foliate's passive raster cache and the imported PlayLikeCurl surface.
  * Foliate remains the pagination authority; this controller owns only immutable raster leases,
@@ -340,6 +548,8 @@ internal sealed interface ReaderPageTapDispatchResult {
 internal class ReaderPlayLikeCurlFoliateController(
 	private val host: ViewGroup,
 	private val webViewProvider: () -> WebView?,
+	private val foregroundWebViewOwnership: ReaderForegroundWebViewOwnership =
+		ReaderForegroundWebViewOwnership(),
 	private val bundleSource: ReaderPageTurnBundleSource,
 	private val diagnostics: ReaderPageRuntimeDiagnostics? = null,
 	private val qaFaultRegistry: ReaderPageQaFaultRegistry? = null,
@@ -492,7 +702,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 		},
 		onTimeout = { request ->
-			rejectDispatchedRelocation(
+			relocationLiveDispatchCoordinator.fail(
 				request,
 				ReaderPageRelocationDiagnosticRejectionReason.AcknowledgementTimeout
 			)
@@ -558,6 +768,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val relocationGestureCoordinator =
 		ReaderPageRelocationGestureCoordinator(
 			queue = relocationQueue,
+			foregroundWebViewOwnership = foregroundWebViewOwnership,
 			onQueued = { request ->
 				val startedAt = diagnostics?.now() ?: 0L
 				relocationDiagnosticStarts[request.token.value] = startedAt
@@ -575,6 +786,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 						ReaderPageRelocationDiagnosticRejectionReason.CommitPublicationFailed
 				)
 			}
+		)
+	private val relocationLiveDispatchCoordinator =
+		ReaderPageRelocationLiveDispatchCoordinator(
+			foregroundWebViewOwnership = foregroundWebViewOwnership,
+			isDispatchCurrent = ::relocationDispatchIsCurrent,
+			dispatchExact = ::dispatchExactVisualPage,
+			onRejected = ::rejectDispatchedRelocation
 		)
 	private val relocationVisualHandoffCoordinator:
 		ReaderPageRelocationVisualHandoffCoordinator =
@@ -971,7 +1189,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 								)
 							)
 						},
-						dispatch = { dispatchNextRelocation() }
+						dispatch = ::transferAndDispatchRelocation
 					)
 					if (result !is ReaderPageRelocationCommitResult.Published) {
 						recoverRejectedSettlement(sourceOrdinal, promotedGeneration)
@@ -1613,16 +1831,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 		acknowledgement: ReaderPageTurnSettlementAck?
 	): ReaderPageVisualLocationOrigin {
 		val normalized = pageIndex?.takeIf { it >= 0 }
+		val head = relocationQueue.head()
 		val exactAcknowledgementMatches =
 			normalized != null &&
 				acknowledgement != null &&
+				head != null &&
 				relocationQueue.matchesDispatchedHead(
 					token = acknowledgement.token,
 					rasterGeneration = acknowledgement.rasterGeneration,
 					textureGeneration = acknowledgement.textureGeneration,
 					foliateSessionId = acknowledgement.foliateSessionId,
 					destinationOrdinal = normalized
-				)
+				) &&
+				relocationLiveDispatchCoordinator.isCurrent(head)
 		return readerPageVisualLocationOrigin(
 			foliateSessionRelocationPending = foliateSessionRelocationPending,
 			exactAcknowledgementMatches = exactAcknowledgementMatches,
@@ -1711,15 +1932,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 		acknowledged: ReaderPageRelocationRequest,
 		qaFaultCorrelation: ReaderPageQaFaultCorrelation?
 	) {
-		if (!relocationQueue.matchesAcknowledgedHead(
-				token = acknowledged.token.value,
-				rasterGeneration = acknowledged.rasterGeneration,
-				textureGeneration = acknowledged.textureGeneration,
-				foliateSessionId = acknowledged.foliateSessionId,
-				destinationOrdinal = acknowledged.destinationOrdinal
-			)
-		) {
+		val queueCurrent = relocationQueue.matchesAcknowledgedHead(
+			token = acknowledged.token.value,
+			rasterGeneration = acknowledged.rasterGeneration,
+			textureGeneration = acknowledged.textureGeneration,
+			foliateSessionId = acknowledged.foliateSessionId,
+			destinationOrdinal = acknowledged.destinationOrdinal
+		)
+		if (!queueCurrent) {
 			relocationQaFaultCorrelations.remove(acknowledged.token.value)
+			return
+		}
+		if (!relocationLiveDispatchCoordinator.isCurrent(acknowledged)) {
+			relocationLiveDispatchCoordinator.fail(
+				acknowledged,
+				ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+			)
 			return
 		}
 		emitRelocationDiagnostic(
@@ -1752,16 +1980,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 		rejectionReason: ReaderPageRelocationDiagnosticRejectionReason
 	): ReaderPageRelocationDrain {
 		relocationDispatchTimeout.cancelAll()
-		return relocationGestureCoordinator.cancelAll().also { drained ->
-			drained.queued.forEach { request ->
-				emitRelocationDiagnostic(
-					request,
-					ReaderPageRelocationDiagnosticState.Rejected,
-					terminal = true,
-					rejectionReason = rejectionReason
-				)
-			}
+		val drained = try {
+			relocationGestureCoordinator.cancelAll()
+		} finally {
+			relocationLiveDispatchCoordinator.releaseAll()
 		}
+		drained.queued.forEach { request ->
+			emitRelocationDiagnostic(
+				request,
+				ReaderPageRelocationDiagnosticState.Rejected,
+				terminal = true,
+				rejectionReason = rejectionReason
+			)
+		}
+		return drained
 	}
 
 	private fun drainRelocationOwnership(
@@ -4255,6 +4487,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	): Boolean =
 		!destroyed &&
 			enabled &&
+			relocationLiveDispatchCoordinator.isCurrent(request) &&
 			!hasStaticRasterShieldOwnership() &&
 			surfaceView.isAttachedToWindow &&
 			surfaceView.isShown &&
@@ -4334,6 +4567,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		original: ReaderPageRelocationRequest,
 		replacement: ReaderPageRelocationRequest
 	) {
+		check(relocationLiveDispatchCoordinator.replace(original, replacement)) {
+			"Recovery replacement lost exact foreground ownership"
+		}
 		if (failedLivePresentationGeneration?.matches(original) == true) {
 			failedLivePresentationGeneration =
 				FailedLivePresentationGeneration(replacement)
@@ -4371,6 +4607,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun releaseTerminalContentFailure(
 		request: ReaderPageRelocationRequest
 	) {
+		check(
+			relocationLiveDispatchCoordinator.fail(
+				request,
+				ReaderPageRelocationDiagnosticRejectionReason.ContentRejected
+			)
+		) { "Content rejection lost exact foreground ownership" }
 		emitRelocationDiagnostic(
 			request = request,
 			state = ReaderPageRelocationDiagnosticState.Rejected,
@@ -4474,25 +4716,68 @@ internal class ReaderPlayLikeCurlFoliateController(
 		requestPrewarmIfIdle("visual-handoff-${reason.name.lowercase()}")
 	}
 
-	private fun dispatchRelocation(request: ReaderPageRelocationRequest) {
-		val webView = checkNotNull(
-			webViewProvider()?.takeIf { it.isAttachedToWindow }
-		) { "Visual relocation dispatch requires an attached WebView" }
-		clearRetainedInlineHandoffSnapshot()
-		dispatchExactVisualPage(webView, request)
+	private fun transferAndDispatchRelocation(
+		request: ReaderPageRelocationRequest,
+		claim: ReaderForegroundWebViewLiveClaim
+	) {
+		check(relocationLiveDispatchCoordinator.transfer(request, claim)) {
+			"Committed relocation duplicated foreground ownership"
+		}
+		try {
+			dispatchNextRelocation()
+		} catch (failure: Throwable) {
+			relocationLiveDispatchCoordinator.fail(
+				request,
+				ReaderPageRelocationDiagnosticRejectionReason.JavascriptDispatchFailed
+			)
+			throw failure
+		}
 	}
 
-	private fun dispatchNextRelocation() {
-		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return
-		val request = relocationQueue.commandToDispatch() ?: return
-		clearRetainedInlineHandoffSnapshot()
-		dispatchExactVisualPage(webView, request)
+	private fun dispatchRelocation(request: ReaderPageRelocationRequest) {
+		check(relocationLiveDispatchCoordinator.dispatch(request)) {
+			"Recovery relocation did not own exact foreground dispatch"
+		}
 	}
+
+	private fun dispatchNextRelocation(): Boolean {
+		val request = relocationQueue.commandToDispatch() ?: return false
+		clearRetainedInlineHandoffSnapshot()
+		return relocationLiveDispatchCoordinator.dispatch(request)
+	}
+
+	private fun relocationDispatchIsCurrent(
+		request: ReaderPageRelocationRequest
+	): Boolean =
+		!destroyed &&
+			enabled &&
+			currentFoliateSessionId == request.foliateSessionId &&
+			(
+				relocationQueue.matchesDispatchedHead(
+					token = request.token.value,
+					rasterGeneration = request.rasterGeneration,
+					textureGeneration = request.textureGeneration,
+					foliateSessionId = request.foliateSessionId,
+					destinationOrdinal = request.destinationOrdinal
+				) ||
+				relocationQueue.matchesAcknowledgedHead(
+					token = request.token.value,
+					rasterGeneration = request.rasterGeneration,
+					textureGeneration = request.textureGeneration,
+					foliateSessionId = request.foliateSessionId,
+					destinationOrdinal = request.destinationOrdinal
+				)
+			)
 
 	private fun dispatchExactVisualPage(
-		webView: WebView,
-		request: ReaderPageRelocationRequest
-	) {
+		request: ReaderPageRelocationRequest,
+		generation: ReaderForegroundWebViewMutationGeneration
+	): ReaderPageRelocationExactDispatchResult {
+		clearRetainedInlineHandoffSnapshot()
+		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
+			?: return ReaderPageRelocationExactDispatchResult.Rejected(
+				ReaderPageRelocationDiagnosticRejectionReason.WebViewUnavailable
+			)
 		val command = JSONObject().apply {
 			put("type", "goToVisualPage")
 			put("pageIndex", request.destinationOrdinal)
@@ -4501,6 +4786,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			put("settleSessionId", request.foliateSessionId)
 			put("settleRasterGeneration", request.rasterGeneration)
 			put("settleTextureGeneration", request.textureGeneration)
+			put("settleForegroundMutationGeneration", generation.value)
 		}
 		Logger.i(
 			ReaderPlayLikeCurlFoliateControllerTag,
@@ -4516,31 +4802,36 @@ internal class ReaderPlayLikeCurlFoliateController(
 				"PlayLikeCurl exact page dispatch failed " +
 					"failureClass=${failure::class.simpleName ?: "unknown"}"
 			)
-			rejectDispatchedRelocation(
-				request,
+			return ReaderPageRelocationExactDispatchResult.Rejected(
 				ReaderPageRelocationDiagnosticRejectionReason.JavascriptDispatchFailed
 			)
-			return
 		}
 		emitRelocationDiagnostic(
 			request,
 			ReaderPageRelocationDiagnosticState.Dispatched
 		)
 		relocationDispatchTimeout.arm(request)
+		return ReaderPageRelocationExactDispatchResult.Dispatched
 	}
 
 	private fun rejectDispatchedRelocation(
 		request: ReaderPageRelocationRequest,
 		reason: ReaderPageRelocationDiagnosticRejectionReason
 	) {
-		if (!relocationQueue.matchesDispatchedHead(
-				token = request.token.value,
-				rasterGeneration = request.rasterGeneration,
-				textureGeneration = request.textureGeneration,
-				foliateSessionId = request.foliateSessionId,
-				destinationOrdinal = request.destinationOrdinal
-			)
-		) {
+		val queueCurrent = relocationQueue.matchesDispatchedHead(
+			token = request.token.value,
+			rasterGeneration = request.rasterGeneration,
+			textureGeneration = request.textureGeneration,
+			foliateSessionId = request.foliateSessionId,
+			destinationOrdinal = request.destinationOrdinal
+		) || relocationQueue.matchesAcknowledgedHead(
+			token = request.token.value,
+			rasterGeneration = request.rasterGeneration,
+			textureGeneration = request.textureGeneration,
+			foliateSessionId = request.foliateSessionId,
+			destinationOrdinal = request.destinationOrdinal
+		)
+		if (!queueCurrent) {
 			return
 		}
 		cancelActiveGesture(

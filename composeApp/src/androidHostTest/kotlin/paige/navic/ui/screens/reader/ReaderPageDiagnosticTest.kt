@@ -178,6 +178,46 @@ class ReaderPageDiagnosticTest {
 	}
 
 	@Test
+	fun relocationOwnershipRejectionsRemainClosedAndBounded() {
+		assertEquals(
+			listOf(
+				"None",
+				"CommitPublicationFailed",
+				"QueueInvalidated",
+				"AcknowledgementTimeout",
+				"JavascriptDispatchFailed",
+				"ContentRejected",
+				"OwnershipUnavailable",
+				"OwnershipInvalidated",
+				"WebViewUnavailable"
+			),
+			ReaderPageRelocationDiagnosticRejectionReason.entries.map { it.name }
+		)
+		listOf(
+			ReaderPageRelocationDiagnosticRejectionReason.OwnershipUnavailable,
+			ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated,
+			ReaderPageRelocationDiagnosticRejectionReason.WebViewUnavailable
+		).forEach { reason ->
+			val line = ReaderPageDiagnostic.relocation(
+				readerSession = 7L,
+				token = "page-turn-31",
+				gestureId = 61L,
+				source = 16,
+				target = 15,
+				logicalDirection = ReaderPageTurnDirection.Previous,
+				rasterGeneration = 4L,
+				textureGeneration = 35L,
+				state = ReaderPageRelocationDiagnosticState.Rejected,
+				rejectionReason = reason,
+				queueDepth = 0,
+				durationMs = 3L
+			)
+			assertTrue(line.contains("rejectionReason=$reason"))
+			assertPrivateSentinelsAbsent(line)
+		}
+	}
+
+	@Test
 	fun qaFaultProjectionContainsOnlyClosedReconstructableFields() {
 		val line = ReaderPageDiagnostic.qaFault(
 			readerSession = 42L,

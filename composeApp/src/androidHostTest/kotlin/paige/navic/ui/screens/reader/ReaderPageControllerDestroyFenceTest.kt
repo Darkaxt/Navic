@@ -198,4 +198,51 @@ class ReaderPageControllerDestroyFenceTest {
 		)
 		assertTrue(invocations.values.all { count -> count == 1 })
 	}
+
+	@Test
+	fun destroyRelocationCancellationDrainsTransferredLiveClaims() = runTest {
+		val ownership = ReaderForegroundWebViewOwnership()
+		val request = paige.navic.reader.ReaderPageRelocationRequest(
+			token = paige.navic.reader.ReaderPageRelocationToken("page-turn-71"),
+			gestureId = 71L,
+			rasterGeneration = 7L,
+			textureGeneration = 9L,
+			sourceOrdinal = 4,
+			destinationOrdinal = 5,
+			logicalDirection = ReaderPageTurnDirection.Next,
+			foliateSessionId = "session"
+		)
+		val claim = ownership.acquireLive(request.gestureId)
+		val liveDispatch = ReaderPageRelocationLiveDispatchCoordinator(
+			foregroundWebViewOwnership = ownership,
+			isDispatchCurrent = { true },
+			dispatchExact = { _, _ -> ReaderPageRelocationExactDispatchResult.Dispatched },
+			onRejected = { _, reason -> error("unexpected rejection $reason") }
+		)
+		assertTrue(liveDispatch.transfer(request, claim))
+		liveDispatch.dispatch(request)
+		assertEquals(1, ownership.snapshot().liveClaims)
+		val fence = ReaderPageControllerDestroyFence(
+			scope = this,
+			fenceAdmission = {},
+			advanceGenerations = {},
+			cancelActiveGesture = {},
+			cancelRecovery = {},
+			closeVisualHandoff = {},
+			cancelRelocations = {
+				liveDispatch.releaseAll()
+				ReaderPageRelocationDrain(listOf(request), emptyList())
+			},
+			verifyRelocationsDrained = {
+				assertEquals(0, ownership.snapshot().liveClaims)
+			},
+			markPageSetsObsolete = {},
+			hideSurface = {},
+			disposeRendererAndOwners = {}
+		)
+
+		fence.start().await()
+
+		assertEquals(0, ownership.snapshot().liveClaims)
+	}
 }

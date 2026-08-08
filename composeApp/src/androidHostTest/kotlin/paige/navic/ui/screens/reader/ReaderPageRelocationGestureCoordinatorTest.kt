@@ -128,7 +128,7 @@ class ReaderPageRelocationGestureCoordinatorTest {
 					true
 				},
 				publishCommittedTerminal = { error("committed terminal must not run") },
-				dispatch = { error("dispatch must not run") }
+				dispatch = { _, _ -> error("dispatch must not run") }
 			)
 
 			assertEquals(ReaderPageRelocationCommitResult.GenerationOrSessionDrift, result)
@@ -164,7 +164,7 @@ class ReaderPageRelocationGestureCoordinatorTest {
 			currentFoliateSessionId = "session-a",
 			publishDriftTerminal = { _, _ -> true },
 			publishCommittedTerminal = { false },
-			dispatch = { dispatchCalls += 1 }
+			dispatch = { _, _ -> dispatchCalls += 1 }
 		)
 
 		assertEquals(ReaderPageRelocationCommitResult.TerminalNotPublished, result)
@@ -199,7 +199,7 @@ class ReaderPageRelocationGestureCoordinatorTest {
 			currentFoliateSessionId = "session-a",
 			publishDriftTerminal = { _, _ -> true },
 			publishCommittedTerminal = { events += "terminal"; true },
-			dispatch = { events += "dispatch:${it.token.value}" }
+			dispatch = { request, _ -> events += "dispatch:${request.token.value}" }
 		)
 
 		val published = assertIs<ReaderPageRelocationCommitResult.Published>(result)
@@ -237,7 +237,7 @@ class ReaderPageRelocationGestureCoordinatorTest {
 				"session-a",
 				publishDriftTerminal = { _, _ -> true },
 				publishCommittedTerminal = { error("terminal-failed") },
-				dispatch = { error("dispatch must not run") }
+				dispatch = { _, _ -> error("dispatch must not run") }
 			)
 		}
 		assertEquals(0, queue.occupiedCount())
@@ -330,7 +330,7 @@ class ReaderPageRelocationGestureCoordinatorTest {
 			"session-a",
 			publishDriftTerminal = { _, _ -> true },
 			publishCommittedTerminal = { true },
-			dispatch = {}
+			dispatch = { _, _ -> }
 		)
 
 		val drained = coordinator.cancelAll()
@@ -339,6 +339,234 @@ class ReaderPageRelocationGestureCoordinatorTest {
 		assertEquals(1, drained.reservations.size)
 		assertEquals(0, coordinator.reservationCount())
 		assertEquals(0, queue.occupiedCount())
+	}
+	@Test
+	fun capacityAndDuplicateRejectionHappenBeforeLiveAcquisition() {
+		val ownership = ReaderForegroundWebViewOwnership()
+		val queue = ReaderPageRelocationQueue(capacity = 1)
+		val coordinator = ReaderPageRelocationGestureCoordinator(queue, ownership)
+		coordinator.start(
+			metadata(gestureId = 50L),
+			0,
+			rendererAdmission = { true },
+			publishTerminal = { _, _ -> true }
+		)
+		assertEquals(1, ownership.snapshot().liveClaims)
+
+		coordinator.start(
+			metadata(gestureId = 51L),
+			0,
+			rendererAdmission = { error("capacity must reject first") },
+			publishTerminal = { _, _ -> true }
+		)
+		coordinator.start(
+			metadata(gestureId = 50L),
+			0,
+			rendererAdmission = { error("duplicate must reject first") },
+			publishTerminal = { _, _ -> true }
+		)
+
+		assertEquals(1, ownership.snapshot().liveClaims)
+	}
+
+	@Test
+	fun liveClaimIsStoredBeforeRendererAdmission() {
+		val ownership = ReaderForegroundWebViewOwnership()
+		val coordinator = ReaderPageRelocationGestureCoordinator(
+			ReaderPageRelocationQueue(capacity = 1),
+			ownership
+		)
+
+		assertEquals(
+			ReaderPageRelocationStartResult.Admitted,
+			coordinator.start(
+				metadata(gestureId = 52L),
+				0,
+				rendererAdmission = {
+					assertEquals(1, ownership.snapshot().liveClaims)
+					true
+				},
+				publishTerminal = { _, _ -> true }
+			)
+		)
+	}
+
+	@Test
+	fun rendererFalseThrowAndSynchronousTerminalReleaseLiveClaim() {
+		listOf("false", "throw", "terminal").forEachIndexed { index, mode ->
+			var releaseEdges = 0
+			val ownership = ReaderForegroundWebViewOwnership { releaseEdges += 1 }
+			val queue = ReaderPageRelocationQueue(capacity = 1)
+			lateinit var coordinator: ReaderPageRelocationGestureCoordinator
+			coordinator = ReaderPageRelocationGestureCoordinator(queue, ownership)
+			val gestureId = 60L + index
+
+			if (mode == "throw") {
+				assertFailsWith<IllegalStateException> {
+					coordinator.start(
+						metadata(gestureId),
+						0,
+						rendererAdmission = { error("renderer") },
+						publishTerminal = { _, _ -> true }
+					)
+				}
+			} else {
+				coordinator.start(
+					metadata(gestureId),
+					0,
+					rendererAdmission = {
+						if (mode == "terminal") {
+							assertTrue(
+								coordinator.finish(
+									gestureId,
+									ReaderPageGestureTerminalOutcome.CancelledByUser,
+									ReaderPageGestureTerminalDetail.ControllerCancelled
+								)
+							)
+						}
+						false
+					},
+					publishTerminal = { _, _ -> true }
+				)
+			}
+
+			assertEquals(0, ownership.snapshot().liveClaims, mode)
+			assertEquals(1, releaseEdges, mode)
+			assertEquals(0, queue.occupiedCount(), mode)
+		}
+	}
+
+	@Test
+	fun driftAndCommitPublicationFailureReleaseLiveClaim() {
+		listOf("drift", "false", "throw").forEachIndexed { index, mode ->
+			var releaseEdges = 0
+			val ownership = ReaderForegroundWebViewOwnership { releaseEdges += 1 }
+			val queue = ReaderPageRelocationQueue(capacity = 1)
+			val coordinator = ReaderPageRelocationGestureCoordinator(queue, ownership)
+			val gestureId = 70L + index
+			coordinator.start(
+				metadata(gestureId),
+				0,
+				rendererAdmission = { true },
+				publishTerminal = { _, _ -> true }
+			)
+
+			val commit = {
+				coordinator.commit(
+					gestureId = gestureId,
+					settledSourceTextureGeneration = 20L,
+					promotedRasterGeneration = if (mode == "drift") 11L else 10L,
+					promotedTextureGeneration = 21L,
+					destinationOrdinal = 4,
+					logicalDirection = ReaderPageTurnDirection.Next,
+					currentFoliateSessionId = "session-a",
+					publishDriftTerminal = { _, _ -> true },
+					publishCommittedTerminal = {
+						if (mode == "throw") error("terminal")
+						mode != "false"
+					},
+					dispatch = { _, _ -> error("dispatch must not run") }
+				)
+			}
+			if (mode == "throw") assertFailsWith<IllegalStateException> { commit() }
+			else commit()
+
+			assertEquals(0, ownership.snapshot().liveClaims, mode)
+			assertEquals(1, releaseEdges, mode)
+			assertEquals(0, queue.occupiedCount(), mode)
+		}
+	}
+
+	@Test
+	fun enqueueExceptionReleasesReservationAndLiveClaim() {
+		val ownership = ReaderForegroundWebViewOwnership()
+		val queue = ReaderPageRelocationQueue(capacity = 1)
+		val coordinator = ReaderPageRelocationGestureCoordinator(queue, ownership)
+		coordinator.start(
+			metadata(gestureId = 80L),
+			0,
+			rendererAdmission = { true },
+			publishTerminal = { _, _ -> true }
+		)
+
+		assertFailsWith<IllegalArgumentException> {
+			coordinator.commit(
+				gestureId = 80L,
+				settledSourceTextureGeneration = 20L,
+				promotedRasterGeneration = 10L,
+				promotedTextureGeneration = 21L,
+				destinationOrdinal = 3,
+				logicalDirection = ReaderPageTurnDirection.Next,
+				currentFoliateSessionId = "session-a",
+				publishDriftTerminal = { _, _ -> true },
+				publishCommittedTerminal = { true },
+				dispatch = { _, _ -> error("dispatch must not run") }
+			)
+		}
+
+		assertEquals(0, ownership.snapshot().liveClaims)
+		assertEquals(0, queue.occupiedCount())
+	}
+
+	@Test
+	fun successfulCommitTransfersRequestAndClaimWithoutCoordinatorRelease() {
+		val ownership = ReaderForegroundWebViewOwnership()
+		val queue = ReaderPageRelocationQueue(capacity = 1)
+		val coordinator = ReaderPageRelocationGestureCoordinator(queue, ownership)
+		coordinator.start(
+			metadata(gestureId = 81L),
+			0,
+			rendererAdmission = { true },
+			publishTerminal = { _, _ -> true }
+		)
+		var transferred: Pair<paige.navic.reader.ReaderPageRelocationRequest,
+			ReaderForegroundWebViewLiveClaim>? = null
+
+		val result = coordinator.commit(
+			gestureId = 81L,
+			settledSourceTextureGeneration = 20L,
+			promotedRasterGeneration = 10L,
+			promotedTextureGeneration = 21L,
+			destinationOrdinal = 4,
+			logicalDirection = ReaderPageTurnDirection.Next,
+			currentFoliateSessionId = "session-a",
+			publishDriftTerminal = { _, _ -> true },
+			publishCommittedTerminal = { true },
+			dispatch = { request, claim -> transferred = request to claim }
+		)
+
+		val published = assertIs<ReaderPageRelocationCommitResult.Published>(result)
+		assertEquals(published.request, transferred?.first)
+		assertEquals(81L, transferred?.second?.gestureId)
+		assertEquals(1, ownership.snapshot().liveClaims)
+		coordinator.cancelAll()
+		assertEquals(
+			1,
+			ownership.snapshot().liveClaims,
+			"Transferred claims are controller-owned."
+		)
+		assertTrue(ownership.releaseLive(checkNotNull(transferred).second))
+	}
+
+	@Test
+	fun cancelAllReleasesEveryReservedLiveClaim() {
+		val ownership = ReaderForegroundWebViewOwnership()
+		val coordinator = ReaderPageRelocationGestureCoordinator(
+			ReaderPageRelocationQueue(capacity = 2),
+			ownership
+		)
+		repeat(2) { index ->
+			coordinator.start(
+				metadata(gestureId = 90L + index),
+				0,
+				rendererAdmission = { true },
+				publishTerminal = { _, _ -> true }
+			)
+		}
+
+		coordinator.cancelAll()
+
+		assertEquals(0, ownership.snapshot().liveClaims)
 	}
 }
 

@@ -175,6 +175,118 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun liveRelocationUsesOneInjectedForegroundOwnerFromReservationThroughDispatch() {
+		val source = controllerFile.readText()
+		val constructor = source
+			.substringAfter("internal class ReaderPlayLikeCurlFoliateController(")
+			.substringBefore(") : ReaderPageTapTurnPort")
+		val gestureCoordinator = source
+			.substringAfter("private val relocationGestureCoordinator =")
+			.substringBefore("private val relocationLiveDispatchCoordinator")
+		val liveDispatch = source
+			.substringAfter("private val relocationLiveDispatchCoordinator")
+			.substringBefore("private val relocationVisualHandoffCoordinator")
+		val settlement = source
+			.substringAfter("override fun onSettlementCompleted(")
+			.substringBefore("override fun onSettlementCancelled(")
+
+		assertContains(
+			constructor,
+			"private val foregroundWebViewOwnership: ReaderForegroundWebViewOwnership ="
+		)
+		assertContains(constructor, "ReaderForegroundWebViewOwnership()")
+		assertContains(gestureCoordinator, "foregroundWebViewOwnership = foregroundWebViewOwnership")
+		assertContains(liveDispatch, "foregroundWebViewOwnership = foregroundWebViewOwnership")
+		assertContains(settlement, "dispatch = ::transferAndDispatchRelocation")
+	}
+
+	@Test
+	fun committedRelocationCanQueueBehindAnInFlightHeadWithoutFailingOwnership() {
+		val source = controllerFile.readText()
+		val transfer = source
+			.substringAfter("private fun transferAndDispatchRelocation(")
+			.substringBefore("private fun dispatchRelocation(")
+
+		assertContains(transfer, "relocationLiveDispatchCoordinator.transfer(request, claim)")
+		assertContains(transfer, "dispatchNextRelocation()")
+		assertFalse(
+			transfer.contains("check(dispatchNextRelocation())"),
+			"A later committed relocation may validly wait behind the in-flight queue head."
+		)
+	}
+
+	@Test
+	fun restorationGatedDispatchStoresGenerationBeforeResolvingTheAttachedWebView() {
+		val source = controllerFile.readText()
+		val coordinator = source
+			.substringAfter("internal class ReaderPageRelocationLiveDispatchCoordinator(")
+			.substringBefore("internal class ReaderPlayLikeCurlFoliateController(")
+		val exact = source
+			.substringAfter("private fun dispatchExactVisualPage(")
+			.substringBefore("private fun rejectDispatchedRelocation(")
+
+		assertContains(coordinator, "foregroundWebViewOwnership.whenLiveReady(entry.claim)")
+		assertContains(coordinator, "isDispatchCurrent(request)")
+		assertContains(coordinator, "foregroundWebViewOwnership.beginLiveMutation(claim)")
+		assertContains(coordinator, "mutationGenerations[token] = generation")
+		assertTrue(
+			coordinator.indexOf("foregroundWebViewOwnership.beginLiveMutation(claim)") <
+				coordinator.indexOf("dispatchExact(request, generation)")
+		)
+		assertContains(exact, "webViewProvider()?.takeIf { it.isAttachedToWindow }")
+		assertContains(
+			exact,
+			"ReaderPageRelocationDiagnosticRejectionReason.WebViewUnavailable"
+		)
+		assertTrue(
+			exact.indexOf("webViewProvider()?.takeIf { it.isAttachedToWindow }") <
+				exact.indexOf("webView.evaluateJavascript(")
+		)
+		assertContains(exact, "put(\"settleForegroundMutationGeneration\", generation.value)")
+		assertContains(exact, "ReaderPageRelocationDiagnosticState.Dispatched")
+		assertContains(exact, "relocationDispatchTimeout.arm(request)")
+		assertTrue(
+			exact.indexOf("webView.evaluateJavascript(") <
+				exact.indexOf("ReaderPageRelocationDiagnosticState.Dispatched")
+		)
+		assertTrue(
+			exact.indexOf("ReaderPageRelocationDiagnosticState.Dispatched") <
+				exact.indexOf("relocationDispatchTimeout.arm(request)")
+		)
+	}
+
+	@Test
+	fun exactRelocationClaimsAreCurrentForAckValidationReplacementAndLifecycleDrain() {
+		val source = controllerFile.readText()
+		val origin = source
+			.substringAfter("fun visualLocationOrigin(")
+			.substringBefore("fun synchronizeVisualPageIndex(")
+		val validation = source
+			.substringAfter("private fun livePresentationValidationIsCurrent(")
+			.substringBefore("private fun relocationVisualState()")
+		val replacement = source
+			.substringAfter("private fun replaceRelocationDiagnosticIdentity(")
+			.substringBefore("private fun completeRelocationVisualHandoff(")
+		val cancellation = source
+			.substringAfter("private fun cancelRelocationsWithDiagnostics(")
+			.substringBefore("private fun drainRelocationOwnership(")
+		val completed = source
+			.substringAfter("private fun completeRelocationVisualHandoff(")
+			.substringBefore("private fun releaseTerminalContentFailure(")
+
+		assertContains(origin, "relocationLiveDispatchCoordinator.isCurrent(")
+		assertContains(validation, "relocationLiveDispatchCoordinator.isCurrent(request)")
+		assertContains(replacement, "relocationLiveDispatchCoordinator.replace(original, replacement)")
+		assertContains(cancellation, "relocationLiveDispatchCoordinator.releaseAll()")
+		assertContains(source, "relocationLiveDispatchCoordinator.fail(")
+		assertFalse(
+			completed.contains("releaseLive("),
+			"Task 6 owns release after committed WebView exposure."
+		)
+		assertFalse(completed.contains("relocationLiveDispatchCoordinator.release("))
+	}
+
+	@Test
 	fun relocationBridgePreservesCompleteTokenSessionAndGenerationIdentity() {
 		val controller = controllerFile.readText()
 		val runtime = readerAssetRoot.resolve("navic-reader.js").readText()
@@ -599,7 +711,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(settlement, "settledSourceTextureGeneration = generationId")
 		assertContains(settlement, "promotedTextureGeneration = promotedGeneration")
 		assertContains(settlement, "publishCommittedTerminal = {")
-		assertContains(settlement, "dispatch = { dispatchNextRelocation() }")
+		assertContains(settlement, "dispatch = ::transferAndDispatchRelocation")
 		assertContains(
 			finish,
 			"relocationGestureCoordinator.finish(gestureId, outcome, detail)"
@@ -833,7 +945,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private fun publishProtectedRasterOrdinals(")
 		val committedPublication = settlement
 			.substringAfter("publishCommittedTerminal = {")
-			.substringBefore("dispatch = { dispatchNextRelocation() }")
+			.substringBefore("dispatch = ::transferAndDispatchRelocation")
 		val adapterFence = source
 			.substringAfter("private fun rasterPublicationFence(")
 			.substringBefore("private fun publishProtectedWindow(")
@@ -1254,7 +1366,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("override fun onSettlementCancelled(")
 		val committedPublication = settlement
 			.substringAfter("publishCommittedTerminal = {")
-			.substringBefore("dispatch = { dispatchNextRelocation() }")
+			.substringBefore("dispatch = ::transferAndDispatchRelocation")
 		val availability = controller
 			.substringAfter("val isAvailable: Boolean")
 			.substringBefore("private val canContinueAcceptedPointer")
@@ -2076,7 +2188,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"Committed settlement must transfer ownership through the relocation coordinator."
 		)
 		assertContains(settlement, "publishCommittedTerminal = {")
-		assertContains(settlement, "dispatch = { dispatchNextRelocation() }")
+		assertContains(settlement, "dispatch = ::transferAndDispatchRelocation")
 		assertTrue(
 			committedFence < settlement.indexOf("currentOrdinal = currentPageOrdinal"),
 			"Committed state must advance only after relocation publication succeeds."

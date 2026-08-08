@@ -38,12 +38,15 @@ internal sealed interface ReaderPageRelocationCommitResult {
 
 internal class ReaderPageRelocationGestureCoordinator(
 	private val queue: ReaderPageRelocationQueue,
+	private val foregroundWebViewOwnership: ReaderForegroundWebViewOwnership =
+		ReaderForegroundWebViewOwnership(),
 	private val onQueued: (ReaderPageRelocationRequest) -> Unit = {},
 	private val onRejected: (ReaderPageRelocationRequest) -> Unit = {}
 ) {
 	private data class Owner(
 		val reservation: ReaderPageRelocationReservation,
 		val metadata: ReaderPageRelocationReservationMetadata,
+		var liveClaim: ReaderForegroundWebViewLiveClaim? = null,
 		var rendererAdmissionOpen: Boolean = false,
 		var synchronousTerminal: ReaderPageRelocationStartResult.TerminalPublished? = null
 	)
@@ -105,6 +108,25 @@ internal class ReaderPageRelocationGestureCoordinator(
 			}
 		}
 
+		val liveClaim = try {
+			foregroundWebViewOwnership.acquireLive(metadata.gestureId)
+		} catch (_: Throwable) {
+			check(releaseOwner(metadata.gestureId) === owner) {
+				"Unavailable foreground ownership lost relocation reservation"
+			}
+			val detail = ReaderPageGestureTerminalDetail.RecoveryFailed
+			check(
+				publishTerminal(
+					ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable,
+					detail
+				)
+			) { "Foreground-ownership terminal was not published" }
+			return ReaderPageRelocationStartResult.TerminalPublished(
+				ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable,
+				detail
+			)
+		}
+		owner.liveClaim = liveClaim
 		owner.rendererAdmissionOpen = true
 		val accepted = try {
 			rendererAdmission()
@@ -155,7 +177,10 @@ internal class ReaderPageRelocationGestureCoordinator(
 			ReaderPageGestureTerminalDetail
 		) -> Boolean,
 		publishCommittedTerminal: () -> Boolean,
-		dispatch: (ReaderPageRelocationRequest) -> Unit
+		dispatch: (
+			ReaderPageRelocationRequest,
+			ReaderForegroundWebViewLiveClaim
+		) -> Unit
 	): ReaderPageRelocationCommitResult {
 		require(settledSourceTextureGeneration >= 0L)
 		require(promotedRasterGeneration >= 0L)
@@ -171,12 +196,15 @@ internal class ReaderPageRelocationGestureCoordinator(
 		) {
 			val detail =
 				ReaderPageGestureTerminalDetail.RelocationGenerationOrSessionDrift(gestureId)
-			val published = publishDriftTerminal(
-				ReaderPageGestureTerminalOutcome.FailedRecovery,
-				detail
-			)
-			check(releaseOwner(gestureId) === owner) {
-				"Drift terminal lost its exact relocation owner"
+			val published = try {
+				publishDriftTerminal(
+					ReaderPageGestureTerminalOutcome.FailedRecovery,
+					detail
+				)
+			} finally {
+				check(releaseOwner(gestureId) === owner) {
+					"Drift terminal lost its exact relocation owner"
+				}
 			}
 			return if (published) {
 				ReaderPageRelocationCommitResult.GenerationOrSessionDrift
@@ -184,37 +212,53 @@ internal class ReaderPageRelocationGestureCoordinator(
 				ReaderPageRelocationCommitResult.TerminalNotPublished
 			}
 		}
+		val liveClaim = checkNotNull(owner.liveClaim) {
+			"Committed relocation omitted foreground ownership"
+		}
+		val transfer = try {
+			queue.enqueueReserved(
+				reservation = owner.reservation,
+				rasterGeneration = promotedRasterGeneration,
+				textureGeneration = promotedTextureGeneration,
+				sourceOrdinal = owner.metadata.sourceOrdinal,
+				destinationOrdinal = destinationOrdinal,
+				logicalDirection = logicalDirection,
+				foliateSessionId = currentFoliateSessionId
+			)
+		} catch (failure: Throwable) {
+			check(releaseOwner(gestureId) === owner) {
+				"Failed relocation enqueue lost its exact owner"
+			}
+			throw failure
+		}
+		val request = when (transfer) {
+			is ReaderPageRelocationTransferResult.Enqueued -> transfer.request
+			ReaderPageRelocationTransferResult.ReservationNotOwned -> {
+				check(owners.remove(gestureId) === owner)
+				releaseLiveClaim(owner)
+				return ReaderPageRelocationCommitResult.ReservationNotOwned
+			}
+		}
 		check(owners.remove(gestureId) === owner) {
 			"Committed relocation lost its exact owner"
 		}
-		val transfer = queue.enqueueReserved(
-			reservation = owner.reservation,
-			rasterGeneration = promotedRasterGeneration,
-			textureGeneration = promotedTextureGeneration,
-			sourceOrdinal = owner.metadata.sourceOrdinal,
-			destinationOrdinal = destinationOrdinal,
-			logicalDirection = logicalDirection,
-			foliateSessionId = currentFoliateSessionId
-		)
-		val request = when (transfer) {
-			is ReaderPageRelocationTransferResult.Enqueued -> transfer.request
-			ReaderPageRelocationTransferResult.ReservationNotOwned ->
-				return ReaderPageRelocationCommitResult.ReservationNotOwned
+		try {
+			onQueued(request)
+		} catch (failure: Throwable) {
+			cancelUnpublishedTransfer(request, owner)
+			throw failure
 		}
-		onQueued(request)
 		val published = try {
 			publishCommittedTerminal()
 		} catch (failure: Throwable) {
-			check(queue.cancelTransferred(request.token.value))
-			onRejected(request)
+			cancelUnpublishedTransfer(request, owner)
 			throw failure
 		}
 		if (!published) {
-			check(queue.cancelTransferred(request.token.value))
-			onRejected(request)
+			cancelUnpublishedTransfer(request, owner)
 			return ReaderPageRelocationCommitResult.TerminalNotPublished
 		}
-		dispatch(request)
+		dispatch(request, liveClaim)
 		return ReaderPageRelocationCommitResult.Published(request)
 	}
 
@@ -223,7 +267,7 @@ internal class ReaderPageRelocationGestureCoordinator(
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: ReaderPageGestureTerminalDetail
 	): Boolean {
-		val owner = owners.remove(gestureId) ?: return false
+		val owner = owners[gestureId] ?: return false
 		if (owner.rendererAdmissionOpen) {
 			check(owner.synchronousTerminal == null) {
 				"Renderer published two synchronous terminals"
@@ -233,15 +277,37 @@ internal class ReaderPageRelocationGestureCoordinator(
 				detail
 			)
 		}
-		check(queue.release(owner.reservation)) {
-			"Gesture relocation reservation was already terminal"
+		check(releaseOwner(gestureId) === owner) {
+			"Gesture terminal lost its exact relocation owner"
 		}
 		return true
 	}
 
+	private fun cancelUnpublishedTransfer(
+		request: ReaderPageRelocationRequest,
+		owner: Owner
+	) {
+		try {
+			check(queue.cancelTransferred(request.token.value))
+			onRejected(request)
+		} finally {
+			releaseLiveClaim(owner)
+		}
+	}
+
+	private fun releaseLiveClaim(owner: Owner) {
+		owner.liveClaim?.let(foregroundWebViewOwnership::releaseLive)
+		owner.liveClaim = null
+	}
+
 	private fun releaseOwner(gestureId: Long): Owner? {
 		val owner = owners.remove(gestureId) ?: return null
-		check(queue.release(owner.reservation)) {
+		val reservationReleased = try {
+			queue.release(owner.reservation)
+		} finally {
+			releaseLiveClaim(owner)
+		}
+		check(reservationReleased) {
 			"Gesture relocation reservation was already terminal"
 		}
 		return owner
@@ -253,7 +319,9 @@ internal class ReaderPageRelocationGestureCoordinator(
 		check(drain.reservations.all { reservation ->
 			owners[reservation.gestureId]?.reservation === reservation
 		})
+		val cancelledOwners = owners.values.toList()
 		owners.clear()
+		cancelledOwners.forEach(::releaseLiveClaim)
 		return drain
 	}
 
