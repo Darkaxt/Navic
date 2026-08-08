@@ -1229,8 +1229,14 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(persistence, "currentPhysicalLayoutEpoch(snapshot.key.kind, layout)")
 		assertContains(persistence, "physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get()")
 		assertContains(persistence, "store?.contains(value.key, metadata)")
-		assertContains(persistence, "val persistedForCurrentLayout = write.persisted &&")
-		assertContains(persistence, "if (!accepted || !persistedForCurrentLayout)")
+		assertContains(persistence, "fun publicationIsCurrent(): Boolean =")
+		assertContains(persistence, "runCatching(isStillCurrent).getOrDefault(false)")
+		assertContains(persistence, "val publicationCurrent = publicationIsCurrent()")
+		assertContains(
+			persistence,
+			"val persistedForCurrentPublication = write.persisted && publicationCurrent"
+		)
+		assertContains(persistence, "if (!accepted || !persistedForCurrentPublication)")
 		assertContains(removal, "store.remove(key, expectedMetadata)")
 	}
 
