@@ -207,7 +207,7 @@ internal class ReaderForegroundWebViewOwnership(
 		if (state.terminal == null) {
 			deliver(state, ReaderForegroundWebViewLiveReadiness.Invalidated)
 		}
-		if (liveClaims.isEmpty() && restorationLeaseId == null) {
+		if (canAcquirePassive()) {
 			onPassiveAvailable()
 		}
 		return true
@@ -258,14 +258,20 @@ internal class ReaderForegroundWebViewOwnership(
 		currentMutationClaimId = null
 		val failedClaims = liveClaims.values.toList()
 		liveClaims.clear()
-		failedClaims.forEach { state ->
-			val terminal =
-				ReaderForegroundWebViewLiveReadiness.Failed(restoration)
-			if (state.callbacks.isEmpty()) {
-				retiredClaimTerminals[state.claim.claimId] =
-					RetiredClaimTerminal(state.claim, terminal)
+		val terminal = ReaderForegroundWebViewLiveReadiness.Failed(restoration)
+		val stagedDeliveries = failedClaims.map { state ->
+			state.terminal = terminal
+			retiredClaimTerminals[state.claim.claimId] =
+				RetiredClaimTerminal(state.claim, terminal)
+			val callbacks = state.callbacks.toList()
+			state.callbacks.clear()
+			state.claim to callbacks
+		}
+		stagedDeliveries.forEach { (claim, callbacks) ->
+			callbacks.forEach { callback -> callback(terminal) }
+			if (callbacks.isNotEmpty()) {
+				retiredClaimTerminals.remove(claim.claimId)
 			}
-			deliver(state, terminal)
 		}
 		if (canAcquirePassive()) {
 			onPassiveAvailable()

@@ -140,6 +140,39 @@ class ReaderForegroundWebViewOwnershipTest {
 	}
 
 	@Test
+	fun failedRestorationStagesEveryClaimBeforeInvokingCallbacks() {
+		var finishRestoration:
+			((ReaderPageRasterCancellationRestoration) -> Unit)? = null
+		val ownership = ReaderForegroundWebViewOwnership()
+		checkNotNull(
+			ownership.tryAcquirePassive(7L) {
+				finishRestoration = it
+			}
+		)
+		val first = ownership.acquireLive(14L)
+		val second = ownership.acquireLive(15L)
+		val firstReadiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
+		val secondReadiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
+		ownership.whenLiveReady(first) { readiness ->
+			firstReadiness += readiness
+			ownership.whenLiveReady(second, secondReadiness::add)
+		}
+
+		checkNotNull(finishRestoration)(
+			ReaderPageRasterCancellationRestoration.TimedOut
+		)
+
+		val expected = listOf<ReaderForegroundWebViewLiveReadiness>(
+			ReaderForegroundWebViewLiveReadiness.Failed(
+				ReaderPageRasterCancellationRestoration.TimedOut
+			)
+		)
+		assertEquals(expected, firstReadiness)
+		assertEquals(expected, secondReadiness)
+		assertEquals(0, ownership.snapshot().liveClaims)
+	}
+
+	@Test
 	fun synchronousRestorationCallbackMakesTheClaimReady() {
 		var cancellationCalls = 0
 		val ownership = ReaderForegroundWebViewOwnership()
@@ -365,6 +398,67 @@ class ReaderForegroundWebViewOwnershipTest {
 				error("not preempted")
 			}
 		)
+	}
+
+	@Test
+	fun reentrantClosePreventsAStalePassiveAvailableNotification() {
+		var finishRestoration:
+			((ReaderPageRasterCancellationRestoration) -> Unit)? = null
+		var passiveAvailableCalls = 0
+		lateinit var ownership: ReaderForegroundWebViewOwnership
+		ownership = ReaderForegroundWebViewOwnership {
+			passiveAvailableCalls += 1
+		}
+		checkNotNull(
+			ownership.tryAcquirePassive(7L) {
+				finishRestoration = it
+			}
+		)
+		val live = ownership.acquireLive(14L)
+		ownership.whenLiveReady(live) {
+			ownership.close()
+			checkNotNull(finishRestoration)(
+				ReaderPageRasterCancellationRestoration.Restored
+			)
+		}
+
+		assertTrue(ownership.releaseLive(live))
+
+		assertEquals(0, passiveAvailableCalls)
+		assertTrue(ownership.snapshot().closed)
+	}
+
+	@Test
+	fun reentrantPassiveAcquisitionPreventsADuplicateAvailabilityNotification() {
+		var finishRestoration:
+			((ReaderPageRasterCancellationRestoration) -> Unit)? = null
+		var passiveAvailableCalls = 0
+		var acquiredPassive: ReaderForegroundWebViewPassiveLease? = null
+		lateinit var ownership: ReaderForegroundWebViewOwnership
+		ownership = ReaderForegroundWebViewOwnership {
+			passiveAvailableCalls += 1
+			if (passiveAvailableCalls == 1) {
+				acquiredPassive = ownership.tryAcquirePassive(8L) {
+					error("not preempted")
+				}
+			}
+		}
+		checkNotNull(
+			ownership.tryAcquirePassive(7L) {
+				finishRestoration = it
+			}
+		)
+		val live = ownership.acquireLive(14L)
+		ownership.whenLiveReady(live) {
+			checkNotNull(finishRestoration)(
+				ReaderPageRasterCancellationRestoration.Restored
+			)
+		}
+
+		assertTrue(ownership.releaseLive(live))
+
+		assertEquals(1, passiveAvailableCalls)
+		assertTrue(ownership.isCurrent(checkNotNull(acquiredPassive)))
 	}
 
 	@Test
