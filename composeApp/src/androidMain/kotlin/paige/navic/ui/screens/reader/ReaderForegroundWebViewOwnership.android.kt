@@ -1,0 +1,298 @@
+package paige.navic.ui.screens.reader
+
+@JvmInline
+internal value class ReaderForegroundWebViewMutationGeneration(val value: Long) {
+	init {
+		require(value in 1L..ReaderPageTurnPresentationMaximumSafeInteger)
+	}
+}
+
+internal data class ReaderForegroundWebViewPassiveLease internal constructor(
+	val leaseId: Long,
+	val sessionId: Long,
+	val mutationGeneration: ReaderForegroundWebViewMutationGeneration
+)
+
+internal data class ReaderForegroundWebViewLiveClaim internal constructor(
+	val claimId: Long,
+	val gestureId: Long
+)
+
+internal sealed interface ReaderForegroundWebViewLiveReadiness {
+	data object Ready : ReaderForegroundWebViewLiveReadiness
+
+	data class Failed(
+		val restoration: ReaderPageRasterCancellationRestoration
+	) : ReaderForegroundWebViewLiveReadiness
+
+	data object Invalidated : ReaderForegroundWebViewLiveReadiness
+}
+
+internal data class ReaderForegroundWebViewOwnershipSnapshot(
+	val passiveOwners: Int,
+	val liveClaims: Int,
+	val restorationCallbacks: Int,
+	val closed: Boolean
+)
+
+internal class ReaderForegroundWebViewOwnership(
+	private val onPassiveAvailable: () -> Unit = {}
+) {
+	private data class LiveClaimState(
+		val claim: ReaderForegroundWebViewLiveClaim,
+		var terminal: ReaderForegroundWebViewLiveReadiness?,
+		val callbacks: MutableList<(ReaderForegroundWebViewLiveReadiness) -> Unit> =
+			mutableListOf()
+	)
+
+	private data class RetiredClaimTerminal(
+		val claim: ReaderForegroundWebViewLiveClaim,
+		val terminal: ReaderForegroundWebViewLiveReadiness
+	)
+
+	private var mutationGeneration = 0L
+	private var nextLeaseId = 0L
+	private var nextClaimId = 0L
+	private var passiveLease: ReaderForegroundWebViewPassiveLease? = null
+	private var cancelAndRestore: (
+		(
+			(ReaderPageRasterCancellationRestoration) -> Unit
+		) -> Unit
+	)? = null
+	private var restorationLeaseId: Long? = null
+	private val liveClaims = linkedMapOf<Long, LiveClaimState>()
+	private val retiredClaimTerminals =
+		linkedMapOf<Long, RetiredClaimTerminal>()
+	private var currentMutationClaimId: Long? = null
+	private var closed = false
+
+	fun canAcquirePassive(): Boolean =
+		!closed &&
+			passiveLease == null &&
+			restorationLeaseId == null &&
+			liveClaims.isEmpty()
+
+	fun tryAcquirePassive(
+		sessionId: Long,
+		cancelAndRestore: (
+			(ReaderPageRasterCancellationRestoration) -> Unit
+		) -> Unit
+	): ReaderForegroundWebViewPassiveLease? {
+		if (!canAcquirePassive()) return null
+		val nextGeneration = nextMutationGeneration() ?: return null
+		val leaseId = nextPositiveId(nextLeaseId)
+		val lease = ReaderForegroundWebViewPassiveLease(
+			leaseId = leaseId,
+			sessionId = sessionId,
+			mutationGeneration = ReaderForegroundWebViewMutationGeneration(
+				nextGeneration
+			)
+		)
+		nextLeaseId = leaseId
+		mutationGeneration = nextGeneration
+		currentMutationClaimId = null
+		passiveLease = lease
+		this.cancelAndRestore = cancelAndRestore
+		return lease
+	}
+
+	fun acquireLive(gestureId: Long): ReaderForegroundWebViewLiveClaim {
+		check(!closed) { "Foreground WebView ownership is closed" }
+		val claimId = nextPositiveId(nextClaimId)
+		nextClaimId = claimId
+		val claim = ReaderForegroundWebViewLiveClaim(
+			claimId = claimId,
+			gestureId = gestureId
+		)
+		val waitsForRestoration = restorationLeaseId != null || passiveLease != null
+		liveClaims[claimId] = LiveClaimState(
+			claim = claim,
+			terminal = if (waitsForRestoration) {
+				null
+			} else {
+				ReaderForegroundWebViewLiveReadiness.Ready
+			}
+		)
+
+		val preemptedLease = passiveLease ?: return claim
+		val preemption = checkNotNull(cancelAndRestore)
+		passiveLease = null
+		cancelAndRestore = null
+		restorationLeaseId = preemptedLease.leaseId
+		currentMutationClaimId = null
+		preemption { restoration ->
+			completeRestoration(preemptedLease.leaseId, restoration)
+		}
+		return claim
+	}
+
+	fun whenLiveReady(
+		claim: ReaderForegroundWebViewLiveClaim,
+		callback: (ReaderForegroundWebViewLiveReadiness) -> Unit
+	) {
+		if (closed) {
+			callback(ReaderForegroundWebViewLiveReadiness.Invalidated)
+			return
+		}
+		val state = liveClaims[claim.claimId]
+		if (state?.claim != claim) {
+			val retired = retiredClaimTerminals.remove(claim.claimId)
+			callback(
+				if (retired?.claim == claim) {
+					retired.terminal
+				} else {
+					ReaderForegroundWebViewLiveReadiness.Invalidated
+				}
+			)
+			return
+		}
+		val terminal = state.terminal
+		if (terminal == null) {
+			state.callbacks += callback
+		} else {
+			callback(terminal)
+		}
+	}
+
+	fun beginLiveMutation(
+		claim: ReaderForegroundWebViewLiveClaim
+	): ReaderForegroundWebViewMutationGeneration? {
+		val state = liveClaims[claim.claimId]
+		if (
+			closed ||
+			state?.claim != claim ||
+			state.terminal != ReaderForegroundWebViewLiveReadiness.Ready ||
+			restorationLeaseId != null
+		) {
+			return null
+		}
+		val nextGeneration = nextMutationGeneration() ?: return null
+		mutationGeneration = nextGeneration
+		currentMutationClaimId = claim.claimId
+		return ReaderForegroundWebViewMutationGeneration(nextGeneration)
+	}
+
+	fun isCurrent(lease: ReaderForegroundWebViewPassiveLease): Boolean =
+		!closed && passiveLease == lease &&
+			lease.mutationGeneration.value == mutationGeneration
+
+	fun isCurrent(
+		claim: ReaderForegroundWebViewLiveClaim,
+		generation: ReaderForegroundWebViewMutationGeneration
+	): Boolean {
+		val state = liveClaims[claim.claimId]
+		return !closed &&
+			state?.claim == claim &&
+			state.terminal == ReaderForegroundWebViewLiveReadiness.Ready &&
+			restorationLeaseId == null &&
+			currentMutationClaimId == claim.claimId &&
+			generation.value == mutationGeneration
+	}
+
+	fun releasePassive(lease: ReaderForegroundWebViewPassiveLease): Boolean {
+		if (closed || passiveLease != lease) return false
+		passiveLease = null
+		cancelAndRestore = null
+		return true
+	}
+
+	fun releaseLive(claim: ReaderForegroundWebViewLiveClaim): Boolean {
+		if (closed) return false
+		val state = liveClaims[claim.claimId]
+		if (state?.claim != claim) return false
+		liveClaims.remove(claim.claimId)
+		if (currentMutationClaimId == claim.claimId) {
+			currentMutationClaimId = null
+		}
+		if (state.terminal == null) {
+			deliver(state, ReaderForegroundWebViewLiveReadiness.Invalidated)
+		}
+		if (liveClaims.isEmpty() && restorationLeaseId == null) {
+			onPassiveAvailable()
+		}
+		return true
+	}
+
+	fun snapshot(): ReaderForegroundWebViewOwnershipSnapshot =
+		ReaderForegroundWebViewOwnershipSnapshot(
+			passiveOwners = if (passiveLease == null) 0 else 1,
+			liveClaims = liveClaims.size,
+			restorationCallbacks = if (restorationLeaseId == null) 0 else 1,
+			closed = closed
+		)
+
+	fun close() {
+		if (closed) return
+		closed = true
+		passiveLease = null
+		cancelAndRestore = null
+		restorationLeaseId = null
+		currentMutationClaimId = null
+		val invalidatedClaims = liveClaims.values.toList()
+		liveClaims.clear()
+		retiredClaimTerminals.clear()
+		invalidatedClaims.forEach { state ->
+			if (state.terminal == null) {
+				deliver(state, ReaderForegroundWebViewLiveReadiness.Invalidated)
+			}
+		}
+	}
+
+	private fun completeRestoration(
+		leaseId: Long,
+		restoration: ReaderPageRasterCancellationRestoration
+	) {
+		if (closed || restorationLeaseId != leaseId) return
+		restorationLeaseId = null
+		if (restoration == ReaderPageRasterCancellationRestoration.Restored) {
+			if (liveClaims.isEmpty()) {
+				onPassiveAvailable()
+				return
+			}
+			liveClaims.values.toList().forEach { state ->
+				deliver(state, ReaderForegroundWebViewLiveReadiness.Ready)
+			}
+			return
+		}
+
+		currentMutationClaimId = null
+		val failedClaims = liveClaims.values.toList()
+		liveClaims.clear()
+		failedClaims.forEach { state ->
+			val terminal =
+				ReaderForegroundWebViewLiveReadiness.Failed(restoration)
+			if (state.callbacks.isEmpty()) {
+				retiredClaimTerminals[state.claim.claimId] =
+					RetiredClaimTerminal(state.claim, terminal)
+			}
+			deliver(state, terminal)
+		}
+		if (canAcquirePassive()) {
+			onPassiveAvailable()
+		}
+	}
+
+	private fun deliver(
+		state: LiveClaimState,
+		terminal: ReaderForegroundWebViewLiveReadiness
+	) {
+		if (state.terminal != null) return
+		state.terminal = terminal
+		val callbacks = state.callbacks.toList()
+		state.callbacks.clear()
+		callbacks.forEach { callback -> callback(terminal) }
+	}
+
+	private fun nextMutationGeneration(): Long? {
+		val next = Math.incrementExact(mutationGeneration)
+		return next.takeIf {
+			it <= ReaderPageTurnPresentationMaximumSafeInteger
+		}
+	}
+
+	private fun nextPositiveId(current: Long): Long {
+		val next = Math.incrementExact(current)
+		check(next > 0L)
+		return next
+	}
+}
