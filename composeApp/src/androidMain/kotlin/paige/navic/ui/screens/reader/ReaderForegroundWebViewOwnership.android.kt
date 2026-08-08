@@ -292,7 +292,9 @@ internal class ReaderForegroundWebViewOwnership(
 
 	private fun nextPositiveId(current: Long): Long {
 		val next = Math.incrementExact(current)
-		check(next > 0L)
+		check(next in 1L..ReaderPageTurnPresentationMaximumSafeInteger) {
+			"Foreground WebView ownership identifier exhausted"
+		}
 		return next
 	}
 }

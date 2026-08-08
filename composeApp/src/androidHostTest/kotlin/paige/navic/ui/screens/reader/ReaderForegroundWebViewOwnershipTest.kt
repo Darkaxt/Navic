@@ -2,6 +2,7 @@ package paige.navic.ui.screens.reader
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -281,6 +282,46 @@ class ReaderForegroundWebViewOwnershipTest {
 	}
 
 	@Test
+	fun passiveLeaseIdExhaustionNeverPublishesAnOutOfRangeIdentifier() {
+		val ownership = ReaderForegroundWebViewOwnership()
+		ownership.setLongFieldForTest(
+			name = "nextLeaseId",
+			value = ReaderPageTurnPresentationMaximumSafeInteger - 1L
+		)
+		val maximum = checkNotNull(
+			ownership.tryAcquirePassive(7L) {
+				error("not preempted")
+			}
+		)
+
+		assertEquals(ReaderPageTurnPresentationMaximumSafeInteger, maximum.leaseId)
+		assertTrue(ownership.releasePassive(maximum))
+		assertFailsWith<IllegalStateException> {
+			ownership.tryAcquirePassive(8L) {
+				error("must not publish an unsafe lease ID")
+			}
+		}
+		assertEquals(0, ownership.snapshot().passiveOwners)
+	}
+
+	@Test
+	fun liveClaimIdExhaustionNeverPublishesAnOutOfRangeIdentifier() {
+		val ownership = ReaderForegroundWebViewOwnership()
+		ownership.setLongFieldForTest(
+			name = "nextClaimId",
+			value = ReaderPageTurnPresentationMaximumSafeInteger - 1L
+		)
+		val maximum = ownership.acquireLive(14L)
+
+		assertEquals(ReaderPageTurnPresentationMaximumSafeInteger, maximum.claimId)
+		assertTrue(ownership.releaseLive(maximum))
+		assertFailsWith<IllegalStateException> {
+			ownership.acquireLive(15L)
+		}
+		assertEquals(0, ownership.snapshot().liveClaims)
+	}
+
+	@Test
 	fun releasingLastClaimWhileRestoringWaitsForRestorationBeforePassiveAdmission() {
 		var finishRestoration:
 			((ReaderPageRasterCancellationRestoration) -> Unit)? = null
@@ -403,9 +444,16 @@ class ReaderForegroundWebViewOwnershipTest {
 	private fun ReaderForegroundWebViewOwnership.setMutationGenerationForTest(
 		value: Long
 	) {
-		javaClass.getDeclaredField("mutationGeneration").apply {
+		setLongFieldForTest("mutationGeneration", value)
+	}
+
+	private fun ReaderForegroundWebViewOwnership.setLongFieldForTest(
+		name: String,
+		value: Long
+	) {
+		javaClass.getDeclaredField(name).apply {
 			isAccessible = true
-			setLong(this@setMutationGenerationForTest, value)
+			setLong(this@setLongFieldForTest, value)
 		}
 	}
 }
