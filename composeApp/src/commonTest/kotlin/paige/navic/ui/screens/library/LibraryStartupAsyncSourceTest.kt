@@ -423,8 +423,8 @@ class LibraryStartupAsyncSourceTest {
 		val start = source.indexOf("private suspend fun loadDiscovery(")
 		val end = source.indexOf("private suspend fun loadStationPlaylists", start)
 		val loadDiscovery = source.substring(start, end)
-		val baseFetch = loadDiscovery.indexOf("repository.getDiscoveryBase()")
-		val basePublish = loadDiscovery.indexOf("UiState.Success(it)")
+		val baseFetch = loadDiscovery.indexOf("repository.getDiscoveryOptional(hydrateMissingImages)")
+		val basePublish = loadDiscovery.indexOf("UiState.Success(result.data)")
 		val optionalRefresh = loadDiscovery.indexOf("loadDiscoverySupplement(")
 
 		assertTrue(
@@ -433,8 +433,8 @@ class LibraryStartupAsyncSourceTest {
 		)
 		assertTrue(
 			optionalRefresh > basePublish &&
-				"repository.getDiscoveryRecentlyAdded()" in source &&
-				"repository.getDiscoveryRecentReleases()" in source,
+				"repository.getDiscoveryRecentlyAddedOptional()" in source &&
+				"repository.getDiscoveryRecentReleasesOptional()" in source,
 			"Aurral discovery optional sections should refresh after base discovery is already visible."
 		)
 		assertFalse(
@@ -672,16 +672,25 @@ class LibraryStartupAsyncSourceTest {
 	@Test
 	fun artworkColorCacheIsStoredInCacheDatabase() {
 		val databaseSource = commonMain("paige/navic/data/database/CacheDatabase.kt")
-		val databaseModuleSource = commonMain("paige/navic/di/DatabaseModule.kt")
+		val entitySource = commonMain("paige/navic/data/database/entities/ArtworkColorEntity.kt")
+		val databaseModuleSource = androidMain("paige/navic/di/DatabaseModule.android.kt")
 		val managerModuleSource = commonMain("paige/navic/di/ManagerModule.kt")
+		val schemaVersion = Regex("""version\s*=\s*(\d+)""")
+			.find(databaseSource)
+			?.groupValues
+			?.get(1)
+			?.toInt()
 
 		assertTrue(
-			"version = 20" in databaseSource,
-			"Adding the artwork color cache must bump CacheDatabase from the fork's version 19 to 20."
+			schemaVersion != null && schemaVersion >= 20,
+			"CacheDatabase must remain at or beyond schema version 20, which introduced artwork color persistence."
 		)
 		assertTrue(
 			"ArtworkColorEntity::class" in databaseSource &&
-				"abstract fun artworkColorDao(): ArtworkColorDao" in databaseSource,
+				"abstract fun artworkColorDao(): ArtworkColorDao" in databaseSource &&
+				"@Entity(tableName = \"artwork_colors\")" in entitySource &&
+				"val sourceIdentity: String" in entitySource &&
+				"val updatedAtEpochMillis: Long" in entitySource,
 			"CacheDatabase must persist color extraction results by resolved artwork identity."
 		)
 		assertTrue(
@@ -739,4 +748,7 @@ class LibraryStartupAsyncSourceTest {
 
 	private fun commonMain(path: String): String =
 		File("src/commonMain/kotlin/$path").readText()
+
+	private fun androidMain(path: String): String =
+		File("src/androidMain/kotlin/$path").readText()
 }
