@@ -32,7 +32,10 @@ const previewPath = new URL(
 )
 const { NavicReaderPageTurnMethods } = await import(turnsPath.href)
 const { NavicReaderPageTurnPreviewMethods } = await import(previewPath.href)
-const { readerRememberTextPageCommit } = await import(new URL(
+const {
+  readerRememberTextPageCommit,
+  readerRememberTextPageVisibleContent,
+} = await import(new URL(
   '../../../composeApp/src/androidMain/assets/reader/navic-reader-paginator-commit.js',
   import.meta.url,
 ).href)
@@ -145,6 +148,8 @@ const liveRuntime = ({
   const renderer = {
     validateTextPageCommit: receipt =>
       paginatorReceiptIsValid && receipt === paginatorReceipt,
+    validateTextPageVisibleContent: receipt =>
+      paginatorReceiptIsValid && receipt === paginatorReceipt,
   }
   const pending = Object.freeze({
     token: liveTarget.token,
@@ -198,6 +203,7 @@ const liveRuntime = ({
   }
   Object.assign(runtime, NavicReaderPageTurnMethods, NavicReaderPageTurnPreviewMethods)
   assert.equal(readerRememberTextPageCommit(pending, renderer, paginatorReceipt), true)
+  assert.equal(readerRememberTextPageVisibleContent(pending), true)
   if (mutatePageNumberPosition) {
     runtime.updateReaderPageNumberLayer = pagePosition => {
       runtime.currentPagePosition = pagePosition

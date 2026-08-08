@@ -35,6 +35,7 @@ const paginatorCommitModuleUrl = pathToFileURL(resolve(
 )).href
 const {
   readerRememberTextPageCommit,
+  readerRememberTextPageVisibleContent,
   readerTextPageCommitOwnerIsValid,
 } = await import(paginatorCommitModuleUrl)
 const locationModuleUrl = pathToFileURL(resolve(
@@ -135,6 +136,7 @@ renderer.commitTextPage = (index, pageIndex, reason) => {
   return transaction
 }
 renderer.validateTextPageCommit = receipt => receipt === activePaginatorReceipt
+renderer.validateTextPageVisibleContent = receipt => receipt === activePaginatorReceipt
 renderer.render = () => {
   if (invalidatePaginatorReceipt('synchronous-layout')) {
     synchronousLayoutInvalidations += 1
@@ -341,6 +343,7 @@ const preservedPaginatorReceipt = Object.freeze({
 })
 const preservedRenderer = {
   validateTextPageCommit: receipt => receipt === preservedPaginatorReceipt,
+  validateTextPageVisibleContent: receipt => receipt === preservedPaginatorReceipt,
 }
 const preservedPending = Object.freeze({
   token: 'settle-preserved',
@@ -422,11 +425,19 @@ assert.equal(
   true
 )
 assert.equal(
+  readerRememberTextPageVisibleContent(preservedPending),
+  true
+)
+assert.equal(
   readerRememberTextPageCommit(
     preservedSettlement,
     preservedRenderer,
     preservedPaginatorReceipt
   ),
+  true
+)
+assert.equal(
+  readerRememberTextPageVisibleContent(preservedSettlement),
   true
 )
 const preservedDelivery = locationRuntime.postCurrentLocationSnapshot(
