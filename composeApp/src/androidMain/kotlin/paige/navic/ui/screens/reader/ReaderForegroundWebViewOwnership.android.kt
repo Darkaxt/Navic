@@ -64,6 +64,7 @@ internal class ReaderForegroundWebViewOwnership(
 	private val retiredClaimTerminals =
 		linkedMapOf<Long, RetiredClaimTerminal>()
 	private var currentMutationClaimId: Long? = null
+	private var passiveAvailabilityVersion = 0L
 	private var closed = false
 
 	fun canAcquirePassive(): Boolean =
@@ -204,11 +205,15 @@ internal class ReaderForegroundWebViewOwnership(
 		if (currentMutationClaimId == claim.claimId) {
 			currentMutationClaimId = null
 		}
+		val availabilityVersionBeforeCallbacks = passiveAvailabilityVersion
 		if (state.terminal == null) {
 			deliver(state, ReaderForegroundWebViewLiveReadiness.Invalidated)
 		}
-		if (canAcquirePassive()) {
-			onPassiveAvailable()
+		if (
+			canAcquirePassive() &&
+			passiveAvailabilityVersion == availabilityVersionBeforeCallbacks
+		) {
+			publishPassiveAvailable()
 		}
 		return true
 	}
@@ -246,7 +251,7 @@ internal class ReaderForegroundWebViewOwnership(
 		restorationLeaseId = null
 		if (restoration == ReaderPageRasterCancellationRestoration.Restored) {
 			if (liveClaims.isEmpty()) {
-				onPassiveAvailable()
+				publishPassiveAvailable()
 				return
 			}
 			liveClaims.values.toList().forEach { state ->
@@ -259,6 +264,7 @@ internal class ReaderForegroundWebViewOwnership(
 		val failedClaims = liveClaims.values.toList()
 		liveClaims.clear()
 		val terminal = ReaderForegroundWebViewLiveReadiness.Failed(restoration)
+		val availabilityVersionBeforeCallbacks = passiveAvailabilityVersion
 		val stagedDeliveries = failedClaims.map { state ->
 			state.terminal = terminal
 			retiredClaimTerminals[state.claim.claimId] =
@@ -273,8 +279,11 @@ internal class ReaderForegroundWebViewOwnership(
 				retiredClaimTerminals.remove(claim.claimId)
 			}
 		}
-		if (canAcquirePassive()) {
-			onPassiveAvailable()
+		if (
+			canAcquirePassive() &&
+			passiveAvailabilityVersion == availabilityVersionBeforeCallbacks
+		) {
+			publishPassiveAvailable()
 		}
 	}
 
@@ -287,6 +296,13 @@ internal class ReaderForegroundWebViewOwnership(
 		val callbacks = state.callbacks.toList()
 		state.callbacks.clear()
 		callbacks.forEach { callback -> callback(terminal) }
+	}
+
+	private fun publishPassiveAvailable() {
+		passiveAvailabilityVersion = Math.incrementExact(
+			passiveAvailabilityVersion
+		)
+		onPassiveAvailable()
 	}
 
 	private fun nextMutationGeneration(): Long? {

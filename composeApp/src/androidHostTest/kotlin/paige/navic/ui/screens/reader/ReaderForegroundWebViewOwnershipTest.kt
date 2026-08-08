@@ -401,6 +401,32 @@ class ReaderForegroundWebViewOwnershipTest {
 	}
 
 	@Test
+	fun synchronousRestorationFromInvalidationCallbackNotifiesExactlyOnce() {
+		var finishRestoration:
+			((ReaderPageRasterCancellationRestoration) -> Unit)? = null
+		var passiveAvailableCalls = 0
+		val ownership = ReaderForegroundWebViewOwnership {
+			passiveAvailableCalls += 1
+		}
+		checkNotNull(
+			ownership.tryAcquirePassive(7L) {
+				finishRestoration = it
+			}
+		)
+		val live = ownership.acquireLive(14L)
+		ownership.whenLiveReady(live) {
+			checkNotNull(finishRestoration)(
+				ReaderPageRasterCancellationRestoration.Restored
+			)
+		}
+
+		assertTrue(ownership.releaseLive(live))
+
+		assertEquals(1, passiveAvailableCalls)
+		assertTrue(ownership.canAcquirePassive())
+	}
+
+	@Test
 	fun reentrantClosePreventsAStalePassiveAvailableNotification() {
 		var finishRestoration:
 			((ReaderPageRasterCancellationRestoration) -> Unit)? = null
