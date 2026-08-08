@@ -108,10 +108,8 @@ fun CollectionDetailScreenHeadingRowButtons(
 			modifier = Modifier.weight(1f).height(buttonHeight),
 			onClick = {
 				platformContext.clickSound()
-				player.clearQueue()
 				player.setPlaybackOrigin(collection.toPlaybackOrigin())
-				player.addToQueue(collection)
-				player.playAt(0)
+				player.playAll(collection.songs)
 			},
 			shape = buttonShape,
 			enabled = collection.songs.isNotEmpty()

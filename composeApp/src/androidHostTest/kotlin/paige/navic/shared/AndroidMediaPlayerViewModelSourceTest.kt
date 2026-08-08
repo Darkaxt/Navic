@@ -271,6 +271,39 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(androidPlayerText, "player.playWhenReady = request.playWhenReady")
 		assertFalse(androidPlayerText.contains("pendingPlayIndex"))
 	}
+
+	@Test
+	fun bulkPlaybackGeneratesOneQueueBeforeStartingIndexZero() {
+		val commonPlayerText = commonSourceFile("shared/MediaPlayer.kt").readText()
+		val androidPlayerText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val genreText = commonSourceFile("ui/screens/genre/viewmodels/GenreDetailViewModel.kt").readText()
+		val artistText = commonSourceFile("ui/screens/artist/viewmodels/ArtistDetailViewModel.kt").readText()
+		val collectionButtonsText =
+			commonSourceFile("ui/screens/collection/components/HeadingRowButtons.kt").readText()
+		val aurralHubText = commonSourceFile("ui/screens/aurral/AurralHubViewModel.kt").readText()
+
+		assertContains(commonPlayerText, "open fun playAll(")
+		assertContains(androidPlayerText, "override fun playAll(")
+		assertContains(androidPlayerText, "collectionPlaybackOrder(")
+		assertContains(androidPlayerText, "player.setMediaItems(mediaItems, 0, 0L)")
+		assertContains(androidPlayerText, "playbackStateSynchronizer.sync(nextState)")
+		assertContains(androidPlayerText, "playAll(collection.songs, forceShuffle = true)")
+		assertContains(genreText, "player.playAll(state.collection.songs)")
+		assertContains(artistText, "player.playAll(songs)")
+		assertContains(artistText, "player.playAll(songs, forceShuffle = true)")
+		assertContains(collectionButtonsText, "player.playAll(collection.songs)")
+		assertTrue(aurralHubText.split("player.playAll(").size - 1 >= 2)
+		assertFalse(genreText.contains("player.playAt(0)"))
+		assertFalse(artistText.contains("player.playAt(0)"))
+		assertFalse(collectionButtonsText.contains("player.playAt(0)"))
+		assertFalse(aurralHubText.contains("player.playAt(0)"))
+
+		val directCollectionBody = androidPlayerText
+			.substringAfter("override fun playCollection(")
+			.substringBefore("override fun playNextSingle(")
+		assertContains(directCollectionBody, "indexOfFirst { it.id == startSong.id }")
+		assertContains(directCollectionBody, "player.setMediaItems(items, startIndex, 0L)")
+	}
 }
 
 private fun androidSharedSourceFile(fileName: String): File =
