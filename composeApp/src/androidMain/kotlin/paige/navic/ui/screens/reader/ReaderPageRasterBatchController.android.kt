@@ -861,6 +861,7 @@ internal class ReaderPageRasterBatchController(
 			bundleSource.ensurePersistentSnapshot(
 				hydrated,
 				target.priority,
+				mutationGeneration = session.mutationGeneration,
 				isStillCurrent = { isSessionActive(session) }
 			) { publicationResult ->
 				hydrated.release()
@@ -969,6 +970,7 @@ internal class ReaderPageRasterBatchController(
 			itemToken = itemToken,
 			previewGeneration = previewGeneration,
 			priority = target.priority,
+			mutationGeneration = session.mutationGeneration,
 			isStillCurrent = { isSessionActive(session) },
 			onStagingStarted = session.onStagingStarted,
 			onCaptureFailed = captureFailed@{

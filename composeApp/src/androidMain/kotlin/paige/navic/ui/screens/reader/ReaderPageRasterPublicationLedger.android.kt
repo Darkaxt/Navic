@@ -2,7 +2,8 @@ package paige.navic.ui.screens.reader
 
 internal data class ReaderPageRasterPublicationRequest(
 	val digest: String,
-	val epoch: Long
+	val epoch: Long,
+	val mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null
 )
 
 internal enum class ReaderPageRasterPublicationRejection {
@@ -108,11 +109,27 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 		digest: String,
 		value: T,
 		callback: (Boolean) -> Unit
+	): ReaderPageRasterPublicationRegistration = begin(
+		digest = digest,
+		value = value,
+		mutationGeneration = null,
+		callback = callback
+	)
+
+	fun begin(
+		digest: String,
+		value: T,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration?,
+		callback: (Boolean) -> Unit
 	): ReaderPageRasterPublicationRegistration {
 		var rejectedCallback: ((Boolean) -> Unit)? = null
 		var detachedValue: T? = null
 		val registration = synchronized(this) {
-			val request = ReaderPageRasterPublicationRequest(digest, epoch)
+			val request = ReaderPageRasterPublicationRequest(
+				digest = digest,
+				epoch = epoch,
+				mutationGeneration = mutationGeneration
+			)
 			val existing = entries[request]
 			val globalCallbackCapacityReached = callbackCountLocked() >= callbackLimit
 			val entryCallbackCapacityReached =

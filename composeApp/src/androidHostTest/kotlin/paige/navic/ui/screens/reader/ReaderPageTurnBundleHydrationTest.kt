@@ -733,6 +733,146 @@ class ReaderPageTurnBundleHydrationTest {
 	}
 
 	@Test
+	fun stalePublicationProducerCannotFailCurrentSameDigestSuccessor() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val pageIndex = 19
+		val webView = RasterDescriptorWebView(activity.get(), pageIndex)
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val ownershipChanges = Channel<Unit>(Channel.UNLIMITED)
+		val qaFaultRegistry = ReaderPageQaFaultRegistry(
+			onOwnershipMutated = { ownershipChanges.trySend(Unit) }
+		)
+		val source = ReaderPageTurnBundleSource(
+			qaFaultRegistry = qaFaultRegistry,
+			onOwnershipMutated = { ownershipChanges.trySend(Unit) }
+		)
+		val staleController = ReaderPageRasterBatchController(source)
+		val currentController = ReaderPageRasterBatchController(source)
+		val staleOutcome = CompletableDeferred<ReaderPageRasterBatchOutcome>()
+		val staleRestoration = CompletableDeferred<ReaderPageRasterCancellationRestoration>()
+		val currentOutcome = CompletableDeferred<ReaderPageRasterBatchOutcome>()
+		try {
+			val snapshot = assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = pageIndex,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					current = captureResult()
+				)
+			)
+			source.initializeRasterCache(webView)
+			val activated = CompletableDeferred<ReaderPageSlideSnapshot?>()
+			source.hydrateSnapshot(
+				webView = webView,
+				pageIndex = pageIndex,
+				kind = ReaderPageTurnTransitionKind.PortraitSlide,
+				reference = snapshot
+			) { activated.complete(it) }
+			assertNotNull(activated.await()).release()
+			val baselineDiskEntries = source.rasterCacheMetrics().diskEntries
+			assertTrue(
+				qaFaultRegistry.enqueue(
+					requestId = "stale-producer-current-successor",
+					fault = ReaderPageQaFault.PauseNextPublication
+				)
+			)
+
+			snapshot.retain()
+			assertTrue(
+				staleController.start(
+					webView = webView,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					reference = snapshot,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = pageIndex,
+							priority = ReaderPageRasterPriority.Current
+						)
+					),
+					mutationGeneration = ReaderForegroundWebViewMutationGeneration(1L),
+					onStagingStarted = { _, onPresented -> onPresented(true) },
+					onComplete = staleOutcome::complete
+				)
+			)
+			withContext(Dispatchers.Default.limitedParallelism(1)) {
+				withTimeout(10_000L) {
+					while (
+						qaFaultRegistry.pendingCallbackCount() == 0 &&
+						!staleOutcome.isCompleted
+					) {
+						ownershipChanges.receive()
+					}
+				}
+			}
+			assertFalse(
+				staleOutcome.isCompleted,
+				"The stale producer failed before reaching the publication gate"
+			)
+
+			staleController.cancel(staleRestoration::complete)
+			Shadows.shadowOf(Looper.getMainLooper()).idle()
+			assertEquals(ReaderPageRasterBatchOutcome.Cancelled, staleOutcome.await())
+			assertEquals(
+				ReaderPageRasterCancellationRestoration.Restored,
+				staleRestoration.await()
+			)
+
+			snapshot.retain()
+			assertTrue(
+				currentController.start(
+					webView = webView,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					reference = snapshot,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = pageIndex,
+							priority = ReaderPageRasterPriority.Current
+						)
+					),
+					mutationGeneration = ReaderForegroundWebViewMutationGeneration(2L),
+					onStagingStarted = { _, onPresented -> onPresented(true) },
+					onComplete = currentOutcome::complete
+				)
+			)
+			withContext(Dispatchers.Default.limitedParallelism(1)) {
+				withTimeout(10_000L) {
+					while (
+						source.ownershipMetrics().pendingPublicationCallbacks < 2 &&
+						!currentOutcome.isCompleted
+					) {
+						ownershipChanges.receive()
+					}
+				}
+			}
+			assertFalse(
+				currentOutcome.isCompleted,
+				"The current successor failed before the stale worker was released"
+			)
+
+			assertTrue(qaFaultRegistry.releasePublication("release-stale-producer"))
+			val outcome = withContext(Dispatchers.Default.limitedParallelism(1)) {
+				withTimeout(10_000L) { currentOutcome.await() }
+			}
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, outcome)
+			source.closeAndJoin()
+			assertEquals(
+				baselineDiskEntries + 1,
+				source.rasterCacheMetrics().diskEntries
+			)
+		} finally {
+			staleController.cancel()
+			currentController.cancel()
+			Shadows.shadowOf(Looper.getMainLooper()).idle()
+			qaFaultRegistry.releasePublication("release-successor-publication-cleanup")
+			qaFaultRegistry.clear("clear-successor-publication-test")
+			source.closeAndJoin()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun capturedSnapshotHydrationStillRequiresPublication() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activity = Robolectric.buildActivity(Activity::class.java).setup()
@@ -1749,6 +1889,13 @@ class ReaderPageTurnBundleHydrationTest {
 				"null"
 			}
 			resultCallback?.onReceiveValue(result)
+		}
+
+		override fun postVisualStateCallback(
+			requestId: Long,
+			callback: VisualStateCallback
+		) {
+			callback.onComplete(requestId)
 		}
 	}
 

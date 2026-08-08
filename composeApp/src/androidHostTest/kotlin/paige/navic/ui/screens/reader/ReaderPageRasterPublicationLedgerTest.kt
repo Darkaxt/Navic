@@ -124,6 +124,57 @@ class ReaderPageRasterPublicationLedgerTest {
 	}
 
 	@Test
+	fun coalescingIsScopedToTheForegroundMutationGeneration() {
+		val callbacks = mutableListOf<Pair<String, Boolean>>()
+		val released = mutableListOf<String>()
+		val ledger = ReaderPageRasterPublicationLedger(
+			currentEpochEntryLimit = 2,
+			persistenceWorkerLimit = 1,
+			callbackLimit = 4,
+			release = released::add
+		)
+		val firstGeneration = ReaderForegroundWebViewMutationGeneration(1L)
+		val successorGeneration = ReaderForegroundWebViewMutationGeneration(2L)
+
+		val producer = assertIs<ReaderPageRasterPublicationRegistration.Started>(
+			ledger.begin("digest", "producer", firstGeneration) {
+				callbacks += "producer" to it
+			}
+		)
+		val sameGeneration = ledger.begin("digest", "same-generation", firstGeneration) {
+			callbacks += "same-generation" to it
+		}
+		val successor = assertIs<ReaderPageRasterPublicationRegistration.Started>(
+			ledger.begin("digest", "successor", successorGeneration) {
+				callbacks += "successor" to it
+			}
+		)
+
+		assertIs<ReaderPageRasterPublicationRegistration.Coalesced>(sameGeneration)
+		assertEquals("producer", ledger.acquireForPersistence(producer.request))
+		assertTrue(ledger.complete(producer.request, persisted = false))
+		assertEquals(
+			listOf("producer" to false, "same-generation" to false),
+			callbacks
+		)
+
+		assertEquals("successor", ledger.acquireForPersistence(successor.request))
+		assertTrue(ledger.complete(successor.request, persisted = true))
+		assertEquals(
+			listOf(
+				"producer" to false,
+				"same-generation" to false,
+				"successor" to true
+			),
+			callbacks
+		)
+		assertEquals(
+			listOf("same-generation", "producer", "successor"),
+			released
+		)
+	}
+
+	@Test
 	fun coalescedPublicationCannotConsumePendingFaultRetryCorrelation() {
 		val ledger = ReaderPageRasterPublicationLedger<String> { }
 		val correlation = ReaderPageQaFaultCorrelation(

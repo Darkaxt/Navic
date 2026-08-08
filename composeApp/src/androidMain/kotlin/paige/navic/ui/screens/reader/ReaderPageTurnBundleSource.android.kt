@@ -2203,6 +2203,7 @@ internal class ReaderPageTurnBundleSource(
 		itemToken: String,
 		previewGeneration: Long,
 		priority: ReaderPageRasterPriority,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
 		onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit,
 		onCaptureFailed: () -> Unit,
@@ -2227,6 +2228,7 @@ internal class ReaderPageTurnBundleSource(
 			persistCachedSnapshot(
 				cached,
 				priority,
+				mutationGeneration = mutationGeneration,
 				isStillCurrent = isStillCurrent
 			) { result ->
 				if (isStillCurrent()) onCaptured(result)
@@ -2258,6 +2260,7 @@ internal class ReaderPageTurnBundleSource(
 			putSnapshot(
 				snapshot = captured,
 				priority = priority,
+				mutationGeneration = mutationGeneration,
 				isStillCurrent = isStillCurrent,
 				onPersisted = onCaptured
 			)
@@ -2401,12 +2404,14 @@ internal class ReaderPageTurnBundleSource(
 	fun ensurePersistentSnapshot(
 		snapshot: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
 		onPersisted: (ReaderPageRasterPublicationResult) -> Unit
 	) {
 		persistCachedSnapshot(
 			snapshot = snapshot,
 			priority = priority,
+			mutationGeneration = mutationGeneration,
 			isStillCurrent = isStillCurrent,
 			onPersisted = onPersisted
 		)
@@ -2534,12 +2539,14 @@ internal class ReaderPageTurnBundleSource(
 	private fun persistCachedSnapshot(
 		snapshot: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
 		onPersisted: (ReaderPageRasterPublicationResult) -> Unit
 	) {
 		schedulePersistentSnapshot(
 			snapshot = snapshot,
 			priority = priority,
+			mutationGeneration = mutationGeneration,
 			isStillCurrent = isStillCurrent
 		) { result ->
 			if (!runCatching(isStillCurrent).getOrDefault(false)) return@schedulePersistentSnapshot
@@ -2554,6 +2561,7 @@ internal class ReaderPageTurnBundleSource(
 		snapshot: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
 		persist: Boolean = true,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
 		onPersisted: (ReaderPageRasterPublicationResult) -> Unit = {}
 	): ReaderPageSlideSnapshot {
@@ -2564,7 +2572,13 @@ internal class ReaderPageTurnBundleSource(
 		snapshotCache[snapshot.key]?.let { cached ->
 			snapshot.releaseCacheOwnership()
 			if (persist) {
-				persistCachedSnapshot(cached, priority, isStillCurrent, onPersisted)
+				persistCachedSnapshot(
+					snapshot = cached,
+					priority = priority,
+					mutationGeneration = mutationGeneration,
+					isStillCurrent = isStillCurrent,
+					onPersisted = onPersisted
+				)
 			}
 			return cached
 		}
@@ -2572,7 +2586,13 @@ internal class ReaderPageTurnBundleSource(
 		snapshotDurability[snapshot] =
 			ReaderPageRasterHydrationDurability.RequiresPublication
 		if (persist) {
-			persistCachedSnapshot(snapshot, priority, isStillCurrent, onPersisted)
+			persistCachedSnapshot(
+				snapshot = snapshot,
+				priority = priority,
+				mutationGeneration = mutationGeneration,
+				isStillCurrent = isStillCurrent,
+				onPersisted = onPersisted
+			)
 		}
 		trimSnapshotCacheToCapacity()
 		Logger.i(
@@ -2594,6 +2614,7 @@ internal class ReaderPageTurnBundleSource(
 	private fun schedulePersistentSnapshot(
 		snapshot: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
 		onPersisted: (ReaderPageRasterPublicationResult) -> Unit = {}
 	) {
@@ -2737,7 +2758,8 @@ internal class ReaderPageTurnBundleSource(
 						val publicationEpoch = publicationLedger.currentEpoch()
 						val publicationRequest = ReaderPageRasterPublicationRequest(
 							digest = key.digest,
-							epoch = publicationEpoch
+							epoch = publicationEpoch,
+							mutationGeneration = mutationGeneration
 						)
 						val publicationStartedAt = diagnostics?.now() ?: 0L
 						val persistenceAttemptId = ReaderPagePersistenceAttemptId(
@@ -2747,7 +2769,8 @@ internal class ReaderPageTurnBundleSource(
 							ReaderPageQaFaultCorrelation? = null
 						val registration = publicationLedger.begin(
 							digest = key.digest,
-							value = value
+							value = value,
+							mutationGeneration = mutationGeneration
 						) { persisted ->
 							val publicationResult = when {
 								persisted -> ReaderPageRasterPublicationResult.Durable
