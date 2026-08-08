@@ -15,6 +15,7 @@ class AndroidMediaPlayerDecompositionSourceTest {
 		assertContains(viewModel, "AndroidPlaybackStateSynchronizer")
 		assertContains(viewModel, "AndroidDownloadedMediaRecovery")
 		assertContains(viewModel, "AndroidAudioEffectsController")
+		assertContains(viewModel, "AndroidBulkPlaybackCoordinator")
 		assertContains(viewModel, "PlaybackQueueInteractor")
 		assertFalse("private val playlistDao:" in viewModel)
 		assertFalse("private val songDao:" in viewModel)

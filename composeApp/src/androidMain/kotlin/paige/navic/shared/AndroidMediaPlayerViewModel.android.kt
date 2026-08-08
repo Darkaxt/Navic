@@ -50,7 +50,6 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.PlaybackOrigin
 import paige.navic.domain.models.QueueSelectionOrigin
 import paige.navic.domain.models.QueueSelectionRequest
-import paige.navic.domain.models.collectionPlaybackOrder
 import paige.navic.domain.models.audioFadeDurationMs
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
@@ -209,6 +208,18 @@ class AndroidMediaPlayerViewModel(
 		appendSongs = { songs ->
 			_uiState.update { state -> state.copy(queue = state.queue + songs) }
 		}
+	)
+	private val bulkPlaybackCoordinator = AndroidBulkPlaybackCoordinator(
+		scope = viewModelScope,
+		controller = { controller },
+		state = { _uiState.value },
+		publishState = { _uiState.value = it },
+		mediaItemFactory = mediaItemFactory,
+		playbackStateSynchronizer = playbackStateSynchronizer,
+		clearPlaybackRecovery = playbackRecovery::clear,
+		clearPendingQueueSelection = { pendingQueueSelection = null },
+		cancelQueueAutoFill = queueAutoFiller::cancel,
+		claimMusicPlayback = ::claimMusicPlayback
 	)
 
 	init {
@@ -1005,38 +1016,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun playAll(songs: List<DomainSong>, forceShuffle: Boolean) {
-		if (songs.isEmpty()) return
-		viewModelScope.launch {
-			playbackRecovery.clear("play-all")
-			pendingQueueSelection = null
-			queueAutoFiller.cancel()
-			val shuffleEnabled = forceShuffle ||
-				(controller?.shuffleModeEnabled == true) ||
-				_uiState.value.isShuffleEnabled
-			val (playbackOrder, mediaItems) = withContext(Dispatchers.Default) {
-				val order = collectionPlaybackOrder(songs, shuffleEnabled)
-				order to order.map { it.toMediaItem() }
-			}
-			val nextState = _uiState.value.copy(
-				queue = playbackOrder,
-				currentIndex = 0,
-				upcomingIndexes = emptyList(),
-				currentSong = playbackOrder.first(),
-				isPaused = false,
-				isLoading = true,
-				isShuffleEnabled = shuffleEnabled,
-				progress = 0f
-			)
-			_uiState.value = nextState
-
-			controller?.let { player ->
-				player.shuffleModeEnabled = shuffleEnabled
-				player.setMediaItems(mediaItems, 0, 0L)
-				player.prepare()
-				claimMusicPlayback()
-				player.play()
-			} ?: playbackStateSynchronizer.sync(nextState)
-		}
+		bulkPlaybackCoordinator.playAll(songs, forceShuffle)
 	}
 
 	override fun pause() {

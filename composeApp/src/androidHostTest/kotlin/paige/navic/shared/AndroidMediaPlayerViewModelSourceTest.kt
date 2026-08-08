@@ -276,6 +276,7 @@ class AndroidMediaPlayerViewModelSourceTest {
 	fun bulkPlaybackGeneratesOneQueueBeforeStartingIndexZero() {
 		val commonPlayerText = commonSourceFile("shared/MediaPlayer.kt").readText()
 		val androidPlayerText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val bulkPlaybackText = androidSharedSourceFile("AndroidBulkPlaybackCoordinator.android.kt").readText()
 		val genreText = commonSourceFile("ui/screens/genre/viewmodels/GenreDetailViewModel.kt").readText()
 		val artistText = commonSourceFile("ui/screens/artist/viewmodels/ArtistDetailViewModel.kt").readText()
 		val collectionButtonsText =
@@ -284,9 +285,11 @@ class AndroidMediaPlayerViewModelSourceTest {
 
 		assertContains(commonPlayerText, "open fun playAll(")
 		assertContains(androidPlayerText, "override fun playAll(")
-		assertContains(androidPlayerText, "collectionPlaybackOrder(")
-		assertContains(androidPlayerText, "player.setMediaItems(mediaItems, 0, 0L)")
-		assertContains(androidPlayerText, "playbackStateSynchronizer.sync(nextState)")
+		assertContains(androidPlayerText, "AndroidBulkPlaybackCoordinator(")
+		assertContains(androidPlayerText, "bulkPlaybackCoordinator.playAll(songs, forceShuffle)")
+		assertContains(bulkPlaybackText, "collectionPlaybackOrder(")
+		assertContains(bulkPlaybackText, "player.setMediaItems(mediaItems, 0, 0L)")
+		assertContains(bulkPlaybackText, "playbackStateSynchronizer.sync(nextState)")
 		assertContains(androidPlayerText, "playAll(collection.songs, forceShuffle = true)")
 		assertContains(genreText, "player.playAll(state.collection.songs)")
 		assertContains(artistText, "player.playAll(songs)")
