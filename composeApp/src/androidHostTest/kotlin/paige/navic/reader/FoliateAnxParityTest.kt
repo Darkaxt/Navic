@@ -18,31 +18,27 @@ class FoliateAnxParityTest {
 		candidate.resolve("composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt").exists()
 	}.toFile()
 
-	private fun anxReferenceFile(relativePath: String): File =
-		listOf(
-			root.resolve("tmp/references/anx-reader/$relativePath"),
-			root.resolve("../tmp/references/anx-reader/$relativePath")
-		).firstOrNull { it.isFile }
-			?: error("Could not locate Anx reference: $relativePath")
+	private fun anxReferenceText(relativePath: String): String =
+		readerUpstreamReferenceText("anx-reader", relativePath)
 
 	private val anxPlayerText: String by lazy {
-		anxReferenceFile("lib/page/book_player/epub_player.dart").readText()
+		anxReferenceText("lib/page/book_player/epub_player.dart")
 	}
 
 	private val anxViewText: String by lazy {
-		anxReferenceFile("assets/foliate-js/src/view.js").readText()
+		anxReferenceText("assets/foliate-js/src/view.js")
 	}
 
 	private val anxBookStyleText: String by lazy {
-		anxReferenceFile("lib/models/book_style.dart").readText()
+		anxReferenceText("lib/models/book_style.dart")
 	}
 
 	private val anxFootnotesText: String by lazy {
-		anxReferenceFile("assets/foliate-js/src/footnotes.js").readText()
+		anxReferenceText("assets/foliate-js/src/footnotes.js")
 	}
 
 	private val anxBookText: String by lazy {
-		anxReferenceFile("assets/foliate-js/src/book.js").readText()
+		anxReferenceText("assets/foliate-js/src/book.js")
 	}
 
 	private val navicViewText: String by lazy {
@@ -218,6 +214,15 @@ class FoliateAnxParityTest {
 				RouteStop(readerCommonFile("ReaderController.kt"), "toggleCurrentBookmark")
 			),
 			rationale = "Komikku owns bookmark UI/control. No WebView annotation. Behavior (bookmark toggle at current location) is parity."
+		),
+		"onPushState" to GapStatus.ProductDivergence(
+			navicRoute = listOf(
+				RouteStop(readerAssetRoot().resolve("navic-reader.js"), "type: 'pushState'"),
+				RouteStop(readerCommonFile("ReaderBridgeProtocol.kt"), "\"pushState\"", mustBeAbsent = true),
+				RouteStop(readerCommonUiFile("ReaderRoot.kt"), "KomikkuReaderHistoryCapsule", mustBeAbsent = true)
+			),
+			rationale = "Navic intentionally omits Anx's WebView-history capsule because normal page turns " +
+				"made it overlap the progress rail; controller-owned chapter and progress navigation remain canonical."
 		),
 		"click-image" to GapStatus.ProductDivergence(
 			navicRoute = listOf(

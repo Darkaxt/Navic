@@ -17,6 +17,9 @@ class ReaderKomikkuBackboneResetTest {
 		candidate.resolve("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt").exists()
 	}
 
+	private fun komikkuReferenceText(relativePath: String): String =
+		readerUpstreamReferenceText("komikku", relativePath)
+
 	@Test
 	fun currentReaderImplementationIsVaultedAndNoLongerTheActiveEntryPoint() {
 		val vaultRoot = root.resolve("vault/reader/2026-06-13-pre-komikku-reset")
@@ -337,9 +340,9 @@ class ReaderKomikkuBackboneResetTest {
 		val appBarsText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderAppBars.kt"
 		).readText()
-		val komikkuAppBarsText = root.resolve(
-			"tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt"
-		).readText()
+		val komikkuAppBarsText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt"
+		)
 		val appBarsBody = appBarsText
 			.substringAfter("internal fun KomikkuReaderAppBars(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
@@ -606,9 +609,9 @@ class ReaderKomikkuBackboneResetTest {
 		val androidHost = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		).readText()
-		val komikkuReaderActivity = root.resolve(
-			"tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt"
-		).readText()
+		val komikkuReaderActivity = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt"
+		)
 
 		assertTrue(komikkuReaderActivity.contains("ColorMatrixColorFilter"))
 		assertTrue(komikkuReaderActivity.contains("setSaturation(0f)"))
@@ -1480,12 +1483,15 @@ class ReaderKomikkuBackboneResetTest {
 		val settingsDialogText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt"
 		).readText()
+		val modePagesText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsModePages.kt"
+		).readText()
 		val developerSettingsText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/DeveloperScreen.kt"
 		).readText()
-		val readingModePageText = root.resolve(
-			"tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReadingModePage.kt"
-		).readText()
+		val readingModePageText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/settings/ReadingModePage.kt"
+		)
 
 		assertTrue(
 			readingModePageText.contains("TapZonesItems(") &&
@@ -1502,17 +1508,17 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(
 			readerScreenText.contains("onSettingsChange = { settings ->") &&
 				readerScreenText.contains("applyReaderSettings(settings)") &&
-				readerScreenText.contains("coordinator.applySettings(normalized)"),
+				readerScreenText.contains("coordinator.dispatch { applySettings(normalized) }"),
 			"ReaderScreen must persist normalized settings before routing them through ReaderCoordinator.applySettings."
 		)
 		assertTrue(
-			settingsDialogText.contains("Smaller tap zones") &&
-				settingsDialogText.contains("settings.copy(smallerTapZone = settings.smallerTapZone != true)"),
+			modePagesText.contains("Smaller tap zones") &&
+				modePagesText.contains("settings.copy(smallerTapZone = settings.smallerTapZone != true)"),
 			"Reader-facing tap-zone settings should still route through ReaderSettings, not through a local UI flag."
 		)
 		assertFalse(
-			settingsDialogText.contains("Show tap zones") ||
-				settingsDialogText.contains("settings.copy(showTapZones = settings.showTapZones != true)"),
+			modePagesText.contains("Show tap zones") ||
+				modePagesText.contains("settings.copy(showTapZones = settings.showTapZones != true)"),
 			"Tap-zone visualization is diagnostic UI and must not return to the reader settings dialog."
 		)
 		assertTrue(
@@ -1531,12 +1537,15 @@ class ReaderKomikkuBackboneResetTest {
 		val settingsDialogText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt"
 		).readText()
-		val readerPreferencesText = root.resolve(
-			"tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderPreferences.kt"
+		val modePagesText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsModePages.kt"
 		).readText()
-		val readingModePageText = root.resolve(
-			"tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReadingModePage.kt"
-		).readText()
+		val readerPreferencesText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderPreferences.kt"
+		)
+		val readingModePageText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/settings/ReadingModePage.kt"
+		)
 
 		assertTrue(
 			readerPreferencesText.contains("val TapZones = listOf(") &&
@@ -1552,7 +1561,7 @@ class ReaderKomikkuBackboneResetTest {
 			"Komikku exposes tap-zone presets as selectable chips, not a read-only settings label."
 		)
 		assertTrue(
-			settingsDialogText.contains("private val KomikkuTapZoneOptions = listOf("),
+			settingsDialogText.contains("internal val KomikkuTapZoneOptions = listOf("),
 			"Navic must keep an explicit Komikku-order tap-zone list instead of relying on ReaderSupportedTapZones order."
 		)
 		assertTrue(
@@ -1571,22 +1580,23 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(
 			settingsDialogText.contains("SettingsSelectableChipRow(") &&
 				settingsDialogText.contains("FilterChip(") &&
-				settingsDialogText.contains("onSettingsChange(settings.copy(tapZone = tapZone))"),
+				modePagesText.contains("onSettingsChange(settings.copy(tapZone = tapZone))"),
 			"Tap-zone presets must be real settings chips routed through ReaderSettings."
 		)
 		assertTrue(
-			settingsDialogText.contains("Tapping inversion") &&
-				settingsDialogText.contains("KomikkuTapZoneInvertOptions") &&
-				settingsDialogText.contains("onSettingsChange(settings.copy(tapZoneInvertMode = tapZoneInvertMode))"),
+			modePagesText.contains("Tapping inversion") &&
+				modePagesText.contains("KomikkuTapZoneInvertOptions") &&
+				modePagesText.contains("onSettingsChange(settings.copy(tapZoneInvertMode = tapZoneInvertMode))"),
 			"Komikku's tapping inversion chips must be routed through ReaderSettings and the ported navigator."
 		)
 		assertTrue(
-			settingsDialogText.contains("Smaller tap zones") &&
-				settingsDialogText.contains("settings.copy(smallerTapZone = settings.smallerTapZone != true)"),
+			modePagesText.contains("Smaller tap zones") &&
+				modePagesText.contains("settings.copy(smallerTapZone = settings.smallerTapZone != true)"),
 			"Komikku's smaller tap-zone checkbox must migrate as a real settings control."
 		)
 		assertFalse(
-			settingsDialogText.contains("KomikkuSettingsDialogLine(\"Tap zones:"),
+			settingsDialogText.contains("KomikkuSettingsDialogLine(\"Tap zones:") ||
+				modePagesText.contains("KomikkuSettingsDialogLine(\"Tap zones:"),
 			"Tap zones must no longer be displayed only as a static line in the Komikku settings dialog."
 		)
 	}
@@ -1596,12 +1606,15 @@ class ReaderKomikkuBackboneResetTest {
 		val settingsDialogText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt"
 		).readText()
-		val readingModePageText = root.resolve(
-			"tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReadingModePage.kt"
+		val modePagesText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsModePages.kt"
 		).readText()
-		val readingModeModelText = root.resolve(
-			"tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReadingMode.kt"
-		).readText()
+		val readingModePageText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/settings/ReadingModePage.kt"
+		)
+		val readingModeModelText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReadingMode.kt"
+		)
 
 		assertTrue(
 			readingModePageText.contains("SettingsChipRow(MR.strings.pref_category_reading_mode)") &&
@@ -1638,15 +1651,17 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			settingsDialogText.contains("KomikkuSettingsReadingModeRow(") &&
-				settingsDialogText.contains("onSettingsChange(settings.copy(") &&
-				settingsDialogText.contains("flowMode = option.flowMode") &&
-				settingsDialogText.contains("paged = option.paged") &&
-				settingsDialogText.contains("direction = option.direction"),
+				modePagesText.contains("onSettingsChange(settings.copy(") &&
+				modePagesText.contains("flowMode = option.flowMode") &&
+				modePagesText.contains("paged = option.paged") &&
+				modePagesText.contains("direction = option.direction"),
 			"Reading-mode chips must write Navic flow, paged, and direction settings through the controller path."
 		)
 		assertFalse(
 			settingsDialogText.contains("KomikkuSettingsDialogLine(\"Reading mode:") ||
-				settingsDialogText.contains("KomikkuSettingsDialogLine(\"Direction:"),
+				settingsDialogText.contains("KomikkuSettingsDialogLine(\"Direction:") ||
+				modePagesText.contains("KomikkuSettingsDialogLine(\"Reading mode:") ||
+				modePagesText.contains("KomikkuSettingsDialogLine(\"Direction:"),
 			"Reading mode and direction must no longer be read-only labels in the Komikku settings dialog."
 		)
 	}

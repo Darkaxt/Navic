@@ -7,6 +7,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderRuntimeCommonChromeTest {
+	private fun komikkuReferenceText(relativePath: String): String =
+		readerUpstreamReferenceText("komikku", relativePath)
+
 	@Test
 	fun androidReaderPackagesBundledFontSourcesForWebViewRendering() {
 		val root = readerAssetRoot()
@@ -540,12 +543,9 @@ class ReaderRuntimeCommonChromeTest {
 			.substringBefore("\n@Composable\nprivate fun ColumnScope.KomikkuVerticalChapterProgressRail(")
 		val verticalRailBody = navigatorText.substringAfter("private fun ColumnScope.KomikkuVerticalChapterProgressRail(")
 			.substringBefore("\n}\n\nprivate fun readerShouldShowChapterProgressSlider(")
-		val komikkuNavigatorText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku ChapterNavigator.kt reference")
+		val komikkuNavigatorText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"
+		)
 		val komikkuVerticalBody = komikkuNavigatorText.substringAfter("fun ChapterNavigatorVert(")
 			.substringBefore("\n}\n\n@Preview")
 
@@ -633,12 +633,9 @@ class ReaderRuntimeCommonChromeTest {
 		val navigatorText = readerCommonUiFile("ReaderChapterNavigator.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val sliderPrimitiveText = readerCommonUiFile("KomikkuIntegerSlider.kt").readText()
-		val komikkuSliderText = listOf(
-			File("tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/material/Slider.kt"),
-			File("../tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/material/Slider.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku material Slider.kt reference")
+		val komikkuSliderText = komikkuReferenceText(
+			"presentation-core/src/main/java/tachiyomi/presentation/core/components/material/Slider.kt"
+		)
 
 		assertContains(komikkuSliderText, "fun Slider(")
 		assertContains(komikkuSliderText, "value: Int")
@@ -675,12 +672,9 @@ class ReaderRuntimeCommonChromeTest {
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuChapterProgressSlider(")
 		val verticalBody = navigatorText.substringAfter("private fun KomikkuChapterNavigatorVertical(")
 			.substringBefore("\n}\n")
-		val komikkuNavigatorText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku ChapterNavigator.kt reference")
+		val komikkuNavigatorText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"
+		)
 
 		assertContains(komikkuNavigatorText, "val isTabletUi = isTabletUi()")
 		assertContains(komikkuNavigatorText, "val horizontalPadding = if (isTabletUi) 24.dp else 8.dp")
@@ -709,12 +703,9 @@ class ReaderRuntimeCommonChromeTest {
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
 		val navigatorBody = navigatorText.substringAfter("internal fun KomikkuChapterNavigator(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuChapterProgressSlider(")
-		val komikkuNavigatorText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku ChapterNavigator.kt reference")
+		val komikkuNavigatorText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"
+		)
 
 		assertContains(komikkuNavigatorText, "LocalLayoutDirection provides LayoutDirection.Ltr")
 		assertContains(komikkuNavigatorText, "LocalLayoutDirection provides layoutDirection")
@@ -847,12 +838,9 @@ class ReaderRuntimeCommonChromeTest {
 		val topChromeBody = appBarsText.substringAfter("private fun KomikkuReaderTopBar(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderBottomBar(")
 		val bottomChromeBody = appBarsText.substringAfter("private fun KomikkuReaderBottomBar(")
-		val komikkuAppBarsText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku ReaderAppBars.kt reference")
+		val komikkuAppBarsText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt"
+		)
 
 		assertContains(komikkuAppBarsText, "val backgroundColor = MaterialTheme.colorScheme")
 		assertContains(komikkuAppBarsText, ".surfaceColorAtElevation(3.dp)")
@@ -883,18 +871,12 @@ class ReaderRuntimeCommonChromeTest {
 		val appBarsText = readerCommonUiFile("ReaderAppBars.kt").readText()
 		val topChromeBody = appBarsText.substringAfter("private fun KomikkuReaderTopBar(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderBottomBar(")
-		val komikkuTopBarText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderTopBar.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderTopBar.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku ReaderTopBar.kt reference")
-		val komikkuAppBarText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/AppBar.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/AppBar.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku AppBar.kt reference")
+		val komikkuTopBarText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderTopBar.kt"
+		)
+		val komikkuAppBarText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/components/AppBar.kt"
+		)
 
 		assertContains(komikkuTopBarText, "AppBar(")
 		assertContains(komikkuTopBarText, "backgroundColor = Color.Transparent")
@@ -948,16 +930,12 @@ class ReaderRuntimeCommonChromeTest {
 		val appBarsBody = appBarsText.substringAfter("internal fun KomikkuReaderAppBars(")
 		val bottomChromeBody = appBarsText.substringAfter("private fun KomikkuReaderBottomBar(")
 		val bottomButtonModel = appBarsText.substringAfter("private enum class KomikkuReaderBottomButton(")
-		val komikkuBottomBarText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderBottomBar.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderBottomBar.kt")
-		).firstOrNull(File::isFile)?.readText()
-			?: error("Could not locate Komikku ReaderBottomBar.kt reference")
-		val komikkuBottomButtonText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderBottomButton.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderBottomButton.kt")
-		).firstOrNull(File::isFile)?.readText()
-			?: error("Could not locate Komikku ReaderBottomButton.kt reference")
+		val komikkuBottomBarText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderBottomBar.kt"
+		)
+		val komikkuBottomButtonText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderBottomButton.kt"
+		)
 
 		assertContains(komikkuBottomBarText, "ReaderBottomButton.ViewChapters")
 		assertContains(komikkuBottomBarText, "Icons.Outlined.FormatListNumbered")
@@ -1400,12 +1378,9 @@ class ReaderRuntimeCommonChromeTest {
 	fun commonReaderContentsDialogUsesKomikkuLazyChapterListContract() {
 		val contentsDialogText = readerCommonUiFile("ReaderContentsDialog.kt").readText()
 		val contentsDialogBody = contentsDialogText.substringAfter("internal fun KomikkuReaderContentsDialog(")
-		val komikkuChapterListText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/ChapterListDialog.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/ChapterListDialog.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku ChapterListDialog.kt reference")
+		val komikkuChapterListText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/ChapterListDialog.kt"
+		)
 
 		assertContains(komikkuChapterListText, "LazyColumn(")
 		assertContains(komikkuChapterListText, "rememberLazyListState(")
@@ -1427,12 +1402,9 @@ class ReaderRuntimeCommonChromeTest {
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
 		val settingsDialogHeaderBody = settingsDialogBody.substringBefore("HorizontalPager(")
-		val komikkuTabbedDialogText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku TabbedDialog.kt reference")
+		val komikkuTabbedDialogText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt"
+		)
 
 		assertContains(settingsDialogBody, "KomikkuSettingsTabRow(")
 		assertFalse(
@@ -1513,18 +1485,12 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderSettingsControlsUsePortedKomikkuSettingsItemsContract() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
-		val komikkuSettingsItemsText = listOf(
-			File("tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/SettingsItems.kt"),
-			File("../tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/SettingsItems.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku SettingsItems.kt reference")
-		val komikkuSliderText = listOf(
-			File("tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/material/Slider.kt"),
-			File("../tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/material/Slider.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku material Slider.kt reference")
+		val komikkuSettingsItemsText = komikkuReferenceText(
+			"presentation-core/src/main/java/tachiyomi/presentation/core/components/SettingsItems.kt"
+		)
+		val komikkuSliderText = komikkuReferenceText(
+			"presentation-core/src/main/java/tachiyomi/presentation/core/components/material/Slider.kt"
+		)
 
 		assertContains(komikkuSettingsItemsText, "object SettingsItemsPaddings")
 		assertContains(komikkuSettingsItemsText, "fun HeadingItem(text: String)")
@@ -1537,8 +1503,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(komikkuSliderText, "onValueChange = { onValueChange(it.roundToInt()) }")
 		assertContains(settingsDialogText, "private object SettingsItemsPaddings")
 		assertContains(settingsDialogText, "private fun HeadingItem(text: String)")
-		assertContains(settingsDialogText, "private fun CheckboxItem(label: String, checked: Boolean, onClick: () -> Unit)")
-		assertContains(settingsDialogText, "private fun SliderItem(")
+		assertContains(settingsDialogText, "internal fun CheckboxItem(label: String, checked: Boolean, onClick: () -> Unit)")
+		assertContains(settingsDialogText, "internal fun SliderItem(")
 		assertContains(settingsDialogText, "private fun BaseSliderItem(")
 		assertContains(settingsDialogText, "private fun SettingsChipRow(")
 		assertContains(settingsDialogText, "private fun BaseSettingsItem(")
@@ -1616,18 +1582,12 @@ class ReaderRuntimeCommonChromeTest {
 		).firstOrNull { it.isFile }
 			?.readText()
 			?: ""
-		val komikkuAppAdaptiveSheetText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/AdaptiveSheet.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/AdaptiveSheet.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku app AdaptiveSheet.kt reference")
-		val komikkuCoreAdaptiveSheetText = listOf(
-			File("tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/AdaptiveSheet.kt"),
-			File("../tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/AdaptiveSheet.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku core AdaptiveSheet.kt reference")
+		val komikkuAppAdaptiveSheetText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/components/AdaptiveSheet.kt"
+		)
+		val komikkuCoreAdaptiveSheetText = komikkuReferenceText(
+			"presentation-core/src/main/java/tachiyomi/presentation/core/components/AdaptiveSheet.kt"
+		)
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
 			.substringBefore("\n@Composable\nprivate fun KomikkuSettingsTabRow(")
 
@@ -1687,12 +1647,9 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderSettingsDialogDismissRestoresChromeAndDoesNotAddNavicCloseFooter() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
-		val komikkuSettingsDialogText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku ReaderSettingsDialog.kt reference")
+		val komikkuSettingsDialogText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt"
+		)
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
 			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
 		val tabbedDialogSignature = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
@@ -1748,12 +1705,9 @@ class ReaderRuntimeCommonChromeTest {
 		).firstOrNull { it.isFile }
 			?.readText()
 			?: ""
-		val komikkuSettingsDialogText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku ReaderSettingsDialog.kt reference")
+		val komikkuSettingsDialogText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt"
+		)
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
 			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
@@ -1773,16 +1727,14 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderPublisherStylesBelongsToGeneralInsteadOfCustomFilter() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
-		val komikkuColorFilterText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ColorFilterPage.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ColorFilterPage.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku ColorFilterPage.kt reference")
-		val generalPageBody = settingsDialogText.substringAfter("KomikkuSettingsTab.General -> KomikkuSettingsDialogPage(")
-			.substringBefore("KomikkuSettingsTab.PdfImage -> KomikkuSettingsDialogPage(")
-		val customFilterPageBody = settingsDialogText.substringAfter("KomikkuSettingsTab.CustomFilter -> KomikkuSettingsDialogPage(")
-			.substringBefore("\n\t\t\t\t}\n\t\t\t}\n\t\t}")
+		val generalPageBody = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
+		val customFilterPageBody = readerCommonUiFile("ReaderSettingsVisualPages.kt").readText()
+		val komikkuColorFilterText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/reader/settings/ColorFilterPage.kt"
+		)
+
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.CustomFilter -> KomikkuCustomFilterSettingsPage(")
 
 		assertFalse(
 			komikkuColorFilterText.contains("Publisher styles") ||
@@ -1801,14 +1753,12 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderSettingsGeneralTabGroupsAnxControlsIntoKomikkuSections() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
-		val komikkuSettingsItemsText = listOf(
-			File("tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/SettingsItems.kt"),
-			File("../tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/SettingsItems.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku SettingsItems.kt reference")
-		val generalPageBody = settingsDialogText.substringAfter("KomikkuSettingsTab.General -> KomikkuSettingsDialogPage(")
-			.substringBefore("KomikkuSettingsTab.PdfImage -> KomikkuSettingsDialogPage(")
+		val generalPageBody = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
+		val komikkuSettingsItemsText = komikkuReferenceText(
+			"presentation-core/src/main/java/tachiyomi/presentation/core/components/SettingsItems.kt"
+		)
+
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
 
 		fun indexOfRequired(label: String): Int {
 			val index = generalPageBody.indexOf(label)
@@ -1817,7 +1767,7 @@ class ReaderRuntimeCommonChromeTest {
 		}
 
 		assertContains(komikkuSettingsItemsText, "fun HeadingItem(text: String)")
-		assertContains(settingsDialogText, "private fun SettingsSection(")
+		assertContains(settingsDialogText, "internal fun SettingsSection(")
 		val typographyIndex = indexOfRequired("title = \"Typography\"")
 		val spacingIndex = indexOfRequired("title = \"Spacing\"")
 		val pageLayoutIndex = indexOfRequired("title = \"Page layout\"")
@@ -1891,12 +1841,9 @@ class ReaderRuntimeCommonChromeTest {
 			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
 			.substringBefore("\n@Composable\nprivate fun KomikkuSettingsTabRow(")
-		val komikkuTabbedDialogText = listOf(
-			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt"),
-			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt")
-		).firstOrNull { it.isFile }
-			?.readText()
-			?: error("Could not locate Komikku TabbedDialog.kt reference")
+		val komikkuTabbedDialogText = komikkuReferenceText(
+			"app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt"
+		)
 
 		assertContains(settingsDialogBody, "BoxWithConstraints")
 		assertContains(settingsDialogBody, ".heightIn(max = maxHeight * 0.75f)")

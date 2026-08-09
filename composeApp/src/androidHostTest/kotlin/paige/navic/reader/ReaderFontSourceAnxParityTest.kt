@@ -19,15 +19,15 @@ class ReaderFontSourceAnxParityTest {
 	}.toFile()
 
 	private val anxFontsProviderText: String by lazy {
-		anxReferenceFile("lib/providers/fonts.dart").readText()
+		readerUpstreamReferenceText("anx-reader", "lib/providers/fonts.dart")
 	}
 
 	private val anxFontServiceText: String by lazy {
-		anxReferenceFile("lib/service/font.dart").readText()
+		readerUpstreamReferenceText("anx-reader", "lib/service/font.dart")
 	}
 
 	private val anxFontModelText: String by lazy {
-		anxReferenceFile("lib/models/font_model.dart").readText()
+		readerUpstreamReferenceText("anx-reader", "lib/models/font_model.dart")
 	}
 
 	private val navicFontModelText: String by lazy {
@@ -56,13 +56,6 @@ class ReaderFontSourceAnxParityTest {
 	private val parityPlanText: String by lazy {
 		root.resolve("docs/superpowers/specs/2026-06-17-anx-parity-7-phase-plan.md").readText()
 	}
-
-	private fun anxReferenceFile(relativePath: String): File =
-		listOf(
-			root.resolve("tmp/references/anx-reader/$relativePath"),
-			root.resolve("../tmp/references/anx-reader/$relativePath")
-		).firstOrNull { it.isFile }
-			?: error("Could not locate Anx reference: $relativePath")
 
 	@Test
 	fun anxFontSourcesExposeRemoteManifestDownloadLocalImportAndWebViewUrl() {

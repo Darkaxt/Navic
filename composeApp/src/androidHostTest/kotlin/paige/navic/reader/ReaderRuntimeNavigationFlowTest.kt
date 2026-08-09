@@ -1,6 +1,5 @@
 package paige.navic.reader
 
-import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -249,14 +248,10 @@ class ReaderRuntimeNavigationFlowTest {
 		val navicPaginator = readerAssetRoot()
 			.resolve("vendor/foliate-js/paginator.js")
 			.readText()
-		val root = File(".")
-		val anxPaginator = listOf(
-			root.resolve("tmp/references/anx-reader/assets/foliate-js/src/paginator.js"),
-			root.resolve("../tmp/references/anx-reader/assets/foliate-js/src/paginator.js")
-		).firstOrNull { it.isFile }
-			?: error("Could not locate Anx paginator reference")
-		val anxPaginatorText = anxPaginator
-			.readText()
+		val anxPaginatorText = readerUpstreamReferenceText(
+			"anx-reader",
+			"assets/foliate-js/src/paginator.js"
+		)
 		val navicVisibleRange = navicPaginator
 			.substringAfter("const getVisibleRange = (doc, start, end, mapRect) => {")
 			.substringBefore("\nconst getDirection")

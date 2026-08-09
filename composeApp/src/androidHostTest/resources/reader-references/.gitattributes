@@ -1,0 +1,3 @@
+# Preserve exact upstream snapshot bytes, including their whitespace.
+anx-reader/** -whitespace
+komikku/** -whitespace

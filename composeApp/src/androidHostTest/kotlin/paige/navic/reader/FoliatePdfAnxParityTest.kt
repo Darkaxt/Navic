@@ -18,19 +18,12 @@ class FoliatePdfAnxParityTest {
 	}.toFile()
 
 	private val anxPdfText: String by lazy {
-		anxReferenceFile("assets/foliate-js/src/pdf.js").readText()
+		readerUpstreamReferenceText("anx-reader", "assets/foliate-js/src/pdf.js")
 	}
 
 	private val navicPdfText: String by lazy {
 		root.resolve("composeApp/src/androidMain/assets/reader/vendor/foliate-js/pdf.js").readText()
 	}
-
-	private fun anxReferenceFile(relativePath: String): File =
-		listOf(
-			root.resolve("tmp/references/anx-reader/$relativePath"),
-			root.resolve("../tmp/references/anx-reader/$relativePath")
-		).firstOrNull { it.isFile }
-			?: error("Could not locate Anx reference: $relativePath")
 
 	@Test
 	fun navicPdfRuntimeCitesTheAnxMakePdfContract() {
