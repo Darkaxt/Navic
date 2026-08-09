@@ -8,6 +8,7 @@ import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
 import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.ui.screens.library.components.mostPlayedShortcutArtwork
+import paige.navic.ui.screens.library.components.mostPlayedShortcutPresentation
 
 class MostPlayedShortcutArtworkPolicyTest {
 	@Test
@@ -24,6 +25,58 @@ class MostPlayedShortcutArtworkPolicyTest {
 
 		assertEquals("cover-123", artwork.coverArtId)
 		assertNull(artwork.imageUrl)
+	}
+
+	@Test
+	fun moodMixShortcutsReuseGeneratedPlaylistArtwork() {
+		val presentation = mostPlayedShortcutPresentation(
+			mostPlayedShortcut(
+				type = PlaybackOriginType.Playlist,
+				id = "chill-mix",
+				title = "Chill Mix",
+				coverArtId = "internal-album-collage"
+			)
+		)
+
+		assertNull(presentation.artwork.coverArtId)
+		assertNull(presentation.artwork.imageUrl)
+		assertEquals("Mix", presentation.kindLabel)
+		assertEquals("Chill", presentation.primaryLabel)
+		assertEquals("chill-mix", presentation.seed)
+	}
+
+	@Test
+	fun genreMixShortcutsReuseGeneratedPlaylistArtworkLabel() {
+		val presentation = mostPlayedShortcutPresentation(
+			mostPlayedShortcut(
+				type = PlaybackOriginType.Playlist,
+				id = "genre-mix",
+				title = "Electronic_Pop_Rock_Medium_automatic",
+				coverArtId = "internal-album-collage"
+			)
+		)
+
+		assertNull(presentation.artwork.coverArtId)
+		assertEquals("Mix", presentation.kindLabel)
+		assertEquals("Electronic\nPop\nRock", presentation.primaryLabel)
+		assertEquals("genre-mix", presentation.seed)
+	}
+
+	@Test
+	fun ordinaryPlaylistShortcutsKeepTheirStoredCover() {
+		val presentation = mostPlayedShortcutPresentation(
+			mostPlayedShortcut(
+				type = PlaybackOriginType.Playlist,
+				id = "road-trip",
+				title = "Road Trip",
+				coverArtId = "road-trip-cover"
+			)
+		)
+
+		assertEquals("road-trip-cover", presentation.artwork.coverArtId)
+		assertEquals("Playlist", presentation.kindLabel)
+		assertEquals("Road Trip", presentation.primaryLabel)
+		assertEquals("Playlist-road-trip", presentation.seed)
 	}
 
 	@Test
@@ -419,9 +472,21 @@ class MostPlayedShortcutArtworkPolicyTest {
 		id: String = "iu",
 		title: String = "IU",
 		coverArtId: String?
+	) = mostPlayedShortcut(
+		type = PlaybackOriginType.Artist,
+		id = id,
+		title = title,
+		coverArtId = coverArtId
+	)
+
+	private fun mostPlayedShortcut(
+		type: PlaybackOriginType,
+		id: String,
+		title: String,
+		coverArtId: String?
 	) =
 		DomainMostPlayedShortcut(
-			type = PlaybackOriginType.Artist,
+			type = type,
 			id = id,
 			title = title,
 			subtitle = null,

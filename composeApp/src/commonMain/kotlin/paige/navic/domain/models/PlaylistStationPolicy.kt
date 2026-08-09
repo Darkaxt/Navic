@@ -18,10 +18,26 @@ fun DomainPlaylist.isGeneratedMixPlaylist(): Boolean =
 	isMoodMixPlaylist() || isGenreMixPlaylist()
 
 fun DomainPlaylist.isGenreMixPlaylist(): Boolean =
-	!isStationPlaylist() && name.contains("_")
+	!isStationPlaylist() && isGenreMixPlaylistName(name)
 
 fun DomainPlaylist.isMoodMixPlaylist(): Boolean =
-	!isStationPlaylist() && !isGenreMixPlaylist() && name.endsWith(MoodMixSuffix)
+	!isStationPlaylist() && isMoodMixPlaylistName(name)
+
+fun isGeneratedMixPlaylistName(name: String): Boolean =
+	isMoodMixPlaylistName(name) || isGenreMixPlaylistName(name)
+
+fun generatedMixPlaylistArtworkLabel(name: String): String =
+	if (isGenreMixPlaylistName(name)) {
+		genreMixDisplayName(name)
+			.split(" / ")
+			.map { it.trim() }
+			.filter { it.isNotEmpty() }
+			.take(3)
+			.joinToString("\n")
+			.ifBlank { name }
+	} else {
+		moodMixDisplayName(name)
+	}
 
 fun DomainPlaylist.stationDisplayName(): String {
 	if (!isStationPlaylist()) return name
@@ -33,22 +49,13 @@ fun DomainPlaylist.stationDisplayName(): String {
 fun DomainPlaylist.playlistDisplayName(): String =
 	when {
 		isStationPlaylist() -> stationDisplayName()
-		isMoodMixPlaylist() -> moodMixDisplayName()
-		isGenreMixPlaylist() -> genreMixDisplayName()
+		isMoodMixPlaylist() -> moodMixDisplayName(name)
+		isGenreMixPlaylist() -> genreMixDisplayName(name)
 		else -> name
 	}
 
 fun DomainPlaylist.playlistArtworkLabel(): String =
-	when {
-		isGenreMixPlaylist() -> genreMixDisplayName()
-			.split(" / ")
-			.map { it.trim() }
-			.filter { it.isNotEmpty() }
-			.take(3)
-			.joinToString("\n")
-			.ifBlank { playlistDisplayName() }
-		else -> playlistDisplayName()
-	}
+	if (isGeneratedMixPlaylist()) generatedMixPlaylistArtworkLabel(name) else playlistDisplayName()
 
 fun DomainPlaylist.playlistFallbackKind(): String =
 	when {
@@ -57,12 +64,18 @@ fun DomainPlaylist.playlistFallbackKind(): String =
 		else -> "Playlist"
 	}
 
-private fun DomainPlaylist.moodMixDisplayName(): String =
+private fun isGenreMixPlaylistName(name: String): Boolean =
+	name.contains("_")
+
+private fun isMoodMixPlaylistName(name: String): Boolean =
+	!isGenreMixPlaylistName(name) && name.endsWith(MoodMixSuffix)
+
+private fun moodMixDisplayName(name: String): String =
 	name.removeSuffix(MoodMixSuffix)
 		.trimEnd()
 		.ifBlank { name }
 
-private fun DomainPlaylist.genreMixDisplayName(): String {
+private fun genreMixDisplayName(name: String): String {
 	val parts = name.split("_")
 		.map { part -> part.trim() }
 		.filter { part -> part.isNotEmpty() }
