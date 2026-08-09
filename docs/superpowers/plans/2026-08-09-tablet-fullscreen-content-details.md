@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make content destinations replace Library at full tablet width and hide playlists that have no declared or locally loaded songs.
+**Goal:** Make content destinations replace Library at full tablet width, hide empty playlists, and preserve generated mix artwork in Most Played.
 
-**Architecture:** Keep Navigation3 adaptive list/detail support for the Settings group only. Root content destinations use Navigation3's default single-scene presentation by omitting `detailPane("root")` metadata; the back stack still owns restoration of Library. A domain playlist display predicate feeds every existing playlist grouping function while leaving persistence and add-to-playlist selection untouched.
+**Architecture:** Keep Navigation3 adaptive list/detail support for the Settings group only. Root content destinations use Navigation3's default single-scene presentation by omitting `detailPane("root")` metadata; the back stack still owns restoration of Library. A domain playlist display predicate feeds every existing playlist grouping function while leaving persistence and add-to-playlist selection untouched. Most Played derives generated mix artwork from the same playlist-name identity instead of accepting a stored collage snapshot.
 
 **Tech Stack:** Kotlin Multiplatform, Compose Multiplatform, AndroidX Navigation3, Material3 Adaptive, Kotlin host tests, Gradle, ADB.
 
@@ -126,7 +126,49 @@ git add composeApp/src/commonMain/kotlin/paige/navic/domain/models/PlaylistStati
 git commit -m "fix(playlists): hide empty display entries"
 ```
 
-### Task 4: Build and validate on the physical tablet
+### Task 4: Preserve generated mix artwork in Most Played
+
+**Files:**
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/domain/models/PlaylistStationPolicy.kt`
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/library/components/MostPlayedShortcutCard.kt`
+- Modify: `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/library/MostPlayedShortcutArtworkPolicyTest.kt`
+
+- [ ] **Step 1: Write failing Most Played artwork tests**
+
+Add tests proving a `Playlist` shortcut titled `Chill Mix` ignores its stored collage and produces `Mix` / `Chill` artwork seeded by its playlist id. Cover genre-mix normalization and verify an ordinary playlist keeps its server cover.
+
+- [ ] **Step 2: Run the artwork test and verify RED**
+
+Run:
+
+```powershell
+.\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.ui.screens.library.MostPlayedShortcutArtworkPolicyTest"
+```
+
+Expected: FAIL because the card currently accepts every stored cover and uses generic shortcut labels and seeds.
+
+- [ ] **Step 3: Share generated mix identity**
+
+Expose playlist-name helpers for generated-mix detection and artwork labels. Add a pure Most Played presentation function that suppresses the stored collage and uses kind `Mix`, the shared label, and playlist id seed for generated mixes. Make the card consume this function.
+
+- [ ] **Step 4: Run artwork and playlist policy tests**
+
+Run:
+
+```powershell
+.\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.ui.screens.library.MostPlayedShortcutArtworkPolicyTest" --tests "paige.navic.domain.models.PlaylistStationPolicyTest"
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit the artwork fix**
+
+```powershell
+git add composeApp/src/commonMain/kotlin/paige/navic/domain/models/PlaylistStationPolicy.kt composeApp/src/commonMain/kotlin/paige/navic/ui/screens/library/components/MostPlayedShortcutCard.kt composeApp/src/commonTest/kotlin/paige/navic/ui/screens/library/MostPlayedShortcutArtworkPolicyTest.kt
+git commit -m "fix(artwork): preserve generated mixes in most played"
+```
+
+### Task 5: Build and validate on the physical tablet
 
 **Files:**
 - Modify: `androidApp/build.gradle.kts` only for the next release version after source validation
