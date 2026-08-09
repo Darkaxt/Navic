@@ -283,11 +283,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(replacement, "relocationLiveDispatchCoordinator.replace(original, replacement)")
 		assertContains(cancellation, "relocationLiveDispatchCoordinator.releaseAll()")
 		assertContains(source, "relocationLiveDispatchCoordinator.fail(")
-		assertFalse(
-			completed.contains("releaseLive("),
-			"Task 6 owns release after committed WebView exposure."
+		assertContains(
+			completed,
+			"relocationLiveDispatchCoordinator.complete(request)"
 		)
-		assertFalse(completed.contains("relocationLiveDispatchCoordinator.release("))
+		assertFalse(completed.contains("foregroundWebViewOwnership.releaseLive("))
 	}
 
 	@Test
@@ -677,18 +677,77 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun successfulQueueHandoffAloneOwnsGlShieldRemoval() {
+	fun queueHandoffWaitsForCommittedWebViewExposureBeforeCompletion() {
 		val source = visualHandoffFile.readText()
+		val controller = controllerFile.readText()
+		val accepted = source
+			.substringAfter("ReaderPageRelocationContentValidationResult.Accepted -> {")
+			.substringBefore("ReaderPageRelocationContentValidationResult.ContentRejected")
+		val finalization = source
+			.substringAfter("private fun finalizePresentation(")
+			.substringBefore("private fun complete(")
 		val complete = source
 			.substringAfter("private fun complete(request: ReaderPageRelocationRequest)")
 			.substringBefore("private fun recover(")
+		val controllerFinalization = controller
+			.substringAfter("private fun finalizeHandoffPresentation(")
+			.substringBefore("private fun hideSurfaceBehindInlineRasterShield(")
+		val fade = controllerFinalization
+			.substringAfter("private fun fadeInlineHandoffShield(")
+			.substringBefore("private fun handoffPresentationIsCurrent(")
+		val presentationRecovery = controller
+			.substringAfter(
+				"if (reason == ReaderWebViewVisualHandoffFailure.PresentationFailed) {"
+			)
+			.substringBefore("\n\t\tcheck(")
+		val controllerCompletion = controller
+			.substringAfter("private fun completeRelocationVisualHandoff(")
+			.substringBefore("private fun releaseTerminalContentFailure(")
 
+		assertContains(source, "FinalizingPresentation")
+		assertContains(accepted, "finalizePresentation(request)")
+		assertFalse(accepted.contains("queue.completeHandoff("))
+		assertContains(finalization, "presentationFinalizer(request)")
+		assertContains(finalization, "if (!exposedFrameCommitted")
+		assertContains(
+			finalization,
+			"ReaderWebViewVisualHandoffFailure.PresentationFailed"
+		)
+		assertContains(finalization, "validationIsCurrent(request)")
+		assertContains(finalization, "complete(request)")
+		assertTrue(
+			finalization.indexOf("validationIsCurrent(request)") <
+				finalization.indexOf("complete(request)")
+		)
 		assertContains(complete, "queue.completeHandoff(request.token.value)")
 		assertContains(complete, "val next = queue.commandToDispatch()")
-		assertContains(complete, "if (next == null) hideSurface(request) else dispatch(next)")
+		assertContains(complete, "next?.let(dispatch)")
+		assertFalse(complete.contains("hideSurface("))
+		assertContains(
+			controllerFinalization,
+			"relocationLiveDispatchCoordinator.mutationGeneration(request)"
+		)
+		assertContains(controllerFinalization, "handoffPresentationIsCurrent(")
+		assertContains(fade, "inlineRasterShield.fadeOut(")
 		assertTrue(
-			complete.indexOf("queue.completeHandoff(request.token.value)") <
-				complete.indexOf("if (next == null) hideSurface(request) else dispatch(next)")
+			fade.lastIndexOf("handoffPresentationIsCurrent(") <
+				fade.lastIndexOf("inlineRasterShield.dismiss()")
+		)
+		assertTrue(
+			fade.lastIndexOf("inlineRasterShield.dismiss()") <
+				fade.lastIndexOf("onFinalized(finalized)")
+		)
+		assertFalse(
+			presentationRecovery.contains("relocationLiveDispatchCoordinator.fail(")
+		)
+		assertFalse(presentationRecovery.contains("requestLivePresentationRecovery(reason)"))
+		assertContains(
+			presentationRecovery,
+			"retryRelocationVisualHandoffForPreparedDeck(request.textureGeneration)"
+		)
+		assertContains(
+			controllerCompletion,
+			"relocationLiveDispatchCoordinator.complete(request)"
 		)
 	}
 
@@ -1981,13 +2040,17 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"if (reason == ReaderWebViewVisualHandoffFailure.ContentRejected) {"
 		).substringBefore("return")
 		val recoveryHelper = source.substringAfter(
-			"private fun requestLivePresentationRecovery()"
+			"private fun requestLivePresentationRecovery("
 		).substringBefore("private fun requestPrewarmIfIdle(")
 		val prepareProfile = source.substringAfter(
 			"private fun prepareProfile("
 		).substringBefore("override fun isCurrentRepairWindow(")
 		assertContains(source, "private val livePresentationRecoveryRequest")
-		assertContains(recoveryFailure, "requestLivePresentationRecovery()")
+		assertContains(recoveryFailure, "requestLivePresentationRecovery(reason)")
+		assertContains(
+			recoveryHelper,
+			"reason: ReaderWebViewVisualHandoffFailure"
+		)
 		assertContains(recoveryHelper, "livePresentationRecoveryRequest.request()")
 		assertContains(
 			preparation,
@@ -2091,7 +2154,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		assertContains(contentFailure, "interaction = ReaderPageInteractionState.Failed")
 		assertContains(contentFailure, "onViewerContentInputSuppressed()")
-		assertContains(contentFailure, "requestLivePresentationRecovery()")
+		assertContains(contentFailure, "requestLivePresentationRecovery(reason)")
 		assertFalse(contentFailure.contains("hideSurface("))
 		assertFalse(contentFailure.contains("token"))
 		val preparedInteraction = source.substringAfter(
@@ -2207,22 +2270,22 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("return ReaderPageCurlDispatchResult.TerminalPublished")
 		val gestureHide = source
 			.substringAfter("private fun hideSurfaceAfterGesture(")
-			.substringBefore("private fun hideSurfaceAfterHandoff(")
+			.substringBefore("private fun finalizeHandoffPresentation(")
 		val newerOwner = source
 			.substringAfter("private fun hasNewerSurfacePresentationOwner(")
-			.substringBefore("private fun hideSurfaceAfterHandoff(")
-		val handoffHide = source
-			.substringAfter("private fun hideSurfaceAfterHandoff(")
+			.substringBefore("private fun finalizeHandoffPresentation(")
+		val handoffFinalization = source
+			.substringAfter("private fun finalizeHandoffPresentation(")
 			.substringBefore("private fun hideSurface()")
 
-		assertContains(source, "hideSurface = ::hideSurfaceAfterHandoff")
+		assertContains(source, "finalizePresentation = ::finalizeHandoffPresentation")
 		assertContains(rejection, "hideSurfaceAfterGesture(gestureId)")
 		assertContains(unavailable, "hideSurfaceAfterGesture(gestureId)")
 		assertContains(gestureHide, "relocationQueue.ownershipSnapshot().queued > 0")
 		assertContains(gestureHide, "presentedFrameGestureId != gestureId")
 		assertContains(gestureHide, "presentedSurfaceGestureId != gestureId")
-		assertContains(handoffHide, "request.gestureId")
-		assertContains(handoffHide, "hasNewerSurfacePresentationOwner(request.gestureId)")
+		assertContains(handoffFinalization, "request.gestureId")
+		assertContains(handoffFinalization, "hasNewerSurfacePresentationOwner(request.gestureId)")
 		assertContains(newerOwner, "owner > gestureId")
 		assertTrue(
 			gestureHide.indexOf("relocationQueue.ownershipSnapshot().queued > 0") <

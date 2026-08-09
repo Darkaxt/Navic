@@ -281,7 +281,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No later relocation expected: $it") },
 			publishRecovery = { _, _ -> },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { _, onValidated ->
 					onValidated(ReaderPageRelocationContentValidationResult.Accepted)
 					ReaderPageRelocationContentValidationHandle.Completed
@@ -371,7 +371,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = { error("No later request expected: $it") },
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = hiddenRequests::add,
+			finalizePresentation = immediatePresentationFinalizer(hiddenRequests::add),
 			validateContent = { _, onValidated ->
 					onValidated(ReaderPageRelocationContentValidationResult.Accepted)
 					ReaderPageRelocationContentValidationHandle.Completed
@@ -437,7 +437,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No later request expected: $it") },
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = hidden::add,
+			finalizePresentation = immediatePresentationFinalizer(hidden::add),
 			validateContent = { _, onValidated ->
 				validations += onValidated
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -510,7 +510,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, _ -> },
-			hideSurface = hidden::add,
+			finalizePresentation = immediatePresentationFinalizer(hidden::add),
 			validateContent = { _, onValidated ->
 				validations += onValidated
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -558,7 +558,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, _ -> },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { _, onValidated ->
 				validations += onValidated
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -600,7 +600,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, reason -> error("Unexpected recovery: $reason") },
-			hideSurface = hidden::add,
+			finalizePresentation = immediatePresentationFinalizer(hidden::add),
 			validateContent = { _, onValidated ->
 				validation = onValidated
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -653,7 +653,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { _, onValidated ->
 				validation = onValidated
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -699,7 +699,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = dispatched::add,
 			publishRecovery = { _, _ -> },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -764,7 +764,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(first) },
 			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> error("Unexpected recovery: $reason") },
-			hideSurface = { hideCount += 1 },
+			finalizePresentation = immediatePresentationFinalizer { hideCount += 1 },
 			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -777,7 +777,7 @@ class ReaderWebViewVisualHandoffTest {
 
 		assertEquals(listOf(second), dispatched)
 		assertEquals(second, queue.head())
-		assertEquals(0, hideCount)
+		assertEquals(1, hideCount)
 	}
 
 	@Test
@@ -795,7 +795,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = { hideCount += 1 },
+			finalizePresentation = immediatePresentationFinalizer { hideCount += 1 },
 			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -845,7 +845,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, reason -> error("Unexpected recovery: $reason") },
-			hideSurface = hidden::add,
+			finalizePresentation = immediatePresentationFinalizer(hidden::add),
 			validateContent = { _, onValidated ->
 				validations += onValidated
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -861,6 +861,402 @@ class ReaderWebViewVisualHandoffTest {
 		assertEquals(request, queue.head())
 		assertTrue(hidden.isEmpty())
 		assertTrue(completed.isEmpty())
+	}
+
+	@Test
+	fun acceptedContentWaitsForCommittedWebViewExposure() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueVisualRequest(queue, gestureId = 1L)
+		acknowledgeForVisualHandoff(queue, request)
+		val host = FakeVisualHandoffHost(attached = true)
+		val finalizers = mutableListOf<(Boolean) -> Unit>()
+		val completed = mutableListOf<ReaderPageRelocationRequest>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { visualStateFor(request) },
+			dispatch = { error("No dispatch expected") },
+			publishRecovery = { _, reason -> error("Unexpected recovery: $reason") },
+			finalizePresentation = { _, onFinalized -> finalizers += onFinalized },
+			validateContent = { _, onValidated ->
+				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
+				ReaderPageRelocationContentValidationHandle.Completed
+			},
+			onCompleted = completed::add
+		)
+
+		assertTrue(coordinator.onAcknowledged(request))
+		host.completeVisualState()
+		host.runNextFrame()
+
+		assertEquals(1, finalizers.size)
+		assertEquals(request, queue.head())
+		assertTrue(completed.isEmpty())
+
+		finalizers.single().invoke(true)
+		finalizers.single().invoke(true)
+
+		assertNull(queue.head())
+		assertEquals(listOf(request), completed)
+	}
+
+	@Test
+	fun failedWebViewExposureRetainsQueueHeadAndEntersRecovery() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueVisualRequest(queue, gestureId = 1L)
+		acknowledgeForVisualHandoff(queue, request)
+		val host = FakeVisualHandoffHost(attached = true)
+		val finalizers = mutableListOf<(Boolean) -> Unit>()
+		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val completed = mutableListOf<ReaderPageRelocationRequest>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { visualStateFor(request) },
+			dispatch = { error("No dispatch expected") },
+			publishRecovery = { _, reason -> recoveries += reason },
+			finalizePresentation = { _, onFinalized -> finalizers += onFinalized },
+			validateContent = { _, onValidated ->
+				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
+				ReaderPageRelocationContentValidationHandle.Completed
+			},
+			onCompleted = completed::add
+		)
+
+		assertTrue(coordinator.onAcknowledged(request))
+		host.completeVisualState()
+		host.runNextFrame()
+		finalizers.single().invoke(false)
+
+		assertEquals(request, queue.head())
+		assertEquals(
+			listOf(ReaderWebViewVisualHandoffFailure.PresentationFailed),
+			recoveries
+		)
+		assertTrue(completed.isEmpty())
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Attached(
+					request.foliateSessionId,
+					request.destinationOrdinal
+				)
+			)
+		)
+		assertEquals(2, finalizers.size)
+		finalizers.last().invoke(true)
+		assertNull(queue.head())
+		assertEquals(listOf(request), completed)
+	}
+
+	@Test
+	fun liveOwnershipSurvivesPresentationRecoveryUntilCurrentExposureCommits() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueVisualRequest(queue, gestureId = 2L)
+		var passiveAvailableEdges = 0
+		val ownership = ReaderForegroundWebViewOwnership {
+			passiveAvailableEdges += 1
+		}
+		val claim = ownership.acquireLive(request.gestureId)
+		val exactDispatchGenerations = mutableListOf<
+			ReaderForegroundWebViewMutationGeneration
+		>()
+		val liveDispatch = ReaderPageRelocationLiveDispatchCoordinator(
+			foregroundWebViewOwnership = ownership,
+			isDispatchCurrent = { true },
+			dispatchExact = { _, generation ->
+				exactDispatchGenerations += generation
+				ReaderPageRelocationExactDispatchResult.Dispatched
+			},
+			onRejected = { _, reason -> error("Unexpected rejection: $reason") }
+		)
+		assertTrue(liveDispatch.transfer(request, claim))
+		assertTrue(liveDispatch.dispatch(request))
+		val mutationGeneration = checkNotNull(liveDispatch.mutationGeneration(request))
+		assertEquals(listOf(mutationGeneration), exactDispatchGenerations)
+		acknowledgeForVisualHandoff(queue, request)
+
+		val host = FakeVisualHandoffHost(attached = true)
+		val finalizers = mutableListOf<(Boolean) -> Unit>()
+		val recoveryEvents = mutableListOf<ReaderPageRelocationVisualRetryEvent>()
+		val completed = mutableListOf<ReaderPageRelocationRequest>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { visualStateFor(request) },
+			dispatch = { error("No dispatch expected") },
+			publishRecovery = { recoveryRequest, reason ->
+				assertEquals(ReaderWebViewVisualHandoffFailure.PresentationFailed, reason)
+				recoveryEvents += ReaderPageRelocationVisualRetryEvent.Reprepared(
+					foliateSessionId = recoveryRequest.foliateSessionId,
+					destinationOrdinal = recoveryRequest.destinationOrdinal,
+					rasterGeneration = recoveryRequest.rasterGeneration,
+					textureGeneration = recoveryRequest.textureGeneration
+				)
+			},
+			finalizePresentation = { finalizingRequest, onFinalized ->
+				assertEquals(mutationGeneration, liveDispatch.mutationGeneration(finalizingRequest))
+				finalizers += onFinalized
+			},
+			validateContent = { validatingRequest, onValidated ->
+				assertTrue(liveDispatch.isCurrent(validatingRequest, mutationGeneration))
+				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
+				ReaderPageRelocationContentValidationHandle.Completed
+			},
+			onCompleted = { completedRequest ->
+				assertTrue(liveDispatch.complete(completedRequest))
+				completed += completedRequest
+			}
+		)
+
+		assertTrue(coordinator.onAcknowledged(request))
+		host.completeVisualState()
+		host.runNextFrame()
+		assertEquals(1, finalizers.size)
+		assertEquals(1, ownership.snapshot().liveClaims)
+		assertNull(
+			ownership.tryAcquirePassive(sessionId = 91L) {
+				error("Passive ownership must stay blocked by the live claim")
+			}
+		)
+
+		val failedFinalizer = finalizers.single()
+		failedFinalizer(false)
+		assertEquals(request, queue.head())
+		assertEquals(1, recoveryEvents.size)
+		assertEquals(1, ownership.snapshot().liveClaims)
+		assertNull(
+			ownership.tryAcquirePassive(sessionId = 92L) {
+				error("Passive ownership must stay blocked during presentation recovery")
+			}
+		)
+
+		failedFinalizer(true)
+		assertEquals(request, queue.head())
+		assertEquals(1, ownership.snapshot().liveClaims)
+		assertEquals(0, passiveAvailableEdges)
+		assertTrue(coordinator.onRetryEvent(recoveryEvents.single()))
+		assertEquals(2, finalizers.size)
+		assertEquals(mutationGeneration, liveDispatch.mutationGeneration(request))
+		assertNull(
+			ownership.tryAcquirePassive(sessionId = 93L) {
+				error("Passive ownership must stay blocked while retry finalizes")
+			}
+		)
+
+		val currentFinalizer = finalizers.last()
+		currentFinalizer(true)
+		currentFinalizer(true)
+
+		assertNull(queue.head())
+		assertEquals(listOf(request), completed)
+		assertEquals(0, ownership.snapshot().liveClaims)
+		assertEquals(1, passiveAvailableEdges)
+		val passive = checkNotNull(
+			ownership.tryAcquirePassive(sessionId = 94L) {
+				error("Released passive lease must not be preempted")
+			}
+		)
+		assertTrue(ownership.releasePassive(passive))
+	}
+
+	@Test
+	fun differentGenerationPresentationRecoveryCannotReplaceExactLiveOwner() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueVisualRequest(queue, gestureId = 3L)
+		var passiveAvailableEdges = 0
+		val ownership = ReaderForegroundWebViewOwnership {
+			passiveAvailableEdges += 1
+		}
+		val claim = ownership.acquireLive(request.gestureId)
+		val liveDispatch = ReaderPageRelocationLiveDispatchCoordinator(
+			foregroundWebViewOwnership = ownership,
+			isDispatchCurrent = { true },
+			dispatchExact = { _, _ -> ReaderPageRelocationExactDispatchResult.Dispatched },
+			onRejected = { _, reason -> error("Unexpected rejection: $reason") }
+		)
+		assertTrue(liveDispatch.transfer(request, claim))
+		assertTrue(liveDispatch.dispatch(request))
+		val mutationGeneration = checkNotNull(liveDispatch.mutationGeneration(request))
+		acknowledgeForVisualHandoff(queue, request)
+
+		val host = FakeVisualHandoffHost(attached = true)
+		var state = visualStateFor(request)
+		val finalizers = mutableListOf<(Boolean) -> Unit>()
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
+		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val completed = mutableListOf<ReaderPageRelocationRequest>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { state },
+			dispatch = { replacement ->
+				dispatched += replacement
+				assertTrue(liveDispatch.dispatch(replacement))
+			},
+			publishRecovery = { _, reason -> recoveries += reason },
+			finalizePresentation = { finalizingRequest, onFinalized ->
+				assertEquals(
+					mutationGeneration,
+					liveDispatch.mutationGeneration(finalizingRequest)
+				)
+				finalizers += onFinalized
+			},
+			validateContent = { validatingRequest, onValidated ->
+				assertTrue(liveDispatch.isCurrent(validatingRequest, mutationGeneration))
+				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
+				ReaderPageRelocationContentValidationHandle.Completed
+			},
+			onCompleted = { completedRequest ->
+				assertTrue(liveDispatch.complete(completedRequest))
+				completed += completedRequest
+			},
+			onReplaced = { original, replacement ->
+				assertTrue(liveDispatch.replace(original, replacement))
+			}
+		)
+
+		assertTrue(coordinator.onAcknowledged(request))
+		host.completeVisualState()
+		host.runNextFrame()
+		val failedFinalizer = finalizers.single()
+		state = state.copy(
+			rasterGeneration = request.rasterGeneration + 1L,
+			textureGeneration = request.textureGeneration + 1L
+		)
+		val differentGenerationEvent = ReaderPageRelocationVisualRetryEvent.Reprepared(
+			foliateSessionId = request.foliateSessionId,
+			destinationOrdinal = request.destinationOrdinal,
+			rasterGeneration = checkNotNull(state.rasterGeneration),
+			textureGeneration = checkNotNull(state.textureGeneration)
+		)
+		assertFalse(coordinator.onRetryEvent(differentGenerationEvent))
+		failedFinalizer(false)
+		assertEquals(
+			listOf(ReaderWebViewVisualHandoffFailure.PresentationFailed),
+			recoveries
+		)
+		assertFalse(coordinator.onRetryEvent(differentGenerationEvent))
+		assertEquals(request, queue.head())
+		assertTrue(dispatched.isEmpty())
+		assertEquals(mutationGeneration, liveDispatch.mutationGeneration(request))
+		assertEquals(1, ownership.snapshot().liveClaims)
+		assertNull(
+			ownership.tryAcquirePassive(sessionId = 95L) {
+				error("Different-generation recovery must retain exact live ownership")
+			}
+		)
+		assertTrue(completed.isEmpty())
+		assertEquals(0, passiveAvailableEdges)
+
+		failedFinalizer(true)
+		assertEquals(request, queue.head())
+		assertEquals(1, ownership.snapshot().liveClaims)
+		state = visualStateFor(request)
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					foliateSessionId = request.foliateSessionId,
+					destinationOrdinal = request.destinationOrdinal,
+					rasterGeneration = request.rasterGeneration,
+					textureGeneration = request.textureGeneration
+				)
+			)
+		)
+		assertEquals(2, finalizers.size)
+		assertEquals(mutationGeneration, liveDispatch.mutationGeneration(request))
+		assertNull(
+			ownership.tryAcquirePassive(sessionId = 96L) {
+				error("Exact retry must retain live ownership until exposure commits")
+			}
+		)
+
+		val currentFinalizer = finalizers.last()
+		currentFinalizer(true)
+		currentFinalizer(true)
+
+		assertNull(queue.head())
+		assertEquals(listOf(request), completed)
+		assertEquals(0, ownership.snapshot().liveClaims)
+		assertEquals(1, passiveAvailableEdges)
+	}
+
+	@Test
+	fun presentationFailureAutomaticallyRequestsOnlyOneRecovery() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueVisualRequest(queue, gestureId = 3L)
+		acknowledgeForVisualHandoff(queue, request)
+		val host = FakeVisualHandoffHost(attached = true)
+		val finalizers = mutableListOf<(Boolean) -> Unit>()
+		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { visualStateFor(request) },
+			dispatch = { error("No dispatch expected") },
+			publishRecovery = { _, reason -> recoveries += reason },
+			finalizePresentation = { _, onFinalized -> finalizers += onFinalized },
+			validateContent = { _, onValidated ->
+				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
+				ReaderPageRelocationContentValidationHandle.Completed
+			}
+		)
+
+		assertTrue(coordinator.onAcknowledged(request))
+		host.completeVisualState()
+		host.runNextFrame()
+		finalizers.single().invoke(false)
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					foliateSessionId = request.foliateSessionId,
+					destinationOrdinal = request.destinationOrdinal,
+					rasterGeneration = request.rasterGeneration,
+					textureGeneration = request.textureGeneration
+				)
+			)
+		)
+		finalizers.last().invoke(false)
+
+		assertEquals(
+			listOf(ReaderWebViewVisualHandoffFailure.PresentationFailed),
+			recoveries
+		)
+		assertEquals(request, queue.head())
+	}
+
+	@Test
+	fun exposureCommitCannotCompleteAfterPresentationGenerationDrifts() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueVisualRequest(queue, gestureId = 1L)
+		acknowledgeForVisualHandoff(queue, request)
+		val host = FakeVisualHandoffHost(attached = true)
+		var state = visualStateFor(request)
+		lateinit var finalize: (Boolean) -> Unit
+		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { state },
+			dispatch = { error("No dispatch expected") },
+			publishRecovery = { _, reason -> recoveries += reason },
+			finalizePresentation = { _, onFinalized -> finalize = onFinalized },
+			validateContent = { _, onValidated ->
+				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
+				ReaderPageRelocationContentValidationHandle.Completed
+			}
+		)
+
+		assertTrue(coordinator.onAcknowledged(request))
+		host.completeVisualState()
+		host.runNextFrame()
+		state = state.copy(textureGeneration = request.textureGeneration + 1L)
+		finalize(true)
+
+		assertEquals(request, queue.head())
+		assertEquals(
+			listOf(ReaderWebViewVisualHandoffFailure.PresentationFailed),
+			recoveries
+		)
 	}
 
 	@Test
@@ -880,7 +1276,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, reason -> error("Unexpected recovery: $reason") },
-			hideSurface = hidden::add,
+			finalizePresentation = immediatePresentationFinalizer(hidden::add),
 			validateContent = { _, onValidated ->
 				validations += onValidated
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -915,7 +1311,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = hidden::add,
+			finalizePresentation = immediatePresentationFinalizer(hidden::add),
 			validateContent = { _, onValidated ->
 				validationAttempts += 1
 				onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
@@ -951,7 +1347,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = dispatched::add,
 			publishRecovery = { _, _ -> },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -1005,7 +1401,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, _ -> },
-			hideSurface = hidden::add,
+			finalizePresentation = immediatePresentationFinalizer(hidden::add),
 			validateContent = { _, onValidated ->
 				validations += onValidated
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -1041,7 +1437,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, reason -> error("Unexpected recovery: $reason") },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { _, onValidated ->
 				validations += onValidated
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -1080,7 +1476,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { _, onValidated ->
 				validationAttempts += 1
 				if (rejectContent) {
@@ -1143,7 +1539,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = hidden::add,
+			finalizePresentation = immediatePresentationFinalizer(hidden::add),
 			validateContent = { _, onValidated ->
 				validationAttempts += 1
 				lateCallbacks += onValidated
@@ -1194,7 +1590,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, reason -> error("Unexpected recovery: $reason") },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { _, onValidated ->
 				validations += onValidated
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -1235,7 +1631,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = dispatched::add,
 			publishRecovery = { _, _ -> },
-			hideSurface = hidden::add,
+			finalizePresentation = immediatePresentationFinalizer(hidden::add),
 			validateContent = { request, onValidated ->
 				onValidated(
 					if (request.textureGeneration == original.textureGeneration) {
@@ -1319,7 +1715,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = dispatched::add,
 			publishRecovery = { _, _ -> },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { request, onValidated ->
 				onValidated(
 					if (request.token == original.token) {
@@ -1544,7 +1940,7 @@ class ReaderWebViewVisualHandoffTest {
 			},
 			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { request, onValidated ->
 				if (request.textureGeneration == original.textureGeneration) {
 					validations += onValidated
@@ -1627,7 +2023,7 @@ class ReaderWebViewVisualHandoffTest {
 			},
 			dispatch = dispatched::add,
 			publishRecovery = { _, _ -> },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { request, onValidated ->
 				onValidated(
 					if (request.textureGeneration == original.textureGeneration) {
@@ -1713,7 +2109,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = dispatched::add,
 			publishRecovery = { _, _ -> },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -1774,7 +2170,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = hidden::add,
+			finalizePresentation = immediatePresentationFinalizer(hidden::add),
 			onRejectedContentReleased = terminalRejections::add,
 			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
@@ -1859,7 +2255,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			onRejectedContentReleased = terminalRejections::add,
 			validateContent = { request, onValidated ->
 				if (request.token == original.token) {
@@ -1950,7 +2346,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { request, onValidated ->
 				if (request.token == original.token) {
 					onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
@@ -2034,7 +2430,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { request, onValidated ->
 				if (request.token == original.token) {
 					onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
@@ -2127,7 +2523,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = dispatched::add,
 			publishRecovery = { _, _ -> },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { request, onValidated ->
 				onValidated(
 					if (request.gestureId == original.gestureId && request.token != original.token) {
@@ -2210,7 +2606,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = dispatched::add,
 			publishRecovery = { _, _ -> },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -2274,7 +2670,7 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { visualStateFor(request) },
 			dispatch = { error("No dispatch expected") },
 			publishRecovery = { _, _ -> },
-			hideSurface = {},
+			finalizePresentation = immediatePresentationFinalizer(),
 			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -2309,6 +2705,16 @@ class ReaderWebViewVisualHandoffTest {
 		host.runNextFrame()
 		assertEquals(ReaderWebViewVisualHandoffResult.Ready("token-sync"), result)
 		assertEquals(0, handoff.pendingHostCallbackCount())
+	}
+
+	private fun immediatePresentationFinalizer(
+		onFinalizing: (ReaderPageRelocationRequest) -> Unit = {}
+	): (
+		ReaderPageRelocationRequest,
+		(Boolean) -> Unit
+	) -> Unit = { request, onFinalized ->
+		onFinalizing(request)
+		onFinalized(true)
 	}
 
 	private fun enqueueVisualRequest(

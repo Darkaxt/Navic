@@ -528,6 +528,12 @@ internal class ReaderPageRelocationLiveDispatchCoordinator(
 		return true
 	}
 
+	fun complete(request: ReaderPageRelocationRequest): Boolean {
+		val entry = remove(request) ?: return false
+		foregroundWebViewOwnership.releaseLive(entry.claim)
+		return true
+	}
+
 	fun fail(
 		request: ReaderPageRelocationRequest,
 		reason: ReaderPageRelocationDiagnosticRejectionReason
@@ -831,7 +837,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			currentState = ::relocationVisualState,
 			dispatch = ::dispatchRelocation,
 			publishRecovery = ::publishRelocationVisualRecovery,
-			hideSurface = ::hideSurfaceAfterHandoff,
+			finalizePresentation = ::finalizeHandoffPresentation,
 			validateContent = ::validateLivePresentation,
 			canRecover = { qaFaultRegistry?.isClosed() != true },
 			onOwnershipMutated = onOwnershipMutated,
@@ -4636,6 +4642,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun completeRelocationVisualHandoff(
 		request: ReaderPageRelocationRequest
 	) {
+		check(relocationLiveDispatchCoordinator.complete(request)) {
+			"Committed WebView exposure lost exact foreground ownership"
+		}
 		emitRelocationDiagnostic(
 			request,
 			ReaderPageRelocationDiagnosticState.Completed,
@@ -4754,7 +4763,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 				interaction = ReaderPageInteractionState.Failed,
 				reason = "visual-handoff-content-validation-failed"
 			)
-			requestLivePresentationRecovery()
+			requestLivePresentationRecovery(reason)
+			return
+		}
+		if (reason == ReaderWebViewVisualHandoffFailure.PresentationFailed) {
+			failedLivePresentationGeneration = FailedLivePresentationGeneration(request)
+			retainsRejectedSurfaceInputShield = true
+			onViewerContentInputSuppressed()
+			Logger.e(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"PlayLikeCurl visual handoff presentation failed reason=$reason"
+			)
+			updateReadiness(
+				interaction = ReaderPageInteractionState.Failed,
+				reason = "visual-handoff-presentation-failed"
+			)
+			retryRelocationVisualHandoffForPreparedDeck(request.textureGeneration)
 			return
 		}
 		check(
@@ -5022,33 +5046,66 @@ internal class ReaderPlayLikeCurlFoliateController(
 		presentedFrameGestureId?.let { owner -> owner > gestureId } == true ||
 			presentedSurfaceGestureId?.let { owner -> owner > gestureId } == true
 
-	private fun hideSurfaceAfterHandoff(request: ReaderPageRelocationRequest) {
-		val snapshot = takeInlineHandoffSnapshot(request) ?: return
-		val generationOwner = generationOwners[request.textureGeneration]
-		if (
-			destroyed ||
-			activeDeckGenerationId != request.textureGeneration ||
-			generationOwner == null ||
-			generationOwner.profile.rasterGeneration != request.rasterGeneration ||
-			currentOrdinal != request.destinationOrdinal ||
-			currentWebViewOrdinal != request.destinationOrdinal ||
-			currentFoliateSessionId != request.foliateSessionId ||
-			hasNewerSurfacePresentationOwner(request.gestureId)
-		) {
-			snapshot.release()
+	private fun finalizeHandoffPresentation(
+		request: ReaderPageRelocationRequest,
+		onFinalized: (Boolean) -> Unit
+	) {
+		val foregroundMutationGeneration =
+			relocationLiveDispatchCoordinator.mutationGeneration(request)
+		if (foregroundMutationGeneration == null) {
+			onFinalized(false)
 			return
 		}
+		val generationOwner = generationOwners[request.textureGeneration]
+		if (
+			generationOwner == null ||
+			!handoffPresentationIsCurrent(
+				request,
+				generationOwner,
+				foregroundMutationGeneration
+			)
+		) {
+			onFinalized(false)
+			return
+		}
+		if (inlineRasterShield.ownsPresentation()) {
+			fadeInlineHandoffShield(
+				request,
+				generationOwner,
+				foregroundMutationGeneration,
+				onFinalized
+			)
+			return
+		}
+		val snapshot = takeInlineHandoffSnapshot(request)
+		if (snapshot == null) {
+			onFinalized(false)
+			return
+		}
+		if (
+			!handoffPresentationIsCurrent(
+				request,
+				generationOwner,
+				foregroundMutationGeneration
+			)
+		) {
+			snapshot.release()
+			onFinalized(false)
+			return
+		}
+		snapshot.retain()
+		check(retainedInlineHandoffSnapshot == null)
+		retainedInlineHandoffSnapshot = RetainedInlineHandoffSnapshot(request, snapshot)
 		inlineRasterShield.present(snapshot) { presented ->
-			val handoffStillCurrent =
-				!destroyed &&
-					activeDeckGenerationId == request.textureGeneration &&
-					generationOwners[request.textureGeneration] === generationOwner &&
-					currentOrdinal == request.destinationOrdinal &&
-					currentWebViewOrdinal == request.destinationOrdinal &&
-					currentFoliateSessionId == request.foliateSessionId &&
-					!hasNewerSurfacePresentationOwner(request.gestureId)
+			val handoffStillCurrent = handoffPresentationIsCurrent(
+				request,
+				generationOwner,
+				foregroundMutationGeneration
+			)
 			if (!handoffStillCurrent) {
 				if (presented) inlineRasterShield.dismiss()
+				clearRetainedInlineHandoffSnapshot(request)
+				onFinalized(false)
 				return@present
 			}
 			if (!presented) {
@@ -5056,13 +5113,77 @@ internal class ReaderPlayLikeCurlFoliateController(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl inline raster crossfade presentation failed"
 				)
-				hideCurlSurface()
+				onFinalized(false)
 				return@present
 			}
-			hideSurfaceBehindInlineRasterShield()
-			inlineRasterShield.fadeOut(ReaderPageLiveHandoffCrossfadeMillis)
+			clearRetainedInlineHandoffSnapshot(request)
+			fadeInlineHandoffShield(
+				request,
+				generationOwner,
+				foregroundMutationGeneration,
+				onFinalized
+			)
 		}
 	}
+
+	private fun fadeInlineHandoffShield(
+		request: ReaderPageRelocationRequest,
+		generationOwner: PreparedPages,
+		foregroundMutationGeneration: ReaderForegroundWebViewMutationGeneration,
+		onFinalized: (Boolean) -> Unit
+	) {
+		if (
+			!inlineRasterShield.ownsPresentation() ||
+			!handoffPresentationIsCurrent(
+				request,
+				generationOwner,
+				foregroundMutationGeneration
+			)
+		) {
+			onFinalized(false)
+			return
+		}
+		hideSurfaceBehindInlineRasterShield()
+		inlineRasterShield.fadeOut(
+			ReaderPageLiveHandoffCrossfadeMillis
+		) { exposedFrameCommitted ->
+			val finalized =
+				exposedFrameCommitted &&
+					handoffPresentationIsCurrent(
+						request,
+						generationOwner,
+						foregroundMutationGeneration
+					)
+			if (finalized) inlineRasterShield.dismiss()
+			onFinalized(finalized)
+		}
+	}
+
+	private fun handoffPresentationIsCurrent(
+		request: ReaderPageRelocationRequest,
+		generationOwner: PreparedPages,
+		foregroundMutationGeneration: ReaderForegroundWebViewMutationGeneration
+	): Boolean =
+		!destroyed &&
+			enabled &&
+			relocationLiveDispatchCoordinator.isCurrent(
+				request,
+				foregroundMutationGeneration
+			) &&
+			activeDeckGenerationId == request.textureGeneration &&
+			generationOwners[request.textureGeneration] === generationOwner &&
+			generationOwner.profile.rasterGeneration == request.rasterGeneration &&
+			currentOrdinal == request.destinationOrdinal &&
+			currentWebViewOrdinal == request.destinationOrdinal &&
+			currentFoliateSessionId == request.foliateSessionId &&
+			relocationQueue.matchesAcknowledgedHead(
+				token = request.token.value,
+				rasterGeneration = request.rasterGeneration,
+				textureGeneration = request.textureGeneration,
+				foliateSessionId = request.foliateSessionId,
+				destinationOrdinal = request.destinationOrdinal
+			) &&
+			!hasNewerSurfacePresentationOwner(request.gestureId)
 
 	private fun hideSurfaceBehindInlineRasterShield() {
 		check(inlineRasterShield.ownsPresentation())
@@ -5135,9 +5256,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 		onReadinessStateChange(next)
 	}
 
-	private fun requestLivePresentationRecovery() {
+	private fun requestLivePresentationRecovery(
+		reason: ReaderWebViewVisualHandoffFailure
+	) {
+		require(
+			reason == ReaderWebViewVisualHandoffFailure.ContentRejected ||
+				reason == ReaderWebViewVisualHandoffFailure.PresentationFailed
+		)
 		livePresentationRecoveryRequest.request()
-		requestPrewarmIfIdle("visual-handoff-content-validation-failed")
+		requestPrewarmIfIdle(
+			when (reason) {
+				ReaderWebViewVisualHandoffFailure.ContentRejected ->
+					"visual-handoff-content-validation-failed"
+				ReaderWebViewVisualHandoffFailure.PresentationFailed ->
+					"visual-handoff-presentation-failed"
+			}
+		)
 		if (preparationPhase != ReaderPagePreparationPhase.Preparing) {
 			refreshPreparedDeck()
 		}

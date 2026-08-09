@@ -54,26 +54,49 @@ class ReaderPlayLikeCurlSurfaceBoundsTest {
 	}
 
 	@Test
-	fun successfulHandoffCrossfadesValidatedRasterOnEverySupportedApi() {
-		val source = sourceFile(
+	fun successfulHandoffCrossfadesValidatedRasterUntilWebViewExposureCommits() {
+		val controller = sourceFile(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 				"ReaderPlayLikeCurlFoliateController.android.kt"
 		).readText()
-		val handoff = source
-			.substringAfter("private fun hideSurfaceAfterHandoff(")
+		val shield = sourceFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPageInlineRasterShield.android.kt"
+		).readText()
+		val handoff = controller
+			.substringAfter("private fun finalizeHandoffPresentation(")
 			.substringBefore("private fun hideSurface()")
-		val reveal = source
+		val fade = shield
+			.substringAfter("fun fadeOut(")
+			.substringBefore("private fun awaitExposedWebViewFrame(")
+		val exposure = shield
+			.substringAfter("private fun awaitExposedWebViewFrame(")
+			.substringBefore("private fun completeFade(")
+		val fadeCompletion = shield
+			.substringAfter("private fun completeFade(")
+			.substringBefore("private fun cancelPendingPresentation(")
+		val reveal = controller
 			.substringAfter("private fun revealSurfaceAfterNextPresentedFrame(")
 			.substringBefore("fun cancelGestureAfterHostTerminal(")
 
-		assertContains(source, "ReaderPageLiveHandoffCrossfadeMillis = 200L")
+		assertContains(controller, "ReaderPageLiveHandoffCrossfadeMillis = 200L")
 		assertContains(handoff, "inlineRasterShield.present(")
 		assertContains(handoff, "hideSurfaceBehindInlineRasterShield()")
-		assertContains(
-			handoff,
-			"inlineRasterShield.fadeOut(ReaderPageLiveHandoffCrossfadeMillis)"
-		)
+		assertContains(handoff, "inlineRasterShield.fadeOut(")
+		assertContains(handoff, "onFinalized(finalized)")
+		assertFalse(handoff.contains("if (!presented) {\n\t\t\t\thideCurlSurface()"))
 		assertFalse(handoff.contains("surfaceView.animate()"))
+		assertContains(fade, "onExposedFrameCommitted: (Boolean) -> Unit")
+		assertContains(fade, "awaitExposedWebViewFrame(request)")
+		assertContains(exposure, "registerFrameCommitCallback")
+		assertContains(exposure, "host.invalidate()")
+		assertContains(exposure, "host.postOnAnimation")
+		assertFalse(fadeCompletion.contains("clearPresentation()"))
+		assertTrue(
+			fadeCompletion.indexOf("callback?.invoke(effectiveCommit)") <
+				fadeCompletion.indexOf("if (effectiveCommit && ownsPresentation()")
+		)
+		assertContains(fadeCompletion, "view.alpha = 1f")
 		assertContains(reveal, "surfaceView.animate().cancel()")
 		assertContains(reveal, "presentedSurfaceGestureId == gestureId")
 		assertContains(reveal, "surfaceView.alpha = 0f")

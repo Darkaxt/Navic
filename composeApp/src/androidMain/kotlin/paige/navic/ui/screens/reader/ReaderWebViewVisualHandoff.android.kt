@@ -15,6 +15,7 @@ internal enum class ReaderWebViewVisualHandoffFailure {
 	Invalidated,
 	CallbackCapacity,
 	ContentRejected,
+	PresentationFailed,
 	Cancelled
 }
 
@@ -796,6 +797,7 @@ internal sealed interface ReaderPageRelocationVisualRetryEvent {
 
 private const val MaximumContentValidationAttempts = 3
 private const val MaximumContentRecoveryReplacements = 1
+private const val MaximumPresentationRecoveryRequests = 1
 
 private class ReaderPageRelocationContentValidationHandleCell {
 	private val lock = Any()
@@ -835,7 +837,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		ReaderPageRelocationRequest,
 		ReaderWebViewVisualHandoffFailure
 	) -> Unit,
-	private val hideSurface: (ReaderPageRelocationRequest) -> Unit,
+	finalizePresentation: (
+		ReaderPageRelocationRequest,
+		(Boolean) -> Unit
+	) -> Unit,
 	private val validateContent: (
 		ReaderPageRelocationRequest,
 		(ReaderPageRelocationContentValidationResult) -> Unit
@@ -858,9 +863,12 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		Idle,
 		Awaiting,
 		ValidatingContent,
+		FinalizingPresentation,
 		Recovering,
 		Closed
 	}
+
+	private val presentationFinalizer = finalizePresentation
 
 	private data class PendingQaFaultInheritance(
 		val replacementToken: String,
@@ -876,6 +884,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	private var head: ReaderPageRelocationRequest? = null
 	private var contentValidationFailures = 0
 	private var contentValidationEpoch = 0L
+	private var presentationFinalizationEpoch = 0L
+	private var presentationFinalizationPending = false
+	private var presentationRecoveryPending = false
+	private var presentationRecoveryRequests = 0
 	private var contentValidationExhausted = false
 	private var contentRecoveryGestureId: Long? = null
 	private var contentRecoveryReplacements = 0
@@ -942,9 +954,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	fun pendingCallbackCount(): Int =
 		handoff.applicationOwnedCallbackCount() +
 			(if (contentValidationTimeoutAction != null) 1 else 0) +
-			(if (contentValidationHandleCell != null) 1 else 0)
+			(if (contentValidationHandleCell != null) 1 else 0) +
+			(if (presentationFinalizationPending) 1 else 0)
 
-	fun pendingCallbackLimit(): Int = handoff.pendingCallbackLimit + 2
+	fun pendingCallbackLimit(): Int = handoff.pendingCallbackLimit + 3
 
 	fun pendingCapacityRetryEdgeCount(): Int =
 		handoff.pendingCapacityRetryEdgeCount()
@@ -978,6 +991,9 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationEpoch += 1L
 		check(contentValidationTimeoutAction == null)
 		check(contentValidationHandleCell == null)
+		check(!presentationFinalizationPending)
+		check(!presentationRecoveryPending)
+		presentationRecoveryRequests = 0
 		check(retainedRepreparedEvidence == null)
 		check(pendingVisualReadyTerminal == null)
 		headQaFaultCorrelation = qaFaultCorrelation
@@ -1056,13 +1072,22 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		if (!canRecover()) return false
 		val request = head ?: return false
 		discardRetainedRepreparedEvidenceIfStale(request)
-		if (phase == Phase.Awaiting || phase == Phase.ValidatingContent) {
+		if (
+			phase == Phase.Awaiting ||
+			phase == Phase.ValidatingContent ||
+			phase == Phase.FinalizingPresentation
+		) {
 			(event as? ReaderPageRelocationVisualRetryEvent.Reprepared)?.let {
 				retainRepreparedEvidenceIfCurrent(request, it)
 			}
 			return false
 		}
 		if (phase != Phase.Recovering) return false
+		if (presentationRecoveryPending) {
+			if (!event.matches(request) || !currentStateMatches(request)) return false
+			retainedRepreparedEvidence = null
+			return finalizePresentation(request)
+		}
 		if (
 			!contentValidationExhausted &&
 			event.matches(request) &&
@@ -1163,6 +1188,9 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			return false
 		}
 		retainedRepreparedEvidence = null
+		if (presentationRecoveryPending) {
+			return sameGeneration && finalizePresentation(request)
+		}
 		return if (sameGeneration) {
 			begin(request)
 		} else {
@@ -1258,6 +1286,8 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		phase = Phase.Idle
 		contentValidationFailures = 0
 		contentValidationExhausted = false
+		presentationRecoveryPending = false
+		presentationRecoveryRequests = 0
 		contentValidationEpoch += 1L
 		clearQaFaultCorrelation(clearPendingInheritance = false)
 		val command = queue.commandToDispatch()
@@ -1395,7 +1425,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		when (result) {
 			ReaderPageRelocationContentValidationResult.Accepted -> {
 				if (validationIsCurrent(request)) {
-					complete(request)
+					finalizePresentation(request)
 				} else {
 					recover(request, ReaderWebViewVisualHandoffFailure.Invalidated)
 				}
@@ -1464,6 +1494,8 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationEpoch += 1L
 		contentValidationFailures = 0
 		contentValidationExhausted = false
+		presentationRecoveryPending = false
+		presentationRecoveryRequests = 0
 		clearContentRecoveryLineage()
 		head = null
 		clearQaFaultCorrelation()
@@ -1517,6 +1549,68 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		onOwnershipMutated()
 	}
 
+	private fun finalizePresentation(request: ReaderPageRelocationRequest): Boolean {
+		if (
+			(
+				phase != Phase.ValidatingContent &&
+				!(phase == Phase.Recovering && presentationRecoveryPending)
+			) ||
+			head != request ||
+			!validationIsCurrent(request)
+		) {
+			recover(request, ReaderWebViewVisualHandoffFailure.Invalidated)
+			return false
+		}
+		presentationRecoveryPending = false
+		phase = Phase.FinalizingPresentation
+		val finalizationEpoch = ++presentationFinalizationEpoch
+		check(!presentationFinalizationPending)
+		presentationFinalizationPending = true
+		onOwnershipMutated()
+		try {
+			presentationFinalizer(request) { exposedFrameCommitted ->
+				onPresentationFinalized(
+					request,
+					finalizationEpoch,
+					exposedFrameCommitted
+				)
+			}
+		} catch (_: Throwable) {
+			onPresentationFinalized(request, finalizationEpoch, false)
+		}
+		return true
+	}
+
+	private fun onPresentationFinalized(
+		request: ReaderPageRelocationRequest,
+		finalizationEpoch: Long,
+		exposedFrameCommitted: Boolean
+	) {
+		if (
+			phase != Phase.FinalizingPresentation ||
+			head != request ||
+			presentationFinalizationEpoch != finalizationEpoch ||
+			!presentationFinalizationPending
+		) {
+			return
+		}
+		presentationFinalizationPending = false
+		onOwnershipMutated()
+		if (!exposedFrameCommitted || !validationIsCurrent(request)) {
+			presentationRecoveryPending = true
+			recover(request, ReaderWebViewVisualHandoffFailure.PresentationFailed)
+			return
+		}
+		complete(request)
+	}
+
+	private fun clearPresentationFinalization() {
+		presentationFinalizationEpoch += 1L
+		if (!presentationFinalizationPending) return
+		presentationFinalizationPending = false
+		onOwnershipMutated()
+	}
+
 	private fun complete(request: ReaderPageRelocationRequest) {
 		if (
 			!matchesAcknowledgedHead(request) ||
@@ -1531,13 +1625,15 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationEpoch += 1L
 		contentValidationFailures = 0
 		contentValidationExhausted = false
+		presentationRecoveryPending = false
+		presentationRecoveryRequests = 0
 		clearContentRecoveryLineage()
 		publishPendingVisualTerminal(request)
 		onCompleted(request)
 		head = null
 		clearQaFaultCorrelation()
 		val next = queue.commandToDispatch()
-		if (next == null) hideSurface(request) else dispatch(next)
+		next?.let(dispatch)
 	}
 
 	private fun recover(
@@ -1546,10 +1642,15 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	) {
 		if (phase == Phase.Closed || head != request) return
 		clearContentValidationAttempt()
+		clearPresentationFinalization()
 		contentValidationEpoch += 1L
 		phase = Phase.Recovering
 		publishPendingVisualTerminal(request, reason)
 		if (canRecover() && consumeRetainedRepreparedEvidence(request)) return
+		if (reason == ReaderWebViewVisualHandoffFailure.PresentationFailed) {
+			if (presentationRecoveryRequests >= MaximumPresentationRecoveryRequests) return
+			presentationRecoveryRequests += 1
+		}
 		publishRecovery(request, reason)
 		if (!canRecover()) return
 		if (
@@ -1647,6 +1748,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			return
 		}
 		clearContentValidationAttempt()
+		clearPresentationFinalization()
 		publishPendingVisualTerminal(
 			request,
 			ReaderWebViewVisualHandoffFailure.Invalidated
@@ -1657,6 +1759,8 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationEpoch += 1L
 		contentValidationFailures = 0
 		contentValidationExhausted = false
+		presentationRecoveryPending = false
+		presentationRecoveryRequests = 0
 		clearContentRecoveryLineage()
 		handoff.cancelPendingCapacityRetryEdge(request.token.value)
 		handoff.invalidate()
@@ -1667,6 +1771,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		if (phase == Phase.Closed) return
 		val request = head
 		clearContentValidationAttempt()
+		clearPresentationFinalization()
 		request?.let {
 			publishPendingVisualTerminal(
 				it,
@@ -1679,6 +1784,8 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationEpoch += 1L
 		contentValidationFailures = 0
 		contentValidationExhausted = true
+		presentationRecoveryPending = false
+		presentationRecoveryRequests = 0
 		clearContentRecoveryLineage()
 		request?.let { handoff.cancelPendingCapacityRetryEdge(it.token.value) }
 		handoff.close()

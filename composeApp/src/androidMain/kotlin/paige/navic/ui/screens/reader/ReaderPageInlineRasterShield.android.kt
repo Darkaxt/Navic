@@ -32,6 +32,7 @@ internal class ReaderPageInlineRasterShield(
 	private var activeFadeRequest: Long? = null
 	private var ownedSnapshot: ReaderPageSlideSnapshot? = null
 	private var presentationCallback: ((Boolean) -> Unit)? = null
+	private var fadeCallback: ((Boolean) -> Unit)? = null
 
 	fun present(
 		snapshot: ReaderPageSlideSnapshot,
@@ -64,21 +65,36 @@ internal class ReaderPageInlineRasterShield(
 		onPresentationOwnershipStarted()
 	}
 
-	fun fadeOut(durationMillis: Long) {
+	fun fadeOut(
+		durationMillis: Long,
+		onExposedFrameCommitted: (Boolean) -> Unit
+	) {
 		require(durationMillis >= 0L)
-		if (!ownsPresentation()) return
+		if (!ownsPresentation() || !host.isAttachedToWindow) {
+			onExposedFrameCommitted(false)
+			return
+		}
 		cancelFade()
 		val request = Math.incrementExact(nextRequest).also { nextRequest = it }
 		activeFadeRequest = request
+		fadeCallback = onExposedFrameCommitted
 		onOwnershipMutated()
+		val timeoutDelay = if (
+			durationMillis > Long.MAX_VALUE - ReaderPageInlineRasterShieldTimeoutMillis
+		) {
+			Long.MAX_VALUE
+		} else {
+			durationMillis + ReaderPageInlineRasterShieldTimeoutMillis
+		}
+		val timeoutAction = Runnable { completeFade(request, false) }
+		timeout = timeoutAction
+		host.postDelayed(timeoutAction, timeoutDelay)
 		view.animate()
 			.alpha(0f)
 			.setDuration(durationMillis)
 			.withEndAction {
 				if (activeFadeRequest != request) return@withEndAction
-				activeFadeRequest = null
-				clearPresentation()
-				onOwnershipMutated()
+				awaitExposedWebViewFrame(request)
 			}
 			.start()
 	}
@@ -156,7 +172,73 @@ internal class ReaderPageInlineRasterShield(
 		view.postOnAnimation(first)
 	}
 
+	private fun awaitExposedWebViewFrame(request: Long) {
+		if (
+			activeFadeRequest != request ||
+			!host.isAttachedToWindow ||
+			!ownsPresentation()
+		) {
+			completeFade(request, false)
+			return
+		}
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+			val observer = host.viewTreeObserver
+			if (!observer.isAlive) {
+				completeFade(request, false)
+				return
+			}
+			observer.registerFrameCommitCallback {
+				completeFade(request, true)
+			}
+			host.invalidate()
+			return
+		}
+
+		val first = Runnable {
+			if (activeFadeRequest != request) return@Runnable
+			firstFrame = null
+			val committed = Runnable { completeFade(request, true) }
+			committedFrame = committed
+			host.postOnAnimation(committed)
+		}
+		firstFrame = first
+		host.postOnAnimation(first)
+		host.invalidate()
+	}
+
+	private fun completeFade(request: Long, exposedFrameCommitted: Boolean) {
+		if (activeFadeRequest != request) return
+		firstFrame?.let(host::removeCallbacks)
+		committedFrame?.let(host::removeCallbacks)
+		timeout?.let(host::removeCallbacks)
+		firstFrame = null
+		committedFrame = null
+		timeout = null
+		activeFadeRequest = null
+		val callback = fadeCallback
+		fadeCallback = null
+		val effectiveCommit =
+			exposedFrameCommitted &&
+				host.isAttachedToWindow &&
+				view.isAttachedToWindow &&
+				ownsPresentation()
+		if (!effectiveCommit) {
+			view.animate().cancel()
+			if (ownsPresentation()) view.alpha = 1f
+		}
+		onOwnershipMutated()
+		callback?.invoke(effectiveCommit)
+		if (effectiveCommit && ownsPresentation() && view.alpha == 0f) {
+			view.alpha = 1f
+			onOwnershipMutated()
+		}
+	}
+
 	private fun cancelPendingPresentation() {
+		if (activeRequest == null) {
+			check(presentationCallback == null)
+			return
+		}
 		firstFrame?.let(view::removeCallbacks)
 		committedFrame?.let(view::removeCallbacks)
 		timeout?.let(view::removeCallbacks)
@@ -172,11 +254,24 @@ internal class ReaderPageInlineRasterShield(
 	}
 
 	private fun cancelFade() {
+		if (activeFadeRequest == null) {
+			check(fadeCallback == null)
+			return
+		}
+		firstFrame?.let(host::removeCallbacks)
+		committedFrame?.let(host::removeCallbacks)
+		timeout?.let(host::removeCallbacks)
+		firstFrame = null
+		committedFrame = null
+		timeout = null
 		val hadFade = activeFadeRequest != null
 		activeFadeRequest = null
+		val callback = fadeCallback
+		fadeCallback = null
 		view.animate().cancel()
 		if (ownsPresentation()) view.alpha = 1f
 		if (hadFade) onOwnershipMutated()
+		callback?.invoke(false)
 	}
 
 	private fun complete(request: Long, presented: Boolean) {

@@ -358,7 +358,7 @@ class ReaderPageRelocationDispatchTimeoutTest {
 	}
 
 	@Test
-	fun dispatchExceptionReleasesExactlyOnceAndSuccessRetainsLiveOwnership() {
+	fun dispatchExceptionReleasesExactlyOnceAndSuccessRetainsUntilExposureCompletes() {
 		val request = request("page-turn-47")
 		val failedOwnership = ReaderForegroundWebViewOwnership()
 		val failedClaim = failedOwnership.acquireLive(request.gestureId)
@@ -396,6 +396,10 @@ class ReaderPageRelocationDispatchTimeoutTest {
 				error("successful live handoff must continue blocking passive work")
 			}
 		)
+		assertTrue(success.complete(request))
+		assertFalse(success.complete(request))
+		assertEquals(0, successOwnership.snapshot().liveClaims)
+		assertTrue(successOwnership.canAcquirePassive())
 		success.releaseAll()
 		assertEquals(0, successOwnership.snapshot().liveClaims)
 	}

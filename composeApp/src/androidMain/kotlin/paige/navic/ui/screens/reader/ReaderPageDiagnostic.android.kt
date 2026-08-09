@@ -98,6 +98,7 @@ internal enum class ReaderPageHandoffDiagnosticResult {
 	Invalidated,
 	CallbackCapacity,
 	ContentRejected,
+	PresentationFailed,
 	Cancelled,
 	StalePhysicalCallbackReleased
 }
@@ -117,6 +118,8 @@ internal fun ReaderWebViewVisualHandoffResult.toDiagnosticResult():
 			ReaderPageHandoffDiagnosticResult.CallbackCapacity
 		ReaderWebViewVisualHandoffFailure.ContentRejected ->
 			ReaderPageHandoffDiagnosticResult.ContentRejected
+		ReaderWebViewVisualHandoffFailure.PresentationFailed ->
+			ReaderPageHandoffDiagnosticResult.PresentationFailed
 		ReaderWebViewVisualHandoffFailure.Cancelled ->
 			ReaderPageHandoffDiagnosticResult.Cancelled
 	}
