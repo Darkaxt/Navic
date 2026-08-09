@@ -7,6 +7,8 @@ import androidx.lifecycle.compose.dropUnlessResumed
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
+import paige.navic.domain.models.generatedMixPlaylistArtworkLabel
+import paige.navic.domain.models.isGeneratedMixPlaylistName
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.ui.components.common.ArtworkRenderSpec
 import paige.navic.ui.components.common.GeneratedArtworkVariant
@@ -26,7 +28,8 @@ fun MostPlayedShortcutCard(
 	onOpen: () -> Unit
 ) {
 	val platformContext = LocalPlatformContext.current
-	val artwork = mostPlayedShortcutArtwork(shortcut.coverArtId)
+	val presentation = mostPlayedShortcutPresentation(shortcut)
+	val artwork = presentation.artwork
 	val diagnosticLabel = if (shortcut.type == PlaybackOriginType.Artist) {
 		"most-played artist id=${mostPlayedDiagnosticText(shortcut.id)} " +
 			"title=${mostPlayedDiagnosticText(shortcut.title)}"
@@ -51,9 +54,9 @@ fun MostPlayedShortcutCard(
 		}
 	}
 	val generatedArtwork = generatedArtworkSpec(
-		kindLabel = shortcut.type.displayLabel(),
-		primaryLabel = shortcut.title,
-		seed = "${shortcut.type.name}-${shortcut.id}",
+		kindLabel = presentation.kindLabel,
+		primaryLabel = presentation.primaryLabel,
+		seed = presentation.seed,
 		variant = GeneratedArtworkVariant.GridCard
 	)
 	val artworkSpec = ArtworkRenderSpec(
@@ -83,6 +86,33 @@ data class MostPlayedShortcutArtwork(
 	val coverArtId: String?,
 	val imageUrl: String?
 )
+
+data class MostPlayedShortcutPresentation(
+	val artwork: MostPlayedShortcutArtwork,
+	val kindLabel: String,
+	val primaryLabel: String,
+	val seed: String
+)
+
+fun mostPlayedShortcutPresentation(shortcut: DomainMostPlayedShortcut): MostPlayedShortcutPresentation {
+	val isGeneratedMix = shortcut.type == PlaybackOriginType.Playlist &&
+		isGeneratedMixPlaylistName(shortcut.title)
+	return if (isGeneratedMix) {
+		MostPlayedShortcutPresentation(
+			artwork = mostPlayedShortcutArtwork(null),
+			kindLabel = "Mix",
+			primaryLabel = generatedMixPlaylistArtworkLabel(shortcut.title),
+			seed = shortcut.id
+		)
+	} else {
+		MostPlayedShortcutPresentation(
+			artwork = mostPlayedShortcutArtwork(shortcut.coverArtId),
+			kindLabel = shortcut.type.displayLabel(),
+			primaryLabel = shortcut.title,
+			seed = "${shortcut.type.name}-${shortcut.id}"
+		)
+	}
+}
 
 fun mostPlayedShortcutArtwork(coverArtId: String?): MostPlayedShortcutArtwork {
 	val trimmed = coverArtId?.trim()?.takeIf { it.isNotEmpty() }

@@ -35,6 +35,34 @@ class PlaylistStationPolicyTest {
 	}
 
 	@Test
+	fun emptyPlaylistsAreHiddenFromEveryDisplayCategory() {
+		val playlists = listOf(
+			playlist(id = "station", name = "[A] Empty", songCount = 0),
+			playlist(id = "mood", name = "Empty Mix", songCount = 0),
+			playlist(id = "genre", name = "Empty_Genre", songCount = 0),
+			playlist(id = "regular", name = "Empty", songCount = 0)
+		)
+
+		assertEquals(emptyList(), playlists.stationPlaylists())
+		assertEquals(emptyList(), playlists.moodMixPlaylists())
+		assertEquals(emptyList(), playlists.genreMixPlaylists())
+		assertEquals(emptyList(), playlists.userPlaylists())
+	}
+
+	@Test
+	fun declaredOrLocallyLoadedSongsKeepPlaylistsVisible() {
+		val declared = playlist(id = "declared", name = "Declared", songCount = 2)
+		val locallyLoaded = playlist(
+			id = "loaded",
+			name = "Loaded",
+			songCount = 0,
+			songs = listOf(song("song-1"))
+		)
+
+		assertEquals(listOf(declared, locallyLoaded), listOf(declared, locallyLoaded).userPlaylists())
+	}
+
+	@Test
 	fun generatedPlaylistsSplitIntoMoodAndGenreMixes() {
 		val moodMix = playlist(id = "mood", name = "Road Trip Mix")
 		val genreMix = playlist(id = "genre", name = "Electronic_Pop_Indie")
@@ -135,14 +163,16 @@ class PlaylistStationPolicyTest {
 		id: String,
 		name: String,
 		comment: String? = null,
-		coverArtId: String? = null
+		coverArtId: String? = null,
+		songCount: Int = 1,
+		songs: List<DomainSong> = emptyList()
 	) = DomainPlaylist(
 		id = id,
 		name = name,
 		owner = "owner",
 		comment = comment,
 		coverArtId = coverArtId,
-		songCount = 0,
+		songCount = songCount,
 		duration = 0.seconds,
 		createdAt = Instant.DISTANT_PAST,
 		modifiedAt = Instant.DISTANT_PAST,
@@ -150,6 +180,43 @@ class PlaylistStationPolicyTest {
 		readOnly = null,
 		allowedUsers = emptyList(),
 		validUntil = null,
-		songs = emptyList()
+		songs = songs
+	)
+
+	private fun song(id: String) = DomainSong(
+		id = id,
+		title = "Song $id",
+		artistName = "Artist",
+		artistId = "artist",
+		albumTitle = null,
+		albumId = null,
+		parentId = null,
+		comment = null,
+		trackNumber = null,
+		discNumber = null,
+		isrc = emptyList(),
+		year = null,
+		genre = null,
+		genres = emptyList(),
+		moods = emptyList(),
+		duration = 30.seconds,
+		bpm = null,
+		contributors = emptyList(),
+		playCount = 0,
+		userRating = null,
+		averageRating = null,
+		bitRate = null,
+		bitDepth = null,
+		sampleRate = null,
+		audioChannelCount = null,
+		replayGain = null,
+		fileSize = 0,
+		fileExtension = "mp3",
+		mimeType = "audio/mpeg",
+		filePath = null,
+		starredAt = null,
+		coverArtId = null,
+		musicBrainzId = null,
+		explicitStatus = DomainExplicitStatus.Unknown
 	)
 }

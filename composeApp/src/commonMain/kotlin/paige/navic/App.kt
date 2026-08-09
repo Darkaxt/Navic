@@ -462,28 +462,28 @@ private fun entryProvider(
 		) { key ->
 			LidaClipPlayerScreen(key.songId)
 		}
-		entry<Screen.AurralHub>(metadata = detailPane("root")) {
+		entry<Screen.AurralHub> {
 			AurralHubScreen()
 		}
-		entry<Screen.AurralDiscoverList>(metadata = detailPane("root")) {
+		entry<Screen.AurralDiscoverList> {
 			AurralDiscoverListScreen()
 		}
-		entry<Screen.AurralDiscoverCollection>(metadata = detailPane("root")) { key ->
+		entry<Screen.AurralDiscoverCollection> { key ->
 			AurralDiscoverListScreen(collectionKind = key.kind)
 		}
-		entry<Screen.AurralDiscoverTag>(metadata = detailPane("root")) { key ->
+		entry<Screen.AurralDiscoverTag> { key ->
 			AurralDiscoverListScreen(tag = key.tag)
 		}
-		entry<Screen.AurralArtist>(metadata = detailPane("root")) { key ->
+		entry<Screen.AurralArtist> { key ->
 			AurralArtistScreen(key)
 		}
-		entry<Screen.AurralMissingAlbum>(metadata = detailPane("root")) { key ->
+		entry<Screen.AurralMissingAlbum> { key ->
 			AurralMissingAlbumScreen(key)
 		}
-		entry<Screen.CollectionDetail>(metadata = detailPane("root")) { key ->
+		entry<Screen.CollectionDetail> { key ->
 			CollectionDetailScreen(key)
 		}
-		entry<Screen.SongDetail>(metadata = detailPane("root")) { key ->
+		entry<Screen.SongDetail> { key ->
 			SongDetailScreen(key.songId)
 		}
 		entry<Screen.Search>(metadata = navtabMetadata) { key ->
