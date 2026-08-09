@@ -226,6 +226,42 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun committedNativeShellPresentationHidesCoverWithoutRelocation() {
+		val resumeLocator = ReaderLocator(
+			href = "OEBPS/xhtml/chapter4.xhtml",
+			progress = 0.28,
+			pageIndex = 42,
+			pageCount = 373
+		)
+		val controller = ReaderController().open(
+			hobbitOpenRequest().copy(
+				startLocator = resumeLocator,
+				externalShellCover = true,
+				nativeShellCoverUrl =
+					"https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+
+		val dismissed = controller.onViewerAction(
+			ReaderViewerAction.NativeShellPrepared
+		)
+
+		assertFalse(dismissed.controller.state.shellCoverVisible)
+		assertFalse(dismissed.controller.state.menuVisible)
+		assertNull(dismissed.controller.state.pendingShellCoverDismissal)
+		assertEquals(
+			readerNativeShellCoverReturnLocatorKey(resumeLocator),
+			dismissed.controller.state.nativeShellCoverReturnLocatorKey
+		)
+		assertTrue(
+			dismissed.engineCommands.none { command ->
+				command is ReaderEngineCommand.NavigateTo
+			}
+		)
+	}
+
+	@Test
 	fun shellCoverDismissalRejectsTokenMatchedRelocationForWrongLocator() {
 		val resumeLocator = ReaderLocator(
 			href = "OEBPS/xhtml/chapter4.xhtml",

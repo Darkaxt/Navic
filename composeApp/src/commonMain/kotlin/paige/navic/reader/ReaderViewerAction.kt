@@ -3,6 +3,8 @@ package paige.navic.reader
 sealed interface ReaderViewerAction {
 	data object Menu : ReaderViewerAction
 
+	data object NativeShellPrepared : ReaderViewerAction
+
 	data class TurnPage(
 		val direction: ReaderPageTurnDirection
 	) : ReaderViewerAction

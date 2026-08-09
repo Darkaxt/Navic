@@ -3084,6 +3084,66 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun canvasStartupShellCommitsCurrentRasterBeforePublishingStateDismissal() {
+		val controller = controllerFile.readText()
+		val host = hostFile.readText()
+		val presentation = controller
+			.substringAfter("fun presentStartupShellCurrentPage(")
+			.substringBefore("\n\t}")
+		val admission = host
+			.substringAfter("private fun commitStartupShellPresentationIfReady()")
+			.substringBefore("\n\t}")
+
+		assertContains(presentation, "activeDeckGenerationId")
+		assertContains(presentation, "preparedDeckGenerations")
+		assertContains(presentation, "currentWebViewOrdinal == currentOrdinal")
+		assertContains(presentation, "relocationQueue.occupiedCount() == 0")
+		assertContains(presentation, "retainedCurrentLayoutSnapshot(")
+		assertContains(presentation, "inlineRasterShield.present(")
+		assertTrue(
+			presentation.indexOf("inlineRasterShield.present(") <
+				presentation.indexOf("onCommitted(true)")
+		)
+		assertContains(admission, "ReaderPagePreparationPhase.Ready")
+		assertContains(admission, "ReaderTextureDeckState.Ready")
+		assertContains(admission, "presentStartupShellCurrentPage")
+		assertContains(admission, "onStartupShellPrepared()")
+	}
+
+	@Test
+	fun preparedCanvasShellTransitionPreservesDeckAndUsesExistingGestureRelocation() {
+		val controller = controllerFile.readText()
+		val host = hostFile.readText()
+		val shellVisibility = host
+			.substringAfter("fun setShellCoverVisible(visible: Boolean)")
+			.substringBefore("fun setPageOperationPolicy(")
+		val shellSwipe = host
+			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent)")
+			.substringBefore("private fun updateReadableViewerDragOffset(")
+		val touch = controller
+			.substringAfter("fun onPageTouchEvent(")
+			.substringBefore("override fun start(")
+		val reveal = controller
+			.substringAfter("private fun revealSurfaceAfterNextPresentedFrame(")
+			.substringBefore("fun cancelGestureAfterHostTerminal(")
+
+		assertContains(shellVisibility, "consumeStartupShellPreparedHandoff()")
+		assertContains(shellVisibility, "invalidateCurrentVisualSnapshot")
+		assertContains(shellSwipe, "canvasShellTransitionConsumesPageAction")
+		assertFalse(
+			shellSwipe
+				.substringAfter("if (canvasShellTransitionConsumesPageAction())")
+				.substringBefore("else")
+				.contains("updateShellCoverDragOffset(")
+		)
+		assertContains(touch, "relocationGestureCoordinator.start(")
+		assertContains(touch, "surfaceView.onPageTouchEvent(event, gestureId)")
+		assertContains(reveal, "surfaceView.requestNextPresentedFrame")
+		assertContains(reveal, "inlineRasterShield.dismiss()")
+		assertFalse(controller.contains("startDiscreteRelocation("))
+	}
+
+	@Test
 	fun productionLifecycleWiringClassifiesInvalidationsBeforeMutation() {
 		val hostSource = hostFile.readText()
 		val expectedEvents = listOf(

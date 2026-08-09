@@ -331,6 +331,40 @@ class ReaderViewerTest {
 	}
 
 	@Test
+	fun canvasShellTransitionConsumesPageActionsButKeepsMenuAndNonCanvasBehavior() {
+		listOf(
+			KomikkuNavigationRegion.NEXT,
+			KomikkuNavigationRegion.PREV,
+			KomikkuNavigationRegion.RIGHT,
+			KomikkuNavigationRegion.LEFT
+		).forEach { region ->
+			assertNull(
+				readerShellCoverViewerActionFor(
+					region = region,
+					pageTurnAllowed = true,
+					canvasShellTransition = true
+				)
+			)
+		}
+		assertEquals(
+			ReaderViewerAction.Menu,
+			readerShellCoverViewerActionFor(
+				region = KomikkuNavigationRegion.MENU,
+				pageTurnAllowed = true,
+				canvasShellTransition = true
+			)
+		)
+		assertEquals(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
+			readerShellCoverViewerActionFor(
+				region = KomikkuNavigationRegion.NEXT,
+				pageTurnAllowed = true,
+				canvasShellTransition = false
+			)
+		)
+	}
+
+	@Test
 	fun webtoonViewerMapsNavigationRegionsToScrollActionsLikeKomikku() {
 		val viewer = readerViewerFor(
 			webViewPublication(flowMode = ReaderFlowScrolled, paged = false)

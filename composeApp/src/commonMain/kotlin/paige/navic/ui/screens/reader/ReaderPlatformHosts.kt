@@ -47,6 +47,7 @@ expect fun KomikkuReaderNativeFrameHost(
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,
 	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
+	onStartupShellPrepared: () -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
 	onReadableDragPreview: (deltaX: Float, deltaY: Float, viewWidth: Int, viewHeight: Int, phase: ReaderPageDragPreviewPhase) -> Unit,

@@ -238,9 +238,10 @@ fun readerShellCoverViewerActionFor(region: KomikkuNavigationRegion): ReaderView
 
 fun readerShellCoverViewerActionFor(
 	region: KomikkuNavigationRegion,
-	pageTurnAllowed: Boolean
+	pageTurnAllowed: Boolean,
+	canvasShellTransition: Boolean = false
 ): ReaderViewerAction? = when {
 	region == KomikkuNavigationRegion.MENU -> ReaderViewerAction.Menu
-	!pageTurnAllowed -> null
+	canvasShellTransition || !pageTurnAllowed -> null
 	else -> readerShellCoverViewerActionFor(region)
 }

@@ -335,6 +335,7 @@ data class ReaderController(
 					)
 				)
 			)
+			ReaderViewerAction.NativeShellPrepared -> ReaderControllerStep(controller)
 			is ReaderViewerAction.TurnPage -> controller.turnPage(action.direction)
 			is ReaderViewerAction.PreviewPageDrag -> controller.previewPageDrag(action)
 			is ReaderViewerAction.ScrollViewport -> controller.scrollViewport(action.direction)
@@ -497,6 +498,25 @@ data class ReaderController(
 		return when {
 			action == ReaderViewerAction.Menu -> ReaderControllerStep(
 				copy(state = state.copy(menuVisible = !state.menuVisible))
+			)
+			action == ReaderViewerAction.NativeShellPrepared -> ReaderControllerStep(
+				controller = copy(
+					state = state.copy(
+						shellCoverVisible = false,
+						pendingShellCoverDismissal = null,
+						nativeShellCoverReturnLocatorKey =
+							readerNativeShellCoverReturnLocatorKey(state.chrome.currentLocator),
+						menuVisible = false
+					)
+				),
+				engineCommands = listOfNotNull(
+					ReaderEngineCommand.RequestVisibleTextRange("shell-cover-dismissed")
+						.takeIf {
+							state.supportsReaderEngineCapability(
+								ReaderEngineCapability.MediaOverlay
+							)
+						}
+				)
 			)
 			action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||
 				action == ReaderViewerAction.ScrollViewport(ReaderViewportScrollDirection.Down) -> {

@@ -158,12 +158,19 @@ internal fun KomikkuReaderRoot(
 			pageOperationPolicy = pagePreparationState.operationPolicy,
 			pagePreparationRetryKey = pagePreparationRetryKey,
 			onPagePreparationStateChange = { state -> pagePreparationState = state },
+			onStartupShellPrepared = {
+				onViewerAction(ReaderViewerAction.NativeShellPrepared)
+			},
 			onViewerAction = { action ->
 				val viewerAction = if (controllerState.shellCoverVisible) {
 					readerShellCoverViewerActionFor(
 						region = action,
 						pageTurnAllowed = pagePreparationState.interactiveReady &&
-							controllerState.paginationProfile.status != "measuring"
+							controllerState.paginationProfile.status != "measuring",
+						canvasShellTransition =
+							normalizedReaderDragAnimationMode(
+								controllerState.chrome.settings.dragAnimationMode
+							) == ReaderDragAnimationCanvas
 					)
 				} else {
 					viewer.viewerActionFor(action)

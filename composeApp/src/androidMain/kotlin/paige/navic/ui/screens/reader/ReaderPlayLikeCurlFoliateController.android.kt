@@ -1700,6 +1700,58 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
+	fun presentStartupShellCurrentPage(
+		onCommitted: (Boolean) -> Unit
+	): Boolean {
+		val generationId = activeDeckGenerationId ?: return false
+		val pages = generationOwners[generationId] ?: return false
+		val profile = pages.profile
+		if (
+			destroyed ||
+			!enabled ||
+			!attached ||
+			activePages !== pages ||
+			generationId !in preparedDeckGenerations ||
+			profile.rasterGeneration != bundleSource.currentGeneration() ||
+			currentWebViewOrdinal != currentOrdinal ||
+			relocationQueue.occupiedCount() != 0 ||
+			inlineRasterShield.ownsPresentation() ||
+			inlineRasterShield.pendingCallbackCount() != 0
+		) {
+			return false
+		}
+		val sourcePageIndex = runCatching {
+			profile.pageRequest(currentOrdinal).sourcePageIndex
+		}.getOrNull() ?: return false
+		val snapshot = bundleSource.retainedCurrentLayoutSnapshot(
+			pageIndex = sourcePageIndex,
+			kind = profile.transitionKind(),
+			expectedGeneration = profile.rasterGeneration,
+			expectedQuality = profile.quality
+		) ?: return false
+		inlineRasterShield.present(snapshot) { presented ->
+			val committed = presented &&
+				!destroyed &&
+				enabled &&
+				attached &&
+				activeDeckGenerationId == generationId &&
+				generationOwners[generationId] === pages &&
+				generationId in preparedDeckGenerations &&
+				profile.rasterGeneration == bundleSource.currentGeneration() &&
+				currentWebViewOrdinal == currentOrdinal &&
+				relocationQueue.occupiedCount() == 0
+			if (!committed && inlineRasterShield.ownsPresentation()) {
+				inlineRasterShield.dismiss()
+			}
+			if (committed) {
+				onCommitted(true)
+			} else {
+				onCommitted(false)
+			}
+		}
+		return true
+	}
+
 	private fun startTapTurn(
 		pageChange: PageChange,
 		gestureId: Long
