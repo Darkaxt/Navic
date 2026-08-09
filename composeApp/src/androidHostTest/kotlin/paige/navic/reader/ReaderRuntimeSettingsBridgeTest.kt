@@ -223,6 +223,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	fun androidReaderExposesKomikkuSmallerTapZoneControl() {
 		val runtimeText = readerBridgeText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val modePagesText = readerCommonUiFile("ReaderSettingsModePages.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
@@ -230,8 +231,10 @@ class ReaderRuntimeSettingsBridgeTest {
 
 		assertContains(runtimeText, "settings.smallerTapZone === true")
 		assertContains(runtimeText, "this.smallerTapZone = settings.smallerTapZone === true")
-		assertContains(settingsDialogText, "label = \"Smaller tap zones\"")
-		assertContains(settingsDialogText, "settings.copy(smallerTapZone = settings.smallerTapZone != true)")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.Reading -> KomikkuReadingSettingsPage(")
+		assertContains(modePagesText, "internal fun KomikkuReadingSettingsPage(")
+		assertContains(modePagesText, "label = \"Smaller tap zones\"")
+		assertContains(modePagesText, "settings.copy(smallerTapZone = settings.smallerTapZone != true)")
 		assertContains(ebooksSettingsText, "readerSmallerTapZone")
 		assertContains(ebooksSettingsText, "option_ebook_reader_smaller_tap_zones")
 		assertContains(searchSettingsText, "ebooks.smaller-tap-zones")
@@ -585,6 +588,13 @@ class ReaderRuntimeSettingsBridgeTest {
 			.substringAfter("const readerTypographyCss = settings =>")
 			.substringBefore("const readerParagraphSpacingCss = settings =>")
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val generalPageText = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
+		val allReaderSettingsText = listOf(
+			settingsDialogText,
+			readerCommonUiFile("ReaderSettingsModePages.kt").readText(),
+			generalPageText,
+			readerCommonUiFile("ReaderSettingsVisualPages.kt").readText()
+		).joinToString("\n")
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchRowsText = settingsFile("SettingsSearchEbookRows.kt").readText()
 
@@ -593,7 +603,7 @@ class ReaderRuntimeSettingsBridgeTest {
 			"EPUB body typography must not apply legacy marginPercent on top of Anx renderer sideMargin/topMargin/bottomMargin attributes."
 		)
 		assertFalse(
-			settingsDialogText.contains("label = \"Margins\""),
+			allReaderSettingsText.contains("label = \"Margins\""),
 			"The reader settings sheet must not expose legacy Margins beside Anx Side margin; that duplicates the same visual authority."
 		)
 		assertFalse(
@@ -604,9 +614,11 @@ class ReaderRuntimeSettingsBridgeTest {
 			searchRowsText.contains("option_ebook_reader_margin"),
 			"Settings search must not return the retired legacy reader margin control."
 		)
-		assertContains(settingsDialogText, "label = \"Side margin\"")
-		assertContains(settingsDialogText, "label = \"Top margin\"")
-		assertContains(settingsDialogText, "label = \"Bottom margin\"")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "label = \"Side margin\"")
+		assertContains(generalPageText, "label = \"Top margin\"")
+		assertContains(generalPageText, "label = \"Bottom margin\"")
 	}
 
 	@Test

@@ -25,13 +25,16 @@ class ReaderRuntimeNavigationFlowTest {
 	@Test
 	fun commonReaderParagraphSpacingControlsUseReadableDefaultFallback() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val generalPageText = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 
-		assertContains(settingsDialogText, "settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
 		assertContains(ebooksSettingsText, "settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
 		assertContains(searchSettingsText, "readerSettings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
-		assertFalse(settingsDialogText.contains("settings.paragraphSpacingPercent ?: 0"))
+		assertFalse(generalPageText.contains("settings.paragraphSpacingPercent ?: 0"))
 		assertFalse(ebooksSettingsText.contains("settings.paragraphSpacingPercent ?: 0"))
 		assertFalse(searchSettingsText.contains("readerSettings.paragraphSpacingPercent ?: 0"))
 	}
@@ -395,6 +398,7 @@ class ReaderRuntimeNavigationFlowTest {
 	fun androidReaderMapsExplicitReadingDirectionToFoliateRuntime() {
 		val bridgeText = readerBridgeText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val modePagesText = readerCommonUiFile("ReaderSettingsModePages.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 
@@ -402,9 +406,11 @@ class ReaderRuntimeNavigationFlowTest {
 		assertContains(bridgeText, "applyReaderDirection")
 		assertContains(bridgeText, "this.view.book.dir")
 		assertContains(bridgeText, "doc.documentElement")
-		assertContains(settingsDialogText, "Direction")
-		assertContains(settingsDialogText, "ReaderSupportedDirections")
-		assertContains(settingsDialogText, "settings.copy(direction = direction)")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.Reading -> KomikkuReadingSettingsPage(")
+		assertContains(modePagesText, "internal fun KomikkuReadingSettingsPage(")
+		assertContains(modePagesText, "Direction")
+		assertContains(modePagesText, "ReaderSupportedDirections")
+		assertContains(modePagesText, "settings.copy(direction = direction)")
 		assertContains(ebooksSettingsText, "readerDirection")
 		assertContains(ebooksSettingsText, "ReaderDirectionOption")
 		assertContains(searchSettingsText, "ebooks.direction")

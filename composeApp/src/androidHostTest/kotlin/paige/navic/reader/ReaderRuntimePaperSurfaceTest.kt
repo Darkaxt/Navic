@@ -419,8 +419,9 @@ class ReaderRuntimePaperSurfaceTest {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
 		val helperText = readerPaperSurfaceContractText(root)
-		val settingsDialogText = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt").readText()
-		val protocolText = File("src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt").readText()
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val generalPageText = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
+		val protocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 
 		for (index in 1..8) {
 			val suffix = index.toString().padStart(2, '0')
@@ -457,10 +458,12 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(helperText, "readerSurfaceSpreadGutterOverlayOpacity")
 		assertContains(helperText, "updateReaderMovingPageSpreadGutterOverlayLayer")
 		assertContains(helperText, "updateReaderSurfaceStainOverlayLayer")
-		assertContains(settingsDialogText, "Paper texture")
-		assertContains(settingsDialogText, "Page edges")
-		assertContains(settingsDialogText, "Paper stains")
-		assertContains(settingsDialogText, "Cover backdrop")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "Paper texture")
+		assertContains(generalPageText, "Page edges")
+		assertContains(generalPageText, "Paper stains")
+		assertContains(generalPageText, "Cover backdrop")
 	}
 
 	@Test
