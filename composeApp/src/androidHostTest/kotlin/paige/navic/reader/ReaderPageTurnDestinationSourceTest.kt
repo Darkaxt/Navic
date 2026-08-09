@@ -352,12 +352,26 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("private fun restoreLiveComposition(")
 			.substringBefore("\n\t}\n}")
 
-		assertContains(capture, "restoreLiveComposition(webView, token) { restored ->")
+		assertContains(capture, "capturePreparedSurface(")
+		val captureAndRestore = capture.substringAfter("capturePreparedSurface(")
+		assertTrue(
+			Regex(
+				"""restoreLiveComposition\(\s*webView,\s*token,\s*mutationGeneration,""" +
+					"""\s*isStillCurrent\s*\)\s*\{\s*restored\s*->"""
+			).containsMatchIn(captureAndRestore),
+			"Captured pixels must be restored through the token, mutation generation, and currentness fence."
+		)
 		assertContains(capture, "!restored ||")
+		assertContains(restore, "token: String")
+		assertContains(restore, "mutationGeneration: ReaderForegroundWebViewMutationGeneration")
+		assertContains(restore, "isStillCurrent: () -> Boolean")
 		assertContains(restore, "onRestored: (Boolean) -> Unit")
+		assertContains(restore, "restorePageTurnLiveComposition?.(")
+		assertContains(restore, "mutationGeneration.value")
 		assertContains(restore, "restored.isJavascriptTrue()")
+		assertContains(restore, "!isStillCurrent()")
 		assertContains(restore, "onRestored(false)")
-		assertContains(restore, "onRestored(true)")
+		assertContains(restore, "onRestored(webView.isAttachedToWindow && isStillCurrent())")
 	}
 
 	@Test
@@ -856,17 +870,46 @@ class ReaderPageTurnDestinationSourceTest {
 
 	@Test
 	fun restoringPreviewPresentationDoesNotMutateCommittedPaginatorLayout() {
-			val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
-			val restore = preview
-				.substringAfter("function restorePageTurnLiveComposition(token = '') {")
-				.substringBefore("function destroyPageTurnPreviewRenderer(")
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		assertContains(runtime, "restorePageTurnLiveComposition:")
+		assertContains(runtime, "pageTurnCaptureGeometry:")
+		assertContains(preview, "function restorePageTurnLiveComposition(")
+		assertContains(preview, "function destroyPageTurnPreviewRenderer(")
+		val restoreBridge = runtime
+			.substringAfter("restorePageTurnLiveComposition:")
+			.substringBefore("pageTurnCaptureGeometry:")
+		val restore = preview
+			.substringAfter("function restorePageTurnLiveComposition(")
+			.substringBefore("function destroyPageTurnPreviewRenderer(")
 
-			assertContains(restore, "setStylesImportant(previewView")
-			assertContains(restore, "visibility: 'hidden'")
-			assertContains(restore, "'z-index': '-1'")
-			assertFalse(restore.contains("applyReaderViewportLayoutToProfilerView"))
-			assertFalse(restore.contains("renderer?.render"))
-		}
+		assertTrue(
+			Regex(
+				"""\(\s*token,\s*foregroundMutationGeneration\s*\)\s*=>"""
+			).containsMatchIn(restoreBridge),
+			"The public restore bridge must require the foreground mutation generation."
+		)
+		assertTrue(
+			Regex(
+				"""runtime\.restorePageTurnLiveComposition\(""" +
+					"""\s*token,\s*foregroundMutationGeneration\s*\)"""
+			).containsMatchIn(restoreBridge),
+			"The public restore bridge must forward the token and foreground mutation generation."
+		)
+		assertContains(restore, "token = ''")
+		assertContains(restore, "foregroundMutationGeneration = null")
+		assertContains(restore, "const requestedToken = String(token || '')")
+		assertContains(restore, "const requestedMutationGeneration = foregroundMutationGeneration ??")
+		assertContains(restore, "readerPageTurnPreviewMutationGenerationIsCurrent(")
+		assertContains(restore, "requestedMutationGeneration !== expectedMutationGeneration")
+		assertContains(restore, "requestedToken !== this.pageTurnPreviewExposedToken")
+		assertContains(restore, "setStylesImportant(previewView")
+		assertContains(restore, "visibility: 'hidden'")
+		assertContains(restore, "'z-index': '-1'")
+		assertFalse(restore.contains("applyReaderViewportLayoutToProfilerView"))
+		assertFalse(restore.contains("applyReaderViewportLayout("))
+		assertFalse(restore.contains("renderer?.render"))
+	}
 
 		@Test
 		fun passivePreparationModesAreMutuallyExclusiveAndRejectStaleRestarts() {
@@ -923,25 +966,84 @@ class ReaderPageTurnDestinationSourceTest {
 	fun passiveRasterBatchStagesOneExactOrdinalUntilNativeAdvancesIt() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
-		val batch = preview
+		assertContains(runtime, "beginPageTurnPreviewBatch:")
+		assertContains(runtime, "pageTurnPreviewBatchState:")
+		assertContains(runtime, "advancePageTurnPreviewBatch:")
+		assertContains(runtime, "cancelPageTurnPreviewBatch:")
+		assertContains(preview, "function beginPageTurnPreviewBatch(")
+		assertContains(preview, "async function preparePageTurnPreviewBatchItem(")
+		assertContains(preview, "function advancePageTurnPreviewBatch(")
+		assertContains(preview, "function cancelPageTurnPreviewBatch(")
+		val beginBatchBridge = runtime
+			.substringAfter("beginPageTurnPreviewBatch:")
+			.substringBefore("pageTurnPreviewBatchState:")
+		val advanceBatchBridge = runtime
+			.substringAfter("advancePageTurnPreviewBatch:")
+			.substringBefore("cancelPageTurnPreviewBatch:")
+		val beginBatch = preview
 			.substringAfter("function beginPageTurnPreviewBatch(")
-			.substringBefore("function exposePageTurnPreviewFinal(")
+			.substringBefore("async function preparePageTurnPreviewBatchItem(")
+		val prepareBatchItem = preview
+			.substringAfter("async function preparePageTurnPreviewBatchItem(")
+			.substringBefore("function advancePageTurnPreviewBatch(")
+		val advanceBatch = preview
+			.substringAfter("function advancePageTurnPreviewBatch(")
+			.substringBefore("function cancelPageTurnPreviewBatch(")
 
-		assertContains(runtime, "beginPageTurnPreviewBatch: (token, pageIndexes) =>")
+		assertTrue(
+			Regex(
+				"""\(\s*token,\s*pageIndexes,\s*foregroundMutationGeneration\s*\)\s*=>"""
+			).containsMatchIn(beginBatchBridge),
+			"The batch bridge must require the foreground mutation generation."
+		)
+		assertTrue(
+			Regex(
+				"""runtime\.beginPageTurnPreviewBatch\(""" +
+					"""\s*token,\s*pageIndexes,\s*foregroundMutationGeneration\s*\)"""
+			).containsMatchIn(beginBatchBridge),
+			"The batch bridge must forward the foreground mutation generation."
+		)
 		assertContains(runtime, "pageTurnPreviewBatchState: token =>")
-		assertContains(runtime, "advancePageTurnPreviewBatch: (token, pageIndex) =>")
+		assertTrue(
+			Regex(
+				"""\(\s*token,\s*pageIndex,\s*foregroundMutationGeneration\s*\)\s*=>"""
+			).containsMatchIn(advanceBatchBridge),
+			"Advancing a batch must retain the foreground mutation-generation contract."
+		)
+		assertTrue(
+			Regex(
+				"""runtime\.advancePageTurnPreviewBatch\(""" +
+					"""\s*token,\s*pageIndex,\s*foregroundMutationGeneration\s*\)"""
+			).containsMatchIn(advanceBatchBridge),
+			"The advance bridge must forward the foreground mutation generation."
+		)
+		assertContains(beginBatch, "foregroundMutationGeneration")
+		assertContains(beginBatch, "readerPageTurnPreviewMutationGenerationCanBeAdopted(")
+		assertContains(beginBatch, "readerAdoptPageTurnPreviewMutationGeneration(")
+		assertContains(beginBatch, "foregroundMutationGeneration,")
 		assertContains(preview, "readerPageLocatorForVisualIndex(")
 		assertContains(preview, "readerCommitTextPage(")
-		assertContains(batch, "this.resolvePageTurnPreviewLocator(")
-		assertContains(batch, "'page-turn-raster-batch'")
-		assertContains(batch, "status: 'ready'")
-		assertContains(batch, "spineIndex: locator.spineIndex")
-		assertContains(batch, "href: locator.href")
-		assertContains(batch, "chapterPageIndex: locator.chapterPageIndex")
-		assertContains(batch, "visualPageOrdinal: locator.pageIndex")
-		assertContains(batch, "if (state.status !== 'ready' || state.pageIndex !== completedPageIndex) return state")
-		assertFalse(batch.contains("post("), "The passive raster renderer must not publish reader events.")
-		assertFalse(batch.contains("setTimeout"))
+		assertContains(prepareBatchItem, "this.resolvePageTurnPreviewLocator(")
+		assertContains(prepareBatchItem, "'page-turn-raster-batch'")
+		assertContains(prepareBatchItem, "status: 'ready'")
+		assertContains(prepareBatchItem, "spineIndex: locator.spineIndex")
+		assertContains(prepareBatchItem, "href: locator.href")
+		assertContains(prepareBatchItem, "chapterPageIndex: locator.chapterPageIndex")
+		assertContains(prepareBatchItem, "visualPageOrdinal: locator.pageIndex")
+		assertContains(
+			advanceBatch,
+			"state.foregroundMutationGeneration !== foregroundMutationGeneration"
+		)
+		assertContains(advanceBatch, "readerPageTurnPreviewMutationGenerationIsCurrent(")
+		assertContains(
+			advanceBatch,
+			"state.status !== 'ready' ||"
+		)
+		assertContains(advanceBatch, "state.pageIndex !== completedPageIndex")
+		assertFalse(prepareBatchItem.contains("post("), "The passive raster renderer must not publish reader events.")
+		assertFalse(beginBatch.contains("setTimeout"))
+		assertFalse(prepareBatchItem.contains("setTimeout"))
+		assertFalse(advanceBatch.contains("setTimeout"))
 	}
 
 	@Test
@@ -1232,7 +1334,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(capture, "reverseFaceColor = snapshotGeometry.reverseFaceColor")
 		assertFalse(capture.contains("leafGeometry = reference.leafGeometry"))
 		val preparedCapture = capture.indexOf("capturePreparedSurface(")
-		val restoreLive = capture.lastIndexOf("restoreLiveComposition(webView, token)")
+		val restoreLive = capture.indexOf("restoreLiveComposition(", startIndex = preparedCapture)
 		assertTrue(preparedCapture >= 0)
 		assertTrue(restoreLive >= 0)
 		assertTrue(
