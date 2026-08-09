@@ -423,6 +423,12 @@ data class ReaderController(
 
 	fun applySettings(settings: ReaderSettings): ReaderControllerStep {
 		val normalized = settings.normalizedReaderSettings()
+		val current = state.chrome.settings
+		val whispersyncLeadOnly =
+			current.whispersyncHighlightLeadMs != normalized.whispersyncHighlightLeadMs &&
+				current.copy(
+					whispersyncHighlightLeadMs = normalized.whispersyncHighlightLeadMs
+				) == normalized
 		return ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
@@ -430,9 +436,11 @@ data class ReaderController(
 					nativeShellCoverReturnLocatorKey = null
 				)
 			),
-			engineCommands = listOf(
-				ReaderEngineCommand.ApplySettings(normalized)
-			)
+			engineCommands = if (whispersyncLeadOnly) {
+				emptyList()
+			} else {
+				listOf(ReaderEngineCommand.ApplySettings(normalized))
+			}
 		)
 	}
 

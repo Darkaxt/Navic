@@ -1487,6 +1487,22 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun applySettingsKeepsWhispersyncLeadChangeOutOfWebViewPagination() {
+		val current = defaultReaderSettings()
+		val controller = ReaderController(
+			state = ReaderControllerState(
+				chrome = ReaderChromeState(settings = current)
+			)
+		)
+		val updated = current.copy(whispersyncHighlightLeadMs = 1_500)
+
+		val step = controller.applySettings(updated)
+
+		assertEquals(updated, step.controller.state.chrome.settings)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun settingsDialogVisibilityIsControllerOwnedLikeKomikkuReaderSettingsDialog() {
 		val contents = ReaderController().openContentsDialog()
 		val settings = contents.controller.openSettingsDialog()
