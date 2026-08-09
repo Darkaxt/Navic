@@ -974,6 +974,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(preview, "async function preparePageTurnPreviewBatchItem(")
 		assertContains(preview, "function advancePageTurnPreviewBatch(")
 		assertContains(preview, "function cancelPageTurnPreviewBatch(")
+		assertContains(preview, "function exposePageTurnPreviewFinal(")
 		val beginBatchBridge = runtime
 			.substringAfter("beginPageTurnPreviewBatch:")
 			.substringBefore("pageTurnPreviewBatchState:")
@@ -989,6 +990,9 @@ class ReaderPageTurnDestinationSourceTest {
 		val advanceBatch = preview
 			.substringAfter("function advancePageTurnPreviewBatch(")
 			.substringBefore("function cancelPageTurnPreviewBatch(")
+		val cancelBatch = preview
+			.substringAfter("function cancelPageTurnPreviewBatch(")
+			.substringBefore("function exposePageTurnPreviewFinal(")
 
 		assertTrue(
 			Regex(
@@ -1021,6 +1025,14 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(beginBatch, "readerPageTurnPreviewMutationGenerationCanBeAdopted(")
 		assertContains(beginBatch, "readerAdoptPageTurnPreviewMutationGeneration(")
 		assertContains(beginBatch, "foregroundMutationGeneration,")
+		assertTrue(
+			Regex(
+				"""this\.preparePageTurnPreviewBatchItem\(\s*generation,""" +
+					"""\s*requestedToken,\s*0,\s*0,\s*0,""" +
+					"""\s*foregroundMutationGeneration\s*\)"""
+			).containsMatchIn(beginBatch),
+			"Beginning a batch must forward its mutation generation to item preparation."
+		)
 		assertContains(preview, "readerPageLocatorForVisualIndex(")
 		assertContains(preview, "readerCommitTextPage(")
 		assertContains(prepareBatchItem, "this.resolvePageTurnPreviewLocator(")
@@ -1030,20 +1042,41 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(prepareBatchItem, "href: locator.href")
 		assertContains(prepareBatchItem, "chapterPageIndex: locator.chapterPageIndex")
 		assertContains(prepareBatchItem, "visualPageOrdinal: locator.pageIndex")
-		assertContains(
-			advanceBatch,
-			"state.foregroundMutationGeneration !== foregroundMutationGeneration"
+		assertTrue(
+			Regex(
+				"""if\s*\(\s*state\.status\s*!==\s*'ready'\s*\|\|""" +
+					"""\s*state\.pageIndex\s*!==\s*completedPageIndex\s*\|\|""" +
+					"""\s*state\.foregroundMutationGeneration\s*!==""" +
+					"""\s*foregroundMutationGeneration\s*\|\|""" +
+					"""\s*!readerPageTurnPreviewMutationGenerationIsCurrent\(""" +
+					"""\s*this,\s*foregroundMutationGeneration\s*\)\s*\)""" +
+					"""\s*return state"""
+			).containsMatchIn(advanceBatch),
+			"Invalid status, page, mutation generation, or currentness must fail closed."
 		)
-		assertContains(advanceBatch, "readerPageTurnPreviewMutationGenerationIsCurrent(")
-		assertContains(
-			advanceBatch,
-			"state.status !== 'ready' ||"
+		assertTrue(
+			Regex(
+				"""this\.preparePageTurnPreviewBatchItem\(\s*state\.generation,""" +
+					"""\s*state\.token,\s*nextCursor,\s*0,\s*0,""" +
+					"""\s*state\.foregroundMutationGeneration\s*\)"""
+			).containsMatchIn(advanceBatch),
+			"Advancing a batch must forward its mutation generation to item preparation."
 		)
-		assertContains(advanceBatch, "state.pageIndex !== completedPageIndex")
-		assertFalse(prepareBatchItem.contains("post("), "The passive raster renderer must not publish reader events.")
-		assertFalse(beginBatch.contains("setTimeout"))
-		assertFalse(prepareBatchItem.contains("setTimeout"))
-		assertFalse(advanceBatch.contains("setTimeout"))
+		mapOf(
+			"begin" to beginBatch,
+			"preparation" to prepareBatchItem,
+			"advance" to advanceBatch,
+			"cancellation" to cancelBatch
+		).forEach { (phase, source) ->
+			assertFalse(
+				source.contains("post("),
+				"Passive raster $phase must not publish reader events."
+			)
+			assertFalse(
+				source.contains("setTimeout"),
+				"Passive raster $phase must not introduce timer-based progress."
+			)
+		}
 	}
 
 	@Test
