@@ -175,6 +175,7 @@ try {
         'Get-ReaderActionDeviceTimings',
         'action-start:',
         'action-finish:',
+        'input touchscreen swipe',
         'DisplayWidth and DisplayHeight may only be supplied with PlanOnly',
         'ActionCadence',
         'Remove-LocalReaderArtifact',

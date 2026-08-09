@@ -981,7 +981,7 @@ function Start-ReaderProbeAction {
     $token = [guid]::NewGuid().ToString('N')
     $remoteCommand =
         "log -p i -t NavicReaderVisualQa action-start:$token; " +
-        "input swipe $($Action.StartX) $($Action.StartY) " +
+        "input touchscreen swipe $($Action.StartX) $($Action.StartY) " +
         "$($Action.EndX) $($Action.EndY) $($Action.DurationMs); " +
         "result=`$?; log -p i -t NavicReaderVisualQa action-finish:$token; " +
         'exit $result'
