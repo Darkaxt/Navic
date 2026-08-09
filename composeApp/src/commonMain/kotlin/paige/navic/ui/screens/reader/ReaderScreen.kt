@@ -61,9 +61,16 @@ import paige.navic.reader.WordSyncPublicationVerifier
 import paige.navic.reader.restoreProcessState
 import paige.navic.reader.ReadaloudPlaybackPlan
 import paige.navic.reader.WhispersyncSyncLogTag
+import paige.navic.reader.acceptsWordSyncGeneration
 import paige.navic.reader.applyReaderCoordinatorStep
+import paige.navic.reader.configureWordSync
 import paige.navic.reader.decodeReaderReadingProgress
 import paige.navic.reader.encodeReaderReadingProgress
+import paige.navic.reader.onReadaloudPlaybackState
+import paige.navic.reader.onWordSyncChapterFailed
+import paige.navic.reader.onWordSyncChapterVerified
+import paige.navic.reader.onWordSyncIndexFailed
+import paige.navic.reader.onWordSyncIndexVerified
 import paige.navic.reader.persistReaderMarksIfChanged
 import paige.navic.reader.normalizedReaderListeningSettings
 import paige.navic.reader.readerAnnotationState

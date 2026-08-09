@@ -35,6 +35,26 @@ class ReaderControllerDecompositionSourceTest {
 	}
 
 	@Test
+	fun readerOrchestratorsKeepWhispersyncHelpersInFocusedOwners() {
+		val whispersyncNavigationFile = readerSourceCandidate("ReaderWhispersyncNavigation.kt")
+		val coordinatorWordSyncFile = readerSourceCandidate("ReaderCoordinatorWordSync.kt")
+		assertTrue(whispersyncNavigationFile.isFile, "ReaderWhispersyncNavigation.kt must own navigation helpers")
+		assertTrue(coordinatorWordSyncFile.isFile, "ReaderCoordinatorWordSync.kt must own WordSync forwarding")
+
+		val controller = readerSource("ReaderController.kt").readText()
+		val whispersyncNavigation = whispersyncNavigationFile.readText()
+		val coordinator = readerSource("ReaderCoordinator.kt").readText()
+		val coordinatorWordSync = coordinatorWordSyncFile.readText()
+
+		assertFalse("fun ReaderOverlayFragment.isOutsideWhispersyncVisibleRange" in controller)
+		assertContains(whispersyncNavigation, "fun ReaderOverlayFragment.isOutsideWhispersyncVisibleRange")
+		assertContains(whispersyncNavigation, "fun ReaderWhispersyncSessionState.audioSeekTargetForActiveOverlay")
+		assertFalse("internal fun configureWordSync" in coordinator)
+		assertContains(coordinatorWordSync, "internal fun ReaderCoordinator.configureWordSync")
+		assertContains(coordinatorWordSync, "internal fun ReaderCoordinator.onWordSyncChapterVerified")
+	}
+
+	@Test
 	fun everyPlannedReaderConcernHasAnOwnedReducerFile() {
 		listOf(
 			"ReaderSearchReducer.kt",
@@ -46,9 +66,15 @@ class ReaderControllerDecompositionSourceTest {
 		).forEach { name -> assertTrue(readerSource(name).isFile, "$name must own its reader concern") }
 	}
 
-	private fun readerSource(name: String): File {
+	private fun readerSourceCandidate(name: String): File {
 		val path = "composeApp/src/commonMain/kotlin/paige/navic/reader/$name"
 		return listOf(File(path), File("../$path")).firstOrNull(File::isFile)
-			?: error("Unable to locate $path")
+			?: File(path)
+	}
+
+	private fun readerSource(name: String): File {
+		val candidate = readerSourceCandidate(name)
+		return candidate.takeIf(File::isFile)
+			?: error("Unable to locate ${candidate.path}")
 	}
 }

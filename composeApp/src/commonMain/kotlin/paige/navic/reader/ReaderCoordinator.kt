@@ -1,7 +1,6 @@
 package paige.navic.reader
 
 import paige.navic.domain.repositories.BinderyReadingProgress
-import paige.navic.domain.repositories.BinderyWordSyncReference
 
 data class ReaderCoordinatorStep(
 	val coordinator: ReaderCoordinator,
@@ -47,43 +46,6 @@ data class ReaderCoordinator(
 	fun onEngineEvent(event: ReaderEngineEvent): ReaderCoordinatorStep =
 		applyWordSyncDecision(wordSync.onEngineEvent(controller, event))
 
-	internal fun configureWordSync(reference: BinderyWordSyncReference?): ReaderCoordinatorStep =
-		ReaderCoordinatorStep(copy(wordSync = wordSync.configure(reference)))
-
-	internal fun acceptsWordSyncGeneration(generation: Long): Boolean =
-		wordSync.reference != null && wordSync.generation == generation
-
-	internal fun onReadaloudPlaybackState(
-		playbackState: ReaderReadaloudPlaybackUiState,
-		playbackIdentity: ReaderWordSyncPlaybackIdentity?
-	): ReaderCoordinatorStep = applyWordSyncDecision(
-		wordSync.coordinate(
-			controllerStep = controller.onReadaloudPlaybackState(playbackState),
-			playback = playbackIdentity
-		)
-	)
-
-	internal fun onWordSyncIndexVerified(
-		generation: Long,
-		index: WordSyncIndex,
-		provenance: WordSyncPublicationProvenance
-	): ReaderCoordinatorStep = applyWordSyncDecision(
-		wordSync.onIndexVerified(generation, index, provenance, controller)
-	)
-
-	internal fun onWordSyncIndexFailed(generation: Long): ReaderCoordinatorStep =
-		applyWordSyncDecision(wordSync.onIndexFailed(generation, controller))
-
-	internal fun onWordSyncChapterVerified(
-		generation: Long,
-		chapter: WordSyncChapter
-	): ReaderCoordinatorStep = applyWordSyncDecision(
-		wordSync.onChapterVerified(generation, chapter, controller)
-	)
-
-	internal fun onWordSyncChapterFailed(generation: Long, chapterKey: String): ReaderCoordinatorStep =
-		applyWordSyncDecision(wordSync.onChapterFailed(generation, chapterKey, controller))
-
 	fun onReadaloudEngineCommand(command: ReaderEngineCommand): ReaderCoordinatorStep =
 		when (command) {
 			is ReaderEngineCommand.ApplyMediaOverlay -> dispatch { applyMediaOverlay(command.fragment) }
@@ -102,7 +64,7 @@ data class ReaderCoordinator(
 		return applyWordSyncDecision(nextWordSync.coordinate(step))
 	}
 
-	private fun applyWordSyncDecision(decision: ReaderWordSyncDecision): ReaderCoordinatorStep {
+	internal fun applyWordSyncDecision(decision: ReaderWordSyncDecision): ReaderCoordinatorStep {
 		val step = decision.controllerStep
 		var next = copy(controller = step.controller, wordSync = decision.coordinator)
 		step.engineCommands.forEach { command ->

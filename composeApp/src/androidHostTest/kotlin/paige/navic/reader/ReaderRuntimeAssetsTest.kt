@@ -186,7 +186,8 @@ class ReaderRuntimeAssetsTest {
 			"navic-reader-page-turns.js",
 			"navic-reader-content-interactions.js",
 			"navic-reader-pagination.js",
-			"navic-reader-appearance.js"
+			"navic-reader-appearance.js",
+			"navic-reader-overlay-paint.js"
 		).forEach { fileName ->
 			val module = root.resolve(fileName)
 			assertTrue(module.isFile, "$fileName must exist so GLM/Codex do not have to edit the whole bridge.")

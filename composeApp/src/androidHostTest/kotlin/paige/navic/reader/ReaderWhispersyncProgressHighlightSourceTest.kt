@@ -236,11 +236,13 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 
 	@Test
 	fun markerHighlightSlantsOnlyTheSideEdges() {
-		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val paintRuntime = sourceFile(
+			"composeApp/src/androidMain/assets/reader/navic-reader-overlay-paint.js"
+		).readText()
 
-		val markerDraw = runtime
-			.substringAfter("const readerDrawMediaOverlayMarker = (rects, options = {}) => {")
-			.substringBefore("\nconst readerDrawNoteAnnotation")
+		val markerDraw = paintRuntime
+			.substringAfter("export const readerDrawMediaOverlayMarker = (rects, options = {}) => {")
+			.substringBefore("\nexport const readerDrawNoteAnnotation")
 
 		assertContains(markerDraw, "const slant = Math.min(Math.max(markerHeight * 0.36, 2), 12)")
 		assertContains(markerDraw, "`${'$'}{markerLeft + slant},${'$'}{markerTop}`")
