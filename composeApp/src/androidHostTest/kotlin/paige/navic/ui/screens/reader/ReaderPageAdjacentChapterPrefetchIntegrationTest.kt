@@ -549,6 +549,61 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun stalePassiveBatchCannotPublishOrReacquireAfterLiveDestinationMutation() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		var live: ReaderForegroundWebViewLiveClaim? = null
+		try {
+			fixture.startCurrentChapterPreparation()
+			val stale = checkNotNull(fixture.foreground.active)
+			fixture.foreground.delayCancellationRestoration = true
+			live = fixture.ownership.acquireLive(gestureId = 506L)
+			val readiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
+			fixture.ownership.whenLiveReady(live, readiness::add)
+
+			stale.onStagingStarted(stale.reference) { presented ->
+				assertFalse(presented)
+			}
+			stale.onTargetDurable(stale.targets.first())
+			stale.onComplete(ReaderPageRasterBatchOutcome.Ready)
+			assertFalse(stale.isStillCurrent())
+			assertEquals(1, fixture.ownership.snapshot().restorationCallbacks)
+
+			fixture.foreground.completeCancellationRestoration()
+			assertEquals(
+				listOf<ReaderForegroundWebViewLiveReadiness>(
+					ReaderForegroundWebViewLiveReadiness.Ready
+				),
+				readiness
+			)
+			val mutation = checkNotNull(fixture.ownership.beginLiveMutation(live))
+			assertTrue(fixture.ownership.isCurrent(live, mutation))
+			assertEquals(null, fixture.ownership.tryAcquirePassive(9_002L) {
+				error("Live destination mutation must exclude passive reacquisition")
+			})
+
+			stale.onStagingStarted(stale.reference) { presented ->
+				assertFalse(presented)
+			}
+			stale.onTargetDurable(stale.targets.last())
+			stale.onComplete(ReaderPageRasterBatchOutcome.Ready)
+			assertFalse(stale.isStillCurrent())
+			assertTrue(fixture.background.starts.isEmpty())
+
+			assertTrue(fixture.ownership.releaseLive(live))
+			live = null
+			assertEquals(0, fixture.ownership.snapshot().passiveOwners)
+			assertEquals(0, fixture.ownership.snapshot().liveClaims)
+			assertEquals(0, fixture.ownership.snapshot().restorationCallbacks)
+		} finally {
+			live?.let(fixture.ownership::releaseLive)
+			fixture.foreground.completeCancellationRestoration()
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun livePreemptionJoinsAnOrdinaryCancellationRestorationAlreadyInProgress() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)

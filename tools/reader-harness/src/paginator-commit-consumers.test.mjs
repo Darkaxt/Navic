@@ -1053,6 +1053,55 @@ test('superseded passive mutation generation cannot publish a ready state', asyn
   assert.equal(fixture.runtime.pageTurnPreviewPresentationReceiptValue, null)
 })
 
+test('stale passive visual acknowledgement and receipt cannot survive a newer live mutation', async () => {
+  const result = resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 })
+  const fixture = passiveRuntime({ results: [result] })
+  fixture.runtime.pageTurnPreviewGeneration = 4
+  fixture.runtime.ensurePageTurnPreviewRenderer = async () => fixture.view
+  await fixture.runtime.preparePageTurnPreview(4, 'passive-race', 1, 0, 0, 41)
+
+  const state = fixture.runtime.pageTurnPreviewStateValue
+  const previewView = {}
+  const previousGetComputedStyle = window.getComputedStyle
+  fixture.runtime.pageTurnPreviewView = previewView
+  fixture.runtime.view = fixture.view
+  fixture.runtime.pageTurnPreviewExposedToken = state.token
+  fixture.runtime.pageTurnPreviewExposedMutationGeneration = 41
+  fixture.runtime.pageTurnPresentationSequence = 0
+  fixture.view.style = {
+    getPropertyValue: () => '',
+    removeProperty: () => {},
+    setProperty: () => {},
+  }
+  window.getComputedStyle = view => view === previewView
+    ? { display: 'block', visibility: 'visible', opacity: '1' }
+    : { visibility: 'hidden', opacity: '0' }
+
+  try {
+    assert.equal(
+      fixture.runtime.confirmPageTurnPreviewPresentation('passive-race', 41),
+      true,
+    )
+    assert.notEqual(fixture.runtime.pageTurnPreviewPresentationReceiptValue, null)
+
+    fixture.runtime.foregroundMutationGeneration = 42
+
+    assert.equal(
+      fixture.runtime.confirmPageTurnPreviewPresentation('passive-race', 41),
+      false,
+    )
+    assert.equal(fixture.runtime.pageTurnPreviewPresentationReceipt(), null)
+    assert.equal(fixture.runtime.pageTurnPreviewPresentationReceiptValue, null)
+    assert.equal(
+      fixture.runtime.restorePageTurnLiveComposition('passive-race', 41),
+      false,
+    )
+    assert.equal(fixture.runtime.pageTurnPreviewState('passive-race').status, 'missing')
+  } finally {
+    window.getComputedStyle = previousGetComputedStyle
+  }
+})
+
 test('unauthorized passive admission cannot restore current composition', () => {
   const fixture = passiveRuntime()
   fixture.runtime.foregroundMutationGeneration = 42
@@ -1601,6 +1650,38 @@ test('live settlement and presentation are withheld when visible content no long
   assert.equal(fixture.runtime.nativePageTurnSettledState, null)
   assert.equal(fixture.runtime.pageTurnLivePresentationTargetValue, null)
   assert.equal(fixture.runtime.pageTurnLivePresentationReceiptValue, null)
+})
+
+test('newer live mutation invalidates the stale destination receipt before replacement settles', async () => {
+  const result = resultFor({ requestedIndex: 0, requestedPageIndex: 2, pageCount: 3 })
+  const fixture = liveSettlementRuntime({ results: [result, result] })
+
+  await fixture.runtime.goToVisualPage(
+    liveSettlementCommand('live-race-stale', 2, 13, 201, 41),
+  )
+  const staleReceipt = fixture.runtime.pageTurnLivePresentationReceiptValue
+  assert.notEqual(staleReceipt, null)
+  assert.equal(staleReceipt.foregroundMutationGeneration, 41)
+
+  fixture.runtime.foregroundMutationGeneration = 42
+
+  assert.equal(fixture.runtime.pageTurnLivePresentationReceipt(), null)
+  assert.equal(fixture.runtime.pageTurnLivePresentationReceiptValue, null)
+  assert.equal(
+    fixture.runtime.pageTurnLivePresentationTargetMatchesCurrent(
+      fixture.runtime.pageTurnLivePresentationTargetValue,
+    ),
+    false,
+  )
+
+  await fixture.runtime.goToVisualPage(
+    liveSettlementCommand('live-race-current', 2, 14, 202, 43),
+  )
+  assert.equal(fixture.runtime.peekNativePageTurnSettlement()?.token, 'live-race-current')
+  assert.equal(
+    fixture.runtime.pageTurnLivePresentationReceiptValue?.foregroundMutationGeneration,
+    43,
+  )
 })
 
 test('repeated live settlement observation does not reissue presentation authority', async () => {

@@ -343,6 +343,25 @@ assert.equal(runtime.cancelPendingExactPageTurnSettlement('test-pending'), true)
 assert.equal(runtime.completedExactPageTurnSettlements.has('settle-pending'), false)
 assert.equal(runtime.retiredExactPageTurnSettlements.has('settle-pending'), true)
 
+const staleRaceCommand = settlementCommand('settle-race-stale', 2)
+await runtime.goToVisualPage(staleRaceCommand)
+const staleRaceReceipt = runtime.pageTurnLivePresentationReceipt()
+assert.equal(staleRaceReceipt?.foregroundMutationGeneration, staleRaceCommand.settleForegroundMutationGeneration)
+runtime.foregroundMutationGeneration = staleRaceCommand.settleForegroundMutationGeneration + 1
+assert.equal(runtime.pageTurnLivePresentationReceipt(), null)
+
+const currentRaceCommand = {
+  ...settlementCommand('settle-race-current', 2),
+  settleForegroundMutationGeneration: runtime.foregroundMutationGeneration + 1,
+}
+await runtime.goToVisualPage(currentRaceCommand)
+assert.equal(runtime.peekNativePageTurnSettlement()?.token, 'settle-race-current')
+assert.equal(
+  runtime.pageTurnLivePresentationReceipt()?.foregroundMutationGeneration,
+  currentRaceCommand.settleForegroundMutationGeneration,
+)
+assert.equal(runtime.consumeNativePageTurnSettlement('settle-race-current'), true)
+
 let staleRecomputationCount = 0
 delivered = null
 const preservedPosition = positionAt(7)

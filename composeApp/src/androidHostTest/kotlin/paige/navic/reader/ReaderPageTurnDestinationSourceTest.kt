@@ -1596,6 +1596,48 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun stalePassivePresentationCannotBorrowTheLiveDestinationReceiptOrGeneration() {
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val state = preview
+			.substringAfter("function pageTurnPreviewState(token = '') {")
+			.substringBefore("function clearPageTurnPreviewPresentationReceipt(")
+		val expose = preview
+			.substringAfter("function exposePageTurnPreviewFinal(")
+			.substringBefore("function confirmPageTurnPreviewPresentation(")
+		val confirm = preview
+			.substringAfter("function confirmPageTurnPreviewPresentation(")
+			.substringBefore("function restorePageTurnLiveComposition(")
+		val restore = preview
+			.substringAfter("function restorePageTurnLiveComposition(")
+			.substringBefore("function destroyPageTurnPreviewRenderer(")
+		val liveTarget = turns
+			.substringAfter("function pageTurnLivePresentationTargetMatchesCurrent(")
+			.substringBefore("async function goToVisualPage(")
+
+		assertContains(
+			state,
+			"!readerPageTurnPreviewMutationGenerationIsCurrent("
+		)
+		assertContains(expose, "state.foregroundMutationGeneration !== foregroundMutationGeneration")
+		assertContains(expose, "this.pageTurnPreviewExposedMutationGeneration =")
+		assertContains(expose, "this.clearPageTurnLivePresentationReceipt()")
+		assertContains(confirm, "this.pageTurnPreviewExposedMutationGeneration !==")
+		assertContains(confirm, "!readerPageTurnPreviewMutationGenerationIsCurrent(")
+		assertContains(confirm, "pageIndex: state.pageIndex")
+		assertContains(confirm, "foregroundMutationGeneration: state.foregroundMutationGeneration")
+		assertContains(restore, "requestedMutationGeneration !== expectedMutationGeneration")
+		assertContains(restore, "!readerPageTurnPreviewMutationGenerationIsCurrent(")
+		assertContains(restore, "this.clearPageTurnPreviewPresentationReceipt()")
+		assertContains(liveTarget, "this.pageTurnLivePresentationTargetValue?.foregroundMutationGeneration !==")
+		assertContains(liveTarget, "readerPageTurnPresentationReceiptMatches(receipt, receiptTarget)")
+		assertFalse(
+			expose.contains("this.pageTurnLivePresentationTargetValue ="),
+			"A passive preview may clear live presentation authority but must not replace it."
+		)
+	}
+
+	@Test
 	fun liveReceiptFollowsExactSettlementAndRevalidatesCurrentLiveState() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()

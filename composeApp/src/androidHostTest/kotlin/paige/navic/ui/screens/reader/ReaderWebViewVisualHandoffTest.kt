@@ -1181,6 +1181,125 @@ class ReaderWebViewVisualHandoffTest {
 	}
 
 	@Test
+	fun sourceToDestinationRaceGateCoversEveryIndependentCallbackOrdering() {
+		assertEquals(4, SourceToDestinationRaceOrderings.size)
+		assertEquals(
+			setOf(
+				SourceToDestinationRaceOrdering(true, true),
+				SourceToDestinationRaceOrdering(true, false),
+				SourceToDestinationRaceOrdering(false, true),
+				SourceToDestinationRaceOrdering(false, false)
+			),
+			SourceToDestinationRaceOrderings.toSet()
+		)
+	}
+
+	@Test
+	fun sourceToDestinationRaceGateFencesPassiveCaptureAndDelaysExposure() {
+		SourceToDestinationRaceOrderings.forEach { ordering ->
+			val fixture = SourceToDestinationRaceFixture()
+			fixture.stagePassivePreview(7)
+			fixture.reserveLiveDestination()
+			assertFalse(fixture.attemptStalePassiveCapture(9))
+
+			if (ordering.rendererSettlesBeforeRestoration) {
+				fixture.settleNativeDestinationRenderer()
+			}
+			fixture.completePassiveRestoration()
+			if (!ordering.rendererSettlesBeforeRestoration) {
+				fixture.settleNativeDestinationRenderer()
+			}
+			fixture.acknowledgeExactDestination()
+
+			if (ordering.visualCallbackBeforeStalePassiveCapture) {
+				fixture.completeVisualState()
+				assertFalse(fixture.attemptStalePassiveCapture(11))
+			} else {
+				assertFalse(fixture.attemptStalePassiveCapture(11))
+				fixture.completeVisualState()
+			}
+			fixture.completeVisualFrame()
+			fixture.acceptExactDestinationProof()
+			fixture.assertPassiveCannotReacquire()
+
+			assertFalse(fixture.commitExposedFrame())
+			fixture.commitShield()
+			assertFalse(fixture.commitExposedFrame())
+			fixture.completeShieldFade()
+			assertTrue(fixture.commitExposedFrame())
+			fixture.invokeStaleFinalization()
+			fixture.assertCommittedDestination()
+		}
+	}
+
+	@Test
+	fun sourceToDestinationRaceGateDrainsCancellationAndRejectsNewerEvents() {
+		listOf(
+			SourceToDestinationRaceBoundary.Restoring,
+			SourceToDestinationRaceBoundary.LiveMutation,
+			SourceToDestinationRaceBoundary.AwaitingVisual,
+			SourceToDestinationRaceBoundary.DestinationProof,
+			SourceToDestinationRaceBoundary.Finalizing
+		).forEach { boundary ->
+			val fixture = SourceToDestinationRaceFixture()
+			fixture.stagePassivePreview(7)
+			fixture.reserveLiveDestination()
+			if (boundary == SourceToDestinationRaceBoundary.Restoring) {
+				fixture.detachAndCancel()
+				fixture.assertCancelledTerminal()
+				return@forEach
+			}
+
+			fixture.completePassiveRestoration()
+			if (boundary == SourceToDestinationRaceBoundary.LiveMutation) {
+				fixture.detachAndCancel()
+				fixture.assertCancelledTerminal()
+				return@forEach
+			}
+
+			fixture.settleNativeDestinationRenderer()
+			fixture.acknowledgeExactDestination()
+			if (boundary == SourceToDestinationRaceBoundary.AwaitingVisual) {
+				fixture.detachAndCancel()
+				fixture.assertCancelledTerminal()
+				return@forEach
+			}
+
+			fixture.completeVisualState()
+			fixture.completeVisualFrame()
+			if (boundary == SourceToDestinationRaceBoundary.DestinationProof) {
+				fixture.detachAndCancel()
+				fixture.invokeStaleDestinationProof()
+				fixture.assertCancelledTerminal()
+				return@forEach
+			}
+
+			fixture.acceptExactDestinationProof()
+			fixture.publishNewerGeneration()
+			fixture.invokeStaleFinalization()
+			fixture.assertNotCompleted()
+			fixture.detachAndCancel()
+			fixture.assertCancelledTerminal()
+		}
+
+		val staleFinalization = SourceToDestinationRaceFixture()
+		staleFinalization.stagePassivePreview(7)
+		staleFinalization.reserveLiveDestination()
+		staleFinalization.completePassiveRestoration()
+		staleFinalization.settleNativeDestinationRenderer()
+		staleFinalization.acknowledgeExactDestination()
+		staleFinalization.completeVisualState()
+		staleFinalization.completeVisualFrame()
+		staleFinalization.acceptExactDestinationProof()
+		staleFinalization.detachAndCancel()
+		val newer = staleFinalization.enqueueNewerRequest()
+		staleFinalization.invokeStaleFinalization()
+		assertEquals(newer, staleFinalization.queueHead())
+		staleFinalization.cancelQueuedRequests()
+		staleFinalization.assertCancelledTerminal()
+	}
+
+	@Test
 	fun presentationFailureAutomaticallyRequestsOnlyOneRecovery() {
 		val queue = ReaderPageRelocationQueue()
 		val request = enqueueVisualRequest(queue, gestureId = 3L)
@@ -2707,6 +2826,319 @@ class ReaderWebViewVisualHandoffTest {
 		assertEquals(0, handoff.pendingHostCallbackCount())
 	}
 
+	private val SourceToDestinationRaceOrderings = listOf(
+		SourceToDestinationRaceOrdering(
+			rendererSettlesBeforeRestoration = true,
+			visualCallbackBeforeStalePassiveCapture = true
+		),
+		SourceToDestinationRaceOrdering(
+			rendererSettlesBeforeRestoration = true,
+			visualCallbackBeforeStalePassiveCapture = false
+		),
+		SourceToDestinationRaceOrdering(
+			rendererSettlesBeforeRestoration = false,
+			visualCallbackBeforeStalePassiveCapture = true
+		),
+		SourceToDestinationRaceOrdering(
+			rendererSettlesBeforeRestoration = false,
+			visualCallbackBeforeStalePassiveCapture = false
+		)
+	)
+
+	private data class SourceToDestinationRaceOrdering(
+		val rendererSettlesBeforeRestoration: Boolean,
+		val visualCallbackBeforeStalePassiveCapture: Boolean
+	)
+
+	private enum class SourceToDestinationRaceBoundary {
+		Restoring,
+		LiveMutation,
+		AwaitingVisual,
+		DestinationProof,
+		Finalizing
+	}
+
+	private class SourceToDestinationRaceFixture {
+		private val queue = ReaderPageRelocationQueue()
+		private val ownership = ReaderForegroundWebViewOwnership()
+		private val host = FakeVisualHandoffHost(attached = true)
+		private val validationCallbacks = mutableListOf<
+			(ReaderPageRelocationContentValidationResult) -> Unit
+		>()
+		private val presentationFinalizers = mutableListOf<(Boolean) -> Unit>()
+		private lateinit var request: ReaderPageRelocationRequest
+		private var hasRequest = false
+		private lateinit var liveClaim: ReaderForegroundWebViewLiveClaim
+		private lateinit var passiveLease: ReaderForegroundWebViewPassiveLease
+		private var passiveRestoration: (
+			(ReaderPageRasterCancellationRestoration) -> Unit
+		)? = null
+		private var visualState: ReaderPageRelocationVisualState? = null
+		private var rendererSettled = false
+		private var exactDestinationDispatched = false
+		private var destinationProof = false
+		private var shieldCommitted = false
+		private var shieldFadeCompleted = false
+		private var exposedFrameCommitted = false
+		private var dispatchCurrent = true
+		private var completedWebViewOrdinal: Int? = null
+		private var currentWebViewOrdinal = SourceOrdinal
+		private val externallyExposedOrdinals = mutableListOf<Int>()
+		private var passiveMutationPublishedWhileLiveOwned = false
+		private var shieldReleasedBeforeDestinationProof = false
+		private var sourceOrPreviewPresentationExposed = false
+		private val liveDispatch = ReaderPageRelocationLiveDispatchCoordinator(
+			foregroundWebViewOwnership = ownership,
+			isDispatchCurrent = { candidate ->
+				dispatchCurrent && hasRequest && candidate == request
+			},
+			dispatchExact = { dispatched, generation ->
+				assertEquals(SourceOrdinal, dispatched.sourceOrdinal)
+				assertEquals(DestinationOrdinal, dispatched.destinationOrdinal)
+				assertTrue(ownership.isCurrent(liveClaim, generation))
+				exactDestinationDispatched = true
+				currentWebViewOrdinal = dispatched.destinationOrdinal
+				ReaderPageRelocationExactDispatchResult.Dispatched
+			},
+			onRejected = { _, reason ->
+				error("Unexpected synthetic relocation rejection: $reason")
+			}
+		)
+		private val visualHandoff = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { checkNotNull(visualState) },
+			dispatch = { error("No queued race relocation is expected: $it") },
+			publishRecovery = { _, _ -> },
+			finalizePresentation = { finalizingRequest, onFinalized ->
+				assertEquals(request, finalizingRequest)
+				assertTrue(destinationProof)
+				presentationFinalizers += onFinalized
+			},
+			validateContent = { validatingRequest, onValidated ->
+				assertEquals(request, validatingRequest)
+				assertTrue(rendererSettled)
+				assertTrue(exactDestinationDispatched)
+				assertEquals(DestinationOrdinal, currentWebViewOrdinal)
+				assertTrue(liveDispatch.isCurrent(validatingRequest))
+				destinationProof = true
+				validationCallbacks += onValidated
+				ReaderPageRelocationContentValidationHandle.Completed
+			},
+			canRecover = { false },
+			onCompleted = { completedRequest ->
+				if (!destinationProof || !exposedFrameCommitted) {
+					shieldReleasedBeforeDestinationProof = true
+				}
+				if (currentWebViewOrdinal != DestinationOrdinal) {
+					sourceOrPreviewPresentationExposed = true
+				}
+				assertTrue(liveDispatch.complete(completedRequest))
+				completedWebViewOrdinal = currentWebViewOrdinal
+				externallyExposedOrdinals += currentWebViewOrdinal
+			}
+		)
+
+		fun stagePassivePreview(ordinal: Int) {
+			passiveLease = checkNotNull(
+				ownership.tryAcquirePassive(sessionId = 71L) { onRestored ->
+					passiveRestoration = onRestored
+				}
+			)
+			assertTrue(ownership.isCurrent(passiveLease))
+			assertTrue(ordinal != SourceOrdinal && ordinal != DestinationOrdinal)
+		}
+
+		fun reserveLiveDestination() {
+			val reservation = assertIs<ReaderPageRelocationReservationResult.Reserved>(
+				queue.reserve(gestureId = 17L)
+			).reservation
+			liveClaim = ownership.acquireLive(reservation.gestureId)
+			request = assertIs<ReaderPageRelocationTransferResult.Enqueued>(
+				queue.enqueueReserved(
+					reservation = reservation,
+					rasterGeneration = 31L,
+					textureGeneration = 47L,
+					sourceOrdinal = SourceOrdinal,
+					destinationOrdinal = DestinationOrdinal,
+					logicalDirection = ReaderPageTurnDirection.Next,
+					foliateSessionId = "synthetic-race"
+				)
+			).request
+			hasRequest = true
+			assertTrue(liveDispatch.transfer(request, liveClaim))
+			assertTrue(liveDispatch.dispatch(request))
+			assertFalse(ownership.isCurrent(passiveLease))
+			assertEquals(1, ownership.snapshot().restorationCallbacks)
+		}
+
+		fun attemptStalePassiveCapture(ordinal: Int): Boolean {
+			val published = ownership.isCurrent(passiveLease)
+			if (published && ownership.snapshot().liveClaims > 0) {
+				passiveMutationPublishedWhileLiveOwned = true
+			}
+			if (published && ordinal != DestinationOrdinal) {
+				sourceOrPreviewPresentationExposed = true
+			}
+			return published
+		}
+
+		fun settleNativeDestinationRenderer() {
+			rendererSettled = true
+		}
+
+		fun completePassiveRestoration() {
+			checkNotNull(passiveRestoration)(
+				ReaderPageRasterCancellationRestoration.Restored
+			)
+		}
+
+		fun acknowledgeExactDestination() {
+			assertTrue(rendererSettled)
+			assertTrue(exactDestinationDispatched)
+			assertEquals(request, queue.commandToDispatch())
+			assertTrue(
+				queue.acknowledge(
+					request.token.value,
+					DestinationOrdinal,
+					request.foliateSessionId,
+					request.rasterGeneration,
+					request.textureGeneration
+				)
+			)
+			visualState = ReaderPageRelocationVisualState(
+				attached = true,
+				resumed = true,
+				foliateSessionId = request.foliateSessionId,
+				webViewOrdinal = request.destinationOrdinal,
+				rasterGeneration = request.rasterGeneration,
+				textureGeneration = request.textureGeneration
+			)
+			assertTrue(visualHandoff.onAcknowledged(request))
+		}
+
+		fun completeVisualState() = host.completeVisualState()
+
+		fun completeVisualFrame() = host.runNextFrame()
+
+		fun acceptExactDestinationProof() {
+			validationCallbacks.single().invoke(
+				ReaderPageRelocationContentValidationResult.Accepted
+			)
+			assertEquals(1, presentationFinalizers.size)
+		}
+
+		fun invokeStaleDestinationProof() {
+			validationCallbacks.single().invoke(
+				ReaderPageRelocationContentValidationResult.Accepted
+			)
+		}
+
+		fun assertPassiveCannotReacquire() {
+			assertNull(
+				ownership.tryAcquirePassive(sessionId = 72L) {
+					error("Live exact destination must exclude passive reacquisition")
+				}
+			)
+		}
+
+		fun commitShield() {
+			assertTrue(destinationProof)
+			shieldCommitted = true
+		}
+
+		fun completeShieldFade() {
+			assertTrue(shieldCommitted)
+			shieldFadeCompleted = true
+		}
+
+		fun commitExposedFrame(): Boolean {
+			if (!shieldCommitted || !shieldFadeCompleted || !destinationProof) return false
+			exposedFrameCommitted = true
+			presentationFinalizers.single().invoke(true)
+			return true
+		}
+
+		fun invokeStaleFinalization() {
+			presentationFinalizers.lastOrNull()?.invoke(true)
+		}
+
+		fun publishNewerGeneration() {
+			visualState = checkNotNull(visualState).copy(
+				textureGeneration = request.textureGeneration + 1L
+			)
+		}
+
+		fun detachAndCancel() {
+			dispatchCurrent = false
+			visualState = visualState?.copy(attached = false)
+			host.detach()
+			queue.cancelAll()
+			visualHandoff.cancelForQueueInvalidation()
+			liveDispatch.releaseAll()
+			completePassiveRestoration()
+			invokeStaleFinalization()
+		}
+
+		fun enqueueNewerRequest(): ReaderPageRelocationRequest {
+			val reservation = assertIs<ReaderPageRelocationReservationResult.Reserved>(
+				queue.reserve(gestureId = 18L)
+			).reservation
+			return assertIs<ReaderPageRelocationTransferResult.Enqueued>(
+				queue.enqueueReserved(
+					reservation = reservation,
+					rasterGeneration = 32L,
+					textureGeneration = 48L,
+					sourceOrdinal = SourceOrdinal,
+					destinationOrdinal = DestinationOrdinal,
+					logicalDirection = ReaderPageTurnDirection.Next,
+					foliateSessionId = "synthetic-race"
+				)
+			).request
+		}
+
+		fun queueHead(): ReaderPageRelocationRequest? = queue.head()
+
+		fun cancelQueuedRequests() {
+			queue.cancelAll()
+		}
+
+		fun assertNotCompleted() {
+			assertEquals(request, queue.head())
+			assertNull(completedWebViewOrdinal)
+		}
+
+		fun assertCommittedDestination() {
+			assertNull(queue.head())
+			assertEquals(DestinationOrdinal, completedWebViewOrdinal)
+			assertEquals(listOf(DestinationOrdinal), externallyExposedOrdinals)
+			assertFalse(passiveMutationPublishedWhileLiveOwned)
+			assertFalse(shieldReleasedBeforeDestinationProof)
+			assertFalse(sourceOrPreviewPresentationExposed)
+			assertOwnershipDrained()
+		}
+
+		fun assertCancelledTerminal() {
+			assertNull(completedWebViewOrdinal)
+			assertFalse(passiveMutationPublishedWhileLiveOwned)
+			assertFalse(shieldReleasedBeforeDestinationProof)
+			assertFalse(sourceOrPreviewPresentationExposed)
+			assertOwnershipDrained()
+		}
+
+		private fun assertOwnershipDrained() {
+			val snapshot = ownership.snapshot()
+			assertEquals(0, snapshot.passiveOwners)
+			assertEquals(0, snapshot.liveClaims)
+			assertEquals(0, snapshot.restorationCallbacks)
+		}
+
+		private companion object {
+			const val SourceOrdinal = 0
+			const val DestinationOrdinal = 2
+		}
+	}
+
 	private fun immediatePresentationFinalizer(
 		onFinalizing: (ReaderPageRelocationRequest) -> Unit = {}
 	): (
@@ -2809,6 +3241,10 @@ class ReaderWebViewVisualHandoffTest {
 		override fun removeCallbacks(action: () -> Unit) {
 			if (nextFrame === action) nextFrame = null
 			if (timeout === action) timeout = null
+		}
+
+		fun detach() {
+			attached = false
 		}
 
 		fun visualStateCount(): Int = visualStates.size

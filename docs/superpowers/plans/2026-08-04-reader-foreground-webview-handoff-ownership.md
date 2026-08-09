@@ -930,6 +930,7 @@ git push fork fix/foreground-webview-handoff-ownership
 
 **Files:**
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderWebViewVisualHandoffTest.kt`
+- Create: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageInlineRasterShieldTest.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageAdjacentChapterPrefetchIntegrationTest.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnDestinationSourceTest.kt`
 - Modify: `tools/reader-harness/src/paginator-commit-consumers.test.mjs`
@@ -968,6 +969,7 @@ for i in 1 2 3 4 5; do
   ./gradlew.bat :composeApp:testAndroidHostTest \
     --tests "paige.navic.ui.screens.reader.ReaderForegroundWebViewOwnershipTest" \
     --tests "paige.navic.ui.screens.reader.ReaderWebViewVisualHandoffTest" \
+    --tests "paige.navic.ui.screens.reader.ReaderPageInlineRasterShieldTest" \
     --tests "paige.navic.ui.screens.reader.ReaderPageAdjacentChapterPrefetchIntegrationTest" \
     --tests "paige.navic.reader.ReaderPageTurnDestinationSourceTest" || exit 1
 done
@@ -981,6 +983,7 @@ Expected: all five deterministic runs and both JS gates pass; no test uses `slee
 
 ```bash
 git add composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderWebViewVisualHandoffTest.kt \
+  composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageInlineRasterShieldTest.kt \
   composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageAdjacentChapterPrefetchIntegrationTest.kt \
   composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnDestinationSourceTest.kt \
   tools/reader-harness/src/paginator-commit-consumers.test.mjs \
