@@ -326,6 +326,9 @@ internal class ReaderPageRasterPreparationController(
 	)
 	private val rasterCacheInitializationJobs = linkedSetOf<Job>()
 
+	internal val shouldSuppressViewerContentInput: Boolean
+		get() = pendingVisualRestorations.isNotEmpty()
+
 	internal fun hasStaticRasterShieldOwnership(): Boolean =
 		preparationShield != null ||
 			preparationShieldSnapshot != null ||
@@ -759,19 +762,23 @@ internal class ReaderPageRasterPreparationController(
 				deferredRetryCoordinator.onRetryEvent(
 					ReaderPageRasterRetryEvent.ContentReady
 				)
+				return
 			}
 			passivePrewarmDeferral != null -> {
 				passivePrewarmDeferral = null
 				onRequestPrewarm()
+				return
 			}
 			deferredRasterRepairPageIndex != null &&
 				deferredRasterRepairSessionId == null -> {
 				deferredRasterRepairPageIndex = null
 				startNextRasterRepair()
+				return
 			}
 			deferredBackgroundPrefetchStart != null ->
 				resumeDeferredBackgroundPrefetchStart()
 		}
+		adjacentChapterPrefetchCoordinator.onPassiveAvailable()
 	}
 
 	fun onRasterProfileEpochChanged(epoch: Long?) {

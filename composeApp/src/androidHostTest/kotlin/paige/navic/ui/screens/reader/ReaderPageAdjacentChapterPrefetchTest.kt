@@ -154,6 +154,29 @@ class ReaderPageAdjacentChapterPrefetchTest {
 	}
 
 	@Test
+	fun passiveAvailabilityRetriesAnUndurableRetiredChapter() {
+		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
+		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(
+			onSubmit = submissions::add,
+			onCancel = {}
+		)
+		coordinator.replaceDurablePlan(adjacentPlan())
+		coordinator.onPreparedActiveDeckChanged(preparedDeck())
+		val retired = submissions.single()
+
+		assertTrue(coordinator.onBatchFinished(retired))
+		assertEquals(1, submissions.size)
+
+		coordinator.onPassiveAvailable()
+
+		assertEquals(2, submissions.size)
+		assertEquals(
+			retired.targets.map { target -> target.pageIndex },
+			submissions.last().targets.map { target -> target.pageIndex }
+		)
+	}
+
+	@Test
 	fun replacementPlanAndStaleCallbacksCannotMutateCurrentOwnership() {
 		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
 		val cancellations = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()

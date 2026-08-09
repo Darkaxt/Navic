@@ -459,6 +459,35 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun passiveAvailabilityPreservesForegroundDeferralPriorityBeforeAdjacentRetry() {
+		val source = readerRasterPreparationSource()
+		val passiveAvailable = source.substringAfter(
+			"fun onForegroundWebViewPassiveAvailable() {"
+		).substringBefore("fun onRasterProfileEpochChanged(")
+		val passiveRepair = passiveAvailable.substringAfter(
+			"passiveDeferredRasterRepairSessionId != null -> {"
+		).substringBefore("passivePrewarmDeferral != null -> {")
+		val passivePrewarm = passiveAvailable.substringAfter(
+			"passivePrewarmDeferral != null -> {"
+		).substringBefore("deferredRasterRepairPageIndex != null &&")
+		val queuedRepair = passiveAvailable.substringAfter(
+			"deferredRasterRepairSessionId == null -> {"
+		).substringBefore("deferredBackgroundPrefetchStart != null ->")
+		val adjacentRetry = passiveAvailable.indexOf(
+			"adjacentChapterPrefetchCoordinator.onPassiveAvailable()"
+		)
+
+		assertContains(passiveRepair, "return")
+		assertContains(passivePrewarm, "return")
+		assertContains(queuedRepair, "return")
+		assertTrue(
+			passiveAvailable.indexOf("resumeDeferredBackgroundPrefetchStart()") <
+				adjacentRetry
+		)
+		assertTrue(adjacentRetry >= 0)
+	}
+
+	@Test
 	fun preparationLifecycleLogsEveryRemovalAndInvalidationCause() {
 		val source = readerRasterPreparationSource()
 

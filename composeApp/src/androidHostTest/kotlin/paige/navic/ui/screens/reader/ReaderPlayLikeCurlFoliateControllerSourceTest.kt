@@ -2947,6 +2947,39 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun pendingPreparationRestorationSuppressesRawViewerContent() {
+		val preparation = rasterPreparationFile.readText()
+		val host = hostFile.readText()
+		val pointerRouting = host
+			.substringAfter("private fun applyPointerRoute(")
+			.substringBefore("private fun updateGestureDiagnostic(")
+		val longPress = host
+			.substringAfter("override fun onLongTapConfirmed(event: MotionEvent)")
+			.substringBefore("private fun logReaderTapAction(")
+		val viewerSuppression = host
+			.substringAfter("private fun revokeViewerContentPointerStreamIfSuppressed(")
+			.substringBefore("private fun suppressViewerContentPointerStream()")
+
+		assertContains(
+			preparation,
+			"internal val shouldSuppressViewerContentInput: Boolean"
+		)
+		assertContains(preparation, "get() = pendingVisualRestorations.isNotEmpty()")
+		assertContains(host, "private val shouldSuppressViewerContentInput: Boolean")
+		assertContains(
+			host,
+			"playLikeCurlController.shouldSuppressViewerContentInput ||"
+		)
+		assertContains(
+			host,
+			"pageRasterPreparationController.shouldSuppressViewerContentInput"
+		)
+		assertContains(pointerRouting, "!shouldSuppressViewerContentInput")
+		assertContains(longPress, "if (shouldSuppressViewerContentInput) return")
+		assertContains(viewerSuppression, "if (!shouldSuppressViewerContentInput) return")
+	}
+
+	@Test
 	fun productionSeparatesLegacyAndTypedDelayedTapListeners() {
 		val hostSource = hostFile.readText()
 		val legacy = hostSource

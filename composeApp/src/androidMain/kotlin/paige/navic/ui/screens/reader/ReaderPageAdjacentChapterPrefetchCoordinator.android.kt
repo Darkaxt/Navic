@@ -140,6 +140,11 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		}
 	}
 
+	fun onPassiveAvailable() {
+		attemptedChapterIdentities.clear()
+		trySubmit()
+	}
+
 	fun suspendForForegroundWork() {
 		suspended = true
 		attemptedChapterIdentities.clear()

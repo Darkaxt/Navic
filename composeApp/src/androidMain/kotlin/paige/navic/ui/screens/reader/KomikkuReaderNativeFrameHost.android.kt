@@ -864,6 +864,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var playLikeCurlGestureOwned: Boolean = false
 	private var retainedContentDown: MotionEvent? = null
 	private var shouldDispatchToViewerContent: Boolean = false
+	private val shouldSuppressViewerContentInput: Boolean
+		get() = playLikeCurlController.shouldSuppressViewerContentInput ||
+			pageRasterPreparationController.shouldSuppressViewerContentInput
 	private var physicalDispatchMode: ReaderPagePhysicalDispatchMode? = null
 	private var pageTurnCanvasEnabled: Boolean = false
 	private var pageTurnReadingDirection: String? = null
@@ -1792,7 +1795,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				if (dispatch.route != ReaderPagePointerRoute.Content) return
 				nativeTapLongConfirmed = true
 				revokeViewerContentPointerStreamIfSuppressed(event)
-				if (playLikeCurlController.shouldSuppressViewerContentInput) return
+				if (shouldSuppressViewerContentInput) return
 				logReaderLongTap()
 				performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
 				onContentLongPress(event.x, event.y, width, height)
@@ -2085,7 +2088,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				retainedContentDown?.recycle()
 				retainedContentDown = MotionEvent.obtain(event)
 				shouldDispatchToViewerContent =
-					!playLikeCurlController.shouldSuppressViewerContentInput
+					!shouldSuppressViewerContentInput
 			}
 			revokeViewerContentPointerStreamIfSuppressed(event)
 			if (shouldDispatchToViewerContent) {
@@ -2220,7 +2223,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun revokeViewerContentPointerStreamIfSuppressed(source: MotionEvent) {
-		if (!playLikeCurlController.shouldSuppressViewerContentInput) return
+		if (!shouldSuppressViewerContentInput) return
 		suppressViewerContentPointerStream(source)
 	}
 
