@@ -970,6 +970,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(runtime, "pageTurnPreviewBatchState:")
 		assertContains(runtime, "advancePageTurnPreviewBatch:")
 		assertContains(runtime, "cancelPageTurnPreviewBatch:")
+		assertContains(runtime, "pageTurnPreviewState:")
 		assertContains(preview, "function beginPageTurnPreviewBatch(")
 		assertContains(preview, "async function preparePageTurnPreviewBatchItem(")
 		assertContains(preview, "function advancePageTurnPreviewBatch(")
@@ -981,6 +982,9 @@ class ReaderPageTurnDestinationSourceTest {
 		val advanceBatchBridge = runtime
 			.substringAfter("advancePageTurnPreviewBatch:")
 			.substringBefore("cancelPageTurnPreviewBatch:")
+		val cancelBatchBridge = runtime
+			.substringAfter("cancelPageTurnPreviewBatch:")
+			.substringBefore("pageTurnPreviewState:")
 		val beginBatch = preview
 			.substringAfter("function beginPageTurnPreviewBatch(")
 			.substringBefore("async function preparePageTurnPreviewBatchItem(")
@@ -1020,6 +1024,19 @@ class ReaderPageTurnDestinationSourceTest {
 					"""\s*token,\s*pageIndex,\s*foregroundMutationGeneration\s*\)"""
 			).containsMatchIn(advanceBatchBridge),
 			"The advance bridge must forward the foreground mutation generation."
+		)
+		assertTrue(
+			Regex(
+				"""\(\s*token,\s*foregroundMutationGeneration\s*\)\s*=>"""
+			).containsMatchIn(cancelBatchBridge),
+			"The cancellation bridge must require the foreground mutation generation."
+		)
+		assertTrue(
+			Regex(
+				"""runtime\.cancelPageTurnPreviewBatch\(""" +
+					"""\s*token,\s*foregroundMutationGeneration\s*\)"""
+			).containsMatchIn(cancelBatchBridge),
+			"The cancellation bridge must forward the foreground mutation generation."
 		)
 		assertContains(beginBatch, "foregroundMutationGeneration")
 		assertContains(beginBatch, "readerPageTurnPreviewMutationGenerationCanBeAdopted(")
@@ -1061,6 +1078,29 @@ class ReaderPageTurnDestinationSourceTest {
 					"""\s*state\.foregroundMutationGeneration\s*\)"""
 			).containsMatchIn(advanceBatch),
 			"Advancing a batch must forward its mutation generation to item preparation."
+		)
+		val cancellationFence = Regex(
+			"""if\s*\(\s*state\.status\s*===\s*'missing'\s*\|\|""" +
+				"""\s*state\.foregroundMutationGeneration\s*!==""" +
+				"""\s*foregroundMutationGeneration\s*\|\|""" +
+				"""\s*!readerPageTurnPreviewMutationGenerationIsCurrent\(""" +
+				"""\s*this,\s*foregroundMutationGeneration\s*\)\s*\)""" +
+				"""\s*return false"""
+		).find(cancelBatch)
+		assertTrue(
+			cancellationFence != null,
+			"Cancellation must fail closed for missing, mismatched, or non-current mutation state."
+		)
+		val cancellationFenceEnd = cancellationFence.range.last
+		val cancellationGenerationAdvance = cancelBatch.indexOf(
+			"const generation = ++this.pageTurnPreviewGeneration"
+		)
+		val cancellationRestore = cancelBatch.indexOf("this.restorePageTurnLiveComposition()")
+		assertTrue(
+			cancellationFenceEnd >= 0 &&
+				cancellationGenerationAdvance > cancellationFenceEnd &&
+				cancellationRestore > cancellationFenceEnd,
+			"Cancellation must reject stale mutation ownership before mutating generation or composition."
 		)
 		mapOf(
 			"begin" to beginBatch,
