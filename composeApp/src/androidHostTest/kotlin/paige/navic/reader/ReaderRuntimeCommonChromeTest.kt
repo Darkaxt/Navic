@@ -1174,19 +1174,20 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
-	fun androidReaderNoteAnnotationBatchesAreVisibleInBridgeCommandLogs() {
+	fun androidReaderAnnotationBatchesUseFixedBridgeCommandLogIdentity() {
 		val engineHostText = readerEngineWebViewHostFile().readText()
-		val applyHighlightsLabel = engineHostText
-			.substringAfter("is ReaderBridgeCommand.ApplyHighlights ->")
-			.substringBefore("is ReaderBridgeCommand.ApplyOverlayFragment ->")
+		val logProjector = engineHostText
+			.substringAfter("internal object ReaderEngineLogProjector")
+			.substringBefore("private class ReaderEngineWebView")
 
-		assertContains(applyHighlightsLabel, "highlights.count")
-		assertContains(applyHighlightsLabel, "it.note?.trim()?.isNotEmpty() == true")
-		assertContains(applyHighlightsLabel, "notes=")
 		assertContains(
-			applyHighlightsLabel,
-			"applyHighlights(count=\${highlights.size}, notes=\$noteCount)",
-			message = "ADB/logcat command labels must distinguish Note Save annotation batches from plain highlight batches."
+			logProjector,
+			"Dispatching reader engine command: \${dispatch.command.type}"
+		)
+		assertFalse(
+			logProjector.contains("highlights.count") ||
+				logProjector.contains("notes="),
+			"ADB/logcat command labels must preserve only fixed command identity, not annotation payload metadata."
 		)
 	}
 

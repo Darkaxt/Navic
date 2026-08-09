@@ -25,12 +25,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import paige.navic.reader.ReaderBridgeCommand
+import paige.navic.reader.ReaderBridgeDispatchCommand
 import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderEngineHostCommand
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderJavascriptBridge
 import paige.navic.reader.ReaderLocator
-import paige.navic.reader.ReaderOverlayCoordinateMode
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderRawTextProvenanceDescriptor
@@ -46,6 +46,75 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 private const val ReaderEngineWebViewHostTag = "ReaderEngineWebViewHost"
+
+internal object ReaderEngineLogProjector {
+	private const val RedactedConsoleDiagnostic = "[redacted-reader-console]"
+	private const val NavicReaderConsolePrefix = "[NavicReader] "
+	private val approvedConsoleDiagnostics = setOf(
+		"module-loaded",
+		"dispatch",
+		"post",
+		"bridge-unavailable",
+		"post-failed",
+		"reportError"
+	)
+
+	fun command(dispatch: ReaderBridgeDispatchCommand): String =
+		"Dispatching reader engine command: ${dispatch.command.type}"
+
+	fun event(event: ReaderBridgeEvent): String =
+		"Reader bridge event: ${event.diagnosticName()}"
+
+	@Suppress("UNUSED_PARAMETER")
+	fun console(level: String, message: String?, sourceId: String?): String {
+		val diagnostic = message
+			?.takeIf { it.startsWith(NavicReaderConsolePrefix) }
+			?.removePrefix(NavicReaderConsolePrefix)
+			?.substringBefore(' ')
+			?.takeIf(approvedConsoleDiagnostics::contains)
+			?: RedactedConsoleDiagnostic
+		return "Reader console ${level.diagnosticName()}: $diagnostic"
+	}
+
+	private fun String.diagnosticName(): String =
+		when (this) {
+			"TIP", "LOG", "WARNING", "ERROR", "DEBUG" -> this
+			else -> "UNKNOWN"
+		}
+
+	private fun ReaderBridgeEvent.diagnosticName(): String =
+		when (this) {
+			ReaderBridgeEvent.Ready -> "ready"
+			is ReaderBridgeEvent.CommandAcknowledged -> "commandAck"
+			ReaderBridgeEvent.PublicationReady -> "publicationReady"
+			ReaderBridgeEvent.CenterTap -> "readerCenterTap"
+			is ReaderBridgeEvent.ContentTapHandled -> "contentTapHandled"
+			is ReaderBridgeEvent.InternalLinkRequested -> "internalLink"
+			is ReaderBridgeEvent.ExternalLink -> "externalLink"
+			is ReaderBridgeEvent.LocationChanged -> "locationChanged"
+			is ReaderBridgeEvent.DuplicatePageSuspected -> "duplicatePageSuspected"
+			is ReaderBridgeEvent.CfiChanged -> "cfiChanged"
+			is ReaderBridgeEvent.TocItemChanged -> "tocItemChanged"
+			is ReaderBridgeEvent.PaginationProfileStatusChanged -> "paginationProfileStatus"
+			is ReaderBridgeEvent.SelectionChanged -> "selectionChanged"
+			ReaderBridgeEvent.SelectionCleared -> "selectionCleared"
+			is ReaderBridgeEvent.AnnotationClick -> "annotationClick"
+			is ReaderBridgeEvent.AnnotationDrawn -> "annotationDrawn"
+			is ReaderBridgeEvent.OverlayCreated -> "overlayCreated"
+			is ReaderBridgeEvent.LoadDoc -> "loadDoc"
+			is ReaderBridgeEvent.FootnoteOpen -> "footnoteOpen"
+			ReaderBridgeEvent.FootnoteClose -> "footnoteClose"
+			is ReaderBridgeEvent.PullUp -> "pullUp"
+			is ReaderBridgeEvent.VisibleTextRange -> "visibleTextRange"
+			is ReaderBridgeEvent.TextPoint -> "textPoint"
+			is ReaderBridgeEvent.RawTextProvenanceStatusChanged -> "rawTextProvenanceStatus"
+			is ReaderBridgeEvent.OverlayFragmentActive -> "overlayFragmentActive"
+			is ReaderBridgeEvent.OverlayFragmentInactive -> "overlayFragmentInactive"
+			is ReaderBridgeEvent.SearchResults -> "searchResults"
+			is ReaderBridgeEvent.Toc -> "toc"
+			is ReaderBridgeEvent.Error -> "error"
+		}
+}
 
 private class ReaderEngineWebView(context: Context) : WebView(context) {
 	var windowVisibilityListener: ((Int) -> Unit)? = null
@@ -196,16 +265,14 @@ actual fun ReaderEngineWebViewHost(
 		step.commands.forEach { dispatch ->
 			Logger.i(
 				ReaderEngineWebViewHostTag,
-				"Dispatching reader engine command: ${dispatch.command.engineDebugLabel()} " +
-					"id=${dispatch.id} generation=$webViewGeneration " +
-					"publication=${currentPublicationKey.hashCode()} key=$currentCommandKey"
+				ReaderEngineLogProjector.command(dispatch)
 			)
 			evaluateJavascript(ReaderWebRuntime.commandScript(dispatch), null)
 		}
 	}
 
 	fun handleReaderBridgeEvent(event: ReaderBridgeEvent) {
-		Logger.i(ReaderEngineWebViewHostTag, "Reader bridge event: ${event.engineDebugLabel()}")
+		Logger.i(ReaderEngineWebViewHostTag, ReaderEngineLogProjector.event(event))
 		when (event) {
 			ReaderBridgeEvent.Ready -> {
 				runtimeRecovery.onRuntimeReady()
@@ -316,9 +383,11 @@ actual fun ReaderEngineWebViewHost(
 					}
 					webChromeClient = object : WebChromeClient() {
 						override fun onConsoleMessage(message: ConsoleMessage): Boolean {
-							val logMessage =
-								"Reader console ${message.messageLevel()}: ${message.message()} " +
-									"@ ${message.sourceId()}:${message.lineNumber()}"
+							val logMessage = ReaderEngineLogProjector.console(
+								level = message.messageLevel().name,
+								message = message.message(),
+								sourceId = message.sourceId()
+							)
 							when (message.messageLevel()) {
 								ConsoleMessage.MessageLevel.ERROR -> Logger.e(ReaderEngineWebViewHostTag, logMessage)
 								ConsoleMessage.MessageLevel.WARNING -> Logger.w(ReaderEngineWebViewHostTag, logMessage)
@@ -437,100 +506,6 @@ private fun ReaderBridgeCommand.withEngineNativeTapZones(): ReaderBridgeCommand 
 		is ReaderBridgeCommand.OpenPublication -> copy(settings = (settings ?: ReaderSettings()).copy(nativeTapZones = true))
 		is ReaderBridgeCommand.ApplySettings -> copy(settings = settings.copy(nativeTapZones = true))
 		else -> this
-	}
-
-private fun ReaderBridgeCommand.engineDebugLabel(): String =
-	when (this) {
-		is ReaderBridgeCommand.OpenPublication ->
-			"openPublication(url=${url.engineUrlLabel()}, overlay=$mediaOverlayEnabled, " +
-				"tint=${if (nativeShellCoverTint.isNullOrBlank()) "missing" else "present"})"
-		is ReaderBridgeCommand.GoToLocator -> "goToLocator(reason=$reason)"
-		is ReaderBridgeCommand.GoToCfi -> "goToCfi"
-		is ReaderBridgeCommand.GoToHref -> "goToHref(${href.engineUrlLabel()})"
-		is ReaderBridgeCommand.GoToProgress -> "goToProgress(${progress.coerceIn(0.0, 1.0)})"
-		is ReaderBridgeCommand.GoToChapterProgress ->
-			"goToChapterProgress(${href.engineUrlLabel()}, ${progress.coerceIn(0.0, 1.0)})"
-		ReaderBridgeCommand.NextPage -> "nextPage"
-		ReaderBridgeCommand.PreviousPage -> "previousPage"
-		is ReaderBridgeCommand.PreviewPageDrag -> "previewPageDrag(${phase.name.lowercase()})"
-		is ReaderBridgeCommand.ScrollViewport -> "scrollViewport(${direction.name.lowercase()})"
-		is ReaderBridgeCommand.ContentLongPressAt -> "contentLongPressAt"
-		is ReaderBridgeCommand.ApplyHighlight -> "applyHighlight"
-		is ReaderBridgeCommand.ApplyHighlights -> {
-			val noteCount = highlights.count { it.note?.trim()?.isNotEmpty() == true }
-			"applyHighlights(count=${highlights.size}, notes=$noteCount)"
-		}
-		is ReaderBridgeCommand.InstallRawTextProvenance -> "installRawTextProvenance"
-		is ReaderBridgeCommand.ApplyOverlayFragment ->
-			if (fragment.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8) {
-				"applyOverlayFragment(raw)"
-			} else {
-				"applyOverlayFragment(${fragment.fragmentId.orEmpty()})"
-			}
-		is ReaderBridgeCommand.UpdateOverlayFragmentProgress ->
-			if (fragment.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8) {
-				"updateOverlayFragmentProgress(raw)"
-			} else {
-				"updateOverlayFragmentProgress(${fragment.fragmentId.orEmpty()}, ${fragment.textProgressEnd ?: "n/a"})"
-			}
-		is ReaderBridgeCommand.RequestVisibleTextRange -> "requestVisibleTextRange"
-		ReaderBridgeCommand.ClearOverlay -> "clearOverlay"
-		is ReaderBridgeCommand.ApplySettings -> "applySettings"
-		is ReaderBridgeCommand.Search -> "search"
-		ReaderBridgeCommand.ClearSearch -> "clearSearch"
-	}
-
-fun ReaderBridgeEvent.engineDebugLabel(): String =
-	when (this) {
-		ReaderBridgeEvent.Ready -> "ready"
-		is ReaderBridgeEvent.CommandAcknowledged -> "commandAck($commandId)"
-		ReaderBridgeEvent.PublicationReady -> "publicationReady"
-		ReaderBridgeEvent.CenterTap -> "readerCenterTap"
-		is ReaderBridgeEvent.ContentTapHandled -> "contentTapHandled(${action.name.lowercase()})"
-		is ReaderBridgeEvent.InternalLinkRequested ->
-			"internalLink(${href?.engineUrlLabel().orEmpty()}, prevented=$prevented, source=${source.orEmpty()})"
-		is ReaderBridgeEvent.ExternalLink -> "externalLink(${href?.engineUrlLabel().orEmpty()})"
-		is ReaderBridgeEvent.LocationChanged ->
-			"locationChanged(${locator.href?.engineUrlLabel().orEmpty()}, " +
-				"reason=${locator.reason.orEmpty()}, " +
-				"rangeCfi=${locator.rangeCfi?.take(80).orEmpty()})"
-		is ReaderBridgeEvent.DuplicatePageSuspected ->
-			"duplicate-page suspected current=$currentPageOrdinal previous=$previousPageOrdinal " +
-				"plainTextSame=$plainTextSame locatorSame=$locatorSame"
-		is ReaderBridgeEvent.CfiChanged -> "cfiChanged"
-		is ReaderBridgeEvent.TocItemChanged -> "tocItemChanged(${href?.engineUrlLabel().orEmpty()})"
-		is ReaderBridgeEvent.PaginationProfileStatusChanged -> "paginationProfileStatus(${profile.status})"
-		is ReaderBridgeEvent.SelectionChanged ->
-			"selectionChanged(footnote=${footnote ?: false}, " +
-				"pos=${posLeft ?: ""},${posTop ?: ""},${posRight ?: ""},${posBottom ?: ""})"
-		ReaderBridgeEvent.SelectionCleared -> "selectionCleared()"
-		is ReaderBridgeEvent.AnnotationClick -> "annotationClick(index=${index ?: ""}, value=${value?.take(80).orEmpty()})"
-		is ReaderBridgeEvent.AnnotationDrawn -> "annotationDrawn(index=${index ?: ""}, value=${value?.take(80).orEmpty()})"
-		is ReaderBridgeEvent.OverlayCreated -> "overlayCreated(index=${index ?: ""})"
-		is ReaderBridgeEvent.LoadDoc -> "loadDoc(index=${index ?: ""}, href=${href?.engineUrlLabel().orEmpty()})"
-		is ReaderBridgeEvent.FootnoteOpen -> "footnoteOpen(${href?.engineUrlLabel().orEmpty()}, type=${noteType.orEmpty()})"
-		ReaderBridgeEvent.FootnoteClose -> "footnoteClose()"
-		is ReaderBridgeEvent.PullUp -> "pullUp(source=${source.orEmpty()})"
-		is ReaderBridgeEvent.VisibleTextRange ->
-			if (rawProvenanceId != null) {
-				"visibleTextRange(raw)"
-			} else {
-				"visibleTextRange(${textHref.engineUrlLabel()}, $visibleStart-$visibleEnd, source=${source.orEmpty()})"
-			}
-		is ReaderBridgeEvent.TextPoint ->
-			if (rawProvenanceId != null) {
-				"textPoint(raw)"
-			} else {
-				"textPoint(${textHref.engineUrlLabel()}, $textOffset, source=${source.orEmpty()})"
-			}
-		is ReaderBridgeEvent.RawTextProvenanceStatusChanged ->
-			"rawTextProvenanceStatus(${status.name.lowercase()}, ${reason?.name?.lowercase().orEmpty()})"
-		is ReaderBridgeEvent.OverlayFragmentActive -> "overlayFragmentActive(${fragment.fragmentId.orEmpty()})"
-		is ReaderBridgeEvent.OverlayFragmentInactive -> "overlayFragmentInactive(${fragmentId.orEmpty()})"
-		is ReaderBridgeEvent.SearchResults ->
-			"searchResults(count=${results.size}, progress=${progress ?: ""}, complete=$complete)"
-		is ReaderBridgeEvent.Toc -> "toc(count=${items.size})"
-		is ReaderBridgeEvent.Error -> "error(code=${code.orEmpty()}, message=${message.take(120)})"
 	}
 
 private fun String.engineUrlLabel(): String {

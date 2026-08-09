@@ -209,8 +209,6 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(engineText, "val nativeShellCoverTint: String? = null")
 		assertContains(engineHostText, "nativeShellCoverTint = viewState.nativeShellCoverTint")
 		assertContains(webViewHostText, "nativeShellCoverTint = nativeShellCoverTint")
-		assertContains(webViewHostText, "tint=")
-		assertContains(webViewHostText, "nativeShellCoverTint.isNullOrBlank()")
 		assertContains(bridgeText, "val nativeShellCoverTint: String? = null")
 		assertContains(bridgeText, "nativeShellCoverTint?.let { put(\"nativeShellCoverTint\", it) }")
 		assertFalse(

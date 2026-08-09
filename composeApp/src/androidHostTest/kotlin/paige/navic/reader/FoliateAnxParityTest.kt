@@ -316,7 +316,10 @@ class FoliateAnxParityTest {
 			routeStop("navic-reader-content-interactions.js", "readerResolvedFootnoteOpenPayload"),
 			routeStop("navic-reader-content-interactions.js", "book?.resolveHref"),
 			routeStop("navic-reader-content-interactions.js", "section.load"),
-			routeStop("composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderEngineWebViewHost.android.kt", "footnoteOpen("),
+			routeStop(
+				"composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderEngineWebViewHost.android.kt",
+				"is ReaderBridgeEvent.FootnoteOpen -> \"footnoteOpen\""
+			),
 			routeStop("ReaderOverlayReducer.kt", "ReaderOverlayInteraction.FootnoteClosed")
 		),
 		"onPullUp" to exists(
@@ -580,7 +583,9 @@ class FoliateAnxParityTest {
 		)
 		assertTrue(
 			readerEngineWebViewHostText.contains("ReaderBridgeEvent.InternalLinkRequested") &&
-				readerEngineWebViewHostText.contains("internalLink("),
+				readerEngineWebViewHostText.contains(
+					"is ReaderBridgeEvent.InternalLinkRequested -> \"internalLink\""
+				),
 			"ReaderEngineWebViewHost must expose an ADB-visible debug label for internalLink."
 		)
 	}
@@ -647,7 +652,7 @@ class FoliateAnxParityTest {
 			)
 			assertTrue(
 				readerEngineWebViewHostText.contains("ReaderBridgeEvent.${event.bridgeEvent}") &&
-					readerEngineWebViewHostText.contains("${event.bridgeType}("),
+					readerEngineWebViewHostText.contains("-> \"${event.bridgeType}\""),
 				"ReaderEngineWebViewHost must expose an ADB-visible debug label for ${event.bridgeType}."
 			)
 		}
@@ -846,9 +851,10 @@ class FoliateAnxParityTest {
 			"Runtime must never stringify DOM Range objects into rangeCfi."
 		)
 		assertTrue(
-			readerEngineWebViewHostText.contains("rangeCfi=") &&
-				readerEngineWebViewHostText.contains("reason="),
-			"ReaderEngineWebViewHost locationChanged debug label must expose rangeCfi and reason for ADB validation."
+			readerEngineWebViewHostText.contains(
+				"is ReaderBridgeEvent.LocationChanged -> \"locationChanged\""
+			),
+			"ReaderEngineWebViewHost must preserve the stable locationChanged event identity for ADB validation without logging relocation payload."
 		)
 	}
 
@@ -897,10 +903,10 @@ class FoliateAnxParityTest {
 			"Runtime must post selectionChanged with DOM selection bounds from getBoundingClientRect."
 		)
 		assertTrue(
-			readerEngineWebViewHostText.contains("selectionChanged(") &&
-				readerEngineWebViewHostText.contains("footnote=") &&
-				readerEngineWebViewHostText.contains("pos="),
-			"ReaderEngineWebViewHost must expose selection footnote and position in ADB-visible debug labels."
+			readerEngineWebViewHostText.contains(
+				"is ReaderBridgeEvent.SelectionChanged -> \"selectionChanged\""
+			),
+			"ReaderEngineWebViewHost must preserve the stable selectionChanged event identity without logging selection payload."
 		)
 	}
 
