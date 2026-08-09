@@ -267,11 +267,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"The shared owner must exist before the preparation controller."
 		)
 		assertEquals(
-			4,
+			5,
 			Regex("!foregroundWebViewOwnership\\.canAcquirePassive\\(\\)")
 				.findAll(viewer)
 				.count(),
-			"Passive availability must be guarded before and after deferral recovery."
+			"Passive availability must guard destination-deck resumption and prewarm recovery."
 		)
 		assertEquals(
 			2,
@@ -1089,25 +1089,79 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun preparedDestinationDeckRearmsPassivePrewarm() {
+	fun preparedDestinationDeckRearmsOnlyReplacementPrewarm() {
 		val host = hostFile.readText()
 		val callback = host
 			.substringAfter("private fun onPreparedActiveDeckChanged(")
+			.substringBefore("private fun resumeDestinationDeckPrewarmIfReady()")
+		val resume = host
+			.substringAfter("private fun resumeDestinationDeckPrewarmIfReady()")
 			.substringBefore("private fun onForegroundWebViewPassiveAvailable()")
+		val passiveAvailable = host
+			.substringAfter("private fun onForegroundWebViewPassiveAvailable()")
+			.substringBefore("private fun requestPageTurnPrewarmWhenReady()")
 
 		assertContains(
 			host,
 			"onPreparedActiveDeckChanged = ::onPreparedActiveDeckChanged"
 		)
 		assertContains(
+			host,
+			"private var preparedActiveDeck: ReaderPagePreparedActiveDeck? = null"
+		)
+		assertContains(host, "private var destinationDeckPrewarmPending = false")
+		assertContains(callback, "val previous = preparedActiveDeck")
+		assertContains(callback, "val ownership = foregroundWebViewOwnership.snapshot()")
+		assertContains(callback, "preparedActiveDeck = deck")
+		assertContains(callback, "deck != null &&")
+		assertContains(callback, "previous != null &&")
+		assertContains(callback, "previous != deck &&")
+		assertContains(callback, "ownership.liveClaims > 0 ||")
+		assertContains(callback, "ownership.restorationCallbacks > 0")
+		assertContains(callback, "destinationDeckPrewarmPending = true")
+		assertContains(
 			callback,
 			"pageRasterPreparationController.onPreparedActiveDeckChanged(deck)"
 		)
-		assertContains(callback, "if (deck != null) requestPageTurnPrewarmWhenReady()")
+		assertContains(callback, "resumeDestinationDeckPrewarmIfReady()")
+		assertContains(resume, "if (!destinationDeckPrewarmPending) return")
+		assertContains(resume, "if (preparedActiveDeck == null) return")
+		assertContains(resume, "if (!foregroundWebViewOwnership.canAcquirePassive()) return")
+		assertContains(resume, "destinationDeckPrewarmPending = false")
+		assertContains(resume, "requestPageTurnPrewarmWhenReady()")
+		assertContains(passiveAvailable, "resumeDestinationDeckPrewarmIfReady()")
+	}
+
+	@Test
+	fun invalidatingLifecycleClearsPendingDestinationDeckPrewarm() {
+		val host = hostFile.readText()
+		val reset = host
+			.substringAfter("private fun clearDestinationDeckPrewarm()")
+			.substringBefore("private fun onRasterProfileEpochChanged(")
+		val lifecycle = host
+			.substringAfter("private fun dispatchPageHostLifecycleEvent(")
+			.substringBefore("private fun completeHostGesture(")
+
+		assertContains(reset, "preparedActiveDeck = null")
+		assertContains(reset, "destinationDeckPrewarmPending = false")
+		assertContains(lifecycle, "clearDestinationDeckPrewarm()")
 		assertTrue(
-			callback.indexOf(
-				"pageRasterPreparationController.onPreparedActiveDeckChanged(deck)"
-			) < callback.indexOf("requestPageTurnPrewarmWhenReady()")
+			lifecycle.indexOf("clearDestinationDeckPrewarm()") <
+				lifecycle.indexOf("pageInputSettlementHostController.onLifecycleEvent(event)")
+		)
+	}
+
+	@Test
+	fun profileEpochInvalidationClearsPendingDestinationDeckPrewarm() {
+		val host = hostFile.readText()
+		val profileEpoch = host
+			.substringAfter("private fun onRasterProfileEpochChanged(")
+			.substringBefore("private fun attachPageRasterRepairQaFault(")
+
+		assertContains(profileEpoch, "clearDestinationDeckPrewarm()")
+		assertTrue(
+			profileEpoch.indexOf("clearDestinationDeckPrewarm()") <
+				profileEpoch.indexOf("rasterProfileEpoch = epoch")
 		)
 	}
 

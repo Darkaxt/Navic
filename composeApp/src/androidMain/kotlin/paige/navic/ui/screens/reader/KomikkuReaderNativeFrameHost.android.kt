@@ -878,6 +878,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var pageTurnVisualLocationReason: String? = null
 	private var pageTurnFoliateSessionId: String? = null
 	private var pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null
+	private var preparedActiveDeck: ReaderPagePreparedActiveDeck? = null
+	private var destinationDeckPrewarmPending = false
 	private var shellCoverVisible: Boolean = false
 	private var pageOperationPolicy = readerPageOperationPolicy(ReaderPageReadinessState())
 	private var pagePreparationRetryKey: Int = Int.MIN_VALUE
@@ -1304,7 +1306,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		}
 	}
 
+	private fun clearDestinationDeckPrewarm() {
+		destinationDeckPrewarmPending = false
+		preparedActiveDeck = null
+	}
+
 	private fun onRasterProfileEpochChanged(epoch: Long?) {
+		clearDestinationDeckPrewarm()
 		rasterProfileEpoch = epoch
 		val activeReadiness = readerPageActivePaginationReadiness(
 			profileAvailable = epoch != null,
@@ -1585,8 +1593,30 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun onPreparedActiveDeckChanged(deck: ReaderPagePreparedActiveDeck?) {
+		val previous = preparedActiveDeck
+		val ownership = foregroundWebViewOwnership.snapshot()
+		preparedActiveDeck = deck
+		if (
+			deck != null &&
+			previous != null &&
+			previous != deck &&
+			(
+				ownership.liveClaims > 0 ||
+				ownership.restorationCallbacks > 0
+			)
+		) {
+			destinationDeckPrewarmPending = true
+		}
 		pageRasterPreparationController.onPreparedActiveDeckChanged(deck)
-		if (deck != null) requestPageTurnPrewarmWhenReady()
+		resumeDestinationDeckPrewarmIfReady()
+	}
+
+	private fun resumeDestinationDeckPrewarmIfReady() {
+		if (!destinationDeckPrewarmPending) return
+		if (preparedActiveDeck == null) return
+		if (!foregroundWebViewOwnership.canAcquirePassive()) return
+		destinationDeckPrewarmPending = false
+		requestPageTurnPrewarmWhenReady()
 	}
 
 	private fun onForegroundWebViewPassiveAvailable() {
@@ -1595,6 +1625,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			!foregroundWebViewOwnership.canAcquirePassive()
 		) return
 		pageRasterPreparationController.onForegroundWebViewPassiveAvailable()
+		resumeDestinationDeckPrewarmIfReady()
 		if (
 			task4ResourceTeardownStarted ||
 			!foregroundWebViewOwnership.canAcquirePassive()
@@ -2441,7 +2472,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	private fun dispatchPageHostLifecycleEvent(
 		event: ReaderPageHostLifecycleEvent
-	): List<Long> = pageInputSettlementHostController.onLifecycleEvent(event)
+	): List<Long> {
+		clearDestinationDeckPrewarm()
+		return pageInputSettlementHostController.onLifecycleEvent(event)
+	}
 
 	private fun completeHostGesture(
 		gestureId: Long,
