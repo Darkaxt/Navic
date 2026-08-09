@@ -2019,7 +2019,7 @@ class ReaderRuntimeCommonChromeTest {
 	fun commonReadaloudRuntimeCapabilitiesRemainAvailableBehindControllerBoundary() {
 		val readerScreenText = readerScreenFile().readText()
 		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
-		val coordinatorText = readerCommonFile("ReaderCoordinator.kt").readText()
+		val coordinatorWordSyncText = readerCommonFile("ReaderCoordinatorWordSync.kt").readText()
 		val runtimeHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
 		val playbackStateCallCount = Regex("""coordinator\.onReadaloudPlaybackState\(""")
 			.findAll(readerScreenText)
@@ -2050,9 +2050,9 @@ class ReaderRuntimeCommonChromeTest {
 			completePlaybackStateCallCount == playbackStateCallCount,
 			"Every readaloud playback-state coordinator call must carry playbackState and its derived playbackIdentity together."
 		)
-		assertContains(coordinatorText, "internal fun onReadaloudPlaybackState(")
-		assertContains(coordinatorText, "playbackIdentity: ReaderWordSyncPlaybackIdentity?")
-		assertContains(coordinatorText, "playback = playbackIdentity")
+		assertContains(coordinatorWordSyncText, "internal fun ReaderCoordinator.onReadaloudPlaybackState(")
+		assertContains(coordinatorWordSyncText, "playbackIdentity: ReaderWordSyncPlaybackIdentity?")
+		assertContains(coordinatorWordSyncText, "playback = playbackIdentity")
 		assertFalse(
 			readerScreenText.contains("coordinator.dispatch { onReadaloudPlaybackState(playbackState) }"),
 			"Readaloud playback state and playback identity must cross the coordinator boundary together."
