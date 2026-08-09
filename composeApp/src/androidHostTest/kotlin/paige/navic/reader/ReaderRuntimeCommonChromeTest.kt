@@ -2006,10 +2006,10 @@ class ReaderRuntimeCommonChromeTest {
 			"Reader settings should use Komikku-style selectable chip groups instead of cyclic value rows."
 		)
 		assertFalse(
-			allSettingsText.contains("private fun KomikkuSettingsSwitchRow(") ||
-				allSettingsText.contains("private fun KomikkuSettingsStepperRow(") ||
-				allSettingsText.contains("private fun KomikkuSettingsCheckboxItem(") ||
-				allSettingsText.contains("private fun KomikkuSettingsSliderItem("),
+			allSettingsText.contains("fun KomikkuSettingsSwitchRow(") ||
+				allSettingsText.contains("fun KomikkuSettingsStepperRow(") ||
+				allSettingsText.contains("fun KomikkuSettingsCheckboxItem(") ||
+				allSettingsText.contains("fun KomikkuSettingsSliderItem("),
 			"Working Navic-only switch/stepper rows are still non-faithful; settings controls must be rebuilt around Komikku CheckboxItem and SliderItem primitives."
 		)
 	}
@@ -2074,6 +2074,12 @@ class ReaderRuntimeCommonChromeTest {
 		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
 		val coordinatorText = readerCommonFile("ReaderCoordinator.kt").readText()
 		val runtimeHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
+		val playbackStateCallCount = Regex("""coordinator\.onReadaloudPlaybackState\(""")
+			.findAll(readerScreenText)
+			.count()
+		val completePlaybackStateCallCount = Regex(
+			"""coordinator\.onReadaloudPlaybackState\(\s*playbackState\s*=\s*playbackState,\s*playbackIdentity\s*=\s*playbackState\.toWordSyncPlaybackIdentity\(whispersyncPlaybackPlan\)\s*\)"""
+		).findAll(readerScreenText).count()
 
 		assertContains(chromeStateText, "activeAudioLabel")
 		assertContains(chromeStateText, "activeAudioMetadata")
@@ -2089,9 +2095,14 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(runtimeHostText, "setSyncEnabled")
 		assertContains(readerScreenText, "ReaderReadaloudRuntimeHost(")
 		assertContains(readerScreenText, "coordinator.onReadaloudEngineCommand(command)")
-		assertContains(readerScreenText, "coordinator.onReadaloudPlaybackState(")
-		assertContains(readerScreenText, "playbackState = playbackState")
-		assertContains(readerScreenText, "playbackIdentity = playbackState.toWordSyncPlaybackIdentity(whispersyncPlaybackPlan)")
+		assertTrue(
+			playbackStateCallCount == 2,
+			"ReaderScreen must route both playback-state sources through the coordinator boundary."
+		)
+		assertTrue(
+			completePlaybackStateCallCount == playbackStateCallCount,
+			"Every readaloud playback-state coordinator call must carry playbackState and its derived playbackIdentity together."
+		)
 		assertContains(coordinatorText, "internal fun onReadaloudPlaybackState(")
 		assertContains(coordinatorText, "playbackIdentity: ReaderWordSyncPlaybackIdentity?")
 		assertContains(coordinatorText, "playback = playbackIdentity")
