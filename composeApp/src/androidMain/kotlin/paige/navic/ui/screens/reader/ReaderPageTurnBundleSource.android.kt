@@ -1999,6 +1999,7 @@ internal class ReaderPageTurnBundleSource(
 		webView: WebView,
 		rendererSurface: PageSurfaceView,
 		request: ReaderPageRelocationRequest,
+		foregroundMutationGeneration: ReaderForegroundWebViewMutationGeneration,
 		expectedTarget: ReaderPageSlideSnapshot,
 		expectedSource: ReaderPageSlideSnapshot?,
 		isStillCurrent: () -> Boolean,
@@ -2059,7 +2060,8 @@ internal class ReaderPageTurnBundleSource(
 				pageIndex = request.destinationOrdinal.toLong(),
 				foliateSessionId = request.foliateSessionId,
 				rasterGeneration = request.rasterGeneration,
-				textureGeneration = request.textureGeneration
+				textureGeneration = request.textureGeneration,
+				foregroundMutationGeneration = foregroundMutationGeneration.value
 			)
 		}.getOrNull()
 		if (target == null) {
@@ -2203,7 +2205,7 @@ internal class ReaderPageTurnBundleSource(
 		itemToken: String,
 		previewGeneration: Long,
 		priority: ReaderPageRasterPriority,
-		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration,
 		isStillCurrent: () -> Boolean = { true },
 		onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit,
 		onCaptureFailed: () -> Unit,
@@ -2241,6 +2243,7 @@ internal class ReaderPageTurnBundleSource(
 			kind = kind,
 			token = itemToken,
 			previewGeneration = previewGeneration,
+			mutationGeneration = mutationGeneration,
 			generation = generation,
 			isStillCurrent = isStillCurrent,
 			onStagingStarted = { onPresented -> onStagingStarted(reference, onPresented) }
@@ -2273,6 +2276,7 @@ internal class ReaderPageTurnBundleSource(
 		kind: ReaderPageTurnTransitionKind,
 		token: String,
 		previewGeneration: Long,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration,
 		generation: Long,
 		isStillCurrent: () -> Boolean,
 		onStagingStarted: ((Boolean) -> Unit) -> Unit,
@@ -2286,7 +2290,8 @@ internal class ReaderPageTurnBundleSource(
 			ReaderPageTurnPresentationTarget.Preview(
 				token = token,
 				pageIndex = pageIndex.toLong(),
-				previewGeneration = previewGeneration
+				previewGeneration = previewGeneration,
+				foregroundMutationGeneration = mutationGeneration.value
 			)
 		}.getOrNull()
 		if (presentationTarget == null) {
@@ -2305,14 +2310,20 @@ internal class ReaderPageTurnBundleSource(
 				return@staging
 			}
 			webView.evaluateJavascript(
-				"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.($quotedToken) === true"
+				"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.(" +
+					"$quotedToken, ${mutationGeneration.value}) === true"
 			) { encoded ->
 				if (
 					generation != activeGeneration ||
 					!isStillCurrent() ||
 					!encoded.isJavascriptTrue()
 				) {
-					restoreLiveComposition(webView, token) { _ -> onCaptured(null) }
+					restoreLiveComposition(
+						webView,
+						token,
+						mutationGeneration,
+						isStillCurrent
+					) { _ -> onCaptured(null) }
 					return@evaluateJavascript
 				}
 				webView.postVisualStateCallback(
@@ -2324,24 +2335,40 @@ internal class ReaderPageTurnBundleSource(
 								!webView.isAttachedToWindow ||
 								!isStillCurrent()
 							) {
-								restoreLiveComposition(webView, token) { _ -> onCaptured(null) }
+								restoreLiveComposition(
+									webView,
+									token,
+									mutationGeneration,
+									isStillCurrent
+								) { _ -> onCaptured(null) }
 								return
 							}
 							webView.postOnAnimation frame@{
 								if (!isStillCurrent()) {
-									restoreLiveComposition(webView, token) { _ -> onCaptured(null) }
+									restoreLiveComposition(
+										webView,
+										token,
+										mutationGeneration,
+										isStillCurrent
+									) { _ -> onCaptured(null) }
 									return@frame
 								}
 								webView.evaluateJavascript(
 									"window.NavicReaderBridge?." +
-										"confirmPageTurnPreviewPresentation?.($quotedToken) === true"
+										"confirmPageTurnPreviewPresentation?.(" +
+										"$quotedToken, ${mutationGeneration.value}) === true"
 								) confirmation@{ confirmed ->
 									if (
 										generation != activeGeneration ||
 										!isStillCurrent() ||
 										!confirmed.isJavascriptTrue()
 									) {
-										restoreLiveComposition(webView, token) { _ -> onCaptured(null) }
+										restoreLiveComposition(
+											webView,
+											token,
+											mutationGeneration,
+											isStillCurrent
+										) { _ -> onCaptured(null) }
 										return@confirmation
 									}
 									capturePreparedSurface(
@@ -2351,7 +2378,12 @@ internal class ReaderPageTurnBundleSource(
 											generation == activeGeneration && isStillCurrent()
 										}
 									) { captured ->
-										restoreLiveComposition(webView, token) { restored ->
+										restoreLiveComposition(
+											webView,
+											token,
+											mutationGeneration,
+											isStillCurrent
+										) { restored ->
 											val bitmap = captured?.bitmap
 											val snapshotGeometry = captured?.let {
 												readerPagePreparedSnapshotGeometry(kind, it)
@@ -3353,17 +3385,24 @@ internal class ReaderPageTurnBundleSource(
 	private fun restoreLiveComposition(
 		webView: WebView,
 		token: String,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration,
+		isStillCurrent: () -> Boolean,
 		onRestored: (Boolean) -> Unit = {}
 	) {
-		if (!webView.isAttachedToWindow) {
+		if (!webView.isAttachedToWindow || !isStillCurrent()) {
 			onRestored(false)
 			return
 		}
 		val quotedToken = JSONObject.quote(token)
 		webView.evaluateJavascript(
-			"window.NavicReaderBridge?.restorePageTurnLiveComposition?.($quotedToken)"
+			"window.NavicReaderBridge?.restorePageTurnLiveComposition?.(" +
+				"$quotedToken, ${mutationGeneration.value})"
 		) { restored ->
-			if (!restored.isJavascriptTrue() || !webView.isAttachedToWindow) {
+			if (
+				!restored.isJavascriptTrue() ||
+				!webView.isAttachedToWindow ||
+				!isStillCurrent()
+			) {
 				onRestored(false)
 				return@evaluateJavascript
 			}
@@ -3371,15 +3410,11 @@ internal class ReaderPageTurnBundleSource(
 				visualStateRequestId.incrementAndGet(),
 				object : WebView.VisualStateCallback() {
 					override fun onComplete(requestId: Long) {
-						if (!webView.isAttachedToWindow) {
+						if (!webView.isAttachedToWindow || !isStillCurrent()) {
 							onRestored(false)
 						} else {
 							webView.postOnAnimation {
-								if (webView.isAttachedToWindow) {
-									onRestored(true)
-								} else {
-									onRestored(false)
-								}
+								onRestored(webView.isAttachedToWindow && isStillCurrent())
 							}
 						}
 					}

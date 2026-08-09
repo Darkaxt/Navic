@@ -428,6 +428,7 @@ internal interface ReaderPageRasterBatchPort {
 
 	fun restoreLiveComposition(
 		webView: WebView,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration,
 		onRestorationFinished: (ReaderPageRasterCancellationRestoration) -> Unit
 	)
 
@@ -632,14 +633,18 @@ internal class ReaderPageRasterBatchController(
 
 	override fun restoreLiveComposition(
 		webView: WebView,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration,
 		onRestorationFinished: (ReaderPageRasterCancellationRestoration) -> Unit
 	) {
 		requestVisualRestoration(
 			webView = webView,
 			javascript = "(() => {" +
 				"const bridge = window.NavicReaderBridge;" +
-				"bridge?.cancelPageTurnPreviewBatch?.();" +
-				"bridge?.restorePageTurnLiveComposition?.();" +
+				"const cancelled = bridge?.cancelPageTurnPreviewBatch?.('', " +
+				"${mutationGeneration.value});" +
+				"const restored = bridge?.restorePageTurnLiveComposition?.('', " +
+				"${mutationGeneration.value});" +
+				"return cancelled === true || restored === true;" +
 				"})()",
 			onRestorationFinished = onRestorationFinished
 		)
@@ -668,7 +673,7 @@ internal class ReaderPageRasterBatchController(
 		requestVisualRestoration(
 			webView = session.webView,
 			javascript = "window.NavicReaderBridge?.cancelPageTurnPreviewBatch?.(" +
-				"${JSONObject.quote(session.token)})",
+				"${JSONObject.quote(session.token)}, ${session.mutationGeneration.value})",
 			onRestorationFinished = { result ->
 				if (pendingCancellationRestoration === pending) {
 					pendingCancellationRestoration = null
@@ -718,9 +723,13 @@ internal class ReaderPageRasterBatchController(
 			restorationTimeout,
 			ReaderPageRasterCancellationRestorationTimeoutMillis
 		)
-		webView.evaluateJavascript(javascript) {
+		webView.evaluateJavascript(javascript) { restored ->
 			if (!webView.isAttachedToWindow) {
 				completeRestoration(ReaderPageRasterCancellationRestoration.Detached)
+				return@evaluateJavascript
+			}
+			if (!restored.isJavascriptTrue()) {
+				completeRestoration(ReaderPageRasterCancellationRestoration.TimedOut)
 				return@evaluateJavascript
 			}
 			val visualStateId = Math.incrementExact(nextCancellationVisualStateId).also {
@@ -891,9 +900,26 @@ internal class ReaderPageRasterBatchController(
 		val pageIndexes = JSONArray(session.missingTargets.map { target -> target.pageIndex })
 		session.webView.evaluateJavascript(
 			"JSON.stringify(window.NavicReaderBridge?.beginPageTurnPreviewBatch?.(" +
-				"${JSONObject.quote(session.token)}, $pageIndexes) ?? null)"
-		) {
+				"${JSONObject.quote(session.token)}, $pageIndexes, " +
+				"${session.mutationGeneration.value}) ?? null)"
+		) { encodedState ->
 			if (!isSessionActive(session)) return@evaluateJavascript
+			val state = encodedState.javascriptObject()
+			if (
+				state == null ||
+				state.optString("status") == "missing" ||
+				!state.matchesForegroundMutationGeneration(session.mutationGeneration)
+			) {
+				finish(
+					session,
+					ReaderPageRasterBatchOutcome.Failed(
+						stage = "preview-batch-admission",
+						pageIndex = session.missingTargets.firstOrNull()?.pageIndex,
+						reason = "passive-lease-stale"
+					)
+				)
+				return@evaluateJavascript
+			}
 			session.webView.postOnAnimation { pollBatchState(session) }
 		}
 	}
@@ -906,6 +932,20 @@ internal class ReaderPageRasterBatchController(
 		) { encodedState ->
 			if (!isSessionActive(session)) return@evaluateJavascript
 			val state = encodedState.javascriptObject()
+			if (
+				state != null &&
+				!state.matchesForegroundMutationGeneration(session.mutationGeneration)
+			) {
+				finish(
+					session,
+					ReaderPageRasterBatchOutcome.Failed(
+						stage = "preview-state",
+						pageIndex = state.optInt("pageIndex", -1),
+						reason = "passive-lease-stale"
+					)
+				)
+				return@evaluateJavascript
+			}
 			when (state?.optString("status")) {
 				"ready" -> captureReadyItem(session, state)
 				"complete" -> {
@@ -943,7 +983,7 @@ internal class ReaderPageRasterBatchController(
 		if (
 			pageIndex < 0 ||
 			itemToken.isBlank() ||
-			previewGeneration !in 0L..ReaderPageTurnPresentationMaximumSafeInteger ||
+			previewGeneration !in 1L..ReaderPageTurnPresentationMaximumSafeInteger ||
 			target == null
 		) {
 			finish(
@@ -1050,6 +1090,7 @@ internal class ReaderPageRasterBatchController(
 			val state = encodedState.javascriptObject()
 			val restarted =
 				state != null &&
+					state.matchesForegroundMutationGeneration(session.mutationGeneration) &&
 					state.optString("status") in setOf("preparing", "ready") &&
 					state.optInt("pageIndex", -1) == pageIndex &&
 					state.optLong("generation", -1L) > previewGeneration
@@ -1070,7 +1111,8 @@ internal class ReaderPageRasterBatchController(
 		if (!isSessionActive(session)) return
 		session.webView.evaluateJavascript(
 			"JSON.stringify(window.NavicReaderBridge?.advancePageTurnPreviewBatch?.(" +
-				"${JSONObject.quote(session.token)}, $pageIndex) ?? null)"
+				"${JSONObject.quote(session.token)}, $pageIndex, " +
+				"${session.mutationGeneration.value}) ?? null)"
 		) {
 			if (!isSessionActive(session)) return@evaluateJavascript
 			session.webView.postOnAnimation { pollBatchState(session) }
@@ -1159,6 +1201,18 @@ internal class ReaderPageRasterBatchController(
 		session.reference.release()
 		session.onComplete(outcome)
 	}
+}
+
+private fun String?.isJavascriptTrue(): Boolean =
+	this?.trim()?.equals("true", ignoreCase = true) == true
+
+private fun JSONObject.matchesForegroundMutationGeneration(
+	expected: ReaderForegroundWebViewMutationGeneration
+): Boolean {
+	val candidate = opt("foregroundMutationGeneration") as? Number ?: return false
+	val candidateLong = candidate.toLong()
+	return candidateLong == expected.value &&
+		candidate.toDouble() == candidateLong.toDouble()
 }
 
 private fun String?.javascriptObject(): JSONObject? = runCatching {

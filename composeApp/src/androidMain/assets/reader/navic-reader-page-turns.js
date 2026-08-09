@@ -178,6 +178,13 @@ const ViewportScrollStepRatio = 0.75
 const ReaderLivePageTurnMaximumPaginationProfileRepairs = 2
 const ReaderLivePageTurnMaximumCommitTransactionAttempts = 3
 
+const readerForegroundMutationGenerationIsValid = value =>
+  Number.isSafeInteger(value) && value > 0
+
+const readerForegroundMutationGenerationIsCurrent = (runtime, generation) =>
+  readerForegroundMutationGenerationIsValid(generation) &&
+  runtime.foregroundMutationGeneration === generation
+
 function progressTargetForSections(fraction) {
   const sectionCount = Number(this.view?.book?.sections?.length)
   if (!Number.isFinite(sectionCount) || sectionCount <= 0) return null
@@ -342,12 +349,14 @@ function exactPageTurnSettlementIdentityMatches(
   foliateSessionId,
   rasterGeneration,
   textureGeneration,
+  foregroundMutationGeneration,
   paginationProfile
 ) {
   return settlement?.gestureId === gestureId &&
     settlement?.foliateSessionId === foliateSessionId &&
     settlement?.rasterGeneration === rasterGeneration &&
     settlement?.textureGeneration === textureGeneration &&
+    settlement?.foregroundMutationGeneration === foregroundMutationGeneration &&
     settlement?.pageIndex === locator.pageIndex &&
     settlement?.spineIndex === locator.spineIndex &&
     settlement?.chapterPageIndex === locator.chapterPageIndex &&
@@ -361,6 +370,7 @@ function exactPageTurnSettlementMatches(
   foliateSessionId,
   rasterGeneration,
   textureGeneration,
+  foregroundMutationGeneration,
   paginationProfile
 ) {
   return exactPageTurnSettlementIdentityMatches(
@@ -370,6 +380,7 @@ function exactPageTurnSettlementMatches(
     foliateSessionId,
     rasterGeneration,
     textureGeneration,
+    foregroundMutationGeneration,
     paginationProfile
   ) && readerTextPageCommitOwnerHasExpectedVisibleContent(settlement)
 }
@@ -415,11 +426,19 @@ function pageTurnLivePresentationReceiptTarget(target) {
     foliateSessionId: target.foliateSessionId,
     rasterGeneration: target.rasterGeneration,
     textureGeneration: target.textureGeneration,
+    foregroundMutationGeneration: target.foregroundMutationGeneration,
   }
 }
 
 function pageTurnLivePresentationTargetMatchesCurrent(target) {
-  if (!target || !readerTextPageCommitOwnerHasExpectedVisibleContent(target)) return false
+  if (
+    !target ||
+    !readerForegroundMutationGenerationIsCurrent(
+      this,
+      target.foregroundMutationGeneration
+    ) ||
+    !readerTextPageCommitOwnerHasExpectedVisibleContent(target)
+  ) return false
   const pagePosition = this.currentPagePosition
   if (
     target.relocationEpoch !== this.relocateSequence ||
@@ -442,14 +461,23 @@ function pageTurnLivePresentationTargetMatchesCurrent(target) {
     target.foliateSessionId,
     target.rasterGeneration,
     target.textureGeneration,
+    target.foregroundMutationGeneration,
     target.paginationProfile
   )
 }
 
 function issuePageTurnLivePresentationReceipt(target) {
-  if (!readerTextPageCommitOwnerHasExpectedVisibleContent(
-    this.pageTurnLivePresentationTargetValue
-  )) {
+  if (!readerForegroundMutationGenerationIsCurrent(
+    this,
+    target?.foregroundMutationGeneration
+  )) return null
+  if (
+    !readerTextPageCommitOwnerHasExpectedVisibleContent(
+      this.pageTurnLivePresentationTargetValue
+    ) ||
+    this.pageTurnLivePresentationTargetValue?.foregroundMutationGeneration !==
+      target.foregroundMutationGeneration
+  ) {
     this.clearPageTurnLivePresentationReceipt()
     return null
   }
@@ -499,6 +527,7 @@ function exactPageTurnPendingState({
   foliateSessionId,
   rasterGeneration,
   textureGeneration,
+  foregroundMutationGeneration,
   locator,
   paginationProfile,
   transactionAttempts = 0,
@@ -510,6 +539,7 @@ function exactPageTurnPendingState({
     foliateSessionId,
     rasterGeneration,
     textureGeneration,
+    foregroundMutationGeneration,
     pageIndex: locator.pageIndex,
     spineIndex: locator.spineIndex,
     chapterPageIndex: locator.chapterPageIndex,
@@ -523,6 +553,11 @@ function replacePendingExactPageTurnSettlement(pending, replacement) {
   const token = pending?.token
   if (
     !token ||
+    !readerForegroundMutationGenerationIsCurrent(
+      this,
+      pending.foregroundMutationGeneration
+    ) ||
+    replacement?.foregroundMutationGeneration !== pending.foregroundMutationGeneration ||
     this.activeExactPageTurnSettlementToken !== token ||
     this.pendingExactPageTurnSettlements.get(token) !== pending
   ) return null
@@ -533,7 +568,14 @@ function replacePendingExactPageTurnSettlement(pending, replacement) {
 
 async function commitPendingExactPageTurnSettlement(token) {
   let pending = this.pendingExactPageTurnSettlements.get(token)
-  if (!pending || this.activeExactPageTurnSettlementToken !== token) return null
+  if (
+    !pending ||
+    this.activeExactPageTurnSettlementToken !== token ||
+    !readerForegroundMutationGenerationIsCurrent(
+      this,
+      pending.foregroundMutationGeneration
+    )
+  ) return null
   this.exactPageTurnNavigationToken = token
   this.exactPageTurnNavigationInProgress = true
   try {
@@ -542,7 +584,11 @@ async function commitPendingExactPageTurnSettlement(token) {
     ) {
       if (
         this.activeExactPageTurnSettlementToken !== token ||
-        this.pendingExactPageTurnSettlements.get(token) !== pending
+        this.pendingExactPageTurnSettlements.get(token) !== pending ||
+        !readerForegroundMutationGenerationIsCurrent(
+          this,
+          pending.foregroundMutationGeneration
+        )
       ) return null
       const transactionProfile = this.paginationProfile
       const locator = readerPageLocatorForVisualIndex(
@@ -565,7 +611,11 @@ async function commitPendingExactPageTurnSettlement(token) {
       )
       if (
         this.activeExactPageTurnSettlementToken !== token ||
-        this.pendingExactPageTurnSettlements.get(token) !== pending
+        this.pendingExactPageTurnSettlements.get(token) !== pending ||
+        !readerForegroundMutationGenerationIsCurrent(
+          this,
+          pending.foregroundMutationGeneration
+        )
       ) return locator
       const attemptedPending = exactPageTurnPendingState({
         ...pending,
@@ -598,6 +648,10 @@ async function commitPendingExactPageTurnSettlement(token) {
       }
       if (
         result.status === 'committed' &&
+        readerForegroundMutationGenerationIsCurrent(
+          this,
+          pending.foregroundMutationGeneration
+        ) &&
         receiptIsValid &&
         readerTextPageCommitMatches(result, expectedPosition) &&
         readerRememberTextPageCommit(
@@ -647,7 +701,11 @@ async function commitPendingExactPageTurnSettlement(token) {
         )
         if (
           this.activeExactPageTurnSettlementToken !== token ||
-          this.pendingExactPageTurnSettlements.get(token) !== pending
+          this.pendingExactPageTurnSettlements.get(token) !== pending ||
+          !readerForegroundMutationGenerationIsCurrent(
+            this,
+            pending.foregroundMutationGeneration
+          )
         ) return locator
         if (repairedProfile) {
           const repairedPending = exactPageTurnPendingState({
@@ -693,6 +751,7 @@ async function goToVisualPage(command = {}) {
     : ''
   const settleRasterGeneration = command.settleRasterGeneration
   const settleTextureGeneration = command.settleTextureGeneration
+  const settleForegroundMutationGeneration = command.settleForegroundMutationGeneration
   if (!Number.isInteger(pageIndex) || pageIndex < 0) {
     throw new TypeError('Visual page index must be a non-negative integer')
   }
@@ -716,6 +775,11 @@ async function goToVisualPage(command = {}) {
   ) {
     throw new TypeError('Visual page texture generation must be a non-negative integer')
   }
+  if (!readerForegroundMutationGenerationIsValid(
+    settleForegroundMutationGeneration
+  )) {
+    throw new TypeError('Visual page mutation generation must be a positive safe integer')
+  }
   if (!this.view) return null
   const locator = readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)
   if (!locator) throw new Error(`Visual page ${pageIndex} is unavailable`)
@@ -738,6 +802,7 @@ async function goToVisualPage(command = {}) {
         settleSessionId,
         settleRasterGeneration,
         settleTextureGeneration,
+        settleForegroundMutationGeneration,
         this.paginationProfile
       )
     ) {
@@ -745,6 +810,13 @@ async function goToVisualPage(command = {}) {
     }
     return locator
   }
+  const currentForegroundMutationGeneration = readerForegroundMutationGenerationIsValid(
+    this.foregroundMutationGeneration
+  ) ? this.foregroundMutationGeneration : 0
+  if (settleForegroundMutationGeneration <= currentForegroundMutationGeneration) {
+    throw new TypeError('Visual page mutation generation cannot be reused')
+  }
+  this.foregroundMutationGeneration = settleForegroundMutationGeneration
   if (
     (this.activeExactPageTurnSettlementToken &&
       this.activeExactPageTurnSettlementToken !== token) ||
@@ -761,6 +833,7 @@ async function goToVisualPage(command = {}) {
     foliateSessionId: settleSessionId,
     rasterGeneration: settleRasterGeneration,
     textureGeneration: settleTextureGeneration,
+    foregroundMutationGeneration: settleForegroundMutationGeneration,
     locator,
     paginationProfile: this.paginationProfile,
   })
@@ -813,6 +886,10 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
   const spineIndex = Number(pagePosition?.spineIndex)
   const chapterPageIndex = Number(pagePosition?.chapterPageIndex)
   if (
+    !readerForegroundMutationGenerationIsCurrent(
+      this,
+      pending.foregroundMutationGeneration
+    ) ||
     !readerTextPageCommitOwnerHasExpectedVisibleContent(pending) ||
     pending.paginationProfile !== this.paginationProfile ||
     !Number.isFinite(pageIndex) ||
@@ -847,6 +924,8 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
     existingSettlement.foliateSessionId === pending.foliateSessionId &&
     existingSettlement.rasterGeneration === pending.rasterGeneration &&
     existingSettlement.textureGeneration === pending.textureGeneration &&
+    existingSettlement.foregroundMutationGeneration ===
+      pending.foregroundMutationGeneration &&
     existingSettlement.pageIndex === pending.pageIndex &&
     existingSettlement.spineIndex === pending.spineIndex &&
     existingSettlement.chapterPageIndex === pending.chapterPageIndex &&
@@ -868,6 +947,7 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
     foliateSessionId: pending.foliateSessionId,
     rasterGeneration: pending.rasterGeneration,
     textureGeneration: pending.textureGeneration,
+    foregroundMutationGeneration: pending.foregroundMutationGeneration,
     pageIndex: settledPageIndex,
     spineIndex: pending.spineIndex,
     chapterPageIndex: pending.chapterPageIndex,
@@ -883,6 +963,7 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
     foliateSessionId: pending.foliateSessionId,
     rasterGeneration: pending.rasterGeneration,
     textureGeneration: pending.textureGeneration,
+    foregroundMutationGeneration: pending.foregroundMutationGeneration,
     relocationEpoch: this.relocateSequence,
     spineIndex: pending.spineIndex,
     chapterPageIndex: pending.chapterPageIndex,
@@ -920,6 +1001,10 @@ function peekNativePageTurnSettlement(pagePosition = this.currentPagePosition) {
   const receiptIsValid = readerTextPageCommitOwnerHasExpectedVisibleContent(settlement)
   if (
     !receiptIsValid ||
+    !readerForegroundMutationGenerationIsCurrent(
+      this,
+      settlement.foregroundMutationGeneration
+    ) ||
     settlement.foliateSessionId !== this.foliateSessionId ||
     settlement.paginationProfile !== this.paginationProfile ||
     !Number.isFinite(pageIndex) ||
@@ -944,7 +1029,13 @@ function consumeNativePageTurnSettlement(token) {
   const normalizedToken = typeof token === 'string' ? token.trim() : ''
   if (!normalizedToken || this.nativePageTurnSettledState?.token !== normalizedToken) return false
   const settlement = this.nativePageTurnSettledState
-  if (!readerTextPageCommitOwnerHasExpectedVisibleContent(settlement)) {
+  if (
+    !readerForegroundMutationGenerationIsCurrent(
+      this,
+      settlement.foregroundMutationGeneration
+    ) ||
+    !readerTextPageCommitOwnerHasExpectedVisibleContent(settlement)
+  ) {
     this.nativePageTurnSettledState = null
     if (this.nativePageTurnSettledToken === normalizedToken) {
       this.nativePageTurnSettledToken = null
@@ -1047,6 +1138,10 @@ function handleLiveTextPageCommitInvalidation() {
   const pending = this.activeExactPageTurnSettlement()
   if (
     !pending ||
+    !readerForegroundMutationGenerationIsCurrent(
+      this,
+      pending.foregroundMutationGeneration
+    ) ||
     readerTextPageCommitOwnerHasExpectedVisibleContent(pending) ||
     !readerTextPageCommitOwnerWasRemembered(pending)
   ) return false
@@ -1079,6 +1174,10 @@ function handleLiveTextPageCommitInvalidation() {
       const current = this.pendingExactPageTurnSettlements.get(pending.token)
       if (
         !current ||
+        !readerForegroundMutationGenerationIsCurrent(
+          this,
+          current.foregroundMutationGeneration
+        ) ||
         this.activeExactPageTurnSettlementToken !== pending.token ||
         readerTextPageCommitOwnerHasExpectedVisibleContent(current) ||
         !readerTextPageCommitOwnerWasRemembered(current)
@@ -1086,7 +1185,11 @@ function handleLiveTextPageCommitInvalidation() {
       this.cancelPendingCommittedRelocation()
       if (
         this.activeExactPageTurnSettlementToken !== pending.token ||
-        this.pendingExactPageTurnSettlements.get(pending.token) !== current
+        this.pendingExactPageTurnSettlements.get(pending.token) !== current ||
+        !readerForegroundMutationGenerationIsCurrent(
+          this,
+          current.foregroundMutationGeneration
+        )
       ) return null
       controlledRelocationOwner = this.beginControlledRelocation('page-turn:exact')
       return this.commitPendingExactPageTurnSettlement(pending.token)
@@ -1095,6 +1198,10 @@ function handleLiveTextPageCommitInvalidation() {
       const current = this.pendingExactPageTurnSettlements.get(pending.token)
       if (
         current &&
+        readerForegroundMutationGenerationIsCurrent(
+          this,
+          current.foregroundMutationGeneration
+        ) &&
         this.activeExactPageTurnSettlementToken === pending.token
       ) {
         this.cancelControlledRelocation(controlledRelocationOwner)

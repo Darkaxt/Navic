@@ -1123,6 +1123,7 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 
 	override fun restoreLiveComposition(
 		webView: WebView,
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration,
 		onRestorationFinished: (ReaderPageRasterCancellationRestoration) -> Unit
 	) {
 		liveCompositionRestorationCount += 1

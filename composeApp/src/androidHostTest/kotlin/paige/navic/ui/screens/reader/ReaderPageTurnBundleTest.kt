@@ -698,6 +698,20 @@ class ReaderPageTurnBundleTest {
 	}
 
 	@Test
+	fun mutationGenerationChangeAtThirdReceiptInvalidatesAcceptance() {
+		assertEquals(
+			ReaderPageRelocationContentValidationResult.Invalidated,
+			readerPageLiveValidationReceiptFencedResult(
+				workerResult = ReaderPageRelocationContentValidationResult.Accepted,
+				target = liveTarget(),
+				acceptedReceipt = liveReceipt(),
+				currentReceipt = liveReceipt().copy(foregroundMutationGeneration = 42),
+				isStillCurrent = true
+			)
+		)
+	}
+
+	@Test
 	fun targetOrCurrentnessChangeAtThirdReceiptInvalidatesAcceptance() {
 		assertEquals(
 			ReaderPageRelocationContentValidationResult.Invalidated,
@@ -813,6 +827,11 @@ class ReaderPageTurnBundleTest {
 		assertTrue(validator.contains("foliateSessionId = request.foliateSessionId"))
 		assertTrue(validator.contains("rasterGeneration = request.rasterGeneration"))
 		assertTrue(validator.contains("textureGeneration = request.textureGeneration"))
+		assertTrue(
+			validator.contains(
+				"foregroundMutationGeneration = foregroundMutationGeneration.value"
+			)
+		)
 		assertTrue(validator.contains("ReaderPageLiveValidationSnapshotOwnership("))
 		assertTrue(validator.contains("bitmapSource.captureLiveCompositedSurface("))
 		assertTrue(validator.contains("val expectedTargetBitmapWidth = expectedTarget.bitmap.width"))
@@ -901,7 +920,8 @@ class ReaderPageTurnBundleTest {
 		pageIndex = 9,
 		foliateSessionId = "session-alpha",
 		rasterGeneration = 13,
-		textureGeneration = 17
+		textureGeneration = 17,
+		foregroundMutationGeneration = 41
 	)
 
 	private fun liveReceipt() = ReaderPageTurnPresentationReceipt(
@@ -911,6 +931,7 @@ class ReaderPageTurnBundleTest {
 		foliateSessionId = "session-alpha",
 		rasterGeneration = 13,
 		textureGeneration = 17,
+		foregroundMutationGeneration = 41,
 		presentationSequence = 71
 	)
 

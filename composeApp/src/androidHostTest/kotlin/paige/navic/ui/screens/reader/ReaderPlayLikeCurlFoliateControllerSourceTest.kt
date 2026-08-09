@@ -275,7 +275,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private fun releaseTerminalContentFailure(")
 
 		assertContains(origin, "relocationLiveDispatchCoordinator.isCurrent(")
-		assertContains(validation, "relocationLiveDispatchCoordinator.isCurrent(request)")
+		assertContains(
+			validation,
+			"relocationLiveDispatchCoordinator.isCurrent("
+		)
+		assertContains(validation, "foregroundMutationGeneration")
 		assertContains(replacement, "relocationLiveDispatchCoordinator.replace(original, replacement)")
 		assertContains(cancellation, "relocationLiveDispatchCoordinator.releaseAll()")
 		assertContains(source, "relocationLiveDispatchCoordinator.fail(")
@@ -659,7 +663,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(validation, "expectedTarget = expectedTarget")
 		assertContains(validation, "expectedSource = expectedSource")
 		assertContains(validation, "rendererSurface = surfaceView")
-		assertContains(validation, "isStillCurrent = { livePresentationValidationIsCurrent(request, generationOwner) }")
+		assertContains(validation, "isStillCurrent = {")
+		assertContains(validation, "livePresentationValidationIsCurrent(")
+		assertContains(validation, "foregroundMutationGeneration")
 		assertContains(validation, "if (retained == null)")
 		assertContains(validation, "expectedTarget.release()")
 		assertContains(validation, "expectedSource?.release()")
@@ -2007,16 +2013,20 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(source, "validateContent = ::validateLivePresentation")
 		assertContains(validator, "bundleSource.validateLivePresentation(")
+		assertContains(validator, "isStillCurrent = {")
+		assertContains(validator, "livePresentationValidationIsCurrent(")
+		assertContains(validator, "foregroundMutationGeneration")
+		assertContains(validator, "onValidated = { result ->")
+		assertContains(validator, "val fencedResult = if (")
 		assertContains(
 			validator,
-			"isStillCurrent = { livePresentationValidationIsCurrent(request, generationOwner) }"
+			"ReaderPageRelocationContentValidationResult.Invalidated"
 		)
-		assertContains(validator, "onValidated = { result ->")
+		assertContains(validator, "onValidated(fencedResult)")
 		assertContains(validator, "retainInlineHandoffSnapshot(request, expectedTarget)")
-		assertContains(validator, "onValidated(result)")
 		assertTrue(
 			validator.indexOf("retainInlineHandoffSnapshot(request, expectedTarget)") <
-				validator.indexOf("onValidated(result)")
+				validator.indexOf("onValidated(fencedResult)")
 		)
 		assertContains(
 			validator,

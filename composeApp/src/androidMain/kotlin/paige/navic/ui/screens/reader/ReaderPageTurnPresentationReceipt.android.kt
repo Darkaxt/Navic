@@ -22,6 +22,7 @@ internal data class ReaderPageTurnPresentationReceipt(
 	val scope: ReaderPageTurnPresentationScope,
 	val token: String,
 	val pageIndex: Long,
+	val foregroundMutationGeneration: Long,
 	val presentationSequence: Long,
 	val previewGeneration: Long? = null,
 	val foliateSessionId: String? = null,
@@ -31,6 +32,10 @@ internal data class ReaderPageTurnPresentationReceipt(
 	init {
 		require(token.isNotEmpty()) { "Receipt token must not be empty" }
 		requirePageTurnNonNegativeWireInteger(pageIndex, "pageIndex")
+		requirePageTurnPositiveWireInteger(
+			foregroundMutationGeneration,
+			"foregroundMutationGeneration"
+		)
 		requirePageTurnPositiveWireInteger(presentationSequence, "presentationSequence")
 		when (scope) {
 			ReaderPageTurnPresentationScope.Preview -> {
@@ -59,16 +64,22 @@ internal data class ReaderPageTurnPresentationReceipt(
 internal sealed interface ReaderPageTurnPresentationTarget {
 	val token: String
 	val pageIndex: Long
+	val foregroundMutationGeneration: Long
 
 	data class Preview(
 		override val token: String,
 		override val pageIndex: Long,
-		val previewGeneration: Long
+		val previewGeneration: Long,
+		override val foregroundMutationGeneration: Long
 	) : ReaderPageTurnPresentationTarget {
 		init {
 			require(token.isNotEmpty()) { "Preview target token must not be empty" }
 			requirePageTurnNonNegativeWireInteger(pageIndex, "pageIndex")
 			requirePageTurnNonNegativeWireInteger(previewGeneration, "previewGeneration")
+			requirePageTurnPositiveWireInteger(
+				foregroundMutationGeneration,
+				"foregroundMutationGeneration"
+			)
 		}
 	}
 
@@ -77,7 +88,8 @@ internal sealed interface ReaderPageTurnPresentationTarget {
 		override val pageIndex: Long,
 		val foliateSessionId: String,
 		val rasterGeneration: Long,
-		val textureGeneration: Long
+		val textureGeneration: Long,
+		override val foregroundMutationGeneration: Long
 	) : ReaderPageTurnPresentationTarget {
 		init {
 			require(token.isNotEmpty()) { "Live target token must not be empty" }
@@ -85,6 +97,10 @@ internal sealed interface ReaderPageTurnPresentationTarget {
 			require(foliateSessionId.isNotEmpty()) { "Live target session must not be empty" }
 			requirePageTurnNonNegativeWireInteger(rasterGeneration, "rasterGeneration")
 			requirePageTurnNonNegativeWireInteger(textureGeneration, "textureGeneration")
+			requirePageTurnPositiveWireInteger(
+				foregroundMutationGeneration,
+				"foregroundMutationGeneration"
+			)
 		}
 	}
 }
@@ -98,6 +114,8 @@ internal fun readerPageTurnPresentationReceipt(
 		?: return@runCatching null
 	val token = candidate.nonEmptyString("token") ?: return@runCatching null
 	val pageIndex = candidate.nonNegativeLong("pageIndex") ?: return@runCatching null
+	val foregroundMutationGeneration = candidate.positiveLong("foregroundMutationGeneration")
+		?: return@runCatching null
 	val presentationSequence = candidate.positiveLong("presentationSequence")
 		?: return@runCatching null
 
@@ -108,6 +126,7 @@ internal fun readerPageTurnPresentationReceipt(
 				scope = scope,
 				token = token,
 				pageIndex = pageIndex,
+				foregroundMutationGeneration = foregroundMutationGeneration,
 				previewGeneration = candidate.nonNegativeLong("previewGeneration")
 					?: return@runCatching null,
 				presentationSequence = presentationSequence
@@ -119,6 +138,7 @@ internal fun readerPageTurnPresentationReceipt(
 				scope = scope,
 				token = token,
 				pageIndex = pageIndex,
+				foregroundMutationGeneration = foregroundMutationGeneration,
 				foliateSessionId = candidate.nonEmptyString("foliateSessionId")
 					?: return@runCatching null,
 				rasterGeneration = candidate.nonNegativeLong("rasterGeneration")
@@ -134,7 +154,11 @@ internal fun readerPageTurnPresentationReceipt(
 internal fun ReaderPageTurnPresentationReceipt.matches(
 	target: ReaderPageTurnPresentationTarget
 ): Boolean {
-	if (token != target.token || pageIndex != target.pageIndex) return false
+	if (
+		token != target.token ||
+		pageIndex != target.pageIndex ||
+		foregroundMutationGeneration != target.foregroundMutationGeneration
+	) return false
 	return when (target) {
 		is ReaderPageTurnPresentationTarget.Preview ->
 			scope == ReaderPageTurnPresentationScope.Preview &&
@@ -167,6 +191,7 @@ private val PreviewReceiptKeys = setOf(
 	"token",
 	"pageIndex",
 	"previewGeneration",
+	"foregroundMutationGeneration",
 	"presentationSequence"
 )
 
@@ -177,6 +202,7 @@ private val LiveReceiptKeys = setOf(
 	"foliateSessionId",
 	"rasterGeneration",
 	"textureGeneration",
+	"foregroundMutationGeneration",
 	"presentationSequence"
 )
 

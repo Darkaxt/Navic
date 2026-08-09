@@ -35,6 +35,27 @@ import {
 const ReaderPageTurnMaximumPaginationProfileRepairs = 2
 const ReaderPageTurnMaximumCommitTransactionAttempts = 3
 
+const readerPageTurnPreviewMutationGenerationIsValid = value =>
+  Number.isSafeInteger(value) && value > 0
+
+const readerPageTurnPreviewMutationGenerationIsCurrent = (runtime, generation) =>
+  readerPageTurnPreviewMutationGenerationIsValid(generation) &&
+  runtime.foregroundMutationGeneration === generation
+
+const readerPageTurnPreviewMutationGenerationCanBeAdopted = (runtime, generation) => {
+  if (!readerPageTurnPreviewMutationGenerationIsValid(generation)) return false
+  const current = readerPageTurnPreviewMutationGenerationIsValid(
+    runtime.foregroundMutationGeneration
+  ) ? runtime.foregroundMutationGeneration : 0
+  return generation >= current
+}
+
+const readerAdoptPageTurnPreviewMutationGeneration = (runtime, generation) => {
+  if (!readerPageTurnPreviewMutationGenerationCanBeAdopted(runtime, generation)) return false
+  runtime.foregroundMutationGeneration = generation
+  return true
+}
+
 const readerPageTurnPreviewTraceState = state => ({
   status: state?.status || 'missing',
   generation: Number(state?.generation),
@@ -206,7 +227,11 @@ function restartInvalidatedPageTurnPreviewCommitment(state) {
   if (
     !state ||
     state.status !== 'ready' ||
-    state.generation !== this.pageTurnPreviewGeneration
+    state.generation !== this.pageTurnPreviewGeneration ||
+    !readerPageTurnPreviewMutationGenerationIsCurrent(
+      this,
+      state.foregroundMutationGeneration
+    )
   ) return false
   const transactionAttempts = Math.max(0, Math.floor(Number(state.transactionAttempts) || 0))
   const profileRepairs = Math.max(0, Math.floor(Number(state.profileRepairs) || 0))
@@ -226,6 +251,7 @@ function restartInvalidatedPageTurnPreviewCommitment(state) {
       this.pageTurnPreviewBatchStateValue = Object.freeze({
         token: batch.token,
         generation: batch.generation,
+        foregroundMutationGeneration: batch.foregroundMutationGeneration,
         status: 'failed',
         cursor: batch.cursor,
         total: batch.total,
@@ -241,6 +267,7 @@ function restartInvalidatedPageTurnPreviewCommitment(state) {
     this.pageTurnPreviewStateValue = Object.freeze({
       token: batch.itemToken,
       generation,
+      foregroundMutationGeneration: batch.foregroundMutationGeneration,
       status: 'preparing',
       pageIndex: batch.pageIndex,
       transactionAttempts,
@@ -249,6 +276,7 @@ function restartInvalidatedPageTurnPreviewCommitment(state) {
     this.pageTurnPreviewBatchStateValue = Object.freeze({
       token: batch.token,
       generation,
+      foregroundMutationGeneration: batch.foregroundMutationGeneration,
       status: 'preparing',
       cursor: batch.cursor,
       total: batch.total,
@@ -262,7 +290,8 @@ function restartInvalidatedPageTurnPreviewCommitment(state) {
       batch.token,
       batch.cursor,
       transactionAttempts,
-      profileRepairs
+      profileRepairs,
+      batch.foregroundMutationGeneration
     )
     return true
   }
@@ -271,6 +300,7 @@ function restartInvalidatedPageTurnPreviewCommitment(state) {
     this.pageTurnPreviewStateValue = Object.freeze({
       token: state.token,
       generation: state.generation,
+      foregroundMutationGeneration: state.foregroundMutationGeneration,
       status: 'failed',
       pageIndex: state.pageIndex,
       transactionAttempts,
@@ -283,6 +313,7 @@ function restartInvalidatedPageTurnPreviewCommitment(state) {
   this.pageTurnPreviewStateValue = Object.freeze({
     token: state.token,
     generation,
+    foregroundMutationGeneration: state.foregroundMutationGeneration,
     status: 'preparing',
     pageIndex: state.pageIndex,
     transactionAttempts,
@@ -293,7 +324,8 @@ function restartInvalidatedPageTurnPreviewCommitment(state) {
     state.token,
     state.pageIndex,
     transactionAttempts,
-    profileRepairs
+    profileRepairs,
+    state.foregroundMutationGeneration
   )
   return true
 }
@@ -304,6 +336,10 @@ function pageTurnPreviewState(token = '') {
   if (!state || (requestedToken && state.token !== requestedToken)) {
     return Object.freeze({ token: requestedToken, status: 'missing' })
   }
+  if (!readerPageTurnPreviewMutationGenerationIsCurrent(
+    this,
+    state.foregroundMutationGeneration
+  )) return Object.freeze({ token: requestedToken, status: 'missing' })
   if (
     state.status === 'ready' &&
     !readerTextPageCommitOwnerIsValid(state)
@@ -321,6 +357,10 @@ function clearPageTurnPreviewPresentationReceipt() {
 }
 
 function issuePageTurnPreviewPresentationReceipt(target) {
+  if (!readerPageTurnPreviewMutationGenerationIsCurrent(
+    this,
+    target?.foregroundMutationGeneration
+  )) return null
   const receipt = issueReaderPageTurnPresentationReceipt(
     target,
     this.pageTurnPresentationSequence
@@ -346,6 +386,10 @@ function pageTurnPreviewPresentationReceipt() {
     !state ||
     state.status !== 'ready' ||
     state.generation !== this.pageTurnPreviewGeneration ||
+    !readerPageTurnPreviewMutationGenerationIsCurrent(
+      this,
+      state.foregroundMutationGeneration
+    ) ||
     !this.pageTurnPreviewView ||
     this.pageTurnPreviewExposedToken !== state.token
   ) {
@@ -357,6 +401,7 @@ function pageTurnPreviewPresentationReceipt() {
     token: state.token,
     pageIndex: state.pageIndex,
     previewGeneration: state.generation,
+    foregroundMutationGeneration: state.foregroundMutationGeneration,
   }
   if (!readerPageTurnPresentationReceiptMatches(receipt, target)) {
     this.clearPageTurnPreviewPresentationReceipt()
@@ -432,6 +477,13 @@ function pageTurnRasterDescriptor(pageIndex) {
         this.pageTurnPreviewBatchStateValue.pageIndex === normalizedPageIndex
       ? this.pageTurnPreviewBatchStateValue
       : null
+  if (
+    readyState &&
+    !readerPageTurnPreviewMutationGenerationIsCurrent(
+      this,
+      readyState.foregroundMutationGeneration
+    )
+  ) return null
   if (readyState && !readerTextPageCommitOwnerIsValid(readyState)) {
     this.restartInvalidatedPageTurnPreviewCommitment(readyState)
     return null
@@ -603,11 +655,23 @@ function pageTurnTransitionPlan(physicalDirection = '', currentPageIndexOverride
   })
 }
 
-function beginPageTurnPreviewPreparation(token, pageIndex) {
+function beginPageTurnPreviewPreparation(
+  token,
+  pageIndex,
+  foregroundMutationGeneration
+) {
   const requestedToken = String(token || '')
+  if (!readerPageTurnPreviewMutationGenerationCanBeAdopted(
+    this,
+    foregroundMutationGeneration
+  )) return Object.freeze({ token: requestedToken, status: 'missing' })
   if (this.pageTurnPreviewStateValue || this.pageTurnPreviewBatchStateValue) {
     this.restorePageTurnLiveComposition()
   }
+  readerAdoptPageTurnPreviewMutationGeneration(
+    this,
+    foregroundMutationGeneration
+  )
   this.clearPageTurnPreviewPresentationReceipt()
   forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
   forgetPageTurnPreviewCommitment(this.pageTurnPreviewBatchStateValue)
@@ -617,12 +681,20 @@ function beginPageTurnPreviewPreparation(token, pageIndex) {
   this.pageTurnPreviewStateValue = Object.freeze({
     token: requestedToken,
     generation,
+    foregroundMutationGeneration,
     status: 'preparing',
     pageIndex: Number(pageIndex),
     transactionAttempts: 0,
     profileRepairs: 0,
   })
-  void this.preparePageTurnPreview(generation, requestedToken, pageIndex, 0, 0)
+  void this.preparePageTurnPreview(
+    generation,
+    requestedToken,
+    pageIndex,
+    0,
+    0,
+    foregroundMutationGeneration
+  )
   return this.pageTurnPreviewStateValue
 }
 
@@ -631,27 +703,35 @@ async function preparePageTurnPreview(
   token,
   pageIndex,
   initialTransactionAttempts = 0,
-  initialProfileRepairs = 0
+  initialProfileRepairs = 0,
+  foregroundMutationGeneration = null
 ) {
+  const isCurrent = () =>
+    generation === this.pageTurnPreviewGeneration &&
+    readerPageTurnPreviewMutationGenerationIsCurrent(
+      this,
+      foregroundMutationGeneration
+    )
   try {
     const previewView = await this.ensurePageTurnPreviewRenderer()
-    if (generation !== this.pageTurnPreviewGeneration) return
+    if (!isCurrent()) return
     if (!previewView) throw new Error('Passive preview renderer is unavailable')
     const commitment = await this.resolvePageTurnPreviewLocator(
       previewView,
       pageIndex,
       'page-turn-preview',
       'Passive preview',
-      () => generation === this.pageTurnPreviewGeneration,
+      isCurrent,
       initialTransactionAttempts,
       initialProfileRepairs
     )
-    if (generation !== this.pageTurnPreviewGeneration) return
+    if (!isCurrent()) return
     if (!commitment) return
     if (commitment.status === 'unsupported') {
       this.pageTurnPreviewStateValue = Object.freeze({
         token,
         generation,
+        foregroundMutationGeneration,
         status: 'unsupported',
         pageIndex: Number(pageIndex),
         transactionAttempts: commitment.transactionAttempts,
@@ -663,6 +743,7 @@ async function preparePageTurnPreview(
     const state = Object.freeze({
       token,
       generation,
+      foregroundMutationGeneration,
       status: 'ready',
       pageIndex: locator.pageIndex,
       spineIndex: locator.spineIndex,
@@ -681,6 +762,7 @@ async function preparePageTurnPreview(
         this.pageTurnPreviewStateValue = Object.freeze({
           token,
           generation,
+          foregroundMutationGeneration,
           status: 'preparing',
           pageIndex: Number(pageIndex),
           transactionAttempts: commitment.transactionAttempts,
@@ -691,7 +773,8 @@ async function preparePageTurnPreview(
           token,
           pageIndex,
           commitment.transactionAttempts,
-          commitment.profileRepairs
+          commitment.profileRepairs,
+          foregroundMutationGeneration
         )
       }
       throw new Error('Passive preview commitment was invalidated')
@@ -700,10 +783,11 @@ async function preparePageTurnPreview(
     this.pageTurnPreviewStateValue = state
     readerTrace('page-turn-preview:ready', readerPageTurnPreviewTraceState(this.pageTurnPreviewStateValue))
   } catch (error) {
-    if (generation !== this.pageTurnPreviewGeneration) return
+    if (!isCurrent()) return
     this.pageTurnPreviewStateValue = Object.freeze({
       token,
       generation,
+      foregroundMutationGeneration,
       status: 'failed',
       pageIndex: Number(pageIndex),
       message: error?.message || String(error),
@@ -718,6 +802,10 @@ function pageTurnPreviewBatchState(token = '') {
   if (!state || (requestedToken && state.token !== requestedToken)) {
     return Object.freeze({ token: requestedToken, status: 'missing' })
   }
+  if (!readerPageTurnPreviewMutationGenerationIsCurrent(
+    this,
+    state.foregroundMutationGeneration
+  )) return Object.freeze({ token: requestedToken, status: 'missing' })
   if (
     state.status === 'ready' &&
     !readerTextPageCommitOwnerIsValid(state)
@@ -728,11 +816,23 @@ function pageTurnPreviewBatchState(token = '') {
   return state || Object.freeze({ token: requestedToken, status: 'missing' })
 }
 
-function beginPageTurnPreviewBatch(token, pageIndexes = []) {
+function beginPageTurnPreviewBatch(
+  token,
+  pageIndexes = [],
+  foregroundMutationGeneration
+) {
   const requestedToken = String(token || '')
+  if (!readerPageTurnPreviewMutationGenerationCanBeAdopted(
+    this,
+    foregroundMutationGeneration
+  )) return Object.freeze({ token: requestedToken, status: 'missing' })
   if (this.pageTurnPreviewStateValue || this.pageTurnPreviewBatchStateValue) {
     this.restorePageTurnLiveComposition()
   }
+  readerAdoptPageTurnPreviewMutationGeneration(
+    this,
+    foregroundMutationGeneration
+  )
   this.clearPageTurnPreviewPresentationReceipt()
   forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
   forgetPageTurnPreviewCommitment(this.pageTurnPreviewBatchStateValue)
@@ -748,6 +848,7 @@ function beginPageTurnPreviewBatch(token, pageIndexes = []) {
   this.pageTurnPreviewBatchStateValue = Object.freeze({
     token: requestedToken,
     generation,
+    foregroundMutationGeneration,
     status: requestedPageIndexes.length ? 'preparing' : 'complete',
     cursor: 0,
     total: requestedPageIndexes.length,
@@ -756,7 +857,14 @@ function beginPageTurnPreviewBatch(token, pageIndexes = []) {
     profileRepairs: 0,
   })
   if (requestedPageIndexes.length) {
-    void this.preparePageTurnPreviewBatchItem(generation, requestedToken, 0, 0, 0)
+    void this.preparePageTurnPreviewBatchItem(
+      generation,
+      requestedToken,
+      0,
+      0,
+      0,
+      foregroundMutationGeneration
+    )
   }
   return this.pageTurnPreviewBatchStateValue
 }
@@ -766,31 +874,44 @@ async function preparePageTurnPreviewBatchItem(
   token,
   cursor,
   initialTransactionAttempts = 0,
-  initialProfileRepairs = 0
+  initialProfileRepairs = 0,
+  foregroundMutationGeneration = null
 ) {
+  const isCurrent = () =>
+    generation === this.pageTurnPreviewGeneration &&
+    readerPageTurnPreviewMutationGenerationIsCurrent(
+      this,
+      foregroundMutationGeneration
+    )
   const state = this.pageTurnPreviewBatchState(token)
-  if (state.generation !== generation || state.cursor !== cursor) return
+  if (
+    state.generation !== generation ||
+    state.cursor !== cursor ||
+    state.foregroundMutationGeneration !== foregroundMutationGeneration ||
+    !isCurrent()
+  ) return
   const pageIndex = state.pageIndexes[cursor]
   try {
     const previewView = await this.ensurePageTurnPreviewRenderer()
-    if (generation !== this.pageTurnPreviewGeneration) return
+    if (!isCurrent()) return
     if (!previewView) throw new Error('Passive raster renderer is unavailable')
     const commitment = await this.resolvePageTurnPreviewLocator(
       previewView,
       pageIndex,
       'page-turn-raster-batch',
       'Passive raster',
-      () => generation === this.pageTurnPreviewGeneration,
+      isCurrent,
       initialTransactionAttempts,
       initialProfileRepairs
     )
-    if (generation !== this.pageTurnPreviewGeneration) return
+    if (!isCurrent()) return
     if (!commitment) return
     if (commitment.status === 'unsupported') {
       this.pageTurnPreviewStateValue = null
       this.pageTurnPreviewBatchStateValue = Object.freeze({
         token,
         generation,
+        foregroundMutationGeneration,
         status: 'cancelled',
         cursor,
         total: state.total,
@@ -805,6 +926,7 @@ async function preparePageTurnPreviewBatchItem(
     const identity = Object.freeze({
       token: itemToken,
       generation,
+      foregroundMutationGeneration,
       status: 'ready',
       pageIndex: locator.pageIndex,
       visualPageOrdinal: locator.pageIndex,
@@ -839,6 +961,7 @@ async function preparePageTurnPreviewBatchItem(
         this.pageTurnPreviewBatchStateValue = Object.freeze({
           token,
           generation,
+          foregroundMutationGeneration,
           status: 'preparing',
           cursor,
           total: state.total,
@@ -851,7 +974,8 @@ async function preparePageTurnPreviewBatchItem(
           token,
           cursor,
           commitment.transactionAttempts,
-          commitment.profileRepairs
+          commitment.profileRepairs,
+          foregroundMutationGeneration
         )
       }
       throw new Error('Passive raster commitment was invalidated')
@@ -862,7 +986,7 @@ async function preparePageTurnPreviewBatchItem(
     this.pageTurnPreviewBatchStateValue = batchState
     readerTrace('page-turn-raster-batch:ready', readerPageTurnPreviewTraceState(this.pageTurnPreviewBatchStateValue))
   } catch (error) {
-    if (generation !== this.pageTurnPreviewGeneration) return
+    if (!isCurrent()) return
     forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
     forgetPageTurnPreviewCommitment(this.pageTurnPreviewBatchStateValue)
     this.pageTurnPreviewStateValue = null
@@ -877,10 +1001,22 @@ async function preparePageTurnPreviewBatchItem(
   }
 }
 
-function advancePageTurnPreviewBatch(token, pageIndex) {
+function advancePageTurnPreviewBatch(
+  token,
+  pageIndex,
+  foregroundMutationGeneration
+) {
   const state = this.pageTurnPreviewBatchState(token)
   const completedPageIndex = Math.max(0, Math.floor(Number(pageIndex)))
-  if (state.status !== 'ready' || state.pageIndex !== completedPageIndex) return state
+  if (
+    state.status !== 'ready' ||
+    state.pageIndex !== completedPageIndex ||
+    state.foregroundMutationGeneration !== foregroundMutationGeneration ||
+    !readerPageTurnPreviewMutationGenerationIsCurrent(
+      this,
+      foregroundMutationGeneration
+    )
+  ) return state
   this.clearPageTurnPreviewPresentationReceipt()
   forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
   forgetPageTurnPreviewCommitment(state)
@@ -889,6 +1025,7 @@ function advancePageTurnPreviewBatch(token, pageIndex) {
     this.pageTurnPreviewBatchStateValue = Object.freeze({
       token: state.token,
       generation: state.generation,
+      foregroundMutationGeneration: state.foregroundMutationGeneration,
       status: 'complete',
       cursor: nextCursor,
       total: state.total,
@@ -898,19 +1035,37 @@ function advancePageTurnPreviewBatch(token, pageIndex) {
     this.pageTurnPreviewBatchStateValue = Object.freeze({
       token: state.token,
       generation: state.generation,
+      foregroundMutationGeneration: state.foregroundMutationGeneration,
       status: 'preparing',
       cursor: nextCursor,
       total: state.total,
       pageIndexes: state.pageIndexes,
     })
-    void this.preparePageTurnPreviewBatchItem(state.generation, state.token, nextCursor)
+    void this.preparePageTurnPreviewBatchItem(
+      state.generation,
+      state.token,
+      nextCursor,
+      0,
+      0,
+      state.foregroundMutationGeneration
+    )
   }
   return this.pageTurnPreviewBatchStateValue
 }
 
-function cancelPageTurnPreviewBatch(token = '') {
+function cancelPageTurnPreviewBatch(
+  token = '',
+  foregroundMutationGeneration = null
+) {
   const state = this.pageTurnPreviewBatchState(token)
-  if (state.status === 'missing') return false
+  if (
+    state.status === 'missing' ||
+    state.foregroundMutationGeneration !== foregroundMutationGeneration ||
+    !readerPageTurnPreviewMutationGenerationIsCurrent(
+      this,
+      foregroundMutationGeneration
+    )
+  ) return false
   const generation = ++this.pageTurnPreviewGeneration
   this.restorePageTurnLiveComposition()
   forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
@@ -919,6 +1074,7 @@ function cancelPageTurnPreviewBatch(token = '') {
   this.pageTurnPreviewBatchStateValue = Object.freeze({
     token: state.token,
     generation,
+    foregroundMutationGeneration,
     status: 'cancelled',
     cursor: state.cursor ?? 0,
     total: state.total ?? 0,
@@ -928,10 +1084,22 @@ function cancelPageTurnPreviewBatch(token = '') {
   return true
 }
 
-function exposePageTurnPreviewFinal(token = '') {
+function exposePageTurnPreviewFinal(
+  token = '',
+  foregroundMutationGeneration = null
+) {
   const state = this.pageTurnPreviewState(token)
   const previewView = this.pageTurnPreviewView
-  if (state.status !== 'ready' || !previewView || !this.view) return false
+  if (
+    state.status !== 'ready' ||
+    state.foregroundMutationGeneration !== foregroundMutationGeneration ||
+    !readerPageTurnPreviewMutationGenerationIsCurrent(
+      this,
+      foregroundMutationGeneration
+    ) ||
+    !previewView ||
+    !this.view
+  ) return false
   this.pageTurnPreviewLiveVisibility = this.view.style.getPropertyValue('visibility')
   this.pageTurnPreviewLiveOpacity = this.view.style.getPropertyValue('opacity')
   this.pageTurnPreviewLivePagePosition = this.currentPagePosition
@@ -962,18 +1130,30 @@ function exposePageTurnPreviewFinal(token = '') {
     'z-index': '1',
   })
   this.pageTurnPreviewExposedToken = state.token
+  this.pageTurnPreviewExposedMutationGeneration =
+    state.foregroundMutationGeneration
   this.clearPageTurnLivePresentationReceipt()
   readerTrace('page-turn-preview:exposed', readerPageTurnPreviewTraceState(state))
   return true
 }
 
-function confirmPageTurnPreviewPresentation(token = '') {
+function confirmPageTurnPreviewPresentation(
+  token = '',
+  foregroundMutationGeneration = null
+) {
   const state = this.pageTurnPreviewState(token)
   const previewView = this.pageTurnPreviewView
   if (
     state.status !== 'ready' ||
     !previewView ||
     !this.view ||
+    state.foregroundMutationGeneration !== foregroundMutationGeneration ||
+    this.pageTurnPreviewExposedMutationGeneration !==
+      foregroundMutationGeneration ||
+    !readerPageTurnPreviewMutationGenerationIsCurrent(
+      this,
+      foregroundMutationGeneration
+    ) ||
     this.pageTurnPreviewExposedToken !== state.token
   ) return false
   const previewStyle = window.getComputedStyle(previewView)
@@ -990,19 +1170,39 @@ function confirmPageTurnPreviewPresentation(token = '') {
     token: state.token,
     pageIndex: state.pageIndex,
     previewGeneration: state.generation,
+    foregroundMutationGeneration: state.foregroundMutationGeneration,
   })
   readerTrace('page-turn-preview:confirmed', readerPageTurnPreviewTraceState(state))
   return true
 }
 
-function restorePageTurnLiveComposition(token = '') {
+function restorePageTurnLiveComposition(
+  token = '',
+  foregroundMutationGeneration = null
+) {
   const requestedToken = String(token || '')
+  const restoringExposedPreview = Boolean(this.pageTurnPreviewExposedToken)
+  const expectedMutationGeneration = restoringExposedPreview
+    ? this.pageTurnPreviewExposedMutationGeneration
+    : this.pageTurnPreviewStateValue?.foregroundMutationGeneration ??
+      this.pageTurnPreviewBatchStateValue?.foregroundMutationGeneration
+  const requestedMutationGeneration = foregroundMutationGeneration ??
+    expectedMutationGeneration
+  if (
+    !readerPageTurnPreviewMutationGenerationIsCurrent(
+      this,
+      requestedMutationGeneration
+    ) ||
+    (
+      expectedMutationGeneration != null &&
+      requestedMutationGeneration !== expectedMutationGeneration
+    )
+  ) return false
   if (
     requestedToken &&
     this.pageTurnPreviewExposedToken &&
     requestedToken !== this.pageTurnPreviewExposedToken
   ) return false
-  const restoringExposedPreview = Boolean(this.pageTurnPreviewExposedToken)
   const previewView = this.pageTurnPreviewView
   if (previewView) {
     setStylesImportant(previewView, {
@@ -1037,6 +1237,7 @@ function restorePageTurnLiveComposition(token = '') {
   this.pageTurnPreviewLiveVisibility = ''
   this.pageTurnPreviewLiveOpacity = ''
   this.pageTurnPreviewExposedToken = ''
+  this.pageTurnPreviewExposedMutationGeneration = null
   this.clearPageTurnPreviewPresentationReceipt()
   this.pageTurnPreviewLivePagePosition = null
   this.pageTurnPreviewDecorationPageIndex = null

@@ -378,13 +378,23 @@ internal class ReaderPageTurnBitmapSource(
 	fun captureSurface(
 		webView: WebView,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
-	) = captureSurface(webView, allowStableLowContrast = false, onCaptured)
+	) = captureSurface(
+		webView,
+		allowStableLowContrast = false,
+		onCaptured = onCaptured
+	)
 
 	private fun captureSurface(
 		webView: WebView,
 		allowStableLowContrast: Boolean,
+		isStillCurrent: () -> Boolean = { true },
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
-	) = capture(webView, onCaptured, allowStableLowContrast) { geometry, location ->
+	) = capture(
+		webView,
+		onCaptured,
+		allowStableLowContrast,
+		isStillCurrent
+	) { geometry, location ->
 		geometry.surfaceRectInWindow(
 			webViewWindowLeft = location[0],
 			webViewWindowTop = location[1],
@@ -427,9 +437,24 @@ internal class ReaderPageTurnBitmapSource(
 				if (ownership.complete() != null) onCaptured(null)
 				return@initial
 			}
-			captureSurface(webView, allowStableLowContrast = true) { candidate ->
+			captureSurface(
+				webView,
+				allowStableLowContrast = true,
+				isStillCurrent = isStillCurrent
+			) { candidate ->
+				if (!runCatching(isStillCurrent).getOrDefault(false)) {
+					candidate?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+					if (ownership.complete() != null) onCaptured(null)
+					return@captureSurface
+				}
 				if (!ownership.retain(candidate)) {
 					candidate?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+					return@captureSurface
+				}
+				if (!runCatching(isStillCurrent).getOrDefault(false)) {
+					val completed = ownership.complete() ?: return@captureSurface
+					completed.candidate?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+					onCaptured(null)
 					return@captureSurface
 				}
 				queryPresentationReceipt(webView, target) { finalReceipt ->
@@ -508,6 +533,10 @@ internal class ReaderPageTurnBitmapSource(
 				requestEpoch == liveCaptureEpoch &&
 				captureQuality == bitmapQuality &&
 				runCatching(isStillCurrent).getOrDefault(false)
+			if (!requestCurrent()) {
+				reject()
+				return@start
+			}
 
 			queryPresentationReceipt(webView, target) initial@{ initialReceipt ->
 				if (!requestCurrent() || initialReceipt?.matches(target) != true) {
@@ -650,7 +679,7 @@ internal class ReaderPageTurnBitmapSource(
 										true
 									}.getOrDefault(false)
 									if (!ownership.endExternalWrite()) return@request
-									if (!bitmapAccepted) {
+									if (!bitmapAccepted || !environmentCurrent()) {
 										reject()
 										return@request
 									}
@@ -879,9 +908,10 @@ internal class ReaderPageTurnBitmapSource(
 		webView: WebView,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
 		allowStableLowContrast: Boolean = false,
+		isStillCurrent: () -> Boolean = { true },
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
 	) {
-		if (!canCapture(webView)) {
+		if (!canCapture(webView) || !runCatching(isStillCurrent).getOrDefault(false)) {
 			onCaptured(null)
 			return
 		}
@@ -889,6 +919,10 @@ internal class ReaderPageTurnBitmapSource(
 		webView.evaluateJavascript(
 			"JSON.stringify(window.NavicReaderBridge?.pageTurnCaptureGeometry?.() ?? null)"
 		) { encodedGeometry ->
+			if (!runCatching(isStillCurrent).getOrDefault(false)) {
+				onCaptured(null)
+				return@evaluateJavascript
+			}
 			val geometry = parseGeometry(encodedGeometry)
 			if (geometry == null) {
 				Logger.i(
@@ -904,6 +938,7 @@ internal class ReaderPageTurnBitmapSource(
 				startedAt = startedAt,
 				onCaptured = onCaptured,
 				allowStableLowContrast = allowStableLowContrast,
+				isStillCurrent = isStillCurrent,
 				resolveRect = resolveRect
 			)
 		}
@@ -914,9 +949,10 @@ internal class ReaderPageTurnBitmapSource(
 		geometry: ReaderPageTurnCaptureGeometry,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
 		allowStableLowContrast: Boolean = false,
+		isStillCurrent: () -> Boolean = { true },
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
 	) {
-		if (!canCapture(webView)) {
+		if (!canCapture(webView) || !runCatching(isStillCurrent).getOrDefault(false)) {
 			onCaptured(null)
 			return
 		}
@@ -926,6 +962,7 @@ internal class ReaderPageTurnBitmapSource(
 			startedAt = SystemClock.uptimeMillis(),
 			onCaptured = onCaptured,
 			allowStableLowContrast = allowStableLowContrast,
+			isStillCurrent = isStillCurrent,
 			resolveRect = resolveRect
 		)
 	}
@@ -936,27 +973,39 @@ internal class ReaderPageTurnBitmapSource(
 		startedAt: Long,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
 		allowStableLowContrast: Boolean,
+		isStillCurrent: () -> Boolean,
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
 	) {
-		if (!webView.isAttachedToWindow) {
+		if (
+			!webView.isAttachedToWindow ||
+			!runCatching(isStillCurrent).getOrDefault(false)
+		) {
 			onCaptured(null)
 			return
 		}
 		val requestId = ++visualStateRequestId
 		webView.postVisualStateCallback(requestId, object : WebView.VisualStateCallback() {
 			override fun onComplete(requestId: Long) {
-				if (!webView.isAttachedToWindow) {
+				if (
+					!webView.isAttachedToWindow ||
+					!runCatching(isStillCurrent).getOrDefault(false)
+				) {
 					onCaptured(null)
 					return
 				}
 				webView.postOnAnimation {
+					if (!runCatching(isStillCurrent).getOrDefault(false)) {
+						onCaptured(null)
+						return@postOnAnimation
+					}
 					captureVisualState(
 						webView = webView,
 						geometry = geometry,
 						startedAt = startedAt,
 						onCaptured = onCaptured,
 						resolveRect = resolveRect,
-						allowStableLowContrast = allowStableLowContrast
+						allowStableLowContrast = allowStableLowContrast,
+						isStillCurrent = isStillCurrent
 					)
 				}
 			}
@@ -970,9 +1019,13 @@ internal class ReaderPageTurnBitmapSource(
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?,
 		allowStableLowContrast: Boolean,
+		isStillCurrent: () -> Boolean,
 		previousRejectedSignature: ReaderPageTurnRejectedForegroundSignature? = null
 	) {
-		if (!webView.isAttachedToWindow) {
+		if (
+			!webView.isAttachedToWindow ||
+			!runCatching(isStillCurrent).getOrDefault(false)
+		) {
 			onCaptured(null)
 			return
 		}
@@ -1008,6 +1061,11 @@ internal class ReaderPageTurnBitmapSource(
 		val rejectedSignature = foreground?.settlementSignature(allowStableLowContrast)
 		val settledRejected = previousRejectedSignature != null &&
 			rejectedSignature == previousRejectedSignature
+		if (!runCatching(isStillCurrent).getOrDefault(false)) {
+			bitmap.recycle()
+			onCaptured(null)
+			return
+		}
 		if (foreground?.renderable == true || settledRejected) {
 			bitmap.setHasAlpha(false)
 			bitmap.setPremultiplied(true)
@@ -1033,6 +1091,10 @@ internal class ReaderPageTurnBitmapSource(
 					"required=${foreground.requiredDistantSampleCount}"
 			)
 			webView.postOnAnimation {
+				if (!runCatching(isStillCurrent).getOrDefault(false)) {
+					onCaptured(null)
+					return@postOnAnimation
+				}
 				captureVisualState(
 					webView = webView,
 					geometry = geometry,
@@ -1040,6 +1102,7 @@ internal class ReaderPageTurnBitmapSource(
 					onCaptured = onCaptured,
 					resolveRect = resolveRect,
 					allowStableLowContrast = allowStableLowContrast,
+					isStillCurrent = isStillCurrent,
 					previousRejectedSignature = rejectedSignature
 				)
 			}

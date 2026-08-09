@@ -376,6 +376,7 @@ class NavicReaderRuntime {
   nativePageTurnSettledState = null
   lastTracedExactPageTurnGestureId = null
   pageTurnPresentationSequence = 0
+  foregroundMutationGeneration = 0
   pageTurnPreviewPresentationReceiptValue = null
   pageTurnLivePresentationReceiptValue = null
   pageTurnLivePresentationTargetValue = null
@@ -383,7 +384,9 @@ class NavicReaderRuntime {
   pageTurnPreviewPublicationUrl = ''
   pageTurnPreviewGeneration = 0
   pageTurnPreviewStateValue = null
+  pageTurnPreviewBatchStateValue = null
   pageTurnPreviewExposedToken = ''
+  pageTurnPreviewExposedMutationGeneration = null
   pageTurnPreviewLiveVisibility = ''
   pageTurnPreviewLiveOpacity = ''
   deferredReflowablePageTurn = null
@@ -1613,24 +1616,42 @@ window.NavicReaderBridge = {
   nativePageTurnPendingState: () => runtime.activeExactPageTurnSettlement(),
   pageTurnPreviewPresentationReceipt: () => runtime.pageTurnPreviewPresentationReceipt(),
   pageTurnLivePresentationReceipt: () => runtime.pageTurnLivePresentationReceipt(),
-  beginPageTurnPreviewPreparation: (token, pageIndex) =>
-    runtime.beginPageTurnPreviewPreparation(token, pageIndex),
-  beginPageTurnPreviewBatch: (token, pageIndexes) =>
-    runtime.beginPageTurnPreviewBatch(token, pageIndexes),
+  beginPageTurnPreviewPreparation: (token, pageIndex, foregroundMutationGeneration) =>
+    runtime.beginPageTurnPreviewPreparation(
+      token,
+      pageIndex,
+      foregroundMutationGeneration
+    ),
+  beginPageTurnPreviewBatch: (token, pageIndexes, foregroundMutationGeneration) =>
+    runtime.beginPageTurnPreviewBatch(
+      token,
+      pageIndexes,
+      foregroundMutationGeneration
+    ),
   pageTurnPreviewBatchState: token => runtime.pageTurnPreviewBatchState(token),
-  advancePageTurnPreviewBatch: (token, pageIndex) =>
-    runtime.advancePageTurnPreviewBatch(token, pageIndex),
-  cancelPageTurnPreviewBatch: token => runtime.cancelPageTurnPreviewBatch(token),
+  advancePageTurnPreviewBatch: (token, pageIndex, foregroundMutationGeneration) =>
+    runtime.advancePageTurnPreviewBatch(
+      token,
+      pageIndex,
+      foregroundMutationGeneration
+    ),
+  cancelPageTurnPreviewBatch: (token, foregroundMutationGeneration) =>
+    runtime.cancelPageTurnPreviewBatch(token, foregroundMutationGeneration),
   pageTurnPreviewState: token => runtime.pageTurnPreviewState(token),
   pageTurnPreviewContext: () => runtime.pageTurnPreviewContext(),
   pageTurnRasterDescriptor: pageIndex => runtime.pageTurnRasterDescriptor(pageIndex),
   pageTurnRasterPreparationPlan: pageIndex => runtime.pageTurnRasterPreparationPlan(pageIndex),
   pageTurnTransitionPlan: (physicalDirection, currentPageIndexOverride = null) =>
     runtime.pageTurnTransitionPlan(physicalDirection, currentPageIndexOverride),
-  exposePageTurnPreviewFinal: token => runtime.exposePageTurnPreviewFinal(token),
-  confirmPageTurnPreviewPresentation: token =>
-    runtime.confirmPageTurnPreviewPresentation(token),
-  restorePageTurnLiveComposition: token => runtime.restorePageTurnLiveComposition(token),
+  exposePageTurnPreviewFinal: (token, foregroundMutationGeneration) =>
+    runtime.exposePageTurnPreviewFinal(token, foregroundMutationGeneration),
+  confirmPageTurnPreviewPresentation: (token, foregroundMutationGeneration) =>
+    runtime.confirmPageTurnPreviewPresentation(
+      token,
+      foregroundMutationGeneration
+    ),
+  restorePageTurnLiveComposition: (token, foregroundMutationGeneration) =>
+    runtime.restorePageTurnLiveComposition(token, foregroundMutationGeneration),
   pageTurnCaptureGeometry: () => runtime.pageTurnCaptureGeometry(),
   readerContentActionAtPoint: (x, y, viewWidth, viewHeight) =>
     runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,

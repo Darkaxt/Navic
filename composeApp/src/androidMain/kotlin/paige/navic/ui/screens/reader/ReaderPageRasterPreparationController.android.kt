@@ -305,6 +305,8 @@ internal class ReaderPageRasterPreparationController(
 	private var preparationShieldBatchLabel: String? = null
 	private var timedOutPreparationShieldSession: Long? = null
 	private var timedOutBackgroundPrefetchShieldSessionId: Long? = null
+	private var timedOutVisualRestorationMutationGeneration:
+		ReaderForegroundWebViewMutationGeneration? = null
 	private var activePrewarmPassiveLease: ReaderPageRasterPassiveLeaseSession? = null
 	private var activeRasterRepairPassiveLease: ReaderPageRasterPassiveLeaseSession? = null
 	private var activeBackgroundPassiveLease: ReaderPageRasterPassiveLeaseSession? = null
@@ -413,7 +415,7 @@ internal class ReaderPageRasterPreparationController(
 			}
 		}
 
-		val restoration = trackVisualRestoration {
+		val restoration = trackVisualRestoration(lease.mutationGeneration) {
 			prewarmLease?.let { active ->
 				removePreparationShield(
 					reason = "passive-preempted",
@@ -457,6 +459,7 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	private fun trackVisualRestoration(
+		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		onRestored: () -> Unit
 	): (ReaderPageRasterCancellationRestoration) -> Unit {
 		val completion = CompletableDeferred<Unit>()
@@ -471,6 +474,7 @@ internal class ReaderPageRasterPreparationController(
 				) {
 					timedOutPreparationShieldSession = preparationShieldSession
 					timedOutBackgroundPrefetchShieldSessionId = backgroundPrefetchShieldSessionId
+					timedOutVisualRestorationMutationGeneration = mutationGeneration
 					timedOutVisualRestorationRecoveryRequired = true
 					beginBlockingBackgroundPrefetchSession()
 					enterBlockingPreparation("visual-restoration-timeout")
@@ -512,14 +516,21 @@ internal class ReaderPageRasterPreparationController(
 	private fun restoreTimedOutVisualComposition(): Boolean {
 		if (timedOutVisualRestorationRecoveryInProgress) return true
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
+		val mutationGeneration = checkNotNull(
+			timedOutVisualRestorationMutationGeneration
+		) { "Timed-out visual restoration authority is unavailable" }
 		val completion = CompletableDeferred<Unit>()
 		pendingVisualRestorations += completion
 		timedOutVisualRestorationRecoveryInProgress = true
-		rasterBatchController.restoreLiveComposition(webView) restoration@{ restoration ->
+		rasterBatchController.restoreLiveComposition(
+			webView = webView,
+			mutationGeneration = mutationGeneration
+		) restoration@{ restoration ->
 			try {
 				if (destroyed) return@restoration
 				if (restoration.canRevealContent) {
 					timedOutVisualRestorationRecoveryRequired = false
+					timedOutVisualRestorationMutationGeneration = null
 					val preparationSession = timedOutPreparationShieldSession
 					val backgroundSession = timedOutBackgroundPrefetchShieldSessionId
 					if (preparationSession == null) {
@@ -1384,7 +1395,9 @@ internal class ReaderPageRasterPreparationController(
 		deferredRasterRepairPageIndex = null
 		resumePrewarmAfterRasterRepairs = false
 		if (!preempted) {
-			val restoration = trackVisualRestoration {
+			val restoration = trackVisualRestoration(
+				leaseSession?.lease?.mutationGeneration
+			) {
 				shieldSession?.let { session ->
 					removePreparationShield(
 						reason = "repair-cancelled:$reason",
@@ -2528,7 +2541,9 @@ internal class ReaderPageRasterPreparationController(
 		val batchStarted = backgroundBatchSubmission == submission
 		if (batchStarted && !preempted) {
 			backgroundBatchSubmission = null
-			val restoration = trackVisualRestoration {
+			val restoration = trackVisualRestoration(
+				leaseSession?.lease?.mutationGeneration
+			) {
 				removeBackgroundPrefetchShield(submission.sessionId)
 			}
 			rasterBackgroundBatchController.cancel { result ->
@@ -2580,7 +2595,9 @@ internal class ReaderPageRasterPreparationController(
 		val session = prewarmSession
 		val leaseSession = activePrewarmPassiveLease
 		rasterCacheInitializationJobs.toList().forEach { job -> job.cancel() }
-		val restoration = trackVisualRestoration {
+		val restoration = trackVisualRestoration(
+				leaseSession?.lease?.mutationGeneration
+			) {
 			removePreparationShield(
 				reason = "session-detached",
 				expectedSession = session
@@ -2633,7 +2650,9 @@ internal class ReaderPageRasterPreparationController(
 		activePreparationPageNumber = null
 		passivePrewarmDeferral = null
 		if (wasInProgress && !preempted) {
-			val restoration = trackVisualRestoration {
+			val restoration = trackVisualRestoration(
+				leaseSession?.lease?.mutationGeneration
+			) {
 				removePreparationShield(
 					reason = "session-cancelled:$reason",
 					expectedSession = cancelledSession

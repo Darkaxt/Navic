@@ -118,9 +118,7 @@ class ReaderPageTurnBitmapSourceTest {
 			.substringAfter("fun capturePresentedSurface(")
 			.substringBefore("suspend fun captureSurfaceAwait")
 		val initialReceipt = presented.indexOf("queryPresentationReceipt(")
-		val capture = presented.indexOf(
-			"captureSurface(webView, allowStableLowContrast = true)"
-		)
+		val capture = presented.indexOf("captureSurface(")
 		val finalReceipt = presented.indexOf("queryPresentationReceipt(", initialReceipt + 1)
 
 		assertTrue(initialReceipt >= 0 && initialReceipt < capture)
@@ -132,7 +130,7 @@ class ReaderPageTurnBitmapSourceTest {
 		assertTrue(presented.contains("readerPageTurnPresentedSurfaceCandidate("))
 		assertTrue(
 			source.contains(
-				"captureSurface(webView, allowStableLowContrast = false, onCaptured)"
+				"allowStableLowContrast = false,\n\t\tonCaptured = onCaptured"
 			)
 		)
 		assertTrue(source.contains("pageTurnPreviewPresentationReceipt"))
@@ -168,6 +166,10 @@ class ReaderPageTurnBitmapSourceTest {
 			callback.indexOf("ownership.endExternalWrite()") <
 				callback.indexOf("queryPresentationReceipt(webView, target)")
 		)
+		val finalReceiptAdmission = callback
+			.substringAfter("if (!ownership.endExternalWrite())")
+			.substringBefore("queryPresentationReceipt(webView, target)")
+		assertTrue(finalReceiptAdmission.contains("environmentCurrent()"))
 		assertTrue(callback.contains("ownership.externalWriteIsCurrent()"))
 		assertTrue(callback.contains("bitmap.setHasAlpha(false)"))
 		assertTrue(callback.contains("bitmap.setPremultiplied(true)"))
@@ -601,6 +603,25 @@ class ReaderPageTurnBitmapSourceTest {
 	}
 
 	@Test
+	fun changedFinalMutationGenerationRejectsTheCandidate() {
+		val candidate = PresentedCandidate()
+		var recycleCount = 0
+
+		val accepted = readerPageTurnPresentedSurfaceCandidate(
+			target = previewTarget(),
+			initialReceipt = previewReceipt(),
+			finalReceipt = previewReceipt().copy(foregroundMutationGeneration = 42),
+			candidate = candidate,
+			foregroundSuccess = true,
+			isStillCurrent = true,
+			recycle = { recycleCount += 1 }
+		)
+
+		assertNull(accepted)
+		assertEquals(1, recycleCount)
+	}
+
+	@Test
 	fun foregroundFailureRejectsTheCandidate() {
 		val candidate = PresentedCandidate()
 		var recycleCount = 0
@@ -805,7 +826,8 @@ class ReaderPageTurnBitmapSourceTest {
 	private fun previewTarget() = ReaderPageTurnPresentationTarget.Preview(
 		token = "neutral-preview-alpha",
 		pageIndex = 7,
-		previewGeneration = 11
+		previewGeneration = 11,
+		foregroundMutationGeneration = 41
 	)
 
 	private fun previewReceipt() = ReaderPageTurnPresentationReceipt(
@@ -813,6 +835,7 @@ class ReaderPageTurnBitmapSourceTest {
 		token = "neutral-preview-alpha",
 		pageIndex = 7,
 		previewGeneration = 11,
+		foregroundMutationGeneration = 41,
 		presentationSequence = 41
 	)
 
@@ -821,7 +844,8 @@ class ReaderPageTurnBitmapSourceTest {
 		pageIndex = 7,
 		foliateSessionId = "neutral-session-alpha",
 		rasterGeneration = 13,
-		textureGeneration = 17
+		textureGeneration = 17,
+		foregroundMutationGeneration = 41
 	)
 
 	private fun liveReceipt() = ReaderPageTurnPresentationReceipt(
@@ -831,6 +855,7 @@ class ReaderPageTurnBitmapSourceTest {
 		foliateSessionId = "neutral-session-alpha",
 		rasterGeneration = 13,
 		textureGeneration = 17,
+		foregroundMutationGeneration = 41,
 		presentationSequence = 41
 	)
 

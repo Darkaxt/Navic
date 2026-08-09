@@ -472,12 +472,29 @@ internal class ReaderPageRelocationLiveDispatchCoordinator(
 		}
 	}
 
-	fun isCurrent(request: ReaderPageRelocationRequest): Boolean {
+	fun mutationGeneration(
+		request: ReaderPageRelocationRequest
+	): ReaderForegroundWebViewMutationGeneration? {
+		val entry = claims[request.token.value]?.takeIf { it.request == request }
+			?: return null
+		val generation = mutationGenerations[request.token.value] ?: return null
+		return generation.takeIf {
+			foregroundWebViewOwnership.isCurrent(entry.claim, generation)
+		}
+	}
+
+	fun isCurrent(
+		request: ReaderPageRelocationRequest,
+		generation: ReaderForegroundWebViewMutationGeneration
+	): Boolean {
 		val entry = claims[request.token.value]?.takeIf { it.request == request }
 			?: return false
-		val generation = mutationGenerations[request.token.value] ?: return false
-		return foregroundWebViewOwnership.isCurrent(entry.claim, generation)
+		return mutationGenerations[request.token.value] == generation &&
+			foregroundWebViewOwnership.isCurrent(entry.claim, generation)
 	}
+
+	fun isCurrent(request: ReaderPageRelocationRequest): Boolean =
+		mutationGeneration(request) != null
 
 	fun replace(
 		original: ReaderPageRelocationRequest,
@@ -4370,13 +4387,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
 		val generationOwner = generationOwners[request.textureGeneration]
 		val profile = generationOwner?.profile
+		val foregroundMutationGeneration =
+			relocationLiveDispatchCoordinator.mutationGeneration(request)
 		if (
 			webView == null ||
 			activeDeckGenerationId != request.textureGeneration ||
 			generationOwner == null ||
 			profile == null ||
+			foregroundMutationGeneration == null ||
 			profile.rasterGeneration != request.rasterGeneration ||
-			!livePresentationValidationIsCurrent(request, generationOwner)
+			!livePresentationValidationIsCurrent(
+				request,
+				generationOwner,
+				foregroundMutationGeneration
+			)
 		) {
 			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
@@ -4416,7 +4440,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 			retained
 		}
-		if (!livePresentationValidationIsCurrent(request, generationOwner)) {
+		if (
+			!livePresentationValidationIsCurrent(
+				request,
+				generationOwner,
+				foregroundMutationGeneration
+			)
+		) {
 			expectedTarget.release()
 			expectedSource?.release()
 			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
@@ -4428,17 +4458,32 @@ internal class ReaderPlayLikeCurlFoliateController(
 				webView = webView,
 				rendererSurface = surfaceView,
 				request = request,
+				foregroundMutationGeneration = foregroundMutationGeneration,
 				expectedTarget = expectedTarget,
 				expectedSource = expectedSource,
-				isStillCurrent = { livePresentationValidationIsCurrent(request, generationOwner) },
+				isStillCurrent = {
+					livePresentationValidationIsCurrent(
+						request,
+						generationOwner,
+						foregroundMutationGeneration
+					)
+				},
 				onValidated = { result ->
-					if (
-						result == ReaderPageRelocationContentValidationResult.Invalidated ||
-						!livePresentationValidationIsCurrent(request, generationOwner)
+					val fencedResult = if (
+						livePresentationValidationIsCurrent(
+							request,
+							generationOwner,
+							foregroundMutationGeneration
+						)
 					) {
+						result
+					} else {
+						ReaderPageRelocationContentValidationResult.Invalidated
+					}
+					if (fencedResult == ReaderPageRelocationContentValidationResult.Invalidated) {
 						clearRetainedInlineHandoffSnapshot(request)
 					}
-					onValidated(result)
+					onValidated(fencedResult)
 				}
 			)
 		} catch (failure: Throwable) {
@@ -4483,11 +4528,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private fun livePresentationValidationIsCurrent(
 		request: ReaderPageRelocationRequest,
-		generationOwner: PreparedPages
+		generationOwner: PreparedPages,
+		foregroundMutationGeneration: ReaderForegroundWebViewMutationGeneration
 	): Boolean =
 		!destroyed &&
 			enabled &&
-			relocationLiveDispatchCoordinator.isCurrent(request) &&
+			relocationLiveDispatchCoordinator.isCurrent(
+				request,
+				foregroundMutationGeneration
+			) &&
 			!hasStaticRasterShieldOwnership() &&
 			surfaceView.isAttachedToWindow &&
 			surfaceView.isShown &&

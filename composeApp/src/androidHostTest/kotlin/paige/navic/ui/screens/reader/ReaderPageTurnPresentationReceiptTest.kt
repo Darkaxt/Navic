@@ -11,29 +11,27 @@ import kotlin.test.assertTrue
 class ReaderPageTurnPresentationReceiptTest {
 	@Test
 	fun parserCreatesTypedPreviewAndLiveReceiptsFromNeutralJson() {
-		val preview = readerPageTurnPresentationReceipt(
-			"""{"scope":"preview","token":"preview-token-alpha","pageIndex":7,"previewGeneration":11,"presentationSequence":21}"""
-		)
-		val live = readerPageTurnPresentationReceipt(
-			"""{"scope":"live","token":"live-token-alpha","pageIndex":8,"foliateSessionId":"session-alpha","rasterGeneration":13,"textureGeneration":17,"presentationSequence":22}"""
-		)
+		val preview = readerPageTurnPresentationReceipt(previewJson())
+		val live = readerPageTurnPresentationReceipt(liveJson())
 
 		assertEquals(ReaderPageTurnPresentationScope.Preview, preview?.scope)
 		assertEquals("preview-token-alpha", preview?.token)
 		assertEquals(7L, preview?.pageIndex)
 		assertEquals(11L, preview?.previewGeneration)
+		assertEquals(41L, preview?.foregroundMutationGeneration)
 		assertEquals(21L, preview?.presentationSequence)
 		assertNull(preview?.foliateSessionId)
 		assertEquals(ReaderPageTurnPresentationScope.Live, live?.scope)
 		assertEquals("session-alpha", live?.foliateSessionId)
 		assertEquals(13L, live?.rasterGeneration)
 		assertEquals(17L, live?.textureGeneration)
+		assertEquals(41L, live?.foregroundMutationGeneration)
 		assertEquals(22L, live?.presentationSequence)
 		assertNull(live?.previewGeneration)
 	}
 
 	@Test
-	fun parserRejectsIncompleteInvalidAndExtendedShapes() {
+	fun parserRejectsIncompleteInvalidExtendedAndLegacyShapes() {
 		assertNull(readerPageTurnPresentationReceipt(null))
 		assertNull(readerPageTurnPresentationReceipt("not-json"))
 		assertNull(
@@ -43,33 +41,61 @@ class ReaderPageTurnPresentationReceiptTest {
 		)
 		assertNull(
 			readerPageTurnPresentationReceipt(
-				"""{"scope":"preview","token":"preview-token-alpha","pageIndex":7,"previewGeneration":11,"presentationSequence":21,"unexpected":"value"}"""
+				"""{"scope":"preview","token":"preview-token-alpha","pageIndex":7,"previewGeneration":11,"foregroundMutationGeneration":41,"presentationSequence":21,"unexpected":"value"}"""
 			)
 		)
 		assertNull(
 			readerPageTurnPresentationReceipt(
-				"""{"scope":"live","token":"live-token-alpha","pageIndex":8,"foliateSessionId":"session-alpha","rasterGeneration":13,"textureGeneration":17,"presentationSequence":0}"""
+				"""{"scope":"live","token":"live-token-alpha","pageIndex":8,"foliateSessionId":"session-alpha","rasterGeneration":13,"textureGeneration":17,"foregroundMutationGeneration":41,"presentationSequence":0}"""
+			)
+		)
+		assertNull(
+			readerPageTurnPresentationReceipt(
+				"""{"scope":"preview","token":"preview-token-alpha","pageIndex":7,"previewGeneration":11,"presentationSequence":21}"""
+			)
+		)
+		assertNull(
+			readerPageTurnPresentationReceipt(
+				"""{"scope":"live","token":"live-token-alpha","pageIndex":8,"foliateSessionId":"session-alpha","rasterGeneration":13,"textureGeneration":17,"presentationSequence":22}"""
 			)
 		)
 	}
 
 	@Test
-	fun previewMatcherRequiresExactTargetIdentity() {
-		val receipt = assertNotNull(
-			readerPageTurnPresentationReceipt(
-				"""{"scope":"preview","token":"preview-token-alpha","pageIndex":7,"previewGeneration":11,"presentationSequence":21}"""
-			)
+	fun parserRequiresMutationGenerationToBeAPositiveJavascriptSafeInteger() {
+		listOf("0", "-1", "1.5", "\"41\"", "9007199254740992", Long.MAX_VALUE.toString())
+			.forEach { rejected ->
+				assertNull(readerPageTurnPresentationReceipt(previewJson(rejected)))
+				assertNull(readerPageTurnPresentationReceipt(liveJson(rejected)))
+			}
+		val maximum = ReaderPageTurnPresentationMaximumSafeInteger.toString()
+		assertEquals(
+			ReaderPageTurnPresentationMaximumSafeInteger,
+			assertNotNull(readerPageTurnPresentationReceipt(previewJson(maximum)))
+				.foregroundMutationGeneration
 		)
+		assertEquals(
+			ReaderPageTurnPresentationMaximumSafeInteger,
+			assertNotNull(readerPageTurnPresentationReceipt(liveJson(maximum)))
+				.foregroundMutationGeneration
+		)
+	}
+
+	@Test
+	fun previewMatcherRequiresExactTargetIdentity() {
+		val receipt = assertNotNull(readerPageTurnPresentationReceipt(previewJson()))
 		val target = ReaderPageTurnPresentationTarget.Preview(
 			token = "preview-token-alpha",
 			pageIndex = 7,
-			previewGeneration = 11
+			previewGeneration = 11,
+			foregroundMutationGeneration = 41
 		)
 
 		assertTrue(receipt.matches(target))
 		assertFalse(receipt.matches(target.copy(token = "preview-token-beta")))
 		assertFalse(receipt.matches(target.copy(pageIndex = 8)))
 		assertFalse(receipt.matches(target.copy(previewGeneration = 12)))
+		assertFalse(receipt.matches(target.copy(foregroundMutationGeneration = 42)))
 		assertFalse(
 			receipt.matches(
 				ReaderPageTurnPresentationTarget.Live(
@@ -77,7 +103,8 @@ class ReaderPageTurnPresentationReceiptTest {
 					pageIndex = target.pageIndex,
 					foliateSessionId = "session-alpha",
 					rasterGeneration = 13,
-					textureGeneration = 17
+					textureGeneration = 17,
+					foregroundMutationGeneration = 41
 				)
 			)
 		)
@@ -85,18 +112,8 @@ class ReaderPageTurnPresentationReceiptTest {
 
 	@Test
 	fun liveMatcherRequiresExactTargetIdentity() {
-		val receipt = assertNotNull(
-			readerPageTurnPresentationReceipt(
-				"""{"scope":"live","token":"live-token-alpha","pageIndex":8,"foliateSessionId":"session-alpha","rasterGeneration":13,"textureGeneration":17,"presentationSequence":22}"""
-			)
-		)
-		val target = ReaderPageTurnPresentationTarget.Live(
-			token = "live-token-alpha",
-			pageIndex = 8,
-			foliateSessionId = "session-alpha",
-			rasterGeneration = 13,
-			textureGeneration = 17
-		)
+		val receipt = assertNotNull(readerPageTurnPresentationReceipt(liveJson()))
+		val target = liveTarget()
 
 		assertTrue(receipt.matches(target))
 		assertFalse(receipt.matches(target.copy(token = "live-token-beta")))
@@ -104,26 +121,29 @@ class ReaderPageTurnPresentationReceiptTest {
 		assertFalse(receipt.matches(target.copy(foliateSessionId = "session-beta")))
 		assertFalse(receipt.matches(target.copy(rasterGeneration = 14)))
 		assertFalse(receipt.matches(target.copy(textureGeneration = 18)))
+		assertFalse(receipt.matches(target.copy(foregroundMutationGeneration = 42)))
 	}
 
 	@Test
 	fun parserAcceptsTheJavascriptMaximumSafeIntegerForEveryLongWireField() {
-		val maximum = 9_007_199_254_740_991L
+		val maximum = ReaderPageTurnPresentationMaximumSafeInteger
 		val preview = readerPageTurnPresentationReceipt(
-			"""{"scope":"preview","token":"preview-token-alpha","pageIndex":$maximum,"previewGeneration":$maximum,"presentationSequence":$maximum}"""
+			"""{"scope":"preview","token":"preview-token-alpha","pageIndex":$maximum,"previewGeneration":$maximum,"foregroundMutationGeneration":$maximum,"presentationSequence":$maximum}"""
 		)
 		val live = readerPageTurnPresentationReceipt(
-			"""{"scope":"live","token":"live-token-alpha","pageIndex":$maximum,"foliateSessionId":"session-alpha","rasterGeneration":$maximum,"textureGeneration":$maximum,"presentationSequence":$maximum}"""
+			"""{"scope":"live","token":"live-token-alpha","pageIndex":$maximum,"foliateSessionId":"session-alpha","rasterGeneration":$maximum,"textureGeneration":$maximum,"foregroundMutationGeneration":$maximum,"presentationSequence":$maximum}"""
 		)
 
 		assertNotNull(preview)
 		assertEquals(maximum, preview.pageIndex)
 		assertEquals(maximum, preview.previewGeneration)
+		assertEquals(maximum, preview.foregroundMutationGeneration)
 		assertEquals(maximum, preview.presentationSequence)
 		assertNotNull(live)
 		assertEquals(maximum, live.pageIndex)
 		assertEquals(maximum, live.rasterGeneration)
 		assertEquals(maximum, live.textureGeneration)
+		assertEquals(maximum, live.foregroundMutationGeneration)
 		assertEquals(maximum, live.presentationSequence)
 	}
 
@@ -131,35 +151,51 @@ class ReaderPageTurnPresentationReceiptTest {
 	fun parserRejectsEveryLongWireFieldAboveTheJavascriptSafeIntegerRange() {
 		val aboveMaximum = 9_007_199_254_740_992L
 		val longMaximum = Long.MAX_VALUE
-		val previewTemplate =
-			"""{"scope":"preview","token":"preview-token-alpha","pageIndex":7,"previewGeneration":%s,"presentationSequence":%s}"""
-		val liveTemplate =
-			"""{"scope":"live","token":"live-token-alpha","pageIndex":8,"foliateSessionId":"session-alpha","rasterGeneration":%s,"textureGeneration":%s,"presentationSequence":%s}"""
-
 		listOf(aboveMaximum, longMaximum).forEach { rejected ->
 			assertNull(
 				readerPageTurnPresentationReceipt(
-					"""{"scope":"preview","token":"preview-token-alpha","pageIndex":$rejected,"previewGeneration":11,"presentationSequence":21}"""
+					"""{"scope":"preview","token":"preview-token-alpha","pageIndex":$rejected,"previewGeneration":11,"foregroundMutationGeneration":41,"presentationSequence":21}"""
 				)
 			)
-			assertNull(readerPageTurnPresentationReceipt(previewTemplate.format(rejected, 21)))
-			assertNull(readerPageTurnPresentationReceipt(previewTemplate.format(11, rejected)))
-			assertNull(readerPageTurnPresentationReceipt(liveTemplate.format(rejected, 17, 22)))
-			assertNull(readerPageTurnPresentationReceipt(liveTemplate.format(13, rejected, 22)))
-			assertNull(readerPageTurnPresentationReceipt(liveTemplate.format(13, 17, rejected)))
+			assertNull(
+				readerPageTurnPresentationReceipt(
+					"""{"scope":"preview","token":"preview-token-alpha","pageIndex":7,"previewGeneration":$rejected,"foregroundMutationGeneration":41,"presentationSequence":21}"""
+				)
+			)
+			assertNull(
+				readerPageTurnPresentationReceipt(
+					"""{"scope":"preview","token":"preview-token-alpha","pageIndex":7,"previewGeneration":11,"foregroundMutationGeneration":41,"presentationSequence":$rejected}"""
+				)
+			)
+			assertNull(
+				readerPageTurnPresentationReceipt(
+					"""{"scope":"live","token":"live-token-alpha","pageIndex":8,"foliateSessionId":"session-alpha","rasterGeneration":$rejected,"textureGeneration":17,"foregroundMutationGeneration":41,"presentationSequence":22}"""
+				)
+			)
+			assertNull(
+				readerPageTurnPresentationReceipt(
+					"""{"scope":"live","token":"live-token-alpha","pageIndex":8,"foliateSessionId":"session-alpha","rasterGeneration":13,"textureGeneration":$rejected,"foregroundMutationGeneration":41,"presentationSequence":22}"""
+				)
+			)
+			assertNull(
+				readerPageTurnPresentationReceipt(
+					"""{"scope":"live","token":"live-token-alpha","pageIndex":8,"foliateSessionId":"session-alpha","rasterGeneration":13,"textureGeneration":17,"foregroundMutationGeneration":41,"presentationSequence":$rejected}"""
+				)
+			)
 		}
 	}
 
 	@Test
 	fun targetTypesEnforceJavascriptSafeIntegerAndIdentityInvariants() {
-		val maximum = 9_007_199_254_740_991L
+		val maximum = ReaderPageTurnPresentationMaximumSafeInteger
 		assertEquals(
 			maximum,
 			ReaderPageTurnPresentationTarget.Preview(
 				token = "preview-token-alpha",
 				pageIndex = maximum,
-				previewGeneration = maximum
-			).previewGeneration
+				previewGeneration = maximum,
+				foregroundMutationGeneration = maximum
+			).foregroundMutationGeneration
 		)
 		assertEquals(
 			maximum,
@@ -168,32 +204,18 @@ class ReaderPageTurnPresentationReceiptTest {
 				pageIndex = maximum,
 				foliateSessionId = "session-alpha",
 				rasterGeneration = maximum,
-				textureGeneration = maximum
-			).textureGeneration
+				textureGeneration = maximum,
+				foregroundMutationGeneration = maximum
+			).foregroundMutationGeneration
 		)
 
-		listOf(9_007_199_254_740_992L, Long.MAX_VALUE).forEach { rejected ->
-			assertFailsWith<IllegalArgumentException> {
-				ReaderPageTurnPresentationTarget.Preview(
-					token = "preview-token-alpha",
-					pageIndex = rejected,
-					previewGeneration = 11
-				)
-			}
+		listOf(0L, -1L, 9_007_199_254_740_992L, Long.MAX_VALUE).forEach { rejected ->
 			assertFailsWith<IllegalArgumentException> {
 				ReaderPageTurnPresentationTarget.Preview(
 					token = "preview-token-alpha",
 					pageIndex = 7,
-					previewGeneration = rejected
-				)
-			}
-			assertFailsWith<IllegalArgumentException> {
-				ReaderPageTurnPresentationTarget.Live(
-					token = "live-token-alpha",
-					pageIndex = 8,
-					foliateSessionId = "session-alpha",
-					rasterGeneration = rejected,
-					textureGeneration = 17
+					previewGeneration = 11,
+					foregroundMutationGeneration = rejected
 				)
 			}
 			assertFailsWith<IllegalArgumentException> {
@@ -202,32 +224,23 @@ class ReaderPageTurnPresentationReceiptTest {
 					pageIndex = 8,
 					foliateSessionId = "session-alpha",
 					rasterGeneration = 13,
-					textureGeneration = rejected
+					textureGeneration = 17,
+					foregroundMutationGeneration = rejected
 				)
 			}
 		}
 		assertFailsWith<IllegalArgumentException> {
-			ReaderPageTurnPresentationTarget.Preview("preview-token-alpha", -1, 11)
+			ReaderPageTurnPresentationTarget.Preview("preview-token-alpha", -1, 11, 41)
 		}
 		assertFailsWith<IllegalArgumentException> {
-			ReaderPageTurnPresentationTarget.Live("live-token-alpha", 8, "", 13, 17)
+			ReaderPageTurnPresentationTarget.Live("live-token-alpha", 8, "", 13, 17, 41)
 		}
 	}
 
 	@Test
 	fun acceptanceRequiresTargetMatchStableReceiptAndForegroundSuccess() {
-		val initial = assertNotNull(
-			readerPageTurnPresentationReceipt(
-				"""{"scope":"live","token":"live-token-alpha","pageIndex":8,"foliateSessionId":"session-alpha","rasterGeneration":13,"textureGeneration":17,"presentationSequence":22}"""
-			)
-		)
-		val target = ReaderPageTurnPresentationTarget.Live(
-			token = "live-token-alpha",
-			pageIndex = 8,
-			foliateSessionId = "session-alpha",
-			rasterGeneration = 13,
-			textureGeneration = 17
-		)
+		val initial = assertNotNull(readerPageTurnPresentationReceipt(liveJson()))
+		val target = liveTarget()
 
 		assertTrue(
 			readerPageTurnPresentationReceiptAccepted(
@@ -255,11 +268,34 @@ class ReaderPageTurnPresentationReceiptTest {
 		)
 		assertFalse(
 			readerPageTurnPresentationReceiptAccepted(
-				target = target.copy(pageIndex = 9),
+				target = target,
+				initialReceipt = initial,
+				finalReceipt = initial.copy(foregroundMutationGeneration = 42),
+				foregroundSuccess = true
+			)
+		)
+		assertFalse(
+			readerPageTurnPresentationReceiptAccepted(
+				target = target.copy(foregroundMutationGeneration = 42),
 				initialReceipt = initial,
 				finalReceipt = initial,
 				foregroundSuccess = true
 			)
 		)
 	}
+
+	private fun previewJson(foregroundMutationGeneration: String = "41"): String =
+		"""{"scope":"preview","token":"preview-token-alpha","pageIndex":7,"previewGeneration":11,"foregroundMutationGeneration":$foregroundMutationGeneration,"presentationSequence":21}"""
+
+	private fun liveJson(foregroundMutationGeneration: String = "41"): String =
+		"""{"scope":"live","token":"live-token-alpha","pageIndex":8,"foliateSessionId":"session-alpha","rasterGeneration":13,"textureGeneration":17,"foregroundMutationGeneration":$foregroundMutationGeneration,"presentationSequence":22}"""
+
+	private fun liveTarget() = ReaderPageTurnPresentationTarget.Live(
+		token = "live-token-alpha",
+		pageIndex = 8,
+		foliateSessionId = "session-alpha",
+		rasterGeneration = 13,
+		textureGeneration = 17,
+		foregroundMutationGeneration = 41
+	)
 }

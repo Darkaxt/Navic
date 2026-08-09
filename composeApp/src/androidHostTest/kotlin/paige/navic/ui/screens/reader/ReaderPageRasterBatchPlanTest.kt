@@ -245,6 +245,25 @@ class ReaderPageRasterBatchPlanTest {
 	}
 
 	@Test
+	fun nativeBatchAdmissionRequiresTheExactPassiveMutationGeneration() {
+		val source = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPageRasterBatchController.android.kt"
+		).readText()
+		val begin = source
+			.substringAfter("private fun beginPageTurnPreviewBatch(session: Session)")
+			.substringBefore("private fun pollBatchState(session: Session)")
+
+		assertTrue(begin.contains("${'$'}{session.mutationGeneration.value}"))
+		assertTrue(begin.contains("encodedState.javascriptObject()"))
+		assertTrue(
+			begin.contains(
+				"state.matchesForegroundMutationGeneration(session.mutationGeneration)"
+			)
+		)
+	}
+
+	@Test
 	fun jsPlanBuildsBlockingWindowBeforeCurrentForwardAndBackwardBackgroundWork() {
 		val source = File("src/androidMain/assets/reader/navic-reader-page-turn-preview.js").readText()
 		val plan = source

@@ -45,6 +45,7 @@ const previewTarget = Object.freeze({
   token: 'preview-token-alpha',
   pageIndex: 7,
   previewGeneration: 11,
+  foregroundMutationGeneration: 41,
 })
 
 const liveTarget = Object.freeze({
@@ -54,6 +55,7 @@ const liveTarget = Object.freeze({
   foliateSessionId: 'session-alpha',
   rasterGeneration: 13,
   textureGeneration: 17,
+  foregroundMutationGeneration: 41,
 })
 
 test('issuance freezes receipts and increases the presentation sequence', () => {
@@ -65,6 +67,7 @@ test('issuance freezes receipts and increases the presentation sequence', () => 
   assert.equal(Object.isFrozen(preview), true)
   assert.equal(Object.isFrozen(live), true)
   assert.deepEqual(Object.keys(preview).sort(), [
+    'foregroundMutationGeneration',
     'pageIndex',
     'presentationSequence',
     'previewGeneration',
@@ -73,6 +76,7 @@ test('issuance freezes receipts and increases the presentation sequence', () => 
   ])
   assert.deepEqual(Object.keys(live).sort(), [
     'foliateSessionId',
+    'foregroundMutationGeneration',
     'pageIndex',
     'presentationSequence',
     'rasterGeneration',
@@ -94,6 +98,7 @@ test('preview matching requires the exact scope token page and generation', () =
     { ...previewTarget, token: 'preview-token-beta' },
     { ...previewTarget, pageIndex: 6 },
     { ...previewTarget, previewGeneration: 12 },
+    { ...previewTarget, foregroundMutationGeneration: 42 },
   ]) {
     assert.equal(readerPageTurnPresentationReceiptMatches(receipt, mismatch), false)
   }
@@ -110,6 +115,7 @@ test('live matching requires the exact scope token page session and generations'
     { ...liveTarget, foliateSessionId: 'session-beta' },
     { ...liveTarget, rasterGeneration: 14 },
     { ...liveTarget, textureGeneration: 18 },
+    { ...liveTarget, foregroundMutationGeneration: 42 },
   ]) {
     assert.equal(readerPageTurnPresentationReceiptMatches(receipt, mismatch), false)
   }
@@ -127,6 +133,27 @@ test('parsing accepts only complete neutral receipt shapes', () => {
   assert.equal(parseReaderPageTurnPresentationReceipt({ ...receipt, pageIndex: 7.5 }), null)
   assert.equal(parseReaderPageTurnPresentationReceipt({ ...receipt, token: '' }), null)
   assert.equal(parseReaderPageTurnPresentationReceipt('{"scope":"preview"}'), null)
+})
+
+test('mutation generation is required and is a positive safe wire integer', () => {
+  for (const target of [previewTarget, liveTarget]) {
+    const valid = {
+      ...target,
+      presentationSequence: 41,
+    }
+    const { foregroundMutationGeneration: _, ...legacy } = valid
+    assert.equal(parseReaderPageTurnPresentationReceipt(legacy), null)
+
+    for (const malformed of [0, -1, 1.5, '41', Number.MAX_SAFE_INTEGER + 1]) {
+      assert.equal(
+        parseReaderPageTurnPresentationReceipt({
+          ...valid,
+          foregroundMutationGeneration: malformed,
+        }),
+        null,
+      )
+    }
+  }
 })
 
 const liveRuntime = ({
@@ -156,6 +183,7 @@ const liveRuntime = ({
     foliateSessionId: liveTarget.foliateSessionId,
     rasterGeneration: liveTarget.rasterGeneration,
     textureGeneration: liveTarget.textureGeneration,
+    foregroundMutationGeneration: liveTarget.foregroundMutationGeneration,
     pageIndex: liveTarget.pageIndex,
     spineIndex: 3,
     chapterPageIndex: 5,
@@ -172,6 +200,7 @@ const liveRuntime = ({
     foliateSessionId: liveTarget.foliateSessionId,
     paginationProfile,
     relocateSequence: 1,
+    foregroundMutationGeneration: liveTarget.foregroundMutationGeneration,
     currentPagePosition: Object.freeze({
       pageIndex: liveTarget.pageIndex,
       spineIndex: pending.spineIndex,
@@ -188,6 +217,9 @@ const liveRuntime = ({
     pageTurnLivePresentationTargetValue: null,
     pageTurnPreviewPresentationReceiptValue: null,
     pageTurnPreviewExposedToken: previewExposed ? 'preview-token-alpha' : '',
+    pageTurnPreviewExposedMutationGeneration: previewExposed
+      ? liveTarget.foregroundMutationGeneration
+      : null,
     pageTurnPreviewLiveVisibility: '',
     pageTurnPreviewLiveOpacity: '',
     pageTurnPreviewLivePagePosition: prePreviewPagePosition,
@@ -245,6 +277,32 @@ test('live presentation rejects paginator authority invalidated after settlement
   assert.equal(runtime.pageTurnLivePresentationTargetValue, null)
 })
 
+test('live presentation authority is cleared when its mutation generation is superseded', () => {
+  const runtime = liveRuntime()
+
+  assert.equal(runtime.maybeCompleteNativePageTurnSettlement(), true)
+  assert.notEqual(runtime.pageTurnLivePresentationReceipt(), null)
+
+  runtime.foregroundMutationGeneration = liveTarget.foregroundMutationGeneration + 1
+
+  assert.equal(runtime.pageTurnLivePresentationReceipt(), null)
+  assert.equal(runtime.restorePageTurnLivePresentationReceipt(), null)
+  assert.equal(runtime.pageTurnLivePresentationTargetValue, null)
+})
+
+test('stale restoration cannot mutate composition after preview state is gone', () => {
+  const runtime = liveRuntime()
+  runtime.foregroundMutationGeneration = liveTarget.foregroundMutationGeneration + 1
+
+  assert.equal(
+    runtime.restorePageTurnLiveComposition(
+      '',
+      liveTarget.foregroundMutationGeneration,
+    ),
+    false,
+  )
+})
+
 test('restoring live composition preserves a newer settlement completed behind preview', () => {
   const oldPagePosition = Object.freeze({
     pageIndex: liveTarget.pageIndex - 1,
@@ -260,7 +318,13 @@ test('restoring live composition preserves a newer settlement completed behind p
   assert.equal(runtime.maybeCompleteNativePageTurnSettlement(), true)
   assert.equal(runtime.pageTurnLivePresentationReceiptValue, null)
   assert.equal(runtime.consumeNativePageTurnSettlement(liveTarget.token), true)
-  assert.equal(runtime.restorePageTurnLiveComposition('preview-token-alpha'), true)
+  assert.equal(
+    runtime.restorePageTurnLiveComposition(
+      'preview-token-alpha',
+      liveTarget.foregroundMutationGeneration,
+    ),
+    true,
+  )
 
   assert.equal(runtime.currentPagePosition.pageIndex, liveTarget.pageIndex)
   const receipt = runtime.pageTurnLivePresentationReceipt()
@@ -322,6 +386,7 @@ test('restore keeps committed passive raster authority through descriptor persis
   const identity = Object.freeze({
     token: 'batch:item',
     generation: 4,
+    foregroundMutationGeneration: 41,
     status: 'ready',
     pageIndex: 1,
     visualPageOrdinal: 1,
@@ -356,6 +421,7 @@ test('restore keeps committed passive raster authority through descriptor persis
     readerSettings: {},
     currentPagePosition: { pageIndex: 0, pageCount: 3 },
     pageTurnPreviewGeneration: 4,
+    foregroundMutationGeneration: 41,
     pageTurnPreviewStateValue: identity,
     pageTurnPreviewBatchStateValue: batch,
     pageTurnPreviewView: { style: previewStyle, renderer },
@@ -399,18 +465,18 @@ test('restore keeps committed passive raster authority through descriptor persis
   try {
     assert.equal(readerRememberTextPageCommit(identity, renderer, paginatorReceipt), true)
     assert.equal(readerRememberTextPageCommit(batch, renderer, paginatorReceipt), true)
-    assert.equal(runtime.exposePageTurnPreviewFinal(identity.token), true)
-    assert.equal(runtime.confirmPageTurnPreviewPresentation(identity.token), true)
+    assert.equal(runtime.exposePageTurnPreviewFinal(identity.token, 41), true)
+    assert.equal(runtime.confirmPageTurnPreviewPresentation(identity.token, 41), true)
     assert.notEqual(runtime.pageTurnPreviewPresentationReceipt(), null)
 
-    assert.equal(runtime.restorePageTurnLiveComposition(identity.token), true)
+    assert.equal(runtime.restorePageTurnLiveComposition(identity.token, 41), true)
     assert.equal(hiddenLayoutApplications, 0)
     assert.equal(rendererRenders, 0)
     assert.equal(receiptIsValid, true)
     assert.equal(previewStyle.getPropertyValue('visibility'), 'hidden')
     assert.equal(previewStyle.getPropertyValue('z-index'), '-1')
     assert.notEqual(runtime.pageTurnRasterDescriptor(1), null)
-    assert.equal(runtime.advancePageTurnPreviewBatch('batch', 1).status, 'complete')
+    assert.equal(runtime.advancePageTurnPreviewBatch('batch', 1, 41).status, 'complete')
   } finally {
     window.getComputedStyle = originalGetComputedStyle
   }
@@ -420,6 +486,7 @@ test('preview presentation receipt rejects stale paginator authority', () => {
   const state = Object.freeze({
     token: previewTarget.token,
     generation: previewTarget.previewGeneration,
+    foregroundMutationGeneration: previewTarget.foregroundMutationGeneration,
     status: 'ready',
     pageIndex: previewTarget.pageIndex,
     transactionAttempts: 1,
@@ -442,6 +509,7 @@ test('preview presentation receipt rejects stale paginator authority', () => {
     pageTurnPreviewStateValue: state,
     pageTurnPreviewBatchStateValue: null,
     pageTurnPreviewGeneration: previewTarget.previewGeneration,
+    foregroundMutationGeneration: previewTarget.foregroundMutationGeneration,
     pageTurnPreviewView: { renderer },
     pageTurnPreviewExposedToken: previewTarget.token,
     pageTurnPreviewPresentationReceiptValue: null,

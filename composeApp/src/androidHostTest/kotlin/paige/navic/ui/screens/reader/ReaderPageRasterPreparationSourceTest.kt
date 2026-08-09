@@ -209,7 +209,7 @@ class ReaderPageRasterPreparationSourceTest {
 		).substringBefore("private fun shieldDetail(")
 
 		assertContains(cancellation, "rasterBatchController.cancel { result ->")
-		assertContains(cancellation, "trackVisualRestoration {")
+		assertContains(cancellation, "trackVisualRestoration(")
 		assertContains(cancellation, "expectedSession = cancelledSession")
 		assertContains(removal, "preparationShieldSession != expectedSession")
 	}
@@ -374,7 +374,16 @@ class ReaderPageRasterPreparationSourceTest {
 			prewarm.indexOf("if (timedOutVisualRestorationRecoveryRequired)") <
 				prewarm.indexOf("if (prewarmInProgress)")
 		)
-		assertContains(recovery, "rasterBatchController.restoreLiveComposition(webView)")
+		assertContains(
+			restoration,
+			"timedOutVisualRestorationMutationGeneration = mutationGeneration"
+		)
+		assertContains(recovery, "mutationGeneration = checkNotNull(")
+		assertContains(
+			recovery,
+			"timedOutVisualRestorationMutationGeneration"
+		)
+		assertContains(recovery, "rasterBatchController.restoreLiveComposition(")
 		assertContains(recovery, "if (restoration.canRevealContent)")
 		assertContains(recovery, "timedOutVisualRestorationRecoveryRequired = false")
 		assertContains(recovery, "removePreparationShield(")
@@ -393,7 +402,10 @@ class ReaderPageRasterPreparationSourceTest {
 			"ReaderPageRasterCancellationRestoration.Restored"
 		)
 		assertContains(batch, "override fun restoreLiveComposition(")
-		assertContains(cancellation, "restorePageTurnLiveComposition?.()")
+		assertContains(cancellation, "${'$'}{mutationGeneration.value}")
+		assertFalse(cancellation.contains("restorePageTurnLiveComposition?.()"))
+		assertContains(cancellation, "webView.evaluateJavascript(javascript) { restored ->")
+		assertContains(cancellation, "!restored.isJavascriptTrue()")
 		assertContains(cancellation, "removeCallbacks(restorationTimeout)")
 		assertContains(cancellation, "webView.postDelayed(")
 		assertContains(
@@ -766,7 +778,7 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(repair, "reusePreparationShield(")
 		assertContains(repair, "removePreparationShield(")
 		assertContains(repair, "rasterRepairBatchController.cancel { result ->")
-		assertContains(repair, "trackVisualRestoration {")
+		assertContains(repair, "trackVisualRestoration(")
 		assertContains(repair, "\"page-repair-completed\"")
 		assertContains(repair, "\"page-repair-failed\"")
 		assertContains(repair, "ReaderPageRasterRepairResult.Repaired")
@@ -813,7 +825,7 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(background, "activeBackgroundPassiveLease == leaseSession")
 		assertContains(background, "removeBackgroundPrefetchShield(submission.sessionId)")
 		assertContains(background, "rasterBackgroundBatchController.cancel { result ->")
-		assertContains(background, "trackVisualRestoration {")
+		assertContains(background, "trackVisualRestoration(")
 		assertContains(background, "removeBackgroundPrefetchShield(submission.sessionId)")
 		assertFalse(background.contains("publishPreparationState("))
 		assertFalse(background.contains("reusePreparationShield("))

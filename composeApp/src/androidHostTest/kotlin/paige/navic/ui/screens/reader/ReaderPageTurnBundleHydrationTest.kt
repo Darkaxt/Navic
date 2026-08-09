@@ -1851,7 +1851,7 @@ class ReaderPageTurnBundleHydrationTest {
 		fun completeRestoration() {
 			val evaluation = checkNotNull(evaluationCallback)
 			evaluationCallback = null
-			evaluation.onReceiveValue("null")
+			evaluation.onReceiveValue("true")
 			val (requestId, visual) = checkNotNull(visualStateCallback)
 			visualStateCallback = null
 			visual.onComplete(requestId)
@@ -1870,23 +1870,26 @@ class ReaderPageTurnBundleHydrationTest {
 			script: String,
 			resultCallback: ValueCallback<String>?
 		) {
-			val result = if (script.contains("pageTurnRasterDescriptor")) {
-				"""{
-					"publicationUrl":"publication-stale-fence",
-					"paginationFingerprint":"pagination-stale-fence",
-					"layoutFingerprint":"layout-stale-fence",
-					"decorationFingerprint":"decoration-stale-fence",
-					"viewportWidth":20,
-					"viewportHeight":30,
-					"pageCount":20,
-					"spineIndex":0,
-					"href":"chapter-stale-fence",
-					"chapterPageIndex":$pageIndex,
-					"chapterPageCount":20,
-					"visualPageOrdinal":$pageIndex
-				}""".trimIndent()
-			} else {
-				"null"
+			val result = when {
+				script.contains("pageTurnRasterDescriptor") -> {
+					"""{
+						"publicationUrl":"publication-stale-fence",
+						"paginationFingerprint":"pagination-stale-fence",
+						"layoutFingerprint":"layout-stale-fence",
+						"decorationFingerprint":"decoration-stale-fence",
+						"viewportWidth":20,
+						"viewportHeight":30,
+						"pageCount":20,
+						"spineIndex":0,
+						"href":"chapter-stale-fence",
+						"chapterPageIndex":$pageIndex,
+						"chapterPageCount":20,
+						"visualPageOrdinal":$pageIndex
+					}""".trimIndent()
+				}
+				script.contains("cancelPageTurnPreviewBatch") ||
+					script.contains("restorePageTurnLiveComposition") -> "true"
+				else -> "null"
 			}
 			resultCallback?.onReceiveValue(result)
 		}

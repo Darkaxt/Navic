@@ -156,6 +156,7 @@ runtime = {
   paginationProfile,
   currentPagePosition: null,
   relocateSequence: 9,
+  foregroundMutationGeneration: 0,
   lastRelocateDetail: null,
   pendingExactPageTurnSettlements: new Map(),
   completedExactPageTurnSettlements: new Map(),
@@ -229,14 +230,23 @@ runtime = {
 }
 Object.assign(runtime, NavicReaderPageTurnMethods)
 runtime.attachLiveTextPageCommitInvalidationListener()
-const settlementCommand = (token, pageIndex, rasterGeneration = pageIndex) => ({
-  pageIndex,
-  settleToken: token,
-  settleGestureId: pageIndex + 1,
-  settleSessionId: runtime.foliateSessionId,
-  settleRasterGeneration: rasterGeneration,
-  settleTextureGeneration: pageIndex + 100,
-})
+let nextMutationGeneration = 40
+const mutationGenerationByToken = new Map()
+const settlementCommand = (token, pageIndex, rasterGeneration = pageIndex) => {
+  if (!mutationGenerationByToken.has(token)) {
+    nextMutationGeneration += 1
+    mutationGenerationByToken.set(token, nextMutationGeneration)
+  }
+  return {
+    pageIndex,
+    settleToken: token,
+    settleGestureId: pageIndex + 1,
+    settleSessionId: runtime.foliateSessionId,
+    settleRasterGeneration: rasterGeneration,
+    settleTextureGeneration: pageIndex + 100,
+    settleForegroundMutationGeneration: mutationGenerationByToken.get(token),
+  }
+}
 const positionAt = pageIndex => {
   const chapter = paginationProfile.chapters.find(entry =>
     pageIndex >= entry.pageStartIndex && pageIndex < entry.pageStartIndex + entry.pageCount
@@ -263,6 +273,10 @@ for (let pageIndex = 0; pageIndex < 33; pageIndex += 1) {
   assert.equal(settlement?.foliateSessionId, runtime.foliateSessionId)
   assert.equal(settlement?.rasterGeneration, pageIndex)
   assert.equal(settlement?.textureGeneration, pageIndex + 100)
+  assert.equal(
+    settlement?.foregroundMutationGeneration,
+    mutationGenerationByToken.get(token),
+  )
   assert.equal(settlement?.paginationProfile, paginationProfile)
   assert.equal(runtime.pageTurnLivePresentationTargetValue?.relocationEpoch, 10 + pageIndex)
   assert.equal(runtime.pageTurnLivePresentationTargetValue?.foliateSessionId, runtime.foliateSessionId)
@@ -350,6 +364,7 @@ const preservedPending = Object.freeze({
   foliateSessionId: runtime.foliateSessionId,
   rasterGeneration: 7,
   textureGeneration: 107,
+  foregroundMutationGeneration: 41,
   pageIndex: preservedPosition.pageIndex,
   spineIndex: preservedPosition.spineIndex,
   chapterPageIndex: preservedPosition.chapterPageIndex,
@@ -362,6 +377,7 @@ const preservedSettlement = Object.freeze({
   foliateSessionId: runtime.foliateSessionId,
   rasterGeneration: 7,
   textureGeneration: 107,
+  foregroundMutationGeneration: 41,
   pageIndex: preservedPosition.pageIndex,
   spineIndex: preservedPosition.spineIndex,
   chapterPageIndex: preservedPosition.chapterPageIndex,
@@ -370,6 +386,7 @@ const preservedSettlement = Object.freeze({
 const locationRuntime = {
   foliateSessionId: runtime.foliateSessionId,
   paginationProfile,
+  foregroundMutationGeneration: 41,
   currentPagePosition: preservedPosition,
   lastRelocateDetail: {
     href: 'test-section-0',

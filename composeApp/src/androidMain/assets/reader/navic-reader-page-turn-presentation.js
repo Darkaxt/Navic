@@ -6,6 +6,7 @@ const PreviewReceiptKeys = Object.freeze([
   'token',
   'pageIndex',
   'previewGeneration',
+  'foregroundMutationGeneration',
   'presentationSequence',
 ])
 const LiveReceiptKeys = Object.freeze([
@@ -15,6 +16,7 @@ const LiveReceiptKeys = Object.freeze([
   'foliateSessionId',
   'rasterGeneration',
   'textureGeneration',
+  'foregroundMutationGeneration',
   'presentationSequence',
 ])
 
@@ -41,6 +43,7 @@ export function parseReaderPageTurnPresentationReceipt(value) {
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
   if (!isNonEmptyString(candidate.token) || !isNonNegativeInteger(candidate.pageIndex)) return null
   if (!isPositiveInteger(candidate.presentationSequence)) return null
+  if (!isPositiveInteger(candidate.foregroundMutationGeneration)) return null
 
   if (candidate.scope === ReaderPageTurnPresentationScopePreview) {
     if (!hasExactKeys(candidate, PreviewReceiptKeys)) return null
@@ -50,6 +53,7 @@ export function parseReaderPageTurnPresentationReceipt(value) {
       token: candidate.token,
       pageIndex: candidate.pageIndex,
       previewGeneration: candidate.previewGeneration,
+      foregroundMutationGeneration: candidate.foregroundMutationGeneration,
       presentationSequence: candidate.presentationSequence,
     })
   }
@@ -68,6 +72,7 @@ export function parseReaderPageTurnPresentationReceipt(value) {
       foliateSessionId: candidate.foliateSessionId,
       rasterGeneration: candidate.rasterGeneration,
       textureGeneration: candidate.textureGeneration,
+      foregroundMutationGeneration: candidate.foregroundMutationGeneration,
       presentationSequence: candidate.presentationSequence,
     })
   }
@@ -93,7 +98,8 @@ export function readerPageTurnPresentationReceiptMatches(receipt, target) {
   if (
     parsed.scope !== target.scope ||
     parsed.token !== target.token ||
-    parsed.pageIndex !== target.pageIndex
+    parsed.pageIndex !== target.pageIndex ||
+    parsed.foregroundMutationGeneration !== target.foregroundMutationGeneration
   ) return false
 
   if (parsed.scope === ReaderPageTurnPresentationScopePreview) {

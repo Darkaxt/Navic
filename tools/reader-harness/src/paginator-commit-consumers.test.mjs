@@ -760,6 +760,7 @@ const passiveRuntime = ({ counts = [3, 2], results = [] } = {}) => {
     paginationFingerprint: profile.fingerprint,
     readerSettings: { flowMode: 'paged' },
     pageTurnPreviewGeneration: 1,
+    foregroundMutationGeneration: 41,
     pageTurnPreviewStateValue: null,
     pageTurnPreviewBatchStateValue: null,
     pageTurnPreviewPresentationReceiptValue: null,
@@ -926,11 +927,12 @@ test('passive ready state retains commitment only through JS-local ownership', a
   fixture.runtime.pageTurnPreviewGeneration = 2
   fixture.runtime.ensurePageTurnPreviewRenderer = async () => fixture.view
 
-  await fixture.runtime.preparePageTurnPreview(2, 'preview-token', 1)
+  await fixture.runtime.preparePageTurnPreview(2, 'preview-token', 1, 0, 0, 41)
 
   const state = fixture.runtime.pageTurnPreviewStateValue
   assert.equal(state.status, 'ready')
   assert.equal(state.pageIndex, 1)
+  assert.equal(state.foregroundMutationGeneration, 41)
   assert.equal(readerTextPageCommitOwnerIsValid(state), true)
   assert.equal(
     readerTextPageCommitOwnerHasExpectedVisibleContent(state),
@@ -951,7 +953,7 @@ test('passive receipt diagnostics exclude reusable locators and receipts', async
   fixture.runtime.ensurePageTurnPreviewRenderer = async () => fixture.view
   window.__navicReaderTrace = []
 
-  await fixture.runtime.preparePageTurnPreview(2, 'preview-token', 1)
+  await fixture.runtime.preparePageTurnPreview(2, 'preview-token', 1, 0, 0, 41)
 
   const trace = JSON.stringify(window.__navicReaderTrace)
   delete window.__navicReaderTrace
@@ -970,7 +972,7 @@ test('late invalidation restarts the same batch cursor without advancing it', as
   const validate = fixture.renderer.validateTextPageCommit.bind(fixture.renderer)
   fixture.renderer.validateTextPageCommit = receipt => receiptIsCurrent && validate(receipt)
 
-  fixture.runtime.beginPageTurnPreviewBatch('batch-token', [1])
+  fixture.runtime.beginPageTurnPreviewBatch('batch-token', [1], 41)
   await flushTasks()
   const ready = fixture.runtime.pageTurnPreviewBatchStateValue
   assert.equal(ready.status, 'ready')
@@ -978,7 +980,7 @@ test('late invalidation restarts the same batch cursor without advancing it', as
   assert.equal(ready.transactionAttempts, 1)
 
   receiptIsCurrent = false
-  const restarting = fixture.runtime.advancePageTurnPreviewBatch('batch-token', 1)
+  const restarting = fixture.runtime.advancePageTurnPreviewBatch('batch-token', 1, 41)
   assert.equal(restarting.status, 'preparing')
   assert.equal(restarting.cursor, 0)
   assert.equal(restarting.pageIndex, 1)
@@ -1005,13 +1007,86 @@ test('stale preview tokens cannot publish a ready state', async () => {
   fixture.runtime.ensurePageTurnPreviewRenderer = async () => fixture.view
   fixture.runtime.pageTurnPreviewGeneration = 4
 
-  const pending = fixture.runtime.preparePageTurnPreview(4, 'stale-token', 1)
+  const pending = fixture.runtime.preparePageTurnPreview(
+    4,
+    'stale-token',
+    1,
+    0,
+    0,
+    41,
+  )
   await Promise.resolve()
   fixture.runtime.pageTurnPreviewGeneration = 5
   releaseCommit()
   await pending
 
   assert.notEqual(fixture.runtime.pageTurnPreviewStateValue?.status, 'ready')
+})
+
+test('superseded passive mutation generation cannot publish a ready state', async () => {
+  let releaseCommit
+  const fixture = passiveRuntime({
+    results: [async ({ index, pageIndex }) => {
+      await new Promise(resolve => {
+        releaseCommit = resolve
+      })
+      return resultFor({ requestedIndex: index, requestedPageIndex: pageIndex, pageCount: 3 })
+    }],
+  })
+  fixture.runtime.ensurePageTurnPreviewRenderer = async () => fixture.view
+  fixture.runtime.pageTurnPreviewGeneration = 4
+
+  const pending = fixture.runtime.preparePageTurnPreview(
+    4,
+    'stale-mutation',
+    1,
+    0,
+    0,
+    41,
+  )
+  await Promise.resolve()
+  fixture.runtime.foregroundMutationGeneration = 42
+  releaseCommit()
+  await pending
+
+  assert.notEqual(fixture.runtime.pageTurnPreviewStateValue?.status, 'ready')
+  assert.equal(fixture.runtime.pageTurnPreviewPresentationReceiptValue, null)
+})
+
+test('unauthorized passive admission cannot restore current composition', () => {
+  const fixture = passiveRuntime()
+  fixture.runtime.foregroundMutationGeneration = 42
+  fixture.runtime.preparePageTurnPreview = async () => {}
+  fixture.runtime.preparePageTurnPreviewBatchItem = async () => {}
+  let restorations = 0
+  fixture.runtime.restorePageTurnLiveComposition = () => {
+    restorations += 1
+    return true
+  }
+  const currentState = Object.freeze({
+    token: 'current-preview',
+    generation: fixture.runtime.pageTurnPreviewGeneration,
+    foregroundMutationGeneration: 42,
+    status: 'ready',
+    pageIndex: 1,
+  })
+  fixture.runtime.pageTurnPreviewStateValue = currentState
+
+  for (const generation of [undefined, 0, -1, 1.5, '42', Number.MAX_SAFE_INTEGER + 1, 41]) {
+    assert.equal(
+      fixture.runtime.beginPageTurnPreviewPreparation('unauthorized', 1, generation).status,
+      'missing',
+    )
+    assert.equal(
+      fixture.runtime.beginPageTurnPreviewBatch('unauthorized', [1], generation).status,
+      'missing',
+    )
+  }
+
+  assert.equal(restorations, 0)
+  assert.equal(fixture.runtime.pageTurnPreviewStateValue, currentState)
+  assert.equal(fixture.runtime.pageTurnPreviewBatchStateValue, null)
+  assert.equal(fixture.runtime.foregroundMutationGeneration, 42)
 })
 
 test('standalone and batch preparation atomically supersede each other', () => {
@@ -1029,6 +1104,7 @@ test('standalone and batch preparation atomically supersede each other', () => {
   const oldStandalone = Object.freeze({
     token: 'old-standalone',
     generation: 1,
+    foregroundMutationGeneration: 41,
     status: 'ready',
     pageIndex: 1,
   })
@@ -1036,6 +1112,7 @@ test('standalone and batch preparation atomically supersede each other', () => {
     token: 'old-batch',
     itemToken: 'old-item',
     generation: 1,
+    foregroundMutationGeneration: 41,
     status: 'ready',
     cursor: 0,
     total: 1,
@@ -1047,7 +1124,7 @@ test('standalone and batch preparation atomically supersede each other', () => {
   fixture.runtime.pageTurnPreviewStateValue = oldStandalone
   fixture.runtime.pageTurnPreviewBatchStateValue = oldBatch
 
-  const standalone = fixture.runtime.beginPageTurnPreviewPreparation('new-standalone', 1)
+  const standalone = fixture.runtime.beginPageTurnPreviewPreparation('new-standalone', 1, 41)
   assert.equal(standalone.status, 'preparing')
   assert.equal(fixture.runtime.pageTurnPreviewBatchStateValue, null)
   assert.equal(readerTextPageCommitOwnerIsValid(oldStandalone), false)
@@ -1057,6 +1134,7 @@ test('standalone and batch preparation atomically supersede each other', () => {
   const replacementStandalone = Object.freeze({
     token: 'replacement-standalone',
     generation: fixture.runtime.pageTurnPreviewGeneration,
+    foregroundMutationGeneration: 41,
     status: 'ready',
     pageIndex: 1,
   })
@@ -1067,7 +1145,7 @@ test('standalone and batch preparation atomically supersede each other', () => {
   ), true)
   fixture.runtime.pageTurnPreviewStateValue = replacementStandalone
 
-  const batch = fixture.runtime.beginPageTurnPreviewBatch('new-batch', [1])
+  const batch = fixture.runtime.beginPageTurnPreviewBatch('new-batch', [1], 41)
   assert.equal(batch.status, 'preparing')
   assert.equal(fixture.runtime.pageTurnPreviewStateValue, null)
   assert.equal(readerTextPageCommitOwnerIsValid(replacementStandalone), false)
@@ -1079,6 +1157,7 @@ test('restart refuses stale preview generations', () => {
   const stale = Object.freeze({
     token: 'stale-preview',
     generation: 1,
+    foregroundMutationGeneration: 41,
     status: 'ready',
     pageIndex: 1,
     transactionAttempts: 1,
@@ -1128,6 +1207,7 @@ test('profile repair cap carries across passive commitment restarts', async () =
   const ready = Object.freeze({
     token: 'preview-token',
     generation: 3,
+    foregroundMutationGeneration: 41,
     status: 'ready',
     pageIndex: 1,
     transactionAttempts: 1,
@@ -1137,6 +1217,7 @@ test('profile repair cap carries across passive commitment restarts', async () =
   fixture.runtime.pageTurnPreviewStateValue = ready
   assert.equal(fixture.runtime.restartInvalidatedPageTurnPreviewCommitment(ready), true)
   assert.equal(restartArguments[4], 2)
+  assert.equal(restartArguments[5], 41)
 })
 
 test('unsupported preview preparation bypasses without a failed state', async () => {
@@ -1151,7 +1232,14 @@ test('unsupported preview preparation bypasses without a failed state', async ()
   fixture.runtime.ensurePageTurnPreviewRenderer = async () => fixture.view
   fixture.runtime.pageTurnPreviewGeneration = 3
 
-  await fixture.runtime.preparePageTurnPreview(3, 'unsupported-token', 1)
+  await fixture.runtime.preparePageTurnPreview(
+    3,
+    'unsupported-token',
+    1,
+    0,
+    0,
+    41,
+  )
 
   assert.equal(fixture.runtime.pageTurnPreviewStateValue.status, 'unsupported')
 })
@@ -1256,6 +1344,7 @@ const liveSettlementRuntime = ({
     observedChapterPageCounts: new Map(),
     currentPagePosition: Object.freeze(currentPagePosition),
     relocateSequence: 7,
+    foregroundMutationGeneration: 0,
     lastRelocateDetail: null,
     pendingExactPageTurnSettlements: new Map(),
     completedExactPageTurnSettlements: new Map(),
@@ -1406,6 +1495,7 @@ const liveSettlementCommand = (
   pageIndex,
   rasterGeneration = 13,
   gestureId = 101,
+  foregroundMutationGeneration = 41,
 ) => ({
   pageIndex,
   settleToken: token,
@@ -1413,6 +1503,39 @@ const liveSettlementCommand = (
   settleSessionId: 'live-session',
   settleRasterGeneration: rasterGeneration,
   settleTextureGeneration: rasterGeneration + 100,
+  settleForegroundMutationGeneration: foregroundMutationGeneration,
+})
+
+test('live exact settlement rejects malformed and reused mutation generations', async () => {
+  for (const malformed of [undefined, 0, -1, 1.5, '41', Number.MAX_SAFE_INTEGER + 1]) {
+    const result = resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 })
+    const fixture = liveSettlementRuntime({ results: [result] })
+    const command = liveSettlementCommand('live-invalid-mutation', 1)
+    if (malformed === undefined) {
+      delete command.settleForegroundMutationGeneration
+    } else {
+      command.settleForegroundMutationGeneration = malformed
+    }
+
+    await assert.rejects(
+      fixture.runtime.goToVisualPage(command),
+      /mutation generation/,
+    )
+    assert.equal(fixture.commits.length, 0)
+    assert.equal(fixture.runtime.nativePageTurnSettledState, null)
+    assert.equal(fixture.runtime.pageTurnLivePresentationReceiptValue, null)
+  }
+
+  const result = resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 })
+  const fixture = liveSettlementRuntime({ results: [result, result] })
+  await fixture.runtime.goToVisualPage(liveSettlementCommand('live-generation-first', 1))
+  const retainedReceipt = fixture.runtime.pageTurnLivePresentationReceiptValue
+  await assert.rejects(
+    fixture.runtime.goToVisualPage(liveSettlementCommand('live-generation-reused', 1)),
+    /mutation generation/,
+  )
+  assert.equal(fixture.commits.length, 1)
+  assert.equal(fixture.runtime.pageTurnLivePresentationReceiptValue, retainedReceipt)
 })
 
 test('live exact layout and initial commit form one serialized token operation', async () => {
@@ -1434,6 +1557,7 @@ test('live exact layout and initial commit form one serialized token operation',
   const pending = fixture.runtime.pendingExactPageTurnSettlements.get('live-settle-1')
   assert.equal(pending?.transactionAttempts, 1)
   assert.equal(pending?.profileRepairs, 0)
+  assert.equal(pending?.foregroundMutationGeneration, 41)
   assert.equal(readerTextPageCommitOwnerIsValid(pending), true)
   assert.equal(fixture.runtime.peekNativePageTurnSettlement()?.token, 'live-settle-1')
   assert.equal(fixture.runtime.completedExactPageTurnSettlements.has('live-settle-1'), false)
@@ -1580,11 +1704,15 @@ test('same gesture generation replacement emits one logical settlement', async (
   )
 
   await fixture.runtime.goToVisualPage(
-    liveSettlementCommand('live-generation-replacement', 1, 14, 177),
+    liveSettlementCommand('live-generation-replacement', 1, 14, 177, 42),
   )
 
   assert.equal(fixture.runtime.nativePageTurnSettledState?.token, 'live-generation-replacement')
   assert.equal(fixture.runtime.pageTurnLivePresentationTargetValue?.rasterGeneration, 14)
+  assert.equal(
+    fixture.runtime.pageTurnLivePresentationTargetValue?.foregroundMutationGeneration,
+    42,
+  )
   assert.equal(
     window.__navicReaderTrace.filter(entry => entry.type === 'page-turn:exact-settled').length,
     1,
@@ -1900,7 +2028,9 @@ test('superseded live token publishes no stale settlement or location', async ()
 
   const stale = fixture.runtime.goToVisualPage(liveSettlementCommand('live-stale', 1))
   await Promise.resolve()
-  const current = fixture.runtime.goToVisualPage(liveSettlementCommand('live-current', 2))
+  const current = fixture.runtime.goToVisualPage(
+    liveSettlementCommand('live-current', 2, 13, 101, 42)
+  )
   releaseFirst()
   await Promise.allSettled([stale, current])
 
