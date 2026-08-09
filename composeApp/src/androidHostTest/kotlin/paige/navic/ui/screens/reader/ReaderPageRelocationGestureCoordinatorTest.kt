@@ -216,6 +216,64 @@ class ReaderPageRelocationGestureCoordinatorTest {
 	}
 
 	@Test
+	fun reentrantCommittedTerminalQueueDrainReleasesLateTransferredClaim() {
+		val ownership = ReaderForegroundWebViewOwnership()
+		val queue = ReaderPageRelocationQueue(capacity = 1)
+		val coordinator = ReaderPageRelocationGestureCoordinator(queue, ownership)
+		val liveDispatch = ReaderPageRelocationLiveDispatchCoordinator(
+			foregroundWebViewOwnership = ownership,
+			isDispatchCurrent = { false },
+			dispatchExact = { _, _ -> error("drained transfer must not dispatch") },
+			onRejected = { _, reason -> error("unexpected rejection $reason") }
+		)
+		coordinator.start(
+			metadata(gestureId = 101L),
+			0,
+			rendererAdmission = { true },
+			publishTerminal = { _, _ -> true }
+		)
+		var lateTransfers = 0
+
+		val result = coordinator.commit(
+			gestureId = 101L,
+			settledSourceTextureGeneration = 20L,
+			promotedRasterGeneration = 10L,
+			promotedTextureGeneration = 21L,
+			destinationOrdinal = 4,
+			logicalDirection = ReaderPageTurnDirection.Next,
+			currentFoliateSessionId = "session-a",
+			publishDriftTerminal = { _, _ -> true },
+			publishCommittedTerminal = {
+				assertEquals(1, coordinator.cancelAll().queued.size)
+				true
+			},
+			dispatch = { request, claim ->
+				lateTransfers += 1
+				assertTrue(liveDispatch.transfer(request, claim))
+				if (queue.occupiedCount() == 0) {
+					assertTrue(
+						liveDispatch.fail(
+							request,
+							ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+						)
+					)
+				}
+			}
+		)
+
+		val published = assertIs<ReaderPageRelocationCommitResult.Published>(result)
+		assertEquals(1, lateTransfers)
+		assertEquals(0, queue.occupiedCount())
+		assertEquals(0, ownership.snapshot().liveClaims)
+		assertFalse(liveDispatch.fail(
+			published.request,
+			ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+		))
+		val passive = checkNotNull(ownership.tryAcquirePassive(102L) { })
+		assertTrue(ownership.releasePassive(passive))
+	}
+
+	@Test
 	fun throwingTerminalCasRollsBackBeforePropagating() {
 		val queue = ReaderPageRelocationQueue(capacity = 1)
 		val coordinator = ReaderPageRelocationGestureCoordinator(queue)

@@ -4772,6 +4772,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 		check(relocationLiveDispatchCoordinator.transfer(request, claim)) {
 			"Committed relocation duplicated foreground ownership"
 		}
+		if (relocationQueue.occupiedCount() == 0) {
+			check(
+				relocationLiveDispatchCoordinator.fail(
+					request,
+					ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+				)
+			) { "Reentrant terminal drain lost exact foreground ownership" }
+			return
+		}
 		try {
 			dispatchNextRelocation()
 		} catch (failure: Throwable) {

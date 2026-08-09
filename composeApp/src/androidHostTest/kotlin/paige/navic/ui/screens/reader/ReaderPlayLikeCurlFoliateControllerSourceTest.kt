@@ -2160,6 +2160,43 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun reentrantCommittedTerminalDrainFailsLateTransferBeforeItCanOrphanOwnership() {
+		val source = controllerFile.readText()
+		val transfer = source.substringAfter(
+			"private fun transferAndDispatchRelocation("
+		).substringBefore("private fun dispatchRelocation(")
+		val liveDispatch = source.substringAfter(
+			"internal class ReaderPageRelocationLiveDispatchCoordinator("
+		).substringBefore("internal class ReaderPlayLikeCurlFoliateController(")
+		val failure = liveDispatch.substringAfter("fun fail(")
+			.substringBefore("fun releaseAll()")
+
+		assertContains(
+			transfer,
+			"if (relocationQueue.occupiedCount() == 0) {"
+		)
+		assertContains(
+			transfer,
+			"relocationLiveDispatchCoordinator.fail(\n" +
+				"\t\t\t\t\trequest,\n" +
+				"\t\t\t\t\tReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated"
+		)
+		assertTrue(
+			transfer.indexOf("relocationLiveDispatchCoordinator.transfer(request, claim)") <
+				transfer.indexOf("if (relocationQueue.occupiedCount() == 0) {")
+		)
+		assertTrue(
+			transfer.indexOf("if (relocationQueue.occupiedCount() == 0) {") <
+				transfer.indexOf("dispatchNextRelocation()")
+		)
+		assertContains(failure, "val entry = remove(request) ?: return false")
+		assertContains(failure, "claims.remove(token)")
+		assertContains(failure, "mutationGenerations.remove(token)")
+		assertContains(failure, "foregroundWebViewOwnership.releaseLive(entry.claim)")
+		assertFalse(transfer.contains("foregroundWebViewOwnership.releaseLive("))
+	}
+
+	@Test
 	fun rejectedRapidPointerCannotHideCommittedVisualHandoffShield() {
 		val source = controllerFile.readText()
 		val rejection = source
