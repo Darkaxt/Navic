@@ -2114,6 +2114,52 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun terminalNonContentVisualRecoveryFailsExactLiveOwnershipAndDrainsOnce() {
+		val source = controllerFile.readText()
+		val recovery = source.substringAfter(
+			"private fun publishRelocationVisualRecovery("
+		).substringBefore("private fun dispatchRelocation(")
+		val contentRecovery = recovery.substringAfter(
+			"if (reason == ReaderWebViewVisualHandoffFailure.ContentRejected) {"
+		).substringBefore("return")
+		val liveDispatch = source.substringAfter(
+			"internal class ReaderPageRelocationLiveDispatchCoordinator("
+		).substringBefore("internal class ReaderPlayLikeCurlFoliateController(")
+		val failure = liveDispatch.substringAfter("fun fail(")
+			.substringBefore("fun releaseAll()")
+		val rejection = source.substringAfter(
+			"private fun rejectDispatchedRelocation("
+		).substringBefore("private fun releaseGeneration(")
+		val invalidation = source.substringAfter("fun invalidate(")
+			.substringBefore("private val destroyFence")
+
+		assertFalse(contentRecovery.contains("relocationLiveDispatchCoordinator.fail("))
+		assertContains(
+			recovery,
+			"relocationLiveDispatchCoordinator.fail(\n" +
+				"\t\t\t\trequest,\n" +
+				"\t\t\t\tReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated"
+		)
+		assertFalse(recovery.contains("requestPrewarmIfIdle("))
+		assertContains(failure, "val entry = remove(request) ?: return false")
+		assertContains(failure, "foregroundWebViewOwnership.releaseLive(entry.claim)")
+		assertEquals(1, Regex("claims\\.remove\\(token\\)").findAll(failure).count())
+		assertEquals(
+			1,
+			Regex("mutationGenerations\\.remove\\(token\\)").findAll(failure).count()
+		)
+		assertEquals(
+			1,
+			Regex("foregroundWebViewOwnership\\.releaseLive\\(entry\\.claim\\)")
+				.findAll(failure).count()
+		)
+		assertFalse(recovery.contains("foregroundWebViewOwnership.releaseLive("))
+		assertFalse(recovery.contains("relocationQueue.cancelAll("))
+		assertContains(rejection, "relocationRejectionReason = reason")
+		assertContains(invalidation, "drainRelocationOwnership(")
+	}
+
+	@Test
 	fun rejectedRapidPointerCannotHideCommittedVisualHandoffShield() {
 		val source = controllerFile.readText()
 		val rejection = source

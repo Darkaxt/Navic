@@ -4757,12 +4757,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 			requestLivePresentationRecovery()
 			return
 		}
-		Logger.e(
-			ReaderPlayLikeCurlFoliateControllerTag,
-			"PlayLikeCurl visual handoff recovery pageIndex=${request.destinationOrdinal} " +
-				"reason=$reason"
-		)
-		requestPrewarmIfIdle("visual-handoff-${reason.name.lowercase()}")
+		check(
+			relocationLiveDispatchCoordinator.fail(
+				request,
+				ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+			)
+		) { "Visual handoff failure lost exact foreground ownership" }
 	}
 
 	private fun transferAndDispatchRelocation(
