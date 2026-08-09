@@ -67,6 +67,33 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
+	fun nonCanvasStartupDismissalRetiresLaterCanvasHandoff() {
+		val gate = ReaderStartupShellHandoffGate()
+
+		assertFalse(
+			gate.consumesCanvasShellPageAction(
+				shellVisible = true,
+				canvasEnabled = false
+			)
+		)
+		assertFalse(gate.consumePreparedHandoff())
+		assertFalse(
+			gate.consumesCanvasShellPageAction(
+				shellVisible = true,
+				canvasEnabled = true
+			)
+		)
+		assertNull(
+			gate.beginAttempt(
+				shellVisible = true,
+				canvasEnabled = true,
+				rasterPhase = ReaderPagePreparationPhase.Ready,
+				textureDeck = ReaderTextureDeckState.Ready
+			)
+		)
+	}
+
+	@Test
 	fun regressedReadinessRejectsCommittedStartupShieldAndPermitsRetry() {
 		val gate = ReaderStartupShellHandoffGate()
 		val attempt = assertNotNull(

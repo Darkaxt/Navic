@@ -168,6 +168,7 @@ internal class ReaderStartupShellHandoffGate {
 	}
 
 	fun consumePreparedHandoff(): Boolean {
+		eligible = false
 		if (!preparedHandoff) return false
 		preparedHandoff = false
 		return true
