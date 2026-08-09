@@ -447,6 +447,72 @@ try {
                 OutputHeight = 1730
                 Filter = 'crop=1080:1730:0:334'
             }
+        $logicalAction = [pscustomobject]@{
+            Name = 'scaled-emulator-swipe'
+            AtMs = 1800
+            Kind = 'swipe'
+            StartX = 1626
+            StartY = 1776
+            EndX = 333
+            EndY = 1776
+            DurationMs = 1500
+        }
+        $emulatorInputAction = ConvertTo-ReaderInputAction `
+            -Action $logicalAction `
+            -Plan ([pscustomobject]@{
+                CaptureBackend = 'emulator-framebuffer'
+                DisplayWidth = 1848
+                DisplayHeight = 2960
+                RecordingWidth = 1080
+                RecordingHeight = 2400
+            })
+        if ($emulatorInputAction.StartX -ne 950 -or
+            $emulatorInputAction.StartY -ne 1440 -or
+            $emulatorInputAction.EndX -ne 195 -or
+            $emulatorInputAction.EndY -ne 1440 -or
+            $emulatorInputAction.DurationMs -ne 1500) {
+            throw 'Emulator swipe coordinates were not mapped into the physical touchscreen space'
+        }
+        $landscapeLogicalAction = [pscustomobject]@{
+            Name = 'landscape-emulator-swipe'
+            AtMs = 1800
+            Kind = 'swipe'
+            StartX = 2605
+            StartY = 1109
+            EndX = 533
+            EndY = 1109
+            DurationMs = 1500
+        }
+        $landscapeInputAction = ConvertTo-ReaderInputAction `
+            -Action $landscapeLogicalAction `
+            -Plan ([pscustomobject]@{
+                CaptureBackend = 'emulator-framebuffer'
+                DisplayWidth = 2960
+                DisplayHeight = 1848
+                RecordingWidth = 2400
+                RecordingHeight = 1080
+            })
+        if ($landscapeInputAction.StartX -ne $landscapeLogicalAction.StartX -or
+            $landscapeInputAction.StartY -ne 648 -or
+            $landscapeInputAction.EndX -ne $landscapeLogicalAction.EndX -or
+            $landscapeInputAction.EndY -ne 648) {
+            throw 'Landscape emulator swipe coordinates did not preserve logical X while mapping physical Y'
+        }
+        $physicalInputAction = ConvertTo-ReaderInputAction `
+            -Action $logicalAction `
+            -Plan ([pscustomobject]@{
+                CaptureBackend = 'android-screenrecord'
+                DisplayWidth = 1848
+                DisplayHeight = 2960
+                RecordingWidth = 720
+                RecordingHeight = 1154
+            })
+        if ($physicalInputAction.StartX -ne $logicalAction.StartX -or
+            $physicalInputAction.StartY -ne $logicalAction.StartY -or
+            $physicalInputAction.EndX -ne $logicalAction.EndX -or
+            $physicalInputAction.EndY -ne $logicalAction.EndY) {
+            throw 'Physical-device swipe coordinates were unexpectedly remapped'
+        }
         $cadencePlan = [pscustomobject]@{
             Actions = @(
                 [pscustomobject]@{ Name = 'one'; AtMs = 1700 },

@@ -807,6 +807,61 @@ function New-ReaderVisualProbePlan {
     }
 }
 
+function ConvertTo-ReaderInputAction {
+    param(
+        [object] $Action,
+        [object] $Plan
+    )
+
+    if ($Plan.CaptureBackend -ne 'emulator-framebuffer') {
+        return $Action
+    }
+    foreach ($dimension in @(
+        $Plan.DisplayWidth,
+        $Plan.DisplayHeight,
+        $Plan.RecordingWidth,
+        $Plan.RecordingHeight
+    )) {
+        if ($dimension -le 0) {
+            throw 'Emulator input coordinate dimensions must be positive.'
+        }
+    }
+    $inputWidth = if ($Plan.DisplayWidth -gt $Plan.DisplayHeight) {
+        $Plan.DisplayWidth
+    } else {
+        $Plan.RecordingWidth
+    }
+    $inputHeight = $Plan.RecordingHeight
+    $scaleX = $inputWidth / [double]$Plan.DisplayWidth
+    $scaleY = $inputHeight / [double]$Plan.DisplayHeight
+    $startX = [Math]::Min(
+        $inputWidth - 1,
+        [Math]::Max(0, [int][Math]::Round($Action.StartX * $scaleX))
+    )
+    $startY = [Math]::Min(
+        $inputHeight - 1,
+        [Math]::Max(0, [int][Math]::Round($Action.StartY * $scaleY))
+    )
+    $endX = [Math]::Min(
+        $inputWidth - 1,
+        [Math]::Max(0, [int][Math]::Round($Action.EndX * $scaleX))
+    )
+    $endY = [Math]::Min(
+        $inputHeight - 1,
+        [Math]::Max(0, [int][Math]::Round($Action.EndY * $scaleY))
+    )
+    return [pscustomobject]@{
+        Name = $Action.Name
+        AtMs = $Action.AtMs
+        Kind = $Action.Kind
+        StartX = $startX
+        StartY = $startY
+        EndX = $endX
+        EndY = $endY
+        DurationMs = $Action.DurationMs
+    }
+}
+
 function Wait-UntilElapsed {
     param([Diagnostics.Stopwatch] $Stopwatch, [int] $TargetMs)
 
@@ -1135,8 +1190,11 @@ try {
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     foreach ($action in $plan.Actions) {
         Wait-UntilElapsed $stopwatch $action.AtMs
-        $pending = Start-ReaderProbeAction `
+        $inputAction = ConvertTo-ReaderInputAction `
             -Action $action `
+            -Plan $plan
+        $pending = Start-ReaderProbeAction `
+            -Action $inputAction `
             -Stopwatch $stopwatch
         $pendingActions += $pending
         $events += $pending.Event
