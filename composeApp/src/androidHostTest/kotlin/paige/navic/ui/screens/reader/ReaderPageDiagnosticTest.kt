@@ -358,6 +358,9 @@ class ReaderPageDiagnosticTest {
 			orphanDeckLeases = 0,
 			rendererTextures = 2,
 			pendingCallbacks = 1,
+			foregroundPassiveOwners = 1,
+			foregroundLiveClaims = 3,
+			foregroundRestorationCallbacks = 1,
 			relocationReservations = 1,
 			queuedRelocations = 0,
 			relocationTokens = 1,
@@ -372,6 +375,9 @@ class ReaderPageDiagnosticTest {
 				orphanDeckLeaseLimit = 0,
 				rendererTextureLimit = 8,
 				pendingCallbackLimit = 16,
+					foregroundPassiveOwnerLimit = 1,
+					foregroundLiveClaimLimit = 4,
+					foregroundRestorationCallbackLimit = 1,
 				relocationTokenLimit = 4
 			)
 		)
@@ -382,6 +388,12 @@ class ReaderPageDiagnosticTest {
 		)
 		assertTrue(ownership.contains("releaseInFlightLeases=1"))
 		assertTrue(ownership.contains("relocationReservations=1"))
+		assertTrue(ownership.contains("foregroundPassiveOwners=1"))
+		assertTrue(ownership.contains("foregroundPassiveOwnerLimit=1"))
+		assertTrue(ownership.contains("foregroundLiveClaims=3"))
+		assertTrue(ownership.contains("foregroundLiveClaimLimit=4"))
+		assertTrue(ownership.contains("foregroundRestorationCallbacks=1"))
+		assertTrue(ownership.contains("foregroundRestorationCallbackLimit=1"))
 		assertTrue(ownership.contains("withinBounds=true"))
 		assertEquals(
 			"reader-ownership-unavailable session=7 phase=after-close " +

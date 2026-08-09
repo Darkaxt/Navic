@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import java.io.File
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.test.runTest
 import paige.navic.reader.ReaderPageRelocationDrain
@@ -8,6 +9,7 @@ import paige.navic.reader.ReaderPageRelocationReservationResult
 import paige.navic.reader.ReaderPageRelocationTransferResult
 import paige.navic.reader.ReaderPageTurnDirection
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
@@ -197,6 +199,23 @@ class ReaderPageControllerDestroyFenceTest {
 			invocations.keys
 		)
 		assertTrue(invocations.values.all { count -> count == 1 })
+	}
+
+	@Test
+	fun hostTeardownClosesForegroundOwnershipAfterTheControllerDrainOnFailure() {
+		val host = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"KomikkuReaderNativeFrameHost.android.kt"
+		).readText()
+		val teardown = host.substringAfter("private fun teardownTask4Resources()")
+
+		assertContains(teardown, "teardown.invokeOnCompletion")
+		assertContains(teardown, "runCatching(foregroundWebViewOwnership::close)")
+		assertContains(teardown, "typedFailure.addSuppressed(ownershipCloseFailure)")
+		assertTrue(
+			teardown.indexOf("val teardown = pageRasterPreparationController.destroy()") <
+				teardown.indexOf("runCatching(foregroundWebViewOwnership::close)")
+		)
 	}
 
 	@Test

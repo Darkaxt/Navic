@@ -692,6 +692,13 @@ internal object ReaderPageDiagnostic {
 			"textureLimit=${snapshot.bounds.rendererTextureLimit} " +
 			"callbacks=${snapshot.pendingCallbacks} " +
 			"callbackLimit=${snapshot.bounds.pendingCallbackLimit} " +
+			"foregroundPassiveOwners=${snapshot.foregroundPassiveOwners} " +
+			"foregroundPassiveOwnerLimit=${snapshot.bounds.foregroundPassiveOwnerLimit} " +
+			"foregroundLiveClaims=${snapshot.foregroundLiveClaims} " +
+			"foregroundLiveClaimLimit=${snapshot.bounds.foregroundLiveClaimLimit} " +
+			"foregroundRestorationCallbacks=${snapshot.foregroundRestorationCallbacks} " +
+			"foregroundRestorationCallbackLimit=" +
+			"${snapshot.bounds.foregroundRestorationCallbackLimit} " +
 			"relocationReservations=${snapshot.relocationReservations} " +
 			"queuedRelocations=${snapshot.queuedRelocations} " +
 			"relocations=${snapshot.relocationTokens} " +

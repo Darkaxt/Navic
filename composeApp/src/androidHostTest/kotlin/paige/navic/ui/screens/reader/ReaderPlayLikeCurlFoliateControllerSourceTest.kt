@@ -201,6 +201,101 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun hostOwnsOneForegroundWebViewCoordinatorAcrossPreparationAndLiveDispatch() {
+		val host = hostFile.readText()
+		val viewer = host
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private fun View.findDescendantWebView")
+		val playLikeCurlWiring = viewer
+			.substringAfter("private val playLikeCurlController: ReaderPlayLikeCurlFoliateController =")
+			.substringBefore("private val ownershipProbe")
+		val preparationWiring = viewer
+			.substringAfter("private val pageRasterPreparationController: ReaderPageRasterPreparationController =")
+			.substringBefore("private val pageRasterHostEventController")
+		val passiveAvailability = viewer
+			.substringAfter("private fun onForegroundWebViewPassiveAvailable()")
+			.substringBefore("private fun requestPageTurnPrewarmWhenReady()")
+		val prewarm = viewer
+			.substringAfter("private fun requestPageTurnPrewarmWhenReady()")
+			.substringBefore("private fun pageTurnPrewarmLayoutSignature")
+		val teardown = viewer.substringAfter("private fun teardownTask4Resources()")
+
+		assertEquals(
+			1,
+			Regex("ReaderForegroundWebViewOwnership\\(").findAll(viewer).count(),
+			"The host must create exactly one foreground WebView owner."
+		)
+		assertContains(
+			viewer,
+			"onPassiveAvailable = ::onForegroundWebViewPassiveAvailable"
+		)
+		assertContains(
+			passiveAvailability,
+			"pageRasterPreparationController.onForegroundWebViewPassiveAvailable()"
+		)
+		assertEquals(
+			2,
+			Regex("!foregroundWebViewOwnership\\.canAcquirePassive\\(\\)")
+				.findAll(passiveAvailability)
+				.count(),
+			"The callback must recheck passive ownership after consuming a typed deferral."
+		)
+		assertTrue(
+			passiveAvailability.indexOf(
+				"pageRasterPreparationController.onForegroundWebViewPassiveAvailable()"
+			) < passiveAvailability.lastIndexOf(
+				"!foregroundWebViewOwnership.canAcquirePassive()"
+			),
+			"A deferral may acquire a passive lease before host prewarm scheduling."
+		)
+		assertTrue(
+			passiveAvailability.lastIndexOf(
+				"!foregroundWebViewOwnership.canAcquirePassive()"
+			) < passiveAvailability.indexOf("requestPageTurnPrewarmWhenReady()"),
+			"The host must not schedule prewarm once deferral recovery owns foreground."
+		)
+		assertContains(playLikeCurlWiring, "foregroundWebViewOwnership = foregroundWebViewOwnership")
+		assertContains(preparationWiring, "foregroundWebViewOwnership = foregroundWebViewOwnership")
+		assertTrue(
+			viewer.indexOf("private val foregroundWebViewOwnership") <
+				viewer.indexOf("private val playLikeCurlController"),
+			"The shared owner must exist before the live controller."
+		)
+		assertTrue(
+			viewer.indexOf("private val foregroundWebViewOwnership") <
+				viewer.indexOf("private val pageRasterPreparationController"),
+			"The shared owner must exist before the preparation controller."
+		)
+		assertEquals(
+			4,
+			Regex("!foregroundWebViewOwnership\\.canAcquirePassive\\(\\)")
+				.findAll(viewer)
+				.count(),
+			"Passive availability must be guarded before and after deferral recovery."
+		)
+		assertEquals(
+			2,
+			Regex("!foregroundWebViewOwnership\\.canAcquirePassive\\(\\)")
+				.findAll(prewarm)
+				.count(),
+			"Prewarm must gate both admission and an already-installed listener."
+		)
+		assertTrue(
+			prewarm.indexOf("!foregroundWebViewOwnership.canAcquirePassive()") <
+				prewarm.indexOf("pageTurnPrewarmStableFrameCount"),
+			"Stable frames must not grant foreground ownership."
+		)
+		assertContains(teardown, "teardown.invokeOnCompletion")
+		assertContains(teardown, "runCatching(foregroundWebViewOwnership::close)")
+		assertContains(teardown, "typedFailure.addSuppressed(ownershipCloseFailure)")
+		assertTrue(
+			teardown.indexOf("val teardown = pageRasterPreparationController.destroy()") <
+				teardown.indexOf("runCatching(foregroundWebViewOwnership::close)"),
+			"Preparation fencing and PlayLikeCurl draining must finish before owner close."
+		)
+	}
+
+	@Test
 	fun committedRelocationCanQueueBehindAnInFlightHeadWithoutFailingOwnership() {
 		val source = controllerFile.readText()
 		val transfer = source

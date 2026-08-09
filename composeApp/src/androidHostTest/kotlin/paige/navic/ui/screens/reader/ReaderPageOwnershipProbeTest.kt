@@ -1,7 +1,9 @@
 package paige.navic.ui.screens.reader
 
+import java.io.File
 import karacken.curl.PageSurfaceOwnershipResult
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
@@ -9,6 +11,23 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ReaderPageOwnershipProbeTest {
+	@Test
+	fun foregroundWebViewOwnershipCountsHaveIndependentBoundsAndClosedBaseline() {
+		val source = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPageOwnershipProbe.android.kt"
+		).readText()
+
+		listOf(
+			"foregroundPassiveOwners",
+			"foregroundPassiveOwnerLimit",
+			"foregroundLiveClaims",
+			"foregroundLiveClaimLimit",
+			"foregroundRestorationCallbacks",
+			"foregroundRestorationCallbackLimit"
+		).forEach { field -> assertContains(source, field) }
+	}
+
 	@Test
 	fun combinesEveryOwnerCountAndOwnerExportedBound() {
 		var observed: ReaderPageOwnershipSnapshot? = null
@@ -25,6 +44,12 @@ class ReaderPageOwnershipProbeTest {
 					stagedPublicationLimit = 2,
 					pendingCallbacks = 2,
 					pendingCallbackLimit = 4,
+					foregroundPassiveOwners = 1,
+					foregroundPassiveOwnerLimit = 1,
+					foregroundLiveClaims = 3,
+					foregroundLiveClaimLimit = 4,
+					foregroundRestorationCallbacks = 1,
+					foregroundRestorationCallbackLimit = 1,
 					relocationReservations = 1,
 					queuedRelocations = 2,
 					relocationTokens = 3,
@@ -61,6 +86,12 @@ class ReaderPageOwnershipProbeTest {
 		assertEquals(8, snapshot.bounds.rendererTextureLimit)
 		assertEquals(3, snapshot.pendingCallbacks)
 		assertEquals(16, snapshot.bounds.pendingCallbackLimit)
+		assertEquals(1, snapshot.foregroundPassiveOwners)
+		assertEquals(1, snapshot.bounds.foregroundPassiveOwnerLimit)
+		assertEquals(3, snapshot.foregroundLiveClaims)
+		assertEquals(4, snapshot.bounds.foregroundLiveClaimLimit)
+		assertEquals(1, snapshot.foregroundRestorationCallbacks)
+		assertEquals(1, snapshot.bounds.foregroundRestorationCallbackLimit)
 		assertEquals(3, snapshot.relocationTokens)
 		assertFalse(snapshot.withinBounds())
 		assertTrue(snapshot.copy(orphanDeckLeases = 0).withinBounds())
@@ -80,6 +111,9 @@ class ReaderPageOwnershipProbeTest {
 			orphanDeckLeaseLimit = 0,
 			rendererTextureLimit = 0,
 			pendingCallbackLimit = 0,
+			foregroundPassiveOwnerLimit = 0,
+			foregroundLiveClaimLimit = 0,
+			foregroundRestorationCallbackLimit = 0,
 			relocationTokenLimit = 0
 		)
 		val closed = ReaderPageOwnershipSnapshot(
@@ -93,6 +127,9 @@ class ReaderPageOwnershipProbeTest {
 			orphanDeckLeases = 0,
 			rendererTextures = 0,
 			pendingCallbacks = 0,
+			foregroundPassiveOwners = 0,
+			foregroundLiveClaims = 0,
+			foregroundRestorationCallbacks = 0,
 			relocationReservations = 0,
 			queuedRelocations = 0,
 			relocationTokens = 0,
@@ -112,9 +149,12 @@ class ReaderPageOwnershipProbeTest {
 			closed.copy(orphanDeckLeases = 1),
 			closed.copy(rendererTextures = 1),
 			closed.copy(pendingCallbacks = 1),
+			closed.copy(foregroundPassiveOwners = 1),
+			closed.copy(foregroundLiveClaims = 1),
+			closed.copy(foregroundRestorationCallbacks = 1),
 			closed.copy(relocationReservations = 1, relocationTokens = 1)
 		)
-		assertEquals(11, exceeded.size)
+		assertEquals(14, exceeded.size)
 		exceeded.forEach {
 			assertFalse(it.withinBounds())
 			assertFalse(it.isClosedBaseline())
@@ -323,6 +363,12 @@ class ReaderPageOwnershipProbeTest {
 		stagedPublicationLimit: Int = 0,
 		pendingCallbacks: Int = 0,
 		pendingCallbackLimit: Int = 0,
+		foregroundPassiveOwners: Int = 0,
+		foregroundPassiveOwnerLimit: Int = 1,
+		foregroundLiveClaims: Int = 0,
+		foregroundLiveClaimLimit: Int = 0,
+		foregroundRestorationCallbacks: Int = 0,
+		foregroundRestorationCallbackLimit: Int = 1,
 		relocationReservations: Int = 0,
 		queuedRelocations: Int = 0,
 		relocationTokens: Int = relocationReservations + queuedRelocations,
@@ -339,6 +385,12 @@ class ReaderPageOwnershipProbeTest {
 		stagedPublicationLimit = stagedPublicationLimit,
 		pendingCallbacks = pendingCallbacks,
 		pendingCallbackLimit = pendingCallbackLimit,
+		foregroundPassiveOwners = foregroundPassiveOwners,
+		foregroundPassiveOwnerLimit = foregroundPassiveOwnerLimit,
+		foregroundLiveClaims = foregroundLiveClaims,
+		foregroundLiveClaimLimit = foregroundLiveClaimLimit,
+		foregroundRestorationCallbacks = foregroundRestorationCallbacks,
+		foregroundRestorationCallbackLimit = foregroundRestorationCallbackLimit,
 		relocationReservations = relocationReservations,
 		queuedRelocations = queuedRelocations,
 		relocationTokens = relocationTokens,

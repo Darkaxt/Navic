@@ -35,6 +35,12 @@ internal data class ReaderPageApplicationOwnershipSnapshot(
 	val stagedPublicationLimit: Int,
 	val pendingCallbacks: Int,
 	val pendingCallbackLimit: Int,
+	val foregroundPassiveOwners: Int,
+	val foregroundPassiveOwnerLimit: Int,
+	val foregroundLiveClaims: Int,
+	val foregroundLiveClaimLimit: Int,
+	val foregroundRestorationCallbacks: Int,
+	val foregroundRestorationCallbackLimit: Int,
 	val relocationReservations: Int,
 	val queuedRelocations: Int,
 	val relocationTokens: Int,
@@ -98,6 +104,9 @@ internal data class ReaderPageOwnershipBounds(
 	val orphanDeckLeaseLimit: Int,
 	val rendererTextureLimit: Int,
 	val pendingCallbackLimit: Int,
+	val foregroundPassiveOwnerLimit: Int,
+	val foregroundLiveClaimLimit: Int,
+	val foregroundRestorationCallbackLimit: Int,
 	val relocationTokenLimit: Int
 ) {
 	init {
@@ -113,6 +122,9 @@ internal data class ReaderPageOwnershipBounds(
 				orphanDeckLeaseLimit,
 				rendererTextureLimit,
 				pendingCallbackLimit,
+				foregroundPassiveOwnerLimit,
+				foregroundLiveClaimLimit,
+				foregroundRestorationCallbackLimit,
 				relocationTokenLimit
 			).all { it >= 0 }
 		)
@@ -130,6 +142,10 @@ internal data class ReaderPageOwnershipBounds(
 			snapshot.orphanDeckLeases <= orphanDeckLeaseLimit &&
 			snapshot.rendererTextures <= rendererTextureLimit &&
 			snapshot.pendingCallbacks <= pendingCallbackLimit &&
+			snapshot.foregroundPassiveOwners <= foregroundPassiveOwnerLimit &&
+			snapshot.foregroundLiveClaims <= foregroundLiveClaimLimit &&
+			snapshot.foregroundRestorationCallbacks <=
+				foregroundRestorationCallbackLimit &&
 			snapshot.relocationTokens <= relocationTokenLimit
 }
 
@@ -144,6 +160,9 @@ internal data class ReaderPageOwnershipSnapshot(
 	val orphanDeckLeases: Int,
 	val rendererTextures: Int,
 	val pendingCallbacks: Int,
+	val foregroundPassiveOwners: Int,
+	val foregroundLiveClaims: Int,
+	val foregroundRestorationCallbacks: Int,
 	val relocationReservations: Int,
 	val queuedRelocations: Int,
 	val relocationTokens: Int,
@@ -166,6 +185,9 @@ internal data class ReaderPageOwnershipSnapshot(
 			orphanDeckLeases == 0 &&
 			rendererTextures == 0 &&
 			pendingCallbacks == 0 &&
+			foregroundPassiveOwners == 0 &&
+			foregroundLiveClaims == 0 &&
+			foregroundRestorationCallbacks == 0 &&
 			relocationReservations == 0 &&
 			queuedRelocations == 0 &&
 			relocationTokens == 0
@@ -244,6 +266,10 @@ internal class ReaderPageOwnershipProbe(
 		rendererTextures = renderer.rendererTextures,
 		pendingCallbacks =
 			application.pendingCallbacks + renderer.pendingCallbacks,
+		foregroundPassiveOwners = application.foregroundPassiveOwners,
+		foregroundLiveClaims = application.foregroundLiveClaims,
+		foregroundRestorationCallbacks =
+			application.foregroundRestorationCallbacks,
 		relocationReservations = application.relocationReservations,
 		queuedRelocations = application.queuedRelocations,
 		relocationTokens = application.relocationTokens,
@@ -261,6 +287,10 @@ internal class ReaderPageOwnershipProbe(
 			pendingCallbackLimit =
 				application.pendingCallbackLimit +
 					renderer.pendingCallbackLimit,
+			foregroundPassiveOwnerLimit = application.foregroundPassiveOwnerLimit,
+			foregroundLiveClaimLimit = application.foregroundLiveClaimLimit,
+			foregroundRestorationCallbackLimit =
+				application.foregroundRestorationCallbackLimit,
 			relocationTokenLimit = application.relocationTokenLimit
 		)
 	)

@@ -917,6 +917,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		qaFaultRegistry = qaFaultRegistry,
 		onOwnershipMutated = applicationOwnershipEpoch::ownerMutationCommitted
 	)
+	private val foregroundWebViewOwnership = ReaderForegroundWebViewOwnership(
+		onPassiveAvailable = ::onForegroundWebViewPassiveAvailable
+	)
 	private val pagePointerRouter = ReaderPagePointerRouter(
 		lifecycle = ReaderPageGestureLifecycle(),
 		onStarted = { gestureId, downX, _ ->
@@ -997,6 +1000,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		ReaderPlayLikeCurlFoliateController(
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
+		foregroundWebViewOwnership = foregroundWebViewOwnership,
 		bundleSource = pageTurnBundleSource,
 		diagnostics = readerRuntimeDiagnostics,
 		qaFaultRegistry = qaFaultRegistry,
@@ -1071,6 +1075,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		ReaderPageRasterPreparationController(
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
+		foregroundWebViewOwnership = foregroundWebViewOwnership,
 		bundleSource = pageTurnBundleSource,
 		diagnostics = readerRuntimeDiagnostics,
 		qaFaultRegistry = qaFaultRegistry,
@@ -1187,6 +1192,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			val bundle = pageTurnBundleSource.ownershipMetrics()
 			val cache = bundle.rasterCache
 			val relocation = controller.relocation
+			val foreground = foregroundWebViewOwnership.snapshot()
 			check(residency.pendingValueReleases <= residency.uniqueDecodedBitmaps)
 			check(cache.pendingDecodedReleases <= cache.uniqueDecodedBitmaps)
 			check(cache.activeEncodePins >= cache.encodePinnedIdentities)
@@ -1209,6 +1215,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					bundle.pendingPublicationCallbackLimit +
 						controller.pendingVisualCallbackLimit +
 						qaFaultRegistry.pendingCallbackLimit,
+				foregroundPassiveOwners = foreground.passiveOwners,
+				foregroundPassiveOwnerLimit = 1,
+				foregroundLiveClaims = foreground.liveClaims,
+				foregroundLiveClaimLimit = relocation.capacity,
+				foregroundRestorationCallbacks = foreground.restorationCallbacks,
+				foregroundRestorationCallbackLimit = 1,
 				relocationReservations = relocation.reserved,
 				queuedRelocations = relocation.queued,
 				relocationTokens = relocation.occupied,
@@ -1571,8 +1583,26 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (shouldRetry) pageRasterPreparationController.retryPreparation()
 	}
 
+	private fun onForegroundWebViewPassiveAvailable() {
+		if (
+			task4ResourceTeardownStarted ||
+			!foregroundWebViewOwnership.canAcquirePassive()
+		) return
+		pageRasterPreparationController.onForegroundWebViewPassiveAvailable()
+		if (
+			task4ResourceTeardownStarted ||
+			!foregroundWebViewOwnership.canAcquirePassive()
+		) return
+		requestPageTurnPrewarmWhenReady()
+	}
+
 	private fun requestPageTurnPrewarmWhenReady() {
-		if (!pageTurnCanvasEnabled || !isAttachedToWindow) return
+		if (
+			task4ResourceTeardownStarted ||
+			!foregroundWebViewOwnership.canAcquirePassive() ||
+			!pageTurnCanvasEnabled ||
+			!isAttachedToWindow
+		) return
 		if (!coldOwnershipAdmitted) {
 			coldOwnershipAdmission.requestColdBaseline()
 			return
@@ -1584,7 +1614,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		pageTurnPrewarmLayoutSignature = null
 		pageTurnPrewarmStableFrameCount = 0
 		val listener = ViewTreeObserver.OnPreDrawListener {
-			if (!pageTurnCanvasEnabled || !isAttachedToWindow) {
+			if (
+				task4ResourceTeardownStarted ||
+				!foregroundWebViewOwnership.canAcquirePassive() ||
+				!pageTurnCanvasEnabled ||
+				!isAttachedToWindow
+			) {
 				removePageTurnPrewarmLayoutListener()
 				return@OnPreDrawListener true
 			}
@@ -2643,8 +2678,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		val teardown = pageRasterPreparationController.destroy()
 		task4Teardown = teardown
 		teardown.invokeOnCompletion { failure ->
+			val ownershipCloseFailure =
+				runCatching(foregroundWebViewOwnership::close).exceptionOrNull()
 			ownershipMainHandler.post {
-				if (failure == null) {
+				if (failure == null && ownershipCloseFailure == null) {
 					ownershipProbe.request { result ->
 						result.fold(
 							onSuccess = { snapshot ->
@@ -2664,11 +2701,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					}
 					return@post
 				}
-				val typedFailure = failure as? ReaderPageTeardownException
+				val terminalFailure = failure ?: checkNotNull(ownershipCloseFailure)
+				val typedFailure = terminalFailure as? ReaderPageTeardownException
 					?: ReaderPageTeardownException(
 						ReaderPageTeardownStage.BundleOwners,
-						cause = failure
+						cause = terminalFailure
 					)
+				if (failure != null && ownershipCloseFailure != null && ownershipCloseFailure !== failure) {
+					typedFailure.addSuppressed(ownershipCloseFailure)
+				}
 				Logger.e(
 					KomikkuReaderNativeFrameHostTag,
 					ReaderPageDiagnostic.teardownFailure(
