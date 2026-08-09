@@ -88,10 +88,8 @@ class GenreDetailViewModel(
 
 	fun play(player: MediaPlayerViewModel) {
 		val state = (_genreState.value as? UiState.Success)?.data ?: return
-		player.clearQueue()
 		player.setPlaybackOrigin(state.genre.toPlaybackOrigin())
-		player.addToQueue(state.collection)
-		player.playAt(0)
+		player.playAll(state.collection.songs)
 	}
 
 	fun shuffle(player: MediaPlayerViewModel) {

@@ -1418,7 +1418,8 @@ class ArtistDetailViewModel(
 
 	fun playArtistAlbums(player: MediaPlayerViewModel) {
 		(_artistState.value as? UiState.Success)?.data?.let { state ->
-			player.clearQueue()
+			val songs = state.albums.flatMap { it.songs }
+			if (songs.isEmpty()) return
 			player.setPlaybackOrigin(
 				artistDetailPlaybackOrigin(
 					state = state,
@@ -1426,18 +1427,14 @@ class ArtistDetailViewModel(
 					externalArtworkEnabled = preferenceManager.aurralEnabled
 				)
 			)
-			state.albums.forEach { album ->
-				player.addToQueue(album)
-			}
-			player.playAt(0)
+			player.playAll(songs)
 		}
 	}
 
 	fun shuffleArtistAlbums(player: MediaPlayerViewModel) {
 		(_artistState.value as? UiState.Success)?.data?.let { state ->
-			val songs = state.albums.flatMap { it.songs }.shuffled()
+			val songs = state.albums.flatMap { it.songs }
 			if (songs.isEmpty()) return
-			player.clearQueue()
 			player.setPlaybackOrigin(
 				artistDetailPlaybackOrigin(
 					state = state,
@@ -1445,10 +1442,7 @@ class ArtistDetailViewModel(
 					externalArtworkEnabled = preferenceManager.aurralEnabled
 				)
 			)
-			songs.forEach { song ->
-				player.addToQueueSingle(song)
-			}
-			player.playAt(0)
+			player.playAll(songs, forceShuffle = true)
 		}
 	}
 

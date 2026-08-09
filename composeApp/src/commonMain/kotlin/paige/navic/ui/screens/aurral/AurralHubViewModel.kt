@@ -210,10 +210,8 @@ class AurralHubViewModel(
 				if (playableStation.songs.isEmpty()) {
 					throw IllegalStateException("Station has no songs yet")
 				}
-				player.clearQueue()
 				player.setPlaybackOrigin(playableStation.toPlaybackOrigin())
-				player.addToQueue(playableStation)
-				player.playAt(0)
+				player.playAll(playableStation.songs)
 				_flowActionState.value = UiState.Success(null)
 			} catch (error: Exception) {
 				_flowActionState.value = UiState.Error(error, _flowActionState.value.data)
@@ -255,10 +253,8 @@ class AurralHubViewModel(
 					validUntil = null,
 					songs = songs
 				)
-				player.clearQueue()
 				player.setPlaybackOrigin(collection.toPlaybackOrigin())
-				player.addToQueue(collection)
-				player.playAt(0)
+				player.playAll(collection.songs)
 				_flowActionState.value = UiState.Success(null)
 			} catch (error: Exception) {
 				_flowActionState.value = UiState.Error(error, _flowActionState.value.data)

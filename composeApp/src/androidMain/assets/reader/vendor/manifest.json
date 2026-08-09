@@ -104,7 +104,7 @@
     {
       "path": "foliate-js/paginator.js",
       "component": "foliate-js",
-      "sha256": "b71cc1b0d323bd090032b2309d9f9860555a923c6c7ab805db6e0ddafdd06edf"
+      "sha256": "9ad5261761b231a1ea9263778c6339dc71cfd8ea966efe6f8fbd67cf40d2d2f5"
     },
     {
       "path": "foliate-js/pdf.js",

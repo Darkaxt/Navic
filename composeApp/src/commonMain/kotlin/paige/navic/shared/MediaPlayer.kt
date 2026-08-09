@@ -24,6 +24,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.PlaybackOrigin
 import paige.navic.domain.models.QueueSelectionOrigin
+import paige.navic.domain.models.collectionPlaybackOrder
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
@@ -95,6 +96,15 @@ abstract class MediaPlayerViewModel(
 	abstract fun toggleShuffle()
 	abstract fun toggleRepeat()
 	abstract fun shufflePlay(collection: DomainSongCollection)
+	open fun playAll(songs: List<DomainSong>, forceShuffle: Boolean = false) {
+		if (songs.isEmpty()) return
+		val shuffleEnabled = forceShuffle || uiState.value.isShuffleEnabled
+		val playbackOrder = collectionPlaybackOrder(songs, shuffleEnabled)
+		clearQueue()
+		addToQueue(playbackOrder, notify = false)
+		if (forceShuffle && !uiState.value.isShuffleEnabled) toggleShuffle()
+		playAt(0)
+	}
 	abstract fun setPlaybackSpeed(value: Float)
 	abstract fun setPlaybackPitch(value: Float)
 	abstract fun openSystemEqualizer(): Boolean

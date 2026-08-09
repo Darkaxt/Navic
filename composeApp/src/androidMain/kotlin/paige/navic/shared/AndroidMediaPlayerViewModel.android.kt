@@ -43,12 +43,10 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.models.AudioPlaybackOwner
-import paige.navic.domain.models.CollectionShuffleQueueOrder
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
-import paige.navic.domain.models.collectionShufflePlaybackPlan
 import paige.navic.domain.models.PlaybackOrigin
 import paige.navic.domain.models.QueueSelectionOrigin
 import paige.navic.domain.models.QueueSelectionRequest
@@ -210,6 +208,18 @@ class AndroidMediaPlayerViewModel(
 		appendSongs = { songs ->
 			_uiState.update { state -> state.copy(queue = state.queue + songs) }
 		}
+	)
+	private val bulkPlaybackCoordinator = AndroidBulkPlaybackCoordinator(
+		scope = viewModelScope,
+		controller = { controller },
+		state = { _uiState.value },
+		publishState = { _uiState.value = it },
+		mediaItemFactory = mediaItemFactory,
+		playbackStateSynchronizer = playbackStateSynchronizer,
+		clearPlaybackRecovery = playbackRecovery::clear,
+		clearPendingQueueSelection = { pendingQueueSelection = null },
+		cancelQueueAutoFill = queueAutoFiller::cancel,
+		claimMusicPlayback = ::claimMusicPlayback
 	)
 
 	init {
@@ -1002,34 +1012,11 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun shufflePlay(collection: DomainSongCollection) {
-		viewModelScope.launch {
-			playbackRecovery.clear("shuffle-play")
-			val plan = collectionShufflePlaybackPlan()
-			val songs = when (plan.queueOrder) {
-				CollectionShuffleQueueOrder.Canonical -> collection.songs
-				CollectionShuffleQueueOrder.Shuffled -> collection.songs.shuffled()
-			}
-			val mediaItems = withContext(Dispatchers.Default) {
-				songs.map { it.toMediaItem() }
-			}
+		playAll(collection.songs, forceShuffle = true)
+	}
 
-			controller?.let { player ->
-				player.shuffleModeEnabled = plan.enablePlayerShuffle
-				player.setMediaItems(mediaItems, 0, 0L)
-				player.prepare()
-				claimMusicPlayback()
-				player.play()
-			}
-
-			_uiState.update { state ->
-				state.copy(
-					queue = songs,
-					currentIndex = 0,
-					currentSong = songs.firstOrNull(),
-					isShuffleEnabled = plan.enablePlayerShuffle
-				)
-			}
-		}
+	override fun playAll(songs: List<DomainSong>, forceShuffle: Boolean) {
+		bulkPlaybackCoordinator.playAll(songs, forceShuffle)
 	}
 
 	override fun pause() {
