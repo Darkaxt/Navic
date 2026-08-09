@@ -11,8 +11,8 @@ class ReaderRuntimeCommonChromeTest {
 	fun androidReaderPackagesBundledFontSourcesForWebViewRendering() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
-		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val generalPageText = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 		val literata = root.resolve("fonts/navic-literata-regular.ttf")
@@ -45,8 +45,10 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(bridgeText, "settings?.fontSource")
 		assertContains(bridgeText, "readerNavicFontFacesRequired(settings)")
 		assertContains(bridgeText, "String(settings?.fontFamily || '').includes('Navic ')")
-		assertContains(settingsDialogText, "Font source")
-		assertContains(settingsDialogText, "ReaderSupportedFontSources")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "Font source")
+		assertContains(generalPageText, "ReaderSupportedFontSources")
 		assertContains(ebooksSettingsText, "readerFontSource")
 		assertContains(ebooksSettingsText, "ReaderFontSourceOption")
 		assertContains(searchSettingsText, "ebooks.font-source")
@@ -58,15 +60,18 @@ class ReaderRuntimeCommonChromeTest {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val contentOverlayText = readerCommonUiFile("ReaderContentOverlay.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val visualPagesText = readerCommonUiFile("ReaderSettingsVisualPages.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(readerRootText, "KomikkuReaderContentOverlay")
 		assertContains(readerRootText, "Modifier.matchParentSize()")
 		assertContains(contentOverlayText, "drawRect(Color.Black.copy")
-		assertContains(settingsDialogText, "Dim overlay")
-		assertContains(settingsDialogText, "SliderItem(")
-		assertContains(settingsDialogText, "dimOverlayPercent = dimOverlayPercent")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.CustomFilter -> KomikkuCustomFilterSettingsPage(")
+		assertContains(visualPagesText, "internal fun KomikkuCustomFilterSettingsPage(")
+		assertContains(visualPagesText, "Dim overlay")
+		assertContains(visualPagesText, "SliderItem(")
+		assertContains(visualPagesText, "dimOverlayPercent = dimOverlayPercent")
 		assertContains(ebooksSettingsText, "readerDimOverlayPercent")
 		assertContains(ebooksSettingsText, "option_ebook_reader_dim_overlay")
 		assertContains(searchSettingsText, "ebooks.dim-overlay")
@@ -77,6 +82,7 @@ class ReaderRuntimeCommonChromeTest {
 	fun commonReaderCustomFilterPortsKomikkuColorFilterControls() {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val visualPagesText = readerCommonUiFile("ReaderSettingsVisualPages.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 		val preferencesText = listOf(
@@ -89,15 +95,19 @@ class ReaderRuntimeCommonChromeTest {
 
 		assertContains(readerRootText, "readerColorFilterColor(controllerState.chrome.settings)")
 		assertContains(readerRootText, "readerColorFilterBlendMode(controllerState.chrome.settings.colorFilterMode)")
-		assertContains(settingsDialogText, "Color filter")
-		assertContains(settingsDialogText, "Grayscale")
-		assertContains(settingsDialogText, "Inverted colors")
-		assertContains(settingsDialogText, "ReaderSupportedColorFilterModes")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.CustomFilter -> KomikkuCustomFilterSettingsPage(")
+		assertContains(visualPagesText, "internal fun KomikkuCustomFilterSettingsPage(")
+		assertContains(visualPagesText, "Color filter")
+		assertContains(visualPagesText, "Grayscale")
+		assertContains(visualPagesText, "Inverted colors")
+		assertContains(visualPagesText, "ReaderSupportedColorFilterModes")
+		assertContains(visualPagesText, "ReaderColorFilterChannel.entries")
+		assertContains(settingsDialogText, "internal enum class ReaderColorFilterChannel(")
 		assertContains(settingsDialogText, "Red")
 		assertContains(settingsDialogText, "Green")
 		assertContains(settingsDialogText, "Blue")
 		assertContains(settingsDialogText, "Alpha")
-		assertContains(settingsDialogText, "setReaderColorFilterChannel")
+		assertContains(visualPagesText, "setReaderColorFilterChannel")
 		assertContains(preferencesText, "readerColorFilterEnabled")
 		assertContains(preferencesText, "readerColorFilterArgb")
 		assertContains(preferencesText, "readerColorFilterMode")
@@ -120,6 +130,7 @@ class ReaderRuntimeCommonChromeTest {
 	fun commonReaderReadingTabPortsKomikkuTappingInversionControl() {
 		val readerNavigationText = readerCommonUiFile("ReaderNavigation.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val modePagesText = readerCommonUiFile("ReaderSettingsModePages.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 		val preferencesText = listOf(
@@ -130,9 +141,11 @@ class ReaderRuntimeCommonChromeTest {
 			?: error("Could not locate PreferenceManager.kt")
 		val bridgeText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 
-		assertContains(settingsDialogText, "Tapping inversion")
-		assertContains(settingsDialogText, "KomikkuTapZoneInvertOptions")
-		assertContains(settingsDialogText, "settings.copy(tapZoneInvertMode = tapZoneInvertMode)")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.Reading -> KomikkuReadingSettingsPage(")
+		assertContains(modePagesText, "internal fun KomikkuReadingSettingsPage(")
+		assertContains(modePagesText, "Tapping inversion")
+		assertContains(modePagesText, "KomikkuTapZoneInvertOptions")
+		assertContains(modePagesText, "settings.copy(tapZoneInvertMode = tapZoneInvertMode)")
 		assertContains(readerNavigationText, "komikkuTappingInvertMode(settings.tapZoneInvertMode)")
 		assertContains(preferencesText, "readerTapZoneInvertMode")
 		assertContains(bridgeText, "tapZoneInvertMode")
@@ -147,6 +160,7 @@ class ReaderRuntimeCommonChromeTest {
 		val orientationEffectText = readerAndroidFile("ReaderOrientationEffect.android.kt").readText()
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val generalPageText = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 
@@ -158,8 +172,10 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(orientationEffectText, "SCREEN_ORIENTATION_REVERSE_PORTRAIT")
 		assertContains(orientationEffectText, "activity.requestedOrientation = previousOrientation")
 		assertContains(readerScreenText, "ReaderOrientationEffect(orientation = settings.orientation)")
-		assertContains(settingsDialogText, "Rotation")
-		assertContains(settingsDialogText, "ReaderSupportedOrientations")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "Rotation")
+		assertContains(generalPageText, "ReaderSupportedOrientations")
 		assertContains(ebooksSettingsText, "readerOrientation")
 		assertContains(ebooksSettingsText, "option_ebook_reader_orientation")
 		assertContains(searchSettingsText, "ebooks.orientation")
@@ -170,6 +186,7 @@ class ReaderRuntimeCommonChromeTest {
 	fun commonReaderChromeExposesVolumeKeyPageTurnControl() {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val generalPageText = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 
@@ -177,7 +194,9 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerScreenText, "Key.VolumeUp")
 		assertContains(readerScreenText, "Key.VolumeDown")
 		assertContains(readerScreenText, "volumeKeyPageTurns")
-		assertContains(settingsDialogText, "Volume keys")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "Volume keys")
 		assertContains(ebooksSettingsText, "readerVolumeKeyPageTurns")
 		assertContains(ebooksSettingsText, "option_ebook_reader_volume_keys")
 		assertContains(searchSettingsText, "ebooks.volume-keys")
@@ -352,19 +371,22 @@ class ReaderRuntimeCommonChromeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val modePagesText = readerCommonUiFile("ReaderSettingsModePages.kt").readText()
+		val generalPageText = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
+		val visualPagesText = readerCommonUiFile("ReaderSettingsVisualPages.kt").readText()
 
 		assertContains(readerRootText, "KomikkuReaderSettingsDialog(")
 		assertFalse(
-				readerScreenText.contains("private fun KomikkuReaderSettingsDialog(") ||
-				readerScreenText.contains("private fun KomikkuTabbedDialog(") ||
-				readerScreenText.contains("private fun KomikkuSettingsTabRow(") ||
-				readerScreenText.contains("private fun SettingsChipRow(") ||
-				readerScreenText.contains("private fun CheckboxItem(") ||
-				readerScreenText.contains("private fun SliderItem("),
-			"Komikku reader settings must live in its own reader component file, not inside ReaderScreen."
+				readerScreenText.contains("fun KomikkuReaderSettingsDialog(") ||
+				readerScreenText.contains("fun KomikkuTabbedDialog(") ||
+				readerScreenText.contains("fun KomikkuSettingsTabRow(") ||
+				readerScreenText.contains("fun SettingsChipRow(") ||
+				readerScreenText.contains("fun CheckboxItem(") ||
+				readerScreenText.contains("fun SliderItem("),
+			"Komikku reader settings must live in dedicated reader component files, not inside ReaderScreen."
 		)
 		assertContains(settingsDialogText, "internal val TabbedDialogPaddingsVertical = 8.dp")
-		assertContains(settingsDialogText, "private enum class KomikkuSettingsTab(val label: String, val compactLabel: String = label)")
+		assertContains(settingsDialogText, "internal enum class KomikkuSettingsTab(val label: String, val compactLabel: String = label)")
 		assertContains(settingsDialogText, "val compactTabLabels = maxWidth < 520.dp")
 		assertContains(settingsDialogText, "useCompactLabels: Boolean")
 		assertContains(settingsDialogText, "text = if (useCompactLabels) tab.compactLabel else tab.label")
@@ -372,13 +394,25 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(settingsDialogText, "private fun KomikkuTabbedDialog(")
 		assertContains(settingsDialogText, "private fun KomikkuSettingsTabRow(")
 		assertContains(settingsDialogText, "private object SettingsItemsPaddings")
+		assertContains(settingsDialogText, "internal fun KomikkuSettingsDialogPage(")
+		assertContains(settingsDialogText, "internal fun SettingsSection(")
 		assertContains(settingsDialogText, "private fun HeadingItem(")
 		assertContains(settingsDialogText, "private fun SettingsChipRow(")
-		assertContains(settingsDialogText, "private fun CheckboxItem(")
-		assertContains(settingsDialogText, "private fun SliderItem(")
+		assertContains(settingsDialogText, "internal fun CheckboxItem(")
+		assertContains(settingsDialogText, "internal fun SliderItem(")
 		assertContains(settingsDialogText, "private fun BaseSettingsItem(")
 		assertContains(settingsDialogText, "private fun Pill(")
 		assertContains(settingsDialogText, "KomikkuIntegerSlider(")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.Reading -> KomikkuReadingSettingsPage(")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.Listening -> KomikkuListeningSettingsPage(")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.PdfImage -> KomikkuPdfImageSettingsPage(")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.CustomFilter -> KomikkuCustomFilterSettingsPage(")
+		assertContains(modePagesText, "internal fun KomikkuReadingSettingsPage(")
+		assertContains(modePagesText, "internal fun KomikkuListeningSettingsPage(")
+		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
+		assertContains(visualPagesText, "internal fun KomikkuPdfImageSettingsPage(")
+		assertContains(visualPagesText, "internal fun KomikkuCustomFilterSettingsPage(")
 	}
 
 	@Test
@@ -713,6 +747,7 @@ class ReaderRuntimeCommonChromeTest {
 	fun commonReaderProgressRailPlacementIsControllerSettingNotHardcoded() {
 		val appBarsText = readerCommonUiFile("ReaderAppBars.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val modePagesText = readerCommonUiFile("ReaderSettingsModePages.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 		val preferencesText = listOf(
@@ -723,19 +758,21 @@ class ReaderRuntimeCommonChromeTest {
 			?: error("Could not locate PreferenceManager.kt")
 		val appBarsBody = appBarsText.substringAfter("internal fun KomikkuReaderAppBars(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
-		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
+		val readingPageBody = modePagesText.substringAfter("internal fun KomikkuReadingSettingsPage(")
+			.substringBefore("\n}\n\n@Composable\ninternal fun KomikkuListeningSettingsPage(")
 
-		assertContains(settingsDialogText, "ReaderSupportedNavBarTypes")
-		assertContains(settingsDialogText, "readerNavBarTypeShortLabel")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.Reading -> KomikkuReadingSettingsPage(")
+		assertContains(modePagesText, "internal fun KomikkuReadingSettingsPage(")
+		assertContains(readingPageBody, "ReaderSupportedNavBarTypes")
+		assertContains(readingPageBody, "readerNavBarTypeShortLabel")
 		assertContains(appBarsText, "readerEffectiveNavBarTypeFor")
 		assertContains(appBarsBody, "val navBarType = readerEffectiveNavBarTypeFor(controllerState.chrome.settings)")
 		assertFalse(
 			appBarsBody.contains("val navBarType = KomikkuNavBarType.VerticalRight"),
 			"Komikku nav bar placement must be a reader setting, not a hardcoded right rail."
 		)
-		assertContains(settingsDialogBody, "title = \"Progress rail\"")
-		assertContains(settingsDialogBody, "settings.copy(navBarType = navBarType)")
+		assertContains(readingPageBody, "title = \"Progress rail\"")
+		assertContains(readingPageBody, "settings.copy(navBarType = navBarType)")
 		assertContains(preferencesText, "readerNavBarType")
 		assertContains(ebooksSettingsText, "option_ebook_reader_nav_bar_type")
 		assertContains(ebooksSettingsText, "ReaderNavBarTypeOption")
@@ -1302,6 +1339,7 @@ class ReaderRuntimeCommonChromeTest {
 	fun commonReaderEngineOpenRequestFactoryLivesOutsideReaderScreen() {
 		val readerScreenText = readerScreenFile().readText()
 		val openRequestText = readerCommonUiFile("ReaderOpenRequest.kt").readText()
+		val progressSyncText = readerCommonFile("ReaderProgressSync.kt").readText()
 
 		assertContains(readerScreenText, "reader.toReaderEngineOpenRequest(")
 		assertFalse(
@@ -1310,10 +1348,21 @@ class ReaderRuntimeCommonChromeTest {
 		)
 		assertContains(openRequestText, "internal fun Screen.Reader.toReaderEngineOpenRequest(")
 		assertContains(openRequestText, "savedProgress: BinderyReadingProgress? = null")
+		assertContains(openRequestText, "localProgress: BinderyReadingProgress? = null")
 		assertContains(openRequestText, "ReaderEngineOpenRequest(")
 		assertContains(openRequestText, "ReaderPublicationIdentity(")
 		assertContains(openRequestText, "savedProgress?.toReaderStartLocatorForReader(")
-		assertContains(openRequestText, "bestReaderStartLocator(")
+		assertContains(openRequestText, "localProgress?.toReaderStartLocatorForReader(")
+		assertContains(openRequestText, "val startLocatorDecision = resolveReaderStartLocator(")
+		assertContains(openRequestText, "source = ReaderStartLocatorSource.Remote")
+		assertContains(openRequestText, "updatedAt = savedProgress.updatedAt")
+		assertContains(openRequestText, "source = ReaderStartLocatorSource.Local")
+		assertContains(openRequestText, "updatedAt = localProgress?.updatedAt")
+		assertContains(openRequestText, "val fallbackStartLocator = startLocatorDecision.selectedLocator")
+		assertContains(openRequestText, "startLocator = routeStartLocator ?: fallbackStartLocator")
+		assertContains(progressSyncText, "ReaderStartLocatorSelectionPolicy.LegacyMissingTimestamp")
+		assertContains(progressSyncText, "legacyReaderStartLocatorCandidate(remoteCandidate, localCandidate)")
+		assertContains(progressSyncText, "bestReaderStartLocator(")
 		assertContains(openRequestText, "nativeShellCoverUrl = shellCoverUrl")
 		assertContains(openRequestText, "canReturnToShellCover = hasShellCover")
 	}
@@ -1410,26 +1459,19 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndReferenceTabLabels() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
-		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
-			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
-		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
-			.substringBefore("\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+		val generalPageText = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
 		val tabRowBody = settingsDialogText.substringAfter("private fun KomikkuSettingsTabRow(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
-		val dialogPageBody = settingsDialogText.substringAfter("private fun KomikkuSettingsDialogPage(")
-			.substringBefore("\n}\n\n@Composable\ninternal fun KomikkuSettingsDialogLine(")
+			.substringBefore("\n}\n\n@Composable\ninternal fun KomikkuSettingsDialogPage(")
 		val chipRowBody = settingsDialogText.substringAfter("private fun SettingsChipRow(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun CheckboxItem(")
-		val checkboxItemBody = settingsDialogText.substringAfter("private fun CheckboxItem(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun SliderItem(")
-		val sliderItemBody = settingsDialogText.substringAfter("private fun SliderItem(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun BaseSliderItem(")
-		val baseSliderItemBody = settingsDialogText.substringAfter("private fun BaseSliderItem(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun Pill(")
+			.substringBefore("\n}\n\n@Composable\ninternal fun CheckboxItem(")
 
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "SettingsSection(title = \"Typography\")")
+		assertContains(generalPageText, "SliderItem(")
 		assertContains(settingsDialogText, "internal val TabbedDialogPaddingsVertical = 8.dp")
 		assertContains(settingsDialogText, "private object SettingsItemsPaddings")
-		assertContains(settingsDialogText, "private enum class KomikkuSettingsTab(val label: String, val compactLabel: String = label)")
+		assertContains(settingsDialogText, "internal enum class KomikkuSettingsTab(val label: String, val compactLabel: String = label)")
 		assertContains(settingsDialogText, "Reading(\"Reading mode\",")
 		assertContains(settingsDialogText, "CustomFilter(\"Custom filter\",")
 		assertContains(settingsDialogText, "KomikkuAdaptiveSheet(")
@@ -1801,20 +1843,29 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderSettingsExpandedAnxControlsUseSeparateSectionAndSliderDensity() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
-		val settingsSectionBody = settingsDialogText.substringAfter("private fun SettingsSection(")
+		val generalPageText = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
+		val settingsSectionBody = settingsDialogText.substringAfter("internal fun SettingsSection(")
 			.substringBefore("\n}\n\n@Composable\ninternal fun KomikkuSettingsDialogLine(")
 		val sectionHeadingBody = settingsDialogText.substringAfter("private fun SettingsSectionHeading(")
 			.substringBefore("\n}\n\n@OptIn(ExperimentalLayoutApi::class)")
-		val sliderItemBody = settingsDialogText.substringAfter("private fun SliderItem(")
+		val sliderItemBody = settingsDialogText.substringAfter("internal fun SliderItem(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun BaseSliderItem(")
 		val baseSliderItemBody = settingsDialogText.substringAfter("private fun BaseSliderItem(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun Pill(")
+			.substringBefore("\n}\n\nprivate fun settingSliderContentDescription(")
 
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "SettingsSection(title = \"Typography\")")
+		assertContains(generalPageText, "SettingsSection(title = \"Spacing\")")
+		assertContains(generalPageText, "SettingsSection(title = \"Page layout\")")
+		assertContains(generalPageText, "SettingsSection(title = \"Theme and device\")")
 		assertContains(settingsDialogText, "val SectionVertical = 6.dp")
 		assertContains(settingsDialogText, "val SliderVertical = 6.dp")
 		assertContains(settingsDialogText, "import androidx.compose.ui.semantics.contentDescription")
 		assertContains(settingsDialogText, "import androidx.compose.ui.semantics.semantics")
+		assertContains(settingsDialogText, "internal fun SettingsSection(")
 		assertContains(settingsDialogText, "private fun SettingsSectionHeading(text: String)")
+		assertContains(settingsDialogText, "internal fun SliderItem(")
 		assertContains(settingsDialogText, "private fun settingSliderContentDescription(title: String): String = \"Reader setting slider ${'$'}title\"")
 		assertContains(settingsSectionBody, "SettingsSectionHeading(title)")
 		assertFalse(
@@ -1918,8 +1969,15 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderOptionsUseKomikkuStyleChipGroups() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
-		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
+		val modePagesText = readerCommonUiFile("ReaderSettingsModePages.kt").readText()
+		val generalPageText = readerCommonUiFile("ReaderSettingsGeneralPage.kt").readText()
+		val visualPagesText = readerCommonUiFile("ReaderSettingsVisualPages.kt").readText()
+		val allSettingsText = listOf(
+			settingsDialogText,
+			modePagesText,
+			generalPageText,
+			visualPagesText
+		).joinToString("\n")
 
 		assertContains(settingsDialogText, "SettingsChipRow")
 		assertContains(settingsDialogText, "CheckboxItem")
@@ -1929,21 +1987,29 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(settingsDialogText, "Checkbox(")
 		assertContains(settingsDialogText, "Slider(")
 		assertContains(settingsDialogText, "KomikkuReadingModeOptions")
-		assertContains(settingsDialogBody, "ReaderSupportedDirections")
-		assertContains(settingsDialogBody, "ReaderSupportedFontFamilies")
-		assertContains(settingsDialogBody, "ReaderSupportedFontSources")
-		assertContains(settingsDialogBody, "ReaderSupportedThemes")
-		assertContains(settingsDialogBody, "ReaderSupportedOrientations")
-		assertContains(settingsDialogBody, "KomikkuTapZoneOptions")
+		assertContains(settingsDialogText, "internal val KomikkuTapZoneOptions")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.Reading -> KomikkuReadingSettingsPage(")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.CustomFilter -> KomikkuCustomFilterSettingsPage(")
+		assertContains(modePagesText, "internal fun KomikkuReadingSettingsPage(")
+		assertContains(modePagesText, "ReaderSupportedDirections")
+		assertContains(modePagesText, "KomikkuSettingsReadingModeRow(")
+		assertContains(modePagesText, "KomikkuTapZoneOptions")
+		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
+		assertContains(generalPageText, "ReaderSupportedFontFamilies")
+		assertContains(generalPageText, "ReaderSupportedFontSources")
+		assertContains(generalPageText, "ReaderSupportedThemes")
+		assertContains(generalPageText, "ReaderSupportedOrientations")
+		assertContains(visualPagesText, "internal fun KomikkuCustomFilterSettingsPage(")
 		assertFalse(
-			settingsDialogBody.contains("ReaderCycleRow("),
+			allSettingsText.contains("ReaderCycleRow("),
 			"Reader settings should use Komikku-style selectable chip groups instead of cyclic value rows."
 		)
 		assertFalse(
-			settingsDialogText.contains("private fun KomikkuSettingsSwitchRow(") ||
-				settingsDialogText.contains("private fun KomikkuSettingsStepperRow(") ||
-				settingsDialogText.contains("private fun KomikkuSettingsCheckboxItem(") ||
-				settingsDialogText.contains("private fun KomikkuSettingsSliderItem("),
+			allSettingsText.contains("private fun KomikkuSettingsSwitchRow(") ||
+				allSettingsText.contains("private fun KomikkuSettingsStepperRow(") ||
+				allSettingsText.contains("private fun KomikkuSettingsCheckboxItem(") ||
+				allSettingsText.contains("private fun KomikkuSettingsSliderItem("),
 			"Working Navic-only switch/stepper rows are still non-faithful; settings controls must be rebuilt around Komikku CheckboxItem and SliderItem primitives."
 		)
 	}
@@ -1952,6 +2018,7 @@ class ReaderRuntimeCommonChromeTest {
 	fun commonReaderOptionsSeparatePdfImageSettingsByPublicationFormat() {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val visualPagesText = readerCommonUiFile("ReaderSettingsVisualPages.kt").readText()
 		val readerChromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
 
 		assertContains(readerChromeStateText, "ReaderOptionsTab.PdfImage")
@@ -1959,13 +2026,16 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerScreenText, "publicationFormat = reader.publicationFormat")
 		assertContains(settingsDialogText, "publicationFormat: ReaderPublicationFormat")
 		assertContains(settingsDialogText, "PDF/Image")
-		assertContains(settingsDialogText, "Page fit")
-		assertContains(settingsDialogText, "ReaderSupportedPdfFitModes")
-		assertContains(settingsDialogText, "Crop borders")
-		assertContains(settingsDialogText, "Page gap")
-		assertContains(settingsDialogText, "pdfFitMode = fitMode")
-		assertContains(settingsDialogText, "pdfCropBorders = settings.pdfCropBorders != true")
-		assertContains(settingsDialogText, "pdfPageGapPercent")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.PdfImage -> KomikkuPdfImageSettingsPage(")
+		assertContains(visualPagesText, "internal fun KomikkuPdfImageSettingsPage(")
+		assertContains(visualPagesText, "PDF/Image")
+		assertContains(visualPagesText, "Page fit")
+		assertContains(visualPagesText, "ReaderSupportedPdfFitModes")
+		assertContains(visualPagesText, "Crop borders")
+		assertContains(visualPagesText, "Page gap")
+		assertContains(visualPagesText, "pdfFitMode = fitMode")
+		assertContains(visualPagesText, "pdfCropBorders = settings.pdfCropBorders != true")
+		assertContains(visualPagesText, "pdfPageGapPercent")
 	}
 
 	@Test
@@ -1973,6 +2043,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsSessionText = readerCommonUiFile("ReaderSettingsSession.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val modePagesText = readerCommonUiFile("ReaderSettingsModePages.kt").readText()
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
 		val preferenceManagerText = listOf(
 			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
@@ -1989,16 +2060,19 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(settingsSessionText, "readerSettingsForBook(bookId)")
 		assertContains(settingsSessionText, "setReaderBookSettings(bookId")
 		assertContains(settingsSessionText, "clearReaderBookSettings(bookId)")
-		assertContains(settingsDialogText, "For this book")
-		assertContains(settingsDialogText, "ReaderSupportedSettingsScopes")
-		assertContains(settingsDialogText, "readerSettingsScopeLabel(scope)")
-		assertContains(settingsDialogText, "Reset book")
+		assertContains(settingsDialogText, "KomikkuSettingsTab.Reading -> KomikkuReadingSettingsPage(")
+		assertContains(modePagesText, "internal fun KomikkuReadingSettingsPage(")
+		assertContains(modePagesText, "For this book")
+		assertContains(modePagesText, "ReaderSupportedSettingsScopes")
+		assertContains(modePagesText, "readerSettingsScopeLabel(scope)")
+		assertContains(modePagesText, "Reset book")
 	}
 
 	@Test
 	fun commonReadaloudRuntimeCapabilitiesRemainAvailableBehindControllerBoundary() {
 		val readerScreenText = readerScreenFile().readText()
 		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
+		val coordinatorText = readerCommonFile("ReaderCoordinator.kt").readText()
 		val runtimeHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
 
 		assertContains(chromeStateText, "activeAudioLabel")
@@ -2015,7 +2089,16 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(runtimeHostText, "setSyncEnabled")
 		assertContains(readerScreenText, "ReaderReadaloudRuntimeHost(")
 		assertContains(readerScreenText, "coordinator.onReadaloudEngineCommand(command)")
-		assertContains(readerScreenText, "coordinator.dispatch { onReadaloudPlaybackState(playbackState) }")
+		assertContains(readerScreenText, "coordinator.onReadaloudPlaybackState(")
+		assertContains(readerScreenText, "playbackState = playbackState")
+		assertContains(readerScreenText, "playbackIdentity = playbackState.toWordSyncPlaybackIdentity(whispersyncPlaybackPlan)")
+		assertContains(coordinatorText, "internal fun onReadaloudPlaybackState(")
+		assertContains(coordinatorText, "playbackIdentity: ReaderWordSyncPlaybackIdentity?")
+		assertContains(coordinatorText, "playback = playbackIdentity")
+		assertFalse(
+			readerScreenText.contains("coordinator.dispatch { onReadaloudPlaybackState(playbackState) }"),
+			"Readaloud playback state and playback identity must cross the coordinator boundary together."
+		)
 		assertFalse(
 			runtimeHostText.contains("toLegacyReaderBridgeCommand"),
 			"The active Komikku reader must not reattach readaloud by converting sync commands back to legacy bridge ownership."
