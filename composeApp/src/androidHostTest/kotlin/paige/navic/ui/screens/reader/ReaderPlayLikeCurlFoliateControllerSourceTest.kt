@@ -1089,6 +1089,29 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun preparedDestinationDeckRearmsPassivePrewarm() {
+		val host = hostFile.readText()
+		val callback = host
+			.substringAfter("private fun onPreparedActiveDeckChanged(")
+			.substringBefore("private fun onForegroundWebViewPassiveAvailable()")
+
+		assertContains(
+			host,
+			"onPreparedActiveDeckChanged = ::onPreparedActiveDeckChanged"
+		)
+		assertContains(
+			callback,
+			"pageRasterPreparationController.onPreparedActiveDeckChanged(deck)"
+		)
+		assertContains(callback, "if (deck != null) requestPageTurnPrewarmWhenReady()")
+		assertTrue(
+			callback.indexOf(
+				"pageRasterPreparationController.onPreparedActiveDeckChanged(deck)"
+			) < callback.indexOf("requestPageTurnPrewarmWhenReady()")
+		)
+	}
+
+	@Test
 	fun committedTurnsPublishOneVersionedWindowBeforePersistentFarEdgeRefill() {
 		val source = controllerFile.readText()
 		val preparation = source

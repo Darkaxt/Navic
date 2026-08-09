@@ -1023,9 +1023,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		onProtectedRasterSourcePageIndicesChanged = {
 			pageRasterPreparationController.onProtectedRasterSourcePageIndicesChanged(it)
 		},
-		onPreparedActiveDeckChanged = { deck ->
-			pageRasterPreparationController.onPreparedActiveDeckChanged(deck)
-		},
+		onPreparedActiveDeckChanged = ::onPreparedActiveDeckChanged,
 		onPaginationReadinessChanged = ::onPaginationReadinessChanged,
 		onProfileBootstrapFailed = {
 			removePageTurnPrewarmLayoutListener()
@@ -1584,6 +1582,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		val shouldRetry = pagePreparationRetryKey != Int.MIN_VALUE && retryKey > pagePreparationRetryKey
 		pagePreparationRetryKey = retryKey
 		if (shouldRetry) pageRasterPreparationController.retryPreparation()
+	}
+
+	private fun onPreparedActiveDeckChanged(deck: ReaderPagePreparedActiveDeck?) {
+		pageRasterPreparationController.onPreparedActiveDeckChanged(deck)
+		if (deck != null) requestPageTurnPrewarmWhenReady()
 	}
 
 	private fun onForegroundWebViewPassiveAvailable() {
