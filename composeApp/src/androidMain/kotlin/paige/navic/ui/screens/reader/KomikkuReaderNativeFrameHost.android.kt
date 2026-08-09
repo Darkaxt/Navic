@@ -100,6 +100,92 @@ internal data class ReaderNativePresentationLayerVisibility(
 	val preparationShield: Boolean
 )
 
+internal class ReaderStartupShellHandoffGate {
+	private var nextAttempt = 0L
+	private var activeAttempt: Long? = null
+	private var eligible = true
+	private var preparedHandoff = false
+
+	val attemptInFlight: Boolean
+		get() = activeAttempt != null
+
+	fun consumesCanvasShellPageAction(
+		shellVisible: Boolean,
+		canvasEnabled: Boolean
+	): Boolean = (eligible || preparedHandoff) && shellVisible && canvasEnabled
+
+	fun beginAttempt(
+		shellVisible: Boolean,
+		canvasEnabled: Boolean,
+		rasterPhase: ReaderPagePreparationPhase,
+		textureDeck: ReaderTextureDeckState
+	): Long? {
+		if (
+			!eligible ||
+			activeAttempt != null ||
+			!shellVisible ||
+			!canvasEnabled ||
+			rasterPhase != ReaderPagePreparationPhase.Ready ||
+			textureDeck != ReaderTextureDeckState.Ready
+		) {
+			return null
+		}
+		val attempt = Math.incrementExact(nextAttempt)
+		nextAttempt = attempt
+		activeAttempt = attempt
+		return attempt
+	}
+
+	fun completeAttempt(
+		attempt: Long,
+		shellVisible: Boolean,
+		canvasEnabled: Boolean,
+		rasterPhase: ReaderPagePreparationPhase,
+		textureDeck: ReaderTextureDeckState,
+		presentationCommitted: Boolean = true,
+		onPrepared: () -> Unit,
+		onRejected: () -> Unit
+	) {
+		if (activeAttempt != attempt) return
+		activeAttempt = null
+		val current = presentationCommitted &&
+			eligible &&
+			shellVisible &&
+			canvasEnabled &&
+			rasterPhase == ReaderPagePreparationPhase.Ready &&
+			textureDeck == ReaderTextureDeckState.Ready
+		if (!current) {
+			onRejected()
+			return
+		}
+		eligible = false
+		preparedHandoff = true
+		onPrepared()
+	}
+
+	fun rejectAttempt(attempt: Long) {
+		if (activeAttempt == attempt) activeAttempt = null
+	}
+
+	fun consumePreparedHandoff(): Boolean {
+		if (!preparedHandoff) return false
+		preparedHandoff = false
+		return true
+	}
+
+	fun resetForNewViewer() {
+		activeAttempt = null
+		eligible = true
+		preparedHandoff = false
+	}
+
+	fun close() {
+		activeAttempt = null
+		eligible = false
+		preparedHandoff = false
+	}
+}
+
 internal class ReaderRetainedValidatedPresentationOwnership {
 	private var retainedRendererPresentation = false
 
@@ -890,8 +976,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var preparedActiveDeck: ReaderPagePreparedActiveDeck? = null
 	private var destinationDeckPrewarmPending = false
 	private var shellCoverVisible: Boolean = false
-	private var startupShellPresentationInFlight = false
-	private var startupShellPreparedHandoff = false
+	private val startupShellHandoff = ReaderStartupShellHandoffGate()
 	private var pageOperationPolicy = readerPageOperationPolicy(ReaderPageReadinessState())
 	private var pagePreparationRetryKey: Int = Int.MIN_VALUE
 	private var pageTurnPrewarmLayoutListener: ViewTreeObserver.OnPreDrawListener? = null
@@ -1363,38 +1448,31 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun commitStartupShellPresentationIfReady() {
-		if (
-			!pageTurnCanvasEnabled ||
-			!shellCoverVisible ||
-			startupShellPresentationInFlight ||
-			startupShellPreparedHandoff ||
-			latestRasterPreparationState.phase != ReaderPagePreparationPhase.Ready ||
-			latestRendererReadinessState.textureDeck != ReaderTextureDeckState.Ready
-		) {
-			return
-		}
-		startupShellPresentationInFlight = true
+		val attempt = startupShellHandoff.beginAttempt(
+			shellVisible = shellCoverVisible,
+			canvasEnabled = pageTurnCanvasEnabled,
+			rasterPhase = latestRasterPreparationState.phase,
+			textureDeck = latestRendererReadinessState.textureDeck
+		) ?: return
 		val started = playLikeCurlController.presentStartupShellCurrentPage { committed ->
-			startupShellPresentationInFlight = false
-			if (
-				!committed ||
-				!pageTurnCanvasEnabled ||
-				!shellCoverVisible ||
-				startupShellPreparedHandoff
-			) {
-				return@presentStartupShellCurrentPage
-			}
-			startupShellPreparedHandoff = true
-			onStartupShellPrepared()
+			startupShellHandoff.completeAttempt(
+				attempt = attempt,
+				shellVisible = shellCoverVisible,
+				canvasEnabled = pageTurnCanvasEnabled,
+				rasterPhase = latestRasterPreparationState.phase,
+				textureDeck = latestRendererReadinessState.textureDeck,
+				presentationCommitted = committed,
+				onPrepared = { onStartupShellPrepared() },
+				onRejected = {
+					playLikeCurlController.dismissStartupShellPresentation()
+				}
+			)
 		}
-		if (!started) startupShellPresentationInFlight = false
+		if (!started) startupShellHandoff.rejectAttempt(attempt)
 	}
 
-	private fun consumeStartupShellPreparedHandoff(): Boolean {
-		if (!startupShellPreparedHandoff) return false
-		startupShellPreparedHandoff = false
-		return true
-	}
+	private fun consumeStartupShellPreparedHandoff(): Boolean =
+		startupShellHandoff.consumePreparedHandoff()
 
 	private fun publishMergedPagePreparationState() {
 		val merged = readerMergedPagePreparationState(
@@ -1439,6 +1517,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	fun replaceViewerContent(viewerView: View) {
+		startupShellHandoff.resetForNewViewer()
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.RendererReplaced
 		)
@@ -1614,8 +1693,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (shellCoverVisible == visible) return
 		val preservePreparedHandoff = !visible && consumeStartupShellPreparedHandoff()
 		if (visible) {
-			startupShellPresentationInFlight = false
-			startupShellPreparedHandoff = false
 			dispatchPageHostLifecycleEvent(
 				ReaderPageHostLifecycleEvent.ShellCoverShown
 			)
@@ -2448,7 +2525,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun canvasShellTransitionConsumesPageAction(): Boolean =
-		shellCoverVisible && pageTurnCanvasEnabled
+		startupShellHandoff.consumesCanvasShellPageAction(
+			shellVisible = shellCoverVisible,
+			canvasEnabled = pageTurnCanvasEnabled
+		)
 
 	private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {
 		val thresholdPx = readerSwipeThresholdPx(shellCoverVisible)
@@ -2764,6 +2844,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		}
 		if (finalHostLifecycleEvent != null) return
 		finalHostLifecycleEvent = event
+		startupShellHandoff.close()
 		val reason = event.cancellationReason()
 		dispatchPageHostLifecycleEvent(event)
 		clearLegacyNativeTapState(reason)

@@ -13,6 +13,8 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class KomikkuReaderNativeFrameHostTest {
@@ -20,6 +22,86 @@ class KomikkuReaderNativeFrameHostTest {
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"KomikkuReaderNativeFrameHost.android.kt"
 	)
+
+	@Test
+	fun startupShellHandoffIsOneShotAcrossAnOrdinaryReturnedCover() {
+		val gate = ReaderStartupShellHandoffGate()
+		assertTrue(gate.consumesCanvasShellPageAction(shellVisible = true, canvasEnabled = true))
+		val attempt = assertNotNull(
+			gate.beginAttempt(
+				shellVisible = true,
+				canvasEnabled = true,
+				rasterPhase = ReaderPagePreparationPhase.Ready,
+				textureDeck = ReaderTextureDeckState.Ready
+			)
+		)
+		var prepared = 0
+		var rejected = 0
+
+		gate.completeAttempt(
+			attempt = attempt,
+			shellVisible = true,
+			canvasEnabled = true,
+			rasterPhase = ReaderPagePreparationPhase.Ready,
+			textureDeck = ReaderTextureDeckState.Ready,
+			onPrepared = { prepared += 1 },
+			onRejected = { rejected += 1 }
+		)
+
+		assertEquals(1, prepared)
+		assertEquals(0, rejected)
+		assertTrue(gate.consumesCanvasShellPageAction(shellVisible = true, canvasEnabled = true))
+		assertTrue(gate.consumePreparedHandoff())
+		assertFalse(gate.consumesCanvasShellPageAction(shellVisible = true, canvasEnabled = true))
+		assertNull(
+			gate.beginAttempt(
+				shellVisible = true,
+				canvasEnabled = true,
+				rasterPhase = ReaderPagePreparationPhase.Ready,
+				textureDeck = ReaderTextureDeckState.Ready
+			)
+		)
+
+		gate.resetForNewViewer()
+		assertTrue(gate.consumesCanvasShellPageAction(shellVisible = true, canvasEnabled = true))
+	}
+
+	@Test
+	fun regressedReadinessRejectsCommittedStartupShieldAndPermitsRetry() {
+		val gate = ReaderStartupShellHandoffGate()
+		val attempt = assertNotNull(
+			gate.beginAttempt(
+				shellVisible = true,
+				canvasEnabled = true,
+				rasterPhase = ReaderPagePreparationPhase.Ready,
+				textureDeck = ReaderTextureDeckState.Ready
+			)
+		)
+		var prepared = 0
+		var staleShieldDismissed = 0
+
+		gate.completeAttempt(
+			attempt = attempt,
+			shellVisible = true,
+			canvasEnabled = true,
+			rasterPhase = ReaderPagePreparationPhase.Preparing,
+			textureDeck = ReaderTextureDeckState.Preparing,
+			onPrepared = { prepared += 1 },
+			onRejected = { staleShieldDismissed += 1 }
+		)
+
+		assertEquals(0, prepared)
+		assertEquals(1, staleShieldDismissed)
+		assertFalse(gate.attemptInFlight)
+		assertNotNull(
+			gate.beginAttempt(
+				shellVisible = true,
+				canvasEnabled = true,
+				rasterPhase = ReaderPagePreparationPhase.Ready,
+				textureDeck = ReaderTextureDeckState.Ready
+			)
+		)
+	}
 
 	@Test
 	fun disabledCanvasStaysBlockedUntilPublicationContentBecomesReady() {

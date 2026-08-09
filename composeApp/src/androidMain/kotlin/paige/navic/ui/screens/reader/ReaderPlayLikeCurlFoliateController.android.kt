@@ -1752,6 +1752,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		return true
 	}
 
+	fun dismissStartupShellPresentation() {
+		if (relocationQueue.occupiedCount() == 0) {
+			inlineRasterShield.dismiss()
+		}
+	}
+
 	private fun startTapTurn(
 		pageChange: PageChange,
 		gestureId: Long

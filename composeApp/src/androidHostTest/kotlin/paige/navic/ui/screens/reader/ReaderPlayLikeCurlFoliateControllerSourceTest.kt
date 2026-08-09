@@ -14,6 +14,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateController.android.kt")
 	private val hostFile =
 		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt")
+	private val readerRootFile =
+		File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt")
 	private val recoveryFile = File(
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderPageDeckRecoveryCoordinator.android.kt"
@@ -3104,16 +3106,22 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			presentation.indexOf("inlineRasterShield.present(") <
 				presentation.indexOf("onCommitted(true)")
 		)
-		assertContains(admission, "ReaderPagePreparationPhase.Ready")
-		assertContains(admission, "ReaderTextureDeckState.Ready")
+		assertContains(admission, "latestRasterPreparationState.phase")
+		assertContains(admission, "latestRendererReadinessState.textureDeck")
+		assertContains(admission, "startupShellHandoff.beginAttempt(")
 		assertContains(admission, "presentStartupShellCurrentPage")
+		assertContains(admission, "startupShellHandoff.completeAttempt(")
+		assertContains(admission, "dismissStartupShellPresentation()")
 		assertContains(admission, "onStartupShellPrepared()")
+		assertContains(host, "startupShellHandoff.resetForNewViewer()")
+		assertContains(host, "startupShellHandoff.close()")
 	}
 
 	@Test
 	fun preparedCanvasShellTransitionPreservesDeckAndUsesExistingGestureRelocation() {
 		val controller = controllerFile.readText()
 		val host = hostFile.readText()
+		val readerRoot = readerRootFile.readText()
 		val shellVisibility = host
 			.substringAfter("fun setShellCoverVisible(visible: Boolean)")
 			.substringBefore("fun setPageOperationPolicy(")
@@ -3129,6 +3137,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(shellVisibility, "consumeStartupShellPreparedHandoff()")
 		assertContains(shellVisibility, "invalidateCurrentVisualSnapshot")
+		assertFalse(readerRoot.contains("canvasShellTransition ="))
 		assertContains(shellSwipe, "canvasShellTransitionConsumesPageAction")
 		assertFalse(
 			shellSwipe

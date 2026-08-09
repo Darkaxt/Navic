@@ -166,11 +166,7 @@ internal fun KomikkuReaderRoot(
 					readerShellCoverViewerActionFor(
 						region = action,
 						pageTurnAllowed = pagePreparationState.interactiveReady &&
-							controllerState.paginationProfile.status != "measuring",
-						canvasShellTransition =
-							normalizedReaderDragAnimationMode(
-								controllerState.chrome.settings.dragAnimationMode
-							) == ReaderDragAnimationCanvas
+							controllerState.paginationProfile.status != "measuring"
 					)
 				} else {
 					viewer.viewerActionFor(action)
