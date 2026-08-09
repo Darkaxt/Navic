@@ -1,6 +1,9 @@
 package paige.navic.reader
 
 import kotlinx.coroutines.runBlocking
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -10,6 +13,8 @@ import kotlin.test.assertTrue
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE)
 class BinderyReaderPublicationResolverTest {
 	@Test
 	fun resolvedPublicationOwnsItsSessionDirectory() = runBlocking {
@@ -184,7 +189,7 @@ class BinderyReaderPublicationResolverTest {
 
 	@Test
 	fun extractsEpubCoverImageForNativeShellCoverSurface() = runBlocking {
-		val coverBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+		val coverBytes = embeddedCoverPngBytes()
 		val resolver = BinderyReaderPublicationResolver(
 			fetchResourceBytes = { minimalEpubWithCover(coverBytes) },
 			cacheRoot = createTempDirectory("navic-reader-cover-publications").toFile()
@@ -240,8 +245,8 @@ class BinderyReaderPublicationResolverTest {
 
 	@Test
 	fun cachesExternalBinderyShellCoverAsLocalAssetUriForNativeCoverSurface() = runBlocking {
-		val epubCoverBytes = byteArrayOf(0x45, 0x50, 0x55, 0x42)
-		val externalCoverBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+		val epubCoverBytes = embeddedCoverPngBytes()
+		val externalCoverBytes = externalCoverPngBytes()
 		val fetchedPaths = mutableListOf<String>()
 		val resolver = BinderyReaderPublicationResolver(
 			fetchResourceBytes = { path ->
@@ -280,10 +285,10 @@ class BinderyReaderPublicationResolverTest {
 			)
 		)
 		assertTrue(resolved.shellCoverUrl.orEmpty().endsWith(".png"))
-		val shellCoverFile = resolved.publicationFile.parentFile!!
-			.listFiles()
-			.orEmpty()
-			.single { file -> file.name.startsWith("shell-cover-") }
+		val shellCoverFile = resolved.publicationFile.parentFile!!.resolve(
+			resolved.shellCoverUrl!!.substringAfterLast('/')
+		)
+		assertTrue(shellCoverFile.isFile)
 		assertEquals(externalCoverBytes.toList(), shellCoverFile.readBytes().toList())
 		assertEquals(epubCoverBytes.toList(), resolved.publicationFile.parentFile!!.resolve("cover.png").readBytes().toList())
 	}
@@ -363,6 +368,14 @@ class BinderyReaderPublicationResolverTest {
 		assertEquals("EPUB_BYTES_1", second.publicationFile.readText())
 	}
 }
+
+private fun embeddedCoverPngBytes(): ByteArray = java.util.Base64.getDecoder().decode(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+)
+
+private fun externalCoverPngBytes(): ByteArray = java.util.Base64.getDecoder().decode(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC"
+)
 
 private fun minimalEpubWithCover(
 	coverBytes: ByteArray,
