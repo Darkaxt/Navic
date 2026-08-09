@@ -1725,11 +1725,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	private fun onPreparedActiveDeckChanged(deck: ReaderPagePreparedActiveDeck?) {
 		val previous = preparedActiveDeck
+		val ownership = foregroundWebViewOwnership.snapshot()
 		preparedActiveDeck = deck
 		if (
 			deck != null &&
 			previous != null &&
-			previous != deck
+			previous != deck &&
+			(
+				ownership.liveClaims > 0 ||
+				ownership.restorationCallbacks > 0
+			)
 		) {
 			destinationDeckPrewarmPending = true
 		}

@@ -1091,7 +1091,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun preparedDestinationDeckRearmsReplacementAfterOwnershipRelease() {
+	fun preparedDestinationDeckRearmsOnlyReplacementPrewarm() {
 		val host = hostFile.readText()
 		val callback = host
 			.substringAfter("private fun onPreparedActiveDeckChanged(")
@@ -1113,13 +1113,13 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		assertContains(host, "private var destinationDeckPrewarmPending = false")
 		assertContains(callback, "val previous = preparedActiveDeck")
+		assertContains(callback, "val ownership = foregroundWebViewOwnership.snapshot()")
 		assertContains(callback, "preparedActiveDeck = deck")
 		assertContains(callback, "deck != null &&")
 		assertContains(callback, "previous != null &&")
-		assertContains(callback, "previous != deck")
-		assertFalse(callback.contains("foregroundWebViewOwnership.snapshot()"))
-		assertFalse(callback.contains("ownership.liveClaims"))
-		assertFalse(callback.contains("ownership.restorationCallbacks"))
+		assertContains(callback, "previous != deck &&")
+		assertContains(callback, "ownership.liveClaims > 0 ||")
+		assertContains(callback, "ownership.restorationCallbacks > 0")
 		assertContains(callback, "destinationDeckPrewarmPending = true")
 		assertContains(
 			callback,
