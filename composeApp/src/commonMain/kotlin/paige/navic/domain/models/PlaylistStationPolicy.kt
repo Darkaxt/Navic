@@ -89,17 +89,20 @@ fun DomainSongCollection.visibleCollectionCoverArtId(): String? =
 		else -> coverArtId
 	}
 
+fun DomainPlaylist.hasVisibleEntries(): Boolean =
+	songCount > 0 || songs.isNotEmpty()
+
 fun List<DomainPlaylist>.stationPlaylists(): List<DomainPlaylist> =
-	filter { it.isStationPlaylist() }
+	filter { it.hasVisibleEntries() && it.isStationPlaylist() }
 
 fun List<DomainPlaylist>.moodMixPlaylists(): List<DomainPlaylist> =
-	filter { it.isMoodMixPlaylist() }
+	filter { it.hasVisibleEntries() && it.isMoodMixPlaylist() }
 
 fun List<DomainPlaylist>.genreMixPlaylists(): List<DomainPlaylist> =
-	filter { it.isGenreMixPlaylist() }
+	filter { it.hasVisibleEntries() && it.isGenreMixPlaylist() }
 
 fun List<DomainPlaylist>.userPlaylists(): List<DomainPlaylist> =
-	filterNot { it.isStationPlaylist() || it.isGeneratedMixPlaylist() }
+	filter { it.hasVisibleEntries() && !it.isStationPlaylist() && !it.isGeneratedMixPlaylist() }
 
 fun List<DomainPlaylist>.regularPlaylists(): List<DomainPlaylist> =
 	userPlaylists()
