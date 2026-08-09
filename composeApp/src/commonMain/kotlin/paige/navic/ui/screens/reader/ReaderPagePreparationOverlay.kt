@@ -43,7 +43,9 @@ internal fun ReaderPagePreparationOverlay(
 			color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp).copy(alpha = 0.92f),
 			contentColor = MaterialTheme.colorScheme.onSurface,
 			modifier = Modifier
-				.align(Alignment.BottomCenter)
+				.align(
+					if (state.phase == ReaderPagePreparationPhase.Failed) Alignment.Center else Alignment.BottomCenter
+				)
 				.padding(
 					horizontal = 20.dp,
 					vertical = if (state.presentation == ReaderPagePreparationPresentation.Cover) 36.dp else 20.dp

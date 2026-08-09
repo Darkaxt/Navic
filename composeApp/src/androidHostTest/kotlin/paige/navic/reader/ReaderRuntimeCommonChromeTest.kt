@@ -10,6 +10,21 @@ class ReaderRuntimeCommonChromeTest {
 	private fun komikkuReferenceText(relativePath: String): String =
 		readerUpstreamReferenceText("komikku", relativePath)
 
+	private fun readerRuntimeCommonSource(fileName: String): String =
+		readerCommonUiFile(fileName).readText()
+
+	@Test
+	fun failedPagePreparationOverlayCentersCardAwayFromBottomChrome() {
+		val overlay = readerRuntimeCommonSource("ReaderPagePreparationOverlay.kt")
+			.substringAfter("internal fun ReaderPagePreparationOverlay(")
+			.substringBefore("\n}\n")
+
+		assertContains(
+			overlay,
+			"if (state.phase == ReaderPagePreparationPhase.Failed) Alignment.Center else Alignment.BottomCenter"
+		)
+	}
+
 	@Test
 	fun androidReaderPackagesBundledFontSourcesForWebViewRendering() {
 		val root = readerAssetRoot()
