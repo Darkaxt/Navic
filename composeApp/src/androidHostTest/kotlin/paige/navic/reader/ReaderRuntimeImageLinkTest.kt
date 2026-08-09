@@ -329,6 +329,16 @@ class ReaderRuntimeImageLinkTest {
 		val controllerText = readerCommonFile("ReaderController.kt").readText()
 		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val shellCoverViewerAction = controllerText
+			.substringAfter(
+				"private fun onShellCoverViewerAction(action: ReaderViewerAction): ReaderControllerStep {"
+			)
+			.substringBefore("\n\tprivate fun turnPage")
+		val shellCoverDismissalBranch = shellCoverViewerAction
+			.substringAfter(
+				"action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||"
+			)
+			.substringBefore("else -> ReaderControllerStep(this)")
 
 		assertContains(openRequestText, "nativeShellCoverUrl = shellCoverUrl")
 		assertContains(nativeFrameHostText, "KomikkuReaderNativeShellCoverView")
@@ -380,10 +390,7 @@ class ReaderRuntimeImageLinkTest {
 			"relocationReason = readerShellCoverDismissalReason(it.requestId)"
 		)
 		assertFalse(
-			controllerText
-				.substringAfter("private fun onShellCoverViewerAction(action: ReaderViewerAction)")
-				.substringBefore("private fun turnPage")
-				.contains("shellCoverVisible = false"),
+			shellCoverDismissalBranch.contains("shellCoverVisible = false"),
 			"Native shell-cover dismissal must wait for a Foliate relocation acknowledgement."
 		)
 		assertContains(controllerText, "readerShouldReturnToNativeShellCover(")

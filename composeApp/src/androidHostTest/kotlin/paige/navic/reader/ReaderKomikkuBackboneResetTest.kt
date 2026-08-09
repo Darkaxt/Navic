@@ -2149,6 +2149,9 @@ class ReaderKomikkuBackboneResetTest {
 		val upBranch = swipeHandlerBody
 			.substringAfter("MotionEvent.ACTION_UP -> {")
 			.substringBefore("\n\t\t\t}")
+		val shellCoverUpBranch = upBranch
+			.substringAfter("} else if (shellCoverVisible) {")
+			.substringBefore("} else {")
 
 		assertTrue(
 			moveBranch.contains("updateShellCoverDragOffset(dx)") &&
@@ -2164,8 +2167,8 @@ class ReaderKomikkuBackboneResetTest {
 			"Shell-cover page entry should commit only when the finger is released."
 		)
 		assertTrue(
-			upBranch.indexOf("updateShellCoverDragOffset(dx)") <
-				upBranch.indexOf("dispatchHorizontalSwipeViewerAction("),
+			shellCoverUpBranch.indexOf("updateShellCoverDragOffset(dx)") <
+				shellCoverUpBranch.indexOf("dispatchHorizontalSwipeViewerAction("),
 			"The release frame should keep the cover at the final drag offset before deciding whether to enter the book."
 		)
 	}

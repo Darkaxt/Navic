@@ -929,6 +929,11 @@ class ReaderRuntimeShellProgressTest {
 		val shellCoverViewerAction = controllerText
 			.substringAfter("private fun onShellCoverViewerAction(action: ReaderViewerAction): ReaderControllerStep {")
 			.substringBefore("\n\tprivate fun turnPage")
+		val shellCoverDismissalBranch = shellCoverViewerAction
+			.substringAfter(
+				"action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||"
+			)
+			.substringBefore("else -> ReaderControllerStep(this)")
 		val pageTurn = controllerText
 			.substringAfter("private fun turnPage(direction: ReaderPageTurnDirection): ReaderControllerStep =")
 			.substringBefore("\n\tprivate fun scrollViewport")
@@ -949,7 +954,7 @@ class ReaderRuntimeShellProgressTest {
 			message = "The controlled relocation must carry the shell-cover dismissal request identity."
 		)
 		assertFalse(
-			shellCoverViewerAction.contains("shellCoverVisible = false"),
+			shellCoverDismissalBranch.contains("shellCoverVisible = false"),
 			message = "The virtual cover must remain fail-closed until Foliate acknowledges readable content."
 		)
 		assertContains(
