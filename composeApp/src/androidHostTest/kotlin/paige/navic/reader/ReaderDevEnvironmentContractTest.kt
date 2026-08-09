@@ -420,7 +420,7 @@ class ReaderDevEnvironmentContractTest {
 		assertTrue(
 			runner.contains("function Wait-ReaderQaRelocationTerminal") &&
 				runner.contains("function Wait-ReaderQaPreparedTextureGeneration") &&
-				runner.contains("-TextureGeneration \$visualTurn.TextureGeneration") &&
+				runner.contains("-TextureGeneration \$visualRelocation.Match.TextureGeneration") &&
 				runner.contains("-LogicalDirection 'Previous'") &&
 				runner.contains("ReaderDev superseding repair relocation") &&
 				runner.contains("ReaderDev superseding repair texture preparation") &&
@@ -604,7 +604,7 @@ class ReaderDevEnvironmentContractTest {
 		assertTrue(
 			runner.contains("function Wait-ReaderQaPreparedTextureGeneration") &&
 				visualFault.contains(
-					"-TextureGeneration \$visualTurn.TextureGeneration"
+					"-TextureGeneration \$visualRelocation.Match.TextureGeneration"
 				) &&
 				visualFault.contains(
 					"-Context 'ReaderDev visual promoted texture preparation'"
@@ -619,7 +619,7 @@ class ReaderDevEnvironmentContractTest {
 		assertTrue(
 			supersededRepair.contains("Wait-ReaderQaPreparedTextureGeneration") &&
 				supersededRepair.contains(
-					"-TextureGeneration \$repairTurn.TextureGeneration"
+					"-TextureGeneration \$repairRelocation.Match.TextureGeneration"
 				),
 			"A superseded synthetic repair must recover through the exact promoted texture generation prepared by the normal turn."
 		)
