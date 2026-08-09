@@ -672,8 +672,14 @@ internal class ReaderPageRasterBatchController(
 		}
 		requestVisualRestoration(
 			webView = session.webView,
-			javascript = "window.NavicReaderBridge?.cancelPageTurnPreviewBatch?.(" +
-				"${JSONObject.quote(session.token)}, ${session.mutationGeneration.value})",
+			javascript = "(() => {" +
+				"const bridge = window.NavicReaderBridge;" +
+				"const cancelled = bridge?.cancelPageTurnPreviewBatch?.(" +
+				"${JSONObject.quote(session.token)}, ${session.mutationGeneration.value});" +
+				"const restored = bridge?.restorePageTurnLiveComposition?.('', " +
+				"${session.mutationGeneration.value});" +
+				"return cancelled === true || restored === true;" +
+				"})()",
 			onRestorationFinished = { result ->
 				if (pendingCancellationRestoration === pending) {
 					pendingCancellationRestoration = null

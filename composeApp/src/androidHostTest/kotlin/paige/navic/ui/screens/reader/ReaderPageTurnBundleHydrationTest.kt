@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -1289,6 +1290,126 @@ class ReaderPageTurnBundleHydrationTest {
 	}
 
 	@Test
+	fun cancellingBatchRestoresTheCurrentGenerationWhenItsExactTokenIsAlreadyGone() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val mutationGeneration = ReaderForegroundWebViewMutationGeneration(73L)
+		val webView = MissingBatchRestorationWebView(
+			context = activity.get(),
+			expectedToken = "navic-page-raster-batch-1",
+			requestedMutationGeneration = mutationGeneration,
+			currentMutationGeneration = mutationGeneration
+		)
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = FakeDescriptorPort(mutableListOf(), automatic = false),
+			hydrationStorePort = FakeHydrationStore(mutableListOf(), setOf(14))
+		)
+		val controller = ReaderPageRasterBatchController(source)
+		val reference = referenceSnapshot()
+		val restorations = mutableListOf<ReaderPageRasterCancellationRestoration>()
+		try {
+			reference.retain()
+			assertTrue(
+				controller.start(
+					webView = webView,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					reference = reference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = 14,
+							priority = ReaderPageRasterPriority.Current
+						)
+					),
+					mutationGeneration = mutationGeneration,
+					onStagingStarted = { _, onPresented -> onPresented(true) },
+					onComplete = {}
+				)
+			)
+
+			controller.cancel(restorations::add)
+
+			assertTrue(webView.observedExactRestorationScript)
+			assertTrue(webView.hasPendingVisualState)
+			assertTrue(restorations.isEmpty())
+
+			webView.completeVisualState()
+
+			assertTrue(restorations.isEmpty())
+			Shadows.shadowOf(Looper.getMainLooper()).idle()
+			assertEquals(
+				listOf(ReaderPageRasterCancellationRestoration.Restored),
+				restorations
+			)
+		} finally {
+			webView.completeVisualStateIfPending()
+			Shadows.shadowOf(Looper.getMainLooper()).idle()
+			controller.cancel()
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun staleMutationGenerationCannotUseMissingBatchRestorationFallback() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val mutationGeneration = ReaderForegroundWebViewMutationGeneration(73L)
+		val webView = MissingBatchRestorationWebView(
+			context = activity.get(),
+			expectedToken = "navic-page-raster-batch-1",
+			requestedMutationGeneration = mutationGeneration,
+			currentMutationGeneration = ReaderForegroundWebViewMutationGeneration(74L)
+		)
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = FakeDescriptorPort(mutableListOf(), automatic = false),
+			hydrationStorePort = FakeHydrationStore(mutableListOf(), setOf(14))
+		)
+		val controller = ReaderPageRasterBatchController(source)
+		val reference = referenceSnapshot()
+		val restorations = mutableListOf<ReaderPageRasterCancellationRestoration>()
+		try {
+			reference.retain()
+			assertTrue(
+				controller.start(
+					webView = webView,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					reference = reference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = 14,
+							priority = ReaderPageRasterPriority.Current
+						)
+					),
+					mutationGeneration = mutationGeneration,
+					onStagingStarted = { _, onPresented -> onPresented(true) },
+					onComplete = {}
+				)
+			)
+
+			controller.cancel(restorations::add)
+
+			assertTrue(webView.observedExactRestorationScript)
+			assertFalse(webView.hasPendingVisualState)
+			assertEquals(
+				listOf(ReaderPageRasterCancellationRestoration.TimedOut),
+				restorations
+			)
+		} finally {
+			controller.cancel()
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun repeatedBatchCancellationJoinsTheOriginalRestorationTerminal() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activity = Robolectric.buildActivity(Activity::class.java).setup()
@@ -1825,6 +1946,62 @@ class ReaderPageTurnBundleHydrationTest {
 			reference.releaseCacheOwnership()
 			activity.destroy()
 			Dispatchers.resetMain()
+		}
+	}
+
+	private class MissingBatchRestorationWebView(
+		context: Context,
+		private val expectedToken: String,
+		private val requestedMutationGeneration: ReaderForegroundWebViewMutationGeneration,
+		private val currentMutationGeneration: ReaderForegroundWebViewMutationGeneration
+	) : WebView(context) {
+		private var visualStateCallback: Pair<Long, VisualStateCallback>? = null
+
+		var observedExactRestorationScript: Boolean = false
+			private set
+
+		val hasPendingVisualState: Boolean
+			get() = visualStateCallback != null
+
+		override fun evaluateJavascript(
+			script: String,
+			resultCallback: ValueCallback<String>?
+		) {
+			val generation = requestedMutationGeneration.value
+			val expectedScript = "(() => {" +
+				"const bridge = window.NavicReaderBridge;" +
+				"const cancelled = bridge?.cancelPageTurnPreviewBatch?.(" +
+				"${JSONObject.quote(expectedToken)}, $generation);" +
+				"const restored = bridge?.restorePageTurnLiveComposition?.('', " +
+				"$generation);" +
+				"return cancelled === true || restored === true;" +
+				"})()"
+			observedExactRestorationScript = script == expectedScript
+			val exactCancellationRestored = false
+			val generationBoundFallbackRestored =
+				observedExactRestorationScript &&
+					requestedMutationGeneration == currentMutationGeneration
+			resultCallback?.onReceiveValue(
+				(exactCancellationRestored || generationBoundFallbackRestored).toString()
+			)
+		}
+
+		override fun postVisualStateCallback(
+			requestId: Long,
+			callback: VisualStateCallback
+		) {
+			check(visualStateCallback == null)
+			visualStateCallback = requestId to callback
+		}
+
+		fun completeVisualState() {
+			val (requestId, callback) = checkNotNull(visualStateCallback)
+			visualStateCallback = null
+			callback.onComplete(requestId)
+		}
+
+		fun completeVisualStateIfPending() {
+			if (visualStateCallback != null) completeVisualState()
 		}
 	}
 
