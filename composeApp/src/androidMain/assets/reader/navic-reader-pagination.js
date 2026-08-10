@@ -47,6 +47,10 @@ import {
   readerThemePalette
 } from './navic-reader-settings.js'
 import {
+  normalizedReaderPdfFitMode,
+  normalizedReaderPdfPageGapPercent,
+} from './navic-reader-viewport.js'
+import {
   readerRoot,
   overlayClass,
   ReaderThemePalettes,
@@ -412,22 +416,12 @@ function readerPaginationContentKey() {
   return stableHash(sectionTokens.join('|'))
 }
 
-function readerPaginationRenderMetadata() {
-  const viewport = readerViewportSize()
-  const settings = this.readerSettings || {}
-  const width = Number(viewport.width)
-  const height = Number(viewport.height)
-  const adaptivePageBox = readerAdaptiveFoliatePageBox({ width, height }, settings)
+function readerPaginationSettingsMetadata(settings = {}) {
+  const fontSource = readerFontSource(settings)
+  const publisherStyles = settings.publisherStyles === true
   return {
-    publicationKey: this.publicationUrl,
-    contentKey: this.readerPaginationContentKey(),
-    viewportWidth: width,
-    viewportHeight: height,
-    deviceScaleFactor: window.devicePixelRatio || 1,
-    orientation: width >= height ? 'landscape' : 'portrait',
-    spreadMode: width >= height ? 'dual' : 'single',
-    flowMode: this.readerFlowModeValue || readerFlowMode(settings),
-    fontSource: readerFontSource(settings),
+    flowMode: readerFlowMode(settings),
+    fontSource,
     fontFamily: readerEffectiveFontFamily(settings),
     customFontFamily: settings.customFontFamily || '',
     customFontUrl: settings.customFontUrl || '',
@@ -445,9 +439,36 @@ function readerPaginationRenderMetadata() {
     headingFontSize: settings.headingFontSize ?? 1,
     maxColumnCount: readerMaxColumnCountValue(settings),
     columnThreshold: readerColumnThresholdValue(settings),
+    publisherStyles,
+    publisherCss: publisherStyles || fontSource === ReaderFontSourcePublisher ? 'publisher' : 'navic',
+    direction: readerDirectionMode(settings),
+    pdfFitMode: normalizedReaderPdfFitMode(settings.pdfFitMode),
+    pdfCropBorders: settings.pdfCropBorders === true,
+    pdfPageGapPercent: normalizedReaderPdfPageGapPercent(settings.pdfPageGapPercent),
+  }
+}
+
+function readerSettingsRequirePaginationReplacement(currentSettings = {}, nextSettings = {}) {
+  return JSON.stringify(readerPaginationSettingsMetadata(currentSettings)) !==
+    JSON.stringify(readerPaginationSettingsMetadata(nextSettings))
+}
+
+function readerPaginationRenderMetadata() {
+  const viewport = readerViewportSize()
+  const settings = this.readerSettings || {}
+  const width = Number(viewport.width)
+  const height = Number(viewport.height)
+  const adaptivePageBox = readerAdaptiveFoliatePageBox({ width, height }, settings)
+  return {
+    publicationKey: this.publicationUrl,
+    contentKey: this.readerPaginationContentKey(),
+    viewportWidth: width,
+    viewportHeight: height,
+    deviceScaleFactor: window.devicePixelRatio || 1,
+    orientation: width >= height ? 'landscape' : 'portrait',
+    spreadMode: width >= height ? 'dual' : 'single',
+    ...this.readerPaginationSettingsMetadata(settings),
     adaptivePageBox,
-    publisherCss: readerFontSource(settings) === ReaderFontSourcePublisher ? 'publisher' : 'navic',
-    direction: this.readerDirectionModeValue || readerDirectionMode(settings),
     runtimeVersion: 'navic-reader-pagination-profile-3',
   }
 }
@@ -1467,6 +1488,8 @@ export const NavicReaderPaginationMethods = {
   readerPaginationSectionHref,
   readerPaginationSectionTitle,
   readerPaginationContentKey,
+  readerPaginationSettingsMetadata,
+  readerSettingsRequirePaginationReplacement,
   readerPaginationRenderMetadata,
   readerPaginationRenderFingerprint,
   readerPaginationCacheKey,

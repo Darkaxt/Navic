@@ -40,9 +40,11 @@ import paige.navic.reader.ReaderWebCommandDispatchState
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.commandsForReadyReaderRuntime
 import paige.navic.reader.readerManagedStorageRoot
+import paige.navic.reader.readerPageRasterSnapshotKey
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 private const val ReaderEngineWebViewHostTag = "ReaderEngineWebViewHost"
@@ -86,6 +88,7 @@ internal object ReaderEngineLogProjector {
 		when (this) {
 			ReaderBridgeEvent.Ready -> "ready"
 			is ReaderBridgeEvent.CommandAcknowledged -> "commandAck"
+			is ReaderBridgeEvent.CommandFailed -> "commandFailed"
 			ReaderBridgeEvent.PublicationReady -> "publicationReady"
 			ReaderBridgeEvent.CenterTap -> "readerCenterTap"
 			is ReaderBridgeEvent.ContentTapHandled -> "contentTapHandled"
@@ -124,6 +127,12 @@ private class ReaderEngineWebView(context: Context) : WebView(context) {
 		windowVisibilityListener?.invoke(visibility)
 	}
 }
+
+private class ActiveReaderSettingsWebViewMutation(
+	val commandId: String,
+	val runtimeGeneration: Int,
+	val mutation: ReaderSettingsWebViewMutation
+)
 
 private object ReaderWebViewReleaseQueue {
 	private val handler = Handler(Looper.getMainLooper())
@@ -222,6 +231,11 @@ actual fun ReaderEngineWebViewHost(
 	var webView by remember { mutableStateOf<WebView?>(null) }
 	var webViewGeneration by remember { mutableStateOf(0) }
 	var commandDispatchState by remember { mutableStateOf(ReaderWebCommandDispatchState()) }
+	val settingsMutationRequestSequence = remember { AtomicLong(0L) }
+	val settingsVisualStateSequence = remember { AtomicLong(0L) }
+	val activeSettingsMutation = remember {
+		AtomicReference<ActiveReaderSettingsWebViewMutation?>(null)
+	}
 	var readerRuntimeReady by remember { mutableStateOf(false) }
 	val runtimeRecovery = remember { ReaderEngineRuntimeRecovery() }
 
@@ -237,6 +251,74 @@ actual fun ReaderEngineWebViewHost(
 			"Restarting interrupted reader runtime after window visibility restored"
 		)
 		webViewGeneration += 1
+	}
+
+	fun cancelActiveSettingsMutation(runtimeGeneration: Int? = null) {
+		while (true) {
+			val active = activeSettingsMutation.get() ?: return
+			if (
+				runtimeGeneration != null &&
+				active.runtimeGeneration != runtimeGeneration
+			) return
+			if (activeSettingsMutation.compareAndSet(active, null)) {
+				active.mutation.cancel()
+				return
+			}
+		}
+	}
+
+	fun WebView.dispatchSettingsCommand(
+		dispatch: ReaderBridgeDispatchCommand
+	) {
+		val targetView = this
+		val expectedGeneration = webViewGeneration
+		val ownershipHost = findReaderSettingsWebViewMutationHost()
+		if (ownershipHost == null) {
+			Logger.w(
+				ReaderEngineWebViewHostTag,
+				"Reader settings mutation has no foreground ownership host"
+			)
+			return
+		}
+		val requestId = settingsMutationRequestSequence.incrementAndGet()
+		ownershipHost.acquireSettingsMutation(requestId) { readiness ->
+			when (readiness) {
+				is ReaderSettingsWebViewMutationReadiness.Ready -> {
+					if (
+						expectedGeneration != webViewGeneration ||
+						webView !== targetView ||
+						commandDispatchState.acknowledgedCommand(dispatch.id) !=
+							dispatch.command
+					) {
+						readiness.mutation.cancel()
+						return@acquireSettingsMutation
+					}
+					val active = ActiveReaderSettingsWebViewMutation(
+						commandId = dispatch.id,
+						runtimeGeneration = expectedGeneration,
+						mutation = readiness.mutation
+					)
+					if (!activeSettingsMutation.compareAndSet(null, active)) {
+						readiness.mutation.cancel()
+						return@acquireSettingsMutation
+					}
+					Logger.i(
+						ReaderEngineWebViewHostTag,
+						ReaderEngineLogProjector.command(dispatch)
+					)
+					evaluateJavascript(
+						ReaderWebRuntime.commandScript(dispatch),
+						null
+					)
+				}
+				is ReaderSettingsWebViewMutationReadiness.Rejected -> {
+					Logger.w(
+						ReaderEngineWebViewHostTag,
+						"Reader settings mutation foreground ownership was rejected"
+					)
+				}
+			}
+		}
 	}
 
 	fun WebView.dispatchReadyReaderCommands() {
@@ -263,12 +345,64 @@ actual fun ReaderEngineWebViewHost(
 		)
 		commandDispatchState = step.state
 		step.commands.forEach { dispatch ->
-			Logger.i(
-				ReaderEngineWebViewHostTag,
-				ReaderEngineLogProjector.command(dispatch)
-			)
-			evaluateJavascript(ReaderWebRuntime.commandScript(dispatch), null)
+			if (dispatch.command is ReaderBridgeCommand.ApplySettings) {
+				dispatchSettingsCommand(dispatch)
+			} else {
+				Logger.i(
+					ReaderEngineWebViewHostTag,
+					ReaderEngineLogProjector.command(dispatch)
+				)
+				evaluateJavascript(
+					ReaderWebRuntime.commandScript(dispatch),
+					null
+				)
+			}
 		}
+	}
+
+	fun WebView.commitSettingsPresentation(
+		settings: ReaderSettings,
+		active: ActiveReaderSettingsWebViewMutation
+	) {
+		val sequence = settingsVisualStateSequence.incrementAndGet()
+		val expectedGeneration = webViewGeneration
+		val targetView = this
+		postVisualStateCallback(
+			sequence,
+			object : WebView.VisualStateCallback() {
+				override fun onComplete(requestId: Long) {
+					val mutation = active.mutation
+					if (
+						settingsVisualStateSequence.get() != sequence ||
+						expectedGeneration != webViewGeneration ||
+						webView !== targetView ||
+						activeSettingsMutation.get() !== active ||
+						!mutation.isCurrent()
+					) {
+						if (activeSettingsMutation.compareAndSet(active, null)) {
+							mutation.cancel()
+						}
+						return
+					}
+					val snapshotKey = settings.readerPageRasterSnapshotKey()
+					if (
+						!activeSettingsMutation.compareAndSet(active, null) ||
+						!mutation.commit(snapshotKey)
+					) {
+						mutation.cancel()
+						return
+					}
+					commandDispatchState =
+						commandDispatchState.acknowledge(active.commandId)
+					currentOnEvent(
+						ReaderEngineHostEvent.SettingsPresentationCommitted(
+							snapshotKey
+						)
+					)
+					dispatchReadyReaderCommands()
+				}
+			}
+		)
 	}
 
 	fun handleReaderBridgeEvent(event: ReaderBridgeEvent) {
@@ -280,8 +414,40 @@ actual fun ReaderEngineWebViewHost(
 				webView?.dispatchReadyReaderCommands()
 			}
 			is ReaderBridgeEvent.CommandAcknowledged -> {
-				commandDispatchState = commandDispatchState.acknowledge(event.commandId)
-				webView?.dispatchReadyReaderCommands()
+				val acknowledged = commandDispatchState.acknowledgedCommand(event.commandId)
+				val targetView = webView
+				if (acknowledged is ReaderBridgeCommand.ApplySettings) {
+					val active = activeSettingsMutation.get()
+						?.takeIf { it.commandId == event.commandId }
+					if (targetView != null && active != null) {
+						targetView.commitSettingsPresentation(
+							acknowledged.settings,
+							active
+						)
+					}
+				} else {
+					commandDispatchState =
+						commandDispatchState.acknowledge(event.commandId)
+					targetView?.dispatchReadyReaderCommands()
+				}
+				return
+			}
+			is ReaderBridgeEvent.CommandFailed -> {
+				val failed = commandDispatchState.acknowledgedCommand(event.commandId)
+					?: return
+				if (failed is ReaderBridgeCommand.ApplySettings) {
+					val active = activeSettingsMutation.get()
+						?.takeIf { it.commandId == event.commandId }
+					if (
+						active != null &&
+						activeSettingsMutation.compareAndSet(active, null)
+					) {
+						active.mutation.cancel()
+					}
+				}
+				runtimeRecovery.reset()
+				readerRuntimeReady = false
+				if (webView != null) webViewGeneration += 1
 				return
 			}
 			is ReaderBridgeEvent.LocationChanged -> {
@@ -316,6 +482,7 @@ actual fun ReaderEngineWebViewHost(
 		val retireGeneration: () -> Boolean = {
 			if (generationDisposed.compareAndSet(false, true)) {
 				bridge.deactivate()
+				cancelActiveSettingsMutation(generation)
 				true
 			} else {
 				false
@@ -493,6 +660,16 @@ actual fun ReaderEngineWebViewHost(
 			}
 		)
 	}
+}
+
+private fun View.findReaderSettingsWebViewMutationHost():
+	ReaderSettingsWebViewMutationHost? {
+	var candidate: View? = this
+	while (candidate != null) {
+		if (candidate is ReaderSettingsWebViewMutationHost) return candidate
+		candidate = candidate.parent as? View
+	}
+	return null
 }
 
 private fun ReaderEngineHostCommand?.toReaderBridgeCommandWithEngineNativeTapZones(): ReaderBridgeCommand? =

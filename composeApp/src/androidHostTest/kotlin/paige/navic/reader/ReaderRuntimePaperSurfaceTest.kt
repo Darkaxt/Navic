@@ -621,7 +621,7 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringAfter("export const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings, scrollOffset = null) =>")
 			.substringBefore("\n\nexport const updateReaderSurfaceBorderOverlayLayer")
 		val applySettings = bridgeText
-			.substringAfter("applySettings(settings) {")
+			.substringAfter("applySettings(settings, forcePaginationReplacement = false) {")
 			.substringBefore("\n  applyThemeToLoadedContent")
 		val onLoad = bridgeText
 			.substringAfter("onLoad(detail = {}) {")

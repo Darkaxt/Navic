@@ -458,7 +458,7 @@ class ReaderRuntimeImageLinkTest {
 	fun androidReaderSettingsDoNotQueryPaginationBeforeEpubFrameExists() {
 		val bridgeText = readerBridgeText()
 		val applySettings = bridgeText
-			.substringAfter("applySettings(settings) {")
+			.substringAfter("applySettings(settings, forcePaginationReplacement = false) {")
 			.substringBefore("\n  applyThemeToLoadedContent")
 
 		assertFalse(

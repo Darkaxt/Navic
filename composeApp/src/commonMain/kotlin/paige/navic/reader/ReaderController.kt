@@ -54,6 +54,8 @@ data class ReaderController(
 					selection = null,
 					selectionNoteDraft = null,
 					paginationProfile = ReaderPaginationProfileStatus(),
+					readerSettingsPresentationSnapshotKey =
+						normalizedRequest.settings.readerPageRasterSnapshotKey(),
 					foliateSessionId = null,
 					pageTurnSettlementAck = null,
 					whispersync = ReaderWhispersyncSessionState(),
@@ -110,6 +112,13 @@ data class ReaderController(
 			)
 			is ReaderEngineEvent.PaginationProfileStatusChanged -> ReaderControllerStep(
 				copy(state = state.copy(paginationProfile = event.profile))
+			)
+			is ReaderEngineEvent.SettingsPresentationCommitted -> ReaderControllerStep(
+				copy(
+					state = state.copy(
+						readerSettingsPresentationSnapshotKey = event.snapshotKey
+					)
+				)
 			)
 			is ReaderEngineEvent.ContentActionClaimed -> ReaderControllerStep(
 				copy(state = state.copy(lastContentActionClaim = event.claim))
@@ -424,22 +433,22 @@ data class ReaderController(
 	fun applySettings(settings: ReaderSettings): ReaderControllerStep {
 		val normalized = settings.normalizedReaderSettings()
 		val current = state.chrome.settings
-		val whispersyncLeadOnly =
-			current.whispersyncHighlightLeadMs != normalized.whispersyncHighlightLeadMs &&
-				current.copy(
-					whispersyncHighlightLeadMs = normalized.whispersyncHighlightLeadMs
-				) == normalized
+		val requiresEngineApply =
+			current.readerEngineSettingsProjection() != normalized.readerEngineSettingsProjection()
 		return ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
 					chrome = state.chrome.copy(settings = normalized),
+					readerSettingsPresentationSnapshotKey =
+						state.readerSettingsPresentationSnapshotKey
+							?: current.readerPageRasterSnapshotKey(),
 					nativeShellCoverReturnLocatorKey = null
 				)
 			),
-			engineCommands = if (whispersyncLeadOnly) {
-				emptyList()
-			} else {
+			engineCommands = if (requiresEngineApply) {
 				listOf(ReaderEngineCommand.ApplySettings(normalized))
+			} else {
+				emptyList()
 			}
 		)
 	}

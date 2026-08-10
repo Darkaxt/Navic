@@ -1684,13 +1684,64 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun paginationReplacementUsesOnlyLayoutInputs() {
+		val pagination = readerAssetRoot().resolve("navic-reader-pagination.js").readText()
+		val settingsMetadata = pagination
+			.substringAfter("function readerPaginationSettingsMetadata(settings = {}) {")
+			.substringBefore("\nfunction readerSettingsRequirePaginationReplacement")
+		val requiredInputs = listOf(
+			"flowMode",
+			"fontSource",
+			"fontFamily",
+			"customFontFamily",
+			"customFontUrl",
+			"fontSizePercent",
+			"lineHeight",
+			"paragraphSpacingPercent",
+			"marginPercent",
+			"fontWeight",
+			"letterSpacing",
+			"wordSpacing",
+			"sideMargin",
+			"topMargin",
+			"bottomMargin",
+			"indent",
+			"headingFontSize",
+			"maxColumnCount",
+			"columnThreshold",
+			"publisherStyles",
+			"direction",
+			"pdfFitMode",
+			"pdfCropBorders",
+			"pdfPageGapPercent"
+		)
+
+		requiredInputs.forEach { input -> assertContains(settingsMetadata, input) }
+		listOf(
+			"theme",
+			"paperTextureEnabled",
+			"tapZone",
+			"whispersyncHighlightColorArgb"
+		).forEach { input ->
+			assertFalse(
+				settingsMetadata.contains(input),
+				"$input changes presentation but must not replace Foliate pagination."
+			)
+		}
+		assertContains(
+			pagination,
+			"...this.readerPaginationSettingsMetadata(settings)"
+		)
+	}
+
+	@Test
 	fun paginationProfileTasksInvalidateBeforeLifecycleFingerprintChanges() {
 		val root = readerAssetRoot()
 		val appearance = root.resolve("navic-reader-appearance.js").readText()
 		val viewport = root.resolve("navic-reader-viewport.js").readText()
 		val runtime = root.resolve("navic-reader.js").readText()
 		val settings = appearance
-			.substringAfter("function applySettings(settings) {")
+			.substringAfter("function applySettings(settings, forcePaginationReplacement = false) {")
 			.substringBefore("function applyThemeToLoadedContent(")
 		val resize = viewport
 			.substringAfter("function applyReaderViewportLayout(label = 'unknown', options = {}) {")

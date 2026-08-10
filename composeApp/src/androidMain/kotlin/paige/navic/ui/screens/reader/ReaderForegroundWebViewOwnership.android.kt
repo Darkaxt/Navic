@@ -40,6 +40,7 @@ internal class ReaderForegroundWebViewOwnership(
 ) {
 	private data class LiveClaimState(
 		val claim: ReaderForegroundWebViewLiveClaim,
+		val blockedByExclusiveClaim: Boolean,
 		var terminal: ReaderForegroundWebViewLiveReadiness?,
 		val callbacks: MutableList<(ReaderForegroundWebViewLiveReadiness) -> Unit> =
 			mutableListOf()
@@ -63,6 +64,7 @@ internal class ReaderForegroundWebViewOwnership(
 	private val liveClaims = linkedMapOf<Long, LiveClaimState>()
 	private val retiredClaimTerminals =
 		linkedMapOf<Long, RetiredClaimTerminal>()
+	private var exclusiveClaimId: Long? = null
 	private var currentMutationClaimId: Long? = null
 	private var passiveAvailabilityVersion = 0L
 	private var closed = false
@@ -97,23 +99,47 @@ internal class ReaderForegroundWebViewOwnership(
 		return lease
 	}
 
-	fun acquireLive(gestureId: Long): ReaderForegroundWebViewLiveClaim {
+	fun acquireLive(gestureId: Long): ReaderForegroundWebViewLiveClaim =
+		acquireLive(gestureId, exclusive = false)
+
+	fun acquireExclusiveLive(
+		requestId: Long
+	): ReaderForegroundWebViewLiveClaim =
+		acquireLive(requestId, exclusive = true)
+
+	private fun acquireLive(
+		gestureId: Long,
+		exclusive: Boolean
+	): ReaderForegroundWebViewLiveClaim {
 		check(!closed) { "Foreground WebView ownership is closed" }
+		if (exclusive) {
+			check(exclusiveClaimId == null) {
+				"Foreground WebView exclusive claim already exists"
+			}
+		}
 		val claimId = nextPositiveId(nextClaimId)
 		nextClaimId = claimId
 		val claim = ReaderForegroundWebViewLiveClaim(
 			claimId = claimId,
 			gestureId = gestureId
 		)
-		val waitsForRestoration = restorationLeaseId != null || passiveLease != null
+		val blockedByExclusiveClaim = !exclusive && exclusiveClaimId != null
+		val waitsForExistingLiveClaim = exclusive && liveClaims.isNotEmpty()
+		val waitsForReadiness =
+			restorationLeaseId != null ||
+				passiveLease != null ||
+				blockedByExclusiveClaim ||
+				waitsForExistingLiveClaim
 		liveClaims[claimId] = LiveClaimState(
 			claim = claim,
-			terminal = if (waitsForRestoration) {
+			blockedByExclusiveClaim = blockedByExclusiveClaim,
+			terminal = if (waitsForReadiness) {
 				null
 			} else {
 				ReaderForegroundWebViewLiveReadiness.Ready
 			}
 		)
+		if (exclusive) exclusiveClaimId = claimId
 
 		val preemptedLease = passiveLease ?: return claim
 		val preemption = checkNotNull(cancelAndRestore)
@@ -202,6 +228,9 @@ internal class ReaderForegroundWebViewOwnership(
 		val state = liveClaims[claim.claimId]
 		if (state?.claim != claim) return false
 		liveClaims.remove(claim.claimId)
+		if (exclusiveClaimId == claim.claimId) {
+			exclusiveClaimId = null
+		}
 		if (currentMutationClaimId == claim.claimId) {
 			currentMutationClaimId = null
 		}
@@ -209,6 +238,7 @@ internal class ReaderForegroundWebViewOwnership(
 		if (state.terminal == null) {
 			deliver(state, ReaderForegroundWebViewLiveReadiness.Invalidated)
 		}
+		publishReadyClaims()
 		if (
 			canAcquirePassive() &&
 			passiveAvailabilityVersion == availabilityVersionBeforeCallbacks
@@ -232,6 +262,7 @@ internal class ReaderForegroundWebViewOwnership(
 		passiveLease = null
 		cancelAndRestore = null
 		restorationLeaseId = null
+		exclusiveClaimId = null
 		currentMutationClaimId = null
 		val invalidatedClaims = liveClaims.values.toList()
 		liveClaims.clear()
@@ -254,13 +285,12 @@ internal class ReaderForegroundWebViewOwnership(
 				publishPassiveAvailable()
 				return
 			}
-			liveClaims.values.toList().forEach { state ->
-				deliver(state, ReaderForegroundWebViewLiveReadiness.Ready)
-			}
+			publishReadyClaims()
 			return
 		}
 
 		currentMutationClaimId = null
+		exclusiveClaimId = null
 		val failedClaims = liveClaims.values.toList()
 		liveClaims.clear()
 		val terminal = ReaderForegroundWebViewLiveReadiness.Failed(restoration)
@@ -284,6 +314,32 @@ internal class ReaderForegroundWebViewOwnership(
 			passiveAvailabilityVersion == availabilityVersionBeforeCallbacks
 		) {
 			publishPassiveAvailable()
+		}
+	}
+
+	private fun publishReadyClaims() {
+		if (
+			closed ||
+			restorationLeaseId != null ||
+			passiveLease != null
+		) return
+		val exclusiveId = exclusiveClaimId
+		if (exclusiveId != null) {
+			val hasPrecedingClaim = liveClaims.any { (claimId, state) ->
+				claimId != exclusiveId && !state.blockedByExclusiveClaim
+			}
+			if (!hasPrecedingClaim) {
+				liveClaims[exclusiveId]?.let { state ->
+					deliver(
+						state,
+						ReaderForegroundWebViewLiveReadiness.Ready
+					)
+				}
+			}
+			return
+		}
+		liveClaims.values.toList().forEach { state ->
+			deliver(state, ReaderForegroundWebViewLiveReadiness.Ready)
 		}
 	}
 

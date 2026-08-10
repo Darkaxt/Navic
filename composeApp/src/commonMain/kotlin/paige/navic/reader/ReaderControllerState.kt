@@ -61,6 +61,7 @@ data class ReaderControllerState(
 	val bookmarks: ReaderBookmarkState = ReaderBookmarkState(),
 	val readingProgress: ReaderReadingProgressState = ReaderReadingProgressState(),
 	val paginationProfile: ReaderPaginationProfileStatus = ReaderPaginationProfileStatus(),
+	val readerSettingsPresentationSnapshotKey: Int? = null,
 	val foliateSessionId: String? = null,
 	val pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null,
 	val whispersync: ReaderWhispersyncSessionState = ReaderWhispersyncSessionState(),

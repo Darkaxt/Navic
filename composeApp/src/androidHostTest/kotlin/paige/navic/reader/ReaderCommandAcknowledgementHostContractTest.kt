@@ -22,8 +22,8 @@ class ReaderCommandAcknowledgementHostContractTest {
 		assertContains(eventBlock, "commandDispatchState.acknowledge(event.commandId)")
 		assertTrue(
 			eventBlock.indexOf("commandDispatchState.acknowledge(event.commandId)") <
-				eventBlock.indexOf("webView?.dispatchReadyReaderCommands()", eventBlock.indexOf("is ReaderBridgeEvent.CommandAcknowledged")),
-			"Acknowledging one command must immediately dispatch the next pending command."
+				eventBlock.indexOf("targetView?.dispatchReadyReaderCommands()"),
+			"A non-settings acknowledgement must update the ledger before dispatching the next pending command."
 		)
 		assertContains(eventBlock, "ReaderBridgeEvent.Ready")
 		assertContains(eventBlock, "webView?.dispatchReadyReaderCommands()")
@@ -39,6 +39,72 @@ class ReaderCommandAcknowledgementHostContractTest {
 		assertFalse(
 			rendererGoneBlock.contains("commandDispatchState = ReaderWebCommandDispatchState()"),
 			"Renderer loss must retain the ledger so the next generation can replay publication and locator state."
+		)
+	}
+
+	@Test
+	fun settingsCommandAcquiresForegroundOwnershipBeforeJavascriptMutation() {
+		val hostText = readerEngineWebViewHostFile().readText()
+		val settingsDispatch = hostText
+			.substringAfter("fun WebView.dispatchSettingsCommand")
+			.substringBefore("fun WebView.dispatchReadyReaderCommands")
+
+		assertContains(settingsDispatch, "findReaderSettingsWebViewMutationHost()")
+		assertContains(settingsDispatch, "acquireSettingsMutation(")
+		assertContains(settingsDispatch, "ReaderSettingsWebViewMutationReadiness.Ready")
+		assertTrue(
+			settingsDispatch.indexOf("ReaderSettingsWebViewMutationReadiness.Ready") <
+				settingsDispatch.indexOf("evaluateJavascript("),
+			"ApplySettings must wait for foreground ownership and passive restoration before mutating the WebView."
+		)
+	}
+
+	@Test
+	fun failedSettingsCommandCancelsOwnershipAndRestartsTheRuntime() {
+		val hostText = readerEngineWebViewHostFile().readText()
+		val eventBlock = hostText
+			.substringAfter("fun handleReaderBridgeEvent")
+			.substringBefore("val bridge = remember")
+		val runtimeText = readerRuntimeImplementationText()
+		val dispatchBridge = runtimeText
+			.substringAfter("window.NavicReaderBridge = {")
+			.substringBefore("armNativePageTurnSettle")
+
+		assertContains(dispatchBridge, "type: 'commandFailed'")
+		assertContains(eventBlock, "is ReaderBridgeEvent.CommandFailed")
+		assertContains(eventBlock, "active.mutation.cancel()")
+		assertContains(eventBlock, "readerRuntimeReady = false")
+		assertContains(eventBlock, "webViewGeneration += 1")
+	}
+
+	@Test
+	fun settingsAckWaitsForCurrentWebViewVisualStateBeforePublishingRasterKey() {
+		val hostText = readerEngineWebViewHostFile().readText()
+		val eventBlock = hostText
+			.substringAfter("fun handleReaderBridgeEvent")
+			.substringBefore("val bridge = remember")
+		val visualCommit = hostText
+			.substringAfter("fun WebView.commitSettingsPresentation")
+			.substringBefore("fun handleReaderBridgeEvent")
+
+		assertContains(eventBlock, "acknowledgedCommand(event.commandId)")
+		assertContains(eventBlock, "is ReaderBridgeCommand.ApplySettings")
+		assertContains(visualCommit, "postVisualStateCallback")
+		assertContains(visualCommit, "settingsVisualStateSequence")
+		assertContains(visualCommit, "mutation.isCurrent()")
+		assertContains(visualCommit, "mutation.commit(snapshotKey)")
+		assertContains(
+			visualCommit,
+			"commandDispatchState.acknowledge(active.commandId)"
+		)
+		assertContains(
+			visualCommit,
+			"ReaderEngineHostEvent.SettingsPresentationCommitted("
+		)
+		assertTrue(
+			visualCommit.indexOf("postVisualStateCallback") <
+				visualCommit.indexOf("ReaderEngineHostEvent.SettingsPresentationCommitted("),
+			"Raster invalidation must follow the WebView visual-state callback."
 		)
 	}
 }

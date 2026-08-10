@@ -208,42 +208,58 @@ function applyRootReaderFontFaces(settings = this.readerSettings) {
   style.textContent = css
 }
 
-function applySettings(settings) {
-  this.clearPaginationProfileOwnership('settings-change')
-  this.destroyPageTurnPreviewRenderer('settings-change')
-  settings = { ...this.readerSettings, ...settings }
+function applySettings(settings, forcePaginationReplacement = false) {
+  const currentSettings = this.readerSettings || {}
+  settings = { ...currentSettings, ...settings }
+  const requiresPaginationReplacement = forcePaginationReplacement ||
+    this.readerSettingsRequirePaginationReplacement(
+    currentSettings,
+    settings
+  )
+  const themeChanged = currentSettings.theme !== settings.theme
+  if (requiresPaginationReplacement) {
+    this.clearPaginationProfileOwnership('settings-change')
+    this.destroyPageTurnPreviewRenderer('settings-change')
+  }
   this.readerSettings = settings
-  this.reflowableBookPageModel = null
   const rootStyle = document.documentElement.style
   if (typeof settings.tapZone === 'string') this.readerTapZoneMode = settings.tapZone || ReaderTapZoneDefault
   this.smallerTapZone = settings.smallerTapZone === true
   this.nativeTapZones = settings.nativeTapZones === true
-  if (settings.fontSizePercent) rootStyle.setProperty('--reader-font-size', `${settings.fontSizePercent}%`)
-  if (settings.lineHeight) rootStyle.setProperty('--reader-line-height', String(settings.lineHeight))
-  this.applyRootReaderFontFaces(settings)
-  rootStyle.setProperty('--reader-page-number-font-family', this.readerPageNumberFontFamily(settings))
-  rootStyle.setProperty('--reader-paragraph-spacing', readerParagraphSpacingEm(settings))
-  const palette = readerThemePalette(settings.theme)
-  rootStyle.setProperty('--reader-background', palette.background)
-  rootStyle.setProperty('--reader-foreground', palette.foreground)
-  rootStyle.setProperty('--reader-accent', palette.accent)
-  rootStyle.setProperty('--theme-bg-color', palette.background)
-  const flowMode = readerFlowMode(settings)
-  this.readerFlowModeValue = flowMode
-  readerRoot.dataset.navicReaderFlowMode = flowMode
   const dragAnimationMode = readerDragAnimationMode(settings)
   if (this.readerDragAnimationModeValue && this.readerDragAnimationModeValue !== dragAnimationMode) {
     this.removePageDragPreviewLayer?.()
   }
   this.readerDragAnimationModeValue = dragAnimationMode
   readerRoot.dataset.navicReaderDragAnimationMode = dragAnimationMode
-  rootStyle.setProperty('--reader-scroll-gap', flowMode === ReaderFlowScrolledGaps ? '1.25rem' : '0rem')
-  this.view?.renderer?.setAttribute('flow', readerFoliateFlow(flowMode))
-  this.readerDirectionModeValue = readerDirectionMode(settings)
-  this.applyReaderDirection(this.readerDirectionModeValue)
-  this.view?.renderer?.setStyles?.(readerContentCss(settings))
-  this.applyThemeToLoadedContent(settings)
-  this.applyReaderViewportLayout('settings')
+  if (requiresPaginationReplacement) {
+    this.reflowableBookPageModel = null
+    if (settings.fontSizePercent) rootStyle.setProperty('--reader-font-size', `${settings.fontSizePercent}%`)
+    if (settings.lineHeight) rootStyle.setProperty('--reader-line-height', String(settings.lineHeight))
+    this.applyRootReaderFontFaces(settings)
+    rootStyle.setProperty('--reader-page-number-font-family', this.readerPageNumberFontFamily(settings))
+    rootStyle.setProperty('--reader-paragraph-spacing', readerParagraphSpacingEm(settings))
+    const flowMode = readerFlowMode(settings)
+    this.readerFlowModeValue = flowMode
+    readerRoot.dataset.navicReaderFlowMode = flowMode
+    rootStyle.setProperty('--reader-scroll-gap', flowMode === ReaderFlowScrolledGaps ? '1.25rem' : '0rem')
+    this.view?.renderer?.setAttribute('flow', readerFoliateFlow(flowMode))
+    this.readerDirectionModeValue = readerDirectionMode(settings)
+    this.applyReaderDirection(this.readerDirectionModeValue)
+    this.view?.renderer?.setStyles?.(readerContentCss(settings))
+    this.applyThemeToLoadedContent(settings)
+    this.applyReaderViewportLayout('settings')
+  } else {
+    this.refreshPageTurnPreviewPresentation(settings)
+    if (themeChanged) this.applyThemeToLoadedContent(settings)
+  }
+  if (requiresPaginationReplacement || themeChanged) {
+    const palette = readerThemePalette(settings.theme)
+    rootStyle.setProperty('--reader-background', palette.background)
+    rootStyle.setProperty('--reader-foreground', palette.foreground)
+    rootStyle.setProperty('--reader-accent', palette.accent)
+    rootStyle.setProperty('--theme-bg-color', palette.background)
+  }
   this.renderSurfacePaperTextureLayers()
   this.renderTapZoneOverlayLayer()
   if (this.shellCoverVisible && this.shellCoverLayer && this.shellCoverBlobUrl) {
@@ -255,7 +271,9 @@ function applySettings(settings) {
     )
   }
   this.scheduleReaderPageNumberRefresh('settings')
-  this.startCompletePaginationProfileReplacementAfterLayout('settings-change')
+  if (requiresPaginationReplacement) {
+    this.startCompletePaginationProfileReplacementAfterLayout('settings-change')
+  }
 }
 
 function applyThemeToLoadedContent(settings = this.readerSettings) {

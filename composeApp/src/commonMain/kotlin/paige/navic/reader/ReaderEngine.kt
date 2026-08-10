@@ -138,6 +138,10 @@ sealed interface ReaderEngineEvent {
 		val profile: ReaderPaginationProfileStatus
 	) : ReaderEngineEvent
 
+	data class SettingsPresentationCommitted(
+		val snapshotKey: Int
+	) : ReaderEngineEvent
+
 	data class ContentActionClaimed(val claim: ReaderContentActionClaim) : ReaderEngineEvent {
 		constructor(action: ReaderContentAction) : this(ReaderContentActionClaim(action = action))
 		val action: ReaderContentAction

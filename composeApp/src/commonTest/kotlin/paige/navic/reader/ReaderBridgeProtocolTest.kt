@@ -64,6 +64,24 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun commandFailureDecodesOnlyWithNonBlankStableId() {
+		val decoded = decodeReaderBridgeMessage(
+			"""{"type":"commandFailed","commandId":"reader-command-1-7"}"""
+		)
+
+		assertEquals(
+			ReaderBridgeDecodeResult.Decoded(
+				ReaderBridgeEvent.CommandFailed("reader-command-1-7")
+			),
+			decoded
+		)
+		val rejected = assertIs<ReaderBridgeDecodeResult.Rejected>(
+			decodeReaderBridgeMessage("""{"type":"commandFailed"}""")
+		)
+		assertEquals(ReaderBridgeDecodeFailure.InvalidPayload, rejected.failure)
+	}
+
+	@Test
 	fun openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge() {
 		val script = ReaderBridgeCommand.OpenPublication(
 			url = "https://bindery.local/opds/books/3693/resources/readaloud-1?title=\"Alcatraz\"",

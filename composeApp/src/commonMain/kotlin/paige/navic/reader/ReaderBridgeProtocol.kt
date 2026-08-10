@@ -612,6 +612,7 @@ data class ReaderBridgeDispatchCommand(
 sealed interface ReaderBridgeEvent {
 	data object Ready : ReaderBridgeEvent
 	data class CommandAcknowledged(val commandId: String) : ReaderBridgeEvent
+	data class CommandFailed(val commandId: String) : ReaderBridgeEvent
 	data object PublicationReady : ReaderBridgeEvent
 	data object CenterTap : ReaderBridgeEvent
 	data class ContentTapHandled(
@@ -786,6 +787,7 @@ private val ReaderCanonicalSha256 = Regex("sha256:[0-9a-f]{64}")
 private val ReaderBridgeEventTypes = setOf(
 	"ready",
 	"commandAck",
+	"commandFailed",
 	"publicationReady",
 	"readerCenterTap",
 	"readerContentTapHandled",
@@ -858,6 +860,9 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 			"commandAck" -> json.stringValue("commandId")
 				?.takeIf { it.isNotBlank() }
 				?.let(ReaderBridgeEvent::CommandAcknowledged)
+			"commandFailed" -> json.stringValue("commandId")
+				?.takeIf { it.isNotBlank() }
+				?.let(ReaderBridgeEvent::CommandFailed)
 			"publicationReady" -> ReaderBridgeEvent.PublicationReady
 			"readerCenterTap" -> ReaderBridgeEvent.CenterTap
 			"readerContentTapHandled" -> ReaderBridgeEvent.ContentTapHandled(json.toContentActionClaim())

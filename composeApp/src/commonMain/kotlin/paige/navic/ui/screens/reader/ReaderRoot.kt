@@ -38,6 +38,7 @@ import paige.navic.reader.ReaderWhispersyncPlaybackControlState
 import paige.navic.reader.normalizedReaderFlowMode
 import paige.navic.reader.normalizedReaderDragAnimationMode
 import paige.navic.reader.readerWhispersyncPlaybackControlState
+import paige.navic.reader.readerPageRasterSnapshotKey
 import paige.navic.reader.readerPageTurnContentReadyKey
 import paige.navic.reader.supportsReaderEngineCapability
 import paige.navic.ui.navigation.Screen
@@ -145,7 +146,8 @@ internal fun KomikkuReaderRoot(
 					ReaderDragAnimationCanvas,
 			pageTurnReadingDirection = controllerState.chrome.settings.direction,
 			pageTurnBitmapQuality = controllerState.chrome.settings.pageBitmapQuality,
-			pageTurnSnapshotKey = controllerState.chrome.settings.hashCode(),
+			pageTurnSnapshotKey = controllerState.readerSettingsPresentationSnapshotKey
+				?: controllerState.chrome.settings.readerPageRasterSnapshotKey(),
 			pageTurnContentReadyKey = readerPageTurnContentReadyKey(
 				controllerState.paginationProfile
 			),

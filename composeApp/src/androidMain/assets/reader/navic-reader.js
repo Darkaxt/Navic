@@ -478,7 +478,7 @@ class NavicReaderRuntime {
       this.view.addEventListener('create-overlay', event => this.onOverlayCreated(event.detail || {}))
       this.view.history?.addEventListener?.('index-change', () => this.postNavigationState('history-index-change'))
       readerRoot.replaceChildren(this.view)
-      if (settings) this.applySettings(settings)
+      if (settings) this.applySettings(settings, true)
       this.applyReaderViewportLayout('view-created')
       await this.view.open(url)
       this.attachLiveTextPageCommitInvalidationListener()
@@ -1514,6 +1514,7 @@ window.NavicReaderBridge = {
     try {
       result = runtime.dispatch(command)
     } catch (error) {
+      if (commandId) post({ type: 'commandFailed', commandId })
       if (settleToken) runtime.nativePageTurnSettledToken = settleToken
       throw error
     }
@@ -1524,6 +1525,10 @@ window.NavicReaderBridge = {
           post({ type: 'commandAck', commandId })
         }
         return value
+      })
+      .catch(error => {
+        if (commandId) post({ type: 'commandFailed', commandId })
+        throw error
       })
       .finally(() => {
         if (settleToken) runtime.nativePageTurnSettledToken = settleToken

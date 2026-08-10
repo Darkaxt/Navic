@@ -6,6 +6,7 @@ sealed interface ReaderEngineHostCommand {
 
 sealed interface ReaderEngineHostEvent {
 	data class FoliateBridge(val event: ReaderBridgeEvent) : ReaderEngineHostEvent
+	data class SettingsPresentationCommitted(val snapshotKey: Int) : ReaderEngineHostEvent
 }
 
 sealed interface ReaderEngineRenderer {

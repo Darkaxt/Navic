@@ -1249,6 +1249,27 @@ function restorePageTurnLiveComposition(
   return true
 }
 
+function refreshPageTurnPreviewPresentation(
+  settings = this.readerSettings
+) {
+  this.pageTurnPreviewGeneration += 1
+  this.restorePageTurnLiveComposition()
+  this.clearPageTurnPreviewPresentationReceipt()
+  this.clearPageTurnLivePresentationTarget()
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewStateValue)
+  forgetPageTurnPreviewCommitment(this.pageTurnPreviewBatchStateValue)
+  this.pageTurnPreviewStateValue = null
+  this.pageTurnPreviewBatchStateValue = null
+  const previewView = this.pageTurnPreviewView
+  const contents = previewView?.renderer?.getContents?.() || []
+  for (const content of contents) {
+    this.applyDocumentTheme(content.doc, settings, content.index)
+  }
+  readerTrace('page-turn-preview:presentation-refreshed', {
+    generation: this.pageTurnPreviewGeneration,
+  })
+}
+
 function destroyPageTurnPreviewRenderer(reason = 'destroy') {
   this.pageTurnPreviewGeneration += 1
   this.restorePageTurnLiveComposition()
@@ -1291,5 +1312,6 @@ export const NavicReaderPageTurnPreviewMethods = {
   exposePageTurnPreviewFinal,
   confirmPageTurnPreviewPresentation,
   restorePageTurnLiveComposition,
+  refreshPageTurnPreviewPresentation,
   destroyPageTurnPreviewRenderer,
 }

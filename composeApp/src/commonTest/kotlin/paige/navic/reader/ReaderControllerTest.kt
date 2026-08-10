@@ -1503,6 +1503,91 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun applySettingsKeepsHostOnlyChangesOutOfWebView() {
+		val current = defaultReaderSettings()
+		val controller = ReaderController(
+			state = ReaderControllerState(
+				chrome = ReaderChromeState(settings = current)
+			)
+		)
+		val updates = mapOf(
+			"unchanged" to current,
+			"dim overlay" to current.copy(dimOverlayPercent = 40),
+			"color filter" to current.copy(colorFilterEnabled = true),
+			"grayscale" to current.copy(grayscaleEnabled = true),
+			"inverted colors" to current.copy(invertedColors = true),
+			"orientation" to current.copy(orientation = ReaderOrientationLandscape),
+			"navigation rail" to current.copy(navBarType = ReaderNavBarTypeBottom),
+			"tap-zone inversion" to current.copy(tapZoneInvertMode = ReaderTapZoneInvertBoth),
+			"bitmap quality" to current.copy(pageBitmapQuality = ReaderPageBitmapQuality.High.persistedValue),
+			"fullscreen" to current.copy(fullscreen = false),
+			"keep screen on" to current.copy(keepScreenOn = true),
+			"readaloud sync" to current.copy(readaloudSyncEnabled = false),
+			"volume keys" to current.copy(volumeKeyPageTurns = true),
+			"WebView debugging" to current.copy(webContentsDebuggingEnabled = true)
+		)
+
+		updates.forEach { (name, updated) ->
+			val step = controller.applySettings(updated)
+
+			assertEquals(updated, step.controller.state.chrome.settings, name)
+			assertEquals(emptyList(), step.engineCommands, name)
+		}
+	}
+
+	@Test
+	fun applySettingsStillForwardsWebViewPresentationChanges() {
+		val current = defaultReaderSettings()
+		val controller = ReaderController(
+			state = ReaderControllerState(
+				chrome = ReaderChromeState(settings = current)
+			)
+		)
+		val updates = listOf(
+			current.copy(theme = ReaderDarkTheme),
+			current.copy(paperTextureEnabled = !checkNotNull(current.paperTextureEnabled)),
+			current.copy(tapZone = ReaderTapZoneKindle),
+			current.copy(whispersyncHighlightColorArgb = 0x66112233)
+		)
+
+		updates.forEach { updated ->
+			val normalized = updated.normalizedReaderSettings()
+			val step = controller.applySettings(updated)
+
+			assertEquals(
+				listOf(ReaderEngineCommand.ApplySettings(normalized)),
+				step.engineCommands
+			)
+		}
+	}
+
+	@Test
+	fun applySettingsPublishesRasterKeyOnlyAfterHostPresentationCommit() {
+		val current = defaultReaderSettings()
+		val controller = ReaderController(
+			state = ReaderControllerState(
+				chrome = ReaderChromeState(settings = current),
+				readerSettingsPresentationSnapshotKey = current.readerPageRasterSnapshotKey()
+			)
+		)
+		val updated = current.copy(theme = ReaderDarkTheme)
+
+		val pending = controller.applySettings(updated)
+
+		assertEquals(
+			current.readerPageRasterSnapshotKey(),
+			pending.controller.state.readerSettingsPresentationSnapshotKey
+		)
+		val committed = pending.controller.onEngineEvent(
+			ReaderEngineEvent.SettingsPresentationCommitted(updated.readerPageRasterSnapshotKey())
+		)
+		assertEquals(
+			updated.readerPageRasterSnapshotKey(),
+			committed.controller.state.readerSettingsPresentationSnapshotKey
+		)
+	}
+
+	@Test
 	fun settingsDialogVisibilityIsControllerOwnedLikeKomikkuReaderSettingsDialog() {
 		val contents = ReaderController().openContentsDialog()
 		val settings = contents.controller.openSettingsDialog()

@@ -29,7 +29,7 @@ const applyReaderFoliateGap = (renderer, pageBox) => {
   else renderer.removeAttribute('content-gap')
 }
 
-const normalizedReaderPdfFitMode = value =>
+export const normalizedReaderPdfFitMode = value =>
   [ReaderPdfFitWidth, ReaderPdfFitPage, ReaderPdfFitHeight, ReaderPdfFitOriginal].includes(value)
     ? value
     : ReaderPdfFitWidth
@@ -48,7 +48,7 @@ const readerPdfZoomAttribute = value => {
   }
 }
 
-const normalizedReaderPdfPageGapPercent = value => {
+export const normalizedReaderPdfPageGapPercent = value => {
   const gap = Number.parseInt(value, 10)
   if (!Number.isFinite(gap)) return 0
   return Math.min(ReaderPdfPageGapMaxPercent, Math.max(0, gap))

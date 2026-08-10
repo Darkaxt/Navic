@@ -130,6 +130,8 @@ sealed class FoliateWebViewEngineAdapter(
 	override fun onHostEvent(event: ReaderEngineHostEvent): ReaderEngineEvent? =
 		when (event) {
 			is ReaderEngineHostEvent.FoliateBridge -> onBridgeEvent(event.event)
+			is ReaderEngineHostEvent.SettingsPresentationCommitted ->
+				ReaderEngineEvent.SettingsPresentationCommitted(event.snapshotKey)
 		}
 
 	private fun onBridgeEvent(event: ReaderBridgeEvent): ReaderEngineEvent? {

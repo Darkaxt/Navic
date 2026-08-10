@@ -189,9 +189,9 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(bridgeProtocolText, "nativeTapZones?.let { put(\"nativeTapZones\", it) }")
 		assertContains(webViewHostText, "settings.copy(nativeTapZones = true)")
 		assertContains(runtimeText, "this.nativeTapZones = settings.nativeTapZones === true")
-		assertContains(openPublication, "if (settings) this.applySettings(settings)")
+		assertContains(openPublication, "if (settings) this.applySettings(settings, true)")
 		assertTrue(
-			openPublication.indexOf("if (settings) this.applySettings(settings)") <
+			openPublication.indexOf("if (settings) this.applySettings(settings, true)") <
 				openPublication.indexOf("await this.view.open(url)"),
 			"Native tap-zone settings must be applied before Foliate loads content documents; otherwise onLoad can attach JS reader-wide tap handlers before Android owns taps."
 		)
@@ -649,10 +649,58 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
+	fun androidReaderForcesInitialPublicationSettingsThroughLayoutApplication() {
+		val runtimeText = readerBridgeText()
+		val openPublication = runtimeText
+			.substringAfter("async openPublication({")
+			.substringBefore("\n  onInternalLink(")
+
+		assertContains(
+			openPublication,
+			"if (settings) this.applySettings(settings, true)"
+		)
+	}
+
+	@Test
+	fun androidReaderSeparatesPresentationSettingsFromPaginationReplacement() {
+		val applySettings = readerBridgeText()
+			.substringAfter("applySettings(settings, forcePaginationReplacement = false) {")
+			.substringBefore("\nfunction applyThemeToLoadedContent")
+
+		assertContains(
+			applySettings,
+			"const requiresPaginationReplacement = forcePaginationReplacement ||"
+		)
+		assertContains(
+			applySettings,
+			"this.readerSettingsRequirePaginationReplacement("
+		)
+		val invalidation = applySettings
+			.substringAfter("if (requiresPaginationReplacement) {")
+			.substringBefore("this.readerSettings = settings")
+		assertContains(invalidation, "this.clearPaginationProfileOwnership('settings-change')")
+		assertContains(invalidation, "this.destroyPageTurnPreviewRenderer('settings-change')")
+		val presentation = applySettings.substringAfter("this.readerSettings = settings")
+		assertContains(
+			presentation,
+			"this.refreshPageTurnPreviewPresentation(settings)"
+		)
+		assertContains(presentation, "this.renderSurfacePaperTextureLayers()")
+		assertContains(presentation, "this.renderTapZoneOverlayLayer()")
+		val pagination = presentation.substringAfter("if (requiresPaginationReplacement) {")
+		assertContains(pagination, "this.reflowableBookPageModel = null")
+		assertContains(pagination, "this.applyReaderViewportLayout('settings')")
+		assertContains(
+			pagination,
+			"this.startCompletePaginationProfileReplacementAfterLayout('settings-change')"
+		)
+	}
+
+	@Test
 	fun androidReaderAppliesFontCssBeforeSettingsReflow() {
 		val bridgeText = readerBridgeText()
 		val applySettings = bridgeText
-			.substringAfter("applySettings(settings) {")
+			.substringAfter("applySettings(settings, forcePaginationReplacement = false) {")
 			.substringBefore("\nfunction applyThemeToLoadedContent")
 
 		assertContains(applySettings, "this.view?.renderer?.setStyles?.(readerContentCss(settings))")

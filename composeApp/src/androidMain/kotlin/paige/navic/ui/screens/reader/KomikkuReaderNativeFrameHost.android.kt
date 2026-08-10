@@ -926,7 +926,9 @@ private enum class ReaderPagePhysicalDispatchMode {
 	PlayLikeCurl
 }
 
-private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout(context) {
+private class KomikkuReaderNativeViewerContainer(context: Context) :
+	FrameLayout(context),
+	ReaderSettingsWebViewMutationHost {
 	private val viewerContentContainer = FrameLayout(context)
 	private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 	private val readablePageDragSlopPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()
@@ -1022,6 +1024,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private val foregroundWebViewOwnership = ReaderForegroundWebViewOwnership(
 		onPassiveAvailable = ::onForegroundWebViewPassiveAvailable
 	)
+	private val settingsWebViewMutationCoordinator =
+		ReaderSettingsWebViewMutationCoordinator(
+			ownership = foregroundWebViewOwnership,
+			onSnapshotCommitted = ::setPageTurnSnapshotKey
+		)
 	private val pagePointerRouter = ReaderPagePointerRouter(
 		lifecycle = ReaderPageGestureLifecycle(),
 		onStarted = { gestureId, downX, _ ->
@@ -1601,6 +1608,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		pageTurnBitmapQuality = normalized
 		playLikeCurlController.updateBitmapQuality(normalized.persistedValue)
 		pageRasterPreparationController.updateBitmapQuality(normalized.persistedValue)
+	}
+
+	override fun acquireSettingsMutation(
+		requestId: Long,
+		onReadiness: (ReaderSettingsWebViewMutationReadiness) -> Unit
+	) {
+		settingsWebViewMutationCoordinator.acquireSettingsMutation(
+			requestId,
+			onReadiness
+		)
 	}
 
 	fun setPageTurnSnapshotKey(snapshotKey: Int) {

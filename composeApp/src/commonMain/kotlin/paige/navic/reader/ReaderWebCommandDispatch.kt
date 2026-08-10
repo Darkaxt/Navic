@@ -19,6 +19,9 @@ data class ReaderWebCommandDispatchState(
 	fun observeLocator(locator: ReaderLocator): ReaderWebCommandDispatchState =
 		copy(lastKnownLocator = locator)
 
+	fun acknowledgedCommand(commandId: String): ReaderBridgeCommand? =
+		pendingCommands.firstOrNull { it.dispatch.id == commandId }?.dispatch?.command
+
 	fun acknowledge(commandId: String): ReaderWebCommandDispatchState {
 		val retainedCommands = pendingCommands.filterNot { it.dispatch.id == commandId }
 		return if (retainedCommands.size == pendingCommands.size) {
