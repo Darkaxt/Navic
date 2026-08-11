@@ -60,7 +60,9 @@ actual fun ReaderReadaloudRuntimeHost(
 	val currentOnError by rememberUpdatedState(onError)
 	val sessionLeases = remember { mutableListOf<ReaderSessionLease>() }
 	val controller = remember(context) {
-		ReadaloudAudioController(context) { position ->
+		ReadaloudAudioController(
+			context = context,
+			onPositionChanged = { position ->
 			val activeRuntime = currentRuntime ?: return@ReadaloudAudioController
 			currentOnPlaybackState(
 				position.toReaderReadaloudPlaybackUiState(
@@ -85,6 +87,7 @@ actual fun ReaderReadaloudRuntimeHost(
 			}
 			syncState = nextState
 		}
+		)
 	}
 
 	DisposableEffect(controller, sessionLeases) {

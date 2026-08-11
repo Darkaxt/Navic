@@ -76,6 +76,39 @@ class ReaderWordSyncBoundarySchedulerTest {
 	}
 
 	@Test
+	fun unavailableFreshTimelineCannotPublishOrRetainAWakeup() {
+		var snapshot: ReaderWordSyncTimelineSnapshot? = null
+		val scheduled = mutableListOf<ScheduledWakeup>()
+		val dispatches = mutableListOf<ReaderWordSyncBoundaryDispatch>()
+		val scheduler = ReaderWordSyncBoundaryScheduler(
+			currentTimeline = { snapshot },
+			schedule = { delayMs, action ->
+				ScheduledWakeup(delayMs, action).also(scheduled::add)
+			},
+			onBoundary = dispatches::add
+		)
+
+		scheduler.replaceTimeline(boundaries(1_000L, 1_100L))
+		assertTrue(scheduled.isEmpty())
+
+		snapshot = ReaderWordSyncTimelineSnapshot(
+			sessionGeneration = 1L,
+			audioResourceId = "track-1",
+			audioTrackIndex = 0,
+			positionMs = 1_050L,
+			playbackSpeed = 1f,
+			isPlaying = true
+		)
+		scheduler.refreshTimeline()
+		val pending = scheduled.single()
+		snapshot = null
+		pending.action()
+
+		assertTrue(dispatches.isEmpty())
+		assertTrue(scheduled.none { !it.cancelled && it !== pending })
+	}
+
+	@Test
 	fun trackBoundariesExcludeWordsWithoutPresentableExactEndpoints() {
 		val track = WordSyncTrack(
 			audioResourceId = "track-1",

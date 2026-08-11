@@ -39,6 +39,7 @@ internal data class ReaderWordSyncBoundary(
 
 internal data class ReaderWordSyncBoundaryDispatch(
 	val boundary: ReaderWordSyncBoundary,
+	val timeline: ReaderWordSyncTimelineSnapshot,
 	val coalescedCount: Int
 ) {
 	init {
@@ -58,7 +59,7 @@ internal fun WordSyncTrack.readerWordSyncBoundaries(): List<ReaderWordSyncBounda
 	}
 
 internal class ReaderWordSyncBoundaryScheduler(
-	private val currentTimeline: () -> ReaderWordSyncTimelineSnapshot,
+	private val currentTimeline: () -> ReaderWordSyncTimelineSnapshot?,
 	private val schedule: (
 		delayMs: Long,
 		action: () -> Unit
@@ -82,12 +83,13 @@ internal class ReaderWordSyncBoundaryScheduler(
 	}
 
 	fun stop() {
+		boundaries = emptyList()
 		cancelPending()
 	}
 
 	private fun rebuild() {
 		cancelPending()
-		scheduleNext(currentTimeline())
+		currentTimeline()?.let(::scheduleNext)
 	}
 
 	private fun cancelPending() {
@@ -113,7 +115,7 @@ internal class ReaderWordSyncBoundaryScheduler(
 			if (epoch != scheduleEpoch) return@schedule
 			scheduleEpoch += 1L
 			pending = null
-			val verified = currentTimeline()
+			val verified = currentTimeline() ?: return@schedule
 			if (
 				!verified.canSchedule() ||
 				verified.sessionGeneration != sessionGeneration ||
@@ -129,6 +131,7 @@ internal class ReaderWordSyncBoundaryScheduler(
 				onBoundary(
 					ReaderWordSyncBoundaryDispatch(
 						boundary = boundaries[currentIndex],
+						timeline = verified,
 						coalescedCount = currentIndex - nextIndex
 					)
 				)

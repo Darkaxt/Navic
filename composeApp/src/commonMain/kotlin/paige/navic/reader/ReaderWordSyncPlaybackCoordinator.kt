@@ -164,6 +164,71 @@ data class ReaderWordSyncPlaybackCoordinator(
 		)
 	}
 
+	internal fun boundariesForPlayback(
+		playback: ReaderWordSyncPlaybackIdentity
+	): List<ReaderWordSyncBoundary> = chapters.values
+		.flatMap { verified ->
+			verified.chapter.tracks
+				.filter { track ->
+					track.audioResourceId == playback.audioResourceId &&
+						track.audioTrackIndex == playback.audioTrackIndex
+				}
+				.flatMap(WordSyncTrack::readerWordSyncBoundaries)
+		}
+		.sortedWith(
+			compareBy<ReaderWordSyncBoundary> { it.audioStartMs }
+				.thenBy { it.word.spineIndex }
+				.thenBy { it.word.ebookStart }
+		)
+		.mapIndexed { index, boundary -> boundary.copy(sequence = index.toLong()) }
+
+	internal fun coordinateBoundary(
+		controller: ReaderController,
+		playback: ReaderWordSyncPlaybackIdentity,
+		boundary: ReaderWordSyncBoundary
+	): ReaderWordSyncDecision {
+		val remembered = copy(lastPlayback = playback)
+		val word = boundary.word
+		if (
+			word.audioResourceId != playback.audioResourceId ||
+			word.audioTrackIndex != playback.audioTrackIndex ||
+			word.audioStartMs > playback.positionMs
+		) {
+			return ReaderWordSyncDecision(remembered, ReaderControllerStep(controller))
+		}
+		val cueFragment = lastCueCommand.asCueOverlayCommand()
+			?.overlayFragmentOrNull()
+			?: return ReaderWordSyncDecision(remembered, ReaderControllerStep(controller))
+		val verified = chapters.values.singleOrNull { candidate ->
+			candidate.chapter.tracks.any { track -> word in track.words }
+		} ?: return ReaderWordSyncDecision(remembered, ReaderControllerStep(controller))
+		if (
+			word.status !in 1..4 ||
+			word.ebookHref != cueFragment.textHref ||
+			controller.state.rawTextProvenanceById[verified.descriptor.id]?.status !=
+				RawTextProvenanceStatus.Ready
+		) {
+			return ReaderWordSyncDecision(remembered, ReaderControllerStep(controller))
+		}
+		val requestId = cueFragment.overlayRequestId
+			?: return ReaderWordSyncDecision(remembered, ReaderControllerStep(controller))
+		val candidate = ReaderWordSyncCandidate(verified, word)
+		val rawFragment = candidate.toOverlayFragment(cueFragment, playback)
+		return ReaderWordSyncDecision(
+			coordinator = remembered.copy(
+				fallbackByRequestId = mapOf(
+					requestId to ReaderEngineCommand.ApplyMediaOverlay(cueFragment)
+				)
+			),
+			controllerStep = ReaderControllerStep(
+				controller = controller,
+				engineCommands = listOf(
+					ReaderEngineCommand.UpdateMediaOverlayProgress(rawFragment)
+				)
+			)
+		)
+	}
+
 	fun onIndexVerified(
 		generation: Long,
 		index: WordSyncIndex,

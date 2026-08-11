@@ -3,12 +3,14 @@ package paige.navic.ui.screens.reader
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -25,6 +27,7 @@ import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
@@ -54,8 +57,12 @@ import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncStatusKind
 import paige.navic.reader.ReaderWhispersyncStatusMessage
+import paige.navic.reader.ReaderWordSyncBoundaryCancellation
+import paige.navic.reader.ReaderWordSyncBoundaryDispatch
+import paige.navic.reader.ReaderWordSyncBoundaryScheduler
 import paige.navic.reader.ReaderWordSyncEffect
 import paige.navic.reader.ReaderWordSyncPlaybackIdentity
+import paige.navic.reader.ReaderWordSyncTimelineSnapshot
 import paige.navic.reader.WordSyncPublicationVerificationSession
 import paige.navic.reader.WordSyncPublicationVerifier
 import paige.navic.reader.restoreProcessState
@@ -67,6 +74,7 @@ import paige.navic.reader.configureWordSync
 import paige.navic.reader.decodeReaderReadingProgress
 import paige.navic.reader.encodeReaderReadingProgress
 import paige.navic.reader.onReadaloudPlaybackState
+import paige.navic.reader.onWordSyncBoundary
 import paige.navic.reader.onWordSyncChapterFailed
 import paige.navic.reader.onWordSyncChapterVerified
 import paige.navic.reader.onWordSyncIndexFailed
@@ -81,7 +89,9 @@ import paige.navic.reader.ReaderReadingProgressState
 import paige.navic.reader.setReaderListeningSettings
 import paige.navic.reader.withReaderListeningSettings
 import paige.navic.reader.whispersyncLogValue
+import paige.navic.reader.wordSyncBoundaries
 import paige.navic.shared.AudiobookPlaybackManager
+import paige.navic.shared.AudiobookPlaybackTimelineSnapshot
 import paige.navic.ui.core.AudiobookMiniPlayerUiState
 import paige.navic.ui.screens.bindery.binderyAudiobookPlaybackPlan
 import paige.navic.ui.screens.bindery.binderyAudiobookResumeProgressForWhispersyncReader
@@ -103,6 +113,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 		key = reader.readerProcessStateViewModelKey()
 	)
 	val audiobookMiniPlayerState by audiobookPlaybackManager.uiState.collectAsState()
+	val playbackTimelineRevision by
+		audiobookPlaybackManager.playbackTimelineRevision.collectAsState()
 	val backStack = LocalNavStack.current
 	val uriHandler = LocalUriHandler.current
 	val coroutineScope = rememberCoroutineScope()
@@ -373,6 +385,55 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 			}
 		}
+	}
+
+	val currentWhispersyncPlaybackPlan = rememberUpdatedState(whispersyncPlaybackPlan)
+	val currentWordSyncBoundaryHandler =
+		rememberUpdatedState<(ReaderWordSyncBoundaryDispatch) -> Unit> { dispatch ->
+			if (dispatch.coalescedCount > 0) {
+				Logger.i(
+					WhispersyncSyncLogTag,
+					"WordSync boundary wake coalesced=${dispatch.coalescedCount}"
+				)
+			}
+			applyCoordinatorStep(coordinator.onWordSyncBoundary(dispatch))
+		}
+	val wordSyncBoundaryScheduler = remember(
+		reader.bookId,
+		reader.resourceHref,
+		reader.publicationUrl,
+		audiobookPlaybackManager,
+		coroutineScope
+	) {
+		ReaderWordSyncBoundaryScheduler(
+			currentTimeline = {
+				audiobookPlaybackManager.currentPlaybackTimelineSnapshot()
+					?.toReaderWordSyncTimelineSnapshot(currentWhispersyncPlaybackPlan.value)
+			},
+			schedule = { delayMs, action ->
+				val job = coroutineScope.launch {
+					delay(delayMs)
+					action()
+				}
+				ReaderWordSyncBoundaryCancellation(job::cancel)
+			},
+			onBoundary = { dispatch -> currentWordSyncBoundaryHandler.value(dispatch) }
+		)
+	}
+	val currentWordSyncTimeline = audiobookPlaybackManager.currentPlaybackTimelineSnapshot()
+		?.toReaderWordSyncTimelineSnapshot(whispersyncPlaybackPlan)
+	val scheduledWordSyncBoundaries = coordinator.wordSyncBoundaries(
+		currentWordSyncTimeline?.toWordSyncPlaybackIdentity()
+	)
+
+	LaunchedEffect(wordSyncBoundaryScheduler, scheduledWordSyncBoundaries) {
+		wordSyncBoundaryScheduler.replaceTimeline(scheduledWordSyncBoundaries)
+	}
+	LaunchedEffect(wordSyncBoundaryScheduler, playbackTimelineRevision) {
+		wordSyncBoundaryScheduler.refreshTimeline()
+	}
+	DisposableEffect(wordSyncBoundaryScheduler) {
+		onDispose(wordSyncBoundaryScheduler::stop)
 	}
 
 	fun openReaderPublication(request: ReaderEngineOpenRequest) {
@@ -940,3 +1001,31 @@ private fun ReaderReadaloudPlaybackUiState.toWordSyncPlaybackIdentity(
 		playbackSpeed = playbackSpeed
 	)
 }
+
+private fun AudiobookPlaybackTimelineSnapshot.toReaderWordSyncTimelineSnapshot(
+	playbackPlan: ReadaloudPlaybackPlan?
+): ReaderWordSyncTimelineSnapshot? {
+	val plan = playbackPlan ?: return null
+	if (position.sessionId != plan.sessionId || position.trackIndex !in plan.mediaItems.indices) {
+		return null
+	}
+	val item = plan.mediaItems[position.trackIndex]
+	if (position.mediaId != null && position.mediaId != item.mediaId) return null
+	val resourceId = item.resourceKey?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	return ReaderWordSyncTimelineSnapshot(
+		sessionGeneration = sessionGeneration,
+		audioResourceId = resourceId,
+		audioTrackIndex = position.trackIndex,
+		positionMs = position.positionMs.coerceAtLeast(0L),
+		playbackSpeed = position.playbackSpeed,
+		isPlaying = position.isPlaying
+	)
+}
+
+private fun ReaderWordSyncTimelineSnapshot.toWordSyncPlaybackIdentity() =
+	ReaderWordSyncPlaybackIdentity(
+		audioResourceId = audioResourceId,
+		audioTrackIndex = audioTrackIndex,
+		positionMs = positionMs,
+		playbackSpeed = playbackSpeed
+	)

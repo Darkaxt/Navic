@@ -164,6 +164,35 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
+	fun scheduledBoundaryPublishesExactWordWithoutAnotherCuePulse() {
+		val ready = readyCoordinatorAndController()
+		val initial = ready.first.coordinate(
+			controllerStep = ReaderControllerStep(
+				ready.second,
+				engineCommands = listOf(cueCommand())
+			),
+			playback = playbackIdentity(positionMs = 1_050)
+		)
+		val playback = playbackIdentity(positionMs = 1_350)
+		val boundary = initial.coordinator.boundariesForPlayback(playback)
+			.single { it.audioStartMs == 1_300L }
+
+		val scheduled = initial.coordinator.coordinateBoundary(
+			controller = ready.second,
+			playback = playback,
+			boundary = boundary
+		)
+
+		val command = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(
+			scheduled.controllerStep.engineCommands.single()
+		)
+		assertEquals(ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8, command.fragment.coordinateMode)
+		assertEquals(3, command.fragment.rawByteStart)
+		assertEquals(4, command.fragment.rawByteEnd)
+		assertEquals(41, command.fragment.overlayRequestId)
+	}
+
+	@Test
 	fun unmappedReaderEventNeverFallsBackToPlaybackWord() {
 		val ready = readyCoordinatorAndController()
 		val cue = cueCommand()

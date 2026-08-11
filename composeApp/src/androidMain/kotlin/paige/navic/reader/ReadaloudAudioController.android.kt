@@ -13,7 +13,8 @@ import paige.navic.util.core.Logger
 
 class ReadaloudAudioController(
 	private val context: Context,
-	private val onPositionChanged: (ReadaloudPlaybackPosition) -> Unit = {}
+	private val onPositionChanged: (ReadaloudPlaybackPosition) -> Unit = {},
+	private val onTimelineChanged: () -> Unit = {}
 ) {
 	private var controller: MediaController? = null
 	private var activePlan: ReadaloudPlaybackPlan? = null
@@ -39,6 +40,7 @@ class ReadaloudAudioController(
 		},
 		onDisconnected = { disconnectedController ->
 			if (controller === disconnectedController) controller = null
+			onTimelineChanged()
 			Logger.w(ReadaloudPlaybackLogTag, "Readaloud controller disconnected; reconnecting")
 			positionPulse.stop()
 			activePlan?.let { plan ->
@@ -56,18 +58,35 @@ class ReadaloudAudioController(
 
 	private val listener = object : Player.Listener {
 		override fun onIsPlayingChanged(isPlaying: Boolean) {
+			onTimelineChanged()
 			publishPosition()
 			positionPulse.update()
 		}
 
 		override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+			onTimelineChanged()
 			publishPosition()
 			positionPulse.update()
 		}
 
 		override fun onPlaybackStateChanged(playbackState: Int) {
+			onTimelineChanged()
 			publishPosition()
 			positionPulse.update()
+		}
+
+		override fun onPositionDiscontinuity(
+			oldPosition: Player.PositionInfo,
+			newPosition: Player.PositionInfo,
+			reason: Int
+		) {
+			onTimelineChanged()
+			publishPosition()
+		}
+
+		override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+			onTimelineChanged()
+			publishPosition()
 		}
 
 		override fun onPlayerError(error: PlaybackException) {
@@ -80,6 +99,7 @@ class ReadaloudAudioController(
 					"code=${error.errorCodeName} message=${error.message}",
 				error
 			)
+			onTimelineChanged()
 			publishPosition()
 			positionPulse.update()
 		}
@@ -211,20 +231,22 @@ class ReadaloudAudioController(
 		}
 	}
 
-	private fun publishPosition() {
-		val currentController = controller ?: return
+	fun currentPosition(): ReadaloudPlaybackPosition? {
+		val currentController = controller ?: return null
 		val currentPlan = activePlan
-		onPositionChanged(
-			ReadaloudPlaybackPosition(
-				sessionId = currentPlan?.sessionId,
-				trackIndex = currentController.currentMediaItemIndex,
-				mediaId = currentController.currentMediaItem?.mediaId,
-				positionMs = currentController.currentPosition.coerceAtLeast(0L),
-				durationMs = currentController.duration.takeIf { it > 0L },
-				isPlaying = currentController.isPlaying,
-				playbackSpeed = currentController.playbackParameters.speed
-			)
+		return ReadaloudPlaybackPosition(
+			sessionId = currentPlan?.sessionId,
+			trackIndex = currentController.currentMediaItemIndex,
+			mediaId = currentController.currentMediaItem?.mediaId,
+			positionMs = currentController.currentPosition.coerceAtLeast(0L),
+			durationMs = currentController.duration.takeIf { it > 0L },
+			isPlaying = currentController.isPlaying,
+			playbackSpeed = currentController.playbackParameters.speed
 		)
+	}
+
+	private fun publishPosition() {
+		currentPosition()?.let(onPositionChanged)
 	}
 
 	private data class PendingLoad(

@@ -81,6 +81,20 @@ class ReadaloudAudioControllerTest {
 	}
 
 	@Test
+	fun wordBoundaryRuntimeReadsFreshMedia3TimelineAndInvalidatesOnPlayerEvents() {
+		val controller = readaloudAudioControllerSourceFile().readText()
+		val manager = androidAudiobookPlaybackManagerSourceFile().readText()
+
+		assertContains(controller, "fun currentPosition(): ReadaloudPlaybackPosition?")
+		assertContains(controller, "override fun onPositionDiscontinuity(")
+		assertContains(controller, "override fun onPlaybackParametersChanged(")
+		assertContains(controller, "onTimelineChanged()")
+		assertContains(manager, "override val playbackTimelineRevision")
+		assertContains(manager, "override fun currentPlaybackTimelineSnapshot()")
+		assertContains(manager, "controller.currentPosition()")
+	}
+
+	@Test
 	fun readaloudControllerUsesSharedConnectionOwnerAndHandlesDisconnects() {
 		val source = readaloudAudioControllerSourceFile().readText()
 
@@ -123,6 +137,12 @@ class ReadaloudAudioControllerTest {
 		File("composeApp/src/androidMain/kotlin/paige/navic/reader/ReadaloudAudioController.android.kt")
 	).firstOrNull { it.isFile }
 		?: error("Unable to locate ReadaloudAudioController.android.kt")
+
+	private fun androidAudiobookPlaybackManagerSourceFile(): File = listOf(
+		File("src/androidMain/kotlin/paige/navic/shared/AndroidAudiobookPlaybackManager.kt"),
+		File("composeApp/src/androidMain/kotlin/paige/navic/shared/AndroidAudiobookPlaybackManager.kt")
+	).firstOrNull { it.isFile }
+		?: error("Unable to locate AndroidAudiobookPlaybackManager.kt")
 
 	private fun playbackMediaButtonReceiverSourceFile(): File = listOf(
 		File("src/androidMain/kotlin/paige/navic/shared/PlaybackMediaButtonReceiver.android.kt"),

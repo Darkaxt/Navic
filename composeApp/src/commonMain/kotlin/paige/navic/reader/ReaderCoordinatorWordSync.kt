@@ -20,6 +20,27 @@ internal fun ReaderCoordinator.onReadaloudPlaybackState(
 	)
 )
 
+internal fun ReaderCoordinator.wordSyncBoundaries(
+	playbackIdentity: ReaderWordSyncPlaybackIdentity?
+): List<ReaderWordSyncBoundary> = playbackIdentity
+	?.let(wordSync::boundariesForPlayback)
+	.orEmpty()
+
+internal fun ReaderCoordinator.onWordSyncBoundary(
+	dispatch: ReaderWordSyncBoundaryDispatch
+): ReaderCoordinatorStep = applyWordSyncDecision(
+	wordSync.coordinateBoundary(
+		controller = controller,
+		playback = ReaderWordSyncPlaybackIdentity(
+			audioResourceId = dispatch.timeline.audioResourceId,
+			audioTrackIndex = dispatch.timeline.audioTrackIndex,
+			positionMs = dispatch.timeline.positionMs,
+			playbackSpeed = dispatch.timeline.playbackSpeed
+		),
+		boundary = dispatch.boundary
+	)
+)
+
 internal fun ReaderCoordinator.onWordSyncIndexVerified(
 	generation: Long,
 	index: WordSyncIndex,

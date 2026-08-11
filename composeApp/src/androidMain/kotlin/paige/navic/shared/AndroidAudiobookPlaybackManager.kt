@@ -25,9 +25,17 @@ class AndroidAudiobookPlaybackManager(
 	private val audioPlaybackOwnershipCoordinator: AudioPlaybackOwnershipCoordinator
 ) : AudiobookPlaybackManager {
 	private val scope = MainScope()
-	private val controller = ReadaloudAudioController(application, ::publishPosition)
 	private val _uiState = MutableStateFlow(AudiobookMiniPlayerUiState())
 	override val uiState: StateFlow<AudiobookMiniPlayerUiState> = _uiState.asStateFlow()
+	private val _playbackTimelineRevision = MutableStateFlow(0L)
+	override val playbackTimelineRevision: StateFlow<Long> =
+		_playbackTimelineRevision.asStateFlow()
+	private var playbackSessionGeneration = 0L
+	private val controller = ReadaloudAudioController(
+		context = application,
+		onPositionChanged = ::publishPosition,
+		onTimelineChanged = ::invalidateTimeline
+	)
 
 	private var activePlan: ReadaloudPlaybackPlan? = null
 	private var activeBookId: String? = null
@@ -50,11 +58,20 @@ class AndroidAudiobookPlaybackManager(
 					)
 				) {
 					playbackClaim = null
+					invalidateTimeline()
 					controller.pause()
 				}
 			}
 		}
 	}
+
+	override fun currentPlaybackTimelineSnapshot(): AudiobookPlaybackTimelineSnapshot? =
+		controller.currentPosition()?.let { position ->
+			AudiobookPlaybackTimelineSnapshot(
+				sessionGeneration = playbackSessionGeneration,
+				position = position
+			)
+		}
 
 	override fun load(
 		playbackPlan: ReadaloudPlaybackPlan?,
@@ -67,6 +84,8 @@ class AndroidAudiobookPlaybackManager(
 		playWhenReady: Boolean
 	) {
 		if (playbackPlan == null) {
+			playbackSessionGeneration += 1L
+			invalidateTimeline()
 			releasePlaybackClaim()
 			controller.stopAndReset()
 			_uiState.value = AudiobookMiniPlayerUiState()
@@ -99,6 +118,8 @@ class AndroidAudiobookPlaybackManager(
 			return
 		}
 
+		playbackSessionGeneration += 1L
+		invalidateTimeline()
 		activePlan = playbackPlan
 		activeBookId = bookId
 		activeBookTitle = bookTitle
@@ -117,6 +138,7 @@ class AndroidAudiobookPlaybackManager(
 	}
 
 	override fun dispatch(command: ReaderReadaloudPlaybackCommand) {
+		invalidateTimeline()
 		when (command) {
 			ReaderReadaloudPlaybackCommand.Play -> {
 				claimPlayback()
@@ -143,6 +165,10 @@ class AndroidAudiobookPlaybackManager(
 				}
 			}
 		}
+	}
+
+	private fun invalidateTimeline() {
+		_playbackTimelineRevision.value += 1L
 	}
 
 	private fun claimPlayback() {
