@@ -2116,6 +2116,28 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun activeWhispersyncPlaybackTransportIsComposedOutsideReaderContentSuppression() {
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val composeOverlayBody = readerRootText
+			.substringAfter("private fun KomikkuComposeOverlay(")
+			.substringBefore("private fun shellCoverTitleFor(")
+
+		assertContains(readerRootText, "readerWhispersyncPlaybackControlPresentation(")
+		assertContains(composeOverlayBody, "if (whispersyncPlaybackControl.visible) {")
+		val transportBlock = composeOverlayBody
+			.substringAfter("if (whispersyncPlaybackControl.visible) {")
+			.substringBefore("\n\t\t\t}")
+		assertContains(transportBlock, "KomikkuWhispersyncPlaybackControl(")
+		assertFalse(
+			composeOverlayBody
+				.substringAfter("if (!controllerState.shellCoverVisible) {")
+				.substringBefore("if (whispersyncPlaybackControl.visible) {")
+				.contains("KomikkuWhispersyncPlaybackControl("),
+			"The active transport must be composed after the shell/content guard, not inside it."
+		)
+	}
+
+	@Test
 	fun androidReadaloudMediaItemsPreserveSourceReleaseMetadataInMedia3Extras() {
 		val mediaItemsText = readerAndroidPackageFile("ReadaloudMediaItems.android.kt").readText()
 

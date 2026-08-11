@@ -440,6 +440,47 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		assertEquals(ReaderReadaloudPlaybackCommand.Play, control.command)
 	}
 
+	@Test
+	fun activePlaybackKeepsStopAvailableWhenWhispersyncStatusTemporarilyResets() {
+		val control = readerWhispersyncPlaybackControlState(
+			status = ReaderWhispersyncStatus(),
+			playbackState = ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				syncEnabled = true
+			),
+			hasConfirmedVisibleCue = false
+		)
+
+		assertTrue(control.visible)
+		assertFalse(control.loading)
+		assertFalse(control.crossed)
+		assertTrue(control.enabled)
+		assertEquals(ReaderReadaloudPlaybackCommand.StopAndReset, control.command)
+	}
+
+	@Test
+	fun activePlaybackControlSurvivesReaderPresentationSuppression() {
+		val control = readerWhispersyncPlaybackControlState(
+			status = ReaderWhispersyncStatus(),
+			playbackState = ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				syncEnabled = true
+			),
+			hasConfirmedVisibleCue = false
+		)
+
+		val presented = readerWhispersyncPlaybackControlPresentation(
+			control = control,
+			shellCoverVisible = true,
+			mediaOverlayAvailable = false
+		)
+
+		assertTrue(presented.visible)
+		assertEquals(ReaderReadaloudPlaybackCommand.StopAndReset, presented.command)
+	}
+
 	private fun whispersyncPlaybackPlan(): ReadaloudPlaybackPlan =
 		ReadaloudPlaybackPlan(
 			sessionId = "book-3816",

@@ -37,6 +37,7 @@ import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncPlaybackControlState
 import paige.navic.reader.normalizedReaderFlowMode
 import paige.navic.reader.normalizedReaderDragAnimationMode
+import paige.navic.reader.readerWhispersyncPlaybackControlPresentation
 import paige.navic.reader.readerWhispersyncPlaybackControlState
 import paige.navic.reader.readerPageRasterSnapshotKey
 import paige.navic.reader.readerPageTurnContentReadyKey
@@ -111,13 +112,15 @@ internal fun KomikkuReaderRoot(
 	}
 
 	Box(modifier = modifier.fillMaxSize()) {
-		val whispersyncPlaybackControl = readerWhispersyncPlaybackControlState(
-			status = controllerState.whispersync.status,
-			playbackState = readaloudPlaybackState,
-			hasConfirmedVisibleCue = controllerState.activeMediaOverlay != null
-		).let { control ->
-			if (controllerState.shellCoverVisible || !mediaOverlayAvailable) control.copy(visible = false) else control
-		}
+		val whispersyncPlaybackControl = readerWhispersyncPlaybackControlPresentation(
+			control = readerWhispersyncPlaybackControlState(
+				status = controllerState.whispersync.status,
+				playbackState = readaloudPlaybackState,
+				hasConfirmedVisibleCue = controllerState.activeMediaOverlay != null
+			),
+			shellCoverVisible = controllerState.shellCoverVisible,
+			mediaOverlayAvailable = mediaOverlayAvailable
+		)
 		val overlayVisible = controllerState.hasVisibleReaderOverlay() || whispersyncPlaybackControl.visible
 		SideEffect {
 			Logger.i(
@@ -395,16 +398,18 @@ private fun KomikkuComposeOverlay(
 						.align(Alignment.BottomCenter)
 						.padding(bottom = if (controllerState.menuVisible) 156.dp else 76.dp)
 				)
-				KomikkuWhispersyncPlaybackControl(
-					control = whispersyncPlaybackControl,
-					readerTheme = controllerState.chrome.settings.theme,
-					onCommand = onWhispersyncPlaybackCommand,
-					onOpenPlayer = onWhispersyncPlayer,
-					modifier = Modifier
-						.align(Alignment.TopStart)
-						.padding(top = if (controllerState.menuVisible) 116.dp else 28.dp, start = 28.dp)
-				)
 			}
+		}
+		if (whispersyncPlaybackControl.visible) {
+			KomikkuWhispersyncPlaybackControl(
+				control = whispersyncPlaybackControl,
+				readerTheme = controllerState.chrome.settings.theme,
+				onCommand = onWhispersyncPlaybackCommand,
+				onOpenPlayer = onWhispersyncPlayer,
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(top = if (controllerState.menuVisible) 116.dp else 28.dp, start = 28.dp)
+			)
 		}
 		when (controllerState.dialog) {
 			ReaderControllerDialog.Contents -> KomikkuReaderContentsDialog(

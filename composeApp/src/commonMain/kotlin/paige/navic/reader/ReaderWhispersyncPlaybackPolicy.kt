@@ -24,6 +24,17 @@ fun readerWhispersyncPlaybackControlState(
 	playbackState: ReaderReadaloudPlaybackUiState?,
 	hasConfirmedVisibleCue: Boolean
 ): ReaderWhispersyncPlaybackControlState {
+	if (playbackState?.isPlaying == true) {
+		return ReaderWhispersyncPlaybackControlState(
+			visible = true,
+			loading = false,
+			crossed = false,
+			enabled = true,
+			noAudioCueOnPage = false,
+			contentDescription = ReaderWhispersyncPlaybackControlDescription.Reset,
+			command = ReaderReadaloudPlaybackCommand.StopAndReset
+		)
+	}
 	if (!status.visible) {
 		return ReaderWhispersyncPlaybackControlState()
 	}
@@ -64,6 +75,19 @@ fun readerWhispersyncPlaybackControlState(
 		command = command
 	)
 }
+
+fun readerWhispersyncPlaybackControlPresentation(
+	control: ReaderWhispersyncPlaybackControlState,
+	shellCoverVisible: Boolean,
+	mediaOverlayAvailable: Boolean
+): ReaderWhispersyncPlaybackControlState =
+	if (control.command == ReaderReadaloudPlaybackCommand.StopAndReset) {
+		control
+	} else if (shellCoverVisible || !mediaOverlayAvailable) {
+		control.copy(visible = false)
+	} else {
+		control
+	}
 
 fun readerWhispersyncTransportEnabled(
 	playbackState: ReaderReadaloudPlaybackUiState,
