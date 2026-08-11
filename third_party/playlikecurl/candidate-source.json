@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "44c452bd48f887107c2ef9ec3a2c94aff183cd2b",
+  "commit": "ae11967ba2342c1d4a770f81907a3c161e23ef94",
   "apiVersion": 3,
-  "sourceManifestSha256": "e8768f6c854d7ee5c6840eef7fcb166ef32b8fcb46f7e71fc30265a2e36bb688",
+  "sourceManifestSha256": "f0796d48c98016de526895c2de01b0bba0ee33a5c4ec0af341724d5a17610f28",
   "licenseBlob": "8aa26455d23acf904be3ed9dfb3a3efe3e49245a",
   "sourceFiles": [
     {
@@ -108,7 +108,7 @@
     },
     {
       "mode": "100644",
-      "blob": "2f410d9da90fe187536f9162ddd9d61cdf77f735",
+      "blob": "e4bb1bb66a776fec939440737950491ae85d5acd",
       "path": "karackencurllib/src/test/java/karacken/curl/TextureBudgetTest.java"
     },
     {
@@ -138,7 +138,7 @@
     },
     {
       "mode": "100644",
-      "blob": "4b4f6946c802b1e90748ce220dd842a47c142c1a",
+      "blob": "8b37a2ff36b2928996c383a4779b9e7096ac1268",
       "path": "karackencurllib/src/test/java/karacken/curl/PageDeckContractTest.java"
     },
     {
@@ -168,7 +168,7 @@
     },
     {
       "mode": "100644",
-      "blob": "6379eb54dc8d99c086d84565fe81d601f502b399",
+      "blob": "41eb4aa4e813ce0f93dcf3319a4585a51b02e730",
       "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceListener.java"
     },
     {
@@ -273,7 +273,7 @@
     },
     {
       "mode": "100644",
-      "blob": "81d4581a655bae786052db598277dcbb67056f5c",
+      "blob": "659ef11446bbef321a40bc01fc2d2e9e519c44d4",
       "path": "karackencurllib/src/test/java/karacken/curl/Gles2RendererSourceTest.java"
     },
     {
@@ -318,7 +318,7 @@
     },
     {
       "mode": "100644",
-      "blob": "d6b39f5bc3c9cccfa715b1a3bf13d37ecc5d7c88",
+      "blob": "1ca64042667e7b48ec34b065a47355f56157245c",
       "path": "karackencurllib/src/main/java/karacken/curl/PageImage.java"
     },
     {
@@ -338,12 +338,12 @@
     },
     {
       "mode": "100644",
-      "blob": "e0423a45997adbb8aaad09dec3c811d968547e28",
+      "blob": "1c8a0e3502ceb01a7b0d1516f9710cd6b2afacd5",
       "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceView.java"
     },
     {
       "mode": "100644",
-      "blob": "e17e94cd229bc041cec56e9ab03b3ac74d5298a5",
+      "blob": "a0506133c3a71e9a6e7611cc108001cf8503e0bc",
       "path": "karackencurllib/src/main/java/karacken/curl/PageRenderer.java"
     },
     {
@@ -378,13 +378,53 @@
     },
     {
       "mode": "100644",
-      "blob": "f390182e2090a806e2459613a9002de9eee76a21",
+      "blob": "1bb83ae6ca5d9eb5685276c4c7c1f2fd38f079f7",
       "path": "karackencurllib/src/main/java/karacken/curl/TextureBudget.java"
     },
     {
       "mode": "100644",
       "blob": "ffa4831a37c0c1b456f164112c439395ef40206f",
       "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceOwnershipSnapshotCoordinatorTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "ced0748465ba8e3fd0a30bface568f4b1a5c1cde",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageOverlayImage.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "19a8fdd845a764efd9fea1648809cb85d550117e",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageOverlayPendingLease.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "47b99dc63429c9346c92f31615a7e6b8bf1dbff9",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageOverlayReplacementStore.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "c1d9819393e11b2f17042296044f6f57111c0a41",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageOverlayUpdateGate.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "52567463383c86d855fd218571772cf045dbd019",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageOverlayUpdateResult.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "055238d0ed851f1857d1b8e9ec1d85750e290329",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageOverlayPendingLeaseTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "f375e9c954c80ba8eb36b74870921a438c02d963",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageOverlayReplacementStoreTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "971d7807e5d7e1b1bdb2d60a00cfbec988d5509c",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageOverlayUpdateGateTest.java"
     }
   ]
 }
