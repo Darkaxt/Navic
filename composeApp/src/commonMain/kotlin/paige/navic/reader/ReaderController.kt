@@ -270,8 +270,14 @@ data class ReaderController(
 	fun updateMediaOverlayProgress(fragment: ReaderOverlayFragment): ReaderControllerStep =
 		ReaderOverlayReducer.updateProgress(this, fragment)
 
-	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderControllerStep =
-		ReaderWhispersyncReducer.onReadaloudPlaybackState(this, playbackState)
+	fun onReadaloudPlaybackState(
+		playbackState: ReaderReadaloudPlaybackUiState,
+		publishOverlayProgress: Boolean = true
+	): ReaderControllerStep = ReaderWhispersyncReducer.onReadaloudPlaybackState(
+		controller = this,
+		playbackState = playbackState,
+		publishOverlayProgress = publishOverlayProgress
+	)
 
 	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderControllerStep =
 		ReaderWhispersyncReducer.loadSidecar(this, sidecar)

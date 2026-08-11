@@ -2176,6 +2176,43 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun exactWordSyncCanKeepCoarsePlaybackPulseFromAdvancingTheOverlay() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val pending = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140
+			)
+		)
+		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			pending.engineCommands.single()
+		).fragment
+		val confirmed = pending.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(requested)
+		).controller
+		val playback = ReaderReadaloudPlaybackUiState(
+			isAvailable = true,
+			isPlaying = true,
+			trackIndex = 0,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 5_500L,
+			durationMs = 8_000L
+		)
+
+		val step = confirmed.onReadaloudPlaybackState(
+			playbackState = playback,
+			publishOverlayProgress = false
+		)
+
+		assertEquals(playback, step.controller.state.chrome.readaloudPlayback)
+		assertEquals(requested, step.controller.state.activeMediaOverlay)
+		assertTrue(step.engineCommands.isEmpty())
+	}
+
+	@Test
 	fun whispersyncMismatchedOverlayActivationIsIgnored() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller

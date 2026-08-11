@@ -12,10 +12,14 @@ internal fun ReaderCoordinator.acceptsWordSyncGeneration(generation: Long): Bool
 
 internal fun ReaderCoordinator.onReadaloudPlaybackState(
 	playbackState: ReaderReadaloudPlaybackUiState,
-	playbackIdentity: ReaderWordSyncPlaybackIdentity?
+	playbackIdentity: ReaderWordSyncPlaybackIdentity?,
+	publishOverlayProgress: Boolean = true
 ): ReaderCoordinatorStep = applyWordSyncDecision(
 	wordSync.coordinate(
-		controllerStep = controller.onReadaloudPlaybackState(playbackState),
+		controllerStep = controller.onReadaloudPlaybackState(
+			playbackState = playbackState,
+			publishOverlayProgress = publishOverlayProgress
+		),
 		playback = playbackIdentity
 	)
 )

@@ -537,6 +537,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 	LaunchedEffect(
 		audiobookMiniPlayerState,
 		whispersyncPlaybackPlan,
+		wordSyncPublicationVerifier,
 		reader.bookId,
 		reader.whispersyncAudiobookId,
 		readaloudSyncEnabled
@@ -545,7 +546,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 			applyCoordinatorStep(
 				coordinator.onReadaloudPlaybackState(
 					playbackState = playbackState,
-					playbackIdentity = playbackState.toWordSyncPlaybackIdentity(whispersyncPlaybackPlan)
+					playbackIdentity = playbackState.toWordSyncPlaybackIdentity(whispersyncPlaybackPlan),
+					publishOverlayProgress = wordSyncPublicationVerifier == null
 				)
 			)
 		}

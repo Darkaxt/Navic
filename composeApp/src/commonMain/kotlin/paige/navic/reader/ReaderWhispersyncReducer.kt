@@ -5,8 +5,12 @@ import paige.navic.util.core.Logger
 internal object ReaderWhispersyncReducer {
 	fun onReadaloudPlaybackState(
 		controller: ReaderController,
-		playbackState: ReaderReadaloudPlaybackUiState
-	): ReaderControllerStep = controller.reduceReadaloudPlaybackState(playbackState)
+		playbackState: ReaderReadaloudPlaybackUiState,
+		publishOverlayProgress: Boolean = true
+	): ReaderControllerStep = controller.reduceReadaloudPlaybackState(
+		playbackState = playbackState,
+		publishOverlayProgress = publishOverlayProgress
+	)
 
 	fun loadSidecar(
 		controller: ReaderController,
@@ -32,7 +36,10 @@ internal object ReaderWhispersyncReducer {
 		event: ReaderEngineEvent.TextPoint
 	): ReaderControllerStep = controller.reduceTextPoint(event)
 }
-private fun ReaderController.reduceReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderControllerStep {
+private fun ReaderController.reduceReadaloudPlaybackState(
+	playbackState: ReaderReadaloudPlaybackUiState,
+	publishOverlayProgress: Boolean
+): ReaderControllerStep {
 	if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
 		return ReaderControllerStep(this)
 	}
@@ -87,7 +94,6 @@ private fun ReaderController.reduceReadaloudPlaybackState(playbackState: ReaderR
 	val command = syncState.engineCommand
 		?.takeIf { syncState.engineCommandKey != currentWhispersync.sync.engineCommandKey }
 	val overlayFragment = command.overlayFragmentOrNull()
-	val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
 	val visibleRange = currentWhispersync.visibleTextRange
 	if (overlayFragment != null && overlayFragment.isOutsideWhispersyncVisibleRange(visibleRange)) {
 		Logger.i(
@@ -122,17 +128,22 @@ private fun ReaderController.reduceReadaloudPlaybackState(playbackState: ReaderR
 			readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Pause
 		)
 	}
-	if (overlayFragment != null) {
+	val publishedCommand = command.takeIf {
+		publishOverlayProgress || it !is ReaderEngineCommand.UpdateMediaOverlayProgress
+	}
+	val publishedOverlayFragment = publishedCommand.overlayFragmentOrNull()
+	val publishedClearOverlay = publishedCommand == ReaderEngineCommand.ClearMediaOverlay
+	if (publishedOverlayFragment != null) {
 		Logger.i(
 			WhispersyncSyncLogTag,
 			"Whispersync apply overlay source=playback " +
-				"audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
-				"text=${overlayFragment.textHref.whispersyncLogValue()} " +
-				"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"} " +
-				"progressTextEnd=${overlayFragment.textProgressEnd ?: "n/a"} " +
-				"clip=${overlayFragment.clipBeginSeconds ?: "n/a"}-${overlayFragment.clipEndSeconds ?: "n/a"}"
+				"audio=${publishedOverlayFragment.resourceHref.whispersyncLogValue()} " +
+				"text=${publishedOverlayFragment.textHref.whispersyncLogValue()} " +
+				"textRange=${publishedOverlayFragment.textStart ?: "n/a"}-${publishedOverlayFragment.textEnd ?: "n/a"} " +
+				"progressTextEnd=${publishedOverlayFragment.textProgressEnd ?: "n/a"} " +
+				"clip=${publishedOverlayFragment.clipBeginSeconds ?: "n/a"}-${publishedOverlayFragment.clipEndSeconds ?: "n/a"}"
 		)
-	} else if (shouldClearOverlay) {
+	} else if (publishedClearOverlay) {
 		Logger.i(
 			WhispersyncSyncLogTag,
 			"Whispersync apply overlay source=playback command=clear"
@@ -148,15 +159,15 @@ private fun ReaderController.reduceReadaloudPlaybackState(playbackState: ReaderR
 						?.takeIf { it.overlayRequestId == syncState.activeOverlayRequestId },
 					status = playbackStep?.status ?: currentWhispersync.status
 				),
-				activeMediaOverlay = command.confirmedOverlayOrPrevious(
+				activeMediaOverlay = publishedCommand.confirmedOverlayOrPrevious(
 					state.activeMediaOverlay
 				),
-				audioMetadataLabel = command.confirmedOverlayLabelOrPrevious(
+				audioMetadataLabel = publishedCommand.confirmedOverlayLabelOrPrevious(
 					state.audioMetadataLabel
 				)
 			)
 		),
-		engineCommands = listOfNotNull(command)
+		engineCommands = listOfNotNull(publishedCommand)
 	)
 }
 

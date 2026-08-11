@@ -14,6 +14,7 @@ class ReaderWordSyncBoundaryRuntimeSourceTest {
 		assertContains(source, "audiobookPlaybackManager.currentPlaybackTimelineSnapshot()")
 		assertContains(source, "coordinator.wordSyncBoundaries(")
 		assertContains(source, "coordinator.onWordSyncBoundary(dispatch)")
+		assertContains(source, "publishOverlayProgress = wordSyncPublicationVerifier == null")
 		assertContains(source, "DisposableEffect(wordSyncBoundaryScheduler)")
 	}
 
