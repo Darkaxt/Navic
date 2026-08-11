@@ -864,6 +864,35 @@ class ReaderWebViewVisualHandoffTest {
 	}
 
 	@Test
+	fun pageTurnAdmissionReopensOnlyAfterVisualHandoffCompletes() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueVisualRequest(queue, gestureId = 1L)
+
+		assertTrue(
+			readerPlayLikeCurlTurnAdmissionAvailable(
+				relocationQueue = queue,
+				otherwiseAvailable = true
+			)
+		)
+
+		acknowledgeForVisualHandoff(queue, request)
+
+		assertFalse(
+			readerPlayLikeCurlTurnAdmissionAvailable(
+				relocationQueue = queue,
+				otherwiseAvailable = true
+			)
+		)
+		assertTrue(queue.completeHandoff(request.token.value))
+		assertTrue(
+			readerPlayLikeCurlTurnAdmissionAvailable(
+				relocationQueue = queue,
+				otherwiseAvailable = true
+			)
+		)
+	}
+
+	@Test
 	fun acceptedContentWaitsForCommittedWebViewExposure() {
 		val queue = ReaderPageRelocationQueue()
 		val request = enqueueVisualRequest(queue, gestureId = 1L)
@@ -891,12 +920,14 @@ class ReaderWebViewVisualHandoffTest {
 
 		assertEquals(1, finalizers.size)
 		assertEquals(request, queue.head())
+		assertTrue(queue.hasInFlightHead())
 		assertTrue(completed.isEmpty())
 
 		finalizers.single().invoke(true)
 		finalizers.single().invoke(true)
 
 		assertNull(queue.head())
+		assertFalse(queue.hasInFlightHead())
 		assertEquals(listOf(request), completed)
 	}
 

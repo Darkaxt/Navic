@@ -23,8 +23,8 @@ class ReaderPlayLikeCurlSurfaceBoundsTest {
 		assertFalse(update.contains("page.bitmap.width"))
 		assertFalse(update.contains("page.bitmap.height"))
 		assertFalse(source.contains("readerPlayLikeCurlPortraitSurfaceWidth("))
-		assertContains(source, "setZOrderOnTop(true)")
-		assertFalse(source.contains("setZOrderMediaOverlay(true)"))
+		assertContains(source, "setZOrderMediaOverlay(true)")
+		assertFalse(source.contains("setZOrderOnTop(true)"))
 		assertTrue(
 			update.indexOf("params.width = ViewGroup.LayoutParams.MATCH_PARENT") <
 				update.indexOf("surfaceView.requestLayout()")

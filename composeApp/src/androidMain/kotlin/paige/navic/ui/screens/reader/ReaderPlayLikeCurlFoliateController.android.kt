@@ -103,6 +103,11 @@ internal fun readerPageLivePresentationAvailable(
 	otherwiseAvailable: Boolean
 ): Boolean = !hasFailedLivePresentation && otherwiseAvailable
 
+internal fun readerPlayLikeCurlTurnAdmissionAvailable(
+	relocationQueue: ReaderPageRelocationQueue,
+	otherwiseAvailable: Boolean
+): Boolean = otherwiseAvailable && !relocationQueue.hasInFlightHead()
+
 internal fun readerTerminalContentFailureRecoveryStillCurrent(
 	destroyed: Boolean,
 	failedGenerationMatches: Boolean,
@@ -663,7 +668,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	val surfaceView = PageSurfaceView(host.context).apply {
 		holder.setFormat(PixelFormat.TRANSLUCENT)
-		setZOrderOnTop(true)
+		setZOrderMediaOverlay(true)
 		setVisible(true)
 		alpha = 0f
 		visibility = View.VISIBLE
@@ -1366,10 +1371,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 	val isAvailable: Boolean
 		get() = readerPageLivePresentationAvailable(
 			hasFailedLivePresentation = failedLivePresentationGeneration != null,
-			otherwiseAvailable = enabled && attached &&
-				hasDecodedWorkingSetForCurrentOrdinal() &&
-				deckRecoveryCoordinator.canAcceptPointer &&
-				pageOperationPolicy.newPointer is ReaderPageNewPointerDecision.Accept
+			otherwiseAvailable = readerPlayLikeCurlTurnAdmissionAvailable(
+				relocationQueue = relocationQueue,
+				otherwiseAvailable = enabled && attached &&
+					hasDecodedWorkingSetForCurrentOrdinal() &&
+					deckRecoveryCoordinator.canAcceptPointer &&
+					pageOperationPolicy.newPointer is ReaderPageNewPointerDecision.Accept
+			)
 		)
 
 	private val canPresentAcceptedGesture: Boolean

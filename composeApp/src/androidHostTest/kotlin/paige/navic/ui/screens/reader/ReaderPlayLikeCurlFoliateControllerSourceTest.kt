@@ -2595,6 +2595,28 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun unresolvedVisualHandoffFencesTheNextPageTurn() {
+		val source = controllerFile.readText()
+		val availability = source
+			.substringAfter("private val isAvailable: Boolean")
+			.substringBefore("private val canPresentAcceptedGesture: Boolean")
+		val admission = source
+			.substringAfter("internal fun readerPlayLikeCurlTurnAdmissionAvailable(")
+			.substringBefore("internal fun readerTerminalContentFailureRecoveryStillCurrent(")
+		val touch = source
+			.substringAfter("fun onPageTouchEvent(")
+			.substringBefore("override fun start(")
+		val tap = source
+			.substringAfter("private fun startTapTurn(")
+			.substringBefore("private fun revealSurfaceAfterNextPresentedFrame(")
+
+		assertContains(availability, "readerPlayLikeCurlTurnAdmissionAvailable(")
+		assertContains(admission, "!relocationQueue.hasInFlightHead()")
+		assertContains(touch, "if (!isAvailable || metadata == null)")
+		assertContains(tap, "if (!isAvailable || metadata == null)")
+	}
+
+	@Test
 	fun delayedTapTurnPublishesThePolicySpecificUnavailableOutcome() {
 		val source = controllerFile.readText()
 		val startTapTurn = source
