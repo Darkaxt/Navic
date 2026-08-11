@@ -285,6 +285,80 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 	}
 
 	@Test
+	fun portraitPageBackingUsesTheFoliateRevealOutsideTheRaster() {
+		val layout = ReaderPlayLikeCurlRasterLayout(
+			surfaceRectInWindow = ReaderPlayLikeCurlPhysicalRect(30, 100, 1_030, 1_100),
+			fullLeafRect = ReaderPlayLikeCurlPhysicalRect(0, 0, 990, 1_000),
+			leftLeafRect = null,
+			gutterRect = null,
+			rightLeafRect = null
+		)
+
+		assertEquals(
+			karacken.curl.PageDisplayRect(1_010, 60, 1_020, 1_060),
+			layout.pageBackingRect(
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Full,
+				rendererLeftInWindow = 10,
+				rendererTopInWindow = 40,
+				rendererWidth = 1_100,
+				rendererHeight = 1_100
+			)
+		)
+	}
+
+	@Test
+	fun spreadPageBackingUsesOnlyTheTwoOuterFoliateReveals() {
+		val layout = ReaderPlayLikeCurlRasterLayout(
+			surfaceRectInWindow = ReaderPlayLikeCurlPhysicalRect(30, 100, 1_030, 1_100),
+			fullLeafRect = null,
+			leftLeafRect = ReaderPlayLikeCurlPhysicalRect(10, 0, 500, 1_000),
+			gutterRect = ReaderPlayLikeCurlPhysicalRect(500, 0, 500, 1_000),
+			rightLeafRect = ReaderPlayLikeCurlPhysicalRect(500, 0, 990, 1_000)
+		)
+
+		assertEquals(
+			karacken.curl.PageDisplayRect(20, 60, 30, 1_060),
+			layout.pageBackingRect(
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Left,
+				rendererLeftInWindow = 10,
+				rendererTopInWindow = 40,
+				rendererWidth = 1_100,
+				rendererHeight = 1_100
+			)
+		)
+		assertEquals(
+			karacken.curl.PageDisplayRect(1_010, 60, 1_020, 1_060),
+			layout.pageBackingRect(
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Right,
+				rendererLeftInWindow = 10,
+				rendererTopInWindow = 40,
+				rendererWidth = 1_100,
+				rendererHeight = 1_100
+			)
+		)
+		assertNull(
+			layout.pageBackingRect(
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Full,
+				rendererLeftInWindow = 10,
+				rendererTopInWindow = 40,
+				rendererWidth = 1_100,
+				rendererHeight = 1_100
+			)
+		)
+	}
+
+	@Test
+	fun foliateDeckSubmitsNativePageBackingMaterial() {
+		val controller = sourceFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPlayLikeCurlFoliateController.android.kt"
+		).readText()
+
+		assertContains(controller, "image.layout.pageBackingRectInHost(image.leaf)")
+		assertContains(controller, "image.paperColorArgb")
+	}
+
+	@Test
 	fun portraitFillersBorrowTheFullLeafPlacement() {
 		assertEquals(
 			ReaderPlayLikeCurlFoliateLeaf.Full,

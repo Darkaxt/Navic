@@ -79,6 +79,33 @@ public class Gles2RendererSourceTest {
     }
 
     @Test
+    public void rendererOwnsFixedPageBackingForEveryCurlFrame() throws IOException {
+        String source = source("PageRenderer.java");
+        String portrait = methodBody(source, "private boolean drawPortraitPage()");
+        String landscape = methodBody(source, "private boolean drawLandscapeSpread()");
+        String backing = methodBody(
+                source,
+                "private void drawPageBacking(PageImage<Bitmap> resource)");
+
+        assertTrue(portrait.contains("drawPageBacking(portraitFrontResource)"));
+        assertTrue(portrait.indexOf("drawPageBacking(portraitFrontResource)")
+                < portrait.indexOf("if (portraitModel.getActivePage()"));
+        assertTrue(landscape.contains("drawPageBacking(spreadCurrentLeftResource)"));
+        assertTrue(landscape.contains("drawPageBacking(spreadCurrentRightResource)"));
+        assertTrue(landscape.indexOf("drawPageBacking(spreadCurrentLeftResource)")
+                < landscape.indexOf("LandscapeSpreadTransition transition"));
+        assertTrue(landscape.indexOf("drawPageBacking(spreadCurrentRightResource)")
+                < landscape.indexOf("LandscapeSpreadTransition transition"));
+        assertTrue(backing.contains("resource.hasBacking()"));
+        assertTrue(backing.contains("GLES20.glEnable(GLES20.GL_SCISSOR_TEST)"));
+        assertTrue(backing.contains("GLES20.glScissor("));
+        assertTrue(backing.contains("GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)"));
+        assertTrue(backing.contains("finally"));
+        assertTrue(backing.contains("GLES20.glClearColor(0f, 0f, 0f, 0f)"));
+        assertTrue(backing.contains("GLES20.glDisable(GLES20.GL_SCISSOR_TEST)"));
+    }
+
+    @Test
     public void hiddenSurfacePresentationWaitsForAnArmedCompleteFrame() throws IOException {
         String source = Files.readString(
                 Path.of("src/main/java/karacken/curl/PageSurfaceView.java"),

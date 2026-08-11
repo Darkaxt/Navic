@@ -130,6 +130,50 @@ public class PageDeckContractTest {
     }
 
     @Test
+    public void pageImageCarriesOpaqueBackingOutsideThePageRaster() {
+        PageDisplayRect pageRect = new PageDisplayRect(0, 0, 990, 1800);
+        PageDisplayRect backingRect = new PageDisplayRect(990, 0, 1000, 1800);
+        PageImage<String> page = new PageImage<>(
+                19,
+                "backed-page",
+                1,
+                1200,
+                1800,
+                pageRect,
+                "base-bitmap",
+                backingRect,
+                PAPER_COLOR);
+
+        assertTrue(page.hasBacking());
+        assertEquals(backingRect, page.getBackingRect());
+        assertEquals(PAPER_COLOR, page.getBackingColorArgb());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PageImage<>(
+                        19,
+                        "translucent-backing",
+                        2,
+                        1200,
+                        1800,
+                        pageRect,
+                        "base-bitmap",
+                        backingRect,
+                        0x80F5F2EA));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PageImage<>(
+                        19,
+                        "overlapping-backing",
+                        3,
+                        1200,
+                        1800,
+                        pageRect,
+                        "base-bitmap",
+                        new PageDisplayRect(980, 0, 1000, 1800),
+                        PAPER_COLOR));
+    }
+
+    @Test
     public void portraitBoundaryUsesPixelsAsFillerButCannotNavigatePastBoundary() {
         PageImage<String> first = page(21, "first", 0);
         PageImage<String> second = page(21, "second", 1);

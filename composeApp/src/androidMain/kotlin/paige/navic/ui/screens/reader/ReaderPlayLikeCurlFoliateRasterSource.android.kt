@@ -124,6 +124,54 @@ internal data class ReaderPlayLikeCurlRasterLayout(
 		}
 		return PageDisplayRect(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
 	}
+
+	fun pageBackingRect(
+		leaf: ReaderPlayLikeCurlFoliateLeaf,
+		rendererLeftInWindow: Int,
+		rendererTopInWindow: Int,
+		rendererWidth: Int,
+		rendererHeight: Int
+	): PageDisplayRect? {
+		if (rendererWidth <= 0 || rendererHeight <= 0) return null
+		val page = physicalRect(leaf) ?: return null
+		val surfaceWidth = surfaceRectInWindow.width
+		val leftReveal = page.left
+		val rightReveal = surfaceWidth - page.right
+		val backing = when (leaf) {
+			ReaderPlayLikeCurlFoliateLeaf.Full -> when {
+				leftReveal > 0 && rightReveal == 0 ->
+					ReaderPlayLikeCurlPhysicalRect(0, page.top, page.left, page.bottom)
+				rightReveal > 0 && leftReveal == 0 ->
+					ReaderPlayLikeCurlPhysicalRect(page.right, page.top, surfaceWidth, page.bottom)
+				else -> null
+			}
+			ReaderPlayLikeCurlFoliateLeaf.Left -> if (leftReveal > 0) {
+				ReaderPlayLikeCurlPhysicalRect(0, page.top, page.left, page.bottom)
+			} else {
+				null
+			}
+			ReaderPlayLikeCurlFoliateLeaf.Right -> if (rightReveal > 0) {
+				ReaderPlayLikeCurlPhysicalRect(page.right, page.top, surfaceWidth, page.bottom)
+			} else {
+				null
+			}
+		} ?: return null
+		val surfaceLeft = surfaceRectInWindow.left.toLong() - rendererLeftInWindow
+		val surfaceTop = surfaceRectInWindow.top.toLong() - rendererTopInWindow
+		val left = surfaceLeft + backing.left
+		val top = surfaceTop + backing.top
+		val right = surfaceLeft + backing.right
+		val bottom = surfaceTop + backing.bottom
+		if (
+			left < 0L ||
+			top < 0L ||
+			right > rendererWidth.toLong() ||
+			bottom > rendererHeight.toLong()
+		) {
+			return null
+		}
+		return PageDisplayRect(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
+	}
 }
 
 internal data class ReaderPlayLikeCurlRasterImage(

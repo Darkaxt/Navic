@@ -771,6 +771,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
 
     private boolean drawPortraitPage() {
         PageDisplayRect displayRect = displayRect(portraitFrontResource, fullViewportRect());
+        drawPageBacking(portraitFrontResource);
         configureDisplayViewport(displayRect, PageOrientation.PORTRAIT, 0f);
         int displayWidth = displayRect.getWidthPx();
         int displayHeight = displayRect.getHeightPx();
@@ -835,6 +836,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         preloadSpreadWindow();
         PageDisplayRect leftFallback = leftHalfViewportRect();
         PageDisplayRect rightFallback = rightHalfViewportRect();
+        drawPageBacking(spreadCurrentLeftResource);
+        drawPageBacking(spreadCurrentRightResource);
         LandscapeSpreadTransition transition = landscapeSpreadModel.getTransition();
         boolean rendered = true;
 
@@ -963,6 +966,35 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         return resource != null && resource.hasExplicitDisplayRect()
                 ? resource.getDisplayRect()
                 : fallbackDisplayRect;
+    }
+
+    private void drawPageBacking(PageImage<Bitmap> resource) {
+        if (resource == null || !resource.hasBacking()) {
+            return;
+        }
+        PageDisplayRect backingRect = resource.getBackingRect();
+        if (!backingRect.fitsWithin(viewportWidth, viewportHeight)) {
+            throw new IllegalArgumentException(
+                    "Page backing rectangle exceeds the renderer surface");
+        }
+        int color = resource.getBackingColorArgb();
+        GLES20.glEnable(GLES20.GL_SCISSOR_TEST);
+        try {
+            GLES20.glScissor(
+                    backingRect.getLeftPx(),
+                    backingRect.glBottomPx(viewportHeight),
+                    backingRect.getWidthPx(),
+                    backingRect.getHeightPx());
+            GLES20.glClearColor(
+                    colorChannel(color, 16),
+                    colorChannel(color, 8),
+                    colorChannel(color, 0),
+                    colorChannel(color, 24));
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+        } finally {
+            GLES20.glClearColor(0f, 0f, 0f, 0f);
+            GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
+        }
     }
 
     private void configureDisplayViewport(

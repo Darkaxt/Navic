@@ -4325,6 +4325,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) { "Physical page placement does not fit the renderer host" }
 	}
 
+	private fun ReaderPlayLikeCurlRasterLayout.pageBackingRectInHost(
+		leaf: ReaderPlayLikeCurlFoliateLeaf
+	) = run {
+		val location = IntArray(2)
+		host.getLocationInWindow(location)
+		pageBackingRect(
+			leaf = leaf,
+			rendererLeftInWindow = location[0],
+			rendererTopInWindow = location[1],
+			rendererWidth = host.width,
+			rendererHeight = host.height
+		)
+	}
+
 	private fun PreparedPages.page(
 		generationId: Long,
 		ordinal: Int
@@ -4332,15 +4346,31 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val image = checkNotNull(deck.value(ordinal)) {
 			"Missing prepared Foliate page $ordinal for ${profile.orientation}"
 		}
-		return PageImage(
-			generationId,
-			"${profile.sourceIdentity}:${profile.orientation.name.lowercase()}:$ordinal",
-			ordinal,
-			image.bitmap.width,
-			image.bitmap.height,
-			image.layout.displayRectInHost(image.leaf),
-			image.bitmap
-		)
+		val displayRect = image.layout.displayRectInHost(image.leaf)
+		val backingRect = image.layout.pageBackingRectInHost(image.leaf)
+		return if (backingRect == null) {
+			PageImage(
+				generationId,
+				"${profile.sourceIdentity}:${profile.orientation.name.lowercase()}:$ordinal",
+				ordinal,
+				image.bitmap.width,
+				image.bitmap.height,
+				displayRect,
+				image.bitmap
+			)
+		} else {
+			PageImage(
+				generationId,
+				"${profile.sourceIdentity}:${profile.orientation.name.lowercase()}:$ordinal",
+				ordinal,
+				image.bitmap.width,
+				image.bitmap.height,
+				displayRect,
+				image.bitmap,
+				backingRect,
+				image.paperColorArgb
+			)
+		}
 	}
 
 	private fun PreparedPages.filler(
