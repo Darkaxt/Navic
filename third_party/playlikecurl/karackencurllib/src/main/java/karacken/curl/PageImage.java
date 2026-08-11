@@ -161,6 +161,33 @@ public final class PageImage<T> {
                 0);
     }
 
+    /** Creates an explicitly placed page with both a deformed overlay and fixed backing material. */
+    public PageImage(
+            long generationId,
+            String logicalPageId,
+            int ordinal,
+            int widthPx,
+            int heightPx,
+            PageDisplayRect displayRect,
+            T content,
+            T overlayContent,
+            PageDisplayRect backingRect,
+            int backingColorArgb) {
+        this(
+                generationId,
+                logicalPageId,
+                ordinal,
+                widthPx,
+                heightPx,
+                Objects.requireNonNull(displayRect, "displayRect"),
+                content,
+                overlayContent,
+                false,
+                0,
+                Objects.requireNonNull(backingRect, "backingRect"),
+                backingColorArgb);
+    }
+
     /** Creates a paper-colored physical filler that borrows content only for its lease. */
     public static <T> PageImage<T> filler(
             long generationId,

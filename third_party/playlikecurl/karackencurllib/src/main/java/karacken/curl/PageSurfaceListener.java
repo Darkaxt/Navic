@@ -18,6 +18,8 @@ public interface PageSurfaceListener {
 
     default void onDeckSubmissionCapacityAvailable() {}
 
+    default void onPageOverlayUpdateCapacityAvailable(boolean applied) {}
+
     default void onRenderFailure(RenderFailure failure) {}
 
     default void onGestureRejected(

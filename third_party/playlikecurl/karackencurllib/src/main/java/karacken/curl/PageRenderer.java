@@ -29,6 +29,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
 
         void onDeckReleased(long generationId, DeckReleaseReason reason);
 
+        void onPageOverlayUpdateCompleted(long generationId, boolean applied);
+
         void onRenderFailure(RenderFailure failure);
     }
 
@@ -90,6 +92,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private final GpuMesh rightMesh = new GpuMesh(PageRole.RIGHT);
     private final GpuMesh mirroredRightMesh = new GpuMesh(PageRole.RIGHT, true);
     private final Map<String, GpuTexture> textureCache = new LinkedHashMap<>();
+    private final PageOverlayReplacementStore<String, DynamicPageOverlayTexture>
+            dynamicPageOverlays = new PageOverlayReplacementStore<>(
+                    DynamicPageOverlayTexture::dispose);
     private final PageState flatState = new PageState(
             PageRole.RIGHT, PlayLikeCurlModel.RIGHT_DEPTH, PlayLikeCurlModel.GRID, 0);
     private final PageState turningState = new PageState(
@@ -245,6 +250,110 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         }
     }
 
+    void replacePageOverlays(
+            long generationId,
+            List<PageOverlayImage<Bitmap>> overlays) {
+        boolean applied = false;
+        try {
+            if (disposed || activeDeck == null || activeDeck.getGenerationId() != generationId) {
+                recycleOverlayInputs(overlays);
+                return;
+            }
+            long overlayPeakBytes = Math.addExact(
+                    dynamicPageOverlayBytes(),
+                    pageOverlayBytes(overlays));
+            TextureBudget.Result budget = TextureBudget.evaluate(
+                    activeDeck,
+                    replacementDeck,
+                    maxTextureSize,
+                    gpuBudgetBytes,
+                    overlayPeakBytes);
+            if (budget.getFailureReason() != null) {
+                dynamicPageOverlays.clear();
+                recycleOverlayInputs(overlays);
+                return;
+            }
+            Map<String, DynamicPageOverlayTexture> replacements = new LinkedHashMap<>();
+            try {
+                for (PageOverlayImage<Bitmap> overlay : overlays) {
+                    PageImage<Bitmap> page = currentPage(overlay.getOrdinal());
+                    if (page == null || page.isFiller() || page.hasOverlay()) {
+                        throw new IllegalArgumentException(
+                                "Overlay target is not a current base page");
+                    }
+                    DynamicPageOverlayTexture texture = new DynamicPageOverlayTexture(
+                            page,
+                            overlay.getContent());
+                    replacements.put(page.identityKey(), texture);
+                }
+                for (DynamicPageOverlayTexture texture : replacements.values()) {
+                    texture.ensureUploaded();
+                }
+                dynamicPageOverlays.replace(replacements);
+                applied = true;
+            } catch (RuntimeException | Error failure) {
+                for (DynamicPageOverlayTexture texture : replacements.values()) {
+                    texture.dispose();
+                }
+                throw failure;
+            }
+        } catch (RuntimeException exception) {
+            dynamicPageOverlays.clear();
+            recycleOverlayInputs(overlays);
+        } finally {
+            events.onPageOverlayUpdateCompleted(generationId, applied);
+        }
+    }
+
+    private PageImage<Bitmap> currentPage(int ordinal) {
+        if (activeDeck instanceof PortraitPageDeck<?>) {
+            PageImage<Bitmap> current = ((PortraitPageDeck<Bitmap>) activeDeck).getCurrent();
+            return current.getOrdinal() == ordinal ? current : null;
+        }
+        if (activeDeck instanceof LandscapePageDeck<?>) {
+            LandscapePageDeck<Bitmap> spread = (LandscapePageDeck<Bitmap>) activeDeck;
+            if (spread.getCurrentLeft().getOrdinal() == ordinal) {
+                return spread.getCurrentLeft();
+            }
+            if (spread.getCurrentRight().getOrdinal() == ordinal) {
+                return spread.getCurrentRight();
+            }
+        }
+        return null;
+    }
+
+    private static void recycleOverlayInputs(List<PageOverlayImage<Bitmap>> overlays) {
+        for (PageOverlayImage<Bitmap> overlay : overlays) {
+            Bitmap bitmap = overlay.getContent();
+            if (!bitmap.isRecycled()) {
+                bitmap.recycle();
+            }
+        }
+    }
+
+    private long dynamicPageOverlayBytes() {
+        long[] total = {0L};
+        dynamicPageOverlays.forEach(texture ->
+                total[0] = Math.addExact(total[0], texture.gpuBytes()));
+        return total[0];
+    }
+
+    private static long pageOverlayBytes(
+            List<PageOverlayImage<Bitmap>> overlays) {
+        long total = 0L;
+        for (PageOverlayImage<Bitmap> overlay : overlays) {
+            Bitmap bitmap = overlay.getContent();
+            total = Math.addExact(total, gpuBytes(bitmap.getWidth(), bitmap.getHeight()));
+        }
+        return total;
+    }
+
+    private static long gpuBytes(int width, int height) {
+        return Math.multiplyExact(
+                Math.multiplyExact((long) width, (long) height),
+                4L);
+    }
+
     PlayLikeCurlModel getPortraitModel() {
         return portraitModel;
     }
@@ -360,7 +469,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     }
 
     int textureCount() {
-        return textureCache.size();
+        return textureCache.size() + dynamicPageOverlays.size();
     }
 
     int textureLimit() {
@@ -381,9 +490,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         disposed = true;
         activeDeck = null;
         replacementDeck = null;
+        glReady = false;
         clearActiveDeck();
         textureCache.clear();
-        glReady = false;
     }
 
     @Override
@@ -437,9 +546,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             for (GpuTexture texture : textureCache.values()) {
                 texture.resetGl();
             }
+            dynamicPageOverlays.forEach(DynamicPageOverlayTexture::resetGl);
             glReady = true;
             publishCapabilities();
             rehydrateRetainedDecks();
+            rehydrateDynamicPageOverlays();
         } catch (RuntimeException exception) {
             glReady = false;
             reportFailure(
@@ -495,6 +606,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     }
 
     private void applyActiveDeck(PageDeck<Bitmap> deck) {
+        dynamicPageOverlays.clear();
         if (deck instanceof PortraitPageDeck) {
             PortraitPageDeck<Bitmap> portrait = (PortraitPageDeck<Bitmap>) deck;
             portraitLeftResource = portrait.getPrevious();
@@ -520,6 +632,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     }
 
     private void clearActiveDeck() {
+        dynamicPageOverlays.clear();
         portraitModel = null;
         landscapeSpreadModel = null;
         clearPortraitResources();
@@ -671,6 +784,20 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     retainedReplacement,
                     activeDeck,
                     retainedReplacement);
+        }
+    }
+
+    private void rehydrateDynamicPageOverlays() {
+        try {
+            dynamicPageOverlays.forEach(DynamicPageOverlayTexture::ensureUploaded);
+        } catch (RuntimeException exception) {
+            dynamicPageOverlays.clear();
+            reportFailure(
+                    activeGeneration(),
+                    true,
+                    RenderFailureReason.TEXTURE_UPLOAD,
+                    "Could not restore page overlays after GL context recreation",
+                    exception);
         }
     }
 
@@ -1202,7 +1329,14 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     }
 
     private GpuTexture overlayTexture(PageImage<Bitmap> page) {
-        if (page == null || page.isFiller() || !page.hasOverlay()) {
+        if (page == null || page.isFiller()) {
+            return null;
+        }
+        DynamicPageOverlayTexture dynamic = dynamicPageOverlays.get(page.identityKey());
+        if (dynamic != null) {
+            return dynamic.uploaded ? dynamic : null;
+        }
+        if (!page.hasOverlay()) {
             return null;
         }
         GpuTexture texture = textureCache.get(page.overlayIdentityKey());
@@ -1244,11 +1378,82 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 new RenderFailure(generationId, recoverable, reason, message, cause));
     }
 
-    private final class GpuTexture {
-        private final PageImage<Bitmap> page;
+    private final class DynamicPageOverlayTexture extends GpuTexture {
+        private final Bitmap bitmap;
+
+        DynamicPageOverlayTexture(PageImage<Bitmap> page, Bitmap bitmap) {
+            super(page, false);
+            this.bitmap = bitmap;
+            validateOverlayBitmap(page, bitmap);
+        }
+
+        @Override
+        void ensureUploaded() {
+            if (uploaded) {
+                return;
+            }
+            validateOverlayBitmap(page, bitmap);
+            int[] ids = new int[1];
+            GLES20.glGenTextures(1, ids, 0);
+            textureId = ids[0];
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId);
+            GLES20.glTexParameteri(
+                    GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(
+                    GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(
+                    GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glTexParameteri(
+                    GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0);
+            int error = GLES20.glGetError();
+            if (error != GLES20.GL_NO_ERROR) {
+                deleteGl();
+                throw new IllegalStateException(
+                        "Overlay texture upload failed with GLES error " + error);
+            }
+            uploaded = true;
+        }
+
+        void dispose() {
+            if (glReady) {
+                deleteGl();
+            } else {
+                resetGl();
+            }
+            if (!bitmap.isRecycled()) {
+                bitmap.recycle();
+            }
+        }
+
+        long gpuBytes() {
+            return PageRenderer.gpuBytes(page.getWidthPx(), page.getHeightPx());
+        }
+    }
+
+    private static void validateOverlayBitmap(PageImage<Bitmap> page, Bitmap bitmap) {
+        if (bitmap.isRecycled()) {
+            throw new IllegalArgumentException(
+                    "Overlay bitmap is recycled for " + page.getLogicalPageId());
+        }
+        if (bitmap.getWidth() != page.getWidthPx()
+                || bitmap.getHeight() != page.getHeightPx()) {
+            throw new IllegalArgumentException(
+                    "Overlay dimensions differ from the current page");
+        }
+        if (bitmap.getConfig() != Bitmap.Config.ARGB_8888
+                || !bitmap.isPremultiplied()
+                || !bitmap.hasAlpha()) {
+            throw new IllegalArgumentException(
+                    "Overlay bitmap must be premultiplied ARGB_8888 with alpha");
+        }
+    }
+
+    private class GpuTexture {
+        final PageImage<Bitmap> page;
         private final boolean overlay;
-        private int textureId;
-        private boolean uploaded;
+        int textureId;
+        boolean uploaded;
 
         GpuTexture(PageImage<Bitmap> page, boolean overlay) {
             if (page.isFiller()) {

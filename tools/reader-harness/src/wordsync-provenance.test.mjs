@@ -513,6 +513,108 @@ const runScenario = (page, scenario) => page.evaluate(async scenarioName => {
   throw new Error('unknown scenario')
 }, scenario)
 
+test('derives page-local anchor geometry only from a current Foliate presentation receipt', async () => {
+  const page = await newReaderPage()
+  try {
+    const result = await page.evaluate(async () => {
+      const api = await import('/navic-reader-wordsync-provenance.js')
+      const fragment = { overlayRequestId: 19 }
+      const runtime = {
+        wordSyncAnchorGeneration: 4,
+        rawTextProvenance: {
+          resolveRange: () => ({
+            getClientRects: () => [
+              { left: 570, top: 40, right: 630, bottom: 64, width: 60, height: 24 },
+              { left: 650, top: 40, right: 712, bottom: 64, width: 62, height: 24 },
+            ],
+          }),
+        },
+        pageTurnLivePresentationReceipt: () => ({
+          scope: 'live',
+          token: 'settled-11',
+          pageIndex: 12,
+          foliateSessionId: 'foliate-7',
+          rasterGeneration: 31,
+          textureGeneration: 32,
+          foregroundMutationGeneration: 8,
+          presentationSequence: 9,
+        }),
+        pageTurnCaptureGeometry: () => ({
+          viewportWidth: 1200,
+          viewportHeight: 800,
+          mode: 'spread',
+          pages: [
+            { role: 'left', left: 10, top: 0, width: 580, height: 800 },
+            { role: 'right', left: 610, top: 0, width: 580, height: 800 },
+          ],
+        }),
+        pageTurnRasterDescriptor: () => ({
+          paginationFingerprint: 'pagination-a',
+          layoutFingerprint: 'layout-a',
+          decorationFingerprint: 'settings-a',
+          visualPageOrdinal: 12,
+          spineIndex: 3,
+        }),
+        currentPagePosition: { pageIndex: 12, spineIndex: 3 },
+      }
+      const anchor = api.readerWordSyncAnchorReceipt(runtime, fragment)
+      const events = []
+      api.postReaderWordSyncOverlayActive(runtime, fragment, event => events.push(event))
+      runtime.currentPagePosition = { pageIndex: 13, spineIndex: 3 }
+      const stalePage = api.readerWordSyncAnchorReceipt(runtime, fragment)
+      runtime.currentPagePosition = { pageIndex: 12, spineIndex: 3 }
+      runtime.pageTurnLivePresentationReceipt = () => null
+      const exposedPreview = api.readerWordSyncAnchorReceipt(runtime, fragment)
+      return {
+        anchor,
+        postedEvent: events[0],
+        stalePage,
+        exposedPreview,
+        anchorGeneration: runtime.wordSyncAnchorGeneration,
+      }
+    })
+
+    assert.deepEqual(result.anchor, {
+      foliateSessionId: 'foliate-7',
+      destinationCommitToken: 'settled-11',
+      visualPageOrdinal: 12,
+      spineIndex: 3,
+      rasterGeneration: 31,
+      textureGeneration: 32,
+      presentationMutationGeneration: 8,
+      presentationSequence: 9,
+      anchorGeneration: 5,
+      boundarySequence: 19,
+      paginationFingerprint: 'pagination-a',
+      layoutFingerprint: 'layout-a',
+      readerSettingsRasterKey: 'settings-a',
+      captureGeometry: {
+        viewportWidth: 1200,
+        viewportHeight: 800,
+        mode: 'spread',
+        pages: [
+          { role: 'left', left: 10, top: 0, width: 580, height: 800 },
+          { role: 'right', left: 610, top: 0, width: 580, height: 800 },
+        ],
+      },
+      pageLocalRects: [
+        { role: 'left', left: 560, top: 40, width: 20, height: 24 },
+        { role: 'right', left: 0, top: 40, width: 20, height: 24 },
+        { role: 'right', left: 40, top: 40, width: 62, height: 24 },
+      ],
+    })
+    assert.equal(result.postedEvent.type, 'overlayFragmentActive')
+    assert.equal(result.postedEvent.overlayRequestId, 19)
+    assert.equal(result.postedEvent.anchorReceipt.anchorGeneration, 6)
+    assert.equal(result.postedEvent.anchorReceipt.boundarySequence, 19)
+    assert.equal(result.stalePage, null)
+    assert.equal(result.exposedPreview, null)
+    assert.equal(result.anchorGeneration, 6)
+  } finally {
+    await page.close()
+  }
+})
+
 test('integrates exact raw mapping into reader lifecycle, visibility, painting, and inverse events', async () => {
   const page = await newReaderPage()
   try {

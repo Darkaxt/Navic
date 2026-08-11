@@ -2152,8 +2152,46 @@ class ReaderControllerTest {
 		assertEquals(emptyList(), repeated.engineCommands)
 		assertNull(repeated.whispersyncAudioSeekTarget)
 
+		val receipt = ReaderWhispersyncAnchorReceipt(
+			foliateSessionId = "session-a",
+			destinationCommitToken = "settled-4",
+			visualPageOrdinal = 4,
+			spineIndex = 0,
+			rasterGeneration = 12L,
+			textureGeneration = 13L,
+			presentationMutationGeneration = 3L,
+			presentationSequence = 4L,
+			anchorGeneration = 5L,
+			boundarySequence = requestId,
+			paginationFingerprint = "pagination",
+			layoutFingerprint = "layout",
+			readerSettingsRasterKey = "settings",
+			captureGeometry = ReaderPageTurnCaptureGeometry(
+				viewportWidth = 600.0,
+				viewportHeight = 800.0,
+				mode = ReaderPageTurnLayoutMode.Single,
+				pages = listOf(
+					ReaderPageTurnPageRect(
+						ReaderPageTurnPageRole.Full,
+						30.0,
+						0.0,
+						540.0,
+						800.0
+					)
+				)
+			),
+			pageLocalRects = listOf(
+				ReaderWhispersyncPageLocalRect(
+					ReaderPageTurnPageRole.Full,
+					18.0,
+					40.0,
+					62.0,
+					24.0
+				)
+			)
+		)
 		val confirmed = repeated.controller.onEngineEvent(
-			ReaderEngineEvent.MediaOverlayActive(overlay.fragment)
+			ReaderEngineEvent.MediaOverlayActive(overlay.fragment, receipt)
 		)
 		assertEquals(5_000L, confirmed.whispersyncAudioSeekTarget?.positionMs)
 		assertEquals(
@@ -2162,6 +2200,7 @@ class ReaderControllerTest {
 		)
 		assertNotNull(confirmed.progressToSave)
 		assertEquals(overlay.fragment, confirmed.controller.state.activeMediaOverlay)
+		assertEquals(receipt, confirmed.controller.state.activeMediaOverlayAnchorReceipt)
 		assertEquals("Second sentence", confirmed.controller.state.audioMetadataLabel)
 		assertEquals(
 			requestId,
@@ -2173,6 +2212,8 @@ class ReaderControllerTest {
 			ReaderEngineEvent.MediaOverlayActive(overlay.fragment)
 		)
 		assertNull(duplicate.whispersyncAudioSeekTarget)
+		assertEquals(overlay.fragment, duplicate.controller.state.activeMediaOverlay)
+		assertNull(duplicate.controller.state.activeMediaOverlayAnchorReceipt)
 	}
 
 	@Test

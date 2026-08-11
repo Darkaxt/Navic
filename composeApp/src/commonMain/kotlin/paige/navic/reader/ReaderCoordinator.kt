@@ -46,6 +46,10 @@ data class ReaderCoordinator(
 	fun onEngineEvent(event: ReaderEngineEvent): ReaderCoordinatorStep =
 		applyWordSyncDecision(wordSync.onEngineEvent(controller, event))
 
+	internal fun hasExactWordSyncBoundaryPresentation(
+		playback: ReaderWordSyncPlaybackIdentity?
+	): Boolean = wordSync.hasExactBoundaryPresentation(controller, playback)
+
 	fun onReadaloudEngineCommand(command: ReaderEngineCommand): ReaderCoordinatorStep =
 		when (command) {
 			is ReaderEngineCommand.ApplyMediaOverlay -> dispatch { applyMediaOverlay(command.fragment) }

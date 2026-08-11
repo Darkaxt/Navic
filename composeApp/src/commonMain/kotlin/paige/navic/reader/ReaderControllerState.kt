@@ -67,6 +67,7 @@ data class ReaderControllerState(
 	val whispersync: ReaderWhispersyncSessionState = ReaderWhispersyncSessionState(),
 	val rawTextProvenanceById: Map<String, RawTextProvenanceState> = emptyMap(),
 	val activeMediaOverlay: ReaderOverlayFragment? = null,
+	val activeMediaOverlayAnchorReceipt: ReaderWhispersyncAnchorReceipt? = null,
 	val audioMetadataLabel: String? = null,
 	val lastContentActionClaim: ReaderContentActionClaim? = null,
 	val errorMessage: String? = null,

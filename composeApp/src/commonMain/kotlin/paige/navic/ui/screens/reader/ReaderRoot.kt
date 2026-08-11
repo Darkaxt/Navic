@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import paige.navic.reader.DefaultReaderWhispersyncHighlightColorArgb
 import paige.navic.reader.ReaderAnnotation
 import paige.navic.reader.ReaderBookmark
 import paige.navic.reader.ReaderControllerDialog
@@ -159,6 +160,10 @@ internal fun KomikkuReaderRoot(
 			pageTurnVisualLocationReason = controllerState.chrome.currentLocator?.reason,
 			pageTurnFoliateSessionId = controllerState.foliateSessionId,
 			pageTurnSettlementAck = controllerState.pageTurnSettlementAck,
+			whispersyncAnchorReceipt = controllerState.activeMediaOverlayAnchorReceipt,
+			whispersyncHighlightColorArgb =
+				controllerState.chrome.settings.whispersyncHighlightColorArgb
+					?: DefaultReaderWhispersyncHighlightColorArgb,
 			pagePreparationCoverVisible = pagePreparationState.presentation == ReaderPagePreparationPresentation.Cover,
 			pageOperationPolicy = pagePreparationState.operationPolicy,
 			pagePreparationRetryKey = pagePreparationRetryKey,

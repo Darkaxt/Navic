@@ -4,6 +4,7 @@ import paige.navic.domain.repositories.BinderyWordSyncDiscovery
 import paige.navic.domain.repositories.BinderyWordSyncReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -161,6 +162,58 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 			playback = playbackIdentity(positionMs = 1_050).copy(audioTrackIndex = 1)
 		)
 		assertEquals(listOf(cue), wrongTrack.controllerStep.engineCommands)
+	}
+
+	@Test
+	fun exactBoundaryPresentationRequiresCurrentReadyProvenance() {
+		val (ready, controller) = readyCoordinatorAndController()
+		val playback = playbackIdentity(positionMs = 1_050)
+		val current = ready.coordinate(
+			controllerStep = ReaderControllerStep(
+				controller,
+				engineCommands = listOf(cueCommand())
+			),
+			playback = playback
+		).coordinator
+
+		assertTrue(current.hasExactBoundaryPresentation(controller, playback))
+		assertFalse(
+			current.hasExactBoundaryPresentation(
+				controller,
+				playback.copy(audioTrackIndex = 1)
+			)
+		)
+		assertFalse(
+			current.hasExactBoundaryPresentation(
+				ReaderController().installRawTextProvenance(descriptor()).controller,
+				playback
+			)
+		)
+	}
+
+	@Test
+	fun failedIndexCannotSuppressCueLevelProgressFallback() {
+		val (ready, controller) = readyCoordinatorAndController()
+		val current = ready.coordinate(
+			controllerStep = ReaderControllerStep(
+				controller,
+				engineCommands = listOf(cueCommand())
+			),
+			playback = playbackIdentity(positionMs = 1_050)
+		).coordinator
+
+		val failed = current.onIndexFailed(
+			generation = current.generation,
+			controller = controller
+		)
+
+		assertNull(failed.coordinator.reference)
+		assertFalse(
+			failed.coordinator.hasExactBoundaryPresentation(
+				controller,
+				playbackIdentity(positionMs = 1_050)
+			)
+		)
 	}
 
 	@Test

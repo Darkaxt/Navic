@@ -164,6 +164,27 @@ data class ReaderWordSyncPlaybackCoordinator(
 		)
 	}
 
+	internal fun hasExactBoundaryPresentation(
+		controller: ReaderController,
+		playback: ReaderWordSyncPlaybackIdentity?
+	): Boolean {
+		if (reference == null || playback == null) return false
+		val cueHref = lastCueCommand.asCueOverlayCommand()
+			?.overlayFragmentOrNull()
+			?.textHref
+			?: return false
+		return chapters.values.any { verified ->
+			verified.chapter.ebookHref == cueHref &&
+				controller.state.rawTextProvenanceById[verified.descriptor.id]?.status ==
+				RawTextProvenanceStatus.Ready &&
+				verified.chapter.tracks.any { track ->
+					track.audioResourceId == playback.audioResourceId &&
+						track.audioTrackIndex == playback.audioTrackIndex &&
+						track.readerWordSyncBoundaries().isNotEmpty()
+				}
+		}
+	}
+
 	internal fun boundariesForPlayback(
 		playback: ReaderWordSyncPlaybackIdentity
 	): List<ReaderWordSyncBoundary> = chapters.values
@@ -213,7 +234,11 @@ data class ReaderWordSyncPlaybackCoordinator(
 		val requestId = cueFragment.overlayRequestId
 			?: return ReaderWordSyncDecision(remembered, ReaderControllerStep(controller))
 		val candidate = ReaderWordSyncCandidate(verified, word)
-		val rawFragment = candidate.toOverlayFragment(cueFragment, playback)
+		val rawFragment = candidate.toOverlayFragment(
+			cueFragment = cueFragment,
+			playback = playback,
+			boundarySequence = boundary.sequence
+		)
 		return ReaderWordSyncDecision(
 			coordinator = remembered.copy(
 				fallbackByRequestId = mapOf(
@@ -338,6 +363,7 @@ data class ReaderWordSyncPlaybackCoordinator(
 						controller = controller.copy(
 							state = controller.state.copy(
 								activeMediaOverlay = null,
+								activeMediaOverlayAnchorReceipt = null,
 								audioMetadataLabel = null
 							)
 						),
@@ -462,7 +488,8 @@ private data class ReaderWordSyncCandidate(
 ) {
 	fun toOverlayFragment(
 		cueFragment: ReaderOverlayFragment,
-		playback: ReaderWordSyncPlaybackIdentity?
+		playback: ReaderWordSyncPlaybackIdentity?,
+		boundarySequence: Long? = null
 	): ReaderOverlayFragment {
 		val chapterStart = verified.chapter.ebookStart
 		val byteStart = word.ebookStart - chapterStart
@@ -481,6 +508,7 @@ private data class ReaderWordSyncCandidate(
 			resourceHref = word.audioResourceId,
 			coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
 			overlayRequestId = cueFragment.overlayRequestId,
+			wordBoundarySequence = boundarySequence,
 			textHref = word.ebookHref,
 			clipBeginSeconds = word.audioStartMs / 1000.0,
 			clipEndSeconds = word.audioEndMs / 1000.0,

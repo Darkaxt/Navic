@@ -83,6 +83,23 @@ public class TextureBudgetTest {
     }
 
     @Test
+    public void dynamicOverlayReplacementPeakCountsOldAndIncomingMasks() {
+        PortraitPageDeck<String> deck = portraitDeck(1, 1000, 1000);
+
+        TextureBudget.Result result = TextureBudget.evaluate(
+                deck,
+                null,
+                4096,
+                16_000_000L,
+                8_000_000L);
+
+        assertEquals(
+                RenderFailureReason.GPU_BUDGET_EXCEEDED,
+                result.getFailureReason());
+        assertEquals(20_000_000L, result.getRequiredBytes());
+    }
+
+    @Test
     public void twoIdentityDistinctLandscapeDecksReachTheStructuralSlotLimit() {
         LandscapePageDeck<String> active = landscapeDeck(31L, "active", -1);
         LandscapePageDeck<String> pending = landscapeDeck(32L, "pending", -1);

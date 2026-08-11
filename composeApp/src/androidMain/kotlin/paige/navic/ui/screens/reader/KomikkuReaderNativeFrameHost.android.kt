@@ -69,6 +69,7 @@ import paige.navic.reader.ReaderRendererBusyFeedbackMaximumMillis
 import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderWebRuntime
+import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerNativeReaderSwipeAction
 import paige.navic.reader.readerPageGestureShouldShowBusyFeedback
@@ -287,6 +288,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnVisualLocationReason: String?,
 	pageTurnFoliateSessionId: String?,
 	pageTurnSettlementAck: ReaderPageTurnSettlementAck?,
+	whispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt?,
+	whispersyncHighlightColorArgb: Int,
 	pagePreparationCoverVisible: Boolean,
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,
@@ -408,6 +411,10 @@ actual fun KomikkuReaderNativeFrameHost(
 						pageTurnSettlementAck
 					)
 				}
+				setWhispersyncOverlay(
+					whispersyncAnchorReceipt,
+					whispersyncHighlightColorArgb
+				)
 				setPagePreparationCoverVisible(pagePreparationCoverVisible)
 				setPagePreparationRetryKey(pagePreparationRetryKey)
 				setOnViewerAction { action -> currentOnViewerAction(action) }
@@ -442,6 +449,10 @@ actual fun KomikkuReaderNativeFrameHost(
 					pageTurnSettlementAck
 				)
 			}
+			root.setWhispersyncOverlay(
+				whispersyncAnchorReceipt,
+				whispersyncHighlightColorArgb
+			)
 			root.setPagePreparationCoverVisible(pagePreparationCoverVisible)
 			root.setPagePreparationRetryKey(pagePreparationRetryKey)
 			root.setViewerContent(viewerKey) { currentViewerContent() }
@@ -672,6 +683,13 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 			foliateSessionId,
 			acknowledgement
 		)
+	}
+
+	fun setWhispersyncOverlay(
+		receipt: ReaderWhispersyncAnchorReceipt?,
+		highlightColorArgb: Int
+	) {
+		viewerContainer.setWhispersyncOverlay(receipt, highlightColorArgb)
 	}
 
 	fun setOnReadableDragPreview(
@@ -1652,6 +1670,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		pageTurnPaginationStatus = status
 		playLikeCurlController.updatePaginationReadiness(
 			readerPagePaginationReadiness(status)
+		)
+	}
+
+	fun setWhispersyncOverlay(
+		receipt: ReaderWhispersyncAnchorReceipt?,
+		highlightColorArgb: Int
+	) {
+		playLikeCurlController.setWhispersyncOverlay(
+			receipt,
+			highlightColorArgb
 		)
 	}
 

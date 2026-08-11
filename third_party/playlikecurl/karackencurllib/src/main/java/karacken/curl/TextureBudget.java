@@ -82,11 +82,29 @@ final class TextureBudget {
             PageDeck<?> pendingDeck,
             int maxTextureSize,
             long gpuBudgetBytes) {
+        return evaluate(
+                activeDeck,
+                pendingDeck,
+                maxTextureSize,
+                gpuBudgetBytes,
+                0L);
+    }
+
+    static Result evaluate(
+            PageDeck<?> activeDeck,
+            PageDeck<?> pendingDeck,
+            int maxTextureSize,
+            long gpuBudgetBytes,
+            long additionalTextureBytes) {
         if (maxTextureSize <= 0) {
             throw new IllegalArgumentException("maxTextureSize must be positive");
         }
         if (gpuBudgetBytes <= 0) {
             throw new IllegalArgumentException("gpuBudgetBytes must be positive");
+        }
+        if (additionalTextureBytes < 0) {
+            throw new IllegalArgumentException(
+                    "additionalTextureBytes must not be negative");
         }
 
         Map<String, PageImage<?>> uniquePages = new LinkedHashMap<>();
@@ -113,6 +131,7 @@ final class TextureBudget {
                             BYTES_PER_PIXEL));
         }
 
+        requiredBytes = Math.addExact(requiredBytes, additionalTextureBytes);
         RenderFailureReason failureReason =
                 requiredBytes > gpuBudgetBytes
                         ? RenderFailureReason.GPU_BUDGET_EXCEEDED

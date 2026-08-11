@@ -17,6 +17,7 @@ import android.view.ViewConfiguration;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.Interpolator;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -42,6 +43,7 @@ public class PageSurfaceView extends GLSurfaceView {
     private static final int AUXILIARY_DISPOSAL_CALLBACK_LIMIT = 2;
     private static final int OWNERSHIP_CALLBACK_LIMIT = 4;
     private static final int PRESENTED_FRAME_CALLBACK_LIMIT = 1;
+    private static final int PAGE_OVERLAY_UPDATE_LIMIT = 1;
     private static final int MAIN_TERMINAL_ACTION_LIMIT =
             OWNERSHIP_CALLBACK_LIMIT + REQUIRED_DISPOSAL_CALLBACK_LIMIT;
     private static final long GL_QUEUE_ENTRY_WATCHDOG_MILLIS = 5_000L;
@@ -127,6 +129,9 @@ public class PageSurfaceView extends GLSurfaceView {
             new AtomicReference<>();
     private final AtomicReference<Runnable> retainedDisposalMainTerminalAction =
             new AtomicReference<>();
+    private final AtomicReference<
+                    PageOverlayPendingLease<List<PageOverlayImage<Bitmap>>>>
+            pendingPageOverlayLease = new AtomicReference<>();
     private final PageSurfaceTerminalDisposalGate terminalDisposalGate =
             new PageSurfaceTerminalDisposalGate();
     private final FailureAccumulator disposalFailure =
@@ -167,6 +172,7 @@ public class PageSurfaceView extends GLSurfaceView {
     private boolean settlementRunning;
     private boolean boundaryRestorationRunning;
     private boolean gestureAccepted;
+    private boolean pageOverlayUpdatePending;
     private boolean gestureMoved;
     private boolean surfaceVisible = true;
     private boolean attached;
@@ -208,6 +214,15 @@ public class PageSurfaceView extends GLSurfaceView {
                     long generationId,
                     DeckReleaseReason reason) {
                 mainHandler.post(() -> handleDeckReleased(generationId, reason));
+            }
+
+            @Override
+            public void onPageOverlayUpdateCompleted(
+                    long generationId,
+                    boolean applied) {
+                mainHandler.post(() -> handlePageOverlayUpdateCompleted(
+                        generationId,
+                        applied));
             }
 
             @Override
@@ -497,6 +512,95 @@ public class PageSurfaceView extends GLSurfaceView {
     public boolean isSettlementRunning() {
         requireMainThread();
         return deckCoordinator.isSettling();
+    }
+
+    /**
+     * Atomically replaces transparent overlays for the current page or spread.
+     *
+     * <p>An accepted update transfers bitmap ownership to the renderer. Rejected updates leave
+     * ownership with the caller. Updates are suspended while a gesture, settlement, or prior
+     * texture upload owns the presentation.
+     */
+    public PageOverlayUpdateResult replacePageOverlays(
+            long generationId,
+            List<PageOverlayImage<Bitmap>> overlays) {
+        requireMainThread();
+        if (overlays == null) {
+            return PageOverlayUpdateResult.INVALID_CONTENT;
+        }
+        List<PageOverlayImage<Bitmap>> accepted = new ArrayList<>(overlays);
+        List<Integer> ordinals = new ArrayList<>(accepted.size());
+        for (PageOverlayImage<Bitmap> overlay : accepted) {
+            if (overlay == null) {
+                return PageOverlayUpdateResult.INVALID_CONTENT;
+            }
+            ordinals.add(overlay.getOrdinal());
+        }
+        PageDeck<Bitmap> activeDeck = deckCoordinator.getActiveDeck();
+        PageOverlayUpdateResult admission = PageOverlayUpdateGate.evaluate(
+                activeDeck,
+                preparedGenerations,
+                !disposed && attached && surfaceVisible,
+                gestureAccepted || settlementRunning,
+                pageOverlayUpdatePending,
+                generationId,
+                ordinals);
+        if (admission != PageOverlayUpdateResult.ACCEPTED) {
+            return admission;
+        }
+        for (PageOverlayImage<Bitmap> overlay : accepted) {
+            PageImage<?> target = PageOverlayUpdateGate.currentPage(
+                    activeDeck,
+                    overlay.getOrdinal());
+            if (!isValidOverlayBitmap(target, overlay.getContent())) {
+                return PageOverlayUpdateResult.INVALID_CONTENT;
+            }
+        }
+        PageOverlayPendingLease<List<PageOverlayImage<Bitmap>>> lease =
+                new PageOverlayPendingLease<>(
+                        accepted,
+                        PageSurfaceView::recycleOverlayInputs);
+        if (!pendingPageOverlayLease.compareAndSet(null, lease)) {
+            throw new IllegalStateException(
+                    "A page overlay input lease is already pending");
+        }
+        pageOverlayUpdatePending = true;
+        try {
+            queueEvent(() -> {
+                List<PageOverlayImage<Bitmap>> claimed = lease.claim();
+                pendingPageOverlayLease.compareAndSet(lease, null);
+                if (claimed != null) {
+                    renderer.replacePageOverlays(generationId, claimed);
+                }
+            });
+        } catch (RuntimeException | Error queueFailure) {
+            pendingPageOverlayLease.compareAndSet(lease, null);
+            lease.withdraw();
+            pageOverlayUpdatePending = false;
+            throw queueFailure;
+        }
+        requestRender();
+        return PageOverlayUpdateResult.ACCEPTED;
+    }
+
+    private static boolean isValidOverlayBitmap(PageImage<?> page, Bitmap bitmap) {
+        return page != null
+                && !bitmap.isRecycled()
+                && bitmap.getWidth() == page.getWidthPx()
+                && bitmap.getHeight() == page.getHeightPx()
+                && bitmap.getConfig() == Bitmap.Config.ARGB_8888
+                && bitmap.isPremultiplied()
+                && bitmap.hasAlpha();
+    }
+
+    private static void recycleOverlayInputs(
+            List<PageOverlayImage<Bitmap>> overlays) {
+        for (PageOverlayImage<Bitmap> overlay : overlays) {
+            Bitmap bitmap = overlay.getContent();
+            if (!bitmap.isRecycled()) {
+                bitmap.recycle();
+            }
+        }
     }
 
     /** Supplies the current pixel viewport without changing page layout. */
@@ -809,7 +913,8 @@ public class PageSurfaceView extends GLSurfaceView {
                 + ownershipSnapshotCoordinator.size()
                 + terminalOwnershipCallbacks.pendingCount()
                 + presentedFrameRequest.pendingCount()
-                + pendingMainTerminalActions.get();
+                + pendingMainTerminalActions.get()
+                + (pageOverlayUpdatePending ? 1 : 0);
     }
 
     public int getPendingCallbackLimit() {
@@ -817,7 +922,8 @@ public class PageSurfaceView extends GLSurfaceView {
                 + AUXILIARY_DISPOSAL_CALLBACK_LIMIT
                 + OWNERSHIP_CALLBACK_LIMIT
                 + PRESENTED_FRAME_CALLBACK_LIMIT
-                + MAIN_TERMINAL_ACTION_LIMIT;
+                + MAIN_TERMINAL_ACTION_LIMIT
+                + PAGE_OVERLAY_UPDATE_LIMIT;
     }
 
     public int getDeckLeaseLimit() {
@@ -844,6 +950,15 @@ public class PageSurfaceView extends GLSurfaceView {
         return pendingMainTerminalActions.get();
     }
 
+    private void abandonPendingPageOverlayUpdate() {
+        PageOverlayPendingLease<List<PageOverlayImage<Bitmap>>> lease =
+                pendingPageOverlayLease.getAndSet(null);
+        if (lease != null) {
+            lease.abandon();
+        }
+        pageOverlayUpdatePending = false;
+    }
+
     private void startDisposeIfNeeded() {
         requireMainThread();
         if (disposedResult != null || disposeStarted) {
@@ -857,6 +972,7 @@ public class PageSurfaceView extends GLSurfaceView {
                 ownershipSnapshotCoordinator.drain();
         disposeStarted = true;
         disposed = true;
+        abandonPendingPageOverlayUpdate();
         try {
             for (PageSurfaceOwnershipResult.Callback callback :
                     ownershipCallbacks) {
@@ -1821,6 +1937,17 @@ public class PageSurfaceView extends GLSurfaceView {
         advanceOwnershipEpoch();
         trimPreparedGenerations();
         owner.onDeckPrepared(generationId);
+        requestRender();
+    }
+
+    private void handlePageOverlayUpdateCompleted(
+            long generationId,
+            boolean applied) {
+        if (!pageOverlayUpdatePending) {
+            return;
+        }
+        pageOverlayUpdatePending = false;
+        listenerFor(generationId).onPageOverlayUpdateCapacityAvailable(applied);
         requestRender();
     }
 

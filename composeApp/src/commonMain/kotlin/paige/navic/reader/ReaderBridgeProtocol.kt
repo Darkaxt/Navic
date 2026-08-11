@@ -126,6 +126,7 @@ data class ReaderOverlayFragment(
 	val resourceHref: String,
 	val coordinateMode: ReaderOverlayCoordinateMode = ReaderOverlayCoordinateMode.CueV1DomUtf16,
 	val overlayRequestId: Long? = null,
+	val wordBoundarySequence: Long? = null,
 	val fragmentId: String? = null,
 	val textHref: String? = null,
 	val clipBeginSeconds: Double? = null,
@@ -159,8 +160,12 @@ data class ReaderOverlayFragment(
 			rawProgressFraction
 		)
 		when (coordinateMode) {
-			ReaderOverlayCoordinateMode.CueV1DomUtf16 -> require(rawFields.all { it == null })
+			ReaderOverlayCoordinateMode.CueV1DomUtf16 -> {
+				require(rawFields.all { it == null })
+				require(wordBoundarySequence == null)
+			}
 			ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 -> {
+				require(wordBoundarySequence?.let { it >= 0L } != false)
 				require(textHref?.isNotBlank() == true && textHref == textHref.trim())
 				require(rawProvenanceId?.isNotBlank() == true && rawProvenanceId == rawProvenanceId.trim())
 				require(rawSpineIndex?.let { it >= 0 } == true)
@@ -740,7 +745,10 @@ sealed interface ReaderBridgeEvent {
 			}
 		}
 	}
-	data class OverlayFragmentActive(val fragment: ReaderOverlayFragment) : ReaderBridgeEvent
+	data class OverlayFragmentActive(
+		val fragment: ReaderOverlayFragment,
+		val anchorReceipt: ReaderWhispersyncAnchorReceipt? = null
+	) : ReaderBridgeEvent
 	data class OverlayFragmentInactive(
 		val fragmentId: String? = null,
 		val overlayRequestId: Long? = null,
@@ -935,7 +943,16 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 			"textPoint" -> json.toTextPoint()
 			"rawTextProvenanceStatus" -> json.toRawTextProvenanceStatus()
 			"overlayFragmentActive" -> json.toOverlayFragment()
-				?.let(ReaderBridgeEvent::OverlayFragmentActive)
+				?.let { fragment ->
+					ReaderBridgeEvent.OverlayFragmentActive(
+						fragment = fragment,
+						anchorReceipt = json["anchorReceipt"]
+							?.let { it as? JsonObject }
+							?.toWhispersyncAnchorReceipt(
+								fragment.wordBoundarySequence ?: fragment.overlayRequestId
+							)
+					)
+				}
 			"overlayFragmentInactive" -> ReaderBridgeEvent.OverlayFragmentInactive(
 				fragmentId = json.stringValue("fragmentId"),
 				overlayRequestId = json.longValue("overlayRequestId"),
@@ -1169,6 +1186,7 @@ private fun ReaderOverlayFragment.toJsonObject(): JsonObject =
 		put("resourceHref", resourceHref)
 		put("coordinateMode", coordinateMode.wireValue)
 		overlayRequestId?.let { put("overlayRequestId", it) }
+		wordBoundarySequence?.let { put("wordBoundarySequence", it) }
 		fragmentId?.let { put("fragmentId", it) }
 		textHref?.let { put("textHref", it) }
 		clipBeginSeconds?.let { put("clipBeginSeconds", it) }
@@ -1270,6 +1288,7 @@ private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {
 		resourceHref = resourceHref,
 		coordinateMode = coordinateMode,
 		overlayRequestId = longValue("overlayRequestId"),
+		wordBoundarySequence = longValue("wordBoundarySequence"),
 		fragmentId = stringValue("fragmentId"),
 		textHref = stringValue("textHref"),
 		clipBeginSeconds = doubleValue("clipBeginSeconds"),
@@ -1293,6 +1312,101 @@ private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {
 		rawProgressByteEnd = intValue("rawProgressByteEnd"),
 		rawProgressFraction = doubleValue("rawProgressFraction")
 	)
+}
+
+private fun JsonObject.toWhispersyncAnchorReceipt(
+	expectedBoundarySequence: Long?
+): ReaderWhispersyncAnchorReceipt? {
+	val expectedBoundary = expectedBoundarySequence ?: return null
+	val boundarySequence = longValue("boundarySequence") ?: return null
+	if (boundarySequence != expectedBoundary || boundarySequence < 0L) return null
+	val captureGeometry = (get("captureGeometry") as? JsonObject)
+		?.toWhispersyncCaptureGeometry()
+		?: return null
+	val encodedRects = get("pageLocalRects") as? JsonArray ?: return null
+	val pageLocalRects = encodedRects.map { element ->
+		(element as? JsonObject)?.toWhispersyncPageLocalRect()
+	}
+	if (pageLocalRects.isEmpty() || pageLocalRects.any { it == null }) return null
+	return runCatching {
+		ReaderWhispersyncAnchorReceipt(
+			foliateSessionId = stringValue("foliateSessionId") ?: return null,
+			destinationCommitToken = stringValue("destinationCommitToken") ?: return null,
+			visualPageOrdinal = intValue("visualPageOrdinal") ?: return null,
+			spineIndex = intValue("spineIndex") ?: return null,
+			rasterGeneration = longValue("rasterGeneration") ?: return null,
+			textureGeneration = longValue("textureGeneration") ?: return null,
+			presentationMutationGeneration = longValue("presentationMutationGeneration") ?: return null,
+			presentationSequence = longValue("presentationSequence") ?: return null,
+			anchorGeneration = longValue("anchorGeneration") ?: return null,
+			boundarySequence = boundarySequence,
+			paginationFingerprint = stringValue("paginationFingerprint") ?: return null,
+			layoutFingerprint = stringValue("layoutFingerprint") ?: return null,
+			readerSettingsRasterKey = stringValue("readerSettingsRasterKey") ?: return null,
+			captureGeometry = captureGeometry,
+			pageLocalRects = pageLocalRects.filterNotNull()
+		)
+	}.getOrNull()
+}
+
+private fun JsonObject.toWhispersyncCaptureGeometry(): ReaderPageTurnCaptureGeometry? {
+	val viewportWidth = doubleValue("viewportWidth")
+		?.takeIf { it.isFinite() && it > 0.0 }
+		?: return null
+	val viewportHeight = doubleValue("viewportHeight")
+		?.takeIf { it.isFinite() && it > 0.0 }
+		?: return null
+	val mode = when (stringValue("mode")) {
+		"single" -> ReaderPageTurnLayoutMode.Single
+		"spread" -> ReaderPageTurnLayoutMode.Spread
+		else -> return null
+	}
+	val encodedPages = get("pages") as? JsonArray ?: return null
+	val pages = encodedPages.map { element ->
+		(element as? JsonObject)?.toWhispersyncPageRect()
+	}
+	if (pages.isEmpty() || pages.any { it == null }) return null
+	val resolvedPages = pages.filterNotNull()
+	if (resolvedPages.map { it.role }.distinct().size != resolvedPages.size) return null
+	if (
+		mode == ReaderPageTurnLayoutMode.Single &&
+		resolvedPages.any { it.role != ReaderPageTurnPageRole.Full }
+	) return null
+	if (
+		mode == ReaderPageTurnLayoutMode.Spread &&
+		resolvedPages.any { it.role == ReaderPageTurnPageRole.Full }
+	) return null
+	return ReaderPageTurnCaptureGeometry(
+		viewportWidth = viewportWidth,
+		viewportHeight = viewportHeight,
+		mode = mode,
+		pages = resolvedPages
+	)
+}
+
+private fun JsonObject.toWhispersyncPageRect(): ReaderPageTurnPageRect? {
+	val role = stringValue("role").toReaderPageTurnPageRole() ?: return null
+	val left = doubleValue("left")?.takeIf(Double::isFinite) ?: return null
+	val top = doubleValue("top")?.takeIf(Double::isFinite) ?: return null
+	val width = doubleValue("width")?.takeIf { it.isFinite() && it > 0.0 } ?: return null
+	val height = doubleValue("height")?.takeIf { it.isFinite() && it > 0.0 } ?: return null
+	return ReaderPageTurnPageRect(role, left, top, width, height)
+}
+
+private fun JsonObject.toWhispersyncPageLocalRect(): ReaderWhispersyncPageLocalRect? {
+	val role = stringValue("role").toReaderPageTurnPageRole() ?: return null
+	val left = doubleValue("left")?.takeIf(Double::isFinite) ?: return null
+	val top = doubleValue("top")?.takeIf(Double::isFinite) ?: return null
+	val width = doubleValue("width")?.takeIf { it.isFinite() && it > 0.0 } ?: return null
+	val height = doubleValue("height")?.takeIf { it.isFinite() && it > 0.0 } ?: return null
+	return ReaderWhispersyncPageLocalRect(role, left, top, width, height)
+}
+
+private fun String?.toReaderPageTurnPageRole(): ReaderPageTurnPageRole? = when (this) {
+	"full" -> ReaderPageTurnPageRole.Full
+	"left" -> ReaderPageTurnPageRole.Left
+	"right" -> ReaderPageTurnPageRole.Right
+	else -> null
 }
 
 private fun JsonObject.toSearchResult(): ReaderSearchResult? {

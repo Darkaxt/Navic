@@ -231,7 +231,10 @@ sealed class FoliateWebViewEngineAdapter(
 					status = event.status,
 					reason = event.reason
 				)
-			is ReaderBridgeEvent.OverlayFragmentActive -> ReaderEngineEvent.MediaOverlayActive(event.fragment)
+			is ReaderBridgeEvent.OverlayFragmentActive -> ReaderEngineEvent.MediaOverlayActive(
+				fragment = event.fragment,
+				anchorReceipt = event.anchorReceipt
+			)
 			is ReaderBridgeEvent.OverlayFragmentInactive -> ReaderEngineEvent.MediaOverlayInactive(
 				fragmentId = event.fragmentId,
 				overlayRequestId = event.overlayRequestId,

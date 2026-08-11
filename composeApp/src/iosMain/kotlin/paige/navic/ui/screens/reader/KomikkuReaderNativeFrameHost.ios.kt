@@ -8,6 +8,7 @@ import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
+import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 
 @Composable
 actual fun KomikkuReaderNativeFrameHost(
@@ -32,6 +33,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnVisualLocationReason: String?,
 	pageTurnFoliateSessionId: String?,
 	pageTurnSettlementAck: ReaderPageTurnSettlementAck?,
+	whispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt?,
+	whispersyncHighlightColorArgb: Int,
 	pagePreparationCoverVisible: Boolean,
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,

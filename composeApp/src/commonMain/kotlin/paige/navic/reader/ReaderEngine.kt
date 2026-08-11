@@ -228,7 +228,10 @@ sealed interface ReaderEngineEvent {
 		val reason: RawTextProvenanceReason? = null
 	) : ReaderEngineEvent
 
-	data class MediaOverlayActive(val fragment: ReaderOverlayFragment) : ReaderEngineEvent
+	data class MediaOverlayActive(
+		val fragment: ReaderOverlayFragment,
+		val anchorReceipt: ReaderWhispersyncAnchorReceipt? = null
+	) : ReaderEngineEvent
 	data class MediaOverlayInactive(
 		val fragmentId: String? = null,
 		val overlayRequestId: Long? = null,

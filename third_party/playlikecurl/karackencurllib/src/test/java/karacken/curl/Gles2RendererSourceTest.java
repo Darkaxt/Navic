@@ -404,6 +404,34 @@ public class Gles2RendererSourceTest {
     }
 
     @Test
+    public void dynamicPageOverlaysReplaceOnlyTheCurrentTextureAndUseThePageMesh()
+            throws IOException {
+        String surface = source("PageSurfaceView.java");
+        String renderer = source("PageRenderer.java");
+        String replace = methodBody(
+                surface,
+                "public PageOverlayUpdateResult replacePageOverlays(");
+        String draw = methodBody(
+                renderer,
+                "private boolean drawPage(");
+        String overlayLookup = methodBody(
+                renderer,
+                "private GpuTexture overlayTexture(PageImage<Bitmap> page)");
+
+        assertTrue(surface.contains("PageOverlayUpdateGate.evaluate("));
+        assertTrue(replace.contains("gestureAccepted || settlementRunning"));
+        assertTrue(replace.contains("renderer.replacePageOverlays("));
+        assertTrue(renderer.contains("PageOverlayReplacementStore<String, DynamicPageOverlayTexture>"));
+        assertTrue(renderer.contains("dynamicPageOverlays.replace("));
+        assertTrue(renderer.contains("dynamicPageOverlays.clear()"));
+        assertTrue(overlayLookup.contains("dynamicPageOverlays.get(page.identityKey())"));
+        assertTrue(draw.contains("GpuTexture overlayTexture = overlayTexture(resource)"));
+        assertTrue(draw.indexOf("mesh.ensureGeometry(") < draw.indexOf("drawPageTextures("));
+        assertTrue(draw.indexOf("drawPageTextures(") < draw.indexOf("GLES20.glDrawElements("));
+        assertTrue(renderer.contains("bitmap.recycle()"));
+    }
+
+    @Test
     public void productionSourcesAvoidJavaNineCollectionFactories() throws IOException {
         Path production = Path.of("src/main/java/karacken/curl");
         try (Stream<Path> files = Files.walk(production)) {

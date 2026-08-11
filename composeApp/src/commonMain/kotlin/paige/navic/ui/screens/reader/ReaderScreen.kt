@@ -543,11 +543,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 		readaloudSyncEnabled
 	) {
 		whispersyncReadaloudPlaybackState?.let { playbackState ->
+			val playbackIdentity = playbackState.toWordSyncPlaybackIdentity(
+				whispersyncPlaybackPlan
+			)
 			applyCoordinatorStep(
 				coordinator.onReadaloudPlaybackState(
 					playbackState = playbackState,
-					playbackIdentity = playbackState.toWordSyncPlaybackIdentity(whispersyncPlaybackPlan),
-					publishOverlayProgress = wordSyncPublicationVerifier == null
+					playbackIdentity = playbackIdentity,
+					publishOverlayProgress = !coordinator.hasExactWordSyncBoundaryPresentation(
+						playbackIdentity
+					)
 				)
 			)
 		}

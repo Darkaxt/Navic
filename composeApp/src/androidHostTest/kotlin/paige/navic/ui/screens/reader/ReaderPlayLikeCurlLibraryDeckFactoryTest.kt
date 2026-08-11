@@ -2,17 +2,153 @@ package paige.navic.ui.screens.reader
 
 import karacken.curl.LandscapePageDeck
 import karacken.curl.PageChange
+import karacken.curl.PageDisplayRect
 import karacken.curl.PageImage
 import karacken.curl.PortraitPageDeck
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageMaximumForegroundPublicationEntries
+import paige.navic.reader.ReaderPageTurnCaptureGeometry
+import paige.navic.reader.ReaderPageTurnLayoutMode
+import paige.navic.reader.ReaderPageTurnPageRect
+import paige.navic.reader.ReaderPageTurnPageRole
+import paige.navic.reader.ReaderWhispersyncAnchorReceipt
+import paige.navic.reader.ReaderWhispersyncPageLocalRect
 
 class ReaderPlayLikeCurlLibraryDeckFactoryTest {
+	@Test
+	fun explicitlyPlacedPageCanCarryBackingAndDeformedOverlayTogether() {
+		val display = PageDisplayRect(20, 0, 220, 300)
+		val backing = PageDisplayRect(220, 0, 228, 300)
+		val page = PageImage(
+			17L,
+			"page-4",
+			4,
+			100,
+			150,
+			display,
+			"base",
+			"highlight-mask",
+			backing,
+			0xFFF5F2EA.toInt()
+		)
+
+		assertTrue(page.hasOverlay())
+		assertEquals("highlight-mask", page.overlayContent)
+		assertTrue(page.hasBacking())
+		assertEquals(backing, page.backingRect)
+	}
+
+	@Test
+	fun currentPortraitAnchorTargetsOnlyTheCurrentFullLeaf() {
+		val profile = ReaderPlayLikeCurlRasterProfile(
+			sourceIdentity = "book",
+			orientation = ReaderPlayLikeCurlOrientation.Portrait,
+			quality = ReaderPageBitmapQuality.Balanced,
+			pageCount = 9,
+			rasterGeneration = 31L
+		)
+
+		assertEquals(
+			listOf(ReaderWhispersyncNativeOverlayTarget(ReaderPageTurnPageRole.Full, 4)),
+			readerWhispersyncNativeOverlayTargets(
+				receipt = anchorReceipt(
+					mode = ReaderPageTurnLayoutMode.Single,
+					visualPageOrdinal = 4,
+					roles = listOf(ReaderPageTurnPageRole.Full)
+				),
+				foliateSessionId = "session",
+				profile = profile,
+				currentOrdinal = 4,
+				textureGeneration = 32L
+			)
+		)
+	}
+
+	@Test
+	fun currentLandscapeAnchorMapsBothPhysicalLeavesAtomically() {
+		val profile = ReaderPlayLikeCurlRasterProfile(
+			sourceIdentity = "book",
+			orientation = ReaderPlayLikeCurlOrientation.Landscape,
+			quality = ReaderPageBitmapQuality.Balanced,
+			pageCount = 10,
+			readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+			spreadAnchorParity = 0,
+			rasterGeneration = 31L
+		)
+
+		assertEquals(
+			listOf(
+				ReaderWhispersyncNativeOverlayTarget(ReaderPageTurnPageRole.Left, 4),
+				ReaderWhispersyncNativeOverlayTarget(ReaderPageTurnPageRole.Right, 5)
+			),
+			readerWhispersyncNativeOverlayTargets(
+				receipt = anchorReceipt(
+					mode = ReaderPageTurnLayoutMode.Spread,
+					visualPageOrdinal = 4,
+					roles = listOf(
+						ReaderPageTurnPageRole.Left,
+						ReaderPageTurnPageRole.Right
+					)
+				),
+				foliateSessionId = "session",
+				profile = profile,
+				currentOrdinal = 4,
+				textureGeneration = 32L
+			)
+		)
+	}
+
+	@Test
+	fun staleAnchorIdentityFailsClosedBeforeMaskPublication() {
+		val profile = ReaderPlayLikeCurlRasterProfile(
+			sourceIdentity = "book",
+			orientation = ReaderPlayLikeCurlOrientation.Portrait,
+			quality = ReaderPageBitmapQuality.Balanced,
+			pageCount = 9,
+			rasterGeneration = 31L
+		)
+		val receipt = anchorReceipt(
+			mode = ReaderPageTurnLayoutMode.Single,
+			visualPageOrdinal = 4,
+			roles = listOf(ReaderPageTurnPageRole.Full)
+		)
+
+		assertNull(
+			readerWhispersyncNativeOverlayTargets(
+				receipt = receipt,
+				foliateSessionId = "replacement-session",
+				profile = profile,
+				currentOrdinal = 4,
+				textureGeneration = 32L
+			)
+		)
+		assertNull(
+			readerWhispersyncNativeOverlayTargets(
+				receipt = receipt,
+				foliateSessionId = "session",
+				profile = profile.copy(rasterGeneration = 99L),
+				currentOrdinal = 4,
+				textureGeneration = 32L
+			)
+		)
+		assertNull(
+			readerWhispersyncNativeOverlayTargets(
+				receipt = receipt,
+				foliateSessionId = "session",
+				profile = profile,
+				currentOrdinal = 4,
+				textureGeneration = 99L
+			)
+		)
+	}
+
 	@Test
 	fun portraitPreparedWindowKeepsTwoPagesInEachDirection() {
 		assertEquals(
@@ -338,6 +474,52 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 		assertFalse(lastRtl.currentRight.isFiller)
 		assertSame(lastRtl.currentRight, lastRtl.getSettlementPage(PageChange.NONE))
 		assertEquals(3, lastRtl.getSettlementPage(PageChange.PREVIOUS).ordinal)
+	}
+
+	private fun anchorReceipt(
+		mode: ReaderPageTurnLayoutMode,
+		visualPageOrdinal: Int,
+		roles: List<ReaderPageTurnPageRole>
+	): ReaderWhispersyncAnchorReceipt {
+		val pages = when (mode) {
+			ReaderPageTurnLayoutMode.Single -> listOf(
+				ReaderPageTurnPageRect(ReaderPageTurnPageRole.Full, 0.0, 0.0, 600.0, 800.0)
+			)
+			ReaderPageTurnLayoutMode.Spread -> listOf(
+				ReaderPageTurnPageRect(ReaderPageTurnPageRole.Left, 0.0, 0.0, 300.0, 800.0),
+				ReaderPageTurnPageRect(ReaderPageTurnPageRole.Right, 300.0, 0.0, 300.0, 800.0)
+			)
+		}
+		return ReaderWhispersyncAnchorReceipt(
+			foliateSessionId = "session",
+			destinationCommitToken = "settled",
+			visualPageOrdinal = visualPageOrdinal,
+			spineIndex = 2,
+			rasterGeneration = 31L,
+			textureGeneration = 32L,
+			presentationMutationGeneration = 4L,
+			presentationSequence = 5L,
+			anchorGeneration = 6L,
+			boundarySequence = 7L,
+			paginationFingerprint = "pagination",
+			layoutFingerprint = "layout",
+			readerSettingsRasterKey = "settings",
+			captureGeometry = ReaderPageTurnCaptureGeometry(
+				viewportWidth = 600.0,
+				viewportHeight = 800.0,
+				mode = mode,
+				pages = pages
+			),
+			pageLocalRects = roles.mapIndexed { index, role ->
+				ReaderWhispersyncPageLocalRect(
+					role = role,
+					left = 20.0 + index,
+					top = 30.0,
+					width = 40.0,
+					height = 20.0
+				)
+			}
+		)
 	}
 
 	private fun deck(

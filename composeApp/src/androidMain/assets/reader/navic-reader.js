@@ -185,6 +185,7 @@ import {
   applyReaderWordSyncOverlayFragment,
   paintReaderWordSyncActiveOverlay,
   paintReaderWordSyncOverlayTextRange,
+  postReaderWordSyncOverlayActive,
   rejectReaderWordSyncOverlay,
   validatedReaderOverlayCoordinateMode,
 } from './navic-reader-wordsync-provenance.js'
@@ -263,6 +264,7 @@ class NavicReaderRuntime {
   lastPostedVisibleTextRangeKey = null
   lastMediaOverlayRangeDiagnosticKey = null
   mediaOverlayActiveFragment = null
+  wordSyncAnchorGeneration = 0
   mediaOverlayPlayedKeyPrefix = ReaderMediaOverlayPlayedRangeKeyPrefix
   mediaOverlayPlayedFragments = new Map()
   rawTextProvenance = new ReaderWordSyncProvenanceStore({ postStatus: post })
@@ -1039,6 +1041,7 @@ class NavicReaderRuntime {
       this.rejectOverlayFragment(fragment, 'progress-paint-rejected')
       return
     }
+    if (rawMode) postReaderWordSyncOverlayActive(this, fragment)
     this.startMediaOverlayProgressAnimation(fragment)
   }
 

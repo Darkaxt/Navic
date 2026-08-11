@@ -14,6 +14,8 @@ import karacken.curl.GestureRejectionReason
 import karacken.curl.PageChange
 import karacken.curl.PageDeck
 import karacken.curl.PageImage
+import karacken.curl.PageOverlayImage
+import karacken.curl.PageOverlayUpdateResult
 import karacken.curl.PageSurfaceDeckSubmissionResult
 import karacken.curl.PageSurfaceDisposalResult
 import karacken.curl.PageSurfaceDisposalStage
@@ -37,6 +39,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import paige.navic.reader.DefaultReaderWhispersyncHighlightColorArgb
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPageLifecycleCancellationReason
@@ -53,7 +56,9 @@ import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderTextureDeckState
+import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderPageTurnDirection
+import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.util.core.Logger
@@ -72,6 +77,13 @@ internal fun readerRenderFailureOwnsCurrentPresentation(
 	(reason == RenderFailureReason.CONTEXT && !isRecoverable) ||
 		generationId == activeGenerationId ||
 		generationId == pendingGenerationId
+
+private data class ReaderWhispersyncOverlayPublication(
+	val textureGeneration: Long,
+	val anchorGeneration: Long,
+	val boundarySequence: Long,
+	val colorArgb: Int
+)
 
 private data class FailedLivePresentationGeneration(
 	val rasterGeneration: Long,
@@ -875,6 +887,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var activeDeckGenerationId: Long? = null
 	private var pendingDeckGenerationId: Long? = null
 	private var pendingDeckOrdinal: Int? = null
+	private var latestWhispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt? = null
+	private var whispersyncHighlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb
+	private var publishedWhispersyncOverlay: ReaderWhispersyncOverlayPublication? = null
 	private var lastActivationTrace: String? = null
 	private val persistentRefillCoordinator = ReaderPagePersistentRefillCoordinator(
 		protectedWindowForCenter = { centerOrdinal ->
@@ -936,6 +951,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						reason = "deck-prepared:$generationId"
 					)
 					publishPreparedActiveDeck()
+					publishLatestWhispersyncOverlayIfIdle()
 				} else if (
 					generationId == pendingDeckGenerationId &&
 					role == ReaderDeckSubmissionRole.Pending
@@ -985,6 +1001,18 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 			override fun onDeckSubmissionCapacityAvailable() {
 				deckRecoveryCoordinator.onDeckSubmissionCapacityAvailable()
+			}
+
+			override fun onPageOverlayUpdateCapacityAvailable(applied: Boolean) {
+				if (!applied) {
+					publishedWhispersyncOverlay = null
+					Logger.w(
+						ReaderPlayLikeCurlFoliateControllerTag,
+						"PlayLikeCurl page overlay update rejected"
+					)
+					return
+				}
+				publishLatestWhispersyncOverlayIfIdle()
 			}
 
 			override fun onDeckReleased(generationId: Long, reason: DeckReleaseReason) {
@@ -1388,6 +1416,24 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun setPageOperationPolicy(policy: ReaderPageOperationPolicy) {
 		pageOperationPolicy = policy
+	}
+
+	fun setWhispersyncOverlay(
+		receipt: ReaderWhispersyncAnchorReceipt?,
+		highlightColorArgb: Int
+	) {
+		val current = latestWhispersyncAnchorReceipt
+		if (
+			receipt != null &&
+			current != null &&
+			receipt.foliateSessionId == current.foliateSessionId &&
+			receipt.textureGeneration == current.textureGeneration &&
+			receipt.anchorGeneration < current.anchorGeneration
+		) return
+		if (receipt == current && highlightColorArgb == whispersyncHighlightColorArgb) return
+		latestWhispersyncAnchorReceipt = receipt
+		whispersyncHighlightColorArgb = highlightColorArgb
+		publishLatestWhispersyncOverlayIfIdle()
 	}
 
 	private fun unavailableGestureOutcome(): ReaderPageGestureTerminalOutcome =
@@ -2114,6 +2160,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		failedLivePresentationGeneration = null
+		latestWhispersyncAnchorReceipt = null
+		publishedWhispersyncOverlay = null
 		retainsRejectedSurfaceInputShield = false
 		livePresentationRecoveryRequest.clear()
 		decodedRefillCenterOrdinal = null
@@ -2163,6 +2211,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		fenceAdmission = {
 			destroyed = true
 			enabled = false
+			latestWhispersyncAnchorReceipt = null
+			publishedWhispersyncOverlay = null
 		},
 		advanceGenerations = {
 			requestGeneration += 1L
@@ -4186,6 +4236,90 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private fun publishLatestWhispersyncOverlayIfIdle() {
+		if (
+			destroyed ||
+			!enabled ||
+			!attached ||
+			activeGestureId != null ||
+			settlementMutationFence.hasUnreconciledSettlement ||
+			surfaceView.isSettlementRunning
+		) return
+		val generationId = activeDeckGenerationId ?: return
+		val pages = activePages ?: return
+		val receipt = latestWhispersyncAnchorReceipt
+		val sessionId = currentFoliateSessionId
+		val targets = if (receipt != null && sessionId != null) {
+			readerWhispersyncNativeOverlayTargets(
+				receipt = receipt,
+				foliateSessionId = sessionId,
+				profile = pages.profile,
+				currentOrdinal = currentOrdinal,
+				textureGeneration = generationId
+			)
+		} else {
+			null
+		}
+		if (receipt == null || targets == null) {
+			clearWhispersyncOverlayIfNeeded(generationId)
+			return
+		}
+		val publication = ReaderWhispersyncOverlayPublication(
+			textureGeneration = generationId,
+			anchorGeneration = receipt.anchorGeneration,
+			boundarySequence = receipt.boundarySequence,
+			colorArgb = whispersyncHighlightColorArgb
+		)
+		if (publication == publishedWhispersyncOverlay) return
+
+		val overlays = mutableListOf<PageOverlayImage<Bitmap>>()
+		val masksReady = targets.all { target ->
+			val image = pages.deck.value(target.logicalOrdinal) ?: return@all false
+			if (!image.leaf.matches(target.role)) return@all false
+			val mask = readerWhispersyncHighlightMask(
+				receipt = receipt,
+				target = target,
+				bitmapWidth = image.bitmap.width,
+				bitmapHeight = image.bitmap.height,
+				colorArgb = whispersyncHighlightColorArgb
+			) ?: return@all false
+			overlays += PageOverlayImage(target.logicalOrdinal, mask)
+			true
+		}
+		if (!masksReady || overlays.size != targets.size) {
+			overlays.recycleOverlayBitmaps()
+			clearWhispersyncOverlayIfNeeded(generationId)
+			return
+		}
+		when (surfaceView.replacePageOverlays(generationId, overlays)) {
+			PageOverlayUpdateResult.ACCEPTED -> publishedWhispersyncOverlay = publication
+			else -> overlays.recycleOverlayBitmaps()
+		}
+	}
+
+	private fun clearWhispersyncOverlayIfNeeded(generationId: Long) {
+		if (publishedWhispersyncOverlay == null) return
+		if (
+			surfaceView.replacePageOverlays(generationId, emptyList()) ==
+			PageOverlayUpdateResult.ACCEPTED
+		) {
+			publishedWhispersyncOverlay = null
+		}
+	}
+
+	private fun ReaderPlayLikeCurlFoliateLeaf.matches(role: ReaderPageTurnPageRole): Boolean =
+		when (role) {
+			ReaderPageTurnPageRole.Full -> this == ReaderPlayLikeCurlFoliateLeaf.Full
+			ReaderPageTurnPageRole.Left -> this == ReaderPlayLikeCurlFoliateLeaf.Left
+			ReaderPageTurnPageRole.Right -> this == ReaderPlayLikeCurlFoliateLeaf.Right
+		}
+
+	private fun List<PageOverlayImage<Bitmap>>.recycleOverlayBitmaps() {
+		forEach { overlay ->
+			overlay.content.takeUnless(Bitmap::isRecycled)?.recycle()
+		}
+	}
+
 	private fun buildLibraryDeck(
 		pages: PreparedPages,
 		ordinal: Int,
@@ -5444,6 +5578,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			activeGestureId = activeGestureId
 		)
 		scheduleRecoveredDeckSubmissionRetry()
+		publishLatestWhispersyncOverlayIfIdle()
 		if (!refreshDeferred) return
 		if (!retryDeferredRefresh) {
 			logActivationState(
@@ -5500,6 +5635,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			if (settlementMutationFence.takeDeferredRefreshIfUnblocked(activeGestureId)) {
 				schedulePreparedDeckRefresh("gesture-terminal:$gestureId")
 			}
+			publishLatestWhispersyncOverlayIfIdle()
 		}
 		return published
 	}

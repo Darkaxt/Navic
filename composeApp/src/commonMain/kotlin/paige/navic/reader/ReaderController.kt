@@ -61,6 +61,7 @@ data class ReaderController(
 					whispersync = ReaderWhispersyncSessionState(),
 					rawTextProvenanceById = emptyMap(),
 					activeMediaOverlay = null,
+					activeMediaOverlayAnchorReceipt = null,
 					audioMetadataLabel = null,
 					lastContentActionClaim = null
 				)
@@ -421,6 +422,7 @@ data class ReaderController(
 						dialog = null,
 						whispersync = state.whispersync.forShellCoverPresentation(),
 						activeMediaOverlay = null,
+						activeMediaOverlayAnchorReceipt = null,
 						audioMetadataLabel = null
 					)
 				),
@@ -611,6 +613,7 @@ data class ReaderController(
 					dialog = null,
 					whispersync = state.whispersync.forShellCoverPresentation(),
 					activeMediaOverlay = null,
+					activeMediaOverlayAnchorReceipt = null,
 					audioMetadataLabel = null
 				)
 			),

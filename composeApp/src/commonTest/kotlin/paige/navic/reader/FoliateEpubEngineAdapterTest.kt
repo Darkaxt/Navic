@@ -573,6 +573,65 @@ class FoliateEpubEngineAdapterTest {
 	}
 
 	@Test
+	fun preservesValidatedAnchorReceiptOnSemanticOverlayConfirmation() {
+		val fragment = ReaderOverlayFragment(
+			resourceHref = "audio/chapter-01.mp3",
+			coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+			overlayRequestId = 19L,
+			textHref = "chapter-01.xhtml",
+			rawProvenanceId = "raw-1",
+			rawSpineIndex = 4,
+			rawByteStart = 20,
+			rawByteEnd = 28
+		)
+		val receipt = ReaderWhispersyncAnchorReceipt(
+			foliateSessionId = "session-1",
+			destinationCommitToken = "settled-1",
+			visualPageOrdinal = 3,
+			spineIndex = 2,
+			rasterGeneration = 5L,
+			textureGeneration = 6L,
+			presentationMutationGeneration = 7L,
+			presentationSequence = 8L,
+			anchorGeneration = 9L,
+			boundarySequence = 19L,
+			paginationFingerprint = "pagination",
+			layoutFingerprint = "layout",
+			readerSettingsRasterKey = "settings",
+			captureGeometry = ReaderPageTurnCaptureGeometry(
+				viewportWidth = 600.0,
+				viewportHeight = 800.0,
+				mode = ReaderPageTurnLayoutMode.Single,
+				pages = listOf(
+					ReaderPageTurnPageRect(
+						ReaderPageTurnPageRole.Full,
+						30.0,
+						0.0,
+						540.0,
+						800.0
+					)
+				)
+			),
+			pageLocalRects = listOf(
+				ReaderWhispersyncPageLocalRect(
+					ReaderPageTurnPageRole.Full,
+					18.0,
+					40.0,
+					62.0,
+					24.0
+				)
+			)
+		)
+
+		assertEquals(
+			ReaderEngineEvent.MediaOverlayActive(fragment, receipt),
+			FoliateEpubEngineAdapter().onBridgeHostEvent(
+				ReaderBridgeEvent.OverlayFragmentActive(fragment, receipt)
+			)
+		)
+	}
+
+	@Test
 	fun mapsBridgeContentClaimsWithMetadataToEngineEvents() {
 		val claim = ReaderContentActionClaim(
 			action = ReaderContentAction.Link,

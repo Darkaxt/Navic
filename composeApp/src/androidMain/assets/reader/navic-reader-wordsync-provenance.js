@@ -23,7 +23,7 @@ const GoC1ReplacementTable = [
   0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x009d, 0x017e, 0x0178,
 ]
 const RawFragmentFields = [
-  'rawProvenanceId', 'rawSpineIndex', 'rawByteStart', 'rawByteEnd',
+  'wordBoundarySequence', 'rawProvenanceId', 'rawSpineIndex', 'rawByteStart', 'rawByteEnd',
   'rawProgressByteEnd', 'rawProgressFraction',
 ]
 const LegacyRawForbiddenFields = [
@@ -49,6 +49,7 @@ export const validatedReaderOverlayCoordinateMode = fragment => {
   if (!exactNonBlankString(fragment.textHref)) return null
   if (!exactNonBlankString(fragment.rawProvenanceId)) return null
   if (!nonNegativeInteger(fragment.rawSpineIndex)) return null
+  if (hasValue(fragment, 'wordBoundarySequence') && !nonNegativeInteger(fragment.wordBoundarySequence)) return null
   if (!nonNegativeInteger(fragment.rawByteStart)) return null
   if (!nonNegativeInteger(fragment.rawByteEnd) || fragment.rawByteEnd <= fragment.rawByteStart) return null
   if (
@@ -101,6 +102,124 @@ export const rejectReaderWordSyncOverlay = (runtime, fragment, reason) => {
   return true
 }
 
+export const readerWordSyncAnchorReceipt = (runtime, fragment) => {
+  const boundarySequence = fragment?.wordBoundarySequence ?? fragment?.overlayRequestId
+  if (!nonNegativeInteger(boundarySequence)) return null
+  const presentation = runtime.pageTurnLivePresentationReceipt?.()
+  if (
+    presentation?.scope !== 'live' ||
+    !exactNonBlankString(presentation.token) ||
+    !exactNonBlankString(presentation.foliateSessionId) ||
+    !nonNegativeInteger(presentation.pageIndex) ||
+    !nonNegativeInteger(presentation.rasterGeneration) ||
+    !nonNegativeInteger(presentation.textureGeneration) ||
+    !Number.isSafeInteger(presentation.foregroundMutationGeneration) ||
+    presentation.foregroundMutationGeneration <= 0 ||
+    !Number.isSafeInteger(presentation.presentationSequence) ||
+    presentation.presentationSequence <= 0
+  ) return null
+  const pagePosition = runtime.currentPagePosition
+  const currentPageIndex = Number(pagePosition?.pageIndex)
+  const currentSpineIndex = Number(pagePosition?.spineIndex)
+  if (
+    !Number.isSafeInteger(currentPageIndex) ||
+    currentPageIndex !== presentation.pageIndex ||
+    !nonNegativeInteger(currentSpineIndex)
+  ) return null
+  const descriptor = runtime.pageTurnRasterDescriptor?.(presentation.pageIndex)
+  if (
+    descriptor?.visualPageOrdinal !== presentation.pageIndex ||
+    descriptor?.spineIndex !== currentSpineIndex ||
+    !exactNonBlankString(descriptor.paginationFingerprint) ||
+    !exactNonBlankString(descriptor.layoutFingerprint) ||
+    !exactNonBlankString(descriptor.decorationFingerprint)
+  ) return null
+  const captureGeometry = runtime.pageTurnCaptureGeometry?.()
+  const pages = Array.isArray(captureGeometry?.pages) ? captureGeometry.pages : []
+  if (
+    !Number.isFinite(captureGeometry?.viewportWidth) ||
+    captureGeometry.viewportWidth <= 0 ||
+    !Number.isFinite(captureGeometry?.viewportHeight) ||
+    captureGeometry.viewportHeight <= 0 ||
+    !['single', 'spread'].includes(captureGeometry?.mode) ||
+    pages.length === 0
+  ) return null
+  const range = runtime.rawTextProvenance.resolveRange(fragment, { applyProgress: true })
+  if (!range || typeof range.getClientRects !== 'function') return null
+  const pageLocalRects = []
+  for (const clientRect of Array.from(range.getClientRects())) {
+    const clientLeft = Number(clientRect?.left)
+    const clientTop = Number(clientRect?.top)
+    const clientRight = Number(clientRect?.right)
+    const clientBottom = Number(clientRect?.bottom)
+    if (
+      ![clientLeft, clientTop, clientRight, clientBottom].every(Number.isFinite) ||
+      clientRight <= clientLeft || clientBottom <= clientTop
+    ) continue
+    for (const page of pages) {
+      const pageLeft = Number(page?.left)
+      const pageTop = Number(page?.top)
+      const pageWidth = Number(page?.width)
+      const pageHeight = Number(page?.height)
+      if (
+        !['full', 'left', 'right'].includes(page?.role) ||
+        ![pageLeft, pageTop, pageWidth, pageHeight].every(Number.isFinite) ||
+        pageWidth <= 0 || pageHeight <= 0
+      ) return null
+      const left = Math.max(clientLeft, pageLeft)
+      const top = Math.max(clientTop, pageTop)
+      const right = Math.min(clientRight, pageLeft + pageWidth)
+      const bottom = Math.min(clientBottom, pageTop + pageHeight)
+      if (right <= left || bottom <= top) continue
+      pageLocalRects.push({
+        role: page.role,
+        left: left - pageLeft,
+        top: top - pageTop,
+        width: right - left,
+        height: bottom - top,
+      })
+    }
+  }
+  if (pageLocalRects.length === 0) return null
+  const previousAnchorGeneration = Number(runtime.wordSyncAnchorGeneration) || 0
+  if (!nonNegativeInteger(previousAnchorGeneration) || previousAnchorGeneration >= Number.MAX_SAFE_INTEGER) {
+    return null
+  }
+  const anchorGeneration = previousAnchorGeneration + 1
+  runtime.wordSyncAnchorGeneration = anchorGeneration
+  return {
+    foliateSessionId: presentation.foliateSessionId,
+    destinationCommitToken: presentation.token,
+    visualPageOrdinal: presentation.pageIndex,
+    spineIndex: currentSpineIndex,
+    rasterGeneration: presentation.rasterGeneration,
+    textureGeneration: presentation.textureGeneration,
+    presentationMutationGeneration: presentation.foregroundMutationGeneration,
+    presentationSequence: presentation.presentationSequence,
+    anchorGeneration,
+    boundarySequence,
+    paginationFingerprint: descriptor.paginationFingerprint,
+    layoutFingerprint: descriptor.layoutFingerprint,
+    readerSettingsRasterKey: descriptor.decorationFingerprint,
+    captureGeometry,
+    pageLocalRects,
+  }
+}
+
+export const postReaderWordSyncOverlayActive = (
+  runtime,
+  fragment,
+  postEvent = post
+) => {
+  const anchorReceipt = readerWordSyncAnchorReceipt(runtime, fragment)
+  postEvent({
+    type: 'overlayFragmentActive',
+    ...fragment,
+    ...(anchorReceipt ? { anchorReceipt } : {}),
+  })
+  return anchorReceipt
+}
+
 export const applyReaderWordSyncOverlayFragment = (runtime, fragment) => {
   const mode = validatedReaderOverlayCoordinateMode(fragment)
   if (mode === ReaderCueV1DomUtf16Mode) return false
@@ -120,7 +239,7 @@ export const applyReaderWordSyncOverlayFragment = (runtime, fragment) => {
     runtime.rejectOverlayFragment(fragment, 'paint-rejected')
     return true
   }
-  post({ type: 'overlayFragmentActive', ...fragment })
+  postReaderWordSyncOverlayActive(runtime, fragment)
   return true
 }
 

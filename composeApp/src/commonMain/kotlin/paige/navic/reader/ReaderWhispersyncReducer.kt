@@ -121,6 +121,7 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 						)
 					),
 					activeMediaOverlay = null,
+					activeMediaOverlayAnchorReceipt = null,
 					audioMetadataLabel = null
 				)
 			),
@@ -316,6 +317,7 @@ private fun ReaderController.reduceVisibleTextRange(event: ReaderEngineEvent.Vis
 						)
 					),
 					activeMediaOverlay = null,
+					activeMediaOverlayAnchorReceipt = null,
 					audioMetadataLabel = null
 				)
 			),

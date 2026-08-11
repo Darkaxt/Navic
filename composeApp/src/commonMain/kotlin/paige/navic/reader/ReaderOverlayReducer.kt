@@ -46,6 +46,7 @@ internal object ReaderOverlayReducer {
 				controller = controller.copy(
 					state = controller.state.copy(
 						activeMediaOverlay = fragment,
+						activeMediaOverlayAnchorReceipt = null,
 						audioMetadataLabel = fragment.label
 					)
 				),
@@ -79,7 +80,11 @@ internal object ReaderOverlayReducer {
 		return if (shouldClear) {
 			ReaderControllerStep(
 				controller = controller.copy(
-					state = state.copy(activeMediaOverlay = null, audioMetadataLabel = null)
+					state = state.copy(
+						activeMediaOverlay = null,
+						activeMediaOverlayAnchorReceipt = null,
+						audioMetadataLabel = null
+					)
 				),
 				engineCommands = listOf(ReaderEngineCommand.ClearMediaOverlay)
 			)
@@ -129,6 +134,8 @@ internal object ReaderOverlayReducer {
 						}
 					),
 					activeMediaOverlay = event.fragment,
+					activeMediaOverlayAnchorReceipt =
+						event.anchorReceipt,
 					audioMetadataLabel = event.fragment.label
 				)
 			),
@@ -156,6 +163,7 @@ internal object ReaderOverlayReducer {
 					controller.copy(
 						state = state.copy(
 							activeMediaOverlay = null,
+							activeMediaOverlayAnchorReceipt = null,
 							audioMetadataLabel = null
 						)
 					)
@@ -178,6 +186,8 @@ internal object ReaderOverlayReducer {
 						status = readerWhispersyncReadyStatus(state.whispersync.timeline)
 					),
 					activeMediaOverlay = state.activeMediaOverlay.takeUnless { shouldClear },
+					activeMediaOverlayAnchorReceipt =
+						state.activeMediaOverlayAnchorReceipt.takeUnless { shouldClear },
 					audioMetadataLabel = state.audioMetadataLabel.takeUnless { shouldClear }
 				)
 			),
