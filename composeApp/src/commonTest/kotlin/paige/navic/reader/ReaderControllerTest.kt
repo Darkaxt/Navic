@@ -128,7 +128,11 @@ class ReaderControllerTest {
 		).controller
 		assertNull(mismatched.state.pageTurnSettlementAck)
 
-		val changedSession = acknowledged.onEngineEvent(
+		val changedSession = acknowledged.copy(
+			state = acknowledged.state.copy(
+				activeMediaOverlayAnchorReceipt = testAnchorReceipt("session-a")
+			)
+		).onEngineEvent(
 			ReaderEngineEvent.Relocated(
 				locator = ReaderLocator(pageIndex = 9),
 				foliateSessionId = "session-b"
@@ -136,6 +140,7 @@ class ReaderControllerTest {
 		).controller
 		assertEquals("session-b", changedSession.state.foliateSessionId)
 		assertNull(changedSession.state.pageTurnSettlementAck)
+		assertNull(changedSession.state.activeMediaOverlayAnchorReceipt)
 
 		val reopened = acknowledged.open(hobbitOpenRequest()).controller
 		assertNull(reopened.state.foliateSessionId)
@@ -3750,6 +3755,51 @@ class ReaderControllerTest {
 		assertNull(inactive.controller.state.audioMetadataLabel)
 		assertEquals(emptyList(), inactive.engineCommands)
 	}
+
+	private fun testAnchorReceipt(foliateSessionId: String) = ReaderWhispersyncAnchorReceipt(
+		foliateSessionId = foliateSessionId,
+		destinationCommitToken = "settled",
+		visualPageOrdinal = 4,
+		spineIndex = 0,
+		rasterGeneration = 12L,
+		textureGeneration = 13L,
+		presentationMutationGeneration = 3L,
+		presentationSequence = 4L,
+		anchorGeneration = 5L,
+		boundarySequence = 6L,
+		layoutGeneration = 14L,
+		viewGeneration = 15L,
+		commitSequence = 16L,
+		committedSpineIndex = 0,
+		committedChapterPageIndex = 0,
+		committedChapterPageCount = 1,
+		paginationFingerprint = "pagination",
+		layoutFingerprint = "layout",
+		readerSettingsRasterKey = "settings",
+		captureGeometry = ReaderPageTurnCaptureGeometry(
+			viewportWidth = 600.0,
+			viewportHeight = 800.0,
+			mode = ReaderPageTurnLayoutMode.Single,
+			pages = listOf(
+				ReaderPageTurnPageRect(
+					ReaderPageTurnPageRole.Full,
+					30.0,
+					0.0,
+					540.0,
+					800.0
+				)
+			)
+		),
+		pageLocalRects = listOf(
+			ReaderWhispersyncPageLocalRect(
+				ReaderPageTurnPageRole.Full,
+				18.0,
+				40.0,
+				62.0,
+				24.0
+			)
+		)
+	)
 
 	private fun hobbitOpenRequest(): ReaderEngineOpenRequest =
 		ReaderEngineOpenRequest(

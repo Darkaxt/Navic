@@ -977,6 +977,49 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun nativeWhispersyncPublicationUsesCompleteProofAndSessionReplacementClearsIt() {
+		val source = controllerFile.readText()
+		val publicationIdentity = source
+			.substringAfter("private data class ReaderWhispersyncOverlayPublication(")
+			.substringBefore("private data class FailedLivePresentationGeneration(")
+		val sessionReplacement = source
+			.substringAfter("fun setFoliateSessionId(sessionId: String)")
+			.substringBefore("fun visualLocationOrigin(")
+		val publication = source
+			.substringAfter("private fun publishLatestWhispersyncOverlayIfIdle()")
+			.substringBefore("private fun clearWhispersyncOverlayIfNeeded(")
+		val updateCompletion = source
+			.substringAfter("override fun onPageOverlayUpdateCapacityAvailable(applied: Boolean)")
+			.substringBefore("override fun onPageOverlayStateInvalidated()")
+
+		assertContains(publicationIdentity, "val proof: ReaderWhispersyncNativePresentationProof")
+		assertContains(publicationIdentity, "val pageLocalRects:")
+		assertContains(publication, "presentationProof = latestWhispersyncPresentationProof")
+		assertContains(publication, "if (whispersyncOverlayClearPending)")
+		assertContains(publication, "clearWhispersyncOverlayIfNeeded(generationId)")
+		assertContains(updateCompletion, "if (!whispersyncOverlayClearPending) return")
+		assertContains(updateCompletion, "publishLatestWhispersyncOverlayIfIdle()")
+		assertContains(sessionReplacement, "latestWhispersyncAnchorReceipt = null")
+		assertContains(sessionReplacement, "latestWhispersyncPresentationProof = null")
+		assertContains(sessionReplacement, "whispersyncOverlayClearPending = true")
+		assertContains(
+			source
+				.substringAfter("fun setWhispersyncOverlay(")
+				.substringBefore("private fun unavailableGestureOutcome()"),
+			"receipt.foliateSessionId != currentFoliateSessionId"
+		)
+		assertContains(
+			sessionReplacement,
+			"clearWhispersyncOverlayIfNeeded(",
+			message = "Session replacement must request a priority clear even when an older mask upload is pending."
+		)
+		assertFalse(
+			publicationIdentity.contains("val anchorGeneration: Long"),
+			"A partial cache key must not suppress a changed Foliate proof or geometry."
+		)
+	}
+
+	@Test
 	fun externalDeckMutationsWaitForControllerSettlementReconciliation() {
 		val controller = controllerFile.readText()
 		val settlementStarted = controller

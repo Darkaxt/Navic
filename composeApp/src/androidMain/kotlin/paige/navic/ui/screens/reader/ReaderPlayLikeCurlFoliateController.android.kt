@@ -57,6 +57,7 @@ import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
+import paige.navic.reader.ReaderWhispersyncPageLocalRect
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.reader.normalizeReaderPageBitmapQuality
@@ -79,9 +80,8 @@ internal fun readerRenderFailureOwnsCurrentPresentation(
 		generationId == pendingGenerationId
 
 private data class ReaderWhispersyncOverlayPublication(
-	val textureGeneration: Long,
-	val anchorGeneration: Long,
-	val boundarySequence: Long,
+	val proof: ReaderWhispersyncNativePresentationProof,
+	val pageLocalRects: List<ReaderWhispersyncPageLocalRect>,
 	val colorArgb: Int
 )
 
@@ -888,7 +888,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var pendingDeckGenerationId: Long? = null
 	private var pendingDeckOrdinal: Int? = null
 	private var latestWhispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt? = null
+	private var latestWhispersyncPresentationProof: ReaderWhispersyncNativePresentationProof? = null
 	private var whispersyncHighlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb
+	private var whispersyncOverlayClearPending = false
 	private var publishedWhispersyncOverlay: ReaderWhispersyncOverlayPublication? = null
 	private var lastActivationTrace: String? = null
 	private val persistentRefillCoordinator = ReaderPagePersistentRefillCoordinator(
@@ -1010,13 +1012,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 						ReaderPlayLikeCurlFoliateControllerTag,
 						"PlayLikeCurl page overlay update rejected"
 					)
-					return
+					if (!whispersyncOverlayClearPending) return
 				}
 				publishLatestWhispersyncOverlayIfIdle()
 			}
 
 			override fun onPageOverlayStateInvalidated() {
 				latestWhispersyncAnchorReceipt = null
+				latestWhispersyncPresentationProof = null
+				whispersyncOverlayClearPending = false
 				publishedWhispersyncOverlay = null
 			}
 
@@ -1427,6 +1431,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		receipt: ReaderWhispersyncAnchorReceipt?,
 		highlightColorArgb: Int
 	) {
+		if (receipt != null && receipt.foliateSessionId != currentFoliateSessionId) return
 		val current = latestWhispersyncAnchorReceipt
 		if (
 			receipt != null &&
@@ -1437,6 +1442,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) return
 		if (receipt == current && highlightColorArgb == whispersyncHighlightColorArgb) return
 		latestWhispersyncAnchorReceipt = receipt
+		if (receipt != null && latestWhispersyncPresentationProof == null) {
+			latestWhispersyncPresentationProof = receipt.nativePresentationProof()
+		} else if (receipt == null) {
+			latestWhispersyncPresentationProof = null
+		}
 		whispersyncHighlightColorArgb = highlightColorArgb
 		publishLatestWhispersyncOverlayIfIdle()
 	}
@@ -1957,6 +1967,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val previous = currentFoliateSessionId
 		if (previous == sessionId) return
 		if (previous != null) {
+			whispersyncOverlayClearPending = true
+			activeDeckGenerationId?.let { generationId ->
+				clearWhispersyncOverlayIfNeeded(generationId)
+			}
+			latestWhispersyncAnchorReceipt = null
+			latestWhispersyncPresentationProof = null
+			publishedWhispersyncOverlay = null
 			discardDecodedWorkingSetPrefetch("foliate-session-changed")
 			relocationVisualHandoffCoordinator.cancelForQueueInvalidation()
 			drainRelocationOwnership("foliate-session-changed")
@@ -2166,6 +2183,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		decodedRefillGeneration += 1L
 		failedLivePresentationGeneration = null
 		latestWhispersyncAnchorReceipt = null
+		latestWhispersyncPresentationProof = null
+		whispersyncOverlayClearPending = false
 		publishedWhispersyncOverlay = null
 		retainsRejectedSurfaceInputShield = false
 		livePresentationRecoveryRequest.clear()
@@ -2217,6 +2236,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			destroyed = true
 			enabled = false
 			latestWhispersyncAnchorReceipt = null
+			latestWhispersyncPresentationProof = null
+			whispersyncOverlayClearPending = false
 			publishedWhispersyncOverlay = null
 		},
 		advanceGenerations = {
@@ -4246,10 +4267,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val generationId = activeDeckGenerationId ?: return
 		val pages = activePages ?: return
 		val receipt = latestWhispersyncAnchorReceipt
+		val presentationProof = latestWhispersyncPresentationProof
 		val sessionId = currentFoliateSessionId
-		val targets = if (receipt != null && sessionId != null) {
+		if (whispersyncOverlayClearPending) {
+			clearWhispersyncOverlayIfNeeded(generationId)
+			return
+		}
+		val targets = if (receipt != null && presentationProof != null && sessionId != null) {
 			readerWhispersyncNativeOverlayTargets(
 				receipt = receipt,
+				presentationProof = latestWhispersyncPresentationProof,
 				foliateSessionId = sessionId,
 				profile = pages.profile,
 				currentOrdinal = currentOrdinal,
@@ -4262,15 +4289,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 			clearWhispersyncOverlayIfNeeded(generationId)
 			return
 		}
+		val acceptedPresentationProof = presentationProof ?: return
 		if (
 			activeGestureId != null ||
 			settlementMutationFence.hasUnreconciledSettlement ||
 			surfaceView.isSettlementRunning
 		) return
 		val publication = ReaderWhispersyncOverlayPublication(
-			textureGeneration = generationId,
-			anchorGeneration = receipt.anchorGeneration,
-			boundarySequence = receipt.boundarySequence,
+			proof = acceptedPresentationProof,
+			pageLocalRects = receipt.pageLocalRects,
 			colorArgb = whispersyncHighlightColorArgb
 		)
 		if (publication == publishedWhispersyncOverlay) return
@@ -4301,11 +4328,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun clearWhispersyncOverlayIfNeeded(generationId: Long) {
-		if (publishedWhispersyncOverlay == null) return
+		if (publishedWhispersyncOverlay == null && !whispersyncOverlayClearPending) return
 		if (
 			surfaceView.replacePageOverlays(generationId, emptyList()) ==
 			PageOverlayUpdateResult.ACCEPTED
 		) {
+			whispersyncOverlayClearPending = false
 			publishedWhispersyncOverlay = null
 		}
 	}

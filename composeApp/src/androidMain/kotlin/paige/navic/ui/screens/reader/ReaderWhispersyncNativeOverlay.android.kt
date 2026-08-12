@@ -3,9 +3,53 @@ package paige.navic.ui.screens.reader
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderPageTurnLayoutMode
 import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
+
+internal data class ReaderWhispersyncNativePresentationProof(
+	val foliateSessionId: String,
+	val destinationCommitToken: String,
+	val visualPageOrdinal: Int,
+	val spineIndex: Int,
+	val rasterGeneration: Long,
+	val textureGeneration: Long,
+	val presentationMutationGeneration: Long,
+	val presentationSequence: Long,
+	val layoutGeneration: Long,
+	val viewGeneration: Long,
+	val commitSequence: Long,
+	val committedSpineIndex: Int,
+	val committedChapterPageIndex: Int,
+	val committedChapterPageCount: Int,
+	val paginationFingerprint: String,
+	val layoutFingerprint: String,
+	val readerSettingsRasterKey: String,
+	val captureGeometry: ReaderPageTurnCaptureGeometry
+)
+
+internal fun ReaderWhispersyncAnchorReceipt.nativePresentationProof() =
+	ReaderWhispersyncNativePresentationProof(
+		foliateSessionId = foliateSessionId,
+		destinationCommitToken = destinationCommitToken,
+		visualPageOrdinal = visualPageOrdinal,
+		spineIndex = spineIndex,
+		rasterGeneration = rasterGeneration,
+		textureGeneration = textureGeneration,
+		presentationMutationGeneration = presentationMutationGeneration,
+		presentationSequence = presentationSequence,
+		layoutGeneration = layoutGeneration,
+		viewGeneration = viewGeneration,
+		commitSequence = commitSequence,
+		committedSpineIndex = committedSpineIndex,
+		committedChapterPageIndex = committedChapterPageIndex,
+		committedChapterPageCount = committedChapterPageCount,
+		paginationFingerprint = paginationFingerprint,
+		layoutFingerprint = layoutFingerprint,
+		readerSettingsRasterKey = readerSettingsRasterKey,
+		captureGeometry = captureGeometry
+	)
 
 internal data class ReaderWhispersyncNativeOverlayTarget(
 	val role: ReaderPageTurnPageRole,
@@ -14,15 +58,17 @@ internal data class ReaderWhispersyncNativeOverlayTarget(
 
 internal fun readerWhispersyncNativeOverlayTargets(
 	receipt: ReaderWhispersyncAnchorReceipt,
+	presentationProof: ReaderWhispersyncNativePresentationProof?,
 	foliateSessionId: String,
 	profile: ReaderPlayLikeCurlRasterProfile,
 	currentOrdinal: Int,
 	textureGeneration: Long
 ): List<ReaderWhispersyncNativeOverlayTarget>? {
 	if (
-		receipt.foliateSessionId != foliateSessionId ||
-		receipt.rasterGeneration != profile.rasterGeneration ||
-		receipt.textureGeneration != textureGeneration
+		receipt.nativePresentationProof() != presentationProof ||
+		presentationProof.foliateSessionId != foliateSessionId ||
+		presentationProof.rasterGeneration != profile.rasterGeneration ||
+		presentationProof.textureGeneration != textureGeneration
 	) return null
 
 	val roles = receipt.pageLocalRects.mapTo(linkedSetOf()) { rect -> rect.role }

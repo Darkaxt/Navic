@@ -65,6 +65,8 @@ internal object ReaderProgressReducer {
 				readingProgress = nextReadingProgress,
 				foliateSessionId = event.foliateSessionId,
 				pageTurnSettlementAck = nextSettlementAck,
+				activeMediaOverlayAnchorReceipt =
+					state.activeMediaOverlayAnchorReceipt.takeUnless { sessionChanged },
 				nativeShellCoverReturnLocatorKey = nextNativeShellCoverReturnLocatorKey,
 				shellCoverVisible = if (dismissShellCover) false else state.shellCoverVisible,
 				pendingShellCoverDismissal = state.pendingShellCoverDismissal

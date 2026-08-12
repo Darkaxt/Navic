@@ -54,15 +54,17 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 			pageCount = 9,
 			rasterGeneration = 31L
 		)
+		val receipt = anchorReceipt(
+			mode = ReaderPageTurnLayoutMode.Single,
+			visualPageOrdinal = 4,
+			roles = listOf(ReaderPageTurnPageRole.Full)
+		)
 
 		assertEquals(
 			listOf(ReaderWhispersyncNativeOverlayTarget(ReaderPageTurnPageRole.Full, 4)),
 			readerWhispersyncNativeOverlayTargets(
-				receipt = anchorReceipt(
-					mode = ReaderPageTurnLayoutMode.Single,
-					visualPageOrdinal = 4,
-					roles = listOf(ReaderPageTurnPageRole.Full)
-				),
+				receipt = receipt,
+				presentationProof = receipt.nativePresentationProof(),
 				foliateSessionId = "session",
 				profile = profile,
 				currentOrdinal = 4,
@@ -82,6 +84,14 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 			spreadAnchorParity = 0,
 			rasterGeneration = 31L
 		)
+		val receipt = anchorReceipt(
+			mode = ReaderPageTurnLayoutMode.Spread,
+			visualPageOrdinal = 4,
+			roles = listOf(
+				ReaderPageTurnPageRole.Left,
+				ReaderPageTurnPageRole.Right
+			)
+		)
 
 		assertEquals(
 			listOf(
@@ -89,14 +99,8 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 				ReaderWhispersyncNativeOverlayTarget(ReaderPageTurnPageRole.Right, 5)
 			),
 			readerWhispersyncNativeOverlayTargets(
-				receipt = anchorReceipt(
-					mode = ReaderPageTurnLayoutMode.Spread,
-					visualPageOrdinal = 4,
-					roles = listOf(
-						ReaderPageTurnPageRole.Left,
-						ReaderPageTurnPageRole.Right
-					)
-				),
+				receipt = receipt,
+				presentationProof = receipt.nativePresentationProof(),
 				foliateSessionId = "session",
 				profile = profile,
 				currentOrdinal = 4,
@@ -119,10 +123,12 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 			visualPageOrdinal = 4,
 			roles = listOf(ReaderPageTurnPageRole.Full)
 		)
+		val proof = receipt.nativePresentationProof()
 
 		assertNull(
 			readerWhispersyncNativeOverlayTargets(
 				receipt = receipt,
+				presentationProof = proof,
 				foliateSessionId = "replacement-session",
 				profile = profile,
 				currentOrdinal = 4,
@@ -132,6 +138,7 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 		assertNull(
 			readerWhispersyncNativeOverlayTargets(
 				receipt = receipt,
+				presentationProof = proof,
 				foliateSessionId = "session",
 				profile = profile.copy(rasterGeneration = 99L),
 				currentOrdinal = 4,
@@ -141,12 +148,36 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 		assertNull(
 			readerWhispersyncNativeOverlayTargets(
 				receipt = receipt,
+				presentationProof = proof,
 				foliateSessionId = "session",
 				profile = profile,
 				currentOrdinal = 4,
 				textureGeneration = 99L
 			)
 		)
+		listOf(
+			receipt.copy(destinationCommitToken = "replacement"),
+			receipt.copy(presentationMutationGeneration = 40L),
+			receipt.copy(presentationSequence = 50L),
+			receipt.copy(layoutGeneration = 80L),
+			receipt.copy(viewGeneration = 90L),
+			receipt.copy(commitSequence = 100L),
+			receipt.copy(committedChapterPageIndex = 2),
+			receipt.copy(paginationFingerprint = "replacement-pagination"),
+			receipt.copy(layoutFingerprint = "replacement-layout"),
+			receipt.copy(readerSettingsRasterKey = "replacement-settings")
+		).forEach { stale ->
+			assertNull(
+				readerWhispersyncNativeOverlayTargets(
+					receipt = stale,
+					presentationProof = proof,
+					foliateSessionId = "session",
+					profile = profile,
+					currentOrdinal = 4,
+					textureGeneration = 32L
+				)
+			)
+		}
 	}
 
 	@Test
@@ -475,6 +506,28 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 		assertSame(lastRtl.currentRight, lastRtl.getSettlementPage(PageChange.NONE))
 		assertEquals(3, lastRtl.getSettlementPage(PageChange.PREVIOUS).ordinal)
 	}
+
+	private fun ReaderWhispersyncAnchorReceipt.nativePresentationProof() =
+		ReaderWhispersyncNativePresentationProof(
+			foliateSessionId = foliateSessionId,
+			destinationCommitToken = destinationCommitToken,
+			visualPageOrdinal = visualPageOrdinal,
+			spineIndex = spineIndex,
+			rasterGeneration = rasterGeneration,
+			textureGeneration = textureGeneration,
+			presentationMutationGeneration = presentationMutationGeneration,
+			presentationSequence = presentationSequence,
+			layoutGeneration = layoutGeneration,
+			viewGeneration = viewGeneration,
+			commitSequence = commitSequence,
+			committedSpineIndex = committedSpineIndex,
+			committedChapterPageIndex = committedChapterPageIndex,
+			committedChapterPageCount = committedChapterPageCount,
+			paginationFingerprint = paginationFingerprint,
+			layoutFingerprint = layoutFingerprint,
+			readerSettingsRasterKey = readerSettingsRasterKey,
+			captureGeometry = captureGeometry
+		)
 
 	private fun anchorReceipt(
 		mode: ReaderPageTurnLayoutMode,
