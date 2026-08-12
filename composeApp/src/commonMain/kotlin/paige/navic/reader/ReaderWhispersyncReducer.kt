@@ -65,7 +65,7 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 		currentWhispersync.sync.setSyncEnabled(playbackState.syncEnabled)
 	}
 	val playbackStep = if (!playbackState.isPlaying) {
-		if (currentWhispersync.status.kind == ReaderWhispersyncStatusKind.Playing) {
+		if (state.chrome.readaloudPlayback.isPlaying) {
 			baseSync.onAudiobookPlaybackPausedStep(
 				audioResource = playbackState.audioResource,
 				positionMs = playbackState.positionMs,
@@ -102,12 +102,8 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 	) {
 		Logger.i(
 			WhispersyncSyncLogTag,
-			"Whispersync page boundary reached audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
-				"text=${overlayFragment.textHref.whispersyncLogValue()} " +
-				"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"} " +
-				"visible=${visibleRange?.textHref.whispersyncLogValue()}:" +
-				"${visibleRange?.visibleStart ?: "n/a"}-${visibleRange?.visibleEnd ?: "n/a"} " +
-				"command=pause"
+			"Whispersync playback state=page-ended matched=false active=false " +
+				"reason=outside-visible-range command=pause"
 		)
 		return ReaderControllerStep(
 			controller = copy(
@@ -142,15 +138,16 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 	}
 	val publishedOverlayFragment = publishedCommand.overlayFragmentOrNull()
 	val publishedClearOverlay = publishedCommand == ReaderEngineCommand.ClearMediaOverlay
+	val publishedAnchorReceipt = if (publishedClearOverlay) {
+		null
+	} else {
+		state.activeMediaOverlayAnchorReceipt
+	}
 	if (publishedOverlayFragment != null) {
 		Logger.i(
 			WhispersyncSyncLogTag,
-			"Whispersync apply overlay source=playback " +
-				"audio=${publishedOverlayFragment.resourceHref.whispersyncLogValue()} " +
-				"text=${publishedOverlayFragment.textHref.whispersyncLogValue()} " +
-				"textRange=${publishedOverlayFragment.textStart ?: "n/a"}-${publishedOverlayFragment.textEnd ?: "n/a"} " +
-				"progressTextEnd=${publishedOverlayFragment.textProgressEnd ?: "n/a"} " +
-				"clip=${publishedOverlayFragment.clipBeginSeconds ?: "n/a"}-${publishedOverlayFragment.clipEndSeconds ?: "n/a"}"
+			"Whispersync playback state=overlay-update matched=true active=true " +
+				"command=${publishedCommand.whispersyncCommandLogValue()}"
 		)
 	} else if (publishedClearOverlay) {
 		Logger.i(
@@ -171,6 +168,7 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 				activeMediaOverlay = publishedCommand.confirmedOverlayOrPrevious(
 					state.activeMediaOverlay
 				),
+				activeMediaOverlayAnchorReceipt = publishedAnchorReceipt,
 				audioMetadataLabel = publishedCommand.confirmedOverlayLabelOrPrevious(
 					state.audioMetadataLabel
 				)
@@ -338,11 +336,11 @@ private fun ReaderController.reduceVisibleTextRange(event: ReaderEngineEvent.Vis
 	}
 	Logger.i(
 		WhispersyncSyncLogTag,
-		"Whispersync visible range source=${event.source.whispersyncLogValue()} " +
-			"audioFollow=${event.isWhispersyncAudioFollowRange()} " +
-			"href=${event.textHref.whispersyncLogValue()} " +
-			"textRange=${event.visibleStart}-${event.visibleEnd} " +
-			"active=${currentWhispersync.sync.activeCueKey.whispersyncLogValue(48)}"
+		"Whispersync visible range state=received " +
+			"matched=true active=${currentWhispersync.sync.activeCueKey != null} " +
+			"count=${currentWhispersync.whispersyncSegmentCountLogValue()} " +
+			"source=${event.source.whispersyncSourceLogValue()} " +
+			"audioFollow=${event.isWhispersyncAudioFollowRange()}"
 	)
 	if (event.isWhispersyncAudioFollowRange()) {
 		return ReaderControllerStep(
@@ -369,11 +367,8 @@ private fun ReaderController.reduceVisibleTextRange(event: ReaderEngineEvent.Vis
 	if (overlayFragment != null) {
 		Logger.i(
 			WhispersyncSyncLogTag,
-			"Whispersync apply overlay source=visible-range " +
-				"audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
-				"text=${overlayFragment.textHref.whispersyncLogValue()} " +
-				"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"} " +
-				"progressTextEnd=${overlayFragment.textProgressEnd ?: "n/a"}"
+			"Whispersync visible range state=overlay-update matched=true active=true " +
+				"command=${command.whispersyncCommandLogValue()}"
 		)
 	} else if (shouldClearOverlay) {
 		Logger.i(
@@ -421,9 +416,9 @@ private fun ReaderController.reduceTextPoint(event: ReaderEngineEvent.TextPoint)
 	val currentWhispersync = state.whispersync
 	Logger.i(
 		WhispersyncSyncLogTag,
-		"Whispersync text point source=${event.source.whispersyncLogValue()} " +
-			"href=${event.textHref.whispersyncLogValue()} textOffset=${event.textOffset} " +
-			"active=${currentWhispersync.sync.activeCueKey.whispersyncLogValue(48)}"
+		"Whispersync text point state=received matched=true " +
+			"active=${currentWhispersync.sync.activeCueKey != null} " +
+			"source=${event.source.whispersyncSourceLogValue()}"
 	)
 	val syncStep = currentWhispersync.sync.onTextPoint(
 		timeline = currentWhispersync.timeline,
@@ -437,11 +432,8 @@ private fun ReaderController.reduceTextPoint(event: ReaderEngineEvent.TextPoint)
 	if (overlayFragment != null) {
 		Logger.i(
 			WhispersyncSyncLogTag,
-			"Whispersync apply overlay source=text-point " +
-				"audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
-				"text=${overlayFragment.textHref.whispersyncLogValue()} " +
-				"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"} " +
-				"progressTextEnd=${overlayFragment.textProgressEnd ?: "n/a"}"
+			"Whispersync text point state=overlay-update matched=true active=true " +
+				"command=${command.whispersyncCommandLogValue()}"
 		)
 	}
 	return ReaderControllerStep(

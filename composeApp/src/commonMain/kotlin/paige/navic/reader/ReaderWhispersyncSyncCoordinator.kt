@@ -136,8 +136,8 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 			if (activeCueKey != null) {
 				Logger.w(
 					WhispersyncSyncLogTag,
-					"Whispersync playback position lost cue audio=${audioResource.whispersyncLogValue()} " +
-						"track=${audioTrackIndex ?: "n/a"} positionMs=$positionMs"
+					"Whispersync playback state=no-active-cue " +
+						"active=true matched=false reason=timeline-gap"
 				)
 			}
 			return ReaderWhispersyncPlaybackPositionStep(
@@ -145,7 +145,6 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 				status = ReaderWhispersyncStatus(
 					kind = ReaderWhispersyncStatusKind.NoActiveCue,
 					message = ReaderWhispersyncStatusMessage.NoActiveCue,
-					detail = audioResource,
 					audioResource = audioResource,
 					positionMs = positionMs
 				)
@@ -163,12 +162,7 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 	if (commandLabel != null) {
 		Logger.i(
 			WhispersyncSyncLogTag,
-			"Whispersync playback position audio=${audioResource.whispersyncLogValue()} " +
-				"track=${audioTrackIndex ?: "n/a"} positionMs=$positionMs " +
-				"cue=${segment.id.orEmpty().ifBlank { "n/a" }} " +
-				"text=${segment.textHref.whispersyncLogValue()} " +
-				"textRange=${segment.textStart ?: "n/a"}-${segment.textEnd ?: "n/a"} " +
-				"progressTextEnd=${resolution.cue.progressTextEnd ?: "n/a"} " +
+			"Whispersync playback state=active matched=true active=true " +
 				"command=$commandLabel"
 		)
 	}
@@ -224,8 +218,8 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 	) ?: run {
 		Logger.w(
 			WhispersyncSyncLogTag,
-			"Whispersync visible range not matched href=${textHref.whispersyncLogValue()} " +
-				"textRange=$visibleStart-$visibleEnd"
+			"Whispersync visible range state=ready matched=false active=${activeCueKey != null} " +
+				"reason=no-timeline-match"
 		)
 		return ReaderWhispersyncVisibleRangeStep(
 			state = clearOverlayIfNeeded(),
@@ -248,11 +242,7 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 	}
 	Logger.i(
 		WhispersyncSyncLogTag,
-		"Whispersync visible range selected audio=${target.audioResource.whispersyncLogValue()} " +
-			"positionMs=${target.positionMs} href=${textHref.whispersyncLogValue()} " +
-			"textRange=$visibleStart-$visibleEnd " +
-			"cue=${target.segment.id.orEmpty().ifBlank { "n/a" }} " +
-			"cueTextRange=${target.segment.textStart ?: "n/a"}-${target.segment.textEnd ?: "n/a"}"
+		"Whispersync visible range state=seeking matched=true active=true command=seek"
 	)
 	return ReaderWhispersyncVisibleRangeStep(
 		state = step.state,
@@ -284,8 +274,8 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 	) ?: run {
 		Logger.w(
 			WhispersyncSyncLogTag,
-			"Whispersync text point not matched href=${textHref.whispersyncLogValue()} " +
-				"textOffset=$textOffset"
+			"Whispersync text point state=ready matched=false active=${activeCueKey != null} " +
+				"reason=no-timeline-match"
 		)
 		return ReaderWhispersyncVisibleRangeStep(
 			state = this,
@@ -302,15 +292,11 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 		)
 	}
 	val target = readerTarget.seekTarget
-	if (readerTarget.cue.key != activeCueKey) {
 		Logger.i(
 			WhispersyncSyncLogTag,
-			"Whispersync text point selected audio=${target.audioResource.whispersyncLogValue()} " +
-				"positionMs=${target.positionMs} href=${textHref.whispersyncLogValue()} " +
-				"textOffset=$textOffset cue=${target.segment.id.orEmpty().ifBlank { "n/a" }} " +
-				"textRange=${target.segment.textStart ?: "n/a"}-${target.segment.textEnd ?: "n/a"}"
+			"Whispersync text point state=seeking matched=true " +
+				"active=${readerTarget.cue.key == activeCueKey} command=seek"
 		)
-	}
 	val step = followReaderTarget(readerTarget)
 	return ReaderWhispersyncVisibleRangeStep(
 		state = step.state,

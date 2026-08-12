@@ -2753,14 +2753,13 @@ class ReaderControllerTest {
 			.open(hobbitOpenRequest()).controller
 			.reportWhispersyncLoadFailure(
 				message = ReaderWhispersyncStatusMessage.AudioUnavailable,
-				detail = "audiobook=69"
+				detail = null
 			)
 
 		assertEquals(
 			ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.LoadFailed,
-				message = ReaderWhispersyncStatusMessage.AudioUnavailable,
-				detail = "audiobook=69"
+				message = ReaderWhispersyncStatusMessage.AudioUnavailable
 			),
 			step.controller.state.whispersync.status
 		)
@@ -2854,7 +2853,6 @@ class ReaderControllerTest {
 			ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.NoActiveCue,
 				message = ReaderWhispersyncStatusMessage.NoActiveCue,
-				detail = "Audio/chapter99.m4b",
 				audioResource = "Audio/chapter99.m4b",
 				positionMs = 5_500L
 			),
@@ -2949,7 +2947,7 @@ class ReaderControllerTest {
 			).controller
 		val failed = visible.reportWhispersyncLoadFailure(
 			message = ReaderWhispersyncStatusMessage.AudioUnavailable,
-			detail = "audiobook=69"
+			detail = null
 		).controller
 
 		val step = failed.repairWhispersyncMismatch()
@@ -3041,7 +3039,7 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun pausingAudiobookPlaybackClearsPlaybackDrivenOverlayAndStatus() {
+	fun pausingAfterTransientSeekClearsPlaybackDrivenOverlayAndStatus() {
 		val pending = ReaderController()
 			.open(hobbitOpenRequest()).controller
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
@@ -3058,13 +3056,62 @@ class ReaderControllerTest {
 		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			pending.engineCommands.single()
 		).fragment
+		val receipt = ReaderWhispersyncAnchorReceipt(
+			foliateSessionId = "session-a",
+			destinationCommitToken = "settled-4",
+			visualPageOrdinal = 4,
+			spineIndex = 0,
+			rasterGeneration = 12L,
+			textureGeneration = 13L,
+			presentationMutationGeneration = 3L,
+			presentationSequence = 4L,
+			anchorGeneration = 5L,
+			boundarySequence = requireNotNull(overlay.overlayRequestId),
+			paginationFingerprint = "pagination",
+			layoutFingerprint = "layout",
+			readerSettingsRasterKey = "settings",
+			captureGeometry = ReaderPageTurnCaptureGeometry(
+				viewportWidth = 600.0,
+				viewportHeight = 800.0,
+				mode = ReaderPageTurnLayoutMode.Single,
+				pages = listOf(
+					ReaderPageTurnPageRect(
+						ReaderPageTurnPageRole.Full,
+						30.0,
+						0.0,
+						540.0,
+						800.0
+					)
+				)
+			),
+			pageLocalRects = listOf(
+				ReaderWhispersyncPageLocalRect(
+					ReaderPageTurnPageRole.Full,
+					18.0,
+					40.0,
+					62.0,
+					24.0
+				)
+			)
+		)
 		val playing = pending.controller.onEngineEvent(
-			ReaderEngineEvent.MediaOverlayActive(overlay)
+			ReaderEngineEvent.MediaOverlayActive(overlay, receipt)
 		).controller
 		assertEquals(ReaderWhispersyncStatusKind.Playing, playing.state.whispersync.status.kind)
 		assertNotNull(playing.state.activeMediaOverlay)
+		assertEquals(receipt, playing.state.activeMediaOverlayAnchorReceipt)
 
-		val paused = playing.onReadaloudPlaybackState(
+		val seeking = playing.copy(
+			state = playing.state.copy(
+				whispersync = playing.state.whispersync.copy(
+					status = ReaderWhispersyncStatus(
+						kind = ReaderWhispersyncStatusKind.SeekingAudio,
+						message = ReaderWhispersyncStatusMessage.SeekingAudio
+					)
+				)
+			)
+		)
+		val paused = seeking.onReadaloudPlaybackState(
 			ReaderReadaloudPlaybackUiState(
 				isAvailable = true,
 				isPlaying = false,
@@ -3077,6 +3124,7 @@ class ReaderControllerTest {
 
 		assertEquals(listOf(ReaderEngineCommand.ClearMediaOverlay), paused.engineCommands)
 		assertNull(paused.controller.state.activeMediaOverlay)
+		assertNull(paused.controller.state.activeMediaOverlayAnchorReceipt)
 		assertNull(paused.controller.state.audioMetadataLabel)
 		assertEquals(
 			ReaderWhispersyncStatus(
@@ -3138,7 +3186,7 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun pageSpanningWhispersyncCuePausesWhenPlaybackProgressLeavesVisibleRange() {
+	fun pageSpanningFragmentFallbackKeepsCompleteTimedFragmentHighlighted() {
 		val pending = ReaderController()
 			.open(hobbitOpenRequest()).controller
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
@@ -3157,7 +3205,18 @@ class ReaderControllerTest {
 			ReaderEngineEvent.MediaOverlayActive(overlay)
 		).controller
 
-		val step = confirmed.onReadaloudPlaybackState(
+		val visibleFirstCue = confirmed.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 1_500L,
+				durationMs = 8_000L
+			)
+		).controller
+
+		val step = visibleFirstCue.onReadaloudPlaybackState(
 			ReaderReadaloudPlaybackUiState(
 				isAvailable = true,
 				isPlaying = true,
@@ -3168,14 +3227,10 @@ class ReaderControllerTest {
 			)
 		)
 
-		assertEquals(listOf(ReaderEngineCommand.ClearMediaOverlay), step.engineCommands)
-		assertEquals(ReaderReadaloudPlaybackCommand.Pause, step.readaloudPlaybackCommand)
+		assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
+		assertNull(step.readaloudPlaybackCommand)
 		assertNull(step.controller.state.activeMediaOverlay)
-		assertEquals(ReaderWhispersyncStatusKind.NoActiveCue, step.controller.state.whispersync.status.kind)
-		assertEquals(
-			ReaderWhispersyncStatusMessage.VisiblePageEnded,
-			step.controller.state.whispersync.status.message
-		)
+		assertEquals(ReaderWhispersyncStatusKind.Playing, step.controller.state.whispersync.status.kind)
 	}
 
 	@Test

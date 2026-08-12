@@ -299,6 +299,14 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 
 		assertContains(
 			progressVisibility,
+			"const progressFraction = Number(fragment?.textProgressFraction)"
+		)
+		assertContains(
+			progressVisibility,
+			"if (!Number.isFinite(progressFraction)) return true"
+		)
+		assertContains(
+			progressVisibility,
 			"progressEnd < Number(visibleRange.visibleEnd)"
 		)
 		assertContains(
@@ -418,7 +426,7 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 	}
 
 	@Test
-	fun progressiveWhispersyncHighlightLogsResolvedRangeDiagnostics() {
+	fun progressiveWhispersyncHighlightLogsPrivacySafeRangeDiagnostics() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
 
 		val diagnostic = runtime
@@ -429,15 +437,21 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 			.substringBefore("\n  clearOverlay()")
 
 		assertContains(diagnostic, "media-overlay-range:resolved")
-		assertContains(diagnostic, "spokenLength")
-		assertContains(diagnostic, "ebookLength")
-		assertContains(diagnostic, "locator")
-		assertContains(diagnostic, "matched")
-		assertContains(diagnostic, "sidecarRange")
-		assertContains(diagnostic, "resolvedRange")
-		assertContains(diagnostic, "normalizedRange")
-		assertContains(diagnostic, "JSON.stringify(diagnostic)")
+		assertContains(diagnostic, "state: 'resolved'")
+		assertContains(diagnostic, "matched: Boolean(resolvedRange.matched)")
+		assertContains(diagnostic, "clamped: Boolean(resolvedRange.clampedByNextCue)")
+		assertFalse(diagnostic.contains("fragment?.textHref"))
+		assertFalse(diagnostic.contains("sidecarRange.start"))
+		assertFalse(diagnostic.contains("sidecarRange.end"))
+		assertFalse(diagnostic.contains("resolvedRange.textStart"))
+		assertFalse(diagnostic.contains("resolvedRange.textEnd"))
+		assertFalse(diagnostic.contains("spokenText"))
+		assertFalse(diagnostic.contains("ebookText"))
 		assertContains(highlighter, "this.postMediaOverlayRangeDiagnostic")
+		assertContains(highlighter, "reason: 'paint-exception'")
+		assertContains(highlighter, "reason: 'no-visible-range'")
+		assertFalse(highlighter.contains("error?.message"))
+		assertFalse(highlighter.contains("textHref: fragment.textHref"))
 	}
 
 	private fun sourceFile(path: String): File =

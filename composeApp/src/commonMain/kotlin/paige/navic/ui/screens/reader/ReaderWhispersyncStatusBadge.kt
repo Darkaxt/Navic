@@ -25,6 +25,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import paige.navic.icons.Icons
@@ -49,22 +55,35 @@ internal fun KomikkuWhispersyncPlaybackControl(
 	val latestControl = rememberUpdatedState(control)
 	val latestOnCommand = rememberUpdatedState(onCommand)
 	val latestOnOpenPlayer = rememberUpdatedState(onOpenPlayer)
-	val contentDescription = control.contentDescription.localizedDescription()
+	val accessibilityDescription = control.contentDescription.localizedDescription()
 	AnimatedVisibility(
 		visible = control.visible,
 		enter = fadeIn(animationSpec = readerWhispersyncBadgeFadeAnimationSpec),
 		exit = fadeOut(animationSpec = readerWhispersyncBadgeFadeAnimationSpec),
-		modifier = modifier.pointerInput(Unit) {
-			detectTapGestures(
-				onLongPress = { latestOnOpenPlayer.value() },
-				onTap = {
-					val currentControl = latestControl.value
-					if (currentControl.enabled) {
-						currentControl.command?.let(latestOnCommand.value)
+		modifier = modifier
+			.semantics {
+				contentDescription = accessibilityDescription
+				role = Role.Button
+				if (control.enabled) {
+					onClick(label = accessibilityDescription) {
+						latestControl.value.command?.let(latestOnCommand.value)
+						true
 					}
+				} else {
+					disabled()
 				}
-			)
-		}
+			}
+			.pointerInput(Unit) {
+				detectTapGestures(
+					onLongPress = { latestOnOpenPlayer.value() },
+					onTap = {
+						val currentControl = latestControl.value
+						if (currentControl.enabled) {
+							currentControl.command?.let(latestOnCommand.value)
+						}
+					}
+				)
+			}
 	) {
 		val glyphColor = if (control.noAudioCueOnPage) {
 			MaterialTheme.colorScheme.error
@@ -77,7 +96,7 @@ internal fun KomikkuWhispersyncPlaybackControl(
 		) {
 			Icon(
 				imageVector = Icons.Outlined.Headset,
-				contentDescription = contentDescription,
+				contentDescription = null,
 				tint = glyphColor,
 				modifier = Modifier.size(22.dp)
 			)

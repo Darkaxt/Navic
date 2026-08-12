@@ -978,27 +978,23 @@ class NavicReaderRuntime {
       : fragment.textHref
     if (targetHref) {
       if (this.mediaOverlayFollowShouldDeferForUserRelocation()) {
-        log('media-overlay-follow:deferred', targetHref, `reason=${this.controlledRelocateReason}`)
         readerTrace('media-overlay-follow:deferred', {
-          targetHref,
-          reason: this.controlledRelocateReason,
+          state: 'deferred',
+          reason: 'user-relocation-active',
         })
         this.rejectOverlayFragment(fragment, 'user-relocation-active')
         return
       }
       if (this.mediaOverlayFragmentAlreadyVisible(fragment)) {
-        log('media-overlay-follow:already-visible', targetHref)
-        readerTrace('media-overlay-follow:already-visible', {
-          targetHref,
-          textStart: Number(fragment?.textStart),
-          textEnd: Number(fragment?.textEnd),
+        readerTrace('media-overlay-follow:visible', {
+          state: 'ready',
+          matched: true,
         })
       } else {
-        log('media-overlay-follow:outside-visible-page', targetHref)
         readerTrace('media-overlay-follow:outside-visible-page', {
-          targetHref,
-          textStart: Number(fragment?.textStart),
-          textEnd: Number(fragment?.textEnd),
+          state: 'rejected',
+          matched: false,
+          reason: 'outside-visible-page',
         })
         this.rejectOverlayFragment(fragment, 'outside-visible-page')
         return
@@ -1060,33 +1056,17 @@ class NavicReaderRuntime {
 
   postMediaOverlayRangeDiagnostic(fragment, sidecarRange, resolvedRange, paintNormalized, paintRaw) {
     const key = [
-      fragment?.textHref || '',
-      sidecarRange.start,
-      sidecarRange.end,
-      resolvedRange.textStart,
-      resolvedRange.textEnd,
       resolvedRange.matched ? 'matched' : 'fallback',
       resolvedRange.locator || '',
       resolvedRange.clampedByNextCue ? 'next-clamp' : '',
-      Math.floor(paintNormalized),
     ].join('|')
     if (key === this.lastMediaOverlayRangeDiagnosticKey) return
     this.lastMediaOverlayRangeDiagnosticKey = key
-    const diagnostic = {
-      href: fragment?.textHref || null,
+    readerTrace('media-overlay-range:resolved', {
+      state: 'resolved',
       matched: Boolean(resolvedRange.matched),
-      locator: resolvedRange.locator || 'offset',
-      spokenLength: String(fragment?.spokenText || '').length,
-      ebookLength: String(fragment?.ebookText || '').length,
-      sidecarRange: `${sidecarRange.start}-${sidecarRange.end}`,
-      resolvedRange: `${resolvedRange.textStart}-${resolvedRange.textEnd}`,
-      normalizedRange: `${resolvedRange.normalizedTextStart}-${resolvedRange.normalizedTextEnd}`,
-      clampedByNextCue: Boolean(resolvedRange.clampedByNextCue),
-      paintNormalized: Math.round(paintNormalized * 100) / 100,
-      paintRaw: Math.round(paintRaw * 100) / 100,
-    }
-    log('media-overlay-range:resolved', JSON.stringify(diagnostic))
-    readerTrace('media-overlay-range:resolved', diagnostic)
+      clamped: Boolean(resolvedRange.clampedByNextCue),
+    })
   }
 
   highlightMediaOverlayTextRange(fragment) {
@@ -1172,16 +1152,18 @@ class NavicReaderRuntime {
           writingMode: this.view?.renderer?.writingMode,
         })
         highlighted = true
-      } catch (error) {
-        logError('media-overlay-range:failed', error?.message || String(error))
+      } catch (_) {
+        readerTrace('media-overlay-range:failed', {
+          state: 'failed',
+          reason: 'paint-exception',
+        })
       }
     }
     if (!highlighted) {
-      log('media-overlay-range:missing', fragment.textHref || 'unknown', `${textStart}-${textEnd}`)
       readerTrace('media-overlay-range:missing', {
-        textHref: fragment.textHref || null,
-        textStart,
-        textEnd,
+        state: 'missing',
+        matched: false,
+        reason: 'no-visible-range',
       })
     }
     return highlighted

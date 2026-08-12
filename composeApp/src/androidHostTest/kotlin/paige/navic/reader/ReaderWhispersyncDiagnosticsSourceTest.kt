@@ -4,6 +4,7 @@ import kotlin.io.path.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderWhispersyncDiagnosticsSourceTest {
@@ -18,7 +19,7 @@ class ReaderWhispersyncDiagnosticsSourceTest {
 	}
 
 	@Test
-	fun whispersyncReaderAndPlaybackDecisionsStayLoggedForLiveDiagnosis() {
+	fun whispersyncDiagnosticsExposeOnlyBoundedStateReasonsAndCounts() {
 		val controller = root
 			.resolve("composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderController.kt")
 			.readText()
@@ -31,20 +32,52 @@ class ReaderWhispersyncDiagnosticsSourceTest {
 		val readerScreen = root
 			.resolve("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt")
 			.readText()
+		val diagnostics = controller + reducer + syncCoordinator + readerScreen
+		val whispersyncLogStatements = Regex(
+			"Logger\\.(?:i|w|e)\\([\\s\\S]*?\\)",
+			RegexOption.MULTILINE
+		).findAll(diagnostics)
+			.map { it.value }
+			.filter { it.contains("Whispersync") }
+			.joinToString("\n")
 
 		assertContainsAll(
-			controller + reducer + syncCoordinator + readerScreen,
+			diagnostics,
 			"WhispersyncSyncLogTag",
-			"Whispersync visible range",
-			"Whispersync text point",
-			"Whispersync playback position",
-			"Whispersync apply overlay",
-			"Whispersync audio seek dispatch",
-			"Whispersync audio seek ignored",
-			"source=",
+			"state=",
+			"reason=",
+			"command=",
+			"matched=",
+			"active=",
+			"count="
+		)
+		listOf(
 			"audio=",
+			"href=",
+			"text=",
+			"cue=",
+			"textRange=",
+			"textOffset=",
 			"positionMs=",
-			"textRange="
+			"progressTextEnd=",
+			"clip=",
+			"artifact=",
+			"audiobook=",
+			"bookFile=",
+			"path=",
+			"sidecarPath",
+			"audioResource",
+			"error"
+		).forEach { protectedDiagnostic ->
+			assertFalse(
+				whispersyncLogStatements.contains(protectedDiagnostic),
+				"Whispersync diagnostics must not expose protected content: $protectedDiagnostic"
+			)
+		}
+		assertFalse(
+			Regex("command=\\${'$'}command(?=[\\s\"])")
+				.containsMatchIn(whispersyncLogStatements),
+			"Whispersync diagnostics must not interpolate parameterized commands"
 		)
 	}
 

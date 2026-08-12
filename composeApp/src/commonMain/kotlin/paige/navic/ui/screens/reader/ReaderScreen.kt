@@ -66,6 +66,7 @@ import paige.navic.reader.ReaderWordSyncTimelineSnapshot
 import paige.navic.reader.WordSyncPublicationVerificationSession
 import paige.navic.reader.WordSyncPublicationVerifier
 import paige.navic.reader.restoreProcessState
+import paige.navic.reader.whispersyncPlaybackCommandLogValue
 import paige.navic.reader.ReadaloudPlaybackPlan
 import paige.navic.reader.WhispersyncSyncLogTag
 import paige.navic.reader.acceptsWordSyncGeneration
@@ -281,7 +282,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 		step.readaloudPlaybackCommand?.let { command ->
 			Logger.i(
 				WhispersyncSyncLogTag,
-				"Whispersync playback command source=controller command=$command"
+				"Whispersync playback command source=controller " +
+					"command=${command.whispersyncPlaybackCommandLogValue()}"
 			)
 			audiobookPlaybackManager.dispatch(command)
 		}
@@ -293,15 +295,15 @@ fun ReaderScreen(reader: Screen.Reader) {
 			if (command != null) {
 				Logger.i(
 					WhispersyncSyncLogTag,
-					"Whispersync audio seek dispatch audio=${target.audioResource.whispersyncLogValue()} " +
-						"positionMs=${target.positionMs} command=$command"
+					"Whispersync audio seek state=dispatch matched=true active=true " +
+						"command=${command::class.simpleName ?: "unknown"}"
 				)
 				audiobookPlaybackManager.dispatch(command)
 			} else {
 				Logger.w(
 					WhispersyncSyncLogTag,
-					"Whispersync audio seek ignored audio=${target.audioResource.whispersyncLogValue()} " +
-						"positionMs=${target.positionMs} reason=no-playback-plan-match"
+					"Whispersync audio seek state=ignored matched=false active=false " +
+						"command=none reason=no-playback-plan-match"
 				)
 			}
 		}
@@ -464,7 +466,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 			step.readaloudPlaybackCommand?.let { command ->
 				Logger.i(
 					WhispersyncSyncLogTag,
-					"Whispersync playback command source=back command=$command"
+					"Whispersync playback command source=back " +
+						"command=${command.whispersyncPlaybackCommandLogValue()}"
 				)
 				audiobookPlaybackManager.dispatch(command)
 			}
@@ -609,26 +612,23 @@ fun ReaderScreen(reader: Screen.Reader) {
 						onSuccess = { sidecar ->
 							Logger.i(
 								ReaderScreenTag,
-								"Whispersync sidecar loaded artifact=${attachment.artifactId} " +
-									"audiobook=${attachment.audiobookId} " +
-									"bookFile=${attachment.audiobookBookFileId} " +
-									"segments=${sidecar.timeline.segments.size}"
+								"Whispersync sidecar state=loaded matched=true active=false " +
+									"count=${sidecar.timeline.segments.size}"
 							)
 							applyCoordinatorStep(coordinator.dispatch { loadWhispersyncSidecar(sidecar) })
 							sidecar
 						},
-						onFailure = { error ->
+						onFailure = { _ ->
 							applyCoordinatorStep(
 								coordinator.dispatch { reportWhispersyncLoadFailure(
 									message = ReaderWhispersyncStatusMessage.Unavailable,
-									detail = "artifact=${attachment.artifactId}"
+									detail = null
 								) }
 							)
 							Logger.w(
 								ReaderScreenTag,
-								"Whispersync sidecar load failed artifact=${attachment.artifactId} " +
-									"path=${attachment.sidecarPath}",
-								error
+								"Whispersync sidecar state=failed matched=false active=false " +
+									"reason=load-failed"
 							)
 							null
 						}
@@ -676,22 +676,22 @@ fun ReaderScreen(reader: Screen.Reader) {
 							)
 							Logger.i(
 								ReaderScreenTag,
-								"Whispersync audiobook plan loaded audiobook=${whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId} " +
-									"items=${playbackPlan.mediaItems.size}"
+								"Whispersync audiobook state=loaded matched=true active=false " +
+									"count=${playbackPlan.mediaItems.size}"
 							)
 						},
-						onFailure = { error ->
+						onFailure = { _ ->
 							whispersyncPlaybackPlan = null
 							applyCoordinatorStep(
 								coordinator.dispatch { reportWhispersyncLoadFailure(
 									message = ReaderWhispersyncStatusMessage.AudioUnavailable,
-									detail = "audiobook=${whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId}"
+									detail = null
 								) }
 							)
 							Logger.w(
 								ReaderScreenTag,
-								"Whispersync audiobook plan load failed audiobook=${whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId}",
-								error
+								"Whispersync audiobook state=failed matched=false active=false " +
+									"reason=load-failed"
 							)
 						}
 					)
@@ -814,7 +814,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 			} else {
 				Logger.i(
 					WhispersyncSyncLogTag,
-					"Whispersync playback command command=$command"
+					"Whispersync playback command state=dispatch matched=true active=true " +
+						"command=${command.whispersyncPlaybackCommandLogValue()}"
 				)
 				audiobookPlaybackManager.dispatch(command)
 			}

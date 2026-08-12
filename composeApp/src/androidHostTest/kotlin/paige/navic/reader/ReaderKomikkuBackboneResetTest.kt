@@ -1970,8 +1970,11 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			statusBadgeText.contains("KomikkuWhispersyncPlaybackControl") &&
-				statusBadgeText.contains("modifier = modifier.pointerInput(Unit)"),
-			"The visible Whispersync playback control must shield its own touch area so disabled/loading states cannot leak taps to page navigation."
+				statusBadgeText.contains(".semantics {") &&
+				statusBadgeText.contains("role = Role.Button") &&
+				statusBadgeText.contains("contentDescription = accessibilityDescription") &&
+				statusBadgeText.contains("onClick(label = accessibilityDescription)"),
+			"The visible Whispersync playback control must shield its own touch area and expose an accessible button action."
 		)
 		val playbackControlBody = statusBadgeText
 			.substringAfter("internal fun KomikkuWhispersyncPlaybackControl(")

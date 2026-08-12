@@ -1,7 +1,5 @@
 package paige.navic.reader
 
-import kotlin.math.roundToInt
-
 data class WhispersyncPlaybackSyncInput(
 	val audioResource: String,
 	val positionMs: Long,
@@ -46,16 +44,15 @@ class WhispersyncOverlaySyncAdapter(
 			positionMs = input.positionMs,
 			audioTrackIndex = input.audioTrackIndex
 		) ?: return null
-		val visualPositionMs = (input.positionMs + input.highlightLeadMs.coerceAtLeast(0).toLong())
-			.coerceIn(segment.startMs, segment.endMs)
-		val progressTextEnd = segment.textProgressEndForSync(visualPositionMs)
-		val progressFraction = segment.textProgressFractionForSync(visualPositionMs)
+		val progressTextEnd = segment.textEnd?.takeIf { end ->
+			segment.textStart?.let { start -> end > start } == true
+		}
 		return WhispersyncPlaybackSyncResolution(
 			segment = segment,
 			cue = timeline.cueFor(
 				segment = segment,
 				progressTextEnd = progressTextEnd,
-				progressFraction = progressFraction,
+				progressFraction = null,
 				playbackSpeed = input.playbackSpeed
 			)
 		)
@@ -91,8 +88,10 @@ class WhispersyncOverlaySyncAdapter(
 		ReaderOverlayReaderTarget(
 			cue = timeline.cueFor(
 				segment = segment,
-				progressTextEnd = segment.textStart,
-				progressFraction = 0.0,
+				progressTextEnd = segment.textEnd?.takeIf { end ->
+					segment.textStart?.let { start -> end > start } == true
+				},
+				progressFraction = null,
 				playbackSpeed = 1f
 			),
 			seekTarget = this,
@@ -129,18 +128,3 @@ private fun WhispersyncSegment.overlaySyncKey(): String =
 		startMs.toString(),
 		endMs.toString()
 	).joinToString("|")
-
-private fun WhispersyncSegment.textProgressEndForSync(positionMs: Long): Int? {
-	val start = textStart ?: return null
-	val end = textEnd ?: return null
-	if (end <= start) return null
-	val progress = textProgressFractionForSync(positionMs)
-	val characterCount = end - start
-	return (start + (characterCount * progress).roundToInt()).coerceIn(start, end)
-}
-
-private fun WhispersyncSegment.textProgressFractionForSync(positionMs: Long): Double {
-	val durationMs = (endMs - startMs).coerceAtLeast(1L)
-	val elapsedMs = (positionMs - startMs).coerceIn(0L, durationMs)
-	return (elapsedMs.toDouble() / durationMs.toDouble()).coerceIn(0.0, 1.0)
-}
