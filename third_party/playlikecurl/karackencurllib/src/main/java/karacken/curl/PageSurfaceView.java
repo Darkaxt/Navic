@@ -565,12 +565,13 @@ public class PageSurfaceView extends GLSurfaceView {
                     "A page overlay input lease is already pending");
         }
         pageOverlayUpdatePending = true;
+        long overlayEpoch = renderer.pageOverlayEpoch();
         try {
             queueEvent(() -> {
                 List<PageOverlayImage<Bitmap>> claimed = lease.claim();
                 pendingPageOverlayLease.compareAndSet(lease, null);
                 if (claimed != null) {
-                    renderer.replacePageOverlays(generationId, claimed);
+                    renderer.replacePageOverlays(generationId, overlayEpoch, claimed);
                 }
             });
         } catch (RuntimeException | Error queueFailure) {
@@ -1883,6 +1884,9 @@ public class PageSurfaceView extends GLSurfaceView {
     public void surfaceDestroyed(SurfaceHolder holder) {
         super.surfaceDestroyed(holder);
         presentedFrameRequest.cancelAll();
+        abandonPendingPageOverlayUpdate();
+        renderer.invalidatePageOverlays();
+        pageSurfaceListener.onPageOverlayStateInvalidated();
         holderSurfaceAvailable = false;
         advanceOwnershipEpoch();
         drainRetainedMainTerminal();

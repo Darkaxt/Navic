@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
@@ -95,6 +96,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private final PageOverlayReplacementStore<String, DynamicPageOverlayTexture>
             dynamicPageOverlays = new PageOverlayReplacementStore<>(
                     DynamicPageOverlayTexture::dispose);
+    private final AtomicLong dynamicPageOverlayEpoch = new AtomicLong();
     private final PageState flatState = new PageState(
             PageRole.RIGHT, PlayLikeCurlModel.RIGHT_DEPTH, PlayLikeCurlModel.GRID, 0);
     private final PageState turningState = new PageState(
@@ -143,6 +145,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private int maxTextureSize;
     private long gpuBudgetBytes = DEFAULT_GPU_BUDGET_BYTES;
     private volatile ReadingDirection readingDirection = ReadingDirection.LEFT_TO_RIGHT;
+    private long appliedPageOverlayEpoch;
     private boolean glReady;
     private boolean disposed;
 
@@ -250,12 +253,25 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         }
     }
 
+    long pageOverlayEpoch() {
+        return dynamicPageOverlayEpoch.get();
+    }
+
+    void invalidatePageOverlays() {
+        dynamicPageOverlayEpoch.incrementAndGet();
+    }
+
     void replacePageOverlays(
             long generationId,
+            long expectedOverlayEpoch,
             List<PageOverlayImage<Bitmap>> overlays) {
         boolean applied = false;
         try {
-            if (disposed || activeDeck == null || activeDeck.getGenerationId() != generationId) {
+            if (expectedOverlayEpoch != dynamicPageOverlayEpoch.get()
+                    || appliedPageOverlayEpoch != expectedOverlayEpoch
+                    || disposed
+                    || activeDeck == null
+                    || activeDeck.getGenerationId() != generationId) {
                 recycleOverlayInputs(overlays);
                 return;
             }
@@ -500,6 +516,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         if (disposed) {
             return;
         }
+        appliedPageOverlayEpoch = dynamicPageOverlayEpoch.get();
+        glReady = false;
+        dynamicPageOverlays.clear();
         try {
             program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER);
             positionAttribute = GLES20.glGetAttribLocation(program, "aPosition");
@@ -550,7 +569,6 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             glReady = true;
             publishCapabilities();
             rehydrateRetainedDecks();
-            rehydrateDynamicPageOverlays();
         } catch (RuntimeException exception) {
             glReady = false;
             reportFailure(
@@ -784,20 +802,6 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     retainedReplacement,
                     activeDeck,
                     retainedReplacement);
-        }
-    }
-
-    private void rehydrateDynamicPageOverlays() {
-        try {
-            dynamicPageOverlays.forEach(DynamicPageOverlayTexture::ensureUploaded);
-        } catch (RuntimeException exception) {
-            dynamicPageOverlays.clear();
-            reportFailure(
-                    activeGeneration(),
-                    true,
-                    RenderFailureReason.TEXTURE_UPLOAD,
-                    "Could not restore page overlays after GL context recreation",
-                    exception);
         }
     }
 

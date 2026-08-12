@@ -963,6 +963,20 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun surfaceLossRevokesNativeWhispersyncPublicationAndAnchorProof() {
+		val source = controllerFile.readText()
+		val listener = source
+			.substringAfter("surfaceView.setPageSurfaceListener(object : PageSurfaceListener {")
+			.substringBefore("override fun onRenderFailure(")
+
+		val invalidation = listener
+			.substringAfter("override fun onPageOverlayStateInvalidated()")
+			.substringBefore("override fun onDeckReleased(")
+		assertContains(invalidation, "latestWhispersyncAnchorReceipt = null")
+		assertContains(invalidation, "publishedWhispersyncOverlay = null")
+	}
+
+	@Test
 	fun externalDeckMutationsWaitForControllerSettlementReconciliation() {
 		val controller = controllerFile.readText()
 		val settlementStarted = controller

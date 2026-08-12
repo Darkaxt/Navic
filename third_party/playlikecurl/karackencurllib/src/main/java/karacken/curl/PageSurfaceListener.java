@@ -20,6 +20,8 @@ public interface PageSurfaceListener {
 
     default void onPageOverlayUpdateCapacityAvailable(boolean applied) {}
 
+    default void onPageOverlayStateInvalidated() {}
+
     default void onRenderFailure(RenderFailure failure) {}
 
     default void onGestureRejected(

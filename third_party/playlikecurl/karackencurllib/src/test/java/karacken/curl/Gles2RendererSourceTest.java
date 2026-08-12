@@ -404,6 +404,34 @@ public class Gles2RendererSourceTest {
     }
 
     @Test
+    public void surfaceLossInvalidatesPendingAndAppliedDynamicPageOverlays()
+            throws IOException {
+        String surface = source("PageSurfaceView.java");
+        String listener = source("PageSurfaceListener.java");
+        String renderer = source("PageRenderer.java");
+        String surfaceDestroyed = methodBody(
+                surface,
+                "public void surfaceDestroyed(SurfaceHolder holder)");
+        String surfaceCreated = methodBody(
+                renderer,
+                "public void onSurfaceCreated(GL10 ignored, EGLConfig config)");
+
+        assertTrue(surfaceDestroyed.contains("abandonPendingPageOverlayUpdate()"));
+        assertTrue(surfaceDestroyed.contains("renderer.invalidatePageOverlays()"));
+        assertTrue(surfaceDestroyed.contains("pageSurfaceListener.onPageOverlayStateInvalidated()"));
+        assertTrue(listener.contains("default void onPageOverlayStateInvalidated() {}"));
+        assertTrue(renderer.contains("void invalidatePageOverlays()"));
+        assertTrue(renderer.contains("dynamicPageOverlayEpoch.incrementAndGet()"));
+        assertTrue(renderer.contains("expectedOverlayEpoch != dynamicPageOverlayEpoch.get()"));
+        assertTrue(renderer.contains("dynamicPageOverlays.clear()"));
+        assertTrue(surfaceCreated.contains("glReady = false"));
+        assertTrue(surfaceCreated.contains("dynamicPageOverlays.clear()"));
+        assertTrue(surfaceCreated.indexOf("glReady = false")
+                < surfaceCreated.indexOf("dynamicPageOverlays.clear()"));
+        assertFalse(surfaceCreated.contains("rehydrateDynamicPageOverlays()"));
+    }
+
+    @Test
     public void dynamicPageOverlaysReplaceOnlyTheCurrentTextureAndUseThePageMesh()
             throws IOException {
         String surface = source("PageSurfaceView.java");

@@ -1015,6 +1015,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 				publishLatestWhispersyncOverlayIfIdle()
 			}
 
+			override fun onPageOverlayStateInvalidated() {
+				latestWhispersyncAnchorReceipt = null
+				publishedWhispersyncOverlay = null
+			}
+
 			override fun onDeckReleased(generationId: Long, reason: DeckReleaseReason) {
 				releaseGeneration(generationId)
 				deckRecoveryCoordinator.onDeckReleased(generationId)
