@@ -69,6 +69,7 @@ class AndroidAudiobookPlaybackManager(
 		controller.currentPosition()?.let { position ->
 			AudiobookPlaybackTimelineSnapshot(
 				sessionGeneration = playbackSessionGeneration,
+				timelineRevision = _playbackTimelineRevision.value,
 				position = position
 			)
 		}

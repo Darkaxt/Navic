@@ -95,7 +95,11 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 		?.takeIf { syncState.engineCommandKey != currentWhispersync.sync.engineCommandKey }
 	val overlayFragment = command.overlayFragmentOrNull()
 	val visibleRange = currentWhispersync.visibleTextRange
-	if (overlayFragment != null && overlayFragment.isOutsideWhispersyncVisibleRange(visibleRange)) {
+	if (
+		publishOverlayProgress &&
+		overlayFragment != null &&
+		overlayFragment.isOutsideWhispersyncVisibleRange(visibleRange)
+	) {
 		Logger.i(
 			WhispersyncSyncLogTag,
 			"Whispersync page boundary reached audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
@@ -130,7 +134,11 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 		)
 	}
 	val publishedCommand = command.takeIf {
-		publishOverlayProgress || it !is ReaderEngineCommand.UpdateMediaOverlayProgress
+		publishOverlayProgress ||
+			(
+				it !is ReaderEngineCommand.ApplyMediaOverlay &&
+					it !is ReaderEngineCommand.UpdateMediaOverlayProgress
+			)
 	}
 	val publishedOverlayFragment = publishedCommand.overlayFragmentOrNull()
 	val publishedClearOverlay = publishedCommand == ReaderEngineCommand.ClearMediaOverlay

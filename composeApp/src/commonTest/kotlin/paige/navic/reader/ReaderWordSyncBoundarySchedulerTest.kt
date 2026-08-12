@@ -7,13 +7,13 @@ import kotlin.test.assertTrue
 
 class ReaderWordSyncBoundarySchedulerTest {
 	@Test
-	fun schedulesOnlyTheNextStrictlyFutureWordBoundary() {
+	fun publishesTheCurrentWordAndSchedulesOnlyTheNextStrictlyFutureBoundary() {
 		val harness = SchedulerHarness(positionMs = 1_050L)
 
 		harness.scheduler.replaceTimeline(boundaries(1_000L, 1_100L, 1_200L, 1_300L))
 
+		assertEquals(listOf(1_000L), harness.dispatches.map { it.boundary.audioStartMs })
 		assertEquals(listOf(50L), harness.activeDelays())
-		assertTrue(harness.dispatches.isEmpty())
 	}
 
 	@Test
@@ -24,9 +24,8 @@ class ReaderWordSyncBoundarySchedulerTest {
 		harness.snapshot = harness.snapshot.copy(positionMs = 1_250L)
 		harness.runNext()
 
-		assertEquals(1, harness.dispatches.size)
-		assertEquals(1_200L, harness.dispatches.single().boundary.audioStartMs)
-		assertEquals(1, harness.dispatches.single().coalescedCount)
+		assertEquals(listOf(1_000L, 1_200L), harness.dispatches.map { it.boundary.audioStartMs })
+		assertEquals(1, harness.dispatches.last().coalescedCount)
 		assertEquals(listOf(50L), harness.activeDelays())
 	}
 
@@ -42,7 +41,7 @@ class ReaderWordSyncBoundarySchedulerTest {
 		assertTrue(stale.cancelled)
 		assertEquals(listOf(25L), harness.activeDelays())
 		stale.action()
-		assertTrue(harness.dispatches.isEmpty())
+		assertEquals(listOf(1_000L), harness.dispatches.map { it.boundary.audioStartMs })
 		assertEquals(1, harness.activeDelays().size)
 	}
 
@@ -58,7 +57,7 @@ class ReaderWordSyncBoundarySchedulerTest {
 		assertTrue(beforePause.cancelled)
 		assertTrue(harness.activeDelays().isEmpty())
 		beforePause.action()
-		assertTrue(harness.dispatches.isEmpty())
+		assertEquals(listOf(1_000L), harness.dispatches.map { it.boundary.audioStartMs })
 
 		harness.snapshot = harness.snapshot.copy(
 			sessionGeneration = 2L,
@@ -71,8 +70,24 @@ class ReaderWordSyncBoundarySchedulerTest {
 
 		assertTrue(beforeReplacement.cancelled)
 		beforeReplacement.action()
-		assertTrue(harness.dispatches.isEmpty())
+		assertEquals(listOf(1_000L, 1_000L, 1_000L), harness.dispatches.map { it.boundary.audioStartMs })
 		assertEquals(1, harness.activeDelays().size)
+	}
+
+	@Test
+	fun timelineRevisionChangeRebuildsBeforeCoalescingAStaleWakeup() {
+		val harness = SchedulerHarness(positionMs = 1_050L)
+		harness.scheduler.replaceTimeline(boundaries(1_000L, 1_100L, 1_200L, 1_300L))
+
+		harness.snapshot = harness.snapshot.copy(
+			timelineRevision = 2L,
+			positionMs = 1_250L
+		)
+		harness.runNext()
+
+		assertEquals(listOf(1_000L, 1_200L), harness.dispatches.map { it.boundary.audioStartMs })
+		assertEquals(0, harness.dispatches.last().coalescedCount)
+		assertEquals(listOf(50L), harness.activeDelays())
 	}
 
 	@Test
@@ -93,6 +108,7 @@ class ReaderWordSyncBoundarySchedulerTest {
 
 		snapshot = ReaderWordSyncTimelineSnapshot(
 			sessionGeneration = 1L,
+			timelineRevision = 1L,
 			audioResourceId = "track-1",
 			audioTrackIndex = 0,
 			positionMs = 1_050L,
@@ -104,7 +120,7 @@ class ReaderWordSyncBoundarySchedulerTest {
 		snapshot = null
 		pending.action()
 
-		assertTrue(dispatches.isEmpty())
+		assertEquals(listOf(1_000L), dispatches.map { it.boundary.audioStartMs })
 		assertTrue(scheduled.none { !it.cancelled && it !== pending })
 	}
 
@@ -132,6 +148,7 @@ class ReaderWordSyncBoundarySchedulerTest {
 	private class SchedulerHarness(positionMs: Long) {
 		var snapshot = ReaderWordSyncTimelineSnapshot(
 			sessionGeneration = 1L,
+			timelineRevision = 1L,
 			audioResourceId = "track-1",
 			audioTrackIndex = 0,
 			positionMs = positionMs,

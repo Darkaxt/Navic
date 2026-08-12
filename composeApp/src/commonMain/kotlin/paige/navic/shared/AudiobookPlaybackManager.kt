@@ -10,10 +10,12 @@ import paige.navic.ui.core.AudiobookMiniPlayerUiState
 
 data class AudiobookPlaybackTimelineSnapshot(
 	val sessionGeneration: Long,
+	val timelineRevision: Long,
 	val position: ReadaloudPlaybackPosition
 ) {
 	init {
 		require(sessionGeneration >= 0L)
+		require(timelineRevision >= 0L)
 	}
 }
 

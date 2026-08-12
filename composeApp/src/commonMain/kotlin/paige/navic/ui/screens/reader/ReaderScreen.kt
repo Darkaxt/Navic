@@ -1021,6 +1021,7 @@ private fun AudiobookPlaybackTimelineSnapshot.toReaderWordSyncTimelineSnapshot(
 	val resourceId = item.resourceKey?.trim()?.takeIf { it.isNotEmpty() } ?: return null
 	return ReaderWordSyncTimelineSnapshot(
 		sessionGeneration = sessionGeneration,
+		timelineRevision = timelineRevision,
 		audioResourceId = resourceId,
 		audioTrackIndex = position.trackIndex,
 		positionMs = position.positionMs.coerceAtLeast(0L),

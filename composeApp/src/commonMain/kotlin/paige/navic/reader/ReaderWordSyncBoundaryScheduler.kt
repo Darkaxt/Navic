@@ -8,6 +8,7 @@ fun interface ReaderWordSyncBoundaryCancellation {
 
 internal data class ReaderWordSyncTimelineSnapshot(
 	val sessionGeneration: Long,
+	val timelineRevision: Long,
 	val audioResourceId: String,
 	val audioTrackIndex: Int,
 	val positionMs: Long,
@@ -16,6 +17,7 @@ internal data class ReaderWordSyncTimelineSnapshot(
 ) {
 	init {
 		require(sessionGeneration >= 0L)
+		require(timelineRevision >= 0L)
 		require(audioResourceId.isNotBlank() && audioResourceId == audioResourceId.trim())
 		require(audioTrackIndex >= 0)
 		require(positionMs >= 0L)
@@ -66,15 +68,26 @@ internal class ReaderWordSyncBoundaryScheduler(
 	) -> ReaderWordSyncBoundaryCancellation,
 	private val onBoundary: (ReaderWordSyncBoundaryDispatch) -> Unit
 ) {
+	private data class PublishedBoundary(
+		val sessionGeneration: Long,
+		val audioResourceId: String,
+		val audioTrackIndex: Int,
+		val sequence: Long,
+		val wordOrdinalWithinTrack: Int,
+		val audioStartMs: Long
+	)
+
 	private var boundaries: List<ReaderWordSyncBoundary> = emptyList()
 	private var pending: ReaderWordSyncBoundaryCancellation? = null
 	private var scheduleEpoch = 0L
+	private var publishedBoundary: PublishedBoundary? = null
 
 	fun replaceTimeline(boundaries: List<ReaderWordSyncBoundary>) {
 		require(boundaries.zipWithNext().all { (first, second) ->
 			first.audioStartMs <= second.audioStartMs
 		}) { "WordSync boundaries must be ordered by audio start." }
 		this.boundaries = boundaries
+		if (boundaries.isEmpty()) publishedBoundary = null
 		rebuild()
 	}
 
@@ -84,18 +97,63 @@ internal class ReaderWordSyncBoundaryScheduler(
 
 	fun stop() {
 		boundaries = emptyList()
+		publishedBoundary = null
 		cancelPending()
 	}
 
 	private fun rebuild() {
 		cancelPending()
-		currentTimeline()?.let(::scheduleNext)
+		val snapshot = currentTimeline()
+		if (snapshot == null) {
+			publishedBoundary = null
+			return
+		}
+		publishCurrentAndSchedule(snapshot)
 	}
 
 	private fun cancelPending() {
 		scheduleEpoch += 1L
 		pending?.cancel()
 		pending = null
+	}
+
+	private fun publishCurrentAndSchedule(snapshot: ReaderWordSyncTimelineSnapshot) {
+		if (!snapshot.canSchedule()) {
+			publishedBoundary = null
+			return
+		}
+		val currentIndex = boundaries.indexOfLast { boundary ->
+			boundary.matches(snapshot) && boundary.audioStartMs <= snapshot.positionMs
+		}
+		if (currentIndex >= 0) {
+			publishBoundary(currentIndex, snapshot, coalescedCount = 0)
+		}
+		scheduleNext(snapshot)
+	}
+
+	private fun publishBoundary(
+		index: Int,
+		snapshot: ReaderWordSyncTimelineSnapshot,
+		coalescedCount: Int
+	) {
+		val boundary = boundaries[index]
+		val publication = PublishedBoundary(
+			sessionGeneration = snapshot.sessionGeneration,
+			audioResourceId = snapshot.audioResourceId,
+			audioTrackIndex = snapshot.audioTrackIndex,
+			sequence = boundary.sequence,
+			wordOrdinalWithinTrack = boundary.wordOrdinalWithinTrack,
+			audioStartMs = boundary.audioStartMs
+		)
+		if (publication == publishedBoundary) return
+		publishedBoundary = publication
+		onBoundary(
+			ReaderWordSyncBoundaryDispatch(
+				boundary = boundary,
+				timeline = snapshot,
+				coalescedCount = coalescedCount
+			)
+		)
 	}
 
 	private fun scheduleNext(snapshot: ReaderWordSyncTimelineSnapshot) {
@@ -111,29 +169,35 @@ internal class ReaderWordSyncBoundaryScheduler(
 		).toLong().coerceAtLeast(1L)
 		val epoch = scheduleEpoch
 		val sessionGeneration = snapshot.sessionGeneration
+		val timelineRevision = snapshot.timelineRevision
 		pending = schedule(delayMs) {
 			if (epoch != scheduleEpoch) return@schedule
 			scheduleEpoch += 1L
 			pending = null
-			val verified = currentTimeline() ?: return@schedule
+			val verified = currentTimeline() ?: run {
+				publishedBoundary = null
+				return@schedule
+			}
+			if (!verified.canSchedule()) {
+				publishedBoundary = null
+				return@schedule
+			}
 			if (
-				!verified.canSchedule() ||
 				verified.sessionGeneration != sessionGeneration ||
+				verified.timelineRevision != timelineRevision ||
 				!boundary.matches(verified)
 			) {
-				scheduleNext(verified)
+				publishCurrentAndSchedule(verified)
 				return@schedule
 			}
 			val currentIndex = boundaries.indexOfLast { candidate ->
 				candidate.matches(verified) && candidate.audioStartMs <= verified.positionMs
 			}
 			if (currentIndex >= nextIndex) {
-				onBoundary(
-					ReaderWordSyncBoundaryDispatch(
-						boundary = boundaries[currentIndex],
-						timeline = verified,
-						coalescedCount = currentIndex - nextIndex
-					)
+				publishBoundary(
+					index = currentIndex,
+					snapshot = verified,
+					coalescedCount = currentIndex - nextIndex
 				)
 			}
 			scheduleNext(verified)
