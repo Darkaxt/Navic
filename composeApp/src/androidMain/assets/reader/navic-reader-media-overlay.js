@@ -43,11 +43,19 @@ function beginExactWordSyncOverlayRelocation() {
 }
 
 function deferExactWordSyncOverlayFragment(fragment) {
+  if (validatedReaderOverlayCoordinateMode(fragment) !== ReaderWordSyncV1ExtractedUtf8Mode) {
+    return false
+  }
+  const boundarySequence = exactWordSyncBoundarySequence(fragment)
+  if (boundarySequence == null) return true
+  const cleared = this.exactWordSyncClearedPresentation
   if (
-    validatedReaderOverlayCoordinateMode(fragment) !== ReaderWordSyncV1ExtractedUtf8Mode ||
-    !this.exactWordSyncOverlayRelocationIsUnsettled()
-  ) return false
-  const activeRequestId = this.mediaOverlayActiveFragment?.overlayRequestId ??
+    cleared?.overlayRequestId === fragment.overlayRequestId &&
+    boundarySequence <= cleared.boundarySequence
+  ) return true
+  if (!this.exactWordSyncOverlayRelocationIsUnsettled()) return false
+  const activeRequestId = this.exactWordSyncActiveRequestId ??
+    this.mediaOverlayActiveFragment?.overlayRequestId ??
     this.deferredExactWordSyncOverlay?.fragment?.overlayRequestId
   if (
     activeRequestId != null &&
@@ -59,8 +67,6 @@ function deferExactWordSyncOverlayFragment(fragment) {
       fragment.overlayRequestId < activeRequestId
     ) return true
   }
-  const boundarySequence = exactWordSyncBoundarySequence(fragment)
-  if (boundarySequence == null) return true
   const relocation = this.activeExactWordSyncRelocation
   if (relocation.foliateSessionId !== this.foliateSessionId) {
     this.activeExactWordSyncRelocation = null
@@ -87,6 +93,7 @@ function deferExactWordSyncOverlayFragment(fragment) {
     boundarySequence,
     fragment,
   }
+  this.exactWordSyncActiveRequestId = fragment.overlayRequestId
   return true
 }
 
@@ -109,6 +116,37 @@ function dropDeferredExactWordSyncOverlayFragment() {
   this.deferredExactWordSyncOverlay = null
   this.activeExactWordSyncRelocation = null
   return dropped
+}
+
+function clearExactWordSyncOverlayPresentation(
+  overlayRequestId,
+  clearedThroughBoundarySequence,
+) {
+  const activeRequestId = this.exactWordSyncActiveRequestId ??
+    this.mediaOverlayActiveFragment?.overlayRequestId
+  if (
+    !Number.isSafeInteger(overlayRequestId) ||
+    !Number.isSafeInteger(clearedThroughBoundarySequence) ||
+    activeRequestId !== overlayRequestId
+  ) return false
+  const pending = this.deferredExactWordSyncOverlay
+  if (
+    pending?.fragment?.overlayRequestId === overlayRequestId &&
+    pending.boundarySequence <= clearedThroughBoundarySequence
+  ) {
+    this.deferredExactWordSyncOverlay = null
+  }
+  this.exactWordSyncClearedPresentation = {
+    overlayRequestId,
+    boundarySequence: Math.max(
+      this.exactWordSyncClearedPresentation?.overlayRequestId === overlayRequestId
+        ? this.exactWordSyncClearedPresentation.boundarySequence
+        : -1,
+      clearedThroughBoundarySequence,
+    ),
+  }
+  this.clearOverlay({ preserveActiveFragment: true })
+  return true
 }
 
 function mediaOverlayFragmentHasTextRange(fragment) {
@@ -190,6 +228,7 @@ export const NavicReaderMediaOverlayMethods = {
   deferExactWordSyncOverlayFragment,
   completeExactWordSyncOverlayRelocation,
   dropDeferredExactWordSyncOverlayFragment,
+  clearExactWordSyncOverlayPresentation,
   mediaOverlayFragmentHasTextRange,
   mediaOverlayPlayedKeyForFragment,
   mediaOverlayAnimationKeyForFragment,

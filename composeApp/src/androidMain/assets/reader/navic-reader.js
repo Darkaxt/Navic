@@ -264,10 +264,12 @@ class NavicReaderRuntime {
   lastPostedVisibleTextRangeKey = null
   lastMediaOverlayRangeDiagnosticKey = null
   mediaOverlayActiveFragment = null
+  exactWordSyncActiveRequestId = null
   wordSyncAnchorGeneration = 0
   exactWordSyncRelocationEpoch = 0
   activeExactWordSyncRelocation = null
   deferredExactWordSyncOverlay = null
+  exactWordSyncClearedPresentation = null
   mediaOverlayPlayedKeyPrefix = ReaderMediaOverlayPlayedRangeKeyPrefix
   mediaOverlayPlayedFragments = new Map()
   rawTextProvenance = new ReaderWordSyncProvenanceStore({ postStatus: post })
@@ -418,8 +420,15 @@ class NavicReaderRuntime {
         return this.applyOverlayFragment(command.fragment || command)
       case 'updateOverlayFragmentProgress':
         return this.updateOverlayFragmentProgress(command.fragment || command)
+      case 'clearOverlayPresentation':
+        return this.clearExactWordSyncOverlayPresentation(
+          command.overlayRequestId,
+          command.clearedThroughBoundarySequence,
+        )
       case 'clearOverlay':
         this.dropDeferredExactWordSyncOverlayFragment()
+        this.exactWordSyncClearedPresentation = null
+        this.exactWordSyncActiveRequestId = null
         return this.clearOverlay()
       case 'applySettings':
         return this.applySettings(command.settings || {})
@@ -633,6 +642,8 @@ class NavicReaderRuntime {
     this.invalidatePaginationProfileTask('reader-close')
     this.destroyPageTurnPreviewRenderer('reader-close')
     this.dropDeferredExactWordSyncOverlayFragment()
+    this.exactWordSyncActiveRequestId = null
+    this.exactWordSyncClearedPresentation = null
     this.clearOverlay()
     this.rawTextProvenance.clear()
     this.duplicatePageFingerprint.endSession()
@@ -1182,7 +1193,11 @@ class NavicReaderRuntime {
   }
 
   clearOverlay() {
-    const { preservePlayed = false, preserveAnimation = false } = arguments[0] || {}
+    const {
+      preservePlayed = false,
+      preserveAnimation = false,
+      preserveActiveFragment = false,
+    } = arguments[0] || {}
     if (!preserveAnimation) this.stopMediaOverlayProgressAnimation()
     let removedAny = false
     for (const content of this.contentEntries()) {
@@ -1196,7 +1211,7 @@ class NavicReaderRuntime {
     if (!preservePlayed) {
       this.mediaOverlayPlayedFragments.clear()
     }
-    this.mediaOverlayActiveFragment = null
+    if (!preserveActiveFragment) this.mediaOverlayActiveFragment = null
     for (const doc of this.contentDocuments()) {
       for (const marker of Array.from(doc.querySelectorAll(`[${ReaderMediaOverlayRangeAttribute}="true"]`))) {
         removedAny = readerMediaOverlayUnwrapRangeMarker(marker) || removedAny

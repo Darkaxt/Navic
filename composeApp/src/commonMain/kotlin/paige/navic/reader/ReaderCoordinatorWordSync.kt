@@ -30,6 +30,20 @@ internal fun ReaderCoordinator.wordSyncBoundaries(
 	?.let(wordSync::boundariesForPlayback)
 	.orEmpty()
 
+internal fun ReaderCoordinator.onWordSyncClear(
+	timeline: ReaderWordSyncTimelineSnapshot
+): ReaderCoordinatorStep = applyWordSyncDecision(
+	wordSync.coordinateClear(
+		controller = controller,
+		playback = ReaderWordSyncPlaybackIdentity(
+			audioResourceId = timeline.audioResourceId,
+			audioTrackIndex = timeline.audioTrackIndex,
+			positionMs = timeline.positionMs,
+			playbackSpeed = timeline.playbackSpeed
+		)
+	)
+)
+
 internal fun ReaderCoordinator.onWordSyncBoundary(
 	dispatch: ReaderWordSyncBoundaryDispatch
 ): ReaderCoordinatorStep = applyWordSyncDecision(

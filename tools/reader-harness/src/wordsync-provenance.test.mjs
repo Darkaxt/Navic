@@ -728,6 +728,32 @@ test('derives page-local anchor geometry only from a current Foliate presentatio
   }
 })
 
+test('records the accepted exact request before posting its active boundary', async () => {
+  const page = await newReaderPage()
+  try {
+    const result = await page.evaluate(async () => {
+      const wordSyncApi = await import('/navic-reader-wordsync-provenance.js')
+      const events = []
+      const runtime = { exactWordSyncActiveRequestId: 61 }
+      wordSyncApi.postReaderWordSyncOverlayActive(
+        runtime,
+        { overlayRequestId: 62, wordBoundarySequence: 9 },
+        event => events.push(event),
+        { boundarySequence: 9 },
+      )
+      return {
+        activeRequestId: runtime.exactWordSyncActiveRequestId,
+        postedRequestId: events[0]?.overlayRequestId,
+      }
+    })
+
+    assert.equal(result.activeRequestId, 62)
+    assert.equal(result.postedRequestId, 62)
+  } finally {
+    await page.close()
+  }
+})
+
 test('coalesces exact boundaries until the current Foliate destination settles', async () => {
   const page = await newReaderPage()
   try {
@@ -915,6 +941,59 @@ test('coalesces exact boundaries until the current Foliate destination settles',
       assert.equal(result.destinationCommitToken, 'destination-commit')
       assert.equal(result.commitSequence, 23)
     }
+  } finally {
+    await page.close()
+  }
+})
+
+test('does not restore a deferred exact boundary cleared before relocation settlement', async () => {
+  const page = await newReaderPage()
+  try {
+    const result = await page.evaluate(async () => {
+      const mediaOverlayApi = await import('/navic-reader-media-overlay.js')
+      const retried = []
+      const runtime = {
+        foliateSessionId: 'session-1',
+        exactWordSyncRelocationEpoch: 0,
+        activeExactWordSyncRelocation: null,
+        deferredExactWordSyncOverlay: null,
+        mediaOverlayActiveFragment: null,
+        clearOverlay({ preserveActiveFragment = false } = {}) {
+          if (!preserveActiveFragment) this.mediaOverlayActiveFragment = null
+        },
+      }
+      Object.assign(runtime, mediaOverlayApi.NavicReaderMediaOverlayMethods)
+      runtime.beginExactWordSyncOverlayRelocation()
+      runtime.exactWordSyncActiveRequestId = 71
+      const relocationEpoch = runtime.activeExactWordSyncRelocation?.epoch
+      runtime.deferExactWordSyncOverlayFragment({
+        coordinateMode: 'wordsync-v1-extracted-utf8',
+        overlayRequestId: 71,
+        wordBoundarySequence: 12,
+        textHref: 'synthetic.xhtml',
+        rawProvenanceId: 'synthetic-raw',
+        rawSpineIndex: 0,
+        rawByteStart: 12,
+        rawByteEnd: 13,
+      })
+      runtime.clearExactWordSyncOverlayPresentation(71, 12)
+      const deferredAfterClear = runtime.deferredExactWordSyncOverlay
+      runtime.completeExactWordSyncOverlayRelocation(relocationEpoch)
+      if (runtime.mediaOverlayActiveFragment?.wordBoundarySequence != null) {
+        retried.push(runtime.mediaOverlayActiveFragment.wordBoundarySequence)
+      }
+      return {
+        deferredAfterClear,
+        activeRelocationEpoch: runtime.activeExactWordSyncRelocation?.epoch,
+        retried,
+        activeRequestId: runtime.exactWordSyncActiveRequestId,
+      }
+    })
+
+    assert.equal(result.deferredAfterClear, null)
+    assert.equal(result.activeRelocationEpoch, undefined)
+    assert.deepEqual(result.retried, [])
+    assert.equal(result.activeRequestId, 71)
   } finally {
     await page.close()
   }

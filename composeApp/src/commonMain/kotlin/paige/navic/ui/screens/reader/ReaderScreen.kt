@@ -76,6 +76,7 @@ import paige.navic.reader.decodeReaderReadingProgress
 import paige.navic.reader.encodeReaderReadingProgress
 import paige.navic.reader.onReadaloudPlaybackState
 import paige.navic.reader.onWordSyncBoundary
+import paige.navic.reader.onWordSyncClear
 import paige.navic.reader.onWordSyncChapterFailed
 import paige.navic.reader.onWordSyncChapterVerified
 import paige.navic.reader.onWordSyncIndexFailed
@@ -400,6 +401,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 			}
 			applyCoordinatorStep(coordinator.onWordSyncBoundary(dispatch))
 		}
+	val currentWordSyncClearHandler =
+		rememberUpdatedState<(ReaderWordSyncTimelineSnapshot) -> Unit> { timeline ->
+			applyCoordinatorStep(coordinator.onWordSyncClear(timeline))
+		}
 	val wordSyncBoundaryScheduler = remember(
 		reader.bookId,
 		reader.resourceHref,
@@ -419,7 +424,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 				ReaderWordSyncBoundaryCancellation(job::cancel)
 			},
-			onBoundary = { dispatch -> currentWordSyncBoundaryHandler.value(dispatch) }
+			onBoundary = { dispatch -> currentWordSyncBoundaryHandler.value(dispatch) },
+			onClear = { timeline -> currentWordSyncClearHandler.value(timeline) }
 		)
 	}
 	val currentWordSyncTimeline = audiobookPlaybackManager.currentPlaybackTimelineSnapshot()

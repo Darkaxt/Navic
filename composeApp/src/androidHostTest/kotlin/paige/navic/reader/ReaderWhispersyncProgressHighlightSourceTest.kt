@@ -429,6 +429,24 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 	}
 
 	@Test
+	fun wordEndClearPreservesActiveRequestIdentityForTheNextExactWord() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val commandDispatch = runtime
+			.substringAfter("case 'updateOverlayFragmentProgress':")
+			.substringBefore("case 'applySettings':")
+		val clearOverlay = runtime
+			.substringAfter("clearOverlay() {")
+			.substringBefore("\n  postSearchResults")
+
+		assertContains(commandDispatch, "case 'clearOverlayPresentation':")
+		assertContains(commandDispatch, "this.clearExactWordSyncOverlayPresentation(")
+		assertContains(commandDispatch, "command.overlayRequestId")
+		assertContains(commandDispatch, "command.clearedThroughBoundarySequence")
+		assertContains(clearOverlay, "preserveActiveFragment")
+		assertContains(clearOverlay, "if (!preserveActiveFragment) this.mediaOverlayActiveFragment = null")
+	}
+
+	@Test
 	fun progressiveWhispersyncHighlightLogsPrivacySafeRangeDiagnostics() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
 

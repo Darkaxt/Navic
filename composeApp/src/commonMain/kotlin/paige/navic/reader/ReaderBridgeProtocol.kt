@@ -560,6 +560,25 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
+	data class ClearOverlayPresentation(
+		val overlayRequestId: Long,
+		val clearedThroughBoundarySequence: Long
+	) : ReaderBridgeCommand {
+		override val type: String = "clearOverlayPresentation"
+
+		init {
+			require(overlayRequestId >= 0L)
+			require(clearedThroughBoundarySequence >= 0L)
+		}
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+				put("overlayRequestId", overlayRequestId)
+				put("clearedThroughBoundarySequence", clearedThroughBoundarySequence)
+			}
+	}
+
 	data object ClearOverlay : ReaderBridgeCommand {
 		override val type: String = "clearOverlay"
 

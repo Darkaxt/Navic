@@ -139,6 +139,28 @@ class FoliateEpubEngineAdapterTest {
 	}
 
 	@Test
+	fun dispatchesVisualWordSyncClearWithoutRetiringTheActiveOverlayIdentity() {
+		val opened = FoliateEpubEngineAdapter()
+			.onCommand(ReaderEngineCommand.OpenPublication(hobbitOpenRequest()))
+			.engine
+
+		val cleared = opened.onCommand(
+			ReaderEngineCommand.ClearMediaOverlayPresentation(
+				overlayRequestId = 41L,
+				clearedThroughBoundarySequence = 3L
+			)
+		)
+
+		assertEquals(
+			ReaderBridgeCommand.ClearOverlayPresentation(
+				overlayRequestId = 41L,
+				clearedThroughBoundarySequence = 3L
+			),
+			assertIs<ReaderEngineViewState.WebViewPublication>(cleared.viewState).bridgeCommand()
+		)
+	}
+
+	@Test
 	fun retainsRawProvenanceAcrossLaterBridgeCommands() {
 		val opened = FoliateEpubEngineAdapter()
 			.onCommand(ReaderEngineCommand.OpenPublication(hobbitOpenRequest()))

@@ -123,6 +123,12 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineCommand.UpdateMediaOverlayProgress -> dispatch(
 				ReaderBridgeCommand.UpdateOverlayFragmentProgress(command.fragment)
 			)
+			is ReaderEngineCommand.ClearMediaOverlayPresentation -> dispatch(
+				ReaderBridgeCommand.ClearOverlayPresentation(
+					overlayRequestId = command.overlayRequestId,
+					clearedThroughBoundarySequence = command.clearedThroughBoundarySequence
+				)
+			)
 			ReaderEngineCommand.ClearMediaOverlay -> dispatch(ReaderBridgeCommand.ClearOverlay)
 		}
 	}

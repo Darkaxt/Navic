@@ -62,7 +62,10 @@ data class ReaderWordSyncPlaybackCoordinator(
 	private val failedChapterKeys: Set<String> = emptySet(),
 	private val lastCueCommand: ReaderEngineCommand? = null,
 	private val lastPlayback: ReaderWordSyncPlaybackIdentity? = null,
-	private val fallbackByRequestId: Map<Long, ReaderEngineCommand.ApplyMediaOverlay> = emptyMap()
+	private val fallbackByRequestId: Map<Long, ReaderEngineCommand.ApplyMediaOverlay> = emptyMap(),
+	private val activeBoundaryRequestId: Long? = null,
+	private val activeBoundarySequence: Long? = null,
+	private val clearedThroughBoundaryByRequestId: Map<Long, Long> = emptyMap()
 ) {
 	fun configure(nextReference: BinderyWordSyncReference?): ReaderWordSyncPlaybackCoordinator {
 		if (nextReference == reference) return this
@@ -107,7 +110,11 @@ data class ReaderWordSyncPlaybackCoordinator(
 				else -> lastCueCommand
 			},
 			lastPlayback = playback ?: lastPlayback,
-			fallbackByRequestId = if (clearsOverlay) emptyMap() else fallbackByRequestId
+			fallbackByRequestId = if (clearsOverlay) emptyMap() else fallbackByRequestId,
+			activeBoundaryRequestId = if (clearsOverlay) null else activeBoundaryRequestId,
+			activeBoundarySequence = if (clearsOverlay) null else activeBoundarySequence,
+			clearedThroughBoundaryByRequestId =
+				if (clearsOverlay) emptyMap() else clearedThroughBoundaryByRequestId
 		)
 		val loadDecision = remembered.requestDataForDemand(
 			controller = controllerStep.controller,
@@ -162,7 +169,9 @@ data class ReaderWordSyncPlaybackCoordinator(
 		val exactStep = controllerStep.withExactWordSyncSeek(candidate.word, rawCommand)
 		return ReaderWordSyncDecision(
 			coordinator = coordinatorWithDemand.copy(
-				fallbackByRequestId = mapOf(requestId to fallback)
+				fallbackByRequestId = mapOf(requestId to fallback),
+				activeBoundaryRequestId = requestId.takeIf { boundarySequence != null },
+				activeBoundarySequence = boundarySequence
 			),
 			controllerStep = exactStep,
 			effects = loadDecision.effects
@@ -208,6 +217,45 @@ data class ReaderWordSyncPlaybackCoordinator(
 		)
 		.mapIndexed { index, boundary -> boundary.copy(sequence = index.toLong()) }
 
+	internal fun coordinateClear(
+		controller: ReaderController,
+		playback: ReaderWordSyncPlaybackIdentity
+	): ReaderWordSyncDecision {
+		val requestId = activeBoundaryRequestId
+		val boundarySequence = activeBoundarySequence
+		if (requestId == null || boundarySequence == null) {
+			return ReaderWordSyncDecision(copy(lastPlayback = playback), ReaderControllerStep(controller))
+		}
+		val clearedThrough = maxOf(
+			clearedThroughBoundaryByRequestId[requestId] ?: -1L,
+			boundarySequence
+		)
+		return ReaderWordSyncDecision(
+			coordinator = copy(
+				lastPlayback = playback,
+				activeBoundaryRequestId = null,
+				activeBoundarySequence = null,
+				clearedThroughBoundaryByRequestId =
+					clearedThroughBoundaryByRequestId + (requestId to clearedThrough)
+			),
+			controllerStep = ReaderControllerStep(
+				controller = controller.copy(
+					state = controller.state.copy(
+						activeMediaOverlay = null,
+						activeMediaOverlayAnchorReceipt = null,
+						audioMetadataLabel = null
+					)
+				),
+				engineCommands = listOf(
+					ReaderEngineCommand.ClearMediaOverlayPresentation(
+						overlayRequestId = requestId,
+						clearedThroughBoundarySequence = clearedThrough
+					)
+				)
+			)
+		)
+	}
+
 	internal fun coordinateBoundary(
 		controller: ReaderController,
 		playback: ReaderWordSyncPlaybackIdentity,
@@ -248,7 +296,9 @@ data class ReaderWordSyncPlaybackCoordinator(
 			coordinator = remembered.copy(
 				fallbackByRequestId = mapOf(
 					requestId to ReaderEngineCommand.ApplyMediaOverlay(cueFragment)
-				)
+				),
+				activeBoundaryRequestId = requestId,
+				activeBoundarySequence = boundary.sequence
 			),
 			controllerStep = ReaderControllerStep(
 				controller = controller,
@@ -355,6 +405,19 @@ data class ReaderWordSyncPlaybackCoordinator(
 		controller: ReaderController,
 		event: ReaderEngineEvent
 	): ReaderWordSyncDecision {
+		if (event is ReaderEngineEvent.MediaOverlayActive) {
+			val requestId = event.fragment.overlayRequestId
+			val boundarySequence = event.fragment.wordBoundarySequence
+			val clearedThrough = requestId?.let(clearedThroughBoundaryByRequestId::get)
+			if (
+				requestId != null &&
+				boundarySequence != null &&
+				clearedThrough != null &&
+				boundarySequence <= clearedThrough
+			) {
+				return ReaderWordSyncDecision(this, ReaderControllerStep(controller))
+			}
+		}
 		if (
 			event is ReaderEngineEvent.MediaOverlayInactive &&
 			event.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8

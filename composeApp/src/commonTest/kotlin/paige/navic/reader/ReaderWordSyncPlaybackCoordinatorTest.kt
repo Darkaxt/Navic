@@ -247,6 +247,87 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
+	fun wordEndClearDoesNotRetireTheCueSessionNeededByTheNextWord() {
+		val ready = readyCoordinatorAndController()
+		val active = ready.first.coordinate(
+			controllerStep = ReaderControllerStep(
+				ready.second,
+				engineCommands = listOf(cueCommand())
+			),
+			playback = playbackIdentity(positionMs = 1_050)
+		).coordinator
+		val cleared = active.coordinateClear(
+			controller = ready.second,
+			playback = playbackIdentity(positionMs = 1_200)
+		)
+		val nextBoundary = cleared.coordinator.boundariesForPlayback(
+			playbackIdentity(positionMs = 1_350)
+		).single { it.audioStartMs == 1_300L }
+
+		val next = cleared.coordinator.coordinateBoundary(
+			controller = ready.second,
+			playback = playbackIdentity(positionMs = 1_350),
+			boundary = nextBoundary
+		)
+
+		assertEquals(
+			ReaderEngineCommand.ClearMediaOverlayPresentation(
+				overlayRequestId = 41L,
+				clearedThroughBoundarySequence = 0L
+			),
+			cleared.controllerStep.engineCommands.single()
+		)
+		assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(next.controllerStep.engineCommands.single())
+	}
+
+	@Test
+	fun endedExactBoundaryCannotRestoreFromALateActivation() {
+		val ready = readyCoordinatorAndController()
+		val controller = ready.second.copy(
+			state = ready.second.state.copy(
+				whispersync = ready.second.state.whispersync.copy(
+					sync = ReaderOverlaySyncState(
+						activeCueKey = "cue-1",
+						activeOverlayRequestId = 41L,
+						engineCommand = cueCommand(),
+						engineCommandKey = 41L
+					)
+				)
+			)
+		)
+		val remembered = ready.first.coordinate(
+			controllerStep = ReaderControllerStep(
+				controller,
+				engineCommands = listOf(cueCommand())
+			),
+			playback = playbackIdentity(positionMs = 1_050)
+		).coordinator
+		val boundary = remembered.boundariesForPlayback(
+			playbackIdentity(positionMs = 1_050)
+		).single { it.audioStartMs == 1_000L }
+		val exact = remembered.coordinateBoundary(
+			controller = controller,
+			playback = playbackIdentity(positionMs = 1_050),
+			boundary = boundary
+		)
+		val fragment = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(
+			exact.controllerStep.engineCommands.single()
+		).fragment
+		val cleared = exact.coordinator.coordinateClear(
+			controller = controller,
+			playback = playbackIdentity(positionMs = 1_200)
+		)
+
+		val late = cleared.coordinator.onEngineEvent(
+			controller = cleared.controllerStep.controller,
+			event = ReaderEngineEvent.MediaOverlayActive(fragment)
+		)
+
+		assertNull(late.controllerStep.controller.state.activeMediaOverlay)
+		assertNull(late.controllerStep.controller.state.activeMediaOverlayAnchorReceipt)
+	}
+
+	@Test
 	fun unmappedReaderEventNeverFallsBackToPlaybackWord() {
 		val ready = readyCoordinatorAndController()
 		val cue = cueCommand()

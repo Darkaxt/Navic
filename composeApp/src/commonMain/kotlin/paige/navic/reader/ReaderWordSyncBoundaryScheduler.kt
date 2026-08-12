@@ -37,6 +37,9 @@ internal data class ReaderWordSyncBoundary(
 
 	val audioStartMs: Long
 		get() = word.audioStartMs
+
+	val audioEndMs: Long
+		get() = word.audioEndMs
 }
 
 internal data class ReaderWordSyncBoundaryDispatch(
@@ -66,8 +69,22 @@ internal class ReaderWordSyncBoundaryScheduler(
 		delayMs: Long,
 		action: () -> Unit
 	) -> ReaderWordSyncBoundaryCancellation,
-	private val onBoundary: (ReaderWordSyncBoundaryDispatch) -> Unit
+	private val onBoundary: (ReaderWordSyncBoundaryDispatch) -> Unit,
+	private val onClear: (ReaderWordSyncTimelineSnapshot) -> Unit
 ) {
+	private sealed interface ScheduledTransition {
+		val audioTimeMs: Long
+
+		data class Start(
+			val index: Int,
+			override val audioTimeMs: Long
+		) : ScheduledTransition
+
+		data class End(
+			override val audioTimeMs: Long
+		) : ScheduledTransition
+	}
+
 	private data class PublishedBoundary(
 		val sessionGeneration: Long,
 		val audioResourceId: String,
@@ -122,13 +139,28 @@ internal class ReaderWordSyncBoundaryScheduler(
 			publishedBoundary = null
 			return
 		}
-		val currentIndex = boundaries.indexOfLast { boundary ->
-			boundary.matches(snapshot) && boundary.audioStartMs <= snapshot.positionMs
-		}
+		val currentIndex = currentBoundaryIndex(snapshot)
 		if (currentIndex >= 0) {
 			publishBoundary(currentIndex, snapshot, coalescedCount = 0)
+		} else if (publishedBoundary != null) {
+			publishClear(snapshot)
 		}
 		scheduleNext(snapshot)
+	}
+
+	private fun currentBoundaryIndex(snapshot: ReaderWordSyncTimelineSnapshot): Int {
+		val latestStartedIndex = boundaries.indexOfLast { boundary ->
+			boundary.matches(snapshot) && boundary.audioStartMs <= snapshot.positionMs
+		}
+		return latestStartedIndex.takeIf { index ->
+			index >= 0 && snapshot.positionMs < boundaries[index].audioEndMs
+		} ?: -1
+	}
+
+	private fun publishClear(snapshot: ReaderWordSyncTimelineSnapshot) {
+		if (publishedBoundary == null) return
+		publishedBoundary = null
+		onClear(snapshot)
 	}
 
 	private fun publishBoundary(
@@ -158,13 +190,19 @@ internal class ReaderWordSyncBoundaryScheduler(
 
 	private fun scheduleNext(snapshot: ReaderWordSyncTimelineSnapshot) {
 		if (!snapshot.canSchedule()) return
-		val nextIndex = boundaries.indexOfFirst { boundary ->
+		val currentIndex = currentBoundaryIndex(snapshot)
+		val currentEnd = currentIndex.takeIf { it >= 0 }
+			?.let { index -> ScheduledTransition.End(boundaries[index].audioEndMs) }
+		val nextStart = boundaries.indexOfFirst { boundary ->
 			boundary.matches(snapshot) && boundary.audioStartMs > snapshot.positionMs
+		}.takeIf { it >= 0 }?.let { index ->
+			ScheduledTransition.Start(index, boundaries[index].audioStartMs)
 		}
-		if (nextIndex < 0) return
-		val boundary = boundaries[nextIndex]
+		val transition = listOfNotNull(currentEnd, nextStart)
+			.minByOrNull(ScheduledTransition::audioTimeMs)
+			?: return
 		val delayMs = ceil(
-			(boundary.audioStartMs - snapshot.positionMs).toDouble() /
+			(transition.audioTimeMs - snapshot.positionMs).toDouble() /
 				snapshot.playbackSpeed.toDouble()
 		).toLong().coerceAtLeast(1L)
 		val epoch = scheduleEpoch
@@ -184,21 +222,24 @@ internal class ReaderWordSyncBoundaryScheduler(
 			}
 			if (
 				verified.sessionGeneration != sessionGeneration ||
-				verified.timelineRevision != timelineRevision ||
-				!boundary.matches(verified)
+				verified.timelineRevision != timelineRevision
 			) {
 				publishCurrentAndSchedule(verified)
 				return@schedule
 			}
-			val currentIndex = boundaries.indexOfLast { candidate ->
-				candidate.matches(verified) && candidate.audioStartMs <= verified.positionMs
-			}
-			if (currentIndex >= nextIndex) {
+			val verifiedIndex = currentBoundaryIndex(verified)
+			if (verifiedIndex >= 0) {
+				val firstMissedStartIndex = when (transition) {
+					is ScheduledTransition.Start -> transition.index
+					is ScheduledTransition.End -> currentIndex + 1
+				}
 				publishBoundary(
-					index = currentIndex,
+					index = verifiedIndex,
 					snapshot = verified,
-					coalescedCount = currentIndex - nextIndex
+					coalescedCount = (verifiedIndex - firstMissedStartIndex).coerceAtLeast(0)
 				)
+			} else {
+				publishClear(verified)
 			}
 			scheduleNext(verified)
 		}

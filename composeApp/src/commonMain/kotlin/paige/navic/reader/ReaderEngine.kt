@@ -80,6 +80,15 @@ sealed interface ReaderEngineCommand {
 	) : ReaderEngineCommand
 	data class ApplyMediaOverlay(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
 	data class UpdateMediaOverlayProgress(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
+	data class ClearMediaOverlayPresentation(
+		val overlayRequestId: Long,
+		val clearedThroughBoundarySequence: Long
+	) : ReaderEngineCommand {
+		init {
+			require(overlayRequestId >= 0L)
+			require(clearedThroughBoundarySequence >= 0L)
+		}
+	}
 	data object ClearMediaOverlay : ReaderEngineCommand
 }
 
@@ -92,6 +101,7 @@ val ReaderEngineCommand.requiredCapability: ReaderEngineCapability?
 		is ReaderEngineCommand.InstallRawTextProvenance,
 		is ReaderEngineCommand.ApplyMediaOverlay,
 		is ReaderEngineCommand.UpdateMediaOverlayProgress,
+		is ReaderEngineCommand.ClearMediaOverlayPresentation,
 		ReaderEngineCommand.ClearMediaOverlay -> ReaderEngineCapability.MediaOverlay
 
 		else -> null

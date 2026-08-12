@@ -239,6 +239,7 @@ export const postReaderWordSyncOverlayActive = (
   postEvent = post,
   anchorReceipt = readerWordSyncAnchorReceipt(runtime, fragment)
 ) => {
+  runtime.exactWordSyncActiveRequestId = fragment?.overlayRequestId ?? null
   if (!anchorReceipt) return null
   postEvent({
     type: 'overlayFragmentActive',
@@ -249,6 +250,7 @@ export const postReaderWordSyncOverlayActive = (
 }
 
 const presentReaderWordSyncOverlayFragment = (runtime, fragment) => {
+  runtime.exactWordSyncActiveRequestId = fragment.overlayRequestId
   if (!runtime.rawTextProvenance.rangeIsVisible(fragment, runtime.committedVisibleTextRange)) {
     return 'outside-visible-page'
   }
