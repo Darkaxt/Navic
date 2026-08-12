@@ -1024,8 +1024,10 @@ class ReaderRuntimeShellProgressTest {
 		)
 		assertContains(
 			committedRelocation,
-			"this.postLocationChanged(pendingDetail, pendingReason, { forceDuplicatePost })"
+			"this.postLocationChanged(pendingDetail, pendingReason, {"
 		)
+		assertContains(committedRelocation, "forceDuplicatePost,")
+		assertContains(committedRelocation, "wordSyncRelocationEpoch,")
 	}
 
 	@Test

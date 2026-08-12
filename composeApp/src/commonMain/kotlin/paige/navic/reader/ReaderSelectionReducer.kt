@@ -37,6 +37,11 @@ data class ReaderSelectionNoteDraft(
 internal fun String?.normalizedReaderSelectionValue(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
 
+internal fun ReaderControllerState.whispersyncOwnsTextSelection(): Boolean =
+	whispersync.available &&
+		chrome.readaloudPlayback.isAvailable &&
+		chrome.readaloudPlayback.syncEnabled
+
 internal object ReaderSelectionReducer {
 	fun onChanged(
 		controller: ReaderController,

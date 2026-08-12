@@ -656,11 +656,6 @@ data class ReaderController(
 	)
 }
 
-internal fun ReaderControllerState.whispersyncOwnsTextSelection(): Boolean =
-	whispersync.available &&
-		chrome.readaloudPlayback.isAvailable &&
-		chrome.readaloudPlayback.syncEnabled
-
 private fun ReaderControllerState.shellCoverReadaloudResetCommand(): ReaderReadaloudPlaybackCommand? =
 	if (chrome.readaloudPlayback.isAvailable) {
 		ReaderReadaloudPlaybackCommand.StopAndReset

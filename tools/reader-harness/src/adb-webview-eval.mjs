@@ -956,7 +956,7 @@ async function runWhispersyncAudioFollowProbe(page) {
         observedVisibleRanges: observedPayloads.filter(payload => payload?.type === 'visibleTextRange'),
         observedOverlayFragments: observedPayloads.filter(payload => payload?.type === 'overlayFragmentActive'),
         expectedLogLabels: [
-          'media-overlay-follow:already-visible',
+          'media-overlay-follow:visible',
           'overlayFragmentActive',
           'Reader bridge event: visibleTextRange',
           'source=media-overlay-follow',

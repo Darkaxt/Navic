@@ -2041,8 +2041,13 @@ class ReaderRuntimeCommonChromeTest {
 			.findAll(readerScreenText)
 			.count()
 		val completePlaybackStateCallCount = Regex(
-			"""coordinator\.onReadaloudPlaybackState\(\s*playbackState\s*=\s*playbackState,\s*playbackIdentity\s*=\s*playbackState\.toWordSyncPlaybackIdentity\(whispersyncPlaybackPlan\)\s*\)"""
+			"""coordinator\.onReadaloudPlaybackState\(\s*playbackState\s*=\s*playbackState,\s*playbackIdentity\s*=\s*(?:playbackIdentity\b|playbackState\.toWordSyncPlaybackIdentity\(whispersyncPlaybackPlan\))"""
 		).findAll(readerScreenText).count()
+
+		assertContains(
+			readerScreenText,
+			"val playbackIdentity = playbackState.toWordSyncPlaybackIdentity("
+		)
 
 		assertContains(chromeStateText, "activeAudioLabel")
 		assertContains(chromeStateText, "activeAudioMetadata")

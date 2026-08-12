@@ -555,7 +555,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(probe, "reason: 'media-overlay-follow'")
 		assertContains(probe, "visibleTextRange")
 		assertContains(probe, "visibleRange.source !== 'media-overlay-follow'")
-		assertContains(probe, "media-overlay-follow:already-visible")
+		assertContains(probe, "media-overlay-follow:visible")
 		assertContains(probe, "overlayFragmentActive")
 		assertContains(probe, "source=media-overlay-follow")
 	}
@@ -590,7 +590,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(locationText, "const textHref = section?.href || content?.href || targetHref")
 		assertContains(bridgeText, "mediaOverlayFragmentAlreadyVisible(fragment)")
 		assertContains(applyOverlayFragment, "this.mediaOverlayFragmentAlreadyVisible(fragment)")
-		assertContains(applyOverlayFragment, "media-overlay-follow:already-visible")
+		assertContains(applyOverlayFragment, "media-overlay-follow:visible")
 		assertFalse(
 			applyOverlayFragment.contains("await this.goTo(targetHref, 'media-overlay-follow')"),
 			"Character-range media-overlay cues that are already visible must be highlighted in place instead of forcing a section-level media-overlay relocation."
