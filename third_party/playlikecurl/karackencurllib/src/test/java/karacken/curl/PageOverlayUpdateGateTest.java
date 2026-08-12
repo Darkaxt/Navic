@@ -55,6 +55,21 @@ public class PageOverlayUpdateGateTest {
     }
 
     @Test
+    public void currentGenerationClearTakesPriorityOverActiveInteraction() {
+        PortraitPageDeck<String> deck = portraitDeck(7L);
+        LinkedHashSet<Long> prepared = new LinkedHashSet<>(Collections.singletonList(7L));
+
+        assertEquals(
+                PageOverlayUpdateResult.ACCEPTED,
+                PageOverlayUpdateGate.evaluate(
+                        deck, prepared, true, true, false, 7L, Collections.emptyList()));
+        assertEquals(
+                PageOverlayUpdateResult.INTERACTION_ACTIVE,
+                PageOverlayUpdateGate.evaluate(
+                        deck, prepared, true, true, false, 7L, Collections.singletonList(1)));
+    }
+
+    @Test
     public void everyLeafInAnAtomicReplacementMustBelongToTheCurrentDeck() {
         LandscapePageDeck<String> deck = landscapeDeck(7L);
         LinkedHashSet<Long> prepared = new LinkedHashSet<>(Collections.singletonList(7L));

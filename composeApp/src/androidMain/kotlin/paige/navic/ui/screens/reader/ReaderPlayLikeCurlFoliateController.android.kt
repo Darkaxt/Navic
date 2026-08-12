@@ -4237,14 +4237,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun publishLatestWhispersyncOverlayIfIdle() {
-		if (
-			destroyed ||
-			!enabled ||
-			!attached ||
-			activeGestureId != null ||
-			settlementMutationFence.hasUnreconciledSettlement ||
-			surfaceView.isSettlementRunning
-		) return
+		if (destroyed || !enabled || !attached) return
 		val generationId = activeDeckGenerationId ?: return
 		val pages = activePages ?: return
 		val receipt = latestWhispersyncAnchorReceipt
@@ -4264,6 +4257,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 			clearWhispersyncOverlayIfNeeded(generationId)
 			return
 		}
+		if (
+			activeGestureId != null ||
+			settlementMutationFence.hasUnreconciledSettlement ||
+			surfaceView.isSettlementRunning
+		) return
 		val publication = ReaderWhispersyncOverlayPublication(
 			textureGeneration = generationId,
 			anchorGeneration = receipt.anchorGeneration,

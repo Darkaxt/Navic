@@ -946,6 +946,23 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun whispersyncClearTakesPriorityWhileNonEmptyReplacementWaitsForGestureIdle() {
+		val source = controllerFile.readText()
+		val publication = source
+			.substringAfter("private fun publishLatestWhispersyncOverlayIfIdle()")
+			.substringBefore("private fun clearWhispersyncOverlayIfNeeded(")
+
+		val clearDecision = publication.indexOf("if (receipt == null || targets == null)")
+		val interactionGate = publication.indexOf("activeGestureId != null")
+		val maskBuild = publication.indexOf("val overlays = mutableListOf")
+		assertTrue(
+			clearDecision >= 0 && interactionGate > clearDecision && maskBuild > interactionGate,
+			"A semantic clear must reach the renderer during a curl, while non-empty mask replacement remains deferred."
+		)
+		assertContains(publication, "clearWhispersyncOverlayIfNeeded(generationId)")
+	}
+
+	@Test
 	fun externalDeckMutationsWaitForControllerSettlementReconciliation() {
 		val controller = controllerFile.readText()
 		val settlementStarted = controller

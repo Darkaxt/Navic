@@ -37,7 +37,7 @@ final class PageOverlayUpdateGate {
                 return PageOverlayUpdateResult.STALE_TARGET;
             }
         }
-        if (interactionActive) {
+        if (interactionActive && !requestedOrdinals.isEmpty()) {
             return PageOverlayUpdateResult.INTERACTION_ACTIVE;
         }
         if (updatePending) {
