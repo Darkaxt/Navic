@@ -4388,8 +4388,68 @@ internal class ReaderPlayLikeCurlFoliateController(
 			repairAttempt = null,
 			role = role
 		)
-		pages.generations += generationId
+		updateSurfaceBounds()
+		logActivationState(
+			event = "deck-submitted",
+			detail = "generation=$generationId ordinal=$ordinal role=$role " +
+				"orientation=${pages.profile.orientation}"
+		)
+		setSurfaceReadingDirection(pages.profile)
+		var ownershipTransferred = false
+		val result = try {
+			submissionCallbackFence.submit(generationId) {
+				surfaceView.submitDeckWithResult(deck) {
+					ownershipTransferred = true
+					acceptLibraryDeckOwnership(pages, ordinal, generationId, role)
+				}
+			}
+		} catch (failure: Throwable) {
+			deckDiagnosticTracker?.cancel(generationId)
+			if (ownershipTransferred) {
+				rollbackAcceptedLibraryDeck(generationId, role, failure)
+			}
+			throw failure
+		}
+		if (result.status == PageSurfaceDeckSubmissionResult.Status.REJECTED) {
+			deckDiagnosticTracker?.cancel(generationId)
+			releaseRejectedLibraryDeck(pages, role)
+			when (role) {
+				ReaderDeckSubmissionRole.Active -> updateReadiness(
+					textureDeck = ReaderTextureDeckState.Failed,
+					interaction = ReaderPageInteractionState.Failed,
+					reason = "deck-rejected:$generationId:${result.rejectionReason}"
+				)
+				ReaderDeckSubmissionRole.Pending -> updateReadiness(
+					pendingTextureDeck = ReaderTextureDeckState.Failed,
+					reason = "pending-deck-rejected:$generationId:${result.rejectionReason}"
+				)
+			}
+			Logger.w(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"PlayLikeCurl deck rejected generation=$generationId " +
+					"reason=${result.rejectionReason}"
+			)
+			return
+		}
+		check(
+			result.status == PageSurfaceDeckSubmissionResult.Status.ACCEPTED &&
+				ownershipTransferred
+		) { "Fresh library deck submission did not transfer renderer ownership" }
+		deckDiagnosticTracker?.submitted(
+			generation = generationId,
+			active = activeDeckGenerationId,
+			pending = pendingDeckGenerationId
+		)
+	}
+
+	private fun acceptLibraryDeckOwnership(
+		pages: PreparedPages,
+		ordinal: Int,
+		generationId: Long,
+		role: ReaderDeckSubmissionRole
+	) {
 		generationOwners[generationId] = pages
+		pages.generations += generationId
 		generationRoles[generationId] = role
 		when (role) {
 			ReaderDeckSubmissionRole.Active -> {
@@ -4397,9 +4457,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 				notifyPreparedActiveDeckChanged(null)
 			}
 			ReaderDeckSubmissionRole.Pending -> {
-				pendingDeckGenerationId
-					?.takeIf { it != generationId }
-					?.let(surfaceView::releaseDeck)
 				pendingDeckGenerationId = generationId
 				pendingDeckOrdinal = ordinal
 				updateReadiness(
@@ -4408,24 +4465,35 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 			}
 		}
-		updateSurfaceBounds()
-		logActivationState(
-			event = "deck-submitted",
-			detail = "generation=$generationId ordinal=$ordinal role=$role " +
-				"orientation=${pages.profile.orientation}"
-		)
-		setSurfaceReadingDirection(pages.profile)
+	}
+
+	private fun releaseRejectedLibraryDeck(
+		pages: PreparedPages,
+		role: ReaderDeckSubmissionRole
+	) {
+		if (role != ReaderDeckSubmissionRole.Active || activePages !== pages) return
+		activePages = null
+		pages.obsolete = true
+		closeIfUnused(pages)
+	}
+
+	private fun rollbackAcceptedLibraryDeck(
+		generationId: Long,
+		role: ReaderDeckSubmissionRole,
+		failure: Throwable
+	) {
 		try {
-			surfaceView.submitDeck(deck)
-		} catch (failure: Throwable) {
-			deckDiagnosticTracker?.cancel(generationId)
-			throw failure
+			if (generationRoles[generationId] == role || generationId in generationOwners) {
+				releaseGeneration(generationId)
+			}
+		} catch (cleanupFailure: Throwable) {
+			if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
 		}
-		deckDiagnosticTracker?.submitted(
-			generation = generationId,
-			active = activeDeckGenerationId,
-			pending = pendingDeckGenerationId
-		)
+		try {
+			surfaceView.releaseDeck(generationId)
+		} catch (cleanupFailure: Throwable) {
+			if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+		}
 	}
 
 	private fun updateSurfaceBounds() {

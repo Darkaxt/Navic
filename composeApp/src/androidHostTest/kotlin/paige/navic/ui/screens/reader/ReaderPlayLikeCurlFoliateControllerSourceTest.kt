@@ -1880,6 +1880,29 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun normalDeckSubmissionTransfersControllerOwnershipOnlyAfterRendererQueueAcceptance() {
+		val source = controllerFile.readText()
+		val submission = source
+			.substringAfter("private fun submitLibraryDeck(")
+			.substringBefore("private fun updateSurfaceBounds()")
+
+		val rendererSubmission = submission.indexOf("surfaceView.submitDeckWithResult(deck) {")
+		val controllerTransfer = submission.indexOf("acceptLibraryDeckOwnership(")
+		assertTrue(
+			rendererSubmission >= 0 && controllerTransfer > rendererSubmission,
+			"Normal deck ownership must transfer in the renderer callback, after queue acceptance."
+		)
+		assertContains(submission, "if (ownershipTransferred)")
+		assertContains(submission, "rollbackAcceptedLibraryDeck(")
+		assertContains(submission, "releaseRejectedLibraryDeck(pages, role)")
+		assertFalse(
+			submission.substringBefore("surfaceView.submitDeckWithResult(deck) {")
+				.contains("generationOwners[generationId] = pages"),
+			"A queue failure must not leave provisional generation ownership pinned."
+		)
+	}
+
+	@Test
 	fun animationSurfacePreservesFoliatePlacementAndStaticDecorations() {
 		val source = controllerFile.readText()
 		val submit = source
@@ -1890,7 +1913,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(submit, "updateSurfaceBounds()")
 		assertTrue(
 			submit.indexOf("updateSurfaceBounds()") <
-				submit.indexOf("surfaceView.submitDeck(deck)"),
+				submit.indexOf("surfaceView.submitDeckWithResult(deck) {"),
 			"The renderer surface must expose the complete Foliate composition before submission."
 		)
 		assertContains(source, "params.width = ViewGroup.LayoutParams.MATCH_PARENT")
@@ -2705,7 +2728,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(submit, "setSurfaceReadingDirection(pages.profile)")
 		assertTrue(
 			submit.indexOf("setSurfaceReadingDirection(pages.profile)") <
-				submit.indexOf("surfaceView.submitDeck(deck)")
+				submit.indexOf("surfaceView.submitDeckWithResult(deck) {")
 		)
 	}
 
