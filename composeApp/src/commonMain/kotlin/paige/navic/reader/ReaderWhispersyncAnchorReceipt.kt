@@ -28,6 +28,12 @@ data class ReaderWhispersyncAnchorReceipt(
 	val presentationSequence: Long,
 	val anchorGeneration: Long,
 	val boundarySequence: Long,
+	val layoutGeneration: Long,
+	val viewGeneration: Long,
+	val commitSequence: Long,
+	val committedSpineIndex: Int,
+	val committedChapterPageIndex: Int,
+	val committedChapterPageCount: Int,
 	val paginationFingerprint: String,
 	val layoutFingerprint: String,
 	val readerSettingsRasterKey: String,
@@ -45,6 +51,13 @@ data class ReaderWhispersyncAnchorReceipt(
 		require(presentationSequence > 0L)
 		require(anchorGeneration > 0L)
 		require(boundarySequence >= 0L)
+		require(layoutGeneration >= 0L)
+		require(viewGeneration >= 0L)
+		require(commitSequence >= 0L)
+		require(committedSpineIndex == spineIndex)
+		require(committedChapterPageIndex >= 0)
+		require(committedChapterPageCount > 0)
+		require(committedChapterPageIndex < committedChapterPageCount)
 		require(paginationFingerprint.isNotBlank())
 		require(layoutFingerprint.isNotBlank())
 		require(readerSettingsRasterKey.isNotBlank())

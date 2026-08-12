@@ -162,6 +162,28 @@ export function readerTextPageCommitOwnerHasExpectedVisibleContent(owner) {
   )
 }
 
+export function readerTextPageCommitIdentity(owner) {
+  const commitment = owner && typeof owner === 'object'
+    ? textPageVisibleContentOwners.get(owner)
+    : null
+  if (
+    !commitment ||
+    textPageCommitOwners.get(owner) !== commitment ||
+    commitment.renderer?.validateTextPageCommit?.(commitment.receipt) !== true ||
+    commitment.renderer?.validateTextPageVisibleContent?.(commitment.receipt) !== true
+  ) return null
+  const receipt = commitment.receipt
+  return Object.freeze({
+    layoutGeneration: receipt.layoutGeneration,
+    viewGeneration: receipt.viewGeneration,
+    commitSequence: receipt.commitSequence,
+    flow: receipt.flow,
+    index: receipt.index,
+    pageIndex: receipt.pageIndex,
+    pageCount: receipt.pageCount,
+  })
+}
+
 export function readerTextPageCommitOwnerWasRemembered(owner) {
   return Boolean(
     owner &&

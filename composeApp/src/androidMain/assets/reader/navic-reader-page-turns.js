@@ -163,6 +163,7 @@ import {
   readerForgetTextPageCommit,
   readerRememberTextPageCommit,
   readerRememberTextPageVisibleContent,
+  readerTextPageCommitIdentity,
   readerTextPageCommitIsValid,
   readerTextPageCommitMatches,
   readerTextPageCommitOwnerHasExpectedVisibleContent,
@@ -521,6 +522,12 @@ function pageTurnLivePresentationReceipt() {
   return receipt
 }
 
+function pageTurnTextPageCommitIdentity() {
+  const target = this.pageTurnLivePresentationTargetValue
+  if (!this.pageTurnLivePresentationTargetMatchesCurrent(target)) return null
+  return readerTextPageCommitIdentity(target)
+}
+
 function exactPageTurnPendingState({
   token,
   gestureId,
@@ -675,6 +682,8 @@ async function commitPendingExactPageTurnSettlement(token) {
             {
               forceDuplicatePost: true,
               preserveCurrentPagePosition: true,
+              wordSyncRelocationEpoch:
+                this.activeExactWordSyncRelocation?.epoch ?? null,
             }
           )
           if (synchronousDelivery?.posted) {
@@ -857,6 +866,7 @@ async function goToVisualPage(command = {}) {
       this.controlledRelocateReason === 'page-turn:exact'
     ) {
       this.consumeControlledRelocationReason('page-turn:exact-failed')
+      this.dropDeferredExactWordSyncOverlayFragment?.()
     }
     if (currentPending) {
       readerForgetTextPageCommit(currentPending)
@@ -1065,6 +1075,7 @@ function consumeNativePageTurnSettlement(token) {
 
 function cancelPendingExactPageTurnSettlement(reason = 'superseded') {
   this.clearPageTurnLivePresentationTarget()
+  this.dropDeferredExactWordSyncOverlayFragment?.()
   const pending = this.activeExactPageTurnSettlement()
   const settled = this.nativePageTurnSettledState
   if (!pending && !settled) return false
@@ -3356,6 +3367,7 @@ export const NavicReaderPageTurnMethods = {
   issuePageTurnLivePresentationReceipt,
   restorePageTurnLivePresentationReceipt,
   pageTurnLivePresentationReceipt,
+  pageTurnTextPageCommitIdentity,
   activeExactPageTurnSettlement,
   maybeCompleteNativePageTurnSettlement,
   peekNativePageTurnSettlement,

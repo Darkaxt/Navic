@@ -944,14 +944,22 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 			"rawTextProvenanceStatus" -> json.toRawTextProvenanceStatus()
 			"overlayFragmentActive" -> json.toOverlayFragment()
 				?.let { fragment ->
-					ReaderBridgeEvent.OverlayFragmentActive(
-						fragment = fragment,
-						anchorReceipt = json["anchorReceipt"]
-							?.let { it as? JsonObject }
-							?.toWhispersyncAnchorReceipt(
-								fragment.wordBoundarySequence ?: fragment.overlayRequestId
-							)
-					)
+					val anchorReceipt = json["anchorReceipt"]
+						?.let { it as? JsonObject }
+						?.toWhispersyncAnchorReceipt(
+							fragment.wordBoundarySequence ?: fragment.overlayRequestId
+						)
+					if (
+						fragment.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 &&
+						anchorReceipt == null
+					) {
+						null
+					} else {
+						ReaderBridgeEvent.OverlayFragmentActive(
+							fragment = fragment,
+							anchorReceipt = anchorReceipt
+						)
+					}
 				}
 			"overlayFragmentInactive" -> ReaderBridgeEvent.OverlayFragmentInactive(
 				fragmentId = json.stringValue("fragmentId"),
@@ -1340,6 +1348,12 @@ private fun JsonObject.toWhispersyncAnchorReceipt(
 			presentationSequence = longValue("presentationSequence") ?: return null,
 			anchorGeneration = longValue("anchorGeneration") ?: return null,
 			boundarySequence = boundarySequence,
+			layoutGeneration = longValue("layoutGeneration") ?: return null,
+			viewGeneration = longValue("viewGeneration") ?: return null,
+			commitSequence = longValue("commitSequence") ?: return null,
+			committedSpineIndex = intValue("committedSpineIndex") ?: return null,
+			committedChapterPageIndex = intValue("committedChapterPageIndex") ?: return null,
+			committedChapterPageCount = intValue("committedChapterPageCount") ?: return null,
 			paginationFingerprint = stringValue("paginationFingerprint") ?: return null,
 			layoutFingerprint = stringValue("layoutFingerprint") ?: return null,
 			readerSettingsRasterKey = stringValue("readerSettingsRasterKey") ?: return null,

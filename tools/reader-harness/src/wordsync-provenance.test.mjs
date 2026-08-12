@@ -513,12 +513,108 @@ const runScenario = (page, scenario) => page.evaluate(async scenarioName => {
   throw new Error('unknown scenario')
 }, scenario)
 
+test('derives page-local anchor geometry from the resolved Foliate iframe and fails closed without ownership', async () => {
+  const page = await newReaderPage()
+  try {
+    const result = await page.evaluate(async () => {
+      const api = await import('/navic-reader-wordsync-provenance.js')
+      const fragment = { overlayRequestId: 19, wordBoundarySequence: 19 }
+      const iframe = document.createElement('iframe')
+      Object.assign(iframe.style, {
+        position: 'absolute',
+        left: '120px',
+        top: '30px',
+        width: '400px',
+        height: '300px',
+        border: '0',
+      })
+      document.body.append(iframe)
+      const iframeRect = iframe.getBoundingClientRect()
+      const text = iframe.contentDocument.createTextNode('synthetic fixture')
+      iframe.contentDocument.body.append(text)
+      const range = iframe.contentDocument.createRange()
+      range.selectNodeContents(text)
+      range.getClientRects = () => [
+        { left: 20, top: 10, right: 80, bottom: 34, width: 60, height: 24 },
+      ]
+      const runtime = {
+        wordSyncAnchorGeneration: 4,
+        rawTextProvenance: { resolveRange: () => range },
+        pageTurnLivePresentationReceipt: () => ({
+          scope: 'live',
+          token: 'settled-11',
+          pageIndex: 12,
+          foliateSessionId: 'foliate-7',
+          rasterGeneration: 31,
+          textureGeneration: 32,
+          foregroundMutationGeneration: 8,
+          presentationSequence: 9,
+        }),
+        pageTurnTextPageCommitIdentity: () => ({
+          layoutGeneration: 21,
+          viewGeneration: 22,
+          commitSequence: 23,
+          flow: 'paginated',
+          index: 3,
+          pageIndex: 2,
+          pageCount: 7,
+        }),
+        pageTurnCaptureGeometry: () => ({
+          viewportWidth: 1200,
+          viewportHeight: 800,
+          mode: 'single',
+          pages: [{
+            role: 'full',
+            left: iframeRect.left - 20,
+            top: iframeRect.top - 10,
+            width: 580,
+            height: 760,
+          }],
+        }),
+        pageTurnRasterDescriptor: () => ({
+          paginationFingerprint: 'pagination-a',
+          layoutFingerprint: 'layout-a',
+          decorationFingerprint: 'settings-a',
+          visualPageOrdinal: 12,
+          spineIndex: 3,
+          chapterPageIndex: 2,
+          chapterPageCount: 7,
+        }),
+        currentPagePosition: { pageIndex: 12, spineIndex: 3 },
+      }
+      const anchor = api.readerWordSyncAnchorReceipt(runtime, fragment)
+      const events = []
+      runtime.pageTurnLivePresentationReceipt = () => null
+      const missingReceipt = api.postReaderWordSyncOverlayActive(
+        runtime,
+        fragment,
+        event => events.push(event)
+      )
+      return {
+        anchor,
+        missingReceipt,
+        eventCount: events.length,
+        anchorGeneration: runtime.wordSyncAnchorGeneration,
+      }
+    })
+
+    assert.deepEqual(result.anchor.pageLocalRects, [
+      { role: 'full', left: 40, top: 20, width: 60, height: 24 },
+    ])
+    assert.equal(result.missingReceipt, null)
+    assert.equal(result.eventCount, 0)
+    assert.equal(result.anchorGeneration, 5)
+  } finally {
+    await page.close()
+  }
+})
+
 test('derives page-local anchor geometry only from a current Foliate presentation receipt', async () => {
   const page = await newReaderPage()
   try {
     const result = await page.evaluate(async () => {
       const api = await import('/navic-reader-wordsync-provenance.js')
-      const fragment = { overlayRequestId: 19 }
+      const fragment = { overlayRequestId: 19, wordBoundarySequence: 19 }
       const runtime = {
         wordSyncAnchorGeneration: 4,
         rawTextProvenance: {
@@ -539,6 +635,15 @@ test('derives page-local anchor geometry only from a current Foliate presentatio
           foregroundMutationGeneration: 8,
           presentationSequence: 9,
         }),
+        pageTurnTextPageCommitIdentity: () => ({
+          layoutGeneration: 21,
+          viewGeneration: 22,
+          commitSequence: 23,
+          flow: 'paginated',
+          index: 3,
+          pageIndex: 2,
+          pageCount: 7,
+        }),
         pageTurnCaptureGeometry: () => ({
           viewportWidth: 1200,
           viewportHeight: 800,
@@ -554,6 +659,8 @@ test('derives page-local anchor geometry only from a current Foliate presentatio
           decorationFingerprint: 'settings-a',
           visualPageOrdinal: 12,
           spineIndex: 3,
+          chapterPageIndex: 2,
+          chapterPageCount: 7,
         }),
         currentPagePosition: { pageIndex: 12, spineIndex: 3 },
       }
@@ -585,6 +692,12 @@ test('derives page-local anchor geometry only from a current Foliate presentatio
       presentationSequence: 9,
       anchorGeneration: 5,
       boundarySequence: 19,
+      layoutGeneration: 21,
+      viewGeneration: 22,
+      commitSequence: 23,
+      committedSpineIndex: 3,
+      committedChapterPageIndex: 2,
+      committedChapterPageCount: 7,
       paginationFingerprint: 'pagination-a',
       layoutFingerprint: 'layout-a',
       readerSettingsRasterKey: 'settings-a',
@@ -610,6 +723,318 @@ test('derives page-local anchor geometry only from a current Foliate presentatio
     assert.equal(result.stalePage, null)
     assert.equal(result.exposedPreview, null)
     assert.equal(result.anchorGeneration, 6)
+  } finally {
+    await page.close()
+  }
+})
+
+test('coalesces exact boundaries until the current Foliate destination settles', async () => {
+  const page = await newReaderPage()
+  try {
+    const results = await page.evaluate(async () => {
+      const wordSyncApi = await import('/navic-reader-wordsync-provenance.js')
+      const mediaOverlayApi = await import('/navic-reader-media-overlay.js')
+      const locationApi = await import('/navic-reader-location.js')
+
+      const createFrame = (label, left) => {
+        const iframe = document.createElement('iframe')
+        Object.assign(iframe.style, {
+          position: 'absolute',
+          left: `${left}px`,
+          top: '20px',
+          width: '240px',
+          height: '180px',
+          border: '0',
+        })
+        iframe.dataset.label = label
+        document.body.append(iframe)
+        const text = iframe.contentDocument.createTextNode(`synthetic ${label}`)
+        iframe.contentDocument.body.append(text)
+        const range = iframe.contentDocument.createRange()
+        range.selectNodeContents(text)
+        range.getClientRects = () => [
+          { left: 12, top: 16, right: 72, bottom: 40, width: 60, height: 24 },
+        ]
+        return { iframe, range }
+      }
+      const frames = {
+        source: createFrame('source', 40),
+        intermediate: createFrame('intermediate', 320),
+        destination: createFrame('destination', 600),
+      }
+      const run = reason => {
+        const bridgeEvents = []
+        const paints = []
+        let frameLabel = 'source'
+        let settled = false
+        window.NavicAndroidBridge = {
+          postMessage: json => bridgeEvents.push(JSON.parse(json)),
+        }
+        const runtime = {
+          foliateSessionId: `session-${reason}`,
+          wordSyncAnchorGeneration: 0,
+          mediaOverlayActiveFragment: { overlayRequestId: 41 },
+          committedVisibleTextRange: { frameLabel: 'source' },
+          currentPagePosition: { pageIndex: 4, spineIndex: 2 },
+          surfacePaperTextureFallbackDirection: null,
+          relocateSequence: 0,
+          rawTextProvenance: {
+            rangeIsVisible: (_fragment, visibleRange) =>
+              visibleRange?.frameLabel === frameLabel,
+            resolveRange: () => frames[frameLabel].range,
+          },
+          pageTurnLivePresentationReceipt: () => settled ? ({
+            scope: 'live',
+            token: 'destination-commit',
+            pageIndex: 4,
+            foliateSessionId: `session-${reason}`,
+            rasterGeneration: 31,
+            textureGeneration: 32,
+            foregroundMutationGeneration: 8,
+            presentationSequence: 9,
+          }) : null,
+          pageTurnTextPageCommitIdentity: () => settled ? ({
+            layoutGeneration: 21,
+            viewGeneration: 22,
+            commitSequence: 23,
+            flow: 'paginated',
+            index: 2,
+            pageIndex: 1,
+            pageCount: 3,
+          }) : null,
+          pageTurnCaptureGeometry: () => {
+            const rect = frames.destination.iframe.getBoundingClientRect()
+            return {
+              viewportWidth: 900,
+              viewportHeight: 400,
+              mode: 'single',
+              pages: [{
+                role: 'full',
+                left: rect.left,
+                top: rect.top,
+                width: rect.width,
+                height: rect.height,
+              }],
+            }
+          },
+          pageTurnRasterDescriptor: () => ({
+            paginationFingerprint: 'pagination-destination',
+            layoutFingerprint: 'layout-destination',
+            decorationFingerprint: 'settings-destination',
+            visualPageOrdinal: 4,
+            spineIndex: 2,
+            chapterPageIndex: 1,
+            chapterPageCount: 3,
+          }),
+          paintActiveMediaOverlayFragment(fragment) {
+            if (!this.rawTextProvenance.rangeIsVisible(
+              fragment,
+              this.committedVisibleTextRange
+            )) return false
+            paints.push({ frameLabel, boundarySequence: fragment.wordBoundarySequence })
+            this.mediaOverlayActiveFragment = fragment
+            return true
+          },
+          clearOverlay() {
+            this.mediaOverlayActiveFragment = null
+          },
+          postOverlayFragmentInactive(fragment, inactiveReason) {
+            bridgeEvents.push({
+              type: 'overlayFragmentInactive',
+              overlayRequestId: fragment.overlayRequestId,
+              reason: inactiveReason,
+            })
+          },
+          rejectOverlayFragment(fragment, inactiveReason) {
+            this.clearOverlay()
+            this.postOverlayFragmentInactive(fragment, inactiveReason)
+          },
+        }
+        Object.assign(
+          runtime,
+          mediaOverlayApi.NavicReaderMediaOverlayMethods,
+          locationApi.NavicReaderLocationMethods
+        )
+        const fragment = boundarySequence => ({
+          coordinateMode: 'wordsync-v1-extracted-utf8',
+          overlayRequestId: 41,
+          wordBoundarySequence: boundarySequence,
+          textHref: 'synthetic.xhtml',
+          rawProvenanceId: 'synthetic-raw',
+          rawSpineIndex: 2,
+          rawByteStart: boundarySequence,
+          rawByteEnd: boundarySequence + 1,
+        })
+
+        runtime.beginControlledRelocation(reason)
+        const relocationEpoch = runtime.activeExactWordSyncRelocation?.epoch
+        wordSyncApi.applyReaderWordSyncOverlayFragment(runtime, fragment(7))
+        runtime.consumeControlledRelocationReason(reason)
+        frameLabel = 'intermediate'
+        wordSyncApi.applyReaderWordSyncOverlayFragment(runtime, fragment(8))
+        wordSyncApi.applyReaderWordSyncOverlayFragment(runtime, fragment(10))
+        const beforeSettlement = {
+          paints: [...paints],
+          events: bridgeEvents.map(event => event.type),
+          deferredBoundary: runtime.deferredExactWordSyncOverlay?.fragment
+            ?.wordBoundarySequence,
+        }
+
+        settled = true
+        frameLabel = 'destination'
+        runtime.committedVisibleTextRange = { frameLabel: 'destination' }
+        runtime.completeExactWordSyncOverlayRelocation(relocationEpoch)
+        const activeEvents = bridgeEvents.filter(event =>
+          event.type === 'overlayFragmentActive')
+        return {
+          beforeSettlement,
+          paints,
+          activeEventCount: activeEvents.length,
+          boundarySequence: activeEvents[0]?.wordBoundarySequence,
+          receiptBoundarySequence: activeEvents[0]?.anchorReceipt?.boundarySequence,
+          destinationCommitToken: activeEvents[0]?.anchorReceipt?.destinationCommitToken,
+          commitSequence: activeEvents[0]?.anchorReceipt?.commitSequence,
+        }
+      }
+
+      return [run('page-turn:next'), run('media-overlay-follow')]
+    })
+
+    for (const result of results) {
+      assert.deepEqual(result.beforeSettlement, {
+        paints: [],
+        events: [],
+        deferredBoundary: 10,
+      })
+      assert.deepEqual(result.paints, [
+        { frameLabel: 'destination', boundarySequence: 10 },
+      ])
+      assert.equal(result.activeEventCount, 1)
+      assert.equal(result.boundarySequence, 10)
+      assert.equal(result.receiptBoundarySequence, 10)
+      assert.equal(result.destinationCommitToken, 'destination-commit')
+      assert.equal(result.commitSequence, 23)
+    }
+  } finally {
+    await page.close()
+  }
+})
+
+test('drops a deferred exact boundary when a newer relocation supersedes its epoch', async () => {
+  const page = await newReaderPage()
+  try {
+    const result = await page.evaluate(async () => {
+      const wordSyncApi = await import('/navic-reader-wordsync-provenance.js')
+      const mediaOverlayApi = await import('/navic-reader-media-overlay.js')
+      const locationApi = await import('/navic-reader-location.js')
+      const paints = []
+      const runtime = {
+        foliateSessionId: 'session-1',
+        wordSyncAnchorGeneration: 0,
+        mediaOverlayActiveFragment: { overlayRequestId: 51 },
+        committedVisibleTextRange: {},
+        currentPagePosition: { pageIndex: 1, spineIndex: 0 },
+        surfacePaperTextureFallbackDirection: null,
+        relocateSequence: 0,
+        rawTextProvenance: {
+          rangeIsVisible: () => true,
+          resolveRange: () => null,
+        },
+        paintActiveMediaOverlayFragment: fragment => {
+          paints.push(fragment.wordBoundarySequence)
+          return true
+        },
+        clearOverlay() {},
+        postOverlayFragmentInactive() {},
+        rejectOverlayFragment() {},
+        pageTurnLivePresentationReceipt: () => null,
+        pageTurnTextPageCommitIdentity: () => null,
+      }
+      Object.assign(
+        runtime,
+        mediaOverlayApi.NavicReaderMediaOverlayMethods,
+        locationApi.NavicReaderLocationMethods
+      )
+      const fragment = wordBoundarySequence => ({
+        coordinateMode: 'wordsync-v1-extracted-utf8',
+        overlayRequestId: 51,
+        wordBoundarySequence,
+        textHref: 'synthetic.xhtml',
+        rawProvenanceId: 'synthetic-raw',
+        rawSpineIndex: 0,
+        rawByteStart: wordBoundarySequence,
+        rawByteEnd: wordBoundarySequence + 1,
+      })
+
+      runtime.beginControlledRelocation('page-turn:next')
+      const staleEpoch = runtime.activeExactWordSyncRelocation?.epoch
+      wordSyncApi.applyReaderWordSyncOverlayFragment(runtime, fragment(3))
+      runtime.beginControlledRelocation('go-to')
+      const currentEpoch = runtime.activeExactWordSyncRelocation?.epoch
+      wordSyncApi.applyReaderWordSyncOverlayFragment(runtime, fragment(4))
+      runtime.completeExactWordSyncOverlayRelocation(staleEpoch)
+      const afterStaleSettlement = [...paints]
+      runtime.completeExactWordSyncOverlayRelocation(currentEpoch)
+      return {
+        staleEpoch,
+        currentEpoch,
+        afterStaleSettlement,
+        paints,
+        deferred: runtime.deferredExactWordSyncOverlay,
+      }
+    })
+
+    assert.notEqual(result.staleEpoch, result.currentEpoch)
+    assert.deepEqual(result.afterStaleSettlement, [])
+    assert.deepEqual(result.paints, [])
+    assert.equal(result.deferred, null)
+  } finally {
+    await page.close()
+  }
+})
+
+test('retains a newer exact request and consumes stale requests during relocation', async () => {
+  const page = await newReaderPage()
+  try {
+    const result = await page.evaluate(async () => {
+      const mediaOverlayApi = await import('/navic-reader-media-overlay.js')
+      const runtime = {
+        foliateSessionId: 'session-1',
+        exactWordSyncRelocationEpoch: 0,
+        activeExactWordSyncRelocation: null,
+        deferredExactWordSyncOverlay: null,
+        mediaOverlayActiveFragment: { overlayRequestId: 61 },
+      }
+      Object.assign(runtime, mediaOverlayApi.NavicReaderMediaOverlayMethods)
+      runtime.beginExactWordSyncOverlayRelocation()
+      const fragment = (overlayRequestId, wordBoundarySequence) => ({
+        coordinateMode: 'wordsync-v1-extracted-utf8',
+        overlayRequestId,
+        wordBoundarySequence,
+        textHref: 'synthetic.xhtml',
+        rawProvenanceId: 'synthetic-raw',
+        rawSpineIndex: 0,
+        rawByteStart: wordBoundarySequence,
+        rawByteEnd: wordBoundarySequence + 1,
+      })
+      const newerRequestDeferred = runtime.deferExactWordSyncOverlayFragment(
+        fragment(62, 0)
+      )
+      const staleRequestConsumed = runtime.deferExactWordSyncOverlayFragment(
+        fragment(61, 8)
+      )
+      return {
+        newerRequestDeferred,
+        staleRequestConsumed,
+        pendingRequestId: runtime.deferredExactWordSyncOverlay?.fragment?.overlayRequestId,
+        pendingBoundary: runtime.deferredExactWordSyncOverlay?.boundarySequence,
+      }
+    })
+
+    assert.equal(result.newerRequestDeferred, true)
+    assert.equal(result.staleRequestConsumed, true)
+    assert.equal(result.pendingRequestId, 62)
+    assert.equal(result.pendingBoundary, 0)
   } finally {
     await page.close()
   }

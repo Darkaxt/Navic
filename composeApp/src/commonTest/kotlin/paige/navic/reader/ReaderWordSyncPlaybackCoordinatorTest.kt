@@ -147,6 +147,7 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 		assertEquals(cue.fragment.overlayRequestId, fragment.overlayRequestId)
 		assertEquals("audio-a", fragment.resourceHref)
 		assertEquals("Text/chapter.xhtml", fragment.textHref)
+		assertEquals(0L, fragment.wordBoundarySequence)
 		assertEquals(0, fragment.rawByteStart)
 		assertEquals(2, fragment.rawByteEnd)
 		assertEquals(2, fragment.rawSpineIndex)

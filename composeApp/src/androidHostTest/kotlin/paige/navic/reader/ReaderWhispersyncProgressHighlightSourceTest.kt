@@ -371,7 +371,10 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		)
 		assertTrue(
 			onLoad.indexOf("this.clearOverlay") <
-				onLoad.indexOf("this.postOverlayFragmentInactive")
+				onLoad.indexOf("if (!this.exactWordSyncOverlayRelocationIsUnsettled())") &&
+				onLoad.indexOf("if (!this.exactWordSyncOverlayRelocationIsUnsettled())") <
+				onLoad.indexOf("this.postOverlayFragmentInactive"),
+			"Destination loading must clear the source decoration while deferring exact fallback until settlement."
 		)
 		assertFalse(
 			onLoad.contains("post({ type: 'overlayFragmentInactive', reason: 'document-loaded' })"),

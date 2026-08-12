@@ -11,6 +11,7 @@ const {
   readerForgetTextPageCommit,
   readerRememberTextPageCommit,
   readerRememberTextPageVisibleContent,
+  readerTextPageCommitIdentity,
   readerTextPageCommitIsValid,
   readerTextPageCommitMatches,
   readerTextPageCommitOwnerHasExpectedVisibleContent,
@@ -181,6 +182,34 @@ test('visible-content capability is private current and copied only from an owni
   assert.equal(JSON.stringify(source).includes('receipt'), false)
   assert.equal(readerForgetTextPageCommit(source), true)
   assert.equal(readerTextPageCommitOwnerHasExpectedVisibleContent(source), false)
+})
+
+test('current visible-content owners expose a copied canonical receipt identity', () => {
+  const result = committedResult()
+  let valid = true
+  const renderer = {
+    validateTextPageCommit: receipt => valid && receipt === result.receipt,
+    validateTextPageVisibleContent: receipt => valid && receipt === result.receipt,
+  }
+  const source = Object.freeze({ token: 'identity-source' })
+  const target = Object.freeze({ token: 'identity-target' })
+
+  assert.equal(readerRememberTextPageCommit(source, renderer, result.receipt), true)
+  assert.equal(readerRememberTextPageVisibleContent(source), true)
+  assert.deepEqual(readerTextPageCommitIdentity(source), {
+    layoutGeneration: 11,
+    viewGeneration: 13,
+    commitSequence: 17,
+    flow: 'paginated',
+    index: 2,
+    pageIndex: 3,
+    pageCount: 7,
+  })
+  assert.equal(readerCopyTextPageCommit(source, target), true)
+  assert.deepEqual(readerTextPageCommitIdentity(target), readerTextPageCommitIdentity(source))
+  valid = false
+  assert.equal(readerTextPageCommitIdentity(source), null)
+  assert.equal(readerTextPageCommitIdentity(target), null)
 })
 
 test('remembered ownership remains detectable after paginator invalidation', () => {

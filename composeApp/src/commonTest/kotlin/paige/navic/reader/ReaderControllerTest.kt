@@ -2152,6 +2152,17 @@ class ReaderControllerTest {
 		assertEquals(emptyList(), repeated.engineCommands)
 		assertNull(repeated.whispersyncAudioSeekTarget)
 
+		val missingReceipt = repeated.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(overlay.fragment)
+		)
+		assertEquals(5_000L, missingReceipt.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(overlay.fragment, missingReceipt.controller.state.activeMediaOverlay)
+		assertNull(missingReceipt.controller.state.activeMediaOverlayAnchorReceipt)
+		assertEquals(
+			requestId,
+			missingReceipt.controller.state.whispersync.sync.confirmedOverlayRequestId
+		)
+
 		val receipt = ReaderWhispersyncAnchorReceipt(
 			foliateSessionId = "session-a",
 			destinationCommitToken = "settled-4",
@@ -2163,6 +2174,12 @@ class ReaderControllerTest {
 			presentationSequence = 4L,
 			anchorGeneration = 5L,
 			boundarySequence = requestId,
+			layoutGeneration = 14L,
+			viewGeneration = 15L,
+			commitSequence = 16L,
+			committedSpineIndex = 0,
+			committedChapterPageIndex = 0,
+			committedChapterPageCount = 1,
 			paginationFingerprint = "pagination",
 			layoutFingerprint = "layout",
 			readerSettingsRasterKey = "settings",
@@ -2213,7 +2230,7 @@ class ReaderControllerTest {
 		)
 		assertNull(duplicate.whispersyncAudioSeekTarget)
 		assertEquals(overlay.fragment, duplicate.controller.state.activeMediaOverlay)
-		assertNull(duplicate.controller.state.activeMediaOverlayAnchorReceipt)
+		assertEquals(receipt, duplicate.controller.state.activeMediaOverlayAnchorReceipt)
 	}
 
 	@Test
@@ -3067,6 +3084,12 @@ class ReaderControllerTest {
 			presentationSequence = 4L,
 			anchorGeneration = 5L,
 			boundarySequence = requireNotNull(overlay.overlayRequestId),
+			layoutGeneration = 14L,
+			viewGeneration = 15L,
+			commitSequence = 16L,
+			committedSpineIndex = 0,
+			committedChapterPageIndex = 0,
+			committedChapterPageCount = 1,
 			paginationFingerprint = "pagination",
 			layoutFingerprint = "layout",
 			readerSettingsRasterKey = "settings",

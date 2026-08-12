@@ -143,9 +143,14 @@ data class ReaderWordSyncPlaybackCoordinator(
 			)
 		}
 
+		val boundarySequence = (playback ?: coordinatorWithDemand.lastPlayback)
+			?.let(coordinatorWithDemand::boundariesForPlayback)
+			?.singleOrNull { boundary -> boundary.word === candidate.word }
+			?.sequence
 		val rawFragment = candidate.toOverlayFragment(
 			cueFragment = cueFragment,
-			playback = playback ?: coordinatorWithDemand.lastPlayback
+			playback = playback ?: coordinatorWithDemand.lastPlayback,
+			boundarySequence = boundarySequence
 		)
 		val rawCommand = when (cueCommand) {
 			is ReaderEngineCommand.ApplyMediaOverlay -> ReaderEngineCommand.ApplyMediaOverlay(rawFragment)

@@ -33,6 +33,12 @@ class ReaderWhispersyncAnchorReceiptTest {
 				    "presentationSequence": 9,
 				    "anchorGeneration": 10,
 				    "boundarySequence": 19,
+				    "layoutGeneration": 21,
+				    "viewGeneration": 22,
+				    "commitSequence": 23,
+				    "committedSpineIndex": 3,
+				    "committedChapterPageIndex": 2,
+				    "committedChapterPageCount": 7,
 				    "paginationFingerprint": "pagination-a",
 				    "layoutFingerprint": "layout-a",
 				    "readerSettingsRasterKey": "settings-a",
@@ -76,8 +82,8 @@ class ReaderWhispersyncAnchorReceiptTest {
 	}
 
 	@Test
-	fun malformedAnchorFailsClosedWithoutDiscardingSemanticOverlayConfirmation() {
-		val event = assertIs<ReaderBridgeEvent.OverlayFragmentActive>(
+	fun malformedExactAnchorFailsClosedWithoutSemanticOverlayConfirmation() {
+		assertNull(
 			decodeReaderBridgeEvent(
 				"""
 				{
@@ -116,9 +122,27 @@ class ReaderWhispersyncAnchorReceiptTest {
 				""".trimIndent()
 			)
 		)
+	}
 
-		assertEquals(19L, event.fragment.overlayRequestId)
-		assertNull(event.anchorReceipt)
+	@Test
+	fun exactOverlayWithoutAnchorFailsClosed() {
+		assertNull(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "overlayFragmentActive",
+				  "resourceHref": "audio.mp3",
+				  "coordinateMode": "wordsync-v1-extracted-utf8",
+				  "overlayRequestId": 19,
+				  "textHref": "chapter.xhtml",
+				  "rawProvenanceId": "raw-1",
+				  "rawSpineIndex": 4,
+				  "rawByteStart": 20,
+				  "rawByteEnd": 28
+				}
+				""".trimIndent()
+			)
+		)
 	}
 
 	@Test
@@ -178,6 +202,12 @@ class ReaderWhispersyncAnchorReceiptTest {
 		presentationSequence = 6L,
 		anchorGeneration = 7L,
 		boundarySequence = 8L,
+		layoutGeneration = 9L,
+		viewGeneration = 10L,
+		commitSequence = 11L,
+		committedSpineIndex = 2,
+		committedChapterPageIndex = 1,
+		committedChapterPageCount = 3,
 		paginationFingerprint = "pagination",
 		layoutFingerprint = "layout",
 		readerSettingsRasterKey = "settings",

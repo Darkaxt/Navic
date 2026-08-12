@@ -289,6 +289,7 @@ function postCurrentLocationSnapshot(reason = 'snapshot', options = {}) {
 
 
 function postLocationChanged(detail, reason = 'relocate', options = {}) {
+  const wordSyncRelocationEpoch = Number(options.wordSyncRelocationEpoch)
   if (this.nativePageDragPreview || this.pendingPageDragPreviewCommand) {
     readerTrace('page-drag-preview:retained-for-location', { reason })
   } else {
@@ -296,6 +297,9 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
   }
   if (this.detailTargetsCover(detail) && this.hasNonCoverReadableContent()) {
     this.updateReaderPageNumberLayer(null)
+    if (Number.isSafeInteger(wordSyncRelocationEpoch) && wordSyncRelocationEpoch > 0) {
+      this.completeExactWordSyncOverlayRelocation(wordSyncRelocationEpoch)
+    }
     log('location-changed:cover-skipped', reason)
     readerTrace('location:cover-skipped', { reason, detail })
     return { posted: false, skipped: 'cover', reason }
@@ -352,6 +356,10 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     if (duplicateHandled) {
       return { posted: false, skipped: 'duplicate-adjacent-fallback', reason }
     }
+    this.postCurrentVisibleTextRange(detail, { ...options, source: reason || null })
+    if (Number.isSafeInteger(wordSyncRelocationEpoch) && wordSyncRelocationEpoch > 0) {
+      this.completeExactWordSyncOverlayRelocation(wordSyncRelocationEpoch)
+    }
     return { posted: false, skipped: 'duplicate', reason }
   }
   this.updateSurfacePaperTexture(detail, pagePosition, reason)
@@ -376,6 +384,9 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
   )
   const delivered = post(message)
   if (!delivered) {
+    if (Number.isSafeInteger(wordSyncRelocationEpoch) && wordSyncRelocationEpoch > 0) {
+      this.completeExactWordSyncOverlayRelocation(wordSyncRelocationEpoch)
+    }
     return { posted: false, skipped: 'bridge-delivery-failed', reason }
   }
   this.lastPostedLocationKey = locationKey
@@ -383,6 +394,9 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
   readerTrace('location:post', { reason })
   this.compareCommittedDuplicatePage(detail, message)
   const visibleTextRangeResult = this.postCurrentVisibleTextRange(detail, { ...options, source: reason || null })
+  if (Number.isSafeInteger(wordSyncRelocationEpoch) && wordSyncRelocationEpoch > 0) {
+    this.completeExactWordSyncOverlayRelocation(wordSyncRelocationEpoch)
+  }
   log('location-changed:posted', reason)
   if (detail.cfi) post({ type: 'cfiChanged', cfi: detail.cfi })
   if (tocItem.href || tocItem.label || tocItem.title) {
@@ -526,6 +540,7 @@ function beginControlledRelocation(reason) {
   const owner = {}
   this.controlledRelocateOwner = owner
   this.controlledRelocateReason = reason || null
+  this.beginExactWordSyncOverlayRelocation()
   if (!String(reason || '').startsWith('page-turn:')) {
     this.surfacePaperTextureFallbackDirection = null
   }
@@ -546,6 +561,7 @@ function cancelControlledRelocation(owner) {
   this.controlledRelocateOwner = null
   this.controlledRelocateReason = null
   this.controlledRelocateStartSequence = this.relocateSequence
+  this.dropDeferredExactWordSyncOverlayFragment()
   return true
 }
 
@@ -728,6 +744,8 @@ function onRelocate(detail) {
 function cancelPendingCommittedRelocation() {
   this.pendingRelocateDetail = null
   this.pendingRelocateReason = 'relocate-committed'
+  this.pendingExactWordSyncRelocationEpoch = null
+  this.dropDeferredExactWordSyncOverlayFragment()
   this.controlledRelocateOwner = null
   this.controlledRelocateReason = null
   this.controlledRelocateStartSequence = this.relocateSequence
@@ -747,6 +765,8 @@ function scheduleCommittedRelocation(detail, reason = 'relocate-committed') {
     !readerRelocationReasonIsExplicit(reason)
   this.pendingRelocateDetail = detail
   this.pendingRelocateReason = preserveExplicitReason ? previousReason : reason
+  this.pendingExactWordSyncRelocationEpoch =
+    this.activeExactWordSyncRelocation?.epoch ?? null
   if (this.relocatePostScheduled) return
   this.relocatePostScheduled = true
   requestAnimationFrame(() => {
@@ -756,12 +776,17 @@ function scheduleCommittedRelocation(detail, reason = 'relocate-committed') {
         this.relocatePostScheduled = false
         const pendingDetail = this.pendingRelocateDetail
         const pendingReason = this.pendingRelocateReason
+        const wordSyncRelocationEpoch = this.pendingExactWordSyncRelocationEpoch
         this.pendingRelocateDetail = null
         this.pendingRelocateReason = 'relocate-committed'
+        this.pendingExactWordSyncRelocationEpoch = null
         if (!pendingDetail) return
         this.applyThemeToLoadedContent(this.readerSettings)
         const forceDuplicatePost = String(pendingReason || '').startsWith('shell-cover-dismiss:')
-        this.postLocationChanged(pendingDetail, pendingReason, { forceDuplicatePost })
+        this.postLocationChanged(pendingDetail, pendingReason, {
+          forceDuplicatePost,
+          wordSyncRelocationEpoch,
+        })
       }, ReaderRelocationCommitDelayMs)
     })
   })

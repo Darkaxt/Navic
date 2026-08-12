@@ -265,6 +265,9 @@ class NavicReaderRuntime {
   lastMediaOverlayRangeDiagnosticKey = null
   mediaOverlayActiveFragment = null
   wordSyncAnchorGeneration = 0
+  exactWordSyncRelocationEpoch = 0
+  activeExactWordSyncRelocation = null
+  deferredExactWordSyncOverlay = null
   mediaOverlayPlayedKeyPrefix = ReaderMediaOverlayPlayedRangeKeyPrefix
   mediaOverlayPlayedFragments = new Map()
   rawTextProvenance = new ReaderWordSyncProvenanceStore({ postStatus: post })
@@ -277,6 +280,7 @@ class NavicReaderRuntime {
   mediaOverlayProgressDisplayedFraction = 0
   pendingRelocateDetail = null
   pendingRelocateReason = 'relocate-committed'
+  pendingExactWordSyncRelocationEpoch = null
   controlledRelocateOwner = null
   controlledRelocateReason = null
   controlledRelocateStartSequence = 0
@@ -415,6 +419,7 @@ class NavicReaderRuntime {
       case 'updateOverlayFragmentProgress':
         return this.updateOverlayFragmentProgress(command.fragment || command)
       case 'clearOverlay':
+        this.dropDeferredExactWordSyncOverlayFragment()
         return this.clearOverlay()
       case 'applySettings':
         return this.applySettings(command.settings || {})
@@ -627,6 +632,7 @@ class NavicReaderRuntime {
   close() {
     this.invalidatePaginationProfileTask('reader-close')
     this.destroyPageTurnPreviewRenderer('reader-close')
+    this.dropDeferredExactWordSyncOverlayFragment()
     this.clearOverlay()
     this.rawTextProvenance.clear()
     this.duplicatePageFingerprint.endSession()
@@ -1019,6 +1025,12 @@ class NavicReaderRuntime {
       return
     }
     const rawMode = coordinateMode === ReaderWordSyncV1ExtractedUtf8Mode
+    const relocationUnsettled = rawMode &&
+      this.exactWordSyncOverlayRelocationIsUnsettled()
+    if (relocationUnsettled) {
+      this.deferExactWordSyncOverlayFragment(fragment)
+      return
+    }
     const activeRequestId = this.mediaOverlayActiveFragment?.overlayRequestId
     if (
       fragment.overlayRequestId == null ||
@@ -1357,7 +1369,9 @@ class NavicReaderRuntime {
     if (this.mediaOverlayEnabled) {
       const invalidatedFragment = this.mediaOverlayActiveFragment
       this.clearOverlay({ preservePlayed: this.readerMediaOverlayPersistentPlayed() })
-      this.postOverlayFragmentInactive(invalidatedFragment, 'document-loaded')
+      if (!this.exactWordSyncOverlayRelocationIsUnsettled()) {
+        this.postOverlayFragmentInactive(invalidatedFragment, 'document-loaded')
+      }
     }
   }
   logContentLayout(label = 'unknown') {
@@ -1532,6 +1546,7 @@ window.NavicReaderBridge = {
   nativePageTurnPendingState: () => runtime.activeExactPageTurnSettlement(),
   pageTurnPreviewPresentationReceipt: () => runtime.pageTurnPreviewPresentationReceipt(),
   pageTurnLivePresentationReceipt: () => runtime.pageTurnLivePresentationReceipt(),
+  pageTurnTextPageCommitIdentity: () => runtime.pageTurnTextPageCommitIdentity(),
   beginPageTurnPreviewPreparation: (token, pageIndex, foregroundMutationGeneration) =>
     runtime.beginPageTurnPreviewPreparation(
       token,

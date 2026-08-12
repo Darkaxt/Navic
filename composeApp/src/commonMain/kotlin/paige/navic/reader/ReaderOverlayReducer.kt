@@ -105,6 +105,9 @@ internal object ReaderOverlayReducer {
 		if (requestId != activeRequestId) return ReaderControllerStep(controller)
 
 		val wasConfirmed = currentWhispersync.sync.hasConfirmedOverlay(requestId)
+		if (wasConfirmed && event.anchorReceipt == null) {
+			return ReaderControllerStep(controller)
+		}
 		val confirmedSync = currentWhispersync.sync.confirmOverlay(requestId)
 
 		val pendingSeek = currentWhispersync.pendingAudioSeek
