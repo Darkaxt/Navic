@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "ae11967ba2342c1d4a770f81907a3c161e23ef94",
+  "commit": "45f16fbcfbf9896dd13e9a1073d0a2485be7147d",
   "apiVersion": 3,
-  "sourceManifestSha256": "f0796d48c98016de526895c2de01b0bba0ee33a5c4ec0af341724d5a17610f28",
+  "sourceManifestSha256": "ff484298afe47c6e0bd20e4e1674a2045a5f40bbd741d8a6c5e752acca6982cc",
   "licenseBlob": "8aa26455d23acf904be3ed9dfb3a3efe3e49245a",
   "sourceFiles": [
     {
@@ -168,7 +168,7 @@
     },
     {
       "mode": "100644",
-      "blob": "41eb4aa4e813ce0f93dcf3319a4585a51b02e730",
+      "blob": "40a2f226df9018a07c2315a6036d3744b258c5e5",
       "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceListener.java"
     },
     {
@@ -273,7 +273,7 @@
     },
     {
       "mode": "100644",
-      "blob": "659ef11446bbef321a40bc01fc2d2e9e519c44d4",
+      "blob": "8b06a76a89b63b30748351734a52eda926e6db4e",
       "path": "karackencurllib/src/test/java/karacken/curl/Gles2RendererSourceTest.java"
     },
     {
@@ -338,12 +338,12 @@
     },
     {
       "mode": "100644",
-      "blob": "1c8a0e3502ceb01a7b0d1516f9710cd6b2afacd5",
+      "blob": "9329b88a1ceef7a1b17c783762ca21b472fa34a2",
       "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceView.java"
     },
     {
       "mode": "100644",
-      "blob": "a0506133c3a71e9a6e7611cc108001cf8503e0bc",
+      "blob": "2f0278c4395d0507f1b59ab68128c64c5860f3f8",
       "path": "karackencurllib/src/main/java/karacken/curl/PageRenderer.java"
     },
     {
@@ -403,7 +403,7 @@
     },
     {
       "mode": "100644",
-      "blob": "c1d9819393e11b2f17042296044f6f57111c0a41",
+      "blob": "55719b781344f15cffcdc9085ac68c9a82482a86",
       "path": "karackencurllib/src/main/java/karacken/curl/PageOverlayUpdateGate.java"
     },
     {
@@ -423,7 +423,7 @@
     },
     {
       "mode": "100644",
-      "blob": "971d7807e5d7e1b1bdb2d60a00cfbec988d5509c",
+      "blob": "f7e1fa5934dc009b06d0e2e61d4dff6cf3c473dc",
       "path": "karackencurllib/src/test/java/karacken/curl/PageOverlayUpdateGateTest.java"
     }
   ]
