@@ -5,6 +5,39 @@ import kotlin.test.assertEquals
 
 class OfflinePlaybackFallbackPolicyTest {
 	@Test
+	fun onlineRemoteRecoveryCanContinue() {
+		assertEquals(
+			OfflinePlaybackRecoveryRoute.ContinueRecovery,
+			resolvePlaybackRecoveryConnectivity(
+				isEffectivelyOnline = true,
+				currentUsesLocalFile = false
+			)
+		)
+	}
+
+	@Test
+	fun offlineLocalFailureStaysOnItemRecovery() {
+		assertEquals(
+			OfflinePlaybackRecoveryRoute.ContinueRecovery,
+			resolvePlaybackRecoveryConnectivity(
+				isEffectivelyOnline = false,
+				currentUsesLocalFile = true
+			)
+		)
+	}
+
+	@Test
+	fun offlineRemoteRecoveryHandsOffToCachedFallback() {
+		assertEquals(
+			OfflinePlaybackRecoveryRoute.HandOffToOfflineFallback,
+			resolvePlaybackRecoveryConnectivity(
+				isEffectivelyOnline = false,
+				currentUsesLocalFile = false
+			)
+		)
+	}
+
+	@Test
 	fun currentLocalMediaWinsWithoutChangingQueuePosition() {
 		assertEquals(
 			OfflinePlaybackFallbackResolution.KeepCurrent,
@@ -41,6 +74,22 @@ class OfflinePlaybackFallbackPolicyTest {
 				queueSongIds = listOf("current", "linear-next", "uncached", "shuffle-next"),
 				upcomingIndexes = listOf(3, 2, 1),
 				availableSongIds = setOf("linear-next", "shuffle-next"),
+				currentUsesLocalFile = false
+			)
+		)
+	}
+
+	@Test
+	fun offlineFallbackSearchesTheCompleteMediaTraversal() {
+		val queue = (0..9).map { "song-$it" }
+
+		assertEquals(
+			OfflinePlaybackFallbackResolution.PlayUpcoming(8),
+			resolveOfflinePlaybackFallback(
+				currentIndex = 0,
+				queueSongIds = queue,
+				upcomingIndexes = listOf(3, 5, 2, 6, 4, 7, 8, 9, 1),
+				availableSongIds = setOf("song-8"),
 				currentUsesLocalFile = false
 			)
 		)

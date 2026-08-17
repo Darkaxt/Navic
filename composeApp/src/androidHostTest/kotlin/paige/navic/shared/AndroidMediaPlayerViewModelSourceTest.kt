@@ -221,6 +221,65 @@ class AndroidMediaPlayerViewModelSourceTest {
 	}
 
 	@Test
+	fun remoteRecoveryHandsOffToOfflineFallbackAtEveryAsyncBoundary() {
+		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val recoveryText = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
+
+		assertContains(viewModelText, "isEffectivelyOnline = { connectivityManager.isOnline.value }")
+		assertContains(recoveryText, "private val isEffectivelyOnline: () -> Boolean")
+		assertContains(recoveryText, "private fun handOffRemoteRecoveryWhenOffline(")
+		assertContains(recoveryText, "currentItem.localConfiguration?.uri?.scheme == \"file\"")
+
+		val playerErrorBody = recoveryText
+			.substringAfter("fun handlePlayerError(")
+			.substringBefore("private fun beginStaleSongProbe(")
+		assertContains(playerErrorBody, "handOffRemoteRecoveryWhenOffline(")
+		assertTrue(
+			playerErrorBody.indexOf("handOffRemoteRecoveryWhenOffline(") <
+				playerErrorBody.indexOf("beginStaleSongProbe("),
+			"Offline arbitration must happen before stale-song network work."
+		)
+
+		val downloadRecoveryBody = recoveryText
+			.substringAfter("private fun beginDownloadRecovery(")
+			.substringBefore("private fun resumeCurrentFromLocalFile(")
+		assertContains(downloadRecoveryBody, "handOffRemoteRecoveryWhenOffline(")
+		assertTrue(
+			downloadRecoveryBody.indexOf("handOffRemoteRecoveryWhenOffline(") <
+				downloadRecoveryBody.indexOf("downloadManager.requestPlaybackRecoveryDownload(song)"),
+			"Connectivity must be rechecked before issuing a recovery download."
+		)
+
+		val downloadSnapshotBody = recoveryText
+			.substringAfter("fun handleDownloadSnapshot(")
+			.substringBefore("fun onUserPause(")
+		assertContains(downloadSnapshotBody, "handOffRemoteRecoveryWhenOffline(")
+		assertTrue(
+			downloadSnapshotBody.indexOf("handOffRemoteRecoveryWhenOffline(") <
+				downloadSnapshotBody.indexOf("playbackRecoveryResolution("),
+			"Pending queued recovery must hand off before it can resolve to Wait."
+		)
+	}
+
+	@Test
+	fun offlineRecoveryNeverPresentsQueuedDownloadProgress() {
+		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val progressBody = viewModelText
+			.substringAfter("private fun updatePlaybackDownloadProgress()")
+			.substringBefore("private fun markPlaybackRecoveryPending()")
+		val pendingUiBody = viewModelText
+			.substringAfter("private fun markPlaybackRecoveryPending()")
+			.substringBefore("private fun clearPlaybackRecoveryUi()")
+
+		assertContains(
+			progressBody,
+			"playbackRecovery.isWaitingForService || !connectivityManager.isOnline.value"
+		)
+		assertContains(progressBody, "playbackDownloadProgress = null")
+		assertContains(pendingUiBody, "isLoading = !playbackRecovery.isWaitingForService")
+	}
+
+	@Test
 	fun stalePlaybackRecoveryEmitsBoundedDecisionDiagnostics() {
 		val recoveryText = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
 		val diagnosticsText = androidSharedSourceFile("AndroidPlaybackDiagnosticsLogger.android.kt").readText()

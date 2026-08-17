@@ -141,6 +141,7 @@ class AndroidMediaPlayerViewModel(
 		navidromeAvailabilityManager = navidromeAvailabilityManager,
 		diagnostics = playbackDiagnostics,
 		isAvailable = ::isAvailable,
+		isEffectivelyOnline = { connectivityManager.isOnline.value },
 		skipMediaOnError = { preferenceManager.skipMediaOnError },
 		staleSongResolver = staleSongResolver::resolve,
 		onQueueSongReplaced = ::replaceQueuedSong,
@@ -661,7 +662,7 @@ class AndroidMediaPlayerViewModel(
 
 	private fun updatePlaybackDownloadProgress() {
 		val recoverySongId = playbackRecovery.pendingSongId
-		if (playbackRecovery.isWaitingForService) {
+		if (playbackRecovery.isWaitingForService || !connectivityManager.isOnline.value) {
 			_uiState.update { state -> state.copy(playbackDownloadProgress = null) }
 			return
 		}
@@ -683,7 +684,9 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	private fun markPlaybackRecoveryPending() {
-		_uiState.update { state -> state.copy(isLoading = true) }
+		_uiState.update { state ->
+			state.copy(isLoading = !playbackRecovery.isWaitingForService)
+		}
 		updatePlaybackDownloadProgress()
 	}
 

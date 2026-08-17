@@ -15,6 +15,7 @@ import paige.navic.domain.manager.NavidromeOutageTrigger
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.NavidromeFailureDisposition
 import paige.navic.domain.models.OfflinePlaybackFallbackResolution
+import paige.navic.domain.models.OfflinePlaybackRecoveryRoute
 import paige.navic.domain.models.PendingPlaybackRecovery
 import paige.navic.domain.models.PlaybackDownloadRequestResult
 import paige.navic.domain.models.PlaybackRecoveryDownloadLifecycle
@@ -25,6 +26,7 @@ import paige.navic.domain.models.firstPlayableUpcomingIndex
 import paige.navic.domain.models.playbackFailureTargetIndex
 import paige.navic.domain.models.playbackRecoveryResolution
 import paige.navic.domain.models.resolveOfflinePlaybackFallback
+import paige.navic.domain.models.resolvePlaybackRecoveryConnectivity
 import paige.navic.domain.models.shouldProbeStalePlaybackSong
 import paige.navic.ui.core.PlayerUiState
 import java.io.File
@@ -35,6 +37,7 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 	private val navidromeAvailabilityManager: NavidromeAvailabilityManager,
 	private val diagnostics: AndroidPlaybackDiagnosticsLogger,
 	private val isAvailable: (String) -> Boolean,
+	private val isEffectivelyOnline: () -> Boolean,
 	private val skipMediaOnError: () -> Boolean,
 	private val staleSongResolver: suspend (DomainSong) -> StalePlaybackProbeResolution,
 	private val onQueueSongReplaced: (Int, DomainSong) -> Unit,
@@ -200,6 +203,14 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 			handleServiceUnavailable(player, state, error.errorCodeName, error)
 			return
 		}
+		if (
+			handOffRemoteRecoveryWhenOffline(
+				player = player,
+				state = state,
+				reason = "player-error-offline",
+				error = error
+			)
+		) return
 		val currentIndex = player.currentMediaItemIndex
 		val currentSongId = player.currentMediaItem?.mediaId
 		if (pending?.let { it.songId == currentSongId && it.queueIndex == currentIndex } == true) return
@@ -386,6 +397,14 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 	) {
 		if (pendingServiceOutage) return
 		var recovery = pending ?: return
+		if (
+			handOffRemoteRecoveryWhenOffline(
+				player = player,
+				state = state,
+				reason = "pending-download-offline",
+				error = pendingError
+			)
+		) return
 		val download = downloadsById[recovery.songId]
 		val expectedGeneration = recovery.downloadIntentGeneration
 		if (
@@ -529,6 +548,14 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		reason: String,
 		error: PlaybackException?
 	) {
+		if (
+			handOffRemoteRecoveryWhenOffline(
+				player = player,
+				state = state,
+				reason = "download-recovery-offline",
+				error = error
+			)
+		) return
 		val recovery = pendingRecovery(player, state, song, currentIndex, reason)
 		pending = recovery
 		pendingError = error
@@ -537,6 +564,14 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		diagnostics.onRecoveryPending(song, recovery.positionMs, recovery.shouldResume)
 		diagnostics.onDeferredDownloadRequested(song, currentIndex, reason, 1)
 		scope.launch {
+			if (
+				handOffRemoteRecoveryWhenOffline(
+					player = player,
+					state = state,
+					reason = "download-request-offline",
+					error = error
+				)
+			) return@launch
 			val result = downloadManager.requestPlaybackRecoveryDownload(song)
 			diagnostics.onPlaybackDownloadRequestResult(song.id, currentIndex, result)
 			val activeRecovery = pending?.takeIf { pendingRecovery ->
@@ -675,6 +710,28 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 			shouldResume = player.playWhenReady || !state.isPaused,
 			reason = reason
 		)
+	}
+
+	private fun handOffRemoteRecoveryWhenOffline(
+		player: MediaController,
+		state: PlayerUiState,
+		reason: String,
+		error: PlaybackException? = null
+	): Boolean {
+		val currentItem = player.currentMediaItem ?: return false
+		val route = resolvePlaybackRecoveryConnectivity(
+			isEffectivelyOnline = isEffectivelyOnline(),
+			currentUsesLocalFile = currentItem.localConfiguration?.uri?.scheme == "file"
+		)
+		if (route == OfflinePlaybackRecoveryRoute.ContinueRecovery) return false
+
+		handleServiceUnavailable(
+			player = player,
+			state = state,
+			reason = reason,
+			error = error
+		)
+		return true
 	}
 
 	private fun finishTerminalFailure(

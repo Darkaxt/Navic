@@ -6,6 +6,21 @@ sealed interface OfflinePlaybackFallbackResolution {
 	data class PlayUpcoming(val targetIndex: Int) : OfflinePlaybackFallbackResolution
 }
 
+enum class OfflinePlaybackRecoveryRoute {
+	ContinueRecovery,
+	HandOffToOfflineFallback
+}
+
+fun resolvePlaybackRecoveryConnectivity(
+	isEffectivelyOnline: Boolean,
+	currentUsesLocalFile: Boolean
+): OfflinePlaybackRecoveryRoute =
+	if (!isEffectivelyOnline && !currentUsesLocalFile) {
+		OfflinePlaybackRecoveryRoute.HandOffToOfflineFallback
+	} else {
+		OfflinePlaybackRecoveryRoute.ContinueRecovery
+	}
+
 fun resolveOfflinePlaybackFallback(
 	currentIndex: Int,
 	queueSongIds: List<String>,
