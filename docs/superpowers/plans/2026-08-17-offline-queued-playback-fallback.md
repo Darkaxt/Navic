@@ -59,7 +59,9 @@ false.
 Run:
 
 ```powershell
-.\gradlew.bat :composeApp:commonTest --tests "paige.navic.domain.models.OfflinePlaybackFallbackPolicyTest" :composeApp:testAndroidHostTest --tests "paige.navic.shared.AndroidMediaPlayerViewModelSourceTest"
+.\gradlew.bat :composeApp:testAndroidHostTest `
+  --tests "paige.navic.domain.models.OfflinePlaybackFallbackPolicyTest" `
+  --tests "paige.navic.shared.AndroidMediaPlayerViewModelSourceTest"
 ```
 
 Expected: the traversal test passes against existing pure policy, while the new
@@ -147,7 +149,11 @@ Run the Task 1 command. Expected: all selected tests pass.
 - [ ] **Step 1: Run all focused recovery policy tests**
 
 ```powershell
-.\gradlew.bat :composeApp:commonTest --tests "paige.navic.domain.models.*Playback*Recovery*Test" --tests "paige.navic.domain.models.OfflinePlaybackFallbackPolicyTest" :composeApp:testAndroidHostTest --tests "paige.navic.shared.AndroidMediaPlayerViewModelSourceTest" --tests "paige.navic.shared.PlaybackDiagnosticsSourceTest"
+.\gradlew.bat :composeApp:testAndroidHostTest `
+  --tests "paige.navic.domain.models.*Playback*Recovery*Test" `
+  --tests "paige.navic.domain.models.OfflinePlaybackFallbackPolicyTest" `
+  --tests "paige.navic.shared.AndroidMediaPlayerViewModelSourceTest" `
+  --tests "paige.navic.shared.PlaybackDiagnosticsSourceTest"
 ```
 
 Expected: all selected tests pass with no new failures.
@@ -173,7 +179,8 @@ git commit -m "fix(playback): bypass queued recovery while offline"
 - [ ] **Step 1: Run broad host verification**
 
 ```powershell
-.\gradlew.bat :composeApp:commonTest :composeApp:testAndroidHostTest
+.\gradlew.bat -I scripts/reader-qa-manifest-check.init.gradle readerQaProcessVariantManifests
+.\gradlew.bat :composeApp:testAndroidHostTest
 ```
 
 Expected: no regression from the known baseline; all music recovery tests pass.
@@ -183,20 +190,21 @@ Expected: no regression from the known baseline; all music recovery tests pass.
 Change the Android release suffix from `iota59` to `iota60` without changing the
 established `{letter}##` sequence.
 
-- [ ] **Step 3: Assemble the public release artifact**
+- [ ] **Step 3: Verify release metadata locally**
 
 ```powershell
-.\gradlew.bat :androidApp:assembleRelease
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName "v1.0.11-iota60"
 ```
 
-Expected: Gradle exits zero and produces the signed release APK expected by the
-repository release workflow.
+Expected: the source version matches the tag. Local production signing is not
+configured, so the guarded local release build remains unavailable and is not
+used as release evidence.
 
-- [ ] **Step 4: Verify artifact identity and checksum**
+- [ ] **Step 4: Push the integrated branch and annotated tag**
 
-Use `aapt dump badging`, `apksigner verify --print-certs`, and
-`Get-FileHash -Algorithm SHA256` against the release APK. Confirm package,
-version name, version code, signer, and checksum before publication.
+Push the verified commit to public `master` and push `v1.0.11-iota60`. The tag
+workflow must run the guarded signed `packageRelease` task and repository signer
+verification.
 
 - [ ] **Step 5: Compare implementation to the specification**
 
@@ -213,11 +221,17 @@ git commit -m "chore(release): prepare v1.0.11-iota60"
 git tag -a v1.0.11-iota60 -m "v1.0.11-iota60"
 ```
 
-Push the integrated public branch and tag, create the GitHub release with the
-stable APK only, then verify the remote tag, release metadata, asset checksum,
-and public download response.
+Use `scripts/publish-github-release.ps1` with explicit public-release readiness
+to push, follow the tag workflow, and wait for the GitHub release.
 
-- [ ] **Step 7: Clean the temporary worktree**
+- [ ] **Step 7: Verify the public artifact**
+
+Download the published stable APK to `D:\Temp`, then use `aapt dump badging`,
+`apksigner verify --print-certs`, and `Get-FileHash -Algorithm SHA256`. Confirm
+package, version name, version code, expected signer, checksum, and public
+download response before deleting the temporary download.
+
+- [ ] **Step 8: Clean the temporary worktree**
 
 After commits, push, release, and verification are complete, remove only
 `D:\Temp\navic-offline-stall-analysis`. Preserve the branch and public Git
