@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 
 class ReaderWhispersyncSyncCoordinatorTest {
 	@Test
-	fun typedAdapterResolvesCompleteFragmentCueAndReaderRepeatPolicies() {
+	fun typedAdapterResolvesProgressiveCueAndReaderRepeatPolicies() {
 		val adapter = WhispersyncOverlaySyncAdapter(whispersyncTimeline())
 
 		val playbackCue = assertNotNull(
@@ -22,8 +22,7 @@ class ReaderWhispersyncSyncCoordinatorTest {
 			)
 		)
 		assertEquals("seg-1", playbackCue.fragment.fragmentId)
-		assertEquals(42, playbackCue.progressTextEnd)
-		assertNull(playbackCue.fragment.textProgressFraction)
+		assertEquals(14, playbackCue.progressTextEnd)
 
 		val visibleRange = assertNotNull(
 			adapter.readerTarget(
@@ -102,8 +101,10 @@ class ReaderWhispersyncSyncCoordinatorTest {
 			audioResource = "/Audio/chapter01.m4b",
 			positionMs = 2_000
 		)
-		assertEquals(confirmedFirst.engineCommand, duplicate.engineCommand)
-		assertEquals(confirmedFirst.engineCommandKey, duplicate.engineCommandKey)
+		val progressCommand = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(duplicate.engineCommand)
+		assertEquals("seg-1", progressCommand.fragment.fragmentId)
+		assertEquals(21, progressCommand.fragment.textProgressEnd)
+		assertEquals(2L, duplicate.engineCommandKey)
 
 		val outsideSegment = duplicate.onAudiobookPlaybackPosition(
 			timeline = timeline,
@@ -111,12 +112,12 @@ class ReaderWhispersyncSyncCoordinatorTest {
 			positionMs = 9_500
 		)
 		assertEquals(ReaderEngineCommand.ClearMediaOverlay, outsideSegment.engineCommand)
-		assertEquals(2L, outsideSegment.engineCommandKey)
+		assertEquals(3L, outsideSegment.engineCommandKey)
 		assertNull(outsideSegment.activeCueKey)
 	}
 
 	@Test
-	fun fragmentTimedPlaybackKeepsTheCompleteFragmentHighlighted() {
+	fun playbackPositionGraduallyUpdatesActiveCueTextProgress() {
 		val timeline = WhispersyncTimeline(
 			segments = listOf(
 				WhispersyncSegment(
@@ -139,8 +140,8 @@ class ReaderWhispersyncSyncCoordinatorTest {
 			positionMs = 1_000
 		)
 		val startCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(start.engineCommand)
-		assertEquals(140, startCommand.fragment.textProgressEnd)
-		assertNull(startCommand.fragment.textProgressFraction)
+		assertEquals(100, startCommand.fragment.textProgressEnd)
+		assertEquals(0.0, startCommand.fragment.textProgressFraction ?: -1.0, 0.0001)
 		assertEquals(1L, start.engineCommandKey)
 
 		val confirmedStart = start.confirmOverlay(start.activeOverlayRequestId)
@@ -149,8 +150,10 @@ class ReaderWhispersyncSyncCoordinatorTest {
 			audioResource = "Audio/chapter01.m4b",
 			positionMs = 1_500
 		)
-		assertEquals(confirmedStart.engineCommand, quarter.engineCommand)
-		assertEquals(confirmedStart.engineCommandKey, quarter.engineCommandKey)
+		val quarterCommand = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(quarter.engineCommand)
+		assertEquals(110, quarterCommand.fragment.textProgressEnd)
+		assertEquals(0.25, quarterCommand.fragment.textProgressFraction ?: -1.0, 0.0001)
+		assertEquals(2L, quarter.engineCommandKey)
 
 		val sameCharacter = quarter.onAudiobookPlaybackPosition(
 			timeline = timeline,
@@ -165,20 +168,23 @@ class ReaderWhispersyncSyncCoordinatorTest {
 			audioResource = "Audio/chapter01.m4b",
 			positionMs = 2_999
 		)
-		assertEquals(quarter.engineCommand, complete.engineCommand)
-		assertEquals(quarter.engineCommandKey, complete.engineCommandKey)
+		val completeCommand = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(complete.engineCommand)
+		assertEquals(140, completeCommand.fragment.textProgressEnd)
+		assertEquals(0.9995, completeCommand.fragment.textProgressFraction ?: -1.0, 0.0001)
+		assertEquals(3L, complete.engineCommandKey)
 
 		val textSeek = complete.onTextPoint(
 			timeline = timeline,
 			textHref = "Text/chapter1.xhtml",
 			textOffset = 120
 		)
-		assertEquals(complete.engineCommand, textSeek.state.engineCommand)
-		assertEquals(complete.engineCommandKey, textSeek.state.engineCommandKey)
+		val textSeekCommand = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(textSeek.state.engineCommand)
+		assertEquals(100, textSeekCommand.fragment.textProgressEnd)
+		assertEquals(4L, textSeek.state.engineCommandKey)
 	}
 
 	@Test
-	fun fragmentTimedPlaybackIgnoresHighlightLeadForPartialTextProgress() {
+	fun playbackPositionUsesLeadOnlyForVisualHighlightProgress() {
 		val timeline = WhispersyncTimeline(
 			segments = listOf(
 				WhispersyncSegment(
@@ -202,8 +208,8 @@ class ReaderWhispersyncSyncCoordinatorTest {
 			highlightLeadMs = 1_000
 		)
 		val startCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(start.state.engineCommand)
-		assertEquals(240, startCommand.fragment.textProgressEnd)
-		assertNull(startCommand.fragment.textProgressFraction)
+		assertEquals(210, startCommand.fragment.textProgressEnd)
+		assertEquals(0.25, startCommand.fragment.textProgressFraction ?: -1.0, 0.0001)
 		assertEquals(ReaderWhispersyncStatusKind.Playing, start.status?.kind)
 		assertEquals(1_000L, start.status?.positionMs)
 
@@ -216,8 +222,9 @@ class ReaderWhispersyncSyncCoordinatorTest {
 			positionMs = 4_500,
 			highlightLeadMs = 1_000
 		)
-		assertEquals(confirmedStart.engineCommand, nearEnd.state.engineCommand)
-		assertEquals(confirmedStart.engineCommandKey, nearEnd.state.engineCommandKey)
+		val nearEndCommand = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(nearEnd.state.engineCommand)
+		assertEquals(240, nearEndCommand.fragment.textProgressEnd)
+		assertEquals(1.0, nearEndCommand.fragment.textProgressFraction ?: -1.0, 0.0001)
 		assertEquals(4_500L, nearEnd.status?.positionMs)
 	}
 

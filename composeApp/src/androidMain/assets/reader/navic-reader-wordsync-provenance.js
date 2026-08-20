@@ -102,8 +102,8 @@ export const rejectReaderWordSyncOverlay = (runtime, fragment, reason) => {
   return true
 }
 
-export const readerWordSyncAnchorReceipt = (runtime, fragment) => {
-  const boundarySequence = fragment?.wordBoundarySequence
+export const readerMediaOverlayAnchorReceipt = (runtime, fragment, ranges) => {
+  const boundarySequence = fragment?.wordBoundarySequence ?? fragment?.overlayRequestId
   if (!nonNegativeInteger(boundarySequence)) return null
   const presentation = runtime.pageTurnLivePresentationReceipt?.()
   if (
@@ -158,47 +158,51 @@ export const readerWordSyncAnchorReceipt = (runtime, fragment) => {
     !['single', 'spread'].includes(captureGeometry?.mode) ||
     pages.length === 0
   ) return null
-  const range = runtime.rawTextProvenance.resolveRange(fragment, { applyProgress: true })
-  if (!range || typeof range.getClientRects !== 'function') return null
-  const rangeDocument = range.startContainer?.ownerDocument ||
-    range.commonAncestorContainer?.ownerDocument
-  const rangeFrame = rangeDocument?.defaultView?.frameElement
-  const frameRect = rangeFrame?.getBoundingClientRect?.()
-  const frameLeft = rangeFrame ? Number(frameRect?.left) : 0
-  const frameTop = rangeFrame ? Number(frameRect?.top) : 0
-  if (!Number.isFinite(frameLeft) || !Number.isFinite(frameTop)) return null
+  const resolvedRanges = Array.isArray(ranges)
+    ? ranges.filter(range => range && typeof range.getClientRects === 'function')
+    : []
+  if (resolvedRanges.length === 0) return null
   const pageLocalRects = []
-  for (const clientRect of Array.from(range.getClientRects())) {
-    const clientLeft = Number(clientRect?.left) + frameLeft
-    const clientTop = Number(clientRect?.top) + frameTop
-    const clientRight = Number(clientRect?.right) + frameLeft
-    const clientBottom = Number(clientRect?.bottom) + frameTop
-    if (
-      ![clientLeft, clientTop, clientRight, clientBottom].every(Number.isFinite) ||
-      clientRight <= clientLeft || clientBottom <= clientTop
-    ) continue
-    for (const page of pages) {
-      const pageLeft = Number(page?.left)
-      const pageTop = Number(page?.top)
-      const pageWidth = Number(page?.width)
-      const pageHeight = Number(page?.height)
+  for (const range of resolvedRanges) {
+    const rangeDocument = range.startContainer?.ownerDocument ||
+      range.commonAncestorContainer?.ownerDocument
+    const rangeFrame = rangeDocument?.defaultView?.frameElement
+    const frameRect = rangeFrame?.getBoundingClientRect?.()
+    const frameLeft = rangeFrame ? Number(frameRect?.left) : 0
+    const frameTop = rangeFrame ? Number(frameRect?.top) : 0
+    if (!Number.isFinite(frameLeft) || !Number.isFinite(frameTop)) return null
+    for (const clientRect of Array.from(range.getClientRects())) {
+      const clientLeft = Number(clientRect?.left) + frameLeft
+      const clientTop = Number(clientRect?.top) + frameTop
+      const clientRight = Number(clientRect?.right) + frameLeft
+      const clientBottom = Number(clientRect?.bottom) + frameTop
       if (
-        !['full', 'left', 'right'].includes(page?.role) ||
-        ![pageLeft, pageTop, pageWidth, pageHeight].every(Number.isFinite) ||
-        pageWidth <= 0 || pageHeight <= 0
-      ) return null
-      const left = Math.max(clientLeft, pageLeft)
-      const top = Math.max(clientTop, pageTop)
-      const right = Math.min(clientRight, pageLeft + pageWidth)
-      const bottom = Math.min(clientBottom, pageTop + pageHeight)
-      if (right <= left || bottom <= top) continue
-      pageLocalRects.push({
-        role: page.role,
-        left: left - pageLeft,
-        top: top - pageTop,
-        width: right - left,
-        height: bottom - top,
-      })
+        ![clientLeft, clientTop, clientRight, clientBottom].every(Number.isFinite) ||
+        clientRight <= clientLeft || clientBottom <= clientTop
+      ) continue
+      for (const page of pages) {
+        const pageLeft = Number(page?.left)
+        const pageTop = Number(page?.top)
+        const pageWidth = Number(page?.width)
+        const pageHeight = Number(page?.height)
+        if (
+          !['full', 'left', 'right'].includes(page?.role) ||
+          ![pageLeft, pageTop, pageWidth, pageHeight].every(Number.isFinite) ||
+          pageWidth <= 0 || pageHeight <= 0
+        ) return null
+        const left = Math.max(clientLeft, pageLeft)
+        const top = Math.max(clientTop, pageTop)
+        const right = Math.min(clientRight, pageLeft + pageWidth)
+        const bottom = Math.min(clientBottom, pageTop + pageHeight)
+        if (right <= left || bottom <= top) continue
+        pageLocalRects.push({
+          role: page.role,
+          left: left - pageLeft,
+          top: top - pageTop,
+          width: right - left,
+          height: bottom - top,
+        })
+      }
     }
   }
   if (pageLocalRects.length === 0) return null
@@ -231,6 +235,11 @@ export const readerWordSyncAnchorReceipt = (runtime, fragment) => {
     captureGeometry,
     pageLocalRects,
   }
+}
+
+export const readerWordSyncAnchorReceipt = (runtime, fragment) => {
+  const range = runtime.rawTextProvenance.resolveRange(fragment, { applyProgress: true })
+  return readerMediaOverlayAnchorReceipt(runtime, fragment, range ? [range] : [])
 }
 
 export const postReaderWordSyncOverlayActive = (

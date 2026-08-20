@@ -10,7 +10,10 @@ internal object WordSyncTestFixtures {
 		artifactId = artifactId
 	)
 
-	fun indexJson(artifactId: Long = 17): String =
+	fun indexJson(
+		artifactId: Long = 17,
+		generatedAt: String = "2026-08-03T00:00:00Z"
+	): String =
 		"""
 		{
 		  "schema": "bindery.whispersync.wordsync.index.v1",
@@ -19,7 +22,7 @@ internal object WordSyncTestFixtures {
 		  "ebookBookFileId": 11,
 		  "audiobookBookFileId": 13,
 		  "artifactId": $artifactId,
-		  "generatedAt": "2026-08-03T00:00:00Z",
+		  "generatedAt": "$generatedAt",
 		  "timeScale": 1000,
 		  "coordinateBasis": {
 		    "extractor": "bindery-epub-text",

@@ -11,8 +11,13 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 import paige.navic.reader.ReaderPageBitmapQuality
+import paige.navic.reader.ReaderPageTurnCaptureGeometry
+import paige.navic.reader.ReaderPageTurnLayoutMode
+import paige.navic.reader.ReaderPageTurnPageRect
+import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.reader.ReaderPageRelocationQueue
 import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPageRelocationReservationResult
@@ -20,6 +25,8 @@ import paige.navic.reader.ReaderPageRelocationTransferResult
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.ReaderPageTurnPixelRect
+import paige.navic.reader.ReaderWhispersyncAnchorReceipt
+import paige.navic.reader.ReaderWhispersyncPageLocalRect
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -28,6 +35,7 @@ import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class ReaderPageInlineRasterShieldTest {
 	@Test
@@ -130,6 +138,91 @@ class ReaderPageInlineRasterShieldTest {
 			fixture.close()
 		}
 	}
+
+	@Test
+	fun acceptedAnchorDecoratesOwnedStartupSnapshotWithoutRasterRecapture() {
+		val fixture = ShieldFixture.create()
+		try {
+			val presented = mutableListOf<Boolean>()
+			fixture.shield.present(fixture.snapshot(), presented::add)
+			fixture.drainCurrentMainTasks()
+			assertEquals(listOf(true), presented)
+
+			val receipt = startupAnchorReceipt()
+			val color = 0x88ffcc00.toInt()
+			val mask = requireNotNull(
+				readerWhispersyncViewportHighlightMask(
+					receipt = receipt,
+					bitmapWidth = 8,
+					bitmapHeight = 8,
+					colorArgb = color
+				)
+			)
+			try {
+				assertEquals(color, mask.getPixel(3, 3))
+				assertEquals(0, mask.getPixel(7, 7))
+			} finally {
+				mask.recycle()
+			}
+			assertTrue(
+				fixture.shield.setWhispersyncOverlay(
+					receipt = receipt,
+					colorArgb = color
+				)
+			)
+			assertTrue(fixture.shield.hasWhispersyncOverlayPresentation)
+
+			assertTrue(fixture.shield.setWhispersyncOverlay(receipt = null, colorArgb = 0))
+			assertFalse(fixture.shield.hasWhispersyncOverlayPresentation)
+		} finally {
+			fixture.close()
+		}
+	}
+
+	private fun startupAnchorReceipt() = ReaderWhispersyncAnchorReceipt(
+		foliateSessionId = "session",
+		destinationCommitToken = "settled",
+		visualPageOrdinal = 2,
+		spineIndex = 1,
+		rasterGeneration = 3L,
+		textureGeneration = 4L,
+		presentationMutationGeneration = 5L,
+		presentationSequence = 6L,
+		anchorGeneration = 7L,
+		boundarySequence = 8L,
+		layoutGeneration = 9L,
+		viewGeneration = 10L,
+		commitSequence = 11L,
+		committedSpineIndex = 1,
+		committedChapterPageIndex = 0,
+		committedChapterPageCount = 2,
+		paginationFingerprint = "pagination",
+		layoutFingerprint = "layout",
+		readerSettingsRasterKey = "settings",
+		captureGeometry = ReaderPageTurnCaptureGeometry(
+			viewportWidth = 8.0,
+			viewportHeight = 8.0,
+			mode = ReaderPageTurnLayoutMode.Single,
+			pages = listOf(
+				ReaderPageTurnPageRect(
+					role = ReaderPageTurnPageRole.Full,
+					left = 0.0,
+					top = 0.0,
+					width = 8.0,
+					height = 8.0
+				)
+			)
+		),
+		pageLocalRects = listOf(
+			ReaderWhispersyncPageLocalRect(
+				role = ReaderPageTurnPageRole.Full,
+				left = 2.0,
+				top = 2.0,
+				width = 3.0,
+				height = 2.0
+			)
+		)
+	)
 
 	private class ShieldFixture private constructor(
 		private val activityController: org.robolectric.android.controller.ActivityController<Activity>,

@@ -348,9 +348,30 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 			"const painted = this.paintActiveMediaOverlayFragment(fragment)"
 		)
 		val rejection = applyOverlay.indexOf("if (!painted)")
-		val activation = applyOverlay.indexOf("overlayFragmentActive")
+		val activation = applyOverlay.indexOf("this.postCueOverlayFragmentActive(fragment)")
 		assertTrue(paint >= 0 && rejection > paint && activation > rejection)
 		assertContains(applyOverlay, "paint-rejected")
+	}
+
+	@Test
+	fun approximateOverlayPublishesFoliateAnchorAfterEveryAcceptedPaint() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val applyOverlay = runtime
+			.substringAfter("async applyOverlayFragment(fragment) {")
+			.substringBefore("\n  updateOverlayFragmentProgress")
+		val updateOverlay = runtime
+			.substringAfter("updateOverlayFragmentProgress(fragment) {")
+			.substringBefore("\n  clampedMediaOverlayProgressEnd")
+		val activePublisher = runtime
+			.substringAfter("postCueOverlayFragmentActive(fragment) {")
+			.substringBefore("\n  rejectOverlayFragment")
+
+		assertContains(applyOverlay, "this.postCueOverlayFragmentActive(fragment)")
+		assertContains(updateOverlay, "this.postCueOverlayFragmentActive(fragment)")
+		assertContains(activePublisher, "readerMediaOverlayAnchorReceipt")
+		assertContains(activePublisher, "this.mediaOverlayActiveRanges")
+		assertContains(activePublisher, "anchorReceipt")
+		assertContains(activePublisher, "overlayFragmentActive")
 	}
 
 	@Test
@@ -443,7 +464,8 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		assertContains(commandDispatch, "command.overlayRequestId")
 		assertContains(commandDispatch, "command.clearedThroughBoundarySequence")
 		assertContains(clearOverlay, "preserveActiveFragment")
-		assertContains(clearOverlay, "if (!preserveActiveFragment) this.mediaOverlayActiveFragment = null")
+		assertContains(clearOverlay, "if (!preserveActiveFragment) {")
+		assertContains(clearOverlay, "this.mediaOverlayActiveFragment = null")
 	}
 
 	@Test

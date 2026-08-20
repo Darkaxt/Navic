@@ -267,6 +267,50 @@ class BinderyWordSyncRepositoryTest {
 	}
 
 	@Test
+	fun refreshedIndexTimestampInvalidatesSameArtifactChapterShards() = runBlocking {
+		val cache = RecordingBinderyMetadataCache()
+		val identity = WordSyncTestFixtures.identity(artifactId = 17)
+		val firstRepository = configuredBinderyRepository(
+			apiClient = FakeBinderyApiClient(
+				wordSyncIndexJson = WordSyncTestFixtures.indexJson(
+					artifactId = 17,
+					generatedAt = "2026-08-03T00:00:00Z"
+				),
+				wordSyncChapterJson = WordSyncTestFixtures.chapterJson(17)
+			),
+			metadataCache = cache,
+			currentTimeMillis = { 42_000L }
+		)
+		val firstIndex = firstRepository.getWordSyncIndex(
+			identity,
+			discovery(artifactId = 17)
+		).getOrThrow()
+		firstRepository.getWordSyncChapter(identity, firstIndex.chapters.single()).getOrThrow()
+		assertTrue(cache.records.values.any { it.path.contains("artifact:17|chapter:") })
+
+		configuredBinderyRepository(
+			apiClient = FakeBinderyApiClient(
+				wordSyncIndexJson = WordSyncTestFixtures.indexJson(
+					artifactId = 17,
+					generatedAt = "2026-08-20T18:44:00Z"
+				)
+			),
+			metadataCache = cache,
+			currentTimeMillis = { 43_000L }
+		).getWordSyncIndex(
+			identity = identity,
+			discovery = discovery(artifactId = 17),
+			forceRefresh = true
+		).getOrThrow()
+
+		assertFalse(cache.records.values.any { it.path.contains("artifact:17|chapter:") })
+		assertTrue(cache.records.values.any { record ->
+			record.payloadType == BinderyMetadataPayloadType.WordSyncIndex &&
+				record.payloadJson.contains("2026-08-20T18:44:00Z")
+		})
+	}
+
+	@Test
 	fun failedNewGenerationCannotFallBackToOlderArtifactCache() = runBlocking {
 		val cache = RecordingBinderyMetadataCache()
 		val firstIdentity = WordSyncTestFixtures.identity(artifactId = 17)

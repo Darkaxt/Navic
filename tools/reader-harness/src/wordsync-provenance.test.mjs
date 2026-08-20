@@ -609,6 +609,71 @@ test('derives page-local anchor geometry from the resolved Foliate iframe and fa
   }
 })
 
+test('derives cue anchor geometry from the accepted Foliate range and request identity', async () => {
+  const page = await newReaderPage()
+  try {
+    const result = await page.evaluate(async () => {
+      const api = await import('/navic-reader-wordsync-provenance.js')
+      const range = {
+        getClientRects: () => [
+          { left: 140, top: 50, right: 200, bottom: 74, width: 60, height: 24 },
+        ],
+      }
+      const runtime = {
+        wordSyncAnchorGeneration: 0,
+        pageTurnLivePresentationReceipt: () => ({
+          scope: 'live',
+          token: 'settled-11',
+          pageIndex: 12,
+          foliateSessionId: 'foliate-7',
+          rasterGeneration: 31,
+          textureGeneration: 32,
+          foregroundMutationGeneration: 8,
+          presentationSequence: 9,
+        }),
+        pageTurnTextPageCommitIdentity: () => ({
+          layoutGeneration: 21,
+          viewGeneration: 22,
+          commitSequence: 23,
+          flow: 'paginated',
+          index: 3,
+          pageIndex: 2,
+          pageCount: 7,
+        }),
+        pageTurnCaptureGeometry: () => ({
+          viewportWidth: 1200,
+          viewportHeight: 800,
+          mode: 'single',
+          pages: [{ role: 'full', left: 100, top: 20, width: 1000, height: 760 }],
+        }),
+        pageTurnRasterDescriptor: () => ({
+          paginationFingerprint: 'pagination-a',
+          layoutFingerprint: 'layout-a',
+          decorationFingerprint: 'settings-a',
+          visualPageOrdinal: 12,
+          spineIndex: 3,
+          chapterPageIndex: 2,
+          chapterPageCount: 7,
+        }),
+        currentPagePosition: { pageIndex: 12, spineIndex: 3 },
+      }
+      return api.readerMediaOverlayAnchorReceipt(
+        runtime,
+        { overlayRequestId: 27 },
+        [range]
+      )
+    })
+
+    assert.equal(result.boundarySequence, 27)
+    assert.equal(result.anchorGeneration, 1)
+    assert.deepEqual(result.pageLocalRects, [
+      { role: 'full', left: 40, top: 30, width: 60, height: 24 },
+    ])
+  } finally {
+    await page.close()
+  }
+})
+
 test('derives page-local anchor geometry only from a current Foliate presentation receipt', async () => {
   const page = await newReaderPage()
   try {

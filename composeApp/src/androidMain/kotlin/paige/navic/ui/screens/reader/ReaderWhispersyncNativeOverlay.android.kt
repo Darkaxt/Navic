@@ -117,6 +117,53 @@ internal fun readerWhispersyncNativeOverlayTargets(
 	}
 }
 
+internal fun readerWhispersyncViewportHighlightMask(
+	receipt: ReaderWhispersyncAnchorReceipt,
+	bitmapWidth: Int,
+	bitmapHeight: Int,
+	colorArgb: Int
+): Bitmap? {
+	val geometry = receipt.captureGeometry
+	if (
+		bitmapWidth <= 0 ||
+		bitmapHeight <= 0 ||
+		!geometry.viewportWidth.isFinite() ||
+		geometry.viewportWidth <= 0.0 ||
+		!geometry.viewportHeight.isFinite() ||
+		geometry.viewportHeight <= 0.0
+	) return null
+	val scaleX = bitmapWidth.toDouble() / geometry.viewportWidth
+	val scaleY = bitmapHeight.toDouble() / geometry.viewportHeight
+	val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888).apply {
+		setHasAlpha(true)
+		setPremultiplied(true)
+	}
+	val paint = Paint().apply {
+		color = colorArgb
+		style = Paint.Style.FILL
+		isAntiAlias = false
+	}
+	val canvas = Canvas(bitmap)
+	var drewRect = false
+	receipt.pageLocalRects.forEach { rect ->
+		val page = geometry.pages.firstOrNull { page -> page.role == rect.role }
+			?: return@forEach
+		val left = ((page.left + rect.left) * scaleX).coerceIn(0.0, bitmapWidth.toDouble())
+		val top = ((page.top + rect.top) * scaleY).coerceIn(0.0, bitmapHeight.toDouble())
+		val right = ((page.left + rect.left + rect.width) * scaleX)
+			.coerceIn(0.0, bitmapWidth.toDouble())
+		val bottom = ((page.top + rect.top + rect.height) * scaleY)
+			.coerceIn(0.0, bitmapHeight.toDouble())
+		if (right <= left || bottom <= top) return@forEach
+		canvas.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), paint)
+		drewRect = true
+	}
+	return bitmap.takeIf { drewRect } ?: run {
+		bitmap.recycle()
+		null
+	}
+}
+
 internal fun readerWhispersyncHighlightMask(
 	receipt: ReaderWhispersyncAnchorReceipt,
 	target: ReaderWhispersyncNativeOverlayTarget,

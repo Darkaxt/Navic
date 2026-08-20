@@ -404,7 +404,8 @@ class BinderyRepository(
 				decodeWordSyncIndex(json, identity).also(discovery::validateWordSyncIndex)
 			},
 			wordSyncIdentity = identity,
-			advancesWordSyncGeneration = true
+			advancesWordSyncGeneration = true,
+			wordSyncGeneratedAt = WordSyncIndex::generatedAt
 		)
 	}
 
@@ -596,7 +597,8 @@ class BinderyRepository(
 		fetch: suspend (baseUrl: String, headers: Map<String, String>) -> String,
 		decode: (String) -> T,
 		wordSyncIdentity: BinderyWhispersyncIdentity,
-		advancesWordSyncGeneration: Boolean
+		advancesWordSyncGeneration: Boolean,
+		wordSyncGeneratedAt: (T) -> String? = { null }
 	): Result<T> = withConfiguredClientAvailability { baseUrl, headers ->
 		val approvedRoute = runCatching { route(baseUrl) }
 			.getOrElse { return@withConfiguredClientAvailability Result.failure(it) }
@@ -643,6 +645,7 @@ class BinderyRepository(
 						rawJson = rawJson,
 						identity = wordSyncIdentity,
 						advancesGeneration = advancesWordSyncGeneration,
+						generatedAt = wordSyncGeneratedAt(live),
 						apiKeyFingerprint = apiKeyFingerprint
 					)
 				}.onFailure { cacheError ->
@@ -675,6 +678,7 @@ class BinderyRepository(
 		rawJson: String,
 		identity: BinderyWhispersyncIdentity,
 		advancesGeneration: Boolean,
+		generatedAt: String?,
 		apiKeyFingerprint: String
 	) {
 		BinderyWordSyncCacheMutationMutex.withLock {
@@ -686,9 +690,19 @@ class BinderyRepository(
 				path = markerPath,
 				apiKeyFingerprint = apiKeyFingerprint
 			)
+			val generatedAtPath = "${generationPrefix}generated-at"
+			val generatedAtKey = binderyMetadataCacheKey(
+				baseUrl = baseUrl,
+				payloadType = BinderyMetadataPayloadType.WordSyncGeneration,
+				path = generatedAtPath,
+				apiKeyFingerprint = apiKeyFingerprint
+			)
 			val previousArtifactId = metadataCache.get(markerKey)
 				?.payloadJson
 				?.toLongOrNull()
+			val previousGeneratedAt = metadataCache.get(generatedAtKey)
+				?.payloadJson
+				?.takeIf(String::isNotBlank)
 			val artifactId = identity.artifactId
 			if (previousArtifactId != null && artifactId < previousArtifactId) {
 				return@withLock
@@ -698,7 +712,13 @@ class BinderyRepository(
 			}
 			val generationAdvanced =
 				advancesGeneration && (previousArtifactId == null || artifactId > previousArtifactId)
-			if (generationAdvanced) {
+			val currentGeneratedAt = generatedAt?.trim()?.takeIf(String::isNotEmpty)
+			val publicationRegenerated =
+				advancesGeneration &&
+					previousArtifactId == artifactId &&
+					currentGeneratedAt != null &&
+					currentGeneratedAt != previousGeneratedAt
+			if (generationAdvanced || publicationRegenerated) {
 				listOf(
 					BinderyMetadataPayloadType.WordSyncIndex,
 					BinderyMetadataPayloadType.WordSyncChapter
@@ -730,6 +750,18 @@ class BinderyRepository(
 						payloadType = BinderyMetadataPayloadType.WordSyncGeneration,
 						path = markerPath,
 						payloadJson = artifactId.toString(),
+						updatedAtMillis = updatedAtMillis
+					)
+				)
+			}
+			if (advancesGeneration && currentGeneratedAt != null) {
+				metadataCache.put(
+					BinderyMetadataCacheRecord(
+						cacheKey = generatedAtKey,
+						baseUrl = baseUrl,
+						payloadType = BinderyMetadataPayloadType.WordSyncGeneration,
+						path = generatedAtPath,
+						payloadJson = currentGeneratedAt,
 						updatedAtMillis = updatedAtMillis
 					)
 				)

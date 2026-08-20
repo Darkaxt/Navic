@@ -1813,6 +1813,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				inlineRasterShield.dismiss()
 			}
 			if (committed) {
+				publishLatestWhispersyncOverlayIfIdle()
 				onCommitted(true)
 			} else {
 				onCommitted(false)
@@ -4286,6 +4287,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 			null
 		}
 		if (receipt == null || targets == null) {
+			inlineRasterShield.setWhispersyncOverlay(receipt = null, colorArgb = 0)
+			clearWhispersyncOverlayIfNeeded(generationId)
+			return
+		}
+		if (
+			inlineRasterShield.ownsPresentation() &&
+			!inlineRasterShield.setWhispersyncOverlay(
+				receipt = receipt,
+				colorArgb = whispersyncHighlightColorArgb
+			)
+		) {
 			clearWhispersyncOverlayIfNeeded(generationId)
 			return
 		}

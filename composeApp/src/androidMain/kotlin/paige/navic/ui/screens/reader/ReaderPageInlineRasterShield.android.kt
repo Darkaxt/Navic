@@ -1,11 +1,13 @@
 package paige.navic.ui.screens.reader
 
+import android.graphics.Bitmap
 import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
+import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 
 private const val ReaderPageInlineRasterShieldTimeoutMillis = 1_000L
 
@@ -14,12 +16,32 @@ internal class ReaderPageInlineRasterShield(
 	private val onOwnershipMutated: () -> Unit = {},
 	private val onPresentationOwnershipStarted: () -> Unit = {}
 ) {
-	val view = ImageView(host.context).apply {
+	private val rasterView = ImageView(host.context).apply {
 		scaleType = ImageView.ScaleType.FIT_XY
+	}
+	private val overlayView = ImageView(host.context).apply {
+		scaleType = ImageView.ScaleType.FIT_XY
+		visibility = View.GONE
+	}
+	val view = FrameLayout(host.context).apply {
 		isClickable = false
 		isFocusable = false
 		importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
 		visibility = View.GONE
+		addView(
+			rasterView,
+			FrameLayout.LayoutParams(
+				ViewGroup.LayoutParams.MATCH_PARENT,
+				ViewGroup.LayoutParams.MATCH_PARENT
+			)
+		)
+		addView(
+			overlayView,
+			FrameLayout.LayoutParams(
+				ViewGroup.LayoutParams.MATCH_PARENT,
+				ViewGroup.LayoutParams.MATCH_PARENT
+			)
+		)
 	}
 
 	val pendingCallbackLimit: Int = 1
@@ -31,6 +53,7 @@ internal class ReaderPageInlineRasterShield(
 	private var committedFrame: Runnable? = null
 	private var activeFadeRequest: Long? = null
 	private var ownedSnapshot: ReaderPageSlideSnapshot? = null
+	private var ownedWhispersyncOverlay: Bitmap? = null
 	private var presentationCallback: ((Boolean) -> Unit)? = null
 	private var fadeCallback: ((Boolean) -> Unit)? = null
 
@@ -53,7 +76,7 @@ internal class ReaderPageInlineRasterShield(
 		activeRequest = request
 		ownedSnapshot = snapshot
 		presentationCallback = onPresented
-		view.setImageBitmap(snapshot.bitmap)
+		rasterView.setImageBitmap(snapshot.bitmap)
 		view.alpha = 1f
 		view.visibility = View.VISIBLE
 		onOwnershipMutated()
@@ -108,6 +131,35 @@ internal class ReaderPageInlineRasterShield(
 	fun ownsPresentation(): Boolean =
 		ownedSnapshot?.bitmap?.isRecycled == false &&
 			view.visibility == View.VISIBLE
+
+	val hasWhispersyncOverlayPresentation: Boolean
+		get() = ownedWhispersyncOverlay?.isRecycled == false && overlayView.visibility == View.VISIBLE
+
+	fun setWhispersyncOverlay(
+		receipt: ReaderWhispersyncAnchorReceipt?,
+		colorArgb: Int
+	): Boolean {
+		clearWhispersyncOverlay()
+		if (receipt == null) return true
+		val snapshot = ownedSnapshot
+			?.takeIf { candidate ->
+				ownsPresentation() &&
+					candidate.key.visualPageIndex == receipt.visualPageOrdinal &&
+					!candidate.bitmap.isRecycled
+			}
+			?: return false
+		val overlay = readerWhispersyncViewportHighlightMask(
+			receipt = receipt,
+			bitmapWidth = snapshot.bitmap.width,
+			bitmapHeight = snapshot.bitmap.height,
+			colorArgb = colorArgb
+		) ?: return false
+		ownedWhispersyncOverlay = overlay
+		overlayView.setImageBitmap(overlay)
+		overlayView.visibility = View.VISIBLE
+		overlayView.invalidate()
+		return true
+	}
 
 	fun pendingCallbackCount(): Int =
 		(if (activeRequest != null) 1 else 0) +
@@ -295,9 +347,17 @@ internal class ReaderPageInlineRasterShield(
 		callback?.invoke(effectivePresentation)
 	}
 
+	private fun clearWhispersyncOverlay() {
+		overlayView.setImageDrawable(null)
+		overlayView.visibility = View.GONE
+		ownedWhispersyncOverlay?.takeUnless(Bitmap::isRecycled)?.recycle()
+		ownedWhispersyncOverlay = null
+	}
+
 	private fun clearPresentation() {
 		val hadPresentation = ownedSnapshot != null || view.visibility != View.GONE
-		view.setImageDrawable(null)
+		clearWhispersyncOverlay()
+		rasterView.setImageDrawable(null)
 		view.alpha = 1f
 		view.visibility = View.GONE
 		ownedSnapshot?.release()

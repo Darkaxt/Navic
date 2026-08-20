@@ -963,6 +963,22 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun whispersyncPublicationDecoratesTheOwnedStartupShield() {
+		val source = controllerFile.readText()
+		val startupPresentation = source
+			.substringAfter("fun presentStartupShellCurrentPage(")
+			.substringBefore("fun dismissStartupShellPresentation()")
+		val publication = source
+			.substringAfter("private fun publishLatestWhispersyncOverlayIfIdle()")
+			.substringBefore("private fun clearWhispersyncOverlayIfNeeded(")
+
+		assertContains(publication, "inlineRasterShield.setWhispersyncOverlay(")
+		assertContains(publication, "receipt = receipt")
+		assertContains(publication, "colorArgb = whispersyncHighlightColorArgb")
+		assertContains(startupPresentation, "publishLatestWhispersyncOverlayIfIdle()")
+	}
+
+	@Test
 	fun surfaceLossRevokesNativeWhispersyncPublicationAndAnchorProof() {
 		val source = controllerFile.readText()
 		val listener = source

@@ -186,6 +186,7 @@ import {
   paintReaderWordSyncActiveOverlay,
   paintReaderWordSyncOverlayTextRange,
   postReaderWordSyncOverlayActive,
+  readerMediaOverlayAnchorReceipt,
   rejectReaderWordSyncOverlay,
   validatedReaderOverlayCoordinateMode,
 } from './navic-reader-wordsync-provenance.js'
@@ -264,6 +265,7 @@ class NavicReaderRuntime {
   lastPostedVisibleTextRangeKey = null
   lastMediaOverlayRangeDiagnosticKey = null
   mediaOverlayActiveFragment = null
+  mediaOverlayActiveRanges = []
   exactWordSyncActiveRequestId = null
   wordSyncAnchorGeneration = 0
   exactWordSyncRelocationEpoch = 0
@@ -914,6 +916,7 @@ class NavicReaderRuntime {
     const preservePlayed = this.readerMediaOverlayPersistentPlayed()
     this.clearOverlay({ preservePlayed, preserveAnimation: true })
     if (preservePlayed) this.paintPlayedMediaOverlayFragments()
+    this.mediaOverlayActiveRanges = []
     let highlighted = this.highlightMediaOverlayTextRange(fragment)
     if (!highlighted && fragment.fragmentId && !this.mediaOverlayFragmentHasTextRange(fragment)) {
       for (const doc of this.contentDocuments()) {
@@ -981,6 +984,19 @@ class NavicReaderRuntime {
     this.mediaOverlayProgressAnimationFrame = requestAnimationFrame(tick)
   }
 
+  postCueOverlayFragmentActive(fragment) {
+    const anchorReceipt = readerMediaOverlayAnchorReceipt(
+      this,
+      fragment,
+      this.mediaOverlayActiveRanges
+    )
+    post({
+      type: 'overlayFragmentActive',
+      ...fragment,
+      ...(anchorReceipt ? { anchorReceipt } : {}),
+    })
+  }
+
   rejectOverlayFragment(fragment, reason) {
     if (rejectReaderWordSyncOverlay(this, fragment, reason)) return
     this.clearOverlay({ preservePlayed: this.readerMediaOverlayPersistentPlayed() })
@@ -1025,7 +1041,7 @@ class NavicReaderRuntime {
       return
     }
     this.startMediaOverlayProgressAnimation(fragment)
-    post({ type: 'overlayFragmentActive', ...fragment })
+    this.postCueOverlayFragmentActive(fragment)
   }
 
   updateOverlayFragmentProgress(fragment) {
@@ -1061,6 +1077,7 @@ class NavicReaderRuntime {
       return
     }
     if (rawMode) postReaderWordSyncOverlayActive(this, fragment)
+    else this.postCueOverlayFragmentActive(fragment)
     this.startMediaOverlayProgressAnimation(fragment)
   }
 
@@ -1174,6 +1191,7 @@ class NavicReaderRuntime {
           color: highlightColor,
           writingMode: this.view?.renderer?.writingMode,
         })
+        this.mediaOverlayActiveRanges.push(range)
         highlighted = true
       } catch (_) {
         readerTrace('media-overlay-range:failed', {
@@ -1211,7 +1229,10 @@ class NavicReaderRuntime {
     if (!preservePlayed) {
       this.mediaOverlayPlayedFragments.clear()
     }
-    if (!preserveActiveFragment) this.mediaOverlayActiveFragment = null
+    if (!preserveActiveFragment) {
+      this.mediaOverlayActiveFragment = null
+      this.mediaOverlayActiveRanges = []
+    }
     for (const doc of this.contentDocuments()) {
       for (const marker of Array.from(doc.querySelectorAll(`[${ReaderMediaOverlayRangeAttribute}="true"]`))) {
         removedAny = readerMediaOverlayUnwrapRangeMarker(marker) || removedAny
