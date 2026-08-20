@@ -3,6 +3,8 @@ package paige.navic.domain.repositories
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.runBlocking
 import paige.navic.data.remote.bindery.BinderyApiException
+import paige.navic.data.remote.bindery.binderyWordSyncChapterRoute
+import paige.navic.data.remote.bindery.binderyWordSyncGenerationPrefix
 import paige.navic.data.remote.bindery.binderyWordSyncIndexRoute
 import paige.navic.reader.WordSyncTestFixtures
 import kotlin.test.Test
@@ -264,6 +266,86 @@ class BinderyWordSyncRepositoryTest {
 		assertFalse(cache.records.values.any { it.path.contains("artifact:17|") })
 		assertTrue(cache.records.values.any { it.path.contains("artifact:18|index") })
 		assertTrue(cache.records.values.any { it.path.contains("artifact:18|chapter:") })
+	}
+
+	@Test
+	fun freshPreRolloutCacheWithoutGeneratedAtMarkerIsRefetchedAndInvalidated() = runBlocking {
+		val cache = RecordingBinderyMetadataCache()
+		val identity = WordSyncTestFixtures.identity(artifactId = 17)
+		val baseUrl = "https://bindery.example.com/opds"
+		val apiKeyFingerprint = binderyApiKeyFingerprint("secret")
+		val indexRoute = binderyWordSyncIndexRoute(
+			baseUrl = baseUrl,
+			identity = identity,
+			advertisedHref = "/opds/books/7/sync/17/wordsync/index"
+		)
+		val chapterRoute = binderyWordSyncChapterRoute(
+			baseUrl = baseUrl,
+			identity = identity,
+			chapterKey = "spine-002-chapter",
+			advertisedHref = "/opds/books/7/sync/17/wordsync/spine-002-chapter"
+		)
+		listOf(
+			BinderyMetadataCacheRecord(
+				cacheKey = binderyMetadataCacheKey(
+					baseUrl = baseUrl,
+					payloadType = BinderyMetadataPayloadType.WordSyncIndex,
+					path = indexRoute.cachePath,
+					apiKeyFingerprint = apiKeyFingerprint
+				),
+				baseUrl = baseUrl,
+				payloadType = BinderyMetadataPayloadType.WordSyncIndex,
+				path = indexRoute.cachePath,
+				payloadJson = WordSyncTestFixtures.indexJson(
+					artifactId = 17,
+					generatedAt = "2026-08-03T00:00:00Z"
+				),
+				updatedAtMillis = 50_000L
+			),
+			BinderyMetadataCacheRecord(
+				cacheKey = binderyMetadataCacheKey(
+					baseUrl = baseUrl,
+					payloadType = BinderyMetadataPayloadType.WordSyncChapter,
+					path = chapterRoute.cachePath,
+					apiKeyFingerprint = apiKeyFingerprint
+				),
+				baseUrl = baseUrl,
+				payloadType = BinderyMetadataPayloadType.WordSyncChapter,
+				path = chapterRoute.cachePath,
+				payloadJson = WordSyncTestFixtures.chapterJson(17),
+				updatedAtMillis = 50_000L
+			),
+			BinderyMetadataCacheRecord(
+				cacheKey = binderyMetadataCacheKey(
+					baseUrl = baseUrl,
+					payloadType = BinderyMetadataPayloadType.WordSyncGeneration,
+					path = "${binderyWordSyncGenerationPrefix(identity)}current",
+					apiKeyFingerprint = apiKeyFingerprint
+				),
+				baseUrl = baseUrl,
+				payloadType = BinderyMetadataPayloadType.WordSyncGeneration,
+				path = "${binderyWordSyncGenerationPrefix(identity)}current",
+				payloadJson = "17",
+				updatedAtMillis = 50_000L
+			)
+		).forEach { record -> cache.put(record) }
+		val api = FakeBinderyApiClient(
+			wordSyncIndexJson = WordSyncTestFixtures.indexJson(
+				artifactId = 17,
+				generatedAt = "2026-08-20T18:44:00Z"
+			)
+		)
+
+		configuredBinderyRepository(api, cache) { 50_001L }
+			.getWordSyncIndex(identity, discovery(artifactId = 17))
+			.getOrThrow()
+
+		assertEquals(1, api.wordSyncIndexIdentities.size)
+		assertFalse(cache.records.values.any { it.path.contains("artifact:17|chapter:") })
+		assertTrue(cache.records.values.any { record ->
+			record.payloadType == BinderyMetadataPayloadType.WordSyncIndex &&
+				record.payloadJson.contains("2026-08-20T18:44:00Z")
+		})
 	}
 
 	@Test

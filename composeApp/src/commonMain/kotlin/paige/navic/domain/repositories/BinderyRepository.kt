@@ -617,9 +617,18 @@ class BinderyRepository(
 			path = markerPath,
 			apiKeyFingerprint = apiKeyFingerprint
 		)
+		val generatedAtKey = binderyMetadataCacheKey(
+			baseUrl = baseUrl,
+			payloadType = BinderyMetadataPayloadType.WordSyncGeneration,
+			path = "${generationPrefix}generated-at",
+			apiKeyFingerprint = apiKeyFingerprint
+		)
 		val committedArtifactId = metadataCache.get(markerKey)?.payloadJson?.toLongOrNull()
+		val committedGeneratedAt = metadataCache.get(generatedAtKey)
+			?.payloadJson
+			?.takeIf(String::isNotBlank)
 		val cached = metadataCache.get(cacheKey).takeIf {
-			committedArtifactId == wordSyncIdentity.artifactId
+			committedArtifactId == wordSyncIdentity.artifactId && committedGeneratedAt != null
 		}
 		if (!forceRefresh && cached != null && isFresh(cached.updatedAtMillis)) {
 			runCatching { decode(cached.payloadJson) }
