@@ -900,6 +900,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var pendingDeckOrdinal: Int? = null
 	private var initialLivePresentationAuthority:
 		InitialLivePresentationAuthorityRequest? = null
+	private var initialLivePresentationAuthorizedGenerationId: Long? = null
 	private var latestWhispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt? = null
 	private var latestWhispersyncPresentationProof: ReaderWhispersyncNativePresentationProof? = null
 	private var whispersyncHighlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb
@@ -1678,6 +1679,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun onWebViewAttachmentChanged(webViewAttached: Boolean) {
 		if (!webViewAttached) {
 			releaseInitialLivePresentationAuthority()
+			initialLivePresentationAuthorizedGenerationId = null
 			return
 		}
 		if (!enabled || destroyed) return
@@ -1988,6 +1990,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val previous = currentFoliateSessionId
 		if (previous == sessionId) return
 		releaseInitialLivePresentationAuthority()
+		initialLivePresentationAuthorizedGenerationId = null
 		if (previous != null) {
 			whispersyncOverlayClearPending = true
 			activeDeckGenerationId?.let { generationId ->
@@ -2097,15 +2100,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 				val sessionRelocation = foliateSessionRelocationPending
 				foliateSessionRelocationPending = false
 				if (
-					!sessionRelocation &&
-					currentOrdinal == normalized &&
-					relocationQueue.occupiedCount() == 0
-				) return
-				currentOrdinal = normalized
-				invalidate("external-page-relocation")
-				if (enabled) onRequestPrewarm()
+					sessionRelocation ||
+					currentOrdinal != normalized ||
+					relocationQueue.occupiedCount() != 0
+				) {
+					currentOrdinal = normalized
+					invalidate("external-page-relocation")
+					if (enabled) onRequestPrewarm()
+				}
 			}
 		}
+		requestInitialLivePresentationAuthorityForActiveDeck()
 	}
 
 	private fun completeAcknowledgedRelocation(
@@ -2203,6 +2208,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated
 	) {
 		releaseInitialLivePresentationAuthority()
+		initialLivePresentationAuthorizedGenerationId = null
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		failedLivePresentationGeneration = null
@@ -2258,6 +2264,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		scope = teardownScope,
 		fenceAdmission = {
 			releaseInitialLivePresentationAuthority()
+			initialLivePresentationAuthorizedGenerationId = null
 			destroyed = true
 			enabled = false
 			latestWhispersyncAnchorReceipt = null
@@ -5302,6 +5309,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (enabled) onRequestPrewarm()
 	}
 
+	private fun requestInitialLivePresentationAuthorityForActiveDeck() {
+		val generationId = activeDeckGenerationId ?: return
+		if (generationId !in preparedDeckGenerations) return
+		requestInitialLivePresentationAuthority(generationId)
+	}
+
 	private fun requestInitialLivePresentationAuthority(generationId: Long) {
 		val activeDeckIsCurrent = generationId == activeDeckGenerationId
 		val pages = generationOwners[generationId] ?: return
@@ -5323,6 +5336,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			return
 		}
+		if (initialLivePresentationAuthorizedGenerationId == generationId) return
 		if (initialLivePresentationAuthority?.generationId == generationId) return
 		releaseInitialLivePresentationAuthority()
 		val claim = runCatching {
@@ -5457,6 +5471,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 				val confirmed = receipt?.matches(target) == true &&
 					initialLivePresentationAuthorityIsCurrent(request) &&
 					webView.isAttachedToWindow
+				if (confirmed) {
+					initialLivePresentationAuthorizedGenerationId = request.generationId
+				}
 				releaseInitialLivePresentationAuthority(request)
 				if (confirmed) publishLatestWhispersyncOverlayIfIdle()
 			}
@@ -5484,6 +5501,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		recoveredDeckGenerations -= generationId
 		if (releasedCurrentActive) {
 			releaseInitialLivePresentationAuthority()
+			initialLivePresentationAuthorizedGenerationId = null
 			activeDeckGenerationId = null
 			if (activePages === pages) activePages = null
 			notifyPreparedActiveDeckChanged(null)

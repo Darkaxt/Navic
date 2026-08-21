@@ -1171,8 +1171,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val bootstrap = source
 			.substringAfter("private fun requestInitialLivePresentationAuthority(")
 			.substringBefore("private fun releaseInitialLivePresentationAuthority(")
+		val synchronize = source
+			.substringAfter("fun synchronizeVisualPageIndex(")
+			.substringBefore("private fun completeAcknowledgedRelocation(")
 
 		assertContains(deckPrepared, "requestInitialLivePresentationAuthority(generationId)")
+		assertContains(
+			synchronize,
+			"requestInitialLivePresentationAuthorityForActiveDeck()"
+		)
 		assertContains(bootstrap, "generationId == activeDeckGenerationId")
 		assertContains(bootstrap, "!relocationQueue.hasInFlightHead()")
 		assertContains(bootstrap, "foregroundWebViewOwnership.acquireExclusiveLive(")
