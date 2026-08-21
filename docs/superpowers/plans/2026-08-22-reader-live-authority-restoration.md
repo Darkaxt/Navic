@@ -50,7 +50,9 @@ file edits.
 4. Wire the ownership callback through the host.
 5. Add the minimal controller entry point that rearms the existing strict exact
    settlement path.
-6. Run the focused source test class plus ownership tests once and confirm GREEN.
+6. Suppress only the unconditional prewarm request caused by completing that
+   reauthorization; still resume explicitly deferred passive work.
+7. Run the focused source test class plus ownership tests once and confirm GREEN.
 
 ## Stage 3 — Specification cross-check and consolidated gates
 

@@ -1200,6 +1200,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val completion = host
 			.substringAfter("private fun onForegroundWebViewPassiveMutationReleased()")
 			.substringBefore("private fun onForegroundWebViewPassiveAvailable()")
+		val passiveAvailable = host
+			.substringAfter("private fun onForegroundWebViewPassiveAvailable()")
+			.substringBefore("private fun requestPageTurnPrewarmWhenReady()")
+		val reset = host
+			.substringAfter("private fun clearDestinationDeckPrewarm()")
+			.substringBefore("private fun onRasterProfileEpochChanged(")
 		val controller = source
 			.substringAfter("fun onForegroundWebViewPassiveMutationReleased()")
 			.substringBefore("fun onHostResumedChanged(")
@@ -1218,6 +1224,42 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val resume = completion.indexOf("onForegroundWebViewPassiveAvailable()")
 		assertTrue(rearm >= 0)
 		assertTrue(resume > rearm)
+		assertContains(
+			host,
+			"private var suppressNextUnconditionalPrewarmAfterAuthorityRestoration = false"
+		)
+		assertContains(
+			completion,
+			"val liveClaimsBefore = foregroundWebViewOwnership.snapshot().liveClaims"
+		)
+		assertContains(
+			completion,
+			"foregroundWebViewOwnership.snapshot().liveClaims > liveClaimsBefore"
+		)
+		assertContains(
+			completion,
+			"suppressNextUnconditionalPrewarmAfterAuthorityRestoration = true"
+		)
+		val rasterResume = passiveAvailable.indexOf(
+			"pageRasterPreparationController.onForegroundWebViewPassiveAvailable()"
+		)
+		val destinationResume = passiveAvailable.indexOf(
+			"resumeDestinationDeckPrewarmIfReady()"
+		)
+		val suppressUnconditional = passiveAvailable.indexOf(
+			"if (suppressNextUnconditionalPrewarmAfterAuthorityRestoration)"
+		)
+		val unconditionalPrewarm = passiveAvailable.indexOf(
+			"requestPageTurnPrewarmWhenReady()"
+		)
+		assertTrue(rasterResume >= 0)
+		assertTrue(destinationResume > rasterResume)
+		assertTrue(suppressUnconditional > destinationResume)
+		assertTrue(unconditionalPrewarm > suppressUnconditional)
+		assertContains(
+			reset,
+			"suppressNextUnconditionalPrewarmAfterAuthorityRestoration = false"
+		)
 		assertContains(
 			controller,
 			"requestInitialLivePresentationAuthorityForActiveDeck()"

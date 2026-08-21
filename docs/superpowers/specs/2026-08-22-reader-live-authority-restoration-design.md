@@ -60,7 +60,9 @@ publish.
 4. The callback may synchronously acquire an exclusive live claim, and that
    reentrant acquisition must block passive admission.
 5. The host callback first rearms live authority for the active prepared deck,
-   then runs existing passive-work resumption logic only when ownership permits.
+   then resumes genuine deferred passive work only when ownership permits.
+   Completing reauthorization must not schedule an unconditional prewarm/deck
+   refresh cycle that immediately requests another live settlement.
 6. Live settlement continues to require matching Foliate session, page, raster,
    texture, foreground-mutation generation, and settlement token.
 7. Native Whispersync geometry remains fail-closed until an anchor receipt

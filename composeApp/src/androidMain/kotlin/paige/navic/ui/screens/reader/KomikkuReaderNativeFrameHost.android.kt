@@ -996,6 +996,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null
 	private var preparedActiveDeck: ReaderPagePreparedActiveDeck? = null
 	private var destinationDeckPrewarmPending = false
+	private var suppressNextUnconditionalPrewarmAfterAuthorityRestoration = false
 	private var shellCoverVisible: Boolean = false
 	private val startupShellHandoff = ReaderStartupShellHandoffGate()
 	private var pageOperationPolicy = readerPageOperationPolicy(ReaderPageReadinessState())
@@ -1432,6 +1433,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun clearDestinationDeckPrewarm() {
 		destinationDeckPrewarmPending = false
+		suppressNextUnconditionalPrewarmAfterAuthorityRestoration = false
 		preparedActiveDeck = null
 	}
 
@@ -1798,7 +1800,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun onForegroundWebViewPassiveMutationReleased() {
 		if (task4ResourceTeardownStarted) return
+		val liveClaimsBefore = foregroundWebViewOwnership.snapshot().liveClaims
 		playLikeCurlController.onForegroundWebViewPassiveMutationReleased()
+		if (
+			foregroundWebViewOwnership.snapshot().liveClaims > liveClaimsBefore
+		) {
+			suppressNextUnconditionalPrewarmAfterAuthorityRestoration = true
+		}
 		onForegroundWebViewPassiveAvailable()
 	}
 
@@ -1813,6 +1821,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			task4ResourceTeardownStarted ||
 			!foregroundWebViewOwnership.canAcquirePassive()
 		) return
+		if (suppressNextUnconditionalPrewarmAfterAuthorityRestoration) {
+			suppressNextUnconditionalPrewarmAfterAuthorityRestoration = false
+			return
+		}
 		requestPageTurnPrewarmWhenReady()
 	}
 
