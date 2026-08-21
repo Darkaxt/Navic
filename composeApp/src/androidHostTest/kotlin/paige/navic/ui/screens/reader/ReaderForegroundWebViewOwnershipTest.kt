@@ -224,14 +224,50 @@ class ReaderForegroundWebViewOwnershipTest {
 	}
 
 	@Test
+	fun currentPassiveReleaseRearmsLiveOwnershipBeforePassiveReadmission() {
+		var passiveMutationReleaseCalls = 0
+		lateinit var live: ReaderForegroundWebViewLiveClaim
+		lateinit var ownership: ReaderForegroundWebViewOwnership
+		ownership = ReaderForegroundWebViewOwnership(
+			onPassiveMutationReleased = {
+				passiveMutationReleaseCalls += 1
+				assertEquals(0, ownership.snapshot().passiveOwners)
+				live = ownership.acquireExclusiveLive(requestId = 14L)
+			}
+		)
+		val passive = checkNotNull(
+			ownership.tryAcquirePassive(7L) {
+				error("not preempted")
+			}
+		)
+
+		assertTrue(ownership.releasePassive(passive))
+
+		assertEquals(1, passiveMutationReleaseCalls)
+		assertEquals(1, ownership.snapshot().liveClaims)
+		assertNull(
+			ownership.tryAcquirePassive(8L) {
+				error("must not preempt rearmed live ownership")
+			}
+		)
+		assertTrue(ownership.releaseLive(live))
+	}
+
+	@Test
 	fun stalePassiveReleaseCannotReleaseTheCurrentLease() {
-		val ownership = ReaderForegroundWebViewOwnership()
+		var passiveMutationReleaseCalls = 0
+		val ownership = ReaderForegroundWebViewOwnership(
+			onPassiveMutationReleased = {
+				passiveMutationReleaseCalls += 1
+			}
+		)
 		val stale = checkNotNull(
 			ownership.tryAcquirePassive(7L) {
 				error("not preempted")
 			}
 		)
 		assertTrue(ownership.releasePassive(stale))
+		assertEquals(1, passiveMutationReleaseCalls)
 		val current = checkNotNull(
 			ownership.tryAcquirePassive(8L) {
 				error("not preempted")
@@ -239,8 +275,11 @@ class ReaderForegroundWebViewOwnershipTest {
 		)
 
 		assertFalse(ownership.releasePassive(stale))
+		assertEquals(1, passiveMutationReleaseCalls)
 		assertTrue(ownership.isCurrent(current))
 		assertEquals(1, ownership.snapshot().passiveOwners)
+		assertTrue(ownership.releasePassive(current))
+		assertEquals(2, passiveMutationReleaseCalls)
 	}
 
 	@Test

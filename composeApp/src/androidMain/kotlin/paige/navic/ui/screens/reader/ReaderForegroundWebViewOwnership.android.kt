@@ -36,6 +36,7 @@ internal data class ReaderForegroundWebViewOwnershipSnapshot(
 )
 
 internal class ReaderForegroundWebViewOwnership(
+	private val onPassiveMutationReleased: () -> Unit = {},
 	private val onPassiveAvailable: () -> Unit = {}
 ) {
 	private data class LiveClaimState(
@@ -220,6 +221,7 @@ internal class ReaderForegroundWebViewOwnership(
 		if (closed || passiveLease != lease) return false
 		passiveLease = null
 		cancelAndRestore = null
+		onPassiveMutationReleased()
 		return true
 	}
 
