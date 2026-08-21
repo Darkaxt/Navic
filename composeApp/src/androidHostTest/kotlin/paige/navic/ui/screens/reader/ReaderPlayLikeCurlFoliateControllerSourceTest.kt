@@ -1163,6 +1163,26 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun preparedInitialDeckEstablishesFreshLivePresentationAuthority() {
+		val source = controllerFile.readText()
+		val deckPrepared = source
+			.substringAfter("override fun onDeckPrepared(generationId: Long)")
+			.substringBefore("override fun onDeckRejected(")
+		val bootstrap = source
+			.substringAfter("private fun requestInitialLivePresentationAuthority(")
+			.substringBefore("private fun releaseInitialLivePresentationAuthority(")
+
+		assertContains(deckPrepared, "requestInitialLivePresentationAuthority(generationId)")
+		assertContains(bootstrap, "generationId == activeDeckGenerationId")
+		assertContains(bootstrap, "!relocationQueue.hasInFlightHead()")
+		assertContains(bootstrap, "foregroundWebViewOwnership.acquireExclusiveLive(")
+		assertContains(bootstrap, "foregroundWebViewOwnership.beginLiveMutation(")
+		assertContains(bootstrap, "\"type\", \"goToVisualPage\"")
+		assertContains(bootstrap, "\"pageTurnLivePresentationReceipt\"")
+		assertFalse(bootstrap.contains("pageTurnPreviewPresentationReceipt"))
+	}
+
+	@Test
 	fun promotedDeckPublishesItsDestinationSourceOrdinal() {
 		val source = controllerFile.readText()
 		val publication = source

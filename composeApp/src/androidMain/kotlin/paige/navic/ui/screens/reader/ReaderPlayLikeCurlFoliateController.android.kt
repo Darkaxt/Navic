@@ -650,6 +650,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 			Deferred<ReaderPlayLikeCurlRasterDeck<ReaderPlayLikeCurlRasterImage>?>
 	}
 
+	private class InitialLivePresentationAuthorityRequest(
+		val generationId: Long,
+		val pageIndex: Int,
+		val foliateSessionId: String,
+		val rasterGeneration: Long,
+		val claim: ReaderForegroundWebViewLiveClaim
+	) {
+		var target: ReaderPageTurnPresentationTarget.Live? = null
+		var confirmationPending = false
+	}
+
 	private data class BuiltRecoveredDeck(
 		val pages: PreparedPages,
 		val ordinal: Int,
@@ -887,6 +898,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var activeDeckGenerationId: Long? = null
 	private var pendingDeckGenerationId: Long? = null
 	private var pendingDeckOrdinal: Int? = null
+	private var initialLivePresentationAuthority:
+		InitialLivePresentationAuthorityRequest? = null
 	private var latestWhispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt? = null
 	private var latestWhispersyncPresentationProof: ReaderWhispersyncNativePresentationProof? = null
 	private var whispersyncHighlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb
@@ -953,6 +966,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						reason = "deck-prepared:$generationId"
 					)
 					publishPreparedActiveDeck()
+					requestInitialLivePresentationAuthority(generationId)
 					publishLatestWhispersyncOverlayIfIdle()
 				} else if (
 					generationId == pendingDeckGenerationId &&
@@ -1662,7 +1676,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	fun onWebViewAttachmentChanged(webViewAttached: Boolean) {
-		if (!webViewAttached || !enabled || destroyed) return
+		if (!webViewAttached) {
+			releaseInitialLivePresentationAuthority()
+			return
+		}
+		if (!enabled || destroyed) return
 		dispatchNextRelocation()
 		retryRelocationVisualHandoffAttached()
 	}
@@ -1695,6 +1713,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			return ReaderPageCurlDispatchResult.Accepted
 		}
 
+		releaseInitialLivePresentationAuthority()
 		activeGestureId = gestureId
 		val metadata = relocationMetadata(gestureId)
 		if (!isAvailable || metadata == null) {
@@ -1832,6 +1851,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		pageChange: PageChange,
 		gestureId: Long
 	): ReaderPageTurnStartResult {
+		releaseInitialLivePresentationAuthority()
 		activeGestureId = gestureId
 		val metadata = relocationMetadata(gestureId)
 		if (!isAvailable || metadata == null) {
@@ -1967,6 +1987,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		require(sessionId.isNotBlank())
 		val previous = currentFoliateSessionId
 		if (previous == sessionId) return
+		releaseInitialLivePresentationAuthority()
 		if (previous != null) {
 			whispersyncOverlayClearPending = true
 			activeDeckGenerationId?.let { generationId ->
@@ -2016,6 +2037,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		acknowledgement: ReaderPageTurnSettlementAck?
 	) {
 		val normalized = pageIndex?.takeIf { it >= 0 } ?: return
+		confirmInitialLivePresentationAuthority(normalized, acknowledgement)
 		val origin = visualLocationOrigin(normalized, acknowledgement)
 		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
 			authoritativeLocationReady = true
@@ -2180,6 +2202,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		relocationRejectionReason: ReaderPageRelocationDiagnosticRejectionReason =
 			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated
 	) {
+		releaseInitialLivePresentationAuthority()
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		failedLivePresentationGeneration = null
@@ -2234,6 +2257,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val destroyFence = ReaderPageControllerDestroyFence(
 		scope = teardownScope,
 		fenceAdmission = {
+			releaseInitialLivePresentationAuthority()
 			destroyed = true
 			enabled = false
 			latestWhispersyncAnchorReceipt = null
@@ -5278,6 +5302,179 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (enabled) onRequestPrewarm()
 	}
 
+	private fun requestInitialLivePresentationAuthority(generationId: Long) {
+		val activeDeckIsCurrent = generationId == activeDeckGenerationId
+		val pages = generationOwners[generationId] ?: return
+		val sessionId = currentFoliateSessionId ?: return
+		val profile = pages.profile
+		if (
+			!activeDeckIsCurrent ||
+			destroyed ||
+			!enabled ||
+			!attached ||
+			activePages !== pages ||
+			generationId !in preparedDeckGenerations ||
+			generationId !in 1L..ReaderPageTurnPresentationMaximumSafeInteger ||
+			profile.rasterGeneration !in 0L..ReaderPageTurnPresentationMaximumSafeInteger ||
+			profile.rasterGeneration != bundleSource.currentGeneration() ||
+			currentOrdinal !in 0 until profile.pageCount ||
+			relocationQueue.occupiedCount() != 0 ||
+			relocationQueue.hasInFlightHead()
+		) {
+			return
+		}
+		if (initialLivePresentationAuthority?.generationId == generationId) return
+		releaseInitialLivePresentationAuthority()
+		val claim = runCatching {
+			foregroundWebViewOwnership.acquireExclusiveLive(generationId)
+		}.getOrNull() ?: return
+		val request = InitialLivePresentationAuthorityRequest(
+			generationId = generationId,
+			pageIndex = currentOrdinal,
+			foliateSessionId = sessionId,
+			rasterGeneration = profile.rasterGeneration,
+			claim = claim
+		)
+		initialLivePresentationAuthority = request
+		try {
+			foregroundWebViewOwnership.whenLiveReady(claim) { readiness ->
+				if (initialLivePresentationAuthority !== request) return@whenLiveReady
+				if (
+					readiness != ReaderForegroundWebViewLiveReadiness.Ready ||
+					!initialLivePresentationAuthorityIsCurrent(request)
+				) {
+					releaseInitialLivePresentationAuthority(request)
+					return@whenLiveReady
+				}
+				val mutationGeneration =
+					foregroundWebViewOwnership.beginLiveMutation(claim)
+				if (
+					mutationGeneration == null ||
+					!foregroundWebViewOwnership.isCurrent(claim, mutationGeneration) ||
+					!initialLivePresentationAuthorityIsCurrent(request)
+				) {
+					releaseInitialLivePresentationAuthority(request)
+					return@whenLiveReady
+				}
+				val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
+				if (webView == null) {
+					releaseInitialLivePresentationAuthority(request)
+					return@whenLiveReady
+				}
+				val target = ReaderPageTurnPresentationTarget.Live(
+					token = "initial-live-$generationId-${mutationGeneration.value}",
+					pageIndex = request.pageIndex.toLong(),
+					foliateSessionId = request.foliateSessionId,
+					rasterGeneration = request.rasterGeneration,
+					textureGeneration = generationId,
+					foregroundMutationGeneration = mutationGeneration.value
+				)
+				request.target = target
+				val command = JSONObject().apply {
+					put("type", "goToVisualPage")
+					put("pageIndex", request.pageIndex)
+					put("settleToken", target.token)
+					put("settleGestureId", generationId)
+					put("settleSessionId", request.foliateSessionId)
+					put("settleRasterGeneration", request.rasterGeneration)
+					put("settleTextureGeneration", generationId)
+					put(
+						"settleForegroundMutationGeneration",
+						mutationGeneration.value
+					)
+				}
+				try {
+					webView.evaluateJavascript(
+						"window.NavicReaderBridge?.dispatch?.($command)"
+					) { }
+				} catch (_: Throwable) {
+					releaseInitialLivePresentationAuthority(request)
+				}
+			}
+		} catch (_: Throwable) {
+			releaseInitialLivePresentationAuthority(request)
+		}
+	}
+
+	private fun initialLivePresentationAuthorityIsCurrent(
+		request: InitialLivePresentationAuthorityRequest
+	): Boolean {
+		val pages = generationOwners[request.generationId] ?: return false
+		return !destroyed &&
+			enabled &&
+			attached &&
+			activeDeckGenerationId == request.generationId &&
+			activePages === pages &&
+			request.generationId in preparedDeckGenerations &&
+			currentFoliateSessionId == request.foliateSessionId &&
+			currentOrdinal == request.pageIndex &&
+			pages.profile.rasterGeneration == request.rasterGeneration &&
+			request.rasterGeneration == bundleSource.currentGeneration() &&
+			relocationQueue.occupiedCount() == 0 &&
+			!relocationQueue.hasInFlightHead()
+	}
+
+	private fun confirmInitialLivePresentationAuthority(
+		pageIndex: Int,
+		acknowledgement: ReaderPageTurnSettlementAck?
+	) {
+		val request = initialLivePresentationAuthority ?: return
+		val target = request.target ?: return
+		val settled = acknowledgement ?: return
+		if (
+			request.confirmationPending ||
+			pageIndex != request.pageIndex ||
+			settled.token != target.token ||
+			settled.foliateSessionId != target.foliateSessionId ||
+			settled.rasterGeneration != target.rasterGeneration ||
+			settled.textureGeneration != target.textureGeneration ||
+			!initialLivePresentationAuthorityIsCurrent(request) ||
+			!foregroundWebViewOwnership.isCurrent(
+				request.claim,
+				ReaderForegroundWebViewMutationGeneration(
+					target.foregroundMutationGeneration
+				)
+			)
+		) {
+			return
+		}
+		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
+		if (webView == null) {
+			releaseInitialLivePresentationAuthority(request)
+			return
+		}
+		request.confirmationPending = true
+		val getter = "pageTurnLivePresentationReceipt"
+		try {
+			webView.evaluateJavascript(
+				"JSON.stringify(window.NavicReaderBridge?.$getter?.() ?? null)"
+			) { encodedReceipt ->
+				if (initialLivePresentationAuthority !== request) {
+					return@evaluateJavascript
+				}
+				request.confirmationPending = false
+				val receipt = readerPageTurnPresentationReceipt(encodedReceipt)
+				val confirmed = receipt?.matches(target) == true &&
+					initialLivePresentationAuthorityIsCurrent(request) &&
+					webView.isAttachedToWindow
+				releaseInitialLivePresentationAuthority(request)
+				if (confirmed) publishLatestWhispersyncOverlayIfIdle()
+			}
+		} catch (_: Throwable) {
+			releaseInitialLivePresentationAuthority(request)
+		}
+	}
+
+	private fun releaseInitialLivePresentationAuthority(
+		expected: InitialLivePresentationAuthorityRequest? = null
+	): Boolean {
+		val request = initialLivePresentationAuthority ?: return false
+		if (expected != null && request !== expected) return false
+		initialLivePresentationAuthority = null
+		request.confirmationPending = false
+		return foregroundWebViewOwnership.releaseLive(request.claim)
+	}
+
 	private fun releaseGeneration(generationId: Long) {
 		deckDiagnosticTracker?.cancel(generationId)
 		val pages = generationOwners.remove(generationId) ?: return
@@ -5286,6 +5483,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		preparedDeckGenerations -= generationId
 		recoveredDeckGenerations -= generationId
 		if (releasedCurrentActive) {
+			releaseInitialLivePresentationAuthority()
 			activeDeckGenerationId = null
 			if (activePages === pages) activePages = null
 			notifyPreparedActiveDeckChanged(null)
