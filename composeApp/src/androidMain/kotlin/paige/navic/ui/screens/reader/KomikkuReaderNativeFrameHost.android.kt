@@ -1040,6 +1040,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		onOwnershipMutated = applicationOwnershipEpoch::ownerMutationCommitted
 	)
 	private val foregroundWebViewOwnership = ReaderForegroundWebViewOwnership(
+		onPassiveMutationReleased = ::onForegroundWebViewPassiveMutationReleased,
 		onPassiveAvailable = ::onForegroundWebViewPassiveAvailable
 	)
 	private val settingsWebViewMutationCoordinator =
@@ -1793,6 +1794,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		if (!foregroundWebViewOwnership.canAcquirePassive()) return
 		destinationDeckPrewarmPending = false
 		requestPageTurnPrewarmWhenReady()
+	}
+
+	private fun onForegroundWebViewPassiveMutationReleased() {
+		if (task4ResourceTeardownStarted) return
+		playLikeCurlController.onForegroundWebViewPassiveMutationReleased()
+		onForegroundWebViewPassiveAvailable()
 	}
 
 	private fun onForegroundWebViewPassiveAvailable() {

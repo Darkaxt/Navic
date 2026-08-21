@@ -1191,6 +1191,42 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun passiveMutationCompletionReestablishesLiveAuthorityBeforePassiveResume() {
+		val host = hostFile.readText()
+		val source = controllerFile.readText()
+		val ownership = host
+			.substringAfter("private val foregroundWebViewOwnership")
+			.substringBefore("private val settingsWebViewMutationCoordinator")
+		val completion = host
+			.substringAfter("private fun onForegroundWebViewPassiveMutationReleased()")
+			.substringBefore("private fun onForegroundWebViewPassiveAvailable()")
+		val controller = source
+			.substringAfter("fun onForegroundWebViewPassiveMutationReleased()")
+			.substringBefore("fun onHostResumedChanged(")
+
+		assertContains(
+			ownership,
+			"onPassiveMutationReleased = ::onForegroundWebViewPassiveMutationReleased"
+		)
+		assertContains(
+			ownership,
+			"onPassiveAvailable = ::onForegroundWebViewPassiveAvailable"
+		)
+		val rearm = completion.indexOf(
+			"playLikeCurlController.onForegroundWebViewPassiveMutationReleased()"
+		)
+		val resume = completion.indexOf("onForegroundWebViewPassiveAvailable()")
+		assertTrue(rearm >= 0)
+		assertTrue(resume > rearm)
+		assertContains(
+			controller,
+			"requestInitialLivePresentationAuthorityForActiveDeck()"
+		)
+		assertFalse(controller.contains("pageTurnPreviewPresentationReceipt"))
+		assertFalse(controller.contains("initialLivePresentationAuthorizedGenerationId"))
+	}
+
+	@Test
 	fun promotedDeckPublishesItsDestinationSourceOrdinal() {
 		val source = controllerFile.readText()
 		val publication = source

@@ -1685,6 +1685,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		retryRelocationVisualHandoffAttached()
 	}
 
+	fun onForegroundWebViewPassiveMutationReleased() {
+		if (!enabled || destroyed) return
+		requestInitialLivePresentationAuthorityForActiveDeck()
+	}
+
 	fun onHostResumedChanged(resumed: Boolean) {
 		if (hostResumed == resumed) return
 		hostResumed = resumed
