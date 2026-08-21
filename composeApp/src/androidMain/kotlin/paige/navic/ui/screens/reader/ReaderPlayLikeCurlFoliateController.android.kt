@@ -900,7 +900,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var pendingDeckOrdinal: Int? = null
 	private var initialLivePresentationAuthority:
 		InitialLivePresentationAuthorityRequest? = null
-	private var initialLivePresentationAuthorizedGenerationId: Long? = null
 	private var latestWhispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt? = null
 	private var latestWhispersyncPresentationProof: ReaderWhispersyncNativePresentationProof? = null
 	private var whispersyncHighlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb
@@ -1679,8 +1678,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun onWebViewAttachmentChanged(webViewAttached: Boolean) {
 		if (!webViewAttached) {
 			releaseInitialLivePresentationAuthority()
-			initialLivePresentationAuthorizedGenerationId = null
-			return
+				return
 		}
 		if (!enabled || destroyed) return
 		dispatchNextRelocation()
@@ -1990,7 +1988,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val previous = currentFoliateSessionId
 		if (previous == sessionId) return
 		releaseInitialLivePresentationAuthority()
-		initialLivePresentationAuthorizedGenerationId = null
 		if (previous != null) {
 			whispersyncOverlayClearPending = true
 			activeDeckGenerationId?.let { generationId ->
@@ -2208,7 +2205,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated
 	) {
 		releaseInitialLivePresentationAuthority()
-		initialLivePresentationAuthorizedGenerationId = null
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		failedLivePresentationGeneration = null
@@ -2264,8 +2260,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		scope = teardownScope,
 		fenceAdmission = {
 			releaseInitialLivePresentationAuthority()
-			initialLivePresentationAuthorizedGenerationId = null
-			destroyed = true
+				destroyed = true
 			enabled = false
 			latestWhispersyncAnchorReceipt = null
 			latestWhispersyncPresentationProof = null
@@ -5336,7 +5331,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			return
 		}
-		if (initialLivePresentationAuthorizedGenerationId == generationId) return
 		if (initialLivePresentationAuthority?.generationId == generationId) return
 		releaseInitialLivePresentationAuthority()
 		val claim = runCatching {
@@ -5471,9 +5465,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 				val confirmed = receipt?.matches(target) == true &&
 					initialLivePresentationAuthorityIsCurrent(request) &&
 					webView.isAttachedToWindow
-				if (confirmed) {
-					initialLivePresentationAuthorizedGenerationId = request.generationId
-				}
 				releaseInitialLivePresentationAuthority(request)
 				if (confirmed) publishLatestWhispersyncOverlayIfIdle()
 			}
@@ -5501,8 +5492,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		recoveredDeckGenerations -= generationId
 		if (releasedCurrentActive) {
 			releaseInitialLivePresentationAuthority()
-			initialLivePresentationAuthorizedGenerationId = null
-			activeDeckGenerationId = null
+				activeDeckGenerationId = null
 			if (activePages === pages) activePages = null
 			notifyPreparedActiveDeckChanged(null)
 		}

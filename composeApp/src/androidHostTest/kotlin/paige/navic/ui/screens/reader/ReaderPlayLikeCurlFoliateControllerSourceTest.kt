@@ -1187,6 +1187,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(bootstrap, "\"type\", \"goToVisualPage\"")
 		assertContains(bootstrap, "\"pageTurnLivePresentationReceipt\"")
 		assertFalse(bootstrap.contains("pageTurnPreviewPresentationReceipt"))
+		assertFalse(bootstrap.contains("initialLivePresentationAuthorizedGenerationId"))
 	}
 
 	@Test
