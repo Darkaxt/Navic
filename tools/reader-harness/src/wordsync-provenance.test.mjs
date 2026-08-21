@@ -513,6 +513,39 @@ const runScenario = (page, scenario) => page.evaluate(async scenarioName => {
   throw new Error('unknown scenario')
 }, scenario)
 
+test('keeps page-spanning cue progress active until the sentence finishes', async () => {
+  const page = await newReaderPage()
+  try {
+    const result = await page.evaluate(async () => {
+      const mediaOverlayApi = await import('/navic-reader-media-overlay.js')
+      const runtime = {
+        currentVisibleTextRangeForHref: () => ({
+          visibleStart: 100,
+          visibleEnd: 120,
+        }),
+      }
+      Object.assign(runtime, mediaOverlayApi.NavicReaderMediaOverlayMethods)
+      const fragment = {
+        coordinateMode: 'cue-v1-dom-utf16',
+        textHref: 'synthetic.xhtml',
+        textStart: 80,
+        textEnd: 140,
+        textProgressEnd: 130,
+        textProgressFraction: 5 / 6,
+      }
+      return {
+        fragmentVisible: runtime.mediaOverlayFragmentAlreadyVisible(fragment),
+        progressVisible: runtime.mediaOverlayFragmentProgressAlreadyVisible(fragment),
+      }
+    })
+
+    assert.equal(result.fragmentVisible, true)
+    assert.equal(result.progressVisible, true)
+  } finally {
+    await page.close()
+  }
+})
+
 test('derives page-local anchor geometry from the resolved Foliate iframe and fails closed without ownership', async () => {
   const page = await newReaderPage()
   try {

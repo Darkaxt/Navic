@@ -21,13 +21,6 @@ internal fun ReaderOverlayFragment.isOutsideWhispersyncVisibleRange(
 	val start = textStart ?: return false
 	val end = textEnd ?: return false
 	if (end <= start) return false
-	if (
-		textProgressFraction != null &&
-		textProgressEnd != null &&
-		textProgressEnd >= visibleRange.visibleEnd
-	) {
-		return true
-	}
 	return end <= visibleRange.visibleStart || start >= visibleRange.visibleEnd
 }
 

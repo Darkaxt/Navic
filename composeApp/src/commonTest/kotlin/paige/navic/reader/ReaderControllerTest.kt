@@ -3214,7 +3214,7 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun pageSpanningWhispersyncCuePausesWhenPlaybackProgressLeavesVisibleRange() {
+	fun pageSpanningWhispersyncCueKeepsPlayingUntilTheActiveSentenceFinishes() {
 		val pending = ReaderController()
 			.open(hobbitOpenRequest()).controller
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
@@ -3244,14 +3244,10 @@ class ReaderControllerTest {
 			)
 		)
 
-		assertEquals(listOf(ReaderEngineCommand.ClearMediaOverlay), step.engineCommands)
-		assertEquals(ReaderReadaloudPlaybackCommand.Pause, step.readaloudPlaybackCommand)
-		assertNull(step.controller.state.activeMediaOverlay)
-		assertEquals(ReaderWhispersyncStatusKind.NoActiveCue, step.controller.state.whispersync.status.kind)
-		assertEquals(
-			ReaderWhispersyncStatusMessage.VisiblePageEnded,
-			step.controller.state.whispersync.status.message
-		)
+		assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(step.engineCommands.single())
+		assertNull(step.readaloudPlaybackCommand)
+		assertNotNull(step.controller.state.activeMediaOverlay)
+		assertEquals(ReaderWhispersyncStatusKind.Playing, step.controller.state.whispersync.status.kind)
 	}
 
 	@Test

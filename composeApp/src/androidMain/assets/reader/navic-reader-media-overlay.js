@@ -210,15 +210,7 @@ function mediaOverlayFragmentAlreadyVisible(fragment) {
 }
 
 function mediaOverlayFragmentProgressAlreadyVisible(fragment) {
-  if (!this.mediaOverlayFragmentAlreadyVisible(fragment)) return false
-  if (validatedReaderOverlayCoordinateMode(fragment) === ReaderWordSyncV1ExtractedUtf8Mode) return true
-  const progressFraction = Number(fragment?.textProgressFraction)
-  if (!Number.isFinite(progressFraction)) return true
-  const progressEnd = Number(fragment?.textProgressEnd)
-  if (!Number.isFinite(progressEnd)) return true
-  const visibleRange = this.currentVisibleTextRangeForHref?.(fragment?.textHref || '')
-  if (!visibleRange) return false
-  return progressEnd < Number(visibleRange.visibleEnd)
+  return this.mediaOverlayFragmentAlreadyVisible(fragment)
 }
 
 export const NavicReaderMediaOverlayMethods = {
