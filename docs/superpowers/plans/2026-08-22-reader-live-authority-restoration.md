@@ -51,7 +51,10 @@ file edits.
 5. Add the minimal controller entry point that rearms the existing strict exact
    settlement path.
 6. Suppress only the unconditional prewarm request caused by completing that
-   reauthorization; still resume explicitly deferred passive work.
+   reauthorization; still resume explicitly deferred passive work. Carry that
+   intent on the passive-origin authority request and publish it immediately
+   before its live claim releases, rather than inferring completion from an
+   earlier ownership snapshot.
 7. Run the focused source test class plus ownership tests once and confirm GREEN.
 
 ## Stage 3 — Specification cross-check and consolidated gates

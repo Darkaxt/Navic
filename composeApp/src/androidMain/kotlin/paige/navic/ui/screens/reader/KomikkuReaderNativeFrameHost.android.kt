@@ -1150,6 +1150,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			pageRasterPreparationController.onProtectedRasterSourcePageIndicesChanged(it)
 		},
 		onPreparedActiveDeckChanged = ::onPreparedActiveDeckChanged,
+		onPassiveMutationLiveAuthorityReleasing = {
+			suppressNextUnconditionalPrewarmAfterAuthorityRestoration = true
+		},
 		onPaginationReadinessChanged = ::onPaginationReadinessChanged,
 		onProfileBootstrapFailed = {
 			removePageTurnPrewarmLayoutListener()
@@ -1800,13 +1803,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun onForegroundWebViewPassiveMutationReleased() {
 		if (task4ResourceTeardownStarted) return
-		val liveClaimsBefore = foregroundWebViewOwnership.snapshot().liveClaims
 		playLikeCurlController.onForegroundWebViewPassiveMutationReleased()
-		if (
-			foregroundWebViewOwnership.snapshot().liveClaims > liveClaimsBefore
-		) {
-			suppressNextUnconditionalPrewarmAfterAuthorityRestoration = true
-		}
 		onForegroundWebViewPassiveAvailable()
 	}
 

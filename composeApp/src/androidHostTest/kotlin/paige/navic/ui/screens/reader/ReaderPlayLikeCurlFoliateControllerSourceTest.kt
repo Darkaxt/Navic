@@ -1203,12 +1203,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val passiveAvailable = host
 			.substringAfter("private fun onForegroundWebViewPassiveAvailable()")
 			.substringBefore("private fun requestPageTurnPrewarmWhenReady()")
-		val reset = host
-			.substringAfter("private fun clearDestinationDeckPrewarm()")
-			.substringBefore("private fun onRasterProfileEpochChanged(")
 		val controller = source
 			.substringAfter("fun onForegroundWebViewPassiveMutationReleased()")
 			.substringBefore("fun onHostResumedChanged(")
+		val authorityRequest = source
+			.substringAfter("private fun requestInitialLivePresentationAuthority(")
+			.substringBefore("private fun initialLivePresentationAuthorityIsCurrent(")
+		val authorityRelease = source
+			.substringAfter("private fun releaseInitialLivePresentationAuthority(")
+			.substringBefore("private fun releaseGeneration(")
 
 		assertContains(
 			ownership,
@@ -1224,20 +1227,17 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val resume = completion.indexOf("onForegroundWebViewPassiveAvailable()")
 		assertTrue(rearm >= 0)
 		assertTrue(resume > rearm)
+		assertFalse(completion.contains("snapshot().liveClaims"))
 		assertContains(
 			host,
 			"private var suppressNextUnconditionalPrewarmAfterAuthorityRestoration = false"
 		)
 		assertContains(
-			completion,
-			"val liveClaimsBefore = foregroundWebViewOwnership.snapshot().liveClaims"
+			host,
+			"onPassiveMutationLiveAuthorityReleasing = {"
 		)
 		assertContains(
-			completion,
-			"foregroundWebViewOwnership.snapshot().liveClaims > liveClaimsBefore"
-		)
-		assertContains(
-			completion,
+			host,
 			"suppressNextUnconditionalPrewarmAfterAuthorityRestoration = true"
 		)
 		val rasterResume = passiveAvailable.indexOf(
@@ -1257,12 +1257,24 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertTrue(suppressUnconditional > destinationResume)
 		assertTrue(unconditionalPrewarm > suppressUnconditional)
 		assertContains(
-			reset,
-			"suppressNextUnconditionalPrewarmAfterAuthorityRestoration = false"
+			controller,
+			"suppressUnconditionalPrewarmOnRelease = true"
 		)
 		assertContains(
-			controller,
-			"requestInitialLivePresentationAuthorityForActiveDeck()"
+			authorityRequest,
+			"suppressUnconditionalPrewarmOnRelease: Boolean = false"
+		)
+		assertContains(
+			authorityRequest,
+			"suppressUnconditionalPrewarmOnRelease = suppressUnconditionalPrewarmOnRelease"
+		)
+		assertContains(
+			authorityRelease,
+			"if (request.suppressUnconditionalPrewarmOnRelease)"
+		)
+		assertTrue(
+			authorityRelease.indexOf("onPassiveMutationLiveAuthorityReleasing()") <
+				authorityRelease.indexOf("foregroundWebViewOwnership.releaseLive(request.claim)")
 		)
 		assertFalse(controller.contains("pageTurnPreviewPresentationReceipt"))
 		assertFalse(controller.contains("initialLivePresentationAuthorizedGenerationId"))

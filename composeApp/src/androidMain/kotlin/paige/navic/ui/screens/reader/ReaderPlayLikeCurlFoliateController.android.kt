@@ -609,6 +609,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val onRasterProfileEpochChanged: (Long?) -> Unit = {},
 	private val onProtectedRasterSourcePageIndicesChanged: (Set<Int>) -> Unit = {},
 	private val onPreparedActiveDeckChanged: (ReaderPagePreparedActiveDeck?) -> Unit = {},
+	private val onPassiveMutationLiveAuthorityReleasing: () -> Unit = {},
 	private val onPaginationReadinessChanged: (ReaderPagePaginationReadiness) -> Unit = {},
 	private val onProfileBootstrapFailed: () -> Unit = {},
 	private val onReadinessStateChange: (ReaderPageRendererReadinessState) -> Unit = {},
@@ -655,7 +656,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val pageIndex: Int,
 		val foliateSessionId: String,
 		val rasterGeneration: Long,
-		val claim: ReaderForegroundWebViewLiveClaim
+		val claim: ReaderForegroundWebViewLiveClaim,
+		val suppressUnconditionalPrewarmOnRelease: Boolean
 	) {
 		var target: ReaderPageTurnPresentationTarget.Live? = null
 		var confirmationPending = false
@@ -1687,7 +1689,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun onForegroundWebViewPassiveMutationReleased() {
 		if (!enabled || destroyed) return
-		requestInitialLivePresentationAuthorityForActiveDeck()
+		requestInitialLivePresentationAuthorityForActiveDeck(
+			suppressUnconditionalPrewarmOnRelease = true
+		)
 	}
 
 	fun onHostResumedChanged(resumed: Boolean) {
@@ -5309,13 +5313,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (enabled) onRequestPrewarm()
 	}
 
-	private fun requestInitialLivePresentationAuthorityForActiveDeck() {
+	private fun requestInitialLivePresentationAuthorityForActiveDeck(
+		suppressUnconditionalPrewarmOnRelease: Boolean = false
+	) {
 		val generationId = activeDeckGenerationId ?: return
 		if (generationId !in preparedDeckGenerations) return
-		requestInitialLivePresentationAuthority(generationId)
+		requestInitialLivePresentationAuthority(
+			generationId = generationId,
+			suppressUnconditionalPrewarmOnRelease = suppressUnconditionalPrewarmOnRelease
+		)
 	}
 
-	private fun requestInitialLivePresentationAuthority(generationId: Long) {
+	private fun requestInitialLivePresentationAuthority(
+		generationId: Long,
+		suppressUnconditionalPrewarmOnRelease: Boolean = false
+	) {
 		val activeDeckIsCurrent = generationId == activeDeckGenerationId
 		val pages = generationOwners[generationId] ?: return
 		val sessionId = currentFoliateSessionId ?: return
@@ -5346,7 +5358,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			pageIndex = currentOrdinal,
 			foliateSessionId = sessionId,
 			rasterGeneration = profile.rasterGeneration,
-			claim = claim
+			claim = claim,
+			suppressUnconditionalPrewarmOnRelease = suppressUnconditionalPrewarmOnRelease
 		)
 		initialLivePresentationAuthority = request
 		try {
@@ -5485,6 +5498,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (expected != null && request !== expected) return false
 		initialLivePresentationAuthority = null
 		request.confirmationPending = false
+		if (request.suppressUnconditionalPrewarmOnRelease) {
+			onPassiveMutationLiveAuthorityReleasing()
+		}
 		return foregroundWebViewOwnership.releaseLive(request.claim)
 	}
 

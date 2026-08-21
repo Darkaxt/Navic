@@ -62,7 +62,10 @@ publish.
 5. The host callback first rearms live authority for the active prepared deck,
    then resumes genuine deferred passive work only when ownership permits.
    Completing reauthorization must not schedule an unconditional prewarm/deck
-   refresh cycle that immediately requests another live settlement.
+   refresh cycle that immediately requests another live settlement. Suppression
+   is tied to the passive-origin authority claim and is published immediately
+   before that claim releases; request-time ownership snapshots are insufficient
+   because profile replacement may occur while settlement is pending.
 6. Live settlement continues to require matching Foliate session, page, raster,
    texture, foreground-mutation generation, and settlement token.
 7. Native Whispersync geometry remains fail-closed until an anchor receipt
