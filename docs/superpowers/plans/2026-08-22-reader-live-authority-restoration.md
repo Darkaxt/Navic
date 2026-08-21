@@ -50,11 +50,10 @@ file edits.
 4. Wire the ownership callback through the host.
 5. Add the minimal controller entry point that rearms the existing strict exact
    settlement path.
-6. Suppress only the unconditional prewarm request caused by completing that
-   reauthorization; still resume explicitly deferred passive work. Carry that
-   intent on the passive-origin authority request and publish it immediately
-   before its live claim releases, rather than inferring completion from an
-   earlier ownership snapshot.
+6. Remove unconditional prewarm scheduling from generic ownership availability.
+   Resume only the raster and destination work that recorded an explicit
+   deferral; otherwise every live-authority release can feed deck preparation
+   back into another settlement.
 7. Run the focused source test class plus ownership tests once and confirm GREEN.
 
 ## Stage 3 — Specification cross-check and consolidated gates

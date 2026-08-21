@@ -996,7 +996,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null
 	private var preparedActiveDeck: ReaderPagePreparedActiveDeck? = null
 	private var destinationDeckPrewarmPending = false
-	private var suppressNextUnconditionalPrewarmAfterAuthorityRestoration = false
 	private var shellCoverVisible: Boolean = false
 	private val startupShellHandoff = ReaderStartupShellHandoffGate()
 	private var pageOperationPolicy = readerPageOperationPolicy(ReaderPageReadinessState())
@@ -1150,9 +1149,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			pageRasterPreparationController.onProtectedRasterSourcePageIndicesChanged(it)
 		},
 		onPreparedActiveDeckChanged = ::onPreparedActiveDeckChanged,
-		onPassiveMutationLiveAuthorityReleasing = {
-			suppressNextUnconditionalPrewarmAfterAuthorityRestoration = true
-		},
 		onPaginationReadinessChanged = ::onPaginationReadinessChanged,
 		onProfileBootstrapFailed = {
 			removePageTurnPrewarmLayoutListener()
@@ -1436,7 +1432,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun clearDestinationDeckPrewarm() {
 		destinationDeckPrewarmPending = false
-		suppressNextUnconditionalPrewarmAfterAuthorityRestoration = false
 		preparedActiveDeck = null
 	}
 
@@ -1813,16 +1808,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			!foregroundWebViewOwnership.canAcquirePassive()
 		) return
 		pageRasterPreparationController.onForegroundWebViewPassiveAvailable()
-		resumeDestinationDeckPrewarmIfReady()
 		if (
 			task4ResourceTeardownStarted ||
 			!foregroundWebViewOwnership.canAcquirePassive()
 		) return
-		if (suppressNextUnconditionalPrewarmAfterAuthorityRestoration) {
-			suppressNextUnconditionalPrewarmAfterAuthorityRestoration = false
-			return
-		}
-		requestPageTurnPrewarmWhenReady()
+		resumeDestinationDeckPrewarmIfReady()
 	}
 
 	private fun requestPageTurnPrewarmWhenReady() {
