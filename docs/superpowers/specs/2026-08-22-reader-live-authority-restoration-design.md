@@ -31,6 +31,12 @@ bounds. The paginator commit receipt remains valid, but its remembered visible
 content no longer matches. The first anchor therefore fails closed and clears
 live presentation authority before native geometry can be published.
 
+A final bounded probe established the remaining handoff failure. Exact authority
+was restored, but all 251 anchor attempts occurred while the live receipt was
+absent. The progressive fallback animation continued repainting after the fresh
+receipt arrived without posting another active cue event, so native never
+received geometry derived from the restored authority.
+
 ## 2. Architecture
 
 Foliate remains the sole authority for EPUB layout, DOM ranges, visible text,
@@ -59,6 +65,13 @@ same exact active-deck authority path. Repeated missing-anchor updates do not
 re-request authority until the overlay or anchor state changes. This edge uses
 no EPUB coordinates and does not promote preview authority.
 
+After strict live-receipt confirmation, the controller keeps its exclusive live
+claim while asking Foliate to republish the current active overlay anchor.
+Foliate recomputes the anchor from its retained active DOM range, current page
+commit, capture geometry, and newly confirmed live receipt. The claim is
+released only after that bridge evaluation completes. Native code neither
+reconstructs the cue nor reuses geometry from the failed pre-authority event.
+
 This does not make prewarm part of Whispersync semantics. Prewarm remains
 optional, but any component that mutates the shared foreground WebView must
 leave live presentation authority restorable before page-attached overlays can
@@ -86,9 +99,13 @@ publish.
 8. An active overlay with no validated anchor, or loss of an established anchor,
    requests exact authority once per state transition. Repeated missing-anchor
    progress must not create a settlement loop.
-9. Playback fallback remains progressive `cue-v1-dom-utf16`; it must not regress
-   to whole-sentence presentation.
-10. Page-bounded playback allows the overlapping active sentence to finish and
+9. A confirmed restoration republishes the current active anchor from Foliate
+   before releasing its exclusive live claim. If no current active range or
+   matching live receipt exists, republication fails closed without native
+   semantic reconstruction.
+10. Playback fallback remains progressive `cue-v1-dom-utf16`; it must not regress
+    to whole-sentence presentation.
+11. Page-bounded playback allows the overlapping active sentence to finish and
     pauses only when the next cue is wholly outside the visible page.
 
 ## 4. Lifecycle And Failure Rules
@@ -99,6 +116,9 @@ publish.
   promoted. A later real lifecycle edge may retry.
 - Live/preview receipt scopes remain separate; preview authority cannot be
   promoted to live authority.
+- Active-anchor republication is a one-shot consequence of confirmed authority,
+  not an animation-frame retry. It posts only geometry Foliate validates against
+  the current live receipt.
 - No fixed delay, frame count, polling loop, or navigation gesture may be used
   to materialize the initial highlight.
 - Diagnostics and tests must not log or persist EPUB text, hrefs, CFIs, IDs,
@@ -113,6 +133,8 @@ publish.
 - Host/controller tests prove the completed passive mutation edge and an active
   missing-anchor transition request exact live authority for the active prepared
   deck, with repeated missing-anchor updates coalesced.
+- Browser and host source tests prove confirmed authority republishes the retained
+  active Foliate anchor before the exclusive claim is released.
 - Existing foreground ownership, raster preparation, exact settlement,
   Whispersync anchor, progressive fallback, and page-boundary tests pass.
 - Reader JavaScript harness tests pass.
@@ -124,7 +146,7 @@ Using only the first two pages of Chapter 1 of the configured paired test book:
 - cold live receipt is valid without navigation;
 - playback may invalidate the receipt through passive mutation or live renderer
   layout, but a fresh same-deck receipt follows the corresponding restoration
-  edge;
+  edge and at least one anchor attempt uses that fresh authority;
 - active cue events carry non-empty finite page-local spread geometry matching
   the live receipt;
 - fallback cue progress produces more than one partial progress value;

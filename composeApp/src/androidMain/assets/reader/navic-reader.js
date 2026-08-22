@@ -187,6 +187,7 @@ import {
   paintReaderWordSyncOverlayTextRange,
   postReaderWordSyncOverlayActive,
   readerMediaOverlayAnchorReceipt,
+  republishReaderMediaOverlayAnchor,
   rejectReaderWordSyncOverlay,
   validatedReaderOverlayCoordinateMode,
 } from './navic-reader-wordsync-provenance.js'
@@ -997,6 +998,10 @@ class NavicReaderRuntime {
     })
   }
 
+  republishActiveMediaOverlayAnchor() {
+    return republishReaderMediaOverlayAnchor(this)
+  }
+
   rejectOverlayFragment(fragment, reason) {
     if (rejectReaderWordSyncOverlay(this, fragment, reason)) return
     this.clearOverlay({ preservePlayed: this.readerMediaOverlayPersistentPlayed() })
@@ -1624,6 +1629,7 @@ window.NavicReaderBridge = {
     runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,
   activeMediaOverlaySnapshot: () =>
     runtime.mediaOverlayActiveFragment ? { ...runtime.mediaOverlayActiveFragment } : null,
+  republishActiveMediaOverlayAnchor: () => runtime.republishActiveMediaOverlayAnchor(),
   postOverlayFragmentActive: fragment => post({ type: 'overlayFragmentActive', ...fragment }),
   postOverlayFragmentInactive: (
     fragmentId,

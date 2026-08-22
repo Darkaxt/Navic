@@ -57,7 +57,11 @@ file edits.
 7. Route active-overlay-without-anchor and established-anchor-loss transitions
    to the same exact active-deck authority request. Coalesce repeated missing
    anchor updates until active or anchor state changes.
-8. Run the focused source test class plus ownership and transition tests once
+8. After strict authority confirmation, keep the exclusive live claim through a
+   Foliate bridge evaluation that republishes the retained active overlay anchor.
+   Foliate must recompute current geometry; native code must not reconstruct the
+   cue or reuse the failed pre-authority receipt.
+9. Run the focused source test class plus ownership and transition tests once
    and confirm GREEN.
 
 ## Stage 3 — Specification cross-check and consolidated gates
@@ -74,8 +78,9 @@ file edits.
 1. Build and install ReaderDev from the pushed commit on `emulator-5554` only.
 2. Launch directly at the first synced Chapter 1 resource in landscape.
 3. Use privacy-safe CDP breakpoints/counters to verify cold authority, passive
-   mutation invalidation/recovery, live-matching page-local geometry, progressive
-   fallback, and correct first-page boundary behavior.
+   mutation invalidation/recovery, at least one post-recovery anchor attempt,
+   live-matching page-local geometry, progressive fallback, and correct
+   first-page boundary behavior.
 4. Do not use screenshots, OCR, protected text, hrefs, IDs, or payload logging.
 5. If acceptance fails, stop release and use the captured lifecycle boundary as
    the next root-cause input; do not stack another speculative retry.

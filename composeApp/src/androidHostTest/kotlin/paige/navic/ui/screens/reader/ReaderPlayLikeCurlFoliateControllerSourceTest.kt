@@ -1063,6 +1063,36 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun restoredLiveAuthorityRepublishesTheActiveFoliateAnchorBeforeRelease() {
+		val controller = controllerFile.readText()
+		val runtime = readerAssetRoot.resolve("navic-reader.js").readText()
+		val confirmation = controller
+			.substringAfter("private fun confirmInitialLivePresentationAuthority(")
+			.substringBefore("private fun releaseInitialLivePresentationAuthority(")
+		val republication = confirmation
+			.substringAfter("private fun republishActiveWhispersyncAnchor(")
+		val bridge = runtime.substringAfter("window.NavicReaderBridge = {")
+
+		assertContains(
+			confirmation,
+			"republishActiveWhispersyncAnchor(request, webView)"
+		)
+		assertContains(
+			republication,
+			"window.NavicReaderBridge?.republishActiveMediaOverlayAnchor?.() === true"
+		)
+		assertContains(republication, "request.confirmationPending = true")
+		assertContains(republication, "releaseInitialLivePresentationAuthority(request)")
+		assertContains(runtime, "republishActiveMediaOverlayAnchor()")
+		assertContains(runtime, "republishReaderMediaOverlayAnchor(this)")
+		assertContains(
+			bridge,
+			"republishActiveMediaOverlayAnchor: () => " +
+				"runtime.republishActiveMediaOverlayAnchor()"
+		)
+	}
+
+	@Test
 	fun externalDeckMutationsWaitForControllerSettlementReconciliation() {
 		val controller = controllerFile.readText()
 		val settlementStarted = controller

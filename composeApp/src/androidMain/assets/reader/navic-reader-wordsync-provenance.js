@@ -258,6 +258,30 @@ export const postReaderWordSyncOverlayActive = (
   return anchorReceipt
 }
 
+export const republishReaderMediaOverlayAnchor = (
+  runtime,
+  postEvent = post
+) => {
+  const fragment = runtime?.mediaOverlayActiveFragment
+  const mode = validatedReaderOverlayCoordinateMode(fragment)
+  if (mode === ReaderWordSyncV1ExtractedUtf8Mode) {
+    return postReaderWordSyncOverlayActive(runtime, fragment, postEvent) != null
+  }
+  if (mode !== ReaderCueV1DomUtf16Mode) return false
+  const anchorReceipt = readerMediaOverlayAnchorReceipt(
+    runtime,
+    fragment,
+    runtime.mediaOverlayActiveRanges
+  )
+  if (!anchorReceipt) return false
+  postEvent({
+    type: 'overlayFragmentActive',
+    ...fragment,
+    anchorReceipt,
+  })
+  return true
+}
+
 const presentReaderWordSyncOverlayFragment = (runtime, fragment) => {
   runtime.exactWordSyncActiveRequestId = fragment.overlayRequestId
   if (!runtime.rawTextProvenance.rangeIsVisible(fragment, runtime.committedVisibleTextRange)) {
