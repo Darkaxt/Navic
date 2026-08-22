@@ -5462,7 +5462,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			return
 		}
 		request.confirmationPending = true
-		val getter = "pageTurnLivePresentationReceipt"
+		val getter =
+			"pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor"
 		try {
 			webView.evaluateJavascript(
 				"JSON.stringify(window.NavicReaderBridge?.$getter?.() ?? null)"
@@ -5475,40 +5476,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 				val confirmed = receipt?.matches(target) == true &&
 					initialLivePresentationAuthorityIsCurrent(request) &&
 					webView.isAttachedToWindow
-				if (confirmed) {
-					republishActiveWhispersyncAnchor(request, webView)
-				} else {
-					releaseInitialLivePresentationAuthority(request)
-				}
-			}
-		} catch (_: Throwable) {
-			releaseInitialLivePresentationAuthority(request)
-		}
-	}
-
-	private fun republishActiveWhispersyncAnchor(
-		request: InitialLivePresentationAuthorityRequest,
-		webView: WebView
-	) {
-		if (
-			initialLivePresentationAuthority !== request ||
-			!initialLivePresentationAuthorityIsCurrent(request) ||
-			!webView.isAttachedToWindow
-		) {
-			releaseInitialLivePresentationAuthority(request)
-			return
-		}
-		request.confirmationPending = true
-		try {
-			webView.evaluateJavascript(
-				"window.NavicReaderBridge?.republishActiveMediaOverlayAnchor?.() === true"
-			) {
-				if (initialLivePresentationAuthority !== request) {
-					return@evaluateJavascript
-				}
-				request.confirmationPending = false
 				releaseInitialLivePresentationAuthority(request)
-				publishLatestWhispersyncOverlayIfIdle()
+				if (confirmed) publishLatestWhispersyncOverlayIfIdle()
 			}
 		} catch (_: Throwable) {
 			releaseInitialLivePresentationAuthority(request)

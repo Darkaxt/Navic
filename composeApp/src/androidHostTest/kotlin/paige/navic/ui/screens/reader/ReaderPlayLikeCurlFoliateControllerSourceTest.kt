@@ -1063,32 +1063,31 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun restoredLiveAuthorityRepublishesTheActiveFoliateAnchorBeforeRelease() {
+	fun restoredLiveAuthorityAtomicallyRepublishesTheActiveFoliateAnchor() {
 		val controller = controllerFile.readText()
 		val runtime = readerAssetRoot.resolve("navic-reader.js").readText()
 		val confirmation = controller
 			.substringAfter("private fun confirmInitialLivePresentationAuthority(")
 			.substringBefore("private fun releaseInitialLivePresentationAuthority(")
-		val republication = confirmation
-			.substringAfter("private fun republishActiveWhispersyncAnchor(")
 		val bridge = runtime.substringAfter("window.NavicReaderBridge = {")
+		val getter =
+			"pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor"
 
+		assertContains(confirmation, "\"$getter\"")
 		assertContains(
-			confirmation,
-			"republishActiveWhispersyncAnchor(request, webView)"
+			runtime,
+			"$getter()"
 		)
 		assertContains(
-			republication,
-			"window.NavicReaderBridge?.republishActiveMediaOverlayAnchor?.() === true"
+			runtime,
+			"readerLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor(this)"
 		)
-		assertContains(republication, "request.confirmationPending = true")
-		assertContains(republication, "releaseInitialLivePresentationAuthority(request)")
-		assertContains(runtime, "republishActiveMediaOverlayAnchor()")
-		assertContains(runtime, "republishReaderMediaOverlayAnchor(this)")
-		assertContains(
-			bridge,
-			"republishActiveMediaOverlayAnchor: () => " +
-				"runtime.republishActiveMediaOverlayAnchor()"
+		assertContains(bridge, "$getter: () =>")
+		assertContains(bridge, "runtime.$getter()")
+		assertFalse(
+			confirmation.contains("private fun republishActiveWhispersyncAnchor("),
+			"Receipt confirmation and active-anchor republication must share one " +
+				"JavaScript evaluation."
 		)
 	}
 
@@ -1242,7 +1241,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(bootstrap, "foregroundWebViewOwnership.acquireExclusiveLive(")
 		assertContains(bootstrap, "foregroundWebViewOwnership.beginLiveMutation(")
 		assertContains(bootstrap, "\"type\", \"goToVisualPage\"")
-		assertContains(bootstrap, "\"pageTurnLivePresentationReceipt\"")
+		assertContains(
+			bootstrap,
+			"\"pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor\""
+		)
 		assertFalse(bootstrap.contains("pageTurnPreviewPresentationReceipt"))
 		assertFalse(bootstrap.contains("initialLivePresentationAuthorizedGenerationId"))
 	}

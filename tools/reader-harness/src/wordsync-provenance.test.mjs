@@ -707,7 +707,7 @@ test('derives cue anchor geometry from the accepted Foliate range and request id
   }
 })
 
-test('republishes the active progressive cue after live authority becomes available', async () => {
+test('atomically republishes the active progressive cue with restored live authority', async () => {
   const page = await newReaderPage()
   try {
     const result = await page.evaluate(async () => {
@@ -755,10 +755,11 @@ test('republishes the active progressive cue after live authority becomes availa
         currentPagePosition: { pageIndex: 12, spineIndex: 3 },
       }
 
-      const beforeAuthority = api.republishReaderMediaOverlayAnchor(
-        runtime,
-        event => events.push(event)
-      )
+      const beforeAuthority =
+        api.readerLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor(
+          runtime,
+          event => events.push(event)
+        )
       presentation = {
         scope: 'live',
         token: 'settled-11',
@@ -769,15 +770,16 @@ test('republishes the active progressive cue after live authority becomes availa
         foregroundMutationGeneration: 8,
         presentationSequence: 9,
       }
-      const afterAuthority = api.republishReaderMediaOverlayAnchor(
-        runtime,
-        event => events.push(event)
-      )
+      const afterAuthority =
+        api.readerLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor(
+          runtime,
+          event => events.push(event)
+        )
       return { beforeAuthority, afterAuthority, events }
     })
 
-    assert.equal(result.beforeAuthority, false)
-    assert.equal(result.afterAuthority, true)
+    assert.equal(result.beforeAuthority, null)
+    assert.equal(result.afterAuthority.token, 'settled-11')
     assert.equal(result.events.length, 1)
     assert.equal(result.events[0].type, 'overlayFragmentActive')
     assert.equal(result.events[0].coordinateMode, 'cue-v1-dom-utf16')

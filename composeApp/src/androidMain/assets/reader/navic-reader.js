@@ -186,8 +186,8 @@ import {
   paintReaderWordSyncActiveOverlay,
   paintReaderWordSyncOverlayTextRange,
   postReaderWordSyncOverlayActive,
+  readerLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor,
   readerMediaOverlayAnchorReceipt,
-  republishReaderMediaOverlayAnchor,
   rejectReaderWordSyncOverlay,
   validatedReaderOverlayCoordinateMode,
 } from './navic-reader-wordsync-provenance.js'
@@ -998,8 +998,8 @@ class NavicReaderRuntime {
     })
   }
 
-  republishActiveMediaOverlayAnchor() {
-    return republishReaderMediaOverlayAnchor(this)
+  pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor() {
+    return readerLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor(this)
   }
 
   rejectOverlayFragment(fragment, reason) {
@@ -1587,6 +1587,8 @@ window.NavicReaderBridge = {
   nativePageTurnPendingState: () => runtime.activeExactPageTurnSettlement(),
   pageTurnPreviewPresentationReceipt: () => runtime.pageTurnPreviewPresentationReceipt(),
   pageTurnLivePresentationReceipt: () => runtime.pageTurnLivePresentationReceipt(),
+  pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor: () =>
+    runtime.pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor(),
   pageTurnTextPageCommitIdentity: () => runtime.pageTurnTextPageCommitIdentity(),
   beginPageTurnPreviewPreparation: (token, pageIndex, foregroundMutationGeneration) =>
     runtime.beginPageTurnPreviewPreparation(
@@ -1629,7 +1631,6 @@ window.NavicReaderBridge = {
     runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,
   activeMediaOverlaySnapshot: () =>
     runtime.mediaOverlayActiveFragment ? { ...runtime.mediaOverlayActiveFragment } : null,
-  republishActiveMediaOverlayAnchor: () => runtime.republishActiveMediaOverlayAnchor(),
   postOverlayFragmentActive: fragment => post({ type: 'overlayFragmentActive', ...fragment }),
   postOverlayFragmentInactive: (
     fragmentId,

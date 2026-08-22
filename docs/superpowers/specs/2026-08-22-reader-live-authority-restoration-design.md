@@ -31,11 +31,14 @@ bounds. The paginator commit receipt remains valid, but its remembered visible
 content no longer matches. The first anchor therefore fails closed and clears
 live presentation authority before native geometry can be published.
 
-A final bounded probe established the remaining handoff failure. Exact authority
-was restored, but all 251 anchor attempts occurred while the live receipt was
-absent. The progressive fallback animation continued repainting after the fresh
-receipt arrived without posting another active cue event, so native never
-received geometry derived from the restored authority.
+A final bounded probe established the remaining handoff failure. Ordinary cue
+posts did not produce an anchor from the restored receipt. A first correction
+confirmed authority in one JavaScript evaluation and requested republication in
+a second; at the second evaluation the presentation receipt was already absent,
+while the cue mode, boundary, retained range, capture geometry, and page
+intersection were all valid. In-page playback progress can run between native
+evaluation callbacks and invalidate the receipt, so receipt confirmation and
+anchor republication cannot be separate JavaScript operations.
 
 ## 2. Architecture
 
@@ -65,12 +68,14 @@ same exact active-deck authority path. Repeated missing-anchor updates do not
 re-request authority until the overlay or anchor state changes. This edge uses
 no EPUB coordinates and does not promote preview authority.
 
-After strict live-receipt confirmation, the controller keeps its exclusive live
-claim while asking Foliate to republish the current active overlay anchor.
-Foliate recomputes the anchor from its retained active DOM range, current page
-commit, capture geometry, and newly confirmed live receipt. The claim is
-released only after that bridge evaluation completes. Native code neither
-reconstructs the cue nor reuses geometry from the failed pre-authority event.
+The controller confirms the live receipt through one atomic Foliate bridge
+operation that reads the current receipt and republishes the retained active
+overlay anchor in the same JavaScript turn. Foliate recomputes the anchor from
+its retained active DOM range, current page commit, capture geometry, and that
+receipt before returning the receipt for strict native matching. The controller
+keeps its exclusive live claim until the evaluation callback completes. Native
+code neither reconstructs the cue nor reuses geometry from the failed
+pre-authority event.
 
 This does not make prewarm part of Whispersync semantics. Prewarm remains
 optional, but any component that mutates the shared foreground WebView must
@@ -99,10 +104,11 @@ publish.
 8. An active overlay with no validated anchor, or loss of an established anchor,
    requests exact authority once per state transition. Repeated missing-anchor
    progress must not create a settlement loop.
-9. A confirmed restoration republishes the current active anchor from Foliate
-   before releasing its exclusive live claim. If no current active range or
-   matching live receipt exists, republication fails closed without native
-   semantic reconstruction.
+9. The atomic restoration operation reads the current live receipt and
+   republishes the current active anchor from Foliate before native validates
+   the returned receipt and releases its exclusive live claim. If no current
+   active range or matching live receipt exists, republication fails closed
+   without native semantic reconstruction.
 10. Playback fallback remains progressive `cue-v1-dom-utf16`; it must not regress
     to whole-sentence presentation.
 11. Page-bounded playback allows the overlapping active sentence to finish and
@@ -116,9 +122,10 @@ publish.
   promoted. A later real lifecycle edge may retry.
 - Live/preview receipt scopes remain separate; preview authority cannot be
   promoted to live authority.
-- Active-anchor republication is a one-shot consequence of confirmed authority,
-  not an animation-frame retry. It posts only geometry Foliate validates against
-  the current live receipt.
+- Active-anchor republication is a one-shot consequence of newly issued live
+  authority, not an animation-frame retry. It posts only geometry Foliate
+  validates against the current live receipt; native confirmation follows from
+  the receipt returned by the same bridge evaluation.
 - No fixed delay, frame count, polling loop, or navigation gesture may be used
   to materialize the initial highlight.
 - Diagnostics and tests must not log or persist EPUB text, hrefs, CFIs, IDs,

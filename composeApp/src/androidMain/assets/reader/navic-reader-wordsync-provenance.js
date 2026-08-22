@@ -282,6 +282,15 @@ export const republishReaderMediaOverlayAnchor = (
   return true
 }
 
+export const readerLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor = (
+  runtime,
+  postEvent = post
+) => {
+  const presentation = runtime?.pageTurnLivePresentationReceipt?.() || null
+  if (presentation) republishReaderMediaOverlayAnchor(runtime, postEvent)
+  return presentation
+}
+
 const presentReaderWordSyncOverlayFragment = (runtime, fragment) => {
   runtime.exactWordSyncActiveRequestId = fragment.overlayRequestId
   if (!runtime.rawTextProvenance.rangeIsVisible(fragment, runtime.committedVisibleTextRange)) {
