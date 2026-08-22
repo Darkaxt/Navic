@@ -69,13 +69,14 @@ re-request authority until the overlay or anchor state changes. This edge uses
 no EPUB coordinates and does not promote preview authority.
 
 The controller confirms the live receipt through one atomic Foliate bridge
-operation that reads the current receipt and republishes the retained active
-overlay anchor in the same JavaScript turn. Foliate recomputes the anchor from
-its retained active DOM range, current page commit, capture geometry, and that
-receipt before returning the receipt for strict native matching. The controller
-keeps its exclusive live claim until the evaluation callback completes. Native
-code neither reconstructs the cue nor reuses geometry from the failed
-pre-authority event.
+operation that reads the current receipt exactly once and passes that validated
+receipt into retained active-overlay anchor construction in the same JavaScript
+turn. Anchor construction must not query the live-receipt getter again. Foliate
+recomputes the anchor from its retained active DOM range, current page commit,
+capture geometry, and that receipt before returning the receipt for strict
+native matching. The controller keeps its exclusive live claim until the
+evaluation callback completes. Native code neither reconstructs the cue nor
+reuses geometry from the failed pre-authority event.
 
 This does not make prewarm part of Whispersync semantics. Prewarm remains
 optional, but any component that mutates the shared foreground WebView must
@@ -104,11 +105,11 @@ publish.
 8. An active overlay with no validated anchor, or loss of an established anchor,
    requests exact authority once per state transition. Repeated missing-anchor
    progress must not create a settlement loop.
-9. The atomic restoration operation reads the current live receipt and
-   republishes the current active anchor from Foliate before native validates
-   the returned receipt and releases its exclusive live claim. If no current
-   active range or matching live receipt exists, republication fails closed
-   without native semantic reconstruction.
+9. The atomic restoration operation reads the current live receipt exactly once
+   and uses that same validated receipt to republish the current active anchor
+   from Foliate before native validates the returned receipt and releases its
+   exclusive live claim. If no current active range or matching live receipt
+   exists, republication fails closed without native semantic reconstruction.
 10. Playback fallback remains progressive `cue-v1-dom-utf16`; it must not regress
     to whole-sentence presentation.
 11. Page-bounded playback allows the overlapping active sentence to finish and

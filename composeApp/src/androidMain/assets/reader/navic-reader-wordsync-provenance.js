@@ -102,10 +102,14 @@ export const rejectReaderWordSyncOverlay = (runtime, fragment, reason) => {
   return true
 }
 
-export const readerMediaOverlayAnchorReceipt = (runtime, fragment, ranges) => {
+const readerMediaOverlayAnchorReceiptFromPresentation = (
+  runtime,
+  fragment,
+  ranges,
+  presentation
+) => {
   const boundarySequence = fragment?.wordBoundarySequence ?? fragment?.overlayRequestId
   if (!nonNegativeInteger(boundarySequence)) return null
-  const presentation = runtime.pageTurnLivePresentationReceipt?.()
   if (
     presentation?.scope !== 'live' ||
     !exactNonBlankString(presentation.token) ||
@@ -237,6 +241,28 @@ export const readerMediaOverlayAnchorReceipt = (runtime, fragment, ranges) => {
   }
 }
 
+export const readerMediaOverlayAnchorReceipt = (runtime, fragment, ranges) =>
+  readerMediaOverlayAnchorReceiptFromPresentation(
+    runtime,
+    fragment,
+    ranges,
+    runtime.pageTurnLivePresentationReceipt?.()
+  )
+
+const readerWordSyncAnchorReceiptFromPresentation = (
+  runtime,
+  fragment,
+  presentation
+) => {
+  const range = runtime.rawTextProvenance.resolveRange(fragment, { applyProgress: true })
+  return readerMediaOverlayAnchorReceiptFromPresentation(
+    runtime,
+    fragment,
+    range ? [range] : [],
+    presentation
+  )
+}
+
 export const readerWordSyncAnchorReceipt = (runtime, fragment) => {
   const range = runtime.rawTextProvenance.resolveRange(fragment, { applyProgress: true })
   return readerMediaOverlayAnchorReceipt(runtime, fragment, range ? [range] : [])
@@ -258,20 +284,32 @@ export const postReaderWordSyncOverlayActive = (
   return anchorReceipt
 }
 
-export const republishReaderMediaOverlayAnchor = (
+const republishReaderMediaOverlayAnchorFromPresentation = (
   runtime,
-  postEvent = post
+  presentation,
+  postEvent
 ) => {
   const fragment = runtime?.mediaOverlayActiveFragment
   const mode = validatedReaderOverlayCoordinateMode(fragment)
   if (mode === ReaderWordSyncV1ExtractedUtf8Mode) {
-    return postReaderWordSyncOverlayActive(runtime, fragment, postEvent) != null
+    const anchorReceipt = readerWordSyncAnchorReceiptFromPresentation(
+      runtime,
+      fragment,
+      presentation
+    )
+    return postReaderWordSyncOverlayActive(
+      runtime,
+      fragment,
+      postEvent,
+      anchorReceipt
+    ) != null
   }
   if (mode !== ReaderCueV1DomUtf16Mode) return false
-  const anchorReceipt = readerMediaOverlayAnchorReceipt(
+  const anchorReceipt = readerMediaOverlayAnchorReceiptFromPresentation(
     runtime,
     fragment,
-    runtime.mediaOverlayActiveRanges
+    runtime.mediaOverlayActiveRanges,
+    presentation
   )
   if (!anchorReceipt) return false
   postEvent({
@@ -282,12 +320,24 @@ export const republishReaderMediaOverlayAnchor = (
   return true
 }
 
+export const republishReaderMediaOverlayAnchor = (
+  runtime,
+  postEvent = post
+) => {
+  const presentation = runtime?.pageTurnLivePresentationReceipt?.() || null
+  return presentation
+    ? republishReaderMediaOverlayAnchorFromPresentation(runtime, presentation, postEvent)
+    : false
+}
+
 export const readerLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor = (
   runtime,
   postEvent = post
 ) => {
   const presentation = runtime?.pageTurnLivePresentationReceipt?.() || null
-  if (presentation) republishReaderMediaOverlayAnchor(runtime, postEvent)
+  if (presentation) {
+    republishReaderMediaOverlayAnchorFromPresentation(runtime, presentation, postEvent)
+  }
   return presentation
 }
 

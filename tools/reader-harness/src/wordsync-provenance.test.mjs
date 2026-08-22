@@ -714,6 +714,7 @@ test('atomically republishes the active progressive cue with restored live autho
       const api = await import('/navic-reader-wordsync-provenance.js')
       const events = []
       let presentation = null
+      let presentationReadCount = 0
       const fragment = {
         coordinateMode: 'cue-v1-dom-utf16',
         overlayRequestId: 27,
@@ -727,7 +728,12 @@ test('atomically republishes the active progressive cue with restored live autho
         mediaOverlayActiveFragment: fragment,
         mediaOverlayActiveRanges: [range],
         wordSyncAnchorGeneration: 0,
-        pageTurnLivePresentationReceipt: () => presentation,
+        pageTurnLivePresentationReceipt: () => {
+          presentationReadCount += 1
+          const current = presentation
+          presentation = null
+          return current
+        },
         pageTurnTextPageCommitIdentity: () => ({
           layoutGeneration: 21,
           viewGeneration: 22,
@@ -775,11 +781,12 @@ test('atomically republishes the active progressive cue with restored live autho
           runtime,
           event => events.push(event)
         )
-      return { beforeAuthority, afterAuthority, events }
+      return { beforeAuthority, afterAuthority, events, presentationReadCount }
     })
 
     assert.equal(result.beforeAuthority, null)
     assert.equal(result.afterAuthority.token, 'settled-11')
+    assert.equal(result.presentationReadCount, 2)
     assert.equal(result.events.length, 1)
     assert.equal(result.events[0].type, 'overlayFragmentActive')
     assert.equal(result.events[0].coordinateMode, 'cue-v1-dom-utf16')

@@ -58,10 +58,11 @@ file edits.
    to the same exact active-deck authority request. Coalesce repeated missing
    anchor updates until active or anchor state changes.
 8. Keep the exclusive live claim through one atomic Foliate bridge evaluation
-   that reads the live presentation receipt and republishes the retained active
-   overlay anchor in the same JavaScript turn. Foliate must recompute current
-   geometry; native code validates the returned receipt afterward and must not
-   reconstruct the cue or reuse the failed pre-authority receipt.
+   that reads the live presentation receipt exactly once and passes that same
+   validated receipt into retained active-overlay anchor construction in the
+   same JavaScript turn. Foliate must recompute current geometry without a
+   nested receipt getter; native code validates the returned receipt afterward
+   and must not reconstruct the cue or reuse the failed pre-authority receipt.
 9. Run the focused source test class plus ownership and transition tests once
    and confirm GREEN.
 
