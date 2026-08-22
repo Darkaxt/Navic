@@ -160,6 +160,7 @@ internal fun KomikkuReaderRoot(
 			pageTurnVisualLocationReason = controllerState.chrome.currentLocator?.reason,
 			pageTurnFoliateSessionId = controllerState.foliateSessionId,
 			pageTurnSettlementAck = controllerState.pageTurnSettlementAck,
+			whispersyncOverlayActive = controllerState.activeMediaOverlay != null,
 			whispersyncAnchorReceipt = controllerState.activeMediaOverlayAnchorReceipt,
 			whispersyncHighlightColorArgb =
 				controllerState.chrome.settings.whispersyncHighlightColorArgb

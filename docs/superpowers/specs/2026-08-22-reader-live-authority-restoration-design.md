@@ -24,6 +24,13 @@ The existing location retry is too early because external relocation has just
 invalidated the active deck. The deck-prepared retry is also insufficient
 because later passive work can invalidate the receipt it creates.
 
+Bounded follow-up diagnostics exposed a second lifecycle edge. A receipt can
+remain valid while Foliate is in its retained presentation layout, then the
+first active playback overlay makes the foreground renderer occupy its live
+bounds. The paginator commit receipt remains valid, but its remembered visible
+content no longer matches. The first anchor therefore fails closed and clears
+live presentation authority before native geometry can be published.
+
 ## 2. Architecture
 
 Foliate remains the sole authority for EPUB layout, DOM ranges, visible text,
@@ -44,6 +51,13 @@ live receipt:
   live-receipt confirmation complete.
 - A later passive mutation repeats this contract; generation-level “already
   authorized” state is forbidden.
+
+The native host also observes the distinction between an active playback
+overlay and a validated anchor receipt. A transition into active-without-anchor,
+or loss of an established anchor while playback remains active, requests the
+same exact active-deck authority path. Repeated missing-anchor updates do not
+re-request authority until the overlay or anchor state changes. This edge uses
+no EPUB coordinates and does not promote preview authority.
 
 This does not make prewarm part of Whispersync semantics. Prewarm remains
 optional, but any component that mutates the shared foreground WebView must
@@ -69,10 +83,13 @@ publish.
    texture, foreground-mutation generation, and settlement token.
 7. Native Whispersync geometry remains fail-closed until an anchor receipt
    matches the confirmed live presentation receipt.
-8. Playback fallback remains progressive `cue-v1-dom-utf16`; it must not regress
+8. An active overlay with no validated anchor, or loss of an established anchor,
+   requests exact authority once per state transition. Repeated missing-anchor
+   progress must not create a settlement loop.
+9. Playback fallback remains progressive `cue-v1-dom-utf16`; it must not regress
    to whole-sentence presentation.
-9. Page-bounded playback allows the overlapping active sentence to finish and
-   pauses only when the next cue is wholly outside the visible page.
+10. Page-bounded playback allows the overlapping active sentence to finish and
+    pauses only when the next cue is wholly outside the visible page.
 
 ## 4. Lifecycle And Failure Rules
 
@@ -93,8 +110,9 @@ publish.
 
 - Ownership tests prove one-shot current passive release notification,
   stale-release fencing, and synchronous live-claim reentrancy.
-- Host/controller tests prove the completed passive mutation edge requests
-  exact live authority for the active prepared deck before passive work resumes.
+- Host/controller tests prove the completed passive mutation edge and an active
+  missing-anchor transition request exact live authority for the active prepared
+  deck, with repeated missing-anchor updates coalesced.
 - Existing foreground ownership, raster preparation, exact settlement,
   Whispersync anchor, progressive fallback, and page-boundary tests pass.
 - Reader JavaScript harness tests pass.
@@ -104,8 +122,9 @@ publish.
 Using only the first two pages of Chapter 1 of the configured paired test book:
 
 - cold live receipt is valid without navigation;
-- playback may invalidate the receipt, but a fresh same-deck receipt follows the
-  completed passive mutation;
+- playback may invalidate the receipt through passive mutation or live renderer
+  layout, but a fresh same-deck receipt follows the corresponding restoration
+  edge;
 - active cue events carry non-empty finite page-local spread geometry matching
   the live receipt;
 - fallback cue progress produces more than one partial progress value;

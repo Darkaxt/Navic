@@ -1685,6 +1685,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		retryRelocationVisualHandoffAttached()
 	}
 
+	fun onWhispersyncOverlayAnchorUnavailable() {
+		if (!enabled || destroyed) return
+		requestInitialLivePresentationAuthorityForActiveDeck()
+	}
+
 	fun onForegroundWebViewPassiveMutationReleased() {
 		if (!enabled || destroyed) return
 		requestInitialLivePresentationAuthorityForActiveDeck()

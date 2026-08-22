@@ -282,7 +282,7 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 	}
 
 	@Test
-	fun whispersyncProgressVisibilityStopsWhenPageSpanningCueReachesVisibleEnd() {
+	fun whispersyncProgressKeepsPageSpanningCueVisibleUntilTheSentenceFinishes() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
 		val visibilityRuntime = sourceFile(
 			"composeApp/src/androidMain/assets/reader/navic-reader-media-overlay.js"
@@ -299,15 +299,11 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 
 		assertContains(
 			progressVisibility,
-			"const progressFraction = Number(fragment?.textProgressFraction)"
+			"return this.mediaOverlayFragmentAlreadyVisible(fragment)"
 		)
-		assertContains(
-			progressVisibility,
-			"if (!Number.isFinite(progressFraction)) return true"
-		)
-		assertContains(
-			progressVisibility,
-			"progressEnd < Number(visibleRange.visibleEnd)"
+		assertFalse(
+			progressVisibility.contains("progressEnd"),
+			"An overlapping active sentence must not be cut off at the page boundary."
 		)
 		assertContains(
 			updateOverlay,

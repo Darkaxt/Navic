@@ -33,6 +33,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnVisualLocationReason: String?,
 	pageTurnFoliateSessionId: String?,
 	pageTurnSettlementAck: ReaderPageTurnSettlementAck?,
+	whispersyncOverlayActive: Boolean,
 	whispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt?,
 	whispersyncHighlightColorArgb: Int,
 	pagePreparationCoverVisible: Boolean,

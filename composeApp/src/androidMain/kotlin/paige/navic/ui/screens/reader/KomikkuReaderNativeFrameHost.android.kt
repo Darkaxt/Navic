@@ -205,6 +205,16 @@ internal class ReaderRetainedValidatedPresentationOwnership {
 		retainedRendererPresentation || staticRasterShieldOwnership
 }
 
+internal fun readerWhispersyncAuthorityRestorationRequested(
+	previousActive: Boolean,
+	previousAnchorAvailable: Boolean,
+	active: Boolean,
+	anchorAvailable: Boolean
+): Boolean =
+	active &&
+		!anchorAvailable &&
+		(!previousActive || previousAnchorAvailable)
+
 internal fun readerMergedPagePreparationState(
 	pageTurnCanvasEnabled: Boolean,
 	pageTurnContentReady: Boolean,
@@ -288,6 +298,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnVisualLocationReason: String?,
 	pageTurnFoliateSessionId: String?,
 	pageTurnSettlementAck: ReaderPageTurnSettlementAck?,
+	whispersyncOverlayActive: Boolean,
 	whispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt?,
 	whispersyncHighlightColorArgb: Int,
 	pagePreparationCoverVisible: Boolean,
@@ -412,6 +423,7 @@ actual fun KomikkuReaderNativeFrameHost(
 					)
 				}
 				setWhispersyncOverlay(
+					whispersyncOverlayActive,
 					whispersyncAnchorReceipt,
 					whispersyncHighlightColorArgb
 				)
@@ -450,6 +462,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				)
 			}
 			root.setWhispersyncOverlay(
+				whispersyncOverlayActive,
 				whispersyncAnchorReceipt,
 				whispersyncHighlightColorArgb
 			)
@@ -686,10 +699,11 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	}
 
 	fun setWhispersyncOverlay(
+		active: Boolean,
 		receipt: ReaderWhispersyncAnchorReceipt?,
 		highlightColorArgb: Int
 	) {
-		viewerContainer.setWhispersyncOverlay(receipt, highlightColorArgb)
+		viewerContainer.setWhispersyncOverlay(active, receipt, highlightColorArgb)
 	}
 
 	fun setOnReadableDragPreview(
@@ -995,6 +1009,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var pageTurnFoliateSessionId: String? = null
 	private var pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null
 	private var preparedActiveDeck: ReaderPagePreparedActiveDeck? = null
+	private var whispersyncOverlayActive = false
+	private var whispersyncAnchorAvailable = false
 	private var destinationDeckPrewarmPending = false
 	private var shellCoverVisible: Boolean = false
 	private val startupShellHandoff = ReaderStartupShellHandoffGate()
@@ -1675,13 +1691,26 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	fun setWhispersyncOverlay(
+		active: Boolean,
 		receipt: ReaderWhispersyncAnchorReceipt?,
 		highlightColorArgb: Int
 	) {
+		val anchorAvailable = receipt != null
+		val requestAuthority = readerWhispersyncAuthorityRestorationRequested(
+			previousActive = whispersyncOverlayActive,
+			previousAnchorAvailable = whispersyncAnchorAvailable,
+			active = active,
+			anchorAvailable = anchorAvailable
+		)
+		whispersyncOverlayActive = active
+		whispersyncAnchorAvailable = anchorAvailable
 		playLikeCurlController.setWhispersyncOverlay(
 			receipt,
 			highlightColorArgb
 		)
+		if (requestAuthority) {
+			playLikeCurlController.onWhispersyncOverlayAnchorUnavailable()
+		}
 	}
 
 	fun setPageTurnVisualLocation(

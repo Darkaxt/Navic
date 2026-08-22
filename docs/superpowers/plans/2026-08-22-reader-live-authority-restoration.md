@@ -54,7 +54,11 @@ file edits.
    Resume only the raster and destination work that recorded an explicit
    deferral; otherwise every live-authority release can feed deck preparation
    back into another settlement.
-7. Run the focused source test class plus ownership tests once and confirm GREEN.
+7. Route active-overlay-without-anchor and established-anchor-loss transitions
+   to the same exact active-deck authority request. Coalesce repeated missing
+   anchor updates until active or anchor state changes.
+8. Run the focused source test class plus ownership and transition tests once
+   and confirm GREEN.
 
 ## Stage 3 — Specification cross-check and consolidated gates
 

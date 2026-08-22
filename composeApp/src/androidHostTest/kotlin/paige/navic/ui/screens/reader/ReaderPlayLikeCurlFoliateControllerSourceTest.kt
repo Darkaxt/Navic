@@ -248,13 +248,17 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			) < passiveAvailability.lastIndexOf(
 				"!foregroundWebViewOwnership.canAcquirePassive()"
 			),
-			"A deferral may acquire a passive lease before host prewarm scheduling."
+			"A raster deferral may acquire a passive lease before destination deferral recovery."
 		)
 		assertTrue(
 			passiveAvailability.lastIndexOf(
 				"!foregroundWebViewOwnership.canAcquirePassive()"
-			) < passiveAvailability.indexOf("requestPageTurnPrewarmWhenReady()"),
-			"The host must not schedule prewarm once deferral recovery owns foreground."
+			) < passiveAvailability.indexOf("resumeDestinationDeckPrewarmIfReady()"),
+			"Destination recovery must run only while passive ownership remains available."
+		)
+		assertFalse(
+			passiveAvailability.contains("requestPageTurnPrewarmWhenReady()"),
+			"Generic availability must resume only explicitly deferred work."
 		)
 		assertContains(playLikeCurlWiring, "foregroundWebViewOwnership = foregroundWebViewOwnership")
 		assertContains(preparationWiring, "foregroundWebViewOwnership = foregroundWebViewOwnership")
@@ -1033,6 +1037,29 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			publicationIdentity.contains("val anchorGeneration: Long"),
 			"A partial cache key must not suppress a changed Foliate proof or geometry."
 		)
+	}
+
+	@Test
+	fun missingActiveWhispersyncAnchorReestablishesExactLiveAuthority() {
+		val root = readerRootFile.readText()
+		val host = hostFile.readText()
+		val controller = controllerFile.readText()
+		val hostPublication = host
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringAfter("fun setWhispersyncOverlay(")
+			.substringBefore("fun setPageTurnVisualLocation(")
+		val restoration = controller
+			.substringAfter("fun onWhispersyncOverlayAnchorUnavailable()")
+			.substringBefore("fun onForegroundWebViewPassiveMutationReleased()")
+
+		assertContains(
+			root,
+			"whispersyncOverlayActive = controllerState.activeMediaOverlay != null"
+		)
+		assertContains(hostPublication, "readerWhispersyncAuthorityRestorationRequested(")
+		assertContains(hostPublication, "playLikeCurlController.onWhispersyncOverlayAnchorUnavailable()")
+		assertContains(restoration, "requestInitialLivePresentationAuthorityForActiveDeck()")
+		assertFalse(restoration.contains("pageTurnPreviewPresentationReceipt"))
 	}
 
 	@Test
