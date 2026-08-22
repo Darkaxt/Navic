@@ -40,6 +40,13 @@ intersection were all valid. In-page playback progress can run between native
 evaluation callbacks and invalidate the receipt, so receipt confirmation and
 anchor republication cannot be separate JavaScript operations.
 
+The next bounded acceptance showed that a single receipt read was still
+insufficient. Anchor construction separately revalidated the canonical text-page
+commit, which could clear the just-validated presentation authority, and it
+rejected Foliate's numeric layout and decoration hashes as non-string values.
+The receipt, canonical commit identity, and wire-normalized raster fingerprints
+therefore have to come from one validated Foliate authority snapshot.
+
 ## 2. Architecture
 
 Foliate remains the sole authority for EPUB layout, DOM ranges, visible text,
@@ -68,13 +75,15 @@ same exact active-deck authority path. Repeated missing-anchor updates do not
 re-request authority until the overlay or anchor state changes. This edge uses
 no EPUB coordinates and does not promote preview authority.
 
-The controller confirms the live receipt through one atomic Foliate bridge
-operation that reads the current receipt exactly once and passes that validated
-receipt into retained active-overlay anchor construction in the same JavaScript
-turn. Anchor construction must not query the live-receipt getter again. Foliate
-recomputes the anchor from its retained active DOM range, current page commit,
-capture geometry, and that receipt before returning the receipt for strict
-native matching. The controller keeps its exclusive live claim until the
+The controller confirms authority through one atomic Foliate bridge operation.
+Foliate validates the live presentation target once and captures both its current
+presentation receipt and canonical text-page commit identity. That same
+in-memory authority snapshot is passed into retained active-overlay anchor
+construction in the same JavaScript turn; anchor construction must not query the
+live-receipt getter or revalidate the text-page commit. Foliate recomputes the
+anchor from its retained active DOM range, capture geometry, and wire-normalized
+pagination, layout, and decoration fingerprints before returning the receipt for
+strict native matching. The controller keeps its exclusive live claim until the
 evaluation callback completes. Native code neither reconstructs the cue nor
 reuses geometry from the failed pre-authority event.
 
@@ -105,11 +114,13 @@ publish.
 8. An active overlay with no validated anchor, or loss of an established anchor,
    requests exact authority once per state transition. Repeated missing-anchor
    progress must not create a settlement loop.
-9. The atomic restoration operation reads the current live receipt exactly once
-   and uses that same validated receipt to republish the current active anchor
-   from Foliate before native validates the returned receipt and releases its
-   exclusive live claim. If no current active range or matching live receipt
-   exists, republication fails closed without native semantic reconstruction.
+9. The atomic restoration operation validates the current live target once and
+   captures its presentation receipt and canonical text-page commit identity as
+   one Foliate authority snapshot. It uses that same snapshot and string-normalized
+   raster fingerprints to republish the current active anchor before native
+   validates the returned receipt and releases its exclusive live claim. If no
+   current active range or matching authority exists, republication fails closed
+   without native semantic reconstruction.
 10. Playback fallback remains progressive `cue-v1-dom-utf16`; it must not regress
     to whole-sentence presentation.
 11. Page-bounded playback allows the overlapping active sentence to finish and

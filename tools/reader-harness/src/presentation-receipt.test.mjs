@@ -264,6 +264,33 @@ test('live receipt survives settlement acknowledgement consumption before getter
   assert.equal(readerPageTurnPresentationReceiptMatches(receipt, liveTarget), true)
 })
 
+test('live anchor authority copies the receipt and canonical commit together', () => {
+  const runtime = liveRuntime()
+
+  assert.equal(runtime.maybeCompleteNativePageTurnSettlement(), true)
+  const authority = runtime.pageTurnLivePresentationAnchorAuthority()
+
+  assert.notEqual(authority, null)
+  assert.equal(
+    readerPageTurnPresentationReceiptMatches(authority.presentation, liveTarget),
+    true,
+  )
+  assert.deepEqual(authority.canonicalCommit, {
+    layoutGeneration: 5,
+    viewGeneration: 7,
+    commitSequence: 11,
+    flow: 'paginated',
+    index: 3,
+    pageIndex: 5,
+    pageCount: 9,
+  })
+  assert.equal(Object.isFrozen(authority), true)
+  assert.equal(Object.isFrozen(authority.canonicalCommit), true)
+
+  runtime.setLivePaginatorReceiptValid(false)
+  assert.equal(runtime.pageTurnLivePresentationAnchorAuthority(), null)
+})
+
 test('live presentation rejects paginator authority invalidated after settlement', () => {
   const runtime = liveRuntime()
 

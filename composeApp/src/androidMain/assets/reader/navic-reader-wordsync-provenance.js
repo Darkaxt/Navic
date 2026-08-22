@@ -102,11 +102,30 @@ export const rejectReaderWordSyncOverlay = (runtime, fragment, reason) => {
   return true
 }
 
+const descriptorFingerprint = value => {
+  if (typeof value === 'string') return value.trim()
+  return nonNegativeInteger(value) ? String(value) : ''
+}
+
+const readerLivePresentationAnchorAuthority = runtime => {
+  if (typeof runtime?.pageTurnLivePresentationAnchorAuthority === 'function') {
+    return runtime.pageTurnLivePresentationAnchorAuthority() || null
+  }
+  const presentation = runtime?.pageTurnLivePresentationReceipt?.() || null
+  const canonicalCommit = presentation
+    ? runtime?.pageTurnTextPageCommitIdentity?.() || null
+    : null
+  return presentation && canonicalCommit
+    ? { presentation, canonicalCommit }
+    : null
+}
+
 const readerMediaOverlayAnchorReceiptFromPresentation = (
   runtime,
   fragment,
   ranges,
-  presentation
+  presentation,
+  canonicalCommit
 ) => {
   const boundarySequence = fragment?.wordBoundarySequence ?? fragment?.overlayRequestId
   if (!nonNegativeInteger(boundarySequence)) return null
@@ -131,14 +150,16 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
     !nonNegativeInteger(currentSpineIndex)
   ) return null
   const descriptor = runtime.pageTurnRasterDescriptor?.(presentation.pageIndex)
+  const paginationFingerprint = descriptorFingerprint(descriptor?.paginationFingerprint)
+  const layoutFingerprint = descriptorFingerprint(descriptor?.layoutFingerprint)
+  const decorationFingerprint = descriptorFingerprint(descriptor?.decorationFingerprint)
   if (
     descriptor?.visualPageOrdinal !== presentation.pageIndex ||
     descriptor?.spineIndex !== currentSpineIndex ||
-    !exactNonBlankString(descriptor.paginationFingerprint) ||
-    !exactNonBlankString(descriptor.layoutFingerprint) ||
-    !exactNonBlankString(descriptor.decorationFingerprint)
+    !paginationFingerprint ||
+    !layoutFingerprint ||
+    !decorationFingerprint
   ) return null
-  const canonicalCommit = runtime.pageTurnTextPageCommitIdentity?.()
   if (
     !nonNegativeInteger(canonicalCommit?.layoutGeneration) ||
     !nonNegativeInteger(canonicalCommit?.viewGeneration) ||
@@ -233,33 +254,37 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
     committedSpineIndex: canonicalCommit.index,
     committedChapterPageIndex: canonicalCommit.pageIndex,
     committedChapterPageCount: canonicalCommit.pageCount,
-    paginationFingerprint: descriptor.paginationFingerprint,
-    layoutFingerprint: descriptor.layoutFingerprint,
-    readerSettingsRasterKey: descriptor.decorationFingerprint,
+    paginationFingerprint,
+    layoutFingerprint,
+    readerSettingsRasterKey: decorationFingerprint,
     captureGeometry,
     pageLocalRects,
   }
 }
 
-export const readerMediaOverlayAnchorReceipt = (runtime, fragment, ranges) =>
-  readerMediaOverlayAnchorReceiptFromPresentation(
+export const readerMediaOverlayAnchorReceipt = (runtime, fragment, ranges) => {
+  const authority = readerLivePresentationAnchorAuthority(runtime)
+  return readerMediaOverlayAnchorReceiptFromPresentation(
     runtime,
     fragment,
     ranges,
-    runtime.pageTurnLivePresentationReceipt?.()
+    authority?.presentation,
+    authority?.canonicalCommit
   )
+}
 
-const readerWordSyncAnchorReceiptFromPresentation = (
+const readerWordSyncAnchorReceiptFromAuthority = (
   runtime,
   fragment,
-  presentation
+  authority
 ) => {
   const range = runtime.rawTextProvenance.resolveRange(fragment, { applyProgress: true })
   return readerMediaOverlayAnchorReceiptFromPresentation(
     runtime,
     fragment,
     range ? [range] : [],
-    presentation
+    authority?.presentation,
+    authority?.canonicalCommit
   )
 }
 
@@ -284,18 +309,18 @@ export const postReaderWordSyncOverlayActive = (
   return anchorReceipt
 }
 
-const republishReaderMediaOverlayAnchorFromPresentation = (
+const republishReaderMediaOverlayAnchorFromAuthority = (
   runtime,
-  presentation,
+  authority,
   postEvent
 ) => {
   const fragment = runtime?.mediaOverlayActiveFragment
   const mode = validatedReaderOverlayCoordinateMode(fragment)
   if (mode === ReaderWordSyncV1ExtractedUtf8Mode) {
-    const anchorReceipt = readerWordSyncAnchorReceiptFromPresentation(
+    const anchorReceipt = readerWordSyncAnchorReceiptFromAuthority(
       runtime,
       fragment,
-      presentation
+      authority
     )
     return postReaderWordSyncOverlayActive(
       runtime,
@@ -309,7 +334,8 @@ const republishReaderMediaOverlayAnchorFromPresentation = (
     runtime,
     fragment,
     runtime.mediaOverlayActiveRanges,
-    presentation
+    authority?.presentation,
+    authority?.canonicalCommit
   )
   if (!anchorReceipt) return false
   postEvent({
@@ -324,9 +350,9 @@ export const republishReaderMediaOverlayAnchor = (
   runtime,
   postEvent = post
 ) => {
-  const presentation = runtime?.pageTurnLivePresentationReceipt?.() || null
-  return presentation
-    ? republishReaderMediaOverlayAnchorFromPresentation(runtime, presentation, postEvent)
+  const authority = readerLivePresentationAnchorAuthority(runtime)
+  return authority
+    ? republishReaderMediaOverlayAnchorFromAuthority(runtime, authority, postEvent)
     : false
 }
 
@@ -334,11 +360,11 @@ export const readerLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor =
   runtime,
   postEvent = post
 ) => {
-  const presentation = runtime?.pageTurnLivePresentationReceipt?.() || null
-  if (presentation) {
-    republishReaderMediaOverlayAnchorFromPresentation(runtime, presentation, postEvent)
+  const authority = readerLivePresentationAnchorAuthority(runtime)
+  if (authority) {
+    republishReaderMediaOverlayAnchorFromAuthority(runtime, authority, postEvent)
   }
-  return presentation
+  return authority?.presentation || null
 }
 
 const presentReaderWordSyncOverlayFragment = (runtime, fragment) => {

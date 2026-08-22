@@ -713,8 +713,10 @@ test('atomically republishes the active progressive cue with restored live autho
     const result = await page.evaluate(async () => {
       const api = await import('/navic-reader-wordsync-provenance.js')
       const events = []
-      let presentation = null
-      let presentationReadCount = 0
+      let authority = null
+      let authorityReadCount = 0
+      let legacyReceiptReadCount = 0
+      let legacyCommitReadCount = 0
       const fragment = {
         coordinateMode: 'cue-v1-dom-utf16',
         overlayRequestId: 27,
@@ -728,21 +730,20 @@ test('atomically republishes the active progressive cue with restored live autho
         mediaOverlayActiveFragment: fragment,
         mediaOverlayActiveRanges: [range],
         wordSyncAnchorGeneration: 0,
-        pageTurnLivePresentationReceipt: () => {
-          presentationReadCount += 1
-          const current = presentation
-          presentation = null
+        pageTurnLivePresentationAnchorAuthority: () => {
+          authorityReadCount += 1
+          const current = authority
+          authority = null
           return current
         },
-        pageTurnTextPageCommitIdentity: () => ({
-          layoutGeneration: 21,
-          viewGeneration: 22,
-          commitSequence: 23,
-          flow: 'paginated',
-          index: 3,
-          pageIndex: 2,
-          pageCount: 7,
-        }),
+        pageTurnLivePresentationReceipt: () => {
+          legacyReceiptReadCount += 1
+          return authority?.presentation || null
+        },
+        pageTurnTextPageCommitIdentity: () => {
+          legacyCommitReadCount += 1
+          return authority?.canonicalCommit || null
+        },
         pageTurnCaptureGeometry: () => ({
           viewportWidth: 1200,
           viewportHeight: 800,
@@ -751,8 +752,8 @@ test('atomically republishes the active progressive cue with restored live autho
         }),
         pageTurnRasterDescriptor: () => ({
           paginationFingerprint: 'pagination-a',
-          layoutFingerprint: 'layout-a',
-          decorationFingerprint: 'settings-a',
+          layoutFingerprint: 101,
+          decorationFingerprint: 202,
           visualPageOrdinal: 12,
           spineIndex: 3,
           chapterPageIndex: 2,
@@ -766,31 +767,53 @@ test('atomically republishes the active progressive cue with restored live autho
           runtime,
           event => events.push(event)
         )
-      presentation = {
-        scope: 'live',
-        token: 'settled-11',
-        pageIndex: 12,
-        foliateSessionId: 'foliate-7',
-        rasterGeneration: 31,
-        textureGeneration: 32,
-        foregroundMutationGeneration: 8,
-        presentationSequence: 9,
+      authority = {
+        presentation: {
+          scope: 'live',
+          token: 'settled-11',
+          pageIndex: 12,
+          foliateSessionId: 'foliate-7',
+          rasterGeneration: 31,
+          textureGeneration: 32,
+          foregroundMutationGeneration: 8,
+          presentationSequence: 9,
+        },
+        canonicalCommit: {
+          layoutGeneration: 21,
+          viewGeneration: 22,
+          commitSequence: 23,
+          flow: 'paginated',
+          index: 3,
+          pageIndex: 2,
+          pageCount: 7,
+        },
       }
       const afterAuthority =
         api.readerLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor(
           runtime,
           event => events.push(event)
         )
-      return { beforeAuthority, afterAuthority, events, presentationReadCount }
+      return {
+        beforeAuthority,
+        afterAuthority,
+        events,
+        authorityReadCount,
+        legacyReceiptReadCount,
+        legacyCommitReadCount,
+      }
     })
 
     assert.equal(result.beforeAuthority, null)
     assert.equal(result.afterAuthority.token, 'settled-11')
-    assert.equal(result.presentationReadCount, 2)
+    assert.equal(result.authorityReadCount, 2)
+    assert.equal(result.legacyReceiptReadCount, 0)
+    assert.equal(result.legacyCommitReadCount, 0)
     assert.equal(result.events.length, 1)
     assert.equal(result.events[0].type, 'overlayFragmentActive')
     assert.equal(result.events[0].coordinateMode, 'cue-v1-dom-utf16')
     assert.equal(result.events[0].anchorReceipt.destinationCommitToken, 'settled-11')
+    assert.equal(result.events[0].anchorReceipt.layoutFingerprint, '101')
+    assert.equal(result.events[0].anchorReceipt.readerSettingsRasterKey, '202')
     assert.deepEqual(result.events[0].anchorReceipt.pageLocalRects, [
       { role: 'full', left: 40, top: 30, width: 60, height: 24 },
     ])

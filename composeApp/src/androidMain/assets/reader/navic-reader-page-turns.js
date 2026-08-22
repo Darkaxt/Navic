@@ -431,15 +431,16 @@ function pageTurnLivePresentationReceiptTarget(target) {
   }
 }
 
-function pageTurnLivePresentationTargetMatchesCurrent(target) {
+function pageTurnLivePresentationTargetCanonicalCommit(target) {
   if (
     !target ||
     !readerForegroundMutationGenerationIsCurrent(
       this,
       target.foregroundMutationGeneration
-    ) ||
-    !readerTextPageCommitOwnerHasExpectedVisibleContent(target)
-  ) return false
+    )
+  ) return null
+  const canonicalCommit = readerTextPageCommitIdentity(target)
+  if (!canonicalCommit) return null
   const pagePosition = this.currentPagePosition
   if (
     target.relocationEpoch !== this.relocateSequence ||
@@ -451,7 +452,7 @@ function pageTurnLivePresentationTargetMatchesCurrent(target) {
     Math.floor(Number(pagePosition.spineIndex)) !== target.spineIndex ||
     !Number.isFinite(Number(pagePosition?.chapterPageIndex)) ||
     Math.floor(Number(pagePosition.chapterPageIndex)) !== target.chapterPageIndex
-  ) return false
+  ) return null
   const settlement = this.nativePageTurnSettledState?.token === target.token
     ? this.nativePageTurnSettledState
     : this.completedExactPageTurnSettlements.get(target.token)
@@ -464,7 +465,11 @@ function pageTurnLivePresentationTargetMatchesCurrent(target) {
     target.textureGeneration,
     target.foregroundMutationGeneration,
     target.paginationProfile
-  )
+  ) ? canonicalCommit : null
+}
+
+function pageTurnLivePresentationTargetMatchesCurrent(target) {
+  return pageTurnLivePresentationTargetCanonicalCommit.call(this, target) != null
 }
 
 function issuePageTurnLivePresentationReceipt(target) {
@@ -502,24 +507,35 @@ function restorePageTurnLivePresentationReceipt() {
   )
 }
 
-function pageTurnLivePresentationReceipt() {
+function pageTurnLivePresentationAnchorAuthority() {
   const target = this.pageTurnLivePresentationTargetValue
   if (this.pageTurnPreviewExposedToken) {
     this.clearPageTurnLivePresentationReceipt()
     return null
   }
-  if (!this.pageTurnLivePresentationTargetMatchesCurrent(target)) {
+  const canonicalCommit = pageTurnLivePresentationTargetCanonicalCommit.call(
+    this,
+    target
+  )
+  if (!canonicalCommit) {
     this.clearPageTurnLivePresentationTarget()
     return null
   }
-  const receipt = this.pageTurnLivePresentationReceiptValue
-  if (!receipt) return null
+  const presentation = this.pageTurnLivePresentationReceiptValue
+  if (!presentation) return null
   const receiptTarget = this.pageTurnLivePresentationReceiptTarget(target)
-  if (!readerPageTurnPresentationReceiptMatches(receipt, receiptTarget)) {
+  if (!readerPageTurnPresentationReceiptMatches(presentation, receiptTarget)) {
     this.clearPageTurnLivePresentationReceipt()
     return null
   }
-  return receipt
+  return Object.freeze({
+    presentation,
+    canonicalCommit,
+  })
+}
+
+function pageTurnLivePresentationReceipt() {
+  return pageTurnLivePresentationAnchorAuthority.call(this)?.presentation || null
 }
 
 function pageTurnTextPageCommitIdentity() {
@@ -3366,6 +3382,7 @@ export const NavicReaderPageTurnMethods = {
   pageTurnLivePresentationTargetMatchesCurrent,
   issuePageTurnLivePresentationReceipt,
   restorePageTurnLivePresentationReceipt,
+  pageTurnLivePresentationAnchorAuthority,
   pageTurnLivePresentationReceipt,
   pageTurnTextPageCommitIdentity,
   activeExactPageTurnSettlement,

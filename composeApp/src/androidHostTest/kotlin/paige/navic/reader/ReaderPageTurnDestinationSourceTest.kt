@@ -441,8 +441,8 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("function maybeCompleteNativePageTurnSettlement(")
 			.substringBefore("\n}\n")
 		val liveTarget = turns
-			.substringAfter("function pageTurnLivePresentationTargetMatchesCurrent(")
-			.substringBefore("\n}\n")
+			.substringAfter("function pageTurnLivePresentationTargetCanonicalCommit(")
+			.substringBefore("function pageTurnLivePresentationTargetMatchesCurrent(")
 		val liveReceipt = turns
 			.substringAfter("function issuePageTurnLivePresentationReceipt(")
 			.substringBefore("\n}\n")
@@ -464,7 +464,7 @@ class ReaderPageTurnDestinationSourceTest {
 			completion,
 			"readerTextPageCommitOwnerHasExpectedVisibleContent(pending)"
 		)
-		assertContains(liveTarget, "readerTextPageCommitOwnerHasExpectedVisibleContent(target)")
+		assertContains(liveTarget, "readerTextPageCommitIdentity(target)")
 		assertContains(
 			liveReceipt,
 			"readerTextPageCommitOwnerHasExpectedVisibleContent("
@@ -1630,7 +1630,10 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(restore, "!readerPageTurnPreviewMutationGenerationIsCurrent(")
 		assertContains(restore, "this.clearPageTurnPreviewPresentationReceipt()")
 		assertContains(liveTarget, "this.pageTurnLivePresentationTargetValue?.foregroundMutationGeneration !==")
-		assertContains(liveTarget, "readerPageTurnPresentationReceiptMatches(receipt, receiptTarget)")
+		assertContains(
+			liveTarget,
+			"readerPageTurnPresentationReceiptMatches(presentation, receiptTarget)"
+		)
 		assertFalse(
 			expose.contains("this.pageTurnLivePresentationTargetValue ="),
 			"A passive preview may clear live presentation authority but must not replace it."
@@ -1648,7 +1651,7 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("function cancelPendingExactPageTurnSettlement(")
 			.substringBefore("function nextPage()")
 		val getter = turns
-			.substringAfter("function pageTurnLivePresentationTargetMatchesCurrent(")
+			.substringAfter("function pageTurnLivePresentationTargetCanonicalCommit(")
 			.substringBefore("async function goToVisualPage(")
 		val restore = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 			.substringAfter("function restorePageTurnLiveComposition(")
@@ -1681,11 +1684,17 @@ class ReaderPageTurnDestinationSourceTest {
 			"The live receipt must follow exact settlement."
 		)
 		assertContains(turns, "function pageTurnLivePresentationReceipt()")
-		assertContains(getter, "readerTextPageCommitOwnerHasExpectedVisibleContent(target)")
+		assertContains(getter, "readerTextPageCommitIdentity(target)")
+		assertContains(getter, "function pageTurnLivePresentationAnchorAuthority()")
+		assertContains(getter, "canonicalCommit")
+		assertContains(getter, "return Object.freeze({")
 		assertContains(getter, "this.pageTurnLivePresentationTargetValue")
 		assertContains(getter, "this.completedExactPageTurnSettlements.get(target.token)")
 		assertContains(getter, "target.relocationEpoch !== this.relocateSequence")
-		assertContains(getter, "readerPageTurnPresentationReceiptMatches(receipt, receiptTarget)")
+		assertContains(
+			getter,
+			"readerPageTurnPresentationReceiptMatches(presentation, receiptTarget)"
+		)
 		assertFalse(
 			getter.contains("peekNativePageTurnSettlement"),
 			"Receipt lookup must survive settlement acknowledgement consumption."
