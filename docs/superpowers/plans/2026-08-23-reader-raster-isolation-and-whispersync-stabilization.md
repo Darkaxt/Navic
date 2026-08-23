@@ -104,6 +104,43 @@ off-screen capture, a semantic event path, or unacceptable steady-state resource
 cost is a blocker for Stage 3. Fine-grained low-memory tuning may defer to Stage
 4 if the prototype remains safe and bounded under normal conditions.
 
+### Stage 2 execution ledger
+
+- **Validated:** ReaderDev now uses distinct live-fixture and passive Foliate
+  sessions. The passive module graph exposes only bounded raster capture/result
+  operations, accepts only live-issued immutable manifests, returns
+  runtime-observed receipts, and has no semantic callback or Android bridge path.
+- **Validated:** Strict native admission covers session, publication, destination,
+  profile, physical geometry, fingerprints, raster generation, and passive commit
+  sequence. Rejected or transferred bitmaps retain once-only release ownership.
+- **Validated:** Public synthetic portrait, landscape spread, profile/theme,
+  chapter-boundary, live-session replacement, orientation, and stale-generation
+  scenarios passed. Ten cold matrices produced 50/50 varying positive rasters and
+  10/10 expected stale-generation rejections with no capture failures.
+- **Validated:** Pause/resume and renderer-process loss recover without app-process
+  death. A clean-emulator Back teardown removed the Activity, passive virtual
+  display, and WebView renderer in 3.4 seconds while retaining the cached app
+  process. The earlier blank foreground and failed Back probe were traced to stale
+  emulator WindowManager/SurfaceFlinger state; after reboot, the unchanged host
+  remained visible, focused, interactive, and teardown-safe.
+- **Validated:** Steady resource probes settled at zero active CPU, thermal status
+  0, approximately 176 MB PSS, and approximately 314 MB RSS after renderer
+  recovery. Cold PixelCopy latency remained bounded, with a worst observed maximum
+  of 260 ms. Diagnostics and retained results contain only finite counters and
+  failure categories; screenshots remain local under `.codex-validation`.
+- **Deferred to Stage 4:** Wire platform low-memory/trim callbacks to passive-host
+  eviction and re-creation before the production passive path is fully enabled.
+  Normal pause, resume, replacement, renderer-loss, and destroy behavior is already
+  bounded.
+- **Deferred to Stage 6:** Repeat the bounded passive-isolation check on the
+  explicitly owned approved tablet class. Stage 2 used only the configured tablet
+  emulator and public synthetic content.
+- **Not Stage 2 scope:** Production manifest issuance and prewarm/background routing
+  remain unreachable until Stage 3; repair routing and final shared-path removal
+  remain Stage 4 work.
+- **Blockers:** None after clean-emulator foreground, off-screen capture, parity,
+  stale-rejection, renderer-loss, lifecycle-release, and resource gates.
+
 ## Stage 3 — Isolate Prewarm And Background Capture
 
 ### Steps
