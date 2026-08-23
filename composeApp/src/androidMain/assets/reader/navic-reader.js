@@ -337,6 +337,9 @@ class NavicReaderRuntime {
   embeddedCoverSuppressedSectionIndexes = new Set()
   embeddedCoverRerenderScheduled = false
   recentContentActionTouch = null
+  pendingUserNavigationCausalSequence = null
+  pendingExplicitCueSelectionCausalSequence = null
+  destinationCommitSequence = 0
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
   constructor() {
@@ -349,6 +352,24 @@ class NavicReaderRuntime {
     log('dispatch', command?.type || 'invalid')
     readerTrace('dispatch', { type: command?.type || 'invalid' })
     if (!command || typeof command !== 'object') return
+    const causalSequence = Number(command.causalSequence)
+    const trustedCausalSequence = Number.isSafeInteger(causalSequence) && causalSequence > 0
+      ? causalSequence
+      : null
+    if (command.type === 'contentLongPressAt' && trustedCausalSequence != null) {
+      this.pendingExplicitCueSelectionCausalSequence = trustedCausalSequence
+    } else if (trustedCausalSequence != null && [
+      'goToLocator',
+      'goToCfi',
+      'goToHref',
+      'goToProgress',
+      'goToChapterProgress',
+      'nextPage',
+      'previousPage',
+      'scrollViewport',
+    ].includes(command.type)) {
+      this.pendingUserNavigationCausalSequence = trustedCausalSequence
+    }
     switch (command.type) {
       case 'openPublication':
         return this.openPublication(command)
@@ -459,6 +480,9 @@ class NavicReaderRuntime {
       post({ type: 'error', code: 'missing_url', message: 'Reader publication URL is required.' })
       return
     }
+    this.pendingUserNavigationCausalSequence = null
+    this.pendingExplicitCueSelectionCausalSequence = null
+    this.destinationCommitSequence = 0
     const normalizedFoliateSessionId = typeof foliateSessionId === 'string'
       ? foliateSessionId.trim()
       : ''

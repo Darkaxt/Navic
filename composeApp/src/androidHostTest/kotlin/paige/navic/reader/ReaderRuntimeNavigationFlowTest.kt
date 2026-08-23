@@ -9,6 +9,24 @@ import kotlin.test.assertTrue
 
 class ReaderRuntimeNavigationFlowTest {
 	@Test
+	fun androidReaderCarriesCausalSequenceAndDestinationCommitThroughBridgeEvents() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val location = readerAssetRoot().resolve("navic-reader-location.js").readText()
+		val interactions = readerAssetRoot().resolve("navic-reader-content-interactions.js").readText()
+
+		assertContains(runtime, "pendingUserNavigationCausalSequence")
+		assertContains(runtime, "pendingExplicitCueSelectionCausalSequence")
+		assertFalse(runtime.contains("pendingUserNavigationCausalSequences"))
+		assertFalse(runtime.contains("pendingExplicitCueSelectionCausalSequences"))
+		assertContains(runtime, "command.causalSequence")
+		assertContains(location, "causalSequence: this.pendingUserNavigationCausalSequence")
+		assertContains(location, "destinationCommitSequence")
+		assertContains(location, "destinationFoliateSessionId")
+		assertContains(interactions, "causalSequence")
+		assertContains(interactions, "destinationCommitSequence")
+	}
+
+	@Test
 	fun androidReaderContentLayoutLogsComputedParagraphAndTextureState() {
 		val bridgeText = readerBridgeText()
 		val contentLayoutLogger = bridgeText

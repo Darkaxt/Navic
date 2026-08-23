@@ -11,6 +11,48 @@ import kotlin.test.assertTrue
 
 class ReaderBridgeProtocolTest {
 	@Test
+	fun causalCommandsSerializeOpaqueSequence() {
+		val navigation = ReaderBridgeCommand.CausalNextPage(causalSequence = 17L).toJavaScript()
+		val selection = ReaderBridgeCommand.ContentLongPressAt(
+			x = 10.0,
+			y = 20.0,
+			causalSequence = 18L
+		).toJavaScript()
+
+		assertContains(navigation, "\"type\":\"nextPage\"")
+		assertContains(navigation, "\"causalSequence\":17")
+		assertContains(selection, "\"type\":\"contentLongPressAt\"")
+		assertContains(selection, "\"causalSequence\":18")
+	}
+
+	@Test
+	fun causalPresentationEventsDecodeSequenceAndDestinationIdentity() {
+		val location = assertIs<ReaderBridgeEvent.LocationChanged>(
+			decodeReaderBridgeEvent(
+				"""{"type":"locationChanged","href":"Text/chapter.xhtml","foliateSessionId":"session-a","causalSequence":17,"destinationCommitSequence":41}"""
+			)
+		)
+		val range = assertIs<ReaderBridgeEvent.VisibleTextRange>(
+			decodeReaderBridgeEvent(
+				"""{"type":"visibleTextRange","textHref":"Text/chapter.xhtml","visibleStart":10,"visibleEnd":30,"causalSequence":17,"destinationFoliateSessionId":"session-a","destinationCommitSequence":41}"""
+			)
+		)
+		val point = assertIs<ReaderBridgeEvent.TextPoint>(
+			decodeReaderBridgeEvent(
+				"""{"type":"textPoint","textHref":"Text/chapter.xhtml","textOffset":12,"causalSequence":18,"destinationFoliateSessionId":"session-a","destinationCommitSequence":41}"""
+			)
+		)
+		val identity = ReaderDestinationCommitIdentity("session-a", 41L)
+
+		assertEquals(17L, location.causalSequence)
+		assertEquals(identity, location.destinationCommitIdentity)
+		assertEquals(17L, range.causalSequence)
+		assertEquals(identity, range.destinationCommitIdentity)
+		assertEquals(18L, point.causalSequence)
+		assertEquals(identity, point.destinationCommitIdentity)
+	}
+
+	@Test
 	fun acknowledgedCommandEnvelopeCarriesStableIdBesideExistingPayload() {
 		val script = ReaderBridgeDispatchCommand(
 			id = "reader-open-1",

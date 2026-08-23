@@ -100,6 +100,12 @@ internal object ReaderOverlayReducer {
 		val state = controller.state
 		if (state.shellCoverVisible) return ReaderControllerStep(controller)
 		val currentWhispersync = state.whispersync
+		if (
+			currentWhispersync.pendingCausalIntent?.provenance ==
+			ReaderWhispersyncEventProvenance.UserNavigation
+		) {
+			return ReaderControllerStep(controller)
+		}
 		val requestId = event.fragment.overlayRequestId
 		val activeRequestId = currentWhispersync.sync.activeOverlayRequestId
 		if (requestId != activeRequestId) return ReaderControllerStep(controller)
@@ -114,6 +120,7 @@ internal object ReaderOverlayReducer {
 		val audioSeekTarget = pendingSeek
 			?.takeIf { it.overlayRequestId == requestId && !wasConfirmed }
 			?.target
+		val startPlayback = currentWhispersync.playbackStartPending && audioSeekTarget != null
 		val progress = audioSeekTarget?.let {
 			state.publication?.let { publication ->
 				state.chrome.currentLocator?.toBinderyReadingProgress(
@@ -130,6 +137,13 @@ internal object ReaderOverlayReducer {
 						sync = confirmedSync,
 						pendingAudioSeek = pendingSeek
 							?.takeUnless { it.overlayRequestId == requestId },
+						playbackStartPending = currentWhispersync.playbackStartPending &&
+							audioSeekTarget == null,
+						transportPhase = if (audioSeekTarget != null) {
+							ReaderWhispersyncTransportPhase.Seeking
+						} else {
+							currentWhispersync.transportPhase
+						},
 						status = if (audioSeekTarget != null) {
 							readerWhispersyncReadyStatus(currentWhispersync.timeline)
 						} else {
@@ -137,13 +151,13 @@ internal object ReaderOverlayReducer {
 						}
 					),
 					activeMediaOverlay = event.fragment,
-					activeMediaOverlayAnchorReceipt =
-						event.anchorReceipt,
+					activeMediaOverlayAnchorReceipt = event.anchorReceipt,
 					audioMetadataLabel = event.fragment.label
 				)
 			),
 			progressToSave = progress,
-			whispersyncAudioSeekTarget = audioSeekTarget
+			whispersyncAudioSeekTarget = audioSeekTarget,
+			readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Play.takeIf { startPlayback }
 		)
 	}
 

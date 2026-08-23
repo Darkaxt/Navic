@@ -282,7 +282,9 @@ data class ReaderProgressSaveGate(
 					pageTurnSettleToken = event.pageTurnSettleToken,
 					pageTurnSettleSessionId = event.pageTurnSettleSessionId,
 					pageTurnSettleRasterGeneration = event.pageTurnSettleRasterGeneration,
-					pageTurnSettleTextureGeneration = event.pageTurnSettleTextureGeneration
+					pageTurnSettleTextureGeneration = event.pageTurnSettleTextureGeneration,
+					causalSequence = event.causalSequence,
+					destinationCommitIdentity = event.destinationCommitIdentity
 				)
 			)
 			else -> ReaderProgressSaveDecision(state = this)

@@ -918,7 +918,7 @@ class ReaderControllerTest {
 		assertTrue(toggled.controller.state.menuVisible)
 		assertNull(toggled.controller.state.lastContentActionClaim)
 		assertEquals(
-			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Next)),
+			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Next, causalSequence = 1L)),
 			next.engineCommands
 		)
 	}
@@ -1047,7 +1047,7 @@ class ReaderControllerTest {
 			acknowledged.engineCommands
 		)
 		assertEquals(
-			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Next)),
+			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Next, causalSequence = 1L)),
 			nextReadable.engineCommands
 		)
 	}
@@ -1149,7 +1149,7 @@ class ReaderControllerTest {
 
 		assertFalse(previous.controller.state.shellCoverVisible)
 		assertEquals(
-			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Previous)),
+			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Previous, causalSequence = 2L)),
 			previous.engineCommands,
 			"Only the first eligible EPUB-side locator after dismissing the native cover may reclaim the native cover."
 		)
@@ -1229,7 +1229,7 @@ class ReaderControllerTest {
 					tocTitle = "Chapter 1"
 				)
 			).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onReadaloudPlaybackState(
 				ReaderReadaloudPlaybackUiState(
 					isAvailable = true,
@@ -1344,11 +1344,11 @@ class ReaderControllerTest {
 		)
 
 		assertEquals(
-			listOf(ReaderEngineCommand.ScrollViewport(ReaderViewportScrollDirection.Down)),
+			listOf(ReaderEngineCommand.ScrollViewport(ReaderViewportScrollDirection.Down, causalSequence = 1L)),
 			down.engineCommands
 		)
 		assertEquals(
-			listOf(ReaderEngineCommand.ScrollViewport(ReaderViewportScrollDirection.Up)),
+			listOf(ReaderEngineCommand.ScrollViewport(ReaderViewportScrollDirection.Up, causalSequence = 1L)),
 			up.engineCommands
 		)
 	}
@@ -1410,7 +1410,7 @@ class ReaderControllerTest {
 	fun viewerLongPressContentActionsUseTextPointOnlyWhileWhispersyncAudiobookIsActive() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onReadaloudPlaybackState(
 				ReaderReadaloudPlaybackUiState(
 					isAvailable = true,
@@ -1438,7 +1438,8 @@ class ReaderControllerTest {
 					y = 500.0,
 					viewWidth = 500.0,
 					viewHeight = 1000.0,
-					selectText = false
+					selectText = false,
+					causalSequence = 1L
 				)
 			),
 			step.engineCommands
@@ -1737,7 +1738,8 @@ class ReaderControllerTest {
 					ReaderLocator(
 						href = "chapter-01.xhtml",
 						cfi = "epubcfi(/6/8!/4/2:12)"
-					)
+					),
+					causalSequence = 1L
 				)
 			),
 			step.engineCommands
@@ -1768,7 +1770,8 @@ class ReaderControllerTest {
 						href = "chapter-01.xhtml",
 						cfi = "epubcfi(/6/8!/4/1:0)",
 						progress = 0.24
-					)
+					),
+					causalSequence = 1L
 				)
 			),
 			step.engineCommands
@@ -1799,7 +1802,8 @@ class ReaderControllerTest {
 					ReaderLocator(
 						href = "chapter-01.xhtml",
 						cfi = "epubcfi(/6/8!/4/1:12)"
-					)
+					),
+					causalSequence = 1L
 				)
 			),
 			step.engineCommands
@@ -1813,7 +1817,7 @@ class ReaderControllerTest {
 		val step = ReaderController().navigateTo(locator)
 
 		assertEquals(
-			listOf(ReaderEngineCommand.NavigateTo(locator)),
+			listOf(ReaderEngineCommand.NavigateTo(locator, causalSequence = 1L)),
 			step.engineCommands
 		)
 	}
@@ -1829,7 +1833,7 @@ class ReaderControllerTest {
 		val step = ReaderController().onViewerAction(ReaderViewerAction.NavigateTo(locator))
 
 		assertEquals(
-			listOf(ReaderEngineCommand.NavigateTo(locator)),
+			listOf(ReaderEngineCommand.NavigateTo(locator, causalSequence = 1L)),
 			step.engineCommands,
 			"ReaderController must translate Komikku viewer movement into engine navigation without giving the engine shell ownership."
 		)
@@ -1879,7 +1883,8 @@ class ReaderControllerTest {
 		assertEquals(
 			listOf(
 				ReaderEngineCommand.NavigateTo(
-					ReaderLocator(href = "EPUB/Text/chapter-01.xhtml")
+					ReaderLocator(href = "EPUB/Text/chapter-01.xhtml"),
+					causalSequence = 1L
 				)
 			),
 			previous.engineCommands
@@ -1887,7 +1892,8 @@ class ReaderControllerTest {
 		assertEquals(
 			listOf(
 				ReaderEngineCommand.NavigateTo(
-					ReaderLocator(href = "EPUB/Text/chapter-03.xhtml#start")
+					ReaderLocator(href = "EPUB/Text/chapter-03.xhtml#start"),
+					causalSequence = 1L
 				)
 			),
 			next.engineCommands
@@ -1952,7 +1958,8 @@ class ReaderControllerTest {
 		assertEquals(
 			listOf(
 				ReaderEngineCommand.NavigateTo(
-					ReaderLocator(href = "EPUB/Text/foreword.xhtml")
+					ReaderLocator(href = "EPUB/Text/foreword.xhtml"),
+					causalSequence = 1L
 				)
 			),
 			previous.engineCommands
@@ -1960,7 +1967,8 @@ class ReaderControllerTest {
 		assertEquals(
 			listOf(
 				ReaderEngineCommand.NavigateTo(
-					ReaderLocator(href = "EPUB/Text/chapter-02.xhtml")
+					ReaderLocator(href = "EPUB/Text/chapter-02.xhtml"),
+					causalSequence = 1L
 				)
 			),
 			next.engineCommands
@@ -2001,7 +2009,8 @@ class ReaderControllerTest {
 						chapterProgress = 0.0,
 						chapterPageIndex = 0,
 						chapterPageCount = 1
-					)
+					),
+					causalSequence = 1L
 				)
 			),
 			seek.engineCommands
@@ -2031,6 +2040,7 @@ class ReaderControllerTest {
 				ReaderEngineEvent.Relocated(
 					foliateSessionId = "session-a",
 					locator = ReaderLocator(href = "EPUB/Text/chapter-01.xhtml"),
+					causalSequence = 1L,
 					tocTitle = "Chapter 1"
 				)
 			).controller
@@ -2095,7 +2105,7 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun whispersyncVisibleTextRangeAwaitsPositiveOverlayActivationBeforeSeekingAudio() {
+	fun whispersyncStartAwaitsPositiveOverlayActivationBeforeSeekingAudio() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
 			.onEngineEvent(
@@ -2109,15 +2119,26 @@ class ReaderControllerTest {
 					)
 				)
 			).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 
-		val pending = controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+		val prepared = controller.onEngineEvent(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140,
 				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
 			)
+		)
+		assertTrue(prepared.engineCommands.isEmpty())
+		assertNull(prepared.whispersyncAudioSeekTarget)
+		assertEquals(
+			5_000L,
+			prepared.controller.state.whispersync.preparedVisibleTarget
+				?.audioSeekTarget?.positionMs
+		)
+
+		val pending = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
 		)
 
 		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
@@ -2140,7 +2161,8 @@ class ReaderControllerTest {
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140,
-				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)",
+				destinationCommitIdentity = whispersyncTestDestination
 			),
 			pending.controller.state.whispersync.visibleTextRange
 		)
@@ -2148,7 +2170,7 @@ class ReaderControllerTest {
 		assertNull(pending.controller.state.audioMetadataLabel)
 
 		val repeated = pending.controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			whispersyncVisibleTextRange(
 				textHref = "/Text/chapter1.xhtml",
 				visibleStart = 85,
 				visibleEnd = 130
@@ -2242,13 +2264,16 @@ class ReaderControllerTest {
 	fun exactWordSyncCanKeepCoarsePlaybackPulseFromAdvancingTheOverlay() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
-		val pending = controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val prepared = controller.onEngineEvent(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140
 			)
+		)
+		val pending = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
 		)
 		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			pending.engineCommands.single()
@@ -2279,13 +2304,16 @@ class ReaderControllerTest {
 	fun exactWordSyncCanKeepCoarseCueChangeFromAdvancingOrPausing() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
-		val pending = controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val prepared = controller.onEngineEvent(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 10,
 				visibleEnd = 42
 			)
+		)
+		val pending = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
 		)
 		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			pending.engineCommands.single()
@@ -2317,13 +2345,16 @@ class ReaderControllerTest {
 	fun whispersyncMismatchedOverlayActivationIsIgnored() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
-		val pending = controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val prepared = controller.onEngineEvent(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140
 			)
+		)
+		val pending = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
 		)
 		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			pending.engineCommands.single()
@@ -2345,13 +2376,16 @@ class ReaderControllerTest {
 	fun whispersyncMatchingOverlayRejectionClearsCueAndPausesPlayback() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
-		val pending = controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val prepared = controller.onEngineEvent(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140
 			)
+		)
+		val pending = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
 		)
 		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			pending.engineCommands.single()
@@ -2394,13 +2428,16 @@ class ReaderControllerTest {
 	fun whispersyncStaleOverlayRejectionIsIgnored() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
-		val pending = controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val prepared = controller.onEngineEvent(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140
 			)
+		)
+		val pending = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
 		)
 		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			pending.engineCommands.single()
@@ -2425,13 +2462,16 @@ class ReaderControllerTest {
 	fun whispersyncUnscopedOverlayRejectionCannotClearTrackedRequest() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
-		val pending = controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val prepared = controller.onEngineEvent(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140
 			)
+		)
+		val pending = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
 		)
 		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			pending.engineCommands.single()
@@ -2459,15 +2499,19 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun repeatedConfirmedTextPointSeeksImmediatelyWithoutNewOverlayActivation() {
+	fun confirmedTextPointRequiresOneShotExplicitSelectionAuthority() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
-		val pending = controller.onEngineEvent(
-			ReaderEngineEvent.TextPoint(
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val prepared = controller.onEngineEvent(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
-				textOffset = 82
+				visibleStart = 80,
+				visibleEnd = 140
 			)
+		)
+		val pending = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
 		)
 		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			pending.engineCommands.single()
@@ -2475,16 +2519,34 @@ class ReaderControllerTest {
 		val confirmed = pending.controller.onEngineEvent(
 			ReaderEngineEvent.MediaOverlayActive(requested)
 		).controller
-
-		val repeated = confirmed.onEngineEvent(
-			ReaderEngineEvent.TextPoint(
-				textHref = "Text/chapter1.xhtml",
-				textOffset = 90
-			)
+		val reserved = confirmed.onViewerAction(
+			ReaderViewerAction.ContentLongPressAt(10.0, 20.0, 100.0, 100.0)
 		)
 
+		val causalSequence = requireNotNull(
+			reserved.controller.state.whispersync.pendingCausalIntent?.sequence
+		)
+		val selected = reserved.controller.onEngineEvent(
+			ReaderEngineEvent.TextPoint(
+				textHref = "Text/chapter1.xhtml",
+				textOffset = 90,
+				causalSequence = causalSequence,
+				destinationCommitIdentity = whispersyncTestDestination
+			)
+		)
+		assertEquals(emptyList(), selected.engineCommands)
+		assertEquals(5_000L, selected.whispersyncAudioSeekTarget?.positionMs)
+
+		val repeated = selected.controller.onEngineEvent(
+			ReaderEngineEvent.TextPoint(
+				textHref = "Text/chapter1.xhtml",
+				textOffset = 90,
+				causalSequence = causalSequence,
+				destinationCommitIdentity = whispersyncTestDestination
+			)
+		)
 		assertEquals(emptyList(), repeated.engineCommands)
-		assertEquals(5_000L, repeated.whispersyncAudioSeekTarget?.positionMs)
+		assertNull(repeated.whispersyncAudioSeekTarget)
 		assertNull(repeated.controller.state.whispersync.pendingAudioSeek?.target)
 	}
 
@@ -2497,10 +2559,10 @@ class ReaderControllerTest {
 					"https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		).controller.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 
 		val hiddenRange = controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140,
@@ -2525,7 +2587,7 @@ class ReaderControllerTest {
 					"https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		).controller.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 
 		val delayed = controller.onEngineEvent(
 			ReaderEngineEvent.TextPoint(
@@ -2551,7 +2613,7 @@ class ReaderControllerTest {
 					"https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		).controller.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 
 		val delayed = controller.onReadaloudPlaybackState(
 			ReaderReadaloudPlaybackUiState(
@@ -2596,13 +2658,16 @@ class ReaderControllerTest {
 				locator = readableLocator,
 				tocTitle = "Chapter 1"
 			)
-		).controller.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
-		val pending = readable.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+		).controller.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val prepared = readable.onEngineEvent(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140
 			)
+		)
+		val pending = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
 		)
 		val firstFragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			pending.engineCommands.single()
@@ -2641,13 +2706,16 @@ class ReaderControllerTest {
 			acknowledged.engineCommands
 		)
 
-		val fresh = acknowledged.controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+		val freshPrepared = acknowledged.controller.onEngineEvent(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140,
 				source = "shell-cover-dismissed"
 			)
+		)
+		val fresh = freshPrepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
 		)
 		val freshRequest = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			fresh.engineCommands.single()
@@ -2657,38 +2725,60 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun whispersyncTextPointFeedsControllerSyncAndAudioSeekTarget() {
+	fun explicitWhispersyncTextPointFeedsControllerSyncAndAudioSeekTarget() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val prepared = controller.onEngineEvent(
+			whispersyncVisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 10,
+				visibleEnd = 42
+			)
+		)
+		val start = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
+		)
+		val first = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			start.engineCommands.single()
+		).fragment
+		val enabled = start.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(first)
+		).controller
+		val reserved = enabled.onViewerAction(
+			ReaderViewerAction.ContentLongPressAt(10.0, 20.0, 100.0, 100.0)
+		)
 
-		val step = controller.onEngineEvent(
+		val causalSequence = requireNotNull(
+			reserved.controller.state.whispersync.pendingCausalIntent?.sequence
+		)
+		val step = reserved.controller.onEngineEvent(
 			ReaderEngineEvent.TextPoint(
 				textHref = "Text/chapter1.xhtml",
 				textOffset = 82,
 				rangeCfi = "epubcfi(/6/2!/4/4,/1:2,/1:10)",
-				source = "native-long-press-command"
+				source = "native-long-press-command",
+				causalSequence = causalSequence,
+				destinationCommitIdentity = whispersyncTestDestination
 			)
 		)
 
 		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
 		assertEquals("seg-2", overlay.fragment.fragmentId)
 		assertNotNull(overlay.fragment.overlayRequestId)
-		assertNull(step.whispersyncAudioSeekTarget)
-		assertEquals(
-			5_000L,
-			step.controller.state.whispersync.pendingAudioSeek?.target?.positionMs
-		)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertNull(step.controller.state.whispersync.pendingAudioSeek)
 		assertNull(step.controller.state.audioMetadataLabel)
 		assertNull(step.controller.state.activeMediaOverlay)
 	}
 
 	@Test
-	fun loadingWhispersyncSidecarReplaysExistingVisibleTextRange() {
+	fun loadingWhispersyncSidecarPreparesExistingVisibleTextRangeWithoutSeeking() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
 			.onEngineEvent(
-				ReaderEngineEvent.VisibleTextRange(
+				whispersyncVisibleTextRange(
 					textHref = "Text/chapter1.xhtml",
 					visibleStart = 80,
 					visibleEnd = 140,
@@ -2698,43 +2788,50 @@ class ReaderControllerTest {
 
 		val step = controller.loadWhispersyncSidecar(testWhispersyncSidecar())
 
-		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
-		assertEquals("seg-2", overlay.fragment.fragmentId)
-		assertEquals("Second sentence", overlay.fragment.label)
+		assertTrue(step.engineCommands.isEmpty())
 		assertNull(step.whispersyncAudioSeekTarget)
 		assertEquals(
 			5_000L,
-			step.controller.state.whispersync.pendingAudioSeek?.target?.positionMs
+			step.controller.state.whispersync.preparedVisibleTarget
+				?.audioSeekTarget?.positionMs
 		)
+		assertNull(step.controller.state.whispersync.pendingAudioSeek)
 		assertEquals(
 			ReaderWhispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140,
-				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)",
+				destinationCommitIdentity = whispersyncTestDestination
 			),
 			step.controller.state.whispersync.visibleTextRange
+		)
+		assertEquals(
+			ReaderWhispersyncTransportPhase.Ready,
+			step.controller.state.whispersync.transportPhase
 		)
 		assertNull(step.controller.state.activeMediaOverlay)
 		assertNull(step.controller.state.audioMetadataLabel)
 	}
 
 	@Test
-	fun pausedAudiobookPositionDoesNotClearVisibleRangeWhispersyncOverlay() {
+	fun pausedAudiobookPositionDoesNotClearPreparedVisibleTarget() {
 		val synced = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onEngineEvent(
-				ReaderEngineEvent.VisibleTextRange(
+				whispersyncVisibleTextRange(
 					textHref = "Text/chapter1.xhtml",
 					visibleStart = 80,
 					visibleEnd = 140,
 					rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
 				)
 			).controller
-		assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
-			synced.state.whispersync.sync.engineCommand
+		assertEquals(
+			5_000L,
+			synced.state.whispersync.preparedVisibleTarget?.audioSeekTarget?.positionMs
 		)
+		assertNull(synced.state.whispersync.sync.engineCommand)
 
 		val paused = synced.onReadaloudPlaybackState(
 			ReaderReadaloudPlaybackUiState(
@@ -2750,14 +2847,18 @@ class ReaderControllerTest {
 		assertEquals(emptyList(), paused.engineCommands)
 		assertNull(paused.controller.state.activeMediaOverlay)
 		assertNull(paused.controller.state.audioMetadataLabel)
-		assertEquals(ReaderWhispersyncStatusKind.SeekingAudio, paused.controller.state.whispersync.status.kind)
+		assertEquals(ReaderWhispersyncStatusKind.Ready, paused.controller.state.whispersync.status.kind)
+		assertEquals(
+			5_000L,
+			paused.controller.state.whispersync.preparedVisibleTarget?.audioSeekTarget?.positionMs
+		)
 	}
 
 	@Test
 	fun loadedWhispersyncSidecarExposesControllerOwnedReadyStatus() {
 		val step = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar())
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar())
 
 		assertEquals(
 			ReaderWhispersyncStatus(
@@ -2790,13 +2891,13 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun visibleTextRangeUpdatesWhispersyncStatusWithSeekTarget() {
+	fun visibleTextRangePreparesTargetWithoutEnteringSeekingStatus() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 
 		val step = controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140,
@@ -2806,33 +2907,39 @@ class ReaderControllerTest {
 
 		assertEquals(
 			ReaderWhispersyncStatus(
-				kind = ReaderWhispersyncStatusKind.SeekingAudio,
-				message = ReaderWhispersyncStatusMessage.SeekingAudio,
-				detail = "Second sentence",
-				audioResource = "Audio/chapter01.m4b",
-				positionMs = 5_000L
+				kind = ReaderWhispersyncStatusKind.Ready,
+				message = ReaderWhispersyncStatusMessage.Ready,
+				syncedSegmentCount = 2
 			),
 			step.controller.state.whispersync.status
 		)
+		assertEquals(
+			5_000L,
+			step.controller.state.whispersync.preparedVisibleTarget
+				?.audioSeekTarget?.positionMs
+		)
+		assertNull(step.whispersyncAudioSeekTarget)
+		assertTrue(step.engineCommands.isEmpty())
 	}
 
 	@Test
-	fun visibleTextRangeWithoutCueDemotesWhispersyncToReadyAndClearsOverlay() {
+	fun visibleTextRangeWithoutCueClearsPreparedTargetWithoutOverlayCommands() {
 		val synced = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onEngineEvent(
-				ReaderEngineEvent.VisibleTextRange(
+				whispersyncVisibleTextRange(
 					textHref = "Text/chapter1.xhtml",
 					visibleStart = 80,
 					visibleEnd = 140
 				)
 			).controller
-		assertNotNull(synced.state.whispersync.pendingAudioSeek?.target)
+		assertNotNull(synced.state.whispersync.preparedVisibleTarget)
+		assertNull(synced.state.whispersync.pendingAudioSeek)
 		assertNull(synced.state.activeMediaOverlay)
 
 		val step = synced.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			whispersyncVisibleTextRange(
 				textHref = "Text/appendix.xhtml",
 				visibleStart = 1,
 				visibleEnd = 60
@@ -2847,10 +2954,11 @@ class ReaderControllerTest {
 			),
 			step.controller.state.whispersync.status
 		)
-		assertNull(step.controller.state.whispersync.pendingAudioSeek?.target)
+		assertNull(step.controller.state.whispersync.pendingAudioSeek)
+		assertNull(step.controller.state.whispersync.preparedVisibleTarget)
 		assertNull(step.controller.state.activeMediaOverlay)
 		assertNull(step.controller.state.audioMetadataLabel)
-		assertEquals(listOf(ReaderEngineCommand.ClearMediaOverlay), step.engineCommands)
+		assertEquals(emptyList(), step.engineCommands)
 		assertNull(step.whispersyncAudioSeekTarget)
 	}
 
@@ -2858,7 +2966,7 @@ class ReaderControllerTest {
 	fun audiobookPlaybackOutsideTimelineSurfacesNeutralNoActiveCueStatus() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 
 		val step = controller.onReadaloudPlaybackState(
 			ReaderReadaloudPlaybackUiState(
@@ -2890,12 +2998,12 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun repairWhispersyncMismatchReusesVisibleTextRangeSeekTarget() {
+	fun repairWhispersyncMismatchReusesPreparedVisibleTargetWithoutSeeking() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 		val synced = controller.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140,
@@ -2910,21 +3018,22 @@ class ReaderControllerTest {
 		assertEquals("seg-2", overlay.fragment.fragmentId)
 		assertEquals("Second sentence", overlay.fragment.label)
 		assertNull(step.whispersyncAudioSeekTarget)
+		assertNull(step.controller.state.whispersync.pendingAudioSeek)
 		assertEquals(
 			"Audio/chapter01.m4b",
-			step.controller.state.whispersync.pendingAudioSeek?.target?.audioResource
+			step.controller.state.whispersync.preparedVisibleTarget
+				?.audioSeekTarget?.audioResource
 		)
 		assertEquals(
 			5_000L,
-			step.controller.state.whispersync.pendingAudioSeek?.target?.positionMs
+			step.controller.state.whispersync.preparedVisibleTarget
+				?.audioSeekTarget?.positionMs
 		)
 		assertEquals(
 			ReaderWhispersyncStatus(
-				kind = ReaderWhispersyncStatusKind.SeekingAudio,
-				message = ReaderWhispersyncStatusMessage.SeekingAudio,
-				detail = "Second sentence",
-				audioResource = "Audio/chapter01.m4b",
-				positionMs = 5_000L
+				kind = ReaderWhispersyncStatusKind.Ready,
+				message = ReaderWhispersyncStatusMessage.Ready,
+				syncedSegmentCount = 2
 			),
 			step.controller.state.whispersync.status
 		)
@@ -2936,7 +3045,7 @@ class ReaderControllerTest {
 	fun repairWhispersyncMismatchNoopsWithoutVisibleTextRangeSeekTarget() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 		val mismatched = controller.onReadaloudPlaybackState(
 			ReaderReadaloudPlaybackUiState(
 				isAvailable = true,
@@ -2959,9 +3068,9 @@ class ReaderControllerTest {
 	fun repairWhispersyncMismatchNoopsForLoadFailureStatus() {
 		val visible = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onEngineEvent(
-				ReaderEngineEvent.VisibleTextRange(
+				whispersyncVisibleTextRange(
 					textHref = "Text/chapter1.xhtml",
 					visibleStart = 80,
 					visibleEnd = 140
@@ -2983,7 +3092,7 @@ class ReaderControllerTest {
 	fun whispersyncAudiobookPlaybackStateFeedsControllerHighlightOverlay() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 
 		val step = controller.onReadaloudPlaybackState(
 			ReaderReadaloudPlaybackUiState(
@@ -3008,7 +3117,7 @@ class ReaderControllerTest {
 	fun whispersyncAudiobookPlaybackSuppressesNormalTextSelectionActions() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onReadaloudPlaybackState(
 				ReaderReadaloudPlaybackUiState(
 					isAvailable = true,
@@ -3036,7 +3145,7 @@ class ReaderControllerTest {
 	fun playbackDrivenOverlayConfirmationDoesNotSeekAudiobookAgain() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 		val playbackStep = controller.onReadaloudPlaybackState(
 			ReaderReadaloudPlaybackUiState(
 				isAvailable = true,
@@ -3064,7 +3173,7 @@ class ReaderControllerTest {
 	fun pausingAfterTransientSeekClearsPlaybackDrivenOverlayAndStatus() {
 		val pending = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onReadaloudPlaybackState(
 				ReaderReadaloudPlaybackUiState(
 					isAvailable = true,
@@ -3169,7 +3278,7 @@ class ReaderControllerTest {
 	fun audioFollowVisibleRangeDoesNotSeekAudiobookBackToReaderViewport() {
 		val pending = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onReadaloudPlaybackState(
 				ReaderReadaloudPlaybackUiState(
 					isAvailable = true,
@@ -3189,7 +3298,7 @@ class ReaderControllerTest {
 		val audioOverlay = playing.state.activeMediaOverlay
 
 		val step = playing.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 10,
 				visibleEnd = 42,
@@ -3206,7 +3315,8 @@ class ReaderControllerTest {
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 10,
 				visibleEnd = 42,
-				source = "media-overlay-follow"
+				source = "media-overlay-follow",
+				destinationCommitIdentity = whispersyncTestDestination
 			),
 			step.controller.state.whispersync.visibleTextRange
 		)
@@ -3215,17 +3325,20 @@ class ReaderControllerTest {
 
 	@Test
 	fun pageSpanningWhispersyncCueKeepsPlayingUntilTheActiveSentenceFinishes() {
-		val pending = ReaderController()
+		val prepared = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onEngineEvent(
-				ReaderEngineEvent.VisibleTextRange(
+				whispersyncVisibleTextRange(
 					textHref = "Text/chapter1.xhtml",
 					visibleStart = 100,
 					visibleEnd = 120,
 					source = "reader-visible-page"
 				)
 			)
+		val pending = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
+		)
 		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			pending.engineCommands.single()
 		).fragment
@@ -3254,9 +3367,9 @@ class ReaderControllerTest {
 	fun playbackCueOutsideVisiblePageStopsWhispersyncInsteadOfFollowingNextChapter() {
 		val visible = ReaderController()
 			.open(hobbitOpenRequest()).controller
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onEngineEvent(
-				ReaderEngineEvent.VisibleTextRange(
+				whispersyncVisibleTextRange(
 					textHref = "Text/chapter1.xhtml",
 					visibleStart = 10,
 					visibleEnd = 42,
@@ -3292,7 +3405,7 @@ class ReaderControllerTest {
 		val opened = ReaderController().open(hobbitOpenRequest()).controller
 		val ready = opened.onEngineEvent(ReaderEngineEvent.PublicationReady).controller
 		val synced = ready
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onReadaloudPlaybackState(
 				ReaderReadaloudPlaybackUiState(
 					isAvailable = true,
@@ -3340,11 +3453,11 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun visibleTextRangeWithWhispersyncCueExportsCurrentLocatorForExactCompanionSave() {
+	fun confirmedWhispersyncStartExportsCurrentLocatorForExactCompanionSave() {
 		val opened = ReaderController().open(hobbitOpenRequest()).controller
 		val ready = opened.onEngineEvent(ReaderEngineEvent.PublicationReady).controller
 		val located = ready
-			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
 					foliateSessionId = "session-a",
@@ -3358,24 +3471,29 @@ class ReaderControllerTest {
 				)
 			).controller
 
-		val step = located.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
+		val prepared = located.onEngineEvent(
+			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
 				visibleEnd = 140,
 				source = "whispersync-companion-progress-cue"
 			)
 		)
+		assertNull(prepared.progressToSave)
+		assertNull(prepared.whispersyncAudioSeekTarget)
+		val start = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
+		)
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			start.engineCommands.single()
+		).fragment
+		val step = start.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(overlay)
+		)
 
-		assertNull(step.whispersyncAudioSeekTarget)
-		assertEquals(
-			"Audio/chapter01.m4b",
-			step.controller.state.whispersync.pendingAudioSeek?.target?.audioResource
-		)
-		assertEquals(
-			5_000L,
-			step.controller.state.whispersync.pendingAudioSeek?.target?.positionMs
-		)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertNull(step.controller.state.whispersync.pendingAudioSeek)
 		assertEquals(
 			BinderyReadingProgress(
 				bookId = "book-1",
@@ -3744,6 +3862,34 @@ class ReaderControllerTest {
 		assertNull(inactive.controller.state.audioMetadataLabel)
 		assertEquals(emptyList(), inactive.engineCommands)
 	}
+
+	private val whispersyncTestDestination = ReaderDestinationCommitIdentity("session-a", 1L)
+
+	private fun ReaderController.withWhispersyncTestDestination(): ReaderController =
+		copy(
+			state = state.copy(
+				foliateSessionId = whispersyncTestDestination.foliateSessionId,
+				destinationCommitIdentity = whispersyncTestDestination
+			)
+		)
+
+	private fun whispersyncVisibleTextRange(
+		textHref: String,
+		visibleStart: Int,
+		visibleEnd: Int,
+		rangeCfi: String? = null,
+		source: String? = null,
+		causalSequence: Long? = null,
+		destinationCommitIdentity: ReaderDestinationCommitIdentity = whispersyncTestDestination
+	): ReaderEngineEvent.VisibleTextRange = ReaderEngineEvent.VisibleTextRange(
+		textHref = textHref,
+		visibleStart = visibleStart,
+		visibleEnd = visibleEnd,
+		rangeCfi = rangeCfi,
+		source = source,
+		causalSequence = causalSequence,
+		destinationCommitIdentity = destinationCommitIdentity
+	)
 
 	private fun testAnchorReceipt(foliateSessionId: String) = ReaderWhispersyncAnchorReceipt(
 		foliateSessionId = foliateSessionId,

@@ -64,6 +64,7 @@ data class ReaderControllerState(
 	val readerSettingsPresentationSnapshotKey: Int? = null,
 	val foliateSessionId: String? = null,
 	val pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null,
+	val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null,
 	val whispersync: ReaderWhispersyncSessionState = ReaderWhispersyncSessionState(),
 	val rawTextProvenanceById: Map<String, RawTextProvenanceState> = emptyMap(),
 	val activeMediaOverlay: ReaderOverlayFragment? = null,

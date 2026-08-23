@@ -294,7 +294,7 @@ class ReaderWhispersyncSyncCoordinatorTest {
 	}
 
 	@Test
-	fun visibleTextRangePublishesSeekTargetAndSuppressesRepeatedSeekLoop() {
+	fun visibleTextRangeResolvesPreparedTargetWithoutMutatingPlaybackSyncState() {
 		val timeline = whispersyncTimeline()
 		val active = ReaderWhispersyncSyncState().onAudiobookPlaybackPosition(
 			timeline = timeline,
@@ -302,28 +302,21 @@ class ReaderWhispersyncSyncCoordinatorTest {
 			positionMs = 1_500
 		)
 
-		val seek = active.onVisibleTextRange(
-			timeline = timeline,
-			textHref = "Text/chapter1.xhtml",
-			visibleStart = 70,
-			visibleEnd = 125
+		val prepared = assertNotNull(
+			readerWhispersyncVisibleTarget(
+				timeline = timeline,
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 70,
+				visibleEnd = 125
+			)
 		)
 
-		assertEquals("Audio/chapter01.m4b", seek.audioSeekTarget?.audioResource)
-		assertEquals(5_000L, seek.audioSeekTarget?.positionMs)
-		val seekCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(seek.state.engineCommand)
-		assertEquals("seg-2", seekCommand.fragment.fragmentId)
-		assertEquals("Second sentence", seekCommand.fragment.label)
-		assertEquals(2L, seek.state.engineCommandKey)
-
-		val repeated = seek.state.onVisibleTextRange(
-			timeline = timeline,
-			textHref = "/Text/chapter1.xhtml",
-			visibleStart = 75,
-			visibleEnd = 115
-		)
-		assertNull(repeated.audioSeekTarget)
-		assertEquals(seek.state.engineCommandKey, repeated.state.engineCommandKey)
+		assertEquals("Audio/chapter01.m4b", prepared.seekTarget.audioResource)
+		assertEquals(5_000L, prepared.seekTarget.positionMs)
+		assertEquals("seg-2", prepared.cue.fragment.fragmentId)
+		assertEquals("Second sentence", prepared.cue.fragment.label)
+		assertEquals(1L, active.engineCommandKey)
+		assertEquals("seg-1", active.activeCueKey?.let { active.engineCommand.overlayFragmentOrNull()?.fragmentId })
 	}
 
 	@Test

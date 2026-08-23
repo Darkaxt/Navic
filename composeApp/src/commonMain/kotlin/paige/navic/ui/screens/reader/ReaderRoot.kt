@@ -117,7 +117,8 @@ internal fun KomikkuReaderRoot(
 			control = readerWhispersyncPlaybackControlState(
 				status = controllerState.whispersync.status,
 				playbackState = readaloudPlaybackState,
-				hasConfirmedVisibleCue = controllerState.activeMediaOverlay != null
+				hasPreparedVisibleTarget = controllerState.whispersync.preparedVisibleTarget != null,
+				transportPhase = controllerState.whispersync.transportPhase
 			),
 			shellCoverVisible = controllerState.shellCoverVisible,
 			mediaOverlayAvailable = mediaOverlayAvailable
@@ -462,7 +463,9 @@ private fun KomikkuComposeOverlay(
 				KomikkuWhispersyncPlayerDialog(
 					status = controllerState.whispersync.status,
 					playbackState = readaloudPlaybackState ?: ReaderReadaloudPlaybackUiState(),
-					hasConfirmedVisibleCue = controllerState.activeMediaOverlay != null,
+					hasPreparedVisibleTarget =
+						controllerState.whispersync.preparedVisibleTarget != null,
+					canStartPlayback = controllerState.whispersync.canStartPlayback,
 					onCommand = onWhispersyncPlaybackCommand,
 					onDismissRequest = onDismissDialog
 				)

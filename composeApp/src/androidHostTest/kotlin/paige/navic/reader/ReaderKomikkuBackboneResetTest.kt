@@ -147,15 +147,15 @@ class ReaderKomikkuBackboneResetTest {
 		val coordinatorText = coordinator.readText()
 
 		assertTrue(
-			activeText.contains("var lastReaderEngineHostEvent") &&
-				activeText.contains("var readerEngineHostEventKey"),
-			"ReaderScreen must fan typed engine-host events into the readaloud adapter without letting WebView own chrome."
+			activeText.contains("var lastReadaloudReaderInteraction") &&
+				activeText.contains("var readaloudReaderInteractionKey"),
+			"ReaderScreen must fan reducer-validated reader interactions into the readaloud adapter without letting WebView own chrome."
 		)
 		assertTrue(
 			activeText.contains("ReaderReadaloudRuntimeHost(") &&
-				activeText.contains("readerHostEvent = lastReaderEngineHostEvent") &&
-				activeText.contains("readerHostEventKey = readerEngineHostEventKey"),
-			"The readaloud runtime must receive renderer events through the typed Komikku shell boundary."
+				activeText.contains("readerInteraction = lastReadaloudReaderInteraction") &&
+				activeText.contains("readerInteractionKey = readaloudReaderInteractionKey"),
+			"The readaloud runtime must receive reducer-validated typed interactions through the Komikku shell boundary."
 		)
 		assertTrue(
 			activeText.contains("coordinator.onReadaloudEngineCommand(command)") &&
@@ -164,9 +164,14 @@ class ReaderKomikkuBackboneResetTest {
 			"Readaloud overlay and playback outputs must route through ReaderCoordinator with exact WordSync playback identity."
 		)
 		assertTrue(
-			platformText.contains("readerHostEvent: ReaderEngineHostEvent?") &&
+			platformText.contains("readerInteraction: ReaderReadaloudReaderInteraction?") &&
 				platformText.contains("onEngineCommand: (ReaderEngineCommand, Long) -> Unit"),
-			"Readaloud runtime host must emit engine-level commands, not legacy bridge commands."
+			"Readaloud runtime host must consume reducer-validated interactions and emit engine-level commands."
+		)
+		assertFalse(
+			platformText.contains("readerHostEvent: ReaderEngineHostEvent?") ||
+				platformText.contains("expectedUserNavigationCausalSequence"),
+			"Readaloud runtime host must not independently reinterpret raw engine-host events or causal intent."
 		)
 		assertFalse(
 			platformText.contains("onReaderCommand: (ReaderBridgeCommand, Long) -> Unit"),
@@ -1943,18 +1948,19 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			readerRootText.contains("readerWhispersyncPlaybackControlState(") &&
-				readerRootText.contains("hasConfirmedVisibleCue = controllerState.activeMediaOverlay != null"),
-			"ReaderRoot must derive current-page playback eligibility from the positively acknowledged media overlay."
+				readerRootText.contains("hasPreparedVisibleTarget =") &&
+				readerRootText.contains("controllerState.whispersync.preparedVisibleTarget != null"),
+			"ReaderRoot must derive current-page playback eligibility from the prepared visible target, independently of active highlighting."
 		)
 		assertTrue(
 			playerDialogText.contains("readerWhispersyncTransportEnabled(") &&
-				playerDialogText.contains("hasConfirmedVisibleCue = hasConfirmedVisibleCue"),
-			"The full Whispersync player must not start a stopped stale audiobook without a confirmed current-page cue."
+				playerDialogText.contains("hasPreparedVisibleTarget = hasPreparedVisibleTarget") &&
+				playerDialogText.contains("playbackState.isPlaying || canStartPlayback"),
+			"The full Whispersync player must require lifecycle Start authority for stopped playback."
 		)
 		assertTrue(
-			readerScreenText.contains("val hasConfirmedVisibleCue = coordinator.controller.state.activeMediaOverlay != null") &&
-				readerScreenText.contains("!hasConfirmedVisibleCue"),
-			"The app-boundary command handler must reject Play when no current-page overlay was acknowledged."
+			readerScreenText.contains("coordinator.dispatch { onWhispersyncPlaybackCommand(command) }"),
+			"The app-boundary command handler must route Play and Stop through ReaderController lifecycle policy."
 		)
 		assertTrue(
 			readerRootText.contains("KomikkuWhispersyncPlaybackControl("),

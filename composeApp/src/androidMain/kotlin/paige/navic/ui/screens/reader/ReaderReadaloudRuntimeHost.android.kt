@@ -14,18 +14,18 @@ import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.reader.ReadaloudAudioController
 import paige.navic.reader.ReadaloudPlaybackLogTag
 import paige.navic.reader.ReaderEngineCommand
-import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderPublicationResourceRequest
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
+import paige.navic.reader.ReaderReadaloudReaderInteraction
 import paige.navic.reader.ReaderReadaloudSyncState
 import paige.navic.reader.ReaderSessionLease
 import paige.navic.reader.StorytellerReadaloudRuntime
 import paige.navic.reader.StorytellerReadaloudRuntimeLoader
 import paige.navic.reader.metadataLabelsForPlaybackPosition
 import paige.navic.reader.onPlaybackPosition
-import paige.navic.reader.onReaderEvent
+import paige.navic.reader.onReaderInteraction
 import paige.navic.reader.readerManagedStorageRoot
 import paige.navic.reader.readerPublicationResourceLogLabel
 import paige.navic.reader.setSyncEnabled
@@ -36,8 +36,8 @@ import paige.navic.util.core.Logger
 actual fun ReaderReadaloudRuntimeHost(
 	reader: Screen.Reader,
 	readaloudSyncEnabled: Boolean,
-	readerHostEvent: ReaderEngineHostEvent?,
-	readerHostEventKey: Long,
+	readerInteraction: ReaderReadaloudReaderInteraction?,
+	readerInteractionKey: Long,
 	onPublicationReady: (String) -> Unit,
 	onEngineCommand: (ReaderEngineCommand, Long) -> Unit,
 	playbackCommand: ReaderReadaloudPlaybackCommand?,
@@ -52,6 +52,9 @@ actual fun ReaderReadaloudRuntimeHost(
 	var runtime by remember(reader.resourceHref) { mutableStateOf<StorytellerReadaloudRuntime?>(null) }
 	var syncState by remember(reader.resourceHref) {
 		mutableStateOf(ReaderReadaloudSyncState(syncEnabled = readaloudSyncEnabled))
+	}
+	var consumedUserNavigationCausalSequence by remember(reader.resourceHref) {
+		mutableStateOf<Long?>(null)
 	}
 	val currentRuntime by rememberUpdatedState(runtime)
 	val currentSyncState by rememberUpdatedState(syncState)
@@ -100,6 +103,7 @@ actual fun ReaderReadaloudRuntimeHost(
 	LaunchedEffect(reader.bookId, reader.resourceHref, reader.title) {
 		runtime = null
 		syncState = ReaderReadaloudSyncState(syncEnabled = readaloudSyncEnabled)
+		consumedUserNavigationCausalSequence = null
 		Logger.i(
 			ReadaloudPlaybackLogTag,
 			"Preparing readaloud publication bookId=${reader.bookId} " +
@@ -192,15 +196,22 @@ actual fun ReaderReadaloudRuntimeHost(
 		}
 	}
 
-	LaunchedEffect(readerHostEventKey) {
-		val event = (readerHostEvent as? ReaderEngineHostEvent.FoliateBridge)?.event
-			?: return@LaunchedEffect
+	LaunchedEffect(readerInteractionKey) {
+		val interaction = readerInteraction ?: return@LaunchedEffect
 		val activeRuntime = runtime ?: return@LaunchedEffect
-		val step = syncState.onReaderEvent(
+		val navigationSequence =
+			(interaction as? ReaderReadaloudReaderInteraction.UserNavigation)?.causalSequence
+		if (navigationSequence != null && navigationSequence == consumedUserNavigationCausalSequence) {
+			return@LaunchedEffect
+		}
+		val step = syncState.onReaderInteraction(
 			plan = activeRuntime.playbackPlan,
 			timeline = activeRuntime.timeline,
-			event = event
+			interaction = interaction
 		)
+		step.consumedUserNavigationCausalSequence?.let {
+			consumedUserNavigationCausalSequence = it
+		}
 		if (step.state.engineCommandKey != syncState.engineCommandKey) {
 			step.state.engineCommand?.let { command ->
 				onEngineCommand(command, step.state.engineCommandKey)

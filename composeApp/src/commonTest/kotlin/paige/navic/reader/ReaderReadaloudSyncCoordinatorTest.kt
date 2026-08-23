@@ -41,7 +41,7 @@ class ReaderReadaloudSyncCoordinatorTest {
 	}
 
 	@Test
-	fun readerNavigationPublishesSeekTargetAndSuppressesRepeatedSeekLoop() {
+	fun validatedNavigationAndExplicitSelectionCanSeek() {
 		val timeline = mediaOverlayTimeline()
 		val plan = readaloudPlaybackPlan()
 		val active = ReaderReadaloudSyncState().onPlaybackPosition(
@@ -50,33 +50,30 @@ class ReaderReadaloudSyncCoordinatorTest {
 			position = playbackPosition(positionMs = 1_500)
 		)
 
-		val seek = active.onReaderEvent(
+		val navigated = active.onReaderInteraction(
 			plan = plan,
 			timeline = timeline,
-			event = ReaderBridgeEvent.LocationChanged(
-				foliateSessionId = "session-a",
-				locator = ReaderLocator(href = "EPUB/Text/chapter1.xhtml#frag-2")
+			interaction = ReaderReadaloudReaderInteraction.UserNavigation(
+				textHref = "EPUB/Text/chapter1.xhtml#frag-2",
+				causalSequence = 17L
 			)
 		)
+		assertEquals(5_000L, navigated.audioSeekTarget?.positionMs)
+		assertEquals(17L, navigated.consumedUserNavigationCausalSequence)
 
-		assertEquals(0, seek.audioSeekTarget?.trackIndex)
-		assertEquals("EPUB/Audio/chapter1.mp3", seek.audioSeekTarget?.audioResource)
-		assertEquals(5_000L, seek.audioSeekTarget?.positionMs)
-		val seekCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(seek.state.engineCommand)
-		assertEquals("frag-2", seekCommand.fragment.fragmentId)
-		assertEquals("Second", seekCommand.fragment.label)
-		assertEquals(2L, seek.state.engineCommandKey)
-
-		val repeated = seek.state.onReaderEvent(
+		val selected = navigated.state.onReaderInteraction(
 			plan = plan,
 			timeline = timeline,
-			event = ReaderBridgeEvent.LocationChanged(
-				foliateSessionId = "session-a",
-				locator = ReaderLocator(href = "EPUB/Text/chapter1.xhtml#frag-2")
+			interaction = ReaderReadaloudReaderInteraction.ExplicitSelection(
+				textHref = "EPUB/Text/chapter1.xhtml#frag-1"
 			)
 		)
-		assertNull(repeated.audioSeekTarget)
-		assertEquals(seek.state.engineCommandKey, repeated.state.engineCommandKey)
+		assertEquals(0, selected.audioSeekTarget?.trackIndex)
+		assertEquals("EPUB/Audio/chapter1.mp3", selected.audioSeekTarget?.audioResource)
+		assertEquals(1_250L, selected.audioSeekTarget?.positionMs)
+		val seekCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(selected.state.engineCommand)
+		assertEquals("frag-1", seekCommand.fragment.fragmentId)
+		assertEquals("First", seekCommand.fragment.label)
 	}
 
 	@Test

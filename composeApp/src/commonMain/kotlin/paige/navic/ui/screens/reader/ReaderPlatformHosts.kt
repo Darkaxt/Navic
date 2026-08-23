@@ -16,6 +16,7 @@ import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderRawTextProvenanceDescriptor
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
+import paige.navic.reader.ReaderReadaloudReaderInteraction
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.WordSyncPublicationVerifier
@@ -119,8 +120,8 @@ expect fun ReaderPublicationRuntimeHost(
 expect fun ReaderReadaloudRuntimeHost(
 	reader: Screen.Reader,
 	readaloudSyncEnabled: Boolean,
-	readerHostEvent: ReaderEngineHostEvent?,
-	readerHostEventKey: Long,
+	readerInteraction: ReaderReadaloudReaderInteraction?,
+	readerInteractionKey: Long,
 	onPublicationReady: (String) -> Unit,
 	onEngineCommand: (ReaderEngineCommand, Long) -> Unit,
 	playbackCommand: ReaderReadaloudPlaybackCommand?,

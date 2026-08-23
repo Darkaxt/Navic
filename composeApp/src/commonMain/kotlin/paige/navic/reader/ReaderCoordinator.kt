@@ -7,6 +7,7 @@ data class ReaderCoordinatorStep(
 	val progressToSave: BinderyReadingProgress? = null,
 	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null,
 	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null,
+	val readaloudReaderInteraction: ReaderReadaloudReaderInteraction? = null,
 	internal val wordSyncEffects: List<ReaderWordSyncEffect> = emptyList()
 )
 
@@ -79,6 +80,7 @@ data class ReaderCoordinator(
 			progressToSave = step.progressToSave,
 			whispersyncAudioSeekTarget = step.whispersyncAudioSeekTarget,
 			readaloudPlaybackCommand = step.readaloudPlaybackCommand,
+			readaloudReaderInteraction = step.readaloudReaderInteraction,
 			wordSyncEffects = decision.effects
 		)
 	}

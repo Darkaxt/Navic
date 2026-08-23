@@ -319,6 +319,74 @@ class FoliateEpubEngineAdapterTest {
 	}
 
 	@Test
+	fun propagatesCausalSequenceAcrossCommandsAndPresentationEvents() {
+		val opened = assertIs<FoliateEpubEngineAdapter>(
+			FoliateEpubEngineAdapter()
+				.onCommand(ReaderEngineCommand.OpenPublication(hobbitOpenRequest()))
+				.engine
+		)
+		val pageTurn = opened.onCommand(
+			ReaderEngineCommand.TurnPage(
+				direction = ReaderPageTurnDirection.Next,
+				causalSequence = 17L
+			)
+		)
+		val selection = pageTurn.engine.onCommand(
+			ReaderEngineCommand.ContentLongPressAt(
+				x = 10.0,
+				y = 20.0,
+				causalSequence = 18L
+			)
+		)
+		assertEquals(
+			ReaderBridgeCommand.CausalNextPage(causalSequence = 17L),
+			assertIs<ReaderEngineViewState.WebViewPublication>(pageTurn.viewState).bridgeCommand()
+		)
+		assertEquals(
+			18L,
+			assertIs<ReaderBridgeCommand.ContentLongPressAt>(
+				assertIs<ReaderEngineViewState.WebViewPublication>(selection.viewState).bridgeCommand()
+			).causalSequence
+		)
+
+		val identity = ReaderDestinationCommitIdentity("session-a", 41L)
+		assertEquals(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(href = "chapter.xhtml"),
+				foliateSessionId = "session-a",
+				causalSequence = 17L,
+				destinationCommitIdentity = identity
+			),
+			opened.onBridgeHostEvent(
+				ReaderBridgeEvent.LocationChanged(
+					locator = ReaderLocator(href = "chapter.xhtml"),
+					foliateSessionId = "session-a",
+					causalSequence = 17L,
+					destinationCommitIdentity = identity
+				)
+			)
+		)
+		assertEquals(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "chapter.xhtml",
+				visibleStart = 10,
+				visibleEnd = 20,
+				causalSequence = 17L,
+				destinationCommitIdentity = identity
+			),
+			opened.onBridgeHostEvent(
+				ReaderBridgeEvent.VisibleTextRange(
+					textHref = "chapter.xhtml",
+					visibleStart = 10,
+					visibleEnd = 20,
+					causalSequence = 17L,
+					destinationCommitIdentity = identity
+				)
+			)
+		)
+	}
+
+	@Test
 	fun forwardsIndependentFoliateSessionAndOptionalSettlementMetadata() {
 		val locator = ReaderLocator(pageIndex = 5)
 		val event = ReaderBridgeEvent.LocationChanged(

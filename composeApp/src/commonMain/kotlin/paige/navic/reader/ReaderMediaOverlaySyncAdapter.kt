@@ -13,24 +13,39 @@ data class ReadaloudAudioSeekTarget(
 	val clip: MediaOverlayClip
 )
 
+sealed interface ReaderReadaloudReaderInteraction {
+	data class UserNavigation(
+		val textHref: String,
+		val causalSequence: Long
+	) : ReaderReadaloudReaderInteraction
+
+	data class ExplicitSelection(
+		val textHref: String
+	) : ReaderReadaloudReaderInteraction
+}
+
 data class ReaderReadaloudReaderEventStep(
 	val state: ReaderReadaloudSyncState,
-	val audioSeekTarget: ReadaloudAudioSeekTarget? = null
+	val audioSeekTarget: ReadaloudAudioSeekTarget? = null,
+	val consumedUserNavigationCausalSequence: Long? = null
 )
 
 class MediaOverlaySyncAdapter(
 	private val plan: ReadaloudPlaybackPlan,
 	private val timeline: MediaOverlayTimeline
-) : ReaderOverlayTimelineAdapter<MediaOverlayPlaybackInput, ReaderBridgeEvent, ReadaloudAudioSeekTarget> {
+) : ReaderOverlayTimelineAdapter<MediaOverlayPlaybackInput, ReaderReadaloudReaderInteraction, ReadaloudAudioSeekTarget> {
 	override fun playbackCue(input: MediaOverlayPlaybackInput): ReaderOverlayCue? {
 		val audioResource = plan.audioResourceForOverlay(input.position) ?: return null
 		return timeline.activeClip(audioResource, input.position.positionMs)?.toOverlayCue()
 	}
 
 	override fun readerTarget(
-		input: ReaderBridgeEvent
+		input: ReaderReadaloudReaderInteraction
 	): ReaderOverlayReaderTarget<ReadaloudAudioSeekTarget>? {
-		val href = input.syncedOverlayHref() ?: return null
+		val href = when (input) {
+			is ReaderReadaloudReaderInteraction.UserNavigation -> input.textHref
+			is ReaderReadaloudReaderInteraction.ExplicitSelection -> input.textHref
+		}.takeIf { it.isNotBlank() } ?: return null
 		val target = timeline.seekTargetForText(href) ?: return null
 		val trackIndex = plan.trackIndexForOverlayAudio(target.audioResource) ?: return null
 		return ReaderOverlayReaderTarget(
@@ -55,17 +70,21 @@ fun ReaderReadaloudSyncState.onPlaybackPosition(
 	return followPlaybackCue(adapter.playbackCue(MediaOverlayPlaybackInput(position)))
 }
 
-fun ReaderReadaloudSyncState.onReaderEvent(
+fun ReaderReadaloudSyncState.onReaderInteraction(
 	plan: ReadaloudPlaybackPlan,
 	timeline: MediaOverlayTimeline?,
-	event: ReaderBridgeEvent
+	interaction: ReaderReadaloudReaderInteraction
 ): ReaderReadaloudReaderEventStep {
 	if (timeline == null) return ReaderReadaloudReaderEventStep(this)
 	val adapter = MediaOverlaySyncAdapter(plan, timeline)
-	val step = followReaderTarget(adapter.readerTarget(event))
+	val step = followReaderTarget(adapter.readerTarget(interaction))
 	return ReaderReadaloudReaderEventStep(
 		state = step.state,
-		audioSeekTarget = step.seekTarget
+		audioSeekTarget = step.seekTarget,
+		consumedUserNavigationCausalSequence =
+			(interaction as? ReaderReadaloudReaderInteraction.UserNavigation)
+				?.causalSequence
+				?.takeIf { step.seekTarget != null }
 	)
 }
 
@@ -98,11 +117,3 @@ private fun ReadaloudPlaybackPlan.trackIndexForOverlayAudio(audioResource: Strin
 			item.mediaId == audioResource
 	}.takeIf { index -> index >= 0 }
 }
-
-private fun ReaderBridgeEvent.syncedOverlayHref(): String? =
-	when (this) {
-		is ReaderBridgeEvent.LocationChanged -> locator.href
-		is ReaderBridgeEvent.SelectionChanged -> href
-		is ReaderBridgeEvent.TocItemChanged -> href
-		else -> null
-	}?.takeIf { it.isNotBlank() }

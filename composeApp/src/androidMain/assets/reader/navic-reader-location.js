@@ -324,6 +324,7 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     rawLocationCurrent: diagnosticNumber(detail.location?.current),
     rawLocationTotal: diagnosticNumber(detail.location?.total),
   }
+  const destinationCommitSequence = this.destinationCommitSequence + 1
   const message = {
     type: 'locationChanged',
     href: detail.href || sectionHref || tocItem.href,
@@ -336,6 +337,9 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     chapterPageCount: chapterPosition?.pageCount,
     tocTitle: tocItem.label || tocItem.title,
     foliateSessionId: this.foliateSessionId,
+    causalSequence: this.pendingUserNavigationCausalSequence,
+    destinationFoliateSessionId: this.foliateSessionId,
+    destinationCommitSequence,
     pageTurnSettleToken: settlement?.token,
     pageTurnSettleSessionId: settlement?.foliateSessionId,
     pageTurnSettleRasterGeneration: settlement?.rasterGeneration,
@@ -349,7 +353,11 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     ...pageModelDiagnostics,
   }
   const locationKey = readerLocationPostKey(message)
-  if (locationKey === this.lastPostedLocationKey && !options.forceDuplicatePost) {
+  if (
+    locationKey === this.lastPostedLocationKey &&
+    !options.forceDuplicatePost &&
+    this.pendingUserNavigationCausalSequence == null
+  ) {
     log('location-changed:duplicate-skipped', reason)
     readerTrace('location:duplicate-skipped', { reason })
     const duplicateHandled = this.handleDuplicatePageTurnRelocation?.(detail, reason)
@@ -390,6 +398,7 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     return { posted: false, skipped: 'bridge-delivery-failed', reason }
   }
   this.lastPostedLocationKey = locationKey
+  this.destinationCommitSequence = destinationCommitSequence
   if (settlement) this.consumeNativePageTurnSettlement(settlement.token)
   readerTrace('location:post', { reason })
   this.compareCommittedDuplicatePage(detail, message)
@@ -478,13 +487,16 @@ function postCurrentVisibleTextRange(detail = {}, options = {}) {
     return { posted: false, skipped: 'duplicate', visibleRange }
   }
   this.lastPostedVisibleTextRangeKey = key
-  post({
+  const delivered = post({
     type: 'visibleTextRange',
     textHref: visibleRange.textHref,
     visibleStart: visibleRange.visibleStart,
     visibleEnd: visibleRange.visibleEnd,
     rangeCfi: visibleRange.rangeCfi,
     source: visibleRange.source,
+    causalSequence: this.pendingUserNavigationCausalSequence,
+    destinationFoliateSessionId: this.foliateSessionId,
+    destinationCommitSequence: this.destinationCommitSequence,
     ...(visibleRange.rawProvenanceId ? {
       rawProvenanceId: visibleRange.rawProvenanceId,
       rawSpineIndex: visibleRange.rawSpineIndex,
@@ -492,6 +504,9 @@ function postCurrentVisibleTextRange(detail = {}, options = {}) {
       rawByteEnd: visibleRange.rawByteEnd,
     } : {}),
   })
+  if (delivered && this.pendingUserNavigationCausalSequence != null) {
+    this.pendingUserNavigationCausalSequence = null
+  }
   if (visibleRange.rawProvenanceId) {
     log('visible-text-range:posted', 'raw-exact')
     readerTrace('visible-text-range:posted', {

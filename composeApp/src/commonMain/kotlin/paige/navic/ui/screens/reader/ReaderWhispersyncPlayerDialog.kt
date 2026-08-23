@@ -49,7 +49,8 @@ import paige.navic.reader.readerWhispersyncTransportEnabled
 internal fun KomikkuWhispersyncPlayerDialog(
 	status: ReaderWhispersyncStatus,
 	playbackState: ReaderReadaloudPlaybackUiState,
-	hasConfirmedVisibleCue: Boolean,
+	hasPreparedVisibleTarget: Boolean,
+	canStartPlayback: Boolean,
 	onCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
 	onDismissRequest: () -> Unit
 ) {
@@ -77,7 +78,8 @@ internal fun KomikkuWhispersyncPlayerDialog(
 				)
 				KomikkuWhispersyncTransportRow(
 					playbackState = playbackState,
-					hasConfirmedVisibleCue = hasConfirmedVisibleCue,
+					hasPreparedVisibleTarget = hasPreparedVisibleTarget,
+					canStartPlayback = canStartPlayback,
 					onCommand = onCommand
 				)
 				HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -183,7 +185,8 @@ private fun KomikkuWhispersyncPlayerProgress(
 @Composable
 private fun KomikkuWhispersyncTransportRow(
 	playbackState: ReaderReadaloudPlaybackUiState,
-	hasConfirmedVisibleCue: Boolean,
+	hasPreparedVisibleTarget: Boolean,
+	canStartPlayback: Boolean,
 	onCommand: (ReaderReadaloudPlaybackCommand) -> Unit
 ) {
 	Row(
@@ -217,8 +220,8 @@ private fun KomikkuWhispersyncTransportRow(
 			},
 			enabled = readerWhispersyncTransportEnabled(
 				playbackState = playbackState,
-				hasConfirmedVisibleCue = hasConfirmedVisibleCue
-			),
+				hasPreparedVisibleTarget = hasPreparedVisibleTarget
+			) && (playbackState.isPlaying || canStartPlayback),
 			shape = CircleShape,
 			color = MaterialTheme.colorScheme.primaryContainer,
 			contentColor = MaterialTheme.colorScheme.onPrimaryContainer,

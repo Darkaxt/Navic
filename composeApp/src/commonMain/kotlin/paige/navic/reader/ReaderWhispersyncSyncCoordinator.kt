@@ -9,18 +9,84 @@ data class ReaderWhispersyncPendingAudioSeek(
 	val target: WhispersyncAudioSeekTarget
 )
 
+enum class ReaderWhispersyncPlaybackIntent {
+	UserStopped,
+	Enabled
+}
+
+enum class ReaderWhispersyncTransportPhase {
+	Unavailable,
+	Preparing,
+	Ready,
+	Playing,
+	BoundaryPaused,
+	Seeking,
+	Failed
+}
+
+enum class ReaderWhispersyncEventProvenance {
+	UserNavigation,
+	ExplicitCueSelection,
+	PresentationMaintenance,
+	AudioProgress
+}
+
+data class ReaderWhispersyncCausalIntent(
+	val sequence: Long,
+	val provenance: ReaderWhispersyncEventProvenance,
+	val requiresPageTurnSettlement: Boolean = false,
+	val destinationCommitted: Boolean = false,
+	val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
+)
+
+data class ReaderWhispersyncPreparedVisibleTarget(
+	val destinationCommitIdentity: ReaderDestinationCommitIdentity,
+	val firstVisibleCue: ReaderOverlayCue,
+	val audioSeekTarget: WhispersyncAudioSeekTarget,
+	val preparationGeneration: Long
+) {
+	internal fun readerTarget(): ReaderOverlayReaderTarget<WhispersyncAudioSeekTarget> =
+		ReaderOverlayReaderTarget(
+			cue = firstVisibleCue,
+			seekTarget = audioSeekTarget
+		)
+}
+
 data class ReaderWhispersyncSessionState(
 	val sidecar: WhispersyncSidecar? = null,
 	val sync: ReaderWhispersyncSyncState = ReaderWhispersyncSyncState(),
 	val visibleTextRange: ReaderWhispersyncVisibleTextRange? = null,
 	val pendingAudioSeek: ReaderWhispersyncPendingAudioSeek? = null,
-	val status: ReaderWhispersyncStatus = ReaderWhispersyncStatus()
+	val status: ReaderWhispersyncStatus = ReaderWhispersyncStatus(),
+	val playbackIntent: ReaderWhispersyncPlaybackIntent = ReaderWhispersyncPlaybackIntent.UserStopped,
+	val transportPhase: ReaderWhispersyncTransportPhase = ReaderWhispersyncTransportPhase.Unavailable,
+	val preparedVisibleTarget: ReaderWhispersyncPreparedVisibleTarget? = null,
+	val playbackStartPending: Boolean = false,
+	val stopResetPending: Boolean = false,
+	val userPaused: Boolean = false,
+	val userPausedDestinationCommitIdentity: ReaderDestinationCommitIdentity? = null,
+	val pendingCausalIntent: ReaderWhispersyncCausalIntent? = null,
+	val causalIntentSequence: Long = 0L,
+	val preparationGeneration: Long = 0L,
+	val lastEventProvenance: ReaderWhispersyncEventProvenance? = null
 ) {
 	val timeline: WhispersyncTimeline?
 		get() = sidecar?.timeline
 
 	val available: Boolean
 		get() = timeline?.segments?.isNotEmpty() == true
+
+	val canStartPlayback: Boolean
+		get() = available &&
+			preparedVisibleTarget != null &&
+			!playbackStartPending &&
+			!stopResetPending &&
+			transportPhase !in setOf(
+				ReaderWhispersyncTransportPhase.Unavailable,
+				ReaderWhispersyncTransportPhase.Preparing,
+				ReaderWhispersyncTransportPhase.BoundaryPaused,
+				ReaderWhispersyncTransportPhase.Failed
+			)
 }
 
 typealias ReaderWhispersyncSyncState = ReaderOverlaySyncState
@@ -30,7 +96,13 @@ data class ReaderWhispersyncVisibleTextRange(
 	val visibleStart: Int,
 	val visibleEnd: Int,
 	val rangeCfi: String? = null,
-	val source: String? = null
+	val source: String? = null,
+	val rawProvenanceId: String? = null,
+	val rawSpineIndex: Int? = null,
+	val rawByteStart: Int? = null,
+	val rawByteEnd: Int? = null,
+	val causalSequence: Long? = null,
+	val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 )
 
 enum class ReaderWhispersyncStatusKind {
@@ -199,60 +271,18 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPausedStep(
 	)
 }
 
-fun ReaderWhispersyncSyncState.onVisibleTextRange(
+internal fun readerWhispersyncVisibleTarget(
 	timeline: WhispersyncTimeline?,
 	textHref: String,
 	visibleStart: Int,
 	visibleEnd: Int
-): ReaderWhispersyncVisibleRangeStep {
-	if (timeline == null) {
-		return ReaderWhispersyncVisibleRangeStep(state = this)
-	}
-	val adapter = WhispersyncOverlaySyncAdapter(timeline)
-	val readerTarget = adapter.readerTarget(
+): ReaderOverlayReaderTarget<WhispersyncAudioSeekTarget>? {
+	if (timeline == null) return null
+	return WhispersyncOverlaySyncAdapter(timeline).readerTarget(
 		WhispersyncReaderSyncInput.VisibleRange(
 			textHref = textHref,
 			visibleStart = visibleStart,
 			visibleEnd = visibleEnd
-		)
-	) ?: run {
-		Logger.w(
-			WhispersyncSyncLogTag,
-			"Whispersync visible range state=ready matched=false active=${activeCueKey != null} " +
-				"reason=no-timeline-match"
-		)
-		return ReaderWhispersyncVisibleRangeStep(
-			state = clearOverlayIfNeeded(),
-			status = readerWhispersyncReadyStatus(timeline)
-		)
-	}
-	if (!syncEnabled) {
-		return ReaderWhispersyncVisibleRangeStep(
-			state = this,
-			status = ReaderWhispersyncStatus(
-				kind = ReaderWhispersyncStatusKind.SyncDisabled,
-				message = ReaderWhispersyncStatusMessage.Paused
-			)
-		)
-	}
-	val step = followReaderTarget(readerTarget)
-	val target = step.seekTarget
-	if (target == null) {
-		return ReaderWhispersyncVisibleRangeStep(state = this)
-	}
-	Logger.i(
-		WhispersyncSyncLogTag,
-		"Whispersync visible range state=seeking matched=true active=true command=seek"
-	)
-	return ReaderWhispersyncVisibleRangeStep(
-		state = step.state,
-		audioSeekTarget = target,
-		status = ReaderWhispersyncStatus(
-			kind = ReaderWhispersyncStatusKind.SeekingAudio,
-			message = ReaderWhispersyncStatusMessage.SeekingAudio,
-			detail = target.segment.label,
-			audioResource = target.audioResource,
-			positionMs = target.positionMs
 		)
 	)
 }

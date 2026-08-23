@@ -67,6 +67,16 @@ controls eligibility, or a maintenance event can seek, is a blocker. Isolated
 backend/exact-cue mismatch investigation may defer to Stage 6 unless it prevents
 these lifecycle tests from being evaluated.
 
+### Stage 1 execution ledger
+
+- **Validated:** Playback intent, transport phase, prepared target, active overlay,
+  and one-shot causal provenance are independent; focused reducer, bridge,
+  WordSync, legacy Readaloud, JavaScript, and bounded Android host gates pass.
+- **Deferred to Stage 5:** A bridge overlay-activation event is not final native
+  mask/presentation-bundle proof. Native receipt, mask, and bundle admission must
+  close this visual-proof requirement before Stage 5 exits.
+- **Blockers:** None after the Stage 1 correction and verification gates.
+
 ## Stage 2 — Passive Capture Feasibility Prototype
 
 ### Steps

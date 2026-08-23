@@ -7,7 +7,8 @@ data class ReaderControllerStep(
 	val engineCommands: List<ReaderEngineCommand> = emptyList(),
 	val progressToSave: BinderyReadingProgress? = null,
 	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null,
-	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null
+	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null,
+	val readaloudReaderInteraction: ReaderReadaloudReaderInteraction? = null
 )
 
 data class ReaderControllerBackStep(
@@ -58,6 +59,7 @@ data class ReaderController(
 						normalizedRequest.settings.readerPageRasterSnapshotKey(),
 					foliateSessionId = null,
 					pageTurnSettlementAck = null,
+					destinationCommitIdentity = null,
 					whispersync = ReaderWhispersyncSessionState(),
 					rawTextProvenanceById = emptyMap(),
 					activeMediaOverlay = null,
@@ -87,11 +89,13 @@ data class ReaderController(
 				}
 				val reduction = ReaderProgressReducer.onRelocated(state, event, decision)
 				val shellCoverDismissed = state.shellCoverVisible && !reduction.state.shellCoverVisible
+				val reducedController = copy(
+					progressSaveGate = decision.state,
+					state = reduction.state
+				)
+				val whispersyncStep = ReaderWhispersyncReducer.onRelocated(reducedController, event)
 				ReaderControllerStep(
-					controller = copy(
-						progressSaveGate = decision.state,
-						state = reduction.state
-					),
+					controller = whispersyncStep.controller,
 					engineCommands = listOfNotNull(
 						ReaderEngineCommand.RequestVisibleTextRange("shell-cover-dismissed")
 							.takeIf {
@@ -100,8 +104,11 @@ data class ReaderController(
 										ReaderEngineCapability.MediaOverlay
 									)
 							}
-					),
-					progressToSave = reduction.progressToSave
+					) + whispersyncStep.engineCommands,
+					progressToSave = reduction.progressToSave,
+					whispersyncAudioSeekTarget = whispersyncStep.whispersyncAudioSeekTarget,
+					readaloudPlaybackCommand = whispersyncStep.readaloudPlaybackCommand,
+					readaloudReaderInteraction = whispersyncStep.readaloudReaderInteraction
 				)
 			}
 			is ReaderEngineEvent.TocItemChanged -> ReaderControllerStep(
@@ -178,7 +185,11 @@ data class ReaderController(
 			is ReaderEngineEvent.Toc -> ReaderControllerStep(
 				copy(state = state.copy(toc = event.items))
 			)
-			is ReaderEngineEvent.SelectionChanged -> ReaderSelectionReducer.onChanged(this, event)
+			is ReaderEngineEvent.SelectionChanged -> ReaderSelectionReducer.onChanged(this, event).copy(
+				readaloudReaderInteraction = event.href
+					?.takeIf { it.isNotBlank() }
+					?.let(ReaderReadaloudReaderInteraction::ExplicitSelection)
+			)
 			ReaderEngineEvent.SelectionCleared -> ReaderSelectionReducer.clear(this)
 			is ReaderEngineEvent.MediaOverlayActive -> ReaderOverlayReducer.onActive(this, event)
 			is ReaderEngineEvent.MediaOverlayInactive -> ReaderOverlayReducer.onInactive(this, event)
@@ -212,11 +223,22 @@ data class ReaderController(
 		)
 	}
 
-	fun navigateTo(locator: ReaderLocator): ReaderControllerStep =
-		ReaderControllerStep(
+	fun navigateTo(locator: ReaderLocator): ReaderControllerStep {
+		val controller = ReaderWhispersyncReducer.reserveUserNavigation(
 			controller = this,
-			engineCommands = listOf(ReaderEngineCommand.NavigateTo(locator))
+			requiresPageTurnSettlement = false
 		)
+		return ReaderControllerStep(
+			controller = controller,
+			engineCommands = listOf(
+				ReaderEngineCommand.NavigateTo(
+					locator = locator,
+					causalSequence = controller.pendingWhispersyncCausalSequence()
+				)
+			),
+			readaloudPlaybackCommand = state.whispersync.navigationPauseCommand()
+		)
+	}
 
 	fun navigateToBookmark(bookmark: ReaderBookmark): ReaderControllerStep =
 		navigateToSavedMark(bookmark.toLocator())
@@ -226,6 +248,9 @@ data class ReaderController(
 
 	fun navigateToChapterPage(pageIndex: Int): ReaderControllerStep =
 		ReaderProgressReducer.navigateToChapterPage(this, pageIndex)
+			.withWhispersyncUserNavigation(
+				pauseCommand = state.whispersync.navigationPauseCommand()
+			)
 
 	fun navigateToPreviousChapter(): ReaderControllerStep =
 		navigateToAdjacentTocChapter(direction = -1)
@@ -235,17 +260,31 @@ data class ReaderController(
 
 	private fun navigateToAdjacentTocChapter(direction: Int): ReaderControllerStep =
 		ReaderProgressReducer.navigateToAdjacentChapter(this, direction)
+			.withWhispersyncUserNavigation(
+				pauseCommand = state.whispersync.navigationPauseCommand()
+			)
 
-	private fun navigateToSavedMark(locator: ReaderLocator): ReaderControllerStep =
-		ReaderControllerStep(
+	private fun navigateToSavedMark(locator: ReaderLocator): ReaderControllerStep {
+		val controller = ReaderWhispersyncReducer.reserveUserNavigation(
 			controller = copy(
 				state = state.copy(
 					dialog = null,
 					menuVisible = true
 				)
 			),
-			engineCommands = listOf(ReaderEngineCommand.NavigateTo(locator))
+			requiresPageTurnSettlement = false
 		)
+		return ReaderControllerStep(
+			controller = controller,
+			engineCommands = listOf(
+				ReaderEngineCommand.NavigateTo(
+					locator = locator,
+					causalSequence = controller.pendingWhispersyncCausalSequence()
+				)
+			),
+			readaloudPlaybackCommand = state.whispersync.navigationPauseCommand()
+		)
+	}
 
 	fun installRawTextProvenance(
 		descriptor: ReaderRawTextProvenanceDescriptor
@@ -279,6 +318,10 @@ data class ReaderController(
 		playbackState = playbackState,
 		publishOverlayProgress = publishOverlayProgress
 	)
+
+	fun onWhispersyncPlaybackCommand(
+		command: ReaderReadaloudPlaybackCommand
+	): ReaderControllerStep = ReaderWhispersyncReducer.onPlaybackCommand(this, command)
 
 	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderControllerStep =
 		ReaderWhispersyncReducer.loadSidecar(this, sidecar)
@@ -369,10 +412,18 @@ data class ReaderController(
 		) {
 			showNativeShellCover()
 		} else {
-			ReaderControllerStep(
-				controller = this,
-				engineCommands = listOf(ReaderEngineCommand.TurnPage(direction))
-			)
+			ReaderWhispersyncReducer.reserveUserNavigation(this).let { controller ->
+				ReaderControllerStep(
+					controller = controller,
+					engineCommands = listOf(
+						ReaderEngineCommand.TurnPage(
+							direction = direction,
+							causalSequence = controller.pendingWhispersyncCausalSequence()
+						)
+					),
+					readaloudPlaybackCommand = state.whispersync.navigationPauseCommand()
+				)
+			}
 		}
 
 	fun onBack(): ReaderControllerBackStep {
@@ -594,10 +645,18 @@ data class ReaderController(
 		) {
 			showNativeShellCover()
 		} else {
-			ReaderControllerStep(
-				controller = this,
-				engineCommands = listOf(ReaderEngineCommand.TurnPage(direction))
-			)
+			ReaderWhispersyncReducer.reserveUserNavigation(this).let { controller ->
+				ReaderControllerStep(
+					controller = controller,
+					engineCommands = listOf(
+						ReaderEngineCommand.TurnPage(
+							direction = direction,
+							causalSequence = controller.pendingWhispersyncCausalSequence()
+						)
+					),
+					readaloudPlaybackCommand = state.whispersync.navigationPauseCommand()
+				)
+			}
 		}
 
 	private fun showNativeShellCover(): ReaderControllerStep =
@@ -621,11 +680,22 @@ data class ReaderController(
 			readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
 		)
 
-	private fun scrollViewport(direction: ReaderViewportScrollDirection): ReaderControllerStep =
-		ReaderControllerStep(
+	private fun scrollViewport(direction: ReaderViewportScrollDirection): ReaderControllerStep {
+		val controller = ReaderWhispersyncReducer.reserveUserNavigation(
 			controller = this,
-			engineCommands = listOf(ReaderEngineCommand.ScrollViewport(direction))
+			requiresPageTurnSettlement = false
 		)
+		return ReaderControllerStep(
+			controller = controller,
+			engineCommands = listOf(
+				ReaderEngineCommand.ScrollViewport(
+					direction = direction,
+					causalSequence = controller.pendingWhispersyncCausalSequence()
+				)
+			),
+			readaloudPlaybackCommand = state.whispersync.navigationPauseCommand()
+		)
+	}
 
 	private fun previewPageDrag(action: ReaderViewerAction.PreviewPageDrag): ReaderControllerStep =
 		ReaderControllerStep(
@@ -641,19 +711,24 @@ data class ReaderController(
 			)
 		)
 
-	private fun contentLongPressAt(action: ReaderViewerAction.ContentLongPressAt): ReaderControllerStep =
-		ReaderControllerStep(
-			controller = this,
+	private fun contentLongPressAt(
+		action: ReaderViewerAction.ContentLongPressAt
+	): ReaderControllerStep {
+		val controller = ReaderWhispersyncReducer.reserveExplicitCueSelection(this)
+		return ReaderControllerStep(
+			controller = controller,
 			engineCommands = listOf(
 				ReaderEngineCommand.ContentLongPressAt(
 					x = action.x,
 					y = action.y,
 					viewWidth = action.viewWidth,
 					viewHeight = action.viewHeight,
-					selectText = !state.whispersyncOwnsTextSelection()
+					selectText = !controller.state.whispersyncOwnsTextSelection(),
+					causalSequence = controller.pendingWhispersyncCausalSequence()
 				)
 			)
-	)
+		)
+	}
 }
 
 private fun ReaderControllerState.shellCoverReadaloudResetCommand(): ReaderReadaloudPlaybackCommand? =
@@ -679,8 +754,50 @@ private fun ReaderWhispersyncSessionState.forShellCoverPresentation(): ReaderWhi
 		sync = sync.rejectOverlay(null),
 		visibleTextRange = null,
 		pendingAudioSeek = null,
+		playbackIntent = ReaderWhispersyncPlaybackIntent.UserStopped,
+		transportPhase = ReaderWhispersyncTransportPhase.Unavailable,
+		preparedVisibleTarget = null,
+		playbackStartPending = false,
+		stopResetPending = false,
+		pendingCausalIntent = null,
 		status = readerWhispersyncReadyStatus(timeline)
 	)
+
+private fun ReaderControllerStep.withWhispersyncUserNavigation(
+	pauseCommand: ReaderReadaloudPlaybackCommand?
+): ReaderControllerStep =
+	if (engineCommands.isEmpty()) {
+		this
+	} else {
+		val reservedController = ReaderWhispersyncReducer.reserveUserNavigation(
+			controller = controller,
+			requiresPageTurnSettlement = false
+		)
+		val causalSequence = reservedController.pendingWhispersyncCausalSequence()
+		copy(
+			controller = reservedController,
+			engineCommands = engineCommands.map { it.withCausalSequence(causalSequence) },
+			readaloudPlaybackCommand = readaloudPlaybackCommand ?: pauseCommand
+		)
+	}
+
+private fun ReaderController.pendingWhispersyncCausalSequence(): Long? =
+	state.whispersync.pendingCausalIntent?.sequence
+
+private fun ReaderEngineCommand.withCausalSequence(causalSequence: Long?): ReaderEngineCommand =
+	when (this) {
+		is ReaderEngineCommand.NavigateTo -> copy(causalSequence = causalSequence)
+		is ReaderEngineCommand.TurnPage -> copy(causalSequence = causalSequence)
+		is ReaderEngineCommand.ScrollViewport -> copy(causalSequence = causalSequence)
+		else -> this
+	}
+
+private fun ReaderWhispersyncSessionState.navigationPauseCommand(): ReaderReadaloudPlaybackCommand? =
+	ReaderReadaloudPlaybackCommand.Pause.takeIf {
+		playbackIntent == ReaderWhispersyncPlaybackIntent.Enabled &&
+			!userPaused &&
+			transportPhase != ReaderWhispersyncTransportPhase.BoundaryPaused
+	}
 
 private fun ReaderLocator.hasFoliateNavigationIdentity(): Boolean =
 	!cfi.isNullOrBlank() ||

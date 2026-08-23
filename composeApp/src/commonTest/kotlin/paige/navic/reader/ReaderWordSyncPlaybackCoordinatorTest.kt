@@ -345,6 +345,72 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
+	fun readerPreparedStartUsesPreparedSameXhtmlCueInsteadOfStalePlayback() {
+		val ready = readyCoordinatorAndController()
+		val remembered = ready.first.coordinate(
+			controllerStep = ReaderControllerStep(ready.second),
+			playback = playbackIdentity(positionMs = 1_050)
+		).coordinator
+		val destinationCue = cueCommand().copy(
+			fragment = cueCommand().fragment.copy(
+				overlayRequestId = 42L,
+				fragmentId = "cue-b",
+				clipBeginSeconds = 1.3,
+				textStart = 20,
+				textEnd = 30
+			)
+		)
+		val destinationSegment = cueSegment().copy(
+			id = "cue-b",
+			audioResourceId = "audio-a",
+			audioTrackIndex = 0,
+			startMs = 1_300L,
+			endMs = 1_600L,
+			textStart = 20,
+			textEnd = 30
+		)
+		val destinationTarget = WhispersyncAudioSeekTarget(
+			audioResource = "audio-a",
+			positionMs = 1_300L,
+			segment = destinationSegment,
+			audioTrackIndex = 0
+		)
+		val commitIdentity = ReaderDestinationCommitIdentity("session-a", 2L)
+		val controller = ready.second.copy(
+			state = ready.second.state.copy(
+				destinationCommitIdentity = commitIdentity,
+				whispersync = ready.second.state.whispersync.copy(
+					preparedVisibleTarget = ReaderWhispersyncPreparedVisibleTarget(
+						destinationCommitIdentity = commitIdentity,
+						firstVisibleCue = ReaderOverlayCue("cue-b", destinationCue.fragment),
+						audioSeekTarget = destinationTarget,
+						preparationGeneration = 2L
+					),
+					pendingAudioSeek = ReaderWhispersyncPendingAudioSeek(
+						overlayRequestId = 42L,
+						target = destinationTarget
+					),
+					playbackStartPending = true
+				)
+			)
+		)
+
+		val exact = remembered.coordinate(
+			controllerStep = ReaderControllerStep(
+				controller = controller,
+				engineCommands = listOf(destinationCue)
+			)
+		)
+
+		val fragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			exact.controllerStep.engineCommands.single()
+		).fragment
+		assertEquals(3, fragment.rawByteStart)
+		assertEquals(4, fragment.rawByteEnd)
+		assertEquals(1_300L, exact.controllerStep.controller.state.whispersync.pendingAudioSeek?.target?.positionMs)
+	}
+
+	@Test
 	fun exactWordSeekCarriesVerifiedTrackIdentity() {
 		val exactTrackIndex = 3
 		val exactChapter = chapter.copy(

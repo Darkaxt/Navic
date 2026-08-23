@@ -637,14 +637,18 @@ function selectReaderTextAtDocumentPoint(doc, x, y, index = null, source = 'cont
   const rangeCfi = textHref ? this.annotationRangeCfi?.(index, range) : undefined
   const rawPoint = this.rawTextProvenance.rawFieldsForPoint(range) || {}
   if (textHref && Number.isFinite(textOffset)) {
-    post({
+    const delivered = post({
       type: 'textPoint',
       textHref,
       textOffset: Math.floor(textOffset),
       rangeCfi,
       source,
+      causalSequence: this.pendingExplicitCueSelectionCausalSequence,
+      destinationFoliateSessionId: this.foliateSessionId,
+      destinationCommitSequence: this.destinationCommitSequence,
       ...rawPoint,
     })
+    if (delivered) this.pendingExplicitCueSelectionCausalSequence = null
   }
   doc.dispatchEvent(new Event('selectionchange', { bubbles: true }))
   if (rawPoint.rawProvenanceId) {
@@ -698,14 +702,18 @@ function postReaderTextPointAtDocumentPoint(doc, x, y, index = null, source = 'c
     return false
   }
   const rawPoint = this.rawTextProvenance.rawFieldsForPoint(caretRange) || {}
-  post({
+  const delivered = post({
     type: 'textPoint',
     textHref,
     textOffset: Math.floor(textOffset),
     rangeCfi,
     source,
+    causalSequence: this.pendingExplicitCueSelectionCausalSequence,
+    destinationFoliateSessionId: this.foliateSessionId,
+    destinationCommitSequence: this.destinationCommitSequence,
     ...rawPoint,
   })
+  if (delivered) this.pendingExplicitCueSelectionCausalSequence = null
   if (rawPoint.rawProvenanceId) {
     readerTrace('native-tap-zones:text-long-press-point', {
       source,

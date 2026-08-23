@@ -83,11 +83,15 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineCommand.OpenPublication -> open(command.request)
 			is ReaderEngineCommand.NavigateTo -> navigateTo(
 				locator = command.locator,
-				relocationReason = command.relocationReason
+				relocationReason = command.relocationReason,
+				causalSequence = command.causalSequence
 			)
 			is ReaderEngineCommand.Search -> dispatch(ReaderBridgeCommand.Search(command.query))
 			ReaderEngineCommand.ClearSearch -> dispatch(ReaderBridgeCommand.ClearSearch)
-			is ReaderEngineCommand.TurnPage -> turnPage(command.direction)
+			is ReaderEngineCommand.TurnPage -> turnPage(
+				direction = command.direction,
+				causalSequence = command.causalSequence
+			)
 			is ReaderEngineCommand.PreviewPageDrag -> dispatch(
 				ReaderBridgeCommand.PreviewPageDrag(
 					deltaX = command.deltaX,
@@ -97,14 +101,18 @@ sealed class FoliateWebViewEngineAdapter(
 					phase = command.phase
 				)
 			)
-			is ReaderEngineCommand.ScrollViewport -> scrollViewport(command.direction)
+			is ReaderEngineCommand.ScrollViewport -> scrollViewport(
+				direction = command.direction,
+				causalSequence = command.causalSequence
+			)
 			is ReaderEngineCommand.ContentLongPressAt -> dispatch(
 				ReaderBridgeCommand.ContentLongPressAt(
 					x = command.x,
 					y = command.y,
 					viewWidth = command.viewWidth,
 					viewHeight = command.viewHeight,
-					selectText = command.selectText
+					selectText = command.selectText,
+					causalSequence = command.causalSequence
 				)
 			)
 			is ReaderEngineCommand.ApplySettings -> dispatch(
@@ -160,7 +168,9 @@ sealed class FoliateWebViewEngineAdapter(
 				pageTurnSettleToken = event.pageTurnSettleToken,
 				pageTurnSettleSessionId = event.pageTurnSettleSessionId,
 				pageTurnSettleRasterGeneration = event.pageTurnSettleRasterGeneration,
-				pageTurnSettleTextureGeneration = event.pageTurnSettleTextureGeneration
+				pageTurnSettleTextureGeneration = event.pageTurnSettleTextureGeneration,
+				causalSequence = event.causalSequence,
+				destinationCommitIdentity = event.destinationCommitIdentity
 			)
 			is ReaderBridgeEvent.TocItemChanged -> ReaderEngineEvent.TocItemChanged(
 				href = event.href,
@@ -221,7 +231,9 @@ sealed class FoliateWebViewEngineAdapter(
 				rawProvenanceId = event.rawProvenanceId,
 				rawSpineIndex = event.rawSpineIndex,
 				rawByteStart = event.rawByteStart,
-				rawByteEnd = event.rawByteEnd
+				rawByteEnd = event.rawByteEnd,
+				causalSequence = event.causalSequence,
+				destinationCommitIdentity = event.destinationCommitIdentity
 			)
 			is ReaderBridgeEvent.TextPoint -> ReaderEngineEvent.TextPoint(
 				textHref = event.textHref,
@@ -229,7 +241,9 @@ sealed class FoliateWebViewEngineAdapter(
 				rangeCfi = event.rangeCfi,
 				source = event.source,
 				rawProvenanceId = event.rawProvenanceId,
-				rawByteOffset = event.rawByteOffset
+				rawByteOffset = event.rawByteOffset,
+				causalSequence = event.causalSequence,
+				destinationCommitIdentity = event.destinationCommitIdentity
 			)
 			is ReaderBridgeEvent.RawTextProvenanceStatusChanged ->
 				ReaderEngineEvent.RawTextProvenanceStatusChanged(
@@ -281,23 +295,25 @@ sealed class FoliateWebViewEngineAdapter(
 
 	private fun navigateTo(
 		locator: ReaderLocator,
-		relocationReason: String?
+		relocationReason: String?,
+		causalSequence: Long?
 	): ReaderEngineStep {
 		val bridgeCommand = relocationReason
 			?.trim()
 			?.takeIf { it.isNotEmpty() }
-			?.let { reason -> ReaderBridgeCommand.GoToLocator(locator, reason) }
+			?.let { reason -> ReaderBridgeCommand.GoToLocator(locator, reason, causalSequence) }
 			?: when {
-			!locator.cfi.isNullOrBlank() -> ReaderBridgeCommand.GoToCfi(locator.cfi)
+			!locator.cfi.isNullOrBlank() -> ReaderBridgeCommand.GoToCfi(locator.cfi, causalSequence)
 			!locator.href.isNullOrBlank() && locator.chapterProgress != null ->
 				ReaderBridgeCommand.GoToChapterProgress(
 					href = locator.href,
 					progress = locator.chapterProgress,
 					chapterPageIndex = locator.chapterPageIndex,
-					chapterPageCount = locator.chapterPageCount
+					chapterPageCount = locator.chapterPageCount,
+					causalSequence = causalSequence
 				)
-			!locator.href.isNullOrBlank() -> ReaderBridgeCommand.GoToHref(locator.href)
-			locator.progress != null -> ReaderBridgeCommand.GoToProgress(locator.progress)
+			!locator.href.isNullOrBlank() -> ReaderBridgeCommand.GoToHref(locator.href, causalSequence)
+			locator.progress != null -> ReaderBridgeCommand.GoToProgress(locator.progress, causalSequence)
 			else -> null
 		}
 		return bridgeCommand?.let(::dispatch) ?: ReaderEngineStep(
@@ -306,16 +322,24 @@ sealed class FoliateWebViewEngineAdapter(
 		)
 	}
 
-	private fun turnPage(direction: ReaderPageTurnDirection): ReaderEngineStep =
-		dispatch(
-			when (direction) {
-				ReaderPageTurnDirection.Previous -> ReaderBridgeCommand.PreviousPage
-				ReaderPageTurnDirection.Next -> ReaderBridgeCommand.NextPage
-			}
-		)
+	private fun turnPage(
+		direction: ReaderPageTurnDirection,
+		causalSequence: Long?
+	): ReaderEngineStep = dispatch(
+		when (direction) {
+			ReaderPageTurnDirection.Previous -> causalSequence
+				?.let(ReaderBridgeCommand::CausalPreviousPage)
+				?: ReaderBridgeCommand.PreviousPage
+			ReaderPageTurnDirection.Next -> causalSequence
+				?.let(ReaderBridgeCommand::CausalNextPage)
+				?: ReaderBridgeCommand.NextPage
+		}
+	)
 
-	private fun scrollViewport(direction: ReaderViewportScrollDirection): ReaderEngineStep =
-		dispatch(ReaderBridgeCommand.ScrollViewport(direction))
+	private fun scrollViewport(
+		direction: ReaderViewportScrollDirection,
+		causalSequence: Long?
+	): ReaderEngineStep = dispatch(ReaderBridgeCommand.ScrollViewport(direction, causalSequence))
 
 	private fun retainRawTextProvenance(
 		descriptor: ReaderRawTextProvenanceDescriptor

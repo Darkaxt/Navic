@@ -26,6 +26,16 @@ val ReaderPublicationFormat.readerEngineCapabilities: Set<ReaderEngineCapability
 fun ReaderPublicationFormat.supportsReaderEngineCapability(capability: ReaderEngineCapability): Boolean =
 	capability in readerEngineCapabilities
 
+data class ReaderDestinationCommitIdentity(
+	val foliateSessionId: String,
+	val commitSequence: Long
+) {
+	init {
+		require(foliateSessionId.isNotBlank())
+		require(commitSequence > 0L)
+	}
+}
+
 data class ReaderPublicationIdentity(
 	val bookId: String,
 	val title: String = "",
@@ -52,11 +62,15 @@ sealed interface ReaderEngineCommand {
 	data class OpenPublication(val request: ReaderEngineOpenRequest) : ReaderEngineCommand
 	data class NavigateTo(
 		val locator: ReaderLocator,
-		val relocationReason: String? = null
+		val relocationReason: String? = null,
+		val causalSequence: Long? = null
 	) : ReaderEngineCommand
 	data class Search(val query: String) : ReaderEngineCommand
 	data object ClearSearch : ReaderEngineCommand
-	data class TurnPage(val direction: ReaderPageTurnDirection) : ReaderEngineCommand
+	data class TurnPage(
+		val direction: ReaderPageTurnDirection,
+		val causalSequence: Long? = null
+	) : ReaderEngineCommand
 	data class PreviewPageDrag(
 		val deltaX: Double,
 		val deltaY: Double = 0.0,
@@ -64,13 +78,17 @@ sealed interface ReaderEngineCommand {
 		val viewHeight: Double? = null,
 		val phase: ReaderPageDragPreviewPhase = ReaderPageDragPreviewPhase.Update
 	) : ReaderEngineCommand
-	data class ScrollViewport(val direction: ReaderViewportScrollDirection) : ReaderEngineCommand
+	data class ScrollViewport(
+		val direction: ReaderViewportScrollDirection,
+		val causalSequence: Long? = null
+	) : ReaderEngineCommand
 	data class ContentLongPressAt(
 		val x: Double,
 		val y: Double,
 		val viewWidth: Double? = null,
 		val viewHeight: Double? = null,
-		val selectText: Boolean = true
+		val selectText: Boolean = true,
+		val causalSequence: Long? = null
 	) : ReaderEngineCommand
 	data class ApplySettings(val settings: ReaderSettings) : ReaderEngineCommand
 	data class ApplyAnnotations(val annotations: List<ReaderAnnotation>) : ReaderEngineCommand
@@ -132,7 +150,9 @@ sealed interface ReaderEngineEvent {
 		val pageTurnSettleToken: String? = null,
 		val pageTurnSettleSessionId: String? = null,
 		val pageTurnSettleRasterGeneration: Long? = null,
-		val pageTurnSettleTextureGeneration: Long? = null
+		val pageTurnSettleTextureGeneration: Long? = null,
+		val causalSequence: Long? = null,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	) : ReaderEngineEvent {
 		init {
 			require(foliateSessionId.isNotBlank())
@@ -222,7 +242,9 @@ sealed interface ReaderEngineEvent {
 		val rawProvenanceId: String? = null,
 		val rawSpineIndex: Int? = null,
 		val rawByteStart: Int? = null,
-		val rawByteEnd: Int? = null
+		val rawByteEnd: Int? = null,
+		val causalSequence: Long? = null,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	) : ReaderEngineEvent
 	data class TextPoint(
 		val textHref: String,
@@ -230,7 +252,9 @@ sealed interface ReaderEngineEvent {
 		val rangeCfi: String? = null,
 		val source: String? = null,
 		val rawProvenanceId: String? = null,
-		val rawByteOffset: Int? = null
+		val rawByteOffset: Int? = null,
+		val causalSequence: Long? = null,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	) : ReaderEngineEvent
 	data class RawTextProvenanceStatusChanged(
 		val provenanceId: String,

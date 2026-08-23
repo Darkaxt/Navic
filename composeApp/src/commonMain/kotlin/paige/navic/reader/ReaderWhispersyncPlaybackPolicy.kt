@@ -22,7 +22,8 @@ data class ReaderWhispersyncPlaybackControlState(
 fun readerWhispersyncPlaybackControlState(
 	status: ReaderWhispersyncStatus,
 	playbackState: ReaderReadaloudPlaybackUiState?,
-	hasConfirmedVisibleCue: Boolean
+	hasPreparedVisibleTarget: Boolean,
+	transportPhase: ReaderWhispersyncTransportPhase? = null
 ): ReaderWhispersyncPlaybackControlState {
 	if (playbackState?.isPlaying == true) {
 		return ReaderWhispersyncPlaybackControlState(
@@ -58,9 +59,12 @@ fun readerWhispersyncPlaybackControlState(
 			enabled = false,
 			contentDescription = ReaderWhispersyncPlaybackControlDescription.Loading
 		)
-	val command = availablePlayback.whispersyncHeadsetCommand(hasConfirmedVisibleCue)
+	val command = availablePlayback.whispersyncHeadsetCommand(
+		hasPreparedVisibleTarget = hasPreparedVisibleTarget,
+		canStart = transportPhase != ReaderWhispersyncTransportPhase.BoundaryPaused
+	)
 	val crossed = !availablePlayback.isPlaying || !availablePlayback.syncEnabled
-	val noAudioCueOnPage = !availablePlayback.isPlaying && !hasConfirmedVisibleCue
+	val noAudioCueOnPage = !availablePlayback.isPlaying && !hasPreparedVisibleTarget
 	return ReaderWhispersyncPlaybackControlState(
 		visible = true,
 		loading = false,
@@ -91,19 +95,22 @@ fun readerWhispersyncPlaybackControlPresentation(
 
 fun readerWhispersyncTransportEnabled(
 	playbackState: ReaderReadaloudPlaybackUiState,
-	hasConfirmedVisibleCue: Boolean
+	hasPreparedVisibleTarget: Boolean
 ): Boolean =
-	playbackState.isAvailable && (playbackState.isPlaying || hasConfirmedVisibleCue)
+	playbackState.isAvailable && (playbackState.isPlaying || hasPreparedVisibleTarget)
 
 private fun ReaderReadaloudPlaybackUiState.whispersyncHeadsetCommand(
-	hasConfirmedVisibleCue: Boolean
+	hasPreparedVisibleTarget: Boolean,
+	canStart: Boolean
 ): ReaderReadaloudPlaybackCommand? =
-	if (!readerWhispersyncTransportEnabled(this, hasConfirmedVisibleCue)) {
+	if (!readerWhispersyncTransportEnabled(this, hasPreparedVisibleTarget)) {
 		null
 	} else if (isPlaying) {
 		ReaderReadaloudPlaybackCommand.StopAndReset
-	} else {
+	} else if (canStart) {
 		ReaderReadaloudPlaybackCommand.Play
+	} else {
+		null
 	}
 
 fun readerWhispersyncPlaybackCommandForSeekTarget(

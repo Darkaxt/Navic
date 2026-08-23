@@ -103,9 +103,9 @@ class ReaderOverlaySyncContractTest {
 			)
 		fun readerTarget(): ReaderOverlayReaderTarget<*>? =
 			adapter.readerTarget(
-				ReaderBridgeEvent.LocationChanged(
-					foliateSessionId = "session-a",
-					locator = ReaderLocator(href = "EPUB/Text/chapter2.xhtml#frag-2")
+				ReaderReadaloudReaderInteraction.UserNavigation(
+					textHref = "EPUB/Text/chapter2.xhtml#frag-2",
+					causalSequence = 1L
 				)
 			)
 

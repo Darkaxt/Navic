@@ -103,6 +103,11 @@ data class ReaderWordSyncPlaybackCoordinator(
 	): ReaderWordSyncDecision {
 		val cueCommand = controllerStep.engineCommands.singleOrNull().asCueOverlayCommand()
 		val clearsOverlay = controllerStep.engineCommands.singleOrNull() == ReaderEngineCommand.ClearMediaOverlay
+		val readerPreparedStart = controllerStep.controller.state.whispersync.playbackStartPending
+		val preparedPlayback = controllerStep.readerPreparedWordSyncPlayback(
+			playbackSpeed = playback?.playbackSpeed ?: lastPlayback?.playbackSpeed ?: 1f
+		)
+		val playbackForCue = playback ?: if (readerPreparedStart) preparedPlayback else lastPlayback
 		val remembered = copy(
 			lastCueCommand = when {
 				clearsOverlay -> null
@@ -119,7 +124,7 @@ data class ReaderWordSyncPlaybackCoordinator(
 		val loadDecision = remembered.requestDataForDemand(
 			controller = controllerStep.controller,
 			cueCommand = cueCommand ?: remembered.lastCueCommand,
-			playback = playback ?: remembered.lastPlayback
+			playback = playbackForCue
 		)
 		val coordinatorWithDemand = loadDecision.coordinator
 		if (cueCommand == null) {
@@ -137,7 +142,7 @@ data class ReaderWordSyncPlaybackCoordinator(
 		val candidate = coordinatorWithDemand.rawCandidate(
 			controller = controllerStep.controller,
 			cueFragment = cueFragment,
-			playback = playback ?: coordinatorWithDemand.lastPlayback,
+			playback = playbackForCue,
 			rawPoint = rawPoint,
 			readerEvent = readerEvent
 		)
@@ -150,13 +155,13 @@ data class ReaderWordSyncPlaybackCoordinator(
 			)
 		}
 
-		val boundarySequence = (playback ?: coordinatorWithDemand.lastPlayback)
+		val boundarySequence = playbackForCue
 			?.let(coordinatorWithDemand::boundariesForPlayback)
 			?.singleOrNull { boundary -> boundary.word === candidate.word }
 			?.sequence
 		val rawFragment = candidate.toOverlayFragment(
 			cueFragment = cueFragment,
-			playback = playback ?: coordinatorWithDemand.lastPlayback,
+			playback = playbackForCue,
 			boundarySequence = boundarySequence
 		)
 		val rawCommand = when (cueCommand) {
@@ -589,6 +594,21 @@ private data class ReaderWordSyncCandidate(
 			rawProgressFraction = progress
 		)
 	}
+}
+
+private fun ReaderControllerStep.readerPreparedWordSyncPlayback(
+	playbackSpeed: Float
+): ReaderWordSyncPlaybackIdentity? {
+	val whispersync = controller.state.whispersync
+	if (!whispersync.playbackStartPending) return null
+	val target = whispersync.pendingAudioSeek?.target ?: return null
+	val trackIndex = target.audioTrackIndex ?: target.segment.audioTrackIndex ?: return null
+	return ReaderWordSyncPlaybackIdentity(
+		audioResourceId = target.audioResource,
+		audioTrackIndex = trackIndex,
+		positionMs = target.positionMs,
+		playbackSpeed = playbackSpeed
+	)
 }
 
 private fun ReaderControllerStep.withExactWordSyncSeek(

@@ -320,7 +320,8 @@ sealed interface ReaderBridgeCommand {
 
 	data class GoToLocator(
 		val locator: ReaderLocator,
-		val reason: String
+		val reason: String,
+		val causalSequence: Long? = null
 	) : ReaderBridgeCommand {
 		init {
 			require(reason.isNotBlank())
@@ -333,36 +334,49 @@ sealed interface ReaderBridgeCommand {
 				put("type", type)
 				put("locator", locator.toJsonObject())
 				put("reason", reason)
+				causalSequence?.let { put("causalSequence", it) }
 			}
 	}
 
-	data class GoToCfi(val cfi: String) : ReaderBridgeCommand {
+	data class GoToCfi(
+		val cfi: String,
+		val causalSequence: Long? = null
+	) : ReaderBridgeCommand {
 		override val type: String = "goToCfi"
 
 		override fun toJsonObject(): JsonObject =
 			buildJsonObject {
 				put("type", type)
 				put("cfi", cfi)
+				causalSequence?.let { put("causalSequence", it) }
 			}
 	}
 
-	data class GoToHref(val href: String) : ReaderBridgeCommand {
+	data class GoToHref(
+		val href: String,
+		val causalSequence: Long? = null
+	) : ReaderBridgeCommand {
 		override val type: String = "goToHref"
 
 		override fun toJsonObject(): JsonObject =
 			buildJsonObject {
 				put("type", type)
 				put("href", href)
+				causalSequence?.let { put("causalSequence", it) }
 			}
 	}
 
-	data class GoToProgress(val progress: Double) : ReaderBridgeCommand {
+	data class GoToProgress(
+		val progress: Double,
+		val causalSequence: Long? = null
+	) : ReaderBridgeCommand {
 		override val type: String = "goToProgress"
 
 		override fun toJsonObject(): JsonObject =
 			buildJsonObject {
 				put("type", type)
 				put("progress", normalizedProgress)
+				causalSequence?.let { put("causalSequence", it) }
 			}
 
 		private val normalizedProgress: Double
@@ -373,7 +387,8 @@ sealed interface ReaderBridgeCommand {
 		val href: String,
 		val progress: Double,
 		val chapterPageIndex: Int? = null,
-		val chapterPageCount: Int? = null
+		val chapterPageCount: Int? = null,
+		val causalSequence: Long? = null
 	) : ReaderBridgeCommand {
 		override val type: String = "goToChapterProgress"
 
@@ -384,6 +399,7 @@ sealed interface ReaderBridgeCommand {
 				put("progress", normalizedProgress)
 				normalizedChapterPageIndex?.let { put("chapterPageIndex", it) }
 				normalizedChapterPageCount?.let { put("chapterPageCount", it) }
+				causalSequence?.let { put("causalSequence", it) }
 			}
 
 		private val normalizedProgress: Double
@@ -400,8 +416,16 @@ sealed interface ReaderBridgeCommand {
 		override val type: String = "nextPage"
 
 		override fun toJsonObject(): JsonObject =
+			buildJsonObject { put("type", type) }
+	}
+
+	data class CausalNextPage(val causalSequence: Long) : ReaderBridgeCommand {
+		override val type: String = "nextPage"
+
+		override fun toJsonObject(): JsonObject =
 			buildJsonObject {
 				put("type", type)
+				put("causalSequence", causalSequence)
 			}
 	}
 
@@ -409,8 +433,16 @@ sealed interface ReaderBridgeCommand {
 		override val type: String = "previousPage"
 
 		override fun toJsonObject(): JsonObject =
+			buildJsonObject { put("type", type) }
+	}
+
+	data class CausalPreviousPage(val causalSequence: Long) : ReaderBridgeCommand {
+		override val type: String = "previousPage"
+
+		override fun toJsonObject(): JsonObject =
 			buildJsonObject {
 				put("type", type)
+				put("causalSequence", causalSequence)
 			}
 	}
 
@@ -441,7 +473,10 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
-	data class ScrollViewport(val direction: ReaderViewportScrollDirection) : ReaderBridgeCommand {
+	data class ScrollViewport(
+		val direction: ReaderViewportScrollDirection,
+		val causalSequence: Long? = null
+	) : ReaderBridgeCommand {
 		override val type: String = "scrollViewport"
 
 		override fun toJsonObject(): JsonObject =
@@ -454,6 +489,7 @@ sealed interface ReaderBridgeCommand {
 						ReaderViewportScrollDirection.Down -> "down"
 					}
 				)
+				causalSequence?.let { put("causalSequence", it) }
 			}
 	}
 
@@ -462,7 +498,8 @@ sealed interface ReaderBridgeCommand {
 		val y: Double,
 		val viewWidth: Double? = null,
 		val viewHeight: Double? = null,
-		val selectText: Boolean = true
+		val selectText: Boolean = true,
+		val causalSequence: Long? = null
 	) : ReaderBridgeCommand {
 		override val type: String = "contentLongPressAt"
 
@@ -474,6 +511,7 @@ sealed interface ReaderBridgeCommand {
 				viewWidth?.let { put("viewWidth", it) }
 				viewHeight?.let { put("viewHeight", it) }
 				put("selectText", selectText)
+				causalSequence?.let { put("causalSequence", it) }
 			}
 	}
 
@@ -662,7 +700,9 @@ sealed interface ReaderBridgeEvent {
 		val pageTurnSettleToken: String? = null,
 		val pageTurnSettleSessionId: String? = null,
 		val pageTurnSettleRasterGeneration: Long? = null,
-		val pageTurnSettleTextureGeneration: Long? = null
+		val pageTurnSettleTextureGeneration: Long? = null,
+		val causalSequence: Long? = null,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	) : ReaderBridgeEvent {
 		init {
 			require(foliateSessionId.isNotBlank())
@@ -737,7 +777,9 @@ sealed interface ReaderBridgeEvent {
 		val rawProvenanceId: String? = null,
 		val rawSpineIndex: Int? = null,
 		val rawByteStart: Int? = null,
-		val rawByteEnd: Int? = null
+		val rawByteEnd: Int? = null,
+		val causalSequence: Long? = null,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	) : ReaderBridgeEvent
 	data class TextPoint(
 		val textHref: String,
@@ -745,7 +787,9 @@ sealed interface ReaderBridgeEvent {
 		val rangeCfi: String? = null,
 		val source: String? = null,
 		val rawProvenanceId: String? = null,
-		val rawByteOffset: Int? = null
+		val rawByteOffset: Int? = null,
+		val causalSequence: Long? = null,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	) : ReaderBridgeEvent
 	data class RawTextProvenanceStatusChanged(
 		val provenanceId: String,
@@ -1063,7 +1107,9 @@ private fun JsonObject.toLocationChanged(): ReaderBridgeEvent.LocationChanged? {
 		pageTurnSettleToken = settlementToken.takeIf { settlementIsValid },
 		pageTurnSettleSessionId = settlementSessionId.takeIf { settlementIsValid },
 		pageTurnSettleRasterGeneration = settlementRasterGeneration.takeIf { settlementIsValid },
-		pageTurnSettleTextureGeneration = settlementTextureGeneration.takeIf { settlementIsValid }
+		pageTurnSettleTextureGeneration = settlementTextureGeneration.takeIf { settlementIsValid },
+		causalSequence = causalSequence(),
+		destinationCommitIdentity = destinationCommitIdentity(foliateSessionId)
 	)
 }
 
@@ -1089,7 +1135,9 @@ private fun JsonObject.toVisibleTextRange(): ReaderBridgeEvent.VisibleTextRange?
 		rawProvenanceId = rawProvenanceId,
 		rawSpineIndex = rawSpineIndex,
 		rawByteStart = rawByteStart,
-		rawByteEnd = rawByteEnd
+		rawByteEnd = rawByteEnd,
+		causalSequence = causalSequence(),
+		destinationCommitIdentity = destinationCommitIdentity()
 	)
 }
 
@@ -1107,7 +1155,9 @@ private fun JsonObject.toTextPoint(): ReaderBridgeEvent.TextPoint? {
 		rangeCfi = stringValue("rangeCfi"),
 		source = stringValue("source") ?: stringValue("reason"),
 		rawProvenanceId = rawProvenanceId,
-		rawByteOffset = rawByteOffset
+		rawByteOffset = rawByteOffset,
+		causalSequence = causalSequence(),
+		destinationCommitIdentity = destinationCommitIdentity()
 	)
 }
 
@@ -1144,6 +1194,21 @@ private fun String.toRawTextProvenanceReason(): RawTextProvenanceReason? = when 
 	"token-sequence-mismatch" -> RawTextProvenanceReason.TokenSequenceMismatch
 	"document-changed" -> RawTextProvenanceReason.DocumentChanged
 	else -> null
+}
+
+private fun JsonObject.causalSequence(): Long? =
+	longValue("causalSequence")?.takeIf { it > 0L }
+
+private fun JsonObject.destinationCommitIdentity(
+	fallbackFoliateSessionId: String? = null
+): ReaderDestinationCommitIdentity? {
+	val foliateSessionId = stringValue("destinationFoliateSessionId")
+		?: fallbackFoliateSessionId
+		?: return null
+	val commitSequence = longValue("destinationCommitSequence")
+		?.takeIf { it > 0L }
+		?: return null
+	return ReaderDestinationCommitIdentity(foliateSessionId, commitSequence)
 }
 
 private fun JsonObject.toContentActionClaim(): ReaderContentActionClaim {

@@ -291,7 +291,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(),
 			playbackState = null,
-			hasConfirmedVisibleCue = false
+			hasPreparedVisibleTarget = false
 		)
 
 		assertFalse(control.visible)
@@ -310,7 +310,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isPlaying = false,
 				syncEnabled = false
 			),
-			hasConfirmedVisibleCue = true
+			hasPreparedVisibleTarget = true
 		)
 
 		assertTrue(control.visible)
@@ -333,7 +333,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isPlaying = false,
 				syncEnabled = false
 			),
-			hasConfirmedVisibleCue = false
+			hasPreparedVisibleTarget = false
 		)
 
 		assertTrue(control.visible)
@@ -362,7 +362,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isPlaying = false,
 				syncEnabled = true
 			),
-			hasConfirmedVisibleCue = false
+			hasPreparedVisibleTarget = false
 		)
 
 		assertTrue(control.visible)
@@ -385,7 +385,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isPlaying = true,
 				syncEnabled = true
 			),
-			hasConfirmedVisibleCue = false
+			hasPreparedVisibleTarget = false
 		)
 
 		assertTrue(control.visible)
@@ -408,7 +408,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isPlaying = true,
 				syncEnabled = true
 			),
-			hasConfirmedVisibleCue = false
+			hasPreparedVisibleTarget = false
 		)
 
 		assertTrue(control.visible)
@@ -430,7 +430,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isPlaying = false,
 				syncEnabled = false
 			),
-			hasConfirmedVisibleCue = true
+			hasPreparedVisibleTarget = true
 		)
 
 		assertTrue(control.visible)
@@ -449,7 +449,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isPlaying = true,
 				syncEnabled = true
 			),
-			hasConfirmedVisibleCue = false
+			hasPreparedVisibleTarget = false
 		)
 
 		assertTrue(control.visible)
@@ -468,7 +468,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 				isPlaying = true,
 				syncEnabled = true
 			),
-			hasConfirmedVisibleCue = false
+			hasPreparedVisibleTarget = false
 		)
 
 		val presented = readerWhispersyncPlaybackControlPresentation(

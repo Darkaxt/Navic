@@ -58,6 +58,16 @@ internal object ReaderProgressReducer {
 		val sessionChanged = state.foliateSessionId != event.foliateSessionId
 		val nextSettlementAck = event.pageTurnSettlementAck()
 			?: state.pageTurnSettlementAck.takeUnless { sessionChanged }
+		val currentDestination = state.destinationCommitIdentity.takeUnless { sessionChanged }
+		val eventDestination = event.destinationCommitIdentity?.takeIf {
+			it.foliateSessionId == event.foliateSessionId
+		}
+		val nextDestination = when {
+			eventDestination == null -> currentDestination
+			currentDestination == null -> eventDestination
+			eventDestination.commitSequence >= currentDestination.commitSequence -> eventDestination
+			else -> currentDestination
+		}
 		return ReaderProgressReduction(
 			state = state.copy(
 				chrome = nextChrome,
@@ -65,6 +75,7 @@ internal object ReaderProgressReducer {
 				readingProgress = nextReadingProgress,
 				foliateSessionId = event.foliateSessionId,
 				pageTurnSettlementAck = nextSettlementAck,
+				destinationCommitIdentity = nextDestination,
 				activeMediaOverlayAnchorReceipt =
 					state.activeMediaOverlayAnchorReceipt.takeUnless { sessionChanged },
 				nativeShellCoverReturnLocatorKey = nextNativeShellCoverReturnLocatorKey,

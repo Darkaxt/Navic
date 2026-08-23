@@ -52,10 +52,10 @@ import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderProcessStateViewModel
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
+import paige.navic.reader.ReaderReadaloudReaderInteraction
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderViewerAction
-import paige.navic.reader.ReaderWhispersyncStatusKind
 import paige.navic.reader.ReaderWhispersyncStatusMessage
 import paige.navic.reader.ReaderWordSyncBoundaryCancellation
 import paige.navic.reader.ReaderWordSyncBoundaryDispatch
@@ -189,10 +189,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 			)
 		)
 	}
-	var lastReaderEngineHostEvent by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
-		mutableStateOf<ReaderEngineHostEvent?>(null)
+	var lastReadaloudReaderInteraction by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		mutableStateOf<ReaderReadaloudReaderInteraction?>(null)
 	}
-	var readerEngineHostEventKey by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+	var readaloudReaderInteractionKey by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
 		mutableStateOf(0L)
 	}
 	var readaloudCommand by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
@@ -280,13 +280,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 			}
 		)
-		step.readaloudPlaybackCommand?.let { command ->
-			Logger.i(
-				WhispersyncSyncLogTag,
-				"Whispersync playback command source=controller " +
-					"command=${command.whispersyncPlaybackCommandLogValue()}"
-			)
-			audiobookPlaybackManager.dispatch(command)
+		step.readaloudReaderInteraction?.let { interaction ->
+			lastReadaloudReaderInteraction = interaction
+			readaloudReaderInteractionKey += 1L
 		}
 		step.whispersyncAudioSeekTarget?.let { target ->
 			val command = readerWhispersyncPlaybackCommandForSeekTarget(
@@ -307,6 +303,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 						"command=none reason=no-playback-plan-match"
 				)
 			}
+		}
+		step.readaloudPlaybackCommand?.let { command ->
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync playback command source=controller " +
+					"command=${command.whispersyncPlaybackCommandLogValue()}"
+			)
+			audiobookPlaybackManager.dispatch(command)
 		}
 		step.wordSyncEffects.forEach { effect ->
 			when (effect) {
@@ -488,10 +492,6 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 
 	fun handleEngineHostEvent(event: ReaderEngineHostEvent) {
-		if (event is ReaderEngineHostEvent.FoliateBridge) {
-			lastReaderEngineHostEvent = event
-			readerEngineHostEventKey += 1L
-		}
 		applyCoordinatorStep(coordinator.onEngineHostEvent(event))
 	}
 
@@ -719,8 +719,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 	ReaderReadaloudRuntimeHost(
 		reader = reader,
 		readaloudSyncEnabled = readaloudSyncEnabled,
-		readerHostEvent = lastReaderEngineHostEvent,
-		readerHostEventKey = readerEngineHostEventKey,
+		readerInteraction = lastReadaloudReaderInteraction,
+		readerInteractionKey = readaloudReaderInteractionKey,
 		onPublicationReady = { publicationUrl ->
 			openReaderPublication(
 				reader.toReaderEngineOpenRequest(
@@ -803,28 +803,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 			applyCoordinatorStep(step)
 		},
 		onWhispersyncPlaybackCommand = { command ->
-			val activationPending = coordinator.controller.state.whispersync.status.kind ==
-				ReaderWhispersyncStatusKind.SeekingAudio
-			val hasConfirmedVisibleCue = coordinator.controller.state.activeMediaOverlay != null
-			val playBlocked = command == ReaderReadaloudPlaybackCommand.Play &&
-				(
-					coordinator.controller.state.shellCoverVisible ||
-					activationPending ||
-					!hasConfirmedVisibleCue
-				)
-			if (playBlocked) {
-				Logger.w(
-					WhispersyncSyncLogTag,
-					"Whispersync playback command ignored command=Play reason=overlay-unconfirmed"
-				)
-			} else {
-				Logger.i(
-					WhispersyncSyncLogTag,
-					"Whispersync playback command state=dispatch matched=true active=true " +
-						"command=${command.whispersyncPlaybackCommandLogValue()}"
-				)
-				audiobookPlaybackManager.dispatch(command)
-			}
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync playback command state=controller-owned active=true " +
+					"command=${command.whispersyncPlaybackCommandLogValue()}"
+			)
+			applyCoordinatorStep(
+				coordinator.dispatch { onWhispersyncPlaybackCommand(command) }
+			)
 		},
 		onPreviousChapter = {
 			applyCoordinatorStep(coordinator.dispatch { navigateToPreviousChapter() })
