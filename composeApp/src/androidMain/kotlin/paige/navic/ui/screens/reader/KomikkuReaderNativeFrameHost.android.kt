@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -46,6 +47,7 @@ import androidx.lifecycle.findViewTreeLifecycleOwner
 import karacken.curl.PageChange
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.delay
+import java.util.UUID
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
@@ -95,6 +97,20 @@ private const val KomikkuReaderNativeFrameHostTag = "KomikkuReaderNativeFrameHos
 private const val PageTurnPrewarmRequiredStableFrames = 2
 private const val AndroidGestureDoubleTapMinTimeMillis = 40L
 private val ReaderPageDiagnosticSessionIds = AtomicLong()
+
+internal class ReaderPassiveRasterRendererLossFence {
+	private var currentIdentity: Any? = null
+
+	fun replace(identity: Any) {
+		currentIdentity = identity
+	}
+
+	fun isCurrent(identity: Any): Boolean = currentIdentity === identity
+
+	fun clear() {
+		currentIdentity = null
+	}
+}
 
 internal data class ReaderNativePresentationLayerVisibility(
 	val shellCover: Boolean,
@@ -1055,6 +1071,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		qaFaultRegistry = qaFaultRegistry,
 		onOwnershipMutated = applicationOwnershipEpoch::ownerMutationCommitted
 	)
+	private var passiveRasterPreparationGeometry: ReaderPassiveRasterGeometry? = null
+	private var passiveRasterPreparationAdapter: ReaderPassiveRasterPreparationAdapter? = null
+	private val passiveRasterRendererLossFence = ReaderPassiveRasterRendererLossFence()
+	private var passiveRasterCaptureEpoch = 0L
 	private val foregroundWebViewOwnership = ReaderForegroundWebViewOwnership(
 		onPassiveMutationReleased = ::onForegroundWebViewPassiveMutationReleased,
 		onPassiveAvailable = ::onForegroundWebViewPassiveAvailable
@@ -1221,11 +1241,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		bundleSource = pageTurnBundleSource,
 		diagnostics = readerRuntimeDiagnostics,
 		qaFaultRegistry = qaFaultRegistry,
+		passiveRasterPreparationPortProvider = { passiveRasterPreparationAdapter },
 		fenceCallbacks = {
 			ReaderPageQaFaultControl.detach(qaFaultRegistration)
 			qaFaultRegistry.closeAndDrain()
 		},
 		closeRendererAndAdapter = {
+			closePassiveRasterPreparationAdapter()
 			playLikeCurlController.destroyAndJoin()
 		},
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
@@ -1820,7 +1842,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun resumeDestinationDeckPrewarmIfReady() {
 		if (!destinationDeckPrewarmPending) return
 		if (preparedActiveDeck == null) return
-		if (!foregroundWebViewOwnership.canAcquirePassive()) return
 		destinationDeckPrewarmPending = false
 		requestPageTurnPrewarmWhenReady()
 	}
@@ -1837,17 +1858,75 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			!foregroundWebViewOwnership.canAcquirePassive()
 		) return
 		pageRasterPreparationController.onForegroundWebViewPassiveAvailable()
+	}
+
+	private fun replacePassiveRasterPreparationAdapter(webView: WebView) {
+		if (webView.width <= 0 || webView.height <= 0) return
+		val geometry = ReaderPassiveRasterGeometry(
+			viewportWidth = webView.width,
+			viewportHeight = webView.height,
+			captureLeft = 0,
+			captureTop = 0,
+			captureRight = webView.width,
+			captureBottom = webView.height
+		)
 		if (
-			task4ResourceTeardownStarted ||
-			!foregroundWebViewOwnership.canAcquirePassive()
+			passiveRasterPreparationGeometry == geometry &&
+			passiveRasterPreparationAdapter?.isRetired == false
 		) return
-		resumeDestinationDeckPrewarmIfReady()
+		closePassiveRasterPreparationAdapter()
+		val activity = context as? Activity ?: return
+		passiveRasterCaptureEpoch = if (passiveRasterCaptureEpoch == Long.MAX_VALUE) {
+			0L
+		} else {
+			passiveRasterCaptureEpoch + 1L
+		}
+		val runtimeIdentity = Any()
+		val runtime = ReaderPassiveRasterWebViewHost(
+			activity = activity,
+			passiveSessionId = UUID.randomUUID().toString(),
+			viewportGeometry = geometry,
+			onRendererGone = {
+				post {
+					if (!passiveRasterRendererLossFence.isCurrent(runtimeIdentity)) {
+						return@post
+					}
+					closePassiveRasterPreparationAdapter()
+					requestPageTurnPrewarmWhenReady()
+				}
+			}
+		)
+		val session = ReaderPassiveRasterPrototypeSession(
+			runtime = runtime,
+			releaseRaster = { bitmap: Bitmap ->
+				bitmap.takeUnless { it.isRecycled }?.recycle()
+			}
+		)
+		passiveRasterPreparationAdapter = ReaderPassiveRasterPreparationAdapter(
+			session = session,
+			liveManifestPort = ReaderPageLivePassiveRasterManifestPort {
+				viewerContentContainer.findDescendantWebView()
+			},
+			bundleSource = pageTurnBundleSource,
+			initialCaptureEpoch = passiveRasterCaptureEpoch
+		)
+		passiveRasterRendererLossFence.replace(runtimeIdentity)
+		passiveRasterPreparationGeometry = geometry
+		if (observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) {
+			passiveRasterPreparationAdapter?.pause()
+		}
+	}
+
+	private fun closePassiveRasterPreparationAdapter() {
+		passiveRasterRendererLossFence.clear()
+		passiveRasterPreparationAdapter?.close()
+		passiveRasterPreparationAdapter = null
+		passiveRasterPreparationGeometry = null
 	}
 
 	private fun requestPageTurnPrewarmWhenReady() {
 		if (
 			task4ResourceTeardownStarted ||
-			!foregroundWebViewOwnership.canAcquirePassive() ||
 			!pageTurnCanvasEnabled ||
 			!isAttachedToWindow
 		) return
@@ -1864,7 +1943,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		val listener = ViewTreeObserver.OnPreDrawListener {
 			if (
 				task4ResourceTeardownStarted ||
-				!foregroundWebViewOwnership.canAcquirePassive() ||
 				!pageTurnCanvasEnabled ||
 				!isAttachedToWindow
 			) {
@@ -1902,6 +1980,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			}
 			if (pageTurnPrewarmStableFrameCount == PageTurnPrewarmRequiredStableFrames) {
 				playLikeCurlController.onHostContentReady()
+			}
+			replacePassiveRasterPreparationAdapter(webView)
+			if (passiveRasterPreparationAdapter?.isAvailable != true) {
+				postInvalidateOnAnimation()
+				return@OnPreDrawListener true
 			}
 			if (profileEpoch == null) {
 				postInvalidateOnAnimation()
@@ -1947,22 +2030,26 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private val hostLifecycleObserver = object : DefaultLifecycleObserver {
 		override fun onResume(owner: LifecycleOwner) {
+			passiveRasterPreparationAdapter?.resume()
 			pageRasterHostEventController.lifecycleResumedChanged(true)
 			playLikeCurlController.onHostResumedChanged(true)
 			requestPageTurnPrewarmWhenReady()
 		}
 
 		override fun onPause(owner: LifecycleOwner) {
+			passiveRasterPreparationAdapter?.pause()
 			pageRasterHostEventController.lifecycleResumedChanged(false)
 			playLikeCurlController.onHostResumedChanged(false)
 		}
 
 		override fun onStop(owner: LifecycleOwner) {
+			passiveRasterPreparationAdapter?.pause()
 			pageRasterHostEventController.lifecycleResumedChanged(false)
 			playLikeCurlController.onHostResumedChanged(false)
 		}
 
 		override fun onDestroy(owner: LifecycleOwner) {
+			closePassiveRasterPreparationAdapter()
 			pageRasterHostEventController.lifecycleResumedChanged(false)
 			playLikeCurlController.onHostResumedChanged(false)
 			beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.Destroyed)
@@ -2870,6 +2957,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
 		super.onSizeChanged(w, h, oldw, oldh)
 		if (oldw <= 0 || oldh <= 0 || (w == oldw && h == oldh)) return
+		closePassiveRasterPreparationAdapter()
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.ViewportChanged
 		)
@@ -2884,11 +2972,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		if (visibility == VISIBLE) {
 			val resumed =
 				observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
+			if (resumed) passiveRasterPreparationAdapter?.resume()
 			pageRasterHostEventController.lifecycleResumedChanged(resumed)
 			playLikeCurlController.onHostResumedChanged(resumed)
 			requestPageTurnPrewarmWhenReady()
 			return
 		}
+		passiveRasterPreparationAdapter?.pause()
 		pageRasterHostEventController.lifecycleResumedChanged(false)
 		playLikeCurlController.onHostResumedChanged(false)
 		dispatchPageHostLifecycleEvent(
@@ -2900,6 +2990,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	override fun onDetachedFromWindow() {
+		closePassiveRasterPreparationAdapter()
 		pageRasterHostEventController.webViewAttachmentChanged(false)
 		pageRasterHostEventController.lifecycleResumedChanged(false)
 		playLikeCurlController.onHostResumedChanged(false)

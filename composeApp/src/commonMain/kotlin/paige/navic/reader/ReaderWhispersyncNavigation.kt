@@ -63,3 +63,37 @@ internal fun ReaderWhispersyncSessionState.audioSeekTargetForActiveOverlay(
 		segment = segment
 	)
 }
+
+internal fun ReaderControllerStep.withWhispersyncUserNavigation(
+	pauseCommand: ReaderReadaloudPlaybackCommand?
+): ReaderControllerStep {
+	if (engineCommands.isEmpty()) return this
+	val reservedController = ReaderWhispersyncReducer.reserveUserNavigation(
+		controller = controller,
+		requiresPageTurnSettlement = false
+	)
+	val causalSequence = reservedController.pendingWhispersyncCausalSequence()
+	return copy(
+		controller = reservedController,
+		engineCommands = engineCommands.map { it.withCausalSequence(causalSequence) },
+		readaloudPlaybackCommand = readaloudPlaybackCommand ?: pauseCommand
+	)
+}
+
+internal fun ReaderController.pendingWhispersyncCausalSequence(): Long? =
+	state.whispersync.pendingCausalIntent?.sequence
+
+private fun ReaderEngineCommand.withCausalSequence(causalSequence: Long?): ReaderEngineCommand =
+	when (this) {
+		is ReaderEngineCommand.NavigateTo -> copy(causalSequence = causalSequence)
+		is ReaderEngineCommand.TurnPage -> copy(causalSequence = causalSequence)
+		is ReaderEngineCommand.ScrollViewport -> copy(causalSequence = causalSequence)
+		else -> this
+	}
+
+internal fun ReaderWhispersyncSessionState.navigationPauseCommand(): ReaderReadaloudPlaybackCommand? =
+	ReaderReadaloudPlaybackCommand.Pause.takeIf {
+		playbackIntent == ReaderWhispersyncPlaybackIntent.Enabled &&
+			!userPaused &&
+			transportPhase != ReaderWhispersyncTransportPhase.BoundaryPaused
+	}

@@ -156,6 +156,7 @@ import {
   flattenTocItems,
   tocLabel
 } from './navic-reader-helpers.js'
+import { readerRealizedRasterObservation } from './navic-reader-render-profile.js'
 import { readerPageLocatorForVisualIndex } from './navic-reader-page-turn-model.js'
 import { readerGoToExactVisualPage } from './navic-reader-page-turn-preview.js'
 import {
@@ -432,13 +433,10 @@ function pageTurnLivePresentationReceiptTarget(target) {
 }
 
 function pageTurnLivePresentationTargetCanonicalCommit(target) {
-  if (
-    !target ||
-    !readerForegroundMutationGenerationIsCurrent(
-      this,
-      target.foregroundMutationGeneration
-    )
-  ) return null
+  if (!target || !readerForegroundMutationGenerationIsCurrent(
+    this,
+    target?.foregroundMutationGeneration
+  )) return null
   const canonicalCommit = readerTextPageCommitIdentity(target)
   if (!canonicalCommit) return null
   const pagePosition = this.currentPagePosition
@@ -466,6 +464,131 @@ function pageTurnLivePresentationTargetCanonicalCommit(target) {
     target.foregroundMutationGeneration,
     target.paginationProfile
   ) ? canonicalCommit : null
+}
+
+function pageTurnPassiveRasterDescriptor(visualPageOrdinal) {
+  const ordinal = Math.floor(Number(visualPageOrdinal))
+  if (!Number.isSafeInteger(ordinal) || ordinal < 0) return null
+  const locator = readerPageLocatorForVisualIndex(this.paginationProfile, ordinal)
+  const captureGeometry = this.pageTurnCaptureGeometry()
+  const render = this.paginationProfile?.render || null
+  const settings = this.readerSettings || {}
+  if (!locator || !captureGeometry || !this.publicationUrl || !this.paginationFingerprint) {
+    return null
+  }
+  const viewportWidth = Math.max(1, Math.round(Number(captureGeometry.viewportWidth) || 1))
+  const viewportHeight = Math.max(1, Math.round(Number(captureGeometry.viewportHeight) || 1))
+  const realizedTarget = {
+    publicationUrl: String(this.publicationUrl),
+    spineIndex: locator.spineIndex,
+    href: locator.href,
+    chapterPageIndex: locator.chapterPageIndex,
+    chapterPageCount: locator.chapterPageCount,
+    visualPageOrdinal: locator.pageIndex,
+    render,
+    readerSettings: settings,
+    layoutMode: captureGeometry.mode,
+    layoutPages: captureGeometry.pages,
+    viewportWidth,
+    viewportHeight,
+  }
+  const realized = readerRealizedRasterObservation(
+    this.view,
+    realizedTarget,
+    document,
+  )
+  if (!realized) return null
+  const descriptor = Object.freeze({
+    publicationUrl: realizedTarget.publicationUrl,
+    paginationFingerprint: realized.paginationFingerprint,
+    layoutFingerprint: realized.layoutFingerprint,
+    decorationFingerprint: realized.decorationFingerprint,
+    rasterProfileKey: realized.rasterProfileKey,
+    viewportWidth,
+    viewportHeight,
+    pageCount: Math.max(1, Math.floor(Number(this.currentPagePosition?.pageCount) || 1)),
+    spineIndex: locator.spineIndex,
+    href: locator.href,
+    chapterPageIndex: locator.chapterPageIndex,
+    chapterPageCount: locator.chapterPageCount,
+    visualPageOrdinal: locator.pageIndex,
+  })
+  return descriptor.visualPageOrdinal === ordinal ? descriptor : null
+}
+
+function pageTurnPassiveRasterManifestInputs(
+  visualPageOrdinal,
+  captureEpoch,
+  rasterGeneration
+) {
+  const target = this.pageTurnLivePresentationTargetValue
+  const canonicalCommit = pageTurnLivePresentationTargetCanonicalCommit.call(
+    this,
+    target
+  )
+  const ordinal = Math.floor(Number(visualPageOrdinal))
+  const epoch = Math.floor(Number(captureEpoch))
+  const generation = Math.floor(Number(rasterGeneration))
+  if (
+    !canonicalCommit ||
+    !Number.isSafeInteger(ordinal) ||
+    ordinal < 0 ||
+    !Number.isSafeInteger(epoch) ||
+    epoch < 0 ||
+    !Number.isSafeInteger(generation) ||
+    generation < 0 ||
+    !Number.isSafeInteger(this.publicationSessionGeneration) ||
+    this.publicationSessionGeneration <= 0
+  ) return null
+  const descriptor = pageTurnPassiveRasterDescriptor.call(this, ordinal)
+  const captureGeometry = this.pageTurnCaptureGeometry()
+  if (!descriptor || !captureGeometry) return null
+  const viewportWidth = Math.max(1, Math.round(Number(descriptor.viewportWidth) || 1))
+  const viewportHeight = Math.max(1, Math.round(Number(descriptor.viewportHeight) || 1))
+  const deviceScaleFactor = Math.max(1, Number(window.devicePixelRatio) || 1)
+  const physicalViewportWidth = Math.max(1, Math.round(viewportWidth * deviceScaleFactor))
+  const physicalViewportHeight = Math.max(1, Math.round(viewportHeight * deviceScaleFactor))
+  const rasterProfileKey = descriptor.rasterProfileKey
+  const opaqueCaptureTarget = JSON.stringify({
+    publicationUrl: descriptor.publicationUrl,
+    spineIndex: descriptor.spineIndex,
+    href: descriptor.href,
+    chapterPageIndex: descriptor.chapterPageIndex,
+    chapterPageCount: descriptor.chapterPageCount,
+    visualPageOrdinal: descriptor.visualPageOrdinal,
+    rasterProfileKey,
+    paginationFingerprint: descriptor.paginationFingerprint,
+    layoutFingerprint: descriptor.layoutFingerprint,
+    decorationFingerprint: descriptor.decorationFingerprint,
+    render: this.paginationProfile?.render || null,
+    readerSettings: this.readerSettings || {},
+    layoutMode: captureGeometry?.mode || 'single',
+    layoutPages: captureGeometry?.pages || [],
+    viewportWidth,
+    viewportHeight,
+  })
+  return Object.freeze({
+    captureEpoch: epoch,
+    liveFoliateSessionId: target.foliateSessionId,
+    publicationSessionGeneration: this.publicationSessionGeneration,
+    destinationCommitToken: target.token,
+    opaqueCaptureTarget,
+    visualPageOrdinal: ordinal,
+    rasterDescriptor: descriptor,
+    rasterProfileKey,
+    paginationFingerprint: descriptor.paginationFingerprint,
+    layoutFingerprint: descriptor.layoutFingerprint,
+    decorationFingerprint: descriptor.decorationFingerprint,
+    viewportAndCaptureGeometry: Object.freeze({
+      viewportWidth: physicalViewportWidth,
+      viewportHeight: physicalViewportHeight,
+      captureLeft: 0,
+      captureTop: 0,
+      captureRight: physicalViewportWidth,
+      captureBottom: physicalViewportHeight,
+    }),
+    rasterGeneration: generation,
+  })
 }
 
 function pageTurnLivePresentationTargetMatchesCurrent(target) {
@@ -3379,6 +3502,8 @@ export const NavicReaderPageTurnMethods = {
   clearPageTurnLivePresentationTarget,
   replacePageTurnLivePresentationTarget,
   pageTurnLivePresentationReceiptTarget,
+  pageTurnPassiveRasterDescriptor,
+  pageTurnPassiveRasterManifestInputs,
   pageTurnLivePresentationTargetMatchesCurrent,
   issuePageTurnLivePresentationReceipt,
   restorePageTurnLivePresentationReceipt,

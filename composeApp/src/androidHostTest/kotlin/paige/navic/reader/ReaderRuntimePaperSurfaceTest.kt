@@ -587,9 +587,11 @@ class ReaderRuntimePaperSurfaceTest {
 		val paragraphSpacingCss = bridgeText
 			.substringAfter("const readerParagraphSpacingCss = settings =>")
 			.substringBefore("\n\nconst isThemeBackgroundMediaElement")
-		val applyDocumentTheme = bridgeText
-			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
-			.substringBefore("\nfunction currentRendererContainerPosition")
+		val applyDocumentTheme = readerAssetRoot()
+			.resolve("navic-reader-render-profile.js")
+			.readText()
+			.substringAfter("export const applyReaderContentDocumentRenderProfile")
+			.substringBefore("\n\nconst roundedRect")
 
 		assertContains(paragraphSpacing, "const spacing = readerParagraphSpacingEm(settings)")
 		assertContains(paragraphSpacing, "doc?.querySelectorAll?.('p,[data-navic-paragraph-block=\"true\"]')")
@@ -1128,9 +1130,11 @@ class ReaderRuntimePaperSurfaceTest {
 		val documentThemeCss = bridgeText
 			.substringAfter("const readerDocumentThemeCss = settings =>")
 			.substringBefore("const readerContentCss = settings =>")
-		val applyDocumentTheme = bridgeText
-			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
-			.substringBefore("\nfunction currentRendererContainerPosition")
+		val applyDocumentTheme = readerAssetRoot()
+			.resolve("navic-reader-render-profile.js")
+			.readText()
+			.substringAfter("export const applyReaderContentDocumentRenderProfile")
+			.substringBefore("\n\nconst roundedRect")
 		val surfaceTextureUpdater = bridgeText
 			.substringAfter("updateSurfacePaperTexture(detail = {}, pagePosition = null) {")
 			.substringBefore("\n  applyReaderDirection")

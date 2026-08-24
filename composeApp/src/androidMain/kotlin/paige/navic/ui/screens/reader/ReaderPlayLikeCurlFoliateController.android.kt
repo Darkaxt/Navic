@@ -580,6 +580,64 @@ internal class ReaderPageRelocationLiveDispatchCoordinator(
 	}
 }
 
+internal class ReaderConfirmedDecklessPassiveAuthority {
+	private data class Confirmation(
+		val foliateSessionId: String,
+		val visualPageOrdinal: Int,
+		val rasterGeneration: Long,
+		val liveTargetToken: String,
+		val foregroundMutationGeneration: Long
+	)
+
+	private var confirmation: Confirmation? = null
+
+	fun confirm(
+		foliateSessionId: String,
+		visualPageOrdinal: Int,
+		rasterGeneration: Long,
+		liveTargetToken: String,
+		foregroundMutationGeneration: Long
+	) {
+		require(foliateSessionId.isNotBlank())
+		require(visualPageOrdinal >= 0)
+		require(rasterGeneration in 0L..ReaderPageTurnPresentationMaximumSafeInteger)
+		require(liveTargetToken.isNotBlank())
+		require(
+			foregroundMutationGeneration in
+				1L..ReaderPageTurnPresentationMaximumSafeInteger
+		)
+		confirmation = Confirmation(
+			foliateSessionId = foliateSessionId,
+			visualPageOrdinal = visualPageOrdinal,
+			rasterGeneration = rasterGeneration,
+			liveTargetToken = liveTargetToken,
+			foregroundMutationGeneration = foregroundMutationGeneration
+		)
+	}
+
+	fun isCurrent(
+		foliateSessionId: String,
+		visualPageOrdinal: Int,
+		rasterGeneration: Long,
+		attached: Boolean,
+		foregroundMutationIsCurrent: (Long) -> Boolean
+	): Boolean {
+		val retained = confirmation ?: return false
+		return attached &&
+			retained.foliateSessionId == foliateSessionId &&
+			retained.visualPageOrdinal == visualPageOrdinal &&
+			retained.rasterGeneration == rasterGeneration &&
+			retained.liveTargetToken.isNotBlank() &&
+			foregroundMutationIsCurrent(
+				retained.foregroundMutationGeneration
+			)
+	}
+
+	fun clear() {
+		confirmation = null
+	}
+}
+
 /**
  * Production bridge between Foliate's passive raster cache and the imported PlayLikeCurl surface.
  * Foliate remains the pagination authority; this controller owns only immutable raster leases,
@@ -652,6 +710,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private class InitialLivePresentationAuthorityRequest(
 		val generationId: Long,
+		val requiredDeckGenerationId: Long?,
 		val pageIndex: Int,
 		val foliateSessionId: String,
 		val rasterGeneration: Long,
@@ -900,6 +959,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var pendingDeckOrdinal: Int? = null
 	private var initialLivePresentationAuthority:
 		InitialLivePresentationAuthorityRequest? = null
+	private val confirmedDecklessPassiveAuthority =
+		ReaderConfirmedDecklessPassiveAuthority()
 	private var latestWhispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt? = null
 	private var latestWhispersyncPresentationProof: ReaderWhispersyncNativePresentationProof? = null
 	private var whispersyncHighlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb
@@ -1670,6 +1731,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun onHostContentReady() {
 		if (!enabled || destroyed) return
 		logActivationState("host-content-ready")
+		requestInitialLivePresentationAuthorityForPassivePreparation()
 		refreshPreparedDeck()
 		dispatchNextRelocation()
 		retryRelocationVisualHandoffAttached()
@@ -1677,6 +1739,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun onWebViewAttachmentChanged(webViewAttached: Boolean) {
 		if (!webViewAttached) {
+			confirmedDecklessPassiveAuthority.clear()
 			releaseInitialLivePresentationAuthority()
 				return
 		}
@@ -1997,6 +2060,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		require(sessionId.isNotBlank())
 		val previous = currentFoliateSessionId
 		if (previous == sessionId) return
+		confirmedDecklessPassiveAuthority.clear()
 		releaseInitialLivePresentationAuthority()
 		if (previous != null) {
 			whispersyncOverlayClearPending = true
@@ -2214,6 +2278,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		relocationRejectionReason: ReaderPageRelocationDiagnosticRejectionReason =
 			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated
 	) {
+		confirmedDecklessPassiveAuthority.clear()
 		releaseInitialLivePresentationAuthority()
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
@@ -2269,6 +2334,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val destroyFence = ReaderPageControllerDestroyFence(
 		scope = teardownScope,
 		fenceAdmission = {
+			confirmedDecklessPassiveAuthority.clear()
 			releaseInitialLivePresentationAuthority()
 				destroyed = true
 			enabled = false
@@ -5314,43 +5380,89 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (enabled) onRequestPrewarm()
 	}
 
+	private fun confirmedDecklessPassiveAuthorityIsCurrent(): Boolean {
+		val sessionId = currentFoliateSessionId
+		val current = sessionId != null &&
+			confirmedDecklessPassiveAuthority.isCurrent(
+				foliateSessionId = sessionId,
+				visualPageOrdinal = currentOrdinal,
+				rasterGeneration = bundleSource.currentGeneration(),
+				attached = attached && webViewProvider()?.isAttachedToWindow == true,
+				foregroundMutationIsCurrent =
+					foregroundWebViewOwnership::isMutationGenerationCurrent
+			)
+		if (!current) confirmedDecklessPassiveAuthority.clear()
+		return current
+	}
+
+	private fun requestInitialLivePresentationAuthorityForPassivePreparation() {
+		if (
+			activeDeckGenerationId == null &&
+			!confirmedDecklessPassiveAuthorityIsCurrent()
+		) {
+			val rasterGeneration = bundleSource.currentGeneration()
+			val lifecycleGeneration = rasterGeneration.coerceAtLeast(1L)
+			requestInitialLivePresentationAuthority(
+				generationId = lifecycleGeneration,
+				requiredDeckGenerationId = null
+			)
+		}
+	}
+
 	private fun requestInitialLivePresentationAuthorityForActiveDeck() {
 		val generationId = activeDeckGenerationId ?: return
 		if (generationId !in preparedDeckGenerations) return
 		requestInitialLivePresentationAuthority(generationId)
 	}
 
-	private fun requestInitialLivePresentationAuthority(generationId: Long) {
-		val activeDeckIsCurrent = generationId == activeDeckGenerationId
-		val pages = generationOwners[generationId] ?: return
+	private fun requestInitialLivePresentationAuthority(
+		generationId: Long,
+		requiredDeckGenerationId: Long? = generationId
+	) {
+		val pages = requiredDeckGenerationId?.let { requiredGeneration ->
+			generationOwners[requiredGeneration] ?: return
+		}
 		val sessionId = currentFoliateSessionId ?: return
-		val profile = pages.profile
+		val profile = pages?.profile
+		val rasterGeneration = profile?.rasterGeneration ?: bundleSource.currentGeneration()
+		val activeDeckIsCurrent =
+			requiredDeckGenerationId == null || generationId == activeDeckGenerationId
+		val requiredDeckIsCurrent = activeDeckIsCurrent && (
+			requiredDeckGenerationId == null || (
+				activePages === pages &&
+				requiredDeckGenerationId in preparedDeckGenerations
+			)
+		)
 		if (
-			!activeDeckIsCurrent ||
+			!requiredDeckIsCurrent ||
 			destroyed ||
 			!enabled ||
 			!attached ||
-			activePages !== pages ||
-			generationId !in preparedDeckGenerations ||
 			generationId !in 1L..ReaderPageTurnPresentationMaximumSafeInteger ||
-			profile.rasterGeneration !in 0L..ReaderPageTurnPresentationMaximumSafeInteger ||
-			profile.rasterGeneration != bundleSource.currentGeneration() ||
-			currentOrdinal !in 0 until profile.pageCount ||
+			rasterGeneration !in 0L..ReaderPageTurnPresentationMaximumSafeInteger ||
+			rasterGeneration != bundleSource.currentGeneration() ||
+			currentOrdinal < 0 ||
+			(profile != null && currentOrdinal !in 0 until profile.pageCount) ||
 			relocationQueue.occupiedCount() != 0 ||
 			relocationQueue.hasInFlightHead()
 		) {
 			return
 		}
-		if (initialLivePresentationAuthority?.generationId == generationId) return
+		val currentRequest = initialLivePresentationAuthority
+		if (
+			currentRequest?.generationId == generationId &&
+			currentRequest.requiredDeckGenerationId == requiredDeckGenerationId
+		) return
 		releaseInitialLivePresentationAuthority()
 		val claim = runCatching {
 			foregroundWebViewOwnership.acquireExclusiveLive(generationId)
 		}.getOrNull() ?: return
 		val request = InitialLivePresentationAuthorityRequest(
 			generationId = generationId,
+			requiredDeckGenerationId = requiredDeckGenerationId,
 			pageIndex = currentOrdinal,
 			foliateSessionId = sessionId,
-			rasterGeneration = profile.rasterGeneration,
+			rasterGeneration = rasterGeneration,
 			claim = claim
 		)
 		initialLivePresentationAuthority = request
@@ -5417,16 +5529,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun initialLivePresentationAuthorityIsCurrent(
 		request: InitialLivePresentationAuthorityRequest
 	): Boolean {
-		val pages = generationOwners[request.generationId] ?: return false
+		val pages = request.requiredDeckGenerationId?.let { requiredGeneration ->
+			generationOwners[requiredGeneration] ?: return false
+		}
+		val requiredDeckIsCurrent = request.requiredDeckGenerationId == null || (
+			activeDeckGenerationId == request.requiredDeckGenerationId &&
+			activePages === pages &&
+			request.requiredDeckGenerationId in preparedDeckGenerations
+		)
 		return !destroyed &&
 			enabled &&
 			attached &&
-			activeDeckGenerationId == request.generationId &&
-			activePages === pages &&
-			request.generationId in preparedDeckGenerations &&
+			requiredDeckIsCurrent &&
 			currentFoliateSessionId == request.foliateSessionId &&
 			currentOrdinal == request.pageIndex &&
-			pages.profile.rasterGeneration == request.rasterGeneration &&
+			(pages == null || pages.profile.rasterGeneration == request.rasterGeneration) &&
 			request.rasterGeneration == bundleSource.currentGeneration() &&
 			relocationQueue.occupiedCount() == 0 &&
 			!relocationQueue.hasInFlightHead()
@@ -5476,8 +5593,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 				val confirmed = receipt?.matches(target) == true &&
 					initialLivePresentationAuthorityIsCurrent(request) &&
 					webView.isAttachedToWindow
+				if (confirmed && request.requiredDeckGenerationId == null) {
+					confirmedDecklessPassiveAuthority.confirm(
+						foliateSessionId = target.foliateSessionId,
+						visualPageOrdinal = request.pageIndex,
+						rasterGeneration = target.rasterGeneration,
+						liveTargetToken = target.token,
+						foregroundMutationGeneration =
+							target.foregroundMutationGeneration
+					)
+				}
 				releaseInitialLivePresentationAuthority(request)
-				if (confirmed) publishLatestWhispersyncOverlayIfIdle()
+				if (confirmed) {
+					publishLatestWhispersyncOverlayIfIdle()
+					if (request.requiredDeckGenerationId == null) onRequestPrewarm()
+				}
 			}
 		} catch (_: Throwable) {
 			releaseInitialLivePresentationAuthority(request)

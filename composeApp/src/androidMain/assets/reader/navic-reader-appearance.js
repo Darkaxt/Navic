@@ -7,10 +7,6 @@ import {
   KomikkuNavigationRegionNext,
   KomikkuNavigationRegionPrevious,
   KomikkuNavigationRegionRight,
-  ReaderDirectionDefault,
-  ReaderDirectionLtr,
-  ReaderDirectionRtl,
-  ReaderDocumentThemeStyleId,
   ReaderFlowPaged,
   ReaderFlowPagedVertical,
   ReaderFlowScrolled,
@@ -47,7 +43,6 @@ import {
   readerFlowMode,
   readerFoliateFlow,
   readerFontSource,
-  readerThemeKey,
   readerThemePalette
 } from './navic-reader-settings.js'
 import {
@@ -120,10 +115,6 @@ import {
   readerPageNumberBlendMode,
   readerFontFaceCss,
   readerParagraphSpacingEm,
-  normalizeReaderLineFragmentParagraphs,
-  applyReaderParagraphSpacing,
-  normalizeReaderInlineTypography,
-  readerNormalizeChapterOpeningMargins,
   ensureReaderMovingPageBorderOverlayLayer,
   ensureReaderMovingPageStainOverlayLayer,
   ensureReaderMovingPageTextureLayer,
@@ -160,7 +151,6 @@ import {
   readerPaginationPositionForLocator,
   readerTypographyCss,
   readerParagraphSpacingCss,
-  isThemeBackgroundMediaElement,
   readerDocumentThemeCss,
   readerContentCss,
   komikkuTapAction,
@@ -170,6 +160,12 @@ import {
   flattenTocItems,
   tocLabel
 } from './navic-reader-helpers.js'
+import {
+  applyReaderContentDocumentRenderProfile,
+  applyReaderDocumentRenderDirection,
+  applyReaderPublicationRenderDirection,
+  waitForReaderRasterAssets,
+} from './navic-reader-render-profile.js'
 import {
   readerPhysicalPageSide,
 } from './navic-reader-page-turn-model.js'
@@ -306,58 +302,8 @@ function applyRendererTheme(settings = this.readerSettings) {
   }
 }
 
-function applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {
-  if (!doc?.documentElement) return
-  const palette = readerThemePalette(settings?.theme)
-  const root = doc.documentElement
-  const body = doc.body
-  const styleHost = doc.head || root
-  normalizeReaderLineFragmentParagraphs(doc, settings)
-  applyReaderParagraphSpacing(doc, settings)
-  root.dataset.navicReaderTheme = readerThemeKey(settings?.theme)
-  delete root.dataset.navicPaperTextureKey
-  delete root.dataset.navicPaperTextureAsset
-  let themeStyle = doc.getElementById(ReaderDocumentThemeStyleId)
-  if (!themeStyle) {
-    themeStyle = doc.createElement('style')
-    themeStyle.id = ReaderDocumentThemeStyleId
-    styleHost.append(themeStyle)
-  }
-  themeStyle.textContent = readerContentCss(settings)
-  normalizeReaderInlineTypography(doc, settings)
-  readerNormalizeChapterOpeningMargins(doc, settings)
-  for (const element of [root, body].filter(Boolean)) {
-    setStylesImportant(element, {
-      '--reader-background': palette.background,
-      '--reader-foreground': palette.foreground,
-      '--reader-accent': palette.accent,
-      '--theme-bg-color': palette.background,
-      '--reader-paragraph-spacing': readerParagraphSpacingEm(settings),
-      background: palette.background,
-      'background-color': palette.background,
-      'background-image': 'none',
-      color: palette.foreground,
-    })
-  }
-  for (const element of doc.querySelectorAll('[style*="background"], [bgcolor]')) {
-    if (!element || element === root || element === body || isThemeBackgroundMediaElement(element)) continue
-    if (element.hasAttribute('bgcolor')) {
-      if (element.dataset.navicOriginalBgcolor === undefined) {
-        element.dataset.navicOriginalBgcolor = element.getAttribute('bgcolor') || ''
-      }
-      element.removeAttribute('bgcolor')
-    }
-    setStylesImportant(element, {
-      background: 'transparent',
-      'background-color': 'transparent',
-      'background-image': 'none',
-    })
-  }
-  for (const element of doc.querySelectorAll('canvas, svg')) {
-    setStylesImportant(element, {
-      'background-color': 'transparent',
-    })
-  }
+function applyDocumentTheme(doc, settings = this.readerSettings, _index = undefined) {
+  applyReaderContentDocumentRenderProfile(doc, settings)
 }
 
 function currentRendererContainerPosition() {
@@ -567,7 +513,10 @@ function renderSurfacePaperTextureLayers() {
     borderOverlaySlots.length === 0 &&
     stainOverlaySlots.length === 0 &&
     spreadGutterOverlaySlots.length === 0
-  ) return
+  ) {
+    void waitForReaderRasterAssets(document)
+    return
+  }
   const scrollOffset = this.surfacePaperTextureScrollOffset()
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
   const viewport = readerViewportSize()
@@ -669,6 +618,7 @@ function renderSurfacePaperTextureLayers() {
     this.movingPageSpreadGutterOverlayLayer?.remove?.()
     this.movingPageSpreadGutterOverlayLayer = null
   }
+  void waitForReaderRasterAssets(document)
 }
 
 function surfacePaperTextureIndex(detail = {}) {
@@ -869,36 +819,15 @@ function updateSurfacePaperTexture(detail = {}, pagePosition = null, reason = ''
 }
 
 function applyReaderDirection(direction, rerender = true) {
-  const normalized = direction === ReaderDirectionLtr || direction === ReaderDirectionRtl
-    ? direction
-    : ReaderDirectionDefault
-  if (this.view?.book) {
-    if (this.originalBookDir === null) this.originalBookDir = this.view.book.dir || ''
-    this.view.book.dir = normalized === ReaderDirectionDefault ? this.originalBookDir : normalized
-  }
+  const normalized = applyReaderPublicationRenderDirection(this.view, direction)
   for (const doc of this.contentDocuments()) {
-    this.applyDocumentDirection(doc, normalized)
+    applyReaderDocumentRenderDirection(doc, normalized)
   }
   if (rerender) this.view?.renderer?.render?.()
 }
 
 function applyDocumentDirection(doc, direction) {
-  if (!doc) return
-  for (const element of [doc.documentElement, doc.body].filter(Boolean)) {
-    if (direction === ReaderDirectionDefault) {
-      if (element.dataset.navicOriginalDir !== undefined) {
-        const original = element.dataset.navicOriginalDir
-        if (original) element.setAttribute('dir', original)
-        else element.removeAttribute('dir')
-        delete element.dataset.navicOriginalDir
-      }
-    } else {
-      if (element.dataset.navicOriginalDir === undefined) {
-        element.dataset.navicOriginalDir = element.getAttribute('dir') || ''
-      }
-      element.setAttribute('dir', direction)
-    }
-  }
+  applyReaderDocumentRenderDirection(doc, direction)
 }
 
 export const NavicReaderAppearanceMethods = {

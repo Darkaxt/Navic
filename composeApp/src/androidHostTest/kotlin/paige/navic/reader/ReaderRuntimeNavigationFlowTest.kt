@@ -417,7 +417,9 @@ class ReaderRuntimeNavigationFlowTest {
 
 		assertContains(bridgeText, "readerDirectionMode(settings)")
 		assertContains(bridgeText, "applyReaderDirection")
-		assertContains(bridgeText, "this.view.book.dir")
+		assertContains(bridgeText, "applyReaderPublicationRenderDirection(this.view, direction)")
+		assertContains(bridgeText, "view.book.dir = normalized === ReaderDirectionDefault")
+		assertContains(bridgeText, "applyReaderDocumentRenderDirection(doc, normalized)")
 		assertContains(bridgeText, "doc.documentElement")
 		assertContains(settingsDialogText, "KomikkuSettingsTab.Reading -> KomikkuReadingSettingsPage(")
 		assertContains(modePagesText, "internal fun KomikkuReadingSettingsPage(")

@@ -150,7 +150,9 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "postCurrentLocationSnapshot(reason = 'snapshot', options = {})")
 		assertContains(bridgeText, "postLocationChanged(detail, reason, options)")
 		assertContains(bridgeText, "postLocationChanged(detail, reason = 'relocate', options = {})")
-		assertContains(bridgeText, "locationKey === this.lastPostedLocationKey && !options.forceDuplicatePost")
+		assertContains(bridgeText, "locationKey === this.lastPostedLocationKey &&")
+		assertContains(bridgeText, "!options.forceDuplicatePost &&")
+		assertContains(bridgeText, "this.pendingUserNavigationCausalSequence == null")
 		assertContains(bridgeText, "message,")
 	}
 

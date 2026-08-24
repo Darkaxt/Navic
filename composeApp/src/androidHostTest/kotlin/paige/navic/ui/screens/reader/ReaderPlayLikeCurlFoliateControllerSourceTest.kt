@@ -216,7 +216,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private val pageRasterHostEventController")
 		val passiveAvailability = viewer
 			.substringAfter("private fun onForegroundWebViewPassiveAvailable()")
-			.substringBefore("private fun requestPageTurnPrewarmWhenReady()")
+			.substringBefore("\n\t}\n\n")
 		val prewarm = viewer
 			.substringAfter("private fun requestPageTurnPrewarmWhenReady()")
 			.substringBefore("private fun pageTurnPrewarmLayoutSignature")
@@ -236,29 +236,16 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"pageRasterPreparationController.onForegroundWebViewPassiveAvailable()"
 		)
 		assertEquals(
-			2,
+			1,
 			Regex("!foregroundWebViewOwnership\\.canAcquirePassive\\(\\)")
 				.findAll(passiveAvailability)
 				.count(),
-			"The callback must recheck passive ownership after consuming a typed deferral."
-		)
-		assertTrue(
-			passiveAvailability.indexOf(
-				"pageRasterPreparationController.onForegroundWebViewPassiveAvailable()"
-			) < passiveAvailability.lastIndexOf(
-				"!foregroundWebViewOwnership.canAcquirePassive()"
-			),
-			"A raster deferral may acquire a passive lease before destination deferral recovery."
-		)
-		assertTrue(
-			passiveAvailability.lastIndexOf(
-				"!foregroundWebViewOwnership.canAcquirePassive()"
-			) < passiveAvailability.indexOf("resumeDestinationDeckPrewarmIfReady()"),
-			"Destination recovery must run only while passive ownership remains available."
+			"Foreground availability may resume only the explicitly deferred repair lease."
 		)
 		assertFalse(
-			passiveAvailability.contains("requestPageTurnPrewarmWhenReady()"),
-			"Generic availability must resume only explicitly deferred work."
+			passiveAvailability.contains("resumeDestinationDeckPrewarmIfReady()") ||
+				passiveAvailability.contains("requestPageTurnPrewarmWhenReady()"),
+			"Generic foreground availability must not resume ordinary passive work."
 		)
 		assertContains(playLikeCurlWiring, "foregroundWebViewOwnership = foregroundWebViewOwnership")
 		assertContains(preparationWiring, "foregroundWebViewOwnership = foregroundWebViewOwnership")
@@ -273,24 +260,17 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"The shared owner must exist before the preparation controller."
 		)
 		assertEquals(
-			5,
+			1,
 			Regex("!foregroundWebViewOwnership\\.canAcquirePassive\\(\\)")
 				.findAll(viewer)
 				.count(),
-			"Passive availability must guard destination-deck resumption and prewarm recovery."
+			"Only transitional repair may depend on foreground passive ownership."
 		)
-		assertEquals(
-			2,
-			Regex("!foregroundWebViewOwnership\\.canAcquirePassive\\(\\)")
-				.findAll(prewarm)
-				.count(),
-			"Prewarm must gate both admission and an already-installed listener."
+		assertFalse(
+			prewarm.contains("foregroundWebViewOwnership.canAcquirePassive()"),
+			"Ordinary passive prewarm must not depend on foreground availability."
 		)
-		assertTrue(
-			prewarm.indexOf("!foregroundWebViewOwnership.canAcquirePassive()") <
-				prewarm.indexOf("pageTurnPrewarmStableFrameCount"),
-			"Stable frames must not grant foreground ownership."
-		)
+		assertContains(prewarm, "passiveRasterPreparationAdapter?.isAvailable != true")
 		assertContains(teardown, "teardown.invokeOnCompletion")
 		assertContains(teardown, "runCatching(foregroundWebViewOwnership::close)")
 		assertContains(teardown, "typedFailure.addSuppressed(ownershipCloseFailure)")
@@ -1219,6 +1199,35 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun coldContentReadyEstablishesLiveAuthorityBeforePassivePreparation() {
+		val source = controllerFile.readText()
+		val contentReady = source
+			.substringAfter("fun onHostContentReady()")
+			.substringBefore("fun onWebViewAttachmentChanged(")
+		val coldBootstrap = source
+			.substringAfter("private fun requestInitialLivePresentationAuthorityForPassivePreparation()")
+			.substringBefore("private fun requestInitialLivePresentationAuthorityForActiveDeck()")
+		val host = hostFile.readText()
+		val stablePrewarm = host
+			.substringAfter("private fun requestPageTurnPrewarmWhenReady()")
+			.substringBefore("private fun pageTurnPrewarmLayoutSignature(")
+
+		assertContains(
+			contentReady,
+			"requestInitialLivePresentationAuthorityForPassivePreparation()"
+		)
+		assertContains(coldBootstrap, "activeDeckGenerationId == null")
+		assertContains(coldBootstrap, "bundleSource.currentGeneration()")
+		assertContains(coldBootstrap, "requestInitialLivePresentationAuthority(")
+		val contentReadyRequest = stablePrewarm.indexOf("playLikeCurlController.onHostContentReady()")
+		val passiveAdapter = stablePrewarm.indexOf("replacePassiveRasterPreparationAdapter(webView)")
+		val passivePrewarm = stablePrewarm.indexOf("pageRasterPreparationController.prewarmAdjacent()")
+		assertTrue(contentReadyRequest >= 0)
+		assertTrue(passiveAdapter > contentReadyRequest)
+		assertTrue(passivePrewarm > passiveAdapter)
+	}
+
+	@Test
 	fun preparedInitialDeckEstablishesFreshLivePresentationAuthority() {
 		val source = controllerFile.readText()
 		val deckPrepared = source
@@ -1250,7 +1259,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun passiveMutationCompletionReestablishesLiveAuthorityBeforePassiveResume() {
+	fun passiveMutationCompletionReestablishesLiveAuthorityBeforeRepairResume() {
 		val host = hostFile.readText()
 		val source = controllerFile.readText()
 		val ownership = host
@@ -1261,7 +1270,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private fun onForegroundWebViewPassiveAvailable()")
 		val passiveAvailable = host
 			.substringAfter("private fun onForegroundWebViewPassiveAvailable()")
-			.substringBefore("private fun requestPageTurnPrewarmWhenReady()")
+			.substringBefore("\n\t}\n\n")
 		val controller = source
 			.substringAfter("fun onForegroundWebViewPassiveMutationReleased()")
 			.substringBefore("fun onHostResumedChanged(")
@@ -1283,11 +1292,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val rasterResume = passiveAvailable.indexOf(
 			"pageRasterPreparationController.onForegroundWebViewPassiveAvailable()"
 		)
-		val destinationResume = passiveAvailable.indexOf(
-			"resumeDestinationDeckPrewarmIfReady()"
-		)
 		assertTrue(rasterResume >= 0)
-		assertTrue(destinationResume > rasterResume)
+		assertFalse(passiveAvailable.contains("resumeDestinationDeckPrewarmIfReady()"))
 		assertFalse(passiveAvailable.contains("requestPageTurnPrewarmWhenReady()"))
 		assertFalse(host.contains("suppressNextUnconditionalPrewarmAfterAuthorityRestoration"))
 		assertFalse(source.contains("onPassiveMutationLiveAuthorityReleasing"))
@@ -1328,7 +1334,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private fun onForegroundWebViewPassiveAvailable()")
 		val passiveAvailable = host
 			.substringAfter("private fun onForegroundWebViewPassiveAvailable()")
-			.substringBefore("private fun requestPageTurnPrewarmWhenReady()")
+			.substringBefore("\n\t}\n\n")
 
 		assertContains(
 			host,
@@ -1355,10 +1361,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(callback, "resumeDestinationDeckPrewarmIfReady()")
 		assertContains(resume, "if (!destinationDeckPrewarmPending) return")
 		assertContains(resume, "if (preparedActiveDeck == null) return")
-		assertContains(resume, "if (!foregroundWebViewOwnership.canAcquirePassive()) return")
+		assertFalse(resume.contains("foregroundWebViewOwnership.canAcquirePassive()"))
 		assertContains(resume, "destinationDeckPrewarmPending = false")
 		assertContains(resume, "requestPageTurnPrewarmWhenReady()")
-		assertContains(passiveAvailable, "resumeDestinationDeckPrewarmIfReady()")
+		assertFalse(passiveAvailable.contains("resumeDestinationDeckPrewarmIfReady()"))
 	}
 
 	@Test

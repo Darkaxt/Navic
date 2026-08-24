@@ -24,6 +24,7 @@ internal fun readerBridgeText(root: File = readerAssetRoot()): String =
 		"navic-reader-identity.js",
 		"navic-reader-pagination-model.js",
 		"navic-reader-typography.js",
+		"navic-reader-render-profile.js",
 		"navic-reader-paper-surface.js",
 		"navic-reader-helpers.js",
 		"navic-reader-motion.js",

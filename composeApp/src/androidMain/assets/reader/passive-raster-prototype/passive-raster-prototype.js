@@ -9,9 +9,11 @@ const activeSession = () => {
   return session
 }
 
-export const startCapture = input => operations.start(
-  () => activeSession().commitCapture(input),
+export const startCapture = input => operations.startExclusive(
+  signal => activeSession().commitCapture(input, signal),
 )
+
+export const cancelOperation = operationId => operations.cancel(operationId)
 
 export const readOperationResult = (operationId, consume = false) =>
   operations.read(operationId, consume)
@@ -24,6 +26,7 @@ export const boundedStatus = () => Object.freeze({
 const api = Object.freeze({
   ready: true,
   startCapture,
+  cancelOperation,
   readOperationResult,
   boundedStatus,
 })

@@ -260,4 +260,105 @@ internal object ReaderOverlayReducer {
 		ReaderControllerStep(
 			controller.copy(state = controller.state.copy(externalLinkPrompt = null))
 		)
+
+	fun onBack(controller: ReaderController, includeMenu: Boolean): ReaderControllerBackStep {
+		val state = controller.state
+		val closeOverlay = when {
+			state.dialog == ReaderControllerDialog.Search -> controller.closeSearchDialog()
+			state.dialog != null -> controller.closeDialog()
+			state.selectionNoteDraft != null -> controller.dismissSelectionNote()
+			state.selectionActions.visible -> controller.dismissSelectionActions()
+			state.annotationPopup?.visible == true -> controller.dismissAnnotationPopup()
+			state.footnotePopup?.visible == true -> controller.dismissFootnotePopup()
+			state.externalLinkPrompt != null -> controller.dismissExternalLinkPrompt()
+			includeMenu && state.menuVisible -> controller.hideMenus()
+			else -> null
+		}
+		return closeOverlay?.asBackStep() ?: returnToShellCoverBeforeLeaving(controller)
+	}
+
+	fun showNativeShellCover(controller: ReaderController): ReaderControllerStep {
+		val state = controller.state
+		return ReaderControllerStep(
+			controller = controller.copy(
+				state = state.copy(
+					shellCoverVisible = true,
+					pendingShellCoverDismissal = null,
+					nativeShellCoverReturnLocatorKey = readerNativeShellCoverReturnLocatorKey(
+						state.chrome.currentLocator
+					),
+					menuVisible = false,
+					dialog = null,
+					whispersync = state.whispersync.forShellCoverPresentation(),
+					activeMediaOverlay = null,
+					activeMediaOverlayAnchorReceipt = null,
+					audioMetadataLabel = null
+				)
+			),
+			engineCommands = state.clearOverlayForShellCoverCommands(),
+			readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
+		)
+	}
+
+	private fun returnToShellCoverBeforeLeaving(
+		controller: ReaderController
+	): ReaderControllerBackStep {
+		val state = controller.state
+		if (
+			!state.shellCoverVisible &&
+			state.canReturnToShellCover &&
+			!state.nativeShellCoverUrl.isNullOrBlank()
+		) {
+			return ReaderControllerBackStep(
+				controller = controller.copy(
+					state = state.copy(
+						shellCoverVisible = true,
+						menuVisible = false,
+						dialog = null,
+						whispersync = state.whispersync.forShellCoverPresentation(),
+						activeMediaOverlay = null,
+						activeMediaOverlayAnchorReceipt = null,
+						audioMetadataLabel = null
+					)
+				),
+				engineCommands = state.clearOverlayForShellCoverCommands(),
+				handled = true,
+				readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
+			)
+		}
+		return ReaderControllerBackStep(controller = controller, handled = false)
+	}
+
+	private fun ReaderControllerStep.asBackStep(): ReaderControllerBackStep =
+		ReaderControllerBackStep(
+			controller = controller,
+			engineCommands = engineCommands,
+			handled = true,
+			readaloudPlaybackCommand = readaloudPlaybackCommand
+		)
 }
+
+private fun ReaderControllerState.shellCoverReadaloudResetCommand(): ReaderReadaloudPlaybackCommand? =
+	ReaderReadaloudPlaybackCommand.StopAndReset.takeIf { chrome.readaloudPlayback.isAvailable }
+
+private fun ReaderControllerState.clearOverlayForShellCoverCommands(): List<ReaderEngineCommand> =
+	listOfNotNull(
+		ReaderEngineCommand.ClearMediaOverlay.takeIf {
+			supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay) &&
+				(whispersync.sync.activeOverlayRequestId != null || activeMediaOverlay != null)
+		}
+	)
+
+private fun ReaderWhispersyncSessionState.forShellCoverPresentation(): ReaderWhispersyncSessionState =
+	copy(
+		sync = sync.rejectOverlay(null),
+		visibleTextRange = null,
+		pendingAudioSeek = null,
+		playbackIntent = ReaderWhispersyncPlaybackIntent.UserStopped,
+		transportPhase = ReaderWhispersyncTransportPhase.Unavailable,
+		preparedVisibleTarget = null,
+		playbackStartPending = false,
+		stopResetPending = false,
+		pendingCausalIntent = null,
+		status = readerWhispersyncReadyStatus(timeline)
+	)

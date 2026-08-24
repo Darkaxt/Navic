@@ -74,7 +74,7 @@ export * from './navic-reader-pagination-model.js'
 export * from './navic-reader-paper-surface.js'
 export * from './navic-reader-typography.js'
 
-export const readerAssetUrl = path => new URL(path, document.baseURI).href
+export const readerAssetUrl = path => new URL(path, import.meta.url).href
 export const ReaderShellCoverProgressThreshold = 0.0015
 
 export const readerTokenText = value => {

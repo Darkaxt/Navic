@@ -1,4 +1,9 @@
-import { post, stableHash } from './navic-reader-helpers.js'
+import { post, readerHrefMatches, stableHash } from './navic-reader-helpers.js'
+import {
+  readerCssColorFromArgb,
+  readerDrawMediaOverlayMarker,
+  readerDrawMediaOverlaySelection,
+} from './navic-reader-overlay-paint.js'
 import {
   ReaderWordSyncV1ExtractedUtf8Mode,
   retryReaderWordSyncOverlayFragment,
@@ -213,6 +218,62 @@ function mediaOverlayFragmentProgressAlreadyVisible(fragment) {
   return this.mediaOverlayFragmentAlreadyVisible(fragment)
 }
 
+function rememberPlayedMediaOverlayFragment(previousFragment, nextFragment) {
+  if (!this.readerMediaOverlayPersistentPlayed()) return
+  if (!previousFragment || !this.mediaOverlayFragmentHasTextRange(previousFragment)) return
+  const previousStart = Number(previousFragment.clipBeginSeconds)
+  const nextStart = Number(nextFragment?.clipBeginSeconds)
+  if (Number.isFinite(previousStart) && Number.isFinite(nextStart) && nextStart < previousStart) return
+  const previousHref = previousFragment.textHref || ''
+  const nextHref = nextFragment?.textHref || ''
+  if (previousHref && nextHref && !readerHrefMatches(previousHref, nextHref)) return
+  const key = this.mediaOverlayPlayedKeyForFragment(previousFragment)
+  this.mediaOverlayPlayedFragments.set(key, {
+    ...previousFragment,
+    textProgressEnd: previousFragment.textEnd,
+    textProgressFraction: 1,
+  })
+}
+
+function prunePlayedMediaOverlayFragments(fragment) {
+  const currentStart = Number(fragment?.clipBeginSeconds)
+  const currentHref = fragment?.textHref || ''
+  if (!Number.isFinite(currentStart) || !currentHref) return
+  for (const [key, played] of Array.from(this.mediaOverlayPlayedFragments.entries())) {
+    const playedStart = Number(played?.clipBeginSeconds)
+    const playedHref = played?.textHref || ''
+    if (Number.isFinite(playedStart) && playedStart >= currentStart && readerHrefMatches(playedHref, currentHref)) {
+      this.mediaOverlayPlayedFragments.delete(key)
+    }
+  }
+}
+
+function paintPlayedMediaOverlayFragments() {
+  for (const [key, fragment] of this.mediaOverlayPlayedFragments.entries()) {
+    this.highlightMediaOverlayTextRange({
+      ...fragment,
+      overlayKey: key,
+      suppressDiagnostic: true,
+      textProgressEnd: fragment.textEnd,
+      textProgressFraction: 1,
+    })
+  }
+}
+
+function readerMediaOverlayPersistentPlayed(settings = this.readerSettings) {
+  return settings?.whispersyncHighlightLoading === 'persistent-played-text'
+}
+
+function readerMediaOverlayHighlightColor(settings = this.readerSettings) {
+  return readerCssColorFromArgb(settings?.whispersyncHighlightColorArgb, 'rgba(246, 195, 67, 0.4)')
+}
+
+function readerMediaOverlayHighlightDraw(settings = this.readerSettings) {
+  return settings?.whispersyncHighlightStyle === 'marker'
+    ? readerDrawMediaOverlayMarker
+    : readerDrawMediaOverlaySelection
+}
+
 export const NavicReaderMediaOverlayMethods = {
   mediaOverlayFollowShouldDeferForUserRelocation,
   exactWordSyncOverlayRelocationIsUnsettled,
@@ -227,4 +288,10 @@ export const NavicReaderMediaOverlayMethods = {
   postOverlayFragmentInactive,
   mediaOverlayFragmentAlreadyVisible,
   mediaOverlayFragmentProgressAlreadyVisible,
+  rememberPlayedMediaOverlayFragment,
+  prunePlayedMediaOverlayFragments,
+  paintPlayedMediaOverlayFragments,
+  readerMediaOverlayPersistentPlayed,
+  readerMediaOverlayHighlightColor,
+  readerMediaOverlayHighlightDraw,
 }

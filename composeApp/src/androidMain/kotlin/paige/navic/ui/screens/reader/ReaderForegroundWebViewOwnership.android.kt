@@ -217,6 +217,11 @@ internal class ReaderForegroundWebViewOwnership(
 			generation.value == mutationGeneration
 	}
 
+	fun isMutationGenerationCurrent(value: Long): Boolean =
+		!closed &&
+			restorationLeaseId == null &&
+			value == mutationGeneration
+
 	fun releasePassive(lease: ReaderForegroundWebViewPassiveLease): Boolean {
 		if (closed || passiveLease != lease) return false
 		passiveLease = null

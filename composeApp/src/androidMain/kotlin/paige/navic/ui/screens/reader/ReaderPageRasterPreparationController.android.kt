@@ -207,6 +207,8 @@ internal class ReaderPageRasterPreparationController(
 		ReaderPageRasterBatchController(bundleSource, diagnostics),
 	private val rasterBackgroundBatchController: ReaderPageRasterBatchPort =
 		ReaderPageRasterBatchController(bundleSource, diagnostics),
+	private val passiveRasterPreparationPortProvider: () -> ReaderPassiveRasterPreparationPort? =
+		{ null },
 	private val rasterPlanPort: ReaderPageRasterPreparationPlanPort =
 		ReaderPageWebViewRasterPreparationPlanPort(),
 	private val currentReferencePort: ReaderPageRasterCurrentReferencePort =
@@ -378,27 +380,9 @@ internal class ReaderPageRasterPreparationController(
 		lease: ReaderForegroundWebViewPassiveLease,
 		onRestored: (ReaderPageRasterCancellationRestoration) -> Unit
 	) {
-		val prewarmLease = activePrewarmPassiveLease?.takeIf { it.lease == lease }
 		val repairLease = activeRasterRepairPassiveLease?.takeIf { it.lease == lease }
-		val backgroundLease = activeBackgroundPassiveLease?.takeIf { it.lease == lease }
 		val repairPageIndex = activeRasterRepairPageIndex
 		val repairShieldSession = activeRasterRepairShieldSession
-		val backgroundSubmission = backgroundBatchSubmission
-
-		if (prewarmLease != null) {
-			rasterCacheInitializationJobs.toList().forEach { job -> job.cancel() }
-			prewarmInProgress = false
-			prewarmRetryAttempt = null
-			activePrewarmDiagnostic?.let { diagnostic ->
-				deferredPrewarmDiagnostic = diagnostic
-			}
-			activePrewarmDiagnostic = null
-			passivePrewarmDeferral = ReaderPageRasterBatchOutcome.Deferred(
-				stage = "passive-ownership",
-				pageIndex = currentVisualPageIndex,
-				reason = "live-claim-preempted"
-			)
-		}
 		if (repairLease != null) {
 			activeRasterRepairPageIndex = null
 			if (repairPageIndex != null && rasterRepairCallbacks.containsKey(repairPageIndex)) {
@@ -406,25 +390,7 @@ internal class ReaderPageRasterPreparationController(
 				deferredRasterRepairSessionId = null
 			}
 		}
-		if (backgroundLease != null) {
-			backgroundBatchSubmission = null
-			val prefetch = durableBackgroundPrefetch
-			if (backgroundSubmission != null && prefetch != null) {
-				deferredBackgroundPrefetchStart =
-					ReaderPageRasterDeferredBackgroundPrefetchStart(
-						backgroundSubmission,
-						prefetch
-					)
-			}
-		}
-
 		val restoration = trackVisualRestoration(lease.mutationGeneration) {
-			prewarmLease?.let { active ->
-				removePreparationShield(
-					reason = "passive-preempted",
-					expectedSession = active.sessionId
-				)
-			}
 			if (
 				repairLease != null &&
 				repairShieldSession != null &&
@@ -436,29 +402,15 @@ internal class ReaderPageRasterPreparationController(
 					expectedSession = repairShieldSession
 				)
 			}
-			backgroundSubmission?.let { submission ->
-				removeBackgroundPrefetchShield(submission.sessionId)
-			}
 		}
-		val join = ReaderPageRasterCancellationJoin(
-			expectedCallbackCount = 3
-		) { result ->
+		rasterRepairBatchController.cancel { result ->
 			restoration(result)
-			if (activePrewarmPassiveLease?.lease == lease) {
-				activePrewarmPassiveLease = null
-			}
 			if (activeRasterRepairPassiveLease?.lease == lease) {
 				activeRasterRepairPassiveLease = null
 				activeRasterRepairShieldSession = null
 			}
-			if (activeBackgroundPassiveLease?.lease == lease) {
-				activeBackgroundPassiveLease = null
-			}
 			onRestored(result)
 		}
-		rasterBatchController.cancel(join.callback())
-		rasterRepairBatchController.cancel(join.callback())
-		rasterBackgroundBatchController.cancel(join.callback())
 	}
 
 	private fun trackVisualRestoration(
@@ -755,7 +707,19 @@ internal class ReaderPageRasterPreparationController(
 		deferredRetryCoordinator.onRetryEvent(event)
 
 	fun onForegroundWebViewPassiveAvailable() {
-		if (destroyed || !foregroundWebViewOwnership.canAcquirePassive()) return
+		if (destroyed) return
+		if (
+			passivePrewarmDeferral != null &&
+			passiveRasterPreparationPortProvider()?.isAvailable == true
+		) {
+			passivePrewarmDeferral = null
+			onRequestPrewarm()
+			return
+		}
+		if (deferredBackgroundPrefetchStart != null) {
+			resumeDeferredBackgroundPrefetchStart()
+		}
+		if (!foregroundWebViewOwnership.canAcquirePassive()) return
 		when {
 			passiveDeferredRasterRepairSessionId != null -> {
 				passiveDeferredRasterRepairSessionId = null
@@ -764,19 +728,12 @@ internal class ReaderPageRasterPreparationController(
 				)
 				return
 			}
-			passivePrewarmDeferral != null -> {
-				passivePrewarmDeferral = null
-				onRequestPrewarm()
-				return
-			}
 			deferredRasterRepairPageIndex != null &&
 				deferredRasterRepairSessionId == null -> {
 				deferredRasterRepairPageIndex = null
 				startNextRasterRepair()
 				return
 			}
-			deferredBackgroundPrefetchStart != null ->
-				resumeDeferredBackgroundPrefetchStart()
 		}
 		adjacentChapterPrefetchCoordinator.onPassiveAvailable()
 	}
@@ -1451,18 +1408,19 @@ internal class ReaderPageRasterPreparationController(
 			resumePrewarmAfterRasterRepairs = true
 			return true
 		}
-		val passiveAdmissionAvailable = foregroundWebViewOwnership.canAcquirePassive()
+		val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
+			?.takeIf { it.isAvailable }
 		if (!readerPageTurnCanStartPassivePrewarm(
 			destroyed = destroyed,
-			sessionEnabled = true,
-			visualCommitPending = !passiveAdmissionAvailable,
+			sessionEnabled = passiveRasterPreparationPort != null,
+			visualCommitPending = false,
 			idle = true
 		)) {
-			if (!passiveAdmissionAvailable) {
+			if (passiveRasterPreparationPort == null) {
 				passivePrewarmDeferral = ReaderPageRasterBatchOutcome.Deferred(
-					stage = "passive-ownership",
+					stage = "passive-host",
 					pageIndex = currentVisualPageIndex,
-					reason = "foreground-webview-busy"
+					reason = "passive-raster-unavailable"
 				)
 				return true
 			}
@@ -1474,18 +1432,6 @@ internal class ReaderPageRasterPreparationController(
 		if (deferPreparationForVisualRestoration()) return true
 		cancelRasterRepairs("blocking-session-started")
 		val session = ++prewarmSession
-		val passiveLease = acquirePassiveRasterLease(session) ?: run {
-			passivePrewarmDeferral = ReaderPageRasterBatchOutcome.Deferred(
-				stage = "passive-ownership",
-				pageIndex = currentVisualPageIndex,
-				reason = "foreground-webview-busy"
-			)
-			return true
-		}
-		activePrewarmPassiveLease = ReaderPageRasterPassiveLeaseSession(
-			sessionId = session,
-			lease = passiveLease
-		)
 		passivePrewarmDeferral = null
 		val resumedDiagnostic = deferredPrewarmDiagnostic
 		if (resumedDiagnostic == null) {
@@ -1872,44 +1818,26 @@ internal class ReaderPageRasterPreparationController(
 		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
 	) {
 		val generation = bundleSource.currentGeneration()
-		val leaseSession = activePrewarmPassiveLease?.takeIf { active ->
-			active.sessionId == session && isPassiveRasterLeaseCurrent(active)
-		} ?: run {
+		val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
+			?.takeIf { it.isAvailable }
+		if (passiveRasterPreparationPort == null) {
 			reference.release()
+			onComplete(
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "passive-host",
+					pageIndex = targets.firstOrNull()?.pageIndex,
+					reason = "passive-raster-unavailable:$batchLabel"
+				)
+			)
 			return
 		}
-		rasterBatchController.start(
-			webView = webView,
+		val started = passiveRasterPreparationPort.start(
 			kind = kind,
 			reference = reference,
 			targets = targets,
-			mutationGeneration = leaseSession.lease.mutationGeneration,
-			isStillCurrent = {
-				isPrewarmActive(webView, session) &&
-					activePrewarmPassiveLease == leaseSession
-			},
+			rasterGeneration = generation,
+			isStillCurrent = { isPrewarmActive(webView, session) },
 			trigger = activeAcquisitionTrigger,
-			onStagingStarted = { snapshot, onPresented ->
-				if (
-					!isPrewarmActive(webView, session) ||
-					activePrewarmPassiveLease != leaseSession
-				) {
-					onPresented(false)
-				} else {
-					reusePreparationShield(
-						snapshot = snapshot,
-						session = session,
-						batchLabel = batchLabel,
-						onPresented = { presented ->
-							onPresented(
-								presented &&
-									activePrewarmPassiveLease == leaseSession &&
-									isPassiveRasterLeaseCurrent(leaseSession)
-							)
-						}
-					)
-				}
-			},
 			onActiveTarget = { target ->
 				if (isPrewarmActive(webView, session) && generation == bundleSource.currentGeneration()) {
 					activePreparationPageNumber = target.pageIndex + 1
@@ -1944,6 +1872,15 @@ internal class ReaderPageRasterPreparationController(
 				onComplete(outcome)
 			}
 		)
+		if (!started && isPrewarmActive(webView, session)) {
+			onComplete(
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "passive-host",
+					pageIndex = targets.firstOrNull()?.pageIndex,
+					reason = "passive-raster-unavailable:$batchLabel"
+				)
+			)
+		}
 	}
 
 	private fun obtainRasterReference(
@@ -1982,17 +1919,12 @@ internal class ReaderPageRasterPreparationController(
 	private fun isPrewarmSessionActive(session: Long): Boolean =
 		prewarmInProgress &&
 			prewarmSession == session &&
-			activePrewarmPassiveLease?.sessionId == session &&
-			isPassiveRasterLeaseCurrent(activePrewarmPassiveLease) &&
 			!destroyed
 
 	private fun isPrewarmActive(webView: WebView, session: Long): Boolean =
 		isPrewarmSessionActive(session) && webView.isAttachedToWindow
 
 	private fun finishPrewarm(outcome: ReaderPageRasterBatchOutcome) {
-		val leaseSession = activePrewarmPassiveLease?.takeIf { active ->
-			active.sessionId == prewarmSession
-		}
 		val retryAttempt = prewarmRetryAttempt
 		val preparationDiagnostic = activePrewarmDiagnostic
 		prewarmRetryAttempt = null
@@ -2125,7 +2057,6 @@ internal class ReaderPageRasterPreparationController(
 		rasterInteractiveRequired = 0
 		activePreparationPageNumber = null
 		removePreparationShield(reason = "session-finished:$outcome")
-		releasePassiveRasterLease(leaseSession)
 		startNextRasterRepair()
 	}
 
@@ -2294,20 +2225,16 @@ internal class ReaderPageRasterPreparationController(
 			return
 		}
 		deferredBackgroundPrefetchStart = null
-		val passiveLease = acquirePassiveRasterLease(submission.sessionId) ?: run {
+		val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
+			?.takeIf { it.isAvailable }
+		if (passiveRasterPreparationPort == null) {
 			deferredBackgroundPrefetchStart =
 				ReaderPageRasterDeferredBackgroundPrefetchStart(submission, prefetch)
 			return
 		}
-		val leaseSession = ReaderPageRasterPassiveLeaseSession(
-			sessionId = submission.sessionId,
-			lease = passiveLease
-		)
-		activeBackgroundPassiveLease = leaseSession
 		emitPrefetchDiagnostic(submission, ReaderPagePrefetchDiagnosticState.Running)
 		val reference = retainedSnapshot(prefetch.centerPageIndex, prefetch.kind)
 		if (reference == null) {
-			releasePassiveRasterLease(leaseSession)
 			emitPrefetchDiagnostic(
 				submission,
 				ReaderPagePrefetchDiagnosticState.Failed
@@ -2326,43 +2253,20 @@ internal class ReaderPageRasterPreparationController(
 			detail = "session=${submission.sessionId} chapter=${submission.chapter.identity.chapterIndex} " +
 				"pages=${submission.targets.size} generation=${prefetch.generation}"
 		)
-		val started = rasterBackgroundBatchController.start(
-			webView = prefetch.webView,
+		val started = passiveRasterPreparationPort.start(
 			kind = prefetch.kind,
 			reference = reference,
 			targets = submission.targets,
-			mutationGeneration = passiveLease.mutationGeneration,
+			rasterGeneration = prefetch.generation,
 			isStillCurrent = {
-				activeBackgroundPassiveLease == leaseSession &&
-					isPassiveRasterLeaseCurrent(leaseSession) &&
+				backgroundBatchSubmission == submission &&
 					isBackgroundPrefetchActive(submission, prefetch)
 			},
 			trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
 			capacityPolicy = ReaderPageRasterCapacityPolicy.StopBackgroundRefill,
-			onStagingStarted = { snapshot, onPresented ->
-				if (
-					activeBackgroundPassiveLease != leaseSession ||
-					!isPassiveRasterLeaseCurrent(leaseSession) ||
-					!isBackgroundPrefetchActive(submission, prefetch)
-				) {
-					onPresented(false)
-				} else {
-					showBackgroundPrefetchShield(
-						snapshot,
-						submission
-					) { presented ->
-						onPresented(
-							presented &&
-								activeBackgroundPassiveLease == leaseSession &&
-								isPassiveRasterLeaseCurrent(leaseSession)
-						)
-					}
-				}
-			},
 			onTargetDurable = { target ->
 				if (
-					activeBackgroundPassiveLease == leaseSession &&
-					isPassiveRasterLeaseCurrent(leaseSession) &&
+					backgroundBatchSubmission == submission &&
 					isBackgroundPrefetchActive(submission, prefetch) &&
 					adjacentChapterPrefetchCoordinator.onTargetDurable(
 						submission = submission,
@@ -2374,8 +2278,7 @@ internal class ReaderPageRasterPreparationController(
 			},
 			onProgress = { completed, required ->
 				if (
-					activeBackgroundPassiveLease == leaseSession &&
-					isPassiveRasterLeaseCurrent(leaseSession) &&
+					backgroundBatchSubmission == submission &&
 					isBackgroundPrefetchActive(submission, prefetch)
 				) {
 					logLoadingEvent(
@@ -2387,16 +2290,10 @@ internal class ReaderPageRasterPreparationController(
 				}
 			},
 			onComplete = backgroundComplete@ { outcome ->
-				if (
-					backgroundBatchSubmission != submission ||
-					activeBackgroundPassiveLease != leaseSession ||
-					!isPassiveRasterLeaseCurrent(leaseSession)
-				) return@backgroundComplete
+				if (backgroundBatchSubmission != submission) return@backgroundComplete
 				backgroundBatchSubmission = null
 				val batchAccepted =
 					adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
-				removeBackgroundPrefetchShield(submission.sessionId)
-				releasePassiveRasterLease(leaseSession)
 				if (!batchAccepted) return@backgroundComplete
 				emitPrefetchDiagnostic(
 					submission,
@@ -2426,8 +2323,6 @@ internal class ReaderPageRasterPreparationController(
 		)
 		if (!started && backgroundBatchSubmission == submission) {
 			backgroundBatchSubmission = null
-			removeBackgroundPrefetchShield(submission.sessionId)
-			releasePassiveRasterLease(leaseSession)
 			emitPrefetchDiagnostic(
 				submission,
 				ReaderPagePrefetchDiagnosticState.Failed
@@ -2540,26 +2435,10 @@ internal class ReaderPageRasterPreparationController(
 		if (deferredBackgroundPrefetchStart?.submission == submission) {
 			deferredBackgroundPrefetchStart = null
 		}
-		val leaseSession = activeBackgroundPassiveLease?.takeIf { active ->
-			active.sessionId == submission.sessionId
-		}
-		val preempted = leaseSession != null &&
-			!isPassiveRasterLeaseCurrent(leaseSession)
 		val batchStarted = backgroundBatchSubmission == submission
-		if (batchStarted && !preempted) {
+		if (batchStarted) {
 			backgroundBatchSubmission = null
-			val restoration = trackVisualRestoration(
-				leaseSession?.lease?.mutationGeneration
-			) {
-				removeBackgroundPrefetchShield(submission.sessionId)
-			}
-			rasterBackgroundBatchController.cancel { result ->
-				restoration(result)
-				releasePassiveRasterLease(leaseSession)
-			}
-		} else if (!preempted) {
-			removeBackgroundPrefetchShield(submission.sessionId)
-			releasePassiveRasterLease(leaseSession)
+			passiveRasterPreparationPortProvider()?.cancel()
 		}
 		logLoadingEvent(
 			event = "background-prefetch-failed",
@@ -2599,38 +2478,18 @@ internal class ReaderPageRasterPreparationController(
 
 	private fun deferPrewarmForWebViewDetach() {
 		if (!prewarmInProgress) return
-		val session = prewarmSession
-		val leaseSession = activePrewarmPassiveLease
 		rasterCacheInitializationJobs.toList().forEach { job -> job.cancel() }
-		val restoration = trackVisualRestoration(
-				leaseSession?.lease?.mutationGeneration
-			) {
-			removePreparationShield(
-				reason = "session-detached",
-				expectedSession = session
+		finishPrewarm(
+			ReaderPageRasterBatchOutcome.Deferred(
+				stage = "batch-detached",
+				pageIndex = currentVisualPageIndex,
+				reason = "webview-detached"
 			)
-			if (!isPrewarmSessionActive(session)) return@trackVisualRestoration
-			finishPrewarm(
-				ReaderPageRasterBatchOutcome.Deferred(
-					stage = "batch-detached",
-					pageIndex = currentVisualPageIndex,
-					reason = "webview-detached"
-				)
-			)
-		}
-		rasterBatchController.cancel { result ->
-			restoration(result)
-			if (!result.canRevealContent) {
-				prewarmInProgress = false
-				releasePassiveRasterLease(leaseSession)
-			}
-		}
+		)
+		passiveRasterPreparationPortProvider()?.cancel()
 	}
 
 	private fun cancelPrewarm(reason: String) {
-		val leaseSession = activePrewarmPassiveLease
-		val preempted = leaseSession != null &&
-			!isPassiveRasterLeaseCurrent(leaseSession)
 		rasterCacheInitializationJobs.toList().forEach { job -> job.cancel() }
 		prewarmSession += 1
 		val preparationDiagnostic =
@@ -2656,26 +2515,13 @@ internal class ReaderPageRasterPreparationController(
 		rasterInteractiveRequired = 0
 		activePreparationPageNumber = null
 		passivePrewarmDeferral = null
-		if (wasInProgress && !preempted) {
-			val restoration = trackVisualRestoration(
-				leaseSession?.lease?.mutationGeneration
-			) {
-				removePreparationShield(
-					reason = "session-cancelled:$reason",
-					expectedSession = cancelledSession
-				)
-			}
-			rasterBatchController.cancel { result ->
-				restoration(result)
-				releasePassiveRasterLease(leaseSession)
-			}
-		} else if (!preempted) {
-			removePreparationShield(
-				reason = "session-cancelled:$reason",
-				expectedSession = cancelledSession
-			)
-			releasePassiveRasterLease(leaseSession)
+		if (wasInProgress) {
+			passiveRasterPreparationPortProvider()?.cancel()
 		}
+		removePreparationShield(
+			reason = "session-cancelled:$reason",
+			expectedSession = cancelledSession
+		)
 		logLoadingEvent(
 			event = "session-cancelled",
 			detail = "session=$cancelledSession reason=$reason wasInProgress=$wasInProgress " +

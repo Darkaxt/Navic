@@ -1,4 +1,5 @@
 import '../vendor/foliate-js/view.js'
+import { throwIfOperationAborted } from './bounded-operation-runtime.js'
 
 const MaximumSafeSequence = Number.MAX_SAFE_INTEGER
 const MaximumExactCommitAttempts = 4
@@ -182,6 +183,87 @@ export const createSyntheticPublication = () => {
   }
 }
 
+export const createReaderRenderParityPublication = () => {
+  let objectUrl = null
+  const href = 'render-parity.xhtml'
+  const markup = `<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body { margin: 0; padding: 0; }
+    body { background: #e8d5b0; color: #291f16; }
+    article { padding: 2rem 3rem; }
+    h1 { margin: 360px 0 1.2em; font-size: 1.6em; }
+  </style>
+</head>
+<body dir="rtl">
+  <article id="parity-prose">
+    <h1>Public render parity chapter</h1>
+    <p class="fragment">The public parity chapter jo</p>
+    <p class="fragment">ins fragmented prose without losing wo</p>
+    <p class="fragment">rds.</p>
+    <p id="inline-typography-probe" style="font: 49px 'Comic Sans MS' !important; font-size: 49px !important; font-family: 'Comic Sans MS' !important">
+      Inline publisher typography must yield to the selected reader profile.
+    </p>
+    <div>Eight short words make this leaf prose block valid.</div>
+    <section>
+      The first loose public paragraph contains invented prose with enough words and punctuation to exercise deterministic normalization safely for every test reader.
+      <br><br>
+      The second loose public paragraph contains different invented prose with enough words and punctuation to prove that separated blocks remain separate after normalization.
+      <br><br>
+    </section>
+    ${Array.from({ length: 14 }, (_, index) => `
+      <p>Public filler paragraph ${index + 1}. Deterministic content keeps real Foliate pagination stable while render transforms and decorations are compared.</p>
+    `).join('')}
+  </article>
+</body>
+</html>`
+  const section = {
+    id: 'render-parity-section',
+    href,
+    size: 8192,
+    linear: 'yes',
+    load() {
+      if (!objectUrl) {
+        objectUrl = URL.createObjectURL(new Blob([markup], { type: 'text/html' }))
+      }
+      return objectUrl
+    },
+    unload() {
+      if (!objectUrl) return
+      URL.revokeObjectURL(objectUrl)
+      objectUrl = null
+    },
+    resolveHref(value) {
+      const hash = String(value || '').split('#')[1]
+      return doc => hash ? doc.getElementById(hash) : doc.body
+    },
+  }
+  return {
+    metadata: Object.freeze({
+      language: 'ar',
+      title: 'Public realized render parity fixture',
+    }),
+    dir: 'rtl',
+    rendition: Object.freeze({ layout: 'reflowable' }),
+    sections: [section],
+    toc: [Object.freeze({ label: 'Parity chapter', href, index: 0 })],
+    resolveHref(value) {
+      const [sectionHref, hash] = String(value || '').split('#')
+      if (sectionHref !== href) throw new TypeError('Unknown render parity target')
+      return {
+        index: 0,
+        anchor: doc => hash ? doc.getElementById(hash) : doc.body,
+      }
+    },
+    isExternal() {
+      return false
+    },
+  }
+}
+
 const sessionIdentity = () => {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   const bytes = new Uint32Array(4)
@@ -218,10 +300,11 @@ const profileCss = profile => {
 
 const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve))
 
-const stableRuntimeObservation = async (session, receipt) => {
+const stableRuntimeObservation = async (session, receipt, signal) => {
   let previousKey = null
   let stableCount = 0
   for (let attempt = 0; attempt < 90; attempt += 1) {
+    throwIfOperationAborted(signal)
     if (session.view.renderer?.validateTextPageCommit(receipt) !== true) {
       throw new Error('foliate-commit-invalidated')
     }
@@ -232,6 +315,7 @@ const stableRuntimeObservation = async (session, receipt) => {
     if (observation && stableCount >= 7) return observation
     previousKey = key
     await nextFrame()
+    throwIfOperationAborted(signal)
   }
   throw new Error('foliate-observation-not-stable')
 }
@@ -273,19 +357,23 @@ export class SyntheticRasterFoliateSessionCore {
     return profile
   }
 
-  async commitOpaqueTarget(opaqueCaptureTarget, profileKey) {
+  async commitOpaqueTarget(opaqueCaptureTarget, profileKey, signal = null) {
+    throwIfOperationAborted(signal)
     const profile = await this.applyProfile(profileKey)
+    throwIfOperationAborted(signal)
     const resolvedTarget = targetDefinitions.byOpaqueTarget.get(
       requiredString(opaqueCaptureTarget, 'opaqueCaptureTarget'),
     )
     if (!resolvedTarget) throw new TypeError('Unknown synthetic capture target')
     const renderer = this.view.renderer
     for (let attempt = 0; attempt < MaximumExactCommitAttempts; attempt += 1) {
+      throwIfOperationAborted(signal)
       const result = await renderer.commitTextPage(
         resolvedTarget.sectionIndex,
         resolvedTarget.pageIndex,
         'navigation',
       )
+      throwIfOperationAborted(signal)
       if (result?.status === 'invalidated') continue
       if (result?.status !== 'committed' ||
           renderer.validateTextPageCommit(result.receipt) !== true) {
@@ -294,7 +382,7 @@ export class SyntheticRasterFoliateSessionCore {
       this.activeTarget = resolvedTarget
       let observation
       try {
-        observation = await stableRuntimeObservation(this, result.receipt)
+        observation = await stableRuntimeObservation(this, result.receipt, signal)
       } catch (failure) {
         if (failure?.message === 'foliate-commit-invalidated') continue
         throw failure

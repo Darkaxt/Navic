@@ -209,11 +209,14 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 	@Test
 	fun progressiveWhispersyncHighlightConsumesListeningModeOverlaySettings() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val overlayMethods = sourceFile(
+			"composeApp/src/androidMain/assets/reader/navic-reader-media-overlay.js"
+		).readText()
 
-		assertContains(runtime, "readerMediaOverlayHighlightColor(settings = this.readerSettings)")
-		assertContains(runtime, "readerMediaOverlayHighlightDraw(settings = this.readerSettings)")
-		assertContains(runtime, "readerMediaOverlayPersistentPlayed(settings = this.readerSettings)")
-		assertContains(runtime, "readerDrawMediaOverlayMarker")
+		assertContains(overlayMethods, "readerMediaOverlayHighlightColor(settings = this.readerSettings)")
+		assertContains(overlayMethods, "readerMediaOverlayHighlightDraw(settings = this.readerSettings)")
+		assertContains(overlayMethods, "readerMediaOverlayPersistentPlayed(settings = this.readerSettings)")
+		assertContains(overlayMethods, "readerDrawMediaOverlayMarker")
 
 		val activePainter = runtime
 			.substringAfter("paintActiveMediaOverlayFragment(fragment) {")

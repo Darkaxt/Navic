@@ -168,6 +168,55 @@ can expose the foreground preview, advance foreground mutation, or promote
 passive proof is a blocker. Repair routing, failed-generation Retry, and final
 removal of the transitional shared path may defer only to Stage 4.
 
+### Stage 3 execution ledger
+
+- **Validated:** Cold startup establishes one serialized deckless current-live
+  presentation authority before passive preparation. The confirmation is fenced by
+  Foliate session, visual ordinal, raster generation, attachment, and foreground
+  mutation identity, so asynchronous prewarm re-entry cannot invalidate it.
+- **Validated:** Passive manifests issue only from already-current canonical live
+  commits. Manifest queries cannot navigate, commit a foreground page, expose a
+  preview, restore composition, advance foreground mutation, or promote passive
+  proof into live authority.
+- **Validated:** Ordinary prewarm and idle background acquisition use the isolated
+  passive preparation port. Current-page live capture remains a distinct operation,
+  while repair remains on the transitional route until Stage 4.
+- **Validated:** `ReaderPageTurnBundleSource` is the only passive admission and
+  publication boundary. It requires exact manifest/receipt equality across capture
+  epoch, live and passive sessions, publication generation, destination and opaque
+  target, visual ordinal, render-profile fingerprints, physical geometry, raster
+  generation, manifest sequence, and passive commit sequence. Full physical rasters
+  are ownership-safely downsampled for 25/50/75/100 percent quality and transferred
+  or released exactly once.
+- **Validated:** Runtime geometry must equal canonical physical geometry exactly.
+  Cancellation remains occupied until abort/drain settles; cancellation dispatch,
+  readiness timeout, ordinary commit timeout, renderer loss, and uncertain runtime
+  state retire the WebView before completion. Same-geometry owners recreate only a
+  retired adapter, and stale renderer callbacks are rejected by runtime identity.
+- **Validated:** Live and passive Foliate sessions share one realized render-profile
+  pipeline for direction, typography, paragraph normalization, chapter-opening
+  margins, theme, paper texture, borders, stains, spread gutter, geometry, and
+  verified assets. Publication replacement recreates the passive `foliate-view`;
+  failed opens can retry; asset verification admits only the latest request whose
+  captured URLs still match the current decoration layers. Public-fixture live and
+  passive screenshot hashes match exactly.
+- **Validated:** Repeated real passive prewarm and idle background work preserve the
+  foreground live receipt, anchor, overlay, committed location, and mutation
+  generation. No protected payload logging or persistence was introduced.
+- **Gates:** The consolidated JavaScript boundary passed 148/148 plus the relocation
+  bridge. The focused nine-class Android boundary passed 381/381; the full Android
+  host suite passed 3,622/3,622; `:androidApp:assembleReaderDev` passed. Final
+  specification and code-quality reviews approved the corrected Stage 3 diff.
+- **Deferred to Stage 4 (latest required stage):** Migrate repair capture, implement
+  fresh-generation Retry, wire low-memory passive-host eviction/recreation, and
+  remove the final reachable shared-foreground preview route.
+- **Deferred to Stage 6:** Bounded emulator/tablet runtime acceptance remains an
+  integration gate; Stage 3 claims local/browser/host architecture verification,
+  not physical-device acceptance.
+- **Blockers:** None after non-mutating manifest, isolated routing, exact admission,
+  live-authority preservation, timeout/retirement, publication replacement,
+  realized-profile parity, consolidated host, and ReaderDev build gates.
+
 ## Stage 4 — Fresh-Generation Recovery And Full Passive Isolation
 
 ### Steps

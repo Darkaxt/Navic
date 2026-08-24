@@ -249,6 +249,7 @@ globalThis.document = {
     clientHeight: 1200,
     style: { setProperty: () => {} },
   },
+  querySelector: () => null,
   createElement: () => null,
 }
 globalThis.requestAnimationFrame = callback => callback(0)
@@ -1568,6 +1569,154 @@ const liveSettlementRuntime = ({
     waitForRendererIdle: () => commitTail,
   }
 }
+
+test('passive manifest requests cannot bootstrap or mutate live authority', async () => {
+  const fixture = liveSettlementRuntime({
+    currentPagePosition: {
+      pageIndex: 0,
+      pageCount: 5,
+      spineIndex: 0,
+      chapterPageIndex: 0,
+      chapterPageCount: 3,
+    },
+    results: [resultFor({ requestedIndex: 0, requestedPageIndex: 0, pageCount: 3 })],
+  })
+  const anchor = Object.freeze({ token: 'anchor-a' })
+  const overlay = Object.freeze({ token: 'overlay-a' })
+  const location = Object.freeze({ token: 'location-a' })
+  Object.assign(fixture.runtime, {
+    publicationSessionGeneration: 9,
+    publicationUrl: 'publication-passive-manifest',
+    readerSettings: Object.freeze({ theme: 'day' }),
+    pageTurnCaptureGeometry: () => Object.freeze({
+      mode: 'single',
+      pages: [],
+      viewportWidth: 800,
+      viewportHeight: 1200,
+    }),
+    activeAnchorAuthority: anchor,
+    activeOverlayAuthority: overlay,
+    committedLocationAuthority: location,
+  })
+  const computedStyle = Object.freeze({
+    getPropertyValue: property => ({
+      direction: 'ltr',
+      'font-family': 'serif',
+      'font-size': '16px',
+      'line-height': '24px',
+      color: 'rgb(0, 0, 0)',
+      'background-color': 'rgb(255, 255, 255)',
+      display: 'block',
+      'margin-top': '0px',
+      'margin-bottom': '0px',
+    })[property] || '',
+  })
+  const contentElement = dataset => ({
+    dataset,
+    getAttribute: name => name === 'dir' ? 'ltr' : null,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 1200 }),
+  })
+  const contentRoot = contentElement({ navicReaderTheme: 'day' })
+  const contentBody = contentElement({})
+  const paragraph = contentElement({})
+  const contentDocument = {
+    documentElement: contentRoot,
+    body: contentBody,
+    fonts: { status: 'loaded' },
+    defaultView: { getComputedStyle: () => computedStyle },
+    querySelector: selector => selector.startsWith('p,') ? paragraph : null,
+    querySelectorAll: () => [],
+  }
+  Object.assign(fixture.renderer, {
+    getAttribute: attribute => ({
+      flow: 'paginated',
+      'max-inline-size': '800px',
+      'max-block-size': '1200px',
+      'max-column-count': '1',
+      'column-threshold': '720px',
+      'top-margin': '90px',
+      'bottom-margin': '50px',
+    })[attribute] || null,
+    getContents: () => [{ index: 0, doc: contentDocument }],
+  })
+  Object.assign(fixture.runtime.view, {
+    book: { dir: 'ltr', sections: [{}] },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 1200 }),
+  })
+  fixture.runtime.readerSettings = Object.freeze({ theme: 'day' })
+  const authorityBefore = {
+    foregroundMutationGeneration: fixture.runtime.foregroundMutationGeneration,
+    liveTarget: fixture.runtime.pageTurnLivePresentationTargetValue,
+    liveReceipt: fixture.runtime.pageTurnLivePresentationReceiptValue,
+    currentPagePosition: fixture.runtime.currentPagePosition,
+    relocateSequence: fixture.runtime.relocateSequence,
+    anchor: fixture.runtime.activeAnchorAuthority,
+    overlay: fixture.runtime.activeOverlayAuthority,
+    location: fixture.runtime.committedLocationAuthority,
+  }
+
+  assert.equal(
+    'schedulePageTurnPassiveRasterCanonicalCommit' in NavicReaderPageTurnMethods,
+    false,
+  )
+  for (const trigger of ['prewarm', 'idle-background']) {
+    assert.equal(
+      fixture.runtime.pageTurnPassiveRasterManifestInputs(0, 4, 7),
+      null,
+      trigger,
+    )
+  }
+  await fixture.waitForRendererIdle()
+
+  assert.equal(fixture.commits.length, 0)
+  assert.deepEqual({
+    foregroundMutationGeneration: fixture.runtime.foregroundMutationGeneration,
+    liveTarget: fixture.runtime.pageTurnLivePresentationTargetValue,
+    liveReceipt: fixture.runtime.pageTurnLivePresentationReceiptValue,
+    currentPagePosition: fixture.runtime.currentPagePosition,
+    relocateSequence: fixture.runtime.relocateSequence,
+    anchor: fixture.runtime.activeAnchorAuthority,
+    overlay: fixture.runtime.activeOverlayAuthority,
+    location: fixture.runtime.committedLocationAuthority,
+  }, authorityBefore)
+
+  await fixture.runtime.goToVisualPage(
+    liveSettlementCommand('live-passive-manifest', 0),
+  )
+  const canonicalAuthorityBefore = {
+    foregroundMutationGeneration: fixture.runtime.foregroundMutationGeneration,
+    liveTarget: fixture.runtime.pageTurnLivePresentationTargetValue,
+    liveReceipt: fixture.runtime.pageTurnLivePresentationReceiptValue,
+    currentPagePosition: fixture.runtime.currentPagePosition,
+    relocateSequence: fixture.runtime.relocateSequence,
+    anchor: fixture.runtime.activeAnchorAuthority,
+    overlay: fixture.runtime.activeOverlayAuthority,
+    location: fixture.runtime.committedLocationAuthority,
+  }
+  const commitCountBeforeManifest = fixture.commits.length
+
+  for (const trigger of ['prewarm', 'idle-background']) {
+    const manifest = fixture.runtime.pageTurnPassiveRasterManifestInputs(0, 4, 7)
+    assert.notEqual(manifest, null, trigger)
+    assert.equal(manifest.destinationCommitToken, 'live-passive-manifest', trigger)
+    assert.equal(manifest.rasterGeneration, 7, trigger)
+    assert.equal(manifest.visualPageOrdinal, 0, trigger)
+  }
+  await fixture.waitForRendererIdle()
+
+  assert.equal(fixture.commits.length, commitCountBeforeManifest)
+  assert.deepEqual({
+    foregroundMutationGeneration: fixture.runtime.foregroundMutationGeneration,
+    liveTarget: fixture.runtime.pageTurnLivePresentationTargetValue,
+    liveReceipt: fixture.runtime.pageTurnLivePresentationReceiptValue,
+    currentPagePosition: fixture.runtime.currentPagePosition,
+    relocateSequence: fixture.runtime.relocateSequence,
+    anchor: fixture.runtime.activeAnchorAuthority,
+    overlay: fixture.runtime.activeOverlayAuthority,
+    location: fixture.runtime.committedLocationAuthority,
+  }, canonicalAuthorityBefore)
+})
+
 const liveSettlementCommand = (
   token,
   pageIndex,

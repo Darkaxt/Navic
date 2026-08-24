@@ -173,9 +173,6 @@ import {
 import {
   ReaderMediaOverlayActiveRangeKey,
   ReaderMediaOverlayRangeAttribute,
-  readerCssColorFromArgb,
-  readerDrawMediaOverlayMarker,
-  readerDrawMediaOverlaySelection,
   readerDrawNoteAnnotation,
   readerMediaOverlayUnwrapRangeMarker,
 } from './navic-reader-overlay-paint.js'
@@ -204,6 +201,7 @@ class NavicReaderRuntime {
   nativeTapZones = false
   originalBookDir = null
   publicationUrl = ''
+  publicationSessionGeneration = 0
   foliateSessionId = ''
   surfaceTextureLayer = null
   surfaceBorderOverlayLayer = null
@@ -495,6 +493,9 @@ class NavicReaderRuntime {
     log('openPublication:start', describeUrl(url), `overlay=${this.mediaOverlayEnabled}`)
     try {
       this.close()
+      this.publicationSessionGeneration = this.publicationSessionGeneration >= Number.MAX_SAFE_INTEGER
+        ? 1
+        : this.publicationSessionGeneration + 1
       this.duplicatePageFingerprint.beginSession()
       this.foliateSessionId = normalizedFoliateSessionId
       this.externalShellCover = Boolean(externalShellCover)
@@ -847,62 +848,6 @@ class NavicReaderRuntime {
     for (const highlight of highlights || []) {
       await this.applyHighlight(highlight)
     }
-  }
-
-  rememberPlayedMediaOverlayFragment(previousFragment, nextFragment) {
-    if (!this.readerMediaOverlayPersistentPlayed()) return
-    if (!previousFragment || !this.mediaOverlayFragmentHasTextRange(previousFragment)) return
-    const previousStart = Number(previousFragment.clipBeginSeconds)
-    const nextStart = Number(nextFragment?.clipBeginSeconds)
-    if (Number.isFinite(previousStart) && Number.isFinite(nextStart) && nextStart < previousStart) return
-    const previousHref = previousFragment.textHref || ''
-    const nextHref = nextFragment?.textHref || ''
-    if (previousHref && nextHref && !readerHrefMatches(previousHref, nextHref)) return
-    const key = this.mediaOverlayPlayedKeyForFragment(previousFragment)
-    this.mediaOverlayPlayedFragments.set(key, {
-      ...previousFragment,
-      textProgressEnd: previousFragment.textEnd,
-      textProgressFraction: 1,
-    })
-  }
-
-  prunePlayedMediaOverlayFragments(fragment) {
-    const currentStart = Number(fragment?.clipBeginSeconds)
-    const currentHref = fragment?.textHref || ''
-    if (!Number.isFinite(currentStart) || !currentHref) return
-    for (const [key, played] of Array.from(this.mediaOverlayPlayedFragments.entries())) {
-      const playedStart = Number(played?.clipBeginSeconds)
-      const playedHref = played?.textHref || ''
-      if (Number.isFinite(playedStart) && playedStart >= currentStart && readerHrefMatches(playedHref, currentHref)) {
-        this.mediaOverlayPlayedFragments.delete(key)
-      }
-    }
-  }
-
-  paintPlayedMediaOverlayFragments() {
-    for (const [key, fragment] of this.mediaOverlayPlayedFragments.entries()) {
-      this.highlightMediaOverlayTextRange({
-        ...fragment,
-        overlayKey: key,
-        suppressDiagnostic: true,
-        textProgressEnd: fragment.textEnd,
-        textProgressFraction: 1,
-      })
-    }
-  }
-
-  readerMediaOverlayPersistentPlayed(settings = this.readerSettings) {
-    return settings?.whispersyncHighlightLoading === 'persistent-played-text'
-  }
-
-  readerMediaOverlayHighlightColor(settings = this.readerSettings) {
-    return readerCssColorFromArgb(settings?.whispersyncHighlightColorArgb, 'rgba(246, 195, 67, 0.4)')
-  }
-
-  readerMediaOverlayHighlightDraw(settings = this.readerSettings) {
-    return settings?.whispersyncHighlightStyle === 'marker'
-      ? readerDrawMediaOverlayMarker
-      : readerDrawMediaOverlaySelection
   }
 
   stopMediaOverlayProgressAnimation() {
@@ -1611,6 +1556,14 @@ window.NavicReaderBridge = {
   nativePageTurnPendingState: () => runtime.activeExactPageTurnSettlement(),
   pageTurnPreviewPresentationReceipt: () => runtime.pageTurnPreviewPresentationReceipt(),
   pageTurnLivePresentationReceipt: () => runtime.pageTurnLivePresentationReceipt(),
+  pageTurnPassiveRasterDescriptor: visualPageOrdinal =>
+    runtime.pageTurnPassiveRasterDescriptor(visualPageOrdinal),
+  pageTurnPassiveRasterManifestInputs: (visualPageOrdinal, captureEpoch, rasterGeneration) =>
+    runtime.pageTurnPassiveRasterManifestInputs(
+      visualPageOrdinal,
+      captureEpoch,
+      rasterGeneration
+    ),
   pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor: () =>
     runtime.pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor(),
   pageTurnTextPageCommitIdentity: () => runtime.pageTurnTextPageCommitIdentity(),

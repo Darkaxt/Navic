@@ -389,9 +389,14 @@ class ReaderRuntimeSettingsBridgeTest {
 		val typographyCss = bridgeText
 			.substringAfter("const readerTypographyCss = settings =>")
 			.substringBefore("const readerParagraphSpacingCss = settings =>")
-		val applyDocumentTheme = bridgeText
-			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
-			.substringBefore("\nfunction currentRendererContainerPosition")
+		val applyDocumentTheme = readerAssetRoot()
+			.resolve("navic-reader-render-profile.js")
+			.readText()
+			.substringAfter(
+				"export const applyReaderContentDocumentRenderProfile = (doc, settings = {}) => {",
+				missingDelimiterValue = ""
+			)
+			.substringBefore("\n}\n\nconst roundedRect")
 		val inlineTypographyBlockTags = bridgeText
 			.substringAfter("const readerInlineTypographyBlockTags = new Set([")
 			.substringBefore("])")
@@ -624,9 +629,14 @@ class ReaderRuntimeSettingsBridgeTest {
 	@Test
 	fun androidReaderReinjectsCompleteContentCssIntoLoadedPublicationDocuments() {
 		val bridgeText = readerBridgeText()
-		val applyDocumentTheme = bridgeText
-			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
-			.substringBefore("\nfunction currentRendererContainerPosition")
+		val applyDocumentTheme = readerAssetRoot()
+			.resolve("navic-reader-render-profile.js")
+			.readText()
+			.substringAfter(
+				"export const applyReaderContentDocumentRenderProfile = (doc, settings = {}) => {",
+				missingDelimiterValue = ""
+			)
+			.substringBefore("\n}\n\nconst roundedRect")
 
 		assertContains(applyDocumentTheme, "themeStyle.textContent = readerContentCss(settings)")
 		assertFalse(
@@ -721,9 +731,14 @@ class ReaderRuntimeSettingsBridgeTest {
 	@Test
 	fun androidReaderCapsExcessiveChapterOpeningTopMargins() {
 		val bridgeText = readerBridgeText()
-		val applyDocumentTheme = bridgeText
-			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
-			.substringBefore("\nfunction currentRendererContainerPosition")
+		val applyDocumentTheme = readerAssetRoot()
+			.resolve("navic-reader-render-profile.js")
+			.readText()
+			.substringAfter(
+				"export const applyReaderContentDocumentRenderProfile = (doc, settings = {}) => {",
+				missingDelimiterValue = ""
+			)
+			.substringBefore("\n}\n\nconst roundedRect")
 
 		assertContains(bridgeText, "readerNormalizeChapterOpeningMargins")
 		assertContains(bridgeText, "data-navic-chapter-opening-margin-capped")

@@ -49,7 +49,7 @@ class ReaderCoordinatorTest {
 		val step = opened.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
 
-		assertEquals(ReaderBridgeCommand.NextPage, viewState.bridgeCommand())
+		assertEquals(ReaderBridgeCommand.CausalNextPage(causalSequence = 1L), viewState.bridgeCommand())
 		assertEquals(1L, viewState.commandKey)
 	}
 
@@ -114,7 +114,13 @@ class ReaderCoordinatorTest {
 
 		assertEquals(ReaderSearchState(), cleared.coordinator.controller.state.search)
 		assertEquals(ReaderBridgeCommand.ClearSearch, clearViewState.bridgeCommand())
-		assertEquals(ReaderBridgeCommand.GoToCfi("epubcfi(/6/8!/4/2:12)"), navigateViewState.bridgeCommand())
+		assertEquals(
+			ReaderBridgeCommand.GoToCfi(
+				cfi = "epubcfi(/6/8!/4/2:12)",
+				causalSequence = 1L
+			),
+			navigateViewState.bridgeCommand()
+		)
 		assertEquals(3L, navigateViewState.commandKey)
 	}
 
@@ -125,7 +131,10 @@ class ReaderCoordinatorTest {
 		val step = opened.navigateTo(ReaderLocator(progress = 0.42))
 		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
 
-		assertEquals(ReaderBridgeCommand.GoToProgress(0.42), viewState.bridgeCommand())
+		assertEquals(
+			ReaderBridgeCommand.GoToProgress(progress = 0.42, causalSequence = 1L),
+			viewState.bridgeCommand()
+		)
 		assertEquals(1L, viewState.commandKey)
 	}
 
@@ -167,24 +176,43 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
-	fun whispersyncVisibleTextRangeWaitsForOverlayActivationBeforeSurfacingAudioSeekTarget() {
+	fun maintenanceVisibleTextRangePreparesDestinationBeforePlaybackRequestsOverlay() {
+		val destination = ReaderDestinationCommitIdentity("session-a", 1L)
 		val synced = ReaderCoordinator()
 			.open(hobbitOpenRequest()).coordinator
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(href = "Text/chapter1.xhtml", pageIndex = 0),
+					foliateSessionId = destination.foliateSessionId,
+					destinationCommitIdentity = destination
+				)
+			).coordinator
 
-		val pending = synced.onEngineEvent(
+		val prepared = synced.onEngineEvent(
 			ReaderEngineEvent.VisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
-				visibleEnd = 140
+				visibleEnd = 140,
+				destinationCommitIdentity = destination
 			)
 		)
+		val preparedViewState = assertIs<ReaderEngineViewState.WebViewPublication>(prepared.coordinator.viewState)
+		assertNull(preparedViewState.bridgeCommand())
+		assertEquals(
+			"seg-2",
+			prepared.coordinator.controller.state.whispersync
+				.preparedVisibleTarget?.firstVisibleCue?.fragment?.fragmentId
+		)
+		assertNull(prepared.whispersyncAudioSeekTarget)
+
+		val pending = prepared.coordinator.dispatch {
+			onWhispersyncPlaybackCommand(ReaderReadaloudPlaybackCommand.Play)
+		}
 		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(pending.coordinator.viewState)
 		val command = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(viewState.bridgeCommand())
-
 		assertEquals("seg-2", command.fragment.fragmentId)
 		assertNull(pending.whispersyncAudioSeekTarget)
-		assertEquals(1L, viewState.commandKey)
 
 		val active = pending.coordinator.onEngineEvent(
 			ReaderEngineEvent.MediaOverlayActive(command.fragment)
@@ -195,32 +223,43 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
-	fun repairWhispersyncMismatchWaitsForOverlayActivationBeforeSeeking() {
+	fun repairWhispersyncMismatchUsesOnlyCurrentDestinationWithoutSeeking() {
+		val destination = ReaderDestinationCommitIdentity("session-a", 1L)
 		val synced = ReaderCoordinator()
 			.open(hobbitOpenRequest()).coordinator
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
-		val visible = synced.onEngineEvent(
-			ReaderEngineEvent.VisibleTextRange(
-				textHref = "Text/chapter1.xhtml",
-				visibleStart = 80,
-				visibleEnd = 140
-			)
-		).coordinator
-		val mismatched = visible.withRepairableWhispersyncMismatch()
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(href = "Text/chapter1.xhtml", pageIndex = 0),
+					foliateSessionId = destination.foliateSessionId,
+					destinationCommitIdentity = destination
+				)
+			).coordinator
+			.onEngineEvent(
+				ReaderEngineEvent.VisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 80,
+					visibleEnd = 140,
+					destinationCommitIdentity = destination
+				)
+			).coordinator
+		val mismatched = synced.withRepairableWhispersyncMismatch()
 
 		val pending = mismatched.repairWhispersyncMismatch()
 
 		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(pending.coordinator.viewState)
 		val command = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(viewState.bridgeCommand())
 		assertEquals("seg-2", command.fragment.fragmentId)
+		assertEquals(destination, pending.coordinator.controller.state.whispersync.preparedVisibleTarget?.destinationCommitIdentity)
 		assertNull(pending.whispersyncAudioSeekTarget)
 
 		val active = pending.coordinator.onEngineEvent(
 			ReaderEngineEvent.MediaOverlayActive(command.fragment)
 		)
 
-		assertEquals("Audio/chapter01.m4b", active.whispersyncAudioSeekTarget?.audioResource)
-		assertEquals(5_000L, active.whispersyncAudioSeekTarget?.positionMs)
+		assertNull(active.whispersyncAudioSeekTarget)
+		assertNull(active.coordinator.controller.state.whispersync.pendingAudioSeek)
+		assertEquals(command.fragment, active.coordinator.controller.state.activeMediaOverlay)
 	}
 
 	@Test
@@ -572,7 +611,7 @@ class ReaderCoordinatorTest {
 		assertIs<FoliatePdfEngineAdapter>(opened.engineAdapters[ReaderPublicationFormat.Pdf])
 		assertEquals(ReaderPublicationFormat.Pdf, opened.engineAdapters[ReaderPublicationFormat.Pdf]?.format)
 		assertEquals(pdfRequest.url, viewState.publicationUrl)
-		assertEquals(ReaderBridgeCommand.NextPage, nextViewState.bridgeCommand())
+		assertEquals(ReaderBridgeCommand.CausalNextPage(causalSequence = 1L), nextViewState.bridgeCommand())
 		assertEquals(1L, nextViewState.commandKey)
 	}
 
@@ -604,7 +643,7 @@ class ReaderCoordinatorTest {
 			assertEquals(format, opened.controller.state.activeEngine)
 			assertEquals(format, opened.engineAdapters[format]?.format)
 			assertEquals(request.url, viewState.publicationUrl)
-			assertEquals(ReaderBridgeCommand.NextPage, nextViewState.bridgeCommand())
+			assertEquals(ReaderBridgeCommand.CausalNextPage(causalSequence = 1L), nextViewState.bridgeCommand())
 		}
 	}
 
@@ -748,7 +787,7 @@ class ReaderCoordinatorTest {
 		assertEquals(true, toggledMenu.controller.state.menuVisible)
 		assertNull(toggledMenu.controller.state.lastContentActionClaim)
 		assertEquals(
-			ReaderBridgeCommand.NextPage,
+			ReaderBridgeCommand.CausalNextPage(causalSequence = 1L),
 			assertIs<ReaderEngineViewState.WebViewPublication>(next.coordinator.viewState).bridgeCommand()
 		)
 	}

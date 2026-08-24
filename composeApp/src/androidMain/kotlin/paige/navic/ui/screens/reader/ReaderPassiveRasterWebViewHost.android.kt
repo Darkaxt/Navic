@@ -28,9 +28,10 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.webkit.WebViewAssetLoader
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.abs
 import org.json.JSONObject
 import org.json.JSONTokener
+import paige.navic.reader.ReaderPublicationCachePathPrefix
+import paige.navic.reader.readerManagedStorageRoot
 
 private const val ReaderPassiveRasterAssetDomain = "appassets.androidplatform.net"
 private const val ReaderPassiveRasterAssetsPathPrefix = "/assets/"
@@ -38,7 +39,7 @@ private const val ReaderPassiveRasterAssetPath =
 	"reader/passive-raster-prototype/index.html"
 private const val ReaderPassiveRasterAssetUrl =
 	"https://$ReaderPassiveRasterAssetDomain$ReaderPassiveRasterAssetsPathPrefix$ReaderPassiveRasterAssetPath"
-private const val ReaderPassiveRasterMaximumResultPolls = 180
+private const val ReaderPassiveRasterMaximumResultPolls = 480
 
 internal enum class ReaderPassiveRasterWebViewPreconditionFailure {
 	NotReady,
@@ -48,6 +49,20 @@ internal enum class ReaderPassiveRasterWebViewPreconditionFailure {
 	ViewSizeMismatch,
 	WindowBounds,
 	BitmapAllocation
+}
+
+internal class ReaderPassiveRasterUncertainCommitRetirement {
+	private var retired = false
+
+	fun retireBeforeCompletion(
+		retireRuntime: () -> Unit,
+		reportCompletion: () -> Unit
+	) {
+		if (retired) return
+		retired = true
+		retireRuntime()
+		reportCompletion()
+	}
 }
 
 internal data class ReaderPassiveRasterWebViewCaptureMetrics(
@@ -84,8 +99,6 @@ internal fun readerPassiveRasterPhysicalGeometry(
 	null
 }
 
-private const val ReaderPassiveRasterMaximumRuntimeGeometryRoundingDelta = 1
-
 internal fun readerPassiveRasterCanonicalCaptureGeometry(
 	configuredGeometry: ReaderPassiveRasterGeometry,
 	measuredWidth: Int,
@@ -97,18 +110,10 @@ internal fun readerPassiveRasterCanonicalCaptureGeometry(
 		measuredWidth = measuredWidth,
 		measuredHeight = measuredHeight
 	) ?: return null
-	val runtimeDeltas = listOf(
-		runtimeObservedGeometry.viewportWidth - physicalGeometry.viewportWidth,
-		runtimeObservedGeometry.viewportHeight - physicalGeometry.viewportHeight,
-		runtimeObservedGeometry.captureLeft - physicalGeometry.captureLeft,
-		runtimeObservedGeometry.captureTop - physicalGeometry.captureTop,
-		runtimeObservedGeometry.captureRight - physicalGeometry.captureRight,
-		runtimeObservedGeometry.captureBottom - physicalGeometry.captureBottom
-	)
-	return physicalGeometry.takeIf { geometry ->
-		runtimeDeltas.all { delta ->
-			abs(delta) <= ReaderPassiveRasterMaximumRuntimeGeometryRoundingDelta
-		} && geometry.captureWidth == measuredWidth && geometry.captureHeight == measuredHeight
+	return runtimeObservedGeometry.takeIf { observed ->
+		observed == physicalGeometry &&
+			observed.captureWidth == measuredWidth &&
+			observed.captureHeight == measuredHeight
 	}
 }
 
@@ -197,6 +202,14 @@ internal class ReaderPassiveRasterWebViewHost(
 	private val mainHandler: Handler = Handler(Looper.getMainLooper()),
 	private val onRendererGone: () -> Unit = { }
 ) : ReaderPassiveRasterRuntimePort<Bitmap> {
+	private class ActiveCommit(
+		val generation: Long,
+		val onCommitted: (ReaderPassiveRasterCaptureReceipt?) -> Unit,
+		var operationId: String? = null,
+		var cancellationRequested: Boolean = false,
+		val onDrained: MutableList<() -> Unit> = mutableListOf()
+	)
+
 	private val callbackSequence = AtomicLong()
 	private val offscreenWindow = ReaderPassiveRasterOffscreenWindow(
 		activity,
@@ -210,8 +223,18 @@ internal class ReaderPassiveRasterWebViewHost(
 			ReaderPassiveRasterAssetsPathPrefix,
 			WebViewAssetLoader.AssetsPathHandler(activity)
 		)
+		.addPathHandler(
+			ReaderPublicationCachePathPrefix,
+			WebViewAssetLoader.InternalStoragePathHandler(
+				activity,
+				readerManagedStorageRoot(activity)
+			)
+		)
 		.build()
 	private var callbackGeneration = 1L
+	private var activeCommit: ActiveCommit? = null
+	private val uncertainCommitRetirement =
+		ReaderPassiveRasterUncertainCommitRetirement()
 	private var destroyed = false
 	@Volatile
 	private var runtimeReady = false
@@ -230,6 +253,9 @@ internal class ReaderPassiveRasterWebViewHost(
 
 	override val isReady: Boolean
 		get() = runtimeReady && !destroyed && webView.isAttachedToWindow
+
+	override val isRetired: Boolean
+		get() = destroyed
 
 	init {
 		require(passiveSessionId.isNotBlank())
@@ -287,40 +313,71 @@ internal class ReaderPassiveRasterWebViewHost(
 		passiveCommitSequence: Long,
 		onCommitted: (ReaderPassiveRasterCaptureReceipt?) -> Unit
 	) {
-		if (!isReady) {
+		if (!isReady || activeCommit != null) {
 			onCommitted(null)
 			return
 		}
-		val generation = callbackGeneration
+		val commit = ActiveCommit(
+			generation = callbackGeneration,
+			onCommitted = onCommitted
+		)
+		activeCommit = commit
 		val payload = readerPassiveRasterCommitJson(
 			manifest = manifest,
 			captureTarget = captureTarget,
 			passiveSessionId = passiveSessionId,
 			passiveCommitSequence = passiveCommitSequence
 		)
-		webView.evaluateJavascript(
-			"JSON.stringify(window.NavicPassiveRasterPrototype?.startCapture?.($payload) ?? null)"
-		) { encoded ->
-			if (!callbackIsCurrent(generation)) {
-				onCommitted(null)
-				return@evaluateJavascript
+		try {
+			webView.evaluateJavascript(
+				"JSON.stringify(window.NavicPassiveRasterPrototype?.startCapture?.($payload) ?? null)"
+			) { encoded ->
+				if (!commitIsCurrent(commit)) return@evaluateJavascript
+				val operationId = readerPassiveRasterOperationId(encoded)
+				if (operationId == null) {
+					finishCommit(commit, null)
+					return@evaluateJavascript
+				}
+				commit.operationId = operationId
+				if (commit.cancellationRequested) dispatchCommitCancellation(commit)
+				pollCommitResult(commit, pollCount = 0)
 			}
-			val operationId = readerPassiveRasterOperationId(encoded)
-			if (operationId == null) {
-				onCommitted(null)
-				return@evaluateJavascript
-			}
-			pollCommitResult(
-				generation = generation,
-				operationId = operationId,
-				pollCount = 0,
-				onCommitted = onCommitted
-			)
+		} catch (_: Throwable) {
+			finishCommit(commit, null)
+		}
+	}
+
+	override fun cancelActiveCommit(onDrained: () -> Unit) {
+		val commit = activeCommit
+		if (commit == null) {
+			onDrained()
+			return
+		}
+		commit.onDrained += onDrained
+		if (commit.cancellationRequested) return
+		commit.cancellationRequested = true
+		if (commit.operationId != null) dispatchCommitCancellation(commit)
+	}
+
+	private fun dispatchCommitCancellation(commit: ActiveCommit) {
+		if (!commitIsCurrent(commit)) return
+		val operationId = commit.operationId ?: return
+		val quotedOperationId = JSONObject.quote(operationId)
+		try {
+			webView.evaluateJavascript(
+				"window.NavicPassiveRasterPrototype?.cancelOperation?.($quotedOperationId) === true"
+			) { }
+		} catch (_: Throwable) {
+			retireAfterRendererLoss()
 		}
 	}
 
 	private fun pollRuntimeReady(generation: Long, pollCount: Int) {
-		if (!callbackIsCurrent(generation) || pollCount >= ReaderPassiveRasterMaximumResultPolls) return
+		if (!callbackIsCurrent(generation)) return
+		if (pollCount >= ReaderPassiveRasterMaximumResultPolls) {
+			retireAfterRendererLoss()
+			return
+		}
 		webView.evaluateJavascript(
 			"window.NavicPassiveRasterPrototype?.ready === true"
 		) { encoded ->
@@ -335,36 +392,26 @@ internal class ReaderPassiveRasterWebViewHost(
 		}
 	}
 
-	private fun pollCommitResult(
-		generation: Long,
-		operationId: String,
-		pollCount: Int,
-		onCommitted: (ReaderPassiveRasterCaptureReceipt?) -> Unit
-	) {
-		if (!callbackIsCurrent(generation) || pollCount >= ReaderPassiveRasterMaximumResultPolls) {
-			onCommitted(null)
+	private fun pollCommitResult(commit: ActiveCommit, pollCount: Int) {
+		if (!commitIsCurrent(commit)) return
+		if (pollCount >= ReaderPassiveRasterMaximumResultPolls) {
+			retireAfterRendererLoss()
 			return
 		}
+		val operationId = commit.operationId ?: return
 		val quotedOperationId = JSONObject.quote(operationId)
 		webView.evaluateJavascript(
 			"JSON.stringify(window.NavicPassiveRasterPrototype?.readOperationResult?.(" +
 				"$quotedOperationId, true) ?? null)"
 		) { encoded ->
-			if (!callbackIsCurrent(generation)) {
-				onCommitted(null)
-				return@evaluateJavascript
-			}
+			if (!commitIsCurrent(commit)) return@evaluateJavascript
 			when (val result = readerPassiveRasterOperationResult(encoded)) {
 				ReaderPassiveRasterOperationResult.Pending -> webView.postOnAnimation {
-					pollCommitResult(
-						generation = generation,
-						operationId = operationId,
-						pollCount = pollCount + 1,
-						onCommitted = onCommitted
-					)
+					pollCommitResult(commit, pollCount + 1)
 				}
 				is ReaderPassiveRasterOperationResult.Complete -> {
-					val runtimeObservedGeometry = readerPassiveRasterObservedGeometry(result.value)
+					val runtimeObservedGeometry =
+						readerPassiveRasterObservedGeometry(result.value)
 					val captureGeometry = runtimeObservedGeometry?.let { observedGeometry ->
 						readerPassiveRasterCanonicalCaptureGeometry(
 							configuredGeometry = viewportGeometry,
@@ -373,15 +420,39 @@ internal class ReaderPassiveRasterWebViewHost(
 							runtimeObservedGeometry = observedGeometry
 						)
 					}
-					onCommitted(
+					finishCommit(
+						commit,
 						captureGeometry?.let { geometry ->
 							readerPassiveRasterReceipt(result.value, geometry)
 						}
 					)
 				}
-				ReaderPassiveRasterOperationResult.Failed -> onCommitted(null)
+				ReaderPassiveRasterOperationResult.Failed -> finishCommit(commit, null)
 			}
 		}
+	}
+
+	private fun commitIsCurrent(commit: ActiveCommit): Boolean =
+		activeCommit === commit && callbackIsCurrent(commit.generation)
+
+	private fun finishCommit(
+		commit: ActiveCommit,
+		receipt: ReaderPassiveRasterCaptureReceipt?
+	) {
+		if (activeCommit !== commit) return
+		activeCommit = null
+		if (commit.cancellationRequested) {
+			val callbacks = commit.onDrained.toList()
+			commit.onDrained.clear()
+			callbacks.forEach { callback -> callback() }
+		} else {
+			commit.onCommitted(receipt)
+		}
+	}
+
+	private fun retireActiveCommit() {
+		val commit = activeCommit ?: return
+		finishCommit(commit, null)
 	}
 
 	fun captureMetrics(): ReaderPassiveRasterWebViewCaptureMetrics =
@@ -444,6 +515,7 @@ internal class ReaderPassiveRasterWebViewHost(
 
 	override fun pause() {
 		if (destroyed) return
+		retireActiveCommit()
 		callbackGeneration += 1L
 		runtimeReady = false
 		webView.onPause()
@@ -459,6 +531,7 @@ internal class ReaderPassiveRasterWebViewHost(
 
 	override fun destroy() {
 		if (destroyed) return
+		retireActiveCommit()
 		destroyed = true
 		callbackGeneration += 1L
 		runtimeReady = false
@@ -472,13 +545,20 @@ internal class ReaderPassiveRasterWebViewHost(
 
 	private fun retireAfterRendererLoss() {
 		if (destroyed) return
-		destroyed = true
-		callbackGeneration += 1L
-		runtimeReady = false
-		container.removeView(webView)
-		webView.destroy()
-		offscreenWindow.close()
-		onRendererGone()
+		uncertainCommitRetirement.retireBeforeCompletion(
+			retireRuntime = {
+				destroyed = true
+				callbackGeneration += 1L
+				runtimeReady = false
+				runCatching { container.removeView(webView) }
+				runCatching { webView.destroy() }
+				runCatching { offscreenWindow.close() }
+			},
+			reportCompletion = {
+				retireActiveCommit()
+				onRendererGone()
+			}
+		)
 	}
 
 	private fun requestPixelCopy(
@@ -638,7 +718,7 @@ private fun readerPassiveRasterOperationResult(
 	val result = readerPassiveRasterJsonObject(encoded)
 		?: return ReaderPassiveRasterOperationResult.Failed
 	return when (result.optString("state")) {
-		"pending" -> ReaderPassiveRasterOperationResult.Pending
+		"pending", "cancelling" -> ReaderPassiveRasterOperationResult.Pending
 		"complete" -> result.optJSONObject("value")
 			?.let(ReaderPassiveRasterOperationResult::Complete)
 			?: ReaderPassiveRasterOperationResult.Failed

@@ -194,7 +194,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
-	fun backgroundRestorationTimeoutFailsClosedUnderThePreparationCover() = runTest {
+	fun passiveBackgroundCancellationNeverEntersForegroundRestorationRecovery() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
@@ -204,67 +204,24 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.deliverMatchingActiveDeckPrepared()
 			fixture.drainMainLooper()
 			assertNotNull(fixture.background.active)
-			fixture.background.stagePreview()
-			fixture.background.delayCancellationRestoration = true
+			val ownershipBefore = fixture.ownership.snapshot()
 
 			fixture.controller.onPointerInteractionChanged(true)
+
 			assertEquals(1, fixture.background.cancellationCount)
+			assertEquals(ownershipBefore, fixture.ownership.snapshot())
+			assertEquals(0, fixture.foreground.liveCompositionRestorationCount)
+			assertTrue(fixture.foreground.starts.isEmpty())
+			assertFalse(fixture.controller.hasStaticRasterShieldOwnership())
 			assertEquals(
 				ReaderPagePreparationPresentation.Hidden,
 				fixture.latestState.presentation
 			)
 
-			fixture.background.completeCancellationRestoration(
-				ReaderPageRasterCancellationRestoration.TimedOut
-			)
-
-			assertEquals(
-				ReaderPagePreparationPresentation.Cover,
-				fixture.latestState.presentation
-			)
-			val backgroundStartCount = fixture.background.starts.size
 			fixture.controller.onPointerInteractionChanged(false)
 			fixture.drainMainLooper()
-			assertEquals(
-				backgroundStartCount,
-				fixture.background.starts.size,
-				"Foreground restoration recovery must remain ahead of adjacent prefetch"
-			)
-
-			fixture.foreground.delayLiveCompositionRestoration = true
-			assertTrue(fixture.controller.prewarmAdjacent())
-			assertEquals(1, fixture.foreground.liveCompositionRestorationCount)
-			assertEquals(null, fixture.foreground.active)
-			assertEquals(
-				ReaderPagePreparationPresentation.Cover,
-				fixture.latestState.presentation,
-				"Cache hydration cannot begin before live WebView restoration is verified"
-			)
-
-			fixture.foreground.completeLiveCompositionRestoration(
-				ReaderPageRasterCancellationRestoration.TimedOut
-			)
-			assertEquals(ReaderPagePreparationPhase.Failed, fixture.latestState.phase)
-			assertEquals(
-				ReaderPagePreparationPresentation.Cover,
-				fixture.latestState.presentation
-			)
-
-			fixture.controller.retryPreparation()
-			assertTrue(fixture.controller.prewarmAdjacent())
-			assertEquals(2, fixture.foreground.liveCompositionRestorationCount)
-			fixture.foreground.completeLiveCompositionRestoration()
-			assertTrue(fixture.controller.prewarmAdjacent())
-			fixture.foreground.completeReady(durably = true)
-			assertNotNull(fixture.foreground.active)
-			fixture.foreground.completeReady(durably = true)
-			assertEquals(
-				ReaderPagePreparationPresentation.Hidden,
-				fixture.latestState.presentation,
-				"Verified live restoration permits normal cache hydration readiness"
-			)
+			assertEquals(ownershipBefore, fixture.ownership.snapshot())
 		} finally {
-			fixture.background.completeCancellationRestoration()
 			fixture.close()
 			Dispatchers.resetMain()
 		}
@@ -339,7 +296,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
 			fixture.startCurrentChapterPreparation()
-			fixture.foreground.completeDeferred("pagination-not-ready")
+			fixture.prewarm.completeDeferred("pagination-not-ready")
 			assertTrue(
 				fixture.controller.onRetryEvent(ReaderPageRasterRetryEvent.PaginationReady)
 			)
@@ -421,23 +378,26 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
-	fun destroyWaitsForForegroundPreviewRestorationBeforeRemovingItsShield() = runTest {
+	fun destroyWaitsForRepairPreviewRestorationBeforeRemovingItsShield() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
 			fixture.startCurrentChapterPreparation()
-			fixture.foreground.stagePreview()
-			fixture.foreground.delayCancellationRestoration = true
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.controller.repairRasterPage(20) {}
+			fixture.repair.stagePreview()
+			fixture.repair.delayCancellationRestoration = true
 
 			val destruction = fixture.controller.destroy()
 
 			assertFalse(destruction.isCompleted)
-			fixture.foreground.completeCancellationRestoration(
+			fixture.repair.completeCancellationRestoration(
 				ReaderPageRasterCancellationRestoration.TimedOut
 			)
 			destruction.await()
 		} finally {
-			fixture.foreground.completeCancellationRestoration()
+			fixture.repair.completeCancellationRestoration()
 			fixture.close()
 			Dispatchers.resetMain()
 		}
@@ -469,7 +429,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			testScheduler.advanceUntilIdle()
 
 			assertEquals(2, initializationCount)
-			assertNotNull(fixture.foreground.active)
+			assertNotNull(fixture.prewarm.active)
 		} finally {
 			allowFirstInitialization.complete(Unit)
 			fixture.close()
@@ -478,25 +438,21 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
-	fun passiveAdmissionWhileLiveIsDeferredWithoutStartingOrLooping() = runTest {
+	fun repeatedPassivePrewarmPreservesCompleteForegroundOwnership() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		val live = fixture.ownership.acquireLive(gestureId = 501L)
 		try {
-			assertTrue(fixture.controller.prewarmAdjacent())
-			fixture.drainMainLooper()
-
-			assertTrue(fixture.foreground.starts.isEmpty())
-			assertEquals(0, fixture.foreground.cancellationCount)
-			assertEquals(0, fixture.ownership.snapshot().passiveOwners)
-			assertTrue(fixture.controller.prewarmAdjacent())
-			fixture.drainMainLooper()
-			assertTrue(fixture.foreground.starts.isEmpty())
-
-			assertTrue(fixture.ownership.releaseLive(live))
-			assertTrue(fixture.controller.prewarmAdjacent())
-			testScheduler.advanceUntilIdle()
-			assertNotNull(fixture.foreground.active)
+			val ownershipBefore = fixture.ownership.snapshot()
+			repeat(2) {
+				fixture.startCurrentChapterPreparation()
+				fixture.completeCalibrationDurably()
+				fixture.completeBlockingWindowDurably()
+				assertEquals(ownershipBefore, fixture.ownership.snapshot())
+				assertTrue(fixture.foreground.starts.isEmpty())
+				assertEquals(0, fixture.foreground.liveCompositionRestorationCount)
+				assertFalse(fixture.controller.hasStaticRasterShieldOwnership())
+			}
 		} finally {
 			fixture.ownership.releaseLive(live)
 			fixture.close()
@@ -505,34 +461,20 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
-	fun livePreemptionWaitsForNormalRestorationAndFencesStaleCallbacks() = runTest {
+	fun liveClaimDoesNotPreemptPassivePrewarmOrCreateRestoration() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		var live: ReaderForegroundWebViewLiveClaim? = null
 		try {
 			fixture.startCurrentChapterPreparation()
-			val stale = checkNotNull(fixture.foreground.active)
-			fixture.foreground.delayCancellationRestoration = true
+			val passiveRequest = checkNotNull(fixture.prewarm.active)
 
 			live = fixture.ownership.acquireLive(gestureId = 502L)
 			val readiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
 			fixture.ownership.whenLiveReady(live, readiness::add)
 
-			assertEquals(1, fixture.foreground.cancellationCount)
-			assertFalse(stale.isStillCurrent())
-			assertTrue(readiness.isEmpty())
-			assertEquals(1, fixture.ownership.snapshot().restorationCallbacks)
-			var stalePresented: Boolean? = null
-			stale.onStagingStarted(stale.reference) { stalePresented = it }
-			stale.onTargetDurable(stale.targets.first())
-			stale.onProgress(stale.targets.size, stale.targets.size)
-			stale.onComplete(ReaderPageRasterBatchOutcome.Ready)
-			assertEquals(false, stalePresented)
-			assertTrue(fixture.background.starts.isEmpty())
-			assertTrue(readiness.isEmpty())
-
-			fixture.foreground.completeCancellationRestoration()
-
+			assertEquals(0, fixture.prewarm.cancellationCount)
+			assertTrue(passiveRequest.isStillCurrent())
 			assertEquals(
 				listOf<ReaderForegroundWebViewLiveReadiness>(
 					ReaderForegroundWebViewLiveReadiness.Ready
@@ -540,101 +482,73 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 				readiness
 			)
 			assertEquals(0, fixture.ownership.snapshot().restorationCallbacks)
+			assertTrue(fixture.foreground.starts.isEmpty())
+
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			assertEquals(0, fixture.prewarm.cancellationCount)
 		} finally {
 			live?.let(fixture.ownership::releaseLive)
-			fixture.foreground.completeCancellationRestoration()
 			fixture.close()
 			Dispatchers.resetMain()
 		}
 	}
 
 	@Test
-	fun stalePassiveBatchCannotPublishOrReacquireAfterLiveDestinationMutation() = runTest {
+	fun liveDestinationMutationDoesNotBecomePassiveCaptureAuthority() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		var live: ReaderForegroundWebViewLiveClaim? = null
 		try {
 			fixture.startCurrentChapterPreparation()
-			val stale = checkNotNull(fixture.foreground.active)
-			fixture.foreground.delayCancellationRestoration = true
+			val passiveRequest = checkNotNull(fixture.prewarm.active)
 			live = fixture.ownership.acquireLive(gestureId = 506L)
-			val readiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
-			fixture.ownership.whenLiveReady(live, readiness::add)
-
-			stale.onStagingStarted(stale.reference) { presented ->
-				assertFalse(presented)
-			}
-			stale.onTargetDurable(stale.targets.first())
-			stale.onComplete(ReaderPageRasterBatchOutcome.Ready)
-			assertFalse(stale.isStillCurrent())
-			assertEquals(1, fixture.ownership.snapshot().restorationCallbacks)
-
-			fixture.foreground.completeCancellationRestoration()
-			assertEquals(
-				listOf<ReaderForegroundWebViewLiveReadiness>(
-					ReaderForegroundWebViewLiveReadiness.Ready
-				),
-				readiness
-			)
 			val mutation = checkNotNull(fixture.ownership.beginLiveMutation(live))
+
 			assertTrue(fixture.ownership.isCurrent(live, mutation))
-			assertEquals(null, fixture.ownership.tryAcquirePassive(9_002L) {
-				error("Live destination mutation must exclude passive reacquisition")
-			})
-
-			stale.onStagingStarted(stale.reference) { presented ->
-				assertFalse(presented)
-			}
-			stale.onTargetDurable(stale.targets.last())
-			stale.onComplete(ReaderPageRasterBatchOutcome.Ready)
-			assertFalse(stale.isStillCurrent())
-			assertTrue(fixture.background.starts.isEmpty())
-
-			assertTrue(fixture.ownership.releaseLive(live))
-			live = null
+			assertTrue(passiveRequest.isStillCurrent())
 			assertEquals(0, fixture.ownership.snapshot().passiveOwners)
-			assertEquals(0, fixture.ownership.snapshot().liveClaims)
-			assertEquals(0, fixture.ownership.snapshot().restorationCallbacks)
+			assertTrue(fixture.foreground.starts.isEmpty())
+
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+
+			assertEquals(0, fixture.prewarm.cancellationCount)
+			assertEquals(0, fixture.foreground.liveCompositionRestorationCount)
+			assertFalse(fixture.controller.hasStaticRasterShieldOwnership())
 		} finally {
 			live?.let(fixture.ownership::releaseLive)
-			fixture.foreground.completeCancellationRestoration()
 			fixture.close()
 			Dispatchers.resetMain()
 		}
 	}
 
 	@Test
-	fun livePreemptionJoinsAnOrdinaryCancellationRestorationAlreadyInProgress() = runTest {
+	fun ordinaryPassivePrewarmCancellationNeedsNoForegroundRestoration() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		var live: ReaderForegroundWebViewLiveClaim? = null
 		try {
 			fixture.startCurrentChapterPreparation()
-			fixture.foreground.delayCancellationRestoration = true
+			fixture.controller.invalidate("ordinary-passive-cancellation")
 
-			fixture.controller.invalidate("ordinary-cancellation-before-live")
-			assertEquals(1, fixture.foreground.cancellationCount)
-			assertEquals(1, fixture.ownership.snapshot().passiveOwners)
+			assertEquals(1, fixture.prewarm.cancellationCount)
+			assertEquals(0, fixture.ownership.snapshot().passiveOwners)
+			assertEquals(0, fixture.ownership.snapshot().restorationCallbacks)
+			assertEquals(0, fixture.foreground.cancellationCount)
+			assertFalse(fixture.controller.hasStaticRasterShieldOwnership())
 
 			live = fixture.ownership.acquireLive(gestureId = 505L)
 			val readiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
 			fixture.ownership.whenLiveReady(live, readiness::add)
-
-			assertTrue(readiness.isEmpty())
-			assertEquals(1, fixture.ownership.snapshot().restorationCallbacks)
-
-			fixture.foreground.completeCancellationRestoration()
-
 			assertEquals(
 				listOf<ReaderForegroundWebViewLiveReadiness>(
 					ReaderForegroundWebViewLiveReadiness.Ready
 				),
 				readiness
 			)
-			assertEquals(0, fixture.ownership.snapshot().restorationCallbacks)
 		} finally {
 			live?.let(fixture.ownership::releaseLive)
-			fixture.foreground.completeCancellationRestoration()
 			fixture.close()
 			Dispatchers.resetMain()
 		}
@@ -712,7 +626,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
-	fun livePreemptionWaitsForBackgroundRestorationAndKeepsFailureTyped() = runTest {
+	fun liveClaimDoesNotPreemptPassiveBackgroundCapture() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		var live: ReaderForegroundWebViewLiveClaim? = null
@@ -722,29 +636,25 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.completeBlockingWindowDurably()
 			fixture.deliverMatchingActiveDeckPrepared()
 			fixture.drainMainLooper()
-			assertNotNull(fixture.background.active)
-			fixture.background.delayCancellationRestoration = true
+			val passiveRequest = assertNotNull(fixture.background.active)
 
 			live = fixture.ownership.acquireLive(gestureId = 504L)
 			val readiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
 			fixture.ownership.whenLiveReady(live, readiness::add)
 
-			assertEquals(1, fixture.background.cancellationCount)
-			assertTrue(readiness.isEmpty())
-			fixture.background.completeCancellationRestoration(
-				ReaderPageRasterCancellationRestoration.Detached
-			)
+			assertEquals(0, fixture.background.cancellationCount)
+			assertTrue(passiveRequest.isStillCurrent())
 			assertEquals(
 				listOf<ReaderForegroundWebViewLiveReadiness>(
-					ReaderForegroundWebViewLiveReadiness.Failed(
-						ReaderPageRasterCancellationRestoration.Detached
-					)
+					ReaderForegroundWebViewLiveReadiness.Ready
 				),
 				readiness
 			)
+			assertEquals(0, fixture.ownership.snapshot().restorationCallbacks)
+			assertTrue(fixture.foreground.starts.isEmpty())
+			assertFalse(fixture.controller.hasStaticRasterShieldOwnership())
 		} finally {
 			live?.let(fixture.ownership::releaseLive)
-			fixture.background.completeCancellationRestoration()
 			fixture.close()
 			Dispatchers.resetMain()
 		}
@@ -1006,20 +916,28 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
-	fun backgroundCallbacksUseOnlyTheDedicatedSessionFencedShield() {
+	fun backgroundCaptureUsesOnlyTheIsolatedPassiveAdapter() {
 		val background = preparation
-			.substringAfter("private fun scheduleBackgroundPrefetch(")
-			.substringBefore("private fun logPrewarmBoundary(")
+			.substringAfter("private fun startBackgroundPrefetch(")
+			.substringBefore("private fun isBackgroundPrefetchActive(")
 
-		assertContains(background, "showBackgroundPrefetchShield(")
-		assertContains(background, "activeBackgroundPassiveLease == leaseSession")
-		assertContains(preparation, "ReaderPageStaticWindowShield(host)")
-		assertContains(preparation, "surfaceRectInWindow = snapshot.surfaceRectInWindow")
-		assertContains(preparation, "shield?.dismiss()")
+		assertContains(background, "passiveRasterPreparationPortProvider()")
+		assertContains(background, "passiveRasterPreparationPort.start(")
+		assertContains(
+			background,
+			"capacityPolicy = ReaderPageRasterCapacityPolicy.StopBackgroundRefill"
+		)
+		assertContains(background, "onTargetDurable = { target ->")
+		listOf(
+			"acquirePassiveRasterLease(",
+			"foregroundMutationGeneration",
+			"onStagingStarted",
+			"showBackgroundPrefetchShield(",
+			"restoreLiveComposition(",
+			"rasterBackgroundBatchController.start("
+		).forEach { forbidden -> assertFalse(background.contains(forbidden), forbidden) }
 		assertFalse(foliate.contains("acquirePassiveCaptureCover"))
 		assertFalse(host.contains("onAcquireBackgroundCaptureCover"))
-		assertContains(background, "removeBackgroundPrefetchShield(submission.sessionId)")
-		assertContains(background, "backgroundPrefetchShieldSessionId != sessionId")
 		assertFalse(background.contains("publishPreparationState("))
 		assertFalse(background.contains("reusePreparationShield("))
 	}
@@ -1033,6 +951,165 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		assertFalse(background.contains("publishPreparationState("))
 		assertFalse(background.contains("reusePreparationShield("))
 		assertTrue(background.contains("Looper.myQueue().addIdleHandler"))
+	}
+}
+
+private data class ReaderPassiveRasterPreparationRequest(
+	val reference: ReaderPageSlideSnapshot,
+	val targets: List<ReaderPageRasterBatchTarget>,
+	val rasterGeneration: Long,
+	val isStillCurrent: () -> Boolean,
+	val trigger: ReaderPageRasterAcquisitionTrigger,
+	val capacityPolicy: ReaderPageRasterCapacityPolicy,
+	val onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
+	val onHydrationMiss: (ReaderPageRasterBatchTarget) -> Unit,
+	val onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
+	val onProgress: (Int, Int) -> Unit,
+	val onComplete: (ReaderPageRasterBatchOutcome) -> Unit
+)
+
+private class FakeReaderPassiveRasterPreparationPort : ReaderPassiveRasterPreparationPort {
+	enum class Lane {
+		Prewarm,
+		Background
+	}
+
+	private val startsByLane = mutableMapOf(
+		Lane.Prewarm to mutableListOf<ReaderPassiveRasterPreparationRequest>(),
+		Lane.Background to mutableListOf()
+	)
+	private val cancellationsByLane = mutableMapOf(
+		Lane.Prewarm to 0,
+		Lane.Background to 0
+	)
+	private var activeRequest: Pair<Lane, ReaderPassiveRasterPreparationRequest>? = null
+	private var closed = false
+	private var paused = false
+
+	val prewarm = LanePort(Lane.Prewarm)
+	val background = LanePort(Lane.Background)
+
+	override val isAvailable: Boolean
+		get() = !closed && !paused
+
+	override fun start(
+		kind: ReaderPageTurnTransitionKind,
+		reference: ReaderPageSlideSnapshot,
+		targets: List<ReaderPageRasterBatchTarget>,
+		rasterGeneration: Long,
+		isStillCurrent: () -> Boolean,
+		trigger: ReaderPageRasterAcquisitionTrigger,
+		capacityPolicy: ReaderPageRasterCapacityPolicy,
+		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
+		onHydrationMiss: (ReaderPageRasterBatchTarget) -> Unit,
+		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
+		onProgress: (completedCount: Int, requiredCount: Int) -> Unit,
+		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
+	): Boolean {
+		if (!isAvailable || activeRequest != null || targets.isEmpty() || !isStillCurrent()) {
+			reference.release()
+			return false
+		}
+		val lane = if (capacityPolicy == ReaderPageRasterCapacityPolicy.StopBackgroundRefill) {
+			Lane.Background
+		} else {
+			Lane.Prewarm
+		}
+		val request = ReaderPassiveRasterPreparationRequest(
+			reference = reference,
+			targets = targets,
+			rasterGeneration = rasterGeneration,
+			isStillCurrent = isStillCurrent,
+			trigger = trigger,
+			capacityPolicy = capacityPolicy,
+			onActiveTarget = onActiveTarget,
+			onHydrationMiss = onHydrationMiss,
+			onTargetDurable = onTargetDurable,
+			onProgress = onProgress,
+			onComplete = onComplete
+		)
+		startsByLane.getValue(lane) += request
+		activeRequest = lane to request
+		onProgress(0, targets.size)
+		onActiveTarget(targets.first())
+		return true
+	}
+
+	override fun cancel() {
+		val (lane, request) = activeRequest ?: return
+		activeRequest = null
+		cancellationsByLane[lane] = cancellationsByLane.getValue(lane) + 1
+		request.reference.release()
+		request.onComplete(ReaderPageRasterBatchOutcome.Cancelled)
+	}
+
+	override fun pause() {
+		cancel()
+		paused = true
+	}
+
+	override fun resume() {
+		if (!closed) paused = false
+	}
+
+	override fun close() {
+		cancel()
+		closed = true
+	}
+
+	inner class LanePort internal constructor(private val lane: Lane) {
+		val starts: List<ReaderPassiveRasterPreparationRequest>
+			get() = startsByLane.getValue(lane)
+		val active: ReaderPassiveRasterPreparationRequest?
+			get() = activeRequest?.takeIf { it.first == lane }?.second
+		val cancellationCount: Int
+			get() = cancellationsByLane.getValue(lane)
+
+		fun publishDurable(target: ReaderPageRasterBatchTarget) {
+			val request = checkNotNull(active)
+			check(target in request.targets)
+			request.onTargetDurable(target)
+		}
+
+		fun completeCapacityReached(pageIndex: Int) {
+			complete(ReaderPageRasterBatchOutcome.CapacityReached(pageIndex))
+		}
+
+		fun completeReady(durably: Boolean) {
+			val request = checkNotNull(active)
+			if (durably) request.targets.forEach(request.onTargetDurable)
+			request.onProgress(request.targets.size, request.targets.size)
+			complete(ReaderPageRasterBatchOutcome.Ready)
+		}
+
+		fun completeFailed() {
+			val request = checkNotNull(active)
+			complete(
+				ReaderPageRasterBatchOutcome.Failed(
+					stage = "persistent-publication",
+					pageIndex = request.targets.last().pageIndex,
+					reason = "durable-write-failed"
+				)
+			)
+		}
+
+		fun completeDeferred(reason: String) {
+			val request = checkNotNull(active)
+			complete(
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "batch",
+					pageIndex = request.targets.last().pageIndex,
+					reason = reason
+				)
+			)
+		}
+
+		private fun complete(outcome: ReaderPageRasterBatchOutcome) {
+			val request = checkNotNull(active)
+			activeRequest = null
+			request.reference.release()
+			request.onComplete(outcome)
+		}
 	}
 }
 
@@ -1223,9 +1300,10 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 	private val reference: ReaderPageSlideSnapshot,
 	val ownership: ReaderForegroundWebViewOwnership,
 	val controller: ReaderPageRasterPreparationController,
+	val prewarm: FakeReaderPassiveRasterPreparationPort.LanePort,
 	val foreground: FakeReaderPageRasterBatchPort,
 	val repair: FakeReaderPageRasterBatchPort,
-	val background: FakeReaderPageRasterBatchPort,
+	val background: FakeReaderPassiveRasterPreparationPort.LanePort,
 	val diagnosticMessages: MutableList<String>,
 	private val states: MutableList<ReaderPagePreparationState>
 ) {
@@ -1237,17 +1315,17 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 	fun startCurrentChapterPreparation() {
 		assertTrue(controller.prewarmAdjacent())
 		testScheduler.advanceUntilIdle()
-		assertNotNull(foreground.active)
+		assertNotNull(prewarm.active)
 	}
 
 	fun completeCalibrationDurably() {
-		foreground.completeReady(durably = true)
-		assertNotNull(foreground.active)
+		prewarm.completeReady(durably = true)
+		assertNotNull(prewarm.active)
 		assertTrue(background.starts.isEmpty())
 	}
 
 	fun completeBlockingWindowDurably() {
-		foreground.completeReady(durably = true)
+		prewarm.completeReady(durably = true)
 		assertEquals(ReaderPagePreparationPhase.Ready, latestState.phase)
 	}
 
@@ -1304,9 +1382,10 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 				bundleSource.initializeRasterCache(webView)
 			}
 			val reference = task9ReferenceSnapshot()
+			val passive = FakeReaderPassiveRasterPreparationPort()
 			val foreground = FakeReaderPageRasterBatchPort()
 			val repair = FakeReaderPageRasterBatchPort()
-			val background = FakeReaderPageRasterBatchPort()
+			val legacyBackground = FakeReaderPageRasterBatchPort()
 			val ownership = ReaderForegroundWebViewOwnership()
 			val states = mutableListOf<ReaderPagePreparationState>()
 			val diagnosticMessages = mutableListOf<String>()
@@ -1333,7 +1412,8 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 				onPreparationStateChange = states::add,
 				rasterBatchController = foreground,
 				rasterRepairBatchController = repair,
-				rasterBackgroundBatchController = background,
+				rasterBackgroundBatchController = legacyBackground,
+				passiveRasterPreparationPortProvider = { passive },
 				rasterPlanPort = ReaderPageRasterPreparationPlanPort { _, _, onPlan ->
 					onPlan(task9PreparationPlan())
 				},
@@ -1363,9 +1443,10 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 				reference = reference,
 				ownership = ownership,
 				controller = controller,
+				prewarm = passive.prewarm,
 				foreground = foreground,
 				repair = repair,
-				background = background,
+				background = passive.background,
 				diagnosticMessages = diagnosticMessages,
 				states = states
 			)

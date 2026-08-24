@@ -22,7 +22,7 @@ import {
   readerMediaSelector,
 } from './navic-reader-media.js'
 
-const readerAssetUrl = path => new URL(path, document.baseURI).href
+const readerAssetUrl = path => new URL(path, import.meta.url).href
 
 const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value))
 
