@@ -1,6 +1,7 @@
 package paige.navic.androidApp
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -74,6 +75,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		super.onDestroy()
 	}
 
+	@SuppressLint("RestrictedApi")
 	override fun dispatchKeyEvent(event: KeyEvent): Boolean {
 		val decision = volumeKeySkipDecision(
 			enabled = preferenceManager.volumeKeysSkipTracks,
