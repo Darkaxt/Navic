@@ -79,31 +79,6 @@ class ReaderPageAdjacentChapterPrefetchTest {
 	}
 
 	@Test
-	fun foregroundRepairRetainsDeckAndResumesOnlyMissingTargets() {
-		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
-		val cancellations = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
-		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(
-			onSubmit = submissions::add,
-			onCancel = cancellations::add
-		)
-		coordinator.replaceDurablePlan(adjacentPlan())
-		coordinator.onPreparedActiveDeckChanged(preparedDeck())
-		val interrupted = submissions.single()
-		assertTrue(coordinator.onTargetDurable(interrupted, interrupted.targets.first().pageIndex))
-
-		coordinator.suspendForForegroundWork()
-		assertEquals(listOf(interrupted), cancellations)
-		assertFalse(coordinator.onBatchFinished(interrupted))
-
-		coordinator.resumeAfterForegroundWork()
-		assertEquals(2, submissions.size)
-		assertEquals(
-			interrupted.targets.drop(1).map { target -> target.pageIndex },
-			submissions.last().targets.map { target -> target.pageIndex }
-		)
-	}
-
-	@Test
 	fun webViewDetachmentCancelsThenResubmitsMissingWorkOnReattach() {
 		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
 		val cancellations = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()

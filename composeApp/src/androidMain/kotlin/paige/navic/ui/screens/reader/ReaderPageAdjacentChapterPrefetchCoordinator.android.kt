@@ -47,7 +47,8 @@ internal data class ReaderPagePreparedActiveDeck(
 	val rasterProfileEpoch: Long,
 	val rasterEpoch: Long,
 	val sourceCenterPageIndex: Int,
-	val generationId: Long
+	val generationId: Long,
+	val preparationGeneration: Long = 0L
 )
 
 internal data class ReaderPageAdjacentChapterPrefetchSubmission(

@@ -246,6 +246,43 @@ old-generation callback, requiring book reopen, or retaining a reachable
 production shared-preview fallback is a blocker. Optional cache tuning may defer
 to Stage 6 if it does not affect correctness or bounded resource use.
 
+### Stage 4 execution ledger
+
+- **Validated:** Every raster preparation attempt carries a monotonic preparation
+  generation through passive manifest requests, capture, admission, persistent
+  publication, and renderer deck submission. A failed generation is terminal;
+  old capture, publication, state, and accepted renderer callbacks cannot publish
+  readiness or ownership. Stale renderer-owned decks are tombstoned locally and
+  released from PlayLikeCurl exactly once.
+- **Validated:** Retry cancels and retires failed work, coalesces duplicate input,
+  allocates one fresh generation, requests fresh manifests from the current live
+  commit, and reaches `Ready` only after both current raster and active-deck proof.
+  Targeted recovery retains valid persistent cache entries and does not reopen the
+  publication, navigate the live WebView, seek audio, or alter the committed
+  location, playback intent, prepared audio target, or current page.
+- **Validated:** Repair, prewarm, and background raster acquisition now use only
+  the isolated passive adapter. An unavailable or unhealthy passive session is
+  closed and recreated before a fresh attempt. The foreground preview
+  expose/capture/restore route is unreachable from production preparation, while
+  genuine current-live surface capture remains a separate live-only operation.
+- **Validated:** Low-memory and qualifying trim callbacks cancel passive work,
+  close the passive session, release decoded working sets outside the protected
+  window, retain valid persistent rasters, and recreate passive state lazily from
+  fresh manifests without sacrificing live reader authority.
+- **Gates:** The focused five-class Stage 4 Android boundary passed 205/205. The
+  consolidated reader JavaScript boundary passed 148/148 plus the relocation
+  bridge; the full Android host suite passed 3,625/3,625;
+  `:androidApp:assembleReaderDev` passed; and final diff checks passed.
+- **Deferred to Stage 6:** Bounded emulator/tablet runtime acceptance remains the
+  integrated acceptance gate. Stage 4 performed no device or emulator work.
+  Optional cache tuning may also wait until Stage 6 because correctness, valid
+  persistent-cache retention, and bounded low-memory eviction are already proven.
+- **Not Stage 4 scope:** Curl material, backing, border, clipping, and highlight-mask
+  ownership remain Stage 5 work and were not introduced here.
+- **Blockers:** None after terminal-generation fencing, exact renderer-deck release,
+  fresh Retry proof, passive-only repair, passive-session recreation, low-memory
+  eviction, live-state preservation, consolidated host, and ReaderDev build gates.
+
 ## Stage 5 — Atomic Curl Material And Highlight Presentation
 
 ### Steps

@@ -27,6 +27,7 @@ fun readerPageTurnContentReadyKey(profile: ReaderPaginationProfileStatus): Strin
 
 data class ReaderPagePreparationState(
 	val phase: ReaderPagePreparationPhase = ReaderPagePreparationPhase.Idle,
+	val preparationGeneration: Long = 0L,
 	val requiredCount: Int = 0,
 	val completedCount: Int = 0,
 	val interactiveRequiredCount: Int = 0,
@@ -108,6 +109,7 @@ fun ReaderPagePreparationState.withRendererReadiness(
 
 fun readerPagePreparationState(
 	phase: ReaderPagePreparationPhase,
+	preparationGeneration: Long = 0L,
 	requiredCount: Int,
 	completedCount: Int,
 	interactiveRequiredCount: Int,
@@ -123,6 +125,7 @@ fun readerPagePreparationState(
 	val normalizedInteractiveCompleted = interactiveCompletedCount.coerceIn(0, normalizedInteractiveRequired)
 	return ReaderPagePreparationState(
 		phase = phase,
+		preparationGeneration = preparationGeneration,
 		requiredCount = normalizedRequired,
 		completedCount = normalizedCompleted,
 		interactiveRequiredCount = normalizedInteractiveRequired,

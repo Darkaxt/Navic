@@ -1398,12 +1398,22 @@ internal class ReaderPageTurnBundleSource(
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
+		preparationGeneration: Long = 0L,
+		isPreparationGenerationCurrent: (Long) -> Boolean = { true },
 		isStillCurrent: () -> Boolean,
 		onPublished: (ReaderPageRasterPublicationResult) -> Unit
 	) {
 		val inputs = currentAuthority.manifestInputs
 		val commit = inputs.canonicalCommit
 		val descriptor = inputs.rasterDescriptor
+		if (!runCatching {
+				isPreparationGenerationCurrent(preparationGeneration)
+			}.getOrDefault(false)
+		) {
+			capture.raster?.release()
+			onPublished(ReaderPageRasterPublicationResult.Failed)
+			return
+		}
 		if (
 			descriptor.visualPageOrdinal != inputs.visualPageOrdinal ||
 			descriptor.paginationFingerprint != commit.paginationFingerprint ||
@@ -1445,6 +1455,9 @@ internal class ReaderPageTurnBundleSource(
 			closed ||
 			pageIndex != inputs.visualPageOrdinal ||
 			!generationIsCurrent ||
+			!runCatching {
+				isPreparationGenerationCurrent(preparationGeneration)
+			}.getOrDefault(false) ||
 			!runCatching(isStillCurrent).getOrDefault(false)
 		) {
 			admitted.releaseRaster()
@@ -1477,6 +1490,9 @@ internal class ReaderPageTurnBundleSource(
 			physicalLayoutEpoch == null ||
 			physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get() ||
 			generation != activeGeneration ||
+			!runCatching {
+				isPreparationGenerationCurrent(preparationGeneration)
+			}.getOrDefault(false) ||
 			!runCatching(isStillCurrent).getOrDefault(false)
 		) {
 			snapshot?.releaseCacheOwnership()
@@ -1490,9 +1506,13 @@ internal class ReaderPageTurnBundleSource(
 			expectedDescriptor = inputs.rasterDescriptor,
 			isStillCurrent = isStillCurrent
 		) { result ->
+			val preparationCurrent = runCatching {
+				isPreparationGenerationCurrent(preparationGeneration)
+			}.getOrDefault(false)
 			val publicationCurrent =
 				generation == activeGeneration &&
 					physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get() &&
+					preparationCurrent &&
 					runCatching(isStillCurrent).getOrDefault(false)
 			if (result == ReaderPageRasterPublicationResult.Durable && publicationCurrent) {
 				val cached = putSnapshot(

@@ -1321,8 +1321,61 @@ class ReaderPassiveRasterPrototypeTest {
 			)
 			assertEquals(1, rasterReleases)
 			assertTrue(runtime.createdBitmaps.single().isRecycled)
+			assertFalse(
+				source.hasSnapshot(
+					captureFixture.manifest.visualPageOrdinal,
+					ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			)
+
+			val freshCompleted = mutableListOf<ReaderPageRasterBatchOutcome>()
+			val freshCompletion = CompletableDeferred<Unit>()
+			reference.retain()
+			assertTrue(
+				adapter.start(
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					reference = reference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = captureFixture.manifest.visualPageOrdinal,
+							priority = ReaderPageRasterPriority.NextChapter
+						)
+					),
+					rasterGeneration = source.currentGeneration(),
+					isStillCurrent = { true },
+					trigger = ReaderPageRasterAcquisitionTrigger.WarmReopen,
+					onComplete = { outcome ->
+						freshCompleted += outcome
+						freshCompletion.complete(Unit)
+					}
+				)
+			)
+			advanceUntilIdle()
+			freshCompletion.await()
+			assertEquals(
+				listOf<ReaderPageRasterBatchOutcome>(ReaderPageRasterBatchOutcome.Ready),
+				freshCompleted,
+				"requests=${manifestPort.requests} captures=${runtime.captureRequests} " +
+					"releases=$rasterReleases adapterAvailable=${adapter.isAvailable} " +
+					"session=${session.metrics()} ownership=${source.ownershipMetrics()}"
+			)
+			assertTrue(
+				source.hasSnapshot(
+					captureFixture.manifest.visualPageOrdinal,
+					ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			)
+			val cacheAfterFreshRetry = source.rasterCacheMetrics()
+			val releasesAfterFreshRetry = rasterReleases
+
 			manifestPort.resolveSecond()
-			assertEquals(1, rasterReleases)
+
+			assertEquals(cacheAfterFreshRetry, source.rasterCacheMetrics())
+			assertEquals(releasesAfterFreshRetry, rasterReleases)
+			assertEquals(
+				listOf<ReaderPageRasterBatchOutcome>(ReaderPageRasterBatchOutcome.Cancelled),
+				completed
+			)
 		} finally {
 			adapter.close()
 			source.closeAndJoin()
@@ -1718,12 +1771,14 @@ class ReaderPassiveRasterPrototypeTest {
 		var requests = 0
 			private set
 		private var secondCallback: ((ReaderPassiveRasterManifestInputs?) -> Unit)? = null
+		private var secondInputs: ReaderPassiveRasterManifestInputs? = null
 		private val secondRequested = CompletableDeferred<Unit>()
 
 		override fun request(
 			visualPageOrdinal: Int,
 			captureEpoch: Long,
 			rasterGeneration: Long,
+			preparationGeneration: Long,
 			onResolved: (ReaderPassiveRasterManifestInputs?) -> Unit
 		) {
 			requests += 1
@@ -1738,12 +1793,13 @@ class ReaderPassiveRasterPrototypeTest {
 					visualPageOrdinal = visualPageOrdinal
 				)
 			)
-			if (requests == 1) {
-				onResolved(current)
-			} else {
+			if (requests == 2) {
 				check(secondCallback == null)
 				secondCallback = onResolved
+				secondInputs = current
 				secondRequested.complete(Unit)
+			} else {
+				onResolved(current)
 			}
 		}
 
@@ -1751,8 +1807,10 @@ class ReaderPassiveRasterPrototypeTest {
 
 		fun resolveSecond() {
 			val callback = assertNotNull(secondCallback)
+			val current = assertNotNull(secondInputs)
 			secondCallback = null
-			callback(inputs)
+			secondInputs = null
+			callback(current)
 		}
 	}
 
@@ -1822,7 +1880,7 @@ class ReaderPassiveRasterPrototypeTest {
 				script.contains("pageTurnPassiveRasterManifestInputs") -> {
 					manifestRequests += 1
 					val arguments = assertNotNull(
-						Regex("""\((\d+), (\d+), (\d+)\)""").find(script)
+						Regex("""\((\d+), (\d+), (\d+), (\d+)\)""").find(script)
 					).groupValues
 					val visualPageOrdinal = arguments[1].toInt()
 					val captureEpoch = arguments[2].toLong()

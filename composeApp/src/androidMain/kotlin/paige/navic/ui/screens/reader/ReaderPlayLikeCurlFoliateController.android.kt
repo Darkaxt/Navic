@@ -783,6 +783,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	)
 	private val generationOwners = mutableMapOf<Long, PreparedPages>()
 	private val generationRoles = mutableMapOf<Long, ReaderDeckSubmissionRole>()
+	private val generationPreparationGenerations = mutableMapOf<Long, Long>()
 	private val preparedDeckGenerations = mutableSetOf<Long>()
 	private val deckDiagnosticTracker = diagnostics?.let(::ReaderPageDeckDiagnosticTracker)
 	private val repairQaFaultCorrelations =
@@ -857,6 +858,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var foliateSessionRelocationPending = false
 	private var hostResumed = false
 	private var preparationPhase = ReaderPagePreparationPhase.Idle
+	private var preparationGeneration = 0L
+	private var failedPreparationGeneration: Long? = null
+	private var activeDeckPreparationGeneration: Long? = null
+	private var retryPreparationInProgress = false
 	private var requestGeneration = 0L
 	private var decodedRefillGeneration = 0L
 	private var decodedRefillCenterOrdinal: Int? = null
@@ -1017,9 +1022,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onDeckPrepared(generationId: Long) {
+				val preparationGeneration = generationPreparationGenerations[generationId] ?: return
+				if (
+					preparationGeneration !=
+						this@ReaderPlayLikeCurlFoliateController.preparationGeneration ||
+					preparationGeneration == failedPreparationGeneration
+				) {
+					releaseRendererOwnedGeneration(generationId)
+					return
+				}
 				val role = generationRoles[generationId] ?: return
 				preparedDeckGenerations += generationId
 				if (generationId == activeDeckGenerationId) {
+					activeDeckPreparationGeneration = preparationGeneration
 					hasPreparedDeckBefore = true
 					updateReadiness(
 						textureDeck = ReaderTextureDeckState.Ready,
@@ -1575,7 +1590,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 				rasterProfileEpoch = profileEpoch,
 				rasterEpoch = pages.profile.rasterGeneration,
 				sourceCenterPageIndex = pages.profile.pageRequest(sourceOrdinal).sourcePageIndex,
-				generationId = generationId
+				generationId = generationId,
+				preparationGeneration = generationPreparationGenerations[generationId]
+					?: preparationGeneration
 			)
 		} else {
 			null
@@ -1628,7 +1645,47 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (enabled) onRequestPrewarm()
 	}
 
+	fun retryPreparation(preparationGeneration: Long) {
+		if (
+			destroyed ||
+				retryPreparationInProgress ||
+				preparationGeneration < this.preparationGeneration
+		) return
+		retryPreparationInProgress = true
+		this.preparationGeneration = preparationGeneration
+		activeDeckPreparationGeneration = null
+		pendingDeckGenerationId?.let(::releaseRendererOwnedGeneration)
+		requestGeneration += 1L
+		preparationPhase = ReaderPagePreparationPhase.Preparing
+		refreshPreparedDeck()
+	}
+
 	fun onPreparationStateChanged(state: ReaderPagePreparationState) {
+		if (state.preparationGeneration < preparationGeneration) return
+		if (
+			state.phase != ReaderPagePreparationPhase.Failed &&
+				state.preparationGeneration == failedPreparationGeneration
+		) return
+		if (state.preparationGeneration > preparationGeneration) {
+			preparationGeneration = state.preparationGeneration
+		}
+		if (state.phase == ReaderPagePreparationPhase.Failed) {
+			failedPreparationGeneration = state.preparationGeneration
+			retryPreparationInProgress = false
+			requestGeneration += 1L
+			pendingDeckGenerationId?.let(::releaseRendererOwnedGeneration)
+		}
+		if (
+			state.phase == ReaderPagePreparationPhase.Ready &&
+				retryPreparationInProgress &&
+				state.preparationGeneration != activeDeckPreparationGeneration
+		) {
+			preparationPhase = ReaderPagePreparationPhase.Preparing
+			return
+		}
+		if (state.phase == ReaderPagePreparationPhase.Ready) {
+			retryPreparationInProgress = false
+		}
 		setPageOperationPolicy(state.operationPolicy)
 		preparationPhase = state.phase
 		if (!enabled || destroyed) return
@@ -2315,8 +2372,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		generationOwners.keys.toList().forEach(surfaceView::releaseDeck)
 		deckDiagnosticTracker?.cancelAll()
 		generationRoles.clear()
+		generationPreparationGenerations.clear()
 		preparedDeckGenerations.clear()
 		activeDeckGenerationId = null
+		activeDeckPreparationGeneration = null
+		retryPreparationInProgress = false
 		pendingDeckGenerationId = null
 		pendingDeckOrdinal = null
 		activePages?.obsolete = true
@@ -2865,7 +2925,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			isAwaitingAuthoritativeRelocation() -> "awaiting-authoritative-relocation"
 			!capabilitiesAvailable -> "capabilities-unavailable"
 			!authoritativeLocationReady -> "authoritative-location-unavailable"
-			preparationPhase == ReaderPagePreparationPhase.Preparing -> "preparation-in-progress"
+			preparationPhase == ReaderPagePreparationPhase.Preparing &&
+				!retryPreparationInProgress -> "preparation-in-progress"
 			else -> null
 		}
 		if (gate != null) {
@@ -2905,7 +2966,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 				logActivationState("refresh-gated", "stale-turn-request=$request")
 				return@evaluateJavascript
 			}
-			if (preparationPhase == ReaderPagePreparationPhase.Preparing) {
+			if (
+				preparationPhase == ReaderPagePreparationPhase.Preparing &&
+					!retryPreparationInProgress
+			) {
 				logActivationState("refresh-gated", "preparation-in-progress-after-plan")
 				return@evaluateJavascript
 			}
@@ -3663,6 +3727,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		profile: ReaderPlayLikeCurlRasterProfile,
 		centerOrdinal: Int
 	) {
+		val preparationGeneration = preparationGeneration
+		if (failedPreparationGeneration == preparationGeneration) return
 		val pageIndices = profile.preparedPageIndices(centerOrdinal)
 		if (requestedProfile != profile) {
 			activePages?.let { pages ->
@@ -3797,6 +3863,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 			if (
 					request != requestGeneration ||
+					preparationGeneration != this@ReaderPlayLikeCurlFoliateController.preparationGeneration ||
+					failedPreparationGeneration == preparationGeneration ||
 					!enabled ||
 					destroyed ||
 					requestedProfile != profile ||
@@ -3824,11 +3892,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 					interaction = blockingPreparationState(),
 					reason = "deck-submitting:$request"
 				)
-				submitLibraryDeck(
-					pages = pages,
-					ordinal = currentOrdinal,
-					role = ReaderDeckSubmissionRole.Active
-				)
+					activeDeckPreparationGeneration = null
+					submitLibraryDeck(
+						pages = pages,
+						ordinal = currentOrdinal,
+						role = ReaderDeckSubmissionRole.Active,
+						preparationGeneration = preparationGeneration
+					)
 				reserveNextDecodedWorkingSet()
 			}
 		}
@@ -4503,9 +4573,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun submitLibraryDeck(
 		pages: PreparedPages,
 		ordinal: Int,
-		role: ReaderDeckSubmissionRole
+		role: ReaderDeckSubmissionRole,
+		preparationGeneration: Long = this.preparationGeneration
 	) {
-		if (pages.obsolete || destroyed || !enabled || !attached) return
+		if (
+			pages.obsolete ||
+				destroyed ||
+				!enabled ||
+				!attached ||
+				preparationGeneration != this.preparationGeneration ||
+				failedPreparationGeneration == preparationGeneration
+		) return
 		val generationId = nextDeckGeneration++
 		val deck = runCatching {
 			buildLibraryDeck(pages, ordinal, generationId)
@@ -4542,7 +4620,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 			submissionCallbackFence.submit(generationId) {
 				surfaceView.submitDeckWithResult(deck) {
 					ownershipTransferred = true
-					acceptLibraryDeckOwnership(pages, ordinal, generationId, role)
+					acceptLibraryDeckOwnership(
+						pages,
+						ordinal,
+						generationId,
+						role,
+						preparationGeneration
+					)
 				}
 			}
 		} catch (failure: Throwable) {
@@ -4588,11 +4672,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 		pages: PreparedPages,
 		ordinal: Int,
 		generationId: Long,
-		role: ReaderDeckSubmissionRole
+		role: ReaderDeckSubmissionRole,
+		preparationGeneration: Long
 	) {
 		generationOwners[generationId] = pages
 		pages.generations += generationId
 		generationRoles[generationId] = role
+		generationPreparationGenerations[generationId] = preparationGeneration
 		when (role) {
 			ReaderDeckSubmissionRole.Active -> {
 				activeDeckGenerationId = generationId
@@ -5624,8 +5710,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 		return foregroundWebViewOwnership.releaseLive(request.claim)
 	}
 
+	private fun releaseRendererOwnedGeneration(generationId: Long) {
+		if (generationId !in generationOwners) return
+		releaseGeneration(generationId)
+		surfaceView.releaseDeck(generationId)
+	}
+
 	private fun releaseGeneration(generationId: Long) {
 		deckDiagnosticTracker?.cancel(generationId)
+		generationPreparationGenerations.remove(generationId)
 		val pages = generationOwners.remove(generationId) ?: return
 		val releasedCurrentActive = activeDeckGenerationId == generationId
 		generationRoles.remove(generationId)
@@ -5634,6 +5727,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (releasedCurrentActive) {
 			releaseInitialLivePresentationAuthority()
 				activeDeckGenerationId = null
+			activeDeckPreparationGeneration = null
 			if (activePages === pages) activePages = null
 			notifyPreparedActiveDeckChanged(null)
 		}
@@ -5683,6 +5777,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			activePages = promotedPages
 		}
 		activeDeckGenerationId = promotedGeneration
+		activeDeckPreparationGeneration = generationPreparationGenerations[promotedGeneration]
 		pendingDeckGenerationId = null
 		pendingDeckOrdinal = null
 		generationRoles[promotedGeneration] = ReaderDeckSubmissionRole.Active

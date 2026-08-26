@@ -9,6 +9,18 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+private fun requiredFoliateSourceSlice(
+	source: String,
+	startDelimiter: String,
+	endDelimiter: String
+): String {
+	val afterStart = source.substringAfter(startDelimiter, missingDelimiterValue = "")
+	assertTrue(afterStart.isNotBlank(), "Missing exact start delimiter: $startDelimiter")
+	val slice = afterStart.substringBefore(endDelimiter, missingDelimiterValue = "")
+	assertTrue(slice.isNotBlank(), "Missing exact end delimiter: $endDelimiter")
+	return slice
+}
+
 class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	private val controllerFile =
 		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateController.android.kt")
@@ -203,81 +215,68 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun hostOwnsOneForegroundWebViewCoordinatorAcrossPreparationAndLiveDispatch() {
+	fun hostKeepsForegroundOwnershipOutOfAllPassiveRasterPreparation() {
 		val host = hostFile.readText()
-		val viewer = host
-			.substringAfter("private class KomikkuReaderNativeViewerContainer")
-			.substringBefore("private fun View.findDescendantWebView")
-		val playLikeCurlWiring = viewer
-			.substringAfter("private val playLikeCurlController: ReaderPlayLikeCurlFoliateController =")
-			.substringBefore("private val ownershipProbe")
-		val preparationWiring = viewer
-			.substringAfter("private val pageRasterPreparationController: ReaderPageRasterPreparationController =")
-			.substringBefore("private val pageRasterHostEventController")
-		val passiveAvailability = viewer
-			.substringAfter("private fun onForegroundWebViewPassiveAvailable()")
-			.substringBefore("\n\t}\n\n")
-		val prewarm = viewer
-			.substringAfter("private fun requestPageTurnPrewarmWhenReady()")
-			.substringBefore("private fun pageTurnPrewarmLayoutSignature")
-		val teardown = viewer.substringAfter("private fun teardownTask4Resources()")
+		val viewer = requiredFoliateSourceSlice(
+			source = host,
+			startDelimiter = "private class KomikkuReaderNativeViewerContainer",
+			endDelimiter = "private fun View.findDescendantWebView"
+		)
+		val playLikeCurlWiring = requiredFoliateSourceSlice(
+			source = viewer,
+			startDelimiter = "private val playLikeCurlController: ReaderPlayLikeCurlFoliateController =",
+			endDelimiter = "private val ownershipProbe"
+		)
+		val preparationWiring = requiredFoliateSourceSlice(
+			source = viewer,
+			startDelimiter = "private val pageRasterPreparationController: ReaderPageRasterPreparationController =",
+			endDelimiter = "private val pageRasterHostEventController"
+		)
+		val passiveAvailability = requiredFoliateSourceSlice(
+			source = viewer,
+			startDelimiter = "private fun onPassiveRasterPreparationAvailable()",
+			endDelimiter = "private fun replacePassiveRasterPreparationAdapter("
+		)
+		val prewarm = requiredFoliateSourceSlice(
+			source = viewer,
+			startDelimiter = "private fun requestPageTurnPrewarmWhenReady()",
+			endDelimiter = "private fun pageTurnPrewarmLayoutSignature"
+		)
+		val teardown = requiredFoliateSourceSlice(
+			source = host,
+			startDelimiter = "private fun teardownTask4Resources()",
+			endDelimiter = "private fun View.findDescendantWebView"
+		)
 
 		assertEquals(
 			1,
 			Regex("ReaderForegroundWebViewOwnership\\(").findAll(viewer).count(),
-			"The host must create exactly one foreground WebView owner."
-		)
-		assertContains(
-			viewer,
-			"onPassiveAvailable = ::onForegroundWebViewPassiveAvailable"
-		)
-		assertContains(
-			passiveAvailability,
-			"pageRasterPreparationController.onForegroundWebViewPassiveAvailable()"
-		)
-		assertEquals(
-			1,
-			Regex("!foregroundWebViewOwnership\\.canAcquirePassive\\(\\)")
-				.findAll(passiveAvailability)
-				.count(),
-			"Foreground availability may resume only the explicitly deferred repair lease."
-		)
-		assertFalse(
-			passiveAvailability.contains("resumeDestinationDeckPrewarmIfReady()") ||
-				passiveAvailability.contains("requestPageTurnPrewarmWhenReady()"),
-			"Generic foreground availability must not resume ordinary passive work."
+			"The host must create exactly one live WebView owner."
 		)
 		assertContains(playLikeCurlWiring, "foregroundWebViewOwnership = foregroundWebViewOwnership")
-		assertContains(preparationWiring, "foregroundWebViewOwnership = foregroundWebViewOwnership")
-		assertTrue(
-			viewer.indexOf("private val foregroundWebViewOwnership") <
-				viewer.indexOf("private val playLikeCurlController"),
-			"The shared owner must exist before the live controller."
+		assertFalse(preparationWiring.contains("foregroundWebViewOwnership"))
+		assertTrue(passiveAvailability.isNotBlank())
+		assertContains(
+			passiveAvailability,
+			"pageRasterPreparationController.onPassiveRasterPreparationAvailable()"
 		)
-		assertTrue(
-			viewer.indexOf("private val foregroundWebViewOwnership") <
-				viewer.indexOf("private val pageRasterPreparationController"),
-			"The shared owner must exist before the preparation controller."
-		)
+		assertFalse(passiveAvailability.contains("foregroundWebViewOwnership"))
+		assertFalse(viewer.contains("pageRasterPreparationController.onForegroundWebViewPassiveAvailable()"))
 		assertEquals(
-			1,
-			Regex("!foregroundWebViewOwnership\\.canAcquirePassive\\(\\)")
+			0,
+			Regex("foregroundWebViewOwnership\\.canAcquirePassive\\(\\)")
 				.findAll(viewer)
 				.count(),
-			"Only transitional repair may depend on foreground passive ownership."
+			"Passive raster work must not consult live ownership."
 		)
-		assertFalse(
-			prewarm.contains("foregroundWebViewOwnership.canAcquirePassive()"),
-			"Ordinary passive prewarm must not depend on foreground availability."
-		)
+		assertFalse(prewarm.contains("foregroundWebViewOwnership"))
 		assertContains(prewarm, "passiveRasterPreparationAdapter?.isAvailable != true")
 		assertContains(teardown, "teardown.invokeOnCompletion")
 		assertContains(teardown, "runCatching(foregroundWebViewOwnership::close)")
-		assertContains(teardown, "typedFailure.addSuppressed(ownershipCloseFailure)")
 		assertTrue(
 			teardown.indexOf("val teardown = pageRasterPreparationController.destroy()") <
 				teardown.indexOf("runCatching(foregroundWebViewOwnership::close)"),
-			"Preparation fencing and PlayLikeCurl draining must finish before owner close."
+			"Passive preparation must drain independently before the live owner closes."
 		)
 	}
 
@@ -1259,50 +1258,38 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun passiveMutationCompletionReestablishesLiveAuthorityBeforeRepairResume() {
+	fun liveMutationCompletionDoesNotDriveIsolatedPassiveRasterWork() {
 		val host = hostFile.readText()
 		val source = controllerFile.readText()
-		val ownership = host
-			.substringAfter("private val foregroundWebViewOwnership")
-			.substringBefore("private val settingsWebViewMutationCoordinator")
-		val completion = host
-			.substringAfter("private fun onForegroundWebViewPassiveMutationReleased()")
-			.substringBefore("private fun onForegroundWebViewPassiveAvailable()")
-		val passiveAvailable = host
-			.substringAfter("private fun onForegroundWebViewPassiveAvailable()")
-			.substringBefore("\n\t}\n\n")
-		val controller = source
-			.substringAfter("fun onForegroundWebViewPassiveMutationReleased()")
-			.substringBefore("fun onHostResumedChanged(")
+		val ownership = requiredFoliateSourceSlice(
+			source = host,
+			startDelimiter = "private val foregroundWebViewOwnership",
+			endDelimiter = "private val settingsWebViewMutationCoordinator"
+		)
+		val completion = requiredFoliateSourceSlice(
+			source = host,
+			startDelimiter = "private fun onForegroundWebViewPassiveMutationReleased()",
+			endDelimiter = "private fun onPassiveRasterPreparationAvailable()"
+		)
+		val controller = requiredFoliateSourceSlice(
+			source = source,
+			startDelimiter = "fun onForegroundWebViewPassiveMutationReleased()",
+			endDelimiter = "fun onHostResumedChanged("
+		)
 
 		assertContains(
 			ownership,
 			"onPassiveMutationReleased = ::onForegroundWebViewPassiveMutationReleased"
 		)
 		assertContains(
-			ownership,
-			"onPassiveAvailable = ::onForegroundWebViewPassiveAvailable"
-		)
-		val rearm = completion.indexOf(
+			completion,
 			"playLikeCurlController.onForegroundWebViewPassiveMutationReleased()"
 		)
-		val resume = completion.indexOf("onForegroundWebViewPassiveAvailable()")
-		assertTrue(rearm >= 0)
-		assertTrue(resume > rearm)
-		val rasterResume = passiveAvailable.indexOf(
-			"pageRasterPreparationController.onForegroundWebViewPassiveAvailable()"
-		)
-		assertTrue(rasterResume >= 0)
-		assertFalse(passiveAvailable.contains("resumeDestinationDeckPrewarmIfReady()"))
-		assertFalse(passiveAvailable.contains("requestPageTurnPrewarmWhenReady()"))
-		assertFalse(host.contains("suppressNextUnconditionalPrewarmAfterAuthorityRestoration"))
-		assertFalse(source.contains("onPassiveMutationLiveAuthorityReleasing"))
-		assertContains(
-			controller,
-			"requestInitialLivePresentationAuthorityForActiveDeck()"
-		)
+		assertFalse(completion.contains("pageRasterPreparationController"))
+		assertFalse(completion.contains("requestPageTurnPrewarmWhenReady()"))
+		assertFalse(host.contains("pageRasterPreparationController.onForegroundWebViewPassiveAvailable()"))
+		assertContains(controller, "requestInitialLivePresentationAuthorityForActiveDeck()")
 		assertFalse(controller.contains("pageTurnPreviewPresentationReceipt"))
-		assertFalse(controller.contains("initialLivePresentationAuthorizedGenerationId"))
 	}
 
 	@Test
@@ -2191,6 +2178,180 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertTrue(
 			cancellation.indexOf("finishGesture(") <
 				cancellation.indexOf("hideSurfaceAfterGesture(gestureId)")
+		)
+	}
+
+	@Test
+	fun failedPreparationGenerationFencesLateStateDeckAndSubmissionCallbacks() {
+		val controller = controllerFile.readText()
+		val stateCallback = requiredFoliateSourceSlice(
+			source = controller,
+			startDelimiter = "fun onPreparationStateChanged(state: ReaderPagePreparationState)",
+			endDelimiter = "fun onHostAttached()"
+		)
+		val deckPrepared = requiredFoliateSourceSlice(
+			source = controller,
+			startDelimiter = "override fun onDeckPrepared(generationId: Long)",
+			endDelimiter = "override fun onDeckRejected("
+		)
+		val profilePreparation = requiredFoliateSourceSlice(
+			source = controller,
+			startDelimiter = "private fun prepareProfile(",
+			endDelimiter = "override fun isCurrentRepairWindow("
+		)
+		val rendererRelease = requiredFoliateSourceSlice(
+			source = controller,
+			startDelimiter = "private fun releaseRendererOwnedGeneration(generationId: Long)",
+			endDelimiter = "private fun releaseGeneration(generationId: Long)"
+		)
+
+		assertContains(controller, "failedPreparationGeneration")
+		assertContains(stateCallback, "state.preparationGeneration")
+		assertContains(stateCallback, "failedPreparationGeneration")
+		assertContains(stateCallback, "activeDeckPreparationGeneration")
+		assertTrue(
+			stateCallback.contains(
+				"state.preparationGeneration == activeDeckPreparationGeneration"
+			) || stateCallback.contains(
+				"state.preparationGeneration != activeDeckPreparationGeneration"
+			),
+			"Ready publication must compare raster and active-deck preparation proof."
+		)
+		assertContains(deckPrepared, "preparationGeneration")
+		assertContains(deckPrepared, "failedPreparationGeneration")
+		assertTrue(
+			Regex(
+				"preparationGeneration\\s*!=\\s*" +
+					"this@ReaderPlayLikeCurlFoliateController\\.preparationGeneration"
+			).containsMatchIn(deckPrepared),
+			"Renderer callbacks must match the current preparation generation."
+		)
+		assertContains(deckPrepared, "releaseRendererOwnedGeneration(generationId)")
+		assertContains(deckPrepared, "activeDeckPreparationGeneration")
+		assertContains(stateCallback, "pendingDeckGenerationId?.let(::releaseRendererOwnedGeneration)")
+		assertContains(rendererRelease, "releaseGeneration(generationId)")
+		assertEquals(
+			1,
+			Regex("surfaceView\\.releaseDeck\\(generationId\\)").findAll(rendererRelease).count()
+		)
+		assertTrue(
+			rendererRelease.indexOf("releaseGeneration(generationId)") <
+				rendererRelease.indexOf("surfaceView.releaseDeck(generationId)"),
+			"Local ownership must be tombstoned before renderer release can synchronously callback."
+		)
+		assertContains(profilePreparation, "preparationGeneration")
+		assertContains(profilePreparation, "failedPreparationGeneration")
+		assertContains(profilePreparation, "pageIndices = profile.preparedPageIndices(centerOrdinal)")
+		assertContains(profilePreparation, "pageIndices = pageIndices")
+		assertContains(profilePreparation, "activeDeckPreparationGeneration")
+		assertTrue(
+			profilePreparation.indexOf("failedPreparationGeneration") <
+				profilePreparation.indexOf("submitLibraryDeck("),
+			"Async deck completion must reject a terminal preparation before submission."
+		)
+		assertTrue(
+			deckPrepared.indexOf("failedPreparationGeneration") <
+				deckPrepared.indexOf("preparedDeckGenerations += generationId"),
+			"A late renderer callback must be rejected before it can publish deck ownership."
+		)
+	}
+
+	@Test
+	fun retryRecreatesOnlyAnUnavailablePassiveSessionBeforeOneFreshAttempt() {
+		val host = hostFile.readText()
+		val readerRoot = readerRootFile.readText()
+		val viewer = requiredFoliateSourceSlice(
+			source = host,
+			startDelimiter = "private class KomikkuReaderNativeViewerContainer",
+			endDelimiter = "private fun View.findDescendantWebView"
+		)
+		val retryRoute = requiredFoliateSourceSlice(
+			source = viewer,
+			startDelimiter = "fun setPagePreparationRetryKey(retryKey: Int) {",
+			endDelimiter = "private fun onPreparedActiveDeckChanged("
+		)
+		val rasterRetry = requiredFoliateSourceSlice(
+			source = rasterPreparationFile.readText(),
+			startDelimiter = "fun retryPreparation(): Long? {",
+			endDelimiter = "fun onProfileBootstrapFailed()"
+		)
+		val curlRetry = requiredFoliateSourceSlice(
+			source = controllerFile.readText(),
+			startDelimiter = "fun retryPreparation(preparationGeneration: Long) {",
+			endDelimiter = "fun onPreparationStateChanged("
+		)
+
+		assertContains(readerRoot, "onRetry = { pagePreparationRetryKey += 1 },")
+		assertContains(retryRoute, "passiveRasterPreparationAdapter?.isAvailable != true")
+		val closeUnavailable = retryRoute.indexOf("closePassiveRasterPreparationAdapter()")
+		val replaceUnavailable = retryRoute.indexOf("replacePassiveRasterPreparationAdapter(")
+		val sharedGeneration = retryRoute.indexOf("val preparationGeneration =")
+		val rasterAttempt = retryRoute.indexOf("pageRasterPreparationController.retryPreparation()")
+		val curlAttempt = retryRoute.indexOf("playLikeCurlController.retryPreparation(preparationGeneration)")
+		assertTrue(closeUnavailable >= 0 && replaceUnavailable > closeUnavailable)
+		assertEquals(1, Regex("closePassiveRasterPreparationAdapter\\(\\)").findAll(retryRoute).count())
+		assertTrue(sharedGeneration > replaceUnavailable)
+		assertTrue(rasterAttempt > sharedGeneration && curlAttempt > rasterAttempt)
+		assertContains(rasterRetry, "retryPreparationInProgress")
+		assertContains(curlRetry, "retryPreparationInProgress")
+		assertTrue(
+			Regex("retryPreparationInProgress").findAll(rasterRetry).count() >= 2,
+			"Raster Retry needs both an active-attempt guard and ownership assignment."
+		)
+		assertTrue(
+			Regex("retryPreparationInProgress").findAll(curlRetry).count() >= 2,
+			"Curl Retry needs both an active-attempt guard and ownership assignment."
+		)
+		assertEquals(1, Regex("Math\\.incrementExact\\(").findAll(rasterRetry).count())
+		assertContains(curlRetry, "preparationGeneration")
+		assertFalse(curlRetry.contains("Math.incrementExact("))
+		assertTrue(
+			rasterRetry.indexOf("retryPreparationInProgress") <
+				rasterRetry.indexOf("Math.incrementExact(")
+		)
+		assertEquals(1, Regex("onRequestPrewarm\\(\\)").findAll(rasterRetry).count())
+		assertFalse(retryRoute.contains("closePublication"))
+		assertFalse(retryRoute.contains("openPublication"))
+		assertFalse(retryRoute.contains("evaluateJavascript"))
+		assertFalse(retryRoute.contains("goToVisualPage"))
+		assertFalse(retryRoute.contains("playback"))
+		assertFalse(rasterRetry.contains("bundleSource.invalidate("))
+		assertFalse(curlRetry.contains("invalidate("))
+	}
+
+	@Test
+	fun lowMemoryEvictsPassiveSessionAndRecreatesItOnlyFromLaterFreshManifests() {
+		val host = hostFile.readText()
+		val viewer = requiredFoliateSourceSlice(
+			source = host,
+			startDelimiter = "private class KomikkuReaderNativeViewerContainer",
+			endDelimiter = "private fun View.findDescendantWebView"
+		)
+		val preparationWiring = requiredFoliateSourceSlice(
+			source = viewer,
+			startDelimiter = "private val pageRasterPreparationController: ReaderPageRasterPreparationController =",
+			endDelimiter = "private val pageRasterHostEventController"
+		)
+		val pressure = requiredFoliateSourceSlice(
+			source = viewer,
+			startDelimiter = "private fun onPassiveRasterMemoryPressure(",
+			endDelimiter = "private fun replacePassiveRasterPreparationAdapter("
+		)
+		val laterPrewarm = requiredFoliateSourceSlice(
+			source = viewer,
+			startDelimiter = "private fun requestPageTurnPrewarmWhenReady()",
+			endDelimiter = "private fun pageTurnPrewarmLayoutSignature"
+		)
+
+		assertContains(preparationWiring, "onPassiveRasterMemoryPressure = ::onPassiveRasterMemoryPressure")
+		assertContains(pressure, "closePassiveRasterPreparationAdapter()")
+		assertFalse(pressure.contains("requestPageTurnPrewarmWhenReady()"))
+		assertFalse(pressure.contains("foregroundWebViewOwnership"))
+		assertContains(laterPrewarm, "replacePassiveRasterPreparationAdapter(webView)")
+		assertContains(laterPrewarm, "pageRasterPreparationController.prewarmAdjacent()")
+		assertTrue(
+			laterPrewarm.indexOf("replacePassiveRasterPreparationAdapter(webView)") <
+				laterPrewarm.indexOf("pageRasterPreparationController.prewarmAdjacent()")
 		)
 	}
 

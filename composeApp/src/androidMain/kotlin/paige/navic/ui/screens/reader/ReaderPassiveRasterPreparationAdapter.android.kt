@@ -23,6 +23,7 @@ internal fun interface ReaderPassiveRasterLiveManifestPort {
 		visualPageOrdinal: Int,
 		captureEpoch: Long,
 		rasterGeneration: Long,
+		preparationGeneration: Long,
 		onResolved: (ReaderPassiveRasterManifestInputs?) -> Unit
 	)
 }
@@ -37,6 +38,8 @@ internal interface ReaderPassiveRasterPreparationPort : AutoCloseable {
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
 		rasterGeneration: Long,
+		preparationGeneration: Long = 0L,
+		isPreparationGenerationCurrent: (Long) -> Boolean = { true },
 		isStillCurrent: () -> Boolean,
 		trigger: ReaderPageRasterAcquisitionTrigger,
 		capacityPolicy: ReaderPageRasterCapacityPolicy =
@@ -72,6 +75,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		val reference: ReaderPageSlideSnapshot,
 		val targets: List<ReaderPageRasterBatchTarget>,
 		val rasterGeneration: Long,
+		val preparationGeneration: Long,
+		val isPreparationGenerationCurrent: (Long) -> Boolean,
 		val isStillCurrent: () -> Boolean,
 		val trigger: ReaderPageRasterAcquisitionTrigger,
 		val capacityPolicy: ReaderPageRasterCapacityPolicy,
@@ -106,6 +111,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
 		rasterGeneration: Long,
+		preparationGeneration: Long,
+		isPreparationGenerationCurrent: (Long) -> Boolean,
 		isStillCurrent: () -> Boolean,
 		trigger: ReaderPageRasterAcquisitionTrigger,
 		capacityPolicy: ReaderPageRasterCapacityPolicy,
@@ -120,6 +127,9 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			activeBatch != null ||
 			targets.isEmpty() ||
 			rasterGeneration != bundleSource.currentGeneration() ||
+			!runCatching {
+				isPreparationGenerationCurrent(preparationGeneration)
+			}.getOrDefault(false) ||
 			!runCatching(isStillCurrent).getOrDefault(false)
 		) {
 			reference.release()
@@ -131,6 +141,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			reference = reference,
 			targets = targets,
 			rasterGeneration = rasterGeneration,
+			preparationGeneration = preparationGeneration,
+			isPreparationGenerationCurrent = isPreparationGenerationCurrent,
 			isStillCurrent = isStillCurrent,
 			trigger = trigger,
 			capacityPolicy = capacityPolicy,
@@ -184,7 +196,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 	}
 
 	private fun prepareTarget(batch: Batch) {
-		if (!batchIsCurrent(batch)) {
+		if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch)) {
 			finish(batch, ReaderPageRasterBatchOutcome.Cancelled)
 			return
 		}
@@ -198,9 +210,14 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		liveManifestPort.request(
 			visualPageOrdinal = target.pageIndex,
 			captureEpoch = captureEpoch,
-			rasterGeneration = batch.rasterGeneration
+			rasterGeneration = batch.rasterGeneration,
+			preparationGeneration = batch.preparationGeneration
 		) manifestInputs@{ inputs ->
-			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) {
+			if (
+				!isPreparationGenerationCurrent(batch) ||
+				!batchIsCurrent(batch) ||
+				batch.targetIndex != targetIndex
+			) {
 				return@manifestInputs
 			}
 			val currentInputs = inputs?.takeIf {
@@ -283,7 +300,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		target: ReaderPageRasterBatchTarget,
 		inputs: ReaderPassiveRasterManifestInputs
 	) {
-		if (!batchIsCurrent(batch)) return
+		if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch)) return
 		batch.onHydrationMiss(target)
 		val liveCommit = manifestIssuer.replaceCanonicalCommit(inputs.canonicalCommit)
 		val manifest = manifestIssuer.issue(
@@ -292,7 +309,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			visualPageOrdinal = inputs.visualPageOrdinal
 		)
 		if (manifest == null || !session.capture(manifest) captured@{ capture ->
-			if (!batchIsCurrent(batch)) {
+			if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch)) {
 				capture?.raster?.release()
 				return@captured
 			}
@@ -325,6 +342,10 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		target: ReaderPageRasterBatchTarget,
 		capture: ReaderPassiveRasterCaptureResult<Bitmap>
 	) {
+		if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch)) {
+			capture.raster?.release()
+			return
+		}
 		check(batch.pendingCapture == null) {
 			"Passive raster batch already owns a captured raster"
 		}
@@ -332,9 +353,10 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		liveManifestPort.request(
 			visualPageOrdinal = target.pageIndex,
 			captureEpoch = captureEpoch,
-			rasterGeneration = batch.rasterGeneration
+			rasterGeneration = batch.rasterGeneration,
+			preparationGeneration = batch.preparationGeneration
 		) currentAuthority@{ currentInputs ->
-			if (!batchIsCurrent(batch) || currentInputs == null) {
+			if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch) || currentInputs == null) {
 				batch.releasePendingCapture(capture)
 				if (batchIsCurrent(batch)) {
 					finish(
@@ -363,6 +385,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				kind = batch.kind,
 				reference = batch.reference,
 				priority = target.priority,
+				preparationGeneration = batch.preparationGeneration,
+				isPreparationGenerationCurrent = batch.isPreparationGenerationCurrent,
 				isStillCurrent = { batchIsCurrent(batch) }
 			) admitted@{ result ->
 				if (!batchIsCurrent(batch)) return@admitted
@@ -434,10 +458,16 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		return true
 	}
 
+	private fun isPreparationGenerationCurrent(batch: Batch): Boolean =
+		runCatching {
+			batch.isPreparationGenerationCurrent(batch.preparationGeneration)
+		}.getOrDefault(false)
+
 	private fun batchIsCurrent(batch: Batch): Boolean =
 		lifecycle == Lifecycle.Active &&
 			activeBatch === batch &&
 			batch.rasterGeneration == bundleSource.currentGeneration() &&
+			isPreparationGenerationCurrent(batch) &&
 			runCatching(batch.isStillCurrent).getOrDefault(false)
 
 	private fun retireCaptureEpoch() {
@@ -452,6 +482,7 @@ internal class ReaderPageLivePassiveRasterManifestPort(
 		visualPageOrdinal: Int,
 		captureEpoch: Long,
 		rasterGeneration: Long,
+		preparationGeneration: Long,
 		onResolved: (ReaderPassiveRasterManifestInputs?) -> Unit
 	) {
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
@@ -463,7 +494,8 @@ internal class ReaderPageLivePassiveRasterManifestPort(
 			webView.evaluateJavascript(
 				"JSON.stringify(window.NavicReaderBridge?." +
 					"pageTurnPassiveRasterManifestInputs?.(" +
-					"$visualPageOrdinal, $captureEpoch, $rasterGeneration) ?? null)"
+					"$visualPageOrdinal, $captureEpoch, $rasterGeneration, " +
+						"$preparationGeneration) ?? null)"
 			) { encoded -> onResolved(readerPassiveRasterManifestInputs(encoded)) }
 		} catch (_: Throwable) {
 			onResolved(null)

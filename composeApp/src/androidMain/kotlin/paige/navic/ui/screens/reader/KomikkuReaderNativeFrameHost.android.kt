@@ -1076,8 +1076,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private val passiveRasterRendererLossFence = ReaderPassiveRasterRendererLossFence()
 	private var passiveRasterCaptureEpoch = 0L
 	private val foregroundWebViewOwnership = ReaderForegroundWebViewOwnership(
-		onPassiveMutationReleased = ::onForegroundWebViewPassiveMutationReleased,
-		onPassiveAvailable = ::onForegroundWebViewPassiveAvailable
+		onPassiveMutationReleased = ::onForegroundWebViewPassiveMutationReleased
 	)
 	private val settingsWebViewMutationCoordinator =
 		ReaderSettingsWebViewMutationCoordinator(
@@ -1237,11 +1236,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		ReaderPageRasterPreparationController(
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
-		foregroundWebViewOwnership = foregroundWebViewOwnership,
 		bundleSource = pageTurnBundleSource,
 		diagnostics = readerRuntimeDiagnostics,
 		qaFaultRegistry = qaFaultRegistry,
 		passiveRasterPreparationPortProvider = { passiveRasterPreparationAdapter },
+		onPassiveRasterMemoryPressure = ::onPassiveRasterMemoryPressure,
 		fenceCallbacks = {
 			ReaderPageQaFaultControl.detach(qaFaultRegistration)
 			qaFaultRegistry.closeAndDrain()
@@ -1817,7 +1816,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		if (pagePreparationRetryKey == retryKey) return
 		val shouldRetry = pagePreparationRetryKey != Int.MIN_VALUE && retryKey > pagePreparationRetryKey
 		pagePreparationRetryKey = retryKey
-		if (shouldRetry) pageRasterPreparationController.retryPreparation()
+		if (!shouldRetry) return
+		val webView = viewerContentContainer.findDescendantWebView()
+		if (passiveRasterPreparationAdapter?.isAvailable != true && webView != null) {
+			closePassiveRasterPreparationAdapter()
+			replacePassiveRasterPreparationAdapter(webView)
+		}
+		val preparationGeneration =
+			pageRasterPreparationController.retryPreparation() ?: return
+		playLikeCurlController.retryPreparation(preparationGeneration)
 	}
 
 	private fun onPreparedActiveDeckChanged(deck: ReaderPagePreparedActiveDeck?) {
@@ -1849,15 +1856,20 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun onForegroundWebViewPassiveMutationReleased() {
 		if (task4ResourceTeardownStarted) return
 		playLikeCurlController.onForegroundWebViewPassiveMutationReleased()
-		onForegroundWebViewPassiveAvailable()
 	}
 
-	private fun onForegroundWebViewPassiveAvailable() {
-		if (
-			task4ResourceTeardownStarted ||
-			!foregroundWebViewOwnership.canAcquirePassive()
-		) return
-		pageRasterPreparationController.onForegroundWebViewPassiveAvailable()
+	private fun onPassiveRasterMemoryPressure(reason: String) {
+		if (task4ResourceTeardownStarted) return
+		closePassiveRasterPreparationAdapter()
+		Logger.i(
+			KomikkuReaderNativeFrameHostTag,
+			"Passive raster session retired reason=$reason"
+		)
+	}
+
+	private fun onPassiveRasterPreparationAvailable() {
+		if (task4ResourceTeardownStarted) return
+		pageRasterPreparationController.onPassiveRasterPreparationAvailable()
 	}
 
 	private fun replacePassiveRasterPreparationAdapter(webView: WebView) {
@@ -1914,6 +1926,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		passiveRasterPreparationGeometry = geometry
 		if (observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) {
 			passiveRasterPreparationAdapter?.pause()
+		} else if (passiveRasterPreparationAdapter?.isAvailable == true) {
+			onPassiveRasterPreparationAvailable()
 		}
 	}
 
@@ -1986,6 +2000,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				postInvalidateOnAnimation()
 				return@OnPreDrawListener true
 			}
+			onPassiveRasterPreparationAvailable()
 			if (profileEpoch == null) {
 				postInvalidateOnAnimation()
 				return@OnPreDrawListener true
