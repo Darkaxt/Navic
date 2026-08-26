@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -348,14 +349,46 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 	}
 
 	@Test
-	fun foliateDeckSubmitsNativePageBackingMaterial() {
+	fun foliateDeckSubmitsCompleteGenerationOwnedNativePageMaterial() {
+		val rasterSource = sourceFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPlayLikeCurlFoliateRasterSource.android.kt"
+		).readText()
 		val controller = sourceFile(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 				"ReaderPlayLikeCurlFoliateController.android.kt"
 		).readText()
+		val pageBuilder = controller
+			.substringAfter("private fun PreparedPages.page(")
+			.substringBefore("private fun PreparedPages.filler(")
 
-		assertContains(controller, "image.layout.pageBackingRectInHost(image.leaf)")
-		assertContains(controller, "image.paperColorArgb")
+		assertContains(rasterSource, "ReaderPlayLikeCurlPageMaterial")
+		assertContains(rasterSource, "frontPaperColorArgb")
+		assertContains(rasterSource, "reversePaperColorArgb")
+		assertContains(rasterSource, "fixedBorderColorArgb")
+		assertContains(rasterSource, "uncoveredBackgroundColorArgb")
+		assertContains(pageBuilder, "PageMaterial(")
+		assertContains(pageBuilder, "generationId")
+		assertContains(pageBuilder, "image.material")
+	}
+
+	@Test
+	fun foliatePaperColorDerivesDistinctOpaqueBackAndEdgeMaterial() {
+		listOf(0xFFF5F2EA.toInt(), 0xFF17191D.toInt()).forEach { paperColor ->
+			val material = readerPlayLikeCurlPageMaterial(paperColor)
+
+			assertEquals(paperColor, material.frontPaperColorArgb)
+			assertEquals(paperColor, material.uncoveredBackgroundColorArgb)
+			listOf(
+				material.frontPaperColorArgb,
+				material.reversePaperColorArgb,
+				material.fixedBorderColorArgb,
+				material.uncoveredBackgroundColorArgb
+			).forEach { color -> assertEquals(0xFF, color ushr 24) }
+			assertNotEquals(material.frontPaperColorArgb, material.reversePaperColorArgb)
+			assertNotEquals(material.frontPaperColorArgb, material.fixedBorderColorArgb)
+			assertNotEquals(material.reversePaperColorArgb, material.fixedBorderColorArgb)
+		}
 	}
 
 	@Test

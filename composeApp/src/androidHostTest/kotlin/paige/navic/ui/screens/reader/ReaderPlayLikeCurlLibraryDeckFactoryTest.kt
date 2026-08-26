@@ -159,6 +159,8 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 			receipt.copy(destinationCommitToken = "replacement"),
 			receipt.copy(presentationMutationGeneration = 40L),
 			receipt.copy(presentationSequence = 50L),
+			receipt.copy(anchorGeneration = 60L),
+			receipt.copy(boundarySequence = 70L),
 			receipt.copy(layoutGeneration = 80L),
 			receipt.copy(viewGeneration = 90L),
 			receipt.copy(commitSequence = 100L),
@@ -178,6 +180,43 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 				)
 			)
 		}
+	}
+
+	@Test
+	fun newerSameDeckPresentationAuthorityReauthorizesNativeOverlay() {
+		val current = anchorReceipt(
+			mode = ReaderPageTurnLayoutMode.Single,
+			visualPageOrdinal = 4,
+			roles = listOf(ReaderPageTurnPageRole.Full)
+		).nativePresentationProof()
+		val reauthorized = current.copy(
+			presentationSequence = current.presentationSequence + 1L,
+			anchorGeneration = current.anchorGeneration + 1L,
+			boundarySequence = 0L
+		)
+
+		assertTrue(reauthorized.isAdmissibleReplacementFor(current))
+		assertFalse(current.isAdmissibleReplacementFor(reauthorized))
+	}
+
+	@Test
+	fun unchangedPresentationAuthorityKeepsAnchorBoundaryMonotonic() {
+		val current = anchorReceipt(
+			mode = ReaderPageTurnLayoutMode.Single,
+			visualPageOrdinal = 4,
+			roles = listOf(ReaderPageTurnPageRole.Full)
+		).nativePresentationProof()
+
+		assertTrue(
+			current.copy(
+				anchorGeneration = current.anchorGeneration + 1L,
+				boundarySequence = 0L
+			).isAdmissibleReplacementFor(current)
+		)
+		assertFalse(
+			current.copy(boundarySequence = current.boundarySequence - 1L)
+				.isAdmissibleReplacementFor(current)
+		)
 	}
 
 	@Test
@@ -517,6 +556,8 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 			textureGeneration = textureGeneration,
 			presentationMutationGeneration = presentationMutationGeneration,
 			presentationSequence = presentationSequence,
+			anchorGeneration = anchorGeneration,
+			boundarySequence = boundarySequence,
 			layoutGeneration = layoutGeneration,
 			viewGeneration = viewGeneration,
 			commitSequence = commitSequence,

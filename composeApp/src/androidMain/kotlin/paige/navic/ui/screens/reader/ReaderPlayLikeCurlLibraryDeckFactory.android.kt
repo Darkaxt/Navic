@@ -130,6 +130,7 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 	pageCount: Int,
 	readerDirection: ReaderPlayLikeCurlReaderDirection,
 	spreadAnchorParity: Int,
+	requireCompleteMaterial: Boolean = false,
 	filler: (
 		generationId: Long,
 		deckSlotRole: ReaderPlayLikeCurlDeckSlotRole,
@@ -141,8 +142,18 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 ): PageDeck<T> {
 	require(pageCount > 0) { "PlayLikeCurl page count must be positive" }
 	val boundedCurrent = currentOrdinal.coerceIn(0, pageCount - 1)
+	fun requireMaterial(image: PageImage<T>): PageImage<T> = image.also { resource ->
+		if (requireCompleteMaterial) {
+			check(resource.hasCompleteMaterial()) {
+				"Production PlayLikeCurl deck page omitted presentation material"
+			}
+			check(resource.material.generationId == generationId) {
+				"Production PlayLikeCurl material generation does not match the deck"
+			}
+		}
+	}
 	fun boundedPage(ordinal: Int): PageImage<T> =
-		page(generationId, ordinal.coerceIn(0, pageCount - 1))
+		requireMaterial(page(generationId, ordinal.coerceIn(0, pageCount - 1)))
 
 	if (orientation == ReaderPlayLikeCurlOrientation.Portrait) {
 		val canTurnPrevious = boundedCurrent > 0
@@ -150,23 +161,27 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 		val previous = if (canTurnPrevious) {
 			boundedPage(boundedCurrent - 1)
 		} else {
-			filler(
-				generationId,
-				ReaderPlayLikeCurlDeckSlotRole.Previous,
-				boundedCurrent,
-				ReaderPlayLikeCurlPhysicalLeaf.Left,
-				boundedCurrent
+			requireMaterial(
+				filler(
+					generationId,
+					ReaderPlayLikeCurlDeckSlotRole.Previous,
+					boundedCurrent,
+					ReaderPlayLikeCurlPhysicalLeaf.Left,
+					boundedCurrent
+				)
 			).also { check(it.isFiller) }
 		}
 		val next = if (canTurnNext) {
 			boundedPage(boundedCurrent + 1)
 		} else {
-			filler(
-				generationId,
-				ReaderPlayLikeCurlDeckSlotRole.Next,
-				boundedCurrent,
-				ReaderPlayLikeCurlPhysicalLeaf.Right,
-				boundedCurrent
+			requireMaterial(
+				filler(
+					generationId,
+					ReaderPlayLikeCurlDeckSlotRole.Next,
+					boundedCurrent,
+					ReaderPlayLikeCurlPhysicalLeaf.Right,
+					boundedCurrent
+				)
 			).also { check(it.isFiller) }
 		}
 		return PortraitPageDeck(
@@ -198,12 +213,14 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 		if (ordinal != null) return boundedPage(ordinal)
 		val sourcePageIndex = spread?.sourcePageIndex
 			?: window.current.sourcePageIndex
-		return filler(
-			generationId,
-			role,
-			sourcePageIndex,
-			leaf,
-			fallbackOrdinal.coerceIn(0, pageCount - 1)
+		return requireMaterial(
+			filler(
+				generationId,
+				role,
+				sourcePageIndex,
+				leaf,
+				fallbackOrdinal.coerceIn(0, pageCount - 1)
+			)
 		).also { resource ->
 			check(resource.isFiller) {
 				"Missing physical leaves require background-only filler resources"

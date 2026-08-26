@@ -17,6 +17,8 @@ internal data class ReaderWhispersyncNativePresentationProof(
 	val textureGeneration: Long,
 	val presentationMutationGeneration: Long,
 	val presentationSequence: Long,
+	val anchorGeneration: Long,
+	val boundarySequence: Long,
 	val layoutGeneration: Long,
 	val viewGeneration: Long,
 	val commitSequence: Long,
@@ -39,6 +41,8 @@ internal fun ReaderWhispersyncAnchorReceipt.nativePresentationProof() =
 		textureGeneration = textureGeneration,
 		presentationMutationGeneration = presentationMutationGeneration,
 		presentationSequence = presentationSequence,
+		anchorGeneration = anchorGeneration,
+		boundarySequence = boundarySequence,
 		layoutGeneration = layoutGeneration,
 		viewGeneration = viewGeneration,
 		commitSequence = commitSequence,
@@ -50,6 +54,34 @@ internal fun ReaderWhispersyncAnchorReceipt.nativePresentationProof() =
 		readerSettingsRasterKey = readerSettingsRasterKey,
 		captureGeometry = captureGeometry
 	)
+
+internal fun ReaderWhispersyncNativePresentationProof.hasSameDestinationPresentation(
+	other: ReaderWhispersyncNativePresentationProof
+): Boolean = copy(
+	anchorGeneration = other.anchorGeneration,
+	boundarySequence = other.boundarySequence
+) == other
+
+internal fun ReaderWhispersyncNativePresentationProof.isAdmissibleReplacementFor(
+	current: ReaderWhispersyncNativePresentationProof
+): Boolean {
+	if (
+		foliateSessionId != current.foliateSessionId ||
+		textureGeneration != current.textureGeneration
+	) return false
+	if (hasSameDestinationPresentation(current)) {
+		return anchorGeneration > current.anchorGeneration ||
+			(
+				anchorGeneration == current.anchorGeneration &&
+					boundarySequence >= current.boundarySequence
+			)
+	}
+	return presentationMutationGeneration > current.presentationMutationGeneration ||
+		(
+			presentationMutationGeneration == current.presentationMutationGeneration &&
+				presentationSequence > current.presentationSequence
+		)
+}
 
 internal data class ReaderWhispersyncNativeOverlayTarget(
 	val role: ReaderPageTurnPageRole,

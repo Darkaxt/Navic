@@ -529,12 +529,10 @@ public class PageSurfaceView extends GLSurfaceView {
             return PageOverlayUpdateResult.INVALID_CONTENT;
         }
         List<PageOverlayImage<Bitmap>> accepted = new ArrayList<>(overlays);
-        List<Integer> ordinals = new ArrayList<>(accepted.size());
         for (PageOverlayImage<Bitmap> overlay : accepted) {
             if (overlay == null) {
                 return PageOverlayUpdateResult.INVALID_CONTENT;
             }
-            ordinals.add(overlay.getOrdinal());
         }
         PageDeck<Bitmap> activeDeck = deckCoordinator.getActiveDeck();
         PageOverlayUpdateResult admission = PageOverlayUpdateGate.evaluate(
@@ -544,7 +542,8 @@ public class PageSurfaceView extends GLSurfaceView {
                 gestureAccepted || settlementRunning,
                 pageOverlayUpdatePending,
                 generationId,
-                ordinals);
+                accepted,
+                true);
         if (admission != PageOverlayUpdateResult.ACCEPTED) {
             return admission;
         }

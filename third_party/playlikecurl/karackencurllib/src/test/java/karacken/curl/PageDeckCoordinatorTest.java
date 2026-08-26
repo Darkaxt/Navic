@@ -124,6 +124,26 @@ public class PageDeckCoordinatorTest {
     }
 
     @Test
+    public void sameGenerationCannotSilentlyReplacePresentationMaterial() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        PortraitPageDeck<String> original = portraitDeckWithBacking(
+                4, "same", 0xFFF5F2EA);
+        coordinator.offer(original);
+
+        PortraitPageDeck<String> replacement = portraitDeckWithBacking(
+                4, "same", 0xFF403B35);
+        assertFalse(original.getMaterial().equals(replacement.getMaterial()));
+
+        PageDeckCoordinator.Offer<String> result = coordinator.offer(replacement);
+
+        assertEquals(PageDeckCoordinator.Placement.REJECTED, result.getPlacement());
+        assertEquals(
+                DeckRejectionReason.CONFLICTING_GENERATION,
+                result.getRejectionReason());
+        assertSame(original, coordinator.getActiveDeck());
+    }
+
+    @Test
     public void rejectsStaleGenerationWithoutReplacingActiveDeck() {
         PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
         PortraitPageDeck<String> current = portraitDeck(4, "current");
@@ -376,8 +396,42 @@ public class PageDeckCoordinatorTest {
                 image(generationId, prefix + "-next", 2));
     }
 
+    private static PortraitPageDeck<String> portraitDeckWithBacking(
+            long generationId,
+            String prefix,
+            int backingColorArgb) {
+        PageDisplayRect display = new PageDisplayRect(0, 0, 98, 200);
+        PageDisplayRect backing = new PageDisplayRect(98, 0, 100, 200);
+        return new PortraitPageDeck<>(
+                imageWithBacking(
+                        generationId, prefix + "-previous", 0, display, backing, backingColorArgb),
+                imageWithBacking(
+                        generationId, prefix + "-current", 1, display, backing, backingColorArgb),
+                imageWithBacking(
+                        generationId, prefix + "-next", 2, display, backing, backingColorArgb));
+    }
+
     private static PageImage<String> image(long generationId, String id, int ordinal) {
         return new PageImage<>(generationId, id, ordinal, 100, 200, id);
+    }
+
+    private static PageImage<String> imageWithBacking(
+            long generationId,
+            String id,
+            int ordinal,
+            PageDisplayRect display,
+            PageDisplayRect backing,
+            int backingColorArgb) {
+        return new PageImage<>(
+                generationId,
+                id,
+                ordinal,
+                100,
+                200,
+                display,
+                id,
+                backing,
+                backingColorArgb);
     }
 
     private static PageImage<String> imageWithOverlay(

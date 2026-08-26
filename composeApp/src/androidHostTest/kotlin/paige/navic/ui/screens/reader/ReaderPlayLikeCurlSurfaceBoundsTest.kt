@@ -104,6 +104,50 @@ class ReaderPlayLikeCurlSurfaceBoundsTest {
 		assertContains(reveal, "surfaceView.alpha = 1f")
 	}
 
+	@Test
+	fun composeTransportAndRetryRemainTopmostAndHitTestableAcrossSurfaceUpdates() {
+		val frameHost = sourceFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"KomikkuReaderNativeFrameHost.android.kt"
+		).readText()
+		val readerRoot = sourceFile(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		).readText()
+		val transport = sourceFile(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderWhispersyncStatusBadge.kt"
+		).readText()
+		val retry = sourceFile(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPagePreparationOverlay.kt"
+		).readText()
+		val frameRoot = frameHost
+			.substringAfter("private class KomikkuReaderNativeFrameRoot")
+			.substringBefore("private class KomikkuReaderNativeViewerContainer")
+		val transportBody = transport
+			.substringAfter("internal fun KomikkuWhispersyncPlaybackControl(")
+			.substringBefore("internal fun KomikkuWhispersyncStatusBadge(")
+
+		val readerLayer = Regex("""addView\(\s*readerContainer,""")
+			.find(frameRoot)?.range?.first ?: -1
+		val composeLayer = Regex("""addView\(\s*composeOverlay,""")
+			.find(frameRoot)?.range?.first ?: -1
+		assertTrue(readerLayer >= 0 && composeLayer > readerLayer)
+		assertContains(frameRoot, "composeOverlay.elevation = 32f")
+		assertContains(frameRoot, "composeOverlay.translationZ = 32f")
+		assertContains(frameRoot, "composeOverlay.bringToFront()")
+		assertContains(frameHost.substringAfter("update = { root ->"), "root.setComposeOverlay(hostedComposeOverlay)")
+		assertContains(transportBody, ".semantics {")
+		assertContains(transportBody, "onClick(label = accessibilityDescription)")
+		assertContains(transportBody, ".pointerInput(Unit)")
+		assertContains(transportBody, "detectTapGestures(")
+		assertContains(retry, "TextButton(onClick = onRetry")
+		assertTrue(
+			readerRoot.indexOf("KomikkuComposeOverlay(") <
+				readerRoot.indexOf("ReaderPagePreparationOverlay(")
+		)
+	}
+
 	private fun sourceFile(relativePath: String): File {
 		var directory = File(System.getProperty("user.dir")).absoluteFile
 		repeat(8) {

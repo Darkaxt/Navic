@@ -946,6 +946,29 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun pageLocalWhispersyncReplacementNeverRecapturesOrResubmitsTheBaseRaster() {
+		val publication = controllerFile.readText()
+			.substringAfter("private fun publishLatestWhispersyncOverlayIfIdle()")
+			.substringBefore("private fun clearWhispersyncOverlayIfNeeded(")
+
+		assertContains(publication, "readerWhispersyncHighlightMask(")
+		assertContains(publication, "surfaceView.replacePageOverlays(")
+		listOf(
+			"captureCurrentLive",
+			"capturePage",
+			"buildLibraryDeck(",
+			"submitLibraryDeck(",
+			"surfaceView.submitDeck",
+			"requestPrewarm"
+		).forEach { forbidden ->
+			assertFalse(
+				publication.contains(forbidden),
+				"A page-local overlay update must not invoke base raster work: $forbidden"
+			)
+		}
+	}
+
+	@Test
 	fun whispersyncPublicationDecoratesTheOwnedStartupShield() {
 		val source = controllerFile.readText()
 		val startupPresentation = source
@@ -987,6 +1010,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val publication = source
 			.substringAfter("private fun publishLatestWhispersyncOverlayIfIdle()")
 			.substringBefore("private fun clearWhispersyncOverlayIfNeeded(")
+		val setter = source
+			.substringAfter("fun setWhispersyncOverlay(")
+			.substringBefore("private fun unavailableGestureOutcome()")
 		val updateCompletion = source
 			.substringAfter("override fun onPageOverlayUpdateCapacityAvailable(applied: Boolean)")
 			.substringBefore("override fun onPageOverlayStateInvalidated()")
@@ -994,6 +1020,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(publicationIdentity, "val proof: ReaderWhispersyncNativePresentationProof")
 		assertContains(publicationIdentity, "val pageLocalRects:")
 		assertContains(publication, "presentationProof = latestWhispersyncPresentationProof")
+		assertContains(setter, "isAdmissibleReplacementFor(")
+		assertFalse(setter.contains("hasSameDestinationPresentation("))
 		assertContains(publication, "if (whispersyncOverlayClearPending)")
 		assertContains(publication, "clearWhispersyncOverlayIfNeeded(generationId)")
 		assertContains(updateCompletion, "if (!whispersyncOverlayClearPending) return")

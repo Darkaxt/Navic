@@ -10,6 +10,11 @@ public interface PageDeck<T> {
 
     List<PageImage<T>> getPages();
 
+    /** Returns the immutable material identity that owns this deck's uncovered background. */
+    default PageMaterial getMaterial() {
+        return getSettlementPage(PageChange.NONE).getMaterial();
+    }
+
     /** Returns whether the logical direction is available from the current page. */
     boolean canTurn(PageChange pageChange);
 

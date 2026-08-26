@@ -64,45 +64,52 @@ public class Gles2RendererSourceTest {
     }
 
     @Test
-    public void alphaSurfaceClearsUncoveredReaderDecorationsTransparently() throws IOException {
-        String renderer = Files.readString(
-                Path.of("src/main/java/karacken/curl/PageRenderer.java"),
-                StandardCharsets.UTF_8);
-        String surface = Files.readString(
-                Path.of("src/main/java/karacken/curl/PageSurfaceView.java"),
-                StandardCharsets.UTF_8);
+    public void translucentSurfaceClearsUncoveredPixelsWithOpaqueDeckMaterial()
+            throws IOException {
+        String renderer = source("PageRenderer.java");
+        String surface = source("PageSurfaceView.java");
+        String drawFrame = methodBody(renderer, "boolean drawFrame(GL10 ignored)");
 
         assertTrue(surface.contains("setEGLConfigChooser(8, 8, 8, 8, 16, 0)"));
         assertTrue(surface.contains("getHolder().setFormat(PixelFormat.TRANSLUCENT)"));
-        assertTrue(renderer.contains("GLES20.glClearColor(0f, 0f, 0f, 0f)"));
-        assertFalse(renderer.contains("GLES20.glClearColor(0f, 0f, 0f, 1f)"));
+        assertTrue(renderer.contains("getUncoveredBackgroundColorArgb()"));
+        int background = drawFrame.indexOf(
+                "clearUncoveredBackground(activeDeck.getMaterial())");
+        int clear = drawFrame.indexOf("GLES20.glClear(");
+        assertTrue(background >= 0 && background < clear);
+        assertFalse(drawFrame.contains("GLES20.glClearColor(0f, 0f, 0f, 0f)"));
     }
 
     @Test
-    public void rendererOwnsFixedPageBackingForEveryCurlFrame() throws IOException {
+    public void rendererOwnsClipReverseAndFixedBorderAcrossEveryFramePath()
+            throws IOException {
         String source = source("PageRenderer.java");
         String portrait = methodBody(source, "private boolean drawPortraitPage()");
         String landscape = methodBody(source, "private boolean drawLandscapeSpread()");
-        String backing = methodBody(
-                source,
-                "private void drawPageBacking(PageImage<Bitmap> resource)");
+        String page = methodBody(source, "private boolean drawPage(");
+        String moving = methodBody(source, "private boolean drawMovingPage(");
+        String textures = methodBody(source, "private void drawPageTextures(");
 
-        assertTrue(portrait.contains("drawPageBacking(portraitFrontResource)"));
-        assertTrue(portrait.indexOf("drawPageBacking(portraitFrontResource)")
-                < portrait.indexOf("if (portraitModel.getActivePage()"));
-        assertTrue(landscape.contains("drawPageBacking(spreadCurrentLeftResource)"));
-        assertTrue(landscape.contains("drawPageBacking(spreadCurrentRightResource)"));
-        assertTrue(landscape.indexOf("drawPageBacking(spreadCurrentLeftResource)")
-                < landscape.indexOf("LandscapeSpreadTransition transition"));
-        assertTrue(landscape.indexOf("drawPageBacking(spreadCurrentRightResource)")
-                < landscape.indexOf("LandscapeSpreadTransition transition"));
-        assertTrue(backing.contains("resource.hasBacking()"));
-        assertTrue(backing.contains("GLES20.glEnable(GLES20.GL_SCISSOR_TEST)"));
-        assertTrue(backing.contains("GLES20.glScissor("));
-        assertTrue(backing.contains("GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)"));
-        assertTrue(backing.contains("finally"));
-        assertTrue(backing.contains("GLES20.glClearColor(0f, 0f, 0f, 0f)"));
-        assertTrue(backing.contains("GLES20.glDisable(GLES20.GL_SCISSOR_TEST)"));
+        int portraitMaterial = portrait.indexOf("drawFixedPageMaterial(");
+        int portraitMotion = portrait.indexOf("if (portraitModel.getActivePage()");
+        assertTrue(portraitMaterial >= 0 && portraitMaterial < portraitMotion);
+        int landscapeMaterial = landscape.indexOf("drawFixedPageMaterial(");
+        int landscapeMotion = landscape.indexOf("LandscapeSpreadTransition transition");
+        assertTrue(landscapeMaterial >= 0 && landscapeMaterial < landscapeMotion);
+        assertTrue(source.contains("getFrontPaperColorArgb()"));
+        assertTrue(source.contains("getReversePaperColorArgb()"));
+        assertTrue(source.contains("getFixedBorderColorArgb()"));
+        assertTrue(source.contains("uniform float uReverseMaterialMix"));
+        assertFalse(source.contains("gl_FrontFacing"));
+        assertTrue(moving.contains(
+                "PageReverseMaterialMix.fromCurlPosition(state.getCurlPosition())"));
+        assertTrue(textures.contains(
+                "GLES20.glUniform1f(reverseMaterialMixUniform, reverseMaterialMix)"));
+        assertTrue(source.contains("mix(frontColor, uReversePaperColor, uReverseMaterialMix)"));
+        int clip = page.indexOf("GLES20.glEnable(GLES20.GL_SCISSOR_TEST)");
+        int draw = page.indexOf("GLES20.glDrawElements(");
+        int unclip = page.indexOf("GLES20.glDisable(GLES20.GL_SCISSOR_TEST)");
+        assertTrue(clip >= 0 && clip < draw && unclip > draw);
     }
 
     @Test

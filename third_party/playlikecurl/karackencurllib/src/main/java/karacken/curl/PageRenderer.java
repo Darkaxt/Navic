@@ -52,15 +52,19 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     + "uniform float uHasOverlay;\n"
                     + "uniform float uIsFiller;\n"
                     + "uniform vec4 uFillerColor;\n"
+                    + "uniform vec4 uReversePaperColor;\n"
+                    + "uniform float uReverseMaterialMix;\n"
                     + "varying vec2 vTextureCoordinate;\n"
                     + "void main() {\n"
+                    + "  vec4 frontColor;\n"
                     + "  if (uIsFiller > 0.5) {\n"
-                    + "    gl_FragColor = uFillerColor;\n"
-                    + "    return;\n"
+                    + "    frontColor = uFillerColor;\n"
+                    + "  } else {\n"
+                    + "    vec4 base = texture2D(uTexture, vTextureCoordinate);\n"
+                    + "    vec4 overlay = texture2D(uOverlayTexture, vTextureCoordinate);\n"
+                    + "    frontColor = mix(base, overlay + base * (1.0 - overlay.a), uHasOverlay);\n"
                     + "  }\n"
-                    + "  vec4 base = texture2D(uTexture, vTextureCoordinate);\n"
-                    + "  vec4 overlay = texture2D(uOverlayTexture, vTextureCoordinate);\n"
-                    + "  gl_FragColor = mix(base, overlay + base * (1.0 - overlay.a), uHasOverlay);\n"
+                    + "  gl_FragColor = mix(frontColor, uReversePaperColor, uReverseMaterialMix);\n"
                     + "}\n";
 
     private static final String SHADOW_VERTEX_SHADER =
@@ -137,6 +141,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private int hasOverlayUniform;
     private int isFillerUniform;
     private int fillerColorUniform;
+    private int reversePaperColorUniform;
+    private int reverseMaterialMixUniform;
     private int shadowProgram;
     private int shadowPositionAttribute;
     private int shadowGradientAttribute;
@@ -275,6 +281,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 recycleOverlayInputs(overlays);
                 return;
             }
+            if (!hasCompleteOverlayOwnership(generationId, overlays)
+                    || !acceptsOverlayBoundary(overlays)) {
+                recycleOverlayInputs(overlays);
+                return;
+            }
             long overlayPeakBytes = Math.addExact(
                     dynamicPageOverlayBytes(),
                     pageOverlayBytes(overlays));
@@ -299,7 +310,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     }
                     DynamicPageOverlayTexture texture = new DynamicPageOverlayTexture(
                             page,
-                            overlay.getContent());
+                            overlay);
                     replacements.put(page.identityKey(), texture);
                 }
                 for (DynamicPageOverlayTexture texture : replacements.values()) {
@@ -336,6 +347,69 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             }
         }
         return null;
+    }
+
+    private boolean hasCompleteOverlayOwnership(
+            long generationId,
+            List<PageOverlayImage<Bitmap>> overlays) {
+        if (overlays.isEmpty()) {
+            return true;
+        }
+        PageOverlayImage<Bitmap> first = overlays.get(0);
+        for (PageOverlayImage<Bitmap> overlay : overlays) {
+            PageImage<Bitmap> page = currentPage(overlay.getOrdinal());
+            PageMaterial material = page == null ? null : page.getMaterial();
+            if (!overlay.hasCompleteOwnership()
+                    || overlay.getDeckGenerationId() != generationId
+                    || !Objects.equals(
+                            first.getDestinationCommitIdentity(),
+                            overlay.getDestinationCommitIdentity())
+                    || !Objects.equals(first.getReceiptIdentity(), overlay.getReceiptIdentity())
+                    || first.getVisualPageOrdinal() != overlay.getVisualPageOrdinal()
+                    || first.getAnchorGeneration() != overlay.getAnchorGeneration()
+                    || first.getBoundaryGeneration() != overlay.getBoundaryGeneration()
+                    || material == null
+                    || material.getLeafRole() != overlay.getLeafRole()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean acceptsOverlayBoundary(List<PageOverlayImage<Bitmap>> overlays) {
+        if (overlays.isEmpty()) {
+            return true;
+        }
+        final PageOverlayImage<?>[] retained = {null};
+        dynamicPageOverlays.forEach(texture -> {
+            if (retained[0] == null) {
+                retained[0] = texture.ownership;
+            }
+        });
+        PageOverlayImage<?> previous = retained[0];
+        PageOverlayImage<?> requested = overlays.get(0);
+        if (previous == null) {
+            return true;
+        }
+        if (previous.getDeckGenerationId() != requested.getDeckGenerationId()
+                || !Objects.equals(
+                        previous.getDestinationCommitIdentity(),
+                        requested.getDestinationCommitIdentity())
+                || previous.getVisualPageOrdinal() != requested.getVisualPageOrdinal()) {
+            return false;
+        }
+        if (requested.getAnchorGeneration() < previous.getAnchorGeneration()) {
+            return false;
+        }
+        if (requested.getAnchorGeneration() == previous.getAnchorGeneration()
+                && requested.getBoundaryGeneration() < previous.getBoundaryGeneration()) {
+            return false;
+        }
+        return requested.getAnchorGeneration() != previous.getAnchorGeneration()
+                || requested.getBoundaryGeneration() != previous.getBoundaryGeneration()
+                || Objects.equals(
+                        requested.getReceiptIdentity(),
+                        previous.getReceiptIdentity());
     }
 
     private static void recycleOverlayInputs(List<PageOverlayImage<Bitmap>> overlays) {
@@ -531,8 +605,15 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             hasOverlayUniform = GLES20.glGetUniformLocation(program, "uHasOverlay");
             isFillerUniform = GLES20.glGetUniformLocation(program, "uIsFiller");
             fillerColorUniform = GLES20.glGetUniformLocation(program, "uFillerColor");
-            if (isFillerUniform < 0 || fillerColorUniform < 0) {
-                throw new IllegalStateException("Filler shader uniforms are unavailable");
+            reversePaperColorUniform =
+                    GLES20.glGetUniformLocation(program, "uReversePaperColor");
+            reverseMaterialMixUniform =
+                    GLES20.glGetUniformLocation(program, "uReverseMaterialMix");
+            if (isFillerUniform < 0
+                    || fillerColorUniform < 0
+                    || reversePaperColorUniform < 0
+                    || reverseMaterialMixUniform < 0) {
+                throw new IllegalStateException("Page material shader uniforms are unavailable");
             }
             shadowProgram = createProgram(SHADOW_VERTEX_SHADER, SHADOW_FRAGMENT_SHADER);
             shadowPositionAttribute =
@@ -544,7 +625,6 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             shadowOpacityUniform =
                     GLES20.glGetUniformLocation(shadowProgram, "uOpacity");
 
-            GLES20.glClearColor(0f, 0f, 0f, 0f);
             GLES20.glClearDepthf(1f);
             GLES20.glEnable(GLES20.GL_DEPTH_TEST);
             GLES20.glDepthFunc(GLES20.GL_LEQUAL);
@@ -597,6 +677,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         }
         try {
             GLES20.glViewport(0, 0, viewportWidth, viewportHeight);
+            if (activeDeck != null) {
+                clearUncoveredBackground(activeDeck.getMaterial());
+            } else {
+                GLES20.glClearColor(1f, 1f, 1f, 0f);
+            }
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
             if (activeDeck == null) {
                 return false;
@@ -621,6 +706,18 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     exception);
             return false;
         }
+    }
+
+    private void clearUncoveredBackground(PageMaterial material) {
+        if (material == null) {
+            throw new IllegalArgumentException("Active deck has no presentation material");
+        }
+        int color = material.getUncoveredBackgroundColorArgb();
+        GLES20.glClearColor(
+                colorChannel(color, 16),
+                colorChannel(color, 8),
+                colorChannel(color, 0),
+                colorChannel(color, 24));
     }
 
     private void applyActiveDeck(PageDeck<Bitmap> deck) {
@@ -676,7 +773,20 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         if (deck == null) {
             throw new IllegalArgumentException("deck must not be null");
         }
+        PageMaterial deckMaterial = deck.getMaterial();
+        if (deckMaterial == null || deckMaterial.getGenerationId() != deck.getGenerationId()) {
+            throw new IllegalArgumentException("Deck presentation material is incomplete");
+        }
         for (PageImage<Bitmap> page : deck.getPages()) {
+            PageMaterial material = page.getMaterial();
+            if (material == null
+                    || material.getGenerationId() != deck.getGenerationId()
+                    || !material.hasSameDeckMaterialIdentity(deckMaterial)
+                    || !page.hasExplicitDisplayRect()
+                    || !material.getDisplayRect().equals(page.getDisplayRect())) {
+                throw new IllegalArgumentException(
+                        "Page presentation material does not match the deck");
+            }
             if (page.isFiller()) {
                 if (page.getWidthPx() <= 0 || page.getHeightPx() <= 0) {
                     throw new IllegalArgumentException("Filler dimensions must be positive");
@@ -902,7 +1012,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
 
     private boolean drawPortraitPage() {
         PageDisplayRect displayRect = displayRect(portraitFrontResource, fullViewportRect());
-        drawPageBacking(portraitFrontResource);
+        drawFixedPageMaterial(portraitFrontResource);
         configureDisplayViewport(displayRect, PageOrientation.PORTRAIT, 0f);
         int displayWidth = displayRect.getWidthPx();
         int displayHeight = displayRect.getHeightPx();
@@ -917,6 +1027,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     portraitRightResource,
                     portraitModel.getRightPage(),
                     false,
+                    0f,
                     PageOrientation.PORTRAIT,
                     displayWidth,
                     displayHeight) && rendered;
@@ -925,6 +1036,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     portraitFrontResource,
                     portraitModel.getFrontPage(),
                     false,
+                    0f,
                     PageOrientation.PORTRAIT,
                     displayWidth,
                     displayHeight) && rendered;
@@ -942,6 +1054,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 portraitLeftResource,
                 portraitModel.getLeftPage(),
                 false,
+                0f,
                 PageOrientation.PORTRAIT,
                 displayWidth,
                 displayHeight) && rendered;
@@ -950,6 +1063,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 portraitRightResource,
                 portraitModel.getRightPage(),
                 false,
+                0f,
                 PageOrientation.PORTRAIT,
                 displayWidth,
                 displayHeight) && rendered;
@@ -967,8 +1081,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         preloadSpreadWindow();
         PageDisplayRect leftFallback = leftHalfViewportRect();
         PageDisplayRect rightFallback = rightHalfViewportRect();
-        drawPageBacking(spreadCurrentLeftResource);
-        drawPageBacking(spreadCurrentRightResource);
+        drawFixedPageMaterial(spreadCurrentLeftResource);
+        drawFixedPageMaterial(spreadCurrentRightResource);
         LandscapeSpreadTransition transition = landscapeSpreadModel.getTransition();
         boolean rendered = true;
 
@@ -1066,6 +1180,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 resource,
                 state,
                 false,
+                0f,
                 PageOrientation.PORTRAIT,
                 displayWidth,
                 displayHeight);
@@ -1099,33 +1214,124 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 : fallbackDisplayRect;
     }
 
-    private void drawPageBacking(PageImage<Bitmap> resource) {
-        if (resource == null || !resource.hasBacking()) {
+    private void drawFixedPageMaterial(PageImage<Bitmap> resource) {
+        if (resource == null || resource.getMaterial() == null) {
+            throw new IllegalArgumentException("Page material is unavailable");
+        }
+        PageMaterial material = resource.getMaterial();
+        PageDisplayRect clippingRect = material.getClippingRect();
+        if (!clippingRect.fitsWithin(viewportWidth, viewportHeight)) {
+            throw new IllegalArgumentException(
+                    "Page material clipping rectangle exceeds the renderer surface");
+        }
+        clearMaterialRect(
+                material.getDisplayRect(),
+                clippingRect,
+                material.getFrontPaperColorArgb());
+        if (material.hasFixedBorderRect()) {
+            clearMaterialRect(
+                    material.getFixedBorderRect(),
+                    clippingRect,
+                    material.getReversePaperColorArgb());
+        }
+        drawFixedBorder(
+                material.getDisplayRect(),
+                clippingRect,
+                material.getFixedBorderWidthPx(),
+                material.getFixedBorderColorArgb());
+        clearUncoveredBackground(activeDeck.getMaterial());
+    }
+
+    private void drawFixedBorder(
+            PageDisplayRect rect,
+            PageDisplayRect clippingRect,
+            int widthPx,
+            int colorArgb) {
+        int horizontalWidth = Math.min(widthPx, rect.getWidthPx());
+        int verticalWidth = Math.min(widthPx, rect.getHeightPx());
+        clearMaterialRect(
+                new PageDisplayRect(
+                        rect.getLeftPx(),
+                        rect.getTopPx(),
+                        rect.getRightPx(),
+                        rect.getTopPx() + verticalWidth),
+                clippingRect,
+                colorArgb);
+        clearMaterialRect(
+                new PageDisplayRect(
+                        rect.getLeftPx(),
+                        rect.getBottomPx() - verticalWidth,
+                        rect.getRightPx(),
+                        rect.getBottomPx()),
+                clippingRect,
+                colorArgb);
+        clearMaterialRect(
+                new PageDisplayRect(
+                        rect.getLeftPx(),
+                        rect.getTopPx(),
+                        rect.getLeftPx() + horizontalWidth,
+                        rect.getBottomPx()),
+                clippingRect,
+                colorArgb);
+        clearMaterialRect(
+                new PageDisplayRect(
+                        rect.getRightPx() - horizontalWidth,
+                        rect.getTopPx(),
+                        rect.getRightPx(),
+                        rect.getBottomPx()),
+                clippingRect,
+                colorArgb);
+    }
+
+    private void clearMaterialRect(
+            PageDisplayRect rect,
+            PageDisplayRect clippingRect,
+            int colorArgb) {
+        PageDisplayRect clipped = intersect(rect, clippingRect);
+        if (clipped == null) {
             return;
         }
-        PageDisplayRect backingRect = resource.getBackingRect();
-        if (!backingRect.fitsWithin(viewportWidth, viewportHeight)) {
-            throw new IllegalArgumentException(
-                    "Page backing rectangle exceeds the renderer surface");
-        }
-        int color = resource.getBackingColorArgb();
         GLES20.glEnable(GLES20.GL_SCISSOR_TEST);
         try {
             GLES20.glScissor(
-                    backingRect.getLeftPx(),
-                    backingRect.glBottomPx(viewportHeight),
-                    backingRect.getWidthPx(),
-                    backingRect.getHeightPx());
+                    clipped.getLeftPx(),
+                    clipped.glBottomPx(viewportHeight),
+                    clipped.getWidthPx(),
+                    clipped.getHeightPx());
             GLES20.glClearColor(
-                    colorChannel(color, 16),
-                    colorChannel(color, 8),
-                    colorChannel(color, 0),
-                    colorChannel(color, 24));
+                    colorChannel(colorArgb, 16),
+                    colorChannel(colorArgb, 8),
+                    colorChannel(colorArgb, 0),
+                    colorChannel(colorArgb, 24));
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
         } finally {
-            GLES20.glClearColor(0f, 0f, 0f, 0f);
             GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
         }
+    }
+
+    private static PageDisplayRect inset(PageDisplayRect rect, int insetPx) {
+        if (insetPx <= 0
+                || rect.getWidthPx() <= insetPx * 2
+                || rect.getHeightPx() <= insetPx * 2) {
+            return rect;
+        }
+        return new PageDisplayRect(
+                rect.getLeftPx() + insetPx,
+                rect.getTopPx() + insetPx,
+                rect.getRightPx() - insetPx,
+                rect.getBottomPx() - insetPx);
+    }
+
+    private static PageDisplayRect intersect(
+            PageDisplayRect first,
+            PageDisplayRect second) {
+        int left = Math.max(first.getLeftPx(), second.getLeftPx());
+        int top = Math.max(first.getTopPx(), second.getTopPx());
+        int right = Math.min(first.getRightPx(), second.getRightPx());
+        int bottom = Math.min(first.getBottomPx(), second.getBottomPx());
+        return right <= left || bottom <= top
+                ? null
+                : new PageDisplayRect(left, top, right, bottom);
     }
 
     private void configureDisplayViewport(
@@ -1155,18 +1361,36 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             PageOrientation orientation,
             int displayWidth,
             int displayHeight) {
-        drawFoldShadow(
-                mesh,
-                resource,
-                state,
-                orientation,
-                displayWidth,
-                displayHeight);
+        PageDisplayRect shadowClip = resource == null || resource.getMaterial() == null
+                ? null
+                : intersect(
+                        resource.getMaterial().getDisplayRect(),
+                        resource.getMaterial().getClippingRect());
+        if (shadowClip != null) {
+            GLES20.glEnable(GLES20.GL_SCISSOR_TEST);
+            try {
+                GLES20.glScissor(
+                        shadowClip.getLeftPx(),
+                        shadowClip.glBottomPx(viewportHeight),
+                        shadowClip.getWidthPx(),
+                        shadowClip.getHeightPx());
+                drawFoldShadow(
+                        mesh,
+                        resource,
+                        state,
+                        orientation,
+                        displayWidth,
+                        displayHeight);
+            } finally {
+                GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
+            }
+        }
         return drawPage(
                 mesh,
                 resource,
                 state,
                 true,
+                PageReverseMaterialMix.fromCurlPosition(state.getCurlPosition()),
                 orientation,
                 displayWidth,
                 displayHeight);
@@ -1254,6 +1478,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             PageImage<Bitmap> resource,
             PageState state,
             boolean active,
+            float reverseMaterialMix,
             PageOrientation orientation,
             int displayWidth,
             int displayHeight) {
@@ -1272,30 +1497,61 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         PlayLikeCurlGeometry.update(mesh.geometry, state.getCurlPosition(), active);
         mesh.uploadPositions();
 
-        GLES20.glUniformMatrix4fv(matrixUniform, 1, false, mvpMatrix, 0);
-        drawPageTextures(resource, baseTexture, overlayTexture);
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, mesh.positionBufferId);
-        GLES20.glEnableVertexAttribArray(positionAttribute);
-        GLES20.glVertexAttribPointer(positionAttribute, 3, GLES20.GL_FLOAT, false, 0, 0);
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, mesh.textureBufferId);
-        GLES20.glEnableVertexAttribArray(textureCoordinateAttribute);
-        GLES20.glVertexAttribPointer(
-                textureCoordinateAttribute, 2, GLES20.GL_FLOAT, false, 0, 0);
-        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, mesh.indexBufferId);
-        GLES20.glDrawElements(
-                GLES20.GL_TRIANGLES,
-                mesh.geometry.getIndices().length,
-                GLES20.GL_UNSIGNED_SHORT,
-                0);
-        GLES20.glDisableVertexAttribArray(positionAttribute);
-        GLES20.glDisableVertexAttribArray(textureCoordinateAttribute);
-        return true;
+        PageMaterial material = resource.getMaterial();
+        PageDisplayRect drawableRect = material == null
+                ? null
+                : inset(material.getDisplayRect(), material.getFixedBorderWidthPx());
+        PageDisplayRect clip = material == null || drawableRect == null
+                ? null
+                : intersect(drawableRect, material.getClippingRect());
+        if (clip == null) {
+            return false;
+        }
+        GLES20.glEnable(GLES20.GL_SCISSOR_TEST);
+        GLES20.glFrontFace(mesh.horizontallyMirrored ? GLES20.GL_CW : GLES20.GL_CCW);
+        try {
+            GLES20.glScissor(
+                    clip.getLeftPx(),
+                    clip.glBottomPx(viewportHeight),
+                    clip.getWidthPx(),
+                    clip.getHeightPx());
+            GLES20.glUniformMatrix4fv(matrixUniform, 1, false, mvpMatrix, 0);
+            drawPageTextures(resource, baseTexture, overlayTexture, reverseMaterialMix);
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, mesh.positionBufferId);
+            GLES20.glEnableVertexAttribArray(positionAttribute);
+            GLES20.glVertexAttribPointer(positionAttribute, 3, GLES20.GL_FLOAT, false, 0, 0);
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, mesh.textureBufferId);
+            GLES20.glEnableVertexAttribArray(textureCoordinateAttribute);
+            GLES20.glVertexAttribPointer(
+                    textureCoordinateAttribute, 2, GLES20.GL_FLOAT, false, 0, 0);
+            GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, mesh.indexBufferId);
+            GLES20.glDrawElements(
+                    GLES20.GL_TRIANGLES,
+                    mesh.geometry.getIndices().length,
+                    GLES20.GL_UNSIGNED_SHORT,
+                    0);
+            GLES20.glDisableVertexAttribArray(positionAttribute);
+            GLES20.glDisableVertexAttribArray(textureCoordinateAttribute);
+            return true;
+        } finally {
+            GLES20.glFrontFace(GLES20.GL_CCW);
+            GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
+        }
     }
 
     private void drawPageTextures(
             PageImage<Bitmap> resource,
             GpuTexture baseTexture,
-            GpuTexture overlayTexture) {
+            GpuTexture overlayTexture,
+            float reverseMaterialMix) {
+        int reverseColor = resource.getMaterial().getReversePaperColorArgb();
+        GLES20.glUniform4f(
+                reversePaperColorUniform,
+                colorChannel(reverseColor, 16),
+                colorChannel(reverseColor, 8),
+                colorChannel(reverseColor, 0),
+                colorChannel(reverseColor, 24));
+        GLES20.glUniform1f(reverseMaterialMixUniform, reverseMaterialMix);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(
                 GLES20.GL_TEXTURE_2D,
@@ -1338,7 +1594,19 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         }
         DynamicPageOverlayTexture dynamic = dynamicPageOverlays.get(page.identityKey());
         if (dynamic != null) {
-            return dynamic.uploaded ? dynamic : null;
+            PageOverlayImage<Bitmap> ownership = dynamic.ownership;
+            PageMaterial material = page.getMaterial();
+            boolean owned = activeDeck != null
+                    && ownership.getDeckGenerationId() == activeDeck.getGenerationId()
+                    && ownership.getOrdinal() == page.getOrdinal()
+                    && material != null
+                    && ownership.getLeafRole() == material.getLeafRole()
+                    && ownership.getDestinationCommitIdentity() != null
+                    && ownership.getReceiptIdentity() != null
+                    && ownership.getVisualPageOrdinal() >= 0
+                    && ownership.getAnchorGeneration() > 0
+                    && ownership.getBoundaryGeneration() >= 0;
+            return owned && dynamic.uploaded ? dynamic : null;
         }
         if (!page.hasOverlay()) {
             return null;
@@ -1383,11 +1651,15 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     }
 
     private final class DynamicPageOverlayTexture extends GpuTexture {
+        private final PageOverlayImage<Bitmap> ownership;
         private final Bitmap bitmap;
 
-        DynamicPageOverlayTexture(PageImage<Bitmap> page, Bitmap bitmap) {
+        DynamicPageOverlayTexture(
+                PageImage<Bitmap> page,
+                PageOverlayImage<Bitmap> ownership) {
             super(page, false);
-            this.bitmap = bitmap;
+            this.ownership = Objects.requireNonNull(ownership, "ownership");
+            this.bitmap = ownership.getContent();
             validateOverlayBitmap(page, bitmap);
         }
 

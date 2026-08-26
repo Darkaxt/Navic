@@ -174,15 +174,66 @@ internal data class ReaderPlayLikeCurlRasterLayout(
 	}
 }
 
+internal data class ReaderPlayLikeCurlPageMaterial(
+	val frontPaperColorArgb: Int,
+	val reversePaperColorArgb: Int,
+	val fixedBorderColorArgb: Int,
+	val uncoveredBackgroundColorArgb: Int
+) {
+	init {
+		listOf(
+			frontPaperColorArgb,
+			reversePaperColorArgb,
+			fixedBorderColorArgb,
+			uncoveredBackgroundColorArgb
+		).forEach { colorArgb ->
+			require((colorArgb ushr 24) == 0xFF) {
+				"PlayLikeCurl page material colors must be opaque"
+			}
+		}
+	}
+}
+
+private fun readerPlayLikeCurlDerivedMaterialColor(
+	paperColorArgb: Int,
+	contrastWeight: Int
+): Int {
+	require(contrastWeight in 1..254)
+	val red = paperColorArgb ushr 16 and 0xFF
+	val green = paperColorArgb ushr 8 and 0xFF
+	val blue = paperColorArgb and 0xFF
+	val luminance = (red * 299 + green * 587 + blue * 114) / 1_000
+	val contrastTarget = if (luminance >= 128) 0 else 255
+	fun blend(channel: Int): Int =
+		(channel * (255 - contrastWeight) + contrastTarget * contrastWeight + 127) / 255
+	return 0xFF000000.toInt() or
+		(blend(red) shl 16) or
+		(blend(green) shl 8) or
+		blend(blue)
+}
+
+internal fun readerPlayLikeCurlPageMaterial(
+	paperColorArgb: Int
+) = ReaderPlayLikeCurlPageMaterial(
+	frontPaperColorArgb = paperColorArgb,
+	reversePaperColorArgb = readerPlayLikeCurlDerivedMaterialColor(paperColorArgb, 18),
+	fixedBorderColorArgb = readerPlayLikeCurlDerivedMaterialColor(paperColorArgb, 48),
+	uncoveredBackgroundColorArgb = paperColorArgb
+)
+
 internal data class ReaderPlayLikeCurlRasterImage(
 	val bitmap: Bitmap,
 	val paperColorArgb: Int,
 	val layout: ReaderPlayLikeCurlRasterLayout,
-	val leaf: ReaderPlayLikeCurlFoliateLeaf
+	val leaf: ReaderPlayLikeCurlFoliateLeaf,
+	val material: ReaderPlayLikeCurlPageMaterial = readerPlayLikeCurlPageMaterial(paperColorArgb)
 ) {
 	init {
 		require((paperColorArgb ushr 24) == 0xFF) {
 			"PlayLikeCurl paper color must be opaque"
+		}
+		require(material.frontPaperColorArgb == paperColorArgb) {
+			"PlayLikeCurl front paper material must match raster compositing"
 		}
 		requireNotNull(layout.displayRect(leaf)) {
 			"PlayLikeCurl raster must have positive physical leaf placement"
@@ -416,6 +467,7 @@ internal fun readerPlayLikeCurlCopyRetainedFoliateLeaf(
 	if (layout.displayRect(leaf) == null) return null
 
 	val paperColorArgb = snapshot.reverseFaceColor
+	val material = readerPlayLikeCurlPageMaterial(paperColorArgb)
 	val target = if (snapshot.bitmap.hasAlpha()) {
 		readerPlayLikeCurlFlattenLeafOverPaper(snapshot.bitmap, sourceRect, paperColorArgb)
 	} else {
@@ -425,7 +477,8 @@ internal fun readerPlayLikeCurlCopyRetainedFoliateLeaf(
 		bitmap = target,
 		paperColorArgb = paperColorArgb,
 		layout = layout,
-		leaf = leaf
+		leaf = leaf,
+		material = material
 	)
 } finally {
 	snapshot.release()

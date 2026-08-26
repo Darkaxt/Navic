@@ -14,6 +14,8 @@ import karacken.curl.GestureRejectionReason
 import karacken.curl.PageChange
 import karacken.curl.PageDeck
 import karacken.curl.PageImage
+import karacken.curl.PageLeafRole
+import karacken.curl.PageMaterial
 import karacken.curl.PageOverlayImage
 import karacken.curl.PageOverlayUpdateResult
 import karacken.curl.PageSurfaceDeckSubmissionResult
@@ -1527,16 +1529,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 			receipt != null &&
 			current != null &&
 			receipt.foliateSessionId == current.foliateSessionId &&
-			receipt.textureGeneration == current.textureGeneration &&
-			receipt.anchorGeneration < current.anchorGeneration
-		) return
+			receipt.textureGeneration == current.textureGeneration
+		) {
+			if (
+				!receipt.nativePresentationProof().isAdmissibleReplacementFor(
+					current.nativePresentationProof()
+				)
+			) return
+		}
 		if (receipt == current && highlightColorArgb == whispersyncHighlightColorArgb) return
 		latestWhispersyncAnchorReceipt = receipt
-		if (receipt != null && latestWhispersyncPresentationProof == null) {
-			latestWhispersyncPresentationProof = receipt.nativePresentationProof()
-		} else if (receipt == null) {
-			latestWhispersyncPresentationProof = null
-		}
+		latestWhispersyncPresentationProof = receipt?.nativePresentationProof()
 		whispersyncHighlightColorArgb = highlightColorArgb
 		publishLatestWhispersyncOverlayIfIdle()
 	}
@@ -4497,7 +4500,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 				bitmapHeight = image.bitmap.height,
 				colorArgb = whispersyncHighlightColorArgb
 			) ?: return@all false
-			overlays += PageOverlayImage(target.logicalOrdinal, mask)
+			overlays += PageOverlayImage(
+				generationId,
+				receipt.destinationCommitToken,
+				acceptedPresentationProof,
+				receipt.visualPageOrdinal,
+				target.role.pageLeafRole(),
+				receipt.anchorGeneration,
+				receipt.boundarySequence,
+				target.logicalOrdinal,
+				mask
+			)
 			true
 		}
 		if (!masksReady || overlays.size != targets.size) {
@@ -4520,6 +4533,18 @@ internal class ReaderPlayLikeCurlFoliateController(
 			whispersyncOverlayClearPending = false
 			publishedWhispersyncOverlay = null
 		}
+	}
+
+	private fun ReaderPageTurnPageRole.pageLeafRole(): PageLeafRole = when (this) {
+		ReaderPageTurnPageRole.Full -> PageLeafRole.FULL
+		ReaderPageTurnPageRole.Left -> PageLeafRole.LEFT
+		ReaderPageTurnPageRole.Right -> PageLeafRole.RIGHT
+	}
+
+	private fun ReaderPlayLikeCurlFoliateLeaf.pageLeafRole(): PageLeafRole = when (this) {
+		ReaderPlayLikeCurlFoliateLeaf.Full -> PageLeafRole.FULL
+		ReaderPlayLikeCurlFoliateLeaf.Left -> PageLeafRole.LEFT
+		ReaderPlayLikeCurlFoliateLeaf.Right -> PageLeafRole.RIGHT
 	}
 
 	private fun ReaderPlayLikeCurlFoliateLeaf.matches(role: ReaderPageTurnPageRole): Boolean =
@@ -4546,6 +4571,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		pageCount = pages.profile.pageCount,
 		readerDirection = pages.profile.readerDirection,
 		spreadAnchorParity = pages.profile.spreadAnchorParity,
+		requireCompleteMaterial = true,
 		filler = { pageGenerationId, slotRole, sourcePageIndex, leaf, fallbackOrdinal ->
 			pages.filler(
 				generationId = pageGenerationId,
@@ -4758,6 +4784,29 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) { "Physical page placement does not fit the renderer host" }
 	}
 
+	private fun ReaderPlayLikeCurlRasterLayout.clippingRectInHost() = run {
+		val location = IntArray(2)
+		host.getLocationInWindow(location)
+		val left = surfaceRectInWindow.left.toLong() - location[0]
+		val top = surfaceRectInWindow.top.toLong() - location[1]
+		val right = surfaceRectInWindow.right.toLong() - location[0]
+		val bottom = surfaceRectInWindow.bottom.toLong() - location[1]
+		check(
+			left >= 0L &&
+				top >= 0L &&
+				right <= host.width.toLong() &&
+				bottom <= host.height.toLong() &&
+				right > left &&
+				bottom > top
+		) { "Physical clipping geometry does not fit the renderer host" }
+		karacken.curl.PageDisplayRect(
+			left.toInt(),
+			top.toInt(),
+			right.toInt(),
+			bottom.toInt()
+		)
+	}
+
 	private fun ReaderPlayLikeCurlRasterLayout.pageBackingRectInHost(
 		leaf: ReaderPlayLikeCurlFoliateLeaf
 	) = run {
@@ -4780,30 +4829,28 @@ internal class ReaderPlayLikeCurlFoliateController(
 			"Missing prepared Foliate page $ordinal for ${profile.orientation}"
 		}
 		val displayRect = image.layout.displayRectInHost(image.leaf)
-		val backingRect = image.layout.pageBackingRectInHost(image.leaf)
-		return if (backingRect == null) {
-			PageImage(
-				generationId,
-				"${profile.sourceIdentity}:${profile.orientation.name.lowercase()}:$ordinal",
-				ordinal,
-				image.bitmap.width,
-				image.bitmap.height,
-				displayRect,
-				image.bitmap
-			)
-		} else {
-			PageImage(
-				generationId,
-				"${profile.sourceIdentity}:${profile.orientation.name.lowercase()}:$ordinal",
-				ordinal,
-				image.bitmap.width,
-				image.bitmap.height,
-				displayRect,
-				image.bitmap,
-				backingRect,
-				image.paperColorArgb
-			)
-		}
+		val material = PageMaterial(
+			generationId,
+			image.material.frontPaperColorArgb,
+			image.material.reversePaperColorArgb,
+			image.material.fixedBorderColorArgb,
+			image.material.uncoveredBackgroundColorArgb,
+			image.leaf.pageLeafRole(),
+			displayRect,
+			image.layout.clippingRectInHost(),
+			image.layout.pageBackingRectInHost(image.leaf),
+			1
+		)
+		return PageImage(
+			generationId,
+			"${profile.sourceIdentity}:${profile.orientation.name.lowercase()}:$ordinal",
+			ordinal,
+			image.bitmap.width,
+			image.bitmap.height,
+			displayRect,
+			image.bitmap,
+			material
+		)
 	}
 
 	private fun PreparedPages.filler(
@@ -4818,6 +4865,18 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		val foliateLeaf = readerPlayLikeCurlFillerFoliateLeaf(profile.orientation, leaf)
 		val displayRect = borrowed.layout.displayRectInHost(foliateLeaf)
+		val material = PageMaterial(
+			generationId,
+			borrowed.material.frontPaperColorArgb,
+			borrowed.material.reversePaperColorArgb,
+			borrowed.material.fixedBorderColorArgb,
+			borrowed.material.uncoveredBackgroundColorArgb,
+			foliateLeaf.pageLeafRole(),
+			displayRect,
+			borrowed.layout.clippingRectInHost(),
+			borrowed.layout.pageBackingRectInHost(foliateLeaf),
+			1
+		)
 		return PageImage.filler(
 			generationId,
 			"filler-${role.name}-$sourcePageIndex-${leaf.name}",
@@ -4826,7 +4885,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			borrowed.bitmap.height,
 			displayRect,
 			borrowed.bitmap,
-			borrowed.paperColorArgb
+			material
 		)
 	}
 

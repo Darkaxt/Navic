@@ -312,6 +312,46 @@ generations, full-page highlight recapture, or source/destination mask leakage i
 a blocker. Live in-curl word updates may use the specification's supported
 suspension-and-coalescing path instead of forcing a new renderer API.
 
+### Stage 5 execution ledger
+
+- **Validated:** Every production portrait or landscape deck now carries complete,
+  immutable generation-owned material. Submission rejects missing material,
+  generation mismatch, embedded base-page overlays, missing or mismatched display
+  geometry, wrong physical leaf roles, and inconsistent side-slot geometry before
+  coordinator or lease ownership. Reusing one generation with different material
+  is a conflict rather than an unchanged deck.
+- **Validated:** PlayLikeCurl clears uncovered regions with an opaque deck color and
+  owns front paper, explicit reverse paper, fixed edge material, clipping, and
+  borders. Portrait and landscape turning and incoming leaves select reverse
+  material from renderer-controlled curl state, so forward, backward, cancellation,
+  settlement, and rest do not depend on transparent WebView exposure or an
+  implicit GPU front-face heuristic.
+- **Validated:** Exact and progressive updates replace only bounded page-local mask
+  textures. Each replacement binds deck generation, destination commit identity,
+  live presentation proof, visual ordinal, physical leaf role, anchor generation,
+  and boundary generation. The surface and renderer reject stale/cross-leaf
+  ownership; curl-time updates remain suspended and latest-value coalesced; no word
+  update captures or resubmits a base page raster. This closes the Stage 1 native
+  mask/presentation-proof deferral.
+- **Validated:** Compose Start/Stop, Retry, preparation UI, semantics, and pointer
+  handling remain above the native surface; host updates reassert the same ordering.
+- **Gates:** The focused Stage 5 boundary passed 361/361 (214 renderer/module and
+  147 Android host). The consolidated renderer boundary passed 214/214; the reader
+  JavaScript boundary passed 148/148 plus the relocation bridge; the full Android
+  host suite passed 3,630/3,630; `:androidApp:assembleReaderDev` passed; and final
+  diff checks passed.
+- **Deferred to Stage 6:** Observe exact back-cover/edge appearance and full
+  forward, backward, cancelled, and settled animation coherence from the frozen
+  APK on the bounded synthetic emulator and approved tablet probes. Stage 5 proves
+  complete opaque material ownership and renderer paths but makes no device-level
+  visual-parity claim.
+- **Not Stage 5 scope:** No emulator, physical-device, signed-release, or broad
+  chapter acceptance work was performed.
+- **Blockers:** None after atomic material admission, explicit reverse-material
+  selection, opaque uncovered backing, role/geometry fencing, page-local mask
+  ownership, stale-boundary rejection, chrome ordering, consolidated host, and
+  ReaderDev build gates.
+
 ## Stage 6 — Integrated Reader Acceptance
 
 ### Steps

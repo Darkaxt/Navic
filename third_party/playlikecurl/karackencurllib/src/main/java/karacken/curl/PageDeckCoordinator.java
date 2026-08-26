@@ -435,6 +435,7 @@ final class PageDeckCoordinator<T> {
                 && first.getWidthPx() == second.getWidthPx()
                 && first.getHeightPx() == second.getHeightPx()
                 && Objects.equals(first.getDisplayRect(), second.getDisplayRect())
+                && Objects.equals(first.getMaterial(), second.getMaterial())
                 && first.hasOverlay() == second.hasOverlay()
                 && first.isFiller() == second.isFiller()
                 && (!first.isFiller()

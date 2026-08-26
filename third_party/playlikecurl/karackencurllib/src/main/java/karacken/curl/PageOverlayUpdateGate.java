@@ -1,7 +1,9 @@
 package karacken.curl;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /** Pure current-page and interaction admission for atomic page-overlay replacement. */
@@ -42,6 +44,83 @@ final class PageOverlayUpdateGate {
         }
         if (updatePending) {
             return PageOverlayUpdateResult.UPDATE_PENDING;
+        }
+        return PageOverlayUpdateResult.ACCEPTED;
+    }
+
+    static PageOverlayUpdateResult evaluateOwned(
+            PageDeck<?> activeDeck,
+            Set<Long> preparedGenerations,
+            boolean surfaceAvailable,
+            boolean interactionActive,
+            boolean updatePending,
+            long requestedGenerationId,
+            List<? extends PageOverlayImage<?>> requestedOverlays) {
+        return evaluate(
+                activeDeck,
+                preparedGenerations,
+                surfaceAvailable,
+                interactionActive,
+                updatePending,
+                requestedGenerationId,
+                requestedOverlays,
+                true);
+    }
+
+    static PageOverlayUpdateResult evaluate(
+            PageDeck<?> activeDeck,
+            Set<Long> preparedGenerations,
+            boolean surfaceAvailable,
+            boolean interactionActive,
+            boolean updatePending,
+            long requestedGenerationId,
+            List<? extends PageOverlayImage<?>> requestedOverlays,
+            boolean requireCompleteOwnership) {
+        if (!requireCompleteOwnership || requestedOverlays == null) {
+            return PageOverlayUpdateResult.INVALID_CONTENT;
+        }
+        List<Integer> requestedOrdinals = new ArrayList<>(requestedOverlays.size());
+        for (PageOverlayImage<?> overlay : requestedOverlays) {
+            if (overlay == null) {
+                return PageOverlayUpdateResult.INVALID_CONTENT;
+            }
+            requestedOrdinals.add(overlay.getOrdinal());
+        }
+        PageOverlayUpdateResult base = evaluate(
+                activeDeck,
+                preparedGenerations,
+                surfaceAvailable,
+                interactionActive,
+                updatePending,
+                requestedGenerationId,
+                requestedOrdinals);
+        if (base != PageOverlayUpdateResult.ACCEPTED || requestedOverlays.isEmpty()) {
+            return base;
+        }
+
+        PageOverlayImage<?> first = requestedOverlays.get(0);
+        for (PageOverlayImage<?> overlay : requestedOverlays) {
+            if (!overlay.hasCompleteOwnership()) {
+                return PageOverlayUpdateResult.INVALID_CONTENT;
+            }
+            if (overlay.getDeckGenerationId() != requestedGenerationId) {
+                return PageOverlayUpdateResult.STALE_TARGET;
+            }
+            PageImage<?> page = currentPage(activeDeck, overlay.getOrdinal());
+            PageMaterial material = page == null ? null : page.getMaterial();
+            if (material == null || material.getLeafRole() != overlay.getLeafRole()) {
+                return PageOverlayUpdateResult.STALE_TARGET;
+            }
+            if (!first.hasSameReceiptOwnership(overlay)
+                    || !Objects.equals(
+                            first.getDestinationCommitIdentity(),
+                            overlay.getDestinationCommitIdentity())
+                    || !Objects.equals(first.getReceiptIdentity(), overlay.getReceiptIdentity())
+                    || first.getVisualPageOrdinal() != overlay.getVisualPageOrdinal()
+                    || first.getAnchorGeneration() != overlay.getAnchorGeneration()
+                    || first.getBoundaryGeneration() != overlay.getBoundaryGeneration()) {
+                return PageOverlayUpdateResult.INVALID_CONTENT;
+            }
         }
         return PageOverlayUpdateResult.ACCEPTED;
     }

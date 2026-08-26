@@ -6,7 +6,10 @@ import android.os.Looper
 import karacken.curl.DeckRejectionReason
 import karacken.curl.DeckReleaseReason
 import karacken.curl.PageChange
+import karacken.curl.PageDisplayRect
 import karacken.curl.PageImage
+import karacken.curl.PageLeafRole
+import karacken.curl.PageMaterial
 import karacken.curl.PageSurfaceListener
 import karacken.curl.PageSurfaceView
 import karacken.curl.ReadingDirection
@@ -218,6 +221,7 @@ class ReaderPlayLikeCurlReferenceView(
 			pageCount = bitmapSource.pageCount,
 			readerDirection = pages.profile.readerDirection,
 			spreadAnchorParity = pages.profile.spreadAnchorParity,
+			requireCompleteMaterial = true,
 			filler = { pageGenerationId, role, sourcePageIndex, leaf, fallbackOrdinal ->
 				pages.filler(
 					generationId = pageGenerationId,
@@ -248,13 +252,23 @@ class ReaderPlayLikeCurlReferenceView(
 		val bitmap = checkNotNull(deck.value(ordinal)) {
 			"Missing prepared PlayLikeCurl page $ordinal"
 		}
+		val leaf = readerPlayLikeCurlFoliatePageRequest(
+			orientation = profile.orientation,
+			readerDirection = profile.readerDirection,
+			logicalOrdinal = ordinal,
+			pageCount = profile.pageCount,
+			spreadAnchorParity = profile.spreadAnchorParity
+		).leaf
+		val displayRect = referenceDisplayRect(leaf)
 		return PageImage(
 			generationId,
 			"${profile.sourceIdentity}:${profile.orientation.name.lowercase()}:$ordinal",
 			ordinal,
 			bitmap.width,
 			bitmap.height,
-			bitmap
+			displayRect,
+			bitmap,
+			referencePageMaterial(generationId, leaf, displayRect)
 		)
 	}
 
@@ -268,16 +282,52 @@ class ReaderPlayLikeCurlReferenceView(
 		val borrowed = checkNotNull(deck.value(fallbackOrdinal)) {
 			"Missing reference filler page $fallbackOrdinal"
 		}
+		val foliateLeaf = readerPlayLikeCurlFillerFoliateLeaf(profile.orientation, leaf)
+		val displayRect = referenceDisplayRect(foliateLeaf)
 		return PageImage.filler(
 			generationId,
 			"filler-${role.name}-$sourcePageIndex-${leaf.name}",
 			fallbackOrdinal,
 			borrowed.width,
 			borrowed.height,
+			displayRect,
 			borrowed,
-			0xFFF5F2EA.toInt()
+			referencePageMaterial(generationId, foliateLeaf, displayRect)
 		)
 	}
+
+	private fun referenceDisplayRect(
+		leaf: ReaderPlayLikeCurlFoliateLeaf
+	): PageDisplayRect {
+		check(width > 0 && height > 0) { "Reference material requires positive surface geometry" }
+		val split = width / 2
+		return when (leaf) {
+			ReaderPlayLikeCurlFoliateLeaf.Full -> PageDisplayRect(0, 0, width, height)
+			ReaderPlayLikeCurlFoliateLeaf.Left -> PageDisplayRect(0, 0, split, height)
+			ReaderPlayLikeCurlFoliateLeaf.Right -> PageDisplayRect(split, 0, width, height)
+		}
+	}
+
+	private fun referencePageMaterial(
+		generationId: Long,
+		leaf: ReaderPlayLikeCurlFoliateLeaf,
+		displayRect: PageDisplayRect
+	) = PageMaterial(
+		generationId,
+		0xFFF5F2EA.toInt(),
+		0xFFE9E3D8.toInt(),
+		0xFF5B554C.toInt(),
+		0xFFF5F2EA.toInt(),
+		when (leaf) {
+			ReaderPlayLikeCurlFoliateLeaf.Full -> PageLeafRole.FULL
+			ReaderPlayLikeCurlFoliateLeaf.Left -> PageLeafRole.LEFT
+			ReaderPlayLikeCurlFoliateLeaf.Right -> PageLeafRole.RIGHT
+		},
+		displayRect,
+		PageDisplayRect(0, 0, width, height),
+		null,
+		1
+	)
 
 	private fun releaseGeneration(generationId: Long) {
 		val pages = generationOwners.remove(generationId) ?: return

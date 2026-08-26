@@ -27,6 +27,86 @@ public final class PageSurfaceDeckSubmissionGateTest {
     }
 
     @Test
+    public void incompletePresentationMaterialRejectsBeforeAnimationOwnership() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry registry = new DeckLeaseRegistry();
+        PageSurfaceDeckSubmissionGate<String> gate =
+                new PageSurfaceDeckSubmissionGate<>(coordinator, registry);
+
+        PageSurfaceDeckSubmissionGate.Result<String> result =
+                gate.submit(materiallessPortraitDeck(1L, "missing-material"), LISTENER);
+
+        assertNull(result.offer());
+        assertEquals(
+                PageSurfaceDeckSubmissionResult.Status.REJECTED,
+                result.publicResult().getStatus());
+        assertEquals(
+                DeckRejectionReason.INVALID_CONTENT,
+                result.publicResult().getRejectionReason());
+        assertNull(coordinator.getActiveDeck());
+        assertEquals(0, registry.size());
+    }
+
+    @Test
+    public void completePresentationMaterialIsImmutableAndOwnedByTheDeck() {
+        PortraitPageDeck<String> deck = portraitDeck(1L, "complete-material");
+        PageMaterial material = deck.getMaterial();
+
+        assertEquals(1L, material.getGenerationId());
+        assertEquals(0xFFF5F2EA, material.getFrontPaperColorArgb());
+        assertEquals(0xFFE9E3D8, material.getReversePaperColorArgb());
+        assertEquals(0xFF5B554C, material.getFixedBorderColorArgb());
+        assertEquals(0xFFF5F2EA, material.getUncoveredBackgroundColorArgb());
+        assertEquals(new PageDisplayRect(0, 0, 100, 200), material.getClippingRect());
+        assertEquals(material, deck.getCurrent().getMaterial());
+    }
+
+    @Test
+    public void portraitRejectsNonFullMaterialBeforeOwnership() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry registry = new DeckLeaseRegistry();
+        PageSurfaceDeckSubmissionGate<String> gate =
+                new PageSurfaceDeckSubmissionGate<>(coordinator, registry);
+        PageDisplayRect display = new PageDisplayRect(0, 0, 100, 200);
+        PortraitPageDeck<String> malformed = new PortraitPageDeck<>(
+                materialImage(1L, "previous", 0, display, display, PageLeafRole.LEFT, null),
+                materialImage(1L, "current", 1, display, display, PageLeafRole.FULL, null),
+                materialImage(1L, "next", 2, display, display, PageLeafRole.FULL, null));
+
+        assertInvalidBeforeOwnership(gate.submit(malformed, LISTENER), coordinator, registry);
+    }
+
+    @Test
+    public void landscapeRejectsWrongDestinationLeafRoleBeforeOwnership() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry registry = new DeckLeaseRegistry();
+        PageSurfaceDeckSubmissionGate<String> gate =
+                new PageSurfaceDeckSubmissionGate<>(coordinator, registry);
+
+        LandscapePageDeck<String> malformed = landscapeDeck(
+                1L,
+                PageLeafRole.LEFT,
+                new PageDisplayRect(200, 0, 210, 200));
+
+        assertInvalidBeforeOwnership(gate.submit(malformed, LISTENER), coordinator, registry);
+    }
+
+    @Test
+    public void landscapeRejectsWrongDestinationSlotMaterialGeometryBeforeOwnership() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry registry = new DeckLeaseRegistry();
+        PageSurfaceDeckSubmissionGate<String> gate =
+                new PageSurfaceDeckSubmissionGate<>(coordinator, registry);
+
+        LandscapePageDeck<String> malformed = landscapeDeck(
+                1L,
+                PageLeafRole.RIGHT,
+                new PageDisplayRect(90, 0, 100, 200));
+
+        assertInvalidBeforeOwnership(gate.submit(malformed, LISTENER), coordinator, registry);
+    }
+
+    @Test
     public void preAdmissionRollbackRestoresCoordinatorAndLeaseCapacity() {
         PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
         DeckLeaseRegistry registry = new DeckLeaseRegistry();
@@ -285,6 +365,73 @@ public final class PageSurfaceDeckSubmissionGateTest {
         }
     }
 
+    private static void assertInvalidBeforeOwnership(
+            PageSurfaceDeckSubmissionGate.Result<String> result,
+            PageDeckCoordinator<String> coordinator,
+            DeckLeaseRegistry registry) {
+        assertNull(result.offer());
+        assertEquals(
+                PageSurfaceDeckSubmissionResult.Status.REJECTED,
+                result.publicResult().getStatus());
+        assertEquals(
+                DeckRejectionReason.INVALID_CONTENT,
+                result.publicResult().getRejectionReason());
+        assertNull(coordinator.getActiveDeck());
+        assertEquals(0, registry.size());
+    }
+
+    private static LandscapePageDeck<String> landscapeDeck(
+            long generationId,
+            PageLeafRole nextRightRole,
+            PageDisplayRect nextRightFixedRect) {
+        PageDisplayRect left = new PageDisplayRect(0, 0, 100, 200);
+        PageDisplayRect right = new PageDisplayRect(100, 0, 200, 200);
+        PageDisplayRect clipping = new PageDisplayRect(0, 0, 210, 200);
+        PageDisplayRect rightFixed = new PageDisplayRect(200, 0, 210, 200);
+        return new LandscapePageDeck<>(
+                materialImage(
+                        generationId, "previous-left", 0, left, clipping, PageLeafRole.LEFT, null),
+                materialImage(
+                        generationId, "previous-right", 1, right, clipping, PageLeafRole.RIGHT, rightFixed),
+                materialImage(
+                        generationId, "current-left", 2, left, clipping, PageLeafRole.LEFT, null),
+                materialImage(
+                        generationId, "current-right", 3, right, clipping, PageLeafRole.RIGHT, rightFixed),
+                materialImage(
+                        generationId, "next-left", 4, left, clipping, PageLeafRole.LEFT, null),
+                materialImage(
+                        generationId,
+                        "next-right",
+                        5,
+                        right,
+                        clipping,
+                        nextRightRole,
+                        nextRightFixedRect));
+    }
+
+    private static PageImage<String> materialImage(
+            long generationId,
+            String id,
+            int ordinal,
+            PageDisplayRect display,
+            PageDisplayRect clipping,
+            PageLeafRole leafRole,
+            PageDisplayRect fixedRect) {
+        PageMaterial material = new PageMaterial(
+                generationId,
+                0xFFF5F2EA,
+                0xFFE9E3D8,
+                0xFF5B554C,
+                0xFFF5F2EA,
+                leafRole,
+                display,
+                clipping,
+                fixedRect,
+                1);
+        return new PageImage<>(
+                generationId, id, ordinal, 100, 200, display, id, material);
+    }
+
     private static PortraitPageDeck<String> portraitDeck(
             long generationId,
             String prefix) {
@@ -294,7 +441,36 @@ public final class PageSurfaceDeckSubmissionGateTest {
                 image(generationId, prefix + "-next", 2));
     }
 
+    private static PortraitPageDeck<String> materiallessPortraitDeck(
+            long generationId,
+            String prefix) {
+        return new PortraitPageDeck<>(
+                materiallessImage(generationId, prefix + "-previous", 0),
+                materiallessImage(generationId, prefix + "-current", 1),
+                materiallessImage(generationId, prefix + "-next", 2));
+    }
+
     private static PageImage<String> image(
+            long generationId,
+            String id,
+            int ordinal) {
+        PageDisplayRect display = new PageDisplayRect(0, 0, 100, 200);
+        PageMaterial material = new PageMaterial(
+                generationId,
+                0xFFF5F2EA,
+                0xFFE9E3D8,
+                0xFF5B554C,
+                0xFFF5F2EA,
+                PageLeafRole.FULL,
+                display,
+                display,
+                null,
+                1);
+        return new PageImage<>(
+                generationId, id, ordinal, 100, 200, display, id, material);
+    }
+
+    private static PageImage<String> materiallessImage(
             long generationId,
             String id,
             int ordinal) {

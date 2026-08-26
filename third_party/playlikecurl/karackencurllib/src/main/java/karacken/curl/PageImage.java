@@ -28,6 +28,7 @@ public final class PageImage<T> {
     private final int fillerColorArgb;
     private final PageDisplayRect backingRect;
     private final int backingColorArgb;
+    private final PageMaterial material;
 
     public PageImage(
             long generationId,
@@ -48,7 +49,8 @@ public final class PageImage<T> {
                 false,
                 0,
                 null,
-                0);
+                0,
+                null);
     }
 
     /**
@@ -75,7 +77,34 @@ public final class PageImage<T> {
                 false,
                 0,
                 null,
-                0);
+                0,
+                null);
+    }
+
+    /** Creates an explicitly placed page with complete generation-owned presentation material. */
+    public PageImage(
+            long generationId,
+            String logicalPageId,
+            int ordinal,
+            int widthPx,
+            int heightPx,
+            PageDisplayRect displayRect,
+            T content,
+            PageMaterial material) {
+        this(
+                generationId,
+                logicalPageId,
+                ordinal,
+                widthPx,
+                heightPx,
+                Objects.requireNonNull(displayRect, "displayRect"),
+                content,
+                null,
+                false,
+                0,
+                fixedBorderRect(material),
+                fixedBorderColor(material),
+                Objects.requireNonNull(material, "material"));
     }
 
     /**
@@ -104,7 +133,9 @@ public final class PageImage<T> {
                 false,
                 0,
                 Objects.requireNonNull(backingRect, "backingRect"),
-                backingColorArgb);
+                backingColorArgb,
+                legacyBackingMaterial(
+                        generationId, displayRect, backingRect, backingColorArgb));
     }
 
     /**
@@ -133,7 +164,8 @@ public final class PageImage<T> {
                 false,
                 0,
                 null,
-                0);
+                0,
+                null);
     }
 
     /** Creates an explicitly placed page with an optional ephemeral overlay. */
@@ -158,7 +190,35 @@ public final class PageImage<T> {
                 false,
                 0,
                 null,
-                0);
+                0,
+                null);
+    }
+
+    /** Creates an explicitly placed page with a deformed overlay and complete material. */
+    public PageImage(
+            long generationId,
+            String logicalPageId,
+            int ordinal,
+            int widthPx,
+            int heightPx,
+            PageDisplayRect displayRect,
+            T content,
+            T overlayContent,
+            PageMaterial material) {
+        this(
+                generationId,
+                logicalPageId,
+                ordinal,
+                widthPx,
+                heightPx,
+                Objects.requireNonNull(displayRect, "displayRect"),
+                content,
+                overlayContent,
+                false,
+                0,
+                fixedBorderRect(material),
+                fixedBorderColor(material),
+                Objects.requireNonNull(material, "material"));
     }
 
     /** Creates an explicitly placed page with both a deformed overlay and fixed backing material. */
@@ -185,7 +245,9 @@ public final class PageImage<T> {
                 false,
                 0,
                 Objects.requireNonNull(backingRect, "backingRect"),
-                backingColorArgb);
+                backingColorArgb,
+                legacyBackingMaterial(
+                        generationId, displayRect, backingRect, backingColorArgb));
     }
 
     /** Creates a paper-colored physical filler that borrows content only for its lease. */
@@ -209,7 +271,8 @@ public final class PageImage<T> {
                 true,
                 fillerColorArgb,
                 null,
-                0);
+                0,
+                null);
     }
 
     /** Creates an explicitly placed paper-colored physical filler. */
@@ -234,7 +297,35 @@ public final class PageImage<T> {
                 true,
                 fillerColorArgb,
                 null,
-                0);
+                0,
+                null);
+    }
+
+    /** Creates an explicitly placed filler with complete generation-owned presentation material. */
+    public static <T> PageImage<T> filler(
+            long generationId,
+            String logicalPageId,
+            int ordinal,
+            int widthPx,
+            int heightPx,
+            PageDisplayRect displayRect,
+            T borrowedContent,
+            PageMaterial material) {
+        PageMaterial exact = Objects.requireNonNull(material, "material");
+        return new PageImage<>(
+                generationId,
+                logicalPageId,
+                ordinal,
+                widthPx,
+                heightPx,
+                Objects.requireNonNull(displayRect, "displayRect"),
+                borrowedContent,
+                null,
+                true,
+                exact.getFrontPaperColorArgb(),
+                fixedBorderRect(exact),
+                fixedBorderColor(exact),
+                exact);
     }
 
     private PageImage(
@@ -249,7 +340,8 @@ public final class PageImage<T> {
             boolean filler,
             int fillerColorArgb,
             PageDisplayRect backingRect,
-            int backingColorArgb) {
+            int backingColorArgb,
+            PageMaterial material) {
         if (generationId < 0) {
             throw new IllegalArgumentException("generationId must not be negative");
         }
@@ -268,9 +360,6 @@ public final class PageImage<T> {
         if (filler && (fillerColorArgb >>> 24) != 0xFF) {
             throw new IllegalArgumentException("Filler color must be fully opaque ARGB");
         }
-        if (filler && backingRect != null) {
-            throw new IllegalArgumentException("Filler pages cannot have fixed backing material");
-        }
         if (backingRect != null) {
             if (displayRect == null) {
                 throw new IllegalArgumentException(
@@ -288,6 +377,16 @@ public final class PageImage<T> {
                         "Fixed backing material must be horizontally adjacent to the page");
             }
         }
+        if (material != null) {
+            if (material.getGenerationId() != generationId) {
+                throw new IllegalArgumentException(
+                        "Page material must share the page generation");
+            }
+            if (!Objects.equals(material.getDisplayRect(), displayRect)) {
+                throw new IllegalArgumentException(
+                        "Page material must share the physical display rectangle");
+            }
+        }
         this.generationId = generationId;
         this.logicalPageId = logicalPageId;
         this.ordinal = ordinal;
@@ -300,6 +399,7 @@ public final class PageImage<T> {
         this.fillerColorArgb = fillerColorArgb;
         this.backingRect = backingRect;
         this.backingColorArgb = backingColorArgb;
+        this.material = material;
     }
 
     public long getGenerationId() {
@@ -371,11 +471,50 @@ public final class PageImage<T> {
         return backingColorArgb;
     }
 
+    public boolean hasCompleteMaterial() {
+        return material != null;
+    }
+
+    public PageMaterial getMaterial() {
+        return material;
+    }
+
     String identityKey() {
         return generationId + "\u0000" + logicalPageId + "\u0000" + ordinal;
     }
 
     String overlayIdentityKey() {
         return identityKey() + "\u0000overlay";
+    }
+
+    private static PageDisplayRect fixedBorderRect(PageMaterial material) {
+        PageMaterial exact = Objects.requireNonNull(material, "material");
+        return exact.getFixedBorderRect();
+    }
+
+    private static int fixedBorderColor(PageMaterial material) {
+        return Objects.requireNonNull(material, "material").getFixedBorderColorArgb();
+    }
+
+    private static PageMaterial legacyBackingMaterial(
+            long generationId,
+            PageDisplayRect displayRect,
+            PageDisplayRect backingRect,
+            int backingColorArgb) {
+        int left = Math.min(displayRect.getLeftPx(), backingRect.getLeftPx());
+        int top = Math.min(displayRect.getTopPx(), backingRect.getTopPx());
+        int right = Math.max(displayRect.getRightPx(), backingRect.getRightPx());
+        int bottom = Math.max(displayRect.getBottomPx(), backingRect.getBottomPx());
+        return new PageMaterial(
+                generationId,
+                backingColorArgb,
+                backingColorArgb,
+                backingColorArgb,
+                backingColorArgb,
+                PageLeafRole.FULL,
+                displayRect,
+                new PageDisplayRect(left, top, right, bottom),
+                backingRect,
+                1);
     }
 }

@@ -54,6 +54,9 @@ final class PageSurfaceDeckSubmissionGate<T> {
         if (closed) {
             return preOfferRejected(DeckRejectionReason.DISPOSED);
         }
+        if (!hasCompletePresentationMaterial(deck)) {
+            return preOfferRejected(DeckRejectionReason.INVALID_CONTENT);
+        }
         long generationId = deck.getGenerationId();
         PageDeck<T> active = coordinator.getActiveDeck();
         PageDeck<T> pending = coordinator.getPendingDeck();
@@ -118,6 +121,60 @@ final class PageSurfaceDeckSubmissionGate<T> {
                     "Accepted deck lease could not be rolled back");
         }
         releaseBlockedGenerations.remove(generationId);
+    }
+
+    private static boolean hasCompletePresentationMaterial(PageDeck<?> deck) {
+        PageMaterial deckMaterial = deck.getMaterial();
+        if (deckMaterial == null || deckMaterial.getGenerationId() != deck.getGenerationId()) {
+            return false;
+        }
+        for (PageImage<?> page : deck.getPages()) {
+            PageMaterial material = page.getMaterial();
+            if (material == null
+                    || material.getGenerationId() != deck.getGenerationId()
+                    || page.getGenerationId() != deck.getGenerationId()
+                    || page.hasOverlay()
+                    || !page.hasExplicitDisplayRect()
+                    || !material.getDisplayRect().equals(page.getDisplayRect())
+                    || !deckMaterial.hasSameDeckMaterialIdentity(material)) {
+                return false;
+            }
+        }
+        if (deck instanceof PortraitPageDeck<?>) {
+            return hasPortraitMaterialGeometry((PortraitPageDeck<?>) deck);
+        }
+        if (deck instanceof LandscapePageDeck<?>) {
+            return hasLandscapeMaterialGeometry((LandscapePageDeck<?>) deck);
+        }
+        return false;
+    }
+
+    private static boolean hasPortraitMaterialGeometry(PortraitPageDeck<?> deck) {
+        PageMaterial expected = deck.getCurrent().getMaterial();
+        return hasExactSlotMaterial(deck.getPrevious(), expected, PageLeafRole.FULL)
+                && hasExactSlotMaterial(deck.getCurrent(), expected, PageLeafRole.FULL)
+                && hasExactSlotMaterial(deck.getNext(), expected, PageLeafRole.FULL);
+    }
+
+    private static boolean hasLandscapeMaterialGeometry(LandscapePageDeck<?> deck) {
+        PageMaterial left = deck.getCurrentLeft().getMaterial();
+        PageMaterial right = deck.getCurrentRight().getMaterial();
+        return hasExactSlotMaterial(deck.getPreviousLeft(), left, PageLeafRole.LEFT)
+                && hasExactSlotMaterial(deck.getCurrentLeft(), left, PageLeafRole.LEFT)
+                && hasExactSlotMaterial(deck.getNextLeft(), left, PageLeafRole.LEFT)
+                && hasExactSlotMaterial(deck.getPreviousRight(), right, PageLeafRole.RIGHT)
+                && hasExactSlotMaterial(deck.getCurrentRight(), right, PageLeafRole.RIGHT)
+                && hasExactSlotMaterial(deck.getNextRight(), right, PageLeafRole.RIGHT);
+    }
+
+    private static boolean hasExactSlotMaterial(
+            PageImage<?> page,
+            PageMaterial expected,
+            PageLeafRole leafRole) {
+        PageMaterial material = page.getMaterial();
+        return expected != null
+                && expected.getLeafRole() == leafRole
+                && expected.equals(material);
     }
 
     private Result<T> preOfferRejected(DeckRejectionReason reason) {
