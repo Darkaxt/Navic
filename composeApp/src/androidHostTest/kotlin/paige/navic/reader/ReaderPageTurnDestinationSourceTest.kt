@@ -1146,16 +1146,16 @@ class ReaderPageTurnDestinationSourceTest {
 		}
 		assertContains(plan, "chapterPages(currentChapter)")
 		assertContains(plan, ".forEach(pageIndex => addTarget(pageIndex, 'current-chapter'))")
-		assertContains(plan, "physicalPagesInRange(currentChapterEnd, pageCount)")
+		assertContains(plan, "chapterPages(nextChapter)")
 		assertContains(plan, ".forEach(pageIndex => addTarget(pageIndex, 'next-chapter'))")
-		assertContains(plan, "physicalPagesInRange(0, currentChapterStart, true)")
+		assertContains(plan, "chapterPages(previousChapter).reverse()")
 		assertContains(plan, ".forEach(pageIndex => addTarget(pageIndex, 'previous-chapter'))")
 		val blockingEnd = plan.indexOf(
 			"addTarget(centerPageIndex - step * 5, 'previous-lookahead')"
 		)
 		val currentChapter = plan.indexOf("chapterPages(currentChapter)")
-		val forward = plan.indexOf("physicalPagesInRange(currentChapterEnd, pageCount)")
-		val backward = plan.indexOf("physicalPagesInRange(0, currentChapterStart, true)")
+		val forward = plan.indexOf("chapterPages(nextChapter)")
+		val backward = plan.indexOf("chapterPages(previousChapter).reverse()")
 		assertTrue(blockingEnd >= 0)
 		assertTrue(currentChapter >= 0)
 		assertTrue(forward >= 0)

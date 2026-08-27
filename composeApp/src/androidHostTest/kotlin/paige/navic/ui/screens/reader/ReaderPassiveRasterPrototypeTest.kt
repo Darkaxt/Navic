@@ -487,7 +487,7 @@ class ReaderPassiveRasterPrototypeTest {
 	}
 
 	@Test
-	fun canonicalCaptureGeometryPreservesOnlyTheExactRuntimeObservation() {
+	fun canonicalCaptureGeometryNormalizesOnePixelFullFrameRounding() {
 		val geometry = portraitGeometry()
 		val positiveRounding = geometry.copy(
 			viewportWidth = geometry.viewportWidth + 1,
@@ -511,7 +511,8 @@ class ReaderPassiveRasterPrototypeTest {
 				runtimeObservedGeometry = geometry
 			)
 		)
-		assertNull(
+		assertEquals(
+			geometry,
 			readerPassiveRasterCanonicalCaptureGeometry(
 				configuredGeometry = geometry,
 				measuredWidth = geometry.viewportWidth,
@@ -519,7 +520,8 @@ class ReaderPassiveRasterPrototypeTest {
 				runtimeObservedGeometry = positiveRounding
 			)
 		)
-		assertNull(
+		assertEquals(
+			geometry,
 			readerPassiveRasterCanonicalCaptureGeometry(
 				configuredGeometry = geometry,
 				measuredWidth = geometry.viewportWidth,
@@ -1235,13 +1237,26 @@ class ReaderPassiveRasterPrototypeTest {
 			productionGeometry().viewportHeight
 		)
 		Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+		val manifestPort = ReaderPassiveRasterLiveManifestPort {
+			visualPageOrdinal,
+			captureEpoch,
+			rasterGeneration,
+			preparationGeneration,
+			onResolved ->
+			webView.evaluateJavascript(
+				"JSON.stringify(window.NavicReaderBridge?." +
+					"pageTurnPassiveRasterManifestInputs?.(" +
+					"$visualPageOrdinal, $captureEpoch, $rasterGeneration, " +
+						"$preparationGeneration) ?? null)"
+			) { encoded -> onResolved(readerPassiveRasterManifestResolution(encoded)) }
+		}
 		val runtime = SuccessfulPassiveBitmapRuntime()
 		val session = ReaderPassiveRasterPrototypeSession(runtime) { rejected ->
 			if (!rejected.isRecycled) rejected.recycle()
 		}
 		val adapter = ReaderPassiveRasterPreparationAdapter(
 			session = session,
-			liveManifestPort = ReaderPageLivePassiveRasterManifestPort { webView },
+			liveManifestPort = manifestPort,
 			bundleSource = source,
 			initialCaptureEpoch = commit.captureEpoch
 		)
