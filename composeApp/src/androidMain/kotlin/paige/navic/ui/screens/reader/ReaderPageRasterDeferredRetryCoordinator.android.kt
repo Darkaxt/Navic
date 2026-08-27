@@ -46,6 +46,7 @@ internal fun readerPageDeferredPresentation(
 internal class ReaderPageRasterDeferredRetryCoordinator {
 	private data class DeferredRequest(
 		val sessionId: Long,
+		val reason: ReaderPageRasterDeferralReason,
 		val policy: ReaderPageRasterDeferralPolicy,
 		val onResumed: (Long) -> Unit,
 		val retry: () -> Unit,
@@ -81,6 +82,7 @@ internal class ReaderPageRasterDeferredRetryCoordinator {
 		}
 		deferred = DeferredRequest(
 			sessionId = sessionId,
+			reason = reason,
 			policy = policy,
 			onResumed = onResumed,
 			retry = retry,
@@ -98,6 +100,9 @@ internal class ReaderPageRasterDeferredRetryCoordinator {
 		current.retry()
 		return true
 	}
+
+	fun hasDeferred(reason: ReaderPageRasterDeferralReason): Boolean =
+		deferred?.reason == reason
 
 	fun cancel(sessionId: Long): Boolean {
 		val current = deferred ?: return false

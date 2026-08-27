@@ -1172,6 +1172,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		},
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
 		onCanonicalLiveCommitIssued = ::onCanonicalLiveCommitIssued,
+		onCanonicalLiveCommitRecoveryFailed = ::onCanonicalLiveCommitRecoveryFailed,
 		onAttachRasterRepairQaFault = ::attachPageRasterRepairQaFault,
 		onRequestRasterRepair = ::requestPageRasterRepair,
 		onGestureTerminal = { gestureId, outcome, detail ->
@@ -1882,6 +1883,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun onCanonicalLiveCommitIssued(): Boolean {
 		if (task4ResourceTeardownStarted) return false
 		return pageRasterPreparationController.onCanonicalLiveCommitIssued()
+	}
+
+	private fun onCanonicalLiveCommitRecoveryFailed(): Boolean {
+		if (task4ResourceTeardownStarted) return false
+		return pageRasterPreparationController.onCanonicalLiveCommitRecoveryFailed()
 	}
 
 	private fun replacePassiveRasterPreparationAdapter(webView: WebView) {

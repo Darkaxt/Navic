@@ -150,9 +150,20 @@ class ReaderPageRasterProductionEventSourceTest {
 		)
 		assertContains(host, "playLikeCurlController.onPassiveManifestAuthorityUnavailable()")
 		assertContains(host, "onCanonicalLiveCommitIssued = ::onCanonicalLiveCommitIssued")
+		assertContains(
+			host,
+			"onCanonicalLiveCommitRecoveryFailed = ::onCanonicalLiveCommitRecoveryFailed"
+		)
+		assertContains(preparation, "fun onCanonicalLiveCommitRecoveryFailed(): Boolean")
 		assertContains(foliate, "onCanonicalLiveCommitIssued: () -> Boolean")
+		assertContains(foliate, "onCanonicalLiveCommitRecoveryFailed: () -> Boolean")
 		assertContains(foliate, "fun onPassiveManifestAuthorityUnavailable()")
+		assertContains(foliate, "PassiveManifestAuthorityRecoveryTimeoutMillis")
+		assertContains(foliate, "mainHandler.postDelayed(")
+		assertContains(foliate, "retryPassiveManifestAuthorityRecovery()")
 		assertContains(foliate, "onCanonicalLiveCommitIssued()")
+		assertContains(foliate, "onCanonicalLiveCommitRecoveryFailed()")
+		assertContains(foliate, "!resumedDeferredPreparation")
 	}
 
 	@Test

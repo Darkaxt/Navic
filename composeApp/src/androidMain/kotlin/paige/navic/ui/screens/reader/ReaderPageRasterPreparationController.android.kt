@@ -605,6 +605,21 @@ internal class ReaderPageRasterPreparationController(
 			ReaderPageRasterRetryEvent.CanonicalLiveCommitIssued
 		)
 
+	fun onCanonicalLiveCommitRecoveryFailed(): Boolean {
+		if (
+			destroyed ||
+			!deferredRetryCoordinator.hasDeferred(
+				ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
+			)
+		) {
+			return false
+		}
+		failCurrentPreparationGeneration(
+			"Page preparation could not establish live authority."
+		)
+		return true
+	}
+
 	fun onRasterProfileEpochChanged(epoch: Long?) {
 		if (destroyed || currentRasterProfileEpoch == epoch) return
 		val replacedProfile = currentRasterProfileEpoch != null && epoch != null
@@ -1160,7 +1175,8 @@ internal class ReaderPageRasterPreparationController(
 		val diagnostic = "${outcome.stage}:${outcome.reason}".lowercase()
 		return when {
 			diagnostic == "passive-host:capture-unavailable" ||
-				diagnostic == "passive-host:passive-raster-unavailable" ->
+				diagnostic == "passive-host:passive-raster-unavailable" ||
+				diagnostic.startsWith("passive-host:passive-raster-unavailable:") ->
 				ReaderPageRasterDeferralReason.PassiveHostUnavailable
 			diagnostic == "passive-manifest:canonical-live-commit-unavailable" ->
 				ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable

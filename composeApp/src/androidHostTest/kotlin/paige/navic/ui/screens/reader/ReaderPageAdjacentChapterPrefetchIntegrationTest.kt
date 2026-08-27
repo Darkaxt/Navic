@@ -698,6 +698,31 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun suffixedPassiveBatchDeferralResumesWhenThePassiveHostIsAvailable() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.prewarm.completeDeferred(
+				reason = "passive-raster-unavailable:calibration",
+				stage = "passive-host"
+			)
+
+			assertFalse(
+				fixture.controller.onRetryEvent(ReaderPageRasterRetryEvent.ContentReady)
+			)
+			assertEquals(0, fixture.retryProbe.freshManifestRequestCount)
+
+			fixture.controller.onPassiveRasterPreparationAvailable()
+
+			assertEquals(1, fixture.retryProbe.freshManifestRequestCount)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun canonicalCommitDeferralResumesOnlyAfterLiveAuthorityConfirmation() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
@@ -716,6 +741,27 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			assertTrue(fixture.controller.onCanonicalLiveCommitIssued())
 
 			assertEquals(1, fixture.retryProbe.freshManifestRequestCount)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun failedCanonicalAuthorityRecoveryTerminatesTheDeferredGeneration() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.prewarm.completeDeferred(
+				reason = "canonical-live-commit-unavailable",
+				stage = "passive-manifest"
+			)
+
+			assertTrue(fixture.controller.onCanonicalLiveCommitRecoveryFailed())
+			assertEquals(ReaderPagePreparationPhase.Failed, fixture.latestState.phase)
+			assertTrue(fixture.latestState.retryable)
+			assertFalse(fixture.controller.onCanonicalLiveCommitRecoveryFailed())
 		} finally {
 			fixture.close()
 			Dispatchers.resetMain()

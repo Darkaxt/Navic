@@ -68,6 +68,7 @@ import paige.navic.util.core.Logger
 
 private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFoliate"
 private const val ReaderPageLiveHandoffCrossfadeMillis = 200L
+private const val PassiveManifestAuthorityRecoveryTimeoutMillis = 10_000L
 private const val MAX_RASTER_ADAPTER_OWNERS = 2
 
 internal fun readerRenderFailureOwnsCurrentPresentation(
@@ -666,6 +667,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		detail: ReaderPageGestureTerminalDetail
 	) -> Boolean,
 	private val onCanonicalLiveCommitIssued: () -> Boolean = { false },
+	private val onCanonicalLiveCommitRecoveryFailed: () -> Boolean = { false },
 	private val onBoundaryTurn: (ReaderPageTurnDirection) -> Unit = {},
 	private val onRasterProfileEpochChanged: (Long?) -> Unit = {},
 	private val onProtectedRasterSourcePageIndicesChanged: (Set<Int>) -> Unit = {},
@@ -967,6 +969,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var pendingDeckOrdinal: Int? = null
 	private var initialLivePresentationAuthority:
 		InitialLivePresentationAuthorityRequest? = null
+	private var passiveManifestAuthorityRecoveryPending = false
+	private val passiveManifestAuthorityRecoveryTimeout = Runnable {
+		if (passiveManifestAuthorityRecoveryPending) {
+			passiveManifestAuthorityRecoveryPending = false
+			releaseInitialLivePresentationAuthority()
+			if (!destroyed) onCanonicalLiveCommitRecoveryFailed()
+		}
+	}
 	private val confirmedDecklessPassiveAuthority =
 		ReaderConfirmedDecklessPassiveAuthority()
 	private var latestWhispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt? = null
@@ -1793,6 +1803,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (!enabled || destroyed) return
 		logActivationState("host-content-ready")
 		requestInitialLivePresentationAuthorityForPassivePreparation()
+		retryPassiveManifestAuthorityRecovery()
 		refreshPreparedDeck()
 		dispatchNextRelocation()
 		retryRelocationVisualHandoffAttached()
@@ -1805,6 +1816,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				return
 		}
 		if (!enabled || destroyed) return
+		retryPassiveManifestAuthorityRecovery()
 		dispatchNextRelocation()
 		retryRelocationVisualHandoffAttached()
 	}
@@ -1817,22 +1829,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun onPassiveManifestAuthorityUnavailable() {
 		if (!enabled || destroyed) return
 		confirmedDecklessPassiveAuthority.clear()
-		if (activeDeckGenerationId == null) {
-			requestInitialLivePresentationAuthorityForPassivePreparation()
-		} else {
-			requestInitialLivePresentationAuthorityForActiveDeck()
-		}
+		beginPassiveManifestAuthorityRecovery()
 	}
 
 	fun onForegroundWebViewPassiveMutationReleased() {
 		if (!enabled || destroyed) return
 		requestInitialLivePresentationAuthorityForActiveDeck()
+		retryPassiveManifestAuthorityRecovery()
 	}
 
 	fun onHostResumedChanged(resumed: Boolean) {
 		if (hostResumed == resumed) return
 		hostResumed = resumed
 		if (resumed && enabled && !destroyed) {
+			retryPassiveManifestAuthorityRecovery()
 			retryRelocationVisualHandoffResumed()
 		}
 	}
@@ -2412,6 +2422,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		scope = teardownScope,
 		fenceAdmission = {
 			confirmedDecklessPassiveAuthority.clear()
+			cancelPassiveManifestAuthorityRecovery()
 			releaseInitialLivePresentationAuthority()
 				destroyed = true
 			enabled = false
@@ -5425,7 +5436,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun dispatchNextRelocation(): Boolean {
-		val request = relocationQueue.commandToDispatch() ?: return false
+		val request = relocationQueue.commandToDispatch() ?: run {
+			retryPassiveManifestAuthorityRecovery()
+			return false
+		}
 		clearRetainedInlineHandoffSnapshot()
 		return relocationLiveDispatchCoordinator.dispatch(request)
 	}
@@ -5554,6 +5568,43 @@ internal class ReaderPlayLikeCurlFoliateController(
 		return current
 	}
 
+	private fun beginPassiveManifestAuthorityRecovery() {
+		if (!passiveManifestAuthorityRecoveryPending) {
+			passiveManifestAuthorityRecoveryPending = true
+			val scheduled = mainHandler.postDelayed(
+				passiveManifestAuthorityRecoveryTimeout,
+				PassiveManifestAuthorityRecoveryTimeoutMillis
+			)
+			if (!scheduled) {
+				passiveManifestAuthorityRecoveryPending = false
+				releaseInitialLivePresentationAuthority()
+				onCanonicalLiveCommitRecoveryFailed()
+				return
+			}
+		}
+		retryPassiveManifestAuthorityRecovery()
+	}
+
+	private fun retryPassiveManifestAuthorityRecovery() {
+		if (!passiveManifestAuthorityRecoveryPending || !enabled || destroyed) return
+		if (activeDeckGenerationId == null) {
+			requestInitialLivePresentationAuthorityForPassivePreparation()
+		} else {
+			requestInitialLivePresentationAuthorityForActiveDeck()
+		}
+	}
+
+	private fun completePassiveManifestAuthorityRecovery() {
+		if (!passiveManifestAuthorityRecoveryPending) return
+		passiveManifestAuthorityRecoveryPending = false
+		mainHandler.removeCallbacks(passiveManifestAuthorityRecoveryTimeout)
+	}
+
+	private fun cancelPassiveManifestAuthorityRecovery() {
+		passiveManifestAuthorityRecoveryPending = false
+		mainHandler.removeCallbacks(passiveManifestAuthorityRecoveryTimeout)
+	}
+
 	private fun requestInitialLivePresentationAuthorityForPassivePreparation() {
 		if (
 			activeDeckGenerationId == null &&
@@ -5610,7 +5661,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val currentRequest = initialLivePresentationAuthority
 		if (
 			currentRequest?.generationId == generationId &&
-			currentRequest.requiredDeckGenerationId == requiredDeckGenerationId
+			currentRequest.requiredDeckGenerationId == requiredDeckGenerationId &&
+			initialLivePresentationAuthorityIsCurrent(currentRequest)
 		) return
 		releaseInitialLivePresentationAuthority()
 		val claim = runCatching {
@@ -5764,6 +5816,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 				releaseInitialLivePresentationAuthority(request)
 				if (confirmed) {
+					completePassiveManifestAuthorityRecovery()
 					val resumedDeferredPreparation = onCanonicalLiveCommitIssued()
 					publishLatestWhispersyncOverlayIfIdle()
 					if (
