@@ -1258,7 +1258,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				latestRasterPreparationState.presentation ==
 				ReaderPagePreparationPresentation.Cover
 		},
-		onAwaitHostEvent = { reason ->
+		onAwaitHostEvent = { reason, deferredSessionId ->
 			if (reason == ReaderPageRasterDeferralReason.LayoutUnstable) {
 				pageRasterHostEventController.layoutStabilityInvalidated()
 			}
@@ -1272,7 +1272,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			if (
 				reason == ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
 			) {
-				playLikeCurlController.onPassiveManifestAuthorityUnavailable()
+				playLikeCurlController.onPassiveManifestAuthorityUnavailable(deferredSessionId)
 			}
 		},
 		onPreparationStateChange = { state ->
@@ -1885,9 +1885,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		return pageRasterPreparationController.onCanonicalLiveCommitIssued()
 	}
 
-	private fun onCanonicalLiveCommitRecoveryFailed(): Boolean {
+	private fun onCanonicalLiveCommitRecoveryFailed(
+		deferredSessionId: Long
+	): Boolean {
 		if (task4ResourceTeardownStarted) return false
-		return pageRasterPreparationController.onCanonicalLiveCommitRecoveryFailed()
+		return pageRasterPreparationController.onCanonicalLiveCommitRecoveryFailed(
+			deferredSessionId
+		)
 	}
 
 	private fun replacePassiveRasterPreparationAdapter(webView: WebView) {

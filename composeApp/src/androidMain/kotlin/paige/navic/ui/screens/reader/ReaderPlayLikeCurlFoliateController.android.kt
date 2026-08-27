@@ -667,7 +667,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		detail: ReaderPageGestureTerminalDetail
 	) -> Boolean,
 	private val onCanonicalLiveCommitIssued: () -> Boolean = { false },
-	private val onCanonicalLiveCommitRecoveryFailed: () -> Boolean = { false },
+	private val onCanonicalLiveCommitRecoveryFailed: (Long) -> Boolean = { false },
 	private val onBoundaryTurn: (ReaderPageTurnDirection) -> Unit = {},
 	private val onRasterProfileEpochChanged: (Long?) -> Unit = {},
 	private val onProtectedRasterSourcePageIndicesChanged: (Set<Int>) -> Unit = {},
@@ -969,14 +969,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var pendingDeckOrdinal: Int? = null
 	private var initialLivePresentationAuthority:
 		InitialLivePresentationAuthorityRequest? = null
-	private var passiveManifestAuthorityRecoveryPending = false
-	private val passiveManifestAuthorityRecoveryTimeout = Runnable {
-		if (passiveManifestAuthorityRecoveryPending) {
-			passiveManifestAuthorityRecoveryPending = false
-			releaseInitialLivePresentationAuthority()
-			if (!destroyed) onCanonicalLiveCommitRecoveryFailed()
-		}
-	}
+	private var passiveManifestAuthorityRecoveryToken: Long? = null
+	private var passiveManifestAuthorityRecoveryTimeout: Runnable? = null
 	private val confirmedDecklessPassiveAuthority =
 		ReaderConfirmedDecklessPassiveAuthority()
 	private var latestWhispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt? = null
@@ -1826,10 +1820,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		requestInitialLivePresentationAuthorityForActiveDeck()
 	}
 
-	fun onPassiveManifestAuthorityUnavailable() {
+	fun onPassiveManifestAuthorityUnavailable(recoveryToken: Long) {
 		if (!enabled || destroyed) return
 		confirmedDecklessPassiveAuthority.clear()
-		beginPassiveManifestAuthorityRecovery()
+		beginPassiveManifestAuthorityRecovery(recoveryToken)
 	}
 
 	fun onForegroundWebViewPassiveMutationReleased() {
@@ -5568,17 +5562,36 @@ internal class ReaderPlayLikeCurlFoliateController(
 		return current
 	}
 
-	private fun beginPassiveManifestAuthorityRecovery() {
-		if (!passiveManifestAuthorityRecoveryPending) {
-			passiveManifestAuthorityRecoveryPending = true
+	private fun beginPassiveManifestAuthorityRecovery(recoveryToken: Long) {
+		if (passiveManifestAuthorityRecoveryToken != recoveryToken) {
+			cancelPassiveManifestAuthorityRecovery()
+			passiveManifestAuthorityRecoveryToken = recoveryToken
+			val timeout = Runnable {
+				if (passiveManifestAuthorityRecoveryToken != recoveryToken) {
+					return@Runnable
+				}
+				passiveManifestAuthorityRecoveryToken = null
+				passiveManifestAuthorityRecoveryTimeout = null
+				releaseInitialLivePresentationAuthority()
+				if (!destroyed) {
+					onCanonicalLiveCommitRecoveryFailed(recoveryToken)
+				}
+			}
+			passiveManifestAuthorityRecoveryTimeout = timeout
 			val scheduled = mainHandler.postDelayed(
-				passiveManifestAuthorityRecoveryTimeout,
+				timeout,
 				PassiveManifestAuthorityRecoveryTimeoutMillis
 			)
 			if (!scheduled) {
-				passiveManifestAuthorityRecoveryPending = false
-				releaseInitialLivePresentationAuthority()
-				onCanonicalLiveCommitRecoveryFailed()
+				if (
+					passiveManifestAuthorityRecoveryToken == recoveryToken &&
+					passiveManifestAuthorityRecoveryTimeout === timeout
+				) {
+					passiveManifestAuthorityRecoveryToken = null
+					passiveManifestAuthorityRecoveryTimeout = null
+					releaseInitialLivePresentationAuthority()
+					onCanonicalLiveCommitRecoveryFailed(recoveryToken)
+				}
 				return
 			}
 		}
@@ -5586,7 +5599,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun retryPassiveManifestAuthorityRecovery() {
-		if (!passiveManifestAuthorityRecoveryPending || !enabled || destroyed) return
+		if (
+			passiveManifestAuthorityRecoveryToken == null ||
+			!enabled ||
+			destroyed
+		) {
+			return
+		}
 		if (activeDeckGenerationId == null) {
 			requestInitialLivePresentationAuthorityForPassivePreparation()
 		} else {
@@ -5595,14 +5614,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun completePassiveManifestAuthorityRecovery() {
-		if (!passiveManifestAuthorityRecoveryPending) return
-		passiveManifestAuthorityRecoveryPending = false
-		mainHandler.removeCallbacks(passiveManifestAuthorityRecoveryTimeout)
+		if (passiveManifestAuthorityRecoveryToken == null) return
+		passiveManifestAuthorityRecoveryToken = null
+		passiveManifestAuthorityRecoveryTimeout?.let(mainHandler::removeCallbacks)
+		passiveManifestAuthorityRecoveryTimeout = null
 	}
 
 	private fun cancelPassiveManifestAuthorityRecovery() {
-		passiveManifestAuthorityRecoveryPending = false
-		mainHandler.removeCallbacks(passiveManifestAuthorityRecoveryTimeout)
+		passiveManifestAuthorityRecoveryToken = null
+		passiveManifestAuthorityRecoveryTimeout?.let(mainHandler::removeCallbacks)
+		passiveManifestAuthorityRecoveryTimeout = null
 	}
 
 	private fun requestInitialLivePresentationAuthorityForPassivePreparation() {

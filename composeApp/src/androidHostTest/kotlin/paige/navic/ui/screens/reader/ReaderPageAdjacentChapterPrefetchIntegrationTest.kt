@@ -758,10 +758,52 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 				stage = "passive-manifest"
 			)
 
-			assertTrue(fixture.controller.onCanonicalLiveCommitRecoveryFailed())
+			val recoveryToken = fixture.awaitedHostEvents.single { (reason, _) ->
+				reason == ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
+			}.second
+			assertTrue(
+				fixture.controller.onCanonicalLiveCommitRecoveryFailed(recoveryToken)
+			)
 			assertEquals(ReaderPagePreparationPhase.Failed, fixture.latestState.phase)
 			assertTrue(fixture.latestState.retryable)
-			assertFalse(fixture.controller.onCanonicalLiveCommitRecoveryFailed())
+			assertFalse(
+				fixture.controller.onCanonicalLiveCommitRecoveryFailed(recoveryToken)
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun staleCanonicalRecoveryTimeoutCannotFailItsReplacementDeferral() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.prewarm.completeDeferred(
+				reason = "canonical-live-commit-unavailable",
+				stage = "passive-manifest"
+			)
+			val staleToken = fixture.awaitedHostEvents.last().second
+
+			fixture.controller.cancelAllDeferredRetries()
+			fixture.startCurrentChapterPreparation()
+			fixture.prewarm.completeDeferred(
+				reason = "canonical-live-commit-unavailable",
+				stage = "passive-manifest"
+			)
+			val replacementToken = fixture.awaitedHostEvents.last().second
+			assertTrue(replacementToken > staleToken)
+
+			assertFalse(
+				fixture.controller.onCanonicalLiveCommitRecoveryFailed(staleToken)
+			)
+			assertFalse(fixture.latestState.phase == ReaderPagePreparationPhase.Failed)
+			assertTrue(
+				fixture.controller.onCanonicalLiveCommitRecoveryFailed(replacementToken)
+			)
+			assertEquals(ReaderPagePreparationPhase.Failed, fixture.latestState.phase)
 		} finally {
 			fixture.close()
 			Dispatchers.resetMain()
@@ -1850,7 +1892,8 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 	val foreground: FakeReaderPageRasterBatchPort,
 	val repair: FakeReaderPageRasterBatchPort,
 	val diagnosticMessages: MutableList<String>,
-	val states: MutableList<ReaderPagePreparationState>
+	val states: MutableList<ReaderPagePreparationState>,
+	val awaitedHostEvents: MutableList<Pair<ReaderPageRasterDeferralReason, Long>>
 ) {
 	val prewarm: FakeReaderPassiveRasterPreparationPort.LanePort
 		get() = passiveOwner.currentPort.prewarm
@@ -1998,6 +2041,8 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 			val ownership = ReaderForegroundWebViewOwnership()
 			val states = mutableListOf<ReaderPagePreparationState>()
 			val diagnosticMessages = mutableListOf<String>()
+			val awaitedHostEvents =
+				mutableListOf<Pair<ReaderPageRasterDeferralReason, Long>>()
 			val retryProbe = ReaderStage4RetryProbe()
 			lateinit var controller: ReaderPageRasterPreparationController
 			retryProbe.startFreshAttempt = {
@@ -2026,6 +2071,9 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 												rasterBackgroundBatchController = legacyBackground,
 				passiveRasterPreparationPortProvider = passiveOwner::port,
 				onRequestPrewarm = retryProbe::requestFreshManifest,
+				onAwaitHostEvent = { reason, sessionId ->
+					awaitedHostEvents += reason to sessionId
+				},
 				rasterPlanPort = ReaderPageRasterPreparationPlanPort { _, _, onPlan ->
 					onPlan(task9PreparationPlan())
 				},
@@ -2060,7 +2108,8 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 				foreground = foreground,
 				repair = repair,
 				diagnosticMessages = diagnosticMessages,
-				states = states
+				states = states,
+				awaitedHostEvents = awaitedHostEvents
 			)
 		}
 	}

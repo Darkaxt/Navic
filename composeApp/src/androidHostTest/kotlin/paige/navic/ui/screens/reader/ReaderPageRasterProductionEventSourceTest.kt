@@ -148,21 +148,37 @@ class ReaderPageRasterProductionEventSourceTest {
 			host,
 			"reason == ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable"
 		)
-		assertContains(host, "playLikeCurlController.onPassiveManifestAuthorityUnavailable()")
+		assertContains(
+			host,
+			"playLikeCurlController.onPassiveManifestAuthorityUnavailable(deferredSessionId)"
+		)
 		assertContains(host, "onCanonicalLiveCommitIssued = ::onCanonicalLiveCommitIssued")
 		assertContains(
 			host,
 			"onCanonicalLiveCommitRecoveryFailed = ::onCanonicalLiveCommitRecoveryFailed"
 		)
-		assertContains(preparation, "fun onCanonicalLiveCommitRecoveryFailed(): Boolean")
+		assertContains(
+			preparation,
+			"fun onCanonicalLiveCommitRecoveryFailed(deferredSessionId: Long): Boolean"
+		)
 		assertContains(foliate, "onCanonicalLiveCommitIssued: () -> Boolean")
-		assertContains(foliate, "onCanonicalLiveCommitRecoveryFailed: () -> Boolean")
-		assertContains(foliate, "fun onPassiveManifestAuthorityUnavailable()")
+		assertContains(
+			foliate,
+			"onCanonicalLiveCommitRecoveryFailed: (Long) -> Boolean"
+		)
+		assertContains(
+			foliate,
+			"fun onPassiveManifestAuthorityUnavailable(recoveryToken: Long)"
+		)
+		assertContains(foliate, "passiveManifestAuthorityRecoveryToken")
 		assertContains(foliate, "PassiveManifestAuthorityRecoveryTimeoutMillis")
 		assertContains(foliate, "mainHandler.postDelayed(")
 		assertContains(foliate, "retryPassiveManifestAuthorityRecovery()")
 		assertContains(foliate, "onCanonicalLiveCommitIssued()")
-		assertContains(foliate, "onCanonicalLiveCommitRecoveryFailed()")
+		assertContains(
+			foliate,
+			"onCanonicalLiveCommitRecoveryFailed(recoveryToken)"
+		)
 		assertContains(foliate, "!resumedDeferredPreparation")
 	}
 

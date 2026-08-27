@@ -101,8 +101,12 @@ internal class ReaderPageRasterDeferredRetryCoordinator {
 		return true
 	}
 
-	fun hasDeferred(reason: ReaderPageRasterDeferralReason): Boolean =
-		deferred?.reason == reason
+	fun hasDeferred(
+		sessionId: Long,
+		reason: ReaderPageRasterDeferralReason
+	): Boolean = deferred?.let { current ->
+		current.sessionId == sessionId && current.reason == reason
+	} == true
 
 	fun cancel(sessionId: Long): Boolean {
 		val current = deferred ?: return false

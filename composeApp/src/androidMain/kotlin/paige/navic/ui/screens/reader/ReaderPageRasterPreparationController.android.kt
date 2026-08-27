@@ -193,7 +193,10 @@ internal class ReaderPageRasterPreparationController(
 	private val onRequestPrewarm: () -> Unit = {},
 	private val canStartPreparation: () -> Boolean = { true },
 	private val shouldPreserveCurrentPresentation: () -> Boolean = { false },
-	private val onAwaitHostEvent: (ReaderPageRasterDeferralReason) -> Unit = {},
+	private val onAwaitHostEvent: (
+		reason: ReaderPageRasterDeferralReason,
+		deferredSessionId: Long
+	) -> Unit = { _, _ -> },
 	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {},
 	private val onPassiveRasterMemoryPressure: (String) -> Unit = {},
 	private val rasterBackgroundBatchController: ReaderPageRasterBatchPort =
@@ -605,11 +608,12 @@ internal class ReaderPageRasterPreparationController(
 			ReaderPageRasterRetryEvent.CanonicalLiveCommitIssued
 		)
 
-	fun onCanonicalLiveCommitRecoveryFailed(): Boolean {
+	fun onCanonicalLiveCommitRecoveryFailed(deferredSessionId: Long): Boolean {
 		if (
 			destroyed ||
 			!deferredRetryCoordinator.hasDeferred(
-				ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
+				sessionId = deferredSessionId,
+				reason = ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
 			)
 		) {
 			return false
@@ -1114,7 +1118,7 @@ internal class ReaderPageRasterPreparationController(
 			reason == ReaderPageRasterDeferralReason.PassiveHostUnavailable ||
 			reason == ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
 		) {
-			onAwaitHostEvent(reason)
+			onAwaitHostEvent(reason, retryAttempt.sessionId)
 		}
 	}
 
@@ -1947,7 +1951,7 @@ internal class ReaderPageRasterPreparationController(
 			reason == ReaderPageRasterDeferralReason.PassiveHostUnavailable ||
 			reason == ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
 		) {
-			onAwaitHostEvent(reason)
+			onAwaitHostEvent(reason, retryAttempt.sessionId)
 		}
 	}
 
