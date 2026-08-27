@@ -757,6 +757,24 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun visualHandoffUsesARecordingTolerantBound() {
+		val source = controllerFile.readText()
+		val wiring = source
+			.substringAfter("private val relocationVisualHandoffCoordinator:")
+			.substringBefore("private val relocationDispatchTimeout")
+
+		assertContains(
+			source,
+			"ReaderPageRelocationVisualHandoffTimeoutMillis = 5_000L"
+		)
+		assertContains(
+			wiring,
+			"timeoutMillis = ReaderPageRelocationVisualHandoffTimeoutMillis"
+		)
+		assertContains(wiring, "contentValidationTimeoutMillis = 2_000L")
+	}
+
+	@Test
 	fun queueHandoffWaitsForCommittedWebViewExposureBeforeCompletion() {
 		val source = visualHandoffFile.readText()
 		val controller = controllerFile.readText()

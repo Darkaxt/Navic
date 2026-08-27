@@ -68,6 +68,7 @@ import paige.navic.util.core.Logger
 
 private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFoliate"
 private const val ReaderPageLiveHandoffCrossfadeMillis = 200L
+private const val ReaderPageRelocationVisualHandoffTimeoutMillis = 5_000L
 private const val PassiveManifestAuthorityRecoveryTimeoutMillis = 10_000L
 private const val MAX_RASTER_ADAPTER_OWNERS = 2
 
@@ -937,6 +938,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			finalizePresentation = ::finalizeHandoffPresentation,
 			validateContent = ::validateLivePresentation,
 			canRecover = { qaFaultRegistry?.isClosed() != true },
+			timeoutMillis = ReaderPageRelocationVisualHandoffTimeoutMillis,
+			contentValidationTimeoutMillis = 2_000L,
 			onOwnershipMutated = onOwnershipMutated,
 			attemptEventSink =
 				ReaderWebViewVisualHandoffAttemptEventSink(::onHandoffAttemptEvent),
