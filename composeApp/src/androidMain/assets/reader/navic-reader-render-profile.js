@@ -269,6 +269,50 @@ const transformedDocumentProof = doc => {
   })
 }
 
+export const ReaderRasterProfileAuthorityLiveRealized = 'live-realized-v1'
+export const ReaderRasterProfileAuthorityPassiveRealized = 'passive-realized-v1'
+
+export const readerLiveIssuedRasterPlan = target => {
+  const publicationUrl = String(target?.publicationUrl || '')
+  const paginationFingerprint = String(target?.paginationFingerprint || '')
+  const viewportWidth = Math.max(1, Math.round(Number(target?.viewportWidth) || 1))
+  const viewportHeight = Math.max(1, Math.round(Number(target?.viewportHeight) || 1))
+  if (!publicationUrl || !paginationFingerprint) return null
+  const render = target?.render && typeof target.render === 'object' ? target.render : null
+  const settings = target?.readerSettings && typeof target.readerSettings === 'object'
+    ? target.readerSettings
+    : {}
+  const layoutFingerprint = stableHash(JSON.stringify({
+    render,
+    mode: target?.layoutMode || 'single',
+    pages: Array.isArray(target?.layoutPages) ? target.layoutPages : [],
+    viewportWidth,
+    viewportHeight,
+  }))
+  const decorationFingerprint = stableHash(JSON.stringify({
+    theme: settings.theme || '',
+    paperTextureEnabled: settings.paperTextureEnabled !== false,
+    pageEdgesEnabled: settings.pageEdgesEnabled !== false,
+    paperStainsEnabled: settings.paperStainsEnabled !== false,
+    coverBackdropEnabled: settings.coverBackdropEnabled !== false,
+  }))
+  const rasterProfileKey = stableHash(JSON.stringify({
+    publicationUrl,
+    paginationFingerprint,
+    layoutFingerprint,
+    decorationFingerprint,
+    viewportWidth,
+    viewportHeight,
+  }))
+  return Object.freeze({
+    profileAuthority: ReaderRasterProfileAuthorityPassiveRealized,
+    rasterProfileKey,
+    paginationFingerprint,
+    layoutFingerprint,
+    decorationFingerprint,
+  })
+}
+
 export const readerRealizedRasterObservation = (view, target, root = document) => {
   const renderer = view?.renderer
   const index = Math.floor(Number(target?.spineIndex))

@@ -59,12 +59,18 @@ private fun readerPassiveRasterSnapshot(
 	bitmapQuality: ReaderPageBitmapQuality,
 	captureStartedAtMillis: Long = SystemClock.uptimeMillis()
 ): ReaderPageSlideSnapshot? {
+	val surfaceWidth = reference.surfaceRectInWindow.width()
+	val surfaceHeight = reference.surfaceRectInWindow.height()
+	val sourceLeft = reference.surfaceRectInWindow.left - captureGeometry.captureLeft
+	val sourceTop = reference.surfaceRectInWindow.top - captureGeometry.captureTop
+	val sourceRight = sourceLeft + surfaceWidth
+	val sourceBottom = sourceTop + surfaceHeight
 	val expectedBitmapWidth = readerPageTurnAnimationBitmapDimension(
-		captureGeometry.captureWidth,
+		surfaceWidth,
 		bitmapQuality
 	)
 	val expectedBitmapHeight = readerPageTurnAnimationBitmapDimension(
-		captureGeometry.captureHeight,
+		surfaceHeight,
 		bitmapQuality
 	)
 	if (
@@ -77,25 +83,48 @@ private fun readerPassiveRasterSnapshot(
 		reference.bitmap.height != expectedBitmapHeight ||
 		reference.key.bitmapWidth != expectedBitmapWidth ||
 		reference.key.bitmapHeight != expectedBitmapHeight ||
-		reference.surfaceRectInWindow.width() != captureGeometry.captureWidth ||
-		reference.surfaceRectInWindow.height() != captureGeometry.captureHeight ||
-		reference.key.surfaceWidth != captureGeometry.captureWidth ||
-		reference.key.surfaceHeight != captureGeometry.captureHeight
+		reference.key.surfaceWidth != surfaceWidth ||
+		reference.key.surfaceHeight != surfaceHeight ||
+		sourceLeft < 0 ||
+		sourceTop < 0 ||
+		sourceRight > bitmap.width ||
+		sourceBottom > bitmap.height
 	) return null
-	val qualityBitmap = if (
-		bitmap.width == expectedBitmapWidth && bitmap.height == expectedBitmapHeight
+	val surfaceBitmap = if (
+		sourceLeft == 0 && sourceTop == 0 &&
+			sourceRight == bitmap.width && sourceBottom == bitmap.height
 	) {
 		bitmap
 	} else {
 		runCatching {
-			Bitmap.createScaledBitmap(
+			Bitmap.createBitmap(
 				bitmap,
+				sourceLeft,
+				sourceTop,
+				surfaceWidth,
+				surfaceHeight
+			)
+		}.getOrNull()?.also { cropped ->
+			if (cropped !== bitmap && !bitmap.isRecycled) bitmap.recycle()
+		}
+	} ?: return null
+	val qualityBitmap = if (
+		surfaceBitmap.width == expectedBitmapWidth &&
+			surfaceBitmap.height == expectedBitmapHeight
+	) {
+		surfaceBitmap
+	} else {
+		runCatching {
+			Bitmap.createScaledBitmap(
+				surfaceBitmap,
 				expectedBitmapWidth,
 				expectedBitmapHeight,
 				true
 			)
 		}.getOrNull()?.also { scaled ->
-			if (scaled !== bitmap && !bitmap.isRecycled) bitmap.recycle()
+			if (scaled !== surfaceBitmap && !surfaceBitmap.isRecycled) {
+				surfaceBitmap.recycle()
+			}
 		}
 	} ?: return null
 	return ReaderPageSlideSnapshot(
@@ -1443,13 +1472,22 @@ internal class ReaderPageTurnBundleSource(
 				currentRasterGeneration = commit.rasterGeneration,
 				activePassiveSessionId = currentAuthority.activePassiveSessionId,
 				expectedPassiveCommitSequence =
-					currentAuthority.expectedPassiveCommitSequence
+					currentAuthority.expectedPassiveCommitSequence,
+				currentProfileAuthority = commit.profileAuthority
 			),
 			capture = capture
 		)
 		if (admitted !is ReaderPassiveRasterAdmission.Admitted) {
 			onPublished(ReaderPageRasterPublicationResult.Failed)
 			return
+		}
+		val publicationDescriptor = when (commit.profileAuthority) {
+			ReaderPassiveRasterProfileAuthority.LiveRealized -> descriptor
+			ReaderPassiveRasterProfileAuthority.PassiveRealized -> descriptor.copy(
+				paginationFingerprint = admitted.receipt.observedPaginationFingerprint,
+				layoutFingerprint = admitted.receipt.observedLayoutFingerprint,
+				decorationFingerprint = admitted.receipt.observedDecorationFingerprint
+			)
 		}
 		if (
 			closed ||
@@ -1504,6 +1542,7 @@ internal class ReaderPageTurnBundleSource(
 			snapshot = snapshot,
 			priority = priority,
 			expectedDescriptor = inputs.rasterDescriptor,
+			publicationDescriptor = publicationDescriptor,
 			isStillCurrent = isStillCurrent
 		) { result ->
 			val preparationCurrent = runCatching {
@@ -2928,6 +2967,7 @@ internal class ReaderPageTurnBundleSource(
 		priority: ReaderPageRasterPriority,
 		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		expectedDescriptor: ReaderPageRasterDescriptor? = null,
+		publicationDescriptor: ReaderPageRasterDescriptor? = null,
 		isStillCurrent: () -> Boolean = { true },
 		onPersisted: (ReaderPageRasterPublicationResult) -> Unit = {}
 	) {
@@ -3017,6 +3057,7 @@ internal class ReaderPageTurnBundleSource(
 					onPersisted(ReaderPageRasterPublicationResult.Failed)
 					return@callback
 				}
+				val persistentDescriptor = publicationDescriptor ?: descriptor
 				cacheRasterDescriptor(
 					ReaderPageRasterDescriptorIdentity(
 						generation = generation,
@@ -3026,9 +3067,9 @@ internal class ReaderPageTurnBundleSource(
 						physicalLayout = physicalLayout,
 						physicalLayoutEpoch = physicalLayoutEpoch
 					),
-					descriptor
+					persistentDescriptor
 				)
-				val key = descriptor.key(snapshot.key.bitmapQuality)
+				val key = persistentDescriptor.key(snapshot.key.bitmapQuality)
 				val persistentBitmap = runCatching {
 					snapshot.bitmap.copy(Bitmap.Config.ARGB_8888, false)
 				}.getOrNull()

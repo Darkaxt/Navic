@@ -99,6 +99,34 @@ internal fun readerPassiveRasterPhysicalGeometry(
 	null
 }
 
+internal fun readerPassiveRasterCanonicalFullFrameGeometry(
+	observedGeometry: ReaderPassiveRasterGeometry,
+	measuredWidth: Int,
+	measuredHeight: Int
+): ReaderPassiveRasterGeometry? {
+	if (measuredWidth <= 0 || measuredHeight <= 0) return null
+	val observedIsFullFrame =
+		observedGeometry.captureLeft == 0 &&
+			observedGeometry.captureTop == 0 &&
+			observedGeometry.captureRight == observedGeometry.viewportWidth &&
+			observedGeometry.captureBottom == observedGeometry.viewportHeight
+	val widthDelta = kotlin.math.abs(
+		observedGeometry.viewportWidth.toLong() - measuredWidth.toLong()
+	)
+	val heightDelta = kotlin.math.abs(
+		observedGeometry.viewportHeight.toLong() - measuredHeight.toLong()
+	)
+	if (!observedIsFullFrame || widthDelta > 1L || heightDelta > 1L) return null
+	return ReaderPassiveRasterGeometry(
+		viewportWidth = measuredWidth,
+		viewportHeight = measuredHeight,
+		captureLeft = 0,
+		captureTop = 0,
+		captureRight = measuredWidth,
+		captureBottom = measuredHeight
+	)
+}
+
 internal fun readerPassiveRasterCanonicalCaptureGeometry(
 	configuredGeometry: ReaderPassiveRasterGeometry,
 	measuredWidth: Int,
@@ -110,11 +138,18 @@ internal fun readerPassiveRasterCanonicalCaptureGeometry(
 		measuredWidth = measuredWidth,
 		measuredHeight = measuredHeight
 	) ?: return null
-	return runtimeObservedGeometry.takeIf { observed ->
-		observed == physicalGeometry &&
-			observed.captureWidth == measuredWidth &&
-			observed.captureHeight == measuredHeight
-	}
+	if (runtimeObservedGeometry == physicalGeometry) return runtimeObservedGeometry
+	val configuredIsFullFrame =
+		physicalGeometry.captureLeft == 0 &&
+			physicalGeometry.captureTop == 0 &&
+			physicalGeometry.captureRight == physicalGeometry.viewportWidth &&
+			physicalGeometry.captureBottom == physicalGeometry.viewportHeight
+	if (!configuredIsFullFrame) return null
+	return readerPassiveRasterCanonicalFullFrameGeometry(
+		observedGeometry = runtimeObservedGeometry,
+		measuredWidth = measuredWidth,
+		measuredHeight = measuredHeight
+	)?.takeIf { it == physicalGeometry }
 }
 
 internal fun readerPassiveRasterCreateBitmap(
@@ -684,6 +719,7 @@ private fun ReaderPassiveRasterCaptureManifest.toJson(): JSONObject = JSONObject
 	put("destinationCommitToken", destinationCommitToken)
 	put("opaqueCaptureTarget", opaqueCaptureTarget)
 	put("visualPageOrdinal", visualPageOrdinal)
+	put("profileAuthority", profileAuthority.serializedValue)
 	put("rasterProfileKey", rasterProfileKey)
 	put("paginationFingerprint", paginationFingerprint)
 	put("layoutFingerprint", layoutFingerprint)

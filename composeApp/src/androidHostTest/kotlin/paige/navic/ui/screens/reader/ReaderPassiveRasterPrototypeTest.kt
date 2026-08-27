@@ -46,6 +46,14 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderPassiveRasterPrototypeTest {
 	@Test
+	fun javascriptNullManifestIsUnavailableRatherThanTerminalFailure() {
+		assertSame(
+			ReaderPassiveRasterManifestResolution.Unavailable,
+			readerPassiveRasterManifestResolution("\"null\"")
+		)
+	}
+
+	@Test
 	fun manifestIssuanceRequiresTheCurrentCanonicalLiveCommit() {
 		val issuer = ReaderPassiveRasterManifestIssuer()
 		val first = issuer.replaceCanonicalCommit(canonicalCommit())
@@ -108,6 +116,33 @@ class ReaderPassiveRasterPrototypeTest {
 		assertNull(admitted.transferRaster())
 		assertFalse(admitted.releaseRaster())
 		assertEquals(0, releases)
+	}
+
+	@Test
+	fun passiveRealizedReceiptAdmitsItsObservedProfileAgainstTheCurrentLivePlan() {
+		val fixture = fixture(
+			canonicalCommit().copy(
+				profileAuthority = ReaderPassiveRasterProfileAuthority.PassiveRealized
+			)
+		)
+		val observedReceipt = fixture.receipt.copy(
+			observedRasterProfileKey = "passive-observed-profile",
+			observedPaginationFingerprint = "passive-observed-pagination",
+			observedLayoutFingerprint = "passive-observed-layout",
+			observedDecorationFingerprint = "passive-observed-decoration"
+		)
+		val capture = ReaderPassiveRasterCaptureResult(
+			manifest = fixture.manifest,
+			receipt = observedReceipt,
+			raster = ReaderPassiveRasterOwnership(41) { }
+		)
+
+		val admitted = assertIs<ReaderPassiveRasterAdmission.Admitted<Int>>(
+			readerAdmitPassiveRaster(fixture.context, capture)
+		)
+
+		assertSame(observedReceipt, admitted.receipt)
+		assertEquals(41, admitted.transferRaster())
 	}
 
 	@Test
@@ -175,6 +210,12 @@ class ReaderPassiveRasterPrototypeTest {
 			ReaderPassiveRasterRejection.DestinationCommit to { it.copy(currentDestinationCommitToken = "replacement-commit") },
 			ReaderPassiveRasterRejection.OpaqueTarget to { it.copy(currentOpaqueCaptureTarget = "replacement-target") },
 			ReaderPassiveRasterRejection.VisualPageOrdinal to { it.copy(currentVisualPageOrdinal = it.currentVisualPageOrdinal + 1) },
+			ReaderPassiveRasterRejection.ProfileAuthority to {
+				it.copy(
+					currentProfileAuthority =
+						ReaderPassiveRasterProfileAuthority.PassiveRealized
+				)
+			},
 			ReaderPassiveRasterRejection.RasterProfile to { it.copy(currentRasterProfileKey = "replacement-profile") },
 			ReaderPassiveRasterRejection.PaginationFingerprint to {
 				it.copy(currentPaginationFingerprint = "replacement-pagination")
@@ -920,6 +961,7 @@ class ReaderPassiveRasterPrototypeTest {
 		val source = ReaderPageTurnBundleSource()
 		source.updateBitmapQuality(ReaderPageBitmapQuality.Native)
 		val commit = canonicalCommit().copy(
+			profileAuthority = ReaderPassiveRasterProfileAuthority.PassiveRealized,
 			viewportAndCaptureGeometry = ReaderPassiveRasterGeometry(
 				viewportWidth = 20,
 				viewportHeight = 30,
@@ -954,7 +996,12 @@ class ReaderPassiveRasterPrototypeTest {
 			candidateLayout.releaseCacheOwnership()
 			val capture = ReaderPassiveRasterCaptureResult(
 				manifest = captureFixture.manifest,
-				receipt = captureFixture.receipt,
+				receipt = captureFixture.receipt.copy(
+					observedRasterProfileKey = "passive-observed-profile",
+					observedPaginationFingerprint = "passive-observed-pagination",
+					observedLayoutFingerprint = "passive-observed-layout",
+					observedDecorationFingerprint = "passive-observed-decoration"
+				),
 				raster = ReaderPassiveRasterOwnership(bitmap) {
 					ownershipReleases += 1
 					if (!bitmap.isRecycled) bitmap.recycle()
@@ -1106,6 +1153,58 @@ class ReaderPassiveRasterPrototypeTest {
 			activityController.destroy()
 			Dispatchers.resetMain()
 		}
+	}
+
+	@Test
+	fun terminalCurrentManifestFailureFinishesTheBatchVisibly() = runTest {
+		val source = ReaderPageTurnBundleSource()
+		val runtime = SuccessfulPassiveBitmapRuntime()
+		val session = ReaderPassiveRasterPrototypeSession(runtime) { bitmap ->
+			if (!bitmap.isRecycled) bitmap.recycle()
+		}
+		val adapter = ReaderPassiveRasterPreparationAdapter(
+			session = session,
+			liveManifestPort = ReaderPassiveRasterLiveManifestPort { _, _, _, _, onResolved ->
+				onResolved(
+					ReaderPassiveRasterManifestResolution.Failed(
+						"current-live-profile-unavailable"
+					)
+				)
+			},
+			bundleSource = source,
+			initialCaptureEpoch = 8L
+		)
+		var outcome: ReaderPageRasterBatchOutcome? = null
+		val reference = passiveReference().also { it.retain() }
+
+		assertTrue(
+			adapter.start(
+				kind = ReaderPageTurnTransitionKind.PortraitSlide,
+				reference = reference,
+				targets = listOf(
+					ReaderPageRasterBatchTarget(
+						pageIndex = 4,
+						priority = ReaderPageRasterPriority.CurrentChapter
+					)
+				),
+				rasterGeneration = source.currentGeneration(),
+				isStillCurrent = { true },
+				trigger = ReaderPageRasterAcquisitionTrigger.InitialPreparation,
+				onComplete = { outcome = it }
+			)
+		)
+
+		assertEquals(
+			ReaderPageRasterBatchOutcome.Failed(
+				stage = "passive-manifest",
+				pageIndex = 4,
+				reason = "current-live-profile-unavailable"
+			),
+			outcome
+		)
+		assertEquals(0, runtime.captureRequests)
+		adapter.close()
+		source.closeAndJoin()
 	}
 
 	@Test
@@ -1617,7 +1716,8 @@ class ReaderPassiveRasterPrototypeTest {
 					layoutFingerprint = manifest.layoutFingerprint,
 					decorationFingerprint = manifest.decorationFingerprint,
 					viewportAndCaptureGeometry = manifest.viewportAndCaptureGeometry,
-					rasterGeneration = manifest.rasterGeneration
+					rasterGeneration = manifest.rasterGeneration,
+					profileAuthority = manifest.profileAuthority
 				)
 			},
 			opaqueCaptureTarget = fixture.manifest.opaqueCaptureTarget,
@@ -1770,7 +1870,7 @@ class ReaderPassiveRasterPrototypeTest {
 	) : ReaderPassiveRasterLiveManifestPort {
 		var requests = 0
 			private set
-		private var secondCallback: ((ReaderPassiveRasterManifestInputs?) -> Unit)? = null
+		private var secondCallback: ((ReaderPassiveRasterManifestResolution) -> Unit)? = null
 		private var secondInputs: ReaderPassiveRasterManifestInputs? = null
 		private val secondRequested = CompletableDeferred<Unit>()
 
@@ -1779,7 +1879,7 @@ class ReaderPassiveRasterPrototypeTest {
 			captureEpoch: Long,
 			rasterGeneration: Long,
 			preparationGeneration: Long,
-			onResolved: (ReaderPassiveRasterManifestInputs?) -> Unit
+			onResolved: (ReaderPassiveRasterManifestResolution) -> Unit
 		) {
 			requests += 1
 			val current = inputs.copy(
@@ -1799,7 +1899,7 @@ class ReaderPassiveRasterPrototypeTest {
 				secondInputs = current
 				secondRequested.complete(Unit)
 			} else {
-				onResolved(current)
+				onResolved(ReaderPassiveRasterManifestResolution.Available(current))
 			}
 		}
 
@@ -1810,7 +1910,7 @@ class ReaderPassiveRasterPrototypeTest {
 			val current = assertNotNull(secondInputs)
 			secondCallback = null
 			secondInputs = null
-			callback(current)
+			callback(ReaderPassiveRasterManifestResolution.Available(current))
 		}
 	}
 
@@ -1910,6 +2010,7 @@ class ReaderPassiveRasterPrototypeTest {
 							put("rasterGeneration", commit.rasterGeneration)
 							put("opaqueCaptureTarget", "synthetic-target-a")
 							put("visualPageOrdinal", visualPageOrdinal)
+							put("profileAuthority", commit.profileAuthority.serializedValue)
 							put("rasterDescriptor", descriptorJson(currentDescriptor))
 						}.toString()
 					)
@@ -2018,7 +2119,8 @@ class ReaderPassiveRasterPrototypeTest {
 				currentViewportAndCaptureGeometry = manifest.viewportAndCaptureGeometry,
 				currentRasterGeneration = manifest.rasterGeneration,
 				activePassiveSessionId = receipt.passiveSessionId,
-				expectedPassiveCommitSequence = receipt.passiveCommitSequence
+				expectedPassiveCommitSequence = receipt.passiveCommitSequence,
+				currentProfileAuthority = manifest.profileAuthority
 			)
 		)
 	}

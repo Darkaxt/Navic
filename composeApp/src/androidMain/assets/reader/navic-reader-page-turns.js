@@ -156,7 +156,11 @@ import {
   flattenTocItems,
   tocLabel
 } from './navic-reader-helpers.js'
-import { readerRealizedRasterObservation } from './navic-reader-render-profile.js'
+import {
+  readerLiveIssuedRasterPlan,
+  readerRealizedRasterObservation,
+  ReaderRasterProfileAuthorityLiveRealized,
+} from './navic-reader-render-profile.js'
 import { readerPageLocatorForVisualIndex } from './navic-reader-page-turn-model.js'
 import { readerGoToExactVisualPage } from './navic-reader-page-turn-preview.js'
 import {
@@ -471,39 +475,53 @@ function pageTurnPassiveRasterDescriptor(visualPageOrdinal) {
   if (!Number.isSafeInteger(ordinal) || ordinal < 0) return null
   const locator = readerPageLocatorForVisualIndex(this.paginationProfile, ordinal)
   const captureGeometry = this.pageTurnCaptureGeometry()
-  const render = this.paginationProfile?.render || null
-  const settings = this.readerSettings || {}
   if (!locator || !captureGeometry || !this.publicationUrl || !this.paginationFingerprint) {
     return null
   }
   const viewportWidth = Math.max(1, Math.round(Number(captureGeometry.viewportWidth) || 1))
   const viewportHeight = Math.max(1, Math.round(Number(captureGeometry.viewportHeight) || 1))
-  const realizedTarget = {
+  const profileTarget = {
     publicationUrl: String(this.publicationUrl),
+    paginationFingerprint: this.paginationFingerprint,
     spineIndex: locator.spineIndex,
     href: locator.href,
     chapterPageIndex: locator.chapterPageIndex,
     chapterPageCount: locator.chapterPageCount,
     visualPageOrdinal: locator.pageIndex,
-    render,
-    readerSettings: settings,
+    render: this.paginationProfile?.render || null,
+    readerSettings: this.readerSettings || {},
     layoutMode: captureGeometry.mode,
     layoutPages: captureGeometry.pages,
     viewportWidth,
     viewportHeight,
   }
-  const realized = readerRealizedRasterObservation(
-    this.view,
-    realizedTarget,
-    document,
-  )
-  if (!realized) return null
+  const pagePosition = this.currentPagePosition
+  const targetIsCurrent =
+    Math.floor(Number(pagePosition?.pageIndex)) === ordinal &&
+    Math.floor(Number(pagePosition?.spineIndex)) === locator.spineIndex &&
+    Math.floor(Number(pagePosition?.chapterPageIndex)) === locator.chapterPageIndex
+  const realized = targetIsCurrent
+    ? readerRealizedRasterObservation(this.view, profileTarget, document)
+    : null
+  const profile = targetIsCurrent
+    ? realized
+      ? Object.freeze({
+          profileAuthority: ReaderRasterProfileAuthorityLiveRealized,
+          rasterProfileKey: realized.rasterProfileKey,
+          paginationFingerprint: realized.paginationFingerprint,
+          layoutFingerprint: realized.layoutFingerprint,
+          decorationFingerprint: realized.decorationFingerprint,
+        })
+      : null
+    : readerLiveIssuedRasterPlan(profileTarget)
+  if (!profile) return null
   const descriptor = Object.freeze({
-    publicationUrl: realizedTarget.publicationUrl,
-    paginationFingerprint: realized.paginationFingerprint,
-    layoutFingerprint: realized.layoutFingerprint,
-    decorationFingerprint: realized.decorationFingerprint,
-    rasterProfileKey: realized.rasterProfileKey,
+    publicationUrl: String(this.publicationUrl),
+    paginationFingerprint: profile.paginationFingerprint,
+    layoutFingerprint: profile.layoutFingerprint,
+    decorationFingerprint: profile.decorationFingerprint,
+    rasterProfileKey: profile.rasterProfileKey,
+    profileAuthority: profile.profileAuthority,
     viewportWidth,
     viewportHeight,
     pageCount: Math.max(1, Math.floor(Number(this.currentPagePosition?.pageCount) || 1)),
@@ -542,7 +560,11 @@ function pageTurnPassiveRasterManifestInputs(
   ) return null
   const descriptor = pageTurnPassiveRasterDescriptor.call(this, ordinal)
   const captureGeometry = this.pageTurnCaptureGeometry()
-  if (!descriptor || !captureGeometry) return null
+  if (!descriptor || !captureGeometry) {
+    return target.pageIndex === ordinal
+      ? Object.freeze({ failureReason: 'current-live-profile-unavailable' })
+      : null
+  }
   const viewportWidth = Math.max(1, Math.round(Number(descriptor.viewportWidth) || 1))
   const viewportHeight = Math.max(1, Math.round(Number(descriptor.viewportHeight) || 1))
   const deviceScaleFactor = Math.max(1, Number(window.devicePixelRatio) || 1)
@@ -556,6 +578,7 @@ function pageTurnPassiveRasterManifestInputs(
     chapterPageIndex: descriptor.chapterPageIndex,
     chapterPageCount: descriptor.chapterPageCount,
     visualPageOrdinal: descriptor.visualPageOrdinal,
+    profileAuthority: descriptor.profileAuthority,
     rasterProfileKey,
     paginationFingerprint: descriptor.paginationFingerprint,
     layoutFingerprint: descriptor.layoutFingerprint,
@@ -574,6 +597,7 @@ function pageTurnPassiveRasterManifestInputs(
     destinationCommitToken: target.token,
     opaqueCaptureTarget,
     visualPageOrdinal: ordinal,
+    profileAuthority: descriptor.profileAuthority,
     rasterDescriptor: descriptor,
     rasterProfileKey,
     paginationFingerprint: descriptor.paginationFingerprint,

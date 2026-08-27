@@ -26,7 +26,10 @@ import {
 import {
   applyReaderContentDocumentRenderProfile,
   applyReaderPublicationRenderDirection,
+  readerLiveIssuedRasterPlan,
   readerRealizedRasterObservation,
+  ReaderRasterProfileAuthorityLiveRealized,
+  ReaderRasterProfileAuthorityPassiveRealized,
   waitForReaderRasterAssets,
 } from '../navic-reader-render-profile.js'
 import {
@@ -246,20 +249,40 @@ const passiveObservation = (view, target, opaqueCaptureTarget, profileKey) => {
   const realized = readerRealizedRasterObservation(view, target, document)
   if (!realized) return null
   const requiredProfileKey = String(profileKey)
-  if (
-    String(realized.rasterProfileKey) !== requiredProfileKey ||
-    String(target.rasterProfileKey) !== requiredProfileKey ||
-    String(target.paginationFingerprint) !== String(realized.paginationFingerprint) ||
-    String(target.layoutFingerprint) !== String(realized.layoutFingerprint) ||
-    String(target.decorationFingerprint) !== String(realized.decorationFingerprint)
-  ) return null
+  let profile
+  if (target.profileAuthority === ReaderRasterProfileAuthorityPassiveRealized) {
+    const plan = readerLiveIssuedRasterPlan(target)
+    if (
+      !plan ||
+      String(plan.rasterProfileKey) !== requiredProfileKey ||
+      String(target.rasterProfileKey) !== requiredProfileKey ||
+      String(target.paginationFingerprint) !== String(plan.paginationFingerprint) ||
+      String(target.layoutFingerprint) !== String(plan.layoutFingerprint) ||
+      String(target.decorationFingerprint) !== String(plan.decorationFingerprint)
+    ) return null
+    profile = realized
+  } else if (
+    target.profileAuthority === ReaderRasterProfileAuthorityLiveRealized ||
+    target.profileAuthority == null
+  ) {
+    profile = realized
+    if (
+      String(realized.rasterProfileKey) !== requiredProfileKey ||
+      String(target.rasterProfileKey) !== requiredProfileKey ||
+      String(target.paginationFingerprint) !== String(realized.paginationFingerprint) ||
+      String(target.layoutFingerprint) !== String(realized.layoutFingerprint) ||
+      String(target.decorationFingerprint) !== String(realized.decorationFingerprint)
+    ) return null
+  } else {
+    return null
+  }
   return Object.freeze({
     opaqueCaptureTarget,
     visualPageOrdinal: Math.floor(Number(target.visualPageOrdinal)),
-    rasterProfileKey: realized.rasterProfileKey,
-    paginationFingerprint: realized.paginationFingerprint,
-    layoutFingerprint: realized.layoutFingerprint,
-    decorationFingerprint: realized.decorationFingerprint,
+    rasterProfileKey: profile.rasterProfileKey,
+    paginationFingerprint: profile.paginationFingerprint,
+    layoutFingerprint: profile.layoutFingerprint,
+    decorationFingerprint: profile.decorationFingerprint,
     viewportAndCaptureGeometry: realized.viewportAndCaptureGeometry,
     loadedAssetUrls: realized.loadedAssetUrls,
   })

@@ -1572,14 +1572,15 @@ const liveSettlementRuntime = ({
 
 test('passive manifest requests cannot bootstrap or mutate live authority', async () => {
   const fixture = liveSettlementRuntime({
+    counts: [1, 4],
     currentPagePosition: {
       pageIndex: 0,
       pageCount: 5,
       spineIndex: 0,
       chapterPageIndex: 0,
-      chapterPageCount: 3,
+      chapterPageCount: 1,
     },
-    results: [resultFor({ requestedIndex: 0, requestedPageIndex: 0, pageCount: 3 })],
+    results: [resultFor({ requestedIndex: 0, requestedPageIndex: 0, pageCount: 1 })],
   })
   const anchor = Object.freeze({ token: 'anchor-a' })
   const overlay = Object.freeze({ token: 'overlay-a' })
@@ -1694,13 +1695,33 @@ test('passive manifest requests cannot bootstrap or mutate live authority', asyn
     location: fixture.runtime.committedLocationAuthority,
   }
   const commitCountBeforeManifest = fixture.commits.length
+  const loadedContents = fixture.renderer.getContents
+  fixture.renderer.getContents = () => []
+  assert.deepEqual(
+    fixture.runtime.pageTurnPassiveRasterManifestInputs(0, 4, 7),
+    { failureReason: 'current-live-profile-unavailable' },
+    'current page fails visibly when its live-realized profile is unavailable',
+  )
+  fixture.renderer.getContents = loadedContents
+  const currentManifest = fixture.runtime.pageTurnPassiveRasterManifestInputs(0, 4, 7)
+  assert.notEqual(currentManifest, null)
+  assert.equal(
+    JSON.parse(currentManifest.opaqueCaptureTarget).profileAuthority,
+    'live-realized-v1',
+  )
 
   for (const trigger of ['prewarm', 'idle-background']) {
-    const manifest = fixture.runtime.pageTurnPassiveRasterManifestInputs(0, 4, 7)
+    const manifest = fixture.runtime.pageTurnPassiveRasterManifestInputs(1, 4, 7)
     assert.notEqual(manifest, null, trigger)
     assert.equal(manifest.destinationCommitToken, 'live-passive-manifest', trigger)
     assert.equal(manifest.rasterGeneration, 7, trigger)
-    assert.equal(manifest.visualPageOrdinal, 0, trigger)
+    assert.equal(manifest.visualPageOrdinal, 1, trigger)
+    assert.equal(manifest.rasterDescriptor.spineIndex, 1, trigger)
+    assert.equal(manifest.rasterDescriptor.chapterPageIndex, 0, trigger)
+    const captureTarget = JSON.parse(manifest.opaqueCaptureTarget)
+    assert.equal(captureTarget.profileAuthority, 'passive-realized-v1', trigger)
+    assert.equal(captureTarget.spineIndex, 1, trigger)
+    assert.equal(captureTarget.visualPageOrdinal, 1, trigger)
   }
   await fixture.waitForRendererIdle()
 

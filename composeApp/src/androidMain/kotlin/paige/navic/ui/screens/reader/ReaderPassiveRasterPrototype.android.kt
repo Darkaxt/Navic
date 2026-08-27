@@ -27,6 +27,18 @@ internal data class ReaderPassiveRasterGeometry(
 		get() = captureBottom - captureTop
 }
 
+internal enum class ReaderPassiveRasterProfileAuthority(
+	val serializedValue: String
+) {
+	LiveRealized("live-realized-v1"),
+	PassiveRealized("passive-realized-v1");
+
+	companion object {
+		fun fromSerializedValue(value: String?): ReaderPassiveRasterProfileAuthority? =
+			entries.firstOrNull { it.serializedValue == value }
+	}
+}
+
 internal data class ReaderPassiveRasterCanonicalCommit(
 	val captureEpoch: Long,
 	val liveFoliateSessionId: String,
@@ -37,7 +49,9 @@ internal data class ReaderPassiveRasterCanonicalCommit(
 	val layoutFingerprint: String,
 	val decorationFingerprint: String,
 	val viewportAndCaptureGeometry: ReaderPassiveRasterGeometry,
-	val rasterGeneration: Long
+	val rasterGeneration: Long,
+	val profileAuthority: ReaderPassiveRasterProfileAuthority =
+		ReaderPassiveRasterProfileAuthority.LiveRealized
 ) {
 	init {
 		requireSafeIdentity(captureEpoch)
@@ -77,7 +91,9 @@ internal data class ReaderPassiveRasterCaptureManifest(
 	val layoutFingerprint: String,
 	val decorationFingerprint: String,
 	val viewportAndCaptureGeometry: ReaderPassiveRasterGeometry,
-	val rasterGeneration: Long
+	val rasterGeneration: Long,
+	val profileAuthority: ReaderPassiveRasterProfileAuthority =
+		ReaderPassiveRasterProfileAuthority.LiveRealized
 )
 
 internal class ReaderPassiveRasterManifestIssuer {
@@ -125,7 +141,8 @@ internal class ReaderPassiveRasterManifestIssuer {
 			layoutFingerprint = commit.layoutFingerprint,
 			decorationFingerprint = commit.decorationFingerprint,
 			viewportAndCaptureGeometry = commit.viewportAndCaptureGeometry,
-			rasterGeneration = commit.rasterGeneration
+			rasterGeneration = commit.rasterGeneration,
+			profileAuthority = commit.profileAuthority
 		)
 	}
 }
@@ -163,7 +180,9 @@ internal data class ReaderPassiveRasterAdmissionContext(
 	val currentViewportAndCaptureGeometry: ReaderPassiveRasterGeometry,
 	val currentRasterGeneration: Long,
 	val activePassiveSessionId: String,
-	val expectedPassiveCommitSequence: Long
+	val expectedPassiveCommitSequence: Long,
+	val currentProfileAuthority: ReaderPassiveRasterProfileAuthority =
+		ReaderPassiveRasterProfileAuthority.LiveRealized
 )
 
 internal enum class ReaderPassiveRasterRejection {
@@ -174,6 +193,7 @@ internal enum class ReaderPassiveRasterRejection {
 	DestinationCommit,
 	OpaqueTarget,
 	VisualPageOrdinal,
+	ProfileAuthority,
 	RasterProfile,
 	PaginationFingerprint,
 	LayoutFingerprint,
@@ -259,6 +279,8 @@ private fun ReaderPassiveRasterCaptureManifest.currentMismatch(
 		ReaderPassiveRasterRejection.OpaqueTarget
 	visualPageOrdinal != context.currentVisualPageOrdinal ->
 		ReaderPassiveRasterRejection.VisualPageOrdinal
+	profileAuthority != context.currentProfileAuthority ->
+		ReaderPassiveRasterRejection.ProfileAuthority
 	rasterProfileKey != context.currentRasterProfileKey ->
 		ReaderPassiveRasterRejection.RasterProfile
 	paginationFingerprint != context.currentPaginationFingerprint ->
@@ -292,13 +314,25 @@ private fun ReaderPassiveRasterCaptureReceipt.manifestMismatch(
 		ReaderPassiveRasterRejection.OpaqueTarget
 	observedVisualPageOrdinal != manifest.visualPageOrdinal ->
 		ReaderPassiveRasterRejection.VisualPageOrdinal
-	observedRasterProfileKey != manifest.rasterProfileKey ->
+	manifest.profileAuthority == ReaderPassiveRasterProfileAuthority.LiveRealized &&
+		observedRasterProfileKey != manifest.rasterProfileKey ->
 		ReaderPassiveRasterRejection.RasterProfile
-	observedPaginationFingerprint != manifest.paginationFingerprint ->
+	observedRasterProfileKey.isBlank() ->
+		ReaderPassiveRasterRejection.RasterProfile
+	manifest.profileAuthority == ReaderPassiveRasterProfileAuthority.LiveRealized &&
+		observedPaginationFingerprint != manifest.paginationFingerprint ->
 		ReaderPassiveRasterRejection.PaginationFingerprint
-	observedLayoutFingerprint != manifest.layoutFingerprint ->
+	observedPaginationFingerprint.isBlank() ->
+		ReaderPassiveRasterRejection.PaginationFingerprint
+	manifest.profileAuthority == ReaderPassiveRasterProfileAuthority.LiveRealized &&
+		observedLayoutFingerprint != manifest.layoutFingerprint ->
 		ReaderPassiveRasterRejection.LayoutFingerprint
-	observedDecorationFingerprint != manifest.decorationFingerprint ->
+	observedLayoutFingerprint.isBlank() ->
+		ReaderPassiveRasterRejection.LayoutFingerprint
+	manifest.profileAuthority == ReaderPassiveRasterProfileAuthority.LiveRealized &&
+		observedDecorationFingerprint != manifest.decorationFingerprint ->
+		ReaderPassiveRasterRejection.DecorationFingerprint
+	observedDecorationFingerprint.isBlank() ->
 		ReaderPassiveRasterRejection.DecorationFingerprint
 	observedViewportAndCaptureGeometry != manifest.viewportAndCaptureGeometry ->
 		ReaderPassiveRasterRejection.Geometry

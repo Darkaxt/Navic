@@ -581,6 +581,7 @@ test('production passive capture renders fingerprinted decorations and observes 
       const { readerRealizedRasterObservation } = await import(
         '../navic-reader-render-profile.js'
       )
+      const { stableHash } = await import('../navic-reader-identity.js')
       const prototype = customElements.get('foliate-view').prototype
       const originalOpen = prototype.open
       const originalClose = prototype.close
@@ -664,6 +665,42 @@ test('production passive capture renders fingerprinted decorations and observes 
           JSON.stringify(defaults),
           defaultProfile.rasterProfileKey,
         )
+        const planned = targetFor({ theme: 'day' })
+        const plannedPaginationFingerprint = 'live-pagination-plan'
+        const plannedLayoutFingerprint = stableHash(JSON.stringify({
+          render: planned.render,
+          mode: planned.layoutMode,
+          pages: planned.layoutPages,
+          viewportWidth: planned.viewportWidth,
+          viewportHeight: planned.viewportHeight,
+        }))
+        const plannedDecorationFingerprint = stableHash(JSON.stringify({
+          theme: planned.readerSettings.theme,
+          paperTextureEnabled: true,
+          pageEdgesEnabled: true,
+          paperStainsEnabled: true,
+          coverBackdropEnabled: true,
+        }))
+        Object.assign(planned, {
+          profileAuthority: 'passive-realized-v1',
+          paginationFingerprint: plannedPaginationFingerprint,
+          layoutFingerprint: plannedLayoutFingerprint,
+          decorationFingerprint: plannedDecorationFingerprint,
+          rasterProfileKey: stableHash(JSON.stringify({
+            publicationUrl: planned.publicationUrl,
+            paginationFingerprint: plannedPaginationFingerprint,
+            layoutFingerprint: plannedLayoutFingerprint,
+            decorationFingerprint: plannedDecorationFingerprint,
+            viewportWidth: planned.viewportWidth,
+            viewportHeight: planned.viewportHeight,
+          })),
+        })
+        const plannedObservation = await core.commitOpaqueTarget(
+          JSON.stringify(planned),
+          String(planned.rasterProfileKey),
+        )
+        const plannedRealized = readerRealizedRasterObservation(core.view, planned, document)
+        if (!plannedRealized) throw new Error('planned-realized-profile-unavailable')
         const defaultLayers = {
           paper: document.querySelector('[data-navic-moving-page-paper-texture-layer="true"]') != null,
           edges: document.querySelector('[data-navic-moving-page-border-overlay-layer="true"]') != null,
@@ -702,6 +739,19 @@ test('production passive capture renders fingerprinted decorations and observes 
           defaultLayers,
           defaultDecorationFingerprint: defaultObservation.decorationFingerprint,
           expectedDecorationFingerprint: defaultProfile.decorationFingerprint,
+          plannedObservation,
+          plannedExpected: {
+            rasterProfileKey: plannedRealized.rasterProfileKey,
+            paginationFingerprint: plannedRealized.paginationFingerprint,
+            layoutFingerprint: plannedRealized.layoutFingerprint,
+            decorationFingerprint: plannedRealized.decorationFingerprint,
+          },
+          plannedManifestProfile: {
+            rasterProfileKey: planned.rasterProfileKey,
+            paginationFingerprint: planned.paginationFingerprint,
+            layoutFingerprint: planned.layoutFingerprint,
+            decorationFingerprint: planned.decorationFingerprint,
+          },
           disabledLayerCount,
           abortOutcome,
         }
@@ -721,6 +771,18 @@ test('production passive capture renders fingerprinted decorations and observes 
       result.defaultDecorationFingerprint,
       result.expectedDecorationFingerprint,
     )
+    assert.deepEqual({
+      rasterProfileKey: result.plannedObservation.rasterProfileKey,
+      paginationFingerprint: result.plannedObservation.paginationFingerprint,
+      layoutFingerprint: result.plannedObservation.layoutFingerprint,
+      decorationFingerprint: result.plannedObservation.decorationFingerprint,
+    }, result.plannedExpected)
+    assert.notDeepEqual({
+      rasterProfileKey: result.plannedObservation.rasterProfileKey,
+      paginationFingerprint: result.plannedObservation.paginationFingerprint,
+      layoutFingerprint: result.plannedObservation.layoutFingerprint,
+      decorationFingerprint: result.plannedObservation.decorationFingerprint,
+    }, result.plannedManifestProfile)
     assert.equal(result.disabledLayerCount, 0)
     assert.equal(result.abortOutcome, 'AbortError')
   } finally {
