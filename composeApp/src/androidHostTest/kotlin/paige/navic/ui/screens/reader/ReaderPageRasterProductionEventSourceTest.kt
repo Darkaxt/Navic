@@ -131,6 +131,31 @@ class ReaderPageRasterProductionEventSourceTest {
 	}
 
 	@Test
+	fun passiveFailureAndCanonicalCommitUseCausalProductionRetryEdges() {
+		val host = deferredRetrySource("KomikkuReaderNativeFrameHost.android.kt")
+		val preparation = deferredRetrySource("ReaderPageRasterPreparationController.android.kt")
+		val foliate = deferredRetrySource("ReaderPlayLikeCurlFoliateController.android.kt")
+
+		assertContains(preparation, "ReaderPageRasterDeferralReason.PassiveHostUnavailable")
+		assertContains(
+			preparation,
+			"ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable"
+		)
+		assertContains(preparation, "ReaderPageRasterRetryEvent.PassiveHostAvailable")
+		assertContains(preparation, "ReaderPageRasterRetryEvent.CanonicalLiveCommitIssued")
+		assertContains(host, "reason == ReaderPageRasterDeferralReason.PassiveHostUnavailable")
+		assertContains(
+			host,
+			"reason == ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable"
+		)
+		assertContains(host, "playLikeCurlController.onPassiveManifestAuthorityUnavailable()")
+		assertContains(host, "onCanonicalLiveCommitIssued = ::onCanonicalLiveCommitIssued")
+		assertContains(foliate, "onCanonicalLiveCommitIssued: () -> Boolean")
+		assertContains(foliate, "fun onPassiveManifestAuthorityUnavailable()")
+		assertContains(foliate, "onCanonicalLiveCommitIssued()")
+	}
+
+	@Test
 	fun deferredInitialPreparationStaysVisibleWhilePreparedDeckDeferralStaysHidden() {
 		val source = deferredRetrySource("ReaderPageRasterDeferredRetryCoordinator.android.kt")
 

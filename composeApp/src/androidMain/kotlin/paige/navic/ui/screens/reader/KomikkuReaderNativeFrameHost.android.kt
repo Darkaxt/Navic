@@ -1171,6 +1171,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			pageRasterPreparationController.hasStaticRasterShieldOwnership()
 		},
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
+		onCanonicalLiveCommitIssued = ::onCanonicalLiveCommitIssued,
 		onAttachRasterRepairQaFault = ::attachPageRasterRepairQaFault,
 		onRequestRasterRepair = ::requestPageRasterRepair,
 		onGestureTerminal = { gestureId, outcome, detail ->
@@ -1262,9 +1263,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			}
 			if (
 				reason == ReaderPageRasterDeferralReason.LayoutUnstable ||
-				reason == ReaderPageRasterDeferralReason.WebViewDetached
+				reason == ReaderPageRasterDeferralReason.WebViewDetached ||
+				reason == ReaderPageRasterDeferralReason.PassiveHostUnavailable
 			) {
 				requestPageTurnPrewarmWhenReady()
+			}
+			if (
+				reason == ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
+			) {
+				playLikeCurlController.onPassiveManifestAuthorityUnavailable()
 			}
 		},
 		onPreparationStateChange = { state ->
@@ -1870,6 +1877,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun onPassiveRasterPreparationAvailable() {
 		if (task4ResourceTeardownStarted) return
 		pageRasterPreparationController.onPassiveRasterPreparationAvailable()
+	}
+
+	private fun onCanonicalLiveCommitIssued(): Boolean {
+		if (task4ResourceTeardownStarted) return false
+		return pageRasterPreparationController.onCanonicalLiveCommitIssued()
 	}
 
 	private fun replacePassiveRasterPreparationAdapter(webView: WebView) {

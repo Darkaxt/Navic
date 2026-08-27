@@ -7,7 +7,9 @@ internal enum class ReaderPageRasterRetryEvent {
 	LayoutStable,
 	PaginationReady,
 	WebViewAttached,
-	ReaderResumed
+	ReaderResumed,
+	PassiveHostAvailable,
+	CanonicalLiveCommitIssued
 }
 
 internal class ReaderPageRasterDeferralPolicy(
@@ -24,6 +26,10 @@ internal class ReaderPageRasterDeferralPolicy(
 			ReaderPageRasterRetryEvent.WebViewAttached
 		ReaderPageRasterDeferralReason.ReaderPaused ->
 			ReaderPageRasterRetryEvent.ReaderResumed
+		ReaderPageRasterDeferralReason.PassiveHostUnavailable ->
+			ReaderPageRasterRetryEvent.PassiveHostAvailable
+		ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable ->
+			ReaderPageRasterRetryEvent.CanonicalLiveCommitIssued
 	}
 
 	fun shouldRetry(event: ReaderPageRasterRetryEvent): Boolean = event == retryEvent

@@ -665,6 +665,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: ReaderPageGestureTerminalDetail
 	) -> Boolean,
+	private val onCanonicalLiveCommitIssued: () -> Boolean = { false },
 	private val onBoundaryTurn: (ReaderPageTurnDirection) -> Unit = {},
 	private val onRasterProfileEpochChanged: (Long?) -> Unit = {},
 	private val onProtectedRasterSourcePageIndicesChanged: (Set<Int>) -> Unit = {},
@@ -1811,6 +1812,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun onWhispersyncOverlayAnchorUnavailable() {
 		if (!enabled || destroyed) return
 		requestInitialLivePresentationAuthorityForActiveDeck()
+	}
+
+	fun onPassiveManifestAuthorityUnavailable() {
+		if (!enabled || destroyed) return
+		confirmedDecklessPassiveAuthority.clear()
+		if (activeDeckGenerationId == null) {
+			requestInitialLivePresentationAuthorityForPassivePreparation()
+		} else {
+			requestInitialLivePresentationAuthorityForActiveDeck()
+		}
 	}
 
 	fun onForegroundWebViewPassiveMutationReleased() {
@@ -5753,8 +5764,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 				releaseInitialLivePresentationAuthority(request)
 				if (confirmed) {
+					val resumedDeferredPreparation = onCanonicalLiveCommitIssued()
 					publishLatestWhispersyncOverlayIfIdle()
-					if (request.requiredDeckGenerationId == null) onRequestPrewarm()
+					if (
+						request.requiredDeckGenerationId == null &&
+						!resumedDeferredPreparation
+					) {
+						onRequestPrewarm()
+					}
 				}
 			}
 		} catch (_: Throwable) {

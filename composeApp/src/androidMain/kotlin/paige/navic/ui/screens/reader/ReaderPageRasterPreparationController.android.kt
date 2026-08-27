@@ -572,31 +572,38 @@ internal class ReaderPageRasterPreparationController(
 
 	fun onPassiveRasterPreparationAvailable() {
 		if (destroyed) return
-		if (
-			passivePrewarmDeferral != null &&
+		val passiveHostAvailable =
 			passiveRasterPreparationPortProvider()?.isAvailable == true
-		) {
+		if (passivePrewarmDeferral != null && passiveHostAvailable) {
 			passivePrewarmDeferral = null
 			onRequestPrewarm()
+			return
+		}
+		if (
+			passiveHostAvailable &&
+			deferredRetryCoordinator.onRetryEvent(
+				ReaderPageRasterRetryEvent.PassiveHostAvailable
+			)
+		) {
 			return
 		}
 		if (deferredBackgroundPrefetchStart != null) {
 			resumeDeferredBackgroundPrefetchStart()
 		}
 		if (deferredRasterRepairPageIndex != null) {
-			val deferredSession = deferredRasterRepairSessionId
-			if (deferredSession == null) {
+			if (deferredRasterRepairSessionId == null) {
 				deferredRasterRepairPageIndex = null
 				startNextRasterRepair()
-			} else {
-				deferredRetryCoordinator.onRetryEvent(
-					ReaderPageRasterRetryEvent.ContentReady
-				)
 			}
 			return
 		}
 		adjacentChapterPrefetchCoordinator.onPassiveAvailable()
 	}
+
+	fun onCanonicalLiveCommitIssued(): Boolean =
+		deferredRetryCoordinator.onRetryEvent(
+			ReaderPageRasterRetryEvent.CanonicalLiveCommitIssued
+		)
 
 	fun onRasterProfileEpochChanged(epoch: Long?) {
 		if (destroyed || currentRasterProfileEpoch == epoch) return
@@ -1088,7 +1095,9 @@ internal class ReaderPageRasterPreparationController(
 		)
 		if (
 			reason == ReaderPageRasterDeferralReason.LayoutUnstable ||
-			reason == ReaderPageRasterDeferralReason.WebViewDetached
+			reason == ReaderPageRasterDeferralReason.WebViewDetached ||
+			reason == ReaderPageRasterDeferralReason.PassiveHostUnavailable ||
+			reason == ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
 		) {
 			onAwaitHostEvent(reason)
 		}
@@ -1150,6 +1159,11 @@ internal class ReaderPageRasterPreparationController(
 	): ReaderPageRasterDeferralReason {
 		val diagnostic = "${outcome.stage}:${outcome.reason}".lowercase()
 		return when {
+			diagnostic == "passive-host:capture-unavailable" ||
+				diagnostic == "passive-host:passive-raster-unavailable" ->
+				ReaderPageRasterDeferralReason.PassiveHostUnavailable
+			diagnostic == "passive-manifest:canonical-live-commit-unavailable" ->
+				ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
 			"detach" in diagnostic || "webview" in diagnostic ->
 				ReaderPageRasterDeferralReason.WebViewDetached
 			"layout" in diagnostic -> ReaderPageRasterDeferralReason.LayoutUnstable
@@ -1405,6 +1419,10 @@ internal class ReaderPageRasterPreparationController(
 			ReaderPageRasterDeferralReason.PaginationNotReady -> "pagination-not-ready"
 			ReaderPageRasterDeferralReason.WebViewDetached -> "webview-detached"
 			ReaderPageRasterDeferralReason.ReaderPaused -> "reader-paused"
+			ReaderPageRasterDeferralReason.PassiveHostUnavailable ->
+				"passive-host-unavailable"
+			ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable ->
+				"canonical-live-commit-unavailable"
 		}
 
 	private fun queryRasterPreparationPlan(webView: WebView, session: Long) {
@@ -1909,7 +1927,9 @@ internal class ReaderPageRasterPreparationController(
 		)
 		if (
 			reason == ReaderPageRasterDeferralReason.LayoutUnstable ||
-			reason == ReaderPageRasterDeferralReason.WebViewDetached
+			reason == ReaderPageRasterDeferralReason.WebViewDetached ||
+			reason == ReaderPageRasterDeferralReason.PassiveHostUnavailable ||
+			reason == ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
 		) {
 			onAwaitHostEvent(reason)
 		}

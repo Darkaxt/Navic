@@ -673,6 +673,56 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun passiveCaptureDeferralResumesOnlyWhenThePassiveHostIsAvailable() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.prewarm.completeDeferred(
+				reason = "capture-unavailable",
+				stage = "passive-host"
+			)
+
+			assertFalse(
+				fixture.controller.onRetryEvent(ReaderPageRasterRetryEvent.ContentReady)
+			)
+			assertEquals(0, fixture.retryProbe.freshManifestRequestCount)
+
+			fixture.controller.onPassiveRasterPreparationAvailable()
+
+			assertEquals(1, fixture.retryProbe.freshManifestRequestCount)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun canonicalCommitDeferralResumesOnlyAfterLiveAuthorityConfirmation() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.prewarm.completeDeferred(
+				reason = "canonical-live-commit-unavailable",
+				stage = "passive-manifest"
+			)
+
+			assertFalse(
+				fixture.controller.onRetryEvent(ReaderPageRasterRetryEvent.ContentReady)
+			)
+			assertEquals(0, fixture.retryProbe.freshManifestRequestCount)
+
+			assertTrue(fixture.controller.onCanonicalLiveCommitIssued())
+
+			assertEquals(1, fixture.retryProbe.freshManifestRequestCount)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun destroyWaitsForRasterCacheInitializationCleanup() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val initializationStarted = CompletableDeferred<Unit>()
@@ -1464,11 +1514,11 @@ private class FakeReaderPassiveRasterPreparationPort(
 			)
 		}
 
-		fun completeDeferred(reason: String) {
+		fun completeDeferred(reason: String, stage: String = "batch") {
 			val request = checkNotNull(active)
 			complete(
 				ReaderPageRasterBatchOutcome.Deferred(
-					stage = "batch",
+					stage = stage,
 					pageIndex = request.targets.last().pageIndex,
 					reason = reason
 				)

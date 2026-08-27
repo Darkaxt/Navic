@@ -19,8 +19,13 @@ class ReaderPageRasterDeferralPolicyTest {
 			ReaderPageRasterDeferralReason.WebViewDetached to
 				ReaderPageRasterRetryEvent.WebViewAttached,
 			ReaderPageRasterDeferralReason.ReaderPaused to
-				ReaderPageRasterRetryEvent.ReaderResumed
+				ReaderPageRasterRetryEvent.ReaderResumed,
+			ReaderPageRasterDeferralReason.PassiveHostUnavailable to
+				ReaderPageRasterRetryEvent.PassiveHostAvailable,
+			ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable to
+				ReaderPageRasterRetryEvent.CanonicalLiveCommitIssued
 		)
+		assertEquals(ReaderPageRasterDeferralReason.entries.toSet(), cases.keys)
 
 		cases.forEach { (reason, expectedEvent) ->
 			val policy = ReaderPageRasterDeferralPolicy(reason)

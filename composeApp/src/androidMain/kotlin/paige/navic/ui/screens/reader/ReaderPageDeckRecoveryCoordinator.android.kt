@@ -7,7 +7,9 @@ internal enum class ReaderPageRasterDeferralReason {
 	LayoutUnstable,
 	PaginationNotReady,
 	WebViewDetached,
-	ReaderPaused
+	ReaderPaused,
+	PassiveHostUnavailable,
+	CanonicalLiveCommitUnavailable
 }
 
 internal sealed interface ReaderPageRasterRepairResult {
