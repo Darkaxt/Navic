@@ -1255,6 +1255,25 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun coldCanonicalLocationRearmsLiveAuthorityAfterExternalLocationSettles() {
+		val source = controllerFile.readText()
+		val synchronize = source
+			.substringAfter("fun synchronizeVisualPageIndex(")
+			.substringBefore("private fun completeAcknowledgedRelocation(")
+
+		val externalOrdinalUpdate = synchronize.indexOf("currentOrdinal = normalized")
+		val externalInvalidation = synchronize.indexOf(
+			"invalidate(\"external-page-relocation\")"
+		)
+		val authorityRequest = synchronize.lastIndexOf(
+			"requestInitialLivePresentationAuthorityForPassivePreparation()"
+		)
+		assertTrue(externalOrdinalUpdate >= 0)
+		assertTrue(externalInvalidation > externalOrdinalUpdate)
+		assertTrue(authorityRequest > externalInvalidation)
+	}
+
+	@Test
 	fun preparedInitialDeckEstablishesFreshLivePresentationAuthority() {
 		val source = controllerFile.readText()
 		val deckPrepared = source

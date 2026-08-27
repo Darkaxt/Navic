@@ -2241,6 +2241,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 			}
 		}
+		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
+			requestInitialLivePresentationAuthorityForPassivePreparation()
+		}
 		requestInitialLivePresentationAuthorityForActiveDeck()
 	}
 
