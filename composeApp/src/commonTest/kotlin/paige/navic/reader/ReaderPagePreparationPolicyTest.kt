@@ -176,6 +176,7 @@ class ReaderPagePreparationPolicyTest {
 
 		assertTrue(state.interactiveReady)
 		assertEquals(ReaderPagePreparationPresentation.Hidden, state.presentation)
+		assertFalse(state.showsProgress)
 		assertEquals("Page 8", state.activePageLabel)
 		assertEquals(ReaderPagePreparationGestureDisposition.Allow, state.gestureDisposition)
 	}

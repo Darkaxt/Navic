@@ -817,8 +817,7 @@ internal class ReaderPageRasterPreparationController(
 		}
 		if (
 			reason != "page-turn:exact" ||
-				!requiredWindowDurable ||
-				rasterRepairCallbacks.isNotEmpty()
+				!hasPreparedBefore
 		) {
 			enterBlockingPreparation("visual-index-changed:${reason ?: "unspecified"}")
 		}
@@ -882,7 +881,6 @@ internal class ReaderPageRasterPreparationController(
 			onComplete(immediateFailure)
 			return
 		}
-		enterBlockingPreparation("required-raster-repair:$pageIndex")
 		resumePrewarmAfterRasterRepairs = true
 		val callbacks = rasterRepairCallbacks.getOrPut(pageIndex) { mutableListOf() }
 		callbacks += onComplete
@@ -1671,11 +1669,7 @@ internal class ReaderPageRasterPreparationController(
 					publishPreparationState(ReaderPagePreparationPhase.Preparing)
 				}
 			},
-			onHydrationMiss = { target ->
-				if (isBatchCurrent()) {
-					enterBlockingPreparation("required-cache-miss:${target.pageIndex}")
-				}
-			},
+			onHydrationMiss = {},
 			onTargetDurable = { target ->
 				if (isBatchCurrent()) {
 					durableRasterPageIndices += target.pageIndex

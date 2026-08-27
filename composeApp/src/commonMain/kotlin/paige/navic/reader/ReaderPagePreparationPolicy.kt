@@ -46,10 +46,11 @@ data class ReaderPagePreparationState(
 	val interactiveReady: Boolean
 		get() = operationPolicy.newPointer is ReaderPageNewPointerDecision.Accept
 	val showsProgress: Boolean
-		get() = phase != ReaderPagePreparationPhase.Failed && (
-			phase == ReaderPagePreparationPhase.Preparing ||
-				presentation == ReaderPagePreparationPresentation.Cover
-			)
+		get() = phase != ReaderPagePreparationPhase.Failed &&
+			presentation != ReaderPagePreparationPresentation.Hidden && (
+				phase == ReaderPagePreparationPhase.Preparing ||
+					presentation == ReaderPagePreparationPresentation.Cover
+				)
 	val hasDeterminateProgress: Boolean
 		get() = phase == ReaderPagePreparationPhase.Preparing && requiredCount > 0
 }

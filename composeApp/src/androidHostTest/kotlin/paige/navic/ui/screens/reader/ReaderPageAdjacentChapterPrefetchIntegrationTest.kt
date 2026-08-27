@@ -81,7 +81,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.drainMainLooper()
 
 			assertEquals(
-				listOf(listOf(32, 34)),
+				listOf(listOf(36, 38)),
 				fixture.background.starts.map { request ->
 					request.targets.map { target -> target.pageIndex }
 				}
@@ -89,19 +89,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.background.completeReady(durably = true)
 			fixture.drainMainLooper()
 			assertEquals(
-				listOf(listOf(32, 34), listOf(36, 38, 40, 42)),
-				fixture.background.starts.map { request ->
-					request.targets.map { target -> target.pageIndex }
-				}
-			)
-			fixture.background.completeReady(durably = true)
-			fixture.drainMainLooper()
-			assertEquals(
-				listOf(
-					listOf(32, 34),
-					listOf(36, 38, 40, 42),
-					listOf(8, 6, 4, 2, 0)
-				),
+				listOf(listOf(36, 38), listOf(8, 6, 4)),
 				fixture.background.starts.map { request ->
 					request.targets.map { target -> target.pageIndex }
 				}
@@ -112,7 +100,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.controller.onPointerInteractionChanged(true)
 			fixture.controller.onPointerInteractionChanged(false)
 			fixture.drainMainLooper()
-			assertEquals(3, fixture.background.starts.size)
+			assertEquals(2, fixture.background.starts.size)
 			assertIs<ReaderPageNewPointerDecision.Accept>(
 				fixture.latestState.operationPolicy.newPointer
 			)
@@ -178,6 +166,10 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			var repairResult: ReaderPageRasterRepairResult? = null
 			fixture.controller.repairRasterPage(20) { repairResult = it }
 
+			assertEquals(ReaderPagePreparationPresentation.Hidden, fixture.latestState.presentation)
+			assertIs<ReaderPageNewPointerDecision.Accept>(
+				fixture.latestState.operationPolicy.newPointer
+			)
 			assertEquals(1, fixture.background.cancellationCount)
 			val passiveRepair = assertNotNull(fixture.prewarm.active)
 			assertEquals(listOf(20), passiveRepair.targets.map { target -> target.pageIndex })
@@ -194,8 +186,87 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.drainMainLooper()
 
 			assertEquals(
-				listOf(34),
+				listOf(38),
 				fixture.background.active?.targets?.map { target -> target.pageIndex }
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun exactSettlementCancelsPendingRepairWithoutRestoringForegroundProgress() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			autoStartRequestedPrewarm = true
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+
+			var repairResult: ReaderPageRasterRepairResult? = null
+			fixture.controller.repairRasterPage(20) { repairResult = it }
+			assertNotNull(fixture.prewarm.active)
+
+			fixture.controller.synchronizeVisualPageIndex(22, "page-turn:exact")
+
+			assertEquals(ReaderPageRasterRepairResult.Cancelled, repairResult)
+			assertEquals(ReaderPagePreparationPresentation.Hidden, fixture.latestState.presentation)
+			assertIs<ReaderPageNewPointerDecision.Accept>(
+				fixture.latestState.operationPolicy.newPointer
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun exactSettlementWithIncompleteShiftedWindowKeepsPreparedDeckInteractive() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+
+			fixture.controller.synchronizeVisualPageIndex(36, "page-turn:exact")
+
+			assertEquals(ReaderPagePreparationPresentation.Hidden, fixture.latestState.presentation)
+			assertIs<ReaderPageNewPointerDecision.Accept>(
+				fixture.latestState.operationPolicy.newPointer
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun postReadyHydrationMissDoesNotRestoreForegroundProgress() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+
+			fixture.startCurrentChapterPreparation()
+			val refill = assertNotNull(fixture.prewarm.active)
+			refill.onHydrationMiss(refill.targets.first())
+
+			assertEquals(ReaderPagePreparationPresentation.Hidden, fixture.latestState.presentation)
+			assertIs<ReaderPageNewPointerDecision.Accept>(
+				fixture.latestState.operationPolicy.newPointer
 			)
 		} finally {
 			fixture.close()
@@ -259,7 +330,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.drainMainLooper()
 
 			assertEquals(
-				listOf(34),
+				listOf(38),
 				fixture.background.active?.targets?.map { target -> target.pageIndex }
 			)
 			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)

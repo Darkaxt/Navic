@@ -254,7 +254,7 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
-	fun requiredRasterHydrationMissRestoresCoverBeforePassiveCapture() {
+	fun hydrationMissFallsThroughToPassiveCaptureWithoutChangingPresentationMode() {
 		val batch = readerRasterBatchSource()
 		val contract = batch.substringAfter(
 			"internal interface ReaderPageRasterBatchPort"
@@ -272,7 +272,8 @@ class ReaderPageRasterPreparationSourceTest {
 			hydration.indexOf("session.onHydrationMiss(target)") <
 				hydration.indexOf("session.missingTargets += target")
 		)
-		assertContains(foreground, "enterBlockingPreparation(\"required-cache-miss")
+		assertContains(foreground, "onHydrationMiss = {}")
+		assertFalse(foreground.contains("enterBlockingPreparation(\"required-cache-miss"))
 	}
 
 	@Test
@@ -441,7 +442,7 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
-	fun immediateDeckCannotPublishReadyBeforeTheBlockingWindowIsDurable() {
+	fun immediateDeckCannotPublishReadyBeforeTheCurrentChapterIsDurable() {
 		val source = readerRasterPreparationSource()
 		val initialDeck = requiredReaderSourceSlice(
 			source = source,

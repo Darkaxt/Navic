@@ -14,7 +14,6 @@ import org.json.JSONTokener
 import paige.navic.reader.ReaderPageAdjacentChapterDirection
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
-import paige.navic.reader.adjacentChapterDirection
 
 internal data class ReaderPageRasterBatchTarget(
 	val pageIndex: Int,
@@ -148,57 +147,77 @@ internal fun readerPageRasterBlockingWindow(
 
 internal fun ReaderPageRasterPreparationPlan.blockingTargetsOrNull():
 	List<ReaderPageRasterBatchTarget>? {
-	val blocking = readerPageRasterBlockingTargets(targets)
-	val expected = readerPageRasterBlockingWindow(
+	if (step <= 0 || centerPageIndex !in 0 until pageCount) return null
+	val blockingPageIndices = readerPageRasterBlockingWindow(
 		centerPageIndex = centerPageIndex,
 		step = step,
 		pageCount = pageCount
 	)
+	val chapterRange = preparedChapterRange() ?: return null
+	val currentChapterPageIndices = buildList {
+		for (
+			pageIndex in chapterRange.startPageIndex until
+				chapterRange.endPageIndexExclusive
+		) {
+			if ((pageIndex - centerPageIndex) % step == 0) add(pageIndex)
+		}
+	}
+	val requiredPageIndices = buildList {
+		addAll(blockingPageIndices)
+		currentChapterPageIndices.forEach { pageIndex ->
+			if (pageIndex !in this) add(pageIndex)
+		}
+	}
+	val requiredPageIndexSet = requiredPageIndices.toSet()
+	val blocking = targets.filter { target -> target.pageIndex in requiredPageIndexSet }
 	return blocking.takeIf { candidates ->
-		candidates.map { target -> target.pageIndex } == expected
+		candidates.map { target -> target.pageIndex } == requiredPageIndices
 	}
 }
 
 internal fun ReaderPageRasterPreparationPlan.adjacentChapterPrefetchChapters():
 	List<ReaderPageAdjacentChapterPrefetchChapter> =
-		ReaderPageAdjacentChapterDirection.entries.mapNotNull { direction ->
-			val currentEnd = currentChapterPageStartIndex + currentChapterPageCount
-			val identity = when (direction) {
-				ReaderPageAdjacentChapterDirection.Current -> ReaderPageAdjacentChapterIdentity(
-					direction = direction,
-					chapterIndex = currentChapterIndex,
-					pageStartIndex = currentChapterPageStartIndex,
-					pageCount = currentChapterPageCount
-				)
-				ReaderPageAdjacentChapterDirection.Next -> ReaderPageAdjacentChapterIdentity(
-					direction = direction,
-					chapterIndex = currentChapterIndex + 1,
-					pageStartIndex = currentEnd,
-					pageCount = (pageCount - currentEnd).coerceAtLeast(0)
-				)
-				ReaderPageAdjacentChapterDirection.Previous -> ReaderPageAdjacentChapterIdentity(
-					direction = direction,
-					chapterIndex = (currentChapterIndex - 1).coerceAtLeast(0),
-					pageStartIndex = 0,
-					pageCount = currentChapterPageStartIndex.coerceAtLeast(0)
-				)
+		ReaderPageAdjacentChapterDirection.entries
+			.filterNot { direction ->
+				direction == ReaderPageAdjacentChapterDirection.Current
 			}
-			val chapterTargets = targets.filter { target ->
-				target.priority.adjacentChapterDirection == direction &&
-					identity.contains(target.pageIndex)
+			.mapNotNull { direction ->
+				val identity = when (direction) {
+					ReaderPageAdjacentChapterDirection.Current -> return@mapNotNull null
+					ReaderPageAdjacentChapterDirection.Next -> ReaderPageAdjacentChapterIdentity(
+						direction = direction,
+						chapterIndex = currentChapterIndex + 1,
+						pageStartIndex = nextChapterPageStartIndex,
+						pageCount = nextChapterPageCount
+					)
+					ReaderPageAdjacentChapterDirection.Previous -> ReaderPageAdjacentChapterIdentity(
+						direction = direction,
+						chapterIndex = (currentChapterIndex - 1).coerceAtLeast(0),
+						pageStartIndex = previousChapterPageStartIndex,
+						pageCount = previousChapterPageCount
+					)
+				}
+				val chapterPriority = when (direction) {
+					ReaderPageAdjacentChapterDirection.Current -> return@mapNotNull null
+					ReaderPageAdjacentChapterDirection.Next -> ReaderPageRasterPriority.NextChapter
+					ReaderPageAdjacentChapterDirection.Previous ->
+						ReaderPageRasterPriority.PreviousChapter
+				}
+				val chapterTargets = targets.filter { target ->
+					target.priority == chapterPriority && identity.contains(target.pageIndex)
+				}
+				if (
+					currentChapterIndex >= 0 &&
+						identity.chapterIndex >= 0 &&
+						identity.pageStartIndex >= 0 &&
+						identity.pageCount > 0 &&
+						chapterTargets.isNotEmpty()
+				) {
+					ReaderPageAdjacentChapterPrefetchChapter(identity, chapterTargets)
+				} else {
+					null
+				}
 			}
-			if (
-				currentChapterIndex >= 0 &&
-					identity.chapterIndex >= 0 &&
-					identity.pageStartIndex >= 0 &&
-					identity.pageCount > 0 &&
-					chapterTargets.isNotEmpty()
-			) {
-				ReaderPageAdjacentChapterPrefetchChapter(identity, chapterTargets)
-			} else {
-				null
-			}
-		}
 
 internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRasterPreparationPlan? {
 	val raw = encoded.orEmpty().trim()
