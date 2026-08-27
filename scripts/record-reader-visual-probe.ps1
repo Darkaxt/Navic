@@ -174,7 +174,8 @@ function Wait-ReaderDevVisualReady([string] $ReaderPid) {
             '*:S'
         ) 'ReaderDev visual-readiness query'
         $latest = @($log -split '\r?\n' | Where-Object {
-            $_.Contains('Page preparation state phase=')
+            $_.Contains('Page preparation state ') -and
+                $_.Contains('phase=')
         } | Select-Object -Last 1)
         $latestRepair = @($log -split '\r?\n' | Where-Object {
             $_.Contains('reader-repair ') && $_.Contains(' state=')
