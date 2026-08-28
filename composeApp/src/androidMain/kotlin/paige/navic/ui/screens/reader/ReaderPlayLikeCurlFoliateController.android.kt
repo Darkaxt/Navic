@@ -1045,6 +1045,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 				preparedDeckGenerations += generationId
 				if (generationId == activeDeckGenerationId) {
 					activeDeckPreparationGeneration = preparationGeneration
+					if (
+						retryPreparationInProgress &&
+							preparationPhase == ReaderPagePreparationPhase.Ready
+					) {
+						retryPreparationInProgress = false
+					}
 					hasPreparedDeckBefore = true
 					updateReadiness(
 						textureDeck = ReaderTextureDeckState.Ready,
@@ -1691,7 +1697,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 				retryPreparationInProgress &&
 				state.preparationGeneration != activeDeckPreparationGeneration
 		) {
-			preparationPhase = ReaderPagePreparationPhase.Preparing
+			preparationPhase = state.phase
+			refreshPreparedDeck()
 			return
 		}
 		if (state.phase == ReaderPagePreparationPhase.Ready) {

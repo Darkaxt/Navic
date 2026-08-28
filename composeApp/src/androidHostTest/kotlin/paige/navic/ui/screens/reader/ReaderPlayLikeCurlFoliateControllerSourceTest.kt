@@ -2322,6 +2322,46 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun retryRasterReadyRebuildsTheMissingCurrentDeckBeforeWaitingForProof() {
+		val controller = controllerFile.readText()
+		val stateCallback = requiredFoliateSourceSlice(
+			source = controller,
+			startDelimiter = "fun onPreparationStateChanged(state: ReaderPagePreparationState)",
+			endDelimiter = "fun onHostAttached()"
+		)
+		val deckPrepared = requiredFoliateSourceSlice(
+			source = controller,
+			startDelimiter = "override fun onDeckPrepared(generationId: Long)",
+			endDelimiter = "override fun onDeckRejected("
+		)
+		val awaitingDeckProof = stateCallback
+			.substringAfter("state.preparationGeneration != activeDeckPreparationGeneration")
+			.substringBefore("if (state.phase == ReaderPagePreparationPhase.Ready) {")
+
+		assertContains(awaitingDeckProof, "preparationPhase = state.phase")
+		assertContains(awaitingDeckProof, "refreshPreparedDeck()")
+		assertTrue(
+			awaitingDeckProof.indexOf("preparationPhase = state.phase") <
+				awaitingDeckProof.indexOf("refreshPreparedDeck()")
+		)
+		assertTrue(
+			awaitingDeckProof.indexOf("refreshPreparedDeck()") <
+				awaitingDeckProof.indexOf("return")
+		)
+		assertTrue(
+			Regex(
+				"retryPreparationInProgress\\s*&&\\s*" +
+					"preparationPhase == ReaderPagePreparationPhase\\.Ready"
+			).containsMatchIn(deckPrepared)
+		)
+		assertTrue(
+			deckPrepared.indexOf("activeDeckPreparationGeneration = preparationGeneration") <
+				deckPrepared.indexOf("retryPreparationInProgress = false"),
+			"Only matching renderer proof may complete Retry ownership."
+		)
+	}
+
+	@Test
 	fun retryRecreatesOnlyAnUnavailablePassiveSessionBeforeOneFreshAttempt() {
 		val host = hostFile.readText()
 		val readerRoot = readerRootFile.readText()
