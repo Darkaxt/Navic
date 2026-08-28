@@ -1275,6 +1275,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				playLikeCurlController.onPassiveManifestAuthorityUnavailable(deferredSessionId)
 			}
 		},
+		onRasterProofReady = playLikeCurlController::onRasterProofReady,
 		onPreparationStateChange = { state ->
 			latestRasterPreparationState = state
 			playLikeCurlController.onPreparationStateChanged(state)

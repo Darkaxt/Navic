@@ -198,6 +198,7 @@ internal class ReaderPageRasterPreparationController(
 		deferredSessionId: Long
 	) -> Unit = { _, _ -> },
 	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {},
+	private val onRasterProofReady: (Long) -> Unit = {},
 	private val onPassiveRasterMemoryPressure: (String) -> Unit = {},
 	private val rasterBackgroundBatchController: ReaderPageRasterBatchPort =
 		ReaderPageRasterBatchController(bundleSource, diagnostics),
@@ -711,7 +712,10 @@ internal class ReaderPageRasterPreparationController(
 		if (
 			retryPreparationInProgress &&
 				activeDeckPreparationGeneration != preparationGeneration
-		) return
+		) {
+			onRasterProofReady(preparationGeneration)
+			return
+		}
 		if (readyPreparationGeneration == preparationGeneration) return
 		readyPreparationGeneration = preparationGeneration
 		retryPreparationInProgress = false

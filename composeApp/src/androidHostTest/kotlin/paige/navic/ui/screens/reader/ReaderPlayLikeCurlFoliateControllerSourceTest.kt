@@ -2322,43 +2322,50 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun retryRasterReadyRebuildsTheMissingCurrentDeckBeforeWaitingForProof() {
-		val controller = controllerFile.readText()
-		val stateCallback = requiredFoliateSourceSlice(
-			source = controller,
-			startDelimiter = "fun onPreparationStateChanged(state: ReaderPagePreparationState)",
-			endDelimiter = "fun onHostAttached()"
+	fun retryRasterProofRequestsTheMissingCurrentDeckBeforeReadyPublication() {
+		val rasterController = rasterPreparationFile.readText()
+		val rasterConstructor = requiredFoliateSourceSlice(
+			source = rasterController,
+			startDelimiter = "internal class ReaderPageRasterPreparationController(",
+			endDelimiter = ") {"
 		)
-		val deckPrepared = requiredFoliateSourceSlice(
-			source = controller,
-			startDelimiter = "override fun onDeckPrepared(generationId: Long)",
-			endDelimiter = "override fun onDeckRejected("
+		val readyPublication = requiredFoliateSourceSlice(
+			source = rasterController,
+			startDelimiter = "private fun publishReadyPreparationIfProven()",
+			endDelimiter = "fun destroy(): Deferred<Unit>"
 		)
-		val awaitingDeckProof = stateCallback
-			.substringAfter("state.preparationGeneration != activeDeckPreparationGeneration")
-			.substringBefore("if (state.phase == ReaderPagePreparationPhase.Ready) {")
+		val hostWiring = requiredFoliateSourceSlice(
+			source = hostFile.readText(),
+			startDelimiter = "private val pageRasterPreparationController:",
+			endDelimiter = "private val pageRasterHostEventController:"
+		)
+		val proofHandler = requiredFoliateSourceSlice(
+			source = controllerFile.readText(),
+			startDelimiter = "fun onRasterProofReady(preparationGeneration: Long)",
+			endDelimiter = "fun onPreparationStateChanged("
+		)
 
-		assertContains(awaitingDeckProof, "preparationPhase = state.phase")
-		assertContains(awaitingDeckProof, "refreshPreparedDeck()")
+		assertContains(rasterConstructor, "private val onRasterProofReady: (Long) -> Unit")
+		assertContains(readyPublication, "onRasterProofReady(preparationGeneration)")
 		assertTrue(
-			awaitingDeckProof.indexOf("preparationPhase = state.phase") <
-				awaitingDeckProof.indexOf("refreshPreparedDeck()")
+			readyPublication.indexOf("activeDeckPreparationGeneration != preparationGeneration") <
+				readyPublication.indexOf("onRasterProofReady(preparationGeneration)")
 		)
 		assertTrue(
-			awaitingDeckProof.indexOf("refreshPreparedDeck()") <
-				awaitingDeckProof.indexOf("return")
+			readyPublication.indexOf("onRasterProofReady(preparationGeneration)") <
+				readyPublication.indexOf("publishPreparationState(ReaderPagePreparationPhase.Ready)")
 		)
-		assertTrue(
-			Regex(
-				"retryPreparationInProgress\\s*&&\\s*" +
-					"preparationPhase == ReaderPagePreparationPhase\\.Ready"
-			).containsMatchIn(deckPrepared)
+		assertContains(
+			hostWiring,
+			"onRasterProofReady = playLikeCurlController::onRasterProofReady"
 		)
-		assertTrue(
-			deckPrepared.indexOf("activeDeckPreparationGeneration = preparationGeneration") <
-				deckPrepared.indexOf("retryPreparationInProgress = false"),
-			"Only matching renderer proof may complete Retry ownership."
+		assertContains(proofHandler, "retryPreparationInProgress")
+		assertContains(
+			proofHandler,
+			"preparationGeneration != this@ReaderPlayLikeCurlFoliateController.preparationGeneration"
 		)
+		assertContains(proofHandler, "activeDeckPreparationGeneration == preparationGeneration")
+		assertContains(proofHandler, "refreshPreparedDeck()")
 	}
 
 	@Test
