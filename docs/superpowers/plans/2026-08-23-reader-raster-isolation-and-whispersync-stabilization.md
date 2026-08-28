@@ -360,30 +360,82 @@ suspension-and-coalescing path instead of forcing a new renderer API.
    consumer now exists.
 2. Run consolidated JavaScript, common, Android host, renderer, build, and lint
    gates with no test failures.
-3. Freeze one ReaderDev APK from the pushed commit and run the focused synthetic
-   emulator acceptance for initial highlight, Stop/Start, provenance, page-end
-   pause, Retry, passive isolation, and curl material.
-4. With explicit device ownership, run only the first two landscape pages of
+3. Before resuming emulator acceptance, implement the production-available,
+   opt-in Whispersync cue map defined below. Group its RED tests, run one focused
+   RED boundary, implement only the cue-map/hold-to-seek contract, and run one
+   focused GREEN boundary.
+4. Freeze a new ReaderDev APK from the pushed cue-map commit and run the focused
+   synthetic emulator acceptance. The first checks are: **is the cue overlay
+   rendering?** and **are its visible cue ordinals in reading order?** Then cover
+   initial highlight, Stop/Start, provenance, page-end pause, Retry, passive
+   isolation, and curl material.
+5. With explicit device ownership, run only the first two landscape pages of
    Chapter 1 on the approved tablet using privacy-safe evidence.
-5. Classify any remaining cue mismatch as backend data, frontend mapping, or
+6. Classify any remaining cue mismatch as backend data, frontend mapping, or
    unresolved. Fix it now only if it violates the specification or blocks the
    bounded acceptance.
-6. Re-run only the gates affected by a necessary correction, then run the final
+7. Re-run only the gates affected by a necessary correction, then run the final
    consolidated gate once.
+
+### Production cue-map diagnostic amendment
+
+The cue map is a normal-release diagnostic capability, not a ReaderDev-only
+probe, because tablet bug reports must be reproducible from production builds.
+It is disabled by default and toggled by a dedicated control beside the existing
+eye control when a Whispersync sidecar is available.
+
+1. Preserve each cue's immutable raw sidecar ordinal before filtering or sorting.
+   The same sidecar revision must show the same ordinal on every device. Display
+   a short privacy-safe sidecar revision digest in diagnostics so reports remain
+   unambiguous after sidecar regeneration.
+2. Project only cues intersecting the current Foliate-owned visible text range.
+   Reuse the production resource normalization, range mapping, and page-local
+   overlay/highlight path; do not create a second semantic mapper or recapture a
+   full-page raster.
+3. At each cue start, draw a tiny custom circled ordinal, visually comparable to
+   `℗` with the number replacing `P`. Keep it offset from the text baseline,
+   readable in portrait and landscape, non-selectable, and generation-fenced.
+4. Preserve the ordinal while styling mapped, prepared/requested, audio-active,
+   and rendered-highlight states distinctly. Retain only a bounded ordinal
+   transition trail so a report can expose sequences such as forward-two-cues
+   then back without storing EPUB text, hrefs, CFIs, payloads, book IDs, or user
+   identifiers.
+5. While cue-map mode is enabled, pressing over a cue starts a roughly one-second
+   progress ring at the touch point. Release, movement beyond touch slop, pointer
+   cancellation, chrome interception, or curl start cancels it. Completion seeks
+   the exact Foliate-resolved cue; if transport acknowledgement remains pending,
+   the ring becomes indeterminate rather than issuing duplicate seeks.
+6. Clear and rebuild markers on destination, layout, profile, orientation,
+   sidecar-revision, or presentation-generation changes. Passive capture cannot
+   publish, activate, or satisfy cue-map state.
+7. Add focused coverage for ordinal preservation through cue filtering; visible
+   projection without semantic reimplementation; marker placement and cleanup;
+   state styling; non-monotonic transition evidence; hold completion and every
+   cancellation path; privacy-safe diagnostics; and absence of base-raster
+   recapture.
+8. The first live acceptance records only two binary findings before audio is
+   involved: whether numbered markers render on the current spread, and whether
+   their ordinals progress in DOM reading order. Only after those pass may the
+   same APK evaluate requested, audio-active, and rendered cue transitions.
 
 ### Expected outcome
 
 The integrated reader satisfies the authoritative interaction contract without
 highlight loss, same-spread Start failure, maintenance-origin audio loops,
-poisoned Retry, black curl material, or cross-page highlight leakage.
+poisoned Retry, black curl material, or cross-page highlight leakage. A user can
+enable the production cue map on a tablet and report stable visible cue ordinals
+plus bounded requested/audio/rendered transitions without exposing publication
+content.
 
 ### Specification validation
 
 Re-read the complete specification and account for every Acceptance Summary
-item. Any unimplemented authority, privacy, lifecycle, Retry, mask, or material
-requirement is a blocker. A remaining feature may defer beyond this project only
-if the specification names it as a non-goal and the bounded acceptance proves it
-cannot mask a core failure.
+item. Any unimplemented authority, privacy, lifecycle, Retry, mask, material, or
+cue-diagnostic requirement is a blocker. The cue map must expose production
+mapping behavior rather than bypass it, and must remain content-free in retained
+evidence. A remaining feature may defer beyond this project only if the
+specification names it as a non-goal and the bounded acceptance proves it cannot
+mask a core failure.
 
 ## Stage 7 — Signed Production Delivery
 

@@ -594,6 +594,41 @@ in memory. Any approved local visual evidence remains uncommitted under
 `.codex-validation`; protected paired-book acceptance uses privacy-safe counters
 and human observation without OCR.
 
+### 13.1 Production cue-map diagnostics
+
+The production reader provides an opt-in cue-map control beside the existing eye
+control whenever a Whispersync sidecar is available. This is not restricted to
+ReaderDev: a tablet user must be able to capture an actionable report from the
+same signed build that exhibits a cue jump.
+
+Each parsed cue retains its raw sidecar ordinal before filtering or sorting. For
+the same sidecar revision, that ordinal is stable across sessions and devices. A
+short content-free sidecar revision digest disambiguates reports after sidecar
+regeneration without exposing a book or publication identifier.
+
+When enabled, the map projects only cues intersecting the current Foliate-owned
+visible text range through the production normalization, DOM-range, and
+page-local overlay path. Each cue start receives a custom tiny circled ordinal,
+visually comparable to `℗` with the number replacing `P`. The marker is offset
+from the text baseline and retains its ordinal while mapped, prepared/requested,
+audio-active, and rendered-highlight states receive distinct stroke/fill styles.
+The implementation cannot use a parallel semantic mapper, full-page raster
+capture, or passive-session publication.
+
+A bounded in-memory transition trail may retain only cue ordinals, sidecar
+revision digest, state enums, generations, and causal outcome enums. It exists to
+make a forward-cue-then-back sequence reportable without EPUB text, hrefs, CFIs,
+backend cue IDs, or publication identifiers.
+
+While the map is enabled, pressing over a cue starts a roughly one-second
+progress ring at the touch point. Releasing early, leaving touch slop, pointer
+cancellation, chrome interception, or curl start cancels the request. Completion
+seeks the exact Foliate-resolved cue. A still-pending transport acknowledgement
+changes the ring to indeterminate and cannot issue a duplicate seek.
+
+Markers and pending holds are cleared and rebuilt on destination, layout,
+profile, orientation, sidecar-revision, or presentation-generation replacement.
+
 ## 14. Automated Verification
 
 Test-first coverage must prove at least:
@@ -647,6 +682,22 @@ Test-first coverage must prove at least:
 - in-flight relocation admission remains serialized
 - reader JavaScript harness and consolidated Android host gates pass
 
+### 14.6 Cue-map diagnostics
+
+- raw source ordinals survive cue filtering and remain revision-stable
+- visible projection reuses production resource/range resolution and does not
+  reorder labels to conceal non-monotonic sidecar or mapping output
+- circled markers bind exact cue starts, clear on every authority-generation
+  replacement, and never cause base-raster capture
+- mapped, prepared/requested, audio-active, and rendered identities remain
+  independently observable by ordinal
+- the bounded transition trail records forward-then-back ordinal sequences without
+  protected content
+- hold completion seeks exactly once; release, movement, pointer cancellation,
+  chrome interception, curl start, and generation replacement cancel it
+- normal-release source and privacy gates prevent production diagnostics from
+  logging or retaining EPUB content and identifiers
+
 ## 15. Runtime Acceptance
 
 ### 15.1 Prototype acceptance
@@ -660,6 +711,12 @@ not make the passive session semantic authority.
 
 From one frozen ReaderDev APK tied to the tested commit, verify:
 
+- before starting audio, the production cue-map toggle renders numbered markers on
+  the current spread
+- visible marker ordinals follow DOM reading order; any non-monotonic sequence is
+  retained as bounded ordinal-only evidence rather than corrected by display sort
+- selecting one numbered cue through hold-to-seek keeps requested, audio-active,
+  and rendered identities observable by ordinal
 - repeated passive prewarm leaves live authority and highlighting unchanged
 - initial Start produces a visible native progressive or exact highlight without
   page navigation
@@ -680,21 +737,25 @@ approved tablet. Preserve app data, do not clear Logcat, and do not access any
 other device. Validate only the first two landscape pages of Chapter 1 of the
 configured paired book:
 
-1. Initial Start highlights the correct current cue and progresses by exact word
+1. Enable the production cue map and confirm circled ordinals render at visible cue
+   starts and progress in reading order before starting audio.
+2. Hold one numbered cue and confirm requested, audio-active, and rendered ordinal
+   states identify the same cue without an early-release seek.
+3. Initial Start highlights the correct current cue and progresses by exact word
    or progressive fallback.
-2. Manual Stop clears highlighting, resets/prepares the first visible cue, and
+4. Manual Stop clears highlighting, resets/prepares the first visible cue, and
    leaves Start available without page switching.
-3. While stopped, a manual turn prepares but does not play the destination.
-4. While enabled or boundary-paused, a manual turn resumes only after curl and
+5. While stopped, a manual turn prepares but does not play the destination.
+6. While enabled or boundary-paused, a manual turn resumes only after curl and
    live destination commit.
-5. The final intersecting sentence completes, the next outside cue pauses, and no
+7. The final intersecting sentence completes, the next outside cue pauses, and no
    full-spread restart occurs.
-6. Retry recovers one induced/reproduced preparation failure without closing the
+8. Retry recovers one induced/reproduced preparation failure without closing the
    eBook.
-7. Backing, borders, and highlighting remain coherent during forward, backward,
+9. Backing, borders, and highlighting remain coherent during forward, backward,
    cancelled, and completed curls.
-8. Privacy-safe evidence records zero maintenance-origin seeks, zero passive-to-
-   live authority promotion, and zero protected payloads.
+10. Privacy-safe evidence records zero maintenance-origin seeks, zero passive-to-
+    live authority promotion, and zero protected payloads.
 
 Individual cue mismatches are recorded by safe outcome category. They block
 release only when they demonstrate a frontend contract violation or prevent the
@@ -735,6 +796,10 @@ A signed production correction is permitted only when:
       reopen.
 - [ ] Exact WordSync remains preferred and progressive fallback never regresses to
       whole-sentence highlighting.
+- [ ] The production cue map renders stable circled source ordinals for visible
+      cues, exposes requested/audio/rendered divergence, and retains no protected
+      content.
+- [ ] Hold-to-seek confirms one exact cue and cancels safely before completion.
 - [ ] Word updates change only page-local masks, not full-page rasters.
 - [ ] Curl rasters, geometry, backing, borders, and highlight ownership are atomic.
 - [ ] No curl frame depends on transparent exposure of the live WebView.
