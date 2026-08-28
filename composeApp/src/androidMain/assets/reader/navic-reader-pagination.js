@@ -155,8 +155,8 @@ import {
   tocLabel
 } from './navic-reader-helpers.js'
 import {
-  readerCommitTextPage,
-  readerTextPageCommitIsValid,
+  readerCommitRenderedDestination,
+  readerRenderedDestinationCommitIsValid,
 } from './navic-reader-paginator-commit.js'
 
 const ReaderPaginationProfileStatusMeasuring = 'measuring'
@@ -698,7 +698,7 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
         this.paginationProfileTaskIsCurrent(task)
       ) {
         this.applyReaderViewportLayoutToProfilerView(profileView, settings)
-        const result = await readerCommitTextPage(
+        const result = await readerCommitRenderedDestination(
           profileView.renderer,
           index,
           0,
@@ -706,7 +706,10 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
         )
         transactionAttempts += 1
         if (!this.paginationProfileTaskIsCurrent(task)) return null
-        const receiptIsValid = readerTextPageCommitIsValid(profileView.renderer, result)
+        const receiptIsValid = readerRenderedDestinationCommitIsValid(
+          profileView.renderer,
+          result
+        )
         if (
           result.status === 'committed' &&
           receiptIsValid &&

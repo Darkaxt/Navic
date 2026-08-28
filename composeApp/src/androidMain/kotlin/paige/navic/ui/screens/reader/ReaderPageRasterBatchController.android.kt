@@ -15,9 +15,21 @@ import paige.navic.reader.ReaderPageAdjacentChapterDirection
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 
+internal enum class ReaderPageRasterTargetAuthority {
+	CurrentLive,
+	OffscreenPassive;
+
+	companion object {
+		fun fromSerializedValue(value: String): ReaderPageRasterTargetAuthority? =
+			entries.singleOrNull { authority -> authority.name == value }
+	}
+}
+
 internal data class ReaderPageRasterBatchTarget(
 	val pageIndex: Int,
-	val priority: ReaderPageRasterPriority
+	val priority: ReaderPageRasterPriority,
+	val authority: ReaderPageRasterTargetAuthority =
+		ReaderPageRasterTargetAuthority.OffscreenPassive
 )
 
 internal data class ReaderPageRasterPreparationPlan(
@@ -232,17 +244,29 @@ internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRaster
 	val pageCount = context["pageCount"]?.jsonPrimitive?.intOrNull ?: 0
 	val layoutMode = context["layoutMode"]?.jsonPrimitive?.contentOrNull.orEmpty()
 	if (centerPageIndex < 0 || pageCount <= 0 || layoutMode.isBlank()) return null
-	val targetsJson = root["targets"]?.jsonArray.orEmpty()
-	val targets = buildList {
-		for (element in targetsJson) {
-			val item = runCatching { element.jsonObject }.getOrNull() ?: continue
-			val pageIndex = item["pageIndex"]?.jsonPrimitive?.intOrNull ?: -1
-			val priority = readerPageRasterPriority(
-				item["priority"]?.jsonPrimitive?.contentOrNull.orEmpty()
-			) ?: continue
-			if (pageIndex >= 0) add(ReaderPageRasterBatchTarget(pageIndex, priority))
+	val targetsJson = runCatching { root["targets"]?.jsonArray }.getOrNull()
+		?: return null
+	val targets = mutableListOf<ReaderPageRasterBatchTarget>()
+	for (element in targetsJson) {
+		val item = runCatching { element.jsonObject }.getOrNull() ?: return null
+		val pageIndex = item["pageIndex"]?.jsonPrimitive?.intOrNull ?: -1
+		val authority = ReaderPageRasterTargetAuthority.fromSerializedValue(
+			item["authority"]?.jsonPrimitive?.contentOrNull.orEmpty()
+		) ?: return null
+		val priority = readerPageRasterPriority(
+			item["priority"]?.jsonPrimitive?.contentOrNull.orEmpty()
+		) ?: continue
+		if (pageIndex >= 0) {
+			targets += ReaderPageRasterBatchTarget(pageIndex, priority, authority)
 		}
 	}
+	val currentLiveTargets = targets.filter { target ->
+		target.authority == ReaderPageRasterTargetAuthority.CurrentLive
+	}
+	if (
+		currentLiveTargets.size != 1 ||
+		currentLiveTargets.single().pageIndex != centerPageIndex
+	) return null
 	return ReaderPageRasterPreparationPlan(
 		centerPageIndex = centerPageIndex,
 		pageCount = pageCount,
@@ -312,9 +336,31 @@ internal fun readerPageRasterImmediateTargets(
 	nextPageIndex: Int?,
 	previousPageIndex: Int?
 ): List<ReaderPageRasterBatchTarget> = buildList {
-	add(ReaderPageRasterBatchTarget(currentPageIndex, ReaderPageRasterPriority.Current))
-	nextPageIndex?.let { add(ReaderPageRasterBatchTarget(it, ReaderPageRasterPriority.NextTransition)) }
-	previousPageIndex?.let { add(ReaderPageRasterBatchTarget(it, ReaderPageRasterPriority.PreviousTransition)) }
+	add(
+		ReaderPageRasterBatchTarget(
+			currentPageIndex,
+			ReaderPageRasterPriority.Current,
+			ReaderPageRasterTargetAuthority.CurrentLive
+		)
+	)
+	nextPageIndex?.let {
+		add(
+			ReaderPageRasterBatchTarget(
+				it,
+				ReaderPageRasterPriority.NextTransition,
+				ReaderPageRasterTargetAuthority.OffscreenPassive
+			)
+		)
+	}
+	previousPageIndex?.let {
+		add(
+			ReaderPageRasterBatchTarget(
+				it,
+				ReaderPageRasterPriority.PreviousTransition,
+				ReaderPageRasterTargetAuthority.OffscreenPassive
+			)
+		)
+	}
 }
 
 internal sealed interface ReaderPageRasterBatchOutcome {
@@ -830,6 +876,10 @@ internal class ReaderPageRasterBatchController(
 		}
 		val target = session.targets[targetIndex]
 		session.onActiveTarget(target)
+		if (target.authority == ReaderPageRasterTargetAuthority.CurrentLive) {
+			fulfillCurrentLiveTarget(session, targetIndex, target)
+			return
+		}
 		startAcquisition(
 			session,
 			target,
@@ -915,6 +965,40 @@ internal class ReaderPageRasterBatchController(
 			session.hydrationRequest = hydrationRequest
 		} else {
 			hydrationRequest.cancel()
+		}
+	}
+
+	private fun fulfillCurrentLiveTarget(
+		session: Session,
+		targetIndex: Int,
+		target: ReaderPageRasterBatchTarget
+	) {
+		val reference = session.reference
+		if (
+			target.pageIndex != reference.key.visualPageIndex ||
+			session.kind != reference.key.kind ||
+			reference.bitmap.isRecycled
+		) {
+			finish(
+				session,
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "current-live-reference",
+					pageIndex = target.pageIndex,
+					reason = "retained-live-reference-unavailable"
+				)
+			)
+			return
+		}
+		bundleSource.ensurePersistentSnapshot(
+			snapshot = reference,
+			priority = target.priority,
+			isStillCurrent = { isSessionActive(session) }
+		) { publicationResult ->
+			if (!isSessionActive(session)) return@ensurePersistentSnapshot
+			if (!recordDurability(session, target, publicationResult)) {
+				return@ensurePersistentSnapshot
+			}
+			hydrateTarget(session, targetIndex + 1)
 		}
 	}
 

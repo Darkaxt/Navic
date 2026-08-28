@@ -256,7 +256,8 @@ sealed class FoliateWebViewEngineAdapter(
 					sourceOrdinalsInDomReadingOrder = event.sourceOrdinalsInDomReadingOrder,
 					revisionDigest = event.revisionDigest,
 					presentationGeneration = event.presentationGeneration,
-					destinationCommitIdentity = event.destinationCommitIdentity
+					destinationCommitIdentity = event.destinationCommitIdentity,
+					markerReceipts = event.markerReceipts
 				)
 			is ReaderBridgeEvent.WhispersyncCueMapSeekRequested ->
 				ReaderEngineEvent.WhispersyncCueMapSeekRequested(

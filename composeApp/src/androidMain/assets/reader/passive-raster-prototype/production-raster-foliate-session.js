@@ -371,9 +371,17 @@ export class ProductionRasterFoliateSessionCore {
     await applyPassiveProfile(this.view, target)
     throwIfOperationAborted(signal)
     const renderer = this.view.renderer
+    const commitRenderedDestination = renderer.commitRenderedDestination ?? renderer.commitTextPage
+    const validateRenderedDestinationCommit =
+      renderer.validateRenderedDestinationCommit ?? renderer.validateTextPageCommit
+    if (
+      typeof commitRenderedDestination !== 'function' ||
+      typeof validateRenderedDestinationCommit !== 'function'
+    ) throw new Error('rendered-destination-commit-unavailable')
     for (let attempt = 0; attempt < MaximumExactCommitAttempts; attempt += 1) {
       throwIfOperationAborted(signal)
-      const result = await renderer.commitTextPage(
+      const result = await commitRenderedDestination.call(
+        renderer,
         Math.floor(Number(target.spineIndex)),
         Math.floor(Number(target.chapterPageIndex)),
         'navigation',
@@ -381,12 +389,12 @@ export class ProductionRasterFoliateSessionCore {
       throwIfOperationAborted(signal)
       if (result?.status === 'invalidated') continue
       if (result?.status !== 'committed' ||
-          renderer.validateTextPageCommit(result.receipt) !== true) continue
+          validateRenderedDestinationCommit.call(renderer, result.receipt) !== true) continue
       let previousKey = null
       let stableFrames = 0
       for (let frame = 0; frame < MaximumStableObservationFrames; frame += 1) {
         throwIfOperationAborted(signal)
-        if (renderer.validateTextPageCommit(result.receipt) !== true) break
+        if (validateRenderedDestinationCommit.call(renderer, result.receipt) !== true) break
         const observation = passiveObservation(
           this.view,
           target,

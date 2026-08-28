@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import paige.navic.reader.DefaultReaderWhispersyncHighlightColorArgb
 import paige.navic.reader.ReaderAnnotation
 import paige.navic.reader.ReaderBookmark
+import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderDragAnimationCanvas
@@ -189,6 +190,37 @@ internal fun KomikkuReaderRoot(
 			whispersyncHighlightColorArgb =
 				controllerState.chrome.settings.whispersyncHighlightColorArgb
 					?: DefaultReaderWhispersyncHighlightColorArgb,
+			whispersyncCueMapState = controllerState.whispersync.cueMap,
+			onWhispersyncCueMapHoldOutcome = { sourceOrdinal, outcome ->
+				val receipt = controllerState.whispersync.cueMap.geometryReceipt
+				if (receipt != null) {
+					onEngineHostEvent(
+						ReaderEngineHostEvent.FoliateBridge(
+							ReaderBridgeEvent.WhispersyncCueMapHoldOutcome(
+								sourceOrdinal = sourceOrdinal,
+								revisionDigest = receipt.revisionDigest,
+								presentationGeneration = receipt.presentationGeneration,
+								outcome = outcome
+							)
+						)
+					)
+				}
+			},
+			onWhispersyncCueMapSeekRequested = { sourceOrdinal ->
+				val receipt = controllerState.whispersync.cueMap.geometryReceipt
+				if (receipt != null) {
+					onEngineHostEvent(
+						ReaderEngineHostEvent.FoliateBridge(
+							ReaderBridgeEvent.WhispersyncCueMapSeekRequested(
+								sourceOrdinal = sourceOrdinal,
+								revisionDigest = receipt.revisionDigest,
+								presentationGeneration = receipt.presentationGeneration,
+								destinationCommitIdentity = receipt.destinationCommitIdentity
+							)
+						)
+					)
+				}
+			},
 			pagePreparationCoverVisible = pagePreparationState.presentation == ReaderPagePreparationPresentation.Cover,
 			pageOperationPolicy = pagePreparationState.operationPolicy,
 			pagePreparationRetryKey = pagePreparationRetryKey,

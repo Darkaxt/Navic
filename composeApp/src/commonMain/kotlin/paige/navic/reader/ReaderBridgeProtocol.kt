@@ -816,7 +816,8 @@ sealed interface ReaderBridgeEvent {
 		val sourceOrdinalsInDomReadingOrder: List<Int>,
 		val revisionDigest: String,
 		val presentationGeneration: Long,
-		val destinationCommitIdentity: ReaderDestinationCommitIdentity
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity,
+		val markerReceipts: List<ReaderWhispersyncCueMapMarkerReceipt> = emptyList()
 	) : ReaderBridgeEvent
 	data class WhispersyncCueMapSeekRequested(
 		val sourceOrdinal: Int,
@@ -1217,11 +1218,38 @@ private fun JsonObject.toWhispersyncCueMapRendered(): ReaderBridgeEvent.Whispers
 				values.all { it >= 0 } && values.distinct().size == values.size
 		}
 		?: return null
+	val markerElements = (get("markerReceipts") as? JsonArray).orEmpty()
+	if (markerElements.size > ReaderWhispersyncCueMapTransitionLimit) return null
+	val markerReceipts = markerElements.map { element ->
+		(element as? JsonObject)?.toWhispersyncCueMapMarkerReceipt()
+	}
+	if (
+		markerReceipts.any { it == null } ||
+		markerReceipts.filterNotNull().map(ReaderWhispersyncCueMapMarkerReceipt::sourceOrdinal).let { values ->
+			values.distinct().size != values.size || values.any { it !in ordinals }
+		}
+	) return null
 	return ReaderBridgeEvent.WhispersyncCueMapRendered(
 		sourceOrdinalsInDomReadingOrder = ordinals,
 		revisionDigest = revisionDigest,
 		presentationGeneration = generation,
-		destinationCommitIdentity = destination
+		destinationCommitIdentity = destination,
+		markerReceipts = markerReceipts.filterNotNull()
+	)
+}
+
+private fun JsonObject.toWhispersyncCueMapMarkerReceipt(): ReaderWhispersyncCueMapMarkerReceipt? {
+	val sourceOrdinal = intValue("sourceOrdinal")?.takeIf { it >= 0 } ?: return null
+	val anchorReceipt = (get("anchorReceipt") as? JsonObject)
+		?.toWhispersyncAnchorReceipt(sourceOrdinal.toLong())
+		?: return null
+	return ReaderWhispersyncCueMapMarkerReceipt(
+		sourceOrdinal = sourceOrdinal,
+		prepared = booleanValue("prepared") ?: false,
+		requested = booleanValue("requested") ?: false,
+		audioActive = booleanValue("audioActive") ?: false,
+		renderedHighlight = booleanValue("renderedHighlight") ?: false,
+		anchorReceipt = anchorReceipt
 	)
 }
 

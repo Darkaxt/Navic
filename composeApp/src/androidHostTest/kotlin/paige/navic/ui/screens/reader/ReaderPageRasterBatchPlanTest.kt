@@ -14,7 +14,7 @@ class ReaderPageRasterBatchPlanTest {
 	@Test
 	fun parsesStableJsPriorityContract() {
 		val plan = readerPageRasterPreparationPlan(
-			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"rtl","step":2,"currentChapterIndex":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8,"previousChapterPageStartIndex":0,"previousChapterPageCount":6,"nextChapterPageStartIndex":14,"nextChapterPageCount":8},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":10,"priority":"next-transition"},{"pageIndex":6,"priority":"previous-transition"},{"pageIndex":12,"priority":"current-chapter"},{"pageIndex":20,"priority":"next-chapter"},{"pageIndex":4,"priority":"previous-chapter"}]}"""
+			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"rtl","step":2,"currentChapterIndex":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8,"previousChapterPageStartIndex":0,"previousChapterPageCount":6,"nextChapterPageStartIndex":14,"nextChapterPageCount":8},"targets":[{"pageIndex":8,"priority":"current","authority":"CurrentLive"},{"pageIndex":10,"priority":"next-transition","authority":"OffscreenPassive"},{"pageIndex":6,"priority":"previous-transition","authority":"OffscreenPassive"},{"pageIndex":12,"priority":"current-chapter","authority":"OffscreenPassive"},{"pageIndex":20,"priority":"next-chapter","authority":"OffscreenPassive"},{"pageIndex":4,"priority":"previous-chapter","authority":"OffscreenPassive"}]}"""
 		)
 
 		assertNotNull(plan)
@@ -34,12 +34,55 @@ class ReaderPageRasterBatchPlanTest {
 			),
 			plan.targets.map { target -> target.priority }
 		)
+		assertEquals(
+			listOf(
+				"CurrentLive",
+				"OffscreenPassive",
+				"OffscreenPassive",
+				"OffscreenPassive",
+				"OffscreenPassive",
+				"OffscreenPassive"
+			),
+			plan.targets.map { target ->
+				val getter = assertNotNull(
+					target.javaClass.methods.singleOrNull { method ->
+						method.name == "getAuthority"
+					}
+				)
+				getter.invoke(target)?.toString()
+			}
+		)
+	}
+
+	@Test
+	fun rejectsMissingUnknownDuplicateAndMismatchedCurrentLiveAuthority() {
+		val invalidTargets = listOf(
+			"missing-authority" to
+				"""[{"pageIndex":8,"priority":"current"}]""",
+			"unknown-authority" to
+				"""[{"pageIndex":8,"priority":"current","authority":"Foreground"}]""",
+			"duplicate-current-live" to
+				"""[{"pageIndex":8,"priority":"current","authority":"CurrentLive"},{"pageIndex":10,"priority":"next-transition","authority":"CurrentLive"}]""",
+			"missing-current-live" to
+				"""[{"pageIndex":8,"priority":"current","authority":"OffscreenPassive"}]""",
+			"current-live-center-mismatch" to
+				"""[{"pageIndex":10,"priority":"current","authority":"CurrentLive"},{"pageIndex":8,"priority":"next-transition","authority":"OffscreenPassive"}]"""
+		)
+
+		invalidTargets.forEach { (caseName, targets) ->
+			assertNull(
+				readerPageRasterPreparationPlan(
+					"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"single","readerDirection":"ltr","step":1},"targets":$targets}"""
+				),
+				caseName
+			)
+		}
 	}
 
 	@Test
 	fun parsedPreparationPlanCarriesItsCaptureGeometry() {
 		val plan = readerPageRasterPreparationPlan(
-			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"single","readerDirection":"ltr","step":1},"captureGeometry":{"viewportWidth":1232,"viewportHeight":1974,"mode":"single","pages":[{"role":"full","left":0,"top":0,"width":1219.68,"height":1974}],"reverseFaceColorArgb":4294967295},"targets":[{"pageIndex":8,"priority":"current"}]}"""
+			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"single","readerDirection":"ltr","step":1},"captureGeometry":{"viewportWidth":1232,"viewportHeight":1974,"mode":"single","pages":[{"role":"full","left":0,"top":0,"width":1219.68,"height":1974}],"reverseFaceColorArgb":4294967295},"targets":[{"pageIndex":8,"priority":"current","authority":"CurrentLive"}]}"""
 		)
 
 		assertNotNull(plan)
@@ -63,7 +106,7 @@ class ReaderPageRasterBatchPlanTest {
 	@Test
 	fun defaultsMissingReaderDirectionToLtrForOlderCachedPlans() {
 		val plan = readerPageRasterPreparationPlan(
-			"""{"context":{"centerPageIndex":2,"pageCount":8,"layoutMode":"single","step":1,"currentChapterPageCount":4},"targets":[{"pageIndex":2,"priority":"current"}]}"""
+			"""{"context":{"centerPageIndex":2,"pageCount":8,"layoutMode":"single","step":1,"currentChapterPageCount":4},"targets":[{"pageIndex":2,"priority":"current","authority":"CurrentLive"}]}"""
 		)
 
 		assertNotNull(plan)
@@ -224,7 +267,7 @@ class ReaderPageRasterBatchPlanTest {
 	@Test
 	fun onlyAdjacentChaptersBecomeOrderedBackgroundBatches() {
 		val plan = readerPageRasterPreparationPlan(
-			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"rtl","step":2,"currentChapterIndex":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8,"previousChapterPageStartIndex":0,"previousChapterPageCount":6,"nextChapterPageStartIndex":14,"nextChapterPageCount":8},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":12,"priority":"current-chapter"},{"pageIndex":20,"priority":"next-chapter"},{"pageIndex":18,"priority":"next-chapter-remainder"},{"pageIndex":4,"priority":"previous-chapter"},{"pageIndex":2,"priority":"previous-chapter-remainder"}]}"""
+			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"rtl","step":2,"currentChapterIndex":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8,"previousChapterPageStartIndex":0,"previousChapterPageCount":6,"nextChapterPageStartIndex":14,"nextChapterPageCount":8},"targets":[{"pageIndex":8,"priority":"current","authority":"CurrentLive"},{"pageIndex":12,"priority":"current-chapter","authority":"OffscreenPassive"},{"pageIndex":20,"priority":"next-chapter","authority":"OffscreenPassive"},{"pageIndex":18,"priority":"next-chapter-remainder","authority":"OffscreenPassive"},{"pageIndex":4,"priority":"previous-chapter","authority":"OffscreenPassive"},{"pageIndex":2,"priority":"previous-chapter-remainder","authority":"OffscreenPassive"}]}"""
 		)
 
 		assertNotNull(plan)
@@ -246,7 +289,7 @@ class ReaderPageRasterBatchPlanTest {
 	@Test
 	fun pagesBeforeTheFirstChapterRemainBackwardBackgroundWork() {
 		val plan = readerPageRasterPreparationPlan(
-			"""{"context":{"centerPageIndex":4,"pageCount":12,"layoutMode":"single","readerDirection":"ltr","step":1,"currentChapterIndex":0,"currentChapterPageStartIndex":2,"currentChapterPageCount":6,"previousChapterPageStartIndex":0,"previousChapterPageCount":2,"nextChapterPageStartIndex":8,"nextChapterPageCount":4},"targets":[{"pageIndex":1,"priority":"previous-chapter"},{"pageIndex":0,"priority":"previous-chapter"}]}"""
+			"""{"context":{"centerPageIndex":4,"pageCount":12,"layoutMode":"single","readerDirection":"ltr","step":1,"currentChapterIndex":0,"currentChapterPageStartIndex":2,"currentChapterPageCount":6,"previousChapterPageStartIndex":0,"previousChapterPageCount":2,"nextChapterPageStartIndex":8,"nextChapterPageCount":4},"targets":[{"pageIndex":4,"priority":"current","authority":"CurrentLive"},{"pageIndex":1,"priority":"previous-chapter","authority":"OffscreenPassive"},{"pageIndex":0,"priority":"previous-chapter","authority":"OffscreenPassive"}]}"""
 		)
 
 		assertNotNull(plan)

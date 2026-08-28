@@ -2905,6 +2905,20 @@ class ReaderControllerTest {
 			)
 		)
 		assertFalse(acknowledged.controller.state.whispersync.cueMap.transportAcknowledgementPending)
+		assertEquals(
+			ReaderWhispersyncTransportPhase.Ready,
+			acknowledged.controller.state.whispersync.transportPhase
+		)
+		val playbackControl = readerWhispersyncPlaybackControlState(
+			status = acknowledged.controller.state.whispersync.status,
+			playbackState = acknowledged.controller.state.chrome.readaloudPlayback,
+			hasPreparedVisibleTarget =
+				acknowledged.controller.state.whispersync.preparedVisibleTarget != null,
+			transportPhase = acknowledged.controller.state.whispersync.transportPhase
+		)
+		assertFalse(playbackControl.loading)
+		assertTrue(playbackControl.enabled)
+		assertEquals(ReaderWhispersyncPlaybackControlDescription.Play, playbackControl.contentDescription)
 	}
 
 	@Test
@@ -3231,6 +3245,38 @@ class ReaderControllerTest {
 		)
 
 		assertTrue(unchanged.engineCommands.none { it is ReaderEngineCommand.ReplaceWhispersyncCueMap })
+	}
+
+	@Test
+	fun cueMapTransportAcknowledgementUsesExactTrackWhenPlanAndSidecarResourcesDiffer() {
+		val digest = "5f04c2a19e7d"
+		val requested = ReaderWhispersyncCueMapState()
+			.toggled(digest)
+			.requested(
+				sourceOrdinal = 1,
+				revisionDigest = digest,
+				audioResource = "Audio/chapter01.m4b",
+				audioTrackIndex = 0,
+				positionMs = 5_000L
+			)
+
+		val wrongTrack = requested.transportAcknowledged(
+			sourceOrdinal = 1,
+			revisionDigest = digest,
+			audioResource = "bindery-generated-resource",
+			audioTrackIndex = 1,
+			positionMs = 5_000L
+		)
+		assertTrue(wrongTrack.transportAcknowledgementPending)
+
+		val acknowledged = wrongTrack.transportAcknowledged(
+			sourceOrdinal = 1,
+			revisionDigest = digest,
+			audioResource = "bindery-generated-resource",
+			audioTrackIndex = 0,
+			positionMs = 5_000L
+		)
+		assertFalse(acknowledged.transportAcknowledgementPending)
 	}
 
 	@Test

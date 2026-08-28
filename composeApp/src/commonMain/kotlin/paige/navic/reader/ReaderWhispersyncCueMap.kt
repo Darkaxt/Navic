@@ -1,6 +1,7 @@
 package paige.navic.reader
 
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.roundToLong
 
 const val ReaderWhispersyncCueMapTransitionLimit = 32
@@ -133,15 +134,219 @@ data class ReaderWhispersyncCueMapTransportRequest(
 		audioResource: String?,
 		audioTrackIndex: Int?,
 		positionMs: Long
-	): Boolean =
-		this.sourceOrdinal == sourceOrdinal &&
+	): Boolean {
+		val transportIdentityMatches = this.audioTrackIndex?.let { requestedTrackIndex ->
+			requestedTrackIndex == audioTrackIndex
+		} ?: (
+			normalizedAudioResource ==
+				normalizedMediaOverlayResource(audioResource.orEmpty())
+		)
+		return this.sourceOrdinal == sourceOrdinal &&
 			this.revisionDigest == revisionDigest &&
 			this.presentationGeneration == presentationGeneration &&
-			normalizedAudioResource == normalizedMediaOverlayResource(audioResource.orEmpty()) &&
-			(this.audioTrackIndex == null || this.audioTrackIndex == audioTrackIndex) &&
+			transportIdentityMatches &&
 			positionMs >= 0L &&
 			abs(positionMs - this.positionMs) <=
 				ReaderWhispersyncCueMapTransportAcknowledgementToleranceMs
+	}
+}
+
+data class ReaderWhispersyncCueMapMarkerReceipt(
+	val sourceOrdinal: Int,
+	val prepared: Boolean,
+	val requested: Boolean,
+	val audioActive: Boolean,
+	val renderedHighlight: Boolean,
+	val anchorReceipt: ReaderWhispersyncAnchorReceipt
+) {
+	init {
+		require(sourceOrdinal >= 0)
+		require(anchorReceipt.boundarySequence == sourceOrdinal.toLong())
+	}
+}
+
+private data class ReaderWhispersyncCueMapAnchorAuthorityIdentity(
+	val foliateSessionId: String,
+	val destinationCommitToken: String,
+	val visualPageOrdinal: Int,
+	val spineIndex: Int,
+	val rasterGeneration: Long,
+	val textureGeneration: Long,
+	val presentationMutationGeneration: Long,
+	val presentationSequence: Long,
+	val layoutGeneration: Long,
+	val viewGeneration: Long,
+	val commitSequence: Long,
+	val committedSpineIndex: Int,
+	val committedChapterPageIndex: Int,
+	val committedChapterPageCount: Int,
+	val paginationFingerprint: String,
+	val layoutFingerprint: String,
+	val readerSettingsRasterKey: String,
+	val captureGeometry: ReaderPageTurnCaptureGeometry
+)
+
+private fun ReaderWhispersyncAnchorReceipt.cueMapAuthorityIdentity() =
+	ReaderWhispersyncCueMapAnchorAuthorityIdentity(
+		foliateSessionId = foliateSessionId,
+		destinationCommitToken = destinationCommitToken,
+		visualPageOrdinal = visualPageOrdinal,
+		spineIndex = spineIndex,
+		rasterGeneration = rasterGeneration,
+		textureGeneration = textureGeneration,
+		presentationMutationGeneration = presentationMutationGeneration,
+		presentationSequence = presentationSequence,
+		layoutGeneration = layoutGeneration,
+		viewGeneration = viewGeneration,
+		commitSequence = commitSequence,
+		committedSpineIndex = committedSpineIndex,
+		committedChapterPageIndex = committedChapterPageIndex,
+		committedChapterPageCount = committedChapterPageCount,
+		paginationFingerprint = paginationFingerprint,
+		layoutFingerprint = layoutFingerprint,
+		readerSettingsRasterKey = readerSettingsRasterKey,
+		captureGeometry = captureGeometry
+	)
+
+data class ReaderWhispersyncCueMapGeometryReceipt(
+	val revisionDigest: String,
+	val presentationGeneration: Long,
+	val destinationCommitIdentity: ReaderDestinationCommitIdentity,
+	val markers: List<ReaderWhispersyncCueMapMarkerReceipt>
+) {
+	init {
+		require(revisionDigest.matches(Regex("[0-9a-f]{12}")))
+		require(presentationGeneration > 0L)
+		require(markers.isNotEmpty())
+		require(markers.size <= ReaderWhispersyncCueMapTransitionLimit)
+		require(markers.map(ReaderWhispersyncCueMapMarkerReceipt::sourceOrdinal).distinct().size == markers.size)
+		require(markers.all { marker ->
+			marker.anchorReceipt.foliateSessionId == destinationCommitIdentity.foliateSessionId
+		})
+		require(
+			markers.map { marker -> marker.anchorReceipt.cueMapAuthorityIdentity() }
+				.distinct().size == 1
+		)
+	}
+}
+
+data class ReaderWhispersyncCueMapViewportAnchor(
+	val sourceOrdinal: Int,
+	val x: Float,
+	val y: Float,
+	val prepared: Boolean,
+	val requested: Boolean,
+	val audioActive: Boolean,
+	val renderedHighlight: Boolean
+)
+
+fun ReaderWhispersyncCueMapGeometryReceipt.viewportAnchors(
+	viewWidth: Float,
+	viewHeight: Float
+): List<ReaderWhispersyncCueMapViewportAnchor> {
+	if (!viewWidth.isFinite() || viewWidth <= 0f || !viewHeight.isFinite() || viewHeight <= 0f) {
+		return emptyList()
+	}
+	return markers.mapNotNull { marker ->
+		val geometry = marker.anchorReceipt.captureGeometry
+		val rect = marker.anchorReceipt.pageLocalRects.firstOrNull() ?: return@mapNotNull null
+		val page = geometry.pages.firstOrNull { page -> page.role == rect.role }
+			?: return@mapNotNull null
+		val x = ((page.left + rect.left) / geometry.viewportWidth * viewWidth).toFloat()
+		val y = ((page.top + rect.top) / geometry.viewportHeight * viewHeight).toFloat()
+		if (!x.isFinite() || !y.isFinite()) return@mapNotNull null
+		ReaderWhispersyncCueMapViewportAnchor(
+			sourceOrdinal = marker.sourceOrdinal,
+			x = x,
+			y = y,
+			prepared = marker.prepared,
+			requested = marker.requested,
+			audioActive = marker.audioActive,
+			renderedHighlight = marker.renderedHighlight
+		)
+	}
+}
+
+class ReaderWhispersyncCueMapHoldTracker(
+	private val holdDurationMs: Long = 1_000L,
+	private val touchSlopPx: Float
+) {
+	init {
+		require(holdDurationMs > 0L)
+		require(touchSlopPx.isFinite() && touchSlopPx >= 0f)
+	}
+
+	var sourceOrdinal: Int? = null
+		private set
+	private var startX = 0f
+	private var startY = 0f
+	private var startedAtMillis = 0L
+	private var completed = false
+
+	val active: Boolean
+		get() = sourceOrdinal != null
+
+	fun begin(sourceOrdinal: Int, x: Float, y: Float, nowMillis: Long): Boolean {
+		if (active || sourceOrdinal < 0 || !x.isFinite() || !y.isFinite()) return false
+		this.sourceOrdinal = sourceOrdinal
+		startX = x
+		startY = y
+		startedAtMillis = nowMillis
+		completed = false
+		return true
+	}
+
+	fun progress(nowMillis: Long): Float = if (!active) {
+		0f
+	} else {
+		((nowMillis - startedAtMillis).coerceAtLeast(0L).toFloat() / holdDurationMs)
+			.coerceIn(0f, 1f)
+	}
+
+	fun move(x: Float, y: Float): ReaderWhispersyncCueMapHoldOutcome? {
+		if (!active || completed || !x.isFinite() || !y.isFinite()) return null
+		if (hypot((x - startX).toDouble(), (y - startY).toDouble()) <= touchSlopPx) return null
+		return finish(ReaderWhispersyncCueMapHoldOutcome.CancelledMovement)
+	}
+
+	fun advance(nowMillis: Long): ReaderWhispersyncCueMapHoldOutcome? {
+		if (!active || completed || nowMillis - startedAtMillis < holdDurationMs) return null
+		completed = true
+		return ReaderWhispersyncCueMapHoldOutcome.Completed
+	}
+
+	fun release(nowMillis: Long): ReaderWhispersyncCueMapHoldOutcome? {
+		if (!active) return null
+		val completedOutcome = advance(nowMillis)
+		if (completedOutcome != null) {
+			reset()
+			return completedOutcome
+		}
+		if (completed) {
+			reset()
+			return null
+		}
+		return finish(ReaderWhispersyncCueMapHoldOutcome.CancelledEarlyRelease)
+	}
+
+	fun cancel(outcome: ReaderWhispersyncCueMapHoldOutcome): ReaderWhispersyncCueMapHoldOutcome? {
+		if (!active || completed || outcome == ReaderWhispersyncCueMapHoldOutcome.Completed) return null
+		return finish(outcome)
+	}
+
+	fun abandon() {
+		reset()
+	}
+
+	private fun finish(outcome: ReaderWhispersyncCueMapHoldOutcome): ReaderWhispersyncCueMapHoldOutcome {
+		reset()
+		return outcome
+	}
+
+	private fun reset() {
+		sourceOrdinal = null
+		completed = false
+	}
 }
 
 data class ReaderWhispersyncCueMapState(
@@ -153,6 +358,7 @@ data class ReaderWhispersyncCueMapState(
 	val audioActiveSourceOrdinal: Int? = null,
 	val renderedHighlightSourceOrdinal: Int? = null,
 	val sourceOrdinalsInDomReadingOrder: List<Int> = emptyList(),
+	val geometryReceipt: ReaderWhispersyncCueMapGeometryReceipt? = null,
 	val transitionTrail: List<ReaderWhispersyncCueMapTransition> = emptyList()
 ) {
 	fun toggled(revisionDigest: String): ReaderWhispersyncCueMapState =
@@ -187,6 +393,7 @@ data class ReaderWhispersyncCueMapState(
 			audioActiveSourceOrdinal = null,
 			renderedHighlightSourceOrdinal = null,
 			sourceOrdinalsInDomReadingOrder = emptyList(),
+			geometryReceipt = null,
 			transitionTrail = appendTransition(
 				transition = replacement,
 				trail = retainedTransitions
@@ -196,12 +403,16 @@ data class ReaderWhispersyncCueMapState(
 
 	fun rendered(
 		sourceOrdinals: List<Int>,
-		revisionDigest: String
+		revisionDigest: String,
+		geometryReceipt: ReaderWhispersyncCueMapGeometryReceipt? = null
 	): ReaderWhispersyncCueMapState {
 		if (!enabled) return this
 		val bounded = sourceOrdinals.filter { it >= 0 }.take(ReaderWhispersyncCueMapTransitionLimit)
-		if (bounded == sourceOrdinalsInDomReadingOrder) return this
-		var next = copy(sourceOrdinalsInDomReadingOrder = bounded)
+		if (bounded == sourceOrdinalsInDomReadingOrder && geometryReceipt == this.geometryReceipt) return this
+		var next = copy(
+			sourceOrdinalsInDomReadingOrder = bounded,
+			geometryReceipt = geometryReceipt
+		)
 		bounded.forEach { sourceOrdinal ->
 			next = next.record(
 				sourceOrdinal = sourceOrdinal,

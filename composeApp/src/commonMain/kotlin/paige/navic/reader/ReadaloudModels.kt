@@ -306,33 +306,19 @@ private fun Int.audioChannelLayoutLabel(): String? =
 private fun String?.trimLabel(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
 
-fun ReadaloudPlaybackPlan.toReadaloudPlaybackLoadedEvent(): LoggerEvent {
-	val firstItem = mediaItems.firstOrNull()
-	return LoggerEvent(
+fun ReadaloudPlaybackPlan.toReadaloudPlaybackLoadedEvent(): LoggerEvent =
+	LoggerEvent(
 		level = AppLogLevel.Info,
 		tag = ReadaloudPlaybackLogTag,
 		message = buildString {
 			append("Loaded readaloud playback plan")
-			sessionId?.let { append(" session=").append(it) }
-			append(" title=").append(title)
 			append(" kind=").append(kind)
 			append(" items=").append(mediaItems.size)
 			append(" startTrack=").append(startTrackIndex)
 			append(" startPositionMs=").append(startPositionMs)
 			append(" speed=").append(playbackSpeed)
-			firstItem?.let { item ->
-				append(" firstMediaId=").append(item.mediaId)
-				item.resourceKey?.let { append(" firstResource=").append(it) }
-				item.bookFileId?.let { append(" bookFileId=").append(it) }
-				item.sourceProviderLabel?.let { append(" provider=").append(it) }
-				item.sourceReleaseLabel?.let { append(" release=").append(it) }
-				item.sourceUrl?.let { append(" sourceUrl=").append(it) }
-				item.codec?.let { append(" codec=").append(it) }
-				item.bitrateKbps?.let { append(" bitrateKbps=").append(it) }
-			}
 		}
 	)
-}
 
 const val ReadaloudPlaybackLogTag = "ReadaloudPlayback"
 

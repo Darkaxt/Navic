@@ -268,7 +268,8 @@ sealed interface ReaderEngineEvent {
 		val sourceOrdinalsInDomReadingOrder: List<Int>,
 		val revisionDigest: String,
 		val presentationGeneration: Long,
-		val destinationCommitIdentity: ReaderDestinationCommitIdentity
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity,
+		val markerReceipts: List<ReaderWhispersyncCueMapMarkerReceipt> = emptyList()
 	) : ReaderEngineEvent
 	data class WhispersyncCueMapSeekRequested(
 		val sourceOrdinal: Int,

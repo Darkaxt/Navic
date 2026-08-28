@@ -74,6 +74,16 @@ test('production cue map exposes visual states and robust one-shot pointer holds
     const runtime = new ReaderWhispersyncCueMapRuntime({
       contentEntries: () => [{ index: 0, doc, overlayer }],
       resolveRange: rangeForCue,
+      resolveAnchorReceipt: (_content, cue) => ({
+        boundarySequence: cue.sourceOrdinal,
+        captureGeometry: {
+          viewportWidth: 1200,
+          viewportHeight: 800,
+          mode: 'single',
+          pages: [{ role: 'full', left: 0, top: 0, width: 1200, height: 800 }],
+        },
+        pageLocalRects: [{ role: 'full', left: cue.textStart * 12, top: 20, width: 10, height: 14 }],
+      }),
       postEvent: event => events.push(event),
       holdDurationMs: 24,
       touchSlopPx: 6,
@@ -112,9 +122,11 @@ test('production cue map exposes visual states and robust one-shot pointer holds
       .map(event => event.outcome)
 
     const domOrder = markers().map(marker => Number(marker.dataset.navicCueSourceOrdinal))
-    const renderedOrder = events
-      .find(event => event.type === 'whispersyncCueMapRendered')
-      ?.sourceOrdinals
+    const renderedEvent = events.find(event => event.type === 'whispersyncCueMapRendered')
+    const renderedOrder = renderedEvent?.sourceOrdinals
+    const nativeMarkerOrder = renderedEvent?.markerReceipts?.map(marker => marker.sourceOrdinal)
+    const nativeBoundaryOrder = renderedEvent?.markerReceipts
+      ?.map(marker => marker.anchorReceipt?.boundarySequence)
     const ordinal3 = markerFor(3)
     const ordinal7 = markerFor(7)
     const stateAttributes = {
@@ -187,6 +199,8 @@ test('production cue map exposes visual states and robust one-shot pointer holds
     return {
       domOrder,
       renderedOrder,
+      nativeMarkerOrder,
+      nativeBoundaryOrder,
       stateAttributes,
       visibleStateLayers,
       baselineOffset,
@@ -208,6 +222,12 @@ test('production cue map exposes visual states and robust one-shot pointer holds
 
   assert.deepEqual(result.domOrder, [7, 3], 'markers must follow DOM reading order, not source/display sorting')
   assert.deepEqual(result.renderedOrder, [7, 3], 'non-monotonic DOM evidence must remain ordinal-only and unsorted')
+  assert.deepEqual(
+    result.nativeMarkerOrder,
+    [7, 3],
+    'production rendering must publish Foliate-owned marker geometry for the native page surface'
+  )
+  assert.deepEqual(result.nativeBoundaryOrder, [7, 3])
   assert.deepEqual(result.stateAttributes, {
     mapped: 'true',
     prepared: 'true',
@@ -254,6 +274,76 @@ test('production cue map exposes visual states and robust one-shot pointer holds
     assert.equal(keys.includes('payload'), false)
     assert.equal(keys.includes('bookId'), false)
   }
+})
+
+test('production delegates cue-map pointer ownership to the native surface', async () => {
+  const page = await browser.newPage()
+  await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+
+  const result = await page.evaluate(async () => {
+    const { ReaderWhispersyncCueMapRuntime } = await import('/navic-reader-cue-map.js')
+    const productionSource = await fetch('/navic-reader.js').then(response => response.text())
+    const doc = document.implementation.createHTMLDocument('native-cue-map-pointer-owner')
+    const paragraph = doc.createElement('p')
+    paragraph.textContent = 'zero one two three four'
+    doc.body.append(paragraph)
+    const text = paragraph.firstChild
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    document.body.append(svg)
+    const events = []
+    const runtime = new ReaderWhispersyncCueMapRuntime({
+      contentEntries: () => [{
+        index: 0,
+        doc,
+        overlayer: {
+          add(_key, _range, draw, options) {
+            svg.append(draw([{ left: 20, right: 40, top: 20, bottom: 34, width: 20, height: 14 }], options))
+          },
+          remove() {},
+        },
+      }],
+      resolveRange: () => {
+        const range = doc.createRange()
+        range.setStart(text, 5)
+        range.setEnd(text, 8)
+        return range
+      },
+      postEvent: event => events.push(event),
+      nativePointerOwnership: true,
+      holdDurationMs: 20,
+    })
+    runtime.replace({
+      enabled: true,
+      revisionDigest: '5f04c2a19e7d',
+      presentationGeneration: 8,
+      destinationCommitIdentity: { foliateSessionId: 'session-a', commitSequence: 41 },
+      cues: [{ sourceOrdinal: 4, textHref: 'Text/chapter.xhtml', textStart: 5, textEnd: 8 }],
+      transportAcknowledgementPending: false,
+    })
+    const marker = svg.querySelector('[data-navic-cue-source-ordinal="4"]')
+    marker.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 7,
+      pointerType: 'touch',
+      clientX: 20,
+      clientY: 20,
+      button: 0,
+    }))
+    await new Promise(resolve => setTimeout(resolve, 40))
+
+    return {
+      pointerEvents: marker.style.pointerEvents,
+      holdOutcomes: events.filter(event => event.type === 'whispersyncCueMapHoldOutcome').length,
+      seeks: events.filter(event => event.type === 'whispersyncCueMapSeekRequested').length,
+      productionOwnsPointersNatively: /nativePointerOwnership:\s*true/.test(productionSource),
+    }
+  })
+
+  assert.equal(result.pointerEvents, 'none')
+  assert.equal(result.holdOutcomes, 0)
+  assert.equal(result.seeks, 0)
+  assert.equal(result.productionOwnsPointersNatively, true)
 })
 
 test('same-lifecycle cue-map style update preserves an incomplete hold through one seek', async () => {

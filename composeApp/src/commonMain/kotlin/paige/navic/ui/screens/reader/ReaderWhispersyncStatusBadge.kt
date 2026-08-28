@@ -49,8 +49,8 @@ private val readerWhispersyncBadgeFadeAnimationSpec = tween<Float>(150)
 
 internal data class ReaderWhispersyncCueMapReportSurface(
 	val label: String,
-	val maxLines: Int = Int.MAX_VALUE,
-	val softWrap: Boolean = true
+	val maxLines: Int = 1,
+	val softWrap: Boolean = false
 ) {
 	init {
 		require(label.isNotBlank())
@@ -174,7 +174,7 @@ internal fun KomikkuWhispersyncCueMapControl(
 				color = readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f),
 				maxLines = reportSurface.maxLines,
 				softWrap = reportSurface.softWrap,
-				overflow = TextOverflow.Visible,
+				overflow = TextOverflow.Ellipsis,
 				modifier = Modifier.padding(horizontal = 4.dp)
 			)
 		}

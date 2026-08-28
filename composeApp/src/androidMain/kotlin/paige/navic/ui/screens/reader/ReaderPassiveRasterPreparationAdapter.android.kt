@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.webkit.WebView
 import org.json.JSONObject
 import org.json.JSONTokener
+import paige.navic.reader.ReaderPageRasterPriority
 
 internal data class ReaderPassiveRasterManifestInputs(
 	val canonicalCommit: ReaderPassiveRasterCanonicalCommit,
@@ -11,6 +12,16 @@ internal data class ReaderPassiveRasterManifestInputs(
 	val visualPageOrdinal: Int,
 	val rasterDescriptor: ReaderPageRasterDescriptor
 )
+
+internal enum class ReaderPassiveRasterManifestUnavailableCause(
+	val diagnosticReason: String,
+	val terminal: Boolean = false
+) {
+	CanonicalRenderedDestinationAbsent("canonical-rendered-destination-absent"),
+	CurrentLiveProfileOrLayoutUnavailable("current-live-profile-or-layout-unavailable"),
+	LiveWebViewDetached("live-webview-detached"),
+	BridgeRequestUnavailable("bridge-request-unavailable", terminal = true)
+}
 
 internal sealed interface ReaderPassiveRasterManifestResolution {
 	data class Available(
@@ -21,7 +32,9 @@ internal sealed interface ReaderPassiveRasterManifestResolution {
 		val reason: String
 	) : ReaderPassiveRasterManifestResolution
 
-	data object Unavailable : ReaderPassiveRasterManifestResolution
+	data class Unavailable(
+		val cause: ReaderPassiveRasterManifestUnavailableCause
+	) : ReaderPassiveRasterManifestResolution
 }
 
 internal data class ReaderPassiveRasterAdmissionAuthority(
@@ -29,6 +42,23 @@ internal data class ReaderPassiveRasterAdmissionAuthority(
 	val activePassiveSessionId: String,
 	val expectedPassiveCommitSequence: Long
 )
+
+private fun ReaderPassiveRasterManifestResolution.Unavailable.toBatchOutcome(
+	stage: String,
+	pageIndex: Int
+): ReaderPageRasterBatchOutcome = if (cause.terminal) {
+	ReaderPageRasterBatchOutcome.Failed(
+		stage = stage,
+		pageIndex = pageIndex,
+		reason = cause.diagnosticReason
+	)
+} else {
+	ReaderPageRasterBatchOutcome.Deferred(
+		stage = stage,
+		pageIndex = pageIndex,
+		reason = cause.diagnosticReason
+	)
+}
 
 internal fun interface ReaderPassiveRasterLiveManifestPort {
 	fun request(
@@ -38,6 +68,33 @@ internal fun interface ReaderPassiveRasterLiveManifestPort {
 		preparationGeneration: Long,
 		onResolved: (ReaderPassiveRasterManifestResolution) -> Unit
 	)
+}
+
+internal fun interface ReaderPageRasterCurrentLivePublicationPort {
+	fun publish(
+		reference: ReaderPageSlideSnapshot,
+		priority: ReaderPageRasterPriority,
+		isStillCurrent: () -> Boolean,
+		onPublished: (ReaderPageRasterPublicationResult) -> Unit
+	)
+}
+
+private class ReaderPageBundleCurrentLivePublicationPort(
+	private val bundleSource: ReaderPageTurnBundleSource
+) : ReaderPageRasterCurrentLivePublicationPort {
+	override fun publish(
+		reference: ReaderPageSlideSnapshot,
+		priority: ReaderPageRasterPriority,
+		isStillCurrent: () -> Boolean,
+		onPublished: (ReaderPageRasterPublicationResult) -> Unit
+	) {
+		bundleSource.ensurePersistentSnapshot(
+			snapshot = reference,
+			priority = priority,
+			isStillCurrent = isStillCurrent,
+			onPersisted = onPublished
+		)
+	}
 }
 
 internal interface ReaderPassiveRasterPreparationPort : AutoCloseable {
@@ -73,7 +130,9 @@ internal class ReaderPassiveRasterPreparationAdapter(
 	private val session: ReaderPassiveRasterPrototypeSession<Bitmap>,
 	private val liveManifestPort: ReaderPassiveRasterLiveManifestPort,
 	private val bundleSource: ReaderPageTurnBundleSource,
-	initialCaptureEpoch: Long
+	initialCaptureEpoch: Long,
+	private val currentLivePublicationPort: ReaderPageRasterCurrentLivePublicationPort =
+		ReaderPageBundleCurrentLivePublicationPort(bundleSource)
 ) : ReaderPassiveRasterPreparationPort {
 	private enum class Lifecycle {
 		Active,
@@ -219,6 +278,10 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		val targetIndex = batch.targetIndex
 		val target = batch.targets[targetIndex]
 		batch.onActiveTarget(target)
+		if (target.authority == ReaderPageRasterTargetAuthority.CurrentLive) {
+			fulfillCurrentLiveTarget(batch, targetIndex, target)
+			return
+		}
 		liveManifestPort.request(
 			visualPageOrdinal = target.pageIndex,
 			captureEpoch = captureEpoch,
@@ -243,9 +306,19 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				)
 				return@manifestInputs
 			}
-			val inputs = (resolution as? ReaderPassiveRasterManifestResolution.Available)
-				?.inputs
-			val currentInputs = inputs?.takeIf {
+			if (resolution is ReaderPassiveRasterManifestResolution.Unavailable) {
+				finish(
+					batch,
+					resolution.toBatchOutcome(
+						stage = "passive-manifest",
+						pageIndex = target.pageIndex
+					)
+				)
+				return@manifestInputs
+			}
+			val inputs = (resolution as ReaderPassiveRasterManifestResolution.Available)
+				.inputs
+			val currentInputs = inputs.takeIf {
 				it.visualPageOrdinal == target.pageIndex &&
 					it.rasterDescriptor.visualPageOrdinal == target.pageIndex &&
 					it.rasterDescriptor.paginationFingerprint ==
@@ -258,23 +331,61 @@ internal class ReaderPassiveRasterPreparationAdapter(
 					it.canonicalCommit.rasterGeneration == batch.rasterGeneration
 			}
 			if (currentInputs == null) {
-				val outcome = if (resolution == ReaderPassiveRasterManifestResolution.Unavailable) {
-					ReaderPageRasterBatchOutcome.Deferred(
-						stage = "passive-manifest",
-						pageIndex = target.pageIndex,
-						reason = "canonical-live-commit-unavailable"
-					)
-				} else {
+				finish(
+					batch,
 					ReaderPageRasterBatchOutcome.Failed(
 						stage = "passive-manifest",
 						pageIndex = target.pageIndex,
 						reason = "manifest-invalid"
 					)
-				}
-				finish(batch, outcome)
+				)
 				return@manifestInputs
 			}
 			resolveTarget(batch, targetIndex, target, currentInputs)
+		}
+	}
+
+	private fun fulfillCurrentLiveTarget(
+		batch: Batch,
+		targetIndex: Int,
+		target: ReaderPageRasterBatchTarget
+	) {
+		val reference = batch.reference
+		if (
+			target.pageIndex != reference.key.visualPageIndex ||
+			batch.kind != reference.key.kind ||
+			reference.bitmap.isRecycled
+		) {
+			finish(
+				batch,
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "current-live-reference",
+					pageIndex = target.pageIndex,
+					reason = "retained-live-reference-unavailable"
+				)
+			)
+			return
+		}
+		currentLivePublicationPort.publish(
+			reference = reference,
+			priority = target.priority,
+			isStillCurrent = {
+				isPreparationGenerationCurrent(batch) && batchIsCurrent(batch)
+			}
+		) { result ->
+			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) {
+				return@publish
+			}
+			readerPageRasterPersistenceTerminalOutcome(
+				trigger = batch.trigger,
+				capacityPolicy = batch.capacityPolicy,
+				result = result,
+				pageIndex = target.pageIndex
+			)?.let { outcome ->
+				finish(batch, outcome)
+				return@publish
+			}
+			completeTarget(batch, target)
 		}
 	}
 
@@ -396,18 +507,32 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		) currentAuthority@{ resolution ->
 			val currentInputs =
 				(resolution as? ReaderPassiveRasterManifestResolution.Available)?.inputs
-			if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch) || currentInputs == null) {
+			if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch)) {
 				batch.releasePendingCapture(capture)
-				if (batchIsCurrent(batch)) {
-					finish(
-						batch,
+				return@currentAuthority
+			}
+			if (currentInputs == null) {
+				batch.releasePendingCapture(capture)
+				val outcome = when (resolution) {
+					is ReaderPassiveRasterManifestResolution.Unavailable ->
+						resolution.toBatchOutcome(
+							stage = "passive-admission",
+							pageIndex = target.pageIndex
+						)
+					is ReaderPassiveRasterManifestResolution.Failed ->
 						ReaderPageRasterBatchOutcome.Failed(
 							stage = "passive-admission",
 							pageIndex = target.pageIndex,
-							reason = "current-authority-unavailable"
+							reason = resolution.reason
 						)
-					)
+					is ReaderPassiveRasterManifestResolution.Available ->
+						ReaderPageRasterBatchOutcome.Failed(
+							stage = "passive-admission",
+							pageIndex = target.pageIndex,
+							reason = "current-authority-invalid"
+						)
 				}
+				finish(batch, outcome)
 				return@currentAuthority
 			}
 			if (!batch.transferPendingCapture(capture)) {
@@ -527,7 +652,11 @@ internal class ReaderPageLivePassiveRasterManifestPort(
 	) {
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
 		if (webView == null) {
-			onResolved(ReaderPassiveRasterManifestResolution.Unavailable)
+			onResolved(
+				ReaderPassiveRasterManifestResolution.Unavailable(
+					ReaderPassiveRasterManifestUnavailableCause.LiveWebViewDetached
+				)
+			)
 			return
 		}
 		try {
@@ -550,7 +679,10 @@ internal class ReaderPageLivePassiveRasterManifestPort(
 						)
 						when {
 							measuredWidth <= 0 || measuredHeight <= 0 ->
-								ReaderPassiveRasterManifestResolution.Unavailable
+								ReaderPassiveRasterManifestResolution.Unavailable(
+									ReaderPassiveRasterManifestUnavailableCause
+										.CurrentLiveProfileOrLayoutUnavailable
+								)
 							geometry == null -> ReaderPassiveRasterManifestResolution.Failed(
 								"manifest-invalid"
 							)
@@ -568,7 +700,11 @@ internal class ReaderPageLivePassiveRasterManifestPort(
 				onResolved(normalized)
 			}
 		} catch (_: Throwable) {
-			onResolved(ReaderPassiveRasterManifestResolution.Unavailable)
+			onResolved(
+				ReaderPassiveRasterManifestResolution.Unavailable(
+					ReaderPassiveRasterManifestUnavailableCause.BridgeRequestUnavailable
+				)
+			)
 		}
 	}
 }
@@ -576,23 +712,33 @@ internal class ReaderPageLivePassiveRasterManifestPort(
 internal fun readerPassiveRasterManifestResolution(
 	encoded: String?
 ): ReaderPassiveRasterManifestResolution {
+	val bridgeUnavailable = ReaderPassiveRasterManifestResolution.Unavailable(
+		ReaderPassiveRasterManifestUnavailableCause.BridgeRequestUnavailable
+	)
 	val jsonText = runCatching {
 		JSONTokener(encoded).nextValue() as? String
-	}.getOrNull() ?: return ReaderPassiveRasterManifestResolution.Unavailable
-	if (jsonText == "null") return ReaderPassiveRasterManifestResolution.Unavailable
+	}.getOrNull() ?: return bridgeUnavailable
+	if (jsonText == "null") return bridgeUnavailable
 	val json = runCatching { JSONObject(jsonText) }.getOrNull()
 		?: return ReaderPassiveRasterManifestResolution.Failed("manifest-invalid")
-	val failureReason = json.optString("failureReason").takeIf(String::isNotBlank)
-	if (failureReason != null) {
-		return if (failureReason == "current-live-profile-unavailable") {
-			ReaderPassiveRasterManifestResolution.Unavailable
-		} else {
-			ReaderPassiveRasterManifestResolution.Failed("manifest-invalid")
-		}
+	return when (json.optString("failureReason").takeIf(String::isNotBlank)) {
+		"canonical-rendered-destination-absent" ->
+			ReaderPassiveRasterManifestResolution.Unavailable(
+				ReaderPassiveRasterManifestUnavailableCause
+					.CanonicalRenderedDestinationAbsent
+			)
+		"current-live-profile-or-layout-unavailable" ->
+			ReaderPassiveRasterManifestResolution.Unavailable(
+				ReaderPassiveRasterManifestUnavailableCause
+					.CurrentLiveProfileOrLayoutUnavailable
+			)
+		"manifest-request-invalid" ->
+			ReaderPassiveRasterManifestResolution.Failed("manifest-request-invalid")
+		null -> readerPassiveRasterManifestInputs(encoded)
+			?.let(ReaderPassiveRasterManifestResolution::Available)
+			?: ReaderPassiveRasterManifestResolution.Failed("manifest-invalid")
+		else -> ReaderPassiveRasterManifestResolution.Failed("manifest-invalid")
 	}
-	return readerPassiveRasterManifestInputs(encoded)
-		?.let(ReaderPassiveRasterManifestResolution::Available)
-		?: ReaderPassiveRasterManifestResolution.Failed("manifest-invalid")
 }
 
 private fun readerPassiveRasterManifestInputs(

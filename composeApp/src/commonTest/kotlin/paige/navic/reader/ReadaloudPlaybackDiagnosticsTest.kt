@@ -26,8 +26,11 @@ class ReadaloudPlaybackDiagnosticsTest {
 					discNumber = 1,
 					requestHeaders = mapOf("X-Api-Key" to "secret"),
 					resourceKey = "audio-1",
+					bookFileId = "633",
 					qualityLabel = "128 kbps",
 					sourceProviderLabel = "AudioBook Bay",
+					sourceReleaseLabel = "private-release-label",
+					sourceUrl = "https://example.invalid/private-source",
 					codec = "mp3",
 					bitrateKbps = 128,
 					sampleRateHz = 44100,
@@ -44,9 +47,16 @@ class ReadaloudPlaybackDiagnosticsTest {
 
 		assertEquals(AppLogLevel.Info, event.level)
 		assertEquals("ReadaloudPlayback", event.tag)
-		assertTrue(event.message.contains("session=urn:bindery:book:3816"))
 		assertTrue(event.message.contains("items=1"))
-		assertTrue(event.message.contains("firstMediaId=readaloud:audio-1"))
+		assertTrue(event.message.contains("kind=Readaloud"))
+		assertFalseContains(event, "urn:bindery:book:3816")
+		assertFalseContains(event, "The Hobbit")
+		assertFalseContains(event, "readaloud:audio-1")
+		assertFalseContains(event, "audio-1")
+		assertFalseContains(event, "633")
+		assertFalseContains(event, "AudioBook Bay")
+		assertFalseContains(event, "private-release-label")
+		assertFalseContains(event, "https://")
 		assertFalseContains(event, "secret")
 		assertFalseContains(event, "X-Api-Key")
 	}

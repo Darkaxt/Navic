@@ -343,7 +343,13 @@ class NavicReaderRuntime {
     this.whispersyncCueMap = new ReaderWhispersyncCueMapRuntime({
       contentEntries: () => this.contentEntries(),
       resolveRange: (content, cue) => this.resolveMediaOverlayTextRange(content, cue, cue.textEnd)?.range,
+      resolveAnchorReceipt: (_content, cue, range) => readerMediaOverlayAnchorReceipt(
+        this,
+        { wordBoundarySequence: cue.sourceOrdinal },
+        [range]
+      ),
       postEvent: post,
+      nativePointerOwnership: true,
     })
     window.visualViewport?.addEventListener('resize', this.viewportResizeListener)
     window.addEventListener('resize', this.viewportResizeListener)
@@ -1529,6 +1535,8 @@ window.NavicReaderBridge = {
     ),
   pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor: () =>
     runtime.pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor(),
+  pageTurnRenderedDestinationCommitIdentity: () =>
+    runtime.pageTurnRenderedDestinationCommitIdentity(),
   pageTurnTextPageCommitIdentity: () => runtime.pageTurnTextPageCommitIdentity(),
   beginPageTurnPreviewPreparation: (token, pageIndex, foregroundMutationGeneration) =>
     runtime.beginPageTurnPreviewPreparation(

@@ -19,12 +19,12 @@ import {
 import { readerThemePalette } from './navic-reader-settings.js'
 import { stableHash } from './navic-reader-identity.js'
 import {
-  readerCommitTextPage,
-  readerForgetTextPageCommit,
-  readerRememberTextPageCommit,
-  readerTextPageCommitIsValid,
-  readerTextPageCommitMatches,
-  readerTextPageCommitOwnerIsValid,
+  readerCommitRenderedDestination,
+  readerForgetRenderedDestinationCommit,
+  readerRememberRenderedDestinationCommit,
+  readerRenderedDestinationCommitIsValid,
+  readerRenderedDestinationCommitMatches,
+  readerRenderedDestinationCommitOwnerIsValid,
 } from './navic-reader-paginator-commit.js'
 import {
   ReaderPageTurnPresentationScopePreview,
@@ -34,6 +34,8 @@ import {
 
 const ReaderPageTurnMaximumPaginationProfileRepairs = 2
 const ReaderPageTurnMaximumCommitTransactionAttempts = 3
+const ReaderPageRasterTargetAuthorityCurrentLive = 'CurrentLive'
+const ReaderPageRasterTargetAuthorityOffscreenPassive = 'OffscreenPassive'
 
 const readerPageTurnPreviewMutationGenerationIsValid = value =>
   Number.isSafeInteger(value) && value > 0
@@ -70,7 +72,7 @@ const readerPageTurnPreviewTraceState = state => ({
 })
 
 export async function readerGoToExactVisualPage(view, locator, reason = 'page-turn:exact') {
-  return readerCommitTextPage(
+  return readerCommitRenderedDestination(
     view?.renderer,
     locator.spineIndex,
     locator.chapterPageIndex,
@@ -105,7 +107,7 @@ async function resolvePageTurnPreviewLocator(
       view,
       this.readerSettings
     )
-    const result = await readerCommitTextPage(
+    const result = await readerCommitRenderedDestination(
       view?.renderer,
       locator.spineIndex,
       locator.chapterPageIndex,
@@ -124,7 +126,7 @@ async function resolvePageTurnPreviewLocator(
       })
     }
 
-    const receiptIsValid = readerTextPageCommitIsValid(view?.renderer, result)
+    const receiptIsValid = readerRenderedDestinationCommitIsValid(view?.renderer, result)
     const expectedPosition = {
       index: locator.spineIndex,
       pageIndex: locator.chapterPageIndex,
@@ -133,7 +135,7 @@ async function resolvePageTurnPreviewLocator(
     if (
       result.status === 'committed' &&
       receiptIsValid &&
-      readerTextPageCommitMatches(result, expectedPosition)
+      readerRenderedDestinationCommitMatches(result, expectedPosition)
     ) {
       return Object.freeze({
         status: 'committed',
@@ -220,7 +222,7 @@ async function ensurePageTurnPreviewRenderer() {
 }
 
 function forgetPageTurnPreviewCommitment(state) {
-  if (state && typeof state === 'object') readerForgetTextPageCommit(state)
+  if (state && typeof state === 'object') readerForgetRenderedDestinationCommit(state)
 }
 
 function restartInvalidatedPageTurnPreviewCommitment(state) {
@@ -342,7 +344,7 @@ function pageTurnPreviewState(token = '') {
   )) return Object.freeze({ token: requestedToken, status: 'missing' })
   if (
     state.status === 'ready' &&
-    !readerTextPageCommitOwnerIsValid(state)
+    !readerRenderedDestinationCommitOwnerIsValid(state)
   ) {
     this.restartInvalidatedPageTurnPreviewCommitment(state)
     state = this.pageTurnPreviewStateValue
@@ -375,7 +377,7 @@ function pageTurnPreviewPresentationReceipt() {
   const state = this.pageTurnPreviewStateValue
   if (
     state?.status === 'ready' &&
-    !readerTextPageCommitOwnerIsValid(state)
+    !readerRenderedDestinationCommitOwnerIsValid(state)
   ) {
     this.restartInvalidatedPageTurnPreviewCommitment(state)
     this.clearPageTurnPreviewPresentationReceipt()
@@ -484,7 +486,7 @@ function pageTurnRasterDescriptor(pageIndex) {
       readyState.foregroundMutationGeneration
     )
   ) return null
-  if (readyState && !readerTextPageCommitOwnerIsValid(readyState)) {
+  if (readyState && !readerRenderedDestinationCommitOwnerIsValid(readyState)) {
     this.restartInvalidatedPageTurnPreviewCommitment(readyState)
     return null
   }
@@ -545,11 +547,15 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
   })
   const targets = []
   const seen = new Set()
-  const addTarget = (pageIndex, priority) => {
+  const addTarget = (
+    pageIndex,
+    priority,
+    authority = ReaderPageRasterTargetAuthorityOffscreenPassive
+  ) => {
     const normalized = Math.floor(Number(pageIndex))
     if (!Number.isFinite(normalized) || normalized < 0 || normalized >= pageCount || seen.has(normalized)) return
     seen.add(normalized)
-    targets.push(Object.freeze({ pageIndex: normalized, priority }))
+    targets.push(Object.freeze({ pageIndex: normalized, priority, authority }))
   }
   const physicalPagesInRange = (start, end, reverse = false) => {
     const pages = []
@@ -566,7 +572,7 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
     return physicalPagesInRange(pageStartIndex, pageStartIndex + chapterPageCount)
   }
 
-  addTarget(centerPageIndex, 'current')
+  addTarget(centerPageIndex, 'current', ReaderPageRasterTargetAuthorityCurrentLive)
   addTarget(centerPageIndex + step, 'next-transition')
   addTarget(centerPageIndex - step, 'previous-transition')
   addTarget(centerPageIndex + step * 2, 'next-lookahead')
@@ -744,7 +750,7 @@ async function preparePageTurnPreview(
       transactionAttempts: commitment.transactionAttempts,
       profileRepairs: commitment.profileRepairs,
     })
-    if (!readerRememberTextPageCommit(
+    if (!readerRememberRenderedDestinationCommit(
       state,
       previewView.renderer,
       commitment.receipt
@@ -799,7 +805,7 @@ function pageTurnPreviewBatchState(token = '') {
   )) return Object.freeze({ token: requestedToken, status: 'missing' })
   if (
     state.status === 'ready' &&
-    !readerTextPageCommitOwnerIsValid(state)
+    !readerRenderedDestinationCommitOwnerIsValid(state)
   ) {
     this.restartInvalidatedPageTurnPreviewCommitment(state)
     state = this.pageTurnPreviewBatchStateValue
@@ -935,12 +941,12 @@ async function preparePageTurnPreviewBatchItem(
       itemToken,
       cursor,
     })
-    const identityRemembered = readerRememberTextPageCommit(
+    const identityRemembered = readerRememberRenderedDestinationCommit(
       identity,
       previewView.renderer,
       commitment.receipt
     )
-    const batchRemembered = identityRemembered && readerRememberTextPageCommit(
+    const batchRemembered = identityRemembered && readerRememberRenderedDestinationCommit(
       batchState,
       previewView.renderer,
       commitment.receipt

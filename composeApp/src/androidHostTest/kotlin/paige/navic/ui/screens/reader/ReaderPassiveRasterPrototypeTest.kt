@@ -57,24 +57,63 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderPassiveRasterPrototypeTest {
 	@Test
-	fun javascriptNullManifestIsUnavailableRatherThanTerminalFailure() {
-		assertSame(
-			ReaderPassiveRasterManifestResolution.Unavailable,
+	fun missingBridgeResultIsTypedAsTerminalRequestUnavailability() {
+		assertEquals(
+			ReaderPassiveRasterManifestResolution.Unavailable(
+				ReaderPassiveRasterManifestUnavailableCause.BridgeRequestUnavailable
+			),
 			readerPassiveRasterManifestResolution("\"null\"")
 		)
 	}
 
 	@Test
-	fun transientCurrentLiveProfileGapIsUnavailableRatherThanTerminalFailure() {
+	fun missingCanonicalRenderedDestinationRetainsItsRetryAuthority() {
 		val encoded = JSONObject.quote(
 			JSONObject()
-				.put("failureReason", "current-live-profile-unavailable")
+				.put("failureReason", "canonical-rendered-destination-absent")
 				.toString()
 		)
 
-		assertSame(
-			ReaderPassiveRasterManifestResolution.Unavailable,
+		assertEquals(
+			ReaderPassiveRasterManifestResolution.Unavailable(
+				ReaderPassiveRasterManifestUnavailableCause.CanonicalRenderedDestinationAbsent
+			),
 			readerPassiveRasterManifestResolution(encoded)
+		)
+	}
+
+	@Test
+	fun transientCurrentLiveProfileGapRetainsItsLayoutRetryAuthority() {
+		val encoded = JSONObject.quote(
+			JSONObject()
+				.put("failureReason", "current-live-profile-or-layout-unavailable")
+				.toString()
+		)
+
+		assertEquals(
+			ReaderPassiveRasterManifestResolution.Unavailable(
+				ReaderPassiveRasterManifestUnavailableCause.CurrentLiveProfileOrLayoutUnavailable
+			),
+			readerPassiveRasterManifestResolution(encoded)
+		)
+	}
+
+	@Test
+	fun detachedLiveWebViewRetainsItsAttachmentRetryAuthority() {
+		var resolution: ReaderPassiveRasterManifestResolution? = null
+		ReaderPageLivePassiveRasterManifestPort { null }.request(
+			visualPageOrdinal = 4,
+			captureEpoch = 8L,
+			rasterGeneration = 12L,
+			preparationGeneration = 16L,
+			onResolved = { resolution = it }
+		)
+
+		assertEquals(
+			ReaderPassiveRasterManifestResolution.Unavailable(
+				ReaderPassiveRasterManifestUnavailableCause.LiveWebViewDetached
+			),
+			resolution
 		)
 	}
 
@@ -1273,6 +1312,61 @@ class ReaderPassiveRasterPrototypeTest {
 	}
 
 	@Test
+	fun missingRetainedCurrentLiveReferenceDefersWithoutPassiveFallback() = runTest {
+		val source = ReaderPageTurnBundleSource()
+		val runtime = SuccessfulPassiveBitmapRuntime()
+		val session = ReaderPassiveRasterPrototypeSession(runtime) { bitmap ->
+			if (!bitmap.isRecycled) bitmap.recycle()
+		}
+		var manifestRequests = 0
+		val adapter = ReaderPassiveRasterPreparationAdapter(
+			session = session,
+			liveManifestPort = ReaderPassiveRasterLiveManifestPort { _, _, _, _, onResolved ->
+				manifestRequests += 1
+				onResolved(
+					ReaderPassiveRasterManifestResolution.Unavailable(
+						ReaderPassiveRasterManifestUnavailableCause.BridgeRequestUnavailable
+					)
+				)
+			},
+			bundleSource = source,
+			initialCaptureEpoch = 8L
+		)
+		var outcome: ReaderPageRasterBatchOutcome? = null
+		val reference = passiveReference().also { it.retain() }
+		val currentLiveTarget = assertNotNull(
+			readerPageRasterPreparationPlan(
+				"""{"context":{"centerPageIndex":4,"pageCount":30,"layoutMode":"single","readerDirection":"ltr","step":1},"targets":[{"pageIndex":4,"priority":"current","authority":"CurrentLive"}]}"""
+			)
+		).targets.single()
+
+		assertTrue(
+			adapter.start(
+				kind = ReaderPageTurnTransitionKind.PortraitSlide,
+				reference = reference,
+				targets = listOf(currentLiveTarget),
+				rasterGeneration = source.currentGeneration(),
+				isStillCurrent = { true },
+				trigger = ReaderPageRasterAcquisitionTrigger.InitialPreparation,
+				onComplete = { outcome = it }
+			)
+		)
+
+		assertEquals(
+			ReaderPageRasterBatchOutcome.Deferred(
+				stage = "current-live-reference",
+				pageIndex = 4,
+				reason = "retained-live-reference-unavailable"
+			),
+			outcome
+		)
+		assertEquals(0, manifestRequests)
+		assertEquals(0, runtime.captureRequests)
+		adapter.close()
+		source.closeAndJoin()
+	}
+
+	@Test
 	fun terminalInvalidManifestFailureFinishesTheBatchVisibly() = runTest {
 		val source = ReaderPageTurnBundleSource()
 		val runtime = SuccessfulPassiveBitmapRuntime()
@@ -1322,6 +1416,189 @@ class ReaderPassiveRasterPrototypeTest {
 		assertEquals(0, runtime.captureRequests)
 		adapter.close()
 		source.closeAndJoin()
+	}
+
+	@Test
+	fun typedManifestUnavailabilitySelectsReachableRecoveryOrTerminalOutcome() = runTest {
+		val cases = listOf(
+			ReaderPassiveRasterManifestUnavailableCause.CanonicalRenderedDestinationAbsent to
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "passive-manifest",
+					pageIndex = 4,
+					reason = "canonical-rendered-destination-absent"
+				),
+			ReaderPassiveRasterManifestUnavailableCause.CurrentLiveProfileOrLayoutUnavailable to
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "passive-manifest",
+					pageIndex = 4,
+					reason = "current-live-profile-or-layout-unavailable"
+				),
+			ReaderPassiveRasterManifestUnavailableCause.LiveWebViewDetached to
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "passive-manifest",
+					pageIndex = 4,
+					reason = "live-webview-detached"
+				),
+			ReaderPassiveRasterManifestUnavailableCause.BridgeRequestUnavailable to
+				ReaderPageRasterBatchOutcome.Failed(
+					stage = "passive-manifest",
+					pageIndex = 4,
+					reason = "bridge-request-unavailable"
+				)
+		)
+
+		cases.forEach { (cause, expected) ->
+			val source = ReaderPageTurnBundleSource()
+			val runtime = SuccessfulPassiveBitmapRuntime()
+			val session = ReaderPassiveRasterPrototypeSession(runtime) { bitmap ->
+				if (!bitmap.isRecycled) bitmap.recycle()
+			}
+			val adapter = ReaderPassiveRasterPreparationAdapter(
+				session = session,
+				liveManifestPort = ReaderPassiveRasterLiveManifestPort { _, _, _, _, onResolved ->
+					onResolved(ReaderPassiveRasterManifestResolution.Unavailable(cause))
+				},
+				bundleSource = source,
+				initialCaptureEpoch = 8L
+			)
+			var outcome: ReaderPageRasterBatchOutcome? = null
+			val reference = passiveReference().also { it.retain() }
+
+			assertTrue(
+				adapter.start(
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					reference = reference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = 4,
+							priority = ReaderPageRasterPriority.CurrentChapter
+						)
+					),
+					rasterGeneration = source.currentGeneration(),
+					isStillCurrent = { true },
+					trigger = ReaderPageRasterAcquisitionTrigger.InitialPreparation,
+					onComplete = { outcome = it }
+				)
+			)
+
+			assertEquals(expected, outcome, cause.name)
+			assertEquals(0, runtime.captureRequests, cause.name)
+			adapter.close()
+			source.closeAndJoin()
+		}
+	}
+
+	@Test
+	fun currentLiveUsesRetainedReferenceBeforeOffscreenPassiveAdmission() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val source = ReaderPageTurnBundleSource(
+			hydrationStorePort = AlwaysMissPassiveHydrationStore
+		)
+		val commit = canonicalCommit().copy(
+			viewportAndCaptureGeometry = productionGeometry(),
+			rasterGeneration = source.currentGeneration()
+		)
+		val centerPage = 20
+		val offscreenPage = 4
+		val descriptor = passiveDescriptor(commit, centerPage).copy(
+			publicationUrl = "publication-authority-routing",
+			viewportWidth = productionGeometry().viewportWidth,
+			viewportHeight = productionGeometry().viewportHeight
+		)
+		val webView = PassiveManifestBridgeWebView(activity, commit, descriptor)
+		val host = FrameLayout(activity).also { it.addView(webView) }
+		activity.setContentView(host)
+		webView.layout(
+			0,
+			0,
+			productionGeometry().viewportWidth,
+			productionGeometry().viewportHeight
+		)
+		Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+		val manifestPort = ReaderPassiveRasterLiveManifestPort {
+			visualPageOrdinal,
+			captureEpoch,
+			rasterGeneration,
+			preparationGeneration,
+			onResolved ->
+			webView.evaluateJavascript(
+				"JSON.stringify(window.NavicReaderBridge?." +
+					"pageTurnPassiveRasterManifestInputs?.(" +
+					"$visualPageOrdinal, $captureEpoch, $rasterGeneration, " +
+						"$preparationGeneration) ?? null)"
+			) { encoded -> onResolved(readerPassiveRasterManifestResolution(encoded)) }
+		}
+		val runtime = SuccessfulPassiveBitmapRuntime()
+		val session = ReaderPassiveRasterPrototypeSession(runtime) { bitmap ->
+			if (!bitmap.isRecycled) bitmap.recycle()
+		}
+		var livePublicationReference: ReaderPageSlideSnapshot? = null
+		val adapter = ReaderPassiveRasterPreparationAdapter(
+			session = session,
+			liveManifestPort = manifestPort,
+			bundleSource = source,
+			initialCaptureEpoch = commit.captureEpoch,
+			currentLivePublicationPort = ReaderPageRasterCurrentLivePublicationPort {
+				reference,
+				priority,
+				isStillCurrent,
+				onPublished ->
+				livePublicationReference = reference
+				assertEquals(ReaderPageRasterPriority.Current, priority)
+				assertTrue(isStillCurrent())
+				onPublished(ReaderPageRasterPublicationResult.Durable)
+			}
+		)
+		try {
+			val reference = assertNotNull(
+				cacheProductionPassiveReference(
+					source = source,
+					pageIndex = centerPage,
+					bitmapWidth = 40,
+					bitmapHeight = 60
+				)
+			)
+			source.initializeRasterCache(webView)
+			registerActiveBundleWebView(source, webView, reference)
+			val targets = assertNotNull(
+				readerPageRasterPreparationPlan(
+					"""{"context":{"centerPageIndex":20,"pageCount":30,"layoutMode":"spread","readerDirection":"ltr","step":2},"targets":[{"pageIndex":20,"priority":"current","authority":"CurrentLive"},{"pageIndex":4,"priority":"next-transition","authority":"OffscreenPassive"}]}"""
+				)
+			).targets
+			val completed = CompletableDeferred<ReaderPageRasterBatchOutcome>()
+			val activeTargets = mutableListOf<Int>()
+			val durableTargets = mutableListOf<Int>()
+			reference.retain()
+
+			assertTrue(
+				adapter.start(
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					reference = reference,
+					targets = targets,
+					rasterGeneration = source.currentGeneration(),
+					isStillCurrent = { true },
+					trigger = ReaderPageRasterAcquisitionTrigger.InitialPreparation,
+					onActiveTarget = { target -> activeTargets += target.pageIndex },
+					onTargetDurable = { target -> durableTargets += target.pageIndex },
+					onComplete = completed::complete
+				)
+			)
+			assertEquals(listOf(centerPage, offscreenPage), activeTargets)
+			assertEquals(listOf(centerPage), durableTargets)
+			assertSame(reference, livePublicationReference)
+			assertEquals(1, webView.manifestRequests)
+			assertEquals(0, runtime.captureRequests)
+
+			adapter.cancel()
+			assertEquals(ReaderPageRasterBatchOutcome.Cancelled, completed.await())
+		} finally {
+			adapter.close()
+			source.closeAndJoin()
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
 	}
 
 	@Test

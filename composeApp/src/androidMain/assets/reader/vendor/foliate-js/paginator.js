@@ -1581,6 +1581,12 @@ export class Paginator extends HTMLElement {
             return result('invalidated', 'layout-invalidated')
         return null
     }
+    async commitRenderedDestination(index, pageIndex, reason = 'navigation') {
+        return this.commitTextPage(index, pageIndex, reason)
+    }
+    validateRenderedDestinationCommit(receipt) {
+        return this.validateTextPageCommit(receipt)
+    }
     async commitTextPage(index, pageIndex, reason = 'navigation') {
         if (!Number.isInteger(index) || index < 0 ||
             !Number.isInteger(pageIndex) || pageIndex < 0)

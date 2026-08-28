@@ -7,6 +7,19 @@ const modelPath = new URL(
   import.meta.url,
 )
 const modelSource = await readFile(modelPath, 'utf8')
+const previewPath = new URL(
+  '../../../composeApp/src/androidMain/assets/reader/navic-reader-page-turn-preview.js',
+  import.meta.url,
+)
+const previewSource = await readFile(previewPath, 'utf8')
+const rasterPlanSource = previewSource
+  .split('function pageTurnRasterPreparationPlan(', 2)[1]
+  ?.split('\nfunction pageTurnPreviewContext()', 1)[0]
+const pageTurnRasterPreparationPlan = Function(
+  'ReaderPageRasterTargetAuthorityCurrentLive',
+  'ReaderPageRasterTargetAuthorityOffscreenPassive',
+  `return (function pageTurnRasterPreparationPlan(${rasterPlanSource})`,
+)('CurrentLive', 'OffscreenPassive')
 const {
   ReaderDirectionLtr,
   ReaderDirectionRtl,
@@ -45,6 +58,27 @@ const profile = {
     },
   ],
 }
+
+const rasterPlanRuntime = {
+  currentPagePosition: { pageIndex: 4, pageCount: 12 },
+  paginationProfile: { chapters: profile.chapters },
+  readerDirectionModeValue: ReaderDirectionLtr,
+  effectiveReaderDirection: () => ReaderDirectionLtr,
+  pageTurnCaptureGeometry: () => ({ mode: 'single' }),
+}
+
+test('raster preparation assigns one center live authority and passive authority elsewhere', () => {
+  const plan = pageTurnRasterPreparationPlan.call(rasterPlanRuntime)
+  const currentLive = plan.targets.filter(target => target.authority === 'CurrentLive')
+
+  assert.equal(currentLive.length, 1)
+  assert.equal(currentLive[0].pageIndex, plan.context.centerPageIndex)
+  assert.ok(
+    plan.targets
+      .filter(target => target !== currentLive[0])
+      .every(target => target.authority === 'OffscreenPassive'),
+  )
+})
 
 test('visual page index resolves to exact chapter locator', () => {
   assert.deepEqual(readerPageLocatorForVisualIndex(profile, 4), {

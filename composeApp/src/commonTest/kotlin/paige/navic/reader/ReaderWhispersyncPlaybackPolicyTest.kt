@@ -37,6 +37,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 			seekTarget = WhispersyncAudioSeekTarget(
 				audioResource = "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
 				positionMs = 263_360L,
+				audioTrackIndex = 0,
 				segment = WhispersyncSegment(
 					audioResourceId = "track-001",
 					audioTrackIndex = 0,

@@ -182,6 +182,54 @@ afterEach(async () => {
   delayedFontGate = null
 })
 
+test('commits a rendered destination without text capability and invalidates structural replacements', async () => {
+  const actual = await page.evaluate(async ({ first, second }) => {
+    const fixture = window.__createPaginatorFixture({ html: [first, second] })
+    const { paginator } = fixture
+    await paginator.commitTextPage(0, 0, 'prime-image-only-view')
+    const contentRange = paginator.getContents()[0]?.doc?.defaultView?.Range
+    if (!contentRange) throw new Error('Synthetic content Range is unavailable')
+    const originalToString = contentRange.prototype.toString
+    let firstCommit
+    contentRange.prototype.toString = () => { throw new Error('synthetic text capability unavailable') }
+    try {
+      firstCommit = await paginator.commitRenderedDestination(0, 0, 'test-image-only')
+    } finally {
+      contentRange.prototype.toString = originalToString
+    }
+    const initial = paginator.validateRenderedDestinationCommit(firstCommit.receipt)
+    const textCapability = paginator.validateTextPageVisibleContent(firstCommit.receipt)
+    const serialized = JSON.stringify(firstCommit.receipt)
+
+    const replacement = await paginator.commitRenderedDestination(1, 0, 'test-view-replacement')
+    const replaced = paginator.validateRenderedDestinationCommit(firstCommit.receipt)
+    const replacementValid = paginator.validateRenderedDestinationCommit(replacement.receipt)
+    paginator.setAttribute('gap', '12%')
+    const layoutInvalidated = paginator.validateRenderedDestinationCommit(replacement.receipt)
+
+    return {
+      initial,
+      layoutInvalidated,
+      replaced,
+      replacementValid,
+      serialized,
+      status: firstCommit.status,
+      textCapability,
+    }
+  }, {
+    first: '<!doctype html><meta charset="utf-8"><body><img alt="" width="240" height="160"></body>',
+    second: '<!doctype html><meta charset="utf-8"><body><svg width="240" height="160"></svg></body>',
+  })
+
+  assert.equal(actual.status, 'committed')
+  assert.equal(actual.initial, true)
+  assert.equal(actual.textCapability, false)
+  assert.equal(actual.replaced, false)
+  assert.equal(actual.replacementValid, true)
+  assert.equal(actual.layoutInvalidated, false)
+  assert.doesNotMatch(actual.serialized, /text|href|cfi|url|content/i)
+})
+
 test('commits an exact text page with an immutable identity-scoped receipt', async () => {
   const actual = await page.evaluate(async html => {
     const { paginator } = window.__createPaginatorFixture({ html: [html] })

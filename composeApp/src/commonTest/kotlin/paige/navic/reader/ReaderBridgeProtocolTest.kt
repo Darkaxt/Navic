@@ -343,7 +343,54 @@ class ReaderBridgeProtocolTest {
 	fun cueMapEventsDecodeOnlyBoundedOrdinalGenerationAndOutcomeEvidence() {
 		val rendered = assertIs<ReaderBridgeEvent.WhispersyncCueMapRendered>(
 			decodeReaderBridgeEvent(
-				"""{"type":"whispersyncCueMapRendered","sourceOrdinals":[7,3,9],"revisionDigest":"5f04c2a19e7d","presentationGeneration":8,"destinationFoliateSessionId":"session-a","destinationCommitSequence":41,"text":"must-not-survive","href":"must-not-survive","bookId":"must-not-survive"}"""
+				"""
+				{
+				  "type":"whispersyncCueMapRendered",
+				  "sourceOrdinals":[7,3,9],
+				  "revisionDigest":"5f04c2a19e7d",
+				  "presentationGeneration":8,
+				  "destinationFoliateSessionId":"session-a",
+				  "destinationCommitSequence":41,
+				  "markerReceipts":[{
+				    "sourceOrdinal":7,
+				    "prepared":true,
+				    "requested":false,
+				    "audioActive":true,
+				    "renderedHighlight":false,
+				    "anchorReceipt":{
+				      "foliateSessionId":"session-a",
+				      "destinationCommitToken":"opaque-presentation-token",
+				      "visualPageOrdinal":9,
+				      "spineIndex":7,
+				      "rasterGeneration":12,
+				      "textureGeneration":13,
+				      "presentationMutationGeneration":14,
+				      "presentationSequence":15,
+				      "anchorGeneration":16,
+				      "boundarySequence":7,
+				      "layoutGeneration":17,
+				      "viewGeneration":18,
+				      "commitSequence":41,
+				      "committedSpineIndex":7,
+				      "committedChapterPageIndex":9,
+				      "committedChapterPageCount":127,
+				      "paginationFingerprint":"pagination-safe",
+				      "layoutFingerprint":"layout-safe",
+				      "readerSettingsRasterKey":"settings-safe",
+				      "captureGeometry":{
+				        "viewportWidth":1200,
+				        "viewportHeight":800,
+				        "mode":"single",
+				        "pages":[{"role":"full","left":0,"top":0,"width":1200,"height":800}]
+				      },
+				      "pageLocalRects":[{"role":"full","left":80,"top":120,"width":180,"height":24}]
+				    }
+				  }],
+				  "text":"must-not-survive",
+				  "href":"must-not-survive",
+				  "bookId":"must-not-survive"
+				}
+				""".trimIndent()
 			)
 		)
 		val seek = assertIs<ReaderBridgeEvent.WhispersyncCueMapSeekRequested>(
@@ -358,6 +405,10 @@ class ReaderBridgeProtocolTest {
 		)
 
 		assertEquals(listOf(7, 3, 9), rendered.sourceOrdinalsInDomReadingOrder)
+		assertEquals(listOf(7), rendered.markerReceipts.map { marker -> marker.sourceOrdinal })
+		assertEquals(7L, rendered.markerReceipts.single().anchorReceipt.boundarySequence)
+		assertTrue(rendered.markerReceipts.single().prepared)
+		assertTrue(rendered.markerReceipts.single().audioActive)
 		assertEquals(3, seek.sourceOrdinal)
 		assertEquals(ReaderWhispersyncCueMapHoldOutcome.CancelledCurlStart, cancelled.outcome)
 		assertFalse(rendered.toString().contains("must-not-survive"))

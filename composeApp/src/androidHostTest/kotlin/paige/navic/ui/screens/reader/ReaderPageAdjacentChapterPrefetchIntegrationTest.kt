@@ -591,6 +591,71 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun lowMemoryAfterReadyRetiresPassiveWorkWithoutShowingForegroundFailure() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			retirePassiveSessionOnCancel = true
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+			val passivePort = fixture.passiveOwner.currentPort
+
+			fixture.dispatchLowMemory()
+
+			assertTrue(passivePort.isRetired)
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+			assertEquals(ReaderPagePreparationPresentation.Hidden, fixture.latestState.presentation)
+			assertIs<ReaderPageNewPointerDecision.Accept>(
+				fixture.latestState.operationPolicy.newPointer
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun lowMemoryBeforeRetryDeckProofDoesNotPromoteRasterProofToReady() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			retirePassiveSessionOnCancel = true,
+			autoStartRequestedPrewarm = true
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.prewarm.completeFailed()
+			assertEquals(ReaderPagePreparationPhase.Failed, fixture.latestState.phase)
+
+			fixture.controller.retryPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			assertEquals(ReaderPagePreparationPhase.Preparing, fixture.latestState.phase)
+
+			fixture.dispatchLowMemory()
+
+			assertEquals(ReaderPagePreparationPhase.Failed, fixture.latestState.phase)
+			assertTrue(fixture.latestState.retryable)
+			assertFalse(
+				fixture.states.any { state ->
+					fixture.statePreparationGeneration(state) == fixture.preparationGeneration() &&
+						state.phase == ReaderPagePreparationPhase.Ready
+				}
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun profileReplacementCannotRelabelAnOldDurablePlan() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
@@ -729,7 +794,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.prewarm.completeDeferred(
-				reason = "canonical-live-commit-unavailable",
+				reason = "canonical-rendered-destination-absent",
 				stage = "passive-manifest"
 			)
 
@@ -740,6 +805,58 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 
 			assertTrue(fixture.controller.onCanonicalLiveCommitIssued())
 
+			assertEquals(1, fixture.retryProbe.freshManifestRequestCount)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun currentLiveProfileDeferralResumesOnlyAfterLayoutStabilizes() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.prewarm.completeDeferred(
+				reason = "current-live-profile-or-layout-unavailable",
+				stage = "passive-manifest"
+			)
+
+			assertFalse(
+				fixture.controller.onRetryEvent(ReaderPageRasterRetryEvent.ContentReady)
+			)
+			assertEquals(0, fixture.retryProbe.freshManifestRequestCount)
+
+			assertTrue(
+				fixture.controller.onRetryEvent(ReaderPageRasterRetryEvent.LayoutStable)
+			)
+			assertEquals(1, fixture.retryProbe.freshManifestRequestCount)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun detachedLiveWebViewManifestDeferralResumesOnlyAfterAttachment() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.prewarm.completeDeferred(
+				reason = "live-webview-detached",
+				stage = "passive-manifest"
+			)
+
+			assertFalse(
+				fixture.controller.onRetryEvent(ReaderPageRasterRetryEvent.LayoutStable)
+			)
+			assertEquals(0, fixture.retryProbe.freshManifestRequestCount)
+
+			assertTrue(
+				fixture.controller.onRetryEvent(ReaderPageRasterRetryEvent.WebViewAttached)
+			)
 			assertEquals(1, fixture.retryProbe.freshManifestRequestCount)
 		} finally {
 			fixture.close()
@@ -1204,7 +1321,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	@Test
 	fun parsedDestinationPlanConsumesThePreparedDeckPublishedBeforeBlockingPrewarm() {
 		val parsed = readerPageRasterPreparationPlan(
-			"""{"context":{"centerPageIndex":8,"pageCount":20,"layoutMode":"single","readerDirection":"ltr","step":1,"currentChapterIndex":4,"currentChapterPageStartIndex":8,"currentChapterPageCount":3,"previousChapterPageStartIndex":4,"previousChapterPageCount":4,"nextChapterPageStartIndex":11,"nextChapterPageCount":3},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":7,"priority":"previous-chapter"},{"pageIndex":11,"priority":"next-chapter"}]}"""
+			"""{"context":{"centerPageIndex":8,"pageCount":20,"layoutMode":"single","readerDirection":"ltr","step":1,"currentChapterIndex":4,"currentChapterPageStartIndex":8,"currentChapterPageCount":3,"previousChapterPageStartIndex":4,"previousChapterPageCount":4,"nextChapterPageStartIndex":11,"nextChapterPageCount":3},"targets":[{"pageIndex":8,"priority":"current","authority":"CurrentLive"},{"pageIndex":7,"priority":"previous-chapter","authority":"OffscreenPassive"},{"pageIndex":11,"priority":"next-chapter","authority":"OffscreenPassive"}]}"""
 		)
 		assertNotNull(parsed)
 		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()

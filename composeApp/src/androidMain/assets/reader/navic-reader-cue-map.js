@@ -74,13 +74,17 @@ export class ReaderWhispersyncCueMapRuntime {
   constructor({
     contentEntries,
     resolveRange,
+    resolveAnchorReceipt,
     postEvent,
+    nativePointerOwnership = false,
     holdDurationMs = DefaultHoldDurationMs,
     touchSlopPx = DefaultTouchSlopPx,
   }) {
     this.contentEntries = contentEntries
     this.resolveRange = resolveRange
+    this.resolveAnchorReceipt = resolveAnchorReceipt
     this.postEvent = postEvent
+    this.nativePointerOwnership = nativePointerOwnership === true
     this.holdDurationMs = Math.max(1, Number(holdDurationMs) || DefaultHoldDurationMs)
     this.touchSlopPx = Math.max(0, Number(touchSlopPx) || DefaultTouchSlopPx)
     this.presentation = null
@@ -140,7 +144,26 @@ export class ReaderWhispersyncCueMapRuntime {
     })
     mapped.sort(rangeOrder)
     mapped.forEach(item => this.paint(item))
-    this.postRendered(mapped.map(item => item.sourceOrdinal))
+    const markerReceipts = mapped.map(item => {
+      let anchorReceipt = null
+      try {
+        anchorReceipt = this.resolveAnchorReceipt?.(item.content, item.cue, item.range) || null
+      } catch (_) {
+        anchorReceipt = null
+      }
+      if (!anchorReceipt) return null
+      return {
+        sourceOrdinal: item.sourceOrdinal,
+        prepared: item.sourceOrdinal === finiteOrdinal(this.presentation.preparedSourceOrdinal),
+        requested: item.sourceOrdinal === finiteOrdinal(this.presentation.requestedSourceOrdinal),
+        audioActive: item.sourceOrdinal === finiteOrdinal(this.presentation.audioActiveSourceOrdinal),
+        renderedHighlight: item.sourceOrdinal === finiteOrdinal(
+          this.presentation.renderedHighlightSourceOrdinal
+        ),
+        anchorReceipt,
+      }
+    }).filter(Boolean)
+    this.postRendered(mapped.map(item => item.sourceOrdinal), markerReceipts)
   }
 
   flushDeferredPresentation(pendingSourceOrdinal = null) {
@@ -207,10 +230,12 @@ export class ReaderWhispersyncCueMapRuntime {
     )
     const pending = this.transportAcknowledgementPending && sourceOrdinal === this.pendingSourceOrdinal
     marker.dataset.navicCueHoldState = pending ? 'indeterminate' : 'idle'
+    if (this.nativePointerOwnership) marker.style.pointerEvents = 'none'
     this.setPendingRing(marker, pending)
   }
 
   attachHoldEvents(marker, sourceOrdinal) {
+    if (this.nativePointerOwnership) return
     marker.addEventListener('pointerdown', event => this.beginHold(event, marker, sourceOrdinal))
     marker.addEventListener('lostpointercapture', event => this.pointerCancelled(event))
   }
@@ -375,10 +400,11 @@ export class ReaderWhispersyncCueMapRuntime {
     ring.setAttribute('opacity', visible ? '1' : '0')
   }
 
-  postRendered(sourceOrdinals) {
+  postRendered(sourceOrdinals, markerReceipts = []) {
     this.postSafeEvent({
       type: 'whispersyncCueMapRendered',
       sourceOrdinals: sourceOrdinals.slice(0, RenderedOrdinalEvidenceLimit),
+      markerReceipts: markerReceipts.slice(0, RenderedOrdinalEvidenceLimit),
       ...this.destinationProof(),
     })
   }

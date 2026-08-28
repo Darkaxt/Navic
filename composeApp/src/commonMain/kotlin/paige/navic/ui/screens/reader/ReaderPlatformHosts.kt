@@ -19,6 +19,8 @@ import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderReadaloudReaderInteraction
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
+import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
+import paige.navic.reader.ReaderWhispersyncCueMapState
 import paige.navic.reader.WordSyncPublicationVerifier
 import paige.navic.ui.navigation.Screen
 
@@ -48,6 +50,9 @@ expect fun KomikkuReaderNativeFrameHost(
 	whispersyncOverlayActive: Boolean,
 	whispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt?,
 	whispersyncHighlightColorArgb: Int,
+	whispersyncCueMapState: ReaderWhispersyncCueMapState,
+	onWhispersyncCueMapHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,
+	onWhispersyncCueMapSeekRequested: (Int) -> Unit,
 	pagePreparationCoverVisible: Boolean,
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,

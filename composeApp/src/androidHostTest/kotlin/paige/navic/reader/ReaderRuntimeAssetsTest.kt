@@ -1636,10 +1636,10 @@ class ReaderRuntimeAssetsTest {
 		assertContains(pagination, "const ReaderPaginationProfileMaximumCommitTransactionAttempts = 3")
 		assertContains(pagination, "function paginationProfileTaskIsCurrent(")
 		assertContains(pagination, "function invalidatePaginationProfileTask(")
-		assertContains(build, "await readerCommitTextPage(")
+		assertContains(build, "await readerCommitRenderedDestination(")
 		assertContains(build, "transactionAttempts < ReaderPaginationProfileMaximumCommitTransactionAttempts")
 		assertContains(build, "result.status === 'invalidated'")
-		assertContains(build, "const receiptIsValid = readerTextPageCommitIsValid(profileView.renderer, result)")
+		assertContains(build, "const receiptIsValid = readerRenderedDestinationCommitIsValid(")
 		assertContains(build, "this.paginationProfileWithCommitReceiptAuthority(")
 		assertContains(build, "'pagination-profile'")
 		assertContains(build, "result.status === 'committed'")
@@ -1652,11 +1652,11 @@ class ReaderRuntimeAssetsTest {
 		assertFalse(build.contains("requestAnimationFrame"))
 		assertTrue(
 			build.indexOf("this.applyReaderViewportLayoutToProfilerView(profileView, settings)") <
-				build.indexOf("await readerCommitTextPage("),
+				build.indexOf("await readerCommitRenderedDestination("),
 			"Profiler viewport layout must precede each paginator transaction."
 		)
 		assertFalse(
-			build.substringAfter("await readerCommitTextPage(").contains(
+			build.substringAfter("await readerCommitRenderedDestination(").contains(
 				"this.applyReaderViewportLayoutToProfilerView(profileView, settings)"
 			),
 			"Profiler layout must not be reapplied after exact commitment."

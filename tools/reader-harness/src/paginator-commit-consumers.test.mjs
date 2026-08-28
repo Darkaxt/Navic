@@ -6,11 +6,20 @@ const commitModulePath = new URL(
   import.meta.url,
 )
 const {
+  readerCommitRenderedDestination,
   readerCommitTextPage,
+  readerCopyRenderedDestinationCommit,
   readerCopyTextPageCommit,
+  readerForgetRenderedDestinationCommit,
   readerForgetTextPageCommit,
+  readerRememberRenderedDestinationCommit,
   readerRememberTextPageCommit,
   readerRememberTextPageVisibleContent,
+  readerRenderedDestinationCommitIdentity,
+  readerRenderedDestinationCommitIsValid,
+  readerRenderedDestinationCommitMatches,
+  readerRenderedDestinationCommitOwnerIsValid,
+  readerRenderedDestinationCommitOwnerWasRemembered,
   readerTextPageCommitIdentity,
   readerTextPageCommitIsValid,
   readerTextPageCommitMatches,
@@ -52,6 +61,47 @@ const validatingRenderer = result => ({
   validateTextPageCommit(receipt) {
     return receipt === result.receipt
   },
+})
+
+const validatingRenderedDestinationRenderer = result => ({
+  async commitRenderedDestination() {
+    return result
+  },
+  validateRenderedDestinationCommit(receipt) {
+    return receipt === result.receipt
+  },
+})
+
+test('rendered-destination ownership is structural and independent of text capability', async () => {
+  const result = committedResult()
+  const renderer = validatingRenderedDestinationRenderer(result)
+  const source = Object.freeze({ token: 'rendered-source' })
+  const target = Object.freeze({ token: 'rendered-target' })
+
+  assert.equal(
+    await readerCommitRenderedDestination(renderer, 2, 3, 'frontmatter'),
+    result,
+  )
+  assert.equal(readerRenderedDestinationCommitIsValid(renderer, result), true)
+  assert.equal(
+    readerRenderedDestinationCommitMatches(
+      result,
+      { index: 2, pageIndex: 3, pageCount: 7 },
+    ),
+    true,
+  )
+  assert.equal(
+    readerRememberRenderedDestinationCommit(source, renderer, result.receipt),
+    true,
+  )
+  assert.equal(readerRenderedDestinationCommitOwnerIsValid(source), true)
+  assert.equal(readerRenderedDestinationCommitOwnerWasRemembered(source), true)
+  assert.deepEqual(readerRenderedDestinationCommitIdentity(source), result.receipt)
+  assert.equal(readerTextPageCommitOwnerHasExpectedVisibleContent(source), false)
+  assert.equal(readerCopyRenderedDestinationCommit(source, target), true)
+  assert.equal(readerRenderedDestinationCommitOwnerIsValid(target), true)
+  assert.equal(readerForgetRenderedDestinationCommit(source), true)
+  assert.equal(readerRenderedDestinationCommitOwnerIsValid(source), false)
 })
 
 test('missing receipt API returns frozen unsupported without sampling fallbacks', async () => {
@@ -514,6 +564,28 @@ test('profiler commits page zero once per readable section and records validated
     const commitAt = fixture.layoutEvents.indexOf(`commit:${index}`)
     assert.equal(fixture.layoutEvents[commitAt - 1], 'layout')
   }
+})
+
+test('profiler uses rendered-destination authority without requiring text capability', async () => {
+  const fixture = profilerFixture()
+  const renderer = fixture.profileView.renderer
+  renderer.commitRenderedDestination = renderer.commitTextPage.bind(renderer)
+  renderer.validateRenderedDestinationCommit =
+    renderer.validateTextPageCommit.bind(renderer)
+  renderer.commitTextPage = async () => {
+    throw new Error('text capability must not gate pagination profiling')
+  }
+  renderer.validateTextPageCommit = () => false
+
+  const profile = await fixture.runtime.buildCompletePaginationProfileInProfilerView({
+    url: fixture.url,
+    fingerprint: fixture.fingerprint,
+    settings: fixture.runtime.readerSettings,
+    token: fixture.runtime.paginationProfileTaskToken,
+  })
+
+  assert.deepEqual(profile.chapters.map(chapter => chapter.pageCount), [3, 2])
+  assert.equal(profile.authority, 'paginator-commit-receipt')
 })
 
 test('profiler records nothing from mismatch missing invalid or stale receipts', async () => {
@@ -1661,9 +1733,9 @@ test('passive manifest requests cannot bootstrap or mutate live authority', asyn
     false,
   )
   for (const trigger of ['prewarm', 'idle-background']) {
-    assert.equal(
+    assert.deepEqual(
       fixture.runtime.pageTurnPassiveRasterManifestInputs(0, 4, 7),
-      null,
+      { failureReason: 'canonical-rendered-destination-absent' },
       trigger,
     )
   }
@@ -1699,7 +1771,7 @@ test('passive manifest requests cannot bootstrap or mutate live authority', asyn
   fixture.renderer.getContents = () => []
   assert.deepEqual(
     fixture.runtime.pageTurnPassiveRasterManifestInputs(0, 4, 7),
-    { failureReason: 'current-live-profile-unavailable' },
+    { failureReason: 'current-live-profile-or-layout-unavailable' },
     'current page fails visibly when its live-realized profile is unavailable',
   )
   fixture.renderer.getContents = loadedContents
@@ -1821,7 +1893,7 @@ test('live exact layout and initial commit form one serialized token operation',
   assert.equal(serialized.includes('commitSequence'), false)
 })
 
-test('live settlement and presentation are withheld when visible content no longer matches', async () => {
+test('visible-content mismatch removes text capability without revoking rendered settlement', async () => {
   const result = resultFor({ requestedIndex: 0, requestedPageIndex: 1, pageCount: 3 })
   const fixture = liveSettlementRuntime({
     results: [result],
@@ -1840,15 +1912,21 @@ test('live settlement and presentation are withheld when visible content no long
     chapterPageIndex: 1,
   })
 
+  assert.equal(readerTextPageCommitOwnerHasExpectedVisibleContent(pending), false)
   assert.equal(
     fixture.runtime.maybeCompleteNativePageTurnSettlement(
       fixture.runtime.currentPagePosition,
     ),
-    false,
+    true,
   )
-  assert.equal(fixture.runtime.nativePageTurnSettledState, null)
-  assert.equal(fixture.runtime.pageTurnLivePresentationTargetValue, null)
-  assert.equal(fixture.runtime.pageTurnLivePresentationReceiptValue, null)
+  assert.equal(
+    fixture.runtime.nativePageTurnSettledState?.token,
+    'live-visible-mismatch',
+  )
+  assert.notEqual(fixture.runtime.pageTurnLivePresentationTargetValue, null)
+  assert.notEqual(fixture.runtime.pageTurnLivePresentationReceiptValue, null)
+  assert.notEqual(fixture.runtime.pageTurnRenderedDestinationCommitIdentity(), null)
+  assert.equal(fixture.runtime.pageTurnTextPageCommitIdentity(), null)
 })
 
 test('newer live mutation invalidates the stale destination receipt before replacement settles', async () => {

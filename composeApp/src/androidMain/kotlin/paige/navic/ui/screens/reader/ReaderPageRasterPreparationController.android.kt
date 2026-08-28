@@ -367,7 +367,11 @@ internal class ReaderPageRasterPreparationController(
 
 		private fun retirePassiveRasterWork(reason: String) {
 			if (destroyed) return
-			failedPreparationGeneration = preparationGeneration
+			val retainsPreparedPresentation = hasPreparedBefore &&
+				readyPreparationGeneration == preparationGeneration
+			if (!retainsPreparedPresentation) {
+				failedPreparationGeneration = preparationGeneration
+			}
 			retryPreparationInProgress = false
 			passiveSessionRetiredForMemory = true
 			cancelPrewarm(reason = reason)
@@ -375,11 +379,15 @@ internal class ReaderPageRasterPreparationController(
 			cancelBackgroundPrefetch(reason)
 			onPassiveRasterMemoryPressure(reason)
 			bundleSource.trimMemory(reason)
-			publishPreparationState(
-				phase = ReaderPagePreparationPhase.Failed,
-				error = "Page preparation was released under memory pressure.",
-				retryable = true
-			)
+			if (retainsPreparedPresentation) {
+				publishPreparationState(phase = ReaderPagePreparationPhase.Ready)
+			} else {
+				publishPreparationState(
+					phase = ReaderPagePreparationPhase.Failed,
+					error = "Page preparation was released under memory pressure.",
+					retryable = true
+				)
+			}
 		}
 
 		override fun onLowMemory() {
@@ -1012,7 +1020,11 @@ internal class ReaderPageRasterPreparationController(
 			kind = kind,
 			reference = reference,
 			targets = listOf(
-				ReaderPageRasterBatchTarget(pageIndex, ReaderPageRasterPriority.CurrentChapter)
+				ReaderPageRasterBatchTarget(
+					pageIndex = pageIndex,
+					priority = ReaderPageRasterPriority.CurrentChapter,
+					authority = ReaderPageRasterTargetAuthority.OffscreenPassive
+				)
 			),
 			rasterGeneration = generation,
 			preparationGeneration = preparationGeneration,
@@ -1186,7 +1198,9 @@ internal class ReaderPageRasterPreparationController(
 				diagnostic == "passive-host:passive-raster-unavailable" ||
 				diagnostic.startsWith("passive-host:passive-raster-unavailable:") ->
 				ReaderPageRasterDeferralReason.PassiveHostUnavailable
-			diagnostic == "passive-manifest:canonical-live-commit-unavailable" ->
+			diagnostic == "passive-manifest:canonical-live-commit-unavailable" ||
+				diagnostic == "passive-manifest:canonical-rendered-destination-absent" ||
+				diagnostic == "passive-admission:canonical-rendered-destination-absent" ->
 				ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
 			"detach" in diagnostic || "webview" in diagnostic ->
 				ReaderPageRasterDeferralReason.WebViewDetached

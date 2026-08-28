@@ -130,7 +130,9 @@ private fun ReadaloudPlaybackPlan.trackIndexForWhispersyncAudioResource(
 ): Int? {
 	seekTarget.audioTrackIndex?.let { trackIndex ->
 		val mediaItem = mediaItems.getOrNull(trackIndex) ?: return null
-		return trackIndex.takeIf { mediaItem.resourceKey == seekTarget.audioResource }
+		return trackIndex.takeIf {
+			mediaItem.resourceKey == seekTarget.audioResource || mediaItems.size == 1
+		}
 	}
 	seekTarget.segment.audioTrackIndex
 		?.takeIf { trackIndex -> trackIndex in mediaItems.indices }

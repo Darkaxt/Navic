@@ -72,6 +72,8 @@ import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
+import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
+import paige.navic.reader.ReaderWhispersyncCueMapState
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerNativeReaderSwipeAction
 import paige.navic.reader.readerPageGestureShouldShowBusyFeedback
@@ -317,6 +319,9 @@ actual fun KomikkuReaderNativeFrameHost(
 	whispersyncOverlayActive: Boolean,
 	whispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt?,
 	whispersyncHighlightColorArgb: Int,
+	whispersyncCueMapState: ReaderWhispersyncCueMapState,
+	onWhispersyncCueMapHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,
+	onWhispersyncCueMapSeekRequested: (Int) -> Unit,
 	pagePreparationCoverVisible: Boolean,
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,
@@ -336,6 +341,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	val currentOnPageTurnBoundary by rememberUpdatedState(onPageTurnBoundary)
 	val currentOnReadableDragPreview by rememberUpdatedState(onReadableDragPreview)
 	val currentOnContentLongPress by rememberUpdatedState(onContentLongPress)
+	val currentOnWhispersyncCueMapHoldOutcome by rememberUpdatedState(onWhispersyncCueMapHoldOutcome)
+	val currentOnWhispersyncCueMapSeekRequested by rememberUpdatedState(onWhispersyncCueMapSeekRequested)
 	val currentOnPagePreparationStateChange by rememberUpdatedState(onPagePreparationStateChange)
 	val currentOnStartupShellPrepared by rememberUpdatedState(onStartupShellPrepared)
 	var rendererBusyFeedbackToken by remember { mutableLongStateOf(0L) }
@@ -443,6 +450,15 @@ actual fun KomikkuReaderNativeFrameHost(
 					whispersyncAnchorReceipt,
 					whispersyncHighlightColorArgb
 				)
+				setWhispersyncCueMap(
+					whispersyncCueMapState,
+					onHoldOutcome = { sourceOrdinal, outcome ->
+						currentOnWhispersyncCueMapHoldOutcome(sourceOrdinal, outcome)
+					},
+					onSeekRequested = { sourceOrdinal ->
+						currentOnWhispersyncCueMapSeekRequested(sourceOrdinal)
+					}
+				)
 				setPagePreparationCoverVisible(pagePreparationCoverVisible)
 				setPagePreparationRetryKey(pagePreparationRetryKey)
 				setOnViewerAction { action -> currentOnViewerAction(action) }
@@ -481,6 +497,15 @@ actual fun KomikkuReaderNativeFrameHost(
 				whispersyncOverlayActive,
 				whispersyncAnchorReceipt,
 				whispersyncHighlightColorArgb
+			)
+			root.setWhispersyncCueMap(
+				whispersyncCueMapState,
+				onHoldOutcome = { sourceOrdinal, outcome ->
+					currentOnWhispersyncCueMapHoldOutcome(sourceOrdinal, outcome)
+				},
+				onSeekRequested = { sourceOrdinal ->
+					currentOnWhispersyncCueMapSeekRequested(sourceOrdinal)
+				}
 			)
 			root.setPagePreparationCoverVisible(pagePreparationCoverVisible)
 			root.setPagePreparationRetryKey(pagePreparationRetryKey)
@@ -589,6 +614,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setChromeOverlayVisible(visible: Boolean) {
 		viewerContainer.chromeOverlayVisible = visible
+		if (visible) viewerContainer.cancelWhispersyncCueMapForChrome()
 	}
 
 	fun setShellCover(visible: Boolean, coverUrl: String?, title: String, coverBackdropEnabled: Boolean) {
@@ -720,6 +746,14 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		highlightColorArgb: Int
 	) {
 		viewerContainer.setWhispersyncOverlay(active, receipt, highlightColorArgb)
+	}
+
+	fun setWhispersyncCueMap(
+		state: ReaderWhispersyncCueMapState,
+		onHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,
+		onSeekRequested: (Int) -> Unit
+	) {
+		viewerContainer.setWhispersyncCueMap(state, onHoldOutcome, onSeekRequested)
 	}
 
 	fun setOnReadableDragPreview(
@@ -970,6 +1004,7 @@ private data class ReaderPageGestureDiagnosticContext(
 )
 
 private enum class ReaderPagePhysicalDispatchMode {
+	CueMap,
 	Legacy,
 	PlayLikeCurl
 }
@@ -978,6 +1013,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	FrameLayout(context),
 	ReaderSettingsWebViewMutationHost {
 	private val viewerContentContainer = FrameLayout(context)
+	private val whispersyncCueMapView = ReaderWhispersyncCueMapNativeView(context)
 	private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 	private val readablePageDragSlopPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()
 	private val shellCoverNavigator = KomikkuReaderNavigator(KomikkuRightAndLeftNavigation())
@@ -1572,6 +1608,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			playLikeCurlController.surfaceView,
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
+		addView(
+			whispersyncCueMapView,
+			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+		)
 	}
 
 	fun hasValidatedRasterPresentation(): Boolean =
@@ -1741,6 +1781,20 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		if (requestAuthority) {
 			playLikeCurlController.onWhispersyncOverlayAnchorUnavailable()
 		}
+	}
+
+	fun setWhispersyncCueMap(
+		state: ReaderWhispersyncCueMapState,
+		onHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,
+		onSeekRequested: (Int) -> Unit
+	) {
+		whispersyncCueMapView.onHoldOutcome = onHoldOutcome
+		whispersyncCueMapView.onSeekRequested = onSeekRequested
+		whispersyncCueMapView.setPresentation(state)
+	}
+
+	fun cancelWhispersyncCueMapForChrome() {
+		whispersyncCueMapView.cancelForChrome()
 	}
 
 	fun setPageTurnVisualLocation(
@@ -2371,15 +2425,18 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			check(physicalDispatchMode == null) {
 				"A physical pointer dispatch mode is already active"
 			}
-			physicalDispatchMode = if (shouldUsePlayLikeCurlPointerRouter()) {
-				ReaderPagePhysicalDispatchMode.PlayLikeCurl
-			} else {
-				ReaderPagePhysicalDispatchMode.Legacy
+			physicalDispatchMode = when {
+				whispersyncCueMapView.hitTest(event.x, event.y) != null ->
+					ReaderPagePhysicalDispatchMode.CueMap
+				shouldUsePlayLikeCurlPointerRouter() -> ReaderPagePhysicalDispatchMode.PlayLikeCurl
+				else -> ReaderPagePhysicalDispatchMode.Legacy
 			}
 			pageRasterPreparationController.onPointerInteractionChanged(true)
 		}
 
 		val handled = when (physicalDispatchMode) {
+			ReaderPagePhysicalDispatchMode.CueMap ->
+				whispersyncCueMapView.dispatchCuePointerEvent(event)
 			ReaderPagePhysicalDispatchMode.PlayLikeCurl ->
 				dispatchPlayLikeCurlPointerEvent(event)
 			ReaderPagePhysicalDispatchMode.Legacy ->
@@ -2497,6 +2554,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			handled
 		}
 		is ReaderPagePointerRoute.ClaimCurl -> {
+			whispersyncCueMapView.cancelForCurl()
 			dispatchContentCancel(event)
 			val originalDown = checkNotNull(retainedContentDown) {
 				"Curl claim has no retained content DOWN"

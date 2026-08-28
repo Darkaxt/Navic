@@ -614,7 +614,9 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(repair, "passiveRasterPreparationPortProvider()")
 		assertContains(repair, "passiveRasterPreparationPort.start(")
 		assertContains(repair, "ReaderPageRasterAcquisitionTrigger.Repair")
-		assertContains(repair, "ReaderPageRasterBatchTarget(pageIndex")
+		assertContains(repair, "ReaderPageRasterBatchTarget(")
+		assertContains(repair, "pageIndex = pageIndex")
+		assertContains(repair, "authority = ReaderPageRasterTargetAuthority.OffscreenPassive")
 		assertContains(repair, "readerPageRasterRepairedResult(")
 		assertContains(repair, "passive-raster-unavailable")
 		listOf(

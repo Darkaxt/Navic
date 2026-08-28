@@ -381,6 +381,9 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 		audioTrackIndex = playbackState.trackIndex,
 		positionMs = playbackState.positionMs
 	)
+	val cueMapTransportAcknowledged =
+		currentWhispersync.cueMap.transportAcknowledgementPending &&
+			!acknowledgedCueMap.transportAcknowledgementPending
 	val nextCueMap = acknowledgedCueMap.audioActive(
 		sourceOrdinal = observedSourceOrdinal.takeIf { playbackState.isPlaying },
 		revisionDigest = revisionDigest
@@ -400,7 +403,12 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 					},
 					transportPhase = nextTransportPhase,
 					lastEventProvenance = ReaderWhispersyncEventProvenance.AudioProgress,
-					status = playbackStep?.status ?: currentWhispersync.status,
+					status = when {
+						playbackStep?.status != null -> playbackStep.status
+						cueMapTransportAcknowledged ->
+							readerWhispersyncReadyStatus(currentWhispersync.timeline)
+						else -> currentWhispersync.status
+					},
 					cueMap = nextCueMap
 				),
 				activeMediaOverlay = publishedCommand.confirmedOverlayOrPrevious(
@@ -731,13 +739,24 @@ private fun ReaderController.reduceVisibleTextRange(
 			)
 		)
 	}
+	val destinationCommitIdentity = state.destinationCommitIdentity
+	val pendingIntent = currentWhispersync.pendingCausalIntent
+	val pendingNavigation = pendingIntent?.takeIf {
+		it.provenance == ReaderWhispersyncEventProvenance.UserNavigation
+	}
 	Logger.i(
 		WhispersyncSyncLogTag,
 		"Whispersync visible range state=received " +
 			"matched=true active=${currentWhispersync.sync.activeCueKey != null} " +
 			"count=${currentWhispersync.whispersyncSegmentCountLogValue()} " +
 			"source=${event.source.whispersyncSourceLogValue()} " +
-			"audioFollow=${event.isWhispersyncAudioFollowRange()}"
+			"audioFollow=${event.isWhispersyncAudioFollowRange()} " +
+			"destinationAvailable=${destinationCommitIdentity != null} " +
+			"destinationMatches=${event.destinationCommitIdentity == destinationCommitIdentity} " +
+			"navigationPending=${pendingNavigation != null} " +
+			"navigationCommitted=${pendingNavigation?.destinationCommitted == true} " +
+			"causalPresent=${event.causalSequence != null} " +
+			"causalMatches=${pendingNavigation != null && event.causalSequence == pendingNavigation.sequence}"
 	)
 	if (event.isWhispersyncAudioFollowRange()) {
 		return ReaderControllerStep(
@@ -752,7 +771,6 @@ private fun ReaderController.reduceVisibleTextRange(
 		)
 	}
 
-	val destinationCommitIdentity = state.destinationCommitIdentity
 	if (
 		destinationCommitIdentity == null ||
 		event.destinationCommitIdentity != destinationCommitIdentity
@@ -766,10 +784,6 @@ private fun ReaderController.reduceVisibleTextRange(
 				)
 			)
 		)
-	}
-	val pendingIntent = currentWhispersync.pendingCausalIntent
-	val pendingNavigation = pendingIntent?.takeIf {
-		it.provenance == ReaderWhispersyncEventProvenance.UserNavigation
 	}
 	if (pendingNavigation != null && !pendingNavigation.destinationCommitted) {
 		return ReaderControllerStep(
@@ -891,13 +905,25 @@ private fun ReaderController.reduceWhispersyncCueMapRendered(
 	if (event.sourceOrdinalsInDomReadingOrder.any { it !in visibleOrdinals }) {
 		return ReaderControllerStep(this)
 	}
+	val geometryReceipt = event.markerReceipts.takeIf { markers -> markers.isNotEmpty() }
+		?.let { markers ->
+			runCatching {
+				ReaderWhispersyncCueMapGeometryReceipt(
+					revisionDigest = event.revisionDigest,
+					presentationGeneration = event.presentationGeneration,
+					destinationCommitIdentity = event.destinationCommitIdentity,
+					markers = markers
+				)
+			}.getOrNull() ?: return ReaderControllerStep(this)
+		}
 	return ReaderControllerStep(
 		copy(
 			state = state.copy(
 				whispersync = state.whispersync.copy(
 					cueMap = state.whispersync.cueMap.rendered(
 						sourceOrdinals = event.sourceOrdinalsInDomReadingOrder,
-						revisionDigest = event.revisionDigest
+						revisionDigest = event.revisionDigest,
+						geometryReceipt = geometryReceipt
 					)
 				)
 			)

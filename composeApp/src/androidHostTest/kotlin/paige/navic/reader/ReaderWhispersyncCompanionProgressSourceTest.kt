@@ -51,7 +51,7 @@ class ReaderWhispersyncCompanionProgressSourceTest {
 	}
 
 	@Test
-	fun productionCueMapReportExposesCompleteBoundedLabelAndLatestTokenWithoutTruncation() {
+	fun productionCueMapReportRetainsCompleteLabelInOneNonWrappingLine() {
 		val digest = "5f04c2a19e7d"
 		val cueMap = ReaderWhispersyncCueMapState()
 			.toggled(digest)
@@ -86,8 +86,8 @@ class ReaderWhispersyncCompanionProgressSourceTest {
 		assertTrue("g1:26:a:project" in reportSurface.label)
 		assertTrue("g1:26:h:render" in reportSurface.label)
 		assertTrue(reportSurface.label.endsWith(diagnostic.tokens.last()))
-		assertEquals(Int.MAX_VALUE, reportSurface.maxLines)
-		assertTrue(reportSurface.softWrap)
+		assertEquals(1, reportSurface.maxLines)
+		assertFalse(reportSurface.softWrap)
 	}
 
 	@Test
@@ -110,11 +110,11 @@ class ReaderWhispersyncCompanionProgressSourceTest {
 		assertContains(control, "readerWhispersyncCueMapReportSurface(")
 		assertContains(control, "maxLines = reportSurface.maxLines")
 		assertContains(control, "softWrap = reportSurface.softWrap")
-		assertContains(control, "overflow = TextOverflow.Visible")
+		assertContains(control, "overflow = TextOverflow.Ellipsis")
 		val cueMapControlSource = control
 			.substringAfter("internal fun KomikkuWhispersyncCueMapControl(")
 			.substringBefore("internal fun KomikkuWhispersyncStatusBadge(")
-		assertFalse(cueMapControlSource.contains("TextOverflow.Ellipsis"))
+		assertFalse(cueMapControlSource.contains("TextOverflow.Visible"))
 		assertFalse(root.contains("ReaderDev"))
 		assertFalse(control.contains("ReaderDev"))
 	}

@@ -9,6 +9,8 @@ import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
+import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
+import paige.navic.reader.ReaderWhispersyncCueMapState
 
 @Composable
 actual fun KomikkuReaderNativeFrameHost(
@@ -36,6 +38,9 @@ actual fun KomikkuReaderNativeFrameHost(
 	whispersyncOverlayActive: Boolean,
 	whispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt?,
 	whispersyncHighlightColorArgb: Int,
+	whispersyncCueMapState: ReaderWhispersyncCueMapState,
+	onWhispersyncCueMapHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,
+	onWhispersyncCueMapSeekRequested: (Int) -> Unit,
 	pagePreparationCoverVisible: Boolean,
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,
