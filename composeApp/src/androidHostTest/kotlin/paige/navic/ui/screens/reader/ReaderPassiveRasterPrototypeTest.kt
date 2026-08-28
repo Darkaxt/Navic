@@ -54,6 +54,20 @@ class ReaderPassiveRasterPrototypeTest {
 	}
 
 	@Test
+	fun transientCurrentLiveProfileGapIsUnavailableRatherThanTerminalFailure() {
+		val encoded = JSONObject.quote(
+			JSONObject()
+				.put("failureReason", "current-live-profile-unavailable")
+				.toString()
+		)
+
+		assertSame(
+			ReaderPassiveRasterManifestResolution.Unavailable,
+			readerPassiveRasterManifestResolution(encoded)
+		)
+	}
+
+	@Test
 	fun manifestIssuanceRequiresTheCurrentCanonicalLiveCommit() {
 		val issuer = ReaderPassiveRasterManifestIssuer()
 		val first = issuer.replaceCanonicalCommit(canonicalCommit())
@@ -1158,7 +1172,7 @@ class ReaderPassiveRasterPrototypeTest {
 	}
 
 	@Test
-	fun terminalCurrentManifestFailureFinishesTheBatchVisibly() = runTest {
+	fun terminalInvalidManifestFailureFinishesTheBatchVisibly() = runTest {
 		val source = ReaderPageTurnBundleSource()
 		val runtime = SuccessfulPassiveBitmapRuntime()
 		val session = ReaderPassiveRasterPrototypeSession(runtime) { bitmap ->
@@ -1169,7 +1183,7 @@ class ReaderPassiveRasterPrototypeTest {
 			liveManifestPort = ReaderPassiveRasterLiveManifestPort { _, _, _, _, onResolved ->
 				onResolved(
 					ReaderPassiveRasterManifestResolution.Failed(
-						"current-live-profile-unavailable"
+						"manifest-invalid"
 					)
 				)
 			},
@@ -1200,7 +1214,7 @@ class ReaderPassiveRasterPrototypeTest {
 			ReaderPageRasterBatchOutcome.Failed(
 				stage = "passive-manifest",
 				pageIndex = 4,
-				reason = "current-live-profile-unavailable"
+				reason = "manifest-invalid"
 			),
 			outcome
 		)

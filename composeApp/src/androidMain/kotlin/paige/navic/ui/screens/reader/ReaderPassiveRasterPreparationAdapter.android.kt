@@ -584,13 +584,11 @@ internal fun readerPassiveRasterManifestResolution(
 		?: return ReaderPassiveRasterManifestResolution.Failed("manifest-invalid")
 	val failureReason = json.optString("failureReason").takeIf(String::isNotBlank)
 	if (failureReason != null) {
-		return ReaderPassiveRasterManifestResolution.Failed(
-			if (failureReason == "current-live-profile-unavailable") {
-				failureReason
-			} else {
-				"manifest-invalid"
-			}
-		)
+		return if (failureReason == "current-live-profile-unavailable") {
+			ReaderPassiveRasterManifestResolution.Unavailable
+		} else {
+			ReaderPassiveRasterManifestResolution.Failed("manifest-invalid")
+		}
 	}
 	return readerPassiveRasterManifestInputs(encoded)
 		?.let(ReaderPassiveRasterManifestResolution::Available)
