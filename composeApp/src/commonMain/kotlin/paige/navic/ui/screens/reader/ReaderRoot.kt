@@ -325,7 +325,10 @@ internal fun KomikkuReaderRoot(
 						modifier = Modifier.matchParentSize()
 					)
 				}
-				if (controllerState.paginationProfile.status != "measuring") {
+				if (
+					controllerState.errorMessage == null &&
+						controllerState.paginationProfile.status != "measuring"
+				) {
 					ReaderPagePreparationOverlay(
 						state = pagePreparationState,
 						onRetry = { pagePreparationRetryKey += 1 },

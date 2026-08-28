@@ -36,13 +36,6 @@ fun ReaderViewerHost(
 			.background(Color.Black),
 		contentAlignment = Alignment.Center
 	) {
-		ReaderEngineContent(
-			readerTitle = readerTitle,
-			engineRenderer = engineRenderer,
-			onEngineHostEvent = onEngineHostEvent,
-			modifier = Modifier.matchParentSize()
-		)
-
 		if (controllerState.errorMessage != null) {
 			ReaderViewerStatus(
 				title = readerTitle,
@@ -51,6 +44,13 @@ fun ReaderViewerHost(
 				modifier = Modifier
 					.fillMaxWidth(0.72f)
 					.padding(24.dp)
+			)
+		} else {
+			ReaderEngineContent(
+				readerTitle = readerTitle,
+				engineRenderer = engineRenderer,
+				onEngineHostEvent = onEngineHostEvent,
+				modifier = Modifier.matchParentSize()
 			)
 		}
 	}

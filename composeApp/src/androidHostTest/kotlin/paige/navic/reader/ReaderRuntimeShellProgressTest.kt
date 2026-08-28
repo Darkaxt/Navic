@@ -366,6 +366,7 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun terminalReaderErrorReleasesTheNativePagePreparationShield() {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val readerViewerHostText = readerCommonUiFile("ReaderViewerHost.kt").readText()
 
 		assertTrue(
 			Regex(
@@ -373,6 +374,20 @@ class ReaderRuntimeShellProgressTest {
 					"""pagePreparationState\.presentation == ReaderPagePreparationPresentation\.Cover"""
 			).containsMatchIn(readerRootText)
 		)
+		assertTrue(
+			Regex(
+				"""if\s*\(\s*controllerState\.errorMessage == null &&\s*""" +
+					"""controllerState\.paginationProfile\.status != "measuring"\s*\)\s*\{\s*""" +
+					"""ReaderPagePreparationOverlay\("""
+			).containsMatchIn(readerRootText)
+		)
+		val errorBranchMarker = "if (controllerState.errorMessage != null) {"
+		val errorBranch = readerViewerHostText.substringAfter(errorBranchMarker)
+		val errorStatusIndex = errorBranch.indexOf("ReaderViewerStatus(")
+		val engineElseIndex = errorBranch.indexOf("} else {")
+		assertTrue(errorStatusIndex in 0 until engineElseIndex)
+		assertContains(errorBranch.substringAfter("} else {"), "ReaderEngineContent(")
+		assertFalse(readerViewerHostText.substringBefore(errorBranchMarker).contains("ReaderEngineContent("))
 	}
 
 	@Test
@@ -386,7 +401,7 @@ class ReaderRuntimeShellProgressTest {
 		assertTrue(contentOnlyOverlays > paginationBadge)
 		assertContains(
 			readerRootText,
-			"if (controllerState.paginationProfile.status != \"measuring\")"
+			"controllerState.paginationProfile.status != \"measuring\""
 		)
 	}
 
