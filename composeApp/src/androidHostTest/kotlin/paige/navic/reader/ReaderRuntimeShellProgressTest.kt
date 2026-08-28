@@ -364,6 +364,18 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun terminalReaderErrorReleasesTheNativePagePreparationShield() {
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+
+		assertTrue(
+			Regex(
+				"""pagePreparationCoverVisible\s*=\s*controllerState\.errorMessage == null &&\s*""" +
+					"""pagePreparationState\.presentation == ReaderPagePreparationPresentation\.Cover"""
+			).containsMatchIn(readerRootText)
+		)
+	}
+
+	@Test
 	fun shellCoverShowsPaginationProgressBeforeEnteringThePublication() {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val overlay = readerRootText.substringAfter("private fun KomikkuComposeOverlay(")

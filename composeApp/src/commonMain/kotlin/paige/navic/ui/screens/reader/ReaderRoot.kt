@@ -221,7 +221,9 @@ internal fun KomikkuReaderRoot(
 					)
 				}
 			},
-			pagePreparationCoverVisible = pagePreparationState.presentation == ReaderPagePreparationPresentation.Cover,
+			pagePreparationCoverVisible =
+				controllerState.errorMessage == null &&
+					pagePreparationState.presentation == ReaderPagePreparationPresentation.Cover,
 			pageOperationPolicy = pagePreparationState.operationPolicy,
 			pagePreparationRetryKey = pagePreparationRetryKey,
 			onPagePreparationStateChange = { state -> pagePreparationState = state },
