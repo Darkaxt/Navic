@@ -82,3 +82,29 @@ internal fun ReaderCoordinator.onWordSyncChapterFailed(
 	chapterKey: String
 ): ReaderCoordinatorStep =
 	applyWordSyncDecision(wordSync.onChapterFailed(generation, chapterKey, controller))
+
+internal class ReaderWordSyncBridgeCommandSequence {
+	private val commands = mutableListOf<ReaderBridgeCommand>()
+
+	fun capture(previous: ReaderEngineViewState, next: ReaderEngineViewState) {
+		val previousCommandKey = (previous as? ReaderEngineViewState.WebViewPublication)?.commandKey
+		val nextPublication = next as? ReaderEngineViewState.WebViewPublication ?: return
+		if (nextPublication.commandKey == previousCommandKey) return
+		when (val command = nextPublication.command) {
+			is ReaderEngineHostCommand.FoliateBridge -> commands += command.command
+			is ReaderEngineHostCommand.FoliateBridgeSequence -> commands += command.commands
+			null -> Unit
+		}
+	}
+
+	fun applyTo(coordinator: ReaderCoordinator): ReaderCoordinator {
+		if (commands.size <= 1) return coordinator
+		val publication = coordinator.viewState as? ReaderEngineViewState.WebViewPublication
+			?: return coordinator
+		return coordinator.copy(
+			viewState = publication.copy(
+				command = ReaderEngineHostCommand.FoliateBridgeSequence(commands)
+			)
+		)
+	}
+}

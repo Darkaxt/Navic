@@ -98,6 +98,12 @@ sealed interface ReaderEngineCommand {
 	) : ReaderEngineCommand
 	data class ApplyMediaOverlay(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
 	data class UpdateMediaOverlayProgress(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
+	data class ReplaceWhispersyncCueMap(
+		val presentation: ReaderWhispersyncCueMapPresentation
+	) : ReaderEngineCommand
+	data class CancelWhispersyncCueMapHold(
+		val reason: ReaderWhispersyncCueMapHoldOutcome
+	) : ReaderEngineCommand
 	data class ClearMediaOverlayPresentation(
 		val overlayRequestId: Long,
 		val clearedThroughBoundarySequence: Long
@@ -119,6 +125,8 @@ val ReaderEngineCommand.requiredCapability: ReaderEngineCapability?
 		is ReaderEngineCommand.InstallRawTextProvenance,
 		is ReaderEngineCommand.ApplyMediaOverlay,
 		is ReaderEngineCommand.UpdateMediaOverlayProgress,
+		is ReaderEngineCommand.ReplaceWhispersyncCueMap,
+		is ReaderEngineCommand.CancelWhispersyncCueMapHold,
 		is ReaderEngineCommand.ClearMediaOverlayPresentation,
 		ReaderEngineCommand.ClearMediaOverlay -> ReaderEngineCapability.MediaOverlay
 
@@ -256,6 +264,24 @@ sealed interface ReaderEngineEvent {
 		val causalSequence: Long? = null,
 		val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	) : ReaderEngineEvent
+	data class WhispersyncCueMapRendered(
+		val sourceOrdinalsInDomReadingOrder: List<Int>,
+		val revisionDigest: String,
+		val presentationGeneration: Long,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity
+	) : ReaderEngineEvent
+	data class WhispersyncCueMapSeekRequested(
+		val sourceOrdinal: Int,
+		val revisionDigest: String,
+		val presentationGeneration: Long,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity
+	) : ReaderEngineEvent
+	data class WhispersyncCueMapHoldOutcome(
+		val sourceOrdinal: Int,
+		val revisionDigest: String,
+		val presentationGeneration: Long,
+		val outcome: ReaderWhispersyncCueMapHoldOutcome
+	) : ReaderEngineEvent
 	data class RawTextProvenanceStatusChanged(
 		val provenanceId: String,
 		val status: RawTextProvenanceStatus,
@@ -280,6 +306,9 @@ val ReaderEngineEvent.requiredCapability: ReaderEngineCapability?
 		is ReaderEngineEvent.SearchResults -> ReaderEngineCapability.Search
 		is ReaderEngineEvent.VisibleTextRange,
 		is ReaderEngineEvent.TextPoint,
+		is ReaderEngineEvent.WhispersyncCueMapRendered,
+		is ReaderEngineEvent.WhispersyncCueMapSeekRequested,
+		is ReaderEngineEvent.WhispersyncCueMapHoldOutcome,
 		is ReaderEngineEvent.RawTextProvenanceStatusChanged,
 		is ReaderEngineEvent.MediaOverlayActive,
 		is ReaderEngineEvent.MediaOverlayInactive -> ReaderEngineCapability.MediaOverlay

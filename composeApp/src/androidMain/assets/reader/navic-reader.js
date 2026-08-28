@@ -145,12 +145,6 @@ import {
   isThemeBackgroundMediaElement,
   readerDocumentThemeCss,
   readerContentCss,
-  readerMediaOverlayTextEntries,
-  readerMediaOverlayTextPoint,
-  readerMediaOverlayNormalizedTextMap,
-  readerMediaOverlayRawOffsetForNormalizedOffset,
-  readerMediaOverlayClampRangeBeforeNextCue,
-  readerMediaOverlayResolvedTextRange,
   komikkuTapAction,
   normalizeSearchResult,
   normalizeExcerpt,
@@ -189,6 +183,7 @@ import {
   validatedReaderOverlayCoordinateMode,
 } from './navic-reader-wordsync-provenance.js'
 import { ReaderDuplicatePageFingerprintDiagnostics } from './navic-reader-baseline-hmac.js'
+import { ReaderWhispersyncCueMapRuntime } from './navic-reader-cue-map.js'
 class NavicReaderRuntime {
   view = null
   mediaOverlayEnabled = false
@@ -338,9 +333,18 @@ class NavicReaderRuntime {
   pendingUserNavigationCausalSequence = null
   pendingExplicitCueSelectionCausalSequence = null
   destinationCommitSequence = 0
-  viewportResizeListener = () => this.applyReaderViewportLayout('resize')
+  whispersyncCueMap = null
+  viewportResizeListener = () => {
+    this.whispersyncCueMap?.clear()
+    this.applyReaderViewportLayout('resize')
+  }
 
   constructor() {
+    this.whispersyncCueMap = new ReaderWhispersyncCueMapRuntime({
+      contentEntries: () => this.contentEntries(),
+      resolveRange: (content, cue) => this.resolveMediaOverlayTextRange(content, cue, cue.textEnd)?.range,
+      postEvent: post,
+    })
     window.visualViewport?.addEventListener('resize', this.viewportResizeListener)
     window.addEventListener('resize', this.viewportResizeListener)
     requestAnimationFrame(() => this.applyReaderViewportLayout('startup'))
@@ -442,6 +446,10 @@ class NavicReaderRuntime {
         return this.applyOverlayFragment(command.fragment || command)
       case 'updateOverlayFragmentProgress':
         return this.updateOverlayFragmentProgress(command.fragment || command)
+      case 'replaceWhispersyncCueMap':
+        return this.whispersyncCueMap.replace(command)
+      case 'cancelWhispersyncCueMapHold':
+        return this.whispersyncCueMap.cancelHold(command.reason)
       case 'clearOverlayPresentation':
         return this.clearExactWordSyncOverlayPresentation(
           command.overlayRequestId,
@@ -672,6 +680,7 @@ class NavicReaderRuntime {
     this.dropDeferredExactWordSyncOverlayFragment()
     this.exactWordSyncActiveRequestId = null
     this.exactWordSyncClearedPresentation = null
+    this.whispersyncCueMap.clear()
     this.clearOverlay()
     this.rawTextProvenance.clear()
     this.duplicatePageFingerprint.endSession()
@@ -1100,72 +1109,25 @@ class NavicReaderRuntime {
     if (paintEnd <= textStart) return true
     let highlighted = false
     for (const content of this.contentEntries()) {
-      const section = Number.isFinite(Number(content.index))
-        ? this.view?.book?.sections?.[Math.floor(Number(content.index))]
-        : null
-      const sectionHref = section?.href || content.href || ''
-      if (fragment.textHref && sectionHref && !readerHrefMatches(sectionHref, fragment.textHref)) continue
-      const entries = readerMediaOverlayTextEntries(content.doc)
-      if (!entries.length) continue
-      const normalizedMap = readerMediaOverlayNormalizedTextMap(entries)
-      const resolvedRangeBeforeClamp = readerMediaOverlayResolvedTextRange(
-        normalizedMap,
-        textStart,
-        textEnd,
-        fragment.ebookText
-      )
-      const hasNextTextRange = Number.isFinite(Number(fragment.nextTextStart)) &&
-        Number.isFinite(Number(fragment.nextTextEnd)) &&
-        Number(fragment.nextTextEnd) > Number(fragment.nextTextStart)
-      const nextRange = hasNextTextRange &&
-        (!fragment.nextTextHref || !fragment.textHref || readerHrefMatches(fragment.nextTextHref, fragment.textHref))
-        ? readerMediaOverlayResolvedTextRange(
-          normalizedMap,
-          fragment.nextTextStart,
-          fragment.nextTextEnd,
-          fragment.nextEbookText
-        )
-        : null
-      const resolvedRange = readerMediaOverlayClampRangeBeforeNextCue(
-        normalizedMap,
-        resolvedRangeBeforeClamp,
-        nextRange
-      )
-      const resolvedTextStart = resolvedRange.textStart
-      const resolvedTextEnd = resolvedRange.textEnd
-      const resolvedPaintEnd = this.mediaOverlayPaintEndForResolvedRange(
-        textStart,
-        textEnd,
-        paintEnd,
-        resolvedRange.normalizedTextStart,
-        resolvedRange.normalizedTextEnd,
-        fragment
-      )
-      const resolvedRawPaintEnd = readerMediaOverlayRawOffsetForNormalizedOffset(normalizedMap, resolvedPaintEnd, 'end')
+      const resolution = this.resolveMediaOverlayTextRange(content, fragment, paintEnd)
+      if (!resolution) continue
       if (!suppressDiagnostic) {
         this.postMediaOverlayRangeDiagnostic(
           fragment,
           { start: textStart, end: textEnd },
-          resolvedRange,
-          resolvedPaintEnd,
-          resolvedRawPaintEnd
+          resolution.resolvedRange,
+          resolution.resolvedPaintEnd,
+          resolution.resolvedRawPaintEnd
         )
       }
-      const start = readerMediaOverlayTextPoint(entries, Math.floor(resolvedTextStart))
-      const end = readerMediaOverlayTextPoint(entries, Math.ceil(Math.min(resolvedTextEnd, resolvedRawPaintEnd)))
-      if (!start || !end) continue
       const overlayer = content.overlayer
       if (!overlayer) continue
-      const range = content.doc.createRange()
       try {
-        range.setStart(start.node, start.offset)
-        range.setEnd(end.node, end.offset)
-        if (range.collapsed) continue
-        overlayer.add(overlayKey, range, highlightDraw, {
+        overlayer.add(overlayKey, resolution.range, highlightDraw, {
           color: highlightColor,
           writingMode: this.view?.renderer?.writingMode,
         })
-        this.mediaOverlayActiveRanges.push(range)
+        this.mediaOverlayActiveRanges.push(resolution.range)
         highlighted = true
       } catch (_) {
         readerTrace('media-overlay-range:failed', {
@@ -1351,6 +1313,7 @@ class NavicReaderRuntime {
 
   onLoad(detail = {}) {
     this.captureDuplicatePageBaselines(detail)
+    this.whispersyncCueMap.clear()
     this.applyReaderViewportLayout('load')
     this.applyReaderDirection(this.readerDirectionModeValue, false)
     this.attachSurfacePaperTextureScrollSync()

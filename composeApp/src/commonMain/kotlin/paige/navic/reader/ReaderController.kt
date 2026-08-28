@@ -93,7 +93,11 @@ data class ReaderController(
 					progressSaveGate = decision.state,
 					state = reduction.state
 				)
-				val whispersyncStep = ReaderWhispersyncReducer.onRelocated(reducedController, event)
+				val whispersyncStep = ReaderWhispersyncReducer.onDestinationChanged(
+					step = ReaderWhispersyncReducer.onRelocated(reducedController, event),
+					destinationReplaced = reduction.state.destinationCommitIdentity !=
+						state.destinationCommitIdentity
+				)
 				ReaderControllerStep(
 					controller = whispersyncStep.controller,
 					engineCommands = listOfNotNull(
@@ -118,16 +122,10 @@ data class ReaderController(
 					)
 				)
 			)
-			is ReaderEngineEvent.PaginationProfileStatusChanged -> ReaderControllerStep(
-				copy(state = state.copy(paginationProfile = event.profile))
-			)
-			is ReaderEngineEvent.SettingsPresentationCommitted -> ReaderControllerStep(
-				copy(
-					state = state.copy(
-						readerSettingsPresentationSnapshotKey = event.snapshotKey
-					)
-				)
-			)
+			is ReaderEngineEvent.PaginationProfileStatusChanged ->
+				ReaderWhispersyncReducer.onPaginationProfileStatusChanged(this, event)
+			is ReaderEngineEvent.SettingsPresentationCommitted ->
+				ReaderWhispersyncReducer.onSettingsPresentationCommitted(this, event)
 			is ReaderEngineEvent.ContentActionClaimed -> ReaderControllerStep(
 				copy(state = state.copy(lastContentActionClaim = event.claim))
 			)
@@ -181,6 +179,12 @@ data class ReaderController(
 			is ReaderEngineEvent.VisibleTextRange ->
 				ReaderWhispersyncReducer.onVisibleTextRange(this, event)
 			is ReaderEngineEvent.TextPoint -> ReaderWhispersyncReducer.onTextPoint(this, event)
+			is ReaderEngineEvent.WhispersyncCueMapRendered ->
+				ReaderWhispersyncReducer.onCueMapRendered(this, event)
+			is ReaderEngineEvent.WhispersyncCueMapSeekRequested ->
+				ReaderWhispersyncReducer.onCueMapSeekRequested(this, event)
+			is ReaderEngineEvent.WhispersyncCueMapHoldOutcome ->
+				ReaderWhispersyncReducer.onCueMapHoldOutcome(this, event)
 			is ReaderEngineEvent.SearchResults -> ReaderSearchReducer.onResults(this, event)
 			is ReaderEngineEvent.Toc -> ReaderControllerStep(
 				copy(state = state.copy(toc = event.items))
@@ -325,6 +329,13 @@ data class ReaderController(
 
 	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderControllerStep =
 		ReaderWhispersyncReducer.loadSidecar(this, sidecar)
+
+	fun toggleWhispersyncCueMap(): ReaderControllerStep =
+		ReaderWhispersyncReducer.toggleCueMap(this)
+
+	fun cancelWhispersyncCueMapHold(
+		reason: ReaderWhispersyncCueMapHoldOutcome
+	): ReaderControllerStep = ReaderWhispersyncReducer.cancelCueMapHold(this, reason)
 
 	fun reportWhispersyncLoadFailure(
 		message: ReaderWhispersyncStatusMessage,

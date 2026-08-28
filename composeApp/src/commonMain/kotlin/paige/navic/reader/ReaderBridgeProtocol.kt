@@ -598,6 +598,27 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
+	data class ReplaceWhispersyncCueMap(
+		val presentation: ReaderWhispersyncCueMapPresentation
+	) : ReaderBridgeCommand {
+		override val type: String = "replaceWhispersyncCueMap"
+
+		override fun toJsonObject(): JsonObject =
+			presentation.toCueMapJsonObject(type)
+	}
+
+	data class CancelWhispersyncCueMapHold(
+		val reason: ReaderWhispersyncCueMapHoldOutcome
+	) : ReaderBridgeCommand {
+		override val type: String = "cancelWhispersyncCueMapHold"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+				put("reason", reason.bridgeValue)
+			}
+	}
+
 	data class ClearOverlayPresentation(
 		val overlayRequestId: Long,
 		val clearedThroughBoundarySequence: Long
@@ -791,6 +812,24 @@ sealed interface ReaderBridgeEvent {
 		val causalSequence: Long? = null,
 		val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	) : ReaderBridgeEvent
+	data class WhispersyncCueMapRendered(
+		val sourceOrdinalsInDomReadingOrder: List<Int>,
+		val revisionDigest: String,
+		val presentationGeneration: Long,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity
+	) : ReaderBridgeEvent
+	data class WhispersyncCueMapSeekRequested(
+		val sourceOrdinal: Int,
+		val revisionDigest: String,
+		val presentationGeneration: Long,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity
+	) : ReaderBridgeEvent
+	data class WhispersyncCueMapHoldOutcome(
+		val sourceOrdinal: Int,
+		val revisionDigest: String,
+		val presentationGeneration: Long,
+		val outcome: ReaderWhispersyncCueMapHoldOutcome
+	) : ReaderBridgeEvent
 	data class RawTextProvenanceStatusChanged(
 		val provenanceId: String,
 		val status: RawTextProvenanceStatus,
@@ -880,6 +919,9 @@ private val ReaderBridgeEventTypes = setOf(
 	"pullUp",
 	"visibleTextRange",
 	"textPoint",
+	"whispersyncCueMapRendered",
+	"whispersyncCueMapSeekRequested",
+	"whispersyncCueMapHoldOutcome",
 	"rawTextProvenanceStatus",
 	"overlayFragmentActive",
 	"overlayFragmentInactive",
@@ -1004,6 +1046,9 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 			)
 			"visibleTextRange" -> json.toVisibleTextRange()
 			"textPoint" -> json.toTextPoint()
+			"whispersyncCueMapRendered" -> json.toWhispersyncCueMapRendered()
+			"whispersyncCueMapSeekRequested" -> json.toWhispersyncCueMapSeekRequested()
+			"whispersyncCueMapHoldOutcome" -> json.toWhispersyncCueMapHoldOutcome()
 			"rawTextProvenanceStatus" -> json.toRawTextProvenanceStatus()
 			"overlayFragmentActive" -> json.toOverlayFragment()
 				?.let { fragment ->
@@ -1161,6 +1206,52 @@ private fun JsonObject.toTextPoint(): ReaderBridgeEvent.TextPoint? {
 	)
 }
 
+private fun JsonObject.toWhispersyncCueMapRendered(): ReaderBridgeEvent.WhispersyncCueMapRendered? {
+	val revisionDigest = cueMapRevisionDigest() ?: return null
+	val generation = cueMapPresentationGeneration() ?: return null
+	val destination = destinationCommitIdentity() ?: return null
+	val ordinals = (get("sourceOrdinals") as? JsonArray)
+		?.mapNotNull { element -> (element as? JsonPrimitive)?.intOrNull }
+		?.takeIf { values ->
+			values.size <= ReaderWhispersyncCueMapTransitionLimit &&
+				values.all { it >= 0 } && values.distinct().size == values.size
+		}
+		?: return null
+	return ReaderBridgeEvent.WhispersyncCueMapRendered(
+		sourceOrdinalsInDomReadingOrder = ordinals,
+		revisionDigest = revisionDigest,
+		presentationGeneration = generation,
+		destinationCommitIdentity = destination
+	)
+}
+
+private fun JsonObject.toWhispersyncCueMapSeekRequested(): ReaderBridgeEvent.WhispersyncCueMapSeekRequested? {
+	val sourceOrdinal = intValue("sourceOrdinal")?.takeIf { it >= 0 } ?: return null
+	return ReaderBridgeEvent.WhispersyncCueMapSeekRequested(
+		sourceOrdinal = sourceOrdinal,
+		revisionDigest = cueMapRevisionDigest() ?: return null,
+		presentationGeneration = cueMapPresentationGeneration() ?: return null,
+		destinationCommitIdentity = destinationCommitIdentity() ?: return null
+	)
+}
+
+private fun JsonObject.toWhispersyncCueMapHoldOutcome(): ReaderBridgeEvent.WhispersyncCueMapHoldOutcome? {
+	val sourceOrdinal = intValue("sourceOrdinal")?.takeIf { it >= 0 } ?: return null
+	val outcome = ReaderWhispersyncCueMapHoldOutcome.fromBridgeValue(stringValue("outcome")) ?: return null
+	return ReaderBridgeEvent.WhispersyncCueMapHoldOutcome(
+		sourceOrdinal = sourceOrdinal,
+		revisionDigest = cueMapRevisionDigest() ?: return null,
+		presentationGeneration = cueMapPresentationGeneration() ?: return null,
+		outcome = outcome
+	)
+}
+
+private fun JsonObject.cueMapRevisionDigest(): String? =
+	stringValue("revisionDigest")?.takeIf { it.matches(Regex("[0-9a-f]{12}")) }
+
+private fun JsonObject.cueMapPresentationGeneration(): Long? =
+	longValue("presentationGeneration")?.takeIf { it > 0L }
+
 private fun JsonObject.toRawTextProvenanceStatus(): ReaderBridgeEvent.RawTextProvenanceStatusChanged? {
 	val provenanceId = stringValue("provenanceId") ?: return null
 	val status = when (stringValue("status")) {
@@ -1271,6 +1362,45 @@ private fun ReaderRawTextProvenanceDescriptor.toJsonObject(): JsonObject =
 		put("extractedTextHash", extractedTextHash)
 		put("byteLength", byteLength)
 		put("tokenCount", tokenCount)
+	}
+
+private fun ReaderWhispersyncCueMapPresentation.toCueMapJsonObject(type: String): JsonObject =
+	buildJsonObject {
+		put("type", type)
+		put("enabled", enabled)
+		put("revisionDigest", revisionDigest)
+		put("presentationGeneration", presentationGeneration)
+		put(
+			"destinationCommitIdentity",
+			buildJsonObject {
+				put("foliateSessionId", destinationCommitIdentity.foliateSessionId)
+				put("commitSequence", destinationCommitIdentity.commitSequence)
+			}
+		)
+		put(
+			"cues",
+			buildJsonArray {
+				cues.forEach { cue -> add(cue.toJsonObject()) }
+			}
+		)
+		preparedSourceOrdinal?.let { put("preparedSourceOrdinal", it) }
+		requestedSourceOrdinal?.let { put("requestedSourceOrdinal", it) }
+		audioActiveSourceOrdinal?.let { put("audioActiveSourceOrdinal", it) }
+		renderedHighlightSourceOrdinal?.let { put("renderedHighlightSourceOrdinal", it) }
+		put("transportAcknowledgementPending", transportAcknowledgementPending)
+	}
+
+private fun ReaderWhispersyncCueMapCue.toJsonObject(): JsonObject =
+	buildJsonObject {
+		put("sourceOrdinal", sourceOrdinal)
+		put("textHref", textHref)
+		put("textStart", textStart)
+		put("textEnd", textEnd)
+		ebookText?.let { put("ebookText", it) }
+		nextTextHref?.let { put("nextTextHref", it) }
+		nextTextStart?.let { put("nextTextStart", it) }
+		nextTextEnd?.let { put("nextTextEnd", it) }
+		nextEbookText?.let { put("nextEbookText", it) }
 	}
 
 private fun ReaderOverlayFragment.toJsonObject(): JsonObject =

@@ -2725,6 +2725,635 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun cueMapHoldReseeksTheAlreadyActiveCueForPlayingAndPausedTransport() {
+		val enabled = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+			.toggleWhispersyncCueMap().controller
+		val exactBoundary = enabled.copy(
+			state = enabled.state.copy(
+				chrome = enabled.state.chrome.copy(
+					settings = enabled.state.chrome.settings.copy(whispersyncHighlightLeadMs = 0)
+				)
+			)
+		)
+		val playingStep = exactBoundary.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				audioResource = "Audio/chapter01.m4b",
+				trackIndex = 0,
+				positionMs = 5_000L,
+				playbackSpeed = 1f,
+				syncEnabled = true
+			)
+		)
+		val activeFragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			playingStep.engineCommands.first { it is ReaderEngineCommand.ApplyMediaOverlay }
+		).fragment
+		val active = playingStep.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(activeFragment)
+		).controller
+		val paused = active.copy(
+			state = active.state.copy(
+				chrome = active.state.chrome.copy(
+					readaloudPlayback = active.state.chrome.readaloudPlayback.copy(isPlaying = false)
+				),
+				whispersync = active.state.whispersync.copy(
+					transportPhase = ReaderWhispersyncTransportPhase.Ready,
+					userPaused = true
+				)
+			)
+		)
+
+		listOf("playing" to active, "paused" to paused).forEach { (name, controller) ->
+			val cueMap = controller.state.whispersync.cueMap
+			val selected = controller.onEngineEvent(
+				ReaderEngineEvent.WhispersyncCueMapSeekRequested(
+					sourceOrdinal = 1,
+					revisionDigest = "5f04c2a19e7d",
+					presentationGeneration = cueMap.presentationGeneration,
+					destinationCommitIdentity = whispersyncTestDestination
+				)
+			)
+
+			assertEquals(5_000L, selected.whispersyncAudioSeekTarget?.positionMs, name)
+			assertEquals(1, selected.controller.state.whispersync.cueMap.requestedSourceOrdinal, name)
+			assertTrue(selected.controller.state.whispersync.cueMap.transportAcknowledgementPending, name)
+			assertEquals(activeFragment, selected.controller.state.activeMediaOverlay, name)
+			assertTrue(
+				selected.engineCommands.none { it is ReaderEngineCommand.ApplyMediaOverlay },
+				name
+			)
+			assertEquals(
+				1,
+				selected.engineCommands.count { it is ReaderEngineCommand.ReplaceWhispersyncCueMap },
+				name
+			)
+		}
+	}
+
+	@Test
+	fun sourceOrdinalMatchingRoundsFractionalMillisecondBoundaries() {
+		val timeline = WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "fractional-boundary",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 1_001L,
+					endMs = 2_001L,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 10,
+					textEnd = 42,
+					sourceOrdinal = 7
+				)
+			)
+		)
+		val fragment = ReaderOverlayFragment(
+			resourceHref = "Audio/chapter01.m4b",
+			textHref = "Text/chapter1.xhtml",
+			clipBeginSeconds = 1.001,
+			clipEndSeconds = 2.001,
+			textStart = 10,
+			textEnd = 42
+		)
+
+		assertEquals(7, timeline.sourceOrdinalFor(fragment))
+	}
+
+	@Test
+	fun cueMapTransportAcknowledgementRequiresRequestedTargetPositionAndGeneration() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+			.toggleWhispersyncCueMap().controller
+		val selected = controller.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCueMapSeekRequested(
+				sourceOrdinal = 1,
+				revisionDigest = "5f04c2a19e7d",
+				presentationGeneration = controller.state.whispersync.cueMap.presentationGeneration,
+				destinationCommitIdentity = whispersyncTestDestination
+			)
+		).controller
+
+		val stalePosition = selected.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				audioResource = "Audio/chapter01.m4b",
+				trackIndex = 0,
+				positionMs = 7_500L,
+				playbackSpeed = 1f,
+				syncEnabled = true
+			)
+		)
+		assertTrue(stalePosition.controller.state.whispersync.cueMap.transportAcknowledgementPending)
+		assertTrue(
+			stalePosition.controller.state.whispersync.cueMap.transitionTrail.none {
+				it.outcome == ReaderWhispersyncCueMapTransitionOutcome.TransportAcknowledged
+			}
+		)
+
+		val staleGenerationController = selected.copy(
+			state = selected.state.copy(
+				whispersync = selected.state.whispersync.copy(
+					cueMap = selected.state.whispersync.cueMap.copy(
+						presentationGeneration =
+							selected.state.whispersync.cueMap.presentationGeneration + 1L
+					)
+				)
+			)
+		)
+		val staleGeneration = staleGenerationController.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				audioResource = "Audio/chapter01.m4b",
+				trackIndex = 0,
+				positionMs = 5_000L,
+				playbackSpeed = 1f,
+				syncEnabled = true
+			)
+		)
+		assertTrue(staleGeneration.controller.state.whispersync.cueMap.transportAcknowledgementPending)
+
+		val acknowledged = stalePosition.controller.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				audioResource = "Audio/chapter01.m4b",
+				trackIndex = 0,
+				positionMs = 5_000L,
+				playbackSpeed = 1f,
+				syncEnabled = true
+			)
+		)
+		assertFalse(acknowledged.controller.state.whispersync.cueMap.transportAcknowledgementPending)
+	}
+
+	@Test
+	fun overlayEventsDoNotEmitRedundantCueMapReplacementWhenPresentationIsUnchanged() {
+		val enabled = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+			.toggleWhispersyncCueMap().controller
+		val playback = enabled.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				audioResource = "Audio/chapter01.m4b",
+				trackIndex = 0,
+				positionMs = 5_500L,
+				playbackSpeed = 1f,
+				syncEnabled = true
+			)
+		)
+		val fragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			playback.engineCommands.first { it is ReaderEngineCommand.ApplyMediaOverlay }
+		).fragment
+		val receipt = testAnchorReceipt("session-a")
+		val confirmed = playback.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(fragment, receipt)
+		).controller
+
+		val repeatedActive = confirmed.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(fragment, receipt)
+		)
+		assertTrue(
+			repeatedActive.engineCommands.none { it is ReaderEngineCommand.ReplaceWhispersyncCueMap }
+		)
+		val progress = repeatedActive.controller.updateMediaOverlayProgress(
+			fragment.copy(textProgressEnd = 120, textProgressFraction = 0.5)
+		)
+		assertTrue(progress.engineCommands.none { it is ReaderEngineCommand.ReplaceWhispersyncCueMap })
+
+		val disabled = repeatedActive.controller.toggleWhispersyncCueMap().controller
+		val disabledActive = disabled.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(fragment, receipt)
+		)
+		assertTrue(
+			disabledActive.engineCommands.none { it is ReaderEngineCommand.ReplaceWhispersyncCueMap }
+		)
+	}
+
+	@Test
+	fun overlayProgressProjectsCueMapPresentationOnlyWhenCueMapStateChanges() {
+		val enabled = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+			.toggleWhispersyncCueMap().controller
+		val playback = enabled.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				audioResource = "Audio/chapter01.m4b",
+				trackIndex = 0,
+				positionMs = 5_500L,
+				playbackSpeed = 1f,
+				syncEnabled = true
+			)
+		)
+		val fragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			playback.engineCommands.first { it is ReaderEngineCommand.ApplyMediaOverlay }
+		).fragment
+		val event = ReaderEngineEvent.MediaOverlayActive(
+			fragment = fragment,
+			anchorReceipt = testAnchorReceipt("session-a")
+		)
+		var changedProjectionCount = 0
+		var changedSourceOrdinalScanCount = 0
+
+		val changed = ReaderOverlayReducer.onActive(
+			controller = playback.controller,
+			event = event,
+			resolveCueMapSourceOrdinal = { timeline, overlayFragment ->
+				changedSourceOrdinalScanCount += 1
+				timeline?.sourceOrdinalFor(overlayFragment)
+			},
+			projectCueMapPresentation = { cueMap, state ->
+				changedProjectionCount += 1
+				cueMap.presentation(state)
+			}
+		)
+
+		assertEquals(1, changedSourceOrdinalScanCount)
+		assertEquals(1, changedProjectionCount)
+		assertEquals(
+			1,
+			changed.engineCommands.count { it is ReaderEngineCommand.ReplaceWhispersyncCueMap }
+		)
+		var unchangedProjectionCount = 0
+		var unchangedSourceOrdinalScanCount = 0
+
+		val unchanged = ReaderOverlayReducer.onActive(
+			controller = changed.controller,
+			event = event,
+			resolveCueMapSourceOrdinal = { timeline, overlayFragment ->
+				unchangedSourceOrdinalScanCount += 1
+				timeline?.sourceOrdinalFor(overlayFragment)
+			},
+			projectCueMapPresentation = { cueMap, state ->
+				unchangedProjectionCount += 1
+				cueMap.presentation(state)
+			}
+		)
+
+		assertEquals(0, unchangedSourceOrdinalScanCount)
+		assertEquals(0, unchangedProjectionCount)
+		assertTrue(
+			unchanged.engineCommands.none { it is ReaderEngineCommand.ReplaceWhispersyncCueMap }
+		)
+
+		val disabled = changed.controller.toggleWhispersyncCueMap().controller
+		var disabledProjectionCount = 0
+		var disabledSourceOrdinalScanCount = 0
+		val disabledUnchanged = ReaderOverlayReducer.onActive(
+			controller = disabled,
+			event = event,
+			resolveCueMapSourceOrdinal = { timeline, overlayFragment ->
+				disabledSourceOrdinalScanCount += 1
+				timeline?.sourceOrdinalFor(overlayFragment)
+			},
+			projectCueMapPresentation = { cueMap, state ->
+				disabledProjectionCount += 1
+				cueMap.presentation(state)
+			}
+		)
+
+		assertEquals(0, disabledSourceOrdinalScanCount)
+		assertEquals(0, disabledProjectionCount)
+		assertTrue(
+			disabledUnchanged.engineCommands.none {
+				it is ReaderEngineCommand.ReplaceWhispersyncCueMap
+			}
+		)
+	}
+
+	@Test
+	fun sidecarRevisionReplacementDropsOldCueMapTransitionEvidenceEvenWhenDisabled() {
+		val enabled = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+			.toggleWhispersyncCueMap().controller
+		val presentation = requireNotNull(
+			enabled.state.whispersync.cueMap.presentation(enabled.state)
+		)
+		val rendered = enabled.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCueMapRendered(
+				sourceOrdinalsInDomReadingOrder = listOf(1, 0),
+				revisionDigest = presentation.revisionDigest,
+				presentationGeneration = presentation.presentationGeneration,
+				destinationCommitIdentity = whispersyncTestDestination
+			)
+		).controller
+		val disabled = rendered.toggleWhispersyncCueMap().controller
+		val oldGeneration = disabled.state.whispersync.cueMap.presentationGeneration
+		val replacementDigest = "aaaaaaaaaaaa"
+
+		val replaced = disabled.loadWhispersyncSidecar(
+			testWhispersyncSidecar().copy(revisionDigest = replacementDigest)
+		).controller
+		val cueMap = replaced.state.whispersync.cueMap
+		val diagnostic = cueMap.productionDiagnosticSurface(replacementDigest)
+
+		assertTrue(cueMap.presentationGeneration > oldGeneration)
+		assertTrue(cueMap.transitionTrail.all { it.revisionDigest == replacementDigest })
+		assertEquals(emptyList(), diagnostic.sourceOrdinals)
+		assertEquals(
+			listOf("g${cueMap.presentationGeneration}:-:-:replace"),
+			diagnostic.tokens
+		)
+	}
+
+	@Test
+	fun productionCueMapIsOptInAndHoldCompletionSeeksOneExactVisibleSourceOrdinal() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+
+		assertFalse(controller.state.whispersync.cueMap.enabled)
+		val enabled = controller.toggleWhispersyncCueMap()
+		val presentation = assertIs<ReaderEngineCommand.ReplaceWhispersyncCueMap>(
+			enabled.engineCommands.single()
+		).presentation
+		assertTrue(enabled.controller.state.whispersync.cueMap.enabled)
+		assertEquals(listOf(0, 1), presentation.cues.map(ReaderWhispersyncCueMapCue::sourceOrdinal))
+		assertEquals("5f04c2a19e7d", presentation.revisionDigest)
+		assertEquals(0, presentation.preparedSourceOrdinal)
+		assertNull(presentation.requestedSourceOrdinal)
+
+		val request = ReaderEngineEvent.WhispersyncCueMapSeekRequested(
+			sourceOrdinal = 1,
+			revisionDigest = presentation.revisionDigest,
+			presentationGeneration = presentation.presentationGeneration,
+			destinationCommitIdentity = whispersyncTestDestination
+		)
+		val selected = enabled.controller.onEngineEvent(request)
+
+		assertEquals(5_000L, selected.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(1, selected.controller.state.whispersync.cueMap.requestedSourceOrdinal)
+		assertTrue(selected.controller.state.whispersync.cueMap.transportAcknowledgementPending)
+		assertIs<ReaderEngineCommand.ApplyMediaOverlay>(selected.engineCommands.first())
+		val requestedPresentation = assertIs<ReaderEngineCommand.ReplaceWhispersyncCueMap>(
+			selected.engineCommands.last()
+		).presentation
+		assertEquals(1, requestedPresentation.requestedSourceOrdinal)
+		assertTrue(requestedPresentation.transportAcknowledgementPending)
+
+		val repeated = selected.controller.onEngineEvent(request)
+		assertNull(repeated.whispersyncAudioSeekTarget)
+		assertTrue(repeated.engineCommands.isEmpty())
+	}
+
+	@Test
+	fun pausedTransportPositionAcknowledgesCueSeekWithoutAudioActiveStyling() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+			.toggleWhispersyncCueMap().controller
+		val cueMap = controller.state.whispersync.cueMap
+		val selected = controller.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCueMapSeekRequested(
+				sourceOrdinal = 1,
+				revisionDigest = "5f04c2a19e7d",
+				presentationGeneration = cueMap.presentationGeneration,
+				destinationCommitIdentity = whispersyncTestDestination
+			)
+		).controller
+
+		val acknowledged = selected.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				audioResource = "Audio/chapter01.m4b",
+				trackIndex = 0,
+				positionMs = 5_000L,
+				playbackSpeed = 1f,
+				syncEnabled = true
+			)
+		)
+		val presentation = assertIs<ReaderEngineCommand.ReplaceWhispersyncCueMap>(
+			acknowledged.engineCommands.last()
+		).presentation
+
+		assertFalse(acknowledged.controller.state.whispersync.cueMap.transportAcknowledgementPending)
+		assertNull(acknowledged.controller.state.whispersync.cueMap.audioActiveSourceOrdinal)
+		assertFalse(presentation.transportAcknowledgementPending)
+		assertNull(presentation.audioActiveSourceOrdinal)
+		assertTrue(
+			acknowledged.controller.state.whispersync.cueMap.transitionTrail.any {
+				it.sourceOrdinal == 1 &&
+					it.outcome == ReaderWhispersyncCueMapTransitionOutcome.TransportAcknowledged
+			}
+		)
+	}
+
+	@Test
+	fun unchangedCueMapPresentationDoesNotEmitReplacementCommand() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+			.toggleWhispersyncCueMap().controller
+
+		val unchanged = controller.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				audioResource = null,
+				positionMs = 0L,
+				playbackSpeed = 1f,
+				syncEnabled = true
+			)
+		)
+
+		assertTrue(unchanged.engineCommands.none { it is ReaderEngineCommand.ReplaceWhispersyncCueMap })
+	}
+
+	@Test
+	fun cueMapTrailRetainsTypedEvidenceAcrossRepeatedSameCueProgress() {
+		val digest = "5f04c2a19e7d"
+		var cueMap = ReaderWhispersyncCueMapState().toggled(digest)
+		cueMap = cueMap.rendered(listOf(1, 0), digest)
+		cueMap = cueMap.requested(
+			sourceOrdinal = 1,
+			revisionDigest = digest,
+			audioResource = "Audio/chapter01.m4b",
+			audioTrackIndex = 0,
+			positionMs = 5_000L
+		)
+		cueMap = cueMap.transportAcknowledged(
+			sourceOrdinal = 1,
+			revisionDigest = digest,
+			audioResource = "Audio/chapter01.m4b",
+			audioTrackIndex = 0,
+			positionMs = 5_000L
+		)
+		cueMap = cueMap.renderedHighlight(1, digest)
+		cueMap = cueMap.holdOutcome(
+			sourceOrdinal = 1,
+			revisionDigest = digest,
+			outcome = ReaderWhispersyncCueMapHoldOutcome.CancelledMovement
+		)
+		repeat(ReaderWhispersyncCueMapTransitionLimit * 2) {
+			cueMap = cueMap.audioActive(1, digest)
+		}
+
+		assertEquals(
+			listOf(1, 0),
+			cueMap.transitionTrail
+				.filter { it.state == ReaderWhispersyncCueMapMarkerState.Mapped }
+				.mapNotNull(ReaderWhispersyncCueMapTransition::sourceOrdinal)
+		)
+		assertTrue(cueMap.transitionTrail.any {
+			it.outcome == ReaderWhispersyncCueMapTransitionOutcome.SeekRequested
+		})
+		assertTrue(cueMap.transitionTrail.any {
+			it.outcome == ReaderWhispersyncCueMapTransitionOutcome.Rendered
+		})
+		assertEquals(
+			ReaderWhispersyncCueMapHoldOutcome.CancelledMovement,
+			cueMap.transitionTrail.single {
+				it.outcome == ReaderWhispersyncCueMapTransitionOutcome.HoldCancelled
+			}.holdOutcome
+		)
+		val diagnostic = cueMap.productionDiagnosticSurface(digest)
+		assertTrue("g1:1:r:seek" in diagnostic.tokens)
+		assertTrue("g1:1:h:render" in diagnostic.tokens)
+		assertTrue("g1:1:-:cancelled-movement" in diagnostic.tokens)
+		assertTrue(diagnostic.label.contains("g1:1:r:seek"))
+		assertTrue(diagnostic.tokens.size <= ReaderWhispersyncCueMapTransitionLimit)
+	}
+
+	@Test
+	fun cueMapGenerationReplacementRejectsOldHoldAndKeepsBoundedOrdinalOnlyEvidence() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+			.toggleWhispersyncCueMap().controller
+		val original = requireNotNull(controller.state.whispersync.cueMap.presentation(controller.state))
+
+		val rendered = controller.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCueMapRendered(
+				sourceOrdinalsInDomReadingOrder = listOf(1, 0),
+				revisionDigest = original.revisionDigest,
+				presentationGeneration = original.presentationGeneration,
+				destinationCommitIdentity = whispersyncTestDestination
+			)
+		).controller
+		val replaced = rendered.onEngineEvent(
+			ReaderEngineEvent.SettingsPresentationCommitted(snapshotKey = 42)
+		)
+		val replacement = assertIs<ReaderEngineCommand.ReplaceWhispersyncCueMap>(
+			replaced.engineCommands.single()
+		).presentation
+		assertTrue(replacement.presentationGeneration > original.presentationGeneration)
+		assertEquals(listOf(1, 0), replaced.controller.state.whispersync.cueMap.transitionTrail
+			.filter { it.state == ReaderWhispersyncCueMapMarkerState.Mapped }
+			.takeLast(2)
+			.mapNotNull(ReaderWhispersyncCueMapTransition::sourceOrdinal))
+		assertTrue(replaced.controller.state.whispersync.cueMap.transitionTrail.size <= 32)
+		assertFalse(replaced.controller.state.whispersync.cueMap.transitionTrail.toString().contains("chapter1"))
+		assertFalse(replaced.controller.state.whispersync.cueMap.transitionTrail.toString().contains("book-1"))
+		val diagnosticSurface = replaced.controller.state.whispersync.cueMap.productionDiagnosticSurface(
+			revisionDigest = replacement.revisionDigest
+		)
+		assertEquals("5f04c2a19e7d", diagnosticSurface.revisionDigest)
+		assertEquals(listOf(1, 0), diagnosticSurface.sourceOrdinals)
+		assertEquals(
+			listOf("g1:1:m:project", "g1:0:m:project", "g2:-:-:replace"),
+			diagnosticSurface.tokens.takeLast(3)
+		)
+		assertEquals(
+			"cue-map 5f04c2a19e7d · g1:-:-:replace→g1:1:m:project→g1:0:m:project→g2:-:-:replace",
+			diagnosticSurface.label
+		)
+		assertTrue(diagnosticSurface.sourceOrdinals.size <= 32)
+
+		val stale = replaced.controller.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCueMapSeekRequested(
+				sourceOrdinal = 1,
+				revisionDigest = original.revisionDigest,
+				presentationGeneration = original.presentationGeneration,
+				destinationCommitIdentity = whispersyncTestDestination
+			)
+		)
+		assertNull(stale.whispersyncAudioSeekTarget)
+		assertTrue(stale.engineCommands.isEmpty())
+	}
+
+	@Test
 	fun explicitWhispersyncTextPointFeedsControllerSyncAndAudioSeekTarget() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
@@ -3954,6 +4583,7 @@ class ReaderControllerTest {
 			artifactId = "artifact-3",
 			ebookBookFileId = "3913",
 			audiobookBookFileId = "694",
+			revisionDigest = "5f04c2a19e7d",
 			timeline = WhispersyncTimeline(
 				segments = listOf(
 					WhispersyncSegment(
@@ -3965,7 +4595,8 @@ class ReaderControllerTest {
 						fragmentId = "seg-1",
 						textStart = 10,
 						textEnd = 42,
-						label = "Opening sentence"
+						label = "Opening sentence",
+						sourceOrdinal = 0
 					),
 					WhispersyncSegment(
 						id = "b",
@@ -3977,7 +4608,8 @@ class ReaderControllerTest {
 						rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)",
 						textStart = 80,
 						textEnd = 140,
-						label = "Second sentence"
+						label = "Second sentence",
+						sourceOrdinal = 1
 					)
 				)
 			)

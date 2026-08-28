@@ -85,6 +85,19 @@ class WhispersyncOverlaySyncAdapter(
 				)
 		}
 
+	fun readerTargetForSegment(
+		segment: WhispersyncSegment
+	): ReaderOverlayReaderTarget<WhispersyncAudioSeekTarget> =
+		WhispersyncAudioSeekTarget(
+			audioResource = segment.audioResource,
+			positionMs = segment.startMs,
+			segment = segment,
+			audioTrackIndex = segment.audioTrackIndex
+		).toReaderTarget(
+			repeatSeek = true,
+			updateRepeatedCue = true
+		)
+
 	private fun WhispersyncAudioSeekTarget.toReaderTarget(
 		repeatSeek: Boolean,
 		updateRepeatedCue: Boolean

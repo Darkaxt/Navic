@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -35,6 +36,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Headset
+import paige.navic.icons.outlined.Visibility
+import paige.navic.icons.outlined.VisibilityOff
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderWhispersyncPlaybackControlState
 import paige.navic.reader.ReaderWhispersyncStatus
@@ -43,6 +46,24 @@ import navic.composeapp.generated.resources.action_resync
 import org.jetbrains.compose.resources.stringResource
 
 private val readerWhispersyncBadgeFadeAnimationSpec = tween<Float>(150)
+
+internal data class ReaderWhispersyncCueMapReportSurface(
+	val label: String,
+	val maxLines: Int = Int.MAX_VALUE,
+	val softWrap: Boolean = true
+) {
+	init {
+		require(label.isNotBlank())
+		require(maxLines > 0)
+	}
+}
+
+internal fun readerWhispersyncCueMapReportSurface(
+	enabled: Boolean,
+	diagnosticLabel: String
+): ReaderWhispersyncCueMapReportSurface? =
+	diagnosticLabel.takeIf { enabled && it.isNotBlank() }
+		?.let(::ReaderWhispersyncCueMapReportSurface)
 
 @Composable
 internal fun KomikkuWhispersyncPlaybackControl(
@@ -115,6 +136,47 @@ internal fun KomikkuWhispersyncPlaybackControl(
 					)
 				}
 			}
+		}
+	}
+}
+
+@Composable
+internal fun KomikkuWhispersyncCueMapControl(
+	enabled: Boolean,
+	diagnosticLabel: String,
+	readerTheme: String?,
+	onToggle: () -> Unit,
+	modifier: Modifier = Modifier
+) {
+	val reportSurface = readerWhispersyncCueMapReportSurface(
+		enabled = enabled,
+		diagnosticLabel = diagnosticLabel
+	)
+	Column(
+		modifier = modifier.widthIn(max = 360.dp),
+		horizontalAlignment = Alignment.CenterHorizontally
+	) {
+		IconButton(
+			onClick = onToggle,
+			modifier = Modifier.size(48.dp)
+		) {
+			Icon(
+				imageVector = if (enabled) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+				contentDescription = if (enabled) "Hide cue map" else "Show cue map",
+				tint = readerThemeForegroundColor(readerTheme).copy(alpha = if (enabled) 1f else 0.72f),
+				modifier = Modifier.size(22.dp)
+			)
+		}
+		reportSurface?.let { reportSurface ->
+			Text(
+				text = reportSurface.label,
+				style = MaterialTheme.typography.labelSmall,
+				color = readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f),
+				maxLines = reportSurface.maxLines,
+				softWrap = reportSurface.softWrap,
+				overflow = TextOverflow.Visible,
+				modifier = Modifier.padding(horizontal = 4.dp)
+			)
 		}
 	}
 }

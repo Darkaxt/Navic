@@ -5,13 +5,17 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.encodeToString
+import okio.ByteString.Companion.encodeUtf8
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
@@ -21,6 +25,10 @@ private val WhispersyncJson = Json {
 }
 
 private const val WhispersyncBoundarySnapToleranceMs = 50L
+private const val WhispersyncCacheCueMetadataVersionKey = "_navicCueMetadataVersion"
+private const val WhispersyncCacheCueMetadataVersion = 1
+private const val WhispersyncCacheRevisionDigestKey = "_navicRevisionDigest"
+private const val WhispersyncCacheSourceOrdinalKey = "_navicSourceOrdinal"
 
 @Serializable
 data class WhispersyncSidecar(
@@ -36,7 +44,8 @@ data class WhispersyncSidecar(
 	val documentTextLength: Int? = null,
 	val timeline: WhispersyncTimeline = WhispersyncTimeline(),
 	val droppedSegmentCount: Int = 0,
-	val droppedSegmentReasons: List<String> = emptyList()
+	val droppedSegmentReasons: List<String> = emptyList(),
+	@Transient val revisionDigest: String = ""
 )
 
 @Serializable
@@ -134,6 +143,23 @@ data class WhispersyncTimeline(
 	}
 }
 
+fun WhispersyncTimeline.cueMapProjectionForVisibleTextRange(
+	textHref: String,
+	visibleStart: Int,
+	visibleEnd: Int
+): List<WhispersyncSegment> {
+	val normalizedTextHref = normalizedMediaOverlayResource(textHref)
+	val start = minOf(visibleStart, visibleEnd).coerceAtLeast(0)
+	val end = maxOf(visibleStart, visibleEnd).coerceAtLeast(start)
+	return segments.filter { segment ->
+		val cueStart = segment.textStart
+		val cueEnd = segment.textEnd
+		cueStart != null && cueEnd != null && cueEnd > cueStart &&
+			normalizedMediaOverlayResource(segment.textHref) == normalizedTextHref &&
+			cueEnd > start && cueStart < end
+	}
+}
+
 @Serializable
 data class WhispersyncSegment(
 	val id: String? = null,
@@ -149,7 +175,8 @@ data class WhispersyncSegment(
 	val textEnd: Int? = null,
 	val spokenText: String? = null,
 	val ebookText: String? = null,
-	val label: String? = null
+	val label: String? = null,
+	@Transient val sourceOrdinal: Int = -1
 ) {
 	fun toReaderOverlayFragment(
 		textProgressEnd: Int? = null,
@@ -186,8 +213,52 @@ data class WhispersyncAudioSeekTarget(
 	val audioTrackIndex: Int? = null
 )
 
-fun encodeWhispersyncSidecar(sidecar: WhispersyncSidecar): String =
-	WhispersyncJson.encodeToString(sidecar)
+fun encodeWhispersyncSidecar(sidecar: WhispersyncSidecar): String {
+	val serialized = WhispersyncJson.encodeToJsonElement(
+		WhispersyncSidecar.serializer(),
+		sidecar
+	).jsonObject
+	val serializedTimeline = serialized["timeline"] as? JsonObject ?: JsonObject(emptyMap())
+	val serializedSegments = serializedTimeline["segments"] as? JsonArray ?: JsonArray(emptyList())
+	val cachedSegments = buildJsonArray {
+		sidecar.timeline.segments.forEachIndexed { index, segment ->
+			val serializedSegment = serializedSegments.getOrNull(index) as? JsonObject
+				?: JsonObject(emptyMap())
+			add(
+				JsonObject(
+					serializedSegment + (
+						WhispersyncCacheSourceOrdinalKey to JsonPrimitive(segment.sourceOrdinal)
+					)
+				)
+			)
+		}
+	}
+	val cachedTimeline = JsonObject(serializedTimeline + ("segments" to cachedSegments))
+	val cached = buildJsonObject {
+		serialized.forEach { (key, value) -> put(key, value) }
+		put("timeline", cachedTimeline)
+		put(WhispersyncCacheCueMetadataVersionKey, JsonPrimitive(WhispersyncCacheCueMetadataVersion))
+		put(WhispersyncCacheRevisionDigestKey, JsonPrimitive(sidecar.revisionDigest))
+	}
+	return WhispersyncJson.encodeToString(JsonObject.serializer(), cached)
+}
+
+fun decodeCachedWhispersyncSidecar(json: String): WhispersyncSidecar {
+	val root = WhispersyncJson.parseToJsonElement(json).jsonObject
+	val cachedSegments = (root.segmentArray() ?: root.objectValue("timeline")?.segmentArray()).orEmpty()
+	val cachedSourceOrdinals = cachedSegments.mapNotNull { element ->
+		(element as? JsonObject)?.intValue(WhispersyncCacheSourceOrdinalKey)?.takeIf { it >= 0 }
+	}
+	val hasRecognizedMetadata =
+		root.intValue(WhispersyncCacheCueMetadataVersionKey) == WhispersyncCacheCueMetadataVersion &&
+		root.stringValue(WhispersyncCacheRevisionDigestKey)?.matches(Regex("[0-9a-f]{12}")) == true &&
+		cachedSourceOrdinals.size == cachedSegments.size &&
+		cachedSourceOrdinals.distinct().size == cachedSourceOrdinals.size
+	require(hasRecognizedMetadata) {
+		"Cached Whispersync sidecar lacks stable cue metadata"
+	}
+	return decodeWhispersyncSidecar(json)
+}
 
 fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 	val root = WhispersyncJson.parseToJsonElement(json).jsonObject
@@ -200,6 +271,8 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 		.mapNotNull { (it as? JsonObject)?.stringValue("href") }
 	val defaultAudioResource = audioResources.firstOrNull()
 	val defaultTextHref = ebook?.stringValue("href") ?: ebook?.stringValue("textHref")
+	val hasCacheCueMetadata = root.intValue(WhispersyncCacheCueMetadataVersionKey) ==
+		WhispersyncCacheCueMetadataVersion
 	val parsedSegments = (root.segmentArray() ?: root.objectValue("timeline")?.segmentArray())
 		.orEmpty()
 		.mapIndexed { index, element ->
@@ -207,12 +280,24 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 				?: return@mapIndexed WhispersyncSegmentParseResult.dropped(index, "invalid-segment")
 			segment.toWhispersyncSegmentResult(
 				index = index,
+				sourceOrdinal = segment.intValue(WhispersyncCacheSourceOrdinalKey)
+					?.takeIf { hasCacheCueMetadata && it >= 0 }
+					?: index,
 				defaultAudioResource = defaultAudioResource,
 				defaultTextHref = defaultTextHref
 			)
 		}
 	val segments = parsedSegments.mapNotNull { it.segment }
 	val droppedReasons = parsedSegments.mapNotNull { it.dropReason }
+	val cachedDroppedReasons = root.arrayValue("droppedSegmentReasons")
+		.orEmpty()
+		.mapNotNull { element ->
+			(element as? JsonPrimitive)
+				?.contentOrNull
+				?.trim()
+				?.takeIf(String::isNotEmpty)
+		}
+		.takeIf { hasCacheCueMetadata }
 
 	return WhispersyncSidecar(
 		artifactId = root.stringValue("artifactId") ?: root.stringValue("id"),
@@ -231,8 +316,13 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 		documentTextLength = root.intValue("documentTextLength")
 			?: ebook?.intValue("documentTextLength"),
 		timeline = WhispersyncTimeline(segments = segments),
-		droppedSegmentCount = droppedReasons.size,
-		droppedSegmentReasons = droppedReasons
+		droppedSegmentCount = root.intValue("droppedSegmentCount")
+			?.takeIf { hasCacheCueMetadata && it >= 0 }
+			?: droppedReasons.size,
+		droppedSegmentReasons = cachedDroppedReasons ?: droppedReasons,
+		revisionDigest = root.stringValue(WhispersyncCacheRevisionDigestKey)
+			?.takeIf { hasCacheCueMetadata && it.matches(Regex("[0-9a-f]{12}")) }
+			?: json.encodeUtf8().sha256().hex().take(12)
 	)
 }
 
@@ -335,6 +425,7 @@ private fun JsonObject.segmentArray(): List<JsonElement>? =
 
 private fun JsonObject.toWhispersyncSegmentResult(
 	index: Int,
+	sourceOrdinal: Int,
 	defaultAudioResource: String?,
 	defaultTextHref: String?
 ): WhispersyncSegmentParseResult {
@@ -398,7 +489,8 @@ private fun JsonObject.toWhispersyncSegmentResult(
 				?: stringValue("epubText")
 				?: text?.stringValue("ebookText")
 				?: text?.stringValue("epubText"),
-			label = stringValue("label") ?: stringValue("chapterLabel") ?: stringValue("sectionLabel")
+			label = stringValue("label") ?: stringValue("chapterLabel") ?: stringValue("sectionLabel"),
+			sourceOrdinal = sourceOrdinal
 		)
 	)
 }

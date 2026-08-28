@@ -2090,7 +2090,7 @@ class ReaderRuntimeCommonChromeTest {
 		val whispersyncControlText = readerCommonUiFile("ReaderWhispersyncStatusBadge.kt").readText()
 		val playbackControlBody = whispersyncControlText
 			.substringAfter("internal fun KomikkuWhispersyncPlaybackControl(")
-			.substringBefore("\n}\n\n@Composable\ninternal fun KomikkuWhispersyncStatusBadge(")
+			.substringBefore("\n}\n\n@Composable\ninternal fun KomikkuWhispersyncCueMapControl(")
 
 		assertContains(readerRootText, "KomikkuWhispersyncPlaybackControl(")
 		assertContains(readerRootText, ".align(Alignment.TopStart)")

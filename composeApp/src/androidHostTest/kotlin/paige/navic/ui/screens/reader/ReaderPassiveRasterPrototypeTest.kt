@@ -21,6 +21,10 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
+import paige.navic.reader.ReaderBridgeCommand
+import paige.navic.reader.ReaderDestinationCommitIdentity
+import paige.navic.reader.ReaderEngineHostCommand
+import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
@@ -29,6 +33,13 @@ import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.ReaderPageTurnPageRect
 import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.reader.ReaderPageTurnPixelRect
+import paige.navic.reader.ReaderPaginationProfileStatus
+import paige.navic.reader.ReaderPublicationKind
+import paige.navic.reader.ReaderWhispersyncCueMapCue
+import paige.navic.reader.ReaderWhispersyncCueMapPresentation
+import paige.navic.reader.defaultReaderSettings
+import paige.navic.reader.readerPageRasterSnapshotKey
+import paige.navic.reader.readerPageTurnContentReadyKey
 import paige.navic.reader.readerAssetRoot
 import paige.navic.reader.readerAndroidFile
 import paige.navic.reader.repoFile
@@ -370,6 +381,96 @@ class ReaderPassiveRasterPrototypeTest {
 			),
 			session.metrics()
 		)
+	}
+
+	@Test
+	fun cueMapPresentationUpdatesDoNotRecreateViewerOrRequestAnotherProductionRasterCapture() {
+		val fixture = fixture()
+		val runtime = FakePassiveRasterRuntime()
+		val released = mutableListOf<Int>()
+		val session = ReaderPassiveRasterPrototypeSession(runtime, released::add)
+		val viewerSlot = ReaderViewerLifecycleSlot { viewState ->
+			check(
+				session.capture(fixture.manifest) { capture ->
+					capture?.raster?.release()
+				}
+			)
+			readerViewerFor(viewState)
+		}
+		val settings = defaultReaderSettings()
+		val destination = ReaderDestinationCommitIdentity("session-a", 41L)
+		val presentation = ReaderWhispersyncCueMapPresentation(
+			enabled = true,
+			revisionDigest = "5f04c2a19e7d",
+			presentationGeneration = 8L,
+			destinationCommitIdentity = destination,
+			cues = listOf(
+				ReaderWhispersyncCueMapCue(
+					sourceOrdinal = 4,
+					textHref = "Text/chapter.xhtml",
+					textStart = 5,
+					textEnd = 8
+				)
+			),
+			preparedSourceOrdinal = 4
+		)
+		val initial = ReaderEngineViewState.WebViewPublication(
+			publicationUrl = "https://appassets.androidplatform.net/reader-cache/book-1/publication.epub",
+			title = "Reader",
+			kind = ReaderPublicationKind.Ebook,
+			mediaOverlayEnabled = true,
+			externalShellCover = false,
+			nativeShellCoverUrl = null,
+			canReturnToShellCover = false,
+			settings = settings,
+			startLocator = null
+		)
+		val paginationProfile = ReaderPaginationProfileStatus(
+			status = "ready",
+			fingerprint = "pagination-a",
+			pageCount = 12
+		)
+		val initialViewer = viewerSlot.update(initial)
+		runtime.completeCommit()
+		runtime.completeRaster(81)
+		val baselineCaptureRequests = runtime.captureRequests
+		val baselineOwnership = Triple(
+			initialViewer.key,
+			settings.readerPageRasterSnapshotKey(),
+			readerPageTurnContentReadyKey(paginationProfile)
+		)
+
+		val enabled = initial.copy(
+			command = ReaderEngineHostCommand.FoliateBridge(
+				ReaderBridgeCommand.ReplaceWhispersyncCueMap(presentation)
+			),
+			commandKey = 1L
+		)
+		val enabledViewer = viewerSlot.update(enabled)
+		val styleUpdated = enabled.copy(
+			command = ReaderEngineHostCommand.FoliateBridge(
+				ReaderBridgeCommand.ReplaceWhispersyncCueMap(
+					presentation.copy(
+						audioActiveSourceOrdinal = 4,
+						renderedHighlightSourceOrdinal = 4
+					)
+				)
+			),
+			commandKey = 2L
+		)
+		val updatedViewer = viewerSlot.update(styleUpdated)
+		val updatedOwnership = Triple(
+			updatedViewer.key,
+			styleUpdated.settings.readerPageRasterSnapshotKey(),
+			readerPageTurnContentReadyKey(paginationProfile)
+		)
+
+		assertEquals(1, baselineCaptureRequests)
+		assertEquals(0, runtime.captureRequests - baselineCaptureRequests)
+		assertEquals(initialViewer.key, enabledViewer.key)
+		assertEquals(baselineOwnership, updatedOwnership)
+		viewerSlot.dispose()
+		session.close()
 	}
 
 	@Test

@@ -12,6 +12,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.reader.decodeWhispersyncSidecar
 
 class BinderyRepositoryTest {
 	@Test
@@ -306,6 +307,25 @@ class BinderyRepositoryTest {
 			      "spokenText": "Opening words",
 			      "ebookText": "Opening words",
 			      "label": "Opening"
+			    },
+			    {
+			      "startMs": 3500,
+			      "endMs": 5000,
+			      "textHref": "Text/chapter1.xhtml",
+			      "textStart": 42,
+			      "textEnd": 80
+			    },
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "startMs": 5000,
+			      "endMs": 8000,
+			      "textHref": "Text/chapter1.xhtml",
+			      "fragmentId": "seg-3",
+			      "textStart": 80,
+			      "textEnd": 140,
+			      "spokenText": "Filtered ordinal survivor",
+			      "ebookText": "Filtered ordinal survivor",
+			      "label": "Third raw cue"
 			    }
 			  ]
 			}
@@ -322,6 +342,9 @@ class BinderyRepositoryTest {
 		val second = repository.getWhispersyncSidecar("/opds/books/3816/sync/3").getOrThrow()
 
 		assertEquals("artifact-3", first.artifactId)
+		assertEquals(listOf(0, 2), first.timeline.segments.map { it.sourceOrdinal })
+		assertEquals(first.revisionDigest, second.revisionDigest)
+		assertEquals(listOf(0, 2), second.timeline.segments.map { it.sourceOrdinal })
 		assertEquals(first, second)
 		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.whispersyncSidecarBaseUrls)
 		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.whispersyncSidecarHeaders)
@@ -333,6 +356,107 @@ class BinderyRepositoryTest {
 					"artifact-3" in record.payloadJson
 			}
 		)
+	}
+
+	@Test
+	fun whispersyncSidecarRefetchesLegacyFilteredCacheWithoutStableCueMetadata() = runBlocking {
+		val path = "/opds/books/3816/sync/legacy-filtered"
+		val liveJson = """
+			{
+			  "artifactId": "artifact-live",
+			  "segments": [
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "startMs": 1250,
+			      "endMs": 3500,
+			      "textHref": "Text/chapter1.xhtml",
+			      "textStart": 10,
+			      "textEnd": 42,
+			      "spokenText": "First survivor",
+			      "ebookText": "First survivor"
+			    },
+			    {
+			      "startMs": 3500,
+			      "endMs": 5000,
+			      "textHref": "Text/chapter1.xhtml",
+			      "textStart": 42,
+			      "textEnd": 80
+			    },
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "startMs": 5000,
+			      "endMs": 8000,
+			      "textHref": "Text/chapter1.xhtml",
+			      "textStart": 80,
+			      "textEnd": 140,
+			      "spokenText": "Third raw cue",
+			      "ebookText": "Third raw cue"
+			    }
+			  ]
+			}
+		""".trimIndent()
+		val legacyFilteredJson = """
+			{
+			  "artifactId": "artifact-legacy",
+			  "timeline": {
+			    "segments": [
+			      {
+			        "audioResource": "Audio/chapter01.m4b",
+			        "startMs": 1250,
+			        "endMs": 3500,
+			        "textHref": "Text/chapter1.xhtml",
+			        "textStart": 10,
+			        "textEnd": 42,
+			        "spokenText": "First survivor",
+			        "ebookText": "First survivor"
+			      },
+			      {
+			        "audioResource": "Audio/chapter01.m4b",
+			        "startMs": 5000,
+			        "endMs": 8000,
+			        "textHref": "Text/chapter1.xhtml",
+			        "textStart": 80,
+			        "textEnd": 140,
+			        "spokenText": "Third raw cue",
+			        "ebookText": "Third raw cue"
+			      }
+			    ]
+			  }
+			}
+		""".trimIndent()
+		val cacheKey = binderyMetadataCacheKey(
+			baseUrl = "https://bindery.example.com/opds",
+			payloadType = BinderyMetadataPayloadType.WhispersyncSidecar,
+			path = path,
+			apiKeyFingerprint = binderyApiKeyFingerprint("secret")
+		)
+		val metadataCache = RecordingBinderyMetadataCache().apply {
+			runBlocking {
+				put(
+					BinderyMetadataCacheRecord(
+						cacheKey = cacheKey,
+						baseUrl = "https://bindery.example.com/opds",
+						payloadType = BinderyMetadataPayloadType.WhispersyncSidecar,
+						path = path,
+						payloadJson = legacyFilteredJson,
+						updatedAtMillis = 1_000L
+					)
+				)
+			}
+		}
+		val apiClient = FakeBinderyApiClient(whispersyncSidecarJson = liveJson)
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 2_000L }
+		)
+
+		val sidecar = repository.getWhispersyncSidecar(path).getOrThrow()
+
+		assertEquals(listOf(path), apiClient.whispersyncSidecarPaths)
+		assertEquals(listOf(0, 2), sidecar.timeline.segments.map { it.sourceOrdinal })
+		assertEquals(decodeWhispersyncSidecar(liveJson).revisionDigest, sidecar.revisionDigest)
+		assertTrue(metadataCache.records.getValue(cacheKey).payloadJson.contains("_navicCueMetadataVersion"))
 	}
 
 	@Test

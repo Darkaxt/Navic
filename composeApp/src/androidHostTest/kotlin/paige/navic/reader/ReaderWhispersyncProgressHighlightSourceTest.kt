@@ -37,7 +37,7 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 			.substringBefore("\n  clearOverlay()")
 		assertContains(highlighter, "content.overlayer")
 		assertContains(highlighter, "const highlightDraw = this.readerMediaOverlayHighlightDraw()")
-		assertContains(highlighter, "overlayer.add(overlayKey, range, highlightDraw")
+		assertContains(highlighter, "overlayer.add(overlayKey, resolution.range, highlightDraw")
 		assertFalse(
 			highlighter.contains("surroundContents") ||
 				highlighter.contains("extractContents") ||
@@ -105,6 +105,9 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 	@Test
 	fun progressiveWhispersyncHighlightResolvesEbookTextNearOffsetAnchorBeforePainting() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val overlayMethods = sourceFile(
+			"composeApp/src/androidMain/assets/reader/navic-reader-media-overlay.js"
+		).readText()
 		val helpers = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader-helpers.js").readText()
 
 		assertContains(helpers, "export const readerMediaOverlayResolvedTextRange")
@@ -121,25 +124,36 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		val highlighter = runtime
 			.substringAfter("highlightMediaOverlayTextRange(fragment) {")
 			.substringBefore("\n  clearOverlay()")
+		val resolver = overlayMethods
+			.substringAfter("function resolveMediaOverlayTextRange(content, fragment, paintEnd = fragment?.textEnd) {")
+			.substringBefore("\nfunction readerMediaOverlayHighlightColor")
 
-		assertContains(highlighter, "readerMediaOverlayNormalizedTextMap(entries)")
-		assertContains(highlighter, "readerMediaOverlayResolvedTextRange")
-		assertContains(highlighter, "fragment.ebookText")
+		assertContains(highlighter, "this.resolveMediaOverlayTextRange(content, fragment, paintEnd)")
+		assertTrue(
+			highlighter.indexOf("this.resolveMediaOverlayTextRange") <
+				highlighter.indexOf("overlayer.add(overlayKey, resolution.range")
+		)
+		assertContains(resolver, "readerMediaOverlayNormalizedTextMap(entries)")
+		assertContains(resolver, "readerMediaOverlayResolvedTextRange")
+		assertContains(resolver, "fragment.ebookText")
 		assertFalse(
-			highlighter.contains("readerMediaOverlayResolvedTextRange(normalizedMap, textStart, textEnd, fragment.spokenText)"),
+			resolver.contains("readerMediaOverlayResolvedTextRange(normalizedMap, textStart, textEnd, fragment.spokenText)"),
 			"Whispersync EPUB highlighting must not use ASR text as the location authority; Bindery ebookText owns the EPUB-side span."
 		)
-		assertContains(highlighter, "resolvedRange.normalizedTextStart")
-		assertContains(highlighter, "resolvedRange.normalizedTextEnd")
-		assertContains(highlighter, "resolvedTextStart")
-		assertContains(highlighter, "resolvedTextEnd")
-		assertContains(highlighter, "mediaOverlayPaintEndForResolvedRange")
-		assertContains(highlighter, "readerMediaOverlayRawOffsetForNormalizedOffset")
+		assertContains(resolver, "resolvedRange.normalizedTextStart")
+		assertContains(resolver, "resolvedRange.normalizedTextEnd")
+		assertContains(resolver, "resolvedPaintEnd")
+		assertContains(resolver, "resolvedRawPaintEnd")
+		assertContains(resolver, "mediaOverlayPaintEndForResolvedRange")
+		assertContains(resolver, "readerMediaOverlayRawOffsetForNormalizedOffset")
 	}
 
 	@Test
 	fun progressiveWhispersyncHighlightUsesVisibleEbookTextSuffixAndNextCueClamp() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val overlayMethods = sourceFile(
+			"composeApp/src/androidMain/assets/reader/navic-reader-media-overlay.js"
+		).readText()
 		val helpers = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader-helpers.js").readText()
 
 		assertContains(helpers, "readerMediaOverlayEbookTextCandidates")
@@ -150,11 +164,15 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		val highlighter = runtime
 			.substringAfter("highlightMediaOverlayTextRange(fragment) {")
 			.substringBefore("\n  clearOverlay()")
+		val resolver = overlayMethods
+			.substringAfter("function resolveMediaOverlayTextRange(content, fragment, paintEnd = fragment?.textEnd) {")
+			.substringBefore("\nfunction readerMediaOverlayHighlightColor")
 
-		assertContains(highlighter, "fragment.nextEbookText")
-		assertContains(highlighter, "fragment.nextTextStart")
-		assertContains(highlighter, "fragment.nextTextEnd")
-		assertContains(highlighter, "readerMediaOverlayClampRangeBeforeNextCue")
+		assertContains(highlighter, "this.resolveMediaOverlayTextRange(content, fragment, paintEnd)")
+		assertContains(resolver, "fragment.nextEbookText")
+		assertContains(resolver, "fragment.nextTextStart")
+		assertContains(resolver, "fragment.nextTextEnd")
+		assertContains(resolver, "readerMediaOverlayClampRangeBeforeNextCue")
 	}
 
 	@Test
@@ -230,7 +248,7 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		assertContains(activePainter, "if (preservePlayed) this.paintPlayedMediaOverlayFragments()")
 		assertContains(highlighter, "const highlightColor = this.readerMediaOverlayHighlightColor()")
 		assertContains(highlighter, "const highlightDraw = this.readerMediaOverlayHighlightDraw()")
-		assertContains(highlighter, "overlayer.add(overlayKey, range, highlightDraw")
+		assertContains(highlighter, "overlayer.add(overlayKey, resolution.range, highlightDraw")
 		assertFalse(
 			highlighter.contains("color: 'var(--reader-accent)'"),
 			"Whispersync highlight color must come from Listening mode settings, not the reader accent token."

@@ -131,6 +131,12 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineCommand.UpdateMediaOverlayProgress -> dispatch(
 				ReaderBridgeCommand.UpdateOverlayFragmentProgress(command.fragment)
 			)
+			is ReaderEngineCommand.ReplaceWhispersyncCueMap -> dispatch(
+				ReaderBridgeCommand.ReplaceWhispersyncCueMap(command.presentation)
+			)
+			is ReaderEngineCommand.CancelWhispersyncCueMapHold -> dispatch(
+				ReaderBridgeCommand.CancelWhispersyncCueMapHold(command.reason)
+			)
 			is ReaderEngineCommand.ClearMediaOverlayPresentation -> dispatch(
 				ReaderBridgeCommand.ClearOverlayPresentation(
 					overlayRequestId = command.overlayRequestId,
@@ -245,6 +251,27 @@ sealed class FoliateWebViewEngineAdapter(
 				causalSequence = event.causalSequence,
 				destinationCommitIdentity = event.destinationCommitIdentity
 			)
+			is ReaderBridgeEvent.WhispersyncCueMapRendered ->
+				ReaderEngineEvent.WhispersyncCueMapRendered(
+					sourceOrdinalsInDomReadingOrder = event.sourceOrdinalsInDomReadingOrder,
+					revisionDigest = event.revisionDigest,
+					presentationGeneration = event.presentationGeneration,
+					destinationCommitIdentity = event.destinationCommitIdentity
+				)
+			is ReaderBridgeEvent.WhispersyncCueMapSeekRequested ->
+				ReaderEngineEvent.WhispersyncCueMapSeekRequested(
+					sourceOrdinal = event.sourceOrdinal,
+					revisionDigest = event.revisionDigest,
+					presentationGeneration = event.presentationGeneration,
+					destinationCommitIdentity = event.destinationCommitIdentity
+				)
+			is ReaderBridgeEvent.WhispersyncCueMapHoldOutcome ->
+				ReaderEngineEvent.WhispersyncCueMapHoldOutcome(
+					sourceOrdinal = event.sourceOrdinal,
+					revisionDigest = event.revisionDigest,
+					presentationGeneration = event.presentationGeneration,
+					outcome = event.outcome
+				)
 			is ReaderBridgeEvent.RawTextProvenanceStatusChanged ->
 				ReaderEngineEvent.RawTextProvenanceStatusChanged(
 					provenanceId = event.provenanceId,

@@ -51,12 +51,32 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 	command: ReaderBridgeCommand?,
 	commandKey: Long,
 	rawTextProvenanceDescriptors: List<ReaderRawTextProvenanceDescriptor> = emptyList()
+): ReaderWebCommandDispatchStep = commandsForReadyReaderRuntime(
+	runtimeGeneration = runtimeGeneration,
+	publicationKey = publicationKey,
+	openCommand = openCommand,
+	commands = listOfNotNull(command),
+	commandKey = commandKey,
+	rawTextProvenanceDescriptors = rawTextProvenanceDescriptors
+)
+
+fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
+	runtimeGeneration: Int,
+	publicationKey: String,
+	openCommand: ReaderBridgeCommand.OpenPublication,
+	commands: List<ReaderBridgeCommand>,
+	commandKey: Long,
+	rawTextProvenanceDescriptors: List<ReaderRawTextProvenanceDescriptor> = emptyList()
 ): ReaderWebCommandDispatchStep {
 	val publicationChanged = this.publicationKey != publicationKey
 	val generationChanged = this.runtimeGeneration != runtimeGeneration
-	val currentCommandId = "reader-command-$publicationSequence-$commandKey"
-	val currentCommandWasPending = command != null &&
-		pendingCommands.any { it.dispatch.id == currentCommandId }
+	val commandKeys = commands.indices.map { index ->
+		commandKey - (commands.lastIndex - index)
+	}
+	val currentCommandIds = commandKeys.map { key -> "reader-command-$publicationSequence-$key" }
+	val currentCommandWasPending = currentCommandIds.any { commandId ->
+		pendingCommands.any { it.dispatch.id == commandId }
+	}
 	var nextState = when {
 		publicationChanged -> ReaderWebCommandDispatchState(
 			publicationKey = publicationKey,
@@ -111,20 +131,22 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 		}
 	}
 
-	val shouldQueueCurrentCommand = command != null && when {
+	val shouldQueueCurrentCommands = commands.isNotEmpty() && when {
 		publicationChanged -> true
 		generationChanged -> currentCommandWasPending || lastCommandKey != commandKey
 		else -> nextState.lastCommandKey != commandKey
 	}
-	if (shouldQueueCurrentCommand) {
+	if (shouldQueueCurrentCommands) {
 		nextState = nextState.copy(
 			lastCommandKey = commandKey,
-			pendingCommands = nextState.pendingCommands + ReaderWebPendingCommand(
-				dispatch = ReaderBridgeDispatchCommand(
-					id = "reader-command-${nextState.publicationSequence}-$commandKey",
-					command = checkNotNull(command)
+			pendingCommands = nextState.pendingCommands + commands.zip(commandKeys).map { (command, key) ->
+				ReaderWebPendingCommand(
+					dispatch = ReaderBridgeDispatchCommand(
+						id = "reader-command-${nextState.publicationSequence}-$key",
+						command = command
+					)
 				)
-			)
+			}
 		)
 	}
 

@@ -1358,7 +1358,7 @@ test('integrates exact raw mapping into reader lifecycle, visibility, painting, 
       sources['navic-reader-wordsync-provenance.js'],
       /export const paintReaderWordSyncOverlayTextRange/
     )
-    assert.match(sources['navic-reader.js'], /readerMediaOverlayResolvedTextRange/)
+    assert.match(sources['navic-reader-media-overlay.js'], /readerMediaOverlayResolvedTextRange/)
     assert.match(sources['navic-reader-location.js'], /rawFieldsForRange/)
     assert.doesNotMatch(sources['navic-reader-location.js'], /if \(!domRange\) return null/)
     assert.match(sources['navic-reader-location.js'], /candidates\.push\(\{\s*textHref,\s*\.\.\.range,?\s*\}\)/)

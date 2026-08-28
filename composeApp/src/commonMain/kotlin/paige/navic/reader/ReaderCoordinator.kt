@@ -72,9 +72,13 @@ data class ReaderCoordinator(
 	internal fun applyWordSyncDecision(decision: ReaderWordSyncDecision): ReaderCoordinatorStep {
 		val step = decision.controllerStep
 		var next = copy(controller = step.controller, wordSync = decision.coordinator)
+		val bridgeCommands = ReaderWordSyncBridgeCommandSequence()
 		step.engineCommands.forEach { command ->
+			val previousViewState = next.viewState
 			next = next.applyEngineCommand(command)
+			bridgeCommands.capture(previousViewState, next.viewState)
 		}
+		next = bridgeCommands.applyTo(next)
 		return ReaderCoordinatorStep(
 			coordinator = next,
 			progressToSave = step.progressToSave,

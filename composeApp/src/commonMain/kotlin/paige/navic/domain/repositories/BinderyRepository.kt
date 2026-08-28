@@ -382,7 +382,7 @@ class BinderyRepository(
 				decodeWhispersyncSidecar(apiClient.fetchWhispersyncSidecarJson(baseUrl, headers, path))
 			},
 			encode = ::encodeWhispersyncSidecar,
-			decode = ::decodeWhispersyncSidecar,
+			decode = ::decodeCachedWhispersyncSidecar,
 			acceptCached = ::acceptCachedWhispersyncSidecar
 		)
 

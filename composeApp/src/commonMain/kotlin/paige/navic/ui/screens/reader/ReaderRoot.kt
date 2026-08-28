@@ -1,10 +1,12 @@
 package paige.navic.ui.screens.reader
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +42,7 @@ import paige.navic.reader.normalizedReaderFlowMode
 import paige.navic.reader.normalizedReaderDragAnimationMode
 import paige.navic.reader.readerWhispersyncPlaybackControlPresentation
 import paige.navic.reader.readerWhispersyncPlaybackControlState
+import paige.navic.reader.productionDiagnosticSurface
 import paige.navic.reader.readerPageRasterSnapshotKey
 import paige.navic.reader.readerPageTurnContentReadyKey
 import paige.navic.reader.supportsReaderEngineCapability
@@ -64,6 +67,8 @@ internal fun KomikkuReaderRoot(
 	onViewerAction: (ReaderViewerAction) -> Unit,
 	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
 	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
+	onToggleWhispersyncCueMap: () -> Unit,
+	onWhispersyncCueMapChromeInterception: () -> Unit,
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
@@ -123,7 +128,25 @@ internal fun KomikkuReaderRoot(
 			shellCoverVisible = controllerState.shellCoverVisible,
 			mediaOverlayAvailable = mediaOverlayAvailable
 		)
-		val overlayVisible = controllerState.hasVisibleReaderOverlay() || whispersyncPlaybackControl.visible
+		val cueMapAvailable = controllerState.whispersync.available
+		val overlayVisible = controllerState.hasVisibleReaderOverlay() ||
+			whispersyncPlaybackControl.visible || cueMapAvailable
+		LaunchedEffect(
+			controllerState.menuVisible,
+			controllerState.dialog,
+			controllerState.selectionActions.visible,
+			controllerState.whispersync.cueMap.enabled
+		) {
+			if (
+				controllerState.whispersync.cueMap.enabled &&
+				(
+					controllerState.menuVisible || controllerState.dialog != null ||
+					controllerState.selectionActions.visible
+				)
+			) {
+				onWhispersyncCueMapChromeInterception()
+			}
+		}
 		SideEffect {
 			Logger.i(
 				KomikkuReaderRootTag,
@@ -225,6 +248,7 @@ internal fun KomikkuReaderRoot(
 						whispersyncPlaybackControl = whispersyncPlaybackControl,
 						readaloudPlaybackState = readaloudPlaybackState,
 						onWhispersyncPlaybackCommand = onWhispersyncPlaybackCommand,
+						onToggleWhispersyncCueMap = onToggleWhispersyncCueMap,
 						onPreviousChapter = onPreviousChapter,
 						onNextChapter = onNextChapter,
 						onGoToChapterPage = onGoToChapterPage,
@@ -307,6 +331,7 @@ private fun KomikkuComposeOverlay(
 	whispersyncPlaybackControl: ReaderWhispersyncPlaybackControlState,
 	readaloudPlaybackState: ReaderReadaloudPlaybackUiState?,
 	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
+	onToggleWhispersyncCueMap: () -> Unit,
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
@@ -348,6 +373,7 @@ private fun KomikkuComposeOverlay(
 	onDismissDialog: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
+	val cueMapAvailable = controllerState.whispersync.available
 	val bookId = controllerState.publication?.bookId
 	val bookmarks = if (bookId == null) {
 		emptyList()
@@ -407,16 +433,32 @@ private fun KomikkuComposeOverlay(
 				)
 			}
 		}
-		if (whispersyncPlaybackControl.visible) {
-			KomikkuWhispersyncPlaybackControl(
-				control = whispersyncPlaybackControl,
-				readerTheme = controllerState.chrome.settings.theme,
-				onCommand = onWhispersyncPlaybackCommand,
-				onOpenPlayer = onWhispersyncPlayer,
+		if (whispersyncPlaybackControl.visible || controllerState.whispersync.available) {
+			Row(
 				modifier = Modifier
 					.align(Alignment.TopStart)
 					.padding(top = if (controllerState.menuVisible) 116.dp else 28.dp, start = 28.dp)
-			)
+			) {
+				if (whispersyncPlaybackControl.visible) {
+					KomikkuWhispersyncPlaybackControl(
+						control = whispersyncPlaybackControl,
+						readerTheme = controllerState.chrome.settings.theme,
+						onCommand = onWhispersyncPlaybackCommand,
+						onOpenPlayer = onWhispersyncPlayer
+					)
+				}
+				if (cueMapAvailable) {
+					val cueMapDiagnosticSurface = controllerState.whispersync.cueMap.productionDiagnosticSurface(
+						revisionDigest = requireNotNull(controllerState.whispersync.sidecar).revisionDigest
+					)
+					KomikkuWhispersyncCueMapControl(
+						enabled = controllerState.whispersync.cueMap.enabled,
+						diagnosticLabel = cueMapDiagnosticSurface.label,
+						readerTheme = controllerState.chrome.settings.theme,
+						onToggle = onToggleWhispersyncCueMap
+					)
+				}
+			}
 		}
 		when (controllerState.dialog) {
 			ReaderControllerDialog.Contents -> KomikkuReaderContentsDialog(

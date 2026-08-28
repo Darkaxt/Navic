@@ -1984,7 +1984,7 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		val playbackControlBody = statusBadgeText
 			.substringAfter("internal fun KomikkuWhispersyncPlaybackControl(")
-			.substringBefore("@Composable\ninternal fun KomikkuWhispersyncStatusBadge(")
+			.substringBefore("@Composable\ninternal fun KomikkuWhispersyncCueMapControl(")
 		assertTrue(
 			playbackControlBody.contains("readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)") &&
 				!playbackControlBody.contains("MaterialTheme.colorScheme.onSurface") &&

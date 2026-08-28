@@ -68,7 +68,8 @@ data class ReaderWhispersyncSessionState(
 	val pendingCausalIntent: ReaderWhispersyncCausalIntent? = null,
 	val causalIntentSequence: Long = 0L,
 	val preparationGeneration: Long = 0L,
-	val lastEventProvenance: ReaderWhispersyncEventProvenance? = null
+	val lastEventProvenance: ReaderWhispersyncEventProvenance? = null,
+	val cueMap: ReaderWhispersyncCueMapState = ReaderWhispersyncCueMapState()
 ) {
 	val timeline: WhispersyncTimeline?
 		get() = sidecar?.timeline

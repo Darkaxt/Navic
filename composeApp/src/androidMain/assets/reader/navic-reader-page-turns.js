@@ -2886,6 +2886,7 @@ function previewPageDrag(command) {
     : command?.phase === 'cancel'
       ? 'cancel'
       : 'update'
+  if (phase === 'update') this.whispersyncCueMap?.cancelHold('curl-start')
   if (phase === 'cancel') {
     const previousPreview = this.nativePageDragPreview?.renderer === renderer
       ? this.nativePageDragPreview

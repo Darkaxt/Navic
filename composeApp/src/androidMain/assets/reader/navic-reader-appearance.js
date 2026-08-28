@@ -213,6 +213,7 @@ function applySettings(settings, forcePaginationReplacement = false) {
     settings
   )
   const themeChanged = currentSettings.theme !== settings.theme
+  if (requiresPaginationReplacement || themeChanged) this.whispersyncCueMap?.clear()
   if (requiresPaginationReplacement) {
     this.clearPaginationProfileOwnership('settings-change')
     this.destroyPageTurnPreviewRenderer('settings-change')

@@ -95,7 +95,15 @@ internal object ReaderOverlayReducer {
 
 	fun onActive(
 		controller: ReaderController,
-		event: ReaderEngineEvent.MediaOverlayActive
+		event: ReaderEngineEvent.MediaOverlayActive,
+		resolveCueMapSourceOrdinal: (
+			WhispersyncTimeline?,
+			ReaderOverlayFragment
+		) -> Int? = { timeline, fragment -> timeline?.sourceOrdinalFor(fragment) },
+		projectCueMapPresentation: (
+			ReaderWhispersyncCueMapState,
+			ReaderControllerState
+		) -> ReaderWhispersyncCueMapPresentation? = { cueMap, state -> cueMap.presentation(state) }
 	): ReaderControllerStep {
 		val state = controller.state
 		if (state.shellCoverVisible) return ReaderControllerStep(controller)
@@ -130,31 +138,58 @@ internal object ReaderOverlayReducer {
 				)
 			}
 		}
+		val currentCueMap = currentWhispersync.cueMap
+		val shouldResolveCueMapSourceOrdinal = currentCueMap.enabled &&
+			(!wasConfirmed || currentCueMap.renderedHighlightSourceOrdinal == null)
+		val nextCueMap = if (shouldResolveCueMapSourceOrdinal) {
+			currentCueMap.renderedHighlight(
+				sourceOrdinal = resolveCueMapSourceOrdinal(
+					currentWhispersync.timeline,
+					event.fragment
+				),
+				revisionDigest = currentWhispersync.sidecar?.revisionDigest.orEmpty()
+			)
+		} else {
+			currentCueMap
+		}
+		val cueMapChanged = nextCueMap != currentCueMap
+		val nextController = controller.copy(
+			state = state.copy(
+				whispersync = currentWhispersync.copy(
+					sync = confirmedSync,
+					pendingAudioSeek = pendingSeek
+						?.takeUnless { it.overlayRequestId == requestId },
+					playbackStartPending = currentWhispersync.playbackStartPending &&
+						audioSeekTarget == null,
+					transportPhase = if (audioSeekTarget != null) {
+						ReaderWhispersyncTransportPhase.Seeking
+					} else {
+						currentWhispersync.transportPhase
+					},
+					status = if (audioSeekTarget != null) {
+						readerWhispersyncReadyStatus(currentWhispersync.timeline)
+					} else {
+						currentWhispersync.status
+					},
+					cueMap = nextCueMap
+				),
+				activeMediaOverlay = event.fragment,
+				activeMediaOverlayAnchorReceipt = event.anchorReceipt,
+				audioMetadataLabel = event.fragment.label
+			)
+		)
 		return ReaderControllerStep(
-			controller = controller.copy(
-				state = state.copy(
-					whispersync = currentWhispersync.copy(
-						sync = confirmedSync,
-						pendingAudioSeek = pendingSeek
-							?.takeUnless { it.overlayRequestId == requestId },
-						playbackStartPending = currentWhispersync.playbackStartPending &&
-							audioSeekTarget == null,
-						transportPhase = if (audioSeekTarget != null) {
-							ReaderWhispersyncTransportPhase.Seeking
-						} else {
-							currentWhispersync.transportPhase
-						},
-						status = if (audioSeekTarget != null) {
-							readerWhispersyncReadyStatus(currentWhispersync.timeline)
-						} else {
-							currentWhispersync.status
-						}
-					),
-					activeMediaOverlay = event.fragment,
-					activeMediaOverlayAnchorReceipt = event.anchorReceipt,
-					audioMetadataLabel = event.fragment.label
+			controller = nextController,
+			engineCommands = if (cueMapChanged) {
+				listOfNotNull(
+					projectCueMapPresentation(
+						nextController.state.whispersync.cueMap,
+						nextController.state
+					)?.let(ReaderEngineCommand::ReplaceWhispersyncCueMap)
 				)
-			),
+			} else {
+				emptyList()
+			},
 			progressToSave = progress,
 			whispersyncAudioSeekTarget = audioSeekTarget,
 			readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Play.takeIf { startPlayback }

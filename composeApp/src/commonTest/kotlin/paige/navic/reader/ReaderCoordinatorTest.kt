@@ -163,6 +163,84 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun exactCueSeekDeliversOverlayThenCueMapThroughOrderedWebDispatch() {
+		val destination = ReaderDestinationCommitIdentity("session-a", 1L)
+		val visible = ReaderCoordinator()
+			.open(hobbitOpenRequest()).coordinator
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(href = "Text/chapter1.xhtml", pageIndex = 0),
+					foliateSessionId = destination.foliateSessionId,
+					destinationCommitIdentity = destination
+				)
+			).coordinator
+			.onEngineEvent(
+				ReaderEngineEvent.VisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160,
+					destinationCommitIdentity = destination
+				)
+			).coordinator
+		val enabled = visible.dispatch { toggleWhispersyncCueMap() }.coordinator
+		val cueMap = enabled.controller.state.whispersync.cueMap
+		val selected = enabled.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCueMapSeekRequested(
+				sourceOrdinal = 1,
+				revisionDigest = "5f04c2a19e7d",
+				presentationGeneration = cueMap.presentationGeneration,
+				destinationCommitIdentity = destination
+			)
+		)
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(selected.coordinator.viewState)
+		val sequence = assertIs<ReaderEngineHostCommand.FoliateBridgeSequence>(viewState.command)
+
+		assertEquals(
+			listOf(
+				ReaderBridgeCommand.ApplyOverlayFragment::class,
+				ReaderBridgeCommand.ReplaceWhispersyncCueMap::class
+			),
+			sequence.commands.map { it::class }
+		)
+
+		val openCommand = ReaderBridgeCommand.OpenPublication(
+			url = viewState.publicationUrl,
+			foliateSessionId = "unbound",
+			mediaOverlayEnabled = true,
+			settings = viewState.settings
+		)
+		var dispatchState = ReaderWebCommandDispatchState()
+		val opened = dispatchState.commandsForReadyReaderRuntime(
+			runtimeGeneration = 1,
+			publicationKey = "publication-a",
+			openCommand = openCommand,
+			commands = sequence.commands,
+			commandKey = viewState.commandKey
+		)
+		dispatchState = opened.state.acknowledge(opened.commands.single().id)
+		val overlay = dispatchState.commandsForReadyReaderRuntime(
+			runtimeGeneration = 1,
+			publicationKey = "publication-a",
+			openCommand = openCommand,
+			commands = sequence.commands,
+			commandKey = viewState.commandKey
+		)
+		dispatchState = overlay.state.acknowledge(overlay.commands.single().id)
+		val cuePresentation = dispatchState.commandsForReadyReaderRuntime(
+			runtimeGeneration = 1,
+			publicationKey = "publication-a",
+			openCommand = openCommand,
+			commands = sequence.commands,
+			commandKey = viewState.commandKey
+		)
+
+		assertIs<ReaderBridgeCommand.OpenPublication>(opened.commands.single().command)
+		assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(overlay.commands.single().command)
+		assertIs<ReaderBridgeCommand.ReplaceWhispersyncCueMap>(cuePresentation.commands.single().command)
+	}
+
+	@Test
 	fun whispersyncSidecarLoadsIntoControllerWithoutTouchingEngine() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val sidecar = testWhispersyncSidecar()
@@ -879,6 +957,7 @@ class ReaderCoordinatorTest {
 			artifactId = "artifact-3",
 			ebookBookFileId = "3913",
 			audiobookBookFileId = "694",
+			revisionDigest = "5f04c2a19e7d",
 			timeline = WhispersyncTimeline(
 				segments = listOf(
 					WhispersyncSegment(
@@ -889,7 +968,8 @@ class ReaderCoordinatorTest {
 						fragmentId = "seg-1",
 						textStart = 10,
 						textEnd = 42,
-						label = "Opening"
+						label = "Opening",
+						sourceOrdinal = 0
 					),
 					WhispersyncSegment(
 						audioResource = "Audio/chapter01.m4b",
@@ -899,7 +979,8 @@ class ReaderCoordinatorTest {
 						fragmentId = "seg-2",
 						textStart = 80,
 						textEnd = 140,
-						label = "Second"
+						label = "Second",
+						sourceOrdinal = 1
 					)
 				)
 			)

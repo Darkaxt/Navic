@@ -56,6 +56,7 @@ import paige.navic.reader.ReaderReadaloudReaderInteraction
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderViewerAction
+import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncStatusMessage
 import paige.navic.reader.ReaderWordSyncBoundaryCancellation
 import paige.navic.reader.ReaderWordSyncBoundaryDispatch
@@ -810,6 +811,18 @@ fun ReaderScreen(reader: Screen.Reader) {
 			)
 			applyCoordinatorStep(
 				coordinator.dispatch { onWhispersyncPlaybackCommand(command) }
+			)
+		},
+		onToggleWhispersyncCueMap = {
+			applyCoordinatorStep(coordinator.dispatch { toggleWhispersyncCueMap() })
+		},
+		onWhispersyncCueMapChromeInterception = {
+			applyCoordinatorStep(
+				coordinator.dispatch {
+					cancelWhispersyncCueMapHold(
+						ReaderWhispersyncCueMapHoldOutcome.CancelledChromeInterception
+					)
+				}
 			)
 		},
 		onPreviousChapter = {

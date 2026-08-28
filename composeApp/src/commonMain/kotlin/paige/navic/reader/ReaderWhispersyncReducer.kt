@@ -41,6 +41,24 @@ internal object ReaderWhispersyncReducer {
 		event: ReaderEngineEvent.TextPoint
 	): ReaderControllerStep = controller.reduceTextPoint(event)
 
+	fun toggleCueMap(controller: ReaderController): ReaderControllerStep =
+		controller.reduceToggleWhispersyncCueMap()
+
+	fun onCueMapRendered(
+		controller: ReaderController,
+		event: ReaderEngineEvent.WhispersyncCueMapRendered
+	): ReaderControllerStep = controller.reduceWhispersyncCueMapRendered(event)
+
+	fun onCueMapSeekRequested(
+		controller: ReaderController,
+		event: ReaderEngineEvent.WhispersyncCueMapSeekRequested
+	): ReaderControllerStep = controller.reduceWhispersyncCueMapSeekRequested(event)
+
+	fun onCueMapHoldOutcome(
+		controller: ReaderController,
+		event: ReaderEngineEvent.WhispersyncCueMapHoldOutcome
+	): ReaderControllerStep = controller.reduceWhispersyncCueMapHoldOutcome(event)
+
 	fun reserveUserNavigation(
 		controller: ReaderController,
 		requiresPageTurnSettlement: Boolean = true
@@ -65,6 +83,81 @@ internal object ReaderWhispersyncReducer {
 		controller: ReaderController,
 		event: ReaderEngineEvent.Relocated
 	): ReaderControllerStep = controller.reduceWhispersyncRelocated(event)
+
+	fun onDestinationChanged(
+		step: ReaderControllerStep,
+		destinationReplaced: Boolean
+	): ReaderControllerStep = step.replaceWhispersyncCueMapDestination(destinationReplaced)
+
+	fun onPaginationProfileStatusChanged(
+		controller: ReaderController,
+		event: ReaderEngineEvent.PaginationProfileStatusChanged
+	): ReaderControllerStep = controller.copy(
+		state = controller.state.copy(paginationProfile = event.profile)
+	).replaceWhispersyncCueMapPresentationContext()
+
+	fun onSettingsPresentationCommitted(
+		controller: ReaderController,
+		event: ReaderEngineEvent.SettingsPresentationCommitted
+	): ReaderControllerStep = controller.copy(
+		state = controller.state.copy(readerSettingsPresentationSnapshotKey = event.snapshotKey)
+	).replaceWhispersyncCueMapPresentationContext()
+
+	fun cancelCueMapHold(
+		controller: ReaderController,
+		reason: ReaderWhispersyncCueMapHoldOutcome
+	): ReaderControllerStep = if (!controller.state.whispersync.cueMap.enabled) {
+		ReaderControllerStep(controller)
+	} else {
+		ReaderControllerStep(
+			controller = controller,
+			engineCommands = listOf(ReaderEngineCommand.CancelWhispersyncCueMapHold(reason))
+		)
+	}
+}
+
+private fun ReaderControllerStep.replaceWhispersyncCueMapDestination(
+	destinationReplaced: Boolean
+): ReaderControllerStep {
+	val cueMap = controller.state.whispersync.cueMap
+	if (!destinationReplaced || !cueMap.enabled) return this
+	val revisionDigest = controller.state.whispersync.sidecar?.revisionDigest.orEmpty()
+	val nextCueMap = if (revisionDigest.matches(Regex("[0-9a-f]{12}"))) {
+		cueMap.replaced(revisionDigest)
+	} else {
+		cueMap
+	}
+	return copy(
+		controller = controller.copy(
+			state = controller.state.copy(
+				whispersync = controller.state.whispersync.copy(cueMap = nextCueMap)
+			)
+		),
+		engineCommands = listOf(
+			ReaderEngineCommand.CancelWhispersyncCueMapHold(
+				ReaderWhispersyncCueMapHoldOutcome.CancelledGenerationReplacement
+			)
+		) + engineCommands
+	)
+}
+
+private fun ReaderController.replaceWhispersyncCueMapPresentationContext(): ReaderControllerStep {
+	val cueMap = state.whispersync.cueMap
+	val revisionDigest = state.whispersync.sidecar?.revisionDigest.orEmpty()
+	val nextCueMap = if (cueMap.enabled && revisionDigest.matches(Regex("[0-9a-f]{12}"))) {
+		cueMap.replaced(revisionDigest)
+	} else {
+		cueMap
+	}
+	val next = copy(
+		state = state.copy(
+			whispersync = state.whispersync.copy(cueMap = nextCueMap)
+		)
+	)
+	return ReaderControllerStep(
+		controller = next,
+		engineCommands = listOfNotNull(next.whispersyncCueMapPresentationCommand())
+	)
 }
 
 private fun ReaderController.reduceReadaloudPlaybackState(
@@ -273,6 +366,25 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 		currentWhispersync.preparedVisibleTarget != null -> ReaderWhispersyncTransportPhase.Ready
 		else -> currentWhispersync.transportPhase
 	}
+	val observedSourceOrdinal = playbackState.audioResource?.let { audioResource ->
+		currentWhispersync.timeline?.activeSegment(
+			audioResource = audioResource,
+			positionMs = playbackState.positionMs,
+			audioTrackIndex = playbackState.trackIndex
+		)?.sourceOrdinal
+	}
+	val revisionDigest = currentWhispersync.sidecar?.revisionDigest.orEmpty()
+	val acknowledgedCueMap = currentWhispersync.cueMap.transportAcknowledged(
+		sourceOrdinal = observedSourceOrdinal,
+		revisionDigest = revisionDigest,
+		audioResource = playbackState.audioResource,
+		audioTrackIndex = playbackState.trackIndex,
+		positionMs = playbackState.positionMs
+	)
+	val nextCueMap = acknowledgedCueMap.audioActive(
+		sourceOrdinal = observedSourceOrdinal.takeIf { playbackState.isPlaying },
+		revisionDigest = revisionDigest
+	)
 	return ReaderControllerStep(
 		copy(
 			state = state.copy(
@@ -288,7 +400,8 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 					},
 					transportPhase = nextTransportPhase,
 					lastEventProvenance = ReaderWhispersyncEventProvenance.AudioProgress,
-					status = playbackStep?.status ?: currentWhispersync.status
+					status = playbackStep?.status ?: currentWhispersync.status,
+					cueMap = nextCueMap
 				),
 				activeMediaOverlay = publishedCommand.confirmedOverlayOrPrevious(
 					state.activeMediaOverlay
@@ -300,7 +413,7 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 			)
 		),
 		engineCommands = listOfNotNull(publishedCommand)
-	)
+	).withWhispersyncCueMapPresentation(previousController = this)
 }
 
 private fun ReaderController.reduceWhispersyncPlaybackCommand(
@@ -470,6 +583,15 @@ private fun ReaderController.reduceLoadWhispersyncSidecar(
 				preparationGeneration = nextGeneration
 			)
 	}
+	val nextCueMap = if (
+		currentWhispersync.cueMap.presentationGeneration > 0L &&
+		currentWhispersync.sidecar?.revisionDigest != sidecar.revisionDigest &&
+		sidecar.revisionDigest.matches(Regex("[0-9a-f]{12}"))
+	) {
+		currentWhispersync.cueMap.replaced(sidecar.revisionDigest)
+	} else {
+		currentWhispersync.cueMap
+	}
 	val nextWhispersync = currentWhispersync.copy(
 		sidecar = sidecar,
 		visibleTextRange = visibleRange,
@@ -486,11 +608,12 @@ private fun ReaderController.reduceLoadWhispersyncSidecar(
 		} else {
 			nextGeneration
 		},
-		lastEventProvenance = ReaderWhispersyncEventProvenance.PresentationMaintenance
+		lastEventProvenance = ReaderWhispersyncEventProvenance.PresentationMaintenance,
+		cueMap = nextCueMap
 	)
 	return ReaderControllerStep(
 		copy(state = state.copy(whispersync = nextWhispersync))
-	)
+	).withWhispersyncCueMapPresentation(previousController = this)
 }
 
 private fun ReaderController.reduceWhispersyncLoadFailure(
@@ -677,6 +800,17 @@ private fun ReaderController.reduceVisibleTextRange(
 		)
 	}
 	val nextGeneration = currentWhispersync.preparationGeneration + 1L
+	val destinationReplaced = currentWhispersync.visibleTextRange?.destinationCommitIdentity !=
+		event.destinationCommitIdentity
+	val revisionDigest = currentWhispersync.sidecar?.revisionDigest.orEmpty()
+	val nextCueMap = if (
+		destinationReplaced && currentWhispersync.cueMap.enabled &&
+		revisionDigest.matches(Regex("[0-9a-f]{12}"))
+	) {
+		currentWhispersync.cueMap.replaced(revisionDigest)
+	} else {
+		currentWhispersync.cueMap
+	}
 	val prepared = visibleRange.preparedTarget(
 		timeline = currentWhispersync.timeline,
 		destinationCommitIdentity = destinationCommitIdentity,
@@ -712,15 +846,187 @@ private fun ReaderController.reduceVisibleTextRange(
 				} else {
 					ReaderWhispersyncEventProvenance.PresentationMaintenance
 				},
-				status = readerWhispersyncReadyStatus(currentWhispersync.timeline)
+				status = readerWhispersyncReadyStatus(currentWhispersync.timeline),
+				cueMap = nextCueMap
 			)
 		)
 	)
-	return if (shouldResume && prepared != null) {
+	val step = if (shouldResume && prepared != null) {
 		preparedController.beginPreparedWhispersyncPlayback()
 	} else {
 		ReaderControllerStep(preparedController)
 	}
+	return step.withWhispersyncCueMapPresentation(previousController = this)
+}
+
+private fun ReaderController.reduceToggleWhispersyncCueMap(): ReaderControllerStep {
+	if (state.shellCoverVisible || !state.whispersync.available) return ReaderControllerStep(this)
+	val revisionDigest = state.whispersync.sidecar?.revisionDigest
+		?.takeIf { it.matches(Regex("[0-9a-f]{12}")) }
+		?: return ReaderControllerStep(this)
+	val nextCueMap = state.whispersync.cueMap.toggled(revisionDigest)
+	val next = copy(
+		state = state.copy(
+			whispersync = state.whispersync.copy(cueMap = nextCueMap)
+		)
+	)
+	return ReaderControllerStep(
+		controller = next,
+		engineCommands = listOfNotNull(next.whispersyncCueMapPresentationCommand())
+	)
+}
+
+private fun ReaderController.reduceWhispersyncCueMapRendered(
+	event: ReaderEngineEvent.WhispersyncCueMapRendered
+): ReaderControllerStep {
+	if (!matchesCurrentCueMapPresentation(
+			sourceRevisionDigest = event.revisionDigest,
+			sourcePresentationGeneration = event.presentationGeneration,
+			sourceDestination = event.destinationCommitIdentity
+		)) return ReaderControllerStep(this)
+	val visibleOrdinals = state.whispersync.cueMap.presentation(state)
+		?.cues?.map(ReaderWhispersyncCueMapCue::sourceOrdinal)
+		?.toSet()
+		?: return ReaderControllerStep(this)
+	if (event.sourceOrdinalsInDomReadingOrder.any { it !in visibleOrdinals }) {
+		return ReaderControllerStep(this)
+	}
+	return ReaderControllerStep(
+		copy(
+			state = state.copy(
+				whispersync = state.whispersync.copy(
+					cueMap = state.whispersync.cueMap.rendered(
+						sourceOrdinals = event.sourceOrdinalsInDomReadingOrder,
+						revisionDigest = event.revisionDigest
+					)
+				)
+			)
+		)
+	)
+}
+
+private fun ReaderController.reduceWhispersyncCueMapSeekRequested(
+	event: ReaderEngineEvent.WhispersyncCueMapSeekRequested
+): ReaderControllerStep {
+	if (!matchesCurrentCueMapPresentation(
+			sourceRevisionDigest = event.revisionDigest,
+			sourcePresentationGeneration = event.presentationGeneration,
+			sourceDestination = event.destinationCommitIdentity
+		)) return ReaderControllerStep(this)
+	val currentWhispersync = state.whispersync
+	if (currentWhispersync.cueMap.transportAcknowledgementPending) return ReaderControllerStep(this)
+	val presentation = currentWhispersync.cueMap.presentation(state) ?: return ReaderControllerStep(this)
+	if (presentation.cues.none { it.sourceOrdinal == event.sourceOrdinal }) return ReaderControllerStep(this)
+	val timeline = currentWhispersync.timeline ?: return ReaderControllerStep(this)
+	val segment = timeline.segmentForSourceOrdinal(event.sourceOrdinal) ?: return ReaderControllerStep(this)
+	val target = WhispersyncOverlaySyncAdapter(timeline).readerTargetForSegment(segment)
+	val syncStep = currentWhispersync.sync
+		.setSyncEnabled(true)
+		.followReaderTarget(target)
+	val seekTarget = syncStep.seekTarget ?: return ReaderControllerStep(this)
+	val overlayCommand = syncStep.state.engineCommand
+		?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
+	val nextCueMap = currentWhispersync.cueMap.requested(
+		sourceOrdinal = event.sourceOrdinal,
+		revisionDigest = event.revisionDigest,
+		audioResource = seekTarget.audioResource,
+		audioTrackIndex = seekTarget.audioTrackIndex,
+		positionMs = seekTarget.positionMs
+	)
+	val next = copy(
+		state = state.copy(
+			whispersync = currentWhispersync.copy(
+				sync = syncStep.state,
+				pendingAudioSeek = null,
+				transportPhase = ReaderWhispersyncTransportPhase.Seeking,
+				lastEventProvenance = ReaderWhispersyncEventProvenance.ExplicitCueSelection,
+				status = ReaderWhispersyncStatus(
+					kind = ReaderWhispersyncStatusKind.SeekingAudio,
+					message = ReaderWhispersyncStatusMessage.SeekingAudio,
+					audioResource = segment.audioResource,
+					positionMs = segment.startMs
+				),
+				cueMap = nextCueMap
+			),
+			activeMediaOverlay = overlayCommand.confirmedOverlayOrPrevious(state.activeMediaOverlay),
+			activeMediaOverlayAnchorReceipt = when (overlayCommand) {
+				is ReaderEngineCommand.ApplyMediaOverlay,
+				ReaderEngineCommand.ClearMediaOverlay -> null
+				else -> state.activeMediaOverlayAnchorReceipt
+			},
+			audioMetadataLabel = overlayCommand.confirmedOverlayLabelOrPrevious(
+				state.audioMetadataLabel
+			)
+		)
+	)
+	return ReaderControllerStep(
+		controller = next,
+		engineCommands = listOfNotNull(overlayCommand) +
+			listOfNotNull(next.whispersyncCueMapPresentationCommand()),
+		whispersyncAudioSeekTarget = seekTarget
+	)
+}
+
+private fun ReaderController.reduceWhispersyncCueMapHoldOutcome(
+	event: ReaderEngineEvent.WhispersyncCueMapHoldOutcome
+): ReaderControllerStep {
+	val cueMap = state.whispersync.cueMap
+	val revisionDigest = state.whispersync.sidecar?.revisionDigest
+	if (
+		!cueMap.enabled || event.revisionDigest != revisionDigest ||
+		event.presentationGeneration != cueMap.presentationGeneration
+	) {
+		return ReaderControllerStep(this)
+	}
+	return ReaderControllerStep(
+		copy(
+			state = state.copy(
+				whispersync = state.whispersync.copy(
+					cueMap = cueMap.holdOutcome(
+						sourceOrdinal = event.sourceOrdinal,
+						revisionDigest = event.revisionDigest,
+						outcome = event.outcome
+					)
+				)
+			)
+		)
+	)
+}
+
+private fun ReaderController.matchesCurrentCueMapPresentation(
+	sourceRevisionDigest: String,
+	sourcePresentationGeneration: Long,
+	sourceDestination: ReaderDestinationCommitIdentity
+): Boolean {
+	val current = state.whispersync
+	return current.cueMap.enabled &&
+		current.sidecar?.revisionDigest == sourceRevisionDigest &&
+		current.cueMap.presentationGeneration == sourcePresentationGeneration &&
+		state.destinationCommitIdentity == sourceDestination
+}
+
+private fun ReaderController.whispersyncCueMapPresentationCommand(): ReaderEngineCommand? =
+	state.whispersync.cueMap.presentation(state)
+		?.let(ReaderEngineCommand::ReplaceWhispersyncCueMap)
+
+private fun ReaderControllerStep.withWhispersyncCueMapPresentation(
+	previousController: ReaderController
+): ReaderControllerStep {
+	val presentation = controller.state.whispersync.cueMap.presentation(controller.state) ?: return this
+	val previousPresentation = previousController.state.whispersync.cueMap
+		.presentation(previousController.state)
+	if (presentation == previousPresentation) {
+		return copy(
+			engineCommands = engineCommands.filterNot {
+				it is ReaderEngineCommand.ReplaceWhispersyncCueMap
+			}
+		)
+	}
+	val command = ReaderEngineCommand.ReplaceWhispersyncCueMap(presentation)
+	return copy(
+		engineCommands = engineCommands
+			.filterNot { it is ReaderEngineCommand.ReplaceWhispersyncCueMap } + command
+	)
 }
 
 private fun ReaderController.reduceTextPoint(

@@ -2,6 +2,8 @@ package paige.navic.reader
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -557,5 +559,97 @@ class WhispersyncTimelineParserTest {
 		assertEquals(10_750, segment.endMs)
 		assertEquals("Text/chapter2.xhtml", segment.textHref)
 		assertEquals("epubcfi(/6/4!/4/8,/1:0,/1:18)", segment.rangeCfi)
+	}
+
+	@Test
+	fun rawSidecarOrdinalsSurviveFilteringAndRevisionDigestIsStableAndContentFree() {
+		val source =
+			"""
+			{
+			  "bookId": "protected-book-3809",
+			  "cues": [
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "audioStartMs": 1000,
+			      "audioEndMs": 2000,
+			      "ebookHref": "Text/chapter1.xhtml",
+			      "ebookStart": 90,
+			      "ebookEnd": 120
+			    },
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "audioStartMs": 3000,
+			      "audioEndMs": 3000,
+			      "ebookHref": "Text/chapter1.xhtml",
+			      "ebookStart": 40,
+			      "ebookEnd": 60
+			    },
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "audioStartMs": 5000,
+			      "audioEndMs": 6000,
+			      "ebookHref": "Text/chapter1.xhtml",
+			      "ebookStart": 10,
+			      "ebookEnd": 30
+			    }
+			  ]
+			}
+			""".trimIndent()
+
+		val first = decodeWhispersyncSidecar(source)
+		val repeated = decodeWhispersyncSidecar(source)
+		val revised = decodeWhispersyncSidecar(source.replace("6000", "6100"))
+
+		assertEquals(listOf(0, 2), first.timeline.segments.map(WhispersyncSegment::sourceOrdinal))
+		assertEquals(1, first.droppedSegmentCount)
+		assertEquals(first.revisionDigest, repeated.revisionDigest)
+		assertNotEquals(first.revisionDigest, revised.revisionDigest)
+		assertTrue(first.revisionDigest.matches(Regex("[0-9a-f]{12}")))
+		assertFalse(first.revisionDigest.contains("protected", ignoreCase = true))
+	}
+
+	@Test
+	fun visibleCueMapProjectionPreservesRawOrderInsteadOfSortingOrdinalsOrOffsets() {
+		val sidecar = decodeWhispersyncSidecar(
+			"""
+			{
+			  "cues": [
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "audioStartMs": 1000,
+			      "audioEndMs": 2000,
+			      "ebookHref": "Text/chapter1.xhtml",
+			      "ebookStart": 90,
+			      "ebookEnd": 120
+			    },
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "audioStartMs": 3000,
+			      "audioEndMs": 4000,
+			      "ebookHref": "Text/chapter1.xhtml",
+			      "ebookStart": 10,
+			      "ebookEnd": 30
+			    },
+			    {
+			      "audioHref": "Audio/chapter02.m4b",
+			      "audioStartMs": 5000,
+			      "audioEndMs": 6000,
+			      "ebookHref": "Text/chapter2.xhtml",
+			      "ebookStart": 10,
+			      "ebookEnd": 30
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val projection = sidecar.timeline.cueMapProjectionForVisibleTextRange(
+			textHref = "/Text/chapter1.xhtml",
+			visibleStart = 0,
+			visibleEnd = 140
+		)
+
+		assertEquals(listOf(0, 1), projection.map(WhispersyncSegment::sourceOrdinal))
+		assertEquals(listOf(90, 10), projection.map(WhispersyncSegment::textStart))
 	}
 }

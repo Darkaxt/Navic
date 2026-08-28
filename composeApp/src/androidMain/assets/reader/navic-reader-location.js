@@ -735,6 +735,7 @@ function scheduleControlledRelocationFallback(
 
 
 function onRelocate(detail) {
+  this.whispersyncCueMap?.clear()
   readerTrace('relocate:raw', detail)
   this.attachSurfacePaperTextureScrollSync()
   if (this.exactPageTurnNavigationInProgress) {

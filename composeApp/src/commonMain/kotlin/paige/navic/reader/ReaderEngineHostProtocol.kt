@@ -2,6 +2,13 @@ package paige.navic.reader
 
 sealed interface ReaderEngineHostCommand {
 	data class FoliateBridge(val command: ReaderBridgeCommand) : ReaderEngineHostCommand
+	data class FoliateBridgeSequence(
+		val commands: List<ReaderBridgeCommand>
+	) : ReaderEngineHostCommand {
+		init {
+			require(commands.size > 1)
+		}
+	}
 }
 
 sealed interface ReaderEngineHostEvent {

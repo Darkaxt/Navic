@@ -1,4 +1,14 @@
-import { post, readerHrefMatches, stableHash } from './navic-reader-helpers.js'
+import {
+  post,
+  readerHrefMatches,
+  readerMediaOverlayClampRangeBeforeNextCue,
+  readerMediaOverlayNormalizedTextMap,
+  readerMediaOverlayRawOffsetForNormalizedOffset,
+  readerMediaOverlayResolvedTextRange,
+  readerMediaOverlayTextEntries,
+  readerMediaOverlayTextPoint,
+  stableHash,
+} from './navic-reader-helpers.js'
 import {
   readerCssColorFromArgb,
   readerDrawMediaOverlayMarker,
@@ -264,6 +274,71 @@ function readerMediaOverlayPersistentPlayed(settings = this.readerSettings) {
   return settings?.whispersyncHighlightLoading === 'persistent-played-text'
 }
 
+function resolveMediaOverlayTextRange(content, fragment, paintEnd = fragment?.textEnd) {
+  const textStart = Number(fragment?.textStart)
+  const textEnd = Number(fragment?.textEnd)
+  if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return null
+  const section = Number.isFinite(Number(content?.index))
+    ? this.view?.book?.sections?.[Math.floor(Number(content.index))]
+    : null
+  const sectionHref = section?.href || content?.href || ''
+  if (fragment.textHref && sectionHref && !readerHrefMatches(sectionHref, fragment.textHref)) return null
+  const entries = readerMediaOverlayTextEntries(content?.doc)
+  if (!entries.length) return null
+  const normalizedMap = readerMediaOverlayNormalizedTextMap(entries)
+  const resolvedRangeBeforeClamp = readerMediaOverlayResolvedTextRange(
+    normalizedMap,
+    textStart,
+    textEnd,
+    fragment.ebookText
+  )
+  const hasNextTextRange = Number.isFinite(Number(fragment.nextTextStart)) &&
+    Number.isFinite(Number(fragment.nextTextEnd)) &&
+    Number(fragment.nextTextEnd) > Number(fragment.nextTextStart)
+  const nextRange = hasNextTextRange &&
+    (!fragment.nextTextHref || !fragment.textHref || readerHrefMatches(fragment.nextTextHref, fragment.textHref))
+    ? readerMediaOverlayResolvedTextRange(
+      normalizedMap,
+      fragment.nextTextStart,
+      fragment.nextTextEnd,
+      fragment.nextEbookText
+    )
+    : null
+  const resolvedRange = readerMediaOverlayClampRangeBeforeNextCue(
+    normalizedMap,
+    resolvedRangeBeforeClamp,
+    nextRange
+  )
+  const resolvedPaintEnd = this.mediaOverlayPaintEndForResolvedRange(
+    textStart,
+    textEnd,
+    Math.min(textEnd, Math.max(textStart + 1, Number(paintEnd))),
+    resolvedRange.normalizedTextStart,
+    resolvedRange.normalizedTextEnd,
+    fragment
+  )
+  const resolvedRawPaintEnd = readerMediaOverlayRawOffsetForNormalizedOffset(
+    normalizedMap,
+    resolvedPaintEnd,
+    'end'
+  )
+  const start = readerMediaOverlayTextPoint(entries, Math.floor(resolvedRange.textStart))
+  const end = readerMediaOverlayTextPoint(
+    entries,
+    Math.ceil(Math.min(resolvedRange.textEnd, resolvedRawPaintEnd))
+  )
+  if (!start || !end || !content?.doc?.createRange) return null
+  try {
+    const range = content.doc.createRange()
+    range.setStart(start.node, start.offset)
+    range.setEnd(end.node, end.offset)
+    if (range.collapsed) return null
+    return { range, resolvedRange, resolvedPaintEnd, resolvedRawPaintEnd, textStart, textEnd }
+  } catch (_) {
+    return null
+  }
+}
+
 function readerMediaOverlayHighlightColor(settings = this.readerSettings) {
   return readerCssColorFromArgb(settings?.whispersyncHighlightColorArgb, 'rgba(246, 195, 67, 0.4)')
 }
@@ -291,6 +366,7 @@ export const NavicReaderMediaOverlayMethods = {
   rememberPlayedMediaOverlayFragment,
   prunePlayedMediaOverlayFragments,
   paintPlayedMediaOverlayFragments,
+  resolveMediaOverlayTextRange,
   readerMediaOverlayPersistentPlayed,
   readerMediaOverlayHighlightColor,
   readerMediaOverlayHighlightDraw,

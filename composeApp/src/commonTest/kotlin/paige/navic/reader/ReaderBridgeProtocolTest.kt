@@ -305,6 +305,67 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun productionCueMapCommandCarriesVisibleProductionRangesAndOrdinalOnlyStates() {
+		val script = ReaderBridgeCommand.ReplaceWhispersyncCueMap(
+			ReaderWhispersyncCueMapPresentation(
+				enabled = true,
+				revisionDigest = "5f04c2a19e7d",
+				presentationGeneration = 8L,
+				destinationCommitIdentity = ReaderDestinationCommitIdentity("session-a", 41L),
+				cues = listOf(
+					ReaderWhispersyncCueMapCue(
+						sourceOrdinal = 7,
+						textHref = "Text/chapter.xhtml",
+						textStart = 10,
+						textEnd = 30,
+						ebookText = "Ephemeral production mapper input"
+					)
+				),
+				preparedSourceOrdinal = 7,
+				requestedSourceOrdinal = 7,
+				audioActiveSourceOrdinal = 9,
+				renderedHighlightSourceOrdinal = 11,
+				transportAcknowledgementPending = true
+			)
+		).toJavaScript()
+
+		assertContains(script, "\"type\":\"replaceWhispersyncCueMap\"")
+		assertContains(script, "\"sourceOrdinal\":7")
+		assertContains(script, "\"revisionDigest\":\"5f04c2a19e7d\"")
+		assertContains(script, "\"preparedSourceOrdinal\":7")
+		assertContains(script, "\"requestedSourceOrdinal\":7")
+		assertContains(script, "\"audioActiveSourceOrdinal\":9")
+		assertContains(script, "\"renderedHighlightSourceOrdinal\":11")
+		assertContains(script, "\"transportAcknowledgementPending\":true")
+	}
+
+	@Test
+	fun cueMapEventsDecodeOnlyBoundedOrdinalGenerationAndOutcomeEvidence() {
+		val rendered = assertIs<ReaderBridgeEvent.WhispersyncCueMapRendered>(
+			decodeReaderBridgeEvent(
+				"""{"type":"whispersyncCueMapRendered","sourceOrdinals":[7,3,9],"revisionDigest":"5f04c2a19e7d","presentationGeneration":8,"destinationFoliateSessionId":"session-a","destinationCommitSequence":41,"text":"must-not-survive","href":"must-not-survive","bookId":"must-not-survive"}"""
+			)
+		)
+		val seek = assertIs<ReaderBridgeEvent.WhispersyncCueMapSeekRequested>(
+			decodeReaderBridgeEvent(
+				"""{"type":"whispersyncCueMapSeekRequested","sourceOrdinal":3,"revisionDigest":"5f04c2a19e7d","presentationGeneration":8,"destinationFoliateSessionId":"session-a","destinationCommitSequence":41,"payload":"must-not-survive"}"""
+			)
+		)
+		val cancelled = assertIs<ReaderBridgeEvent.WhispersyncCueMapHoldOutcome>(
+			decodeReaderBridgeEvent(
+				"""{"type":"whispersyncCueMapHoldOutcome","sourceOrdinal":3,"revisionDigest":"5f04c2a19e7d","presentationGeneration":8,"outcome":"cancelled-curl-start"}"""
+			)
+		)
+
+		assertEquals(listOf(7, 3, 9), rendered.sourceOrdinalsInDomReadingOrder)
+		assertEquals(3, seek.sourceOrdinal)
+		assertEquals(ReaderWhispersyncCueMapHoldOutcome.CancelledCurlStart, cancelled.outcome)
+		assertFalse(rendered.toString().contains("must-not-survive"))
+		assertFalse(seek.toString().contains("must-not-survive"))
+		assertTrue(rendered.sourceOrdinalsInDomReadingOrder.size <= 32)
+	}
+
+	@Test
 	fun applySettingsCommandDispatchesWhispersyncListeningOverlaySettings() {
 		val script = ReaderBridgeCommand.ApplySettings(
 			ReaderSettings(

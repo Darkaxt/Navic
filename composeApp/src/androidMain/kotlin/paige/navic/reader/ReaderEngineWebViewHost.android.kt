@@ -110,6 +110,9 @@ internal object ReaderEngineLogProjector {
 			is ReaderBridgeEvent.PullUp -> "pullUp"
 			is ReaderBridgeEvent.VisibleTextRange -> "visibleTextRange"
 			is ReaderBridgeEvent.TextPoint -> "textPoint"
+			is ReaderBridgeEvent.WhispersyncCueMapRendered -> "whispersyncCueMapRendered"
+			is ReaderBridgeEvent.WhispersyncCueMapSeekRequested -> "whispersyncCueMapSeekRequested"
+			is ReaderBridgeEvent.WhispersyncCueMapHoldOutcome -> "whispersyncCueMapHoldOutcome"
 			is ReaderBridgeEvent.RawTextProvenanceStatusChanged -> "rawTextProvenanceStatus"
 			is ReaderBridgeEvent.OverlayFragmentActive -> "overlayFragmentActive"
 			is ReaderBridgeEvent.OverlayFragmentInactive -> "overlayFragmentInactive"
@@ -226,7 +229,7 @@ actual fun ReaderEngineWebViewHost(
 	val currentPublicationKey by rememberUpdatedState(publicationKey)
 	val currentOpenCommand by rememberUpdatedState(openCommand)
 	val currentRawTextProvenanceDescriptors by rememberUpdatedState(rawTextProvenanceDescriptors)
-	val currentCommand by rememberUpdatedState(command.toReaderBridgeCommandWithEngineNativeTapZones())
+	val currentCommands by rememberUpdatedState(command.toReaderBridgeCommandsWithEngineNativeTapZones())
 	val currentCommandKey by rememberUpdatedState(commandKey)
 	var webView by remember { mutableStateOf<WebView?>(null) }
 	var webViewGeneration by remember { mutableStateOf(0) }
@@ -339,7 +342,7 @@ actual fun ReaderEngineWebViewHost(
 			runtimeGeneration = webViewGeneration,
 			publicationKey = currentPublicationKey,
 			openCommand = currentOpenCommand,
-			command = currentCommand,
+			commands = currentCommands,
 			commandKey = currentCommandKey,
 			rawTextProvenanceDescriptors = currentRawTextProvenanceDescriptors
 		)
@@ -672,10 +675,11 @@ private fun View.findReaderSettingsWebViewMutationHost():
 	return null
 }
 
-private fun ReaderEngineHostCommand?.toReaderBridgeCommandWithEngineNativeTapZones(): ReaderBridgeCommand? =
+private fun ReaderEngineHostCommand?.toReaderBridgeCommandsWithEngineNativeTapZones(): List<ReaderBridgeCommand> =
 	when (this) {
-		is ReaderEngineHostCommand.FoliateBridge -> command.withEngineNativeTapZones()
-		null -> null
+		is ReaderEngineHostCommand.FoliateBridge -> listOf(command.withEngineNativeTapZones())
+		is ReaderEngineHostCommand.FoliateBridgeSequence -> commands.map { it.withEngineNativeTapZones() }
+		null -> emptyList()
 	}
 
 private fun ReaderBridgeCommand.withEngineNativeTapZones(): ReaderBridgeCommand =

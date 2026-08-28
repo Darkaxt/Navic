@@ -127,7 +127,7 @@ class ReaderPageRasterHostEventBridgeTest {
 			publish()
 		}
 
-		assertEquals(ReaderPageRasterRetryEvent.entries.toList(), retried)
+		assertEquals(cases.map { (_, event) -> event }, retried)
 		assertEquals(0, coordinator.deferredCount())
 
 		var cancelled = 0
