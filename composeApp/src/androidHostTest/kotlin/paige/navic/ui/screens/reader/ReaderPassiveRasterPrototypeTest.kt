@@ -1176,7 +1176,7 @@ class ReaderPassiveRasterPrototypeTest {
 				isStillCurrent = { true },
 				onPublished = {
 					publicationCount += 1
-					published.complete(it)
+					published.complete(it.result)
 				}
 			)
 			advanceUntilIdle()
@@ -1277,7 +1277,7 @@ class ReaderPassiveRasterPrototypeTest {
 						reference = reference,
 						priority = ReaderPageRasterPriority.NextChapter,
 						isStillCurrent = { true },
-						onPublished = published::complete
+						onPublished = { completion -> published.complete(completion.result) }
 					)
 					advanceUntilIdle()
 
@@ -1419,6 +1419,162 @@ class ReaderPassiveRasterPrototypeTest {
 	}
 
 	@Test
+	fun passiveAdmissionRejectionReachesTheControllerAsATypedPrivacySafeFailure() = runTest {
+		val source = ReaderPageTurnBundleSource()
+		val commit = canonicalCommit().copy(
+			viewportAndCaptureGeometry = ReaderPassiveRasterGeometry(
+				viewportWidth = 20,
+				viewportHeight = 30,
+				captureLeft = 0,
+				captureTop = 0,
+				captureRight = 20,
+				captureBottom = 30
+			),
+			rasterGeneration = source.currentGeneration()
+		)
+		val captureFixture = fixture(commit)
+		val descriptor = passiveDescriptor(commit, captureFixture.manifest.visualPageOrdinal)
+		val inputs = passiveAuthority(captureFixture, descriptor).manifestInputs
+		var manifestRequests = 0
+		var rasterReleases = 0
+		val runtime = SuccessfulPassiveBitmapRuntime()
+		val session = ReaderPassiveRasterPrototypeSession(runtime) { bitmap ->
+			rasterReleases += 1
+			if (!bitmap.isRecycled) bitmap.recycle()
+		}
+		val adapter = ReaderPassiveRasterPreparationAdapter(
+			session = session,
+			liveManifestPort = ReaderPassiveRasterLiveManifestPort { _, _, _, _, onResolved ->
+				manifestRequests += 1
+				onResolved(
+					ReaderPassiveRasterManifestResolution.Available(
+						if (manifestRequests == 1) inputs else inputs.copy(
+							canonicalCommit = commit.copy(
+								destinationCommitToken = "replacement-private-commit"
+							)
+						)
+					)
+				)
+			},
+			bundleSource = source,
+			initialCaptureEpoch = commit.captureEpoch
+		)
+		var outcome: ReaderPageRasterBatchOutcome? = null
+		val reference = passiveReference().also { it.retain() }
+		try {
+			assertTrue(
+				adapter.start(
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					reference = reference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = captureFixture.manifest.visualPageOrdinal,
+							priority = ReaderPageRasterPriority.CurrentChapter
+						)
+					),
+					rasterGeneration = source.currentGeneration(),
+					isStillCurrent = { true },
+					trigger = ReaderPageRasterAcquisitionTrigger.InitialPreparation,
+					onComplete = { outcome = it }
+				)
+			)
+
+			val failed = assertIs<ReaderPageRasterBatchOutcome.Failed>(outcome)
+			assertEquals(ReaderPassiveRasterRejection.DestinationCommit, failed.passiveRasterRejection)
+			assertNull(failed.persistentPublicationResult)
+			assertEquals("raster-rejected-or-publication-failed", failed.reason)
+			assertContains(failed.diagnostic, "passiveRasterRejection=DestinationCommit")
+			assertFalse(failed.diagnostic.contains(commit.destinationCommitToken))
+			assertFalse(failed.diagnostic.contains("replacement-private-commit"))
+			assertEquals(2, manifestRequests)
+			assertEquals(1, rasterReleases)
+			assertEquals(1, session.metrics().rasterReleases)
+			assertTrue(runtime.createdBitmaps.single().isRecycled)
+		} finally {
+			adapter.close()
+			source.closeAndJoin()
+		}
+	}
+
+	@Test
+	fun encodeIdentityReleasingFailureReachesTheControllerWithItsExactCategory() = runTest {
+		val source = ReaderPageTurnBundleSource()
+		val runtime = SuccessfulPassiveBitmapRuntime()
+		val session = ReaderPassiveRasterPrototypeSession(runtime) { bitmap ->
+			if (!bitmap.isRecycled) bitmap.recycle()
+		}
+		val adapter = ReaderPassiveRasterPreparationAdapter(
+			session = session,
+			liveManifestPort = ReaderPassiveRasterLiveManifestPort { _, _, _, _, _ ->
+				error("Current-live persistence must not request passive authority")
+			},
+			bundleSource = source,
+			initialCaptureEpoch = 8L,
+			currentLivePublicationPort = ReaderPageRasterCurrentLivePublicationPort {
+				_, _, _, onPublished ->
+				onPublished(
+					ReaderPageRasterPublicationCompletion(
+						result = ReaderPageRasterPublicationResult.Failed,
+						writeFailureReason =
+							ReaderPageRasterWriteFailureReason.EncodeIdentityReleasing
+					)
+				)
+			}
+		)
+		var outcome: ReaderPageRasterBatchOutcome? = null
+		val reference = passiveReference().also { it.retain() }
+		try {
+			assertTrue(
+				adapter.start(
+					kind = reference.key.kind,
+					reference = reference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = reference.key.visualPageIndex,
+							priority = ReaderPageRasterPriority.Current,
+							authority = ReaderPageRasterTargetAuthority.CurrentLive
+						)
+					),
+					rasterGeneration = source.currentGeneration(),
+					isStillCurrent = { true },
+					trigger = ReaderPageRasterAcquisitionTrigger.InitialPreparation,
+					onComplete = { outcome = it }
+				)
+			)
+
+			val failed = assertIs<ReaderPageRasterBatchOutcome.Failed>(outcome)
+			assertNull(failed.passiveRasterRejection)
+			assertEquals(
+				ReaderPageRasterPublicationResult.Failed,
+				failed.persistentPublicationResult
+			)
+			assertEquals(
+				ReaderPageRasterWriteFailureReason.EncodeIdentityReleasing,
+				failed.persistentWriteFailureReason
+			)
+			val categoryBranch = when (failed.persistentWriteFailureReason) {
+				ReaderPageRasterWriteFailureReason.EncodeIdentityReleasing ->
+					"encode-identity-releasing"
+				ReaderPageRasterWriteFailureReason.DiskCapacity -> "disk-capacity"
+				null -> "untyped"
+			}
+			assertEquals("encode-identity-releasing", categoryBranch)
+			assertEquals("durable-write-failed", failed.reason)
+			assertEquals(
+				"stage=persistent-publication pageIndex=${reference.key.visualPageIndex} " +
+					"reason=durable-write-failed passiveRasterRejection=None " +
+					"persistentPublicationResult=Failed " +
+					"persistentWriteFailureReason=EncodeIdentityReleasing",
+				failed.diagnostic
+			)
+			assertEquals(0, runtime.captureRequests)
+		} finally {
+			adapter.close()
+			source.closeAndJoin()
+		}
+	}
+
+	@Test
 	fun typedManifestUnavailabilitySelectsReachableRecoveryOrTerminalOutcome() = runTest {
 		val cases = listOf(
 			ReaderPassiveRasterManifestUnavailableCause.CanonicalRenderedDestinationAbsent to
@@ -1548,7 +1704,11 @@ class ReaderPassiveRasterPrototypeTest {
 				livePublicationReference = reference
 				assertEquals(ReaderPageRasterPriority.Current, priority)
 				assertTrue(isStillCurrent())
-				onPublished(ReaderPageRasterPublicationResult.Durable)
+				onPublished(
+					ReaderPageRasterPublicationCompletion(
+						ReaderPageRasterPublicationResult.Durable
+					)
+				)
 			}
 		)
 		try {
@@ -1973,7 +2133,7 @@ class ReaderPassiveRasterPrototypeTest {
 					isStillCurrent = { true },
 					onPublished = {
 						publications += 1
-						result = it
+						result = it.result
 					}
 				)
 
@@ -2037,7 +2197,7 @@ class ReaderPassiveRasterPrototypeTest {
 				isStillCurrent = { true },
 				onPublished = {
 					publicationCount += 1
-					assertEquals(ReaderPageRasterPublicationResult.Failed, it)
+					assertEquals(ReaderPageRasterPublicationResult.Failed, it.result)
 				}
 			)
 			assertEquals(1, publicationCount)
@@ -2076,7 +2236,7 @@ class ReaderPassiveRasterPrototypeTest {
 				reference = replacementReference,
 				priority = ReaderPageRasterPriority.NextChapter,
 				isStillCurrent = { true },
-				onPublished = { generationResult = it }
+				onPublished = { generationResult = it.result }
 			)
 			assertEquals(ReaderPageRasterPublicationResult.Failed, generationResult)
 			assertEquals(1, generationReleases)

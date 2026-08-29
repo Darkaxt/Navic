@@ -122,14 +122,14 @@ class ReaderPageRasterPreparationSourceTest {
 			"ReaderPageRasterPublicationResult.Durable"
 		)
 		assertContains(hydration, "bundleSource.ensurePersistentSnapshot(")
-		assertContains(hydration, "recordDurability(session, target, publicationResult)")
+		assertContains(hydration, "recordDurability(session, target, publicationCompletion)")
 		val ensurePersistent = bundle.substringAfter(
 			"fun ensurePersistentSnapshot("
 		).substringBefore("private fun cacheSnapshot(")
 		assertContains(ensurePersistent, "persistCachedSnapshot(")
 		assertContains(ensurePersistent, "isStillCurrent = isStillCurrent")
-		assertContains(capture, "onCaptured = captured@{ publicationResult ->")
-		assertContains(capture, "recordDurability(session, target, publicationResult)")
+		assertContains(capture, "onCaptured = captured@{ publicationCompletion ->")
+		assertContains(capture, "recordDurability(session, target, publicationCompletion)")
 		assertContains(source, "ReaderPageRasterPublicationResult.CapacityReached")
 		assertContains(source, "ReaderPageRasterCapacityPolicy.StopBackgroundRefill")
 		assertContains(source, "stage = \"persistent-publication\"")
@@ -137,9 +137,29 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(source, "session.durabilityGate.retryPageIndices()")
 		assertContains(source, "target.pageIndex in candidate.retryPageIndices")
 		assertContains(source, "progressCompletedOffset + completed")
-		assertContains(bundle, "publicationCompletionResults[request] = publicationResult")
+		assertContains(bundle, "publicationCompletionResults[request] = publicationCompletion")
 		assertContains(bundle, "ReaderPageRasterWriteFailureReason.DiskCapacity")
 		assertFalse(source.contains("private fun markCompleted("))
+	}
+
+	@Test
+	fun passiveResolutionFallsBackOnlyForUntypedPublicationFailure() {
+		val adapter = readerSource("ReaderPassiveRasterPreparationAdapter.android.kt")
+		val resolve = requiredReaderSourceSlice(
+			source = adapter,
+			startDelimiter = "private fun resolveTarget(",
+			endDelimiter = "private fun captureTarget("
+		)
+		val failedBranch = resolve.substringAfter(
+			"ReaderPageRasterPublicationResult.Failed -> {"
+		).substringBefore("\n\t\t\tnull ->")
+
+		assertContains(failedBranch, "val writeFailureReason = completion.writeFailureReason")
+		assertContains(failedBranch, "if (writeFailureReason == null)")
+		assertContains(failedBranch, "captureTarget(batch, target, inputs)")
+		assertContains(failedBranch, "finish(")
+		assertContains(failedBranch, "persistentWriteFailureReason = writeFailureReason")
+		assertContains(resolve, "null -> captureTarget(batch, target, inputs)")
 	}
 
 	@Test

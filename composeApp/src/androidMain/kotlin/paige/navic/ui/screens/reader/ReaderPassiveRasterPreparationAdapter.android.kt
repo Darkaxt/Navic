@@ -75,7 +75,7 @@ internal fun interface ReaderPageRasterCurrentLivePublicationPort {
 		reference: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
 		isStillCurrent: () -> Boolean,
-		onPublished: (ReaderPageRasterPublicationResult) -> Unit
+		onPublished: (ReaderPageRasterPublicationCompletion) -> Unit
 	)
 }
 
@@ -86,7 +86,7 @@ private class ReaderPageBundleCurrentLivePublicationPort(
 		reference: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
 		isStillCurrent: () -> Boolean,
-		onPublished: (ReaderPageRasterPublicationResult) -> Unit
+		onPublished: (ReaderPageRasterPublicationCompletion) -> Unit
 	) {
 		bundleSource.ensurePersistentSnapshot(
 			snapshot = reference,
@@ -372,14 +372,14 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			isStillCurrent = {
 				isPreparationGenerationCurrent(batch) && batchIsCurrent(batch)
 			}
-		) { result ->
+		) { completion ->
 			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) {
 				return@publish
 			}
 			readerPageRasterPersistenceTerminalOutcome(
 				trigger = batch.trigger,
 				capacityPolicy = batch.capacityPolicy,
-				result = result,
+				completion = completion,
 				pageIndex = target.pageIndex
 			)?.let { outcome ->
 				finish(batch, outcome)
@@ -410,11 +410,11 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			priority = target.priority,
 			rasterDescriptor = inputs.rasterDescriptor,
 			isStillCurrent = { batchIsCurrent(batch) }
-		) resolved@{ result ->
+		) resolved@{ completion ->
 			hydrationCompleted = true
 			if (batch.targetIndex == targetIndex) batch.hydration = null
 			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) return@resolved
-			when (result) {
+			when (completion?.result) {
 				ReaderPageRasterPublicationResult.Durable -> completeTarget(batch, target)
 				ReaderPageRasterPublicationResult.CapacityReached -> {
 					if (batch.capacityPolicy == ReaderPageRasterCapacityPolicy.StopBackgroundRefill) {
@@ -428,12 +428,30 @@ internal class ReaderPassiveRasterPreparationAdapter(
 							ReaderPageRasterBatchOutcome.Failed(
 								stage = "persistent-publication",
 								pageIndex = target.pageIndex,
-								reason = "capacity-reached"
+								reason = "capacity-reached",
+								persistentPublicationResult = completion.result,
+								persistentWriteFailureReason = completion.writeFailureReason
 							)
 						)
 					}
 				}
-				ReaderPageRasterPublicationResult.Failed,
+				ReaderPageRasterPublicationResult.Failed -> {
+					val writeFailureReason = completion.writeFailureReason
+					if (writeFailureReason == null) {
+						captureTarget(batch, target, inputs)
+					} else {
+						finish(
+							batch,
+							ReaderPageRasterBatchOutcome.Failed(
+								stage = "persistent-publication",
+								pageIndex = target.pageIndex,
+								reason = "durable-write-failed",
+								persistentPublicationResult = completion.result,
+								persistentWriteFailureReason = writeFailureReason
+							)
+						)
+					}
+				}
 				null -> captureTarget(batch, target, inputs)
 			}
 		}
@@ -539,6 +557,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				capture.raster?.release()
 				return@currentAuthority
 			}
+			var passiveRasterRejection: ReaderPassiveRasterRejection? = null
 			bundleSource.admitPassiveRasterCapture(
 				capture = capture,
 				currentAuthority = ReaderPassiveRasterAdmissionAuthority(
@@ -552,10 +571,11 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				priority = target.priority,
 				preparationGeneration = batch.preparationGeneration,
 				isPreparationGenerationCurrent = batch.isPreparationGenerationCurrent,
-				isStillCurrent = { batchIsCurrent(batch) }
-			) admitted@{ result ->
+				isStillCurrent = { batchIsCurrent(batch) },
+				onRejected = { rejection -> passiveRasterRejection = rejection }
+			) admitted@{ completion ->
 				if (!batchIsCurrent(batch)) return@admitted
-				when (result) {
+				when (completion.result) {
 					ReaderPageRasterPublicationResult.Durable -> completeTarget(batch, target)
 					ReaderPageRasterPublicationResult.CapacityReached -> {
 						if (batch.capacityPolicy == ReaderPageRasterCapacityPolicy.StopBackgroundRefill) {
@@ -569,7 +589,9 @@ internal class ReaderPassiveRasterPreparationAdapter(
 								ReaderPageRasterBatchOutcome.Failed(
 									stage = "persistent-publication",
 									pageIndex = target.pageIndex,
-									reason = "capacity-reached"
+									reason = "capacity-reached",
+									persistentPublicationResult = completion.result,
+									persistentWriteFailureReason = completion.writeFailureReason
 								)
 							)
 						}
@@ -579,7 +601,12 @@ internal class ReaderPassiveRasterPreparationAdapter(
 						ReaderPageRasterBatchOutcome.Failed(
 							stage = "passive-admission",
 							pageIndex = target.pageIndex,
-							reason = "raster-rejected-or-publication-failed"
+							reason = "raster-rejected-or-publication-failed",
+							passiveRasterRejection = passiveRasterRejection,
+							persistentPublicationResult = completion.result.takeIf {
+								passiveRasterRejection == null
+							},
+							persistentWriteFailureReason = completion.writeFailureReason
 						)
 					)
 				}

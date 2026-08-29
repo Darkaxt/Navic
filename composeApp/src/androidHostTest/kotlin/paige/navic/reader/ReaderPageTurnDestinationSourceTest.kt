@@ -1537,7 +1537,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(capture, "onPersisted = onCaptured")
 		assertContains(
 			insertion,
-			"onPersisted: (ReaderPageRasterPublicationResult) -> Unit = {}"
+			"onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit = {}"
 		)
 		val persist = insertion.indexOf("persistCachedSnapshot(")
 		val trim = insertion.indexOf("trimSnapshotCacheToCapacity()")

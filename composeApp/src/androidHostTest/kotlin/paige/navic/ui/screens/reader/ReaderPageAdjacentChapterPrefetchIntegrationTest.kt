@@ -2067,7 +2067,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 		bundleSource.ensurePersistentSnapshot(
 			snapshot = snapshot,
 			priority = ReaderPageRasterPriority.Current,
-			onPersisted = persisted::complete
+			onPersisted = { completion -> persisted.complete(completion.result) }
 		)
 		testScheduler.advanceUntilIdle()
 		assertEquals(ReaderPageRasterPublicationResult.Durable, persisted.await())

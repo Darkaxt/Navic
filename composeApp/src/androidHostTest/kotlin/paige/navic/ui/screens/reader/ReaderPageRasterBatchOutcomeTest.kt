@@ -74,7 +74,10 @@ class ReaderPageRasterBatchOutcomeTest {
 			readerPageRasterPersistenceTerminalOutcome(
 				trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
 				capacityPolicy = ReaderPageRasterCapacityPolicy.StopBackgroundRefill,
-				result = ReaderPageRasterPublicationResult.CapacityReached,
+				completion = ReaderPageRasterPublicationCompletion(
+					result = ReaderPageRasterPublicationResult.CapacityReached,
+					writeFailureReason = ReaderPageRasterWriteFailureReason.DiskCapacity
+				),
 				pageIndex = 231
 			)
 		)
@@ -85,7 +88,10 @@ class ReaderPageRasterBatchOutcomeTest {
 		val outcome = readerPageRasterPersistenceTerminalOutcome(
 			trigger = ReaderPageRasterAcquisitionTrigger.InitialPreparation,
 			capacityPolicy = ReaderPageRasterCapacityPolicy.FailClosed,
-			result = ReaderPageRasterPublicationResult.CapacityReached,
+			completion = ReaderPageRasterPublicationCompletion(
+				result = ReaderPageRasterPublicationResult.CapacityReached,
+				writeFailureReason = ReaderPageRasterWriteFailureReason.DiskCapacity
+			),
 			pageIndex = 4
 		)
 
@@ -100,7 +106,10 @@ class ReaderPageRasterBatchOutcomeTest {
 		val outcome = readerPageRasterPersistenceTerminalOutcome(
 			trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
 			capacityPolicy = ReaderPageRasterCapacityPolicy.FailClosed,
-			result = ReaderPageRasterPublicationResult.CapacityReached,
+			completion = ReaderPageRasterPublicationCompletion(
+				result = ReaderPageRasterPublicationResult.CapacityReached,
+				writeFailureReason = ReaderPageRasterWriteFailureReason.DiskCapacity
+			),
 			pageIndex = 9
 		)
 
@@ -108,6 +117,55 @@ class ReaderPageRasterBatchOutcomeTest {
 		assertEquals("persistent-publication", outcome.stage)
 		assertEquals(9, outcome.pageIndex)
 		assertEquals("disk-capacity-reached", outcome.reason)
+	}
+
+	@Test
+	fun publicationCompletionMappingPreservesCurrentReasonAndStripsStaleReason() {
+		assertEquals(
+			ReaderPageRasterPublicationCompletion(
+				result = ReaderPageRasterPublicationResult.Failed,
+				writeFailureReason =
+					ReaderPageRasterWriteFailureReason.EncodeIdentityReleasing
+			),
+			readerPageRasterPublicationCompletion(
+				persistedForCurrentPublication = false,
+				publicationCurrent = true,
+				writeFailureReason =
+					ReaderPageRasterWriteFailureReason.EncodeIdentityReleasing
+			)
+		)
+		assertEquals(
+			ReaderPageRasterPublicationCompletion(
+				ReaderPageRasterPublicationResult.Failed
+			),
+			readerPageRasterPublicationCompletion(
+				persistedForCurrentPublication = false,
+				publicationCurrent = false,
+				writeFailureReason =
+					ReaderPageRasterWriteFailureReason.EncodeIdentityReleasing
+			)
+		)
+		assertEquals(
+			ReaderPageRasterPublicationCompletion(
+				result = ReaderPageRasterPublicationResult.CapacityReached,
+				writeFailureReason = ReaderPageRasterWriteFailureReason.DiskCapacity
+			),
+			readerPageRasterPublicationCompletion(
+				persistedForCurrentPublication = false,
+				publicationCurrent = true,
+				writeFailureReason = ReaderPageRasterWriteFailureReason.DiskCapacity
+			)
+		)
+		assertEquals(
+			ReaderPageRasterPublicationCompletion(
+				ReaderPageRasterPublicationResult.Durable
+			),
+			readerPageRasterPublicationCompletion(
+				persistedForCurrentPublication = true,
+				publicationCurrent = true,
+				writeFailureReason = null
+			)
+		)
 	}
 
 	@Test

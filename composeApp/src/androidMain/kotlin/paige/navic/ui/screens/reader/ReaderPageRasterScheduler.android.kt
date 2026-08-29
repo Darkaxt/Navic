@@ -65,6 +65,11 @@ internal enum class ReaderPageRasterPublicationResult {
 	Failed
 }
 
+internal data class ReaderPageRasterPublicationCompletion(
+	val result: ReaderPageRasterPublicationResult,
+	val writeFailureReason: ReaderPageRasterWriteFailureReason? = null
+)
+
 internal data class ReaderPageRasterWriteResult(
 	val persisted: Boolean,
 	val ownership: ReaderPageRasterValueOwnership,

@@ -1152,6 +1152,29 @@ internal data class ReaderPageRasterPublicationValue<T : Any>(
 	val generation: ReaderPageRasterGeneration<T>
 )
 
+internal fun readerPageRasterPublicationCompletion(
+	persistedForCurrentPublication: Boolean,
+	publicationCurrent: Boolean,
+	writeFailureReason: ReaderPageRasterWriteFailureReason?
+): ReaderPageRasterPublicationCompletion = when {
+	persistedForCurrentPublication -> ReaderPageRasterPublicationCompletion(
+		ReaderPageRasterPublicationResult.Durable
+	)
+	publicationCurrent &&
+		writeFailureReason == ReaderPageRasterWriteFailureReason.DiskCapacity ->
+		ReaderPageRasterPublicationCompletion(
+			result = ReaderPageRasterPublicationResult.CapacityReached,
+			writeFailureReason = ReaderPageRasterWriteFailureReason.DiskCapacity
+		)
+	publicationCurrent -> ReaderPageRasterPublicationCompletion(
+		result = ReaderPageRasterPublicationResult.Failed,
+		writeFailureReason = writeFailureReason
+	)
+	else -> ReaderPageRasterPublicationCompletion(
+		ReaderPageRasterPublicationResult.Failed
+	)
+}
+
 internal data class ReaderPageTurnBundleOwnershipMetrics(
 	val rasterCache: ReaderPageRasterCacheMetrics,
 	val stagedPublications: Int,
@@ -1227,7 +1250,7 @@ internal class ReaderPageTurnBundleSource(
 	private val publicationCompletionResults =
 		ConcurrentHashMap<
 			ReaderPageRasterPublicationRequest,
-			ReaderPageRasterPublicationResult
+			ReaderPageRasterPublicationCompletion
 		>()
 	private val rasterPersistenceDiagnostics = linkedSetOf<String>()
 	private val persistenceRetryCorrelations =
@@ -1355,7 +1378,7 @@ internal class ReaderPageTurnBundleSource(
 		priority: ReaderPageRasterPriority,
 		rasterDescriptor: ReaderPageRasterDescriptor,
 		isStillCurrent: () -> Boolean,
-		onResolved: (ReaderPageRasterPublicationResult?) -> Unit
+		onResolved: (ReaderPageRasterPublicationCompletion?) -> Unit
 	): ReaderPageRasterHydrationRequest {
 		val webView = activeWebView.get()?.takeIf { it.isAttachedToWindow }
 		if (
@@ -1406,16 +1429,20 @@ internal class ReaderPageTurnBundleSource(
 				ReaderPageRasterHydrationDurability.PersistentStoreVerified
 			) {
 				snapshot.release()
-				onResolved(ReaderPageRasterPublicationResult.Durable)
+				onResolved(
+					ReaderPageRasterPublicationCompletion(
+						ReaderPageRasterPublicationResult.Durable
+					)
+				)
 				return@hydrateSnapshotWithDurability
 			}
 			ensurePersistentSnapshot(
 				snapshot = snapshot,
 				priority = priority,
 				isStillCurrent = isStillCurrent
-			) { result ->
+			) { completion ->
 				snapshot.release()
-				onResolved(result)
+				onResolved(completion)
 			}
 		}
 	}
@@ -1430,17 +1457,21 @@ internal class ReaderPageTurnBundleSource(
 		preparationGeneration: Long = 0L,
 		isPreparationGenerationCurrent: (Long) -> Boolean = { true },
 		isStillCurrent: () -> Boolean,
-		onPublished: (ReaderPageRasterPublicationResult) -> Unit
+		onRejected: (ReaderPassiveRasterRejection) -> Unit = {},
+		onPublished: (ReaderPageRasterPublicationCompletion) -> Unit
 	) {
 		val inputs = currentAuthority.manifestInputs
 		val commit = inputs.canonicalCommit
 		val descriptor = inputs.rasterDescriptor
+		val failedCompletion = ReaderPageRasterPublicationCompletion(
+			ReaderPageRasterPublicationResult.Failed
+		)
 		if (!runCatching {
 				isPreparationGenerationCurrent(preparationGeneration)
 			}.getOrDefault(false)
 		) {
 			capture.raster?.release()
-			onPublished(ReaderPageRasterPublicationResult.Failed)
+			onPublished(failedCompletion)
 			return
 		}
 		if (
@@ -1450,7 +1481,7 @@ internal class ReaderPageTurnBundleSource(
 			descriptor.decorationFingerprint != commit.decorationFingerprint
 		) {
 			capture.raster?.release()
-			onPublished(ReaderPageRasterPublicationResult.Failed)
+			onPublished(failedCompletion)
 			return
 		}
 		val generation = commit.rasterGeneration
@@ -1478,7 +1509,8 @@ internal class ReaderPageTurnBundleSource(
 			capture = capture
 		)
 		if (admitted !is ReaderPassiveRasterAdmission.Admitted) {
-			onPublished(ReaderPageRasterPublicationResult.Failed)
+			onRejected((admitted as ReaderPassiveRasterAdmission.Rejected).reason)
+			onPublished(failedCompletion)
 			return
 		}
 		val publicationDescriptor = when (commit.profileAuthority) {
@@ -1499,12 +1531,12 @@ internal class ReaderPageTurnBundleSource(
 			!runCatching(isStillCurrent).getOrDefault(false)
 		) {
 			admitted.releaseRaster()
-			onPublished(ReaderPageRasterPublicationResult.Failed)
+			onPublished(failedCompletion)
 			return
 		}
 		val bitmap = admitted.transferRaster()
 		if (bitmap == null) {
-			onPublished(ReaderPageRasterPublicationResult.Failed)
+			onPublished(failedCompletion)
 			return
 		}
 		val snapshot = readerPassiveRasterSnapshot(
@@ -1535,7 +1567,7 @@ internal class ReaderPageTurnBundleSource(
 		) {
 			snapshot?.releaseCacheOwnership()
 				?: bitmap.takeUnless { it.isRecycled }?.recycle()
-			onPublished(ReaderPageRasterPublicationResult.Failed)
+			onPublished(failedCompletion)
 			return
 		}
 		schedulePersistentSnapshot(
@@ -1544,7 +1576,7 @@ internal class ReaderPageTurnBundleSource(
 			expectedDescriptor = inputs.rasterDescriptor,
 			publicationDescriptor = publicationDescriptor,
 			isStillCurrent = isStillCurrent
-		) { result ->
+		) { completion ->
 			val preparationCurrent = runCatching {
 				isPreparationGenerationCurrent(preparationGeneration)
 			}.getOrDefault(false)
@@ -1553,19 +1585,24 @@ internal class ReaderPageTurnBundleSource(
 					physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get() &&
 					preparationCurrent &&
 					runCatching(isStillCurrent).getOrDefault(false)
-			if (result == ReaderPageRasterPublicationResult.Durable && publicationCurrent) {
+			if (
+				completion.result == ReaderPageRasterPublicationResult.Durable &&
+				publicationCurrent
+			) {
 				val cached = putSnapshot(
 					snapshot = snapshot,
 					priority = priority,
 					persist = false
 				)
 				markCachedSnapshotDurable(cached)
-				onPublished(ReaderPageRasterPublicationResult.Durable)
+				onPublished(completion)
 			} else {
 				snapshot.releaseCacheOwnership()
 				onPublished(
-					if (publicationCurrent) result
-					else ReaderPageRasterPublicationResult.Failed
+					if (publicationCurrent) completion
+					else ReaderPageRasterPublicationCompletion(
+						ReaderPageRasterPublicationResult.Failed
+					)
 				)
 			}
 		}
@@ -2528,7 +2565,7 @@ internal class ReaderPageTurnBundleSource(
 		isStillCurrent: () -> Boolean = { true },
 		onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit,
 		onCaptureFailed: () -> Unit,
-		onCaptured: (ReaderPageRasterPublicationResult) -> Unit
+		onCaptured: (ReaderPageRasterPublicationCompletion) -> Unit
 	) {
 		activeWebView = WeakReference(webView)
 		val referenceLayout = readerPageRasterPhysicalLayout(reference)
@@ -2551,8 +2588,8 @@ internal class ReaderPageTurnBundleSource(
 				priority,
 				mutationGeneration = mutationGeneration,
 				isStillCurrent = isStillCurrent
-			) { result ->
-				if (isStillCurrent()) onCaptured(result)
+			) { completion ->
+				if (isStillCurrent()) onCaptured(completion)
 			}
 			return
 		}
@@ -2757,7 +2794,7 @@ internal class ReaderPageTurnBundleSource(
 		priority: ReaderPageRasterPriority,
 		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
-		onPersisted: (ReaderPageRasterPublicationResult) -> Unit
+		onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit
 	) {
 		persistCachedSnapshot(
 			snapshot = snapshot,
@@ -2892,19 +2929,19 @@ internal class ReaderPageTurnBundleSource(
 		priority: ReaderPageRasterPriority,
 		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
-		onPersisted: (ReaderPageRasterPublicationResult) -> Unit
+		onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit
 	) {
 		schedulePersistentSnapshot(
 			snapshot = snapshot,
 			priority = priority,
 			mutationGeneration = mutationGeneration,
 			isStillCurrent = isStillCurrent
-		) { result ->
+		) { completion ->
 			if (!runCatching(isStillCurrent).getOrDefault(false)) return@schedulePersistentSnapshot
-			if (result == ReaderPageRasterPublicationResult.Durable) {
+			if (completion.result == ReaderPageRasterPublicationResult.Durable) {
 				markCachedSnapshotDurable(snapshot)
 			}
-			onPersisted(result)
+			onPersisted(completion)
 		}
 	}
 
@@ -2914,7 +2951,7 @@ internal class ReaderPageTurnBundleSource(
 		persist: Boolean = true,
 		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
-		onPersisted: (ReaderPageRasterPublicationResult) -> Unit = {}
+		onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit = {}
 	): ReaderPageSlideSnapshot {
 		val physicalLayout = checkNotNull(readerPageRasterPhysicalLayout(snapshot))
 		check(currentPhysicalLayoutEpoch(snapshot.key.kind, physicalLayout) != null) {
@@ -2969,10 +3006,13 @@ internal class ReaderPageTurnBundleSource(
 		expectedDescriptor: ReaderPageRasterDescriptor? = null,
 		publicationDescriptor: ReaderPageRasterDescriptor? = null,
 		isStillCurrent: () -> Boolean = { true },
-		onPersisted: (ReaderPageRasterPublicationResult) -> Unit = {}
+		onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit = {}
 	) {
+		val failedCompletion = ReaderPageRasterPublicationCompletion(
+			ReaderPageRasterPublicationResult.Failed
+		)
 		if (!runCatching(isStillCurrent).getOrDefault(false)) {
-			onPersisted(ReaderPageRasterPublicationResult.Failed)
+			onPersisted(failedCompletion)
 			return
 		}
 		val pageIndex = snapshot.key.visualPageIndex
@@ -2982,7 +3022,7 @@ internal class ReaderPageTurnBundleSource(
 				"bundle-source-closed",
 				activeGeneration
 			)
-			onPersisted(ReaderPageRasterPublicationResult.Failed)
+			onPersisted(failedCompletion)
 			return
 		}
 		val webView = activeWebView.get()?.takeIf { it.isAttachedToWindow }
@@ -2992,7 +3032,7 @@ internal class ReaderPageTurnBundleSource(
 					"webview-unavailable",
 					activeGeneration
 				)
-				onPersisted(ReaderPageRasterPublicationResult.Failed)
+				onPersisted(failedCompletion)
 				return
 			}
 		val generation = activeGeneration
@@ -3002,18 +3042,18 @@ internal class ReaderPageTurnBundleSource(
 		}
 		if (physicalLayout == null || physicalLayoutEpoch == null) {
 			rasterPersistenceSkipped(pageIndex, "physical-layout-stale", generation)
-			onPersisted(ReaderPageRasterPublicationResult.Failed)
+			onPersisted(failedCompletion)
 			return
 		}
 		val descriptorOwner = pendingDescriptorOwners.acquire(snapshot) {
-			onPersisted(ReaderPageRasterPublicationResult.Failed)
+			onPersisted(failedCompletion)
 		} ?: run {
 			rasterPersistenceSkipped(
 				pageIndex,
 				"bundle-source-closed",
 				generation
 			)
-			onPersisted(ReaderPageRasterPublicationResult.Failed)
+			onPersisted(failedCompletion)
 			return
 		}
 		val descriptorMethod = if (expectedDescriptor == null) {
@@ -3039,7 +3079,7 @@ internal class ReaderPageTurnBundleSource(
 						"generation-or-physical-layout-changed",
 						generation
 					)
-					onPersisted(ReaderPageRasterPublicationResult.Failed)
+					onPersisted(failedCompletion)
 					return@callback
 				}
 				val descriptor = readerPageRasterDescriptor(encodedDescriptor)
@@ -3049,12 +3089,12 @@ internal class ReaderPageTurnBundleSource(
 							"descriptor-unavailable",
 							generation
 						)
-						onPersisted(ReaderPageRasterPublicationResult.Failed)
+						onPersisted(failedCompletion)
 						return@callback
 					}
 				if (expectedDescriptor != null && descriptor != expectedDescriptor) {
 					rasterPersistenceSkipped(pageIndex, "descriptor-mismatch", generation)
-					onPersisted(ReaderPageRasterPublicationResult.Failed)
+					onPersisted(failedCompletion)
 					return@callback
 				}
 				val persistentDescriptor = publicationDescriptor ?: descriptor
@@ -3079,7 +3119,7 @@ internal class ReaderPageTurnBundleSource(
 						"bitmap-copy-failed",
 						generation
 					)
-					onPersisted(ReaderPageRasterPublicationResult.Failed)
+					onPersisted(failedCompletion)
 					return@callback
 				}
 				val rasterGeneration = ReaderPageRasterGeneration(
@@ -3102,7 +3142,7 @@ internal class ReaderPageTurnBundleSource(
 								"generation-or-physical-layout-changed",
 								generation
 							)
-							onPersisted(ReaderPageRasterPublicationResult.Failed)
+							onPersisted(failedCompletion)
 							return@launch
 						}
 						scheduler.activateProfile(key.profile)
@@ -3136,13 +3176,16 @@ internal class ReaderPageTurnBundleSource(
 							value = value,
 							mutationGeneration = mutationGeneration
 						) { persisted ->
-							val publicationResult = when {
-								persisted -> ReaderPageRasterPublicationResult.Durable
+							val publicationCompletion = when {
+								persisted -> ReaderPageRasterPublicationCompletion(
+									ReaderPageRasterPublicationResult.Durable
+								)
 								closed || publicationEpoch != publicationLedger.currentEpoch() ->
-									ReaderPageRasterPublicationResult.Failed
+									failedCompletion
 								else -> publicationCompletionResults[publicationRequest]
-									?: ReaderPageRasterPublicationResult.Failed
+									?: failedCompletion
 							}
+							val publicationResult = publicationCompletion.result
 							diagnostics?.publication(
 								digest = key.digest,
 								rasterEpoch = publicationEpoch,
@@ -3174,7 +3217,7 @@ internal class ReaderPageTurnBundleSource(
 									generation
 								)
 							}
-							onPersisted(publicationResult)
+							onPersisted(publicationCompletion)
 						}
 						publicationQaFaultCorrelation =
 							readerPageRasterPublicationRetryCorrelation(
@@ -3207,7 +3250,7 @@ internal class ReaderPageTurnBundleSource(
 						}
 					} catch (failure: CancellationException) {
 						if (!publicationValueTransferred) {
-							onPersisted(ReaderPageRasterPublicationResult.Failed)
+							onPersisted(failedCompletion)
 						}
 						throw failure
 					} catch (failure: Throwable) {
@@ -3218,7 +3261,7 @@ internal class ReaderPageTurnBundleSource(
 							generation
 						)
 						if (!publicationValueTransferred) {
-							onPersisted(ReaderPageRasterPublicationResult.Failed)
+							onPersisted(failedCompletion)
 						}
 					} finally {
 						if (!publicationValueTransferred) {
@@ -3356,14 +3399,12 @@ internal class ReaderPageTurnBundleSource(
 			} finally {
 				val publicationCurrent = publicationIsCurrent()
 				val persistedForCurrentPublication = write.persisted && publicationCurrent
-				val publicationResult = when {
-					persistedForCurrentPublication -> ReaderPageRasterPublicationResult.Durable
-					publicationCurrent &&
-						write.failureReason == ReaderPageRasterWriteFailureReason.DiskCapacity ->
-						ReaderPageRasterPublicationResult.CapacityReached
-					else -> ReaderPageRasterPublicationResult.Failed
-				}
-				publicationCompletionResults[request] = publicationResult
+				val publicationCompletion = readerPageRasterPublicationCompletion(
+					persistedForCurrentPublication = persistedForCurrentPublication,
+					publicationCurrent = publicationCurrent,
+					writeFailureReason = write.failureReason
+				)
+				publicationCompletionResults[request] = publicationCompletion
 				val accepted = try {
 					publicationLedger.complete(
 						request = request,

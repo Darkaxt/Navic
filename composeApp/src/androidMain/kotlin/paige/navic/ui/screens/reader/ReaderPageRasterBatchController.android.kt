@@ -380,10 +380,16 @@ internal sealed interface ReaderPageRasterBatchOutcome {
 	data class Failed(
 		val stage: String,
 		val pageIndex: Int?,
-		val reason: String
+		val reason: String,
+		val passiveRasterRejection: ReaderPassiveRasterRejection? = null,
+		val persistentPublicationResult: ReaderPageRasterPublicationResult? = null,
+		val persistentWriteFailureReason: ReaderPageRasterWriteFailureReason? = null
 	) : ReaderPageRasterBatchOutcome {
 		val diagnostic: String
-			get() = "stage=$stage pageIndex=${pageIndex ?: "none"} reason=$reason"
+			get() = "stage=$stage pageIndex=${pageIndex ?: "none"} reason=$reason " +
+				"passiveRasterRejection=${passiveRasterRejection?.name ?: "None"} " +
+				"persistentPublicationResult=${persistentPublicationResult?.name ?: "None"} " +
+				"persistentWriteFailureReason=${persistentWriteFailureReason?.name ?: "None"}"
 
 		val userMessage: String
 			get() = pageIndex?.let { index ->
@@ -400,9 +406,9 @@ internal enum class ReaderPageRasterCapacityPolicy {
 internal fun readerPageRasterPersistenceTerminalOutcome(
 	trigger: ReaderPageRasterAcquisitionTrigger,
 	capacityPolicy: ReaderPageRasterCapacityPolicy,
-	result: ReaderPageRasterPublicationResult,
+	completion: ReaderPageRasterPublicationCompletion,
 	pageIndex: Int
-): ReaderPageRasterBatchOutcome? = when (result) {
+): ReaderPageRasterBatchOutcome? = when (completion.result) {
 	ReaderPageRasterPublicationResult.Durable -> null
 	ReaderPageRasterPublicationResult.CapacityReached -> {
 		if (
@@ -414,14 +420,18 @@ internal fun readerPageRasterPersistenceTerminalOutcome(
 			ReaderPageRasterBatchOutcome.Failed(
 				stage = "persistent-publication",
 				pageIndex = pageIndex,
-				reason = "disk-capacity-reached"
+				reason = "disk-capacity-reached",
+				persistentPublicationResult = completion.result,
+				persistentWriteFailureReason = completion.writeFailureReason
 			)
 		}
 	}
 	ReaderPageRasterPublicationResult.Failed -> ReaderPageRasterBatchOutcome.Failed(
 		stage = "persistent-publication",
 		pageIndex = pageIndex,
-		reason = "durable-write-failed"
+		reason = "durable-write-failed",
+		persistentPublicationResult = completion.result,
+		persistentWriteFailureReason = completion.writeFailureReason
 	)
 }
 
@@ -934,7 +944,9 @@ internal class ReaderPageRasterBatchController(
 					!recordDurability(
 						session,
 						target,
-						ReaderPageRasterPublicationResult.Durable
+						ReaderPageRasterPublicationCompletion(
+							ReaderPageRasterPublicationResult.Durable
+						)
 					)
 				) {
 					return@hydrateSnapshotWithDurability
@@ -947,12 +959,12 @@ internal class ReaderPageRasterBatchController(
 				target.priority,
 				mutationGeneration = session.mutationGeneration,
 				isStillCurrent = { isSessionActive(session) }
-			) { publicationResult ->
+			) { publicationCompletion ->
 				hydrated.release()
 				if (!isSessionActive(session)) {
 					return@ensurePersistentSnapshot
 				}
-				if (!recordDurability(session, target, publicationResult)) {
+				if (!recordDurability(session, target, publicationCompletion)) {
 					return@ensurePersistentSnapshot
 				}
 				hydrateTarget(session, targetIndex + 1)
@@ -993,9 +1005,9 @@ internal class ReaderPageRasterBatchController(
 			snapshot = reference,
 			priority = target.priority,
 			isStillCurrent = { isSessionActive(session) }
-		) { publicationResult ->
+		) { publicationCompletion ->
 			if (!isSessionActive(session)) return@ensurePersistentSnapshot
-			if (!recordDurability(session, target, publicationResult)) {
+			if (!recordDurability(session, target, publicationCompletion)) {
 				return@ensurePersistentSnapshot
 			}
 			hydrateTarget(session, targetIndex + 1)
@@ -1147,7 +1159,7 @@ internal class ReaderPageRasterBatchController(
 					)
 				}
 			},
-			onCaptured = captured@{ publicationResult ->
+			onCaptured = captured@{ publicationCompletion ->
 				if (!isSessionActive(session)) {
 					finishAcquisition(
 						session,
@@ -1159,7 +1171,7 @@ internal class ReaderPageRasterBatchController(
 				finishAcquisition(
 					session,
 					pageIndex,
-					when (publicationResult) {
+					when (publicationCompletion.result) {
 						ReaderPageRasterPublicationResult.Durable ->
 							ReaderPageRasterAcquisitionResult.Durable
 						ReaderPageRasterPublicationResult.CapacityReached ->
@@ -1168,7 +1180,7 @@ internal class ReaderPageRasterBatchController(
 							ReaderPageRasterAcquisitionResult.Failed
 					}
 				)
-				if (!recordDurability(session, target, publicationResult)) {
+				if (!recordDurability(session, target, publicationCompletion)) {
 					return@captured
 				}
 				session.missingTargets.remove(target)
@@ -1231,12 +1243,12 @@ internal class ReaderPageRasterBatchController(
 	private fun recordDurability(
 		session: Session,
 		target: ReaderPageRasterBatchTarget,
-		publicationResult: ReaderPageRasterPublicationResult
+		publicationCompletion: ReaderPageRasterPublicationCompletion
 	): Boolean {
 		readerPageRasterPersistenceTerminalOutcome(
 			trigger = session.trigger,
 			capacityPolicy = session.capacityPolicy,
-			result = publicationResult,
+			completion = publicationCompletion,
 			pageIndex = target.pageIndex
 		)?.let { outcome ->
 			finish(session, outcome)

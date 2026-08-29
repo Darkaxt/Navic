@@ -689,7 +689,9 @@ class ReaderPageTurnBundleHydrationTest {
 				snapshot = snapshot,
 				priority = ReaderPageRasterPriority.Current,
 				isStillCurrent = { foregroundOwnership.isCurrent(passiveLease) },
-				onPersisted = publicationResult::complete
+				onPersisted = { completion ->
+					publicationResult.complete(completion.result)
+				}
 			)
 			withContext(Dispatchers.Default.limitedParallelism(1)) {
 				withTimeout(10_000L) {
