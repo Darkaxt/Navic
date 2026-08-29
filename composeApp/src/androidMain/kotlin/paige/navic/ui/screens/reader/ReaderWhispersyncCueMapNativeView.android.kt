@@ -195,6 +195,9 @@ internal class ReaderWhispersyncCueMapNativeView(context: Context) : View(contex
 		}
 
 		if (tracker.sourceOrdinal == anchor.sourceOrdinal) {
+			strokePaint.strokeWidth = 3f * density
+			strokePaint.color = HoldProgressTrack
+			canvas.drawCircle(centerX, centerY, holdRingRadius, strokePaint)
 			strokePaint.strokeWidth = 2f * density
 			strokePaint.color = Color.WHITE
 			canvas.drawArc(
@@ -246,6 +249,7 @@ internal class ReaderWhispersyncCueMapNativeView(context: Context) : View(contex
 		const val HoldDurationMs = 1_000L
 		const val PendingRotationMs = 800L
 		val MappedFill = Color.argb(224, 34, 34, 34)
+		val HoldProgressTrack = Color.argb(224, 34, 34, 34)
 		val AudioActiveFill = Color.argb(245, 27, 138, 88)
 		val PreparedStroke = Color.rgb(56, 189, 248)
 		val RequestedStroke = Color.rgb(251, 191, 36)
