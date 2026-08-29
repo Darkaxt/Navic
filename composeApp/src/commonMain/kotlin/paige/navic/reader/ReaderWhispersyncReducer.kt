@@ -384,6 +384,30 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 	val cueMapTransportAcknowledged =
 		currentWhispersync.cueMap.transportAcknowledgementPending &&
 			!acknowledgedCueMap.transportAcknowledgementPending
+	val acknowledgedPreparedTarget = if (cueMapTransportAcknowledged) {
+		val timeline = currentWhispersync.timeline
+		val segment = currentWhispersync.cueMap.requestedTransport
+			?.sourceOrdinal
+			?.let { sourceOrdinal -> timeline?.segmentForSourceOrdinal(sourceOrdinal) }
+		val target = if (timeline == null || segment == null) {
+			null
+		} else {
+			WhispersyncOverlaySyncAdapter(timeline).readerTargetForSegment(segment)
+		}
+		val destinationCommitIdentity = state.destinationCommitIdentity
+		if (target == null || destinationCommitIdentity == null) {
+			null
+		} else {
+			ReaderWhispersyncPreparedVisibleTarget(
+				destinationCommitIdentity = destinationCommitIdentity,
+				firstVisibleCue = target.cue,
+				audioSeekTarget = target.seekTarget,
+				preparationGeneration = currentWhispersync.preparationGeneration + 1L
+			)
+		}
+	} else {
+		null
+	}
 	val nextCueMap = acknowledgedCueMap.audioActive(
 		sourceOrdinal = observedSourceOrdinal.takeIf { playbackState.isPlaying },
 		revisionDigest = revisionDigest
@@ -396,6 +420,10 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 					sync = syncState,
 					pendingAudioSeek = currentWhispersync.pendingAudioSeek
 						?.takeIf { it.overlayRequestId == syncState.activeOverlayRequestId },
+					preparedVisibleTarget =
+						acknowledgedPreparedTarget ?: currentWhispersync.preparedVisibleTarget,
+					preparationGeneration = acknowledgedPreparedTarget
+						?.preparationGeneration ?: currentWhispersync.preparationGeneration,
 					playbackIntent = if (playbackState.isPlaying) {
 						ReaderWhispersyncPlaybackIntent.Enabled
 					} else {
@@ -494,10 +522,12 @@ private fun ReaderController.beginPreparedWhispersyncPlayback(): ReaderControlle
 	}
 	val enabledSync = currentWhispersync.sync.setSyncEnabled(true)
 	val readerStep = enabledSync.followReaderTarget(prepared.readerTarget())
-	val command = readerStep.state.engineCommand
-		?.takeIf { readerStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
 	val requestId = readerStep.state.activeOverlayRequestId
 	val alreadyConfirmed = readerStep.state.hasConfirmedOverlay(requestId)
+	val command = readerStep.state.engineCommand?.takeIf {
+		readerStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey ||
+			(!alreadyConfirmed && it is ReaderEngineCommand.ApplyMediaOverlay)
+	}
 	if (alreadyConfirmed) {
 		return ReaderControllerStep(
 			controller = copy(

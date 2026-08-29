@@ -3219,6 +3219,78 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun acknowledgedStoppedCueMapSeekRemainsStartAuthority() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+			.toggleWhispersyncCueMap().controller
+		val initialPrepared = requireNotNull(
+			controller.state.whispersync.preparedVisibleTarget
+		)
+		assertEquals(0, initialPrepared.audioSeekTarget.segment.sourceOrdinal)
+		val cueMap = controller.state.whispersync.cueMap
+		val selected = controller.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCueMapSeekRequested(
+				sourceOrdinal = 1,
+				revisionDigest = "5f04c2a19e7d",
+				presentationGeneration = cueMap.presentationGeneration,
+				destinationCommitIdentity = whispersyncTestDestination
+			)
+		)
+		val selectedOverlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			selected.engineCommands.first()
+		).fragment
+
+		val acknowledged = selected.controller.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				audioResource = "Audio/chapter01.m4b",
+				trackIndex = 0,
+				positionMs = 5_000L,
+				playbackSpeed = 1f,
+				syncEnabled = true
+			)
+		)
+		val promoted = requireNotNull(
+			acknowledged.controller.state.whispersync.preparedVisibleTarget
+		)
+		assertEquals(1, promoted.audioSeekTarget.segment.sourceOrdinal)
+		assertEquals(5_000L, promoted.audioSeekTarget.positionMs)
+		assertEquals(
+			initialPrepared.preparationGeneration + 1L,
+			promoted.preparationGeneration
+		)
+
+		val start = acknowledged.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
+		)
+		val rearmedOverlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			start.engineCommands.single()
+		).fragment
+		assertEquals(selectedOverlay.fragmentId, rearmedOverlay.fragmentId)
+		assertEquals(selectedOverlay.overlayRequestId, rearmedOverlay.overlayRequestId)
+		assertEquals(5_000L, start.controller.state.whispersync.pendingAudioSeek?.target?.positionMs)
+		assertNull(start.whispersyncAudioSeekTarget)
+		assertNull(start.readaloudPlaybackCommand)
+
+		val confirmed = start.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(rearmedOverlay)
+		)
+		assertEquals(1, confirmed.whispersyncAudioSeekTarget?.segment?.sourceOrdinal)
+		assertEquals(5_000L, confirmed.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, confirmed.readaloudPlaybackCommand)
+	}
+
+	@Test
 	fun unchangedCueMapPresentationDoesNotEmitReplacementCommand() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
