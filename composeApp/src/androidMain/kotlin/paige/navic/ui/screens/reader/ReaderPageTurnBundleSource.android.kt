@@ -1108,6 +1108,7 @@ private class ReaderPageWebViewRasterDescriptorPort : ReaderPageRasterDescriptor
 
 private data class ReaderPageRasterHydrationRecipient(
 	val token: Long,
+	val exactRasterIdentity: String?,
 	val publicationFence: () -> Boolean,
 	val callback: (ReaderPageSlideSnapshot?) -> Unit
 )
@@ -1118,7 +1119,8 @@ private data class ReaderPageRasterDescriptorIdentity(
 	val pageIndex: Int,
 	val kind: ReaderPageTurnTransitionKind,
 	val physicalLayout: ReaderPageRasterPhysicalLayout,
-	val physicalLayoutEpoch: Long
+	val physicalLayoutEpoch: Long,
+	val exactRasterIdentity: String? = null
 )
 
 private class ReaderPageRasterDescriptorRequest(
@@ -1216,6 +1218,8 @@ internal class ReaderPageTurnBundleSource(
 	private val snapshotCache = LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)
 	private val snapshotDurability =
 		IdentityHashMap<ReaderPageSlideSnapshot, ReaderPageRasterHydrationDurability>()
+	private val snapshotExactRasterIdentities =
+		IdentityHashMap<ReaderPageSlideSnapshot, String>()
 	private val descriptorRequests =
 		mutableMapOf<Long, ReaderPageRasterDescriptorRequest>()
 	private val descriptorRequestTokens =
@@ -1377,6 +1381,7 @@ internal class ReaderPageTurnBundleSource(
 		reference: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
 		rasterDescriptor: ReaderPageRasterDescriptor,
+		persistentOnly: Boolean = false,
 		isStillCurrent: () -> Boolean,
 		onResolved: (ReaderPageRasterPublicationCompletion?) -> Unit
 	): ReaderPageRasterHydrationRequest {
@@ -1408,23 +1413,19 @@ internal class ReaderPageTurnBundleSource(
 				pageIndex = pageIndex,
 				kind = kind,
 				physicalLayout = physicalLayout,
-				physicalLayoutEpoch = physicalLayoutEpoch
+				physicalLayoutEpoch = physicalLayoutEpoch,
+				exactRasterIdentity = rasterDescriptor
+					.key(bitmapQuality)
+					.identity
+					.takeIf { persistentOnly }
 			),
 			descriptor = rasterDescriptor
 		)
-		return hydrateSnapshotWithDurability(
-			webView = webView,
-			pageIndex = pageIndex,
-			kind = kind,
-			reference = reference,
-			publicationFence = isStillCurrent
-		) { hydration ->
+		val onHydrated: (ReaderPageRasterHydrationResult?) -> Unit = { hydration ->
 			val snapshot = hydration?.snapshot
 			if (snapshot == null) {
 				onResolved(null)
-				return@hydrateSnapshotWithDurability
-			}
-			if (
+			} else if (
 				hydration.durability ==
 				ReaderPageRasterHydrationDurability.PersistentStoreVerified
 			) {
@@ -1434,17 +1435,44 @@ internal class ReaderPageTurnBundleSource(
 						ReaderPageRasterPublicationResult.Durable
 					)
 				)
-				return@hydrateSnapshotWithDurability
-			}
-			ensurePersistentSnapshot(
-				snapshot = snapshot,
-				priority = priority,
-				isStillCurrent = isStillCurrent
-			) { completion ->
-				snapshot.release()
-				onResolved(completion)
+			} else {
+				ensurePersistentSnapshot(
+					snapshot = snapshot,
+					priority = priority,
+					isStillCurrent = isStillCurrent
+				) { completion ->
+					snapshot.release()
+					onResolved(completion)
+				}
 			}
 		}
+		if (persistentOnly) {
+			return registerPersistentHydration(
+				webView = webView,
+				pageIndex = pageIndex,
+				kind = kind,
+				physicalLayout = physicalLayout,
+				exactDescriptor = rasterDescriptor,
+				publicationFence = isStillCurrent
+			) { snapshot ->
+				onHydrated(
+					snapshot?.let { hydrated ->
+						ReaderPageRasterHydrationResult(
+							snapshot = hydrated,
+							durability = ReaderPageRasterHydrationDurability.PersistentStoreVerified
+						)
+					}
+				)
+			}
+		}
+		return hydrateSnapshotWithDurability(
+			webView = webView,
+			pageIndex = pageIndex,
+			kind = kind,
+			reference = reference,
+			publicationFence = isStillCurrent,
+			onHydrated = onHydrated
+		)
 	}
 
 	fun admitPassiveRasterCapture(
@@ -1515,11 +1543,11 @@ internal class ReaderPageTurnBundleSource(
 		}
 		val publicationDescriptor = when (commit.profileAuthority) {
 			ReaderPassiveRasterProfileAuthority.LiveRealized -> descriptor
-			ReaderPassiveRasterProfileAuthority.PassiveRealized -> descriptor.copy(
-				paginationFingerprint = admitted.receipt.observedPaginationFingerprint,
-				layoutFingerprint = admitted.receipt.observedLayoutFingerprint,
-				decorationFingerprint = admitted.receipt.observedDecorationFingerprint
-			)
+			ReaderPassiveRasterProfileAuthority.PassiveRealized ->
+				readerPassiveRasterReceiptAuthoritativeDescriptor(
+					descriptor = descriptor,
+					receipt = admitted.receipt
+				)
 		}
 		if (
 			closed ||
@@ -1570,6 +1598,12 @@ internal class ReaderPageTurnBundleSource(
 			onPublished(failedCompletion)
 			return
 		}
+		val exactRasterIdentity = publicationDescriptor
+			.key(snapshot.key.bitmapQuality)
+			.identity
+			.takeIf {
+				commit.profileAuthority == ReaderPassiveRasterProfileAuthority.PassiveRealized
+			}
 		schedulePersistentSnapshot(
 			snapshot = snapshot,
 			priority = priority,
@@ -1592,7 +1626,8 @@ internal class ReaderPageTurnBundleSource(
 				val cached = putSnapshot(
 					snapshot = snapshot,
 					priority = priority,
-					persist = false
+					persist = false,
+					exactRasterIdentity = exactRasterIdentity
 				)
 				markCachedSnapshotDurable(cached)
 				onPublished(completion)
@@ -1692,6 +1727,7 @@ internal class ReaderPageTurnBundleSource(
 		if (expected != null && cached !== expected) return null
 		val removed = snapshotCache.remove(key) ?: return null
 		snapshotDurability.remove(removed)
+		snapshotExactRasterIdentities.remove(removed)
 		return removed
 	}
 
@@ -1911,6 +1947,7 @@ internal class ReaderPageTurnBundleSource(
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
 		physicalLayout: ReaderPageRasterPhysicalLayout,
+		exactDescriptor: ReaderPageRasterDescriptor? = null,
 		publicationFence: () -> Boolean,
 		onHydrated: (ReaderPageSlideSnapshot?) -> Unit
 	): ReaderPageRasterHydrationRequest {
@@ -1922,6 +1959,7 @@ internal class ReaderPageTurnBundleSource(
 		nextHydrationToken = recipientToken
 		val recipient = ReaderPageRasterHydrationRecipient(
 			token = recipientToken,
+			exactRasterIdentity = exactDescriptor?.key(bitmapQuality)?.identity,
 			publicationFence = publicationFence,
 			callback = onHydrated
 		)
@@ -1931,7 +1969,8 @@ internal class ReaderPageTurnBundleSource(
 			pageIndex = pageIndex,
 			kind = kind,
 			physicalLayout = physicalLayout,
-			physicalLayoutEpoch = physicalLayoutEpoch
+			physicalLayoutEpoch = physicalLayoutEpoch,
+			exactRasterIdentity = exactDescriptor?.key(bitmapQuality)?.identity
 		)
 		val existing = descriptorRequestTokens[identity]
 			?.let(descriptorRequests::get)
@@ -1948,7 +1987,7 @@ internal class ReaderPageTurnBundleSource(
 			)
 			descriptorRequests[descriptorToken] = request
 			descriptorRequestTokens[identity] = descriptorToken
-			val cached = rasterDescriptors[identity]
+			val cached = rasterDescriptors[identity] ?: exactDescriptor
 			if (cached != null) {
 				dispatchRasterDescriptor(descriptorToken, cached)
 			} else {
@@ -1974,7 +2013,10 @@ internal class ReaderPageTurnBundleSource(
 			identity.generation != activeGeneration ||
 			identity.quality != bitmapQuality ||
 			identity.physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get() ||
-			descriptor.visualPageOrdinal != identity.pageIndex
+			descriptor.visualPageOrdinal != identity.pageIndex ||
+			identity.exactRasterIdentity?.let { exact ->
+				descriptor.key(identity.quality).identity != exact
+			} == true
 		) {
 			return
 		}
@@ -1996,9 +2038,14 @@ internal class ReaderPageTurnBundleSource(
 			?.let { descriptorRequestTokens.remove(request.identity) }
 		val recipients = request.recipients.values.toList()
 		val webView = request.webView.get()
+		val key = descriptor?.key(request.identity.quality)
 		if (
 			descriptor == null ||
+			key == null ||
 			descriptor.visualPageOrdinal != request.identity.pageIndex ||
+			request.identity.exactRasterIdentity?.let { exact ->
+				key.identity != exact
+			} == true ||
 			closed ||
 			request.identity.generation != activeGeneration ||
 			request.identity.quality != bitmapQuality ||
@@ -2018,7 +2065,6 @@ internal class ReaderPageTurnBundleSource(
 		}
 		if (currentRecipients.isEmpty()) return@dispatchToMain
 		cacheRasterDescriptor(request.identity, descriptor)
-		val key = descriptor.key(request.identity.quality)
 		stageEncodedWindowProtection(key.profile)
 		val hydrationIdentity = ReaderPageRasterHydrationIdentity(
 			rasterIdentity = key.identity,
@@ -2143,6 +2189,17 @@ internal class ReaderPageTurnBundleSource(
 					deliverHydrationResult(recipient.callback, null)
 				}
 				if (eligible.isEmpty()) return@withContext
+				val exactRasterIdentities = eligible.asSequence()
+					.mapNotNull { recipient -> recipient.exactRasterIdentity }
+					.distinct()
+					.toList()
+				check(
+					exactRasterIdentities.size <= 1 &&
+						exactRasterIdentities.all { identity ->
+							identity == hydration.key.identity
+						}
+				) { "Exact hydration recipient identity did not match its raster key" }
+				val exactRasterIdentity = exactRasterIdentities.singleOrNull()
 				val snapshot = ReaderPageSlideSnapshot(
 					key = snapshotKey(
 						hydration.key.visualPageOrdinal,
@@ -2159,7 +2216,8 @@ internal class ReaderPageTurnBundleSource(
 				val cached = putSnapshot(
 					snapshot = snapshot,
 					priority = ReaderPageRasterPriority.NextTransition,
-					persist = false
+					persist = false,
+					exactRasterIdentity = exactRasterIdentity
 				)
 				markCachedSnapshotDurable(cached)
 				rasterOwnershipTransferred = true
@@ -2949,6 +3007,7 @@ internal class ReaderPageTurnBundleSource(
 		snapshot: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
 		persist: Boolean = true,
+		exactRasterIdentity: String? = null,
 		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
 		onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit = {}
@@ -2958,19 +3017,34 @@ internal class ReaderPageTurnBundleSource(
 			"Cannot cache a page snapshot outside the active physical layout"
 		}
 		snapshotCache[snapshot.key]?.let { cached ->
-			snapshot.releaseCacheOwnership()
-			if (persist) {
-				persistCachedSnapshot(
-					snapshot = cached,
-					priority = priority,
-					mutationGeneration = mutationGeneration,
-					isStillCurrent = isStillCurrent,
-					onPersisted = onPersisted
-				)
+			val mayReuse = cached === snapshot ||
+				exactRasterIdentity == null ||
+				snapshotExactRasterIdentities[cached] == exactRasterIdentity
+			if (mayReuse) {
+				if (cached === snapshot) {
+					exactRasterIdentity?.let { identity ->
+						snapshotExactRasterIdentities[cached] = identity
+					}
+				} else {
+					snapshot.releaseCacheOwnership()
+				}
+				if (persist) {
+					persistCachedSnapshot(
+						snapshot = cached,
+						priority = priority,
+						mutationGeneration = mutationGeneration,
+						isStillCurrent = isStillCurrent,
+						onPersisted = onPersisted
+					)
+				}
+				return cached
 			}
-			return cached
+			removeCachedSnapshot(snapshot.key, cached)?.releaseCacheOwnership()
 		}
 		snapshotCache[snapshot.key] = snapshot
+		exactRasterIdentity?.let { identity ->
+			snapshotExactRasterIdentities[snapshot] = identity
+		}
 		snapshotDurability[snapshot] =
 			ReaderPageRasterHydrationDurability.RequiresPublication
 		if (persist) {
@@ -3723,6 +3797,7 @@ internal class ReaderPageTurnBundleSource(
 		snapshotCache.values.distinctBy { System.identityHashCode(it) }.forEach { it.releaseCacheOwnership() }
 		snapshotCache.clear()
 		snapshotDurability.clear()
+		snapshotExactRasterIdentities.clear()
 		Logger.i(ReaderPageTurnBundleSourceTag, "Page-turn snapshot cache cleared reason=$reason")
 	}
 

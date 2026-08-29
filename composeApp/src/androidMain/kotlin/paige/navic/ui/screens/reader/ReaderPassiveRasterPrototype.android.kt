@@ -231,6 +231,25 @@ internal data class ReaderPassiveRasterCaptureResult<R : Any>(
 	val expectedPassiveCommitSequence: Long = receipt.passiveCommitSequence
 )
 
+internal class ReaderPassiveRasterCommittedCapture<R : Any> internal constructor(
+	val manifest: ReaderPassiveRasterCaptureManifest,
+	val receipt: ReaderPassiveRasterCaptureReceipt,
+	val expectedPassiveCommitSequence: Long,
+	private val captureAuthority:
+		((ReaderPassiveRasterCaptureResult<R>?) -> Unit) -> Boolean,
+	private val releaseAuthority: () -> Boolean
+) : AutoCloseable {
+	fun capture(
+		onCaptured: (ReaderPassiveRasterCaptureResult<R>?) -> Unit
+	): Boolean = captureAuthority(onCaptured)
+
+	fun release(): Boolean = releaseAuthority()
+
+	override fun close() {
+		release()
+	}
+}
+
 internal sealed interface ReaderPassiveRasterAdmission<out R : Any> {
 	class Admitted<R : Any> internal constructor(
 		val receipt: ReaderPassiveRasterCaptureReceipt,
@@ -249,8 +268,11 @@ internal fun <R : Any> readerAdmitPassiveRaster(
 	context: ReaderPassiveRasterAdmissionContext,
 	capture: ReaderPassiveRasterCaptureResult<R>
 ): ReaderPassiveRasterAdmission<R> {
-	val mismatch = capture.manifest.currentMismatch(context)
-		?: capture.receipt.manifestMismatch(capture.manifest, context)
+	val mismatch = readerPassiveRasterAuthorityMismatch(
+		context = context,
+		manifest = capture.manifest,
+		receipt = capture.receipt
+	)
 	if (mismatch != null) {
 		capture.raster?.release()
 		return ReaderPassiveRasterAdmission.Rejected(mismatch)
@@ -296,9 +318,21 @@ private fun ReaderPassiveRasterCaptureManifest.currentMismatch(
 	else -> null
 }
 
+internal fun readerPassiveRasterAuthorityMismatch(
+	context: ReaderPassiveRasterAdmissionContext,
+	manifest: ReaderPassiveRasterCaptureManifest,
+	receipt: ReaderPassiveRasterCaptureReceipt
+): ReaderPassiveRasterRejection? = manifest.currentMismatch(context)
+	?: receipt.manifestMismatch(
+		manifest = manifest,
+		activePassiveSessionId = context.activePassiveSessionId,
+		expectedPassiveCommitSequence = context.expectedPassiveCommitSequence
+	)
+
 private fun ReaderPassiveRasterCaptureReceipt.manifestMismatch(
 	manifest: ReaderPassiveRasterCaptureManifest,
-	context: ReaderPassiveRasterAdmissionContext
+	activePassiveSessionId: String,
+	expectedPassiveCommitSequence: Long
 ): ReaderPassiveRasterRejection? = when {
 	echoedManifestSequence != manifest.manifestSequence ->
 		ReaderPassiveRasterRejection.ManifestSequence
@@ -338,9 +372,9 @@ private fun ReaderPassiveRasterCaptureReceipt.manifestMismatch(
 		ReaderPassiveRasterRejection.Geometry
 	echoedRasterGeneration != manifest.rasterGeneration ->
 		ReaderPassiveRasterRejection.RasterGeneration
-	passiveSessionId != context.activePassiveSessionId ->
+	passiveSessionId != activePassiveSessionId ->
 		ReaderPassiveRasterRejection.PassiveSession
-	passiveCommitSequence != context.expectedPassiveCommitSequence ->
+	passiveCommitSequence != expectedPassiveCommitSequence ->
 		ReaderPassiveRasterRejection.PassiveCommitSequence
 	else -> null
 }
@@ -391,15 +425,19 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 ) : AutoCloseable {
 	private enum class CapturePhase {
 		AwaitingCommit,
+		Committed,
 		AwaitingRaster,
 		DrainingCommit,
+		DrainingCommitted,
 		DrainingRaster
 	}
 
 	private class ActiveCapture<R : Any>(
 		val manifest: ReaderPassiveRasterCaptureManifest,
 		val commitSequence: Long,
-		val callback: (ReaderPassiveRasterCaptureResult<R>?) -> Unit,
+		val onCommitted: (ReaderPassiveRasterCommittedCapture<R>?) -> Unit,
+		var receipt: ReaderPassiveRasterCaptureReceipt? = null,
+		var onCaptured: ((ReaderPassiveRasterCaptureResult<R>?) -> Unit)? = null,
 		var phase: CapturePhase = CapturePhase.AwaitingCommit,
 		var failureDelivered: Boolean = false,
 		var onDrained: (() -> Unit)? = null
@@ -430,9 +468,9 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 			lifecycle == ReaderPassiveRasterLifecycle.Destroyed || runtime.isRetired
 		}
 
-	fun capture(
+	fun commit(
 		manifest: ReaderPassiveRasterCaptureManifest,
-		onCaptured: (ReaderPassiveRasterCaptureResult<R>?) -> Unit
+		onCommitted: (ReaderPassiveRasterCommittedCapture<R>?) -> Unit
 	): Boolean {
 		val capture = synchronized(lock) {
 			if (
@@ -445,7 +483,7 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 			}
 			passiveCommitSequence += 1L
 			captureAttempts = captureAttempts.incrementBounded()
-			ActiveCapture(manifest, passiveCommitSequence, onCaptured).also {
+			ActiveCapture(manifest, passiveCommitSequence, onCommitted).also {
 				activeCapture = it
 			}
 		}
@@ -458,19 +496,28 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 				onCommitCompleted(capture, receipt)
 			}
 		} catch (_: Throwable) {
-			completeFailure(capture)
+			completeCommitDispatchFailure(capture)
 		}
 		return true
+	}
+
+	fun capture(
+		manifest: ReaderPassiveRasterCaptureManifest,
+		onCaptured: (ReaderPassiveRasterCaptureResult<R>?) -> Unit
+	): Boolean = commit(manifest) { committed ->
+		if (committed == null || !committed.capture(onCaptured)) onCaptured(null)
 	}
 
 	fun cancelActiveCapture(): Boolean = cancelActiveCapture(onDrained = null)
 
 	private fun cancelActiveCapture(onDrained: (() -> Unit)?): Boolean {
+		var drainCommitted: (() -> Unit)? = null
 		val cancellation = synchronized(lock) {
 			if (lifecycle == ReaderPassiveRasterLifecycle.Destroyed) return false
 			val capture = activeCapture ?: return false
 			if (
 				capture.phase == CapturePhase.DrainingCommit ||
+				capture.phase == CapturePhase.DrainingCommitted ||
 				capture.phase == CapturePhase.DrainingRaster
 			) {
 				val previous = capture.onDrained
@@ -491,18 +538,25 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 			captureFailures = captureFailures.incrementBounded()
 			capture.phase = when (capture.phase) {
 				CapturePhase.AwaitingCommit -> CapturePhase.DrainingCommit
+				CapturePhase.Committed -> CapturePhase.DrainingCommitted
 				CapturePhase.AwaitingRaster -> CapturePhase.DrainingRaster
 				else -> error("Capture was already draining")
+			}
+			if (capture.phase == CapturePhase.DrainingCommitted) {
+				activeCapture = null
+				drainCommitted = capture.onDrained
 			}
 			capture
 		}
 		deliverFailure(cancellation)
-		if (cancellation.phase == CapturePhase.DrainingCommit) {
-			try {
+		when (cancellation.phase) {
+			CapturePhase.DrainingCommit -> try {
 				runtime.cancelActiveCommit { completeDrain(cancellation) }
 			} catch (_: Throwable) {
 				retireAfterCancellationFailure(cancellation)
 			}
+			CapturePhase.DrainingCommitted -> drainCommitted?.invoke()
+			else -> Unit
 		}
 		return true
 	}
@@ -565,32 +619,75 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 			if (!draining) completeFailure(capture)
 			return
 		}
-		val shouldCapture = synchronized(lock) {
+		var committed: ReaderPassiveRasterCommittedCapture<R>? = null
+		val callback = synchronized(lock) {
 			if (
 				activeCapture !== capture ||
 				capture.phase != CapturePhase.AwaitingCommit ||
 				lifecycle != ReaderPassiveRasterLifecycle.Active
 			) {
 				staleCallbacks = staleCallbacks.incrementBounded()
+				null
+			} else {
+				capture.receipt = receipt
+				capture.phase = CapturePhase.Committed
+				ReaderPassiveRasterCommittedCapture(
+					manifest = capture.manifest,
+					receipt = receipt,
+					expectedPassiveCommitSequence = capture.commitSequence,
+					captureAuthority = { onCaptured ->
+						captureCommitted(capture, onCaptured)
+					},
+					releaseAuthority = { releaseCommitted(capture) }
+				).also { committed = it }
+				capture.onCommitted
+			}
+		}
+		val result = committed ?: return
+		try {
+			callback?.invoke(result)
+		} catch (failure: Throwable) {
+			result.release()
+			throw failure
+		}
+	}
+
+	private fun captureCommitted(
+		capture: ActiveCapture<R>,
+		onCaptured: (ReaderPassiveRasterCaptureResult<R>?) -> Unit
+	): Boolean {
+		val shouldCapture = synchronized(lock) {
+			if (
+				activeCapture !== capture ||
+				capture.phase != CapturePhase.Committed ||
+				lifecycle != ReaderPassiveRasterLifecycle.Active
+			) {
 				false
 			} else {
+				capture.onCaptured = onCaptured
 				capture.phase = CapturePhase.AwaitingRaster
 				true
 			}
 		}
-		if (!shouldCapture) return
+		if (!shouldCapture) return false
 		try {
 			runtime.capture(capture.manifest.viewportAndCaptureGeometry) { raster ->
-				onRasterCompleted(capture, receipt, raster)
+				onRasterCompleted(capture, raster)
 			}
 		} catch (_: Throwable) {
 			completeFailure(capture)
 		}
+		return true
+	}
+
+	private fun releaseCommitted(capture: ActiveCapture<R>): Boolean = synchronized(lock) {
+		if (activeCapture !== capture || capture.phase != CapturePhase.Committed) return false
+		activeCapture = null
+		true
 	}
 
 	private fun onRasterCompleted(
 		capture: ActiveCapture<R>,
-		receipt: ReaderPassiveRasterCaptureReceipt,
 		raster: R?
 	) {
 		if (raster == null) {
@@ -615,7 +712,7 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 				else -> {
 					activeCapture = null
 					captureCompletions = captureCompletions.incrementBounded()
-					capture.callback
+					capture.onCaptured
 				}
 			}
 		}
@@ -626,7 +723,7 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 		}
 		val result = ReaderPassiveRasterCaptureResult(
 			manifest = capture.manifest,
-			receipt = receipt,
+			receipt = checkNotNull(capture.receipt),
 			raster = ReaderPassiveRasterOwnership(raster, ::releaseOwnedRaster),
 			expectedPassiveCommitSequence = capture.commitSequence
 		)
@@ -638,6 +735,23 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 		}
 	}
 
+	private fun completeCommitDispatchFailure(capture: ActiveCapture<R>) {
+		val callback = synchronized(lock) {
+			if (
+				activeCapture !== capture ||
+				capture.phase != CapturePhase.AwaitingCommit
+			) {
+				null
+			} else {
+				activeCapture = null
+				captureFailures = captureFailures.incrementBounded()
+				capture.failureDelivered = true
+				capture
+			}
+		}
+		callback?.let(::deliverFailure)
+	}
+
 	private fun completeFailure(capture: ActiveCapture<R>) {
 		var onDrained: (() -> Unit)? = null
 		val callback = synchronized(lock) {
@@ -647,6 +761,7 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 					null
 				}
 				capture.phase == CapturePhase.DrainingCommit ||
+					capture.phase == CapturePhase.DrainingCommitted ||
 					capture.phase == CapturePhase.DrainingRaster -> {
 					activeCapture = null
 					onDrained = capture.onDrained
@@ -656,11 +771,11 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 					activeCapture = null
 					captureFailures = captureFailures.incrementBounded()
 					capture.failureDelivered = true
-					capture.callback
+					capture
 				}
 			}
 		}
-		callback?.invoke(null)
+		callback?.let(::deliverFailure)
 		onDrained?.invoke()
 	}
 
@@ -696,7 +811,15 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 	}
 
 	private fun deliverFailure(capture: ActiveCapture<R>?) {
-		capture?.callback?.invoke(null)
+		when (capture?.phase) {
+			CapturePhase.AwaitingCommit,
+			CapturePhase.DrainingCommit -> capture.onCommitted(null)
+			CapturePhase.AwaitingRaster,
+			CapturePhase.DrainingRaster -> capture.onCaptured?.invoke(null)
+			CapturePhase.Committed,
+			CapturePhase.DrainingCommitted,
+			null -> Unit
+		}
 	}
 
 	private fun releaseOwnedRaster(raster: R) {

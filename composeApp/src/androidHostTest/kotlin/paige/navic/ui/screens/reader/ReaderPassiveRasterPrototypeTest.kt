@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -207,6 +208,41 @@ class ReaderPassiveRasterPrototypeTest {
 
 		assertSame(observedReceipt, admitted.receipt)
 		assertEquals(41, admitted.transferRaster())
+	}
+
+	@Test
+	fun receiptAuthoritativeDescriptorCopiesEveryObservedPhysicalKeyDimension() {
+		val commit = canonicalCommit().copy(
+			profileAuthority = ReaderPassiveRasterProfileAuthority.PassiveRealized
+		)
+		val captureFixture = fixture(commit)
+		val descriptor = passiveDescriptor(commit, captureFixture.manifest.visualPageOrdinal).copy(
+			viewportWidth = 17,
+			viewportHeight = 19,
+			visualPageOrdinal = 23
+		)
+		val receipt = captureFixture.receipt.copy(
+			observedPaginationFingerprint = "observed-pagination-authoritative",
+			observedLayoutFingerprint = "observed-layout-authoritative",
+			observedDecorationFingerprint = "observed-decoration-authoritative"
+		)
+
+		val authoritative = readerPassiveRasterReceiptAuthoritativeDescriptor(
+			descriptor = descriptor,
+			receipt = receipt
+		)
+
+		assertEquals(
+			descriptor.copy(
+				paginationFingerprint = receipt.observedPaginationFingerprint,
+				layoutFingerprint = receipt.observedLayoutFingerprint,
+				decorationFingerprint = receipt.observedDecorationFingerprint,
+				viewportWidth = receipt.observedViewportAndCaptureGeometry.viewportWidth,
+				viewportHeight = receipt.observedViewportAndCaptureGeometry.viewportHeight,
+				visualPageOrdinal = receipt.observedVisualPageOrdinal
+			),
+			authoritative
+		)
 	}
 
 	@Test
@@ -420,6 +456,55 @@ class ReaderPassiveRasterPrototypeTest {
 			),
 			session.metrics()
 		)
+	}
+
+	@Test
+	fun synchronousCommitCallbackThenRuntimeThrowLeavesCommittedHandleUsable() {
+		val captureFixture = fixture()
+		val runtime = FakePassiveRasterRuntime().apply {
+			completeCommitSynchronously = true
+			commitFailure = IllegalStateException("commit-return-failed")
+		}
+		val released = mutableListOf<Int>()
+		val session = ReaderPassiveRasterPrototypeSession(runtime, released::add)
+		val committedResults = mutableListOf<ReaderPassiveRasterCommittedCapture<Int>?>()
+		val captureResults = mutableListOf<ReaderPassiveRasterCaptureResult<Int>?>()
+
+		assertTrue(session.commit(captureFixture.manifest, committedResults::add))
+		val committed = assertNotNull(committedResults.single())
+		assertTrue(committed.capture(captureResults::add))
+		assertEquals(1, runtime.captureRequests)
+		runtime.completeRaster(71)
+
+		assertEquals(71, assertNotNull(captureResults.single()).raster?.transfer())
+		assertTrue(released.isEmpty())
+		assertTrue(session.isReady)
+		assertEquals(0, session.metrics().captureFailures)
+		assertEquals(0, session.metrics().staleCallbacks)
+	}
+
+	@Test
+	fun runtimeThrowBeforeCommitCallbackFailsOnceAndFencesLateCallback() {
+		val captureFixture = fixture()
+		val runtime = FakePassiveRasterRuntime().apply {
+			commitFailure = IllegalStateException("commit-dispatch-failed")
+		}
+		val session = ReaderPassiveRasterPrototypeSession(runtime) { error("no raster exists") }
+		val committedResults = mutableListOf<ReaderPassiveRasterCommittedCapture<Int>?>()
+
+		assertTrue(session.commit(captureFixture.manifest, committedResults::add))
+
+		assertEquals(listOf<ReaderPassiveRasterCommittedCapture<Int>?>(null), committedResults)
+		assertTrue(session.isReady)
+		assertEquals(1, session.metrics().captureFailures)
+		assertEquals(0, session.metrics().staleCallbacks)
+
+		runtime.completeCommit()
+
+		assertEquals(listOf<ReaderPassiveRasterCommittedCapture<Int>?>(null), committedResults)
+		assertTrue(session.isReady)
+		assertEquals(1, session.metrics().captureFailures)
+		assertEquals(1, session.metrics().staleCallbacks)
 	}
 
 	@Test
@@ -1891,6 +1976,565 @@ class ReaderPassiveRasterPrototypeTest {
 	}
 
 	@Test
+	fun passiveRealizedColdMissThenFreshSourceWarmHitSkipsCapture() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore()
+		val observedPagination = "passive-observed-pagination-warm"
+		val observedLayout = "passive-observed-layout-warm"
+		val observedDecoration = "passive-observed-decoration-warm"
+		val receiptTransform: (ReaderPassiveRasterCaptureReceipt) -> ReaderPassiveRasterCaptureReceipt = {
+			it.copy(
+				observedRasterProfileKey = "passive-observed-profile-warm",
+				observedPaginationFingerprint = observedPagination,
+				observedLayoutFingerprint = observedLayout,
+				observedDecorationFingerprint = observedDecoration
+			)
+		}
+		var coldHarness: PassiveAdapterHarness? = null
+		var warmHarness: PassiveAdapterHarness? = null
+		try {
+			val coldRuntime = SuccessfulPassiveBitmapRuntime(receiptTransform)
+			val cold = createPassiveAdapterHarness(
+				activity = activity,
+				store = store,
+				runtime = coldRuntime,
+				publicationUrl = "publication-passive-realized-warm"
+			)
+			coldHarness = cold
+			val coldCompletion = startPassiveAdapterHarness(
+				cold,
+				ReaderPageRasterAcquisitionTrigger.InitialPreparation
+			)
+			advanceUntilIdle()
+
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, coldCompletion.await())
+			assertEquals(1, coldRuntime.captureRequests)
+			val authoritativeDescriptor = cold.descriptor.copy(
+				paginationFingerprint = observedPagination,
+				layoutFingerprint = observedLayout,
+				decorationFingerprint = observedDecoration
+			)
+			assertEquals(
+				authoritativeDescriptor.key(ReaderPageBitmapQuality.Native),
+				store.requestedKeys.single()
+			)
+			store.seed(
+				key = authoritativeDescriptor.key(ReaderPageBitmapQuality.Native),
+				reference = cold.reference
+			)
+			cold.adapter.close()
+			cold.source.closeAndJoin()
+			coldHarness = null
+
+			val warmRuntime = SuccessfulPassiveBitmapRuntime(receiptTransform)
+			val warm = createPassiveAdapterHarness(
+				activity = activity,
+				store = store,
+				runtime = warmRuntime,
+				publicationUrl = "publication-passive-realized-warm"
+			)
+			warmHarness = warm
+			val warmCompletion = startPassiveAdapterHarness(
+				warm,
+				ReaderPageRasterAcquisitionTrigger.WarmReopen
+			)
+			advanceUntilIdle()
+
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, warmCompletion.await())
+			assertEquals(0, warmRuntime.captureRequests)
+			assertEquals(2, store.requestedKeys.size)
+			assertTrue(store.requestedKeys.all { it == authoritativeDescriptor.key(ReaderPageBitmapQuality.Native) })
+			assertEquals(0, warm.session.metrics().activeCaptures)
+		} finally {
+			warmHarness?.adapter?.close()
+			warmHarness?.source?.closeAndJoin()
+			coldHarness?.adapter?.close()
+			coldHarness?.source?.closeAndJoin()
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun passiveRealizedObservedProfileDoesNotUsePlanKey() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore()
+		val observedPagination = "passive-observed-pagination-changed"
+		val observedLayout = "passive-observed-layout-changed"
+		val observedDecoration = "passive-observed-decoration-changed"
+		val runtime = SuccessfulPassiveBitmapRuntime { receipt ->
+			receipt.copy(
+				observedRasterProfileKey = "passive-observed-profile-changed",
+				observedPaginationFingerprint = observedPagination,
+				observedLayoutFingerprint = observedLayout,
+				observedDecorationFingerprint = observedDecoration
+			)
+		}
+		var harness: PassiveAdapterHarness? = null
+		try {
+			val current = createPassiveAdapterHarness(
+				activity = activity,
+				store = store,
+				runtime = runtime,
+				publicationUrl = "publication-passive-realized-changed"
+			)
+			harness = current
+			val planKey = current.descriptor.key(ReaderPageBitmapQuality.Native)
+			val observedKey = current.descriptor.copy(
+				paginationFingerprint = observedPagination,
+				layoutFingerprint = observedLayout,
+				decorationFingerprint = observedDecoration
+			).key(ReaderPageBitmapQuality.Native)
+			store.seed(planKey, current.reference)
+			val completion = startPassiveAdapterHarness(
+				current,
+				ReaderPageRasterAcquisitionTrigger.InitialPreparation
+			)
+			advanceUntilIdle()
+
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, completion.await())
+			assertEquals(listOf(observedKey), store.requestedKeys)
+			assertFalse(store.requestedKeys.contains(planKey))
+			assertEquals(1, runtime.captureRequests)
+		} finally {
+			harness?.adapter?.close()
+			harness?.source?.closeAndJoin()
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun invalidCommittedReceiptTerminatesBeforeHydrationOrCapture() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore()
+		val runtime = SuccessfulPassiveBitmapRuntime { receipt ->
+			receipt.copy(observedVisualPageOrdinal = receipt.observedVisualPageOrdinal + 1)
+		}
+		var harness: PassiveAdapterHarness? = null
+		try {
+			val current = createPassiveAdapterHarness(
+				activity = activity,
+				store = store,
+				runtime = runtime,
+				publicationUrl = "publication-passive-invalid-receipt"
+			)
+			harness = current
+			val completion = startPassiveAdapterHarness(
+				current,
+				ReaderPageRasterAcquisitionTrigger.InitialPreparation
+			)
+			advanceUntilIdle()
+
+			val failed = assertIs<ReaderPageRasterBatchOutcome.Failed>(completion.await())
+			assertEquals("passive-commit-authority", failed.stage)
+			assertEquals("raster-rejected", failed.reason)
+			assertEquals(
+				ReaderPassiveRasterRejection.VisualPageOrdinal,
+				failed.passiveRasterRejection
+			)
+			assertEquals(0, runtime.captureRequests)
+			assertTrue(store.requestedKeys.isEmpty())
+			assertEquals(0, current.session.metrics().activeCaptures)
+		} finally {
+			harness?.adapter?.close()
+			harness?.source?.closeAndJoin()
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun durableHitRequiresFreshLiveAuthorityBeforeCompletion() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore()
+		val observedPagination = "passive-observed-pagination-fresh-authority"
+		val observedLayout = "passive-observed-layout-fresh-authority"
+		val observedDecoration = "passive-observed-decoration-fresh-authority"
+		val runtime = SuccessfulPassiveBitmapRuntime { receipt ->
+			receipt.copy(
+				observedRasterProfileKey = "passive-observed-profile-fresh-authority",
+				observedPaginationFingerprint = observedPagination,
+				observedLayoutFingerprint = observedLayout,
+				observedDecorationFingerprint = observedDecoration
+			)
+		}
+		var manifestRequests = 0
+		var harness: PassiveAdapterHarness? = null
+		try {
+			val current = createPassiveAdapterHarness(
+				activity = activity,
+				store = store,
+				runtime = runtime,
+				publicationUrl = "publication-passive-fresh-authority",
+				manifestResolution = { request, inputs ->
+					manifestRequests = request
+					ReaderPassiveRasterManifestResolution.Available(
+						if (request == 1) inputs else inputs.copy(
+							canonicalCommit = inputs.canonicalCommit.copy(
+								destinationCommitToken = "replacement-private-commit"
+							)
+						)
+					)
+				}
+			)
+			harness = current
+			val authoritativeDescriptor = current.descriptor.copy(
+				paginationFingerprint = observedPagination,
+				layoutFingerprint = observedLayout,
+				decorationFingerprint = observedDecoration,
+				viewportWidth = 20,
+				viewportHeight = 30,
+				visualPageOrdinal = 4
+			)
+			store.seed(
+				key = authoritativeDescriptor.key(ReaderPageBitmapQuality.Native),
+				reference = current.reference
+			)
+			val completion = startPassiveAdapterHarness(
+				current,
+				ReaderPageRasterAcquisitionTrigger.WarmReopen
+			)
+			advanceUntilIdle()
+
+			val failed = assertIs<ReaderPageRasterBatchOutcome.Failed>(completion.await())
+			assertEquals("passive-hydration-authority", failed.stage)
+			assertEquals("raster-rejected", failed.reason)
+			assertEquals(
+				ReaderPassiveRasterRejection.DestinationCommit,
+				failed.passiveRasterRejection
+			)
+			assertEquals(2, manifestRequests)
+			assertEquals(0, runtime.captureRequests)
+			assertEquals(0, current.session.metrics().activeCaptures)
+		} finally {
+			harness?.adapter?.close()
+			harness?.source?.closeAndJoin()
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun sameSourceChangedRealizationSkipsOldDurableMemorySnapshot() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore()
+		val firstBitmapColor = 0xFF123456.toInt()
+		val secondBitmapColor = 0xFFABCDEF.toInt()
+		var observedPagination = "passive-observed-pagination-memory-a"
+		var observedLayout = "passive-observed-layout-memory-a"
+		var observedDecoration = "passive-observed-decoration-memory-a"
+		val runtime = SuccessfulPassiveBitmapRuntime { receipt ->
+			receipt.copy(
+				observedRasterProfileKey = "passive-observed-profile-memory",
+				observedPaginationFingerprint = observedPagination,
+				observedLayoutFingerprint = observedLayout,
+				observedDecorationFingerprint = observedDecoration
+			)
+		}.also { current -> current.captureColor = secondBitmapColor }
+		var harness: PassiveAdapterHarness? = null
+		var firstSnapshot: ReaderPageSlideSnapshot? = null
+		var secondSnapshot: ReaderPageSlideSnapshot? = null
+		try {
+			val current = createPassiveAdapterHarness(
+				activity = activity,
+				store = store,
+				runtime = runtime,
+				publicationUrl = "publication-passive-changed-memory"
+			)
+			harness = current
+			val firstKey = current.descriptor.copy(
+				paginationFingerprint = observedPagination,
+				layoutFingerprint = observedLayout,
+				decorationFingerprint = observedDecoration
+			).key(ReaderPageBitmapQuality.Native)
+			store.seed(firstKey, current.reference, firstBitmapColor)
+			val firstCompletion = startPassiveAdapterHarness(
+				current,
+				ReaderPageRasterAcquisitionTrigger.WarmReopen
+			)
+			advanceUntilIdle()
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, firstCompletion.await())
+			assertEquals(0, runtime.captureRequests)
+			val retainedFirst = assertNotNull(
+				current.source.retainedSnapshot(
+					pageIndex = 4,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			)
+			firstSnapshot = retainedFirst
+			assertEquals(firstBitmapColor, retainedFirst.bitmap.getPixel(0, 0))
+
+			observedPagination = "passive-observed-pagination-memory-b"
+			observedLayout = "passive-observed-layout-memory-b"
+			observedDecoration = "passive-observed-decoration-memory-b"
+			val secondKey = current.descriptor.copy(
+				paginationFingerprint = observedPagination,
+				layoutFingerprint = observedLayout,
+				decorationFingerprint = observedDecoration
+			).key(ReaderPageBitmapQuality.Native)
+			val secondCompletion = startPassiveAdapterHarness(
+				current,
+				ReaderPageRasterAcquisitionTrigger.WorkingSetRefill
+			)
+			advanceUntilIdle()
+
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, secondCompletion.await())
+			assertEquals(listOf(firstKey, secondKey), store.requestedKeys)
+			assertEquals(1, runtime.captureRequests)
+			val retainedSecond = assertNotNull(
+				current.source.retainedSnapshot(
+					pageIndex = 4,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			)
+			secondSnapshot = retainedSecond
+			assertEquals(retainedFirst.key, retainedSecond.key)
+			assertFalse(retainedFirst === retainedSecond)
+			assertEquals(firstBitmapColor, retainedFirst.bitmap.getPixel(0, 0))
+			assertEquals(secondBitmapColor, retainedSecond.bitmap.getPixel(0, 0))
+		} finally {
+			secondSnapshot?.release()
+			firstSnapshot?.release()
+			harness?.adapter?.close()
+			harness?.source?.closeAndJoin()
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun exactPersistentHydrationReplacesEqualGeometrySnapshotWithNewRealization() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore()
+		val firstBitmapColor = 0xFF214365.toInt()
+		val secondBitmapColor = 0xFFFEDCBA.toInt()
+		var observedPagination = "passive-observed-pagination-hydration-a"
+		var observedLayout = "passive-observed-layout-hydration-a"
+		var observedDecoration = "passive-observed-decoration-hydration-a"
+		val runtime = SuccessfulPassiveBitmapRuntime { receipt ->
+			receipt.copy(
+				observedRasterProfileKey = "passive-observed-profile-hydration",
+				observedPaginationFingerprint = observedPagination,
+				observedLayoutFingerprint = observedLayout,
+				observedDecorationFingerprint = observedDecoration
+			)
+		}
+		var harness: PassiveAdapterHarness? = null
+		var firstSnapshot: ReaderPageSlideSnapshot? = null
+		var secondSnapshot: ReaderPageSlideSnapshot? = null
+		try {
+			val current = createPassiveAdapterHarness(
+				activity = activity,
+				store = store,
+				runtime = runtime,
+				publicationUrl = "publication-passive-exact-hydration-replacement"
+			)
+			harness = current
+			val firstKey = current.descriptor.copy(
+				paginationFingerprint = observedPagination,
+				layoutFingerprint = observedLayout,
+				decorationFingerprint = observedDecoration
+			).key(ReaderPageBitmapQuality.Native)
+			store.seed(firstKey, current.reference, firstBitmapColor)
+			val firstCompletion = startPassiveAdapterHarness(
+				current,
+				ReaderPageRasterAcquisitionTrigger.WarmReopen
+			)
+			advanceUntilIdle()
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, firstCompletion.await())
+			val retainedFirst = assertNotNull(
+				current.source.retainedSnapshot(
+					pageIndex = 4,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			)
+			firstSnapshot = retainedFirst
+			assertEquals(firstBitmapColor, retainedFirst.bitmap.getPixel(0, 0))
+
+			observedPagination = "passive-observed-pagination-hydration-b"
+			observedLayout = "passive-observed-layout-hydration-b"
+			observedDecoration = "passive-observed-decoration-hydration-b"
+			val secondKey = current.descriptor.copy(
+				paginationFingerprint = observedPagination,
+				layoutFingerprint = observedLayout,
+				decorationFingerprint = observedDecoration
+			).key(ReaderPageBitmapQuality.Native)
+			store.seed(secondKey, current.reference, secondBitmapColor)
+			val secondCompletion = startPassiveAdapterHarness(
+				current,
+				ReaderPageRasterAcquisitionTrigger.WorkingSetRefill
+			)
+			advanceUntilIdle()
+
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, secondCompletion.await())
+			assertEquals(listOf(firstKey, secondKey), store.requestedKeys)
+			assertEquals(0, runtime.captureRequests)
+			val retainedSecond = assertNotNull(
+				current.source.retainedSnapshot(
+					pageIndex = 4,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			)
+			secondSnapshot = retainedSecond
+			assertEquals(retainedFirst.key, retainedSecond.key)
+			assertFalse(retainedFirst === retainedSecond)
+			assertEquals(firstBitmapColor, retainedFirst.bitmap.getPixel(0, 0))
+			assertEquals(secondBitmapColor, retainedSecond.bitmap.getPixel(0, 0))
+		} finally {
+			secondSnapshot?.release()
+			firstSnapshot?.release()
+			harness?.adapter?.close()
+			harness?.source?.closeAndJoin()
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun receiptAuthoritativeHydrationDoesNotJoinDelayedGenericDescriptorRequest() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore()
+		val descriptorPort = DelayedRasterDescriptorPort()
+		val observedPagination = "passive-observed-pagination-concurrent"
+		val observedLayout = "passive-observed-layout-concurrent"
+		val observedDecoration = "passive-observed-decoration-concurrent"
+		val runtime = SuccessfulPassiveBitmapRuntime { receipt ->
+			receipt.copy(
+				observedRasterProfileKey = "passive-observed-profile-concurrent",
+				observedPaginationFingerprint = observedPagination,
+				observedLayoutFingerprint = observedLayout,
+				observedDecorationFingerprint = observedDecoration
+			)
+		}
+		var harness: PassiveAdapterHarness? = null
+		var genericRequest: ReaderPageRasterHydrationRequest? = null
+		var genericSnapshot: ReaderPageSlideSnapshot? = null
+		try {
+			val current = createPassiveAdapterHarness(
+				activity = activity,
+				store = store,
+				runtime = runtime,
+				publicationUrl = "publication-passive-concurrent-descriptor",
+				descriptorPort = descriptorPort
+			)
+			harness = current
+			val planKey = current.descriptor.key(ReaderPageBitmapQuality.Native)
+			val receiptKey = current.descriptor.copy(
+				paginationFingerprint = observedPagination,
+				layoutFingerprint = observedLayout,
+				decorationFingerprint = observedDecoration
+			).key(ReaderPageBitmapQuality.Native)
+			store.seed(planKey, current.reference)
+			genericRequest = current.source.hydrateSnapshot(
+				webView = current.webView,
+				pageIndex = 4,
+				kind = current.reference.key.kind,
+				reference = current.reference,
+				onHydrated = { snapshot -> genericSnapshot = snapshot }
+			)
+			assertEquals(1, descriptorPort.requests)
+			val completion = startPassiveAdapterHarness(
+				current,
+				ReaderPageRasterAcquisitionTrigger.WarmReopen
+			)
+			advanceUntilIdle()
+
+			descriptorPort.resolve(current.descriptor)
+			advanceUntilIdle()
+
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, completion.await())
+			assertTrue(store.requestedKeys.contains(receiptKey))
+			assertEquals(1, store.requestedKeys.count { it == receiptKey })
+			assertEquals(1, runtime.captureRequests)
+			assertNotNull(genericSnapshot)
+		} finally {
+			genericSnapshot?.release()
+			genericRequest?.cancel()
+			harness?.adapter?.close()
+			harness?.source?.closeAndJoin()
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun cancellationWhilePassiveCommitAwaitsHydrationPreventsCaptureAndReleasesOnce() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore().apply { delayReads() }
+		val runtime = SuccessfulPassiveBitmapRuntime { receipt ->
+			receipt.copy(
+				observedRasterProfileKey = "passive-observed-profile-cancel",
+				observedPaginationFingerprint = "passive-observed-pagination-cancel",
+				observedLayoutFingerprint = "passive-observed-layout-cancel",
+				observedDecorationFingerprint = "passive-observed-decoration-cancel"
+			)
+		}
+		var harness: PassiveAdapterHarness? = null
+		try {
+			val current = createPassiveAdapterHarness(
+				activity = activity,
+				store = store,
+				runtime = runtime,
+				publicationUrl = "publication-passive-realized-cancel"
+			)
+			harness = current
+			val completions = mutableListOf<ReaderPageRasterBatchOutcome>()
+			current.reference.retain()
+			assertTrue(
+				current.adapter.start(
+					kind = current.reference.key.kind,
+					reference = current.reference,
+					targets = listOf(passiveRasterTarget()),
+					rasterGeneration = current.source.currentGeneration(),
+					isStillCurrent = { true },
+					trigger = ReaderPageRasterAcquisitionTrigger.InitialPreparation,
+					onComplete = completions::add
+				)
+			)
+			withTimeout(5_000L) { store.awaitReadStarted() }
+
+			current.adapter.cancel()
+			current.adapter.cancel()
+
+			assertEquals(
+				listOf<ReaderPageRasterBatchOutcome>(ReaderPageRasterBatchOutcome.Cancelled),
+				completions
+			)
+			assertEquals(0, runtime.captureRequests)
+			assertEquals(0, current.session.metrics().activeCaptures)
+			assertFalse(current.session.cancelActiveCapture())
+			assertTrue(current.adapter.isAvailable)
+			store.releaseReads()
+			advanceUntilIdle()
+			assertEquals(0, runtime.captureRequests)
+			assertEquals(1, store.requestedKeys.size)
+		} finally {
+			store.releaseReads()
+			harness?.adapter?.close()
+			harness?.source?.closeAndJoin()
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun batchCancellationReleasesCaptureAwaitingSecondAuthorityExactlyOnce() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
@@ -2423,6 +3067,252 @@ class ReaderPassiveRasterPrototypeTest {
 		val foregroundMutationGeneration: Long
 	)
 
+	private data class PassiveAdapterHarness(
+		val source: ReaderPageTurnBundleSource,
+		val session: ReaderPassiveRasterPrototypeSession<Bitmap>,
+		val adapter: ReaderPassiveRasterPreparationAdapter,
+		val webView: WebView,
+		val reference: ReaderPageSlideSnapshot,
+		val descriptor: ReaderPageRasterDescriptor
+	)
+
+	private suspend fun createPassiveAdapterHarness(
+		activity: Activity,
+		store: ReaderPageRasterHydrationStorePort,
+		runtime: ReaderPassiveRasterRuntimePort<Bitmap>,
+		publicationUrl: String,
+		descriptorPort: ReaderPageRasterDescriptorPort? = null,
+		manifestResolution: (
+			request: Int,
+			inputs: ReaderPassiveRasterManifestInputs
+		) -> ReaderPassiveRasterManifestResolution = { _, inputs ->
+			ReaderPassiveRasterManifestResolution.Available(inputs)
+		}
+	): PassiveAdapterHarness {
+		val source = if (descriptorPort == null) {
+			ReaderPageTurnBundleSource(hydrationStorePort = store)
+		} else {
+			ReaderPageTurnBundleSource(
+				descriptorPort = descriptorPort,
+				hydrationStorePort = store
+			)
+		}
+		source.updateBitmapQuality(ReaderPageBitmapQuality.Native)
+		val commit = canonicalCommit().copy(
+			profileAuthority = ReaderPassiveRasterProfileAuthority.PassiveRealized,
+			viewportAndCaptureGeometry = ReaderPassiveRasterGeometry(
+				viewportWidth = 20,
+				viewportHeight = 30,
+				captureLeft = 0,
+				captureTop = 0,
+				captureRight = 20,
+				captureBottom = 30
+			),
+			rasterGeneration = source.currentGeneration()
+		)
+		val descriptor = passiveDescriptor(commit, visualPageOrdinal = 4).copy(
+			publicationUrl = publicationUrl
+		)
+		val webView = PassiveDescriptorWebView(activity, descriptor)
+		val host = FrameLayout(activity).also { it.addView(webView) }
+		activity.setContentView(host)
+		webView.layout(0, 0, 20, 30)
+		Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+		val reference = assertNotNull(cachePassiveReference(source))
+		source.initializeRasterCache(webView)
+		registerActiveBundleWebView(source, webView, reference)
+		val inputs = ReaderPassiveRasterManifestInputs(
+			canonicalCommit = commit,
+			opaqueCaptureTarget = "synthetic-target-a",
+			visualPageOrdinal = 4,
+			rasterDescriptor = descriptor
+		)
+		var manifestRequests = 0
+		val manifestPort = ReaderPassiveRasterLiveManifestPort {
+			visualPageOrdinal,
+			captureEpoch,
+			rasterGeneration,
+			_,
+			onResolved ->
+			manifestRequests += 1
+			val currentCommit = commit.copy(
+				captureEpoch = captureEpoch,
+				rasterGeneration = rasterGeneration
+			)
+			onResolved(
+				manifestResolution(
+					manifestRequests,
+					inputs.copy(
+						canonicalCommit = currentCommit,
+						visualPageOrdinal = visualPageOrdinal,
+						rasterDescriptor = descriptor.copy(
+							chapterPageIndex = visualPageOrdinal,
+							visualPageOrdinal = visualPageOrdinal
+						)
+					)
+				)
+			)
+		}
+		val session = ReaderPassiveRasterPrototypeSession(runtime) { bitmap ->
+			if (!bitmap.isRecycled) bitmap.recycle()
+		}
+		return PassiveAdapterHarness(
+			source = source,
+			session = session,
+			adapter = ReaderPassiveRasterPreparationAdapter(
+				session = session,
+				liveManifestPort = manifestPort,
+				bundleSource = source,
+				initialCaptureEpoch = commit.captureEpoch
+			),
+			webView = webView,
+			reference = reference,
+			descriptor = descriptor
+		)
+	}
+
+	private fun startPassiveAdapterHarness(
+		harness: PassiveAdapterHarness,
+		trigger: ReaderPageRasterAcquisitionTrigger
+	): CompletableDeferred<ReaderPageRasterBatchOutcome> {
+		val completion = CompletableDeferred<ReaderPageRasterBatchOutcome>()
+		harness.reference.retain()
+		assertTrue(
+			harness.adapter.start(
+				kind = harness.reference.key.kind,
+				reference = harness.reference,
+				targets = listOf(passiveRasterTarget()),
+				rasterGeneration = harness.source.currentGeneration(),
+				isStillCurrent = { true },
+				trigger = trigger,
+				onComplete = completion::complete
+			)
+		)
+		return completion
+	}
+
+	private fun passiveRasterTarget() = ReaderPageRasterBatchTarget(
+		pageIndex = 4,
+		priority = ReaderPageRasterPriority.NextChapter
+	)
+
+	private class DelayedRasterDescriptorPort : ReaderPageRasterDescriptorPort {
+		private var callback: ((ReaderPageRasterDescriptor?) -> Unit)? = null
+		var requests = 0
+			private set
+
+		override fun request(
+			webView: WebView,
+			pageIndex: Int,
+			onDescriptor: (ReaderPageRasterDescriptor?) -> Unit
+		) {
+			check(callback == null)
+			requests += 1
+			callback = onDescriptor
+		}
+
+		fun resolve(descriptor: ReaderPageRasterDescriptor?) {
+			val pending = checkNotNull(callback)
+			callback = null
+			pending(descriptor)
+		}
+	}
+
+	private class SeededPassiveHydrationStore : ReaderPageRasterHydrationStorePort {
+		private data class Seed(
+			val key: ReaderPageRasterKey,
+			val metadata: ReaderPageRasterMetadata,
+			val bitmapWidth: Int,
+			val bitmapHeight: Int,
+			val bitmapColor: Int
+		)
+
+		private val lock = Any()
+		private val keys = mutableListOf<ReaderPageRasterKey>()
+		private var seed: Seed? = null
+		private var readGate: CompletableDeferred<Unit>? = null
+		private var readStarted: CompletableDeferred<Unit>? = null
+
+		val requestedKeys: List<ReaderPageRasterKey>
+			get() = synchronized(lock) { keys.toList() }
+
+		fun seed(
+			key: ReaderPageRasterKey,
+			reference: ReaderPageSlideSnapshot,
+			bitmapColor: Int = 0
+		) {
+			fun ReaderPageTurnPixelRect.toRasterRect() = ReaderPageRasterRect(
+				left = left,
+				top = top,
+				right = right,
+				bottom = bottom
+			)
+			val geometry = reference.leafGeometry
+			synchronized(lock) {
+				seed = Seed(
+					key = key,
+					metadata = ReaderPageRasterMetadata(
+						surfaceLeft = 0,
+						surfaceTop = 0,
+						surfaceRight = reference.bitmap.width,
+						surfaceBottom = reference.bitmap.height,
+						fullLeafRect = geometry.fullLeafRect?.toRasterRect(),
+						leftLeafRect = geometry.leftLeafRect?.toRasterRect(),
+						gutterRect = geometry.gutterRect?.toRasterRect(),
+						rightLeafRect = geometry.rightLeafRect?.toRasterRect(),
+						reverseFaceColor = reference.reverseFaceColor
+					),
+					bitmapWidth = reference.bitmap.width,
+					bitmapHeight = reference.bitmap.height,
+					bitmapColor = bitmapColor
+				)
+			}
+		}
+
+		fun delayReads() {
+			synchronized(lock) {
+				check(readGate == null)
+				readGate = CompletableDeferred()
+				readStarted = CompletableDeferred()
+			}
+		}
+
+		suspend fun awaitReadStarted() {
+			val started = synchronized(lock) { checkNotNull(readStarted) }
+			started.await()
+		}
+
+		fun releaseReads() {
+			synchronized(lock) { readGate }?.complete(Unit)
+		}
+
+		override suspend fun readCopy(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap>? {
+			val gate = synchronized(lock) {
+				keys += key
+				readStarted?.complete(Unit)
+				readGate
+			}
+			gate?.await()
+			val current = synchronized(lock) { seed }
+				?.takeIf { candidate -> candidate.key == key }
+				?: return null
+			return ReaderPageRaster(
+				key = key,
+				metadata = current.metadata,
+				value = Bitmap.createBitmap(
+					current.bitmapWidth,
+					current.bitmapHeight,
+					Bitmap.Config.ARGB_8888
+				).also { bitmap -> bitmap.eraseColor(current.bitmapColor) }
+			)
+		}
+
+		override suspend fun remove(
+			key: ReaderPageRasterKey,
+			expectedMetadata: ReaderPageRasterMetadata
+		): Boolean = false
+	}
+
 	private object AlwaysMissPassiveHydrationStore : ReaderPageRasterHydrationStorePort {
 		override suspend fun readCopy(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap>? = null
 
@@ -2481,9 +3371,13 @@ class ReaderPassiveRasterPrototypeTest {
 		}
 	}
 
-	private inner class SuccessfulPassiveBitmapRuntime : ReaderPassiveRasterRuntimePort<Bitmap> {
+	private inner class SuccessfulPassiveBitmapRuntime(
+		private val receiptTransform: (ReaderPassiveRasterCaptureReceipt) ->
+			ReaderPassiveRasterCaptureReceipt = { it }
+	) : ReaderPassiveRasterRuntimePort<Bitmap> {
 		override val passiveSessionId = "passive-session-a"
 		override val isReady = true
+		var captureColor: Int = 0
 		var captureRequests = 0
 			private set
 		val createdBitmaps = mutableListOf<Bitmap>()
@@ -2495,7 +3389,11 @@ class ReaderPassiveRasterPrototypeTest {
 			onCommitted: (ReaderPassiveRasterCaptureReceipt?) -> Unit
 		) {
 			assertEquals(manifest.opaqueCaptureTarget, captureTarget)
-			onCommitted(receiptFor(manifest, passiveSessionId, passiveCommitSequence))
+			onCommitted(
+				receiptTransform(
+					receiptFor(manifest, passiveSessionId, passiveCommitSequence)
+				)
+			)
 		}
 
 		override fun capture(
@@ -2507,7 +3405,7 @@ class ReaderPassiveRasterPrototypeTest {
 				geometry.captureWidth,
 				geometry.captureHeight,
 				Bitmap.Config.ARGB_8888
-			)
+			).also { captured -> captured.eraseColor(captureColor) }
 			createdBitmaps += bitmap
 			onCaptured(bitmap)
 		}
@@ -2769,6 +3667,8 @@ class ReaderPassiveRasterPrototypeTest {
 		var captureRequests = 0
 		var cancelCommitCalls = 0
 		var cancelCommitFailure: Throwable? = null
+		var completeCommitSynchronously = false
+		var commitFailure: Throwable? = null
 		private var manifest: ReaderPassiveRasterCaptureManifest? = null
 		private var commitSequence = 0L
 		private var commitCallback: ((ReaderPassiveRasterCaptureReceipt?) -> Unit)? = null
@@ -2785,6 +3685,8 @@ class ReaderPassiveRasterPrototypeTest {
 			this.manifest = manifest
 			commitSequence = passiveCommitSequence
 			commitCallback = onCommitted
+			if (completeCommitSynchronously) completeCommit()
+			commitFailure?.let { throw it }
 		}
 
 		override fun capture(

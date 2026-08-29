@@ -929,11 +929,32 @@ class ReaderPageRasterPreparationSourceTest {
 		)
 		assertContains(adapter, "ReaderPassiveRasterManifestIssuer")
 		assertContains(adapter, "ReaderPassiveRasterPrototypeSession<Bitmap>")
-		assertContains(adapter, "session.capture(manifest")
+		assertContains(adapter, "session.commit(manifest")
+		assertContains(adapter, "committed.capture captured@{")
 		assertContains(adapter, "bundleSource.admitPassiveRasterCapture(")
 		assertContains(adapter, "fun pause()")
 		assertContains(adapter, "fun resume()")
 		assertContains(adapter, "fun close()")
+		val durableCommittedAuthority = requiredReaderSourceSlice(
+			source = adapter,
+			startDelimiter = "private fun confirmDurableCommittedTarget(",
+			endDelimiter = "private fun authorityMismatch("
+		)
+		val committedCaptureTransfer = requiredReaderSourceSlice(
+			source = adapter,
+			startDelimiter = "private fun captureCommittedTarget(",
+			endDelimiter = "private fun admitCapturedTarget("
+		)
+		assertContains(
+			durableCommittedAuthority,
+			"if (!batch.releaseCommittedCapture(committed))"
+		)
+		assertContains(durableCommittedAuthority, "ReaderPageRasterBatchOutcome.Failed(")
+		assertContains(
+			committedCaptureTransfer,
+			"if (!batch.transferCommittedCapture(committed))"
+		)
+		assertContains(committedCaptureTransfer, "ReaderPageRasterBatchOutcome.Failed(")
 		listOf(
 			"WebView",
 			"ReaderForegroundWebViewMutationGeneration",

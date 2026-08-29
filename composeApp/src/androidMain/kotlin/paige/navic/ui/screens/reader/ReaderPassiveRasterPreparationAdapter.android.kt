@@ -43,6 +43,18 @@ internal data class ReaderPassiveRasterAdmissionAuthority(
 	val expectedPassiveCommitSequence: Long
 )
 
+internal fun readerPassiveRasterReceiptAuthoritativeDescriptor(
+	descriptor: ReaderPageRasterDescriptor,
+	receipt: ReaderPassiveRasterCaptureReceipt
+): ReaderPageRasterDescriptor = descriptor.copy(
+	paginationFingerprint = receipt.observedPaginationFingerprint,
+	layoutFingerprint = receipt.observedLayoutFingerprint,
+	decorationFingerprint = receipt.observedDecorationFingerprint,
+	viewportWidth = receipt.observedViewportAndCaptureGeometry.viewportWidth,
+	viewportHeight = receipt.observedViewportAndCaptureGeometry.viewportHeight,
+	visualPageOrdinal = receipt.observedVisualPageOrdinal
+)
+
 private fun ReaderPassiveRasterManifestResolution.Unavailable.toBatchOutcome(
 	stage: String,
 	pageIndex: Int
@@ -158,6 +170,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		val onComplete: (ReaderPageRasterBatchOutcome) -> Unit,
 		var targetIndex: Int = 0,
 		var hydration: ReaderPageRasterHydrationRequest? = null,
+		var committedCapture: ReaderPassiveRasterCommittedCapture<Bitmap>? = null,
 		var pendingCapture: ReaderPassiveRasterCaptureResult<Bitmap>? = null
 	)
 
@@ -237,6 +250,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		manifestIssuer.clearCanonicalCommit()
 		batch?.hydration?.cancel()
 		batch?.hydration = null
+		batch?.releaseCommittedCapture()
 		batch?.releasePendingCapture()
 		session.cancelActiveCapture()
 		if (batch != null) {
@@ -319,16 +333,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			val inputs = (resolution as ReaderPassiveRasterManifestResolution.Available)
 				.inputs
 			val currentInputs = inputs.takeIf {
-				it.visualPageOrdinal == target.pageIndex &&
-					it.rasterDescriptor.visualPageOrdinal == target.pageIndex &&
-					it.rasterDescriptor.paginationFingerprint ==
-						it.canonicalCommit.paginationFingerprint &&
-					it.rasterDescriptor.layoutFingerprint ==
-						it.canonicalCommit.layoutFingerprint &&
-					it.rasterDescriptor.decorationFingerprint ==
-						it.canonicalCommit.decorationFingerprint &&
-					it.canonicalCommit.captureEpoch == captureEpoch &&
-					it.canonicalCommit.rasterGeneration == batch.rasterGeneration
+				manifestInputsAreCurrent(batch, target, it)
 			}
 			if (currentInputs == null) {
 				finish(
@@ -468,14 +473,281 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		inputs: ReaderPassiveRasterManifestInputs
 	) {
 		if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch)) return
-		batch.onHydrationMiss(target)
+		val hydrateAfterCommit = inputs.canonicalCommit.profileAuthority ==
+			ReaderPassiveRasterProfileAuthority.PassiveRealized
+		if (!hydrateAfterCommit) batch.onHydrationMiss(target)
 		val liveCommit = manifestIssuer.replaceCanonicalCommit(inputs.canonicalCommit)
 		val manifest = manifestIssuer.issue(
 			liveCommit = liveCommit,
 			opaqueCaptureTarget = inputs.opaqueCaptureTarget,
 			visualPageOrdinal = inputs.visualPageOrdinal
 		)
-		if (manifest == null || !session.capture(manifest) captured@{ capture ->
+		if (manifest == null || !session.commit(manifest) committed@{ committed ->
+			if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch)) {
+				committed?.release()
+				return@committed
+			}
+			if (committed == null) {
+				finish(
+					batch,
+					ReaderPageRasterBatchOutcome.Deferred(
+						stage = "passive-host",
+						pageIndex = target.pageIndex,
+						reason = "capture-unavailable"
+					)
+				)
+				return@committed
+			}
+			check(batch.committedCapture == null) {
+				"Passive raster batch already owns a committed capture"
+			}
+			batch.committedCapture = committed
+			if (hydrateAfterCommit) {
+				hydrateCommittedTarget(batch, target, inputs, committed)
+			} else {
+				captureCommittedTarget(
+					batch = batch,
+					target = target,
+					committed = committed,
+					reportHydrationMiss = false
+				)
+			}
+		}) {
+			finish(
+				batch,
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "passive-host",
+					pageIndex = target.pageIndex,
+					reason = "capture-unavailable"
+				)
+			)
+		}
+	}
+
+	private fun hydrateCommittedTarget(
+		batch: Batch,
+		target: ReaderPageRasterBatchTarget,
+		inputs: ReaderPassiveRasterManifestInputs,
+		committed: ReaderPassiveRasterCommittedCapture<Bitmap>
+	) {
+		val receiptMismatch = authorityMismatch(inputs, committed)
+		if (receiptMismatch != null) {
+			finish(
+				batch,
+				ReaderPageRasterBatchOutcome.Failed(
+					stage = "passive-commit-authority",
+					pageIndex = target.pageIndex,
+					reason = "raster-rejected",
+					passiveRasterRejection = receiptMismatch
+				)
+			)
+			return
+		}
+		val descriptor = readerPassiveRasterReceiptAuthoritativeDescriptor(
+			descriptor = inputs.rasterDescriptor,
+			receipt = committed.receipt
+		)
+		val targetIndex = batch.targetIndex
+		var hydrationCompleted = false
+		val hydrationRequest = bundleSource.resolvePassiveRasterTarget(
+			pageIndex = target.pageIndex,
+			kind = batch.kind,
+			reference = batch.reference,
+			priority = target.priority,
+			rasterDescriptor = descriptor,
+			persistentOnly = true,
+			isStillCurrent = { batchIsCurrent(batch) }
+		) resolved@{ completion ->
+			hydrationCompleted = true
+			if (batch.targetIndex == targetIndex) batch.hydration = null
+			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) return@resolved
+			when (completion?.result) {
+				ReaderPageRasterPublicationResult.Durable ->
+					confirmDurableCommittedTarget(batch, target, committed)
+				ReaderPageRasterPublicationResult.CapacityReached -> {
+					if (batch.capacityPolicy == ReaderPageRasterCapacityPolicy.StopBackgroundRefill) {
+						finish(
+							batch,
+							ReaderPageRasterBatchOutcome.CapacityReached(target.pageIndex)
+						)
+					} else {
+						finish(
+							batch,
+							ReaderPageRasterBatchOutcome.Failed(
+								stage = "persistent-publication",
+								pageIndex = target.pageIndex,
+								reason = "capacity-reached",
+								persistentPublicationResult = completion.result,
+								persistentWriteFailureReason = completion.writeFailureReason
+							)
+						)
+					}
+				}
+				ReaderPageRasterPublicationResult.Failed -> {
+					val writeFailureReason = completion.writeFailureReason
+					if (writeFailureReason == null) {
+						captureCommittedTarget(
+							batch = batch,
+							target = target,
+							committed = committed,
+							reportHydrationMiss = true
+						)
+					} else {
+						finish(
+							batch,
+							ReaderPageRasterBatchOutcome.Failed(
+								stage = "persistent-publication",
+								pageIndex = target.pageIndex,
+								reason = "durable-write-failed",
+								persistentPublicationResult = completion.result,
+								persistentWriteFailureReason = writeFailureReason
+							)
+						)
+					}
+				}
+				null -> captureCommittedTarget(
+					batch = batch,
+					target = target,
+					committed = committed,
+					reportHydrationMiss = true
+				)
+			}
+		}
+		if (!hydrationCompleted && batchIsCurrent(batch) && batch.targetIndex == targetIndex) {
+			batch.hydration = hydrationRequest
+		} else {
+			hydrationRequest.cancel()
+		}
+	}
+
+	private fun confirmDurableCommittedTarget(
+		batch: Batch,
+		target: ReaderPageRasterBatchTarget,
+		committed: ReaderPassiveRasterCommittedCapture<Bitmap>
+	) {
+		val targetIndex = batch.targetIndex
+		liveManifestPort.request(
+			visualPageOrdinal = target.pageIndex,
+			captureEpoch = captureEpoch,
+			rasterGeneration = batch.rasterGeneration,
+			preparationGeneration = batch.preparationGeneration
+		) currentAuthority@{ resolution ->
+			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) {
+				return@currentAuthority
+			}
+			when (resolution) {
+				is ReaderPassiveRasterManifestResolution.Available -> {
+					val currentInputs = resolution.inputs
+					if (!manifestInputsAreCurrent(batch, target, currentInputs)) {
+						finish(
+							batch,
+							ReaderPageRasterBatchOutcome.Failed(
+								stage = "passive-hydration-authority",
+								pageIndex = target.pageIndex,
+								reason = "current-authority-invalid"
+							)
+						)
+						return@currentAuthority
+					}
+					val mismatch = authorityMismatch(currentInputs, committed)
+					if (mismatch != null) {
+						finish(
+							batch,
+							ReaderPageRasterBatchOutcome.Failed(
+								stage = "passive-hydration-authority",
+								pageIndex = target.pageIndex,
+								reason = "raster-rejected",
+								passiveRasterRejection = mismatch
+							)
+						)
+						return@currentAuthority
+					}
+					if (!batch.releaseCommittedCapture(committed)) {
+						finish(
+							batch,
+							ReaderPageRasterBatchOutcome.Failed(
+								stage = "passive-committed-ownership",
+								pageIndex = target.pageIndex,
+								reason = "committed-capture-unavailable"
+							)
+						)
+						return@currentAuthority
+					}
+					completeTarget(batch, target)
+				}
+				is ReaderPassiveRasterManifestResolution.Unavailable -> finish(
+					batch,
+					resolution.toBatchOutcome(
+						stage = "passive-hydration-authority",
+						pageIndex = target.pageIndex
+					)
+				)
+				is ReaderPassiveRasterManifestResolution.Failed -> finish(
+					batch,
+					ReaderPageRasterBatchOutcome.Failed(
+						stage = "passive-hydration-authority",
+						pageIndex = target.pageIndex,
+						reason = resolution.reason
+					)
+				)
+			}
+		}
+	}
+
+	private fun authorityMismatch(
+		inputs: ReaderPassiveRasterManifestInputs,
+		committed: ReaderPassiveRasterCommittedCapture<Bitmap>
+	): ReaderPassiveRasterRejection? = readerPassiveRasterAuthorityMismatch(
+		context = ReaderPassiveRasterAdmissionContext(
+			expectedManifestSequence = committed.manifest.manifestSequence,
+			currentCaptureEpoch = inputs.canonicalCommit.captureEpoch,
+			currentLiveFoliateSessionId = inputs.canonicalCommit.liveFoliateSessionId,
+			activePublicationSessionGeneration =
+				inputs.canonicalCommit.publicationSessionGeneration,
+			currentDestinationCommitToken = inputs.canonicalCommit.destinationCommitToken,
+			currentOpaqueCaptureTarget = inputs.opaqueCaptureTarget,
+			currentVisualPageOrdinal = inputs.visualPageOrdinal,
+			currentRasterProfileKey = inputs.canonicalCommit.rasterProfileKey,
+			currentPaginationFingerprint = inputs.canonicalCommit.paginationFingerprint,
+			currentLayoutFingerprint = inputs.canonicalCommit.layoutFingerprint,
+			currentDecorationFingerprint = inputs.canonicalCommit.decorationFingerprint,
+			currentViewportAndCaptureGeometry =
+				inputs.canonicalCommit.viewportAndCaptureGeometry,
+			currentRasterGeneration = inputs.canonicalCommit.rasterGeneration,
+			activePassiveSessionId = session.passiveSessionId,
+			expectedPassiveCommitSequence = committed.expectedPassiveCommitSequence,
+			currentProfileAuthority = inputs.canonicalCommit.profileAuthority
+		),
+		manifest = committed.manifest,
+		receipt = committed.receipt
+	)
+
+	private fun captureCommittedTarget(
+		batch: Batch,
+		target: ReaderPageRasterBatchTarget,
+		committed: ReaderPassiveRasterCommittedCapture<Bitmap>,
+		reportHydrationMiss: Boolean
+	) {
+		if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch)) {
+			if (!batch.releaseCommittedCapture(committed)) committed.release()
+			return
+		}
+		if (!batch.transferCommittedCapture(committed)) {
+			committed.release()
+			if (batchIsCurrent(batch)) {
+				finish(
+					batch,
+					ReaderPageRasterBatchOutcome.Failed(
+						stage = "passive-committed-ownership",
+						pageIndex = target.pageIndex,
+						reason = "committed-capture-unavailable"
+					)
+				)
+			}
+			return
+		}
+		if (reportHydrationMiss) batch.onHydrationMiss(target)
+		if (!committed.capture captured@{ capture ->
 			if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch)) {
 				capture?.raster?.release()
 				return@captured
@@ -627,10 +899,28 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		activeBatch = null
 		batch.hydration?.cancel()
 		batch.hydration = null
+		batch.releaseCommittedCapture()
 		batch.releasePendingCapture()
 		manifestIssuer.clearCanonicalCommit()
 		batch.reference.release()
 		batch.onComplete(outcome)
+	}
+
+	private fun Batch.releaseCommittedCapture(
+		expected: ReaderPassiveRasterCommittedCapture<Bitmap>? = null
+	): Boolean {
+		val committed = committedCapture ?: return false
+		if (expected != null && committed !== expected) return false
+		committedCapture = null
+		return committed.release()
+	}
+
+	private fun Batch.transferCommittedCapture(
+		expected: ReaderPassiveRasterCommittedCapture<Bitmap>
+	): Boolean {
+		if (committedCapture !== expected) return false
+		committedCapture = null
+		return true
 	}
 
 	private fun Batch.releasePendingCapture(
@@ -649,6 +939,21 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		pendingCapture = null
 		return true
 	}
+
+	private fun manifestInputsAreCurrent(
+		batch: Batch,
+		target: ReaderPageRasterBatchTarget,
+		inputs: ReaderPassiveRasterManifestInputs
+	): Boolean = inputs.visualPageOrdinal == target.pageIndex &&
+		inputs.rasterDescriptor.visualPageOrdinal == target.pageIndex &&
+		inputs.rasterDescriptor.paginationFingerprint ==
+			inputs.canonicalCommit.paginationFingerprint &&
+		inputs.rasterDescriptor.layoutFingerprint ==
+			inputs.canonicalCommit.layoutFingerprint &&
+		inputs.rasterDescriptor.decorationFingerprint ==
+			inputs.canonicalCommit.decorationFingerprint &&
+		inputs.canonicalCommit.captureEpoch == captureEpoch &&
+		inputs.canonicalCommit.rasterGeneration == batch.rasterGeneration
 
 	private fun isPreparationGenerationCurrent(batch: Batch): Boolean =
 		runCatching {
