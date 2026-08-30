@@ -94,6 +94,7 @@ import paige.navic.reader.setReaderListeningSettings
 import paige.navic.reader.withReaderListeningSettings
 import paige.navic.reader.whispersyncLogValue
 import paige.navic.reader.wordSyncBoundaries
+import paige.navic.reader.wordSyncBoundaryInputDiagnostic
 import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.shared.AudiobookPlaybackTimelineSnapshot
 import paige.navic.ui.core.AudiobookMiniPlayerUiState
@@ -446,10 +447,27 @@ fun ReaderScreen(reader: Screen.Reader) {
 		?.toReaderWordSyncTimelineSnapshot(whispersyncPlaybackPlan)
 	val currentWordSyncTimelineReason =
 		currentPlaybackTimelineSnapshot.wordSyncTimelineLogReason(whispersyncPlaybackPlan)
+	val currentWordSyncPlaybackIdentity = currentWordSyncTimeline?.toWordSyncPlaybackIdentity()
+	val wordSyncBoundaryInputDiagnostic = coordinator.wordSyncBoundaryInputDiagnostic(
+		currentWordSyncPlaybackIdentity
+	)
 	val scheduledWordSyncBoundaries = coordinator.wordSyncBoundaries(
-		currentWordSyncTimeline?.toWordSyncPlaybackIdentity()
+		currentWordSyncPlaybackIdentity
 	)
 
+	LaunchedEffect(wordSyncBoundaryScheduler, wordSyncBoundaryInputDiagnostic) {
+		Logger.i(
+			WhispersyncSyncLogTag,
+			"WordSync boundary input state=observed " +
+				"reference=${if (wordSyncBoundaryInputDiagnostic.referencePresent) "present" else "absent"} " +
+				"index=${wordSyncBoundaryInputDiagnostic.indexState.logValue} " +
+				"chaptersLoaded=${wordSyncBoundaryInputDiagnostic.loadedChapterCount} " +
+				"chaptersPending=${wordSyncBoundaryInputDiagnostic.pendingChapterCount} " +
+				"chaptersFailed=${wordSyncBoundaryInputDiagnostic.failedChapterCount} " +
+				"trackMatches=${wordSyncBoundaryInputDiagnostic.matchingTrackCount} " +
+				"presentableWords=${wordSyncBoundaryInputDiagnostic.presentableWordCount}"
+		)
+	}
 	LaunchedEffect(wordSyncBoundaryScheduler, scheduledWordSyncBoundaries) {
 		Logger.i(
 			WhispersyncSyncLogTag,

@@ -24,6 +24,10 @@ internal fun ReaderCoordinator.onReadaloudPlaybackState(
 	)
 )
 
+internal fun ReaderCoordinator.wordSyncBoundaryInputDiagnostic(
+	playbackIdentity: ReaderWordSyncPlaybackIdentity?
+): ReaderWordSyncBoundaryInputDiagnostic = wordSync.boundaryInputDiagnostic(playbackIdentity)
+
 internal fun ReaderCoordinator.wordSyncBoundaries(
 	playbackIdentity: ReaderWordSyncPlaybackIdentity?
 ): List<ReaderWordSyncBoundary> = playbackIdentity

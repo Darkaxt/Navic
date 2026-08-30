@@ -51,6 +51,22 @@ data class ReaderWordSyncDecision(
 	val effects: List<ReaderWordSyncEffect> = emptyList()
 )
 
+internal enum class ReaderWordSyncDiagnosticIndexState(val logValue: String) {
+	Missing("missing"),
+	Pending("pending"),
+	Ready("ready")
+}
+
+internal data class ReaderWordSyncBoundaryInputDiagnostic(
+	val referencePresent: Boolean,
+	val indexState: ReaderWordSyncDiagnosticIndexState,
+	val loadedChapterCount: Int,
+	val pendingChapterCount: Int,
+	val failedChapterCount: Int,
+	val matchingTrackCount: Int,
+	val presentableWordCount: Int
+)
+
 data class ReaderWordSyncPlaybackCoordinator(
 	val reference: BinderyWordSyncReference? = null,
 	val generation: Long = 0L,
@@ -198,6 +214,34 @@ data class ReaderWordSyncPlaybackCoordinator(
 			rawPoint = null,
 			readerEvent = false
 		) != null
+	}
+
+	internal fun boundaryInputDiagnostic(
+		playback: ReaderWordSyncPlaybackIdentity?
+	): ReaderWordSyncBoundaryInputDiagnostic {
+		val matchingTracks = playback?.let { identity ->
+			chapters.values.flatMap { verified ->
+				verified.chapter.tracks.filter { track ->
+					track.audioResourceId == identity.audioResourceId &&
+						track.audioTrackIndex == identity.audioTrackIndex
+				}
+			}
+		}.orEmpty()
+		return ReaderWordSyncBoundaryInputDiagnostic(
+			referencePresent = reference != null,
+			indexState = when {
+				index != null -> ReaderWordSyncDiagnosticIndexState.Ready
+				indexLoadPending -> ReaderWordSyncDiagnosticIndexState.Pending
+				else -> ReaderWordSyncDiagnosticIndexState.Missing
+			},
+			loadedChapterCount = chapters.size,
+			pendingChapterCount = pendingChapterKeys.size,
+			failedChapterCount = failedChapterKeys.size,
+			matchingTrackCount = matchingTracks.size,
+			presentableWordCount = matchingTracks.sumOf { track ->
+				track.words.count { word -> word.status in 1..4 }
+			}
+		)
 	}
 
 	internal fun boundariesForPlayback(

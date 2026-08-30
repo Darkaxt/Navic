@@ -78,6 +78,73 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
+	fun boundaryInputDiagnosticDistinguishesDataDemandFromTrackAuthority() {
+		val playback = playbackIdentity(positionMs = 1_050)
+		val configured = ReaderWordSyncPlaybackCoordinator().configure(reference)
+
+		assertEquals(
+			ReaderWordSyncBoundaryInputDiagnostic(
+				referencePresent = true,
+				indexState = ReaderWordSyncDiagnosticIndexState.Missing,
+				loadedChapterCount = 0,
+				pendingChapterCount = 0,
+				failedChapterCount = 0,
+				matchingTrackCount = 0,
+				presentableWordCount = 0
+			),
+			configured.boundaryInputDiagnostic(playback)
+		)
+
+		val demand = configured.coordinate(
+			controllerStep = ReaderControllerStep(
+				ReaderController(),
+				engineCommands = listOf(cueCommand())
+			),
+			playback = playback
+		)
+		assertEquals(
+			ReaderWordSyncDiagnosticIndexState.Pending,
+			demand.coordinator.boundaryInputDiagnostic(playback).indexState
+		)
+
+		val indexGeneration = assertIs<ReaderWordSyncEffect.LoadIndex>(demand.effects.single()).generation
+		val indexed = demand.coordinator.onIndexVerified(
+			generation = indexGeneration,
+			index = index,
+			provenance = provenance,
+			controller = ReaderController()
+		)
+		assertEquals(
+			ReaderWordSyncBoundaryInputDiagnostic(
+				referencePresent = true,
+				indexState = ReaderWordSyncDiagnosticIndexState.Ready,
+				loadedChapterCount = 0,
+				pendingChapterCount = 1,
+				failedChapterCount = 0,
+				matchingTrackCount = 0,
+				presentableWordCount = 0
+			),
+			indexed.coordinator.boundaryInputDiagnostic(playback)
+		)
+
+		val chapterGeneration = assertIs<ReaderWordSyncEffect.LoadChapter>(indexed.effects.single()).generation
+		val loaded = indexed.coordinator.onChapterVerified(
+			generation = chapterGeneration,
+			chapter = chapter,
+			controller = ReaderController()
+		).coordinator
+		assertEquals(1, loaded.boundaryInputDiagnostic(playback).matchingTrackCount)
+		assertEquals(
+			chapter.tracks.flatMap { it.words }.count { it.status in 1..4 },
+			loaded.boundaryInputDiagnostic(playback).presentableWordCount
+		)
+		assertEquals(
+			0,
+			loaded.boundaryInputDiagnostic(playback.copy(audioTrackIndex = 1)).matchingTrackCount
+		)
+	}
+
+	@Test
 	fun ignoresStaleGenerationResults() {
 		val initial = ReaderWordSyncPlaybackCoordinator().configure(reference)
 		val demand = initial.coordinate(
