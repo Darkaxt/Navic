@@ -1903,6 +1903,27 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun readerScreenReobservesWhispersyncPlaybackAfterEqualPositionSeek() {
+		val readerScreenText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+		val playbackObservationEffectMarker =
+			"LaunchedEffect(\n\t\taudiobookMiniPlayerState,"
+
+		assertTrue(
+			readerScreenText.contains(playbackObservationEffectMarker),
+			"ReaderScreen must retain a dedicated playback observation effect."
+		)
+		val playbackObservationKeys = readerScreenText
+			.substringAfter(playbackObservationEffectMarker)
+			.substringBefore(") {")
+		assertTrue(
+			playbackObservationKeys.contains("playbackTimelineRevision"),
+			"Equal-position cue seeks must re-drive playback observation through the explicit timeline revision."
+		)
+	}
+
+	@Test
 	fun readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary() {
 		val readerScreenText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"

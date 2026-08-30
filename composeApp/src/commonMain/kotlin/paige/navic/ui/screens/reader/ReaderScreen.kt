@@ -546,6 +546,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 
 	LaunchedEffect(
 		audiobookMiniPlayerState,
+		playbackTimelineRevision,
 		whispersyncPlaybackPlan,
 		wordSyncPublicationVerifier,
 		reader.bookId,
