@@ -53,6 +53,8 @@ class ReaderWhispersyncDiagnosticsSourceTest {
 			"chaptersLoaded=",
 			"chaptersPending=",
 			"chaptersFailed=",
+			"resourceMatches=",
+			"trackIndexMatches=",
 			"trackMatches=",
 			"presentableWords=",
 			"state=",

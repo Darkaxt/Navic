@@ -464,6 +464,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 				"chaptersLoaded=${wordSyncBoundaryInputDiagnostic.loadedChapterCount} " +
 				"chaptersPending=${wordSyncBoundaryInputDiagnostic.pendingChapterCount} " +
 				"chaptersFailed=${wordSyncBoundaryInputDiagnostic.failedChapterCount} " +
+				"resourceMatches=${wordSyncBoundaryInputDiagnostic.resourceMatchingTrackCount} " +
+				"trackIndexMatches=${wordSyncBoundaryInputDiagnostic.trackIndexMatchingTrackCount} " +
 				"trackMatches=${wordSyncBoundaryInputDiagnostic.matchingTrackCount} " +
 				"presentableWords=${wordSyncBoundaryInputDiagnostic.presentableWordCount}"
 		)

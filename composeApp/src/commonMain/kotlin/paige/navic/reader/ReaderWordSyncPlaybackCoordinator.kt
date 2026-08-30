@@ -63,6 +63,8 @@ internal data class ReaderWordSyncBoundaryInputDiagnostic(
 	val loadedChapterCount: Int,
 	val pendingChapterCount: Int,
 	val failedChapterCount: Int,
+	val resourceMatchingTrackCount: Int,
+	val trackIndexMatchingTrackCount: Int,
 	val matchingTrackCount: Int,
 	val presentableWordCount: Int
 )
@@ -219,14 +221,24 @@ data class ReaderWordSyncPlaybackCoordinator(
 	internal fun boundaryInputDiagnostic(
 		playback: ReaderWordSyncPlaybackIdentity?
 	): ReaderWordSyncBoundaryInputDiagnostic {
-		val matchingTracks = playback?.let { identity ->
-			chapters.values.flatMap { verified ->
-				verified.chapter.tracks.filter { track ->
-					track.audioResourceId == identity.audioResourceId &&
-						track.audioTrackIndex == identity.audioTrackIndex
+		var resourceMatchingTrackCount = 0
+		var trackIndexMatchingTrackCount = 0
+		var matchingTrackCount = 0
+		var presentableWordCount = 0
+		if (playback != null) {
+			chapters.values.forEach { verified ->
+				verified.chapter.tracks.forEach { track ->
+					val resourceMatches = track.audioResourceId == playback.audioResourceId
+					val trackIndexMatches = track.audioTrackIndex == playback.audioTrackIndex
+					if (resourceMatches) resourceMatchingTrackCount += 1
+					if (trackIndexMatches) trackIndexMatchingTrackCount += 1
+					if (resourceMatches && trackIndexMatches) {
+						matchingTrackCount += 1
+						presentableWordCount += track.words.count { word -> word.status in 1..4 }
+					}
 				}
 			}
-		}.orEmpty()
+		}
 		return ReaderWordSyncBoundaryInputDiagnostic(
 			referencePresent = reference != null,
 			indexState = when {
@@ -237,10 +249,10 @@ data class ReaderWordSyncPlaybackCoordinator(
 			loadedChapterCount = chapters.size,
 			pendingChapterCount = pendingChapterKeys.size,
 			failedChapterCount = failedChapterKeys.size,
-			matchingTrackCount = matchingTracks.size,
-			presentableWordCount = matchingTracks.sumOf { track ->
-				track.words.count { word -> word.status in 1..4 }
-			}
+			resourceMatchingTrackCount = resourceMatchingTrackCount,
+			trackIndexMatchingTrackCount = trackIndexMatchingTrackCount,
+			matchingTrackCount = matchingTrackCount,
+			presentableWordCount = presentableWordCount
 		)
 	}
 

@@ -89,6 +89,8 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 				loadedChapterCount = 0,
 				pendingChapterCount = 0,
 				failedChapterCount = 0,
+				resourceMatchingTrackCount = 0,
+				trackIndexMatchingTrackCount = 0,
 				matchingTrackCount = 0,
 				presentableWordCount = 0
 			),
@@ -121,6 +123,8 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 				loadedChapterCount = 0,
 				pendingChapterCount = 1,
 				failedChapterCount = 0,
+				resourceMatchingTrackCount = 0,
+				trackIndexMatchingTrackCount = 0,
 				matchingTrackCount = 0,
 				presentableWordCount = 0
 			),
@@ -133,14 +137,46 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 			chapter = chapter,
 			controller = ReaderController()
 		).coordinator
+		assertEquals(1, loaded.boundaryInputDiagnostic(playback).resourceMatchingTrackCount)
+		assertEquals(1, loaded.boundaryInputDiagnostic(playback).trackIndexMatchingTrackCount)
 		assertEquals(1, loaded.boundaryInputDiagnostic(playback).matchingTrackCount)
 		assertEquals(
 			chapter.tracks.flatMap { it.words }.count { it.status in 1..4 },
 			loaded.boundaryInputDiagnostic(playback).presentableWordCount
 		)
+		val wrongTrackIdentity = playback.copy(audioTrackIndex = 1)
+		val wrongTrack = loaded.boundaryInputDiagnostic(wrongTrackIdentity)
 		assertEquals(
-			0,
-			loaded.boundaryInputDiagnostic(playback.copy(audioTrackIndex = 1)).matchingTrackCount
+			chapter.tracks.count { it.audioResourceId == wrongTrackIdentity.audioResourceId },
+			wrongTrack.resourceMatchingTrackCount
+		)
+		assertEquals(
+			chapter.tracks.count { it.audioTrackIndex == wrongTrackIdentity.audioTrackIndex },
+			wrongTrack.trackIndexMatchingTrackCount
+		)
+		assertEquals(
+			chapter.tracks.count {
+				it.audioResourceId == wrongTrackIdentity.audioResourceId &&
+					it.audioTrackIndex == wrongTrackIdentity.audioTrackIndex
+			},
+			wrongTrack.matchingTrackCount
+		)
+		val wrongResourceIdentity = playback.copy(audioResourceId = "audio-other")
+		val wrongResource = loaded.boundaryInputDiagnostic(wrongResourceIdentity)
+		assertEquals(
+			chapter.tracks.count { it.audioResourceId == wrongResourceIdentity.audioResourceId },
+			wrongResource.resourceMatchingTrackCount
+		)
+		assertEquals(
+			chapter.tracks.count { it.audioTrackIndex == wrongResourceIdentity.audioTrackIndex },
+			wrongResource.trackIndexMatchingTrackCount
+		)
+		assertEquals(
+			chapter.tracks.count {
+				it.audioResourceId == wrongResourceIdentity.audioResourceId &&
+					it.audioTrackIndex == wrongResourceIdentity.audioTrackIndex
+			},
+			wrongResource.matchingTrackCount
 		)
 	}
 
