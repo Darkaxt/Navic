@@ -34,24 +34,98 @@ internal fun Screen.Reader.whispersyncLaunchAttachment(): ReaderWhispersyncLaunc
 	)
 }
 
+internal enum class ReaderWordSyncReferenceResolutionReason(val logValue: String) {
+	Resolved("resolved"),
+	InvalidLaunch("identity-invalid"),
+	ReferenceMissing("reference-missing"),
+	BookMismatch("book-mismatch"),
+	AudiobookMismatch("audiobook-mismatch"),
+	ArtifactMismatch("artifact-mismatch"),
+	Ambiguous("ambiguous")
+}
+
+internal data class ReaderWordSyncReferenceResolution(
+	val reference: BinderyWordSyncReference?,
+	val reason: ReaderWordSyncReferenceResolutionReason,
+	val candidateCount: Int
+)
+
+internal fun BinderyBookSync.wordSyncReferenceResolutionForLaunch(
+	bookId: String,
+	attachment: ReaderWhispersyncLaunchAttachment
+): ReaderWordSyncReferenceResolution {
+	val expectedBookId = bookId.trim().toLongOrNull()?.takeIf { it > 0L }
+	val expectedAudiobookBookFileId = attachment.audiobookBookFileId.toLongOrNull()
+		?.takeIf { it > 0L }
+	val expectedArtifactId = attachment.artifactId.toLongOrNull()?.takeIf { it > 0L }
+	if (
+		expectedBookId == null ||
+		expectedAudiobookBookFileId == null ||
+		expectedArtifactId == null
+	) {
+		return ReaderWordSyncReferenceResolution(
+			reference = null,
+			reason = ReaderWordSyncReferenceResolutionReason.InvalidLaunch,
+			candidateCount = 0
+		)
+	}
+	val references = syncPairs.mapNotNull { pair -> pair.wordSyncReferenceOrNull() }
+	if (references.isEmpty()) {
+		return ReaderWordSyncReferenceResolution(
+			reference = null,
+			reason = ReaderWordSyncReferenceResolutionReason.ReferenceMissing,
+			candidateCount = 0
+		)
+	}
+	val bookMatches = references.filter { reference ->
+		reference.identity.bookId == expectedBookId
+	}
+	if (bookMatches.isEmpty()) {
+		return ReaderWordSyncReferenceResolution(
+			reference = null,
+			reason = ReaderWordSyncReferenceResolutionReason.BookMismatch,
+			candidateCount = 0
+		)
+	}
+	val audiobookMatches = bookMatches.filter { reference ->
+		reference.identity.audiobookBookFileId == expectedAudiobookBookFileId
+	}
+	if (audiobookMatches.isEmpty()) {
+		return ReaderWordSyncReferenceResolution(
+			reference = null,
+			reason = ReaderWordSyncReferenceResolutionReason.AudiobookMismatch,
+			candidateCount = 0
+		)
+	}
+	val artifactMatches = audiobookMatches.filter { reference ->
+		reference.identity.artifactId == expectedArtifactId
+	}
+	return if (artifactMatches.size == 1) {
+		ReaderWordSyncReferenceResolution(
+			reference = artifactMatches.single(),
+			reason = ReaderWordSyncReferenceResolutionReason.Resolved,
+			candidateCount = 1
+		)
+	} else {
+		ReaderWordSyncReferenceResolution(
+			reference = null,
+			reason = if (artifactMatches.isEmpty()) {
+				ReaderWordSyncReferenceResolutionReason.ArtifactMismatch
+			} else {
+				ReaderWordSyncReferenceResolutionReason.Ambiguous
+			},
+			candidateCount = artifactMatches.size
+		)
+	}
+}
+
 internal fun BinderyBookSync.wordSyncReferenceForLaunch(
 	bookId: String,
 	attachment: ReaderWhispersyncLaunchAttachment
-): BinderyWordSyncReference? {
-	val expectedBookId = bookId.trim().toLongOrNull()?.takeIf { it > 0L } ?: return null
-	val expectedAudiobookBookFileId = attachment.audiobookBookFileId.toLongOrNull()
-		?.takeIf { it > 0L }
-		?: return null
-	val expectedArtifactId = attachment.artifactId.toLongOrNull()?.takeIf { it > 0L }
-		?: return null
-	return syncPairs.mapNotNull { pair -> pair.wordSyncReferenceOrNull() }
-		.filter { reference ->
-			reference.identity.bookId == expectedBookId &&
-				reference.identity.audiobookBookFileId == expectedAudiobookBookFileId &&
-				reference.identity.artifactId == expectedArtifactId
-		}
-		.singleOrNull()
-}
+): BinderyWordSyncReference? = wordSyncReferenceResolutionForLaunch(
+	bookId = bookId,
+	attachment = attachment
+).reference
 
 private fun String?.normalizedWhispersyncRouteValue(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }

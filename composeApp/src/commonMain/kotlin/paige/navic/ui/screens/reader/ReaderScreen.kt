@@ -652,15 +652,17 @@ fun ReaderScreen(reader: Screen.Reader) {
 								)
 							}.fold(
 								onSuccess = { bookSync ->
-									val recoveredReference = bookSync.wordSyncReferenceForLaunch(
+									val resolution = bookSync.wordSyncReferenceResolutionForLaunch(
 										bookId = reader.bookId,
 										attachment = attachment
 									)
+									val recoveredReference = resolution.reference
 									if (recoveredReference == null) {
 										Logger.w(
 											WhispersyncSyncLogTag,
 											"WordSync reference state=unavailable matched=false active=false " +
-												"reason=no-unique-match count=0"
+												"reason=${resolution.reason.logValue} " +
+												"count=${resolution.candidateCount}"
 										)
 									} else {
 										wordSyncPublicationVerifier = wordSyncVerifier

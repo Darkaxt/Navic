@@ -158,13 +158,12 @@ class ReaderWhispersyncLaunchPolicyTest {
 		)
 
 		assertNull(attachment?.wordSync)
-		assertEquals(
-			wordSync,
-			bookSync.wordSyncReferenceForLaunch(
-				bookId = "3816",
-				attachment = attachment!!
-			)
+		val resolution = bookSync.wordSyncReferenceResolutionForLaunch(
+			bookId = "3816",
+			attachment = attachment!!
 		)
+		assertEquals(ReaderWordSyncReferenceResolutionReason.Resolved, resolution.reason)
+		assertEquals(wordSync, resolution.reference)
 	}
 
 	@Test
