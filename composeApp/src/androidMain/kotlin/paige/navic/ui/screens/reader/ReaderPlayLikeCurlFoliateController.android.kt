@@ -1106,7 +1106,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onPageOverlayUpdateCapacityAvailable(applied: Boolean) {
-				if (!applied) {
+				if (applied) {
+					if (publishedWhispersyncOverlay != null) {
+						Logger.i(
+							ReaderPlayLikeCurlFoliateControllerTag,
+							"WordSync native overlay state=rendered reason=surface"
+						)
+					}
+				} else {
 					publishedWhispersyncOverlay = null
 					Logger.w(
 						ReaderPlayLikeCurlFoliateControllerTag,
@@ -4574,7 +4581,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"WordSync native overlay state=accepted reason=surface " +
-						"targets=${targets.size} masks=${overlays.size}"
+						"targets=${targets.size} masks=${overlays.size} " +
+						"colorVisible=${(whispersyncHighlightColorArgb ushr 24) != 0} " +
+						"shield=${inlineRasterShield.ownsPresentation()}"
 				)
 			}
 			else -> {
