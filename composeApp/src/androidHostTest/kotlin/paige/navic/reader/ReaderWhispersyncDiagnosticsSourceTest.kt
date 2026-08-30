@@ -32,13 +32,22 @@ class ReaderWhispersyncDiagnosticsSourceTest {
 		val readerScreen = root
 			.resolve("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt")
 			.readText()
-		val diagnostics = controller + reducer + syncCoordinator + readerScreen
+		val nativeController = root
+			.resolve(
+				"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+					"ReaderPlayLikeCurlFoliateController.android.kt"
+			)
+			.readText()
+		val diagnostics = controller + reducer + syncCoordinator + readerScreen + nativeController
 		val whispersyncLogStatements = Regex(
 			"Logger\\.(?:i|w|e)\\([\\s\\S]*?\\)",
 			RegexOption.MULTILINE
 		).findAll(diagnostics)
 			.map { it.value }
-			.filter { it.contains("Whispersync") }
+			.filter { statement ->
+				statement.contains("Whispersync") ||
+					statement.contains("WordSync native overlay")
+			}
 			.joinToString("\n")
 
 		assertContainsAll(
@@ -50,6 +59,11 @@ class ReaderWhispersyncDiagnosticsSourceTest {
 			"WordSync boundary input state=observed",
 			"WordSync overlay state=active",
 			"WordSync overlay state=inactive",
+			"WordSync native overlay state=accepted",
+			"WordSync native overlay state=rejected",
+			"reason=targets",
+			"reason=masks",
+			"reason=surface",
 			"anchor=",
 			"reference=",
 			"index=",

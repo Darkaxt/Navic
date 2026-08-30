@@ -4497,6 +4497,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 			null
 		}
 		if (receipt == null || targets == null) {
+			if (receipt != null) {
+				Logger.w(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"WordSync native overlay state=rejected reason=targets " +
+						"proofMatches=${receipt.nativePresentationProof() == presentationProof} " +
+						"sessionMatches=${presentationProof?.foliateSessionId == sessionId} " +
+						"rasterMatches=${presentationProof?.rasterGeneration == pages.profile.rasterGeneration} " +
+						"textureMatches=${presentationProof?.textureGeneration == generationId}"
+				)
+			}
 			inlineRasterShield.setWhispersyncOverlay(receipt = null, colorArgb = 0)
 			clearWhispersyncOverlayIfNeeded(generationId)
 			return
@@ -4549,13 +4559,32 @@ internal class ReaderPlayLikeCurlFoliateController(
 			true
 		}
 		if (!masksReady || overlays.size != targets.size) {
+			Logger.w(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"WordSync native overlay state=rejected reason=masks " +
+					"targets=${targets.size} masks=${overlays.size}"
+			)
 			overlays.recycleOverlayBitmaps()
 			clearWhispersyncOverlayIfNeeded(generationId)
 			return
 		}
 		when (surfaceView.replacePageOverlays(generationId, overlays)) {
-			PageOverlayUpdateResult.ACCEPTED -> publishedWhispersyncOverlay = publication
-			else -> overlays.recycleOverlayBitmaps()
+			PageOverlayUpdateResult.ACCEPTED -> {
+				publishedWhispersyncOverlay = publication
+				Logger.i(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"WordSync native overlay state=accepted reason=surface " +
+						"targets=${targets.size} masks=${overlays.size}"
+				)
+			}
+			else -> {
+				Logger.w(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"WordSync native overlay state=rejected reason=surface " +
+						"targets=${targets.size} masks=${overlays.size}"
+				)
+				overlays.recycleOverlayBitmaps()
+			}
 		}
 	}
 
