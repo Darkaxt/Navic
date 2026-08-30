@@ -45,6 +45,7 @@ class ReaderWhispersyncDiagnosticsSourceTest {
 			diagnostics,
 			"WhispersyncSyncLogTag",
 			"WordSync boundary state=timeline",
+			"WordSync boundary state=refresh",
 			"WordSync boundary state=dispatch",
 			"state=",
 			"reason=",

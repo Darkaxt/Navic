@@ -440,8 +440,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 			onClear = { timeline -> currentWordSyncClearHandler.value(timeline) }
 		)
 	}
-	val currentWordSyncTimeline = audiobookPlaybackManager.currentPlaybackTimelineSnapshot()
+	val currentPlaybackTimelineSnapshot =
+		audiobookPlaybackManager.currentPlaybackTimelineSnapshot()
+	val currentWordSyncTimeline = currentPlaybackTimelineSnapshot
 		?.toReaderWordSyncTimelineSnapshot(whispersyncPlaybackPlan)
+	val currentWordSyncTimelineReason =
+		currentPlaybackTimelineSnapshot.wordSyncTimelineLogReason(whispersyncPlaybackPlan)
 	val scheduledWordSyncBoundaries = coordinator.wordSyncBoundaries(
 		currentWordSyncTimeline?.toWordSyncPlaybackIdentity()
 	)
@@ -456,6 +460,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 		wordSyncBoundaryScheduler.replaceTimeline(scheduledWordSyncBoundaries)
 	}
 	LaunchedEffect(wordSyncBoundaryScheduler, playbackTimelineRevision) {
+		Logger.i(
+			WhispersyncSyncLogTag,
+			"WordSync boundary state=refresh matched=${currentWordSyncTimeline != null} " +
+				"active=${scheduledWordSyncBoundaries.isNotEmpty()} " +
+				"reason=$currentWordSyncTimelineReason count=${scheduledWordSyncBoundaries.size}"
+		)
 		wordSyncBoundaryScheduler.refreshTimeline()
 	}
 	DisposableEffect(wordSyncBoundaryScheduler) {
@@ -1048,6 +1058,21 @@ private fun AudiobookPlaybackTimelineSnapshot.toReaderWordSyncTimelineSnapshot(
 		playbackSpeed = position.playbackSpeed,
 		isPlaying = position.isPlaying
 	)
+}
+
+private fun AudiobookPlaybackTimelineSnapshot?.wordSyncTimelineLogReason(
+	playbackPlan: ReadaloudPlaybackPlan?
+): String {
+	val snapshot = this ?: return "no-snapshot"
+	val plan = playbackPlan ?: return "no-plan"
+	if (snapshot.position.sessionId != plan.sessionId) return "session-mismatch"
+	if (snapshot.position.trackIndex !in plan.mediaItems.indices) return "track-mismatch"
+	val item = plan.mediaItems[snapshot.position.trackIndex]
+	if (snapshot.position.mediaId != null && snapshot.position.mediaId != item.mediaId) {
+		return "media-mismatch"
+	}
+	if (item.resourceKey?.trim().isNullOrEmpty()) return "resource-missing"
+	return "ready"
 }
 
 private fun ReaderWordSyncTimelineSnapshot.toWordSyncPlaybackIdentity() =
