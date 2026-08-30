@@ -533,3 +533,115 @@ test('cue map uses the production media-overlay resolver and real Foliate Overla
   assert.ok(result.markerRects.every(rect => Number.isFinite(rect.x) && Number.isFinite(rect.y)))
   assert.deepEqual(result.rasterCalls, [])
 })
+
+test('cue-map replacement terminal paths publish bounded rendered outcomes', async () => {
+  const page = await browser.newPage()
+  await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+
+  const result = await page.evaluate(async () => {
+    const { ReaderWhispersyncCueMapRuntime } = await import('/navic-reader-cue-map.js')
+    const doc = document.implementation.createHTMLDocument('cue-map-terminal-outcomes')
+    const paragraph = doc.createElement('p')
+    paragraph.textContent = 'zero one two three four'
+    doc.body.append(paragraph)
+    const text = paragraph.firstChild
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    document.body.append(svg)
+    const events = []
+    const runtime = new ReaderWhispersyncCueMapRuntime({
+      contentEntries: () => [{
+        index: 0,
+        doc,
+        overlayer: {
+          add(_key, _range, draw, options) {
+            svg.append(draw([{ left: 20, right: 30, top: 20, bottom: 34, width: 10, height: 14 }], options))
+          },
+          remove() {},
+        },
+      }],
+      resolveRange: () => {
+        const range = doc.createRange()
+        range.setStart(text, 5)
+        range.setEnd(text, 8)
+        return range
+      },
+      resolveAnchorReceipt: () => ({
+        boundarySequence: 4,
+        captureGeometry: {
+          viewportWidth: 1200,
+          viewportHeight: 800,
+          mode: 'single',
+          pages: [{ role: 'full', left: 0, top: 0, width: 1200, height: 800 }],
+        },
+        pageLocalRects: [{ role: 'full', left: 20, top: 20, width: 10, height: 14 }],
+      }),
+      postEvent: event => events.push(event),
+      holdDurationMs: 1000,
+    })
+    const presentation = {
+      enabled: true,
+      revisionDigest: '5f04c2a19e7d',
+      presentationGeneration: 8,
+      destinationCommitIdentity: { foliateSessionId: 'session-a', commitSequence: 41 },
+      cues: [{ sourceOrdinal: 4, textHref: 'Text/chapter.xhtml', textStart: 5, textEnd: 8 }],
+      transportAcknowledgementPending: false,
+    }
+    const renderedAfter = replace => {
+      const eventCount = events.length
+      const accepted = runtime.replace(replace)
+      return {
+        accepted,
+        events: events.slice(eventCount).filter(event => event.type === 'whispersyncCueMapRendered'),
+      }
+    }
+
+    runtime.replace(presentation)
+    const identical = renderedAfter(presentation)
+    const marker = svg.querySelector('[data-navic-cue-source-ordinal="4"]')
+    marker.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 7,
+      pointerType: 'touch',
+      clientX: 20,
+      clientY: 20,
+      button: 0,
+    }))
+    const deferred = renderedAfter({ ...presentation, audioActiveSourceOrdinal: 4 })
+    runtime.cancelHold('chrome-interception')
+    const cleared = renderedAfter({
+      ...presentation,
+      enabled: false,
+      presentationGeneration: 9,
+      destinationCommitIdentity: { foliateSessionId: 'session-a', commitSequence: 42 },
+    })
+    const rejected = renderedAfter({
+      ...presentation,
+      presentationGeneration: 10,
+      destinationCommitIdentity: { foliateSessionId: 'session-a', commitSequence: 43 },
+      cues: null,
+    })
+
+    return { identical, deferred, cleared, rejected }
+  })
+
+  for (const [path, expected] of Object.entries({
+    identical: { accepted: true, ordinals: [4], markerReceipts: 1, generation: 8, commitSequence: 41 },
+    deferred: { accepted: true, ordinals: [4], markerReceipts: 1, generation: 8, commitSequence: 41 },
+    cleared: { accepted: false, ordinals: [], markerReceipts: 0, generation: 9, commitSequence: 42 },
+    rejected: { accepted: false, ordinals: [], markerReceipts: 0, generation: 10, commitSequence: 43 },
+  })) {
+    const outcome = result[path]
+    assert.equal(outcome.accepted, expected.accepted, `${path} must preserve replacement semantics`)
+    assert.equal(outcome.events.length, 1, `${path} must publish one terminal cue-map outcome`)
+    const [event] = outcome.events
+    assert.deepEqual(event.sourceOrdinals, expected.ordinals)
+    assert.equal(event.markerReceipts.length, expected.markerReceipts)
+    assert.equal(event.revisionDigest, '5f04c2a19e7d')
+    assert.equal(event.presentationGeneration, expected.generation)
+    assert.equal(event.destinationFoliateSessionId, 'session-a')
+    assert.equal(event.destinationCommitSequence, expected.commitSequence)
+    assert.ok(event.sourceOrdinals.length <= 32)
+    assert.ok(event.markerReceipts.length <= 32)
+  }
+})

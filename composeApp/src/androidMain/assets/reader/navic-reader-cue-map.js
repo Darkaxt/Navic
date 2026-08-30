@@ -10,21 +10,25 @@ const finiteOrdinal = value => {
   return Number.isSafeInteger(ordinal) && ordinal >= 0 ? ordinal : null
 }
 
-const trustedPresentation = presentation => {
+const terminalPresentation = presentation => {
   const digest = String(presentation?.revisionDigest || '')
   const generation = Number(presentation?.presentationGeneration)
   const destination = presentation?.destinationCommitIdentity
   const foliateSessionId = String(destination?.foliateSessionId || '')
   const commitSequence = Number(destination?.commitSequence)
   return Boolean(
-    presentation?.enabled === true &&
     /^[0-9a-f]{12}$/.test(digest) &&
     Number.isSafeInteger(generation) && generation > 0 &&
     foliateSessionId &&
-    Number.isSafeInteger(commitSequence) && commitSequence > 0 &&
-    Array.isArray(presentation?.cues)
+    Number.isSafeInteger(commitSequence) && commitSequence > 0
   )
 }
+
+const trustedPresentation = presentation => Boolean(
+  presentation?.enabled === true &&
+  terminalPresentation(presentation) &&
+  Array.isArray(presentation?.cues)
+)
 
 const sameLifecycleIdentity = (left, right) => {
   if (!left || !right) return false
@@ -90,6 +94,7 @@ export class ReaderWhispersyncCueMapRuntime {
     this.presentation = null
     this.deferredPresentation = null
     this.markers = []
+    this.markerReceipts = []
     this.hold = null
     this.transportAcknowledgementPending = false
     this.pendingSourceOrdinal = null
@@ -98,12 +103,17 @@ export class ReaderWhispersyncCueMapRuntime {
   replace(presentation) {
     if (!trustedPresentation(presentation)) {
       this.clear()
+      this.postRendered([], [], presentation)
       return false
     }
     if (sameLifecycleIdentity(this.presentation, presentation)) {
-      if (samePresentation(this.presentation, presentation)) return true
+      if (samePresentation(this.presentation, presentation)) {
+        this.postRenderedSnapshot()
+        return true
+      }
       if (this.hold && !this.hold.completed) {
         this.deferredPresentation = presentation
+        this.postRenderedSnapshot()
         return true
       }
       this.endHold(null)
@@ -163,6 +173,7 @@ export class ReaderWhispersyncCueMapRuntime {
         anchorReceipt,
       }
     }).filter(Boolean)
+    this.markerReceipts = markerReceipts
     this.postRendered(mapped.map(item => item.sourceOrdinal), markerReceipts)
   }
 
@@ -193,6 +204,7 @@ export class ReaderWhispersyncCueMapRuntime {
   clearMarkers() {
     for (const marker of this.markers) marker.content?.overlayer?.remove?.(marker.key)
     this.markers = []
+    this.markerReceipts = []
   }
 
   paint(item) {
@@ -400,33 +412,40 @@ export class ReaderWhispersyncCueMapRuntime {
     ring.setAttribute('opacity', visible ? '1' : '0')
   }
 
-  postRendered(sourceOrdinals, markerReceipts = []) {
+  postRendered(sourceOrdinals, markerReceipts = [], presentation = this.presentation) {
     this.postSafeEvent({
       type: 'whispersyncCueMapRendered',
       sourceOrdinals: sourceOrdinals.slice(0, RenderedOrdinalEvidenceLimit),
       markerReceipts: markerReceipts.slice(0, RenderedOrdinalEvidenceLimit),
-      ...this.destinationProof(),
-    })
+      ...this.destinationProof(presentation),
+    }, presentation)
+  }
+
+  postRenderedSnapshot() {
+    this.postRendered(
+      this.markers.map(marker => marker.sourceOrdinal),
+      this.markerReceipts
+    )
   }
 
   postHoldOutcome(sourceOrdinal, outcome) {
     this.postSafeEvent({ type: 'whispersyncCueMapHoldOutcome', sourceOrdinal, outcome })
   }
 
-  destinationProof() {
-    const destination = this.presentation?.destinationCommitIdentity
+  destinationProof(presentation = this.presentation) {
+    const destination = presentation?.destinationCommitIdentity
     return {
       destinationFoliateSessionId: String(destination?.foliateSessionId || ''),
       destinationCommitSequence: Number(destination?.commitSequence),
     }
   }
 
-  postSafeEvent(event) {
-    if (!this.presentation) return
+  postSafeEvent(event, presentation = this.presentation) {
+    if (!terminalPresentation(presentation)) return
     this.postEvent?.({
       ...event,
-      revisionDigest: this.presentation.revisionDigest,
-      presentationGeneration: this.presentation.presentationGeneration,
+      revisionDigest: presentation.revisionDigest,
+      presentationGeneration: presentation.presentationGeneration,
     })
   }
 }
