@@ -2372,6 +2372,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated
 	) {
 		confirmedDecklessPassiveAuthority.clear()
+		cancelPassiveManifestAuthorityRecovery()
 		releaseInitialLivePresentationAuthority()
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
@@ -5580,6 +5581,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun beginPassiveManifestAuthorityRecovery(recoveryToken: Long) {
 		if (passiveManifestAuthorityRecoveryToken != recoveryToken) {
 			cancelPassiveManifestAuthorityRecovery()
+			releaseInitialLivePresentationAuthority()
 			passiveManifestAuthorityRecoveryToken = recoveryToken
 			val timeout = Runnable {
 				if (passiveManifestAuthorityRecoveryToken != recoveryToken) {

@@ -1244,6 +1244,70 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun canonicalRecoverySupersedesAnUnconfirmedBootstrapAuthorityBeforeRetrying() {
+		val source = controllerFile.readText()
+		val recovery = source
+			.substringAfter("private fun beginPassiveManifestAuthorityRecovery(")
+			.substringBefore("private fun retryPassiveManifestAuthorityRecovery()")
+		val replacement = recovery
+			.substringAfter("if (passiveManifestAuthorityRecoveryToken != recoveryToken) {")
+
+		assertContains(replacement, "cancelPassiveManifestAuthorityRecovery()")
+		assertContains(replacement, "releaseInitialLivePresentationAuthority()")
+		assertContains(replacement, "passiveManifestAuthorityRecoveryToken = recoveryToken")
+		assertTrue(
+			replacement.indexOf("cancelPassiveManifestAuthorityRecovery()") <
+				replacement.indexOf("releaseInitialLivePresentationAuthority()")
+		)
+		assertTrue(
+			replacement.indexOf("releaseInitialLivePresentationAuthority()") <
+				replacement.indexOf("passiveManifestAuthorityRecoveryToken = recoveryToken"),
+			"A canonical miss must retire the pre-deferral exclusive claim before the " +
+				"recovery token can retry live admission."
+		)
+	}
+
+	@Test
+	fun layoutInvalidationCancelsTheOldCanonicalTimeoutBeforeReleasingAuthority() {
+		val source = controllerFile.readText()
+		val invalidation = source
+			.substringAfter("fun invalidate(")
+			.substringBefore("private val destroyFence")
+		val recovery = source
+			.substringAfter("private fun beginPassiveManifestAuthorityRecovery(")
+			.substringBefore("private fun retryPassiveManifestAuthorityRecovery()")
+		val timeout = recovery
+			.substringAfter("val timeout = Runnable {")
+			.substringBefore("passiveManifestAuthorityRecoveryTimeout = timeout")
+		val cancellation = source
+			.substringAfter("private fun cancelPassiveManifestAuthorityRecovery()")
+			.substringBefore("private fun requestInitialLivePresentationAuthorityForPassivePreparation()")
+
+		assertContains(invalidation, "cancelPassiveManifestAuthorityRecovery()")
+		assertContains(invalidation, "releaseInitialLivePresentationAuthority()")
+		assertTrue(
+			invalidation.indexOf("cancelPassiveManifestAuthorityRecovery()") <
+				invalidation.indexOf("releaseInitialLivePresentationAuthority()"),
+			"Layout invalidation must disarm generation G before releasing its claim, so " +
+				"G's timeout cannot release generation G+1 authority."
+		)
+		assertContains(cancellation, "passiveManifestAuthorityRecoveryToken = null")
+		assertContains(
+			cancellation,
+			"passiveManifestAuthorityRecoveryTimeout?.let(mainHandler::removeCallbacks)"
+		)
+		assertContains(timeout, "passiveManifestAuthorityRecoveryToken != recoveryToken")
+		assertTrue(
+			timeout.indexOf("passiveManifestAuthorityRecoveryToken != recoveryToken") <
+				timeout.indexOf("releaseInitialLivePresentationAuthority()")
+		)
+		assertTrue(
+			timeout.indexOf("passiveManifestAuthorityRecoveryToken != recoveryToken") <
+				timeout.indexOf("onCanonicalLiveCommitRecoveryFailed(recoveryToken)")
+		)
+	}
+
+	@Test
 	fun coldContentReadyEstablishesLiveAuthorityBeforePassivePreparation() {
 		val source = controllerFile.readText()
 		val contentReady = source

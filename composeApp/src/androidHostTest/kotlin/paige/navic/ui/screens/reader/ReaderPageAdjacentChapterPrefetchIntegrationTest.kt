@@ -788,6 +788,65 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun layoutGenerationCanonicalRecoveryAutomaticallyReachesReadyWithoutManualRetry() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			autoStartRequestedPrewarm = true
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+
+			val readyRasterGeneration = fixture.rasterEpoch
+			val authorityBefore = fixture.webView.liveAuthoritySnapshot()
+			val ownershipBefore = fixture.ownership.snapshot()
+			fixture.controller.invalidate("size-changed")
+			val replacementStateStart = fixture.states.size
+			assertTrue(fixture.rasterEpoch > readyRasterGeneration)
+
+			fixture.startCurrentChapterPreparation()
+			val deferredAttempt = assertNotNull(fixture.prewarm.active)
+			fixture.prewarm.completeDeferred(
+				reason = "canonical-live-commit-unavailable",
+				stage = "passive-manifest"
+			)
+			val recoveryToken = fixture.awaitedHostEvents.last { (reason, _) ->
+				reason == ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
+			}.second
+			assertFalse(deferredAttempt.isStillCurrent())
+			assertEquals(ReaderPagePreparationPhase.Preparing, fixture.latestState.phase)
+
+			assertTrue(fixture.controller.onCanonicalLiveCommitIssued())
+			val resumedAttempt = assertNotNull(fixture.prewarm.active)
+			assertEquals(1, fixture.retryProbe.freshManifestRequestCount)
+			assertTrue(resumedAttempt !== deferredAttempt)
+			assertFalse(
+				fixture.controller.onCanonicalLiveCommitRecoveryFailed(recoveryToken)
+			)
+
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared(generationId = 42L)
+
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+			assertFalse(
+				fixture.states.drop(replacementStateStart).any { state ->
+					state.phase == ReaderPagePreparationPhase.Failed
+				}
+			)
+			assertEquals(authorityBefore, fixture.webView.liveAuthoritySnapshot())
+			assertEquals(ownershipBefore, fixture.ownership.snapshot())
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun canonicalCommitDeferralResumesOnlyAfterLiveAuthorityConfirmation() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
