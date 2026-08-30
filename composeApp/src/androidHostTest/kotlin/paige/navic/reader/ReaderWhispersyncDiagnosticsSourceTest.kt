@@ -44,6 +44,8 @@ class ReaderWhispersyncDiagnosticsSourceTest {
 		assertContainsAll(
 			diagnostics,
 			"WhispersyncSyncLogTag",
+			"WordSync boundary state=timeline",
+			"WordSync boundary state=dispatch",
 			"state=",
 			"reason=",
 			"command=",

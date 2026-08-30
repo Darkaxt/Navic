@@ -46,6 +46,7 @@ import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderEngineEvent
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineOpenRequest
+import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderPageTurnDirection
@@ -398,13 +399,19 @@ fun ReaderScreen(reader: Screen.Reader) {
 	val currentWhispersyncPlaybackPlan = rememberUpdatedState(whispersyncPlaybackPlan)
 	val currentWordSyncBoundaryHandler =
 		rememberUpdatedState<(ReaderWordSyncBoundaryDispatch) -> Unit> { dispatch ->
-			if (dispatch.coalescedCount > 0) {
-				Logger.i(
-					WhispersyncSyncLogTag,
-					"WordSync boundary wake coalesced=${dispatch.coalescedCount}"
-				)
-			}
-			applyCoordinatorStep(coordinator.onWordSyncBoundary(dispatch))
+			val previousCommandKey =
+				(coordinator.viewState as? ReaderEngineViewState.WebViewPublication)?.commandKey
+			val step = coordinator.onWordSyncBoundary(dispatch)
+			val nextCommandKey =
+				(step.coordinator.viewState as? ReaderEngineViewState.WebViewPublication)?.commandKey
+			val published = nextCommandKey != null && nextCommandKey != previousCommandKey
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"WordSync boundary state=dispatch active=$published " +
+					"command=${if (published) "update-overlay" else "none"} " +
+					"mode=word-exact count=${dispatch.coalescedCount}"
+			)
+			applyCoordinatorStep(step)
 		}
 	val currentWordSyncClearHandler =
 		rememberUpdatedState<(ReaderWordSyncTimelineSnapshot) -> Unit> { timeline ->
@@ -440,6 +447,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 	)
 
 	LaunchedEffect(wordSyncBoundaryScheduler, scheduledWordSyncBoundaries) {
+		Logger.i(
+			WhispersyncSyncLogTag,
+			"WordSync boundary state=timeline matched=${currentWordSyncTimeline != null} " +
+				"active=${scheduledWordSyncBoundaries.isNotEmpty()} " +
+				"count=${scheduledWordSyncBoundaries.size}"
+		)
 		wordSyncBoundaryScheduler.replaceTimeline(scheduledWordSyncBoundaries)
 	}
 	LaunchedEffect(wordSyncBoundaryScheduler, playbackTimelineRevision) {
