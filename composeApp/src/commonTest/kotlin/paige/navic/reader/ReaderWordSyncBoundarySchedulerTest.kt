@@ -17,6 +17,25 @@ class ReaderWordSyncBoundarySchedulerTest {
 	}
 
 	@Test
+	fun explicitTrackIndexKeepsAVerifiedResourceAliasTimelineEligible() {
+		val harness = SchedulerHarness(positionMs = 1_050L)
+		val aliasedBoundary = boundary(
+			startMs = 1_000L,
+			endMs = 1_080L,
+			ordinal = 0
+		).let { boundary ->
+			boundary.copy(
+				word = boundary.word.copy(audioResourceId = "artifact-track-alias")
+			)
+		}
+
+		harness.scheduler.replaceTimeline(listOf(aliasedBoundary))
+
+		assertEquals(listOf(1_000L), harness.dispatches.map { it.boundary.audioStartMs })
+		assertEquals(listOf(30L), harness.activeDelays())
+	}
+
+	@Test
 	fun lateWakeCoalescesMissedWordsAndSchedulesTheNextBoundary() {
 		val harness = SchedulerHarness(positionMs = 1_050L)
 		harness.scheduler.replaceTimeline(boundaries(1_000L, 1_100L, 1_200L, 1_300L))

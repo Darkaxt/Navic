@@ -250,7 +250,5 @@ internal class ReaderWordSyncBoundaryScheduler(
 
 	private fun ReaderWordSyncBoundary.matches(
 		snapshot: ReaderWordSyncTimelineSnapshot
-	): Boolean =
-		word.audioResourceId == snapshot.audioResourceId &&
-			word.audioTrackIndex == snapshot.audioTrackIndex
+	): Boolean = word.audioTrackIndex == snapshot.audioTrackIndex
 }
