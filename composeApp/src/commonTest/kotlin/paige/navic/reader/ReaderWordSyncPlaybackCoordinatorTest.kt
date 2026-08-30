@@ -193,6 +193,32 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
+	fun currentWordGapDoesNotSuppressCueLevelProgressFallback() {
+		val (ready, controller) = readyCoordinatorAndController()
+		val currentPlayback = playbackIdentity(positionMs = 1_050)
+		val current = ready.coordinate(
+			controllerStep = ReaderControllerStep(
+				controller,
+				engineCommands = listOf(cueCommand())
+			),
+			playback = currentPlayback
+		).coordinator
+		val gapPlayback = playbackIdentity(positionMs = 1_250)
+		val cueProgress = ReaderEngineCommand.UpdateMediaOverlayProgress(cueCommand().fragment)
+
+		assertTrue(current.hasExactBoundaryPresentation(controller, currentPlayback))
+		assertFalse(current.hasExactBoundaryPresentation(controller, gapPlayback))
+		val fallback = current.coordinate(
+			controllerStep = ReaderControllerStep(
+				controller,
+				engineCommands = listOf(cueProgress)
+			),
+			playback = gapPlayback
+		)
+		assertEquals(listOf(cueProgress), fallback.controllerStep.engineCommands)
+	}
+
+	@Test
 	fun failedIndexCannotSuppressCueLevelProgressFallback() {
 		val (ready, controller) = readyCoordinatorAndController()
 		val current = ready.coordinate(

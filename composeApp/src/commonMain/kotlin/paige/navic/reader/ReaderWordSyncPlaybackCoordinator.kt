@@ -188,20 +188,16 @@ data class ReaderWordSyncPlaybackCoordinator(
 		playback: ReaderWordSyncPlaybackIdentity?
 	): Boolean {
 		if (reference == null || playback == null) return false
-		val cueHref = lastCueCommand.asCueOverlayCommand()
+		val cueFragment = lastCueCommand.asCueOverlayCommand()
 			?.overlayFragmentOrNull()
-			?.textHref
 			?: return false
-		return chapters.values.any { verified ->
-			verified.chapter.ebookHref == cueHref &&
-				controller.state.rawTextProvenanceById[verified.descriptor.id]?.status ==
-				RawTextProvenanceStatus.Ready &&
-				verified.chapter.tracks.any { track ->
-					track.audioResourceId == playback.audioResourceId &&
-						track.audioTrackIndex == playback.audioTrackIndex &&
-						track.readerWordSyncBoundaries().isNotEmpty()
-				}
-		}
+		return rawCandidate(
+			controller = controller,
+			cueFragment = cueFragment,
+			playback = playback,
+			rawPoint = null,
+			readerEvent = false
+		) != null
 	}
 
 	internal fun boundariesForPlayback(
