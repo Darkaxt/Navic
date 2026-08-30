@@ -36,6 +36,36 @@ class ReaderWhispersyncCueMapGeometryTest {
 	}
 
 	@Test
+	fun completeVisibleMarkerGeometryProjectsEveryNativeViewportAnchorBeyondTransitionLimit() {
+		val geometry = ReaderPageTurnCaptureGeometry(
+			viewportWidth = 1_200.0,
+			viewportHeight = 800.0,
+			mode = ReaderPageTurnLayoutMode.Single,
+			pages = listOf(
+				ReaderPageTurnPageRect(ReaderPageTurnPageRole.Full, 0.0, 0.0, 1_200.0, 800.0)
+			)
+		)
+		val receipt = ReaderWhispersyncCueMapGeometryReceipt(
+			revisionDigest = "5f04c2a19e7d",
+			presentationGeneration = 8L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("session-a", 41L),
+			markers = (5..49).map { sourceOrdinal ->
+				marker(
+					sourceOrdinal = sourceOrdinal,
+					geometry = geometry,
+					role = ReaderPageTurnPageRole.Full,
+					left = sourceOrdinal.toDouble(),
+					top = 200.0
+				)
+			}
+		)
+
+		assertEquals((5..49).toList(), receipt.viewportAnchors(2_400f, 1_600f).map { anchor ->
+			anchor.sourceOrdinal
+		})
+	}
+
+	@Test
 	fun mixedFoliateAnchorAuthoritiesAreRejected() {
 		val geometry = ReaderPageTurnCaptureGeometry(
 			viewportWidth = 1_200.0,

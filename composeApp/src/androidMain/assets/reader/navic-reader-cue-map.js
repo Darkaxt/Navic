@@ -416,7 +416,7 @@ export class ReaderWhispersyncCueMapRuntime {
     this.postSafeEvent({
       type: 'whispersyncCueMapRendered',
       sourceOrdinals: sourceOrdinals.slice(0, RenderedOrdinalEvidenceLimit),
-      markerReceipts: markerReceipts.slice(0, RenderedOrdinalEvidenceLimit),
+      markerReceipts,
       ...this.destinationProof(presentation),
     }, presentation)
   }

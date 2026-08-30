@@ -933,7 +933,10 @@ private fun ReaderController.reduceWhispersyncCueMapRendered(
 		?.cues?.map(ReaderWhispersyncCueMapCue::sourceOrdinal)
 		?.toSet()
 		?: return ReaderControllerStep(this)
-	if (event.sourceOrdinalsInDomReadingOrder.any { it !in visibleOrdinals }) {
+	if (
+		event.sourceOrdinalsInDomReadingOrder.any { it !in visibleOrdinals } ||
+		event.markerReceipts.any { marker -> marker.sourceOrdinal !in visibleOrdinals }
+	) {
 		return ReaderControllerStep(this)
 	}
 	val geometryReceipt = event.markerReceipts.takeIf { markers -> markers.isNotEmpty() }

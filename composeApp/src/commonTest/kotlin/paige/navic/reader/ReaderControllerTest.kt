@@ -3076,6 +3076,45 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun cueMapRenderedRejectsMarkerGeometryOutsideCurrentVisibleCueSet() {
+		val enabled = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+			.toggleWhispersyncCueMap().controller
+		val presentation = requireNotNull(enabled.state.whispersync.cueMap.presentation(enabled.state))
+
+		val rejected = enabled.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCueMapRendered(
+				sourceOrdinalsInDomReadingOrder = listOf(1, 0),
+				revisionDigest = presentation.revisionDigest,
+				presentationGeneration = presentation.presentationGeneration,
+				destinationCommitIdentity = whispersyncTestDestination,
+				markerReceipts = listOf(
+					ReaderWhispersyncCueMapMarkerReceipt(
+						sourceOrdinal = 99,
+						prepared = false,
+						requested = false,
+						audioActive = false,
+						renderedHighlight = false,
+						anchorReceipt = testAnchorReceipt("session-a").copy(boundarySequence = 99L)
+					)
+				)
+			)
+		)
+
+		assertNull(rejected.controller.state.whispersync.cueMap.geometryReceipt)
+		assertEquals(emptyList(), rejected.controller.state.whispersync.cueMap.sourceOrdinalsInDomReadingOrder)
+	}
+
+	@Test
 	fun sidecarRevisionReplacementDropsOldCueMapTransitionEvidenceEvenWhenDisabled() {
 		val enabled = ReaderController()
 			.open(hobbitOpenRequest()).controller

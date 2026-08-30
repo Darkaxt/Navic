@@ -218,7 +218,6 @@ data class ReaderWhispersyncCueMapGeometryReceipt(
 		require(revisionDigest.matches(Regex("[0-9a-f]{12}")))
 		require(presentationGeneration > 0L)
 		require(markers.isNotEmpty())
-		require(markers.size <= ReaderWhispersyncCueMapTransitionLimit)
 		require(markers.map(ReaderWhispersyncCueMapMarkerReceipt::sourceOrdinal).distinct().size == markers.size)
 		require(markers.all { marker ->
 			marker.anchorReceipt.foliateSessionId == destinationCommitIdentity.foliateSessionId

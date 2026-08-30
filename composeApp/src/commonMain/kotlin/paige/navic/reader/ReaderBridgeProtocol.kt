@@ -1219,22 +1219,20 @@ private fun JsonObject.toWhispersyncCueMapRendered(): ReaderBridgeEvent.Whispers
 		}
 		?: return null
 	val markerElements = (get("markerReceipts") as? JsonArray).orEmpty()
-	if (markerElements.size > ReaderWhispersyncCueMapTransitionLimit) return null
 	val markerReceipts = markerElements.map { element ->
 		(element as? JsonObject)?.toWhispersyncCueMapMarkerReceipt()
 	}
-	if (
-		markerReceipts.any { it == null } ||
-		markerReceipts.filterNotNull().map(ReaderWhispersyncCueMapMarkerReceipt::sourceOrdinal).let { values ->
-			values.distinct().size != values.size || values.any { it !in ordinals }
-		}
-	) return null
+	if (markerReceipts.any { it == null }) return null
+	val resolvedMarkerReceipts = markerReceipts.filterNotNull()
+	if (resolvedMarkerReceipts.map(ReaderWhispersyncCueMapMarkerReceipt::sourceOrdinal).let { values ->
+		values.distinct().size != values.size
+	}) return null
 	return ReaderBridgeEvent.WhispersyncCueMapRendered(
 		sourceOrdinalsInDomReadingOrder = ordinals,
 		revisionDigest = revisionDigest,
 		presentationGeneration = generation,
 		destinationCommitIdentity = destination,
-		markerReceipts = markerReceipts.filterNotNull()
+		markerReceipts = resolvedMarkerReceipts
 	)
 }
 

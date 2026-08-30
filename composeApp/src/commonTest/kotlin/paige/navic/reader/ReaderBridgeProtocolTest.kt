@@ -417,6 +417,28 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun cueMapRenderedDecodesCompleteVisibleMarkerGeometryBeyondBoundedOrdinalEvidence() {
+		val markerReceipt = { sourceOrdinal: Int ->
+			"""
+				{"sourceOrdinal":$sourceOrdinal,"anchorReceipt":{"foliateSessionId":"session-a","destinationCommitToken":"opaque-presentation-token","visualPageOrdinal":9,"spineIndex":7,"rasterGeneration":12,"textureGeneration":13,"presentationMutationGeneration":14,"presentationSequence":15,"anchorGeneration":16,"boundarySequence":$sourceOrdinal,"layoutGeneration":17,"viewGeneration":18,"commitSequence":41,"committedSpineIndex":7,"committedChapterPageIndex":9,"committedChapterPageCount":127,"paginationFingerprint":"pagination-safe","layoutFingerprint":"layout-safe","readerSettingsRasterKey":"settings-safe","captureGeometry":{"viewportWidth":1200,"viewportHeight":800,"mode":"single","pages":[{"role":"full","left":0,"top":0,"width":1200,"height":800}]},"pageLocalRects":[{"role":"full","left":80,"top":120,"width":180,"height":24}]}}
+			""".trimIndent()
+		}
+		val rendered = assertIs<ReaderBridgeEvent.WhispersyncCueMapRendered>(
+			decodeReaderBridgeEvent(
+				"""
+				{"type":"whispersyncCueMapRendered","sourceOrdinals":[${(5..36).joinToString()}],"revisionDigest":"5f04c2a19e7d","presentationGeneration":8,"destinationFoliateSessionId":"session-a","destinationCommitSequence":41,"markerReceipts":[${(5..49).joinToString(separator = ",") { markerReceipt(it) }}]}
+				""".trimIndent()
+			)
+		)
+
+		assertEquals((5..36).toList(), rendered.sourceOrdinalsInDomReadingOrder)
+		assertEquals((5..49).toList(), rendered.markerReceipts.map { marker -> marker.sourceOrdinal })
+		assertEquals((5..49).map(Int::toLong), rendered.markerReceipts.map { marker ->
+			marker.anchorReceipt.boundarySequence
+		})
+	}
+
+	@Test
 	fun applySettingsCommandDispatchesWhispersyncListeningOverlaySettings() {
 		val script = ReaderBridgeCommand.ApplySettings(
 			ReaderSettings(

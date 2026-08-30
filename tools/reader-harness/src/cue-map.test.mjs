@@ -642,6 +642,79 @@ test('cue-map replacement terminal paths publish bounded rendered outcomes', asy
     assert.equal(event.destinationFoliateSessionId, 'session-a')
     assert.equal(event.destinationCommitSequence, expected.commitSequence)
     assert.ok(event.sourceOrdinals.length <= 32)
-    assert.ok(event.markerReceipts.length <= 32)
   }
+})
+
+test('visible cue geometry remains complete beyond retained ordinal evidence', async () => {
+  const page = await browser.newPage()
+  await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+
+  const result = await page.evaluate(async () => {
+    const { ReaderWhispersyncCueMapRuntime } = await import('/navic-reader-cue-map.js')
+    const doc = document.implementation.createHTMLDocument('complete-visible-cue-geometry')
+    const paragraph = doc.createElement('p')
+    paragraph.textContent = 'x '.repeat(45)
+    doc.body.append(paragraph)
+    const text = paragraph.firstChild
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    document.body.append(svg)
+    const events = []
+    const runtime = new ReaderWhispersyncCueMapRuntime({
+      contentEntries: () => [{
+        index: 0,
+        doc,
+        overlayer: {
+          add(_key, _range, draw, options) {
+            svg.append(draw([{ left: 20, right: 30, top: 20, bottom: 34, width: 10, height: 14 }], options))
+          },
+          remove() {},
+        },
+      }],
+      resolveRange: (_content, cue) => {
+        const range = doc.createRange()
+        range.setStart(text, cue.textStart)
+        range.setEnd(text, cue.textEnd)
+        return range
+      },
+      resolveAnchorReceipt: (_content, cue) => ({
+        boundarySequence: cue.sourceOrdinal,
+        captureGeometry: {
+          viewportWidth: 1200,
+          viewportHeight: 800,
+          mode: 'single',
+          pages: [{ role: 'full', left: 0, top: 0, width: 1200, height: 800 }],
+        },
+        pageLocalRects: [{ role: 'full', left: cue.textStart * 10, top: 20, width: 10, height: 14 }],
+      }),
+      postEvent: event => events.push(event),
+      nativePointerOwnership: true,
+    })
+    runtime.replace({
+      enabled: true,
+      revisionDigest: '5f04c2a19e7d',
+      presentationGeneration: 8,
+      destinationCommitIdentity: { foliateSessionId: 'session-a', commitSequence: 41 },
+      cues: Array.from({ length: 45 }, (_, index) => ({
+        sourceOrdinal: index + 5,
+        textHref: 'Text/chapter.xhtml',
+        textStart: index * 2,
+        textEnd: index * 2 + 1,
+      })),
+      transportAcknowledgementPending: false,
+    })
+    const rendered = events.find(event => event.type === 'whispersyncCueMapRendered')
+    return {
+      visibleMarkerOrdinals: Array.from(svg.querySelectorAll('[data-navic-cue-source-ordinal]'))
+        .map(marker => Number(marker.dataset.navicCueSourceOrdinal)),
+      sourceOrdinalEvidence: rendered?.sourceOrdinals,
+      nativeMarkerReceiptOrdinals: rendered?.markerReceipts?.map(marker => marker.sourceOrdinal),
+      nativeAnchorBoundarySequences: rendered?.markerReceipts
+        ?.map(marker => marker.anchorReceipt?.boundarySequence),
+    }
+  })
+
+  assert.deepEqual(result.visibleMarkerOrdinals, Array.from({ length: 45 }, (_, index) => index + 5))
+  assert.deepEqual(result.sourceOrdinalEvidence, Array.from({ length: 32 }, (_, index) => index + 5))
+  assert.deepEqual(result.nativeMarkerReceiptOrdinals, Array.from({ length: 45 }, (_, index) => index + 5))
+  assert.deepEqual(result.nativeAnchorBoundarySequences, Array.from({ length: 45 }, (_, index) => index + 5))
 })
