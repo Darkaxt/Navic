@@ -36,6 +36,7 @@ import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.data.remote.bindery.binderyApiKeyHeaders
+import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
@@ -49,6 +50,7 @@ import paige.navic.reader.ReaderEngineOpenRequest
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderLocator
+import paige.navic.reader.ReaderOverlayCoordinateMode
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderProcessStateViewModel
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -108,6 +110,22 @@ import paige.navic.util.core.Logger
 import kotlin.time.Clock
 
 private const val ReaderScreenTag = "ReaderScreen"
+
+private fun wordSyncOverlayInactiveReasonLogValue(reason: String?): String = when (reason) {
+	"animation-outside-visible-page",
+	"animation-paint-rejected",
+	"user-relocation-active",
+	"outside-visible-page",
+	"paint-rejected",
+	"invalid-coordinate-mode",
+	"stale-progress-request",
+	"progress-outside-visible-page",
+	"progress-paint-rejected",
+	"document-loaded",
+	"anchor-rejected" -> reason
+	null -> "absent"
+	else -> "other"
+}
 
 @Composable
 fun ReaderScreen(reader: Screen.Reader) {
@@ -536,6 +554,28 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 
 	fun handleEngineHostEvent(event: ReaderEngineHostEvent) {
+		val bridgeEvent = (event as? ReaderEngineHostEvent.FoliateBridge)?.event
+		when (bridgeEvent) {
+			is ReaderBridgeEvent.OverlayFragmentActive -> if (
+				bridgeEvent.fragment.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8
+			) {
+				Logger.i(
+					WhispersyncSyncLogTag,
+					"WordSync overlay state=active " +
+						"anchor=${if (bridgeEvent.anchorReceipt != null) "present" else "absent"}"
+				)
+			}
+			is ReaderBridgeEvent.OverlayFragmentInactive -> if (
+				bridgeEvent.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8
+			) {
+				Logger.w(
+					WhispersyncSyncLogTag,
+					"WordSync overlay state=inactive anchor=absent " +
+						"reason=${wordSyncOverlayInactiveReasonLogValue(bridgeEvent.reason)}"
+				)
+			}
+			else -> Unit
+		}
 		applyCoordinatorStep(coordinator.onEngineHostEvent(event))
 	}
 
