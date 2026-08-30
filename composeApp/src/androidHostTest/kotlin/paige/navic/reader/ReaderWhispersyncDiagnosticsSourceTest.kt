@@ -47,6 +47,7 @@ class ReaderWhispersyncDiagnosticsSourceTest {
 			"state=",
 			"reason=",
 			"command=",
+			"mode=",
 			"matched=",
 			"active=",
 			"count="

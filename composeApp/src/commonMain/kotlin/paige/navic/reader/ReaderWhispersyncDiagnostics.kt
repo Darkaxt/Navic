@@ -19,6 +19,12 @@ internal fun ReaderEngineCommand?.whispersyncCommandLogValue(): String =
 		else -> "none"
 	}
 
+internal fun ReaderOverlayCoordinateMode.whispersyncCoordinateModeLogValue(): String =
+	when (this) {
+		ReaderOverlayCoordinateMode.CueV1DomUtf16 -> "cue-progressive"
+		ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 -> "word-exact"
+	}
+
 internal fun String?.whispersyncSourceLogValue(): String =
 	when (this) {
 		"media-overlay-follow" -> "audio-follow"

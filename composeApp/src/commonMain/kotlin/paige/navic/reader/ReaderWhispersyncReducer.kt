@@ -349,7 +349,8 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 		Logger.i(
 			WhispersyncSyncLogTag,
 			"Whispersync playback state=overlay-update matched=true active=true " +
-				"command=${publishedCommand.whispersyncCommandLogValue()}"
+				"command=${publishedCommand.whispersyncCommandLogValue()} " +
+					"mode=${publishedOverlayFragment.coordinateMode.whispersyncCoordinateModeLogValue()}"
 		)
 	} else if (publishedClearOverlay) {
 		Logger.i(
