@@ -129,7 +129,7 @@ function Start-ReaderAvd {
         return
     }
     Write-Host "Starting AVD $Name..."
-    Start-Process -FilePath $Emulator -ArgumentList @("-avd", $Name, "-no-boot-anim") -WindowStyle Hidden
+    Start-Process -FilePath $Emulator -ArgumentList @("-avd", $Name, "-no-boot-anim", "-no-snapshot") -WindowStyle Hidden
     & adb wait-for-device
     if ($LASTEXITCODE -ne 0) {
         throw "adb wait-for-device failed with exit code $LASTEXITCODE"

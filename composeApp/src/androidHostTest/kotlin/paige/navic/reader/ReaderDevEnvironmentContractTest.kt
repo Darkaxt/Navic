@@ -1007,6 +1007,7 @@ class ReaderDevEnvironmentContractTest {
 		val envExample = root.resolve("navic-reader-dev.env.example")
 		val spec = root.resolve("docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md").readText()
 		val mainActivity = root.resolve("androidApp/src/main/kotlin/paige/navic/androidApp/MainActivity.kt").readText()
+		val setupScriptText = setupScript.readText()
 		val installScriptText = installScript.readText()
 		val logcatCursorBody =
 			installScriptText.substringAfter("function Get-ReaderDevLogcatCursor")
@@ -1016,6 +1017,10 @@ class ReaderDevEnvironmentContractTest {
 		assertTrue(installScript.exists(), "The local Android reader lab must have a dirty build/install script.")
 		assertTrue(viewportScript.exists(), "The local Android reader lab must have a viewport simulation script.")
 		assertTrue(envExample.exists(), "The local Android reader lab must document the ignored credential env file.")
+		assertTrue(
+			setupScriptText.contains("\"-no-snapshot\""),
+			"The reader emulator setup must cold-boot without loading or saving multi-gigabyte snapshots."
+		)
 		assertTrue(
 			logcatCursorBody.contains("\"-s\"") &&
 				!logcatCursorBody.contains("\"-t\", \"20\""),
