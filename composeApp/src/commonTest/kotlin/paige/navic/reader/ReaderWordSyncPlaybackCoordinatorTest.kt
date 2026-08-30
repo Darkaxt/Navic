@@ -301,30 +301,28 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
-	fun ambiguousArtifactResourcesForOneTrackIndexFailClosed() {
-		val duplicateTrack = chapter.tracks.first().let { track ->
-			track.copy(
-				audioResourceId = "duplicate-artifact-resource",
-				words = track.words.map { word ->
-					word.copy(audioResourceId = "duplicate-artifact-resource")
+	fun ambiguousIndexedResourcesForOneTrackIndexFailClosedBeforeAllChaptersLoad() {
+		val duplicateSummary = index.chapters.single().let { summary ->
+			summary.copy(
+				chapterKey = "duplicate-chapter",
+				spineIndex = summary.spineIndex + 1,
+				ebookHref = "Text/duplicate.xhtml",
+				audioRanges = summary.audioRanges.map { range ->
+					range.copy(audioResourceId = "duplicate-artifact-resource")
 				}
 			)
 		}
-		val ambiguousChapter = chapter.copy(tracks = chapter.tracks + duplicateTrack)
 		val ready = readyCoordinatorAndController().first.copy(
-			chapters = mapOf(
-				ambiguousChapter.chapterKey to ReaderVerifiedWordSyncChapter(
-					chapter = ambiguousChapter,
-					descriptor = descriptor()
-				)
-			)
+			index = index.copy(chapters = index.chapters + duplicateSummary)
 		)
 		val playback = playbackIdentity(positionMs = 1_050).copy(
 			audioResourceId = "runtime-audio-alias"
 		)
 		val cue = cueCommand()
 
+		assertEquals(1, ready.chapters.size)
 		assertTrue(ready.boundariesForPlayback(playback).isEmpty())
+		assertEquals(0, ready.boundaryInputDiagnostic(playback).matchingTrackCount)
 		val coordinated = ready.coordinate(
 			controllerStep = ReaderControllerStep(
 				readyCoordinatorAndController().second,
@@ -698,12 +696,14 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	fun rawSeekUsesExactWordAndWaitsForOverlayConfirmation() {
 		val ready = readyCoordinatorAndController()
 		val cue = cueCommand()
+		val runtimeAudioResource = "runtime-audio-alias"
 		val pendingCueSeek = ReaderWhispersyncPendingAudioSeek(
 			overlayRequestId = 41,
 			target = WhispersyncAudioSeekTarget(
-				audioResource = "audio-a",
+				audioResource = runtimeAudioResource,
 				positionMs = 900,
-				segment = cueSegment()
+				segment = cueSegment(),
+				audioTrackIndex = 0
 			)
 		)
 		val controller = ready.second.copy(
@@ -729,14 +729,20 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 
 		val pendingRawSeek = raw.controllerStep.controller.state.whispersync.pendingAudioSeek
 		assertEquals(1_300, pendingRawSeek?.target?.positionMs)
+		assertEquals(runtimeAudioResource, pendingRawSeek?.target?.audioResource)
 		assertNull(raw.controllerStep.whispersyncAudioSeekTarget)
 
 		val fragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(raw.controllerStep.engineCommands.single()).fragment
+		assertEquals(runtimeAudioResource, fragment.resourceHref)
 		val active = raw.coordinator.onEngineEvent(
 			controller = raw.controllerStep.controller,
 			event = ReaderEngineEvent.MediaOverlayActive(fragment)
 		)
 		assertEquals(1_300, active.controllerStep.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(
+			runtimeAudioResource,
+			active.controllerStep.whispersyncAudioSeekTarget?.audioResource
+		)
 		assertNull(active.controllerStep.controller.state.whispersync.pendingAudioSeek)
 	}
 

@@ -180,6 +180,11 @@ data class ReaderWordSyncPlaybackCoordinator(
 		val rawFragment = candidate.toOverlayFragment(
 			cueFragment = cueFragment,
 			playback = playbackForCue,
+			runtimeAudioResource = controllerStep.wordSyncRuntimeAudioResource(
+				word = candidate.word,
+				overlayRequestId = requestId,
+				playback = playbackForCue
+			),
 			boundarySequence = boundarySequence
 		)
 		val rawCommand = when (cueCommand) {
@@ -223,36 +228,28 @@ data class ReaderWordSyncPlaybackCoordinator(
 	): ReaderWordSyncBoundaryInputDiagnostic {
 		var resourceMatchingTrackCount = 0
 		var trackIndexMatchingTrackCount = 0
-		var trackIndexPresentableWordCount = 0
-		var trackIndexResourceId: String? = null
-		var trackIndexResourceAmbiguous = false
+		var matchingTrackCount = 0
+		var presentableWordCount = 0
+		val authoritativeArtifactResourceId = playback?.let { activePlayback ->
+			authoritativeArtifactResourceId(activePlayback.audioTrackIndex)
+		}
 		if (playback != null) {
 			chapters.values.forEach { verified ->
 				verified.chapter.tracks.forEach { track ->
 					val resourceMatches = track.audioResourceId == playback.audioResourceId
 					val trackIndexMatches = track.audioTrackIndex == playback.audioTrackIndex
 					if (resourceMatches) resourceMatchingTrackCount += 1
-					if (trackIndexMatches) {
-						trackIndexMatchingTrackCount += 1
-						trackIndexPresentableWordCount += track.words.count { word ->
-							word.status in 1..4
-						}
-						val knownResourceId = trackIndexResourceId
-						if (knownResourceId == null) {
-							trackIndexResourceId = track.audioResourceId
-						} else if (knownResourceId != track.audioResourceId) {
-							trackIndexResourceAmbiguous = true
-						}
+					if (trackIndexMatches) trackIndexMatchingTrackCount += 1
+					if (
+						trackIndexMatches &&
+						track.audioResourceId == authoritativeArtifactResourceId
+					) {
+						matchingTrackCount += 1
+						presentableWordCount += track.words.count { word -> word.status in 1..4 }
 					}
 				}
 			}
 		}
-		val matchingTrackCount = trackIndexMatchingTrackCount.takeUnless {
-			trackIndexResourceAmbiguous
-		} ?: 0
-		val presentableWordCount = trackIndexPresentableWordCount.takeUnless {
-			trackIndexResourceAmbiguous
-		} ?: 0
 		return ReaderWordSyncBoundaryInputDiagnostic(
 			referencePresent = reference != null,
 			indexState = when {
@@ -558,9 +555,11 @@ data class ReaderWordSyncPlaybackCoordinator(
 	): WordSyncChapterSummary? {
 		val chapters = index?.chapters.orEmpty()
 		val audioSummary = playback?.let { demand ->
+			val artifactResourceId = authoritativeArtifactResourceId(demand.audioTrackIndex)
 			chapters.filter { summary ->
 				summary.audioRanges.any { range ->
-					range.audioTrackIndex == demand.audioTrackIndex &&
+					range.audioResourceId == artifactResourceId &&
+						range.audioTrackIndex == demand.audioTrackIndex &&
 						demand.positionMs >= range.startMs && demand.positionMs < range.endMs
 				}
 			}.singleOrNull()
@@ -598,20 +597,40 @@ data class ReaderWordSyncPlaybackCoordinator(
 			}?.let { word -> ReaderWordSyncCandidate(verifiedTrack.verified, word) }
 		}
 
-	private fun verifiedTracksForPlayback(
-		playback: ReaderWordSyncPlaybackIdentity
-	): List<ReaderVerifiedWordSyncTrack> {
-		val matches = chapters.values.flatMap { verified ->
-			verified.chapter.tracks.mapNotNull { track ->
-				ReaderVerifiedWordSyncTrack(verified, track).takeIf {
-					track.audioTrackIndex == playback.audioTrackIndex
+	private fun authoritativeArtifactResourceId(audioTrackIndex: Int): String? {
+		val activeIndex = index ?: return null
+		var artifactResourceId: String? = null
+		for (summary in activeIndex.chapters) {
+			for (range in summary.audioRanges) {
+				if (range.audioTrackIndex != audioTrackIndex) continue
+				val knownResourceId = artifactResourceId
+				if (knownResourceId == null) {
+					artifactResourceId = range.audioResourceId
+				} else if (knownResourceId != range.audioResourceId) {
+					return null
 				}
 			}
 		}
-		if (matches.map { it.track.audioResourceId }.distinct().singleOrNull() == null) {
-			return emptyList()
+		return artifactResourceId
+	}
+
+	private fun verifiedTracksForPlayback(
+		playback: ReaderWordSyncPlaybackIdentity
+	): List<ReaderVerifiedWordSyncTrack> {
+		val artifactResourceId = authoritativeArtifactResourceId(playback.audioTrackIndex)
+			?: return emptyList()
+		return chapters.values.flatMap { verified ->
+			verified.chapter.tracks.mapNotNull { track ->
+				if (
+					track.audioTrackIndex != playback.audioTrackIndex ||
+					track.audioResourceId != artifactResourceId
+				) {
+					null
+				} else {
+					ReaderVerifiedWordSyncTrack(verified, track)
+				}
+			}
 		}
-		return matches
 	}
 
 	private fun candidateForRawPoint(point: ReaderWordSyncRawPoint): ReaderWordSyncCandidate? {
@@ -640,6 +659,7 @@ private data class ReaderWordSyncCandidate(
 	fun toOverlayFragment(
 		cueFragment: ReaderOverlayFragment,
 		playback: ReaderWordSyncPlaybackIdentity?,
+		runtimeAudioResource: String? = null,
 		boundarySequence: Long? = null
 	): ReaderOverlayFragment {
 		val chapterStart = verified.chapter.ebookStart
@@ -655,7 +675,7 @@ private data class ReaderWordSyncCandidate(
 					(word.audioEndMs - word.audioStartMs).toDouble()).coerceIn(0.0, 1.0)
 			}
 		return ReaderOverlayFragment(
-			resourceHref = compatiblePlayback?.audioResourceId ?: word.audioResourceId,
+			resourceHref = runtimeAudioResource ?: compatiblePlayback?.audioResourceId ?: word.audioResourceId,
 			coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
 			overlayRequestId = cueFragment.overlayRequestId,
 			wordBoundarySequence = boundarySequence,
@@ -673,13 +693,33 @@ private data class ReaderWordSyncCandidate(
 	}
 }
 
+private fun ReaderControllerStep.wordSyncRuntimeAudioResource(
+	word: WordSyncWord,
+	overlayRequestId: Long,
+	playback: ReaderWordSyncPlaybackIdentity?
+): String? {
+	val pendingTarget = controller.state.whispersync.pendingAudioSeek
+		?.takeIf { pending -> pending.overlayRequestId == overlayRequestId }
+		?.target
+	val runtimeTarget = sequenceOf(pendingTarget, whispersyncAudioSeekTarget)
+		.filterNotNull()
+		.firstOrNull { target -> target.wordSyncTrackIndexOrNull() == word.audioTrackIndex }
+	if (runtimeTarget != null) return runtimeTarget.audioResource
+	return playback
+		?.takeIf { activePlayback -> activePlayback.audioTrackIndex == word.audioTrackIndex }
+		?.audioResourceId
+}
+
+private fun WhispersyncAudioSeekTarget.wordSyncTrackIndexOrNull(): Int? =
+	audioTrackIndex ?: segment.audioTrackIndex
+
 private fun ReaderControllerStep.readerPreparedWordSyncPlayback(
 	playbackSpeed: Float
 ): ReaderWordSyncPlaybackIdentity? {
 	val whispersync = controller.state.whispersync
 	if (!whispersync.playbackStartPending) return null
 	val target = whispersync.pendingAudioSeek?.target ?: return null
-	val trackIndex = target.audioTrackIndex ?: target.segment.audioTrackIndex ?: return null
+	val trackIndex = target.wordSyncTrackIndexOrNull() ?: return null
 	return ReaderWordSyncPlaybackIdentity(
 		audioResourceId = target.audioResource,
 		audioTrackIndex = trackIndex,
