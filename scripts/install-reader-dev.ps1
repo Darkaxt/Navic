@@ -755,7 +755,141 @@ function Resolve-ReaderDevExplicitBinderyResource {
         ResourceHref = $resourceHref
         PublicationUrl = Join-BinderyEndpoint -BaseUrl $BaseUrl -Path $resourceHref
         Format = Get-ReaderDevResourceFormat -Resource $resource
+        BookFileId = $bookFileId
     }
+}
+
+function Resolve-ReaderDevEbookBookFileIdForResource {
+    param(
+        [string] $BaseUrl,
+        [string] $ApiKey,
+        [string] $ApiKeyHeader,
+        [string] $BookId,
+        [string] $ResourceHref,
+        [string] $PublicationUrl
+    )
+
+    $directBookFileId = @(
+        (Get-ReaderDevBookFileIdFromUrl -Url $ResourceHref),
+        (Get-ReaderDevBookFileIdFromUrl -Url $PublicationUrl)
+    ) | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+    if (![string]::IsNullOrWhiteSpace($directBookFileId)) {
+        return $directBookFileId
+    }
+    if ([string]::IsNullOrWhiteSpace($BaseUrl) -or
+        [string]::IsNullOrWhiteSpace($ApiKey) -or
+        [string]::IsNullOrWhiteSpace($BookId)) {
+        return $null
+    }
+
+    $targetPaths = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($candidate in @($ResourceHref, $PublicationUrl)) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        $trimmed = $candidate.Trim()
+        $path = if ($trimmed -match '^https?://') {
+            ([Uri] $trimmed).AbsolutePath
+        } else {
+            $trimmed.Split("?", 2)[0].Split("#", 2)[0]
+        }
+        [void] $targetPaths.Add("/" + $path.TrimStart("/"))
+    }
+    if ($targetPaths.Count -eq 0) {
+        return $null
+    }
+
+    $headerName = if ([string]::IsNullOrWhiteSpace($ApiKeyHeader)) { "X-Api-Key" } else { $ApiKeyHeader.Trim() }
+    $headers = @{ $headerName = $ApiKey }
+    $resourcesUrl = Join-BinderyEndpoint -BaseUrl $BaseUrl -Path "/opds/books/$BookId/resources"
+    $catalog = Invoke-BinderyJson -Url $resourcesUrl -Headers $headers
+    foreach ($resource in @(Get-ObjectValue -InputObject $catalog -Names @("resources"))) {
+        $href = Get-ObjectString -InputObject $resource -Names @("href")
+        if ([string]::IsNullOrWhiteSpace($href)) {
+            continue
+        }
+        $resourcePath = if ($href -match '^https?://') {
+            ([Uri] $href).AbsolutePath
+        } else {
+            $href.Split("?", 2)[0].Split("#", 2)[0]
+        }
+        if ($targetPaths.Contains("/" + $resourcePath.TrimStart("/"))) {
+            return Get-ReaderDevResourceBookFileId -Resource $resource
+        }
+    }
+    return $null
+}
+
+function Resolve-ReaderDevCurrentWhispersyncPair {
+    param(
+        [string] $BaseUrl,
+        [string] $ApiKey,
+        [string] $ApiKeyHeader,
+        [string] $BookId,
+        [string] $EbookBookFileId,
+        [string] $AudiobookBookFileId
+    )
+
+    if ([string]::IsNullOrWhiteSpace($BaseUrl) -or
+        [string]::IsNullOrWhiteSpace($ApiKey) -or
+        [string]::IsNullOrWhiteSpace($BookId) -or
+        [string]::IsNullOrWhiteSpace($EbookBookFileId) -or
+        [string]::IsNullOrWhiteSpace($AudiobookBookFileId)) {
+        return $null
+    }
+
+    $headerName = if ([string]::IsNullOrWhiteSpace($ApiKeyHeader)) { "X-Api-Key" } else { $ApiKeyHeader.Trim() }
+    $headers = @{ $headerName = $ApiKey }
+    $syncUrl = Join-BinderyEndpoint -BaseUrl $BaseUrl -Path "/opds/books/$BookId/sync"
+    $sync = Invoke-BinderyJson -Url $syncUrl -Headers $headers
+    if ($null -eq $sync) {
+        return $null
+    }
+
+    $syncProperties = Get-ObjectValue -InputObject $sync -Names @("properties")
+    $syncPayload = if ($null -ne (
+        Get-ObjectValue -InputObject $syncProperties -Names @("syncPairs", "sync_pairs")
+    )) {
+        $syncProperties
+    } else {
+        $sync
+    }
+
+    $candidates = @()
+    foreach ($pair in @(
+        Get-ObjectValue -InputObject $syncPayload -Names @("syncPairs", "sync_pairs")
+    )) {
+        $pairBookId = Get-ObjectString -InputObject $pair -Names @("bookId", "book_id")
+        $pairEbookBookFileId = Get-ObjectString -InputObject $pair -Names @("ebookBookFileId", "ebook_book_file_id")
+        $pairAudiobookBookFileId = Get-ObjectString -InputObject $pair -Names @("audiobookBookFileId", "audiobook_book_file_id")
+        if ($pairBookId -ne $BookId.Trim() -or
+            $pairEbookBookFileId -ne $EbookBookFileId.Trim() -or
+            $pairAudiobookBookFileId -ne $AudiobookBookFileId.Trim()) {
+            continue
+        }
+
+        $artifact = Get-ObjectValue -InputObject $pair -Names @("whispersync")
+        $artifactStatus = Get-ObjectString -InputObject $artifact -Names @("status")
+        $artifactId = Get-ObjectString -InputObject $artifact -Names @("artifactId", "artifact_id")
+        $artifactHref = Get-ObjectString -InputObject $artifact -Names @("artifactHref", "artifact_href")
+        if (!([string]::Equals($artifactStatus, "ready", [System.StringComparison]::OrdinalIgnoreCase)) -or
+            [string]::IsNullOrWhiteSpace($artifactId) -or
+            [string]::IsNullOrWhiteSpace($artifactHref)) {
+            continue
+        }
+        $candidates += @{
+            SidecarUrl = $artifactHref
+            ArtifactId = $artifactId
+            WordSyncAvailable = $null -ne (Get-ObjectValue -InputObject $artifact -Names @("wordSync", "word_sync"))
+        }
+    }
+
+    if ($candidates.Count -ne 1) {
+        return $null
+    }
+    return $candidates[0]
 }
 
 function Resolve-ReaderDevPublicationFromBindery {
@@ -815,6 +949,7 @@ function Resolve-ReaderDevPublicationFromBindery {
                     ResourceHref = $resourceHref
                     PublicationUrl = Join-BinderyEndpoint -BaseUrl $BaseUrl -Path $resourceHref
                     Format = Get-ReaderDevResourceFormat -Resource $publicationResource
+                    BookFileId = Get-ReaderDevResourceBookFileId -Resource $publicationResource
                 }
             }
             $resourceCatalogUrl = Join-BinderyEndpoint -BaseUrl $BaseUrl -Path "/opds/books/$bookId/resources"
@@ -840,6 +975,7 @@ function Resolve-ReaderDevPublicationFromBindery {
                 ResourceHref = $resourceHref
                 PublicationUrl = Join-BinderyEndpoint -BaseUrl $BaseUrl -Path $resourceHref
                 Format = Get-ReaderDevResourceFormat -Resource $resource
+                BookFileId = Get-ReaderDevResourceBookFileId -Resource $resource
             }
         }
         $nextLink = Get-LinkByRel -Links @(Get-ObjectValue -InputObject $catalog -Names @("links")) -Rel "next"
@@ -924,6 +1060,10 @@ $publicationUrl = if (![string]::IsNullOrWhiteSpace($ReaderPublicationUrl)) {
 if (!$publicationUrl -and $opdsBaseUrl -and $resourceHref) {
     $publicationUrl = Join-BinderyEndpoint -BaseUrl $opdsBaseUrl -Path $resourceHref
 }
+$readerEbookBookFileId = @(
+    (Get-ReaderDevBookFileIdFromUrl -Url $resourceHref),
+    (Get-ReaderDevBookFileIdFromUrl -Url $publicationUrl)
+) | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
 $bookId = if (![string]::IsNullOrWhiteSpace($ReaderBookId)) {
     $ReaderBookId.Trim()
 } else {
@@ -1006,6 +1146,10 @@ if ($explicitBinderyResource) {
     $resourceHref = $explicitBinderyResource.ResourceHref
     $publicationUrl = $explicitBinderyResource.PublicationUrl
     $format = if ($format) { $format } else { $explicitBinderyResource.Format }
+    $explicitBookFileId = "$($explicitBinderyResource.BookFileId)".Trim()
+    if (![string]::IsNullOrWhiteSpace($explicitBookFileId)) {
+        $readerEbookBookFileId = $explicitBookFileId
+    }
     Write-Host ("Resolved explicit reader target to Bindery OPDS resource (format={0})." -f $format)
 }
 
@@ -1023,10 +1167,39 @@ if (!$publicationUrl -and !$resourceHref -and !$NoDiscoverPublication) {
         $resourceHref = $discoveredPublication.ResourceHref
         $publicationUrl = $discoveredPublication.PublicationUrl
         $format = if ($format) { $format } else { $discoveredPublication.Format }
+        $discoveredBookFileId = "$($discoveredPublication.BookFileId)".Trim()
+        if (![string]::IsNullOrWhiteSpace($discoveredBookFileId)) {
+            $readerEbookBookFileId = $discoveredBookFileId
+        }
         Write-Host ("Discovered Bindery reader target (format={0})." -f $format)
     } else {
         Write-Host "No Bindery reader resource discovered; launching Bindery Books catalog."
     }
+}
+
+if ([string]::IsNullOrWhiteSpace($readerEbookBookFileId)) {
+    $readerEbookBookFileId = Resolve-ReaderDevEbookBookFileIdForResource `
+        -BaseUrl $opdsBaseUrl `
+        -ApiKey $apiKey `
+        -ApiKeyHeader $apiKeyHeader `
+        -BookId $bookId `
+        -ResourceHref $resourceHref `
+        -PublicationUrl $publicationUrl
+}
+$currentWhispersyncPair = Resolve-ReaderDevCurrentWhispersyncPair `
+    -BaseUrl $opdsBaseUrl `
+    -ApiKey $apiKey `
+    -ApiKeyHeader $apiKeyHeader `
+    -BookId $bookId `
+    -EbookBookFileId $readerEbookBookFileId `
+    -AudiobookBookFileId $whispersyncAudiobookBookFileId
+if ($null -ne $currentWhispersyncPair) {
+    $whispersyncSidecarUrl = $currentWhispersyncPair.SidecarUrl
+    $whispersyncArtifactId = $currentWhispersyncPair.ArtifactId
+    Write-Host (
+        "Resolved current paired reader metadata (wordSync={0})." -f
+            [bool]$currentWhispersyncPair.WordSyncAvailable
+    )
 }
 
 $readerLaunchHasPublication = ![string]::IsNullOrWhiteSpace($publicationUrl) -or ![string]::IsNullOrWhiteSpace($resourceHref)

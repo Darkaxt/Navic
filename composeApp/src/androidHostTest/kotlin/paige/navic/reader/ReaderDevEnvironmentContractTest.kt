@@ -1246,6 +1246,55 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
+	fun readerDevLauncherRefreshesTheCurrentPairedArtifactBeforeIntentSeeding() {
+		val installer = root.resolve("scripts/install-reader-dev.ps1").readText()
+		val resolver = installer
+			.substringAfter("function Resolve-ReaderDevCurrentWhispersyncPair")
+			.substringBefore("function Resolve-ReaderDevPublicationFromBindery")
+		val bookFileResolver = installer
+			.substringAfter("function Resolve-ReaderDevEbookBookFileIdForResource")
+			.substringBefore("function Resolve-ReaderDevCurrentWhispersyncPair")
+		val bookFileRefreshIndex = installer.indexOf(
+			"\$readerEbookBookFileId = Resolve-ReaderDevEbookBookFileIdForResource"
+		)
+		val refreshIndex = installer.indexOf(
+			"\$currentWhispersyncPair = Resolve-ReaderDevCurrentWhispersyncPair"
+		)
+		val launchIndex = installer.indexOf("\$launchArgs = [System.Collections.Generic.List[string]]::new()")
+
+		assertTrue(
+			resolver.contains(
+				"Get-ObjectValue -InputObject \$syncProperties " +
+					"-Names @(\"syncPairs\", \"sync_pairs\")"
+			) && resolver.contains(
+				"Get-ObjectValue -InputObject \$syncPayload " +
+					"-Names @(\"syncPairs\", \"sync_pairs\")"
+			),
+			"ReaderDev must unwrap the BookSync payload nested under OPDS properties before selecting the current pair."
+		)
+		assertTrue(resolver.contains("ebookBookFileId"))
+		assertTrue(resolver.contains("audiobookBookFileId"))
+		assertTrue(resolver.contains("artifactHref"))
+		assertTrue(resolver.contains("artifactId"))
+		assertTrue(bookFileResolver.contains("Get-ReaderDevResourceBookFileId"))
+		assertTrue(bookFileResolver.contains("AbsolutePath"))
+		assertTrue(
+			bookFileRefreshIndex >= 0 &&
+				bookFileRefreshIndex < refreshIndex &&
+				refreshIndex < launchIndex
+		)
+		assertTrue(
+			installer.contains("\$whispersyncSidecarUrl = \$currentWhispersyncPair.SidecarUrl") &&
+				installer.contains("\$whispersyncArtifactId = \$currentWhispersyncPair.ArtifactId"),
+			"ReaderDev must replace stale launch metadata with the current unique Bindery pair before passing intent extras."
+		)
+		assertFalse(
+			resolver.contains("Write-Host"),
+			"Paired-artifact resolution must not print protected identities or routes."
+		)
+	}
+
+	@Test
 	fun releaseWatcherUsesConditionPollingWithoutTimeoutCancellation() {
 		val releaseScript = root.resolve("scripts/publish-github-release.ps1").readText()
 
