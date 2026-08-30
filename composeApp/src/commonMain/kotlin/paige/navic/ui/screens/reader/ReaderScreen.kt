@@ -636,6 +636,56 @@ fun ReaderScreen(reader: Screen.Reader) {
 			wordSyncVerificationSession = null
 			applyCoordinatorStep(coordinator.configureWordSync(wordSyncReference))
 			attachment?.let { attachment ->
+				if (wordSyncReference == null) {
+					if (wordSyncVerifier == null) {
+						Logger.w(
+							WhispersyncSyncLogTag,
+							"WordSync reference state=unavailable matched=false active=false " +
+								"reason=verifier-missing count=0"
+						)
+					} else {
+						coroutineScope.launch {
+							withContext(Dispatchers.IO) {
+								binderyRepository.getBookSync(
+									bookId = reader.bookId,
+									forceRefresh = true
+								)
+							}.fold(
+								onSuccess = { bookSync ->
+									val recoveredReference = bookSync.wordSyncReferenceForLaunch(
+										bookId = reader.bookId,
+										attachment = attachment
+									)
+									if (recoveredReference == null) {
+										Logger.w(
+											WhispersyncSyncLogTag,
+											"WordSync reference state=unavailable matched=false active=false " +
+												"reason=no-unique-match count=0"
+										)
+									} else {
+										wordSyncPublicationVerifier = wordSyncVerifier
+										wordSyncVerificationSession = null
+										applyCoordinatorStep(
+											coordinator.configureWordSync(recoveredReference)
+										)
+										Logger.i(
+											WhispersyncSyncLogTag,
+											"WordSync reference state=resolved matched=true active=true " +
+												"reason=book-sync count=1"
+										)
+									}
+								},
+								onFailure = { _ ->
+									Logger.w(
+										WhispersyncSyncLogTag,
+										"WordSync reference state=unavailable matched=false active=false " +
+											"reason=load-failed count=0"
+									)
+								}
+							)
+						}
+					}
+				}
 				coroutineScope.launch {
 					val sidecar = withContext(Dispatchers.IO) {
 						binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)

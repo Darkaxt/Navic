@@ -3,6 +3,9 @@ package paige.navic.ui.screens.reader
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import paige.navic.domain.repositories.BinderyBookSync
+import paige.navic.domain.repositories.BinderySyncPair
+import paige.navic.domain.repositories.BinderyWhispersyncArtifact
 import paige.navic.domain.repositories.BinderyWhispersyncIdentity
 import paige.navic.domain.repositories.BinderyWordSyncDiscovery
 import paige.navic.domain.repositories.BinderyWordSyncReference
@@ -108,6 +111,59 @@ class ReaderWhispersyncLaunchPolicyTest {
 				whispersyncSidecarUrl = "/opds/books/3816/sync/3",
 				whispersyncAudiobookBookFileId = "694"
 			).whispersyncLaunchAttachment()?.wordSync
+		)
+	}
+
+	@Test
+	fun pairedReaderLaunchRecoversMissingWordSyncReferenceFromBookSync() {
+		val wordSync = BinderyWordSyncReference(
+			identity = BinderyWhispersyncIdentity(
+				bookId = 3816,
+				ebookBookFileId = 435,
+				audiobookBookFileId = 694,
+				artifactId = 3
+			),
+			discovery = BinderyWordSyncDiscovery(
+				status = "ready",
+				schema = "bindery.whispersync.wordsync.index.v1",
+				opdsIndexHref = "/opds/books/3816/sync/3/words",
+				format = "chapter-sharded-json",
+				compression = "http",
+				timeScale = 1000
+			)
+		)
+		val attachment = readerRoute(
+			whispersyncSidecarUrl = "/opds/books/3816/sync/3",
+			whispersyncAudiobookBookFileId = "694"
+		).whispersyncLaunchAttachment()
+		val bookSync = BinderyBookSync(
+			bookId = 3816,
+			syncPairs = listOf(
+				BinderySyncPair(
+					bookId = 3816,
+					ebookBookFileId = 430,
+					audiobookBookFileId = 693,
+					whispersync = BinderyWhispersyncArtifact(artifactId = 2)
+				),
+				BinderySyncPair(
+					bookId = 3816,
+					ebookBookFileId = 435,
+					audiobookBookFileId = 694,
+					whispersync = BinderyWhispersyncArtifact(
+						artifactId = 3,
+						wordSync = wordSync.discovery
+					)
+				)
+			)
+		)
+
+		assertNull(attachment?.wordSync)
+		assertEquals(
+			wordSync,
+			bookSync.wordSyncReferenceForLaunch(
+				bookId = "3816",
+				attachment = attachment!!
+			)
 		)
 	}
 
