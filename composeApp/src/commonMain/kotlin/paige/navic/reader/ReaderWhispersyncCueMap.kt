@@ -82,13 +82,30 @@ data class ReaderWhispersyncCueMapCue(
 	val nextTextHref: String? = null,
 	val nextTextStart: Int? = null,
 	val nextTextEnd: Int? = null,
-	val nextEbookText: String? = null
+	val nextEbookText: String? = null,
+	val coordinateMode: ReaderOverlayCoordinateMode = ReaderOverlayCoordinateMode.CueV1DomUtf16,
+	val rawProvenanceId: String? = null,
+	val rawSpineIndex: Int? = null,
+	val rawByteStart: Int? = null,
+	val rawByteEnd: Int? = null
 ) {
 	init {
 		require(sourceOrdinal >= 0)
 		require(textHref.isNotBlank())
 		require(textStart >= 0)
 		require(textEnd > textStart)
+		when (coordinateMode) {
+			ReaderOverlayCoordinateMode.CueV1DomUtf16 -> require(
+				listOf(rawProvenanceId, rawSpineIndex, rawByteStart, rawByteEnd).all { it == null }
+			)
+			ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 -> {
+				require(rawProvenanceId?.isNotBlank() == true && rawProvenanceId == rawProvenanceId.trim())
+				require(rawSpineIndex?.let { it >= 0 } == true)
+				val start = requireNotNull(rawByteStart)
+				val end = requireNotNull(rawByteEnd)
+				require(start >= 0 && end > start)
+			}
+		}
 	}
 }
 
@@ -368,13 +385,14 @@ data class ReaderWhispersyncCueMapState(
 
 	fun replaced(
 		revisionDigest: String,
-		enabled: Boolean = this.enabled
+		enabled: Boolean = this.enabled,
+		force: Boolean = false
 	): ReaderWhispersyncCueMapState {
 		val retainedTransitions = transitionTrail.filter { transition ->
 			transition.revisionDigest == revisionDigest
 		}
 		val revisionChanged = retainedTransitions.size != transitionTrail.size
-		if (!enabled && !this.enabled && !revisionChanged) return this
+		if (!force && !enabled && !this.enabled && !revisionChanged) return this
 		val generation = presentationGeneration + 1L
 		val replacement = ReaderWhispersyncCueMapTransition(
 			sourceOrdinal = null,
@@ -614,27 +632,92 @@ internal fun ReaderWhispersyncCueMapState.presentation(
 	}
 	val visibleRange = whispersync.visibleTextRange ?: return null
 	if (visibleRange.destinationCommitIdentity != destination) return null
-	val visibleSegments = sidecar.timeline.cueMapProjectionForVisibleTextRange(
-		textHref = visibleRange.textHref,
-		visibleStart = visibleRange.visibleStart,
-		visibleEnd = visibleRange.visibleEnd
-	)
+	val canonicalDescriptor = sidecar.referencedRawTextProvenanceDescriptors().singleOrNull { descriptor ->
+		descriptor.id == visibleRange.rawProvenanceId &&
+			descriptor.spineIndex == visibleRange.rawSpineIndex &&
+			normalizedMediaOverlayResource(descriptor.href) ==
+				normalizedMediaOverlayResource(visibleRange.textHref)
+	}
+	val canonicalRangeValid = canonicalDescriptor != null &&
+		visibleRange.rawByteStart?.let { it >= 0 } == true &&
+		visibleRange.rawByteEnd?.let { end ->
+			end > requireNotNull(visibleRange.rawByteStart) && end <= canonicalDescriptor.byteLength
+		} == true
+	if (
+		sidecar.referencedRawTextProvenanceDescriptors().any { descriptor ->
+			controllerState.rawTextProvenanceById[descriptor.id]?.status ==
+				RawTextProvenanceStatus.Rejected
+		} ||
+			(
+				sidecar.coordinateBasis != null &&
+					(
+						whispersync.canonicalGenerationState !=
+							ReaderWhispersyncCanonicalGenerationState.Open ||
+						!canonicalRangeValid ||
+						canonicalDescriptor.let { descriptor ->
+							controllerState.rawTextProvenanceById[descriptor.id]?.status
+						} != RawTextProvenanceStatus.Ready ||
+						!whispersync.canonicalPreflightAdmits(
+							sidecar = sidecar,
+							destination = destination,
+							provenanceId = canonicalDescriptor.id,
+							rawSpineIndex = canonicalDescriptor.spineIndex
+						)
+					)
+			)
+	) {
+		return ReaderWhispersyncCueMapPresentation(
+			enabled = true,
+			revisionDigest = revisionDigest,
+			presentationGeneration = presentationGeneration,
+			destinationCommitIdentity = destination,
+			cues = emptyList()
+		)
+	}
+	val visibleSegments = if (sidecar.coordinateBasis != null) {
+		val visibleHref = normalizedMediaOverlayResource(visibleRange.textHref)
+		sidecar.timeline.segments.filter { segment ->
+			normalizedMediaOverlayResource(segment.textHref) == visibleHref
+		}
+	} else {
+		sidecar.timeline.cueMapProjectionForVisibleTextRange(
+			textHref = visibleRange.textHref,
+			visibleStart = visibleRange.visibleStart,
+			visibleEnd = visibleRange.visibleEnd
+		)
+	}
 	val cues = visibleSegments.mapNotNull { segment ->
 		val sourceOrdinal = segment.sourceOrdinal.takeIf { it >= 0 } ?: return@mapNotNull null
 		val textStart = segment.textStart ?: return@mapNotNull null
 		val textEnd = segment.textEnd ?: return@mapNotNull null
-		val next = sidecar.timeline.nextSegmentAfter(segment)
-		ReaderWhispersyncCueMapCue(
-			sourceOrdinal = sourceOrdinal,
-			textHref = segment.textHref,
-			textStart = textStart,
-			textEnd = textEnd,
-			ebookText = segment.ebookText,
-			nextTextHref = next?.textHref,
-			nextTextStart = next?.textStart,
-			nextTextEnd = next?.textEnd,
-			nextEbookText = next?.ebookText
-		)
+		val rawProvenanceId = segment.rawProvenanceId
+		if (rawProvenanceId != null) {
+			ReaderWhispersyncCueMapCue(
+				sourceOrdinal = sourceOrdinal,
+				textHref = segment.textHref,
+				textStart = textStart,
+				textEnd = textEnd,
+				ebookText = segment.ebookText,
+				coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+				rawProvenanceId = rawProvenanceId,
+				rawSpineIndex = segment.spineIndex,
+				rawByteStart = textStart,
+				rawByteEnd = textEnd
+			)
+		} else {
+			val next = sidecar.timeline.nextSegmentAfter(segment)
+			ReaderWhispersyncCueMapCue(
+				sourceOrdinal = sourceOrdinal,
+				textHref = segment.textHref,
+				textStart = textStart,
+				textEnd = textEnd,
+				ebookText = segment.ebookText,
+				nextTextHref = next?.textHref,
+				nextTextStart = next?.textStart,
+				nextTextEnd = next?.textEnd,
+				nextEbookText = next?.ebookText
+			)
+		}
 	}
 	return ReaderWhispersyncCueMapPresentation(
 		enabled = true,
@@ -651,6 +734,23 @@ internal fun ReaderWhispersyncCueMapState.presentation(
 	)
 }
 
+internal fun ReaderWhispersyncSessionState.canonicalPreflightAdmits(
+	sidecar: WhispersyncSidecar,
+	destination: ReaderDestinationCommitIdentity,
+	provenanceId: String? = null,
+	rawSpineIndex: Int? = null
+): Boolean {
+	if (sidecar.coordinateBasis == null) return true
+	val preflight = canonicalPreflight ?: return false
+	val request = preflight.request
+	return canonicalGenerationState == ReaderWhispersyncCanonicalGenerationState.Open &&
+		preflight.status == ReaderWhispersyncCanonicalPreflightStatus.Ready &&
+		request.revisionDigest == sidecar.revisionDigest &&
+		request.destinationCommitIdentity == destination &&
+		(provenanceId == null || request.provenanceId == provenanceId) &&
+		(rawSpineIndex == null || request.rawSpineIndex == rawSpineIndex)
+}
+
 internal fun WhispersyncTimeline.segmentForSourceOrdinal(sourceOrdinal: Int): WhispersyncSegment? =
 	segments.firstOrNull { segment -> segment.sourceOrdinal == sourceOrdinal }
 
@@ -658,12 +758,36 @@ internal fun WhispersyncTimeline.sourceOrdinalFor(fragment: ReaderOverlayFragmen
 	if (fragment == null) return null
 	val clipBeginSeconds = fragment.clipBeginSeconds ?: return null
 	val clipEndSeconds = fragment.clipEndSeconds ?: return null
-	return segments.firstOrNull { segment ->
-		segment.startMs == (clipBeginSeconds * 1000.0).roundToLong() &&
-			segment.endMs == (clipEndSeconds * 1000.0).roundToLong() &&
-			normalizedMediaOverlayResource(segment.textHref) ==
-				normalizedMediaOverlayResource(fragment.textHref.orEmpty()) &&
-			segment.textStart == fragment.textStart &&
-			segment.textEnd == fragment.textEnd
-	}?.sourceOrdinal?.takeIf { it >= 0 }
+	val segment = when (fragment.coordinateMode) {
+		ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 -> {
+			val sourceOrdinal = fragment.wordBoundarySequence
+				?.takeIf { it in 0L..Int.MAX_VALUE.toLong() }
+				?.toInt()
+				?: return null
+			segments.firstOrNull { candidate ->
+				candidate.sourceOrdinal == sourceOrdinal &&
+					candidate.rawProvenanceId != null &&
+					candidate.startMs == (clipBeginSeconds * 1000.0).roundToLong() &&
+					candidate.endMs == (clipEndSeconds * 1000.0).roundToLong() &&
+					normalizedMediaOverlayResource(candidate.audioResource) ==
+						normalizedMediaOverlayResource(fragment.resourceHref) &&
+					normalizedMediaOverlayResource(candidate.textHref) ==
+						normalizedMediaOverlayResource(fragment.textHref.orEmpty()) &&
+					candidate.rawProvenanceId == fragment.rawProvenanceId &&
+					candidate.spineIndex == fragment.rawSpineIndex &&
+					candidate.textStart == fragment.rawByteStart &&
+					candidate.textEnd == fragment.rawByteEnd
+			}
+		}
+		ReaderOverlayCoordinateMode.CueV1DomUtf16 -> segments.firstOrNull { candidate ->
+			candidate.rawProvenanceId == null &&
+				candidate.startMs == (clipBeginSeconds * 1000.0).roundToLong() &&
+				candidate.endMs == (clipEndSeconds * 1000.0).roundToLong() &&
+				normalizedMediaOverlayResource(candidate.textHref) ==
+					normalizedMediaOverlayResource(fragment.textHref.orEmpty()) &&
+				candidate.textStart == fragment.textStart &&
+				candidate.textEnd == fragment.textEnd
+		}
+	}
+	return segment?.sourceOrdinal?.takeIf { it >= 0 }
 }

@@ -2,6 +2,9 @@ package paige.navic.reader
 
 import paige.navic.util.core.Logger
 
+private const val ReaderCanonicalCoordinateRejectionDetail =
+	"Canonical coordinate mapping rejected"
+
 internal object ReaderWhispersyncReducer {
 	fun onReadaloudPlaybackState(
 		controller: ReaderController,
@@ -27,6 +30,16 @@ internal object ReaderWhispersyncReducer {
 		message: ReaderWhispersyncStatusMessage,
 		detail: String?
 	): ReaderControllerStep = controller.reduceWhispersyncLoadFailure(message, detail)
+
+	fun onRawTextProvenanceStatusChanged(
+		controller: ReaderController,
+		event: ReaderEngineEvent.RawTextProvenanceStatusChanged
+	): ReaderControllerStep = controller.reduceRawTextProvenanceStatusChanged(event)
+
+	fun onCanonicalPreflightResult(
+		controller: ReaderController,
+		event: ReaderEngineEvent.WhispersyncCanonicalPreflightResult
+	): ReaderControllerStep = controller.reduceWhispersyncCanonicalPreflightResult(event)
 
 	fun repairMismatch(controller: ReaderController): ReaderControllerStep =
 		controller.reduceRepairWhispersyncMismatch()
@@ -167,7 +180,9 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 	if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
 		return ReaderControllerStep(this)
 	}
+	val currentWhispersync = state.whispersync
 	if (state.shellCoverVisible) {
+		val terminal = currentWhispersync.isCanonicalMappingTerminal()
 		val stoppedPlaybackState = playbackState.copy(
 			isPlaying = false,
 			positionMs = 0L
@@ -176,9 +191,13 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 			controller = copy(
 				state = state.copy(
 					chrome = state.chrome.onReadaloudPlaybackState(stoppedPlaybackState),
-					whispersync = state.whispersync.copy(
+					whispersync = currentWhispersync.copy(
 						playbackIntent = ReaderWhispersyncPlaybackIntent.UserStopped,
-						transportPhase = ReaderWhispersyncTransportPhase.Unavailable,
+						transportPhase = if (terminal) {
+							ReaderWhispersyncTransportPhase.Failed
+						} else {
+							ReaderWhispersyncTransportPhase.Unavailable
+						},
 						playbackStartPending = false,
 						stopResetPending = false,
 						pendingAudioSeek = null,
@@ -191,7 +210,72 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 		)
 	}
 
-	val currentWhispersync = state.whispersync
+	val canonicalSidecar = currentWhispersync.sidecar?.takeIf { it.coordinateBasis != null }
+	val canonicalDestination = state.destinationCommitIdentity
+	val canonicalPlaybackSegment = if (playbackState.isPlaying) {
+		playbackState.audioResource
+			?.takeIf { it.isNotBlank() }
+			?.let { audioResource ->
+				currentWhispersync.timeline?.activeSegment(
+					audioResource = audioResource,
+					positionMs = playbackState.positionMs,
+					audioTrackIndex = playbackState.trackIndex
+				)
+			}
+	} else {
+		null
+	}
+	val canonicalProvenanceId = canonicalPlaybackSegment?.rawProvenanceId
+		?: currentWhispersync.canonicalPreflight?.request?.provenanceId
+	val canonicalAdmitted = canonicalSidecar == null || (
+		currentWhispersync.canonicalGenerationState ==
+			ReaderWhispersyncCanonicalGenerationState.Open &&
+			canonicalDestination != null &&
+			currentWhispersync.canonicalPreflightAdmits(
+				sidecar = canonicalSidecar,
+				destination = canonicalDestination,
+				provenanceId = canonicalPlaybackSegment?.rawProvenanceId,
+				rawSpineIndex = canonicalPlaybackSegment?.spineIndex
+			) &&
+			canonicalProvenanceId?.let { provenanceId ->
+				state.rawTextProvenanceById[provenanceId]?.status
+			} == RawTextProvenanceStatus.Ready
+	)
+	if (canonicalSidecar != null && !canonicalAdmitted) {
+		val terminal = currentWhispersync.isCanonicalMappingTerminal()
+		val hasCanonicalOverlay = state.hasCanonicalWhispersyncOverlay()
+		return ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					chrome = state.chrome.onReadaloudPlaybackState(
+						playbackState.copy(isPlaying = false)
+					),
+					whispersync = currentWhispersync.copy(
+						sync = currentWhispersync.sync.rejectOverlay(null),
+						pendingAudioSeek = null,
+						transportPhase = if (terminal) {
+							ReaderWhispersyncTransportPhase.Failed
+						} else {
+							ReaderWhispersyncTransportPhase.Preparing
+						},
+						preparedVisibleTarget = null,
+						playbackStartPending = false,
+						stopResetPending = false,
+						lastEventProvenance = ReaderWhispersyncEventProvenance.AudioProgress
+					),
+					activeMediaOverlay = state.activeMediaOverlay.takeUnless { hasCanonicalOverlay },
+					activeMediaOverlayAnchorReceipt = state.activeMediaOverlayAnchorReceipt
+						.takeUnless { hasCanonicalOverlay },
+					audioMetadataLabel = state.audioMetadataLabel.takeUnless { hasCanonicalOverlay }
+				)
+			),
+			engineCommands = listOfNotNull(
+				ReaderEngineCommand.ClearMediaOverlay.takeIf { hasCanonicalOverlay }
+			),
+			readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Pause
+				.takeIf { playbackState.isPlaying }
+		)
+	}
 	if (currentWhispersync.stopResetPending) {
 		if (playbackState.isPlaying) {
 			return ReaderControllerStep(
@@ -479,6 +563,7 @@ private fun ReaderController.resumeOrBeginWhispersyncPlayback(): ReaderControlle
 		current.userPaused &&
 		current.userPausedDestinationCommitIdentity == state.destinationCommitIdentity
 	) {
+		if (!hasCurrentCanonicalAdmission()) return ReaderControllerStep(this)
 		return ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
@@ -514,6 +599,25 @@ private fun ReaderController.pauseWhispersyncPlayback(): ReaderControllerStep {
 private fun ReaderController.beginPreparedWhispersyncPlayback(): ReaderControllerStep {
 	val currentWhispersync = state.whispersync
 	val prepared = currentWhispersync.preparedVisibleTarget ?: return ReaderControllerStep(this)
+	val preparedSegment = prepared.audioSeekTarget.segment
+	if (
+		currentWhispersync.sidecar?.coordinateBasis != null &&
+			(
+				currentWhispersync.canonicalGenerationState !=
+					ReaderWhispersyncCanonicalGenerationState.Open ||
+					!currentWhispersync.canonicalPreflightAdmits(
+					sidecar = currentWhispersync.sidecar,
+					destination = prepared.destinationCommitIdentity,
+					provenanceId = preparedSegment.rawProvenanceId,
+					rawSpineIndex = preparedSegment.spineIndex
+				) ||
+					preparedSegment.rawProvenanceId?.let { provenanceId ->
+						state.rawTextProvenanceById[provenanceId]?.status
+					} != RawTextProvenanceStatus.Ready
+			)
+	) {
+		return ReaderControllerStep(this)
+	}
 	if (
 		state.shellCoverVisible ||
 		currentWhispersync.transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused ||
@@ -586,13 +690,21 @@ private fun ReaderController.stopAndResetWhispersyncPlayback(): ReaderController
 					sync = currentWhispersync.sync.rejectOverlay(null),
 					pendingAudioSeek = null,
 					playbackIntent = ReaderWhispersyncPlaybackIntent.UserStopped,
-					transportPhase = ReaderWhispersyncTransportPhase.Preparing,
+					transportPhase = if (currentWhispersync.isCanonicalMappingTerminal()) {
+						ReaderWhispersyncTransportPhase.Failed
+					} else {
+						ReaderWhispersyncTransportPhase.Preparing
+					},
 					playbackStartPending = false,
-					stopResetPending = true,
+					stopResetPending = !currentWhispersync.isCanonicalMappingTerminal(),
 					userPaused = false,
 					userPausedDestinationCommitIdentity = null,
 					pendingCausalIntent = null,
-					status = readerWhispersyncReadyStatus(currentWhispersync.timeline)
+					status = if (currentWhispersync.isCanonicalMappingTerminal()) {
+						currentWhispersync.status
+					} else {
+						readerWhispersyncReadyStatus(currentWhispersync.timeline)
+					}
 				),
 				activeMediaOverlay = null,
 				activeMediaOverlayAnchorReceipt = null,
@@ -612,15 +724,20 @@ private fun ReaderController.reduceLoadWhispersyncSidecar(
 	}
 	val currentWhispersync = state.whispersync
 	val visibleRange = currentWhispersync.visibleTextRange
+	val canonical = sidecar.coordinateBasis != null
 	val nextGeneration = currentWhispersync.preparationGeneration + 1L
-	val prepared = state.destinationCommitIdentity?.let { destinationCommitIdentity ->
-		visibleRange
-			?.takeIf { it.destinationCommitIdentity == destinationCommitIdentity }
-			?.preparedTarget(
-				timeline = sidecar.timeline,
-				destinationCommitIdentity = destinationCommitIdentity,
-				preparationGeneration = nextGeneration
-			)
+	val prepared = if (canonical) {
+		null
+	} else {
+		state.destinationCommitIdentity?.let { destinationCommitIdentity ->
+			visibleRange
+				?.takeIf { it.destinationCommitIdentity == destinationCommitIdentity }
+				?.preparedTarget(
+					timeline = sidecar.timeline,
+					destinationCommitIdentity = destinationCommitIdentity,
+					preparationGeneration = nextGeneration
+				)
+		}
 	}
 	val nextCueMap = if (
 		currentWhispersync.cueMap.presentationGeneration > 0L &&
@@ -647,36 +764,438 @@ private fun ReaderController.reduceLoadWhispersyncSidecar(
 		} else {
 			nextGeneration
 		},
+		canonicalPreflight = null,
+		canonicalGenerationState = ReaderWhispersyncCanonicalGenerationState.Open,
+		canonicalTerminalRejectedProvenanceIds = emptySet(),
+		canonicalRetryHasFreshRawRange = false,
+		canonicalRecoveryRequiresFreshVisibleRange = false,
 		lastEventProvenance = ReaderWhispersyncEventProvenance.PresentationMaintenance,
 		cueMap = nextCueMap
 	)
-	return ReaderControllerStep(
-		copy(state = state.copy(whispersync = nextWhispersync))
-	).withWhispersyncCueMapPresentation(previousController = this)
+	val loaded = copy(state = state.copy(whispersync = nextWhispersync))
+	val step = if (canonical) {
+		loaded.beginCanonicalPreflightIfPossible()
+	} else {
+		ReaderControllerStep(loaded)
+	}
+	return step.withWhispersyncCueMapPresentation(previousController = this)
 }
 
-private fun ReaderController.reduceWhispersyncLoadFailure(
-	message: ReaderWhispersyncStatusMessage,
-	detail: String? = null
-): ReaderControllerStep =
-	if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
-		ReaderControllerStep(this)
-	} else {
-		ReaderControllerStep(
-			copy(
-				state = state.copy(
-					whispersync = state.whispersync.copy(
-						transportPhase = ReaderWhispersyncTransportPhase.Failed,
-						status = ReaderWhispersyncStatus(
-							kind = ReaderWhispersyncStatusKind.LoadFailed,
-							message = message,
-							detail = detail?.trim()?.takeIf { it.isNotEmpty() }
+private fun ReaderController.reduceRawTextProvenanceStatusChanged(
+	event: ReaderEngineEvent.RawTextProvenanceStatusChanged
+): ReaderControllerStep {
+	val previousProvenance = state.rawTextProvenanceById[event.provenanceId]
+		?: return ReaderControllerStep(this)
+	val updated = copy(
+		state = state.copy(
+			rawTextProvenanceById = state.rawTextProvenanceById + (
+				event.provenanceId to RawTextProvenanceState(event.status, event.reason)
+			)
+		)
+	)
+	val sidecar = updated.state.whispersync.sidecar ?: return ReaderControllerStep(updated)
+	val referenced = sidecar.referencedRawTextProvenanceDescriptors().any { descriptor ->
+		descriptor.id == event.provenanceId
+	}
+	if (!referenced) return ReaderControllerStep(updated)
+	return when (event.status) {
+		RawTextProvenanceStatus.Rejected -> {
+			if (
+				previousProvenance.status == RawTextProvenanceStatus.Rejected &&
+					updated.state.whispersync.isCanonicalMappingTerminal()
+			) {
+				ReaderControllerStep(updated)
+			} else {
+				updated.failCanonicalWhispersyncMapping(event.provenanceId)
+			}
+		}
+		RawTextProvenanceStatus.Ready -> {
+			val current = updated.state.whispersync
+			val ready = updated.copy(
+				state = updated.state.copy(
+					whispersync = current.copy(
+						canonicalTerminalRejectedProvenanceIds =
+							current.canonicalTerminalRejectedProvenanceIds - event.provenanceId
+					)
+				)
+			)
+			when (current.canonicalGenerationState) {
+				ReaderWhispersyncCanonicalGenerationState.Open ->
+					ready.beginCanonicalPreflightIfPossible()
+				ReaderWhispersyncCanonicalGenerationState.Terminal -> ReaderControllerStep(ready)
+				ReaderWhispersyncCanonicalGenerationState.RetryArmed -> {
+					if (
+						ready.state.whispersync.canonicalTerminalRejectedProvenanceIds.isEmpty()
+					) {
+						ReaderControllerStep(
+							controller = ready,
+							engineCommands = listOf(
+								ReaderEngineCommand.RequestVisibleTextRange("canonical-coordinate-retry")
+							)
 						)
+					} else {
+						ReaderControllerStep(ready)
+					}
+				}
+			}
+		}
+		RawTextProvenanceStatus.Pending -> ReaderControllerStep(updated)
+	}
+}
+
+private fun ReaderController.reduceWhispersyncCanonicalPreflightResult(
+	event: ReaderEngineEvent.WhispersyncCanonicalPreflightResult
+): ReaderControllerStep {
+	val current = state.whispersync
+	val preflight = current.canonicalPreflight ?: return ReaderControllerStep(this)
+	val request = preflight.request
+	if (
+		preflight.status != ReaderWhispersyncCanonicalPreflightStatus.Pending ||
+		event.revisionDigest != request.revisionDigest ||
+		event.validationGeneration != request.validationGeneration ||
+		event.destinationCommitIdentity != request.destinationCommitIdentity ||
+		event.destinationCommitIdentity != state.destinationCommitIdentity ||
+		event.provenanceId != request.provenanceId ||
+		event.rawSpineIndex != request.rawSpineIndex ||
+		state.rawTextProvenanceById[request.provenanceId]?.status != RawTextProvenanceStatus.Ready
+	) {
+		return ReaderControllerStep(this)
+	}
+	if (event.status == ReaderWhispersyncCanonicalPreflightStatus.Rejected) {
+		val rejected = copy(
+			state = state.copy(
+				whispersync = current.copy(
+					canonicalPreflight = preflight.copy(
+						status = ReaderWhispersyncCanonicalPreflightStatus.Rejected
 					)
 				)
 			)
 		)
+		return rejected.failCanonicalWhispersyncMapping()
 	}
+	if (event.status != ReaderWhispersyncCanonicalPreflightStatus.Ready || event.reason != null) {
+		return ReaderControllerStep(this)
+	}
+
+	val recovering = current.canonicalGenerationState ==
+		ReaderWhispersyncCanonicalGenerationState.RetryArmed
+	val descriptor = current.sidecar?.referencedRawTextProvenanceDescriptors()
+		?.singleOrNull { candidate ->
+			candidate.id == request.provenanceId &&
+				candidate.spineIndex == request.rawSpineIndex
+		}
+	val visibleRange = current.visibleTextRange
+		?.takeIf { range ->
+			range.matchesCanonicalPreflight(request) &&
+				(!recovering || descriptor?.let { proof ->
+					range.matchesCanonicalDescriptor(proof, request.destinationCommitIdentity)
+				} == true)
+		}
+	val nextGeneration = current.preparationGeneration + 1L
+	val prepared = visibleRange?.preparedTarget(
+		timeline = current.timeline,
+		destinationCommitIdentity = request.destinationCommitIdentity,
+		preparationGeneration = nextGeneration
+	)
+	if (
+		recovering &&
+			(
+				!current.canonicalRetryHasFreshRawRange ||
+					current.canonicalTerminalRejectedProvenanceIds.isNotEmpty() ||
+					prepared == null
+			)
+	) {
+		return ReaderControllerStep(this)
+	}
+	val next = copy(
+		state = state.copy(
+			whispersync = current.copy(
+				canonicalPreflight = preflight.copy(
+					status = ReaderWhispersyncCanonicalPreflightStatus.Ready
+				),
+				canonicalGenerationState = if (recovering) {
+					ReaderWhispersyncCanonicalGenerationState.Open
+				} else {
+					current.canonicalGenerationState
+				},
+				canonicalRetryHasFreshRawRange = false,
+				canonicalRecoveryRequiresFreshVisibleRange = false,
+				preparedVisibleTarget = prepared,
+				preparationGeneration = if (prepared == null) {
+					current.preparationGeneration
+				} else {
+					nextGeneration
+				},
+				transportPhase = if (prepared == null) {
+					ReaderWhispersyncTransportPhase.Preparing
+				} else {
+					ReaderWhispersyncTransportPhase.Ready
+				},
+				status = if (prepared == null) current.status else readerWhispersyncReadyStatus(current.timeline),
+				lastEventProvenance = ReaderWhispersyncEventProvenance.PresentationMaintenance
+			)
+		)
+	)
+	return ReaderControllerStep(
+		controller = next,
+		engineCommands = listOfNotNull(
+			ReaderEngineCommand.RequestVisibleTextRange("canonical-coordinate-preflight-ready")
+				.takeIf { prepared == null }
+		)
+	).withWhispersyncCueMapPresentation(previousController = this)
+}
+
+private fun ReaderController.beginCanonicalPreflightIfPossible(): ReaderControllerStep {
+	val current = state.whispersync
+	if (current.canonicalGenerationState == ReaderWhispersyncCanonicalGenerationState.Terminal) {
+		return ReaderControllerStep(this)
+	}
+	if (
+		current.canonicalGenerationState == ReaderWhispersyncCanonicalGenerationState.RetryArmed &&
+			(
+				!current.canonicalRetryHasFreshRawRange ||
+					current.canonicalTerminalRejectedProvenanceIds.isNotEmpty()
+			)
+	) {
+		return ReaderControllerStep(this)
+	}
+	val nextGeneration = current.canonicalPreflightGeneration + 1L
+	val request = canonicalPreflightRequest(nextGeneration) ?: return ReaderControllerStep(this)
+	val existing = current.canonicalPreflight
+	if (
+		existing != null &&
+		existing.request.copy(validationGeneration = request.validationGeneration) == request &&
+		existing.status != ReaderWhispersyncCanonicalPreflightStatus.Rejected
+	) {
+		return ReaderControllerStep(this)
+	}
+	val next = copy(
+		state = state.copy(
+			whispersync = current.copy(
+				pendingAudioSeek = null,
+				preparedVisibleTarget = null,
+				playbackStartPending = false,
+				transportPhase = if (current.isCanonicalMappingTerminal()) {
+					ReaderWhispersyncTransportPhase.Failed
+				} else {
+					ReaderWhispersyncTransportPhase.Preparing
+				},
+				canonicalPreflightGeneration = nextGeneration,
+				canonicalPreflight = ReaderWhispersyncCanonicalPreflightState(
+					request = request,
+					status = ReaderWhispersyncCanonicalPreflightStatus.Pending
+				)
+			)
+		)
+	)
+	return ReaderControllerStep(
+		controller = next,
+		engineCommands = listOf(ReaderEngineCommand.ValidateWhispersyncCanonicalCues(request))
+	).withWhispersyncCueMapPresentation(previousController = this)
+}
+
+private fun ReaderController.canonicalPreflightRequest(
+	validationGeneration: Long
+): ReaderWhispersyncCanonicalPreflightRequest? {
+	val current = state.whispersync
+	val sidecar = current.sidecar?.takeIf { it.coordinateBasis != null } ?: return null
+	val destination = state.destinationCommitIdentity ?: return null
+	val visibleRange = current.visibleTextRange
+		?.takeIf { it.destinationCommitIdentity == destination }
+		?: return null
+	val normalizedVisibleHref = normalizedMediaOverlayResource(visibleRange.textHref)
+	val descriptors = sidecar.referencedRawTextProvenanceDescriptors()
+	val descriptor = descriptors.singleOrNull { candidate ->
+		val hrefMatches = normalizedMediaOverlayResource(candidate.href) == normalizedVisibleHref
+		if (visibleRange.rawProvenanceId != null || visibleRange.rawSpineIndex != null) {
+			hrefMatches && candidate.id == visibleRange.rawProvenanceId &&
+				candidate.spineIndex == visibleRange.rawSpineIndex
+		} else {
+			hrefMatches
+		}
+	} ?: return null
+	if (
+		current.canonicalGenerationState == ReaderWhispersyncCanonicalGenerationState.RetryArmed &&
+			(
+				!current.canonicalRetryHasFreshRawRange ||
+					!visibleRange.matchesCanonicalDescriptor(descriptor, destination)
+			)
+	) return null
+	if (state.rawTextProvenanceById[descriptor.id]?.status != RawTextProvenanceStatus.Ready) return null
+	val cues = sidecar.timeline.segments
+		.filter { segment ->
+			segment.rawProvenanceId == descriptor.id &&
+				segment.spineIndex == descriptor.spineIndex &&
+				normalizedMediaOverlayResource(segment.textHref) ==
+					normalizedMediaOverlayResource(descriptor.href)
+		}
+		.mapNotNull { segment ->
+			val sourceOrdinal = segment.sourceOrdinal.takeIf { it >= 0 } ?: return@mapNotNull null
+			val textStart = segment.textStart ?: return@mapNotNull null
+			val textEnd = segment.textEnd ?: return@mapNotNull null
+			ReaderWhispersyncCueMapCue(
+				sourceOrdinal = sourceOrdinal,
+				textHref = segment.textHref,
+				textStart = textStart,
+				textEnd = textEnd,
+				ebookText = segment.ebookText,
+				coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+				rawProvenanceId = descriptor.id,
+				rawSpineIndex = descriptor.spineIndex,
+				rawByteStart = textStart,
+				rawByteEnd = textEnd
+			)
+		}
+	if (cues.isEmpty()) return null
+	return ReaderWhispersyncCanonicalPreflightRequest(
+		revisionDigest = sidecar.revisionDigest,
+		validationGeneration = validationGeneration,
+		destinationCommitIdentity = destination,
+		provenanceId = descriptor.id,
+		rawSpineIndex = descriptor.spineIndex,
+		cues = cues
+	)
+}
+
+private fun ReaderController.failCanonicalWhispersyncMapping(
+	rejectedProvenanceId: String? = null
+): ReaderControllerStep {
+	val current = state.whispersync
+	val sidecar = current.sidecar?.takeIf { it.coordinateBasis != null }
+		?: return ReaderControllerStep(this)
+	val failedCueMap = if (sidecar.revisionDigest.matches(Regex("[0-9a-f]{12}"))) {
+		current.cueMap.replaced(sidecar.revisionDigest, force = true)
+	} else {
+		current.cueMap
+	}
+	val hasCanonicalOverlay = state.hasCanonicalWhispersyncOverlay()
+	val playbackActive = state.chrome.readaloudPlayback.isPlaying
+	val failed = copy(
+		state = state.copy(
+			chrome = if (playbackActive) {
+				state.chrome.copy(
+					readaloudPlayback = state.chrome.readaloudPlayback.copy(isPlaying = false)
+				)
+			} else {
+				state.chrome
+			},
+			whispersync = current.copy(
+				sync = current.sync.rejectOverlay(null),
+				pendingAudioSeek = null,
+				transportPhase = ReaderWhispersyncTransportPhase.Failed,
+				preparedVisibleTarget = null,
+				playbackStartPending = false,
+				stopResetPending = false,
+				canonicalPreflight = current.canonicalPreflight?.copy(
+					status = ReaderWhispersyncCanonicalPreflightStatus.Rejected
+				),
+				canonicalGenerationState = ReaderWhispersyncCanonicalGenerationState.Terminal,
+				canonicalTerminalRejectedProvenanceIds =
+					current.canonicalTerminalRejectedProvenanceIds + listOfNotNull(rejectedProvenanceId),
+				canonicalRetryHasFreshRawRange = false,
+				canonicalRecoveryRequiresFreshVisibleRange = true,
+				lastEventProvenance = ReaderWhispersyncEventProvenance.PresentationMaintenance,
+				status = ReaderWhispersyncStatus(
+					kind = ReaderWhispersyncStatusKind.Mismatch,
+					message = ReaderWhispersyncStatusMessage.Mismatch,
+					detail = ReaderCanonicalCoordinateRejectionDetail
+				),
+				cueMap = failedCueMap
+			),
+			activeMediaOverlay = state.activeMediaOverlay.takeUnless { hasCanonicalOverlay },
+			activeMediaOverlayAnchorReceipt = state.activeMediaOverlayAnchorReceipt
+				.takeUnless { hasCanonicalOverlay },
+			audioMetadataLabel = state.audioMetadataLabel.takeUnless { hasCanonicalOverlay }
+		)
+	)
+	return ReaderControllerStep(
+		controller = failed,
+		engineCommands = listOfNotNull(
+			ReaderEngineCommand.ClearMediaOverlay.takeIf { hasCanonicalOverlay },
+			failed.whispersyncCueMapPresentationCommand()
+		),
+		readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Pause.takeIf { playbackActive }
+	)
+}
+
+private fun ReaderController.hasCurrentCanonicalAdmission(): Boolean {
+	val current = state.whispersync
+	val sidecar = current.sidecar?.takeIf { it.coordinateBasis != null } ?: return true
+	if (current.canonicalGenerationState != ReaderWhispersyncCanonicalGenerationState.Open) return false
+	val destination = state.destinationCommitIdentity ?: return false
+	val preflight = current.canonicalPreflight
+		?.takeIf { it.status == ReaderWhispersyncCanonicalPreflightStatus.Ready }
+		?: return false
+	val request = preflight.request
+	val descriptor = sidecar.referencedRawTextProvenanceDescriptors().singleOrNull { candidate ->
+		candidate.id == request.provenanceId && candidate.spineIndex == request.rawSpineIndex
+	} ?: return false
+	return current.canonicalPreflightAdmits(
+		sidecar = sidecar,
+		destination = destination,
+		provenanceId = descriptor.id,
+		rawSpineIndex = descriptor.spineIndex
+	) &&
+		state.rawTextProvenanceById[descriptor.id]?.status == RawTextProvenanceStatus.Ready &&
+		current.visibleTextRange?.matchesCanonicalDescriptor(descriptor, destination) == true
+}
+
+private fun ReaderWhispersyncSessionState.isCanonicalMappingTerminal(): Boolean =
+	sidecar?.coordinateBasis != null &&
+		canonicalGenerationState != ReaderWhispersyncCanonicalGenerationState.Open
+
+private fun ReaderControllerState.hasCanonicalWhispersyncOverlay(): Boolean =
+	activeMediaOverlay?.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 ||
+		whispersync.sync.engineCommand.overlayFragmentOrNull()?.coordinateMode ==
+			ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 ||
+		whispersync.sync.activeCueKey != null
+
+private fun ReaderWhispersyncVisibleTextRange.matchesCanonicalDescriptor(
+	descriptor: ReaderRawTextProvenanceDescriptor,
+	destination: ReaderDestinationCommitIdentity
+): Boolean =
+	destinationCommitIdentity == destination &&
+		normalizedMediaOverlayResource(textHref) ==
+			normalizedMediaOverlayResource(descriptor.href) &&
+		rawProvenanceId == descriptor.id &&
+		rawSpineIndex == descriptor.spineIndex &&
+		rawByteStart?.let { it >= 0 } == true &&
+		rawByteEnd?.let { end ->
+			end > requireNotNull(rawByteStart) && end <= descriptor.byteLength
+		} == true
+
+private fun ReaderWhispersyncVisibleTextRange.matchesCanonicalPreflight(
+	request: ReaderWhispersyncCanonicalPreflightRequest
+): Boolean =
+	destinationCommitIdentity == request.destinationCommitIdentity &&
+		rawProvenanceId == request.provenanceId &&
+		rawSpineIndex == request.rawSpineIndex &&
+		rawByteStart?.let { it >= 0 } == true &&
+		rawByteEnd?.let { end -> end > requireNotNull(rawByteStart) } == true
+
+private fun ReaderController.reduceWhispersyncLoadFailure(
+	message: ReaderWhispersyncStatusMessage,
+	detail: String? = null
+): ReaderControllerStep {
+	if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
+		return ReaderControllerStep(this)
+	}
+	if (state.whispersync.isCanonicalMappingTerminal()) return ReaderControllerStep(this)
+	return ReaderControllerStep(
+		copy(
+			state = state.copy(
+				whispersync = state.whispersync.copy(
+					transportPhase = ReaderWhispersyncTransportPhase.Failed,
+					status = ReaderWhispersyncStatus(
+						kind = ReaderWhispersyncStatusKind.LoadFailed,
+						message = message,
+						detail = detail?.trim()?.takeIf { it.isNotEmpty() }
+					)
+				)
+			)
+		)
+	)
+}
 
 private fun ReaderController.reduceRepairWhispersyncMismatch(): ReaderControllerStep {
 	if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
@@ -685,6 +1204,48 @@ private fun ReaderController.reduceRepairWhispersyncMismatch(): ReaderController
 	if (state.shellCoverVisible) return ReaderControllerStep(this)
 	val currentWhispersync = state.whispersync
 	if (!currentWhispersync.status.repairable) return ReaderControllerStep(this)
+	val canonicalSidecar = currentWhispersync.sidecar?.takeIf {
+		it.coordinateBasis != null &&
+			currentWhispersync.status.detail == ReaderCanonicalCoordinateRejectionDetail
+	}
+	if (canonicalSidecar != null) {
+		val rejectedIds = currentWhispersync.canonicalTerminalRejectedProvenanceIds +
+			canonicalSidecar.referencedRawTextProvenanceDescriptors()
+				.filter { descriptor ->
+					state.rawTextProvenanceById[descriptor.id]?.status ==
+						RawTextProvenanceStatus.Rejected
+				}
+				.map(ReaderRawTextProvenanceDescriptor::id)
+		var retryController = copy(
+			state = state.copy(
+				whispersync = currentWhispersync.copy(
+					canonicalPreflight = null,
+					canonicalGenerationState =
+						ReaderWhispersyncCanonicalGenerationState.RetryArmed,
+					canonicalTerminalRejectedProvenanceIds = rejectedIds,
+					canonicalRetryHasFreshRawRange = false,
+					canonicalRecoveryRequiresFreshVisibleRange = true,
+					transportPhase = ReaderWhispersyncTransportPhase.Failed
+				)
+			)
+		)
+		val retryCommands = mutableListOf<ReaderEngineCommand>()
+		canonicalSidecar.referencedRawTextProvenanceDescriptors()
+			.filter { descriptor -> descriptor.id in rejectedIds }
+			.forEach { descriptor ->
+				val install = retryController.installRawTextProvenance(
+					descriptor = descriptor,
+					forceDispatch = true
+				)
+				retryController = install.controller
+				retryCommands += install.engineCommands
+			}
+		return ReaderControllerStep(
+			controller = retryController,
+			engineCommands = retryCommands +
+				ReaderEngineCommand.RequestVisibleTextRange("canonical-coordinate-retry")
+		)
+	}
 	val destinationCommitIdentity = state.destinationCommitIdentity ?: return ReaderControllerStep(this)
 	val visibleRange = currentWhispersync.visibleTextRange
 		?.takeIf { it.destinationCommitIdentity == destinationCommitIdentity }
@@ -693,7 +1254,11 @@ private fun ReaderController.reduceRepairWhispersyncMismatch(): ReaderController
 		timeline = currentWhispersync.timeline,
 		textHref = visibleRange.textHref,
 		visibleStart = visibleRange.visibleStart,
-		visibleEnd = visibleRange.visibleEnd
+		visibleEnd = visibleRange.visibleEnd,
+		rawProvenanceId = visibleRange.rawProvenanceId,
+		rawSpineIndex = visibleRange.rawSpineIndex,
+		rawByteStart = visibleRange.rawByteStart,
+		rawByteEnd = visibleRange.rawByteEnd
 	) ?: return ReaderControllerStep(this)
 	val syncStep = currentWhispersync.sync
 		.rejectOverlay(null)
@@ -756,9 +1321,17 @@ private fun ReaderController.reduceVisibleTextRange(
 						visibleTextRange = visibleRange,
 						pendingAudioSeek = null,
 						preparedVisibleTarget = null,
-						transportPhase = ReaderWhispersyncTransportPhase.Unavailable,
+						transportPhase = if (currentWhispersync.isCanonicalMappingTerminal()) {
+							ReaderWhispersyncTransportPhase.Failed
+						} else {
+							ReaderWhispersyncTransportPhase.Unavailable
+						},
 						lastEventProvenance = ReaderWhispersyncEventProvenance.PresentationMaintenance,
-						status = readerWhispersyncReadyStatus(currentWhispersync.timeline)
+						status = if (currentWhispersync.isCanonicalMappingTerminal()) {
+							currentWhispersync.status
+						} else {
+							readerWhispersyncReadyStatus(currentWhispersync.timeline)
+						}
 					),
 					activeMediaOverlay = null,
 					activeMediaOverlayAnchorReceipt = null,
@@ -856,6 +1429,71 @@ private fun ReaderController.reduceVisibleTextRange(
 	} else {
 		currentWhispersync.cueMap
 	}
+	val canonicalSidecar = currentWhispersync.sidecar?.takeIf { it.coordinateBasis != null }
+	val canonicalPreflight = currentWhispersync.canonicalPreflight
+	val canonicalDescriptor = canonicalSidecar?.referencedRawTextProvenanceDescriptors()
+		?.singleOrNull { descriptor ->
+			descriptor.id == visibleRange.rawProvenanceId &&
+				descriptor.spineIndex == visibleRange.rawSpineIndex &&
+				normalizedMediaOverlayResource(descriptor.href) ==
+					normalizedMediaOverlayResource(visibleRange.textHref)
+		}
+	val currentRawAuthorityReady = canonicalDescriptor != null &&
+		state.rawTextProvenanceById[canonicalDescriptor.id]?.status == RawTextProvenanceStatus.Ready &&
+		visibleRange.matchesCanonicalDescriptor(canonicalDescriptor, destinationCommitIdentity)
+	val freshRetryAuthority =
+		currentWhispersync.canonicalGenerationState ==
+			ReaderWhispersyncCanonicalGenerationState.RetryArmed &&
+			currentRawAuthorityReady
+	val canonicalAdmitted = canonicalSidecar == null || (
+		currentWhispersync.canonicalGenerationState ==
+			ReaderWhispersyncCanonicalGenerationState.Open &&
+			canonicalPreflight?.status == ReaderWhispersyncCanonicalPreflightStatus.Ready &&
+			currentWhispersync.canonicalPreflightAdmits(
+				sidecar = canonicalSidecar,
+				destination = destinationCommitIdentity,
+				provenanceId = visibleRange.rawProvenanceId,
+				rawSpineIndex = visibleRange.rawSpineIndex
+			) &&
+			visibleRange.matchesCanonicalPreflight(canonicalPreflight.request) &&
+			currentRawAuthorityReady
+	)
+	if (!canonicalAdmitted) {
+		val hasCanonicalOverlay = state.hasCanonicalWhispersyncOverlay()
+		val blocked = copy(
+			state = state.copy(
+				whispersync = currentWhispersync.copy(
+					sync = currentWhispersync.sync.rejectOverlay(null),
+					visibleTextRange = visibleRange,
+					pendingAudioSeek = null,
+					preparedVisibleTarget = null,
+					playbackStartPending = false,
+					canonicalRetryHasFreshRawRange = freshRetryAuthority,
+					transportPhase = if (currentWhispersync.isCanonicalMappingTerminal()) {
+						ReaderWhispersyncTransportPhase.Failed
+					} else {
+						ReaderWhispersyncTransportPhase.Preparing
+					},
+					lastEventProvenance = if (navigationMatched != null) {
+						ReaderWhispersyncEventProvenance.UserNavigation
+					} else {
+						ReaderWhispersyncEventProvenance.PresentationMaintenance
+					},
+					cueMap = nextCueMap
+				),
+				activeMediaOverlay = state.activeMediaOverlay.takeUnless { hasCanonicalOverlay },
+				activeMediaOverlayAnchorReceipt = state.activeMediaOverlayAnchorReceipt
+					.takeUnless { hasCanonicalOverlay },
+				audioMetadataLabel = state.audioMetadataLabel.takeUnless { hasCanonicalOverlay }
+			)
+		)
+		val preflightStep = blocked.beginCanonicalPreflightIfPossible()
+		return preflightStep.copy(
+			engineCommands = listOfNotNull(
+				ReaderEngineCommand.ClearMediaOverlay.takeIf { hasCanonicalOverlay }
+			) + preflightStep.engineCommands
+		).withWhispersyncCueMapPresentation(previousController = this)
+	}
 	val prepared = visibleRange.preparedTarget(
 		timeline = currentWhispersync.timeline,
 		destinationCommitIdentity = destinationCommitIdentity,
@@ -885,6 +1523,7 @@ private fun ReaderController.reduceVisibleTextRange(
 				},
 				pendingCausalIntent = pendingIntent.takeUnless { navigationMatched != null },
 				playbackStartPending = false,
+				canonicalRecoveryRequiresFreshVisibleRange = false,
 				transportPhase = nextTransport,
 				lastEventProvenance = if (navigationMatched != null) {
 					ReaderWhispersyncEventProvenance.UserNavigation
@@ -1125,10 +1764,31 @@ private fun ReaderController.reduceTextPoint(
 	if (currentWhispersync.playbackIntent != ReaderWhispersyncPlaybackIntent.Enabled) {
 		return ReaderControllerStep(copy(state = state.copy(whispersync = consumedWhispersync)))
 	}
+	val destination = requireNotNull(state.destinationCommitIdentity)
+	val sidecar = currentWhispersync.sidecar
+	if (
+		sidecar?.coordinateBasis != null &&
+			(
+				currentWhispersync.canonicalGenerationState !=
+					ReaderWhispersyncCanonicalGenerationState.Open ||
+					!currentWhispersync.canonicalPreflightAdmits(
+						sidecar = sidecar,
+						destination = destination,
+						provenanceId = event.rawProvenanceId
+					) ||
+					event.rawProvenanceId?.let { provenanceId ->
+						state.rawTextProvenanceById[provenanceId]?.status
+					} != RawTextProvenanceStatus.Ready
+			)
+	) {
+		return ReaderControllerStep(copy(state = state.copy(whispersync = consumedWhispersync)))
+	}
 	val syncStep = currentWhispersync.sync.onTextPoint(
 		timeline = currentWhispersync.timeline,
 		textHref = event.textHref,
-		textOffset = event.textOffset
+		textOffset = event.textOffset,
+		rawProvenanceId = event.rawProvenanceId,
+		rawByteOffset = event.rawByteOffset
 	)
 	val target = syncStep.audioSeekTarget
 		?: return ReaderControllerStep(copy(state = state.copy(whispersync = consumedWhispersync)))
@@ -1181,7 +1841,10 @@ private fun ReaderController.withWhispersyncCausalIntent(
 				),
 				causalIntentSequence = nextSequence,
 				preparedVisibleTarget = currentWhispersync.preparedVisibleTarget.takeUnless { navigation },
-				transportPhase = if (navigation && currentWhispersync.available) {
+				transportPhase = if (
+					navigation && currentWhispersync.available &&
+						!currentWhispersync.isCanonicalMappingTerminal()
+				) {
 					ReaderWhispersyncTransportPhase.Preparing
 				} else {
 					currentWhispersync.transportPhase
@@ -1239,7 +1902,11 @@ private fun ReaderController.reduceWhispersyncRelocated(
 						destinationCommitted = true,
 						destinationCommitIdentity = destinationCommitIdentity
 					),
-					transportPhase = ReaderWhispersyncTransportPhase.Preparing,
+					transportPhase = if (currentWhispersync.isCanonicalMappingTerminal()) {
+						ReaderWhispersyncTransportPhase.Failed
+					} else {
+						ReaderWhispersyncTransportPhase.Preparing
+					},
 					lastEventProvenance = ReaderWhispersyncEventProvenance.UserNavigation
 				),
 				activeMediaOverlay = null,
@@ -1270,7 +1937,11 @@ private fun ReaderWhispersyncVisibleTextRange.preparedTarget(
 		timeline = timeline,
 		textHref = textHref,
 		visibleStart = visibleStart,
-		visibleEnd = visibleEnd
+		visibleEnd = visibleEnd,
+		rawProvenanceId = rawProvenanceId,
+		rawSpineIndex = rawSpineIndex,
+		rawByteStart = rawByteStart,
+		rawByteEnd = rawByteEnd
 	) ?: return null
 	return ReaderWhispersyncPreparedVisibleTarget(
 		destinationCommitIdentity = destinationCommitIdentity,

@@ -249,6 +249,95 @@ class ReaderWebCommandDispatchTest {
 	}
 
 	@Test
+	fun explicitProvenanceAttemptSuppressesDuplicateDurableInstall() {
+		val step = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			commands = listOf(ReaderBridgeCommand.InstallRawTextProvenance(descriptor)),
+			commandKey = 1L,
+			rawTextProvenanceDescriptors = listOf(descriptor)
+		)
+
+		assertEquals(1, step.state.pendingCommands.count {
+			it.dispatch.command is ReaderBridgeCommand.InstallRawTextProvenance
+		})
+		assertEquals(
+			listOf("reader-open-1", "reader-command-1-1"),
+			step.state.pendingCommands.map { it.dispatch.id }
+		)
+		val install = step.state.acknowledge("reader-open-1").commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			commands = listOf(ReaderBridgeCommand.InstallRawTextProvenance(descriptor)),
+			commandKey = 1L,
+			rawTextProvenanceDescriptors = listOf(descriptor)
+		)
+		assertEquals(
+			listOf(ReaderBridgeCommand.InstallRawTextProvenance(descriptor)),
+			install.commands.map { it.command }
+		)
+	}
+
+	@Test
+	fun acknowledgedForcedProvenanceReplaysDurablyAfterRuntimeRecreation() {
+		val explicitInstall = ReaderBridgeCommand.InstallRawTextProvenance(descriptor)
+		val initial = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			commands = listOf(explicitInstall),
+			commandKey = 1L,
+			rawTextProvenanceDescriptors = listOf(descriptor)
+		)
+		val install = initial.state
+			.acknowledge("reader-open-1")
+			.commandsForReadyReaderRuntime(
+				runtimeGeneration = 0,
+				publicationKey = "book-1",
+				openCommand = firstOpen,
+				commands = listOf(explicitInstall),
+				commandKey = 1L,
+				rawTextProvenanceDescriptors = listOf(descriptor)
+			)
+		val acknowledged = install.state.acknowledge("reader-command-1-1")
+
+		val recreated = acknowledged.commandsForReadyReaderRuntime(
+			runtimeGeneration = 1,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			commands = listOf(explicitInstall),
+			commandKey = 1L,
+			rawTextProvenanceDescriptors = listOf(descriptor)
+		)
+
+		assertEquals(listOf("reader-open-1"), recreated.commands.map { it.id })
+		assertEquals(
+			listOf("reader-open-1", "reader-provenance-1-2"),
+			recreated.state.pendingCommands.map { it.dispatch.id }
+		)
+		assertEquals(1, recreated.state.pendingCommands.count {
+			it.dispatch.command is ReaderBridgeCommand.InstallRawTextProvenance
+		})
+		val durableInstall = recreated.state
+			.acknowledge("reader-open-1")
+			.commandsForReadyReaderRuntime(
+				runtimeGeneration = 1,
+				publicationKey = "book-1",
+				openCommand = firstOpen,
+				commands = listOf(explicitInstall),
+				commandKey = 1L,
+				rawTextProvenanceDescriptors = listOf(descriptor)
+			)
+		assertEquals(listOf("reader-provenance-1-2"), durableInstall.commands.map { it.id })
+		assertEquals(listOf(explicitInstall), durableInstall.commands.map { it.command })
+		assertTrue(durableInstall.state.pendingCommands.none {
+			it.dispatch.id == "reader-command-1-1"
+		})
+	}
+
+	@Test
 	fun durableProvenanceQueuesBeforeACommandThatReplacedItsViewState() {
 		val first = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
 			runtimeGeneration = 0,

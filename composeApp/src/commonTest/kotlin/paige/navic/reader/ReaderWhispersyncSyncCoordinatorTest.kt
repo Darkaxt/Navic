@@ -320,6 +320,80 @@ class ReaderWhispersyncSyncCoordinatorTest {
 	}
 
 	@Test
+	fun canonicalReaderTargetsUseMatchingRawProofAndBytesInsteadOfDomOffsets() {
+		val timeline = canonicalTimeline()
+		val provenanceId = "wordsync-v1-spine-2"
+
+		val visible = assertNotNull(
+			readerWhispersyncVisibleTarget(
+				timeline = timeline,
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 100,
+				visibleEnd = 110,
+				rawProvenanceId = provenanceId,
+				rawSpineIndex = 2,
+				rawByteStart = 505,
+				rawByteEnd = 515
+			)
+		)
+		assertEquals(5_000L, visible.seekTarget.positionMs)
+		assertEquals("Raw second sentence", visible.cue.fragment.label)
+
+		val point = ReaderWhispersyncSyncState().onTextPoint(
+			timeline = timeline,
+			textHref = "Text/chapter1.xhtml",
+			textOffset = 105,
+			rawProvenanceId = provenanceId,
+			rawByteOffset = 505
+		)
+		val command = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(point.state.engineCommand)
+		assertEquals("Raw second sentence", command.fragment.label)
+	}
+
+	@Test
+	fun canonicalReaderTargetsFailClosedWithoutMatchingRawProof() {
+		val timeline = canonicalTimeline()
+
+		assertNull(
+			readerWhispersyncVisibleTarget(
+				timeline = timeline,
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 100,
+				visibleEnd = 110
+			)
+		)
+		assertNull(
+			readerWhispersyncVisibleTarget(
+				timeline = timeline,
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 100,
+				visibleEnd = 110,
+				rawProvenanceId = "wordsync-v1-spine-9",
+				rawSpineIndex = 9,
+				rawByteStart = 505,
+				rawByteEnd = 515
+			)
+		)
+
+		val missingPoint = ReaderWhispersyncSyncState().onTextPoint(
+			timeline = timeline,
+			textHref = "Text/chapter1.xhtml",
+			textOffset = 105
+		)
+		assertNull(missingPoint.audioSeekTarget)
+		assertNull(missingPoint.state.engineCommand)
+		val mismatchedPoint = ReaderWhispersyncSyncState().onTextPoint(
+			timeline = timeline,
+			textHref = "Text/chapter1.xhtml",
+			textOffset = 105,
+			rawProvenanceId = "wordsync-v1-spine-9",
+			rawByteOffset = 505
+		)
+		assertNull(mismatchedPoint.audioSeekTarget)
+		assertNull(mismatchedPoint.state.engineCommand)
+	}
+
+	@Test
 	fun syncTogglePublishesClearOverlayCommandWhenActiveSegmentIsVisible() {
 		val active = ReaderWhispersyncSyncState().onAudiobookPlaybackPosition(
 			timeline = whispersyncTimeline(),
@@ -342,6 +416,38 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		assertEquals(disabled.engineCommand, suppressed.engineCommand)
 		assertEquals(disabled.engineCommandKey, suppressed.engineCommandKey)
 		assertEquals(false, suppressed.syncEnabled)
+	}
+
+	private fun canonicalTimeline(): WhispersyncTimeline {
+		val provenanceId = "wordsync-v1-spine-2"
+		return WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "raw-a",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 1_000,
+					endMs = 2_000,
+					textHref = "Text/chapter1.xhtml",
+					spineIndex = 2,
+					textStart = 100,
+					textEnd = 120,
+					label = "Raw first sentence",
+					rawProvenanceId = provenanceId
+				),
+				WhispersyncSegment(
+					id = "raw-b",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 5_000,
+					endMs = 6_000,
+					textHref = "Text/chapter1.xhtml",
+					spineIndex = 2,
+					textStart = 500,
+					textEnd = 520,
+					label = "Raw second sentence",
+					rawProvenanceId = provenanceId
+				)
+			)
+		)
 	}
 
 	private fun whispersyncTimeline(): WhispersyncTimeline =

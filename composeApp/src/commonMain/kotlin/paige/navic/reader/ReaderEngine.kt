@@ -94,7 +94,11 @@ sealed interface ReaderEngineCommand {
 	data class ApplyAnnotations(val annotations: List<ReaderAnnotation>) : ReaderEngineCommand
 	data class RequestVisibleTextRange(val source: String) : ReaderEngineCommand
 	data class InstallRawTextProvenance(
-		val descriptor: ReaderRawTextProvenanceDescriptor
+		val descriptor: ReaderRawTextProvenanceDescriptor,
+		val forceDispatch: Boolean = false
+	) : ReaderEngineCommand
+	data class ValidateWhispersyncCanonicalCues(
+		val request: ReaderWhispersyncCanonicalPreflightRequest
 	) : ReaderEngineCommand
 	data class ApplyMediaOverlay(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
 	data class UpdateMediaOverlayProgress(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
@@ -123,6 +127,7 @@ val ReaderEngineCommand.requiredCapability: ReaderEngineCapability?
 
 		is ReaderEngineCommand.RequestVisibleTextRange,
 		is ReaderEngineCommand.InstallRawTextProvenance,
+		is ReaderEngineCommand.ValidateWhispersyncCanonicalCues,
 		is ReaderEngineCommand.ApplyMediaOverlay,
 		is ReaderEngineCommand.UpdateMediaOverlayProgress,
 		is ReaderEngineCommand.ReplaceWhispersyncCueMap,
@@ -288,6 +293,15 @@ sealed interface ReaderEngineEvent {
 		val status: RawTextProvenanceStatus,
 		val reason: RawTextProvenanceReason? = null
 	) : ReaderEngineEvent
+	data class WhispersyncCanonicalPreflightResult(
+		val revisionDigest: String,
+		val validationGeneration: Long,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity,
+		val provenanceId: String,
+		val rawSpineIndex: Int,
+		val status: ReaderWhispersyncCanonicalPreflightStatus,
+		val reason: ReaderWhispersyncCanonicalPreflightReason? = null
+	) : ReaderEngineEvent
 
 	data class MediaOverlayActive(
 		val fragment: ReaderOverlayFragment,
@@ -311,6 +325,7 @@ val ReaderEngineEvent.requiredCapability: ReaderEngineCapability?
 		is ReaderEngineEvent.WhispersyncCueMapSeekRequested,
 		is ReaderEngineEvent.WhispersyncCueMapHoldOutcome,
 		is ReaderEngineEvent.RawTextProvenanceStatusChanged,
+		is ReaderEngineEvent.WhispersyncCanonicalPreflightResult,
 		is ReaderEngineEvent.MediaOverlayActive,
 		is ReaderEngineEvent.MediaOverlayInactive -> ReaderEngineCapability.MediaOverlay
 		else -> null

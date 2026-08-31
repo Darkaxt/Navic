@@ -1,8 +1,13 @@
 package paige.navic.reader
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import okio.ByteString.Companion.encodeUtf8
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -606,6 +611,165 @@ class WhispersyncTimelineParserTest {
 		assertNotEquals(first.revisionDigest, revised.revisionDigest)
 		assertTrue(first.revisionDigest.matches(Regex("[0-9a-f]{12}")))
 		assertFalse(first.revisionDigest.contains("protected", ignoreCase = true))
+	}
+
+	@Test
+	fun canonicalByteCoordinateProofAndCueSpineSurviveCacheRoundTrip() {
+		val sourceXhtml = "<html><body><p>Café &amp; café</p><p>split <span>DOM</span> text</p></body></html>"
+		val extractedText = "Café & café. split DOM text."
+		val locator = "split DOM text"
+		val rawStart = extractedText.substring(0, extractedText.indexOf(locator)).encodeUtf8().size
+		val rawEnd = rawStart + locator.encodeUtf8().size
+		val tokenCount = Regex("[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)?")
+			.findAll(extractedText)
+			.count()
+		val sourceHash = "sha256:${sourceXhtml.encodeUtf8().sha256().hex()}"
+		val extractedTextHash = "sha256:${extractedText.encodeUtf8().sha256().hex()}"
+		val source =
+			"""
+			{
+			  "coordinateBasis": {
+			    "extractor": "bindery-epub-text",
+			    "extractorVersion": "1",
+			    "normalization": "raw-extracted-text-offsets",
+			    "unit": "utf8-byte",
+			    "scope": "spine",
+			    "spines": [{
+			      "href": "OEBPS/Text/public-synthetic.xhtml",
+			      "spineIndex": 2,
+			      "sourceHash": "$sourceHash",
+			      "extractedTextHash": "$extractedTextHash",
+			      "byteLength": ${extractedText.encodeUtf8().size},
+			      "tokenCount": $tokenCount
+			    }]
+			  },
+			  "cues": [{
+			    "id": 1040,
+			    "audioHref": "Audio/public-synthetic.mp3",
+			    "audioStart": 1,
+			    "audioEnd": 2,
+			    "ebookHref": "OEBPS/Text/public-synthetic.xhtml",
+			    "spineIndex": 2,
+			    "ebookStart": $rawStart,
+			    "ebookEnd": $rawEnd,
+			    "ebookText": "$locator"
+			  }]
+			}
+			""".trimIndent()
+
+		val decoded = decodeWhispersyncSidecar(source)
+		assertEquals(0, decoded.timeline.segments.single().sourceOrdinal)
+		val cached = encodeWhispersyncSidecar(decoded)
+		val sourceRoot = Json.parseToJsonElement(source).jsonObject
+		val cachedRoot = Json.parseToJsonElement(cached).jsonObject
+
+		assertEquals(
+			sourceRoot["coordinateBasis"],
+			cachedRoot["coordinateBasis"],
+			"cache encoding must preserve the verified Bindery v1 coordinate proof"
+		)
+		val sourceCue = sourceRoot["cues"]!!.jsonArray.single().jsonObject
+		val cachedCue = cachedRoot["timeline"]!!.jsonObject["segments"]!!.jsonArray.single().jsonObject
+		assertEquals(sourceCue["spineIndex"], cachedCue["spineIndex"])
+		assertEquals(sourceCue["ebookStart"], cachedCue["textStart"])
+		assertEquals(sourceCue["ebookEnd"], cachedCue["textEnd"])
+
+		val recached = encodeWhispersyncSidecar(decodeCachedWhispersyncSidecar(cached))
+		assertEquals(cachedRoot["coordinateBasis"], Json.parseToJsonElement(recached).jsonObject["coordinateBasis"])
+	}
+
+	@Test
+	fun unsupportedCanonicalCoordinateVersionFailsClosedDuringDecode() {
+		assertFailsWith<IllegalArgumentException> {
+			decodeWhispersyncSidecar(
+				"""
+				{
+				  "coordinateBasis": {
+				    "extractor": "bindery-epub-text",
+				    "extractorVersion": "2",
+				    "normalization": "raw-extracted-text-offsets",
+				    "unit": "utf8-byte",
+				    "scope": "spine",
+				    "spines": [{
+				      "href": "OEBPS/Text/public-synthetic.xhtml",
+				      "spineIndex": 2,
+				      "sourceHash": "sha256:${"0".repeat(64)}",
+				      "extractedTextHash": "sha256:${"1".repeat(64)}",
+				      "byteLength": 14,
+				      "tokenCount": 2
+				    }]
+				  },
+				  "cues": [{
+				    "id": 1040,
+				    "audioHref": "Audio/public-synthetic.mp3",
+				    "audioStart": 1,
+				    "audioEnd": 2,
+				    "ebookHref": "OEBPS/Text/public-synthetic.xhtml",
+				    "spineIndex": 2,
+				    "ebookStart": 0,
+				    "ebookEnd": 14,
+				    "ebookText": "Synthetic text"
+				  }]
+				}
+				""".trimIndent()
+			)
+		}
+	}
+
+	@Test
+	fun canonicalOverlayConfirmationUsesRawSourceOrdinalAndStrongIdentity() {
+		val segment = WhispersyncSegment(
+			id = "public-canonical-cue",
+			audioResource = "Audio/public-synthetic.mp3",
+			startMs = 1_250L,
+			endMs = 2_750L,
+			textHref = "OEBPS/Text/public-synthetic.xhtml",
+			spineIndex = 2,
+			textStart = 14,
+			textEnd = 31,
+			sourceOrdinal = 7,
+			rawProvenanceId = "wordsync-v1-spine-2"
+		)
+		val timeline = WhispersyncTimeline(segments = listOf(segment))
+		val proof = segment.toReaderOverlayFragment()
+
+		assertEquals(7, timeline.sourceOrdinalFor(proof))
+		listOf(
+			proof.copy(wordBoundarySequence = null),
+			proof.copy(wordBoundarySequence = 8L),
+			proof.copy(resourceHref = "Audio/other.mp3"),
+			proof.copy(textHref = "OEBPS/Text/other.xhtml"),
+			proof.copy(rawProvenanceId = "wordsync-v1-spine-3"),
+			proof.copy(rawSpineIndex = 3),
+			proof.copy(rawByteStart = 15),
+			proof.copy(rawByteEnd = 32),
+			proof.copy(clipBeginSeconds = 1.251),
+			proof.copy(clipEndSeconds = 2.751)
+		).forEach { mismatch ->
+			assertNull(timeline.sourceOrdinalFor(mismatch))
+		}
+	}
+
+	@Test
+	fun legacyOverlayConfirmationKeepsDomOffsetMatching() {
+		val segment = WhispersyncSegment(
+			id = "legacy-cue",
+			audioResource = "Audio/legacy.mp3",
+			startMs = 500L,
+			endMs = 1_500L,
+			textHref = "Text/legacy.xhtml",
+			textStart = 4,
+			textEnd = 18,
+			sourceOrdinal = 3
+		)
+		val timeline = WhispersyncTimeline(segments = listOf(segment))
+
+		assertEquals(3, timeline.sourceOrdinalFor(segment.toReaderOverlayFragment()))
+		assertNull(
+			timeline.sourceOrdinalFor(
+				segment.toReaderOverlayFragment().copy(textStart = 5)
+			)
+		)
 	}
 
 	@Test

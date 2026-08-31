@@ -114,6 +114,7 @@ internal object ReaderEngineLogProjector {
 			is ReaderBridgeEvent.WhispersyncCueMapSeekRequested -> "whispersyncCueMapSeekRequested"
 			is ReaderBridgeEvent.WhispersyncCueMapHoldOutcome -> "whispersyncCueMapHoldOutcome"
 			is ReaderBridgeEvent.RawTextProvenanceStatusChanged -> "rawTextProvenanceStatus"
+			is ReaderBridgeEvent.WhispersyncCanonicalPreflightResult -> "whispersyncCanonicalPreflightResult"
 			is ReaderBridgeEvent.OverlayFragmentActive -> "overlayFragmentActive"
 			is ReaderBridgeEvent.OverlayFragmentInactive -> "overlayFragmentInactive"
 			is ReaderBridgeEvent.SearchResults -> "searchResults"

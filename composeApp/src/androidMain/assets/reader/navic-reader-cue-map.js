@@ -117,14 +117,12 @@ export class ReaderWhispersyncCueMapRuntime {
         return true
       }
       this.endHold(null)
-      this.installPresentation(presentation)
-      return true
+      return this.installPresentation(presentation)
     }
 
     this.deferredPresentation = null
     this.endHold('cancelled-generation-replacement')
-    this.installPresentation(presentation)
-    return true
+    return this.installPresentation(presentation)
   }
 
   installPresentation(presentation) {
@@ -152,7 +150,20 @@ export class ReaderWhispersyncCueMapRuntime {
         break
       }
     })
+    if (mapped.length !== presentation.cues.length) {
+      return this.rejectPresentation(presentation)
+    }
     mapped.sort(rangeOrder)
+    const decreasingSameSpine = mapped.some((item, index) => {
+      if (index === 0) return false
+      const previous = mapped[index - 1]
+      const sameSpine = item.content === previous.content || (
+        Number.isSafeInteger(Number(item.content?.index)) &&
+        Number(item.content?.index) === Number(previous.content?.index)
+      )
+      return sameSpine && item.sourceOrdinal < previous.sourceOrdinal
+    })
+    if (decreasingSameSpine) return this.rejectPresentation(presentation)
     mapped.forEach(item => this.paint(item))
     const markerReceipts = mapped.map(item => {
       let anchorReceipt = null
@@ -175,6 +186,16 @@ export class ReaderWhispersyncCueMapRuntime {
     }).filter(Boolean)
     this.markerReceipts = markerReceipts
     this.postRendered(mapped.map(item => item.sourceOrdinal), markerReceipts)
+    return true
+  }
+
+  rejectPresentation(presentation) {
+    this.clearMarkers()
+    this.postRendered([], [], presentation)
+    this.presentation = null
+    this.transportAcknowledgementPending = false
+    this.pendingSourceOrdinal = null
+    return false
   }
 
   flushDeferredPresentation(pendingSourceOrdinal = null) {
@@ -188,8 +209,7 @@ export class ReaderWhispersyncCueMapRuntime {
           requestedSourceOrdinal: pendingSourceOrdinal,
           transportAcknowledgementPending: true,
         }
-    this.installPresentation(presentation)
-    return true
+    return this.installPresentation(presentation)
   }
 
   clear() {

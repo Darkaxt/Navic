@@ -384,16 +384,23 @@ private fun ReaderControllerState.clearOverlayForShellCoverCommands(): List<Read
 		}
 	)
 
-private fun ReaderWhispersyncSessionState.forShellCoverPresentation(): ReaderWhispersyncSessionState =
-	copy(
+private fun ReaderWhispersyncSessionState.forShellCoverPresentation(): ReaderWhispersyncSessionState {
+	val canonicalTerminal = sidecar?.coordinateBasis != null &&
+		canonicalGenerationState != ReaderWhispersyncCanonicalGenerationState.Open
+	return copy(
 		sync = sync.rejectOverlay(null),
 		visibleTextRange = null,
 		pendingAudioSeek = null,
 		playbackIntent = ReaderWhispersyncPlaybackIntent.UserStopped,
-		transportPhase = ReaderWhispersyncTransportPhase.Unavailable,
+		transportPhase = if (canonicalTerminal) {
+			ReaderWhispersyncTransportPhase.Failed
+		} else {
+			ReaderWhispersyncTransportPhase.Unavailable
+		},
 		preparedVisibleTarget = null,
 		playbackStartPending = false,
 		stopResetPending = false,
 		pendingCausalIntent = null,
-		status = readerWhispersyncReadyStatus(timeline)
+		status = if (canonicalTerminal) status else readerWhispersyncReadyStatus(timeline)
 	)
+}

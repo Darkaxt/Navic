@@ -10,6 +10,44 @@ import kotlin.test.assertTrue
 
 class ReaderWhispersyncLifecycleReducerTest {
 	@Test
+	fun canonicalVisibleRangeFenceRequiresMatchingOverlappingRawAuthority() {
+		val fragment = ReaderOverlayFragment(
+			resourceHref = AudioHref,
+			coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+			textHref = TextHref,
+			rawProvenanceId = "wordsync-v1-spine-2",
+			rawSpineIndex = 2,
+			rawByteStart = 100,
+			rawByteEnd = 120
+		)
+		fun visibleRange(
+			rawProvenanceId: String? = "wordsync-v1-spine-2",
+			rawSpineIndex: Int? = 2,
+			rawByteStart: Int? = 110,
+			rawByteEnd: Int? = 130
+		) = ReaderWhispersyncVisibleTextRange(
+			textHref = TextHref,
+			visibleStart = 100,
+			visibleEnd = 110,
+			rawProvenanceId = rawProvenanceId,
+			rawSpineIndex = rawSpineIndex,
+			rawByteStart = rawByteStart,
+			rawByteEnd = rawByteEnd
+		)
+
+		assertFalse(fragment.isOutsideWhispersyncVisibleRange(visibleRange()))
+		assertTrue(fragment.isOutsideWhispersyncVisibleRange(visibleRange(rawByteStart = 120, rawByteEnd = 140)))
+		assertTrue(
+			fragment.isOutsideWhispersyncVisibleRange(
+				visibleRange(rawProvenanceId = null, rawSpineIndex = null, rawByteStart = null, rawByteEnd = null)
+			)
+		)
+		assertTrue(fragment.isOutsideWhispersyncVisibleRange(visibleRange(rawProvenanceId = "wordsync-v1-spine-9")))
+		assertTrue(fragment.isOutsideWhispersyncVisibleRange(visibleRange(rawSpineIndex = 9)))
+		assertTrue(fragment.isOutsideWhispersyncVisibleRange(visibleRange(rawByteStart = 130, rawByteEnd = 110)))
+	}
+
+	@Test
 	fun maintenanceVisibleRangePreparesFirstCueWithoutSeekingOrPainting() {
 		val step = loadedController().onEngineEvent(sourceVisibleRange())
 

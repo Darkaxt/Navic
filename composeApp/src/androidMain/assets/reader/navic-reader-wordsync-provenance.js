@@ -6,6 +6,7 @@ export const ReaderWordSyncV1ExtractedUtf8Mode = 'wordsync-v1-extracted-utf8'
 const ReaderRawSourceByteLimit = 16 * 1024 * 1024
 const CanonicalSha256 = /^sha256:[0-9a-f]{64}$/
 const WordTokenPattern = /[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)?/gu
+const UnicodeWordTokenPattern = /[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}]|['’](?=[\p{L}\p{N}]))*/gu
 const NumericEntityPattern = /&#(?:[xX][0-9A-Fa-f]+|[0-9]+);?/g
 const AsciiWhitespacePattern = /[\t\n\f\r ]+/g
 const ScriptOpeningTag = '<script'
@@ -581,13 +582,13 @@ export const extractBinderyV1Text = source => {
   return goTrimSpace(text)
 }
 
-const tokenizeExtractedText = text => {
+const tokenizeText = (text, pattern) => {
   const encoder = new TextEncoder()
   const tokens = []
   let characterIndex = 0
   let byteOffset = 0
-  WordTokenPattern.lastIndex = 0
-  for (const match of text.matchAll(WordTokenPattern)) {
+  pattern.lastIndex = 0
+  for (const match of text.matchAll(pattern)) {
     const start = match.index
     const end = start + match[0].length
     byteOffset += encoder.encode(text.slice(characterIndex, start)).length
@@ -599,6 +600,9 @@ const tokenizeExtractedText = text => {
   byteOffset += encoder.encode(text.slice(characterIndex)).length
   return { byteLength: byteOffset, tokens }
 }
+
+const tokenizeExtractedText = text => tokenizeText(text, WordTokenPattern)
+const tokenizeUnicodeText = text => tokenizeText(text, UnicodeWordTokenPattern)
 
 const nodeIsInExcludedElement = node => {
   let element = node?.nodeType === 1 ? node : node?.parentElement || node?.parentNode
@@ -621,30 +625,196 @@ const mutationCanChangeDocumentTokens = mutation => {
       (node?.nodeType === 1 || node?.nodeType === 3 || node?.nodeType === 4))
 }
 
-const tokenizeDocument = doc => {
-  const root = doc?.documentElement
-  if (!root || typeof doc.createTreeWalker !== 'function') return []
-  const showText = doc.defaultView?.NodeFilter?.SHOW_TEXT || 4
-  const walker = doc.createTreeWalker(root, showText)
-  const tokens = []
-  let node = walker.nextNode()
-  while (node) {
-    if (!textNodeIsExcluded(node)) {
-      const text = node.nodeValue || ''
-      WordTokenPattern.lastIndex = 0
-      for (const match of text.matchAll(WordTokenPattern)) {
-        tokens.push({
-          index: tokens.length,
-          text: match[0],
-          node,
-          startOffset: match.index,
-          endOffset: match.index + match[0].length,
-        })
-      }
-    }
-    node = walker.nextNode()
+const SelectedClosingElementNames = new Set([
+  'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'section', 'li',
+])
+
+const projectionPoint = (node, offset) => ({ node, offset })
+
+const appendProjectionText = (atoms, value, startPoint, endPoint) => {
+  for (let offset = 0; offset < value.length;) {
+    const codePoint = value.codePointAt(offset)
+    const width = codePoint > 0xffff ? 2 : 1
+    atoms.push({
+      text: value.slice(offset, offset + width),
+      startPoint: startPoint(offset),
+      endPoint: endPoint(offset + width),
+    })
+    offset += width
   }
-  return tokens
+}
+
+const appendSyntheticProjectionText = (atoms, value, startPoint, endPoint = startPoint) =>
+  appendProjectionText(atoms, value, () => startPoint, () => endPoint)
+
+const rawDomProjectionAtoms = doc => {
+  const root = doc?.documentElement
+  if (!root) return []
+  const atoms = []
+  const visit = node => {
+    if (node?.nodeType === 3 || node?.nodeType === 4) {
+      if (textNodeIsExcluded(node)) return
+      const value = node.nodeValue || ''
+      appendProjectionText(
+        atoms,
+        value,
+        offset => projectionPoint(node, offset),
+        offset => projectionPoint(node, offset)
+      )
+      return
+    }
+    if (node?.nodeType !== 1) {
+      const parent = node?.parentNode
+      if (!parent) return
+      const index = Array.prototype.indexOf.call(parent.childNodes || [], node)
+      if (index >= 0) {
+        appendSyntheticProjectionText(
+          atoms,
+          ' ',
+          projectionPoint(parent, index),
+          projectionPoint(parent, index + 1)
+        )
+      }
+      return
+    }
+    const name = String(node.localName || node.nodeName || '').toLowerCase()
+    const parent = node.parentNode
+    const siblingIndex = parent
+      ? Array.prototype.indexOf.call(parent.childNodes || [], node)
+      : -1
+    if (name === 'script' || name === 'style') {
+      const start = parent && siblingIndex >= 0
+        ? projectionPoint(parent, siblingIndex)
+        : projectionPoint(node, 0)
+      const end = parent && siblingIndex >= 0
+        ? projectionPoint(parent, siblingIndex + 1)
+        : projectionPoint(node, node.childNodes?.length || 0)
+      appendSyntheticProjectionText(atoms, ' ', start, end)
+      return
+    }
+    appendSyntheticProjectionText(atoms, ' ', projectionPoint(node, 0))
+    for (const child of Array.from(node.childNodes || [])) visit(child)
+    const closingPoint = projectionPoint(node, node.childNodes?.length || 0)
+    appendSyntheticProjectionText(
+      atoms,
+      SelectedClosingElementNames.has(name) ? '. ' : ' ',
+      closingPoint
+    )
+  }
+  visit(root)
+  return atoms
+}
+
+const asciiWhitespaceAtom = atom => /^[\t\n\f\r ]$/u.test(atom.text)
+
+const normalizeDomProjectionAtoms = (doc, extracted) => {
+  const rawAtoms = rawDomProjectionAtoms(doc)
+  const collapsed = []
+  for (let index = 0; index < rawAtoms.length;) {
+    const atom = rawAtoms[index]
+    if (!asciiWhitespaceAtom(atom)) {
+      collapsed.push(atom)
+      index += 1
+      continue
+    }
+    let endIndex = index + 1
+    while (endIndex < rawAtoms.length && asciiWhitespaceAtom(rawAtoms[endIndex])) endIndex += 1
+    collapsed.push({
+      text: ' ',
+      startPoint: atom.startPoint,
+      endPoint: rawAtoms[endIndex - 1].endPoint,
+    })
+    index = endIndex
+  }
+  let start = 0
+  let end = collapsed.length
+  while (start < end && isGoSpace(collapsed[start].text.codePointAt(0))) start += 1
+  while (end > start && isGoSpace(collapsed[end - 1].text.codePointAt(0))) end -= 1
+  let atoms = collapsed.slice(start, end)
+  const projected = atoms.map(atom => atom.text).join('')
+  if (projected !== extracted && extracted.endsWith(projected)) {
+    const prefix = extracted.slice(0, extracted.length - projected.length)
+    if (/^﻿ ?$/u.test(prefix)) {
+      const rootPoint = projectionPoint(doc.documentElement, 0)
+      const prefixAtoms = []
+      appendSyntheticProjectionText(prefixAtoms, prefix, rootPoint)
+      atoms = prefixAtoms.concat(atoms)
+    }
+  }
+  return atoms
+}
+
+const setPointByte = (byNode, point, byteOffset, preferMaximum) => {
+  let byOffset = byNode.get(point.node)
+  if (!byOffset) {
+    byOffset = new Map()
+    byNode.set(point.node, byOffset)
+  }
+  const previous = byOffset.get(point.offset)
+  if (previous == null || (preferMaximum ? byteOffset > previous : byteOffset < previous)) {
+    byOffset.set(point.offset, byteOffset)
+  }
+}
+
+const exactDomProjection = (doc, extracted) => {
+  const atoms = normalizeDomProjectionAtoms(doc, extracted)
+  if (atoms.map(atom => atom.text).join('') !== extracted) return null
+  const encoder = new TextEncoder()
+  const startPointByByte = new Map()
+  const endPointByByte = new Map()
+  const startByteByNode = new Map()
+  const endByteByNode = new Map()
+  let byteOffset = 0
+  for (const atom of atoms) {
+    const byteStart = byteOffset
+    const byteEnd = byteStart + encoder.encode(atom.text).length
+    atom.byteStart = byteStart
+    atom.byteEnd = byteEnd
+    if (!startPointByByte.has(byteStart)) startPointByByte.set(byteStart, atom.startPoint)
+    endPointByByte.set(byteEnd, atom.endPoint)
+    setPointByte(startByteByNode, atom.startPoint, byteStart, false)
+    setPointByte(endByteByNode, atom.endPoint, byteEnd, true)
+    byteOffset = byteEnd
+  }
+  const atomByteStarts = Object.freeze(atoms.map(atom => atom.byteStart))
+  return {
+    atoms,
+    atomByteStarts,
+    byteLength: byteOffset,
+    startPointByByte,
+    endPointByByte,
+    startByteByNode,
+    endByteByNode,
+  }
+}
+
+const pointByte = (byNode, node, offset) => byNode.get(node)?.get(offset)
+
+const projectionAtomIndexForByteStart = (projection, byteStart) => {
+  let low = 0
+  let high = projection.atomByteStarts.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (projection.atomByteStarts[middle] < byteStart) low = middle + 1
+    else high = middle
+  }
+  return projection.atomByteStarts[low] === byteStart ? low : -1
+}
+
+const projectionTextForByteRange = (projection, byteStart, byteEnd) => {
+  if (!nonNegativeInteger(byteStart) || !nonNegativeInteger(byteEnd) || byteEnd <= byteStart) return null
+  const startIndex = projectionAtomIndexForByteStart(projection, byteStart)
+  if (startIndex < 0) return null
+  let cursor = byteStart
+  let text = ''
+  for (let index = startIndex; index < projection.atoms.length; index += 1) {
+    const atom = projection.atoms[index]
+    if (atom.byteStart >= byteEnd) break
+    if (atom.byteStart !== cursor || atom.byteEnd > byteEnd) return null
+    text += atom.text
+    cursor = atom.byteEnd
+  }
+  return cursor === byteEnd ? text : null
 }
 
 const sha256 = async bytes => {
@@ -798,35 +968,44 @@ export class ReaderWordSyncProvenanceStore {
       this.postRejectedIfCurrent(descriptor, attempt, 'token-count-mismatch')
       return false
     }
-    const domTokens = tokenizeDocument(content.doc)
-    if (domTokens.length !== descriptor.tokenCount) {
-      this.postRejectedIfCurrent(descriptor, attempt, 'token-count-mismatch')
-      return false
-    }
-    if (domTokens.some((token, index) => token.text !== sourceTokenization.tokens[index].text)) {
+    const projection = exactDomProjection(content.doc, extracted)
+    if (!projection || projection.byteLength !== descriptor.byteLength) {
       this.postRejectedIfCurrent(descriptor, attempt, 'token-sequence-mismatch')
       return false
     }
+    const projectedTokenization = tokenizeExtractedText(
+      projection.atoms.map(atom => atom.text).join('')
+    )
+    if (projectedTokenization.tokens.length !== descriptor.tokenCount) {
+      this.postRejectedIfCurrent(descriptor, attempt, 'token-count-mismatch')
+      return false
+    }
     if (!this.isCurrentAttempt(descriptor, attempt)) return false
-    const tokens = sourceTokenization.tokens.map((sourceToken, index) => ({
-      ...sourceToken,
-      ...domTokens[index],
-      index,
-    }))
-    const tokensByNode = new Map()
-    for (const token of tokens) {
-      const nodeTokens = tokensByNode.get(token.node)
-      if (nodeTokens) nodeTokens.push(token)
-      else tokensByNode.set(token.node, [token])
+    const tokens = sourceTokenization.tokens.map(sourceToken => {
+      const startPoint = projection.startPointByByte.get(sourceToken.byteStart)
+      const endPoint = projection.endPointByByte.get(sourceToken.byteEnd)
+      return startPoint && endPoint
+        ? { ...sourceToken, startPoint, endPoint }
+        : null
+    })
+    const progressTokens = tokenizeUnicodeText(extracted).tokens.map(sourceToken => {
+      const startPoint = projection.startPointByByte.get(sourceToken.byteStart)
+      const endPoint = projection.endPointByByte.get(sourceToken.byteEnd)
+      return startPoint && endPoint
+        ? { ...sourceToken, startPoint, endPoint }
+        : null
+    })
+    if (tokens.some(token => token == null) || progressTokens.some(token => token == null)) {
+      this.postRejectedIfCurrent(descriptor, attempt, 'token-sequence-mismatch')
+      return false
     }
     const ready = {
       descriptor,
       mapping,
       doc: content.doc,
+      projection,
       tokens,
-      tokensByNode,
-      tokenByByteStart: new Map(tokens.map(token => [token.byteStart, token])),
-      tokenByByteEnd: new Map(tokens.map(token => [token.byteEnd, token])),
+      progressTokens,
       valid: true,
       observer: null,
     }
@@ -848,37 +1027,118 @@ export class ReaderWordSyncProvenanceStore {
     return true
   }
 
+  validateCanonicalCues(cues) {
+    if (!Array.isArray(cues) || cues.length === 0) {
+      return { status: 'rejected', reason: 'invalid-cue' }
+    }
+    let previous = null
+    for (const cue of cues) {
+      const sourceOrdinal = Number(cue?.sourceOrdinal)
+      const locator = typeof cue?.ebookText === 'string' ? cue.ebookText : ''
+      if (
+        !Number.isSafeInteger(sourceOrdinal) || sourceOrdinal < 0 ||
+        cue?.coordinateMode !== ReaderWordSyncV1ExtractedUtf8Mode ||
+        !exactNonBlankString(cue?.textHref) ||
+        !exactNonBlankString(cue?.rawProvenanceId) ||
+        !nonNegativeInteger(cue?.rawSpineIndex) ||
+        !nonNegativeInteger(cue?.rawByteStart) ||
+        !nonNegativeInteger(cue?.rawByteEnd) || cue.rawByteEnd <= cue.rawByteStart ||
+        !locator.trim()
+      ) return { status: 'rejected', reason: 'invalid-cue' }
+      const ready = this.currentReady(cue.rawProvenanceId)
+      if (!ready || cue.textHref !== ready.descriptor.href ||
+        cue.rawSpineIndex !== ready.descriptor.spineIndex) {
+        return { status: 'rejected', reason: 'provenance-unavailable' }
+      }
+      const range = this.resolveRange({ ...cue, ebookText: undefined })
+      if (!range || range.collapsed || !this.resolvedRangeMatchesText(range, locator, cue)) {
+        return { status: 'rejected', reason: 'slice-mismatch' }
+      }
+      if (previous) {
+        const sameDocument = range.startContainer?.ownerDocument ===
+          previous.range.startContainer?.ownerDocument
+        let domDecreased = true
+        if (sameDocument) {
+          try {
+            const RangeClass = range.startContainer.ownerDocument.defaultView?.Range || globalThis.Range
+            domDecreased = range.compareBoundaryPoints(
+              RangeClass.START_TO_START,
+              previous.range
+            ) < 0
+          } catch (_) {
+            domDecreased = true
+          }
+        }
+        if (
+          sourceOrdinal <= previous.sourceOrdinal ||
+          cue.rawByteStart < previous.rawByteStart ||
+          domDecreased
+        ) return { status: 'rejected', reason: 'non-monotonic' }
+      }
+      previous = { sourceOrdinal, rawByteStart: cue.rawByteStart, range }
+    }
+    return { status: 'ready' }
+  }
+
   resolveRange(fragment, { applyProgress = false } = {}) {
     if (validatedReaderOverlayCoordinateMode(fragment) !== ReaderWordSyncV1ExtractedUtf8Mode) return null
     const ready = this.currentReady(fragment.rawProvenanceId)
     if (!ready || fragment.textHref !== ready.descriptor.href ||
       fragment.rawSpineIndex !== ready.descriptor.spineIndex) return null
-    const startToken = ready.tokenByByteStart.get(fragment.rawByteStart)
-    const fullEndToken = ready.tokenByByteEnd.get(fragment.rawByteEnd)
-    if (!startToken || !fullEndToken || fullEndToken.index < startToken.index) return null
-    let endToken = fullEndToken
+    const startPoint = ready.projection.startPointByByte.get(fragment.rawByteStart)
+    const fullEndPoint = ready.projection.endPointByByte.get(fragment.rawByteEnd)
+    if (!startPoint || !fullEndPoint) return null
+    let endPoint = fullEndPoint
     if (hasValue(fragment, 'rawProgressByteEnd')) {
-      const progressToken = ready.tokenByByteEnd.get(fragment.rawProgressByteEnd)
-      if (!progressToken || progressToken.index < startToken.index ||
-        progressToken.index > fullEndToken.index) return null
-      if (applyProgress) endToken = progressToken
+      const progressPoint = ready.projection.endPointByByte.get(fragment.rawProgressByteEnd)
+      if (!progressPoint) return null
+      if (applyProgress) endPoint = progressPoint
     } else if (applyProgress && hasValue(fragment, 'rawProgressFraction')) {
-      const tokenCount = fullEndToken.index - startToken.index + 1
+      const includedTokens = ready.progressTokens.filter(token =>
+        token.byteEnd > fragment.rawByteStart && token.byteStart < fragment.rawByteEnd)
+      if (includedTokens.length === 0) return null
       const progressedTokenCount = Math.max(
         1,
-        Math.min(tokenCount, Math.ceil(tokenCount * fragment.rawProgressFraction))
+        Math.min(
+          includedTokens.length,
+          Math.ceil(includedTokens.length * fragment.rawProgressFraction)
+        )
       )
-      endToken = ready.tokens[startToken.index + progressedTokenCount - 1]
+      const progressToken = includedTokens[progressedTokenCount - 1]
+      endPoint = progressToken.endPoint
     }
     const range = ready.doc.createRange()
     try {
-      range.setStart(startToken.node, startToken.startOffset)
-      range.setEnd(endToken.node, endToken.endOffset)
+      range.setStart(startPoint.node, startPoint.offset)
+      range.setEnd(endPoint.node, endPoint.offset)
     } catch (_) {
       this.invalidateDocument(fragment.rawProvenanceId, ready)
       return null
     }
     return range.collapsed ? null : range
+  }
+
+  resolvedRangeMatchesText(range, expectedText, fragment) {
+    if (!range || range.collapsed || typeof expectedText !== 'string' || !expectedText.trim()) return false
+    const ready = this.readyForRange(range)
+    if (!ready || fragment?.rawProvenanceId !== ready.descriptor.id ||
+      fragment?.textHref !== ready.descriptor.href ||
+      fragment?.rawSpineIndex !== ready.descriptor.spineIndex) return false
+    const startPoint = ready.projection.startPointByByte.get(fragment.rawByteStart)
+    const endPoint = ready.projection.endPointByByte.get(fragment.rawByteEnd)
+    if (!startPoint || !endPoint ||
+      range.startContainer !== startPoint.node || range.startOffset !== startPoint.offset ||
+      range.endContainer !== endPoint.node || range.endOffset !== endPoint.offset) return false
+    const projectedText = projectionTextForByteRange(
+      ready.projection,
+      fragment.rawByteStart,
+      fragment.rawByteEnd
+    )
+    if (projectedText == null) return false
+    const actualTokens = tokenizeUnicodeText(projectedText).tokens
+    const expectedTokens = tokenizeUnicodeText(expectedText).tokens
+    return actualTokens.length > 0 && actualTokens.length === expectedTokens.length &&
+      actualTokens.every((token, index) => token.text === expectedTokens[index].text)
   }
 
   paint(fragment, contents, { overlayKey = 'navic-media-overlay-active', draw, options } = {}) {
@@ -913,71 +1173,42 @@ export class ReaderWordSyncProvenanceStore {
 
   rawFieldsForRange(range) {
     const ready = this.readyForRange(range)
-    if (!ready || range.collapsed || !ready.tokens.length) return null
-    const RangeClass = ready.doc.defaultView?.Range || globalThis.Range
-    const startBoundary = ready.doc.createRange()
-    const endBoundary = ready.doc.createRange()
-    const tokenPoint = ready.doc.createRange()
-    try {
-      startBoundary.setStart(range.startContainer, range.startOffset)
-      startBoundary.collapse(true)
-      endBoundary.setStart(range.endContainer, range.endOffset)
-      endBoundary.collapse(true)
-      const compareTokenPoint = (token, offset, boundary) => {
-        tokenPoint.setStart(token.node, offset)
-        tokenPoint.collapse(true)
-        return tokenPoint.compareBoundaryPoints(RangeClass.START_TO_START, boundary)
-      }
-      let low = 0
-      let high = ready.tokens.length
-      while (low < high) {
-        const middle = Math.floor((low + high) / 2)
-        const token = ready.tokens[middle]
-        if (compareTokenPoint(token, token.endOffset, startBoundary) > 0) high = middle
-        else low = middle + 1
-      }
-      const start = ready.tokens[low]
-      low = 0
-      high = ready.tokens.length
-      while (low < high) {
-        const middle = Math.floor((low + high) / 2)
-        const token = ready.tokens[middle]
-        if (compareTokenPoint(token, token.startOffset, endBoundary) < 0) low = middle + 1
-        else high = middle
-      }
-      const end = ready.tokens[low - 1]
-      if (!start || !end || end.index < start.index) return null
-      return {
-        rawProvenanceId: ready.descriptor.id,
-        rawSpineIndex: ready.descriptor.spineIndex,
-        rawByteStart: start.byteStart,
-        rawByteEnd: end.byteEnd,
-      }
-    } catch (_) {
-      return null
-    } finally {
-      startBoundary.detach?.()
-      endBoundary.detach?.()
-      tokenPoint.detach?.()
+    if (!ready || range.collapsed) return null
+    const rawByteStart = pointByte(
+      ready.projection.startByteByNode,
+      range.startContainer,
+      range.startOffset
+    )
+    const rawByteEnd = pointByte(
+      ready.projection.endByteByNode,
+      range.endContainer,
+      range.endOffset
+    )
+    if (!nonNegativeInteger(rawByteStart) || !nonNegativeInteger(rawByteEnd) ||
+      rawByteEnd <= rawByteStart) return null
+    return {
+      rawProvenanceId: ready.descriptor.id,
+      rawSpineIndex: ready.descriptor.spineIndex,
+      rawByteStart,
+      rawByteEnd,
     }
   }
 
   rawFieldsForPoint(range) {
     const ready = this.readyForRange(range)
     if (!ready || !range.collapsed) return null
-    const nodeTokens = ready.tokensByNode.get(range.startContainer) || []
-    let low = 0
-    let high = nodeTokens.length
-    while (low < high) {
-      const middle = Math.floor((low + high) / 2)
-      if (nodeTokens[middle].startOffset <= range.startOffset) low = middle + 1
-      else high = middle
-    }
-    const token = nodeTokens[low - 1]
-    if (!token || range.startOffset > token.endOffset) return null
-    const prefix = (token.node.nodeValue || '').slice(token.startOffset, range.startOffset)
-    const rawByteOffset = token.byteStart + new TextEncoder().encode(prefix).length
-    if (rawByteOffset > token.byteEnd) return null
+    const startByte = pointByte(
+      ready.projection.startByteByNode,
+      range.startContainer,
+      range.startOffset
+    )
+    const endByte = pointByte(
+      ready.projection.endByteByNode,
+      range.startContainer,
+      range.startOffset
+    )
+    const rawByteOffset = startByte ?? endByte
+    if (!nonNegativeInteger(rawByteOffset)) return null
     return { rawProvenanceId: ready.descriptor.id, rawByteOffset }
   }
 

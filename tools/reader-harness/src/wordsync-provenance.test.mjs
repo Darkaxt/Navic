@@ -223,6 +223,8 @@ const runScenario = (page, scenario) => page.evaluate(async scenarioName => {
       expectedStart: dontStart,
       expectedEnd: stopEnd,
       expectedPoint: sourceByte(extracted.indexOf('stop')),
+      expectedArbitraryStart: sourceByte(extracted.indexOf('Don’t') + 2),
+      expectedArbitraryEnd: sourceByte(extracted.indexOf('stop') + 2),
       expectedArbitraryPoint: sourceByte(extracted.indexOf('stop') + 2),
     }
   }
@@ -439,6 +441,207 @@ const runScenario = (page, scenario) => page.evaluate(async scenarioName => {
       globalThis.DOMParser = OriginalDOMParser
     }
     return { escaped, installed, finalStatus: statuses.at(-1) }
+  }
+
+  if (scenarioName === 'canonical-preflight') {
+    const doc = createDocument()
+    const { paints, contents } = makeContents(doc)
+    const statuses = []
+    const store = makeStore(statuses)
+    await store.install(descriptor, book, contents)
+    const stopStart = sourceByte(extracted.indexOf('stop'))
+    const cue = (sourceOrdinal, rawByteStart, rawByteEnd, ebookText) => ({
+      sourceOrdinal,
+      coordinateMode: 'wordsync-v1-extracted-utf8',
+      textHref: href,
+      rawProvenanceId: descriptor.id,
+      rawSpineIndex: descriptor.spineIndex,
+      rawByteStart,
+      rawByteEnd,
+      ebookText,
+    })
+    const first = cue(3, dontStart, dontEnd, 'Don’t')
+    const second = cue(4, stopStart, stopEnd, 'stop')
+    return {
+      success: store.validateCanonicalCues([first, second]),
+      sliceMismatch: store.validateCanonicalCues([
+        first,
+        { ...second, ebookText: 'halt' },
+      ]),
+      monotonicInversion: store.validateCanonicalCues([
+        { ...second, sourceOrdinal: 3 },
+        { ...first, sourceOrdinal: 4 },
+      ]),
+      paintCount: paints.length,
+    }
+  }
+
+  if (scenarioName === 'exact-boundary-authority') {
+    const unicodeRaw = '<html xmlns="http://www.w3.org/1999/xhtml"><body>' +
+      '<p>Café</p><p>Café</p><p>After</p><p>therapist</p></body></html>'
+    const unicodeExtracted = 'Café. Café. After. therapist.'
+    const unicodeHref = 'OPS/Text/unicode.xhtml'
+    const unicodeSourceByte = characterIndex =>
+      encoder.encode(unicodeExtracted.slice(0, characterIndex)).length
+    const composedStart = unicodeSourceByte(unicodeExtracted.indexOf('Café'))
+    const composedEnd = unicodeSourceByte(unicodeExtracted.indexOf('Café') + 'Café'.length)
+    const composedSeparatorEnd = unicodeSourceByte(unicodeExtracted.indexOf('Café'))
+    const decomposedStart = composedSeparatorEnd
+    const decomposedEnd = unicodeSourceByte(unicodeExtracted.indexOf('Café') + 'Café'.length)
+    const decomposedSeparatorEnd = unicodeSourceByte(unicodeExtracted.indexOf('After'))
+    const therapistStart = unicodeSourceByte(unicodeExtracted.indexOf('therapist'))
+    const therapistEnd = unicodeSourceByte(unicodeExtracted.indexOf('therapist') + 'therapist'.length)
+    const unicodeDescriptor = {
+      id: 'unicode-raw-1',
+      href: unicodeHref,
+      spineIndex: 0,
+      sourceHash: await taggedHash(encoder.encode(unicodeRaw)),
+      extractedTextHash: await taggedHash(encoder.encode(unicodeExtracted)),
+      byteLength: encoder.encode(unicodeExtracted).length,
+      tokenCount: 4,
+    }
+    const unicodeDoc = new DOMParser().parseFromString(unicodeRaw, 'application/xhtml+xml')
+    const paragraphs = unicodeDoc.querySelectorAll('p')
+    paragraphs[0].firstChild.splitText(3)
+    paragraphs[1].firstChild.splitText(4)
+    const unicodeBook = {
+      resources: {
+        spine: [{ idref: 'unicode' }],
+        getItemByID: id => id === 'unicode' ? { href: unicodeHref } : null,
+      },
+      sections: [{ id: unicodeHref }],
+      async loadBlob(requestHref) {
+        if (requestHref !== unicodeHref) throw new Error('unexpected href')
+        return new Blob([encoder.encode(unicodeRaw)], { type: 'application/xhtml+xml' })
+      },
+    }
+    const unicodePaints = []
+    const unicodeContents = [{
+      index: 0,
+      doc: unicodeDoc,
+      overlayer: {
+        add(key, range) {
+          unicodePaints.push({ key, text: range.toString(), range })
+        },
+      },
+    }]
+    const unicodeStatuses = []
+    const unicodeStore = makeStore(unicodeStatuses)
+    await unicodeStore.install(unicodeDescriptor, unicodeBook, unicodeContents)
+    const unicodeFragment = (rawByteStart, rawByteEnd) => ({
+      resourceHref: 'Audio/unicode.mp3',
+      coordinateMode: 'wordsync-v1-extracted-utf8',
+      textHref: unicodeHref,
+      rawProvenanceId: unicodeDescriptor.id,
+      rawSpineIndex: unicodeDescriptor.spineIndex,
+      rawByteStart,
+      rawByteEnd,
+    })
+    const cases = [
+      {
+        name: 'composed',
+        fragment: unicodeFragment(composedStart, composedEnd),
+        locator: 'Café',
+        expectedText: 'Café',
+      },
+      {
+        name: 'decomposed',
+        fragment: unicodeFragment(decomposedStart, decomposedEnd),
+        locator: 'Café',
+        expectedText: 'Café',
+      },
+      {
+        name: 'punctuation-expanded',
+        fragment: unicodeFragment(composedStart, composedSeparatorEnd),
+        locator: 'Café',
+        expectedText: 'Café',
+      },
+      {
+        name: 'synthetic-separator',
+        fragment: unicodeFragment(composedStart, decomposedSeparatorEnd),
+        locator: 'Café Café',
+        expectedText: 'CaféCafé',
+      },
+    ]
+    const results = []
+    for (const [index, entry] of cases.entries()) {
+      const range = unicodeStore.resolveRange(entry.fragment)
+      const preflight = unicodeStore.validateCanonicalCues([{
+        sourceOrdinal: index,
+        ...entry.fragment,
+        ebookText: entry.locator,
+      }])
+      const painted = unicodeStore.paint(entry.fragment, unicodeContents, {
+        overlayKey: `unicode-${entry.name}`,
+      })
+      const paintedRange = unicodePaints.at(-1)?.range || null
+      results.push({
+        name: entry.name,
+        expectedText: entry.expectedText,
+        resolvedText: range?.toString() || null,
+        preflight,
+        painted,
+        paintedText: painted ? unicodePaints.at(-1)?.text || null : null,
+        visibleInverse: range ? unicodeStore.rawFieldsForRange(range) : null,
+        paintedInverse: paintedRange ? unicodeStore.rawFieldsForRange(paintedRange) : null,
+      })
+    }
+    const composedProgressFragment = {
+      ...cases[0].fragment,
+      rawProgressFraction: 0.5,
+    }
+    const composedProgressPainted = unicodeStore.paint(
+      composedProgressFragment,
+      unicodeContents,
+      { overlayKey: 'unicode-composed-progress' }
+    )
+    const accentMismatch = unicodeStore.validateCanonicalCues([{
+      sourceOrdinal: 0,
+      ...cases[0].fragment,
+      ebookText: 'Cafè',
+    }])
+    const readyProjection = unicodeStore.readyById.get(unicodeDescriptor.id).projection
+    const lateAtomIndex = readyProjection.atoms.findIndex(atom => atom.byteStart === therapistStart)
+    let prefixAtomVisits = 0
+    readyProjection.atoms = new Proxy(readyProjection.atoms, {
+      get(target, property, receiver) {
+        if (typeof property === 'string' && /^(0|[1-9][0-9]*)$/u.test(property) &&
+          Number(property) < lateAtomIndex) {
+          prefixAtomVisits += 1
+        }
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    const latePreflight = unicodeStore.validateCanonicalCues([{
+      sourceOrdinal: 0,
+      ...unicodeFragment(therapistStart, therapistEnd),
+      ebookText: 'therapist',
+    }])
+    const boundaryCollision = unicodeStore.validateCanonicalCues([{
+      sourceOrdinal: 0,
+      ...unicodeFragment(therapistStart, therapistEnd),
+      ebookText: 'the rapist',
+    }])
+    const composedEndNode = paragraphs[0].lastChild
+    const composedPoint = unicodeDoc.createRange()
+    composedPoint.setStart(composedEndNode, composedEndNode.nodeValue.length)
+    composedPoint.collapse(true)
+    return {
+      finalStatus: unicodeStatuses.at(-1),
+      results,
+      composedProgressPainted,
+      composedProgressPaintedText: composedProgressPainted
+        ? unicodePaints.at(-1)?.text || null
+        : null,
+      accentMismatch,
+      latePreflight,
+      latePrefixAtomVisits: prefixAtomVisits,
+      boundaryCollision,
+      composedEndInSplitNode: unicodeStore.resolveRange(cases[0].fragment)?.endContainer ===
+        composedEndNode,
+      composedPoint: unicodeStore.rawFieldsForPoint(composedPoint),
+      expectedComposedPoint: composedEnd,
+    }
   }
 
   if (scenarioName === 'routing') {
@@ -1417,6 +1620,76 @@ test('loads the first physical duplicate ZIP entry like Bindery v1', async () =>
   }
 })
 
+test('uses one exact Unicode and synthetic-separator boundary authority for preflight paint and inverse', async () => {
+  const page = await newReaderPage()
+  try {
+    const result = await runScenario(page, 'exact-boundary-authority')
+    assert.deepEqual(result.finalStatus, {
+      type: 'rawTextProvenanceStatus',
+      provenanceId: 'unicode-raw-1',
+      status: 'ready',
+    })
+    for (const entry of result.results) {
+      assert.deepEqual(entry.preflight, { status: 'ready' }, entry.name)
+      assert.equal(entry.resolvedText, entry.expectedText, entry.name)
+      assert.equal(entry.painted, true, entry.name)
+      assert.equal(entry.paintedText, entry.expectedText, entry.name)
+      const expected = {
+        rawProvenanceId: 'unicode-raw-1',
+        rawSpineIndex: 0,
+        rawByteStart: entry.visibleInverse?.rawByteStart,
+        rawByteEnd: entry.visibleInverse?.rawByteEnd,
+      }
+      assert.deepEqual(entry.paintedInverse, expected, entry.name)
+      assert.ok(entry.visibleInverse?.rawByteEnd > entry.visibleInverse?.rawByteStart, entry.name)
+    }
+    assert.deepEqual(
+      result.results.map(entry => [
+        entry.visibleInverse.rawByteStart,
+        entry.visibleInverse.rawByteEnd,
+      ]),
+      [
+        [0, 5],
+        [7, 13],
+        [0, 7],
+        [0, 15],
+      ]
+    )
+    assert.equal(result.composedProgressPainted, true)
+    assert.equal(result.composedProgressPaintedText, 'Café')
+    assert.deepEqual(result.accentMismatch, { status: 'rejected', reason: 'slice-mismatch' })
+    assert.deepEqual(result.latePreflight, { status: 'ready' })
+    assert.equal(result.latePrefixAtomVisits, 0)
+    assert.deepEqual(result.boundaryCollision, { status: 'rejected', reason: 'slice-mismatch' })
+    assert.equal(result.composedEndInSplitNode, true)
+    assert.deepEqual(result.composedPoint, {
+      rawProvenanceId: 'unicode-raw-1',
+      rawByteOffset: result.expectedComposedPoint,
+    })
+  } finally {
+    await page.close()
+  }
+})
+
+test('preflights every canonical cue through the provenance mapper without painting', async () => {
+  const page = await newReaderPage()
+  try {
+    const result = await runScenario(page, 'canonical-preflight')
+    assert.deepEqual(result.success, { status: 'ready' })
+    assert.deepEqual(result.sliceMismatch, {
+      status: 'rejected',
+      reason: 'slice-mismatch',
+    })
+    assert.deepEqual(result.monotonicInversion, {
+      status: 'rejected',
+      reason: 'non-monotonic',
+    })
+    assert.equal(result.paintCount, 0)
+  } finally {
+    await page.close()
+  }
+})
+
 test('maps verified extracted UTF-8 token bytes to exact split DOM ranges and inverse coordinates', async () => {
   const page = await newReaderPage()
   try {
@@ -1440,8 +1713,8 @@ test('maps verified extracted UTF-8 token bytes to exact split DOM ranges and in
     assert.deepEqual(result.arbitraryInverse, {
       rawProvenanceId: 'chapter-raw-1',
       rawSpineIndex: 2,
-      rawByteStart: result.expectedStart,
-      rawByteEnd: result.expectedEnd,
+      rawByteStart: result.expectedArbitraryStart,
+      rawByteEnd: result.expectedArbitraryEnd,
     })
     assert.ok(result.inverseRangeAllocations <= 3)
     assert.deepEqual(result.arbitraryPointInverse, {
@@ -1493,12 +1766,12 @@ test('rejects exact source, extracted hash, href, and original spine mismatches 
   }
 })
 
-test('rejects non-token bytes, DOM mutation, and stale document generations', async () => {
+test('rejects partial UTF-8 code points, DOM mutation, and stale document generations', async () => {
   const page = await newReaderPage()
   try {
     const result = await runScenario(page, 'fail-closed')
     assert.equal(result.middleOfCodePoint, false)
-    assert.equal(result.nonTokenBoundary, false)
+    assert.equal(result.nonTokenBoundary, true)
     assert.equal(result.afterStyleMutation, true)
     assert.equal(result.styleMutationStatus.status, 'ready')
     assert.equal(result.afterMutation, false)

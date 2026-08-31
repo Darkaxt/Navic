@@ -231,83 +231,30 @@ export const readerMediaOverlayEbookTextCandidates = ebookText => {
   return candidates
 }
 
-export const readerMediaOverlayResolvedTextRange = (normalizedMap, textStart, textEnd, ebookText) => {
+export const readerMediaOverlayResolvedTextRange = (normalizedMap, _textStart, _textEnd, ebookText) => {
   const map = Array.isArray(normalizedMap) ? readerMediaOverlayNormalizedTextMap(normalizedMap) : (normalizedMap || {})
   const mapLength = map.text?.length || 0
-  const requestedStart = Number.isFinite(Number(textStart)) ? Number(textStart) : 0
-  const requestedEnd = Number.isFinite(Number(textEnd)) ? Number(textEnd) : requestedStart
-  const fallbackStart = Math.max(0, Math.min(mapLength, Math.floor(requestedStart)))
-  const fallbackEnd = Math.max(fallbackStart, Math.min(mapLength, Math.ceil(requestedEnd)))
-  const fallbackRawStart = readerMediaOverlayRawOffsetForNormalizedOffset(map, fallbackStart, 'start')
-  const fallbackRawEnd = readerMediaOverlayRawOffsetForNormalizedOffset(map, fallbackEnd, 'end')
-  const fallback = {
-    textStart: fallbackRawStart,
-    textEnd: Math.max(fallbackRawStart, fallbackRawEnd),
-    normalizedTextStart: fallbackStart,
-    normalizedTextEnd: fallbackEnd,
-    matched: false,
-    locator: 'offset',
-  }
   const locatorText = String(ebookText || '').trim()
-  if (!mapLength || !locatorText || fallbackEnd <= fallbackStart) return fallback
-  const fallbackLength = fallbackEnd - fallbackStart
-  const searchPadding = Math.max(
-    ReaderMediaOverlayTextSearchPaddingMinimum,
-    fallbackLength * 2,
-    locatorText.length * 2
-  )
-  const searchStart = Math.max(0, fallbackStart - searchPadding)
-  const searchEnd = Math.min(mapLength, fallbackEnd + searchPadding)
-  const searchText = map.text.slice(searchStart, searchEnd)
-  const candidates = readerMediaOverlayEbookTextCandidates(locatorText)
-  if (!searchText || !candidates.length) return fallback
-  const preferredCenter = (fallbackStart + fallbackEnd) / 2
-  const preferredCenterInSearch = preferredCenter - searchStart
-  let match = null
-  let matchedCandidate = null
-  for (const candidate of candidates.filter(candidate => candidate.priority === 0)) {
-    const candidateMatch = readerMediaOverlayClosestTextMatch(
-      searchText,
-      candidate.text,
-      preferredCenterInSearch
-    )
-    if (candidateMatch) {
-      match = candidateMatch
-      matchedCandidate = candidate
-      break
-    }
+  const candidate = readerMediaOverlayEbookTextCandidates(locatorText)
+    .find(current => current.priority === 0)
+  if (!mapLength || !candidate?.text) return null
+  const normalizedTextStart = map.text.indexOf(candidate.text)
+  if (normalizedTextStart < 0 || map.text.indexOf(candidate.text, normalizedTextStart + 1) >= 0) {
+    return null
   }
-  if (!match) {
-    for (const candidate of candidates.filter(candidate => candidate.priority > 0)) {
-      const candidateMatch = readerMediaOverlayClosestTextMatch(
-        searchText,
-        candidate.text,
-        preferredCenterInSearch
-      )
-      if (!candidateMatch) continue
-      if (
-        !match ||
-          candidate.text.length > matchedCandidate.text.length ||
-          (candidate.text.length === matchedCandidate.text.length && candidateMatch.centerDistance < match.centerDistance)
-      ) {
-        match = candidateMatch
-        matchedCandidate = candidate
-      }
-    }
-  }
-  if (!match || !matchedCandidate) return fallback
-  const normalizedTextStart = searchStart + match.normalizedTextStart
-  const normalizedTextEnd = searchStart + match.normalizedTextEnd
+  const normalizedTextEnd = normalizedTextStart + candidate.text.length
   const resolvedStart = readerMediaOverlayRawOffsetForNormalizedOffset(map, normalizedTextStart, 'start')
   const resolvedEnd = readerMediaOverlayRawOffsetForNormalizedOffset(map, normalizedTextEnd, 'end')
-  if (!Number.isFinite(resolvedStart) || !Number.isFinite(resolvedEnd) || resolvedEnd <= resolvedStart) return fallback
+  if (!Number.isFinite(resolvedStart) || !Number.isFinite(resolvedEnd) || resolvedEnd <= resolvedStart) {
+    return null
+  }
   return {
     textStart: resolvedStart,
     textEnd: resolvedEnd,
     normalizedTextStart,
     normalizedTextEnd,
     matched: true,
-    locator: matchedCandidate.locator,
+    locator: candidate.locator,
   }
 }
 

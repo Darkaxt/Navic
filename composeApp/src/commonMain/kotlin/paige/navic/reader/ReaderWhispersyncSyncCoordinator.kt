@@ -52,6 +52,53 @@ data class ReaderWhispersyncPreparedVisibleTarget(
 		)
 }
 
+enum class ReaderWhispersyncCanonicalGenerationState {
+	Open,
+	Terminal,
+	RetryArmed
+}
+
+enum class ReaderWhispersyncCanonicalPreflightStatus {
+	Pending,
+	Ready,
+	Rejected
+}
+
+enum class ReaderWhispersyncCanonicalPreflightReason {
+	InvalidCue,
+	ProvenanceUnavailable,
+	SliceMismatch,
+	NonMonotonic
+}
+
+data class ReaderWhispersyncCanonicalPreflightRequest(
+	val revisionDigest: String,
+	val validationGeneration: Long,
+	val destinationCommitIdentity: ReaderDestinationCommitIdentity,
+	val provenanceId: String,
+	val rawSpineIndex: Int,
+	val cues: List<ReaderWhispersyncCueMapCue>
+) {
+	init {
+		require(revisionDigest.matches(Regex("[0-9a-f]{12}")))
+		require(validationGeneration > 0L)
+		require(provenanceId.isNotBlank() && provenanceId == provenanceId.trim())
+		require(rawSpineIndex >= 0)
+		require(cues.isNotEmpty())
+		require(cues.all { cue ->
+			cue.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 &&
+				cue.rawProvenanceId == provenanceId &&
+				cue.rawSpineIndex == rawSpineIndex
+		})
+		require(cues.map(ReaderWhispersyncCueMapCue::sourceOrdinal).distinct().size == cues.size)
+	}
+}
+
+data class ReaderWhispersyncCanonicalPreflightState(
+	val request: ReaderWhispersyncCanonicalPreflightRequest,
+	val status: ReaderWhispersyncCanonicalPreflightStatus
+)
+
 data class ReaderWhispersyncSessionState(
 	val sidecar: WhispersyncSidecar? = null,
 	val sync: ReaderWhispersyncSyncState = ReaderWhispersyncSyncState(),
@@ -68,6 +115,13 @@ data class ReaderWhispersyncSessionState(
 	val pendingCausalIntent: ReaderWhispersyncCausalIntent? = null,
 	val causalIntentSequence: Long = 0L,
 	val preparationGeneration: Long = 0L,
+	val canonicalPreflightGeneration: Long = 0L,
+	val canonicalPreflight: ReaderWhispersyncCanonicalPreflightState? = null,
+	val canonicalGenerationState: ReaderWhispersyncCanonicalGenerationState =
+		ReaderWhispersyncCanonicalGenerationState.Open,
+	val canonicalTerminalRejectedProvenanceIds: Set<String> = emptySet(),
+	val canonicalRetryHasFreshRawRange: Boolean = false,
+	val canonicalRecoveryRequiresFreshVisibleRange: Boolean = false,
 	val lastEventProvenance: ReaderWhispersyncEventProvenance? = null,
 	val cueMap: ReaderWhispersyncCueMapState = ReaderWhispersyncCueMapState()
 ) {
@@ -276,14 +330,22 @@ internal fun readerWhispersyncVisibleTarget(
 	timeline: WhispersyncTimeline?,
 	textHref: String,
 	visibleStart: Int,
-	visibleEnd: Int
+	visibleEnd: Int,
+	rawProvenanceId: String? = null,
+	rawSpineIndex: Int? = null,
+	rawByteStart: Int? = null,
+	rawByteEnd: Int? = null
 ): ReaderOverlayReaderTarget<WhispersyncAudioSeekTarget>? {
 	if (timeline == null) return null
 	return WhispersyncOverlaySyncAdapter(timeline).readerTarget(
 		WhispersyncReaderSyncInput.VisibleRange(
 			textHref = textHref,
 			visibleStart = visibleStart,
-			visibleEnd = visibleEnd
+			visibleEnd = visibleEnd,
+			rawProvenanceId = rawProvenanceId,
+			rawSpineIndex = rawSpineIndex,
+			rawByteStart = rawByteStart,
+			rawByteEnd = rawByteEnd
 		)
 	)
 }
@@ -291,7 +353,9 @@ internal fun readerWhispersyncVisibleTarget(
 fun ReaderWhispersyncSyncState.onTextPoint(
 	timeline: WhispersyncTimeline?,
 	textHref: String,
-	textOffset: Int
+	textOffset: Int,
+	rawProvenanceId: String? = null,
+	rawByteOffset: Int? = null
 ): ReaderWhispersyncVisibleRangeStep {
 	if (timeline == null) {
 		return ReaderWhispersyncVisibleRangeStep(state = this)
@@ -300,7 +364,9 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 	val readerTarget = adapter.readerTarget(
 		WhispersyncReaderSyncInput.TextPoint(
 			textHref = textHref,
-			textOffset = textOffset
+			textOffset = textOffset,
+			rawProvenanceId = rawProvenanceId,
+			rawByteOffset = rawByteOffset
 		)
 	) ?: run {
 		Logger.w(

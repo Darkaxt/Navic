@@ -1,0 +1,35 @@
+{
+  "schema": "navic.whispersync.canonical-text.public.v1",
+  "coordinateBasis": {
+    "extractor": "bindery-epub-text",
+    "extractorVersion": "1",
+    "normalization": "raw-extracted-text-offsets",
+    "unit": "utf8-byte",
+    "scope": "spine"
+  },
+  "spine": {
+    "href": "OEBPS/Text/public-synthetic.xhtml",
+    "spineIndex": 2,
+    "sourceXhtml": "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><h1>Café &amp; café</h1><p>Alpha   beta\n\tgamma <span>split</span> nodes</p><div>Repeated <em>sentence</em> for ambiguity</div><p>Only this complete locator crosses <span>split DOM</span> nodes after the former bounded window</p><p>drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift</p><div>Repeated sentence for ambiguity</div><p>Later cue forty one</p><p>Later cue forty two</p></body></html>",
+    "extractedText": "Café & café. Alpha beta gamma split nodes. Repeated sentence for ambiguity. Only this complete locator crosses split DOM nodes after the former bounded window. drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift drift. Repeated sentence for ambiguity. Later cue forty one. Later cue forty two."
+  },
+  "locators": {
+    "uniqueOutsideFormerWindow": "Only this complete locator crosses split DOM nodes after the former bounded window",
+    "repeated": "Repeated sentence for ambiguity",
+    "later41": "Later cue forty one",
+    "later42": "Later cue forty two"
+  },
+  "legacyCue": {
+    "sourceOrdinal": 40,
+    "driftAnchorLocator": "Later cue forty two"
+  },
+  "monotonicCues": [
+    { "sourceOrdinal": 40, "locator": "Only this complete locator crosses split DOM nodes after the former bounded window" },
+    { "sourceOrdinal": 41, "locator": "Later cue forty one" },
+    { "sourceOrdinal": 42, "locator": "Later cue forty two" }
+  ],
+  "decreasingSourceOrdinals": [
+    { "sourceOrdinal": 42, "locator": "Later cue forty one" },
+    { "sourceOrdinal": 41, "locator": "Later cue forty two" }
+  ]
+}

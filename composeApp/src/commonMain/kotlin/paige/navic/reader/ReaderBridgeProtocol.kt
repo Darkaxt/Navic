@@ -574,6 +574,14 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
+	data class ValidateWhispersyncCanonicalCues(
+		val request: ReaderWhispersyncCanonicalPreflightRequest
+	) : ReaderBridgeCommand {
+		override val type: String = "validateWhispersyncCanonicalCues"
+
+		override fun toJsonObject(): JsonObject = request.toCanonicalPreflightJsonObject(type)
+	}
+
 	data class ApplyOverlayFragment(
 		val fragment: ReaderOverlayFragment
 	) : ReaderBridgeCommand {
@@ -848,6 +856,24 @@ sealed interface ReaderBridgeEvent {
 			}
 		}
 	}
+	data class WhispersyncCanonicalPreflightResult(
+		val revisionDigest: String,
+		val validationGeneration: Long,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity,
+		val provenanceId: String,
+		val rawSpineIndex: Int,
+		val status: ReaderWhispersyncCanonicalPreflightStatus,
+		val reason: ReaderWhispersyncCanonicalPreflightReason? = null
+	) : ReaderBridgeEvent {
+		init {
+			require(revisionDigest.matches(Regex("[0-9a-f]{12}")))
+			require(validationGeneration > 0L)
+			require(provenanceId.isNotBlank() && provenanceId == provenanceId.trim())
+			require(rawSpineIndex >= 0)
+			require(status != ReaderWhispersyncCanonicalPreflightStatus.Pending)
+			require((status == ReaderWhispersyncCanonicalPreflightStatus.Rejected) == (reason != null))
+		}
+	}
 	data class OverlayFragmentActive(
 		val fragment: ReaderOverlayFragment,
 		val anchorReceipt: ReaderWhispersyncAnchorReceipt? = null
@@ -924,6 +950,7 @@ private val ReaderBridgeEventTypes = setOf(
 	"whispersyncCueMapSeekRequested",
 	"whispersyncCueMapHoldOutcome",
 	"rawTextProvenanceStatus",
+	"whispersyncCanonicalPreflightResult",
 	"overlayFragmentActive",
 	"overlayFragmentInactive",
 	"searchResults",
@@ -1051,6 +1078,7 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 			"whispersyncCueMapSeekRequested" -> json.toWhispersyncCueMapSeekRequested()
 			"whispersyncCueMapHoldOutcome" -> json.toWhispersyncCueMapHoldOutcome()
 			"rawTextProvenanceStatus" -> json.toRawTextProvenanceStatus()
+			"whispersyncCanonicalPreflightResult" -> json.toWhispersyncCanonicalPreflightResult()
 			"overlayFragmentActive" -> json.toOverlayFragment()
 				?.let { fragment ->
 					val anchorReceipt = json["anchorReceipt"]
@@ -1297,6 +1325,40 @@ private fun JsonObject.toRawTextProvenanceStatus(): ReaderBridgeEvent.RawTextPro
 	)
 }
 
+private fun JsonObject.toWhispersyncCanonicalPreflightResult(): ReaderBridgeEvent.WhispersyncCanonicalPreflightResult? {
+	val status = when (stringValue("status")) {
+		"ready" -> ReaderWhispersyncCanonicalPreflightStatus.Ready
+		"rejected" -> ReaderWhispersyncCanonicalPreflightStatus.Rejected
+		else -> return null
+	}
+	val reasonValue = stringValue("reason")
+	val reason = reasonValue?.toWhispersyncCanonicalPreflightReason()
+	if (reasonValue != null && reason == null) return null
+	if ((status == ReaderWhispersyncCanonicalPreflightStatus.Rejected) != (reason != null)) return null
+	return ReaderBridgeEvent.WhispersyncCanonicalPreflightResult(
+		revisionDigest = stringValue("revisionDigest")
+			?.takeIf { it.matches(Regex("[0-9a-f]{12}")) }
+			?: return null,
+		validationGeneration = longValue("validationGeneration")
+			?.takeIf { it > 0L }
+			?: return null,
+		destinationCommitIdentity = destinationCommitIdentity() ?: return null,
+		provenanceId = stringValue("provenanceId") ?: return null,
+		rawSpineIndex = intValue("rawSpineIndex")?.takeIf { it >= 0 } ?: return null,
+		status = status,
+		reason = reason
+	)
+}
+
+private fun String.toWhispersyncCanonicalPreflightReason(): ReaderWhispersyncCanonicalPreflightReason? =
+	when (this) {
+		"invalid-cue" -> ReaderWhispersyncCanonicalPreflightReason.InvalidCue
+		"provenance-unavailable" -> ReaderWhispersyncCanonicalPreflightReason.ProvenanceUnavailable
+		"slice-mismatch" -> ReaderWhispersyncCanonicalPreflightReason.SliceMismatch
+		"non-monotonic" -> ReaderWhispersyncCanonicalPreflightReason.NonMonotonic
+		else -> null
+	}
+
 private fun String.toRawTextProvenanceReason(): RawTextProvenanceReason? = when (this) {
 	"content-not-loaded" -> RawTextProvenanceReason.ContentNotLoaded
 	"invalid-descriptor" -> RawTextProvenanceReason.InvalidDescriptor
@@ -1390,6 +1452,29 @@ private fun ReaderRawTextProvenanceDescriptor.toJsonObject(): JsonObject =
 		put("tokenCount", tokenCount)
 	}
 
+private fun ReaderWhispersyncCanonicalPreflightRequest.toCanonicalPreflightJsonObject(
+	type: String
+): JsonObject = buildJsonObject {
+	put("type", type)
+	put("revisionDigest", revisionDigest)
+	put("validationGeneration", validationGeneration)
+	put("provenanceId", provenanceId)
+	put("rawSpineIndex", rawSpineIndex)
+	put(
+		"destinationCommitIdentity",
+		buildJsonObject {
+			put("foliateSessionId", destinationCommitIdentity.foliateSessionId)
+			put("commitSequence", destinationCommitIdentity.commitSequence)
+		}
+	)
+	put(
+		"cues",
+		buildJsonArray {
+			cues.forEach { cue -> add(cue.toJsonObject()) }
+		}
+	)
+}
+
 private fun ReaderWhispersyncCueMapPresentation.toCueMapJsonObject(type: String): JsonObject =
 	buildJsonObject {
 		put("type", type)
@@ -1420,13 +1505,24 @@ private fun ReaderWhispersyncCueMapCue.toJsonObject(): JsonObject =
 	buildJsonObject {
 		put("sourceOrdinal", sourceOrdinal)
 		put("textHref", textHref)
-		put("textStart", textStart)
-		put("textEnd", textEnd)
+		when (coordinateMode) {
+			ReaderOverlayCoordinateMode.CueV1DomUtf16 -> {
+				put("textStart", textStart)
+				put("textEnd", textEnd)
+				nextTextHref?.let { put("nextTextHref", it) }
+				nextTextStart?.let { put("nextTextStart", it) }
+				nextTextEnd?.let { put("nextTextEnd", it) }
+				nextEbookText?.let { put("nextEbookText", it) }
+			}
+			ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 -> {
+				put("coordinateMode", coordinateMode.wireValue)
+				rawProvenanceId?.let { put("rawProvenanceId", it) }
+				rawSpineIndex?.let { put("rawSpineIndex", it) }
+				rawByteStart?.let { put("rawByteStart", it) }
+				rawByteEnd?.let { put("rawByteEnd", it) }
+			}
+		}
 		ebookText?.let { put("ebookText", it) }
-		nextTextHref?.let { put("nextTextHref", it) }
-		nextTextStart?.let { put("nextTextStart", it) }
-		nextTextEnd?.let { put("nextTextEnd", it) }
-		nextEbookText?.let { put("nextEbookText", it) }
 	}
 
 private fun ReaderOverlayFragment.toJsonObject(): JsonObject =

@@ -8,20 +8,44 @@ internal fun ReaderEngineEvent.VisibleTextRange.isWhispersyncAudioFollowRange():
 internal fun ReaderOverlayFragment.isOutsideWhispersyncVisibleRange(
 	visibleRange: ReaderWhispersyncVisibleTextRange?
 ): Boolean {
-	visibleRange ?: return false
-	val fragmentHref = textHref?.trim()?.takeIf { it.isNotEmpty() }
-	val visibleHref = visibleRange.textHref.trim().takeIf { it.isNotEmpty() }
-	if (
-		fragmentHref != null &&
-		visibleHref != null &&
-		readerTocHrefKey(fragmentHref) != readerTocHrefKey(visibleHref)
-	) {
-		return true
+	return when (coordinateMode) {
+		ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 -> {
+			visibleRange ?: return true
+			val fragmentHref = textHref?.trim()?.takeIf { it.isNotEmpty() } ?: return true
+			val visibleHref = visibleRange.textHref.trim().takeIf { it.isNotEmpty() } ?: return true
+			if (readerTocHrefKey(fragmentHref) != readerTocHrefKey(visibleHref)) return true
+			val provenanceId = rawProvenanceId?.takeIf { it.isNotBlank() && it == it.trim() }
+				?: return true
+			val spineIndex = rawSpineIndex?.takeIf { it >= 0 } ?: return true
+			val start = rawByteStart?.takeIf { it >= 0 } ?: return true
+			val end = rawByteEnd?.takeIf { it > start } ?: return true
+			val visibleProvenanceId = visibleRange.rawProvenanceId
+				?.takeIf { it.isNotBlank() && it == it.trim() }
+				?: return true
+			val visibleSpineIndex = visibleRange.rawSpineIndex?.takeIf { it >= 0 } ?: return true
+			val visibleStart = visibleRange.rawByteStart?.takeIf { it >= 0 } ?: return true
+			val visibleEnd = visibleRange.rawByteEnd?.takeIf { it > visibleStart } ?: return true
+			provenanceId != visibleProvenanceId ||
+				spineIndex != visibleSpineIndex ||
+				end <= visibleStart || start >= visibleEnd
+		}
+		ReaderOverlayCoordinateMode.CueV1DomUtf16 -> {
+			visibleRange ?: return false
+			val fragmentHref = textHref?.trim()?.takeIf { it.isNotEmpty() }
+			val visibleHref = visibleRange.textHref.trim().takeIf { it.isNotEmpty() }
+			if (
+				fragmentHref != null &&
+				visibleHref != null &&
+				readerTocHrefKey(fragmentHref) != readerTocHrefKey(visibleHref)
+			) {
+				return true
+			}
+			val start = textStart ?: return false
+			val end = textEnd ?: return false
+			if (end <= start) return false
+			end <= visibleRange.visibleStart || start >= visibleRange.visibleEnd
+		}
 	}
-	val start = textStart ?: return false
-	val end = textEnd ?: return false
-	if (end <= start) return false
-	return end <= visibleRange.visibleStart || start >= visibleRange.visibleEnd
 }
 
 internal fun ReaderEngineCommand?.overlayFragmentOrNull(): ReaderOverlayFragment? =

@@ -70,6 +70,9 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 ): ReaderWebCommandDispatchStep {
 	val publicationChanged = this.publicationKey != publicationKey
 	val generationChanged = this.runtimeGeneration != runtimeGeneration
+	val explicitProvenanceInstalls = commands
+		.filterIsInstance<ReaderBridgeCommand.InstallRawTextProvenance>()
+		.map(ReaderBridgeCommand.InstallRawTextProvenance::descriptor)
 	val commandKeys = commands.indices.map { index ->
 		commandKey - (commands.lastIndex - index)
 	}
@@ -114,28 +117,31 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 		)
 	}
 
-	rawTextProvenanceDescriptors.forEach { descriptor ->
-		if (nextState.rawTextProvenanceById[descriptor.id] != descriptor) {
-			val nextProvenanceSequence = nextState.rawTextProvenanceSequence + 1L
-			nextState = nextState.copy(
-				rawTextProvenanceById =
-					nextState.rawTextProvenanceById + (descriptor.id to descriptor),
-				rawTextProvenanceSequence = nextProvenanceSequence,
-				pendingCommands = nextState.pendingCommands + ReaderWebPendingCommand(
-					dispatch = ReaderBridgeDispatchCommand(
-						id = "reader-provenance-${nextState.publicationSequence}-$nextProvenanceSequence",
-						command = ReaderBridgeCommand.InstallRawTextProvenance(descriptor)
-					)
-				)
-			)
-		}
-	}
-
 	val shouldQueueCurrentCommands = commands.isNotEmpty() && when {
 		publicationChanged -> true
 		generationChanged -> currentCommandWasPending || lastCommandKey != commandKey
 		else -> nextState.lastCommandKey != commandKey
 	}
+
+	rawTextProvenanceDescriptors.forEach { descriptor ->
+		if (nextState.rawTextProvenanceById[descriptor.id] != descriptor) {
+			val nextProvenanceSequence = nextState.rawTextProvenanceSequence + 1L
+			val hasEqualExplicitInstall = descriptor in explicitProvenanceInstalls
+			val durableInstall = ReaderWebPendingCommand(
+				dispatch = ReaderBridgeDispatchCommand(
+					id = "reader-provenance-${nextState.publicationSequence}-$nextProvenanceSequence",
+					command = ReaderBridgeCommand.InstallRawTextProvenance(descriptor)
+				)
+			).takeUnless { hasEqualExplicitInstall && shouldQueueCurrentCommands }
+			nextState = nextState.copy(
+				rawTextProvenanceById =
+					nextState.rawTextProvenanceById + (descriptor.id to descriptor),
+				rawTextProvenanceSequence = nextProvenanceSequence,
+				pendingCommands = nextState.pendingCommands + listOfNotNull(durableInstall)
+			)
+		}
+	}
+
 	if (shouldQueueCurrentCommands) {
 		nextState = nextState.copy(
 			lastCommandKey = commandKey,

@@ -161,21 +161,10 @@ data class ReaderController(
 					)
 				)
 			)
-			is ReaderEngineEvent.RawTextProvenanceStatusChanged -> {
-				if (event.provenanceId !in state.rawTextProvenanceById) {
-					ReaderControllerStep(this)
-				} else {
-					ReaderControllerStep(
-						copy(
-							state = state.copy(
-								rawTextProvenanceById = state.rawTextProvenanceById + (
-									event.provenanceId to RawTextProvenanceState(event.status, event.reason)
-								)
-							)
-						)
-					)
-				}
-			}
+			is ReaderEngineEvent.RawTextProvenanceStatusChanged ->
+				ReaderWhispersyncReducer.onRawTextProvenanceStatusChanged(this, event)
+			is ReaderEngineEvent.WhispersyncCanonicalPreflightResult ->
+				ReaderWhispersyncReducer.onCanonicalPreflightResult(this, event)
 			is ReaderEngineEvent.VisibleTextRange ->
 				ReaderWhispersyncReducer.onVisibleTextRange(this, event)
 			is ReaderEngineEvent.TextPoint -> ReaderWhispersyncReducer.onTextPoint(this, event)
@@ -291,7 +280,8 @@ data class ReaderController(
 	}
 
 	fun installRawTextProvenance(
-		descriptor: ReaderRawTextProvenanceDescriptor
+		descriptor: ReaderRawTextProvenanceDescriptor,
+		forceDispatch: Boolean = false
 	): ReaderControllerStep {
 		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
 			return ReaderControllerStep(this)
@@ -304,7 +294,12 @@ data class ReaderController(
 					)
 				)
 			),
-			engineCommands = listOf(ReaderEngineCommand.InstallRawTextProvenance(descriptor))
+			engineCommands = listOf(
+				ReaderEngineCommand.InstallRawTextProvenance(
+					descriptor = descriptor,
+					forceDispatch = forceDispatch
+				)
+			)
 		)
 	}
 
@@ -327,8 +322,38 @@ data class ReaderController(
 		command: ReaderReadaloudPlaybackCommand
 	): ReaderControllerStep = ReaderWhispersyncReducer.onPlaybackCommand(this, command)
 
-	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderControllerStep =
-		ReaderWhispersyncReducer.loadSidecar(this, sidecar)
+	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderControllerStep {
+		val currentWhispersync = state.whispersync
+		if (
+			sidecar.coordinateBasis != null &&
+			currentWhispersync.sidecar?.coordinateBasis != null &&
+			currentWhispersync.canonicalGenerationState != ReaderWhispersyncCanonicalGenerationState.Open &&
+			currentWhispersync.sidecar.revisionDigest == sidecar.revisionDigest
+		) {
+			return ReaderControllerStep(this)
+		}
+		var installedController = this
+		val installCommands = mutableListOf<ReaderEngineCommand>()
+		val currentDescriptorsById = currentWhispersync.sidecar
+			?.referencedRawTextProvenanceDescriptors()
+			.orEmpty()
+			.associateBy(ReaderRawTextProvenanceDescriptor::id)
+		sidecar.referencedRawTextProvenanceDescriptors().forEach { descriptor ->
+			val unchangedProof = currentDescriptorsById[descriptor.id] == descriptor
+			val currentStatus = installedController.state.rawTextProvenanceById[descriptor.id]?.status
+			if (unchangedProof && currentStatus == RawTextProvenanceStatus.Ready) {
+				return@forEach
+			}
+			val install = installedController.installRawTextProvenance(
+				descriptor = descriptor,
+				forceDispatch = unchangedProof
+			)
+			installedController = install.controller
+			installCommands += install.engineCommands
+		}
+		val loaded = ReaderWhispersyncReducer.loadSidecar(installedController, sidecar)
+		return loaded.copy(engineCommands = installCommands + loaded.engineCommands)
+	}
 
 	fun toggleWhispersyncCueMap(): ReaderControllerStep =
 		ReaderWhispersyncReducer.toggleCueMap(this)

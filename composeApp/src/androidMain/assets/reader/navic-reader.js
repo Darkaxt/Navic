@@ -448,6 +448,37 @@ class NavicReaderRuntime {
           this.view?.book,
           this.contentEntries()
         )
+      case 'validateWhispersyncCanonicalCues': {
+        const destination = command.destinationCommitIdentity
+        const identityMatches =
+          /^[0-9a-f]{12}$/.test(String(command.revisionDigest || '')) &&
+          Number.isSafeInteger(Number(command.validationGeneration)) &&
+          Number(command.validationGeneration) > 0 &&
+          typeof command.provenanceId === 'string' &&
+          command.provenanceId !== '' && command.provenanceId === command.provenanceId.trim() &&
+          Number.isSafeInteger(Number(command.rawSpineIndex)) &&
+          Number(command.rawSpineIndex) >= 0 &&
+          destination?.foliateSessionId === this.foliateSessionId &&
+          Number(destination?.commitSequence) === this.destinationCommitSequence &&
+          Array.isArray(command.cues) && command.cues.every(cue =>
+            cue?.rawProvenanceId === command.provenanceId &&
+            Number(cue?.rawSpineIndex) === Number(command.rawSpineIndex))
+        const result = identityMatches
+          ? this.rawTextProvenance.validateCanonicalCues(command.cues)
+          : { status: 'rejected', reason: 'invalid-cue' }
+        post({
+          type: 'whispersyncCanonicalPreflightResult',
+          revisionDigest: String(command.revisionDigest || ''),
+          validationGeneration: Number(command.validationGeneration),
+          provenanceId: String(command.provenanceId || ''),
+          rawSpineIndex: Number(command.rawSpineIndex),
+          status: result.status,
+          ...(result.reason ? { reason: result.reason } : {}),
+          destinationFoliateSessionId: String(destination?.foliateSessionId || ''),
+          destinationCommitSequence: Number(destination?.commitSequence),
+        })
+        return result.status === 'ready'
+      }
       case 'applyOverlayFragment':
         return this.applyOverlayFragment(command.fragment || command)
       case 'updateOverlayFragmentProgress':

@@ -1,5 +1,6 @@
 package paige.navic.reader
 
+import okio.ByteString.Companion.encodeUtf8
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -337,6 +338,116 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"audioActiveSourceOrdinal\":9")
 		assertContains(script, "\"renderedHighlightSourceOrdinal\":11")
 		assertContains(script, "\"transportAcknowledgementPending\":true")
+	}
+
+	@Test
+	fun canonicalBinderyCueBypassesDomOffsetPrefilterAndSerializesRawProvenance() {
+		val href = "OEBPS/Text/public-synthetic.xhtml"
+		val sourceXhtml = "<html><body><p>Café &amp; café</p><p>Only synthetic cue locator</p></body></html>"
+		val extractedText = "Café & café. Only synthetic cue locator."
+		val locator = "Only synthetic cue locator"
+		val characterStart = extractedText.indexOf(locator)
+		val rawStart = extractedText.substring(0, characterStart).encodeUtf8().size
+		val rawEnd = rawStart + locator.encodeUtf8().size
+		val tokenCount = Regex("[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)?")
+			.findAll(extractedText)
+			.count()
+		val sourceHash = "sha256:${sourceXhtml.encodeUtf8().sha256().hex()}"
+		val extractedTextHash = "sha256:${extractedText.encodeUtf8().sha256().hex()}"
+		val sidecar = decodeWhispersyncSidecar(
+			"""
+			{
+			  "coordinateBasis": {
+			    "extractor": "bindery-epub-text",
+			    "extractorVersion": "1",
+			    "normalization": "raw-extracted-text-offsets",
+			    "unit": "utf8-byte",
+			    "scope": "spine",
+			    "spines": [{
+			      "href": "$href",
+			      "spineIndex": 2,
+			      "sourceHash": "$sourceHash",
+			      "extractedTextHash": "$extractedTextHash",
+			      "byteLength": ${extractedText.encodeUtf8().size},
+			      "tokenCount": $tokenCount
+			    }]
+			  },
+			  "cues": [{
+			    "id": 1040,
+			    "audioHref": "Audio/public-synthetic.mp3",
+			    "audioStart": 1,
+			    "audioEnd": 2,
+			    "ebookHref": "$href",
+			    "spineIndex": 2,
+			    "ebookStart": $rawStart,
+			    "ebookEnd": $rawEnd,
+			    "ebookText": "$locator"
+			  }]
+			}
+			""".trimIndent()
+		)
+		val destination = ReaderDestinationCommitIdentity("synthetic-session", 41L)
+		val cueMap = ReaderWhispersyncCueMapState(
+			enabled = true,
+			presentationGeneration = 1L
+		)
+		val descriptor = sidecar.referencedRawTextProvenanceDescriptors().single()
+		val canonicalCue = ReaderWhispersyncCueMapCue(
+			sourceOrdinal = 0,
+			textHref = href,
+			textStart = rawStart,
+			textEnd = rawEnd,
+			ebookText = locator,
+			coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+			rawProvenanceId = descriptor.id,
+			rawSpineIndex = descriptor.spineIndex,
+			rawByteStart = rawStart,
+			rawByteEnd = rawEnd
+		)
+		val state = ReaderControllerState(
+			destinationCommitIdentity = destination,
+			rawTextProvenanceById = mapOf(
+				descriptor.id to RawTextProvenanceState(RawTextProvenanceStatus.Ready)
+			),
+			whispersync = ReaderWhispersyncSessionState(
+				sidecar = sidecar,
+				visibleTextRange = ReaderWhispersyncVisibleTextRange(
+					textHref = href,
+					visibleStart = 0,
+					visibleEnd = 8,
+					rawProvenanceId = descriptor.id,
+					rawSpineIndex = descriptor.spineIndex,
+					rawByteStart = 0,
+					rawByteEnd = descriptor.byteLength,
+					destinationCommitIdentity = destination
+				),
+				canonicalPreflightGeneration = 1L,
+				canonicalPreflight = ReaderWhispersyncCanonicalPreflightState(
+					request = ReaderWhispersyncCanonicalPreflightRequest(
+						revisionDigest = sidecar.revisionDigest,
+						validationGeneration = 1L,
+						destinationCommitIdentity = destination,
+						provenanceId = descriptor.id,
+						rawSpineIndex = descriptor.spineIndex,
+						cues = listOf(canonicalCue)
+					),
+					status = ReaderWhispersyncCanonicalPreflightStatus.Ready
+				),
+				cueMap = cueMap
+			)
+		)
+
+		val presentation = requireNotNull(cueMap.presentation(state))
+		assertEquals(
+			listOf(0),
+			presentation.cues.map(ReaderWhispersyncCueMapCue::sourceOrdinal),
+			"Kotlin must not compare Bindery UTF-8 bytes with Foliate DOM-visible offsets"
+		)
+		val script = ReaderBridgeCommand.ReplaceWhispersyncCueMap(presentation).toJavaScript()
+		assertContains(script, "\"rawProvenanceId\":")
+		assertContains(script, "\"rawSpineIndex\":2")
+		assertContains(script, "\"rawByteStart\":$rawStart")
+		assertContains(script, "\"rawByteEnd\":$rawEnd")
 	}
 
 	@Test

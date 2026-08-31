@@ -124,7 +124,13 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineCommand.RequestVisibleTextRange -> dispatch(
 				ReaderBridgeCommand.RequestVisibleTextRange(command.source)
 			)
-			is ReaderEngineCommand.InstallRawTextProvenance -> retainRawTextProvenance(command.descriptor)
+			is ReaderEngineCommand.InstallRawTextProvenance -> retainRawTextProvenance(
+				descriptor = command.descriptor,
+				forceDispatch = command.forceDispatch
+			)
+			is ReaderEngineCommand.ValidateWhispersyncCanonicalCues -> dispatch(
+				ReaderBridgeCommand.ValidateWhispersyncCanonicalCues(command.request)
+			)
 			is ReaderEngineCommand.ApplyMediaOverlay -> dispatch(
 				ReaderBridgeCommand.ApplyOverlayFragment(command.fragment)
 			)
@@ -279,6 +285,16 @@ sealed class FoliateWebViewEngineAdapter(
 					status = event.status,
 					reason = event.reason
 				)
+			is ReaderBridgeEvent.WhispersyncCanonicalPreflightResult ->
+				ReaderEngineEvent.WhispersyncCanonicalPreflightResult(
+					revisionDigest = event.revisionDigest,
+					validationGeneration = event.validationGeneration,
+					destinationCommitIdentity = event.destinationCommitIdentity,
+					provenanceId = event.provenanceId,
+					rawSpineIndex = event.rawSpineIndex,
+					status = event.status,
+					reason = event.reason
+				)
 			is ReaderBridgeEvent.OverlayFragmentActive -> ReaderEngineEvent.MediaOverlayActive(
 				fragment = event.fragment,
 				anchorReceipt = event.anchorReceipt
@@ -370,14 +386,24 @@ sealed class FoliateWebViewEngineAdapter(
 	): ReaderEngineStep = dispatch(ReaderBridgeCommand.ScrollViewport(direction, causalSequence))
 
 	private fun retainRawTextProvenance(
-		descriptor: ReaderRawTextProvenanceDescriptor
+		descriptor: ReaderRawTextProvenanceDescriptor,
+		forceDispatch: Boolean
 	): ReaderEngineStep {
+		val nextCommandKey = if (forceDispatch) currentCommandKey + 1L else currentCommandKey
 		val nextViewState = currentViewState?.copy(
 			rawTextProvenanceDescriptors =
-				currentViewState.rawTextProvenanceDescriptors.filterNot { it.id == descriptor.id } + descriptor
+				currentViewState.rawTextProvenanceDescriptors.filterNot { it.id == descriptor.id } + descriptor,
+			command = if (forceDispatch) {
+				ReaderEngineHostCommand.FoliateBridge(
+					ReaderBridgeCommand.InstallRawTextProvenance(descriptor)
+				)
+			} else {
+				currentViewState.command
+			},
+			commandKey = nextCommandKey
 		) ?: return ReaderEngineStep(this)
 		return ReaderEngineStep(
-			engine = copyEngine(nextViewState, currentCommandKey),
+			engine = copyEngine(nextViewState, nextCommandKey),
 			viewState = nextViewState
 		)
 	}

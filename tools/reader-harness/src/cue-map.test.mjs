@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -6,6 +7,10 @@ import { chromium } from 'playwright'
 import { startReaderAssetServer } from './serve-reader-assets.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
+const canonicalFixture = JSON.parse(await readFile(
+  path.join(repoRoot, 'tools/reader-harness/fixtures/public/canonical-text-v1.json'),
+  'utf8'
+))
 
 let server
 let browser
@@ -95,8 +100,8 @@ test('production cue map exposes visual states and robust one-shot pointer holds
       presentationGeneration: generation,
       destinationCommitIdentity: destination,
       cues: [
-        { sourceOrdinal: 3, textHref: 'Text/chapter.xhtml', textStart: 8, textEnd: 12 },
-        { sourceOrdinal: 7, textHref: 'Text/chapter.xhtml', textStart: 2, textEnd: 6 },
+        { sourceOrdinal: 7, textHref: 'Text/chapter.xhtml', textStart: 8, textEnd: 12 },
+        { sourceOrdinal: 3, textHref: 'Text/chapter.xhtml', textStart: 2, textEnd: 6 },
       ],
       preparedSourceOrdinal: 7,
       requestedSourceOrdinal: 3,
@@ -220,14 +225,14 @@ test('production cue map exposes visual states and robust one-shot pointer holds
     }
   })
 
-  assert.deepEqual(result.domOrder, [7, 3], 'markers must follow DOM reading order, not source/display sorting')
-  assert.deepEqual(result.renderedOrder, [7, 3], 'non-monotonic DOM evidence must remain ordinal-only and unsorted')
+  assert.deepEqual(result.domOrder, [3, 7], 'markers must follow DOM reading order, not source/display sorting')
+  assert.deepEqual(result.renderedOrder, [3, 7], 'DOM evidence must remain ordinal-only and unsorted')
   assert.deepEqual(
     result.nativeMarkerOrder,
-    [7, 3],
+    [3, 7],
     'production rendering must publish Foliate-owned marker geometry for the native page surface'
   )
-  assert.deepEqual(result.nativeBoundaryOrder, [7, 3])
+  assert.deepEqual(result.nativeBoundaryOrder, [3, 7])
   assert.deepEqual(result.stateAttributes, {
     mapped: 'true',
     prepared: 'true',
@@ -506,8 +511,20 @@ test('cue map uses the production media-overlay resolver and real Foliate Overla
       presentationGeneration: 8,
       destinationCommitIdentity: { foliateSessionId: 'session-a', commitSequence: 41 },
       cues: [
-        { sourceOrdinal: 9, textHref: './Text/chapter.xhtml#frag', textStart: 19, textEnd: 23 },
-        { sourceOrdinal: 4, textHref: 'Text/chapter.xhtml', textStart: 5, textEnd: 8 },
+        {
+          sourceOrdinal: 9,
+          textHref: './Text/chapter.xhtml#frag',
+          textStart: 19,
+          textEnd: 23,
+          ebookText: 'four',
+        },
+        {
+          sourceOrdinal: 4,
+          textHref: 'Text/chapter.xhtml',
+          textStart: 5,
+          textEnd: 8,
+          ebookText: 'one',
+        },
       ],
       preparedSourceOrdinal: 4,
       requestedSourceOrdinal: null,
@@ -717,4 +734,308 @@ test('visible cue geometry remains complete beyond retained ordinal evidence', a
   assert.deepEqual(result.sourceOrdinalEvidence, Array.from({ length: 32 }, (_, index) => index + 5))
   assert.deepEqual(result.nativeMarkerReceiptOrdinals, Array.from({ length: 45 }, (_, index) => index + 5))
   assert.deepEqual(result.nativeAnchorBoundarySequences, Array.from({ length: 45 }, (_, index) => index + 5))
+})
+
+test('legacy cue mapping searches the whole spine and never admits an ambiguous foreign offset', async () => {
+  const page = await browser.newPage()
+  await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+  try {
+    const result = await page.evaluate(async fixture => {
+      const api = await import('/navic-reader-helpers.js')
+      const text = fixture.spine.extractedText
+      const uniqueLocator = fixture.locators.uniqueOutsideFormerWindow
+      const repeatedLocator = fixture.locators.repeated
+      const driftStart = text.indexOf(fixture.legacyCue.driftAnchorLocator)
+      const normalizedMap = api.readerMediaOverlayNormalizedTextMap([{ text }])
+      const unique = api.readerMediaOverlayResolvedTextRange(
+        normalizedMap,
+        driftStart,
+        driftStart + uniqueLocator.length,
+        uniqueLocator
+      )
+      const ambiguous = api.readerMediaOverlayResolvedTextRange(
+        normalizedMap,
+        text.indexOf(repeatedLocator),
+        text.indexOf(repeatedLocator) + repeatedLocator.length,
+        repeatedLocator
+      )
+      return {
+        unique,
+        uniqueText: unique ? text.slice(unique.textStart, unique.textEnd) : null,
+        ambiguous,
+      }
+    }, canonicalFixture)
+
+    assert.notEqual(result.unique?.locator, 'offset', 'a foreign Bindery offset must never be admitted')
+    assert.equal(result.unique?.matched, true)
+    assert.equal(result.uniqueText, canonicalFixture.locators.uniqueOutsideFormerWindow)
+    assert.equal(result.ambiguous, null, 'an unconstrained repeated full locator must fail closed')
+  } finally {
+    await page.close()
+  }
+})
+
+test('canonical byte cues use verified provenance, reject slice mismatch, and never recapture raster', async () => {
+  const page = await browser.newPage()
+  await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+  try {
+    const result = await page.evaluate(async fixture => {
+      const { ReaderWhispersyncCueMapRuntime } = await import('/navic-reader-cue-map.js')
+      const { ReaderWordSyncProvenanceStore, extractBinderyV1Text } =
+        await import('/navic-reader-wordsync-provenance.js')
+      const { NavicReaderMediaOverlayMethods } = await import('/navic-reader-media-overlay.js')
+      const encoder = new TextEncoder()
+      const taggedHash = async bytes => {
+        const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))
+        return `sha256:${Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('')}`
+      }
+      const sourceBytes = encoder.encode(fixture.spine.sourceXhtml)
+      const extractedBytes = encoder.encode(fixture.spine.extractedText)
+      const tokenCount = Array.from(
+        fixture.spine.extractedText.matchAll(/[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)?/gu)
+      ).length
+      const descriptor = {
+        id: `bindery-v1-spine-${fixture.spine.spineIndex}`,
+        href: fixture.spine.href,
+        spineIndex: fixture.spine.spineIndex,
+        sourceHash: await taggedHash(sourceBytes),
+        extractedTextHash: await taggedHash(extractedBytes),
+        byteLength: extractedBytes.length,
+        tokenCount,
+      }
+      const doc = new DOMParser().parseFromString(fixture.spine.sourceXhtml, 'application/xhtml+xml')
+      const item = { href: fixture.spine.href }
+      const book = {
+        resources: {
+          spine: [
+            { idref: 'missing-0' },
+            { idref: 'missing-1' },
+            { idref: 'canonical' },
+          ],
+          getItemByID: id => id === 'canonical' ? item : null,
+        },
+        sections: [{ id: fixture.spine.href }],
+        loadBlob: async href => {
+          if (href !== fixture.spine.href) throw new Error('unexpected synthetic href')
+          return new Blob([sourceBytes], { type: 'application/xhtml+xml' })
+        },
+      }
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      document.body.append(svg)
+      const overlays = new Map()
+      const content = {
+        index: 0,
+        doc,
+        overlayer: {
+          add(key, range, draw, options) {
+            this.remove(key)
+            const marker = draw([{ left: 20, right: 30, top: 20, bottom: 34, width: 10, height: 14 }], options)
+            svg.append(marker)
+            overlays.set(key, marker)
+          },
+          remove(key) {
+            overlays.get(key)?.remove()
+            overlays.delete(key)
+          },
+        },
+      }
+      const statuses = []
+      const store = new ReaderWordSyncProvenanceStore({ postStatus: status => statuses.push(status) })
+      const installed = await store.install(descriptor, book, [content])
+      const mediaOverlayHost = {
+        view: { book },
+        rawTextProvenance: store,
+        mediaOverlayPaintEndForResolvedRange: (
+          _textStart,
+          _textEnd,
+          _paintEnd,
+          _resolvedStart,
+          resolvedEnd,
+        ) => resolvedEnd,
+      }
+      Object.assign(mediaOverlayHost, NavicReaderMediaOverlayMethods)
+      const locator = fixture.locators.uniqueOutsideFormerWindow
+      const characterStart = fixture.spine.extractedText.indexOf(locator)
+      const rawByteStart = encoder.encode(fixture.spine.extractedText.slice(0, characterStart)).length
+      const rawByteEnd = rawByteStart + encoder.encode(locator).length
+      const cue = {
+        sourceOrdinal: fixture.legacyCue.sourceOrdinal,
+        textHref: fixture.spine.href,
+        coordinateMode: 'wordsync-v1-extracted-utf8',
+        rawProvenanceId: descriptor.id,
+        rawSpineIndex: descriptor.spineIndex,
+        rawByteStart,
+        rawByteEnd,
+        ebookText: locator,
+      }
+      const rasterCalls = []
+      const originalGetContext = HTMLCanvasElement.prototype.getContext
+      const originalToDataURL = HTMLCanvasElement.prototype.toDataURL
+      HTMLCanvasElement.prototype.getContext = function (...args) {
+        rasterCalls.push('getContext')
+        return originalGetContext.apply(this, args)
+      }
+      HTMLCanvasElement.prototype.toDataURL = function (...args) {
+        rasterCalls.push('toDataURL')
+        return originalToDataURL.apply(this, args)
+      }
+      const runCues = candidates => {
+        const events = []
+        const runtime = new ReaderWhispersyncCueMapRuntime({
+          contentEntries: () => [content],
+          resolveRange: (entry, current) => mediaOverlayHost
+            .resolveMediaOverlayTextRange(entry, current, current.rawByteEnd)?.range,
+          resolveAnchorReceipt: (_entry, current) => ({ boundarySequence: current.sourceOrdinal }),
+          postEvent: event => events.push(event),
+          nativePointerOwnership: true,
+        })
+        const accepted = runtime.replace({
+          enabled: true,
+          revisionDigest: '5f04c2a19e7d',
+          presentationGeneration: 8,
+          destinationCommitIdentity: { foliateSessionId: 'session-a', commitSequence: 41 },
+          cues: candidates,
+          transportAcknowledgementPending: false,
+        })
+        return {
+          accepted,
+          rendered: events.find(event => event.type === 'whispersyncCueMapRendered'),
+        }
+      }
+      const runCue = candidate => ({
+        ...runCues([candidate]),
+        text: mediaOverlayHost
+          .resolveMediaOverlayTextRange(content, candidate, candidate.rawByteEnd)?.range?.toString() || null,
+      })
+      const exact = runCue(cue)
+      const sliceMismatch = runCue({ ...cue, ebookText: 'Different synthetic locator' })
+      const partialMismatch = runCues([
+        cue,
+        { ...cue, sourceOrdinal: cue.sourceOrdinal + 1, ebookText: 'Different synthetic locator' },
+      ])
+
+      const digestStatuses = []
+      const digestStore = new ReaderWordSyncProvenanceStore({
+        postStatus: status => digestStatuses.push(status),
+      })
+      const digestInstalled = await digestStore.install({
+        ...descriptor,
+        id: 'bindery-v1-digest-mismatch',
+        extractedTextHash: `sha256:${'0'.repeat(64)}`,
+      }, book, [content])
+      const digestHost = {
+        ...mediaOverlayHost,
+        rawTextProvenance: digestStore,
+      }
+      Object.assign(digestHost, NavicReaderMediaOverlayMethods)
+      const digestEvents = []
+      const digestRuntime = new ReaderWhispersyncCueMapRuntime({
+        contentEntries: () => [content],
+        resolveRange: (entry, current) => digestHost
+          .resolveMediaOverlayTextRange(entry, current, current.rawByteEnd)?.range,
+        resolveAnchorReceipt: (_entry, current) => ({ boundarySequence: current.sourceOrdinal }),
+        postEvent: event => digestEvents.push(event),
+        nativePointerOwnership: true,
+      })
+      digestRuntime.replace({
+        enabled: true,
+        revisionDigest: 'aaaaaaaaaaaa',
+        presentationGeneration: 9,
+        destinationCommitIdentity: { foliateSessionId: 'session-a', commitSequence: 42 },
+        cues: [{ ...cue, rawProvenanceId: 'bindery-v1-digest-mismatch' }],
+        transportAcknowledgementPending: false,
+      })
+      HTMLCanvasElement.prototype.getContext = originalGetContext
+      HTMLCanvasElement.prototype.toDataURL = originalToDataURL
+      return {
+        fixtureExtractedTextMatches: extractBinderyV1Text(fixture.spine.sourceXhtml) === fixture.spine.extractedText,
+        installed,
+        finalStatus: statuses.at(-1),
+        exact,
+        sliceMismatch,
+        partialMismatch,
+        digestInstalled,
+        digestFinalStatus: digestStatuses.at(-1),
+        digestRendered: digestEvents.find(event => event.type === 'whispersyncCueMapRendered'),
+        rasterCalls,
+      }
+    }, canonicalFixture)
+
+    assert.equal(result.fixtureExtractedTextMatches, true)
+    assert.equal(result.installed, true)
+    assert.equal(result.finalStatus?.status, 'ready')
+    assert.equal(result.exact.accepted, true)
+    assert.equal(
+      result.exact.text,
+      canonicalFixture.locators.uniqueOutsideFormerWindow,
+      'the production resolver must route verified cue bytes through the provenance store'
+    )
+    assert.deepEqual(result.exact.rendered?.sourceOrdinals, [40])
+    assert.equal(result.exact.rendered?.markerReceipts?.length, 1)
+    assert.deepEqual(result.sliceMismatch.rendered?.sourceOrdinals, [])
+    assert.deepEqual(result.sliceMismatch.rendered?.markerReceipts, [])
+    assert.equal(result.partialMismatch.accepted, false)
+    assert.deepEqual(result.partialMismatch.rendered?.sourceOrdinals, [])
+    assert.deepEqual(result.partialMismatch.rendered?.markerReceipts, [])
+    assert.equal(result.digestInstalled, false)
+    assert.equal(result.digestFinalStatus?.reason, 'extracted-hash-mismatch')
+    assert.deepEqual(result.digestRendered?.sourceOrdinals, [])
+    assert.deepEqual(result.digestRendered?.markerReceipts, [])
+    assert.deepEqual(result.rasterCalls, [])
+  } finally {
+    await page.close()
+  }
+})
+
+test('cue-map rejects a same-spine generation with decreasing source ordinals', async () => {
+  const page = await browser.newPage()
+  await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+  try {
+    const result = await page.evaluate(async fixture => {
+      const { ReaderWhispersyncCueMapRuntime } = await import('/navic-reader-cue-map.js')
+      const text = document.createTextNode(fixture.spine.extractedText)
+      document.body.replaceChildren(text)
+      const events = []
+      const runtime = new ReaderWhispersyncCueMapRuntime({
+        contentEntries: () => [{
+          index: 0,
+          doc: document,
+          overlayer: { add() {}, remove() {} },
+        }],
+        resolveRange: (_content, cue) => {
+          const range = document.createRange()
+          const start = fixture.spine.extractedText.indexOf(cue.ebookText)
+          range.setStart(text, start)
+          range.setEnd(text, start + cue.ebookText.length)
+          return range
+        },
+        resolveAnchorReceipt: (_content, cue) => ({ boundarySequence: cue.sourceOrdinal }),
+        postEvent: event => events.push(event),
+        nativePointerOwnership: true,
+      })
+      const accepted = runtime.replace({
+        enabled: true,
+        revisionDigest: '5f04c2a19e7d',
+        presentationGeneration: 8,
+        destinationCommitIdentity: { foliateSessionId: 'session-a', commitSequence: 41 },
+        cues: fixture.decreasingSourceOrdinals.map(cue => ({
+          sourceOrdinal: cue.sourceOrdinal,
+          textHref: fixture.spine.href,
+          rawSpineIndex: fixture.spine.spineIndex,
+          ebookText: cue.locator,
+        })),
+        transportAcknowledgementPending: false,
+      })
+      return {
+        accepted,
+        rendered: events.find(event => event.type === 'whispersyncCueMapRendered'),
+      }
+    }, canonicalFixture)
+
+    assert.equal(result.accepted, false, 'decreasing same-spine source ordinals must reject the generation')
+    assert.deepEqual(result.rendered?.sourceOrdinals, [])
+    assert.deepEqual(result.rendered?.markerReceipts, [])
+  } finally {
+    await page.close()
+  }
 })

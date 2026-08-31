@@ -29,6 +29,65 @@ private const val WhispersyncCacheCueMetadataVersionKey = "_navicCueMetadataVers
 private const val WhispersyncCacheCueMetadataVersion = 1
 private const val WhispersyncCacheRevisionDigestKey = "_navicRevisionDigest"
 private const val WhispersyncCacheSourceOrdinalKey = "_navicSourceOrdinal"
+private const val WhispersyncBinderyExtractor = "bindery-epub-text"
+private const val WhispersyncBinderyExtractorVersion = "1"
+private const val WhispersyncBinderyNormalization = "raw-extracted-text-offsets"
+private const val WhispersyncBinderyUnit = "utf8-byte"
+private const val WhispersyncBinderyScope = "spine"
+private val WhispersyncCanonicalSha256 = Regex("sha256:[0-9a-f]{64}")
+
+@Serializable
+data class WhispersyncCoordinateBasis(
+	val extractor: String,
+	val extractorVersion: String,
+	val normalization: String,
+	val unit: String,
+	val scope: String,
+	val spines: List<WhispersyncSpineCoordinateProof>
+) {
+	init {
+		require(extractor == WhispersyncBinderyExtractor)
+		require(extractorVersion == WhispersyncBinderyExtractorVersion)
+		require(normalization == WhispersyncBinderyNormalization)
+		require(unit == WhispersyncBinderyUnit)
+		require(scope == WhispersyncBinderyScope)
+		require(spines.isNotEmpty())
+		require(spines.map(WhispersyncSpineCoordinateProof::spineIndex).distinct().size == spines.size)
+		require(spines.map(WhispersyncSpineCoordinateProof::href).distinct().size == spines.size)
+	}
+}
+
+@Serializable
+data class WhispersyncSpineCoordinateProof(
+	val href: String,
+	val spineIndex: Int,
+	val sourceHash: String,
+	val extractedTextHash: String,
+	val byteLength: Int,
+	val tokenCount: Int
+) {
+	init {
+		require(href.isNotBlank() && href == href.trim())
+		require(spineIndex >= 0)
+		require(sourceHash.matches(WhispersyncCanonicalSha256))
+		require(extractedTextHash.matches(WhispersyncCanonicalSha256))
+		require(byteLength >= 0)
+		require(tokenCount >= 0)
+	}
+
+	internal val provenanceId: String
+		get() = "wordsync-v1-spine-$spineIndex"
+
+	internal fun toRawTextProvenanceDescriptor() = ReaderRawTextProvenanceDescriptor(
+		id = provenanceId,
+		href = href,
+		spineIndex = spineIndex,
+		sourceHash = sourceHash,
+		extractedTextHash = extractedTextHash,
+		byteLength = byteLength,
+		tokenCount = tokenCount
+	)
+}
 
 @Serializable
 data class WhispersyncSidecar(
@@ -42,6 +101,7 @@ data class WhispersyncSidecar(
 	val ebookManifestHref: String? = null,
 	val audiobookManifestHref: String? = null,
 	val documentTextLength: Int? = null,
+	val coordinateBasis: WhispersyncCoordinateBasis? = null,
 	val timeline: WhispersyncTimeline = WhispersyncTimeline(),
 	val droppedSegmentCount: Int = 0,
 	val droppedSegmentReasons: List<String> = emptyList(),
@@ -50,7 +110,8 @@ data class WhispersyncSidecar(
 
 @Serializable
 data class WhispersyncTimeline(
-	val segments: List<WhispersyncSegment> = emptyList()
+	val segments: List<WhispersyncSegment> = emptyList(),
+	@Transient val coordinateBasis: WhispersyncCoordinateBasis? = null
 ) {
 	fun activeSegment(
 		audioResource: String,
@@ -75,15 +136,41 @@ data class WhispersyncTimeline(
 	fun seekTargetForVisibleTextRange(
 		textHref: String,
 		visibleStart: Int,
-		visibleEnd: Int
+		visibleEnd: Int,
+		rawProvenanceId: String? = null,
+		rawSpineIndex: Int? = null,
+		rawByteStart: Int? = null,
+		rawByteEnd: Int? = null
 	): WhispersyncAudioSeekTarget? {
 		val normalizedText = normalizedMediaOverlayResource(textHref)
-		val start = minOf(visibleStart, visibleEnd).coerceAtLeast(0)
-		val end = maxOf(visibleStart, visibleEnd).coerceAtLeast(start)
+		val canonical = segments.any { segment -> segment.rawProvenanceId != null }
+		val start: Int
+		val end: Int
+		val requiredProvenanceId: String?
+		val requiredSpineIndex: Int?
+		if (canonical) {
+			requiredProvenanceId = rawProvenanceId
+				?.takeIf { it.isNotBlank() && it == it.trim() }
+				?: return null
+			requiredSpineIndex = rawSpineIndex?.takeIf { it >= 0 } ?: return null
+			start = rawByteStart?.takeIf { it >= 0 } ?: return null
+			end = rawByteEnd?.takeIf { it > start } ?: return null
+		} else {
+			requiredProvenanceId = null
+			requiredSpineIndex = null
+			start = minOf(visibleStart, visibleEnd).coerceAtLeast(0)
+			end = maxOf(visibleStart, visibleEnd).coerceAtLeast(start)
+		}
 		val visibleCenter = (start + end) / 2.0
 		return segments
 			.asSequence()
-			.filter { segment -> normalizedMediaOverlayResource(segment.textHref) == normalizedText }
+			.filter { segment ->
+				normalizedMediaOverlayResource(segment.textHref) == normalizedText &&
+					(!canonical || (
+						segment.rawProvenanceId == requiredProvenanceId &&
+						segment.spineIndex == requiredSpineIndex
+					))
+			}
 			.mapNotNull { segment ->
 				segment.overlapScore(start, end, visibleCenter)
 					?.let { score -> segment to score }
@@ -106,13 +193,28 @@ data class WhispersyncTimeline(
 
 	fun seekTargetForTextPoint(
 		textHref: String,
-		textOffset: Int
+		textOffset: Int,
+		rawProvenanceId: String? = null,
+		rawByteOffset: Int? = null
 	): WhispersyncAudioSeekTarget? {
 		val normalizedText = normalizedMediaOverlayResource(textHref)
-		val point = textOffset.coerceAtLeast(0)
+		val canonical = segments.any { segment -> segment.rawProvenanceId != null }
+		val requiredProvenanceId = if (canonical) {
+			rawProvenanceId
+				?.takeIf { it.isNotBlank() && it == it.trim() }
+				?: return null
+		} else {
+			null
+		}
+		val point = if (canonical) {
+			rawByteOffset?.takeIf { it >= 0 } ?: return null
+		} else {
+			textOffset.coerceAtLeast(0)
+		}
 		return segments
 			.firstOrNull { segment ->
 				normalizedMediaOverlayResource(segment.textHref) == normalizedText &&
+					(!canonical || segment.rawProvenanceId == requiredProvenanceId) &&
 					segment.containsTextPoint(point)
 			}
 			?.let { segment ->
@@ -169,6 +271,7 @@ data class WhispersyncSegment(
 	val startMs: Long,
 	val endMs: Long,
 	val textHref: String,
+	val spineIndex: Int? = null,
 	val fragmentId: String? = null,
 	val rangeCfi: String? = null,
 	val textStart: Int? = null,
@@ -176,14 +279,32 @@ data class WhispersyncSegment(
 	val spokenText: String? = null,
 	val ebookText: String? = null,
 	val label: String? = null,
-	@Transient val sourceOrdinal: Int = -1
+	@Transient val sourceOrdinal: Int = -1,
+	@Transient val rawProvenanceId: String? = null
 ) {
 	fun toReaderOverlayFragment(
 		textProgressEnd: Int? = null,
 		textProgressFraction: Double? = null,
 		playbackSpeed: Float? = null,
 		nextSegment: WhispersyncSegment? = null
-	): ReaderOverlayFragment =
+	): ReaderOverlayFragment = if (rawProvenanceId != null) {
+		ReaderOverlayFragment(
+			resourceHref = audioResource,
+			coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+			wordBoundarySequence = sourceOrdinal.takeIf { it >= 0 }?.toLong(),
+			textHref = textHref,
+			clipBeginSeconds = startMs / 1000.0,
+			clipEndSeconds = endMs / 1000.0,
+			spokenText = spokenText,
+			playbackSpeed = playbackSpeed,
+			label = label,
+			rawProvenanceId = rawProvenanceId,
+			rawSpineIndex = spineIndex,
+			rawByteStart = textStart,
+			rawByteEnd = textEnd,
+			rawProgressFraction = textProgressFraction
+		)
+	} else {
 		ReaderOverlayFragment(
 			resourceHref = audioResource,
 			fragmentId = fragmentId,
@@ -203,6 +324,7 @@ data class WhispersyncSegment(
 			playbackSpeed = playbackSpeed,
 			label = label
 		)
+	}
 }
 
 @Serializable
@@ -262,6 +384,7 @@ fun decodeCachedWhispersyncSidecar(json: String): WhispersyncSidecar {
 
 fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 	val root = WhispersyncJson.parseToJsonElement(json).jsonObject
+	val coordinateBasis = root.toWhispersyncCoordinateBasisOrNull()
 	val ebook = root.objectValue("ebook")
 	val audiobook = root.objectValue("audiobook")
 	val resources = root.objectValue("resources")
@@ -288,6 +411,7 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 			)
 		}
 	val segments = parsedSegments.mapNotNull { it.segment }
+		.map { segment -> coordinateBasis?.canonicalize(segment) ?: segment }
 	val droppedReasons = parsedSegments.mapNotNull { it.dropReason }
 	val cachedDroppedReasons = root.arrayValue("droppedSegmentReasons")
 		.orEmpty()
@@ -315,7 +439,11 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 		audiobookManifestHref = resources?.stringValue("audiobookManifestHref"),
 		documentTextLength = root.intValue("documentTextLength")
 			?: ebook?.intValue("documentTextLength"),
-		timeline = WhispersyncTimeline(segments = segments),
+		coordinateBasis = coordinateBasis,
+		timeline = WhispersyncTimeline(
+			segments = segments,
+			coordinateBasis = coordinateBasis
+		),
 		droppedSegmentCount = root.intValue("droppedSegmentCount")
 			?.takeIf { hasCacheCueMetadata && it >= 0 }
 			?: droppedReasons.size,
@@ -324,6 +452,78 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 			?.takeIf { hasCacheCueMetadata && it.matches(Regex("[0-9a-f]{12}")) }
 			?: json.encodeUtf8().sha256().hex().take(12)
 	)
+}
+
+internal fun WhispersyncSidecar.referencedRawTextProvenanceDescriptors(): List<ReaderRawTextProvenanceDescriptor> {
+	val basis = coordinateBasis ?: return emptyList()
+	val referencedIds = timeline.segments.mapNotNull(WhispersyncSegment::rawProvenanceId).toSet()
+	return basis.spines
+		.asSequence()
+		.filter { proof -> proof.provenanceId in referencedIds }
+		.sortedWith(compareBy(WhispersyncSpineCoordinateProof::spineIndex).thenBy(WhispersyncSpineCoordinateProof::href))
+		.map(WhispersyncSpineCoordinateProof::toRawTextProvenanceDescriptor)
+		.toList()
+}
+
+private fun JsonObject.toWhispersyncCoordinateBasisOrNull(): WhispersyncCoordinateBasis? {
+	val value = this["coordinateBasis"] ?: return null
+	val basis = value as? JsonObject
+		?: throw IllegalArgumentException("Malformed Whispersync coordinate basis")
+	val spines = (basis["spines"] as? JsonArray)
+		?.map { element ->
+			(element as? JsonObject)?.toWhispersyncSpineCoordinateProof()
+				?: throw IllegalArgumentException("Malformed Whispersync spine coordinate proof")
+		}
+		?: throw IllegalArgumentException("Malformed Whispersync spine coordinate proofs")
+	return WhispersyncCoordinateBasis(
+		extractor = basis.exactString("extractor")
+			?: throw IllegalArgumentException("Malformed Whispersync coordinate extractor"),
+		extractorVersion = basis.exactString("extractorVersion")
+			?: throw IllegalArgumentException("Malformed Whispersync coordinate extractor version"),
+		normalization = basis.exactString("normalization")
+			?: throw IllegalArgumentException("Malformed Whispersync coordinate normalization"),
+		unit = basis.exactString("unit")
+			?: throw IllegalArgumentException("Malformed Whispersync coordinate unit"),
+		scope = basis.exactString("scope")
+			?: throw IllegalArgumentException("Malformed Whispersync coordinate scope"),
+		spines = spines
+	)
+}
+
+private fun JsonObject.toWhispersyncSpineCoordinateProof() = WhispersyncSpineCoordinateProof(
+	href = exactString("href")
+		?: throw IllegalArgumentException("Malformed Whispersync spine href"),
+	spineIndex = intValue("spineIndex")
+		?: throw IllegalArgumentException("Malformed Whispersync spine index"),
+	sourceHash = exactString("sourceHash")
+		?: throw IllegalArgumentException("Malformed Whispersync source hash"),
+	extractedTextHash = exactString("extractedTextHash")
+		?: throw IllegalArgumentException("Malformed Whispersync extracted text hash"),
+	byteLength = intValue("byteLength")
+		?: throw IllegalArgumentException("Malformed Whispersync extracted byte length"),
+	tokenCount = intValue("tokenCount")
+		?: throw IllegalArgumentException("Malformed Whispersync token count")
+)
+
+private fun JsonObject.exactString(key: String): String? =
+	(this[key] as? JsonPrimitive)
+		?.takeIf(JsonPrimitive::isString)
+		?.contentOrNull
+
+private fun WhispersyncCoordinateBasis.canonicalize(segment: WhispersyncSegment): WhispersyncSegment {
+	val spineIndex = segment.spineIndex
+		?: throw IllegalArgumentException("Canonical Whispersync cue lacks spine index")
+	val proof = spines.singleOrNull { candidate ->
+		candidate.spineIndex == spineIndex && candidate.href == segment.textHref
+	} ?: throw IllegalArgumentException("Canonical Whispersync cue lacks matching spine proof")
+	val start = segment.textStart
+		?: throw IllegalArgumentException("Canonical Whispersync cue lacks byte start")
+	val end = segment.textEnd
+		?: throw IllegalArgumentException("Canonical Whispersync cue lacks byte end")
+	require(start >= 0 && end > start && end <= proof.byteLength) {
+		"Canonical Whispersync cue has invalid byte range"
+	}
+	return segment.copy(rawProvenanceId = proof.provenanceId)
 }
 
 private data class WhispersyncSegmentParseResult(
@@ -477,6 +677,7 @@ private fun JsonObject.toWhispersyncSegmentResult(
 			startMs = startMs,
 			endMs = endMs,
 			textHref = textHref,
+			spineIndex = intValue("spineIndex") ?: text?.intValue("spineIndex"),
 			fragmentId = stringValue("fragmentId"),
 			rangeCfi = stringValue("rangeCfi") ?: stringValue("cfi"),
 			textStart = intValue("textStart") ?: intValue("ebookStart") ?: intValue("startChar") ?: text?.intValue("start"),

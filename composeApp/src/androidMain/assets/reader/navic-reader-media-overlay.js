@@ -274,7 +274,23 @@ function readerMediaOverlayPersistentPlayed(settings = this.readerSettings) {
   return settings?.whispersyncHighlightLoading === 'persistent-played-text'
 }
 
+function resolveCanonicalCueTextRange(content, cue) {
+  const provenance = this.rawTextProvenance
+  if (!provenance || typeof provenance.resolveRange !== 'function' ||
+    typeof provenance.resolvedRangeMatchesText !== 'function') return null
+  const locator = typeof cue?.ebookText === 'string' ? cue.ebookText : ''
+  if (!locator.trim()) return null
+  const range = provenance.resolveRange({ ...cue, ebookText: undefined })
+  if (!range || range.collapsed || range.startContainer?.ownerDocument !== content?.doc) return null
+  if (!provenance.resolvedRangeMatchesText(range, locator, cue)) return null
+  return { range }
+}
+
 function resolveMediaOverlayTextRange(content, fragment, paintEnd = fragment?.textEnd) {
+  if (fragment?.coordinateMode === ReaderWordSyncV1ExtractedUtf8Mode) {
+    return resolveCanonicalCueTextRange.call(this, content, fragment)
+  }
+  if (!validatedReaderOverlayCoordinateMode(fragment)) return null
   const textStart = Number(fragment?.textStart)
   const textEnd = Number(fragment?.textEnd)
   if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return null
@@ -292,6 +308,7 @@ function resolveMediaOverlayTextRange(content, fragment, paintEnd = fragment?.te
     textEnd,
     fragment.ebookText
   )
+  if (!resolvedRangeBeforeClamp) return null
   const hasNextTextRange = Number.isFinite(Number(fragment.nextTextStart)) &&
     Number.isFinite(Number(fragment.nextTextEnd)) &&
     Number(fragment.nextTextEnd) > Number(fragment.nextTextStart)

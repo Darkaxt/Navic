@@ -149,7 +149,7 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 	}
 
 	@Test
-	fun progressiveWhispersyncHighlightUsesVisibleEbookTextSuffixAndNextCueClamp() {
+	fun progressiveWhispersyncHighlightUsesFullSpineUniqueEbookLocatorAndNextCueClamp() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
 		val overlayMethods = sourceFile(
 			"composeApp/src/androidMain/assets/reader/navic-reader-media-overlay.js"
@@ -157,8 +157,13 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		val helpers = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader-helpers.js").readText()
 
 		assertContains(helpers, "readerMediaOverlayEbookTextCandidates")
-		assertContains(helpers, "locator: 'ebook-text-suffix'")
-		assertContains(helpers, "preferredCenter - searchStart")
+		assertContains(helpers, ".find(current => current.priority === 0)")
+		assertContains(helpers, "map.text.indexOf(candidate.text)")
+		assertContains(helpers, "map.text.indexOf(candidate.text, normalizedTextStart + 1)")
+		assertFalse(
+			helpers.contains("preferredCenter - searchStart"),
+			"Legacy EPUB mapping must search the whole spine and reject ambiguous locators instead of trusting a foreign offset window."
+		)
 		assertContains(helpers, "readerMediaOverlayClampRangeBeforeNextCue")
 
 		val highlighter = runtime

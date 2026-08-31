@@ -14,12 +14,18 @@ sealed interface WhispersyncReaderSyncInput {
 	data class VisibleRange(
 		val textHref: String,
 		val visibleStart: Int,
-		val visibleEnd: Int
+		val visibleEnd: Int,
+		val rawProvenanceId: String? = null,
+		val rawSpineIndex: Int? = null,
+		val rawByteStart: Int? = null,
+		val rawByteEnd: Int? = null
 	) : WhispersyncReaderSyncInput
 
 	data class TextPoint(
 		val textHref: String,
-		val textOffset: Int
+		val textOffset: Int,
+		val rawProvenanceId: String? = null,
+		val rawByteOffset: Int? = null
 	) : WhispersyncReaderSyncInput
 }
 
@@ -70,7 +76,11 @@ class WhispersyncOverlaySyncAdapter(
 				timeline.seekTargetForVisibleTextRange(
 					textHref = input.textHref,
 					visibleStart = input.visibleStart,
-					visibleEnd = input.visibleEnd
+					visibleEnd = input.visibleEnd,
+					rawProvenanceId = input.rawProvenanceId,
+					rawSpineIndex = input.rawSpineIndex,
+					rawByteStart = input.rawByteStart,
+					rawByteEnd = input.rawByteEnd
 				)?.toReaderTarget(
 					repeatSeek = false,
 					updateRepeatedCue = false
@@ -78,7 +88,9 @@ class WhispersyncOverlaySyncAdapter(
 			is WhispersyncReaderSyncInput.TextPoint ->
 				timeline.seekTargetForTextPoint(
 					textHref = input.textHref,
-					textOffset = input.textOffset
+					textOffset = input.textOffset,
+					rawProvenanceId = input.rawProvenanceId,
+					rawByteOffset = input.rawByteOffset
 				)?.toReaderTarget(
 					repeatSeek = true,
 					updateRepeatedCue = true
