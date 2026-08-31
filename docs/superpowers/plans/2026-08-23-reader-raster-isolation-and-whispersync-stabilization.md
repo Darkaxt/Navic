@@ -1,7 +1,8 @@
 # Reader Raster Isolation And Whispersync Stabilization Staged Plan
 
 **Goal:** Replace shared-foreground passive capture, correct the Whispersync
-lifecycle and seek loop, make preparation Retry generation-safe, and make curl
+lifecycle and seek loop, translate Bindery canonical EPUB coordinates into exact
+Foliate-owned DOM ranges, make preparation Retry generation-safe, and make curl
 presentation visually atomic without changing Foliate or PlayLikeCurl authority.
 
 **Specification:**
@@ -369,13 +370,27 @@ suspension-and-coalescing path instead of forcing a new renderer API.
    rendering?** and **are its visible cue ordinals in reading order?** Then cover
    initial highlight, Stop/Start, provenance, page-end pause, Retry, passive
    isolation, and curl material.
-5. With explicit device ownership, run only the first two landscape pages of
+5. Treat any non-monotonic visible cue order as a hard mapping-authority blocker.
+   Halt playback and device acceptance, classify the coordinate boundary from the
+   exact sidecar and EPUB without retaining protected text, and complete the
+   canonical Bindery-to-Foliate text-mapping amendment below before any further
+   live testing.
+6. Group the canonical-mapping RED tests, run one focused RED boundary, implement
+   the coordinated Bindery contract and Foliate projection, run one focused GREEN
+   boundary, then run the consolidated JavaScript/common mapping gate. Regenerate
+   the selected sidecar under the new contract and invalidate only incompatible
+   cached generations.
+7. Freeze and publish a new production-signed candidate from the pushed mapping
+   checkpoint. First prove on the focused emulator that the configured paired
+   book's visible cue ordinals are monotonic and that every admitted cue carries
+   matching canonical-text proof; only then resume physical-device work.
+8. With explicit device ownership, run only the first two landscape pages of
    Chapter 1 on the approved tablet using privacy-safe evidence.
-6. Classify any remaining cue mismatch as backend data, frontend mapping, or
-   unresolved. Fix it now only if it violates the specification or blocks the
-   bounded acceptance.
-7. Re-run only the gates affected by a necessary correction, then run the final
-   consolidated gate once.
+9. Classify any remaining cue mismatch as backend data, frontend mapping, or
+   unresolved. Fix it now if it violates the specification or blocks the bounded
+   acceptance.
+10. Re-run only the gates affected by a necessary correction, then run the final
+    consolidated gate once.
 
 ### Production cue-map diagnostic amendment
 
@@ -418,24 +433,108 @@ eye control when a Whispersync sidecar is available.
    their ordinals progress in DOM reading order. Only after those pass may the
    same APK evaluate requested, audio-active, and rendered cue transitions.
 
+### Canonical Bindery-to-Foliate text-mapping amendment
+
+This amendment is a Stage 6 blocker discovered by the production cue map. The
+bounded tablet probe exposed a source ordinal after later ordinals on the same
+spine component. A privacy-safe replay against the exact EPUB established that
+Bindery's source and audio anchors were monotonic, while Navic's bounded locator
+search missed a globally unique complete locator and silently admitted the
+foreign numeric offset as a DOM offset. The resulting Foliate range landed after
+two later cues. No emulator or tablet acceptance may resume until the following
+contract is implemented and verified.
+
+1. Define one versioned canonical EPUB text coordinate mode shared by Bindery and
+   Foliate. Specify body traversal, excluded non-reading nodes, block separators,
+   entity decoding, Unicode normalization, whitespace collapse, punctuation,
+   offset unit, and spine scope. Prefer Unicode-scalar or canonical-token offsets;
+   never leave UTF-8 byte versus JavaScript UTF-16 interpretation implicit.
+2. Bindery aligns and emits cue ranges only in that declared coordinate mode. Each
+   referenced spine component carries a SHA-256 digest of its canonical text plus
+   the extraction-contract version. A newly generated sidecar must preserve
+   source-ordinal and audio chronology and reject decreasing same-spine anchors.
+3. Foliate remains the exclusive cue-to-DOM authority. While walking the loaded
+   EPUB DOM, it constructs the same canonical text and an in-memory projection
+   from each canonical boundary to the originating DOM text node and UTF-16
+   boundary. It verifies the version and digest before translating cue ranges into
+   browser `Range` objects.
+4. A matching canonical digest makes mapping deterministic: resolve `ebookStart`
+   and `ebookEnd` through the projection table, validate the resulting canonical
+   slice against the cue locator, and return that exact Foliate range. This path
+   performs no fuzzy search and never asks native code to infer EPUB semantics.
+5. A digest/version/slice mismatch is a visible, terminal mapping outcome for that
+   sidecar generation. It cannot publish cue geometry, satisfy highlight proof,
+   seek audio, or fall back to treating a Bindery extraction offset as a DOM
+   offset. A reachable fresh-sidecar or publication-reload event must exist for
+   every deferred outcome.
+6. Keep legacy sidecars usable only through a fenced compatibility mapper. When
+   locator text is present, search the complete canonical spine, admit a unique
+   complete match, and otherwise constrain candidates between already-resolved
+   previous and next source ordinals. Ambiguous, missing, or non-monotonic results
+   fail visibly. Remove the current raw-offset fallback for foreign coordinates;
+   suffix matching alone cannot override complete-locator or neighbor order.
+7. Add public synthetic cross-system fixtures covering block boundaries, entities,
+   collapsed whitespace, composed/decomposed Unicode, non-ASCII offset units,
+   split DOM text nodes, repeated sentences, a unique locator outside the former
+   bounded window, and malformed decreasing anchors. The same fixture must produce
+   identical canonical text, digest, and range boundaries in Bindery and Foliate.
+8. Add focused RED coverage proving the formerly reachable failure: monotonic
+   sidecar cues plus a drifted foreign offset must not render a later DOM range;
+   the unique complete locator must resolve correctly, repeated ambiguous text
+   must use neighbor constraints or fail, and no mismatch may emit cue receipts.
+   Run one focused RED gate before production changes and one focused GREEN gate
+   after the minimal implementation.
+9. Preserve page-local presentation: canonical mapping may update cue geometry and
+   highlight masks but may not recapture or resubmit the base page raster. Existing
+   destination, Foliate-session, presentation-generation, and sidecar-generation
+   fences remain mandatory.
+10. Regenerate the configured pair's sidecar with the canonical contract, publish
+    it through normal Book Sync selection, and invalidate only cached sidecars whose
+    coordinate version or canonical digest is incompatible. Before audio testing,
+    the focused emulator must prove matching canonical receipts and monotonic cue
+    ordinals on the first spread.
+11. Publish a new GitHub-managed production-signed RC only after the mapping gates
+    pass. Resume bounded tablet acceptance from a fresh process and stop immediately
+    if any same-spine ordinal is non-monotonic, any digest proof is absent, or any
+    cue is admitted through a foreign raw offset.
+
+### Stage 6 current blocker ledger
+
+- **Validated diagnostic:** The normal-release cue map renders immutable source
+  ordinals and exposed the longstanding same-spine order inversion without OCR or
+  retained publication text.
+- **Root cause classified:** Bindery's examined source/audio anchors are monotonic.
+  Navic can miss a unique full locator outside its bounded search window and then
+  apply the incompatible extracted-text offset directly to Foliate's normalized DOM
+  map. DOM-order sorting correctly exposes the resulting wrong range.
+- **Blocker:** Implement and verify the canonical mapping amendment before any
+  further emulator or tablet live testing. A heuristic window expansion without a
+  coordinate contract, digest proof, monotonic admission, and fail-visible outcome
+  does not close this blocker.
+- **Acceptance state:** Tablet playback and interaction remain halted. Stage 6 has
+  not exited, the Stage 6 checkpoint is not publishable, and Stage 7 must not begin.
+
 ### Expected outcome
 
 The integrated reader satisfies the authoritative interaction contract without
 highlight loss, same-spread Start failure, maintenance-origin audio loops,
-poisoned Retry, black curl material, or cross-page highlight leakage. A user can
-enable the production cue map on a tablet and report stable visible cue ordinals
-plus bounded requested/audio/rendered transitions without exposing publication
-content.
+poisoned Retry, black curl material, cross-page highlight leakage, or
+non-monotonic cue placement. Matching Bindery canonical coordinates translate
+deterministically into Foliate-owned DOM ranges; incompatible generations fail
+visibly instead of falling back to foreign offsets. A user can enable the
+production cue map on a tablet and report stable visible cue ordinals plus bounded
+requested/audio/rendered transitions without exposing publication content.
 
 ### Specification validation
 
 Re-read the complete specification and account for every Acceptance Summary
-item. Any unimplemented authority, privacy, lifecycle, Retry, mask, material, or
-cue-diagnostic requirement is a blocker. The cue map must expose production
-mapping behavior rather than bypass it, and must remain content-free in retained
-evidence. A remaining feature may defer beyond this project only if the
-specification names it as a non-goal and the bounded acceptance proves it cannot
-mask a core failure.
+item plus the canonical-mapping amendment above. Any unimplemented authority,
+privacy, lifecycle, Retry, mask, material, cue-diagnostic, coordinate-version,
+canonical-digest, monotonic-admission, or fail-visible mapping requirement is a
+blocker. The cue map must expose production mapping behavior rather than bypass
+it, and must remain content-free in retained evidence. A remaining feature may
+defer beyond this project only if the specification names it as a non-goal and
+the bounded acceptance proves it cannot mask a core failure.
 
 ## Stage 7 — Signed Production Delivery
 
