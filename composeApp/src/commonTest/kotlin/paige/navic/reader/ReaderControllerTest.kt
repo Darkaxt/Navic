@@ -148,6 +148,41 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun untaggedSameSessionRelocationClearsCompletedPageTurnAcknowledgement() {
+		val acknowledged = ReaderController().onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(
+					href = "OEBPS/Text/title.xhtml",
+					pageIndex = 3,
+					pageCount = 121
+				),
+				foliateSessionId = "session-a",
+				pageTurnSettleToken = "settle-1",
+				pageTurnSettleSessionId = "session-a",
+				pageTurnSettleRasterGeneration = 11L,
+				pageTurnSettleTextureGeneration = 13L
+			)
+		).controller
+		val chapterOneLocator = ReaderLocator(
+			href = "OEBPS/Text/chapter-01.xhtml",
+			pageIndex = 10,
+			pageCount = 121
+		)
+
+		val relocated = acknowledged.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = chapterOneLocator,
+				foliateSessionId = "session-a",
+				tocTitle = "Chapter 1"
+			)
+		).controller
+
+		assertEquals(chapterOneLocator, relocated.state.chrome.currentLocator)
+		assertEquals("Chapter 1", relocated.state.chrome.currentSectionTitle)
+		assertNull(relocated.state.pageTurnSettlementAck)
+	}
+
+	@Test
 	fun unrelatedReadableRelocationDoesNotDismissControllerOwnedShellCover() {
 		val controller = ReaderController().open(
 			hobbitOpenRequest().copy(

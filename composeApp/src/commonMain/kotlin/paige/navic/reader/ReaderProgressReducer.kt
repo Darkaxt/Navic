@@ -57,7 +57,6 @@ internal object ReaderProgressReducer {
 			}
 		val sessionChanged = state.foliateSessionId != event.foliateSessionId
 		val nextSettlementAck = event.pageTurnSettlementAck()
-			?: state.pageTurnSettlementAck.takeUnless { sessionChanged }
 		val currentDestination = state.destinationCommitIdentity.takeUnless { sessionChanged }
 		val eventDestination = event.destinationCommitIdentity?.takeIf {
 			it.foliateSessionId == event.foliateSessionId
