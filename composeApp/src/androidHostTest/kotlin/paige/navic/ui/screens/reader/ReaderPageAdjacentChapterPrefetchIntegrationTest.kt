@@ -591,6 +591,31 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun uiHiddenTrimDoesNotRetireInFlightPreparationOrPublishFailure() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			retirePassiveSessionOnCancel = true
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			val passivePort = fixture.passiveOwner.currentPort
+			val activeRequest = assertNotNull(fixture.prewarm.active)
+			val stateBefore = fixture.latestState
+
+			fixture.dispatchTrimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+
+			assertFalse(passivePort.isRetired)
+			assertEquals(0, fixture.prewarm.cancellationCount)
+			assertTrue(fixture.prewarm.active === activeRequest)
+			assertEquals(stateBefore, fixture.latestState)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun lowMemoryAfterReadyRetiresPassiveWorkWithoutShowingForegroundFailure() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(
@@ -2096,11 +2121,15 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 			state.javaClass.getMethod("getPreparationGeneration").invoke(state) as Long
 		}.getOrNull()
 
-	fun dispatchLowMemory() {
+	fun dispatchTrimMemory(level: Int) {
 		val callbacks = controller.javaClass.getDeclaredField("memoryCallbacks").apply {
 			isAccessible = true
 		}.get(controller) as ComponentCallbacks2
-		callbacks.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW)
+		callbacks.onTrimMemory(level)
+	}
+
+	fun dispatchLowMemory() {
+		dispatchTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW)
 	}
 
 	suspend fun persistValidCacheEntry(): Int {
