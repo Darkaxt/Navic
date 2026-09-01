@@ -55,6 +55,21 @@ data class ReaderPagePreparationState(
 		get() = phase == ReaderPagePreparationPhase.Preparing && requiredCount > 0
 }
 
+fun ReaderPagePreparationState.toPresentationFacts(): ReaderPagePreparationFacts =
+	ReaderPagePreparationFacts(
+		phase = phase,
+		generation = preparationGeneration,
+		completedCount = completedCount,
+		requiredCount = requiredCount,
+		readiness = readiness,
+		failure = if (phase == ReaderPagePreparationPhase.Failed) {
+			ReaderPresentationFailureReason.PreparationFailed
+		} else {
+			null
+		},
+		retryable = retryable
+	)
+
 private fun readerPagePreparationPresentation(
 	readiness: ReaderPageReadinessState
 ): ReaderPagePreparationPresentation = when (readiness.interaction) {

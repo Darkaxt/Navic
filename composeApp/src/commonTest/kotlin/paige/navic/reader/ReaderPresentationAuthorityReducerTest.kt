@@ -668,27 +668,189 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
-	fun typedLifecycleEventsConstructAndReduceSafely() {
+	fun visibilityLossRetainsPresentationIdentityButRejectsPageInput() {
+		val pending = readerPresentationReduce(
+			settledNativeState(nextTokenValue = 7L),
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 8L)
+		).state
+		val nativeState = settledNativeState()
+
+		val hiddenPending = readerPresentationReduce(
+			pending,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityLost)
+		)
+		val hiddenNative = readerPresentationReduce(
+			nativeState,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityLost)
+		)
+
+		assertEquals(ReaderPresentationLifecycleState.Background, hiddenPending.state.lifecycle)
+		assertEquals(pending.binding, hiddenPending.state.binding)
+		assertEquals(pending.authority, hiddenPending.state.authority)
+		assertEquals(pending.preparationFacts, hiddenPending.state.preparationFacts)
+		assertEquals(pending.nextTokenValue, hiddenPending.state.nextTokenValue)
+		assertEquals(readerPresentationDecision(pending).frameOwner, hiddenPending.decision.frameOwner)
+		assertEquals(ReaderPreparationPresentation.Hidden, hiddenPending.decision.preparationPresentation)
+		assertEquals(ReaderDiagnosticPresentation.Hidden, hiddenPending.decision.diagnosticPresentation)
+		assertEquals(ReaderPresentationInputPolicy.ChromeOnly, hiddenNative.decision.inputPolicy)
+		assertEquals(nativeFrame, hiddenNative.decision.frameOwner)
+	}
+
+	@Test
+	fun visibilityRestoreReturnsToTheSameVisibleAuthorityAndInput() {
+		val state = settledNativeState()
+		val hidden = readerPresentationReduce(
+			state,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityLost)
+		).state
+
+		val restored = readerPresentationReduce(
+			hidden,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityRestored)
+		)
+
+		assertEquals(state, restored.state)
+		assertEquals(readerPresentationDecision(state), restored.decision)
+		assertEquals(emptyList(), restored.effects)
+	}
+
+	@Test
+	fun typedMemoryPressureRetainsSelectedOwnerWithoutDiagnostic() {
+		val state = settledNativeState()
 		val events = listOf(
-			ReaderPresentationLifecycleEvent.VisibilityLost,
-			ReaderPresentationLifecycleEvent.VisibilityRestored,
 			ReaderPresentationLifecycleEvent.RunningMemoryPressure(
-				ReaderPresentationMemoryPressureLevel.Moderate
+				ReaderPresentationMemoryPressureLevel.Low
 			),
 			ReaderPresentationLifecycleEvent.BackgroundMemoryPressure(
-				ReaderPresentationMemoryPressureLevel.Critical
-			),
-			ReaderPresentationLifecycleEvent.RendererLost,
-			ReaderPresentationLifecycleEvent.PublicationClosed
+				ReaderPresentationMemoryPressureLevel.Complete
+			)
 		)
-		val state = settledNativeState()
 
 		events.forEach { event ->
 			val reduction = readerPresentationReduce(state, ReaderPresentationEvent.Lifecycle(event))
 			assertEquals(state, reduction.state)
-			assertEquals(readerPresentationDecision(state), reduction.decision)
+			assertEquals(nativeFrame, reduction.decision.frameOwner)
+			assertEquals(ReaderDiagnosticPresentation.Hidden, reduction.decision.diagnosticPresentation)
 			assertEquals(emptyList(), reduction.effects)
 		}
+	}
+
+	@Test
+	fun rendererLossRetainsStableFrameWithSanitizedDiagnostic() {
+		val state = settledNativeState()
+
+		val reduction = readerPresentationReduce(
+			state,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.RendererLost)
+		)
+
+		assertEquals(
+			ReaderPresentationAuthority.BlockingPreparation(nativeFrame),
+			reduction.state.authority
+		)
+		assertEquals(binding, reduction.state.binding)
+		assertEquals(state.preparationFacts, reduction.state.preparationFacts)
+		assertEquals(nativeFrame, reduction.decision.frameOwner)
+		assertEquals(ReaderPresentationInputPolicy.ChromeOnly, reduction.decision.inputPolicy)
+		assertEquals(
+			ReaderDiagnosticPresentation.Failure(
+				reason = ReaderPresentationFailureReason.RendererLost,
+				retryable = true,
+				cancellable = false
+			),
+			reduction.decision.diagnosticPresentation
+		)
+	}
+
+	@Test
+	fun rendererLossWithoutFrameUsesNeutralRecoveryOnly() {
+		val state = ReaderPresentationState(binding = binding)
+
+		val reduction = readerPresentationReduce(
+			state,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.RendererLost)
+		)
+
+		assertEquals(
+			ReaderPresentationAuthority.BlockingPreparation(ReaderPresentationFrameOwner.Neutral),
+			reduction.state.authority
+		)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, reduction.decision.frameOwner)
+		assertEquals(ReaderPresentationInputPolicy.RecoveryOnly, reduction.decision.inputPolicy)
+		assertEquals(
+			ReaderPresentationFailureReason.RendererLost,
+			(reduction.decision.diagnosticPresentation as ReaderDiagnosticPresentation.Failure).reason
+		)
+	}
+
+	@Test
+	fun publicationCloseIsTerminalUntilAnotherPublicationOpens() {
+		val pending = readerPresentationReduce(
+			settledNativeState(nextTokenValue = 7L),
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 8L)
+		).state
+		val closed = readerPresentationReduce(
+			pending,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.PublicationClosed)
+		)
+
+		assertEquals(ReaderPresentationAuthority.Unavailable, closed.state.authority)
+		assertEquals(null, closed.state.binding)
+		assertEquals(ReaderPresentationLifecycleState.Destroyed, closed.state.lifecycle)
+		assertEquals(ReaderPagePreparationFacts(), closed.state.preparationFacts)
+		assertEquals(null, closed.state.failure)
+		assertEquals(pending.nextTokenValue, closed.state.nextTokenValue)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, closed.decision.frameOwner)
+		assertEquals(ReaderPresentationInputPolicy.RecoveryOnly, closed.decision.inputPolicy)
+
+		listOf<ReaderPresentationEvent>(
+			ReaderPresentationEvent.NativePagePresented(nativeProof),
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityRestored),
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.RendererLost)
+		).forEach { stale ->
+			assertNoOp(closed.state, readerPresentationReduce(closed.state, stale))
+		}
+
+		val reopened = readerPresentationReduce(
+			closed.state,
+			ReaderPresentationEvent.PublicationOpened(binding)
+		)
+		assertEquals(binding, reopened.state.binding)
+		assertEquals(ReaderPresentationLifecycleState.Foreground, reopened.state.lifecycle)
+		assertEquals(ReaderPresentationAuthority.Unavailable, reopened.state.authority)
+	}
+
+	@Test
+	fun preparationFactsAdapterKeepsRawFactsAndExcludesLegacyPresentationFields() {
+		val state = ReaderPagePreparationState(
+			phase = ReaderPagePreparationPhase.Failed,
+			preparationGeneration = 9L,
+			requiredCount = 5,
+			completedCount = 2,
+			activePageLabel = "sensitive-page-label",
+			error = "sensitive failure detail",
+			retryable = true,
+			readiness = readyReadiness,
+			presentation = ReaderPagePreparationPresentation.Hidden,
+			gestureDisposition = ReaderPagePreparationGestureDisposition.Allow
+		)
+
+		val facts = state.toPresentationFacts()
+		val withDifferentLegacyPresentation = state.copy(
+			activePageLabel = "other-label",
+			error = "other failure detail",
+			presentation = ReaderPagePreparationPresentation.Cover,
+			gestureDisposition = ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing
+		)
+
+		assertEquals(ReaderPagePreparationPhase.Failed, facts.phase)
+		assertEquals(9L, facts.generation)
+		assertEquals(2, facts.completedCount)
+		assertEquals(5, facts.requiredCount)
+		assertEquals(readyReadiness, facts.readiness)
+		assertEquals(ReaderPresentationFailureReason.PreparationFailed, facts.failure)
+		assertEquals(true, facts.retryable)
+		assertEquals(facts, withDifferentLegacyPresentation.toPresentationFacts())
 	}
 
 	private fun settledNativeState(nextTokenValue: Long = 1L) = ReaderPresentationState(

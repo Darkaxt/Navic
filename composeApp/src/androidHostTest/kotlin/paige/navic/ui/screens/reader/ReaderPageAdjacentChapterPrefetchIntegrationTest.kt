@@ -31,6 +31,8 @@ import paige.navic.reader.ReaderPageNewPointerDecision
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationPresentation
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderPresentationLifecycleEvent
+import paige.navic.reader.ReaderPresentationMemoryPressureLevel
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderPageTurnLayoutMode
@@ -609,6 +611,107 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			assertEquals(0, fixture.prewarm.cancellationCount)
 			assertTrue(fixture.prewarm.active === activeRequest)
 			assertEquals(stateBefore, fixture.latestState)
+			assertEquals(
+				listOf<ReaderPresentationLifecycleEvent>(
+					ReaderPresentationLifecycleEvent.VisibilityLost
+				),
+				fixture.lifecycleEvents
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun trimPressureReportsTypedEventsOnceAndAppliesExistingRetirementPolicy() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			retirePassiveSessionOnCancel = true
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			val passivePort = fixture.passiveOwner.currentPort
+
+			fixture.dispatchTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE)
+
+			assertFalse(passivePort.isRetired)
+			assertEquals(0, fixture.prewarm.cancellationCount)
+			assertEquals(
+				listOf<ReaderPresentationLifecycleEvent>(
+					ReaderPresentationLifecycleEvent.RunningMemoryPressure(
+						ReaderPresentationMemoryPressureLevel.Moderate
+					)
+				),
+				fixture.lifecycleEvents
+			)
+
+			fixture.dispatchTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW)
+
+			assertTrue(passivePort.isRetired)
+			assertEquals(1, fixture.prewarm.cancellationCount)
+			assertEquals(
+				listOf<ReaderPresentationLifecycleEvent>(
+					ReaderPresentationLifecycleEvent.RunningMemoryPressure(
+						ReaderPresentationMemoryPressureLevel.Moderate
+					),
+					ReaderPresentationLifecycleEvent.RunningMemoryPressure(
+						ReaderPresentationMemoryPressureLevel.Low
+					)
+				),
+				fixture.lifecycleEvents
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun backgroundTrimReportsTypedPressureOnceAndRetiresPassiveWork() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			retirePassiveSessionOnCancel = true
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			val passivePort = fixture.passiveOwner.currentPort
+
+			fixture.dispatchTrimMemory(ComponentCallbacks2.TRIM_MEMORY_BACKGROUND)
+
+			assertTrue(passivePort.isRetired)
+			assertEquals(1, fixture.prewarm.cancellationCount)
+			assertEquals(
+				listOf<ReaderPresentationLifecycleEvent>(
+					ReaderPresentationLifecycleEvent.BackgroundMemoryPressure(
+						ReaderPresentationMemoryPressureLevel.Background
+					)
+				),
+				fixture.lifecycleEvents
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun unknownTrimIsInertAndDoesNotReportLifecycle() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			val activeRequest = assertNotNull(fixture.prewarm.active)
+			val stateBefore = fixture.latestState
+
+			fixture.dispatchTrimMemory(12)
+
+			assertEquals(0, fixture.prewarm.cancellationCount)
+			assertTrue(fixture.prewarm.active === activeRequest)
+			assertEquals(stateBefore, fixture.latestState)
+			assertTrue(fixture.lifecycleEvents.isEmpty())
 		} finally {
 			fixture.close()
 			Dispatchers.resetMain()
@@ -2094,6 +2197,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 	val repair: FakeReaderPageRasterBatchPort,
 	val diagnosticMessages: MutableList<String>,
 	val states: MutableList<ReaderPagePreparationState>,
+	val lifecycleEvents: MutableList<ReaderPresentationLifecycleEvent>,
 	val awaitedHostEvents: MutableList<Pair<ReaderPageRasterDeferralReason, Long>>
 ) {
 	val prewarm: FakeReaderPassiveRasterPreparationPort.LanePort
@@ -2245,6 +2349,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 			val legacyBackground = FakeReaderPageRasterBatchPort()
 			val ownership = ReaderForegroundWebViewOwnership()
 			val states = mutableListOf<ReaderPagePreparationState>()
+			val lifecycleEvents = mutableListOf<ReaderPresentationLifecycleEvent>()
 			val diagnosticMessages = mutableListOf<String>()
 			val awaitedHostEvents =
 				mutableListOf<Pair<ReaderPageRasterDeferralReason, Long>>()
@@ -2273,6 +2378,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 					emit = diagnosticMessages::add
 				),
 				onPreparationStateChange = states::add,
+				onPresentationLifecycleEvent = lifecycleEvents::add,
 												rasterBackgroundBatchController = legacyBackground,
 				passiveRasterPreparationPortProvider = passiveOwner::port,
 				onRequestPrewarm = retryProbe::requestFreshManifest,
@@ -2314,6 +2420,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 				repair = repair,
 				diagnosticMessages = diagnosticMessages,
 				states = states,
+				lifecycleEvents = lifecycleEvents,
 				awaitedHostEvents = awaitedHostEvents
 			)
 		}

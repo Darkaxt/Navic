@@ -221,7 +221,9 @@ sealed interface ReaderPreparationPresentation {
 }
 
 enum class ReaderPresentationFailureReason {
+	PreparationFailed,
 	PreparationUnavailable,
+	RendererLost,
 	RendererUnavailable,
 	ShellCoverUnavailable,
 	NativePresentationUnavailable,
@@ -274,8 +276,11 @@ sealed interface ReaderPresentationLifecycleState {
 }
 
 enum class ReaderPresentationMemoryPressureLevel {
+	Background,
 	Moderate,
-	Critical
+	Low,
+	Critical,
+	Complete
 }
 
 sealed interface ReaderPresentationLifecycleEvent {
@@ -297,7 +302,8 @@ data class ReaderPagePreparationFacts(
 	val completedCount: Int = 0,
 	val requiredCount: Int = 0,
 	val readiness: ReaderPageReadinessState = ReaderPageReadinessState(),
-	val failure: ReaderPresentationFailureReason? = null
+	val failure: ReaderPresentationFailureReason? = null,
+	val retryable: Boolean = false
 ) {
 	init {
 		require(generation >= 0L)
@@ -386,11 +392,16 @@ data class ReaderPresentationReduction(
 fun readerPresentationDecision(state: ReaderPresentationState): ReaderPresentationDecision {
 	val authority = state.authority
 	val frameOwner = authority.frameOwner()
+	val inputPolicy = when (state.lifecycle) {
+		ReaderPresentationLifecycleState.Foreground -> authority.inputPolicy(state.preparationFacts)
+		ReaderPresentationLifecycleState.Background -> ReaderPresentationInputPolicy.ChromeOnly
+		ReaderPresentationLifecycleState.Destroyed -> ReaderPresentationInputPolicy.RecoveryOnly
+	}
 	return ReaderPresentationDecision(
 		authority = authority,
 		frameOwner = frameOwner,
 		layer = frameOwner.layer(),
-		inputPolicy = authority.inputPolicy(state.preparationFacts),
+		inputPolicy = inputPolicy,
 		preparationPresentation = authority.preparationPresentation(state.preparationFacts, state.failure),
 		diagnosticPresentation = state.failure ?: ReaderDiagnosticPresentation.Hidden,
 		requiredTransition = authority.requiredTransition()
@@ -401,11 +412,16 @@ fun readerPresentationReduce(
 	state: ReaderPresentationState,
 	event: ReaderPresentationEvent
 ): ReaderPresentationReduction {
-	val result = when (event) {
+	val result = if (
+		state.lifecycle == ReaderPresentationLifecycleState.Destroyed &&
+			event !is ReaderPresentationEvent.PublicationOpened
+	) {
+		ReaderPresentationReducerResult(state)
+	} else when (event) {
 		is ReaderPresentationEvent.PublicationOpened -> ReaderPresentationReducerResult(
 			state = ReaderPresentationState(
 				binding = event.binding,
-				lifecycle = state.lifecycle,
+				lifecycle = ReaderPresentationLifecycleState.Foreground,
 				nextTokenValue = state.nextTokenValue
 			)
 		)
@@ -456,8 +472,8 @@ fun readerPresentationReduce(
 		is ReaderPresentationEvent.PreparationFailed -> state.reducePreparationFailure(event)
 		is ReaderPresentationEvent.TimedOut -> state.reduceTimeout(event)
 		ReaderPresentationEvent.Retry,
-		ReaderPresentationEvent.Cancel,
-		is ReaderPresentationEvent.Lifecycle -> ReaderPresentationReducerResult(state)
+		ReaderPresentationEvent.Cancel -> ReaderPresentationReducerResult(state)
+		is ReaderPresentationEvent.Lifecycle -> state.reduceLifecycle(event.event)
 	}
 	return ReaderPresentationReduction(
 		state = result.state,
@@ -470,6 +486,35 @@ private data class ReaderPresentationReducerResult(
 	val state: ReaderPresentationState,
 	val effects: List<ReaderPresentationEffect> = emptyList()
 )
+
+private fun ReaderPresentationState.reduceLifecycle(
+	event: ReaderPresentationLifecycleEvent
+): ReaderPresentationReducerResult = when (event) {
+	ReaderPresentationLifecycleEvent.VisibilityLost -> ReaderPresentationReducerResult(
+		copy(lifecycle = ReaderPresentationLifecycleState.Background)
+	)
+	ReaderPresentationLifecycleEvent.VisibilityRestored -> ReaderPresentationReducerResult(
+		copy(lifecycle = ReaderPresentationLifecycleState.Foreground)
+	)
+	is ReaderPresentationLifecycleEvent.RunningMemoryPressure,
+	is ReaderPresentationLifecycleEvent.BackgroundMemoryPressure -> ReaderPresentationReducerResult(this)
+	ReaderPresentationLifecycleEvent.RendererLost -> ReaderPresentationReducerResult(
+		copy(
+			authority = ReaderPresentationAuthority.BlockingPreparation(authority.frameOwner()),
+			failure = ReaderDiagnosticPresentation.Failure(
+				reason = ReaderPresentationFailureReason.RendererLost,
+				retryable = true,
+				cancellable = false
+			)
+		)
+	)
+	ReaderPresentationLifecycleEvent.PublicationClosed -> ReaderPresentationReducerResult(
+		ReaderPresentationState(
+			lifecycle = ReaderPresentationLifecycleState.Destroyed,
+			nextTokenValue = nextTokenValue
+		)
+	)
+}
 
 private fun ReaderPresentationState.reduceShellCoverProof(
 	proof: ReaderShellCoverCommitProof

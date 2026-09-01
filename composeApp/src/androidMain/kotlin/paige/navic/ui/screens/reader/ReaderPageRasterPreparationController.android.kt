@@ -23,6 +23,8 @@ import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageReadinessState
+import paige.navic.reader.ReaderPresentationLifecycleEvent
+import paige.navic.reader.ReaderPresentationMemoryPressureLevel
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.normalizeReaderPageBitmapQuality
@@ -198,6 +200,7 @@ internal class ReaderPageRasterPreparationController(
 		deferredSessionId: Long
 	) -> Unit = { _, _ -> },
 	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {},
+	private val onPresentationLifecycleEvent: (ReaderPresentationLifecycleEvent) -> Unit = {},
 	private val onRasterProofReady: (Long) -> Unit = {},
 	private val onPassiveRasterMemoryPressure: (String) -> Unit = {},
 	private val rasterBackgroundBatchController: ReaderPageRasterBatchPort =
@@ -395,11 +398,18 @@ internal class ReaderPageRasterPreparationController(
 		}
 
 		override fun onTrimMemory(level: Int) {
-			if (
-				level != ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN &&
-				level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
-			) {
-				retirePassiveRasterWork("on-trim-memory:$level")
+			val lifecycleEvent = readerPresentationLifecycleEventForTrimMemory(level) ?: return
+			onPresentationLifecycleEvent(lifecycleEvent)
+			when (lifecycleEvent) {
+				ReaderPresentationLifecycleEvent.VisibilityLost -> Unit
+				is ReaderPresentationLifecycleEvent.RunningMemoryPressure -> if (
+					lifecycleEvent.level != ReaderPresentationMemoryPressureLevel.Moderate
+				) {
+					retirePassiveRasterWork("on-trim-memory:$level")
+				}
+				is ReaderPresentationLifecycleEvent.BackgroundMemoryPressure ->
+					retirePassiveRasterWork("on-trim-memory:$level")
+				else -> Unit
 			}
 		}
 	}
