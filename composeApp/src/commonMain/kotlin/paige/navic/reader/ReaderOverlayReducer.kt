@@ -314,24 +314,26 @@ internal object ReaderOverlayReducer {
 
 	fun showNativeShellCover(controller: ReaderController): ReaderControllerStep {
 		val state = controller.state
+		val prepared = controller.copy(
+			state = state.copy(
+				shellCoverVisible = true,
+				pendingShellCoverDismissal = null,
+				nativeShellCoverReturnLocatorKey = readerNativeShellCoverReturnLocatorKey(
+					state.chrome.currentLocator
+				),
+				menuVisible = false,
+				dialog = null,
+				whispersync = state.whispersync.forShellCoverPresentation(),
+				activeMediaOverlay = null,
+				activeMediaOverlayAnchorReceipt = null,
+				audioMetadataLabel = null
+			)
+		).requestShellCoverPresentation()
 		return ReaderControllerStep(
-			controller = controller.copy(
-				state = state.copy(
-					shellCoverVisible = true,
-					pendingShellCoverDismissal = null,
-					nativeShellCoverReturnLocatorKey = readerNativeShellCoverReturnLocatorKey(
-						state.chrome.currentLocator
-					),
-					menuVisible = false,
-					dialog = null,
-					whispersync = state.whispersync.forShellCoverPresentation(),
-					activeMediaOverlay = null,
-					activeMediaOverlayAnchorReceipt = null,
-					audioMetadataLabel = null
-				)
-			),
+			controller = prepared.controller,
 			engineCommands = state.clearOverlayForShellCoverCommands(),
-			readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
+			readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand(),
+			presentationEffects = prepared.presentationEffects
 		)
 	}
 
@@ -344,21 +346,23 @@ internal object ReaderOverlayReducer {
 			state.canReturnToShellCover &&
 			!state.nativeShellCoverUrl.isNullOrBlank()
 		) {
+			val prepared = controller.copy(
+				state = state.copy(
+					shellCoverVisible = true,
+					menuVisible = false,
+					dialog = null,
+					whispersync = state.whispersync.forShellCoverPresentation(),
+					activeMediaOverlay = null,
+					activeMediaOverlayAnchorReceipt = null,
+					audioMetadataLabel = null
+				)
+			).requestShellCoverPresentation()
 			return ReaderControllerBackStep(
-				controller = controller.copy(
-					state = state.copy(
-						shellCoverVisible = true,
-						menuVisible = false,
-						dialog = null,
-						whispersync = state.whispersync.forShellCoverPresentation(),
-						activeMediaOverlay = null,
-						activeMediaOverlayAnchorReceipt = null,
-						audioMetadataLabel = null
-					)
-				),
+				controller = prepared.controller,
 				engineCommands = state.clearOverlayForShellCoverCommands(),
 				handled = true,
-				readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
+				readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand(),
+				presentationEffects = prepared.presentationEffects
 			)
 		}
 		return ReaderControllerBackStep(controller = controller, handled = false)
@@ -372,6 +376,13 @@ internal object ReaderOverlayReducer {
 			readaloudPlaybackCommand = readaloudPlaybackCommand
 		)
 }
+
+private fun ReaderController.requestShellCoverPresentation(): ReaderControllerStep =
+	onPresentationEvent(
+		ReaderPresentationEvent.ShellCoverRequested(
+			coverGeneration = state.presentation.nextTokenValue
+		)
+	)
 
 private fun ReaderControllerState.shellCoverReadaloudResetCommand(): ReaderReadaloudPlaybackCommand? =
 	ReaderReadaloudPlaybackCommand.StopAndReset.takeIf { chrome.readaloudPlayback.isAvailable }

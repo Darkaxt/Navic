@@ -142,8 +142,17 @@ data class ReaderController(
 
 	fun onPresentationEvent(event: ReaderPresentationEvent): ReaderControllerStep {
 		val reduction = readerPresentationReduce(state.presentation, event)
+		val acceptedShellCoverCommit =
+			event is ReaderPresentationEvent.ShellCoverCommitted &&
+				(reduction.decision.frameOwner as? ReaderPresentationFrameOwner.ShellCover)
+					?.proof == event.proof
 		return ReaderControllerStep(
-			controller = copy(state = state.copy(presentation = reduction.state)),
+			controller = copy(
+				state = state.copy(
+					presentation = reduction.state,
+					shellCoverVisible = state.shellCoverVisible || acceptedShellCoverCommit
+				)
+			),
 			presentationEffects = reduction.effects
 		)
 	}
@@ -533,7 +542,6 @@ data class ReaderController(
 			!state.nativeShellCoverUrl.isNullOrBlank()
 		) {
 			ReaderOverlayReducer.showNativeShellCover(this)
-				.withShellCoverPresentationIntent(state)
 		} else {
 			ReaderWhispersyncReducer.reserveUserNavigation(this).let { controller ->
 				ReaderControllerStep(
@@ -551,11 +559,9 @@ data class ReaderController(
 
 	fun onBack(): ReaderControllerBackStep =
 		ReaderOverlayReducer.onBack(this, includeMenu = true)
-			.withShellCoverPresentationIntent(state)
 
 	fun onNavigateBack(): ReaderControllerBackStep =
 		ReaderOverlayReducer.onBack(this, includeMenu = false)
-			.withShellCoverPresentationIntent(state)
 
 	fun applySettings(settings: ReaderSettings): ReaderControllerStep {
 		val normalized = settings.normalizedReaderSettings()
@@ -712,7 +718,6 @@ data class ReaderController(
 			)
 		) {
 			ReaderOverlayReducer.showNativeShellCover(this)
-				.withShellCoverPresentationIntent(state)
 		} else {
 			ReaderWhispersyncReducer.reserveUserNavigation(this).let { controller ->
 				ReaderControllerStep(
@@ -777,36 +782,6 @@ data class ReaderController(
 			)
 		)
 	}
-}
-
-private fun ReaderControllerStep.withShellCoverPresentationIntent(
-	previousState: ReaderControllerState
-): ReaderControllerStep {
-	if (previousState.shellCoverVisible || !controller.state.shellCoverVisible) return this
-	val transition = controller.onPresentationEvent(
-		ReaderPresentationEvent.ShellCoverRequested(
-			coverGeneration = controller.state.presentation.nextTokenValue
-		)
-	)
-	return copy(
-		controller = transition.controller,
-		presentationEffects = presentationEffects + transition.presentationEffects
-	)
-}
-
-private fun ReaderControllerBackStep.withShellCoverPresentationIntent(
-	previousState: ReaderControllerState
-): ReaderControllerBackStep {
-	if (previousState.shellCoverVisible || !controller.state.shellCoverVisible) return this
-	val transition = controller.onPresentationEvent(
-		ReaderPresentationEvent.ShellCoverRequested(
-			coverGeneration = controller.state.presentation.nextTokenValue
-		)
-	)
-	return copy(
-		controller = transition.controller,
-		presentationEffects = presentationEffects + transition.presentationEffects
-	)
 }
 
 private fun ReaderLocator.hasFoliateNavigationIdentity(): Boolean =

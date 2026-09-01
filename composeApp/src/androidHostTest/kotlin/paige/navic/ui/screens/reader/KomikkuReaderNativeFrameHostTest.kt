@@ -217,6 +217,7 @@ class KomikkuReaderNativeFrameHostTest {
 		assertEquals(ReaderPagePreparationPresentation.Cover, merged.presentation)
 		assertEquals(1, merged.completedCount)
 	}
+
 	@Test
 	fun canvasAndContentReadinessTransitionsRepublishTheInputGate() {
 		val source = hostFile.readText()
@@ -361,6 +362,36 @@ class KomikkuReaderNativeFrameHostTest {
 				pagePreparationCoverVisible = true,
 				hasValidatedRasterPresentation = false
 			)
+		)
+	}
+
+	@Test
+	fun shellCoverIsDrawnBehindPredecessorUntilCommittedAuthoritySelectsIt() {
+		val source = hostFile.readText()
+		val preparation = source
+			.substringAfter("fun prepareShellCoverForCommit(")
+			.substringBefore("fun cancelShellCoverCommitPreparation(")
+		val finalSelection = source
+			.substringAfter("fun selectShellCover(")
+			.substringBefore("fun setVerticalPageDragPreview(")
+		val proofRetention = source
+			.substringAfter("fun setShellCoverVisible(")
+			.substringBefore("fun setPageOperationPolicy(")
+
+		assertContains(preparation, "addView(shellCoverView, 0")
+		assertContains(preparation, "shellCoverView.visibility = VISIBLE")
+		assertContains(preparation, "shellCoverView.isClickable = false")
+		assertFalse(preparation.contains("invalidate(\"shell-cover-visible\")"))
+		assertContains(finalSelection, "shellCoverView.bringToFront()")
+		assertContains(finalSelection, "preserveNativePresentationProof")
+		assertContains(
+			proofRetention,
+			"if (visible && !preserveNativePresentationProof)"
+		)
+		assertContains(proofRetention, "playLikeCurlController.invalidate(\"shell-cover-visible\")")
+		assertContains(
+			proofRetention,
+			"pageRasterPreparationController.invalidate(\"shell-cover-visible\")"
 		)
 	}
 }

@@ -71,6 +71,7 @@ import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPreparationPresentation
+import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEffect
@@ -79,6 +80,7 @@ import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLayer
 import paige.navic.reader.ReaderPresentationLifecycleEvent
+import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderRendererBusyFeedbackMaximumMillis
 import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderTextureDeckState
@@ -401,6 +403,16 @@ internal fun readerNativePresentationLayerVisibility(
 				!hasValidatedRasterPresentation
 	)
 
+internal fun readerNativeShellCoverSelected(
+	shellCoverIntent: Boolean,
+	decision: ReaderPresentationDecision
+): Boolean = when {
+	decision.requiredTransition is ReaderRequiredTransition.CommitShellCover -> false
+	decision.layer == ReaderPresentationLayer.ShellCover -> shellCoverIntent
+	decision.authority == ReaderPresentationAuthority.Unavailable -> shellCoverIntent
+	else -> false
+}
+
 internal fun dispatchClaimedReaderPageCurlEvent(
 	event: MotionEvent,
 	dispatch: (MotionEvent) -> ReaderPageCurlDispatchResult
@@ -569,7 +581,18 @@ actual fun KomikkuReaderNativeFrameHost(
 					presentationDecision
 				) { identity -> currentOnPresentationEffectHandled(identity) }
 				setChromeOverlayVisible(chromeOverlayVisible)
-				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
+				setShellCover(
+					shellCoverVisible,
+					shellCoverUrl,
+					shellCoverTitle,
+					coverBackdropEnabled,
+					shellCoverSelected = readerNativeShellCoverSelected(
+						shellCoverIntent = shellCoverVisible,
+						decision = presentationDecision
+					),
+					preserveNativePresentationProof =
+						presentationDecision.layer == ReaderPresentationLayer.ShellCover
+				)
 				setViewerLayerPaint(grayscaleEnabled, invertedColors)
 				setVerticalPageDragPreview(verticalPageDragPreview)
 				setPageTurnBitmapQuality(pageTurnBitmapQuality)
@@ -617,7 +640,18 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setNavigation(navigator)
 			root.setNavigationOverlayVisible(navigationOverlayVisible)
 			root.setChromeOverlayVisible(chromeOverlayVisible)
-			root.setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
+			root.setShellCover(
+				shellCoverVisible,
+				shellCoverUrl,
+				shellCoverTitle,
+				coverBackdropEnabled,
+				shellCoverSelected = readerNativeShellCoverSelected(
+					shellCoverIntent = shellCoverVisible,
+					decision = presentationDecision
+				),
+				preserveNativePresentationProof =
+					presentationDecision.layer == ReaderPresentationLayer.ShellCover
+			)
 			root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
 			root.setVerticalPageDragPreview(verticalPageDragPreview)
 			root.setPageTurnBitmapQuality(pageTurnBitmapQuality)
@@ -709,6 +743,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private var currentViewerKey: ReaderViewerKey? = null
 	private var currentViewerComposeView: ComposeView? = null
 	private var shellCoverVisible: Boolean = false
+	private var shellCoverIntent: Boolean = false
 	private var pagePreparationCoverVisible: Boolean = false
 	private var presentationViewerKey: ReaderViewerKey? = null
 	private var presentationDecision: ReaderPresentationDecision? = null
@@ -717,9 +752,82 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private val presentationEffectHandler = ReaderPresentationEffectHandler(
 		viewerContainer::releaseStalePresentation
 	)
+	private var preparedShellCoverGeneration: Long? = null
+	private var onPresentationEvent: (ReaderPresentationEvent) -> Unit = {}
+	private val presentationCommitHost = object : ReaderPresentationCommitHost {
+		override val isAttachedToWindow: Boolean
+			get() = shellCoverView.isAttachedToWindow
+		override val currentPresentationBinding: ReaderPresentationBinding?
+			get() = viewerContainer.currentPresentationBinding()
+		override val currentShellCoverGeneration: Long?
+			get() = preparedShellCoverGeneration
+		override val measuredViewportWidth: Int
+			get() = shellCoverView.width
+		override val measuredViewportHeight: Int
+			get() = shellCoverView.height
+
+		override fun prepareOpaqueShellCover(coverGeneration: Long) {
+			preparedShellCoverGeneration = coverGeneration
+			viewerContainer.prepareShellCoverForCommit(shellCoverView)
+			updateNativeCoverVisibility()
+		}
+
+		override fun cancelOpaqueShellCoverPreparation(coverGeneration: Long) {
+			if (preparedShellCoverGeneration != coverGeneration) return
+			preparedShellCoverGeneration = null
+			viewerContainer.cancelShellCoverCommitPreparation(shellCoverView)
+			updateNativeCoverVisibility()
+		}
+
+		override fun registerShellCoverDrawListener(
+			onDraw: () -> Unit
+		): ReaderPresentationDrawRegistration {
+			val observer = shellCoverView.viewTreeObserver
+			var drawDispatchActive = false
+			val listener = ViewTreeObserver.OnDrawListener {
+				drawDispatchActive = true
+				try {
+					onDraw()
+				} finally {
+					drawDispatchActive = false
+				}
+			}
+			var removed = false
+			observer.addOnDrawListener(listener)
+			return ReaderPresentationDrawRegistration {
+				if (removed) return@ReaderPresentationDrawRegistration
+				removed = true
+				val removeListener = {
+					val currentObserver = if (observer.isAlive) {
+						observer
+					} else {
+						shellCoverView.viewTreeObserver
+					}
+					if (currentObserver.isAlive) {
+						currentObserver.removeOnDrawListener(listener)
+					}
+				}
+				if (drawDispatchActive) {
+					shellCoverView.post { removeListener() }
+				} else {
+					removeListener()
+				}
+			}
+		}
+
+		override fun postShellCoverAnimationFrame(onFrame: () -> Unit) {
+			shellCoverView.postOnAnimation(onFrame)
+		}
+	}
+	private val presentationHostBridge = ReaderPresentationHostBridge(
+		presentationCommitHost
+	) { event -> onPresentationEvent(event) }
 
 	init {
 		setBackgroundColor(Color.rgb(32, 35, 41))
+		shellCoverView.onGeometryChanged = {
+			presentationDecision?.let(presentationHostBridge::update)
+		}
 
 		viewerContainer.setShellCoverView(shellCoverView)
 		readerContainer.addView(
@@ -786,10 +894,12 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 			)
 		}
 		presentationDecision = decision
+		onPresentationEvent = onEvent
 		viewerContainer.setPresentationShadow(
 			destinationCommitIdentity = destinationCommitIdentity,
 			onEvent = onEvent
 		)
+		presentationHostBridge.update(decision)
 		reportPresentationShadowComparison()
 	}
 
@@ -801,11 +911,35 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		presentationEffectHandler.deliver(effects, decision, onHandled)
 	}
 
-	fun setShellCover(visible: Boolean, coverUrl: String?, title: String, coverBackdropEnabled: Boolean) {
-		shellCoverView.setShellCover(coverUrl = coverUrl, title = title, coverBackdropEnabled = coverBackdropEnabled)
-		shellCoverVisible = visible
-		viewerContainer.setShellCoverVisible(visible)
+	fun setShellCover(
+		visible: Boolean,
+		coverUrl: String?,
+		title: String,
+		coverBackdropEnabled: Boolean,
+		shellCoverSelected: Boolean,
+		preserveNativePresentationProof: Boolean
+	) {
+		shellCoverView.setShellCover(
+			coverUrl = coverUrl,
+			title = title,
+			coverBackdropEnabled = coverBackdropEnabled
+		)
+		shellCoverIntent = visible
+		shellCoverVisible = shellCoverSelected
+		if (shellCoverSelected) {
+			preparedShellCoverGeneration = null
+			viewerContainer.selectShellCover(
+				shellCoverView,
+				preserveNativePresentationProof
+			)
+		} else {
+			viewerContainer.setShellCoverVisible(
+				visible = false,
+				preserveNativePresentationProof = false
+			)
+		}
 		updateNativeCoverVisibility()
+		presentationDecision?.let(presentationHostBridge::update)
 	}
 
 	fun setPagePreparationCoverVisible(visible: Boolean) {
@@ -820,12 +954,16 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 			hasValidatedRasterPresentation =
 				viewerContainer.hasValidatedRasterPresentation()
 		)
-		shellCoverView.visibility = if (layers.shellCover) VISIBLE else GONE
+		val shellCoverPrepared = preparedShellCoverGeneration != null
+		shellCoverView.visibility =
+			if (layers.shellCover || shellCoverPrepared) VISIBLE else GONE
 		shellCoverView.isClickable = layers.shellCover
 		pagePreparationShieldView.visibility =
 			if (layers.preparationShield) VISIBLE else GONE
 		val trace =
-			"shell=${layers.shellCover} preparationShield=${layers.preparationShield} " +
+			"shellIntent=$shellCoverIntent shell=${layers.shellCover} " +
+				"coverPrepared=$shellCoverPrepared " +
+				"preparationShield=${layers.preparationShield} " +
 				"preparationRequested=$pagePreparationCoverVisible"
 		if (lastNativeCoverVisibilityTrace != trace) {
 			lastNativeCoverVisibilityTrace = trace
@@ -967,6 +1105,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 			foliateSessionId,
 			acknowledgement
 		)
+		presentationDecision?.let(presentationHostBridge::update)
 	}
 
 	fun setWhispersyncOverlay(
@@ -1023,12 +1162,24 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	fun canAcceptNewPointer(): Boolean = viewerContainer.canAcceptNewPointer()
 
 	fun closeReader() {
+		presentationHostBridge.dispose()
 		viewerContainer.closeReader()
 		detachNestedCompositionViews()
 		scheduleNestedCompositionDisposal()
 	}
 
+	override fun onAttachedToWindow() {
+		super.onAttachedToWindow()
+		presentationDecision?.let(presentationHostBridge::update)
+	}
+
+	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+		super.onSizeChanged(w, h, oldw, oldh)
+		presentationDecision?.let(presentationHostBridge::update)
+	}
+
 	override fun onDetachedFromWindow() {
+		presentationHostBridge.onHostDetached()
 		super.onDetachedFromWindow()
 		scheduleNestedCompositionDisposal()
 	}
@@ -1071,6 +1222,7 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 	private var title: String = ""
 	private var coverBackdropEnabled: Boolean = true
 	private var bitmap: Bitmap? = null
+	var onGeometryChanged: () -> Unit = {}
 
 	fun setShellCover(coverUrl: String?, title: String, coverBackdropEnabled: Boolean) {
 		if (this.coverUrl == coverUrl && this.title == title && this.coverBackdropEnabled == coverBackdropEnabled) return
@@ -1082,6 +1234,11 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 			?.absolutePath
 			?.let { path -> BitmapFactory.decodeFile(path) }
 		invalidate()
+	}
+
+	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+		super.onSizeChanged(w, h, oldw, oldh)
+		if (w != oldw || h != oldh) onGeometryChanged()
 	}
 
 	override fun onDraw(canvas: Canvas) {
@@ -1872,6 +2029,33 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		)
 	}
 
+	fun prepareShellCoverForCommit(shellCoverView: View) {
+		if (shellCoverView.parent === this && indexOfChild(shellCoverView) != 0) {
+			val layoutParams = shellCoverView.layoutParams
+			removeView(shellCoverView)
+			addView(shellCoverView, 0, layoutParams)
+		}
+		shellCoverView.visibility = VISIBLE
+		shellCoverView.isClickable = false
+		shellCoverView.invalidate()
+	}
+
+	fun cancelShellCoverCommitPreparation(shellCoverView: View) {
+		if (!shellCoverVisible) shellCoverView.visibility = GONE
+	}
+
+	fun selectShellCover(
+		shellCoverView: View,
+		preserveNativePresentationProof: Boolean
+	) {
+		shellCoverView.bringToFront()
+		shellCoverView.visibility = VISIBLE
+		setShellCoverVisible(
+			visible = true,
+			preserveNativePresentationProof = preserveNativePresentationProof
+		)
+	}
+
 	fun replaceViewerContent(viewerView: View) {
 		startupShellHandoff.resetForNewViewer()
 		dispatchPageHostLifecycleEvent(
@@ -2035,6 +2219,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		whispersyncCueMapView.onSeekRequested = onSeekRequested
 		whispersyncCueMapView.setPresentation(state)
 	}
+
+	fun currentPresentationBinding(): ReaderPresentationBinding? =
+		currentPresentationBindingOrNull()
 
 	fun setPresentationShadow(
 		destinationCommitIdentity: ReaderDestinationCommitIdentity?,
@@ -2235,7 +2422,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		commitStartupShellPresentationIfReady()
 	}
 
-	fun setShellCoverVisible(visible: Boolean) {
+	fun setShellCoverVisible(
+		visible: Boolean,
+		preserveNativePresentationProof: Boolean
+	) {
 		if (shellCoverVisible == visible) return
 		val preservePreparedHandoff = !visible && consumeStartupShellPreparedHandoff()
 		if (visible) {
@@ -2244,11 +2434,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			)
 		}
 		shellCoverVisible = visible
-		if (visible) {
+		if (visible && !preserveNativePresentationProof) {
 			removePageTurnPrewarmLayoutListener()
 			playLikeCurlController.invalidate("shell-cover-visible")
 			pageRasterPreparationController.invalidate("shell-cover-visible")
-		} else if (!preservePreparedHandoff) {
+		} else if (!visible && !preservePreparedHandoff) {
 			pageRasterPreparationController.invalidateCurrentVisualSnapshot("shell-cover-hidden")
 		}
 		requestPageTurnPrewarmWhenReady()
