@@ -99,6 +99,10 @@ final class DeckLeaseRegistry {
         return owners.containsKey(generationId);
     }
 
+    synchronized boolean isReleaseRequested(long generationId) {
+        return requestedReleaseReasons.containsKey(generationId);
+    }
+
     synchronized int releaseInFlightCount(
             long activeGenerationId,
             long pendingGenerationId) {
@@ -135,6 +139,20 @@ final class DeckLeaseRegistry {
             requestedReleaseReasons.put(generationId, reason);
         }
         ownershipMutated.run();
+    }
+
+    boolean rollbackReleaseRequested(
+            long generationId,
+            DeckReleaseReason reason) {
+        Objects.requireNonNull(reason, "reason");
+        synchronized (this) {
+            if (requestedReleaseReasons.get(generationId) != reason) {
+                return false;
+            }
+            requestedReleaseReasons.remove(generationId);
+        }
+        ownershipMutated.run();
+        return true;
     }
 
     Lease release(long generationId) {

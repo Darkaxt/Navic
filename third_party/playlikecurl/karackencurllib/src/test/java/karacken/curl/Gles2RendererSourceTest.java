@@ -233,7 +233,7 @@ public class Gles2RendererSourceTest {
                 "private void handleDeckReleased");
         String releaseDeck = methodBody(
                 surfaceSource,
-                "public void releaseDeck(long generationId)");
+                "public PageSurfaceDeckReleaseResult releaseDeck(long generationId)");
         String startDispose = methodBody(
                 surfaceSource,
                 "private void startDisposeIfNeeded()");
@@ -287,11 +287,19 @@ public class Gles2RendererSourceTest {
         assertTrue(surfaceSource.contains(
                 "mainHandler.post(() -> handleDeckReleased(generationId, reason))"));
         assertTrue(releaseDeck.indexOf("cancelGesture()")
-                < releaseDeck.indexOf("deckCoordinator.release(generationId)"));
+                < releaseDeck.indexOf("releaseGate.request("));
+        assertTrue(releaseDeck.contains(
+                "result.getStatus() == PageSurfaceDeckReleaseResult.Status.ACCEPTED"));
+        assertTrue(releaseDeck.indexOf("releaseGate.request(")
+                < releaseDeck.indexOf("preparedGenerations.remove(generationId)"));
+        assertFalse(releaseDeck.contains("deckCoordinator.release(generationId)"));
+        assertTrue(deckReleased.indexOf("releaseGate.complete(generationId)")
+                < deckReleased.indexOf("leaseRegistry.release(generationId)"));
         assertTrue(deckReleased.indexOf("cancelGesture()")
                 < deckReleased.indexOf("deckCoordinator.release(generationId)"));
         assertTrue(deckReleased.indexOf("leaseRegistry.markReleaseRequested(")
                 < deckReleased.indexOf("deckCoordinator.release(generationId)"));
+        assertTrue(startDispose.contains("releaseGate.close()"));
         assertTrue(surfaceSource.contains("holderSurfaceAvailable"));
         assertTrue(surfaceSource.contains("surfaceDestroyed(SurfaceHolder holder)"));
         assertTrue(surfaceSource.contains("PageSurfaceDisposalStage.SURFACE_RESUME"));

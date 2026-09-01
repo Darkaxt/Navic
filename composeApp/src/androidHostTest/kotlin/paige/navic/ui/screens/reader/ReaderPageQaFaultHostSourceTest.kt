@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.reader
 
 import java.io.File
+import karacken.curl.PageSurfaceDeckReleaseResult
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -174,16 +175,16 @@ class ReaderPageQaFaultHostSourceTest {
 	}
 
 	@Test
-	fun staleRendererOwnedGenerationRetriesThrownReleaseAndRetiresOnlyOnCompletion() {
+	fun staleRendererOwnedGenerationRetriesPostClaimRejectionAndRetiresOnlyOnCompletion() {
 		val binding = presentationBinding()
 		val generationId = requireNotNull(binding.textureGeneration)
 		val owners = mutableMapOf(generationId to requireNotNull(binding.rasterGeneration))
 		val bitmapLeases = mutableSetOf(generationId)
+		val surfaceClaims = mutableSetOf<Long>()
 		var activeGenerationId: Long? = generationId
 		var pendingGenerationId: Long? = null
 		var releaseInvocations = 0
-		val acceptedReleases = mutableListOf<Long>()
-		var throwNextRelease = true
+		var rejectNextRelease = true
 		val releaseGate = ReaderRendererOwnedGenerationReleaseGate(
 			ownerForGeneration = owners::get,
 			rasterGenerationForOwner = { rasterGeneration -> rasterGeneration },
@@ -192,15 +193,21 @@ class ReaderPageQaFaultHostSourceTest {
 			},
 			requestRendererRelease = { candidate ->
 				releaseInvocations += 1
-				if (throwNextRelease) {
-					throwNextRelease = false
-					error("injected surface release failure")
+				surfaceClaims += candidate
+				if (rejectNextRelease) {
+					rejectNextRelease = false
+					surfaceClaims -= candidate
+					PageSurfaceDeckReleaseResult.rejected(
+						PageSurfaceDeckReleaseResult.RejectionReason.QUEUE_REJECTED
+					)
+				} else {
+					PageSurfaceDeckReleaseResult.accepted()
 				}
-				acceptedReleases += candidate
 			},
 			retireOwner = { candidate ->
 				owners.remove(candidate)
 				bitmapLeases -= candidate
+				surfaceClaims -= candidate
 			}
 		)
 
@@ -231,27 +238,27 @@ class ReaderPageQaFaultHostSourceTest {
 		assertEquals(listOf(pending), queue.pendingEffects())
 		assertEquals(setOf(generationId), owners.keys)
 		assertEquals(setOf(generationId), bitmapLeases)
+		assertTrue(surfaceClaims.isEmpty())
 		assertFalse(releaseGate.isReleaseInFlight(generationId))
 
 		assertTrue(handler.deliver(queue.pendingEffects(), decision, acknowledge))
 		assertEquals(2, releaseInvocations)
-		assertEquals(listOf(generationId), acceptedReleases)
 		assertTrue(queue.pendingEffects().isEmpty())
 		assertEquals(setOf(generationId), owners.keys)
 		assertEquals(setOf(generationId), bitmapLeases)
+		assertEquals(setOf(generationId), surfaceClaims)
 		assertTrue(releaseGate.isReleaseInFlight(generationId))
 
 		assertTrue(releaseGate.request(binding))
 		assertEquals(2, releaseInvocations)
-		assertEquals(listOf(generationId), acceptedReleases)
 		releaseGate.completeRelease(generationId)
 		assertTrue(owners.isEmpty())
 		assertTrue(bitmapLeases.isEmpty())
+		assertTrue(surfaceClaims.isEmpty())
 		assertFalse(releaseGate.isReleaseInFlight(generationId))
 
 		assertTrue(releaseGate.request(binding))
 		assertEquals(2, releaseInvocations)
-		assertEquals(listOf(generationId), acceptedReleases)
 	}
 
 	@Test
@@ -350,6 +357,27 @@ class ReaderPageQaFaultHostSourceTest {
 		assertContains(release, "rendererOwnedGenerationReleaseGate.request(binding)")
 		assertContains(controller, "rendererOwnedGenerationReleaseGate.completeRelease(generationId)")
 		assertContains(controller, "private val rendererReleaseInFlight")
+		assertEquals(1, Regex("surfaceView::releaseDeck").findAll(controller).count())
+		assertFalse(controller.contains("surfaceView.releaseDeck("))
+		assertContains(
+			controller,
+			"rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)"
+		)
+		val acceptedLibraryRollback = controller
+			.substringAfter("private fun rollbackAcceptedLibraryDeck(")
+			.substringBefore("\n\tprivate fun ")
+		assertFalse(acceptedLibraryRollback.contains("releaseGeneration(generationId)"))
+		assertContains(
+			acceptedLibraryRollback,
+			"rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)"
+		)
+		val pendingDiscard = controller
+			.substringAfter("private fun discardPendingDeck(")
+			.substringBefore("\n\tprivate fun ")
+		assertTrue(
+			pendingDiscard.indexOf("requestOwnedGeneration(generationId)") <
+				pendingDiscard.indexOf("pendingDeckGenerationId = null")
+		)
 	}
 
 	@Test

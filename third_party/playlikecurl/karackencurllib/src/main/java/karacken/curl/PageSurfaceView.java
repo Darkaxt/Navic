@@ -116,6 +116,8 @@ public class PageSurfaceView extends GLSurfaceView {
             new DeckLeaseRegistry(this::advanceOwnershipEpoch);
     private final PageSurfaceDeckSubmissionGate<Bitmap> submissionGate =
             new PageSurfaceDeckSubmissionGate<>(deckCoordinator, leaseRegistry);
+    private final PageSurfaceDeckReleaseGate<Bitmap> releaseGate =
+            new PageSurfaceDeckReleaseGate<>(deckCoordinator, leaseRegistry);
     private final BoundaryRestorationProtocol boundaryRestorationProtocol =
             new BoundaryRestorationProtocol();
     private final PresentedFrameRequest presentedFrameRequest =
@@ -778,21 +780,31 @@ public class PageSurfaceView extends GLSurfaceView {
         requestRender();
     }
 
-    /** Releases a retained active or replacement deck and its GL textures. */
-    public void releaseDeck(long generationId) {
+    /**
+     * Releases a retained active or replacement deck and its GL textures.
+     *
+     * <p>Only {@link PageSurfaceDeckReleaseResult.Status#ACCEPTED} transfers a fresh release
+     * command to the renderer. A rejected queue submission restores coordinator and lease state
+     * before this method returns.
+     */
+    public PageSurfaceDeckReleaseResult releaseDeck(long generationId) {
         requireMainThread();
         PageDeck<Bitmap> activeDeck = deckCoordinator.getActiveDeck();
         if (activeDeck != null
                 && activeDeck.getGenerationId() == generationId) {
             cancelGesture();
         }
-        if (preparedGenerations.remove(generationId)) {
-            advanceOwnershipEpoch();
+        PageSurfaceDeckReleaseResult result = releaseGate.request(
+                generationId,
+                (releasedGenerationId, reason) -> queueEvent(
+                        () -> renderer.releaseDeck(releasedGenerationId, reason)));
+        if (result.getStatus() == PageSurfaceDeckReleaseResult.Status.ACCEPTED) {
+            if (preparedGenerations.remove(generationId)) {
+                advanceOwnershipEpoch();
+            }
+            requestRender();
         }
-        PageDeckCoordinator.Release<Bitmap> release =
-                deckCoordinator.release(generationId);
-        queueDeckRelease(release);
-        requestRender();
+        return result;
     }
 
     /** Idempotently releases renderer, gesture, and deck state. */
@@ -989,6 +1001,11 @@ public class PageSurfaceView extends GLSurfaceView {
         }
         try {
             submissionGate.close();
+        } catch (Throwable setupFailure) {
+            recordSetupFailure(setupFailure);
+        }
+        try {
+            releaseGate.close();
         } catch (Throwable setupFailure) {
             recordSetupFailure(setupFailure);
         }
@@ -1989,6 +2006,7 @@ public class PageSurfaceView extends GLSurfaceView {
             cancelGesture();
         }
         deckCoordinator.release(generationId);
+        releaseGate.complete(generationId);
         DeckLeaseRegistry.Lease lease =
                 leaseRegistry.release(generationId);
         if (lease == null) {

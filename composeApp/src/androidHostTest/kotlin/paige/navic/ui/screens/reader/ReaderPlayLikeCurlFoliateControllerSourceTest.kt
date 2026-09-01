@@ -2158,9 +2158,24 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(acceptedRollback, "tombstoneSubmittedRecoveredDeck(generationId, role)")
 		assertContains(acceptedRollback, "strandedActive !== generationOwners[generationId]")
 		assertContains(acceptedRollback, "activePages = null")
-		assertContains(acceptedRollback, "surfaceView.releaseDeck(generationId)")
+		assertContains(
+			acceptedRollback,
+			"rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)"
+		)
+		assertTrue(
+			acceptedRollback.indexOf("requestOwnedGeneration(generationId)") <
+				acceptedRollback.indexOf("tombstoneSubmittedRecoveredDeck(generationId, role)")
+		)
 		assertContains(submittedCancellation, "readerRecoveredDeckCancellationRoleMatches(")
 		assertContains(submittedCancellation, "tombstoneSubmittedRecoveredDeck(")
+		assertContains(
+			submittedCancellation,
+			"rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)"
+		)
+		assertTrue(
+			submittedCancellation.indexOf("requestOwnedGeneration(generationId)") <
+				submittedCancellation.indexOf("tombstoneSubmittedRecoveredDeck(")
+		)
 		assertContains(renderFailure, "generationId in recoveredDeckGenerations")
 		assertContains(renderFailure, "deckRecoveryCoordinator.ownsSubmittedGeneration(")
 		assertContains(renderFailure, "tombstoneSubmittedRecoveredDeck(")

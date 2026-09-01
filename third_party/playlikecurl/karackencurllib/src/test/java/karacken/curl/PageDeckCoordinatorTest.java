@@ -2,6 +2,7 @@ package karacken.curl;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -238,6 +239,100 @@ public class PageDeckCoordinatorTest {
         assertSame(active, release.getDeck());
         assertEquals(DeckReleaseReason.EXPLICIT, release.getReason());
         assertNull(coordinator.getActiveDeck());
+    }
+
+    @Test
+    public void rejectedReleaseQueueRollsBackAndAcceptedRetryCompletesOnce() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry leases = new DeckLeaseRegistry();
+        PortraitPageDeck<String> deck = portraitDeck(7, "transactional");
+        PageSurfaceListener listener = new PageSurfaceListener() {};
+        coordinator.offer(deck);
+        assertTrue(leases.acquire(7, listener));
+        PageSurfaceDeckReleaseGate<String> gate =
+                new PageSurfaceDeckReleaseGate<>(coordinator, leases);
+        AtomicInteger queuedCommands = new AtomicInteger();
+
+        PageSurfaceDeckReleaseResult rejected = gate.request(
+                7,
+                (generationId, reason) -> {
+                    queuedCommands.incrementAndGet();
+                    assertNull(coordinator.getActiveDeck());
+                    assertTrue(leases.isReleaseRequested(generationId));
+                    throw new IllegalStateException("injected queue rejection");
+                });
+
+        assertEquals(
+                PageSurfaceDeckReleaseResult.Status.REJECTED,
+                rejected.getStatus());
+        assertEquals(
+                PageSurfaceDeckReleaseResult.RejectionReason.QUEUE_REJECTED,
+                rejected.getRejectionReason());
+        assertSame(deck, coordinator.getActiveDeck());
+        assertTrue(leases.contains(7));
+        assertFalse(leases.isReleaseRequested(7));
+        assertFalse(gate.isReleaseInFlight(7));
+
+        PageSurfaceDeckReleaseResult accepted = gate.request(
+                7,
+                (generationId, reason) -> queuedCommands.incrementAndGet());
+        PageSurfaceDeckReleaseResult duplicate = gate.request(
+                7,
+                (generationId, reason) -> queuedCommands.incrementAndGet());
+
+        assertEquals(PageSurfaceDeckReleaseResult.Status.ACCEPTED, accepted.getStatus());
+        assertEquals(
+                PageSurfaceDeckReleaseResult.Status.ALREADY_ACCEPTED,
+                duplicate.getStatus());
+        assertEquals(2, queuedCommands.get());
+        assertNull(coordinator.getActiveDeck());
+        assertTrue(leases.contains(7));
+        assertTrue(leases.isReleaseRequested(7));
+        assertTrue(gate.isReleaseInFlight(7));
+
+        assertTrue(gate.complete(7));
+        assertFalse(gate.complete(7));
+        assertTrue(leases.rollbackReleaseRequested(7, DeckReleaseReason.EXPLICIT));
+        PageSurfaceDeckReleaseResult missingCoordinatorOwnership = gate.request(
+                7,
+                (generationId, reason) -> queuedCommands.incrementAndGet());
+        assertEquals(
+                PageSurfaceDeckReleaseResult.Status.REJECTED,
+                missingCoordinatorOwnership.getStatus());
+        assertEquals(
+                PageSurfaceDeckReleaseResult.RejectionReason.NOT_RETAINED,
+                missingCoordinatorOwnership.getRejectionReason());
+        assertEquals(2, queuedCommands.get());
+        leases.markReleaseRequested(7, DeckReleaseReason.EXPLICIT);
+        DeckLeaseRegistry.Lease completed = leases.release(7);
+        assertNotNull(completed);
+        assertSame(listener, completed.getListener());
+        assertEquals(DeckReleaseReason.EXPLICIT, completed.getReleaseReason());
+        assertNull(leases.release(7));
+    }
+
+    @Test
+    public void releaseGateCloseRejectsNewWorkAndRetainsAcceptedLeaseForDisposal() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry leases = new DeckLeaseRegistry();
+        PortraitPageDeck<String> deck = portraitDeck(8, "disposing");
+        coordinator.offer(deck);
+        assertTrue(leases.acquire(8, new PageSurfaceListener() {}));
+        PageSurfaceDeckReleaseGate<String> gate =
+                new PageSurfaceDeckReleaseGate<>(coordinator, leases);
+        assertEquals(
+                PageSurfaceDeckReleaseResult.Status.ACCEPTED,
+                gate.request(8, (generationId, reason) -> {}).getStatus());
+
+        gate.close();
+
+        assertFalse(gate.isReleaseInFlight(8));
+        assertTrue(leases.contains(8));
+        assertTrue(leases.isReleaseRequested(8));
+        assertEquals(1, leases.releaseAll(DeckReleaseReason.DISPOSED).size());
+        assertEquals(
+                PageSurfaceDeckReleaseResult.RejectionReason.DISPOSED,
+                gate.request(8, (generationId, reason) -> {}).getRejectionReason());
     }
 
     @Test

@@ -18,6 +18,7 @@ import karacken.curl.PageLeafRole
 import karacken.curl.PageMaterial
 import karacken.curl.PageOverlayImage
 import karacken.curl.PageOverlayUpdateResult
+import karacken.curl.PageSurfaceDeckReleaseResult
 import karacken.curl.PageSurfaceDeckSubmissionResult
 import karacken.curl.PageSurfaceDisposalResult
 import karacken.curl.PageSurfaceDisposalStage
@@ -647,7 +648,7 @@ internal class ReaderRendererOwnedGenerationReleaseGate<Owner>(
 	private val ownerForGeneration: (Long) -> Owner?,
 	private val rasterGenerationForOwner: (Owner) -> Long,
 	private val isProtectedGeneration: (Long) -> Boolean,
-	private val requestRendererRelease: (Long) -> Unit,
+	private val requestRendererRelease: (Long) -> PageSurfaceDeckReleaseResult,
 	private val retireOwner: (Long) -> Unit
 ) {
 	private val rendererReleaseInFlight = mutableSetOf<Long>()
@@ -665,11 +666,15 @@ internal class ReaderRendererOwnedGenerationReleaseGate<Owner>(
 	fun requestOwnedGeneration(generationId: Long): Boolean {
 		if (ownerForGeneration(generationId) == null) return true
 		if (!rendererReleaseInFlight.add(generationId)) return true
-		try {
+		val result = try {
 			requestRendererRelease(generationId)
 		} catch (failure: Throwable) {
 			rendererReleaseInFlight -= generationId
 			throw failure
+		}
+		if (!result.isAccepted) {
+			rendererReleaseInFlight -= generationId
+			return false
 		}
 		return true
 	}
@@ -2473,7 +2478,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 			reason = "invalidated:$reason"
 		)
 		hideSurface()
-		generationOwners.keys.toList().forEach(surfaceView::releaseDeck)
+		generationOwners.keys.toList().forEach { generationId ->
+			check(rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)) {
+				"Renderer did not accept deck release generation=$generationId"
+			}
+		}
 		deckDiagnosticTracker?.cancelAll()
 		generationRoles.clear()
 		generationPreparationGenerations.clear()
@@ -4322,6 +4331,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		role: ReaderDeckSubmissionRole,
 		failure: Throwable
 	) {
+		val releaseAccepted = try {
+			check(rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)) {
+				"Renderer did not accept recovered deck rollback generation=$generationId"
+			}
+			true
+		} catch (cleanupFailure: Throwable) {
+			if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+			false
+		}
+		if (!releaseAccepted) return
 		try {
 			tombstoneSubmittedRecoveredDeck(generationId, role)
 		} catch (cleanupFailure: Throwable) {
@@ -4339,11 +4358,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 			}
 		}
-		try {
-			surfaceView.releaseDeck(generationId)
-		} catch (cleanupFailure: Throwable) {
-			if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
-		}
 	}
 
 	override fun cancelSubmittedRecoveredDeck(
@@ -4352,8 +4366,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 	) {
 		val currentRole = generationRoles[generationId] ?: return
 		if (!readerRecoveredDeckCancellationRoleMatches(role, currentRole)) return
-		if (!tombstoneSubmittedRecoveredDeck(generationId, currentRole)) return
-		surfaceView.releaseDeck(generationId)
+		check(rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)) {
+			"Renderer did not accept recovered deck cancellation generation=$generationId"
+		}
+		tombstoneSubmittedRecoveredDeck(generationId, currentRole)
 	}
 
 	private fun tombstoneSubmittedRecoveredDeck(
@@ -4870,14 +4886,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		failure: Throwable
 	) {
 		try {
-			if (generationRoles[generationId] == role || generationId in generationOwners) {
-				releaseGeneration(generationId)
+			check(rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)) {
+				"Renderer did not accept library deck rollback generation=$generationId"
 			}
-		} catch (cleanupFailure: Throwable) {
-			if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
-		}
-		try {
-			surfaceView.releaseDeck(generationId)
 		} catch (cleanupFailure: Throwable) {
 			if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
 		}
@@ -5979,7 +5990,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun releaseRendererOwnedGeneration(generationId: Long) {
-		rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)
+		check(rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)) {
+			"Renderer did not accept stale prepared deck release generation=$generationId"
+		}
 	}
 
 	private fun releaseGeneration(generationId: Long) {
@@ -6062,6 +6075,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private fun discardPendingDeck(reason: String) {
 		val generationId = pendingDeckGenerationId ?: return
+		check(rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)) {
+			"Renderer did not accept pending deck discard generation=$generationId"
+		}
 		pendingDeckGenerationId = null
 		pendingDeckOrdinal = null
 		updateReadiness(
@@ -6072,7 +6088,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPlayLikeCurlFoliateControllerTag,
 			"PlayLikeCurl pending deck discarded generation=$generationId reason=$reason"
 		)
-		surfaceView.releaseDeck(generationId)
 	}
 
 	private fun closeIfUnused(pages: PreparedPages) {

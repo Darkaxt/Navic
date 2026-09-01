@@ -22,10 +22,23 @@ final class PageDeckCoordinator<T> {
     static final class Release<T> {
         private final PageDeck<T> deck;
         private final DeckReleaseReason reason;
+        private final Boolean releasedFromActive;
 
         Release(PageDeck<T> deck, DeckReleaseReason reason) {
+            this(deck, reason, null);
+        }
+
+        private Release(
+                PageDeck<T> deck,
+                DeckReleaseReason reason,
+                Boolean releasedFromActive) {
             this.deck = Objects.requireNonNull(deck, "deck");
             this.reason = Objects.requireNonNull(reason, "reason");
+            this.releasedFromActive = releasedFromActive;
+        }
+
+        static <T> Release<T> explicit(PageDeck<T> deck, boolean releasedFromActive) {
+            return new Release<>(deck, DeckReleaseReason.EXPLICIT, releasedFromActive);
         }
 
         PageDeck<T> getDeck() {
@@ -34,6 +47,17 @@ final class PageDeckCoordinator<T> {
 
         DeckReleaseReason getReason() {
             return reason;
+        }
+
+        boolean canRollbackExplicitRelease() {
+            return releasedFromActive != null;
+        }
+
+        boolean wasReleasedFromActive() {
+            if (releasedFromActive == null) {
+                throw new IllegalStateException("Release was not an explicit rollback claim");
+            }
+            return releasedFromActive;
         }
     }
 
@@ -340,18 +364,43 @@ final class PageDeckCoordinator<T> {
             if (activeDeck != null && activeDeck.getGenerationId() == generationId) {
                 PageDeck<T> released = activeDeck;
                 activeDeck = null;
-                result = new Release<>(released, DeckReleaseReason.EXPLICIT);
+                result = Release.explicit(released, true);
             } else if (pendingDeck != null
                     && pendingDeck.getGenerationId() == generationId) {
                 PageDeck<T> released = pendingDeck;
                 pendingDeck = null;
-                result = new Release<>(released, DeckReleaseReason.EXPLICIT);
+                result = Release.explicit(released, false);
             } else {
                 return null;
             }
         }
         ownershipMutated.run();
         return result;
+    }
+
+    boolean rollbackRelease(Release<T> release) {
+        Objects.requireNonNull(release, "release");
+        if (!release.canRollbackExplicitRelease()) {
+            return false;
+        }
+        synchronized (this) {
+            if (disposed) {
+                return false;
+            }
+            if (release.wasReleasedFromActive()) {
+                if (activeDeck != null) {
+                    return false;
+                }
+                activeDeck = release.getDeck();
+            } else {
+                if (pendingDeck != null) {
+                    return false;
+                }
+                pendingDeck = release.getDeck();
+            }
+        }
+        ownershipMutated.run();
+        return true;
     }
 
     Release<T> releasePending(DeckReleaseReason reason) {
