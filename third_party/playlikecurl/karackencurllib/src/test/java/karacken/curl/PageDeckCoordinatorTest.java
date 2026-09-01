@@ -312,6 +312,201 @@ public class PageDeckCoordinatorTest {
     }
 
     @Test
+    public void releaseClaimFailureRollsBackCoordinatorLeaseAndRecord() {
+        AtomicInteger leaseMutations = new AtomicInteger();
+        DeckLeaseRegistry leases = new DeckLeaseRegistry(() -> {
+            if (leaseMutations.incrementAndGet() == 2) {
+                throw new IllegalStateException("injected release-claim failure");
+            }
+        });
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        PortraitPageDeck<String> deck = portraitDeck(9, "claim-failure");
+        coordinator.offer(deck);
+        assertTrue(leases.acquire(9, new PageSurfaceListener() {}));
+        PageSurfaceDeckReleaseGate<String> gate =
+                new PageSurfaceDeckReleaseGate<>(coordinator, leases);
+        AtomicInteger queuedCommands = new AtomicInteger();
+
+        PageSurfaceDeckReleaseResult rejected = gate.request(
+                9,
+                (generationId, reason) -> queuedCommands.incrementAndGet());
+
+        assertEquals(
+                PageSurfaceDeckReleaseResult.Status.REJECTED,
+                rejected.getStatus());
+        assertEquals(
+                PageSurfaceDeckReleaseResult.RejectionReason.QUEUE_REJECTED,
+                rejected.getRejectionReason());
+        assertEquals(0, queuedCommands.get());
+        assertSame(deck, coordinator.getActiveDeck());
+        assertTrue(leases.contains(9));
+        assertFalse(leases.isReleaseRequested(9));
+        assertFalse(gate.isReleaseInFlight(9));
+    }
+
+    @Test
+    public void automaticReplacementSharesDurableAcceptedReleaseWithExplicitRetry() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry leases = new DeckLeaseRegistry();
+        PortraitPageDeck<String> original = portraitDeck(40, "original");
+        PortraitPageDeck<String> replacement = portraitDeck(41, "replacement");
+        PageSurfaceListener listener = new PageSurfaceListener() {};
+        coordinator.offer(original);
+        assertTrue(leases.acquire(40, listener));
+        PageSurfaceDeckReleaseGate<String> gate =
+                new PageSurfaceDeckReleaseGate<>(coordinator, leases);
+        PageDeckCoordinator.Offer<String> offer = coordinator.offer(replacement);
+        assertTrue(leases.acquire(41, listener));
+        AtomicInteger queuedCommands = new AtomicInteger();
+
+        gate.queueAutomatic(
+                offer.getReleases(),
+                queuedCommands::incrementAndGet);
+        PageSurfaceDeckReleaseResult duplicate = gate.request(
+                40,
+                (generationId, reason) -> queuedCommands.incrementAndGet());
+
+        assertEquals(
+                PageSurfaceDeckReleaseResult.Status.ALREADY_ACCEPTED,
+                duplicate.getStatus());
+        assertEquals(1, queuedCommands.get());
+        assertTrue(gate.isReleaseInFlight(40));
+        assertTrue(leases.isReleaseRequested(40));
+        assertSame(replacement, coordinator.getActiveDeck());
+
+        assertTrue(gate.complete(40));
+        DeckLeaseRegistry.Lease completed = leases.release(40);
+        assertNotNull(completed);
+        assertSame(listener, completed.getListener());
+        assertEquals(DeckReleaseReason.REPLACED, completed.getReleaseReason());
+        assertFalse(gate.complete(40));
+        assertNull(leases.release(40));
+    }
+
+    @Test
+    public void promotionDetachAndTerminalDisposalUseSameDurableReleaseRegistry() {
+        PageDeckCoordinator<String> promotionCoordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry promotionLeases = new DeckLeaseRegistry();
+        PortraitPageDeck<String> active = portraitDeck(50, "active");
+        PortraitPageDeck<String> pending = portraitDeck(51, "pending");
+        promotionCoordinator.offer(active);
+        promotionCoordinator.beginSettlement();
+        promotionCoordinator.offer(pending);
+        assertTrue(promotionLeases.acquire(50, new PageSurfaceListener() {}));
+        assertTrue(promotionLeases.acquire(51, new PageSurfaceListener() {}));
+        PageSurfaceDeckReleaseGate<String> promotionGate =
+                new PageSurfaceDeckReleaseGate<>(promotionCoordinator, promotionLeases);
+        PageDeckCoordinator.Promotion<String> promotion =
+                promotionCoordinator.completeSettlement();
+        promotionGate.queueAutomatic(
+                java.util.Collections.singletonList(promotion.getRelease()),
+                () -> {});
+        assertEquals(
+                PageSurfaceDeckReleaseResult.Status.ALREADY_ACCEPTED,
+                promotionGate.request(50, (generationId, reason) -> {}).getStatus());
+
+        PageDeckCoordinator<String> detachCoordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry detachLeases = new DeckLeaseRegistry();
+        PortraitPageDeck<String> detachedActive = portraitDeck(60, "detached-active");
+        PortraitPageDeck<String> detachedPending = portraitDeck(61, "detached-pending");
+        detachCoordinator.offer(detachedActive);
+        detachCoordinator.beginSettlement();
+        detachCoordinator.offer(detachedPending);
+        detachCoordinator.cancelSettlement();
+        assertTrue(detachLeases.acquire(60, new PageSurfaceListener() {}));
+        assertTrue(detachLeases.acquire(61, new PageSurfaceListener() {}));
+        PageSurfaceDeckReleaseGate<String> detachGate =
+                new PageSurfaceDeckReleaseGate<>(detachCoordinator, detachLeases);
+        PageDeckCoordinator.Release<String> detachedRelease =
+                detachCoordinator.releasePending(DeckReleaseReason.SESSION_DETACHED);
+        detachGate.queueAutomatic(
+                java.util.Collections.singletonList(detachedRelease),
+                () -> {});
+        assertEquals(
+                PageSurfaceDeckReleaseResult.Status.ALREADY_ACCEPTED,
+                detachGate.request(61, (generationId, reason) -> {}).getStatus());
+
+        PageDeckCoordinator<String> terminalCoordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry terminalLeases = new DeckLeaseRegistry();
+        PortraitPageDeck<String> terminalActive = portraitDeck(70, "terminal-active");
+        PortraitPageDeck<String> terminalPending = portraitDeck(71, "terminal-pending");
+        terminalCoordinator.offer(terminalActive);
+        terminalCoordinator.beginSettlement();
+        terminalCoordinator.offer(terminalPending);
+        assertTrue(terminalLeases.acquire(70, new PageSurfaceListener() {}));
+        assertTrue(terminalLeases.acquire(71, new PageSurfaceListener() {}));
+        PageSurfaceDeckReleaseGate<String> terminalGate =
+                new PageSurfaceDeckReleaseGate<>(terminalCoordinator, terminalLeases);
+        terminalGate.acceptTerminal(terminalCoordinator.dispose());
+        terminalGate.close();
+        assertTrue(terminalGate.isReleaseInFlight(70));
+        assertTrue(terminalGate.isReleaseInFlight(71));
+        assertEquals(
+                PageSurfaceDeckReleaseResult.RejectionReason.DISPOSED,
+                terminalGate.request(70, (generationId, reason) -> {}).getRejectionReason());
+    }
+
+    @Test
+    public void automaticQueueRejectionCanRestorePromotionAndDetachedPendingClaims() {
+        PageDeckCoordinator<String> promotionCoordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry promotionLeases = new DeckLeaseRegistry();
+        PortraitPageDeck<String> active = portraitDeck(80, "active");
+        PortraitPageDeck<String> pending = portraitDeck(81, "pending");
+        promotionCoordinator.offer(active);
+        promotionCoordinator.beginSettlement();
+        promotionCoordinator.offer(pending);
+        assertTrue(promotionLeases.acquire(80, new PageSurfaceListener() {}));
+        assertTrue(promotionLeases.acquire(81, new PageSurfaceListener() {}));
+        PageSurfaceDeckReleaseGate<String> promotionGate =
+                new PageSurfaceDeckReleaseGate<>(promotionCoordinator, promotionLeases);
+        PageDeckCoordinator.Promotion<String> promotion =
+                promotionCoordinator.completeSettlement();
+        try {
+            promotionGate.queueAutomatic(
+                    java.util.Collections.singletonList(promotion.getRelease()),
+                    () -> {
+                        throw new IllegalStateException("injected promotion queue rejection");
+                    });
+        } catch (IllegalStateException expected) {
+            assertEquals("injected promotion queue rejection", expected.getMessage());
+        }
+        assertTrue(promotionCoordinator.rollbackPromotion(promotion));
+        assertSame(active, promotionCoordinator.getActiveDeck());
+        assertSame(pending, promotionCoordinator.getPendingDeck());
+        assertTrue(promotionCoordinator.isSettling());
+        assertFalse(promotionLeases.isReleaseRequested(80));
+        assertFalse(promotionGate.isReleaseInFlight(80));
+
+        PageDeckCoordinator<String> detachCoordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry detachLeases = new DeckLeaseRegistry();
+        PortraitPageDeck<String> detachedActive = portraitDeck(90, "detached-active");
+        PortraitPageDeck<String> detachedPending = portraitDeck(91, "detached-pending");
+        detachCoordinator.offer(detachedActive);
+        detachCoordinator.beginSettlement();
+        detachCoordinator.offer(detachedPending);
+        detachCoordinator.cancelSettlement();
+        assertTrue(detachLeases.acquire(90, new PageSurfaceListener() {}));
+        assertTrue(detachLeases.acquire(91, new PageSurfaceListener() {}));
+        PageSurfaceDeckReleaseGate<String> detachGate =
+                new PageSurfaceDeckReleaseGate<>(detachCoordinator, detachLeases);
+        PageDeckCoordinator.Release<String> detachedRelease =
+                detachCoordinator.releasePending(DeckReleaseReason.SESSION_DETACHED);
+        try {
+            detachGate.queueAutomatic(
+                    java.util.Collections.singletonList(detachedRelease),
+                    () -> {
+                        throw new IllegalStateException("injected detach queue rejection");
+                    });
+        } catch (IllegalStateException expected) {
+            assertEquals("injected detach queue rejection", expected.getMessage());
+        }
+        assertTrue(detachCoordinator.rollbackRelease(detachedRelease));
+        assertSame(detachedPending, detachCoordinator.getPendingDeck());
+        assertFalse(detachLeases.isReleaseRequested(91));
+        assertFalse(detachGate.isReleaseInFlight(91));
+    }
+
+    @Test
     public void releaseGateCloseRejectsNewWorkAndRetainsAcceptedLeaseForDisposal() {
         PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
         DeckLeaseRegistry leases = new DeckLeaseRegistry();
@@ -326,10 +521,16 @@ public class PageDeckCoordinatorTest {
 
         gate.close();
 
-        assertFalse(gate.isReleaseInFlight(8));
+        assertTrue(gate.isReleaseInFlight(8));
         assertTrue(leases.contains(8));
         assertTrue(leases.isReleaseRequested(8));
-        assertEquals(1, leases.releaseAll(DeckReleaseReason.DISPOSED).size());
+        List<DeckLeaseRegistry.Lease> terminalLeases =
+                leases.releaseAll(DeckReleaseReason.DISPOSED);
+        assertEquals(1, terminalLeases.size());
+        assertTrue(gate.complete(terminalLeases.get(0).getGenerationId()));
+        assertFalse(gate.isReleaseInFlight(8));
+        assertFalse(gate.complete(8));
+        assertNull(leases.release(8));
         assertEquals(
                 PageSurfaceDeckReleaseResult.RejectionReason.DISPOSED,
                 gate.request(8, (generationId, reason) -> {}).getRejectionReason());

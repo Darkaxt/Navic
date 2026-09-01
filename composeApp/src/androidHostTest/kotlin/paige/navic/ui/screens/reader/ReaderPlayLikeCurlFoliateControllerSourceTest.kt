@@ -2160,20 +2160,20 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(acceptedRollback, "activePages = null")
 		assertContains(
 			acceptedRollback,
-			"rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)"
+			"rendererOwnedGenerationCleanupGate.request(generationId)"
 		)
 		assertTrue(
-			acceptedRollback.indexOf("requestOwnedGeneration(generationId)") <
+			acceptedRollback.indexOf("rendererOwnedGenerationCleanupGate.request(generationId)") <
 				acceptedRollback.indexOf("tombstoneSubmittedRecoveredDeck(generationId, role)")
 		)
 		assertContains(submittedCancellation, "readerRecoveredDeckCancellationRoleMatches(")
 		assertContains(submittedCancellation, "tombstoneSubmittedRecoveredDeck(")
 		assertContains(
 			submittedCancellation,
-			"rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)"
+			"rendererOwnedGenerationCleanupGate.request(generationId)"
 		)
 		assertTrue(
-			submittedCancellation.indexOf("requestOwnedGeneration(generationId)") <
+			submittedCancellation.indexOf("rendererOwnedGenerationCleanupGate.request(generationId)") <
 				submittedCancellation.indexOf("tombstoneSubmittedRecoveredDeck(")
 		)
 		assertContains(renderFailure, "generationId in recoveredDeckGenerations")
@@ -2385,7 +2385,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(stateCallback, "pendingDeckGenerationId?.let(::releaseRendererOwnedGeneration)")
 		assertContains(
 			rendererRelease,
-			"rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)"
+			"rendererOwnedGenerationCleanupGate.request(generationId)"
 		)
 		assertFalse(rendererRelease.contains("releaseGeneration(generationId)"))
 		val markInFlight = releaseGate.indexOf("rendererReleaseInFlight.add(generationId)")

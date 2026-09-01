@@ -262,6 +262,32 @@ class ReaderPageQaFaultHostSourceTest {
 	}
 
 	@Test
+	fun cleanupRejectionKeepsOwnershipRetryableUntilAcceptedCompletion() {
+		val generationId = 77L
+		val owners = mutableSetOf(generationId)
+		val bitmapLeases = mutableSetOf(generationId)
+		var releaseAttempts = 0
+		val cleanupGate = ReaderRendererOwnedGenerationCleanupGate { candidate ->
+			assertEquals(generationId, candidate)
+			releaseAttempts += 1
+			releaseAttempts > 1
+		}
+		val tombstone: () -> Unit = {
+			owners -= generationId
+			bitmapLeases -= generationId
+		}
+
+		assertFalse(cleanupGate.request(generationId, tombstone))
+		assertEquals(setOf(generationId), owners)
+		assertEquals(setOf(generationId), bitmapLeases)
+
+		assertTrue(cleanupGate.request(generationId, tombstone))
+		assertTrue(owners.isEmpty())
+		assertTrue(bitmapLeases.isEmpty())
+		assertEquals(2, releaseAttempts)
+	}
+
+	@Test
 	fun presentationEffectNeverReleasesSelectedOrRetainedAuthorityIdentity() {
 		val binding = presentationBinding()
 		val proof = nativePresentationProof(binding)
@@ -359,9 +385,11 @@ class ReaderPageQaFaultHostSourceTest {
 		assertContains(controller, "private val rendererReleaseInFlight")
 		assertEquals(1, Regex("surfaceView::releaseDeck").findAll(controller).count())
 		assertFalse(controller.contains("surfaceView.releaseDeck("))
-		assertContains(
-			controller,
-			"rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)"
+		assertContains(controller, "ReaderRendererOwnedGenerationCleanupGate(")
+		assertFalse(
+			controller.contains(
+				"check(rendererOwnedGenerationReleaseGate.requestOwnedGeneration"
+			)
 		)
 		val acceptedLibraryRollback = controller
 			.substringAfter("private fun rollbackAcceptedLibraryDeck(")
@@ -369,13 +397,13 @@ class ReaderPageQaFaultHostSourceTest {
 		assertFalse(acceptedLibraryRollback.contains("releaseGeneration(generationId)"))
 		assertContains(
 			acceptedLibraryRollback,
-			"rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)"
+			"rendererOwnedGenerationCleanupGate.request(generationId)"
 		)
 		val pendingDiscard = controller
 			.substringAfter("private fun discardPendingDeck(")
 			.substringBefore("\n\tprivate fun ")
 		assertTrue(
-			pendingDiscard.indexOf("requestOwnedGeneration(generationId)") <
+			pendingDiscard.indexOf("rendererOwnedGenerationCleanupGate.request(generationId)") <
 				pendingDiscard.indexOf("pendingDeckGenerationId = null")
 		)
 	}

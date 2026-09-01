@@ -461,15 +461,17 @@ public class PageSurfaceView extends GLSurfaceView {
         boolean activateWhenPrepared =
                 offer.getPlacement() == PageDeckCoordinator.Placement.ACTIVE;
         try {
-            queueEvent(() -> {
-                for (PageDeckCoordinator.Release<Bitmap> release :
-                        offer.getReleases()) {
-                    renderer.releaseDeck(
-                            release.getDeck().getGenerationId(),
-                            release.getReason());
-                }
-                renderer.prepareDeck(deck, activateWhenPrepared);
-            });
+            releaseGate.queueAutomatic(
+                    offer.getReleases(),
+                    () -> queueEvent(() -> {
+                        for (PageDeckCoordinator.Release<Bitmap> release :
+                                offer.getReleases()) {
+                            renderer.releaseDeck(
+                                    release.getDeck().getGenerationId(),
+                                    release.getReason());
+                        }
+                        renderer.prepareDeck(deck, activateWhenPrepared);
+                    }));
         } catch (RuntimeException | Error queueFailure) {
             try {
                 submissionGate.rollbackAccepted(deck, gated);
@@ -486,9 +488,6 @@ public class PageSurfaceView extends GLSurfaceView {
             if (preparedGenerations.remove(releasedGenerationId)) {
                 advanceOwnershipEpoch();
             }
-            leaseRegistry.markReleaseRequested(
-                    releasedGenerationId,
-                    release.getReason());
         }
         if (preparedGenerations.remove(deck.getGenerationId())) {
             advanceOwnershipEpoch();
@@ -775,8 +774,9 @@ public class PageSurfaceView extends GLSurfaceView {
         if (activated == null) {
             return;
         }
-        markPromotionRelease(promotion);
-        queueEvent(() -> renderer.activateDeck(activated.getGenerationId()));
+        if (!queuePromotion(promotion, activated)) {
+            return;
+        }
         requestRender();
     }
 
@@ -1041,16 +1041,9 @@ public class PageSurfaceView extends GLSurfaceView {
             recordSetupFailure(setupFailure);
         }
         try {
-            for (PageDeckCoordinator.Release<Bitmap> release :
-                    deckCoordinator.dispose()) {
-                try {
-                    leaseRegistry.markReleaseRequested(
-                            release.getDeck().getGenerationId(),
-                            DeckReleaseReason.DISPOSED);
-                } catch (Throwable setupFailure) {
-                    recordSetupFailure(setupFailure);
-                }
-            }
+            List<PageDeckCoordinator.Release<Bitmap>> terminalReleases =
+                    deckCoordinator.dispose();
+            releaseGate.acceptTerminal(terminalReleases);
         } catch (Throwable setupFailure) {
             recordSetupFailure(setupFailure);
         }
@@ -1427,6 +1420,7 @@ public class PageSurfaceView extends GLSurfaceView {
         if (releaseDeckLeases) {
             for (DeckLeaseRegistry.Lease lease :
                     leaseRegistry.releaseAll(DeckReleaseReason.DISPOSED)) {
+                releaseGate.complete(lease.getGenerationId());
                 notifyDeckReleased(
                         lease.getListener(),
                         lease.getGenerationId(),
@@ -2279,10 +2273,11 @@ public class PageSurfaceView extends GLSurfaceView {
         PageDeckCoordinator.Promotion<Bitmap> promotion =
                 deckCoordinator.completeSettlement();
         PageDeck<Bitmap> promoted = promotion.getActivatedDeck();
-        if (promoted != null) {
-            markPromotionRelease(promotion);
-            queueEvent(() -> renderer.activateDeck(promoted.getGenerationId()));
-        } else if (settlement.getPageChange() != PageChange.NONE) {
+        if (promoted != null && !queuePromotion(promotion, promoted)) {
+            deckCoordinator.cancelSettlement();
+            return;
+        } else if (promoted == null
+                && settlement.getPageChange() != PageChange.NONE) {
             preparedGenerations.remove(context.generationId);
         }
         requestRender();
@@ -2340,26 +2335,54 @@ public class PageSurfaceView extends GLSurfaceView {
         }
     }
 
-    private void queueDeckRelease(PageDeckCoordinator.Release<Bitmap> release) {
+    private boolean queueDeckRelease(PageDeckCoordinator.Release<Bitmap> release) {
         if (release == null) {
-            return;
+            return true;
         }
         long generationId = release.getDeck().getGenerationId();
+        try {
+            releaseGate.queueAutomatic(
+                    java.util.Collections.singletonList(release),
+                    () -> queueEvent(
+                            () -> renderer.releaseDeck(
+                                    generationId,
+                                    release.getReason())));
+        } catch (RuntimeException | Error queueFailure) {
+            if (!deckCoordinator.rollbackRelease(release)) {
+                throw new IllegalStateException(
+                        "Rejected automatic release could not restore coordinator ownership",
+                        queueFailure);
+            }
+            return false;
+        }
         if (preparedGenerations.remove(generationId)) {
             advanceOwnershipEpoch();
         }
-        leaseRegistry.markReleaseRequested(generationId, release.getReason());
-        queueEvent(() -> renderer.releaseDeck(generationId, release.getReason()));
+        return true;
     }
 
-    private void markPromotionRelease(
-            PageDeckCoordinator.Promotion<Bitmap> promotion) {
+    private boolean queuePromotion(
+            PageDeckCoordinator.Promotion<Bitmap> promotion,
+            PageDeck<Bitmap> activated) {
         PageDeckCoordinator.Release<Bitmap> release = promotion.getRelease();
-        if (release != null) {
-            leaseRegistry.markReleaseRequested(
-                    release.getDeck().getGenerationId(),
-                    release.getReason());
+        List<PageDeckCoordinator.Release<Bitmap>> releases = release == null
+                ? java.util.Collections.emptyList()
+                : java.util.Collections.singletonList(release);
+        try {
+            releaseGate.queueAutomatic(
+                    releases,
+                    () -> queueEvent(
+                            () -> renderer.activateDeck(
+                                    activated.getGenerationId())));
+        } catch (RuntimeException | Error queueFailure) {
+            if (!deckCoordinator.rollbackPromotion(promotion)) {
+                throw new IllegalStateException(
+                        "Rejected promotion could not restore coordinator ownership",
+                        queueFailure);
+            }
+            return false;
         }
+        return true;
     }
 
     private float currentPagePercent() {

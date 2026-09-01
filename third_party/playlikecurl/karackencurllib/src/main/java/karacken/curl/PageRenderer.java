@@ -248,13 +248,23 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             PageDeck<Bitmap> releasedDeck = activeDeck;
             activeDeck = replacementDeck;
             replacementDeck = null;
-            applyActiveDeck(activeDeck);
-            retainDeckTextures();
-            if (releasedDeck != null
-                    && releasedDeck.getGenerationId() != activeDeck.getGenerationId()) {
-                events.onDeckReleased(
-                        releasedDeck.getGenerationId(),
-                        DeckReleaseReason.REPLACED);
+            Runnable terminalCallback = releasedDeck != null
+                    && releasedDeck.getGenerationId() != activeDeck.getGenerationId()
+                    ? () -> events.onDeckReleased(
+                            releasedDeck.getGenerationId(),
+                            DeckReleaseReason.REPLACED)
+                    : () -> {};
+            Throwable failure = PageRendererReleaseTerminal.execute(
+                    terminalCallback,
+                    () -> applyActiveDeck(activeDeck),
+                    this::retainDeckTextures);
+            if (failure != null) {
+                reportFailure(
+                        generationId,
+                        true,
+                        RenderFailureReason.TEXTURE_UPLOAD,
+                        "Could not fully activate page deck",
+                        failure);
             }
         }
     }
@@ -458,19 +468,32 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     }
 
     void releaseDeck(long generationId, DeckReleaseReason reason) {
-        boolean released = false;
-        if (activeDeck != null && activeDeck.getGenerationId() == generationId) {
-            activeDeck = null;
-            clearActiveDeck();
-            released = true;
-        }
-        if (replacementDeck != null && replacementDeck.getGenerationId() == generationId) {
-            replacementDeck = null;
-            released = true;
-        }
-        retainDeckTextures();
-        if (released) {
-            events.onDeckReleased(generationId, reason);
+        boolean releasesActive =
+                activeDeck != null && activeDeck.getGenerationId() == generationId;
+        boolean releasesReplacement =
+                replacementDeck != null
+                        && replacementDeck.getGenerationId() == generationId;
+        Throwable failure = PageRendererReleaseTerminal.execute(
+                () -> events.onDeckReleased(generationId, reason),
+                () -> {
+                    if (releasesActive) {
+                        activeDeck = null;
+                        clearActiveDeck();
+                    }
+                },
+                () -> {
+                    if (releasesReplacement) {
+                        replacementDeck = null;
+                    }
+                },
+                this::retainDeckTextures);
+        if (failure != null) {
+            reportFailure(
+                    generationId,
+                    true,
+                    RenderFailureReason.TEXTURE_UPLOAD,
+                    "Could not fully release page deck",
+                    failure);
         }
     }
 
