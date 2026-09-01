@@ -647,19 +647,10 @@ private fun ReaderPresentationState.reducePreparationReport(
 	if (!matchesPreparation(event.binding, event.facts)) {
 		return stalePresentation(null, event.binding)
 	}
-	val nextAuthority = if (
-		authority == ReaderPresentationAuthority.Unavailable &&
-		event.facts.phase == ReaderPagePreparationPhase.Preparing
-	) {
-		ReaderPresentationAuthority.BlockingPreparation(ReaderPresentationFrameOwner.Neutral)
-	} else {
-		authority
-	}
 	return ReaderPresentationReducerResult(
 		copy(
-			authority = nextAuthority,
 			preparationFacts = event.facts,
-			failure = if (event.facts.failure == null) null else failure
+			failure = if (event.facts.phase == ReaderPagePreparationPhase.Ready) null else failure
 		)
 	)
 }
@@ -675,7 +666,7 @@ private fun ReaderPresentationState.reducePreparationFailure(
 		retryable = true,
 		cancellable = event.cancellable
 	)
-	val nextAuthority = if (authority is ReaderPresentationAuthority.CurlGesture) {
+	val nextAuthority = if (authority.hasTruthfulStableFrame()) {
 		authority
 	} else {
 		ReaderPresentationAuthority.BlockingPreparation(authority.frameOwner())
@@ -696,6 +687,18 @@ private fun ReaderPresentationState.matchesPreparation(
 	eventBinding: ReaderPresentationBinding,
 	facts: ReaderPagePreparationFacts
 ): Boolean = binding == eventBinding && eventBinding.preparationGeneration == facts.generation
+
+private fun ReaderPresentationAuthority.hasTruthfulStableFrame(): Boolean = when (this) {
+	ReaderPresentationAuthority.Unavailable,
+	is ReaderPresentationAuthority.BlockingPreparation -> false
+	is ReaderPresentationAuthority.ShellCover,
+	is ReaderPresentationAuthority.ShellCoverCommitPending,
+	is ReaderPresentationAuthority.CurlGesture,
+	is ReaderPresentationAuthority.CurlSettlementPending,
+	is ReaderPresentationAuthority.SettledNativePage,
+	is ReaderPresentationAuthority.LiveEngineHandoffPending,
+	is ReaderPresentationAuthority.LiveEngineExposed -> true
+}
 
 private fun ReaderPresentationState.reduceTimeout(
 	event: ReaderPresentationEvent.TimedOut
