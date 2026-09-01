@@ -11,10 +11,14 @@ presentation visually atomic without changing Foliate or PlayLikeCurl authority.
 **Stage 6 corrective specification:**
 `docs/superpowers/specs/2026-09-01-reader-hierarchical-presentation-authority-design.md`
 
-The corrective specification is release-blocking. It centralizes visual ownership,
-interaction policy, shell-cover transactions, preparation presentation, and
-lifecycle semantics after bounded production testing exposed cross-component
-behavioral regressions that component-local managers did not prevent.
+**Stage 6 corrective implementation plan:**
+`docs/superpowers/plans/2026-09-01-reader-hierarchical-presentation-authority.md`
+
+The corrective specification and implementation plan are release-blocking. They
+centralize visual ownership, interaction policy, shell-cover transactions,
+preparation presentation, and lifecycle semantics after bounded production testing
+exposed cross-component behavioral regressions that component-local managers did
+not prevent.
 
 **Delivery style:** Each stage is a focused TDD checkpoint. Group coherent RED
 tests, run one focused RED gate, implement only the stage contract, run one
