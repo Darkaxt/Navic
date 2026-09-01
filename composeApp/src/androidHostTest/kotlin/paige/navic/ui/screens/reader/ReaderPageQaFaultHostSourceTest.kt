@@ -192,16 +192,20 @@ class ReaderPageQaFaultHostSourceTest {
 				candidate == activeGenerationId || candidate == pendingGenerationId
 			},
 			requestRendererRelease = { candidate ->
-				releaseInvocations += 1
-				surfaceClaims += candidate
-				if (rejectNextRelease) {
-					rejectNextRelease = false
-					surfaceClaims -= candidate
-					PageSurfaceDeckReleaseResult.rejected(
-						PageSurfaceDeckReleaseResult.RejectionReason.QUEUE_REJECTED
-					)
+				if (candidate in surfaceClaims) {
+					PageSurfaceDeckReleaseResult.alreadyAccepted()
 				} else {
-					PageSurfaceDeckReleaseResult.accepted()
+					releaseInvocations += 1
+					surfaceClaims += candidate
+					if (rejectNextRelease) {
+						rejectNextRelease = false
+						surfaceClaims -= candidate
+						PageSurfaceDeckReleaseResult.rejected(
+							PageSurfaceDeckReleaseResult.RejectionReason.QUEUE_REJECTED
+						)
+					} else {
+						PageSurfaceDeckReleaseResult.accepted()
+					}
 				}
 			},
 			retireOwner = { candidate ->
@@ -239,7 +243,7 @@ class ReaderPageQaFaultHostSourceTest {
 		assertEquals(setOf(generationId), owners.keys)
 		assertEquals(setOf(generationId), bitmapLeases)
 		assertTrue(surfaceClaims.isEmpty())
-		assertFalse(releaseGate.isReleaseInFlight(generationId))
+		assertFalse(generationId in surfaceClaims)
 
 		assertTrue(handler.deliver(queue.pendingEffects(), decision, acknowledge))
 		assertEquals(2, releaseInvocations)
@@ -247,7 +251,7 @@ class ReaderPageQaFaultHostSourceTest {
 		assertEquals(setOf(generationId), owners.keys)
 		assertEquals(setOf(generationId), bitmapLeases)
 		assertEquals(setOf(generationId), surfaceClaims)
-		assertTrue(releaseGate.isReleaseInFlight(generationId))
+		assertTrue(generationId in surfaceClaims)
 
 		assertTrue(releaseGate.request(binding))
 		assertEquals(2, releaseInvocations)
@@ -255,36 +259,79 @@ class ReaderPageQaFaultHostSourceTest {
 		assertTrue(owners.isEmpty())
 		assertTrue(bitmapLeases.isEmpty())
 		assertTrue(surfaceClaims.isEmpty())
-		assertFalse(releaseGate.isReleaseInFlight(generationId))
+		assertFalse(generationId in surfaceClaims)
 
 		assertTrue(releaseGate.request(binding))
 		assertEquals(2, releaseInvocations)
 	}
 
 	@Test
-	fun cleanupRejectionKeepsOwnershipRetryableUntilAcceptedCompletion() {
-		val generationId = 77L
+	fun rejectedAutomaticCleanupRetriesOnRendererAvailabilityWithoutManualRequest() {
+		val recoveredGeneration = 77L
+		val staleGeneration = 78L
+		val owners = mutableSetOf(recoveredGeneration, staleGeneration)
+		val attempts = mutableMapOf<Long, Int>()
+		val acceptedActions = mutableListOf<ReaderRendererCleanupRequest>()
+		val coordinator = ReaderRendererCleanupRetryCoordinator(
+			ownerExists = owners::contains,
+			requestRelease = { generationId ->
+				val attempt = attempts.getOrDefault(generationId, 0) + 1
+				attempts[generationId] = attempt
+				attempt > 1
+			},
+			onAccepted = acceptedActions::add,
+			pendingLimit = 4
+		)
+		val recovered = ReaderRendererCleanupRequest.RecoveredCancellation(
+			generationId = recoveredGeneration,
+			role = ReaderDeckSubmissionRole.Pending
+		)
+		val stale = ReaderRendererCleanupRequest.StaleGeneration(staleGeneration)
+
+		assertFalse(coordinator.request(recovered))
+		assertFalse(coordinator.request(stale))
+		assertEquals(2, coordinator.pendingCount)
+		assertTrue(acceptedActions.isEmpty())
+
+		coordinator.onRendererAvailabilityRestored()
+
+		assertEquals(mapOf(recoveredGeneration to 2, staleGeneration to 2), attempts)
+		assertEquals(listOf(recovered, stale), acceptedActions)
+		assertEquals(2, coordinator.pendingCount)
+		coordinator.onRendererAvailabilityRestored()
+		assertEquals(mapOf(recoveredGeneration to 2, staleGeneration to 2), attempts)
+		assertEquals(listOf(recovered, stale), acceptedActions)
+
+		owners.clear()
+		assertTrue(coordinator.complete(recoveredGeneration))
+		assertTrue(coordinator.complete(staleGeneration))
+		assertFalse(coordinator.complete(staleGeneration))
+		assertEquals(0, coordinator.pendingCount)
+	}
+
+	@Test
+	fun rejectedCleanupClearsOnOwnerLossAndSupersedesTypedAction() {
+		val generationId = 79L
 		val owners = mutableSetOf(generationId)
-		val bitmapLeases = mutableSetOf(generationId)
-		var releaseAttempts = 0
-		val cleanupGate = ReaderRendererOwnedGenerationCleanupGate { candidate ->
-			assertEquals(generationId, candidate)
-			releaseAttempts += 1
-			releaseAttempts > 1
-		}
-		val tombstone: () -> Unit = {
-			owners -= generationId
-			bitmapLeases -= generationId
-		}
+		val acceptedActions = mutableListOf<ReaderRendererCleanupRequest>()
+		val coordinator = ReaderRendererCleanupRetryCoordinator(
+			ownerExists = owners::contains,
+			requestRelease = { false },
+			onAccepted = acceptedActions::add,
+			pendingLimit = 2
+		)
+		val stale = ReaderRendererCleanupRequest.StaleGeneration(generationId)
+		val rollback = ReaderRendererCleanupRequest.LibraryRollback(generationId)
 
-		assertFalse(cleanupGate.request(generationId, tombstone))
-		assertEquals(setOf(generationId), owners)
-		assertEquals(setOf(generationId), bitmapLeases)
+		assertFalse(coordinator.request(stale))
+		assertFalse(coordinator.request(rollback))
+		assertEquals(rollback, coordinator.pendingRequest(generationId))
 
-		assertTrue(cleanupGate.request(generationId, tombstone))
-		assertTrue(owners.isEmpty())
-		assertTrue(bitmapLeases.isEmpty())
-		assertEquals(2, releaseAttempts)
+		owners.clear()
+		coordinator.onRendererAvailabilityRestored()
+
+		assertEquals(0, coordinator.pendingCount)
+		assertTrue(acceptedActions.isEmpty())
 	}
 
 	@Test
@@ -382,10 +429,10 @@ class ReaderPageQaFaultHostSourceTest {
 		assertContains(host, "releaseStalePresentationDeck(effect.binding)")
 		assertContains(release, "rendererOwnedGenerationReleaseGate.request(binding)")
 		assertContains(controller, "rendererOwnedGenerationReleaseGate.completeRelease(generationId)")
-		assertContains(controller, "private val rendererReleaseInFlight")
+		assertFalse(controller.contains("private val rendererReleaseInFlight"))
 		assertEquals(1, Regex("surfaceView::releaseDeck").findAll(controller).count())
 		assertFalse(controller.contains("surfaceView.releaseDeck("))
-		assertContains(controller, "ReaderRendererOwnedGenerationCleanupGate(")
+		assertContains(controller, "ReaderRendererCleanupRetryCoordinator(")
 		assertFalse(
 			controller.contains(
 				"check(rendererOwnedGenerationReleaseGate.requestOwnedGeneration"
@@ -397,14 +444,14 @@ class ReaderPageQaFaultHostSourceTest {
 		assertFalse(acceptedLibraryRollback.contains("releaseGeneration(generationId)"))
 		assertContains(
 			acceptedLibraryRollback,
-			"rendererOwnedGenerationCleanupGate.request(generationId)"
+			"ReaderRendererCleanupRequest.LibraryRollback(generationId, role)"
 		)
-		val pendingDiscard = controller
-			.substringAfter("private fun discardPendingDeck(")
-			.substringBefore("\n\tprivate fun ")
+		val cleanupActions = controller
+			.substringAfter("private fun onRendererCleanupQueueAccepted(")
+			.substringBefore("private fun releaseRendererOwnedGeneration(")
 		assertTrue(
-			pendingDiscard.indexOf("rendererOwnedGenerationCleanupGate.request(generationId)") <
-				pendingDiscard.indexOf("pendingDeckGenerationId = null")
+			cleanupActions.indexOf("is ReaderRendererCleanupRequest.PendingDiscard") <
+				cleanupActions.indexOf("pendingDeckGenerationId = null")
 		)
 	}
 

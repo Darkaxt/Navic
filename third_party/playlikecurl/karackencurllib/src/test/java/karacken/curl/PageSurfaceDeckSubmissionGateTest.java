@@ -339,11 +339,9 @@ public final class PageSurfaceDeckSubmissionGateTest {
         PageSurfaceDeckSubmissionGate.Result<String> third =
                 gate.submit(portraitDeck(3L, "three"), LISTENER);
         assertAccepted(third);
-        markReleaseRequested(third, registry);
         PageSurfaceDeckSubmissionGate.Result<String> fourth =
                 gate.submit(portraitDeck(4L, "four"), LISTENER);
         assertAccepted(fourth);
-        markReleaseRequested(fourth, registry);
         assertEquals(DeckLeaseRegistry.MAX_DECK_LEASES, registry.size());
         return new Saturated(coordinator, registry, gate);
     }
@@ -353,16 +351,6 @@ public final class PageSurfaceDeckSubmissionGateTest {
         assertEquals(
                 PageSurfaceDeckSubmissionResult.Status.ACCEPTED,
                 result.publicResult().getStatus());
-    }
-
-    private static void markReleaseRequested(
-            PageSurfaceDeckSubmissionGate.Result<String> result,
-            DeckLeaseRegistry registry) {
-        for (PageDeckCoordinator.Release<String> release : result.offer().getReleases()) {
-            registry.markReleaseRequested(
-                    release.getDeck().getGenerationId(),
-                    release.getReason());
-        }
     }
 
     private static void assertInvalidBeforeOwnership(

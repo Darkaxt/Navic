@@ -369,6 +369,7 @@ public class PageSurfaceView extends GLSurfaceView {
         attached = true;
         advanceOwnershipEpoch();
         onResume();
+        pageSurfaceListener.onRendererAvailabilityRestored();
         requestRender();
         scheduleOwnershipRetryEdge();
     }
@@ -389,6 +390,7 @@ public class PageSurfaceView extends GLSurfaceView {
                 DeckReleaseReason.SESSION_DETACHED));
         requestRender();
         onPause();
+        terminallyAbandonAcceptedRendererReleases();
     }
 
     /**
@@ -1363,6 +1365,7 @@ public class PageSurfaceView extends GLSurfaceView {
         if (glPaused) {
             try {
                 renderer.abandonClientState();
+                terminallyAbandonAcceptedRendererReleases();
                 textures = renderer.textureCount();
                 clientOwnershipReleased = true;
             } catch (Throwable abandonFailure) {
@@ -1418,9 +1421,9 @@ public class PageSurfaceView extends GLSurfaceView {
             return;
         }
         if (releaseDeckLeases) {
+            terminallyAbandonAcceptedRendererReleases();
             for (DeckLeaseRegistry.Lease lease :
                     leaseRegistry.releaseAll(DeckReleaseReason.DISPOSED)) {
-                releaseGate.complete(lease.getGenerationId());
                 notifyDeckReleased(
                         lease.getListener(),
                         lease.getGenerationId(),
@@ -1433,7 +1436,7 @@ public class PageSurfaceView extends GLSurfaceView {
                         ? 0
                         : leaseCount(disposingPendingGenerationId);
         int releaseInFlightDeckLeases =
-                leaseRegistry.releaseInFlightCount(
+                releaseGate.releaseInFlightCount(
                         disposingActiveGenerationId,
                         disposingPendingGenerationId);
         int orphanDeckLeases = leaseRegistry.size()
@@ -1501,7 +1504,7 @@ public class PageSurfaceView extends GLSurfaceView {
         int pendingDeckLeases = activeGenerationId == pendingGenerationId
                 ? 0
                 : leaseCount(pendingGenerationId);
-        int releaseInFlightDeckLeases = leaseRegistry.releaseInFlightCount(
+        int releaseInFlightDeckLeases = releaseGate.releaseInFlightCount(
                 activeGenerationId,
                 pendingGenerationId);
         int orphanDeckLeases = leaseRegistry.size()
@@ -1893,6 +1896,7 @@ public class PageSurfaceView extends GLSurfaceView {
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         super.surfaceDestroyed(holder);
+        terminallyAbandonAcceptedRendererReleases();
         presentedFrameRequest.cancelAll();
         abandonPendingPageOverlayUpdate();
         renderer.invalidatePageOverlays();
@@ -1985,39 +1989,68 @@ public class PageSurfaceView extends GLSurfaceView {
         renderCapabilities = capabilities;
         advanceOwnershipEpoch();
         pageSurfaceListener.onCapabilitiesAvailable(capabilities);
+        pageSurfaceListener.onRendererAvailabilityRestored();
     }
 
     private void handleDeckReleased(
             long generationId,
             DeckReleaseReason reason) {
-        if (preparedGenerations.remove(generationId)) {
-            advanceOwnershipEpoch();
-        }
-        leaseRegistry.markReleaseRequested(generationId, reason);
         PageDeck<Bitmap> activeDeck = deckCoordinator.getActiveDeck();
         if (activeDeck != null
                 && activeDeck.getGenerationId() == generationId) {
             cancelGesture();
         }
-        deckCoordinator.release(generationId);
-        releaseGate.complete(generationId);
-        DeckLeaseRegistry.Lease lease =
-                leaseRegistry.release(generationId);
+        if (!releaseGate.rendererDetached(generationId, reason)) {
+            return;
+        }
+        if (preparedGenerations.remove(generationId)) {
+            advanceOwnershipEpoch();
+        }
+        DeckReleaseReason effectiveReason = releaseGate.releaseReason(generationId);
+        if (!releaseGate.complete(generationId)) {
+            return;
+        }
+        DeckLeaseRegistry.Lease lease = leaseRegistry.release(
+                generationId,
+                effectiveReason == null ? reason : effectiveReason);
         if (lease == null) {
             return;
         }
-        DeckReleaseReason effectiveReason =
-                lease.getReleaseReason() == null
-                        ? reason
-                        : lease.getReleaseReason();
         notifyDeckReleased(
                 lease.getListener(),
                 generationId,
-                effectiveReason);
-        boolean capacityAvailable =
-                submissionGate.takeCapacityAvailableSignal(generationId);
-        if (capacityAvailable) {
+                lease.getReleaseReason());
+        notifyDeckSubmissionCapacityIfAvailable(generationId);
+    }
+
+    private void notifyDeckSubmissionCapacityIfAvailable(long generationId) {
+        if (submissionGate.takeCapacityAvailableSignal(generationId)) {
             notifyDeckSubmissionCapacityAvailable(pageSurfaceListener);
+        }
+    }
+
+    private void terminallyAbandonAcceptedRendererReleases() {
+        for (PageSurfaceGenerationReleaseRecord<Bitmap> record :
+                releaseGate.terminallyAbandonAccepted(
+                        renderer::terminallyAbandonDeck)) {
+            long generationId = record.getGenerationId();
+            if (preparedGenerations.remove(generationId)) {
+                advanceOwnershipEpoch();
+            }
+            if (!releaseGate.complete(generationId)) {
+                continue;
+            }
+            DeckLeaseRegistry.Lease lease = leaseRegistry.release(
+                    generationId,
+                    record.getReason());
+            if (lease == null) {
+                continue;
+            }
+            notifyDeckReleased(
+                    lease.getListener(),
+                    generationId,
+                    lease.getReleaseReason());
+            notifyDeckSubmissionCapacityIfAvailable(generationId);
         }
     }
 

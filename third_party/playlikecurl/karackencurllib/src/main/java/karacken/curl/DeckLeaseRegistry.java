@@ -7,12 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/**
- * Keeps each accepted bitmap lease bound to the listener that acquired it.
- *
- * <p>The registry also makes terminal release idempotent when renderer and lifecycle cleanup
- * converge on the same generation.
- */
+/** Keeps each accepted bitmap lease bound to the listener that acquired it. */
 final class DeckLeaseRegistry {
     static final int MAX_DECK_LEASES = 4;
 
@@ -46,8 +41,6 @@ final class DeckLeaseRegistry {
     private final int capacity;
     private final Runnable ownershipMutated;
     private final Map<Long, PageSurfaceListener> owners = new LinkedHashMap<>();
-    private final Map<Long, DeckReleaseReason> requestedReleaseReasons =
-            new LinkedHashMap<>();
 
     DeckLeaseRegistry() {
         this(MAX_DECK_LEASES, () -> {});
@@ -99,23 +92,6 @@ final class DeckLeaseRegistry {
         return owners.containsKey(generationId);
     }
 
-    synchronized boolean isReleaseRequested(long generationId) {
-        return requestedReleaseReasons.containsKey(generationId);
-    }
-
-    synchronized int releaseInFlightCount(
-            long activeGenerationId,
-            long pendingGenerationId) {
-        int count = 0;
-        for (long generationId : requestedReleaseReasons.keySet()) {
-            if (generationId != activeGenerationId
-                    && generationId != pendingGenerationId) {
-                count += 1;
-            }
-        }
-        return count;
-    }
-
     synchronized PageSurfaceListener listenerFor(
             long generationId,
             PageSurfaceListener fallback) {
@@ -127,39 +103,14 @@ final class DeckLeaseRegistry {
         return owners.get(generationId);
     }
 
-    void markReleaseRequested(
-            long generationId,
-            DeckReleaseReason reason) {
-        Objects.requireNonNull(reason, "reason");
-        synchronized (this) {
-            if (!owners.containsKey(generationId)
-                    || requestedReleaseReasons.containsKey(generationId)) {
-                return;
-            }
-            requestedReleaseReasons.put(generationId, reason);
-        }
-        ownershipMutated.run();
-    }
-
-    boolean rollbackReleaseRequested(
-            long generationId,
-            DeckReleaseReason reason) {
-        Objects.requireNonNull(reason, "reason");
-        synchronized (this) {
-            if (requestedReleaseReasons.get(generationId) != reason) {
-                return false;
-            }
-            requestedReleaseReasons.remove(generationId);
-        }
-        ownershipMutated.run();
-        return true;
-    }
-
     Lease release(long generationId) {
+        return release(generationId, null);
+    }
+
+    Lease release(long generationId, DeckReleaseReason reason) {
         final Lease lease;
         synchronized (this) {
             PageSurfaceListener listener = owners.remove(generationId);
-            DeckReleaseReason reason = requestedReleaseReasons.remove(generationId);
             if (listener == null) {
                 return null;
             }
@@ -169,8 +120,8 @@ final class DeckLeaseRegistry {
         return lease;
     }
 
-    List<Lease> releaseAll(DeckReleaseReason fallbackReason) {
-        Objects.requireNonNull(fallbackReason, "fallbackReason");
+    List<Lease> releaseAll(DeckReleaseReason reason) {
+        Objects.requireNonNull(reason, "reason");
         final List<Lease> result;
         synchronized (this) {
             if (owners.isEmpty()) {
@@ -178,14 +129,10 @@ final class DeckLeaseRegistry {
             }
             List<Lease> leases = new ArrayList<>(owners.size());
             for (Map.Entry<Long, PageSurfaceListener> entry : owners.entrySet()) {
-                DeckReleaseReason reason = requestedReleaseReasons.getOrDefault(
-                        entry.getKey(),
-                        fallbackReason);
                 leases.add(new Lease(entry.getKey(), entry.getValue(), reason));
             }
             owners.clear();
-            requestedReleaseReasons.clear();
-            result = Collections.unmodifiableList(new ArrayList<>(leases));
+            result = Collections.unmodifiableList(leases);
         }
         ownershipMutated.run();
         return result;

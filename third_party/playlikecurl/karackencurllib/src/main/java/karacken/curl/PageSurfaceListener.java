@@ -18,6 +18,8 @@ public interface PageSurfaceListener {
 
     default void onDeckSubmissionCapacityAvailable() {}
 
+    default void onRendererAvailabilityRestored() {}
+
     default void onPageOverlayUpdateCapacityAvailable(boolean applied) {}
 
     default void onPageOverlayStateInvalidated() {}

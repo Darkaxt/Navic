@@ -1,6 +1,8 @@
 package karacken.curl;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -35,7 +37,15 @@ final class PageOverlayReplacementStore<K, V> {
         }
     }
 
+    List<V> detachAll() {
+        Map<K, V> previous = values;
+        values = new LinkedHashMap<>();
+        return new ArrayList<>(previous.values());
+    }
+
     void clear() {
-        replace(new LinkedHashMap<>());
+        for (V value : detachAll()) {
+            disposer.accept(value);
+        }
     }
 }

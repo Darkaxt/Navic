@@ -2110,13 +2110,16 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("override fun submitRecoveredDeck(")
 		val submittedCancellation = controller
 			.substringAfter("override fun cancelSubmittedRecoveredDeck(")
-			.substringBefore("override fun isPrepared(")
+			.substringBefore("private fun tombstoneSubmittedRecoveredDeck(")
 		val renderFailure = controller
 			.substringAfter("override fun onRenderFailure(")
 			.substringBefore("val isAvailable: Boolean")
 		val releaseGeneration = controller
 			.substringAfter("private fun releaseGeneration(")
 			.substringBefore("private fun promotePendingDeck(")
+		val cleanupAccepted = controller
+			.substringAfter("private fun onRendererCleanupQueueAccepted(")
+			.substringBefore("private fun releaseRendererOwnedGeneration(")
 
 		assertContains(preparation, "ReaderPageRasterRepairResult.Repaired")
 		assertContains(preparation, "rasterEpoch = generation")
@@ -2155,27 +2158,26 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(submission, "rollbackAcceptedRecoveredDeck(generationId, role, failure)")
 		assertContains(unsubmittedRelease, "builtRecoveredDecks.remove(generationId) ?: return")
 		assertContains(unsubmittedRelease, "releaseGeneration(generationId)")
-		assertContains(acceptedRollback, "tombstoneSubmittedRecoveredDeck(generationId, role)")
-		assertContains(acceptedRollback, "strandedActive !== generationOwners[generationId]")
-		assertContains(acceptedRollback, "activePages = null")
 		assertContains(
 			acceptedRollback,
-			"rendererOwnedGenerationCleanupGate.request(generationId)"
+			"ReaderRendererCleanupRequest.RecoveredRollback(generationId, role)"
 		)
-		assertTrue(
-			acceptedRollback.indexOf("rendererOwnedGenerationCleanupGate.request(generationId)") <
-				acceptedRollback.indexOf("tombstoneSubmittedRecoveredDeck(generationId, role)")
-		)
+		assertFalse(acceptedRollback.contains("tombstoneSubmittedRecoveredDeck("))
+		assertFalse(acceptedRollback.contains("releaseGeneration(generationId)"))
 		assertContains(submittedCancellation, "readerRecoveredDeckCancellationRoleMatches(")
-		assertContains(submittedCancellation, "tombstoneSubmittedRecoveredDeck(")
 		assertContains(
 			submittedCancellation,
-			"rendererOwnedGenerationCleanupGate.request(generationId)"
+			"ReaderRendererCleanupRequest.RecoveredCancellation("
 		)
-		assertTrue(
-			submittedCancellation.indexOf("rendererOwnedGenerationCleanupGate.request(generationId)") <
-				submittedCancellation.indexOf("tombstoneSubmittedRecoveredDeck(")
+		assertFalse(submittedCancellation.contains("tombstoneSubmittedRecoveredDeck("))
+		assertContains(cleanupAccepted, "is ReaderRendererCleanupRequest.RecoveredCancellation")
+		assertContains(cleanupAccepted, "is ReaderRendererCleanupRequest.RecoveredRollback")
+		assertContains(
+			cleanupAccepted,
+			"tombstoneSubmittedRecoveredDeck(request.generationId, request.role)"
 		)
+		assertContains(cleanupAccepted, "strandedActive !== generationOwners[request.generationId]")
+		assertContains(cleanupAccepted, "activePages = null")
 		assertContains(renderFailure, "generationId in recoveredDeckGenerations")
 		assertContains(renderFailure, "deckRecoveryCoordinator.ownsSubmittedGeneration(")
 		assertContains(renderFailure, "tombstoneSubmittedRecoveredDeck(")
@@ -2383,22 +2385,25 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(deckPrepared, "releaseRendererOwnedGeneration(generationId)")
 		assertContains(deckPrepared, "activeDeckPreparationGeneration")
 		assertContains(stateCallback, "pendingDeckGenerationId?.let(::releaseRendererOwnedGeneration)")
+		assertContains(rendererRelease, "rendererCleanupRetryCoordinator.request(")
 		assertContains(
 			rendererRelease,
-			"rendererOwnedGenerationCleanupGate.request(generationId)"
+			"ReaderRendererCleanupRequest.StaleGeneration(generationId)"
 		)
 		assertFalse(rendererRelease.contains("releaseGeneration(generationId)"))
-		val markInFlight = releaseGate.indexOf("rendererReleaseInFlight.add(generationId)")
-		val requestRelease = releaseGate.indexOf("requestRendererRelease(generationId)")
-		val clearFailedAttempt = releaseGate.indexOf("rendererReleaseInFlight -= generationId")
-		assertTrue(markInFlight >= 0 && requestRelease > markInFlight)
-		assertTrue(clearFailedAttempt > requestRelease)
-		assertContains(releaseGate, "throw failure")
+		assertFalse(releaseGate.contains("rendererReleaseInFlight"))
+		assertContains(releaseGate, "private enum class State")
+		assertContains(releaseGate, "WaitingForRenderer")
+		assertContains(releaseGate, "QueueAccepted")
+		assertContains(releaseGate, "if (!requestRelease(generationId)) return false")
+		assertContains(deckReleased, "rendererCleanupRetryCoordinator.complete(generationId)")
 		assertContains(deckReleased, "rendererOwnedGenerationReleaseGate.completeRelease(generationId)")
 		assertTrue(
-			deckReleased.indexOf("completeRelease(generationId)") <
+			deckReleased.indexOf("rendererCleanupRetryCoordinator.complete(generationId)") <
+				deckReleased.indexOf("completeRelease(generationId)") &&
+				deckReleased.indexOf("completeRelease(generationId)") <
 				deckReleased.indexOf("deckRecoveryCoordinator.onDeckReleased(generationId)"),
-			"Renderer completion must retire the exact owner before recovery observes release."
+			"Renderer completion must clear retry state and retire the exact owner before recovery."
 		)
 		assertContains(profilePreparation, "preparationGeneration")
 		assertContains(profilePreparation, "failedPreparationGeneration")

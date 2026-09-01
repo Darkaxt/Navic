@@ -54,15 +54,13 @@ public class DeckLeaseRegistryTest {
 
         assertTrue(registry.acquire(21L, first));
         assertTrue(registry.acquire(22L, second));
-
-        registry.markReleaseRequested(21L, DeckReleaseReason.EXPLICIT);
         List<DeckLeaseRegistry.Lease> leases =
                 registry.releaseAll(DeckReleaseReason.DISPOSED);
 
         assertEquals(2, leases.size());
         assertEquals(21L, leases.get(0).getGenerationId());
         assertSame(first, leases.get(0).getListener());
-        assertEquals(DeckReleaseReason.EXPLICIT, leases.get(0).getReleaseReason());
+        assertEquals(DeckReleaseReason.DISPOSED, leases.get(0).getReleaseReason());
         assertEquals(22L, leases.get(1).getGenerationId());
         assertSame(second, leases.get(1).getListener());
         assertEquals(DeckReleaseReason.DISPOSED, leases.get(1).getReleaseReason());
@@ -73,14 +71,13 @@ public class DeckLeaseRegistryTest {
     }
 
     @Test
-    public void firstRequestedTerminalReasonWins() {
+    public void lifecycleReasonIsSuppliedOnlyAtTerminalLeaseRelease() {
         DeckLeaseRegistry registry = new DeckLeaseRegistry();
         PageSurfaceListener listener = new PageSurfaceListener() {};
         assertTrue(registry.acquire(31L, listener));
 
-        registry.markReleaseRequested(31L, DeckReleaseReason.REPLACED);
-        registry.markReleaseRequested(31L, DeckReleaseReason.DISPOSED);
-        DeckLeaseRegistry.Lease release = registry.release(31L);
+        DeckLeaseRegistry.Lease release =
+                registry.release(31L, DeckReleaseReason.REPLACED);
 
         assertEquals(DeckReleaseReason.REPLACED, release.getReleaseReason());
         assertFalse(registry.hasOutstandingLeases());
@@ -128,38 +125,20 @@ public class DeckLeaseRegistryTest {
         assertTrue(registry.acquire(1L, listener));
         assertEquals(1, mutations.get());
         assertFalse(registry.acquire(1L, listener));
-        registry.markReleaseRequested(9L, DeckReleaseReason.EXPLICIT);
+        assertNull(registry.release(9L));
         assertEquals(1, mutations.get());
 
-        registry.markReleaseRequested(1L, DeckReleaseReason.REPLACED);
-        registry.markReleaseRequested(1L, DeckReleaseReason.DISPOSED);
+        registry.release(1L, DeckReleaseReason.REPLACED);
+        registry.release(1L, DeckReleaseReason.DISPOSED);
         assertEquals(2, mutations.get());
-        registry.release(1L);
-        registry.release(1L);
-        assertEquals(3, mutations.get());
 
         assertTrue(registry.acquire(2L, listener));
         assertTrue(registry.acquire(3L, listener));
         assertFalse(registry.acquire(4L, listener));
+        assertEquals(4, mutations.get());
+        registry.releaseAll(DeckReleaseReason.DISPOSED);
+        registry.releaseAll(DeckReleaseReason.DISPOSED);
         assertEquals(5, mutations.get());
-        registry.releaseAll(DeckReleaseReason.DISPOSED);
-        registry.releaseAll(DeckReleaseReason.DISPOSED);
-        assertEquals(6, mutations.get());
         assertFalse(callbackHeldMonitor.get());
-    }
-
-    @Test
-    public void releaseInFlightCountExcludesActiveAndPendingPlacements() {
-        DeckLeaseRegistry registry = new DeckLeaseRegistry();
-        PageSurfaceListener listener = new PageSurfaceListener() {};
-        assertTrue(registry.acquire(51L, listener));
-        assertTrue(registry.acquire(52L, listener));
-        assertTrue(registry.acquire(53L, listener));
-        registry.markReleaseRequested(51L, DeckReleaseReason.DISPOSED);
-        registry.markReleaseRequested(52L, DeckReleaseReason.REPLACED);
-        registry.markReleaseRequested(53L, DeckReleaseReason.REPLACED);
-
-        assertEquals(1, registry.releaseInFlightCount(51L, 52L));
-        assertEquals(2, registry.releaseInFlightCount(51L, -1L));
     }
 }

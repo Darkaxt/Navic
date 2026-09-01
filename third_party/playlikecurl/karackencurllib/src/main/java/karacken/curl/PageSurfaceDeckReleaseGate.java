@@ -1,10 +1,13 @@
 package karacken.curl;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongConsumer;
 
 final class PageSurfaceDeckReleaseGate<T> {
     @FunctionalInterface
@@ -12,14 +15,13 @@ final class PageSurfaceDeckReleaseGate<T> {
         void enqueue(long generationId, DeckReleaseReason reason);
     }
 
-    private enum RecordState {
-        CLAIMED,
-        ACCEPTED
-    }
+    private static final AtomicLong NEXT_SESSION_ID = new AtomicLong();
 
     private final PageDeckCoordinator<T> coordinator;
     private final DeckLeaseRegistry leaseRegistry;
-    private final Map<Long, RecordState> releaseRecords = new LinkedHashMap<>();
+    private final long sessionId = NEXT_SESSION_ID.incrementAndGet();
+    private final Map<Long, PageSurfaceGenerationReleaseRecord<T>> releaseRecords =
+            new LinkedHashMap<>();
     private boolean closed;
 
     PageSurfaceDeckReleaseGate(
@@ -37,16 +39,11 @@ final class PageSurfaceDeckReleaseGate<T> {
             return PageSurfaceDeckReleaseResult.rejected(
                     PageSurfaceDeckReleaseResult.RejectionReason.DISPOSED);
         }
-        RecordState retained = releaseRecords.get(generationId);
-        if (retained == RecordState.ACCEPTED) {
-            return PageSurfaceDeckReleaseResult.alreadyAccepted();
-        }
+        PageSurfaceGenerationReleaseRecord<T> retained = releaseRecords.get(generationId);
         if (retained != null) {
-            return PageSurfaceDeckReleaseResult.rejected(
-                    PageSurfaceDeckReleaseResult.RejectionReason.STATE_CONFLICT);
+            return duplicateResult(retained);
         }
-        if (!leaseRegistry.contains(generationId)
-                || leaseRegistry.isReleaseRequested(generationId)) {
+        if (!leaseRegistry.contains(generationId)) {
             return PageSurfaceDeckReleaseResult.rejected(
                     PageSurfaceDeckReleaseResult.RejectionReason.STATE_CONFLICT);
         }
@@ -55,13 +52,12 @@ final class PageSurfaceDeckReleaseGate<T> {
             return PageSurfaceDeckReleaseResult.rejected(
                     PageSurfaceDeckReleaseResult.RejectionReason.NOT_RETAINED);
         }
-        List<PageDeckCoordinator.Release<T>> claimed = java.util.Collections.emptyList();
+        PageSurfaceGenerationReleaseRecord<T> record = claimRelease(release);
         try {
-            claimed = claimReleases(java.util.Collections.singletonList(release));
             queue.enqueue(generationId, release.getReason());
-            acceptClaims(claimed);
+            acceptClaim(record);
         } catch (RuntimeException | Error queueFailure) {
-            rollbackRejectedQueue(release, claimed, queueFailure);
+            rollbackRejectedQueue(release, record, queueFailure);
             return PageSurfaceDeckReleaseResult.rejected(
                     PageSurfaceDeckReleaseResult.RejectionReason.QUEUE_REJECTED);
         }
@@ -76,134 +72,223 @@ final class PageSurfaceDeckReleaseGate<T> {
         if (closed) {
             throw new IllegalStateException("Release gate is closed");
         }
-        List<PageDeckCoordinator.Release<T>> claimed = claimReleases(releases);
+        List<PageSurfaceGenerationReleaseRecord<T>> claimed = claimReleases(releases);
         try {
             queue.run();
             acceptClaims(claimed);
         } catch (RuntimeException | Error queueFailure) {
-            rollbackClaims(claimed, queueFailure);
+            rollbackClaims(claimed);
             throw queueFailure;
         }
     }
 
-    synchronized void acceptTerminal(
-            List<PageDeckCoordinator.Release<T>> releases) {
+    synchronized void acceptTerminal(List<PageDeckCoordinator.Release<T>> releases) {
         Objects.requireNonNull(releases, "releases");
-        List<PageDeckCoordinator.Release<T>> claimed = claimReleases(releases);
+        List<PageSurfaceGenerationReleaseRecord<T>> claimed = claimReleases(releases);
         acceptClaims(claimed);
     }
 
-    private List<PageDeckCoordinator.Release<T>> claimReleases(
-            List<PageDeckCoordinator.Release<T>> releases) {
-        List<PageDeckCoordinator.Release<T>> claimed = new ArrayList<>(releases.size());
-        try {
-            for (PageDeckCoordinator.Release<T> release : releases) {
-                Objects.requireNonNull(release, "release");
-                long generationId = release.getDeck().getGenerationId();
-                if (releaseRecords.containsKey(generationId)
-                        || !leaseRegistry.contains(generationId)
-                        || leaseRegistry.isReleaseRequested(generationId)) {
-                    throw new IllegalStateException(
-                            "Release generation does not have one unclaimed lease");
-                }
-                releaseRecords.put(generationId, RecordState.CLAIMED);
-                claimed.add(release);
-                leaseRegistry.markReleaseRequested(generationId, release.getReason());
-                if (!leaseRegistry.isReleaseRequested(generationId)) {
-                    throw new IllegalStateException(
-                            "Release claim did not mark its bitmap lease");
-                }
-            }
-            return claimed;
-        } catch (RuntimeException | Error claimFailure) {
-            rollbackClaims(claimed, claimFailure);
-            throw claimFailure;
-        }
+    synchronized boolean rendererDetached(long generationId) {
+        PageSurfaceGenerationReleaseRecord<T> record = releaseRecords.get(generationId);
+        return record != null
+                && record.matches(sessionId, generationId)
+                && record.rendererDetached();
     }
 
-    private void acceptClaims(List<PageDeckCoordinator.Release<T>> claimed) {
-        for (PageDeckCoordinator.Release<T> release : claimed) {
-            long generationId = release.getDeck().getGenerationId();
-            if (releaseRecords.replace(
-                    generationId,
-                    RecordState.CLAIMED,
-                    RecordState.ACCEPTED)) {
+    synchronized boolean rendererDetached(
+            long generationId,
+            DeckReleaseReason rendererReason) {
+        Objects.requireNonNull(rendererReason, "rendererReason");
+        PageSurfaceGenerationReleaseRecord<T> record = releaseRecords.get(generationId);
+        if (record != null) {
+            return record.matches(sessionId, generationId) && record.rendererDetached();
+        }
+        if (closed || !leaseRegistry.contains(generationId)) {
+            return false;
+        }
+        PageDeckCoordinator.Release<T> retained = coordinator.release(generationId);
+        if (retained == null) {
+            return false;
+        }
+        PageDeckCoordinator.Release<T> release = PageDeckCoordinator.Release.rollbackable(
+                retained.getDeck(),
+                rendererReason,
+                retained.wasReleasedFromActive());
+        record = claimRelease(release);
+        acceptClaim(record);
+        return record.rendererDetached();
+    }
+
+    synchronized List<PageSurfaceGenerationReleaseRecord<T>> terminallyAbandonAccepted() {
+        return terminallyAbandonAccepted(generationId -> {});
+    }
+
+    synchronized List<PageSurfaceGenerationReleaseRecord<T>> terminallyAbandonAccepted(
+            LongConsumer detachRendererReferences) {
+        Objects.requireNonNull(detachRendererReferences, "detachRendererReferences");
+        List<PageSurfaceGenerationReleaseRecord<T>> abandoned = new ArrayList<>();
+        for (PageSurfaceGenerationReleaseRecord<T> record :
+                new ArrayList<>(releaseRecords.values())) {
+            long generationId = record.getGenerationId();
+            if (!record.matches(sessionId, generationId)
+                    || record.getState()
+                            != PageSurfaceGenerationReleaseRecord.State.QUEUE_ACCEPTED) {
                 continue;
             }
-            throw new IllegalStateException(
-                    "Release claim was not retained through queue acceptance");
-        }
-    }
-
-    private void rollbackRejectedQueue(
-            PageDeckCoordinator.Release<T> release,
-            List<PageDeckCoordinator.Release<T>> claimed,
-            Throwable queueFailure) {
-        Throwable rollbackFailure = rollbackClaims(claimed, queueFailure);
-        final boolean coordinatorRolledBack;
-        try {
-            coordinatorRolledBack = coordinator.rollbackRelease(release);
-        } catch (Throwable failure) {
-            IllegalStateException rollbackFailureException = new IllegalStateException(
-                    "Rejected renderer release queue could not restore coordinator ownership",
-                    queueFailure);
-            if (failure != queueFailure) {
-                rollbackFailureException.addSuppressed(failure);
-            }
-            throw rollbackFailureException;
-        }
-        if (rollbackFailure == null && coordinatorRolledBack) {
-            return;
-        }
-        IllegalStateException failure = new IllegalStateException(
-                "Rejected renderer release queue could not restore surface ownership",
-                queueFailure);
-        if (rollbackFailure != null && rollbackFailure != queueFailure) {
-            failure.addSuppressed(rollbackFailure);
-        }
-        throw failure;
-    }
-
-    private Throwable rollbackClaims(
-            List<PageDeckCoordinator.Release<T>> claimed,
-            Throwable originalFailure) {
-        Throwable rollbackFailure = null;
-        for (int index = claimed.size() - 1; index >= 0; index -= 1) {
-            PageDeckCoordinator.Release<T> release = claimed.get(index);
-            long generationId = release.getDeck().getGenerationId();
-            releaseRecords.remove(generationId, RecordState.CLAIMED);
-            try {
-                if (!leaseRegistry.rollbackReleaseRequested(
-                        generationId,
-                        release.getReason())) {
-                    throw new IllegalStateException(
-                            "Release claim did not retain its lease marker");
-                }
-            } catch (Throwable failure) {
-                if (rollbackFailure == null) {
-                    rollbackFailure = failure;
-                } else if (failure != rollbackFailure) {
-                    rollbackFailure.addSuppressed(failure);
-                }
+            detachRendererReferences.accept(generationId);
+            if (releaseRecords.get(generationId) == record
+                    && record.terminallyAbandon()) {
+                abandoned.add(record);
             }
         }
-        if (rollbackFailure != null
-                && originalFailure != null
-                && rollbackFailure != originalFailure) {
-            originalFailure.addSuppressed(rollbackFailure);
-        }
-        return rollbackFailure;
+        return Collections.unmodifiableList(abandoned);
     }
 
     synchronized boolean complete(long generationId) {
-        return releaseRecords.remove(generationId) != null;
+        PageSurfaceGenerationReleaseRecord<T> record = releaseRecords.get(generationId);
+        if (record == null
+                || !record.matches(sessionId, generationId)
+                || !record.complete()) {
+            return false;
+        }
+        releaseRecords.remove(generationId, record);
+        return true;
+    }
+
+    synchronized PageSurfaceGenerationReleaseRecord.State stateFor(long generationId) {
+        PageSurfaceGenerationReleaseRecord<T> record = releaseRecords.get(generationId);
+        return record == null ? null : record.getState();
+    }
+
+    synchronized DeckReleaseReason releaseReason(long generationId) {
+        PageSurfaceGenerationReleaseRecord<T> record = releaseRecords.get(generationId);
+        return record == null ? null : record.getReason();
     }
 
     synchronized boolean isReleaseInFlight(long generationId) {
         return releaseRecords.containsKey(generationId);
     }
 
+    synchronized int releaseInFlightCount(
+            long activeGenerationId,
+            long pendingGenerationId) {
+        int count = 0;
+        for (PageSurfaceGenerationReleaseRecord<T> record : releaseRecords.values()) {
+            long generationId = record.getGenerationId();
+            if (generationId != activeGenerationId
+                    && generationId != pendingGenerationId
+                    && record.getState()
+                            != PageSurfaceGenerationReleaseRecord.State.COMPLETED) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    synchronized long sessionId() {
+        return sessionId;
+    }
+
     synchronized void close() {
         closed = true;
+    }
+
+    private PageSurfaceDeckReleaseResult duplicateResult(
+            PageSurfaceGenerationReleaseRecord<T> record) {
+        switch (record.duplicateDisposition()) {
+            case ALREADY_ACCEPTED:
+                return PageSurfaceDeckReleaseResult.alreadyAccepted();
+            case STATE_CONFLICT:
+            case COMPLETED:
+                return PageSurfaceDeckReleaseResult.rejected(
+                        PageSurfaceDeckReleaseResult.RejectionReason.STATE_CONFLICT);
+            default:
+                throw new AssertionError("Unhandled duplicate release disposition");
+        }
+    }
+
+    private List<PageSurfaceGenerationReleaseRecord<T>> claimReleases(
+            List<PageDeckCoordinator.Release<T>> releases) {
+        List<PageSurfaceGenerationReleaseRecord<T>> claimed =
+                new ArrayList<>(releases.size());
+        try {
+            for (PageDeckCoordinator.Release<T> release : releases) {
+                claimed.add(claimRelease(release));
+            }
+            return claimed;
+        } catch (RuntimeException | Error claimFailure) {
+            rollbackClaims(claimed);
+            throw claimFailure;
+        }
+    }
+
+    private PageSurfaceGenerationReleaseRecord<T> claimRelease(
+            PageDeckCoordinator.Release<T> release) {
+        Objects.requireNonNull(release, "release");
+        long generationId = release.getDeck().getGenerationId();
+        if (releaseRecords.containsKey(generationId)
+                || !leaseRegistry.contains(generationId)) {
+            throw new IllegalStateException(
+                    "Release generation does not have one unclaimed lease");
+        }
+        PageSurfaceGenerationReleaseRecord<T> record =
+                PageSurfaceGenerationReleaseRecord.requested(sessionId, release);
+        releaseRecords.put(generationId, record);
+        return record;
+    }
+
+    private void acceptClaims(
+            List<PageSurfaceGenerationReleaseRecord<T>> claimed) {
+        for (PageSurfaceGenerationReleaseRecord<T> record : claimed) {
+            acceptClaim(record);
+        }
+    }
+
+    private void acceptClaim(PageSurfaceGenerationReleaseRecord<T> record) {
+        if (releaseRecords.get(record.getGenerationId()) == record
+                && record.queueAccepted()) {
+            return;
+        }
+        throw new IllegalStateException(
+                "Release claim was not retained through queue acceptance");
+    }
+
+    private void rollbackRejectedQueue(
+            PageDeckCoordinator.Release<T> release,
+            PageSurfaceGenerationReleaseRecord<T> record,
+            Throwable queueFailure) {
+        rollbackClaim(record);
+        final boolean coordinatorRolledBack;
+        try {
+            coordinatorRolledBack = coordinator.rollbackRelease(release);
+        } catch (Throwable failure) {
+            IllegalStateException rollbackFailure = new IllegalStateException(
+                    "Rejected renderer release queue could not restore coordinator ownership",
+                    queueFailure);
+            if (failure != queueFailure) {
+                rollbackFailure.addSuppressed(failure);
+            }
+            throw rollbackFailure;
+        }
+        if (!coordinatorRolledBack) {
+            throw new IllegalStateException(
+                    "Rejected renderer release queue could not restore surface ownership",
+                    queueFailure);
+        }
+    }
+
+    private void rollbackClaims(
+            List<PageSurfaceGenerationReleaseRecord<T>> claimed) {
+        for (int index = claimed.size() - 1; index >= 0; index -= 1) {
+            rollbackClaim(claimed.get(index));
+        }
+    }
+
+    private void rollbackClaim(PageSurfaceGenerationReleaseRecord<T> record) {
+        if (record.getState() != PageSurfaceGenerationReleaseRecord.State.REQUESTED
+                || !releaseRecords.remove(record.getGenerationId(), record)) {
+            throw new IllegalStateException(
+                    "Release claim was not retained for queue rollback");
+        }
     }
 }

@@ -345,12 +345,14 @@ public class Gles2RendererSourceTest {
         assertTrue(releaseDeck.indexOf("releaseGate.request(")
                 < releaseDeck.indexOf("preparedGenerations.remove(generationId)"));
         assertFalse(releaseDeck.contains("deckCoordinator.release(generationId)"));
+        assertTrue(deckReleased.indexOf("releaseGate.rendererDetached(generationId, reason)")
+                < deckReleased.indexOf("releaseGate.complete(generationId)"));
         assertTrue(deckReleased.indexOf("releaseGate.complete(generationId)")
-                < deckReleased.indexOf("leaseRegistry.release(generationId)"));
+                < deckReleased.indexOf("leaseRegistry.release("));
         assertTrue(deckReleased.indexOf("cancelGesture()")
-                < deckReleased.indexOf("deckCoordinator.release(generationId)"));
-        assertTrue(deckReleased.indexOf("leaseRegistry.markReleaseRequested(")
-                < deckReleased.indexOf("deckCoordinator.release(generationId)"));
+                < deckReleased.indexOf("releaseGate.rendererDetached(generationId, reason)"));
+        assertFalse(deckReleased.contains("leaseRegistry.markReleaseRequested("));
+        assertFalse(deckReleased.contains("deckCoordinator.release(generationId)"));
         assertTrue(submission.contains("releaseGate.queueAutomatic("));
         assertFalse(submission.contains("leaseRegistry.markReleaseRequested("));
         assertTrue(automaticRelease.contains("releaseGate.queueAutomatic("));
@@ -454,7 +456,7 @@ public class Gles2RendererSourceTest {
                 < submission.indexOf("requestRender()"));
         assertTrue(surfaceSource.contains("onDeckSubmissionCapacityAvailable()"));
         assertTrue(deckReleased.indexOf("notifyDeckReleased(")
-                < deckReleased.indexOf("takeCapacityAvailableSignal(generationId)"));
+                < deckReleased.indexOf("notifyDeckSubmissionCapacityIfAvailable(generationId)"));
         assertTrue(surfaceSource.contains("getDeckLeaseLimit()"));
     }
 
@@ -468,11 +470,23 @@ public class Gles2RendererSourceTest {
         String detached = methodBody(
                 surfaceSource,
                 "protected void onDetachedFromWindow()");
+        String logicalDetach = methodBody(surfaceSource, "public void detach()");
+        String terminalRelease = methodBody(
+                surfaceSource,
+                "private void terminallyAbandonAcceptedRendererReleases()");
 
         assertTrue(surfaceDestroyed.indexOf("super.surfaceDestroyed(holder)")
+                < surfaceDestroyed.indexOf("terminallyAbandonAcceptedRendererReleases()"));
+        assertTrue(surfaceDestroyed.indexOf("super.surfaceDestroyed(holder)")
                 < surfaceDestroyed.indexOf("terminalDisposalGate.onSurfaceUnavailable"));
+        assertTrue(logicalDetach.indexOf("onPause()")
+                < logicalDetach.indexOf("terminallyAbandonAcceptedRendererReleases()"));
+        assertTrue(terminalRelease.contains("renderer::terminallyAbandonDeck"));
+        assertTrue(terminalRelease.indexOf("releaseGate.complete(generationId)")
+                < terminalRelease.indexOf("leaseRegistry.release("));
         assertTrue(detached.indexOf("super.onDetachedFromWindow()")
                 < detached.indexOf("terminalDisposalGate.onSurfaceUnavailable"));
+        assertTrue(surfaceSource.contains("onRendererAvailabilityRestored()"));
     }
 
     @Test

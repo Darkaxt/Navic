@@ -206,7 +206,9 @@ public class ProductionBitmapApiSourceTest {
                 < startDispose.indexOf("deckCoordinator.dispose()"));
         assertTrue(rendererSource.contains("void abandonClientState()"));
         assertTrue(rendererSource.contains("textureCache.clear()"));
-        assertTrue(surfaceSource.contains("leaseRegistry.markReleaseRequested"));
+        assertFalse(surfaceSource.contains("leaseRegistry.markReleaseRequested"));
+        assertTrue(surfaceSource.contains("releaseGate.acceptTerminal("));
+        assertTrue(surfaceSource.contains("releaseGate.releaseReason(generationId)"));
         assertTrue(surfaceSource.contains("lease.getReleaseReason()"));
         assertFalse(surfaceSource.contains(
                 "private void releaseAllOutstandingLeases()"));

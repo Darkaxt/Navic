@@ -258,7 +258,9 @@ public class PageDeckCoordinatorTest {
                 (generationId, reason) -> {
                     queuedCommands.incrementAndGet();
                     assertNull(coordinator.getActiveDeck());
-                    assertTrue(leases.isReleaseRequested(generationId));
+                    assertEquals(
+                            PageSurfaceGenerationReleaseRecord.State.REQUESTED,
+                            gate.stateFor(generationId));
                     throw new IllegalStateException("injected queue rejection");
                 });
 
@@ -270,7 +272,6 @@ public class PageDeckCoordinatorTest {
                 rejected.getRejectionReason());
         assertSame(deck, coordinator.getActiveDeck());
         assertTrue(leases.contains(7));
-        assertFalse(leases.isReleaseRequested(7));
         assertFalse(gate.isReleaseInFlight(7));
 
         PageSurfaceDeckReleaseResult accepted = gate.request(
@@ -287,12 +288,12 @@ public class PageDeckCoordinatorTest {
         assertEquals(2, queuedCommands.get());
         assertNull(coordinator.getActiveDeck());
         assertTrue(leases.contains(7));
-        assertTrue(leases.isReleaseRequested(7));
         assertTrue(gate.isReleaseInFlight(7));
 
+        assertTrue(gate.rendererDetached(7));
+        DeckReleaseReason releaseReason = gate.releaseReason(7);
         assertTrue(gate.complete(7));
         assertFalse(gate.complete(7));
-        assertTrue(leases.rollbackReleaseRequested(7, DeckReleaseReason.EXPLICIT));
         PageSurfaceDeckReleaseResult missingCoordinatorOwnership = gate.request(
                 7,
                 (generationId, reason) -> queuedCommands.incrementAndGet());
@@ -303,8 +304,7 @@ public class PageDeckCoordinatorTest {
                 PageSurfaceDeckReleaseResult.RejectionReason.NOT_RETAINED,
                 missingCoordinatorOwnership.getRejectionReason());
         assertEquals(2, queuedCommands.get());
-        leases.markReleaseRequested(7, DeckReleaseReason.EXPLICIT);
-        DeckLeaseRegistry.Lease completed = leases.release(7);
+        DeckLeaseRegistry.Lease completed = leases.release(7, releaseReason);
         assertNotNull(completed);
         assertSame(listener, completed.getListener());
         assertEquals(DeckReleaseReason.EXPLICIT, completed.getReleaseReason());
@@ -312,36 +312,25 @@ public class PageDeckCoordinatorTest {
     }
 
     @Test
-    public void releaseClaimFailureRollsBackCoordinatorLeaseAndRecord() {
+    public void releaseClaimDoesNotDuplicateLeaseOwnershipMutation() {
         AtomicInteger leaseMutations = new AtomicInteger();
-        DeckLeaseRegistry leases = new DeckLeaseRegistry(() -> {
-            if (leaseMutations.incrementAndGet() == 2) {
-                throw new IllegalStateException("injected release-claim failure");
-            }
-        });
+        DeckLeaseRegistry leases = new DeckLeaseRegistry(leaseMutations::incrementAndGet);
         PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
-        PortraitPageDeck<String> deck = portraitDeck(9, "claim-failure");
+        PortraitPageDeck<String> deck = portraitDeck(9, "claim");
         coordinator.offer(deck);
         assertTrue(leases.acquire(9, new PageSurfaceListener() {}));
         PageSurfaceDeckReleaseGate<String> gate =
                 new PageSurfaceDeckReleaseGate<>(coordinator, leases);
-        AtomicInteger queuedCommands = new AtomicInteger();
 
-        PageSurfaceDeckReleaseResult rejected = gate.request(
+        PageSurfaceDeckReleaseResult accepted = gate.request(
                 9,
-                (generationId, reason) -> queuedCommands.incrementAndGet());
+                (generationId, reason) -> {});
 
-        assertEquals(
-                PageSurfaceDeckReleaseResult.Status.REJECTED,
-                rejected.getStatus());
-        assertEquals(
-                PageSurfaceDeckReleaseResult.RejectionReason.QUEUE_REJECTED,
-                rejected.getRejectionReason());
-        assertEquals(0, queuedCommands.get());
-        assertSame(deck, coordinator.getActiveDeck());
+        assertEquals(PageSurfaceDeckReleaseResult.Status.ACCEPTED, accepted.getStatus());
+        assertEquals(1, leaseMutations.get());
+        assertNull(coordinator.getActiveDeck());
         assertTrue(leases.contains(9));
-        assertFalse(leases.isReleaseRequested(9));
-        assertFalse(gate.isReleaseInFlight(9));
+        assertTrue(gate.isReleaseInFlight(9));
     }
 
     @Test
@@ -371,11 +360,12 @@ public class PageDeckCoordinatorTest {
                 duplicate.getStatus());
         assertEquals(1, queuedCommands.get());
         assertTrue(gate.isReleaseInFlight(40));
-        assertTrue(leases.isReleaseRequested(40));
         assertSame(replacement, coordinator.getActiveDeck());
 
+        assertTrue(gate.rendererDetached(40));
+        DeckReleaseReason releaseReason = gate.releaseReason(40);
         assertTrue(gate.complete(40));
-        DeckLeaseRegistry.Lease completed = leases.release(40);
+        DeckLeaseRegistry.Lease completed = leases.release(40, releaseReason);
         assertNotNull(completed);
         assertSame(listener, completed.getListener());
         assertEquals(DeckReleaseReason.REPLACED, completed.getReleaseReason());
@@ -474,7 +464,6 @@ public class PageDeckCoordinatorTest {
         assertSame(active, promotionCoordinator.getActiveDeck());
         assertSame(pending, promotionCoordinator.getPendingDeck());
         assertTrue(promotionCoordinator.isSettling());
-        assertFalse(promotionLeases.isReleaseRequested(80));
         assertFalse(promotionGate.isReleaseInFlight(80));
 
         PageDeckCoordinator<String> detachCoordinator = new PageDeckCoordinator<>();
@@ -502,7 +491,6 @@ public class PageDeckCoordinatorTest {
         }
         assertTrue(detachCoordinator.rollbackRelease(detachedRelease));
         assertSame(detachedPending, detachCoordinator.getPendingDeck());
-        assertFalse(detachLeases.isReleaseRequested(91));
         assertFalse(detachGate.isReleaseInFlight(91));
     }
 
@@ -523,11 +511,11 @@ public class PageDeckCoordinatorTest {
 
         assertTrue(gate.isReleaseInFlight(8));
         assertTrue(leases.contains(8));
-        assertTrue(leases.isReleaseRequested(8));
-        List<DeckLeaseRegistry.Lease> terminalLeases =
-                leases.releaseAll(DeckReleaseReason.DISPOSED);
-        assertEquals(1, terminalLeases.size());
-        assertTrue(gate.complete(terminalLeases.get(0).getGenerationId()));
+        assertEquals(1, gate.terminallyAbandonAccepted().size());
+        DeckReleaseReason releaseReason = gate.releaseReason(8);
+        assertTrue(gate.complete(8));
+        DeckLeaseRegistry.Lease terminalLease = leases.release(8, releaseReason);
+        assertNotNull(terminalLease);
         assertFalse(gate.isReleaseInFlight(8));
         assertFalse(gate.complete(8));
         assertNull(leases.release(8));

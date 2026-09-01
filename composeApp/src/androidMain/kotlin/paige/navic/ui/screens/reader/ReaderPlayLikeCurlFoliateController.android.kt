@@ -651,56 +651,122 @@ internal class ReaderRendererOwnedGenerationReleaseGate<Owner>(
 	private val requestRendererRelease: (Long) -> PageSurfaceDeckReleaseResult,
 	private val retireOwner: (Long) -> Unit
 ) {
-	private val rendererReleaseInFlight = mutableSetOf<Long>()
-
 	fun request(binding: ReaderPresentationBinding): Boolean {
 		val textureGeneration = binding.textureGeneration ?: return false
 		val rasterGeneration = binding.rasterGeneration ?: return false
 		val owner = ownerForGeneration(textureGeneration) ?: return true
 		if (rasterGenerationForOwner(owner) != rasterGeneration) return false
-		if (textureGeneration in rendererReleaseInFlight) return true
 		if (isProtectedGeneration(textureGeneration)) return false
 		return requestOwnedGeneration(textureGeneration)
 	}
 
 	fun requestOwnedGeneration(generationId: Long): Boolean {
 		if (ownerForGeneration(generationId) == null) return true
-		if (!rendererReleaseInFlight.add(generationId)) return true
-		val result = try {
-			requestRendererRelease(generationId)
-		} catch (failure: Throwable) {
-			rendererReleaseInFlight -= generationId
-			throw failure
-		}
-		if (!result.isAccepted) {
-			rendererReleaseInFlight -= generationId
-			return false
-		}
-		return true
+		return requestRendererRelease(generationId).isAccepted
 	}
 
 	fun completeRelease(generationId: Long) {
-		rendererReleaseInFlight -= generationId
 		retireOwner(generationId)
 	}
-
-	fun abandonRelease(generationId: Long) {
-		rendererReleaseInFlight -= generationId
-	}
-
-	fun isReleaseInFlight(generationId: Long): Boolean =
-		generationId in rendererReleaseInFlight
 }
 
-internal class ReaderRendererOwnedGenerationCleanupGate(
-	private val requestRelease: (Long) -> Boolean
+internal sealed class ReaderRendererCleanupRequest(
+	open val generationId: Long
 ) {
-	fun request(
-		generationId: Long,
-		onAccepted: () -> Unit = {}
-	): Boolean {
+	data class RecoveredCancellation(
+		override val generationId: Long,
+		val role: ReaderDeckSubmissionRole
+	) : ReaderRendererCleanupRequest(generationId)
+
+	data class RecoveredRollback(
+		override val generationId: Long,
+		val role: ReaderDeckSubmissionRole
+	) : ReaderRendererCleanupRequest(generationId)
+
+	data class LibraryRollback(
+		override val generationId: Long,
+		val role: ReaderDeckSubmissionRole? = null
+	) : ReaderRendererCleanupRequest(generationId)
+
+	data class StaleGeneration(
+		override val generationId: Long
+	) : ReaderRendererCleanupRequest(generationId)
+
+	data class Invalidation(
+		override val generationId: Long
+	) : ReaderRendererCleanupRequest(generationId)
+
+	data class PendingDiscard(
+		override val generationId: Long,
+		val reason: String
+	) : ReaderRendererCleanupRequest(generationId)
+}
+
+internal class ReaderRendererCleanupRetryCoordinator(
+	private val ownerExists: (Long) -> Boolean,
+	private val requestRelease: (Long) -> Boolean,
+	private val onAccepted: (ReaderRendererCleanupRequest) -> Unit,
+	private val pendingLimit: Int
+) {
+	private enum class State {
+		WaitingForRenderer,
+		QueueAccepted
+	}
+
+	private data class Pending(
+		val request: ReaderRendererCleanupRequest,
+		var state: State
+	)
+
+	private val pending = linkedMapOf<Long, Pending>()
+
+	init {
+		require(pendingLimit > 0)
+	}
+
+	val pendingCount: Int
+		get() = pending.size
+
+	fun pendingRequest(generationId: Long): ReaderRendererCleanupRequest? =
+		pending[generationId]?.request
+
+	fun request(request: ReaderRendererCleanupRequest): Boolean {
+		val generationId = request.generationId
+		if (!ownerExists(generationId)) {
+			pending.remove(generationId)
+			return true
+		}
+		val retained = pending[generationId]
+		if (retained?.state == State.QueueAccepted) return true
+		if (retained == null && pending.size >= pendingLimit) return false
+		pending[generationId] = Pending(request, State.WaitingForRenderer)
+		return tryAccept(generationId)
+	}
+
+	fun onRendererAvailabilityRestored() {
+		pending.keys.toList().forEach { generationId ->
+			val retained = pending[generationId] ?: return@forEach
+			if (retained.state == State.QueueAccepted) return@forEach
+			if (!ownerExists(generationId)) {
+				pending.remove(generationId)
+				return@forEach
+			}
+			tryAccept(generationId)
+		}
+	}
+
+	fun complete(generationId: Long): Boolean = pending.remove(generationId) != null
+
+	fun clear() {
+		pending.clear()
+	}
+
+	private fun tryAccept(generationId: Long): Boolean {
+		val retained = pending[generationId] ?: return true
+		if (retained.state == State.QueueAccepted) return true
 		if (!requestRelease(generationId)) return false
-		onAccepted()
+		retained.state = State.QueueAccepted
+		onAccepted(retained.request)
 		return true
 	}
 }
@@ -1043,9 +1109,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 			requestRendererRelease = surfaceView::releaseDeck,
 			retireOwner = ::releaseGeneration
 		)
-	private val rendererOwnedGenerationCleanupGate =
-		ReaderRendererOwnedGenerationCleanupGate(
-			rendererOwnedGenerationReleaseGate::requestOwnedGeneration
+	private val rendererCleanupRetryCoordinator =
+		ReaderRendererCleanupRetryCoordinator(
+			ownerExists = generationOwners::containsKey,
+			requestRelease = rendererOwnedGenerationReleaseGate::requestOwnedGeneration,
+			onAccepted = ::onRendererCleanupQueueAccepted,
+			pendingLimit = surfaceView.deckLeaseLimit
 		)
 	private var pendingDeckOrdinal: Int? = null
 	private var initialLivePresentationAuthority:
@@ -1183,6 +1252,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 				deckRecoveryCoordinator.onDeckSubmissionCapacityAvailable()
 			}
 
+			override fun onRendererAvailabilityRestored() {
+				rendererCleanupRetryCoordinator.onRendererAvailabilityRestored()
+			}
+
 			override fun onPageOverlayUpdateCapacityAvailable(applied: Boolean) {
 				if (applied) {
 					if (publishedWhispersyncOverlay != null) {
@@ -1210,6 +1283,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onDeckReleased(generationId: Long, reason: DeckReleaseReason) {
+				rendererCleanupRetryCoordinator.complete(generationId)
 				rendererOwnedGenerationReleaseGate.completeRelease(generationId)
 				deckRecoveryCoordinator.onDeckReleased(generationId)
 			}
@@ -2496,7 +2570,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 		hideSurface()
 		generationOwners.keys.toList().forEach { generationId ->
-			rendererOwnedGenerationCleanupGate.request(generationId)
+			rendererCleanupRetryCoordinator.request(
+				ReaderRendererCleanupRequest.Invalidation(generationId)
+			)
 		}
 		deckDiagnosticTracker?.cancelAll()
 		generationRoles.clear()
@@ -2531,6 +2607,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			latestWhispersyncPresentationProof = null
 			whispersyncOverlayClearPending = false
 			publishedWhispersyncOverlay = null
+			rendererCleanupRetryCoordinator.clear()
 		},
 		advanceGenerations = {
 			requestGeneration += 1L
@@ -4346,30 +4423,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		role: ReaderDeckSubmissionRole,
 		failure: Throwable
 	) {
-		val releaseAccepted = try {
-			rendererOwnedGenerationCleanupGate.request(generationId) {
-				try {
-					tombstoneSubmittedRecoveredDeck(generationId, role)
-				} catch (cleanupFailure: Throwable) {
-					if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
-				}
-			}
+		try {
+			rendererCleanupRetryCoordinator.request(
+				ReaderRendererCleanupRequest.RecoveredRollback(generationId, role)
+			)
 		} catch (cleanupFailure: Throwable) {
 			if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
-			false
-		}
-		if (!releaseAccepted) return
-		if (role == ReaderDeckSubmissionRole.Active) {
-			val strandedActive = activePages
-			if (strandedActive != null && strandedActive !== generationOwners[generationId]) {
-				activePages = null
-				strandedActive.obsolete = true
-				try {
-					closeIfUnused(strandedActive)
-				} catch (cleanupFailure: Throwable) {
-					if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
-				}
-			}
 		}
 	}
 
@@ -4379,11 +4438,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	) {
 		val currentRole = generationRoles[generationId] ?: return
 		if (!readerRecoveredDeckCancellationRoleMatches(role, currentRole)) return
-		if (!rendererOwnedGenerationCleanupGate.request(generationId) {
-				tombstoneSubmittedRecoveredDeck(generationId, currentRole)
-			}) {
-			return
-		}
+		rendererCleanupRetryCoordinator.request(
+			ReaderRendererCleanupRequest.RecoveredCancellation(
+				generationId,
+				currentRole
+			)
+		)
 	}
 
 	private fun tombstoneSubmittedRecoveredDeck(
@@ -4900,7 +4960,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		failure: Throwable
 	) {
 		try {
-			rendererOwnedGenerationCleanupGate.request(generationId)
+			rendererCleanupRetryCoordinator.request(
+				ReaderRendererCleanupRequest.LibraryRollback(generationId, role)
+			)
 		} catch (cleanupFailure: Throwable) {
 			if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
 		}
@@ -6001,12 +6063,62 @@ internal class ReaderPlayLikeCurlFoliateController(
 		return foregroundWebViewOwnership.releaseLive(request.claim)
 	}
 
+	private fun onRendererCleanupQueueAccepted(
+		request: ReaderRendererCleanupRequest
+	) {
+		when (request) {
+			is ReaderRendererCleanupRequest.RecoveredCancellation ->
+				tombstoneSubmittedRecoveredDeck(request.generationId, request.role)
+			is ReaderRendererCleanupRequest.RecoveredRollback -> {
+				tombstoneSubmittedRecoveredDeck(request.generationId, request.role)
+				if (request.role == ReaderDeckSubmissionRole.Active) {
+					val strandedActive = activePages
+					if (
+						strandedActive != null &&
+						strandedActive !== generationOwners[request.generationId]
+					) {
+						activePages = null
+						strandedActive.obsolete = true
+						runCatching { closeIfUnused(strandedActive) }
+							.onFailure { failure ->
+								Logger.e(
+									ReaderPlayLikeCurlFoliateControllerTag,
+									"Recovered rollback cleanup failed",
+									failure
+								)
+							}
+					}
+				}
+			}
+			is ReaderRendererCleanupRequest.PendingDiscard -> {
+				if (pendingDeckGenerationId == request.generationId) {
+					pendingDeckGenerationId = null
+					pendingDeckOrdinal = null
+				}
+				updateReadiness(
+					pendingTextureDeck = ReaderTextureDeckState.Empty,
+					reason = "pending-deck-discarded:${request.generationId}:${request.reason}"
+				)
+				Logger.i(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"PlayLikeCurl pending deck discarded " +
+						"generation=${request.generationId} reason=${request.reason}"
+				)
+			}
+			is ReaderRendererCleanupRequest.LibraryRollback,
+			is ReaderRendererCleanupRequest.StaleGeneration,
+			is ReaderRendererCleanupRequest.Invalidation -> Unit
+		}
+	}
+
 	private fun releaseRendererOwnedGeneration(generationId: Long) {
-		rendererOwnedGenerationCleanupGate.request(generationId)
+		rendererCleanupRetryCoordinator.request(
+			ReaderRendererCleanupRequest.StaleGeneration(generationId)
+		)
 	}
 
 	private fun releaseGeneration(generationId: Long) {
-		rendererOwnedGenerationReleaseGate.abandonRelease(generationId)
+		rendererCleanupRetryCoordinator.complete(generationId)
 		deckDiagnosticTracker?.cancel(generationId)
 		generationPreparationGenerations.remove(generationId)
 		val pages = generationOwners.remove(generationId) ?: return
@@ -6085,19 +6197,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private fun discardPendingDeck(reason: String) {
 		val generationId = pendingDeckGenerationId ?: return
-		if (!rendererOwnedGenerationCleanupGate.request(generationId) {
-				pendingDeckGenerationId = null
-				pendingDeckOrdinal = null
-			}) {
-			return
-		}
-		updateReadiness(
-			pendingTextureDeck = ReaderTextureDeckState.Empty,
-			reason = "pending-deck-discarded:$generationId:$reason"
-		)
-		Logger.i(
-			ReaderPlayLikeCurlFoliateControllerTag,
-			"PlayLikeCurl pending deck discarded generation=$generationId reason=$reason"
+		rendererCleanupRetryCoordinator.request(
+			ReaderRendererCleanupRequest.PendingDiscard(generationId, reason)
 		)
 	}
 
