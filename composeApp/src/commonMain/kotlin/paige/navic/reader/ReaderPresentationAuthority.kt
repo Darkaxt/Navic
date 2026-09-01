@@ -412,11 +412,10 @@ fun readerPresentationReduce(
 	state: ReaderPresentationState,
 	event: ReaderPresentationEvent
 ): ReaderPresentationReduction {
-	val result = if (
-		state.lifecycle == ReaderPresentationLifecycleState.Destroyed &&
-			event !is ReaderPresentationEvent.PublicationOpened
-	) {
-		ReaderPresentationReducerResult(state)
+	val result = if (state.lifecycle == ReaderPresentationLifecycleState.Destroyed) {
+		event.closedResourceReleaseOrNull()?.let { effect ->
+			ReaderPresentationReducerResult(state, effects = listOf(effect))
+		} ?: ReaderPresentationReducerResult(state)
 	} else when (event) {
 		is ReaderPresentationEvent.PublicationOpened -> ReaderPresentationReducerResult(
 			state = ReaderPresentationState(
@@ -486,6 +485,22 @@ private data class ReaderPresentationReducerResult(
 	val state: ReaderPresentationState,
 	val effects: List<ReaderPresentationEffect> = emptyList()
 )
+
+private fun ReaderPresentationEvent.closedResourceReleaseOrNull():
+	ReaderPresentationEffect.ReleaseStalePresentation? = when (this) {
+	is ReaderPresentationEvent.ShellCoverCommitted ->
+		ReaderPresentationEffect.ReleaseStalePresentation(proof.token, proof.binding)
+	is ReaderPresentationEvent.NativePagePresented ->
+		ReaderPresentationEffect.ReleaseStalePresentation(
+			proof.transitionToken,
+			proof.binding
+		)
+	is ReaderPresentationEvent.CurlClaimed ->
+		ReaderPresentationEffect.ReleaseStalePresentation(frame.token, frame.binding)
+	is ReaderPresentationEvent.WebViewPresentationProven ->
+		ReaderPresentationEffect.ReleaseStalePresentation(proof.token, proof.binding)
+	else -> null
+}
 
 private fun ReaderPresentationState.reduceLifecycle(
 	event: ReaderPresentationLifecycleEvent

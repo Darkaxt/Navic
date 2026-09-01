@@ -784,42 +784,106 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
-	fun publicationCloseIsTerminalUntilAnotherPublicationOpens() {
-		val pending = readerPresentationReduce(
-			settledNativeState(nextTokenValue = 7L),
-			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 8L)
-		).state
-		val closed = readerPresentationReduce(
-			pending,
-			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.PublicationClosed)
+	fun publicationCloseIsAbsorbingForNonResourceEventsAndOpenReplays() {
+		val closed = closedPresentationState()
+		val newerBinding = binding.copy(
+			foliateSessionId = "newer-fixture-session",
+			publicationGeneration = 2L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				foliateSessionId = "newer-fixture-session",
+				commitSequence = 2L
+			)
 		)
-
-		assertEquals(ReaderPresentationAuthority.Unavailable, closed.state.authority)
-		assertEquals(null, closed.state.binding)
-		assertEquals(ReaderPresentationLifecycleState.Destroyed, closed.state.lifecycle)
-		assertEquals(ReaderPagePreparationFacts(), closed.state.preparationFacts)
-		assertEquals(null, closed.state.failure)
-		assertEquals(pending.nextTokenValue, closed.state.nextTokenValue)
-		assertEquals(ReaderPresentationFrameOwner.Neutral, closed.decision.frameOwner)
-		assertEquals(ReaderPresentationInputPolicy.RecoveryOnly, closed.decision.inputPolicy)
 
 		listOf<ReaderPresentationEvent>(
-			ReaderPresentationEvent.NativePagePresented(nativeProof),
 			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityRestored),
-			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.RendererLost)
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.RendererLost),
+			ReaderPresentationEvent.PreparationReported(binding, preparationFacts()),
+			ReaderPresentationEvent.PreparationFailed(
+				binding = binding,
+				facts = preparationFacts(),
+				reason = ReaderPresentationFailureReason.PreparationFailed,
+				cancellable = false
+			),
+			ReaderPresentationEvent.FoliateRelocated(binding, acknowledgement = null),
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 8L),
+			ReaderPresentationEvent.PublicationOpened(binding),
+			ReaderPresentationEvent.PublicationOpened(newerBinding)
 		).forEach { stale ->
-			assertNoOp(closed.state, readerPresentationReduce(closed.state, stale))
+			assertNoOp(closed, readerPresentationReduce(closed, stale))
 		}
+	}
+
+	@Test
+	fun publicationCloseReleasesEveryDelayedResourceProofWithoutResurrection() {
+		val closed = closedPresentationState()
+		val shellToken = ReaderPresentationToken(7L)
+		val curlToken = ReaderPresentationToken(9L)
+		val liveToken = ReaderPresentationToken(10L)
+		val liveProof = ReaderLiveEnginePresentationProof(
+			token = liveToken,
+			binding = binding,
+			presentedFrame = 12L,
+			viewportWidth = 100,
+			viewportHeight = 200,
+			liveEngineGeneration = 7L
+		)
+		val delayedResources: List<Triple<ReaderPresentationEvent, ReaderPresentationToken?, ReaderPresentationBinding>> =
+			listOf(
+				Triple(
+					ReaderPresentationEvent.ShellCoverCommitted(
+						shellCoverProof(shellToken, coverGeneration = 8L)
+					),
+					shellToken,
+					binding
+				),
+				Triple(
+					ReaderPresentationEvent.NativePagePresented(nativeProof),
+					null,
+					binding
+				),
+				Triple(
+					ReaderPresentationEvent.CurlClaimed(curlFrame(curlToken).frame),
+					curlToken,
+					binding
+				),
+				Triple(
+					ReaderPresentationEvent.WebViewPresentationProven(liveProof),
+					liveToken,
+					binding
+				)
+			)
+
+		delayedResources.forEach { (event, token, eventBinding) ->
+			repeat(2) {
+				assertClosedStaleRelease(
+					closed,
+					readerPresentationReduce(closed, event),
+					token,
+					eventBinding
+				)
+			}
+		}
+	}
+
+	@Test
+	fun freshPresentationStateAcceptsPublicationOpenedAfterAnotherStateCloses() {
+		val closed = closedPresentationState()
+		val fresh = ReaderPresentationState()
 
 		val reopened = readerPresentationReduce(
-			closed.state,
+			fresh,
 			ReaderPresentationEvent.PublicationOpened(binding)
 		)
+
+		assertEquals(ReaderPresentationAuthority.Unavailable, closed.authority)
+		assertEquals(null, closed.binding)
+		assertEquals(ReaderPresentationLifecycleState.Destroyed, closed.lifecycle)
 		assertEquals(binding, reopened.state.binding)
 		assertEquals(ReaderPresentationLifecycleState.Foreground, reopened.state.lifecycle)
 		assertEquals(ReaderPresentationAuthority.Unavailable, reopened.state.authority)
+		assertEquals(emptyList(), reopened.effects)
 	}
-
 	@Test
 	fun preparationFactsAdapterKeepsRawFactsAndExcludesLegacyPresentationFields() {
 		val state = ReaderPagePreparationState(
@@ -859,6 +923,41 @@ class ReaderPresentationAuthorityReducerTest {
 		preparationFacts = preparationFacts(readiness = readyReadiness),
 		nextTokenValue = nextTokenValue
 	)
+
+	private fun closedPresentationState(): ReaderPresentationState {
+		val pending = readerPresentationReduce(
+			settledNativeState(nextTokenValue = 7L),
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 8L)
+		).state
+		val closed = readerPresentationReduce(
+			pending,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.PublicationClosed)
+		)
+
+		assertEquals(ReaderPresentationAuthority.Unavailable, closed.state.authority)
+		assertEquals(null, closed.state.binding)
+		assertEquals(ReaderPresentationLifecycleState.Destroyed, closed.state.lifecycle)
+		assertEquals(ReaderPagePreparationFacts(), closed.state.preparationFacts)
+		assertEquals(null, closed.state.failure)
+		assertEquals(pending.nextTokenValue, closed.state.nextTokenValue)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, closed.decision.frameOwner)
+		assertEquals(ReaderPresentationInputPolicy.RecoveryOnly, closed.decision.inputPolicy)
+		return closed.state
+	}
+
+	private fun assertClosedStaleRelease(
+		closed: ReaderPresentationState,
+		reduction: ReaderPresentationReduction,
+		token: ReaderPresentationToken?,
+		eventBinding: ReaderPresentationBinding
+	) {
+		assertEquals(closed, reduction.state)
+		assertEquals(readerPresentationDecision(closed), reduction.decision)
+		assertEquals(
+			listOf(ReaderPresentationEffect.ReleaseStalePresentation(token, eventBinding)),
+			reduction.effects
+		)
+	}
 
 	private fun assertNoOp(
 		state: ReaderPresentationState,
