@@ -7,11 +7,14 @@ import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderEngineHostCommand
 import paige.navic.reader.ReaderEngineHostEvent
+import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderPageDragPreviewPhase
 import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
+import paige.navic.reader.ReaderPresentationDecision
+import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderRawTextProvenanceDescriptor
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -29,6 +32,9 @@ expect fun KomikkuReaderNativeFrameHost(
 	navigator: KomikkuReaderNavigator,
 	navigationOverlayVisible: Boolean,
 	chromeOverlayVisible: Boolean,
+	presentationDecision: ReaderPresentationDecision,
+	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
+	destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 	shellCoverVisible: Boolean,
 	shellCoverUrl: String?,
 	shellCoverTitle: String,

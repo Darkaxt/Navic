@@ -30,6 +30,8 @@ import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderPagePreparationPresentation
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
+import paige.navic.reader.ReaderPresentationDecision
+import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
@@ -56,6 +58,7 @@ private const val KomikkuReaderRootTag = "KomikkuReaderRoot"
 internal fun KomikkuReaderRoot(
 	reader: Screen.Reader,
 	controllerState: ReaderControllerState,
+	presentationDecision: ReaderPresentationDecision,
 	viewState: ReaderEngineViewState,
 	navigator: KomikkuReaderNavigator,
 	settingsScope: ReaderSettingsScope,
@@ -65,6 +68,7 @@ internal fun KomikkuReaderRoot(
 	listeningSettings: ReaderListeningSettings,
 	readaloudPlaybackState: ReaderReadaloudPlaybackUiState?,
 	onEngineHostEvent: (ReaderEngineHostEvent) -> Unit,
+	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
 	onViewerAction: (ReaderViewerAction) -> Unit,
 	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
 	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
@@ -159,6 +163,9 @@ internal fun KomikkuReaderRoot(
 			navigator = navigator,
 			navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true,
 			chromeOverlayVisible = controllerState.menuVisible,
+			presentationDecision = presentationDecision,
+			onPresentationEvent = onPresentationEvent,
+			destinationCommitIdentity = controllerState.destinationCommitIdentity,
 			shellCoverVisible = controllerState.shellCoverVisible,
 			shellCoverUrl = shellCoverUrl,
 			shellCoverTitle = shellCoverTitle,

@@ -12,6 +12,91 @@ import paige.navic.domain.repositories.BinderyReadingProgressKind
 
 class ReaderControllerTest {
 	@Test
+	fun presentationEventRouteChangesOnlyPresentationStateAndCarriesEffects() {
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "session-current",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("session-current", 4L),
+			rasterGeneration = 5L,
+			textureGeneration = 6L,
+			preparationGeneration = 7L
+		)
+		val initial = ReaderControllerState(
+			menuVisible = true,
+			shellCoverVisible = true,
+			presentation = ReaderPresentationState(binding = binding)
+		)
+		val hidden = ReaderController(initial).onPresentationEvent(
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityLost)
+		)
+
+		assertEquals(
+			initial.copy(
+				presentation = initial.presentation.copy(
+					lifecycle = ReaderPresentationLifecycleState.Background
+				)
+			),
+			hidden.controller.state
+		)
+		assertEquals(emptyList(), hidden.presentationEffects)
+
+		val staleBinding = binding.copy(
+			foliateSessionId = "session-stale",
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("session-stale", 8L)
+		)
+		val staleProof = ReaderNativePagePresentationProof(
+			binding = staleBinding,
+			transitionToken = ReaderPresentationToken(9L),
+			presentedFrame = 10L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = requireNotNull(staleBinding.rasterGeneration),
+			textureGeneration = requireNotNull(staleBinding.textureGeneration)
+		)
+		val stale = hidden.controller.onPresentationEvent(
+			ReaderPresentationEvent.NativePagePresented(staleProof)
+		)
+
+		assertEquals(hidden.controller.state, stale.controller.state)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					token = staleProof.transitionToken,
+					binding = staleBinding
+				)
+			),
+			stale.presentationEffects
+		)
+	}
+
+	@Test
+	fun legacySettlementAckDeferralRemainsCurrentRelocationOnlyUntilCurlAuthorityFactsExist() {
+		val acknowledged = ReaderController().onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(pageIndex = 2),
+				foliateSessionId = "session-current",
+				pageTurnSettleToken = "settle-current",
+				pageTurnSettleSessionId = "session-current",
+				pageTurnSettleRasterGeneration = 3L,
+				pageTurnSettleTextureGeneration = 4L
+			)
+		).controller
+		assertNotNull(acknowledged.state.pageTurnSettlementAck)
+
+		val nextRelocation = acknowledged.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(pageIndex = 3),
+				foliateSessionId = "session-current"
+			)
+		).controller
+
+		assertNull(nextRelocation.state.pageTurnSettlementAck)
+		assertEquals(acknowledged.state.presentation, nextRelocation.state.presentation)
+	}
+
+	@Test
 	fun openPublicationMountsEngineWithoutGivingEngineChromeOwnership() {
 		val publication = ReaderPublicationIdentity(
 			bookId = "book-1",

@@ -8,13 +8,15 @@ data class ReaderCoordinatorStep(
 	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null,
 	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null,
 	val readaloudReaderInteraction: ReaderReadaloudReaderInteraction? = null,
+	val presentationEffects: List<ReaderPresentationEffect> = emptyList(),
 	internal val wordSyncEffects: List<ReaderWordSyncEffect> = emptyList()
 )
 
 data class ReaderCoordinatorBackStep(
 	val coordinator: ReaderCoordinator,
 	val handled: Boolean,
-	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null
+	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null,
+	val presentationEffects: List<ReaderPresentationEffect> = emptyList()
 )
 
 data class ReaderCoordinator(
@@ -46,6 +48,9 @@ data class ReaderCoordinator(
 
 	fun onEngineEvent(event: ReaderEngineEvent): ReaderCoordinatorStep =
 		applyWordSyncDecision(wordSync.onEngineEvent(controller, event))
+
+	fun onPresentationEvent(event: ReaderPresentationEvent): ReaderCoordinatorStep =
+		dispatch { onPresentationEvent(event) }
 
 	internal fun hasExactWordSyncBoundaryPresentation(
 		playback: ReaderWordSyncPlaybackIdentity?
@@ -85,6 +90,7 @@ data class ReaderCoordinator(
 			whispersyncAudioSeekTarget = step.whispersyncAudioSeekTarget,
 			readaloudPlaybackCommand = step.readaloudPlaybackCommand,
 			readaloudReaderInteraction = step.readaloudReaderInteraction,
+			presentationEffects = step.presentationEffects,
 			wordSyncEffects = decision.effects
 		)
 	}
@@ -97,7 +103,8 @@ data class ReaderCoordinator(
 		return ReaderCoordinatorBackStep(
 			coordinator = next,
 			handled = step.handled,
-			readaloudPlaybackCommand = step.readaloudPlaybackCommand
+			readaloudPlaybackCommand = step.readaloudPlaybackCommand,
+			presentationEffects = step.presentationEffects
 		)
 	}
 

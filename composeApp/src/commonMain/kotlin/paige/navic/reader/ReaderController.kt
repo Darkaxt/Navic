@@ -8,15 +8,60 @@ data class ReaderControllerStep(
 	val progressToSave: BinderyReadingProgress? = null,
 	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null,
 	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null,
-	val readaloudReaderInteraction: ReaderReadaloudReaderInteraction? = null
+	val readaloudReaderInteraction: ReaderReadaloudReaderInteraction? = null,
+	val presentationEffects: List<ReaderPresentationEffect> = emptyList()
 )
 
 data class ReaderControllerBackStep(
 	val controller: ReaderController,
 	val engineCommands: List<ReaderEngineCommand> = emptyList(),
 	val handled: Boolean = true,
-	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null
+	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null,
+	val presentationEffects: List<ReaderPresentationEffect> = emptyList()
 )
+
+internal data class ReaderPendingPresentationEffect(
+	val sequence: Long,
+	val effect: ReaderPresentationEffect
+) {
+	init {
+		require(sequence > 0L)
+	}
+}
+
+internal class ReaderPresentationEffectQueue(
+	private val capacity: Int = 16
+) {
+	private val pending = mutableListOf<ReaderPendingPresentationEffect>()
+	private var nextSequence = 1L
+
+	var droppedEffectCount: Long = 0L
+		private set
+
+	init {
+		require(capacity > 0)
+	}
+
+	fun retain(effects: List<ReaderPresentationEffect>): List<ReaderPendingPresentationEffect> {
+		val retained = effects.map { effect ->
+			check(nextSequence < Long.MAX_VALUE) { "Presentation effect sequence exhausted" }
+			ReaderPendingPresentationEffect(nextSequence++, effect).also(pending::add)
+		}
+		while (pending.size > capacity) {
+			pending.removeAt(0)
+			droppedEffectCount += 1L
+		}
+		return retained
+	}
+
+	fun pendingEffects(): List<ReaderPendingPresentationEffect> = pending.toList()
+
+	fun consume(sequence: Long): ReaderPresentationEffect? {
+		val index = pending.indexOfFirst { it.sequence == sequence }
+		if (index < 0) return null
+		return pending.removeAt(index).effect
+	}
+}
 
 data class ReaderController(
 	val state: ReaderControllerState = ReaderControllerState(),
@@ -30,6 +75,9 @@ data class ReaderController(
 				state = state.copy(
 					publication = normalizedRequest.publication,
 					activeEngine = normalizedRequest.publication.format,
+					presentation = ReaderPresentationState(
+						nextTokenValue = state.presentation.nextTokenValue
+					),
 					chrome = state.chrome.copy(
 						currentLocator = normalizedRequest.startLocator,
 						settings = normalizedRequest.settings
@@ -69,6 +117,14 @@ data class ReaderController(
 				)
 			),
 			engineCommands = listOf(ReaderEngineCommand.OpenPublication(normalizedRequest))
+		)
+	}
+
+	fun onPresentationEvent(event: ReaderPresentationEvent): ReaderControllerStep {
+		val reduction = readerPresentationReduce(state.presentation, event)
+		return ReaderControllerStep(
+			controller = copy(state = state.copy(presentation = reduction.state)),
+			presentationEffects = reduction.effects
 		)
 	}
 
@@ -457,6 +513,7 @@ data class ReaderController(
 			!state.nativeShellCoverUrl.isNullOrBlank()
 		) {
 			ReaderOverlayReducer.showNativeShellCover(this)
+				.withShellCoverPresentationIntent(state)
 		} else {
 			ReaderWhispersyncReducer.reserveUserNavigation(this).let { controller ->
 				ReaderControllerStep(
@@ -474,9 +531,11 @@ data class ReaderController(
 
 	fun onBack(): ReaderControllerBackStep =
 		ReaderOverlayReducer.onBack(this, includeMenu = true)
+			.withShellCoverPresentationIntent(state)
 
 	fun onNavigateBack(): ReaderControllerBackStep =
 		ReaderOverlayReducer.onBack(this, includeMenu = false)
+			.withShellCoverPresentationIntent(state)
 
 	fun applySettings(settings: ReaderSettings): ReaderControllerStep {
 		val normalized = settings.normalizedReaderSettings()
@@ -633,6 +692,7 @@ data class ReaderController(
 			)
 		) {
 			ReaderOverlayReducer.showNativeShellCover(this)
+				.withShellCoverPresentationIntent(state)
 		} else {
 			ReaderWhispersyncReducer.reserveUserNavigation(this).let { controller ->
 				ReaderControllerStep(
@@ -697,6 +757,36 @@ data class ReaderController(
 			)
 		)
 	}
+}
+
+private fun ReaderControllerStep.withShellCoverPresentationIntent(
+	previousState: ReaderControllerState
+): ReaderControllerStep {
+	if (previousState.shellCoverVisible || !controller.state.shellCoverVisible) return this
+	val transition = controller.onPresentationEvent(
+		ReaderPresentationEvent.ShellCoverRequested(
+			coverGeneration = controller.state.presentation.nextTokenValue
+		)
+	)
+	return copy(
+		controller = transition.controller,
+		presentationEffects = presentationEffects + transition.presentationEffects
+	)
+}
+
+private fun ReaderControllerBackStep.withShellCoverPresentationIntent(
+	previousState: ReaderControllerState
+): ReaderControllerBackStep {
+	if (previousState.shellCoverVisible || !controller.state.shellCoverVisible) return this
+	val transition = controller.onPresentationEvent(
+		ReaderPresentationEvent.ShellCoverRequested(
+			coverGeneration = controller.state.presentation.nextTokenValue
+		)
+	)
+	return copy(
+		controller = transition.controller,
+		presentationEffects = presentationEffects + transition.presentationEffects
+	)
 }
 
 private fun ReaderLocator.hasFoliateNavigationIdentity(): Boolean =

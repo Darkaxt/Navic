@@ -36,6 +36,7 @@ data class RawTextProvenanceState(
 data class ReaderControllerState(
 	val publication: ReaderPublicationIdentity? = null,
 	val activeEngine: ReaderPublicationFormat? = null,
+	val presentation: ReaderPresentationState = ReaderPresentationState(),
 	val chrome: ReaderChromeState = ReaderChromeState(),
 	val chapterProgress: ReaderChapterProgressState = ReaderChapterProgressState(),
 	val loadedDocument: ReaderLoadedDocument? = null,
@@ -63,6 +64,8 @@ data class ReaderControllerState(
 	val paginationProfile: ReaderPaginationProfileStatus = ReaderPaginationProfileStatus(),
 	val readerSettingsPresentationSnapshotKey: Int? = null,
 	val foliateSessionId: String? = null,
+	// Bounded Task 4 deferral: current-relocation-only legacy host shadow until curl facts
+	// are authority-routed; ReaderPresentationState never reads or inherits this receipt.
 	val pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null,
 	val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null,
 	val whispersync: ReaderWhispersyncSessionState = ReaderWhispersyncSessionState(),
@@ -74,6 +77,9 @@ data class ReaderControllerState(
 	val errorMessage: String? = null,
 	val errorCode: String? = null
 ) {
+	val presentationDecision: ReaderPresentationDecision
+		get() = readerPresentationDecision(presentation)
+
 	val canBookmarkCurrentLocation: Boolean
 		get() {
 			val currentPublication = publication ?: return false

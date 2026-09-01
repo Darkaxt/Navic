@@ -48,6 +48,7 @@ import karacken.curl.PageChange
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.delay
 import java.util.UUID
+import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
@@ -56,6 +57,7 @@ import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPageLifecycleCancellationReason
 import paige.navic.reader.ReaderPageOperationPolicy
+import paige.navic.reader.ReaderPagePreparationFacts
 import paige.navic.reader.ReaderPagePointerOwnership
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
@@ -67,6 +69,13 @@ import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
+import paige.navic.reader.ReaderPreparationPresentation
+import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationDecision
+import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationInputPolicy
+import paige.navic.reader.ReaderPresentationLayer
+import paige.navic.reader.ReaderPresentationLifecycleEvent
 import paige.navic.reader.ReaderRendererBusyFeedbackMaximumMillis
 import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderTextureDeckState
@@ -84,6 +93,7 @@ import paige.navic.reader.readerRendererBusyFeedbackCanStartMinimumTimer
 import paige.navic.reader.readerRendererBusyFeedbackReadyDelayMillis
 import paige.navic.reader.readerShellCoverSwipeAction
 import paige.navic.reader.readerTapZonePageTurnDirectionFor
+import paige.navic.reader.toPresentationFacts
 import paige.navic.reader.withRendererReadiness
 import paige.navic.util.core.Logger
 import java.io.File
@@ -117,6 +127,19 @@ internal class ReaderPassiveRasterRendererLossFence {
 internal data class ReaderNativePresentationLayerVisibility(
 	val shellCover: Boolean,
 	val preparationShield: Boolean
+)
+
+private data class ReaderPresentationShadowComparison(
+	val authority: String,
+	val decisionLayer: ReaderPresentationLayer,
+	val legacyLayer: ReaderPresentationLayer,
+	val decisionInput: String,
+	val legacyInput: String,
+	val decisionPreparation: String,
+	val legacyPreparation: String,
+	val layerMatches: Boolean,
+	val inputMatches: Boolean,
+	val preparationMatches: Boolean
 )
 
 internal class ReaderStartupShellHandoffGate {
@@ -298,6 +321,9 @@ actual fun KomikkuReaderNativeFrameHost(
 	navigator: KomikkuReaderNavigator,
 	navigationOverlayVisible: Boolean,
 	chromeOverlayVisible: Boolean,
+	presentationDecision: ReaderPresentationDecision,
+	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
+	destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 	shellCoverVisible: Boolean,
 	shellCoverUrl: String?,
 	shellCoverTitle: String,
@@ -345,6 +371,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	val currentOnWhispersyncCueMapSeekRequested by rememberUpdatedState(onWhispersyncCueMapSeekRequested)
 	val currentOnPagePreparationStateChange by rememberUpdatedState(onPagePreparationStateChange)
 	val currentOnStartupShellPrepared by rememberUpdatedState(onStartupShellPrepared)
+	val currentOnPresentationEvent by rememberUpdatedState(onPresentationEvent)
 	var rendererBusyFeedbackToken by remember { mutableLongStateOf(0L) }
 	var nativeFrameRoot by remember { mutableStateOf<KomikkuReaderNativeFrameRoot?>(null) }
 	val hostedComposeOverlay: @Composable () -> Unit = {
@@ -427,6 +454,10 @@ actual fun KomikkuReaderNativeFrameHost(
 				setViewerContent(viewerKey) { currentViewerContent() }
 				setComposeOverlay(hostedComposeOverlay)
 				setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
+				setPresentationShadow(
+					presentationDecision,
+					destinationCommitIdentity
+				) { event -> currentOnPresentationEvent(event) }
 				setChromeOverlayVisible(chromeOverlayVisible)
 				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
 				setViewerLayerPaint(grayscaleEnabled, invertedColors)
@@ -485,6 +516,11 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
 			root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
 			root.setPageTurnPaginationStatus(pageTurnPaginationStatus)
+			root.setViewerContent(viewerKey) { currentViewerContent() }
+			root.setPresentationShadow(
+				presentationDecision,
+				destinationCommitIdentity
+			) { event -> currentOnPresentationEvent(event) }
 			pageTurnFoliateSessionId?.let { sessionId ->
 				root.setPageTurnVisualLocation(
 					pageTurnVisualPageIndex,
@@ -509,7 +545,6 @@ actual fun KomikkuReaderNativeFrameHost(
 			)
 			root.setPagePreparationCoverVisible(pagePreparationCoverVisible)
 			root.setPagePreparationRetryKey(pagePreparationRetryKey)
-			root.setViewerContent(viewerKey) { currentViewerContent() }
 			root.setComposeOverlay(hostedComposeOverlay)
 			root.setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
@@ -560,6 +595,8 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private var currentViewerComposeView: ComposeView? = null
 	private var shellCoverVisible: Boolean = false
 	private var pagePreparationCoverVisible: Boolean = false
+	private var presentationDecision: ReaderPresentationDecision? = null
+	private var lastPresentationShadowComparison: ReaderPresentationShadowComparison? = null
 	private var lastNativeCoverVisibilityTrace: String? = null
 
 	init {
@@ -617,6 +654,19 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		if (visible) viewerContainer.cancelWhispersyncCueMapForChrome()
 	}
 
+	fun setPresentationShadow(
+		decision: ReaderPresentationDecision,
+		destinationCommitIdentity: ReaderDestinationCommitIdentity?,
+		onEvent: (ReaderPresentationEvent) -> Unit
+	) {
+		presentationDecision = decision
+		viewerContainer.setPresentationShadow(
+			destinationCommitIdentity = destinationCommitIdentity,
+			onEvent = onEvent
+		)
+		reportPresentationShadowComparison()
+	}
+
 	fun setShellCover(visible: Boolean, coverUrl: String?, title: String, coverBackdropEnabled: Boolean) {
 		shellCoverView.setShellCover(coverUrl = coverUrl, title = title, coverBackdropEnabled = coverBackdropEnabled)
 		shellCoverVisible = visible
@@ -650,10 +700,55 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 				"Reader native presentation layers $trace"
 			)
 		}
+		reportPresentationShadowComparison()
 	}
 
 	fun setPageOperationPolicy(policy: ReaderPageOperationPolicy) {
 		viewerContainer.setPageOperationPolicy(policy)
+		reportPresentationShadowComparison()
+	}
+
+	private fun reportPresentationShadowComparison() {
+		val decision = presentationDecision ?: return
+		val layers = readerNativePresentationLayerVisibility(
+			shellCoverVisible = shellCoverVisible,
+			pagePreparationCoverVisible = pagePreparationCoverVisible,
+			hasValidatedRasterPresentation = viewerContainer.hasValidatedRasterPresentation()
+		)
+		val legacyLayer = when {
+			layers.shellCover -> ReaderPresentationLayer.ShellCover
+			viewerContainer.hasValidatedRasterPresentation() -> ReaderPresentationLayer.NativePage
+			else -> ReaderPresentationLayer.Neutral
+		}
+		val legacyInput = viewerContainer.legacyPresentationInputPolicy(layers.shellCover)
+		val legacyPreparation = if (layers.preparationShield) "Blocking" else "Hidden"
+		val decisionPreparation = decision.preparationPresentation::class.simpleName ?: "Unknown"
+		val comparison = ReaderPresentationShadowComparison(
+			authority = decision.authority::class.simpleName ?: "Unknown",
+			decisionLayer = decision.layer,
+			legacyLayer = legacyLayer,
+			decisionInput = decision.inputPolicy::class.simpleName ?: "Unknown",
+			legacyInput = legacyInput::class.simpleName ?: "Unknown",
+			decisionPreparation = decisionPreparation,
+			legacyPreparation = legacyPreparation,
+			layerMatches = decision.layer == legacyLayer,
+			inputMatches = decision.inputPolicy == legacyInput,
+			preparationMatches =
+				(decision.preparationPresentation is ReaderPreparationPresentation.Blocking) ==
+					layers.preparationShield
+		)
+		if (comparison == lastPresentationShadowComparison) return
+		lastPresentationShadowComparison = comparison
+		Logger.i(
+			KomikkuReaderNativeFrameHostTag,
+			"Reader presentation shadow authority=${comparison.authority} " +
+				"layer=${comparison.decisionLayer.name} legacyLayer=${comparison.legacyLayer.name} " +
+				"layerMatch=${comparison.layerMatches} input=${comparison.decisionInput} " +
+				"legacyInput=${comparison.legacyInput} inputMatch=${comparison.inputMatches} " +
+				"preparation=${comparison.decisionPreparation} " +
+				"legacyPreparation=${comparison.legacyPreparation} " +
+				"preparationMatch=${comparison.preparationMatches}"
+		)
 	}
 
 	fun setPagePreparationRetryKey(retryKey: Int) {
@@ -774,6 +869,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setViewerContent(viewerKey: ReaderViewerKey, content: @Composable () -> Unit) {
 		if (currentViewerKey != viewerKey || currentViewerComposeView == null) {
+			viewerContainer.onPresentationPublicationChanged()
 			val previousViewer = currentViewerComposeView
 			val viewerView = ComposeView(context).apply {
 				setViewCompositionStrategy(
@@ -1060,6 +1156,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var pageTurnVisualLocationReason: String? = null
 	private var pageTurnFoliateSessionId: String? = null
 	private var pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null
+	private var presentationDestinationCommitIdentity: ReaderDestinationCommitIdentity? = null
+	private var onPresentationEvent: (ReaderPresentationEvent) -> Unit = {}
+	private var presentationPublicationGeneration = 0L
+	private var presentationViewportGeneration = 0L
+	private var presentationPublicationOpenPending = false
+	private var presentationRelocationPending = false
+	private var lastReportedPresentationBinding: ReaderPresentationBinding? = null
+	private var lastReportedPresentationFacts: Pair<ReaderPresentationBinding, ReaderPagePreparationFacts>? = null
+	private var lastPresentationWindowVisible: Boolean? = null
 	private var preparedActiveDeck: ReaderPagePreparedActiveDeck? = null
 	private var whispersyncOverlayActive = false
 	private var whispersyncAnchorAvailable = false
@@ -1279,6 +1384,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		qaFaultRegistry = qaFaultRegistry,
 		passiveRasterPreparationPortProvider = { passiveRasterPreparationAdapter },
 		onPassiveRasterMemoryPressure = ::onPassiveRasterMemoryPressure,
+		onPresentationLifecycleEvent = ::reportPresentationLifecycleEvent,
 		fenceCallbacks = {
 			ReaderPageQaFaultControl.detach(qaFaultRegistration)
 			qaFaultRegistry.closeAndDrain()
@@ -1314,6 +1420,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		onRasterProofReady = playLikeCurlController::onRasterProofReady,
 		onPreparationStateChange = { state ->
 			latestRasterPreparationState = state
+			reportPresentationPreparationFacts(state)
 			playLikeCurlController.onPreparationStateChanged(state)
 			publishMergedPagePreparationState()
 			commitStartupShellPresentationIfReady()
@@ -1793,6 +1900,121 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		whispersyncCueMapView.setPresentation(state)
 	}
 
+	fun setPresentationShadow(
+		destinationCommitIdentity: ReaderDestinationCommitIdentity?,
+		onEvent: (ReaderPresentationEvent) -> Unit
+	) {
+		onPresentationEvent = onEvent
+		if (presentationDestinationCommitIdentity != destinationCommitIdentity) {
+			presentationDestinationCommitIdentity = destinationCommitIdentity
+			presentationRelocationPending = lastReportedPresentationBinding != null
+		}
+	}
+
+	fun onPresentationPublicationChanged() {
+		presentationPublicationGeneration = Math.incrementExact(presentationPublicationGeneration)
+		presentationPublicationOpenPending = true
+		presentationRelocationPending = false
+		lastReportedPresentationBinding = null
+		lastReportedPresentationFacts = null
+	}
+
+	private fun reportPresentationLifecycleEvent(event: ReaderPresentationLifecycleEvent) {
+		when (event) {
+			ReaderPresentationLifecycleEvent.VisibilityLost ->
+				reportPresentationWindowVisibility(visible = false)
+			ReaderPresentationLifecycleEvent.VisibilityRestored ->
+				reportPresentationWindowVisibility(visible = true)
+			else -> onPresentationEvent(ReaderPresentationEvent.Lifecycle(event))
+		}
+	}
+
+	private fun reportPresentationWindowVisibility(visible: Boolean) {
+		if (lastPresentationWindowVisible == visible) return
+		lastPresentationWindowVisible = visible
+		onPresentationEvent(
+			ReaderPresentationEvent.Lifecycle(
+				readerPresentationLifecycleEventForWindowVisibility(visible)
+			)
+		)
+		if (visible) reportPresentationIdentityIfAvailable()
+	}
+
+	private fun currentPresentationBindingOrNull(): ReaderPresentationBinding? {
+		if (lastPresentationWindowVisible == false) return null
+		val foliateSessionId = pageTurnFoliateSessionId
+			?.takeIf { it.isNotBlank() }
+			?: return null
+		val deck = preparedActiveDeck ?: return null
+		val visualPageIndex = pageTurnVisualPageIndex ?: return null
+		if (deck.sourceCenterPageIndex != visualPageIndex) return null
+		if (
+			presentationPublicationGeneration <= 0L ||
+			presentationViewportGeneration <= 0L ||
+			width <= 0 ||
+			height <= 0
+		) return null
+		val destination = presentationDestinationCommitIdentity
+			?.takeIf { it.foliateSessionId == foliateSessionId }
+		if (presentationDestinationCommitIdentity != null && destination == null) return null
+		return ReaderPresentationBinding(
+			foliateSessionId = foliateSessionId,
+			publicationGeneration = presentationPublicationGeneration,
+			viewportGeneration = presentationViewportGeneration,
+			profileGeneration = deck.rasterProfileEpoch,
+			destinationCommitIdentity = destination,
+			rasterGeneration = deck.rasterEpoch,
+			textureGeneration = deck.generationId,
+			preparationGeneration = latestRasterPreparationState.preparationGeneration
+		)
+	}
+
+	private fun reportPresentationIdentityIfAvailable() {
+		val binding = currentPresentationBindingOrNull() ?: return
+		when {
+			presentationPublicationOpenPending -> {
+				presentationPublicationOpenPending = false
+				presentationRelocationPending = false
+				lastReportedPresentationBinding = binding
+				onPresentationEvent(ReaderPresentationEvent.PublicationOpened(binding))
+			}
+			presentationRelocationPending -> {
+				presentationRelocationPending = false
+				lastReportedPresentationBinding = binding
+				onPresentationEvent(
+					ReaderPresentationEvent.FoliateRelocated(
+						binding = binding,
+						acknowledgement = null
+					)
+				)
+			}
+		}
+		reportPresentationPreparationFacts(latestRasterPreparationState)
+	}
+
+	private fun reportPresentationPreparationFacts(state: ReaderPagePreparationState) {
+		val binding = currentPresentationBindingOrNull() ?: return
+		if (lastReportedPresentationBinding != binding) return
+		val facts = state.toPresentationFacts()
+		val report = binding to facts
+		if (lastReportedPresentationFacts == report) return
+		lastReportedPresentationFacts = report
+		onPresentationEvent(
+			ReaderPresentationEvent.PreparationReported(
+				binding = binding,
+				facts = facts
+			)
+		)
+	}
+
+	fun legacyPresentationInputPolicy(
+		shellCoverOwnsInput: Boolean
+	): ReaderPresentationInputPolicy = when {
+		shellCoverOwnsInput -> ReaderPresentationInputPolicy.ShellCover
+		shouldSuppressViewerContentInput -> ReaderPresentationInputPolicy.ChromeOnly
+		else -> ReaderPresentationInputPolicy.NativePage(pageOperationPolicy)
+	}
+
 	fun cancelWhispersyncCueMapForChrome() {
 		whispersyncCueMapView.cancelForChrome()
 	}
@@ -1810,7 +2032,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			pageTurnVisualLocationReason == reason &&
 			pageTurnFoliateSessionId == currentFoliateSessionId &&
 			pageTurnSettlementAck == acknowledgement
-		) return
+		) {
+			reportPresentationIdentityIfAvailable()
+			return
+		}
 
 		val sessionChanged =
 			pageTurnFoliateSessionId != null &&
@@ -1838,6 +2063,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		pageTurnVisualPageIndex = normalized
 		pageTurnVisualLocationReason = reason
 		pageTurnSettlementAck = acknowledgement
+		presentationRelocationPending = lastReportedPresentationBinding != null
+		reportPresentationIdentityIfAvailable()
 		playLikeCurlController.synchronizeVisualPageIndex(
 			normalized,
 			reason,
@@ -1894,6 +2121,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		val previous = preparedActiveDeck
 		val ownership = foregroundWebViewOwnership.snapshot()
 		preparedActiveDeck = deck
+		reportPresentationIdentityIfAvailable()
 		if (
 			deck != null &&
 			previous != null &&
@@ -3052,6 +3280,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
 		super.onSizeChanged(w, h, oldw, oldh)
+		if (w > 0 && h > 0 && (w != oldw || h != oldh)) {
+			presentationViewportGeneration = Math.incrementExact(presentationViewportGeneration)
+			reportPresentationIdentityIfAvailable()
+		}
 		if (oldw <= 0 || oldh <= 0 || (w == oldw && h == oldh)) return
 		closePassiveRasterPreparationAdapter()
 		dispatchPageHostLifecycleEvent(
@@ -3064,6 +3296,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	override fun onWindowVisibilityChanged(visibility: Int) {
 		super.onWindowVisibilityChanged(visibility)
+		reportPresentationWindowVisibility(visible = visibility == VISIBLE)
 		if (!pageTurnCanvasEnabled) return
 		if (visibility == VISIBLE) {
 			val resumed =

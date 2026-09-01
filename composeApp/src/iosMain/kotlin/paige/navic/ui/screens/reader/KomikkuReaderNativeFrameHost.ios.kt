@@ -3,11 +3,14 @@ package paige.navic.ui.screens.reader
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderPageDragPreviewPhase
 import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
+import paige.navic.reader.ReaderPresentationDecision
+import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncCueMapState
@@ -17,6 +20,9 @@ actual fun KomikkuReaderNativeFrameHost(
 	navigator: KomikkuReaderNavigator,
 	navigationOverlayVisible: Boolean,
 	chromeOverlayVisible: Boolean,
+	presentationDecision: ReaderPresentationDecision,
+	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
+	destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 	shellCoverVisible: Boolean,
 	shellCoverUrl: String?,
 	shellCoverTitle: String,

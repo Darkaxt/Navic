@@ -52,6 +52,9 @@ import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderOverlayCoordinateMode
 import paige.navic.reader.ReaderPageTurnDirection
+import paige.navic.reader.ReaderPresentationEffect
+import paige.navic.reader.ReaderPresentationEffectQueue
+import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderProcessStateViewModel
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
@@ -210,6 +213,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 			)
 		)
 	}
+	val pendingPresentationEffects = remember(
+		reader.bookId,
+		reader.resourceHref,
+		reader.publicationUrl
+	) {
+		ReaderPresentationEffectQueue()
+	}
 	var lastReadaloudReaderInteraction by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
 		mutableStateOf<ReaderReadaloudReaderInteraction?>(null)
 	}
@@ -257,10 +267,23 @@ fun ReaderScreen(reader: Screen.Reader) {
 		komikkuNavigatorForReaderSettings(settings)
 	}
 
+	fun retainPresentationEffects(effects: List<ReaderPresentationEffect>) {
+		if (effects.isEmpty()) return
+		val droppedBefore = pendingPresentationEffects.droppedEffectCount
+		pendingPresentationEffects.retain(effects)
+		Logger.i(
+			ReaderScreenTag,
+			"Reader presentation shadow effects retained=true " +
+				"pending=${pendingPresentationEffects.pendingEffects().size} " +
+				"overflow=${pendingPresentationEffects.droppedEffectCount > droppedBefore}"
+		)
+	}
+
 	fun applyCoordinatorStep(
 		step: ReaderCoordinatorStep,
 		retainProcessState: Boolean = true
 	) {
+		retainPresentationEffects(step.presentationEffects)
 		val previousControllerState = coordinator.controller.state
 		applyReaderCoordinatorStep(
 			step = step,
@@ -532,6 +555,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 
 	fun applyReaderBackStep(step: ReaderCoordinatorBackStep) {
+		retainPresentationEffects(step.presentationEffects)
 		if (step.handled) {
 			coordinator = step.coordinator
 			processStateViewModel.retain(step.coordinator.controller.state)
@@ -910,6 +934,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 	KomikkuReaderRoot(
 		reader = reader,
 		controllerState = controllerState,
+		presentationDecision = controllerState.presentationDecision,
 		viewState = coordinator.viewState,
 		navigator = navigator,
 		settingsScope = readerSettingsScope,
@@ -919,6 +944,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		listeningSettings = listeningSettings,
 		readaloudPlaybackState = whispersyncReadaloudPlaybackState,
 		onEngineHostEvent = { event -> handleEngineHostEvent(event) },
+		onPresentationEvent = { event: ReaderPresentationEvent ->
+			applyCoordinatorStep(coordinator.onPresentationEvent(event))
+		},
 		onViewerAction = { action ->
 			val beforeMenuVisible = coordinator.controller.state.menuVisible
 			val step = coordinator.dispatch { onViewerAction(action) }
