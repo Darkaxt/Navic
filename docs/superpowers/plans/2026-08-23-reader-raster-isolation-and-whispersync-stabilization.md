@@ -8,6 +8,14 @@ presentation visually atomic without changing Foliate or PlayLikeCurl authority.
 **Specification:**
 `docs/superpowers/specs/2026-08-23-reader-raster-isolation-and-whispersync-stabilization-design.md`
 
+**Stage 6 corrective specification:**
+`docs/superpowers/specs/2026-09-01-reader-hierarchical-presentation-authority-design.md`
+
+The corrective specification is release-blocking. It centralizes visual ownership,
+interaction policy, shell-cover transactions, preparation presentation, and
+lifecycle semantics after bounded production testing exposed cross-component
+behavioral regressions that component-local managers did not prevent.
+
 **Delivery style:** Each stage is a focused TDD checkpoint. Group coherent RED
 tests, run one focused RED gate, implement only the stage contract, run one
 focused GREEN gate, validate against the specification, then commit and push to
@@ -500,19 +508,30 @@ contract is implemented and verified.
 
 ### Stage 6 current blocker ledger
 
-- **Validated diagnostic:** The normal-release cue map renders immutable source
-  ordinals and exposed the longstanding same-spine order inversion without OCR or
-  retained publication text.
-- **Root cause classified:** Bindery's examined source/audio anchors are monotonic.
-  Navic can miss a unique full locator outside its bounded search window and then
-  apply the incompatible extracted-text offset directly to Foliate's normalized DOM
-  map. DOM-order sorting correctly exposes the resulting wrong range.
-- **Blocker:** Implement and verify the canonical mapping amendment before any
-  further emulator or tablet live testing. A heuristic window expansion without a
-  coordinate contract, digest proof, monotonic admission, and fail-visible outcome
-  does not close this blocker.
-- **Acceptance state:** Tablet playback and interaction remain halted. Stage 6 has
-  not exited, the Stage 6 checkpoint is not publishable, and Stage 7 must not begin.
+- **Validated canonical mapping:** Bindery artifact 386 and the Foliate projection
+  satisfy the versioned raw-UTF-8 coordinate, digest, boundary, monotonicity,
+  fail-closed, and canonical-preflight contract for the configured pair. Production
+  iota65 demonstrated canonical cue ordering on the bounded path.
+- **Validated post-mapping corrections:** Production iota66 proved that an untagged
+  same-session TOC relocation clears the completed exact-turn acknowledgement, so
+  the next page action advances. It also proved ordinary Home/restore no longer
+  classifies `TRIM_MEMORY_UI_HIDDEN` as memory pressure or closes the publication.
+- **New Stage 6 blocker:** Implement
+  `docs/superpowers/specs/2026-09-01-reader-hierarchical-presentation-authority-design.md`.
+  Bounded testing showed that shell cover, renderer/raster preparation, Compose
+  overlays, and input gates can still publish locally correct but globally
+  contradictory decisions. A returned native cover can display off-screen
+  preparation as foreground work, and the current hide-before-cover-commit ordering
+  lacks an authoritative transaction even though no mixed frame was captured.
+- **Rejected endpoint:** The focused
+  `pageTurnPreparationPresentationVisible` Boolean prototype documents the visible
+  cover-progress regression but is not the durable fix. It must not replace the
+  hierarchical arbiter, proof-before-hide shell transactions, or fail-visible
+  liveness contract.
+- **Acceptance state:** Stage 6 remains open. Before another accepted candidate, one
+  deterministic bounded sequence must pass: page turn, completed acknowledgement,
+  TOC relocation, next turn, cover return, cover dismissal, Home, and restore. Stage
+  7 must not begin.
 
 ### Expected outcome
 
