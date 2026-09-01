@@ -4,8 +4,31 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class ReaderPageQaFaultHostSourceTest {
+	@Test
+	fun viewerReplacementRemainsAfterVisualLocationSynchronization() {
+		val updateBlock = hostSource()
+			.substringAfter("update = { root ->")
+			.substringBefore("onRelease = { root ->")
+		val visualLocation = updateBlock.indexOf("root.setPageTurnVisualLocation(")
+		val preparationRetry = updateBlock.indexOf("root.setPagePreparationRetryKey(")
+		val viewerReplacement = updateBlock.indexOf("root.setViewerContent(viewerKey)")
+		val composeOverlay = updateBlock.indexOf("root.setComposeOverlay(")
+
+		assertTrue(visualLocation >= 0, "update block must synchronize visual location")
+		assertTrue(preparationRetry >= 0, "update block must publish the preparation retry key")
+		assertTrue(viewerReplacement >= 0, "update block must replace viewer content")
+		assertTrue(composeOverlay >= 0, "update block must update the Compose overlay")
+		assertTrue(
+			visualLocation < preparationRetry &&
+				preparationRetry < viewerReplacement &&
+				viewerReplacement < composeOverlay,
+			"viewer replacement must remain terminal after visual-location synchronization"
+		)
+	}
+
 	@Test
 	fun hostUsesOnePrivacySafeFaultSinkAndIdentitySafeRegistration() {
 		val source = hostSource()

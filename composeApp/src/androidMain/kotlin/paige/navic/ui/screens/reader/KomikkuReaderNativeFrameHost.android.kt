@@ -456,7 +456,8 @@ actual fun KomikkuReaderNativeFrameHost(
 				setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
 				setPresentationShadow(
 					presentationDecision,
-					destinationCommitIdentity
+					destinationCommitIdentity,
+					viewerKey
 				) { event -> currentOnPresentationEvent(event) }
 				setChromeOverlayVisible(chromeOverlayVisible)
 				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
@@ -516,10 +517,10 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
 			root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
 			root.setPageTurnPaginationStatus(pageTurnPaginationStatus)
-			root.setViewerContent(viewerKey) { currentViewerContent() }
 			root.setPresentationShadow(
 				presentationDecision,
-				destinationCommitIdentity
+				destinationCommitIdentity,
+				viewerKey
 			) { event -> currentOnPresentationEvent(event) }
 			pageTurnFoliateSessionId?.let { sessionId ->
 				root.setPageTurnVisualLocation(
@@ -545,6 +546,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			)
 			root.setPagePreparationCoverVisible(pagePreparationCoverVisible)
 			root.setPagePreparationRetryKey(pagePreparationRetryKey)
+			root.setViewerContent(viewerKey) { currentViewerContent() }
 			root.setComposeOverlay(hostedComposeOverlay)
 			root.setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
@@ -595,6 +597,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private var currentViewerComposeView: ComposeView? = null
 	private var shellCoverVisible: Boolean = false
 	private var pagePreparationCoverVisible: Boolean = false
+	private var presentationViewerKey: ReaderViewerKey? = null
 	private var presentationDecision: ReaderPresentationDecision? = null
 	private var lastPresentationShadowComparison: ReaderPresentationShadowComparison? = null
 	private var lastNativeCoverVisibilityTrace: String? = null
@@ -657,8 +660,13 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	fun setPresentationShadow(
 		decision: ReaderPresentationDecision,
 		destinationCommitIdentity: ReaderDestinationCommitIdentity?,
+		viewerKey: ReaderViewerKey,
 		onEvent: (ReaderPresentationEvent) -> Unit
 	) {
+		if (presentationViewerKey != viewerKey) {
+			presentationViewerKey = viewerKey
+			viewerContainer.onPresentationPublicationChanged()
+		}
 		presentationDecision = decision
 		viewerContainer.setPresentationShadow(
 			destinationCommitIdentity = destinationCommitIdentity,
@@ -869,7 +877,6 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setViewerContent(viewerKey: ReaderViewerKey, content: @Composable () -> Unit) {
 		if (currentViewerKey != viewerKey || currentViewerComposeView == null) {
-			viewerContainer.onPresentationPublicationChanged()
 			val previousViewer = currentViewerComposeView
 			val viewerView = ComposeView(context).apply {
 				setViewCompositionStrategy(
