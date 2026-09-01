@@ -148,6 +148,40 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun relocationSettlementReceiptRequiresCompleteCurrentEventProof() {
+		val complete = ReaderEngineEvent.Relocated(
+			locator = ReaderLocator(pageIndex = 6),
+			foliateSessionId = "opaque-session-a",
+			pageTurnSettleToken = "opaque-token-a",
+			pageTurnSettleSessionId = "opaque-session-a",
+			pageTurnSettleRasterGeneration = 2L,
+			pageTurnSettleTextureGeneration = 3L
+		)
+
+		assertEquals(
+			ReaderPageTurnSettlementAck(
+				token = "opaque-token-a",
+				pageIndex = 6,
+				foliateSessionId = "opaque-session-a",
+				rasterGeneration = 2L,
+				textureGeneration = 3L
+			),
+			ReaderController().onEngineEvent(complete).controller.state.pageTurnSettlementAck
+		)
+		listOf(
+			complete.copy(pageTurnSettleToken = " "),
+			complete.copy(locator = ReaderLocator()),
+			complete.copy(locator = ReaderLocator(pageIndex = -1)),
+			complete.copy(pageTurnSettleSessionId = null),
+			complete.copy(pageTurnSettleSessionId = "opaque-session-b"),
+			complete.copy(pageTurnSettleRasterGeneration = -1L),
+			complete.copy(pageTurnSettleTextureGeneration = -1L)
+		).forEach { invalid ->
+			assertNull(ReaderController().onEngineEvent(invalid).controller.state.pageTurnSettlementAck)
+		}
+	}
+
+	@Test
 	fun untaggedSameSessionRelocationClearsCompletedPageTurnAcknowledgement() {
 		val acknowledged = ReaderController().onEngineEvent(
 			ReaderEngineEvent.Relocated(

@@ -419,6 +419,71 @@ class ReaderWhispersyncLifecycleReducerTest {
 	}
 
 	@Test
+	fun currentUntaggedRelocationCannotUseHistoricalSettlementAcknowledgement() {
+		val acknowledged = preparedController().onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(href = TextHref, pageIndex = 0, pageCount = 2),
+				foliateSessionId = FoliateSession,
+				pageTurnSettleToken = "opaque-receipt",
+				pageTurnSettleSessionId = FoliateSession,
+				pageTurnSettleRasterGeneration = 7L,
+				pageTurnSettleTextureGeneration = 8L,
+				destinationCommitIdentity = SourceCommit
+			)
+		).controller
+		assertNotNull(acknowledged.state.pageTurnSettlementAck)
+		val turn = acknowledged.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+		val sequence = requireNotNull(turn.controller.state.whispersync.pendingCausalIntent?.sequence)
+
+		val untagged = turn.controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(href = TextHref, pageIndex = 1, pageCount = 2),
+				foliateSessionId = FoliateSession,
+				causalSequence = sequence,
+				destinationCommitIdentity = DestinationCommit
+			)
+		)
+
+		assertNull(untagged.controller.state.pageTurnSettlementAck)
+		assertFalse(untagged.controller.state.whispersync.pendingCausalIntent?.destinationCommitted ?: true)
+		assertNull(untagged.readaloudReaderInteraction)
+	}
+
+	@Test
+	fun matchingCurrentSettlementReceiptCommitsDestinationExactlyOnce() {
+		val turn = preparedController().onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+		val sequence = requireNotNull(turn.controller.state.whispersync.pendingCausalIntent?.sequence)
+		val receipt = destinationRelocation(sequence)
+
+		val committed = turn.controller.onEngineEvent(receipt)
+		assertEquals(
+			ReaderReadaloudReaderInteraction.UserNavigation(
+				textHref = TextHref,
+				causalSequence = sequence
+			),
+			committed.readaloudReaderInteraction
+		)
+		assertTrue(committed.controller.state.whispersync.pendingCausalIntent?.destinationCommitted == true)
+
+		val duplicate = committed.controller.onEngineEvent(receipt)
+		assertNull(duplicate.readaloudReaderInteraction)
+		assertTrue(duplicate.controller.state.whispersync.pendingCausalIntent?.destinationCommitted == true)
+
+		val consumed = duplicate.controller.onEngineEvent(destinationVisibleRange(sequence)).controller
+		assertNull(consumed.state.whispersync.pendingCausalIntent)
+		val unrelatedTurn = consumed.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+		val replayed = unrelatedTurn.controller.onEngineEvent(receipt)
+		assertFalse(replayed.controller.state.whispersync.pendingCausalIntent?.destinationCommitted ?: true)
+		assertNull(replayed.readaloudReaderInteraction)
+	}
+
+	@Test
 	fun controllerOrderedNavigationCommitsBeforePreparingDestination() {
 		val navigation = preparedController().navigateTo(
 			ReaderLocator(href = TextHref, chapterProgress = 0.75)

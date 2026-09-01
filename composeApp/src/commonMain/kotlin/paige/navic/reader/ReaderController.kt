@@ -87,14 +87,24 @@ data class ReaderController(
 				} else {
 					progressSaveGate.onEngineEvent(event)
 				}
-				val reduction = ReaderProgressReducer.onRelocated(state, event, decision)
+				val settlementReceipt = event.pageTurnSettlementReceiptOrNull()
+				val reduction = ReaderProgressReducer.onRelocated(
+					state = state,
+					event = event,
+					decision = decision,
+					settlementReceipt = settlementReceipt
+				)
 				val shellCoverDismissed = state.shellCoverVisible && !reduction.state.shellCoverVisible
 				val reducedController = copy(
 					progressSaveGate = decision.state,
 					state = reduction.state
 				)
 				val whispersyncStep = ReaderWhispersyncReducer.onDestinationChanged(
-					step = ReaderWhispersyncReducer.onRelocated(reducedController, event),
+					step = ReaderWhispersyncReducer.onRelocated(
+						controller = reducedController,
+						event = event,
+						settlementReceipt = settlementReceipt
+					),
 					destinationReplaced = reduction.state.destinationCommitIdentity !=
 						state.destinationCommitIdentity
 				)

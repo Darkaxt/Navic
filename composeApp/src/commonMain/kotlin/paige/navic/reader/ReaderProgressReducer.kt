@@ -22,7 +22,8 @@ internal object ReaderProgressReducer {
 	fun onRelocated(
 		state: ReaderControllerState,
 		event: ReaderEngineEvent.Relocated,
-		decision: ReaderProgressSaveDecision
+		decision: ReaderProgressSaveDecision,
+		settlementReceipt: ReaderPageTurnSettlementAck?
 	): ReaderProgressReduction {
 		val nextChrome = state.chrome.onLocationChanged(
 			locator = event.locator,
@@ -56,7 +57,6 @@ internal object ReaderProgressReducer {
 				null
 			}
 		val sessionChanged = state.foliateSessionId != event.foliateSessionId
-		val nextSettlementAck = event.pageTurnSettlementAck()
 		val currentDestination = state.destinationCommitIdentity.takeUnless { sessionChanged }
 		val eventDestination = event.destinationCommitIdentity?.takeIf {
 			it.foliateSessionId == event.foliateSessionId
@@ -73,7 +73,7 @@ internal object ReaderProgressReducer {
 				chapterProgress = state.chapterProgress.updatedFrom(event.locator, event.tocTitle),
 				readingProgress = nextReadingProgress,
 				foliateSessionId = event.foliateSessionId,
-				pageTurnSettlementAck = nextSettlementAck,
+				pageTurnSettlementAck = settlementReceipt,
 				destinationCommitIdentity = nextDestination,
 				activeMediaOverlayAnchorReceipt =
 					state.activeMediaOverlayAnchorReceipt.takeUnless { sessionChanged },
@@ -145,23 +145,6 @@ internal object ReaderProgressReducer {
 			engineCommands = listOf(ReaderEngineCommand.NavigateTo(ReaderLocator(href = targetHref)))
 		)
 	}
-}
-
-private fun ReaderEngineEvent.Relocated.pageTurnSettlementAck(): ReaderPageTurnSettlementAck? {
-	val token = pageTurnSettleToken?.takeIf { it.isNotBlank() } ?: return null
-	val pageIndex = locator.pageIndex?.takeIf { it >= 0 } ?: return null
-	val settlementSessionId = pageTurnSettleSessionId
-		?.takeIf { it.isNotBlank() && it == foliateSessionId }
-		?: return null
-	val rasterGeneration = pageTurnSettleRasterGeneration?.takeIf { it >= 0L } ?: return null
-	val textureGeneration = pageTurnSettleTextureGeneration?.takeIf { it >= 0L } ?: return null
-	return ReaderPageTurnSettlementAck(
-		token = token,
-		pageIndex = pageIndex,
-		foliateSessionId = settlementSessionId,
-		rasterGeneration = rasterGeneration,
-		textureGeneration = textureGeneration
-	)
 }
 
 internal fun ReaderChapterProgressState.updatedFrom(

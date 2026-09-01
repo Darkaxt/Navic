@@ -94,8 +94,12 @@ internal object ReaderWhispersyncReducer {
 
 	fun onRelocated(
 		controller: ReaderController,
-		event: ReaderEngineEvent.Relocated
-	): ReaderControllerStep = controller.reduceWhispersyncRelocated(event)
+		event: ReaderEngineEvent.Relocated,
+		settlementReceipt: ReaderPageTurnSettlementAck?
+	): ReaderControllerStep = controller.reduceWhispersyncRelocated(
+		event = event,
+		settlementReceipt = settlementReceipt
+	)
 
 	fun onDestinationChanged(
 		step: ReaderControllerStep,
@@ -1860,7 +1864,8 @@ private fun ReaderController.withWhispersyncCausalIntent(
 }
 
 private fun ReaderController.reduceWhispersyncRelocated(
-	event: ReaderEngineEvent.Relocated
+	event: ReaderEngineEvent.Relocated,
+	settlementReceipt: ReaderPageTurnSettlementAck?
 ): ReaderControllerStep {
 	val currentWhispersync = state.whispersync
 	val pending = currentWhispersync.pendingCausalIntent?.takeIf {
@@ -1868,15 +1873,16 @@ private fun ReaderController.reduceWhispersyncRelocated(
 	}
 	val destinationCommitIdentity = event.destinationCommitIdentity
 	val sequenceMatched = pending != null &&
+		!pending.destinationCommitted &&
 		event.causalSequence != null &&
 		event.causalSequence == pending.sequence
 	val destinationMatched = destinationCommitIdentity != null &&
 		destinationCommitIdentity == state.destinationCommitIdentity
 	val settlementMatched = pending?.requiresPageTurnSettlement != true ||
-		state.pageTurnSettlementAck?.let { ack ->
-			event.pageTurnSettleToken != null &&
-				ack.token == event.pageTurnSettleToken &&
-				ack.foliateSessionId == event.foliateSessionId
+		settlementReceipt?.let { receipt ->
+			receipt.token == event.pageTurnSettleToken &&
+				receipt.foliateSessionId == event.foliateSessionId &&
+				receipt.foliateSessionId == event.pageTurnSettleSessionId
 		} == true
 	if (!sequenceMatched || !destinationMatched || !settlementMatched) {
 		return ReaderControllerStep(

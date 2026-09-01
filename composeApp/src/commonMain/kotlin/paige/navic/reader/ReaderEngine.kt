@@ -316,6 +316,23 @@ sealed interface ReaderEngineEvent {
 	data class Error(val message: String, val code: String? = null) : ReaderEngineEvent
 }
 
+internal fun ReaderEngineEvent.Relocated.pageTurnSettlementReceiptOrNull(): ReaderPageTurnSettlementAck? {
+	val token = pageTurnSettleToken?.takeIf { it.isNotBlank() } ?: return null
+	val pageIndex = locator.pageIndex?.takeIf { it >= 0 } ?: return null
+	val settlementSessionId = pageTurnSettleSessionId
+		?.takeIf { it.isNotBlank() && it == foliateSessionId }
+		?: return null
+	val rasterGeneration = pageTurnSettleRasterGeneration?.takeIf { it >= 0L } ?: return null
+	val textureGeneration = pageTurnSettleTextureGeneration?.takeIf { it >= 0L } ?: return null
+	return ReaderPageTurnSettlementAck(
+		token = token,
+		pageIndex = pageIndex,
+		foliateSessionId = settlementSessionId,
+		rasterGeneration = rasterGeneration,
+		textureGeneration = textureGeneration
+	)
+}
+
 val ReaderEngineEvent.requiredCapability: ReaderEngineCapability?
 	get() = when (this) {
 		is ReaderEngineEvent.SearchResults -> ReaderEngineCapability.Search
