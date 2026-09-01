@@ -4,9 +4,9 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ReaderPresentationAuthoritySequenceTest {
@@ -70,7 +70,7 @@ class ReaderPresentationAuthoritySequenceTest {
 	}
 
 	@Test
-	fun presentationEffectsAreRetainedWithIdentityAndConsumedOnce() {
+	fun presentationEffectsDeduplicateByStableIdentityAndRequireSuccessfulAcknowledgement() {
 		val settled = settledNativePresentationState()
 		val staleBinding = presentationBinding(session = "session-stale", destinationSequence = 9L)
 		val staleProof = nativeProof(staleBinding, frame = 12L)
@@ -86,17 +86,45 @@ class ReaderPresentationAuthoritySequenceTest {
 		val queue = ReaderPresentationEffectQueue(capacity = 2)
 		val pending = queue.retain(step.presentationEffects).single()
 
+		assertEquals(expectedEffect.identity(), pending.identity)
 		assertEquals(expectedEffect, pending.effect)
+		assertTrue(queue.retain(step.presentationEffects).isEmpty())
 		assertEquals(listOf(pending), queue.pendingEffects())
-		assertEquals(expectedEffect, queue.consume(pending.sequence))
-		assertNull(queue.consume(pending.sequence))
+		assertFalse(queue.acknowledge(pending.identity.copy(token = ReaderPresentationToken(99L))))
+		assertEquals(listOf(pending), queue.pendingEffects())
+		assertTrue(queue.acknowledge(pending.identity))
+		assertFalse(queue.acknowledge(pending.identity))
+		assertTrue(queue.retain(step.presentationEffects).isEmpty())
 		assertTrue(queue.pendingEffects().isEmpty())
+	}
+
+	@Test
+	fun presentationEffectQueueFailsExplicitlyWithoutDiscardingUnacknowledgedEffects() {
+		val first = ReaderPresentationEffect.ReleaseStalePresentation(
+			token = ReaderPresentationToken(30L),
+			binding = presentationBinding(session = "session-first", destinationSequence = 30L)
+		)
+		val second = ReaderPresentationEffect.ReleaseStalePresentation(
+			token = ReaderPresentationToken(31L),
+			binding = presentationBinding(session = "session-second", destinationSequence = 31L)
+		)
+		val queue = ReaderPresentationEffectQueue(capacity = 1)
+		val retained = queue.retain(listOf(first)).single()
+
+		assertFailsWith<ReaderPresentationEffectQueueOverflowException> {
+			queue.retain(listOf(second))
+		}
+
+		assertEquals(listOf(retained), queue.pendingEffects())
 	}
 
 	@Test
 	fun platformHostContractCarriesDecisionTypedEventsAndStrictBindingFactsInShadowMode() {
 		val common = sourceFile(
 			"src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
+		).readText()
+		val screen = sourceFile(
+			"src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
 		).readText()
 		val android = sourceFile(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
@@ -108,10 +136,19 @@ class ReaderPresentationAuthoritySequenceTest {
 		listOf(common, android, ios).forEach { source ->
 			assertContains(source, "presentationDecision: ReaderPresentationDecision")
 			assertContains(source, "onPresentationEvent: (ReaderPresentationEvent) -> Unit")
+			assertContains(source, "presentationEffects: List<ReaderPendingPresentationEffect>")
+			assertContains(
+				source,
+				"onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit"
+			)
 			assertContains(source, "destinationCommitIdentity: ReaderDestinationCommitIdentity?")
 			assertContains(source, "pagePreparationCoverVisible: Boolean")
 		}
+		assertContains(screen, "presentationEffects = pendingPresentationEffects")
+		assertContains(screen, "pendingPresentationEffectQueue.acknowledge(identity)")
 		assertContains(android, "setPresentationShadow(")
+		assertContains(android, "handlePresentationEffects(")
+		assertContains(android, "releaseStalePresentationDeck(effect.binding)")
 		assertContains(android, "reportPresentationShadowComparison()")
 		assertContains(android, "Reader presentation shadow authority=")
 		val shadowSetter = android.substringAfter("fun setPresentationShadow(")
@@ -128,6 +165,8 @@ class ReaderPresentationAuthoritySequenceTest {
 		assertFalse(shadowDiagnostic.contains("shellCoverUrl"))
 		assertFalse(shadowDiagnostic.contains("viewerKey.identity"))
 		val iosBody = ios.substringAfter(") {")
+		assertContains(iosBody, "LaunchedEffect(presentationEffects)")
+		assertContains(iosBody, "onPresentationEffectHandled(pending.identity)")
 		assertFalse(iosBody.contains("onPresentationEvent("))
 	}
 

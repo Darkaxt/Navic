@@ -52,7 +52,9 @@ import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderOverlayCoordinateMode
 import paige.navic.reader.ReaderPageTurnDirection
+import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPresentationEffect
+import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEffectQueue
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderProcessStateViewModel
@@ -213,12 +215,19 @@ fun ReaderScreen(reader: Screen.Reader) {
 			)
 		)
 	}
-	val pendingPresentationEffects = remember(
+	val pendingPresentationEffectQueue = remember(
 		reader.bookId,
 		reader.resourceHref,
 		reader.publicationUrl
 	) {
 		ReaderPresentationEffectQueue()
+	}
+	var pendingPresentationEffects by remember(
+		reader.bookId,
+		reader.resourceHref,
+		reader.publicationUrl
+	) {
+		mutableStateOf<List<ReaderPendingPresentationEffect>>(emptyList())
 	}
 	var lastReadaloudReaderInteraction by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
 		mutableStateOf<ReaderReadaloudReaderInteraction?>(null)
@@ -269,13 +278,23 @@ fun ReaderScreen(reader: Screen.Reader) {
 
 	fun retainPresentationEffects(effects: List<ReaderPresentationEffect>) {
 		if (effects.isEmpty()) return
-		val droppedBefore = pendingPresentationEffects.droppedEffectCount
-		pendingPresentationEffects.retain(effects)
+		val retained = pendingPresentationEffectQueue.retain(effects)
+		if (retained.isEmpty()) return
+		pendingPresentationEffects = pendingPresentationEffectQueue.pendingEffects()
 		Logger.i(
 			ReaderScreenTag,
 			"Reader presentation shadow effects retained=true " +
-				"pending=${pendingPresentationEffects.pendingEffects().size} " +
-				"overflow=${pendingPresentationEffects.droppedEffectCount > droppedBefore}"
+				"pending=${pendingPresentationEffects.size}"
+		)
+	}
+
+	fun acknowledgePresentationEffect(identity: ReaderPresentationEffectIdentity) {
+		if (!pendingPresentationEffectQueue.acknowledge(identity)) return
+		pendingPresentationEffects = pendingPresentationEffectQueue.pendingEffects()
+		Logger.i(
+			ReaderScreenTag,
+			"Reader presentation shadow effect acknowledged=true " +
+				"pending=${pendingPresentationEffects.size}"
 		)
 	}
 
@@ -935,6 +954,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 		reader = reader,
 		controllerState = controllerState,
 		presentationDecision = controllerState.presentationDecision,
+		presentationEffects = pendingPresentationEffects,
+		onPresentationEffectHandled = { identity ->
+			acknowledgePresentationEffect(identity)
+		},
 		viewState = coordinator.viewState,
 		navigator = navigator,
 		settingsScope = readerSettingsScope,

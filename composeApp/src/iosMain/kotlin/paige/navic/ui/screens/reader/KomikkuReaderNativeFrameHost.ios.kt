@@ -2,6 +2,8 @@ package paige.navic.ui.screens.reader
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderPageDragPreviewPhase
@@ -9,7 +11,10 @@ import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
+import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPresentationDecision
+import paige.navic.reader.ReaderPresentationEffect
+import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
@@ -21,6 +26,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	navigationOverlayVisible: Boolean,
 	chromeOverlayVisible: Boolean,
 	presentationDecision: ReaderPresentationDecision,
+	presentationEffects: List<ReaderPendingPresentationEffect>,
+	onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit,
 	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
 	destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 	shellCoverVisible: Boolean,
@@ -60,6 +67,22 @@ actual fun KomikkuReaderNativeFrameHost(
 	viewerContent: @Composable () -> Unit,
 	composeOverlay: @Composable () -> Unit
 ) {
+	val handledPresentationEffects = remember {
+		mutableSetOf<ReaderPresentationEffectIdentity>()
+	}
+	LaunchedEffect(presentationEffects) {
+		presentationEffects.forEach { pending ->
+			when (pending.effect) {
+				is ReaderPresentationEffect.ReleaseStalePresentation -> if (
+					pending.identity !in handledPresentationEffects
+				) {
+					// iOS owns no Android renderer deck, so this release is a proven no-op here.
+					onPresentationEffectHandled(pending.identity)
+					handledPresentationEffects += pending.identity
+				}
+			}
+		}
+	}
 	Box(modifier = modifier) {
 		viewerContent()
 		composeOverlay()

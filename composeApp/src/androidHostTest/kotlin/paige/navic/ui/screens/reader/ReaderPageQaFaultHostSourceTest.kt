@@ -6,6 +6,21 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import paige.navic.reader.ReaderDestinationCommitIdentity
+import paige.navic.reader.ReaderPendingPresentationEffect
+import paige.navic.reader.ReaderPresentationAuthority
+import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationEffect
+import paige.navic.reader.ReaderPresentationEffectIdentity
+import paige.navic.reader.ReaderPresentationEffectQueue
+import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationFrameOwner
+import paige.navic.reader.ReaderPresentationState
+import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderNativePagePresentationProof
+import paige.navic.reader.identity
+import paige.navic.reader.readerPresentationDecision
+import paige.navic.reader.readerPresentationReduce
 
 class ReaderPageQaFaultHostSourceTest {
 	@Test
@@ -87,6 +102,140 @@ class ReaderPageQaFaultHostSourceTest {
 	}
 
 	@Test
+	fun presentationEffectFailureRetainsRetryAndSuccessAcknowledgesExactlyOnce() {
+		val effect = stalePresentationEffect()
+		val queue = ReaderPresentationEffectQueue(capacity = 2)
+		val pending = queue.retain(listOf(effect)).single()
+		var releaseSucceeds = false
+		var releaseCount = 0
+		var acknowledgementCount = 0
+		val handler = ReaderPresentationEffectHandler { handledEffect ->
+			assertEquals(effect, handledEffect)
+			releaseCount += 1
+			releaseSucceeds
+		}
+		val decision = readerPresentationDecision(ReaderPresentationState())
+		val acknowledge: (ReaderPresentationEffectIdentity) -> Unit = { identity ->
+			if (queue.acknowledge(identity)) acknowledgementCount += 1
+		}
+
+		handler.deliver(listOf(pending, pending), decision, acknowledge)
+		assertEquals(1, releaseCount)
+		assertEquals(0, acknowledgementCount)
+		assertEquals(listOf(pending), queue.pendingEffects())
+
+		releaseSucceeds = true
+		handler.deliver(queue.pendingEffects(), decision, acknowledge)
+		assertEquals(2, releaseCount)
+		assertEquals(1, acknowledgementCount)
+		assertTrue(queue.pendingEffects().isEmpty())
+
+		handler.deliver(listOf(pending, pending), decision, acknowledge)
+		assertEquals(2, releaseCount)
+		assertEquals(1, acknowledgementCount)
+	}
+
+	@Test
+	fun presentationEffectNeverReleasesSelectedOrRetainedAuthorityIdentity() {
+		val binding = presentationBinding()
+		val proof = nativePresentationProof(binding)
+		val settled = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(proof)
+			),
+			binding = binding
+		)
+		val retainedDecision = readerPresentationReduce(
+			settled,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 40L)
+		).decision
+		val effect = ReaderPresentationEffect.ReleaseStalePresentation(
+			ReaderPresentationToken(99L),
+			binding
+		)
+		val pending = ReaderPendingPresentationEffect(effect.identity(), effect)
+		var releaseCount = 0
+		var acknowledgementCount = 0
+		val handler = ReaderPresentationEffectHandler {
+			releaseCount += 1
+			true
+		}
+
+		listOf(readerPresentationDecision(settled), retainedDecision).forEach { decision ->
+			handler.deliver(listOf(pending), decision) {
+				acknowledgementCount += 1
+			}
+		}
+
+		assertEquals(0, releaseCount)
+		assertEquals(0, acknowledgementCount)
+	}
+
+	@Test
+	fun viewportAndProfileBindingChangesEmitOneTypedReplacementWithoutSemanticMovement() {
+		val original = presentationBinding()
+		val viewport = original.copy(viewportGeneration = original.viewportGeneration + 1L)
+		val profile = viewport.copy(
+			profileGeneration = viewport.profileGeneration + 1L,
+			rasterGeneration = requireNotNull(viewport.rasterGeneration) + 1L,
+			textureGeneration = requireNotNull(viewport.textureGeneration) + 1L,
+			preparationGeneration = requireNotNull(viewport.preparationGeneration) + 1L
+		)
+
+		assertEquals(
+			ReaderPresentationEvent.BindingReplaced(original, viewport),
+			readerPresentationBindingEvent(
+				lastReportedBinding = original,
+				currentBinding = viewport,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertEquals(
+			ReaderPresentationEvent.BindingReplaced(viewport, profile),
+			readerPresentationBindingEvent(
+				lastReportedBinding = viewport,
+				currentBinding = profile,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertEquals(
+			null,
+			readerPresentationBindingEvent(
+				lastReportedBinding = profile,
+				currentBinding = profile,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+	}
+
+	@Test
+	fun hostOrdersBindingReplacementBeforeFactsAndUsesExactSafeDeckRelease() {
+		val host = hostSource()
+		val report = host
+			.substringAfter("private fun reportPresentationIdentityIfAvailable()")
+			.substringBefore("private fun reportPresentationPreparationFacts(")
+		val controller = readerSource("ReaderPlayLikeCurlFoliateController.android.kt")
+		val release = controller
+			.substringAfter("fun releaseStalePresentationDeck(")
+			.substringBefore("\n\tfun ")
+
+		assertTrue(report.indexOf("onPresentationEvent(bindingEvent)") >= 0)
+		assertTrue(
+			report.indexOf("onPresentationEvent(bindingEvent)") <
+				report.indexOf("reportPresentationPreparationFacts(")
+		)
+		assertContains(host, "releaseStalePresentationDeck(effect.binding)")
+		assertContains(release, "generationOwners[textureGeneration] ?: return true")
+		assertContains(release, "owner.profile.rasterGeneration != rasterGeneration")
+		assertContains(release, "activeDeckGenerationId == textureGeneration")
+		assertContains(release, "pendingDeckGenerationId == textureGeneration")
+		assertContains(release, "releaseRendererOwnedGeneration(textureGeneration)")
+	}
+
+	@Test
 	fun hostUsesOnePrivacySafeFaultSinkAndIdentitySafeRegistration() {
 		val source = hostSource()
 
@@ -112,6 +261,41 @@ class ReaderPageQaFaultHostSourceTest {
 	}
 }
 
+private fun presentationBinding(): ReaderPresentationBinding = ReaderPresentationBinding(
+	foliateSessionId = "presentation-session",
+	publicationGeneration = 2L,
+	viewportGeneration = 3L,
+	profileGeneration = 4L,
+	destinationCommitIdentity = ReaderDestinationCommitIdentity("presentation-session", 5L),
+	rasterGeneration = 6L,
+	textureGeneration = 7L,
+	preparationGeneration = 8L
+)
+
+private fun nativePresentationProof(
+	binding: ReaderPresentationBinding
+): ReaderNativePagePresentationProof = ReaderNativePagePresentationProof(
+	binding = binding,
+	transitionToken = null,
+	presentedFrame = 9L,
+	viewportWidth = 1200,
+	viewportHeight = 800,
+	rasterGeneration = requireNotNull(binding.rasterGeneration),
+	textureGeneration = requireNotNull(binding.textureGeneration)
+)
+
+private fun stalePresentationEffect(): ReaderPresentationEffect.ReleaseStalePresentation =
+	ReaderPresentationEffect.ReleaseStalePresentation(
+		token = ReaderPresentationToken(10L),
+		binding = presentationBinding().copy(
+			viewportGeneration = 11L,
+			profileGeneration = 12L,
+			rasterGeneration = 13L,
+			textureGeneration = 14L,
+			preparationGeneration = 15L
+		)
+	)
+
 private fun presentationDeck(
 	rasterProfileEpoch: Long,
 	generationId: Long
@@ -123,18 +307,19 @@ private fun presentationDeck(
 	preparationGeneration = 5L
 )
 
-private fun hostSource(): String {
+private fun hostSource(): String = readerSource("KomikkuReaderNativeFrameHost.android.kt")
+
+private fun readerSource(fileName: String): String {
 	var current: File? =
 		File(checkNotNull(System.getProperty("user.dir"))).canonicalFile
 	repeat(10) {
 		val root = current ?: return@repeat
 		val candidate = File(
 			root,
-			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
-				"KomikkuReaderNativeFrameHost.android.kt"
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/$fileName"
 		)
 		if (candidate.isFile) return candidate.readText()
 		current = root.parentFile
 	}
-	error("Could not locate KomikkuReaderNativeFrameHost.android.kt")
+	error("Could not locate $fileName")
 }

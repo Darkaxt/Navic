@@ -13,7 +13,9 @@ import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
+import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPresentationDecision
+import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderRawTextProvenanceDescriptor
@@ -33,6 +35,8 @@ expect fun KomikkuReaderNativeFrameHost(
 	navigationOverlayVisible: Boolean,
 	chromeOverlayVisible: Boolean,
 	presentationDecision: ReaderPresentationDecision,
+	presentationEffects: List<ReaderPendingPresentationEffect>,
+	onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit,
 	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
 	destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 	shellCoverVisible: Boolean,

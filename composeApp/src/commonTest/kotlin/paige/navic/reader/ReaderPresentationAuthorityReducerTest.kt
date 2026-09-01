@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class ReaderPresentationAuthorityReducerTest {
 	private val binding = ReaderPresentationBinding(
@@ -300,6 +301,152 @@ class ReaderPresentationAuthorityReducerTest {
 			listOf(ReaderPresentationEffect.ReleaseStalePresentation(staleToken, binding)),
 			reduction.effects
 		)
+	}
+
+	@Test
+	fun viewportBindingReplacementFencesOldAuthorityAndAcceptsOnlyNewBindingFacts() {
+		val replacement = binding.copy(viewportGeneration = 8L)
+		val replaced = readerPresentationReduce(
+			settledNativeState(),
+			ReaderPresentationEvent.BindingReplaced(
+				previousBinding = binding,
+				binding = replacement
+			)
+		)
+
+		assertEquals(replacement, replaced.state.binding)
+		assertEquals(ReaderPresentationAuthority.Unavailable, replaced.state.authority)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, replaced.decision.frameOwner)
+		assertEquals(ReaderPagePreparationFacts(), replaced.state.preparationFacts)
+		assertEquals(
+			listOf(ReaderPresentationEffect.ReleaseStalePresentation(null, binding)),
+			replaced.effects
+		)
+
+		val lateOldFacts = readerPresentationReduce(
+			replaced.state,
+			ReaderPresentationEvent.PreparationReported(binding, preparationFacts())
+		)
+		assertNoOp(replaced.state, lateOldFacts)
+
+		val newFacts = preparationFacts()
+		val prepared = readerPresentationReduce(
+			replaced.state,
+			ReaderPresentationEvent.PreparationReported(replacement, newFacts)
+		)
+		assertEquals(newFacts, prepared.state.preparationFacts)
+
+		val lateOldProof = readerPresentationReduce(
+			prepared.state,
+			ReaderPresentationEvent.NativePagePresented(nativeProof)
+		)
+		assertEquals(prepared.state, lateOldProof.state)
+		assertEquals(
+			listOf(ReaderPresentationEffect.ReleaseStalePresentation(null, binding)),
+			lateOldProof.effects
+		)
+
+		val replacementProof = nativeProof.copy(binding = replacement)
+		val presented = readerPresentationReduce(
+			prepared.state,
+			ReaderPresentationEvent.NativePagePresented(replacementProof)
+		)
+		assertEquals(replacement, presented.state.binding)
+		assertEquals(
+			ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(replacementProof)
+			),
+			presented.state.authority
+		)
+		assertNoOp(
+			presented.state,
+			readerPresentationReduce(
+				presented.state,
+				ReaderPresentationEvent.NativePagePresented(replacementProof)
+			)
+		)
+	}
+
+	@Test
+	fun bindingReplacementReleaseCarriesOldProofToken() {
+		val token = ReaderPresentationToken(44L)
+		val tokenizedProof = nativeProof.copy(transitionToken = token)
+		val state = settledNativeState().copy(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(tokenizedProof)
+			)
+		)
+		val replacement = binding.copy(viewportGeneration = 8L)
+
+		val replaced = readerPresentationReduce(
+			state,
+			ReaderPresentationEvent.BindingReplaced(binding, replacement)
+		)
+
+		assertEquals(
+			listOf(ReaderPresentationEffect.ReleaseStalePresentation(token, binding)),
+			replaced.effects
+		)
+	}
+
+	@Test
+	fun profileDeckBindingReplacementIsIdempotentAndRejectsLateOldGeneration() {
+		val replacement = binding.copy(
+			profileGeneration = 9L,
+			rasterGeneration = 10L,
+			textureGeneration = 11L,
+			preparationGeneration = 12L
+		)
+		val event = ReaderPresentationEvent.BindingReplaced(
+			previousBinding = binding,
+			binding = replacement
+		)
+		val replaced = readerPresentationReduce(settledNativeState(), event)
+
+		assertEquals(replacement, replaced.state.binding)
+		assertEquals(ReaderPresentationAuthority.Unavailable, replaced.state.authority)
+		assertNoOp(replaced.state, readerPresentationReduce(replaced.state, event))
+
+		val lateOld = readerPresentationReduce(
+			replaced.state,
+			ReaderPresentationEvent.PreparationReported(binding, preparationFacts())
+		)
+		assertNoOp(replaced.state, lateOld)
+
+		val freshFacts = preparationFacts(generation = 12L)
+		val fresh = readerPresentationReduce(
+			replaced.state,
+			ReaderPresentationEvent.PreparationReported(replacement, freshFacts)
+		)
+		assertEquals(freshFacts, fresh.state.preparationFacts)
+		assertTrue(fresh.effects.isEmpty())
+	}
+
+	@Test
+	fun bindingReplacementCannotChangeSemanticPublicationOrDestinationIdentity() {
+		assertFailsWith<IllegalArgumentException> {
+			ReaderPresentationEvent.BindingReplaced(
+				previousBinding = binding,
+				binding = binding.copy(rasterGeneration = null)
+			)
+		}
+		assertFailsWith<IllegalArgumentException> {
+			ReaderPresentationEvent.BindingReplaced(
+				previousBinding = binding,
+				binding = binding.copy(publicationGeneration = 2L)
+			)
+		}
+		assertFailsWith<IllegalArgumentException> {
+			ReaderPresentationEvent.BindingReplaced(
+				previousBinding = binding,
+				binding = binding.copy(
+					destinationCommitIdentity = ReaderDestinationCommitIdentity(
+						foliateSessionId = binding.foliateSessionId,
+						commitSequence = 2L
+					)
+				)
+			)
+		}
 	}
 
 	@Test

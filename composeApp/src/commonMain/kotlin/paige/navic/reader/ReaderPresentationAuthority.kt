@@ -328,6 +328,29 @@ data class ReaderPresentationState(
 
 sealed interface ReaderPresentationEvent {
 	data class PublicationOpened(val binding: ReaderPresentationBinding) : ReaderPresentationEvent
+	data class BindingReplaced(
+		val previousBinding: ReaderPresentationBinding,
+		val binding: ReaderPresentationBinding
+	) : ReaderPresentationEvent {
+		init {
+			require(
+				previousBinding.rasterGeneration != null &&
+					previousBinding.textureGeneration != null &&
+					previousBinding.preparationGeneration != null
+			)
+			require(
+				binding.rasterGeneration != null &&
+					binding.textureGeneration != null &&
+					binding.preparationGeneration != null
+			)
+			require(previousBinding.foliateSessionId == binding.foliateSessionId)
+			require(previousBinding.publicationGeneration == binding.publicationGeneration)
+			require(
+				previousBinding.destinationCommitIdentity == binding.destinationCommitIdentity
+			)
+			require(previousBinding != binding)
+		}
+	}
 	data class FoliateRelocated(
 		val binding: ReaderPresentationBinding,
 		val acknowledgement: ReaderPageTurnSettlementAck?
@@ -376,11 +399,29 @@ sealed interface ReaderPresentationEvent {
 	data class Lifecycle(val event: ReaderPresentationLifecycleEvent) : ReaderPresentationEvent
 }
 
+enum class ReaderPresentationEffectKind {
+	ReleaseStalePresentation
+}
+
+data class ReaderPresentationEffectIdentity(
+	val kind: ReaderPresentationEffectKind,
+	val token: ReaderPresentationToken?,
+	val binding: ReaderPresentationBinding
+)
+
 sealed interface ReaderPresentationEffect {
 	data class ReleaseStalePresentation(
 		val token: ReaderPresentationToken?,
 		val binding: ReaderPresentationBinding
 	) : ReaderPresentationEffect
+}
+
+fun ReaderPresentationEffect.identity(): ReaderPresentationEffectIdentity = when (this) {
+	is ReaderPresentationEffect.ReleaseStalePresentation -> ReaderPresentationEffectIdentity(
+		kind = ReaderPresentationEffectKind.ReleaseStalePresentation,
+		token = token,
+		binding = binding
+	)
 }
 
 data class ReaderPresentationReduction(
@@ -424,6 +465,7 @@ fun readerPresentationReduce(
 				nextTokenValue = state.nextTokenValue
 			)
 		)
+		is ReaderPresentationEvent.BindingReplaced -> state.reduceBindingReplacement(event)
 		is ReaderPresentationEvent.FoliateRelocated -> if (
 			state.authority == ReaderPresentationAuthority.Unavailable
 		) {
@@ -500,6 +542,31 @@ private fun ReaderPresentationEvent.closedResourceReleaseOrNull():
 	is ReaderPresentationEvent.WebViewPresentationProven ->
 		ReaderPresentationEffect.ReleaseStalePresentation(proof.token, proof.binding)
 	else -> null
+}
+
+private fun ReaderPresentationState.reduceBindingReplacement(
+	event: ReaderPresentationEvent.BindingReplaced
+): ReaderPresentationReducerResult = when (binding) {
+	event.binding -> ReaderPresentationReducerResult(this)
+	event.previousBinding -> ReaderPresentationReducerResult(
+		state = copy(
+			authority = ReaderPresentationAuthority.Unavailable,
+			binding = event.binding,
+			preparationFacts = ReaderPagePreparationFacts(),
+			failure = null
+		),
+		effects = if (authority.frameOwner() == ReaderPresentationFrameOwner.Neutral) {
+			emptyList()
+		} else {
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					token = authority.releaseIdentityTokenOrNull(),
+					binding = event.previousBinding
+				)
+			)
+		}
+	)
+	else -> ReaderPresentationReducerResult(this)
 }
 
 private fun ReaderPresentationState.reduceLifecycle(
@@ -793,6 +860,40 @@ private fun ReaderPresentationState.staleProof(
 	stalePresentation(token, binding)
 }
 
+internal fun ReaderPresentationDecision.retainsPresentationIdentity(
+	token: ReaderPresentationToken?,
+	binding: ReaderPresentationBinding
+): Boolean = authority.matchesPresentationIdentity(token, binding) ||
+	frameOwner.matchesPresentationIdentity(token, binding) ||
+	authority.retainsPresentationBinding(binding)
+
+private fun ReaderPresentationAuthority.retainsPresentationBinding(
+	binding: ReaderPresentationBinding
+): Boolean = when (this) {
+	ReaderPresentationAuthority.Unavailable -> false
+	is ReaderPresentationAuthority.ShellCover -> proof.binding == binding
+	is ReaderPresentationAuthority.ShellCoverCommitPending ->
+		this.binding == binding || retainedFrame.binding == binding
+	is ReaderPresentationAuthority.CurlGesture -> frame.frame.binding == binding
+	is ReaderPresentationAuthority.CurlSettlementPending -> retainedFrame.frame.binding == binding
+	is ReaderPresentationAuthority.SettledNativePage -> frame.proof.binding == binding
+	is ReaderPresentationAuthority.LiveEngineHandoffPending ->
+		this.binding == binding || retainedFrame.retainsPresentationBinding(binding)
+	is ReaderPresentationAuthority.LiveEngineExposed -> frame.proof.binding == binding
+	is ReaderPresentationAuthority.BlockingPreparation ->
+		retainedFrame.retainsPresentationBinding(binding)
+}
+
+private fun ReaderPresentationFrameOwner.retainsPresentationBinding(
+	binding: ReaderPresentationBinding
+): Boolean = when (this) {
+	ReaderPresentationFrameOwner.Neutral -> false
+	is ReaderPresentationFrameOwner.ShellCover -> proof.binding == binding
+	is ReaderPresentationFrameOwner.NativePage -> proof.binding == binding
+	is ReaderPresentationFrameOwner.Curl -> frame.binding == binding
+	is ReaderPresentationFrameOwner.LiveEngine -> proof.binding == binding
+}
+
 private fun ReaderPresentationAuthority.matchesPresentationIdentity(
 	token: ReaderPresentationToken?,
 	binding: ReaderPresentationBinding
@@ -921,6 +1022,28 @@ private fun ReaderPresentationAuthority.requiredTransition(): ReaderRequiredTran
 			ReaderRequiredTransition.PresentNativePage(token, binding, direction)
 	}
 }
+
+private fun ReaderPresentationAuthority.releaseIdentityTokenOrNull(): ReaderPresentationToken? =
+	when (this) {
+		ReaderPresentationAuthority.Unavailable -> null
+		is ReaderPresentationAuthority.ShellCover -> proof.token
+		is ReaderPresentationAuthority.ShellCoverCommitPending -> token
+		is ReaderPresentationAuthority.CurlGesture -> frame.frame.token
+		is ReaderPresentationAuthority.CurlSettlementPending -> retainedFrame.frame.token
+		is ReaderPresentationAuthority.SettledNativePage -> frame.proof.transitionToken
+		is ReaderPresentationAuthority.LiveEngineHandoffPending -> token
+		is ReaderPresentationAuthority.LiveEngineExposed -> frame.proof.token
+		is ReaderPresentationAuthority.BlockingPreparation -> retainedFrame.presentationTokenOrNull()
+	}
+
+private fun ReaderPresentationFrameOwner.presentationTokenOrNull(): ReaderPresentationToken? =
+	when (this) {
+		ReaderPresentationFrameOwner.Neutral -> null
+		is ReaderPresentationFrameOwner.ShellCover -> proof.token
+		is ReaderPresentationFrameOwner.NativePage -> proof.transitionToken
+		is ReaderPresentationFrameOwner.Curl -> frame.token
+		is ReaderPresentationFrameOwner.LiveEngine -> proof.token
+	}
 
 private fun ReaderPresentationAuthority.tokenOrNull(): ReaderPresentationToken? = when (this) {
 	is ReaderPresentationAuthority.ShellCoverCommitPending -> token

@@ -69,9 +69,12 @@ import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
+import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPreparationPresentation
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationDecision
+import paige.navic.reader.ReaderPresentationEffect
+import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLayer
@@ -93,6 +96,7 @@ import paige.navic.reader.readerRendererBusyFeedbackCanStartMinimumTimer
 import paige.navic.reader.readerRendererBusyFeedbackReadyDelayMillis
 import paige.navic.reader.readerShellCoverSwipeAction
 import paige.navic.reader.readerTapZonePageTurnDirectionFor
+import paige.navic.reader.retainsPresentationIdentity
 import paige.navic.reader.toPresentationFacts
 import paige.navic.reader.withRendererReadiness
 import paige.navic.util.core.Logger
@@ -141,6 +145,53 @@ private data class ReaderPresentationShadowComparison(
 	val inputMatches: Boolean,
 	val preparationMatches: Boolean
 )
+
+internal fun readerPresentationBindingEvent(
+	lastReportedBinding: ReaderPresentationBinding?,
+	currentBinding: ReaderPresentationBinding,
+	publicationOpenPending: Boolean,
+	relocationPending: Boolean
+): ReaderPresentationEvent.BindingReplaced? {
+	if (publicationOpenPending || relocationPending) return null
+	val previousBinding = lastReportedBinding ?: return null
+	if (previousBinding == currentBinding) return null
+	if (previousBinding.foliateSessionId != currentBinding.foliateSessionId) return null
+	if (previousBinding.publicationGeneration != currentBinding.publicationGeneration) return null
+	if (
+		previousBinding.destinationCommitIdentity != currentBinding.destinationCommitIdentity
+	) return null
+	return ReaderPresentationEvent.BindingReplaced(previousBinding, currentBinding)
+}
+
+internal class ReaderPresentationEffectHandler(
+	private val releaseStalePresentation: (
+		ReaderPresentationEffect.ReleaseStalePresentation
+	) -> Boolean
+) {
+	private val handled = mutableSetOf<ReaderPresentationEffectIdentity>()
+
+	fun deliver(
+		effects: List<ReaderPendingPresentationEffect>,
+		decision: ReaderPresentationDecision,
+		onHandled: (ReaderPresentationEffectIdentity) -> Unit
+	) {
+		val attempted = mutableSetOf<ReaderPresentationEffectIdentity>()
+		effects.forEach { pending ->
+			if (pending.identity in handled || !attempted.add(pending.identity)) return@forEach
+			when (val effect = pending.effect) {
+				is ReaderPresentationEffect.ReleaseStalePresentation -> {
+					if (
+						decision.retainsPresentationIdentity(effect.token, effect.binding)
+					) return@forEach
+					if (releaseStalePresentation(effect)) {
+						onHandled(pending.identity)
+						handled += pending.identity
+					}
+				}
+			}
+		}
+	}
+}
 
 internal class ReaderPresentationViewerReplacementFence {
 	private var rejectedRasterProfileEpoch: Long? = null
@@ -352,6 +403,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	navigationOverlayVisible: Boolean,
 	chromeOverlayVisible: Boolean,
 	presentationDecision: ReaderPresentationDecision,
+	presentationEffects: List<ReaderPendingPresentationEffect>,
+	onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit,
 	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
 	destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 	shellCoverVisible: Boolean,
@@ -401,6 +454,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	val currentOnWhispersyncCueMapSeekRequested by rememberUpdatedState(onWhispersyncCueMapSeekRequested)
 	val currentOnPagePreparationStateChange by rememberUpdatedState(onPagePreparationStateChange)
 	val currentOnStartupShellPrepared by rememberUpdatedState(onStartupShellPrepared)
+	val currentOnPresentationEffectHandled by rememberUpdatedState(onPresentationEffectHandled)
 	val currentOnPresentationEvent by rememberUpdatedState(onPresentationEvent)
 	var rendererBusyFeedbackToken by remember { mutableLongStateOf(0L) }
 	var nativeFrameRoot by remember { mutableStateOf<KomikkuReaderNativeFrameRoot?>(null) }
@@ -489,6 +543,10 @@ actual fun KomikkuReaderNativeFrameHost(
 					destinationCommitIdentity,
 					viewerKey
 				) { event -> currentOnPresentationEvent(event) }
+				handlePresentationEffects(
+					presentationEffects,
+					presentationDecision
+				) { identity -> currentOnPresentationEffectHandled(identity) }
 				setChromeOverlayVisible(chromeOverlayVisible)
 				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
 				setViewerLayerPaint(grayscaleEnabled, invertedColors)
@@ -552,6 +610,10 @@ actual fun KomikkuReaderNativeFrameHost(
 				destinationCommitIdentity,
 				viewerKey
 			) { event -> currentOnPresentationEvent(event) }
+			root.handlePresentationEffects(
+				presentationEffects,
+				presentationDecision
+			) { identity -> currentOnPresentationEffectHandled(identity) }
 			pageTurnFoliateSessionId?.let { sessionId ->
 				root.setPageTurnVisualLocation(
 					pageTurnVisualPageIndex,
@@ -631,6 +693,9 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private var presentationDecision: ReaderPresentationDecision? = null
 	private var lastPresentationShadowComparison: ReaderPresentationShadowComparison? = null
 	private var lastNativeCoverVisibilityTrace: String? = null
+	private val presentationEffectHandler = ReaderPresentationEffectHandler(
+		viewerContainer::releaseStalePresentation
+	)
 
 	init {
 		setBackgroundColor(Color.rgb(32, 35, 41))
@@ -705,6 +770,14 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 			onEvent = onEvent
 		)
 		reportPresentationShadowComparison()
+	}
+
+	fun handlePresentationEffects(
+		effects: List<ReaderPendingPresentationEffect>,
+		decision: ReaderPresentationDecision,
+		onHandled: (ReaderPresentationEffectIdentity) -> Unit
+	) {
+		presentationEffectHandler.deliver(effects, decision, onHandled)
 	}
 
 	fun setShellCover(visible: Boolean, coverUrl: String?, title: String, coverBackdropEnabled: Boolean) {
@@ -1953,6 +2026,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 	}
 
+	fun releaseStalePresentation(
+		effect: ReaderPresentationEffect.ReleaseStalePresentation
+	): Boolean = playLikeCurlController.releaseStalePresentationDeck(effect.binding)
+
 	fun onPresentationPublicationChanged(viewerReplacementPending: Boolean) {
 		if (viewerReplacementPending) {
 			presentationViewerReplacementFence.begin(rasterProfileEpoch)
@@ -2038,6 +2115,17 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 					)
 				)
 			}
+		}
+		val bindingEvent = readerPresentationBindingEvent(
+			lastReportedBinding = lastReportedPresentationBinding,
+			currentBinding = binding,
+			publicationOpenPending = presentationPublicationOpenPending,
+			relocationPending = presentationRelocationPending
+		)
+		if (bindingEvent != null) {
+			lastReportedPresentationBinding = binding
+			lastReportedPresentationFacts = null
+			onPresentationEvent(bindingEvent)
 		}
 		reportPresentationPreparationFacts(latestRasterPreparationState)
 	}

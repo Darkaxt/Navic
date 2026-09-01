@@ -57,6 +57,7 @@ import paige.navic.reader.ReaderPageRelocationQueue
 import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderPageTurnSettlementAck
+import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncPageLocalRect
@@ -2370,6 +2371,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 					"reserved=${drained.reservations.size} reason=$reason"
 			)
 		}
+	}
+
+	fun releaseStalePresentationDeck(
+		binding: ReaderPresentationBinding
+	): Boolean {
+		val textureGeneration = binding.textureGeneration ?: return false
+		val rasterGeneration = binding.rasterGeneration ?: return false
+		val owner = generationOwners[textureGeneration] ?: return true
+		if (owner.profile.rasterGeneration != rasterGeneration) return false
+		if (activeDeckGenerationId == textureGeneration) return false
+		if (pendingDeckGenerationId == textureGeneration) return false
+		releaseRendererOwnedGeneration(textureGeneration)
+		return textureGeneration !in generationOwners
 	}
 
 	fun invalidate(

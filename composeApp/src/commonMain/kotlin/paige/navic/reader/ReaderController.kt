@@ -20,46 +20,66 @@ data class ReaderControllerBackStep(
 	val presentationEffects: List<ReaderPresentationEffect> = emptyList()
 )
 
-internal data class ReaderPendingPresentationEffect(
-	val sequence: Long,
+data class ReaderPendingPresentationEffect(
+	val identity: ReaderPresentationEffectIdentity,
 	val effect: ReaderPresentationEffect
 ) {
 	init {
-		require(sequence > 0L)
+		require(identity == effect.identity())
 	}
 }
+
+internal class ReaderPresentationEffectQueueOverflowException(
+	capacity: Int,
+	pendingCount: Int,
+	incomingCount: Int
+) : IllegalStateException(
+	"Presentation effect queue capacity=$capacity pending=$pendingCount incoming=$incomingCount"
+)
 
 internal class ReaderPresentationEffectQueue(
 	private val capacity: Int = 16
 ) {
-	private val pending = mutableListOf<ReaderPendingPresentationEffect>()
-	private var nextSequence = 1L
-
-	var droppedEffectCount: Long = 0L
-		private set
+	private val pending = linkedMapOf<
+		ReaderPresentationEffectIdentity,
+		ReaderPendingPresentationEffect
+	>()
+	private val acknowledged = mutableSetOf<ReaderPresentationEffectIdentity>()
 
 	init {
 		require(capacity > 0)
 	}
 
 	fun retain(effects: List<ReaderPresentationEffect>): List<ReaderPendingPresentationEffect> {
-		val retained = effects.map { effect ->
-			check(nextSequence < Long.MAX_VALUE) { "Presentation effect sequence exhausted" }
-			ReaderPendingPresentationEffect(nextSequence++, effect).also(pending::add)
+		val additions = linkedMapOf<
+			ReaderPresentationEffectIdentity,
+			ReaderPendingPresentationEffect
+		>()
+		effects.forEach { effect ->
+			val identity = effect.identity()
+			if (
+				identity !in pending && identity !in acknowledged && identity !in additions
+			) {
+				additions[identity] = ReaderPendingPresentationEffect(identity, effect)
+			}
 		}
-		while (pending.size > capacity) {
-			pending.removeAt(0)
-			droppedEffectCount += 1L
+		if (pending.size + additions.size > capacity) {
+			throw ReaderPresentationEffectQueueOverflowException(
+				capacity = capacity,
+				pendingCount = pending.size,
+				incomingCount = additions.size
+			)
 		}
-		return retained
+		pending.putAll(additions)
+		return additions.values.toList()
 	}
 
-	fun pendingEffects(): List<ReaderPendingPresentationEffect> = pending.toList()
+	fun pendingEffects(): List<ReaderPendingPresentationEffect> = pending.values.toList()
 
-	fun consume(sequence: Long): ReaderPresentationEffect? {
-		val index = pending.indexOfFirst { it.sequence == sequence }
-		if (index < 0) return null
-		return pending.removeAt(index).effect
+	fun acknowledge(identity: ReaderPresentationEffectIdentity): Boolean {
+		if (pending.remove(identity) == null) return false
+		acknowledged += identity
+		return true
 	}
 }
 
