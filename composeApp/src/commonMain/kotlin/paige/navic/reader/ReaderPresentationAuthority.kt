@@ -1,5 +1,7 @@
 package paige.navic.reader
 
+import kotlin.jvm.JvmInline
+
 @JvmInline
 value class ReaderPresentationToken(val value: Long) {
 	init {
@@ -58,8 +60,7 @@ data class ReaderNativePagePresentationProof(
 	val viewportWidth: Int,
 	val viewportHeight: Int,
 	val rasterGeneration: Long,
-	val textureGeneration: Long,
-	val operationPolicy: ReaderPageOperationPolicy
+	val textureGeneration: Long
 ) {
 	init {
 		require(presentedFrame > 0L)
@@ -389,7 +390,7 @@ fun readerPresentationDecision(state: ReaderPresentationState): ReaderPresentati
 		authority = authority,
 		frameOwner = frameOwner,
 		layer = frameOwner.layer(),
-		inputPolicy = authority.inputPolicy(),
+		inputPolicy = authority.inputPolicy(state.preparationFacts),
 		preparationPresentation = authority.preparationPresentation(state.preparationFacts, state.failure),
 		diagnosticPresentation = state.failure ?: ReaderDiagnosticPresentation.Hidden,
 		requiredTransition = authority.requiredTransition()
@@ -474,17 +475,18 @@ private fun ReaderPresentationState.reduceShellCoverProof(
 	proof: ReaderShellCoverCommitProof
 ): ReaderPresentationReducerResult {
 	val authority = authority
-	return if (authority is ReaderPresentationAuthority.ShellCoverCommitPending &&
-		authority.token == proof.token &&
-		authority.binding == proof.binding &&
-		binding == proof.binding &&
-		authority.coverGeneration == proof.coverGeneration
-	) {
-		ReaderPresentationReducerResult(
-			copy(authority = ReaderPresentationAuthority.ShellCover(proof))
-		)
-	} else {
-		stalePresentation(proof.token, proof.binding)
+	return when {
+		authority is ReaderPresentationAuthority.ShellCoverCommitPending &&
+			authority.token == proof.token &&
+			authority.binding == proof.binding &&
+			binding == proof.binding &&
+			authority.coverGeneration == proof.coverGeneration ->
+			ReaderPresentationReducerResult(
+				copy(authority = ReaderPresentationAuthority.ShellCover(proof))
+			)
+		authority is ReaderPresentationAuthority.ShellCover &&
+			authority.proof == proof && binding == proof.binding -> ReaderPresentationReducerResult(this)
+		else -> staleProof(proof.token, proof.binding)
 	}
 }
 
@@ -499,7 +501,7 @@ private fun ReaderPresentationState.reduceShellCoverFailure(
 	) {
 		ReaderPresentationReducerResult(this)
 	} else {
-		stalePresentation(event.token, event.binding)
+		staleProof(event.token, event.binding)
 	}
 }
 
@@ -513,13 +515,13 @@ private fun ReaderPresentationState.reduceShellCoverEntry(
 	) {
 		ReaderPresentationReducerResult(this)
 	} else {
-		stalePresentation(proof.token, proof.binding)
+		staleProof(proof.token, proof.binding)
 	}
 }
 
 private fun ReaderPresentationState.reduceNativePageProof(
 	proof: ReaderNativePagePresentationProof
-): ReaderPresentationReducerResult = when (authority) {
+): ReaderPresentationReducerResult = when (val authority = authority) {
 	ReaderPresentationAuthority.Unavailable -> if (binding == null || binding == proof.binding) {
 		ReaderPresentationReducerResult(
 			copy(
@@ -531,29 +533,37 @@ private fun ReaderPresentationState.reduceNativePageProof(
 			)
 		)
 	} else {
-		stalePresentation(proof.transitionToken, proof.binding)
+		staleProof(proof.transitionToken, proof.binding)
 	}
-	else -> stalePresentation(proof.transitionToken, proof.binding)
+	is ReaderPresentationAuthority.SettledNativePage -> if (
+		authority.frame.proof == proof && binding == proof.binding
+	) {
+		ReaderPresentationReducerResult(this)
+	} else {
+		staleProof(proof.transitionToken, proof.binding)
+	}
+	else -> staleProof(proof.transitionToken, proof.binding)
 }
 
 private fun ReaderPresentationState.reduceCurlClaim(
 	frame: ReaderCurlPresentationFrame
 ): ReaderPresentationReducerResult {
 	val authority = authority
-	return if (authority is ReaderPresentationAuthority.SettledNativePage &&
-		binding == frame.binding &&
-		authority.frame.proof.binding == frame.binding
-	) {
-		ReaderPresentationReducerResult(
-			copy(
-				authority = ReaderPresentationAuthority.CurlGesture(
-					ReaderPresentationFrameOwner.Curl(frame)
-				),
-				nextTokenValue = nextTokenAfter(frame.token)
+	return when {
+		authority is ReaderPresentationAuthority.SettledNativePage &&
+			binding == frame.binding && authority.frame.proof.binding == frame.binding ->
+			ReaderPresentationReducerResult(
+				copy(
+					authority = ReaderPresentationAuthority.CurlGesture(
+						ReaderPresentationFrameOwner.Curl(frame)
+					),
+					nextTokenValue = nextTokenAfter(frame.token)
+				)
 			)
-		)
-	} else {
-		stalePresentation(frame.token, frame.binding)
+		authority is ReaderPresentationAuthority.CurlGesture &&
+			authority.frame.frame == frame && binding == frame.binding ->
+			ReaderPresentationReducerResult(this)
+		else -> staleProof(frame.token, frame.binding)
 	}
 }
 
@@ -561,23 +571,25 @@ private fun ReaderPresentationState.reduceCurlTerminal(
 	event: ReaderPresentationEvent.CurlTerminal
 ): ReaderPresentationReducerResult {
 	val authority = authority
-	return if (authority is ReaderPresentationAuthority.CurlGesture &&
-		authority.frame.frame.token == event.token &&
-		authority.frame.frame.binding == event.binding &&
-		binding == event.binding
-	) {
-		ReaderPresentationReducerResult(
-			copy(
-				authority = ReaderPresentationAuthority.CurlSettlementPending(
-					retainedFrame = authority.frame,
-					stage = event.stage
-				),
-				preparationFacts = preparationFacts.copy(failure = null),
-				failure = null
+	return when {
+		authority is ReaderPresentationAuthority.CurlGesture &&
+			authority.frame.frame.token == event.token &&
+			authority.frame.frame.binding == event.binding && binding == event.binding ->
+			ReaderPresentationReducerResult(
+				copy(
+					authority = ReaderPresentationAuthority.CurlSettlementPending(
+						retainedFrame = authority.frame,
+						stage = event.stage
+					),
+					preparationFacts = preparationFacts.copy(failure = null),
+					failure = null
+				)
 			)
-		)
-	} else {
-		stalePresentation(event.token, event.binding)
+		authority is ReaderPresentationAuthority.CurlSettlementPending &&
+			authority.retainedFrame.frame.token == event.token &&
+			authority.retainedFrame.frame.binding == event.binding &&
+			authority.stage == event.stage && binding == event.binding -> ReaderPresentationReducerResult(this)
+		else -> staleProof(event.token, event.binding)
 	}
 }
 
@@ -607,22 +619,22 @@ private fun ReaderPresentationState.reduceWebViewProof(
 	proof: ReaderLiveEnginePresentationProof
 ): ReaderPresentationReducerResult {
 	val authority = authority
-	return if (authority is ReaderPresentationAuthority.LiveEngineHandoffPending &&
-		authority.direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine &&
-		authority.token == proof.token &&
-		authority.binding == proof.binding &&
-		binding == proof.binding
-	) {
-		ReaderPresentationReducerResult(
-			copy(
-				authority = ReaderPresentationAuthority.LiveEngineExposed(
-					ReaderPresentationFrameOwner.LiveEngine(proof)
-				),
-				failure = null
+	return when {
+		authority is ReaderPresentationAuthority.LiveEngineHandoffPending &&
+			authority.direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine &&
+			authority.token == proof.token && authority.binding == proof.binding &&
+			binding == proof.binding -> ReaderPresentationReducerResult(
+				copy(
+					authority = ReaderPresentationAuthority.LiveEngineExposed(
+						ReaderPresentationFrameOwner.LiveEngine(proof)
+					),
+					failure = null
+				)
 			)
-		)
-	} else {
-		stalePresentation(proof.token, proof.binding)
+		authority is ReaderPresentationAuthority.LiveEngineExposed &&
+			authority.frame.proof == proof && binding == proof.binding ->
+			ReaderPresentationReducerResult(this)
+		else -> staleProof(proof.token, proof.binding)
 	}
 }
 
@@ -637,7 +649,7 @@ private fun ReaderPresentationState.reduceWebViewFailure(
 	) {
 		ReaderPresentationReducerResult(this)
 	} else {
-		stalePresentation(event.token, event.binding)
+		staleProof(event.token, event.binding)
 	}
 }
 
@@ -712,6 +724,52 @@ private fun ReaderPresentationState.reduceTimeout(
 	}
 }
 
+private fun ReaderPresentationState.staleProof(
+	token: ReaderPresentationToken?,
+	binding: ReaderPresentationBinding
+): ReaderPresentationReducerResult = if (authority.matchesPresentationIdentity(token, binding)) {
+	ReaderPresentationReducerResult(this)
+} else {
+	stalePresentation(token, binding)
+}
+
+private fun ReaderPresentationAuthority.matchesPresentationIdentity(
+	token: ReaderPresentationToken?,
+	binding: ReaderPresentationBinding
+): Boolean = when (this) {
+	ReaderPresentationAuthority.Unavailable -> false
+	is ReaderPresentationAuthority.ShellCover ->
+		proof.token == token && proof.binding == binding
+	is ReaderPresentationAuthority.ShellCoverCommitPending ->
+		(this.token == token && this.binding == binding) ||
+			retainedFrame.frameOwner.matchesPresentationIdentity(token, binding)
+	is ReaderPresentationAuthority.CurlGesture -> frame.matchesPresentationIdentity(token, binding)
+	is ReaderPresentationAuthority.CurlSettlementPending ->
+		retainedFrame.matchesPresentationIdentity(token, binding)
+	is ReaderPresentationAuthority.SettledNativePage -> frame.matchesPresentationIdentity(token, binding)
+	is ReaderPresentationAuthority.LiveEngineHandoffPending ->
+		(this.token == token && this.binding == binding) ||
+			retainedFrame.matchesPresentationIdentity(token, binding)
+	is ReaderPresentationAuthority.LiveEngineExposed -> frame.matchesPresentationIdentity(token, binding)
+	is ReaderPresentationAuthority.BlockingPreparation ->
+		retainedFrame.matchesPresentationIdentity(token, binding)
+}
+
+private fun ReaderPresentationFrameOwner.matchesPresentationIdentity(
+	token: ReaderPresentationToken?,
+	binding: ReaderPresentationBinding
+): Boolean = when (this) {
+	ReaderPresentationFrameOwner.Neutral -> false
+	is ReaderPresentationFrameOwner.ShellCover ->
+		proof.token == token && proof.binding == binding
+	is ReaderPresentationFrameOwner.NativePage ->
+		proof.transitionToken == token && proof.binding == binding
+	is ReaderPresentationFrameOwner.Curl ->
+		frame.token == token && frame.binding == binding
+	is ReaderPresentationFrameOwner.LiveEngine ->
+		proof.token == token && proof.binding == binding
+}
+
 private fun ReaderPresentationState.stalePresentation(
 	token: ReaderPresentationToken?,
 	binding: ReaderPresentationBinding
@@ -732,7 +790,9 @@ private fun ReaderPresentationAuthority.frameOwner(): ReaderPresentationFrameOwn
 	is ReaderPresentationAuthority.BlockingPreparation -> retainedFrame
 }
 
-private fun ReaderPresentationAuthority.inputPolicy(): ReaderPresentationInputPolicy = when (this) {
+private fun ReaderPresentationAuthority.inputPolicy(
+	preparationFacts: ReaderPagePreparationFacts
+): ReaderPresentationInputPolicy = when (this) {
 	ReaderPresentationAuthority.Unavailable -> ReaderPresentationInputPolicy.RecoveryOnly
 	is ReaderPresentationAuthority.ShellCover -> ReaderPresentationInputPolicy.ShellCover
 	is ReaderPresentationAuthority.ShellCoverCommitPending,
@@ -741,7 +801,7 @@ private fun ReaderPresentationAuthority.inputPolicy(): ReaderPresentationInputPo
 	is ReaderPresentationAuthority.CurlSettlementPending ->
 		ReaderPresentationInputPolicy.ClaimedCurl(retainedFrame.frame.token)
 	is ReaderPresentationAuthority.SettledNativePage ->
-		ReaderPresentationInputPolicy.NativePage(frame.proof.operationPolicy)
+		ReaderPresentationInputPolicy.NativePage(readerPageOperationPolicy(preparationFacts.readiness))
 	is ReaderPresentationAuthority.LiveEngineExposed -> ReaderPresentationInputPolicy.LiveEngine
 	is ReaderPresentationAuthority.BlockingPreparation -> if (
 		retainedFrame == ReaderPresentationFrameOwner.Neutral

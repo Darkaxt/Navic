@@ -20,11 +20,13 @@ class ReaderPresentationAuthorityReducerTest {
 		preparationGeneration = 6L
 	)
 	private val otherBinding = binding.copy(viewportGeneration = 4L)
-	private val operationPolicy = ReaderPageOperationPolicy(
-		newPointer = ReaderPageNewPointerDecision.Accept,
-		continueActivePointer = true,
-		continueSettlement = false
+	private val readyReadiness = ReaderPageReadinessState(
+		rasterGeneration = ReaderChapterRasterGenerationState.Ready,
+		decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+		textureDeck = ReaderTextureDeckState.Ready,
+		interaction = ReaderPageInteractionState.Ready
 	)
+	private val operationPolicy = readerPageOperationPolicy(readyReadiness)
 	private val nativeProof = ReaderNativePagePresentationProof(
 		binding = binding,
 		transitionToken = null,
@@ -32,8 +34,7 @@ class ReaderPresentationAuthorityReducerTest {
 		viewportWidth = 100,
 		viewportHeight = 200,
 		rasterGeneration = 4L,
-		textureGeneration = 5L,
-		operationPolicy = operationPolicy
+		textureGeneration = 5L
 	)
 	private val nativeFrame = ReaderPresentationFrameOwner.NativePage(nativeProof)
 	private val nativeRetainedFrame = ReaderShellCoverRetainedFrame.NativePage(nativeFrame)
@@ -85,6 +86,148 @@ class ReaderPresentationAuthorityReducerTest {
 		assertEquals(ReaderPresentationLayer.ShellCover, reduction.decision.layer)
 		assertEquals(ReaderPresentationInputPolicy.ShellCover, reduction.decision.inputPolicy)
 		assertEquals(ReaderRequiredTransition.None, reduction.decision.requiredTransition)
+	}
+
+	@Test
+	fun replayedAcceptedReceiptsAreNoOps() {
+		val shellProof = shellCoverProof(ReaderPresentationToken(7L), coverGeneration = 8L)
+		val shellCommitted = readerPresentationReduce(
+			readerPresentationReduce(
+				settledNativeState(nextTokenValue = 7L),
+				ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 8L)
+			).state,
+			ReaderPresentationEvent.ShellCoverCommitted(shellProof)
+		)
+		assertNoOp(
+			shellCommitted.state,
+			readerPresentationReduce(
+				shellCommitted.state,
+				ReaderPresentationEvent.ShellCoverCommitted(shellProof)
+			)
+		)
+
+		val nativePresented = readerPresentationReduce(
+			ReaderPresentationState(
+				binding = binding,
+				preparationFacts = preparationFacts(readiness = readyReadiness)
+			),
+			ReaderPresentationEvent.NativePagePresented(nativeProof)
+		)
+		assertNoOp(
+			nativePresented.state,
+			readerPresentationReduce(
+				nativePresented.state,
+				ReaderPresentationEvent.NativePagePresented(nativeProof)
+			)
+		)
+
+		val curl = curlFrame(ReaderPresentationToken(9L))
+		val curlClaimed = readerPresentationReduce(
+			settledNativeState(),
+			ReaderPresentationEvent.CurlClaimed(curl.frame)
+		)
+		assertNoOp(
+			curlClaimed.state,
+			readerPresentationReduce(curlClaimed.state, ReaderPresentationEvent.CurlClaimed(curl.frame))
+		)
+		val terminalEvent = ReaderPresentationEvent.CurlTerminal(
+			token = ReaderPresentationToken(9L),
+			binding = binding,
+			stage = ReaderCurlSettlementStage.AwaitingFoliate
+		)
+		val curlSettled = readerPresentationReduce(curlClaimed.state, terminalEvent)
+		assertNoOp(curlSettled.state, readerPresentationReduce(curlSettled.state, terminalEvent))
+
+		val liveHandoff = readerPresentationReduce(
+			settledNativeState(),
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+			)
+		)
+		val liveProof = ReaderLiveEnginePresentationProof(
+			token = ReaderPresentationToken(1L),
+			binding = binding,
+			presentedFrame = 12L,
+			viewportWidth = 100,
+			viewportHeight = 200,
+			liveEngineGeneration = 7L
+		)
+		val liveExposed = readerPresentationReduce(
+			liveHandoff.state,
+			ReaderPresentationEvent.WebViewPresentationProven(liveProof)
+		)
+		assertNoOp(
+			liveExposed.state,
+			readerPresentationReduce(
+				liveExposed.state,
+				ReaderPresentationEvent.WebViewPresentationProven(liveProof)
+			)
+		)
+	}
+
+	@Test
+	fun settledNativeInputTracksCurrentPreparationReadinessWithoutReplacingFrame() {
+		val settlingReadiness = readyReadiness.copy(
+			textureDeck = ReaderTextureDeckState.Settling,
+			interaction = ReaderPageInteractionState.Settling
+		)
+		val failedReadiness = readyReadiness.copy(
+			textureDeck = ReaderTextureDeckState.Failed,
+			interaction = ReaderPageInteractionState.Failed
+		)
+		val state = settledNativeState()
+		val initialOwner = readerPresentationDecision(state).frameOwner
+
+		val settling = readerPresentationReduce(
+			state,
+			ReaderPresentationEvent.PreparationReported(
+				binding,
+				preparationFacts(
+					phase = ReaderPagePreparationPhase.Ready,
+					readiness = settlingReadiness
+				)
+			)
+		)
+		assertEquals(initialOwner, settling.decision.frameOwner)
+		assertEquals(
+			ReaderPresentationInputPolicy.NativePage(readerPageOperationPolicy(settlingReadiness)),
+			settling.decision.inputPolicy
+		)
+		assertIs<ReaderPageNewPointerDecision.Reject>(
+			(settling.decision.inputPolicy as ReaderPresentationInputPolicy.NativePage).policy.newPointer
+		)
+
+		val failed = readerPresentationReduce(
+			settling.state,
+			ReaderPresentationEvent.PreparationReported(
+				binding,
+				preparationFacts(
+					phase = ReaderPagePreparationPhase.Ready,
+					readiness = failedReadiness
+				)
+			)
+		)
+		assertEquals(initialOwner, failed.decision.frameOwner)
+		assertEquals(
+			ReaderPresentationInputPolicy.NativePage(readerPageOperationPolicy(failedReadiness)),
+			failed.decision.inputPolicy
+		)
+		assertIs<ReaderPageNewPointerDecision.Reject>(
+			(failed.decision.inputPolicy as ReaderPresentationInputPolicy.NativePage).policy.newPointer
+		)
+
+		val ready = readerPresentationReduce(
+			failed.state,
+			ReaderPresentationEvent.PreparationReported(
+				binding,
+				preparationFacts(
+					phase = ReaderPagePreparationPhase.Ready,
+					readiness = readyReadiness
+				)
+			)
+		)
+		assertEquals(initialOwner, ready.decision.frameOwner)
+		assertEquals(ReaderPresentationInputPolicy.NativePage(operationPolicy), ready.decision.inputPolicy)
 	}
 
 	@Test
@@ -336,7 +479,11 @@ class ReaderPresentationAuthorityReducerTest {
 
 		fixtures.forEach { (authority, expectedOwner) ->
 			val decision = readerPresentationDecision(
-				ReaderPresentationState(authority = authority, binding = binding)
+				ReaderPresentationState(
+					authority = authority,
+					binding = binding,
+					preparationFacts = preparationFacts(readiness = readyReadiness)
+				)
 			)
 
 			assertEquals(expectedOwner, decision.frameOwner)
@@ -500,18 +647,29 @@ class ReaderPresentationAuthorityReducerTest {
 	private fun settledNativeState(nextTokenValue: Long = 1L) = ReaderPresentationState(
 		authority = ReaderPresentationAuthority.SettledNativePage(nativeFrame),
 		binding = binding,
+		preparationFacts = preparationFacts(readiness = readyReadiness),
 		nextTokenValue = nextTokenValue
 	)
 
+	private fun assertNoOp(
+		state: ReaderPresentationState,
+		reduction: ReaderPresentationReduction
+	) {
+		assertEquals(state, reduction.state)
+		assertEquals(readerPresentationDecision(state), reduction.decision)
+		assertEquals(emptyList(), reduction.effects)
+	}
+
 	private fun preparationFacts(
 		generation: Long = 6L,
-		phase: ReaderPagePreparationPhase = ReaderPagePreparationPhase.Preparing
+		phase: ReaderPagePreparationPhase = ReaderPagePreparationPhase.Preparing,
+		readiness: ReaderPageReadinessState = readyReadiness
 	) = ReaderPagePreparationFacts(
 		phase = phase,
 		generation = generation,
 		completedCount = 1,
 		requiredCount = 3,
-		readiness = ReaderPageReadinessState()
+		readiness = readiness
 	)
 
 	private fun curlFrame(token: ReaderPresentationToken) = ReaderPresentationFrameOwner.Curl(
