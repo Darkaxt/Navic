@@ -2333,6 +2333,16 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			startDelimiter = "private fun releaseRendererOwnedGeneration(generationId: Long)",
 			endDelimiter = "private fun releaseGeneration(generationId: Long)"
 		)
+		val releaseGate = requiredFoliateSourceSlice(
+			source = controller,
+			startDelimiter = "internal class ReaderRendererOwnedGenerationReleaseGate<Owner>(",
+			endDelimiter = "internal class ReaderPlayLikeCurlFoliateController("
+		)
+		val deckReleased = requiredFoliateSourceSlice(
+			source = controller,
+			startDelimiter = "override fun onDeckReleased(generationId: Long, reason: DeckReleaseReason)",
+			endDelimiter = "override fun onGestureRejected("
+		)
 
 		assertContains(controller, "failedPreparationGeneration")
 		assertContains(stateCallback, "state.preparationGeneration")
@@ -2358,15 +2368,22 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(deckPrepared, "releaseRendererOwnedGeneration(generationId)")
 		assertContains(deckPrepared, "activeDeckPreparationGeneration")
 		assertContains(stateCallback, "pendingDeckGenerationId?.let(::releaseRendererOwnedGeneration)")
-		assertContains(rendererRelease, "releaseGeneration(generationId)")
-		assertEquals(
-			1,
-			Regex("surfaceView\\.releaseDeck\\(generationId\\)").findAll(rendererRelease).count()
+		assertContains(
+			rendererRelease,
+			"rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)"
 		)
+		assertFalse(rendererRelease.contains("releaseGeneration(generationId)"))
+		val markInFlight = releaseGate.indexOf("rendererReleaseInFlight.add(generationId)")
+		val requestRelease = releaseGate.indexOf("requestRendererRelease(generationId)")
+		val clearFailedAttempt = releaseGate.indexOf("rendererReleaseInFlight -= generationId")
+		assertTrue(markInFlight >= 0 && requestRelease > markInFlight)
+		assertTrue(clearFailedAttempt > requestRelease)
+		assertContains(releaseGate, "throw failure")
+		assertContains(deckReleased, "rendererOwnedGenerationReleaseGate.completeRelease(generationId)")
 		assertTrue(
-			rendererRelease.indexOf("releaseGeneration(generationId)") <
-				rendererRelease.indexOf("surfaceView.releaseDeck(generationId)"),
-			"Local ownership must be tombstoned before renderer release can synchronously callback."
+			deckReleased.indexOf("completeRelease(generationId)") <
+				deckReleased.indexOf("deckRecoveryCoordinator.onDeckReleased(generationId)"),
+			"Renderer completion must retire the exact owner before recovery observes release."
 		)
 		assertContains(profilePreparation, "preparationGeneration")
 		assertContains(profilePreparation, "failedPreparationGeneration")

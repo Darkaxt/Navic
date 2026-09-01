@@ -643,6 +643,50 @@ internal class ReaderConfirmedDecklessPassiveAuthority {
 	}
 }
 
+internal class ReaderRendererOwnedGenerationReleaseGate<Owner>(
+	private val ownerForGeneration: (Long) -> Owner?,
+	private val rasterGenerationForOwner: (Owner) -> Long,
+	private val isProtectedGeneration: (Long) -> Boolean,
+	private val requestRendererRelease: (Long) -> Unit,
+	private val retireOwner: (Long) -> Unit
+) {
+	private val rendererReleaseInFlight = mutableSetOf<Long>()
+
+	fun request(binding: ReaderPresentationBinding): Boolean {
+		val textureGeneration = binding.textureGeneration ?: return false
+		val rasterGeneration = binding.rasterGeneration ?: return false
+		val owner = ownerForGeneration(textureGeneration) ?: return true
+		if (rasterGenerationForOwner(owner) != rasterGeneration) return false
+		if (textureGeneration in rendererReleaseInFlight) return true
+		if (isProtectedGeneration(textureGeneration)) return false
+		return requestOwnedGeneration(textureGeneration)
+	}
+
+	fun requestOwnedGeneration(generationId: Long): Boolean {
+		if (ownerForGeneration(generationId) == null) return true
+		if (!rendererReleaseInFlight.add(generationId)) return true
+		try {
+			requestRendererRelease(generationId)
+		} catch (failure: Throwable) {
+			rendererReleaseInFlight -= generationId
+			throw failure
+		}
+		return true
+	}
+
+	fun completeRelease(generationId: Long) {
+		rendererReleaseInFlight -= generationId
+		retireOwner(generationId)
+	}
+
+	fun abandonRelease(generationId: Long) {
+		rendererReleaseInFlight -= generationId
+	}
+
+	fun isReleaseInFlight(generationId: Long): Boolean =
+		generationId in rendererReleaseInFlight
+}
+
 /**
  * Production bridge between Foliate's passive raster cache and the imported PlayLikeCurl surface.
  * Foliate remains the pagination authority; this controller owns only immutable raster leases,
@@ -970,6 +1014,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 	) -> Boolean)? = null
 	private var activeDeckGenerationId: Long? = null
 	private var pendingDeckGenerationId: Long? = null
+	private val rendererOwnedGenerationReleaseGate =
+		ReaderRendererOwnedGenerationReleaseGate(
+			ownerForGeneration = generationOwners::get,
+			rasterGenerationForOwner = { pages -> pages.profile.rasterGeneration },
+			isProtectedGeneration = { generationId ->
+				generationId == activeDeckGenerationId ||
+					generationId == pendingDeckGenerationId
+			},
+			requestRendererRelease = surfaceView::releaseDeck,
+			retireOwner = ::releaseGeneration
+		)
 	private var pendingDeckOrdinal: Int? = null
 	private var initialLivePresentationAuthority:
 		InitialLivePresentationAuthorityRequest? = null
@@ -1133,7 +1188,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onDeckReleased(generationId: Long, reason: DeckReleaseReason) {
-				releaseGeneration(generationId)
+				rendererOwnedGenerationReleaseGate.completeRelease(generationId)
 				deckRecoveryCoordinator.onDeckReleased(generationId)
 			}
 
@@ -2375,16 +2430,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun releaseStalePresentationDeck(
 		binding: ReaderPresentationBinding
-	): Boolean {
-		val textureGeneration = binding.textureGeneration ?: return false
-		val rasterGeneration = binding.rasterGeneration ?: return false
-		val owner = generationOwners[textureGeneration] ?: return true
-		if (owner.profile.rasterGeneration != rasterGeneration) return false
-		if (activeDeckGenerationId == textureGeneration) return false
-		if (pendingDeckGenerationId == textureGeneration) return false
-		releaseRendererOwnedGeneration(textureGeneration)
-		return textureGeneration !in generationOwners
-	}
+	): Boolean = rendererOwnedGenerationReleaseGate.request(binding)
 
 	fun invalidate(
 		reason: String,
@@ -5933,12 +5979,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun releaseRendererOwnedGeneration(generationId: Long) {
-		if (generationId !in generationOwners) return
-		releaseGeneration(generationId)
-		surfaceView.releaseDeck(generationId)
+		rendererOwnedGenerationReleaseGate.requestOwnedGeneration(generationId)
 	}
 
 	private fun releaseGeneration(generationId: Long) {
+		rendererOwnedGenerationReleaseGate.abandonRelease(generationId)
 		deckDiagnosticTracker?.cancel(generationId)
 		generationPreparationGenerations.remove(generationId)
 		val pages = generationOwners.remove(generationId) ?: return

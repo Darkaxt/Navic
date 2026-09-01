@@ -119,13 +119,23 @@ class ReaderPageQaFaultHostSourceTest {
 			if (queue.acknowledge(identity)) acknowledgementCount += 1
 		}
 
-		handler.deliver(listOf(pending, pending), decision, acknowledge)
+		val firstDeliveryHandled = handler.deliver(
+			listOf(pending, pending),
+			decision,
+			acknowledge
+		)
+		assertFalse(firstDeliveryHandled)
 		assertEquals(1, releaseCount)
 		assertEquals(0, acknowledgementCount)
 		assertEquals(listOf(pending), queue.pendingEffects())
 
 		releaseSucceeds = true
-		handler.deliver(queue.pendingEffects(), decision, acknowledge)
+		val secondDeliveryHandled = handler.deliver(
+			queue.pendingEffects(),
+			decision,
+			acknowledge
+		)
+		assertTrue(secondDeliveryHandled)
 		assertEquals(2, releaseCount)
 		assertEquals(1, acknowledgementCount)
 		assertTrue(queue.pendingEffects().isEmpty())
@@ -133,6 +143,115 @@ class ReaderPageQaFaultHostSourceTest {
 		handler.deliver(listOf(pending, pending), decision, acknowledge)
 		assertEquals(2, releaseCount)
 		assertEquals(1, acknowledgementCount)
+	}
+
+	@Test
+	fun presentationEffectReleaseExceptionReturnsFailureAndRetriesQueuedEffect() {
+		val effect = stalePresentationEffect()
+		val queue = ReaderPresentationEffectQueue(capacity = 1)
+		val pending = queue.retain(listOf(effect)).single()
+		var releaseAttempts = 0
+		var acknowledgementCount = 0
+		val handler = ReaderPresentationEffectHandler {
+			releaseAttempts += 1
+			if (releaseAttempts == 1) error("injected renderer release failure")
+			true
+		}
+		val decision = readerPresentationDecision(ReaderPresentationState())
+		val acknowledge: (ReaderPresentationEffectIdentity) -> Unit = { identity ->
+			if (queue.acknowledge(identity)) acknowledgementCount += 1
+		}
+
+		assertFalse(handler.deliver(queue.pendingEffects(), decision, acknowledge))
+		assertEquals(1, releaseAttempts)
+		assertEquals(0, acknowledgementCount)
+		assertEquals(listOf(pending), queue.pendingEffects())
+
+		assertTrue(handler.deliver(queue.pendingEffects(), decision, acknowledge))
+		assertEquals(2, releaseAttempts)
+		assertEquals(1, acknowledgementCount)
+		assertTrue(queue.pendingEffects().isEmpty())
+	}
+
+	@Test
+	fun staleRendererOwnedGenerationRetriesThrownReleaseAndRetiresOnlyOnCompletion() {
+		val binding = presentationBinding()
+		val generationId = requireNotNull(binding.textureGeneration)
+		val owners = mutableMapOf(generationId to requireNotNull(binding.rasterGeneration))
+		val bitmapLeases = mutableSetOf(generationId)
+		var activeGenerationId: Long? = generationId
+		var pendingGenerationId: Long? = null
+		var releaseInvocations = 0
+		val acceptedReleases = mutableListOf<Long>()
+		var throwNextRelease = true
+		val releaseGate = ReaderRendererOwnedGenerationReleaseGate(
+			ownerForGeneration = owners::get,
+			rasterGenerationForOwner = { rasterGeneration -> rasterGeneration },
+			isProtectedGeneration = { candidate ->
+				candidate == activeGenerationId || candidate == pendingGenerationId
+			},
+			requestRendererRelease = { candidate ->
+				releaseInvocations += 1
+				if (throwNextRelease) {
+					throwNextRelease = false
+					error("injected surface release failure")
+				}
+				acceptedReleases += candidate
+			},
+			retireOwner = { candidate ->
+				owners.remove(candidate)
+				bitmapLeases -= candidate
+			}
+		)
+
+		assertFalse(releaseGate.request(binding))
+		assertEquals(0, releaseInvocations)
+		activeGenerationId = null
+		pendingGenerationId = generationId
+		assertFalse(releaseGate.request(binding))
+		assertEquals(0, releaseInvocations)
+		pendingGenerationId = null
+
+		val effect = ReaderPresentationEffect.ReleaseStalePresentation(
+			token = ReaderPresentationToken(20L),
+			binding = binding
+		)
+		val queue = ReaderPresentationEffectQueue(capacity = 1)
+		val pending = queue.retain(listOf(effect)).single()
+		val handler = ReaderPresentationEffectHandler { handledEffect ->
+			releaseGate.request(handledEffect.binding)
+		}
+		val decision = readerPresentationDecision(ReaderPresentationState())
+		val acknowledge: (ReaderPresentationEffectIdentity) -> Unit = { identity ->
+			queue.acknowledge(identity)
+		}
+
+		assertFalse(handler.deliver(queue.pendingEffects(), decision, acknowledge))
+		assertEquals(1, releaseInvocations)
+		assertEquals(listOf(pending), queue.pendingEffects())
+		assertEquals(setOf(generationId), owners.keys)
+		assertEquals(setOf(generationId), bitmapLeases)
+		assertFalse(releaseGate.isReleaseInFlight(generationId))
+
+		assertTrue(handler.deliver(queue.pendingEffects(), decision, acknowledge))
+		assertEquals(2, releaseInvocations)
+		assertEquals(listOf(generationId), acceptedReleases)
+		assertTrue(queue.pendingEffects().isEmpty())
+		assertEquals(setOf(generationId), owners.keys)
+		assertEquals(setOf(generationId), bitmapLeases)
+		assertTrue(releaseGate.isReleaseInFlight(generationId))
+
+		assertTrue(releaseGate.request(binding))
+		assertEquals(2, releaseInvocations)
+		assertEquals(listOf(generationId), acceptedReleases)
+		releaseGate.completeRelease(generationId)
+		assertTrue(owners.isEmpty())
+		assertTrue(bitmapLeases.isEmpty())
+		assertFalse(releaseGate.isReleaseInFlight(generationId))
+
+		assertTrue(releaseGate.request(binding))
+		assertEquals(2, releaseInvocations)
+		assertEquals(listOf(generationId), acceptedReleases)
 	}
 
 	@Test
@@ -228,11 +347,9 @@ class ReaderPageQaFaultHostSourceTest {
 				report.indexOf("reportPresentationPreparationFacts(")
 		)
 		assertContains(host, "releaseStalePresentationDeck(effect.binding)")
-		assertContains(release, "generationOwners[textureGeneration] ?: return true")
-		assertContains(release, "owner.profile.rasterGeneration != rasterGeneration")
-		assertContains(release, "activeDeckGenerationId == textureGeneration")
-		assertContains(release, "pendingDeckGenerationId == textureGeneration")
-		assertContains(release, "releaseRendererOwnedGeneration(textureGeneration)")
+		assertContains(release, "rendererOwnedGenerationReleaseGate.request(binding)")
+		assertContains(controller, "rendererOwnedGenerationReleaseGate.completeRelease(generationId)")
+		assertContains(controller, "private val rendererReleaseInFlight")
 	}
 
 	@Test

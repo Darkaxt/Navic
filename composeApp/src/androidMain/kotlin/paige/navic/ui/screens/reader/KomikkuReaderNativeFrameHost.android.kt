@@ -174,22 +174,43 @@ internal class ReaderPresentationEffectHandler(
 		effects: List<ReaderPendingPresentationEffect>,
 		decision: ReaderPresentationDecision,
 		onHandled: (ReaderPresentationEffectIdentity) -> Unit
-	) {
+	): Boolean {
 		val attempted = mutableSetOf<ReaderPresentationEffectIdentity>()
+		var allHandled = true
 		effects.forEach { pending ->
 			if (pending.identity in handled || !attempted.add(pending.identity)) return@forEach
 			when (val effect = pending.effect) {
 				is ReaderPresentationEffect.ReleaseStalePresentation -> {
 					if (
 						decision.retainsPresentationIdentity(effect.token, effect.binding)
-					) return@forEach
-					if (releaseStalePresentation(effect)) {
+					) {
+						allHandled = false
+						return@forEach
+					}
+					val released = try {
+						releaseStalePresentation(effect)
+					} catch (_: Throwable) {
+						false
+					}
+					if (!released) {
+						allHandled = false
+						return@forEach
+					}
+					val acknowledged = try {
 						onHandled(pending.identity)
+						true
+					} catch (_: Throwable) {
+						false
+					}
+					if (acknowledged) {
 						handled += pending.identity
+					} else {
+						allHandled = false
 					}
 				}
 			}
 		}
+		return allHandled
 	}
 }
 
