@@ -142,6 +142,36 @@ private data class ReaderPresentationShadowComparison(
 	val preparationMatches: Boolean
 )
 
+internal class ReaderPresentationViewerReplacementFence {
+	private var rejectedRasterProfileEpoch: Long? = null
+
+	var isPending: Boolean = false
+		private set
+
+	fun begin(rasterProfileEpoch: Long?) {
+		isPending = true
+		observeRasterProfileEpoch(rasterProfileEpoch)
+	}
+
+	fun observeRasterProfileEpoch(rasterProfileEpoch: Long?) {
+		if (!isPending || rasterProfileEpoch == null) return
+		rejectedRasterProfileEpoch = maxOf(
+			rejectedRasterProfileEpoch ?: rasterProfileEpoch,
+			rasterProfileEpoch
+		)
+	}
+
+	fun completeAfterViewerInvalidation() {
+		isPending = false
+	}
+
+	fun admits(deck: ReaderPagePreparedActiveDeck): Boolean {
+		if (isPending) return false
+		val rejectedEpoch = rejectedRasterProfileEpoch ?: return true
+		return deck.rasterProfileEpoch > rejectedEpoch
+	}
+}
+
 internal class ReaderStartupShellHandoffGate {
 	private var nextAttempt = 0L
 	private var activeAttempt: Long? = null
@@ -665,7 +695,9 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	) {
 		if (presentationViewerKey != viewerKey) {
 			presentationViewerKey = viewerKey
-			viewerContainer.onPresentationPublicationChanged()
+			viewerContainer.onPresentationPublicationChanged(
+				viewerReplacementPending = currentViewerKey != viewerKey
+			)
 		}
 		presentationDecision = decision
 		viewerContainer.setPresentationShadow(
@@ -885,6 +917,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 				setContent(content)
 			}
 			viewerContainer.replaceViewerContent(viewerView)
+			viewerContainer.completePresentationViewerReplacement()
 			currentViewerComposeView = viewerView
 			currentViewerKey = viewerKey
 			nestedCompositionDisposalQueue.enqueue(previousViewer)
@@ -1169,6 +1202,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var presentationViewportGeneration = 0L
 	private var presentationPublicationOpenPending = false
 	private var presentationRelocationPending = false
+	private val presentationViewerReplacementFence = ReaderPresentationViewerReplacementFence()
 	private var lastReportedPresentationBinding: ReaderPresentationBinding? = null
 	private var lastReportedPresentationFacts: Pair<ReaderPresentationBinding, ReaderPagePreparationFacts>? = null
 	private var lastPresentationWindowVisible: Boolean? = null
@@ -1632,6 +1666,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun onRasterProfileEpochChanged(epoch: Long?) {
+		presentationViewerReplacementFence.observeRasterProfileEpoch(epoch)
 		clearDestinationDeckPrewarm()
 		rasterProfileEpoch = epoch
 		val activeReadiness = readerPageActivePaginationReadiness(
@@ -1918,12 +1953,19 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 	}
 
-	fun onPresentationPublicationChanged() {
+	fun onPresentationPublicationChanged(viewerReplacementPending: Boolean) {
+		if (viewerReplacementPending) {
+			presentationViewerReplacementFence.begin(rasterProfileEpoch)
+		}
 		presentationPublicationGeneration = Math.incrementExact(presentationPublicationGeneration)
 		presentationPublicationOpenPending = true
 		presentationRelocationPending = false
 		lastReportedPresentationBinding = null
 		lastReportedPresentationFacts = null
+	}
+
+	fun completePresentationViewerReplacement() {
+		presentationViewerReplacementFence.completeAfterViewerInvalidation()
 	}
 
 	private fun reportPresentationLifecycleEvent(event: ReaderPresentationLifecycleEvent) {
@@ -1953,6 +1995,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			?.takeIf { it.isNotBlank() }
 			?: return null
 		val deck = preparedActiveDeck ?: return null
+		if (!presentationViewerReplacementFence.admits(deck)) return null
 		val visualPageIndex = pageTurnVisualPageIndex ?: return null
 		if (deck.sourceCenterPageIndex != visualPageIndex) return null
 		if (

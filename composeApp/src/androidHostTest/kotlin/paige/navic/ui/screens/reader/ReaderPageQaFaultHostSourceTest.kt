@@ -4,6 +4,7 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderPageQaFaultHostSourceTest {
@@ -27,6 +28,62 @@ class ReaderPageQaFaultHostSourceTest {
 				viewerReplacement < composeOverlay,
 			"viewer replacement must remain terminal after visual-location synchronization"
 		)
+	}
+
+	@Test
+	fun viewerReplacementFencePublishesOnlyTheFreshGenerationOnce() {
+		val fence = ReaderPresentationViewerReplacementFence()
+		val oldDeck = presentationDeck(rasterProfileEpoch = 7L, generationId = 70L)
+		val lateOldDeck = presentationDeck(rasterProfileEpoch = 8L, generationId = 80L)
+		val freshDeck = presentationDeck(rasterProfileEpoch = 9L, generationId = 90L)
+		val publicationEvents = mutableListOf<Long>()
+		var publicationPending = true
+
+		fun report(deck: ReaderPagePreparedActiveDeck) {
+			if (publicationPending && fence.admits(deck)) {
+				publicationPending = false
+				publicationEvents += 2L
+			}
+		}
+
+		fence.begin(rasterProfileEpoch = oldDeck.rasterProfileEpoch)
+		report(oldDeck)
+		fence.observeRasterProfileEpoch(lateOldDeck.rasterProfileEpoch)
+		report(lateOldDeck)
+		assertTrue(publicationEvents.isEmpty())
+
+		fence.completeAfterViewerInvalidation()
+		assertFalse(fence.isPending)
+		assertTrue(publicationEvents.isEmpty())
+
+		report(lateOldDeck)
+		assertTrue(publicationEvents.isEmpty())
+		report(freshDeck)
+		report(freshDeck)
+
+		assertEquals(listOf(2L), publicationEvents)
+	}
+
+	@Test
+	fun hostClearsShadowFenceOnlyAfterTerminalViewerInvalidationWithoutReporting() {
+		val source = hostSource()
+		val viewerReplacement = source
+			.substringAfter("fun setViewerContent(viewerKey: ReaderViewerKey")
+			.substringBefore("fun canAcceptNewPointer()")
+		val binding = source
+			.substringAfter("private fun currentPresentationBindingOrNull()")
+			.substringBefore("private fun reportPresentationIdentityIfAvailable()")
+
+		assertContains(source, "presentationViewerReplacementFence.begin(")
+		assertContains(source, "presentationViewerReplacementFence.observeRasterProfileEpoch(epoch)")
+		assertContains(binding, "if (!presentationViewerReplacementFence.admits(deck)) return null")
+		val invalidateLegacyDeck = viewerReplacement.indexOf("viewerContainer.replaceViewerContent(viewerView)")
+		val clearShadowFence = viewerReplacement.indexOf(
+			"viewerContainer.completePresentationViewerReplacement()"
+		)
+		assertTrue(invalidateLegacyDeck >= 0)
+		assertTrue(clearShadowFence > invalidateLegacyDeck)
+		assertFalse(viewerReplacement.contains("reportPresentationIdentityIfAvailable"))
 	}
 
 	@Test
@@ -54,6 +111,17 @@ class ReaderPageQaFaultHostSourceTest {
 		assertContains(source, "qaFaultRegistry.closeAndDrain()")
 	}
 }
+
+private fun presentationDeck(
+	rasterProfileEpoch: Long,
+	generationId: Long
+): ReaderPagePreparedActiveDeck = ReaderPagePreparedActiveDeck(
+	rasterProfileEpoch = rasterProfileEpoch,
+	rasterEpoch = 3L,
+	sourceCenterPageIndex = 4,
+	generationId = generationId,
+	preparationGeneration = 5L
+)
 
 private fun hostSource(): String {
 	var current: File? =
