@@ -657,7 +657,7 @@ private fun ReaderPresentationState.reducePreparationReport(
 	event: ReaderPresentationEvent.PreparationReported
 ): ReaderPresentationReducerResult {
 	if (!matchesPreparation(event.binding, event.facts)) {
-		return stalePresentation(null, event.binding)
+		return ReaderPresentationReducerResult(this)
 	}
 	return ReaderPresentationReducerResult(
 		copy(
@@ -671,7 +671,7 @@ private fun ReaderPresentationState.reducePreparationFailure(
 	event: ReaderPresentationEvent.PreparationFailed
 ): ReaderPresentationReducerResult {
 	if (!matchesPreparation(event.binding, event.facts)) {
-		return stalePresentation(null, event.binding)
+		return ReaderPresentationReducerResult(this)
 	}
 	val diagnostic = ReaderDiagnosticPresentation.Failure(
 		reason = event.reason,
@@ -800,8 +800,15 @@ private fun ReaderPresentationAuthority.inputPolicy(
 	is ReaderPresentationAuthority.CurlGesture -> ReaderPresentationInputPolicy.ClaimedCurl(frame.frame.token)
 	is ReaderPresentationAuthority.CurlSettlementPending ->
 		ReaderPresentationInputPolicy.ClaimedCurl(retainedFrame.frame.token)
-	is ReaderPresentationAuthority.SettledNativePage ->
-		ReaderPresentationInputPolicy.NativePage(readerPageOperationPolicy(preparationFacts.readiness))
+	is ReaderPresentationAuthority.SettledNativePage -> ReaderPresentationInputPolicy.NativePage(
+		readerPageOperationPolicy(
+			if (frame.proof.binding.preparationGeneration == preparationFacts.generation) {
+				preparationFacts.readiness
+			} else {
+				ReaderPageReadinessState()
+			}
+		)
+	)
 	is ReaderPresentationAuthority.LiveEngineExposed -> ReaderPresentationInputPolicy.LiveEngine
 	is ReaderPresentationAuthority.BlockingPreparation -> if (
 		retainedFrame == ReaderPresentationFrameOwner.Neutral

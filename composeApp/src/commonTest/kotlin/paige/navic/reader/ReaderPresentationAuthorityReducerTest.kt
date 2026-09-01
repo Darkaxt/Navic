@@ -231,6 +231,54 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
+	fun nativeInputRejectsUntilSelectedProofGenerationHasCurrentFacts() {
+		val nextBinding = binding.copy(preparationGeneration = 7L)
+		val nextProof = ReaderNativePagePresentationProof(
+			binding = nextBinding,
+			transitionToken = null,
+			presentedFrame = 11L,
+			viewportWidth = 100,
+			viewportHeight = 200,
+			rasterGeneration = 4L,
+			textureGeneration = 5L
+		)
+		val generationOneReady = readerPresentationReduce(
+			ReaderPresentationState(binding = binding),
+			ReaderPresentationEvent.PreparationReported(
+				binding,
+				preparationFacts(phase = ReaderPagePreparationPhase.Ready, readiness = readyReadiness)
+			)
+		)
+		val moved = readerPresentationReduce(
+			readerPresentationReduce(
+				generationOneReady.state,
+				ReaderPresentationEvent.FoliateRelocated(nextBinding, acknowledgement = null)
+			).state,
+			ReaderPresentationEvent.NativePagePresented(nextProof)
+		)
+
+		assertEquals(ReaderPresentationFrameOwner.NativePage(nextProof), moved.decision.frameOwner)
+		assertIs<ReaderPageNewPointerDecision.Reject>(
+			(moved.decision.inputPolicy as ReaderPresentationInputPolicy.NativePage).policy.newPointer
+		)
+
+		val current = readerPresentationReduce(
+			moved.state,
+			ReaderPresentationEvent.PreparationReported(
+				nextBinding,
+				preparationFacts(
+					generation = 7L,
+					phase = ReaderPagePreparationPhase.Ready,
+					readiness = readyReadiness
+				)
+			)
+		)
+
+		assertEquals(moved.decision.frameOwner, current.decision.frameOwner)
+		assertEquals(ReaderPresentationInputPolicy.NativePage(operationPolicy), current.decision.inputPolicy)
+	}
+
+	@Test
 	fun mismatchedShellCoverProofKeepsPageAndReleasesStaleProofOnce() {
 		val pending = readerPresentationReduce(
 			settledNativeState(nextTokenValue = 7L),
@@ -512,7 +560,7 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
-	fun preparationEventsRejectMismatchedBindingAndGeneration() {
+	fun mismatchedPreparationEventsKeepActiveNullTokenNativePage() {
 		val state = settledNativeState()
 		val before = readerPresentationDecision(state)
 		val mismatchedBinding = readerPresentationReduce(
@@ -531,16 +579,15 @@ class ReaderPresentationAuthorityReducerTest {
 
 		assertEquals(state, mismatchedBinding.state)
 		assertEquals(before, mismatchedBinding.decision)
-		assertEquals(
-			listOf(ReaderPresentationEffect.ReleaseStalePresentation(null, otherBinding)),
-			mismatchedBinding.effects
-		)
+		assertEquals(emptyList(), mismatchedBinding.effects)
 		assertEquals(state, mismatchedGeneration.state)
 		assertEquals(before, mismatchedGeneration.decision)
-		assertEquals(
-			listOf(ReaderPresentationEffect.ReleaseStalePresentation(null, binding)),
-			mismatchedGeneration.effects
-		)
+		assertEquals(emptyList(), mismatchedGeneration.effects)
+		listOf(mismatchedBinding, mismatchedGeneration).forEach { reduction ->
+			assertEquals(nativeFrame, reduction.decision.frameOwner)
+			assertEquals(ReaderPresentationInputPolicy.NativePage(operationPolicy), reduction.decision.inputPolicy)
+			assertEquals(ReaderDiagnosticPresentation.Hidden, reduction.decision.diagnosticPresentation)
+		}
 	}
 
 	@Test
