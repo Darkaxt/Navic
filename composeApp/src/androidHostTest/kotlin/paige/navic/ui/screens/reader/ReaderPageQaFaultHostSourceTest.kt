@@ -426,6 +426,11 @@ class ReaderPageQaFaultHostSourceTest {
 			report.indexOf("onPresentationEvent(bindingEvent)") <
 				report.indexOf("reportPresentationPreparationFacts(")
 		)
+		assertTrue(
+			report.indexOf("reportPresentationPreparationFacts(") <
+				report.indexOf("reportNativePagePresentationIfAvailable(")
+		)
+		assertContains(host, "ReaderPresentationEvent.NativePagePresented")
 		assertContains(host, "releaseStalePresentationDeck(effect.binding)")
 		assertContains(release, "rendererOwnedGenerationReleaseGate.request(binding)")
 		assertContains(controller, "rendererOwnedGenerationReleaseGate.completeRelease(generationId)")
