@@ -18,12 +18,12 @@ import paige.navic.reader.ReaderBookmark
 import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
-import paige.navic.reader.ReaderDragAnimationCanvas
 import paige.navic.reader.ReaderEngineCapability
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderListeningSettings
+import paige.navic.reader.ReaderLegacyLiveCompatibilityContext
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPresentationDecision
@@ -40,7 +40,6 @@ import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncPlaybackControlState
 import paige.navic.reader.normalizedReaderFlowMode
-import paige.navic.reader.normalizedReaderDragAnimationMode
 import paige.navic.reader.readerWhispersyncPlaybackControlPresentation
 import paige.navic.reader.readerWhispersyncPlaybackControlState
 import paige.navic.reader.productionDiagnosticSurface
@@ -57,6 +56,8 @@ internal fun KomikkuReaderRoot(
 	reader: Screen.Reader,
 	controllerState: ReaderControllerState,
 	presentationDecision: ReaderPresentationDecision,
+	pageTurnCanvasEnabled: Boolean,
+	legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext,
 	presentationEffects: List<ReaderPendingPresentationEffect>,
 	onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit,
 	viewState: ReaderEngineViewState,
@@ -162,6 +163,7 @@ internal fun KomikkuReaderRoot(
 			navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true,
 			chromeOverlayVisible = controllerState.menuVisible,
 			presentationDecision = presentationDecision,
+			legacyLiveCompatibilityContext = legacyLiveCompatibilityContext,
 			presentationEffects = presentationEffects,
 			onPresentationEffectHandled = onPresentationEffectHandled,
 			onPresentationEvent = onPresentationEvent,
@@ -176,9 +178,7 @@ internal fun KomikkuReaderRoot(
 				controllerState.chrome.settings.flowMode,
 				controllerState.chrome.settings.paged
 			) == ReaderFlowPagedVertical,
-			pageTurnCanvasEnabled =
-				normalizedReaderDragAnimationMode(controllerState.chrome.settings.dragAnimationMode) ==
-					ReaderDragAnimationCanvas,
+			pageTurnCanvasEnabled = pageTurnCanvasEnabled,
 			pageTurnReadingDirection = controllerState.chrome.settings.direction,
 			pageTurnBitmapQuality = controllerState.chrome.settings.pageBitmapQuality,
 			pageTurnSnapshotKey = controllerState.readerSettingsPresentationSnapshotKey

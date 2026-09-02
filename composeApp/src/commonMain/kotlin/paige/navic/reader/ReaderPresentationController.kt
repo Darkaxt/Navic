@@ -1,10 +1,121 @@
 package paige.navic.reader
 
+@ConsistentCopyVisibility
+data class ReaderLegacyLiveCompatibilityIdentity internal constructor(
+	val readerSessionGeneration: Long,
+	val publication: ReaderPublicationIdentity,
+	val foliateSessionId: String?,
+	val destinationCommitIdentity: ReaderDestinationCommitIdentity?
+) {
+	init {
+		require(readerSessionGeneration > 0L)
+	}
+}
+
+sealed interface ReaderLegacyLiveCompatibilityContext {
+	val lifecycle: ReaderPresentationLifecycleState
+
+	data class Denied(
+		override val lifecycle: ReaderPresentationLifecycleState =
+			ReaderPresentationLifecycleState.Foreground
+	) : ReaderLegacyLiveCompatibilityContext
+
+	@ConsistentCopyVisibility
+	data class ColdSession internal constructor(
+		val identity: ReaderLegacyLiveCompatibilityIdentity,
+		override val lifecycle: ReaderPresentationLifecycleState
+	) : ReaderLegacyLiveCompatibilityContext {
+		init {
+			require(lifecycle == ReaderPresentationLifecycleState.Foreground)
+		}
+	}
+}
+
+class ReaderLegacyLiveCompatibilityGate {
+	private var observedReaderSessionGeneration: Long = 0L
+	private var ownershipRetired: Boolean = false
+
+	fun resolve(
+		state: ReaderControllerState,
+		pageTurnCanvasEnabled: Boolean
+	): ReaderLegacyLiveCompatibilityContext {
+		val lifecycle = state.presentation.lifecycle
+		if (state.readerSessionGeneration <= 0L || state.publication == null) {
+			return ReaderLegacyLiveCompatibilityContext.Denied(lifecycle)
+		}
+		if (state.readerSessionGeneration < observedReaderSessionGeneration) {
+			return ReaderLegacyLiveCompatibilityContext.Denied(lifecycle)
+		}
+		if (state.readerSessionGeneration > observedReaderSessionGeneration) {
+			observedReaderSessionGeneration = state.readerSessionGeneration
+			ownershipRetired = false
+		}
+		if (pageTurnCanvasEnabled || state.hasNativePresentationOwnershipOrIntent()) {
+			ownershipRetired = true
+		}
+		if (
+			ownershipRetired ||
+			lifecycle != ReaderPresentationLifecycleState.Foreground ||
+			!state.hasExactColdLegacyLiveFacts()
+		) {
+			return ReaderLegacyLiveCompatibilityContext.Denied(lifecycle)
+		}
+		return ReaderLegacyLiveCompatibilityContext.ColdSession(
+			identity = state.legacyLiveCompatibilityIdentity(),
+			lifecycle = lifecycle
+		)
+	}
+}
+
+private fun ReaderControllerState.hasNativePresentationOwnershipOrIntent(): Boolean =
+	shellCoverVisible ||
+		!nativeShellCoverUrl.isNullOrBlank() ||
+		canReturnToShellCover ||
+		pendingShellCoverDismissal != null ||
+		presentation.binding != null ||
+		presentation.authority != ReaderPresentationAuthority.Unavailable
+
+private fun ReaderControllerState.hasExactColdLegacyLiveFacts(): Boolean {
+	val decision = presentationDecision
+	return publication != null &&
+		activeEngine != null &&
+		presentation.authority == ReaderPresentationAuthority.Unavailable &&
+		presentation.binding == null &&
+		presentation.failure == null &&
+		decision.frameOwner == ReaderPresentationFrameOwner.Neutral &&
+		decision.requiredTransition == ReaderRequiredTransition.None &&
+		decision.inputPolicy == ReaderPresentationInputPolicy.RecoveryOnly &&
+		!shellCoverVisible &&
+		nativeShellCoverUrl.isNullOrBlank() &&
+		!canReturnToShellCover &&
+		pendingShellCoverDismissal == null
+}
+
+private fun ReaderControllerState.legacyLiveCompatibilityIdentity() =
+	ReaderLegacyLiveCompatibilityIdentity(
+		readerSessionGeneration = readerSessionGeneration,
+		publication = requireNotNull(publication),
+		foliateSessionId = foliateSessionId,
+		destinationCommitIdentity = destinationCommitIdentity
+	)
+
+private fun ReaderLegacyLiveCompatibilityContext.matches(
+	state: ReaderControllerState
+): Boolean = this is ReaderLegacyLiveCompatibilityContext.ColdSession &&
+	lifecycle == ReaderPresentationLifecycleState.Foreground &&
+	state.presentation.lifecycle == lifecycle &&
+	state.hasExactColdLegacyLiveFacts() &&
+	identity == state.legacyLiveCompatibilityIdentity()
+
 internal fun readerViewerActionIsAdmitted(
 	inputPolicy: ReaderPresentationInputPolicy,
-	action: ReaderViewerAction
+	action: ReaderViewerAction,
+	legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext =
+		ReaderLegacyLiveCompatibilityContext.Denied()
 ): Boolean = when (inputPolicy) {
-	ReaderPresentationInputPolicy.RecoveryOnly,
+	ReaderPresentationInputPolicy.RecoveryOnly ->
+		legacyLiveCompatibilityContext is ReaderLegacyLiveCompatibilityContext.ColdSession &&
+			action != ReaderViewerAction.NativeShellPrepared
 	is ReaderPresentationInputPolicy.ClaimedCurl -> false
 	ReaderPresentationInputPolicy.ChromeOnly -> action == ReaderViewerAction.Menu
 	ReaderPresentationInputPolicy.ShellCover -> when (action) {
@@ -157,10 +268,22 @@ internal object ReaderPresentationControllerReducer {
 
 	fun onViewerAction(
 		controller: ReaderController,
-		action: ReaderViewerAction
+		action: ReaderViewerAction,
+		legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext =
+			ReaderLegacyLiveCompatibilityContext.Denied()
 	): ReaderControllerStep {
 		val inputPolicy = controller.state.presentationDecision.inputPolicy
-		if (!readerViewerActionIsAdmitted(inputPolicy, action)) {
+		val exactCompatibilityContext = legacyLiveCompatibilityContext.takeIf {
+			it.matches(controller.state)
+		} ?: ReaderLegacyLiveCompatibilityContext.Denied(
+			controller.state.presentation.lifecycle
+		)
+		if (!readerViewerActionIsAdmitted(
+				inputPolicy,
+				action,
+				exactCompatibilityContext
+			)
+		) {
 			return ReaderControllerStep(controller)
 		}
 		val admittedController = if (controller.state.lastContentActionClaim != null) {

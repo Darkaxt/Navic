@@ -535,10 +535,10 @@ class ReaderKomikkuBackboneResetTest {
 		val androidText = androidHost.readText()
 		val outerDispatch = androidText
 			.substringAfter(
-				"override fun dispatchTouchEvent(event: MotionEvent): Boolean {"
+				"internal fun readerDispatchPagePhysicalEvent("
 			)
 			.substringBefore(
-				"private fun dispatchLegacyReaderPointerEvent("
+				"internal data class ReaderLegacyLivePointerContext"
 			)
 		val legacyDispatch = androidText
 			.substringAfter(
@@ -1160,8 +1160,11 @@ class ReaderKomikkuBackboneResetTest {
 		).readText()
 
 		assertTrue(
-			controllerText.contains("fun onViewerAction(action: ReaderViewerAction): ReaderControllerStep"),
-			"ReaderController must execute movement through the viewer-owned action contract."
+			controllerText.contains("fun onViewerAction(") &&
+				controllerText.contains(
+					"legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext"
+				),
+			"ReaderController must execute movement through the viewer-owned typed compatibility contract."
 		)
 		assertTrue(
 			coordinatorText.contains("fun dispatch(action: ReaderController.() -> ReaderControllerStep)"),

@@ -124,10 +124,10 @@ class ReaderRuntimeSettingsBridgeTest {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val outer = nativeFrameHostText
 			.substringAfter(
-				"override fun dispatchTouchEvent(event: MotionEvent): Boolean {"
+				"internal fun readerDispatchPagePhysicalEvent("
 			)
 			.substringBefore(
-				"private fun dispatchLegacyReaderPointerEvent("
+				"internal data class ReaderLegacyLivePointerContext"
 			)
 		val legacy = nativeFrameHostText
 			.substringAfter(

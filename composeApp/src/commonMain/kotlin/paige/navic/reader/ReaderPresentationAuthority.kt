@@ -34,6 +34,7 @@ data class ReaderPresentationBinding(
 		require(rasterGeneration == null || rasterGeneration >= 0L)
 		require(textureGeneration == null || textureGeneration >= 0L)
 		require(preparationGeneration == null || preparationGeneration >= 0L)
+		require(profileGeneration != 0L || !hasAnyRendererIdentity())
 	}
 }
 
@@ -682,14 +683,29 @@ private fun ReaderPresentationState.reduceFoliateRelocation(
 	event: ReaderPresentationEvent.FoliateRelocated
 ): ReaderPresentationReducerResult {
 	val authority = authority
+	val currentBinding = binding
 	return when {
 		authority == ReaderPresentationAuthority.Unavailable ->
 			ReaderPresentationReducerResult(copy(binding = event.binding))
-		binding == event.binding -> ReaderPresentationReducerResult(this)
+		currentBinding == event.binding -> ReaderPresentationReducerResult(this)
+		authority is ReaderPresentationAuthority.BlockingPreparation &&
+			currentBinding != null &&
+			event.binding.isPartialDestinationSuccessorOf(currentBinding) -> {
+			val reboundAuthority = authority.rebindPartialPresentation(
+				previousBinding = currentBinding,
+				binding = event.binding
+			) ?: return ReaderPresentationReducerResult(this)
+			ReaderPresentationReducerResult(
+				copy(
+					authority = reboundAuthority,
+					binding = event.binding
+				)
+			)
+		}
 		authority is ReaderPresentationAuthority.BlockingPreparation &&
 			authority.nativePresentationRequest != null &&
 			authority.retainedFrame is ReaderPresentationFrameOwner.ShellCover &&
-			binding?.let(event.binding::isCompleteDestinationSuccessorOf) == true ->
+			currentBinding?.let(event.binding::isCompleteDestinationSuccessorOf) == true ->
 			ReaderPresentationReducerResult(
 				copy(
 					authority = authority.copy(
@@ -706,7 +722,7 @@ private fun ReaderPresentationState.reduceFoliateRelocation(
 			authority.frame.proof.binding == event.binding ->
 			ReaderPresentationReducerResult(this)
 		authority is ReaderPresentationAuthority.SettledNativePage &&
-			binding?.let(event.binding::isCompleteDestinationSuccessorOf) == true ->
+			currentBinding?.let(event.binding::isCompleteDestinationSuccessorOf) == true ->
 			ReaderPresentationReducerResult(
 				copy(
 					binding = event.binding,
@@ -714,8 +730,24 @@ private fun ReaderPresentationState.reduceFoliateRelocation(
 					failure = null
 				)
 			)
+		!event.binding.hasCompleteRendererIdentity() -> ReaderPresentationReducerResult(this)
 		else -> stalePresentation(authority.tokenOrNull(), event.binding)
 	}
+}
+
+private fun ReaderPresentationBinding.isPartialDestinationSuccessorOf(
+	predecessor: ReaderPresentationBinding
+): Boolean {
+	val predecessorDestination = predecessor.destinationCommitIdentity ?: return false
+	val destination = destinationCommitIdentity ?: return false
+	return !predecessor.hasAnyRendererIdentity() &&
+		!hasAnyRendererIdentity() &&
+		foliateSessionId == predecessor.foliateSessionId &&
+		publicationGeneration == predecessor.publicationGeneration &&
+		viewportGeneration == predecessor.viewportGeneration &&
+		profileGeneration == predecessor.profileGeneration &&
+		preparationGeneration == predecessor.preparationGeneration &&
+		destination.commitSequence > predecessorDestination.commitSequence
 }
 
 private fun ReaderPresentationBinding.isCompleteDestinationSuccessorOf(
@@ -855,8 +887,20 @@ private fun ReaderPresentationState.reduceBindingReplacement(
 			copy(
 				authority = reboundAuthority,
 				binding = event.binding,
-				preparationFacts = ReaderPagePreparationFacts(),
-				failure = null
+				preparationFacts = if (
+					event.binding.isResolvedProfileReplacementOf(event.previousBinding)
+				) {
+					preparationFacts
+				} else {
+					ReaderPagePreparationFacts()
+				},
+				failure = if (
+					event.binding.isResolvedProfileReplacementOf(event.previousBinding)
+				) {
+					failure
+				} else {
+					null
+				}
 			)
 		)
 	}
@@ -917,6 +961,18 @@ private fun ReaderPresentationState.reduceBindingReplacement(
 		)
 	}
 }
+
+private fun ReaderPresentationBinding.isResolvedProfileReplacementOf(
+	predecessor: ReaderPresentationBinding
+): Boolean = predecessor.profileGeneration == 0L &&
+	profileGeneration > 0L &&
+	foliateSessionId == predecessor.foliateSessionId &&
+	publicationGeneration == predecessor.publicationGeneration &&
+	viewportGeneration == predecessor.viewportGeneration &&
+	destinationCommitIdentity == predecessor.destinationCommitIdentity &&
+	preparationGeneration == predecessor.preparationGeneration &&
+	!predecessor.hasAnyRendererIdentity() &&
+	!hasAnyRendererIdentity()
 
 private fun ReaderPresentationBinding.isCompleteBindingReplacementOf(
 	predecessor: ReaderPresentationBinding
@@ -1402,10 +1458,14 @@ private fun ReaderPresentationFrameOwner.matchesPresentationIdentity(
 private fun ReaderPresentationState.stalePresentation(
 	token: ReaderPresentationToken?,
 	binding: ReaderPresentationBinding
-) = ReaderPresentationReducerResult(
-	state = this,
-	effects = listOf(ReaderPresentationEffect.ReleaseStalePresentation(token, binding))
-)
+) = if (!binding.hasCompleteRendererIdentity()) {
+	ReaderPresentationReducerResult(this)
+} else {
+	ReaderPresentationReducerResult(
+		state = this,
+		effects = listOf(ReaderPresentationEffect.ReleaseStalePresentation(token, binding))
+	)
+}
 
 private fun ReaderPresentationAuthority.frameOwner(): ReaderPresentationFrameOwner = when (this) {
 	ReaderPresentationAuthority.Unavailable -> ReaderPresentationFrameOwner.Neutral

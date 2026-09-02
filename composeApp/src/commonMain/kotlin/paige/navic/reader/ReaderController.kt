@@ -30,6 +30,7 @@ data class ReaderController(
 			controller = copy(
 				progressSaveGate = progressSaveGate.reset(),
 				state = state.copy(
+					readerSessionGeneration = Math.incrementExact(state.readerSessionGeneration),
 					publication = normalizedRequest.publication,
 					activeEngine = normalizedRequest.publication.format,
 					presentation = ReaderPresentationState(
@@ -429,8 +430,15 @@ data class ReaderController(
 	fun clearMediaOverlay(fragmentId: String? = null): ReaderControllerStep =
 		ReaderOverlayReducer.clear(this, fragmentId)
 
-	fun onViewerAction(action: ReaderViewerAction): ReaderControllerStep =
-		ReaderPresentationControllerReducer.onViewerAction(this, action)
+	fun onViewerAction(
+		action: ReaderViewerAction,
+		legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext =
+			ReaderLegacyLiveCompatibilityContext.Denied()
+	): ReaderControllerStep = ReaderPresentationControllerReducer.onViewerAction(
+		this,
+		action,
+		legacyLiveCompatibilityContext
+	)
 
 	fun onPageTurnBoundary(direction: ReaderPageTurnDirection): ReaderControllerStep =
 		if (

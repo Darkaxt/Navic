@@ -3,6 +3,22 @@ package paige.navic.ui.screens.reader
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderPresentationBinding
 
+internal sealed interface ReaderPresentationHostProfileIdentity {
+	val generation: Long
+
+	data object Provisional : ReaderPresentationHostProfileIdentity {
+		override val generation: Long = 0L
+	}
+
+	data class Resolved(
+		override val generation: Long
+	) : ReaderPresentationHostProfileIdentity {
+		init {
+			require(generation > 0L)
+		}
+	}
+}
+
 internal data class ReaderPresentationHostBindingSnapshot(
 	val pageTurnCanvasEnabled: Boolean,
 	val windowVisible: Boolean?,
@@ -11,7 +27,7 @@ internal data class ReaderPresentationHostBindingSnapshot(
 	val viewportGeneration: Long,
 	val viewportWidth: Int,
 	val viewportHeight: Int,
-	val profileGeneration: Long?,
+	val profileIdentity: ReaderPresentationHostProfileIdentity,
 	val destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 	val preparationGeneration: Long,
 	val visualPageIndex: Int?,
@@ -26,7 +42,6 @@ internal fun readerPresentationHostBinding(
 	val foliateSessionId = snapshot.foliateSessionId
 		?.takeIf(String::isNotBlank)
 		?: return null
-	val profileGeneration = snapshot.profileGeneration?.takeIf { it > 0L } ?: return null
 	val visualPageIndex = snapshot.visualPageIndex?.takeIf { it >= 0 } ?: return null
 	if (
 		snapshot.publicationGeneration <= 0L ||
@@ -39,8 +54,10 @@ internal fun readerPresentationHostBinding(
 	) {
 		return null
 	}
+	val profileGeneration = snapshot.profileIdentity.generation
 	val exactDeck = snapshot.preparedDeck?.takeIf { deck ->
-		snapshot.preparedDeckAdmitted &&
+		snapshot.profileIdentity is ReaderPresentationHostProfileIdentity.Resolved &&
+			snapshot.preparedDeckAdmitted &&
 			deck.rasterProfileEpoch == profileGeneration &&
 			deck.sourceCenterPageIndex == visualPageIndex &&
 			deck.preparationGeneration == snapshot.preparationGeneration

@@ -34,6 +34,7 @@ data class RawTextProvenanceState(
 )
 
 data class ReaderControllerState(
+	val readerSessionGeneration: Long = 0L,
 	val publication: ReaderPublicationIdentity? = null,
 	val activeEngine: ReaderPublicationFormat? = null,
 	val presentation: ReaderPresentationState = ReaderPresentationState(),

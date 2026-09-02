@@ -40,6 +40,8 @@ import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
+import paige.navic.reader.ReaderDragAnimationCanvas
+import paige.navic.reader.ReaderLegacyLiveCompatibilityGate
 import paige.navic.reader.ReaderCoordinator
 import paige.navic.reader.ReaderCoordinatorBackStep
 import paige.navic.reader.ReaderCoordinatorStep
@@ -91,6 +93,7 @@ import paige.navic.reader.onWordSyncChapterVerified
 import paige.navic.reader.onWordSyncIndexFailed
 import paige.navic.reader.onWordSyncIndexVerified
 import paige.navic.reader.persistReaderMarksIfChanged
+import paige.navic.reader.normalizedReaderDragAnimationMode
 import paige.navic.reader.normalizedReaderListeningSettings
 import paige.navic.reader.readerAnnotationState
 import paige.navic.reader.readerBookmarkState
@@ -275,6 +278,19 @@ fun ReaderScreen(reader: Screen.Reader) {
 	val navigator = remember(settings.tapZone, settings.tapZoneInvertMode, settings.smallerTapZone, settings.flowMode) {
 		komikkuNavigatorForReaderSettings(settings)
 	}
+	val pageTurnCanvasEnabled =
+		normalizedReaderDragAnimationMode(settings.dragAnimationMode) == ReaderDragAnimationCanvas
+	val legacyLiveCompatibilityGate = remember(
+		reader.bookId,
+		reader.resourceHref,
+		reader.publicationUrl
+	) {
+		ReaderLegacyLiveCompatibilityGate()
+	}
+	val legacyLiveCompatibilityContext = legacyLiveCompatibilityGate.resolve(
+		state = controllerState,
+		pageTurnCanvasEnabled = pageTurnCanvasEnabled
+	)
 
 	fun retainPresentationEffects(effects: List<ReaderPresentationEffect>) {
 		if (effects.isEmpty()) return
@@ -954,6 +970,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 		reader = reader,
 		controllerState = controllerState,
 		presentationDecision = controllerState.presentationDecision,
+		pageTurnCanvasEnabled = pageTurnCanvasEnabled,
+		legacyLiveCompatibilityContext = legacyLiveCompatibilityContext,
 		presentationEffects = pendingPresentationEffects,
 		onPresentationEffectHandled = { identity ->
 			acknowledgePresentationEffect(identity)
@@ -972,7 +990,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onViewerAction = { action ->
 			val beforeMenuVisible = coordinator.controller.state.menuVisible
-			val step = coordinator.dispatch { onViewerAction(action) }
+			val step = coordinator.dispatch {
+				onViewerAction(action, legacyLiveCompatibilityContext)
+			}
 			Logger.i(
 				ReaderScreenTag,
 				"Reader viewer action=$action menuVisible=$beforeMenuVisible->${step.coordinator.controller.state.menuVisible} " +
@@ -1136,7 +1156,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 					Key.VolumeUp -> {
 						applyCoordinatorStep(
 							coordinator.dispatch { onViewerAction(
-								ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)
+								ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous),
+								legacyLiveCompatibilityContext
 							) }
 						)
 						true
@@ -1144,7 +1165,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 					Key.VolumeDown -> {
 						applyCoordinatorStep(
 							coordinator.dispatch { onViewerAction(
-								ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+								ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
+								legacyLiveCompatibilityContext
 							) }
 						)
 						true

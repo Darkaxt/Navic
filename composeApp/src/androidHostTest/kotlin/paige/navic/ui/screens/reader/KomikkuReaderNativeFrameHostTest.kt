@@ -1,7 +1,13 @@
 package paige.navic.ui.screens.reader
 
+import android.view.MotionEvent
 import java.io.File
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import paige.navic.reader.ReaderDestinationCommitIdentity
+import paige.navic.reader.ReaderLegacyLiveCompatibilityContext
+import paige.navic.reader.ReaderLegacyLiveCompatibilityIdentity
 import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPagePreparationFacts
@@ -16,9 +22,13 @@ import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLayer
+import paige.navic.reader.ReaderPresentationLifecycleState
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderShellCoverCommitProof
+import paige.navic.reader.ReaderPublicationFormat
+import paige.navic.reader.ReaderPublicationIdentity
+import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.readerPresentationReduce
@@ -33,6 +43,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE)
 class KomikkuReaderNativeFrameHostTest {
 	private val hostFile = File(
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
@@ -160,21 +172,34 @@ class KomikkuReaderNativeFrameHostTest {
 		val source = hostFile.readText()
 		val modeSelector = source
 			.substringAfter("internal fun readerPagePhysicalDispatchMode(")
-			.substringBefore("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("internal interface ReaderPagePhysicalDispatchTarget")
 		val physicalDispatch = source
-			.substringAfter("val handled = when (physicalDispatchMode)")
-			.substringBefore("if (\n\t\t\tevent.actionMasked == MotionEvent.ACTION_UP")
+			.substringAfter("internal fun readerDispatchPagePhysicalEvent(")
+			.substringBefore("internal data class ReaderLegacyLivePointerContext")
+		val chromeTarget = source
+			.substringAfter("override fun dispatchChromeOnly(event: MotionEvent): Boolean =")
+			.substringBefore("override fun dispatchDenied(event: MotionEvent)")
+		val shellCoverTarget = source
+			.substringAfter("override fun dispatchShellCover(event: MotionEvent): Boolean =")
+			.substringBefore("override fun dispatchLiveEngine(event: MotionEvent)")
+		val shellCoverDispatch = source
+			.substringAfter("private fun dispatchShellCoverPointerEvent(event: MotionEvent): Boolean {")
+			.substringBefore("private fun dispatchLegacyReaderPointerEvent")
 
 		assertContains(modeSelector, "ReaderPresentationInputPolicy.ChromeOnly ->")
 		assertContains(modeSelector, "ReaderPagePhysicalDispatchMode.ChromeOnly")
-		assertContains(physicalDispatch, "ReaderPagePhysicalDispatchMode.ChromeOnly ->")
-		assertContains(physicalDispatch, "dispatchChromeOnlyPointerEvent(event)")
-		val chromeBranch = physicalDispatch
-			.substringAfter("ReaderPagePhysicalDispatchMode.ChromeOnly ->")
-			.substringBefore("ReaderPagePhysicalDispatchMode.")
-		assertFalse(chromeBranch.contains("dispatchPlayLikeCurlPointerEvent"))
-		assertFalse(chromeBranch.contains("dispatchLegacyReaderPointerEvent"))
-		assertFalse(chromeBranch.contains("viewerContentContainer.dispatchTouchEvent"))
+		assertContains(
+			physicalDispatch,
+			"ReaderPagePhysicalDispatchMode.ChromeOnly -> target.dispatchChromeOnly(event)"
+		)
+		assertContains(chromeTarget, "dispatchChromeOnlyPointerEvent(event)")
+		assertFalse(chromeTarget.contains("dispatchPlayLikeCurlPointerEvent"))
+		assertFalse(chromeTarget.contains("dispatchLegacyReaderPointerEvent"))
+		assertFalse(chromeTarget.contains("viewerContentContainer.dispatchTouchEvent"))
+		assertContains(shellCoverTarget, "dispatchShellCoverPointerEvent(event)")
+		assertContains(shellCoverDispatch, "shellCoverView?.dispatchTouchEvent(event)")
+		assertFalse(shellCoverDispatch.contains("viewerContentContainer.dispatchTouchEvent"))
+		assertFalse(shellCoverDispatch.contains("super.dispatchTouchEvent"))
 	}
 
 	@Test
@@ -673,7 +698,7 @@ class KomikkuReaderNativeFrameHostTest {
 			viewportGeneration = 2L,
 			viewportWidth = 1200,
 			viewportHeight = 800,
-			profileGeneration = 3L,
+			profileIdentity = ReaderPresentationHostProfileIdentity.Resolved(3L),
 			destinationCommitIdentity = destination,
 			preparationGeneration = 6L,
 			visualPageIndex = 7,
@@ -714,7 +739,7 @@ class KomikkuReaderNativeFrameHostTest {
 			viewportGeneration = 2L,
 			viewportWidth = 1200,
 			viewportHeight = 800,
-			profileGeneration = 3L,
+			profileIdentity = ReaderPresentationHostProfileIdentity.Resolved(3L),
 			destinationCommitIdentity = null,
 			preparationGeneration = 6L,
 			visualPageIndex = 7,
@@ -747,7 +772,7 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
-	fun delayedCanvasIdentityFactsFailClosedWithoutSuppressingLaterBootstrap() {
+	fun provisionalProfileBootstrapIsReportableWhileUnknownFactsStayFenced() {
 		val completeFacts = ReaderPresentationHostBindingSnapshot(
 			pageTurnCanvasEnabled = true,
 			windowVisible = true,
@@ -756,7 +781,7 @@ class KomikkuReaderNativeFrameHostTest {
 			viewportGeneration = 2L,
 			viewportWidth = 1200,
 			viewportHeight = 800,
-			profileGeneration = 3L,
+			profileIdentity = ReaderPresentationHostProfileIdentity.Resolved(3L),
 			destinationCommitIdentity = null,
 			preparationGeneration = 6L,
 			visualPageIndex = 7,
@@ -766,12 +791,39 @@ class KomikkuReaderNativeFrameHostTest {
 
 		assertNull(readerPresentationHostBinding(completeFacts.copy(foliateSessionId = null)))
 		assertNull(readerPresentationHostBinding(completeFacts.copy(viewportWidth = 0)))
-		assertNull(readerPresentationHostBinding(completeFacts.copy(profileGeneration = null)))
+		val provisional = assertNotNull(
+			readerPresentationHostBinding(
+				completeFacts.copy(
+					profileIdentity = ReaderPresentationHostProfileIdentity.Provisional
+				)
+			)
+		)
+		assertEquals(0L, provisional.profileGeneration)
+		assertNull(provisional.rasterGeneration)
+		assertNull(provisional.textureGeneration)
 		assertNotNull(readerPresentationHostBinding(completeFacts))
 	}
 
 	@Test
-	fun nonCanvasModePublishesNoNativeBindingAndAlwaysDispatchesDirectlyToWebView() {
+	fun hostUsesTypedProfileIdentityAndRetriesBootstrapAfterFailure() {
+		val bindingSource = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPresentationHostBinding.android.kt"
+		).readText()
+		val retry = hostFile.readText()
+			.substringAfter("fun retryPreparation(effect: ReaderPresentationEffect.RetryPreparation)")
+			.substringBefore("private fun onPreparedActiveDeckChanged")
+
+		assertContains(bindingSource, "sealed interface ReaderPresentationHostProfileIdentity")
+		assertContains(bindingSource, "data object Provisional")
+		assertContains(bindingSource, "data class Resolved")
+		assertFalse(bindingSource.contains("val profileGeneration: Long?"))
+		assertContains(retry, "if (rasterProfileEpoch == null)")
+		assertContains(retry, "requestPageTurnPrewarmWhenReady()")
+	}
+
+	@Test
+	fun nonCanvasModeNeverBypassesPresentationPolicyToDirectWebView() {
 		val snapshot = ReaderPresentationHostBindingSnapshot(
 			pageTurnCanvasEnabled = false,
 			windowVisible = true,
@@ -780,7 +832,7 @@ class KomikkuReaderNativeFrameHostTest {
 			viewportGeneration = 2L,
 			viewportWidth = 1200,
 			viewportHeight = 800,
-			profileGeneration = 3L,
+			profileIdentity = ReaderPresentationHostProfileIdentity.Resolved(3L),
 			destinationCommitIdentity = null,
 			preparationGeneration = 6L,
 			visualPageIndex = 7,
@@ -789,17 +841,189 @@ class KomikkuReaderNativeFrameHostTest {
 		)
 
 		assertNull(readerPresentationHostBinding(snapshot))
-		listOf(
-			ReaderPresentationInputPolicy.RecoveryOnly,
-			ReaderPresentationInputPolicy.ChromeOnly,
-			ReaderPresentationInputPolicy.ShellCover,
-			ReaderPresentationInputPolicy.ClaimedCurl(ReaderPresentationToken(1L))
-		).forEach { policy ->
+		val cold = coldLegacyLiveCompatibilityContext()
+		assertEquals(
+			ReaderPagePhysicalDispatchMode.LegacyLive,
+			readerPagePhysicalDispatchMode(
+				pageTurnCanvasEnabled = false,
+				presentationInputPolicy = ReaderPresentationInputPolicy.RecoveryOnly,
+				legacyLiveCompatibilityContext = cold
+			)
+		)
+		assertEquals(
+			ReaderPagePhysicalDispatchMode.Denied,
+			readerPagePhysicalDispatchMode(
+				pageTurnCanvasEnabled = false,
+				presentationInputPolicy = ReaderPresentationInputPolicy.RecoveryOnly
+			)
+		)
+		val expectedByPolicy = listOf(
+			ReaderPresentationInputPolicy.ChromeOnly to ReaderPagePhysicalDispatchMode.ChromeOnly,
+			ReaderPresentationInputPolicy.ShellCover to ReaderPagePhysicalDispatchMode.ShellCover,
+			ReaderPresentationInputPolicy.ClaimedCurl(ReaderPresentationToken(1L)) to
+				ReaderPagePhysicalDispatchMode.PlayLikeCurl,
+			ReaderPresentationInputPolicy.NativePage(
+				paige.navic.reader.readerPageOperationPolicy(ReaderPageReadinessState())
+			) to ReaderPagePhysicalDispatchMode.Denied,
+			ReaderPresentationInputPolicy.LiveEngine to ReaderPagePhysicalDispatchMode.Denied
+		)
+		expectedByPolicy.forEach { (policy, expected) ->
 			assertEquals(
-				ReaderPagePhysicalDispatchMode.LiveEngine,
-				readerPagePhysicalDispatchMode(pageTurnCanvasEnabled = false, policy)
+				expected,
+				readerPagePhysicalDispatchMode(
+					pageTurnCanvasEnabled = false,
+					presentationInputPolicy = policy
+				),
+				"policy=$policy"
 			)
 		}
+		listOf(
+			ReaderPresentationLifecycleState.Background,
+			ReaderPresentationLifecycleState.Destroyed
+		).forEach { lifecycle ->
+			assertEquals(
+				ReaderPagePhysicalDispatchMode.Denied,
+				readerPagePhysicalDispatchMode(
+					pageTurnCanvasEnabled = false,
+					presentationInputPolicy = ReaderPresentationInputPolicy.ChromeOnly,
+					legacyLiveCompatibilityContext =
+						ReaderLegacyLiveCompatibilityContext.Denied(lifecycle)
+				)
+			)
+		}
+	}
+
+	@Test
+	fun physicalDispatchInvokesOnlyTheSelectedTypedTarget() {
+		val calls = mutableListOf<String>()
+		val target = object : ReaderPagePhysicalDispatchTarget {
+			override fun dispatchCueMap(event: MotionEvent) = calls.add("cue-map")
+			override fun dispatchChromeOnly(event: MotionEvent) = calls.add("chrome-only")
+			override fun dispatchDenied(event: MotionEvent) = calls.add("denied")
+			override fun dispatchLegacy(event: MotionEvent) = calls.add("legacy")
+			override fun dispatchLegacyLive(event: MotionEvent) = calls.add("legacy-live")
+			override fun dispatchPlayLikeCurl(event: MotionEvent) = calls.add("play-like-curl")
+			override fun dispatchShellCover(event: MotionEvent) = calls.add("shell-cover")
+			override fun dispatchLiveEngine(event: MotionEvent) = calls.add("live-engine")
+		}
+		val expectedByMode = mapOf(
+			ReaderPagePhysicalDispatchMode.CueMap to "cue-map",
+			ReaderPagePhysicalDispatchMode.ChromeOnly to "chrome-only",
+			ReaderPagePhysicalDispatchMode.Denied to "denied",
+			ReaderPagePhysicalDispatchMode.Legacy to "legacy",
+			ReaderPagePhysicalDispatchMode.LegacyLive to "legacy-live",
+			ReaderPagePhysicalDispatchMode.PlayLikeCurl to "play-like-curl",
+			ReaderPagePhysicalDispatchMode.ShellCover to "shell-cover",
+			ReaderPagePhysicalDispatchMode.LiveEngine to "live-engine"
+		)
+		val event = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, 0f, 0f, 0)
+		try {
+			expectedByMode.forEach { (mode, expected) ->
+				calls.clear()
+				assertTrue(
+					readerDispatchPagePhysicalEvent(mode, event, target) {
+						calls.add("fallback")
+					}
+				)
+				assertEquals(listOf(expected), calls, "mode=$mode")
+			}
+			calls.clear()
+			assertTrue(
+				readerDispatchPagePhysicalEvent(null, event, target) {
+					calls.add("fallback")
+				}
+			)
+			assertEquals(listOf("fallback"), calls)
+		} finally {
+			event.recycle()
+		}
+	}
+
+	@Test
+	fun legacyLivePointerStreamRevokesChangedContextOnceAndSuppressesLateTerminal() {
+		val stream = ReaderLegacyLivePointerStream()
+		val initial = legacyLivePointerContext()
+
+		stream.begin(ReaderPagePhysicalDispatchMode.LegacyLive, initial)
+
+		assertFalse(stream.revokeIfContextChanged(initial))
+		assertTrue(stream.revokeIfContextChanged(initial.copy(shellCoverVisible = true)))
+		assertFalse(stream.revokeIfContextChanged(initial.copy(shellCoverVisible = true)))
+		assertFalse(stream.revoke())
+		assertTrue(stream.suppressesOriginalTerminal)
+		stream.finish()
+		assertFalse(stream.suppressesOriginalTerminal)
+		assertFalse(stream.revoke())
+	}
+
+	@Test
+	fun nonLegacyPointerStreamsNeverRevokeLegacyDelivery() {
+		ReaderPagePhysicalDispatchMode.entries
+			.filterNot { it == ReaderPagePhysicalDispatchMode.LegacyLive }
+			.forEach { mode ->
+				val stream = ReaderLegacyLivePointerStream()
+				val context = legacyLivePointerContext()
+
+				stream.begin(mode, context)
+
+				assertFalse(stream.revokeIfContextChanged(context.copy(shellCoverVisible = true)))
+				assertFalse(stream.revoke())
+				assertFalse(stream.suppressesOriginalTerminal)
+			}
+	}
+
+	@Test
+	fun physicalDispatchUsesTypedTargetsAndCancelsChangedLegacyStreams() {
+		val source = hostFile.readText()
+		val physicalDispatch = source
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
+			.substringBefore("private fun dispatchLegacyLivePointerEvent")
+		val viewerContainer = source
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+		val viewerReplacement = viewerContainer
+			.substringAfter("fun replaceViewerContent(viewerView: View)")
+			.substringBefore("fun detachViewerContent(viewerView: View?)")
+		val compatibilityUpdate = viewerContainer
+			.substringAfter("fun setLegacyLiveCompatibilityContext(")
+			.substringBefore("fun setPageTurnCanvasEnabled(")
+		val canvasUpdate = viewerContainer
+			.substringAfter("fun setPageTurnCanvasEnabled(")
+			.substringBefore("fun setPageTurnReadingDirection(")
+		val decisionUpdate = viewerContainer
+			.substringAfter("fun setPresentationDecision(")
+			.substringBefore("fun releaseStalePresentation(")
+		val shellCoverUpdate = viewerContainer
+			.substringAfter("fun setShellCoverVisible(")
+			.substringBefore("fun setPageOperationPolicy(")
+		val physicalClose = viewerContainer
+			.substringAfter("private fun closePhysicalPointerDelivery()")
+			.substringBefore("private fun teardownTask4Resources()")
+
+		assertContains(source, "ReaderPagePhysicalDispatchMode.Denied")
+		assertContains(source, "ReaderPagePhysicalDispatchMode.ShellCover")
+		assertContains(source, "ReaderPagePhysicalDispatchMode.LegacyLive")
+		assertContains(source, "legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext")
+		assertContains(source, "internal interface ReaderPagePhysicalDispatchTarget")
+		assertContains(source, "internal fun readerDispatchPagePhysicalEvent(")
+		assertContains(source, "internal class ReaderLegacyLivePointerStream")
+		assertContains(source, "cancelLegacyLivePointerStreamIfContextChanged()")
+		assertContains(source, "physicalDispatchMode = ReaderPagePhysicalDispatchMode.Denied")
+		assertContains(source, "action = MotionEvent.ACTION_CANCEL")
+		assertContains(physicalDispatch, "legacyLivePointerStream.begin(")
+		assertContains(physicalDispatch, "legacyLivePointerStream.suppressesOriginalTerminal")
+		assertContains(physicalDispatch, "legacyLivePointerStream.finish()")
+		assertContains(viewerReplacement, "cancelLegacyLivePointerStream()")
+		assertContains(compatibilityUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
+		assertContains(canvasUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
+		assertContains(decisionUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
+		assertContains(shellCoverUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
+		assertContains(physicalClose, "cancelLegacyLivePointerStream()")
+		assertContains(physicalClose, "legacyLivePointerStream.suppressesOriginalTerminal")
+		assertFalse(
+			source.contains(
+				"if (!pageTurnCanvasEnabled) return ReaderPagePhysicalDispatchMode.LiveEngine"
+			)
+		)
 	}
 
 	@Test
@@ -831,4 +1055,28 @@ class KomikkuReaderNativeFrameHostTest {
 			"pageRasterPreparationController.invalidate(\"shell-cover-visible\")"
 		)
 	}
+
+	private fun legacyLivePointerContext() = ReaderLegacyLivePointerContext(
+		pageTurnCanvasEnabled = false,
+		presentationDecision = null,
+		compatibilityContext = coldLegacyLiveCompatibilityContext(),
+		shellCoverVisible = false
+	)
+
+	private fun coldLegacyLiveCompatibilityContext() =
+		ReaderLegacyLiveCompatibilityContext.ColdSession(
+			identity = ReaderLegacyLiveCompatibilityIdentity(
+				readerSessionGeneration = 1L,
+				publication = ReaderPublicationIdentity(
+					bookId = "book-1",
+					title = "Book",
+					resourceHref = "book.epub",
+					kind = ReaderPublicationKind.Ebook,
+					format = ReaderPublicationFormat.Epub
+				),
+				foliateSessionId = null,
+				destinationCommitIdentity = null
+			),
+			lifecycle = ReaderPresentationLifecycleState.Foreground
+		)
 }

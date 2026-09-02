@@ -27,7 +27,7 @@ class ReaderControllerDecompositionSourceTest {
 		)
 		assertContains(
 			controller,
-			"ReaderPresentationControllerReducer.onViewerAction(this, action)"
+			"ReaderPresentationControllerReducer.onViewerAction(\n\t\tthis,\n\t\taction,\n\t\tlegacyLiveCompatibilityContext"
 		)
 		val presentationController = readerSource("ReaderPresentationController.kt")
 		assertTrue(presentationController.isFile)

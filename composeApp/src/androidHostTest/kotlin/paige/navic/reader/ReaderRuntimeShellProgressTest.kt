@@ -434,6 +434,7 @@ class ReaderRuntimeShellProgressTest {
 			"navigationOverlayVisible",
 			"chromeOverlayVisible",
 			"presentationDecision",
+			"legacyLiveCompatibilityContext",
 			"presentationEffects",
 			"onPresentationEffectHandled",
 			"onPresentationEvent",
@@ -993,7 +994,7 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun shellCoverAndNonCurlRollbackKeepLegacyChildFirstDispatch() {
+	fun shellCoverIsolationAndLegacyFallbackKeepTypedDispatch() {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val legacy = nativeFrameHostText
 			.substringAfter(
@@ -1022,9 +1023,21 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(legacy, "legacyGestureDetector.onTouchEvent(event)")
 		assertFalse(legacy.contains("pageInputSettlementHostController"))
 		assertFalse(legacy.contains("playLikeCurlGestureDetector"))
-		assertContains(mode, "ReaderPresentationInputPolicy.ShellCover -> ReaderPagePhysicalDispatchMode.Legacy")
-		assertContains(mode, "if (!pageTurnCanvasEnabled) return ReaderPagePhysicalDispatchMode.LiveEngine")
+		assertContains(mode, "ReaderPresentationInputPolicy.ShellCover ->")
+		assertContains(mode, "ReaderPagePhysicalDispatchMode.ShellCover")
+		assertContains(mode, "ReaderLegacyLiveCompatibilityContext.ColdSession")
+		assertContains(mode, "ReaderPagePhysicalDispatchMode.LegacyLive")
+		assertContains(mode, "ReaderPagePhysicalDispatchMode.Denied")
+		assertFalse(
+			mode.contains(
+				"if (!pageTurnCanvasEnabled) return ReaderPagePhysicalDispatchMode.LiveEngine"
+			)
+		)
 		assertContains(selectedMode, "pageTurnCanvasEnabled = pageTurnCanvasEnabled")
+		assertContains(
+			selectedMode,
+			"legacyLiveCompatibilityContext = legacyLiveCompatibilityContext"
+		)
 		assertContains(selectedMode, "!verticalPageDragPreview")
 	}
 

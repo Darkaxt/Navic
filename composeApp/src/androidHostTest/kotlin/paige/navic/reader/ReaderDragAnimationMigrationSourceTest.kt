@@ -37,13 +37,20 @@ class ReaderDragAnimationMigrationSourceTest {
 
 	@Test
 	fun nativeCanvasIsEnabledOnlyByTheCanvasMode() {
-		val readerRoot = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt").readText()
+		val readerScreen = File(
+			"src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+		val readerRoot = File(
+			"src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		).readText()
 
 		assertContains(
-			readerRoot,
-			"normalizedReaderDragAnimationMode(controllerState.chrome.settings.dragAnimationMode) =="
+			readerScreen,
+			"normalizedReaderDragAnimationMode(settings.dragAnimationMode) == ReaderDragAnimationCanvas"
 		)
-		assertContains(readerRoot, "ReaderDragAnimationCanvas")
+		assertContains(readerScreen, "pageTurnCanvasEnabled = pageTurnCanvasEnabled")
+		assertContains(readerRoot, "pageTurnCanvasEnabled = pageTurnCanvasEnabled")
+		assertFalse(readerScreen.contains("ReaderDragAnimationCurl"))
 		assertFalse(readerRoot.contains("ReaderDragAnimationCurl"))
 	}
 

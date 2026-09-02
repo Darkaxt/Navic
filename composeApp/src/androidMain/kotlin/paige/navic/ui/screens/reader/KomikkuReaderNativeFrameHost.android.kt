@@ -50,6 +50,7 @@ import kotlinx.coroutines.delay
 import java.util.UUID
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderDiagnosticPresentation
+import paige.navic.reader.ReaderLegacyLiveCompatibilityContext
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
@@ -82,6 +83,7 @@ import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLayer
 import paige.navic.reader.ReaderPresentationLifecycleEvent
+import paige.navic.reader.ReaderPresentationLifecycleState
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderRendererBusyFeedbackMaximumMillis
 import paige.navic.reader.ReaderTapZoneAction
@@ -532,6 +534,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	navigationOverlayVisible: Boolean,
 	chromeOverlayVisible: Boolean,
 	presentationDecision: ReaderPresentationDecision,
+	legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext,
 	presentationEffects: List<ReaderPendingPresentationEffect>,
 	onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit,
 	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
@@ -665,6 +668,7 @@ actual fun KomikkuReaderNativeFrameHost(
 					shellCoverTitle,
 					coverBackdropEnabled
 				)
+				setLegacyLiveCompatibilityContext(legacyLiveCompatibilityContext)
 				setPresentationDecision(
 					presentationDecision,
 					destinationCommitIdentity,
@@ -730,6 +734,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
 			root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
 			root.setPageTurnPaginationStatus(pageTurnPaginationStatus)
+			root.setLegacyLiveCompatibilityContext(legacyLiveCompatibilityContext)
 			root.setPresentationDecision(
 				presentationDecision,
 				destinationCommitIdentity,
@@ -1102,6 +1107,12 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		viewerContainer.setVerticalPageDragPreview(verticalPageDragPreview)
 	}
 
+	fun setLegacyLiveCompatibilityContext(
+		context: ReaderLegacyLiveCompatibilityContext
+	) {
+		viewerContainer.setLegacyLiveCompatibilityContext(context)
+	}
+
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
 		viewerContainer.setPageTurnCanvasEnabled(enabled)
 	}
@@ -1426,19 +1437,50 @@ private data class ReaderPageGestureDiagnosticContext(
 internal enum class ReaderPagePhysicalDispatchMode {
 	CueMap,
 	ChromeOnly,
+	Denied,
 	Legacy,
+	LegacyLive,
 	PlayLikeCurl,
+	ShellCover,
 	LiveEngine
 }
 
 internal fun readerPagePhysicalDispatchMode(
 	pageTurnCanvasEnabled: Boolean,
 	presentationInputPolicy: ReaderPresentationInputPolicy,
+	legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext =
+		ReaderLegacyLiveCompatibilityContext.Denied(),
 	nativePageUsesLegacyRoute: Boolean = false
 ): ReaderPagePhysicalDispatchMode {
-	if (!pageTurnCanvasEnabled) return ReaderPagePhysicalDispatchMode.LiveEngine
+	if (
+		legacyLiveCompatibilityContext.lifecycle !=
+		ReaderPresentationLifecycleState.Foreground
+	) {
+		return ReaderPagePhysicalDispatchMode.Denied
+	}
+	if (!pageTurnCanvasEnabled) {
+		return when (presentationInputPolicy) {
+			ReaderPresentationInputPolicy.RecoveryOnly -> if (
+				legacyLiveCompatibilityContext is
+				ReaderLegacyLiveCompatibilityContext.ColdSession
+			) {
+				ReaderPagePhysicalDispatchMode.LegacyLive
+			} else {
+				ReaderPagePhysicalDispatchMode.Denied
+			}
+			ReaderPresentationInputPolicy.ChromeOnly ->
+				ReaderPagePhysicalDispatchMode.ChromeOnly
+			ReaderPresentationInputPolicy.ShellCover ->
+				ReaderPagePhysicalDispatchMode.ShellCover
+			is ReaderPresentationInputPolicy.ClaimedCurl ->
+				ReaderPagePhysicalDispatchMode.PlayLikeCurl
+			is ReaderPresentationInputPolicy.NativePage,
+			ReaderPresentationInputPolicy.LiveEngine ->
+				ReaderPagePhysicalDispatchMode.Denied
+		}
+	}
 	return when (presentationInputPolicy) {
-		ReaderPresentationInputPolicy.ShellCover -> ReaderPagePhysicalDispatchMode.Legacy
+		ReaderPresentationInputPolicy.ShellCover -> ReaderPagePhysicalDispatchMode.ShellCover
 		is ReaderPresentationInputPolicy.NativePage -> if (nativePageUsesLegacyRoute) {
 			ReaderPagePhysicalDispatchMode.Legacy
 		} else {
@@ -1448,6 +1490,80 @@ internal fun readerPagePhysicalDispatchMode(
 		ReaderPresentationInputPolicy.ChromeOnly -> ReaderPagePhysicalDispatchMode.ChromeOnly
 		ReaderPresentationInputPolicy.RecoveryOnly,
 		is ReaderPresentationInputPolicy.ClaimedCurl -> ReaderPagePhysicalDispatchMode.PlayLikeCurl
+	}
+}
+
+internal interface ReaderPagePhysicalDispatchTarget {
+	fun dispatchCueMap(event: MotionEvent): Boolean
+	fun dispatchChromeOnly(event: MotionEvent): Boolean
+	fun dispatchDenied(event: MotionEvent): Boolean
+	fun dispatchLegacy(event: MotionEvent): Boolean
+	fun dispatchLegacyLive(event: MotionEvent): Boolean
+	fun dispatchPlayLikeCurl(event: MotionEvent): Boolean
+	fun dispatchShellCover(event: MotionEvent): Boolean
+	fun dispatchLiveEngine(event: MotionEvent): Boolean
+}
+
+internal fun readerDispatchPagePhysicalEvent(
+	mode: ReaderPagePhysicalDispatchMode?,
+	event: MotionEvent,
+	target: ReaderPagePhysicalDispatchTarget,
+	fallback: (MotionEvent) -> Boolean
+): Boolean = when (mode) {
+	ReaderPagePhysicalDispatchMode.CueMap -> target.dispatchCueMap(event)
+	ReaderPagePhysicalDispatchMode.ChromeOnly -> target.dispatchChromeOnly(event)
+	ReaderPagePhysicalDispatchMode.Denied -> target.dispatchDenied(event)
+	ReaderPagePhysicalDispatchMode.Legacy -> target.dispatchLegacy(event)
+	ReaderPagePhysicalDispatchMode.LegacyLive -> target.dispatchLegacyLive(event)
+	ReaderPagePhysicalDispatchMode.PlayLikeCurl -> target.dispatchPlayLikeCurl(event)
+	ReaderPagePhysicalDispatchMode.ShellCover -> target.dispatchShellCover(event)
+	ReaderPagePhysicalDispatchMode.LiveEngine -> target.dispatchLiveEngine(event)
+	null -> fallback(event)
+}
+
+internal data class ReaderLegacyLivePointerContext(
+	val pageTurnCanvasEnabled: Boolean,
+	val presentationDecision: ReaderPresentationDecision?,
+	val compatibilityContext: ReaderLegacyLiveCompatibilityContext,
+	val shellCoverVisible: Boolean
+)
+
+internal class ReaderLegacyLivePointerStream {
+	private var activeContext: ReaderLegacyLivePointerContext? = null
+	private var revoked = false
+
+	fun begin(
+		mode: ReaderPagePhysicalDispatchMode,
+		context: ReaderLegacyLivePointerContext
+	) {
+		activeContext = context.takeIf {
+			mode == ReaderPagePhysicalDispatchMode.LegacyLive
+		}
+		revoked = false
+	}
+
+	fun revokeIfContextChanged(context: ReaderLegacyLivePointerContext): Boolean {
+		val active = activeContext ?: return false
+		return if (!revoked && context != active) {
+			revoked = true
+			true
+		} else {
+			false
+		}
+	}
+
+	fun revoke(): Boolean {
+		if (activeContext == null || revoked) return false
+		revoked = true
+		return true
+	}
+
+	val suppressesOriginalTerminal: Boolean
+		get() = revoked
+
+	fun finish() {
+		activeContext = null
+		revoked = false
 	}
 }
 
@@ -1491,6 +1607,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		get() = playLikeCurlController.shouldSuppressViewerContentInput ||
 			pageRasterPreparationController.shouldSuppressViewerContentInput
 	private var physicalDispatchMode: ReaderPagePhysicalDispatchMode? = null
+	private val legacyLivePointerStream = ReaderLegacyLivePointerStream()
+	private var legacyLivePointerDown: MotionEvent? = null
+	private var legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext =
+		ReaderLegacyLiveCompatibilityContext.Denied()
 	private var pageTurnCanvasEnabled: Boolean = false
 	private var pageTurnReadingDirection: String? = null
 	private var pageTurnBitmapQuality = ReaderPageBitmapQuality.Balanced
@@ -2139,6 +2259,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	fun replaceViewerContent(viewerView: View) {
+		cancelLegacyLivePointerStream()
 		startupShellHandoff.resetForNewViewer()
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.RendererReplaced
@@ -2175,6 +2296,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		verticalPageDragPreview = value
 	}
 
+	fun setLegacyLiveCompatibilityContext(
+		context: ReaderLegacyLiveCompatibilityContext
+	) {
+		if (legacyLiveCompatibilityContext == context) return
+		legacyLiveCompatibilityContext = context
+		cancelLegacyLivePointerStreamIfContextChanged()
+	}
+
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
 		val supported = enabled && pageTurnBundleSource.isAvailable
 		if (pageTurnCanvasEnabled == supported) {
@@ -2187,6 +2316,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			)
 		}
 		pageTurnCanvasEnabled = supported
+		cancelLegacyLivePointerStreamIfContextChanged()
 		playLikeCurlController.setEnabled(supported)
 		publishPagePreparationFacts()
 		if (supported) {
@@ -2312,6 +2442,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	) {
 		onPresentationEvent = onEvent
 		presentationDecision = decision
+		cancelLegacyLivePointerStreamIfContextChanged()
 		if (presentationDestinationCommitIdentity != destinationCommitIdentity) {
 			presentationDestinationCommitIdentity = destinationCommitIdentity
 			presentationRelocationPending = presentationBindingReporter.lastReportedBinding != null
@@ -2374,7 +2505,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				viewportGeneration = presentationViewportGeneration,
 				viewportWidth = width,
 				viewportHeight = height,
-				profileGeneration = rasterProfileEpoch,
+				profileIdentity = rasterProfileEpoch?.let(
+					ReaderPresentationHostProfileIdentity::Resolved
+				) ?: ReaderPresentationHostProfileIdentity.Provisional,
 				destinationCommitIdentity = presentationDestinationCommitIdentity,
 				preparationGeneration = latestRasterPreparationState.preparationGeneration,
 				visualPageIndex = pageTurnVisualPageIndex,
@@ -2471,6 +2604,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	fun applyPresentationDecision(decision: ReaderPresentationDecision) {
 		presentationDecision = decision
 		presentationInputPolicy = decision.inputPolicy
+		cancelLegacyLivePointerStreamIfContextChanged()
 		updateInputSettlementPolicies()
 	}
 
@@ -2564,6 +2698,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			)
 		}
 		shellCoverVisible = visible
+		cancelLegacyLivePointerStreamIfContextChanged()
 		if (visible && !preserveNativePresentationProof) {
 			removePageTurnPrewarmLayoutListener()
 			playLikeCurlController.invalidate("shell-cover-visible")
@@ -2594,6 +2729,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		val preparationGeneration =
 			pageRasterPreparationController.retryPreparation() ?: return false
 		playLikeCurlController.retryPreparation(preparationGeneration)
+		if (rasterProfileEpoch == null) {
+			requestPageTurnPrewarmWhenReady()
+		}
 		return true
 	}
 
@@ -3146,6 +3284,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		readerPagePhysicalDispatchMode(
 			pageTurnCanvasEnabled = pageTurnCanvasEnabled,
 			presentationInputPolicy = presentationInputPolicy,
+			legacyLiveCompatibilityContext = legacyLiveCompatibilityContext,
 			nativePageUsesLegacyRoute =
 				presentationInputPolicy is ReaderPresentationInputPolicy.NativePage &&
 					pageInputSettlementHostController.newPointerDecision() is
@@ -3156,42 +3295,135 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun shouldUsePlayLikeCurlPointerRouter(): Boolean =
 		pageTurnCanvasEnabled && !verticalPageDragPreview
 
+	private val physicalDispatchTarget = object : ReaderPagePhysicalDispatchTarget {
+		override fun dispatchCueMap(event: MotionEvent): Boolean =
+			whispersyncCueMapView.dispatchCuePointerEvent(event)
+
+		override fun dispatchChromeOnly(event: MotionEvent): Boolean =
+			dispatchChromeOnlyPointerEvent(event)
+
+		override fun dispatchDenied(event: MotionEvent): Boolean = true
+
+		override fun dispatchLegacy(event: MotionEvent): Boolean =
+			dispatchLegacyReaderPointerEvent(event)
+
+		override fun dispatchLegacyLive(event: MotionEvent): Boolean =
+			dispatchLegacyLivePointerEvent(event)
+
+		override fun dispatchPlayLikeCurl(event: MotionEvent): Boolean =
+			dispatchPlayLikeCurlPointerEvent(event)
+
+		override fun dispatchShellCover(event: MotionEvent): Boolean =
+			dispatchShellCoverPointerEvent(event)
+
+		override fun dispatchLiveEngine(event: MotionEvent): Boolean =
+			viewerContentContainer.dispatchTouchEvent(event)
+	}
+
+	private fun legacyLivePointerContext() = ReaderLegacyLivePointerContext(
+		pageTurnCanvasEnabled = pageTurnCanvasEnabled,
+		presentationDecision = presentationDecision,
+		compatibilityContext = legacyLiveCompatibilityContext,
+		shellCoverVisible = shellCoverVisible
+	)
+
+	private fun cancelLegacyLivePointerStreamIfContextChanged() {
+		if (!legacyLivePointerStream.revokeIfContextChanged(legacyLivePointerContext())) return
+		cancelLegacyLivePointerStream(revoked = true)
+	}
+
+	private fun cancelLegacyLivePointerStream() {
+		if (!legacyLivePointerStream.revoke()) return
+		cancelLegacyLivePointerStream(revoked = true)
+	}
+
+	private fun cancelLegacyLivePointerStream(revoked: Boolean) {
+		check(revoked)
+		legacyLivePointerDown?.let { down ->
+			val cancel = MotionEvent.obtain(down).apply {
+				action = MotionEvent.ACTION_CANCEL
+			}
+			try {
+				viewerContentContainer.dispatchTouchEvent(cancel)
+			} finally {
+				cancel.recycle()
+			}
+		}
+		legacyLivePointerDown?.recycle()
+		legacyLivePointerDown = null
+		physicalDispatchMode = ReaderPagePhysicalDispatchMode.Denied
+	}
+
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
 		if (event.actionMasked == MotionEvent.ACTION_DOWN) {
 			check(physicalDispatchMode == null) {
 				"A physical pointer dispatch mode is already active"
 			}
+			val context = legacyLivePointerContext()
 			physicalDispatchMode = when {
 				allowsCueMapInput() &&
 					whispersyncCueMapView.hitTest(event.x, event.y) != null ->
 					ReaderPagePhysicalDispatchMode.CueMap
 				else -> pagePhysicalDispatchMode()
 			}
+			legacyLivePointerStream.begin(
+				mode = checkNotNull(physicalDispatchMode),
+				context = context
+			)
 			pageRasterPreparationController.onPointerInteractionChanged(true)
 		}
 
-		val handled = when (physicalDispatchMode) {
-			ReaderPagePhysicalDispatchMode.CueMap ->
-				whispersyncCueMapView.dispatchCuePointerEvent(event)
-			ReaderPagePhysicalDispatchMode.ChromeOnly ->
-				dispatchChromeOnlyPointerEvent(event)
-			ReaderPagePhysicalDispatchMode.PlayLikeCurl ->
-				dispatchPlayLikeCurlPointerEvent(event)
-			ReaderPagePhysicalDispatchMode.Legacy ->
-				dispatchLegacyReaderPointerEvent(event)
-			ReaderPagePhysicalDispatchMode.LiveEngine ->
-				viewerContentContainer.dispatchTouchEvent(event)
-			null -> super.dispatchTouchEvent(event)
+		val terminal =
+			event.actionMasked == MotionEvent.ACTION_UP ||
+				event.actionMasked == MotionEvent.ACTION_CANCEL
+		val handled = if (
+			terminal && legacyLivePointerStream.suppressesOriginalTerminal
+		) {
+			true
+		} else {
+			readerDispatchPagePhysicalEvent(
+				mode = physicalDispatchMode,
+				event = event,
+				target = physicalDispatchTarget,
+				fallback = { fallbackEvent -> super.dispatchTouchEvent(fallbackEvent) }
+			)
 		}
 
+		if (terminal) {
+			pageRasterPreparationController.onPointerInteractionChanged(false)
+			legacyLivePointerDown?.recycle()
+			legacyLivePointerDown = null
+			legacyLivePointerStream.finish()
+			physicalDispatchMode = null
+		}
+		return handled
+	}
+
+	private fun dispatchLegacyLivePointerEvent(event: MotionEvent): Boolean {
+		if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+			legacyLivePointerDown?.recycle()
+			legacyLivePointerDown = MotionEvent.obtain(event)
+		}
+		return viewerContentContainer.dispatchTouchEvent(event)
+	}
+
+	private fun dispatchShellCoverPointerEvent(event: MotionEvent): Boolean {
+		shellCoverView?.dispatchTouchEvent(event)
+		handleSwipeTouchEvent(event)
+		if (
+			!horizontalSwipeDispatched &&
+			!nativeSwipeIntercepted &&
+			!nativeTapCancelledByDrag
+		) {
+			legacyGestureDetector.onTouchEvent(event)
+		}
 		if (
 			event.actionMasked == MotionEvent.ACTION_UP ||
 			event.actionMasked == MotionEvent.ACTION_CANCEL
 		) {
-			pageRasterPreparationController.onPointerInteractionChanged(false)
-			physicalDispatchMode = null
+			clearLegacyNativeTapState()
 		}
-		return handled
+		return true
 	}
 
 	private fun dispatchLegacyReaderPointerEvent(event: MotionEvent): Boolean {
@@ -3884,7 +4116,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		val event = checkNotNull(finalHostLifecycleEvent)
 		val reason = event.cancellationReason()
 		pageInputSettlementHostController.abandonPhysicalPointerStream(reason)
-		physicalDispatchMode = null
+		cancelLegacyLivePointerStream()
+		if (!legacyLivePointerStream.suppressesOriginalTerminal) {
+			physicalDispatchMode = null
+		}
 	}
 
 	private fun teardownTask4Resources() {

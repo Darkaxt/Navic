@@ -328,6 +328,103 @@ class ReaderPresentationAuthoritySequenceTest {
 	}
 
 	@Test
+	fun stalePartialRelocationsCannotFillPresentationEffectQueue() {
+		val current = presentationBinding(
+			session = "session-current",
+			destinationSequence = 40L
+		).copy(rasterGeneration = null, textureGeneration = null)
+		val request = ReaderNativePagePresentationRequest(
+			ReaderPresentationToken(41L),
+			current
+		)
+		var controller = ReaderController(
+			ReaderControllerState(
+				presentation = ReaderPresentationState(
+					authority = ReaderPresentationAuthority.BlockingPreparation(
+						retainedFrame = ReaderPresentationFrameOwner.Neutral,
+						nativePresentationRequest = request
+					),
+					binding = current,
+					nextTokenValue = 42L
+				)
+			)
+		)
+		val queue = ReaderPresentationEffectQueue(capacity = 2)
+
+		repeat(32) { offset ->
+			val stale = current.copy(
+				destinationCommitIdentity = ReaderDestinationCommitIdentity(
+					"session-current",
+					offset.toLong() + 1L
+				)
+			)
+			val step = controller.onPresentationEvent(
+				ReaderPresentationEvent.FoliateRelocated(stale, acknowledgement = null)
+			)
+			controller = step.controller
+			queue.retain(step.presentationEffects)
+		}
+
+		assertEquals(current, controller.state.presentation.binding)
+		assertEquals(request, (controller.state.presentation.authority as
+			ReaderPresentationAuthority.BlockingPreparation).nativePresentationRequest)
+		assertTrue(queue.pendingEffects().isEmpty())
+	}
+
+	@Test
+	fun repeatedProvisionalProfileFailureRetriesStayCoalesced() {
+		val provisional = presentationBinding(
+			session = "session-bootstrap",
+			destinationSequence = 1L
+		).copy(
+			profileGeneration = 0L,
+			rasterGeneration = null,
+			textureGeneration = null
+		)
+		val request = ReaderNativePagePresentationRequest(
+			ReaderPresentationToken(51L),
+			provisional
+		)
+		val failedFacts = ReaderPagePreparationFacts(
+			phase = ReaderPagePreparationPhase.Failed,
+			generation = requireNotNull(provisional.preparationGeneration),
+			failure = ReaderPresentationFailureReason.PreparationFailed,
+			retryable = true
+		)
+		var controller = ReaderController(
+			ReaderControllerState(
+				presentation = ReaderPresentationState(
+					authority = ReaderPresentationAuthority.BlockingPreparation(
+						retainedFrame = ReaderPresentationFrameOwner.Neutral,
+						nativePresentationRequest = request
+					),
+					binding = provisional,
+					preparationFacts = failedFacts,
+					failure = ReaderDiagnosticPresentation.Failure(
+						reason = ReaderPresentationFailureReason.PreparationFailed,
+						retryable = true,
+						cancellable = false
+					),
+					nextTokenValue = 52L
+				)
+			)
+		)
+		val queue = ReaderPresentationEffectQueue(capacity = 2)
+
+		repeat(32) {
+			val retried = controller.onPresentationEvent(ReaderPresentationEvent.Retry)
+			controller = retried.controller
+			queue.retain(retried.presentationEffects)
+		}
+
+		assertEquals(1, queue.pendingEffects().size)
+		assertEquals(
+			ReaderPresentationEffect.RetryPreparation(request.token, provisional),
+			queue.pendingEffects().single().effect
+		)
+	}
+
+	@Test
 	fun presentationEffectsDeduplicateByStableIdentityAndRequireSuccessfulAcknowledgement() {
 		val settled = settledNativePresentationState()
 		val staleBinding = presentationBinding(session = "session-stale", destinationSequence = 9L)

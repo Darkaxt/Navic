@@ -3575,7 +3575,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val hostSource = hostFile.readText()
 		val outerDispatch = hostSource
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean")
-			.substringBefore("private fun dispatchLegacyReaderPointerEvent(")
+			.substringBefore("private fun dispatchLegacyLivePointerEvent(")
+		val typedDispatch = hostSource
+			.substringAfter("internal fun readerDispatchPagePhysicalEvent(")
+			.substringBefore("internal data class ReaderLegacyLivePointerContext")
 		val importedDispatch = hostSource
 			.substringAfter("private fun dispatchPlayLikeCurlPointerEvent(")
 			.substringBefore("private fun applyPointerRoute(")
@@ -3593,10 +3596,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(outerDispatch, "if (event.actionMasked == MotionEvent.ACTION_DOWN)")
 		assertContains(outerDispatch, "pagePhysicalDispatchMode()")
-		assertContains(outerDispatch, "ReaderPagePhysicalDispatchMode.PlayLikeCurl ->")
-		assertContains(outerDispatch, "dispatchPlayLikeCurlPointerEvent(event)")
-		assertContains(outerDispatch, "ReaderPagePhysicalDispatchMode.Legacy ->")
-		assertContains(outerDispatch, "dispatchLegacyReaderPointerEvent(event)")
+		assertContains(outerDispatch, "readerDispatchPagePhysicalEvent(")
+		assertContains(
+			typedDispatch,
+			"ReaderPagePhysicalDispatchMode.PlayLikeCurl -> target.dispatchPlayLikeCurl(event)"
+		)
+		assertContains(
+			typedDispatch,
+			"ReaderPagePhysicalDispatchMode.Legacy -> target.dispatchLegacy(event)"
+		)
 		assertEquals(
 			1,
 			Regex("pagePhysicalDispatchMode\\(\\)").findAll(outerDispatch).count()
@@ -4050,13 +4058,19 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private fun closePhysicalPointerDelivery()")
 		val dispatch = viewer
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean")
-			.substringBefore("private fun dispatchLegacyReaderPointerEvent(")
+			.substringBefore("private fun dispatchLegacyLivePointerEvent(")
+		val typedDispatch = hostSource
+			.substringAfter("internal fun readerDispatchPagePhysicalEvent(")
+			.substringBefore("internal data class ReaderLegacyLivePointerContext")
 
 		assertContains(observer, "ReaderPageHostLifecycleEvent.Destroyed")
 		assertFalse(observer.contains("closePhysicalPointerDelivery()"))
 		assertFalse(begin.contains("physicalDispatchMode = null"))
-		assertContains(dispatch, "ReaderPagePhysicalDispatchMode.PlayLikeCurl")
-		assertContains(dispatch, "dispatchPlayLikeCurlPointerEvent(event)")
+		assertContains(dispatch, "readerDispatchPagePhysicalEvent(")
+		assertContains(
+			typedDispatch,
+			"ReaderPagePhysicalDispatchMode.PlayLikeCurl -> target.dispatchPlayLikeCurl(event)"
+		)
 		assertContains(dispatch, "event.actionMasked == MotionEvent.ACTION_UP ||")
 		assertContains(dispatch, "event.actionMasked == MotionEvent.ACTION_CANCEL")
 	}
