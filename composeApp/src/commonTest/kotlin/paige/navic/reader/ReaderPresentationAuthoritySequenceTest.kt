@@ -377,7 +377,7 @@ class ReaderPresentationAuthoritySequenceTest {
 	}
 
 	@Test
-	fun platformHostContractCarriesDecisionTypedEventsAndStrictBindingFactsInShadowMode() {
+	fun platformHostContractCarriesAtomicDecisionTypedEventsAndStrictBindingFacts() {
 		val common = sourceFile(
 			"src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
 		).readText()
@@ -400,28 +400,22 @@ class ReaderPresentationAuthoritySequenceTest {
 				"onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit"
 			)
 			assertContains(source, "destinationCommitIdentity: ReaderDestinationCommitIdentity?")
-			assertContains(source, "pagePreparationCoverVisible: Boolean")
+			assertFalse(source.contains("pagePreparationCoverVisible"))
+			assertFalse(source.contains("pagePreparationRetryKey"))
+			assertFalse(source.contains("onPagePreparationStateChange"))
 		}
 		assertContains(screen, "presentationEffects = pendingPresentationEffects")
 		assertContains(screen, "pendingPresentationEffectQueue.acknowledge(identity)")
-		assertContains(android, "setPresentationShadow(")
+		assertContains(android, "fun setPresentationDecision(")
+		assertContains(android, "presentationHostBridge.update(decision)")
+		assertContains(android, "override fun applyPresentationDecision(")
+		assertContains(android, "readerNativePresentationApplication(")
+		assertContains(android, "viewerContainer.applyPresentationInputPolicy(application.inputPolicy)")
 		assertContains(android, "handlePresentationEffects(")
 		assertContains(android, "releaseStalePresentationDeck(effect.binding)")
-		assertContains(android, "reportPresentationShadowComparison()")
-		assertContains(android, "Reader presentation shadow authority=")
-		val shadowSetter = android.substringAfter("fun setPresentationShadow(")
-			.substringBefore("\n\tfun ")
-		assertFalse(shadowSetter.contains(".visibility ="))
-		assertFalse(shadowSetter.contains("canAcceptNewPointer"))
-		val legacyVisibility = android.substringAfter("private fun updateNativeCoverVisibility()")
-			.substringBefore("\n\tfun setPageOperationPolicy")
-		assertFalse(legacyVisibility.contains("presentationDecision"))
-		val shadowDiagnostic = android.substringAfter("Reader presentation shadow authority=")
-			.substringBefore("\n\t\t)")
-		assertFalse(shadowDiagnostic.contains("foliateSessionId"))
-		assertFalse(shadowDiagnostic.contains("destinationCommitIdentity"))
-		assertFalse(shadowDiagnostic.contains("shellCoverUrl"))
-		assertFalse(shadowDiagnostic.contains("viewerKey.identity"))
+		assertFalse(android.contains("setPresentationShadow("))
+		assertFalse(android.contains("reportPresentationShadowComparison("))
+		assertFalse(android.contains("latestRasterPreparationState.presentation"))
 		val iosBody = ios.substringAfter(") {")
 		assertContains(iosBody, "LaunchedEffect(presentationEffects)")
 		assertContains(iosBody, "onPresentationEffectHandled(pending.identity)")

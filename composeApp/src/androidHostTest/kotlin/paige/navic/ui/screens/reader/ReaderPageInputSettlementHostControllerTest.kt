@@ -11,18 +11,19 @@ import paige.navic.reader.ReaderPageGestureLifecycle
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPageLifecycleCancellationReason
+import paige.navic.reader.ReaderPageNewPointerDecision
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
-import paige.navic.reader.ReaderPagePreparationPresentation
-import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageReadinessState
+import paige.navic.reader.ReaderPresentationInputPolicy
+import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.readerPageOperationPolicy
-import paige.navic.reader.withReadiness
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -76,6 +77,9 @@ class ReaderPageInputSettlementHostControllerTest {
 		published: MutableList<Pair<Long, ReaderPageGestureTerminalOutcome>>? = null,
 		cancellationPort: FakeReaderPageHostCancellationPort = FakeReaderPageHostCancellationPort(),
 		readiness: ReaderPageReadinessState = ready,
+		presentationInputPolicy: ReaderPresentationInputPolicy =
+			ReaderPresentationInputPolicy.NativePage(readerPageOperationPolicy(readiness)),
+		localReadiness: ReaderPageReadinessState = readiness,
 		publishLifecycleCancellation: (
 			Long,
 			ReaderPageLifecycleCancellationReason
@@ -86,7 +90,8 @@ class ReaderPageInputSettlementHostControllerTest {
 		}
 		return Triple(
 			ReaderPageInputSettlementHostController(
-				initialPolicy = readerPageOperationPolicy(readiness),
+				initialPresentationInputPolicy = presentationInputPolicy,
+				initialLocalSafetyPolicy = readerPageOperationPolicy(localReadiness),
 				pointerRouter = router,
 				cancellationPort = cancellationPort,
 				publishLifecycleCancellation = publishLifecycleCancellation
@@ -94,6 +99,119 @@ class ReaderPageInputSettlementHostControllerTest {
 			router,
 			cancellationPort
 		)
+	}
+
+	@Test
+	fun onlyNativePageAuthorityCanAdmitANewNativePointer() {
+		val nonNativePolicies = listOf(
+			ReaderPresentationInputPolicy.ShellCover,
+			ReaderPresentationInputPolicy.ChromeOnly,
+			ReaderPresentationInputPolicy.RecoveryOnly,
+			ReaderPresentationInputPolicy.ClaimedCurl(ReaderPresentationToken(3L)),
+			ReaderPresentationInputPolicy.LiveEngine
+		)
+
+		nonNativePolicies.forEachIndexed { index, policy ->
+			val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+			val (host, _, _) = host(
+				published = published,
+				presentationInputPolicy = policy,
+				localReadiness = ready
+			)
+			val down = host.dispatchPointer(
+				ReaderPageHostPointerEvent.Down(10f, 10f, 100L + index)
+			)
+			val terminal = assertIs<ReaderPagePointerRoute.Terminal>(down.route)
+
+			assertEquals(down.gestureId, terminal.gestureId)
+			assertEquals(listOf(terminal.gestureId to terminal.outcome), published)
+		}
+
+		val (nativeHost, _, _) = host(
+			presentationInputPolicy = ReaderPresentationInputPolicy.NativePage(
+				readerPageOperationPolicy(ready)
+			),
+			localReadiness = ready
+		)
+		assertEquals(
+			ReaderPagePointerRoute.Content,
+			nativeHost.dispatchPointer(
+				ReaderPageHostPointerEvent.Down(10f, 10f, 200L)
+			).route
+		)
+	}
+
+	@Test
+	fun authorityRejectionCannotBeElevatedByLocalRendererReadiness() {
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, _, _) = host(
+			published = published,
+			presentationInputPolicy = ReaderPresentationInputPolicy.NativePage(
+				readerPageOperationPolicy(settling)
+			),
+			localReadiness = ready
+		)
+
+		val down = host.dispatchPointer(
+			ReaderPageHostPointerEvent.Down(10f, 10f, 300L)
+		)
+		val terminal = assertIs<ReaderPagePointerRoute.Terminal>(down.route)
+		assertEquals(ReaderPageGestureTerminalOutcome.RejectedSettling, terminal.outcome)
+		assertEquals(listOf(terminal.gestureId to terminal.outcome), published)
+	}
+
+	@Test
+	fun localRendererReadinessCanVetoButNeverCreateTheAuthorityGrant() {
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, _, _) = host(
+			published = published,
+			presentationInputPolicy = ReaderPresentationInputPolicy.NativePage(
+				readerPageOperationPolicy(ready)
+			),
+			localReadiness = settling
+		)
+
+		val down = host.dispatchPointer(
+			ReaderPageHostPointerEvent.Down(10f, 10f, 400L)
+		)
+		val terminal = assertIs<ReaderPagePointerRoute.Terminal>(down.route)
+		assertEquals(ReaderPageGestureTerminalOutcome.RejectedSettling, terminal.outcome)
+		assertEquals(listOf(terminal.gestureId to terminal.outcome), published)
+	}
+
+	@Test
+	fun claimedCurlRejectsANewPointerWithoutInterruptingTheOwnedStream() {
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, _, _) = host(published = published)
+		val gestureId = requireNotNull(
+			host.dispatchPointer(
+				ReaderPageHostPointerEvent.Down(100f, 200f, 500L)
+			).gestureId
+		)
+		assertEquals(
+			ReaderPagePointerRoute.ClaimCurl(gestureId),
+			host.dispatchPointer(
+				ReaderPageHostPointerEvent.Move(140f, 200f, 8f)
+			).route
+		)
+
+		host.updateInputPolicies(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ClaimedCurl(
+				ReaderPresentationToken(5L)
+			),
+			localSafetyPolicy = readerPageOperationPolicy(settling)
+		)
+		assertEquals(
+			ReaderPagePointerRoute.Curl(gestureId),
+			host.dispatchPointer(ReaderPageHostPointerEvent.Up).route
+		)
+
+		val nextDown = host.dispatchPointer(
+			ReaderPageHostPointerEvent.Down(100f, 200f, 501L)
+		)
+		val terminal = assertIs<ReaderPagePointerRoute.Terminal>(nextDown.route)
+		assertEquals(ReaderPageGestureTerminalOutcome.RejectedSettling, terminal.outcome)
+		assertEquals(listOf(terminal.gestureId to terminal.outcome), published)
 	}
 
 	@Test
@@ -409,12 +527,19 @@ class ReaderPageInputSettlementHostControllerTest {
 			assertEquals(ReaderPagePointerRoute.Curl(primaryId), host.dispatchPointer(ReaderPageHostPointerEvent.Up).route)
 			cancellationPort.rendererAnimatorInFlight = true
 
-			host.updateOperationPolicy(readerPageOperationPolicy(settling))
+			host.updateInputPolicies(
+				presentationInputPolicy = ReaderPresentationInputPolicy.NativePage(
+					readerPageOperationPolicy(settling)
+				),
+				localSafetyPolicy = readerPageOperationPolicy(settling)
+			)
 			assertTrue(cancellationPort.rendererAnimatorInFlight)
 			assertTrue(cancellationPort.calls.isEmpty())
 			assertEquals(
-				ReaderPagePreparationPresentation.Hidden,
-				ReaderPagePreparationState().withReadiness(settling).presentation
+				ReaderPageNewPointerDecision.Reject(
+					ReaderPageGestureTerminalOutcome.RejectedSettling
+				),
+				readerPageOperationPolicy(settling).newPointer
 			)
 
 			val concurrentDown = host.dispatchPointer(ReaderPageHostPointerEvent.Down(120f, 200f, 120L))
@@ -629,7 +754,10 @@ class ReaderPageInputSettlementHostControllerTest {
 			published += gestureId to outcome
 		}
 		val host = ReaderPageInputSettlementHostController(
-			initialPolicy = readerPageOperationPolicy(ready),
+			initialPresentationInputPolicy = ReaderPresentationInputPolicy.NativePage(
+				readerPageOperationPolicy(ready)
+			),
+			initialLocalSafetyPolicy = readerPageOperationPolicy(ready),
 			pointerRouter = router,
 			cancellationPort = FakeReaderPageHostCancellationPort()
 		)

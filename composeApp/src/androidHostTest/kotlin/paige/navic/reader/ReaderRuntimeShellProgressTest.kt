@@ -349,42 +349,60 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun shellCoverPageTurnsWaitForInteractivePagePreparation() {
+	fun shellCoverPageTurnsCreateAuthorityRequestBeforePreparationIsReady() {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val readerViewerText = readerCommonUiFile("ReaderViewer.kt").readText()
+		val viewerAction = readerRootText
+			.substringAfter("onViewerAction = { action ->")
+			.substringBefore("onPageTurnBoundary = onPageTurnBoundary")
 
 		assertContains(
-			readerRootText,
-			"pageTurnAllowed = pagePreparationState.interactiveReady &&"
+			viewerAction,
+			"presentationDecision.inputPolicy == ReaderPresentationInputPolicy.ShellCover"
 		)
-		assertContains(
-			readerRootText,
-			"controllerState.paginationProfile.status != \"measuring\""
-		)
-		assertContains(readerRootText, "?.let(onViewerAction)")
+		assertContains(viewerAction, "readerShellCoverViewerActionFor(action)")
+		assertFalse(viewerAction.contains("interactiveReady"))
+		assertFalse(viewerAction.contains("pageTurnAllowed"))
+		assertFalse(readerViewerText.contains("pageTurnAllowed"))
 	}
 
 	@Test
-	fun terminalReaderErrorReleasesTheNativePagePreparationShield() {
+	fun preparationOverlayUsesOnlyTheAtomicPresentationDecision() {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
-		val readerViewerHostText = readerCommonUiFile("ReaderViewerHost.kt").readText()
+		val overlay = readerRootText
+			.substringAfter("ReaderPagePreparationOverlay(")
+			.substringBefore("modifier = Modifier.matchParentSize()")
 
-		assertTrue(
-			Regex(
-				"""pagePreparationCoverVisible\s*=\s*controllerState\.errorMessage == null &&\s*""" +
-					"""pagePreparationState\.presentation == ReaderPagePreparationPresentation\.Cover"""
-			).containsMatchIn(readerRootText)
+		assertContains(
+			overlay,
+			"preparation = presentationDecision.preparationPresentation"
 		)
-		assertTrue(
-			Regex(
-				"""if\s*\(\s*controllerState\.errorMessage == null &&\s*""" +
-					"""controllerState\.paginationProfile\.status != "measuring"\s*\)\s*\{\s*""" +
-					"""ReaderPagePreparationOverlay\("""
-			).containsMatchIn(readerRootText)
+		assertContains(
+			overlay,
+			"diagnostic = presentationDecision.diagnosticPresentation"
 		)
+		assertContains(
+			overlay,
+			"onRetry = { onPresentationEvent(ReaderPresentationEvent.Retry) }"
+		)
+		assertContains(
+			overlay,
+			"onCancel = { onPresentationEvent(ReaderPresentationEvent.Cancel) }"
+		)
+		assertFalse(readerRootText.contains("pagePreparationState"))
+		assertFalse(readerRootText.contains("pagePreparationRetryKey"))
+		assertFalse(readerRootText.contains("pagePreparationCoverVisible"))
+		assertFalse(readerRootText.contains("pageOperationPolicy ="))
+	}
+
+	@Test
+	fun terminalReaderErrorStillOwnsTheViewerStatusSurface() {
+		val readerViewerHostText = readerCommonUiFile("ReaderViewerHost.kt").readText()
 		val errorBranchMarker = "if (controllerState.errorMessage != null) {"
 		val errorBranch = readerViewerHostText.substringAfter(errorBranchMarker)
 		val errorStatusIndex = errorBranch.indexOf("ReaderViewerStatus(")
 		val engineElseIndex = errorBranch.indexOf("} else {")
+
 		assertTrue(errorStatusIndex in 0 until engineElseIndex)
 		assertContains(errorBranch.substringAfter("} else {"), "ReaderEngineContent(")
 		assertFalse(readerViewerHostText.substringBefore(errorBranchMarker).contains("ReaderEngineContent("))
@@ -401,7 +419,7 @@ class ReaderRuntimeShellProgressTest {
 		assertTrue(contentOnlyOverlays > paginationBadge)
 		assertContains(
 			readerRootText,
-			"controllerState.paginationProfile.status != \"measuring\""
+			"presentationDecision.inputPolicy == ReaderPresentationInputPolicy.ShellCover"
 		)
 	}
 
@@ -861,7 +879,7 @@ class ReaderRuntimeShellProgressTest {
 			)
 		val mode = nativeFrameHostText
 			.substringAfter(
-				"private fun shouldUsePlayLikeCurlPointerRouter()"
+				"private fun pagePhysicalDispatchMode()"
 			)
 			.substringBefore(
 				"override fun dispatchTouchEvent(event: MotionEvent): Boolean"
@@ -872,9 +890,9 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(legacy, "legacyGestureDetector.onTouchEvent(event)")
 		assertFalse(legacy.contains("pageInputSettlementHostController"))
 		assertFalse(legacy.contains("playLikeCurlGestureDetector"))
+		assertContains(mode, "ReaderPresentationInputPolicy.ShellCover -> ReaderPagePhysicalDispatchMode.Legacy")
 		assertContains(mode, "pageTurnCanvasEnabled")
 		assertContains(mode, "!verticalPageDragPreview")
-		assertContains(mode, "!shellCoverVisible")
 	}
 
 	@Test

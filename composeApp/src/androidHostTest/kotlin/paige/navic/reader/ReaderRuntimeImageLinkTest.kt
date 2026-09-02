@@ -191,8 +191,10 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(nativeFrameHostText, "KomikkuReaderNativeShellCoverView")
 		assertContains(readerRootText, "coverBackdropEnabled = controllerState.chrome.settings.coverBackdropEnabled != false")
 		assertContains(nativeFrameHostText, "readerNativeShellCoverSelected(")
-		assertContains(nativeFrameHostText, "shellCoverDecision = presentationDecision")
+		assertContains(nativeFrameHostText, "private fun applyPresentationDecision(")
+		assertContains(nativeFrameHostText, "readerNativePresentationApplication(")
 		assertContains(nativeFrameHostText, "hasValidatedNativePredecessor =")
+		assertFalse(nativeFrameHostText.contains("shellCoverDecision ="))
 		assertFalse(
 			nativeFrameHostText.contains(
 				"setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)"

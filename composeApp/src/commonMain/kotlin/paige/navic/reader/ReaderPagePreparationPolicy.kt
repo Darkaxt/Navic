@@ -7,17 +7,6 @@ enum class ReaderPagePreparationPhase {
 	Failed
 }
 
-enum class ReaderPagePreparationPresentation {
-	Hidden,
-	Cover,
-	Compact
-}
-
-enum class ReaderPagePreparationGestureDisposition {
-	Allow,
-	ConsumeWhilePreparing
-}
-
 fun readerPageTurnContentReadyKey(profile: ReaderPaginationProfileStatus): String? {
 	if (profile.status != "cached" && profile.status != "ready") return null
 	val fingerprint = profile.fingerprint?.takeIf { it.isNotBlank() } ?: return null
@@ -38,22 +27,8 @@ data class ReaderPagePreparationState(
 	val readiness: ReaderPageReadinessState = ReaderPageReadinessState(
 		interaction = ReaderPageInteractionState.Ready
 	),
-	val operationPolicy: ReaderPageOperationPolicy = readerPageOperationPolicy(readiness),
-	val progress: Float = 0f,
-	val presentation: ReaderPagePreparationPresentation = ReaderPagePreparationPresentation.Hidden,
-	val gestureDisposition: ReaderPagePreparationGestureDisposition = ReaderPagePreparationGestureDisposition.Allow
-) {
-	val interactiveReady: Boolean
-		get() = operationPolicy.newPointer is ReaderPageNewPointerDecision.Accept
-	val showsProgress: Boolean
-		get() = phase != ReaderPagePreparationPhase.Failed &&
-			presentation != ReaderPagePreparationPresentation.Hidden && (
-				phase == ReaderPagePreparationPhase.Preparing ||
-					presentation == ReaderPagePreparationPresentation.Cover
-				)
-	val hasDeterminateProgress: Boolean
-		get() = phase == ReaderPagePreparationPhase.Preparing && requiredCount > 0
-}
+	val progress: Float = 0f
+)
 
 fun ReaderPagePreparationState.toPresentationFacts(): ReaderPagePreparationFacts =
 	ReaderPagePreparationFacts(
@@ -70,40 +45,9 @@ fun ReaderPagePreparationState.toPresentationFacts(): ReaderPagePreparationFacts
 		retryable = retryable
 	)
 
-private fun readerPagePreparationPresentation(
-	readiness: ReaderPageReadinessState
-): ReaderPagePreparationPresentation = when (readiness.interaction) {
-	ReaderPageInteractionState.BlockingInitialPreparation,
-	ReaderPageInteractionState.BlockingProfileRegeneration -> ReaderPagePreparationPresentation.Cover
-	ReaderPageInteractionState.Failed -> if (
-		readiness.textureDeck == ReaderTextureDeckState.Ready &&
-			readiness.decodedWorkingSet == ReaderDecodedWorkingSetState.Ready
-	) {
-		ReaderPagePreparationPresentation.Compact
-	} else {
-		ReaderPagePreparationPresentation.Cover
-	}
-	ReaderPageInteractionState.Ready,
-	ReaderPageInteractionState.Settling,
-	ReaderPageInteractionState.BackgroundPrefetch,
-	ReaderPageInteractionState.RefillingWorkingSet -> ReaderPagePreparationPresentation.Hidden
-}
-
 fun ReaderPagePreparationState.withReadiness(
 	readiness: ReaderPageReadinessState
-): ReaderPagePreparationState {
-	val operationPolicy = readerPageOperationPolicy(readiness)
-	return copy(
-		readiness = readiness,
-		operationPolicy = operationPolicy,
-		presentation = readerPagePreparationPresentation(readiness),
-		gestureDisposition = if (operationPolicy.newPointer is ReaderPageNewPointerDecision.Accept) {
-			ReaderPagePreparationGestureDisposition.Allow
-		} else {
-			ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing
-		}
-	)
-}
+): ReaderPagePreparationState = copy(readiness = readiness)
 
 fun ReaderPagePreparationState.withRendererReadiness(
 	renderer: ReaderPageRendererReadinessState

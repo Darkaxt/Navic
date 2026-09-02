@@ -35,6 +35,7 @@ internal interface ReaderPresentationCommitHost {
 	val measuredViewportWidth: Int
 	val measuredViewportHeight: Int
 
+	fun applyPresentationDecision(decision: ReaderPresentationDecision) = Unit
 	fun prepareOpaqueShellCover(coverGeneration: Long)
 	fun cancelOpaqueShellCoverPreparation(coverGeneration: Long)
 	fun completeOpaqueShellCoverPreparation(coverGeneration: Long)
@@ -267,6 +268,7 @@ internal class ReaderPresentationHostBridge(
 	fun update(decision: ReaderPresentationDecision) {
 		if (disposed) return
 		currentDecision = decision
+		host.applyPresentationDecision(decision)
 		val pending = pendingCoverCommit
 		if (pending?.receiptEmitted == true) {
 			if (acceptedShellCoverDecisionMatches(decision, pending)) {

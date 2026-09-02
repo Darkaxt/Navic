@@ -686,6 +686,9 @@ data class ReaderController(
 			)
 			action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||
 				action == ReaderViewerAction.ScrollViewport(ReaderViewportScrollDirection.Down) -> {
+				if (state.pendingShellCoverDismissal != null) {
+					return ReaderControllerStep(this)
+				}
 				val presentationStep = onPresentationEvent(
 					ReaderPresentationEvent.ShellCoverDismissalRequested
 				)

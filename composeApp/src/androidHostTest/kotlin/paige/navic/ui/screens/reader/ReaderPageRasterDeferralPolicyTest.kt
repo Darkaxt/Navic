@@ -1,6 +1,5 @@
 package paige.navic.ui.screens.reader
 
-import paige.navic.reader.ReaderPagePreparationPresentation
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -33,18 +32,6 @@ class ReaderPageRasterDeferralPolicyTest {
 				assertEquals(event == expectedEvent, policy.shouldRetry(event), "$reason -> $event")
 			}
 		}
-	}
-
-	@Test
-	fun deferredPresentationDependsOnlyOnUsablePreparedDeck() {
-		assertEquals(
-			ReaderPagePreparationPresentation.Cover,
-			readerPageDeferredPresentation(hasPreparedDeck = false)
-		)
-		assertEquals(
-			ReaderPagePreparationPresentation.Hidden,
-			readerPageDeferredPresentation(hasPreparedDeck = true)
-		)
 	}
 
 	@Test

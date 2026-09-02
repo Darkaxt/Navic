@@ -1480,23 +1480,235 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
-	fun committedCoverSuppressesBackgroundPreparation() {
+	fun returnedCommittedCoverSuppressesExactBackgroundPreparation() {
 		val proof = shellCoverProof(token = ReaderPresentationToken(7L), coverGeneration = 8L)
 		val state = ReaderPresentationState(
 			authority = ReaderPresentationAuthority.ShellCover(proof),
 			binding = binding
 		)
+		val backgroundFacts = ReaderPagePreparationFacts(
+			phase = ReaderPagePreparationPhase.Preparing,
+			generation = requireNotNull(binding.preparationGeneration),
+			completedCount = 1,
+			requiredCount = 4,
+			readiness = readyReadiness.copy(
+				textureDeck = ReaderTextureDeckState.Preparing,
+				interaction = ReaderPageInteractionState.BlockingInitialPreparation
+			)
+		)
 
 		val reduction = readerPresentationReduce(
 			state,
-			ReaderPresentationEvent.PreparationReported(binding, preparationFacts())
+			ReaderPresentationEvent.PreparationReported(binding, backgroundFacts)
 		)
 
-		assertEquals(state.authority, reduction.state.authority)
+		assertEquals(ReaderPresentationAuthority.ShellCover(proof), reduction.state.authority)
+		assertEquals(backgroundFacts, reduction.state.preparationFacts)
 		assertEquals(ReaderPresentationFrameOwner.ShellCover(proof), reduction.decision.frameOwner)
 		assertEquals(ReaderPresentationLayer.ShellCover, reduction.decision.layer)
-		assertEquals(ReaderPresentationInputPolicy.ShellCover, reduction.decision.inputPolicy)
 		assertEquals(ReaderPreparationPresentation.Hidden, reduction.decision.preparationPresentation)
+		assertEquals(ReaderDiagnosticPresentation.Hidden, reduction.decision.diagnosticPresentation)
+		assertEquals(ReaderPresentationInputPolicy.ShellCover, reduction.decision.inputPolicy)
+		assertEquals(ReaderRequiredTransition.None, reduction.decision.requiredTransition)
+	}
+
+	@Test
+	fun returnedCommittedCoverRetainsSanitizedPreparationFailureOverItsFrame() {
+		val proof = shellCoverProof(token = ReaderPresentationToken(7L), coverGeneration = 8L)
+		val state = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.ShellCover(proof),
+			binding = binding
+		)
+		val failedFacts = ReaderPagePreparationFacts(
+			phase = ReaderPagePreparationPhase.Failed,
+			generation = requireNotNull(binding.preparationGeneration),
+			completedCount = 1,
+			requiredCount = 4,
+			readiness = readyReadiness.copy(
+				textureDeck = ReaderTextureDeckState.Failed,
+				interaction = ReaderPageInteractionState.Failed
+			),
+			failure = ReaderPresentationFailureReason.PreparationFailed,
+			retryable = true
+		)
+
+		val reduction = readerPresentationReduce(
+			state,
+			ReaderPresentationEvent.PreparationFailed(
+				binding = binding,
+				facts = failedFacts,
+				reason = ReaderPresentationFailureReason.PreparationFailed,
+				cancellable = false
+			)
+		)
+
+		assertEquals(ReaderPresentationAuthority.ShellCover(proof), reduction.state.authority)
+		assertEquals(ReaderPresentationFrameOwner.ShellCover(proof), reduction.decision.frameOwner)
+		assertEquals(ReaderPresentationLayer.ShellCover, reduction.decision.layer)
+		assertEquals(ReaderPreparationPresentation.Hidden, reduction.decision.preparationPresentation)
+		assertEquals(
+			ReaderDiagnosticPresentation.Failure(
+				ReaderPresentationFailureReason.PreparationFailed,
+				retryable = true,
+				cancellable = false
+			),
+			reduction.decision.diagnosticPresentation
+		)
+		assertEquals(ReaderPresentationInputPolicy.ShellCover, reduction.decision.inputPolicy)
+		assertNoOp(
+			reduction.state,
+			readerPresentationReduce(reduction.state, ReaderPresentationEvent.Cancel)
+		)
+	}
+
+	@Test
+	fun earlyCoverEntryCoalescesAndProjectsExactBlockingPreparation() {
+		val coverProof = shellCoverProof(ReaderPresentationToken(7L), coverGeneration = 8L)
+		val preparingFacts = ReaderPagePreparationFacts(
+			phase = ReaderPagePreparationPhase.Preparing,
+			generation = requireNotNull(binding.preparationGeneration),
+			completedCount = 1,
+			requiredCount = 4,
+			readiness = readyReadiness.copy(
+				textureDeck = ReaderTextureDeckState.Preparing,
+				interaction = ReaderPageInteractionState.BlockingInitialPreparation
+			)
+		)
+		val coverState = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.ShellCover(coverProof),
+			binding = binding,
+			preparationFacts = preparingFacts,
+			nextTokenValue = 8L
+		)
+
+		val first = readerPresentationReduce(
+			coverState,
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		)
+		val duplicate = readerPresentationReduce(
+			first.state,
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		)
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			first.state.authority
+		)
+
+		assertEquals(ReaderPresentationFrameOwner.ShellCover(coverProof), pending.retainedFrame)
+		assertEquals(
+			ReaderNativePagePresentationRequest(ReaderPresentationToken(8L), binding),
+			pending.nativePresentationRequest
+		)
+		assertEquals(9L, first.state.nextTokenValue)
+		assertEquals(ReaderPresentationLayer.ShellCover, first.decision.layer)
+		assertEquals(
+			ReaderPreparationPresentation.Blocking(
+				completedCount = 1,
+				requiredCount = 4,
+				determinate = true
+			),
+			first.decision.preparationPresentation
+		)
+		assertEquals(ReaderPresentationInputPolicy.ChromeOnly, first.decision.inputPolicy)
+		assertEquals(
+			ReaderRequiredTransition.PresentNativePage(
+				ReaderPresentationToken(8L),
+				binding,
+				direction = null
+			),
+			first.decision.requiredTransition
+		)
+		assertNoOp(first.state, duplicate)
+	}
+
+	@Test
+	fun readyCoverEntryStillWaitsForExactPresentedNativeFrameWithoutBlockingOverlay() {
+		val coverProof = shellCoverProof(ReaderPresentationToken(7L), coverGeneration = 8L)
+		val coverState = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.ShellCover(coverProof),
+			binding = binding,
+			preparationFacts = preparationFacts(
+				phase = ReaderPagePreparationPhase.Ready,
+				readiness = readyReadiness
+			),
+			nextTokenValue = 8L
+		)
+		val pending = readerPresentationReduce(
+			coverState,
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		)
+
+		assertEquals(ReaderPresentationLayer.ShellCover, pending.decision.layer)
+		assertEquals(ReaderPreparationPresentation.Hidden, pending.decision.preparationPresentation)
+		assertEquals(ReaderPresentationInputPolicy.ChromeOnly, pending.decision.inputPolicy)
+
+		val exactProof = nativeProof.copy(transitionToken = ReaderPresentationToken(8L))
+		val presented = readerPresentationReduce(
+			pending.state,
+			ReaderPresentationEvent.NativePagePresented(exactProof)
+		)
+
+		assertEquals(ReaderPresentationFrameOwner.NativePage(exactProof), presented.decision.frameOwner)
+		assertEquals(ReaderPresentationLayer.NativePage, presented.decision.layer)
+		assertEquals(ReaderPreparationPresentation.Hidden, presented.decision.preparationPresentation)
+		assertEquals(ReaderPresentationInputPolicy.NativePage(operationPolicy), presented.decision.inputPolicy)
+	}
+
+	@Test
+	fun coverBackedFailureKeepsPendingTokenThroughRetryAndFreshGenerationRebind() {
+		val coverProof = shellCoverProof(ReaderPresentationToken(7L), coverGeneration = 8L)
+		val pending = readerPresentationReduce(
+			ReaderPresentationState(
+				authority = ReaderPresentationAuthority.ShellCover(coverProof),
+				binding = binding,
+				nextTokenValue = 8L
+			),
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		)
+		val failed = readerPresentationReduce(
+			pending.state,
+			ReaderPresentationEvent.PreparationFailed(
+				binding = binding,
+				facts = preparationFacts(phase = ReaderPagePreparationPhase.Failed),
+				reason = ReaderPresentationFailureReason.PreparationFailed,
+				cancellable = false
+			)
+		)
+		val retryRequested = readerPresentationReduce(failed.state, ReaderPresentationEvent.Retry)
+		val retryBinding = binding.copy(preparationGeneration = 7L)
+		val rebound = readerPresentationReduce(
+			retryRequested.state,
+			ReaderPresentationEvent.BindingReplaced(binding, retryBinding)
+		)
+		val reboundPending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			rebound.state.authority
+		)
+
+		assertEquals(ReaderPresentationFrameOwner.ShellCover(coverProof), failed.decision.frameOwner)
+		assertEquals(
+			ReaderDiagnosticPresentation.Failure(
+				ReaderPresentationFailureReason.PreparationFailed,
+				retryable = true,
+				cancellable = false
+			),
+			failed.decision.diagnosticPresentation
+		)
+		assertEquals(failed.state, retryRequested.state)
+		assertEquals(failed.decision, retryRequested.decision)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.RetryPreparation(
+					token = ReaderPresentationToken(8L),
+					binding = binding
+				)
+			),
+			retryRequested.effects
+		)
+		assertEquals(
+			ReaderNativePagePresentationRequest(ReaderPresentationToken(8L), retryBinding),
+			reboundPending.nativePresentationRequest
+		)
+		assertEquals(ReaderDiagnosticPresentation.Hidden, rebound.decision.diagnosticPresentation)
+		assertEquals(9L, rebound.state.nextTokenValue)
 	}
 
 	@Test
@@ -1916,7 +2128,7 @@ class ReaderPresentationAuthorityReducerTest {
 		assertEquals(emptyList(), reopened.effects)
 	}
 	@Test
-	fun preparationFactsAdapterKeepsRawFactsAndExcludesLegacyPresentationFields() {
+	fun preparationFactsAdapterKeepsRawFactsAndExcludesLocalDiagnosticDetails() {
 		val state = ReaderPagePreparationState(
 			phase = ReaderPagePreparationPhase.Failed,
 			preparationGeneration = 9L,
@@ -1925,17 +2137,13 @@ class ReaderPresentationAuthorityReducerTest {
 			activePageLabel = "sensitive-page-label",
 			error = "sensitive failure detail",
 			retryable = true,
-			readiness = readyReadiness,
-			presentation = ReaderPagePreparationPresentation.Hidden,
-			gestureDisposition = ReaderPagePreparationGestureDisposition.Allow
+			readiness = readyReadiness
 		)
 
 		val facts = state.toPresentationFacts()
-		val withDifferentLegacyPresentation = state.copy(
+		val withDifferentLocalDetails = state.copy(
 			activePageLabel = "other-label",
-			error = "other failure detail",
-			presentation = ReaderPagePreparationPresentation.Cover,
-			gestureDisposition = ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing
+			error = "other failure detail"
 		)
 
 		assertEquals(ReaderPagePreparationPhase.Failed, facts.phase)
@@ -1945,7 +2153,7 @@ class ReaderPresentationAuthorityReducerTest {
 		assertEquals(readyReadiness, facts.readiness)
 		assertEquals(ReaderPresentationFailureReason.PreparationFailed, facts.failure)
 		assertEquals(true, facts.retryable)
-		assertEquals(facts, withDifferentLegacyPresentation.toPresentationFacts())
+		assertEquals(facts, withDifferentLocalDetails.toPresentationFacts())
 	}
 
 	private fun settledNativeState(nextTokenValue: Long = 1L) = ReaderPresentationState(

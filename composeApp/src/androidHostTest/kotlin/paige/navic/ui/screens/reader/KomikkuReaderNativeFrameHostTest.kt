@@ -4,16 +4,21 @@ import java.io.File
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.ReaderPageInteractionState
-import paige.navic.reader.ReaderPageNewPointerDecision
+import paige.navic.reader.ReaderPagePreparationFacts
 import paige.navic.reader.ReaderPagePreparationPhase
-import paige.navic.reader.ReaderPagePreparationPresentation
 import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPageRendererReadinessState
+import paige.navic.reader.ReaderPreparationPresentation
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderDiagnosticPresentation
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationFrameOwner
+import paige.navic.reader.ReaderPresentationInputPolicy
+import paige.navic.reader.ReaderPresentationLayer
 import paige.navic.reader.ReaderPresentationState
+import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.readerPresentationReduce
@@ -25,6 +30,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class KomikkuReaderNativeFrameHostTest {
@@ -32,6 +38,131 @@ class KomikkuReaderNativeFrameHostTest {
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"KomikkuReaderNativeFrameHost.android.kt"
 	)
+
+	@Test
+	fun nativeHostApplicationKeepsLayerPreparationDiagnosticAndInputOnOneDecision() {
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "application-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				foliateSessionId = "application-session",
+				commitSequence = 4L
+			),
+			rasterGeneration = 5L,
+			textureGeneration = 6L,
+			preparationGeneration = 7L
+		)
+		val coverProof = ReaderShellCoverCommitProof(
+			token = ReaderPresentationToken(8L),
+			binding = binding,
+			coverGeneration = 9L,
+			presentedFrame = 10L,
+			viewportWidth = 1200,
+			viewportHeight = 800
+		)
+		val decision = readerPresentationReduce(
+			ReaderPresentationState(
+				authority = ReaderPresentationAuthority.ShellCover(coverProof),
+				binding = binding,
+				preparationFacts = ReaderPagePreparationFacts(
+					phase = ReaderPagePreparationPhase.Preparing,
+					generation = 7L,
+					completedCount = 1,
+					requiredCount = 4,
+					readiness = ReaderPageReadinessState(
+						textureDeck = ReaderTextureDeckState.Preparing,
+						interaction = ReaderPageInteractionState.BlockingInitialPreparation
+					)
+				),
+				nextTokenValue = 11L
+			),
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		).decision
+
+		val application = readerNativePresentationApplication(
+			decision = decision,
+			unavailableStartupShellCoverSelected = false
+		)
+
+		assertSame(decision, application.decision)
+		assertEquals(
+			ReaderNativePresentationLayerVisibility(
+				shellCover = true,
+				preparationShield = false
+			),
+			application.layers
+		)
+		assertEquals(decision.preparationPresentation, application.preparation)
+		assertEquals(decision.diagnosticPresentation, application.diagnostic)
+		assertEquals(decision.inputPolicy, application.inputPolicy)
+		assertIs<ReaderPreparationPresentation.Blocking>(application.preparation)
+		assertEquals(ReaderDiagnosticPresentation.Hidden, application.diagnostic)
+		assertEquals(ReaderPresentationInputPolicy.ChromeOnly, application.inputPolicy)
+	}
+
+	@Test
+	fun unavailableStartupCoverFallbackCannotOverrideAnAvailableDecision() {
+		val unavailableDecision = readerPresentationDecision(ReaderPresentationState())
+		assertEquals(
+			ReaderNativePresentationLayerVisibility(
+				shellCover = true,
+				preparationShield = false
+			),
+			readerNativePresentationApplication(
+				decision = unavailableDecision,
+				unavailableStartupShellCoverSelected = true
+			).layers
+		)
+
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "native-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = null,
+			rasterGeneration = 4L,
+			textureGeneration = 5L,
+			preparationGeneration = 6L
+		)
+		val nativeProof = ReaderNativePagePresentationProof(
+			binding = binding,
+			transitionToken = null,
+			presentedFrame = 7L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 4L,
+			textureGeneration = 5L
+		)
+		val nativeDecision = readerPresentationDecision(
+			ReaderPresentationState(
+				authority = ReaderPresentationAuthority.SettledNativePage(
+					ReaderPresentationFrameOwner.NativePage(nativeProof)
+				),
+				binding = binding,
+				preparationFacts = ReaderPagePreparationFacts(
+					phase = ReaderPagePreparationPhase.Ready,
+					generation = 6L,
+					readiness = ReaderPageReadinessState(
+						textureDeck = ReaderTextureDeckState.Ready,
+						interaction = ReaderPageInteractionState.Ready
+					)
+				)
+			)
+		)
+
+		assertEquals(
+			ReaderNativePresentationLayerVisibility(
+				shellCover = false,
+				preparationShield = false
+			),
+			readerNativePresentationApplication(
+				decision = nativeDecision,
+				unavailableStartupShellCoverSelected = true
+			).layers
+		)
+	}
 
 	@Test
 	fun startupShellHandoffIsOneShotAcrossAnOrdinaryReturnedCover() {
@@ -141,7 +272,7 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
-	fun disabledCanvasStaysBlockedUntilPublicationContentBecomesReady() {
+	fun hostPreparationFactsStayBlockedUntilPublicationContentBecomesReady() {
 		val rasterState = readerPagePreparationState(
 			phase = ReaderPagePreparationPhase.Idle,
 			requiredCount = 0,
@@ -153,13 +284,13 @@ class KomikkuReaderNativeFrameHostTest {
 			)
 		)
 
-		val pending = readerMergedPagePreparationState(
+		val pending = readerHostPagePreparationState(
 			pageTurnCanvasEnabled = false,
 			pageTurnContentReady = false,
 			rasterState = rasterState,
 			rendererState = ReaderPageRendererReadinessState()
 		)
-		val ready = readerMergedPagePreparationState(
+		val ready = readerHostPagePreparationState(
 			pageTurnCanvasEnabled = false,
 			pageTurnContentReady = true,
 			rasterState = rasterState,
@@ -167,41 +298,17 @@ class KomikkuReaderNativeFrameHostTest {
 		)
 
 		assertEquals(ReaderPagePreparationPhase.Idle, pending.phase)
-		assertEquals(ReaderPagePreparationPresentation.Cover, pending.presentation)
-		assertFalse(pending.interactiveReady)
-		assertTrue(pending.showsProgress)
+		assertEquals(
+			ReaderPageInteractionState.BlockingInitialPreparation,
+			pending.readiness.interaction
+		)
 		assertEquals(ReaderPagePreparationPhase.Ready, ready.phase)
-		assertEquals(ReaderPagePreparationPresentation.Hidden, ready.presentation)
-		assertTrue(ready.interactiveReady)
+		assertEquals(ReaderTextureDeckState.Ready, ready.readiness.textureDeck)
+		assertEquals(ReaderPageInteractionState.Ready, ready.readiness.interaction)
 	}
 
 	@Test
-	fun disabledCanvasCannotPublishAStuckPreparationCover() {
-		val rasterState = readerPagePreparationState(
-			phase = ReaderPagePreparationPhase.Idle,
-			requiredCount = 0,
-			completedCount = 0,
-			interactiveRequiredCount = 0,
-			interactiveCompletedCount = 0,
-			readiness = ReaderPageReadinessState(
-				interaction = ReaderPageInteractionState.BlockingInitialPreparation
-			)
-		)
-
-		val merged = readerMergedPagePreparationState(
-			pageTurnCanvasEnabled = false,
-			pageTurnContentReady = true,
-			rasterState = rasterState,
-			rendererState = ReaderPageRendererReadinessState()
-		)
-
-		assertEquals(ReaderPagePreparationPhase.Ready, merged.phase)
-		assertEquals(ReaderPagePreparationPresentation.Hidden, merged.presentation)
-		assertTrue(merged.operationPolicy.newPointer is ReaderPageNewPointerDecision.Accept)
-	}
-
-	@Test
-	fun enabledCanvasStillPublishesBlockingRasterPreparation() {
+	fun enabledCanvasMergesRendererReadinessIntoRawPreparationFacts() {
 		val rasterState = readerPagePreparationState(
 			phase = ReaderPagePreparationPhase.Preparing,
 			requiredCount = 3,
@@ -213,7 +320,7 @@ class KomikkuReaderNativeFrameHostTest {
 			)
 		)
 
-		val merged = readerMergedPagePreparationState(
+		val merged = readerHostPagePreparationState(
 			pageTurnCanvasEnabled = true,
 			pageTurnContentReady = true,
 			rasterState = rasterState,
@@ -224,12 +331,13 @@ class KomikkuReaderNativeFrameHostTest {
 		)
 
 		assertEquals(ReaderPagePreparationPhase.Preparing, merged.phase)
-		assertEquals(ReaderPagePreparationPresentation.Cover, merged.presentation)
+		assertEquals(ReaderTextureDeckState.Preparing, merged.readiness.textureDeck)
+		assertEquals(ReaderPageInteractionState.BlockingInitialPreparation, merged.readiness.interaction)
 		assertEquals(1, merged.completedCount)
 	}
 
 	@Test
-	fun canvasAndContentReadinessTransitionsRepublishTheInputGate() {
+	fun canvasAndContentReadinessTransitionsRepublishPreparationFacts() {
 		val source = hostFile.readText()
 		val canvasTransition = source
 			.substringAfterLast("fun setPageTurnCanvasEnabled(enabled: Boolean)")
@@ -238,10 +346,10 @@ class KomikkuReaderNativeFrameHostTest {
 			.substringAfterLast("fun setPageTurnContentReadyKey(contentReadyKey: String?)")
 			.substringBefore("fun setPageTurnPaginationStatus(")
 
-		assertContains(canvasTransition, "publishMergedPagePreparationState()")
-		assertContains(contentTransition, "publishMergedPagePreparationState()")
+		assertContains(canvasTransition, "publishPagePreparationFacts()")
+		assertContains(contentTransition, "publishPagePreparationFacts()")
 		assertTrue(
-			contentTransition.indexOf("publishMergedPagePreparationState()") <
+			contentTransition.indexOf("publishPagePreparationFacts()") <
 				contentTransition.indexOf("if (contentReadyKey == null) return")
 		)
 	}
@@ -331,47 +439,33 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
-	fun publicationShellArtworkIsVisibleOnlyForControllerOwnedShellCover() {
-		assertEquals(
-			ReaderNativePresentationLayerVisibility(
-				shellCover = true,
-				preparationShield = false
-			),
-			readerNativePresentationLayerVisibility(
-				shellCoverVisible = true,
-				pagePreparationCoverVisible = true,
-				hasValidatedRasterPresentation = false
+	fun neutralBlockingDecisionUsesOnlyTheFailClosedPreparationShield() {
+		val decision = readerPresentationDecision(
+			ReaderPresentationState(
+				authority = ReaderPresentationAuthority.BlockingPreparation(
+					retainedFrame = ReaderPresentationFrameOwner.Neutral
+				),
+				preparationFacts = ReaderPagePreparationFacts(
+					phase = ReaderPagePreparationPhase.Preparing,
+					generation = 1L,
+					completedCount = 0,
+					requiredCount = 0,
+					readiness = ReaderPageReadinessState(
+						interaction = ReaderPageInteractionState.BlockingInitialPreparation
+					)
+				)
 			)
 		)
-	}
 
-	@Test
-	fun preparationRetainsValidatedRasterWithoutPublicationCoverOrNeutralShield() {
-		assertEquals(
-			ReaderNativePresentationLayerVisibility(
-				shellCover = false,
-				preparationShield = false
-			),
-			readerNativePresentationLayerVisibility(
-				shellCoverVisible = false,
-				pagePreparationCoverVisible = true,
-				hasValidatedRasterPresentation = true
-			)
-		)
-	}
-
-	@Test
-	fun preparationWithoutValidatedRasterUsesNeutralFailClosedShield() {
 		assertEquals(
 			ReaderNativePresentationLayerVisibility(
 				shellCover = false,
 				preparationShield = true
 			),
-			readerNativePresentationLayerVisibility(
-				shellCoverVisible = false,
-				pagePreparationCoverVisible = true,
-				hasValidatedRasterPresentation = false
-			)
+			readerNativePresentationApplication(
+				decision = decision,
+				unavailableStartupShellCoverSelected = false
+			).layers
 		)
 	}
 

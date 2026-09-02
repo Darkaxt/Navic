@@ -434,7 +434,8 @@ sealed interface ReaderPresentationEvent {
 }
 
 enum class ReaderPresentationEffectKind {
-	ReleaseStalePresentation
+	ReleaseStalePresentation,
+	RetryPreparation
 }
 
 data class ReaderPresentationEffectIdentity(
@@ -448,11 +449,21 @@ sealed interface ReaderPresentationEffect {
 		val token: ReaderPresentationToken?,
 		val binding: ReaderPresentationBinding
 	) : ReaderPresentationEffect
+
+	data class RetryPreparation(
+		val token: ReaderPresentationToken?,
+		val binding: ReaderPresentationBinding
+	) : ReaderPresentationEffect
 }
 
 fun ReaderPresentationEffect.identity(): ReaderPresentationEffectIdentity = when (this) {
 	is ReaderPresentationEffect.ReleaseStalePresentation -> ReaderPresentationEffectIdentity(
 		kind = ReaderPresentationEffectKind.ReleaseStalePresentation,
+		token = token,
+		binding = binding
+	)
+	is ReaderPresentationEffect.RetryPreparation -> ReaderPresentationEffectIdentity(
+		kind = ReaderPresentationEffectKind.RetryPreparation,
 		token = token,
 		binding = binding
 	)
@@ -543,7 +554,7 @@ fun readerPresentationReduce(
 		is ReaderPresentationEvent.PreparationReported -> state.reducePreparationReport(event)
 		is ReaderPresentationEvent.PreparationFailed -> state.reducePreparationFailure(event)
 		is ReaderPresentationEvent.TimedOut -> state.reduceTimeout(event)
-		ReaderPresentationEvent.Retry,
+		ReaderPresentationEvent.Retry -> state.reduceRetry()
 		ReaderPresentationEvent.Cancel -> ReaderPresentationReducerResult(state)
 		is ReaderPresentationEvent.Lifecycle -> state.reduceLifecycle(event.event)
 	}
@@ -558,6 +569,32 @@ private data class ReaderPresentationReducerResult(
 	val state: ReaderPresentationState,
 	val effects: List<ReaderPresentationEffect> = emptyList()
 )
+
+private fun ReaderPresentationState.reduceRetry(): ReaderPresentationReducerResult {
+	val currentBinding = binding ?: return ReaderPresentationReducerResult(this)
+	val currentFailure = failure ?: return ReaderPresentationReducerResult(this)
+	if (
+		!currentFailure.retryable ||
+		currentFailure.reason != ReaderPresentationFailureReason.PreparationFailed
+	) {
+		return ReaderPresentationReducerResult(this)
+	}
+	val token = when (val transition = authority.requiredTransition()) {
+		is ReaderRequiredTransition.CommitShellCover -> transition.token
+		is ReaderRequiredTransition.PresentNativePage -> transition.token
+		is ReaderRequiredTransition.ExposeLiveEngine -> transition.token
+		ReaderRequiredTransition.None -> null
+	}
+	return ReaderPresentationReducerResult(
+		state = this,
+		effects = listOf(
+			ReaderPresentationEffect.RetryPreparation(
+				token = token,
+				binding = currentBinding
+			)
+		)
+	)
+}
 
 private fun ReaderPresentationEvent.closedResourceReleaseOrNull():
 	ReaderPresentationEffect.ReleaseStalePresentation? = when (this) {

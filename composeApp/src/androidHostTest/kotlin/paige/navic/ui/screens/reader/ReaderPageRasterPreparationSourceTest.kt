@@ -731,7 +731,7 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
-	fun applicationPanelShieldPreservesCoverAndProgressComposition() {
+	fun applicationPanelShieldPreservesAuthoritySelectedFrameComposition() {
 		val preparation = readerRasterPreparationSource()
 		val host = readerSource("KomikkuReaderNativeFrameHost.android.kt")
 		val window = readerSource("ReaderPageStaticWindowShield.android.kt")
@@ -745,8 +745,11 @@ class ReaderPageRasterPreparationSourceTest {
 		)
 		assertContains(host, "shouldPreserveCurrentPresentation = {")
 		assertContains(host, "shellCoverVisible ||")
-		assertContains(host, "latestRasterPreparationState.presentation ==")
-		assertContains(host, "ReaderPagePreparationPresentation.Cover")
+		assertContains(
+			host,
+			"presentationDecision?.layer?.let { it != ReaderPresentationLayer.Neutral } == true"
+		)
+		assertFalse(host.contains("latestRasterPreparationState.presentation"))
 		assertContains(window, "preserveCurrentPresentation: Boolean = false")
 		assertContains(window, "captureCurrentPresentation(")
 		assertContains(window, "val presentationRoot = host.rootView")

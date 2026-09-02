@@ -23,6 +23,29 @@ data class ReaderPageOperationPolicy(
 	val cancelForReadinessChange: Boolean = false
 )
 
+fun readerPageNewPointerDecision(
+	presentationInputPolicy: ReaderPresentationInputPolicy,
+	localSafetyPolicy: ReaderPageOperationPolicy
+): ReaderPageNewPointerDecision = when (presentationInputPolicy) {
+	is ReaderPresentationInputPolicy.NativePage -> when (
+		val authorityDecision = presentationInputPolicy.policy.newPointer
+	) {
+		is ReaderPageNewPointerDecision.Reject -> authorityDecision
+		ReaderPageNewPointerDecision.Accept -> localSafetyPolicy.newPointer
+	}
+	is ReaderPresentationInputPolicy.ClaimedCurl -> ReaderPageNewPointerDecision.Reject(
+		ReaderPageGestureTerminalOutcome.RejectedSettling
+	)
+	ReaderPresentationInputPolicy.ShellCover,
+	ReaderPresentationInputPolicy.ChromeOnly -> ReaderPageNewPointerDecision.Reject(
+		ReaderPageGestureTerminalOutcome.RejectedPreparing
+	)
+	ReaderPresentationInputPolicy.RecoveryOnly,
+	ReaderPresentationInputPolicy.LiveEngine -> ReaderPageNewPointerDecision.Reject(
+		ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
+	)
+}
+
 fun readerPageOperationPolicy(readiness: ReaderPageReadinessState): ReaderPageOperationPolicy {
 	val deckPrepared = readiness.textureDeck == ReaderTextureDeckState.Ready
 	val settling = readiness.textureDeck == ReaderTextureDeckState.Settling ||

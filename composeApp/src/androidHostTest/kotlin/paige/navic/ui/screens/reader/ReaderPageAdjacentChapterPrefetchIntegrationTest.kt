@@ -29,7 +29,7 @@ import org.robolectric.Shadows
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageNewPointerDecision
 import paige.navic.reader.ReaderPagePreparationPhase
-import paige.navic.reader.ReaderPagePreparationPresentation
+import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPresentationLifecycleEvent
 import paige.navic.reader.ReaderPresentationMemoryPressureLevel
@@ -104,11 +104,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.drainMainLooper()
 			assertEquals(2, fixture.background.starts.size)
 			assertIs<ReaderPageNewPointerDecision.Accept>(
-				fixture.latestState.operationPolicy.newPointer
-			)
-			assertEquals(
-				ReaderPagePreparationPresentation.Hidden,
-				fixture.latestState.presentation
+				readerPageOperationPolicy(fixture.latestState.readiness).newPointer
 			)
 		} finally {
 			fixture.close()
@@ -139,11 +135,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			assertEquals(1, fixture.background.starts.size)
 			assertEquals(null, fixture.background.active)
 			assertIs<ReaderPageNewPointerDecision.Accept>(
-				fixture.latestState.operationPolicy.newPointer
-			)
-			assertEquals(
-				ReaderPagePreparationPresentation.Hidden,
-				fixture.latestState.presentation
+				readerPageOperationPolicy(fixture.latestState.readiness).newPointer
 			)
 		} finally {
 			fixture.close()
@@ -168,9 +160,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			var repairResult: ReaderPageRasterRepairResult? = null
 			fixture.controller.repairRasterPage(20) { repairResult = it }
 
-			assertEquals(ReaderPagePreparationPresentation.Hidden, fixture.latestState.presentation)
 			assertIs<ReaderPageNewPointerDecision.Accept>(
-				fixture.latestState.operationPolicy.newPointer
+				readerPageOperationPolicy(fixture.latestState.readiness).newPointer
 			)
 			assertEquals(1, fixture.background.cancellationCount)
 			val passiveRepair = assertNotNull(fixture.prewarm.active)
@@ -218,9 +209,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.controller.synchronizeVisualPageIndex(22, "page-turn:exact")
 
 			assertEquals(ReaderPageRasterRepairResult.Cancelled, repairResult)
-			assertEquals(ReaderPagePreparationPresentation.Hidden, fixture.latestState.presentation)
 			assertIs<ReaderPageNewPointerDecision.Accept>(
-				fixture.latestState.operationPolicy.newPointer
+				readerPageOperationPolicy(fixture.latestState.readiness).newPointer
 			)
 		} finally {
 			fixture.close()
@@ -241,9 +231,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 
 			fixture.controller.synchronizeVisualPageIndex(36, "page-turn:exact")
 
-			assertEquals(ReaderPagePreparationPresentation.Hidden, fixture.latestState.presentation)
 			assertIs<ReaderPageNewPointerDecision.Accept>(
-				fixture.latestState.operationPolicy.newPointer
+				readerPageOperationPolicy(fixture.latestState.readiness).newPointer
 			)
 		} finally {
 			fixture.close()
@@ -266,9 +255,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			val refill = assertNotNull(fixture.prewarm.active)
 			refill.onHydrationMiss(refill.targets.first())
 
-			assertEquals(ReaderPagePreparationPresentation.Hidden, fixture.latestState.presentation)
 			assertIs<ReaderPageNewPointerDecision.Accept>(
-				fixture.latestState.operationPolicy.newPointer
+				readerPageOperationPolicy(fixture.latestState.readiness).newPointer
 			)
 		} finally {
 			fixture.close()
@@ -296,10 +284,6 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			assertEquals(0, fixture.foreground.liveCompositionRestorationCount)
 			assertTrue(fixture.foreground.starts.isEmpty())
 			assertFalse(fixture.controller.hasStaticRasterShieldOwnership())
-			assertEquals(
-				ReaderPagePreparationPresentation.Hidden,
-				fixture.latestState.presentation
-			)
 
 			fixture.controller.onPointerInteractionChanged(false)
 			fixture.drainMainLooper()
@@ -738,9 +722,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 
 			assertTrue(passivePort.isRetired)
 			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
-			assertEquals(ReaderPagePreparationPresentation.Hidden, fixture.latestState.presentation)
 			assertIs<ReaderPageNewPointerDecision.Accept>(
-				fixture.latestState.operationPolicy.newPointer
+				readerPageOperationPolicy(fixture.latestState.readiness).newPointer
 			)
 		} finally {
 			fixture.close()

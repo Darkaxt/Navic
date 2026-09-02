@@ -1871,7 +1871,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (state.phase == ReaderPagePreparationPhase.Ready) {
 			retryPreparationInProgress = false
 		}
-		setPageOperationPolicy(state.operationPolicy)
+		setPageOperationPolicy(readerPageOperationPolicy(state.readiness))
 		preparationPhase = state.phase
 		if (!enabled || destroyed) return
 		logActivationState(
@@ -1879,7 +1879,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			detail = buildString {
 				append("phase=${state.phase}")
 				append(" completed=${state.completedCount}/${state.requiredCount}")
-				if (!state.error.isNullOrBlank()) append(" error=${state.error}")
+				append(" retryable=${state.retryable}")
 			}
 		)
 		when (state.phase) {

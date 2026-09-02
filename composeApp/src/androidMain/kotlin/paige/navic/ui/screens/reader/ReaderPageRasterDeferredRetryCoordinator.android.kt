@@ -1,7 +1,5 @@
 package paige.navic.ui.screens.reader
 
-import paige.navic.reader.ReaderPagePreparationPresentation
-
 internal enum class ReaderPageRasterRetryEvent {
 	ContentReady,
 	LayoutStable,
@@ -33,14 +31,6 @@ internal class ReaderPageRasterDeferralPolicy(
 	}
 
 	fun shouldRetry(event: ReaderPageRasterRetryEvent): Boolean = event == retryEvent
-}
-
-internal fun readerPageDeferredPresentation(
-	hasPreparedDeck: Boolean
-): ReaderPagePreparationPresentation = if (hasPreparedDeck) {
-	ReaderPagePreparationPresentation.Hidden
-} else {
-	ReaderPagePreparationPresentation.Cover
 }
 
 internal class ReaderPageRasterDeferredRetryCoordinator {

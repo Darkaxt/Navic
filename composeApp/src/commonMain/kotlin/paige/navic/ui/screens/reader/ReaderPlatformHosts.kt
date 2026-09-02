@@ -9,8 +9,6 @@ import paige.navic.reader.ReaderEngineHostCommand
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderPageDragPreviewPhase
-import paige.navic.reader.ReaderPageOperationPolicy
-import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderPendingPresentationEffect
@@ -63,10 +61,6 @@ expect fun KomikkuReaderNativeFrameHost(
 	whispersyncCueMapState: ReaderWhispersyncCueMapState,
 	onWhispersyncCueMapHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,
 	onWhispersyncCueMapSeekRequested: (Int) -> Unit,
-	pagePreparationCoverVisible: Boolean,
-	pageOperationPolicy: ReaderPageOperationPolicy,
-	pagePreparationRetryKey: Int,
-	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
 	onStartupShellPrepared: () -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,

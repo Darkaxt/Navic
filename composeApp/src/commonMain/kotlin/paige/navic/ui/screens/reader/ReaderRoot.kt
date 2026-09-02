@@ -8,10 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -27,13 +24,12 @@ import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderListeningSettings
-import paige.navic.reader.ReaderPagePreparationPresentation
-import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
@@ -116,8 +112,6 @@ internal fun KomikkuReaderRoot(
 ) {
 	val viewerSlot = remember { ReaderViewerLifecycleSlot() }
 	val viewer = remember(viewerSlot, viewState) { viewerSlot.update(viewState) }
-	var pagePreparationState by remember { mutableStateOf(ReaderPagePreparationState()) }
-	var pagePreparationRetryKey by remember { mutableStateOf(0) }
 	val shellCoverUrl = viewer.shellCoverUrl
 	val shellCoverTitle = shellCoverTitleFor(reader, controllerState, viewer)
 	val mediaOverlayAvailable = controllerState.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)
@@ -234,26 +228,18 @@ internal fun KomikkuReaderRoot(
 					)
 				}
 			},
-			pagePreparationCoverVisible =
-				controllerState.errorMessage == null &&
-					pagePreparationState.presentation == ReaderPagePreparationPresentation.Cover,
-			pageOperationPolicy = pagePreparationState.operationPolicy,
-			pagePreparationRetryKey = pagePreparationRetryKey,
-			onPagePreparationStateChange = { state -> pagePreparationState = state },
 			onStartupShellPrepared = {
 				onViewerAction(ReaderViewerAction.NativeShellPrepared)
 			},
 			onViewerAction = { action ->
-				val viewerAction = if (controllerState.shellCoverVisible) {
-					readerShellCoverViewerActionFor(
-						region = action,
-						pageTurnAllowed = pagePreparationState.interactiveReady &&
-							controllerState.paginationProfile.status != "measuring"
-					)
+				val viewerAction = if (
+					presentationDecision.inputPolicy == ReaderPresentationInputPolicy.ShellCover
+				) {
+					readerShellCoverViewerActionFor(action)
 				} else {
 					viewer.viewerActionFor(action)
 				}
-				viewerAction?.let(onViewerAction)
+				onViewerAction(viewerAction)
 			},
 			onPageTurnBoundary = onPageTurnBoundary,
 			onReadableDragPreview = { deltaX, deltaY, width, height, phase ->
@@ -338,16 +324,13 @@ internal fun KomikkuReaderRoot(
 						modifier = Modifier.matchParentSize()
 					)
 				}
-				if (
-					controllerState.errorMessage == null &&
-						controllerState.paginationProfile.status != "measuring"
-				) {
-					ReaderPagePreparationOverlay(
-						state = pagePreparationState,
-						onRetry = { pagePreparationRetryKey += 1 },
-						modifier = Modifier.matchParentSize()
-					)
-				}
+				ReaderPagePreparationOverlay(
+					preparation = presentationDecision.preparationPresentation,
+					diagnostic = presentationDecision.diagnosticPresentation,
+					onRetry = { onPresentationEvent(ReaderPresentationEvent.Retry) },
+					onCancel = { onPresentationEvent(ReaderPresentationEvent.Cancel) },
+					modifier = Modifier.matchParentSize()
+				)
 			}
 		)
 	}

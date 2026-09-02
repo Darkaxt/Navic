@@ -382,6 +382,40 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun duplicateShellCoverEntryReusesPendingRequestWithoutRestartingNavigation() {
+		val resumeLocator = ReaderLocator(
+			href = "OEBPS/xhtml/chapter4.xhtml",
+			progress = 0.28,
+			pageIndex = 42,
+			pageCount = 373
+		)
+		val controller = ReaderController().open(
+			hobbitOpenRequest().copy(
+				startLocator = resumeLocator,
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+
+		val first = controller.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+		val duplicate = first.controller.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+
+		assertEquals(1L, first.controller.state.shellCoverDismissalRequestSequence)
+		assertEquals(
+			first.controller.state.pendingShellCoverDismissal,
+			duplicate.controller.state.pendingShellCoverDismissal
+		)
+		assertEquals(1L, duplicate.controller.state.shellCoverDismissalRequestSequence)
+		assertEquals(emptyList(), duplicate.engineCommands)
+		assertTrue(duplicate.controller.state.shellCoverVisible)
+	}
+
+	@Test
 	fun legacyNativeShellPreparedCannotHideCoverWithoutPresentationProof() {
 		val resumeLocator = ReaderLocator(
 			href = "OEBPS/xhtml/chapter4.xhtml",

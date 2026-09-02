@@ -1817,7 +1817,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun rasterTextureAndInteractionReadinessHaveSeparateOwners() {
+	fun rasterTextureFactsStaySeparateFromAuthorityOwnedInput() {
 		val controllerSource = controllerFile.readText()
 		val hostSource = hostFile.readText()
 
@@ -1830,11 +1830,16 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		assertContains(hostSource, "latestRasterPreparationState")
 		assertContains(hostSource, "latestRendererReadinessState")
-		assertContains(hostSource, "publishMergedPagePreparationState()")
-		assertContains(hostSource, "readerMergedPagePreparationState(")
+		assertContains(hostSource, "publishPagePreparationFacts()")
+		assertContains(hostSource, "readerHostPagePreparationState(")
 		assertContains(hostSource, "rasterState.withRendererReadiness(rendererState)")
-		assertContains(hostSource, "shellCoverView.isClickable = layers.shellCover")
+		assertContains(
+			hostSource,
+			"application?.inputPolicy == ReaderPresentationInputPolicy.ShellCover"
+		)
 		assertContains(hostSource, "composeOverlay.isClickable = false")
+		assertFalse(hostSource.contains("readerMergedPagePreparationState"))
+		assertFalse(hostSource.contains("pageTurnPreparationPresentationVisible"))
 		assertFalse(
 			hostSource.contains("composeOverlay.isClickable = visible"),
 			"Preparation gestures must reach the fail-closed native pointer ledger."
@@ -2477,7 +2482,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun retryRecreatesOnlyAnUnavailablePassiveSessionBeforeOneFreshAttempt() {
+	fun retryEffectRecreatesOnlyAnUnavailablePassiveSessionBeforeOneFreshAttempt() {
 		val host = hostFile.readText()
 		val readerRoot = readerRootFile.readText()
 		val viewer = requiredFoliateSourceSlice(
@@ -2487,7 +2492,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		val retryRoute = requiredFoliateSourceSlice(
 			source = viewer,
-			startDelimiter = "fun setPagePreparationRetryKey(retryKey: Int) {",
+			startDelimiter = "fun retryPreparation(",
 			endDelimiter = "private fun onPreparedActiveDeckChanged("
 		)
 		val rasterRetry = requiredFoliateSourceSlice(
@@ -2501,17 +2506,20 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			endDelimiter = "fun onPreparationStateChanged("
 		)
 
-		assertContains(readerRoot, "onRetry = { pagePreparationRetryKey += 1 },")
+		assertContains(
+			readerRoot,
+			"onRetry = { onPresentationEvent(ReaderPresentationEvent.Retry) },"
+		)
+		assertContains(host, "is ReaderPresentationEffect.RetryPreparation")
+		assertContains(retryRoute, "currentPresentationBindingOrNull() != effect.binding")
 		assertContains(retryRoute, "passiveRasterPreparationAdapter?.isAvailable != true")
 		val closeUnavailable = retryRoute.indexOf("closePassiveRasterPreparationAdapter()")
 		val replaceUnavailable = retryRoute.indexOf("replacePassiveRasterPreparationAdapter(")
-		val sharedGeneration = retryRoute.indexOf("val preparationGeneration =")
 		val rasterAttempt = retryRoute.indexOf("pageRasterPreparationController.retryPreparation()")
 		val curlAttempt = retryRoute.indexOf("playLikeCurlController.retryPreparation(preparationGeneration)")
 		assertTrue(closeUnavailable >= 0 && replaceUnavailable > closeUnavailable)
 		assertEquals(1, Regex("closePassiveRasterPreparationAdapter\\(\\)").findAll(retryRoute).count())
-		assertTrue(sharedGeneration > replaceUnavailable)
-		assertTrue(rasterAttempt > sharedGeneration && curlAttempt > rasterAttempt)
+		assertTrue(rasterAttempt > replaceUnavailable && curlAttempt > rasterAttempt)
 		assertContains(rasterRetry, "retryPreparationInProgress")
 		assertContains(curlRetry, "retryPreparationInProgress")
 		assertTrue(
@@ -2535,6 +2543,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertFalse(retryRoute.contains("evaluateJavascript"))
 		assertFalse(retryRoute.contains("goToVisualPage"))
 		assertFalse(retryRoute.contains("playback"))
+		assertFalse(readerRoot.contains("pagePreparationRetryKey"))
 		assertFalse(rasterRetry.contains("bundleSource.invalidate("))
 		assertFalse(curlRetry.contains("invalidate("))
 	}
@@ -3583,14 +3592,14 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 
 		assertContains(outerDispatch, "if (event.actionMasked == MotionEvent.ACTION_DOWN)")
-		assertContains(outerDispatch, "shouldUsePlayLikeCurlPointerRouter()")
+		assertContains(outerDispatch, "pagePhysicalDispatchMode()")
 		assertContains(outerDispatch, "ReaderPagePhysicalDispatchMode.PlayLikeCurl ->")
 		assertContains(outerDispatch, "dispatchPlayLikeCurlPointerEvent(event)")
 		assertContains(outerDispatch, "ReaderPagePhysicalDispatchMode.Legacy ->")
 		assertContains(outerDispatch, "dispatchLegacyReaderPointerEvent(event)")
 		assertEquals(
 			1,
-			Regex("shouldUsePlayLikeCurlPointerRouter\\(\\)").findAll(outerDispatch).count()
+			Regex("pagePhysicalDispatchMode\\(\\)").findAll(outerDispatch).count()
 		)
 		expectedMappings.forEach { (androidAction, typedEvent) ->
 			val branch = Regex(
@@ -3830,7 +3839,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		}
 		val readiness = hostSource
 			.substringAfter("private fun onRendererReadinessChanged(")
-			.substringBefore("private fun publishMergedPagePreparationState(")
+			.substringBefore("private fun publishPagePreparationFacts(")
 		assertFalse(readiness.contains("onLifecycleEvent("))
 		assertEquals(
 			1,

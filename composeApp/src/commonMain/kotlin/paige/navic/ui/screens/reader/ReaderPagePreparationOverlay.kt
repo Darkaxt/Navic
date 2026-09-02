@@ -3,6 +3,7 @@ package paige.navic.ui.screens.reader
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -16,39 +17,38 @@ import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_retry
 import navic.composeapp.generated.resources.info_reader_page_preparation_failed
 import navic.composeapp.generated.resources.info_reader_preparing_pages
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.reader.ReaderPagePreparationPhase
-import paige.navic.reader.ReaderPagePreparationPresentation
-import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderDiagnosticPresentation
+import paige.navic.reader.ReaderPreparationPresentation
 
 @Composable
 internal fun ReaderPagePreparationOverlay(
-	state: ReaderPagePreparationState,
+	preparation: ReaderPreparationPresentation,
+	diagnostic: ReaderDiagnosticPresentation,
 	onRetry: () -> Unit,
+	onCancel: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
-	if (state.presentation == ReaderPagePreparationPresentation.Hidden) return
+	val blocking = preparation as? ReaderPreparationPresentation.Blocking
+	val failure = diagnostic as? ReaderDiagnosticPresentation.Failure
+	if (blocking == null && failure == null) return
 
 	Box(modifier = modifier) {
 		Surface(
-			shape = RoundedCornerShape(
-				if (state.presentation == ReaderPagePreparationPresentation.Cover) 20.dp else 16.dp
-			),
+			shape = RoundedCornerShape(if (blocking != null) 20.dp else 16.dp),
 			color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp).copy(alpha = 0.92f),
 			contentColor = MaterialTheme.colorScheme.onSurface,
 			modifier = Modifier
-				.align(
-					if (state.phase == ReaderPagePreparationPhase.Failed) Alignment.Center else Alignment.BottomCenter
-				)
+				.align(if (failure != null) Alignment.Center else Alignment.BottomCenter)
 				.padding(
 					horizontal = 20.dp,
-					vertical = if (state.presentation == ReaderPagePreparationPresentation.Cover) 36.dp else 20.dp
+					vertical = if (blocking != null) 36.dp else 20.dp
 				)
 		) {
 			Column(
@@ -58,25 +58,22 @@ internal fun ReaderPagePreparationOverlay(
 				verticalArrangement = Arrangement.spacedBy(8.dp)
 			) {
 				Text(
-					text = if (state.phase == ReaderPagePreparationPhase.Failed) {
-						stringResource(Res.string.info_reader_page_preparation_failed)
-					} else {
-						stringResource(Res.string.info_reader_preparing_pages)
-					},
+					text = stringResource(
+						if (failure != null) {
+							Res.string.info_reader_page_preparation_failed
+						} else {
+							Res.string.info_reader_preparing_pages
+						}
+					),
 					style = MaterialTheme.typography.titleSmall
 				)
-				state.activePageLabel?.let { label ->
-					Text(
-						text = label,
-						style = MaterialTheme.typography.labelMedium,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis
-					)
-				}
-				if (state.showsProgress) {
-					if (state.hasDeterminateProgress) {
+				blocking?.let { progress ->
+					if (progress.determinate) {
 						LinearProgressIndicator(
-							progress = { state.progress.coerceIn(0f, 1f) },
+							progress = {
+								progress.completedCount.toFloat() /
+									progress.requiredCount.toFloat()
+							},
 							modifier = Modifier.fillMaxWidth(),
 							color = MaterialTheme.colorScheme.primary,
 							trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
@@ -89,17 +86,21 @@ internal fun ReaderPagePreparationOverlay(
 						)
 					}
 				}
-				state.error?.takeIf { it.isNotBlank() }?.let { error ->
-					Text(
-						text = error,
-						style = MaterialTheme.typography.bodySmall,
-						maxLines = 2,
-						overflow = TextOverflow.Ellipsis
-					)
-				}
-				if (state.retryable) {
-					TextButton(onClick = onRetry, modifier = Modifier.align(Alignment.End)) {
-						Text(stringResource(Res.string.action_retry))
+				if (failure?.retryable == true || failure?.cancellable == true) {
+					Row(
+						modifier = Modifier.fillMaxWidth(),
+						horizontalArrangement = Arrangement.End
+					) {
+						if (failure.cancellable) {
+							TextButton(onClick = onCancel) {
+								Text(stringResource(Res.string.action_cancel))
+							}
+						}
+						if (failure.retryable) {
+							TextButton(onClick = onRetry) {
+								Text(stringResource(Res.string.action_retry))
+							}
+						}
 					}
 				}
 			}

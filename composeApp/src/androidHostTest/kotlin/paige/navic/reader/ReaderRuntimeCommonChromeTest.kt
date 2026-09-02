@@ -21,7 +21,7 @@ class ReaderRuntimeCommonChromeTest {
 
 		assertContains(
 			overlay,
-			"if (state.phase == ReaderPagePreparationPhase.Failed) Alignment.Center else Alignment.BottomCenter"
+			".align(if (failure != null) Alignment.Center else Alignment.BottomCenter)"
 		)
 	}
 

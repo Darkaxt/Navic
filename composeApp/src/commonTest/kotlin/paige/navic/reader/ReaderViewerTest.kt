@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import java.io.File
 import paige.navic.ui.screens.reader.KomikkuNavigationRegion
@@ -303,30 +302,6 @@ class ReaderViewerTest {
 		assertEquals(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous),
 			readerShellCoverViewerActionFor(KomikkuNavigationRegion.PREV)
-		)
-	}
-
-	@Test
-	fun shellCoverCannotTurnPageWhileInitialPreparationBlocksInput() {
-		assertNull(
-			readerShellCoverViewerActionFor(
-				region = KomikkuNavigationRegion.RIGHT,
-				pageTurnAllowed = false
-			)
-		)
-		assertEquals(
-			ReaderViewerAction.Menu,
-			readerShellCoverViewerActionFor(
-				region = KomikkuNavigationRegion.MENU,
-				pageTurnAllowed = false
-			)
-		)
-		assertEquals(
-			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
-			readerShellCoverViewerActionFor(
-				region = KomikkuNavigationRegion.RIGHT,
-				pageTurnAllowed = true
-			)
 		)
 	}
 

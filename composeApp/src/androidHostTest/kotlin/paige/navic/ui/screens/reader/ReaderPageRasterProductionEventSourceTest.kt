@@ -183,12 +183,13 @@ class ReaderPageRasterProductionEventSourceTest {
 	}
 
 	@Test
-	fun deferredInitialPreparationStaysVisibleWhilePreparedDeckDeferralStaysHidden() {
+	fun deferredRetryCoordinatorOwnsRetryEventsButNoForegroundPresentation() {
 		val source = deferredRetrySource("ReaderPageRasterDeferredRetryCoordinator.android.kt")
 
-		assertContains(source, "if (hasPreparedDeck) {")
-		assertContains(source, "ReaderPagePreparationPresentation.Hidden")
-		assertContains(source, "ReaderPagePreparationPresentation.Cover")
+		assertContains(source, "val retryEvent: ReaderPageRasterRetryEvent")
+		assertContains(source, "fun onRetryEvent(event: ReaderPageRasterRetryEvent): Boolean")
+		assertFalse(source.contains("ReaderPagePreparationPresentation"))
+		assertFalse(source.contains("hasPreparedDeck"))
 	}
 }
 

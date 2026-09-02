@@ -17,6 +17,7 @@ import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPageLifecycleCancellationReason
 import paige.navic.reader.ReaderPagePointerRouter
 import paige.navic.reader.ReaderPageReadinessState
+import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.readerPageOperationPolicy
 import kotlin.test.Test
@@ -26,6 +27,13 @@ import kotlin.test.assertEquals
 @Config(manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class KomikkuGestureDetectorWithLongTapBehaviorTest {
+	private val readyPolicy = readerPageOperationPolicy(
+		ReaderPageReadinessState(
+			textureDeck = ReaderTextureDeckState.Ready,
+			interaction = ReaderPageInteractionState.Ready
+		)
+	)
+
 	@Test
 	fun androidDoubleTapOrderResolvesFirstBeforeSecondUpExactlyOnce() {
 		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
@@ -34,12 +42,8 @@ class KomikkuGestureDetectorWithLongTapBehaviorTest {
 			published += id to outcome
 		}
 		val host = ReaderPageInputSettlementHostController(
-			initialPolicy = readerPageOperationPolicy(
-				ReaderPageReadinessState(
-					textureDeck = ReaderTextureDeckState.Ready,
-					interaction = ReaderPageInteractionState.Ready
-				)
-			),
+			initialPresentationInputPolicy = ReaderPresentationInputPolicy.NativePage(readyPolicy),
+			initialLocalSafetyPolicy = readyPolicy,
 			pointerRouter = router,
 			cancellationPort = NoOpCancellationPort()
 		)
@@ -129,12 +133,8 @@ class KomikkuGestureDetectorWithLongTapBehaviorTest {
 			published += id to outcome
 		}
 		val host = ReaderPageInputSettlementHostController(
-			initialPolicy = readerPageOperationPolicy(
-				ReaderPageReadinessState(
-					textureDeck = ReaderTextureDeckState.Ready,
-					interaction = ReaderPageInteractionState.Ready
-				)
-			),
+			initialPresentationInputPolicy = ReaderPresentationInputPolicy.NativePage(readyPolicy),
+			initialLocalSafetyPolicy = readyPolicy,
 			pointerRouter = router,
 			cancellationPort = NoOpCancellationPort()
 		)

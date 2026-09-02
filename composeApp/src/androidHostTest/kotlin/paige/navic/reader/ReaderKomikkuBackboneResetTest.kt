@@ -2121,8 +2121,10 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			activeReaderText.contains("readerShellCoverViewerActionFor(") &&
-				activeReaderText.contains("if (controllerState.shellCoverVisible)"),
-			"The common shell must map cover side regions physically before the normal reader direction mapping can invert them."
+				activeReaderText.contains(
+					"presentationDecision.inputPolicy == ReaderPresentationInputPolicy.ShellCover"
+				),
+			"The common shell must map cover side regions physically only under shell-cover input authority."
 		)
 		assertTrue(
 			viewerText.contains("fun readerShellCoverViewerActionFor(") &&

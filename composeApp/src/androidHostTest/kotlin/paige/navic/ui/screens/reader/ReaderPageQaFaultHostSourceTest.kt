@@ -8,6 +8,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import paige.navic.reader.ReaderDestinationCommitIdentity
+import paige.navic.reader.ReaderDiagnosticPresentation
+import paige.navic.reader.ReaderNativePagePresentationRequest
 import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
@@ -15,6 +17,7 @@ import paige.navic.reader.ReaderPresentationEffect
 import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEffectQueue
 import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
@@ -26,23 +29,20 @@ import paige.navic.reader.readerPresentationReduce
 
 class ReaderPageQaFaultHostSourceTest {
 	@Test
-	fun viewerReplacementRemainsAfterVisualLocationSynchronization() {
+	fun viewerReplacementRemainsAfterVisualLocationSynchronizationWithoutLocalRetryState() {
 		val updateBlock = hostSource()
 			.substringAfter("update = { root ->")
 			.substringBefore("onRelease = { root ->")
 		val visualLocation = updateBlock.indexOf("root.setPageTurnVisualLocation(")
-		val preparationRetry = updateBlock.indexOf("root.setPagePreparationRetryKey(")
 		val viewerReplacement = updateBlock.indexOf("root.setViewerContent(viewerKey)")
 		val composeOverlay = updateBlock.indexOf("root.setComposeOverlay(")
 
 		assertTrue(visualLocation >= 0, "update block must synchronize visual location")
-		assertTrue(preparationRetry >= 0, "update block must publish the preparation retry key")
 		assertTrue(viewerReplacement >= 0, "update block must replace viewer content")
 		assertTrue(composeOverlay >= 0, "update block must update the Compose overlay")
+		assertFalse(updateBlock.contains("setPagePreparationRetryKey("))
 		assertTrue(
-			visualLocation < preparationRetry &&
-				preparationRetry < viewerReplacement &&
-				viewerReplacement < composeOverlay,
+			visualLocation < viewerReplacement && viewerReplacement < composeOverlay,
 			"viewer replacement must remain terminal after visual-location synchronization"
 		)
 	}
@@ -144,6 +144,51 @@ class ReaderPageQaFaultHostSourceTest {
 
 		handler.deliver(listOf(pending, pending), decision, acknowledge)
 		assertEquals(2, releaseCount)
+		assertEquals(1, acknowledgementCount)
+	}
+
+	@Test
+	fun retryPreparationEffectRequiresTheCurrentTransitionToken() {
+		val binding = presentationBinding()
+		val currentToken = ReaderPresentationToken(20L)
+		val decision = readerPresentationDecision(
+			ReaderPresentationState(
+				authority = ReaderPresentationAuthority.BlockingPreparation(
+					retainedFrame = ReaderPresentationFrameOwner.Neutral,
+					nativePresentationRequest = ReaderNativePagePresentationRequest(
+						token = currentToken,
+						binding = binding
+					)
+				),
+				binding = binding,
+				failure = ReaderDiagnosticPresentation.Failure(
+					reason = ReaderPresentationFailureReason.PreparationFailed,
+					retryable = true,
+					cancellable = true
+				)
+			)
+		)
+		val staleEffect = ReaderPresentationEffect.RetryPreparation(
+			token = ReaderPresentationToken(19L),
+			binding = binding
+		)
+		val pending = ReaderPendingPresentationEffect(staleEffect.identity(), staleEffect)
+		var retryCount = 0
+		var acknowledgementCount = 0
+		val handler = ReaderPresentationEffectHandler(
+			retryPreparation = {
+				retryCount += 1
+				true
+			},
+			releaseStalePresentation = { true }
+		)
+
+		assertTrue(
+			handler.deliver(listOf(pending), decision) {
+				acknowledgementCount += 1
+			}
+		)
+		assertEquals(0, retryCount)
 		assertEquals(1, acknowledgementCount)
 	}
 

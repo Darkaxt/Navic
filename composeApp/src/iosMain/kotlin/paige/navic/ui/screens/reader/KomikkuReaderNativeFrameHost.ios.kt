@@ -7,8 +7,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderPageDragPreviewPhase
-import paige.navic.reader.ReaderPageOperationPolicy
-import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderPendingPresentationEffect
@@ -54,10 +52,6 @@ actual fun KomikkuReaderNativeFrameHost(
 	whispersyncCueMapState: ReaderWhispersyncCueMapState,
 	onWhispersyncCueMapHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,
 	onWhispersyncCueMapSeekRequested: (Int) -> Unit,
-	pagePreparationCoverVisible: Boolean,
-	pageOperationPolicy: ReaderPageOperationPolicy,
-	pagePreparationRetryKey: Int,
-	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
 	onStartupShellPrepared: () -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
@@ -77,6 +71,12 @@ actual fun KomikkuReaderNativeFrameHost(
 					pending.identity !in handledPresentationEffects
 				) {
 					// iOS owns no Android renderer deck, so this release is a proven no-op here.
+					onPresentationEffectHandled(pending.identity)
+					handledPresentationEffects += pending.identity
+				}
+				is ReaderPresentationEffect.RetryPreparation -> if (
+					pending.identity !in handledPresentationEffects
+				) {
 					onPresentationEffectHandled(pending.identity)
 					handledPresentationEffects += pending.identity
 				}

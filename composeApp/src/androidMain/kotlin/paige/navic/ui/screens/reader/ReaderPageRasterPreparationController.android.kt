@@ -481,13 +481,11 @@ internal class ReaderPageRasterPreparationController(
 			append(" phase=${state.phase}")
 			append(" completed=${state.completedCount}/${state.requiredCount}")
 			append(" interactive=${state.interactiveCompletedCount}/${state.interactiveRequiredCount}")
-			append(" interactiveReady=${state.interactiveReady}")
 			append(" raster=${state.readiness.rasterGeneration}")
 			append(" decoded=${state.readiness.decodedWorkingSet}")
-			append(" presentation=${state.presentation}")
-			append(" gestures=${state.gestureDisposition}")
-			state.activePageLabel?.let { append(" active=$it") }
-			state.error?.takeIf { it.isNotBlank() }?.let { append(" error=$it") }
+			append(" texture=${state.readiness.textureDeck}")
+			append(" interaction=${state.readiness.interaction}")
+			append(" retryable=${state.retryable}")
 		}
 		if (lastPreparationStateTrace != trace) {
 			lastPreparationStateTrace = trace

@@ -7,6 +7,8 @@ import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePointerBeginResult
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
+import paige.navic.reader.ReaderPresentationInputPolicy
+import paige.navic.reader.readerPageNewPointerDecision
 
 internal enum class ReaderPageHostLifecycleEvent {
 	Detached,
@@ -107,7 +109,8 @@ internal interface ReaderPageHostCancellationPort {
 }
 
 internal class ReaderPageInputSettlementHostController(
-	initialPolicy: ReaderPageOperationPolicy,
+	initialPresentationInputPolicy: ReaderPresentationInputPolicy,
+	initialLocalSafetyPolicy: ReaderPageOperationPolicy,
 	private val pointerRouter: ReaderPagePointerRouter,
 	private val cancellationPort: ReaderPageHostCancellationPort,
 	private val publishLifecycleCancellation: (
@@ -115,7 +118,8 @@ internal class ReaderPageInputSettlementHostController(
 		reason: ReaderPageLifecycleCancellationReason
 	) -> Unit = { _, _ -> }
 ) {
-	private var operationPolicy = initialPolicy
+	private var presentationInputPolicy = initialPresentationInputPolicy
+	private var localSafetyPolicy = initialLocalSafetyPolicy
 	private var physicalStreamGestureId: Long? = null
 	private var pointerAdmissionClosed = false
 	private var pointerDeliveryClosed = false
@@ -123,9 +127,18 @@ internal class ReaderPageInputSettlementHostController(
 	private val contentTokenByGestureId =
 		linkedMapOf<Long, ReaderPageContentGestureToken>()
 
-	fun updateOperationPolicy(policy: ReaderPageOperationPolicy) {
-		operationPolicy = policy
+	fun updateInputPolicies(
+		presentationInputPolicy: ReaderPresentationInputPolicy,
+		localSafetyPolicy: ReaderPageOperationPolicy
+	) {
+		this.presentationInputPolicy = presentationInputPolicy
+		this.localSafetyPolicy = localSafetyPolicy
 	}
+
+	fun newPointerDecision(): ReaderPageNewPointerDecision = readerPageNewPointerDecision(
+		presentationInputPolicy = presentationInputPolicy,
+		localSafetyPolicy = localSafetyPolicy
+	)
 
 	fun dispatchPointer(event: ReaderPageHostPointerEvent): ReaderPageHostPointerDispatchResult {
 		if (
@@ -185,7 +198,7 @@ internal class ReaderPageInputSettlementHostController(
 	}
 
 	private fun beginPointer(x: Float, y: Float): ReaderPagePointerBeginResult =
-		pointerRouter.begin(x, y, operationPolicy.newPointer)
+		pointerRouter.begin(x, y, newPointerDecision())
 
 	private fun movePointer(x: Float, y: Float, touchSlop: Float): ReaderPagePointerRoute =
 		pointerRouter.move(x, y, touchSlop)
