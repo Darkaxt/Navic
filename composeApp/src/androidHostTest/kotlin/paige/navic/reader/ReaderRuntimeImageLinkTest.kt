@@ -181,10 +181,10 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(openRequestText, "canReturnToShellCover = hasShellCover")
 		assertContains(readerRootText, "KomikkuReaderNativeFrameHost(")
 		assertFalse(
-			readerRootText
-				.substringAfter("KomikkuReaderNativeFrameHost(")
-				.substringBefore("\n\t\tviewerContent = {")
-				.contains("shellCoverVisible ="),
+			"shellCoverVisible" in readerKotlinNamedCallArgumentNames(
+				readerRootText,
+				"KomikkuReaderNativeFrameHost"
+			),
 			"The native host must derive cover visibility from its atomic presentation decision."
 		)
 		assertContains(readerRootText, "shellCoverUrl = shellCoverUrl")

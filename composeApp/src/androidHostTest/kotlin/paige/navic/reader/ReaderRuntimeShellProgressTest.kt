@@ -410,38 +410,35 @@ class ReaderRuntimeShellProgressTest {
 				"KomikkuReaderNativeFrameHost.ios.kt"
 		).readText()
 
-		fun hostParameters(source: String, declaration: String): String = source
-			.substringAfter(declaration)
-			.substringBefore("\n)")
-			.replace("modifier: Modifier = Modifier", "modifier: Modifier")
-			.trim()
-
-		val commonParameters = hostParameters(
+		val commonParameters = readerKotlinDeclarationParameterContract(
 			platformHostsText,
-			"expect fun KomikkuReaderNativeFrameHost("
+			"expect fun KomikkuReaderNativeFrameHost"
 		)
-		val androidParameters = hostParameters(
+		val androidParameters = readerKotlinDeclarationParameterContract(
 			androidHostText,
-			"actual fun KomikkuReaderNativeFrameHost("
+			"actual fun KomikkuReaderNativeFrameHost"
 		)
-		val iosParameters = hostParameters(
+		val iosParameters = readerKotlinDeclarationParameterContract(
 			iosHostText,
-			"actual fun KomikkuReaderNativeFrameHost("
+			"actual fun KomikkuReaderNativeFrameHost"
 		)
-		val readerRootCall = readerRootText
-			.substringAfter("KomikkuReaderNativeFrameHost(")
-			.substringBefore("\n\t\tviewerContent = {")
+		val readerRootArguments = readerKotlinNamedCallArgumentNames(
+			readerRootText,
+			"KomikkuReaderNativeFrameHost"
+		)
 
 		assertEquals(commonParameters, androidParameters)
 		assertEquals(commonParameters, iosParameters)
 		listOf(commonParameters, androidParameters, iosParameters).forEach { parameters ->
 			assertFalse(
-				parameters.contains("shellCoverVisible: Boolean"),
+				parameters.any {
+					it.name == "shellCoverVisible" && it.type == "Boolean"
+				},
 				"The platform host ABI must derive cover selection only from presentationDecision."
 			)
 		}
 		assertFalse(
-			readerRootCall.contains("shellCoverVisible ="),
+			"shellCoverVisible" in readerRootArguments,
 			"ReaderRoot must not pass raw controller cover intent as an independent presentation grant."
 		)
 	}
