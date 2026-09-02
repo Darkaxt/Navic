@@ -170,6 +170,83 @@ class ReaderKotlinSourceContractParserTest {
 	}
 
 	@Test
+	fun backtickIdentifierMarkerAndParenthesesDoNotCompeteWithRealCall() {
+		val source = "val `ignored Host (value = 1)` = Unit\nHost(value = 2)"
+
+		assertEquals(listOf("value"), readerKotlinNamedCallArgumentNames(source, "Host"))
+	}
+
+	@Test
+	fun backtickIdentifiersKeepContainedSyntaxInertAcrossAllScanners() {
+		val richIdentifier =
+			"`first Host (value = 1), \"quoted\", 'single', /* block */ // line-like, [ ] { } < > ->`"
+		val secondIdentifier = "`second Host (ignored = 2), \"quoted\"`"
+		val escapedLookingIdentifier = "`slash-before-close\\`"
+		val prefix = listOf(
+			"val first = $richIdentifier",
+			"val second = $secondIdentifier",
+			"val third = $escapedLookingIdentifier"
+		).joinToString("\n")
+		val declarationSource =
+			"$prefix\nexpect fun Host(value: Any = $richIdentifier, onDone: () -> Unit)"
+		val callSource = "$prefix\nHost(value = $richIdentifier, onDone = callback)"
+
+		assertEquals(
+			listOf("value", "onDone"),
+			readerKotlinDeclarationParameterContract(
+				declarationSource,
+				"expect fun Host"
+			).map { it.name }
+		)
+		assertEquals(
+			listOf("value", "onDone"),
+			readerKotlinNamedCallArgumentNames(callSource, "Host")
+		)
+	}
+
+	@Test
+	fun closingBacktickReleasesImmediatelyAdjacentRealMarker() {
+		val source = "`ignored marker`Host(value = 1)"
+
+		assertEquals(listOf("value"), readerKotlinNamedCallArgumentNames(source, "Host"))
+	}
+
+	@Test
+	fun unterminatedBacktickIdentifierFailsClosedBeforeMarkerCounting() {
+		val declarationFailure = assertFailsWith<IllegalArgumentException> {
+			readerKotlinDeclarationParameterContract(
+				"expect fun Host(value: Int)\nval broken = `unterminated",
+				"expect fun Host"
+			)
+		}
+		val callFailure = assertFailsWith<IllegalArgumentException> {
+			readerKotlinNamedCallArgumentNames(
+				"Host(value = 1)\nval broken = `unterminated",
+				"Host"
+			)
+		}
+
+		assertTrue(declarationFailure.message.orEmpty().contains("backtick identifier"))
+		assertTrue(callFailure.message.orEmpty().contains("backtick identifier"))
+	}
+
+	@Test
+	fun escapedParameterAndArgumentNamesAreRejectedByContractGrammar() {
+		val declarationFailure = assertFailsWith<IllegalArgumentException> {
+			readerKotlinDeclarationParameterContract(
+				"expect fun Host(`when`: Int)",
+				"expect fun Host"
+			)
+		}
+		val callFailure = assertFailsWith<IllegalArgumentException> {
+			readerKotlinNamedCallArgumentNames("Host(`when` = 1)", "Host")
+		}
+
+		assertTrue(declarationFailure.message.orEmpty().contains("single valid name"))
+		assertTrue(callFailure.message.orEmpty().contains("single valid name"))
+	}
+
+	@Test
 	fun markerCandidatesRequireIdentifierBoundariesAndArgumentListOpener() {
 		val declarationSource = """
 			expect fun FakeHost(ignored: Int)

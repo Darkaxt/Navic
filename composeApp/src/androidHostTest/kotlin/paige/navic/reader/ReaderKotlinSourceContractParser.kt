@@ -88,7 +88,7 @@ private fun readerKotlinHasIdentifierTokenBoundaries(
 		!readerKotlinIsIdentifierTokenCharacter(source.getOrNull(markerIndex + markerLength))
 
 private fun readerKotlinIsIdentifierTokenCharacter(character: Char?): Boolean =
-	character != null && (character.isLetterOrDigit() || character == '_' || character == '`')
+	character != null && (character.isLetterOrDigit() || character == '_')
 
 private fun readerKotlinArgumentListOpeningAfter(source: String, markerEndIndex: Int): Int? {
 	val lexicalState = ReaderKotlinLexicalState(source)
@@ -243,6 +243,7 @@ private enum class ReaderKotlinLexicalMode {
 	OrdinaryString,
 	RawTripleString,
 	Character,
+	BacktickIdentifier,
 	LineComment,
 	BlockComment
 }
@@ -282,6 +283,7 @@ private class ReaderKotlinLexicalState(
 				}
 				character == '"' -> mode = ReaderKotlinLexicalMode.OrdinaryString
 				character == '\'' -> mode = ReaderKotlinLexicalMode.Character
+				character == '`' -> mode = ReaderKotlinLexicalMode.BacktickIdentifier
 				else -> return true
 			}
 			ReaderKotlinLexicalMode.OrdinaryString,
@@ -298,6 +300,9 @@ private class ReaderKotlinLexicalState(
 			) {
 				mode = ReaderKotlinLexicalMode.Normal
 				skipThroughIndex = index + 2
+			}
+			ReaderKotlinLexicalMode.BacktickIdentifier -> if (character == '`') {
+				mode = ReaderKotlinLexicalMode.Normal
 			}
 			ReaderKotlinLexicalMode.LineComment -> if (character == '\n' || character == '\r') {
 				mode = ReaderKotlinLexicalMode.Normal
@@ -332,6 +337,7 @@ private class ReaderKotlinLexicalState(
 			ReaderKotlinLexicalMode.OrdinaryString -> "ordinary string"
 			ReaderKotlinLexicalMode.RawTripleString -> "raw triple string"
 			ReaderKotlinLexicalMode.Character -> "character literal"
+			ReaderKotlinLexicalMode.BacktickIdentifier -> "backtick identifier"
 			ReaderKotlinLexicalMode.LineComment -> "line comment"
 			ReaderKotlinLexicalMode.BlockComment -> "block comment"
 		}
