@@ -51,17 +51,62 @@ internal fun readerKotlinNamedCallArgumentNames(
 		}
 
 private fun readerKotlinSingleArgumentList(source: String, marker: String): String {
-	val markerIndex = source.indexOf(marker)
-	require(markerIndex >= 0 && source.indexOf(marker, markerIndex + marker.length) < 0) {
-		"Expected exactly one '$marker'"
+	require(marker.isNotEmpty()) { "Marker must not be empty" }
+	val openingIndices = readerKotlinArgumentListOpenings(source, marker)
+	require(openingIndices.size == 1) {
+		"Expected exactly one '$marker' argument list"
 	}
-	var openingIndex = markerIndex + marker.length
-	while (openingIndex < source.length && source[openingIndex].isWhitespace()) openingIndex++
-	require(source.getOrNull(openingIndex) == '(') {
-		"Expected '$marker' to be followed by an argument list"
-	}
+	val openingIndex = openingIndices.single()
 	val closingIndex = readerKotlinBalancedClosingParenthesis(source, openingIndex)
 	return source.substring(openingIndex + 1, closingIndex)
+}
+
+private fun readerKotlinArgumentListOpenings(source: String, marker: String): List<Int> {
+	val lexicalState = ReaderKotlinLexicalState(source)
+	val markerIndices = mutableListOf<Int>()
+	source.indices.forEach { index ->
+		if (
+			lexicalState.consume(index) &&
+			source.startsWith(marker, index) &&
+			readerKotlinHasIdentifierTokenBoundaries(source, index, marker.length)
+		) {
+			markerIndices += index
+		}
+	}
+	lexicalState.requireComplete("source marker search")
+	return markerIndices.mapNotNull { markerIndex ->
+		readerKotlinArgumentListOpeningAfter(source, markerIndex + marker.length)
+	}
+}
+
+private fun readerKotlinHasIdentifierTokenBoundaries(
+	source: String,
+	markerIndex: Int,
+	markerLength: Int
+): Boolean =
+	!readerKotlinIsIdentifierTokenCharacter(source.getOrNull(markerIndex - 1)) &&
+		!readerKotlinIsIdentifierTokenCharacter(source.getOrNull(markerIndex + markerLength))
+
+private fun readerKotlinIsIdentifierTokenCharacter(character: Char?): Boolean =
+	character != null && (character.isLetterOrDigit() || character == '_' || character == '`')
+
+private fun readerKotlinArgumentListOpeningAfter(source: String, markerEndIndex: Int): Int? {
+	val lexicalState = ReaderKotlinLexicalState(source)
+	var skippingComment = false
+	for (index in markerEndIndex until source.length) {
+		if (lexicalState.consume(index)) {
+			skippingComment = false
+			if (source[index].isWhitespace()) continue
+			return index.takeIf { source[index] == '(' }
+		}
+		if (skippingComment) continue
+		if (lexicalState.isComment) {
+			skippingComment = true
+			continue
+		}
+		return null
+	}
+	return null
 }
 
 private fun readerKotlinBalancedClosingParenthesis(source: String, openingIndex: Int): Int {
@@ -212,6 +257,10 @@ private class ReaderKotlinLexicalState(
 
 	val isNormal: Boolean
 		get() = mode == ReaderKotlinLexicalMode.Normal
+
+	val isComment: Boolean
+		get() = mode == ReaderKotlinLexicalMode.LineComment ||
+			mode == ReaderKotlinLexicalMode.BlockComment
 
 	fun consume(index: Int): Boolean {
 		if (index <= skipThroughIndex) return false

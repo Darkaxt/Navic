@@ -132,6 +132,127 @@ class ReaderKotlinSourceContractParserTest {
 	}
 
 	@Test
+	fun lexicalMarkerTextDoesNotCompeteWithRealDeclarationOrCall() {
+		val rawDeclarationMarker = "\"\"\"expect fun Host(raw: Int)\"\"\""
+		val declarationSource = listOf(
+			"// expect fun Host(commented: Int)",
+			"/* outer expect fun Host(blocked: Int) /* nested expect fun Host(nested: Int) */ end */",
+			"val ordinary = \"expect fun Host(\\\"escaped\\\")\"",
+			"val raw = $rawDeclarationMarker",
+			"val `expect fun Host` = Unit",
+			"expect fun Host(value: Int)"
+		).joinToString("\n")
+		val rawCallMarker = "\"\"\"Host(raw = ignored)\"\"\""
+		val callSource = listOf(
+			"// Host(commented = ignored)",
+			"/* outer Host(blocked = ignored) /* nested Host(nested = ignored) */ end */",
+			"val ordinary = \"Host(\\\"escaped\\\")\"",
+			"val raw = $rawCallMarker",
+			"val `Host` = callback",
+			"Host(value = 1)"
+		).joinToString("\n")
+
+		assertEquals(
+			listOf("value"),
+			readerKotlinDeclarationParameterContract(
+				declarationSource,
+				"expect fun Host"
+			).map { it.name }
+		)
+		assertEquals(listOf("value"), readerKotlinNamedCallArgumentNames(callSource, "Host"))
+	}
+
+	@Test
+	fun characterLiteralAndBacktickIdentifierDoNotCountAsShortMarkers() {
+		val source = "val marker: Char = 'H'\nval `H` = callback\nH(value = 1)"
+
+		assertEquals(listOf("value"), readerKotlinNamedCallArgumentNames(source, "H"))
+	}
+
+	@Test
+	fun markerCandidatesRequireIdentifierBoundariesAndArgumentListOpener() {
+		val declarationSource = """
+			expect fun FakeHost(ignored: Int)
+			expect fun HostFactory(ignored: Int)
+			val reference = Host
+			expect fun Host(value: Int)
+		""".trimIndent()
+		val callSource = """
+			FakeKomikkuReaderNativeFrameHost(ignored = 1)
+			KomikkuReaderNativeFrameHostFactory(ignored = 2)
+			val reference = KomikkuReaderNativeFrameHost
+			KomikkuReaderNativeFrameHost<String>(ignored = 3)
+			KomikkuReaderNativeFrameHost(value = 4)
+		""".trimIndent()
+
+		assertEquals(
+			listOf("value"),
+			readerKotlinDeclarationParameterContract(declarationSource, "Host").map { it.name }
+		)
+		assertEquals(
+			listOf("value"),
+			readerKotlinNamedCallArgumentNames(callSource, "KomikkuReaderNativeFrameHost")
+		)
+	}
+
+	@Test
+	fun nestedBlockCommentsMaySeparateDeclarationMarkerFromArgumentList() {
+		val source = "expect fun Host /* outer /* nested */ comment */ (value: Int)"
+
+		assertEquals(
+			listOf("value"),
+			readerKotlinDeclarationParameterContract(source, "expect fun Host").map { it.name }
+		)
+	}
+
+	@Test
+	fun lineAndBlockCommentsMaySeparateCallMarkerFromArgumentList() {
+		val source = "Host /* block */ // line\n(value = 1)"
+
+		assertEquals(listOf("value"), readerKotlinNamedCallArgumentNames(source, "Host"))
+	}
+
+	@Test
+	fun twoRealTokenBoundaryMarkersStillFailAsDuplicates() {
+		assertFailsWith<IllegalArgumentException> {
+			readerKotlinDeclarationParameterContract(
+				"expect fun Host()\nexpect fun Host(value: Int)",
+				"expect fun Host"
+			)
+		}
+		assertFailsWith<IllegalArgumentException> {
+			readerKotlinNamedCallArgumentNames("Host()\nHost(value = 1)", "Host")
+		}
+	}
+
+	@Test
+	fun unterminatedLexicalStatesOutsideArgumentListFailBeforeMarkerCounting() {
+		val malformedDeclarationSources = listOf(
+			"expect fun Host(value: Int)\nval broken = \"unterminated",
+			"expect fun Host(value: Int)\nval broken = \"\"\"unterminated",
+			"expect fun Host(value: Int)\nval broken = '",
+			"expect fun Host(value: Int)\n/* unterminated"
+		)
+		val malformedCallSources = listOf(
+			"Host(value = 1)\nval broken = \"unterminated",
+			"Host(value = 1)\nval broken = \"\"\"unterminated",
+			"Host(value = 1)\nval broken = '",
+			"Host(value = 1)\n/* unterminated"
+		)
+
+		malformedDeclarationSources.forEach { source ->
+			assertFailsWith<IllegalArgumentException> {
+				readerKotlinDeclarationParameterContract(source, "expect fun Host")
+			}
+		}
+		malformedCallSources.forEach { source ->
+			assertFailsWith<IllegalArgumentException> {
+				readerKotlinNamedCallArgumentNames(source, "Host")
+			}
+		}
+	}
+
+	@Test
 	fun rawTripleStringsKeepFollowingParametersAndArgumentsVisible() {
 		val rawLiteral =
 			"\"\"\"text 'single' and \"double, <,>, ->\" tail, [brackets], {braces}, (parentheses), " +
