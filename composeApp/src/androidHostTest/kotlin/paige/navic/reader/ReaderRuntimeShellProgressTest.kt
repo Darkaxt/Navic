@@ -401,6 +401,52 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun nativeFrameHostContractHasNoRawShellCoverPresentationGrant() {
+		val platformHostsText = readerCommonUiFile("ReaderPlatformHosts.kt").readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val androidHostText = readerNativeFrameHostFile().readText()
+		val iosHostText = repoFile(
+			"composeApp/src/iosMain/kotlin/paige/navic/ui/screens/reader/" +
+				"KomikkuReaderNativeFrameHost.ios.kt"
+		).readText()
+
+		fun hostParameters(source: String, declaration: String): String = source
+			.substringAfter(declaration)
+			.substringBefore("\n)")
+			.replace("modifier: Modifier = Modifier", "modifier: Modifier")
+			.trim()
+
+		val commonParameters = hostParameters(
+			platformHostsText,
+			"expect fun KomikkuReaderNativeFrameHost("
+		)
+		val androidParameters = hostParameters(
+			androidHostText,
+			"actual fun KomikkuReaderNativeFrameHost("
+		)
+		val iosParameters = hostParameters(
+			iosHostText,
+			"actual fun KomikkuReaderNativeFrameHost("
+		)
+		val readerRootCall = readerRootText
+			.substringAfter("KomikkuReaderNativeFrameHost(")
+			.substringBefore("\n\t\tviewerContent = {")
+
+		assertEquals(commonParameters, androidParameters)
+		assertEquals(commonParameters, iosParameters)
+		listOf(commonParameters, androidParameters, iosParameters).forEach { parameters ->
+			assertFalse(
+				parameters.contains("shellCoverVisible: Boolean"),
+				"The platform host ABI must derive cover selection only from presentationDecision."
+			)
+		}
+		assertFalse(
+			readerRootCall.contains("shellCoverVisible ="),
+			"ReaderRoot must not pass raw controller cover intent as an independent presentation grant."
+		)
+	}
+
+	@Test
 	fun preparationOverlayUsesOnlyTheAtomicPresentationDecision() {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val overlay = readerRootText

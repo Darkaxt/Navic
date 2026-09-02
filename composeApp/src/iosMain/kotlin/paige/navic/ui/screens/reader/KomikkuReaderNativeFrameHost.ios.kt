@@ -28,7 +28,6 @@ actual fun KomikkuReaderNativeFrameHost(
 	onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit,
 	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
 	destinationCommitIdentity: ReaderDestinationCommitIdentity?,
-	shellCoverVisible: Boolean,
 	shellCoverUrl: String?,
 	shellCoverTitle: String,
 	coverBackdropEnabled: Boolean,

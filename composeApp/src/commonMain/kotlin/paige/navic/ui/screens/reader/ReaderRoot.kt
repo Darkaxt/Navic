@@ -166,7 +166,6 @@ internal fun KomikkuReaderRoot(
 			onPresentationEffectHandled = onPresentationEffectHandled,
 			onPresentationEvent = onPresentationEvent,
 			destinationCommitIdentity = controllerState.destinationCommitIdentity,
-			shellCoverVisible = controllerState.shellCoverVisible,
 			shellCoverUrl = shellCoverUrl,
 			shellCoverTitle = shellCoverTitle,
 			coverBackdropEnabled = controllerState.chrome.settings.coverBackdropEnabled != false,

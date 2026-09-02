@@ -1362,18 +1362,17 @@ class ReaderKomikkuBackboneResetTest {
 		).readText()
 
 		assertTrue(
-			readerRootText.contains("shellCoverVisible = controllerState.shellCoverVisible") &&
-				readerRootText.contains("val shellCoverUrl = viewer.shellCoverUrl") &&
+			readerRootText.contains("val shellCoverUrl = viewer.shellCoverUrl") &&
 				readerRootText.contains("val shellCoverTitle = shellCoverTitleFor(reader, controllerState, viewer)") &&
 				readerRootText.contains("shellCoverUrl = shellCoverUrl") &&
 				readerRootText.contains("shellCoverTitle = shellCoverTitle"),
-			"ReaderScreen must pass controller-owned shell cover state into the native Komikku frame host."
+			"ReaderScreen must pass shell-cover content into the native Komikku frame host without granting visibility."
 		)
 		assertTrue(
-			platformHostsText.contains("shellCoverVisible: Boolean") &&
+			!platformHostsText.contains("shellCoverVisible: Boolean") &&
 				platformHostsText.contains("shellCoverUrl: String?") &&
 				platformHostsText.contains("shellCoverTitle: String"),
-			"The Komikku native frame host contract must own shell-cover inputs instead of hiding them in viewer content."
+			"The Komikku native frame host contract must own shell-cover content while presentationDecision alone owns visibility."
 		)
 		assertTrue(
 			androidHostText.contains("KomikkuReaderNativeShellCoverView") &&

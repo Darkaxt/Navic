@@ -180,7 +180,13 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(openRequestText, "nativeShellCoverUrl = shellCoverUrl.takeIf { hasShellCover }")
 		assertContains(openRequestText, "canReturnToShellCover = hasShellCover")
 		assertContains(readerRootText, "KomikkuReaderNativeFrameHost(")
-		assertContains(readerRootText, "shellCoverVisible = controllerState.shellCoverVisible")
+		assertFalse(
+			readerRootText
+				.substringAfter("KomikkuReaderNativeFrameHost(")
+				.substringBefore("\n\t\tviewerContent = {")
+				.contains("shellCoverVisible ="),
+			"The native host must derive cover visibility from its atomic presentation decision."
+		)
 		assertContains(readerRootText, "shellCoverUrl = shellCoverUrl")
 		assertContains(engineText, "nativeShellCoverUrl: String?")
 		assertContains(engineText, "canReturnToShellCover: Boolean")
