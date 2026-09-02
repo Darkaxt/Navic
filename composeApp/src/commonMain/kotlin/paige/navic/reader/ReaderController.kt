@@ -141,17 +141,47 @@ data class ReaderController(
 	}
 
 	fun onPresentationEvent(event: ReaderPresentationEvent): ReaderControllerStep {
+		val previousAuthority = state.presentation.authority
 		val reduction = readerPresentationReduce(state.presentation, event)
 		val acceptedShellCoverCommit =
 			event is ReaderPresentationEvent.ShellCoverCommitted &&
 				(reduction.decision.frameOwner as? ReaderPresentationFrameOwner.ShellCover)
 					?.proof == event.proof
+		val acceptedShellCoverDismissal =
+			event is ReaderPresentationEvent.NativePagePresented &&
+				previousAuthority is ReaderPresentationAuthority.BlockingPreparation &&
+				previousAuthority.retainedFrame is ReaderPresentationFrameOwner.ShellCover &&
+				previousAuthority.nativePresentationRequest?.let { request ->
+					request.token == event.proof.transitionToken &&
+						request.binding == event.proof.binding
+				} == true &&
+				(reduction.decision.frameOwner as? ReaderPresentationFrameOwner.NativePage)
+					?.proof == event.proof
 		return ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
 					presentation = reduction.state,
-					shellCoverVisible = state.shellCoverVisible || acceptedShellCoverCommit
+					shellCoverVisible = when {
+						acceptedShellCoverDismissal -> false
+						acceptedShellCoverCommit -> true
+						else -> state.shellCoverVisible
+					},
+					pendingShellCoverDismissal = state.pendingShellCoverDismissal
+						.takeUnless { acceptedShellCoverDismissal },
+					nativeShellCoverReturnLocatorKey = if (acceptedShellCoverDismissal) {
+						readerNativeShellCoverReturnLocatorKey(state.chrome.currentLocator)
+					} else {
+						state.nativeShellCoverReturnLocatorKey
+					}
 				)
+			),
+			engineCommands = listOfNotNull(
+				ReaderEngineCommand.RequestVisibleTextRange("shell-cover-dismissed")
+					.takeIf {
+						acceptedShellCoverDismissal && state.supportsReaderEngineCapability(
+							ReaderEngineCapability.MediaOverlay
+						)
+					}
 			),
 			presentationEffects = reduction.effects
 		)
@@ -651,43 +681,34 @@ data class ReaderController(
 			)
 			action == ReaderViewerAction.NativeShellPrepared -> ReaderControllerStep(
 				controller = copy(
-					state = state.copy(
-						shellCoverVisible = false,
-						pendingShellCoverDismissal = null,
-						nativeShellCoverReturnLocatorKey =
-							readerNativeShellCoverReturnLocatorKey(state.chrome.currentLocator),
-						menuVisible = false
-					)
-				),
-				engineCommands = listOfNotNull(
-					ReaderEngineCommand.RequestVisibleTextRange("shell-cover-dismissed")
-						.takeIf {
-							state.supportsReaderEngineCapability(
-								ReaderEngineCapability.MediaOverlay
-							)
-						}
+					state = state.copy(menuVisible = false)
 				)
 			)
 			action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||
 				action == ReaderViewerAction.ScrollViewport(ReaderViewportScrollDirection.Down) -> {
-				val locator = state.pendingShellCoverDismissal?.locator
-					?: state.chrome.currentLocator
-				val nextRequestId = state.shellCoverDismissalRequestSequence + 1L
+				val presentationStep = onPresentationEvent(
+					ReaderPresentationEvent.ShellCoverDismissalRequested
+				)
+				val presentationController = presentationStep.controller
+				val presentationState = presentationController.state
+				val locator = presentationState.pendingShellCoverDismissal?.locator
+					?: presentationState.chrome.currentLocator
+				val nextRequestId = presentationState.shellCoverDismissalRequestSequence + 1L
 				val dismissalRequest = locator
 					?.takeIf(ReaderLocator::hasFoliateNavigationIdentity)
 					?.let {
 						ReaderShellCoverDismissalRequest(
 							requestId = nextRequestId,
 							locator = it,
-							foliateSessionId = state.foliateSessionId
+							foliateSessionId = presentationState.foliateSessionId
 						)
 					}
 				ReaderControllerStep(
-					controller = copy(
-						state = state.copy(
+					controller = presentationController.copy(
+						state = presentationState.copy(
 							shellCoverDismissalRequestSequence = dismissalRequest
 								?.requestId
-								?: state.shellCoverDismissalRequestSequence,
+								?: presentationState.shellCoverDismissalRequestSequence,
 							pendingShellCoverDismissal = dismissalRequest,
 							menuVisible = false
 						)
@@ -699,7 +720,8 @@ data class ReaderController(
 								relocationReason = readerShellCoverDismissalReason(it.requestId)
 							)
 						}
-					)
+					),
+					presentationEffects = presentationStep.presentationEffects
 				)
 			}
 			else -> ReaderControllerStep(this)

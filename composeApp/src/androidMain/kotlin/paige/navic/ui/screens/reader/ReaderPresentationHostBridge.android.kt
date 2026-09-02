@@ -1,6 +1,9 @@
 package paige.navic.ui.screens.reader
 
+import karacken.curl.PageSurfaceView
 import paige.navic.reader.ReaderNativePagePresentationProof
+import paige.navic.reader.ReaderPagePreparationFacts
+import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationDecision
@@ -9,6 +12,16 @@ import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderShellCoverCommitProof
+
+internal fun readerDispatchPageHostLifecycleEvent(
+	event: ReaderPageHostLifecycleEvent,
+	preserveDestinationDeck: Boolean,
+	clearDestinationDeckPrewarm: () -> Unit,
+	dispatchInputLifecycle: (ReaderPageHostLifecycleEvent) -> List<Long>
+): List<Long> {
+	if (!preserveDestinationDeck) clearDestinationDeckPrewarm()
+	return dispatchInputLifecycle(event)
+}
 
 internal fun interface ReaderPresentationDrawRegistration {
 	fun unregister()
@@ -34,13 +47,15 @@ internal data class ReaderNativePagePresentationCandidate(
 	val transitionToken: ReaderPresentationToken?,
 	val visualPageIndex: Int,
 	val viewportWidth: Int,
-	val viewportHeight: Int
+	val viewportHeight: Int,
+	val preparationFacts: ReaderPagePreparationFacts
 )
 
 internal data class ReaderNativePagePresentationHostSnapshot(
 	val binding: ReaderPresentationBinding?,
 	val transitionToken: ReaderPresentationToken?,
 	val deck: ReaderPagePreparedActiveDeck?,
+	val preparationFacts: ReaderPagePreparationFacts,
 	val visualPageIndex: Int?,
 	val viewportWidth: Int,
 	val viewportHeight: Int,
@@ -61,7 +76,9 @@ internal data class ReaderNativePagePresentationHostSnapshot(
 			!viewerReplacementAdmitted ||
 			!rendererDeckReady ||
 			!nativePresentationVisible ||
-			shellCoverSelected ||
+			(shellCoverSelected && transitionToken == null) ||
+			preparationFacts.phase != ReaderPagePreparationPhase.Ready ||
+			preparationFacts.generation != binding.preparationGeneration ||
 			viewportWidth <= 0 ||
 			viewportHeight <= 0 ||
 			visualPageIndex != deck.sourceCenterPageIndex ||
@@ -75,27 +92,91 @@ internal data class ReaderNativePagePresentationHostSnapshot(
 			transitionToken = transitionToken,
 			visualPageIndex = visualPageIndex,
 			viewportWidth = viewportWidth,
-			viewportHeight = viewportHeight
+			viewportHeight = viewportHeight,
+			preparationFacts = preparationFacts
 		)
 	}
 }
 
+internal interface ReaderNativePagePresentedFrameSource {
+	fun requestNextPresentedFrame(onPresented: (Long) -> Unit): Long
+	fun cancelPresentedFrameRequest(requestId: Long): Boolean
+}
+
+internal class ReaderPageSurfacePresentedFrameSource(
+	private val surface: PageSurfaceView
+) : ReaderNativePagePresentedFrameSource {
+	override fun requestNextPresentedFrame(onPresented: (Long) -> Unit): Long {
+		var requestId = PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
+		requestId = surface.requestNextPresentedFrame { onPresented(requestId) }
+		return requestId
+	}
+
+	override fun cancelPresentedFrameRequest(requestId: Long): Boolean =
+		surface.cancelPresentedFrameRequest(requestId)
+}
+
 internal class ReaderNativePagePresentationPublisher(
+	private val frameSource: ReaderNativePagePresentedFrameSource,
+	private val currentCandidate: () -> ReaderNativePagePresentationCandidate?,
 	private val onEvent: (ReaderPresentationEvent) -> Unit
 ) {
-	private var lastPublishedCandidate: ReaderNativePagePresentationCandidate? = null
-	private var presentedFrame = 0L
+	private data class PendingFrame(
+		val requestId: Long,
+		val candidate: ReaderNativePagePresentationCandidate
+	)
 
-	fun update(candidate: ReaderNativePagePresentationCandidate?) {
-		if (candidate == null || candidate == lastPublishedCandidate) return
+	private var pendingFrame: PendingFrame? = null
+	private var lastPublishedCandidate: ReaderNativePagePresentationCandidate? = null
+	private var disposed = false
+
+	fun update() {
+		if (disposed) return
+		val candidate = currentCandidate()
+		val pending = pendingFrame
+		if (pending != null && pending.candidate != candidate) {
+			pendingFrame = null
+			frameSource.cancelPresentedFrameRequest(pending.requestId)
+		}
+		if (
+			candidate == null ||
+			candidate == lastPublishedCandidate ||
+			pendingFrame?.candidate == candidate
+		) return
+
+		var requestId = PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
+		requestId = frameSource.requestNextPresentedFrame { presentedRequestId ->
+			onPresentedFrame(requestId, presentedRequestId, candidate)
+		}
+		if (requestId == PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID) return
+		pendingFrame = PendingFrame(requestId, candidate)
+	}
+
+	fun dispose() {
+		if (disposed) return
+		disposed = true
+		pendingFrame?.let { frameSource.cancelPresentedFrameRequest(it.requestId) }
+		pendingFrame = null
+	}
+
+	private fun onPresentedFrame(
+		expectedRequestId: Long,
+		presentedRequestId: Long,
+		armedCandidate: ReaderNativePagePresentationCandidate
+	) {
+		if (disposed || expectedRequestId != presentedRequestId) return
+		val pending = pendingFrame
+		if (pending?.requestId != expectedRequestId || pending.candidate != armedCandidate) return
+		pendingFrame = null
+		val candidate = currentCandidate()
+		if (candidate != armedCandidate || candidate == lastPublishedCandidate) return
 		lastPublishedCandidate = candidate
-		presentedFrame = Math.incrementExact(presentedFrame)
 		onEvent(
 			ReaderPresentationEvent.NativePagePresented(
 				ReaderNativePagePresentationProof(
 					binding = candidate.binding,
 					transitionToken = candidate.transitionToken,
-					presentedFrame = presentedFrame,
+					presentedFrame = presentedRequestId,
 					viewportWidth = candidate.viewportWidth,
 					viewportHeight = candidate.viewportHeight,
 					rasterGeneration = requireNotNull(candidate.binding.rasterGeneration),

@@ -1495,10 +1495,17 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(reset, "preparedActiveDeck = null")
 		assertContains(reset, "destinationDeckPrewarmPending = false")
-		assertContains(lifecycle, "clearDestinationDeckPrewarm()")
+		assertContains(lifecycle, "readerDispatchPageHostLifecycleEvent(")
+		assertContains(lifecycle, "clearDestinationDeckPrewarm = ::clearDestinationDeckPrewarm")
+		assertContains(
+			lifecycle,
+			"dispatchInputLifecycle = pageInputSettlementHostController::onLifecycleEvent"
+		)
 		assertTrue(
-			lifecycle.indexOf("clearDestinationDeckPrewarm()") <
-				lifecycle.indexOf("pageInputSettlementHostController.onLifecycleEvent(event)")
+			lifecycle.indexOf("clearDestinationDeckPrewarm = ::clearDestinationDeckPrewarm") <
+				lifecycle.indexOf(
+					"dispatchInputLifecycle = pageInputSettlementHostController::onLifecycleEvent"
+				)
 		)
 	}
 
@@ -3775,7 +3782,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val host = hostFile.readText()
 		val readerRoot = readerRootFile.readText()
 		val shellVisibility = host
-			.substringAfter("fun setShellCoverVisible(visible: Boolean)")
+			.substringAfter("fun setShellCoverVisible(")
 			.substringBefore("fun setPageOperationPolicy(")
 		val shellSwipe = host
 			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent)")

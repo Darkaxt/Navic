@@ -890,6 +890,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		alpha = 0f
 		visibility = View.VISIBLE
 	}
+	val presentedFrameSource: ReaderNativePagePresentedFrameSource by lazy {
+		ReaderPageSurfacePresentedFrameSource(surfaceView)
+	}
 
 	private val rasterResidencyBudget =
 		ReaderPlayLikeCurlRasterResidencyBudget(

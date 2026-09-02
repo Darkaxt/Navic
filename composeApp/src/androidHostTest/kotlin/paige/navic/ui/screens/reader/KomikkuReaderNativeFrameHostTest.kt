@@ -1,18 +1,28 @@
 package paige.navic.ui.screens.reader
 
 import java.io.File
+import paige.navic.reader.ReaderDestinationCommitIdentity
+import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPageNewPointerDecision
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationPresentation
 import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPageRendererReadinessState
+import paige.navic.reader.ReaderPresentationAuthority
+import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationFrameOwner
+import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderTextureDeckState
+import paige.navic.reader.readerPresentationDecision
+import paige.navic.reader.readerPresentationReduce
 import paige.navic.reader.readerPagePreparationState
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -363,6 +373,133 @@ class KomikkuReaderNativeFrameHostTest {
 				hasValidatedRasterPresentation = false
 			)
 		)
+	}
+
+	@Test
+	fun productionBindingReporterConfirmsReducerStateAndUsesAtomicCombinedReplacement() {
+		val session = "fixture-session"
+		val bindingA = ReaderPresentationBinding(
+			foliateSessionId = session,
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(session, 1L),
+			rasterGeneration = 4L,
+			textureGeneration = 5L,
+			preparationGeneration = 6L
+		)
+		val combinedB = bindingA.copy(
+			viewportGeneration = 7L,
+			profileGeneration = 8L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(session, 2L),
+			rasterGeneration = 9L,
+			textureGeneration = 10L,
+			preparationGeneration = 11L
+		)
+		val pureDestinationC = combinedB.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(session, 3L),
+			rasterGeneration = 12L,
+			textureGeneration = 13L,
+			preparationGeneration = 14L
+		)
+		val reporter = ReaderPresentationBindingReporter()
+		var state = ReaderPresentationState()
+
+		val opened = assertNotNull(
+			reporter.update(
+				confirmedTargetBinding = readerPresentationDecision(state).targetBinding,
+				currentBinding = bindingA,
+				publicationOpenPending = true,
+				relocationPending = false
+			)
+		)
+		assertTrue(opened is ReaderPresentationEvent.PublicationOpened)
+		assertNull(reporter.lastReportedBinding)
+		state = readerPresentationReduce(state, opened).state
+		assertNull(
+			reporter.update(
+				confirmedTargetBinding = readerPresentationDecision(state).targetBinding,
+				currentBinding = bindingA,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertEquals(bindingA, reporter.lastReportedBinding)
+
+		val proofA = ReaderNativePagePresentationProof(
+			binding = bindingA,
+			transitionToken = null,
+			presentedFrame = 1L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 4L,
+			textureGeneration = 5L
+		)
+		state = readerPresentationReduce(
+			state,
+			ReaderPresentationEvent.NativePagePresented(proofA)
+		).state
+		val combinedEvent = assertIs<ReaderPresentationEvent.BindingReplaced>(
+			reporter.update(
+				confirmedTargetBinding = readerPresentationDecision(state).targetBinding,
+				currentBinding = combinedB,
+				publicationOpenPending = false,
+				relocationPending = true
+			)
+		)
+		assertEquals(bindingA, combinedEvent.previousBinding)
+		assertEquals(combinedB, combinedEvent.binding)
+		assertEquals(bindingA, reporter.lastReportedBinding)
+
+		assertNull(
+			reporter.update(
+				confirmedTargetBinding = bindingA,
+				currentBinding = combinedB,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertEquals(bindingA, reporter.lastReportedBinding)
+
+		val replacement = readerPresentationReduce(state, combinedEvent)
+		state = replacement.state
+		assertEquals(ReaderPresentationAuthority.Unavailable, state.authority)
+		assertEquals(
+			listOf(
+				paige.navic.reader.ReaderPresentationEffect.ReleaseStalePresentation(
+					null,
+					bindingA
+				)
+			),
+			replacement.effects
+		)
+		assertNull(
+			reporter.update(
+				confirmedTargetBinding = readerPresentationDecision(state).targetBinding,
+				currentBinding = combinedB,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertEquals(combinedB, reporter.lastReportedBinding)
+
+		assertNull(
+			reporter.update(
+				confirmedTargetBinding = combinedB,
+				currentBinding = combinedB,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		val relocation = assertIs<ReaderPresentationEvent.FoliateRelocated>(
+			reporter.update(
+				confirmedTargetBinding = combinedB,
+				currentBinding = pureDestinationC,
+				publicationOpenPending = false,
+				relocationPending = true
+			)
+		)
+		assertEquals(pureDestinationC, relocation.binding)
 	}
 
 	@Test

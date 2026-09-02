@@ -170,7 +170,13 @@ class ReaderPresentationHostBridgeTest {
 			presentation = readerPresentationReduce(presentation, event).state
 		}
 		reduce(ReaderPresentationEvent.PublicationOpened(fixture.binding))
-		val publisher = ReaderNativePagePresentationPublisher(::reduce)
+		var candidate: ReaderNativePagePresentationCandidate? = null
+		val frameSource = HostBridgePresentedFrameSource()
+		val publisher = ReaderNativePagePresentationPublisher(
+			frameSource = frameSource,
+			currentCandidate = { candidate },
+			onEvent = ::reduce
+		)
 		val snapshot = ReaderNativePagePresentationHostSnapshot(
 			binding = fixture.binding,
 			transitionToken = null,
@@ -180,6 +186,10 @@ class ReaderPresentationHostBridgeTest {
 				sourceCenterPageIndex = 4,
 				generationId = requireNotNull(fixture.binding.textureGeneration),
 				preparationGeneration = requireNotNull(fixture.binding.preparationGeneration)
+			),
+			preparationFacts = ReaderPagePreparationFacts(
+				phase = ReaderPagePreparationPhase.Ready,
+				generation = requireNotNull(fixture.binding.preparationGeneration)
 			),
 			visualPageIndex = 4,
 			viewportWidth = 1920,
@@ -192,8 +202,11 @@ class ReaderPresentationHostBridgeTest {
 			shellCoverSelected = false
 		)
 
-		publisher.update(snapshot.currentCandidateOrNull())
-		publisher.update(snapshot.currentCandidateOrNull())
+		candidate = snapshot.currentCandidateOrNull()
+		publisher.update()
+		publisher.update()
+		assertEquals(1, eventOrder.size)
+		frameSource.present(1L)
 
 		assertEquals(2, eventOrder.size)
 		assertIs<ReaderPresentationEvent.PublicationOpened>(eventOrder[0])
@@ -258,6 +271,10 @@ class ReaderPresentationHostBridgeTest {
 				generationId = requireNotNull(binding.textureGeneration),
 				preparationGeneration = requireNotNull(binding.preparationGeneration)
 			),
+			preparationFacts = ReaderPagePreparationFacts(
+				phase = ReaderPagePreparationPhase.Ready,
+				generation = requireNotNull(binding.preparationGeneration)
+			),
 			visualPageIndex = visualPageIndex,
 			viewportWidth = 1920,
 			viewportHeight = 1200,
@@ -280,8 +297,17 @@ class ReaderPresentationHostBridgeTest {
 			return reduction
 		}
 		dispatch(ReaderPresentationEvent.PublicationOpened(bindingA))
-		val publisher = ReaderNativePagePresentationPublisher(::dispatch)
-		publisher.update(snapshot(bindingA, visualPageIndex = 4).currentCandidateOrNull())
+		var candidate: ReaderNativePagePresentationCandidate? = null
+		val frameSource = HostBridgePresentedFrameSource()
+		val publisher = ReaderNativePagePresentationPublisher(
+			frameSource = frameSource,
+			currentCandidate = { candidate },
+			onEvent = ::dispatch
+		)
+		candidate = snapshot(bindingA, visualPageIndex = 4).currentCandidateOrNull()
+		publisher.update()
+		assertEquals(ReaderPresentationAuthority.Unavailable, presentation.authority)
+		frameSource.present(1L)
 		val frameA = assertIs<ReaderPresentationAuthority.SettledNativePage>(presentation.authority).frame
 
 		val moved = dispatch(
@@ -322,7 +348,10 @@ class ReaderPresentationHostBridgeTest {
 				)
 			)
 		)
-		publisher.update(snapshot(bindingB, visualPageIndex = 5).currentCandidateOrNull())
+		candidate = snapshot(bindingB, visualPageIndex = 5).currentCandidateOrNull()
+		publisher.update()
+		assertEquals(frameA, readerPresentationDecision(presentation).frameOwner)
+		frameSource.present(2L)
 
 		val frameB = assertIs<ReaderPresentationAuthority.SettledNativePage>(presentation.authority).frame
 		assertEquals(bindingB, frameB.proof.binding)
@@ -396,10 +425,15 @@ class ReaderPresentationHostBridgeTest {
 			generationId = requireNotNull(fixture.binding.textureGeneration),
 			preparationGeneration = requireNotNull(fixture.binding.preparationGeneration)
 		)
+		val preparationFacts = ReaderPagePreparationFacts(
+			phase = ReaderPagePreparationPhase.Ready,
+			generation = requireNotNull(fixture.binding.preparationGeneration)
+		)
 		val current = ReaderNativePagePresentationHostSnapshot(
 			binding = fixture.binding,
 			transitionToken = null,
 			deck = deck,
+			preparationFacts = preparationFacts,
 			visualPageIndex = 4,
 			viewportWidth = 1920,
 			viewportHeight = 1200,
@@ -412,12 +446,23 @@ class ReaderPresentationHostBridgeTest {
 		)
 
 		assertNotNull(current.currentCandidateOrNull())
+		assertNotNull(
+			current.copy(
+				transitionToken = ReaderPresentationToken(90L),
+				shellCoverSelected = true
+			).currentCandidateOrNull()
+		)
 		listOf(
 			current.copy(hostAttached = false),
 			current.copy(windowVisible = false),
 			current.copy(viewerReplacementAdmitted = false),
 			current.copy(rendererDeckReady = false),
 			current.copy(nativePresentationVisible = false),
+			current.copy(
+				preparationFacts = preparationFacts.copy(
+					phase = ReaderPagePreparationPhase.Preparing
+				)
+			),
 			current.copy(shellCoverSelected = true),
 			current.copy(viewportWidth = 0),
 			current.copy(visualPageIndex = 5),
@@ -572,6 +617,53 @@ class ReaderPresentationHostBridgeTest {
 	}
 
 	@Test
+	fun acceptedCoverLifecycleRetainsDeckUntilBridgeCompletesExactTransaction() {
+		val fixture = BridgeFixture()
+		val host = LayerBackedReaderPresentationCommitHost(
+			binding = fixture.binding,
+			dispatchSelectionLifecycle = true
+		)
+		val events = mutableListOf<ReaderPresentationEvent>()
+		val bridge = ReaderPresentationHostBridge(host, events::add)
+
+		bridge.update(fixture.pendingDecision)
+		host.registrations.single().draw()
+		host.runNextAnimationFrame()
+		val receipt = assertIs<ReaderPresentationEvent.ShellCoverCommitted>(events.single())
+		val accepted = readerPresentationReduce(fixture.pendingState, receipt)
+
+		host.selectAcceptedCover(preserveNativePresentationProof = true)
+		assertEquals(fixture.binding, host.currentPresentationBinding)
+		assertEquals(1, host.lifecycleDispatchCount)
+		assertEquals(0, host.deckIdentityClearCount)
+		bridge.update(accepted.decision)
+
+		assertEquals(1, host.completePreparationCount)
+		assertEquals(0, host.cancelPreparationCount)
+		assertEquals(0, host.rasterInvalidationCount)
+		assertEquals(0, host.preparationInvalidationCount)
+		bridge.update(accepted.decision)
+		assertEquals(1, host.completePreparationCount)
+	}
+
+	@Test
+	fun nonPreservingCoverLifecycleStillClearsDeckIdentity() {
+		val fixture = BridgeFixture()
+		val host = LayerBackedReaderPresentationCommitHost(
+			binding = fixture.binding,
+			dispatchSelectionLifecycle = true
+		)
+
+		host.selectAcceptedCover(preserveNativePresentationProof = false)
+
+		assertEquals(null, host.currentPresentationBinding)
+		assertEquals(1, host.lifecycleDispatchCount)
+		assertEquals(1, host.deckIdentityClearCount)
+		assertEquals(1, host.rasterInvalidationCount)
+		assertEquals(1, host.preparationInvalidationCount)
+	}
+
+	@Test
 	fun shellCoverTransactionRetainsNativeAndPreparationProofUntilExactReceipt() {
 		val fixture = BridgeFixture()
 		val facts = ReaderPagePreparationFacts(
@@ -673,6 +765,24 @@ class ReaderPresentationHostBridgeTest {
 	}
 }
 
+private class HostBridgePresentedFrameSource : ReaderNativePagePresentedFrameSource {
+	private var nextId = 1L
+	private val callbacks = mutableMapOf<Long, (Long) -> Unit>()
+
+	override fun requestNextPresentedFrame(onPresented: (Long) -> Unit): Long {
+		val id = nextId++
+		callbacks[id] = onPresented
+		return id
+	}
+
+	override fun cancelPresentedFrameRequest(requestId: Long): Boolean =
+		callbacks.remove(requestId) != null
+
+	fun present(requestId: Long) {
+		callbacks.remove(requestId)?.invoke(requestId)
+	}
+}
+
 private class BridgeFixture {
 	val binding = ReaderPresentationBinding(
 		foliateSessionId = "session-current",
@@ -740,8 +850,10 @@ private class BridgeFixture {
 }
 
 private class LayerBackedReaderPresentationCommitHost(
-	private val binding: ReaderPresentationBinding
+	binding: ReaderPresentationBinding,
+	private val dispatchSelectionLifecycle: Boolean = false
 ) : ReaderPresentationCommitHost {
+	private var deckBinding: ReaderPresentationBinding? = binding
 	private var preparedCoverGeneration: Long? = null
 	private val layer = ReaderShellCoverLayerController(
 		onPrepareBehindPredecessor = { layerEvents += "prepared-behind-native" },
@@ -754,6 +866,9 @@ private class LayerBackedReaderPresentationCommitHost(
 	var rasterInvalidationCount = 0
 	var preparationInvalidationCount = 0
 	var completePreparationCount = 0
+	var cancelPreparationCount = 0
+	var lifecycleDispatchCount = 0
+	var deckIdentityClearCount = 0
 	val registrations = mutableListOf<FakeDrawRegistration>()
 	private val animationFrames = mutableListOf<() -> Unit>()
 	val currentLayer: ReaderShellCoverHostLayer
@@ -764,8 +879,8 @@ private class LayerBackedReaderPresentationCommitHost(
 		get() = shellCoverSelected
 
 	override val isAttachedToWindow: Boolean = true
-	override val currentPresentationBinding: ReaderPresentationBinding
-		get() = binding
+	override val currentPresentationBinding: ReaderPresentationBinding?
+		get() = deckBinding
 	override val currentShellCoverGeneration: Long?
 		get() = preparedCoverGeneration
 	override val shellCoverSelected: Boolean
@@ -781,6 +896,7 @@ private class LayerBackedReaderPresentationCommitHost(
 	override fun cancelOpaqueShellCoverPreparation(coverGeneration: Long) {
 		if (preparedCoverGeneration != coverGeneration) return
 		preparedCoverGeneration = null
+		cancelPreparationCount += 1
 		layer.hidePreparedCover()
 	}
 
@@ -802,8 +918,22 @@ private class LayerBackedReaderPresentationCommitHost(
 		animationFrames.removeFirstOrNull()?.invoke()
 	}
 
-	fun selectAcceptedCover() {
-		layer.selectCover(preserveNativePresentationProof = true)
+	fun selectAcceptedCover(preserveNativePresentationProof: Boolean = true) {
+		if (dispatchSelectionLifecycle) {
+			readerDispatchPageHostLifecycleEvent(
+				event = ReaderPageHostLifecycleEvent.ShellCoverShown,
+				preserveDestinationDeck = preserveNativePresentationProof,
+				clearDestinationDeckPrewarm = {
+					deckIdentityClearCount += 1
+					deckBinding = null
+				},
+				dispatchInputLifecycle = {
+					lifecycleDispatchCount += 1
+					emptyList()
+				}
+			)
+		}
+		layer.selectCover(preserveNativePresentationProof)
 	}
 }
 

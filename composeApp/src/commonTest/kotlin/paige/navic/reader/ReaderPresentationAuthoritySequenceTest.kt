@@ -167,6 +167,97 @@ class ReaderPresentationAuthoritySequenceTest {
 	}
 
 	@Test
+	fun committedCoverDismissalWaitsForTargetFrameAndLaterReturnUsesFreshTransaction() {
+		val settled = settledNativePresentationState()
+		val bindingA = requireNotNull(settled.binding)
+		val coverPending = readerPresentationReduce(
+			settled,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 37L)
+		)
+		val coverTransition = assertIs<ReaderRequiredTransition.CommitShellCover>(
+			coverPending.decision.requiredTransition
+		)
+		val coverProof = ReaderShellCoverCommitProof(
+			token = coverTransition.token,
+			binding = bindingA,
+			coverGeneration = coverTransition.coverGeneration,
+			presentedFrame = 12L,
+			viewportWidth = 1200,
+			viewportHeight = 800
+		)
+		val cover = readerPresentationReduce(
+			coverPending.state,
+			ReaderPresentationEvent.ShellCoverCommitted(coverProof)
+		)
+		val dismissal = readerPresentationReduce(
+			cover.state,
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		)
+		val nativeTransition = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			dismissal.decision.requiredTransition
+		)
+		assertEquals(ReaderPresentationToken(21L), nativeTransition.token)
+		assertEquals(ReaderPresentationFrameOwner.ShellCover(coverProof), dismissal.decision.frameOwner)
+
+		val bindingB = bindingA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(bindingA.foliateSessionId, 5L),
+			rasterGeneration = 23L,
+			textureGeneration = 29L,
+			preparationGeneration = 31L
+		)
+		val moved = readerPresentationReduce(
+			dismissal.state,
+			ReaderPresentationEvent.FoliateRelocated(bindingB, acknowledgement = null)
+		)
+		assertEquals(bindingB, moved.state.binding)
+		assertEquals(ReaderPresentationFrameOwner.ShellCover(coverProof), moved.decision.frameOwner)
+		assertEquals(
+			ReaderRequiredTransition.PresentNativePage(
+				ReaderPresentationToken(21L),
+				bindingB,
+				direction = null
+			),
+			moved.decision.requiredTransition
+		)
+
+		val proofB = nativeProof(bindingB, frame = 13L).copy(
+			transitionToken = ReaderPresentationToken(21L)
+		)
+		val presented = readerPresentationReduce(
+			moved.state,
+			ReaderPresentationEvent.NativePagePresented(proofB)
+		)
+		assertEquals(ReaderPresentationFrameOwner.NativePage(proofB), presented.decision.frameOwner)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					token = coverProof.token,
+					binding = bindingA
+				)
+			),
+			presented.effects
+		)
+
+		val staleCover = readerPresentationReduce(
+			presented.state,
+			ReaderPresentationEvent.ShellCoverEntered(coverProof)
+		)
+		assertEquals(presented.state, staleCover.state)
+		val returned = readerPresentationReduce(
+			presented.state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 38L)
+		)
+		assertEquals(
+			ReaderRequiredTransition.CommitShellCover(
+				ReaderPresentationToken(22L),
+				bindingB,
+				coverGeneration = 38L
+			),
+			returned.decision.requiredTransition
+		)
+	}
+
+	@Test
 	fun presentationEffectsDeduplicateByStableIdentityAndRequireSuccessfulAcknowledgement() {
 		val settled = settledNativePresentationState()
 		val staleBinding = presentationBinding(session = "session-stale", destinationSequence = 9L)

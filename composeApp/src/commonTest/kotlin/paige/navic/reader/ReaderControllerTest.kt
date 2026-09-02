@@ -375,17 +375,14 @@ class ReaderControllerTest {
 			)
 		)
 
-		assertFalse(acknowledged.controller.state.shellCoverVisible)
+		assertTrue(acknowledged.controller.state.shellCoverVisible)
 		assertFalse(acknowledged.controller.state.menuVisible)
-		assertNull(acknowledged.controller.state.pendingShellCoverDismissal)
-		assertEquals(
-			listOf(ReaderEngineCommand.RequestVisibleTextRange("shell-cover-dismissed")),
-			acknowledged.engineCommands
-		)
+		assertNotNull(acknowledged.controller.state.pendingShellCoverDismissal)
+		assertEquals(emptyList(), acknowledged.engineCommands)
 	}
 
 	@Test
-	fun committedNativeShellPresentationHidesCoverWithoutRelocation() {
+	fun legacyNativeShellPreparedCannotHideCoverWithoutPresentationProof() {
 		val resumeLocator = ReaderLocator(
 			href = "OEBPS/xhtml/chapter4.xhtml",
 			progress = 0.28,
@@ -406,17 +403,123 @@ class ReaderControllerTest {
 			ReaderViewerAction.NativeShellPrepared
 		)
 
-		assertFalse(dismissed.controller.state.shellCoverVisible)
+		assertTrue(dismissed.controller.state.shellCoverVisible)
 		assertFalse(dismissed.controller.state.menuVisible)
 		assertNull(dismissed.controller.state.pendingShellCoverDismissal)
-		assertEquals(
-			readerNativeShellCoverReturnLocatorKey(resumeLocator),
-			dismissed.controller.state.nativeShellCoverReturnLocatorKey
-		)
+		assertNull(dismissed.controller.state.nativeShellCoverReturnLocatorKey)
 		assertTrue(
 			dismissed.engineCommands.none { command ->
 				command is ReaderEngineCommand.NavigateTo
 			}
+		)
+	}
+
+	@Test
+	fun shellCoverDismissalKeepsCoverSelectedUntilExactNativePresentationProof() {
+		val session = "fixture-session"
+		val locator = ReaderLocator(
+			href = "chapter.xhtml",
+			cfi = "epubcfi(/6/2)",
+			pageIndex = 0,
+			pageCount = 10
+		)
+		val bindingA = ReaderPresentationBinding(
+			foliateSessionId = session,
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(session, 1L),
+			rasterGeneration = 4L,
+			textureGeneration = 5L,
+			preparationGeneration = 6L
+		)
+		val coverProof = ReaderShellCoverCommitProof(
+			token = ReaderPresentationToken(7L),
+			binding = bindingA,
+			coverGeneration = 8L,
+			presentedFrame = 9L,
+			viewportWidth = 1200,
+			viewportHeight = 800
+		)
+		val controller = ReaderController(
+			ReaderControllerState(
+				chrome = ReaderChromeState(currentLocator = locator),
+				shellCoverVisible = true,
+				nativeShellCoverUrl = "cover://fixture",
+				canReturnToShellCover = true,
+				foliateSessionId = session,
+				destinationCommitIdentity = bindingA.destinationCommitIdentity,
+				presentation = ReaderPresentationState(
+					authority = ReaderPresentationAuthority.ShellCover(coverProof),
+					binding = bindingA,
+					nextTokenValue = 8L
+				)
+			)
+		)
+
+		val requested = controller.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+		assertTrue(requested.controller.state.shellCoverVisible)
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			requested.controller.state.presentation.authority
+		)
+		assertEquals(ReaderPresentationToken(8L), pending.nativePresentationRequest?.token)
+		assertNotNull(requested.controller.state.pendingShellCoverDismissal)
+
+		val legacyPrepared = requested.controller.onViewerAction(
+			ReaderViewerAction.NativeShellPrepared
+		)
+		assertTrue(legacyPrepared.controller.state.shellCoverVisible)
+		assertEquals(pending, legacyPrepared.controller.state.presentation.authority)
+
+		val destinationB = ReaderDestinationCommitIdentity(session, 2L)
+		val relocatedController = legacyPrepared.controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				foliateSessionId = session,
+				locator = locator.copy(reason = "shell-cover-dismiss:1"),
+				destinationCommitIdentity = destinationB
+			)
+		).controller
+		assertTrue(relocatedController.state.shellCoverVisible)
+		assertNotNull(relocatedController.state.pendingShellCoverDismissal)
+
+		val bindingB = bindingA.copy(
+			destinationCommitIdentity = destinationB,
+			rasterGeneration = 14L,
+			textureGeneration = 15L,
+			preparationGeneration = 16L
+		)
+		val moved = relocatedController.onPresentationEvent(
+			ReaderPresentationEvent.FoliateRelocated(bindingB, acknowledgement = null)
+		).controller
+		assertTrue(moved.state.shellCoverVisible)
+		val proofB = ReaderNativePagePresentationProof(
+			binding = bindingB,
+			transitionToken = ReaderPresentationToken(8L),
+			presentedFrame = 17L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 14L,
+			textureGeneration = 15L
+		)
+		val proven = moved.onPresentationEvent(
+			ReaderPresentationEvent.NativePagePresented(proofB)
+		)
+		assertFalse(proven.controller.state.shellCoverVisible)
+		assertNull(proven.controller.state.pendingShellCoverDismissal)
+		assertEquals(
+			ReaderPresentationFrameOwner.NativePage(proofB),
+			proven.controller.state.presentationDecision.frameOwner
+		)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					coverProof.token,
+					bindingA
+				)
+			),
+			proven.presentationEffects
 		)
 	}
 
@@ -1149,6 +1252,7 @@ class ReaderControllerTest {
 					tocTitle = "Synopsis"
 				)
 			).controller
+			.withProvenNativePageForLegacyFixture()
 		val ordinalZero = ordinalOne.onEngineEvent(
 			ReaderEngineEvent.Relocated(
 				foliateSessionId = "session-a",
@@ -1191,14 +1295,15 @@ class ReaderControllerTest {
 				tocTitle = "Synopsis"
 			)
 		)
-		val nextReadable = acknowledged.controller.onViewerAction(
+		val proven = acknowledged.controller.proveNativePageForLegacyFixture()
+		val nextReadable = proven.controller.onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
 		)
 
-		assertFalse(acknowledged.controller.state.shellCoverVisible)
+		assertFalse(proven.controller.state.shellCoverVisible)
 		assertEquals(
 			listOf(ReaderEngineCommand.RequestVisibleTextRange("shell-cover-dismissed")),
-			acknowledged.engineCommands
+			proven.engineCommands
 		)
 		assertEquals(
 			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Next, causalSequence = 1L)),
@@ -1280,6 +1385,7 @@ class ReaderControllerTest {
 					tocTitle = "Synopsis"
 				)
 			).controller
+			.withProvenNativePageForLegacyFixture()
 		val laterFrontmatter = firstFrontmatter
 			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 			.controller
@@ -1345,6 +1451,7 @@ class ReaderControllerTest {
 					tocTitle = "Chapter I: An Unexpected Party"
 				)
 			).controller
+			.withProvenNativePageForLegacyFixture()
 
 		val back = readable.onBack()
 
@@ -1383,6 +1490,7 @@ class ReaderControllerTest {
 					tocTitle = "Chapter 1"
 				)
 			).controller
+			.withProvenNativePageForLegacyFixture()
 			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onReadaloudPlaybackState(
 				ReaderReadaloudPlaybackUiState(
@@ -1438,6 +1546,7 @@ class ReaderControllerTest {
 					tocTitle = "Chapter I: An Unexpected Party"
 				)
 			).controller
+			.withProvenNativePageForLegacyFixture()
 			.onViewerAction(ReaderViewerAction.Menu)
 			.controller
 
@@ -2812,7 +2921,10 @@ class ReaderControllerTest {
 				locator = readableLocator,
 				tocTitle = "Chapter 1"
 			)
-		).controller.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		).controller
+			.withProvenNativePageForLegacyFixture()
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 		val prepared = readable.onEngineEvent(
 			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
@@ -2855,12 +2967,13 @@ class ReaderControllerTest {
 				tocTitle = "Chapter 1"
 			)
 		)
+		val proven = acknowledged.controller.proveNativePageForLegacyFixture()
 		assertEquals(
 			listOf(ReaderEngineCommand.RequestVisibleTextRange("shell-cover-dismissed")),
-			acknowledged.engineCommands
+			proven.engineCommands
 		)
 
-		val freshPrepared = acknowledged.controller.onEngineEvent(
+		val freshPrepared = proven.controller.onEngineEvent(
 			whispersyncVisibleTextRange(
 				textHref = "Text/chapter1.xhtml",
 				visibleStart = 80,
@@ -4804,6 +4917,64 @@ class ReaderControllerTest {
 	}
 
 	private val whispersyncTestDestination = ReaderDestinationCommitIdentity("session-a", 1L)
+
+	private fun ReaderController.withProvenNativePageForLegacyFixture(): ReaderController =
+		proveNativePageForLegacyFixture().controller
+
+	private fun ReaderController.proveNativePageForLegacyFixture(): ReaderControllerStep {
+		val session = state.foliateSessionId ?: "fixture-session"
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = session,
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = state.destinationCommitIdentity
+				?.takeIf { it.foliateSessionId == session }
+				?: ReaderDestinationCommitIdentity(session, 1L),
+			rasterGeneration = 4L,
+			textureGeneration = 5L,
+			preparationGeneration = 6L
+		)
+		val coverToken = ReaderPresentationToken(state.presentation.nextTokenValue)
+		val coverProof = ReaderShellCoverCommitProof(
+			token = coverToken,
+			binding = binding,
+			coverGeneration = 7L,
+			presentedFrame = 8L,
+			viewportWidth = 1200,
+			viewportHeight = 800
+		)
+		val seeded = copy(
+			state = state.copy(
+				shellCoverVisible = true,
+				presentation = ReaderPresentationState(
+					authority = ReaderPresentationAuthority.ShellCover(coverProof),
+					binding = binding,
+					nextTokenValue = coverToken.value + 1L
+				)
+			)
+		)
+		val pending = seeded.onPresentationEvent(
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		).controller
+		val request = requireNotNull(
+			(pending.state.presentation.authority as ReaderPresentationAuthority.BlockingPreparation)
+				.nativePresentationRequest
+		)
+		return pending.onPresentationEvent(
+			ReaderPresentationEvent.NativePagePresented(
+				ReaderNativePagePresentationProof(
+					binding = request.binding,
+					transitionToken = request.token,
+					presentedFrame = 9L,
+					viewportWidth = 1200,
+					viewportHeight = 800,
+					rasterGeneration = requireNotNull(request.binding.rasterGeneration),
+					textureGeneration = requireNotNull(request.binding.textureGeneration)
+				)
+			)
+		)
+	}
 
 	private fun ReaderController.withWhispersyncTestDestination(): ReaderController =
 		copy(

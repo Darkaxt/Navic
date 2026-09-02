@@ -157,6 +157,11 @@ enum class ReaderCurlSettlementStage {
 	AwaitingNativePresentation
 }
 
+data class ReaderNativePagePresentationRequest(
+	val token: ReaderPresentationToken,
+	val binding: ReaderPresentationBinding
+)
+
 sealed interface ReaderPresentationAuthority {
 	data object Unavailable : ReaderPresentationAuthority
 	data class ShellCover(val proof: ReaderShellCoverCommitProof) : ReaderPresentationAuthority
@@ -191,7 +196,8 @@ sealed interface ReaderPresentationAuthority {
 		val frame: ReaderPresentationFrameOwner.LiveEngine
 	) : ReaderPresentationAuthority
 	data class BlockingPreparation(
-		val retainedFrame: ReaderPresentationFrameOwner
+		val retainedFrame: ReaderPresentationFrameOwner,
+		val nativePresentationRequest: ReaderNativePagePresentationRequest? = null
 	) : ReaderPresentationAuthority
 }
 
@@ -266,7 +272,8 @@ data class ReaderPresentationDecision(
 	val inputPolicy: ReaderPresentationInputPolicy,
 	val preparationPresentation: ReaderPreparationPresentation,
 	val diagnosticPresentation: ReaderDiagnosticPresentation,
-	val requiredTransition: ReaderRequiredTransition
+	val requiredTransition: ReaderRequiredTransition,
+	val targetBinding: ReaderPresentationBinding?
 )
 
 sealed interface ReaderPresentationLifecycleState {
@@ -338,15 +345,12 @@ sealed interface ReaderPresentationEvent {
 					previousBinding.textureGeneration != null &&
 					previousBinding.preparationGeneration != null
 			)
-			require(
-				binding.rasterGeneration != null &&
-					binding.textureGeneration != null &&
-					binding.preparationGeneration != null
-			)
 			require(previousBinding.foliateSessionId == binding.foliateSessionId)
 			require(previousBinding.publicationGeneration == binding.publicationGeneration)
 			require(
-				previousBinding.destinationCommitIdentity == binding.destinationCommitIdentity
+				previousBinding.destinationCommitIdentity == binding.destinationCommitIdentity ||
+					previousBinding.viewportGeneration != binding.viewportGeneration ||
+					previousBinding.profileGeneration != binding.profileGeneration
 			)
 			require(previousBinding != binding)
 		}
@@ -361,6 +365,7 @@ sealed interface ReaderPresentationEvent {
 		}
 	}
 	data class ShellCoverCommitted(val proof: ReaderShellCoverCommitProof) : ReaderPresentationEvent
+	data object ShellCoverDismissalRequested : ReaderPresentationEvent
 	data class ShellCoverFailed(
 		val token: ReaderPresentationToken,
 		val binding: ReaderPresentationBinding
@@ -448,7 +453,8 @@ fun readerPresentationDecision(state: ReaderPresentationState): ReaderPresentati
 		inputPolicy = inputPolicy,
 		preparationPresentation = authority.preparationPresentation(state.preparationFacts, state.failure),
 		diagnosticPresentation = state.failure ?: ReaderDiagnosticPresentation.Hidden,
-		requiredTransition = authority.requiredTransition()
+		requiredTransition = authority.requiredTransition(),
+		targetBinding = state.binding
 	)
 }
 
@@ -496,6 +502,7 @@ fun readerPresentationReduce(
 			}
 		}
 		is ReaderPresentationEvent.ShellCoverCommitted -> state.reduceShellCoverProof(event.proof)
+		ReaderPresentationEvent.ShellCoverDismissalRequested -> state.reduceShellCoverDismissal()
 		is ReaderPresentationEvent.ShellCoverFailed -> state.reduceShellCoverFailure(event)
 		is ReaderPresentationEvent.ShellCoverEntered -> state.reduceShellCoverEntry(event.proof)
 		is ReaderPresentationEvent.NativePagePresented -> state.reduceNativePageProof(event.proof)
@@ -547,6 +554,22 @@ private fun ReaderPresentationState.reduceFoliateRelocation(
 		authority == ReaderPresentationAuthority.Unavailable ->
 			ReaderPresentationReducerResult(copy(binding = event.binding))
 		binding == event.binding -> ReaderPresentationReducerResult(this)
+		authority is ReaderPresentationAuthority.BlockingPreparation &&
+			authority.nativePresentationRequest != null &&
+			authority.retainedFrame is ReaderPresentationFrameOwner.ShellCover &&
+			binding?.let(event.binding::isCompleteDestinationSuccessorOf) == true ->
+			ReaderPresentationReducerResult(
+				copy(
+					authority = authority.copy(
+						nativePresentationRequest = authority.nativePresentationRequest.copy(
+							binding = event.binding
+						)
+					),
+					binding = event.binding,
+					preparationFacts = ReaderPagePreparationFacts(),
+					failure = null
+				)
+			)
 		authority is ReaderPresentationAuthority.SettledNativePage &&
 			authority.frame.proof.binding == event.binding ->
 			ReaderPresentationReducerResult(this)
@@ -580,9 +603,12 @@ private fun ReaderPresentationBinding.isCompleteDestinationSuccessorOf(
 
 private fun ReaderPresentationState.reduceBindingReplacement(
 	event: ReaderPresentationEvent.BindingReplaced
-): ReaderPresentationReducerResult = when (binding) {
-	event.binding -> ReaderPresentationReducerResult(this)
-	event.previousBinding -> ReaderPresentationReducerResult(
+): ReaderPresentationReducerResult = when {
+	binding == event.binding -> ReaderPresentationReducerResult(this)
+	binding != event.previousBinding ||
+		!event.binding.isCompleteBindingReplacementOf(event.previousBinding) ->
+		ReaderPresentationReducerResult(this)
+	else -> ReaderPresentationReducerResult(
 		state = copy(
 			authority = ReaderPresentationAuthority.Unavailable,
 			binding = event.binding,
@@ -600,7 +626,28 @@ private fun ReaderPresentationState.reduceBindingReplacement(
 			)
 		}
 	)
-	else -> ReaderPresentationReducerResult(this)
+}
+
+private fun ReaderPresentationBinding.isCompleteBindingReplacementOf(
+	predecessor: ReaderPresentationBinding
+): Boolean {
+	if (
+		foliateSessionId != predecessor.foliateSessionId ||
+		publicationGeneration != predecessor.publicationGeneration ||
+		rasterGeneration == null ||
+		textureGeneration == null ||
+		preparationGeneration == null
+	) {
+		return false
+	}
+	val predecessorDestination = predecessor.destinationCommitIdentity
+	val destination = destinationCommitIdentity
+	if (destination == predecessorDestination) return this != predecessor
+	return (viewportGeneration != predecessor.viewportGeneration ||
+		profileGeneration != predecessor.profileGeneration) &&
+		predecessorDestination != null &&
+		destination != null &&
+		destination.commitSequence > predecessorDestination.commitSequence
 }
 
 private fun ReaderPresentationState.reduceLifecycle(
@@ -616,7 +663,15 @@ private fun ReaderPresentationState.reduceLifecycle(
 	is ReaderPresentationLifecycleEvent.BackgroundMemoryPressure -> ReaderPresentationReducerResult(this)
 	ReaderPresentationLifecycleEvent.RendererLost -> ReaderPresentationReducerResult(
 		copy(
-			authority = ReaderPresentationAuthority.BlockingPreparation(authority.frameOwner()),
+			authority = if (
+				authority is ReaderPresentationAuthority.BlockingPreparation &&
+				authority.nativePresentationRequest != null &&
+				authority.retainedFrame is ReaderPresentationFrameOwner.ShellCover
+			) {
+				authority
+			} else {
+				ReaderPresentationAuthority.BlockingPreparation(authority.frameOwner())
+			},
 			failure = ReaderDiagnosticPresentation.Failure(
 				reason = ReaderPresentationFailureReason.RendererLost,
 				retryable = true,
@@ -628,6 +683,27 @@ private fun ReaderPresentationState.reduceLifecycle(
 		ReaderPresentationState(
 			lifecycle = ReaderPresentationLifecycleState.Destroyed,
 			nextTokenValue = nextTokenValue
+		)
+	)
+}
+
+private fun ReaderPresentationState.reduceShellCoverDismissal(): ReaderPresentationReducerResult {
+	val cover = authority as? ReaderPresentationAuthority.ShellCover
+		?: return ReaderPresentationReducerResult(this)
+	val currentBinding = binding?.takeIf { it == cover.proof.binding }
+		?: return ReaderPresentationReducerResult(this)
+	val request = ReaderNativePagePresentationRequest(
+		token = ReaderPresentationToken(nextTokenValue),
+		binding = currentBinding
+	)
+	return ReaderPresentationReducerResult(
+		copy(
+			authority = ReaderPresentationAuthority.BlockingPreparation(
+				retainedFrame = ReaderPresentationFrameOwner.ShellCover(cover.proof),
+				nativePresentationRequest = request
+			),
+			nextTokenValue = nextTokenValue + 1L,
+			failure = null
 		)
 	)
 }
@@ -717,6 +793,34 @@ private fun ReaderPresentationState.reduceNativePageProof(
 				)
 			)
 		else -> staleProof(proof.transitionToken, proof.binding)
+	}
+	is ReaderPresentationAuthority.BlockingPreparation -> {
+		val request = authority.nativePresentationRequest
+		val retainedCover = authority.retainedFrame as? ReaderPresentationFrameOwner.ShellCover
+		if (
+			request != null &&
+			retainedCover != null &&
+			request.token == proof.transitionToken &&
+			request.binding == proof.binding &&
+			binding == proof.binding
+		) {
+			ReaderPresentationReducerResult(
+				state = copy(
+					authority = ReaderPresentationAuthority.SettledNativePage(
+						ReaderPresentationFrameOwner.NativePage(proof)
+					),
+					failure = null
+				),
+				effects = listOf(
+					ReaderPresentationEffect.ReleaseStalePresentation(
+						token = retainedCover.proof.token,
+						binding = retainedCover.proof.binding
+					)
+				)
+			)
+		} else {
+			staleProof(proof.transitionToken, proof.binding)
+		}
 	}
 	else -> staleProof(proof.transitionToken, proof.binding)
 }
@@ -854,7 +958,12 @@ private fun ReaderPresentationState.reducePreparationFailure(
 		retryable = true,
 		cancellable = event.cancellable
 	)
-	val nextAuthority = if (authority.hasTruthfulStableFrame()) {
+	val nextAuthority = if (
+		authority.hasTruthfulStableFrame() ||
+			authority is ReaderPresentationAuthority.BlockingPreparation &&
+			authority.nativePresentationRequest != null &&
+			authority.retainedFrame is ReaderPresentationFrameOwner.ShellCover
+	) {
 		authority
 	} else {
 		ReaderPresentationAuthority.BlockingPreparation(authority.frameOwner())
@@ -930,7 +1039,8 @@ private fun ReaderPresentationAuthority.retainsPresentationBinding(
 		this.binding == binding || retainedFrame.retainsPresentationBinding(binding)
 	is ReaderPresentationAuthority.LiveEngineExposed -> frame.proof.binding == binding
 	is ReaderPresentationAuthority.BlockingPreparation ->
-		retainedFrame.retainsPresentationBinding(binding)
+		this.nativePresentationRequest?.binding == binding ||
+			retainedFrame.retainsPresentationBinding(binding)
 }
 
 private fun ReaderPresentationFrameOwner.retainsPresentationBinding(
@@ -962,7 +1072,9 @@ private fun ReaderPresentationAuthority.matchesPresentationIdentity(
 			retainedFrame.matchesPresentationIdentity(token, binding)
 	is ReaderPresentationAuthority.LiveEngineExposed -> frame.matchesPresentationIdentity(token, binding)
 	is ReaderPresentationAuthority.BlockingPreparation ->
-		retainedFrame.matchesPresentationIdentity(token, binding)
+		nativePresentationRequest?.let { request ->
+			request.token == token && request.binding == binding
+		} == true || retainedFrame.matchesPresentationIdentity(token, binding)
 }
 
 private fun ReaderPresentationFrameOwner.matchesPresentationIdentity(
@@ -1055,8 +1167,14 @@ private fun ReaderPresentationAuthority.requiredTransition(): ReaderRequiredTran
 	is ReaderPresentationAuthority.ShellCover,
 	is ReaderPresentationAuthority.CurlGesture,
 	is ReaderPresentationAuthority.SettledNativePage,
-	is ReaderPresentationAuthority.LiveEngineExposed,
-	is ReaderPresentationAuthority.BlockingPreparation -> ReaderRequiredTransition.None
+	is ReaderPresentationAuthority.LiveEngineExposed -> ReaderRequiredTransition.None
+	is ReaderPresentationAuthority.BlockingPreparation -> nativePresentationRequest?.let { request ->
+		ReaderRequiredTransition.PresentNativePage(
+			token = request.token,
+			binding = request.binding,
+			direction = null
+		)
+	} ?: ReaderRequiredTransition.None
 	is ReaderPresentationAuthority.ShellCoverCommitPending ->
 		ReaderRequiredTransition.CommitShellCover(token, binding, coverGeneration)
 	is ReaderPresentationAuthority.CurlSettlementPending -> when (stage) {
@@ -1103,6 +1221,7 @@ private fun ReaderPresentationAuthority.tokenOrNull(): ReaderPresentationToken? 
 	is ReaderPresentationAuthority.CurlGesture -> frame.frame.token
 	is ReaderPresentationAuthority.CurlSettlementPending -> retainedFrame.frame.token
 	is ReaderPresentationAuthority.LiveEngineHandoffPending -> token
+	is ReaderPresentationAuthority.BlockingPreparation -> nativePresentationRequest?.token
 	else -> null
 }
 

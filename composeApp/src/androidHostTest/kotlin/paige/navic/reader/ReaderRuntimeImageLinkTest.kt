@@ -389,7 +389,7 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(controllerText, "private fun onShellCoverViewerAction(action: ReaderViewerAction)")
 		assertContains(
 			controllerText,
-			"val nextRequestId = state.shellCoverDismissalRequestSequence + 1L"
+			"val nextRequestId = presentationState.shellCoverDismissalRequestSequence + 1L"
 		)
 		assertContains(controllerText, "ReaderShellCoverDismissalRequest(")
 		assertContains(
@@ -398,7 +398,7 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertFalse(
 			shellCoverDismissalBranch.contains("shellCoverVisible = false"),
-			"Native shell-cover dismissal must wait for a Foliate relocation acknowledgement."
+			"Native shell-cover dismissal must wait for exact native presentation proof."
 		)
 		assertContains(controllerText, "readerShouldReturnToNativeShellCover(")
 		assertFalse(
