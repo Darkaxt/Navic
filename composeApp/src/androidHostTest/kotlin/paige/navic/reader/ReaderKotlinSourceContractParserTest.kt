@@ -2,8 +2,10 @@ package paige.navic.reader
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class ReaderKotlinSourceContractParserTest {
 	@Test
@@ -37,6 +39,125 @@ class ReaderKotlinSourceContractParserTest {
 				"actual fun Host"
 			)
 		)
+	}
+
+	@Test
+	fun comparisonDefaultRetainsFollowingParameter() {
+		val parsed = readerKotlinDeclarationParameterContract(
+			"expect fun Host(enabled: Boolean = lower < upper, onDone: () -> Unit)",
+			"expect fun Host"
+		)
+
+		assertEquals(2, parsed.size)
+		assertEquals(listOf("enabled", "onDone"), parsed.map { it.name })
+	}
+
+	@Test
+	fun declarationDefaultsRetainAllParametersAcrossOperatorsGenericsAndLiterals() {
+		val cases = listOf(
+			Triple(
+				"generic call",
+				"expect fun Host(value: Map<String, Int> = mapOf<String, Int>(), onDone: () -> Unit)",
+				listOf("value", "onDone")
+			),
+			Triple(
+				"nested generic call",
+				"expect fun Host(value: Map<String, List<Int>> = factory<Map<String, List<Int>>, Set<Long>>(), onDone: () -> Unit)",
+				listOf("value", "onDone")
+			),
+			Triple(
+				"paired comparisons",
+				"expect fun Host(enabled: Boolean = lower < upper && upper > floor, onDone: () -> Unit)",
+				listOf("enabled", "onDone")
+			),
+			Triple(
+				"shift and arrows",
+				"expect fun Host(transform: (Int) -> Int = { value -> value shl 1 }, mask: Int = value shr 1, onDone: () -> Unit)",
+				listOf("transform", "mask", "onDone")
+			),
+			Triple(
+				"quoted angles and commas",
+				"expect fun Host(label: String = \"<,>\", marker: Char = '<', onDone: () -> Unit)",
+				listOf("label", "marker", "onDone")
+			)
+		)
+
+		cases.forEach { (label, source, expectedNames) ->
+			val parsed = readerKotlinDeclarationParameterContract(source, "expect fun Host")
+			assertEquals(expectedNames.size, parsed.size, label)
+			assertEquals(expectedNames, parsed.map { it.name }, label)
+		}
+	}
+
+	@Test
+	fun namedCallsRetainAllArgumentsAcrossOperatorsGenericsAndLiterals() {
+		val cases = listOf(
+			Triple(
+				"comparison",
+				"Host(enabled = lower < upper, onDone = callback)",
+				listOf("enabled", "onDone")
+			),
+			Triple(
+				"generic call",
+				"Host(value = mapOf<String, Int>(), onDone = callback)",
+				listOf("value", "onDone")
+			),
+			Triple(
+				"nested generic call",
+				"Host(value = factory<Map<String, List<Int>>, Set<Long>>(), onDone = callback)",
+				listOf("value", "onDone")
+			),
+			Triple(
+				"paired comparisons",
+				"Host(enabled = lower < upper && upper > floor, onDone = callback)",
+				listOf("enabled", "onDone")
+			),
+			Triple(
+				"shift and arrow",
+				"Host(transform = { value -> value shl 1 }, mask = value shr 1, onDone = callback)",
+				listOf("transform", "mask", "onDone")
+			),
+			Triple(
+				"quoted angles and commas",
+				"Host(label = \"<,>\", marker = '<', onDone = callback)",
+				listOf("label", "marker", "onDone")
+			)
+		)
+
+		cases.forEach { (label, source, expectedNames) ->
+			val names = readerKotlinNamedCallArgumentNames(source, "Host")
+			assertEquals(expectedNames.size, names.size, label)
+			assertEquals(expectedNames, names, label)
+		}
+	}
+
+	@Test
+	fun malformedOrAmbiguousSyntaxFailsClosedInsteadOfReturningPartialContracts() {
+		val declarationCases = mapOf(
+			"unbalanced generic type" to "expect fun Host(value: Map<String, Int, onDone: () -> Unit)",
+			"unbalanced bracket" to "expect fun Host(value: List<Int> = values[index, onDone: () -> Unit)",
+			"unbalanced quote" to "expect fun Host(label: String = \"<,>, onDone: () -> Unit)",
+			"empty segment" to "expect fun Host(value: Int = 1,, onDone: () -> Unit)",
+			"unsupported spaced generic invocation" to "expect fun Host(value: Map<String, Int> = mapOf <String, Int>(), onDone: () -> Unit)"
+		)
+		val callCases = mapOf(
+			"empty call segment" to "Host(value = 1,, onDone = callback)",
+			"positional call argument" to "Host(value, onDone = callback)",
+			"unsupported spaced generic call" to "Host(value = mapOf <String, Int>(), onDone = callback)"
+		)
+
+		declarationCases.forEach { (label, source) ->
+			val failure = assertFails(label) {
+				readerKotlinDeclarationParameterContract(source, "expect fun Host")
+			}
+			assertTrue(!failure.message.isNullOrBlank(), label)
+		}
+		callCases.forEach { (label, source) ->
+			val failure = assertFails(label) {
+				readerKotlinNamedCallArgumentNames(source, "Host")
+			}
+			assertTrue(!failure.message.isNullOrBlank(), label)
+		}
 	}
 
 	@Test

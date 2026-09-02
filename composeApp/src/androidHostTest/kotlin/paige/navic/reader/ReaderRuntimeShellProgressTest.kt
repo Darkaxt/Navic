@@ -427,6 +427,52 @@ class ReaderRuntimeShellProgressTest {
 			"KomikkuReaderNativeFrameHost"
 		)
 
+		val expectedParameterNames = listOf(
+			"navigator",
+			"navigationOverlayVisible",
+			"chromeOverlayVisible",
+			"presentationDecision",
+			"presentationEffects",
+			"onPresentationEffectHandled",
+			"onPresentationEvent",
+			"destinationCommitIdentity",
+			"shellCoverUrl",
+			"shellCoverTitle",
+			"coverBackdropEnabled",
+			"viewerKey",
+			"grayscaleEnabled",
+			"invertedColors",
+			"verticalPageDragPreview",
+			"pageTurnCanvasEnabled",
+			"pageTurnReadingDirection",
+			"pageTurnBitmapQuality",
+			"pageTurnSnapshotKey",
+			"pageTurnContentReadyKey",
+			"pageTurnPaginationStatus",
+			"pageTurnVisualPageIndex",
+			"pageTurnVisualLocationReason",
+			"pageTurnFoliateSessionId",
+			"pageTurnSettlementAck",
+			"whispersyncOverlayActive",
+			"whispersyncAnchorReceipt",
+			"whispersyncHighlightColorArgb",
+			"whispersyncCueMapState",
+			"onWhispersyncCueMapHoldOutcome",
+			"onWhispersyncCueMapSeekRequested",
+			"onStartupShellPrepared",
+			"onViewerAction",
+			"onPageTurnBoundary",
+			"onReadableDragPreview",
+			"onContentLongPress",
+			"modifier",
+			"viewerContent",
+			"composeOverlay"
+		)
+
+		assertEquals(expectedParameterNames.size, commonParameters.size)
+		assertEquals(expectedParameterNames, commonParameters.map { it.name })
+		assertEquals(expectedParameterNames.size, readerRootArguments.size)
+		assertEquals(expectedParameterNames, readerRootArguments)
 		assertEquals(commonParameters, androidParameters)
 		assertEquals(commonParameters, iosParameters)
 		listOf(commonParameters, androidParameters, iosParameters).forEach { parameters ->
