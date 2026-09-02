@@ -15,6 +15,7 @@ import paige.navic.reader.ReaderPageNewPointerDecision
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
 import paige.navic.reader.ReaderPageReadinessState
+import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderTextureDeckState
@@ -71,6 +72,29 @@ class ReaderPageInputSettlementHostControllerTest {
 		textureDeck = ReaderTextureDeckState.Settling,
 		interaction = ReaderPageInteractionState.Settling
 	)
+	private val nativeBinding = ReaderPresentationBinding(
+		foliateSessionId = "fixture-session",
+		publicationGeneration = 1L,
+		viewportGeneration = 2L,
+		profileGeneration = 3L,
+		rasterGeneration = 4L,
+		textureGeneration = 5L,
+		preparationGeneration = 6L
+	)
+
+	private fun nativeTapContinuation(
+		binding: ReaderPresentationBinding = nativeBinding,
+		presentationToken: ReaderPresentationToken? = ReaderPresentationToken(7L),
+		authorityPolicy: paige.navic.reader.ReaderPageOperationPolicy =
+			readerPageOperationPolicy(ready),
+		localSafetyPolicy: paige.navic.reader.ReaderPageOperationPolicy =
+			readerPageOperationPolicy(ready)
+	) = ReaderNativeTapContinuationIdentity(
+		binding = binding,
+		presentationToken = presentationToken,
+		authorityPolicy = authorityPolicy,
+		localSafetyPolicy = localSafetyPolicy
+	)
 
 	private fun host(
 		lifecycle: ReaderPageGestureLifecycle = ReaderPageGestureLifecycle(),
@@ -91,10 +115,23 @@ class ReaderPageInputSettlementHostControllerTest {
 		val router = ReaderPagePointerRouter(lifecycle) { gestureId, outcome ->
 			published?.add(gestureId to outcome)
 		}
+		val localSafetyPolicy = readerPageOperationPolicy(localReadiness)
+		val continuationIdentity = (presentationInputPolicy as? ReaderPresentationInputPolicy.NativePage)
+			?.takeIf {
+				it.policy.newPointer == ReaderPageNewPointerDecision.Accept &&
+					localSafetyPolicy.newPointer == ReaderPageNewPointerDecision.Accept
+			}
+			?.let {
+				nativeTapContinuation(
+					authorityPolicy = it.policy,
+					localSafetyPolicy = localSafetyPolicy
+				)
+			}
 		return Triple(
 			ReaderPageInputSettlementHostController(
 				initialPresentationInputPolicy = presentationInputPolicy,
-				initialLocalSafetyPolicy = readerPageOperationPolicy(localReadiness),
+				initialLocalSafetyPolicy = localSafetyPolicy,
+				initialNativeTapContinuationIdentity = continuationIdentity,
 				pointerRouter = router,
 				cancellationPort = cancellationPort,
 				chromeToggleTarget = chromeToggleTarget,
@@ -888,6 +925,123 @@ class ReaderPageInputSettlementHostControllerTest {
 		)
 	}
 
+	@Test
+	fun delayedNativeTapIsRevokedByEveryNonNativeAuthorityBeforeCallback() {
+		val revokedPolicies = listOf(
+			ReaderPresentationInputPolicy.ChromeOnly,
+			ReaderPresentationInputPolicy.RecoveryOnly,
+			ReaderPresentationInputPolicy.ShellCover,
+			ReaderPresentationInputPolicy.ClaimedCurl(ReaderPresentationToken(9L)),
+			ReaderPresentationInputPolicy.LiveEngine
+		)
+
+		revokedPolicies.forEachIndexed { index, policy ->
+			val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+			val (host, _, _) = host(published = published)
+			val downTime = 2_000L + index
+			val gestureId = requireNotNull(
+				host.dispatchPointer(
+					ReaderPageHostPointerEvent.Down(20f, 30f, downTime)
+				).gestureId
+			)
+			assertEquals(
+				ReaderPagePointerRoute.Content,
+				host.dispatchPointer(ReaderPageHostPointerEvent.Up).route
+			)
+
+			host.updateInputPolicies(
+				presentationInputPolicy = policy,
+				localSafetyPolicy = readerPageOperationPolicy(ready),
+				nativeTapContinuationIdentity = null
+			)
+
+			assertNull(host.takeDelayedTap(downTime), "policy=$policy")
+			assertEquals(0, host.contentGestureTokenCount())
+			assertEquals(
+				listOf(gestureId to ReaderPageGestureTerminalOutcome.CancelledLifecycle),
+				published
+			)
+		}
+	}
+
+	@Test
+	fun delayedNativeTapRequiresExactBindingTokenAndReadinessContinuity() {
+		val changedIdentities = listOf<ReaderNativeTapContinuationIdentity?>(
+			nativeTapContinuation(binding = nativeBinding.copy(viewportGeneration = 8L)),
+			nativeTapContinuation(presentationToken = ReaderPresentationToken(8L)),
+			nativeTapContinuation(
+				authorityPolicy = readerPageOperationPolicy(settling)
+			),
+			nativeTapContinuation(
+				localSafetyPolicy = readerPageOperationPolicy(settling)
+			),
+			null
+		)
+
+		changedIdentities.forEachIndexed { index, changedIdentity ->
+			val (host, _, _) = host()
+			val downTime = 3_000L + index
+			host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, downTime))
+			host.dispatchPointer(ReaderPageHostPointerEvent.Up)
+
+			host.updateInputPolicies(
+				presentationInputPolicy = changedIdentity?.let {
+					ReaderPresentationInputPolicy.NativePage(it.authorityPolicy)
+				} ?: ReaderPresentationInputPolicy.RecoveryOnly,
+				localSafetyPolicy = changedIdentity?.localSafetyPolicy
+					?: readerPageOperationPolicy(ready),
+				nativeTapContinuationIdentity = changedIdentity
+			)
+
+			assertNull(host.takeDelayedTap(downTime), "identity=$changedIdentity")
+			assertEquals(0, host.contentGestureTokenCount())
+		}
+	}
+
+	@Test
+	fun unchangedExactNativeContinuityAllowsDelayedTapExactlyOnce() {
+		val (host, _, _) = host()
+		val downTime = 4_000L
+		val gestureId = requireNotNull(
+			host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, downTime)).gestureId
+		)
+		host.dispatchPointer(ReaderPageHostPointerEvent.Up)
+		val identity = nativeTapContinuation()
+
+		host.updateInputPolicies(
+			presentationInputPolicy = ReaderPresentationInputPolicy.NativePage(
+				identity.authorityPolicy
+			),
+			localSafetyPolicy = identity.localSafetyPolicy,
+			nativeTapContinuationIdentity = identity
+		)
+
+		assertEquals(gestureId, requireNotNull(host.takeDelayedTap(downTime)).gestureId)
+		assertNull(host.takeDelayedTap(downTime))
+	}
+
+	@Test
+	fun delayedTapIsClearedByDetachBackgroundDestroyAndViewerReplacement() {
+		val events = listOf(
+			ReaderPageHostLifecycleEvent.Detached,
+			ReaderPageHostLifecycleEvent.WindowHidden,
+			ReaderPageHostLifecycleEvent.Destroyed,
+			ReaderPageHostLifecycleEvent.RendererReplaced
+		)
+
+		events.forEachIndexed { index, event ->
+			val (host, _, _) = host()
+			val downTime = 5_000L + index
+			host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, downTime))
+			host.dispatchPointer(ReaderPageHostPointerEvent.Up)
+
+			host.onLifecycleEvent(event)
+
+			assertNull(host.takeDelayedTap(downTime), "event=$event")
+			assertEquals(0, host.contentGestureTokenCount())
+		}
+	}
+
 	private data class TapTurnTerminalCase(
 		val outcome: ReaderPageGestureTerminalOutcome,
 		val detail: ReaderPageGestureTerminalDetail,
@@ -912,6 +1066,7 @@ class ReaderPageInputSettlementHostControllerTest {
 				readerPageOperationPolicy(ready)
 			),
 			initialLocalSafetyPolicy = readerPageOperationPolicy(ready),
+			initialNativeTapContinuationIdentity = nativeTapContinuation(),
 			pointerRouter = router,
 			cancellationPort = FakeReaderPageHostCancellationPort()
 		)

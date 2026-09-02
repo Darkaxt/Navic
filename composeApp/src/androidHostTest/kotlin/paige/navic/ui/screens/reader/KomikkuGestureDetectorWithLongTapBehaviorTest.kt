@@ -17,6 +17,7 @@ import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPageLifecycleCancellationReason
 import paige.navic.reader.ReaderPagePointerRouter
 import paige.navic.reader.ReaderPageReadinessState
+import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.readerPageOperationPolicy
@@ -33,6 +34,20 @@ class KomikkuGestureDetectorWithLongTapBehaviorTest {
 			interaction = ReaderPageInteractionState.Ready
 		)
 	)
+	private val readyNativeTapContinuationIdentity = ReaderNativeTapContinuationIdentity(
+		binding = ReaderPresentationBinding(
+			foliateSessionId = "fixture-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			rasterGeneration = 4L,
+			textureGeneration = 5L,
+			preparationGeneration = 6L
+		),
+		presentationToken = null,
+		authorityPolicy = readyPolicy,
+		localSafetyPolicy = readyPolicy
+	)
 
 	@Test
 	fun androidDoubleTapOrderResolvesFirstBeforeSecondUpExactlyOnce() {
@@ -44,6 +59,7 @@ class KomikkuGestureDetectorWithLongTapBehaviorTest {
 		val host = ReaderPageInputSettlementHostController(
 			initialPresentationInputPolicy = ReaderPresentationInputPolicy.NativePage(readyPolicy),
 			initialLocalSafetyPolicy = readyPolicy,
+			initialNativeTapContinuationIdentity = readyNativeTapContinuationIdentity,
 			pointerRouter = router,
 			cancellationPort = NoOpCancellationPort()
 		)
@@ -135,6 +151,7 @@ class KomikkuGestureDetectorWithLongTapBehaviorTest {
 		val host = ReaderPageInputSettlementHostController(
 			initialPresentationInputPolicy = ReaderPresentationInputPolicy.NativePage(readyPolicy),
 			initialLocalSafetyPolicy = readyPolicy,
+			initialNativeTapContinuationIdentity = readyNativeTapContinuationIdentity,
 			pointerRouter = router,
 			cancellationPort = NoOpCancellationPort()
 		)

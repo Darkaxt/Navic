@@ -343,14 +343,14 @@ class ReaderRuntimeImageLinkTest {
 		val readerScreenText = readerScreenFile().readText()
 		val openRequestText = readerCommonUiFile("ReaderOpenRequest.kt").readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val controllerText = readerCommonFile("ReaderController.kt").readText()
+		val presentationControllerText = readerCommonFile("ReaderPresentationController.kt").readText()
 		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
-		val shellCoverViewerAction = controllerText
+		val shellCoverViewerAction = presentationControllerText
 			.substringAfter(
-				"private fun onShellCoverViewerAction(action: ReaderViewerAction): ReaderControllerStep {"
+				"private fun ReaderController.onShellCoverViewerAction("
 			)
-			.substringBefore("\n\tprivate fun turnPage")
+			.substringBefore("\n\tprivate fun ReaderController.turnPage(")
 		val shellCoverDismissalBranch = shellCoverViewerAction
 			.substringAfter(
 				"action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||"
@@ -396,21 +396,24 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(nativeFrameHostText, "KomikkuReaderNativeViewerContainer")
 		assertContains(nativeFrameHostText, "onAction(KomikkuNavigationRegion.NEXT)")
 		assertContains(nativeFrameHostText, "onAction(KomikkuNavigationRegion.PREV)")
-		assertContains(controllerText, "private fun onShellCoverViewerAction(action: ReaderViewerAction)")
 		assertContains(
-			controllerText,
+			presentationControllerText,
+			"private fun ReaderController.onShellCoverViewerAction("
+		)
+		assertContains(
+			presentationControllerText,
 			"val nextRequestId = presentationState.shellCoverDismissalRequestSequence + 1L"
 		)
-		assertContains(controllerText, "ReaderShellCoverDismissalRequest(")
+		assertContains(presentationControllerText, "ReaderShellCoverDismissalRequest(")
 		assertContains(
-			controllerText,
+			presentationControllerText,
 			"relocationReason = readerShellCoverDismissalReason(it.requestId)"
 		)
 		assertFalse(
 			shellCoverDismissalBranch.contains("shellCoverVisible = false"),
 			"Native shell-cover dismissal must wait for exact native presentation proof."
 		)
-		assertContains(controllerText, "readerShouldReturnToNativeShellCover(")
+		assertContains(presentationControllerText, "readerShouldReturnToNativeShellCover(")
 		assertFalse(
 			readerScreenText.contains("ReaderNativeTapOverlay("),
 			"Reader taps must be owned by the Android reader surface host, not a Compose overlay that can sit behind the WebView surface."

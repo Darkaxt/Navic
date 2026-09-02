@@ -45,6 +45,7 @@ class ReaderCoordinatorTest {
 	@Test
 	fun viewerActionsDispatchThroughCurrentEngineAdapter() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+			.withReadyNativePresentationFixture()
 
 		val step = opened.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
@@ -56,6 +57,7 @@ class ReaderCoordinatorTest {
 	@Test
 	fun viewerLongPressContentActionDispatchesThroughCurrentEngineAdapter() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+			.withReadyNativePresentationFixture()
 
 		val step = opened.onViewerAction(
 			ReaderViewerAction.ContentLongPressAt(
@@ -681,6 +683,7 @@ class ReaderCoordinatorTest {
 		}
 
 		val opened = ReaderCoordinator().open(pdfRequest).coordinator
+			.withReadyNativePresentationFixture()
 		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(opened.viewState)
 		val next = opened.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)).coordinator
 		val nextViewState = assertIs<ReaderEngineViewState.WebViewPublication>(next.viewState)
@@ -714,6 +717,7 @@ class ReaderCoordinatorTest {
 			}
 
 			val opened = ReaderCoordinator().open(request).coordinator
+				.withReadyNativePresentationFixture()
 			val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(opened.viewState)
 			val next = opened.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)).coordinator
 			val nextViewState = assertIs<ReaderEngineViewState.WebViewPublication>(next.viewState)
@@ -739,7 +743,7 @@ class ReaderCoordinatorTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).coordinator
+		).coordinator.withCommittedShellCoverPresentationFixture()
 
 		val step = opened.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
@@ -769,7 +773,7 @@ class ReaderCoordinatorTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).coordinator
+		).coordinator.withCommittedShellCoverPresentationFixture()
 		val dismissing = opened.onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
 		).coordinator
@@ -834,6 +838,7 @@ class ReaderCoordinatorTest {
 	@Test
 	fun bridgeContentClaimsDoNotSuppressNativeMenuActions() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+			.withReadyNativePresentationFixture()
 		val locator = ReaderLocator(
 			href = "chapter-02.xhtml",
 			cfi = "epubcfi(/6/8!/4/1:0)",
@@ -985,6 +990,12 @@ class ReaderCoordinatorTest {
 				)
 			)
 		)
+
+	private fun ReaderCoordinator.withReadyNativePresentationFixture(): ReaderCoordinator =
+		copy(controller = controller.withReadyNativePresentationFixture())
+
+	private fun ReaderCoordinator.withCommittedShellCoverPresentationFixture(): ReaderCoordinator =
+		copy(controller = controller.withCommittedShellCoverPresentationFixture())
 
 	private fun ReaderCoordinator.withRepairableWhispersyncMismatch(): ReaderCoordinator =
 		copy(

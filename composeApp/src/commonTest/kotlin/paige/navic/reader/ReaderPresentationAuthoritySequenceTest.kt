@@ -410,7 +410,7 @@ class ReaderPresentationAuthoritySequenceTest {
 		assertContains(android, "presentationHostBridge.update(decision)")
 		assertContains(android, "override fun applyPresentationDecision(")
 		assertContains(android, "readerNativePresentationApplication(")
-		assertContains(android, "viewerContainer.applyPresentationInputPolicy(application.inputPolicy)")
+		assertContains(android, "viewerContainer.applyPresentationDecision(application.decision)")
 		assertContains(android, "handlePresentationEffects(")
 		assertContains(android, "releaseStalePresentationDeck(effect.binding)")
 		assertFalse(android.contains("setPresentationShadow("))

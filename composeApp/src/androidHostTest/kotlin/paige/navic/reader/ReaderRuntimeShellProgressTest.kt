@@ -369,18 +369,20 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun initialCoverAndChromeOnlyRoutingStayDecisionOwned() {
 		val controllerText = readerCommonFile("ReaderController.kt").readText()
+		val presentationControllerText = readerCommonFile("ReaderPresentationController.kt").readText()
 		val authorityText = readerCommonFile("ReaderPresentationAuthority.kt").readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val inputControllerText = readerAndroidFile(
 			"ReaderPageInputSettlementHostController.android.kt"
 		).readText()
 
-		val initialRequest = controllerText
-			.substringAfter("val initialCoverReduction = if (")
-			.substringBefore("val reduction = initialCoverReduction")
+		val initialRequest = presentationControllerText
+			.substringAfter("val startupReduction = if (")
+			.substringBefore("val reduction = startupReduction")
 		assertContains(initialRequest, "event is ReaderPresentationEvent.PublicationOpened")
-		assertContains(initialRequest, "state.shellCoverVisible")
+		assertContains(initialRequest, "if (state.shellCoverVisible)")
 		assertContains(initialRequest, "ReaderPresentationEvent.ShellCoverRequested(")
+		assertContains(initialRequest, "ReaderPresentationEvent.NativePageRequested")
 		assertContains(authorityText, "data class Neutral(")
 		assertContains(authorityText, "ReaderShellCoverRetainedFrame.Neutral(binding)")
 		assertFalse(nativeFrameHostText.contains("unavailableStartupShellCoverSelected"))
@@ -388,8 +390,8 @@ class ReaderRuntimeShellProgressTest {
 		assertFalse(nativeFrameHostText.contains("readerNativeShellCoverSelected"))
 
 		val dispatchMode = nativeFrameHostText
-			.substringAfter("private fun pagePhysicalDispatchMode()")
-			.substringBefore("override fun dispatchTouchEvent")
+			.substringAfter("internal fun readerPagePhysicalDispatchMode(")
+			.substringBefore("private class KomikkuReaderNativeViewerContainer")
 		assertContains(dispatchMode, "ReaderPresentationInputPolicy.ChromeOnly ->")
 		assertContains(dispatchMode, "ReaderPagePhysicalDispatchMode.ChromeOnly")
 		assertContains(inputControllerText, "fun dispatchChromeOnlyPointer(")
@@ -1002,6 +1004,13 @@ class ReaderRuntimeShellProgressTest {
 			)
 		val mode = nativeFrameHostText
 			.substringAfter(
+				"internal fun readerPagePhysicalDispatchMode("
+			)
+			.substringBefore(
+				"private class KomikkuReaderNativeViewerContainer"
+			)
+		val selectedMode = nativeFrameHostText
+			.substringAfter(
 				"private fun pagePhysicalDispatchMode()"
 			)
 			.substringBefore(
@@ -1014,8 +1023,9 @@ class ReaderRuntimeShellProgressTest {
 		assertFalse(legacy.contains("pageInputSettlementHostController"))
 		assertFalse(legacy.contains("playLikeCurlGestureDetector"))
 		assertContains(mode, "ReaderPresentationInputPolicy.ShellCover -> ReaderPagePhysicalDispatchMode.Legacy")
-		assertContains(mode, "pageTurnCanvasEnabled")
-		assertContains(mode, "!verticalPageDragPreview")
+		assertContains(mode, "if (!pageTurnCanvasEnabled) return ReaderPagePhysicalDispatchMode.LiveEngine")
+		assertContains(selectedMode, "pageTurnCanvasEnabled = pageTurnCanvasEnabled")
+		assertContains(selectedMode, "!verticalPageDragPreview")
 	}
 
 	@Test
@@ -1095,18 +1105,19 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun nativeShellCoverReturnUsesReaderShellStateBeforeLocatorStateCatchesUp() {
 		val controllerText = readerCommonFile("ReaderController.kt").readText()
+		val presentationControllerText = readerCommonFile("ReaderPresentationController.kt").readText()
 		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
-		val shellCoverViewerAction = controllerText
-			.substringAfter("private fun onShellCoverViewerAction(action: ReaderViewerAction): ReaderControllerStep {")
-			.substringBefore("\n\tprivate fun turnPage")
+		val shellCoverViewerAction = presentationControllerText
+			.substringAfter("private fun ReaderController.onShellCoverViewerAction(")
+			.substringBefore("\n\tprivate fun ReaderController.turnPage(")
 		val shellCoverDismissalBranch = shellCoverViewerAction
 			.substringAfter(
 				"action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||"
 			)
 			.substringBefore("else -> ReaderControllerStep(this)")
-		val pageTurn = controllerText
-			.substringAfter("private fun turnPage(direction: ReaderPageTurnDirection): ReaderControllerStep =")
-			.substringBefore("\n\tprivate fun scrollViewport")
+		val pageTurn = presentationControllerText
+			.substringAfter("private fun ReaderController.turnPage(")
+			.substringBefore("\n\tprivate fun ReaderController.scrollViewport(")
 
 		assertContains(
 			controllerText,

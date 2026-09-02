@@ -2239,6 +2239,14 @@ class ReaderPresentationAuthorityReducerTest {
 		val delayedResources: List<Triple<ReaderPresentationEvent, ReaderPresentationToken?, ReaderPresentationBinding>> =
 			listOf(
 				Triple(
+					ReaderPresentationEvent.BindingCompleted(
+						binding.copy(rasterGeneration = null, textureGeneration = null),
+						binding
+					),
+					null,
+					binding
+				),
+				Triple(
 					ReaderPresentationEvent.ShellCoverCommitted(
 						shellCoverProof(shellToken, coverGeneration = 8L)
 					),
@@ -2319,6 +2327,258 @@ class ReaderPresentationAuthorityReducerTest {
 		assertEquals(ReaderPresentationFailureReason.PreparationFailed, facts.failure)
 		assertEquals(true, facts.retryable)
 		assertEquals(facts, withDifferentLocalDetails.toPresentationFacts())
+	}
+
+	@Test
+	fun noCoverPartialBindingOwnsNeutralPreparationUntilExactNativeProof() {
+		val partial = binding.copy(rasterGeneration = null, textureGeneration = null)
+		val opened = readerPresentationReduce(
+			ReaderPresentationState(nextTokenValue = 21L),
+			ReaderPresentationEvent.PublicationOpened(partial)
+		)
+		val requested = readerPresentationReduce(
+			opened.state,
+			ReaderPresentationEvent.NativePageRequested
+		)
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			requested.state.authority
+		)
+
+		assertEquals(ReaderPresentationFrameOwner.Neutral, pending.retainedFrame)
+		assertEquals(
+			ReaderNativePagePresentationRequest(ReaderPresentationToken(21L), partial),
+			pending.nativePresentationRequest
+		)
+		assertEquals(
+			ReaderRequiredTransition.PresentNativePage(
+				ReaderPresentationToken(21L),
+				partial,
+				direction = null
+			),
+			requested.decision.requiredTransition
+		)
+
+		val preparing = readerPresentationReduce(
+			requested.state,
+			ReaderPresentationEvent.PreparationReported(partial, preparationFacts())
+		)
+		assertEquals(
+			ReaderPreparationPresentation.Blocking(1, 3, determinate = true),
+			preparing.decision.preparationPresentation
+		)
+		val failed = readerPresentationReduce(
+			preparing.state,
+			ReaderPresentationEvent.PreparationFailed(
+				binding = partial,
+				facts = preparationFacts(phase = ReaderPagePreparationPhase.Failed),
+				reason = ReaderPresentationFailureReason.PreparationFailed,
+				cancellable = false
+			)
+		)
+		assertEquals(pending, failed.state.authority)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.RetryPreparation(
+					ReaderPresentationToken(21L),
+					partial
+				)
+			),
+			readerPresentationReduce(failed.state, ReaderPresentationEvent.Retry).effects
+		)
+
+		val completed = readerPresentationReduce(
+			failed.state,
+			ReaderPresentationEvent.BindingCompleted(partial, binding)
+		)
+		val completedPending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			completed.state.authority
+		)
+		assertEquals(
+			ReaderNativePagePresentationRequest(ReaderPresentationToken(21L), binding),
+			completedPending.nativePresentationRequest
+		)
+		assertTrue(completed.effects.isEmpty())
+
+		val proof = nativeProof.copy(transitionToken = ReaderPresentationToken(21L))
+		val presented = readerPresentationReduce(
+			completed.state,
+			ReaderPresentationEvent.NativePagePresented(proof)
+		)
+		assertEquals(
+			ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(proof)
+			),
+			presented.state.authority
+		)
+	}
+
+	@Test
+	fun partialCompletionPreservesCoverCommitAndDismissalTokens() {
+		val partial = binding.copy(rasterGeneration = null, textureGeneration = null)
+		val coverPending = readerPresentationReduce(
+			readerPresentationReduce(
+				ReaderPresentationState(nextTokenValue = 31L),
+				ReaderPresentationEvent.PublicationOpened(partial)
+			).state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 32L)
+		).state
+		val completedPending = readerPresentationReduce(
+			coverPending,
+			ReaderPresentationEvent.BindingCompleted(partial, binding)
+		)
+		val pending = assertIs<ReaderPresentationAuthority.ShellCoverCommitPending>(
+			completedPending.state.authority
+		)
+		assertEquals(ReaderPresentationToken(31L), pending.token)
+		assertEquals(binding, pending.binding)
+		assertEquals(binding, pending.retainedFrame.binding)
+		assertTrue(completedPending.effects.isEmpty())
+
+		val proof = shellCoverProof(ReaderPresentationToken(31L), coverGeneration = 32L)
+		val cover = readerPresentationReduce(
+			completedPending.state,
+			ReaderPresentationEvent.ShellCoverCommitted(proof)
+		).state
+		val dismissal = readerPresentationReduce(
+			cover,
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		)
+		val dismissalPending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			dismissal.state.authority
+		)
+		assertEquals(ReaderPresentationToken(32L), dismissalPending.nativePresentationRequest?.token)
+		assertEquals(binding, dismissalPending.nativePresentationRequest?.binding)
+	}
+
+	@Test
+	fun partialCompletionPreservesCommittedShellCoverProof() {
+		val partial = binding.copy(rasterGeneration = null, textureGeneration = null)
+		val requested = readerPresentationReduce(
+			readerPresentationReduce(
+				ReaderPresentationState(nextTokenValue = 61L),
+				ReaderPresentationEvent.PublicationOpened(partial)
+			).state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 62L)
+		).state
+		val partialProof = shellCoverProof(
+			ReaderPresentationToken(61L),
+			coverGeneration = 62L
+		).copy(binding = partial)
+		val committed = readerPresentationReduce(
+			requested,
+			ReaderPresentationEvent.ShellCoverCommitted(partialProof)
+		).state
+
+		val completed = readerPresentationReduce(
+			committed,
+			ReaderPresentationEvent.BindingCompleted(partial, binding)
+		)
+		val cover = assertIs<ReaderPresentationAuthority.ShellCover>(completed.state.authority)
+
+		assertEquals(partialProof.copy(binding = binding), cover.proof)
+		assertEquals(ReaderPresentationToken(61L), cover.proof.token)
+		assertTrue(completed.effects.isEmpty())
+	}
+
+	@Test
+	fun partialCompletionPreservesBlockingShellCoverDismissal() {
+		val partial = binding.copy(rasterGeneration = null, textureGeneration = null)
+		val requested = readerPresentationReduce(
+			readerPresentationReduce(
+				ReaderPresentationState(nextTokenValue = 71L),
+				ReaderPresentationEvent.PublicationOpened(partial)
+			).state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 72L)
+		).state
+		val committed = readerPresentationReduce(
+			requested,
+			ReaderPresentationEvent.ShellCoverCommitted(
+				shellCoverProof(
+					ReaderPresentationToken(71L),
+					coverGeneration = 72L
+				).copy(binding = partial)
+			)
+		).state
+		val dismissing = readerPresentationReduce(
+			committed,
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		).state
+		val partialPending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			dismissing.authority
+		)
+
+		val completed = readerPresentationReduce(
+			dismissing,
+			ReaderPresentationEvent.BindingCompleted(partial, binding)
+		)
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			completed.state.authority
+		)
+		val retainedCover = assertIs<ReaderPresentationFrameOwner.ShellCover>(pending.retainedFrame)
+
+		assertEquals(partialPending.nativePresentationRequest?.token, pending.nativePresentationRequest?.token)
+		assertEquals(binding, pending.nativePresentationRequest?.binding)
+		assertEquals(binding, retainedCover.proof.binding)
+		assertTrue(completed.effects.isEmpty())
+	}
+
+	@Test
+	fun partialPreparationGenerationReplacementKeepsNativeRequestTokenExact() {
+		val partial = binding.copy(rasterGeneration = null, textureGeneration = null)
+		val requested = readerPresentationReduce(
+			readerPresentationReduce(
+				ReaderPresentationState(nextTokenValue = 51L),
+				ReaderPresentationEvent.PublicationOpened(partial)
+			).state,
+			ReaderPresentationEvent.NativePageRequested
+		).state
+		val replacement = partial.copy(preparationGeneration = 7L)
+
+		val rebound = readerPresentationReduce(
+			requested,
+			ReaderPresentationEvent.BindingReplaced(partial, replacement)
+		)
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			rebound.state.authority
+		)
+
+		assertEquals(
+			ReaderNativePagePresentationRequest(ReaderPresentationToken(51L), replacement),
+			pending.nativePresentationRequest
+		)
+		assertEquals(52L, rebound.state.nextTokenValue)
+		assertEquals(ReaderPagePreparationFacts(), rebound.state.preparationFacts)
+		assertEquals(ReaderDiagnosticPresentation.Hidden, rebound.decision.diagnosticPresentation)
+		assertTrue(rebound.effects.isEmpty())
+	}
+
+	@Test
+	fun stalePartialCompletionReleasesOnlyIncomingCompleteResources() {
+		val partial = binding.copy(rasterGeneration = null, textureGeneration = null)
+		val replacement = partial.copy(preparationGeneration = 7L)
+		val staleComplete = binding
+		val current = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.BlockingPreparation(
+				retainedFrame = ReaderPresentationFrameOwner.Neutral,
+				nativePresentationRequest = ReaderNativePagePresentationRequest(
+					ReaderPresentationToken(41L),
+					replacement
+				)
+			),
+			binding = replacement,
+			nextTokenValue = 42L
+		)
+
+		val stale = readerPresentationReduce(
+			current,
+			ReaderPresentationEvent.BindingCompleted(partial, staleComplete)
+		)
+
+		assertEquals(current, stale.state)
+		assertEquals(
+			listOf(ReaderPresentationEffect.ReleaseStalePresentation(null, staleComplete)),
+			stale.effects
+		)
 	}
 
 	private fun settledNativeState(nextTokenValue: Long = 1L) = ReaderPresentationState(

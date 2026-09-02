@@ -575,6 +575,7 @@ class ReaderWhispersyncLifecycleReducerTest {
 			)
 		).controller
 		return committed.loadWhispersyncSidecar(sidecar()).controller
+			.withReadyNativePresentationFixture()
 	}
 
 	private fun preparedController(): ReaderController = loadedController().onEngineEvent(

@@ -12,6 +12,38 @@ import paige.navic.domain.repositories.BinderyReadingProgressKind
 
 class ReaderControllerTest {
 	@Test
+	fun noCoverPartialOpenImmediatelyRequestsNeutralNativePreparation() {
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "no-cover-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			preparationGeneration = 4L
+		)
+		val controller = ReaderController(
+			ReaderControllerState(
+				presentation = ReaderPresentationState(nextTokenValue = 11L),
+				shellCoverVisible = false
+			)
+		)
+
+		val opened = controller.onPresentationEvent(
+			ReaderPresentationEvent.PublicationOpened(binding)
+		)
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			opened.controller.state.presentation.authority
+		)
+
+		assertEquals(ReaderPresentationFrameOwner.Neutral, pending.retainedFrame)
+		assertEquals(
+			ReaderNativePagePresentationRequest(ReaderPresentationToken(11L), binding),
+			pending.nativePresentationRequest
+		)
+		assertEquals(12L, opened.controller.state.presentation.nextTokenValue)
+		assertEquals(ReaderPresentationInputPolicy.RecoveryOnly, opened.controller.state.presentationDecision.inputPolicy)
+	}
+
+	@Test
 	fun initialCoverIntentRequestsOneNeutralCommitThenForwardsOnceAfterExactCommit() {
 		val session = "initial-cover-session"
 		val locator = ReaderLocator(
@@ -451,7 +483,7 @@ class ReaderControllerTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 
 		val requested = controller.onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
@@ -501,7 +533,7 @@ class ReaderControllerTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 
 		val first = controller.onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
@@ -677,7 +709,7 @@ class ReaderControllerTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 		val requested = controller.onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
 		)
@@ -720,7 +752,7 @@ class ReaderControllerTest {
 				locator = resumeLocator.copy(reason = "initial-resume"),
 				tocTitle = "Chapter 4"
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 		val requested = sessionBound.onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
 		)
@@ -751,7 +783,7 @@ class ReaderControllerTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 
 		val requested = controller.onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
@@ -946,7 +978,8 @@ class ReaderControllerTest {
 
 	@Test
 	fun scrolledEdgePullUpRecordsBridgeParityWithoutOpeningReaderMenu() {
-		val controller = ReaderController().onViewerAction(ReaderViewerAction.Menu).controller
+		val controller = ReaderController().withProvenNativePageForLegacyFixture()
+			.onViewerAction(ReaderViewerAction.Menu).controller
 			.onViewerAction(ReaderViewerAction.Menu).controller
 
 		val step = controller.onEngineEvent(
@@ -1305,7 +1338,7 @@ class ReaderControllerTest {
 	fun contentActionClaimsDoNotSuppressNativeViewerActions() {
 		val claimed = ReaderController().onEngineEvent(
 			ReaderEngineEvent.ContentActionClaimed(ReaderContentAction.Image)
-		).controller
+		).controller.withProvenNativePageForLegacyFixture()
 
 		val toggled = claimed.onViewerAction(ReaderViewerAction.Menu)
 		val next = toggled.controller.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
@@ -1334,7 +1367,7 @@ class ReaderControllerTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 		val readable = opened
 			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 			.controller
@@ -1374,7 +1407,7 @@ class ReaderControllerTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 		val ordinalOne = opened
 			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 			.controller
@@ -1473,7 +1506,7 @@ class ReaderControllerTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 		val frontmatter = opened
 			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 			.controller
@@ -1519,7 +1552,7 @@ class ReaderControllerTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 		val firstFrontmatter = opened
 			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 			.controller
@@ -1586,7 +1619,7 @@ class ReaderControllerTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 		val readable = opened
 			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 			.controller
@@ -1629,7 +1662,7 @@ class ReaderControllerTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 		val readable = opened
 			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 			.controller
@@ -1681,7 +1714,7 @@ class ReaderControllerTest {
 				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
 				canReturnToShellCover = true
 			)
-		).controller
+		).controller.withCommittedShellCoverForLegacyFixture()
 		val readable = opened
 			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 			.controller
@@ -1743,7 +1776,7 @@ class ReaderControllerTest {
 
 		val claimed = ReaderController().onEngineEvent(
 			ReaderEngineEvent.ContentActionClaimed(claim)
-		).controller
+		).controller.withProvenNativePageForLegacyFixture()
 		val toggled = claimed.onViewerAction(ReaderViewerAction.Menu)
 
 		assertEquals(claim, claimed.state.lastContentActionClaim)
@@ -1753,10 +1786,10 @@ class ReaderControllerTest {
 
 	@Test
 	fun viewerScrollActionsAreControllerOwnedAndForwardedAsEngineCapability() {
-		val down = ReaderController().onViewerAction(
+		val down = ReaderController().withProvenNativePageForLegacyFixture().onViewerAction(
 			ReaderViewerAction.ScrollViewport(ReaderViewportScrollDirection.Down)
 		)
-		val up = ReaderController().onViewerAction(
+		val up = ReaderController().withProvenNativePageForLegacyFixture().onViewerAction(
 			ReaderViewerAction.ScrollViewport(ReaderViewportScrollDirection.Up)
 		)
 
@@ -1772,7 +1805,7 @@ class ReaderControllerTest {
 
 	@Test
 	fun viewerReadableDragPreviewIsControllerOwnedAndForwardedAsEngineCapability() {
-		val step = ReaderController().onViewerAction(
+		val step = ReaderController().withProvenNativePageForLegacyFixture().onViewerAction(
 			ReaderViewerAction.PreviewPageDrag(
 				deltaX = -184.0,
 				deltaY = -96.0,
@@ -1806,7 +1839,9 @@ class ReaderControllerTest {
 			viewHeight = 1000.0
 		)
 
-		val step = ReaderController().onViewerAction(action)
+		val step = ReaderController()
+			.withProvenNativePageForLegacyFixture()
+			.onViewerAction(action)
 
 		assertFalse(step.controller.state.menuVisible)
 		assertEquals(
@@ -1838,6 +1873,7 @@ class ReaderControllerTest {
 					durationMs = 8_000L
 				)
 			).controller
+			.withProvenNativePageForLegacyFixture()
 
 		val step = controller.onViewerAction(
 			ReaderViewerAction.ContentLongPressAt(
@@ -2247,7 +2283,9 @@ class ReaderControllerTest {
 			progress = 0.34
 		)
 
-		val step = ReaderController().onViewerAction(ReaderViewerAction.NavigateTo(locator))
+		val step = ReaderController()
+			.withProvenNativePageForLegacyFixture()
+			.onViewerAction(ReaderViewerAction.NavigateTo(locator))
 
 		assertEquals(
 			listOf(ReaderEngineCommand.NavigateTo(locator, causalSequence = 1L)),
@@ -2935,7 +2973,7 @@ class ReaderControllerTest {
 		).fragment
 		val confirmed = pending.controller.onEngineEvent(
 			ReaderEngineEvent.MediaOverlayActive(requested)
-		).controller
+		).controller.withProvenNativePageForLegacyFixture()
 		val reserved = confirmed.onViewerAction(
 			ReaderViewerAction.ContentLongPressAt(10.0, 20.0, 100.0, 100.0)
 		)
@@ -3951,7 +3989,7 @@ class ReaderControllerTest {
 		).fragment
 		val enabled = start.controller.onEngineEvent(
 			ReaderEngineEvent.MediaOverlayActive(first)
-		).controller
+		).controller.withProvenNativePageForLegacyFixture()
 		val reserved = enabled.onViewerAction(
 			ReaderViewerAction.ContentLongPressAt(10.0, 20.0, 100.0, 100.0)
 		)
@@ -5072,10 +5110,7 @@ class ReaderControllerTest {
 
 	private val whispersyncTestDestination = ReaderDestinationCommitIdentity("session-a", 1L)
 
-	private fun ReaderController.withProvenNativePageForLegacyFixture(): ReaderController =
-		proveNativePageForLegacyFixture().controller
-
-	private fun ReaderController.proveNativePageForLegacyFixture(): ReaderControllerStep {
+	private fun ReaderController.withCommittedShellCoverForLegacyFixture(): ReaderController {
 		val session = state.foliateSessionId ?: "fixture-session"
 		val binding = ReaderPresentationBinding(
 			foliateSessionId = session,
@@ -5098,17 +5133,40 @@ class ReaderControllerTest {
 			viewportWidth = 1200,
 			viewportHeight = 800
 		)
-		val seeded = copy(
+		return copy(
 			state = state.copy(
 				shellCoverVisible = true,
 				presentation = ReaderPresentationState(
 					authority = ReaderPresentationAuthority.ShellCover(coverProof),
 					binding = binding,
+					preparationFacts = ReaderPagePreparationFacts(
+						phase = ReaderPagePreparationPhase.Ready,
+						generation = 6L,
+						readiness = ReaderPageReadinessState(
+							rasterGeneration = ReaderChapterRasterGenerationState.Ready,
+							decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+							textureDeck = ReaderTextureDeckState.Ready,
+							interaction = ReaderPageInteractionState.Ready
+						)
+					),
 					nextTokenValue = coverToken.value + 1L
 				)
 			)
 		)
-		val pending = seeded.onPresentationEvent(
+	}
+
+	private fun ReaderController.withProvenNativePageForLegacyFixture(): ReaderController =
+		proveNativePageForLegacyFixture().controller
+
+	private fun ReaderController.proveNativePageForLegacyFixture(): ReaderControllerStep {
+		val pending = when (val authority = state.presentation.authority) {
+			is ReaderPresentationAuthority.BlockingPreparation ->
+				if (authority.nativePresentationRequest != null) this else null
+			is ReaderPresentationAuthority.ShellCover -> onPresentationEvent(
+				ReaderPresentationEvent.ShellCoverDismissalRequested
+			).controller
+			else -> null
+		} ?: withCommittedShellCoverForLegacyFixture().onPresentationEvent(
 			ReaderPresentationEvent.ShellCoverDismissalRequested
 		).controller
 		val request = requireNotNull(

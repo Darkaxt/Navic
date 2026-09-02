@@ -55,6 +55,24 @@ internal fun ReaderPresentationBinding.rendererDeckIdentityOrNull(): ReaderRende
 	)
 }
 
+private fun ReaderPresentationBinding.hasCompleteRendererIdentity(): Boolean =
+	rasterGeneration != null && textureGeneration != null
+
+private fun ReaderPresentationBinding.hasAnyRendererIdentity(): Boolean =
+	rasterGeneration != null || textureGeneration != null
+
+private fun ReaderPresentationBinding.isExactRendererCompletionOf(
+	predecessor: ReaderPresentationBinding
+): Boolean = !predecessor.hasAnyRendererIdentity() &&
+	hasCompleteRendererIdentity() &&
+	foliateSessionId == predecessor.foliateSessionId &&
+	publicationGeneration == predecessor.publicationGeneration &&
+	viewportGeneration == predecessor.viewportGeneration &&
+	profileGeneration == predecessor.profileGeneration &&
+	destinationCommitIdentity == predecessor.destinationCommitIdentity &&
+	preparationGeneration != null &&
+	preparationGeneration == predecessor.preparationGeneration
+
 private fun ReaderPresentationBinding.sharesRendererDeckWith(
 	other: ReaderPresentationBinding
 ): Boolean = rendererDeckIdentityOrNull()?.let { identity ->
@@ -370,30 +388,39 @@ data class ReaderPresentationState(
 
 sealed interface ReaderPresentationEvent {
 	data class PublicationOpened(val binding: ReaderPresentationBinding) : ReaderPresentationEvent
+	data class BindingCompleted(
+		val previousBinding: ReaderPresentationBinding,
+		val binding: ReaderPresentationBinding
+	) : ReaderPresentationEvent {
+		init {
+			require(binding.isExactRendererCompletionOf(previousBinding))
+		}
+	}
 	data class BindingReplaced(
 		val previousBinding: ReaderPresentationBinding,
 		val binding: ReaderPresentationBinding
 	) : ReaderPresentationEvent {
 		init {
-			require(
-				previousBinding.rasterGeneration != null &&
-					previousBinding.textureGeneration != null &&
-					previousBinding.preparationGeneration != null
-			)
 			require(previousBinding.foliateSessionId == binding.foliateSessionId)
 			require(previousBinding.publicationGeneration == binding.publicationGeneration)
+			require(previousBinding != binding)
 			require(
-				previousBinding.destinationCommitIdentity == binding.destinationCommitIdentity ||
+				previousBinding.hasCompleteRendererIdentity() ||
+					!binding.hasAnyRendererIdentity()
+			)
+			require(
+				!previousBinding.hasCompleteRendererIdentity() ||
+					previousBinding.destinationCommitIdentity == binding.destinationCommitIdentity ||
 					previousBinding.viewportGeneration != binding.viewportGeneration ||
 					previousBinding.profileGeneration != binding.profileGeneration
 			)
-			require(previousBinding != binding)
 		}
 	}
 	data class FoliateRelocated(
 		val binding: ReaderPresentationBinding,
 		val acknowledgement: ReaderPageTurnSettlementAck?
 	) : ReaderPresentationEvent
+	data object NativePageRequested : ReaderPresentationEvent
 	data class ShellCoverRequested(val coverGeneration: Long) : ReaderPresentationEvent {
 		init {
 			require(coverGeneration >= 0L)
@@ -530,8 +557,10 @@ fun readerPresentationReduce(
 				)
 			)
 		}
+		is ReaderPresentationEvent.BindingCompleted -> state.reduceBindingCompletion(event)
 		is ReaderPresentationEvent.BindingReplaced -> state.reduceBindingReplacement(event)
 		is ReaderPresentationEvent.FoliateRelocated -> state.reduceFoliateRelocation(event)
+		ReaderPresentationEvent.NativePageRequested -> state.reduceNativePageRequest()
 		is ReaderPresentationEvent.ShellCoverRequested -> {
 			val retainedFrame = when (val authority = state.authority) {
 				ReaderPresentationAuthority.Unavailable -> state.binding?.let { binding ->
@@ -633,6 +662,8 @@ private fun ReaderPresentationState.reduceRetry(): ReaderPresentationReducerResu
 
 private fun ReaderPresentationEvent.closedResourceReleaseOrNull():
 	ReaderPresentationEffect.ReleaseStalePresentation? = when (this) {
+	is ReaderPresentationEvent.BindingCompleted ->
+		ReaderPresentationEffect.ReleaseStalePresentation(null, binding)
 	is ReaderPresentationEvent.ShellCoverCommitted ->
 		ReaderPresentationEffect.ReleaseStalePresentation(proof.token, proof.binding)
 	is ReaderPresentationEvent.NativePagePresented ->
@@ -702,9 +733,133 @@ private fun ReaderPresentationBinding.isCompleteDestinationSuccessorOf(
 		preparationGeneration != null
 }
 
+private fun ReaderPresentationState.reduceNativePageRequest(): ReaderPresentationReducerResult {
+	val currentBinding = binding ?: return ReaderPresentationReducerResult(this)
+	if (authority != ReaderPresentationAuthority.Unavailable) {
+		return ReaderPresentationReducerResult(this)
+	}
+	val request = ReaderNativePagePresentationRequest(
+		token = ReaderPresentationToken(nextTokenValue),
+		binding = currentBinding
+	)
+	return ReaderPresentationReducerResult(
+		copy(
+			authority = ReaderPresentationAuthority.BlockingPreparation(
+				retainedFrame = ReaderPresentationFrameOwner.Neutral,
+				nativePresentationRequest = request
+			),
+			nextTokenValue = nextTokenValue + 1L
+		)
+	)
+}
+
+private fun ReaderPresentationState.reduceBindingCompletion(
+	event: ReaderPresentationEvent.BindingCompleted
+): ReaderPresentationReducerResult {
+	if (binding == event.binding) return ReaderPresentationReducerResult(this)
+	if (binding != event.previousBinding) {
+		return stalePresentation(token = null, binding = event.binding)
+	}
+	val reboundAuthority = authority.rebindPartialPresentation(
+		previousBinding = event.previousBinding,
+		binding = event.binding
+	) ?: return stalePresentation(token = null, binding = event.binding)
+	return ReaderPresentationReducerResult(
+		copy(
+			authority = reboundAuthority,
+			binding = event.binding
+		)
+	)
+}
+
+private fun ReaderPresentationAuthority.rebindPartialPresentation(
+	previousBinding: ReaderPresentationBinding,
+	binding: ReaderPresentationBinding
+): ReaderPresentationAuthority? = when (this) {
+	ReaderPresentationAuthority.Unavailable -> this
+	is ReaderPresentationAuthority.ShellCover -> proof
+		.takeIf { it.binding == previousBinding }
+		?.copy(binding = binding)
+		?.let(ReaderPresentationAuthority::ShellCover)
+	is ReaderPresentationAuthority.ShellCoverCommitPending -> if (
+		this.binding == previousBinding && retainedFrame.binding == previousBinding
+	) {
+		copy(
+			retainedFrame = retainedFrame.rebindPartialPresentation(previousBinding, binding),
+			binding = binding
+		)
+	} else {
+		null
+	}
+	is ReaderPresentationAuthority.BlockingPreparation -> {
+		val request = nativePresentationRequest
+		if (request?.binding != previousBinding) {
+			null
+		} else {
+			retainedFrame.rebindPartialPresentation(previousBinding, binding)?.let { retained ->
+				copy(
+					retainedFrame = retained,
+					nativePresentationRequest = request.copy(binding = binding)
+				)
+			}
+		}
+	}
+	is ReaderPresentationAuthority.CurlGesture,
+	is ReaderPresentationAuthority.CurlSettlementPending,
+	is ReaderPresentationAuthority.SettledNativePage,
+	is ReaderPresentationAuthority.LiveEngineHandoffPending,
+	is ReaderPresentationAuthority.LiveEngineExposed -> null
+}
+
+private fun ReaderShellCoverRetainedFrame.rebindPartialPresentation(
+	previousBinding: ReaderPresentationBinding,
+	binding: ReaderPresentationBinding
+): ReaderShellCoverRetainedFrame = when (this) {
+	is ReaderShellCoverRetainedFrame.Neutral -> {
+		check(this.binding == previousBinding)
+		copy(binding = binding)
+	}
+	is ReaderShellCoverRetainedFrame.NativePage,
+	is ReaderShellCoverRetainedFrame.TerminalCurl -> error(
+		"Renderer-backed frame cannot retain a partial presentation"
+	)
+}
+
+private fun ReaderPresentationFrameOwner.rebindPartialPresentation(
+	previousBinding: ReaderPresentationBinding,
+	binding: ReaderPresentationBinding
+): ReaderPresentationFrameOwner? = when (this) {
+	ReaderPresentationFrameOwner.Neutral -> this
+	is ReaderPresentationFrameOwner.ShellCover -> proof
+		.takeIf { it.binding == previousBinding }
+		?.copy(binding = binding)
+		?.let(ReaderPresentationFrameOwner::ShellCover)
+	is ReaderPresentationFrameOwner.NativePage,
+	is ReaderPresentationFrameOwner.Curl,
+	is ReaderPresentationFrameOwner.LiveEngine -> null
+}
+
 private fun ReaderPresentationState.reduceBindingReplacement(
 	event: ReaderPresentationEvent.BindingReplaced
 ): ReaderPresentationReducerResult {
+	if (
+		binding == event.previousBinding &&
+		!event.previousBinding.hasAnyRendererIdentity() &&
+		!event.binding.hasAnyRendererIdentity()
+	) {
+		val reboundAuthority = authority.rebindPartialPresentation(
+			event.previousBinding,
+			event.binding
+		) ?: return ReaderPresentationReducerResult(this)
+		return ReaderPresentationReducerResult(
+			copy(
+				authority = reboundAuthority,
+				binding = event.binding,
+				preparationFacts = ReaderPagePreparationFacts(),
+				failure = null
+			)
+		)
+	}
 	val coverBackedDismissal = (authority as? ReaderPresentationAuthority.BlockingPreparation)
 		?.takeIf { pending ->
 			pending.retainedFrame is ReaderPresentationFrameOwner.ShellCover &&
@@ -800,8 +955,7 @@ private fun ReaderPresentationState.reduceLifecycle(
 		copy(
 			authority = if (
 				authority is ReaderPresentationAuthority.BlockingPreparation &&
-				authority.nativePresentationRequest != null &&
-				authority.retainedFrame is ReaderPresentationFrameOwner.ShellCover
+				authority.nativePresentationRequest != null
 			) {
 				authority
 			} else {
@@ -942,7 +1096,7 @@ private fun ReaderPresentationState.reduceNativePageProof(
 		val retainedCover = authority.retainedFrame as? ReaderPresentationFrameOwner.ShellCover
 		if (
 			request != null &&
-			retainedCover != null &&
+			(retainedCover != null || authority.retainedFrame == ReaderPresentationFrameOwner.Neutral) &&
 			request.token == proof.transitionToken &&
 			request.binding == proof.binding &&
 			binding == proof.binding
@@ -954,12 +1108,14 @@ private fun ReaderPresentationState.reduceNativePageProof(
 					),
 					failure = null
 				),
-				effects = listOf(
-					ReaderPresentationEffect.ReleaseStalePresentation(
-						token = retainedCover.proof.token,
-						binding = retainedCover.proof.binding
+				effects = retainedCover?.let { cover ->
+					listOf(
+						ReaderPresentationEffect.ReleaseStalePresentation(
+							token = cover.proof.token,
+							binding = cover.proof.binding
+						)
 					)
-				)
+				}.orEmpty()
 			)
 		} else {
 			staleProof(proof.transitionToken, proof.binding)
@@ -1112,8 +1268,7 @@ private fun ReaderPresentationState.reducePreparationFailure(
 		authority.hasTruthfulStableFrame() ||
 			authority is ReaderPresentationAuthority.ShellCoverCommitPending ||
 			authority is ReaderPresentationAuthority.BlockingPreparation &&
-			authority.nativePresentationRequest != null &&
-			authority.retainedFrame is ReaderPresentationFrameOwner.ShellCover
+			authority.nativePresentationRequest != null
 	) {
 		authority
 	} else {

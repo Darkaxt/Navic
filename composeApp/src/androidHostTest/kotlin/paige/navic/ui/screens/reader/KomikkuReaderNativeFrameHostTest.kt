@@ -159,8 +159,8 @@ class KomikkuReaderNativeFrameHostTest {
 	fun chromeOnlyUsesAChromeGestureRouteThatNeverDispatchesToPageCurlOrContent() {
 		val source = hostFile.readText()
 		val modeSelector = source
-			.substringAfter("private fun pagePhysicalDispatchMode()")
-			.substringBefore("override fun dispatchTouchEvent")
+			.substringAfter("internal fun readerPagePhysicalDispatchMode(")
+			.substringBefore("private class KomikkuReaderNativeViewerContainer")
 		val physicalDispatch = source
 			.substringAfter("val handled = when (physicalDispatchMode)")
 			.substringBefore("if (\n\t\t\tevent.actionMasked == MotionEvent.ACTION_UP")
@@ -604,6 +604,202 @@ class KomikkuReaderNativeFrameHostTest {
 			)
 		)
 		assertEquals(pureDestinationC, relocation.binding)
+	}
+
+	@Test
+	fun bindingReporterPublishesPartialOpenThenTypedExactCompletion() {
+		val partial = ReaderPresentationBinding(
+			foliateSessionId = "fixture-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("fixture-session", 1L),
+			preparationGeneration = 6L
+		)
+		val complete = partial.copy(rasterGeneration = 7L, textureGeneration = 8L)
+		val reporter = ReaderPresentationBindingReporter()
+		var state = ReaderPresentationState()
+
+		val opened = assertIs<ReaderPresentationEvent.PublicationOpened>(
+			reporter.update(
+				confirmedTargetBinding = null,
+				currentBinding = partial,
+				publicationOpenPending = true,
+				relocationPending = false
+			)
+		)
+		state = readerPresentationReduce(state, opened).state
+		assertNull(
+			reporter.update(
+				confirmedTargetBinding = state.binding,
+				currentBinding = partial,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertEquals(partial, reporter.lastReportedBinding)
+
+		val completion = assertIs<ReaderPresentationEvent.BindingCompleted>(
+			reporter.update(
+				confirmedTargetBinding = state.binding,
+				currentBinding = complete,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertEquals(partial, completion.previousBinding)
+		assertEquals(complete, completion.binding)
+		assertEquals(partial, reporter.lastReportedBinding)
+		state = readerPresentationReduce(state, completion).state
+		assertNull(
+			reporter.update(
+				confirmedTargetBinding = state.binding,
+				currentBinding = complete,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertEquals(complete, reporter.lastReportedBinding)
+	}
+
+	@Test
+	fun coldCanvasBindingIsPartialUntilAnExactPreparedDeckArrives() {
+		val destination = ReaderDestinationCommitIdentity("fixture-session", 4L)
+		val snapshot = ReaderPresentationHostBindingSnapshot(
+			pageTurnCanvasEnabled = true,
+			windowVisible = true,
+			foliateSessionId = "fixture-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			profileGeneration = 3L,
+			destinationCommitIdentity = destination,
+			preparationGeneration = 6L,
+			visualPageIndex = 7,
+			preparedDeck = null,
+			preparedDeckAdmitted = false
+		)
+		val partial = assertNotNull(readerPresentationHostBinding(snapshot))
+
+		assertEquals("fixture-session", partial.foliateSessionId)
+		assertEquals(3L, partial.profileGeneration)
+		assertEquals(destination, partial.destinationCommitIdentity)
+		assertEquals(6L, partial.preparationGeneration)
+		assertNull(partial.rasterGeneration)
+		assertNull(partial.textureGeneration)
+
+		val exactDeck = ReaderPagePreparedActiveDeck(
+			rasterProfileEpoch = 3L,
+			rasterEpoch = 8L,
+			sourceCenterPageIndex = 7,
+			generationId = 9L,
+			preparationGeneration = 6L
+		)
+		assertEquals(
+			partial.copy(rasterGeneration = 8L, textureGeneration = 9L),
+			readerPresentationHostBinding(
+				snapshot.copy(preparedDeck = exactDeck, preparedDeckAdmitted = true)
+			)
+		)
+	}
+
+	@Test
+	fun staleLateDeckNeverCompletesOrFabricatesRendererIdentity() {
+		val base = ReaderPresentationHostBindingSnapshot(
+			pageTurnCanvasEnabled = true,
+			windowVisible = true,
+			foliateSessionId = "fixture-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			profileGeneration = 3L,
+			destinationCommitIdentity = null,
+			preparationGeneration = 6L,
+			visualPageIndex = 7,
+			preparedDeck = null,
+			preparedDeckAdmitted = true
+		)
+		val staleDecks = listOf(
+			ReaderPagePreparedActiveDeck(4L, 8L, 7, 9L, 6L),
+			ReaderPagePreparedActiveDeck(3L, 8L, 8, 9L, 6L),
+			ReaderPagePreparedActiveDeck(3L, 8L, 7, 9L, 5L)
+		)
+
+		staleDecks.forEach { staleDeck ->
+			val binding = assertNotNull(
+				readerPresentationHostBinding(base.copy(preparedDeck = staleDeck))
+			)
+			assertNull(binding.rasterGeneration)
+			assertNull(binding.textureGeneration)
+		}
+		val unadmitted = assertNotNull(
+			readerPresentationHostBinding(
+				base.copy(
+					preparedDeck = ReaderPagePreparedActiveDeck(3L, 8L, 7, 9L, 6L),
+					preparedDeckAdmitted = false
+				)
+			)
+		)
+		assertNull(unadmitted.rasterGeneration)
+		assertNull(unadmitted.textureGeneration)
+	}
+
+	@Test
+	fun delayedCanvasIdentityFactsFailClosedWithoutSuppressingLaterBootstrap() {
+		val completeFacts = ReaderPresentationHostBindingSnapshot(
+			pageTurnCanvasEnabled = true,
+			windowVisible = true,
+			foliateSessionId = "fixture-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			profileGeneration = 3L,
+			destinationCommitIdentity = null,
+			preparationGeneration = 6L,
+			visualPageIndex = 7,
+			preparedDeck = null,
+			preparedDeckAdmitted = false
+		)
+
+		assertNull(readerPresentationHostBinding(completeFacts.copy(foliateSessionId = null)))
+		assertNull(readerPresentationHostBinding(completeFacts.copy(viewportWidth = 0)))
+		assertNull(readerPresentationHostBinding(completeFacts.copy(profileGeneration = null)))
+		assertNotNull(readerPresentationHostBinding(completeFacts))
+	}
+
+	@Test
+	fun nonCanvasModePublishesNoNativeBindingAndAlwaysDispatchesDirectlyToWebView() {
+		val snapshot = ReaderPresentationHostBindingSnapshot(
+			pageTurnCanvasEnabled = false,
+			windowVisible = true,
+			foliateSessionId = "fixture-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			profileGeneration = 3L,
+			destinationCommitIdentity = null,
+			preparationGeneration = 6L,
+			visualPageIndex = 7,
+			preparedDeck = null,
+			preparedDeckAdmitted = false
+		)
+
+		assertNull(readerPresentationHostBinding(snapshot))
+		listOf(
+			ReaderPresentationInputPolicy.RecoveryOnly,
+			ReaderPresentationInputPolicy.ChromeOnly,
+			ReaderPresentationInputPolicy.ShellCover,
+			ReaderPresentationInputPolicy.ClaimedCurl(ReaderPresentationToken(1L))
+		).forEach { policy ->
+			assertEquals(
+				ReaderPagePhysicalDispatchMode.LiveEngine,
+				readerPagePhysicalDispatchMode(pageTurnCanvasEnabled = false, policy)
+			)
+		}
 	}
 
 	@Test

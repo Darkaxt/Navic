@@ -3,6 +3,7 @@ package paige.navic.reader
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -212,6 +213,13 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerScreenText, "Key.VolumeUp")
 		assertContains(readerScreenText, "Key.VolumeDown")
 		assertContains(readerScreenText, "volumeKeyPageTurns")
+		val volumeKeyDispatch = readerScreenText
+			.substringAfter(".onPreviewKeyEvent { event ->")
+			.substringBefore("private fun Screen.Reader.readerProcessStateViewModelKey")
+		assertEquals(2, volumeKeyDispatch.windowed("onViewerAction(".length)
+			.count { it == "onViewerAction(" })
+		assertFalse("turnPage(" in volumeKeyDispatch)
+		assertFalse("scrollViewport(" in volumeKeyDispatch)
 		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
 		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
 		assertContains(generalPageText, "Volume keys")

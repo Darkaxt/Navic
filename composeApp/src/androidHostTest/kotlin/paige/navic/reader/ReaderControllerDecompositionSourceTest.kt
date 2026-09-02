@@ -21,6 +21,19 @@ class ReaderControllerDecompositionSourceTest {
 		).forEach { reducer -> assertContains(controller, reducer) }
 		assertFalse("data class ReaderControllerState" in controller)
 		assertFalse("data class ReaderSelection" in controller)
+		assertContains(
+			controller,
+			"ReaderPresentationControllerReducer.onPresentationEvent(this, event)"
+		)
+		assertContains(
+			controller,
+			"ReaderPresentationControllerReducer.onViewerAction(this, action)"
+		)
+		val presentationController = readerSource("ReaderPresentationController.kt")
+		assertTrue(presentationController.isFile)
+		val presentationControllerSource = presentationController.readText()
+		assertContains(presentationControllerSource, "fun readerViewerActionIsAdmitted(")
+		assertContains(presentationControllerSource, "internal class ReaderPresentationEffectQueue")
 	}
 
 	@Test

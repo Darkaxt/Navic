@@ -8,7 +8,11 @@ import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePointerBeginResult
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
+import paige.navic.reader.ReaderPresentationAuthority
+import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationInputPolicy
+import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.readerPageNewPointerDecision
 
 internal enum class ReaderPageHostLifecycleEvent {
@@ -65,11 +69,45 @@ internal enum class ReaderPageVisualLocationOrigin {
 	StaleAcknowledgement
 }
 
+internal data class ReaderNativeTapContinuationIdentity(
+	val binding: ReaderPresentationBinding,
+	val presentationToken: ReaderPresentationToken?,
+	val authorityPolicy: ReaderPageOperationPolicy,
+	val localSafetyPolicy: ReaderPageOperationPolicy
+)
+
+internal fun readerNativeTapContinuationIdentity(
+	decision: ReaderPresentationDecision,
+	localSafetyPolicy: ReaderPageOperationPolicy
+): ReaderNativeTapContinuationIdentity? {
+	val authority = decision.authority as? ReaderPresentationAuthority.SettledNativePage
+		?: return null
+	val inputPolicy = decision.inputPolicy as? ReaderPresentationInputPolicy.NativePage
+		?: return null
+	val proof = authority.frame.proof
+	if (
+		decision.targetBinding != proof.binding ||
+		proof.binding.rasterGeneration == null ||
+		proof.binding.textureGeneration == null ||
+		inputPolicy.policy.newPointer != ReaderPageNewPointerDecision.Accept ||
+		localSafetyPolicy.newPointer != ReaderPageNewPointerDecision.Accept
+	) {
+		return null
+	}
+	return ReaderNativeTapContinuationIdentity(
+		binding = proof.binding,
+		presentationToken = proof.transitionToken,
+		authorityPolicy = inputPolicy.policy,
+		localSafetyPolicy = localSafetyPolicy
+	)
+}
+
 internal data class ReaderPageContentGestureToken(
 	val downTimeMillis: Long,
 	val gestureId: Long,
 	val x: Float,
-	val y: Float
+	val y: Float,
+	val continuationIdentity: ReaderNativeTapContinuationIdentity
 )
 
 internal sealed interface ReaderPageHostPointerEvent {
@@ -113,6 +151,7 @@ internal interface ReaderPageHostCancellationPort {
 internal class ReaderPageInputSettlementHostController(
 	initialPresentationInputPolicy: ReaderPresentationInputPolicy,
 	initialLocalSafetyPolicy: ReaderPageOperationPolicy,
+	initialNativeTapContinuationIdentity: ReaderNativeTapContinuationIdentity? = null,
 	private val pointerRouter: ReaderPagePointerRouter,
 	private val cancellationPort: ReaderPageHostCancellationPort,
 	private val chromeToggleTarget: (Float, Float) -> Boolean = { _, _ -> false },
@@ -131,6 +170,7 @@ internal class ReaderPageInputSettlementHostController(
 
 	private var presentationInputPolicy = initialPresentationInputPolicy
 	private var localSafetyPolicy = initialLocalSafetyPolicy
+	private var nativeTapContinuationIdentity = initialNativeTapContinuationIdentity
 	private var physicalStreamGestureId: Long? = null
 	private var chromePhysicalStreamActive = false
 	private var pendingChromeTap: PendingChromeTap? = null
@@ -146,7 +186,8 @@ internal class ReaderPageInputSettlementHostController(
 
 	fun updateInputPolicies(
 		presentationInputPolicy: ReaderPresentationInputPolicy,
-		localSafetyPolicy: ReaderPageOperationPolicy
+		localSafetyPolicy: ReaderPageOperationPolicy,
+		nativeTapContinuationIdentity: ReaderNativeTapContinuationIdentity? = null
 	) {
 		val localSafetyVetoedPendingChrome =
 			localSafetyPolicy != this.localSafetyPolicy &&
@@ -160,14 +201,31 @@ internal class ReaderPageInputSettlementHostController(
 		) {
 			pendingChromeTap = null
 		}
+		if (nativeTapContinuationIdentity != this.nativeTapContinuationIdentity) {
+			revokeContentContinuations()
+		}
 		this.presentationInputPolicy = presentationInputPolicy
 		this.localSafetyPolicy = localSafetyPolicy
+		this.nativeTapContinuationIdentity = nativeTapContinuationIdentity
 	}
 
-	fun newPointerDecision(): ReaderPageNewPointerDecision = readerPageNewPointerDecision(
-		presentationInputPolicy = presentationInputPolicy,
-		localSafetyPolicy = localSafetyPolicy
-	)
+	fun newPointerDecision(): ReaderPageNewPointerDecision {
+		val policyDecision = readerPageNewPointerDecision(
+			presentationInputPolicy = presentationInputPolicy,
+			localSafetyPolicy = localSafetyPolicy
+		)
+		return if (
+			policyDecision == ReaderPageNewPointerDecision.Accept &&
+			presentationInputPolicy is ReaderPresentationInputPolicy.NativePage &&
+			nativeTapContinuationIdentity == null
+		) {
+			ReaderPageNewPointerDecision.Reject(
+				ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
+			)
+		} else {
+			policyDecision
+		}
+	}
 
 	fun dispatchChromeOnlyPointer(event: ReaderPageHostPointerEvent): Boolean = when (event) {
 		is ReaderPageHostPointerEvent.Down -> {
@@ -337,7 +395,10 @@ internal class ReaderPageInputSettlementHostController(
 	fun claimContentAction(downTimeMillis: Long): ReaderPageHostPointerDispatchResult {
 		contentTokenByGestureId.values
 			.asSequence()
-			.filter { token -> token.downTimeMillis == downTimeMillis }
+			.filter { token ->
+				token.downTimeMillis == downTimeMillis &&
+					token.continuationIdentity == nativeTapContinuationIdentity
+			}
 			.forEach { token ->
 				val route = pointerRouter.claimContentAction(token.gestureId)
 				if (route != ReaderPagePointerRoute.Ignore) {
@@ -359,8 +420,39 @@ internal class ReaderPageInputSettlementHostController(
 		val entry = contentTokenByGestureId.entries.firstOrNull { (gestureId, token) ->
 			matches(token) && pointerRouter.isDelayedTapPending(gestureId)
 		} ?: return null
+		if (
+			entry.value.continuationIdentity != nativeTapContinuationIdentity ||
+			newPointerDecision() != ReaderPageNewPointerDecision.Accept
+		) {
+			pointerRouter.cancel(
+				entry.key,
+				ReaderPageGestureTerminalOutcome.CancelledLifecycle
+			)
+			contentTokenByGestureId.remove(entry.key)
+			return null
+		}
 		contentTokenByGestureId.remove(entry.key)
 		return entry.value
+	}
+
+	private fun revokeContentContinuations() {
+		contentTokenByGestureId.keys.toList().forEach { gestureId ->
+			if (pointerRouter.isDelayedTapPending(gestureId)) {
+				pointerRouter.cancel(
+					gestureId,
+					ReaderPageGestureTerminalOutcome.CancelledLifecycle
+				)
+			} else {
+				val completed = pointerRouter.complete(
+					gestureId,
+					ReaderPageGestureTerminalOutcome.CancelledLifecycle
+				)
+				if (completed && physicalStreamGestureId == gestureId) {
+					cancellationPort.cancelForPointerInterruption(gestureId)
+				}
+			}
+			contentTokenByGestureId.remove(gestureId)
+		}
 	}
 
 	fun contentGestureTokenCount(): Int = contentTokenByGestureId.size
@@ -374,11 +466,15 @@ internal class ReaderPageInputSettlementHostController(
 		check(gestureId !in contentTokenByGestureId) {
 			"Gesture already has a content token: $gestureId"
 		}
+		val continuationIdentity = checkNotNull(nativeTapContinuationIdentity) {
+			"Native content gesture requires exact presentation continuity"
+		}
 		contentTokenByGestureId[gestureId] = ReaderPageContentGestureToken(
 			downTimeMillis = downTimeMillis,
 			gestureId = gestureId,
 			x = x,
-			y = y
+			y = y,
+			continuationIdentity = continuationIdentity
 		)
 	}
 

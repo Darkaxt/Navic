@@ -170,17 +170,33 @@ internal fun readerPresentationBindingEvent(
 	currentBinding: ReaderPresentationBinding,
 	publicationOpenPending: Boolean,
 	relocationPending: Boolean
-): ReaderPresentationEvent.BindingReplaced? {
+): ReaderPresentationEvent? {
 	if (publicationOpenPending || relocationPending) return null
 	val previousBinding = lastReportedBinding ?: return null
 	if (previousBinding == currentBinding) return null
 	if (previousBinding.foliateSessionId != currentBinding.foliateSessionId) return null
 	if (previousBinding.publicationGeneration != currentBinding.publicationGeneration) return null
+	if (currentBinding.isExactHostRendererCompletionOf(previousBinding)) {
+		return ReaderPresentationEvent.BindingCompleted(previousBinding, currentBinding)
+	}
 	if (
 		previousBinding.destinationCommitIdentity != currentBinding.destinationCommitIdentity
 	) return null
 	return ReaderPresentationEvent.BindingReplaced(previousBinding, currentBinding)
 }
+
+private fun ReaderPresentationBinding.isExactHostRendererCompletionOf(
+	previousBinding: ReaderPresentationBinding
+): Boolean = previousBinding.rasterGeneration == null &&
+	previousBinding.textureGeneration == null &&
+	rasterGeneration != null &&
+	textureGeneration != null &&
+	foliateSessionId == previousBinding.foliateSessionId &&
+	publicationGeneration == previousBinding.publicationGeneration &&
+	viewportGeneration == previousBinding.viewportGeneration &&
+	profileGeneration == previousBinding.profileGeneration &&
+	destinationCommitIdentity == previousBinding.destinationCommitIdentity &&
+	preparationGeneration == previousBinding.preparationGeneration
 
 internal class ReaderPresentationBindingReporter {
 	var lastReportedBinding: ReaderPresentationBinding? = null
@@ -208,6 +224,11 @@ internal class ReaderPresentationBindingReporter {
 			lastReportedBinding == null -> null
 			lastReportedBinding?.foliateSessionId != currentBinding.foliateSessionId -> null
 			lastReportedBinding?.publicationGeneration != currentBinding.publicationGeneration -> null
+			currentBinding.isExactHostRendererCompletionOf(requireNotNull(lastReportedBinding)) ->
+				ReaderPresentationEvent.BindingCompleted(
+					previousBinding = requireNotNull(lastReportedBinding),
+					binding = currentBinding
+				)
 			relocationPending -> {
 				val previous = requireNotNull(lastReportedBinding)
 				val destinationChanged = previous.destinationCommitIdentity !=
@@ -999,7 +1020,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		val application = readerNativePresentationApplication(decision)
 		presentationDecision = application.decision
 		shellCoverVisible = application.layers.shellCover
-		viewerContainer.applyPresentationInputPolicy(application.inputPolicy)
+		viewerContainer.applyPresentationDecision(application.decision)
 		if (application.layers.shellCover) {
 			shellCoverLayerController.selectCover(
 				preserveNativePresentationProof = true
@@ -1402,12 +1423,32 @@ private data class ReaderPageGestureDiagnosticContext(
 	var logicalDirection: ReaderPageTurnDirection? = null
 )
 
-private enum class ReaderPagePhysicalDispatchMode {
+internal enum class ReaderPagePhysicalDispatchMode {
 	CueMap,
 	ChromeOnly,
 	Legacy,
 	PlayLikeCurl,
 	LiveEngine
+}
+
+internal fun readerPagePhysicalDispatchMode(
+	pageTurnCanvasEnabled: Boolean,
+	presentationInputPolicy: ReaderPresentationInputPolicy,
+	nativePageUsesLegacyRoute: Boolean = false
+): ReaderPagePhysicalDispatchMode {
+	if (!pageTurnCanvasEnabled) return ReaderPagePhysicalDispatchMode.LiveEngine
+	return when (presentationInputPolicy) {
+		ReaderPresentationInputPolicy.ShellCover -> ReaderPagePhysicalDispatchMode.Legacy
+		is ReaderPresentationInputPolicy.NativePage -> if (nativePageUsesLegacyRoute) {
+			ReaderPagePhysicalDispatchMode.Legacy
+		} else {
+			ReaderPagePhysicalDispatchMode.PlayLikeCurl
+		}
+		ReaderPresentationInputPolicy.LiveEngine -> ReaderPagePhysicalDispatchMode.LiveEngine
+		ReaderPresentationInputPolicy.ChromeOnly -> ReaderPagePhysicalDispatchMode.ChromeOnly
+		ReaderPresentationInputPolicy.RecoveryOnly,
+		is ReaderPresentationInputPolicy.ClaimedCurl -> ReaderPagePhysicalDispatchMode.PlayLikeCurl
+	}
 }
 
 private class KomikkuReaderNativeViewerContainer(context: Context) :
@@ -1743,6 +1784,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		onPreparationStateChange = { state ->
 			latestRasterPreparationState = state
 			playLikeCurlController.onPreparationStateChanged(state)
+			reportPresentationIdentityIfAvailable()
 			publishPagePreparationFacts()
 			commitStartupShellPresentationIfReady()
 		}
@@ -1959,6 +2001,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			removePageTurnPrewarmLayoutListener()
 			requestPageTurnPrewarmWhenReady()
 		}
+		reportPresentationIdentityIfAvailable()
 	}
 
 	private fun attachPageRasterRepairQaFault(
@@ -2321,35 +2364,26 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 	}
 
-	private fun currentPresentationBindingOrNull(): ReaderPresentationBinding? {
-		if (lastPresentationWindowVisible == false) return null
-		val foliateSessionId = pageTurnFoliateSessionId
-			?.takeIf { it.isNotBlank() }
-			?: return null
-		val deck = preparedActiveDeck ?: return null
-		if (!presentationViewerReplacementFence.admits(deck)) return null
-		val visualPageIndex = pageTurnVisualPageIndex ?: return null
-		if (deck.sourceCenterPageIndex != visualPageIndex) return null
-		if (
-			presentationPublicationGeneration <= 0L ||
-			presentationViewportGeneration <= 0L ||
-			width <= 0 ||
-			height <= 0
-		) return null
-		val destination = presentationDestinationCommitIdentity
-			?.takeIf { it.foliateSessionId == foliateSessionId }
-		if (presentationDestinationCommitIdentity != null && destination == null) return null
-		return ReaderPresentationBinding(
-			foliateSessionId = foliateSessionId,
-			publicationGeneration = presentationPublicationGeneration,
-			viewportGeneration = presentationViewportGeneration,
-			profileGeneration = deck.rasterProfileEpoch,
-			destinationCommitIdentity = destination,
-			rasterGeneration = deck.rasterEpoch,
-			textureGeneration = deck.generationId,
-			preparationGeneration = latestRasterPreparationState.preparationGeneration
+	private fun currentPresentationBindingOrNull(): ReaderPresentationBinding? =
+		readerPresentationHostBinding(
+			ReaderPresentationHostBindingSnapshot(
+				pageTurnCanvasEnabled = pageTurnCanvasEnabled,
+				windowVisible = lastPresentationWindowVisible,
+				foliateSessionId = pageTurnFoliateSessionId,
+				publicationGeneration = presentationPublicationGeneration,
+				viewportGeneration = presentationViewportGeneration,
+				viewportWidth = width,
+				viewportHeight = height,
+				profileGeneration = rasterProfileEpoch,
+				destinationCommitIdentity = presentationDestinationCommitIdentity,
+				preparationGeneration = latestRasterPreparationState.preparationGeneration,
+				visualPageIndex = pageTurnVisualPageIndex,
+				preparedDeck = preparedActiveDeck,
+				preparedDeckAdmitted = preparedActiveDeck?.let(
+					presentationViewerReplacementFence::admits
+				) == true
+			)
 		)
-	}
 
 	private fun reportPresentationIdentityIfAvailable() {
 		val binding = currentPresentationBindingOrNull()
@@ -2434,21 +2468,26 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		).currentCandidateOrNull()
 	}
 
-	fun applyPresentationInputPolicy(policy: ReaderPresentationInputPolicy) {
-		presentationInputPolicy = policy
-		pageInputSettlementHostController.updateInputPolicies(
-			presentationInputPolicy = presentationInputPolicy,
-			localSafetyPolicy = localPageSafetyPolicy
-		)
+	fun applyPresentationDecision(decision: ReaderPresentationDecision) {
+		presentationDecision = decision
+		presentationInputPolicy = decision.inputPolicy
+		updateInputSettlementPolicies()
 	}
 
 	private fun setLocalPageSafetyPolicy(policy: ReaderPageOperationPolicy) {
 		localPageSafetyPolicy = policy
+		updateInputSettlementPolicies()
+		playLikeCurlController.setPageOperationPolicy(policy)
+	}
+
+	private fun updateInputSettlementPolicies() {
 		pageInputSettlementHostController.updateInputPolicies(
 			presentationInputPolicy = presentationInputPolicy,
-			localSafetyPolicy = localPageSafetyPolicy
+			localSafetyPolicy = localPageSafetyPolicy,
+			nativeTapContinuationIdentity = presentationDecision?.let { decision ->
+				readerNativeTapContinuationIdentity(decision, localPageSafetyPolicy)
+			}
 		)
-		playLikeCurlController.setPageOperationPolicy(policy)
 	}
 
 	fun cancelWhispersyncCueMapForChrome() {
@@ -3104,25 +3143,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun pagePhysicalDispatchMode(): ReaderPagePhysicalDispatchMode =
-		when (presentationInputPolicy) {
-			ReaderPresentationInputPolicy.ShellCover -> ReaderPagePhysicalDispatchMode.Legacy
-			is ReaderPresentationInputPolicy.NativePage -> if (
-				pageInputSettlementHostController.newPointerDecision() is
-					ReaderPageNewPointerDecision.Accept &&
-				!shouldUsePlayLikeCurlPointerRouter()
-			) {
-				ReaderPagePhysicalDispatchMode.Legacy
-			} else {
-				ReaderPagePhysicalDispatchMode.PlayLikeCurl
-			}
-			ReaderPresentationInputPolicy.LiveEngine ->
-				ReaderPagePhysicalDispatchMode.LiveEngine
-			ReaderPresentationInputPolicy.ChromeOnly ->
-				ReaderPagePhysicalDispatchMode.ChromeOnly
-			ReaderPresentationInputPolicy.RecoveryOnly,
-			is ReaderPresentationInputPolicy.ClaimedCurl ->
-				ReaderPagePhysicalDispatchMode.PlayLikeCurl
-		}
+		readerPagePhysicalDispatchMode(
+			pageTurnCanvasEnabled = pageTurnCanvasEnabled,
+			presentationInputPolicy = presentationInputPolicy,
+			nativePageUsesLegacyRoute =
+				presentationInputPolicy is ReaderPresentationInputPolicy.NativePage &&
+					pageInputSettlementHostController.newPointerDecision() is
+						ReaderPageNewPointerDecision.Accept &&
+					!shouldUsePlayLikeCurlPointerRouter()
+		)
 
 	private fun shouldUsePlayLikeCurlPointerRouter(): Boolean =
 		pageTurnCanvasEnabled && !verticalPageDragPreview

@@ -90,10 +90,13 @@ class ReaderPageQaFaultHostSourceTest {
 		val binding = source
 			.substringAfter("private fun currentPresentationBindingOrNull()")
 			.substringBefore("private fun reportPresentationIdentityIfAvailable()")
+		val bindingResolution = readerSource("ReaderPresentationHostBinding.android.kt")
 
 		assertContains(source, "presentationViewerReplacementFence.begin(")
 		assertContains(source, "presentationViewerReplacementFence.observeRasterProfileEpoch(epoch)")
-		assertContains(binding, "if (!presentationViewerReplacementFence.admits(deck)) return null")
+		assertContains(binding, "preparedDeckAdmitted = preparedActiveDeck?.let(")
+		assertContains(binding, "presentationViewerReplacementFence::admits")
+		assertContains(bindingResolution, "snapshot.preparedDeckAdmitted &&")
 		val invalidateLegacyDeck = viewerReplacement.indexOf("viewerContainer.replaceViewerContent(viewerView)")
 		val clearShadowFence = viewerReplacement.indexOf(
 			"viewerContainer.completePresentationViewerReplacement()"
