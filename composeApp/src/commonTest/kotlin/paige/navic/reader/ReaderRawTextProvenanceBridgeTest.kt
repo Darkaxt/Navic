@@ -856,27 +856,84 @@ class ReaderRawTextProvenanceBridgeTest {
 			)
 		).controller
 		val terminalStatus = rejected.state.whispersync.status
+		val destination = requireNotNull(rejected.state.destinationCommitIdentity)
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = destination.foliateSessionId,
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = destination,
+			rasterGeneration = 4L,
+			textureGeneration = 5L,
+			preparationGeneration = 6L
+		)
+		val nativeProof = ReaderNativePagePresentationProof(
+			binding = binding,
+			transitionToken = null,
+			presentedFrame = 10L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 4L,
+			textureGeneration = 5L
+		)
 		val withShellPresentation = rejected.copy(
 			state = rejected.state.copy(
+				presentation = ReaderPresentationState(
+					authority = ReaderPresentationAuthority.SettledNativePage(
+						ReaderPresentationFrameOwner.NativePage(nativeProof)
+					),
+					binding = binding,
+					nextTokenValue = 11L
+				),
 				activeMediaOverlay = sidecar.timeline.segments.single().toReaderOverlayFragment(),
 				audioMetadataLabel = "Public synthetic audio"
 			)
 		)
 
 		val covered = ReaderOverlayReducer.showNativeShellCover(withShellPresentation)
-		assertTrue(covered.controller.state.shellCoverVisible)
-		assertEquals(ReaderWhispersyncTransportPhase.Failed, covered.controller.state.whispersync.transportPhase)
-		assertEquals(terminalStatus, covered.controller.state.whispersync.status)
+		val coverTransition = assertIs<ReaderRequiredTransition.CommitShellCover>(
+			readerPresentationDecision(covered.controller.state.presentation).requiredTransition
+		)
+		val coverProof = ReaderShellCoverCommitProof(
+			token = coverTransition.token,
+			binding = coverTransition.binding,
+			coverGeneration = coverTransition.coverGeneration,
+			presentedFrame = 11L,
+			viewportWidth = 1200,
+			viewportHeight = 800
+		)
+		val committed = covered.controller.onPresentationEvent(
+			ReaderPresentationEvent.ShellCoverCommitted(coverProof)
+		)
+		assertTrue(committed.controller.state.shellCoverVisible)
+		assertEquals(ReaderWhispersyncTransportPhase.Failed, committed.controller.state.whispersync.transportPhase)
+		assertEquals(terminalStatus, committed.controller.state.whispersync.status)
 		assertEquals(
 			ReaderWhispersyncCanonicalGenerationState.Terminal,
-			covered.controller.state.whispersync.canonicalGenerationState
+			committed.controller.state.whispersync.canonicalGenerationState
 		)
-		assertNull(covered.controller.state.activeMediaOverlay)
-		assertNull(covered.controller.state.activeMediaOverlayAnchorReceipt)
-		assertNull(covered.controller.state.audioMetadataLabel)
+		assertNull(committed.controller.state.activeMediaOverlay)
+		assertNull(committed.controller.state.activeMediaOverlayAnchorReceipt)
+		assertNull(committed.controller.state.audioMetadataLabel)
 		assertTrue(covered.engineCommands.any { it == ReaderEngineCommand.ClearMediaOverlay })
 
-		val returned = covered.controller.onViewerAction(ReaderViewerAction.NativeShellPrepared)
+		val prepared = committed.controller.onViewerAction(ReaderViewerAction.NativeShellPrepared)
+		assertTrue(prepared.controller.state.shellCoverVisible)
+		val dismissal = prepared.controller.onViewerAction(
+			ReaderViewerAction.ScrollViewport(ReaderViewportScrollDirection.Down)
+		)
+		assertTrue(dismissal.controller.state.shellCoverVisible)
+		val nativeTransition = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			readerPresentationDecision(dismissal.controller.state.presentation).requiredTransition
+		)
+		val returned = dismissal.controller.onPresentationEvent(
+			ReaderPresentationEvent.NativePagePresented(
+				nativeProof.copy(
+					transitionToken = nativeTransition.token,
+					presentedFrame = 12L
+				)
+			)
+		)
 		assertFalse(returned.controller.state.shellCoverVisible)
 		assertEquals(ReaderWhispersyncTransportPhase.Failed, returned.controller.state.whispersync.transportPhase)
 		assertEquals(terminalStatus, returned.controller.state.whispersync.status)

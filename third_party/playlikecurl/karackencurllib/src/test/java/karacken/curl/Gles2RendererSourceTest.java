@@ -169,6 +169,22 @@ public class Gles2RendererSourceTest {
         String draw = methodBody(
                 source,
                 "public void onDrawFrame(GL10 gl)");
+        String detach = methodBody(source, "public void detach()");
+        String visibility = methodBody(source, "public void setVisible(boolean visible)");
+        String cancelGesture = methodBody(source, "public void cancelGesture(long gestureId)");
+        String renderFailure = methodBody(
+                source,
+                "private void handleRenderFailure(RenderFailure failure)");
+        String surfaceDestroyed = methodBody(
+                source,
+                "public void surfaceDestroyed(SurfaceHolder holder)");
+        String releaseDeck = methodBody(
+                source,
+                "public PageSurfaceDeckReleaseResult releaseDeck(long generationId)");
+        String deckReleased = methodBody(
+                source,
+                "private void handleDeckReleased(");
+        String dispose = methodBody(source, "private void startDisposeIfNeeded()");
 
         assertTrue(source.contains("PresentedFrameRequest"));
         assertTrue(request.contains("queueEvent(() ->"));
@@ -178,7 +194,14 @@ public class Gles2RendererSourceTest {
                 < draw.indexOf("presentedFrameRequest.markRendered()"));
         assertTrue(draw.contains("postOnAnimation("));
         assertTrue(source.contains("cancelPresentedFrameRequest(long requestId)"));
-        assertTrue(source.contains("presentedFrameRequest.cancelAll()"));
+        assertTrue(detach.contains("presentedFrameRequest.cancelAll()"));
+        assertTrue(visibility.contains("presentedFrameRequest.cancelAll()"));
+        assertFalse(cancelGesture.contains("presentedFrameRequest.cancelAll()"));
+        assertTrue(renderFailure.contains("presentedFrameRequest.cancelAll()"));
+        assertTrue(surfaceDestroyed.contains("presentedFrameRequest.cancelAll()"));
+        assertTrue(releaseDeck.contains("presentedFrameRequest.cancelAll()"));
+        assertTrue(deckReleased.contains("presentedFrameRequest.cancelAll()"));
+        assertTrue(dispose.contains("presentedFrameRequest.cancelAll()"));
         assertTrue(source.contains("presentedFrameRequest.pendingCount()"));
     }
 

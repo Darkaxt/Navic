@@ -1,83 +1,144 @@
 package karacken.curl;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
-/** Owns one callback waiting for a complete renderer frame. */
+/** Multiplexes the next complete renderer frame across bounded one-shot consumers. */
 final class PresentedFrameRequest {
     static final long NO_REQUEST_ID = 0L;
+    static final int MAX_PENDING_CALLBACKS = 3;
 
     private long lastRequestId;
-    private long requestedId = NO_REQUEST_ID;
-    private long armedId = NO_REQUEST_ID;
-    private long renderedId = NO_REQUEST_ID;
-    private Runnable callback;
+    private long lastCompletionId;
+    private final Map<Long, Runnable> requestedCallbacks = new LinkedHashMap<>();
+    private final Set<Long> armedRequestIds = new LinkedHashSet<>();
+    private final Map<Long, Map<Long, Runnable>> completedCallbacks =
+            new LinkedHashMap<>();
 
     synchronized long request(Runnable callback) {
         Objects.requireNonNull(callback, "callback");
-        if (requestedId != NO_REQUEST_ID) {
-            throw new IllegalStateException("A presented-frame request is already pending");
+        if (pendingCountLocked() >= MAX_PENDING_CALLBACKS) {
+            throw new IllegalStateException(
+                    "Presented-frame callback capacity is exhausted");
         }
         lastRequestId = Math.incrementExact(lastRequestId);
-        requestedId = lastRequestId;
-        armedId = NO_REQUEST_ID;
-        renderedId = NO_REQUEST_ID;
-        this.callback = callback;
-        return requestedId;
+        requestedCallbacks.put(lastRequestId, callback);
+        return lastRequestId;
     }
 
     synchronized boolean arm(long requestId) {
         if (requestId == NO_REQUEST_ID
-                || requestId != requestedId
-                || armedId != NO_REQUEST_ID
-                || renderedId != NO_REQUEST_ID) {
+                || !requestedCallbacks.containsKey(requestId)
+                || !armedRequestIds.add(requestId)) {
             return false;
         }
-        armedId = requestId;
-        return true;
+        return armedRequestIds.size() == 1;
     }
 
     synchronized long markRendered() {
-        if (armedId == NO_REQUEST_ID
-                || armedId != requestedId
-                || renderedId != NO_REQUEST_ID) {
+        if (armedRequestIds.isEmpty()) {
             return NO_REQUEST_ID;
         }
-        renderedId = armedId;
-        armedId = NO_REQUEST_ID;
-        return renderedId;
+        Map<Long, Runnable> renderedCallbacks = new LinkedHashMap<>();
+        for (Map.Entry<Long, Runnable> entry : requestedCallbacks.entrySet()) {
+            if (armedRequestIds.contains(entry.getKey())) {
+                renderedCallbacks.put(entry.getKey(), entry.getValue());
+            }
+        }
+        for (Long requestId : renderedCallbacks.keySet()) {
+            requestedCallbacks.remove(requestId);
+        }
+        armedRequestIds.clear();
+        if (renderedCallbacks.isEmpty()) {
+            return NO_REQUEST_ID;
+        }
+        lastCompletionId = Math.incrementExact(lastCompletionId);
+        completedCallbacks.put(lastCompletionId, renderedCallbacks);
+        return lastCompletionId;
     }
 
-    synchronized Runnable complete(long requestId) {
-        if (requestId == NO_REQUEST_ID
-                || requestId != requestedId
-                || requestId != renderedId) {
+    synchronized Runnable complete(long completionId) {
+        if (completionId == NO_REQUEST_ID) {
             return null;
         }
-        Runnable completed = callback;
-        clear();
-        return completed;
+        Map<Long, Runnable> completed = completedCallbacks.remove(completionId);
+        if (completed == null) {
+            return null;
+        }
+        List<Runnable> callbacks = new ArrayList<>(completed.values());
+        return () -> runIsolated(callbacks);
     }
 
     synchronized boolean cancel(long requestId) {
-        if (requestId == NO_REQUEST_ID || requestId != requestedId) {
+        if (requestId == NO_REQUEST_ID) {
             return false;
         }
-        clear();
-        return true;
+        Runnable requested = requestedCallbacks.remove(requestId);
+        if (requested != null) {
+            armedRequestIds.remove(requestId);
+            return true;
+        }
+        Iterator<Map.Entry<Long, Map<Long, Runnable>>> batches =
+                completedCallbacks.entrySet().iterator();
+        while (batches.hasNext()) {
+            Map<Long, Runnable> callbacks = batches.next().getValue();
+            if (callbacks.remove(requestId) != null) {
+                if (callbacks.isEmpty()) {
+                    batches.remove();
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     synchronized void cancelAll() {
-        clear();
+        requestedCallbacks.clear();
+        armedRequestIds.clear();
+        completedCallbacks.clear();
     }
 
     synchronized int pendingCount() {
-        return requestedId == NO_REQUEST_ID ? 0 : 1;
+        return pendingCountLocked();
     }
 
-    private void clear() {
-        requestedId = NO_REQUEST_ID;
-        armedId = NO_REQUEST_ID;
-        renderedId = NO_REQUEST_ID;
-        callback = null;
+    private int pendingCountLocked() {
+        int count = requestedCallbacks.size();
+        for (Map<Long, Runnable> callbacks : completedCallbacks.values()) {
+            count += callbacks.size();
+        }
+        return count;
+    }
+
+    private static void runIsolated(List<Runnable> callbacks) {
+        Throwable firstFailure = null;
+        for (Runnable callback : callbacks) {
+            try {
+                callback.run();
+            } catch (Throwable callbackFailure) {
+                if (firstFailure == null) {
+                    firstFailure = callbackFailure;
+                } else if (callbackFailure != firstFailure) {
+                    firstFailure.addSuppressed(callbackFailure);
+                }
+            }
+        }
+        if (firstFailure instanceof RuntimeException) {
+            throw (RuntimeException) firstFailure;
+        }
+        if (firstFailure instanceof Error) {
+            throw (Error) firstFailure;
+        }
+        if (firstFailure != null) {
+            throw new IllegalStateException(
+                    "Presented-frame callback failed",
+                    firstFailure);
+        }
     }
 }

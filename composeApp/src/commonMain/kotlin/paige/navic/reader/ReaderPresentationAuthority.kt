@@ -603,29 +603,62 @@ private fun ReaderPresentationBinding.isCompleteDestinationSuccessorOf(
 
 private fun ReaderPresentationState.reduceBindingReplacement(
 	event: ReaderPresentationEvent.BindingReplaced
-): ReaderPresentationReducerResult = when {
-	binding == event.binding -> ReaderPresentationReducerResult(this)
-	binding != event.previousBinding ||
-		!event.binding.isCompleteBindingReplacementOf(event.previousBinding) ->
-		ReaderPresentationReducerResult(this)
-	else -> ReaderPresentationReducerResult(
-		state = copy(
-			authority = ReaderPresentationAuthority.Unavailable,
-			binding = event.binding,
-			preparationFacts = ReaderPagePreparationFacts(),
-			failure = null
-		),
-		effects = if (authority.frameOwner() == ReaderPresentationFrameOwner.Neutral) {
-			emptyList()
-		} else {
-			listOf(
-				ReaderPresentationEffect.ReleaseStalePresentation(
-					token = authority.releaseIdentityTokenOrNull(),
-					binding = event.previousBinding
-				)
-			)
+): ReaderPresentationReducerResult {
+	val coverBackedDismissal = (authority as? ReaderPresentationAuthority.BlockingPreparation)
+		?.takeIf { pending ->
+			pending.retainedFrame is ReaderPresentationFrameOwner.ShellCover &&
+				pending.nativePresentationRequest?.binding == event.previousBinding
 		}
-	)
+	return when {
+		binding == event.binding -> ReaderPresentationReducerResult(this)
+		binding != event.previousBinding ||
+			!event.binding.isCompleteBindingReplacementOf(event.previousBinding) ->
+			ReaderPresentationReducerResult(this)
+		coverBackedDismissal != null -> ReaderPresentationReducerResult(
+			state = copy(
+				authority = coverBackedDismissal.copy(
+					nativePresentationRequest = coverBackedDismissal.nativePresentationRequest?.copy(
+						binding = event.binding
+					)
+				),
+				binding = event.binding,
+				preparationFacts = ReaderPagePreparationFacts(),
+				failure = null
+			),
+			effects = if (
+				event.previousBinding ==
+				(coverBackedDismissal.retainedFrame as ReaderPresentationFrameOwner.ShellCover)
+					.proof.binding
+			) {
+				emptyList()
+			} else {
+				listOf(
+					ReaderPresentationEffect.ReleaseStalePresentation(
+						token = coverBackedDismissal.nativePresentationRequest?.token,
+						binding = event.previousBinding
+					)
+				)
+			}
+		)
+		else -> ReaderPresentationReducerResult(
+			state = copy(
+				authority = ReaderPresentationAuthority.Unavailable,
+				binding = event.binding,
+				preparationFacts = ReaderPagePreparationFacts(),
+				failure = null
+			),
+			effects = if (authority.frameOwner() == ReaderPresentationFrameOwner.Neutral) {
+				emptyList()
+			} else {
+				listOf(
+					ReaderPresentationEffect.ReleaseStalePresentation(
+						token = authority.releaseIdentityTokenOrNull(),
+						binding = event.previousBinding
+					)
+				)
+			}
+		)
+	}
 }
 
 private fun ReaderPresentationBinding.isCompleteBindingReplacementOf(

@@ -42,7 +42,8 @@ public class PageSurfaceView extends GLSurfaceView {
     private static final int REQUIRED_DISPOSAL_CALLBACK_LIMIT = 1;
     private static final int AUXILIARY_DISPOSAL_CALLBACK_LIMIT = 2;
     private static final int OWNERSHIP_CALLBACK_LIMIT = 4;
-    private static final int PRESENTED_FRAME_CALLBACK_LIMIT = 1;
+    private static final int PRESENTED_FRAME_CALLBACK_LIMIT =
+            PresentedFrameRequest.MAX_PENDING_CALLBACKS;
     private static final int PAGE_OVERLAY_UPDATE_LIMIT = 1;
     private static final int MAIN_TERMINAL_ACTION_LIMIT =
             OWNERSHIP_CALLBACK_LIMIT + REQUIRED_DISPOSAL_CALLBACK_LIMIT;
@@ -338,12 +339,12 @@ public class PageSurfaceView extends GLSurfaceView {
                 if (!frameRendered) {
                     return;
                 }
-                long presentedRequestId = presentedFrameRequest.markRendered();
-                if (presentedRequestId != NO_PRESENTED_FRAME_REQUEST_ID) {
+                long presentedCompletionId = presentedFrameRequest.markRendered();
+                if (presentedCompletionId != NO_PRESENTED_FRAME_REQUEST_ID) {
                     boolean posted = post(() -> postOnAnimation(
-                            () -> handlePresentedFrame(presentedRequestId)));
+                            () -> handlePresentedFrame(presentedCompletionId)));
                     if (!posted) {
-                        presentedFrameRequest.cancel(presentedRequestId);
+                        presentedFrameRequest.complete(presentedCompletionId);
                     }
                 }
                 long frameToken = boundaryRestorationProtocol.armedToken();
@@ -385,6 +386,7 @@ public class PageSurfaceView extends GLSurfaceView {
         if (!disposeStarted) {
             failLiveOwnershipRequests();
         }
+        presentedFrameRequest.cancelAll();
         cancelGesture();
         queueDeckRelease(deckCoordinator.releasePending(
                 DeckReleaseReason.SESSION_DETACHED));
@@ -646,11 +648,12 @@ public class PageSurfaceView extends GLSurfaceView {
     }
 
     /**
-     * Arms a one-shot callback for the next complete frame rendered after this request.
+     * Registers one logical consumer for the next complete frame rendered after this request.
      *
      * <p>The callback runs on the Android main thread after the following animation pulse, so a
-     * hidden surface can update its buffer before the client reveals it. At most one request may
-     * be pending. The returned identifier can be cancelled when the associated gesture ends.
+     * hidden surface can update its buffer before the client reveals it. Up to the bounded set of
+     * production consumers share one physical next-frame request; each returned identifier can be
+     * cancelled independently.
      */
     public long requestNextPresentedFrame(Runnable callback) {
         requireMainThread();
@@ -697,7 +700,6 @@ public class PageSurfaceView extends GLSurfaceView {
     /** Cancels the identified gesture or settlement without navigating. */
     public void cancelGesture(long gestureId) {
         requireMainThread();
-        presentedFrameRequest.cancelAll();
         SettlementContext cancelledSettlement = cancelSettlementAnimator();
         long cancelledGestureId = activeGestureId != NO_GESTURE_ID
                 ? activeGestureId
@@ -794,6 +796,7 @@ public class PageSurfaceView extends GLSurfaceView {
         PageDeck<Bitmap> activeDeck = deckCoordinator.getActiveDeck();
         if (activeDeck != null
                 && activeDeck.getGenerationId() == generationId) {
+            presentedFrameRequest.cancelAll();
             cancelGesture();
         }
         PageSurfaceDeckReleaseResult result = releaseGate.request(
@@ -1973,6 +1976,7 @@ public class PageSurfaceView extends GLSurfaceView {
         if (disposed) {
             return;
         }
+        presentedFrameRequest.cancelAll();
         long generationId = failure.getGenerationId();
         PageSurfaceListener owner = generationId < 0
                 ? pageSurfaceListener
@@ -1998,6 +2002,7 @@ public class PageSurfaceView extends GLSurfaceView {
         PageDeck<Bitmap> activeDeck = deckCoordinator.getActiveDeck();
         if (activeDeck != null
                 && activeDeck.getGenerationId() == generationId) {
+            presentedFrameRequest.cancelAll();
             cancelGesture();
         }
         if (!releaseGate.rendererDetached(generationId, reason)) {
@@ -2248,8 +2253,8 @@ public class PageSurfaceView extends GLSurfaceView {
         });
     }
 
-    private void handlePresentedFrame(long requestId) {
-        Runnable callback = presentedFrameRequest.complete(requestId);
+    private void handlePresentedFrame(long completionId) {
+        Runnable callback = presentedFrameRequest.complete(completionId);
         if (callback == null) {
             return;
         }

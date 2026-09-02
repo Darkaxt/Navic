@@ -1656,7 +1656,18 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		val lifecycle = host
 			.substringAfter("private fun dispatchPageHostLifecycleEvent(")
 			.substringBefore("private fun completeHostGesture(")
-		assertContains(lifecycle, "pageInputSettlementHostController.onLifecycleEvent(event)")
+		assertContains(lifecycle, "readerDispatchPageHostLifecycleEvent(")
+		assertContains(lifecycle, "event = event")
+		assertContains(lifecycle, "preserveDestinationDeck = preserveDestinationDeck")
+		assertContains(lifecycle, "clearDestinationDeckPrewarm = ::clearDestinationDeckPrewarm")
+		assertContains(
+			lifecycle,
+			"dispatchInputLifecycle = pageInputSettlementHostController::onLifecycleEvent"
+		)
+		assertTrue(
+			lifecycle.indexOf("readerDispatchPageHostLifecycleEvent(") <
+				lifecycle.indexOf("nativePagePresentationPublisher.update()")
+		)
 		assertFalse(lifecycle.contains("onPointerInteractionChanged(false)"))
 		val gestureCompletion = host
 			.substringAfter("private fun completeHostGesture(")

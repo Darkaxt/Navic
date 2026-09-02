@@ -879,6 +879,246 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
+	fun coverDismissalSurvivesEveryCompleteBindingReplacementShape() {
+		val coverProof = shellCoverProof(ReaderPresentationToken(7L), coverGeneration = 8L)
+		val replacements = listOf(
+			binding.copy(
+				viewportGeneration = 12L,
+				profileGeneration = 13L,
+				rasterGeneration = 14L,
+				textureGeneration = 15L,
+				preparationGeneration = 16L
+			),
+			binding.copy(
+				destinationCommitIdentity = ReaderDestinationCommitIdentity(
+					binding.foliateSessionId,
+					2L
+				),
+				viewportGeneration = 22L,
+				profileGeneration = 23L,
+				rasterGeneration = 24L,
+				textureGeneration = 25L,
+				preparationGeneration = 26L
+			),
+			binding.copy(preparationGeneration = 36L)
+		)
+
+		replacements.forEachIndexed { index, replacement ->
+			val coverState = ReaderPresentationState(
+				authority = ReaderPresentationAuthority.ShellCover(coverProof),
+				binding = binding,
+				preparationFacts = preparationFacts(readiness = readyReadiness),
+				nextTokenValue = 8L
+			)
+			val dismissal = readerPresentationReduce(
+				coverState,
+				ReaderPresentationEvent.ShellCoverDismissalRequested
+			)
+			val replaced = readerPresentationReduce(
+				dismissal.state,
+				ReaderPresentationEvent.BindingReplaced(binding, replacement)
+			)
+			val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+				replaced.state.authority
+			)
+
+			assertEquals(ReaderPresentationFrameOwner.ShellCover(coverProof), pending.retainedFrame)
+			assertEquals(
+				ReaderNativePagePresentationRequest(ReaderPresentationToken(8L), replacement),
+				pending.nativePresentationRequest
+			)
+			assertEquals(replacement, replaced.state.binding)
+			assertEquals(ReaderPagePreparationFacts(), replaced.state.preparationFacts)
+			assertEquals(null, replaced.state.failure)
+			assertEquals(ReaderPresentationFrameOwner.ShellCover(coverProof), replaced.decision.frameOwner)
+			assertEquals(
+				ReaderRequiredTransition.PresentNativePage(
+					ReaderPresentationToken(8L),
+					replacement,
+					direction = null
+				),
+				replaced.decision.requiredTransition
+			)
+			assertTrue(replaced.effects.isEmpty())
+
+			val staleProof = nativeProofFor(binding, presentedFrame = 60L + index).copy(
+				transitionToken = ReaderPresentationToken(8L)
+			)
+			val stale = readerPresentationReduce(
+				replaced.state,
+				ReaderPresentationEvent.NativePagePresented(staleProof)
+			)
+			assertEquals(replaced.state, stale.state)
+			assertEquals(
+				listOf(
+					ReaderPresentationEffect.ReleaseStalePresentation(
+						ReaderPresentationToken(8L),
+						binding
+					)
+				),
+				stale.effects
+			)
+
+			val ready = readerPresentationReduce(
+				replaced.state,
+				ReaderPresentationEvent.PreparationReported(
+					replacement,
+					preparationFacts(
+						generation = requireNotNull(replacement.preparationGeneration),
+						phase = ReaderPagePreparationPhase.Ready,
+						readiness = readyReadiness
+					)
+				)
+			)
+			val exactProof = nativeProofFor(replacement, presentedFrame = 70L + index).copy(
+				transitionToken = ReaderPresentationToken(8L)
+			)
+			val presented = readerPresentationReduce(
+				ready.state,
+				ReaderPresentationEvent.NativePagePresented(exactProof)
+			)
+			assertEquals(
+				ReaderPresentationAuthority.SettledNativePage(
+					ReaderPresentationFrameOwner.NativePage(exactProof)
+				),
+				presented.state.authority
+			)
+			assertEquals(
+				listOf(
+					ReaderPresentationEffect.ReleaseStalePresentation(
+						coverProof.token,
+						coverProof.binding
+					)
+				),
+				presented.effects
+			)
+			val laterCover = readerPresentationReduce(
+				presented.state,
+				ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 90L + index)
+			)
+			assertEquals(
+				ReaderPresentationToken(9L),
+				assertIs<ReaderRequiredTransition.CommitShellCover>(
+					laterCover.decision.requiredTransition
+				).token
+			)
+		}
+	}
+
+	@Test
+	fun coverDismissalReplacementChainPreservesTokenThroughFailureLossAndRetry() {
+		val coverProof = shellCoverProof(ReaderPresentationToken(7L), coverGeneration = 8L)
+		val dismissal = readerPresentationReduce(
+			ReaderPresentationState(
+				authority = ReaderPresentationAuthority.ShellCover(coverProof),
+				binding = binding,
+				nextTokenValue = 8L
+			),
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		)
+		val bindingB = binding.copy(
+			viewportGeneration = 42L,
+			rasterGeneration = 43L,
+			textureGeneration = 44L,
+			preparationGeneration = 45L
+		)
+		val bindingC = bindingB.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				binding.foliateSessionId,
+				2L
+			),
+			profileGeneration = 52L,
+			rasterGeneration = 53L,
+			textureGeneration = 54L,
+			preparationGeneration = 55L
+		)
+		val retryBinding = bindingC.copy(preparationGeneration = 56L)
+		val eventAB = ReaderPresentationEvent.BindingReplaced(binding, bindingB)
+		val movedB = readerPresentationReduce(dismissal.state, eventAB)
+		assertNoOp(movedB.state, readerPresentationReduce(movedB.state, eventAB))
+		val movedC = readerPresentationReduce(
+			movedB.state,
+			ReaderPresentationEvent.BindingReplaced(bindingB, bindingC)
+		)
+		val failed = readerPresentationReduce(
+			movedC.state,
+			ReaderPresentationEvent.PreparationFailed(
+				binding = bindingC,
+				facts = preparationFacts(
+					generation = 55L,
+					phase = ReaderPagePreparationPhase.Failed
+				),
+				reason = ReaderPresentationFailureReason.RendererUnavailable,
+				cancellable = false
+			)
+		)
+		val rendererLost = readerPresentationReduce(
+			failed.state,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.RendererLost)
+		)
+		val retried = readerPresentationReduce(
+			rendererLost.state,
+			ReaderPresentationEvent.BindingReplaced(bindingC, retryBinding)
+		)
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			retried.state.authority
+		)
+
+		assertEquals(ReaderPresentationFrameOwner.ShellCover(coverProof), pending.retainedFrame)
+		assertEquals(
+			ReaderNativePagePresentationRequest(ReaderPresentationToken(8L), retryBinding),
+			pending.nativePresentationRequest
+		)
+		assertEquals(ReaderPagePreparationFacts(), retried.state.preparationFacts)
+		assertEquals(null, retried.state.failure)
+		assertTrue(movedB.effects.isEmpty())
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					ReaderPresentationToken(8L),
+					bindingB
+				)
+			),
+			movedC.effects
+		)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					ReaderPresentationToken(8L),
+					bindingC
+				)
+			),
+			retried.effects
+		)
+
+		val staleCProof = nativeProofFor(bindingC, 81L).copy(
+			transitionToken = ReaderPresentationToken(8L)
+		)
+		val staleC = readerPresentationReduce(
+			retried.state,
+			ReaderPresentationEvent.NativePagePresented(staleCProof)
+		)
+		assertEquals(retried.state, staleC.state)
+		val exactProof = nativeProofFor(retryBinding, 82L).copy(
+			transitionToken = ReaderPresentationToken(8L)
+		)
+		val exact = readerPresentationReduce(
+			retried.state,
+			ReaderPresentationEvent.NativePagePresented(exactProof)
+		)
+		assertEquals(ReaderPresentationFrameOwner.NativePage(exactProof), exact.decision.frameOwner)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					coverProof.token,
+					coverProof.binding
+				)
+			),
+			exact.effects
+		)
+	}
+
+	@Test
 	fun mismatchedShellCoverProofKeepsPageAndReleasesStaleProofOnce() {
 		val pending = readerPresentationReduce(
 			settledNativeState(nextTokenValue = 7L),

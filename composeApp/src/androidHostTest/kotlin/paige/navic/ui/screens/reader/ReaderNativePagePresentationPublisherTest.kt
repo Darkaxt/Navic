@@ -2,6 +2,7 @@ package paige.navic.ui.screens.reader
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import java.io.File
 import karacken.curl.PageSurfaceView
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -123,6 +124,45 @@ class ReaderNativePagePresentationPublisherTest {
 			generation = 6L + sequence
 		)
 	)
+}
+
+class ReaderPresentedFrameCallerSourceTest {
+	@Test
+	fun productionSurfaceFrameConsumersAreExplicitAndShareThePageSurfaceBroker() {
+		val sourceRoot = File("src/androidMain/kotlin")
+		val callers = sourceRoot.walkTopDown()
+			.filter { file ->
+				file.isFile &&
+					file.extension == "kt" &&
+					"requestNextPresentedFrame" in file.readText()
+			}
+			.map { it.relativeTo(sourceRoot).invariantSeparatorsPath }
+			.toSet()
+
+		assertEquals(
+			setOf(
+				"paige/navic/ui/screens/reader/ReaderPageTurnBitmapSource.android.kt",
+				"paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateController.android.kt",
+				"paige/navic/ui/screens/reader/ReaderPresentationHostBridge.android.kt"
+			),
+			callers
+		)
+		assertTrue(
+			File(sourceRoot, "paige/navic/ui/screens/reader/ReaderPageTurnBitmapSource.android.kt")
+				.readText()
+				.contains("rendererSurface.requestNextPresentedFrame")
+		)
+		assertTrue(
+			File(sourceRoot, "paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateController.android.kt")
+				.readText()
+				.contains("surfaceView.requestNextPresentedFrame")
+		)
+		assertTrue(
+			File(sourceRoot, "paige/navic/ui/screens/reader/ReaderPresentationHostBridge.android.kt")
+				.readText()
+				.contains("surface.requestNextPresentedFrame")
+		)
+	}
 }
 
 @RunWith(RobolectricTestRunner::class)
