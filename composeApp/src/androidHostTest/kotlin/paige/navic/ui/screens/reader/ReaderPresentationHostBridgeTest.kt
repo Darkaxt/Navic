@@ -7,19 +7,28 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import paige.navic.reader.ReaderChapterRasterGenerationState
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
+import paige.navic.reader.ReaderDecodedWorkingSetState
+import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderNativePagePresentationProof
+import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPagePreparationFacts
+import paige.navic.reader.ReaderPagePreparationPhase
+import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationDecision
+import paige.navic.reader.ReaderPresentationEffect
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationLayer
+import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderShellCoverCommitProof
+import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.readerPresentationReduce
 
@@ -216,6 +225,165 @@ class ReaderPresentationHostBridgeTest {
 				shellCoverAlreadySelected = false
 			)
 		)
+	}
+
+	@Test
+	fun productionRelocationRetainsAUntilBProofThenBridgeCommitsCoverAgainstB() {
+		val fixture = BridgeFixture()
+		val bindingA = fixture.binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				foliateSessionId = fixture.binding.foliateSessionId,
+				commitSequence = 1L
+			)
+		)
+		val bindingB = bindingA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				foliateSessionId = bindingA.foliateSessionId,
+				commitSequence = 2L
+			),
+			rasterGeneration = 23L,
+			textureGeneration = 29L,
+			preparationGeneration = 31L
+		)
+		fun snapshot(
+			binding: ReaderPresentationBinding,
+			visualPageIndex: Int
+		) = ReaderNativePagePresentationHostSnapshot(
+			binding = binding,
+			transitionToken = null,
+			deck = ReaderPagePreparedActiveDeck(
+				rasterProfileEpoch = binding.profileGeneration,
+				rasterEpoch = requireNotNull(binding.rasterGeneration),
+				sourceCenterPageIndex = visualPageIndex,
+				generationId = requireNotNull(binding.textureGeneration),
+				preparationGeneration = requireNotNull(binding.preparationGeneration)
+			),
+			visualPageIndex = visualPageIndex,
+			viewportWidth = 1920,
+			viewportHeight = 1200,
+			hostAttached = true,
+			windowVisible = true,
+			viewerReplacementAdmitted = true,
+			rendererDeckReady = true,
+			nativePresentationVisible = true,
+			shellCoverSelected = false
+		)
+
+		var presentation = ReaderPresentationState(nextTokenValue = 41L)
+		val eventOrder = mutableListOf<ReaderPresentationEvent>()
+		val effects = mutableListOf<ReaderPresentationEffect>()
+		fun dispatch(event: ReaderPresentationEvent): paige.navic.reader.ReaderPresentationReduction {
+			eventOrder += event
+			val reduction = readerPresentationReduce(presentation, event)
+			presentation = reduction.state
+			effects += reduction.effects
+			return reduction
+		}
+		dispatch(ReaderPresentationEvent.PublicationOpened(bindingA))
+		val publisher = ReaderNativePagePresentationPublisher(::dispatch)
+		publisher.update(snapshot(bindingA, visualPageIndex = 4).currentCandidateOrNull())
+		val frameA = assertIs<ReaderPresentationAuthority.SettledNativePage>(presentation.authority).frame
+
+		val moved = dispatch(
+			ReaderPresentationEvent.FoliateRelocated(bindingB, acknowledgement = null)
+		)
+		assertEquals(bindingB, moved.state.binding)
+		assertEquals(frameA, moved.decision.frameOwner)
+		assertTrue(moved.effects.isEmpty())
+
+		val ignoredCover = dispatch(
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 43L)
+		)
+		assertEquals(ReaderRequiredTransition.None, ignoredCover.decision.requiredTransition)
+		assertFalse(
+			readerNativeShellCoverSelected(
+				shellCoverIntent = true,
+				decision = ignoredCover.decision,
+				hasValidatedNativePredecessor = true,
+				shellCoverAlreadySelected = false
+			)
+		)
+
+		dispatch(
+			ReaderPresentationEvent.PreparationReported(
+				bindingB,
+				ReaderPagePreparationFacts(
+					phase = ReaderPagePreparationPhase.Ready,
+					generation = 31L,
+					completedCount = 3,
+					requiredCount = 3,
+					readiness = ReaderPageReadinessState(
+						rasterGeneration = ReaderChapterRasterGenerationState.Ready,
+						decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+						textureDeck = ReaderTextureDeckState.Ready,
+						pendingTextureDeck = ReaderTextureDeckState.Ready,
+						interaction = ReaderPageInteractionState.Ready
+					)
+				)
+			)
+		)
+		publisher.update(snapshot(bindingB, visualPageIndex = 5).currentCandidateOrNull())
+
+		val frameB = assertIs<ReaderPresentationAuthority.SettledNativePage>(presentation.authority).frame
+		assertEquals(bindingB, frameB.proof.binding)
+		assertEquals(
+			listOf<ReaderPresentationEffect>(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					token = frameA.proof.transitionToken,
+					binding = bindingA
+				)
+			),
+			effects
+		)
+
+		val pending = dispatch(
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 43L)
+		)
+		val transition = assertIs<ReaderRequiredTransition.CommitShellCover>(
+			pending.decision.requiredTransition
+		)
+		assertEquals(bindingB, transition.binding)
+
+		val rejectedAReceipt = readerPresentationReduce(
+			presentation,
+			ReaderPresentationEvent.ShellCoverCommitted(
+				ReaderShellCoverCommitProof(
+					token = transition.token,
+					binding = bindingA,
+					coverGeneration = transition.coverGeneration,
+					presentedFrame = 1L,
+					viewportWidth = 1920,
+					viewportHeight = 1200
+				)
+			)
+		)
+		assertEquals(presentation, rejectedAReceipt.state)
+
+		val host = LayerBackedReaderPresentationCommitHost(bindingB)
+		val receipts = mutableListOf<ReaderPresentationEvent>()
+		val bridge = ReaderPresentationHostBridge(host) { receipt ->
+			receipts += receipt
+			dispatch(receipt)
+		}
+		bridge.update(pending.decision)
+		assertEquals(ReaderShellCoverHostLayer.PreparedBehindPredecessor, host.currentLayer)
+		host.registrations.single().draw()
+		host.runNextAnimationFrame()
+
+		val exactReceipt = assertIs<ReaderPresentationEvent.ShellCoverCommitted>(receipts.single())
+		assertEquals(bindingB, exactReceipt.proof.binding)
+		assertTrue(
+			readerNativeShellCoverSelected(
+				shellCoverIntent = true,
+				decision = readerPresentationDecision(presentation),
+				hasValidatedNativePredecessor = true,
+				shellCoverAlreadySelected = false
+			)
+		)
+		host.selectAcceptedCover()
+		bridge.update(readerPresentationDecision(presentation))
+		assertEquals(ReaderShellCoverHostLayer.Selected, host.currentLayer)
+		assertEquals(1, host.completePreparationCount)
 	}
 
 	@Test

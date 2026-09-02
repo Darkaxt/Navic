@@ -70,6 +70,103 @@ class ReaderPresentationAuthoritySequenceTest {
 	}
 
 	@Test
+	fun ordinaryRelocationRetainsPageUntilTargetProofThenCommitsCoverAgainstTarget() {
+		val settled = settledNativePresentationState()
+		val bindingA = requireNotNull(settled.binding)
+		val frameA = assertIs<ReaderPresentationAuthority.SettledNativePage>(settled.authority).frame
+		val bindingB = bindingA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				foliateSessionId = bindingA.foliateSessionId,
+				commitSequence = 5L
+			),
+			rasterGeneration = 23L,
+			textureGeneration = 29L,
+			preparationGeneration = 31L
+		)
+		val controllerA = ReaderController(ReaderControllerState(presentation = settled))
+
+		val moved = controllerA.onPresentationEvent(
+			ReaderPresentationEvent.FoliateRelocated(bindingB, acknowledgement = null)
+		)
+		assertEquals(bindingB, moved.controller.state.presentation.binding)
+		assertEquals(frameA, moved.controller.state.presentationDecision.frameOwner)
+		assertEquals(ReaderPagePreparationFacts(), moved.controller.state.presentation.preparationFacts)
+		assertIs<ReaderPageNewPointerDecision.Reject>(
+			assertIs<ReaderPresentationInputPolicy.NativePage>(
+				moved.controller.state.presentationDecision.inputPolicy
+			).policy.newPointer
+		)
+		assertTrue(moved.presentationEffects.isEmpty())
+
+		val ignoredCover = moved.controller.onPresentationEvent(
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 37L)
+		)
+		assertEquals(moved.controller.state.presentation, ignoredCover.controller.state.presentation)
+		assertEquals(ReaderRequiredTransition.None, ignoredCover.controller.state.presentationDecision.requiredTransition)
+
+		val prepared = ignoredCover.controller.onPresentationEvent(
+			ReaderPresentationEvent.PreparationReported(
+				bindingB,
+				ReaderPagePreparationFacts(
+					phase = ReaderPagePreparationPhase.Ready,
+					generation = 31L,
+					completedCount = 3,
+					requiredCount = 3,
+					readiness = ReaderPageReadinessState(
+						rasterGeneration = ReaderChapterRasterGenerationState.Ready,
+						decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+						textureDeck = ReaderTextureDeckState.Ready,
+						pendingTextureDeck = ReaderTextureDeckState.Ready,
+						interaction = ReaderPageInteractionState.Ready
+					)
+				)
+			)
+		)
+		assertIs<ReaderPageNewPointerDecision.Reject>(
+			assertIs<ReaderPresentationInputPolicy.NativePage>(
+				prepared.controller.state.presentationDecision.inputPolicy
+			).policy.newPointer
+		)
+
+		val proofB = nativeProof(bindingB, frame = 12L)
+		val presented = prepared.controller.onPresentationEvent(
+			ReaderPresentationEvent.NativePagePresented(proofB)
+		)
+		assertEquals(
+			ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(proofB)
+			),
+			presented.controller.state.presentation.authority
+		)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					token = frameA.proof.transitionToken,
+					binding = bindingA
+				)
+			),
+			presented.presentationEffects
+		)
+		assertIs<ReaderPageNewPointerDecision.Accept>(
+			assertIs<ReaderPresentationInputPolicy.NativePage>(
+				presented.controller.state.presentationDecision.inputPolicy
+			).policy.newPointer
+		)
+
+		val cover = presented.controller.onPresentationEvent(
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 37L)
+		)
+		assertEquals(
+			ReaderRequiredTransition.CommitShellCover(
+				token = ReaderPresentationToken(20L),
+				binding = bindingB,
+				coverGeneration = 37L
+			),
+			cover.controller.state.presentationDecision.requiredTransition
+		)
+	}
+
+	@Test
 	fun presentationEffectsDeduplicateByStableIdentityAndRequireSuccessfulAcknowledgement() {
 		val settled = settledNativePresentationState()
 		val staleBinding = presentationBinding(session = "session-stale", destinationSequence = 9L)

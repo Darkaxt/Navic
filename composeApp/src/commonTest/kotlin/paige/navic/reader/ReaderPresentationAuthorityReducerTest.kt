@@ -280,6 +280,281 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
+	fun settledNativeRelocationAdvancesTargetButRetainsFrameAndFencesInput() {
+		val successor = binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				foliateSessionId = binding.foliateSessionId,
+				commitSequence = 2L
+			),
+			rasterGeneration = 7L,
+			textureGeneration = 8L,
+			preparationGeneration = 6L
+		)
+		val settled = settledNativeState(nextTokenValue = 7L)
+
+		val relocated = readerPresentationReduce(
+			settled,
+			ReaderPresentationEvent.FoliateRelocated(successor, acknowledgement = null)
+		)
+
+		assertEquals(successor, relocated.state.binding)
+		assertEquals(settled.authority, relocated.state.authority)
+		assertEquals(nativeFrame, relocated.decision.frameOwner)
+		assertEquals(ReaderPresentationLayer.NativePage, relocated.decision.layer)
+		assertEquals(ReaderPagePreparationFacts(), relocated.state.preparationFacts)
+		assertTrue(relocated.effects.isEmpty())
+		assertIs<ReaderPageNewPointerDecision.Reject>(
+			(relocated.decision.inputPolicy as ReaderPresentationInputPolicy.NativePage)
+				.policy
+				.newPointer
+		)
+
+		val lateOldFacts = readerPresentationReduce(
+			relocated.state,
+			ReaderPresentationEvent.PreparationReported(binding, preparationFacts())
+		)
+		assertNoOp(relocated.state, lateOldFacts)
+
+		val successorFacts = preparationFacts(
+			generation = 6L,
+			phase = ReaderPagePreparationPhase.Ready,
+			readiness = readyReadiness
+		)
+		val prepared = readerPresentationReduce(
+			relocated.state,
+			ReaderPresentationEvent.PreparationReported(successor, successorFacts)
+		)
+		assertEquals(successorFacts, prepared.state.preparationFacts)
+		assertEquals(nativeFrame, prepared.decision.frameOwner)
+		assertIs<ReaderPageNewPointerDecision.Reject>(
+			(prepared.decision.inputPolicy as ReaderPresentationInputPolicy.NativePage)
+				.policy
+				.newPointer
+		)
+
+		val ignoredCoverRequest = readerPresentationReduce(
+			prepared.state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 10L)
+		)
+		assertNoOp(prepared.state, ignoredCoverRequest)
+		assertEquals(ReaderRequiredTransition.None, ignoredCoverRequest.decision.requiredTransition)
+
+		val lateRetainedRelocation = readerPresentationReduce(
+			prepared.state,
+			ReaderPresentationEvent.FoliateRelocated(binding, acknowledgement = null)
+		)
+		assertNoOp(prepared.state, lateRetainedRelocation)
+
+		assertNoOp(
+			prepared.state,
+			readerPresentationReduce(
+				prepared.state,
+				ReaderPresentationEvent.FoliateRelocated(successor, acknowledgement = null)
+			)
+		)
+	}
+
+	@Test
+	fun settledNativeRelocationRejectsIncompleteRegressingOrDifferentReaderTargets() {
+		val currentBinding = binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				foliateSessionId = binding.foliateSessionId,
+				commitSequence = 4L
+			)
+		)
+		val currentProof = nativeProof.copy(binding = currentBinding)
+		val currentState = settledNativeState().copy(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(currentProof)
+			),
+			binding = currentBinding
+		)
+		val validShape = currentBinding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				foliateSessionId = currentBinding.foliateSessionId,
+				commitSequence = 5L
+			),
+			rasterGeneration = 7L,
+			textureGeneration = 8L,
+			preparationGeneration = 9L
+		)
+		val otherSession = "other-fixture-session"
+		val rejectedTargets = listOf(
+			validShape.copy(
+				foliateSessionId = otherSession,
+				destinationCommitIdentity = ReaderDestinationCommitIdentity(otherSession, 5L)
+			),
+			validShape.copy(publicationGeneration = validShape.publicationGeneration + 1L),
+			validShape.copy(viewportGeneration = validShape.viewportGeneration + 1L),
+			validShape.copy(profileGeneration = validShape.profileGeneration + 1L),
+			validShape.copy(
+				destinationCommitIdentity = ReaderDestinationCommitIdentity(
+					foliateSessionId = currentBinding.foliateSessionId,
+					commitSequence = 4L
+				)
+			),
+			validShape.copy(
+				destinationCommitIdentity = ReaderDestinationCommitIdentity(
+					foliateSessionId = currentBinding.foliateSessionId,
+					commitSequence = 3L
+				)
+			),
+			validShape.copy(rasterGeneration = null),
+			validShape.copy(textureGeneration = null),
+			validShape.copy(preparationGeneration = null)
+		)
+
+		rejectedTargets.forEach { rejected ->
+			val reduction = readerPresentationReduce(
+				currentState,
+				ReaderPresentationEvent.FoliateRelocated(rejected, acknowledgement = null)
+			)
+			assertEquals(currentState, reduction.state)
+			assertEquals(nativeFrame.copy(proof = currentProof), reduction.decision.frameOwner)
+			assertEquals(
+				listOf(
+					ReaderPresentationEffect.ReleaseStalePresentation(
+						token = currentProof.transitionToken,
+						binding = rejected
+					)
+				),
+				reduction.effects
+			)
+		}
+	}
+
+	@Test
+	fun currentTargetNativeProofReplacesRetainedFrameAndReleasesOldIdentityOnce() {
+		val successor = binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				foliateSessionId = binding.foliateSessionId,
+				commitSequence = 2L
+			),
+			rasterGeneration = 7L,
+			textureGeneration = 8L,
+			preparationGeneration = 9L
+		)
+		val successorProof = nativeProofFor(successor, presentedFrame = 11L)
+		val moved = readerPresentationReduce(
+			settledNativeState(nextTokenValue = 7L),
+			ReaderPresentationEvent.FoliateRelocated(successor, acknowledgement = null)
+		)
+		val prepared = readerPresentationReduce(
+			moved.state,
+			ReaderPresentationEvent.PreparationReported(
+				successor,
+				preparationFacts(
+					generation = 9L,
+					phase = ReaderPagePreparationPhase.Ready,
+					readiness = readyReadiness
+				)
+			)
+		)
+
+		val wrongTokenProof = successorProof.copy(
+			transitionToken = ReaderPresentationToken(99L)
+		)
+		val wrongToken = readerPresentationReduce(
+			prepared.state,
+			ReaderPresentationEvent.NativePagePresented(wrongTokenProof)
+		)
+		assertEquals(prepared.state, wrongToken.state)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					wrongTokenProof.transitionToken,
+					successor
+				)
+			),
+			wrongToken.effects
+		)
+
+		val presented = readerPresentationReduce(
+			prepared.state,
+			ReaderPresentationEvent.NativePagePresented(successorProof)
+		)
+		assertEquals(successor, presented.state.binding)
+		assertEquals(
+			ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(successorProof)
+			),
+			presented.state.authority
+		)
+		assertEquals(ReaderPresentationFrameOwner.NativePage(successorProof), presented.decision.frameOwner)
+		assertEquals(ReaderPresentationInputPolicy.NativePage(operationPolicy), presented.decision.inputPolicy)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					nativeProof.transitionToken,
+					binding
+				)
+			),
+			presented.effects
+		)
+
+		assertNoOp(
+			presented.state,
+			readerPresentationReduce(
+				presented.state,
+				ReaderPresentationEvent.NativePagePresented(successorProof)
+			)
+		)
+
+		val lateOld = readerPresentationReduce(
+			presented.state,
+			ReaderPresentationEvent.NativePagePresented(nativeProof)
+		)
+		assertEquals(presented.state, lateOld.state)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					nativeProof.transitionToken,
+					binding
+				)
+			),
+			lateOld.effects
+		)
+
+		val untargetedBinding = successor.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				foliateSessionId = successor.foliateSessionId,
+				commitSequence = 3L
+			),
+			rasterGeneration = 10L,
+			textureGeneration = 11L,
+			preparationGeneration = 12L
+		)
+		val untargetedProof = nativeProofFor(untargetedBinding, presentedFrame = 12L)
+		val untargeted = readerPresentationReduce(
+			presented.state,
+			ReaderPresentationEvent.NativePagePresented(untargetedProof)
+		)
+		assertEquals(presented.state, untargeted.state)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					untargetedProof.transitionToken,
+					untargetedBinding
+				)
+			),
+			untargeted.effects
+		)
+
+		val cover = readerPresentationReduce(
+			presented.state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 10L)
+		)
+		assertEquals(
+			ReaderRequiredTransition.CommitShellCover(
+				token = ReaderPresentationToken(7L),
+				binding = successor,
+				coverGeneration = 10L
+			),
+			cover.decision.requiredTransition
+		)
+	}
+
+	@Test
 	fun mismatchedShellCoverProofKeepsPageAndReleasesStaleProofOnce() {
 		val pending = readerPresentationReduce(
 			settledNativeState(nextTokenValue = 7L),
@@ -1069,6 +1344,19 @@ class ReaderPresentationAuthorityReducerTest {
 		binding = binding,
 		preparationFacts = preparationFacts(readiness = readyReadiness),
 		nextTokenValue = nextTokenValue
+	)
+
+	private fun nativeProofFor(
+		proofBinding: ReaderPresentationBinding,
+		presentedFrame: Long
+	) = ReaderNativePagePresentationProof(
+		binding = proofBinding,
+		transitionToken = null,
+		presentedFrame = presentedFrame,
+		viewportWidth = 100,
+		viewportHeight = 200,
+		rasterGeneration = requireNotNull(proofBinding.rasterGeneration),
+		textureGeneration = requireNotNull(proofBinding.textureGeneration)
 	)
 
 	private fun closedPresentationState(): ReaderPresentationState {

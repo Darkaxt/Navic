@@ -434,7 +434,10 @@ fun readerPresentationDecision(state: ReaderPresentationState): ReaderPresentati
 	val authority = state.authority
 	val frameOwner = authority.frameOwner()
 	val inputPolicy = when (state.lifecycle) {
-		ReaderPresentationLifecycleState.Foreground -> authority.inputPolicy(state.preparationFacts)
+		ReaderPresentationLifecycleState.Foreground -> authority.inputPolicy(
+			state.binding,
+			state.preparationFacts
+		)
 		ReaderPresentationLifecycleState.Background -> ReaderPresentationInputPolicy.ChromeOnly
 		ReaderPresentationLifecycleState.Destroyed -> ReaderPresentationInputPolicy.RecoveryOnly
 	}
@@ -466,15 +469,7 @@ fun readerPresentationReduce(
 			)
 		)
 		is ReaderPresentationEvent.BindingReplaced -> state.reduceBindingReplacement(event)
-		is ReaderPresentationEvent.FoliateRelocated -> if (
-			state.authority == ReaderPresentationAuthority.Unavailable
-		) {
-			ReaderPresentationReducerResult(state.copy(binding = event.binding))
-		} else if (state.binding == event.binding) {
-			ReaderPresentationReducerResult(state)
-		} else {
-			state.stalePresentation(state.authority.tokenOrNull(), event.binding)
-		}
+		is ReaderPresentationEvent.FoliateRelocated -> state.reduceFoliateRelocation(event)
 		is ReaderPresentationEvent.ShellCoverRequested -> {
 			val retainedFrame = when (val authority = state.authority) {
 				is ReaderPresentationAuthority.SettledNativePage ->
@@ -542,6 +537,45 @@ private fun ReaderPresentationEvent.closedResourceReleaseOrNull():
 	is ReaderPresentationEvent.WebViewPresentationProven ->
 		ReaderPresentationEffect.ReleaseStalePresentation(proof.token, proof.binding)
 	else -> null
+}
+
+private fun ReaderPresentationState.reduceFoliateRelocation(
+	event: ReaderPresentationEvent.FoliateRelocated
+): ReaderPresentationReducerResult {
+	val authority = authority
+	return when {
+		authority == ReaderPresentationAuthority.Unavailable ->
+			ReaderPresentationReducerResult(copy(binding = event.binding))
+		binding == event.binding -> ReaderPresentationReducerResult(this)
+		authority is ReaderPresentationAuthority.SettledNativePage &&
+			authority.frame.proof.binding == event.binding ->
+			ReaderPresentationReducerResult(this)
+		authority is ReaderPresentationAuthority.SettledNativePage &&
+			binding?.let(event.binding::isCompleteDestinationSuccessorOf) == true ->
+			ReaderPresentationReducerResult(
+				copy(
+					binding = event.binding,
+					preparationFacts = ReaderPagePreparationFacts(),
+					failure = null
+				)
+			)
+		else -> stalePresentation(authority.tokenOrNull(), event.binding)
+	}
+}
+
+private fun ReaderPresentationBinding.isCompleteDestinationSuccessorOf(
+	predecessor: ReaderPresentationBinding
+): Boolean {
+	val predecessorDestination = predecessor.destinationCommitIdentity ?: return false
+	val destination = destinationCommitIdentity ?: return false
+	return foliateSessionId == predecessor.foliateSessionId &&
+		publicationGeneration == predecessor.publicationGeneration &&
+		viewportGeneration == predecessor.viewportGeneration &&
+		profileGeneration == predecessor.profileGeneration &&
+		destination.commitSequence > predecessorDestination.commitSequence &&
+		rasterGeneration != null &&
+		textureGeneration != null &&
+		preparationGeneration != null
 }
 
 private fun ReaderPresentationState.reduceBindingReplacement(
@@ -662,12 +696,27 @@ private fun ReaderPresentationState.reduceNativePageProof(
 	} else {
 		staleProof(proof.transitionToken, proof.binding)
 	}
-	is ReaderPresentationAuthority.SettledNativePage -> if (
-		authority.frame.proof == proof && binding == proof.binding
-	) {
-		ReaderPresentationReducerResult(this)
-	} else {
-		staleProof(proof.transitionToken, proof.binding)
+	is ReaderPresentationAuthority.SettledNativePage -> when {
+		authority.frame.proof == proof && binding == proof.binding ->
+			ReaderPresentationReducerResult(this)
+		proof.transitionToken == null &&
+			binding == proof.binding &&
+			proof.binding.isCompleteDestinationSuccessorOf(authority.frame.proof.binding) ->
+			ReaderPresentationReducerResult(
+				state = copy(
+					authority = ReaderPresentationAuthority.SettledNativePage(
+						ReaderPresentationFrameOwner.NativePage(proof)
+					),
+					failure = null
+				),
+				effects = listOf(
+					ReaderPresentationEffect.ReleaseStalePresentation(
+						token = authority.frame.proof.transitionToken,
+						binding = authority.frame.proof.binding
+					)
+				)
+			)
+		else -> staleProof(proof.transitionToken, proof.binding)
 	}
 	else -> staleProof(proof.transitionToken, proof.binding)
 }
@@ -952,6 +1001,7 @@ private fun ReaderPresentationAuthority.frameOwner(): ReaderPresentationFrameOwn
 }
 
 private fun ReaderPresentationAuthority.inputPolicy(
+	targetBinding: ReaderPresentationBinding?,
 	preparationFacts: ReaderPagePreparationFacts
 ): ReaderPresentationInputPolicy = when (this) {
 	ReaderPresentationAuthority.Unavailable -> ReaderPresentationInputPolicy.RecoveryOnly
@@ -963,7 +1013,10 @@ private fun ReaderPresentationAuthority.inputPolicy(
 		ReaderPresentationInputPolicy.ClaimedCurl(retainedFrame.frame.token)
 	is ReaderPresentationAuthority.SettledNativePage -> ReaderPresentationInputPolicy.NativePage(
 		readerPageOperationPolicy(
-			if (frame.proof.binding.preparationGeneration == preparationFacts.generation) {
+			if (
+				frame.proof.binding == targetBinding &&
+				frame.proof.binding.preparationGeneration == preparationFacts.generation
+			) {
 				preparationFacts.readiness
 			} else {
 				ReaderPageReadinessState()
