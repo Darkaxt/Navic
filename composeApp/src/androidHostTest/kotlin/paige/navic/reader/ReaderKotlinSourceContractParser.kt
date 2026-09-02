@@ -65,24 +65,11 @@ private fun readerKotlinSingleArgumentList(source: String, marker: String): Stri
 }
 
 private fun readerKotlinBalancedClosingParenthesis(source: String, openingIndex: Int): Int {
+	val lexicalState = ReaderKotlinLexicalState(source)
 	var depth = 0
-	var quote: Char? = null
-	var escaped = false
 	for (index in openingIndex until source.length) {
-		val character = source[index]
-		if (quote != null) {
-			when {
-				escaped -> escaped = false
-				character == '\\' -> escaped = true
-				character == quote -> quote = null
-			}
-			continue
-		}
-		if (character == '"' || character == '\'') {
-			quote = character
-			continue
-		}
-		when (character) {
+		if (!lexicalState.consume(index)) continue
+		when (source[index]) {
 			'(' -> depth++
 			')' -> {
 				depth--
@@ -90,7 +77,8 @@ private fun readerKotlinBalancedClosingParenthesis(source: String, openingIndex:
 			}
 		}
 	}
-	throw IllegalArgumentException("Unbalanced parentheses or unterminated literal")
+	lexicalState.requireComplete("parenthesized argument list")
+	throw IllegalArgumentException("Unbalanced parentheses in argument list")
 }
 
 private fun readerKotlinTopLevelParts(source: String): List<String> {
@@ -106,9 +94,7 @@ private fun readerKotlinTopLevelParts(source: String): List<String> {
 			scanner.consume(index)
 		}
 	}
-	require(scanner.isTopLevel) {
-		"Unsupported or unbalanced delimiters in argument list: $source"
-	}
+	scanner.requireBalanced("argument list")
 	parts += source.substring(partStart).trim()
 	val withoutTrailingComma = if (parts.lastOrNull().isNullOrBlank()) parts.dropLast(1) else parts
 	require(withoutTrailingComma.none(String::isBlank)) {
@@ -129,9 +115,7 @@ private fun readerKotlinTopLevelAssignmentIndex(source: String): Int {
 		}
 		scanner.consume(index)
 	}
-	require(scanner.isTopLevel) {
-		"Unsupported or unbalanced delimiters in argument: $source"
-	}
+	scanner.requireBalanced("argument")
 	return -1
 }
 
@@ -141,9 +125,7 @@ private fun readerKotlinTopLevelIndexOf(source: String, target: Char): Int {
 		if (character == target && scanner.isTopLevel) return index
 		scanner.consume(index)
 	}
-	require(scanner.isTopLevel) {
-		"Unsupported or unbalanced delimiters in parameter signature: $source"
-	}
+	scanner.requireBalanced("parameter signature")
 	return -1
 }
 
@@ -155,26 +137,13 @@ private fun readerKotlinIsProvenGenericInvocation(source: String, openingIndex: 
 	if (openingIndex == 0 || source[openingIndex - 1].isWhitespace()) return false
 	val precedingCharacter = source[openingIndex - 1]
 	if (!precedingCharacter.isLetterOrDigit() && precedingCharacter !in "_`") return false
+	val lexicalState = ReaderKotlinLexicalState(source)
 	var depth = 0
-	var quote: Char? = null
-	var escaped = false
 	for (index in openingIndex until source.length) {
-		val character = source[index]
-		if (quote != null) {
-			when {
-				escaped -> escaped = false
-				character == '\\' -> escaped = true
-				character == quote -> quote = null
-			}
-			continue
-		}
-		if (character == '"' || character == '\'') {
-			quote = character
-			continue
-		}
+		if (!lexicalState.consume(index)) continue
 		when {
-			character == '<' -> depth++
-			character == '>' && source.getOrNull(index - 1) != '-' -> {
+			source[index] == '<' -> depth++
+			source[index] == '>' && source.getOrNull(index - 1) != '-' -> {
 				depth--
 				if (depth == 0) {
 					var followingIndex = index + 1
@@ -224,38 +193,125 @@ private fun readerKotlinWithoutAnnotations(source: String): String {
 	return result.toString()
 }
 
+private enum class ReaderKotlinLexicalMode {
+	Normal,
+	OrdinaryString,
+	RawTripleString,
+	Character,
+	LineComment,
+	BlockComment
+}
+
+private class ReaderKotlinLexicalState(
+	private val source: String
+) {
+	private var mode = ReaderKotlinLexicalMode.Normal
+	private var escaped = false
+	private var blockCommentDepth = 0
+	private var skipThroughIndex = -1
+
+	val isNormal: Boolean
+		get() = mode == ReaderKotlinLexicalMode.Normal
+
+	fun consume(index: Int): Boolean {
+		if (index <= skipThroughIndex) return false
+		val character = source[index]
+		when (mode) {
+			ReaderKotlinLexicalMode.Normal -> when {
+				source.startsWith("\"\"\"", index) -> {
+					mode = ReaderKotlinLexicalMode.RawTripleString
+					skipThroughIndex = index + 2
+				}
+				source.startsWith("//", index) -> {
+					mode = ReaderKotlinLexicalMode.LineComment
+					skipThroughIndex = index + 1
+				}
+				source.startsWith("/*", index) -> {
+					mode = ReaderKotlinLexicalMode.BlockComment
+					blockCommentDepth = 1
+					skipThroughIndex = index + 1
+				}
+				character == '"' -> mode = ReaderKotlinLexicalMode.OrdinaryString
+				character == '\'' -> mode = ReaderKotlinLexicalMode.Character
+				else -> return true
+			}
+			ReaderKotlinLexicalMode.OrdinaryString,
+			ReaderKotlinLexicalMode.Character -> when {
+				escaped -> escaped = false
+				character == '\\' -> escaped = true
+				mode == ReaderKotlinLexicalMode.OrdinaryString && character == '"' ->
+					mode = ReaderKotlinLexicalMode.Normal
+				mode == ReaderKotlinLexicalMode.Character && character == '\'' ->
+					mode = ReaderKotlinLexicalMode.Normal
+			}
+			ReaderKotlinLexicalMode.RawTripleString -> if (
+				source.startsWith("\"\"\"", index)
+			) {
+				mode = ReaderKotlinLexicalMode.Normal
+				skipThroughIndex = index + 2
+			}
+			ReaderKotlinLexicalMode.LineComment -> if (character == '\n' || character == '\r') {
+				mode = ReaderKotlinLexicalMode.Normal
+			}
+			ReaderKotlinLexicalMode.BlockComment -> when {
+				source.startsWith("/*", index) -> {
+					blockCommentDepth++
+					skipThroughIndex = index + 1
+				}
+				source.startsWith("*/", index) -> {
+					blockCommentDepth--
+					skipThroughIndex = index + 1
+					if (blockCommentDepth == 0) mode = ReaderKotlinLexicalMode.Normal
+				}
+			}
+		}
+		return false
+	}
+
+	fun requireComplete(context: String) {
+		if (mode == ReaderKotlinLexicalMode.LineComment) {
+			mode = ReaderKotlinLexicalMode.Normal
+		}
+		require(mode == ReaderKotlinLexicalMode.Normal) {
+			"Unterminated ${mode.description} in $context"
+		}
+	}
+
+	private val ReaderKotlinLexicalMode.description: String
+		get() = when (this) {
+			ReaderKotlinLexicalMode.Normal -> "normal source"
+			ReaderKotlinLexicalMode.OrdinaryString -> "ordinary string"
+			ReaderKotlinLexicalMode.RawTripleString -> "raw triple string"
+			ReaderKotlinLexicalMode.Character -> "character literal"
+			ReaderKotlinLexicalMode.LineComment -> "line comment"
+			ReaderKotlinLexicalMode.BlockComment -> "block comment"
+		}
+}
+
 private class ReaderKotlinDelimiterScanner(
 	private val source: String
 ) {
+	private val lexicalState = ReaderKotlinLexicalState(source)
 	private var parentheses = 0
 	private var angles = 0
 	private var brackets = 0
 	private var braces = 0
-	private var quote: Char? = null
-	private var escaped = false
 	private var expression = false
 
 	val isTopLevel: Boolean
-		get() = quote == null && parentheses == 0 && angles == 0 && brackets == 0 && braces == 0
+		get() = lexicalState.isNormal &&
+			parentheses == 0 &&
+			angles == 0 &&
+			brackets == 0 &&
+			braces == 0
 
 	fun startNextSegment() {
 		expression = false
 	}
 
 	fun consume(index: Int) {
+		if (!lexicalState.consume(index)) return
 		val character = source[index]
-		if (quote != null) {
-			when {
-				escaped -> escaped = false
-				character == '\\' -> escaped = true
-				character == quote -> quote = null
-			}
-			return
-		}
-		if (character == '"' || character == '\'') {
-			quote = character
-			return
-		}
 		when {
 			character == '=' && isTopLevel && readerKotlinIsAssignmentEquals(source, index) ->
 				expression = true
@@ -271,6 +327,13 @@ private class ReaderKotlinDelimiterScanner(
 			character == ']' -> brackets--
 			character == '{' -> braces++
 			character == '}' -> braces--
+		}
+	}
+
+	fun requireBalanced(context: String) {
+		lexicalState.requireComplete(context)
+		require(isTopLevel) {
+			"Unsupported or unbalanced delimiters in $context: $source"
 		}
 	}
 }

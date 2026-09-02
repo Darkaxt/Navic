@@ -132,6 +132,107 @@ class ReaderKotlinSourceContractParserTest {
 	}
 
 	@Test
+	fun rawTripleStringsKeepFollowingParametersAndArgumentsVisible() {
+		val rawLiteral =
+			"\"\"\"text 'single' and \"double, <,>, ->\" tail, [brackets], {braces}, (parentheses), " +
+				"\\\\looks-escaped\n\$name and \${expr, with, commas}\nend\"\"\""
+		val parameters = readerKotlinDeclarationParameterContract(
+			"expect fun Host(label: String = $rawLiteral, onDone: () -> Unit)",
+			"expect fun Host"
+		)
+		val arguments = readerKotlinNamedCallArgumentNames(
+			"Host(label = $rawLiteral, onDone = callback)",
+			"Host"
+		)
+
+		assertEquals(2, parameters.size)
+		assertEquals(listOf("label", "onDone"), parameters.map { it.name })
+		assertEquals(2, arguments.size)
+		assertEquals(listOf("label", "onDone"), arguments)
+	}
+
+	@Test
+	fun escapedOrdinaryLiteralsAndCommentsKeepStructuralTokensInert() {
+		val ordinaryParameters = readerKotlinDeclarationParameterContract(
+			"expect fun Host(label: String = \"text \\\"quoted\\\", <,>, \\\\path\", marker: Char = '\\'', slash: Char = '\\\\', onDone: () -> Unit)",
+			"expect fun Host"
+		)
+		val ordinaryArguments = readerKotlinNamedCallArgumentNames(
+			"Host(label = \"text \\\"quoted\\\", <,>, \\\\path\", marker = '\\'', slash = '\\\\', onDone = callback)",
+			"Host"
+		)
+		val lineCommentedDeclaration = """
+			expect fun Host(
+				value: Int = 1 // inert , < > -> ( [ {
+				,
+				onDone: () -> Unit
+			)
+		""".trimIndent()
+		val lineCommentedCall = """
+			Host(
+				value = 1 // inert , < > -> ( [ {
+				,
+				onDone = callback
+			)
+		""".trimIndent()
+		val blockCommentedDeclaration = """
+			expect fun Host(
+				value: Int = 1 /* outer , < > -> ( [ {
+					/* nested , < > -> ) ] } */
+				*/,
+				onDone: () -> Unit
+			)
+		""".trimIndent()
+		val blockCommentedCall = """
+			Host(
+				value = 1 /* outer , < > -> ( [ {
+					/* nested , < > -> ) ] } */
+				*/,
+				onDone = callback
+			)
+		""".trimIndent()
+
+		assertEquals(listOf("label", "marker", "slash", "onDone"), ordinaryParameters.map { it.name })
+		assertEquals(listOf("label", "marker", "slash", "onDone"), ordinaryArguments)
+		listOf(
+			"line declaration" to readerKotlinDeclarationParameterContract(
+				lineCommentedDeclaration,
+				"expect fun Host"
+			).map { it.name },
+			"block declaration" to readerKotlinDeclarationParameterContract(
+				blockCommentedDeclaration,
+				"expect fun Host"
+			).map { it.name }
+		).forEach { (label, names) ->
+			assertEquals(listOf("value", "onDone"), names, label)
+		}
+		listOf(
+			"line call" to readerKotlinNamedCallArgumentNames(lineCommentedCall, "Host"),
+			"block call" to readerKotlinNamedCallArgumentNames(blockCommentedCall, "Host")
+		).forEach { (label, names) ->
+			assertEquals(listOf("value", "onDone"), names, label)
+		}
+	}
+
+	@Test
+	fun unterminatedLexicalOrDelimiterStatesFailClosed() {
+		val malformedDeclarations = mapOf(
+			"ordinary string" to "expect fun Host(label: String = \"unterminated, onDone: () -> Unit)",
+			"raw string" to "expect fun Host(label: String = \"\"\"unterminated, onDone: () -> Unit)",
+			"character" to "expect fun Host(marker: Char = ', onDone: () -> Unit)",
+			"block comment" to "expect fun Host(value: Int = 1 /* unterminated, onDone: () -> Unit)",
+			"delimiter" to "expect fun Host(value: Int = values[0, onDone: () -> Unit)"
+		)
+
+		malformedDeclarations.forEach { (label, source) ->
+			val failure = assertFails(label) {
+				readerKotlinDeclarationParameterContract(source, "expect fun Host")
+			}
+			assertTrue(!failure.message.isNullOrBlank(), label)
+		}
+	}
+
+	@Test
 	fun malformedOrAmbiguousSyntaxFailsClosedInsteadOfReturningPartialContracts() {
 		val declarationCases = mapOf(
 			"unbalanced generic type" to "expect fun Host(value: Map<String, Int, onDone: () -> Unit)",
