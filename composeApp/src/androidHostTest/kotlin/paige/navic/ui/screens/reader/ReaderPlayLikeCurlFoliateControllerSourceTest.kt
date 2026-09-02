@@ -3579,9 +3579,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val importedDispatch = hostSource
 			.substringAfter("private fun dispatchPlayLikeCurlPointerEvent(")
 			.substringBefore("private fun applyPointerRoute(")
-		val pointerMapping = importedDispatch
-			.substringAfter("val pointerEvent: ReaderPageHostPointerEvent? =")
-			.substringBefore("val pointerDispatch =")
+		val pointerMapping = hostSource
+			.substringAfter("private fun readerPageHostPointerEvent(")
+			.substringBefore("private fun dispatchPlayLikeCurlPointerEvent(")
 		val expectedMappings = linkedMapOf(
 			"MotionEvent.ACTION_DOWN" to "ReaderPageHostPointerEvent.Down(",
 			"MotionEvent.ACTION_MOVE" to "ReaderPageHostPointerEvent.Move(",
@@ -3610,10 +3610,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(pointerMapping, "downTimeMillis = event.downTime")
 		assertContains(pointerMapping, "x = event.x")
 		assertContains(pointerMapping, "y = event.y")
-		assertContains(
-			pointerMapping,
-			"touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()"
-		)
+		assertContains(pointerMapping, "touchSlop = touchSlopPx")
 		assertContains(importedDispatch, "pageInputSettlementHostController::dispatchPointer")
 		assertFalse(hostSource.contains("currentPageGestureId"))
 		assertFalse(hostSource.contains("pageGestureLifecycle"))

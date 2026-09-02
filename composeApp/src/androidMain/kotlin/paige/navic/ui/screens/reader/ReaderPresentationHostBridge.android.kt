@@ -12,6 +12,7 @@ import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderShellCoverCommitProof
+import paige.navic.reader.ReaderShellCoverRetainedFrame
 
 internal fun readerDispatchPageHostLifecycleEvent(
 	event: ReaderPageHostLifecycleEvent,
@@ -328,7 +329,12 @@ internal class ReaderPresentationHostBridge(
 		val geometry = currentGeometryOrNull() ?: return
 		if (!hostFactsMatch(decision, transition, geometry, requirePreparedCover = false)) return
 
-		host.prepareOpaqueShellCover(transition.coverGeneration)
+		try {
+			host.prepareOpaqueShellCover(transition.coverGeneration)
+		} catch (_: Throwable) {
+			failCoverCommit(transition)
+			return
+		}
 		if (!hostFactsMatch(decision, transition, geometry, requirePreparedCover = true)) {
 			host.cancelOpaqueShellCoverPreparation(transition.coverGeneration)
 			return
@@ -336,8 +342,14 @@ internal class ReaderPresentationHostBridge(
 
 		val pending = PendingCoverCommit(transition, geometry)
 		pendingCoverCommit = pending
-		val registration = host.registerShellCoverDrawListener {
-			onCoverDrawn(pending)
+		val registration = try {
+			host.registerShellCoverDrawListener {
+				onCoverDrawn(pending)
+			}
+		} catch (_: Throwable) {
+			pendingCoverCommit = null
+			failCoverCommit(transition)
+			return
 		}
 		pending.registration = registration
 		when {
@@ -437,6 +449,21 @@ internal class ReaderPresentationHostBridge(
 		host.cancelOpaqueShellCoverPreparation(pending.transition.coverGeneration)
 	}
 
+	private fun failCoverCommit(
+		transition: ReaderRequiredTransition.CommitShellCover
+	) {
+		try {
+			host.cancelOpaqueShellCoverPreparation(transition.coverGeneration)
+		} finally {
+			onEvent(
+				ReaderPresentationEvent.ShellCoverFailed(
+					token = transition.token,
+					binding = transition.binding
+				)
+			)
+		}
+	}
+
 	private fun currentGeometryOrNull(): ViewportGeometry? {
 		val width = host.measuredViewportWidth
 		val height = host.measuredViewportHeight
@@ -466,6 +493,12 @@ private fun ReaderPresentationDecision.retainsPredecessor(
 	val required = requiredTransition as? ReaderRequiredTransition.CommitShellCover
 	if (required?.token != token || required.binding != binding) return false
 	return when (val owner = frameOwner) {
+		ReaderPresentationFrameOwner.Neutral -> {
+			val pending = authority as? ReaderPresentationAuthority.ShellCoverCommitPending
+			pending?.token == token &&
+				pending.binding == binding &&
+				pending.retainedFrame == ReaderShellCoverRetainedFrame.Neutral(binding)
+		}
 		is ReaderPresentationFrameOwner.NativePage -> owner.proof.binding == binding
 		is ReaderPresentationFrameOwner.Curl -> owner.frame.binding == binding
 		else -> false

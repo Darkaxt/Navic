@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import kotlin.math.abs
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageLifecycleCancellationReason
 import paige.navic.reader.ReaderPageNewPointerDecision
@@ -85,7 +86,8 @@ internal sealed interface ReaderPageHostPointerEvent {
 	data class PositionedUp(
 		val x: Float,
 		val y: Float,
-		val touchSlop: Float
+		val touchSlop: Float,
+		val eventTimeMillis: Long = Long.MIN_VALUE
 	) : ReaderPageHostPointerEvent
 	data object Up : ReaderPageHostPointerEvent
 	data object Cancel : ReaderPageHostPointerEvent
@@ -113,24 +115,51 @@ internal class ReaderPageInputSettlementHostController(
 	initialLocalSafetyPolicy: ReaderPageOperationPolicy,
 	private val pointerRouter: ReaderPagePointerRouter,
 	private val cancellationPort: ReaderPageHostCancellationPort,
+	private val chromeToggleTarget: (Float, Float) -> Boolean = { _, _ -> false },
+	private val onChromeToggle: () -> Unit = {},
+	private val chromeTapTimeoutMillis: Long = 500L,
 	private val publishLifecycleCancellation: (
 		gestureId: Long,
 		reason: ReaderPageLifecycleCancellationReason
 	) -> Unit = { _, _ -> }
 ) {
+	private data class PendingChromeTap(
+		val downX: Float,
+		val downY: Float,
+		val downTimeMillis: Long
+	)
+
 	private var presentationInputPolicy = initialPresentationInputPolicy
 	private var localSafetyPolicy = initialLocalSafetyPolicy
 	private var physicalStreamGestureId: Long? = null
+	private var chromePhysicalStreamActive = false
+	private var pendingChromeTap: PendingChromeTap? = null
 	private var pointerAdmissionClosed = false
 	private var pointerDeliveryClosed = false
 	private var finalDeliveryReason: ReaderPageLifecycleCancellationReason? = null
 	private val contentTokenByGestureId =
 		linkedMapOf<Long, ReaderPageContentGestureToken>()
 
+	init {
+		require(chromeTapTimeoutMillis >= 0L)
+	}
+
 	fun updateInputPolicies(
 		presentationInputPolicy: ReaderPresentationInputPolicy,
 		localSafetyPolicy: ReaderPageOperationPolicy
 	) {
+		val localSafetyVetoedPendingChrome =
+			localSafetyPolicy != this.localSafetyPolicy &&
+				(
+					!localSafetyPolicy.continueActivePointer ||
+						localSafetyPolicy.cancelForReadinessChange
+				)
+		if (
+			presentationInputPolicy != ReaderPresentationInputPolicy.ChromeOnly ||
+			localSafetyVetoedPendingChrome
+		) {
+			pendingChromeTap = null
+		}
 		this.presentationInputPolicy = presentationInputPolicy
 		this.localSafetyPolicy = localSafetyPolicy
 	}
@@ -139,6 +168,84 @@ internal class ReaderPageInputSettlementHostController(
 		presentationInputPolicy = presentationInputPolicy,
 		localSafetyPolicy = localSafetyPolicy
 	)
+
+	fun dispatchChromeOnlyPointer(event: ReaderPageHostPointerEvent): Boolean = when (event) {
+		is ReaderPageHostPointerEvent.Down -> {
+			if (
+				pointerDeliveryClosed ||
+				pointerAdmissionClosed ||
+				presentationInputPolicy != ReaderPresentationInputPolicy.ChromeOnly
+			) {
+				false
+			} else {
+				check(!chromePhysicalStreamActive) {
+					"A ChromeOnly physical pointer stream is already active"
+				}
+				chromePhysicalStreamActive = true
+				pendingChromeTap = PendingChromeTap(
+					downX = event.x,
+					downY = event.y,
+					downTimeMillis = event.downTimeMillis
+				)
+				true
+			}
+		}
+		is ReaderPageHostPointerEvent.Move -> {
+			if (!chromePhysicalStreamActive) {
+				false
+			} else {
+				pendingChromeTap?.let { pending ->
+					if (
+						abs(event.x - pending.downX) > event.touchSlop ||
+						abs(event.y - pending.downY) > event.touchSlop
+					) {
+						pendingChromeTap = null
+					}
+				}
+				true
+			}
+		}
+		is ReaderPageHostPointerEvent.PositionedUp -> {
+			if (!chromePhysicalStreamActive) {
+				false
+			} else {
+				val pending = pendingChromeTap
+				pendingChromeTap = null
+				chromePhysicalStreamActive = false
+				val elapsedMillis = pending?.let { event.eventTimeMillis - it.downTimeMillis }
+				if (
+					pending != null &&
+					presentationInputPolicy == ReaderPresentationInputPolicy.ChromeOnly &&
+					abs(event.x - pending.downX) <= event.touchSlop &&
+					abs(event.y - pending.downY) <= event.touchSlop &&
+					elapsedMillis != null &&
+					elapsedMillis in 0L until chromeTapTimeoutMillis &&
+					chromeToggleTarget(event.x, event.y)
+				) {
+					onChromeToggle()
+				}
+				true
+			}
+		}
+		ReaderPageHostPointerEvent.Up -> finishChromeOnlyPointerStream()
+		ReaderPageHostPointerEvent.Cancel -> finishChromeOnlyPointerStream()
+		ReaderPageHostPointerEvent.SecondaryPointerDown -> {
+			if (!chromePhysicalStreamActive) {
+				false
+			} else {
+				pendingChromeTap = null
+				true
+			}
+		}
+		ReaderPageHostPointerEvent.SecondaryPointerUp -> chromePhysicalStreamActive
+	}
+
+	private fun finishChromeOnlyPointerStream(): Boolean {
+		val consumed = chromePhysicalStreamActive
+		pendingChromeTap = null
+		chromePhysicalStreamActive = false
+		return consumed
+	}
 
 	fun dispatchPointer(event: ReaderPageHostPointerEvent): ReaderPageHostPointerDispatchResult {
 		if (
@@ -332,6 +439,7 @@ internal class ReaderPageInputSettlementHostController(
 	}
 
 	private fun cancelForLifecycle(reason: ReaderPageLifecycleCancellationReason): List<Long> {
+		finishChromeOnlyPointerStream()
 		val cancelled = pointerRouter.cancelAll(
 			ReaderPageGestureTerminalOutcome.CancelledLifecycle
 		)
@@ -376,6 +484,7 @@ internal class ReaderPageInputSettlementHostController(
 		}
 		pointerDeliveryClosed = true
 		physicalStreamGestureId = null
+		finishChromeOnlyPointerStream()
 		contentTokenByGestureId.clear()
 	}
 }

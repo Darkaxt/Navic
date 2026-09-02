@@ -41,6 +41,171 @@ class ReaderPresentationAuthorityReducerTest {
 	private val nativeRetainedFrame = ReaderShellCoverRetainedFrame.NativePage(nativeFrame)
 
 	@Test
+	fun initialShellCoverRequestOwnsANeutralTokenizedCommitUntilExactProof() {
+		val opened = readerPresentationReduce(
+			ReaderPresentationState(nextTokenValue = 7L),
+			ReaderPresentationEvent.PublicationOpened(binding)
+		)
+
+		val requested = readerPresentationReduce(
+			opened.state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 8L)
+		)
+		val pending = assertIs<ReaderPresentationAuthority.ShellCoverCommitPending>(
+			requested.state.authority
+		)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, pending.retainedFrame.frameOwner)
+		assertEquals(binding, pending.retainedFrame.binding)
+		assertEquals(ReaderPresentationToken(7L), pending.token)
+		assertEquals(binding, pending.binding)
+		assertEquals(8L, pending.coverGeneration)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, requested.decision.frameOwner)
+		assertEquals(ReaderPresentationLayer.Neutral, requested.decision.layer)
+		assertEquals(ReaderPresentationInputPolicy.ChromeOnly, requested.decision.inputPolicy)
+		assertEquals(
+			ReaderRequiredTransition.CommitShellCover(
+				token = ReaderPresentationToken(7L),
+				binding = binding,
+				coverGeneration = 8L
+			),
+			requested.decision.requiredTransition
+		)
+
+		val staleToken = readerPresentationReduce(
+			requested.state,
+			ReaderPresentationEvent.ShellCoverCommitted(
+				shellCoverProof(ReaderPresentationToken(6L), coverGeneration = 8L)
+			)
+		)
+		assertEquals(requested.state, staleToken.state)
+		assertEquals(1, staleToken.effects.size)
+
+		val staleBinding = readerPresentationReduce(
+			requested.state,
+			ReaderPresentationEvent.ShellCoverCommitted(
+				shellCoverProof(ReaderPresentationToken(7L), coverGeneration = 8L).copy(
+					binding = otherBinding
+				)
+			)
+		)
+		assertEquals(requested.state, staleBinding.state)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					token = ReaderPresentationToken(7L),
+					binding = otherBinding
+				)
+			),
+			staleBinding.effects
+		)
+
+		val staleGeneration = readerPresentationReduce(
+			requested.state,
+			ReaderPresentationEvent.ShellCoverCommitted(
+				shellCoverProof(ReaderPresentationToken(7L), coverGeneration = 9L)
+			)
+		)
+		assertEquals(requested.state, staleGeneration.state)
+		assertTrue(staleGeneration.effects.isEmpty())
+
+		val exactProof = shellCoverProof(ReaderPresentationToken(7L), coverGeneration = 8L)
+		val committed = readerPresentationReduce(
+			requested.state,
+			ReaderPresentationEvent.ShellCoverCommitted(exactProof)
+		)
+		assertEquals(ReaderPresentationAuthority.ShellCover(exactProof), committed.state.authority)
+		assertEquals(ReaderPresentationLayer.ShellCover, committed.decision.layer)
+		assertEquals(ReaderPresentationInputPolicy.ShellCover, committed.decision.inputPolicy)
+	}
+
+	@Test
+	fun duplicateInitialOpenAndCoverRequestCoalesceWithoutAllocatingAnotherToken() {
+		val opened = readerPresentationReduce(
+			ReaderPresentationState(nextTokenValue = 17L),
+			ReaderPresentationEvent.PublicationOpened(binding)
+		)
+		val requested = readerPresentationReduce(
+			opened.state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 18L)
+		)
+
+		val duplicateRequest = readerPresentationReduce(
+			requested.state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 19L)
+		)
+		assertNoOp(requested.state, duplicateRequest)
+
+		val duplicateOpen = readerPresentationReduce(
+			requested.state,
+			ReaderPresentationEvent.PublicationOpened(binding)
+		)
+		assertNoOp(requested.state, duplicateOpen)
+		assertEquals(18L, duplicateOpen.state.nextTokenValue)
+	}
+
+	@Test
+	fun initialShellCoverFailureStaysNeutralAndRetryAllocatesANewExactToken() {
+		val pending = readerPresentationReduce(
+			readerPresentationReduce(
+				ReaderPresentationState(nextTokenValue = 27L),
+				ReaderPresentationEvent.PublicationOpened(binding)
+			).state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 28L)
+		).state
+		val failed = readerPresentationReduce(
+			pending,
+			ReaderPresentationEvent.ShellCoverFailed(
+				token = ReaderPresentationToken(27L),
+				binding = binding
+			)
+		)
+
+		assertEquals(ReaderPresentationFrameOwner.Neutral, failed.decision.frameOwner)
+		assertEquals(ReaderPresentationLayer.Neutral, failed.decision.layer)
+		assertEquals(ReaderPresentationInputPolicy.ChromeOnly, failed.decision.inputPolicy)
+		assertEquals(ReaderRequiredTransition.None, failed.decision.requiredTransition)
+		assertEquals(
+			ReaderDiagnosticPresentation.Failure(
+				reason = ReaderPresentationFailureReason.ShellCoverUnavailable,
+				retryable = true,
+				cancellable = false
+			),
+			failed.decision.diagnosticPresentation
+		)
+
+		val readyPageFacts = readerPresentationReduce(
+			failed.state,
+			ReaderPresentationEvent.PreparationReported(
+				binding = binding,
+				facts = preparationFacts(
+					phase = ReaderPagePreparationPhase.Ready,
+					readiness = readyReadiness
+				)
+			)
+		)
+		assertEquals(failed.state.failure, readyPageFacts.state.failure)
+		assertEquals(ReaderRequiredTransition.None, readyPageFacts.decision.requiredTransition)
+
+		val retried = readerPresentationReduce(readyPageFacts.state, ReaderPresentationEvent.Retry)
+		val retry = assertIs<ReaderPresentationAuthority.ShellCoverCommitPending>(
+			retried.state.authority
+		)
+		assertEquals(ReaderPresentationToken(28L), retry.token)
+		assertEquals(binding, retry.binding)
+		assertEquals(28L, retry.coverGeneration)
+		assertEquals(29L, retried.state.nextTokenValue)
+		assertEquals(ReaderDiagnosticPresentation.Hidden, retried.decision.diagnosticPresentation)
+		assertEquals(
+			ReaderRequiredTransition.CommitShellCover(
+				token = retry.token,
+				binding = binding,
+				coverGeneration = 28L
+			),
+			retried.decision.requiredTransition
+		)
+	}
+
+	@Test
 	fun shellCoverRequestRetainsNativePageAndRejectsNewPointersUntilCommit() {
 		val reduction = readerPresentationReduce(
 			settledNativeState(nextTokenValue = 7L),

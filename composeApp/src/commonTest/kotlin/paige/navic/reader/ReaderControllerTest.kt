@@ -12,6 +12,111 @@ import paige.navic.domain.repositories.BinderyReadingProgressKind
 
 class ReaderControllerTest {
 	@Test
+	fun initialCoverIntentRequestsOneNeutralCommitThenForwardsOnceAfterExactCommit() {
+		val session = "initial-cover-session"
+		val locator = ReaderLocator(
+			href = "chapter.xhtml",
+			cfi = "epubcfi(/6/2)",
+			pageIndex = 0,
+			pageCount = 10
+		)
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = session,
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(session, 1L),
+			rasterGeneration = 4L,
+			textureGeneration = 5L,
+			preparationGeneration = 6L
+		)
+		val opened = ReaderController(
+			ReaderControllerState(
+				presentation = ReaderPresentationState(nextTokenValue = 41L)
+			)
+		).open(
+			hobbitOpenRequest().copy(
+				startLocator = locator,
+				externalShellCover = true,
+				nativeShellCoverUrl = "cover://fixture",
+				canReturnToShellCover = true
+			)
+		).controller
+
+		val requested = opened.onPresentationEvent(
+			ReaderPresentationEvent.PublicationOpened(binding)
+		)
+		val pending = assertIs<ReaderPresentationAuthority.ShellCoverCommitPending>(
+			requested.controller.state.presentation.authority
+		)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, pending.retainedFrame.frameOwner)
+		assertEquals(binding, pending.retainedFrame.binding)
+		assertEquals(ReaderPresentationToken(41L), pending.token)
+		assertEquals(42L, requested.controller.state.presentation.nextTokenValue)
+		assertTrue(requested.controller.state.shellCoverVisible)
+
+		val duplicate = requested.controller.onPresentationEvent(
+			ReaderPresentationEvent.PublicationOpened(binding)
+		)
+		assertEquals(requested.controller.state, duplicate.controller.state)
+		assertEquals(emptyList(), duplicate.presentationEffects)
+
+		val proof = ReaderShellCoverCommitProof(
+			token = pending.token,
+			binding = binding,
+			coverGeneration = pending.coverGeneration,
+			presentedFrame = 1L,
+			viewportWidth = 1200,
+			viewportHeight = 800
+		)
+		val committed = requested.controller.onPresentationEvent(
+			ReaderPresentationEvent.ShellCoverCommitted(proof)
+		).controller
+		assertEquals(ReaderPresentationInputPolicy.ShellCover, committed.state.presentationDecision.inputPolicy)
+
+		val forwarded = committed.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+		val pageEntry = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			forwarded.controller.state.presentation.authority
+		).nativePresentationRequest
+		assertEquals(ReaderPresentationToken(42L), pageEntry?.token)
+		assertNotNull(forwarded.controller.state.pendingShellCoverDismissal)
+		assertTrue(forwarded.controller.state.shellCoverVisible)
+
+		val repeated = forwarded.controller.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+		assertEquals(forwarded.controller.state, repeated.controller.state)
+		assertEquals(emptyList(), repeated.engineCommands)
+
+		val preparing = forwarded.controller.onPresentationEvent(
+			ReaderPresentationEvent.PreparationReported(
+				binding = binding,
+				facts = ReaderPagePreparationFacts(
+					phase = ReaderPagePreparationPhase.Preparing,
+					generation = 6L,
+					completedCount = 2,
+					requiredCount = 5,
+					readiness = ReaderPageReadinessState(
+						textureDeck = ReaderTextureDeckState.Preparing,
+						interaction = ReaderPageInteractionState.BlockingInitialPreparation
+					)
+				)
+			)
+		)
+		assertEquals(
+			ReaderPreparationPresentation.Blocking(
+				completedCount = 2,
+				requiredCount = 5,
+				determinate = true
+			),
+			preparing.controller.state.presentationDecision.preparationPresentation
+		)
+		assertTrue(preparing.controller.state.shellCoverVisible)
+	}
+
+	@Test
 	fun presentationEventRouteChangesOnlyPresentationStateAndCarriesEffects() {
 		val binding = ReaderPresentationBinding(
 			foliateSessionId = "session-current",
@@ -1304,11 +1409,26 @@ class ReaderControllerTest {
 		assertFalse(boundary.controller.state.menuVisible)
 		assertEquals(emptyList(), boundary.engineCommands)
 
-		val forward = boundary.controller.onViewerAction(
+		val transition = assertIs<ReaderRequiredTransition.CommitShellCover>(
+			boundary.controller.state.presentationDecision.requiredTransition
+		)
+		val committedBoundary = boundary.controller.onPresentationEvent(
+			ReaderPresentationEvent.ShellCoverCommitted(
+				ReaderShellCoverCommitProof(
+					token = transition.token,
+					binding = transition.binding,
+					coverGeneration = transition.coverGeneration,
+					presentedFrame = 1L,
+					viewportWidth = 1200,
+					viewportHeight = 800
+				)
+			)
+		).controller
+		val forward = committedBoundary.onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
 		)
 		val returnLocator = requireNotNull(
-			boundary.controller.state.chrome.currentLocator
+			committedBoundary.state.chrome.currentLocator
 		)
 
 		assertTrue(forward.controller.state.shellCoverVisible)

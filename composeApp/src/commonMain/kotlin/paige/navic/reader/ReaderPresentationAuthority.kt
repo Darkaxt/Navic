@@ -145,6 +145,12 @@ sealed interface ReaderShellCoverRetainedFrame {
 	val frameOwner: ReaderPresentationFrameOwner
 	val binding: ReaderPresentationBinding
 
+	data class Neutral(
+		override val binding: ReaderPresentationBinding
+	) : ReaderShellCoverRetainedFrame {
+		override val frameOwner: ReaderPresentationFrameOwner = ReaderPresentationFrameOwner.Neutral
+	}
+
 	data class NativePage(
 		val frame: ReaderPresentationFrameOwner.NativePage
 	) : ReaderShellCoverRetainedFrame {
@@ -493,7 +499,13 @@ fun readerPresentationDecision(state: ReaderPresentationState): ReaderPresentati
 		inputPolicy = inputPolicy,
 		preparationPresentation = authority.preparationPresentation(state.preparationFacts, state.failure),
 		diagnosticPresentation = state.failure ?: ReaderDiagnosticPresentation.Hidden,
-		requiredTransition = authority.requiredTransition(),
+		requiredTransition = if (
+			state.failure?.reason == ReaderPresentationFailureReason.ShellCoverUnavailable
+		) {
+			ReaderRequiredTransition.None
+		} else {
+			authority.requiredTransition()
+		},
 		targetBinding = state.binding
 	)
 }
@@ -507,17 +519,24 @@ fun readerPresentationReduce(
 			ReaderPresentationReducerResult(state, effects = listOf(effect))
 		} ?: ReaderPresentationReducerResult(state)
 	} else when (event) {
-		is ReaderPresentationEvent.PublicationOpened -> ReaderPresentationReducerResult(
-			state = ReaderPresentationState(
-				binding = event.binding,
-				lifecycle = ReaderPresentationLifecycleState.Foreground,
-				nextTokenValue = state.nextTokenValue
+		is ReaderPresentationEvent.PublicationOpened -> if (state.binding == event.binding) {
+			ReaderPresentationReducerResult(state)
+		} else {
+			ReaderPresentationReducerResult(
+				state = ReaderPresentationState(
+					binding = event.binding,
+					lifecycle = ReaderPresentationLifecycleState.Foreground,
+					nextTokenValue = state.nextTokenValue
+				)
 			)
-		)
+		}
 		is ReaderPresentationEvent.BindingReplaced -> state.reduceBindingReplacement(event)
 		is ReaderPresentationEvent.FoliateRelocated -> state.reduceFoliateRelocation(event)
 		is ReaderPresentationEvent.ShellCoverRequested -> {
 			val retainedFrame = when (val authority = state.authority) {
+				ReaderPresentationAuthority.Unavailable -> state.binding?.let { binding ->
+					ReaderShellCoverRetainedFrame.Neutral(binding)
+				}
 				is ReaderPresentationAuthority.SettledNativePage ->
 					ReaderShellCoverRetainedFrame.NativePage(authority.frame)
 				is ReaderPresentationAuthority.CurlSettlementPending ->
@@ -573,6 +592,22 @@ private data class ReaderPresentationReducerResult(
 private fun ReaderPresentationState.reduceRetry(): ReaderPresentationReducerResult {
 	val currentBinding = binding ?: return ReaderPresentationReducerResult(this)
 	val currentFailure = failure ?: return ReaderPresentationReducerResult(this)
+	val pendingCover = authority as? ReaderPresentationAuthority.ShellCoverCommitPending
+	if (
+		currentFailure.retryable &&
+		currentFailure.reason == ReaderPresentationFailureReason.ShellCoverUnavailable &&
+		pendingCover?.binding == currentBinding
+	) {
+		return ReaderPresentationReducerResult(
+			copy(
+				authority = pendingCover.copy(
+					token = ReaderPresentationToken(nextTokenValue)
+				),
+				failure = null,
+				nextTokenValue = nextTokenValue + 1L
+			)
+		)
+	}
 	if (
 		!currentFailure.retryable ||
 		currentFailure.reason != ReaderPresentationFailureReason.PreparationFailed
@@ -836,7 +871,15 @@ private fun ReaderPresentationState.reduceShellCoverFailure(
 		authority.binding == event.binding &&
 		binding == event.binding
 	) {
-		ReaderPresentationReducerResult(this)
+		ReaderPresentationReducerResult(
+			copy(
+				failure = ReaderDiagnosticPresentation.Failure(
+					reason = ReaderPresentationFailureReason.ShellCoverUnavailable,
+					retryable = true,
+					cancellable = false
+				)
+			)
+		)
 	} else {
 		staleProof(event.token, event.binding)
 	}
@@ -1042,7 +1085,14 @@ private fun ReaderPresentationState.reducePreparationReport(
 	return ReaderPresentationReducerResult(
 		copy(
 			preparationFacts = event.facts,
-			failure = if (event.facts.phase == ReaderPagePreparationPhase.Ready) null else failure
+			failure = if (
+				event.facts.phase == ReaderPagePreparationPhase.Ready &&
+				failure?.reason != ReaderPresentationFailureReason.ShellCoverUnavailable
+			) {
+				null
+			} else {
+				failure
+			}
 		)
 	)
 }
@@ -1060,6 +1110,7 @@ private fun ReaderPresentationState.reducePreparationFailure(
 	)
 	val nextAuthority = if (
 		authority.hasTruthfulStableFrame() ||
+			authority is ReaderPresentationAuthority.ShellCoverCommitPending ||
 			authority is ReaderPresentationAuthority.BlockingPreparation &&
 			authority.nativePresentationRequest != null &&
 			authority.retainedFrame is ReaderPresentationFrameOwner.ShellCover
@@ -1088,8 +1139,9 @@ private fun ReaderPresentationState.matchesPreparation(
 private fun ReaderPresentationAuthority.hasTruthfulStableFrame(): Boolean = when (this) {
 	ReaderPresentationAuthority.Unavailable,
 	is ReaderPresentationAuthority.BlockingPreparation -> false
+	is ReaderPresentationAuthority.ShellCoverCommitPending ->
+		retainedFrame.frameOwner != ReaderPresentationFrameOwner.Neutral
 	is ReaderPresentationAuthority.ShellCover,
-	is ReaderPresentationAuthority.ShellCoverCommitPending,
 	is ReaderPresentationAuthority.CurlGesture,
 	is ReaderPresentationAuthority.CurlSettlementPending,
 	is ReaderPresentationAuthority.SettledNativePage,

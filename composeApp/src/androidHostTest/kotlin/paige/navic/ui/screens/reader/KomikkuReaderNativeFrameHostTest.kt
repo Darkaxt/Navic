@@ -81,10 +81,7 @@ class KomikkuReaderNativeFrameHostTest {
 			ReaderPresentationEvent.ShellCoverDismissalRequested
 		).decision
 
-		val application = readerNativePresentationApplication(
-			decision = decision,
-			unavailableStartupShellCoverSelected = false
-		)
+		val application = readerNativePresentationApplication(decision)
 
 		assertSame(decision, application.decision)
 		assertEquals(
@@ -103,17 +100,14 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
-	fun unavailableStartupCoverFallbackCannotOverrideAnAvailableDecision() {
+	fun unavailableRawCoverIntentCannotSelectOrExposeAShellCover() {
 		val unavailableDecision = readerPresentationDecision(ReaderPresentationState())
 		assertEquals(
 			ReaderNativePresentationLayerVisibility(
-				shellCover = true,
+				shellCover = false,
 				preparationShield = false
 			),
-			readerNativePresentationApplication(
-				decision = unavailableDecision,
-				unavailableStartupShellCoverSelected = true
-			).layers
+			readerNativePresentationApplication(unavailableDecision).layers
 		)
 
 		val binding = ReaderPresentationBinding(
@@ -157,11 +151,30 @@ class KomikkuReaderNativeFrameHostTest {
 				shellCover = false,
 				preparationShield = false
 			),
-			readerNativePresentationApplication(
-				decision = nativeDecision,
-				unavailableStartupShellCoverSelected = true
-			).layers
+			readerNativePresentationApplication(nativeDecision).layers
 		)
+	}
+
+	@Test
+	fun chromeOnlyUsesAChromeGestureRouteThatNeverDispatchesToPageCurlOrContent() {
+		val source = hostFile.readText()
+		val modeSelector = source
+			.substringAfter("private fun pagePhysicalDispatchMode()")
+			.substringBefore("override fun dispatchTouchEvent")
+		val physicalDispatch = source
+			.substringAfter("val handled = when (physicalDispatchMode)")
+			.substringBefore("if (\n\t\t\tevent.actionMasked == MotionEvent.ACTION_UP")
+
+		assertContains(modeSelector, "ReaderPresentationInputPolicy.ChromeOnly ->")
+		assertContains(modeSelector, "ReaderPagePhysicalDispatchMode.ChromeOnly")
+		assertContains(physicalDispatch, "ReaderPagePhysicalDispatchMode.ChromeOnly ->")
+		assertContains(physicalDispatch, "dispatchChromeOnlyPointerEvent(event)")
+		val chromeBranch = physicalDispatch
+			.substringAfter("ReaderPagePhysicalDispatchMode.ChromeOnly ->")
+			.substringBefore("ReaderPagePhysicalDispatchMode.")
+		assertFalse(chromeBranch.contains("dispatchPlayLikeCurlPointerEvent"))
+		assertFalse(chromeBranch.contains("dispatchLegacyReaderPointerEvent"))
+		assertFalse(chromeBranch.contains("viewerContentContainer.dispatchTouchEvent"))
 	}
 
 	@Test
@@ -462,10 +475,7 @@ class KomikkuReaderNativeFrameHostTest {
 				shellCover = false,
 				preparationShield = true
 			),
-			readerNativePresentationApplication(
-				decision = decision,
-				unavailableStartupShellCoverSelected = false
-			).layers
+			readerNativePresentationApplication(decision).layers
 		)
 	}
 

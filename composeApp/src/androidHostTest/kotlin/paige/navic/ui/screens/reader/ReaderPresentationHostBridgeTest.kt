@@ -34,6 +34,92 @@ import paige.navic.reader.readerPresentationReduce
 
 class ReaderPresentationHostBridgeTest {
 	@Test
+	fun neutralInitialCoverCommitPreparesBehindNeutralAndCanResumeAfterDetach() {
+		val fixture = BridgeFixture()
+		var presentation = readerPresentationReduce(
+			ReaderPresentationState(nextTokenValue = 31L),
+			ReaderPresentationEvent.PublicationOpened(fixture.binding)
+		).state
+		presentation = readerPresentationReduce(
+			presentation,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 32L)
+		).state
+		val pending = readerPresentationDecision(presentation)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, pending.frameOwner)
+		val host = FakeReaderPresentationCommitHost(fixture.binding)
+		val events = mutableListOf<ReaderPresentationEvent>()
+		val bridge = ReaderPresentationHostBridge(host) { event ->
+			events += event
+			presentation = readerPresentationReduce(presentation, event).state
+		}
+
+		bridge.update(pending)
+		assertTrue(host.coverPrepared)
+		assertFalse(host.coverSelected)
+		assertEquals(1, host.registrations.size)
+
+		bridge.onHostDetached()
+		assertFalse(host.coverPrepared)
+		assertEquals(1, host.cancelPreparationCount)
+		host.attached = false
+		bridge.update(pending)
+		assertEquals(1, host.registrations.size)
+		host.attached = true
+		bridge.update(pending)
+		assertTrue(host.coverPrepared)
+		assertEquals(2, host.registrations.size)
+
+		host.registrations.last().draw()
+		host.runNextAnimationFrame()
+		val receipt = assertIs<ReaderPresentationEvent.ShellCoverCommitted>(events.single())
+		assertEquals(ReaderPresentationToken(31L), receipt.proof.token)
+		assertEquals(fixture.binding, receipt.proof.binding)
+		assertEquals(32L, receipt.proof.coverGeneration)
+		assertIs<ReaderPresentationAuthority.ShellCover>(presentation.authority)
+
+		host.coverSelected = true
+		bridge.update(readerPresentationDecision(presentation))
+		assertEquals(1, host.completePreparationCount)
+	}
+
+	@Test
+	fun initialCoverPreparationFailurePublishesSanitizedRetryableFailure() {
+		val fixture = BridgeFixture()
+		var presentation = readerPresentationReduce(
+			readerPresentationReduce(
+				ReaderPresentationState(nextTokenValue = 41L),
+				ReaderPresentationEvent.PublicationOpened(fixture.binding)
+			).state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 42L)
+		).state
+		val host = FakeReaderPresentationCommitHost(fixture.binding).apply {
+			failPreparation = true
+		}
+		val events = mutableListOf<ReaderPresentationEvent>()
+		val bridge = ReaderPresentationHostBridge(host) { event ->
+			events += event
+			presentation = readerPresentationReduce(presentation, event).state
+		}
+
+		bridge.update(readerPresentationDecision(presentation))
+
+		val failure = assertIs<ReaderPresentationEvent.ShellCoverFailed>(events.single())
+		assertEquals(ReaderPresentationToken(41L), failure.token)
+		assertEquals(fixture.binding, failure.binding)
+		val decision = readerPresentationDecision(presentation)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, decision.frameOwner)
+		assertEquals(ReaderRequiredTransition.None, decision.requiredTransition)
+		assertEquals(
+			paige.navic.reader.ReaderDiagnosticPresentation.Failure(
+				reason = paige.navic.reader.ReaderPresentationFailureReason.ShellCoverUnavailable,
+				retryable = true,
+				cancellable = false
+			),
+			decision.diagnosticPresentation
+		)
+	}
+
+	@Test
 	fun exactDrawAndAnimationBoundaryEmitOneTokenBoundCommit() {
 		val fixture = BridgeFixture()
 
@@ -231,12 +317,7 @@ class ReaderPresentationHostBridgeTest {
 			requested.controller.state.presentationDecision.layer
 		)
 		assertFalse(
-			readerNativeShellCoverSelected(
-				shellCoverIntent = true,
-				decision = requested.controller.state.presentationDecision,
-				hasValidatedNativePredecessor = true,
-				shellCoverAlreadySelected = false
-			)
+			requested.controller.state.presentationDecision.layer == ReaderPresentationLayer.ShellCover
 		)
 	}
 
@@ -321,14 +402,7 @@ class ReaderPresentationHostBridgeTest {
 			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 43L)
 		)
 		assertEquals(ReaderRequiredTransition.None, ignoredCover.decision.requiredTransition)
-		assertFalse(
-			readerNativeShellCoverSelected(
-				shellCoverIntent = true,
-				decision = ignoredCover.decision,
-				hasValidatedNativePredecessor = true,
-				shellCoverAlreadySelected = false
-			)
-		)
+		assertFalse(ignoredCover.decision.layer == ReaderPresentationLayer.ShellCover)
 
 		dispatch(
 			ReaderPresentationEvent.PreparationReported(
@@ -401,13 +475,9 @@ class ReaderPresentationHostBridgeTest {
 
 		val exactReceipt = assertIs<ReaderPresentationEvent.ShellCoverCommitted>(receipts.single())
 		assertEquals(bindingB, exactReceipt.proof.binding)
-		assertTrue(
-			readerNativeShellCoverSelected(
-				shellCoverIntent = true,
-				decision = readerPresentationDecision(presentation),
-				hasValidatedNativePredecessor = true,
-				shellCoverAlreadySelected = false
-			)
+		assertEquals(
+			ReaderPresentationLayer.ShellCover,
+			readerPresentationDecision(presentation).layer
 		)
 		host.selectAcceptedCover()
 		bridge.update(readerPresentationDecision(presentation))
@@ -474,33 +544,10 @@ class ReaderPresentationHostBridgeTest {
 	}
 
 	@Test
-	fun unavailableFallbackAdmitsOnlyStartupOrNoPredecessorPresentation() {
+	fun unavailableRawCoverIntentNeverAdmitsASelectedCover() {
 		val unavailable = readerPresentationDecision(paige.navic.reader.ReaderPresentationState())
 
-		assertTrue(
-			readerNativeShellCoverSelected(
-				shellCoverIntent = true,
-				decision = unavailable,
-				hasValidatedNativePredecessor = false,
-				shellCoverAlreadySelected = false
-			)
-		)
-		assertTrue(
-			readerNativeShellCoverSelected(
-				shellCoverIntent = true,
-				decision = unavailable,
-				hasValidatedNativePredecessor = true,
-				shellCoverAlreadySelected = true
-			)
-		)
-		assertFalse(
-			readerNativeShellCoverSelected(
-				shellCoverIntent = true,
-				decision = unavailable,
-				hasValidatedNativePredecessor = true,
-				shellCoverAlreadySelected = false
-			)
-		)
+		assertEquals(ReaderPresentationLayer.Neutral, unavailable.layer)
 	}
 
 	@Test
@@ -689,12 +736,7 @@ class ReaderPresentationHostBridgeTest {
 			requested.controller.state.presentationDecision.layer
 		)
 		assertFalse(
-			readerNativeShellCoverSelected(
-				shellCoverIntent = requested.controller.state.shellCoverVisible,
-				decision = requested.controller.state.presentationDecision,
-				hasValidatedNativePredecessor = true,
-				shellCoverAlreadySelected = false
-			)
+			requested.controller.state.presentationDecision.layer == ReaderPresentationLayer.ShellCover
 		)
 		assertIs<ReaderPresentationAuthority.ShellCoverCommitPending>(
 			requested.controller.state.presentation.authority
@@ -719,12 +761,7 @@ class ReaderPresentationHostBridgeTest {
 		)
 		assertTrue(stale.controller.state.shellCoverVisible)
 		assertFalse(
-			readerNativeShellCoverSelected(
-				shellCoverIntent = stale.controller.state.shellCoverVisible,
-				decision = stale.controller.state.presentationDecision,
-				hasValidatedNativePredecessor = true,
-				shellCoverAlreadySelected = false
-			)
+			stale.controller.state.presentationDecision.layer == ReaderPresentationLayer.ShellCover
 		)
 		assertIs<ReaderPresentationAuthority.ShellCoverCommitPending>(
 			stale.controller.state.presentation.authority
@@ -744,13 +781,9 @@ class ReaderPresentationHostBridgeTest {
 		)
 
 		assertTrue(committed.controller.state.shellCoverVisible)
-		assertTrue(
-			readerNativeShellCoverSelected(
-				shellCoverIntent = committed.controller.state.shellCoverVisible,
-				decision = committed.controller.state.presentationDecision,
-				hasValidatedNativePredecessor = true,
-				shellCoverAlreadySelected = false
-			)
+		assertEquals(
+			ReaderPresentationLayer.ShellCover,
+			committed.controller.state.presentationDecision.layer
 		)
 		assertIs<ReaderPresentationAuthority.ShellCover>(
 			committed.controller.state.presentation.authority
@@ -949,6 +982,7 @@ private class FakeReaderPresentationCommitHost(
 	var predecessorSelected = true
 	var coverPrepared = false
 	var coverSelected = false
+	var failPreparation = false
 	var cancelPreparationCount = 0
 	var completePreparationCount = 0
 	var rasterInvalidationCount = 0
@@ -970,6 +1004,7 @@ private class FakeReaderPresentationCommitHost(
 		get() = viewportHeight
 
 	override fun prepareOpaqueShellCover(coverGeneration: Long) {
+		if (failPreparation) throw IllegalStateException("cover preparation unavailable")
 		coverPrepared = true
 		preparedCoverGeneration = preparedCoverGenerationOverride ?: coverGeneration
 	}

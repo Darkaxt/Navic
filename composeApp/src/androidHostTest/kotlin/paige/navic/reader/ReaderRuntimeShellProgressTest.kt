@@ -367,6 +367,40 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun initialCoverAndChromeOnlyRoutingStayDecisionOwned() {
+		val controllerText = readerCommonFile("ReaderController.kt").readText()
+		val authorityText = readerCommonFile("ReaderPresentationAuthority.kt").readText()
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val inputControllerText = readerAndroidFile(
+			"ReaderPageInputSettlementHostController.android.kt"
+		).readText()
+
+		val initialRequest = controllerText
+			.substringAfter("val initialCoverReduction = if (")
+			.substringBefore("val reduction = initialCoverReduction")
+		assertContains(initialRequest, "event is ReaderPresentationEvent.PublicationOpened")
+		assertContains(initialRequest, "state.shellCoverVisible")
+		assertContains(initialRequest, "ReaderPresentationEvent.ShellCoverRequested(")
+		assertContains(authorityText, "data class Neutral(")
+		assertContains(authorityText, "ReaderShellCoverRetainedFrame.Neutral(binding)")
+		assertFalse(nativeFrameHostText.contains("unavailableStartupShellCoverSelected"))
+		assertFalse(nativeFrameHostText.contains("shellCoverIntent"))
+		assertFalse(nativeFrameHostText.contains("readerNativeShellCoverSelected"))
+
+		val dispatchMode = nativeFrameHostText
+			.substringAfter("private fun pagePhysicalDispatchMode()")
+			.substringBefore("override fun dispatchTouchEvent")
+		assertContains(dispatchMode, "ReaderPresentationInputPolicy.ChromeOnly ->")
+		assertContains(dispatchMode, "ReaderPagePhysicalDispatchMode.ChromeOnly")
+		assertContains(inputControllerText, "fun dispatchChromeOnlyPointer(")
+		assertContains(
+			inputControllerText,
+			"presentationInputPolicy != ReaderPresentationInputPolicy.ChromeOnly"
+		)
+		assertFalse(inputControllerText.contains("chromeInputAllowed"))
+	}
+
+	@Test
 	fun preparationOverlayUsesOnlyTheAtomicPresentationDecision() {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val overlay = readerRootText
@@ -752,8 +786,8 @@ class ReaderRuntimeShellProgressTest {
 	fun importedCurlUsesRouterTouchSlopWhileLegacyPreviewKeepsPagingSlop() {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val imported = nativeFrameHostText
-			.substringAfter("private fun dispatchPlayLikeCurlPointerEvent(")
-			.substringBefore("private fun applyPointerRoute(")
+			.substringAfter("private fun readerPageHostPointerEvent(")
+			.substringBefore("private fun dispatchPlayLikeCurlPointerEvent(")
 		val legacySlop = nativeFrameHostText
 			.substringAfter(
 				"private fun nativeHorizontalSwipeMovedBeyondSlop("
@@ -774,7 +808,7 @@ class ReaderRuntimeShellProgressTest {
 			.substringAfter("private fun onPlayLikeCurlSingleTapConfirmed(")
 			.substringBefore("private fun dispatchLegacySingleTapAction(")
 
-		assertContains(imported, "scaledTouchSlop")
+		assertContains(imported, "touchSlopPx")
 		assertContains(imported, "ReaderPageHostPointerEvent.Move(")
 		assertFalse(imported.contains("scaledPagingTouchSlop"))
 		assertContains(
@@ -875,7 +909,7 @@ class ReaderRuntimeShellProgressTest {
 				"private fun dispatchLegacyReaderPointerEvent("
 			)
 			.substringBefore(
-				"private fun dispatchPlayLikeCurlPointerEvent("
+				"private fun dispatchChromeOnlyPointerEvent("
 			)
 		val mode = nativeFrameHostText
 			.substringAfter(

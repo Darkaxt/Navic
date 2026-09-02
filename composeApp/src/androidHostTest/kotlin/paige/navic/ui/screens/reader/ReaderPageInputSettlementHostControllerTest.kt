@@ -80,6 +80,9 @@ class ReaderPageInputSettlementHostControllerTest {
 		presentationInputPolicy: ReaderPresentationInputPolicy =
 			ReaderPresentationInputPolicy.NativePage(readerPageOperationPolicy(readiness)),
 		localReadiness: ReaderPageReadinessState = readiness,
+		chromeToggleTarget: (Float, Float) -> Boolean = { _, _ -> false },
+		onChromeToggle: () -> Unit = {},
+		chromeTapTimeoutMillis: Long = 500L,
 		publishLifecycleCancellation: (
 			Long,
 			ReaderPageLifecycleCancellationReason
@@ -94,11 +97,162 @@ class ReaderPageInputSettlementHostControllerTest {
 				initialLocalSafetyPolicy = readerPageOperationPolicy(localReadiness),
 				pointerRouter = router,
 				cancellationPort = cancellationPort,
+				chromeToggleTarget = chromeToggleTarget,
+				onChromeToggle = onChromeToggle,
+				chromeTapTimeoutMillis = chromeTapTimeoutMillis,
 				publishLifecycleCancellation = publishLifecycleCancellation
 			),
 			router,
 			cancellationPort
 		)
+	}
+
+	@Test
+	fun chromeOnlyTogglesExactlyOnceForAStationaryCenterTapWithoutPageRouting() {
+		var toggles = 0
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, router, _) = host(
+			published = published,
+			presentationInputPolicy = ReaderPresentationInputPolicy.ChromeOnly,
+			localReadiness = settling,
+			chromeToggleTarget = { x, y -> x in 40f..60f && y in 40f..60f },
+			onChromeToggle = { toggles += 1 }
+		)
+
+		assertTrue(
+			host.dispatchChromeOnlyPointer(
+				ReaderPageHostPointerEvent.Down(50f, 50f, downTimeMillis = 100L)
+			)
+		)
+		assertTrue(
+			host.dispatchChromeOnlyPointer(
+				ReaderPageHostPointerEvent.PositionedUp(
+					x = 50f,
+					y = 50f,
+					touchSlop = 8f,
+					eventTimeMillis = 140L
+				)
+			)
+		)
+
+		assertEquals(1, toggles)
+		assertEquals(0, router.trackedSequenceCount())
+		assertTrue(published.isEmpty())
+	}
+
+	@Test
+	fun chromeOnlyRejectsEdgesDragLongPressMultiplePointersAndCancel() {
+		var toggles = 0
+		val (host, router, _) = host(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ChromeOnly,
+			chromeToggleTarget = { x, y -> x in 40f..60f && y in 40f..60f },
+			onChromeToggle = { toggles += 1 },
+			chromeTapTimeoutMillis = 500L
+		)
+
+		fun tap(x: Float, y: Float, downTime: Long, upTime: Long = downTime + 40L) {
+			assertTrue(
+				host.dispatchChromeOnlyPointer(
+					ReaderPageHostPointerEvent.Down(x, y, downTime)
+				)
+			)
+			assertTrue(
+				host.dispatchChromeOnlyPointer(
+					ReaderPageHostPointerEvent.PositionedUp(x, y, 8f, upTime)
+				)
+			)
+		}
+
+		tap(10f, 50f, 100L)
+		tap(90f, 50f, 200L)
+
+		assertTrue(host.dispatchChromeOnlyPointer(ReaderPageHostPointerEvent.Down(50f, 50f, 300L)))
+		assertTrue(host.dispatchChromeOnlyPointer(ReaderPageHostPointerEvent.Move(70f, 50f, 8f)))
+		assertTrue(
+			host.dispatchChromeOnlyPointer(
+				ReaderPageHostPointerEvent.PositionedUp(70f, 50f, 8f, 340L)
+			)
+		)
+
+		tap(50f, 50f, downTime = 400L, upTime = 901L)
+
+		assertTrue(host.dispatchChromeOnlyPointer(ReaderPageHostPointerEvent.Down(50f, 50f, 1_000L)))
+		assertTrue(host.dispatchChromeOnlyPointer(ReaderPageHostPointerEvent.SecondaryPointerDown))
+		assertTrue(
+			host.dispatchChromeOnlyPointer(
+				ReaderPageHostPointerEvent.PositionedUp(50f, 50f, 8f, 1_040L)
+			)
+		)
+
+		assertTrue(host.dispatchChromeOnlyPointer(ReaderPageHostPointerEvent.Down(50f, 50f, 1_100L)))
+		assertTrue(host.dispatchChromeOnlyPointer(ReaderPageHostPointerEvent.Cancel))
+
+		assertEquals(0, toggles)
+		assertEquals(0, router.trackedSequenceCount())
+	}
+
+	@Test
+	fun recoveryAndPolicyOrSafetyChangesCannotUpgradeOrCompleteAChromeTap() {
+		var toggles = 0
+		val (recovery, recoveryRouter, _) = host(
+			presentationInputPolicy = ReaderPresentationInputPolicy.RecoveryOnly,
+			chromeToggleTarget = { _, _ -> true },
+			onChromeToggle = { toggles += 1 }
+		)
+		assertFalse(
+			recovery.dispatchChromeOnlyPointer(
+				ReaderPageHostPointerEvent.Down(50f, 50f, 100L)
+			)
+		)
+		assertFalse(
+			recovery.dispatchChromeOnlyPointer(
+				ReaderPageHostPointerEvent.PositionedUp(50f, 50f, 8f, 140L)
+			)
+		)
+		assertEquals(0, recoveryRouter.trackedSequenceCount())
+
+		val (policyChanged, _, _) = host(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ChromeOnly,
+			chromeToggleTarget = { _, _ -> true },
+			onChromeToggle = { toggles += 1 }
+		)
+		assertTrue(
+			policyChanged.dispatchChromeOnlyPointer(
+				ReaderPageHostPointerEvent.Down(50f, 50f, 200L)
+			)
+		)
+		policyChanged.updateInputPolicies(
+			presentationInputPolicy = ReaderPresentationInputPolicy.RecoveryOnly,
+			localSafetyPolicy = readerPageOperationPolicy(ready)
+		)
+		assertTrue(
+			policyChanged.dispatchChromeOnlyPointer(
+				ReaderPageHostPointerEvent.PositionedUp(50f, 50f, 8f, 240L)
+			)
+		)
+
+		val (safetyChanged, _, _) = host(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ChromeOnly,
+			localReadiness = ready,
+			chromeToggleTarget = { _, _ -> true },
+			onChromeToggle = { toggles += 1 }
+		)
+		assertTrue(
+			safetyChanged.dispatchChromeOnlyPointer(
+				ReaderPageHostPointerEvent.Down(50f, 50f, 300L)
+			)
+		)
+		safetyChanged.updateInputPolicies(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ChromeOnly,
+			localSafetyPolicy = readerPageOperationPolicy(settling)
+		)
+		assertTrue(
+			safetyChanged.dispatchChromeOnlyPointer(
+				ReaderPageHostPointerEvent.PositionedUp(50f, 50f, 8f, 340L)
+			)
+		)
+
+		assertEquals(0, toggles)
 	}
 
 	@Test

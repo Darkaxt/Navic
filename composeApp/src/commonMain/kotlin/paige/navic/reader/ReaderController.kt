@@ -142,7 +142,23 @@ data class ReaderController(
 
 	fun onPresentationEvent(event: ReaderPresentationEvent): ReaderControllerStep {
 		val previousAuthority = state.presentation.authority
-		val reduction = readerPresentationReduce(state.presentation, event)
+		val primaryReduction = readerPresentationReduce(state.presentation, event)
+		val initialCoverReduction = if (
+			event is ReaderPresentationEvent.PublicationOpened &&
+			state.shellCoverVisible &&
+			primaryReduction.state.binding == event.binding &&
+			primaryReduction.state.authority == ReaderPresentationAuthority.Unavailable
+		) {
+			readerPresentationReduce(
+				primaryReduction.state,
+				ReaderPresentationEvent.ShellCoverRequested(
+					coverGeneration = primaryReduction.state.nextTokenValue
+				)
+			)
+		} else {
+			null
+		}
+		val reduction = initialCoverReduction ?: primaryReduction
 		val acceptedShellCoverCommit =
 			event is ReaderPresentationEvent.ShellCoverCommitted &&
 				(reduction.decision.frameOwner as? ReaderPresentationFrameOwner.ShellCover)
@@ -543,6 +559,20 @@ data class ReaderController(
 			this
 		}
 
+		val inputPolicy = controller.state.presentationDecision.inputPolicy
+		if (inputPolicy == ReaderPresentationInputPolicy.ChromeOnly) {
+			return if (action == ReaderViewerAction.Menu) {
+				ReaderControllerStep(
+					controller.copy(
+						state = controller.state.copy(
+							menuVisible = !controller.state.menuVisible
+						)
+					)
+				)
+			} else {
+				ReaderControllerStep(controller)
+			}
+		}
 		if (controller.state.shellCoverVisible) {
 			return controller.onShellCoverViewerAction(action)
 		}

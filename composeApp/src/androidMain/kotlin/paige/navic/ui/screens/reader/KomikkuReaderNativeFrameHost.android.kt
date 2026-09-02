@@ -150,14 +150,9 @@ internal data class ReaderNativePresentationApplication(
 }
 
 internal fun readerNativePresentationApplication(
-	decision: ReaderPresentationDecision,
-	unavailableStartupShellCoverSelected: Boolean
+	decision: ReaderPresentationDecision
 ): ReaderNativePresentationApplication {
-	val shellCover = decision.layer == ReaderPresentationLayer.ShellCover ||
-		(
-			decision.authority == ReaderPresentationAuthority.Unavailable &&
-				unavailableStartupShellCoverSelected
-		)
+	val shellCover = decision.layer == ReaderPresentationLayer.ShellCover
 	return ReaderNativePresentationApplication(
 		decision = decision,
 		layers = ReaderNativePresentationLayerVisibility(
@@ -493,19 +488,6 @@ internal fun readerHostPagePreparationState(
 	)
 }
 
-internal fun readerNativeShellCoverSelected(
-	shellCoverIntent: Boolean,
-	decision: ReaderPresentationDecision,
-	hasValidatedNativePredecessor: Boolean,
-	shellCoverAlreadySelected: Boolean
-): Boolean = when {
-	decision.requiredTransition is ReaderRequiredTransition.CommitShellCover -> false
-	decision.layer == ReaderPresentationLayer.ShellCover -> true
-	decision.authority == ReaderPresentationAuthority.Unavailable ->
-		shellCoverIntent && (!hasValidatedNativePredecessor || shellCoverAlreadySelected)
-	else -> false
-}
-
 internal fun dispatchClaimedReaderPageCurlEvent(
 	event: MotionEvent,
 	dispatch: (MotionEvent) -> ReaderPageCurlDispatchResult
@@ -659,7 +641,6 @@ actual fun KomikkuReaderNativeFrameHost(
 				setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
 				setChromeOverlayVisible(chromeOverlayVisible)
 				setShellCover(
-					shellCoverVisible,
 					shellCoverUrl,
 					shellCoverTitle,
 					coverBackdropEnabled
@@ -717,7 +698,6 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setNavigationOverlayVisible(navigationOverlayVisible)
 			root.setChromeOverlayVisible(chromeOverlayVisible)
 			root.setShellCover(
-				shellCoverVisible,
 				shellCoverUrl,
 				shellCoverTitle,
 				coverBackdropEnabled
@@ -811,7 +791,6 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private var currentViewerKey: ReaderViewerKey? = null
 	private var currentViewerComposeView: ComposeView? = null
 	private var shellCoverVisible: Boolean = false
-	private var shellCoverIntent: Boolean = false
 	private var presentationViewerKey: ReaderViewerKey? = null
 	private var presentationDecision: ReaderPresentationDecision? = null
 	private var lastNativeCoverVisibilityTrace: String? = null
@@ -1006,7 +985,6 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	}
 
 	fun setShellCover(
-		visible: Boolean,
 		coverUrl: String?,
 		title: String,
 		coverBackdropEnabled: Boolean
@@ -1016,21 +994,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 			title = title,
 			coverBackdropEnabled = coverBackdropEnabled
 		)
-		shellCoverIntent = visible
 	}
 
 	private fun applyPresentationDecision(decision: ReaderPresentationDecision) {
-		val unavailableStartupShellCoverSelected = readerNativeShellCoverSelected(
-			shellCoverIntent = shellCoverIntent,
-			decision = decision,
-			hasValidatedNativePredecessor =
-				viewerContainer.hasValidatedRasterPresentation(),
-			shellCoverAlreadySelected = shellCoverVisible
-		)
-		val application = readerNativePresentationApplication(
-			decision = decision,
-			unavailableStartupShellCoverSelected = unavailableStartupShellCoverSelected
-		)
+		val application = readerNativePresentationApplication(decision)
 		presentationDecision = application.decision
 		shellCoverVisible = application.layers.shellCover
 		viewerContainer.applyPresentationInputPolicy(application.inputPolicy)
@@ -1049,12 +1016,9 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	}
 
 	private fun updateNativeCoverVisibility(
-		application: ReaderNativePresentationApplication? = presentationDecision?.let { decision ->
-			readerNativePresentationApplication(
-				decision = decision,
-				unavailableStartupShellCoverSelected = shellCoverVisible
-			)
-		}
+		application: ReaderNativePresentationApplication? = presentationDecision?.let(
+			::readerNativePresentationApplication
+		)
 	) {
 		val layers = application?.layers
 			?: ReaderNativePresentationLayerVisibility(
@@ -1441,6 +1405,7 @@ private data class ReaderPageGestureDiagnosticContext(
 
 private enum class ReaderPagePhysicalDispatchMode {
 	CueMap,
+	ChromeOnly,
 	Legacy,
 	PlayLikeCurl,
 	LiveEngine
@@ -1642,6 +1607,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				this@KomikkuReaderNativeViewerContainer.clearSwipeTouchState()
 			}
 		},
+		chromeToggleTarget = ::isChromeToggleTarget,
+		onChromeToggle = {
+			logReaderTapAction(KomikkuNavigationRegion.MENU)
+			onAction(KomikkuNavigationRegion.MENU)
+		},
+		chromeTapTimeoutMillis = ViewConfiguration.getLongPressTimeout().toLong(),
 		publishLifecycleCancellation = { gestureId, reason ->
 			Logger.i(
 				KomikkuReaderNativeFrameHostTag,
@@ -2864,6 +2835,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		requestPageTurnPrewarmWhenReady()
 	}
 
+	private fun isChromeToggleTarget(x: Float, y: Float): Boolean {
+		if (width <= 0 || height <= 0) return false
+		val point = KomikkuPoint(
+			x = (x / width.toFloat()).coerceIn(0f, 1f),
+			y = (y / height.toFloat()).coerceIn(0f, 1f)
+		)
+		return navigator.getAction(point) == KomikkuNavigationRegion.MENU
+	}
+
 	private val legacyGestureDetector = KomikkuGestureDetectorWithLongTap(
 		context,
 		object : KomikkuGestureDetectorWithLongTap.Listener() {
@@ -3117,8 +3097,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun allowsCueMapInput(): Boolean = when (presentationInputPolicy) {
 		ReaderPresentationInputPolicy.RecoveryOnly,
-		is ReaderPresentationInputPolicy.ClaimedCurl -> false
 		ReaderPresentationInputPolicy.ChromeOnly,
+		is ReaderPresentationInputPolicy.ClaimedCurl -> false
 		ReaderPresentationInputPolicy.ShellCover,
 		is ReaderPresentationInputPolicy.NativePage,
 		ReaderPresentationInputPolicy.LiveEngine -> true
@@ -3138,8 +3118,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			}
 			ReaderPresentationInputPolicy.LiveEngine ->
 				ReaderPagePhysicalDispatchMode.LiveEngine
+			ReaderPresentationInputPolicy.ChromeOnly ->
+				ReaderPagePhysicalDispatchMode.ChromeOnly
 			ReaderPresentationInputPolicy.RecoveryOnly,
-			ReaderPresentationInputPolicy.ChromeOnly,
 			is ReaderPresentationInputPolicy.ClaimedCurl ->
 				ReaderPagePhysicalDispatchMode.PlayLikeCurl
 		}
@@ -3164,6 +3145,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		val handled = when (physicalDispatchMode) {
 			ReaderPagePhysicalDispatchMode.CueMap ->
 				whispersyncCueMapView.dispatchCuePointerEvent(event)
+			ReaderPagePhysicalDispatchMode.ChromeOnly ->
+				dispatchChromeOnlyPointerEvent(event)
 			ReaderPagePhysicalDispatchMode.PlayLikeCurl ->
 				dispatchPlayLikeCurlPointerEvent(event)
 			ReaderPagePhysicalDispatchMode.Legacy ->
@@ -3203,8 +3186,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		return consumed
 	}
 
-	private fun dispatchPlayLikeCurlPointerEvent(event: MotionEvent): Boolean {
-		val pointerEvent: ReaderPageHostPointerEvent? = when (event.actionMasked) {
+	private fun dispatchChromeOnlyPointerEvent(event: MotionEvent): Boolean {
+		val pointerEvent = readerPageHostPointerEvent(event) ?: return true
+		return pageInputSettlementHostController.dispatchChromeOnlyPointer(pointerEvent)
+	}
+
+	private fun readerPageHostPointerEvent(event: MotionEvent): ReaderPageHostPointerEvent? =
+		when (event.actionMasked) {
 			MotionEvent.ACTION_DOWN -> ReaderPageHostPointerEvent.Down(
 				x = event.x,
 				y = event.y,
@@ -3213,12 +3201,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			MotionEvent.ACTION_MOVE -> ReaderPageHostPointerEvent.Move(
 				x = event.x,
 				y = event.y,
-				touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+				touchSlop = touchSlopPx
 			)
 			MotionEvent.ACTION_UP -> ReaderPageHostPointerEvent.PositionedUp(
 				x = event.x,
 				y = event.y,
-				touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+				touchSlop = touchSlopPx,
+				eventTimeMillis = event.eventTime
 			)
 			MotionEvent.ACTION_CANCEL -> ReaderPageHostPointerEvent.Cancel
 			MotionEvent.ACTION_POINTER_DOWN ->
@@ -3227,7 +3216,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				ReaderPageHostPointerEvent.SecondaryPointerUp
 			else -> null
 		}
-		val pointerDispatch = pointerEvent?.let(
+
+	private fun dispatchPlayLikeCurlPointerEvent(event: MotionEvent): Boolean {
+		val pointerDispatch = readerPageHostPointerEvent(event)?.let(
 			pageInputSettlementHostController::dispatchPointer
 		)
 		return if (pointerDispatch != null) {
