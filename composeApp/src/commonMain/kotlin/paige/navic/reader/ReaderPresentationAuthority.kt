@@ -37,6 +37,30 @@ data class ReaderPresentationBinding(
 	}
 }
 
+internal data class ReaderRendererDeckIdentity(
+	val foliateSessionId: String,
+	val publicationGeneration: Long,
+	val rasterGeneration: Long,
+	val textureGeneration: Long
+)
+
+internal fun ReaderPresentationBinding.rendererDeckIdentityOrNull(): ReaderRendererDeckIdentity? {
+	val rasterGeneration = rasterGeneration ?: return null
+	val textureGeneration = textureGeneration ?: return null
+	return ReaderRendererDeckIdentity(
+		foliateSessionId = foliateSessionId,
+		publicationGeneration = publicationGeneration,
+		rasterGeneration = rasterGeneration,
+		textureGeneration = textureGeneration
+	)
+}
+
+private fun ReaderPresentationBinding.sharesRendererDeckWith(
+	other: ReaderPresentationBinding
+): Boolean = rendererDeckIdentityOrNull()?.let { identity ->
+	identity == other.rendererDeckIdentityOrNull()
+} == true
+
 data class ReaderShellCoverCommitProof(
 	val token: ReaderPresentationToken,
 	val binding: ReaderPresentationBinding,
@@ -274,7 +298,12 @@ data class ReaderPresentationDecision(
 	val diagnosticPresentation: ReaderDiagnosticPresentation,
 	val requiredTransition: ReaderRequiredTransition,
 	val targetBinding: ReaderPresentationBinding?
-)
+) {
+	internal fun targetsRendererDeckAlias(binding: ReaderPresentationBinding): Boolean =
+		targetBinding?.let { target ->
+			target != binding && target.sharesRendererDeckWith(binding)
+		} == true
+}
 
 sealed interface ReaderPresentationLifecycleState {
 	data object Foreground : ReaderPresentationLifecycleState
@@ -628,7 +657,8 @@ private fun ReaderPresentationState.reduceBindingReplacement(
 			effects = if (
 				event.previousBinding ==
 				(coverBackedDismissal.retainedFrame as ReaderPresentationFrameOwner.ShellCover)
-					.proof.binding
+					.proof.binding ||
+					event.previousBinding.sharesRendererDeckWith(event.binding)
 			) {
 				emptyList()
 			} else {

@@ -66,6 +66,7 @@ import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerPageOperationPolicy
+import paige.navic.reader.rendererDeckIdentityOrNull
 import paige.navic.util.core.Logger
 
 private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFoliate"
@@ -652,12 +653,11 @@ internal class ReaderRendererOwnedGenerationReleaseGate<Owner>(
 	private val retireOwner: (Long) -> Unit
 ) {
 	fun request(binding: ReaderPresentationBinding): Boolean {
-		val textureGeneration = binding.textureGeneration ?: return false
-		val rasterGeneration = binding.rasterGeneration ?: return false
-		val owner = ownerForGeneration(textureGeneration) ?: return true
-		if (rasterGenerationForOwner(owner) != rasterGeneration) return false
-		if (isProtectedGeneration(textureGeneration)) return false
-		return requestOwnedGeneration(textureGeneration)
+		val deckIdentity = binding.rendererDeckIdentityOrNull() ?: return false
+		val owner = ownerForGeneration(deckIdentity.textureGeneration) ?: return true
+		if (rasterGenerationForOwner(owner) != deckIdentity.rasterGeneration) return false
+		if (isProtectedGeneration(deckIdentity.textureGeneration)) return false
+		return requestOwnedGeneration(deckIdentity.textureGeneration)
 	}
 
 	fun requestOwnedGeneration(generationId: Long): Boolean {

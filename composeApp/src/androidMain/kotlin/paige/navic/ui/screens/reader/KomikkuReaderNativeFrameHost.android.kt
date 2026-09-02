@@ -243,7 +243,7 @@ internal class ReaderPresentationEffectHandler(
 						allHandled = false
 						return@forEach
 					}
-					val released = try {
+					val released = decision.targetsRendererDeckAlias(effect.binding) || try {
 						releaseStalePresentation(effect)
 					} catch (_: Throwable) {
 						false

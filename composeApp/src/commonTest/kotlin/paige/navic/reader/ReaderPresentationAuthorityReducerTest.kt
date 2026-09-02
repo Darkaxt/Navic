@@ -1081,15 +1081,7 @@ class ReaderPresentationAuthorityReducerTest {
 			),
 			movedC.effects
 		)
-		assertEquals(
-			listOf(
-				ReaderPresentationEffect.ReleaseStalePresentation(
-					ReaderPresentationToken(8L),
-					bindingC
-				)
-			),
-			retried.effects
-		)
+		assertTrue(retried.effects.isEmpty())
 
 		val staleCProof = nativeProofFor(bindingC, 81L).copy(
 			transitionToken = ReaderPresentationToken(8L)
@@ -1116,6 +1108,57 @@ class ReaderPresentationAuthorityReducerTest {
 			),
 			exact.effects
 		)
+	}
+
+	@Test
+	fun rendererDeckIdentityUsesSessionPublicationRasterTextureTransitionMatrix() {
+		val baseIdentity = binding.rendererDeckIdentityOrNull()
+		assertEquals(
+			ReaderRendererDeckIdentity(
+				foliateSessionId = binding.foliateSessionId,
+				publicationGeneration = binding.publicationGeneration,
+				rasterGeneration = requireNotNull(binding.rasterGeneration),
+				textureGeneration = requireNotNull(binding.textureGeneration)
+			),
+			baseIdentity
+		)
+		val transitions = listOf(
+			"preparation alias" to (binding.copy(preparationGeneration = 7L) to true),
+			"viewport alias" to (binding.copy(viewportGeneration = 7L) to true),
+			"profile alias" to (binding.copy(profileGeneration = 7L) to true),
+			"destination alias" to (
+				binding.copy(
+					viewportGeneration = 7L,
+					destinationCommitIdentity = ReaderDestinationCommitIdentity(
+						binding.foliateSessionId,
+						2L
+					)
+				) to true
+			),
+			"raster replacement" to (binding.copy(rasterGeneration = 7L) to false),
+			"texture replacement" to (binding.copy(textureGeneration = 7L) to false),
+			"publication replacement" to (binding.copy(publicationGeneration = 7L) to false),
+			"session replacement" to (
+				binding.copy(
+					foliateSessionId = "replacement-session",
+					destinationCommitIdentity = ReaderDestinationCommitIdentity(
+						"replacement-session",
+						1L
+					)
+				) to false
+			),
+			"incomplete raster identity" to (binding.copy(rasterGeneration = null) to false),
+			"incomplete texture identity" to (binding.copy(textureGeneration = null) to false)
+		)
+
+		transitions.forEach { (label, transition) ->
+			val (candidate, expectedSameDeck) = transition
+			assertEquals(
+				expectedSameDeck,
+				baseIdentity != null && baseIdentity == candidate.rendererDeckIdentityOrNull(),
+				label
+			)
+		}
 	}
 
 	@Test

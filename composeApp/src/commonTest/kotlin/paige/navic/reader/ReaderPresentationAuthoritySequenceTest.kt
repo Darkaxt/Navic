@@ -258,6 +258,76 @@ class ReaderPresentationAuthoritySequenceTest {
 	}
 
 	@Test
+	fun preparationAliasRetriesStayBoundedThroughControllerEffectQueueAndLatestProof() {
+		val bindingD = presentationBinding(session = "session-current", destinationSequence = 4L)
+		val coverProof = ReaderShellCoverCommitProof(
+			token = ReaderPresentationToken(20L),
+			binding = bindingD,
+			coverGeneration = 37L,
+			presentedFrame = 12L,
+			viewportWidth = 1200,
+			viewportHeight = 800
+		)
+		var controller = ReaderController(
+			ReaderControllerState(
+				shellCoverVisible = true,
+				presentation = ReaderPresentationState(
+					authority = ReaderPresentationAuthority.ShellCover(coverProof),
+					binding = bindingD,
+					nextTokenValue = 21L
+				)
+			)
+		)
+		val queue = ReaderPresentationEffectQueue()
+		var maximumPendingEffects = 0
+
+		fun dispatch(event: ReaderPresentationEvent): ReaderControllerStep {
+			val step = controller.onPresentationEvent(event)
+			controller = step.controller
+			queue.retain(step.presentationEffects)
+			maximumPendingEffects = maxOf(maximumPendingEffects, queue.pendingEffects().size)
+			return step
+		}
+
+		val dismissal = dispatch(ReaderPresentationEvent.ShellCoverDismissalRequested)
+		val transition = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			dismissal.controller.state.presentationDecision.requiredTransition
+		)
+		var latestBinding = bindingD
+		repeat(32) {
+			val replacement = latestBinding.copy(
+				preparationGeneration = requireNotNull(latestBinding.preparationGeneration) + 1L
+			)
+			dispatch(ReaderPresentationEvent.BindingReplaced(latestBinding, replacement))
+			latestBinding = replacement
+		}
+
+		assertEquals(0, maximumPendingEffects)
+		assertTrue(queue.pendingEffects().isEmpty())
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			controller.state.presentation.authority
+		)
+		assertEquals(
+			ReaderNativePagePresentationRequest(transition.token, latestBinding),
+			pending.nativePresentationRequest
+		)
+		assertEquals(ReaderPresentationFrameOwner.ShellCover(coverProof), pending.retainedFrame)
+
+		val latestProof = nativeProof(latestBinding, frame = 13L).copy(
+			transitionToken = transition.token
+		)
+		val presented = dispatch(
+			ReaderPresentationEvent.NativePagePresented(latestProof)
+		)
+		assertEquals(
+			ReaderPresentationFrameOwner.NativePage(latestProof),
+			presented.controller.state.presentationDecision.frameOwner
+		)
+		assertFalse(presented.controller.state.shellCoverVisible)
+		assertEquals(1, queue.pendingEffects().size)
+	}
+
+	@Test
 	fun presentationEffectsDeduplicateByStableIdentityAndRequireSuccessfulAcknowledgement() {
 		val settled = settledNativePresentationState()
 		val staleBinding = presentationBinding(session = "session-stale", destinationSequence = 9L)

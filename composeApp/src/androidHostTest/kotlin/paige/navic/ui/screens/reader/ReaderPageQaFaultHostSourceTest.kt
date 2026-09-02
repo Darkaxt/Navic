@@ -18,6 +18,7 @@ import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.identity
 import paige.navic.reader.readerPresentationDecision
@@ -368,6 +369,136 @@ class ReaderPageQaFaultHostSourceTest {
 
 		assertEquals(0, releaseCount)
 		assertEquals(0, acknowledgementCount)
+	}
+
+	@Test
+	fun logicalDeckAliasesAcknowledgeWithoutReleaseAndPhysicalReplacementReleasesOnceAfterProof() {
+		val bindingD = presentationBinding()
+		val coverProof = ReaderShellCoverCommitProof(
+			token = ReaderPresentationToken(20L),
+			binding = bindingD,
+			coverGeneration = 21L,
+			presentedFrame = 22L,
+			viewportWidth = 1200,
+			viewportHeight = 800
+		)
+		val dismissed = readerPresentationReduce(
+			ReaderPresentationState(
+				authority = ReaderPresentationAuthority.ShellCover(coverProof),
+				binding = bindingD,
+				nextTokenValue = 23L
+			),
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		)
+		val transitionToken = ReaderPresentationToken(23L)
+		val bindingD1 = bindingD.copy(preparationGeneration = 9L)
+		val bindingD2 = bindingD1.copy(preparationGeneration = 10L)
+		val movedD1 = readerPresentationReduce(
+			dismissed.state,
+			ReaderPresentationEvent.BindingReplaced(bindingD, bindingD1)
+		)
+		val movedD2 = readerPresentationReduce(
+			movedD1.state,
+			ReaderPresentationEvent.BindingReplaced(bindingD1, bindingD2)
+		)
+		val bindingE = bindingD2.copy(
+			rasterGeneration = 60L,
+			textureGeneration = 70L,
+			preparationGeneration = 80L
+		)
+		val owners = mutableMapOf(
+			requireNotNull(bindingD.textureGeneration) to requireNotNull(bindingD.rasterGeneration),
+			requireNotNull(bindingE.textureGeneration) to requireNotNull(bindingE.rasterGeneration)
+		)
+		val surfaceClaims = mutableSetOf<Long>()
+		var activeGenerationId = requireNotNull(bindingD.textureGeneration)
+		val releaseRequests = mutableListOf<Long>()
+		val releaseGate = ReaderRendererOwnedGenerationReleaseGate(
+			ownerForGeneration = owners::get,
+			rasterGenerationForOwner = { rasterGeneration -> rasterGeneration },
+			isProtectedGeneration = { it == activeGenerationId },
+			requestRendererRelease = { generationId ->
+				if (!surfaceClaims.add(generationId)) {
+					PageSurfaceDeckReleaseResult.alreadyAccepted()
+				} else {
+					releaseRequests += generationId
+					PageSurfaceDeckReleaseResult.accepted()
+				}
+			},
+			retireOwner = { generationId ->
+				owners.remove(generationId)
+				surfaceClaims -= generationId
+			}
+		)
+		val queue = ReaderPresentationEffectQueue()
+		var acknowledgementCount = 0
+		val handler = ReaderPresentationEffectHandler { effect ->
+			releaseGate.request(effect.binding)
+		}
+		val acknowledge: (ReaderPresentationEffectIdentity) -> Unit = { identity ->
+			if (queue.acknowledge(identity)) acknowledgementCount += 1
+		}
+
+		assertTrue(movedD1.effects.isEmpty())
+		queue.retain(movedD2.effects)
+		assertTrue(
+			handler.deliver(queue.pendingEffects(), movedD2.decision, acknowledge)
+		)
+		assertTrue(queue.pendingEffects().isEmpty())
+		assertTrue(releaseRequests.isEmpty())
+
+		val proofD = nativePresentationProof(bindingD2).copy(
+			transitionToken = transitionToken,
+			presentedFrame = 89L
+		)
+		val presentedD = readerPresentationReduce(
+			movedD2.state,
+			ReaderPresentationEvent.NativePagePresented(proofD)
+		)
+		queue.retain(presentedD.effects)
+		assertTrue(handler.deliver(queue.pendingEffects(), presentedD.decision, acknowledge))
+		assertTrue(queue.pendingEffects().isEmpty())
+		assertTrue(releaseRequests.isEmpty())
+
+		val movedE = readerPresentationReduce(
+			presentedD.state,
+			ReaderPresentationEvent.BindingReplaced(bindingD2, bindingE)
+		)
+		queue.retain(movedE.effects)
+		assertFalse(handler.deliver(queue.pendingEffects(), movedE.decision, acknowledge))
+		assertEquals(1, queue.pendingEffects().size)
+		assertTrue(releaseRequests.isEmpty())
+
+		val proofE = nativePresentationProof(bindingE).copy(presentedFrame = 90L)
+		val presentedE = readerPresentationReduce(
+			movedE.state,
+			ReaderPresentationEvent.NativePagePresented(proofE)
+		)
+		assertTrue(presentedE.effects.isEmpty())
+		activeGenerationId = requireNotNull(bindingE.textureGeneration)
+		assertTrue(handler.deliver(queue.pendingEffects(), presentedE.decision, acknowledge))
+		assertTrue(queue.pendingEffects().isEmpty())
+		assertEquals(listOf(requireNotNull(bindingD.textureGeneration)), releaseRequests)
+
+		assertTrue(queue.retain(movedE.effects).isEmpty())
+		val lateAliasD = ReaderPresentationEffect.ReleaseStalePresentation(
+			token = transitionToken,
+			binding = bindingD2.copy(preparationGeneration = 11L)
+		)
+		queue.retain(listOf(lateAliasD))
+		assertTrue(handler.deliver(queue.pendingEffects(), presentedE.decision, acknowledge))
+		assertEquals(listOf(requireNotNull(bindingD.textureGeneration)), releaseRequests)
+		releaseGate.completeRelease(requireNotNull(bindingD.textureGeneration))
+
+		val currentAliasE = ReaderPresentationEffect.ReleaseStalePresentation(
+			token = transitionToken,
+			binding = bindingE.copy(preparationGeneration = 81L)
+		)
+		queue.retain(listOf(currentAliasE))
+		assertTrue(handler.deliver(queue.pendingEffects(), presentedE.decision, acknowledge))
+		assertTrue(queue.pendingEffects().isEmpty())
+		assertEquals(listOf(requireNotNull(bindingD.textureGeneration)), releaseRequests)
+		assertEquals(4, acknowledgementCount)
 	}
 
 	@Test
