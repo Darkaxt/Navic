@@ -158,6 +158,20 @@ class ReaderPageInputSettlementHostControllerTest {
 		)
 	}
 
+	private fun rendererLossProgressCount(
+		host: ReaderPageInputSettlementHostController
+	): Int {
+		val progress = host.javaClass
+			.getDeclaredField("rendererLossCancellationProgress")
+			.apply { isAccessible = true }
+			.get(host)
+		return when (progress) {
+			is Map<*, *> -> progress.size
+			null -> 0
+			else -> 1
+		}
+	}
+
 	@Test
 	fun chromeOnlyTogglesExactlyOnceForAStationaryCenterTapWithoutPageRouting() {
 		var toggles = 0
@@ -857,6 +871,12 @@ class ReaderPageInputSettlementHostControllerTest {
 				val retryRoute = if (receiptFirst) dispatchLowerLifecycle else applyReceipt
 
 				assertFailsWith<IllegalStateException> { firstRoute() }
+				firstRoute()
+				assertEquals(
+					listOf("renderer", "drag-preview", "tap", "swipe", "work"),
+					cancellationPort.calls.map { it.first },
+					"same-route operation=$failedOperation receiptFirst=$receiptFirst"
+				)
 				retryRoute()
 				host.onLifecycleEvent(event, identity)
 				applyReceipt()
@@ -881,6 +901,83 @@ class ReaderPageInputSettlementHostControllerTest {
 				)
 				assertEquals(1, rendererWorkCancellations)
 			}
+		}
+	}
+
+	@Test
+	fun newerRendererLossCompletionFencesAndEvictsEverySupersededPartialIdentity() {
+		listOf(true, false).forEach { receiptFirst ->
+			var failRenderer = false
+			val cancellationPort = FakeReaderPageHostCancellationPort()
+			val (host, _, _) = host(
+				cancellationPort = cancellationPort,
+				afterRendererLossCancellationOperation = { operation ->
+					if (failRenderer && operation == ReaderRendererLossCancellationOperation.Renderer) {
+						failRenderer = false
+						error("partial superseded renderer-loss cancellation")
+					}
+				}
+			)
+			val older = (1L..4L).map { lossEpoch ->
+				ReaderRendererLossCancellationIdentity(
+					199L,
+					lossEpoch,
+					ReaderPageLifecycleCancellationReason.UnsafeContextLoss
+				)
+			}
+
+			fun dispatch(
+				identity: ReaderRendererLossCancellationIdentity,
+				throughReceipt: Boolean
+			) {
+				if (!throughReceipt) {
+					val event = when (identity.reason) {
+						ReaderPageLifecycleCancellationReason.GlFailure ->
+							ReaderPageHostLifecycleEvent.GlFailed
+						else -> ReaderPageHostLifecycleEvent.UnsafeContextLost
+					}
+					host.onLifecycleEvent(event, identity)
+					return
+				}
+				val continuation = nativeTapContinuation()
+				host.updateInputPolicies(
+					ReaderPresentationInputPolicy.NativePage(continuation.authorityPolicy),
+					continuation.localSafetyPolicy,
+					continuation
+				)
+				host.dispatchPointer(
+					ReaderPageHostPointerEvent.Down(100f, 200f, identity.rendererLossEpoch)
+				)
+				try {
+					host.updateInputPolicies(
+						ReaderPresentationInputPolicy.RecoveryOnly,
+						readerPageOperationPolicy(ready),
+						null,
+						identity
+					)
+				} finally {
+					host.dispatchPointer(ReaderPageHostPointerEvent.Up)
+				}
+			}
+
+			older.forEach { identity ->
+				failRenderer = true
+				assertFailsWith<IllegalStateException> { dispatch(identity, receiptFirst) }
+			}
+			val retainedBeforeCompletion = rendererLossProgressCount(host)
+			val successor = ReaderRendererLossCancellationIdentity(
+				199L,
+				5L,
+				ReaderPageLifecycleCancellationReason.GlFailure
+			)
+			dispatch(successor, !receiptFirst)
+			val callsAfterSuccessor = cancellationPort.calls.toList()
+
+			older.forEach { dispatch(it, throughReceipt = false) }
+
+			assertEquals(callsAfterSuccessor, cancellationPort.calls, "receiptFirst=$receiptFirst")
+			assertTrue(retainedBeforeCompletion <= 1, "retained=$retainedBeforeCompletion")
+			assertEquals(0, rendererLossProgressCount(host), "receiptFirst=$receiptFirst")
 		}
 	}
 

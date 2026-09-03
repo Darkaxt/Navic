@@ -1691,7 +1691,7 @@ class KomikkuReaderNativeFrameHostTest {
 		assertContains(finalSelection, "preserveNativePresentationProof")
 		assertContains(
 			proofRetention,
-			"if (visible && !preserveNativePresentationProof)"
+			"if (visibilityChanged && visible && !preserveNativePresentationProof)"
 		)
 		assertContains(proofRetention, "playLikeCurlController.invalidate(\"shell-cover-visible\")")
 		assertContains(

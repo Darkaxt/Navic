@@ -303,17 +303,6 @@ internal class ReaderPresentationHostEffectApplier(
 	private val applyNativeCoverVisibility: (ReaderNativePresentationApplication) -> Unit,
 	private val afterMutation: (ReaderPresentationHostMutation) -> Unit = {}
 ) {
-	private data class Progress(
-		val effect: ReaderPresentationHostEffect,
-		val application: ReaderNativePresentationApplication,
-		var modelComplete: Boolean = false,
-		var viewerComplete: Boolean = false,
-		var shellCoverComplete: Boolean = false,
-		var viewerCoverComplete: Boolean = false,
-		var nativeCoverComplete: Boolean = false
-	)
-
-	private val active = linkedMapOf<ReaderPresentationHostEffectIdentity, Progress>()
 	private val completed = linkedSetOf<ReaderPresentationHostEffectIdentity>()
 	private var currentHostEpoch: Long = -1L
 
@@ -322,44 +311,24 @@ internal class ReaderPresentationHostEffectApplier(
 			effect.identity.hostEpoch < currentHostEpoch -> return
 			effect.identity.hostEpoch > currentHostEpoch -> {
 				currentHostEpoch = effect.identity.hostEpoch
-				active.clear()
 				completed.clear()
 			}
 		}
 		if (effect.identity in completed) return
-		val progress = active.getOrPut(effect.identity) {
-			Progress(effect, readerNativePresentationApplication(effect.decision))
-		}
-		check(progress.effect == effect)
-		if (!progress.modelComplete) {
-			commitHostModel(progress.application)
-			progress.modelComplete = true
-			afterMutation(ReaderPresentationHostMutation.Model)
-		}
-		if (!progress.viewerComplete) {
-			applyViewerDecision(
-				progress.application.decision,
-				effect.rendererLossCancellationIdentity
-			)
-			progress.viewerComplete = true
-			afterMutation(ReaderPresentationHostMutation.ViewerDecision)
-		}
-		if (!progress.shellCoverComplete) {
-			applyShellCoverLayer(progress.application)
-			progress.shellCoverComplete = true
-			afterMutation(ReaderPresentationHostMutation.ShellCoverLayer)
-		}
-		if (!progress.viewerCoverComplete) {
-			applyViewerCoverVisibility(progress.application)
-			progress.viewerCoverComplete = true
-			afterMutation(ReaderPresentationHostMutation.ViewerCoverVisibility)
-		}
-		if (!progress.nativeCoverComplete) {
-			applyNativeCoverVisibility(progress.application)
-			progress.nativeCoverComplete = true
-			afterMutation(ReaderPresentationHostMutation.NativeCoverVisibility)
-		}
-		active.remove(effect.identity)
+		val application = readerNativePresentationApplication(effect.decision)
+		commitHostModel(application)
+		afterMutation(ReaderPresentationHostMutation.Model)
+		applyViewerDecision(
+			application.decision,
+			effect.rendererLossCancellationIdentity
+		)
+		afterMutation(ReaderPresentationHostMutation.ViewerDecision)
+		applyShellCoverLayer(application)
+		afterMutation(ReaderPresentationHostMutation.ShellCoverLayer)
+		applyViewerCoverVisibility(application)
+		afterMutation(ReaderPresentationHostMutation.ViewerCoverVisibility)
+		applyNativeCoverVisibility(application)
+		afterMutation(ReaderPresentationHostMutation.NativeCoverVisibility)
 		completed += effect.identity
 		while (completed.size > ReaderPresentationHostEffectLimit) {
 			completed.remove(completed.first())
@@ -408,7 +377,7 @@ internal class ReaderPresentationReceiptDispatcher(
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity?,
 		onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
 	): ReaderPresentationEventReceipt? {
-		if (dispatchInProgress || !drainPresentationHostEffects()) return null
+		if (dispatchInProgress) return null
 		val epoch = bindingReporter.captureEpoch()
 		dispatchInProgress = true
 		return try {
@@ -435,8 +404,7 @@ internal class ReaderPresentationReceiptDispatcher(
 		if (
 			dispatchInProgress ||
 				receipt == null ||
-				receipt.event is ReaderPresentationEvent.Lifecycle ||
-				!drainPresentationHostEffects()
+				receipt.event is ReaderPresentationEvent.Lifecycle
 		) {
 			return null
 		}
@@ -492,6 +460,8 @@ internal class ReaderPresentationReceiptDispatcher(
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity?
 	) {
 		val receipt = reporterAdmission.receipt
+		bindingReporter.commitReceipt(reporterAdmission)
+		lifecycleAdmission?.let(lifecycleDelivery::commitReceipt)
 		enqueueHostEffect(
 			ReaderPresentationHostEffect(
 				identity = ReaderPresentationHostEffectIdentity(epoch, receipt.version),
@@ -500,23 +470,32 @@ internal class ReaderPresentationReceiptDispatcher(
 				rendererLossCancellationIdentity = rendererLossCancellationIdentity
 			)
 		)
-		bindingReporter.commitReceipt(reporterAdmission)
-		lifecycleAdmission?.let(lifecycleDelivery::commitReceipt)
 	}
 
 	private fun enqueueHostEffect(effect: ReaderPresentationHostEffect) {
-		if (!effect.terminalPriority) {
-			pendingHostEffects.entries.removeAll { (_, pending) ->
-				!pending.terminalPriority &&
-					pending.identity.hostEpoch == effect.identity.hostEpoch &&
-					pending.identity.version.eventSequence <
-						effect.identity.version.eventSequence
+		pendingHostEffects.entries.removeAll { (_, pending) ->
+			pending.identity.hostEpoch == effect.identity.hostEpoch &&
+				pending.identity.version.eventSequence < effect.identity.version.eventSequence &&
+				(
+					pending.rendererLossCancellationIdentity == null ||
+						effect.rendererLossCancellationIdentity != null
+				)
+		}
+		pendingHostEffects.entries.forEach { entry ->
+			val pending = entry.value
+			if (
+				pending.identity.hostEpoch == effect.identity.hostEpoch &&
+					pending.identity.version.eventSequence < effect.identity.version.eventSequence &&
+					pending.rendererLossCancellationIdentity != null
+			) {
+				entry.setValue(pending.copy(decision = effect.decision))
 			}
 		}
 		pendingHostEffects.putIfAbsent(effect.identity, effect)
 		while (pendingHostEffects.size > ReaderPresentationHostEffectLimit) {
 			val superseded = pendingHostEffects.entries.firstOrNull { (_, pending) ->
-				!pending.terminalPriority && pending.identity != effect.identity
+				pending.rendererLossCancellationIdentity == null &&
+					pending.identity != effect.identity
 			} ?: pendingHostEffects.entries.first()
 			pendingHostEffects.remove(superseded.key)
 		}
@@ -531,18 +510,26 @@ internal class ReaderPresentationReceiptDispatcher(
 	): Boolean {
 		if (
 			dispatchInProgress ||
-			epoch != bindingReporter.captureEpoch() ||
-			!drainPresentationHostEffects()
+			epoch != bindingReporter.captureEpoch()
 		) return false
-		if (bindingReporter.matchesAuthoritativePresentationVersion(version)) return true
-		if (decision != readerPresentationDecision(state)) return false
+		if (bindingReporter.matchesAuthoritativePresentationVersion(version)) {
+			drainPresentationHostEffects()
+			return true
+		}
+		if (decision != readerPresentationDecision(state)) {
+			drainPresentationHostEffects()
+			return false
+		}
 		if (
 			!bindingReporter.consumeComposeModel(
 				version = version,
 				state = state,
 				shellCoverVisible = shellCoverVisible
 			)
-		) return false
+		) {
+			drainPresentationHostEffects()
+			return false
+		}
 		enqueueHostEffect(
 			ReaderPresentationHostEffect(
 				identity = ReaderPresentationHostEffectIdentity(epoch, version),
@@ -551,7 +538,8 @@ internal class ReaderPresentationReceiptDispatcher(
 				rendererLossCancellationIdentity = null
 			)
 		)
-		return drainPresentationHostEffects()
+		drainPresentationHostEffects()
+		return true
 	}
 
 	fun drainPresentationHostEffects(): Boolean {
@@ -559,24 +547,28 @@ internal class ReaderPresentationReceiptDispatcher(
 		pendingHostEffects.entries.removeAll { (identity, _) ->
 			identity.hostEpoch != currentHostEpoch
 		}
-		while (pendingHostEffects.isNotEmpty()) {
-			val pending = pendingHostEffects.values.firstOrNull { it.terminalPriority }
-				?: pendingHostEffects.values.first()
+		var complete = true
+		val attempts = pendingHostEffects.values.sortedByDescending {
+			it.identity.version.eventSequence
+		}
+		attempts.forEach { pending ->
+			if (pendingHostEffects[pending.identity] != pending) return@forEach
 			try {
 				applyHostEffect(pending)
 			} catch (_: Throwable) {
-				return false
+				complete = false
+				return@forEach
 			}
 			pendingHostEffects.remove(pending.identity)
 			if (pending.terminalPriority) {
 				pendingHostEffects.entries.removeAll { (_, queued) ->
-					!queued.terminalPriority &&
+					queued.rendererLossCancellationIdentity == null &&
 						queued.identity.hostEpoch == pending.identity.hostEpoch &&
 						queued.identity.version.eventSequence <=
 							pending.identity.version.eventSequence
 				}
 			}
 		}
-		return true
+		return complete && pendingHostEffects.isEmpty()
 	}
 }

@@ -2969,9 +2969,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		visible: Boolean,
 		preserveNativePresentationProof: Boolean
 	) {
-		if (shellCoverVisible == visible) return
-		val preservePreparedHandoff = !visible && consumeStartupShellPreparedHandoff()
-		if (visible) {
+		val visibilityChanged = shellCoverVisible != visible
+		val preservePreparedHandoff =
+			visibilityChanged && !visible && consumeStartupShellPreparedHandoff()
+		if (visibilityChanged && visible) {
 			dispatchPageHostLifecycleEvent(
 				event = ReaderPageHostLifecycleEvent.ShellCoverShown,
 				preserveDestinationDeck = preserveNativePresentationProof
@@ -2979,12 +2980,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 		shellCoverVisible = visible
 		cancelLegacyLivePointerStreamIfContextChanged()
-		if (visible && !preserveNativePresentationProof) {
+		if (visibilityChanged && visible && !preserveNativePresentationProof) {
 			removePageTurnPrewarmLayoutListener()
 			playLikeCurlController.invalidate("shell-cover-visible")
 			pageRasterPreparationController.invalidate("shell-cover-visible")
 		} else if (
-			!visible &&
+			visibilityChanged &&
+				!visible &&
 			!preserveNativePresentationProof &&
 			!preservePreparedHandoff
 		) {
@@ -3619,19 +3621,23 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun cancelLegacyLivePointerStream(revoked: Boolean) {
 		check(revoked)
-		legacyLivePointerDown?.let { down ->
-			val cancel = MotionEvent.obtain(down).apply {
-				action = MotionEvent.ACTION_CANCEL
-			}
-			try {
-				viewerContentContainer.dispatchTouchEvent(cancel)
-			} finally {
-				cancel.recycle()
-			}
-		}
-		legacyLivePointerDown?.recycle()
+		val down = legacyLivePointerDown
 		legacyLivePointerDown = null
 		physicalDispatchMode = ReaderPagePhysicalDispatchMode.Denied
+		try {
+			down?.let {
+				val cancel = MotionEvent.obtain(it).apply {
+					action = MotionEvent.ACTION_CANCEL
+				}
+				try {
+					viewerContentContainer.dispatchTouchEvent(cancel)
+				} finally {
+					cancel.recycle()
+				}
+			}
+		} finally {
+			down?.recycle()
+		}
 	}
 
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {

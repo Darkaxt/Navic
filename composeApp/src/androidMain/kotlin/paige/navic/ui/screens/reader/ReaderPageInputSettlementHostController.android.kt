@@ -212,6 +212,11 @@ internal class ReaderPageInputSettlementHostController(
 		var workComplete: Boolean = false
 	)
 
+	private data class ActiveRendererLossCancellation(
+		val identity: ReaderRendererLossCancellationIdentity,
+		val progress: RendererLossCancellationProgress
+	)
+
 	private var presentationInputPolicy = initialPresentationInputPolicy
 	private var localSafetyPolicy = initialLocalSafetyPolicy
 	private var nativeTapContinuationIdentity = initialNativeTapContinuationIdentity
@@ -221,10 +226,9 @@ internal class ReaderPageInputSettlementHostController(
 	private var pointerAdmissionClosed = false
 	private var pointerDeliveryClosed = false
 	private var finalDeliveryReason: ReaderPageLifecycleCancellationReason? = null
-	private var completedRendererLossPresentationEpoch: Long = -1L
-	private var completedRendererLossEpoch: Long = -1L
-	private val rendererLossCancellationProgress =
-		linkedMapOf<ReaderRendererLossCancellationIdentity, RendererLossCancellationProgress>()
+	private var completedRendererLossCancellationIdentity:
+		ReaderRendererLossCancellationIdentity? = null
+	private var rendererLossCancellationProgress: ActiveRendererLossCancellation? = null
 	private val contentTokenByGestureId =
 		linkedMapOf<Long, ReaderPageContentGestureToken>()
 
@@ -257,16 +261,19 @@ internal class ReaderPageInputSettlementHostController(
 		if (nativeTapContinuationIdentity != this.nativeTapContinuationIdentity) {
 			revokeContentContinuations()
 		}
+		if (rendererLossCancellationIdentity != null) {
+			cancelForLifecycle(
+				reason = rendererLossCancellationIdentity.reason,
+				rendererLossCancellationIdentity = rendererLossCancellationIdentity
+			)
+		} else if (presentationAuthorityBecameIncompatible) {
+			cancelForLifecycle(
+				reason = ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
+			)
+		}
 		this.presentationInputPolicy = presentationInputPolicy
 		this.localSafetyPolicy = localSafetyPolicy
 		this.nativeTapContinuationIdentity = nativeTapContinuationIdentity
-		if (presentationAuthorityBecameIncompatible) {
-			cancelForLifecycle(
-				reason = rendererLossCancellationIdentity?.reason
-					?: ReaderPageLifecycleCancellationReason.RasterProfileInvalidated,
-				rendererLossCancellationIdentity = rendererLossCancellationIdentity
-			)
-		}
 	}
 
 	fun newPointerDecision(): ReaderPageNewPointerDecision {
@@ -623,14 +630,22 @@ internal class ReaderPageInputSettlementHostController(
 			cancellationPort.clearSwipeTouchState(reason)
 			return cancelled
 		}
-		val progress = rendererLossCancellationProgress[rendererLossCancellationIdentity]
-			?: if (rendererLossCancellationComplete(rendererLossCancellationIdentity)) {
-				return emptyList()
-			} else {
+		if (rendererLossCancellationComplete(rendererLossCancellationIdentity)) {
+			return emptyList()
+		}
+		val active = rendererLossCancellationProgress
+		val progress = when {
+			active?.identity == rendererLossCancellationIdentity -> active.progress
+			active == null || active.identity.precedes(rendererLossCancellationIdentity) -> {
 				RendererLossCancellationProgress(reason).also { created ->
-					rendererLossCancellationProgress[rendererLossCancellationIdentity] = created
+					rendererLossCancellationProgress = ActiveRendererLossCancellation(
+						identity = rendererLossCancellationIdentity,
+						progress = created
+					)
 				}
 			}
+			else -> return emptyList()
+		}
 		check(progress.reason == reason)
 		if (!progress.pointerComplete) {
 			finishChromeOnlyPointerStream()
@@ -688,35 +703,36 @@ internal class ReaderPageInputSettlementHostController(
 			)
 		}
 		val cancelled = progress.cancelledGestureIds.orEmpty()
-		rendererLossCancellationProgress.remove(rendererLossCancellationIdentity)
 		markRendererLossCancellationComplete(rendererLossCancellationIdentity)
 		return cancelled
 	}
 
 	private fun rendererLossCancellationComplete(
 		identity: ReaderRendererLossCancellationIdentity
-	): Boolean = identity.presentationEpoch < completedRendererLossPresentationEpoch ||
-		(
-			identity.presentationEpoch == completedRendererLossPresentationEpoch &&
-				identity.rendererLossEpoch <= completedRendererLossEpoch
-		)
+	): Boolean = completedRendererLossCancellationIdentity?.let { completed ->
+		!completed.precedes(identity)
+	} == true
 
 	private fun markRendererLossCancellationComplete(
 		identity: ReaderRendererLossCancellationIdentity
 	) {
-		when {
-			identity.presentationEpoch > completedRendererLossPresentationEpoch -> {
-				completedRendererLossPresentationEpoch = identity.presentationEpoch
-				completedRendererLossEpoch = identity.rendererLossEpoch
-			}
-			identity.presentationEpoch == completedRendererLossPresentationEpoch -> {
-				completedRendererLossEpoch = maxOf(
-					completedRendererLossEpoch,
-					identity.rendererLossEpoch
-				)
-			}
+		val completed = completedRendererLossCancellationIdentity
+		if (completed == null || completed.precedes(identity)) {
+			completedRendererLossCancellationIdentity = identity
+		}
+		val active = rendererLossCancellationProgress
+		if (active?.identity == identity || active?.identity?.precedes(identity) == true) {
+			rendererLossCancellationProgress = null
 		}
 	}
+
+	private fun ReaderRendererLossCancellationIdentity.precedes(
+		other: ReaderRendererLossCancellationIdentity
+	): Boolean = presentationEpoch < other.presentationEpoch ||
+		(
+			presentationEpoch == other.presentationEpoch &&
+				rendererLossEpoch < other.rendererLossEpoch
+		)
 
 	private fun closeDeliveryAfterFinalPhysicalTail() {
 		val reason = finalDeliveryReason ?: return

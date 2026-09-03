@@ -229,53 +229,172 @@ class ReaderPresentationLifecycleDeliveryTest {
 	}
 
 	@Test
-	fun hostEffectApplierRetriesOnlyUnfinishedLayerAndViewerMutationBoundaries() {
-		ReaderPresentationHostMutation.entries.forEachIndexed { index, failedMutation ->
-			val mutations = mutableListOf<ReaderPresentationHostMutation>()
-			var injected = false
-			val applier = ReaderPresentationHostEffectApplier(
-				commitHostModel = { mutations += ReaderPresentationHostMutation.Model },
-				applyViewerDecision = { _, _ ->
-					mutations += ReaderPresentationHostMutation.ViewerDecision
-				},
-				applyShellCoverLayer = {
-					mutations += ReaderPresentationHostMutation.ShellCoverLayer
-				},
-				applyViewerCoverVisibility = {
-					mutations += ReaderPresentationHostMutation.ViewerCoverVisibility
-				},
-				applyNativeCoverVisibility = {
-					mutations += ReaderPresentationHostMutation.NativeCoverVisibility
-				},
-				afterMutation = { mutation ->
-					if (!injected && mutation == failedMutation) {
-						injected = true
-						error("injected failure after $mutation")
+	fun persistentOldHostFailureCannotStarveOrAccumulateSuccessorAuthority() {
+		val normalBinding = completeBinding("persistent-normal-host-failure")
+		val normalController = ControllerHarness(
+			controller(normalBinding, readerSessionGeneration = 58L, eventSequence = 3L)
+		)
+		val normalReporter = reporter(
+			normalController.controller.presentationVersion,
+			normalBinding,
+			normalController.controller.state.presentation
+		)
+		val normalDelivery = delivery(normalController.controller.presentationVersion, normalBinding)
+		val normalAttempts = mutableListOf<Long>()
+		val normalDispatcher = ReaderPresentationReceiptDispatcher(
+			bindingReporter = normalReporter,
+			lifecycleDelivery = normalDelivery,
+			applyHostEffect = { effect ->
+				normalAttempts += effect.identity.version.eventSequence
+				error("persistent normal host failure")
+			}
+		)
+		var latestNormalReceipt: ReaderPresentationEventReceipt? = null
+
+		repeat(5) {
+			latestNormalReceipt = assertNotNull(
+				normalDispatcher.dispatch(ReaderPresentationEvent.Retry) { event ->
+					normalController.dispatch(event)
+				}
+			)
+			assertEquals(1, normalDispatcher.pendingHostEffectCount)
+		}
+
+		val latestNormal = assertNotNull(latestNormalReceipt)
+		assertTrue(normalReporter.matchesAuthoritativePresentationVersion(latestNormal.version))
+		assertEquals(
+			(4L..8L).toList(),
+			normalAttempts
+		)
+
+		listOf(
+			ReaderPresentationLifecycleEvent.RendererLost,
+			ReaderPresentationLifecycleEvent.PublicationClosed
+		).forEachIndexed { index, lifecycleEvent ->
+			val binding = completeBinding("persistent-terminal-host-failure-$index")
+			val controller = ControllerHarness(
+				controller(binding, readerSessionGeneration = 59L + index, eventSequence = 10L)
+			)
+			val reporter = reporter(
+				controller.controller.presentationVersion,
+				binding,
+				controller.controller.state.presentation
+			)
+			val delivery = delivery(controller.controller.presentationVersion, binding)
+			val attempts = mutableListOf<ReaderPresentationHostEffect>()
+			val dispatcher = ReaderPresentationReceiptDispatcher(
+				bindingReporter = reporter,
+				lifecycleDelivery = delivery,
+				applyHostEffect = { effect ->
+					attempts += effect
+					if (
+						effect.event == ReaderPresentationEvent.Retry ||
+							effect.rendererLossCancellationIdentity != null
+					) {
+						error("persistent predecessor host failure")
 					}
 				}
 			)
-			val version = ReaderPresentationReceiptVersion(
-				readerSessionGeneration = 60L,
-				publicationIdentity = null,
-				eventSequence = 1L + index
+			assertNotNull(
+				dispatcher.dispatch(ReaderPresentationEvent.Retry) { event ->
+					controller.dispatch(event)
+				}
+			)
+			assertEquals(1, dispatcher.pendingHostEffectCount)
+			delivery.observe(lifecycleEvent)
+			var terminalReceipt: ReaderPresentationEventReceipt? = null
+
+			val admitted = delivery.retry { event ->
+				dispatcher.dispatch(
+					event = event,
+					rendererLossCancellationIdentity =
+						ReaderRendererLossCancellationIdentity(
+							presentationEpoch = reporter.captureEpoch(),
+							rendererLossEpoch = 1L,
+							reason = ReaderPageLifecycleCancellationReason.UnsafeContextLoss
+						).takeIf {
+							lifecycleEvent == ReaderPresentationLifecycleEvent.RendererLost
+						},
+					onEvent = { attempted ->
+						controller.dispatch(attempted).also { terminalReceipt = it }
+					}
+				)
+			}
+
+			val terminal = assertNotNull(admitted, "event=$lifecycleEvent")
+			assertEquals(terminal, terminalReceipt, "event=$lifecycleEvent")
+			assertTrue(
+				reporter.matchesAuthoritativePresentationVersion(terminal.version),
+				"event=$lifecycleEvent"
+			)
+			assertEquals(0, delivery.pendingEventCount, "event=$lifecycleEvent")
+			if (lifecycleEvent == ReaderPresentationLifecycleEvent.RendererLost) {
+				assertEquals(1, dispatcher.pendingHostEffectCount)
+				val successor = assertNotNull(
+					dispatcher.dispatch(ReaderPresentationEvent.Retry, controller::dispatch)
+				)
+				assertTrue(reporter.matchesAuthoritativePresentationVersion(successor.version))
+				assertEquals(2, dispatcher.pendingHostEffectCount)
+				assertEquals(
+					listOf<ReaderPresentationEvent?>(
+						ReaderPresentationEvent.Retry,
+						terminal.event,
+						ReaderPresentationEvent.Retry,
+						terminal.event
+					),
+					attempts.map { it.event }
+				)
+				assertEquals(attempts[2].decision, attempts[3].decision)
+			} else {
+				assertEquals(0, dispatcher.pendingHostEffectCount)
+				assertEquals(
+					listOf<ReaderPresentationEvent?>(ReaderPresentationEvent.Retry, terminal.event),
+					attempts.map { it.event }
+				)
+			}
+		}
+	}
+
+	@Test
+	fun hostEffectApplierReplaysAConvergentProjectionAfterAHostOperationActsThenThrows() {
+		ReaderPresentationHostMutation.entries.forEachIndexed { index, failedMutation ->
+			val mutations = mutableListOf<ReaderPresentationHostMutation>()
+			var injected = false
+			fun act(mutation: ReaderPresentationHostMutation) {
+				mutations += mutation
+				if (!injected && mutation == failedMutation) {
+					injected = true
+					error("host operation acted before failing: $mutation")
+				}
+			}
+			val applier = ReaderPresentationHostEffectApplier(
+				commitHostModel = { act(ReaderPresentationHostMutation.Model) },
+				applyViewerDecision = { _, _ -> act(ReaderPresentationHostMutation.ViewerDecision) },
+				applyShellCoverLayer = { act(ReaderPresentationHostMutation.ShellCoverLayer) },
+				applyViewerCoverVisibility = {
+					act(ReaderPresentationHostMutation.ViewerCoverVisibility)
+				},
+				applyNativeCoverVisibility = {
+					act(ReaderPresentationHostMutation.NativeCoverVisibility)
+				}
 			)
 			val effect = ReaderPresentationHostEffect(
-				identity = ReaderPresentationHostEffectIdentity(
-					hostEpoch = 70L,
-					version = version
+				ReaderPresentationHostEffectIdentity(
+					69L,
+					ReaderPresentationReceiptVersion(69L, null, 1L + index)
 				),
-				event = null,
-				decision = readerPresentationDecision(ReaderPresentationState()),
-				rendererLossCancellationIdentity = null
+				null,
+				readerPresentationDecision(ReaderPresentationState()),
+				null
 			)
 
 			assertFailsWith<IllegalStateException> { applier.apply(effect) }
 			applier.apply(effect)
 			applier.apply(effect)
 
-			assertTrue(injected, "mutation=$failedMutation")
 			assertEquals(
-				ReaderPresentationHostMutation.entries.toList(),
+				ReaderPresentationHostMutation.entries.take(index + 1) +
+					ReaderPresentationHostMutation.entries,
 				mutations,
 				"mutation=$failedMutation"
 			)
@@ -376,7 +495,8 @@ class ReaderPresentationLifecycleDeliveryTest {
 				"mutation=$failedMutation"
 			)
 			assertEquals(
-				ReaderPresentationHostMutation.entries.toList(),
+				ReaderPresentationHostMutation.entries.take(index + 1) +
+					ReaderPresentationHostMutation.entries,
 				mutations,
 				"mutation=$failedMutation"
 			)
@@ -390,7 +510,8 @@ class ReaderPresentationLifecycleDeliveryTest {
 				)
 			)
 			assertEquals(
-				ReaderPresentationHostMutation.entries.toList(),
+				ReaderPresentationHostMutation.entries.take(index + 1) +
+					ReaderPresentationHostMutation.entries,
 				mutations,
 				"mutation=$failedMutation"
 			)
@@ -398,7 +519,7 @@ class ReaderPresentationLifecycleDeliveryTest {
 	}
 
 	@Test
-	fun returnedReceiptDrainsEveryUnfinishedHostMutationBeforeAdmittingItsSuccessor() {
+	fun returnedReceiptSupersedesAnUnfinishedOlderVisualProjection() {
 		val binding = completeBinding("returned-receipt-host-effect-order")
 		val preState = ReaderPresentationState(binding = binding)
 		val controller = ReaderController(
@@ -461,7 +582,7 @@ class ReaderPresentationLifecycleDeliveryTest {
 
 		assertEquals(0, dispatcher.pendingHostEffectCount)
 		assertEquals(
-			ReaderPresentationHostMutation.entries.map {
+			ReaderPresentationHostMutation.entries.take(2).map {
 				firstReceipt.version.eventSequence to it
 			} + ReaderPresentationHostMutation.entries.map {
 				secondReceipt.version.eventSequence to it
