@@ -799,7 +799,10 @@ class KomikkuReaderNativeFrameHostTest {
 			reporter.update(provisional, relocated, false, true)
 		)
 		assertEquals(relocated, relocation.binding)
-		assertNull(reporter.update(provisional, relocated, false, true))
+		assertEquals(
+			relocation,
+			reporter.update(provisional, relocated, false, true)
+		)
 		assertNull(reporter.update(provisional, resolved, false, true))
 
 		val completion = assertIs<ReaderPresentationEvent.BindingCompleted>(
@@ -856,6 +859,393 @@ class KomikkuReaderNativeFrameHostTest {
 		)
 		assertEquals(confirmed, replacement.previousBinding)
 		assertEquals(complete, replacement.binding)
+	}
+
+	@Test
+	fun pendingCompleteReporterRelocationIsAcceptedByNeutralPreparationReducer() {
+		val partialA = ReaderPresentationBinding(
+			foliateSessionId = "pending-complete-relocation-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"pending-complete-relocation-session",
+				4L
+			),
+			preparationGeneration = 5L
+		)
+		val completeA = partialA.copy(rasterGeneration = 6L, textureGeneration = 7L)
+		val completeB = completeA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"pending-complete-relocation-session",
+				5L
+			),
+			rasterGeneration = 8L,
+			textureGeneration = 9L
+		)
+		val reporter = ReaderPresentationBindingReporter()
+		var state = readerPresentationReduce(
+			readerPresentationReduce(
+				ReaderPresentationState(nextTokenValue = 10L),
+				ReaderPresentationEvent.PublicationOpened(partialA)
+			).state,
+			ReaderPresentationEvent.NativePageRequested
+		).state
+		reporter.update(state.binding, partialA, false, false, state.authority)
+
+		val completion = assertIs<ReaderPresentationEvent.BindingCompleted>(
+			reporter.update(state.binding, completeA, false, false, state.authority)
+		)
+		state = readerPresentationReduce(state, completion).state
+		val relocation = assertIs<ReaderPresentationEvent.FoliateRelocated>(
+			reporter.update(partialA, completeB, false, true, state.authority)
+		)
+		state = readerPresentationReduce(state, relocation).state
+
+		val request = assertNotNull(
+			(state.authority as ReaderPresentationAuthority.BlockingPreparation)
+				.nativePresentationRequest
+		)
+		assertEquals(ReaderPresentationToken(10L), request.token)
+		assertEquals(completeB, request.binding)
+		assertEquals(completeB, state.binding)
+
+		val proofB = ReaderNativePagePresentationProof(
+			binding = completeB,
+			transitionToken = request.token,
+			presentedFrame = 11L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 8L,
+			textureGeneration = 9L
+		)
+		val presented = readerPresentationReduce(
+			state,
+			ReaderPresentationEvent.NativePagePresented(proofB)
+		)
+		assertEquals(
+			ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(proofB)
+			),
+			presented.state.authority
+		)
+		assertEquals(
+			listOf(
+				paige.navic.reader.ReaderPresentationEffect.ReleaseStalePresentation(
+					ReaderPresentationToken(10L),
+					completeA
+				)
+			),
+			presented.effects
+		)
+		assertTrue(presented.state.rendererCleanupOwnership.isEmpty())
+	}
+
+	@Test
+	fun confirmedCompleteReporterRetriesAcceptedRelocationUntilReducerEcho() {
+		val completeA = ReaderPresentationBinding(
+			foliateSessionId = "confirmed-complete-relocation-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"confirmed-complete-relocation-session",
+				4L
+			),
+			rasterGeneration = 5L,
+			textureGeneration = 6L,
+			preparationGeneration = 7L
+		)
+		val completeB = completeA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"confirmed-complete-relocation-session",
+				5L
+			),
+			rasterGeneration = 8L,
+			textureGeneration = 9L
+		)
+		val reporter = ReaderPresentationBindingReporter()
+		val request = paige.navic.reader.ReaderNativePagePresentationRequest(
+			ReaderPresentationToken(10L),
+			completeA
+		)
+		var state = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.BlockingPreparation(
+				ReaderPresentationFrameOwner.Neutral,
+				request
+			),
+			binding = completeA,
+			nextTokenValue = 11L
+		)
+		reporter.update(completeA, completeA, false, false, state.authority)
+
+		val relocation = assertIs<ReaderPresentationEvent.FoliateRelocated>(
+			reporter.update(completeA, completeB, false, true, state.authority)
+		)
+		state = readerPresentationReduce(state, relocation).state
+		assertEquals(completeB, state.binding)
+		assertEquals(
+			request.copy(binding = completeB),
+			(state.authority as ReaderPresentationAuthority.BlockingPreparation)
+				.nativePresentationRequest
+		)
+		assertEquals(
+			relocation,
+			reporter.update(completeA, completeB, false, true, state.authority)
+		)
+		assertNull(reporter.update(completeB, completeB, false, false, state.authority))
+		assertEquals(completeB, reporter.lastReportedBinding)
+		val proofB = ReaderNativePagePresentationProof(
+			binding = completeB,
+			transitionToken = request.token,
+			presentedFrame = 12L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 8L,
+			textureGeneration = 9L
+		)
+		val presented = readerPresentationReduce(
+			state,
+			ReaderPresentationEvent.NativePagePresented(proofB)
+		)
+		assertEquals(
+			listOf(
+				paige.navic.reader.ReaderPresentationEffect.ReleaseStalePresentation(
+					request.token,
+					completeA
+				)
+			),
+			presented.effects
+		)
+		assertTrue(presented.state.rendererCleanupOwnership.isEmpty())
+	}
+
+	@Test
+	fun completeReporterRelocationFencesReverseAndForeignAuthorityFacts() {
+		val completeA = ReaderPresentationBinding(
+			foliateSessionId = "fenced-complete-relocation-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"fenced-complete-relocation-session",
+				4L
+			),
+			rasterGeneration = 5L,
+			textureGeneration = 6L,
+			preparationGeneration = 7L
+		)
+		val completeB = completeA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"fenced-complete-relocation-session",
+				5L
+			),
+			rasterGeneration = 8L,
+			textureGeneration = 9L
+		)
+		val otherSession = "foreign-complete-relocation-session"
+		val rejected = listOf(
+			completeB.copy(
+				destinationCommitIdentity = ReaderDestinationCommitIdentity(
+					"fenced-complete-relocation-session",
+					3L
+				)
+			),
+			completeB.copy(
+				foliateSessionId = otherSession,
+				destinationCommitIdentity = ReaderDestinationCommitIdentity(otherSession, 5L)
+			),
+			completeB.copy(publicationGeneration = 2L),
+			completeB.copy(viewportGeneration = 1L),
+			completeB.copy(profileGeneration = 2L)
+		)
+
+		rejected.forEach { candidate ->
+			val reporter = ReaderPresentationBindingReporter()
+			reporter.update(completeA, completeA, false, false)
+			assertNull(reporter.update(completeA, candidate, false, true))
+			assertEquals(completeA, reporter.lastReportedBinding)
+		}
+		listOf(
+			completeB.copy(viewportGeneration = 3L),
+			completeB.copy(profileGeneration = 4L)
+		).forEach { replacement ->
+			val reporter = ReaderPresentationBindingReporter()
+			reporter.update(completeA, completeA, false, false)
+			assertIs<ReaderPresentationEvent.BindingReplaced>(
+				reporter.update(completeA, replacement, false, true)
+			)
+		}
+	}
+
+	@Test
+	fun bindingReporterTransitionTableOnlyEmitsReducerAcceptedEvents() {
+		val requestToken = ReaderPresentationToken(501L)
+		fun stateFor(binding: ReaderPresentationBinding, coverBacked: Boolean): ReaderPresentationState {
+			val logicalBinding = binding.copy(rasterGeneration = null, textureGeneration = null)
+			val retainedFrame = if (coverBacked) {
+				ReaderPresentationFrameOwner.ShellCover(
+					ReaderShellCoverCommitProof(
+						token = ReaderPresentationToken(500L),
+						binding = logicalBinding,
+						coverGeneration = 502L,
+						presentedFrame = 503L,
+						viewportWidth = 1200,
+						viewportHeight = 800
+					)
+				)
+			} else {
+				ReaderPresentationFrameOwner.Neutral
+			}
+			return ReaderPresentationState(
+				authority = ReaderPresentationAuthority.BlockingPreparation(
+					retainedFrame = retainedFrame,
+					nativePresentationRequest =
+						paige.navic.reader.ReaderNativePagePresentationRequest(
+							requestToken,
+							binding
+						)
+				),
+				binding = binding,
+				nextTokenValue = 502L
+			)
+		}
+
+		listOf(false, true).forEach { coverBacked ->
+			listOf(false, true).forEach { pendingReporterBasis ->
+				listOf(false, true).forEach { currentComplete ->
+					listOf(false, true).forEach { destinationSuccessor ->
+						listOf(false, true).forEach { incomingComplete ->
+							val cell = "cover=$coverBacked pending=$pendingReporterBasis " +
+								"currentComplete=$currentComplete successor=$destinationSuccessor " +
+								"incomingComplete=$incomingComplete"
+							val partialCurrent = ReaderPresentationBinding(
+								foliateSessionId = "reporter-transition-matrix-session",
+								publicationGeneration = 1L,
+								viewportGeneration = 2L,
+								profileGeneration = 3L,
+								destinationCommitIdentity = ReaderDestinationCommitIdentity(
+									"reporter-transition-matrix-session",
+									4L
+								),
+								preparationGeneration = 7L
+							)
+							val current = if (currentComplete) {
+								partialCurrent.copy(rasterGeneration = 5L, textureGeneration = 6L)
+							} else {
+								partialCurrent
+							}
+							val incomingPartial = if (destinationSuccessor) {
+								partialCurrent.copy(
+									destinationCommitIdentity = ReaderDestinationCommitIdentity(
+										"reporter-transition-matrix-session",
+										5L
+									)
+								)
+							} else if (currentComplete) {
+								partialCurrent
+							} else {
+								partialCurrent.copy(preparationGeneration = 8L)
+							}
+							val incoming = if (incomingComplete) {
+								when {
+									!destinationSuccessor && !currentComplete -> current.copy(
+										rasterGeneration = 8L,
+										textureGeneration = 9L
+									)
+									!destinationSuccessor -> current.copy(preparationGeneration = 8L)
+									else -> incomingPartial.copy(
+										rasterGeneration = 8L,
+										textureGeneration = 9L
+									)
+								}
+							} else {
+								incomingPartial
+							}
+							val reporter = ReaderPresentationBindingReporter()
+							val confirmedBinding = if (pendingReporterBasis) {
+								if (currentComplete) {
+									partialCurrent
+								} else {
+									partialCurrent.copy(profileGeneration = 2L)
+								}
+							} else {
+								current
+							}
+							val confirmedState = stateFor(confirmedBinding, coverBacked)
+							reporter.update(
+								confirmedBinding,
+								confirmedBinding,
+								false,
+								false,
+								confirmedState.authority
+							)
+							var reducerState = confirmedState
+							if (pendingReporterBasis) {
+								val seed = assertNotNull(
+									reporter.update(
+										confirmedBinding,
+										current,
+										false,
+										false,
+										confirmedState.authority
+									),
+									cell
+								)
+								reducerState = readerPresentationReduce(reducerState, seed).state
+								assertEquals(current, reducerState.binding, cell)
+							}
+
+							val event = reporter.update(
+								confirmedBinding,
+								incoming,
+								false,
+								destinationSuccessor,
+								confirmedState.authority
+							)
+							val accepted = destinationSuccessor || !currentComplete || incomingComplete
+							if (!accepted) {
+								assertNull(event, cell)
+							} else {
+								val emitted = assertNotNull(event, cell)
+								val reduced = readerPresentationReduce(reducerState, emitted)
+								assertEquals(incoming, reduced.state.binding, cell)
+								assertEquals(
+									requestToken,
+									(reduced.state.authority as
+										ReaderPresentationAuthority.BlockingPreparation)
+										.nativePresentationRequest?.token,
+									cell
+								)
+								if (destinationSuccessor) {
+									assertEquals(
+										emitted,
+										reporter.update(
+											confirmedBinding,
+											incoming,
+											false,
+											true,
+											confirmedState.authority
+										),
+										cell
+									)
+								}
+								assertNull(
+									reporter.update(
+										incoming,
+										incoming,
+										false,
+										false,
+										reduced.state.authority
+									),
+									cell
+								)
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	@Test

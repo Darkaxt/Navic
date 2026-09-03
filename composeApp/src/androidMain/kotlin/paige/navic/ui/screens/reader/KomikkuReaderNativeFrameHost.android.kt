@@ -75,6 +75,7 @@ import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPreparationPresentation
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationBindingTransitionBasis
 import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEffect
 import paige.navic.reader.ReaderPresentationEffectIdentity
@@ -92,8 +93,10 @@ import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncCueMapState
+import paige.navic.reader.accept
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerNativeReaderSwipeAction
+import paige.navic.reader.readerPresentationBindingEventCandidate
 import paige.navic.reader.readerPageGestureShouldShowBusyFeedback
 import paige.navic.reader.readerPagePreparationState
 import paige.navic.reader.readerPageOperationPolicy
@@ -175,141 +178,66 @@ internal fun readerPresentationBindingEvent(
 ): ReaderPresentationEvent? {
 	if (publicationOpenPending || relocationPending) return null
 	val previousBinding = lastReportedBinding ?: return null
-	if (previousBinding == currentBinding) return null
-	if (previousBinding.foliateSessionId != currentBinding.foliateSessionId) return null
-	if (previousBinding.publicationGeneration != currentBinding.publicationGeneration) return null
-	if (currentBinding.isExactHostRendererCompletionOf(previousBinding)) {
-		return ReaderPresentationEvent.BindingCompleted(previousBinding, currentBinding)
-	}
-	if (
-		previousBinding.destinationCommitIdentity != currentBinding.destinationCommitIdentity
-	) return null
-	return ReaderPresentationEvent.BindingReplaced(previousBinding, currentBinding)
-}
-
-private fun ReaderPresentationBinding.isExactHostRendererCompletionOf(
-	previousBinding: ReaderPresentationBinding
-): Boolean = previousBinding.rasterGeneration == null &&
-	previousBinding.textureGeneration == null &&
-	rasterGeneration != null &&
-	textureGeneration != null &&
-	foliateSessionId == previousBinding.foliateSessionId &&
-	publicationGeneration == previousBinding.publicationGeneration &&
-	viewportGeneration == previousBinding.viewportGeneration &&
-	profileGeneration == previousBinding.profileGeneration &&
-	destinationCommitIdentity == previousBinding.destinationCommitIdentity &&
-	preparationGeneration == previousBinding.preparationGeneration
-
-private fun ReaderPresentationBinding.hasAnyHostRendererIdentity(): Boolean =
-	rasterGeneration != null || textureGeneration != null
-
-private fun ReaderPresentationBinding.hasCompleteHostRendererIdentity(): Boolean =
-	rasterGeneration != null && textureGeneration != null
-
-private fun ReaderPresentationBinding.isCausalHostDestinationSuccessorOf(
-	previousBinding: ReaderPresentationBinding
-): Boolean {
-	val previousDestination = previousBinding.destinationCommitIdentity ?: return false
-	val destination = destinationCommitIdentity ?: return false
-	return foliateSessionId == previousBinding.foliateSessionId &&
-		publicationGeneration == previousBinding.publicationGeneration &&
-		viewportGeneration == previousBinding.viewportGeneration &&
-		profileGeneration == previousBinding.profileGeneration &&
-		(
-			preparationGeneration == previousBinding.preparationGeneration ||
-				previousBinding.hasCompleteHostRendererIdentity() &&
-				hasCompleteHostRendererIdentity() &&
-				preparationGeneration != null
-		) &&
-		destination.commitSequence > previousDestination.commitSequence &&
-		(!hasAnyHostRendererIdentity() || hasCompleteHostRendererIdentity())
-}
-
-private fun ReaderPresentationBinding.isCausalPendingPartialReplacementOf(
-	previousBinding: ReaderPresentationBinding
-): Boolean = !previousBinding.hasAnyHostRendererIdentity() &&
-	!hasAnyHostRendererIdentity() &&
-	foliateSessionId == previousBinding.foliateSessionId &&
-	publicationGeneration == previousBinding.publicationGeneration &&
-	destinationCommitIdentity == previousBinding.destinationCommitIdentity &&
-	preparationGeneration == previousBinding.preparationGeneration &&
-	viewportGeneration >= previousBinding.viewportGeneration &&
-	profileGeneration >= previousBinding.profileGeneration &&
-	(
-		viewportGeneration > previousBinding.viewportGeneration ||
-			profileGeneration > previousBinding.profileGeneration
+	return readerPresentationBindingEventCandidate(
+		previousBinding = previousBinding,
+		currentBinding = currentBinding,
+		relocationPending = false
 	)
-
-private fun ReaderPresentationBinding.isSafeHostBindingReplacementOf(
-	previousBinding: ReaderPresentationBinding
-): Boolean {
-	if (
-		this == previousBinding ||
-		foliateSessionId != previousBinding.foliateSessionId ||
-		publicationGeneration != previousBinding.publicationGeneration
-	) return false
-	if (!previousBinding.hasAnyHostRendererIdentity() && !hasAnyHostRendererIdentity()) {
-		return true
-	}
-	if (
-		!previousBinding.hasCompleteHostRendererIdentity() ||
-		!hasCompleteHostRendererIdentity() ||
-		preparationGeneration == null
-	) return false
-	val previousDestination = previousBinding.destinationCommitIdentity
-	val destination = destinationCommitIdentity
-	if (destination == previousDestination) return true
-	return (viewportGeneration != previousBinding.viewportGeneration ||
-		profileGeneration != previousBinding.profileGeneration) &&
-		previousDestination != null &&
-		destination != null &&
-		destination.commitSequence > previousDestination.commitSequence
 }
 
 internal class ReaderPresentationBindingReporter {
 	var lastReportedBinding: ReaderPresentationBinding? = null
 		private set
-	private var pendingBinding: ReaderPresentationBinding? = null
+	private var pendingBasis: ReaderPresentationBindingTransitionBasis? = null
+	private var pendingEvent: ReaderPresentationEvent? = null
 
 	fun reset() {
 		lastReportedBinding = null
-		pendingBinding = null
+		pendingBasis = null
+		pendingEvent = null
 	}
 
 	fun update(
 		confirmedTargetBinding: ReaderPresentationBinding?,
 		currentBinding: ReaderPresentationBinding,
 		publicationOpenPending: Boolean,
-		relocationPending: Boolean
+		relocationPending: Boolean,
+		confirmedAuthority: ReaderPresentationAuthority = ReaderPresentationAuthority.Unavailable
 	): ReaderPresentationEvent? {
 		if (confirmedTargetBinding != null && confirmedTargetBinding != lastReportedBinding) {
 			lastReportedBinding = confirmedTargetBinding
-			pendingBinding = null
+			pendingBasis = null
+			pendingEvent = null
 		}
-		if (currentBinding == lastReportedBinding || currentBinding == pendingBinding) return null
-		val reportingBasis = pendingBinding ?: lastReportedBinding
-		val event = when {
-			publicationOpenPending -> ReaderPresentationEvent.PublicationOpened(currentBinding)
-			reportingBasis == null -> null
-			reportingBasis.foliateSessionId != currentBinding.foliateSessionId -> null
-			reportingBasis.publicationGeneration != currentBinding.publicationGeneration -> null
-			currentBinding.isExactHostRendererCompletionOf(reportingBasis) ->
-				ReaderPresentationEvent.BindingCompleted(
-					previousBinding = reportingBasis,
-					binding = currentBinding
+		if (currentBinding == lastReportedBinding) return null
+		if (currentBinding == pendingBasis?.binding) {
+			return pendingEvent.takeIf { event ->
+				relocationPending && (
+					event is ReaderPresentationEvent.BindingReplaced ||
+						event is ReaderPresentationEvent.FoliateRelocated
 				)
-			currentBinding.isCausalHostDestinationSuccessorOf(reportingBasis) ->
-				ReaderPresentationEvent.FoliateRelocated(
-					binding = currentBinding,
-					acknowledgement = null
-				).takeIf { relocationPending }
-			pendingBinding != null &&
-				!currentBinding.isCausalPendingPartialReplacementOf(reportingBasis) -> null
-			currentBinding.isSafeHostBindingReplacementOf(reportingBasis) ->
-				ReaderPresentationEvent.BindingReplaced(reportingBasis, currentBinding)
-			else -> null
+			}
 		}
-		if (event != null) pendingBinding = currentBinding
+		if (publicationOpenPending) {
+			return ReaderPresentationEvent.PublicationOpened(currentBinding).also { event ->
+				pendingBasis = ReaderPresentationBindingTransitionBasis(
+					ReaderPresentationAuthority.Unavailable,
+					currentBinding
+				)
+				pendingEvent = event
+			}
+		}
+		val basis = pendingBasis ?: lastReportedBinding?.let { confirmedBinding ->
+			ReaderPresentationBindingTransitionBasis(confirmedAuthority, confirmedBinding)
+		} ?: return null
+		val event = readerPresentationBindingEventCandidate(
+			previousBinding = basis.binding,
+			currentBinding = currentBinding,
+			relocationPending = relocationPending
+		) ?: return null
+		val accepted = basis.accept(event) ?: return null
+		pendingBasis = accepted
+		pendingEvent = event
 		return event
 	}
 }
@@ -2579,22 +2507,25 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			nativePagePresentationPublisher.update()
 			return
 		}
+		val confirmedDecision = presentationDecision
+		if (
+			presentationRelocationPending &&
+			confirmedDecision?.targetBinding == binding
+		) {
+			presentationRelocationPending = false
+		}
 		val bindingEvent = presentationBindingReporter.update(
-			confirmedTargetBinding = presentationDecision?.targetBinding,
+			confirmedTargetBinding = confirmedDecision?.targetBinding,
 			currentBinding = binding,
 			publicationOpenPending = presentationPublicationOpenPending,
-			relocationPending = presentationRelocationPending
+			relocationPending = presentationRelocationPending,
+			confirmedAuthority = confirmedDecision?.authority
+				?: ReaderPresentationAuthority.Unavailable
 		)
 		if (bindingEvent != null) {
-			when (bindingEvent) {
-				is ReaderPresentationEvent.PublicationOpened -> {
-					presentationPublicationOpenPending = false
-					presentationRelocationPending = false
-				}
-				is ReaderPresentationEvent.BindingReplaced,
-				is ReaderPresentationEvent.FoliateRelocated ->
-					presentationRelocationPending = false
-				else -> Unit
+			if (bindingEvent is ReaderPresentationEvent.PublicationOpened) {
+				presentationPublicationOpenPending = false
+				presentationRelocationPending = false
 			}
 			lastReportedPresentationFacts = null
 			onPresentationEvent(bindingEvent)

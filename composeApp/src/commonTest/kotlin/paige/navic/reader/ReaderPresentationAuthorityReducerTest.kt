@@ -3,6 +3,7 @@ package paige.navic.reader
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -868,7 +869,7 @@ class ReaderPresentationAuthorityReducerTest {
 		)
 		assertEquals(ReaderPresentationFrameOwner.ShellCover(coverProof), relocated.decision.frameOwner)
 		assertEquals(target, relocated.state.binding)
-		assertEquals(ReaderPagePreparationFacts(), relocated.state.preparationFacts)
+		assertEquals(coverState.preparationFacts, relocated.state.preparationFacts)
 		assertTrue(relocated.effects.isEmpty())
 
 		val preparationFailure = readerPresentationReduce(
@@ -2768,6 +2769,427 @@ class ReaderPresentationAuthorityReducerTest {
 			presented.state.authority
 		)
 		assertTrue(presented.effects.isEmpty())
+	}
+
+	@Test
+	fun rendererFreeCoverCompletionRetainsPhysicalPredecessorUntilSuccessorSettles() {
+		val partialA = binding.copy(rasterGeneration = null, textureGeneration = null)
+		val partialB = partialA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("fixture-session", 2L)
+		)
+		val completeA = partialA.copy(rasterGeneration = 14L, textureGeneration = 15L)
+		val completeB = partialB.copy(rasterGeneration = 24L, textureGeneration = 25L)
+		val coverPending = readerPresentationReduce(
+			readerPresentationReduce(
+				ReaderPresentationState(nextTokenValue = 91L),
+				ReaderPresentationEvent.PublicationOpened(partialA)
+			).state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 92L)
+		).state
+		val coverProof = shellCoverProof(
+			ReaderPresentationToken(91L),
+			coverGeneration = 92L
+		).copy(binding = partialA)
+		val covered = readerPresentationReduce(
+			coverPending,
+			ReaderPresentationEvent.ShellCoverCommitted(coverProof)
+		).state
+		val completedA = readerPresentationReduce(
+			covered,
+			ReaderPresentationEvent.BindingCompleted(partialA, completeA)
+		)
+		assertTrue(completedA.effects.isEmpty())
+		assertEquals(
+			listOf(ReaderRendererCleanupOwnership(coverProof.token, completeA)),
+			completedA.state.rendererCleanupOwnership
+		)
+		val dismissing = readerPresentationReduce(
+			completedA.state,
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		).state
+		val direct = readerPresentationReduce(
+			dismissing,
+			ReaderPresentationEvent.FoliateRelocated(completeB, acknowledgement = null)
+		)
+		assertTrue(direct.effects.isEmpty())
+		val partial = readerPresentationReduce(
+			dismissing,
+			ReaderPresentationEvent.FoliateRelocated(partialB, acknowledgement = null)
+		)
+		val staged = readerPresentationReduce(
+			partial.state,
+			ReaderPresentationEvent.BindingCompleted(partialB, completeB)
+		)
+		assertEquals(direct.state, staged.state)
+		assertEquals(direct.effects, staged.effects)
+		assertEquals(
+			listOf(
+				ReaderRendererCleanupOwnership(coverProof.token, completeA),
+				ReaderRendererCleanupOwnership(ReaderPresentationToken(92L), completeB)
+			),
+			direct.state.rendererCleanupOwnership
+		)
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			direct.state.authority
+		)
+		val request = requireNotNull(pending.nativePresentationRequest)
+		val retainedCover = assertIs<ReaderPresentationFrameOwner.ShellCover>(
+			pending.retainedFrame
+		)
+		assertEquals(partialB, retainedCover.proof.binding)
+		val proofB = ReaderNativePagePresentationProof(
+			binding = completeB,
+			transitionToken = request.token,
+			presentedFrame = 93L,
+			viewportWidth = 100,
+			viewportHeight = 200,
+			rasterGeneration = 24L,
+			textureGeneration = 25L
+		)
+
+		val presented = readerPresentationReduce(
+			direct.state,
+			ReaderPresentationEvent.NativePagePresented(proofB)
+		)
+		val stagedPresented = readerPresentationReduce(
+			staged.state,
+			ReaderPresentationEvent.NativePagePresented(proofB)
+		)
+		val releaseA = ReaderPresentationEffect.ReleaseStalePresentation(
+			token = coverProof.token,
+			binding = completeA
+		)
+		assertEquals(presented, stagedPresented)
+		assertEquals(listOf(releaseA), presented.effects)
+		assertTrue(presented.state.rendererCleanupOwnership.isEmpty())
+		assertFalse(presented.effects.any { effect ->
+			effect is ReaderPresentationEffect.ReleaseStalePresentation &&
+				effect.binding == partialA
+		})
+
+		val queue = ReaderPresentationEffectQueue(capacity = 1)
+		assertEquals(listOf(releaseA), queue.retain(presented.effects).map { it.effect })
+		assertEquals(listOf(releaseA), queue.pendingEffects().map { it.effect })
+		assertTrue(queue.retain(presented.effects).isEmpty())
+		assertTrue(queue.acknowledge(releaseA.identity()))
+		assertTrue(queue.pendingEffects().isEmpty())
+		assertTrue(
+			readerPresentationReduce(
+				presented.state,
+				ReaderPresentationEvent.NativePagePresented(proofB)
+			).effects.isEmpty()
+		)
+	}
+
+	@Test
+	fun rendererDeckAliasCoalescesAcrossRendererFreeCoverRelocation() {
+		val partialA = binding.copy(rasterGeneration = null, textureGeneration = null)
+		val completeA = partialA.copy(rasterGeneration = 14L, textureGeneration = 15L)
+		val aliasB = completeA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("fixture-session", 2L)
+		)
+		val coverPending = readerPresentationReduce(
+			readerPresentationReduce(
+				ReaderPresentationState(nextTokenValue = 91L),
+				ReaderPresentationEvent.PublicationOpened(partialA)
+			).state,
+			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 92L)
+		).state
+		val coverProof = shellCoverProof(
+			ReaderPresentationToken(91L),
+			coverGeneration = 92L
+		).copy(binding = partialA)
+		val covered = readerPresentationReduce(
+			coverPending,
+			ReaderPresentationEvent.ShellCoverCommitted(coverProof)
+		).state
+		val completedA = readerPresentationReduce(
+			covered,
+			ReaderPresentationEvent.BindingCompleted(partialA, completeA)
+		).state
+		val dismissing = readerPresentationReduce(
+			completedA,
+			ReaderPresentationEvent.ShellCoverDismissalRequested
+		).state
+		val relocated = readerPresentationReduce(
+			dismissing,
+			ReaderPresentationEvent.FoliateRelocated(aliasB, acknowledgement = null)
+		)
+		val request = requireNotNull(
+			(relocated.state.authority as ReaderPresentationAuthority.BlockingPreparation)
+				.nativePresentationRequest
+		)
+
+		assertTrue(relocated.effects.isEmpty())
+		assertEquals(
+			listOf(ReaderRendererCleanupOwnership(request.token, aliasB)),
+			relocated.state.rendererCleanupOwnership
+		)
+		assertNoOp(
+			relocated.state,
+			readerPresentationReduce(
+				relocated.state,
+				ReaderPresentationEvent.FoliateRelocated(aliasB, acknowledgement = null)
+			)
+		)
+		val proofB = nativeProofFor(aliasB, presentedFrame = 93L).copy(
+			transitionToken = request.token
+		)
+		val presented = readerPresentationReduce(
+			relocated.state,
+			ReaderPresentationEvent.NativePagePresented(proofB)
+		)
+		assertTrue(presented.effects.isEmpty())
+		assertTrue(presented.state.rendererCleanupOwnership.isEmpty())
+
+		val closedBeforeProof = readerPresentationReduce(
+			relocated.state,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.PublicationClosed)
+		)
+		assertEquals(
+			listOf(ReaderPresentationEffect.ReleaseStalePresentation(request.token, aliasB)),
+			closedBeforeProof.effects
+		)
+	}
+
+	@Test
+	fun rendererCleanupOwnershipSurvivesBackgroundAndIsClosedOrAbandonedOnce() {
+		val partialB = binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("fixture-session", 2L),
+			rasterGeneration = null,
+			textureGeneration = null
+		)
+		val completeA = binding.copy(rasterGeneration = 14L, textureGeneration = 15L)
+		val completeB = partialB.copy(rasterGeneration = 24L, textureGeneration = 25L)
+		val coverProof = shellCoverProof(
+			ReaderPresentationToken(91L),
+			coverGeneration = 92L
+		).copy(binding = partialB)
+		val request = ReaderNativePagePresentationRequest(ReaderPresentationToken(92L), completeB)
+		val owned = listOf(
+			ReaderRendererCleanupOwnership(coverProof.token, completeA),
+			ReaderRendererCleanupOwnership(request.token, completeB)
+		)
+		val active = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.BlockingPreparation(
+				retainedFrame = ReaderPresentationFrameOwner.ShellCover(coverProof),
+				nativePresentationRequest = request
+			),
+			binding = completeB,
+			rendererCleanupOwnership = owned,
+			nextTokenValue = 93L
+		)
+
+		val background = readerPresentationReduce(
+			active,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityLost)
+		)
+		assertEquals(owned, background.state.rendererCleanupOwnership)
+		assertTrue(background.effects.isEmpty())
+		val closed = readerPresentationReduce(
+			background.state,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.PublicationClosed)
+		)
+		assertEquals(
+			listOf(
+				ReaderPresentationEffect.ReleaseStalePresentation(coverProof.token, completeA),
+				ReaderPresentationEffect.ReleaseStalePresentation(request.token, completeB)
+			),
+			closed.effects
+		)
+		assertTrue(closed.state.rendererCleanupOwnership.isEmpty())
+
+		val rendererLost = readerPresentationReduce(
+			active,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.RendererLost)
+		)
+		assertTrue(rendererLost.effects.isEmpty())
+		assertTrue(rendererLost.state.rendererCleanupOwnership.isEmpty())
+		val closedAfterLoss = readerPresentationReduce(
+			rendererLost.state,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.PublicationClosed)
+		)
+		assertTrue(closedAfterLoss.effects.isEmpty())
+	}
+
+	@Test
+	fun rapidCompleteRelocationsReleaseOnlySupersededSuccessorThenStablePredecessor() {
+		val partialA = binding.copy(rasterGeneration = null, textureGeneration = null)
+		val completeA = partialA.copy(rasterGeneration = 14L, textureGeneration = 15L)
+		val completeB = completeA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("fixture-session", 2L),
+			rasterGeneration = 24L,
+			textureGeneration = 25L
+		)
+		val completeC = completeA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("fixture-session", 3L),
+			rasterGeneration = 34L,
+			textureGeneration = 35L
+		)
+		val requested = readerPresentationReduce(
+			readerPresentationReduce(
+				ReaderPresentationState(nextTokenValue = 81L),
+				ReaderPresentationEvent.PublicationOpened(partialA)
+			).state,
+			ReaderPresentationEvent.NativePageRequested
+		).state
+		val completedA = readerPresentationReduce(
+			requested,
+			ReaderPresentationEvent.BindingCompleted(partialA, completeA)
+		).state
+		val movedB = readerPresentationReduce(
+			completedA,
+			ReaderPresentationEvent.FoliateRelocated(completeB, acknowledgement = null)
+		)
+		val movedC = readerPresentationReduce(
+			movedB.state,
+			ReaderPresentationEvent.FoliateRelocated(completeC, acknowledgement = null)
+		)
+		val token = ReaderPresentationToken(81L)
+		val releaseB = ReaderPresentationEffect.ReleaseStalePresentation(token, completeB)
+		assertTrue(movedB.effects.isEmpty())
+		assertEquals(listOf(releaseB), movedC.effects)
+		assertEquals(
+			listOf(
+				ReaderRendererCleanupOwnership(token, completeA),
+				ReaderRendererCleanupOwnership(token, completeC)
+			),
+			movedC.state.rendererCleanupOwnership
+		)
+		assertNoOp(
+			movedC.state,
+			readerPresentationReduce(
+				movedC.state,
+				ReaderPresentationEvent.FoliateRelocated(completeC, acknowledgement = null)
+			)
+		)
+		val proofC = nativeProofFor(completeC, presentedFrame = 82L).copy(
+			transitionToken = token
+		)
+		val presented = readerPresentationReduce(
+			movedC.state,
+			ReaderPresentationEvent.NativePagePresented(proofC)
+		)
+		val releaseA = ReaderPresentationEffect.ReleaseStalePresentation(token, completeA)
+		assertEquals(listOf(releaseA), presented.effects)
+		assertTrue(presented.state.rendererCleanupOwnership.isEmpty())
+
+		val queue = ReaderPresentationEffectQueue(capacity = 2)
+		assertEquals(1, queue.retain(movedC.effects).size)
+		assertEquals(1, queue.pendingEffects().size)
+		assertTrue(queue.retain(movedC.effects).isEmpty())
+		assertEquals(1, queue.retain(presented.effects).size)
+		assertEquals(2, queue.pendingEffects().size)
+		assertTrue(queue.acknowledge(releaseB.identity()))
+		assertTrue(queue.acknowledge(releaseA.identity()))
+		assertTrue(queue.pendingEffects().isEmpty())
+	}
+
+	@Test
+	fun blockingPreparationBindingTransitionTableIsUniformForNeutralAndShellCover() {
+		val requestToken = ReaderPresentationToken(401L)
+		listOf(false, true).forEach { coverBacked ->
+			listOf(false, true).forEach { currentComplete ->
+				listOf(false, true).forEach { destinationSuccessor ->
+					listOf(false, true).forEach { incomingComplete ->
+						val cell = "cover=$coverBacked currentComplete=$currentComplete " +
+							"successor=$destinationSuccessor incomingComplete=$incomingComplete"
+						val logicalCurrent = binding.copy(
+							rasterGeneration = null,
+							textureGeneration = null
+						)
+						val current = if (currentComplete) binding else logicalCurrent
+						val coverProof = shellCoverProof(
+							ReaderPresentationToken(400L),
+							coverGeneration = 402L
+						).copy(binding = logicalCurrent)
+						val retainedFrame = if (coverBacked) {
+							ReaderPresentationFrameOwner.ShellCover(coverProof)
+						} else {
+							ReaderPresentationFrameOwner.Neutral
+						}
+						val currentToken = if (coverBacked) coverProof.token else requestToken
+						val state = ReaderPresentationState(
+							authority = ReaderPresentationAuthority.BlockingPreparation(
+								retainedFrame = retainedFrame,
+								nativePresentationRequest = ReaderNativePagePresentationRequest(
+									requestToken,
+									current
+								)
+							),
+							binding = current,
+							rendererCleanupOwnership = if (currentComplete) {
+								listOf(ReaderRendererCleanupOwnership(currentToken, current))
+							} else {
+								emptyList()
+							},
+							nextTokenValue = 402L
+						)
+						val incomingPartial = if (destinationSuccessor) {
+							logicalCurrent.copy(
+								destinationCommitIdentity = ReaderDestinationCommitIdentity(
+									"fixture-session",
+									2L
+								)
+							)
+						} else if (currentComplete) {
+							logicalCurrent
+						} else {
+							logicalCurrent.copy(preparationGeneration = 7L)
+						}
+						val incoming = if (incomingComplete) {
+							when {
+								!destinationSuccessor && !currentComplete -> current.copy(
+									rasterGeneration = 14L,
+									textureGeneration = 15L
+								)
+								!destinationSuccessor -> current.copy(preparationGeneration = 7L)
+								else -> incomingPartial.copy(
+									rasterGeneration = 14L,
+									textureGeneration = 15L
+								)
+							}
+						} else {
+							incomingPartial
+						}
+						val event = when {
+							destinationSuccessor -> ReaderPresentationEvent.FoliateRelocated(
+								incoming,
+								acknowledgement = null
+							)
+							!currentComplete && incomingComplete ->
+								ReaderPresentationEvent.BindingCompleted(current, incoming)
+							else -> ReaderPresentationEvent.BindingReplaced(current, incoming)
+						}
+
+						val reduction = readerPresentationReduce(state, event)
+						val accepted = destinationSuccessor || !currentComplete || incomingComplete
+						if (!accepted) {
+							assertNoOp(state, reduction)
+						} else {
+							assertEquals(incoming, reduction.state.binding, cell)
+							val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+								reduction.state.authority,
+								cell
+							)
+							assertEquals(requestToken, pending.nativePresentationRequest?.token, cell)
+							assertEquals(incoming, pending.nativePresentationRequest?.binding, cell)
+							assertTrue(reduction.effects.isEmpty(), cell)
+							if (coverBacked) {
+								val retained = assertIs<ReaderPresentationFrameOwner.ShellCover>(
+									pending.retainedFrame,
+									cell
+								)
+								assertEquals(null, retained.proof.binding.rasterGeneration, cell)
+								assertEquals(null, retained.proof.binding.textureGeneration, cell)
+							} else {
+								assertEquals(ReaderPresentationFrameOwner.Neutral, pending.retainedFrame, cell)
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	@Test

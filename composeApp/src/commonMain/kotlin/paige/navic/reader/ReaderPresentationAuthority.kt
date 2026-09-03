@@ -45,6 +45,15 @@ internal data class ReaderRendererDeckIdentity(
 	val textureGeneration: Long
 )
 
+data class ReaderRendererCleanupOwnership(
+	val token: ReaderPresentationToken?,
+	val binding: ReaderPresentationBinding
+) {
+	init {
+		require(binding.rendererDeckIdentityOrNull() != null)
+	}
+}
+
 internal fun ReaderPresentationBinding.rendererDeckIdentityOrNull(): ReaderRendererDeckIdentity? {
 	val rasterGeneration = rasterGeneration ?: return null
 	val textureGeneration = textureGeneration ?: return null
@@ -55,30 +64,6 @@ internal fun ReaderPresentationBinding.rendererDeckIdentityOrNull(): ReaderRende
 		textureGeneration = textureGeneration
 	)
 }
-
-private fun ReaderPresentationBinding.hasCompleteRendererIdentity(): Boolean =
-	rasterGeneration != null && textureGeneration != null
-
-private fun ReaderPresentationBinding.hasAnyRendererIdentity(): Boolean =
-	rasterGeneration != null || textureGeneration != null
-
-private fun ReaderPresentationBinding.isExactRendererCompletionOf(
-	predecessor: ReaderPresentationBinding
-): Boolean = !predecessor.hasAnyRendererIdentity() &&
-	hasCompleteRendererIdentity() &&
-	foliateSessionId == predecessor.foliateSessionId &&
-	publicationGeneration == predecessor.publicationGeneration &&
-	viewportGeneration == predecessor.viewportGeneration &&
-	profileGeneration == predecessor.profileGeneration &&
-	destinationCommitIdentity == predecessor.destinationCommitIdentity &&
-	preparationGeneration != null &&
-	preparationGeneration == predecessor.preparationGeneration
-
-private fun ReaderPresentationBinding.sharesRendererDeckWith(
-	other: ReaderPresentationBinding
-): Boolean = rendererDeckIdentityOrNull()?.let { identity ->
-	identity == other.rendererDeckIdentityOrNull()
-} == true
 
 data class ReaderShellCoverCommitProof(
 	val token: ReaderPresentationToken,
@@ -377,6 +362,7 @@ data class ReaderPagePreparationFacts(
 data class ReaderPresentationState(
 	val authority: ReaderPresentationAuthority = ReaderPresentationAuthority.Unavailable,
 	val binding: ReaderPresentationBinding? = null,
+	val rendererCleanupOwnership: List<ReaderRendererCleanupOwnership> = emptyList(),
 	val lifecycle: ReaderPresentationLifecycleState = ReaderPresentationLifecycleState.Foreground,
 	val preparationFacts: ReaderPagePreparationFacts = ReaderPagePreparationFacts(),
 	val failure: ReaderDiagnosticPresentation.Failure? = null,
@@ -384,6 +370,12 @@ data class ReaderPresentationState(
 ) {
 	init {
 		require(nextTokenValue > 0L)
+		require(rendererCleanupOwnership.size <= 2)
+		require(
+			rendererCleanupOwnership.map { ownership ->
+				ownership.binding.rendererDeckIdentityOrNull()
+			}.distinct().size == rendererCleanupOwnership.size
+		)
 	}
 }
 
@@ -619,6 +611,103 @@ private data class ReaderPresentationReducerResult(
 	val effects: List<ReaderPresentationEffect> = emptyList()
 )
 
+private data class ReaderRendererCleanupTransition(
+	val ownership: List<ReaderRendererCleanupOwnership>,
+	val effects: List<ReaderPresentationEffect.ReleaseStalePresentation>
+)
+
+private fun ReaderPresentationState.trackRendererBindingTransition(
+	previousBinding: ReaderPresentationBinding,
+	binding: ReaderPresentationBinding,
+	previousToken: ReaderPresentationToken?,
+	bindingToken: ReaderPresentationToken?
+): ReaderRendererCleanupTransition {
+	val next = rendererCleanupOwnership.toMutableList()
+	val releases = mutableListOf<ReaderPresentationEffect.ReleaseStalePresentation>()
+	fun aliasIndex(candidate: ReaderPresentationBinding): Int = next.indexOfFirst { ownership ->
+		ownership.binding.sharesRendererDeckWith(candidate)
+	}
+	if (previousBinding.hasCompleteRendererIdentity() && aliasIndex(previousBinding) < 0) {
+		next += ReaderRendererCleanupOwnership(previousToken, previousBinding)
+	}
+	val previousIndex = aliasIndex(previousBinding)
+	if (previousIndex >= 0 && next.size > 1) {
+		val superseded = next.removeAt(previousIndex)
+		if (!superseded.binding.sharesRendererDeckWith(binding)) {
+			releases += ReaderPresentationEffect.ReleaseStalePresentation(
+				token = superseded.token,
+				binding = superseded.binding
+			)
+		}
+	}
+	if (binding.hasCompleteRendererIdentity()) {
+		val alias = aliasIndex(binding)
+		val ownership = ReaderRendererCleanupOwnership(bindingToken, binding)
+		if (alias >= 0) {
+			next[alias] = ownership
+		} else {
+			next += ownership
+		}
+	}
+	check(next.size <= 2)
+	return ReaderRendererCleanupTransition(next, releases.distinctByRendererDeck())
+}
+
+private fun ReaderPresentationState.adoptRendererBinding(
+	binding: ReaderPresentationBinding
+): ReaderRendererCleanupTransition = ReaderRendererCleanupTransition(
+	ownership = emptyList(),
+	effects = rendererCleanupOwnership
+		.filterNot { ownership -> ownership.binding.sharesRendererDeckWith(binding) }
+		.map { ownership ->
+			ReaderPresentationEffect.ReleaseStalePresentation(
+				token = ownership.token,
+				binding = ownership.binding
+			)
+		}
+		.distinctByRendererDeck()
+)
+
+private fun List<ReaderPresentationEffect.ReleaseStalePresentation>.distinctByRendererDeck():
+	List<ReaderPresentationEffect.ReleaseStalePresentation> {
+	val seen = mutableSetOf<ReaderRendererDeckIdentity>()
+	return filter { effect ->
+		effect.binding.rendererDeckIdentityOrNull()?.let(seen::add) == true
+	}
+}
+
+private fun ReaderPresentationAuthority.rendererCleanupTokenFor(
+	binding: ReaderPresentationBinding
+): ReaderPresentationToken? = when (this) {
+	is ReaderPresentationAuthority.BlockingPreparation -> {
+		val cover = retainedFrame as? ReaderPresentationFrameOwner.ShellCover
+		if (cover?.proof?.binding?.sharesRendererDeckWith(binding) == true) {
+			cover.proof.token
+		} else {
+			nativePresentationRequest?.token ?: retainedFrame.presentationTokenOrNull()
+		}
+	}
+	is ReaderPresentationAuthority.ShellCover -> proof.token
+	else -> releaseIdentityTokenOrNull()
+}
+
+private fun ReaderPresentationAuthority.rendererCleanupTokenOrNull(): ReaderPresentationToken? =
+	when (this) {
+		is ReaderPresentationAuthority.BlockingPreparation ->
+			nativePresentationRequest?.token ?: retainedFrame.presentationTokenOrNull()
+		else -> releaseIdentityTokenOrNull()
+	}
+
+private fun ReaderPresentationState.rendererCleanupReleaseEffects():
+	List<ReaderPresentationEffect.ReleaseStalePresentation> = rendererCleanupOwnership
+	.map { ownership ->
+		ReaderPresentationEffect.ReleaseStalePresentation(
+			token = ownership.token,
+			binding = ownership.binding
+		)
+	}
+	.distinctByRendererDeck()
+
 private fun ReaderPresentationState.reduceRetry(): ReaderPresentationReducerResult {
 	val currentBinding = binding ?: return ReaderPresentationReducerResult(this)
 	val currentFailure = failure ?: return ReaderPresentationReducerResult(this)
@@ -689,36 +778,28 @@ private fun ReaderPresentationState.reduceFoliateRelocation(
 			ReaderPresentationReducerResult(copy(binding = event.binding))
 		currentBinding == event.binding -> ReaderPresentationReducerResult(this)
 		authority is ReaderPresentationAuthority.BlockingPreparation &&
+			authority.nativePresentationRequest != null &&
 			currentBinding != null &&
-			event.binding.isPreparationDestinationSuccessorOf(currentBinding) -> {
-			val reboundAuthority = authority.rebindPartialPresentation(
+			event.binding.isCausalDestinationSuccessorOf(currentBinding) -> {
+			val reboundAuthority = authority.rebindRequestedPresentation(
 				previousBinding = currentBinding,
 				binding = event.binding
 			) ?: return ReaderPresentationReducerResult(this)
+			val cleanup = trackRendererBindingTransition(
+				previousBinding = currentBinding,
+				binding = event.binding,
+				previousToken = authority.rendererCleanupTokenFor(currentBinding),
+				bindingToken = reboundAuthority.rendererCleanupTokenOrNull()
+			)
 			ReaderPresentationReducerResult(
-				copy(
+				state = copy(
 					authority = reboundAuthority,
-					binding = event.binding
-				)
+					binding = event.binding,
+					rendererCleanupOwnership = cleanup.ownership
+				),
+				effects = cleanup.effects
 			)
 		}
-		authority is ReaderPresentationAuthority.BlockingPreparation &&
-			authority.nativePresentationRequest != null &&
-			authority.retainedFrame is ReaderPresentationFrameOwner.ShellCover &&
-			currentBinding?.hasCompleteRendererIdentity() == true &&
-			currentBinding.let(event.binding::isCompleteDestinationSuccessorOf) ->
-			ReaderPresentationReducerResult(
-				copy(
-					authority = authority.copy(
-						nativePresentationRequest = authority.nativePresentationRequest.copy(
-							binding = event.binding
-						)
-					),
-					binding = event.binding,
-					preparationFacts = ReaderPagePreparationFacts(),
-					failure = null
-				)
-			)
 		authority is ReaderPresentationAuthority.SettledNativePage &&
 			authority.frame.proof.binding == event.binding ->
 			ReaderPresentationReducerResult(this)
@@ -736,35 +817,11 @@ private fun ReaderPresentationState.reduceFoliateRelocation(
 	}
 }
 
-private fun ReaderPresentationBinding.isPreparationDestinationSuccessorOf(
-	predecessor: ReaderPresentationBinding
-): Boolean {
-	val predecessorDestination = predecessor.destinationCommitIdentity ?: return false
-	val destination = destinationCommitIdentity ?: return false
-	return !predecessor.hasAnyRendererIdentity() &&
-		(!hasAnyRendererIdentity() || hasCompleteRendererIdentity()) &&
-		foliateSessionId == predecessor.foliateSessionId &&
-		publicationGeneration == predecessor.publicationGeneration &&
-		viewportGeneration == predecessor.viewportGeneration &&
-		profileGeneration == predecessor.profileGeneration &&
-		preparationGeneration == predecessor.preparationGeneration &&
-		destination.commitSequence > predecessorDestination.commitSequence
-}
-
 private fun ReaderPresentationBinding.isCompleteDestinationSuccessorOf(
 	predecessor: ReaderPresentationBinding
-): Boolean {
-	val predecessorDestination = predecessor.destinationCommitIdentity ?: return false
-	val destination = destinationCommitIdentity ?: return false
-	return foliateSessionId == predecessor.foliateSessionId &&
-		publicationGeneration == predecessor.publicationGeneration &&
-		viewportGeneration == predecessor.viewportGeneration &&
-		profileGeneration == predecessor.profileGeneration &&
-		destination.commitSequence > predecessorDestination.commitSequence &&
-		rasterGeneration != null &&
-		textureGeneration != null &&
-		preparationGeneration != null
-}
+): Boolean = hasCompleteRendererIdentity() &&
+	preparationGeneration != null &&
+	isCausalDestinationSuccessorOf(predecessor)
 
 private fun ReaderPresentationState.reduceNativePageRequest(): ReaderPresentationReducerResult {
 	val currentBinding = binding ?: return ReaderPresentationReducerResult(this)
@@ -797,11 +854,47 @@ private fun ReaderPresentationState.reduceBindingCompletion(
 		previousBinding = event.previousBinding,
 		binding = event.binding
 	) ?: return stalePresentation(token = null, binding = event.binding)
+	val cleanup = trackRendererBindingTransition(
+		previousBinding = event.previousBinding,
+		binding = event.binding,
+		previousToken = authority.rendererCleanupTokenFor(event.previousBinding),
+		bindingToken = reboundAuthority.rendererCleanupTokenOrNull()
+	)
 	return ReaderPresentationReducerResult(
-		copy(
+		state = copy(
 			authority = reboundAuthority,
-			binding = event.binding
-		)
+			binding = event.binding,
+			rendererCleanupOwnership = cleanup.ownership
+		),
+		effects = cleanup.effects
+	)
+}
+
+private fun ReaderPresentationAuthority.BlockingPreparation.rebindRequestedPresentation(
+	previousBinding: ReaderPresentationBinding,
+	binding: ReaderPresentationBinding
+): ReaderPresentationAuthority.BlockingPreparation? {
+	val request = nativePresentationRequest?.takeIf { it.binding == previousBinding } ?: return null
+	val retained = when (val frame = retainedFrame) {
+		ReaderPresentationFrameOwner.Neutral -> frame
+		is ReaderPresentationFrameOwner.ShellCover -> when {
+			frame.proof.binding.hasCompleteRendererIdentity() -> frame
+			frame.proof.binding == previousBinding ||
+				previousBinding.isExactRendererCompletionOf(frame.proof.binding) ->
+				ReaderPresentationFrameOwner.ShellCover(
+					frame.proof.copy(
+						binding = binding.copy(rasterGeneration = null, textureGeneration = null)
+					)
+				)
+			else -> return null
+		}
+		is ReaderPresentationFrameOwner.NativePage,
+		is ReaderPresentationFrameOwner.Curl,
+		is ReaderPresentationFrameOwner.LiveEngine -> return null
+	}
+	return copy(
+		retainedFrame = retained,
+		nativePresentationRequest = request.copy(binding = binding)
 	)
 }
 
@@ -883,6 +976,40 @@ private fun ReaderPresentationFrameOwner.rebindPartialPresentation(
 private fun ReaderPresentationState.reduceBindingReplacement(
 	event: ReaderPresentationEvent.BindingReplaced
 ): ReaderPresentationReducerResult {
+	val requested = (authority as? ReaderPresentationAuthority.BlockingPreparation)
+		?.takeIf { pending -> pending.nativePresentationRequest?.binding == event.previousBinding }
+	if (
+		binding == event.previousBinding &&
+		requested != null &&
+		event.binding.isSafeBindingReplacementOf(event.previousBinding)
+	) {
+		val reboundAuthority = requested.rebindRequestedPresentation(
+			event.previousBinding,
+			event.binding
+		) ?: return ReaderPresentationReducerResult(this)
+		val cleanup = trackRendererBindingTransition(
+			previousBinding = event.previousBinding,
+			binding = event.binding,
+			previousToken = authority.rendererCleanupTokenFor(event.previousBinding),
+			bindingToken = reboundAuthority.rendererCleanupTokenOrNull()
+		)
+		val preservesPreparation =
+			event.binding.isResolvedProfileReplacementOf(event.previousBinding)
+		return ReaderPresentationReducerResult(
+			state = copy(
+				authority = reboundAuthority,
+				binding = event.binding,
+				rendererCleanupOwnership = cleanup.ownership,
+				preparationFacts = if (preservesPreparation) {
+					preparationFacts
+				} else {
+					ReaderPagePreparationFacts()
+				},
+				failure = failure.takeIf { preservesPreparation }
+			),
+			effects = cleanup.effects
+		)
+	}
 	if (
 		binding == event.previousBinding &&
 		!event.previousBinding.hasAnyRendererIdentity() &&
@@ -913,43 +1040,11 @@ private fun ReaderPresentationState.reduceBindingReplacement(
 			)
 		)
 	}
-	val coverBackedDismissal = (authority as? ReaderPresentationAuthority.BlockingPreparation)
-		?.takeIf { pending ->
-			pending.retainedFrame is ReaderPresentationFrameOwner.ShellCover &&
-				pending.nativePresentationRequest?.binding == event.previousBinding
-		}
 	return when {
 		binding == event.binding -> ReaderPresentationReducerResult(this)
 		binding != event.previousBinding ||
 			!event.binding.isCompleteBindingReplacementOf(event.previousBinding) ->
 			ReaderPresentationReducerResult(this)
-		coverBackedDismissal != null -> ReaderPresentationReducerResult(
-			state = copy(
-				authority = coverBackedDismissal.copy(
-					nativePresentationRequest = coverBackedDismissal.nativePresentationRequest?.copy(
-						binding = event.binding
-					)
-				),
-				binding = event.binding,
-				preparationFacts = ReaderPagePreparationFacts(),
-				failure = null
-			),
-			effects = if (
-				event.previousBinding ==
-				(coverBackedDismissal.retainedFrame as ReaderPresentationFrameOwner.ShellCover)
-					.proof.binding ||
-					event.previousBinding.sharesRendererDeckWith(event.binding)
-			) {
-				emptyList()
-			} else {
-				listOf(
-					ReaderPresentationEffect.ReleaseStalePresentation(
-						token = coverBackedDismissal.nativePresentationRequest?.token,
-						binding = event.previousBinding
-					)
-				)
-			}
-		)
 		else -> ReaderPresentationReducerResult(
 			state = copy(
 				authority = ReaderPresentationAuthority.Unavailable,
@@ -1026,6 +1121,7 @@ private fun ReaderPresentationState.reduceLifecycle(
 			} else {
 				ReaderPresentationAuthority.BlockingPreparation(authority.frameOwner())
 			},
+			rendererCleanupOwnership = emptyList(),
 			failure = ReaderDiagnosticPresentation.Failure(
 				reason = ReaderPresentationFailureReason.RendererLost,
 				retryable = true,
@@ -1034,10 +1130,11 @@ private fun ReaderPresentationState.reduceLifecycle(
 		)
 	)
 	ReaderPresentationLifecycleEvent.PublicationClosed -> ReaderPresentationReducerResult(
-		ReaderPresentationState(
+		state = ReaderPresentationState(
 			lifecycle = ReaderPresentationLifecycleState.Destroyed,
 			nextTokenValue = nextTokenValue
-		)
+		),
+		effects = rendererCleanupReleaseEffects()
 	)
 }
 
@@ -1123,14 +1220,17 @@ private fun ReaderPresentationState.reduceNativePageProof(
 	proof: ReaderNativePagePresentationProof
 ): ReaderPresentationReducerResult = when (val authority = authority) {
 	ReaderPresentationAuthority.Unavailable -> if (binding == null || binding == proof.binding) {
+		val cleanup = adoptRendererBinding(proof.binding)
 		ReaderPresentationReducerResult(
-			copy(
+			state = copy(
 				authority = ReaderPresentationAuthority.SettledNativePage(
 					ReaderPresentationFrameOwner.NativePage(proof)
 				),
 				binding = proof.binding,
+				rendererCleanupOwnership = cleanup.ownership,
 				failure = null
-			)
+			),
+			effects = cleanup.effects
 		)
 	} else {
 		staleProof(proof.transitionToken, proof.binding)
@@ -1140,21 +1240,23 @@ private fun ReaderPresentationState.reduceNativePageProof(
 			ReaderPresentationReducerResult(this)
 		proof.transitionToken == null &&
 			binding == proof.binding &&
-			proof.binding.isCompleteDestinationSuccessorOf(authority.frame.proof.binding) ->
+			proof.binding.isCompleteDestinationSuccessorOf(authority.frame.proof.binding) -> {
+			val cleanup = adoptRendererBinding(proof.binding)
+			val retainedRelease = ReaderPresentationEffect.ReleaseStalePresentation(
+				token = authority.frame.proof.transitionToken,
+				binding = authority.frame.proof.binding
+			)
 			ReaderPresentationReducerResult(
 				state = copy(
 					authority = ReaderPresentationAuthority.SettledNativePage(
 						ReaderPresentationFrameOwner.NativePage(proof)
 					),
+					rendererCleanupOwnership = cleanup.ownership,
 					failure = null
 				),
-				effects = listOf(
-					ReaderPresentationEffect.ReleaseStalePresentation(
-						token = authority.frame.proof.transitionToken,
-						binding = authority.frame.proof.binding
-					)
-				)
+				effects = (cleanup.effects + retainedRelease).distinctByRendererDeck()
 			)
+		}
 		else -> staleProof(proof.transitionToken, proof.binding)
 	}
 	is ReaderPresentationAuthority.BlockingPreparation -> {
@@ -1167,23 +1269,25 @@ private fun ReaderPresentationState.reduceNativePageProof(
 			request.binding == proof.binding &&
 			binding == proof.binding
 		) {
+			val cleanup = adoptRendererBinding(proof.binding)
+			val coverRelease = retainedCover
+				?.takeIf { it.proof.binding.hasCompleteRendererIdentity() }
+				?.let { cover ->
+					ReaderPresentationEffect.ReleaseStalePresentation(
+						token = cover.proof.token,
+						binding = cover.proof.binding
+					)
+				}
 			ReaderPresentationReducerResult(
 				state = copy(
 					authority = ReaderPresentationAuthority.SettledNativePage(
 						ReaderPresentationFrameOwner.NativePage(proof)
 					),
+					rendererCleanupOwnership = cleanup.ownership,
 					failure = null
 				),
-				effects = retainedCover
-					?.takeIf { it.proof.binding.hasCompleteRendererIdentity() }
-					?.let { cover ->
-						listOf(
-							ReaderPresentationEffect.ReleaseStalePresentation(
-								token = cover.proof.token,
-								binding = cover.proof.binding
-							)
-						)
-					}.orEmpty()
+				effects = (cleanup.effects + listOfNotNull(coverRelease))
+					.distinctByRendererDeck()
 			)
 		} else {
 			staleProof(proof.transitionToken, proof.binding)
