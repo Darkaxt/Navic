@@ -6,6 +6,7 @@ import java.io.File
 import karacken.curl.PageSurfaceView
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -28,7 +29,10 @@ class ReaderNativePagePresentationPublisherTest {
 		val publisher = ReaderNativePagePresentationPublisher(
 			frameSource = source,
 			currentCandidate = { candidate },
-			onEvent = events::add
+			onEvent = { event ->
+				events += event
+				true
+			}
 		)
 
 		publisher.update()
@@ -54,7 +58,10 @@ class ReaderNativePagePresentationPublisherTest {
 		val publisher = ReaderNativePagePresentationPublisher(
 			frameSource = source,
 			currentCandidate = { candidate },
-			onEvent = events::add
+			onEvent = { event ->
+				events += event
+				true
+			}
 		)
 		publisher.update()
 
@@ -64,7 +71,7 @@ class ReaderNativePagePresentationPublisherTest {
 		source.present(1L)
 		assertTrue(events.isEmpty())
 		source.present(2L)
-		assertEquals(candidate?.binding, assertIs<ReaderPresentationEvent.NativePagePresented>(events.single()).proof.binding)
+		assertEquals(candidate.binding, assertIs<ReaderPresentationEvent.NativePagePresented>(events.single()).proof.binding)
 
 		candidate = candidate(sequence = 3L)
 		publisher.update()
@@ -90,7 +97,10 @@ class ReaderNativePagePresentationPublisherTest {
 		val publisher = ReaderNativePagePresentationPublisher(
 			frameSource = source,
 			currentCandidate = { candidate },
-			onEvent = events::add
+			onEvent = { event ->
+				events += event
+				true
+			}
 		)
 		publisher.update()
 
@@ -102,6 +112,48 @@ class ReaderNativePagePresentationPublisherTest {
 		assertEquals(listOf(1L, 2L), source.requestedIds)
 		source.present(2L)
 		assertEquals(1199, assertIs<ReaderPresentationEvent.NativePagePresented>(events.single()).proof.viewportWidth)
+	}
+
+	@Test
+	fun rejectedAndThrowingCallbacksRearmTheExactNativeCandidate() {
+		val source = ControllablePresentedFrameSource()
+		val candidate = candidate(sequence = 1L)
+		val events = mutableListOf<ReaderPresentationEvent>()
+		var attempt = 0
+		val publisher = ReaderNativePagePresentationPublisher(
+			frameSource = source,
+			currentCandidate = { candidate },
+			onEvent = { event ->
+				events += event
+				attempt += 1
+				when (attempt) {
+					1 -> false
+					2 -> error("callback failed")
+					else -> true
+				}
+			}
+		)
+
+		publisher.update()
+		source.present(1L)
+		assertEquals(listOf(1L, 2L), source.requestedIds)
+
+		assertFailsWith<IllegalStateException> {
+			source.present(2L)
+		}
+		assertEquals(listOf(1L, 2L, 3L), source.requestedIds)
+
+		source.present(3L)
+		publisher.update()
+
+		assertEquals(3, events.size)
+		val proofs = events.map {
+			assertIs<ReaderPresentationEvent.NativePagePresented>(it).proof
+		}
+		assertTrue(proofs.all { it.binding == candidate.binding })
+		assertTrue(proofs.all { it.transitionToken == candidate.transitionToken })
+		assertEquals(listOf(1L, 2L, 3L), proofs.map { it.presentedFrame })
+		assertEquals(listOf(1L, 2L, 3L), source.requestedIds)
 	}
 
 	private fun candidate(sequence: Long) = ReaderNativePagePresentationCandidate(

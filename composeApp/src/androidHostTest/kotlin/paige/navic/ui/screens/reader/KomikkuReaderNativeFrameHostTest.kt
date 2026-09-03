@@ -5,6 +5,9 @@ import java.io.File
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import paige.navic.reader.ReaderController
+import paige.navic.reader.ReaderControllerState
+import paige.navic.reader.ReaderControllerStep
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderLegacyLiveCompatibilityContext
 import paige.navic.reader.ReaderLegacyLiveCompatibilityIdentity
@@ -505,7 +508,83 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
-	fun productionBindingReporterConfirmsReducerStateAndUsesAtomicCombinedReplacement() {
+	fun delayedNativeProofCannotLeaveReporterOnRejectedPartialBasis() {
+		val completeA = ReaderPresentationBinding(
+			foliateSessionId = "delayed-proof-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"delayed-proof-session",
+				4L
+			),
+			rasterGeneration = 5L,
+			textureGeneration = 6L,
+			preparationGeneration = 7L
+		)
+		val partialB = completeA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"delayed-proof-session",
+				5L
+			),
+			rasterGeneration = null,
+			textureGeneration = null
+		)
+		val completeB = partialB.copy(rasterGeneration = 8L, textureGeneration = 9L)
+		val request = paige.navic.reader.ReaderNativePagePresentationRequest(
+			ReaderPresentationToken(10L),
+			completeA
+		)
+		val cachedState = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.BlockingPreparation(
+				ReaderPresentationFrameOwner.Neutral,
+				request
+			),
+			binding = completeA,
+			nextTokenValue = 11L
+		)
+		val reporter = ReaderPresentationBindingReporter()
+		reporter.update(completeA, completeA, false, false)
+		val proofA = ReaderNativePagePresentationProof(
+			binding = completeA,
+			transitionToken = request.token,
+			presentedFrame = 11L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 5L,
+			textureGeneration = 6L
+		)
+		val settled = reporter.dispatch(
+			ReaderController(
+				ReaderControllerState(
+					readerSessionGeneration = 5L,
+					presentation = cachedState
+				)
+			),
+			ReaderPresentationEvent.NativePagePresented(proofA)
+		)
+		assertIs<ReaderPresentationAuthority.SettledNativePage>(
+			settled.controller.state.presentation.authority
+		)
+
+		val partialEvent = assertIs<ReaderPresentationEvent.FoliateRelocated>(
+			reporter.update(completeA, partialB, false, true)
+		)
+		val rejected = reporter.dispatch(settled.controller, partialEvent)
+		assertEquals(completeA, rejected.controller.state.presentation.binding)
+		assertIs<ReaderPresentationAuthority.SettledNativePage>(
+			rejected.controller.state.presentation.authority
+		)
+
+		val completeEvent = assertNotNull(
+			reporter.update(completeA, completeB, false, true)
+		)
+		assertIs<ReaderPresentationEvent.FoliateRelocated>(completeEvent)
+		assertEquals(completeB, completeEvent.binding)
+	}
+
+	@Test
+	fun productionBindingReporterUsesReducerReceiptsAndAtomicCombinedReplacement() {
 		val session = "fixture-session"
 		val bindingA = ReaderPresentationBinding(
 			foliateSessionId = session,
@@ -532,101 +611,61 @@ class KomikkuReaderNativeFrameHostTest {
 			preparationGeneration = 14L
 		)
 		val reporter = ReaderPresentationBindingReporter()
-		var state = ReaderPresentationState()
-
-		val opened = assertNotNull(
-			reporter.update(
-				confirmedTargetBinding = readerPresentationDecision(state).targetBinding,
-				currentBinding = bindingA,
-				publicationOpenPending = true,
-				relocationPending = false
-			)
+		var controller = ReaderController(
+			ReaderControllerState(readerSessionGeneration = 1L)
 		)
-		assertTrue(opened is ReaderPresentationEvent.PublicationOpened)
+
+		val opened = assertIs<ReaderPresentationEvent.PublicationOpened>(
+			reporter.update(null, bindingA, true, false)
+		)
 		assertNull(reporter.lastReportedBinding)
-		state = readerPresentationReduce(state, opened).state
-		assertNull(
-			reporter.update(
-				confirmedTargetBinding = readerPresentationDecision(state).targetBinding,
-				currentBinding = bindingA,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
-		)
+		controller = reporter.dispatch(controller, opened).controller
 		assertEquals(bindingA, reporter.lastReportedBinding)
+		assertNull(reporter.update(null, bindingA, false, false))
 
+		val request = assertNotNull(
+			(controller.state.presentation.authority as
+				ReaderPresentationAuthority.BlockingPreparation).nativePresentationRequest
+		)
 		val proofA = ReaderNativePagePresentationProof(
 			binding = bindingA,
-			transitionToken = null,
+			transitionToken = request.token,
 			presentedFrame = 1L,
 			viewportWidth = 1200,
 			viewportHeight = 800,
 			rasterGeneration = 4L,
 			textureGeneration = 5L
 		)
-		state = readerPresentationReduce(
-			state,
+		controller = reporter.dispatch(
+			controller,
 			ReaderPresentationEvent.NativePagePresented(proofA)
-		).state
+		).controller
 		val combinedEvent = assertIs<ReaderPresentationEvent.BindingReplaced>(
-			reporter.update(
-				confirmedTargetBinding = readerPresentationDecision(state).targetBinding,
-				currentBinding = combinedB,
-				publicationOpenPending = false,
-				relocationPending = true
-			)
+			reporter.update(bindingA, combinedB, false, true)
 		)
 		assertEquals(bindingA, combinedEvent.previousBinding)
 		assertEquals(combinedB, combinedEvent.binding)
 		assertEquals(bindingA, reporter.lastReportedBinding)
 
-		assertNull(
-			reporter.update(
-				confirmedTargetBinding = bindingA,
-				currentBinding = combinedB,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
-		)
-		assertEquals(bindingA, reporter.lastReportedBinding)
-
-		val replacement = readerPresentationReduce(state, combinedEvent)
-		state = replacement.state
-		assertEquals(ReaderPresentationAuthority.Unavailable, state.authority)
+		val replacement = reporter.dispatch(controller, combinedEvent)
+		controller = replacement.controller
+		assertEquals(ReaderPresentationAuthority.Unavailable, controller.state.presentation.authority)
 		assertEquals(
 			listOf(
 				paige.navic.reader.ReaderPresentationEffect.ReleaseStalePresentation(
-					null,
+					request.token,
 					bindingA
 				)
 			),
-			replacement.effects
-		)
-		assertNull(
-			reporter.update(
-				confirmedTargetBinding = readerPresentationDecision(state).targetBinding,
-				currentBinding = combinedB,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
+			replacement.presentationEffects
 		)
 		assertEquals(combinedB, reporter.lastReportedBinding)
+		assertNull(reporter.update(bindingA, combinedB, false, false))
+		assertEquals(combinedB, reporter.lastReportedBinding)
+		assertNull(reporter.update(combinedB, combinedB, false, false))
 
-		assertNull(
-			reporter.update(
-				confirmedTargetBinding = combinedB,
-				currentBinding = combinedB,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
-		)
 		val relocation = assertIs<ReaderPresentationEvent.FoliateRelocated>(
-			reporter.update(
-				confirmedTargetBinding = combinedB,
-				currentBinding = pureDestinationC,
-				publicationOpenPending = false,
-				relocationPending = true
-			)
+			reporter.update(combinedB, pureDestinationC, false, true)
 		)
 		assertEquals(pureDestinationC, relocation.binding)
 	}
@@ -643,7 +682,9 @@ class KomikkuReaderNativeFrameHostTest {
 		)
 		val complete = partial.copy(rasterGeneration = 7L, textureGeneration = 8L)
 		val reporter = ReaderPresentationBindingReporter()
-		var state = ReaderPresentationState()
+		var controller = ReaderController(
+			ReaderControllerState(readerSessionGeneration = 9L)
+		)
 
 		val opened = assertIs<ReaderPresentationEvent.PublicationOpened>(
 			reporter.update(
@@ -653,20 +694,13 @@ class KomikkuReaderNativeFrameHostTest {
 				relocationPending = false
 			)
 		)
-		state = readerPresentationReduce(state, opened).state
-		assertNull(
-			reporter.update(
-				confirmedTargetBinding = state.binding,
-				currentBinding = partial,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
-		)
+		controller = reporter.dispatch(controller, opened).controller
 		assertEquals(partial, reporter.lastReportedBinding)
+		assertNull(reporter.update(null, partial, false, false))
 
 		val completion = assertIs<ReaderPresentationEvent.BindingCompleted>(
 			reporter.update(
-				confirmedTargetBinding = state.binding,
+				confirmedTargetBinding = partial,
 				currentBinding = complete,
 				publicationOpenPending = false,
 				relocationPending = false
@@ -675,20 +709,14 @@ class KomikkuReaderNativeFrameHostTest {
 		assertEquals(partial, completion.previousBinding)
 		assertEquals(complete, completion.binding)
 		assertEquals(partial, reporter.lastReportedBinding)
-		state = readerPresentationReduce(state, completion).state
-		assertNull(
-			reporter.update(
-				confirmedTargetBinding = state.binding,
-				currentBinding = complete,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
-		)
+		controller = reporter.dispatch(controller, completion).controller
+		assertEquals(complete, controller.state.presentation.binding)
+		assertNull(reporter.update(partial, complete, false, false))
 		assertEquals(complete, reporter.lastReportedBinding)
 	}
 
 	@Test
-	fun bindingReporterCompletesThePendingResolvedProfileBeforeReducerEcho() {
+	fun bindingReporterCompletesResolvedProfileFromAuthoritativeReceiptBeforeComposeEcho() {
 		val provisional = ReaderPresentationBinding(
 			foliateSessionId = "profile-race-session",
 			publicationGeneration = 1L,
@@ -703,73 +731,37 @@ class KomikkuReaderNativeFrameHostTest {
 		val resolved = provisional.copy(profileGeneration = 5L)
 		val complete = resolved.copy(rasterGeneration = 6L, textureGeneration = 7L)
 		val reporter = ReaderPresentationBindingReporter()
-		var state = readerPresentationReduce(
-			ReaderPresentationState(),
-			ReaderPresentationEvent.PublicationOpened(provisional)
-		).state
-
-		assertNull(
-			reporter.update(
-				confirmedTargetBinding = provisional,
-				currentBinding = provisional,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
+		var controller = ReaderController(
+			ReaderControllerState(readerSessionGeneration = 2L)
 		)
+		val opened = assertIs<ReaderPresentationEvent.PublicationOpened>(
+			reporter.update(null, provisional, true, false)
+		)
+		controller = reporter.dispatch(controller, opened).controller
+
 		val replacement = assertIs<ReaderPresentationEvent.BindingReplaced>(
-			reporter.update(
-				confirmedTargetBinding = provisional,
-				currentBinding = resolved,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
+			reporter.update(provisional, resolved, false, false)
 		)
 		assertEquals(provisional, replacement.previousBinding)
 		assertEquals(resolved, replacement.binding)
-		assertNull(
-			reporter.update(
-				confirmedTargetBinding = provisional,
-				currentBinding = resolved,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
-		)
+		controller = reporter.dispatch(controller, replacement).controller
+		assertEquals(resolved, reporter.lastReportedBinding)
+		assertNull(reporter.update(provisional, resolved, false, false))
 
 		val completion = assertIs<ReaderPresentationEvent.BindingCompleted>(
-			reporter.update(
-				confirmedTargetBinding = provisional,
-				currentBinding = complete,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
+			reporter.update(provisional, complete, false, false)
 		)
 		assertEquals(resolved, completion.previousBinding)
 		assertEquals(complete, completion.binding)
-		state = readerPresentationReduce(state, replacement).state
-		assertEquals(resolved, state.binding)
-		state = readerPresentationReduce(state, completion).state
-		assertEquals(complete, state.binding)
-		assertNull(
-			reporter.update(
-				confirmedTargetBinding = provisional,
-				currentBinding = complete,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
-		)
-		assertNull(
-			reporter.update(
-				confirmedTargetBinding = state.binding,
-				currentBinding = complete,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
-		)
+		controller = reporter.dispatch(controller, completion).controller
+		assertEquals(complete, controller.state.presentation.binding)
 		assertEquals(complete, reporter.lastReportedBinding)
+		assertNull(reporter.update(provisional, complete, false, false))
+		assertNull(reporter.update(complete, complete, false, false))
 	}
 
 	@Test
-	fun bindingReporterOnlyAdvancesPendingBasisThroughNewerCausalFacts() {
+	fun bindingReporterAdvancesOnlyThroughNewerAuthoritativeReceipts() {
 		val provisional = ReaderPresentationBinding(
 			foliateSessionId = "pending-basis-session",
 			publicationGeneration = 1L,
@@ -790,19 +782,24 @@ class KomikkuReaderNativeFrameHostTest {
 		)
 		val complete = relocated.copy(rasterGeneration = 6L, textureGeneration = 7L)
 		val reporter = ReaderPresentationBindingReporter()
+		var controller = ReaderController(
+			ReaderControllerState(readerSessionGeneration = 3L)
+		)
+		val opened = assertIs<ReaderPresentationEvent.PublicationOpened>(
+			reporter.update(null, provisional, true, false)
+		)
+		controller = reporter.dispatch(controller, opened).controller
 
-		reporter.update(provisional, provisional, false, false)
-		assertIs<ReaderPresentationEvent.BindingReplaced>(
+		val replacement = assertIs<ReaderPresentationEvent.BindingReplaced>(
 			reporter.update(provisional, resolved, false, false)
 		)
+		controller = reporter.dispatch(controller, replacement).controller
 		val relocation = assertIs<ReaderPresentationEvent.FoliateRelocated>(
 			reporter.update(provisional, relocated, false, true)
 		)
 		assertEquals(relocated, relocation.binding)
-		assertEquals(
-			relocation,
-			reporter.update(provisional, relocated, false, true)
-		)
+		controller = reporter.dispatch(controller, relocation).controller
+		assertNull(reporter.update(provisional, relocated, false, true))
 		assertNull(reporter.update(provisional, resolved, false, true))
 
 		val completion = assertIs<ReaderPresentationEvent.BindingCompleted>(
@@ -810,6 +807,8 @@ class KomikkuReaderNativeFrameHostTest {
 		)
 		assertEquals(relocated, completion.previousBinding)
 		assertEquals(complete, completion.binding)
+		controller = reporter.dispatch(controller, completion).controller
+		assertEquals(complete, controller.state.presentation.binding)
 
 		val otherSession = complete.copy(
 			foliateSessionId = "authoritative-session",
@@ -822,7 +821,7 @@ class KomikkuReaderNativeFrameHostTest {
 		)
 		assertNull(reporter.update(otherSession, otherSession, false, false))
 		assertNull(reporter.update(otherSession, complete, false, false))
-		assertEquals(otherSession, reporter.lastReportedBinding)
+		assertEquals(complete, reporter.lastReportedBinding)
 
 		reporter.reset()
 		assertNull(reporter.update(null, complete, false, false))
@@ -884,31 +883,40 @@ class KomikkuReaderNativeFrameHostTest {
 			textureGeneration = 9L
 		)
 		val reporter = ReaderPresentationBindingReporter()
-		var state = readerPresentationReduce(
-			readerPresentationReduce(
-				ReaderPresentationState(nextTokenValue = 10L),
-				ReaderPresentationEvent.PublicationOpened(partialA)
-			).state,
+		var controller = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 6L,
+				presentation = readerPresentationReduce(
+					readerPresentationReduce(
+						ReaderPresentationState(nextTokenValue = 10L),
+						ReaderPresentationEvent.PublicationOpened(partialA)
+					).state,
+					ReaderPresentationEvent.NativePageRequested
+				).state
+			)
+		)
+		controller = reporter.dispatch(
+			controller,
 			ReaderPresentationEvent.NativePageRequested
-		).state
-		reporter.update(state.binding, partialA, false, false, state.authority)
+		).controller
 
 		val completion = assertIs<ReaderPresentationEvent.BindingCompleted>(
-			reporter.update(state.binding, completeA, false, false, state.authority)
+			reporter.update(partialA, completeA, false, false)
 		)
-		state = readerPresentationReduce(state, completion).state
+		controller = reporter.dispatch(controller, completion).controller
 		val relocation = assertIs<ReaderPresentationEvent.FoliateRelocated>(
-			reporter.update(partialA, completeB, false, true, state.authority)
+			reporter.update(partialA, completeB, false, true)
 		)
-		state = readerPresentationReduce(state, relocation).state
+		controller = reporter.dispatch(controller, relocation).controller
 
 		val request = assertNotNull(
-			(state.authority as ReaderPresentationAuthority.BlockingPreparation)
+			(controller.state.presentation.authority as
+				ReaderPresentationAuthority.BlockingPreparation)
 				.nativePresentationRequest
 		)
 		assertEquals(ReaderPresentationToken(10L), request.token)
 		assertEquals(completeB, request.binding)
-		assertEquals(completeB, state.binding)
+		assertEquals(completeB, controller.state.presentation.binding)
 
 		val proofB = ReaderNativePagePresentationProof(
 			binding = completeB,
@@ -919,15 +927,15 @@ class KomikkuReaderNativeFrameHostTest {
 			rasterGeneration = 8L,
 			textureGeneration = 9L
 		)
-		val presented = readerPresentationReduce(
-			state,
+		val presented = reporter.dispatch(
+			controller,
 			ReaderPresentationEvent.NativePagePresented(proofB)
 		)
 		assertEquals(
 			ReaderPresentationAuthority.SettledNativePage(
 				ReaderPresentationFrameOwner.NativePage(proofB)
 			),
-			presented.state.authority
+			presented.controller.state.presentation.authority
 		)
 		assertEquals(
 			listOf(
@@ -936,13 +944,13 @@ class KomikkuReaderNativeFrameHostTest {
 					completeA
 				)
 			),
-			presented.effects
+			presented.presentationEffects
 		)
-		assertTrue(presented.state.rendererCleanupOwnership.isEmpty())
+		assertTrue(presented.controller.state.presentation.rendererCleanupOwnership.isEmpty())
 	}
 
 	@Test
-	fun confirmedCompleteReporterRetriesAcceptedRelocationUntilReducerEcho() {
+	fun confirmedCompleteReporterRetriesRelocationUntilAuthoritativeReceipt() {
 		val completeA = ReaderPresentationBinding(
 			foliateSessionId = "confirmed-complete-relocation-session",
 			publicationGeneration = 1L,
@@ -969,7 +977,7 @@ class KomikkuReaderNativeFrameHostTest {
 			ReaderPresentationToken(10L),
 			completeA
 		)
-		var state = ReaderPresentationState(
+		val initialState = ReaderPresentationState(
 			authority = ReaderPresentationAuthority.BlockingPreparation(
 				ReaderPresentationFrameOwner.Neutral,
 				request
@@ -977,23 +985,29 @@ class KomikkuReaderNativeFrameHostTest {
 			binding = completeA,
 			nextTokenValue = 11L
 		)
-		reporter.update(completeA, completeA, false, false, state.authority)
+		var controller = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 7L,
+				presentation = initialState
+			)
+		)
+		reporter.update(completeA, completeA, false, false)
 
 		val relocation = assertIs<ReaderPresentationEvent.FoliateRelocated>(
-			reporter.update(completeA, completeB, false, true, state.authority)
-		)
-		state = readerPresentationReduce(state, relocation).state
-		assertEquals(completeB, state.binding)
-		assertEquals(
-			request.copy(binding = completeB),
-			(state.authority as ReaderPresentationAuthority.BlockingPreparation)
-				.nativePresentationRequest
+			reporter.update(completeA, completeB, false, true)
 		)
 		assertEquals(
 			relocation,
-			reporter.update(completeA, completeB, false, true, state.authority)
+			reporter.update(completeA, completeB, false, true)
 		)
-		assertNull(reporter.update(completeB, completeB, false, false, state.authority))
+		controller = reporter.dispatch(controller, relocation).controller
+		assertEquals(completeB, controller.state.presentation.binding)
+		assertEquals(
+			request.copy(binding = completeB),
+			(controller.state.presentation.authority as
+				ReaderPresentationAuthority.BlockingPreparation).nativePresentationRequest
+		)
+		assertNull(reporter.update(completeA, completeB, false, true))
 		assertEquals(completeB, reporter.lastReportedBinding)
 		val proofB = ReaderNativePagePresentationProof(
 			binding = completeB,
@@ -1004,8 +1018,8 @@ class KomikkuReaderNativeFrameHostTest {
 			rasterGeneration = 8L,
 			textureGeneration = 9L
 		)
-		val presented = readerPresentationReduce(
-			state,
+		val presented = reporter.dispatch(
+			controller,
 			ReaderPresentationEvent.NativePagePresented(proofB)
 		)
 		assertEquals(
@@ -1015,9 +1029,9 @@ class KomikkuReaderNativeFrameHostTest {
 					completeA
 				)
 			),
-			presented.effects
+			presented.presentationEffects
 		)
-		assertTrue(presented.state.rendererCleanupOwnership.isEmpty())
+		assertTrue(presented.controller.state.presentation.rendererCleanupOwnership.isEmpty())
 	}
 
 	@Test
@@ -1079,7 +1093,7 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
-	fun bindingReporterTransitionTableOnlyEmitsReducerAcceptedEvents() {
+	fun bindingReporterTransitionTableAdvancesOnlyThroughReducerReceipts() {
 		val requestToken = ReaderPresentationToken(501L)
 		fun stateFor(binding: ReaderPresentationBinding, coverBacked: Boolean): ReaderPresentationState {
 			val logicalBinding = binding.copy(rasterGeneration = null, textureGeneration = null)
@@ -1173,73 +1187,60 @@ class KomikkuReaderNativeFrameHostTest {
 								current
 							}
 							val confirmedState = stateFor(confirmedBinding, coverBacked)
-							reporter.update(
-								confirmedBinding,
-								confirmedBinding,
-								false,
-								false,
-								confirmedState.authority
+							var controller = ReaderController(
+								ReaderControllerState(
+									readerSessionGeneration = 4L,
+									presentation = confirmedState
+								)
 							)
-							var reducerState = confirmedState
+							controller = reporter.dispatch(
+								controller,
+								ReaderPresentationEvent.NativePageRequested
+							).controller
 							if (pendingReporterBasis) {
 								val seed = assertNotNull(
 									reporter.update(
 										confirmedBinding,
 										current,
 										false,
-										false,
-										confirmedState.authority
+										false
 									),
 									cell
 								)
-								reducerState = readerPresentationReduce(reducerState, seed).state
-								assertEquals(current, reducerState.binding, cell)
+								controller = reporter.dispatch(controller, seed).controller
+								assertEquals(current, controller.state.presentation.binding, cell)
 							}
 
 							val event = reporter.update(
 								confirmedBinding,
 								incoming,
 								false,
-								destinationSuccessor,
-								confirmedState.authority
+								destinationSuccessor
 							)
 							val accepted = destinationSuccessor || !currentComplete || incomingComplete
 							if (!accepted) {
 								assertNull(event, cell)
 							} else {
 								val emitted = assertNotNull(event, cell)
-								val reduced = readerPresentationReduce(reducerState, emitted)
-								assertEquals(incoming, reduced.state.binding, cell)
+								controller = reporter.dispatch(controller, emitted).controller
+								assertEquals(incoming, controller.state.presentation.binding, cell)
 								assertEquals(
 									requestToken,
-									(reduced.state.authority as
+									(controller.state.presentation.authority as
 										ReaderPresentationAuthority.BlockingPreparation)
 										.nativePresentationRequest?.token,
 									cell
 								)
-								if (destinationSuccessor) {
-									assertEquals(
-										emitted,
-										reporter.update(
-											confirmedBinding,
-											incoming,
-											false,
-											true,
-											confirmedState.authority
-										),
-										cell
-									)
-								}
 								assertNull(
 									reporter.update(
-										incoming,
+										confirmedBinding,
 										incoming,
 										false,
-										false,
-										reduced.state.authority
+										destinationSuccessor
 									),
 									cell
 								)
+								assertEquals(incoming, reporter.lastReportedBinding, cell)
 							}
 						}
 					}
@@ -1270,23 +1271,32 @@ class KomikkuReaderNativeFrameHostTest {
 			textureGeneration = 7L
 		)
 		val reporter = ReaderPresentationBindingReporter()
-		var state = readerPresentationReduce(
-			readerPresentationReduce(
-				ReaderPresentationState(nextTokenValue = 8L),
-				ReaderPresentationEvent.PublicationOpened(partial)
-			).state,
+		var controller = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 8L,
+				presentation = readerPresentationReduce(
+					readerPresentationReduce(
+						ReaderPresentationState(nextTokenValue = 8L),
+						ReaderPresentationEvent.PublicationOpened(partial)
+					).state,
+					ReaderPresentationEvent.NativePageRequested
+				).state
+			)
+		)
+		controller = reporter.dispatch(
+			controller,
 			ReaderPresentationEvent.NativePageRequested
-		).state
-		reporter.update(state.binding, partial, false, false)
+		).controller
 
 		val relocation = assertIs<ReaderPresentationEvent.FoliateRelocated>(
-			reporter.update(state.binding, complete, false, true)
+			reporter.update(partial, complete, false, true)
 		)
-		state = readerPresentationReduce(state, relocation).state
-		assertNull(reporter.update(state.binding, complete, false, false))
+		controller = reporter.dispatch(controller, relocation).controller
+		assertNull(reporter.update(partial, complete, false, false))
 		assertEquals(complete, reporter.lastReportedBinding)
 		val request = requireNotNull(
-			(state.authority as ReaderPresentationAuthority.BlockingPreparation)
+			(controller.state.presentation.authority as
+				ReaderPresentationAuthority.BlockingPreparation)
 				.nativePresentationRequest
 		)
 		assertEquals(ReaderPresentationToken(8L), request.token)
@@ -1301,17 +1311,17 @@ class KomikkuReaderNativeFrameHostTest {
 			rasterGeneration = 6L,
 			textureGeneration = 7L
 		)
-		val presented = readerPresentationReduce(
-			state,
+		val presented = reporter.dispatch(
+			controller,
 			ReaderPresentationEvent.NativePagePresented(proof)
 		)
 		assertEquals(
 			ReaderPresentationAuthority.SettledNativePage(
 				ReaderPresentationFrameOwner.NativePage(proof)
 			),
-			presented.state.authority
+			presented.controller.state.presentation.authority
 		)
-		assertTrue(presented.effects.isEmpty())
+		assertTrue(presented.presentationEffects.isEmpty())
 	}
 
 	@Test
@@ -1681,6 +1691,16 @@ class KomikkuReaderNativeFrameHostTest {
 			proofRetention,
 			"pageRasterPreparationController.invalidate(\"shell-cover-visible\")"
 		)
+	}
+
+	private fun ReaderPresentationBindingReporter.dispatch(
+		controller: ReaderController,
+		event: ReaderPresentationEvent
+	): ReaderControllerStep {
+		val epoch = captureEpoch()
+		val step = controller.onPresentationEvent(event)
+		assertTrue(consumeReceipt(epoch, event, assertNotNull(step.presentationReceipt)))
+		return step
 	}
 
 	private fun legacyLivePointerContext() = ReaderLegacyLivePointerContext(

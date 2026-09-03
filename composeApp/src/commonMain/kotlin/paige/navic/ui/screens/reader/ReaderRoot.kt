@@ -29,6 +29,7 @@ import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -69,9 +70,9 @@ internal fun KomikkuReaderRoot(
 	listeningSettings: ReaderListeningSettings,
 	readaloudPlaybackState: ReaderReadaloudPlaybackUiState?,
 	onEngineHostEvent: (ReaderEngineHostEvent) -> Unit,
-	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
-	onViewerAction: (ReaderViewerAction) -> Unit,
-	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
+	onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?,
+	onViewerAction: (ReaderViewerAction) -> ReaderPresentationEventReceipt?,
+	onPageTurnBoundary: (ReaderPageTurnDirection) -> ReaderPresentationEventReceipt?,
 	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
 	onToggleWhispersyncCueMap: () -> Unit,
 	onWhispersyncCueMapChromeInterception: () -> Unit,

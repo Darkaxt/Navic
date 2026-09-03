@@ -121,7 +121,7 @@ internal class ReaderPageSurfacePresentedFrameSource(
 internal class ReaderNativePagePresentationPublisher(
 	private val frameSource: ReaderNativePagePresentedFrameSource,
 	private val currentCandidate: () -> ReaderNativePagePresentationCandidate?,
-	private val onEvent: (ReaderPresentationEvent) -> Unit
+	private val onEvent: (ReaderPresentationEvent) -> Boolean
 ) {
 	private data class PendingFrame(
 		val requestId: Long,
@@ -172,20 +172,27 @@ internal class ReaderNativePagePresentationPublisher(
 		pendingFrame = null
 		val candidate = currentCandidate()
 		if (candidate != armedCandidate || candidate == lastPublishedCandidate) return
-		lastPublishedCandidate = candidate
-		onEvent(
-			ReaderPresentationEvent.NativePagePresented(
-				ReaderNativePagePresentationProof(
-					binding = candidate.binding,
-					transitionToken = candidate.transitionToken,
-					presentedFrame = presentedRequestId,
-					viewportWidth = candidate.viewportWidth,
-					viewportHeight = candidate.viewportHeight,
-					rasterGeneration = requireNotNull(candidate.binding.rasterGeneration),
-					textureGeneration = requireNotNull(candidate.binding.textureGeneration)
-				)
+		val event = ReaderPresentationEvent.NativePagePresented(
+			ReaderNativePagePresentationProof(
+				binding = candidate.binding,
+				transitionToken = candidate.transitionToken,
+				presentedFrame = presentedRequestId,
+				viewportWidth = candidate.viewportWidth,
+				viewportHeight = candidate.viewportHeight,
+				rasterGeneration = requireNotNull(candidate.binding.rasterGeneration),
+				textureGeneration = requireNotNull(candidate.binding.textureGeneration)
 			)
 		)
+		var authorized = false
+		try {
+			authorized = onEvent(event)
+		} finally {
+			if (authorized) {
+				lastPublishedCandidate = candidate
+			} else {
+				update()
+			}
+		}
 	}
 }
 
@@ -236,7 +243,7 @@ internal class ReaderShellCoverLayerController(
 
 internal class ReaderPresentationHostBridge(
 	private val host: ReaderPresentationCommitHost,
-	private val onEvent: (ReaderPresentationEvent) -> Unit
+	private val onEvent: (ReaderPresentationEvent) -> Boolean
 ) {
 	private data class ViewportGeometry(
 		val width: Int,
@@ -271,6 +278,12 @@ internal class ReaderPresentationHostBridge(
 		currentDecision = decision
 		host.applyPresentationDecision(decision)
 		val pending = pendingCoverCommit
+		if (pending?.emittedProof != null && !pending.receiptEmitted) {
+			pending.receiptEmitted = onEvent(
+				ReaderPresentationEvent.ShellCoverCommitted(pending.emittedProof!!)
+			)
+			return
+		}
 		if (pending?.receiptEmitted == true) {
 			if (acceptedShellCoverDecisionMatches(decision, pending)) {
 				completePendingCoverCommit(pending)
@@ -407,8 +420,9 @@ internal class ReaderPresentationHostBridge(
 			viewportHeight = pending.geometry.height
 		)
 		pending.emittedProof = proof
-		pending.receiptEmitted = true
-		onEvent(ReaderPresentationEvent.ShellCoverCommitted(proof))
+		pending.receiptEmitted = onEvent(
+			ReaderPresentationEvent.ShellCoverCommitted(proof)
+		)
 	}
 
 	private fun acceptedShellCoverDecisionMatches(

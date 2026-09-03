@@ -2,6 +2,7 @@ package paige.navic.ui.screens.reader
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -51,6 +52,7 @@ class ReaderPresentationHostBridgeTest {
 		val bridge = ReaderPresentationHostBridge(host) { event ->
 			events += event
 			presentation = readerPresentationReduce(presentation, event).state
+			true
 		}
 
 		bridge.update(pending)
@@ -99,6 +101,7 @@ class ReaderPresentationHostBridgeTest {
 		val bridge = ReaderPresentationHostBridge(host) { event ->
 			events += event
 			presentation = readerPresentationReduce(presentation, event).state
+			true
 		}
 
 		bridge.update(readerPresentationDecision(presentation))
@@ -261,7 +264,10 @@ class ReaderPresentationHostBridgeTest {
 		val publisher = ReaderNativePagePresentationPublisher(
 			frameSource = frameSource,
 			currentCandidate = { candidate },
-			onEvent = ::reduce
+			onEvent = { event ->
+				reduce(event)
+				true
+			}
 		)
 		val snapshot = ReaderNativePagePresentationHostSnapshot(
 			binding = fixture.binding,
@@ -383,7 +389,10 @@ class ReaderPresentationHostBridgeTest {
 		val publisher = ReaderNativePagePresentationPublisher(
 			frameSource = frameSource,
 			currentCandidate = { candidate },
-			onEvent = ::dispatch
+			onEvent = { event ->
+				dispatch(event)
+				true
+			}
 		)
 		candidate = snapshot(bindingA, visualPageIndex = 4).currentCandidateOrNull()
 		publisher.update()
@@ -467,6 +476,7 @@ class ReaderPresentationHostBridgeTest {
 		val bridge = ReaderPresentationHostBridge(host) { receipt ->
 			receipts += receipt
 			dispatch(receipt)
+			true
 		}
 		bridge.update(pending.decision)
 		assertEquals(ReaderShellCoverHostLayer.PreparedBehindPredecessor, host.currentLayer)
@@ -623,11 +633,48 @@ class ReaderPresentationHostBridgeTest {
 	}
 
 	@Test
+	fun rejectedAndThrowingCallbacksReplayTheExactShellCoverProof() {
+		val fixture = BridgeFixture()
+		val events = mutableListOf<ReaderPresentationEvent>()
+		var attempt = 0
+		val bridge = ReaderPresentationHostBridge(fixture.host) { event ->
+			events += event
+			attempt += 1
+			when (attempt) {
+				1 -> false
+				2 -> error("callback failed")
+				else -> true
+			}
+		}
+
+		bridge.update(fixture.pendingDecision)
+		fixture.host.registrations.single().draw()
+		fixture.host.runNextAnimationFrame()
+		assertTrue(fixture.host.coverPrepared)
+
+		assertFailsWith<IllegalStateException> {
+			bridge.update(fixture.pendingDecision)
+		}
+		bridge.update(fixture.pendingDecision)
+
+		assertEquals(3, events.size)
+		assertTrue(events.all { it == events.first() })
+		val committed = readerPresentationReduce(fixture.pendingState, events.first())
+		fixture.host.coverSelected = true
+		bridge.update(committed.decision)
+		assertEquals(1, fixture.host.completePreparationCount)
+		assertEquals(0, fixture.host.cancelPreparationCount)
+	}
+
+	@Test
 	fun productionLayerAndProofRetentionSeamKeepsNativeUntilAcceptedSelection() {
 		val fixture = BridgeFixture()
 		val host = LayerBackedReaderPresentationCommitHost(fixture.binding)
 		val events = mutableListOf<ReaderPresentationEvent>()
-		val bridge = ReaderPresentationHostBridge(host, events::add)
+		val bridge = ReaderPresentationHostBridge(host) { event ->
+			events += event
+			true
+		}
 		val retainedProof = fixture.nativeProof
 		val retainedPreparationGeneration = fixture.binding.preparationGeneration
 
@@ -671,7 +718,10 @@ class ReaderPresentationHostBridgeTest {
 			dispatchSelectionLifecycle = true
 		)
 		val events = mutableListOf<ReaderPresentationEvent>()
-		val bridge = ReaderPresentationHostBridge(host, events::add)
+		val bridge = ReaderPresentationHostBridge(host) { event ->
+			events += event
+			true
+		}
 
 		bridge.update(fixture.pendingDecision)
 		host.registrations.single().draw()
@@ -853,7 +903,10 @@ private class BridgeFixture {
 	)
 	val host = FakeReaderPresentationCommitHost(binding)
 	val events = mutableListOf<ReaderPresentationEvent>()
-	val bridge = ReaderPresentationHostBridge(host, events::add)
+	val bridge = ReaderPresentationHostBridge(host) { event ->
+		events += event
+		true
+	}
 
 	fun emitCoverReceipt(): ReaderPresentationEvent.ShellCoverCommitted {
 		bridge.update(pendingDecision)

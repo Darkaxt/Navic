@@ -9,6 +9,7 @@ data class ReaderCoordinatorStep(
 	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null,
 	val readaloudReaderInteraction: ReaderReadaloudReaderInteraction? = null,
 	val presentationEffects: List<ReaderPresentationEffect> = emptyList(),
+	val presentationReceipt: ReaderPresentationEventReceipt? = null,
 	internal val wordSyncEffects: List<ReaderWordSyncEffect> = emptyList()
 )
 
@@ -16,7 +17,8 @@ data class ReaderCoordinatorBackStep(
 	val coordinator: ReaderCoordinator,
 	val handled: Boolean,
 	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null,
-	val presentationEffects: List<ReaderPresentationEffect> = emptyList()
+	val presentationEffects: List<ReaderPresentationEffect> = emptyList(),
+	val presentationReceipt: ReaderPresentationEventReceipt? = null
 )
 
 data class ReaderCoordinator(
@@ -91,6 +93,7 @@ data class ReaderCoordinator(
 			readaloudPlaybackCommand = step.readaloudPlaybackCommand,
 			readaloudReaderInteraction = step.readaloudReaderInteraction,
 			presentationEffects = step.presentationEffects,
+			presentationReceipt = step.presentationReceipt,
 			wordSyncEffects = decision.effects
 		)
 	}
@@ -104,7 +107,8 @@ data class ReaderCoordinator(
 			coordinator = next,
 			handled = step.handled,
 			readaloudPlaybackCommand = step.readaloudPlaybackCommand,
-			presentationEffects = step.presentationEffects
+			presentationEffects = step.presentationEffects,
+			presentationReceipt = step.presentationReceipt
 		)
 	}
 

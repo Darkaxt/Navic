@@ -99,32 +99,3 @@ internal fun readerPresentationBindingEventCandidate(
 		ReaderPresentationEvent.BindingReplaced(previousBinding, currentBinding)
 	else -> null
 }
-
-internal data class ReaderPresentationBindingTransitionBasis(
-	val authority: ReaderPresentationAuthority,
-	val binding: ReaderPresentationBinding
-)
-
-internal fun ReaderPresentationBindingTransitionBasis.accept(
-	event: ReaderPresentationEvent
-): ReaderPresentationBindingTransitionBasis? {
-	val targetBinding = event.bindingTransitionTargetOrNull() ?: return null
-	val reduction = readerPresentationReduce(
-		ReaderPresentationState(authority = authority, binding = binding),
-		event
-	)
-	return reduction.state.takeIf { it.binding == targetBinding }?.let { state ->
-		ReaderPresentationBindingTransitionBasis(
-			authority = state.authority,
-			binding = targetBinding
-		)
-	}
-}
-
-private fun ReaderPresentationEvent.bindingTransitionTargetOrNull(): ReaderPresentationBinding? =
-	when (this) {
-		is ReaderPresentationEvent.BindingCompleted -> binding
-		is ReaderPresentationEvent.BindingReplaced -> binding
-		is ReaderPresentationEvent.FoliateRelocated -> binding
-		else -> null
-	}

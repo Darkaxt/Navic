@@ -201,6 +201,7 @@ internal object ReaderPresentationControllerReducer {
 		event: ReaderPresentationEvent
 	): ReaderControllerStep {
 		val state = controller.state
+		val eventSequence = Math.incrementExact(controller.presentationEventSequence)
 		val previousAuthority = state.presentation.authority
 		val primaryReduction = readerPresentationReduce(state.presentation, event)
 		val startupReduction = if (
@@ -221,7 +222,19 @@ internal object ReaderPresentationControllerReducer {
 		} else {
 			null
 		}
-		val reduction = startupReduction ?: primaryReduction
+		val reduction = startupReduction?.copy(
+			effects = primaryReduction.effects + startupReduction.effects
+		) ?: primaryReduction
+		val receipt = ReaderPresentationEventReceipt(
+			event = event,
+			version = ReaderPresentationReceiptVersion(
+				readerSessionGeneration = state.readerSessionGeneration,
+				eventSequence = eventSequence
+			),
+			disposition = reduction.disposition,
+			postState = reduction.state,
+			effects = reduction.effects.toList()
+		)
 		val acceptedShellCoverCommit =
 			event is ReaderPresentationEvent.ShellCoverCommitted &&
 				(reduction.decision.frameOwner as? ReaderPresentationFrameOwner.ShellCover)
@@ -238,6 +251,7 @@ internal object ReaderPresentationControllerReducer {
 					?.proof == event.proof
 		return ReaderControllerStep(
 			controller = controller.copy(
+				presentationEventSequence = eventSequence,
 				state = state.copy(
 					presentation = reduction.state,
 					shellCoverVisible = when {
@@ -262,7 +276,8 @@ internal object ReaderPresentationControllerReducer {
 						)
 					}
 			),
-			presentationEffects = reduction.effects
+			presentationEffects = receipt.effects,
+			presentationReceipt = receipt
 		)
 	}
 
@@ -366,7 +381,8 @@ internal object ReaderPresentationControllerReducer {
 						)
 					}
 				),
-				presentationEffects = presentationStep.presentationEffects
+				presentationEffects = presentationStep.presentationEffects,
+				presentationReceipt = presentationStep.presentationReceipt
 			)
 		}
 		else -> ReaderControllerStep(this)

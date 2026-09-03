@@ -600,9 +600,9 @@ class ReaderPageQaFaultHostSourceTest {
 			.substringAfter("fun releaseStalePresentationDeck(")
 			.substringBefore("\n\tfun ")
 
-		assertTrue(report.indexOf("onPresentationEvent(bindingEvent)") >= 0)
+		assertTrue(report.indexOf("dispatchPresentationEvent(bindingEvent)") >= 0)
 		assertTrue(
-			report.indexOf("onPresentationEvent(bindingEvent)") <
+			report.indexOf("dispatchPresentationEvent(bindingEvent)") <
 				report.indexOf("reportPresentationPreparationFacts(")
 		)
 		assertTrue(

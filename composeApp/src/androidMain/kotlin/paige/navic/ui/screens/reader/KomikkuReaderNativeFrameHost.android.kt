@@ -75,16 +75,18 @@ import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPreparationPresentation
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
-import paige.navic.reader.ReaderPresentationBindingTransitionBasis
 import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEffect
 import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationEventDisposition
+import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLayer
 import paige.navic.reader.ReaderPresentationLifecycleEvent
 import paige.navic.reader.ReaderPresentationLifecycleState
+import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderRendererBusyFeedbackMaximumMillis
 import paige.navic.reader.ReaderTapZoneAction
@@ -93,10 +95,10 @@ import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncCueMapState
-import paige.navic.reader.accept
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerNativeReaderSwipeAction
 import paige.navic.reader.readerPresentationBindingEventCandidate
+import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.readerPageGestureShouldShowBusyFeedback
 import paige.navic.reader.readerPagePreparationState
 import paige.navic.reader.readerPageOperationPolicy
@@ -188,59 +190,83 @@ internal fun readerPresentationBindingEvent(
 internal class ReaderPresentationBindingReporter {
 	var lastReportedBinding: ReaderPresentationBinding? = null
 		private set
-	private var pendingBasis: ReaderPresentationBindingTransitionBasis? = null
-	private var pendingEvent: ReaderPresentationEvent? = null
+	private var hostEpoch: Long = 1L
+	private var authoritativeVersion: ReaderPresentationReceiptVersion? = null
+	private var authoritativeLifecycle: ReaderPresentationLifecycleState =
+		ReaderPresentationLifecycleState.Foreground
 
 	fun reset() {
+		hostEpoch = Math.incrementExact(hostEpoch)
 		lastReportedBinding = null
-		pendingBasis = null
-		pendingEvent = null
+		authoritativeVersion = null
+		authoritativeLifecycle = ReaderPresentationLifecycleState.Foreground
+	}
+
+	fun captureEpoch(): Long = hostEpoch
+
+	fun consumeReceipt(
+		epoch: Long,
+		expectedEvent: ReaderPresentationEvent,
+		receipt: ReaderPresentationEventReceipt?
+	): Boolean {
+		if (
+			receipt == null ||
+			epoch != hostEpoch ||
+			receipt.event != expectedEvent ||
+			!receipt.version.isNewerThan(authoritativeVersion)
+		) {
+			return false
+		}
+		authoritativeVersion = receipt.version
+		lastReportedBinding = receipt.postState.binding
+		authoritativeLifecycle = receipt.postState.lifecycle
+		return true
 	}
 
 	fun update(
 		confirmedTargetBinding: ReaderPresentationBinding?,
 		currentBinding: ReaderPresentationBinding,
 		publicationOpenPending: Boolean,
-		relocationPending: Boolean,
-		confirmedAuthority: ReaderPresentationAuthority = ReaderPresentationAuthority.Unavailable
+		relocationPending: Boolean
 	): ReaderPresentationEvent? {
-		if (confirmedTargetBinding != null && confirmedTargetBinding != lastReportedBinding) {
+		if (authoritativeVersion == null && confirmedTargetBinding != null) {
 			lastReportedBinding = confirmedTargetBinding
-			pendingBasis = null
-			pendingEvent = null
 		}
+		if (authoritativeLifecycle != ReaderPresentationLifecycleState.Foreground) return null
 		if (currentBinding == lastReportedBinding) return null
-		if (currentBinding == pendingBasis?.binding) {
-			return pendingEvent.takeIf { event ->
-				relocationPending && (
-					event is ReaderPresentationEvent.BindingReplaced ||
-						event is ReaderPresentationEvent.FoliateRelocated
-				)
-			}
-		}
 		if (publicationOpenPending) {
-			return ReaderPresentationEvent.PublicationOpened(currentBinding).also { event ->
-				pendingBasis = ReaderPresentationBindingTransitionBasis(
-					ReaderPresentationAuthority.Unavailable,
-					currentBinding
-				)
-				pendingEvent = event
-			}
+			return ReaderPresentationEvent.PublicationOpened(currentBinding)
 		}
-		val basis = pendingBasis ?: lastReportedBinding?.let { confirmedBinding ->
-			ReaderPresentationBindingTransitionBasis(confirmedAuthority, confirmedBinding)
-		} ?: return null
-		val event = readerPresentationBindingEventCandidate(
-			previousBinding = basis.binding,
+		val previousBinding = lastReportedBinding ?: return null
+		return readerPresentationBindingEventCandidate(
+			previousBinding = previousBinding,
 			currentBinding = currentBinding,
 			relocationPending = relocationPending
-		) ?: return null
-		val accepted = basis.accept(event) ?: return null
-		pendingBasis = accepted
-		pendingEvent = event
-		return event
+		)
 	}
 }
+
+private fun ReaderPresentationReceiptVersion.isNewerThan(
+	current: ReaderPresentationReceiptVersion?
+): Boolean = when {
+	current == null -> true
+	readerSessionGeneration != current.readerSessionGeneration -> false
+	else -> eventSequence > current.eventSequence
+}
+
+private fun ReaderPresentationEventReceipt?.authorizes(
+	event: ReaderPresentationEvent
+): Boolean = this != null &&
+	this.event == event &&
+	(
+		disposition == ReaderPresentationEventDisposition.Accepted ||
+			disposition == ReaderPresentationEventDisposition.Idempotent
+	)
+
+private fun ReaderPresentationEvent.hasBindingTransitionTarget(): Boolean =
+	this is ReaderPresentationEvent.BindingCompleted ||
+		this is ReaderPresentationEvent.BindingReplaced ||
+		this is ReaderPresentationEvent.FoliateRelocated
 
 internal class ReaderPresentationEffectHandler(
 	private val retryPreparation: (
@@ -520,7 +546,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext,
 	presentationEffects: List<ReaderPendingPresentationEffect>,
 	onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit,
-	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
+	onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?,
 	destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 	shellCoverUrl: String?,
 	shellCoverTitle: String,
@@ -546,8 +572,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	onWhispersyncCueMapHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,
 	onWhispersyncCueMapSeekRequested: (Int) -> Unit,
 	onStartupShellPrepared: () -> Unit,
-	onViewerAction: (KomikkuNavigationRegion) -> Unit,
-	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
+	onViewerAction: (KomikkuNavigationRegion) -> ReaderPresentationEventReceipt?,
+	onPageTurnBoundary: (ReaderPageTurnDirection) -> ReaderPresentationEventReceipt?,
 	onReadableDragPreview: (deltaX: Float, deltaY: Float, viewWidth: Int, viewHeight: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
 	modifier: Modifier,
@@ -823,7 +849,6 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		onInvalidatePreparation = viewerContainer::invalidateShellCoverPreparation
 	)
 	private var preparedShellCoverGeneration: Long? = null
-	private var onPresentationEvent: (ReaderPresentationEvent) -> Unit = {}
 	private val presentationCommitHost = object : ReaderPresentationCommitHost {
 		override val isAttachedToWindow: Boolean
 			get() = shellCoverView.isAttachedToWindow
@@ -903,7 +928,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	}
 	private val presentationHostBridge = ReaderPresentationHostBridge(
 		presentationCommitHost
-	) { event -> onPresentationEvent(event) }
+	) { event -> viewerContainer.dispatchPresentationEvent(event).authorizes(event) }
 
 	init {
 		setBackgroundColor(Color.rgb(32, 35, 41))
@@ -967,7 +992,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		decision: ReaderPresentationDecision,
 		destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 		viewerKey: ReaderViewerKey,
-		onEvent: (ReaderPresentationEvent) -> Unit
+		onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
 	) {
 		if (presentationViewerKey != viewerKey) {
 			presentationViewerKey = viewerKey
@@ -975,7 +1000,6 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 				viewerReplacementPending = currentViewerKey != viewerKey
 			)
 		}
-		onPresentationEvent = onEvent
 		viewerContainer.setPresentationDecision(
 			decision = decision,
 			destinationCommitIdentity = destinationCommitIdentity,
@@ -1078,12 +1102,12 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		viewerContainer.onRendererBusyGestureRejected = onRejected
 	}
 
-	fun setOnViewerAction(onAction: (KomikkuNavigationRegion) -> Unit) {
-		viewerContainer.onAction = onAction
+	fun setOnViewerAction(onAction: (KomikkuNavigationRegion) -> ReaderPresentationEventReceipt?) {
+		viewerContainer.setOnViewerAction(onAction)
 	}
 
-	fun setOnPageTurnBoundary(onBoundary: (ReaderPageTurnDirection) -> Unit) {
-		viewerContainer.onPageTurnBoundary = onBoundary
+	fun setOnPageTurnBoundary(onBoundary: (ReaderPageTurnDirection) -> ReaderPresentationEventReceipt?) {
+		viewerContainer.setOnPageTurnBoundary(onBoundary)
 	}
 
 	fun setVerticalPageDragPreview(verticalPageDragPreview: Boolean) {
@@ -1559,9 +1583,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private val readablePageDragSlopPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()
 	private val shellCoverNavigator = KomikkuReaderNavigator(KomikkuRightAndLeftNavigation())
 	var navigator: KomikkuReaderNavigator = KomikkuReaderNavigator(KomikkuDisabledNavigation())
-	var onAction: (KomikkuNavigationRegion) -> Unit = {}
+	private var onAction: (KomikkuNavigationRegion) -> ReaderPresentationEventReceipt? = { null }
 	var onStartupShellPrepared: () -> Unit = {}
-	var onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit = {}
+	private var onPageTurnBoundary: (ReaderPageTurnDirection) -> ReaderPresentationEventReceipt? = { null }
 	var onRendererBusyGestureRejected: () -> Unit = {}
 	private var verticalPageDragPreview: Boolean = false
 	var chromeOverlayVisible: Boolean = false
@@ -1606,14 +1630,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null
 	private var presentationDestinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	private var presentationDecision: ReaderPresentationDecision? = null
-	private var onPresentationEvent: (ReaderPresentationEvent) -> Unit = {}
+	private var onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt? = { null }
 	private val nativePagePresentationPublisher by lazy {
 		ReaderNativePagePresentationPublisher(
 			frameSource = playLikeCurlController.presentedFrameSource,
 			currentCandidate = ::currentNativePagePresentationCandidateOrNull
 		) { event ->
 			check(event is ReaderPresentationEvent.NativePagePresented)
-			onPresentationEvent(event)
+			dispatchPresentationEvent(event).authorizes(event)
 		}
 	}
 	private val presentationBindingReporter = ReaderPresentationBindingReporter()
@@ -2418,10 +2442,53 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	fun currentPresentationBinding(): ReaderPresentationBinding? =
 		currentPresentationBindingOrNull()
 
+	fun setOnViewerAction(
+		callback: (KomikkuNavigationRegion) -> ReaderPresentationEventReceipt?
+	) {
+		onAction = { action ->
+			val epoch = presentationBindingReporter.captureEpoch()
+			val receipt = callback(action)
+			consumeReturnedReceipt(epoch, receipt)
+		}
+	}
+
+	fun setOnPageTurnBoundary(
+		callback: (ReaderPageTurnDirection) -> ReaderPresentationEventReceipt?
+	) {
+		onPageTurnBoundary = { direction ->
+			val epoch = presentationBindingReporter.captureEpoch()
+			val receipt = callback(direction)
+			consumeReturnedReceipt(epoch, receipt)
+		}
+	}
+
+	fun dispatchPresentationEvent(
+		event: ReaderPresentationEvent
+	): ReaderPresentationEventReceipt? {
+		val epoch = presentationBindingReporter.captureEpoch()
+		val receipt = onPresentationEvent(event)
+		return receipt?.takeIf {
+			presentationBindingReporter.consumeReceipt(epoch, event, it)
+		}?.also(::adoptReceiptTruth)
+	}
+
+	private fun consumeReturnedReceipt(
+		epoch: Long,
+		receipt: ReaderPresentationEventReceipt?
+	): ReaderPresentationEventReceipt? = receipt?.takeIf {
+		presentationBindingReporter.consumeReceipt(epoch, it.event, it)
+	}?.also(::adoptReceiptTruth)
+
+	private fun adoptReceiptTruth(receipt: ReaderPresentationEventReceipt) {
+		val decision = readerPresentationDecision(receipt.postState)
+		presentationDecision = decision
+		presentationInputPolicy = decision.inputPolicy
+	}
+
 	fun setPresentationDecision(
 		decision: ReaderPresentationDecision,
 		destinationCommitIdentity: ReaderDestinationCommitIdentity?,
-		onEvent: (ReaderPresentationEvent) -> Unit
+		onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
 	) {
 		onPresentationEvent = onEvent
 		presentationDecision = decision
@@ -2459,14 +2526,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				reportPresentationWindowVisibility(visible = false)
 			ReaderPresentationLifecycleEvent.VisibilityRestored ->
 				reportPresentationWindowVisibility(visible = true)
-			else -> onPresentationEvent(ReaderPresentationEvent.Lifecycle(event))
+			else -> dispatchPresentationEvent(ReaderPresentationEvent.Lifecycle(event))
 		}
 	}
 
 	private fun reportPresentationWindowVisibility(visible: Boolean) {
 		if (lastPresentationWindowVisible == visible) return
 		lastPresentationWindowVisible = visible
-		onPresentationEvent(
+		dispatchPresentationEvent(
 			ReaderPresentationEvent.Lifecycle(
 				readerPresentationLifecycleEventForWindowVisibility(visible)
 			)
@@ -2507,28 +2574,26 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			nativePagePresentationPublisher.update()
 			return
 		}
-		val confirmedDecision = presentationDecision
-		if (
-			presentationRelocationPending &&
-			confirmedDecision?.targetBinding == binding
-		) {
-			presentationRelocationPending = false
-		}
 		val bindingEvent = presentationBindingReporter.update(
-			confirmedTargetBinding = confirmedDecision?.targetBinding,
+			confirmedTargetBinding = presentationDecision?.targetBinding,
 			currentBinding = binding,
 			publicationOpenPending = presentationPublicationOpenPending,
-			relocationPending = presentationRelocationPending,
-			confirmedAuthority = confirmedDecision?.authority
-				?: ReaderPresentationAuthority.Unavailable
+			relocationPending = presentationRelocationPending
 		)
 		if (bindingEvent != null) {
-			if (bindingEvent is ReaderPresentationEvent.PublicationOpened) {
-				presentationPublicationOpenPending = false
-				presentationRelocationPending = false
+			val receipt = dispatchPresentationEvent(bindingEvent)
+			if (
+				receipt.authorizes(bindingEvent) &&
+				receipt?.postState?.binding == binding
+			) {
+				if (bindingEvent is ReaderPresentationEvent.PublicationOpened) {
+					presentationPublicationOpenPending = false
+				}
+				if (bindingEvent.hasBindingTransitionTarget()) {
+					presentationRelocationPending = false
+				}
+				lastReportedPresentationFacts = null
 			}
-			lastReportedPresentationFacts = null
-			onPresentationEvent(bindingEvent)
 		}
 		reportPresentationPreparationFacts(latestRasterPreparationState)
 		reportNativePagePresentationIfAvailable()
@@ -2540,20 +2605,20 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		val facts = state.toPresentationFacts()
 		val report = binding to facts
 		if (lastReportedPresentationFacts == report) return
-		lastReportedPresentationFacts = report
-		onPresentationEvent(
-			facts.failure?.let { reason ->
-				ReaderPresentationEvent.PreparationFailed(
-					binding = binding,
-					facts = facts,
-					reason = reason,
-					cancellable = false
-				)
-			} ?: ReaderPresentationEvent.PreparationReported(
+		val event = facts.failure?.let { reason ->
+			ReaderPresentationEvent.PreparationFailed(
 				binding = binding,
-				facts = facts
+				facts = facts,
+				reason = reason,
+				cancellable = false
 			)
+		} ?: ReaderPresentationEvent.PreparationReported(
+			binding = binding,
+			facts = facts
 		)
+		if (dispatchPresentationEvent(event).authorizes(event)) {
+			lastReportedPresentationFacts = report
+		}
 	}
 
 	private fun reportNativePagePresentationIfAvailable() {

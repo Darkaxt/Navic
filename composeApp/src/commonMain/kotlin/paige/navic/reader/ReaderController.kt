@@ -9,7 +9,8 @@ data class ReaderControllerStep(
 	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null,
 	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null,
 	val readaloudReaderInteraction: ReaderReadaloudReaderInteraction? = null,
-	val presentationEffects: List<ReaderPresentationEffect> = emptyList()
+	val presentationEffects: List<ReaderPresentationEffect> = emptyList(),
+	val presentationReceipt: ReaderPresentationEventReceipt? = null
 )
 
 data class ReaderControllerBackStep(
@@ -17,18 +18,21 @@ data class ReaderControllerBackStep(
 	val engineCommands: List<ReaderEngineCommand> = emptyList(),
 	val handled: Boolean = true,
 	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null,
-	val presentationEffects: List<ReaderPresentationEffect> = emptyList()
+	val presentationEffects: List<ReaderPresentationEffect> = emptyList(),
+	val presentationReceipt: ReaderPresentationEventReceipt? = null
 )
 
 data class ReaderController(
 	val state: ReaderControllerState = ReaderControllerState(),
-	private val progressSaveGate: ReaderProgressSaveGate = ReaderProgressSaveGate()
+	private val progressSaveGate: ReaderProgressSaveGate = ReaderProgressSaveGate(),
+	internal val presentationEventSequence: Long = 0L
 ) {
 	fun open(request: ReaderEngineOpenRequest): ReaderControllerStep {
 		val normalizedRequest = request.copy(settings = request.settings.normalizedReaderSettings())
 		return ReaderControllerStep(
 			controller = copy(
 				progressSaveGate = progressSaveGate.reset(),
+				presentationEventSequence = 0L,
 				state = state.copy(
 					readerSessionGeneration = Math.incrementExact(state.readerSessionGeneration),
 					publication = normalizedRequest.publication,

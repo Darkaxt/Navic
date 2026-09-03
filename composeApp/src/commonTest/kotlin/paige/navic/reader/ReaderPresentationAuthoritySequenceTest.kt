@@ -490,7 +490,18 @@ class ReaderPresentationAuthoritySequenceTest {
 
 		listOf(common, android, ios).forEach { source ->
 			assertContains(source, "presentationDecision: ReaderPresentationDecision")
-			assertContains(source, "onPresentationEvent: (ReaderPresentationEvent) -> Unit")
+			assertContains(
+				source,
+				"onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?"
+			)
+			assertContains(
+				source,
+				"onViewerAction: (KomikkuNavigationRegion) -> ReaderPresentationEventReceipt?"
+			)
+			assertContains(
+				source,
+				"onPageTurnBoundary: (ReaderPageTurnDirection) -> ReaderPresentationEventReceipt?"
+			)
 			assertContains(source, "presentationEffects: List<ReaderPendingPresentationEffect>")
 			assertContains(
 				source,
@@ -502,6 +513,7 @@ class ReaderPresentationAuthoritySequenceTest {
 			assertFalse(source.contains("onPagePreparationStateChange"))
 		}
 		assertContains(screen, "presentationEffects = pendingPresentationEffects")
+		assertContains(screen, "step.presentationReceipt")
 		assertContains(screen, "pendingPresentationEffectQueue.acknowledge(identity)")
 		assertContains(android, "fun setPresentationDecision(")
 		assertContains(android, "presentationHostBridge.update(decision)")

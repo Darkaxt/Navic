@@ -986,7 +986,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		readaloudPlaybackState = whispersyncReadaloudPlaybackState,
 		onEngineHostEvent = { event -> handleEngineHostEvent(event) },
 		onPresentationEvent = { event: ReaderPresentationEvent ->
-			applyCoordinatorStep(coordinator.onPresentationEvent(event))
+			val step = coordinator.onPresentationEvent(event)
+			applyCoordinatorStep(step)
+			step.presentationReceipt
 		},
 		onViewerAction = { action ->
 			val beforeMenuVisible = coordinator.controller.state.menuVisible
@@ -999,6 +1001,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 					"shellCover=${coordinator.controller.state.shellCoverVisible}->${step.coordinator.controller.state.shellCoverVisible}"
 			)
 			applyCoordinatorStep(step)
+			step.presentationReceipt
 		},
 		onPageTurnBoundary = { direction ->
 			val beforeShellCoverVisible = coordinator.controller.state.shellCoverVisible
@@ -1009,6 +1012,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 					"shellCover=$beforeShellCoverVisible->${step.coordinator.controller.state.shellCoverVisible}"
 			)
 			applyCoordinatorStep(step)
+			step.presentationReceipt
 		},
 		onWhispersyncPlaybackCommand = { command ->
 			Logger.i(

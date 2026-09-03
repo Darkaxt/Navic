@@ -209,6 +209,294 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun presentationReceiptOwnsStartupReductionAndMonotonicDisposition() {
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "receipt-startup-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			preparationGeneration = 4L
+		)
+		val initial = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 7L,
+				presentation = ReaderPresentationState(nextTokenValue = 11L)
+			)
+		)
+		val event = ReaderPresentationEvent.PublicationOpened(binding)
+
+		val opened = initial.onPresentationEvent(event)
+		val receipt = assertNotNull(opened.presentationReceipt)
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(receipt.postState.authority)
+		assertEquals(event, receipt.event)
+		assertEquals(ReaderPresentationEventDisposition.Accepted, receipt.disposition)
+		assertEquals(ReaderPresentationReceiptVersion(7L, 1L), receipt.version)
+		assertEquals(opened.controller.state.presentation, receipt.postState)
+		assertEquals(opened.presentationEffects, receipt.effects)
+		assertEquals(
+			ReaderNativePagePresentationRequest(ReaderPresentationToken(11L), binding),
+			pending.nativePresentationRequest
+		)
+
+		val duplicate = opened.controller.onPresentationEvent(event)
+		val duplicateReceipt = assertNotNull(duplicate.presentationReceipt)
+		assertEquals(ReaderPresentationEventDisposition.Idempotent, duplicateReceipt.disposition)
+		assertEquals(ReaderPresentationReceiptVersion(7L, 2L), duplicateReceipt.version)
+		assertEquals(receipt.postState, duplicateReceipt.postState)
+		assertTrue(duplicateReceipt.effects.isEmpty())
+	}
+
+	@Test
+	fun startupReceiptIsAcceptedWhenAutomaticRequestMutatesAnExistingBinding() {
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "receipt-existing-startup-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			preparationGeneration = 4L
+		)
+		listOf(false, true).forEachIndexed { index, shellCoverVisible ->
+			val event = ReaderPresentationEvent.PublicationOpened(binding)
+			val step = ReaderController(
+				ReaderControllerState(
+					readerSessionGeneration = 12L + index,
+					shellCoverVisible = shellCoverVisible,
+					presentation = ReaderPresentationState(
+						binding = binding,
+						nextTokenValue = 31L
+					)
+				)
+			).onPresentationEvent(event)
+			val receipt = assertNotNull(step.presentationReceipt)
+
+			assertEquals(ReaderPresentationEventDisposition.Accepted, receipt.disposition)
+			assertEquals(event, receipt.event)
+			assertEquals(step.controller.state.presentation, receipt.postState)
+			if (shellCoverVisible) {
+				assertIs<ReaderPresentationAuthority.ShellCoverCommitPending>(
+					receipt.postState.authority
+				)
+			} else {
+				assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+					receipt.postState.authority
+				)
+			}
+		}
+	}
+
+	@Test
+	fun coverStartupAndViewerDismissalReturnExactControllerReceipts() {
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "receipt-cover-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			preparationGeneration = 4L
+		)
+		val opened = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 8L,
+				shellCoverVisible = true,
+				presentation = ReaderPresentationState(nextTokenValue = 21L)
+			)
+		).onPresentationEvent(ReaderPresentationEvent.PublicationOpened(binding))
+		val openReceipt = assertNotNull(opened.presentationReceipt)
+		val commitPending = assertIs<ReaderPresentationAuthority.ShellCoverCommitPending>(
+			openReceipt.postState.authority
+		)
+		assertEquals(ReaderPresentationToken(21L), commitPending.token)
+		val proof = ReaderShellCoverCommitProof(
+			token = commitPending.token,
+			binding = binding,
+			coverGeneration = commitPending.coverGeneration,
+			presentedFrame = 22L,
+			viewportWidth = 1200,
+			viewportHeight = 800
+		)
+		val committed = opened.controller.onPresentationEvent(
+			ReaderPresentationEvent.ShellCoverCommitted(proof)
+		)
+		val commitReceipt = assertNotNull(committed.presentationReceipt)
+		assertIs<ReaderPresentationAuthority.ShellCover>(commitReceipt.postState.authority)
+
+		val dismissed = committed.controller.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
+		val dismissalReceipt = assertNotNull(dismissed.presentationReceipt)
+		assertEquals(
+			ReaderPresentationEvent.ShellCoverDismissalRequested,
+			dismissalReceipt.event
+		)
+		val preparation = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			dismissalReceipt.postState.authority
+		)
+		assertEquals(ReaderPresentationToken(22L), preparation.nativePresentationRequest?.token)
+		assertEquals(dismissed.controller.state.presentation, dismissalReceipt.postState)
+	}
+
+	@Test
+	fun rejectedAndDestroyedEventsReturnTruthWithoutFabricatingForeground() {
+		val completeA = ReaderPresentationBinding(
+			foliateSessionId = "receipt-lifecycle-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"receipt-lifecycle-session",
+				4L
+			),
+			rasterGeneration = 5L,
+			textureGeneration = 6L,
+			preparationGeneration = 7L
+		)
+		val proofA = ReaderNativePagePresentationProof(
+			binding = completeA,
+			transitionToken = null,
+			presentedFrame = 8L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 5L,
+			textureGeneration = 6L
+		)
+		val partialB = completeA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"receipt-lifecycle-session",
+				5L
+			),
+			rasterGeneration = null,
+			textureGeneration = null
+		)
+		val completeB = partialB.copy(rasterGeneration = 9L, textureGeneration = 10L)
+		val initial = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 9L,
+				presentation = ReaderPresentationState(
+					authority = ReaderPresentationAuthority.SettledNativePage(
+						ReaderPresentationFrameOwner.NativePage(proofA)
+					),
+					binding = completeA
+				)
+			)
+		)
+
+		val rejected = initial.onPresentationEvent(
+			ReaderPresentationEvent.FoliateRelocated(partialB, acknowledgement = null)
+		)
+		val rejectedReceipt = assertNotNull(rejected.presentationReceipt)
+		assertEquals(ReaderPresentationEventDisposition.Rejected, rejectedReceipt.disposition)
+		assertEquals(completeA, rejectedReceipt.postState.binding)
+		assertIs<ReaderPresentationAuthority.SettledNativePage>(rejectedReceipt.postState.authority)
+
+		val hidden = rejected.controller.onPresentationEvent(
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityLost)
+		)
+		assertEquals(
+			ReaderPresentationLifecycleState.Background,
+			assertNotNull(hidden.presentationReceipt).postState.lifecycle
+		)
+		val closed = hidden.controller.onPresentationEvent(
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.PublicationClosed)
+		)
+		assertEquals(
+			ReaderPresentationLifecycleState.Destroyed,
+			assertNotNull(closed.presentationReceipt).postState.lifecycle
+		)
+		val lateCompletion = ReaderPresentationEvent.BindingCompleted(partialB, completeB)
+		val destroyed = closed.controller.onPresentationEvent(lateCompletion)
+		val destroyedReceipt = assertNotNull(destroyed.presentationReceipt)
+		assertEquals(ReaderPresentationEventDisposition.Destroyed, destroyedReceipt.disposition)
+		assertEquals(ReaderPresentationLifecycleState.Destroyed, destroyedReceipt.postState.lifecycle)
+		assertEquals(
+			listOf(ReaderPresentationEffect.ReleaseStalePresentation(null, completeB)),
+			destroyedReceipt.effects
+		)
+	}
+
+	@Test
+	fun receiptCarriesPhysicalCleanupLedgerAndEffectsFromSameReduction() {
+		val completeA = ReaderPresentationBinding(
+			foliateSessionId = "receipt-cleanup-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"receipt-cleanup-session",
+				4L
+			),
+			rasterGeneration = 5L,
+			textureGeneration = 6L,
+			preparationGeneration = 7L
+		)
+		val completeB = completeA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"receipt-cleanup-session",
+				5L
+			),
+			rasterGeneration = 8L,
+			textureGeneration = 9L
+		)
+		val requestToken = ReaderPresentationToken(10L)
+		val state = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.BlockingPreparation(
+				retainedFrame = ReaderPresentationFrameOwner.Neutral,
+				nativePresentationRequest = ReaderNativePagePresentationRequest(
+					requestToken,
+					completeB
+				)
+			),
+			binding = completeB,
+			rendererCleanupOwnership = listOf(
+				ReaderRendererCleanupOwnership(requestToken, completeA),
+				ReaderRendererCleanupOwnership(requestToken, completeB)
+			),
+			nextTokenValue = 11L
+		)
+		val proofB = ReaderNativePagePresentationProof(
+			binding = completeB,
+			transitionToken = requestToken,
+			presentedFrame = 12L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 8L,
+			textureGeneration = 9L
+		)
+
+		val presented = ReaderController(
+			ReaderControllerState(readerSessionGeneration = 10L, presentation = state)
+		).onPresentationEvent(ReaderPresentationEvent.NativePagePresented(proofB))
+		val receipt = assertNotNull(presented.presentationReceipt)
+		assertEquals(ReaderPresentationEventDisposition.Accepted, receipt.disposition)
+		assertTrue(receipt.postState.rendererCleanupOwnership.isEmpty())
+		assertEquals(
+			listOf(ReaderPresentationEffect.ReleaseStalePresentation(requestToken, completeA)),
+			receipt.effects
+		)
+		assertEquals(presented.presentationEffects, receipt.effects)
+		assertEquals(presented.controller.state.presentation, receipt.postState)
+	}
+
+	@Test
+	fun coordinatorPreservesTheExactPresentationReceipt() {
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "receipt-coordinator-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			preparationGeneration = 4L
+		)
+		val step = ReaderCoordinator(
+			controller = ReaderController(
+				ReaderControllerState(readerSessionGeneration = 11L)
+			)
+		).onPresentationEvent(ReaderPresentationEvent.PublicationOpened(binding))
+		val receipt = assertNotNull(step.presentationReceipt)
+
+		assertEquals(step.coordinator.controller.state.presentation, receipt.postState)
+		assertEquals(step.presentationEffects, receipt.effects)
+		assertEquals(ReaderPresentationReceiptVersion(11L, 1L), receipt.version)
+	}
+
+	@Test
 	fun legacySettlementAckDeferralRemainsCurrentRelocationOnlyUntilCurlAuthorityFactsExist() {
 		val acknowledged = ReaderController().onEngineEvent(
 			ReaderEngineEvent.Relocated(

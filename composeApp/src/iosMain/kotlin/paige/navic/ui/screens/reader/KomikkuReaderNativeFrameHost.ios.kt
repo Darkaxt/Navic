@@ -15,6 +15,7 @@ import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEffect
 import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncCueMapState
@@ -28,7 +29,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext,
 	presentationEffects: List<ReaderPendingPresentationEffect>,
 	onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit,
-	onPresentationEvent: (ReaderPresentationEvent) -> Unit,
+	onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?,
 	destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 	shellCoverUrl: String?,
 	shellCoverTitle: String,
@@ -54,8 +55,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	onWhispersyncCueMapHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,
 	onWhispersyncCueMapSeekRequested: (Int) -> Unit,
 	onStartupShellPrepared: () -> Unit,
-	onViewerAction: (KomikkuNavigationRegion) -> Unit,
-	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
+	onViewerAction: (KomikkuNavigationRegion) -> ReaderPresentationEventReceipt?,
+	onPageTurnBoundary: (ReaderPageTurnDirection) -> ReaderPresentationEventReceipt?,
 	onReadableDragPreview: (deltaX: Float, deltaY: Float, viewWidth: Int, viewHeight: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
 	modifier: Modifier,

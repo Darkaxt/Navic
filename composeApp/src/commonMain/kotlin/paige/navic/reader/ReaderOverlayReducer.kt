@@ -333,7 +333,8 @@ internal object ReaderOverlayReducer {
 			controller = prepared.controller,
 			engineCommands = state.clearOverlayForShellCoverCommands(),
 			readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand(),
-			presentationEffects = prepared.presentationEffects
+			presentationEffects = prepared.presentationEffects,
+			presentationReceipt = prepared.presentationReceipt
 		)
 	}
 
@@ -362,7 +363,8 @@ internal object ReaderOverlayReducer {
 				engineCommands = state.clearOverlayForShellCoverCommands(),
 				handled = true,
 				readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand(),
-				presentationEffects = prepared.presentationEffects
+				presentationEffects = prepared.presentationEffects,
+				presentationReceipt = prepared.presentationReceipt
 			)
 		}
 		return ReaderControllerBackStep(controller = controller, handled = false)
@@ -373,7 +375,9 @@ internal object ReaderOverlayReducer {
 			controller = controller,
 			engineCommands = engineCommands,
 			handled = true,
-			readaloudPlaybackCommand = readaloudPlaybackCommand
+			readaloudPlaybackCommand = readaloudPlaybackCommand,
+			presentationEffects = presentationEffects,
+			presentationReceipt = presentationReceipt
 		)
 }
 
