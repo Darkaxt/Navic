@@ -352,5 +352,6 @@ class KomikkuGestureDetectorWithLongTapBehaviorTest {
 		override fun cancelReadableViewerDragPreview(reason: ReaderPageLifecycleCancellationReason) = Unit
 		override fun clearNativeTapState(reason: ReaderPageLifecycleCancellationReason) = Unit
 		override fun clearSwipeTouchState(reason: ReaderPageLifecycleCancellationReason) = Unit
+		override fun cancelRendererWork(reason: ReaderPageLifecycleCancellationReason) = Unit
 	}
 }

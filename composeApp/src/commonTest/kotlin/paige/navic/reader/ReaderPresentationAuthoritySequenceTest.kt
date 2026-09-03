@@ -490,7 +490,9 @@ class ReaderPresentationAuthoritySequenceTest {
 
 		listOf(common, android, ios).forEach { source ->
 			assertContains(source, "presentationDecision: ReaderPresentationDecision")
+			assertContains(source, "presentationState: ReaderPresentationState")
 			assertContains(source, "presentationVersion: ReaderPresentationReceiptVersion")
+			assertContains(source, "presentationShellCoverVisible: Boolean")
 			assertContains(
 				source,
 				"onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?"
@@ -518,11 +520,14 @@ class ReaderPresentationAuthoritySequenceTest {
 		assertContains(screen, "pendingPresentationEffectQueue.acknowledge(identity)")
 		assertContains(android, "fun setPresentationDecision(")
 		assertContains(android, "presentationDecision?.let(presentationHostBridge::update)")
-		assertContains(android, "onAuthoritativeDecision = ::applyPresentationDecision")
+		assertContains(
+			android,
+			"onAuthoritativeHostEffect = presentationHostEffectApplier::apply"
+		)
 		assertFalse(android.contains("override fun applyPresentationDecision("))
 		assertContains(android, "readerNativePresentationApplication(")
-		assertContains(android, "viewerContainer.applyPresentationDecision(")
-		assertContains(android, "decision = application.decision")
+		assertContains(android, "applyViewerDecision = viewerContainer::applyPresentationDecision")
+		assertContains(android, "presentationDecision = application.decision")
 		assertContains(
 			android,
 			"rendererLossCancellationIdentity = rendererLossCancellationIdentity"

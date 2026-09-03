@@ -34,6 +34,8 @@ class ReaderPagePointerRouter(
 	) -> Unit = { _, _ -> }
 ) {
 	private val sequences = linkedMapOf<Long, ReaderPagePointerSequence>()
+	private val pendingTerminalPublications =
+		linkedMapOf<Long, ReaderPageGestureTerminalOutcome>()
 	private var activeGestureId: Long? = null
 	private var consumedPointerStreamId: Long? = null
 	private var curlClaimed = false
@@ -177,14 +179,30 @@ class ReaderPagePointerRouter(
 		}
 
 	fun cancelAll(outcome: ReaderPageGestureTerminalOutcome): List<Long> {
+		val cancelled = cancelAllAndQueueTerminals(outcome)
+		drainTerminalPublications()
+		return cancelled
+	}
+
+	fun cancelAllAndQueueTerminals(
+		outcome: ReaderPageGestureTerminalOutcome
+	): List<Long> {
 		val physicalGestureId = activeGestureId
 		val cancelled = sequences.keys.toList().filter { gestureId ->
-			complete(gestureId, outcome)
+			completeModel(gestureId, outcome)
 		}
 		if (physicalGestureId != null && physicalGestureId in cancelled) {
 			consumedPointerStreamId = physicalGestureId
 		}
 		return cancelled
+	}
+
+	fun drainTerminalPublications() {
+		while (pendingTerminalPublications.isNotEmpty()) {
+			val (gestureId, outcome) = pendingTerminalPublications.entries.first()
+			publishTerminal(gestureId, outcome)
+			pendingTerminalPublications.remove(gestureId)
+		}
 	}
 
 	fun abandonPhysicalPointerStream() {
@@ -200,6 +218,15 @@ class ReaderPagePointerRouter(
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome
 	): Boolean {
+		val completed = completeModel(gestureId, outcome)
+		drainTerminalPublications()
+		return completed
+	}
+
+	private fun completeModel(
+		gestureId: Long,
+		outcome: ReaderPageGestureTerminalOutcome
+	): Boolean {
 		val sequence = sequences[gestureId] ?: return false
 		if (!lifecycle.completeGesture(gestureId, outcome)) return false
 		check(sequence.complete(outcome)) {
@@ -211,7 +238,9 @@ class ReaderPagePointerRouter(
 			consumedPointerStreamId = gestureId
 			curlClaimed = false
 		}
-		publishTerminal(gestureId, outcome)
+		check(pendingTerminalPublications.put(gestureId, outcome) == null) {
+			"Pointer terminal publication is already pending"
+		}
 		return true
 	}
 }

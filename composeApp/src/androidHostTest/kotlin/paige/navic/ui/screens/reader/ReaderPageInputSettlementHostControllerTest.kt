@@ -31,7 +31,9 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
 class ReaderPageInputSettlementHostControllerTest {
-	private class FakeReaderPageHostCancellationPort : ReaderPageHostCancellationPort {
+	private class FakeReaderPageHostCancellationPort(
+		private val onCancelRendererWork: () -> Unit = {}
+	) : ReaderPageHostCancellationPort {
 		val calls = mutableListOf<Pair<String, ReaderPageLifecycleCancellationReason>>()
 		val pointerInterruptions = mutableListOf<Long>()
 		val completedPointerOwnership = mutableListOf<Long>()
@@ -61,6 +63,11 @@ class ReaderPageInputSettlementHostControllerTest {
 
 		override fun clearSwipeTouchState(reason: ReaderPageLifecycleCancellationReason) {
 			calls += "swipe" to reason
+		}
+
+		override fun cancelRendererWork(reason: ReaderPageLifecycleCancellationReason) {
+			calls += "work" to reason
+			onCancelRendererWork()
 		}
 	}
 
@@ -107,13 +114,18 @@ class ReaderPageInputSettlementHostControllerTest {
 		chromeToggleTarget: (Float, Float) -> Boolean = { _, _ -> false },
 		onChromeToggle: () -> Unit = {},
 		chromeTapTimeoutMillis: Long = 500L,
+		publishTerminal: ((Long, ReaderPageGestureTerminalOutcome) -> Unit)? = null,
 		publishLifecycleCancellation: (
 			Long,
 			ReaderPageLifecycleCancellationReason
-		) -> Unit = { _, _ -> }
+		) -> Unit = { _, _ -> },
+		afterRendererLossCancellationOperation: (
+			ReaderRendererLossCancellationOperation
+		) -> Unit = {}
 	): Triple<ReaderPageInputSettlementHostController, ReaderPagePointerRouter, FakeReaderPageHostCancellationPort> {
 		val router = ReaderPagePointerRouter(lifecycle) { gestureId, outcome ->
-			published?.add(gestureId to outcome)
+			publishTerminal?.invoke(gestureId, outcome)
+				?: published?.add(gestureId to outcome)
 		}
 		val localSafetyPolicy = readerPageOperationPolicy(localReadiness)
 		val continuationIdentity = (presentationInputPolicy as? ReaderPresentationInputPolicy.NativePage)
@@ -137,7 +149,9 @@ class ReaderPageInputSettlementHostControllerTest {
 				chromeToggleTarget = chromeToggleTarget,
 				onChromeToggle = onChromeToggle,
 				chromeTapTimeoutMillis = chromeTapTimeoutMillis,
-				publishLifecycleCancellation = publishLifecycleCancellation
+				publishLifecycleCancellation = publishLifecycleCancellation,
+				afterRendererLossCancellationOperation =
+					afterRendererLossCancellationOperation
 			),
 			router,
 			cancellationPort
@@ -744,6 +758,180 @@ class ReaderPageInputSettlementHostControllerTest {
 	}
 
 	@Test
+	fun rendererLossRetriesAnUnpublishedPointerTerminalBeforeCompletingTheEpoch() {
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		var publicationAttempts = 0
+		val cancellationPort = FakeReaderPageHostCancellationPort()
+		val (host, _, _) = host(
+			cancellationPort = cancellationPort,
+			publishTerminal = { gestureId, outcome ->
+				publicationAttempts += 1
+				if (publicationAttempts == 1) error("injected terminal publication failure")
+				published += gestureId to outcome
+			}
+		)
+		val gestureId = requireNotNull(
+			host.dispatchPointer(
+				ReaderPageHostPointerEvent.Down(100f, 200f, 100L)
+			).gestureId
+		)
+		val event = ReaderPageHostLifecycleEvent.UnsafeContextLost
+		val identity = ReaderRendererLossCancellationIdentity(
+			presentationEpoch = 99L,
+			rendererLossEpoch = 9L,
+			reason = event.cancellationReason()
+		)
+
+		assertFailsWith<IllegalStateException> {
+			host.onLifecycleEvent(event, identity)
+		}
+		assertTrue(published.isEmpty())
+		assertTrue(cancellationPort.calls.isEmpty())
+
+		host.onLifecycleEvent(event, identity)
+		host.onLifecycleEvent(event, identity)
+
+		assertEquals(2, publicationAttempts)
+		assertEquals(
+			listOf(gestureId to ReaderPageGestureTerminalOutcome.CancelledLifecycle),
+			published
+		)
+		assertEquals(
+			listOf("renderer", "drag-preview", "tap", "swipe", "work"),
+			cancellationPort.calls.map { it.first }
+		)
+	}
+
+	@Test
+	fun rendererLossRetriesOnlyUnfinishedCancellationOperationsAfterEveryBoundary() {
+		val operations = ReaderRendererLossCancellationOperation.entries
+		operations.forEachIndexed { operationIndex, failedOperation ->
+			listOf(true, false).forEachIndexed { orderIndex, receiptFirst ->
+				var injected = false
+				val afterOperation: (ReaderRendererLossCancellationOperation) -> Unit =
+					{ operation ->
+						if (!injected && operation == failedOperation) {
+							injected = true
+							error("injected failure after $operation")
+						}
+					}
+				val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+				var rendererWorkCancellations = 0
+				val cancellationPort = FakeReaderPageHostCancellationPort {
+					rendererWorkCancellations += 1
+				}
+				val (host, _, _) = host(
+					published = published,
+					cancellationPort = cancellationPort,
+					afterRendererLossCancellationOperation = afterOperation
+				)
+				val gestureId = requireNotNull(
+					host.dispatchPointer(
+						ReaderPageHostPointerEvent.Down(100f, 200f, 100L)
+					).gestureId
+				)
+				assertEquals(
+					ReaderPagePointerRoute.ClaimCurl(gestureId),
+					host.dispatchPointer(
+						ReaderPageHostPointerEvent.Move(140f, 202f, 8f)
+					).route
+				)
+				val event = ReaderPageHostLifecycleEvent.UnsafeContextLost
+				val identity = ReaderRendererLossCancellationIdentity(
+					presentationEpoch = 100L + operationIndex,
+					rendererLossEpoch = 10L + orderIndex,
+					reason = event.cancellationReason()
+				)
+				val applyReceipt = {
+					host.updateInputPolicies(
+						presentationInputPolicy = ReaderPresentationInputPolicy.RecoveryOnly,
+						localSafetyPolicy = readerPageOperationPolicy(ready),
+						nativeTapContinuationIdentity = null,
+						rendererLossCancellationIdentity = identity
+					)
+				}
+				val dispatchLowerLifecycle = {
+					host.onLifecycleEvent(event, identity)
+				}
+				val firstRoute = if (receiptFirst) applyReceipt else dispatchLowerLifecycle
+				val retryRoute = if (receiptFirst) dispatchLowerLifecycle else applyReceipt
+
+				assertFailsWith<IllegalStateException> { firstRoute() }
+				retryRoute()
+				host.onLifecycleEvent(event, identity)
+				applyReceipt()
+
+				assertTrue(injected, "operation=$failedOperation receiptFirst=$receiptFirst")
+				assertEquals(
+					listOf(
+						gestureId to ReaderPageGestureTerminalOutcome.CancelledLifecycle
+					),
+					published,
+					"operation=$failedOperation receiptFirst=$receiptFirst"
+				)
+				assertEquals(
+					listOf("renderer", "drag-preview", "tap", "swipe", "work"),
+					cancellationPort.calls.map { it.first },
+					"operation=$failedOperation receiptFirst=$receiptFirst"
+				)
+				assertTrue(
+					cancellationPort.calls.all {
+						it.second == ReaderPageLifecycleCancellationReason.UnsafeContextLoss
+					}
+				)
+				assertEquals(1, rendererWorkCancellations)
+			}
+		}
+	}
+
+	@Test
+	fun completedRendererLossEpochsStayFencedAcrossLaterEpochsAndHostReplacement() {
+		val first = ReaderRendererLossCancellationIdentity(
+			presentationEpoch = 200L,
+			rendererLossEpoch = 1L,
+			reason = ReaderPageLifecycleCancellationReason.UnsafeContextLoss
+		)
+		val second = ReaderRendererLossCancellationIdentity(
+			presentationEpoch = 200L,
+			rendererLossEpoch = 2L,
+			reason = ReaderPageLifecycleCancellationReason.GlFailure
+		)
+		val nextSession = first.copy(presentationEpoch = 201L)
+		val cancellationPort = FakeReaderPageHostCancellationPort()
+		val (host, _, _) = host(cancellationPort = cancellationPort)
+
+		host.onLifecycleEvent(ReaderPageHostLifecycleEvent.UnsafeContextLost, first)
+		host.onLifecycleEvent(ReaderPageHostLifecycleEvent.GlFailed, second)
+		host.onLifecycleEvent(ReaderPageHostLifecycleEvent.UnsafeContextLost, first)
+		host.onLifecycleEvent(ReaderPageHostLifecycleEvent.GlFailed, second)
+		host.onLifecycleEvent(ReaderPageHostLifecycleEvent.UnsafeContextLost, nextSession)
+
+		assertEquals(
+			listOf(
+				ReaderPageLifecycleCancellationReason.UnsafeContextLoss,
+				ReaderPageLifecycleCancellationReason.GlFailure,
+				ReaderPageLifecycleCancellationReason.UnsafeContextLoss
+			),
+			cancellationPort.calls.chunked(5).map { group ->
+				assertEquals(
+					listOf("renderer", "drag-preview", "tap", "swipe", "work"),
+					group.map { it.first }
+				)
+				group.first().second
+			}
+		)
+
+		val replacementPort = FakeReaderPageHostCancellationPort()
+		val (replacement, _, _) = host(cancellationPort = replacementPort)
+		replacement.onLifecycleEvent(ReaderPageHostLifecycleEvent.UnsafeContextLost, first)
+		replacement.onLifecycleEvent(ReaderPageHostLifecycleEvent.UnsafeContextLost, first)
+		assertEquals(
+			listOf("renderer", "drag-preview", "tap", "swipe", "work"),
+			replacementPort.calls.map { it.first }
+		)
+	}
+
+	@Test
 	fun rendererLossReceiptAndLowerLifecycleShareOnePhysicalCancellationEpoch() {
 		val rendererEvents = listOf(
 			ReaderPageHostLifecycleEvent.UnsafeContextLost,
@@ -752,7 +940,14 @@ class ReaderPageInputSettlementHostControllerTest {
 		rendererEvents.forEachIndexed { eventIndex, event ->
 			listOf(true, false).forEachIndexed { orderIndex, receiptFirst ->
 				val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
-				val (host, _, cancellationPort) = host(published = published)
+				var rendererWorkCancellations = 0
+				val cancellationPort = FakeReaderPageHostCancellationPort {
+					rendererWorkCancellations += 1
+				}
+				val (host, _, _) = host(
+					published = published,
+					cancellationPort = cancellationPort
+				)
 				val gestureId = requireNotNull(
 					host.dispatchPointer(
 						ReaderPageHostPointerEvent.Down(100f, 200f, 100L)
@@ -769,7 +964,6 @@ class ReaderPageInputSettlementHostControllerTest {
 					rendererLossEpoch = 1L + eventIndex * 2L + orderIndex,
 					reason = event.cancellationReason()
 				)
-				var rendererWorkCancellations = 0
 				val applyReceipt = {
 					host.updateInputPolicies(
 						presentationInputPolicy = ReaderPresentationInputPolicy.RecoveryOnly,
@@ -781,8 +975,10 @@ class ReaderPageInputSettlementHostControllerTest {
 				val dispatchLowerLifecycle = {
 					readerDispatchPageHostLifecycleEvent(
 						event = event,
-						preserveDestinationDeck = false,
-						clearDestinationDeckPrewarm = { rendererWorkCancellations += 1 },
+						preserveDestinationDeck = true,
+						clearDestinationDeckPrewarm = {
+							error("identity-fenced renderer work escaped to the outer route")
+						},
 						dispatchInputLifecycle = { lowerEvent ->
 							host.onLifecycleEvent(lowerEvent, cancellation)
 						}
@@ -803,7 +999,7 @@ class ReaderPageInputSettlementHostControllerTest {
 					"event=$event receiptFirst=$receiptFirst"
 				)
 				assertEquals(
-					listOf("renderer", "drag-preview", "tap", "swipe"),
+					listOf("renderer", "drag-preview", "tap", "swipe", "work"),
 					cancellationPort.calls.map { it.first },
 					"event=$event receiptFirst=$receiptFirst"
 				)
@@ -885,14 +1081,15 @@ class ReaderPageInputSettlementHostControllerTest {
 		assertEquals(
 			listOf(
 				ReaderPageLifecycleCancellationReason.UnsafeContextLoss,
-				ReaderPageLifecycleCancellationReason.GlFailure,
-				ReaderPageLifecycleCancellationReason.CanvasDisabled
-			),
-			cancellationPort.calls.chunked(4).map { group ->
-				assertEquals(listOf("renderer", "drag-preview", "tap", "swipe"), group.map { it.first })
-				assertEquals(1, group.map { it.second }.distinct().size)
-				group.first().second
-			}
+				ReaderPageLifecycleCancellationReason.GlFailure
+			).flatMap { reason ->
+				listOf("renderer", "drag-preview", "tap", "swipe", "work").map {
+					it to reason
+				}
+			} + listOf("renderer", "drag-preview", "tap", "swipe").map {
+				it to ReaderPageLifecycleCancellationReason.CanvasDisabled
+			},
+			cancellationPort.calls
 		)
 	}
 

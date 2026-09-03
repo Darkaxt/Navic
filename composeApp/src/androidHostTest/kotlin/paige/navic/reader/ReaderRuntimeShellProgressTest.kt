@@ -369,18 +369,18 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun initialCoverAndChromeOnlyRoutingStayDecisionOwned() {
 		val controllerText = readerCommonFile("ReaderController.kt").readText()
-		val presentationControllerText = readerCommonFile("ReaderPresentationController.kt").readText()
+		val presentationTransitionText = readerCommonFile("ReaderPresentationReceipt.kt").readText()
 		val authorityText = readerCommonFile("ReaderPresentationAuthority.kt").readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val inputControllerText = readerAndroidFile(
 			"ReaderPageInputSettlementHostController.android.kt"
 		).readText()
 
-		val initialRequest = presentationControllerText
+		val initialRequest = presentationTransitionText
 			.substringAfter("val startupReduction = if (")
 			.substringBefore("val reduction = startupReduction")
 		assertContains(initialRequest, "event is ReaderPresentationEvent.PublicationOpened")
-		assertContains(initialRequest, "if (state.shellCoverVisible)")
+		assertContains(initialRequest, "if (shellCoverVisible)")
 		assertContains(initialRequest, "ReaderPresentationEvent.ShellCoverRequested(")
 		assertContains(initialRequest, "ReaderPresentationEvent.NativePageRequested")
 		assertContains(authorityText, "data class Neutral(")
@@ -434,7 +434,9 @@ class ReaderRuntimeShellProgressTest {
 			"navigationOverlayVisible",
 			"chromeOverlayVisible",
 			"presentationDecision",
+			"presentationState",
 			"presentationVersion",
+			"presentationShellCoverVisible",
 			"legacyLiveCompatibilityContext",
 			"presentationEffects",
 			"onPresentationEffectHandled",

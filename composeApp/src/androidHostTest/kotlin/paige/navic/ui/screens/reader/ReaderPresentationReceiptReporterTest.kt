@@ -66,7 +66,11 @@ class ReaderPresentationReceiptReporterTest {
 				presentation = cachedState
 			)
 		)
-		reporter.reset(expectedReaderSessionGeneration = 20L)
+		reporter.reset(
+			expectedReaderSessionGeneration = 20L,
+			minimumComposeVersion = controller.presentationVersion,
+			initialPresentationState = controller.state.presentation
+		)
 		assertTrue(reporter.bindPublication(completeA))
 		val proofA = ReaderNativePagePresentationProof(
 			binding = completeA,
@@ -116,8 +120,6 @@ class ReaderPresentationReceiptReporterTest {
 		)
 		listOf(false, true).forEachIndexed { index, shellCoverVisible ->
 			val reporter = ReaderPresentationBindingReporter()
-			reporter.reset(expectedReaderSessionGeneration = 30L + index)
-			assertTrue(reporter.bindPublication(bindingA))
 			var controller = ReaderController(
 				ReaderControllerState(
 					readerSessionGeneration = 30L + index,
@@ -125,6 +127,13 @@ class ReaderPresentationReceiptReporterTest {
 					presentation = ReaderPresentationState(nextTokenValue = 10L)
 				)
 			)
+			reporter.reset(
+				expectedReaderSessionGeneration = 30L + index,
+				minimumComposeVersion = controller.presentationVersion,
+				initialPresentationState = controller.state.presentation,
+				initialShellCoverVisible = controller.state.shellCoverVisible
+			)
+			assertTrue(reporter.bindPublication(bindingA))
 			val opened = assertIs<ReaderPresentationEvent.PublicationOpened>(
 				reporter.update(null, bindingA, true, false)
 			)
@@ -187,9 +196,6 @@ class ReaderPresentationReceiptReporterTest {
 	fun shellCoverCommitAndDismissalIgnoreStaleComposeDecision() {
 		val binding = completeBinding("cover-receipt-session", destination = 4L)
 		val reporter = ReaderPresentationBindingReporter()
-		reporter.reset(expectedReaderSessionGeneration = 40L)
-		assertTrue(reporter.bindPublication(binding))
-		val opened = assertNotNull(reporter.update(null, binding, true, false))
 		var controller = ReaderController(
 			ReaderControllerState(
 				readerSessionGeneration = 40L,
@@ -197,6 +203,14 @@ class ReaderPresentationReceiptReporterTest {
 				presentation = ReaderPresentationState(nextTokenValue = 10L)
 			)
 		)
+		reporter.reset(
+			expectedReaderSessionGeneration = 40L,
+			minimumComposeVersion = controller.presentationVersion,
+			initialPresentationState = controller.state.presentation,
+			initialShellCoverVisible = controller.state.shellCoverVisible
+		)
+		assertTrue(reporter.bindPublication(binding))
+		val opened = assertNotNull(reporter.update(null, binding, true, false))
 		controller = dispatchAndConsume(reporter, controller, opened).first
 		val commitPending = assertIs<ReaderPresentationAuthority.ShellCoverCommitPending>(
 			controller.state.presentation.authority
@@ -281,16 +295,21 @@ class ReaderPresentationReceiptReporterTest {
 	fun resetRejectsAnOldSessionReceiptBeforeTheNewSessionReports() {
 		val oldBinding = completeBinding("old-session-replay", destination = 4L)
 		val oldEvent = ReaderPresentationEvent.PublicationOpened(oldBinding)
+		val oldController = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 70L,
+				presentation = ReaderPresentationState(nextTokenValue = 10L)
+			)
+		)
 		val oldReceipt = assertNotNull(
-			ReaderController(
-				ReaderControllerState(
-					readerSessionGeneration = 70L,
-					presentation = ReaderPresentationState(nextTokenValue = 10L)
-				)
-			).onPresentationEvent(oldEvent).presentationReceipt
+			oldController.onPresentationEvent(oldEvent).presentationReceipt
 		)
 		val reporter = ReaderPresentationBindingReporter()
-		reporter.reset(expectedReaderSessionGeneration = 70L)
+		reporter.reset(
+			expectedReaderSessionGeneration = 70L,
+			minimumComposeVersion = oldController.presentationVersion,
+			initialPresentationState = oldController.state.presentation
+		)
 		assertTrue(reporter.bindPublication(oldBinding))
 		assertTrue(
 			reporter.consumeReceipt(
@@ -302,15 +321,20 @@ class ReaderPresentationReceiptReporterTest {
 
 		val newBinding = completeBinding("new-session", destination = 5L)
 		val newEvent = ReaderPresentationEvent.PublicationOpened(newBinding)
-		val newReceipt = assertNotNull(
-			ReaderController(
-				ReaderControllerState(
-					readerSessionGeneration = 71L,
-					presentation = ReaderPresentationState(nextTokenValue = 20L)
-				)
-			).onPresentationEvent(newEvent).presentationReceipt
+		val newController = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 71L,
+				presentation = ReaderPresentationState(nextTokenValue = 20L)
+			)
 		)
-		reporter.reset(expectedReaderSessionGeneration = 71L)
+		val newReceipt = assertNotNull(
+			newController.onPresentationEvent(newEvent).presentationReceipt
+		)
+		reporter.reset(
+			expectedReaderSessionGeneration = 71L,
+			minimumComposeVersion = newController.presentationVersion,
+			initialPresentationState = newController.state.presentation
+		)
 
 		assertFalse(
 			reporter.consumeReceipt(
@@ -394,16 +418,20 @@ class ReaderPresentationReceiptReporterTest {
 			rasterGeneration = 8L,
 			textureGeneration = 9L
 		)
-		val reporter = ReaderPresentationBindingReporter()
-		reporter.reset(expectedReaderSessionGeneration = 60L)
-		assertTrue(reporter.bindPublication(bindingA))
-		assertNull(reporter.update(bindingA, bindingA, false, false))
 		var controller = ReaderController(
 			ReaderControllerState(
 				readerSessionGeneration = 60L,
 				presentation = settledState(bindingA)
 			)
 		)
+		val reporter = ReaderPresentationBindingReporter()
+		reporter.reset(
+			expectedReaderSessionGeneration = 60L,
+			minimumComposeVersion = controller.presentationVersion,
+			initialPresentationState = controller.state.presentation
+		)
+		assertTrue(reporter.bindPublication(bindingA))
+		assertNull(reporter.update(bindingA, bindingA, false, false))
 		val relocation = assertNotNull(reporter.update(bindingA, bindingB, false, true))
 		val relocated = dispatchAndConsume(reporter, controller, relocation)
 		controller = relocated.first

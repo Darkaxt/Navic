@@ -37,6 +37,15 @@ internal val readerPageFinalHostLifecycleEvents = setOf(
 	ReaderPageHostLifecycleEvent.ReaderClosed
 )
 
+internal enum class ReaderRendererLossCancellationOperation {
+	Pointer,
+	Renderer,
+	DragPreview,
+	NativeTap,
+	Swipe,
+	Work
+}
+
 internal data class ReaderRendererLossCancellationIdentity(
 	val presentationEpoch: Long,
 	val rendererLossEpoch: Long,
@@ -161,6 +170,7 @@ internal interface ReaderPageHostCancellationPort {
 	fun cancelReadableViewerDragPreview(reason: ReaderPageLifecycleCancellationReason)
 	fun clearNativeTapState(reason: ReaderPageLifecycleCancellationReason)
 	fun clearSwipeTouchState(reason: ReaderPageLifecycleCancellationReason)
+	fun cancelRendererWork(reason: ReaderPageLifecycleCancellationReason)
 }
 
 private fun ReaderPresentationInputPolicy.keepsNativeCurlStream(): Boolean =
@@ -179,12 +189,27 @@ internal class ReaderPageInputSettlementHostController(
 	private val publishLifecycleCancellation: (
 		gestureId: Long,
 		reason: ReaderPageLifecycleCancellationReason
-	) -> Unit = { _, _ -> }
+	) -> Unit = { _, _ -> },
+	private val afterRendererLossCancellationOperation: (
+		ReaderRendererLossCancellationOperation
+	) -> Unit = {}
 ) {
 	private data class PendingChromeTap(
 		val downX: Float,
 		val downY: Float,
 		val downTimeMillis: Long
+	)
+
+	private data class RendererLossCancellationProgress(
+		val reason: ReaderPageLifecycleCancellationReason,
+		var cancelledGestureIds: List<Long>? = null,
+		var lifecyclePublicationCount: Int = 0,
+		var pointerComplete: Boolean = false,
+		var rendererComplete: Boolean = false,
+		var dragPreviewComplete: Boolean = false,
+		var nativeTapComplete: Boolean = false,
+		var swipeComplete: Boolean = false,
+		var workComplete: Boolean = false
 	)
 
 	private var presentationInputPolicy = initialPresentationInputPolicy
@@ -196,7 +221,10 @@ internal class ReaderPageInputSettlementHostController(
 	private var pointerAdmissionClosed = false
 	private var pointerDeliveryClosed = false
 	private var finalDeliveryReason: ReaderPageLifecycleCancellationReason? = null
-	private var lastRendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
+	private var completedRendererLossPresentationEpoch: Long = -1L
+	private var completedRendererLossEpoch: Long = -1L
+	private val rendererLossCancellationProgress =
+		linkedMapOf<ReaderRendererLossCancellationIdentity, RendererLossCancellationProgress>()
 	private val contentTokenByGestureId =
 		linkedMapOf<Long, ReaderPageContentGestureToken>()
 
@@ -580,26 +608,114 @@ internal class ReaderPageInputSettlementHostController(
 		reason: ReaderPageLifecycleCancellationReason,
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	): List<Long> {
-		if (
-			rendererLossCancellationIdentity != null &&
-			lastRendererLossCancellationIdentity == rendererLossCancellationIdentity
-		) return emptyList()
-		if (rendererLossCancellationIdentity != null) {
-			lastRendererLossCancellationIdentity = rendererLossCancellationIdentity
+		if (rendererLossCancellationIdentity == null) {
+			finishChromeOnlyPointerStream()
+			val cancelled = pointerRouter.cancelAll(
+				ReaderPageGestureTerminalOutcome.CancelledLifecycle
+			)
+			cancelled.forEach { gestureId ->
+				releaseContentToken(gestureId)
+				publishLifecycleCancellation(gestureId, reason)
+			}
+			cancellationPort.cancelActiveRendererGesture(reason)
+			cancellationPort.cancelReadableViewerDragPreview(reason)
+			cancellationPort.clearNativeTapState(reason)
+			cancellationPort.clearSwipeTouchState(reason)
+			return cancelled
 		}
-		finishChromeOnlyPointerStream()
-		val cancelled = pointerRouter.cancelAll(
-			ReaderPageGestureTerminalOutcome.CancelledLifecycle
-		)
-		cancelled.forEach { gestureId ->
-			releaseContentToken(gestureId)
-			publishLifecycleCancellation(gestureId, reason)
+		val progress = rendererLossCancellationProgress[rendererLossCancellationIdentity]
+			?: if (rendererLossCancellationComplete(rendererLossCancellationIdentity)) {
+				return emptyList()
+			} else {
+				RendererLossCancellationProgress(reason).also { created ->
+					rendererLossCancellationProgress[rendererLossCancellationIdentity] = created
+				}
+			}
+		check(progress.reason == reason)
+		if (!progress.pointerComplete) {
+			finishChromeOnlyPointerStream()
+			val cancelled = progress.cancelledGestureIds
+				?: pointerRouter.cancelAllAndQueueTerminals(
+					ReaderPageGestureTerminalOutcome.CancelledLifecycle
+				).also { gestureIds ->
+					progress.cancelledGestureIds = gestureIds
+					gestureIds.forEach(::releaseContentToken)
+				}
+			pointerRouter.drainTerminalPublications()
+			while (progress.lifecyclePublicationCount < cancelled.size) {
+				val gestureId = cancelled[progress.lifecyclePublicationCount]
+				publishLifecycleCancellation(gestureId, reason)
+				progress.lifecyclePublicationCount += 1
+			}
+			progress.pointerComplete = true
+			afterRendererLossCancellationOperation(
+				ReaderRendererLossCancellationOperation.Pointer
+			)
 		}
-		cancellationPort.cancelActiveRendererGesture(reason)
-		cancellationPort.cancelReadableViewerDragPreview(reason)
-		cancellationPort.clearNativeTapState(reason)
-		cancellationPort.clearSwipeTouchState(reason)
+		if (!progress.rendererComplete) {
+			cancellationPort.cancelActiveRendererGesture(reason)
+			progress.rendererComplete = true
+			afterRendererLossCancellationOperation(
+				ReaderRendererLossCancellationOperation.Renderer
+			)
+		}
+		if (!progress.dragPreviewComplete) {
+			cancellationPort.cancelReadableViewerDragPreview(reason)
+			progress.dragPreviewComplete = true
+			afterRendererLossCancellationOperation(
+				ReaderRendererLossCancellationOperation.DragPreview
+			)
+		}
+		if (!progress.nativeTapComplete) {
+			cancellationPort.clearNativeTapState(reason)
+			progress.nativeTapComplete = true
+			afterRendererLossCancellationOperation(
+				ReaderRendererLossCancellationOperation.NativeTap
+			)
+		}
+		if (!progress.swipeComplete) {
+			cancellationPort.clearSwipeTouchState(reason)
+			progress.swipeComplete = true
+			afterRendererLossCancellationOperation(
+				ReaderRendererLossCancellationOperation.Swipe
+			)
+		}
+		if (!progress.workComplete) {
+			cancellationPort.cancelRendererWork(reason)
+			progress.workComplete = true
+			afterRendererLossCancellationOperation(
+				ReaderRendererLossCancellationOperation.Work
+			)
+		}
+		val cancelled = progress.cancelledGestureIds.orEmpty()
+		rendererLossCancellationProgress.remove(rendererLossCancellationIdentity)
+		markRendererLossCancellationComplete(rendererLossCancellationIdentity)
 		return cancelled
+	}
+
+	private fun rendererLossCancellationComplete(
+		identity: ReaderRendererLossCancellationIdentity
+	): Boolean = identity.presentationEpoch < completedRendererLossPresentationEpoch ||
+		(
+			identity.presentationEpoch == completedRendererLossPresentationEpoch &&
+				identity.rendererLossEpoch <= completedRendererLossEpoch
+		)
+
+	private fun markRendererLossCancellationComplete(
+		identity: ReaderRendererLossCancellationIdentity
+	) {
+		when {
+			identity.presentationEpoch > completedRendererLossPresentationEpoch -> {
+				completedRendererLossPresentationEpoch = identity.presentationEpoch
+				completedRendererLossEpoch = identity.rendererLossEpoch
+			}
+			identity.presentationEpoch == completedRendererLossPresentationEpoch -> {
+				completedRendererLossEpoch = maxOf(
+					completedRendererLossEpoch,
+					identity.rendererLossEpoch
+				)
+			}
+		}
 	}
 
 	private fun closeDeliveryAfterFinalPhysicalTail() {

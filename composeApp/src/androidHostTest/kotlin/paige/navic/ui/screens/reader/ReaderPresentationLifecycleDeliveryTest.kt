@@ -3,6 +3,8 @@ package paige.navic.ui.screens.reader
 import java.io.File
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
+import paige.navic.reader.ReaderDiagnosticPresentation
+import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.ReaderPageGestureLifecycle
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageInteractionState
@@ -10,11 +12,14 @@ import paige.navic.reader.ReaderPageLifecycleCancellationReason
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
 import paige.navic.reader.ReaderPageReadinessState
+import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationEffect
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventDisposition
 import paige.navic.reader.ReaderPresentationEventReceipt
+import paige.navic.reader.ReaderPresentationFailureReason
+import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLifecycleEvent
 import paige.navic.reader.ReaderPresentationLifecycleState
@@ -31,12 +36,661 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ReaderPresentationLifecycleDeliveryTest {
+	@Test
+	fun productionDispatcherRejectsEveryReducerIncompatibleRendererLossReceipt() {
+		val binding = completeBinding("reducer-exact-renderer-loss")
+		val wrongBinding = completeBinding("reducer-wrong-publication")
+		val cleanup = ReaderRendererCleanupOwnership(ReaderPresentationToken(40L), binding)
+		val preState = settledState(binding, listOf(cleanup))
+		val controller = ReaderController(
+			state = ReaderControllerState(
+				readerSessionGeneration = 30L,
+				presentation = preState
+			),
+			presentationEventSequence = 10L
+		)
+		val preVersion = controller.presentationVersion
+		val event = ReaderPresentationEvent.Lifecycle(
+			ReaderPresentationLifecycleEvent.RendererLost
+		)
+		val exactReceipt = assertNotNull(
+			controller.onPresentationEvent(event).presentationReceipt
+		)
+		val reporter = reporter(preVersion, binding, preState)
+		val delivery = delivery(preVersion, binding)
+		val decisions = mutableListOf<paige.navic.reader.ReaderPresentationDecision>()
+		val dispatcher = ReaderPresentationReceiptDispatcher(reporter, delivery) { decision, _ ->
+			decisions += decision
+		}
+		delivery.observe(event.event)
+		val wrongFailure = ReaderDiagnosticPresentation.Failure(
+			reason = ReaderPresentationFailureReason.PreparationFailed,
+			retryable = true,
+			cancellable = true
+		)
+		val invalidReceipts = listOf(
+			exactReceipt.copy(
+				postState = exactReceipt.postState.copy(authority = preState.authority)
+			),
+			exactReceipt.copy(
+				postState = exactReceipt.postState.copy(
+					rendererCleanupOwnership = listOf(cleanup)
+				)
+			),
+			exactReceipt.copy(postState = exactReceipt.postState.copy(failure = null)),
+			exactReceipt.copy(postState = exactReceipt.postState.copy(failure = wrongFailure)),
+			exactReceipt.copy(
+				postState = exactReceipt.postState.copy(
+					lifecycle = ReaderPresentationLifecycleState.Background
+				)
+			),
+			exactReceipt.copy(
+				postState = exactReceipt.postState.copy(binding = wrongBinding)
+			),
+			exactReceipt.copy(
+				effects = listOf(
+					ReaderPresentationEffect.ReleaseStalePresentation(
+						token = cleanup.token,
+						binding = cleanup.binding
+					)
+				)
+			),
+			exactReceipt.copy(disposition = ReaderPresentationEventDisposition.Idempotent)
+		)
+
+		invalidReceipts.forEach { invalid ->
+			assertNull(
+				delivery.retry { attempted ->
+					dispatcher.dispatch(attempted) { invalid }
+				}
+			)
+			assertEquals(1, delivery.pendingEventCount)
+			assertTrue(decisions.isEmpty())
+			assertNull(reporter.lastReportedBinding)
+			assertFalse(reporter.matchesAuthoritativePresentationVersion(invalid.version))
+		}
+
+		assertNotNull(
+			delivery.retry { attempted ->
+				dispatcher.dispatch(attempted) { exactReceipt }
+			}
+		)
+		assertEquals(0, delivery.pendingEventCount)
+		assertTrue(reporter.matchesAuthoritativePresentationVersion(exactReceipt.version))
+		assertEquals(
+			listOf(readerPresentationDecision(exactReceipt.postState)),
+			decisions
+		)
+	}
+
+	@Test
+	fun productionDispatcherUsesExactReducerEquivalenceForEveryLifecycleFamily() {
+		val lifecycleCases = listOf(
+			ReaderPresentationLifecycleState.Foreground to
+				ReaderPresentationLifecycleEvent.VisibilityLost,
+			ReaderPresentationLifecycleState.Background to
+				ReaderPresentationLifecycleEvent.VisibilityLost,
+			ReaderPresentationLifecycleState.Background to
+				ReaderPresentationLifecycleEvent.VisibilityRestored,
+			ReaderPresentationLifecycleState.Foreground to
+				ReaderPresentationLifecycleEvent.RunningMemoryPressure(
+					ReaderPresentationMemoryPressureLevel.Low
+				),
+			ReaderPresentationLifecycleState.Background to
+				ReaderPresentationLifecycleEvent.BackgroundMemoryPressure(
+					ReaderPresentationMemoryPressureLevel.Complete
+				),
+			ReaderPresentationLifecycleState.Foreground to
+				ReaderPresentationLifecycleEvent.PublicationClosed
+		)
+
+		lifecycleCases.forEachIndexed { index, (lifecycle, lifecycleEvent) ->
+			val binding = completeBinding("generic-lifecycle-$index")
+			val cleanup = ReaderRendererCleanupOwnership(
+				ReaderPresentationToken(50L + index),
+				binding
+			)
+			val preState = settledState(binding, listOf(cleanup)).copy(lifecycle = lifecycle)
+			val controller = ReaderController(
+				state = ReaderControllerState(
+					readerSessionGeneration = 40L + index,
+					presentation = preState
+				),
+				presentationEventSequence = 20L
+			)
+			val preVersion = controller.presentationVersion
+			val event = ReaderPresentationEvent.Lifecycle(lifecycleEvent)
+			val exactReceipt = assertNotNull(
+				controller.onPresentationEvent(event).presentationReceipt
+			)
+			val reporter = reporter(preVersion, binding, preState)
+			val delivery = delivery(preVersion, binding, preState.lifecycle)
+			val decisions = mutableListOf<paige.navic.reader.ReaderPresentationDecision>()
+			val dispatcher = ReaderPresentationReceiptDispatcher(reporter, delivery) { decision, _ ->
+				decisions += decision
+			}
+			delivery.observe(lifecycleEvent)
+			val wrongDisposition = when (exactReceipt.disposition) {
+				ReaderPresentationEventDisposition.Idempotent ->
+					ReaderPresentationEventDisposition.Accepted
+				else -> ReaderPresentationEventDisposition.Idempotent
+			}
+			val wrongEffects = if (exactReceipt.effects.isEmpty()) {
+				listOf(
+					ReaderPresentationEffect.ReleaseStalePresentation(
+						token = cleanup.token,
+						binding = cleanup.binding
+					)
+				)
+			} else {
+				emptyList()
+			}
+			val invalidReceipts = listOf(
+				exactReceipt.copy(
+					postState = exactReceipt.postState.copy(
+						nextTokenValue = exactReceipt.postState.nextTokenValue + 1L
+					)
+				),
+				exactReceipt.copy(disposition = wrongDisposition),
+				exactReceipt.copy(effects = wrongEffects)
+			)
+
+			invalidReceipts.forEach { invalid ->
+				assertNull(
+					delivery.retry { attempted ->
+						dispatcher.dispatch(attempted) { invalid }
+					}
+				)
+				assertEquals(1, delivery.pendingEventCount, "event=$lifecycleEvent")
+				assertTrue(decisions.isEmpty(), "event=$lifecycleEvent")
+				assertNull(reporter.lastReportedBinding, "event=$lifecycleEvent")
+			}
+
+			assertNotNull(
+				delivery.retry { attempted ->
+					dispatcher.dispatch(attempted) { exactReceipt }
+				},
+				"event=$lifecycleEvent"
+			)
+			assertEquals(0, delivery.pendingEventCount, "event=$lifecycleEvent")
+			assertEquals(
+				listOf(readerPresentationDecision(exactReceipt.postState)),
+				decisions,
+				"event=$lifecycleEvent"
+			)
+		}
+	}
+
+	@Test
+	fun hostEffectApplierRetriesOnlyUnfinishedLayerAndViewerMutationBoundaries() {
+		ReaderPresentationHostMutation.entries.forEachIndexed { index, failedMutation ->
+			val mutations = mutableListOf<ReaderPresentationHostMutation>()
+			var injected = false
+			val applier = ReaderPresentationHostEffectApplier(
+				commitHostModel = { mutations += ReaderPresentationHostMutation.Model },
+				applyViewerDecision = { _, _ ->
+					mutations += ReaderPresentationHostMutation.ViewerDecision
+				},
+				applyShellCoverLayer = {
+					mutations += ReaderPresentationHostMutation.ShellCoverLayer
+				},
+				applyViewerCoverVisibility = {
+					mutations += ReaderPresentationHostMutation.ViewerCoverVisibility
+				},
+				applyNativeCoverVisibility = {
+					mutations += ReaderPresentationHostMutation.NativeCoverVisibility
+				},
+				afterMutation = { mutation ->
+					if (!injected && mutation == failedMutation) {
+						injected = true
+						error("injected failure after $mutation")
+					}
+				}
+			)
+			val version = ReaderPresentationReceiptVersion(
+				readerSessionGeneration = 60L,
+				publicationIdentity = null,
+				eventSequence = 1L + index
+			)
+			val effect = ReaderPresentationHostEffect(
+				identity = ReaderPresentationHostEffectIdentity(
+					hostEpoch = 70L,
+					version = version
+				),
+				event = null,
+				decision = readerPresentationDecision(ReaderPresentationState()),
+				rendererLossCancellationIdentity = null
+			)
+
+			assertFailsWith<IllegalStateException> { applier.apply(effect) }
+			applier.apply(effect)
+			applier.apply(effect)
+
+			assertTrue(injected, "mutation=$failedMutation")
+			assertEquals(
+				ReaderPresentationHostMutation.entries.toList(),
+				mutations,
+				"mutation=$failedMutation"
+			)
+		}
+	}
+
+	@Test
+	fun authoritativeReceiptTransactionRetriesEffectsAndRejectsStaleComposeAfterEveryBoundary() {
+		ReaderPresentationHostMutation.entries.forEachIndexed { index, failedMutation ->
+			val binding = completeBinding("transaction-boundary-$index")
+			val preState = ReaderPresentationState(binding = binding)
+			val controller = ReaderController(
+				state = ReaderControllerState(
+					readerSessionGeneration = 70L + index,
+					presentation = preState
+				),
+				presentationEventSequence = 5L
+			)
+			val preVersion = controller.presentationVersion
+			val event = ReaderPresentationEvent.Lifecycle(
+				ReaderPresentationLifecycleEvent.VisibilityLost
+			)
+			val receipt = assertNotNull(
+				controller.onPresentationEvent(event).presentationReceipt
+			)
+			val reporter = reporter(preVersion, binding, preState)
+			val delivery = delivery(preVersion, binding, preState.lifecycle)
+			val mutations = mutableListOf<ReaderPresentationHostMutation>()
+			val committedApplications = mutableListOf<ReaderNativePresentationApplication>()
+			var injected = false
+			val applier = ReaderPresentationHostEffectApplier(
+				commitHostModel = { application ->
+					committedApplications += application
+					mutations += ReaderPresentationHostMutation.Model
+				},
+				applyViewerDecision = { _, _ ->
+					mutations += ReaderPresentationHostMutation.ViewerDecision
+				},
+				applyShellCoverLayer = {
+					mutations += ReaderPresentationHostMutation.ShellCoverLayer
+				},
+				applyViewerCoverVisibility = {
+					mutations += ReaderPresentationHostMutation.ViewerCoverVisibility
+				},
+				applyNativeCoverVisibility = {
+					mutations += ReaderPresentationHostMutation.NativeCoverVisibility
+				},
+				afterMutation = { mutation ->
+					if (!injected && mutation == failedMutation) {
+						injected = true
+						error("injected failure after $mutation")
+					}
+				}
+			)
+			val dispatcher = ReaderPresentationReceiptDispatcher(
+				bindingReporter = reporter,
+				lifecycleDelivery = delivery,
+				applyHostEffect = applier::apply
+			)
+			delivery.observe(event.event)
+
+			assertNotNull(
+				delivery.retry { attempted ->
+					dispatcher.dispatch(attempted) { receipt }
+				}
+			)
+			assertTrue(injected, "mutation=$failedMutation")
+			assertEquals(0, delivery.pendingEventCount, "mutation=$failedMutation")
+			assertEquals(
+				ReaderPresentationLifecycleState.Background,
+				delivery.acknowledgedLifecycle,
+				"mutation=$failedMutation"
+			)
+			assertTrue(
+				reporter.matchesAuthoritativePresentationVersion(receipt.version),
+				"mutation=$failedMutation"
+			)
+			assertEquals(1, dispatcher.pendingHostEffectCount, "mutation=$failedMutation")
+			assertEquals(
+				listOf(readerNativePresentationApplication(readerPresentationDecision(receipt.postState))),
+				committedApplications,
+				"mutation=$failedMutation"
+			)
+
+			assertFalse(
+				dispatcher.synchronizeComposeModel(
+					epoch = reporter.captureEpoch(),
+					version = preVersion,
+					state = preState,
+					shellCoverVisible = false,
+					decision = readerPresentationDecision(preState)
+				),
+				"mutation=$failedMutation"
+			)
+			assertEquals(0, dispatcher.pendingHostEffectCount, "mutation=$failedMutation")
+			assertTrue(
+				reporter.matchesAuthoritativePresentationVersion(receipt.version),
+				"mutation=$failedMutation"
+			)
+			assertEquals(
+				ReaderPresentationHostMutation.entries.toList(),
+				mutations,
+				"mutation=$failedMutation"
+			)
+			assertTrue(
+				dispatcher.synchronizeComposeModel(
+					epoch = reporter.captureEpoch(),
+					version = receipt.version,
+					state = receipt.postState,
+					shellCoverVisible = false,
+					decision = readerPresentationDecision(receipt.postState)
+				)
+			)
+			assertEquals(
+				ReaderPresentationHostMutation.entries.toList(),
+				mutations,
+				"mutation=$failedMutation"
+			)
+		}
+	}
+
+	@Test
+	fun returnedReceiptDrainsEveryUnfinishedHostMutationBeforeAdmittingItsSuccessor() {
+		val binding = completeBinding("returned-receipt-host-effect-order")
+		val preState = ReaderPresentationState(binding = binding)
+		val controller = ReaderController(
+			state = ReaderControllerState(
+				readerSessionGeneration = 79L,
+				presentation = preState
+			),
+			presentationEventSequence = 4L
+		)
+		val firstStep = controller.onPresentationEvent(
+			ReaderPresentationEvent.NativePageRequested
+		)
+		val firstReceipt = assertNotNull(firstStep.presentationReceipt)
+		val secondReceipt = assertNotNull(
+			firstStep.controller.onPresentationEvent(
+				ReaderPresentationEvent.Cancel
+			).presentationReceipt
+		)
+		val reporter = reporter(controller.presentationVersion, binding, preState)
+		val delivery = delivery(controller.presentationVersion, binding, preState.lifecycle)
+		val mutations = mutableListOf<Pair<Long, ReaderPresentationHostMutation>>()
+		var applyingSequence = -1L
+		var injected = false
+		val applier = ReaderPresentationHostEffectApplier(
+			commitHostModel = {
+				mutations += applyingSequence to ReaderPresentationHostMutation.Model
+			},
+			applyViewerDecision = { _, _ ->
+				mutations += applyingSequence to ReaderPresentationHostMutation.ViewerDecision
+			},
+			applyShellCoverLayer = {
+				mutations += applyingSequence to ReaderPresentationHostMutation.ShellCoverLayer
+			},
+			applyViewerCoverVisibility = {
+				mutations += applyingSequence to ReaderPresentationHostMutation.ViewerCoverVisibility
+			},
+			applyNativeCoverVisibility = {
+				mutations += applyingSequence to ReaderPresentationHostMutation.NativeCoverVisibility
+			},
+			afterMutation = { mutation ->
+				if (!injected && mutation == ReaderPresentationHostMutation.ViewerDecision) {
+					injected = true
+					error("interrupt first returned receipt")
+				}
+			}
+		)
+		val dispatcher = ReaderPresentationReceiptDispatcher(
+			bindingReporter = reporter,
+			lifecycleDelivery = delivery,
+			applyHostEffect = { effect ->
+				applyingSequence = effect.identity.version.eventSequence
+				applier.apply(effect)
+			}
+		)
+		val epoch = reporter.captureEpoch()
+
+		assertNotNull(dispatcher.consumeReturned(epoch, firstReceipt))
+		assertEquals(1, dispatcher.pendingHostEffectCount)
+		assertNotNull(dispatcher.consumeReturned(epoch, secondReceipt))
+
+		assertEquals(0, dispatcher.pendingHostEffectCount)
+		assertEquals(
+			ReaderPresentationHostMutation.entries.map {
+				firstReceipt.version.eventSequence to it
+			} + ReaderPresentationHostMutation.entries.map {
+				secondReceipt.version.eventSequence to it
+			},
+			mutations
+		)
+	}
+
+	@Test
+	fun composeSynchronizationRejectsAModelDecisionMismatchWithoutPartialCommit() {
+		val binding = completeBinding("compose-model-decision-mismatch")
+		val preState = ReaderPresentationState(binding = binding)
+		val preVersion = ReaderPresentationReceiptVersion(
+			readerSessionGeneration = 82L,
+			publicationIdentity = binding.publicationIdentity,
+			eventSequence = 3L
+		)
+		val reporter = reporter(preVersion, binding, preState)
+		val delivery = delivery(preVersion, binding, preState.lifecycle)
+		val applied = mutableListOf<ReaderPresentationHostEffect>()
+		val dispatcher = ReaderPresentationReceiptDispatcher(
+			bindingReporter = reporter,
+			lifecycleDelivery = delivery,
+			applyHostEffect = applied::add
+		)
+		val nextState = preState.copy(
+			lifecycle = ReaderPresentationLifecycleState.Background
+		)
+		val nextVersion = preVersion.copy(eventSequence = 4L)
+		val epoch = reporter.captureEpoch()
+
+		assertFalse(
+			dispatcher.synchronizeComposeModel(
+				epoch = epoch,
+				version = nextVersion,
+				state = nextState,
+				shellCoverVisible = false,
+				decision = readerPresentationDecision(preState)
+			)
+		)
+		assertFalse(reporter.matchesAuthoritativePresentationVersion(nextVersion))
+		assertTrue(applied.isEmpty())
+		assertTrue(
+			dispatcher.synchronizeComposeModel(
+				epoch = epoch,
+				version = nextVersion,
+				state = nextState,
+				shellCoverVisible = false,
+				decision = readerPresentationDecision(nextState)
+			)
+		)
+		assertTrue(reporter.matchesAuthoritativePresentationVersion(nextVersion))
+		assertEquals(1, applied.size)
+	}
+
+	@Test
+	fun dispatcherDropsFailedHostEffectsWhenTheAuthoritativeEpochChanges() {
+		val oldBinding = completeBinding("old-host-effect-epoch")
+		val oldState = ReaderPresentationState(binding = oldBinding)
+		val oldVersion = ReaderPresentationReceiptVersion(
+			readerSessionGeneration = 80L,
+			publicationIdentity = oldBinding.publicationIdentity,
+			eventSequence = 5L
+		)
+		val reporter = reporter(oldVersion, oldBinding, oldState)
+		val delivery = delivery(oldVersion, oldBinding, oldState.lifecycle)
+		val attemptedEpochs = mutableListOf<Long>()
+		var oldFailureInjected = false
+		val dispatcher = ReaderPresentationReceiptDispatcher(
+			bindingReporter = reporter,
+			lifecycleDelivery = delivery,
+			applyHostEffect = { effect ->
+				attemptedEpochs += effect.identity.hostEpoch
+				if (!oldFailureInjected) {
+					oldFailureInjected = true
+					error("old epoch host failure")
+				}
+			}
+		)
+		val oldEpoch = reporter.captureEpoch()
+		val event = ReaderPresentationEvent.Lifecycle(
+			ReaderPresentationLifecycleEvent.VisibilityLost
+		)
+		val oldReceipt = assertNotNull(
+			ReaderController(
+				state = ReaderControllerState(
+					readerSessionGeneration = oldVersion.readerSessionGeneration,
+					presentation = oldState
+				),
+				presentationEventSequence = oldVersion.eventSequence
+			).onPresentationEvent(event).presentationReceipt
+		)
+		delivery.observe(event.event)
+		assertNotNull(
+			delivery.retry { attempted ->
+				dispatcher.dispatch(attempted) { oldReceipt }
+			}
+		)
+		assertEquals(1, dispatcher.pendingHostEffectCount)
+
+		val newBinding = completeBinding("new-host-effect-epoch")
+		val newState = ReaderPresentationState(binding = newBinding)
+		val newVersion = ReaderPresentationReceiptVersion(
+			readerSessionGeneration = 81L,
+			publicationIdentity = newBinding.publicationIdentity,
+			eventSequence = 0L
+		)
+		reporter.reset(
+			expectedReaderSessionGeneration = newVersion.readerSessionGeneration,
+			minimumComposeVersion = newVersion,
+			initialPresentationState = newState
+		)
+		assertTrue(reporter.bindPublication(newBinding))
+		delivery.reset(newVersion, observedWindowVisible = null, initialLifecycle = newState.lifecycle)
+		assertTrue(delivery.bindPublication(newBinding.publicationIdentity))
+		val newEpoch = reporter.captureEpoch()
+
+		assertTrue(
+			dispatcher.synchronizeComposeModel(
+				epoch = newEpoch,
+				version = newVersion,
+				state = newState,
+				shellCoverVisible = false,
+				decision = readerPresentationDecision(newState)
+			)
+		)
+		assertEquals(listOf(oldEpoch, newEpoch), attemptedEpochs)
+		assertEquals(0, dispatcher.pendingHostEffectCount)
+	}
+
+	@Test
+	fun hostEffectApplierNeverResumesPartialWorkFromAnOlderEpoch() {
+		val oldDecision = readerPresentationDecision(ReaderPresentationState())
+		val newDecision = readerPresentationDecision(
+			ReaderPresentationState(lifecycle = ReaderPresentationLifecycleState.Background)
+		)
+		val mutations = mutableListOf<Pair<String, ReaderPresentationHostMutation>>()
+		fun label(decision: paige.navic.reader.ReaderPresentationDecision): String =
+			if (decision == oldDecision) "old" else "new"
+		var injected = false
+		val applier = ReaderPresentationHostEffectApplier(
+			commitHostModel = { application ->
+				mutations += label(application.decision) to ReaderPresentationHostMutation.Model
+			},
+			applyViewerDecision = { decision, _ ->
+				mutations += label(decision) to ReaderPresentationHostMutation.ViewerDecision
+			},
+			applyShellCoverLayer = { application ->
+				mutations += label(application.decision) to ReaderPresentationHostMutation.ShellCoverLayer
+			},
+			applyViewerCoverVisibility = { application ->
+				mutations += label(application.decision) to ReaderPresentationHostMutation.ViewerCoverVisibility
+			},
+			applyNativeCoverVisibility = { application ->
+				mutations += label(application.decision) to ReaderPresentationHostMutation.NativeCoverVisibility
+			},
+			afterMutation = { mutation ->
+				if (!injected && mutation == ReaderPresentationHostMutation.Model) {
+					injected = true
+					error("old epoch interrupted")
+				}
+			}
+		)
+		val oldEffect = ReaderPresentationHostEffect(
+			identity = ReaderPresentationHostEffectIdentity(
+				hostEpoch = 90L,
+				version = ReaderPresentationReceiptVersion(90L, null, 1L)
+			),
+			event = null,
+			decision = oldDecision,
+			rendererLossCancellationIdentity = null
+		)
+		val newEffect = oldEffect.copy(
+			identity = ReaderPresentationHostEffectIdentity(
+				hostEpoch = 91L,
+				version = ReaderPresentationReceiptVersion(91L, null, 0L)
+			),
+			decision = newDecision
+		)
+
+		assertFailsWith<IllegalStateException> { applier.apply(oldEffect) }
+		applier.apply(newEffect)
+		applier.apply(oldEffect)
+
+		assertEquals(
+			listOf("old" to ReaderPresentationHostMutation.Model) +
+				ReaderPresentationHostMutation.entries.map { "new" to it },
+			mutations
+		)
+	}
+
+	@Test
+	fun productionDispatcherCommitsAuthoritativeModelBeforeFailedHostApplication() {
+		val binding = completeBinding("model-before-host-effect")
+		val preState = ReaderPresentationState(binding = binding)
+		val controller = ReaderController(
+			state = ReaderControllerState(
+				readerSessionGeneration = 50L,
+				presentation = preState
+			),
+			presentationEventSequence = 5L
+		)
+		val preVersion = controller.presentationVersion
+		val event = ReaderPresentationEvent.Lifecycle(
+			ReaderPresentationLifecycleEvent.VisibilityLost
+		)
+		val exactReceipt = assertNotNull(
+			controller.onPresentationEvent(event).presentationReceipt
+		)
+		val reporter = reporter(preVersion, binding, preState)
+		val delivery = delivery(preVersion, binding)
+		val applied = mutableListOf<paige.navic.reader.ReaderPresentationDecision>()
+		val dispatcher = ReaderPresentationReceiptDispatcher(reporter, delivery) { decision, _ ->
+			applied += decision
+			error("failure after host mutation")
+		}
+		delivery.observe(event.event)
+
+		val committed = delivery.retry { attempted ->
+			dispatcher.dispatch(attempted) { exactReceipt }
+		}
+
+		assertNotNull(committed)
+		assertEquals(0, delivery.pendingEventCount)
+		assertTrue(reporter.matchesAuthoritativePresentationVersion(exactReceipt.version))
+		assertEquals(binding, reporter.lastReportedBinding)
+		assertEquals(listOf(readerPresentationDecision(exactReceipt.postState)), applied)
+	}
+
 	@Test
 	fun productionDispatcherRejectsInvalidVisibilityReceiptsWithoutPartialMutation() {
 		val binding = completeBinding("production-invalid-visibility")
@@ -165,7 +819,11 @@ class ReaderPresentationLifecycleDeliveryTest {
 				eventSequence = 10L
 			)
 		)
-		val rendererReporter = reporter(rendererController.controller.presentationVersion, rendererBinding)
+		val rendererReporter = reporter(
+			rendererController.controller.presentationVersion,
+			rendererBinding,
+			rendererController.controller.state.presentation
+		)
 		val rendererDelivery = delivery(rendererController.controller.presentationVersion, rendererBinding)
 		val rendererDecisions = mutableListOf<paige.navic.reader.ReaderPresentationDecision>()
 		val rendererDispatcher = ReaderPresentationReceiptDispatcher(
@@ -221,7 +879,11 @@ class ReaderPresentationLifecycleDeliveryTest {
 				eventSequence = 20L
 			)
 		)
-		val terminalReporter = reporter(terminalController.controller.presentationVersion, terminalBinding)
+		val terminalReporter = reporter(
+			terminalController.controller.presentationVersion,
+			terminalBinding,
+			terminalController.controller.state.presentation
+		)
 		val terminalDelivery = delivery(terminalController.controller.presentationVersion, terminalBinding)
 		val terminalDecisions = mutableListOf<paige.navic.reader.ReaderPresentationDecision>()
 		val terminalDispatcher = ReaderPresentationReceiptDispatcher(
@@ -319,6 +981,7 @@ class ReaderPresentationLifecycleDeliveryTest {
 		val generalEvent = ReaderPresentationEvent.Retry
 		val generalReceipt = ReaderPresentationEventReceipt(
 			event = generalEvent,
+			preVersion = floor,
 			version = floor.copy(eventSequence = 6L),
 			disposition = ReaderPresentationEventDisposition.Rejected,
 			postState = ReaderPresentationState(binding = binding),
@@ -792,6 +1455,8 @@ class ReaderPresentationLifecycleDeliveryTest {
 		override fun clearSwipeTouchState(reason: ReaderPageLifecycleCancellationReason) {
 			calls += reason
 		}
+
+		override fun cancelRendererWork(reason: ReaderPageLifecycleCancellationReason) = Unit
 	}
 
 	private class InputHarness(binding: ReaderPresentationBinding) {
@@ -849,20 +1514,30 @@ class ReaderPresentationLifecycleDeliveryTest {
 
 	private fun reporter(
 		version: ReaderPresentationReceiptVersion,
-		binding: ReaderPresentationBinding
+		binding: ReaderPresentationBinding,
+		state: ReaderPresentationState = ReaderPresentationState(binding = binding),
+		shellCoverVisible: Boolean = false
 	): ReaderPresentationBindingReporter = ReaderPresentationBindingReporter().also { reporter ->
 		reporter.reset(
 			expectedReaderSessionGeneration = version.readerSessionGeneration,
-			minimumComposeVersion = version
+			minimumComposeVersion = version,
+			initialPresentationState = state,
+			initialShellCoverVisible = shellCoverVisible
 		)
 		assertTrue(reporter.bindPublication(binding))
 	}
 
 	private fun delivery(
 		version: ReaderPresentationReceiptVersion,
-		binding: ReaderPresentationBinding
+		binding: ReaderPresentationBinding,
+		initialLifecycle: ReaderPresentationLifecycleState =
+			ReaderPresentationLifecycleState.Foreground
 	): ReaderPresentationLifecycleDelivery = ReaderPresentationLifecycleDelivery().also { delivery ->
-		delivery.reset(version, observedWindowVisible = null)
+		delivery.reset(
+			version,
+			observedWindowVisible = null,
+			initialLifecycle = initialLifecycle
+		)
 		assertTrue(delivery.bindPublication(binding.publicationIdentity))
 	}
 
@@ -870,6 +1545,28 @@ class ReaderPresentationLifecycleDeliveryTest {
 		controller: ReaderController,
 		binding: ReaderPresentationBinding
 	): ReaderPresentationLifecycleDelivery = delivery(controller.presentationVersion, binding)
+
+	private fun settledState(
+		binding: ReaderPresentationBinding,
+		cleanupOwnership: List<ReaderRendererCleanupOwnership>
+	): ReaderPresentationState {
+		val proof = ReaderNativePagePresentationProof(
+			binding = binding,
+			transitionToken = null,
+			presentedFrame = 1L,
+			viewportWidth = 100,
+			viewportHeight = 200,
+			rasterGeneration = checkNotNull(binding.rasterGeneration),
+			textureGeneration = checkNotNull(binding.textureGeneration)
+		)
+		return ReaderPresentationState(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(proof)
+			),
+			binding = binding,
+			rendererCleanupOwnership = cleanupOwnership
+		)
+	}
 
 	private fun controller(
 		binding: ReaderPresentationBinding,
@@ -905,6 +1602,9 @@ class ReaderPresentationLifecycleDeliveryTest {
 		disposition: ReaderPresentationEventDisposition = ReaderPresentationEventDisposition.Accepted
 	): ReaderPresentationEventReceipt = ReaderPresentationEventReceipt(
 		event = event,
+		preVersion = version.copy(
+			eventSequence = (version.eventSequence - 1L).coerceAtLeast(0L)
+		),
 		version = version,
 		disposition = disposition,
 		postState = postState,

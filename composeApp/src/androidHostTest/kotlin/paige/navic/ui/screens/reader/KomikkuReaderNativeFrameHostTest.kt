@@ -1655,7 +1655,10 @@ class KomikkuReaderNativeFrameHostTest {
 		assertContains(viewerReplacement, "cancelLegacyLivePointerStream()")
 		assertContains(compatibilityUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
 		assertContains(canvasUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
-		assertContains(decisionUpdate, "onAuthoritativePresentationDecision(decision, null)")
+		assertContains(
+			decisionUpdate,
+			"presentationReceiptDispatcher.synchronizeComposeModel("
+		)
 		assertContains(authoritativeDecisionApplication, "cancelLegacyLivePointerStreamIfContextChanged()")
 		assertContains(shellCoverUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
 		assertContains(physicalClose, "cancelLegacyLivePointerStream()")
@@ -1702,7 +1705,12 @@ class KomikkuReaderNativeFrameHostTest {
 		event: ReaderPresentationEvent
 	): ReaderControllerStep {
 		if (expectedReaderSessionGeneration == null) {
-			reset(controller.state.readerSessionGeneration)
+			reset(
+				expectedReaderSessionGeneration = controller.state.readerSessionGeneration,
+				minimumComposeVersion = controller.presentationVersion,
+				initialPresentationState = controller.state.presentation,
+				initialShellCoverVisible = controller.state.shellCoverVisible
+			)
 		}
 		val epoch = captureEpoch()
 		val step = controller.onPresentationEvent(event)

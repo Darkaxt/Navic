@@ -18,6 +18,7 @@ import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationReceiptVersion
+import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderRawTextProvenanceDescriptor
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -36,7 +37,9 @@ expect fun KomikkuReaderNativeFrameHost(
 	navigationOverlayVisible: Boolean,
 	chromeOverlayVisible: Boolean,
 	presentationDecision: ReaderPresentationDecision,
+	presentationState: ReaderPresentationState,
 	presentationVersion: ReaderPresentationReceiptVersion,
+	presentationShellCoverVisible: Boolean,
 	legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext,
 	presentationEffects: List<ReaderPendingPresentationEffect>,
 	onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit,

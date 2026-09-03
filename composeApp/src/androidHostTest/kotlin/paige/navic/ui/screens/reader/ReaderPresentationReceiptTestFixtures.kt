@@ -14,6 +14,11 @@ internal fun readerTestPresentationReceipt(
 		ReaderPresentationEventDisposition.Accepted
 ): ReaderPresentationEventReceipt = ReaderPresentationEventReceipt(
 	event = event,
+	preVersion = ReaderPresentationReceiptVersion(
+		readerSessionGeneration = 1L,
+		publicationIdentity = postState.binding?.publicationIdentity,
+		eventSequence = 0L
+	),
 	version = ReaderPresentationReceiptVersion(
 		readerSessionGeneration = 1L,
 		publicationIdentity = postState.binding?.publicationIdentity,

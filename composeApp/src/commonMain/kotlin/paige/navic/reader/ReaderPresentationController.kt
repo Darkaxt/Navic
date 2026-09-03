@@ -201,70 +201,29 @@ internal object ReaderPresentationControllerReducer {
 		event: ReaderPresentationEvent
 	): ReaderControllerStep {
 		val state = controller.state
-		val eventSequence = Math.incrementExact(controller.presentationEventSequence)
-		val previousAuthority = state.presentation.authority
-		val primaryReduction = readerPresentationReduce(state.presentation, event)
-		val startupReduction = if (
-			event is ReaderPresentationEvent.PublicationOpened &&
-			primaryReduction.state.binding == event.binding &&
-			primaryReduction.state.authority == ReaderPresentationAuthority.Unavailable
-		) {
-			readerPresentationReduce(
-				primaryReduction.state,
-				if (state.shellCoverVisible) {
-					ReaderPresentationEvent.ShellCoverRequested(
-						coverGeneration = primaryReduction.state.nextTokenValue
-					)
-				} else {
-					ReaderPresentationEvent.NativePageRequested
-				}
-			)
-		} else {
-			null
-		}
-		val reduction = startupReduction?.copy(
-			effects = primaryReduction.effects + startupReduction.effects
-		) ?: primaryReduction
-		val presentationPublicationIdentity =
-			reduction.state.binding?.publicationIdentity
-				?: state.presentation.binding?.publicationIdentity
-				?: controller.presentationPublicationIdentity
-		val receipt = ReaderPresentationEventReceipt(
-			event = event,
-			version = ReaderPresentationReceiptVersion(
-				readerSessionGeneration = state.readerSessionGeneration,
-				publicationIdentity = presentationPublicationIdentity,
-				eventSequence = eventSequence
-			),
-			disposition = reduction.disposition,
-			postState = reduction.state,
-			effects = reduction.effects.toList()
+		val transition = readerPresentationEventTransition(
+			preState = state.presentation,
+			preVersion = controller.presentationVersion,
+			shellCoverVisible = state.shellCoverVisible,
+			event = event
 		)
-		val acceptedShellCoverCommit =
-			event is ReaderPresentationEvent.ShellCoverCommitted &&
-				(reduction.decision.frameOwner as? ReaderPresentationFrameOwner.ShellCover)
-					?.proof == event.proof
-		val acceptedShellCoverDismissal =
-			event is ReaderPresentationEvent.NativePagePresented &&
-				previousAuthority is ReaderPresentationAuthority.BlockingPreparation &&
-				previousAuthority.retainedFrame is ReaderPresentationFrameOwner.ShellCover &&
-				previousAuthority.nativePresentationRequest?.let { request ->
-					request.token == event.proof.transitionToken &&
-						request.binding == event.proof.binding
-				} == true &&
-				(reduction.decision.frameOwner as? ReaderPresentationFrameOwner.NativePage)
-					?.proof == event.proof
+		val receipt = transition.receipt
+		val reduction = ReaderPresentationReduction(
+			state = receipt.postState,
+			decision = readerPresentationDecision(receipt.postState),
+			effects = receipt.effects,
+			disposition = receipt.disposition
+		)
+		val eventSequence = receipt.version.eventSequence
+		val presentationPublicationIdentity = transition.publicationIdentity
+		val acceptedShellCoverDismissal = transition.acceptedShellCoverDismissal
 		return ReaderControllerStep(
 			controller = controller.copy(
 				presentationEventSequence = eventSequence,
 				presentationPublicationIdentity = presentationPublicationIdentity,
 				state = state.copy(
 					presentation = reduction.state,
-					shellCoverVisible = when {
-						acceptedShellCoverDismissal -> false
-						acceptedShellCoverCommit -> true
-						else -> state.shellCoverVisible
-					},
+					shellCoverVisible = transition.shellCoverVisible,
 					pendingShellCoverDismissal = state.pendingShellCoverDismissal
 						.takeUnless { acceptedShellCoverDismissal },
 					nativeShellCoverReturnLocatorKey = if (acceptedShellCoverDismissal) {

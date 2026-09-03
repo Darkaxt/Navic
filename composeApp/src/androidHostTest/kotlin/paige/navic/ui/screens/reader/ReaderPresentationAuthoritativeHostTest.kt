@@ -40,7 +40,12 @@ class ReaderPresentationAuthoritativeHostTest {
 		)
 		val exactDecision = readerPresentationDecision(receipt.postState)
 		val reporter = ReaderPresentationBindingReporter()
-		reporter.reset(expectedReaderSessionGeneration = 7L)
+		reporter.reset(
+			expectedReaderSessionGeneration = 7L,
+			minimumComposeVersion = controller.presentationVersion,
+			initialPresentationState = controller.state.presentation,
+			initialShellCoverVisible = controller.state.shellCoverVisible
+		)
 		assertTrue(reporter.bindPublication(binding))
 		assertTrue(
 			reporter.consumeReceipt(
@@ -68,26 +73,22 @@ class ReaderPresentationAuthoritativeHostTest {
 			preparationGeneration = 4L
 		)
 		val event = ReaderPresentationEvent.PublicationOpened(binding)
-		val receipt = assertNotNull(
-			ReaderController(
-				ReaderControllerState(
-					readerSessionGeneration = 8L,
-					presentation = ReaderPresentationState(nextTokenValue = 11L)
-				)
-			).onPresentationEvent(event).presentationReceipt
-		)
-		val reporter = ReaderPresentationBindingReporter()
-		reporter.reset(expectedReaderSessionGeneration = 8L)
-		assertTrue(reporter.bindPublication(binding))
-		assertTrue(
-			reporter.consumeComposeVersion(
-				ReaderPresentationReceiptVersion(
-					readerSessionGeneration = 8L,
-					publicationIdentity = binding.publicationIdentity,
-					eventSequence = 0L
-				)
+		val controller = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 8L,
+				presentation = ReaderPresentationState(nextTokenValue = 11L)
 			)
 		)
+		val receipt = assertNotNull(
+			controller.onPresentationEvent(event).presentationReceipt
+		)
+		val reporter = ReaderPresentationBindingReporter()
+		reporter.reset(
+			expectedReaderSessionGeneration = 8L,
+			minimumComposeVersion = controller.presentationVersion,
+			initialPresentationState = controller.state.presentation
+		)
+		assertTrue(reporter.bindPublication(binding))
 		assertTrue(
 			reporter.consumeReceipt(
 				reporter.captureEpoch(),
@@ -144,17 +145,22 @@ class ReaderPresentationAuthoritativeHostTest {
 			preparationGeneration = 4L
 		)
 		val event = ReaderPresentationEvent.PublicationOpened(binding)
+		val controller = ReaderController(
+			state = ReaderControllerState(
+				readerSessionGeneration = 9L,
+				presentation = ReaderPresentationState(nextTokenValue = 11L)
+			),
+			presentationEventSequence = 1L
+		)
 		val receipt = assertNotNull(
-			ReaderController(
-				state = ReaderControllerState(
-					readerSessionGeneration = 9L,
-					presentation = ReaderPresentationState(nextTokenValue = 11L)
-				),
-				presentationEventSequence = 1L
-			).onPresentationEvent(event).presentationReceipt
+			controller.onPresentationEvent(event).presentationReceipt
 		)
 		val reporter = ReaderPresentationBindingReporter()
-		reporter.reset(expectedReaderSessionGeneration = 9L)
+		reporter.reset(
+			expectedReaderSessionGeneration = 9L,
+			minimumComposeVersion = controller.presentationVersion,
+			initialPresentationState = controller.state.presentation
+		)
 		assertTrue(reporter.bindPublication(binding))
 		assertTrue(
 			reporter.consumeReceipt(
@@ -207,8 +213,8 @@ class ReaderPresentationAuthoritativeHostTest {
 			.substringAfter("fun setPresentationDecision(")
 			.substringBefore("fun handlePresentationEffects(")
 		val rootApplication = root
-			.substringAfter("private fun applyPresentationDecision(")
-			.substringBefore("private fun updateNativeCoverVisibility(")
+			.substringAfter("private val presentationHostEffectApplier")
+			.substringBefore("private var preparedShellCoverGeneration")
 		val effects = root
 			.substringAfter("fun handlePresentationEffects(")
 			.substringBefore("fun setShellCover(")
@@ -219,16 +225,28 @@ class ReaderPresentationAuthoritativeHostTest {
 		val viewerApplication = viewer
 			.substringAfter("fun applyPresentationDecision(")
 			.substringBefore("private fun setLocalPageSafetyPolicy(")
+		val viewerSynchronization = viewer
+			.substringAfter("fun setPresentationDecision(")
+			.substringBefore("fun releaseStalePresentation(")
 
-		assertContains(rootUpdate, "onAuthoritativeDecision = ::applyPresentationDecision")
+		assertContains(
+			rootUpdate,
+			"onAuthoritativeHostEffect = presentationHostEffectApplier::apply"
+		)
 		assertContains(
 			receiptAdoption,
-			"onAuthoritativePresentationDecision(decision, rendererLossCancellationIdentity)"
+			"onAuthoritativePresentationHostEffect(effect)"
 		)
-		assertContains(rootApplication, "readerNativePresentationApplication(decision)")
-		assertContains(rootApplication, "viewerContainer.applyPresentationDecision")
+		assertContains(rootApplication, "commitHostModel =")
+		assertContains(rootApplication, "presentationDecision = application.decision")
+		assertContains(rootApplication, "applyViewerDecision = viewerContainer::applyPresentationDecision")
 		assertContains(rootApplication, "shellCoverLayerController.selectCover")
 		assertContains(rootApplication, "shellCoverLayerController.coverHidden()")
+		assertContains(rootApplication, "applyNativeCoverVisibility = ::updateNativeCoverVisibility")
+		assertContains(
+			viewerSynchronization,
+			"presentationReceiptDispatcher.synchronizeComposeModel("
+		)
 		assertContains(
 			viewerApplication,
 			"updateInputSettlementPolicies(rendererLossCancellationIdentity)"
