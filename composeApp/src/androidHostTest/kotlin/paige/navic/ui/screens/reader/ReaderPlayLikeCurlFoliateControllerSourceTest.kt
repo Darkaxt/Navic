@@ -3953,7 +3953,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(detach, "teardownTask4Resources()")
 		assertContains(closeReader, "ReaderPageHostLifecycleEvent.ReaderClosed")
 		assertContains(closeReader, "closePhysicalPointerDelivery()")
-		assertContains(begin, "if (finalHostLifecycleEvent != null) return")
+		assertContains(begin, "if (finalHostLifecycleEvent != null) {")
+		assertTrue(
+			begin.indexOf("retryPresentationLifecycleDelivery()") <
+				begin.indexOf("return")
+		)
 		assertContains(begin, "dispatchPageHostLifecycleEvent(event)")
 		assertContains(begin, "clearLegacyNativeTapState(reason)")
 		assertFalse(begin.contains("abandonPhysicalPointerStream("))

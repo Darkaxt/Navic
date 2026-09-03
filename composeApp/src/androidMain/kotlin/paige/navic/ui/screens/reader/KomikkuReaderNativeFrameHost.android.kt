@@ -1736,6 +1736,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 	}
 	private val presentationBindingReporter = ReaderPresentationBindingReporter()
+	private val presentationLifecycleDelivery = ReaderPresentationLifecycleDelivery()
 	private var presentationPublicationGeneration = 0L
 	private var presentationViewportGeneration = 0L
 	private var presentationPublicationOpenPending = false
@@ -1924,6 +1925,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			require(
 				event == ReaderPageHostLifecycleEvent.UnsafeContextLost ||
 					event == ReaderPageHostLifecycleEvent.GlFailed
+			)
+			reportPresentationLifecycleEvent(
+				ReaderPresentationLifecycleEvent.RendererLost
 			)
 			dispatchPageHostLifecycleEvent(event)
 		},
@@ -2591,6 +2595,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	) {
 		onPresentationEvent = onEvent
 		onAuthoritativePresentationDecision = onAuthoritativeDecision
+		presentationLifecycleDelivery.advanceComposeVersion(version)
 		if (presentationBindingReporter.consumeComposeVersion(version)) {
 			onAuthoritativePresentationDecision(decision)
 		}
@@ -2599,6 +2604,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			presentationRelocationPending = presentationBindingReporter.lastReportedBinding != null
 		}
 		reportPresentationIdentityIfAvailable()
+		retryPresentationLifecycleDelivery()
 	}
 
 	fun releaseStalePresentation(
@@ -2630,6 +2636,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			expectedReaderSessionGeneration = version.readerSessionGeneration,
 			minimumComposeVersion = version
 		)
+		presentationLifecycleDelivery.reset(
+			version = version,
+			observedWindowVisible = lastPresentationWindowVisible
+		)
 		lastReportedPresentationFacts = null
 		nativePagePresentationPublisher.update()
 		return ReaderPresentationEpochPreparation.Replaced
@@ -2645,18 +2655,23 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				reportPresentationWindowVisibility(visible = false)
 			ReaderPresentationLifecycleEvent.VisibilityRestored ->
 				reportPresentationWindowVisibility(visible = true)
-			else -> dispatchPresentationEvent(ReaderPresentationEvent.Lifecycle(event))
+			else -> {
+				presentationLifecycleDelivery.observe(event)
+				retryPresentationLifecycleDelivery()
+			}
 		}
 	}
 
+	private fun retryPresentationLifecycleDelivery(): ReaderPresentationEventReceipt? =
+		presentationLifecycleDelivery.retry(::dispatchPresentationEvent)
+
 	private fun reportPresentationWindowVisibility(visible: Boolean) {
-		if (lastPresentationWindowVisible == visible) return
+		val visibilityChanged = lastPresentationWindowVisible != visible
 		lastPresentationWindowVisible = visible
-		dispatchPresentationEvent(
-			ReaderPresentationEvent.Lifecycle(
-				readerPresentationLifecycleEventForWindowVisibility(visible)
-			)
-		)
+		val event = readerPresentationLifecycleEventForWindowVisibility(visible)
+		presentationLifecycleDelivery.observe(event)
+		retryPresentationLifecycleDelivery()
+		if (!visibilityChanged) return
 		if (visible) {
 			reportPresentationIdentityIfAvailable()
 		} else {
@@ -2691,9 +2706,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		val binding = currentPresentationBindingOrNull()
 		if (binding == null) {
 			nativePagePresentationPublisher.update()
+			retryPresentationLifecycleDelivery()
 			return
 		}
 		if (!presentationBindingReporter.bindPublication(binding)) {
+			nativePagePresentationPublisher.update()
+			return
+		}
+		if (!presentationLifecycleDelivery.bindPublication(binding.publicationIdentity)) {
 			nativePagePresentationPublisher.update()
 			return
 		}
@@ -2720,6 +2740,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 		reportPresentationPreparationFacts(latestRasterPreparationState)
 		reportNativePagePresentationIfAvailable()
+		retryPresentationLifecycleDelivery()
 	}
 
 	private fun reportPresentationPreparationFacts(state: ReaderPagePreparationState) {
@@ -4276,9 +4297,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		require(event in readerPageFinalHostLifecycleEvents) {
 			"Non-final host event passed to final lifecycle gate: $event"
 		}
-		if (finalHostLifecycleEvent != null) return
+		if (finalHostLifecycleEvent != null) {
+			retryPresentationLifecycleDelivery()
+			return
+		}
 		finalHostLifecycleEvent = event
 		startupShellHandoff.close()
+		presentationLifecycleDelivery.observe(
+			ReaderPresentationLifecycleEvent.PublicationClosed
+		)
+		retryPresentationLifecycleDelivery()
 		val reason = event.cancellationReason()
 		dispatchPageHostLifecycleEvent(event)
 		clearLegacyNativeTapState(reason)
@@ -4309,6 +4337,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			val ownershipCloseFailure =
 				runCatching(foregroundWebViewOwnership::close).exceptionOrNull()
 			ownershipMainHandler.post {
+				retryPresentationLifecycleDelivery()
 				if (failure == null && ownershipCloseFailure == null) {
 					ownershipProbe.request { result ->
 						result.fold(
