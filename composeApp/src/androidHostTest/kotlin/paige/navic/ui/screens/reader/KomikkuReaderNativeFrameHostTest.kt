@@ -688,6 +688,243 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
+	fun bindingReporterCompletesThePendingResolvedProfileBeforeReducerEcho() {
+		val provisional = ReaderPresentationBinding(
+			foliateSessionId = "profile-race-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 0L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"profile-race-session",
+				3L
+			),
+			preparationGeneration = 4L
+		)
+		val resolved = provisional.copy(profileGeneration = 5L)
+		val complete = resolved.copy(rasterGeneration = 6L, textureGeneration = 7L)
+		val reporter = ReaderPresentationBindingReporter()
+		var state = readerPresentationReduce(
+			ReaderPresentationState(),
+			ReaderPresentationEvent.PublicationOpened(provisional)
+		).state
+
+		assertNull(
+			reporter.update(
+				confirmedTargetBinding = provisional,
+				currentBinding = provisional,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		val replacement = assertIs<ReaderPresentationEvent.BindingReplaced>(
+			reporter.update(
+				confirmedTargetBinding = provisional,
+				currentBinding = resolved,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertEquals(provisional, replacement.previousBinding)
+		assertEquals(resolved, replacement.binding)
+		assertNull(
+			reporter.update(
+				confirmedTargetBinding = provisional,
+				currentBinding = resolved,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+
+		val completion = assertIs<ReaderPresentationEvent.BindingCompleted>(
+			reporter.update(
+				confirmedTargetBinding = provisional,
+				currentBinding = complete,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertEquals(resolved, completion.previousBinding)
+		assertEquals(complete, completion.binding)
+		state = readerPresentationReduce(state, replacement).state
+		assertEquals(resolved, state.binding)
+		state = readerPresentationReduce(state, completion).state
+		assertEquals(complete, state.binding)
+		assertNull(
+			reporter.update(
+				confirmedTargetBinding = provisional,
+				currentBinding = complete,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertNull(
+			reporter.update(
+				confirmedTargetBinding = state.binding,
+				currentBinding = complete,
+				publicationOpenPending = false,
+				relocationPending = false
+			)
+		)
+		assertEquals(complete, reporter.lastReportedBinding)
+	}
+
+	@Test
+	fun bindingReporterOnlyAdvancesPendingBasisThroughNewerCausalFacts() {
+		val provisional = ReaderPresentationBinding(
+			foliateSessionId = "pending-basis-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 0L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"pending-basis-session",
+				3L
+			),
+			preparationGeneration = 4L
+		)
+		val resolved = provisional.copy(profileGeneration = 5L)
+		val relocated = resolved.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"pending-basis-session",
+				4L
+			)
+		)
+		val complete = relocated.copy(rasterGeneration = 6L, textureGeneration = 7L)
+		val reporter = ReaderPresentationBindingReporter()
+
+		reporter.update(provisional, provisional, false, false)
+		assertIs<ReaderPresentationEvent.BindingReplaced>(
+			reporter.update(provisional, resolved, false, false)
+		)
+		val relocation = assertIs<ReaderPresentationEvent.FoliateRelocated>(
+			reporter.update(provisional, relocated, false, true)
+		)
+		assertEquals(relocated, relocation.binding)
+		assertNull(reporter.update(provisional, relocated, false, true))
+		assertNull(reporter.update(provisional, resolved, false, true))
+
+		val completion = assertIs<ReaderPresentationEvent.BindingCompleted>(
+			reporter.update(provisional, complete, false, false)
+		)
+		assertEquals(relocated, completion.previousBinding)
+		assertEquals(complete, completion.binding)
+
+		val otherSession = complete.copy(
+			foliateSessionId = "authoritative-session",
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"authoritative-session",
+				1L
+			),
+			rasterGeneration = null,
+			textureGeneration = null
+		)
+		assertNull(reporter.update(otherSession, otherSession, false, false))
+		assertNull(reporter.update(otherSession, complete, false, false))
+		assertEquals(otherSession, reporter.lastReportedBinding)
+
+		reporter.reset()
+		assertNull(reporter.update(null, complete, false, false))
+		assertNull(reporter.lastReportedBinding)
+	}
+
+	@Test
+	fun bindingReporterNeverUsesARejectedOneSidedRendererFactAsItsBasis() {
+		val confirmed = ReaderPresentationBinding(
+			foliateSessionId = "rejected-basis-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"rejected-basis-session",
+				4L
+			),
+			rasterGeneration = 5L,
+			textureGeneration = 6L,
+			preparationGeneration = 7L
+		)
+		val oneSided = confirmed.copy(
+			viewportGeneration = 8L,
+			rasterGeneration = 9L,
+			textureGeneration = null
+		)
+		val complete = oneSided.copy(textureGeneration = 10L)
+		val reporter = ReaderPresentationBindingReporter()
+
+		reporter.update(confirmed, confirmed, false, false)
+		assertNull(reporter.update(confirmed, oneSided, false, false))
+		val replacement = assertIs<ReaderPresentationEvent.BindingReplaced>(
+			reporter.update(confirmed, complete, false, false)
+		)
+		assertEquals(confirmed, replacement.previousBinding)
+		assertEquals(complete, replacement.binding)
+	}
+
+	@Test
+	fun bindingReporterDirectCompleteRelocationSettlesTheReducerWithoutRetry() {
+		val partial = ReaderPresentationBinding(
+			foliateSessionId = "direct-complete-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"direct-complete-session",
+				4L
+			),
+			preparationGeneration = 5L
+		)
+		val complete = partial.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"direct-complete-session",
+				5L
+			),
+			rasterGeneration = 6L,
+			textureGeneration = 7L
+		)
+		val reporter = ReaderPresentationBindingReporter()
+		var state = readerPresentationReduce(
+			readerPresentationReduce(
+				ReaderPresentationState(nextTokenValue = 8L),
+				ReaderPresentationEvent.PublicationOpened(partial)
+			).state,
+			ReaderPresentationEvent.NativePageRequested
+		).state
+		reporter.update(state.binding, partial, false, false)
+
+		val relocation = assertIs<ReaderPresentationEvent.FoliateRelocated>(
+			reporter.update(state.binding, complete, false, true)
+		)
+		state = readerPresentationReduce(state, relocation).state
+		assertNull(reporter.update(state.binding, complete, false, false))
+		assertEquals(complete, reporter.lastReportedBinding)
+		val request = requireNotNull(
+			(state.authority as ReaderPresentationAuthority.BlockingPreparation)
+				.nativePresentationRequest
+		)
+		assertEquals(ReaderPresentationToken(8L), request.token)
+		assertEquals(complete, request.binding)
+
+		val proof = ReaderNativePagePresentationProof(
+			binding = complete,
+			transitionToken = request.token,
+			presentedFrame = 9L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 6L,
+			textureGeneration = 7L
+		)
+		val presented = readerPresentationReduce(
+			state,
+			ReaderPresentationEvent.NativePagePresented(proof)
+		)
+		assertEquals(
+			ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(proof)
+			),
+			presented.state.authority
+		)
+		assertTrue(presented.effects.isEmpty())
+	}
+
+	@Test
 	fun coldCanvasBindingIsPartialUntilAnExactPreparedDeckArrives() {
 		val destination = ReaderDestinationCommitIdentity("fixture-session", 4L)
 		val snapshot = ReaderPresentationHostBindingSnapshot(

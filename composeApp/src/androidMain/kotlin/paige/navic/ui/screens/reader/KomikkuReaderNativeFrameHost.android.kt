@@ -200,6 +200,72 @@ private fun ReaderPresentationBinding.isExactHostRendererCompletionOf(
 	destinationCommitIdentity == previousBinding.destinationCommitIdentity &&
 	preparationGeneration == previousBinding.preparationGeneration
 
+private fun ReaderPresentationBinding.hasAnyHostRendererIdentity(): Boolean =
+	rasterGeneration != null || textureGeneration != null
+
+private fun ReaderPresentationBinding.hasCompleteHostRendererIdentity(): Boolean =
+	rasterGeneration != null && textureGeneration != null
+
+private fun ReaderPresentationBinding.isCausalHostDestinationSuccessorOf(
+	previousBinding: ReaderPresentationBinding
+): Boolean {
+	val previousDestination = previousBinding.destinationCommitIdentity ?: return false
+	val destination = destinationCommitIdentity ?: return false
+	return foliateSessionId == previousBinding.foliateSessionId &&
+		publicationGeneration == previousBinding.publicationGeneration &&
+		viewportGeneration == previousBinding.viewportGeneration &&
+		profileGeneration == previousBinding.profileGeneration &&
+		(
+			preparationGeneration == previousBinding.preparationGeneration ||
+				previousBinding.hasCompleteHostRendererIdentity() &&
+				hasCompleteHostRendererIdentity() &&
+				preparationGeneration != null
+		) &&
+		destination.commitSequence > previousDestination.commitSequence &&
+		(!hasAnyHostRendererIdentity() || hasCompleteHostRendererIdentity())
+}
+
+private fun ReaderPresentationBinding.isCausalPendingPartialReplacementOf(
+	previousBinding: ReaderPresentationBinding
+): Boolean = !previousBinding.hasAnyHostRendererIdentity() &&
+	!hasAnyHostRendererIdentity() &&
+	foliateSessionId == previousBinding.foliateSessionId &&
+	publicationGeneration == previousBinding.publicationGeneration &&
+	destinationCommitIdentity == previousBinding.destinationCommitIdentity &&
+	preparationGeneration == previousBinding.preparationGeneration &&
+	viewportGeneration >= previousBinding.viewportGeneration &&
+	profileGeneration >= previousBinding.profileGeneration &&
+	(
+		viewportGeneration > previousBinding.viewportGeneration ||
+			profileGeneration > previousBinding.profileGeneration
+	)
+
+private fun ReaderPresentationBinding.isSafeHostBindingReplacementOf(
+	previousBinding: ReaderPresentationBinding
+): Boolean {
+	if (
+		this == previousBinding ||
+		foliateSessionId != previousBinding.foliateSessionId ||
+		publicationGeneration != previousBinding.publicationGeneration
+	) return false
+	if (!previousBinding.hasAnyHostRendererIdentity() && !hasAnyHostRendererIdentity()) {
+		return true
+	}
+	if (
+		!previousBinding.hasCompleteHostRendererIdentity() ||
+		!hasCompleteHostRendererIdentity() ||
+		preparationGeneration == null
+	) return false
+	val previousDestination = previousBinding.destinationCommitIdentity
+	val destination = destinationCommitIdentity
+	if (destination == previousDestination) return true
+	return (viewportGeneration != previousBinding.viewportGeneration ||
+		profileGeneration != previousBinding.profileGeneration) &&
+		previousDestination != null &&
+		destination != null &&
+		destination.commitSequence > previousDestination.commitSequence
+}
+
 internal class ReaderPresentationBindingReporter {
 	var lastReportedBinding: ReaderPresentationBinding? = null
 		private set
@@ -218,41 +284,30 @@ internal class ReaderPresentationBindingReporter {
 	): ReaderPresentationEvent? {
 		if (confirmedTargetBinding != null && confirmedTargetBinding != lastReportedBinding) {
 			lastReportedBinding = confirmedTargetBinding
-			if (pendingBinding == confirmedTargetBinding) pendingBinding = null
+			pendingBinding = null
 		}
 		if (currentBinding == lastReportedBinding || currentBinding == pendingBinding) return null
+		val reportingBasis = pendingBinding ?: lastReportedBinding
 		val event = when {
 			publicationOpenPending -> ReaderPresentationEvent.PublicationOpened(currentBinding)
-			lastReportedBinding == null -> null
-			lastReportedBinding?.foliateSessionId != currentBinding.foliateSessionId -> null
-			lastReportedBinding?.publicationGeneration != currentBinding.publicationGeneration -> null
-			currentBinding.isExactHostRendererCompletionOf(requireNotNull(lastReportedBinding)) ->
+			reportingBasis == null -> null
+			reportingBasis.foliateSessionId != currentBinding.foliateSessionId -> null
+			reportingBasis.publicationGeneration != currentBinding.publicationGeneration -> null
+			currentBinding.isExactHostRendererCompletionOf(reportingBasis) ->
 				ReaderPresentationEvent.BindingCompleted(
-					previousBinding = requireNotNull(lastReportedBinding),
+					previousBinding = reportingBasis,
 					binding = currentBinding
 				)
-			relocationPending -> {
-				val previous = requireNotNull(lastReportedBinding)
-				val destinationChanged = previous.destinationCommitIdentity !=
-					currentBinding.destinationCommitIdentity
-				val viewportOrProfileChanged = previous.viewportGeneration !=
-					currentBinding.viewportGeneration ||
-					previous.profileGeneration != currentBinding.profileGeneration
-				if (destinationChanged && !viewportOrProfileChanged) {
-					ReaderPresentationEvent.FoliateRelocated(
-						binding = currentBinding,
-						acknowledgement = null
-					)
-				} else {
-					ReaderPresentationEvent.BindingReplaced(previous, currentBinding)
-				}
-			}
-			else -> readerPresentationBindingEvent(
-				lastReportedBinding = lastReportedBinding,
-				currentBinding = currentBinding,
-				publicationOpenPending = false,
-				relocationPending = false
-			)
+			currentBinding.isCausalHostDestinationSuccessorOf(reportingBasis) ->
+				ReaderPresentationEvent.FoliateRelocated(
+					binding = currentBinding,
+					acknowledgement = null
+				).takeIf { relocationPending }
+			pendingBinding != null &&
+				!currentBinding.isCausalPendingPartialReplacementOf(reportingBasis) -> null
+			currentBinding.isSafeHostBindingReplacementOf(reportingBasis) ->
+				ReaderPresentationEvent.BindingReplaced(reportingBasis, currentBinding)
+			else -> null
 		}
 		if (event != null) pendingBinding = currentBinding
 		return event

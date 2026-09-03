@@ -272,6 +272,10 @@ internal object ReaderPresentationControllerReducer {
 		legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext =
 			ReaderLegacyLiveCompatibilityContext.Denied()
 	): ReaderControllerStep {
+		if (
+			controller.state.presentation.lifecycle !=
+			ReaderPresentationLifecycleState.Foreground
+		) return ReaderControllerStep(controller)
 		val inputPolicy = controller.state.presentationDecision.inputPolicy
 		val exactCompatibilityContext = legacyLiveCompatibilityContext.takeIf {
 			it.matches(controller.state)

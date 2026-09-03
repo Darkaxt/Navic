@@ -63,6 +63,197 @@ class ReaderPresentationViewerActionPolicyTest {
 	}
 
 	@Test
+	fun controllerAdmissionChecksLifecycleBeforeEveryPolicyAndViewerIntent() {
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "lifecycle-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 1L,
+			profileGeneration = 1L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"lifecycle-session",
+				1L
+			),
+			rasterGeneration = 2L,
+			textureGeneration = 3L,
+			preparationGeneration = 4L
+		)
+		val coverProof = ReaderShellCoverCommitProof(
+			token = ReaderPresentationToken(5L),
+			binding = binding,
+			coverGeneration = 6L,
+			presentedFrame = 7L,
+			viewportWidth = 100,
+			viewportHeight = 200
+		)
+		val nativeProof = ReaderNativePagePresentationProof(
+			binding = binding,
+			transitionToken = null,
+			presentedFrame = 8L,
+			viewportWidth = 100,
+			viewportHeight = 200,
+			rasterGeneration = 2L,
+			textureGeneration = 3L
+		)
+		val curlFrame = ReaderPresentationFrameOwner.Curl(
+			ReaderCurlPresentationFrame(
+				token = ReaderPresentationToken(9L),
+				binding = binding,
+				presentedFrame = 10L,
+				viewportWidth = 100,
+				viewportHeight = 200,
+				rasterGeneration = 2L,
+				textureGeneration = 3L
+			)
+		)
+		val liveFrame = ReaderPresentationFrameOwner.LiveEngine(
+			ReaderLiveEnginePresentationProof(
+				token = ReaderPresentationToken(11L),
+				binding = binding,
+				presentedFrame = 12L,
+				viewportWidth = 100,
+				viewportHeight = 200,
+				liveEngineGeneration = 13L
+			)
+		)
+		val readyFacts = ReaderPagePreparationFacts(
+			phase = ReaderPagePreparationPhase.Ready,
+			generation = 4L,
+			completedCount = 1,
+			requiredCount = 1,
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Ready,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+				textureDeck = ReaderTextureDeckState.Ready,
+				interaction = ReaderPageInteractionState.Ready
+			)
+		)
+		val policyStates = listOf(
+			ReaderPresentationInputPolicy.RecoveryOnly to ReaderPresentationState(),
+			ReaderPresentationInputPolicy.ChromeOnly to ReaderPresentationState(
+				authority = ReaderPresentationAuthority.BlockingPreparation(
+					ReaderPresentationFrameOwner.ShellCover(coverProof)
+				),
+				binding = binding
+			),
+			ReaderPresentationInputPolicy.ShellCover to ReaderPresentationState(
+				authority = ReaderPresentationAuthority.ShellCover(coverProof),
+				binding = binding
+			),
+			ReaderPresentationInputPolicy.ClaimedCurl(ReaderPresentationToken(9L)) to
+				ReaderPresentationState(
+					authority = ReaderPresentationAuthority.CurlGesture(curlFrame),
+					binding = binding
+				),
+			ReaderPresentationInputPolicy.NativePage(acceptedPagePolicy) to
+				ReaderPresentationState(
+					authority = ReaderPresentationAuthority.SettledNativePage(
+						ReaderPresentationFrameOwner.NativePage(nativeProof)
+					),
+					binding = binding,
+					preparationFacts = readyFacts
+				),
+			ReaderPresentationInputPolicy.NativePage(rejectedPagePolicy) to
+				ReaderPresentationState(
+					authority = ReaderPresentationAuthority.SettledNativePage(
+						ReaderPresentationFrameOwner.NativePage(nativeProof)
+					),
+					binding = binding
+				),
+			ReaderPresentationInputPolicy.LiveEngine to ReaderPresentationState(
+				authority = ReaderPresentationAuthority.LiveEngineExposed(liveFrame),
+				binding = binding
+			)
+		)
+		val scenarios = listOf(
+			Triple("menu", false, ReaderViewerAction.Menu),
+			Triple("close", true, ReaderViewerAction.Menu),
+			Triple(
+				"next",
+				false,
+				ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+			),
+			Triple(
+				"previous",
+				false,
+				ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)
+			)
+		)
+
+		policyStates.forEach { (policy, presentation) ->
+			assertEquals(policy, readerPresentationDecision(presentation).inputPolicy)
+			scenarios.forEach { (intent, menuVisible, action) ->
+				val foreground = ReaderController(
+					state = ReaderControllerState(
+						presentation = presentation,
+						menuVisible = menuVisible,
+						lastContentActionClaim = ReaderContentActionClaim()
+					)
+				)
+				val admitted = foreground.onViewerAction(action)
+				val producedOutcome = admitted.controller != foreground ||
+					admitted.engineCommands.isNotEmpty() ||
+					admitted.presentationEffects.isNotEmpty()
+				assertEquals(
+					readerViewerActionIsAdmitted(policy, action),
+					producedOutcome,
+					"lifecycle=Foreground policy=$policy intent=$intent"
+				)
+
+				listOf(
+					ReaderPresentationLifecycleState.Background,
+					ReaderPresentationLifecycleState.Destroyed
+				).forEach { lifecycle ->
+					val denied = foreground.copy(
+						state = foreground.state.copy(
+							presentation = presentation.copy(lifecycle = lifecycle)
+						)
+					)
+					val step = denied.onViewerAction(action)
+					assertEquals(
+						denied,
+						step.controller,
+						"lifecycle=$lifecycle policy=$policy intent=$intent"
+					)
+					assertTrue(step.engineCommands.isEmpty())
+					assertTrue(step.presentationEffects.isEmpty())
+				}
+			}
+		}
+	}
+
+	@Test
+	fun delayedViewerCallbacksRecheckCurrentLifecycleBeforeColdCompatibility() {
+		val foreground = ReaderController().open(openRequest()).controller
+		val context = assertIs<ReaderLegacyLiveCompatibilityContext.ColdSession>(
+			ReaderLegacyLiveCompatibilityGate().resolve(
+				state = foreground.state,
+				pageTurnCanvasEnabled = false
+			)
+		)
+
+		listOf(
+			ReaderPresentationLifecycleState.Background,
+			ReaderPresentationLifecycleState.Destroyed
+		).forEach { lifecycle ->
+			val revoked = foreground.copy(
+				state = foreground.state.copy(
+					presentation = foreground.state.presentation.copy(lifecycle = lifecycle)
+				)
+			)
+			listOf(
+				ReaderViewerAction.Menu,
+				ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
+				ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)
+			).forEach { action ->
+				val step = revoked.onViewerAction(action, context)
+				assertEquals(revoked, step.controller, "lifecycle=$lifecycle action=$action")
+				assertTrue(step.engineCommands.isEmpty())
+				assertTrue(step.presentationEffects.isEmpty())
+			}
+		}
+	}
+
+	@Test
 	fun deniedViewerActionCannotClearAContentClaimOrMutateControllerState() {
 		val controller = ReaderController(
 			state = ReaderControllerState(
