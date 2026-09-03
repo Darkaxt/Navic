@@ -970,6 +970,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		reader = reader,
 		controllerState = controllerState,
 		presentationDecision = controllerState.presentationDecision,
+		presentationVersion = coordinator.controller.presentationVersion,
 		pageTurnCanvasEnabled = pageTurnCanvasEnabled,
 		legacyLiveCompatibilityContext = legacyLiveCompatibilityContext,
 		presentationEffects = pendingPresentationEffects,

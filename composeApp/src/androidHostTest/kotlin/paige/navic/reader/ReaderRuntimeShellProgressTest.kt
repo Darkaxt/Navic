@@ -434,6 +434,7 @@ class ReaderRuntimeShellProgressTest {
 			"navigationOverlayVisible",
 			"chromeOverlayVisible",
 			"presentationDecision",
+			"presentationVersion",
 			"legacyLiveCompatibilityContext",
 			"presentationEffects",
 			"onPresentationEffectHandled",

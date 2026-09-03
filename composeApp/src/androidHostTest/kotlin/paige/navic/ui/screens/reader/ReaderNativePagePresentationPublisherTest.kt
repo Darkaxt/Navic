@@ -18,6 +18,7 @@ import paige.navic.reader.ReaderPagePreparationFacts
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
 
 class ReaderNativePagePresentationPublisherTest {
@@ -31,7 +32,10 @@ class ReaderNativePagePresentationPublisherTest {
 			currentCandidate = { candidate },
 			onEvent = { event ->
 				events += event
-				true
+				readerTestPresentationReceipt(
+					event,
+					ReaderPresentationState(binding = requireNotNull(candidate).binding)
+				)
 			}
 		)
 
@@ -60,7 +64,10 @@ class ReaderNativePagePresentationPublisherTest {
 			currentCandidate = { candidate },
 			onEvent = { event ->
 				events += event
-				true
+				readerTestPresentationReceipt(
+					event,
+					ReaderPresentationState(binding = requireNotNull(candidate).binding)
+				)
 			}
 		)
 		publisher.update()
@@ -99,7 +106,10 @@ class ReaderNativePagePresentationPublisherTest {
 			currentCandidate = { candidate },
 			onEvent = { event ->
 				events += event
-				true
+				readerTestPresentationReceipt(
+					event,
+					ReaderPresentationState(binding = requireNotNull(candidate).binding)
+				)
 			}
 		)
 		publisher.update()
@@ -127,9 +137,12 @@ class ReaderNativePagePresentationPublisherTest {
 				events += event
 				attempt += 1
 				when (attempt) {
-					1 -> false
+					1 -> null
 					2 -> error("callback failed")
-					else -> true
+					else -> readerTestPresentationReceipt(
+						event,
+						ReaderPresentationState(binding = candidate.binding)
+					)
 				}
 			}
 		)

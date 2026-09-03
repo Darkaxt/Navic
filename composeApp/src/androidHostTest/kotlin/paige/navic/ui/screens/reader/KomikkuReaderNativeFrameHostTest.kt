@@ -1078,7 +1078,7 @@ class KomikkuReaderNativeFrameHostTest {
 			val reporter = ReaderPresentationBindingReporter()
 			reporter.update(completeA, completeA, false, false)
 			assertNull(reporter.update(completeA, candidate, false, true))
-			assertEquals(completeA, reporter.lastReportedBinding)
+			assertNull(reporter.lastReportedBinding)
 		}
 		listOf(
 			completeB.copy(viewportGeneration = 3L),
@@ -1629,6 +1629,9 @@ class KomikkuReaderNativeFrameHostTest {
 		val decisionUpdate = viewerContainer
 			.substringAfter("fun setPresentationDecision(")
 			.substringBefore("fun releaseStalePresentation(")
+		val authoritativeDecisionApplication = viewerContainer
+			.substringAfter("fun applyPresentationDecision(")
+			.substringBefore("private fun setLocalPageSafetyPolicy(")
 		val shellCoverUpdate = viewerContainer
 			.substringAfter("fun setShellCoverVisible(")
 			.substringBefore("fun setPageOperationPolicy(")
@@ -1652,7 +1655,8 @@ class KomikkuReaderNativeFrameHostTest {
 		assertContains(viewerReplacement, "cancelLegacyLivePointerStream()")
 		assertContains(compatibilityUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
 		assertContains(canvasUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
-		assertContains(decisionUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
+		assertContains(decisionUpdate, "onAuthoritativePresentationDecision(decision)")
+		assertContains(authoritativeDecisionApplication, "cancelLegacyLivePointerStreamIfContextChanged()")
 		assertContains(shellCoverUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
 		assertContains(physicalClose, "cancelLegacyLivePointerStream()")
 		assertContains(physicalClose, "legacyLivePointerStream.suppressesOriginalTerminal")
@@ -1697,9 +1701,16 @@ class KomikkuReaderNativeFrameHostTest {
 		controller: ReaderController,
 		event: ReaderPresentationEvent
 	): ReaderControllerStep {
+		if (expectedReaderSessionGeneration == null) {
+			reset(controller.state.readerSessionGeneration)
+		}
 		val epoch = captureEpoch()
 		val step = controller.onPresentationEvent(event)
-		assertTrue(consumeReceipt(epoch, event, assertNotNull(step.presentationReceipt)))
+		val receipt = assertNotNull(step.presentationReceipt)
+		val publicationBinding = receipt.postState.binding
+			?: controller.state.presentation.binding
+		assertTrue(bindPublication(assertNotNull(publicationBinding)))
+		assertTrue(consumeReceipt(epoch, event, receipt))
 		return step
 	}
 

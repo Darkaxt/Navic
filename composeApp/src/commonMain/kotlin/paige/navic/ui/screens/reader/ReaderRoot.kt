@@ -30,6 +30,7 @@ import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventReceipt
+import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -57,6 +58,7 @@ internal fun KomikkuReaderRoot(
 	reader: Screen.Reader,
 	controllerState: ReaderControllerState,
 	presentationDecision: ReaderPresentationDecision,
+	presentationVersion: ReaderPresentationReceiptVersion,
 	pageTurnCanvasEnabled: Boolean,
 	legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext,
 	presentationEffects: List<ReaderPendingPresentationEffect>,
@@ -164,6 +166,7 @@ internal fun KomikkuReaderRoot(
 			navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true,
 			chromeOverlayVisible = controllerState.menuVisible,
 			presentationDecision = presentationDecision,
+			presentationVersion = presentationVersion,
 			legacyLiveCompatibilityContext = legacyLiveCompatibilityContext,
 			presentationEffects = presentationEffects,
 			onPresentationEffectHandled = onPresentationEffectHandled,

@@ -701,6 +701,49 @@ class ReaderPageInputSettlementHostControllerTest {
 	}
 
 	@Test
+	fun incompatibleAuthorityPolicyCancelsAnActiveCurlStreamExactlyOnce() {
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, _, cancellationPort) = host(published = published)
+		val gestureId = requireNotNull(
+			host.dispatchPointer(ReaderPageHostPointerEvent.Down(100f, 200f, 100L)).gestureId
+		)
+		assertEquals(
+			ReaderPagePointerRoute.ClaimCurl(gestureId),
+			host.dispatchPointer(ReaderPageHostPointerEvent.Move(140f, 202f, 8f)).route
+		)
+
+		host.updateInputPolicies(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ChromeOnly,
+			localSafetyPolicy = readerPageOperationPolicy(ready),
+			nativeTapContinuationIdentity = null
+		)
+		host.updateInputPolicies(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ChromeOnly,
+			localSafetyPolicy = readerPageOperationPolicy(ready),
+			nativeTapContinuationIdentity = null
+		)
+
+		assertEquals(
+			listOf(gestureId to ReaderPageGestureTerminalOutcome.CancelledLifecycle),
+			published
+		)
+		assertEquals(
+			listOf("renderer", "drag-preview", "tap", "swipe"),
+			cancellationPort.calls.map { it.first }
+		)
+		assertTrue(
+			cancellationPort.calls.all {
+				it.second == ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
+			}
+		)
+		assertEquals(
+			ReaderPagePointerRoute.Consume,
+			host.dispatchPointer(ReaderPageHostPointerEvent.Up).route
+		)
+		assertEquals(1, published.size)
+	}
+
+	@Test
 	fun productionHostLetsCommitAndSnapBackFinishWhileConcurrentDownIsRejectedOnce() {
 		listOf(
 			ReaderPageGestureTerminalOutcome.CommittedForward,

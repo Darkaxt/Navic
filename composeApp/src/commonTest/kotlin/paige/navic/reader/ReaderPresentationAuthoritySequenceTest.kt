@@ -490,6 +490,7 @@ class ReaderPresentationAuthoritySequenceTest {
 
 		listOf(common, android, ios).forEach { source ->
 			assertContains(source, "presentationDecision: ReaderPresentationDecision")
+			assertContains(source, "presentationVersion: ReaderPresentationReceiptVersion")
 			assertContains(
 				source,
 				"onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?"
@@ -516,8 +517,9 @@ class ReaderPresentationAuthoritySequenceTest {
 		assertContains(screen, "step.presentationReceipt")
 		assertContains(screen, "pendingPresentationEffectQueue.acknowledge(identity)")
 		assertContains(android, "fun setPresentationDecision(")
-		assertContains(android, "presentationHostBridge.update(decision)")
-		assertContains(android, "override fun applyPresentationDecision(")
+		assertContains(android, "presentationDecision?.let(presentationHostBridge::update)")
+		assertContains(android, "onAuthoritativeDecision = ::applyPresentationDecision")
+		assertFalse(android.contains("override fun applyPresentationDecision("))
 		assertContains(android, "readerNativePresentationApplication(")
 		assertContains(android, "viewerContainer.applyPresentationDecision(application.decision)")
 		assertContains(android, "handlePresentationEffects(")

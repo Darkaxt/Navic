@@ -230,7 +230,7 @@ class ReaderControllerTest {
 		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(receipt.postState.authority)
 		assertEquals(event, receipt.event)
 		assertEquals(ReaderPresentationEventDisposition.Accepted, receipt.disposition)
-		assertEquals(ReaderPresentationReceiptVersion(7L, 1L), receipt.version)
+		assertEquals(ReaderPresentationReceiptVersion(7L, binding.publicationIdentity, 1L), receipt.version)
 		assertEquals(opened.controller.state.presentation, receipt.postState)
 		assertEquals(opened.presentationEffects, receipt.effects)
 		assertEquals(
@@ -241,7 +241,7 @@ class ReaderControllerTest {
 		val duplicate = opened.controller.onPresentationEvent(event)
 		val duplicateReceipt = assertNotNull(duplicate.presentationReceipt)
 		assertEquals(ReaderPresentationEventDisposition.Idempotent, duplicateReceipt.disposition)
-		assertEquals(ReaderPresentationReceiptVersion(7L, 2L), duplicateReceipt.version)
+		assertEquals(ReaderPresentationReceiptVersion(7L, binding.publicationIdentity, 2L), duplicateReceipt.version)
 		assertEquals(receipt.postState, duplicateReceipt.postState)
 		assertTrue(duplicateReceipt.effects.isEmpty())
 	}
@@ -493,7 +493,7 @@ class ReaderControllerTest {
 
 		assertEquals(step.coordinator.controller.state.presentation, receipt.postState)
 		assertEquals(step.presentationEffects, receipt.effects)
-		assertEquals(ReaderPresentationReceiptVersion(11L, 1L), receipt.version)
+		assertEquals(ReaderPresentationReceiptVersion(11L, binding.publicationIdentity, 1L), receipt.version)
 	}
 
 	@Test

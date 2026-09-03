@@ -8,11 +8,14 @@ import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationEventDisposition
+import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderShellCoverRetainedFrame
+import paige.navic.reader.readerPresentationDecision
 
 internal fun readerDispatchPageHostLifecycleEvent(
 	event: ReaderPageHostLifecycleEvent,
@@ -36,7 +39,6 @@ internal interface ReaderPresentationCommitHost {
 	val measuredViewportWidth: Int
 	val measuredViewportHeight: Int
 
-	fun applyPresentationDecision(decision: ReaderPresentationDecision) = Unit
 	fun prepareOpaqueShellCover(coverGeneration: Long)
 	fun cancelOpaqueShellCoverPreparation(coverGeneration: Long)
 	fun completeOpaqueShellCoverPreparation(coverGeneration: Long)
@@ -121,7 +123,7 @@ internal class ReaderPageSurfacePresentedFrameSource(
 internal class ReaderNativePagePresentationPublisher(
 	private val frameSource: ReaderNativePagePresentedFrameSource,
 	private val currentCandidate: () -> ReaderNativePagePresentationCandidate?,
-	private val onEvent: (ReaderPresentationEvent) -> Boolean
+	private val onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
 ) {
 	private data class PendingFrame(
 		val requestId: Long,
@@ -183,11 +185,11 @@ internal class ReaderNativePagePresentationPublisher(
 				textureGeneration = requireNotNull(candidate.binding.textureGeneration)
 			)
 		)
-		var authorized = false
+		var receipt: ReaderPresentationEventReceipt? = null
 		try {
-			authorized = onEvent(event)
+			receipt = onEvent(event)
 		} finally {
-			if (authorized) {
+			if (receipt.authorizes(event)) {
 				lastPublishedCandidate = candidate
 			} else {
 				update()
@@ -243,7 +245,7 @@ internal class ReaderShellCoverLayerController(
 
 internal class ReaderPresentationHostBridge(
 	private val host: ReaderPresentationCommitHost,
-	private val onEvent: (ReaderPresentationEvent) -> Boolean
+	private val onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
 ) {
 	private data class ViewportGeometry(
 		val width: Int,
@@ -257,7 +259,7 @@ internal class ReaderPresentationHostBridge(
 		var registration: ReaderPresentationDrawRegistration? = null
 		var registrationRemoved = false
 		var frameScheduled = false
-		var receiptEmitted = false
+		var acceptedReceipt: ReaderPresentationEventReceipt? = null
 		var emittedProof: ReaderShellCoverCommitProof? = null
 
 		fun unregisterOnce() {
@@ -276,15 +278,15 @@ internal class ReaderPresentationHostBridge(
 	fun update(decision: ReaderPresentationDecision) {
 		if (disposed) return
 		currentDecision = decision
-		host.applyPresentationDecision(decision)
 		val pending = pendingCoverCommit
-		if (pending?.emittedProof != null && !pending.receiptEmitted) {
-			pending.receiptEmitted = onEvent(
+		if (pending?.emittedProof != null && pending.acceptedReceipt == null) {
+			dispatchCoverReceipt(
+				pending,
 				ReaderPresentationEvent.ShellCoverCommitted(pending.emittedProof!!)
 			)
 			return
 		}
-		if (pending?.receiptEmitted == true) {
+		if (pending?.acceptedReceipt != null) {
 			if (acceptedShellCoverDecisionMatches(decision, pending)) {
 				completePendingCoverCommit(pending)
 				return
@@ -420,9 +422,23 @@ internal class ReaderPresentationHostBridge(
 			viewportHeight = pending.geometry.height
 		)
 		pending.emittedProof = proof
-		pending.receiptEmitted = onEvent(
+		dispatchCoverReceipt(
+			pending,
 			ReaderPresentationEvent.ShellCoverCommitted(proof)
 		)
+	}
+
+	private fun dispatchCoverReceipt(
+		pending: PendingCoverCommit,
+		event: ReaderPresentationEvent
+	) {
+		val receipt = onEvent(event).takeIf { it.authorizes(event) } ?: return
+		pending.acceptedReceipt = receipt
+		val receiptDecision = readerPresentationDecision(receipt.postState)
+		currentDecision = receiptDecision
+		if (acceptedShellCoverDecisionMatches(receiptDecision, pending)) {
+			completePendingCoverCommit(pending)
+		}
 	}
 
 	private fun acceptedShellCoverDecisionMatches(
@@ -499,6 +515,15 @@ internal class ReaderPresentationHostBridge(
 			host.measuredViewportWidth == geometry.width &&
 			host.measuredViewportHeight == geometry.height
 }
+
+private fun ReaderPresentationEventReceipt?.authorizes(
+	event: ReaderPresentationEvent
+): Boolean = this != null &&
+	this.event == event &&
+	(
+		disposition == ReaderPresentationEventDisposition.Accepted ||
+			disposition == ReaderPresentationEventDisposition.Idempotent
+	)
 
 private fun ReaderPresentationDecision.retainsPredecessor(
 	token: ReaderPresentationToken,

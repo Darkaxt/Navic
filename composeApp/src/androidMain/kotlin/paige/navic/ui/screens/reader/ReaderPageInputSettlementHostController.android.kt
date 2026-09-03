@@ -148,6 +148,10 @@ internal interface ReaderPageHostCancellationPort {
 	fun clearSwipeTouchState(reason: ReaderPageLifecycleCancellationReason)
 }
 
+private fun ReaderPresentationInputPolicy.keepsNativeCurlStream(): Boolean =
+	this is ReaderPresentationInputPolicy.NativePage ||
+		this is ReaderPresentationInputPolicy.ClaimedCurl
+
 internal class ReaderPageInputSettlementHostController(
 	initialPresentationInputPolicy: ReaderPresentationInputPolicy,
 	initialLocalSafetyPolicy: ReaderPageOperationPolicy,
@@ -189,6 +193,10 @@ internal class ReaderPageInputSettlementHostController(
 		localSafetyPolicy: ReaderPageOperationPolicy,
 		nativeTapContinuationIdentity: ReaderNativeTapContinuationIdentity? = null
 	) {
+		val presentationAuthorityBecameIncompatible =
+			physicalStreamGestureId != null &&
+				this.presentationInputPolicy.keepsNativeCurlStream() &&
+				!presentationInputPolicy.keepsNativeCurlStream()
 		val localSafetyVetoedPendingChrome =
 			localSafetyPolicy != this.localSafetyPolicy &&
 				(
@@ -207,6 +215,11 @@ internal class ReaderPageInputSettlementHostController(
 		this.presentationInputPolicy = presentationInputPolicy
 		this.localSafetyPolicy = localSafetyPolicy
 		this.nativeTapContinuationIdentity = nativeTapContinuationIdentity
+		if (presentationAuthorityBecameIncompatible) {
+			cancelForLifecycle(
+				ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
+			)
+		}
 	}
 
 	fun newPointerDecision(): ReaderPageNewPointerDecision {

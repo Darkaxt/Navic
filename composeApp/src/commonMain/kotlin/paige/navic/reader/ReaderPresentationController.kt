@@ -225,10 +225,15 @@ internal object ReaderPresentationControllerReducer {
 		val reduction = startupReduction?.copy(
 			effects = primaryReduction.effects + startupReduction.effects
 		) ?: primaryReduction
+		val presentationPublicationIdentity =
+			reduction.state.binding?.publicationIdentity
+				?: state.presentation.binding?.publicationIdentity
+				?: controller.presentationPublicationIdentity
 		val receipt = ReaderPresentationEventReceipt(
 			event = event,
 			version = ReaderPresentationReceiptVersion(
 				readerSessionGeneration = state.readerSessionGeneration,
+				publicationIdentity = presentationPublicationIdentity,
 				eventSequence = eventSequence
 			),
 			disposition = reduction.disposition,
@@ -252,6 +257,7 @@ internal object ReaderPresentationControllerReducer {
 		return ReaderControllerStep(
 			controller = controller.copy(
 				presentationEventSequence = eventSequence,
+				presentationPublicationIdentity = presentationPublicationIdentity,
 				state = state.copy(
 					presentation = reduction.state,
 					shellCoverVisible = when {

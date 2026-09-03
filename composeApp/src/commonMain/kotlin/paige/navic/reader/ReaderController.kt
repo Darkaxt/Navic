@@ -25,14 +25,24 @@ data class ReaderControllerBackStep(
 data class ReaderController(
 	val state: ReaderControllerState = ReaderControllerState(),
 	private val progressSaveGate: ReaderProgressSaveGate = ReaderProgressSaveGate(),
-	internal val presentationEventSequence: Long = 0L
+	internal val presentationEventSequence: Long = 0L,
+	internal val presentationPublicationIdentity: ReaderPresentationPublicationIdentity? =
+		state.presentation.binding?.publicationIdentity
 ) {
+	val presentationVersion: ReaderPresentationReceiptVersion
+		get() = ReaderPresentationReceiptVersion(
+			readerSessionGeneration = state.readerSessionGeneration,
+			publicationIdentity = presentationPublicationIdentity,
+			eventSequence = presentationEventSequence
+		)
+
 	fun open(request: ReaderEngineOpenRequest): ReaderControllerStep {
 		val normalizedRequest = request.copy(settings = request.settings.normalizedReaderSettings())
 		return ReaderControllerStep(
 			controller = copy(
 				progressSaveGate = progressSaveGate.reset(),
 				presentationEventSequence = 0L,
+				presentationPublicationIdentity = null,
 				state = state.copy(
 					readerSessionGeneration = Math.incrementExact(state.readerSessionGeneration),
 					publication = normalizedRequest.publication,

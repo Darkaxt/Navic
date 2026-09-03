@@ -86,6 +86,7 @@ import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLayer
 import paige.navic.reader.ReaderPresentationLifecycleEvent
 import paige.navic.reader.ReaderPresentationLifecycleState
+import paige.navic.reader.ReaderPresentationPublicationIdentity
 import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderRendererBusyFeedbackMaximumMillis
@@ -96,6 +97,7 @@ import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncCueMapState
 import paige.navic.reader.normalizeReaderPageBitmapQuality
+import paige.navic.reader.publicationIdentity
 import paige.navic.reader.readerNativeReaderSwipeAction
 import paige.navic.reader.readerPresentationBindingEventCandidate
 import paige.navic.reader.readerPresentationDecision
@@ -187,20 +189,95 @@ internal fun readerPresentationBindingEvent(
 	)
 }
 
+internal enum class ReaderPresentationEpochPreparation {
+	Rejected,
+	Current,
+	Replaced
+}
+
+internal enum class ReaderPresentationVersionSource {
+	Compose,
+	Receipt
+}
+
 internal class ReaderPresentationBindingReporter {
 	var lastReportedBinding: ReaderPresentationBinding? = null
 		private set
+	var expectedReaderSessionGeneration: Long? = null
+		private set
+	private var expectedPublicationIdentity: ReaderPresentationPublicationIdentity? = null
 	private var hostEpoch: Long = 1L
 	private var authoritativeVersion: ReaderPresentationReceiptVersion? = null
+	private var minimumComposeVersion: ReaderPresentationReceiptVersion? = null
+	private var authoritativeVersionSource: ReaderPresentationVersionSource? = null
 	private var authoritativeLifecycle: ReaderPresentationLifecycleState =
 		ReaderPresentationLifecycleState.Foreground
 
-	fun reset() {
+	fun reset(
+		expectedReaderSessionGeneration: Long? = null,
+		minimumComposeVersion: ReaderPresentationReceiptVersion? = null
+	) {
+		require(expectedReaderSessionGeneration == null || expectedReaderSessionGeneration >= 0L)
+		require(
+			minimumComposeVersion == null ||
+				minimumComposeVersion.readerSessionGeneration == expectedReaderSessionGeneration
+		)
 		hostEpoch = Math.incrementExact(hostEpoch)
 		lastReportedBinding = null
+		this.expectedReaderSessionGeneration = expectedReaderSessionGeneration
+		expectedPublicationIdentity = null
 		authoritativeVersion = null
+		this.minimumComposeVersion = minimumComposeVersion
+		authoritativeVersionSource = null
 		authoritativeLifecycle = ReaderPresentationLifecycleState.Foreground
 	}
+
+	fun bindPublication(binding: ReaderPresentationBinding): Boolean {
+		if (expectedReaderSessionGeneration == null) return false
+		val identity = binding.publicationIdentity
+		val expected = expectedPublicationIdentity
+		if (expected != null && expected != identity) return false
+		expectedPublicationIdentity = identity
+		return true
+	}
+
+	fun admitsComposeHostUpdate(
+		version: ReaderPresentationReceiptVersion,
+		publicationChanged: Boolean
+	): Boolean {
+		val expectedSession = expectedReaderSessionGeneration ?: return true
+		if (version.readerSessionGeneration != expectedSession) {
+			return version.readerSessionGeneration > expectedSession
+		}
+		val minimumSequence = maxOf(
+			authoritativeVersion?.eventSequence ?: -1L,
+			minimumComposeVersion?.eventSequence ?: -1L
+		)
+		if (version.eventSequence < minimumSequence) return false
+		return publicationChanged ||
+			expectedPublicationIdentity == null ||
+			expectedPublicationIdentity == version.publicationIdentity
+	}
+
+	fun consumeComposeVersion(version: ReaderPresentationReceiptVersion): Boolean {
+		val expectedSession = expectedReaderSessionGeneration ?: return false
+		val expectedPublication = expectedPublicationIdentity
+		if (
+			version.readerSessionGeneration != expectedSession ||
+			version.publicationIdentity != expectedPublication ||
+			version.eventSequence < (minimumComposeVersion?.eventSequence ?: -1L) ||
+			version.eventSequence <= (authoritativeVersion?.eventSequence ?: -1L)
+		) {
+			return false
+		}
+		authoritativeVersion = version
+		authoritativeVersionSource = ReaderPresentationVersionSource.Compose
+		return true
+	}
+
+	fun matchesAuthoritativePresentationVersion(
+		version: ReaderPresentationReceiptVersion
+	): Boolean = authoritativeVersion == version
 
 	fun captureEpoch(): Long = hostEpoch
 
@@ -209,15 +286,31 @@ internal class ReaderPresentationBindingReporter {
 		expectedEvent: ReaderPresentationEvent,
 		receipt: ReaderPresentationEventReceipt?
 	): Boolean {
+		val expectedSession = expectedReaderSessionGeneration ?: return false
+		val expectedPublication = expectedPublicationIdentity ?: return false
+		val currentSequence = maxOf(
+			authoritativeVersion?.eventSequence ?: -1L,
+			minimumComposeVersion?.eventSequence ?: -1L
+		)
+		val receiptSequenceIsAdmissible = receipt?.version?.eventSequence?.let { sequence ->
+			sequence > currentSequence ||
+				(
+					sequence == currentSequence &&
+						authoritativeVersionSource == ReaderPresentationVersionSource.Compose
+				)
+		} == true
 		if (
 			receipt == null ||
 			epoch != hostEpoch ||
 			receipt.event != expectedEvent ||
-			!receipt.version.isNewerThan(authoritativeVersion)
+			receipt.version.readerSessionGeneration != expectedSession ||
+			receipt.version.publicationIdentity != expectedPublication ||
+			!receiptSequenceIsAdmissible
 		) {
 			return false
 		}
 		authoritativeVersion = receipt.version
+		authoritativeVersionSource = ReaderPresentationVersionSource.Receipt
 		lastReportedBinding = receipt.postState.binding
 		authoritativeLifecycle = receipt.postState.lifecycle
 		return true
@@ -229,29 +322,19 @@ internal class ReaderPresentationBindingReporter {
 		publicationOpenPending: Boolean,
 		relocationPending: Boolean
 	): ReaderPresentationEvent? {
-		if (authoritativeVersion == null && confirmedTargetBinding != null) {
-			lastReportedBinding = confirmedTargetBinding
-		}
 		if (authoritativeLifecycle != ReaderPresentationLifecycleState.Foreground) return null
 		if (currentBinding == lastReportedBinding) return null
 		if (publicationOpenPending) {
 			return ReaderPresentationEvent.PublicationOpened(currentBinding)
 		}
-		val previousBinding = lastReportedBinding ?: return null
+		val previousBinding = lastReportedBinding ?: confirmedTargetBinding ?: return null
+		if (currentBinding == previousBinding) return null
 		return readerPresentationBindingEventCandidate(
 			previousBinding = previousBinding,
 			currentBinding = currentBinding,
 			relocationPending = relocationPending
 		)
 	}
-}
-
-private fun ReaderPresentationReceiptVersion.isNewerThan(
-	current: ReaderPresentationReceiptVersion?
-): Boolean = when {
-	current == null -> true
-	readerSessionGeneration != current.readerSessionGeneration -> false
-	else -> eventSequence > current.eventSequence
 }
 
 private fun ReaderPresentationEventReceipt?.authorizes(
@@ -543,6 +626,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	navigationOverlayVisible: Boolean,
 	chromeOverlayVisible: Boolean,
 	presentationDecision: ReaderPresentationDecision,
+	presentationVersion: ReaderPresentationReceiptVersion,
 	legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext,
 	presentationEffects: List<ReaderPendingPresentationEffect>,
 	onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit,
@@ -680,12 +764,13 @@ actual fun KomikkuReaderNativeFrameHost(
 				setLegacyLiveCompatibilityContext(legacyLiveCompatibilityContext)
 				setPresentationDecision(
 					presentationDecision,
+					presentationVersion,
 					destinationCommitIdentity,
 					viewerKey
 				) { event -> currentOnPresentationEvent(event) }
 				handlePresentationEffects(
 					presentationEffects,
-					presentationDecision
+					presentationVersion
 				) { identity -> currentOnPresentationEffectHandled(identity) }
 				setViewerLayerPaint(grayscaleEnabled, invertedColors)
 				setVerticalPageDragPreview(verticalPageDragPreview)
@@ -746,12 +831,13 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setLegacyLiveCompatibilityContext(legacyLiveCompatibilityContext)
 			root.setPresentationDecision(
 				presentationDecision,
+				presentationVersion,
 				destinationCommitIdentity,
 				viewerKey
 			) { event -> currentOnPresentationEvent(event) }
 			root.handlePresentationEffects(
 				presentationEffects,
-				presentationDecision
+				presentationVersion
 			) { identity -> currentOnPresentationEffectHandled(identity) }
 			pageTurnFoliateSessionId?.let { sessionId ->
 				root.setPageTurnVisualLocation(
@@ -863,10 +949,6 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		override val measuredViewportHeight: Int
 			get() = shellCoverView.height
 
-		override fun applyPresentationDecision(decision: ReaderPresentationDecision) {
-			this@KomikkuReaderNativeFrameRoot.applyPresentationDecision(decision)
-		}
-
 		override fun prepareOpaqueShellCover(coverGeneration: Long) {
 			preparedShellCoverGeneration = coverGeneration
 			shellCoverLayerController.prepareCoverBehindPredecessor()
@@ -928,7 +1010,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	}
 	private val presentationHostBridge = ReaderPresentationHostBridge(
 		presentationCommitHost
-	) { event -> viewerContainer.dispatchPresentationEvent(event).authorizes(event) }
+	) { event -> viewerContainer.dispatchPresentationEvent(event) }
 
 	init {
 		setBackgroundColor(Color.rgb(32, 35, 41))
@@ -990,30 +1072,42 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPresentationDecision(
 		decision: ReaderPresentationDecision,
+		version: ReaderPresentationReceiptVersion,
 		destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 		viewerKey: ReaderViewerKey,
 		onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
 	) {
-		if (presentationViewerKey != viewerKey) {
-			presentationViewerKey = viewerKey
-			viewerContainer.onPresentationPublicationChanged(
+		val viewerChanged = presentationViewerKey != viewerKey
+		when (
+			viewerContainer.preparePresentationEpoch(
+				version = version,
+				publicationChanged = viewerChanged,
 				viewerReplacementPending = currentViewerKey != viewerKey
 			)
+		) {
+			ReaderPresentationEpochPreparation.Rejected -> return
+			ReaderPresentationEpochPreparation.Replaced -> presentationHostBridge.onHostDetached()
+			ReaderPresentationEpochPreparation.Current -> Unit
 		}
+		if (viewerChanged) presentationViewerKey = viewerKey
 		viewerContainer.setPresentationDecision(
 			decision = decision,
+			version = version,
 			destinationCommitIdentity = destinationCommitIdentity,
-			onEvent = onEvent
+			onEvent = onEvent,
+			onAuthoritativeDecision = ::applyPresentationDecision
 		)
-		presentationHostBridge.update(decision)
+		presentationDecision?.let(presentationHostBridge::update)
 	}
 
 	fun handlePresentationEffects(
 		effects: List<ReaderPendingPresentationEffect>,
-		decision: ReaderPresentationDecision,
+		version: ReaderPresentationReceiptVersion,
 		onHandled: (ReaderPresentationEffectIdentity) -> Unit
 	) {
-		presentationEffectHandler.deliver(effects, decision, onHandled)
+		if (!viewerContainer.matchesAuthoritativePresentationVersion(version)) return
+		val authoritativeDecision = presentationDecision ?: return
+		presentationEffectHandler.deliver(effects, authoritativeDecision, onHandled)
 	}
 
 	fun setShellCover(
@@ -1631,13 +1725,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var presentationDestinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	private var presentationDecision: ReaderPresentationDecision? = null
 	private var onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt? = { null }
+	private var onAuthoritativePresentationDecision: (ReaderPresentationDecision) -> Unit = {}
 	private val nativePagePresentationPublisher by lazy {
 		ReaderNativePagePresentationPublisher(
 			frameSource = playLikeCurlController.presentedFrameSource,
 			currentCandidate = ::currentNativePagePresentationCandidateOrNull
 		) { event ->
 			check(event is ReaderPresentationEvent.NativePagePresented)
-			dispatchPresentationEvent(event).authorizes(event)
+			dispatchPresentationEvent(event)
 		}
 	}
 	private val presentationBindingReporter = ReaderPresentationBindingReporter()
@@ -2442,6 +2537,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	fun currentPresentationBinding(): ReaderPresentationBinding? =
 		currentPresentationBindingOrNull()
 
+	fun matchesAuthoritativePresentationVersion(
+		version: ReaderPresentationReceiptVersion
+	): Boolean = presentationBindingReporter.matchesAuthoritativePresentationVersion(version)
+
 	fun setOnViewerAction(
 		callback: (KomikkuNavigationRegion) -> ReaderPresentationEventReceipt?
 	) {
@@ -2480,19 +2579,21 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}?.also(::adoptReceiptTruth)
 
 	private fun adoptReceiptTruth(receipt: ReaderPresentationEventReceipt) {
-		val decision = readerPresentationDecision(receipt.postState)
-		presentationDecision = decision
-		presentationInputPolicy = decision.inputPolicy
+		onAuthoritativePresentationDecision(readerPresentationDecision(receipt.postState))
 	}
 
 	fun setPresentationDecision(
 		decision: ReaderPresentationDecision,
+		version: ReaderPresentationReceiptVersion,
 		destinationCommitIdentity: ReaderDestinationCommitIdentity?,
-		onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
+		onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?,
+		onAuthoritativeDecision: (ReaderPresentationDecision) -> Unit
 	) {
 		onPresentationEvent = onEvent
-		presentationDecision = decision
-		cancelLegacyLivePointerStreamIfContextChanged()
+		onAuthoritativePresentationDecision = onAuthoritativeDecision
+		if (presentationBindingReporter.consumeComposeVersion(version)) {
+			onAuthoritativePresentationDecision(decision)
+		}
 		if (presentationDestinationCommitIdentity != destinationCommitIdentity) {
 			presentationDestinationCommitIdentity = destinationCommitIdentity
 			presentationRelocationPending = presentationBindingReporter.lastReportedBinding != null
@@ -2504,16 +2605,34 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		effect: ReaderPresentationEffect.ReleaseStalePresentation
 	): Boolean = playLikeCurlController.releaseStalePresentationDeck(effect.binding)
 
-	fun onPresentationPublicationChanged(viewerReplacementPending: Boolean) {
+	fun preparePresentationEpoch(
+		version: ReaderPresentationReceiptVersion,
+		publicationChanged: Boolean,
+		viewerReplacementPending: Boolean
+	): ReaderPresentationEpochPreparation {
+		if (!presentationBindingReporter.admitsComposeHostUpdate(version, publicationChanged)) {
+			return ReaderPresentationEpochPreparation.Rejected
+		}
+		val expectedSession = presentationBindingReporter.expectedReaderSessionGeneration
+		if (
+			expectedSession == version.readerSessionGeneration &&
+			!publicationChanged
+		) {
+			return ReaderPresentationEpochPreparation.Current
+		}
 		if (viewerReplacementPending) {
 			presentationViewerReplacementFence.begin(rasterProfileEpoch)
 		}
 		presentationPublicationGeneration = Math.incrementExact(presentationPublicationGeneration)
 		presentationPublicationOpenPending = true
 		presentationRelocationPending = false
-		presentationBindingReporter.reset()
+		presentationBindingReporter.reset(
+			expectedReaderSessionGeneration = version.readerSessionGeneration,
+			minimumComposeVersion = version
+		)
 		lastReportedPresentationFacts = null
 		nativePagePresentationPublisher.update()
+		return ReaderPresentationEpochPreparation.Replaced
 	}
 
 	fun completePresentationViewerReplacement() {
@@ -2571,6 +2690,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun reportPresentationIdentityIfAvailable() {
 		val binding = currentPresentationBindingOrNull()
 		if (binding == null) {
+			nativePagePresentationPublisher.update()
+			return
+		}
+		if (!presentationBindingReporter.bindPublication(binding)) {
 			nativePagePresentationPublisher.update()
 			return
 		}

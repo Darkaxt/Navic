@@ -52,7 +52,7 @@ class ReaderPresentationHostBridgeTest {
 		val bridge = ReaderPresentationHostBridge(host) { event ->
 			events += event
 			presentation = readerPresentationReduce(presentation, event).state
-			true
+			readerTestPresentationReceipt(event, presentation)
 		}
 
 		bridge.update(pending)
@@ -101,7 +101,7 @@ class ReaderPresentationHostBridgeTest {
 		val bridge = ReaderPresentationHostBridge(host) { event ->
 			events += event
 			presentation = readerPresentationReduce(presentation, event).state
-			true
+			readerTestPresentationReceipt(event, presentation)
 		}
 
 		bridge.update(readerPresentationDecision(presentation))
@@ -266,7 +266,7 @@ class ReaderPresentationHostBridgeTest {
 			currentCandidate = { candidate },
 			onEvent = { event ->
 				reduce(event)
-				true
+				readerTestPresentationReceipt(event, presentation)
 			}
 		)
 		val snapshot = ReaderNativePagePresentationHostSnapshot(
@@ -391,7 +391,7 @@ class ReaderPresentationHostBridgeTest {
 			currentCandidate = { candidate },
 			onEvent = { event ->
 				dispatch(event)
-				true
+				readerTestPresentationReceipt(event, presentation)
 			}
 		)
 		candidate = snapshot(bindingA, visualPageIndex = 4).currentCandidateOrNull()
@@ -476,7 +476,7 @@ class ReaderPresentationHostBridgeTest {
 		val bridge = ReaderPresentationHostBridge(host) { receipt ->
 			receipts += receipt
 			dispatch(receipt)
-			true
+			readerTestPresentationReceipt(receipt, presentation)
 		}
 		bridge.update(pending.decision)
 		assertEquals(ReaderShellCoverHostLayer.PreparedBehindPredecessor, host.currentLayer)
@@ -641,9 +641,12 @@ class ReaderPresentationHostBridgeTest {
 			events += event
 			attempt += 1
 			when (attempt) {
-				1 -> false
+				1 -> null
 				2 -> error("callback failed")
-				else -> true
+				else -> readerTestPresentationReceipt(
+					event,
+					readerPresentationReduce(fixture.pendingState, event).state
+				)
 			}
 		}
 
@@ -673,7 +676,10 @@ class ReaderPresentationHostBridgeTest {
 		val events = mutableListOf<ReaderPresentationEvent>()
 		val bridge = ReaderPresentationHostBridge(host) { event ->
 			events += event
-			true
+			readerTestPresentationReceipt(
+				event,
+				readerPresentationReduce(fixture.pendingState, event).state
+			)
 		}
 		val retainedProof = fixture.nativeProof
 		val retainedPreparationGeneration = fixture.binding.preparationGeneration
@@ -720,7 +726,10 @@ class ReaderPresentationHostBridgeTest {
 		val events = mutableListOf<ReaderPresentationEvent>()
 		val bridge = ReaderPresentationHostBridge(host) { event ->
 			events += event
-			true
+			readerTestPresentationReceipt(
+				event,
+				readerPresentationReduce(fixture.pendingState, event).state
+			)
 		}
 
 		bridge.update(fixture.pendingDecision)
@@ -905,7 +914,10 @@ private class BridgeFixture {
 	val events = mutableListOf<ReaderPresentationEvent>()
 	val bridge = ReaderPresentationHostBridge(host) { event ->
 		events += event
-		true
+		readerTestPresentationReceipt(
+			event,
+			readerPresentationReduce(pendingState, event).state
+		)
 	}
 
 	fun emitCoverReceipt(): ReaderPresentationEvent.ShellCoverCommitted {
