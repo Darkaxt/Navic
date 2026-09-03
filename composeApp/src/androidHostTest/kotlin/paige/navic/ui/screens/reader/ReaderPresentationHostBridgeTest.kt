@@ -13,6 +13,8 @@ import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderDecodedWorkingSetState
 import paige.navic.reader.ReaderDestinationCommitIdentity
+import paige.navic.reader.ReaderLiveEnginePresentationProof
+import paige.navic.reader.ReaderLiveEngineHandoffDirection
 import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPagePreparationFacts
@@ -325,6 +327,84 @@ class ReaderPresentationHostBridgeTest {
 		assertFalse(
 			requested.controller.state.presentationDecision.layer == ReaderPresentationLayer.ShellCover
 		)
+	}
+
+	@Test
+	fun actualNativePresentedFrameCommitsExactLiveEngineHandback() {
+		val fixture = BridgeFixture()
+		var presentation = fixture.nativeState
+		val exposureRequested = readerPresentationReduce(
+			presentation,
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+			)
+		)
+		val exposure = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
+			exposureRequested.decision.requiredTransition
+		)
+		val liveProof = ReaderLiveEnginePresentationProof(
+			token = exposure.token,
+			binding = fixture.binding,
+			presentedFrameSequence = 30L
+		)
+		presentation = readerPresentationReduce(
+			exposureRequested.state,
+			ReaderPresentationEvent.LiveEngineExposureCommitted(liveProof)
+		).state
+		val handback = readerPresentationReduce(
+			presentation,
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.LiveEngineToNative
+			)
+		)
+		presentation = handback.state
+		val transition = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			handback.decision.requiredTransition
+		)
+		assertEquals(ReaderPresentationLayer.LiveEngine, handback.decision.layer)
+
+		val frameSource = HostBridgePresentedFrameSource()
+		val candidate = ReaderNativePagePresentationHostSnapshot(
+			binding = fixture.binding,
+			transitionToken = transition.token,
+			deck = ReaderPagePreparedActiveDeck(
+				rasterProfileEpoch = fixture.binding.profileGeneration,
+				rasterEpoch = requireNotNull(fixture.binding.rasterGeneration),
+				sourceCenterPageIndex = 4,
+				generationId = requireNotNull(fixture.binding.textureGeneration),
+				preparationGeneration = requireNotNull(fixture.binding.preparationGeneration)
+			),
+			preparationFacts = ReaderPagePreparationFacts(
+				phase = ReaderPagePreparationPhase.Ready,
+				generation = requireNotNull(fixture.binding.preparationGeneration)
+			),
+			visualPageIndex = 4,
+			viewportWidth = 1920,
+			viewportHeight = 1200,
+			hostAttached = true,
+			windowVisible = true,
+			viewerReplacementAdmitted = true,
+			rendererDeckReady = true,
+			nativePresentationVisible = true,
+			shellCoverSelected = false
+		).currentCandidateOrNull()
+		val publisher = ReaderNativePagePresentationPublisher(
+			frameSource = frameSource,
+			currentCandidate = { candidate },
+			onEvent = { event ->
+				presentation = readerPresentationReduce(presentation, event).state
+				readerTestPresentationReceipt(event, presentation)
+			}
+		)
+
+		publisher.update()
+		assertEquals(ReaderPresentationLayer.LiveEngine, readerPresentationDecision(presentation).layer)
+		frameSource.present(1L)
+
+		assertEquals(ReaderPresentationLayer.NativePage, readerPresentationDecision(presentation).layer)
+		val settled = assertIs<ReaderPresentationAuthority.SettledNativePage>(presentation.authority)
+		assertEquals(transition.token, settled.frame.proof.transitionToken)
+		assertEquals(fixture.binding, settled.frame.proof.binding)
 	}
 
 	@Test

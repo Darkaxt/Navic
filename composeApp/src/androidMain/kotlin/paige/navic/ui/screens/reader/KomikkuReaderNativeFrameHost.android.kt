@@ -987,6 +987,9 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		applyNativeCoverVisibility = ::updateNativeCoverVisibility
 	)
 	private var preparedShellCoverGeneration: Long? = null
+	private val presentationWebViewVisualHandoff = ReaderWebViewVisualHandoff(
+		ReaderWebViewVisualHandoffHostAdapter(viewerContainer::currentLiveWebView)
+	)
 	private val presentationCommitHost = object : ReaderPresentationCommitHost {
 		override val isAttachedToWindow: Boolean
 			get() = shellCoverView.isAttachedToWindow
@@ -1059,9 +1062,14 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		override fun postShellCoverAnimationFrame(onFrame: () -> Unit) {
 			shellCoverView.postOnAnimation(onFrame)
 		}
+
+		override fun applyPresentationFrameOwner(decision: ReaderPresentationDecision) {
+			viewerContainer.applyPresentationFrameOwner(decision)
+		}
 	}
 	private val presentationHostBridge = ReaderPresentationHostBridge(
-		presentationCommitHost
+		host = presentationCommitHost,
+		liveEngineVisualHandoff = presentationWebViewVisualHandoff
 	) { event -> viewerContainer.dispatchPresentationEvent(event) }
 
 	init {
@@ -1180,10 +1188,19 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		)
 	}
 
-	private fun updateNativeCoverVisibility(
-		application: ReaderNativePresentationApplication? = presentationDecision?.let(
-			::readerNativePresentationApplication
+	private fun updateNativeCoverVisibility(application: ReaderNativePresentationApplication) {
+		updateNativeCoverVisibilityLayers(application)
+		presentationHostBridge.update(application.decision)
+	}
+
+	private fun updateNativeCoverVisibility() {
+		updateNativeCoverVisibilityLayers(
+			presentationDecision?.let(::readerNativePresentationApplication)
 		)
+	}
+
+	private fun updateNativeCoverVisibilityLayers(
+		application: ReaderNativePresentationApplication?
 	) {
 		val layers = application?.layers
 			?: ReaderNativePresentationLayerVisibility(
@@ -2607,6 +2624,33 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	fun currentPresentationBinding(): ReaderPresentationBinding? =
 		currentPresentationBindingOrNull()
+
+	fun currentLiveWebView(): WebView? = viewerContentContainer.findDescendantWebView()
+
+	fun applyPresentationFrameOwner(decision: ReaderPresentationDecision) {
+		when (decision.frameOwner) {
+			is paige.navic.reader.ReaderPresentationFrameOwner.LiveEngine -> {
+				playLikeCurlController.surfaceView.animate().cancel()
+				playLikeCurlController.surfaceView.alpha = 0f
+				playLikeCurlController.inlineRasterShieldView.animate().cancel()
+				playLikeCurlController.inlineRasterShieldView.alpha = 0f
+				viewerContentContainer.bringToFront()
+			}
+			is paige.navic.reader.ReaderPresentationFrameOwner.NativePage -> {
+				if (playLikeCurlController.ownsInlineRasterShieldPresentation) {
+					playLikeCurlController.surfaceView.alpha = 0f
+					playLikeCurlController.inlineRasterShieldView.alpha = 1f
+					playLikeCurlController.inlineRasterShieldView.bringToFront()
+				} else {
+					playLikeCurlController.inlineRasterShieldView.alpha = 0f
+					playLikeCurlController.surfaceView.alpha = 1f
+					playLikeCurlController.surfaceView.bringToFront()
+				}
+			}
+			else -> return
+		}
+		whispersyncCueMapView.bringToFront()
+	}
 
 	fun matchesAuthoritativePresentationVersion(
 		version: ReaderPresentationReceiptVersion

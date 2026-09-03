@@ -5,6 +5,8 @@ import android.view.View
 import android.webkit.WebView
 import paige.navic.reader.ReaderPageRelocationQueue
 import paige.navic.reader.ReaderPageRelocationRequest
+import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationToken
 import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -22,12 +24,45 @@ internal enum class ReaderWebViewVisualHandoffFailure {
 internal sealed interface ReaderWebViewVisualHandoffResult {
 	val token: String
 
-	data class Ready(override val token: String) : ReaderWebViewVisualHandoffResult
+	data class Ready(
+		override val token: String,
+		val presentedFrameSequence: Long
+	) : ReaderWebViewVisualHandoffResult {
+		init {
+			require(presentedFrameSequence > 0L)
+		}
+	}
 
 	data class Failed(
 		override val token: String,
 		val reason: ReaderWebViewVisualHandoffFailure
 	) : ReaderWebViewVisualHandoffResult
+}
+
+internal data class ReaderPresentationWebViewVisualHandoffRequest(
+	val token: ReaderPresentationToken,
+	val binding: ReaderPresentationBinding
+)
+
+internal sealed interface ReaderPresentationWebViewVisualHandoffResult {
+	val token: ReaderPresentationToken
+	val binding: ReaderPresentationBinding
+
+	data class Ready(
+		override val token: ReaderPresentationToken,
+		override val binding: ReaderPresentationBinding,
+		val presentedFrameSequence: Long
+	) : ReaderPresentationWebViewVisualHandoffResult {
+		init {
+			require(presentedFrameSequence > 0L)
+		}
+	}
+
+	data class Failed(
+		override val token: ReaderPresentationToken,
+		override val binding: ReaderPresentationBinding,
+		val reason: ReaderWebViewVisualHandoffFailure
+	) : ReaderPresentationWebViewVisualHandoffResult
 }
 
 internal sealed interface ReaderWebViewVisualHandoffRetryEvent {
@@ -163,6 +198,7 @@ internal class ReaderWebViewVisualHandoff(
 	private data class Active(
 		val requestId: Long,
 		val token: String,
+		val presentationRequest: ReaderPresentationWebViewVisualHandoffRequest?,
 		val timeoutToken: Long,
 		val visualStateToken: Long,
 		val timeoutAction: () -> Unit,
@@ -188,6 +224,7 @@ internal class ReaderWebViewVisualHandoff(
 
 	private var nextRequestId = 1L
 	private var nextCallbackToken = 1L
+	private var nextPresentedFrameSequence = 1L
 	private var nextCapacityEdgeVersion = 1L
 	private val pendingCallbacks = linkedMapOf<Long, PendingCallbackKind>()
 	private val visualRegistrations =
@@ -272,6 +309,41 @@ internal class ReaderWebViewVisualHandoff(
 	fun await(
 		token: String,
 		onResult: (ReaderWebViewVisualHandoffResult) -> Unit
+	): Unit = awaitInternal(token, presentationRequest = null, onResult)
+
+	fun await(
+		token: ReaderPresentationToken,
+		binding: ReaderPresentationBinding,
+		onResult: (ReaderPresentationWebViewVisualHandoffResult) -> Unit
+	) {
+		val request = ReaderPresentationWebViewVisualHandoffRequest(token, binding)
+		awaitInternal(
+			token = "presentation-${token.value}",
+			presentationRequest = request
+		) { result ->
+			onResult(
+				when (result) {
+					is ReaderWebViewVisualHandoffResult.Ready ->
+						ReaderPresentationWebViewVisualHandoffResult.Ready(
+							token = request.token,
+							binding = request.binding,
+							presentedFrameSequence = result.presentedFrameSequence
+						)
+					is ReaderWebViewVisualHandoffResult.Failed ->
+						ReaderPresentationWebViewVisualHandoffResult.Failed(
+							token = request.token,
+							binding = request.binding,
+							reason = result.reason
+						)
+				}
+			)
+		}
+	}
+
+	private fun awaitInternal(
+		token: String,
+		presentationRequest: ReaderPresentationWebViewVisualHandoffRequest?,
+		onResult: (ReaderWebViewVisualHandoffResult) -> Unit
 	): Unit = ownershipMutation {
 		check(!closed) { "Visual handoff is closed" }
 		invalidate()
@@ -315,6 +387,7 @@ internal class ReaderWebViewVisualHandoff(
 					finish(
 						requestId,
 						token,
+						presentationRequest,
 						ReaderWebViewVisualHandoffFailure.TimedOut
 					)
 				}
@@ -323,6 +396,7 @@ internal class ReaderWebViewVisualHandoff(
 		val request = Active(
 			requestId = requestId,
 			token = token,
+			presentationRequest = presentationRequest,
 			timeoutToken = timeoutToken,
 			visualStateToken = visualStateToken,
 			timeoutAction = timeoutAction,
@@ -334,12 +408,15 @@ internal class ReaderWebViewVisualHandoff(
 		registration = ReaderWebViewVisualDeliveryCell(
 			action = visualState@{
 				val current = active?.takeIf {
-					it.requestId == requestId && it.token == token
+					it.requestId == requestId &&
+						it.token == token &&
+						it.presentationRequest == presentationRequest
 				} ?: return@visualState
 				if (!host.isAttachedToWindow) {
 					finish(
 						requestId,
 						token,
+						presentationRequest,
 						ReaderWebViewVisualHandoffFailure.Detached
 					)
 					return@visualState
@@ -355,13 +432,17 @@ internal class ReaderWebViewVisualHandoff(
 							)
 						) return@ownershipMutation
 						val ready = active?.takeIf {
-							it.requestId == requestId && it.token == token
+							it.requestId == requestId &&
+								it.token == token &&
+								it.presentationRequest == presentationRequest
 						} ?: return@ownershipMutation
 						ready.nextFrameCompleted = true
 						removeTimeout(ready)
 						active = null
 						val result = if (host.isAttachedToWindow) {
-							ReaderWebViewVisualHandoffResult.Ready(token)
+							val frameSequence = nextPresentedFrameSequence
+							nextPresentedFrameSequence = Math.incrementExact(frameSequence)
+							ReaderWebViewVisualHandoffResult.Ready(token, frameSequence)
 						} else {
 							ReaderWebViewVisualHandoffResult.Failed(
 								token,
@@ -385,7 +466,9 @@ internal class ReaderWebViewVisualHandoff(
 			onPhysicalOwnershipReleased = {
 				beginOwnershipMutation()
 				val wasLogicallyActive = active?.let {
-					it.requestId == requestId && it.token == token
+					it.requestId == requestId &&
+						it.token == token &&
+						it.presentationRequest == presentationRequest
 				} == true
 				if (visualRegistrations.remove(visualStateToken) === registration) {
 					check(
@@ -412,6 +495,7 @@ internal class ReaderWebViewVisualHandoff(
 			finish(
 				requestId,
 				token,
+				presentationRequest,
 				ReaderWebViewVisualHandoffFailure.Invalidated
 			)
 			throw failure
@@ -474,10 +558,13 @@ internal class ReaderWebViewVisualHandoff(
 	private fun finish(
 		requestId: Long,
 		token: String,
+		presentationRequest: ReaderPresentationWebViewVisualHandoffRequest?,
 		reason: ReaderWebViewVisualHandoffFailure
 	) {
 		val request = active?.takeIf {
-			it.requestId == requestId && it.token == token
+			it.requestId == requestId &&
+				it.token == token &&
+				it.presentationRequest == presentationRequest
 		} ?: return
 		active = null
 		removeTimeout(request)

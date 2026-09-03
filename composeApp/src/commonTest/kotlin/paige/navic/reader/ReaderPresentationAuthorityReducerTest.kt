@@ -314,22 +314,126 @@ class ReaderPresentationAuthorityReducerTest {
 		val liveProof = ReaderLiveEnginePresentationProof(
 			token = ReaderPresentationToken(1L),
 			binding = binding,
-			presentedFrame = 12L,
-			viewportWidth = 100,
-			viewportHeight = 200,
-			liveEngineGeneration = 7L
+			presentedFrameSequence = 12L
 		)
 		val liveExposed = readerPresentationReduce(
 			liveHandoff.state,
-			ReaderPresentationEvent.WebViewPresentationProven(liveProof)
+			ReaderPresentationEvent.LiveEngineExposureCommitted(liveProof)
 		)
 		assertNoOp(
 			liveExposed.state,
 			readerPresentationReduce(
 				liveExposed.state,
-				ReaderPresentationEvent.WebViewPresentationProven(liveProof)
+				ReaderPresentationEvent.LiveEngineExposureCommitted(liveProof)
 			)
 		)
+	}
+
+	@Test
+	fun liveEngineExposureRetainsExactNativeFrameAndInputUntilProofCommits() {
+		val requested = readerPresentationReduce(
+			settledNativeState(nextTokenValue = 31L),
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+			)
+		)
+		val transition = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
+			requested.decision.requiredTransition
+		)
+
+		assertEquals(nativeFrame, requested.decision.frameOwner)
+		assertEquals(ReaderPresentationLayer.NativePage, requested.decision.layer)
+		assertEquals(
+			ReaderPresentationInputPolicy.NativePage(operationPolicy),
+			requested.decision.inputPolicy
+		)
+
+		val staleProof = ReaderLiveEnginePresentationProof(
+			token = ReaderPresentationToken(transition.token.value + 1L),
+			binding = transition.binding,
+			presentedFrameSequence = 20L
+		)
+		val stale = readerPresentationReduce(
+			requested.state,
+			ReaderPresentationEvent.LiveEngineExposureCommitted(staleProof)
+		)
+		assertEquals(nativeFrame, stale.decision.frameOwner)
+		assertEquals(ReaderPresentationLayer.NativePage, stale.decision.layer)
+
+		val exactProof = staleProof.copy(token = transition.token)
+		val committed = readerPresentationReduce(
+			requested.state,
+			ReaderPresentationEvent.LiveEngineExposureCommitted(exactProof)
+		)
+		assertEquals(
+			ReaderPresentationFrameOwner.LiveEngine(exactProof),
+			committed.decision.frameOwner
+		)
+		assertEquals(ReaderPresentationLayer.LiveEngine, committed.decision.layer)
+		assertEquals(ReaderPresentationInputPolicy.LiveEngine, committed.decision.inputPolicy)
+	}
+
+	@Test
+	fun nativeHandbackRetainsExactLiveFrameAndInputUntilNativeDrawProofCommits() {
+		val exposureRequest = readerPresentationReduce(
+			settledNativeState(nextTokenValue = 41L),
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+			)
+		)
+		val exposureTransition = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
+			exposureRequest.decision.requiredTransition
+		)
+		val liveProof = ReaderLiveEnginePresentationProof(
+			token = exposureTransition.token,
+			binding = binding,
+			presentedFrameSequence = 21L
+		)
+		val exposed = readerPresentationReduce(
+			exposureRequest.state,
+			ReaderPresentationEvent.LiveEngineExposureCommitted(liveProof)
+		)
+		val requested = readerPresentationReduce(
+			exposed.state,
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.LiveEngineToNative
+			)
+		)
+		val transition = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			requested.decision.requiredTransition
+		)
+
+		assertEquals(
+			ReaderPresentationFrameOwner.LiveEngine(liveProof),
+			requested.decision.frameOwner
+		)
+		assertEquals(ReaderPresentationLayer.LiveEngine, requested.decision.layer)
+		assertEquals(ReaderPresentationInputPolicy.LiveEngine, requested.decision.inputPolicy)
+
+		val staleProof = nativeProof.copy(
+			transitionToken = ReaderPresentationToken(transition.token.value + 1L),
+			presentedFrame = 22L
+		)
+		val stale = readerPresentationReduce(
+			requested.state,
+			ReaderPresentationEvent.NativePagePresented(staleProof)
+		)
+		assertEquals(
+			ReaderPresentationFrameOwner.LiveEngine(liveProof),
+			stale.decision.frameOwner
+		)
+		assertEquals(ReaderPresentationLayer.LiveEngine, stale.decision.layer)
+
+		val exactProof = staleProof.copy(transitionToken = transition.token)
+		val committed = readerPresentationReduce(
+			requested.state,
+			ReaderPresentationEvent.NativePagePresented(exactProof)
+		)
+		assertEquals(
+			ReaderPresentationFrameOwner.NativePage(exactProof),
+			committed.decision.frameOwner
+		)
+		assertEquals(ReaderPresentationLayer.NativePage, committed.decision.layer)
 	}
 
 	@Test
@@ -1541,10 +1645,7 @@ class ReaderPresentationAuthorityReducerTest {
 		val liveProof = ReaderLiveEnginePresentationProof(
 			token = ReaderPresentationToken(10L),
 			binding = binding,
-			presentedFrame = 12L,
-			viewportWidth = 100,
-			viewportHeight = 200,
-			liveEngineGeneration = 7L
+			presentedFrameSequence = 12L
 		)
 		val states = listOf(
 			ReaderPresentationState(
@@ -1579,7 +1680,8 @@ class ReaderPresentationAuthorityReducerTest {
 					binding = binding,
 					direction = ReaderLiveEngineHandoffDirection.NativeToLiveEngine
 				),
-				binding = binding
+				binding = binding,
+				preparationFacts = preparationFacts()
 			),
 			ReaderPresentationState(
 				authority = ReaderPresentationAuthority.LiveEngineExposed(
@@ -1907,10 +2009,7 @@ class ReaderPresentationAuthorityReducerTest {
 		val liveProof = ReaderLiveEnginePresentationProof(
 			token = ReaderPresentationToken(10L),
 			binding = binding,
-			presentedFrame = 12L,
-			viewportWidth = 100,
-			viewportHeight = 200,
-			liveEngineGeneration = 7L
+			presentedFrameSequence = 12L
 		)
 		val liveFrame = ReaderPresentationFrameOwner.LiveEngine(liveProof)
 		val fixtures = listOf(
@@ -1955,9 +2054,10 @@ class ReaderPresentationAuthorityReducerTest {
 				is ReaderPresentationAuthority.ShellCover ->
 					assertEquals(ReaderPresentationInputPolicy.ShellCover, decision.inputPolicy)
 				is ReaderPresentationAuthority.ShellCoverCommitPending,
-				is ReaderPresentationAuthority.LiveEngineHandoffPending,
 				is ReaderPresentationAuthority.BlockingPreparation ->
 					assertEquals(ReaderPresentationInputPolicy.ChromeOnly, decision.inputPolicy)
+				is ReaderPresentationAuthority.LiveEngineHandoffPending ->
+					assertEquals(ReaderPresentationInputPolicy.NativePage(operationPolicy), decision.inputPolicy)
 				is ReaderPresentationAuthority.CurlGesture,
 				is ReaderPresentationAuthority.CurlSettlementPending ->
 					assertEquals(
@@ -2236,10 +2336,7 @@ class ReaderPresentationAuthorityReducerTest {
 		val liveProof = ReaderLiveEnginePresentationProof(
 			token = liveToken,
 			binding = binding,
-			presentedFrame = 12L,
-			viewportWidth = 100,
-			viewportHeight = 200,
-			liveEngineGeneration = 7L
+			presentedFrameSequence = 12L
 		)
 		val delayedResources: List<Triple<ReaderPresentationEvent, ReaderPresentationToken?, ReaderPresentationBinding>> =
 			listOf(
@@ -2269,7 +2366,7 @@ class ReaderPresentationAuthorityReducerTest {
 					binding
 				),
 				Triple(
-					ReaderPresentationEvent.WebViewPresentationProven(liveProof),
+					ReaderPresentationEvent.LiveEngineExposureCommitted(liveProof),
 					liveToken,
 					binding
 				)

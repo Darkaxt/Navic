@@ -2,6 +2,8 @@ package paige.navic.ui.screens.reader
 
 import karacken.curl.PageSurfaceView
 import paige.navic.reader.ReaderNativePagePresentationProof
+import paige.navic.reader.ReaderLiveEnginePresentationProof
+import paige.navic.reader.ReaderLiveEngineHandoffDirection
 import paige.navic.reader.ReaderPagePreparationFacts
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPresentationAuthority
@@ -10,6 +12,7 @@ import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventDisposition
 import paige.navic.reader.ReaderPresentationEventReceipt
+import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderRequiredTransition
@@ -44,6 +47,7 @@ internal interface ReaderPresentationCommitHost {
 	fun completeOpaqueShellCoverPreparation(coverGeneration: Long)
 	fun registerShellCoverDrawListener(onDraw: () -> Unit): ReaderPresentationDrawRegistration
 	fun postShellCoverAnimationFrame(onFrame: () -> Unit)
+	fun applyPresentationFrameOwner(decision: ReaderPresentationDecision) = Unit
 }
 
 internal data class ReaderNativePagePresentationCandidate(
@@ -245,6 +249,7 @@ internal class ReaderShellCoverLayerController(
 
 internal class ReaderPresentationHostBridge(
 	private val host: ReaderPresentationCommitHost,
+	private val liveEngineVisualHandoff: ReaderWebViewVisualHandoff? = null,
 	private val onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
 ) {
 	private data class ViewportGeometry(
@@ -269,8 +274,17 @@ internal class ReaderPresentationHostBridge(
 		}
 	}
 
+	private class PendingLiveEngineExposure(
+		val transition: ReaderRequiredTransition.ExposeLiveEngine
+	) {
+		var emittedEvent: ReaderPresentationEvent? = null
+		var acceptedReceipt: ReaderPresentationEventReceipt? = null
+		var receiptDispatchInProgress = false
+	}
+
 	private var currentDecision: ReaderPresentationDecision? = null
 	private var pendingCoverCommit: PendingCoverCommit? = null
+	private var pendingLiveEngineExposure: PendingLiveEngineExposure? = null
 	private var committedTransition: ReaderRequiredTransition.CommitShellCover? = null
 	private var presentedFrame = 0L
 	private var disposed = false
@@ -278,6 +292,8 @@ internal class ReaderPresentationHostBridge(
 	fun update(decision: ReaderPresentationDecision) {
 		if (disposed) return
 		currentDecision = decision
+		host.applyPresentationFrameOwner(decision)
+		updateLiveEngineExposure(decision)
 		val pending = pendingCoverCommit
 		if (pending?.emittedProof != null && pending.acceptedReceipt == null) {
 			dispatchCoverReceipt(
@@ -327,14 +343,162 @@ internal class ReaderPresentationHostBridge(
 
 	fun onHostDetached() {
 		cancelPendingCoverCommit()
+		cancelPendingLiveEngineExposure()
 	}
 
 	fun dispose() {
 		if (disposed) return
 		disposed = true
 		cancelPendingCoverCommit()
+		cancelPendingLiveEngineExposure()
+		liveEngineVisualHandoff?.close()
 		currentDecision = null
 		committedTransition = null
+	}
+
+	private fun updateLiveEngineExposure(decision: ReaderPresentationDecision) {
+		val transition = decision.requiredTransition as? ReaderRequiredTransition.ExposeLiveEngine
+		val pending = pendingLiveEngineExposure
+		if (pending != null) {
+			when {
+				pending.acceptedReceipt != null -> {
+					if (acceptedLiveEngineDecisionMatches(decision, pending)) {
+						pendingLiveEngineExposure = null
+						return
+					}
+					cancelPendingLiveEngineExposure()
+				}
+				pending.transition != transition -> cancelPendingLiveEngineExposure()
+				pending.emittedEvent != null -> {
+					dispatchLiveEngineReceipt(pending, pending.emittedEvent!!)
+					return
+				}
+				else -> return
+			}
+		}
+		if (transition == null || !liveEngineHostFactsMatch(decision, transition)) return
+
+		val next = PendingLiveEngineExposure(transition)
+		pendingLiveEngineExposure = next
+		val handoff = liveEngineVisualHandoff
+		if (handoff == null) {
+			publishLiveEngineExposureFailure(
+				next,
+				ReaderWebViewVisualHandoffFailure.Detached
+			)
+			return
+		}
+		try {
+			handoff.await(transition.token, transition.binding) { result ->
+				onLiveEngineVisualHandoffResult(next, result)
+			}
+		} catch (_: Throwable) {
+			if (pendingLiveEngineExposure === next && next.emittedEvent == null) {
+				publishLiveEngineExposureFailure(
+					next,
+					ReaderWebViewVisualHandoffFailure.Invalidated
+				)
+			}
+		}
+	}
+
+	private fun onLiveEngineVisualHandoffResult(
+		pending: PendingLiveEngineExposure,
+		result: ReaderPresentationWebViewVisualHandoffResult
+	) {
+		if (pendingLiveEngineExposure !== pending || disposed) return
+		if (
+			result.token != pending.transition.token ||
+			result.binding != pending.transition.binding
+		) return
+		when (result) {
+			is ReaderPresentationWebViewVisualHandoffResult.Ready -> {
+				val decision = currentDecision ?: return
+				if (!liveEngineHostFactsMatch(decision, pending.transition)) return
+				val event = ReaderPresentationEvent.LiveEngineExposureCommitted(
+					ReaderLiveEnginePresentationProof(
+						token = result.token,
+						binding = result.binding,
+						presentedFrameSequence = result.presentedFrameSequence
+					)
+				)
+				pending.emittedEvent = event
+				dispatchLiveEngineReceipt(pending, event)
+			}
+			is ReaderPresentationWebViewVisualHandoffResult.Failed ->
+				publishLiveEngineExposureFailure(pending, result.reason)
+		}
+	}
+
+	private fun publishLiveEngineExposureFailure(
+		pending: PendingLiveEngineExposure,
+		reason: ReaderWebViewVisualHandoffFailure
+	) {
+		if (pendingLiveEngineExposure !== pending || pending.emittedEvent != null) return
+		val event = ReaderPresentationEvent.LiveEngineExposureFailed(
+			token = pending.transition.token,
+			binding = pending.transition.binding,
+			reason = if (reason == ReaderWebViewVisualHandoffFailure.TimedOut) {
+				ReaderPresentationFailureReason.TimedOut
+			} else {
+				ReaderPresentationFailureReason.LiveEngineUnavailable
+			}
+		)
+		pending.emittedEvent = event
+		dispatchLiveEngineReceipt(pending, event)
+	}
+
+	private fun dispatchLiveEngineReceipt(
+		pending: PendingLiveEngineExposure,
+		event: ReaderPresentationEvent
+	) {
+		if (pendingLiveEngineExposure !== pending || pending.receiptDispatchInProgress) return
+		pending.receiptDispatchInProgress = true
+		val receipt = try {
+			onEvent(event).takeIf { it.authorizes(event) }
+		} finally {
+			pending.receiptDispatchInProgress = false
+		} ?: return
+		pending.acceptedReceipt = receipt
+		update(readerPresentationDecision(receipt.postState))
+	}
+
+	private fun acceptedLiveEngineDecisionMatches(
+		decision: ReaderPresentationDecision,
+		pending: PendingLiveEngineExposure
+	): Boolean {
+		val event = pending.emittedEvent as? ReaderPresentationEvent.LiveEngineExposureCommitted
+			?: return false
+		val proof = event.proof
+		val authority = decision.authority as? ReaderPresentationAuthority.LiveEngineExposed
+		return authority?.frame?.proof == proof &&
+			decision.frameOwner == ReaderPresentationFrameOwner.LiveEngine(proof) &&
+			decision.targetBinding == pending.transition.binding &&
+			decision.requiredTransition == ReaderRequiredTransition.None &&
+			proof.token == pending.transition.token &&
+			proof.binding == pending.transition.binding
+	}
+
+	private fun liveEngineHostFactsMatch(
+		decision: ReaderPresentationDecision,
+		transition: ReaderRequiredTransition.ExposeLiveEngine
+	): Boolean {
+		val authority = decision.authority as?
+			ReaderPresentationAuthority.LiveEngineHandoffPending ?: return false
+		return host.isAttachedToWindow &&
+			host.currentPresentationBinding == transition.binding &&
+			decision.targetBinding == transition.binding &&
+			decision.requiredTransition == transition &&
+			decision.frameOwner is ReaderPresentationFrameOwner.NativePage &&
+			authority.direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine &&
+			authority.token == transition.token &&
+			authority.binding == transition.binding
+	}
+
+	private fun cancelPendingLiveEngineExposure() {
+		if (pendingLiveEngineExposure == null) return
+		pendingLiveEngineExposure = null
+		liveEngineVisualHandoff?.invalidate()
 	}
 
 	private fun beginCoverCommit(

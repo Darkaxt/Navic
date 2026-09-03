@@ -109,10 +109,7 @@ class ReaderPresentationViewerActionPolicyTest {
 			ReaderLiveEnginePresentationProof(
 				token = ReaderPresentationToken(11L),
 				binding = binding,
-				presentedFrame = 12L,
-				viewportWidth = 100,
-				viewportHeight = 200,
-				liveEngineGeneration = 13L
+				presentedFrameSequence = 12L
 			)
 		)
 		val readyFacts = ReaderPagePreparationFacts(

@@ -6,6 +6,8 @@ import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPageRelocationReservationResult
 import paige.navic.reader.ReaderPageRelocationTransferResult
 import paige.navic.reader.ReaderPageTurnDirection
+import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationToken
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -74,7 +76,36 @@ class ReaderWebViewVisualHandoffTest {
 		host.completeVisualState()
 		assertNull(result)
 		host.runNextFrame()
-		assertEquals(ReaderWebViewVisualHandoffResult.Ready("token-1"), result)
+		assertEquals(ReaderWebViewVisualHandoffResult.Ready("token-1", presentedFrameSequence = 1L), result)
+	}
+
+	@Test
+	fun presentationProofContractOwnsExactTokenBindingAndSubsequentFrameSequence() {
+		val host = FakeVisualHandoffHost(attached = true)
+		val token = ReaderPresentationToken(51L)
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "presentation-session",
+			publicationGeneration = 2L,
+			viewportGeneration = 3L,
+			profileGeneration = 4L,
+			rasterGeneration = 5L,
+			textureGeneration = 6L,
+			preparationGeneration = 7L
+		)
+		var result: ReaderPresentationWebViewVisualHandoffResult? = null
+		ReaderWebViewVisualHandoff(host).await(token, binding) { result = it }
+
+		host.completeVisualState()
+		assertNull(result)
+		host.runNextFrame()
+		assertEquals(
+			ReaderPresentationWebViewVisualHandoffResult.Ready(
+				token = token,
+				binding = binding,
+				presentedFrameSequence = 1L
+			),
+			result
+		)
 	}
 
 	@Test
@@ -2853,7 +2884,7 @@ class ReaderWebViewVisualHandoffTest {
 		assertEquals(0, host.visualStateCount())
 		assertEquals(2, handoff.pendingHostCallbackCount())
 		host.runNextFrame()
-		assertEquals(ReaderWebViewVisualHandoffResult.Ready("token-sync"), result)
+		assertEquals(ReaderWebViewVisualHandoffResult.Ready("token-sync", presentedFrameSequence = 1L), result)
 		assertEquals(0, handoff.pendingHostCallbackCount())
 	}
 
