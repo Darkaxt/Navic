@@ -22,6 +22,7 @@ import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderViewerAction
+import paige.navic.reader.publicationIdentity
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -409,10 +410,19 @@ class ReaderPresentationReceiptReporterTest {
 		assertEquals(bindingB, reporter.lastReportedBinding)
 		assertNull(reporter.update(bindingA, bindingB, false, true))
 
+		val lifecycleDelivery = ReaderPresentationLifecycleDelivery().apply {
+			reset(relocated.second.version, observedWindowVisible = null)
+			assertTrue(bindPublication(bindingA.publicationIdentity))
+		}
 		val rendererLost = ReaderPresentationEvent.Lifecycle(
 			ReaderPresentationLifecycleEvent.RendererLost
 		)
-		val lost = dispatchAndConsume(reporter, controller, rendererLost)
+		val lost = dispatchLifecycleAndConsume(
+			reporter,
+			lifecycleDelivery,
+			controller,
+			rendererLost
+		)
 		controller = lost.first
 		val oldVersion = relocated.second
 		assertFalse(
@@ -439,8 +449,9 @@ class ReaderPresentationReceiptReporterTest {
 			)
 		}
 
-		val background = dispatchAndConsume(
+		val background = dispatchLifecycleAndConsume(
 			reporter,
+			lifecycleDelivery,
 			controller,
 			ReaderPresentationEvent.Lifecycle(
 				ReaderPresentationLifecycleEvent.VisibilityLost
@@ -448,8 +459,9 @@ class ReaderPresentationReceiptReporterTest {
 		)
 		controller = background.first
 		assertNull(reporter.update(bindingA, bindingB, false, true))
-		val destroyed = dispatchAndConsume(
+		val destroyed = dispatchLifecycleAndConsume(
 			reporter,
+			lifecycleDelivery,
 			controller,
 			ReaderPresentationEvent.Lifecycle(
 				ReaderPresentationLifecycleEvent.PublicationClosed
@@ -465,6 +477,32 @@ class ReaderPresentationReceiptReporterTest {
 		reporter.reset()
 		assertFalse(reporter.consumeReceipt(staleEpoch, rendererLost, lost.second))
 		assertNull(reporter.lastReportedBinding)
+	}
+
+	private fun dispatchLifecycleAndConsume(
+		reporter: ReaderPresentationBindingReporter,
+		delivery: ReaderPresentationLifecycleDelivery,
+		controller: ReaderController,
+		event: ReaderPresentationEvent.Lifecycle
+	): Pair<ReaderController, ReaderPresentationEventReceipt> {
+		var nextController = controller
+		val dispatcher = ReaderPresentationReceiptDispatcher(
+			bindingReporter = reporter,
+			lifecycleDelivery = delivery,
+			applyDecision = { _, _ -> }
+		)
+		delivery.observe(event.event)
+		val receipt = assertNotNull(
+			delivery.retry { attempted ->
+				assertEquals(event, attempted)
+				dispatcher.dispatch(attempted) { dispatched ->
+					val step = nextController.onPresentationEvent(dispatched)
+					nextController = step.controller
+					step.presentationReceipt
+				}
+			}
+		)
+		return nextController to receipt
 	}
 
 	private fun dispatchAndConsume(

@@ -516,7 +516,7 @@ internal class ReaderPresentationHostBridge(
 			host.measuredViewportHeight == geometry.height
 }
 
-private fun ReaderPresentationEventReceipt?.authorizes(
+internal fun ReaderPresentationEventReceipt?.authorizes(
 	event: ReaderPresentationEvent
 ): Boolean = this != null &&
 	this.event == event &&

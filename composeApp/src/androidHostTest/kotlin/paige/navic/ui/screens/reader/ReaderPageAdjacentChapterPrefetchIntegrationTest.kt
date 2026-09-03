@@ -1643,9 +1643,10 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		assertContains(lifecycle, "event = event")
 		assertContains(lifecycle, "preserveDestinationDeck = preserveDestinationDeck")
 		assertContains(lifecycle, "clearDestinationDeckPrewarm = ::clearDestinationDeckPrewarm")
+		assertContains(lifecycle, "dispatchInputLifecycle = { lifecycleEvent ->")
 		assertContains(
 			lifecycle,
-			"dispatchInputLifecycle = pageInputSettlementHostController::onLifecycleEvent"
+			"rendererLossCancellationIdentity = rendererLossCancellationIdentity"
 		)
 		assertTrue(
 			lifecycle.indexOf("readerDispatchPageHostLifecycleEvent(") <

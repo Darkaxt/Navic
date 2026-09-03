@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventDisposition
 import paige.navic.reader.ReaderPresentationEventReceipt
@@ -7,8 +8,14 @@ import paige.navic.reader.ReaderPresentationLifecycleEvent
 import paige.navic.reader.ReaderPresentationLifecycleState
 import paige.navic.reader.ReaderPresentationPublicationIdentity
 import paige.navic.reader.ReaderPresentationReceiptVersion
+import paige.navic.reader.readerPresentationDecision
 
 internal const val ReaderPresentationLifecyclePendingEventLimit = 14
+
+internal data class ReaderPresentationLifecycleReceiptAdmission(
+	val event: ReaderPresentationEvent.Lifecycle,
+	val receipt: ReaderPresentationEventReceipt
+)
 
 internal class ReaderPresentationLifecycleDelivery {
 	private var expectedReaderSessionGeneration: Long? = null
@@ -31,6 +38,9 @@ internal class ReaderPresentationLifecycleDelivery {
 			pendingMemoryPressure.size +
 			(if (rendererLossPending) 1 else 0) +
 			(if (publicationClosePending) 1 else 0)
+
+	val hasPendingRendererLoss: Boolean
+		get() = rendererLossPending
 
 	fun reset(
 		version: ReaderPresentationReceiptVersion,
@@ -115,10 +125,24 @@ internal class ReaderPresentationLifecycleDelivery {
 			null
 		} finally {
 			retryInProgress = false
-		}
-		if (!receiptAcknowledges(event, receipt)) return null
-		acknowledge(lifecycleEvent, checkNotNull(receipt))
+		} ?: return null
+		if (acknowledgedVersion == receipt.version && receipt.event == event) return receipt
+		val admission = classifyReceipt(event, receipt) ?: return null
+		commitReceipt(admission)
 		return receipt
+	}
+
+	fun classifyReceipt(
+		event: ReaderPresentationEvent.Lifecycle,
+		receipt: ReaderPresentationEventReceipt?
+	): ReaderPresentationLifecycleReceiptAdmission? {
+		if (event.event != nextPendingEvent()) return null
+		if (!receiptAcknowledges(event, receipt)) return null
+		return ReaderPresentationLifecycleReceiptAdmission(event, checkNotNull(receipt))
+	}
+
+	fun commitReceipt(admission: ReaderPresentationLifecycleReceiptAdmission) {
+		acknowledge(admission.event.event, admission.receipt)
 	}
 
 	private fun nextPendingEvent(): ReaderPresentationLifecycleEvent? {
@@ -231,5 +255,103 @@ internal class ReaderPresentationLifecycleDelivery {
 				rendererLossPending = false
 			}
 		}
+	}
+}
+
+internal class ReaderPresentationReceiptDispatcher(
+	private val bindingReporter: ReaderPresentationBindingReporter,
+	private val lifecycleDelivery: ReaderPresentationLifecycleDelivery,
+	private val applyDecision: (
+		ReaderPresentationDecision,
+		ReaderRendererLossCancellationIdentity?
+	) -> Unit
+) {
+	private var dispatchInProgress = false
+
+	fun dispatch(
+		event: ReaderPresentationEvent,
+		onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
+	): ReaderPresentationEventReceipt? = dispatch(
+		event = event,
+		rendererLossCancellationIdentity = null,
+		onEvent = onEvent
+	)
+
+	fun dispatch(
+		event: ReaderPresentationEvent,
+		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity?,
+		onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
+	): ReaderPresentationEventReceipt? {
+		if (dispatchInProgress) return null
+		val epoch = bindingReporter.captureEpoch()
+		dispatchInProgress = true
+		return try {
+			val receipt = try {
+				onEvent(event)
+			} catch (_: Throwable) {
+				null
+			} ?: return null
+			validateAndCommit(
+				epoch = epoch,
+				event = event,
+				receipt = receipt,
+				rendererLossCancellationIdentity = rendererLossCancellationIdentity
+			)
+		} finally {
+			dispatchInProgress = false
+		}
+	}
+
+	fun consumeReturned(
+		epoch: Long,
+		receipt: ReaderPresentationEventReceipt?
+	): ReaderPresentationEventReceipt? {
+		if (dispatchInProgress || receipt == null || receipt.event is ReaderPresentationEvent.Lifecycle) {
+			return null
+		}
+		dispatchInProgress = true
+		return try {
+			validateAndCommit(
+				epoch = epoch,
+				event = receipt.event,
+				receipt = receipt,
+				rendererLossCancellationIdentity = null
+			)
+		} finally {
+			dispatchInProgress = false
+		}
+	}
+
+	private fun validateAndCommit(
+		epoch: Long,
+		event: ReaderPresentationEvent,
+		receipt: ReaderPresentationEventReceipt,
+		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity?
+	): ReaderPresentationEventReceipt? {
+		val reporterAdmission = bindingReporter.classifyReceipt(
+			epoch = epoch,
+			expectedEvent = event,
+			receipt = receipt
+		) ?: return null
+		val lifecycleAdmission = if (event is ReaderPresentationEvent.Lifecycle) {
+			lifecycleDelivery.classifyReceipt(event, receipt) ?: return null
+		} else {
+			null
+		}
+		val cancellationIdentity = rendererLossCancellationIdentity.takeIf {
+			event is ReaderPresentationEvent.Lifecycle &&
+				event.event == ReaderPresentationLifecycleEvent.RendererLost
+		}
+		val decision = readerPresentationDecision(receipt.postState)
+		val applied = try {
+			applyDecision(decision, cancellationIdentity)
+			true
+		} catch (_: Throwable) {
+			false
+		}
+		if (!applied) return null
+		bindingReporter.commitReceipt(reporterAdmission)
+		lifecycleAdmission?.let(lifecycleDelivery::commitReceipt)
+		return receipt
 	}
 }

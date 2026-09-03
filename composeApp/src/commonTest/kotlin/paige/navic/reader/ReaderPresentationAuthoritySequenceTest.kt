@@ -521,7 +521,12 @@ class ReaderPresentationAuthoritySequenceTest {
 		assertContains(android, "onAuthoritativeDecision = ::applyPresentationDecision")
 		assertFalse(android.contains("override fun applyPresentationDecision("))
 		assertContains(android, "readerNativePresentationApplication(")
-		assertContains(android, "viewerContainer.applyPresentationDecision(application.decision)")
+		assertContains(android, "viewerContainer.applyPresentationDecision(")
+		assertContains(android, "decision = application.decision")
+		assertContains(
+			android,
+			"rendererLossCancellationIdentity = rendererLossCancellationIdentity"
+		)
 		assertContains(android, "handlePresentationEffects(")
 		assertContains(android, "releaseStalePresentationDeck(effect.binding)")
 		assertFalse(android.contains("setPresentationShadow("))

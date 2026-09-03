@@ -1655,7 +1655,7 @@ class KomikkuReaderNativeFrameHostTest {
 		assertContains(viewerReplacement, "cancelLegacyLivePointerStream()")
 		assertContains(compatibilityUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
 		assertContains(canvasUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
-		assertContains(decisionUpdate, "onAuthoritativePresentationDecision(decision)")
+		assertContains(decisionUpdate, "onAuthoritativePresentationDecision(decision, null)")
 		assertContains(authoritativeDecisionApplication, "cancelLegacyLivePointerStreamIfContextChanged()")
 		assertContains(shellCoverUpdate, "cancelLegacyLivePointerStreamIfContextChanged()")
 		assertContains(physicalClose, "cancelLegacyLivePointerStream()")

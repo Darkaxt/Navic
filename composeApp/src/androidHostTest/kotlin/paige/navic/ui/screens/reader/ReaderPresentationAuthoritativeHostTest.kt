@@ -214,8 +214,8 @@ class ReaderPresentationAuthoritativeHostTest {
 			.substringBefore("fun setShellCover(")
 		val viewer = source.substringAfter("private class KomikkuReaderNativeViewerContainer")
 		val receiptAdoption = viewer
-			.substringAfter("private fun adoptReceiptTruth(")
-			.substringBefore("fun setPresentationDecision(")
+			.substringAfter("private val presentationReceiptDispatcher")
+			.substringBefore("private var rendererLossEpoch")
 		val viewerApplication = viewer
 			.substringAfter("fun applyPresentationDecision(")
 			.substringBefore("private fun setLocalPageSafetyPolicy(")
@@ -223,13 +223,16 @@ class ReaderPresentationAuthoritativeHostTest {
 		assertContains(rootUpdate, "onAuthoritativeDecision = ::applyPresentationDecision")
 		assertContains(
 			receiptAdoption,
-			"onAuthoritativePresentationDecision(readerPresentationDecision(receipt.postState))"
+			"onAuthoritativePresentationDecision(decision, rendererLossCancellationIdentity)"
 		)
 		assertContains(rootApplication, "readerNativePresentationApplication(decision)")
 		assertContains(rootApplication, "viewerContainer.applyPresentationDecision")
 		assertContains(rootApplication, "shellCoverLayerController.selectCover")
 		assertContains(rootApplication, "shellCoverLayerController.coverHidden()")
-		assertContains(viewerApplication, "updateInputSettlementPolicies()")
+		assertContains(
+			viewerApplication,
+			"updateInputSettlementPolicies(rendererLossCancellationIdentity)"
+		)
 		assertContains(effects, "if (!viewerContainer.matchesAuthoritativePresentationVersion(version)) return")
 		assertContains(effects, "val authoritativeDecision = presentationDecision ?: return")
 		assertContains(effects, "deliver(effects, authoritativeDecision, onHandled)")

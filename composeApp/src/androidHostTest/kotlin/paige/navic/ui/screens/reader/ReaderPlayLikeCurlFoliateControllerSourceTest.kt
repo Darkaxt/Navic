@@ -1497,14 +1497,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(reset, "destinationDeckPrewarmPending = false")
 		assertContains(lifecycle, "readerDispatchPageHostLifecycleEvent(")
 		assertContains(lifecycle, "clearDestinationDeckPrewarm = ::clearDestinationDeckPrewarm")
+		assertContains(lifecycle, "dispatchInputLifecycle = { lifecycleEvent ->")
 		assertContains(
 			lifecycle,
-			"dispatchInputLifecycle = pageInputSettlementHostController::onLifecycleEvent"
+			"rendererLossCancellationIdentity = rendererLossCancellationIdentity"
 		)
 		assertTrue(
 			lifecycle.indexOf("clearDestinationDeckPrewarm = ::clearDestinationDeckPrewarm") <
 				lifecycle.indexOf(
-					"dispatchInputLifecycle = pageInputSettlementHostController::onLifecycleEvent"
+					"dispatchInputLifecycle = { lifecycleEvent ->"
 				)
 		)
 	}

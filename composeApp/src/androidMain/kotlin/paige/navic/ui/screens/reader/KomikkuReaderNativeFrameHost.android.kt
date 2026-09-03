@@ -79,7 +79,6 @@ import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEffect
 import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
-import paige.navic.reader.ReaderPresentationEventDisposition
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationInputPolicy
@@ -200,6 +199,10 @@ internal enum class ReaderPresentationVersionSource {
 	Receipt
 }
 
+internal data class ReaderPresentationReceiptAdmission(
+	val receipt: ReaderPresentationEventReceipt
+)
+
 internal class ReaderPresentationBindingReporter {
 	var lastReportedBinding: ReaderPresentationBinding? = null
 		private set
@@ -281,13 +284,13 @@ internal class ReaderPresentationBindingReporter {
 
 	fun captureEpoch(): Long = hostEpoch
 
-	fun consumeReceipt(
+	fun classifyReceipt(
 		epoch: Long,
 		expectedEvent: ReaderPresentationEvent,
 		receipt: ReaderPresentationEventReceipt?
-	): Boolean {
-		val expectedSession = expectedReaderSessionGeneration ?: return false
-		val expectedPublication = expectedPublicationIdentity ?: return false
+	): ReaderPresentationReceiptAdmission? {
+		val expectedSession = expectedReaderSessionGeneration ?: return null
+		val expectedPublication = expectedPublicationIdentity ?: return null
 		val currentSequence = maxOf(
 			authoritativeVersion?.eventSequence ?: -1L,
 			minimumComposeVersion?.eventSequence ?: -1L
@@ -307,12 +310,33 @@ internal class ReaderPresentationBindingReporter {
 			receipt.version.publicationIdentity != expectedPublication ||
 			!receiptSequenceIsAdmissible
 		) {
-			return false
+			return null
 		}
+		val postPublicationMatches = when (expectedEvent) {
+			is ReaderPresentationEvent.Lifecycle ->
+				expectedEvent.event == ReaderPresentationLifecycleEvent.PublicationClosed ||
+					receipt.postState.binding?.publicationIdentity == expectedPublication
+			else -> receipt.postState.binding?.publicationIdentity == expectedPublication
+		}
+		return ReaderPresentationReceiptAdmission(receipt).takeIf { postPublicationMatches }
+	}
+
+	fun commitReceipt(admission: ReaderPresentationReceiptAdmission) {
+		val receipt = admission.receipt
 		authoritativeVersion = receipt.version
 		authoritativeVersionSource = ReaderPresentationVersionSource.Receipt
 		lastReportedBinding = receipt.postState.binding
 		authoritativeLifecycle = receipt.postState.lifecycle
+	}
+
+	fun consumeReceipt(
+		epoch: Long,
+		expectedEvent: ReaderPresentationEvent,
+		receipt: ReaderPresentationEventReceipt?
+	): Boolean {
+		if (expectedEvent is ReaderPresentationEvent.Lifecycle) return false
+		val admission = classifyReceipt(epoch, expectedEvent, receipt) ?: return false
+		commitReceipt(admission)
 		return true
 	}
 
@@ -336,15 +360,6 @@ internal class ReaderPresentationBindingReporter {
 		)
 	}
 }
-
-private fun ReaderPresentationEventReceipt?.authorizes(
-	event: ReaderPresentationEvent
-): Boolean = this != null &&
-	this.event == event &&
-	(
-		disposition == ReaderPresentationEventDisposition.Accepted ||
-			disposition == ReaderPresentationEventDisposition.Idempotent
-	)
 
 private fun ReaderPresentationEvent.hasBindingTransitionTarget(): Boolean =
 	this is ReaderPresentationEvent.BindingCompleted ||
@@ -1122,11 +1137,17 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		)
 	}
 
-	private fun applyPresentationDecision(decision: ReaderPresentationDecision) {
+	private fun applyPresentationDecision(
+		decision: ReaderPresentationDecision,
+		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
+	) {
 		val application = readerNativePresentationApplication(decision)
 		presentationDecision = application.decision
 		shellCoverVisible = application.layers.shellCover
-		viewerContainer.applyPresentationDecision(application.decision)
+		viewerContainer.applyPresentationDecision(
+			decision = application.decision,
+			rendererLossCancellationIdentity = rendererLossCancellationIdentity
+		)
 		if (application.layers.shellCover) {
 			shellCoverLayerController.selectCover(
 				preserveNativePresentationProof = true
@@ -1725,7 +1746,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var presentationDestinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	private var presentationDecision: ReaderPresentationDecision? = null
 	private var onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt? = { null }
-	private var onAuthoritativePresentationDecision: (ReaderPresentationDecision) -> Unit = {}
+	private var onAuthoritativePresentationDecision: (
+		ReaderPresentationDecision,
+		ReaderRendererLossCancellationIdentity?
+	) -> Unit = { _, _ -> }
 	private val nativePagePresentationPublisher by lazy {
 		ReaderNativePagePresentationPublisher(
 			frameSource = playLikeCurlController.presentedFrameSource,
@@ -1737,6 +1761,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 	private val presentationBindingReporter = ReaderPresentationBindingReporter()
 	private val presentationLifecycleDelivery = ReaderPresentationLifecycleDelivery()
+	private val presentationReceiptDispatcher = ReaderPresentationReceiptDispatcher(
+		bindingReporter = presentationBindingReporter,
+		lifecycleDelivery = presentationLifecycleDelivery
+	) { decision, rendererLossCancellationIdentity ->
+		onAuthoritativePresentationDecision(decision, rendererLossCancellationIdentity)
+	}
+	private var rendererLossEpoch = 0L
+	private var pendingRendererLossCancellationIdentity:
+		ReaderRendererLossCancellationIdentity? = null
 	private var presentationPublicationGeneration = 0L
 	private var presentationViewportGeneration = 0L
 	private var presentationPublicationOpenPending = false
@@ -1926,10 +1959,23 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				event == ReaderPageHostLifecycleEvent.UnsafeContextLost ||
 					event == ReaderPageHostLifecycleEvent.GlFailed
 			)
+			rendererLossEpoch = Math.incrementExact(rendererLossEpoch)
+			val cancellationIdentity = ReaderRendererLossCancellationIdentity(
+				presentationEpoch = presentationBindingReporter.captureEpoch(),
+				rendererLossEpoch = rendererLossEpoch,
+				reason = event.cancellationReason()
+			)
+			pendingRendererLossCancellationIdentity = cancellationIdentity
 			reportPresentationLifecycleEvent(
 				ReaderPresentationLifecycleEvent.RendererLost
 			)
-			dispatchPageHostLifecycleEvent(event)
+			dispatchPageHostLifecycleEvent(
+				event = event,
+				rendererLossCancellationIdentity = cancellationIdentity
+			)
+			if (!presentationLifecycleDelivery.hasPendingRendererLoss) {
+				pendingRendererLossCancellationIdentity = null
+			}
 		},
 		onOwnershipMutated = applicationOwnershipEpoch::ownerMutationCommitted,
 		onOwnershipAvailabilityEdge = ::retryOwnershipAdmission,
@@ -2567,37 +2613,35 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	fun dispatchPresentationEvent(
 		event: ReaderPresentationEvent
-	): ReaderPresentationEventReceipt? {
-		val epoch = presentationBindingReporter.captureEpoch()
-		val receipt = onPresentationEvent(event)
-		return receipt?.takeIf {
-			presentationBindingReporter.consumeReceipt(epoch, event, it)
-		}?.also(::adoptReceiptTruth)
-	}
+	): ReaderPresentationEventReceipt? = presentationReceiptDispatcher.dispatch(
+		event = event,
+		rendererLossCancellationIdentity = pendingRendererLossCancellationIdentity.takeIf {
+			event is ReaderPresentationEvent.Lifecycle &&
+				event.event == ReaderPresentationLifecycleEvent.RendererLost
+		},
+		onEvent = onPresentationEvent
+	)
 
 	private fun consumeReturnedReceipt(
 		epoch: Long,
 		receipt: ReaderPresentationEventReceipt?
-	): ReaderPresentationEventReceipt? = receipt?.takeIf {
-		presentationBindingReporter.consumeReceipt(epoch, it.event, it)
-	}?.also(::adoptReceiptTruth)
-
-	private fun adoptReceiptTruth(receipt: ReaderPresentationEventReceipt) {
-		onAuthoritativePresentationDecision(readerPresentationDecision(receipt.postState))
-	}
+	): ReaderPresentationEventReceipt? = presentationReceiptDispatcher.consumeReturned(epoch, receipt)
 
 	fun setPresentationDecision(
 		decision: ReaderPresentationDecision,
 		version: ReaderPresentationReceiptVersion,
 		destinationCommitIdentity: ReaderDestinationCommitIdentity?,
 		onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?,
-		onAuthoritativeDecision: (ReaderPresentationDecision) -> Unit
+		onAuthoritativeDecision: (
+			ReaderPresentationDecision,
+			ReaderRendererLossCancellationIdentity?
+		) -> Unit
 	) {
 		onPresentationEvent = onEvent
 		onAuthoritativePresentationDecision = onAuthoritativeDecision
 		presentationLifecycleDelivery.advanceComposeVersion(version)
 		if (presentationBindingReporter.consumeComposeVersion(version)) {
-			onAuthoritativePresentationDecision(decision)
+			onAuthoritativePresentationDecision(decision, null)
 		}
 		if (presentationDestinationCommitIdentity != destinationCommitIdentity) {
 			presentationDestinationCommitIdentity = destinationCommitIdentity
@@ -2640,6 +2684,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			version = version,
 			observedWindowVisible = lastPresentationWindowVisible
 		)
+		pendingRendererLossCancellationIdentity = null
 		lastReportedPresentationFacts = null
 		nativePagePresentationPublisher.update()
 		return ReaderPresentationEpochPreparation.Replaced
@@ -2662,8 +2707,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 	}
 
-	private fun retryPresentationLifecycleDelivery(): ReaderPresentationEventReceipt? =
-		presentationLifecycleDelivery.retry(::dispatchPresentationEvent)
+	private fun retryPresentationLifecycleDelivery(): ReaderPresentationEventReceipt? {
+		val receipt = presentationLifecycleDelivery.retry(::dispatchPresentationEvent)
+		if (!presentationLifecycleDelivery.hasPendingRendererLoss) {
+			pendingRendererLossCancellationIdentity = null
+		}
+		return receipt
+	}
 
 	private fun reportPresentationWindowVisibility(visible: Boolean) {
 		val visibilityChanged = lastPresentationWindowVisible != visible
@@ -2796,11 +2846,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		).currentCandidateOrNull()
 	}
 
-	fun applyPresentationDecision(decision: ReaderPresentationDecision) {
+	fun applyPresentationDecision(
+		decision: ReaderPresentationDecision,
+		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
+	) {
 		presentationDecision = decision
 		presentationInputPolicy = decision.inputPolicy
 		cancelLegacyLivePointerStreamIfContextChanged()
-		updateInputSettlementPolicies()
+		updateInputSettlementPolicies(rendererLossCancellationIdentity)
 	}
 
 	private fun setLocalPageSafetyPolicy(policy: ReaderPageOperationPolicy) {
@@ -2809,13 +2862,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		playLikeCurlController.setPageOperationPolicy(policy)
 	}
 
-	private fun updateInputSettlementPolicies() {
+	private fun updateInputSettlementPolicies(
+		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
+	) {
 		pageInputSettlementHostController.updateInputPolicies(
 			presentationInputPolicy = presentationInputPolicy,
 			localSafetyPolicy = localPageSafetyPolicy,
 			nativeTapContinuationIdentity = presentationDecision?.let { decision ->
 				readerNativeTapContinuationIdentity(decision, localPageSafetyPolicy)
-			}
+			},
+			rendererLossCancellationIdentity = rendererLossCancellationIdentity
 		)
 	}
 
@@ -4060,13 +4116,19 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun dispatchPageHostLifecycleEvent(
 		event: ReaderPageHostLifecycleEvent,
-		preserveDestinationDeck: Boolean = false
+		preserveDestinationDeck: Boolean = false,
+		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	): List<Long> {
 		val cancelledGestures = readerDispatchPageHostLifecycleEvent(
 			event = event,
 			preserveDestinationDeck = preserveDestinationDeck,
 			clearDestinationDeckPrewarm = ::clearDestinationDeckPrewarm,
-			dispatchInputLifecycle = pageInputSettlementHostController::onLifecycleEvent
+			dispatchInputLifecycle = { lifecycleEvent ->
+				pageInputSettlementHostController.onLifecycleEvent(
+					event = lifecycleEvent,
+					rendererLossCancellationIdentity = rendererLossCancellationIdentity
+				)
+			}
 		)
 		nativePagePresentationPublisher.update()
 		return cancelledGestures

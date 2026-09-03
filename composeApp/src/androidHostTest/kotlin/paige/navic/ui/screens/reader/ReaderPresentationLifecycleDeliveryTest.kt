@@ -38,6 +38,324 @@ import kotlin.test.assertTrue
 
 class ReaderPresentationLifecycleDeliveryTest {
 	@Test
+	fun productionDispatcherRejectsInvalidVisibilityReceiptsWithoutPartialMutation() {
+		val binding = completeBinding("production-invalid-visibility")
+		val wrongBinding = completeBinding("production-invalid-publication")
+		val floor = ReaderPresentationReceiptVersion(
+			readerSessionGeneration = 20L,
+			publicationIdentity = binding.publicationIdentity,
+			eventSequence = 5L
+		)
+		val reporter = reporter(floor, binding)
+		val delivery = delivery(floor, binding)
+		val input = InputHarness(binding)
+		val activeGestureId = input.beginActivePointer(downTimeMillis = 100L)
+		val decisions = mutableListOf<paige.navic.reader.ReaderPresentationDecision>()
+		val dispatcher = ReaderPresentationReceiptDispatcher(
+			bindingReporter = reporter,
+			lifecycleDelivery = delivery
+		) { decision, _ ->
+			decisions += decision
+			input.apply(decision)
+		}
+		val event = ReaderPresentationEvent.Lifecycle(
+			ReaderPresentationLifecycleEvent.VisibilityLost
+		)
+		val background = ReaderPresentationState(
+			binding = binding,
+			lifecycle = ReaderPresentationLifecycleState.Background
+		)
+		val invalidReceipts = listOf(
+			lifecycleReceipt(
+				event,
+				background,
+				floor.copy(eventSequence = 6L),
+				ReaderPresentationEventDisposition.Rejected
+			),
+			lifecycleReceipt(
+				event,
+				background,
+				floor.copy(eventSequence = 6L),
+				ReaderPresentationEventDisposition.Stale
+			),
+			lifecycleReceipt(
+				event,
+				background.copy(lifecycle = ReaderPresentationLifecycleState.Foreground),
+				floor.copy(eventSequence = 6L)
+			),
+			lifecycleReceipt(
+				ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.RendererLost),
+				background,
+				floor.copy(eventSequence = 6L)
+			),
+			lifecycleReceipt(
+				event,
+				background,
+				floor.copy(readerSessionGeneration = 19L, eventSequence = 6L)
+			),
+			lifecycleReceipt(
+				event,
+				background.copy(binding = wrongBinding),
+				floor.copy(
+					publicationIdentity = wrongBinding.publicationIdentity,
+					eventSequence = 6L
+				)
+			),
+			lifecycleReceipt(event, background, floor.copy(eventSequence = 4L)),
+			lifecycleReceipt(
+				ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.RendererLost),
+				background,
+				floor
+			)
+		)
+		delivery.observe(ReaderPresentationLifecycleEvent.VisibilityLost)
+
+		invalidReceipts.forEach { invalid ->
+			assertNull(
+				delivery.retry { attempted ->
+					assertEquals(event, attempted)
+					dispatcher.dispatch(attempted) { invalid }
+				}
+			)
+			assertEquals(1, delivery.pendingEventCount)
+			assertTrue(decisions.isEmpty())
+			assertNull(reporter.lastReportedBinding)
+			assertFalse(reporter.matchesAuthoritativePresentationVersion(invalid.version))
+			assertEquals(1, input.host.contentGestureTokenCount())
+			assertTrue(input.published.isEmpty())
+			assertTrue(input.cancellationPort.calls.isEmpty())
+		}
+
+		val controller = ControllerHarness(
+			controller(binding, readerSessionGeneration = 20L, eventSequence = 5L)
+		)
+		val accepted = assertNotNull(
+			delivery.retry { attempted ->
+				dispatcher.dispatch(attempted) { event -> controller.dispatch(event) }
+			}
+		)
+		assertEquals(ReaderPresentationEventDisposition.Accepted, accepted.disposition)
+		assertEquals(0, delivery.pendingEventCount)
+		assertEquals(binding, reporter.lastReportedBinding)
+		assertTrue(reporter.matchesAuthoritativePresentationVersion(accepted.version))
+		assertEquals(ReaderPresentationLifecycleState.Background, accepted.postState.lifecycle)
+		assertEquals(
+			listOf(readerPresentationDecision(accepted.postState)),
+			decisions
+		)
+		assertEquals(
+			listOf(activeGestureId to ReaderPageGestureTerminalOutcome.CancelledLifecycle),
+			input.published
+		)
+		assertEquals(4, input.cancellationPort.calls.size)
+	}
+
+	@Test
+	fun productionDispatcherRetainsInvalidRendererAndTerminalWorkThenCommitsExactlyOnce() {
+		val rendererBinding = completeBinding("production-renderer-loss")
+		val rendererCleanup = ReaderRendererCleanupOwnership(
+			ReaderPresentationToken(30L),
+			rendererBinding
+		)
+		val rendererController = ControllerHarness(
+			controller(
+				binding = rendererBinding,
+				readerSessionGeneration = 21L,
+				cleanupOwnership = listOf(rendererCleanup),
+				eventSequence = 10L
+			)
+		)
+		val rendererReporter = reporter(rendererController.controller.presentationVersion, rendererBinding)
+		val rendererDelivery = delivery(rendererController.controller.presentationVersion, rendererBinding)
+		val rendererDecisions = mutableListOf<paige.navic.reader.ReaderPresentationDecision>()
+		val rendererDispatcher = ReaderPresentationReceiptDispatcher(
+			rendererReporter,
+			rendererDelivery
+		) { decision, _ -> rendererDecisions += decision }
+		val rendererEvent = ReaderPresentationEvent.Lifecycle(
+			ReaderPresentationLifecycleEvent.RendererLost
+		)
+		rendererDelivery.observe(ReaderPresentationLifecycleEvent.RendererLost)
+		val rejectedRenderer = lifecycleReceipt(
+			event = rendererEvent,
+			postState = rendererController.controller.state.presentation.copy(
+				rendererCleanupOwnership = emptyList()
+			),
+			version = rendererController.controller.presentationVersion.copy(eventSequence = 11L),
+			disposition = ReaderPresentationEventDisposition.Rejected
+		)
+		assertNull(
+			rendererDelivery.retry { attempted ->
+				rendererDispatcher.dispatch(attempted) { rejectedRenderer }
+			}
+		)
+		assertEquals(1, rendererDelivery.pendingEventCount)
+		assertTrue(rendererDecisions.isEmpty())
+		assertNull(rendererReporter.lastReportedBinding)
+
+		val acceptedRenderer = assertNotNull(
+			rendererDelivery.retry { attempted ->
+				rendererDispatcher.dispatch(attempted) { event ->
+						rendererController.dispatch(event)
+					}
+			}
+		)
+		assertEquals(0, rendererDelivery.pendingEventCount)
+		assertTrue(acceptedRenderer.postState.rendererCleanupOwnership.isEmpty())
+		assertEquals(
+			listOf(readerPresentationDecision(acceptedRenderer.postState)),
+			rendererDecisions
+		)
+		assertTrue(rendererReporter.matchesAuthoritativePresentationVersion(acceptedRenderer.version))
+
+		val terminalBinding = completeBinding("production-terminal")
+		val terminalCleanup = ReaderRendererCleanupOwnership(
+			ReaderPresentationToken(31L),
+			terminalBinding
+		)
+		val terminalController = ControllerHarness(
+			controller(
+				binding = terminalBinding,
+				readerSessionGeneration = 22L,
+				cleanupOwnership = listOf(terminalCleanup),
+				eventSequence = 20L
+			)
+		)
+		val terminalReporter = reporter(terminalController.controller.presentationVersion, terminalBinding)
+		val terminalDelivery = delivery(terminalController.controller.presentationVersion, terminalBinding)
+		val terminalDecisions = mutableListOf<paige.navic.reader.ReaderPresentationDecision>()
+		val terminalDispatcher = ReaderPresentationReceiptDispatcher(
+			terminalReporter,
+			terminalDelivery
+		) { decision, _ -> terminalDecisions += decision }
+		val terminalEvent = ReaderPresentationEvent.Lifecycle(
+			ReaderPresentationLifecycleEvent.PublicationClosed
+		)
+		terminalDelivery.observe(ReaderPresentationLifecycleEvent.PublicationClosed)
+		val invalidTerminal = lifecycleReceipt(
+			event = terminalEvent,
+			postState = terminalController.controller.state.presentation,
+			version = terminalController.controller.presentationVersion.copy(eventSequence = 21L)
+		)
+		assertNull(
+			terminalDelivery.retry { attempted ->
+				terminalDispatcher.dispatch(attempted) { invalidTerminal }
+			}
+		)
+		assertEquals(1, terminalDelivery.pendingEventCount)
+		assertTrue(terminalDecisions.isEmpty())
+		assertNull(terminalReporter.lastReportedBinding)
+
+		val acceptedTerminal = assertNotNull(
+			terminalDelivery.retry { attempted ->
+				terminalDispatcher.dispatch(attempted) { event ->
+						terminalController.dispatch(event)
+					}
+			}
+		)
+		assertEquals(ReaderPresentationLifecycleState.Destroyed, acceptedTerminal.postState.lifecycle)
+		assertEquals(0, terminalDelivery.pendingEventCount)
+		assertNull(terminalReporter.lastReportedBinding)
+		assertEquals(
+			listOf(readerPresentationDecision(acceptedTerminal.postState)),
+			terminalDecisions
+		)
+		assertEquals(1, terminalController.effects.size)
+		assertIs<ReaderPresentationEffect.ReleaseStalePresentation>(terminalController.effects.single())
+		assertNull(terminalDelivery.retry { error("terminal event was replayed") })
+	}
+
+	@Test
+	fun productionDispatcherContainsCallbackFailuresAndKeepsLifecycleAndGeneralReceiptsSeparate() {
+		val binding = completeBinding("production-callback-failure")
+		val floor = ReaderPresentationReceiptVersion(
+			readerSessionGeneration = 23L,
+			publicationIdentity = binding.publicationIdentity,
+			eventSequence = 5L
+		)
+		val reporter = reporter(floor, binding)
+		val delivery = delivery(floor, binding)
+		val decisions = mutableListOf<paige.navic.reader.ReaderPresentationDecision>()
+		val dispatcher = ReaderPresentationReceiptDispatcher(
+			reporter,
+			delivery
+		) { decision, _ -> decisions += decision }
+		val lifecycleEvent = ReaderPresentationEvent.Lifecycle(
+			ReaderPresentationLifecycleEvent.VisibilityLost
+		)
+		val acceptedLifecycle = lifecycleReceipt(
+			event = lifecycleEvent,
+			postState = ReaderPresentationState(
+				binding = binding,
+				lifecycle = ReaderPresentationLifecycleState.Background
+			),
+			version = floor.copy(eventSequence = 7L)
+		)
+		delivery.observe(ReaderPresentationLifecycleEvent.VisibilityLost)
+
+		assertNull(
+			delivery.retry { attempted ->
+				dispatcher.dispatch(attempted) { error("controller callback failed") }
+			}
+		)
+		assertEquals(1, delivery.pendingEventCount)
+		assertTrue(decisions.isEmpty())
+		assertNull(reporter.lastReportedBinding)
+
+		val throwingApplyDispatcher = ReaderPresentationReceiptDispatcher(
+			reporter,
+			delivery
+		) { _, _ -> error("decision application failed") }
+		assertNull(
+			delivery.retry { attempted ->
+				throwingApplyDispatcher.dispatch(attempted) { acceptedLifecycle }
+			}
+		)
+		assertEquals(1, delivery.pendingEventCount)
+		assertTrue(decisions.isEmpty())
+		assertNull(reporter.lastReportedBinding)
+		assertFalse(reporter.matchesAuthoritativePresentationVersion(acceptedLifecycle.version))
+
+		val generalEvent = ReaderPresentationEvent.Retry
+		val generalReceipt = ReaderPresentationEventReceipt(
+			event = generalEvent,
+			version = floor.copy(eventSequence = 6L),
+			disposition = ReaderPresentationEventDisposition.Rejected,
+			postState = ReaderPresentationState(binding = binding),
+			effects = emptyList()
+		)
+		val wrongGeneralReceipt = generalReceipt.copy(
+			event = ReaderPresentationEvent.PublicationOpened(binding)
+		)
+		assertNull(dispatcher.dispatch(generalEvent) { wrongGeneralReceipt })
+		assertEquals(1, delivery.pendingEventCount)
+		assertTrue(decisions.isEmpty())
+		assertNull(reporter.lastReportedBinding)
+		assertNotNull(dispatcher.dispatch(generalEvent) { generalReceipt })
+		assertEquals(1, delivery.pendingEventCount)
+		assertEquals(
+			listOf(readerPresentationDecision(generalReceipt.postState)),
+			decisions
+		)
+		assertTrue(reporter.matchesAuthoritativePresentationVersion(generalReceipt.version))
+
+		assertNotNull(
+			delivery.retry { attempted ->
+				dispatcher.dispatch(attempted) { acceptedLifecycle }
+			}
+		)
+		assertEquals(0, delivery.pendingEventCount)
+		assertEquals(
+			listOf(
+				readerPresentationDecision(generalReceipt.postState),
+				readerPresentationDecision(acceptedLifecycle.postState)
+			),
+			decisions
+		)
+		assertTrue(reporter.matchesAuthoritativePresentationVersion(acceptedLifecycle.version))
+	}
+
+	@Test
 	fun visibilityLossRetriesUntilExactReceiptThenRevokesPointerAndDelayedTapOnce() {
 		val binding = completeBinding("visibility-loss")
 		val controller = ControllerHarness(controller(binding, readerSessionGeneration = 11L))
@@ -407,6 +725,9 @@ class ReaderPresentationLifecycleDeliveryTest {
 		val callbackRebind = source
 			.substringAfter("fun setPresentationDecision(")
 			.substringBefore("fun releaseStalePresentation(")
+		val dispatch = source
+			.substringAfter("fun dispatchPresentationEvent(")
+			.substringBefore("private fun consumeReturnedReceipt(")
 		val finalLifecycle = source
 			.substringAfter("private fun beginFinalHostLifecycle(")
 			.substringBefore("private fun closePhysicalPointerDelivery(")
@@ -414,8 +735,26 @@ class ReaderPresentationLifecycleDeliveryTest {
 		assertContains(reporter, "presentationLifecycleDelivery.observe(event)")
 		assertContains(reporter, "retryPresentationLifecycleDelivery()")
 		assertContains(unsafeRenderer, "ReaderPresentationLifecycleEvent.RendererLost")
+		assertContains(
+			unsafeRenderer,
+			"val cancellationIdentity = ReaderRendererLossCancellationIdentity("
+		)
+		assertContains(
+			unsafeRenderer,
+			"pendingRendererLossCancellationIdentity = cancellationIdentity"
+		)
+		assertContains(
+			unsafeRenderer,
+			"rendererLossCancellationIdentity = cancellationIdentity"
+		)
 		assertContains(epoch, "presentationLifecycleDelivery.reset(")
 		assertContains(callbackRebind, "retryPresentationLifecycleDelivery()")
+		assertContains(dispatch, "presentationReceiptDispatcher.dispatch(")
+		assertContains(
+			dispatch,
+			"rendererLossCancellationIdentity = pendingRendererLossCancellationIdentity.takeIf"
+		)
+		assertFalse(dispatch.contains("presentationBindingReporter.consumeReceipt("))
 		assertContains(finalLifecycle, "ReaderPresentationLifecycleEvent.PublicationClosed")
 		assertContains(finalLifecycle, "retryPresentationLifecycleDelivery()")
 		assertFalse(reporter.contains("lastPresentationWindowVisible == visible) return"))
@@ -428,7 +767,7 @@ class ReaderPresentationLifecycleDeliveryTest {
 		val lifecycle: ReaderPresentationLifecycleState
 			get() = controller.state.presentation.lifecycle
 
-		fun dispatch(event: ReaderPresentationEvent.Lifecycle): ReaderPresentationEventReceipt {
+		fun dispatch(event: ReaderPresentationEvent): ReaderPresentationEventReceipt {
 			val step = controller.onPresentationEvent(event)
 			controller = step.controller
 			effects += step.presentationEffects
@@ -496,34 +835,56 @@ class ReaderPresentationLifecycleDeliveryTest {
 		)
 
 		fun apply(receipt: ReaderPresentationEventReceipt) {
+			apply(readerPresentationDecision(receipt.postState))
+		}
+
+		fun apply(decision: paige.navic.reader.ReaderPresentationDecision) {
 			host.updateInputPolicies(
-				presentationInputPolicy = readerPresentationDecision(receipt.postState).inputPolicy,
+				presentationInputPolicy = decision.inputPolicy,
 				localSafetyPolicy = policy,
 				nativeTapContinuationIdentity = null
 			)
 		}
 	}
 
+	private fun reporter(
+		version: ReaderPresentationReceiptVersion,
+		binding: ReaderPresentationBinding
+	): ReaderPresentationBindingReporter = ReaderPresentationBindingReporter().also { reporter ->
+		reporter.reset(
+			expectedReaderSessionGeneration = version.readerSessionGeneration,
+			minimumComposeVersion = version
+		)
+		assertTrue(reporter.bindPublication(binding))
+	}
+
+	private fun delivery(
+		version: ReaderPresentationReceiptVersion,
+		binding: ReaderPresentationBinding
+	): ReaderPresentationLifecycleDelivery = ReaderPresentationLifecycleDelivery().also { delivery ->
+		delivery.reset(version, observedWindowVisible = null)
+		assertTrue(delivery.bindPublication(binding.publicationIdentity))
+	}
+
 	private fun delivery(
 		controller: ReaderController,
 		binding: ReaderPresentationBinding
-	): ReaderPresentationLifecycleDelivery = ReaderPresentationLifecycleDelivery().also { delivery ->
-		delivery.reset(controller.presentationVersion, observedWindowVisible = null)
-		assertTrue(delivery.bindPublication(binding.publicationIdentity))
-	}
+	): ReaderPresentationLifecycleDelivery = delivery(controller.presentationVersion, binding)
 
 	private fun controller(
 		binding: ReaderPresentationBinding,
 		readerSessionGeneration: Long,
-		cleanupOwnership: List<ReaderRendererCleanupOwnership> = emptyList()
+		cleanupOwnership: List<ReaderRendererCleanupOwnership> = emptyList(),
+		eventSequence: Long = 0L
 	): ReaderController = ReaderController(
-		ReaderControllerState(
+		state = ReaderControllerState(
 			readerSessionGeneration = readerSessionGeneration,
 			presentation = ReaderPresentationState(
 				binding = binding,
 				rendererCleanupOwnership = cleanupOwnership
 			)
-		)
+		),
+		presentationEventSequence = eventSequence
 	)
 
 	private fun completeBinding(sessionId: String): ReaderPresentationBinding =

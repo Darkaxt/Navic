@@ -37,6 +37,21 @@ internal val readerPageFinalHostLifecycleEvents = setOf(
 	ReaderPageHostLifecycleEvent.ReaderClosed
 )
 
+internal data class ReaderRendererLossCancellationIdentity(
+	val presentationEpoch: Long,
+	val rendererLossEpoch: Long,
+	val reason: ReaderPageLifecycleCancellationReason
+) {
+	init {
+		require(presentationEpoch >= 0L)
+		require(rendererLossEpoch > 0L)
+		require(
+			reason == ReaderPageLifecycleCancellationReason.UnsafeContextLoss ||
+				reason == ReaderPageLifecycleCancellationReason.GlFailure
+		)
+	}
+}
+
 internal fun ReaderPageHostLifecycleEvent.cancellationReason():
 	ReaderPageLifecycleCancellationReason = when (this) {
 	ReaderPageHostLifecycleEvent.Detached ->
@@ -181,6 +196,7 @@ internal class ReaderPageInputSettlementHostController(
 	private var pointerAdmissionClosed = false
 	private var pointerDeliveryClosed = false
 	private var finalDeliveryReason: ReaderPageLifecycleCancellationReason? = null
+	private var lastRendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	private val contentTokenByGestureId =
 		linkedMapOf<Long, ReaderPageContentGestureToken>()
 
@@ -191,7 +207,8 @@ internal class ReaderPageInputSettlementHostController(
 	fun updateInputPolicies(
 		presentationInputPolicy: ReaderPresentationInputPolicy,
 		localSafetyPolicy: ReaderPageOperationPolicy,
-		nativeTapContinuationIdentity: ReaderNativeTapContinuationIdentity? = null
+		nativeTapContinuationIdentity: ReaderNativeTapContinuationIdentity? = null,
+		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	) {
 		val presentationAuthorityBecameIncompatible =
 			physicalStreamGestureId != null &&
@@ -217,7 +234,9 @@ internal class ReaderPageInputSettlementHostController(
 		this.nativeTapContinuationIdentity = nativeTapContinuationIdentity
 		if (presentationAuthorityBecameIncompatible) {
 			cancelForLifecycle(
-				ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
+				reason = rendererLossCancellationIdentity?.reason
+					?: ReaderPageLifecycleCancellationReason.RasterProfileInvalidated,
+				rendererLossCancellationIdentity = rendererLossCancellationIdentity
 			)
 		}
 	}
@@ -536,18 +555,38 @@ internal class ReaderPageInputSettlementHostController(
 		return completed
 	}
 
-	fun onLifecycleEvent(event: ReaderPageHostLifecycleEvent): List<Long> {
+	fun onLifecycleEvent(
+		event: ReaderPageHostLifecycleEvent,
+		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
+	): List<Long> {
 		val reason = event.cancellationReason()
+		require(
+			rendererLossCancellationIdentity == null ||
+				(
+					event == ReaderPageHostLifecycleEvent.UnsafeContextLost ||
+						event == ReaderPageHostLifecycleEvent.GlFailed
+				) && rendererLossCancellationIdentity.reason == reason
+		)
 		if (event in readerPageFinalHostLifecycleEvents) {
 			pointerAdmissionClosed = true
 			finalDeliveryReason = reason
 		}
-		val cancelled = cancelForLifecycle(reason)
+		val cancelled = cancelForLifecycle(reason, rendererLossCancellationIdentity)
 		closeDeliveryAfterFinalPhysicalTail()
 		return cancelled
 	}
 
-	private fun cancelForLifecycle(reason: ReaderPageLifecycleCancellationReason): List<Long> {
+	private fun cancelForLifecycle(
+		reason: ReaderPageLifecycleCancellationReason,
+		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
+	): List<Long> {
+		if (
+			rendererLossCancellationIdentity != null &&
+			lastRendererLossCancellationIdentity == rendererLossCancellationIdentity
+		) return emptyList()
+		if (rendererLossCancellationIdentity != null) {
+			lastRendererLossCancellationIdentity = rendererLossCancellationIdentity
+		}
 		finishChromeOnlyPointerStream()
 		val cancelled = pointerRouter.cancelAll(
 			ReaderPageGestureTerminalOutcome.CancelledLifecycle
