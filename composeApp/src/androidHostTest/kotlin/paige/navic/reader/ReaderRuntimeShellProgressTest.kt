@@ -516,8 +516,14 @@ class ReaderRuntimeShellProgressTest {
 		)
 		assertContains(
 			overlay,
-			"onCancel = { onPresentationEvent(ReaderPresentationEvent.Cancel) }"
+			"presentationDecision.authority as? " +
+				"ReaderPresentationAuthority.LiveEngineHandoffPending"
 		)
+		assertContains(overlay, "ReaderPresentationEvent.LiveEngineHandoffCancelled(")
+		assertContains(overlay, "direction = pending.direction")
+		assertContains(overlay, "token = pending.token")
+		assertContains(overlay, "binding = pending.binding")
+		assertFalse(overlay.contains("onPresentationEvent(ReaderPresentationEvent.Cancel)"))
 		assertFalse(readerRootText.contains("pagePreparationState"))
 		assertFalse(readerRootText.contains("pagePreparationRetryKey"))
 		assertFalse(readerRootText.contains("pagePreparationCoverVisible"))

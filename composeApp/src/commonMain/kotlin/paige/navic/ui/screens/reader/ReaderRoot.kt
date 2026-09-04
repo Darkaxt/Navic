@@ -26,6 +26,7 @@ import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderLegacyLiveCompatibilityContext
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPendingPresentationEffect
+import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
@@ -333,7 +334,18 @@ internal fun KomikkuReaderRoot(
 					preparation = presentationDecision.preparationPresentation,
 					diagnostic = presentationDecision.diagnosticPresentation,
 					onRetry = { onPresentationEvent(ReaderPresentationEvent.Retry) },
-					onCancel = { onPresentationEvent(ReaderPresentationEvent.Cancel) },
+					onCancel = {
+						val pending = presentationDecision.authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
+						if (pending != null) {
+							onPresentationEvent(
+								ReaderPresentationEvent.LiveEngineHandoffCancelled(
+									direction = pending.direction,
+									token = pending.token,
+									binding = pending.binding
+								)
+							)
+						}
+					},
 					modifier = Modifier.matchParentSize()
 				)
 			}

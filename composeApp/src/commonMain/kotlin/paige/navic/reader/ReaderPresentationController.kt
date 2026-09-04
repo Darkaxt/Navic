@@ -113,9 +113,7 @@ internal fun readerViewerActionIsAdmitted(
 	legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext =
 		ReaderLegacyLiveCompatibilityContext.Denied()
 ): Boolean = when (inputPolicy) {
-	ReaderPresentationInputPolicy.RecoveryOnly ->
-		legacyLiveCompatibilityContext is ReaderLegacyLiveCompatibilityContext.ColdSession &&
-			action != ReaderViewerAction.NativeShellPrepared
+	ReaderPresentationInputPolicy.RecoveryOnly -> false
 	is ReaderPresentationInputPolicy.ClaimedCurl -> false
 	ReaderPresentationInputPolicy.ChromeOnly -> action == ReaderViewerAction.Menu
 	ReaderPresentationInputPolicy.ShellCover -> when (action) {

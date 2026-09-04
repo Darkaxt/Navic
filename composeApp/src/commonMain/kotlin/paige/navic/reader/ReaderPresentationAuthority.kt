@@ -448,6 +448,7 @@ sealed interface ReaderPresentationEvent {
 		val proof: ReaderLiveEnginePresentationProof
 	) : ReaderPresentationEvent
 	data class LiveEngineExposureFailed(
+		val direction: ReaderLiveEngineHandoffDirection,
 		val token: ReaderPresentationToken,
 		val binding: ReaderPresentationBinding,
 		val reason: ReaderPresentationFailureReason
@@ -460,6 +461,16 @@ sealed interface ReaderPresentationEvent {
 			)
 		}
 	}
+	data class LiveEngineHandoffTimedOut(
+		val direction: ReaderLiveEngineHandoffDirection,
+		val token: ReaderPresentationToken,
+		val binding: ReaderPresentationBinding
+	) : ReaderPresentationEvent
+	data class LiveEngineHandoffCancelled(
+		val direction: ReaderLiveEngineHandoffDirection,
+		val token: ReaderPresentationToken,
+		val binding: ReaderPresentationBinding
+	) : ReaderPresentationEvent
 	data class PreparationReported(
 		val binding: ReaderPresentationBinding,
 		val facts: ReaderPagePreparationFacts
@@ -630,11 +641,15 @@ fun readerPresentationReduce(
 			state.reduceLiveEngineExposureProof(event.proof)
 		is ReaderPresentationEvent.LiveEngineExposureFailed ->
 			state.reduceLiveEngineExposureFailure(event)
+		is ReaderPresentationEvent.LiveEngineHandoffTimedOut ->
+			state.reduceLiveEngineHandoffTimeout(event)
+		is ReaderPresentationEvent.LiveEngineHandoffCancelled ->
+			state.reduceLiveEngineHandoffCancellation(event)
 		is ReaderPresentationEvent.PreparationReported -> state.reducePreparationReport(event)
 		is ReaderPresentationEvent.PreparationFailed -> state.reducePreparationFailure(event)
-		is ReaderPresentationEvent.TimedOut -> state.reduceTimeout(event)
+		is ReaderPresentationEvent.TimedOut,
+		ReaderPresentationEvent.Cancel -> rejectedPresentationResult(state)
 		ReaderPresentationEvent.Retry -> state.reduceRetry()
-		ReaderPresentationEvent.Cancel -> state.reduceCancel()
 		is ReaderPresentationEvent.Lifecycle -> state.reduceLifecycle(event.event)
 	}
 	return ReaderPresentationReduction(
@@ -855,23 +870,6 @@ private fun ReaderPresentationState.reduceRetry(): ReaderPresentationReducerResu
 	)
 }
 
-private fun ReaderPresentationState.reduceCancel(): ReaderPresentationReducerResult {
-	val pending = authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
-		?: return rejectedPresentationResult(this)
-	val restored = when (val retained = pending.retainedFrame) {
-		is ReaderPresentationFrameOwner.NativePage ->
-			ReaderPresentationAuthority.SettledNativePage(retained)
-		is ReaderPresentationFrameOwner.LiveEngine ->
-			ReaderPresentationAuthority.LiveEngineExposed(retained)
-		is ReaderPresentationFrameOwner.ShellCover ->
-			ReaderPresentationAuthority.ShellCover(retained.proof)
-		else -> return rejectedPresentationResult(this)
-	}
-	return acceptedPresentationResult(
-		copy(authority = restored, failure = null)
-	)
-}
-
 private fun ReaderPresentationEvent.closedResourceReleaseOrNull():
 	ReaderPresentationEffect.ReleaseStalePresentation? = when (this) {
 	is ReaderPresentationEvent.BindingCompleted ->
@@ -899,6 +897,21 @@ private fun ReaderPresentationState.reduceFoliateRelocation(
 		authority == ReaderPresentationAuthority.Unavailable ->
 			acceptedPresentationResult(copy(binding = event.binding))
 		currentBinding == event.binding -> idempotentPresentationResult(this)
+		authority is ReaderPresentationAuthority.LiveEngineHandoffPending &&
+			authority.direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine &&
+			authority.retainedFrame is ReaderPresentationFrameOwner.NativePage &&
+			authority.retainedFrame.proof.binding == currentBinding &&
+			authority.binding == currentBinding &&
+			failure == null &&
+			event.acknowledgement == null &&
+			event.binding.isCompleteDestinationSuccessorOf(currentBinding) ->
+			acceptedPresentationResult(
+				copy(
+					authority = authority.copy(binding = event.binding),
+					binding = event.binding,
+					preparationFacts = ReaderPagePreparationFacts()
+				)
+			)
 		authority is ReaderPresentationAuthority.BlockingPreparation &&
 			authority.nativePresentationRequest != null &&
 			currentBinding != null &&
@@ -1105,6 +1118,35 @@ private fun ReaderPresentationFrameOwner.rebindPartialPresentation(
 private fun ReaderPresentationState.reduceBindingReplacement(
 	event: ReaderPresentationEvent.BindingReplaced
 ): ReaderPresentationReducerResult {
+	val nativeHandback = (authority as? ReaderPresentationAuthority.LiveEngineHandoffPending)
+		?.takeIf { pending ->
+			pending.direction == ReaderLiveEngineHandoffDirection.LiveEngineToNative &&
+				pending.binding == event.previousBinding &&
+				pending.retainedFrame is ReaderPresentationFrameOwner.LiveEngine
+		}
+	if (
+		binding == event.previousBinding &&
+		nativeHandback != null &&
+		event.binding.hasCompleteRendererIdentity() &&
+		event.binding.isSafeBindingReplacementOf(event.previousBinding)
+	) {
+		val reboundAuthority = nativeHandback.copy(binding = event.binding)
+		val cleanup = trackRendererBindingTransition(
+			previousBinding = event.previousBinding,
+			binding = event.binding,
+			previousToken = nativeHandback.token,
+			bindingToken = reboundAuthority.token
+		)
+		return acceptedPresentationResult(
+			state = copy(
+				authority = reboundAuthority,
+				binding = event.binding,
+				rendererCleanupOwnership = cleanup.ownership,
+				preparationFacts = ReaderPagePreparationFacts()
+			),
+			effects = cleanup.effects
+		)
+	}
 	val requested = (authority as? ReaderPresentationAuthority.BlockingPreparation)
 		?.takeIf { pending -> pending.nativePresentationRequest?.binding == event.previousBinding }
 	if (
@@ -1592,6 +1634,7 @@ private fun ReaderPresentationState.reduceLiveEngineExposureFailure(
 	val currentAuthority = authority
 	return if (
 		currentAuthority is ReaderPresentationAuthority.LiveEngineHandoffPending &&
+			currentAuthority.direction == event.direction &&
 			currentAuthority.token == event.token &&
 			currentAuthority.binding == event.binding &&
 			binding == event.binding &&
@@ -1612,8 +1655,57 @@ private fun ReaderPresentationState.reduceLiveEngineExposureFailure(
 			)
 		)
 	} else {
-		staleProof(event.token, event.binding)
+		stalePresentationResult(this)
 	}
+}
+
+private fun ReaderPresentationState.reduceLiveEngineHandoffTimeout(
+	event: ReaderPresentationEvent.LiveEngineHandoffTimedOut
+): ReaderPresentationReducerResult {
+	val pending = authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
+	return if (
+		pending != null &&
+			pending.direction == event.direction &&
+			pending.token == event.token &&
+			pending.binding == event.binding &&
+			binding == event.binding
+	) {
+		val diagnostic = ReaderDiagnosticPresentation.Failure(
+			reason = ReaderPresentationFailureReason.TimedOut,
+			retryable = true,
+			cancellable = true
+		)
+		if (failure == diagnostic) {
+			idempotentPresentationResult(this)
+		} else {
+			acceptedPresentationResult(copy(failure = diagnostic))
+		}
+	} else {
+		stalePresentationResult(this)
+	}
+}
+
+private fun ReaderPresentationState.reduceLiveEngineHandoffCancellation(
+	event: ReaderPresentationEvent.LiveEngineHandoffCancelled
+): ReaderPresentationReducerResult {
+	val pending = authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
+	if (
+		pending == null ||
+		pending.direction != event.direction ||
+		pending.token != event.token ||
+		pending.binding != event.binding ||
+		binding != event.binding
+	) return stalePresentationResult(this)
+	val restored = when (val retained = pending.retainedFrame) {
+		is ReaderPresentationFrameOwner.NativePage ->
+			ReaderPresentationAuthority.SettledNativePage(retained)
+		is ReaderPresentationFrameOwner.LiveEngine ->
+			ReaderPresentationAuthority.LiveEngineExposed(retained)
+		is ReaderPresentationFrameOwner.ShellCover ->
+			ReaderPresentationAuthority.ShellCover(retained.proof)
+		else -> return stalePresentationResult(this)
+	}
+	return acceptedPresentationResult(copy(authority = restored, failure = null))
 }
 
 private fun ReaderPresentationState.reducePreparationReport(
@@ -1686,29 +1778,6 @@ private fun ReaderPresentationAuthority.hasTruthfulStableFrame(): Boolean = when
 	is ReaderPresentationAuthority.SettledNativePage,
 	is ReaderPresentationAuthority.LiveEngineHandoffPending,
 	is ReaderPresentationAuthority.LiveEngineExposed -> true
-}
-
-private fun ReaderPresentationState.reduceTimeout(
-	event: ReaderPresentationEvent.TimedOut
-): ReaderPresentationReducerResult {
-	val expectedToken = authority.tokenOrNull()
-	val currentBinding = binding
-	if (event.token != null && event.token != expectedToken && currentBinding != null) {
-		return stalePresentation(event.token, currentBinding)
-	}
-	val pending = authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
-	if (pending != null && event.token == pending.token && currentBinding == pending.binding) {
-		return acceptedPresentationResult(
-			copy(
-				failure = ReaderDiagnosticPresentation.Failure(
-					reason = ReaderPresentationFailureReason.TimedOut,
-					retryable = true,
-					cancellable = true
-				)
-			)
-		)
-	}
-	return acceptedPresentationResult(this)
 }
 
 private fun ReaderPresentationState.staleProof(

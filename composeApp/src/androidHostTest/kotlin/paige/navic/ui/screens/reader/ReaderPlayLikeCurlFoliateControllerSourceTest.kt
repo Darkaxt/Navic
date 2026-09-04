@@ -520,15 +520,19 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val exact = synchronize
 			.substringAfter("ReaderPageVisualLocationOrigin.ExactPageTurn -> {")
 			.substringBefore("ReaderPageVisualLocationOrigin.StaleAcknowledgement")
+		val handoffStart = source
+			.substringAfter("private fun startAcknowledgedVisualHandoff(")
+			.substringBefore("private fun completeAcknowledgedRelocation(")
 
 		assertContains(source, "private var currentOrdinal = 0")
 		assertContains(source, "private var currentWebViewOrdinal: Int? = null")
 		assertContains(synchronize, "currentWebViewOrdinal = normalized")
 		assertContains(exact, "relocationQueue.acknowledge(")
-		assertContains(exact, "relocationVisualHandoffCoordinator.onAcknowledged(acknowledged)")
+		assertContains(exact, "startAcknowledgedVisualHandoff(acknowledged, null)")
+		assertContains(handoffStart, "relocationVisualHandoffCoordinator.onAcknowledged(")
 		assertTrue(
 			exact.indexOf("relocationQueue.acknowledge(") <
-				exact.indexOf("relocationVisualHandoffCoordinator.onAcknowledged(acknowledged)")
+				exact.indexOf("startAcknowledgedVisualHandoff(acknowledged, null)")
 		)
 		assertFalse(
 			exact.contains("currentOrdinal = normalized"),

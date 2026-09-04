@@ -81,6 +81,7 @@ import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationFailureReason
+import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLayer
 import paige.navic.reader.ReaderPresentationLifecycleEvent
@@ -775,7 +776,6 @@ actual fun KomikkuReaderNativeFrameHost(
 			KomikkuReaderNativeFrameRoot(context).apply {
 				nativeFrameRoot = this
 				setOnStartupShellPrepared { currentOnStartupShellPrepared() }
-				setViewerContent(viewerKey) { currentViewerContent() }
 				setComposeOverlay(hostedComposeOverlay)
 				setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
 				setChromeOverlayVisible(chromeOverlayVisible)
@@ -793,6 +793,7 @@ actual fun KomikkuReaderNativeFrameHost(
 					destinationCommitIdentity,
 					viewerKey
 				) { event -> currentOnPresentationEvent(event) }
+				setViewerContent(viewerKey) { currentViewerContent() }
 				handlePresentationEffects(
 					presentationEffects,
 					presentationVersion
@@ -988,7 +989,8 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	)
 	private var preparedShellCoverGeneration: Long? = null
 	private val presentationWebViewVisualHandoff = ReaderWebViewVisualHandoff(
-		ReaderWebViewVisualHandoffHostAdapter(viewerContainer::currentLiveWebView)
+		host = ReaderWebViewVisualHandoffHostAdapter(viewerContainer::currentLiveWebView),
+		presentedFrameSequenceSource = viewerContainer::nextLiveEnginePresentedFrameSequence
 	)
 	private val presentationCommitHost = object : ReaderPresentationCommitHost {
 		override val isAttachedToWindow: Boolean
@@ -1209,8 +1211,16 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 				preparationShield = false
 			)
 		val shellCoverPrepared = preparedShellCoverGeneration != null
+		val neutralPredecessor = application?.decision?.let { decision ->
+			decision.authority == ReaderPresentationAuthority.Unavailable &&
+				decision.frameOwner == ReaderPresentationFrameOwner.Neutral
+		} == true
 		shellCoverView.visibility =
-			if (layers.shellCover || shellCoverPrepared) VISIBLE else GONE
+			if (layers.shellCover || shellCoverPrepared || neutralPredecessor) {
+				VISIBLE
+			} else {
+				GONE
+			}
 		shellCoverView.isClickable =
 			layers.shellCover &&
 				application?.inputPolicy == ReaderPresentationInputPolicy.ShellCover
@@ -1220,6 +1230,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 			"authority=${application?.decision?.authority?.let { it::class.simpleName } ?: "None"} " +
 				"layer=${application?.decision?.layer?.name ?: "None"} " +
 				"shell=${layers.shellCover} coverPrepared=$shellCoverPrepared " +
+				"neutralPredecessor=$neutralPredecessor " +
 				"preparationShield=${layers.preparationShield}"
 		if (lastNativeCoverVisibilityTrace != trace) {
 			lastNativeCoverVisibilityTrace = trace
@@ -1272,7 +1283,9 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	}
 
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
-		viewerContainer.setPageTurnCanvasEnabled(enabled)
+		viewerContainer.setPageTurnCanvasEnabled(enabled) {
+			presentationDecision?.let(presentationHostBridge::update)
+		}
 	}
 
 	fun setPageTurnReadingDirection(direction: String?) {
@@ -1727,6 +1740,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	FrameLayout(context),
 	ReaderSettingsWebViewMutationHost {
 	private val viewerContentContainer = FrameLayout(context)
+	private val liveEnginePresentedFrameSequenceAuthority =
+		ReaderLiveEnginePresentedFrameSequenceAuthority()
 	private val whispersyncCueMapView = ReaderWhispersyncCueMapNativeView(context)
 	private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 	private val readablePageDragSlopPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()
@@ -1768,6 +1783,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext =
 		ReaderLegacyLiveCompatibilityContext.Denied()
 	private var pageTurnCanvasEnabled: Boolean = false
+	private var pageTurnCanvasRequested: Boolean = false
 	private var pageTurnReadingDirection: String? = null
 	private var pageTurnBitmapQuality = ReaderPageBitmapQuality.Balanced
 	private var pageTurnSnapshotKey: Int = Int.MIN_VALUE
@@ -1786,6 +1802,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		ReaderNativePagePresentationPublisher(
 			frameSource = playLikeCurlController.presentedFrameSource,
 			currentCandidate = ::currentNativePagePresentationCandidateOrNull,
+			currentHandoffTransition = {
+				presentationDecision?.authoritativeLiveEngineToNativeTransitionOrNull()
+			},
 			handoffTimeoutScheduler = object : ReaderPageRelocationDispatchTimeoutScheduler {
 				override fun postDelayed(action: Runnable, delayMillis: Long): Boolean =
 					ownershipMainHandler.postDelayed(action, delayMillis)
@@ -1795,7 +1814,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				}
 			}
 		) { event ->
-			check(event is ReaderPresentationEvent.NativePagePresented)
+			check(
+				event is ReaderPresentationEvent.NativePagePresented ||
+					event is ReaderPresentationEvent.LiveEngineHandoffTimedOut ||
+					event is ReaderPresentationEvent.LiveEngineExposureFailed
+			)
 			dispatchPresentationEvent(event)
 		}
 	}
@@ -1970,6 +1993,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		foregroundWebViewOwnership = foregroundWebViewOwnership,
+		presentedFrameSequenceSource = ::nextLiveEnginePresentedFrameSequence,
 		bundleSource = pageTurnBundleSource,
 		diagnostics = readerRuntimeDiagnostics,
 		qaFaultRegistry = qaFaultRegistry,
@@ -2421,7 +2445,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	fun prepareShellCoverForCommit(shellCoverView: View) {
-		if (shellCoverView.parent === this && indexOfChild(shellCoverView) != 0) {
+		if (presentationDecision?.frameOwner == ReaderPresentationFrameOwner.Neutral) {
+			shellCoverView.bringToFront()
+		} else if (shellCoverView.parent === this && indexOfChild(shellCoverView) != 0) {
 			val layoutParams = shellCoverView.layoutParams
 			removeView(shellCoverView)
 			addView(shellCoverView, 0, layoutParams)
@@ -2502,24 +2528,46 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		cancelLegacyLivePointerStreamIfContextChanged()
 	}
 
-	fun requiresLiveEngineExposureHandoff(): Boolean = !pageTurnCanvasEnabled
+	fun requiresLiveEngineExposureHandoff(): Boolean = !pageTurnCanvasRequested
 
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
+		setPageTurnCanvasEnabled(enabled) {}
+	}
+
+	fun setPageTurnCanvasEnabled(
+		enabled: Boolean,
+		onModeIntentChanged: () -> Unit
+	) {
 		val supported = enabled && pageTurnBundleSource.isAvailable
-		if (pageTurnCanvasEnabled == supported) {
+		if (pageTurnCanvasRequested == supported) {
 			publishPagePreparationFacts()
 			return
 		}
-		if (!supported) {
+		pageTurnCanvasRequested = supported
+		onModeIntentChanged()
+		if (supported) nativePagePresentationPublisher.update()
+		if (supported || !pageTurnCanvasEnabled) {
+			applyActivePageTurnCanvasMode(supported)
+		} else {
+			publishPagePreparationFacts()
+		}
+	}
+
+	private fun applyActivePageTurnCanvasMode(enabled: Boolean) {
+		if (pageTurnCanvasEnabled == enabled) {
+			publishPagePreparationFacts()
+			return
+		}
+		if (!enabled) {
 			dispatchPageHostLifecycleEvent(
 				ReaderPageHostLifecycleEvent.CanvasDisabled
 			)
 		}
-		pageTurnCanvasEnabled = supported
+		pageTurnCanvasEnabled = enabled
 		cancelLegacyLivePointerStreamIfContextChanged()
-		playLikeCurlController.setEnabled(supported)
+		playLikeCurlController.setEnabled(enabled)
 		publishPagePreparationFacts()
-		if (supported) {
+		if (enabled) {
 			requestPageTurnPrewarmWhenReady()
 			commitStartupShellPresentationIfReady()
 		} else {
@@ -2637,9 +2685,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	fun currentLiveWebView(): WebView? = viewerContentContainer.findDescendantWebView()
 
+	fun nextLiveEnginePresentedFrameSequence(binding: ReaderPresentationBinding): Long =
+		liveEnginePresentedFrameSequenceAuthority.next(binding)
+
 	fun applyPresentationFrameOwner(decision: ReaderPresentationDecision) {
 		when (decision.frameOwner) {
 			is paige.navic.reader.ReaderPresentationFrameOwner.LiveEngine -> {
+				if (!pageTurnCanvasRequested && pageTurnCanvasEnabled) {
+					applyActivePageTurnCanvasMode(false)
+				}
 				playLikeCurlController.surfaceView.animate().cancel()
 				playLikeCurlController.surfaceView.alpha = 0f
 				playLikeCurlController.inlineRasterShieldView.animate().cancel()
@@ -2935,6 +2989,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	) {
 		presentationDecision = decision
+		playLikeCurlController.synchronizePresentationDecision(decision)
 		presentationInputPolicy = decision.inputPolicy
 		cancelLegacyLivePointerStreamIfContextChanged()
 		updateInputSettlementPolicies(rendererLossCancellationIdentity)
@@ -3008,6 +3063,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		pageTurnVisualLocationReason = reason
 		pageTurnSettlementAck = acknowledgement
 		presentationRelocationPending = presentationBindingReporter.lastReportedBinding != null
+		playLikeCurlController.stageCurrentWebViewOrdinal(normalized, origin)
 		reportPresentationIdentityIfAvailable()
 		playLikeCurlController.synchronizeVisualPageIndex(
 			normalized,

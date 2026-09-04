@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import karacken.curl.PageSurfaceView
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -36,6 +37,214 @@ import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.readerPresentationReduce
 
 class ReaderPresentationHostBridgeTest {
+	@Test
+	fun enablingNativeModeRequestsOneLiveEngineToNativeHandoff() {
+		val fixture = BridgeFixture()
+		var presentation = fixture.liveEngineExposedState(presentedFrameSequence = 23L)
+		var liveEngineRequired = true
+		val events = mutableListOf<ReaderPresentationEvent>()
+		val bridge = ReaderPresentationHostBridge(
+			host = fixture.host,
+			liveEngineExposureRequired = { liveEngineRequired }
+		) { event ->
+			events += event
+			presentation = readerPresentationReduce(presentation, event).state
+			readerTestPresentationReceipt(event, presentation)
+		}
+
+		bridge.update(readerPresentationDecision(presentation))
+		assertTrue(events.isEmpty())
+		liveEngineRequired = false
+		bridge.update(readerPresentationDecision(presentation))
+		bridge.update(readerPresentationDecision(presentation))
+
+		val request = assertIs<ReaderPresentationEvent.WebViewHandoffRequested>(events.single())
+		assertEquals(ReaderLiveEngineHandoffDirection.LiveEngineToNative, request.direction)
+		val pending = readerPresentationDecision(presentation)
+		assertIs<ReaderPresentationFrameOwner.LiveEngine>(pending.frameOwner)
+		val transition = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			pending.requiredTransition
+		)
+		assertEquals(ReaderLiveEngineHandoffDirection.LiveEngineToNative, transition.direction)
+		assertEquals(fixture.binding, transition.binding)
+	}
+
+	@Test
+	fun nativeModeIntentOwnsHandbackBeforeRebuiltNativeBindingAndRebindsExactProof() {
+		val fixture = BridgeFixture()
+		var presentation = fixture.liveEngineExposedState(presentedFrameSequence = 24L)
+		val retainedLiveFrame = assertIs<ReaderPresentationAuthority.LiveEngineExposed>(
+			presentation.authority
+		).frame
+		var liveEngineRequired = true
+		val events = mutableListOf<ReaderPresentationEvent>()
+		fun dispatch(event: ReaderPresentationEvent) = readerPresentationReduce(
+			presentation,
+			event
+		).let { reduction ->
+			events += event
+			presentation = reduction.state
+			readerTestPresentationReceipt(event, reduction.state)
+		}
+		val frameSource = HostBridgePresentedFrameSource()
+		val deadlines = HostBridgeDeadlineScheduler()
+		var candidate: ReaderNativePagePresentationCandidate? = null
+		val publisher = ReaderNativePagePresentationPublisher(
+			frameSource = frameSource,
+			currentCandidate = { candidate },
+			currentHandoffTransition = {
+				readerPresentationDecision(presentation)
+					.authoritativeLiveEngineToNativeTransitionOrNull()
+			},
+			handoffTimeoutScheduler = deadlines,
+			handoffTimeoutMillis = 1_000L,
+			onEvent = ::dispatch
+		)
+		val bridge = ReaderPresentationHostBridge(
+			host = fixture.host,
+			liveEngineExposureRequired = { liveEngineRequired },
+			onEvent = ::dispatch
+		)
+
+		bridge.update(readerPresentationDecision(presentation))
+		fixture.host.currentBinding = fixture.binding.copy(
+			rasterGeneration = null,
+			textureGeneration = null,
+			preparationGeneration = 8L
+		)
+		liveEngineRequired = false
+		bridge.update(readerPresentationDecision(presentation))
+
+		val request = assertIs<ReaderPresentationEvent.WebViewHandoffRequested>(events.single())
+		assertEquals(ReaderLiveEngineHandoffDirection.LiveEngineToNative, request.direction)
+		val pending = assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(
+			presentation.authority
+		)
+		assertEquals(retainedLiveFrame, pending.retainedFrame)
+		assertEquals(
+			paige.navic.reader.ReaderPresentationInputPolicy.LiveEngine,
+			readerPresentationDecision(presentation).inputPolicy
+		)
+		publisher.update()
+		assertEquals(1, deadlines.postCount)
+		assertTrue(deadlines.hasPending)
+		assertEquals(0, frameSource.requestCount)
+
+		val rebuiltBinding = fixture.binding.copy(
+			rasterGeneration = 15L,
+			textureGeneration = 16L,
+			preparationGeneration = 8L
+		)
+		fixture.host.currentBinding = rebuiltBinding
+		dispatch(
+			ReaderPresentationEvent.BindingReplaced(
+				previousBinding = fixture.binding,
+				binding = rebuiltBinding
+			)
+		)
+		val reboundDecision = readerPresentationDecision(presentation)
+		val rebound = assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(
+			reboundDecision.authority
+		)
+		assertEquals(pending.token, rebound.token)
+		assertEquals(rebuiltBinding, rebound.binding)
+		assertEquals(retainedLiveFrame, rebound.retainedFrame)
+		assertIs<ReaderPresentationFrameOwner.LiveEngine>(reboundDecision.frameOwner)
+		assertEquals(
+			paige.navic.reader.ReaderPresentationInputPolicy.LiveEngine,
+			reboundDecision.inputPolicy
+		)
+		val transition = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			reboundDecision.requiredTransition
+		)
+		assertEquals(pending.token, transition.token)
+		assertEquals(rebuiltBinding, transition.binding)
+		bridge.update(reboundDecision)
+		candidate = fixture.nativeCandidate(transition)
+		publisher.update()
+		assertEquals(1, deadlines.postCount)
+		assertEquals(1, frameSource.requestCount)
+
+		frameSource.present(1L)
+
+		val settled = assertIs<ReaderPresentationAuthority.SettledNativePage>(
+			presentation.authority
+		)
+		assertEquals(rebuiltBinding, settled.frame.proof.binding)
+		assertEquals(pending.token, settled.frame.proof.transitionToken)
+		assertFalse(deadlines.hasPending)
+		publisher.dispose()
+		bridge.dispose()
+	}
+
+	@Test
+	fun exactCancelInEitherDirectionDoesNotRecreateHandoffWithoutNewIntent() {
+		fun verify(
+			initialState: BridgeFixture.() -> ReaderPresentationState,
+			initialLiveEngineRequired: Boolean,
+			requestedLiveEngineRequired: Boolean,
+			direction: ReaderLiveEngineHandoffDirection
+		) {
+			val fixture = BridgeFixture()
+			var presentation = fixture.initialState()
+			var liveEngineRequired = initialLiveEngineRequired
+			val events = mutableListOf<ReaderPresentationEvent>()
+			val bridge = ReaderPresentationHostBridge(
+				host = fixture.host,
+				liveEngineExposureRequired = { liveEngineRequired }
+			) { event ->
+				events += event
+				presentation = readerPresentationReduce(presentation, event).state
+				readerTestPresentationReceipt(event, presentation)
+			}
+			fun requests() = events.filterIsInstance<ReaderPresentationEvent.WebViewHandoffRequested>()
+
+			bridge.update(readerPresentationDecision(presentation))
+			assertTrue(requests().isEmpty())
+			liveEngineRequired = requestedLiveEngineRequired
+			bridge.update(readerPresentationDecision(presentation))
+			val firstRequest = requests().single()
+			assertEquals(direction, firstRequest.direction)
+			val pending = assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(
+				presentation.authority
+			)
+			val cancelled = readerPresentationReduce(
+				presentation,
+				ReaderPresentationEvent.LiveEngineHandoffCancelled(
+					direction = pending.direction,
+					token = pending.token,
+					binding = pending.binding
+				)
+			)
+			presentation = cancelled.state
+
+			bridge.update(cancelled.decision)
+			bridge.update(cancelled.decision)
+			assertEquals(listOf(firstRequest), requests())
+
+			liveEngineRequired = initialLiveEngineRequired
+			bridge.update(cancelled.decision)
+			liveEngineRequired = requestedLiveEngineRequired
+			bridge.update(cancelled.decision)
+			assertEquals(2, requests().size)
+			assertEquals(direction, requests().last().direction)
+			bridge.dispose()
+		}
+
+		verify(
+			initialState = { nativeState },
+			initialLiveEngineRequired = false,
+			requestedLiveEngineRequired = true,
+			direction = ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+		)
+		verify(
+			initialState = { liveEngineExposedState(presentedFrameSequence = 24L) },
+			initialLiveEngineRequired = true,
+			requestedLiveEngineRequired = false,
+			direction = ReaderLiveEngineHandoffDirection.LiveEngineToNative
+		)
+	}
+
 	@Test
 	fun neutralInitialCoverCommitPreparesBehindNeutralAndCanResumeAfterDetach() {
 		val fixture = BridgeFixture()
@@ -330,64 +539,97 @@ class ReaderPresentationHostBridgeTest {
 	}
 
 	@Test
+	fun nativeHandbackDeadlineStartsBeforeCandidateReadinessAndOnlyFreshRetryRearms() {
+		val fixture = BridgeFixture()
+		var presentation = fixture.liveEngineHandbackState(presentedFrameSequence = 31L)
+		val first = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			readerPresentationDecision(presentation).requiredTransition
+		)
+		val frameSource = HostBridgePresentedFrameSource()
+		val deadlines = HostBridgeDeadlineScheduler()
+		val events = mutableListOf<ReaderPresentationEvent>()
+		var candidate: ReaderNativePagePresentationCandidate? = null
+		val publisher = ReaderNativePagePresentationPublisher(
+			frameSource = frameSource,
+			currentCandidate = { candidate },
+			currentHandoffTransition = {
+				readerPresentationDecision(presentation)
+					.authoritativeLiveEngineToNativeTransitionOrNull()
+			},
+			handoffTimeoutScheduler = deadlines,
+			handoffTimeoutMillis = 1_000L,
+			onEvent = { event ->
+				events += event
+				presentation = readerPresentationReduce(presentation, event).state
+				readerTestPresentationReceipt(event, presentation)
+			}
+		)
+
+		publisher.update()
+		assertEquals(0, frameSource.requestCount)
+		assertEquals(1, deadlines.postCount)
+		deadlines.runPending()
+
+		val timeout = assertIs<ReaderPresentationEvent.LiveEngineHandoffTimedOut>(events.single())
+		assertEquals(ReaderLiveEngineHandoffDirection.LiveEngineToNative, timeout.direction)
+		assertEquals(first.token, timeout.token)
+		assertEquals(first.binding, timeout.binding)
+		assertIs<ReaderPresentationFrameOwner.LiveEngine>(
+			readerPresentationDecision(presentation).frameOwner
+		)
+		publisher.update()
+		assertEquals(1, deadlines.postCount)
+		assertEquals(0, frameSource.requestCount)
+
+		candidate = fixture.nativeCandidate(first).copy(
+			transitionToken = null,
+			handoffDirection = null
+		)
+		publisher.update()
+		publisher.update()
+		assertEquals(0, frameSource.requestCount)
+
+		presentation = readerPresentationReduce(presentation, ReaderPresentationEvent.Retry).state
+		val retry = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			readerPresentationDecision(presentation).requiredTransition
+		)
+		assertFalse(retry.token == first.token)
+		publisher.update()
+		assertEquals(2, deadlines.postCount)
+		assertEquals(0, frameSource.requestCount)
+
+		frameSource.refuseNextRequest = true
+		candidate = fixture.nativeCandidate(retry)
+		publisher.update()
+
+		val unavailable = assertIs<ReaderPresentationEvent.LiveEngineExposureFailed>(events.last())
+		assertEquals(ReaderLiveEngineHandoffDirection.LiveEngineToNative, unavailable.direction)
+		assertEquals(retry.token, unavailable.token)
+		assertEquals(retry.binding, unavailable.binding)
+		assertEquals(
+			paige.navic.reader.ReaderPresentationFailureReason.NativePresentationUnavailable,
+			unavailable.reason
+		)
+		assertFalse(deadlines.hasPending)
+		publisher.update()
+		assertEquals(1, frameSource.requestCount)
+		assertEquals(2, deadlines.postCount)
+		assertIs<ReaderPresentationFrameOwner.LiveEngine>(
+			readerPresentationDecision(presentation).frameOwner
+		)
+	}
+
+	@Test
 	fun actualNativePresentedFrameCommitsExactLiveEngineHandback() {
 		val fixture = BridgeFixture()
-		var presentation = fixture.nativeState
-		val exposureRequested = readerPresentationReduce(
-			presentation,
-			ReaderPresentationEvent.WebViewHandoffRequested(
-				ReaderLiveEngineHandoffDirection.NativeToLiveEngine
-			)
-		)
-		val exposure = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
-			exposureRequested.decision.requiredTransition
-		)
-		val liveProof = ReaderLiveEnginePresentationProof(
-			token = exposure.token,
-			binding = fixture.binding,
-			presentedFrameSequence = 30L
-		)
-		presentation = readerPresentationReduce(
-			exposureRequested.state,
-			ReaderPresentationEvent.LiveEngineExposureCommitted(liveProof)
-		).state
-		val handback = readerPresentationReduce(
-			presentation,
-			ReaderPresentationEvent.WebViewHandoffRequested(
-				ReaderLiveEngineHandoffDirection.LiveEngineToNative
-			)
-		)
-		presentation = handback.state
+		var presentation = fixture.liveEngineHandbackState(presentedFrameSequence = 30L)
 		val transition = assertIs<ReaderRequiredTransition.PresentNativePage>(
-			handback.decision.requiredTransition
+			readerPresentationDecision(presentation).requiredTransition
 		)
-		assertEquals(ReaderPresentationLayer.LiveEngine, handback.decision.layer)
+		assertEquals(ReaderPresentationLayer.LiveEngine, readerPresentationDecision(presentation).layer)
 
 		val frameSource = HostBridgePresentedFrameSource()
-		val candidate = ReaderNativePagePresentationHostSnapshot(
-			binding = fixture.binding,
-			transitionToken = transition.token,
-			deck = ReaderPagePreparedActiveDeck(
-				rasterProfileEpoch = fixture.binding.profileGeneration,
-				rasterEpoch = requireNotNull(fixture.binding.rasterGeneration),
-				sourceCenterPageIndex = 4,
-				generationId = requireNotNull(fixture.binding.textureGeneration),
-				preparationGeneration = requireNotNull(fixture.binding.preparationGeneration)
-			),
-			preparationFacts = ReaderPagePreparationFacts(
-				phase = ReaderPagePreparationPhase.Ready,
-				generation = requireNotNull(fixture.binding.preparationGeneration)
-			),
-			visualPageIndex = 4,
-			viewportWidth = 1920,
-			viewportHeight = 1200,
-			hostAttached = true,
-			windowVisible = true,
-			viewerReplacementAdmitted = true,
-			rendererDeckReady = true,
-			nativePresentationVisible = true,
-			shellCoverSelected = false
-		).currentCandidateOrNull()
+		val candidate = fixture.nativeCandidate(transition)
 		val publisher = ReaderNativePagePresentationPublisher(
 			frameSource = frameSource,
 			currentCandidate = { candidate },
@@ -940,8 +1182,16 @@ class ReaderPresentationHostBridgeTest {
 private class HostBridgePresentedFrameSource : ReaderNativePagePresentedFrameSource {
 	private var nextId = 1L
 	private val callbacks = mutableMapOf<Long, (Long) -> Unit>()
+	var requestCount = 0
+		private set
+	var refuseNextRequest = false
 
 	override fun requestNextPresentedFrame(onPresented: (Long) -> Unit): Long {
+		requestCount += 1
+		if (refuseNextRequest) {
+			refuseNextRequest = false
+			return PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
+		}
 		val id = nextId++
 		callbacks[id] = onPresented
 		return id
@@ -955,7 +1205,31 @@ private class HostBridgePresentedFrameSource : ReaderNativePagePresentedFrameSou
 	}
 }
 
-private class BridgeFixture {
+private class HostBridgeDeadlineScheduler : ReaderPageRelocationDispatchTimeoutScheduler {
+	private var pending: Runnable? = null
+	var postCount = 0
+		private set
+	val hasPending: Boolean
+		get() = pending != null
+
+	override fun postDelayed(action: Runnable, delayMillis: Long): Boolean {
+		postCount += 1
+		pending = action
+		return true
+	}
+
+	override fun removeCallbacks(action: Runnable) {
+		if (pending === action) pending = null
+	}
+
+	fun runPending() {
+		val action = requireNotNull(pending)
+		pending = null
+		action.run()
+	}
+}
+
+internal class BridgeFixture {
 	val binding = ReaderPresentationBinding(
 		foliateSessionId = "session-current",
 		publicationGeneration = 2L,
@@ -999,6 +1273,71 @@ private class BridgeFixture {
 			readerPresentationReduce(pendingState, event).state
 		)
 	}
+
+	fun liveEngineExposedState(
+		presentedFrameSequence: Long
+	): ReaderPresentationState {
+		val exposureRequest = readerPresentationReduce(
+			nativeState,
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+			)
+		)
+		val exposure = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
+			exposureRequest.decision.requiredTransition
+		)
+		return readerPresentationReduce(
+			exposureRequest.state,
+			ReaderPresentationEvent.LiveEngineExposureCommitted(
+				ReaderLiveEnginePresentationProof(
+					exposure.token,
+					exposure.binding,
+					presentedFrameSequence
+				)
+			)
+		).state
+	}
+
+	fun liveEngineHandbackState(
+		presentedFrameSequence: Long
+	): ReaderPresentationState = readerPresentationReduce(
+		liveEngineExposedState(presentedFrameSequence),
+		ReaderPresentationEvent.WebViewHandoffRequested(
+			ReaderLiveEngineHandoffDirection.LiveEngineToNative
+		)
+	).state
+
+	fun nativeCandidate(
+		transition: ReaderRequiredTransition.PresentNativePage
+	): ReaderNativePagePresentationCandidate = requireNotNull(
+		ReaderNativePagePresentationHostSnapshot(
+			binding = transition.binding,
+			transitionToken = transition.token,
+			deck = ReaderPagePreparedActiveDeck(
+				rasterProfileEpoch = transition.binding.profileGeneration,
+				rasterEpoch = requireNotNull(transition.binding.rasterGeneration),
+				sourceCenterPageIndex = 4,
+				generationId = requireNotNull(transition.binding.textureGeneration),
+				preparationGeneration = requireNotNull(
+					transition.binding.preparationGeneration
+				)
+			),
+			preparationFacts = ReaderPagePreparationFacts(
+				phase = ReaderPagePreparationPhase.Ready,
+				generation = requireNotNull(transition.binding.preparationGeneration)
+			),
+			visualPageIndex = 4,
+			viewportWidth = 1920,
+			viewportHeight = 1200,
+			hostAttached = true,
+			windowVisible = true,
+			viewerReplacementAdmitted = true,
+			rendererDeckReady = true,
+			nativePresentationVisible = true,
+			shellCoverSelected = false,
+			handoffDirection = transition.direction
+		).currentCandidateOrNull()
+	)
 
 	fun emitCoverReceipt(): ReaderPresentationEvent.ShellCoverCommitted {
 		bridge.update(pendingDecision)
@@ -1115,8 +1454,9 @@ private class LayerBackedReaderPresentationCommitHost(
 	}
 }
 
-private class FakeReaderPresentationCommitHost(
-	binding: ReaderPresentationBinding
+internal class FakeReaderPresentationCommitHost(
+	binding: ReaderPresentationBinding,
+	private val applyFrameOwner: (ReaderPresentationDecision) -> Unit = {}
 ) : ReaderPresentationCommitHost {
 	var attached = true
 	var currentBinding: ReaderPresentationBinding? = binding
@@ -1175,6 +1515,10 @@ private class FakeReaderPresentationCommitHost(
 		animationFrames += onFrame
 	}
 
+	override fun applyPresentationFrameOwner(decision: ReaderPresentationDecision) {
+		applyFrameOwner(decision)
+	}
+
 	fun runNextAnimationFrame() {
 		animationFrames.removeFirstOrNull()?.invoke()
 	}
@@ -1184,7 +1528,7 @@ private class FakeReaderPresentationCommitHost(
 	}
 }
 
-private class FakeDrawRegistration(
+internal class FakeDrawRegistration(
 	private val onDraw: () -> Unit
 ) : ReaderPresentationDrawRegistration {
 	var unregisterCount = 0

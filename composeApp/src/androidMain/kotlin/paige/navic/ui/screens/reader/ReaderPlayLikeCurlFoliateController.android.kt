@@ -61,6 +61,7 @@ import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderLiveEngineHandoffDirection
 import paige.navic.reader.ReaderLiveEnginePresentationProof
 import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderRequiredTransition
@@ -786,6 +787,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val webViewProvider: () -> WebView?,
 	private val foregroundWebViewOwnership: ReaderForegroundWebViewOwnership =
 		ReaderForegroundWebViewOwnership(),
+	private val presentedFrameSequenceSource: ((ReaderPresentationBinding) -> Long)? = null,
 	private val bundleSource: ReaderPageTurnBundleSource,
 	private val diagnostics: ReaderPageRuntimeDiagnostics? = null,
 	private val qaFaultRegistry: ReaderPageQaFaultRegistry? = null,
@@ -1097,9 +1099,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 					ReaderPresentationEvent.LiveEngineExposureCommitted(proof)
 				)
 			},
+			publishLiveEngineHandoffTerminal = onPresentationEvent,
 			canRecover = { qaFaultRegistry?.isClosed() != true },
 			timeoutMillis = ReaderPageRelocationVisualHandoffTimeoutMillis,
 			contentValidationTimeoutMillis = 2_000L,
+			presentedFrameSequenceSource = presentedFrameSequenceSource,
 			onOwnershipMutated = onOwnershipMutated,
 			attemptEventSink =
 				ReaderWebViewVisualHandoffAttemptEventSink(::onHandoffAttemptEvent),
@@ -1813,6 +1817,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	fun synchronizePresentationDecision(decision: ReaderPresentationDecision) {
+		val transition = decision.requiredTransition as?
+			ReaderRequiredTransition.ExposeLiveEngine
+		if (transition?.direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine) {
+			relocationVisualHandoffCoordinator.synchronizeCommonPresentationHandoff(transition)
+			return
+		}
+		relocationVisualHandoffCoordinator.synchronizeCommonPresentationDecision(decision)
+	}
+
 	fun setEnabled(value: Boolean) {
 		if (enabled == value) return
 		enabled = value
@@ -2385,6 +2399,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
+	fun stageCurrentWebViewOrdinal(
+		pageIndex: Int?,
+		origin: ReaderPageVisualLocationOrigin
+	) {
+		val normalized = pageIndex?.takeIf { it >= 0 } ?: return
+		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
+			currentWebViewOrdinal = normalized
+		}
+	}
+
 	fun synchronizeVisualPageIndex(
 		pageIndex: Int?,
 		_reason: String?,
@@ -2432,9 +2456,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						acknowledged,
 						ReaderPageRelocationDiagnosticState.Acknowledged
 					)
-					check(relocationVisualHandoffCoordinator.onAcknowledged(acknowledged)) {
-						"Acknowledged relocation did not start visual handoff"
-					}
+					if (!startAcknowledgedVisualHandoff(acknowledged, null)) return
 					foliateSessionRelocationPending = false
 					refillDecodedWorkingSet(
 						acknowledged.destinationOrdinal,
@@ -2467,6 +2489,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 		requestInitialLivePresentationAuthorityForActiveDeck()
 	}
 
+	private fun startAcknowledgedVisualHandoff(
+		request: ReaderPageRelocationRequest,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation?
+	): Boolean = relocationVisualHandoffCoordinator.onAcknowledged(
+		request,
+		qaFaultCorrelation
+	).also { accepted ->
+		if (!accepted) relocationLiveDispatchCoordinator.fail(
+			request,
+			ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+		)
+	}
+
 	private fun completeAcknowledgedRelocation(
 		acknowledged: ReaderPageRelocationRequest,
 		qaFaultCorrelation: ReaderPageQaFaultCorrelation?
@@ -2494,15 +2529,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPageRelocationDiagnosticState.Acknowledged,
 			qaFaultCorrelation = qaFaultCorrelation
 		)
-		val started = if (qaFaultCorrelation == null) {
-			relocationVisualHandoffCoordinator.onAcknowledged(acknowledged)
-		} else {
-			relocationVisualHandoffCoordinator.onAcknowledged(
-				acknowledged,
-				qaFaultCorrelation
-			)
-		}
-		check(started) { "Acknowledged relocation did not start visual handoff" }
+		if (!startAcknowledgedVisualHandoff(acknowledged, qaFaultCorrelation)) return
 		foliateSessionRelocationPending = false
 		refillDecodedWorkingSet(
 			acknowledged.destinationOrdinal,

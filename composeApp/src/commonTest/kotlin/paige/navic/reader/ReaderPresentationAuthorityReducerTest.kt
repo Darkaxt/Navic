@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ReaderPresentationAuthorityReducerTest {
@@ -434,6 +435,101 @@ class ReaderPresentationAuthorityReducerTest {
 			committed.decision.frameOwner
 		)
 		assertEquals(ReaderPresentationLayer.NativePage, committed.decision.layer)
+	}
+
+	@Test
+	fun staleHandoffTerminalsCannotAlterFreshRetryAndExactCancelRestoresPredecessor() {
+		val firstRequest = readerPresentationReduce(
+			settledNativeState(nextTokenValue = 51L),
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+			)
+		)
+		val first = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
+			firstRequest.decision.requiredTransition
+		)
+		val timedOut = readerPresentationReduce(
+			firstRequest.state,
+			ReaderPresentationEvent.LiveEngineHandoffTimedOut(
+				direction = first.direction,
+				token = first.token,
+				binding = first.binding
+			)
+		)
+		val duplicateTimeout = readerPresentationReduce(
+			timedOut.state,
+			ReaderPresentationEvent.LiveEngineHandoffTimedOut(
+				direction = first.direction,
+				token = first.token,
+				binding = first.binding
+			)
+		)
+		assertEquals(ReaderPresentationEventDisposition.Idempotent, duplicateTimeout.disposition)
+
+		val retried = readerPresentationReduce(timedOut.state, ReaderPresentationEvent.Retry)
+		val fresh = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
+			retried.decision.requiredTransition
+		)
+		assertFalse(fresh.token == first.token)
+		val staleEvents = listOf(
+			ReaderPresentationEvent.LiveEngineHandoffTimedOut(
+				first.direction,
+				first.token,
+				first.binding
+			),
+			ReaderPresentationEvent.LiveEngineExposureFailed(
+				direction = first.direction,
+				token = first.token,
+				binding = first.binding,
+				reason = ReaderPresentationFailureReason.LiveEngineUnavailable
+			),
+			ReaderPresentationEvent.LiveEngineHandoffCancelled(
+				direction = first.direction,
+				token = first.token,
+				binding = first.binding
+			),
+			ReaderPresentationEvent.LiveEngineHandoffCancelled(
+				direction = ReaderLiveEngineHandoffDirection.LiveEngineToNative,
+				token = fresh.token,
+				binding = fresh.binding
+			),
+			ReaderPresentationEvent.LiveEngineHandoffCancelled(
+				direction = fresh.direction,
+				token = fresh.token,
+				binding = fresh.binding.copy(viewportGeneration = 3L)
+			)
+		)
+		staleEvents.forEach { event ->
+			val stale = readerPresentationReduce(retried.state, event)
+			assertEquals(retried.state, stale.state, "event=$event")
+			assertEquals(ReaderPresentationEventDisposition.Stale, stale.disposition, "event=$event")
+			assertTrue(stale.effects.isEmpty(), "event=$event")
+		}
+		listOf<ReaderPresentationEvent>(
+			ReaderPresentationEvent.TimedOut(fresh.token),
+			ReaderPresentationEvent.Cancel
+		).forEach { event ->
+			val rejected = readerPresentationReduce(retried.state, event)
+			assertEquals(retried.state, rejected.state, "event=$event")
+			assertEquals(
+				ReaderPresentationEventDisposition.Rejected,
+				rejected.disposition,
+				"event=$event"
+			)
+		}
+
+		val cancelled = readerPresentationReduce(
+			retried.state,
+			ReaderPresentationEvent.LiveEngineHandoffCancelled(
+				direction = fresh.direction,
+				token = fresh.token,
+				binding = fresh.binding
+			)
+		)
+		assertEquals(ReaderPresentationEventDisposition.Accepted, cancelled.disposition)
+		assertEquals(settledNativeState().authority, cancelled.state.authority)
+		assertNull(cancelled.state.failure)
+		assertEquals(ReaderRequiredTransition.None, cancelled.decision.requiredTransition)
 	}
 
 	@Test

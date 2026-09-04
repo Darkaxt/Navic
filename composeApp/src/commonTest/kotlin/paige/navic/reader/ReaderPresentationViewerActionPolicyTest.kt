@@ -298,7 +298,7 @@ class ReaderPresentationViewerActionPolicyTest {
 	}
 
 	@Test
-	fun exactColdLegacyContextAdmitsRecoveryActionsAndRejectsEveryFence() {
+	fun exactColdLegacyContextCannotAuthorizeRecoveryContentActions() {
 		val opened = ReaderController().open(openRequest()).controller
 		val context = assertIs<ReaderLegacyLiveCompatibilityContext.ColdSession>(
 			ReaderLegacyLiveCompatibilityGate().resolve(
@@ -307,7 +307,7 @@ class ReaderPresentationViewerActionPolicyTest {
 			)
 		)
 
-		assertTrue(
+		assertFalse(
 			readerViewerActionIsAdmitted(
 				ReaderPresentationInputPolicy.RecoveryOnly,
 				ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
@@ -321,12 +321,13 @@ class ReaderPresentationViewerActionPolicyTest {
 				context
 			)
 		)
-		assertTrue(
-			opened.onViewerAction(
-				ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
-				context
-			).engineCommands.single() is ReaderEngineCommand.TurnPage
+		val denied = opened.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
+			context
 		)
+		assertEquals(opened, denied.controller)
+		assertTrue(denied.engineCommands.isEmpty())
+		assertTrue(denied.presentationEffects.isEmpty())
 
 		val binding = ReaderPresentationBinding(
 			foliateSessionId = "fixture-session",
@@ -438,12 +439,13 @@ class ReaderPresentationViewerActionPolicyTest {
 				context
 			).controller
 		)
-		assertTrue(
-			transitioned.onViewerAction(
-				ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
-				transitionedContext
-			).engineCommands.single() is ReaderEngineCommand.TurnPage
+		val currentDenied = transitioned.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
+			transitionedContext
 		)
+		assertEquals(transitioned, currentDenied.controller)
+		assertTrue(currentDenied.engineCommands.isEmpty())
+		assertTrue(currentDenied.presentationEffects.isEmpty())
 		assertFalse(
 			readerViewerActionIsAdmitted(
 				ReaderPresentationInputPolicy.ClaimedCurl(ReaderPresentationToken(1L)),

@@ -1,9 +1,15 @@
 package paige.navic.ui.screens.reader
 
+import android.content.Context
+import android.os.Build
 import android.view.MotionEvent
+import android.view.View
+import android.webkit.WebView
+import android.widget.FrameLayout
 import java.io.File
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
@@ -15,6 +21,7 @@ import paige.navic.reader.ReaderLiveEngineHandoffDirection
 import paige.navic.reader.ReaderLiveEnginePresentationProof
 import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.ReaderPageRelocationQueue
+import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPageRelocationReservationResult
 import paige.navic.reader.ReaderPageRelocationTransferResult
 import paige.navic.reader.ReaderPageTurnDirection
@@ -28,6 +35,8 @@ import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderDiagnosticPresentation
 import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationEventDisposition
+import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationInputPolicy
@@ -41,8 +50,11 @@ import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationIdentity
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderTextureDeckState
+import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.readerPresentationReduce
+import paige.navic.reader.readerViewerActionIsAdmitted
+import paige.navic.reader.publicationIdentity
 import paige.navic.reader.readerPagePreparationState
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -63,32 +75,16 @@ class KomikkuReaderNativeFrameHostTest {
 	)
 
 	@Test
-	fun productionRelocationUsesCommonRequestAndReceiptBeforeExposingLiveEngine() {
+	fun productionRelocationTimeoutFailsExactCommonHandoffAndRetainsNativeAuthority() {
 		val queue = ReaderPageRelocationQueue()
-		val reservation = assertIs<ReaderPageRelocationReservationResult.Reserved>(
-			queue.reserve(gestureId = 51L)
-		).reservation
-		val request = assertIs<ReaderPageRelocationTransferResult.Enqueued>(
-			queue.enqueueReserved(
-				reservation,
-				rasterGeneration = 10L,
-				textureGeneration = 20L,
-				sourceOrdinal = 3,
-				destinationOrdinal = 4,
-				logicalDirection = ReaderPageTurnDirection.Next,
-				foliateSessionId = "session-a"
-			)
-		).request
-		assertEquals(request, queue.commandToDispatch())
-		assertTrue(
-			queue.acknowledge(
-				request.token.value,
-				request.destinationOrdinal,
-				request.foliateSessionId,
-				request.rasterGeneration,
-				request.textureGeneration
-			)
+		val request = enqueueTask7Relocation(
+			queue = queue,
+			gestureId = 51L,
+			sourceOrdinal = 3,
+			destinationOrdinal = 4,
+			foliateSessionId = "session-a"
 		)
+		acknowledgeTask7Relocation(queue, request)
 		val handoffHost = Task7VisualHandoffHost()
 		val binding = ReaderPresentationBinding(
 			request.foliateSessionId, 2L, 3L, 4L,
@@ -108,16 +104,651 @@ class KomikkuReaderNativeFrameHostTest {
 			nextTokenValue = 52L
 		)
 		val events = mutableListOf<ReaderPresentationEvent>()
+		fun publish(event: ReaderPresentationEvent) = readerTestPresentationReceipt(
+			event = event,
+			postState = readerPresentationReduce(presentation, event).also {
+				events += event
+				presentation = it.state
+			}.state
+		)
+		val coordinator = task7CommonRelocationCoordinator(
+			queue = queue,
+			request = request,
+			host = handoffHost,
+			publish = ::publish
+		)
+
+		assertTrue(coordinator.onAcknowledged(request))
+		val requested = assertIs<ReaderPresentationEvent.WebViewHandoffRequested>(events.single())
+		assertEquals(ReaderLiveEngineHandoffDirection.NativeToLiveEngine, requested.direction)
+		val transition = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
+			readerPresentationDecision(presentation).requiredTransition
+		)
+		assertIs<ReaderPresentationFrameOwner.NativePage>(
+			readerPresentationDecision(presentation).frameOwner
+		)
+
+		handoffHost.timeOut()
+
+		val terminal = assertIs<ReaderPresentationEvent.LiveEngineHandoffTimedOut>(events.last())
+		assertEquals(ReaderLiveEngineHandoffDirection.NativeToLiveEngine, terminal.direction)
+		assertEquals(transition.token, terminal.token)
+		assertEquals(transition.binding, terminal.binding)
+		assertEquals(
+			ReaderDiagnosticPresentation.Failure(
+				ReaderPresentationFailureReason.TimedOut,
+				retryable = true,
+				cancellable = true
+			),
+			readerPresentationDecision(presentation).diagnosticPresentation
+		)
+		assertIs<ReaderPresentationFrameOwner.NativePage>(
+			readerPresentationDecision(presentation).frameOwner
+		)
+		assertEquals(request, queue.head())
+
+		presentation = readerPresentationReduce(
+			presentation,
+			ReaderPresentationEvent.Retry
+		).state
+		val retry = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
+			readerPresentationDecision(presentation).requiredTransition
+		)
+		assertFalse(retry.token == transition.token)
+		assertTrue(coordinator.synchronizeCommonPresentationHandoff(retry))
+		assertFalse(coordinator.synchronizeCommonPresentationHandoff(retry))
+		assertFalse(handoffHost.takeVisual().deliver())
+		handoffHost.attached = false
+		handoffHost.deliverVisual()
+
+		val retryTerminal = assertIs<ReaderPresentationEvent.LiveEngineExposureFailed>(events.last())
+		assertEquals(ReaderLiveEngineHandoffDirection.NativeToLiveEngine, retryTerminal.direction)
+		assertEquals(retry.token, retryTerminal.token)
+		assertEquals(retry.binding, retryTerminal.binding)
+		assertEquals(
+			ReaderPresentationFailureReason.LiveEngineUnavailable,
+			retryTerminal.reason
+		)
+		assertEquals(
+			ReaderDiagnosticPresentation.Failure(
+				ReaderPresentationFailureReason.LiveEngineUnavailable,
+				retryable = true,
+				cancellable = true
+			),
+			readerPresentationDecision(presentation).diagnosticPresentation
+		)
+		assertIs<ReaderPresentationFrameOwner.NativePage>(
+			readerPresentationDecision(presentation).frameOwner
+		)
+	}
+
+	@Test
+	fun relocationAndModePublishersKeepLiveFrameSequenceMonotonicWithinPublication() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueTask7Relocation(
+			queue = queue,
+			gestureId = 52L,
+			sourceOrdinal = 3,
+			destinationOrdinal = 4,
+			foliateSessionId = "shared-sequence-session"
+		)
+		acknowledgeTask7Relocation(queue, request)
+		val binding = ReaderPresentationBinding(
+			request.foliateSessionId, 2L, 3L, 4L,
+			rasterGeneration = request.rasterGeneration,
+			textureGeneration = request.textureGeneration,
+			preparationGeneration = 7L
+		)
+		val predecessorProof = ReaderNativePagePresentationProof(
+			binding, null, 8L, 1200, 800,
+			request.rasterGeneration, request.textureGeneration
+		)
+		var presentation = ReaderPresentationState(
+			ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(predecessorProof)
+			),
+			binding = binding,
+			nextTokenValue = 53L
+		)
+		val events = mutableListOf<ReaderPresentationEvent>()
+		fun publish(event: ReaderPresentationEvent): paige.navic.reader.ReaderPresentationEventReceipt {
+			val reduction = readerPresentationReduce(presentation, event)
+			events += event
+			presentation = reduction.state
+			return readerTestPresentationReceipt(
+				event = event,
+				postState = reduction.state,
+				disposition = reduction.disposition
+			)
+		}
+
+		val liveFrameSequences = ReaderLiveEnginePresentedFrameSequenceAuthority()
+		val relocationHost = Task7VisualHandoffHost()
+		val coordinator = task7CommonRelocationCoordinator(
+			queue = queue,
+			request = request,
+			host = relocationHost,
+			publish = ::publish,
+			presentedFrameSequenceSource = liveFrameSequences::next
+		)
+
+		assertTrue(coordinator.onAcknowledged(request))
+		relocationHost.deliverVisual()
+		relocationHost.presentFrame()
+		val firstLive = assertIs<ReaderPresentationAuthority.LiveEngineExposed>(
+			presentation.authority
+		).frame.proof
+		assertEquals(1L, firstLive.presentedFrameSequence)
+		assertNull(queue.head())
+
+		publish(
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.LiveEngineToNative
+			)
+		)
+		val nativeTransition = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			readerPresentationDecision(presentation).requiredTransition
+		)
+		publish(
+			ReaderPresentationEvent.NativePagePresented(
+				predecessorProof.copy(
+					transitionToken = nativeTransition.token,
+					presentedFrame = 9L
+				)
+			)
+		)
+		assertIs<ReaderPresentationAuthority.SettledNativePage>(presentation.authority)
+
+		val modeHost = Task7VisualHandoffHost()
+		val modeBridge = ReaderPresentationHostBridge(
+			host = FakeReaderPresentationCommitHost(binding),
+			liveEngineVisualHandoff = ReaderWebViewVisualHandoff(
+				host = modeHost,
+				presentedFrameSequenceSource = liveFrameSequences::next
+			),
+			liveEngineExposureRequired = { true },
+			onEvent = ::publish
+		)
+		modeBridge.update(readerPresentationDecision(presentation))
+		modeHost.deliverVisual()
+		modeHost.presentFrame()
+
+		val secondLive = assertIs<ReaderPresentationAuthority.LiveEngineExposed>(
+			presentation.authority
+		).frame.proof
+		assertEquals(2L, secondLive.presentedFrameSequence)
+		assertTrue(secondLive.token.value > firstLive.token.value)
+		assertEquals(
+			listOf(1L, 2L),
+			events.filterIsInstance<ReaderPresentationEvent.LiveEngineExposureCommitted>()
+				.map { it.proof.presentedFrameSequence }
+		)
+	}
+
+	@Test
+	fun nativeTurnCausallyRebindsPendingLiveHandoffBeforeAcknowledgementRetry() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueTask7Relocation(
+			queue = queue,
+			gestureId = 53L,
+			sourceOrdinal = 3,
+			destinationOrdinal = 4,
+			foliateSessionId = "pending-turn-session"
+		)
+		val bindingA = ReaderPresentationBinding(
+			foliateSessionId = request.foliateSessionId,
+			publicationGeneration = 2L,
+			viewportGeneration = 3L,
+			profileGeneration = 4L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				request.foliateSessionId,
+				3L
+			),
+			rasterGeneration = 9L,
+			textureGeneration = 19L,
+			preparationGeneration = 7L
+		)
+		val bindingB = bindingA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				request.foliateSessionId,
+				4L
+			),
+			rasterGeneration = request.rasterGeneration,
+			textureGeneration = request.textureGeneration
+		)
+		val proofA = ReaderNativePagePresentationProof(
+			bindingA, null, 8L, 1200, 800, 9L, 19L
+		)
+		val settledA = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(proofA)
+			),
+			binding = bindingA,
+			nextTokenValue = 54L
+		)
+		val pendingA = readerPresentationReduce(
+			settledA,
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+			)
+		).state
+		val transitionA = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
+			readerPresentationDecision(pendingA).requiredTransition
+		)
+		val nativeOwnerA = ReaderPresentationFrameOwner.NativePage(proofA)
+		assertEquals(nativeOwnerA, readerPresentationDecision(pendingA).frameOwner)
+		assertIs<ReaderPresentationInputPolicy.NativePage>(
+			readerPresentationDecision(pendingA).inputPolicy
+		)
+
+		val reboundReduction = readerPresentationReduce(
+			pendingA,
+			ReaderPresentationEvent.FoliateRelocated(bindingB, acknowledgement = null)
+		)
+		val authoritative = Task7PresentationStore(reboundReduction.state)
+		val staleHost = Task7PresentationStore(pendingA)
+		val recovery = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val visualHost = Task7VisualHandoffHost()
+		val coordinator = task7CommonRelocationCoordinator(
+			queue = queue,
+			request = request,
+			host = visualHost,
+			publish = authoritative::publish,
+			requestPresentationEvent = staleHost::publish,
+			publishRecovery = { _, reason -> recovery += reason },
+			publishLiveEngineHandoffTerminal = { error("Unexpected terminal: $it") }
+		)
+
+		acknowledgeTask7Relocation(queue, request)
+		assertTrue(
+			coordinator.onAcknowledged(request),
+			"Exact acknowledged B should defer instead of hitting the stale-A start check"
+		)
+		assertTrue(recovery.isEmpty())
+
+		assertEquals(ReaderPresentationEventDisposition.Accepted, reboundReduction.disposition)
+		val pendingB = assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(
+			authoritative.state.authority
+		)
+		assertEquals(transitionA.token, pendingB.token)
+		assertEquals(bindingB, pendingB.binding)
+		assertEquals(nativeOwnerA, pendingB.retainedFrame)
+		assertEquals(nativeOwnerA, readerPresentationDecision(authoritative.state).frameOwner)
+		assertIs<ReaderPresentationInputPolicy.NativePage>(
+			readerPresentationDecision(authoritative.state).inputPolicy
+		)
+		assertEquals(pendingA.nextTokenValue, authoritative.state.nextTokenValue)
+
+		val delayedA = readerPresentationReduce(
+			authoritative.state,
+			ReaderPresentationEvent.LiveEngineExposureCommitted(
+				ReaderLiveEnginePresentationProof(transitionA.token, bindingA, 1L)
+			)
+		)
+		assertEquals(ReaderPresentationEventDisposition.Stale, delayedA.disposition)
+		assertEquals(authoritative.state, delayedA.state)
+
+		staleHost.state = authoritative.state
+		val transitionB = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
+			readerPresentationDecision(authoritative.state).requiredTransition
+		)
+		assertTrue(coordinator.synchronizeCommonPresentationHandoff(transitionB))
+		visualHost.deliverVisual()
+		visualHost.presentFrame()
+
+		val exposedB = assertIs<ReaderPresentationAuthority.LiveEngineExposed>(
+			authoritative.state.authority
+		).frame.proof
+		assertEquals(transitionA.token, exposedB.token)
+		assertEquals(bindingB, exposedB.binding)
+		assertNull(queue.head())
+		assertTrue(recovery.isEmpty())
+	}
+
+	@Test
+	fun causalLiveHandoffRebindKeepsExistingVisualOwnerAndDeadline() {
+		val fixture = BridgeFixture()
+		val bindingA = fixture.binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				fixture.binding.foliateSessionId,
+				3L
+			)
+		)
+		val bindingB = bindingA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				fixture.binding.foliateSessionId,
+				4L
+			)
+		)
+		val nativeA = fixture.nativeProof.copy(binding = bindingA)
+		val settledA = fixture.nativeState.copy(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(nativeA)
+			),
+			binding = bindingA
+		)
+		val pendingA = readerPresentationReduce(
+			settledA,
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+			)
+		).state
+		val authorityA = assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(
+			pendingA.authority
+		)
+		val pendingB = pendingA.copy(
+			authority = authorityA.copy(binding = bindingB),
+			binding = bindingB
+		)
+		val presentation = Task7PresentationStore(pendingA)
+		val commitHost = FakeReaderPresentationCommitHost(bindingA)
+		val visualHost = Task7VisualHandoffHost()
+		val bridge = ReaderPresentationHostBridge(
+			host = commitHost,
+			liveEngineVisualHandoff = ReaderWebViewVisualHandoff(visualHost),
+			liveEngineExposureRequired = { true },
+			onEvent = presentation::publish
+		)
+
+		bridge.update(readerPresentationDecision(presentation.state))
+		val existingVisualRequest = visualHost.takeVisual()
+		assertEquals(1, visualHost.delayedPostCount)
+		val ownerGeneration = visualHost.ownerGeneration
+
+		presentation.state = pendingB
+		commitHost.currentBinding = bindingB
+		bridge.update(readerPresentationDecision(pendingB))
+
+		assertEquals(1, visualHost.delayedPostCount, "Causal rebind restarted the whole deadline")
+		assertEquals(ownerGeneration, visualHost.ownerGeneration)
+		assertTrue(existingVisualRequest.deliver())
+		visualHost.presentFrame()
+		val exposedB = assertIs<ReaderPresentationAuthority.LiveEngineExposed>(
+			presentation.state.authority
+		).frame.proof
+		assertEquals(authorityA.token, exposedB.token)
+		assertEquals(bindingB, exposedB.binding)
+		bridge.dispose()
+	}
+
+	@Test
+	fun rootModeHandoffAndCausalRelocationJoinOneAuthorityTransaction() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueTask7Relocation(
+			queue = queue,
+			gestureId = 54L,
+			sourceOrdinal = 3,
+			destinationOrdinal = 4,
+			foliateSessionId = "root-owned-relocation-session"
+		)
+		assertEquals(request, queue.commandToDispatch())
+		val bindingA = ReaderPresentationBinding(
+			foliateSessionId = request.foliateSessionId,
+			publicationGeneration = 2L,
+			viewportGeneration = 3L,
+			profileGeneration = 4L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				request.foliateSessionId,
+				3L
+			),
+			rasterGeneration = 9L,
+			textureGeneration = 19L,
+			preparationGeneration = 7L
+		)
+		val bindingB = bindingA.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				request.foliateSessionId,
+				4L
+			),
+			rasterGeneration = request.rasterGeneration,
+			textureGeneration = request.textureGeneration
+		)
+		val proofA = ReaderNativePagePresentationProof(
+			bindingA, null, 8L, 1200, 800, 9L, 19L
+		)
+		val settledA = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(proofA)
+			),
+			binding = bindingA,
+			nextTokenValue = 55L
+		)
+		val fixture = Task7ProductionCompositionFixture(queue, request, settledA)
+
+		val modeRequest = ReaderPresentationEvent.WebViewHandoffRequested(
+			ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+		)
+		assertTrue(fixture.publish(modeRequest).authorizes(modeRequest))
+		assertEquals(1, fixture.visualHost.visualPostCount)
+		assertEquals(1, fixture.visualHost.delayedPostCount)
+
+		val relocation = ReaderPresentationEvent.FoliateRelocated(bindingB, acknowledgement = null)
+		assertTrue(fixture.setPageTurnVisualLocation(bindingB).authorizes(relocation))
+
+		assertEquals(
+			1,
+			fixture.visualHost.visualPostCount,
+			"The joined root transaction registered a second visual callback"
+		)
+		assertEquals(
+			1,
+			fixture.visualHost.delayedPostCount,
+			"The joined root transaction restarted its deadline"
+		)
+		fixture.deliverRootFrame()
+		val liveCommits = fixture.receipts.filter {
+			it.event is ReaderPresentationEvent.LiveEngineExposureCommitted
+		}
+		assertEquals(1, liveCommits.size)
+		assertEquals(ReaderPresentationEventDisposition.Accepted, liveCommits.single().disposition)
+		assertEquals(
+			bindingB,
+			assertIs<ReaderPresentationAuthority.LiveEngineExposed>(
+				fixture.controller.state.presentation.authority
+			).frame.proof.binding
+		)
+		assertEquals(listOf(request), fixture.releasedClaims)
+		assertNull(queue.head())
+		assertTrue(fixture.recoveries.isEmpty())
+		assertEquals(0, fixture.rootHandoff.pendingCallbackCount())
+		assertEquals(0, fixture.rootHandoff.pendingCapacityRetryEdgeCount())
+		assertEquals(0, fixture.coordinator.pendingCallbackCount())
+		assertEquals(0, fixture.coordinator.pendingCapacityRetryEdgeCount())
+		fixture.close()
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P])
+	fun nativeToLiveModeToggleRetainsNativePresentationUntilExactLiveReceipt() {
+		val context = RuntimeEnvironment.getApplication()
+		val (viewerClass, viewer) = task7Viewer(context)
+		val setCanvasEnabled = viewerClass.task7Method(
+			"setPageTurnCanvasEnabled",
+			requireNotNull(Boolean::class.javaPrimitiveType)
+		)
+		val requiresLiveHandoff = viewerClass.task7Method(
+			"requiresLiveEngineExposureHandoff"
+		)
+		val applyFrameOwner = viewerClass.task7Method(
+			"applyPresentationFrameOwner",
+			paige.navic.reader.ReaderPresentationDecision::class.java
+		)
+		val controller = viewerClass.getDeclaredField("playLikeCurlController").run {
+			isAccessible = true
+			get(viewer)
+		}
+		val controllerEnabled = controller.javaClass.getDeclaredField("enabled").apply {
+			isAccessible = true
+		}
+		fun nativeControllerEnabled(): Boolean = controllerEnabled.getBoolean(controller)
+
+		val binding = ReaderPresentationBinding(
+			"mode-toggle-session", 1L, 2L, 3L,
+			rasterGeneration = 4L,
+			textureGeneration = 5L,
+			preparationGeneration = 6L
+		)
+		val nativeProof = ReaderNativePagePresentationProof(
+			binding, null, 7L, 1200, 800, 4L, 5L
+		)
+		var presentation = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(nativeProof)
+			),
+			binding = binding,
+			nextTokenValue = 8L
+		)
+		val visualHost = Task7VisualHandoffHost()
+		val events = mutableListOf<ReaderPresentationEvent>()
+		val bridge = ReaderPresentationHostBridge(
+			host = FakeReaderPresentationCommitHost(binding) { decision ->
+				applyFrameOwner.invoke(viewer, decision)
+			},
+			liveEngineVisualHandoff = ReaderWebViewVisualHandoff(visualHost),
+			liveEngineExposureRequired = { requiresLiveHandoff.invoke(viewer) as Boolean }
+		) { event ->
+			events += event
+			presentation = readerPresentationReduce(presentation, event).state
+			readerTestPresentationReceipt(event, presentation)
+		}
+
+		setCanvasEnabled.invoke(viewer, true)
+		assertTrue(nativeControllerEnabled())
+		bridge.update(readerPresentationDecision(presentation))
+		assertTrue(events.isEmpty())
+
+		setCanvasEnabled.invoke(viewer, false)
+		bridge.update(readerPresentationDecision(presentation))
+
+		assertIs<ReaderPresentationEvent.WebViewHandoffRequested>(events.single())
+		val pending = readerPresentationDecision(presentation)
+		assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(pending.authority)
+		assertIs<ReaderPresentationFrameOwner.NativePage>(pending.frameOwner)
+		assertIs<ReaderPresentationInputPolicy.NativePage>(pending.inputPolicy)
+		assertTrue(nativeControllerEnabled())
+
+		visualHost.timeOut()
+		val failed = readerPresentationDecision(presentation)
+		assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(failed.authority)
+		assertIs<ReaderPresentationFrameOwner.NativePage>(failed.frameOwner)
+		assertIs<ReaderPresentationInputPolicy.NativePage>(failed.inputPolicy)
+		assertTrue(nativeControllerEnabled())
+		assertFalse(visualHost.takeVisual().deliver())
+
+		presentation = readerPresentationReduce(
+			presentation,
+			ReaderPresentationEvent.Retry
+		).state
+		bridge.update(readerPresentationDecision(presentation))
+		visualHost.deliverVisual()
+		visualHost.presentFrame()
+
+		assertIs<ReaderPresentationAuthority.LiveEngineExposed>(presentation.authority)
+		assertFalse(nativeControllerEnabled())
+		bridge.dispose()
+		viewerClass.getDeclaredMethod("closeReader").apply { isAccessible = true }.invoke(viewer)
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P])
+	fun nativeModeRequestArmsWholeHandbackBeforeNativePreparationStarts() {
+		val (viewerClass, viewer) = task7Viewer(RuntimeEnvironment.getApplication())
+		val fixture = BridgeFixture()
+		var presentation = fixture.liveEngineExposedState(presentedFrameSequence = 24L)
+		viewerClass.task7SetPresentationDecision(viewer, readerPresentationDecision(presentation))
+		fixture.host.currentBinding = fixture.binding.copy(
+			rasterGeneration = null,
+			textureGeneration = null,
+			preparationGeneration = 8L
+		)
+		var nativePreparationEnabledWhenHandoffRequested: Boolean? = null
+		val bridge = ReaderPresentationHostBridge(
+			host = fixture.host,
+			liveEngineExposureRequired = {
+				viewerClass.task7Method("requiresLiveEngineExposureHandoff")
+					.invoke(viewer) as Boolean
+			}
+		) { event ->
+			if (event is ReaderPresentationEvent.WebViewHandoffRequested) {
+				nativePreparationEnabledWhenHandoffRequested =
+					viewerClass.task7CanvasEnabled(viewer)
+			}
+			val reduction = readerPresentationReduce(presentation, event)
+			presentation = reduction.state
+			viewerClass.task7SetPresentationDecision(viewer, reduction.decision)
+			readerTestPresentationReceipt(event, reduction.state)
+		}
+		val admitNativeMode = {
+			bridge.update(readerPresentationDecision(presentation))
+		}
+
+		viewerClass.task7Method(
+			"setPageTurnCanvasEnabled",
+			requireNotNull(Boolean::class.javaPrimitiveType),
+			Function0::class.java
+		).invoke(viewer, true, admitNativeMode)
+
+		val pending = assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(
+			presentation.authority
+		)
+		assertTrue(viewerClass.task7CanvasEnabled(viewer))
+		assertEquals(
+			assertIs<ReaderRequiredTransition.PresentNativePage>(
+				readerPresentationDecision(presentation).requiredTransition
+			),
+			assertNotNull(
+				viewerClass.task7PendingNativeHandoff(viewer),
+				"Whole live-to-native deadline was not armed before native preparation"
+			)
+		)
+		assertEquals(false, nativePreparationEnabledWhenHandoffRequested)
+		assertIs<ReaderPresentationFrameOwner.LiveEngine>(pending.retainedFrame)
+		viewerClass.task7Method("closeReader").invoke(viewer)
+		bridge.dispose()
+	}
+
+	@Test
+	fun retryThenExactCancelReleasesCommonRelocationAndDispatchesNextOnce() {
+		val queue = ReaderPageRelocationQueue()
+		val first = enqueueTask7Relocation(queue, 61L, 3, 4, "cancel-session")
+		val second = enqueueTask7Relocation(queue, 62L, 4, 5, "cancel-session")
+		acknowledgeTask7Relocation(queue, first)
+		val binding = ReaderPresentationBinding(
+			first.foliateSessionId, 2L, 3L, 4L,
+			rasterGeneration = first.rasterGeneration,
+			textureGeneration = first.textureGeneration,
+			preparationGeneration = 7L
+		)
+		val nativeProof = ReaderNativePagePresentationProof(
+			binding, null, 8L, 1200, 800,
+			first.rasterGeneration, first.textureGeneration
+		)
+		var presentation = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(nativeProof)
+			),
+			binding = binding,
+			nextTokenValue = 63L
+		)
+		fun publish(event: ReaderPresentationEvent) = readerTestPresentationReceipt(
+			event = event,
+			postState = readerPresentationReduce(presentation, event).also {
+				presentation = it.state
+			}.state
+		)
+		val host = Task7VisualHandoffHost()
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
+		val completed = mutableListOf<ReaderPageRelocationRequest>()
 		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
 			queue = queue,
-			host = handoffHost,
+			host = host,
 			currentState = {
 				ReaderPageRelocationVisualState(
-					true, true, request.foliateSessionId, request.destinationOrdinal,
-					request.rasterGeneration, request.textureGeneration
+					true, true, first.foliateSessionId, first.destinationOrdinal,
+					first.rasterGeneration, first.textureGeneration
 				)
 			},
-			dispatch = { error("Unexpected later relocation") },
+			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> error("Unexpected recovery: $reason") },
 			finalizePresentation = { _, _ -> error("Local exposure is forbidden") },
 			validateContent = { _, validated ->
@@ -125,65 +756,170 @@ class KomikkuReaderNativeFrameHostTest {
 				ReaderPageRelocationContentValidationHandle.Completed
 			},
 			requestPresentationHandoff = {
-				val event = ReaderPresentationEvent.WebViewHandoffRequested(
-					ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+				publish(
+					ReaderPresentationEvent.WebViewHandoffRequested(
+						ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+					)
 				)
-				events += event
-				readerPresentationReduce(presentation, event).also {
-					presentation = it.state
-				}.decision.requiredTransition as ReaderRequiredTransition.ExposeLiveEngine
+				readerPresentationDecision(presentation).requiredTransition as
+					ReaderRequiredTransition.ExposeLiveEngine
 			},
 			commitLiveEngineExposure = { proof ->
-				val event = ReaderPresentationEvent.LiveEngineExposureCommitted(proof)
-				events += event
-				presentation = readerPresentationReduce(presentation, event).state
-				readerTestPresentationReceipt(event, presentation)
-			}
+				publish(ReaderPresentationEvent.LiveEngineExposureCommitted(proof))
+			},
+			publishLiveEngineHandoffTerminal = ::publish,
+			onCompleted = completed::add
 		)
 
-		assertTrue(coordinator.onAcknowledged(request))
-		assertIs<ReaderPresentationEvent.WebViewHandoffRequested>(events.single())
-		assertIs<ReaderPresentationFrameOwner.NativePage>(
-			readerPresentationDecision(presentation).frameOwner
+		assertTrue(coordinator.onAcknowledged(first))
+		host.timeOut()
+		presentation = readerPresentationReduce(
+			presentation,
+			ReaderPresentationEvent.Retry
+		).state
+		val retry = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(
+			readerPresentationDecision(presentation).requiredTransition
 		)
-		handoffHost.deliverVisual()
-		assertEquals(1, events.size)
-		handoffHost.presentFrame()
-		assertIs<ReaderPresentationEvent.LiveEngineExposureCommitted>(events.last())
-		assertIs<ReaderPresentationAuthority.LiveEngineExposed>(presentation.authority)
-		assertNull(queue.head())
+		assertTrue(coordinator.synchronizeCommonPresentationHandoff(retry))
+		assertFalse(host.takeVisual().deliver())
+		val cancelled = readerPresentationReduce(
+			presentation,
+			ReaderPresentationEvent.LiveEngineHandoffCancelled(
+				direction = retry.direction,
+				token = retry.token,
+				binding = retry.binding
+			)
+		)
+		presentation = cancelled.state
+
+		assertTrue(coordinator.synchronizeCommonPresentationDecision(cancelled.decision))
+		assertFalse(coordinator.synchronizeCommonPresentationDecision(cancelled.decision))
+		assertEquals(1, coordinator.pendingCallbackCount())
+		assertFalse(coordinator.synchronizeCommonPresentationHandoff(retry))
+		assertEquals(listOf(first), completed)
+		assertEquals(second, queue.head())
+		assertTrue(queue.hasDispatchedHead())
+		assertEquals(listOf(second), dispatched)
+		assertFalse(host.takeVisual().deliver())
+		assertEquals(0, coordinator.pendingCallbackCount())
 	}
 
 	@Test
-	fun coldNonCanvasShellCoverStaysOpaqueUntilBridgeProofReceipt() {
+	fun coldNonCanvasPublicationCommitsOpaqueShellBeforeLiveEngineHandoff() {
 		val binding = ReaderPresentationBinding(
 			"cold-session", 1L, 2L, 3L,
 			preparationGeneration = 4L
 		)
-		val shellProof = ReaderShellCoverCommitProof(
-			ReaderPresentationToken(5L), binding, 6L, 7L, 1200, 800
+		var presentation = ReaderPresentationState(nextTokenValue = 5L)
+		val unboundDecision = readerPresentationDecision(presentation)
+		assertNull(unboundDecision.targetBinding)
+		assertIs<ReaderPresentationAuthority.Unavailable>(unboundDecision.authority)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, unboundDecision.frameOwner)
+
+		val hostSource = hostFile.readText()
+		val factorySource = hostSource
+			.substringAfter("factory = { context ->")
+			.substringBefore("update = { root ->")
+		assertTrue(
+			factorySource.indexOf("setPresentationDecision(") in
+				0 until factorySource.indexOf("setViewerContent("),
+			"The atomic neutral predecessor must be projected before viewer installation"
 		)
-		var presentation = ReaderPresentationState(
-			authority = ReaderPresentationAuthority.ShellCover(shellProof),
-			binding = binding,
-			nextTokenValue = 8L
+		val nativeVisibilitySource = hostSource
+			.substringAfter("private fun updateNativeCoverVisibilityLayers(")
+			.substringBefore("fun setOnStartupShellPrepared")
+		assertContains(nativeVisibilitySource, "neutralPredecessor")
+
+		val context = RuntimeEnvironment.getApplication()
+		val (viewerClass, viewer) = task7Viewer(context)
+		val viewerContentContainer = viewer.getChildAt(0) as FrameLayout
+		val shellCoverClass = Class.forName(
+			"paige.navic.ui.screens.reader.KomikkuReaderNativeShellCoverView"
 		)
+		val shellCoverView = shellCoverClass.getDeclaredConstructor(Context::class.java).run {
+			isAccessible = true
+			newInstance(context) as View
+		}
+		viewerClass.task7Method("setShellCoverView", View::class.java).invoke(viewer, shellCoverView)
+		shellCoverView.visibility = View.VISIBLE
+		assertEquals(viewer.childCount - 1, viewer.indexOfChild(shellCoverView))
+
+		val liveWebView = WebView(context)
+		viewerContentContainer.addView(liveWebView)
+		assertTrue(viewerContentContainer.indexOfChild(liveWebView) >= 0)
+		assertEquals(View.VISIBLE, shellCoverView.visibility)
+		assertTrue(
+			viewer.indexOfChild(viewerContentContainer) < viewer.indexOfChild(shellCoverView)
+		)
+		val shellCoverSource = hostSource
+			.substringAfter("private class KomikkuReaderNativeShellCoverView")
+			.substringBefore("private data class NativeReaderShellCoverGeometry")
+		assertContains(shellCoverSource, "canvas.drawColor(Color.rgb(16, 14, 10))")
+
+		val prepareShellCover = viewerClass.task7Method("prepareShellCoverForCommit", View::class.java)
+		val cancelShellCover = viewerClass.task7Method(
+			"cancelShellCoverCommitPreparation",
+			View::class.java
+		)
+		val selectShellCover = viewerClass.task7Method(
+			"selectShellCover",
+			View::class.java,
+			requireNotNull(Boolean::class.javaPrimitiveType)
+		)
+		val presentationDecisionField = viewerClass.getDeclaredField(
+			"presentationDecision"
+		).apply { isAccessible = true }
 		val appliedOwners = mutableListOf<ReaderPresentationFrameOwner>()
+		var currentBinding: ReaderPresentationBinding? = null
+		var preparedCoverGeneration: Long? = null
+		var coverSelected = false
+		var drawListener: (() -> Unit)? = null
+		val animationFrames = ArrayDeque<() -> Unit>()
 		val commitHost = object : ReaderPresentationCommitHost {
 			override val isAttachedToWindow = true
-			override val currentPresentationBinding = binding
-			override val currentShellCoverGeneration: Long? = null
-			override val shellCoverSelected = true
+			override val currentPresentationBinding: ReaderPresentationBinding?
+				get() = currentBinding
+			override val currentShellCoverGeneration: Long?
+				get() = preparedCoverGeneration
+			override val shellCoverSelected: Boolean
+				get() = coverSelected
 			override val measuredViewportWidth = 1200
 			override val measuredViewportHeight = 800
-			override fun prepareOpaqueShellCover(coverGeneration: Long) = Unit
-			override fun cancelOpaqueShellCoverPreparation(coverGeneration: Long) = Unit
-			override fun completeOpaqueShellCoverPreparation(coverGeneration: Long) = Unit
+			override fun prepareOpaqueShellCover(coverGeneration: Long) {
+				preparedCoverGeneration = coverGeneration
+				prepareShellCover.invoke(viewer, shellCoverView)
+			}
+			override fun cancelOpaqueShellCoverPreparation(coverGeneration: Long) {
+				if (preparedCoverGeneration == coverGeneration) {
+					preparedCoverGeneration = null
+					cancelShellCover.invoke(viewer, shellCoverView)
+				}
+			}
+			override fun completeOpaqueShellCoverPreparation(coverGeneration: Long) {
+				if (preparedCoverGeneration == coverGeneration) {
+					preparedCoverGeneration = null
+				}
+			}
 			override fun registerShellCoverDrawListener(
 				onDraw: () -> Unit
-			) = ReaderPresentationDrawRegistration {}
-			override fun postShellCoverAnimationFrame(onFrame: () -> Unit) = Unit
-			override fun applyPresentationFrameOwner(decision: paige.navic.reader.ReaderPresentationDecision) {
+			): ReaderPresentationDrawRegistration {
+				drawListener = onDraw
+				return ReaderPresentationDrawRegistration { drawListener = null }
+			}
+			override fun postShellCoverAnimationFrame(onFrame: () -> Unit) {
+				animationFrames.addLast(onFrame)
+			}
+			override fun applyPresentationFrameOwner(
+				decision: paige.navic.reader.ReaderPresentationDecision
+			) {
+				presentationDecisionField.set(viewer, decision)
+				val application = readerNativePresentationApplication(decision)
+				val neutralPredecessor =
+					decision.authority == ReaderPresentationAuthority.Unavailable &&
+						decision.frameOwner == ReaderPresentationFrameOwner.Neutral
+				shellCoverView.visibility = if (
+					application.layers.shellCover || neutralPredecessor
+				) View.VISIBLE else View.GONE
 				appliedOwners += decision.frameOwner
 			}
 		}
@@ -196,21 +932,55 @@ class KomikkuReaderNativeFrameHostTest {
 			liveEngineExposureRequired = { true }
 		) { event ->
 			events += event
+			if (event is ReaderPresentationEvent.ShellCoverCommitted) {
+				coverSelected = true
+				selectShellCover.invoke(viewer, shellCoverView, true)
+			}
 			presentation = readerPresentationReduce(presentation, event).state
 			readerTestPresentationReceipt(event, presentation)
 		}
 
+		bridge.update(unboundDecision)
+		assertTrue(events.isEmpty())
+		assertEquals(View.VISIBLE, shellCoverView.visibility)
+
+		presentation = readerPresentationReduce(
+			presentation,
+			ReaderPresentationEvent.PublicationOpened(binding)
+		).state
+		currentBinding = binding
 		bridge.update(readerPresentationDecision(presentation))
 
-		assertIs<ReaderPresentationEvent.WebViewHandoffRequested>(events.single())
+		assertIs<ReaderPresentationEvent.ShellCoverRequested>(events.single())
+		assertIs<ReaderPresentationAuthority.ShellCoverCommitPending>(presentation.authority)
+		assertEquals(listOf(ReaderPresentationFrameOwner.Neutral), appliedOwners.distinct())
+		assertEquals(View.VISIBLE, shellCoverView.visibility)
+		val pendingDecision = readerPresentationDecision(presentation)
+		assertFalse(
+			readerViewerActionIsAdmitted(
+				pendingDecision.inputPolicy,
+				ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+			)
+		)
+		assertFalse(events.any { it is ReaderPresentationEvent.WebViewHandoffRequested })
+		assertNotNull(drawListener).invoke()
+		animationFrames.removeFirst().invoke()
+		assertIs<ReaderPresentationEvent.ShellCoverCommitted>(events.last())
+		assertIs<ReaderPresentationAuthority.ShellCover>(presentation.authority)
+		assertFalse(events.any { it is ReaderPresentationEvent.WebViewHandoffRequested })
+
+		bridge.update(readerPresentationDecision(presentation))
+		val request = assertIs<ReaderPresentationEvent.WebViewHandoffRequested>(events.last())
+		assertEquals(ReaderLiveEngineHandoffDirection.NativeToLiveEngine, request.direction)
 		assertIs<ReaderPresentationFrameOwner.ShellCover>(appliedOwners.last())
-		assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(presentation.authority)
 		visualHost.deliverVisual()
-		assertEquals(1, events.size)
 		visualHost.presentFrame()
 		assertIs<ReaderPresentationEvent.LiveEngineExposureCommitted>(events.last())
 		assertIs<ReaderPresentationAuthority.LiveEngineExposed>(presentation.authority)
 		assertIs<ReaderPresentationFrameOwner.LiveEngine>(appliedOwners.last())
+		assertEquals(View.GONE, shellCoverView.visibility)
+		bridge.dispose()
+		viewerClass.task7Method("closeReader").invoke(viewer)
 	}
 
 	@Test
@@ -295,6 +1065,10 @@ class KomikkuReaderNativeFrameHostTest {
 		val publisher = ReaderNativePagePresentationPublisher(
 			frameSource = frames,
 			currentCandidate = { candidate },
+			currentHandoffTransition = {
+				readerPresentationDecision(presentation).requiredTransition as?
+					ReaderRequiredTransition.PresentNativePage
+			},
 			handoffTimeoutScheduler = deadlines,
 			handoffTimeoutMillis = 1_000L
 		) { event ->
@@ -307,7 +1081,10 @@ class KomikkuReaderNativeFrameHostTest {
 		requireNotNull(deadlines.pending).run()
 
 		assertEquals(1, frames.cancels)
-		assertIs<ReaderPresentationEvent.TimedOut>(events.single())
+		val timedOut = assertIs<ReaderPresentationEvent.LiveEngineHandoffTimedOut>(events.single())
+		assertEquals(ReaderLiveEngineHandoffDirection.LiveEngineToNative, timedOut.direction)
+		assertEquals(first.token, timedOut.token)
+		assertEquals(first.binding, timedOut.binding)
 		assertEquals(
 			ReaderPresentationFailureReason.TimedOut,
 			assertIs<ReaderDiagnosticPresentation.Failure>(presentation.failure).reason
@@ -315,7 +1092,14 @@ class KomikkuReaderNativeFrameHostTest {
 		assertIs<ReaderPresentationFrameOwner.LiveEngine>(
 			readerPresentationDecision(presentation).frameOwner
 		)
-		val cancelled = readerPresentationReduce(presentation, ReaderPresentationEvent.Cancel)
+		val cancelled = readerPresentationReduce(
+			presentation,
+			ReaderPresentationEvent.LiveEngineHandoffCancelled(
+				direction = requireNotNull(first.direction),
+				token = first.token,
+				binding = first.binding
+			)
+		)
 		assertIs<ReaderPresentationAuthority.LiveEngineExposed>(cancelled.state.authority)
 		assertNull(cancelled.state.failure)
 
@@ -2023,6 +2807,129 @@ class KomikkuReaderNativeFrameHostTest {
 		)
 	}
 
+	private fun Class<*>.task7SetPresentationDecision(
+		viewer: Any,
+		decision: paige.navic.reader.ReaderPresentationDecision
+	) = task7Field("presentationDecision").set(viewer, decision)
+
+	private fun Class<*>.task7CanvasEnabled(viewer: Any): Boolean =
+		task7Field("pageTurnCanvasEnabled").getBoolean(viewer)
+
+	private fun Class<*>.task7PendingNativeHandoff(
+		viewer: Any
+	): ReaderRequiredTransition.PresentNativePage? {
+		val publisher = (task7Field("nativePagePresentationPublisher\$delegate")
+			.get(viewer) as Lazy<*>).value ?: return null
+		val timeout = publisher.javaClass.task7Field("pendingHandoffTimeout")
+			.get(publisher) ?: return null
+		return timeout.javaClass.task7Field("transition").get(timeout) as?
+			ReaderRequiredTransition.PresentNativePage
+	}
+
+	private fun task7Viewer(context: Context): Pair<Class<*>, FrameLayout> {
+		val viewerClass = Class.forName(
+			"paige.navic.ui.screens.reader.KomikkuReaderNativeViewerContainer"
+		)
+		val viewer = viewerClass.getDeclaredConstructor(Context::class.java).run {
+			isAccessible = true
+			newInstance(context) as FrameLayout
+		}
+		return viewerClass to viewer
+	}
+
+	private fun Class<*>.task7Field(name: String) =
+		getDeclaredField(name).apply { isAccessible = true }
+
+	private fun Class<*>.task7Method(name: String, vararg parameters: Class<*>) =
+		getDeclaredMethod(name, *parameters).apply { isAccessible = true }
+
+	private fun task7CommonRelocationCoordinator(
+		queue: ReaderPageRelocationQueue,
+		request: ReaderPageRelocationRequest,
+		host: ReaderWebViewVisualHandoffHost,
+		publish: (ReaderPresentationEvent) -> paige.navic.reader.ReaderPresentationEventReceipt,
+		requestPresentationEvent: (
+			ReaderPresentationEvent
+		) -> paige.navic.reader.ReaderPresentationEventReceipt = publish,
+		publishRecovery: (
+			ReaderPageRelocationRequest,
+			ReaderWebViewVisualHandoffFailure
+		) -> Unit = { _, reason -> error("Unexpected recovery: $reason") },
+		publishLiveEngineHandoffTerminal: (
+			ReaderPresentationEvent
+		) -> paige.navic.reader.ReaderPresentationEventReceipt? = publish,
+		presentedFrameSequenceSource: ((ReaderPresentationBinding) -> Long)? = null
+	): ReaderPageRelocationVisualHandoffCoordinator =
+		ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = {
+				ReaderPageRelocationVisualState(
+					true, true, request.foliateSessionId, request.destinationOrdinal,
+					request.rasterGeneration, request.textureGeneration
+				)
+			},
+			dispatch = { error("Unexpected later relocation") },
+			publishRecovery = publishRecovery,
+			finalizePresentation = { _, _ -> error("Local exposure is forbidden") },
+			validateContent = { _, validated ->
+				validated(ReaderPageRelocationContentValidationResult.Accepted)
+				ReaderPageRelocationContentValidationHandle.Completed
+			},
+			requestPresentationHandoff = {
+				val event = ReaderPresentationEvent.WebViewHandoffRequested(
+					ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+				)
+				readerPresentationDecision(
+					requestPresentationEvent(event).postState
+				).requiredTransition as ReaderRequiredTransition.ExposeLiveEngine
+			},
+			commitLiveEngineExposure = { proof ->
+				publish(ReaderPresentationEvent.LiveEngineExposureCommitted(proof))
+			},
+			publishLiveEngineHandoffTerminal = publishLiveEngineHandoffTerminal,
+			presentedFrameSequenceSource = presentedFrameSequenceSource
+		)
+
+	private fun enqueueTask7Relocation(
+		queue: ReaderPageRelocationQueue,
+		gestureId: Long,
+		sourceOrdinal: Int,
+		destinationOrdinal: Int,
+		foliateSessionId: String
+	): ReaderPageRelocationRequest {
+		val reservation = assertIs<ReaderPageRelocationReservationResult.Reserved>(
+			queue.reserve(gestureId)
+		).reservation
+		return assertIs<ReaderPageRelocationTransferResult.Enqueued>(
+			queue.enqueueReserved(
+				reservation = reservation,
+				rasterGeneration = 10L,
+				textureGeneration = 20L,
+				sourceOrdinal = sourceOrdinal,
+				destinationOrdinal = destinationOrdinal,
+				logicalDirection = ReaderPageTurnDirection.Next,
+				foliateSessionId = foliateSessionId
+			)
+		).request
+	}
+
+	private fun acknowledgeTask7Relocation(
+		queue: ReaderPageRelocationQueue,
+		request: ReaderPageRelocationRequest
+	) {
+		assertEquals(request, queue.commandToDispatch())
+		assertTrue(
+			queue.acknowledge(
+				request.token.value,
+				request.destinationOrdinal,
+				request.foliateSessionId,
+				request.rasterGeneration,
+				request.textureGeneration
+			)
+		)
+	}
+
 	private fun ReaderPresentationBindingReporter.dispatch(
 		controller: ReaderController,
 		event: ReaderPresentationEvent
@@ -2070,12 +2977,170 @@ class KomikkuReaderNativeFrameHostTest {
 		)
 }
 
+private class Task7PresentationStore(initial: ReaderPresentationState) {
+	var state: ReaderPresentationState = initial
+
+	fun publish(
+		event: ReaderPresentationEvent
+	): paige.navic.reader.ReaderPresentationEventReceipt {
+		val reduction = readerPresentationReduce(state, event)
+		state = reduction.state
+		return readerTestPresentationReceipt(event, reduction.state, reduction.disposition)
+	}
+}
+
+private class Task7ProductionCompositionFixture(
+	val queue: ReaderPageRelocationQueue,
+	val request: ReaderPageRelocationRequest,
+	initialState: ReaderPresentationState
+) {
+	var controller = ReaderController(
+		state = ReaderControllerState(
+			readerSessionGeneration = 1L,
+			presentation = initialState
+		)
+	)
+		private set
+	val visualHost = Task7VisualHandoffHost()
+	val rootHandoff = ReaderWebViewVisualHandoff(visualHost)
+	val receipts = mutableListOf<ReaderPresentationEventReceipt>()
+	val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+	val releasedClaims = mutableListOf<ReaderPageRelocationRequest>()
+	private val commitHost = FakeReaderPresentationCommitHost(requireNotNull(initialState.binding))
+	private var currentWebViewOrdinal = request.sourceOrdinal
+	private val initialVersion = controller.presentationVersion
+	private val bindingReporter = ReaderPresentationBindingReporter().also {
+		it.reset(
+			expectedReaderSessionGeneration = 1L,
+			minimumComposeVersion = initialVersion,
+			initialPresentationState = initialState
+		)
+		check(it.bindPublication(requireNotNull(initialState.binding)))
+	}
+	private val lifecycleDelivery = ReaderPresentationLifecycleDelivery().also {
+		it.reset(initialVersion, observedWindowVisible = null)
+		check(it.bindPublication(requireNotNull(initialState.binding).publicationIdentity))
+	}
+	private val dispatcher: ReaderPresentationReceiptDispatcher
+	private val rootBridge = ReaderPresentationHostBridge(
+		host = commitHost,
+		liveEngineVisualHandoff = rootHandoff,
+		liveEngineExposureRequired = { true },
+		onEvent = ::publishOrNull
+	)
+	val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+		queue = queue,
+		host = visualHost,
+		currentState = {
+			ReaderPageRelocationVisualState(
+				true, true, request.foliateSessionId, currentWebViewOrdinal,
+				request.rasterGeneration, request.textureGeneration
+			)
+		},
+		dispatch = { error("Unexpected later relocation") },
+		publishRecovery = { _, reason -> recoveries += reason },
+		finalizePresentation = { _, _ -> error("Local exposure is forbidden") },
+		validateContent = { _, validated ->
+			validated(ReaderPageRelocationContentValidationResult.Accepted)
+			ReaderPageRelocationContentValidationHandle.Completed
+		},
+		requestPresentationHandoff = { acknowledged ->
+			val event = ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+			)
+			val receipt = publishOrNull(event)
+			if (!receipt.authorizes(event)) {
+				null
+			} else {
+				(readerPresentationDecision(requireNotNull(receipt).postState).requiredTransition as?
+					ReaderRequiredTransition.ExposeLiveEngine)?.takeIf {
+					it.binding.foliateSessionId == acknowledged.foliateSessionId &&
+						it.binding.rasterGeneration == acknowledged.rasterGeneration &&
+						it.binding.textureGeneration == acknowledged.textureGeneration
+				}
+			}
+		},
+		commitLiveEngineExposure = { proof ->
+			publishOrNull(ReaderPresentationEvent.LiveEngineExposureCommitted(proof))
+		},
+		publishLiveEngineHandoffTerminal = ::publishOrNull,
+		onCompleted = releasedClaims::add
+	)
+
+	init {
+		dispatcher = ReaderPresentationReceiptDispatcher(
+			bindingReporter = bindingReporter,
+			lifecycleDelivery = lifecycleDelivery,
+			applyHostEffect = { effect ->
+				effect.decision.targetBinding?.let { commitHost.currentBinding = it }
+				val transition = effect.decision.requiredTransition as?
+					ReaderRequiredTransition.ExposeLiveEngine
+				if (transition?.direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine) {
+					coordinator.synchronizeCommonPresentationHandoff(transition)
+				} else {
+					coordinator.synchronizeCommonPresentationDecision(effect.decision)
+				}
+				rootBridge.update(effect.decision)
+			}
+		)
+	}
+
+	fun publish(event: ReaderPresentationEvent): ReaderPresentationEventReceipt =
+		requireNotNull(publishOrNull(event))
+
+	fun setPageTurnVisualLocation(
+		binding: ReaderPresentationBinding
+	): ReaderPresentationEventReceipt {
+		val relocation = ReaderPresentationEvent.FoliateRelocated(
+			binding,
+			acknowledgement = null
+		)
+		currentWebViewOrdinal = request.destinationOrdinal
+		val receipt = publish(relocation)
+		check(acknowledge())
+		return receipt
+	}
+
+	private fun acknowledge(): Boolean {
+		check(
+			queue.acknowledge(
+				request.token.value,
+				request.destinationOrdinal,
+				request.foliateSessionId,
+				request.rasterGeneration,
+				request.textureGeneration
+			)
+		)
+		return coordinator.onAcknowledged(request)
+	}
+
+	fun deliverRootFrame() {
+		visualHost.deliverVisual()
+		visualHost.presentFrame()
+	}
+
+	fun close() = rootBridge.dispose()
+
+	private fun publishOrNull(event: ReaderPresentationEvent): ReaderPresentationEventReceipt? =
+		dispatcher.dispatch(event) { dispatched ->
+			val step = controller.onPresentationEvent(dispatched)
+			controller = step.controller
+			requireNotNull(step.presentationReceipt).also(receipts::add)
+		}
+}
+
 private class Task7VisualHandoffHost : ReaderWebViewVisualHandoffHost {
-	override val isAttachedToWindow = true
+	var attached = true
+	override val isAttachedToWindow: Boolean get() = attached
 	override val visualStateOwnerGeneration: Long get() = ownerGeneration
 	var ownerGeneration = 1L
+	var visualPostCount = 0
+		private set
+	var delayedPostCount = 0
+		private set
 	private val visuals = ArrayDeque<ReaderWebViewVisualDeliveryCell>()
 	private val frames = ArrayDeque<() -> Unit>()
+	private val delays = ArrayDeque<() -> Unit>()
 
 	override fun synchronizeVisualStateOwner() = Unit
 
@@ -2088,6 +3153,7 @@ private class Task7VisualHandoffHost : ReaderWebViewVisualHandoffHost {
 		handoffAttemptId: Long,
 		registration: ReaderWebViewVisualDeliveryCell
 	) {
+		visualPostCount += 1
 		visuals.addLast(registration)
 	}
 
@@ -2095,10 +3161,14 @@ private class Task7VisualHandoffHost : ReaderWebViewVisualHandoffHost {
 		frames.addLast(action)
 	}
 
-	override fun postDelayed(delayMillis: Long, action: () -> Unit) = Unit
+	override fun postDelayed(delayMillis: Long, action: () -> Unit) {
+		delayedPostCount += 1
+		delays.addLast(action)
+	}
 
 	override fun removeCallbacks(action: () -> Unit) {
 		frames.remove(action)
+		delays.remove(action)
 	}
 
 	fun takeVisual(): ReaderWebViewVisualDeliveryCell = visuals.removeFirst()
@@ -2109,5 +3179,9 @@ private class Task7VisualHandoffHost : ReaderWebViewVisualHandoffHost {
 
 	fun presentFrame() {
 		frames.removeFirst().invoke()
+	}
+
+	fun timeOut() {
+		delays.removeFirst().invoke()
 	}
 }

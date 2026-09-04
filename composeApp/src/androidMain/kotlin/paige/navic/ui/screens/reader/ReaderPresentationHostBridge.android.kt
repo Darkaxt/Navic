@@ -9,6 +9,7 @@ import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationDecision
+import paige.navic.reader.ReaderDiagnosticPresentation
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventDisposition
 import paige.navic.reader.ReaderPresentationEventReceipt
@@ -59,6 +60,18 @@ internal data class ReaderNativePagePresentationCandidate(
 	val preparationFacts: ReaderPagePreparationFacts,
 	val handoffDirection: ReaderLiveEngineHandoffDirection? = null
 )
+
+internal fun ReaderPresentationDecision.authoritativeLiveEngineToNativeTransitionOrNull():
+	ReaderRequiredTransition.PresentNativePage? {
+	val pending = authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
+		?: return null
+	if (pending.direction != ReaderLiveEngineHandoffDirection.LiveEngineToNative) return null
+	return ReaderRequiredTransition.PresentNativePage(
+		token = pending.token,
+		binding = pending.binding,
+		direction = pending.direction
+	)
+}
 
 internal data class ReaderNativePagePresentationHostSnapshot(
 	val binding: ReaderPresentationBinding?,
@@ -130,6 +143,9 @@ internal class ReaderPageSurfacePresentedFrameSource(
 internal class ReaderNativePagePresentationPublisher(
 	private val frameSource: ReaderNativePagePresentedFrameSource,
 	private val currentCandidate: () -> ReaderNativePagePresentationCandidate?,
+	private val currentHandoffTransition: () -> ReaderRequiredTransition.PresentNativePage? = {
+		null
+	},
 	private val handoffTimeoutScheduler: ReaderPageRelocationDispatchTimeoutScheduler? = null,
 	private val handoffTimeoutMillis: Long = 10_000L,
 	private val onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
@@ -140,13 +156,13 @@ internal class ReaderNativePagePresentationPublisher(
 	)
 
 	private data class PendingHandoffTimeout(
-		val requestId: Long,
-		val candidate: ReaderNativePagePresentationCandidate,
+		var transition: ReaderRequiredTransition.PresentNativePage,
 		val action: Runnable
 	)
 
 	private var pendingFrame: PendingFrame? = null
 	private var pendingHandoffTimeout: PendingHandoffTimeout? = null
+	private var failedHandoffTransition: ReaderRequiredTransition.PresentNativePage? = null
 	private var lastPublishedCandidate: ReaderNativePagePresentationCandidate? = null
 	private var disposed = false
 
@@ -156,6 +172,31 @@ internal class ReaderNativePagePresentationPublisher(
 
 	fun update() {
 		if (disposed) return
+		val handoffTransition = currentLiveEngineToNativeTransition()
+		failedHandoffTransition?.let { failed ->
+			failedHandoffTransition = when {
+				handoffTransition == null -> failed
+				failed.isSameHandoffAttemptAs(handoffTransition) -> handoffTransition
+				else -> null
+			}
+		}
+		pendingHandoffTimeout?.let { timeout ->
+			when {
+				handoffTransition == null -> cancelHandoffTimeout()
+				timeout.transition.isSameHandoffAttemptAs(handoffTransition) ->
+					timeout.transition = handoffTransition
+				else -> cancelHandoffTimeout()
+			}
+		}
+		val failedTransition = failedHandoffTransition
+		if (
+			handoffTransition != null &&
+			failedTransition != handoffTransition &&
+			pendingHandoffTimeout == null
+		) {
+			armHandoffTimeout(handoffTransition)
+		}
+
 		val candidate = currentCandidate()
 		val published = lastPublishedCandidate
 		if (
@@ -171,22 +212,31 @@ internal class ReaderNativePagePresentationPublisher(
 		val pending = pendingFrame
 		if (pending != null && pending.candidate != candidate) {
 			pendingFrame = null
-			cancelHandoffTimeout(pending.requestId)
 			frameSource.cancelPresentedFrameRequest(pending.requestId)
 		}
 		if (
+			(failedTransition != null &&
+				(
+					failedTransition == handoffTransition ||
+					candidate?.matches(failedTransition) == true
+				)) ||
 			candidate == null ||
 			candidate == lastPublishedCandidate ||
-			pendingFrame?.candidate == candidate
+			pendingFrame?.candidate == candidate ||
+			(handoffTransition != null && !candidate.matches(handoffTransition))
 		) return
 
 		var requestId = PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
 		requestId = frameSource.requestNextPresentedFrame { presentedRequestId ->
 			onPresentedFrame(requestId, presentedRequestId, candidate)
 		}
-		if (requestId == PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID) return
+		if (requestId == PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID) {
+			if (handoffTransition != null && candidate.matches(handoffTransition)) {
+				failHandoffRegistration(handoffTransition)
+			}
+			return
+		}
 		pendingFrame = PendingFrame(requestId, candidate)
-		armHandoffTimeout(requestId, candidate)
 	}
 
 	fun dispose() {
@@ -195,44 +245,73 @@ internal class ReaderNativePagePresentationPublisher(
 		pendingFrame?.let { frameSource.cancelPresentedFrameRequest(it.requestId) }
 		pendingFrame = null
 		cancelHandoffTimeout()
+		failedHandoffTransition = null
 	}
 
+	private fun currentLiveEngineToNativeTransition():
+		ReaderRequiredTransition.PresentNativePage? = currentHandoffTransition()?.takeIf {
+		it.direction == ReaderLiveEngineHandoffDirection.LiveEngineToNative
+	}
+
+	private fun ReaderRequiredTransition.PresentNativePage.isSameHandoffAttemptAs(
+		other: ReaderRequiredTransition.PresentNativePage
+	): Boolean = token == other.token && direction == other.direction
+
+	private fun ReaderNativePagePresentationCandidate.matches(
+		transition: ReaderRequiredTransition.PresentNativePage
+	): Boolean = transitionToken == transition.token &&
+		handoffDirection == transition.direction &&
+		binding == transition.binding
+
 	private fun armHandoffTimeout(
-		requestId: Long,
-		candidate: ReaderNativePagePresentationCandidate
+		transition: ReaderRequiredTransition.PresentNativePage
 	) {
 		val scheduler = handoffTimeoutScheduler ?: return
-		if (
-			candidate.handoffDirection != ReaderLiveEngineHandoffDirection.LiveEngineToNative ||
-			candidate.transitionToken == null
-		) return
 		lateinit var action: Runnable
-		action = Runnable { onHandoffTimeout(requestId, candidate, action) }
-		pendingHandoffTimeout = PendingHandoffTimeout(requestId, candidate, action)
+		action = Runnable { onHandoffTimeout(action) }
+		pendingHandoffTimeout = PendingHandoffTimeout(transition, action)
 		if (!scheduler.postDelayed(action, handoffTimeoutMillis)) action.run()
 	}
 
-	private fun onHandoffTimeout(
-		requestId: Long,
-		candidate: ReaderNativePagePresentationCandidate,
-		action: Runnable
-	) {
-		val timeout = pendingHandoffTimeout
+	private fun onHandoffTimeout(action: Runnable) {
+		val timeout = pendingHandoffTimeout ?: return
+		val transition = timeout.transition
 		if (
-			disposed || timeout?.requestId != requestId ||
-			timeout.candidate != candidate || timeout.action !== action
+			disposed || timeout.action !== action ||
+			currentLiveEngineToNativeTransition() != transition
 		) return
 		pendingHandoffTimeout = null
-		val pending = pendingFrame
-		if (pending?.requestId != requestId || pending.candidate != candidate) return
-		pendingFrame = null
-		frameSource.cancelPresentedFrameRequest(requestId)
-		onEvent(ReaderPresentationEvent.TimedOut(candidate.transitionToken))
+		pendingFrame?.takeIf { it.candidate.matches(transition) }?.let { pending ->
+			pendingFrame = null
+			frameSource.cancelPresentedFrameRequest(pending.requestId)
+		}
+		failedHandoffTransition = transition
+		onEvent(
+			ReaderPresentationEvent.LiveEngineHandoffTimedOut(
+				direction = ReaderLiveEngineHandoffDirection.LiveEngineToNative,
+				token = transition.token,
+				binding = transition.binding
+			)
+		)
 	}
 
-	private fun cancelHandoffTimeout(requestId: Long? = null) {
+	private fun failHandoffRegistration(
+		transition: ReaderRequiredTransition.PresentNativePage
+	) {
+		cancelHandoffTimeout()
+		failedHandoffTransition = transition
+		onEvent(
+			ReaderPresentationEvent.LiveEngineExposureFailed(
+				direction = ReaderLiveEngineHandoffDirection.LiveEngineToNative,
+				token = transition.token,
+				binding = transition.binding,
+				reason = ReaderPresentationFailureReason.NativePresentationUnavailable
+			)
+		)
+	}
+
+	private fun cancelHandoffTimeout() {
 		val timeout = pendingHandoffTimeout ?: return
-		if (requestId != null && timeout.requestId != requestId) return
 		pendingHandoffTimeout = null
 		handoffTimeoutScheduler?.removeCallbacks(timeout.action)
 	}
@@ -246,7 +325,9 @@ internal class ReaderNativePagePresentationPublisher(
 		val pending = pendingFrame
 		if (pending?.requestId != expectedRequestId || pending.candidate != armedCandidate) return
 		pendingFrame = null
-		cancelHandoffTimeout(expectedRequestId)
+		currentLiveEngineToNativeTransition()?.takeIf { transition ->
+			armedCandidate.matches(transition)
+		}?.let { cancelHandoffTimeout() }
 		val candidate = currentCandidate()
 		if (candidate != armedCandidate || candidate == lastPublishedCandidate) return
 		val event = ReaderPresentationEvent.NativePagePresented(
@@ -347,26 +428,37 @@ internal class ReaderPresentationHostBridge(
 	}
 
 	private class PendingLiveEngineExposure(
-		val transition: ReaderRequiredTransition.ExposeLiveEngine
+		var transition: ReaderRequiredTransition.ExposeLiveEngine
 	) {
 		var emittedEvent: ReaderPresentationEvent? = null
 		var acceptedReceipt: ReaderPresentationEventReceipt? = null
 		var receiptDispatchInProgress = false
 	}
 
+	private data class CancelledLiveEngineHandoff(
+		val direction: ReaderLiveEngineHandoffDirection,
+		val binding: ReaderPresentationBinding
+	)
+
 	private var currentDecision: ReaderPresentationDecision? = null
 	private var pendingCoverCommit: PendingCoverCommit? = null
 	private var pendingLiveEngineExposure: PendingLiveEngineExposure? = null
+	private var cancelledLiveEngineHandoff: CancelledLiveEngineHandoff? = null
+	private var lastLiveEngineExposureRequired: Boolean? = null
 	private var committedTransition: ReaderRequiredTransition.CommitShellCover? = null
 	private var presentedFrame = 0L
 	private var disposed = false
 
 	fun update(decision: ReaderPresentationDecision) {
 		if (disposed) return
+		val liveEngineRequired = liveEngineExposureRequired()
+		synchronizeLiveEngineHandoffIntent(decision, liveEngineRequired)
 		currentDecision = decision
 		host.applyPresentationFrameOwner(decision)
-		if (requestLiveEngineExposureIfRequired(decision)) return
-		updateLiveEngineExposure(decision)
+		if (requestInitialShellCoverIfRequired(decision, liveEngineRequired)) return
+		if (requestLiveEngineExposureIfRequired(decision, liveEngineRequired)) return
+		if (requestNativePageExposureIfRequired(decision, liveEngineRequired)) return
+		updateLiveEngineExposure(decision, liveEngineRequired)
 		val pending = pendingCoverCommit
 		if (pending?.emittedProof != null && pending.acceptedReceipt == null) {
 			dispatchCoverReceipt(
@@ -426,17 +518,103 @@ internal class ReaderPresentationHostBridge(
 		cancelPendingLiveEngineExposure()
 		liveEngineVisualHandoff?.close()
 		currentDecision = null
+		cancelledLiveEngineHandoff = null
+		lastLiveEngineExposureRequired = null
 		committedTransition = null
 	}
 
-	private fun requestLiveEngineExposureIfRequired(
-		decision: ReaderPresentationDecision
+	private fun synchronizeLiveEngineHandoffIntent(
+		decision: ReaderPresentationDecision,
+		liveEngineRequired: Boolean
+	) {
+		val previousMode = lastLiveEngineExposureRequired
+		if (previousMode != null && previousMode != liveEngineRequired) {
+			cancelledLiveEngineHandoff = null
+		}
+		lastLiveEngineExposureRequired = liveEngineRequired
+		if (cancelledLiveEngineHandoff?.binding != decision.targetBinding) {
+			cancelledLiveEngineHandoff = null
+		}
+
+		val previousPending = currentDecision?.authority as?
+			ReaderPresentationAuthority.LiveEngineHandoffPending
+		val pending = decision.authority as?
+			ReaderPresentationAuthority.LiveEngineHandoffPending
+		if (pending != null) {
+			if (pending != previousPending) cancelledLiveEngineHandoff = null
+			return
+		}
+		if (previousPending != null && decision.restoresPredecessorFor(previousPending)) {
+			cancelledLiveEngineHandoff = CancelledLiveEngineHandoff(
+				previousPending.direction,
+				previousPending.binding
+			)
+		}
+	}
+
+	private fun cancelledHandoffMatches(
+		direction: ReaderLiveEngineHandoffDirection,
+		binding: ReaderPresentationBinding?
+	): Boolean = cancelledLiveEngineHandoff == binding?.let {
+		CancelledLiveEngineHandoff(direction, it)
+	}
+
+	private fun ReaderPresentationDecision.restoresPredecessorFor(
+		pending: ReaderPresentationAuthority.LiveEngineHandoffPending
 	): Boolean {
-		if (!liveEngineExposureRequired()) return false
+		if (
+			targetBinding != pending.binding ||
+			requiredTransition != ReaderRequiredTransition.None ||
+			diagnosticPresentation != ReaderDiagnosticPresentation.Hidden
+		) return false
+		return when (val retained = pending.retainedFrame) {
+			is ReaderPresentationFrameOwner.NativePage ->
+				authority == ReaderPresentationAuthority.SettledNativePage(retained) &&
+					frameOwner == retained
+			is ReaderPresentationFrameOwner.LiveEngine ->
+				authority == ReaderPresentationAuthority.LiveEngineExposed(retained) &&
+					frameOwner == retained
+			is ReaderPresentationFrameOwner.ShellCover ->
+				authority == ReaderPresentationAuthority.ShellCover(retained.proof) &&
+					frameOwner == retained
+			else -> false
+		}
+	}
+
+	private fun requestInitialShellCoverIfRequired(
+		decision: ReaderPresentationDecision,
+		liveEngineRequired: Boolean
+	): Boolean {
+		val binding = decision.targetBinding ?: return false
+		if (
+			!liveEngineRequired ||
+			!host.isAttachedToWindow ||
+			host.currentPresentationBinding != binding ||
+			decision.requiredTransition != ReaderRequiredTransition.None ||
+			decision.authority != ReaderPresentationAuthority.Unavailable ||
+			decision.frameOwner != ReaderPresentationFrameOwner.Neutral
+		) return false
+		val event = ReaderPresentationEvent.ShellCoverRequested(
+			coverGeneration = binding.publicationGeneration
+		)
+		val receipt = onEvent(event).takeIf { it.authorizes(event) } ?: return false
+		update(readerPresentationDecision(receipt.postState))
+		return true
+	}
+
+	private fun requestLiveEngineExposureIfRequired(
+		decision: ReaderPresentationDecision,
+		liveEngineRequired: Boolean
+	): Boolean {
+		if (!liveEngineRequired) return false
 		if (
 			!host.isAttachedToWindow ||
 			host.currentPresentationBinding != decision.targetBinding ||
 			decision.requiredTransition != ReaderRequiredTransition.None ||
+			cancelledHandoffMatches(
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine,
+				decision.targetBinding
+			) ||
 			(
 				decision.authority !is ReaderPresentationAuthority.ShellCover &&
 					decision.authority !is ReaderPresentationAuthority.SettledNativePage
@@ -450,8 +628,33 @@ internal class ReaderPresentationHostBridge(
 		return true
 	}
 
-	private fun updateLiveEngineExposure(decision: ReaderPresentationDecision) {
-		if (!liveEngineExposureRequired()) {
+	private fun requestNativePageExposureIfRequired(
+		decision: ReaderPresentationDecision,
+		liveEngineRequired: Boolean
+	): Boolean {
+		if (liveEngineRequired) return false
+		if (
+			!host.isAttachedToWindow ||
+			decision.requiredTransition != ReaderRequiredTransition.None ||
+			cancelledHandoffMatches(
+				ReaderLiveEngineHandoffDirection.LiveEngineToNative,
+				decision.targetBinding
+			) ||
+			decision.authority !is ReaderPresentationAuthority.LiveEngineExposed
+		) return false
+		val event = ReaderPresentationEvent.WebViewHandoffRequested(
+			ReaderLiveEngineHandoffDirection.LiveEngineToNative
+		)
+		val receipt = onEvent(event).takeIf { it.authorizes(event) } ?: return false
+		update(readerPresentationDecision(receipt.postState))
+		return true
+	}
+
+	private fun updateLiveEngineExposure(
+		decision: ReaderPresentationDecision,
+		liveEngineRequired: Boolean
+	) {
+		if (!liveEngineRequired) {
 			cancelPendingLiveEngineExposure()
 			return
 		}
@@ -466,7 +669,29 @@ internal class ReaderPresentationHostBridge(
 					}
 					cancelPendingLiveEngineExposure()
 				}
-				pending.transition != transition -> cancelPendingLiveEngineExposure()
+				pending.transition != transition -> {
+					if (transition?.token == pending.transition.token) {
+						if (
+							liveEngineVisualHandoff?.rebindPresentationRequest(
+								pending.transition,
+								transition
+							) == true
+						) {
+							pending.transition = transition
+							return
+						}
+						cancelPendingLiveEngineExposure()
+						PendingLiveEngineExposure(transition).also { failed ->
+							pendingLiveEngineExposure = failed
+							publishLiveEngineExposureFailure(
+								failed,
+								ReaderWebViewVisualHandoffFailure.Invalidated
+							)
+						}
+						return
+					}
+					cancelPendingLiveEngineExposure()
+				}
 				pending.emittedEvent != null -> {
 					dispatchLiveEngineReceipt(pending, pending.emittedEvent!!)
 					return
@@ -534,6 +759,7 @@ internal class ReaderPresentationHostBridge(
 	) {
 		if (pendingLiveEngineExposure !== pending || pending.emittedEvent != null) return
 		val event = ReaderPresentationEvent.LiveEngineExposureFailed(
+			direction = pending.transition.direction,
 			token = pending.transition.token,
 			binding = pending.transition.binding,
 			reason = if (reason == ReaderWebViewVisualHandoffFailure.TimedOut) {

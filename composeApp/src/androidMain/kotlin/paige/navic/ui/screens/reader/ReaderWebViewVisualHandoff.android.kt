@@ -3,15 +3,21 @@ package paige.navic.ui.screens.reader
 import android.os.Looper
 import android.view.View
 import android.webkit.WebView
+import paige.navic.reader.ReaderLiveEngineHandoffDirection
 import paige.navic.reader.ReaderLiveEnginePresentationProof
+import paige.navic.reader.ReaderDiagnosticPresentation
 import paige.navic.reader.ReaderPageRelocationQueue
 import paige.navic.reader.ReaderPageRelocationRequest
+import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventReceipt
+import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderRequiredTransition
+import paige.navic.reader.isCausalDestinationSuccessorOf
 import paige.navic.reader.readerPresentationDecision
 import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -70,6 +76,13 @@ internal sealed interface ReaderPresentationWebViewVisualHandoffResult {
 		val reason: ReaderWebViewVisualHandoffFailure
 	) : ReaderPresentationWebViewVisualHandoffResult
 }
+
+internal fun ReaderRequiredTransition.ExposeLiveEngine.isExactCausalRebindOf(
+	previous: ReaderRequiredTransition.ExposeLiveEngine
+): Boolean = direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine &&
+	direction == previous.direction &&
+	token == previous.token &&
+	binding.isCausalDestinationSuccessorOf(previous.binding)
 
 internal sealed interface ReaderWebViewVisualHandoffRetryEvent {
 	data class CallbackCapacityAvailable(
@@ -188,13 +201,38 @@ internal interface ReaderWebViewVisualHandoffHost {
 	fun removeCallbacks(action: () -> Unit)
 }
 
+internal class ReaderLiveEnginePresentedFrameSequenceAuthority {
+	private data class Publication(
+		val foliateSessionId: String,
+		val publicationGeneration: Long
+	)
+
+	private var publication: Publication? = null
+	private var nextSequence = 1L
+
+	fun next(binding: ReaderPresentationBinding): Long {
+		val requestedPublication = Publication(
+			binding.foliateSessionId,
+			binding.publicationGeneration
+		)
+		if (publication != requestedPublication) {
+			publication = requestedPublication
+			nextSequence = 1L
+		}
+		return nextSequence.also { sequence ->
+			nextSequence = Math.incrementExact(sequence)
+		}
+	}
+}
+
 internal class ReaderWebViewVisualHandoff(
 	private val host: ReaderWebViewVisualHandoffHost,
 	private val timeoutMillis: Long = 2_000L,
 	private val onCapacityRetry: (ReaderWebViewVisualHandoffRetryEvent) -> Boolean = { true },
 	private val attemptEventSink: ReaderWebViewVisualHandoffAttemptEventSink =
 		ReaderWebViewVisualHandoffAttemptEventSink { },
-	private val onOwnershipMutated: () -> Unit = {}
+	private val onOwnershipMutated: () -> Unit = {},
+	private val presentedFrameSequenceSource: ((ReaderPresentationBinding) -> Long)? = null
 ) {
 	private enum class PendingCallbackKind {
 		VisualState,
@@ -202,10 +240,15 @@ internal class ReaderWebViewVisualHandoff(
 		Timeout
 	}
 
+	private data class PresentationRequestPayload(
+		var request: ReaderPresentationWebViewVisualHandoffRequest?,
+		val legacyFrameSequenceBinding: ReaderPresentationBinding?
+	)
+
 	private data class Active(
 		val requestId: Long,
 		val token: String,
-		val presentationRequest: ReaderPresentationWebViewVisualHandoffRequest?,
+		val presentationRequest: PresentationRequestPayload,
 		val visualStateOwnerGeneration: Long,
 		val timeoutToken: Long,
 		val visualStateToken: Long,
@@ -232,7 +275,7 @@ internal class ReaderWebViewVisualHandoff(
 
 	private var nextRequestId = 1L
 	private var nextCallbackToken = 1L
-	private var nextPresentedFrameSequence = 1L
+	private var nextLocalPresentedFrameSequence = 1L
 	private var nextCapacityEdgeVersion = 1L
 	private val pendingCallbacks = linkedMapOf<Long, PendingCallbackKind>()
 	private val visualRegistrations =
@@ -300,6 +343,14 @@ internal class ReaderWebViewVisualHandoff(
 	private fun canReserveInitialCallbacks(): Boolean =
 		hostCallbackLimit - pendingCallbacks.size >= 2
 
+	private fun reservePresentedFrameSequence(binding: ReaderPresentationBinding?): Long {
+		val source = presentedFrameSequenceSource
+		if (source != null) return source(requireNotNull(binding))
+		return nextLocalPresentedFrameSequence.also { sequence ->
+			nextLocalPresentedFrameSequence = Math.incrementExact(sequence)
+		}
+	}
+
 	private fun reserveCallback(kind: PendingCallbackKind): Long {
 		check(pendingCallbacks.size < hostCallbackLimit)
 		return nextCallbackToken++.also { callbackToken ->
@@ -317,18 +368,33 @@ internal class ReaderWebViewVisualHandoff(
 	fun await(
 		token: String,
 		onResult: (ReaderWebViewVisualHandoffResult) -> Unit
-	): Unit = awaitInternal(token, presentationRequest = null, onResult)
+	): Unit = awaitInternal(
+		token,
+		PresentationRequestPayload(null, null),
+		onResult
+	)
+
+	fun await(
+		token: String,
+		frameSequenceBinding: ReaderPresentationBinding,
+		onResult: (ReaderWebViewVisualHandoffResult) -> Unit
+	): Unit = awaitInternal(
+		token,
+		PresentationRequestPayload(null, frameSequenceBinding),
+		onResult
+	)
 
 	fun await(
 		token: ReaderPresentationToken,
 		binding: ReaderPresentationBinding,
 		onResult: (ReaderPresentationWebViewVisualHandoffResult) -> Unit
 	) {
-		val request = ReaderPresentationWebViewVisualHandoffRequest(token, binding)
-		awaitInternal(
-			token = "presentation-${token.value}",
-			presentationRequest = request
-		) { result ->
+		val payload = PresentationRequestPayload(
+			ReaderPresentationWebViewVisualHandoffRequest(token, binding),
+			null
+		)
+		awaitInternal("presentation-${token.value}", payload) { result ->
+			val request = requireNotNull(payload.request)
 			onResult(
 				when (result) {
 					is ReaderWebViewVisualHandoffResult.Ready ->
@@ -348,9 +414,30 @@ internal class ReaderWebViewVisualHandoff(
 		}
 	}
 
+	fun rebindPresentationRequest(
+		previous: ReaderRequiredTransition.ExposeLiveEngine,
+		transition: ReaderRequiredTransition.ExposeLiveEngine
+	): Boolean = ownershipMutation {
+		if (closed || !transition.isExactCausalRebindOf(previous)) return false
+		val request = active ?: return false
+		val payload = request.presentationRequest
+		if (
+			request.token != "presentation-${previous.token.value}" ||
+			payload.request != ReaderPresentationWebViewVisualHandoffRequest(
+				previous.token,
+				previous.binding
+			)
+		) return false
+		payload.request = ReaderPresentationWebViewVisualHandoffRequest(
+			transition.token,
+			transition.binding
+		)
+		true
+	}
+
 	private fun awaitInternal(
 		token: String,
-		presentationRequest: ReaderPresentationWebViewVisualHandoffRequest?,
+		presentationRequest: PresentationRequestPayload,
 		onResult: (ReaderWebViewVisualHandoffResult) -> Unit
 	): Unit = ownershipMutation {
 		check(!closed) { "Visual handoff is closed" }
@@ -420,7 +507,7 @@ internal class ReaderWebViewVisualHandoff(
 				val current = active?.takeIf {
 					it.requestId == requestId &&
 						it.token == token &&
-						it.presentationRequest == presentationRequest
+						it.presentationRequest === presentationRequest
 				} ?: return@visualState
 				host.synchronizeVisualStateOwner()
 				if (
@@ -452,7 +539,7 @@ internal class ReaderWebViewVisualHandoff(
 						val ready = active?.takeIf {
 							it.requestId == requestId &&
 								it.token == token &&
-								it.presentationRequest == presentationRequest
+								it.presentationRequest === presentationRequest
 						} ?: return@ownershipMutation
 						host.synchronizeVisualStateOwner()
 						ready.nextFrameCompleted = true
@@ -462,9 +549,13 @@ internal class ReaderWebViewVisualHandoff(
 							host.isAttachedToWindow &&
 							host.visualStateOwnerGeneration == ready.visualStateOwnerGeneration
 						) {
-							val frameSequence = nextPresentedFrameSequence
-							nextPresentedFrameSequence = Math.incrementExact(frameSequence)
-							ReaderWebViewVisualHandoffResult.Ready(token, frameSequence)
+							ReaderWebViewVisualHandoffResult.Ready(
+								token,
+								reservePresentedFrameSequence(
+									ready.presentationRequest.request?.binding
+										?: ready.presentationRequest.legacyFrameSequenceBinding
+								)
+							)
 						} else {
 							ReaderWebViewVisualHandoffResult.Failed(
 								token,
@@ -494,7 +585,7 @@ internal class ReaderWebViewVisualHandoff(
 				val wasLogicallyActive = active?.let {
 					it.requestId == requestId &&
 						it.token == token &&
-						it.presentationRequest == presentationRequest
+						it.presentationRequest === presentationRequest
 				} == true
 				if (visualRegistrations.remove(visualStateToken) === registration) {
 					check(
@@ -584,13 +675,13 @@ internal class ReaderWebViewVisualHandoff(
 	private fun finish(
 		requestId: Long,
 		token: String,
-		presentationRequest: ReaderPresentationWebViewVisualHandoffRequest?,
+		presentationRequest: PresentationRequestPayload,
 		reason: ReaderWebViewVisualHandoffFailure
 	) {
 		val request = active?.takeIf {
 			it.requestId == requestId &&
 				it.token == token &&
-				it.presentationRequest == presentationRequest
+				it.presentationRequest === presentationRequest
 		} ?: return
 		active = null
 		removeTimeout(request)
@@ -970,9 +1061,13 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	private val commitLiveEngineExposure: (
 		(ReaderLiveEnginePresentationProof) -> ReaderPresentationEventReceipt?
 	)? = null,
+	private val publishLiveEngineHandoffTerminal: (
+		(ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
+	)? = null,
 	private val canRecover: () -> Boolean = { true },
 	timeoutMillis: Long = 2_000L,
 	private val contentValidationTimeoutMillis: Long = timeoutMillis,
+	private val presentedFrameSequenceSource: ((ReaderPresentationBinding) -> Long)? = null,
 	private val onOwnershipMutated: () -> Unit = {},
 	private val attemptEventSink: ReaderWebViewVisualHandoffAttemptEventSink =
 		ReaderWebViewVisualHandoffAttemptEventSink { },
@@ -986,6 +1081,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 ) {
 	private enum class Phase {
 		Idle,
+		AwaitingPresentationAuthority,
 		Awaiting,
 		ValidatingContent,
 		FinalizingPresentation,
@@ -1084,7 +1180,8 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		timeoutMillis = timeoutMillis,
 		onCapacityRetry = ::onCapacityRetry,
 		attemptEventSink = correlatedAttemptEventSink,
-		onOwnershipMutated = onOwnershipMutated
+		onOwnershipMutated = onOwnershipMutated,
+		presentedFrameSequenceSource = presentedFrameSequenceSource
 	)
 
 	fun pendingCallbackCount(): Int =
@@ -1103,6 +1200,16 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	): Boolean {
 		if (phase != Phase.Idle || !matchesAcknowledgedHead(request)) return false
+		val joinsRootPresentation =
+			commonPresentationAuthorityEnabled &&
+				currentHandoffAttemptId == null &&
+				head == request &&
+				pendingCommonPresentationHandoff?.let { pending ->
+					pending.request == request &&
+						pending.transition.direction ==
+							ReaderLiveEngineHandoffDirection.NativeToLiveEngine &&
+						pending.transition.matches(request)
+				} == true
 		if (
 			qaFaultCorrelation != null &&
 			qaFaultCorrelation.appliedOperation.relocationToken != request.token.value
@@ -1122,13 +1229,21 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			contentRecoveryReplacements = 0
 		}
 		head = request
-		if (commonPresentationAuthorityEnabled) {
+		if (commonPresentationAuthorityEnabled && !joinsRootPresentation) {
 			val transition = try {
 				requireNotNull(requestPresentationHandoff).invoke(request)
 			} catch (_: Throwable) {
 				null
 			}
-			if (transition == null || !transition.matches(request)) {
+			if (transition == null) {
+				head = null
+				publishRecovery(request, ReaderWebViewVisualHandoffFailure.Invalidated)
+				return false
+			}
+			if (
+				!transition.matches(request) &&
+				!transition.canAwaitCausalDestination(request)
+			) {
 				head = null
 				publishRecovery(request, ReaderWebViewVisualHandoffFailure.Invalidated)
 				return false
@@ -1153,7 +1268,161 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		pendingQaFaultInheritance = null
 		qaFaultAppliedHandoffAttemptId =
 			qaFaultCorrelation?.appliedOperation?.handoffAttemptId
+		if (
+			joinsRootPresentation ||
+			pendingCommonPresentationHandoff?.transition?.matches(request) == false
+		) {
+			phase = Phase.AwaitingPresentationAuthority
+			return true
+		}
 		return begin(request)
+	}
+
+	fun synchronizeCommonPresentationHandoff(
+		transition: ReaderRequiredTransition.ExposeLiveEngine
+	): Boolean {
+		if (!commonPresentationAuthorityEnabled || phase == Phase.Closed) return false
+		val request = head ?: return observeRootPresentationHandoff(transition)
+		val pending = pendingCommonPresentationHandoff ?: return false
+		if (phase == Phase.AwaitingPresentationAuthority) {
+			if (
+				pending.request != request ||
+				!matchesAcknowledgedHead(request) ||
+				!transition.isExactCausalRebindOf(pending.transition) ||
+				!transition.matches(request)
+			) return false
+			pendingCommonPresentationHandoff = PendingCommonPresentationHandoff(
+				request = request,
+				transition = transition
+			)
+			phase = Phase.Idle
+			return begin(request)
+		}
+		if (pending.transition == transition) return false
+		if (
+			pending.request != request ||
+			transition.direction != pending.transition.direction ||
+			transition.binding != pending.transition.binding ||
+			transition.token.value <= pending.transition.token.value ||
+			!transition.matches(request)
+		) {
+			return false
+		}
+		if (phase == Phase.Recovering && currentHandoffAttemptId == null) {
+			pendingCommonPresentationHandoff = PendingCommonPresentationHandoff(
+				request = request,
+				transition = transition
+			)
+			phase = Phase.AwaitingPresentationAuthority
+			return true
+		}
+		clearContentValidationAttempt()
+		clearPresentationFinalization()
+		contentValidationEpoch += 1L
+		phase = Phase.Recovering
+		pendingCommonPresentationHandoff = PendingCommonPresentationHandoff(
+			request = request,
+			transition = transition
+		)
+		contentValidationFailures = 0
+		contentValidationExhausted = false
+		presentationRecoveryPending = false
+		presentationRecoveryRequests = 0
+		retainedRepreparedEvidence = null
+		handoff.invalidate()
+		return begin(request)
+	}
+
+	fun synchronizeCommonPresentationDecision(
+		decision: ReaderPresentationDecision
+	): Boolean {
+		if (phase == Phase.Closed) return false
+		val request = head ?: return false
+		val pending = pendingCommonPresentationHandoff?.takeIf { it.request == request }
+			?: return false
+		if (phase == Phase.AwaitingPresentationAuthority && currentHandoffAttemptId == null) {
+			when {
+				decision.exposesLiveEngineFor(pending.transition) -> {
+					if (!matchesAcknowledgedHead(request) || !currentStateMatches(request)) return false
+					complete(request)
+					return true
+				}
+				decision.hasTerminalFailureFor(pending.transition) -> {
+					phase = Phase.Recovering
+					return true
+				}
+			}
+		}
+		if (!decision.restoresPredecessorFor(pending.transition)) return false
+		check(matchesAcknowledgedHead(request))
+		clearContentValidationAttempt()
+		clearPresentationFinalization()
+		publishPendingVisualTerminal(
+			request,
+			ReaderWebViewVisualHandoffFailure.Cancelled
+		)
+		phase = Phase.Idle
+		head = null
+		pendingCommonPresentationHandoff = null
+		retainedRepreparedEvidence = null
+		contentValidationEpoch += 1L
+		contentValidationFailures = 0
+		contentValidationExhausted = false
+		presentationRecoveryPending = false
+		presentationRecoveryRequests = 0
+		clearContentRecoveryLineage()
+		handoff.cancelPendingCapacityRetryEdge(request.token.value)
+		handoff.invalidate()
+		clearQaFaultCorrelation()
+		check(queue.completeHandoff(request.token.value))
+		onCompleted(request)
+		queue.commandToDispatch()?.let(dispatch)
+		return true
+	}
+
+	private fun ReaderPresentationDecision.exposesLiveEngineFor(
+		transition: ReaderRequiredTransition.ExposeLiveEngine
+	): Boolean {
+		val proof = (authority as?
+			ReaderPresentationAuthority.LiveEngineExposed)?.frame?.proof ?: return false
+		return proof.token == transition.token &&
+			proof.binding == transition.binding &&
+			targetBinding == transition.binding
+	}
+
+	private fun ReaderPresentationDecision.hasTerminalFailureFor(
+		transition: ReaderRequiredTransition.ExposeLiveEngine
+	): Boolean {
+		val pending = authority as?
+			ReaderPresentationAuthority.LiveEngineHandoffPending ?: return false
+		return pending.token == transition.token &&
+			pending.binding == transition.binding &&
+			pending.direction == transition.direction &&
+			targetBinding == transition.binding &&
+			requiredTransition == ReaderRequiredTransition.None &&
+			diagnosticPresentation is ReaderDiagnosticPresentation.Failure
+	}
+
+	private fun ReaderPresentationDecision.restoresPredecessorFor(
+		transition: ReaderRequiredTransition.ExposeLiveEngine
+	): Boolean {
+		if (
+			transition.direction != ReaderLiveEngineHandoffDirection.NativeToLiveEngine ||
+			targetBinding != transition.binding ||
+			requiredTransition != ReaderRequiredTransition.None ||
+			diagnosticPresentation != ReaderDiagnosticPresentation.Hidden
+		) return false
+		return when (val restored = authority) {
+			is ReaderPresentationAuthority.SettledNativePage ->
+				frameOwner == restored.frame && restored.frame.proof.binding.let { binding ->
+					binding == transition.binding ||
+						transition.binding.isCausalDestinationSuccessorOf(binding)
+				}
+			is ReaderPresentationAuthority.ShellCover ->
+				frameOwner == ReaderPresentationFrameOwner.ShellCover(restored.proof) &&
+					restored.proof.binding == transition.binding
+			else -> false
+		}
 	}
 
 	fun attachQaFault(
@@ -1476,7 +1745,19 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		phase = Phase.Awaiting
 		if (firstAttempt) onAwaiting(request)
 		return try {
-			handoff.await(request.token.value, ::onHandoffResult)
+			val frameSequenceBinding = pendingCommonPresentationHandoff
+				?.takeIf { it.request == request }
+				?.transition
+				?.binding
+			if (frameSequenceBinding == null) {
+				handoff.await(request.token.value, ::onHandoffResult)
+			} else {
+				handoff.await(
+					request.token.value,
+					frameSequenceBinding,
+					::onHandoffResult
+				)
+			}
 			true
 		} catch (_: Throwable) {
 			if (phase == Phase.Awaiting && head == request) {
@@ -1820,6 +2101,52 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		next?.let(dispatch)
 	}
 
+	private fun publishCommonHandoffFailure(
+		request: ReaderPageRelocationRequest,
+		reason: ReaderWebViewVisualHandoffFailure
+	): Boolean {
+		if (reason == ReaderWebViewVisualHandoffFailure.Cancelled) return false
+		val pending = pendingCommonPresentationHandoff?.takeIf { it.request == request }
+			?: return false
+		val failureReason = if (reason == ReaderWebViewVisualHandoffFailure.TimedOut) {
+			ReaderPresentationFailureReason.TimedOut
+		} else {
+			ReaderPresentationFailureReason.LiveEngineUnavailable
+		}
+		val event = if (reason == ReaderWebViewVisualHandoffFailure.TimedOut) {
+			ReaderPresentationEvent.LiveEngineHandoffTimedOut(
+				direction = pending.transition.direction,
+				token = pending.transition.token,
+				binding = pending.transition.binding
+			)
+		} else {
+			ReaderPresentationEvent.LiveEngineExposureFailed(
+				direction = pending.transition.direction,
+				token = pending.transition.token,
+				binding = pending.transition.binding,
+				reason = failureReason
+			)
+		}
+		val receipt = try {
+			publishLiveEngineHandoffTerminal?.invoke(event)
+		} catch (_: Throwable) {
+			null
+		}
+		if (!receipt.authorizes(event)) return false
+		val decision = readerPresentationDecision(requireNotNull(receipt).postState)
+		val authority = decision.authority as?
+			ReaderPresentationAuthority.LiveEngineHandoffPending ?: return false
+		return authority.token == pending.transition.token &&
+			authority.binding == pending.transition.binding &&
+			authority.direction == pending.transition.direction &&
+			decision.frameOwner == authority.retainedFrame &&
+			decision.diagnosticPresentation == ReaderDiagnosticPresentation.Failure(
+				failureReason,
+				retryable = true,
+				cancellable = true
+			)
+	}
+
 	private fun recover(
 		request: ReaderPageRelocationRequest,
 		reason: ReaderWebViewVisualHandoffFailure
@@ -1830,6 +2157,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationEpoch += 1L
 		phase = Phase.Recovering
 		publishPendingVisualTerminal(request, reason)
+		if (publishCommonHandoffFailure(request, reason)) return
 		if (canRecover() && consumeRetainedRepreparedEvidence(request)) return
 		if (reason == ReaderWebViewVisualHandoffFailure.PresentationFailed) {
 			if (presentationRecoveryRequests >= MaximumPresentationRecoveryRequests) return
@@ -1885,6 +2213,26 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		currentHandoffAttemptId = null
 	}
 
+	private fun observeRootPresentationHandoff(
+		transition: ReaderRequiredTransition.ExposeLiveEngine
+	): Boolean {
+		if (
+			phase != Phase.Idle ||
+			pendingCommonPresentationHandoff != null ||
+			currentHandoffAttemptId != null ||
+			!queue.hasDispatchedHead() ||
+			transition.direction != ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+		) return false
+		val request = queue.head()?.takeIf { transition.matches(it) } ?: return false
+		if (!currentStateMatches(request)) return false
+		head = request
+		pendingCommonPresentationHandoff = PendingCommonPresentationHandoff(
+			request = request,
+			transition = transition
+		)
+		return true
+	}
+
 	private fun matchesAcknowledgedHead(
 		request: ReaderPageRelocationRequest
 	): Boolean = queue.matchesAcknowledgedHead(
@@ -1894,6 +2242,11 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		foliateSessionId = request.foliateSessionId,
 		destinationOrdinal = request.destinationOrdinal
 	)
+
+	private fun ReaderRequiredTransition.ExposeLiveEngine.canAwaitCausalDestination(
+		request: ReaderPageRelocationRequest
+	): Boolean = direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine &&
+		binding.foliateSessionId == request.foliateSessionId
 
 	private fun ReaderRequiredTransition.ExposeLiveEngine.matches(
 		request: ReaderPageRelocationRequest
@@ -1933,6 +2286,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	fun cancelForQueueInvalidation() {
 		val request = head
 		if (request == null) {
+			pendingCommonPresentationHandoff = null
 			clearContentRecoveryLineage()
 			clearQaFaultCorrelation()
 			return
@@ -1944,6 +2298,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			ReaderWebViewVisualHandoffFailure.Invalidated
 		)
 		head = null
+		pendingCommonPresentationHandoff = null
 		phase = Phase.Idle
 		retainedRepreparedEvidence = null
 		contentValidationEpoch += 1L
@@ -1969,6 +2324,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			)
 		}
 		head = null
+		pendingCommonPresentationHandoff = null
 		phase = Phase.Closed
 		retainedRepreparedEvidence = null
 		contentValidationEpoch += 1L
