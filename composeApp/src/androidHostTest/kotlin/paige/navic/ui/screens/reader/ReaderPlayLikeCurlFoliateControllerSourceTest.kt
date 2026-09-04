@@ -775,7 +775,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun queueHandoffWaitsForCommittedWebViewExposureBeforeCompletion() {
+	fun queueHandoffWaitsForCommonAuthorityReceiptBeforeCompletion() {
 		val source = visualHandoffFile.readText()
 		val controller = controllerFile.readText()
 		val accepted = source
@@ -783,70 +783,33 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("ReaderPageRelocationContentValidationResult.ContentRejected")
 		val finalization = source
 			.substringAfter("private fun finalizePresentation(")
-			.substringBefore("private fun complete(")
+			.substringBefore("private fun commitCommonPresentationHandoff(")
+		val commonCommit = source
+			.substringAfter("private fun commitCommonPresentationHandoff(")
+			.substringBefore("private fun onPresentationFinalized(")
 		val complete = source
 			.substringAfter("private fun complete(request: ReaderPageRelocationRequest)")
 			.substringBefore("private fun recover(")
-		val controllerFinalization = controller
-			.substringAfter("private fun finalizeHandoffPresentation(")
-			.substringBefore("private fun hideSurfaceBehindInlineRasterShield(")
-		val fade = controllerFinalization
-			.substringAfter("private fun fadeInlineHandoffShield(")
-			.substringBefore("private fun handoffPresentationIsCurrent(")
-		val presentationRecovery = controller
-			.substringAfter(
-				"if (reason == ReaderWebViewVisualHandoffFailure.PresentationFailed) {"
-			)
-			.substringBefore("\n\t\tcheck(")
-		val controllerCompletion = controller
-			.substringAfter("private fun completeRelocationVisualHandoff(")
-			.substringBefore("private fun releaseTerminalContentFailure(")
+		val productionWiring = controller
+			.substringAfter("ReaderPageRelocationVisualHandoffCoordinator(")
+			.substringBefore("canRecover =")
 
 		assertContains(source, "FinalizingPresentation")
 		assertContains(accepted, "finalizePresentation(request)")
 		assertFalse(accepted.contains("queue.completeHandoff("))
-		assertContains(finalization, "presentationFinalizer(request)")
-		assertContains(finalization, "if (!exposedFrameCommitted")
-		assertContains(
-			finalization,
-			"ReaderWebViewVisualHandoffFailure.PresentationFailed"
-		)
-		assertContains(finalization, "validationIsCurrent(request)")
-		assertContains(finalization, "complete(request)")
-		assertTrue(
-			finalization.indexOf("validationIsCurrent(request)") <
-				finalization.indexOf("complete(request)")
-		)
+		assertContains(finalization, "if (commonPresentationAuthorityEnabled)")
+		assertContains(finalization, "commitCommonPresentationHandoff(request, finalizationEpoch)")
+		assertContains(commonCommit, "ReaderLiveEnginePresentationProof(")
+		assertContains(commonCommit, "presentedFrameSequence = ready.presentedFrameSequence")
+		assertContains(commonCommit, "receipt.authorizes(event)")
+		assertContains(commonCommit, "onPresentationFinalized(request, finalizationEpoch, accepted)")
 		assertContains(complete, "queue.completeHandoff(request.token.value)")
 		assertContains(complete, "val next = queue.commandToDispatch()")
 		assertContains(complete, "next?.let(dispatch)")
 		assertFalse(complete.contains("hideSurface("))
-		assertContains(
-			controllerFinalization,
-			"relocationLiveDispatchCoordinator.mutationGeneration(request)"
-		)
-		assertContains(controllerFinalization, "handoffPresentationIsCurrent(")
-		assertContains(fade, "inlineRasterShield.fadeOut(")
-		assertTrue(
-			fade.lastIndexOf("handoffPresentationIsCurrent(") <
-				fade.lastIndexOf("inlineRasterShield.dismiss()")
-		)
-		assertTrue(
-			fade.lastIndexOf("inlineRasterShield.dismiss()") <
-				fade.lastIndexOf("onFinalized(finalized)")
-		)
-		assertFalse(
-			presentationRecovery.contains("relocationLiveDispatchCoordinator.fail(")
-		)
-		assertFalse(presentationRecovery.contains("requestLivePresentationRecovery(reason)"))
-		assertContains(
-			presentationRecovery,
-			"retryRelocationVisualHandoffForPreparedDeck(request.textureGeneration)"
-		)
-		assertContains(
-			controllerCompletion,
-			"relocationLiveDispatchCoordinator.complete(request)"
-		)
+		assertContains(productionWiring, "requestPresentationHandoff =")
+		assertContains(productionWiring, "commitLiveEngineExposure =")
+		assertFalse(productionWiring.contains("finalizePresentation = ::"))
 	}
 
 	@Test
@@ -3081,7 +3044,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun rejectedRapidPointerCannotHideCommittedVisualHandoffShield() {
+	fun rejectedRapidPointerCannotHideCommonAuthorityPredecessor() {
 		val source = controllerFile.readText()
 		val rejection = source
 			.substringAfter("override fun onGestureRejected(")
@@ -3091,27 +3054,27 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("return ReaderPageCurlDispatchResult.TerminalPublished")
 		val gestureHide = source
 			.substringAfter("private fun hideSurfaceAfterGesture(")
-			.substringBefore("private fun finalizeHandoffPresentation(")
+			.substringBefore("private fun hideSurface()")
 		val newerOwner = source
 			.substringAfter("private fun hasNewerSurfacePresentationOwner(")
-			.substringBefore("private fun finalizeHandoffPresentation(")
-		val handoffFinalization = source
-			.substringAfter("private fun finalizeHandoffPresentation(")
 			.substringBefore("private fun hideSurface()")
+		val productionWiring = source
+			.substringAfter("ReaderPageRelocationVisualHandoffCoordinator(")
+			.substringBefore("canRecover =")
 
-		assertContains(source, "finalizePresentation = ::finalizeHandoffPresentation")
+		assertContains(productionWiring, "requestPresentationHandoff =")
+		assertContains(productionWiring, "commitLiveEngineExposure =")
+		assertFalse(productionWiring.contains("finalizePresentation = ::"))
 		assertContains(rejection, "hideSurfaceAfterGesture(gestureId)")
 		assertContains(unavailable, "hideSurfaceAfterGesture(gestureId)")
 		assertContains(gestureHide, "relocationQueue.ownershipSnapshot().queued > 0")
 		assertContains(gestureHide, "presentedFrameGestureId != gestureId")
 		assertContains(gestureHide, "presentedSurfaceGestureId != gestureId")
-		assertContains(handoffFinalization, "request.gestureId")
-		assertContains(handoffFinalization, "hasNewerSurfacePresentationOwner(request.gestureId)")
 		assertContains(newerOwner, "owner > gestureId")
 		assertTrue(
 			gestureHide.indexOf("relocationQueue.ownershipSnapshot().queued > 0") <
 				gestureHide.indexOf("hideSurface()"),
-			"A rejected rapid pointer must not expose WebView while a committed handoff owns the shield."
+			"A rejected rapid pointer must not retire the predecessor while a committed handoff owns it."
 		)
 	}
 

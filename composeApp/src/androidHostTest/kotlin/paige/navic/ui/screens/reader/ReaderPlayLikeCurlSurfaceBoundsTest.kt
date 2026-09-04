@@ -54,54 +54,31 @@ class ReaderPlayLikeCurlSurfaceBoundsTest {
 	}
 
 	@Test
-	fun successfulHandoffCrossfadesValidatedRasterUntilWebViewExposureCommits() {
+	fun successfulHandoffKeepsNativePredecessorUntilCommonReceiptCommits() {
 		val controller = sourceFile(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 				"ReaderPlayLikeCurlFoliateController.android.kt"
 		).readText()
-		val shield = sourceFile(
+		val visualHandoff = sourceFile(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
-				"ReaderPageInlineRasterShield.android.kt"
+				"ReaderWebViewVisualHandoff.android.kt"
 		).readText()
-		val handoff = controller
-			.substringAfter("private fun finalizeHandoffPresentation(")
-			.substringBefore("private fun hideSurface()")
-		val fade = shield
-			.substringAfter("fun fadeOut(")
-			.substringBefore("private fun awaitExposedWebViewFrame(")
-		val exposure = shield
-			.substringAfter("private fun awaitExposedWebViewFrame(")
-			.substringBefore("private fun completeFade(")
-		val fadeCompletion = shield
-			.substringAfter("private fun completeFade(")
-			.substringBefore("private fun cancelPendingPresentation(")
-		val reveal = controller
-			.substringAfter("private fun revealSurfaceAfterNextPresentedFrame(")
-			.substringBefore("fun cancelGestureAfterHostTerminal(")
+		val productionWiring = controller
+			.substringAfter("ReaderPageRelocationVisualHandoffCoordinator(")
+			.substringBefore("canRecover =")
+		val commonCommit = visualHandoff
+			.substringAfter("private fun commitCommonPresentationHandoff(")
+			.substringBefore("private fun onPresentationFinalized(")
 
-		assertContains(controller, "ReaderPageLiveHandoffCrossfadeMillis = 200L")
-		assertContains(handoff, "inlineRasterShield.present(")
-		assertContains(handoff, "hideSurfaceBehindInlineRasterShield()")
-		assertContains(handoff, "inlineRasterShield.fadeOut(")
-		assertContains(handoff, "onFinalized(finalized)")
-		assertFalse(handoff.contains("if (!presented) {\n\t\t\t\thideCurlSurface()"))
-		assertFalse(handoff.contains("surfaceView.animate()"))
-		assertContains(fade, "onExposedFrameCommitted: (Boolean) -> Unit")
-		assertContains(fade, "awaitExposedWebViewFrame(request)")
-		assertContains(exposure, "registerFrameCommitCallback")
-		assertContains(exposure, "host.invalidate()")
-		assertContains(exposure, "host.postOnAnimation")
-		assertFalse(fadeCompletion.contains("clearPresentation()"))
-		assertTrue(
-			fadeCompletion.indexOf("callback?.invoke(effectiveCommit)") <
-				fadeCompletion.indexOf("if (effectiveCommit && ownsPresentation()")
-		)
-		assertContains(fadeCompletion, "view.alpha = 1f")
-		assertContains(reveal, "surfaceView.animate().cancel()")
-		assertContains(reveal, "presentedSurfaceGestureId == gestureId")
-		assertContains(reveal, "surfaceView.alpha = 0f")
-		assertContains(reveal, "surfaceView.requestNextPresentedFrame")
-		assertContains(reveal, "surfaceView.alpha = 1f")
+		assertContains(productionWiring, "requestPresentationHandoff =")
+		assertContains(productionWiring, "commitLiveEngineExposure =")
+		assertFalse(productionWiring.contains("finalizePresentation = ::"))
+		assertFalse(controller.contains("private fun finalizeHandoffPresentation("))
+		assertFalse(controller.contains("inlineRasterShield.fadeOut("))
+		assertContains(commonCommit, "ReaderLiveEnginePresentationProof(")
+		assertContains(commonCommit, "presentedFrameSequence = ready.presentedFrameSequence")
+		assertContains(commonCommit, "receipt.authorizes(event)")
+		assertContains(commonCommit, "onPresentationFinalized(request, finalizationEpoch, accepted)")
 	}
 
 	@Test

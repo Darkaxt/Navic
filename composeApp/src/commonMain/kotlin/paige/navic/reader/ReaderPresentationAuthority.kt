@@ -224,7 +224,8 @@ sealed interface ReaderPresentationAuthority {
 			require(
 				when (direction) {
 					ReaderLiveEngineHandoffDirection.NativeToLiveEngine ->
-						retainedFrame is ReaderPresentationFrameOwner.NativePage
+						retainedFrame is ReaderPresentationFrameOwner.NativePage ||
+							retainedFrame is ReaderPresentationFrameOwner.ShellCover
 					ReaderLiveEngineHandoffDirection.LiveEngineToNative ->
 						retainedFrame is ReaderPresentationFrameOwner.LiveEngine
 				}
@@ -454,6 +455,7 @@ sealed interface ReaderPresentationEvent {
 		init {
 			require(
 				reason == ReaderPresentationFailureReason.LiveEngineUnavailable ||
+					reason == ReaderPresentationFailureReason.NativePresentationUnavailable ||
 					reason == ReaderPresentationFailureReason.TimedOut
 			)
 		}
@@ -557,9 +559,9 @@ private fun ReaderPresentationAuthority.hasBlockingTransitionFailure(
 ): Boolean = failure?.reason == ReaderPresentationFailureReason.ShellCoverUnavailable ||
 	(
 		this is ReaderPresentationAuthority.LiveEngineHandoffPending &&
-			direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine &&
 			(
 				failure?.reason == ReaderPresentationFailureReason.LiveEngineUnavailable ||
+					failure?.reason == ReaderPresentationFailureReason.NativePresentationUnavailable ||
 					failure?.reason == ReaderPresentationFailureReason.TimedOut
 			)
 	)
@@ -632,7 +634,7 @@ fun readerPresentationReduce(
 		is ReaderPresentationEvent.PreparationFailed -> state.reducePreparationFailure(event)
 		is ReaderPresentationEvent.TimedOut -> state.reduceTimeout(event)
 		ReaderPresentationEvent.Retry -> state.reduceRetry()
-		ReaderPresentationEvent.Cancel -> rejectedPresentationResult(state)
+		ReaderPresentationEvent.Cancel -> state.reduceCancel()
 		is ReaderPresentationEvent.Lifecycle -> state.reduceLifecycle(event.event)
 	}
 	return ReaderPresentationReduction(
@@ -813,10 +815,10 @@ private fun ReaderPresentationState.reduceRetry(): ReaderPresentationReducerResu
 	val pendingExposure = authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
 	if (
 		currentFailure.retryable &&
-		pendingExposure?.direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine &&
-		pendingExposure.binding == currentBinding &&
+		pendingExposure?.binding == currentBinding &&
 		(
 			currentFailure.reason == ReaderPresentationFailureReason.LiveEngineUnavailable ||
+				currentFailure.reason == ReaderPresentationFailureReason.NativePresentationUnavailable ||
 				currentFailure.reason == ReaderPresentationFailureReason.TimedOut
 		)
 	) {
@@ -850,6 +852,23 @@ private fun ReaderPresentationState.reduceRetry(): ReaderPresentationReducerResu
 				binding = currentBinding
 			)
 		)
+	)
+}
+
+private fun ReaderPresentationState.reduceCancel(): ReaderPresentationReducerResult {
+	val pending = authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
+		?: return rejectedPresentationResult(this)
+	val restored = when (val retained = pending.retainedFrame) {
+		is ReaderPresentationFrameOwner.NativePage ->
+			ReaderPresentationAuthority.SettledNativePage(retained)
+		is ReaderPresentationFrameOwner.LiveEngine ->
+			ReaderPresentationAuthority.LiveEngineExposed(retained)
+		is ReaderPresentationFrameOwner.ShellCover ->
+			ReaderPresentationAuthority.ShellCover(retained.proof)
+		else -> return rejectedPresentationResult(this)
+	}
+	return acceptedPresentationResult(
+		copy(authority = restored, failure = null)
 	)
 }
 
@@ -1518,6 +1537,9 @@ private fun ReaderPresentationState.reduceWebViewHandoff(
 		currentAuthority is ReaderPresentationAuthority.SettledNativePage &&
 			direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine ->
 			currentAuthority.frame
+		currentAuthority is ReaderPresentationAuthority.ShellCover &&
+			direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine ->
+			ReaderPresentationFrameOwner.ShellCover(currentAuthority.proof)
 		currentAuthority is ReaderPresentationAuthority.LiveEngineExposed &&
 			direction == ReaderLiveEngineHandoffDirection.LiveEngineToNative ->
 			currentAuthority.frame
@@ -1570,17 +1592,22 @@ private fun ReaderPresentationState.reduceLiveEngineExposureFailure(
 	val currentAuthority = authority
 	return if (
 		currentAuthority is ReaderPresentationAuthority.LiveEngineHandoffPending &&
-		currentAuthority.direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine &&
-		currentAuthority.token == event.token &&
-		currentAuthority.binding == event.binding &&
-		binding == event.binding
+			currentAuthority.token == event.token &&
+			currentAuthority.binding == event.binding &&
+			binding == event.binding &&
+			when (currentAuthority.direction) {
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine ->
+					event.reason != ReaderPresentationFailureReason.NativePresentationUnavailable
+				ReaderLiveEngineHandoffDirection.LiveEngineToNative ->
+					event.reason != ReaderPresentationFailureReason.LiveEngineUnavailable
+			}
 	) {
 		acceptedPresentationResult(
 			copy(
 				failure = ReaderDiagnosticPresentation.Failure(
 					reason = event.reason,
 					retryable = true,
-					cancellable = false
+					cancellable = true
 				)
 			)
 		)
@@ -1666,11 +1693,22 @@ private fun ReaderPresentationState.reduceTimeout(
 ): ReaderPresentationReducerResult {
 	val expectedToken = authority.tokenOrNull()
 	val currentBinding = binding
-	return if (event.token != null && event.token != expectedToken && currentBinding != null) {
-		stalePresentation(event.token, currentBinding)
-	} else {
-		acceptedPresentationResult(this)
+	if (event.token != null && event.token != expectedToken && currentBinding != null) {
+		return stalePresentation(event.token, currentBinding)
 	}
+	val pending = authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
+	if (pending != null && event.token == pending.token && currentBinding == pending.binding) {
+		return acceptedPresentationResult(
+			copy(
+				failure = ReaderDiagnosticPresentation.Failure(
+					reason = ReaderPresentationFailureReason.TimedOut,
+					retryable = true,
+					cancellable = true
+				)
+			)
+		)
+	}
+	return acceptedPresentationResult(this)
 }
 
 private fun ReaderPresentationState.staleProof(

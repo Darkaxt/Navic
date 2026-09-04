@@ -58,7 +58,13 @@ import paige.navic.reader.ReaderPageRelocationQueue
 import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderPageTurnSettlementAck
+import paige.navic.reader.ReaderLiveEngineHandoffDirection
+import paige.navic.reader.ReaderLiveEnginePresentationProof
 import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationEventReceipt
+import paige.navic.reader.ReaderRequiredTransition
+import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncPageLocalRect
@@ -70,7 +76,6 @@ import paige.navic.reader.rendererDeckIdentityOrNull
 import paige.navic.util.core.Logger
 
 private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFoliate"
-private const val ReaderPageLiveHandoffCrossfadeMillis = 200L
 private const val ReaderPageRelocationVisualHandoffTimeoutMillis = 5_000L
 private const val PassiveManifestAuthorityRecoveryTimeoutMillis = 10_000L
 private const val MAX_RASTER_ADAPTER_OWNERS = 2
@@ -798,6 +803,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	) -> Boolean,
 	private val onCanonicalLiveCommitIssued: () -> Boolean = { false },
 	private val onCanonicalLiveCommitRecoveryFailed: (Long) -> Boolean = { false },
+	private val onPresentationEvent: (
+		ReaderPresentationEvent
+	) -> ReaderPresentationEventReceipt? = { null },
 	private val onBoundaryTurn: (ReaderPageTurnDirection) -> Unit = {},
 	private val onRasterProfileEpochChanged: (Long?) -> Unit = {},
 	private val onProtectedRasterSourcePageIndicesChanged: (Set<Int>) -> Unit = {},
@@ -1067,8 +1075,28 @@ internal class ReaderPlayLikeCurlFoliateController(
 			currentState = ::relocationVisualState,
 			dispatch = ::dispatchRelocation,
 			publishRecovery = ::publishRelocationVisualRecovery,
-			finalizePresentation = ::finalizeHandoffPresentation,
 			validateContent = ::validateLivePresentation,
+			requestPresentationHandoff = { request ->
+				val event = ReaderPresentationEvent.WebViewHandoffRequested(
+					ReaderLiveEngineHandoffDirection.NativeToLiveEngine
+				)
+				val receipt = onPresentationEvent(event)
+				if (!receipt.authorizes(event)) {
+					null
+				} else {
+					(readerPresentationDecision(requireNotNull(receipt).postState).requiredTransition as?
+						ReaderRequiredTransition.ExposeLiveEngine)?.takeIf { transition ->
+						transition.binding.foliateSessionId == request.foliateSessionId &&
+							transition.binding.rasterGeneration == request.rasterGeneration &&
+							transition.binding.textureGeneration == request.textureGeneration
+					}
+				}
+			},
+			commitLiveEngineExposure = { proof: ReaderLiveEnginePresentationProof ->
+				onPresentationEvent(
+					ReaderPresentationEvent.LiveEngineExposureCommitted(proof)
+				)
+			},
 			canRecover = { qaFaultRegistry?.isClosed() != true },
 			timeoutMillis = ReaderPageRelocationVisualHandoffTimeoutMillis,
 			contentValidationTimeoutMillis = 2_000L,
@@ -6225,150 +6253,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun hasNewerSurfacePresentationOwner(gestureId: Long): Boolean =
 		presentedFrameGestureId?.let { owner -> owner > gestureId } == true ||
 			presentedSurfaceGestureId?.let { owner -> owner > gestureId } == true
-
-	private fun finalizeHandoffPresentation(
-		request: ReaderPageRelocationRequest,
-		onFinalized: (Boolean) -> Unit
-	) {
-		val foregroundMutationGeneration =
-			relocationLiveDispatchCoordinator.mutationGeneration(request)
-		if (foregroundMutationGeneration == null) {
-			onFinalized(false)
-			return
-		}
-		val generationOwner = generationOwners[request.textureGeneration]
-		if (
-			generationOwner == null ||
-			!handoffPresentationIsCurrent(
-				request,
-				generationOwner,
-				foregroundMutationGeneration
-			)
-		) {
-			onFinalized(false)
-			return
-		}
-		if (inlineRasterShield.ownsPresentation()) {
-			fadeInlineHandoffShield(
-				request,
-				generationOwner,
-				foregroundMutationGeneration,
-				onFinalized
-			)
-			return
-		}
-		val snapshot = takeInlineHandoffSnapshot(request)
-		if (snapshot == null) {
-			onFinalized(false)
-			return
-		}
-		if (
-			!handoffPresentationIsCurrent(
-				request,
-				generationOwner,
-				foregroundMutationGeneration
-			)
-		) {
-			snapshot.release()
-			onFinalized(false)
-			return
-		}
-		snapshot.retain()
-		check(retainedInlineHandoffSnapshot == null)
-		retainedInlineHandoffSnapshot = RetainedInlineHandoffSnapshot(request, snapshot)
-		inlineRasterShield.present(snapshot) { presented ->
-			val handoffStillCurrent = handoffPresentationIsCurrent(
-				request,
-				generationOwner,
-				foregroundMutationGeneration
-			)
-			if (!handoffStillCurrent) {
-				if (presented) inlineRasterShield.dismiss()
-				clearRetainedInlineHandoffSnapshot(request)
-				onFinalized(false)
-				return@present
-			}
-			if (!presented) {
-				Logger.w(
-					ReaderPlayLikeCurlFoliateControllerTag,
-					"PlayLikeCurl inline raster crossfade presentation failed"
-				)
-				onFinalized(false)
-				return@present
-			}
-			clearRetainedInlineHandoffSnapshot(request)
-			fadeInlineHandoffShield(
-				request,
-				generationOwner,
-				foregroundMutationGeneration,
-				onFinalized
-			)
-		}
-	}
-
-	private fun fadeInlineHandoffShield(
-		request: ReaderPageRelocationRequest,
-		generationOwner: PreparedPages,
-		foregroundMutationGeneration: ReaderForegroundWebViewMutationGeneration,
-		onFinalized: (Boolean) -> Unit
-	) {
-		if (
-			!inlineRasterShield.ownsPresentation() ||
-			!handoffPresentationIsCurrent(
-				request,
-				generationOwner,
-				foregroundMutationGeneration
-			)
-		) {
-			onFinalized(false)
-			return
-		}
-		hideSurfaceBehindInlineRasterShield()
-		inlineRasterShield.fadeOut(
-			ReaderPageLiveHandoffCrossfadeMillis
-		) { exposedFrameCommitted ->
-			val finalized =
-				exposedFrameCommitted &&
-					handoffPresentationIsCurrent(
-						request,
-						generationOwner,
-						foregroundMutationGeneration
-					)
-			if (finalized) inlineRasterShield.dismiss()
-			onFinalized(finalized)
-		}
-	}
-
-	private fun handoffPresentationIsCurrent(
-		request: ReaderPageRelocationRequest,
-		generationOwner: PreparedPages,
-		foregroundMutationGeneration: ReaderForegroundWebViewMutationGeneration
-	): Boolean =
-		!destroyed &&
-			enabled &&
-			relocationLiveDispatchCoordinator.isCurrent(
-				request,
-				foregroundMutationGeneration
-			) &&
-			activeDeckGenerationId == request.textureGeneration &&
-			generationOwners[request.textureGeneration] === generationOwner &&
-			generationOwner.profile.rasterGeneration == request.rasterGeneration &&
-			currentOrdinal == request.destinationOrdinal &&
-			currentWebViewOrdinal == request.destinationOrdinal &&
-			currentFoliateSessionId == request.foliateSessionId &&
-			relocationQueue.matchesAcknowledgedHead(
-				token = request.token.value,
-				rasterGeneration = request.rasterGeneration,
-				textureGeneration = request.textureGeneration,
-				foliateSessionId = request.foliateSessionId,
-				destinationOrdinal = request.destinationOrdinal
-			) &&
-			!hasNewerSurfacePresentationOwner(request.gestureId)
-
-	private fun hideSurfaceBehindInlineRasterShield() {
-		check(inlineRasterShield.ownsPresentation())
-		hideCurlSurface()
-	}
 
 	private fun hideSurface() {
 		if (

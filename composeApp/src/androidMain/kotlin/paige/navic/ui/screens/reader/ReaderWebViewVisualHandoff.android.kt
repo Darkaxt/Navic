@@ -3,10 +3,16 @@ package paige.navic.ui.screens.reader
 import android.os.Looper
 import android.view.View
 import android.webkit.WebView
+import paige.navic.reader.ReaderLiveEnginePresentationProof
 import paige.navic.reader.ReaderPageRelocationQueue
 import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationEventReceipt
+import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderRequiredTransition
+import paige.navic.reader.readerPresentationDecision
 import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -163,6 +169,7 @@ internal class ReaderWebViewVisualDeliveryCell(
 
 internal interface ReaderWebViewVisualHandoffHost {
 	val isAttachedToWindow: Boolean
+	val visualStateOwnerGeneration: Long get() = 0L
 
 	fun synchronizeVisualStateOwner()
 
@@ -199,6 +206,7 @@ internal class ReaderWebViewVisualHandoff(
 		val requestId: Long,
 		val token: String,
 		val presentationRequest: ReaderPresentationWebViewVisualHandoffRequest?,
+		val visualStateOwnerGeneration: Long,
 		val timeoutToken: Long,
 		val visualStateToken: Long,
 		val timeoutAction: () -> Unit,
@@ -353,6 +361,7 @@ internal class ReaderWebViewVisualHandoff(
 			ReaderWebViewVisualHandoffAttemptEvent.Started(token, requestId)
 		)
 		host.synchronizeVisualStateOwner()
+		val visualStateOwnerGeneration = host.visualStateOwnerGeneration
 		if (!host.isAttachedToWindow) {
 			publishTerminal(
 				requestId,
@@ -397,6 +406,7 @@ internal class ReaderWebViewVisualHandoff(
 			requestId = requestId,
 			token = token,
 			presentationRequest = presentationRequest,
+			visualStateOwnerGeneration = visualStateOwnerGeneration,
 			timeoutToken = timeoutToken,
 			visualStateToken = visualStateToken,
 			timeoutAction = timeoutAction,
@@ -412,12 +422,20 @@ internal class ReaderWebViewVisualHandoff(
 						it.token == token &&
 						it.presentationRequest == presentationRequest
 				} ?: return@visualState
-				if (!host.isAttachedToWindow) {
+				host.synchronizeVisualStateOwner()
+				if (
+					!host.isAttachedToWindow ||
+					host.visualStateOwnerGeneration != current.visualStateOwnerGeneration
+				) {
 					finish(
 						requestId,
 						token,
 						presentationRequest,
-						ReaderWebViewVisualHandoffFailure.Detached
+						if (host.isAttachedToWindow) {
+							ReaderWebViewVisualHandoffFailure.Invalidated
+						} else {
+							ReaderWebViewVisualHandoffFailure.Detached
+						}
 					)
 					return@visualState
 				}
@@ -436,17 +454,25 @@ internal class ReaderWebViewVisualHandoff(
 								it.token == token &&
 								it.presentationRequest == presentationRequest
 						} ?: return@ownershipMutation
+						host.synchronizeVisualStateOwner()
 						ready.nextFrameCompleted = true
 						removeTimeout(ready)
 						active = null
-						val result = if (host.isAttachedToWindow) {
+						val result = if (
+							host.isAttachedToWindow &&
+							host.visualStateOwnerGeneration == ready.visualStateOwnerGeneration
+						) {
 							val frameSequence = nextPresentedFrameSequence
 							nextPresentedFrameSequence = Math.incrementExact(frameSequence)
 							ReaderWebViewVisualHandoffResult.Ready(token, frameSequence)
 						} else {
 							ReaderWebViewVisualHandoffResult.Failed(
 								token,
-								ReaderWebViewVisualHandoffFailure.Detached
+								if (host.isAttachedToWindow) {
+									ReaderWebViewVisualHandoffFailure.Invalidated
+								} else {
+									ReaderWebViewVisualHandoffFailure.Detached
+								}
 							)
 						}
 						publishTerminal(
@@ -702,6 +728,8 @@ internal class ReaderWebViewVisualHandoffHostAdapter(
 	private val postedVisualStates =
 		IdentityHashMap<ReaderWebViewVisualDeliveryCell, PostedVisualState>()
 	private var visualStateOwner: WebView? = null
+	final override var visualStateOwnerGeneration: Long = 0L
+		private set
 
 	override val isAttachedToWindow: Boolean
 		get() = webViewProvider()?.isAttachedToWindow == true
@@ -717,12 +745,16 @@ internal class ReaderWebViewVisualHandoffHostAdapter(
 			cell.abandonPhysicalOwnership()
 		}
 		visualStateOwner = current
+		visualStateOwnerGeneration = Math.incrementExact(visualStateOwnerGeneration)
 	}
 
 	override fun abandonVisualStateCallbacks() {
 		val abandoned = postedVisualStates.keys.toList()
 		postedVisualStates.clear()
-		visualStateOwner = null
+		if (visualStateOwner != null) {
+			visualStateOwner = null
+			visualStateOwnerGeneration = Math.incrementExact(visualStateOwnerGeneration)
+		}
 		abandoned.forEach { cell -> cell.abandonPhysicalOwnership() }
 	}
 
@@ -927,11 +959,17 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	finalizePresentation: (
 		ReaderPageRelocationRequest,
 		(Boolean) -> Unit
-	) -> Unit,
+	) -> Unit = { _, onFinalized -> onFinalized(false) },
 	private val validateContent: (
 		ReaderPageRelocationRequest,
 		(ReaderPageRelocationContentValidationResult) -> Unit
 	) -> ReaderPageRelocationContentValidationHandle,
+	private val requestPresentationHandoff: (
+		(ReaderPageRelocationRequest) -> ReaderRequiredTransition.ExposeLiveEngine?
+	)? = null,
+	private val commitLiveEngineExposure: (
+		(ReaderLiveEnginePresentationProof) -> ReaderPresentationEventReceipt?
+	)? = null,
 	private val canRecover: () -> Boolean = { true },
 	timeoutMillis: Long = 2_000L,
 	private val contentValidationTimeoutMillis: Long = timeoutMillis,
@@ -956,6 +994,16 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	}
 
 	private val presentationFinalizer = finalizePresentation
+	private val commonPresentationAuthorityEnabled = requestPresentationHandoff != null
+
+	init {
+		require((requestPresentationHandoff == null) == (commitLiveEngineExposure == null))
+	}
+
+	private data class PendingCommonPresentationHandoff(
+		val request: ReaderPageRelocationRequest,
+		val transition: ReaderRequiredTransition.ExposeLiveEngine
+	)
 
 	private data class PendingQaFaultInheritance(
 		val replacementToken: String,
@@ -969,6 +1017,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 
 	private var phase = Phase.Idle
 	private var head: ReaderPageRelocationRequest? = null
+	private var pendingCommonPresentationHandoff: PendingCommonPresentationHandoff? = null
 	private var contentValidationFailures = 0
 	private var contentValidationEpoch = 0L
 	private var presentationFinalizationEpoch = 0L
@@ -1073,6 +1122,22 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			contentRecoveryReplacements = 0
 		}
 		head = request
+		if (commonPresentationAuthorityEnabled) {
+			val transition = try {
+				requireNotNull(requestPresentationHandoff).invoke(request)
+			} catch (_: Throwable) {
+				null
+			}
+			if (transition == null || !transition.matches(request)) {
+				head = null
+				publishRecovery(request, ReaderWebViewVisualHandoffFailure.Invalidated)
+				return false
+			}
+			pendingCommonPresentationHandoff = PendingCommonPresentationHandoff(
+				request = request,
+				transition = transition
+			)
+		}
 		contentValidationFailures = 0
 		contentValidationExhausted = false
 		contentValidationEpoch += 1L
@@ -1654,6 +1719,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		check(!presentationFinalizationPending)
 		presentationFinalizationPending = true
 		onOwnershipMutated()
+		if (commonPresentationAuthorityEnabled) {
+			commitCommonPresentationHandoff(request, finalizationEpoch)
+			return true
+		}
 		try {
 			presentationFinalizer(request) { exposedFrameCommitted ->
 				onPresentationFinalized(
@@ -1666,6 +1735,33 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			onPresentationFinalized(request, finalizationEpoch, false)
 		}
 		return true
+	}
+
+	private fun commitCommonPresentationHandoff(
+		request: ReaderPageRelocationRequest,
+		finalizationEpoch: Long
+	) {
+		val pending = pendingCommonPresentationHandoff?.takeIf { it.request == request }
+		val ready = pendingVisualReadyTerminal?.result as? ReaderWebViewVisualHandoffResult.Ready
+		if (pending == null || ready == null) {
+			onPresentationFinalized(request, finalizationEpoch, false)
+			return
+		}
+		val proof = ReaderLiveEnginePresentationProof(
+			token = pending.transition.token,
+			binding = pending.transition.binding,
+			presentedFrameSequence = ready.presentedFrameSequence
+		)
+		val event = ReaderPresentationEvent.LiveEngineExposureCommitted(proof)
+		val receipt = try {
+			requireNotNull(commitLiveEngineExposure).invoke(proof)
+		} catch (_: Throwable) {
+			null
+		}
+		val accepted = receipt.authorizes(event) &&
+			(readerPresentationDecision(requireNotNull(receipt).postState).frameOwner as?
+				ReaderPresentationFrameOwner.LiveEngine)?.proof == proof
+		onPresentationFinalized(request, finalizationEpoch, accepted)
 	}
 
 	private fun onPresentationFinalized(
@@ -1714,6 +1810,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationExhausted = false
 		presentationRecoveryPending = false
 		presentationRecoveryRequests = 0
+		pendingCommonPresentationHandoff = null
 		clearContentRecoveryLineage()
 		publishPendingVisualTerminal(request)
 		onCompleted(request)
@@ -1797,6 +1894,12 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		foliateSessionId = request.foliateSessionId,
 		destinationOrdinal = request.destinationOrdinal
 	)
+
+	private fun ReaderRequiredTransition.ExposeLiveEngine.matches(
+		request: ReaderPageRelocationRequest
+	): Boolean = binding.foliateSessionId == request.foliateSessionId &&
+		binding.rasterGeneration == request.rasterGeneration &&
+		binding.textureGeneration == request.textureGeneration
 
 	private fun currentStateMatches(
 		request: ReaderPageRelocationRequest

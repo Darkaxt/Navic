@@ -38,7 +38,7 @@ internal data class ReaderPresentationHostBindingSnapshot(
 internal fun readerPresentationHostBinding(
 	snapshot: ReaderPresentationHostBindingSnapshot
 ): ReaderPresentationBinding? {
-	if (!snapshot.pageTurnCanvasEnabled || snapshot.windowVisible == false) return null
+	if (snapshot.windowVisible == false) return null
 	val foliateSessionId = snapshot.foliateSessionId
 		?.takeIf(String::isNotBlank)
 		?: return null

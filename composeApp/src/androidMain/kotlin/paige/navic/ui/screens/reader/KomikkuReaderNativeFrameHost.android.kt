@@ -1069,7 +1069,8 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	}
 	private val presentationHostBridge = ReaderPresentationHostBridge(
 		host = presentationCommitHost,
-		liveEngineVisualHandoff = presentationWebViewVisualHandoff
+		liveEngineVisualHandoff = presentationWebViewVisualHandoff,
+		liveEngineExposureRequired = viewerContainer::requiresLiveEngineExposureHandoff
 	) { event -> viewerContainer.dispatchPresentationEvent(event) }
 
 	init {
@@ -1616,24 +1617,22 @@ internal fun readerPagePhysicalDispatchMode(
 		return ReaderPagePhysicalDispatchMode.Denied
 	}
 	if (!pageTurnCanvasEnabled) {
+		if (
+			legacyLiveCompatibilityContext is ReaderLegacyLiveCompatibilityContext.ColdSession &&
+			presentationInputPolicy == ReaderPresentationInputPolicy.RecoveryOnly
+		) return ReaderPagePhysicalDispatchMode.Denied
 		return when (presentationInputPolicy) {
-			ReaderPresentationInputPolicy.RecoveryOnly -> if (
-				legacyLiveCompatibilityContext is
-				ReaderLegacyLiveCompatibilityContext.ColdSession
-			) {
-				ReaderPagePhysicalDispatchMode.LegacyLive
-			} else {
-				ReaderPagePhysicalDispatchMode.Denied
-			}
+			ReaderPresentationInputPolicy.RecoveryOnly -> ReaderPagePhysicalDispatchMode.Denied
 			ReaderPresentationInputPolicy.ChromeOnly ->
 				ReaderPagePhysicalDispatchMode.ChromeOnly
 			ReaderPresentationInputPolicy.ShellCover ->
 				ReaderPagePhysicalDispatchMode.ShellCover
 			is ReaderPresentationInputPolicy.ClaimedCurl ->
 				ReaderPagePhysicalDispatchMode.PlayLikeCurl
-			is ReaderPresentationInputPolicy.NativePage,
-			ReaderPresentationInputPolicy.LiveEngine ->
+			is ReaderPresentationInputPolicy.NativePage ->
 				ReaderPagePhysicalDispatchMode.Denied
+			ReaderPresentationInputPolicy.LiveEngine ->
+				ReaderPagePhysicalDispatchMode.LiveEngine
 		}
 	}
 	return when (presentationInputPolicy) {
@@ -1786,7 +1785,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private val nativePagePresentationPublisher by lazy {
 		ReaderNativePagePresentationPublisher(
 			frameSource = playLikeCurlController.presentedFrameSource,
-			currentCandidate = ::currentNativePagePresentationCandidateOrNull
+			currentCandidate = ::currentNativePagePresentationCandidateOrNull,
+			handoffTimeoutScheduler = object : ReaderPageRelocationDispatchTimeoutScheduler {
+				override fun postDelayed(action: Runnable, delayMillis: Long): Boolean =
+					ownershipMainHandler.postDelayed(action, delayMillis)
+
+				override fun removeCallbacks(action: Runnable) {
+					ownershipMainHandler.removeCallbacks(action)
+				}
+			}
 		) { event ->
 			check(event is ReaderPresentationEvent.NativePagePresented)
 			dispatchPresentationEvent(event)
@@ -1972,6 +1979,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
 		onCanonicalLiveCommitIssued = ::onCanonicalLiveCommitIssued,
 		onCanonicalLiveCommitRecoveryFailed = ::onCanonicalLiveCommitRecoveryFailed,
+			onPresentationEvent = ::dispatchPresentationEvent,
 		onAttachRasterRepairQaFault = ::attachPageRasterRepairQaFault,
 		onRequestRasterRepair = ::requestPageRasterRepair,
 		onGestureTerminal = { gestureId, outcome, detail ->
@@ -2494,6 +2502,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		cancelLegacyLivePointerStreamIfContextChanged()
 	}
 
+	fun requiresLiveEngineExposureHandoff(): Boolean = !pageTurnCanvasEnabled
+
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
 		val supported = enabled && pageTurnBundleSource.isAvailable
 		if (pageTurnCanvasEnabled == supported) {
@@ -2915,7 +2925,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				latestRendererReadinessState.textureDeck == ReaderTextureDeckState.Ready,
 			nativePresentationVisible =
 				hasValidatedRasterPresentation() && (!shellCoverVisible || transitionToken != null),
-			shellCoverSelected = shellCoverVisible
+			shellCoverSelected = shellCoverVisible,
+			handoffDirection = transition?.direction
 		).currentCandidateOrNull()
 	}
 
