@@ -5,10 +5,12 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
+import paige.navic.reader.ReaderCurlSettlementStage
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.ReaderNativePagePresentationRequest
 import paige.navic.reader.ReaderPageTurnDirection
+import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationEvent
@@ -20,9 +22,12 @@ import paige.navic.reader.ReaderPresentationLifecycleState
 import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.publicationIdentity
+import paige.navic.reader.readerPresentationDecision
+import paige.navic.reader.readerPresentationReduce
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -105,6 +110,93 @@ class ReaderPresentationReceiptReporterTest {
 
 		assertNull(reporter.update(completeA, completeB, false, true))
 		assertEquals(completeB, reporter.lastReportedBinding)
+	}
+
+	@Test
+	fun exactPageTurnVisualLocationReceiptAdvancesCurlThroughProductionReporter() {
+		val sourceBinding = completeBinding("curl-location-session", destination = 40L)
+		val destinationBinding = sourceBinding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				sourceBinding.foliateSessionId,
+				41L
+			),
+			rasterGeneration = 8L,
+			textureGeneration = 9L,
+			preparationGeneration = 10L
+		)
+		val gestureToken = ReaderPresentationToken(72L)
+		val acknowledgement = ReaderPageTurnSettlementAck(
+			token = "page-turn-72",
+			pageIndex = 41,
+			foliateSessionId = sourceBinding.foliateSessionId,
+			rasterGeneration = requireNotNull(destinationBinding.rasterGeneration),
+			textureGeneration = requireNotNull(destinationBinding.textureGeneration)
+		)
+		val sourceState = settledState(sourceBinding)
+		val claimedState = readerPresentationReduce(
+			sourceState,
+			requireNotNull(
+				readerCurlClaimEvent(
+					readerPresentationDecision(sourceState),
+					gestureToken.value
+				)
+			)
+		).state
+		val pendingState = readerPresentationReduce(
+			claimedState,
+			ReaderPresentationEvent.CurlTerminal(
+				token = gestureToken,
+				binding = sourceBinding,
+				expectedAcknowledgement = acknowledgement
+			)
+		).state
+		val controller = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 21L,
+				presentation = pendingState
+			)
+		)
+		val reporter = ReaderPresentationBindingReporter()
+		reporter.reset(
+			expectedReaderSessionGeneration = 21L,
+			minimumComposeVersion = controller.presentationVersion,
+			initialPresentationState = pendingState
+		)
+		assertTrue(reporter.bindPublication(sourceBinding))
+		val relocation = assertIs<ReaderPresentationEvent.FoliateRelocated>(
+			reporter.update(
+				confirmedTargetBinding = sourceBinding,
+				currentBinding = destinationBinding,
+				publicationOpenPending = false,
+				relocationPending = true,
+				relocationAcknowledgement = acknowledgement
+			)
+		)
+
+		val (advancedController, receipt) = dispatchAndConsume(
+			reporter,
+			controller,
+			relocation
+		)
+
+		assertEquals(
+			ReaderPresentationEventDisposition.Accepted,
+			receipt.disposition,
+			"setPageTurnVisualLocation dropped its exact acknowledgement: ${relocation.acknowledgement}"
+		)
+		assertEquals(acknowledgement, relocation.acknowledgement)
+		assertEquals(destinationBinding, reporter.lastReportedBinding)
+		val pending = assertIs<ReaderPresentationAuthority.CurlSettlementPending>(
+			advancedController.state.presentation.authority
+		)
+		assertEquals(ReaderCurlSettlementStage.AwaitingNativePresentation, pending.stage)
+		assertEquals(destinationBinding, pending.binding)
+		assertNull(pending.expectedAcknowledgement)
+		val transition = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			readerPresentationDecision(advancedController.state.presentation).requiredTransition
+		)
+		assertEquals(gestureToken, transition.token)
+		assertEquals(destinationBinding, transition.binding)
 	}
 
 	@Test

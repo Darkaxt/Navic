@@ -200,6 +200,12 @@ internal class ReaderPageInputSettlementHostController(
 		val downTimeMillis: Long
 	)
 
+	private data class ClaimedCurlStream(
+		val gestureId: Long,
+		var presentationToken: ReaderPresentationToken?,
+		var terminalPublished: Boolean = false
+	)
+
 	private data class RendererLossCancellationProgress(
 		val reason: ReaderPageLifecycleCancellationReason,
 		var cancelledGestureIds: List<Long>? = null,
@@ -221,6 +227,7 @@ internal class ReaderPageInputSettlementHostController(
 	private var localSafetyPolicy = initialLocalSafetyPolicy
 	private var nativeTapContinuationIdentity = initialNativeTapContinuationIdentity
 	private var physicalStreamGestureId: Long? = null
+	private var claimedCurlStream: ClaimedCurlStream? = null
 	private var chromePhysicalStreamActive = false
 	private var pendingChromeTap: PendingChromeTap? = null
 	private var pointerAdmissionClosed = false
@@ -242,10 +249,34 @@ internal class ReaderPageInputSettlementHostController(
 		nativeTapContinuationIdentity: ReaderNativeTapContinuationIdentity? = null,
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	) {
+		val incomingCurlToken = (presentationInputPolicy as?
+			ReaderPresentationInputPolicy.ClaimedCurl)?.token
+		val claimedStream = claimedCurlStream?.takeIf {
+			it.gestureId == physicalStreamGestureId
+		}
+		val incomingCurlTokenMismatchesPhysicalClaim = claimedStream != null &&
+			incomingCurlToken != null &&
+			incomingCurlToken.value != claimedStream.gestureId
+		if (
+			claimedStream != null &&
+			claimedStream.presentationToken == null &&
+			incomingCurlToken != null &&
+			!incomingCurlTokenMismatchesPhysicalClaim
+		) {
+			claimedStream.presentationToken = incomingCurlToken
+		}
+		val claimedCurlTokenWasReplaced = incomingCurlTokenMismatchesPhysicalClaim ||
+			(claimedStream?.presentationToken != null &&
+				incomingCurlToken != null &&
+				claimedStream.presentationToken != incomingCurlToken)
+		val terminalChromeTail = claimedStream?.terminalPublished == true &&
+			presentationInputPolicy == ReaderPresentationInputPolicy.ChromeOnly
 		val presentationAuthorityBecameIncompatible =
-			physicalStreamGestureId != null &&
-				this.presentationInputPolicy.keepsNativeCurlStream() &&
-				!presentationInputPolicy.keepsNativeCurlStream()
+			claimedCurlTokenWasReplaced ||
+				physicalStreamGestureId != null &&
+					this.presentationInputPolicy.keepsNativeCurlStream() &&
+					!presentationInputPolicy.keepsNativeCurlStream() &&
+					!terminalChromeTail
 		val localSafetyVetoedPendingChrome =
 			localSafetyPolicy != this.localSafetyPolicy &&
 				(
@@ -270,6 +301,7 @@ internal class ReaderPageInputSettlementHostController(
 			cancelForLifecycle(
 				reason = ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
 			)
+			claimedCurlStream = null
 		}
 		this.presentationInputPolicy = presentationInputPolicy
 		this.localSafetyPolicy = localSafetyPolicy
@@ -294,7 +326,29 @@ internal class ReaderPageInputSettlementHostController(
 		}
 	}
 
-	fun dispatchChromeOnlyPointer(event: ReaderPageHostPointerEvent): Boolean = when (event) {
+	fun dispatchChromeOnlyPointer(event: ReaderPageHostPointerEvent): Boolean {
+		val terminalCurlGestureId = physicalStreamGestureId?.takeIf {
+			claimedCurlStream?.let { claim ->
+				claim.gestureId == it && claim.terminalPublished
+			} == true
+		}
+		if (terminalCurlGestureId != null) {
+			if (
+				event is ReaderPageHostPointerEvent.PositionedUp ||
+					event == ReaderPageHostPointerEvent.Up ||
+					event == ReaderPageHostPointerEvent.Cancel
+			) {
+				pointerRouter.interruptPhysicalStream(
+					terminalCurlGestureId,
+					finalStreamEvent = true
+				)
+				clearPhysicalCurlClaim(terminalCurlGestureId)
+				physicalStreamGestureId = null
+				closeDeliveryAfterFinalPhysicalTail()
+			}
+			return true
+		}
+		return when (event) {
 		is ReaderPageHostPointerEvent.Down -> {
 			if (
 				pointerDeliveryClosed ||
@@ -363,6 +417,7 @@ internal class ReaderPageInputSettlementHostController(
 			}
 		}
 		ReaderPageHostPointerEvent.SecondaryPointerUp -> chromePhysicalStreamActive
+		}
 	}
 
 	private fun finishChromeOnlyPointerStream(): Boolean {
@@ -400,6 +455,7 @@ internal class ReaderPageInputSettlementHostController(
 				val route = movePointer(event.x, event.y, event.touchSlop)
 				if (route is ReaderPagePointerRoute.ClaimCurl) {
 					releaseContentToken(route.gestureId)
+					bindPhysicalCurlClaim(route.gestureId)
 				}
 				ReaderPageHostPointerDispatchResult(physicalStreamGestureId, route)
 			}
@@ -411,6 +467,7 @@ internal class ReaderPageInputSettlementHostController(
 				)
 				if (classification is ReaderPagePointerRoute.ClaimCurl) {
 					releaseContentToken(classification.gestureId)
+					bindPhysicalCurlClaim(classification.gestureId)
 				}
 				dispatchPointerUp(classification)
 			}
@@ -435,6 +492,21 @@ internal class ReaderPageInputSettlementHostController(
 	private fun movePointer(x: Float, y: Float, touchSlop: Float): ReaderPagePointerRoute =
 		pointerRouter.move(x, y, touchSlop)
 
+	private fun bindPhysicalCurlClaim(gestureId: Long) {
+		check(physicalStreamGestureId == gestureId)
+		if (claimedCurlStream?.gestureId == gestureId) return
+		check(claimedCurlStream == null)
+		val presentationToken = (presentationInputPolicy as?
+			ReaderPresentationInputPolicy.ClaimedCurl)?.token?.takeIf {
+			it.value == gestureId
+		}
+		claimedCurlStream = ClaimedCurlStream(gestureId, presentationToken)
+	}
+
+	private fun clearPhysicalCurlClaim(gestureId: Long) {
+		if (claimedCurlStream?.gestureId == gestureId) claimedCurlStream = null
+	}
+
 	private fun dispatchPointerUp(
 		classification: ReaderPagePointerRoute? = null
 	): ReaderPageHostPointerDispatchResult {
@@ -454,6 +526,7 @@ internal class ReaderPageInputSettlementHostController(
 		} else {
 			terminalRoute
 		}
+		clearPhysicalCurlClaim(gestureId)
 		physicalStreamGestureId = null
 		closeDeliveryAfterFinalPhysicalTail()
 		return ReaderPageHostPointerDispatchResult(gestureId, route)
@@ -561,6 +634,7 @@ internal class ReaderPageInputSettlementHostController(
 			cancellationPort.cancelForPointerInterruption(gestureId)
 		}
 		if (finalStreamEvent) {
+			clearPhysicalCurlClaim(gestureId)
 			physicalStreamGestureId = null
 			closeDeliveryAfterFinalPhysicalTail()
 		}
@@ -575,6 +649,8 @@ internal class ReaderPageInputSettlementHostController(
 		if (completed) {
 			releaseContentToken(gestureId)
 			if (physicalStreamGestureId == gestureId) {
+				claimedCurlStream?.takeIf { it.gestureId == gestureId }
+					?.terminalPublished = true
 				cancellationPort.clearCompletedPointerOwnership(gestureId)
 			}
 		}
@@ -624,6 +700,7 @@ internal class ReaderPageInputSettlementHostController(
 				releaseContentToken(gestureId)
 				publishLifecycleCancellation(gestureId, reason)
 			}
+			claimedCurlStream = null
 			cancellationPort.cancelActiveRendererGesture(reason)
 			cancellationPort.cancelReadableViewerDragPreview(reason)
 			cancellationPort.clearNativeTapState(reason)
@@ -655,6 +732,7 @@ internal class ReaderPageInputSettlementHostController(
 				).also { gestureIds ->
 					progress.cancelledGestureIds = gestureIds
 					gestureIds.forEach(::releaseContentToken)
+					claimedCurlStream = null
 				}
 			pointerRouter.drainTerminalPublications()
 			while (progress.lifecyclePublicationCount < cancelled.size) {
@@ -764,6 +842,7 @@ internal class ReaderPageInputSettlementHostController(
 		}
 		pointerDeliveryClosed = true
 		physicalStreamGestureId = null
+		claimedCurlStream = null
 		finishChromeOnlyPointerStream()
 		contentTokenByGestureId.clear()
 	}

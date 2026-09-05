@@ -416,7 +416,7 @@ class ReaderPageInputSettlementHostControllerTest {
 
 		host.updateInputPolicies(
 			presentationInputPolicy = ReaderPresentationInputPolicy.ClaimedCurl(
-				ReaderPresentationToken(5L)
+				ReaderPresentationToken(gestureId)
 			),
 			localSafetyPolicy = readerPageOperationPolicy(settling)
 		)
@@ -726,6 +726,93 @@ class ReaderPageInputSettlementHostControllerTest {
 		} finally {
 			event.recycle()
 		}
+	}
+
+	@Test
+	fun replacementCurlAuthorityTokenCannotTakeOverClaimedPhysicalStream() {
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, _, cancellationPort) = host(published = published)
+		val gestureId = requireNotNull(
+			host.dispatchPointer(
+				ReaderPageHostPointerEvent.Down(100f, 200f, 100L)
+			).gestureId
+		)
+		assertEquals(
+			ReaderPagePointerRoute.ClaimCurl(gestureId),
+			host.dispatchPointer(
+				ReaderPageHostPointerEvent.Move(140f, 202f, 8f)
+			).route
+		)
+		val ownedToken = ReaderPresentationToken(gestureId)
+		host.updateInputPolicies(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ClaimedCurl(ownedToken),
+			localSafetyPolicy = readerPageOperationPolicy(settling)
+		)
+		host.updateInputPolicies(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ClaimedCurl(ownedToken),
+			localSafetyPolicy = readerPageOperationPolicy(settling)
+		)
+		assertTrue(published.isEmpty())
+
+		host.updateInputPolicies(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ClaimedCurl(
+				ReaderPresentationToken(gestureId + 1L)
+			),
+			localSafetyPolicy = readerPageOperationPolicy(settling)
+		)
+		host.updateInputPolicies(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ClaimedCurl(
+				ReaderPresentationToken(gestureId + 1L)
+			),
+			localSafetyPolicy = readerPageOperationPolicy(settling)
+		)
+
+		assertEquals(
+			listOf(gestureId to ReaderPageGestureTerminalOutcome.CancelledLifecycle),
+			published
+		)
+		assertEquals(
+			listOf("renderer", "drag-preview", "tap", "swipe"),
+			cancellationPort.calls.map { it.first }
+		)
+		assertEquals(
+			ReaderPagePointerRoute.Consume,
+			host.dispatchPointer(ReaderPageHostPointerEvent.Up).route
+		)
+		assertEquals(1, published.size)
+	}
+
+	@Test
+	fun curlAuthorityTokenMustMatchTheClaimedPhysicalGesture() {
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, _, cancellationPort) = host(published = published)
+		val gestureId = requireNotNull(
+			host.dispatchPointer(
+				ReaderPageHostPointerEvent.Down(100f, 200f, 100L)
+			).gestureId
+		)
+		assertEquals(
+			ReaderPagePointerRoute.ClaimCurl(gestureId),
+			host.dispatchPointer(
+				ReaderPageHostPointerEvent.Move(140f, 202f, 8f)
+			).route
+		)
+
+		host.updateInputPolicies(
+			presentationInputPolicy = ReaderPresentationInputPolicy.ClaimedCurl(
+				ReaderPresentationToken(gestureId + 1L)
+			),
+			localSafetyPolicy = readerPageOperationPolicy(settling)
+		)
+
+		assertEquals(
+			listOf(gestureId to ReaderPageGestureTerminalOutcome.CancelledLifecycle),
+			published
+		)
+		assertEquals(
+			listOf("renderer", "drag-preview", "tap", "swipe"),
+			cancellationPort.calls.map { it.first }
+		)
 	}
 
 	@Test

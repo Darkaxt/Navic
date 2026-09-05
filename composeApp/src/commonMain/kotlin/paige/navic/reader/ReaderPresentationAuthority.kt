@@ -209,8 +209,18 @@ sealed interface ReaderPresentationAuthority {
 	) : ReaderPresentationAuthority
 	data class CurlSettlementPending(
 		val retainedFrame: ReaderPresentationFrameOwner.Curl,
-		val stage: ReaderCurlSettlementStage
-	) : ReaderPresentationAuthority
+		val binding: ReaderPresentationBinding,
+		val stage: ReaderCurlSettlementStage,
+		val expectedAcknowledgement: ReaderPageTurnSettlementAck?
+	) : ReaderPresentationAuthority {
+		init {
+			require(retainedFrame.frame.token.value > 0L)
+			require(
+				(stage == ReaderCurlSettlementStage.AwaitingFoliate) ==
+					(expectedAcknowledgement != null)
+			)
+		}
+	}
 	data class SettledNativePage(
 		val frame: ReaderPresentationFrameOwner.NativePage
 	) : ReaderPresentationAuthority
@@ -439,7 +449,7 @@ sealed interface ReaderPresentationEvent {
 	data class CurlTerminal(
 		val token: ReaderPresentationToken,
 		val binding: ReaderPresentationBinding,
-		val stage: ReaderCurlSettlementStage
+		val expectedAcknowledgement: ReaderPageTurnSettlementAck?
 	) : ReaderPresentationEvent
 	data class WebViewHandoffRequested(
 		val direction: ReaderLiveEngineHandoffDirection
@@ -896,6 +906,36 @@ private fun ReaderPresentationState.reduceFoliateRelocation(
 	return when {
 		authority == ReaderPresentationAuthority.Unavailable ->
 			acceptedPresentationResult(copy(binding = event.binding))
+		authority is ReaderPresentationAuthority.CurlSettlementPending &&
+			authority.stage == ReaderCurlSettlementStage.AwaitingFoliate &&
+			currentBinding == authority.binding &&
+			event.matchesExactCurlSettlement(authority) -> {
+			val cleanup = trackRendererBindingTransition(
+				previousBinding = currentBinding,
+				binding = event.binding,
+				previousToken = authority.retainedFrame.frame.token,
+				bindingToken = authority.retainedFrame.frame.token
+			)
+			acceptedPresentationResult(
+				state = copy(
+					authority = authority.copy(
+						binding = event.binding,
+						stage = ReaderCurlSettlementStage.AwaitingNativePresentation,
+						expectedAcknowledgement = null
+					),
+					binding = event.binding,
+					rendererCleanupOwnership = cleanup.ownership,
+					preparationFacts = preparationFacts.copy(
+						generation = requireNotNull(event.binding.preparationGeneration)
+					),
+					failure = null
+				),
+				effects = cleanup.effects
+			)
+		}
+		authority is ReaderPresentationAuthority.CurlSettlementPending &&
+			authority.stage == ReaderCurlSettlementStage.AwaitingFoliate ->
+			stalePresentation(authority.retainedFrame.frame.token, event.binding)
 		currentBinding == event.binding -> idempotentPresentationResult(this)
 		authority is ReaderPresentationAuthority.LiveEngineHandoffPending &&
 			authority.direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine &&
@@ -950,6 +990,20 @@ private fun ReaderPresentationState.reduceFoliateRelocation(
 		!event.binding.hasCompleteRendererIdentity() -> rejectedPresentationResult(this)
 		else -> stalePresentation(authority.tokenOrNull(), event.binding)
 	}
+}
+
+private fun ReaderPresentationEvent.FoliateRelocated.matchesExactCurlSettlement(
+	pending: ReaderPresentationAuthority.CurlSettlementPending
+): Boolean {
+	val expected = pending.expectedAcknowledgement ?: return false
+	val actual = acknowledgement ?: return false
+	val sourceBinding = pending.retainedFrame.frame.binding
+	return actual == expected &&
+		actual.foliateSessionId == sourceBinding.foliateSessionId &&
+		actual.foliateSessionId == binding.foliateSessionId &&
+		actual.rasterGeneration == binding.rasterGeneration &&
+		actual.textureGeneration == binding.textureGeneration &&
+		binding.isCompleteDestinationSuccessorOf(sourceBinding)
 }
 
 private fun ReaderPresentationBinding.isCompleteDestinationSuccessorOf(
@@ -1118,6 +1172,23 @@ private fun ReaderPresentationFrameOwner.rebindPartialPresentation(
 private fun ReaderPresentationState.reduceBindingReplacement(
 	event: ReaderPresentationEvent.BindingReplaced
 ): ReaderPresentationReducerResult {
+	val lostSelectedRenderer = authority as? ReaderPresentationAuthority.BlockingPreparation
+	if (
+		lostSelectedRenderer != null &&
+		admitsExactSelectedRendererRemoval(
+			previousBinding = event.previousBinding,
+			binding = event.binding
+		)
+	) {
+		return acceptedPresentationResult(
+			copy(
+				authority = lostSelectedRenderer.copy(
+					retainedFrame = ReaderPresentationFrameOwner.Neutral
+				),
+				binding = event.binding
+			)
+		)
+	}
 	val nativeHandback = (authority as? ReaderPresentationAuthority.LiveEngineHandoffPending)
 		?.takeIf { pending ->
 			pending.direction == ReaderLiveEngineHandoffDirection.LiveEngineToNative &&
@@ -1236,6 +1307,33 @@ private fun ReaderPresentationState.reduceBindingReplacement(
 		)
 	}
 }
+
+internal fun ReaderPresentationState.admitsExactSelectedRendererRemoval(
+	previousBinding: ReaderPresentationBinding,
+	binding: ReaderPresentationBinding
+): Boolean {
+	val blocking = authority as? ReaderPresentationAuthority.BlockingPreparation ?: return false
+	return this.binding == previousBinding &&
+		failure?.reason == ReaderPresentationFailureReason.RendererLost &&
+		blocking.nativePresentationRequest == null &&
+		blocking.retainedFrame.hasExactRendererBinding(previousBinding) &&
+		binding.isExactRendererRemovalOf(previousBinding)
+}
+
+private fun ReaderPresentationFrameOwner.hasExactRendererBinding(
+	binding: ReaderPresentationBinding
+): Boolean = when (this) {
+	is ReaderPresentationFrameOwner.NativePage -> proof.binding == binding
+	is ReaderPresentationFrameOwner.Curl -> frame.binding == binding
+	ReaderPresentationFrameOwner.Neutral,
+	is ReaderPresentationFrameOwner.ShellCover,
+	is ReaderPresentationFrameOwner.LiveEngine -> false
+}
+
+private fun ReaderPresentationBinding.isExactRendererRemovalOf(
+	predecessor: ReaderPresentationBinding
+): Boolean = predecessor.hasCompleteRendererIdentity() &&
+	this == predecessor.copy(rasterGeneration = null, textureGeneration = null)
 
 private fun ReaderPresentationBinding.isResolvedProfileReplacementOf(
 	predecessor: ReaderPresentationBinding
@@ -1459,6 +1557,26 @@ private fun ReaderPresentationState.reduceNativePageProof(
 	} else {
 		staleProof(proof.transitionToken, proof.binding)
 	}
+	is ReaderPresentationAuthority.CurlSettlementPending -> if (
+		authority.stage == ReaderCurlSettlementStage.AwaitingNativePresentation &&
+			authority.retainedFrame.frame.token == proof.transitionToken &&
+			authority.binding == proof.binding &&
+			binding == proof.binding
+	) {
+		val cleanup = adoptRendererBinding(proof.binding)
+		acceptedPresentationResult(
+			state = copy(
+				authority = ReaderPresentationAuthority.SettledNativePage(
+					ReaderPresentationFrameOwner.NativePage(proof)
+				),
+				rendererCleanupOwnership = cleanup.ownership,
+				failure = null
+			),
+			effects = cleanup.effects
+		)
+	} else {
+		staleProof(proof.transitionToken, proof.binding)
+	}
 	is ReaderPresentationAuthority.BlockingPreparation -> {
 		val request = authority.nativePresentationRequest
 		val retainedCover = authority.retainedFrame as? ReaderPresentationFrameOwner.ShellCover
@@ -1522,6 +1640,11 @@ private fun ReaderPresentationState.reduceCurlTerminal(
 	event: ReaderPresentationEvent.CurlTerminal
 ): ReaderPresentationReducerResult {
 	val authority = authority
+	val stage = if (event.expectedAcknowledgement == null) {
+		ReaderCurlSettlementStage.AwaitingNativePresentation
+	} else {
+		ReaderCurlSettlementStage.AwaitingFoliate
+	}
 	return when {
 		authority is ReaderPresentationAuthority.CurlGesture &&
 			authority.frame.frame.token == event.token &&
@@ -1530,7 +1653,9 @@ private fun ReaderPresentationState.reduceCurlTerminal(
 				copy(
 					authority = ReaderPresentationAuthority.CurlSettlementPending(
 						retainedFrame = authority.frame,
-						stage = event.stage
+						binding = event.binding,
+						stage = stage,
+						expectedAcknowledgement = event.expectedAcknowledgement
 					),
 					preparationFacts = preparationFacts.copy(failure = null),
 					failure = null
@@ -1538,8 +1663,10 @@ private fun ReaderPresentationState.reduceCurlTerminal(
 			)
 		authority is ReaderPresentationAuthority.CurlSettlementPending &&
 			authority.retainedFrame.frame.token == event.token &&
-			authority.retainedFrame.frame.binding == event.binding &&
-			authority.stage == event.stage && binding == event.binding -> idempotentPresentationResult(this)
+			authority.binding == event.binding &&
+			authority.stage == stage &&
+			authority.expectedAcknowledgement == event.expectedAcknowledgement &&
+			binding == event.binding -> idempotentPresentationResult(this)
 		else -> staleProof(event.token, event.binding)
 	}
 }
@@ -1804,7 +1931,8 @@ private fun ReaderPresentationAuthority.retainsPresentationBinding(
 	is ReaderPresentationAuthority.ShellCoverCommitPending ->
 		this.binding == binding || retainedFrame.binding == binding
 	is ReaderPresentationAuthority.CurlGesture -> frame.frame.binding == binding
-	is ReaderPresentationAuthority.CurlSettlementPending -> retainedFrame.frame.binding == binding
+	is ReaderPresentationAuthority.CurlSettlementPending ->
+		this.binding == binding || retainedFrame.frame.binding == binding
 	is ReaderPresentationAuthority.SettledNativePage -> frame.proof.binding == binding
 	is ReaderPresentationAuthority.LiveEngineHandoffPending ->
 		this.binding == binding || retainedFrame.retainsPresentationBinding(binding)
@@ -1836,7 +1964,8 @@ private fun ReaderPresentationAuthority.matchesPresentationIdentity(
 			retainedFrame.frameOwner.matchesPresentationIdentity(token, binding)
 	is ReaderPresentationAuthority.CurlGesture -> frame.matchesPresentationIdentity(token, binding)
 	is ReaderPresentationAuthority.CurlSettlementPending ->
-		retainedFrame.matchesPresentationIdentity(token, binding)
+		(retainedFrame.frame.token == token && this.binding == binding) ||
+			retainedFrame.matchesPresentationIdentity(token, binding)
 	is ReaderPresentationAuthority.SettledNativePage -> frame.matchesPresentationIdentity(token, binding)
 	is ReaderPresentationAuthority.LiveEngineHandoffPending ->
 		(this.token == token && this.binding == binding) ||
@@ -1899,8 +2028,7 @@ private fun ReaderPresentationAuthority.inputPolicy(
 		preparationFacts
 	)
 	is ReaderPresentationAuthority.CurlGesture -> ReaderPresentationInputPolicy.ClaimedCurl(frame.frame.token)
-	is ReaderPresentationAuthority.CurlSettlementPending ->
-		ReaderPresentationInputPolicy.ClaimedCurl(retainedFrame.frame.token)
+	is ReaderPresentationAuthority.CurlSettlementPending -> ReaderPresentationInputPolicy.ChromeOnly
 	is ReaderPresentationAuthority.SettledNativePage -> frame.inputPolicy(
 		targetBinding,
 		preparationFacts
@@ -1974,7 +2102,7 @@ private fun ReaderPresentationAuthority.requiredTransition(): ReaderRequiredTran
 		ReaderCurlSettlementStage.AwaitingNativePresentation ->
 			ReaderRequiredTransition.PresentNativePage(
 				token = retainedFrame.frame.token,
-				binding = retainedFrame.frame.binding,
+				binding = binding,
 				direction = null
 			)
 	}

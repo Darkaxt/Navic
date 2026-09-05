@@ -97,6 +97,7 @@ import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncCueMapState
+import paige.navic.reader.admitsExactSelectedRendererRemoval
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.publicationIdentity
 import paige.navic.reader.readerNativeReaderSwipeAction
@@ -351,7 +352,8 @@ internal class ReaderPresentationBindingReporter {
 		confirmedTargetBinding: ReaderPresentationBinding?,
 		currentBinding: ReaderPresentationBinding,
 		publicationOpenPending: Boolean,
-		relocationPending: Boolean
+		relocationPending: Boolean,
+		relocationAcknowledgement: ReaderPageTurnSettlementAck? = null
 	): ReaderPresentationEvent? {
 		if (authoritativeLifecycle != ReaderPresentationLifecycleState.Foreground) return null
 		if (currentBinding == lastReportedBinding) return null
@@ -360,10 +362,19 @@ internal class ReaderPresentationBindingReporter {
 		}
 		val previousBinding = lastReportedBinding ?: confirmedTargetBinding ?: return null
 		if (currentBinding == previousBinding) return null
+		if (
+			authoritativeState?.admitsExactSelectedRendererRemoval(
+				previousBinding = previousBinding,
+				binding = currentBinding
+			) == true
+		) {
+			return ReaderPresentationEvent.BindingReplaced(previousBinding, currentBinding)
+		}
 		return readerPresentationBindingEventCandidate(
 			previousBinding = previousBinding,
 			currentBinding = currentBinding,
-			relocationPending = relocationPending
+			relocationPending = relocationPending,
+			relocationAcknowledgement = relocationAcknowledgement
 		)
 	}
 }
@@ -2711,6 +2722,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 					playLikeCurlController.surfaceView.bringToFront()
 				}
 			}
+			paige.navic.reader.ReaderPresentationFrameOwner.Neutral -> {
+				playLikeCurlController.surfaceView.animate().cancel()
+				playLikeCurlController.surfaceView.alpha = 0f
+				playLikeCurlController.inlineRasterShieldView.animate().cancel()
+				playLikeCurlController.inlineRasterShieldView.alpha = 0f
+			}
 			else -> return
 		}
 		whispersyncCueMapView.bringToFront()
@@ -2889,7 +2906,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			)
 		)
 
-	private fun reportPresentationIdentityIfAvailable() {
+	private fun reportPresentationIdentityIfAvailable(
+		relocationAcknowledgement: ReaderPageTurnSettlementAck? = null
+	) {
 		val binding = currentPresentationBindingOrNull()
 		if (binding == null) {
 			nativePagePresentationPublisher.update()
@@ -2908,7 +2927,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			confirmedTargetBinding = presentationDecision?.targetBinding,
 			currentBinding = binding,
 			publicationOpenPending = presentationPublicationOpenPending,
-			relocationPending = presentationRelocationPending
+			relocationPending = presentationRelocationPending,
+			relocationAcknowledgement = relocationAcknowledgement
 		)
 		if (bindingEvent != null) {
 			val receipt = dispatchPresentationEvent(bindingEvent)
@@ -3064,7 +3084,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		pageTurnSettlementAck = acknowledgement
 		presentationRelocationPending = presentationBindingReporter.lastReportedBinding != null
 		playLikeCurlController.stageCurrentWebViewOrdinal(normalized, origin)
-		reportPresentationIdentityIfAvailable()
+		reportPresentationIdentityIfAvailable(
+			relocationAcknowledgement = readerPageVisualLocationRelocationAcknowledgement(
+				origin,
+				acknowledgement
+			)
+		)
 		playLikeCurlController.synchronizeVisualPageIndex(
 			normalized,
 			reason,

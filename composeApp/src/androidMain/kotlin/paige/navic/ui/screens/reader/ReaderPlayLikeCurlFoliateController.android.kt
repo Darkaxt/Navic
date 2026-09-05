@@ -60,10 +60,15 @@ import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderLiveEngineHandoffDirection
 import paige.navic.reader.ReaderLiveEnginePresentationProof
+import paige.navic.reader.ReaderCurlPresentationFrame
+import paige.navic.reader.ReaderCurlSettlementStage
+import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventReceipt
+import paige.navic.reader.ReaderPresentationFrameOwner
+import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.ReaderTextureDeckState
@@ -132,6 +137,103 @@ internal fun readerPlayLikeCurlTurnAdmissionAvailable(
 	relocationQueue: ReaderPageRelocationQueue,
 	otherwiseAvailable: Boolean
 ): Boolean = otherwiseAvailable && !relocationQueue.hasInFlightHead()
+
+internal fun readerCurlClaimEvent(
+	decision: ReaderPresentationDecision,
+	gestureId: Long
+): ReaderPresentationEvent.CurlClaimed? {
+	if (gestureId <= 0L) return null
+	val authority = decision.authority as? ReaderPresentationAuthority.SettledNativePage
+		?: return null
+	val proof = authority.frame.proof
+	if (decision.targetBinding != proof.binding) return null
+	return ReaderPresentationEvent.CurlClaimed(
+		ReaderCurlPresentationFrame(
+			token = ReaderPresentationToken(gestureId),
+			binding = proof.binding,
+			presentedFrame = proof.presentedFrame,
+			viewportWidth = proof.viewportWidth,
+			viewportHeight = proof.viewportHeight,
+			rasterGeneration = proof.rasterGeneration,
+			textureGeneration = proof.textureGeneration
+		)
+	)
+}
+
+internal fun admitReaderCurlRendererClaim(
+	gestureId: Long,
+	admitRenderer: () -> Boolean,
+	publishClaim: () -> Boolean,
+	cancelRendererClaim: (Long) -> Unit
+): Boolean {
+	if (!admitRenderer()) return false
+	if (publishClaim()) return true
+	cancelRendererClaim(gestureId)
+	return false
+}
+
+internal fun readerCurlTerminalEvent(
+	decision: ReaderPresentationDecision,
+	gestureId: Long,
+	settlementRequest: ReaderPageRelocationRequest?
+): ReaderPresentationEvent.CurlTerminal? {
+	val authority = decision.authority as? ReaderPresentationAuthority.CurlGesture
+		?: return null
+	val frame = authority.frame.frame
+	if (frame.token.value != gestureId) return null
+	if (
+		settlementRequest != null &&
+			(
+				settlementRequest.gestureId != gestureId ||
+				settlementRequest.foliateSessionId != frame.binding.foliateSessionId ||
+				settlementRequest.rasterGeneration != frame.rasterGeneration
+			)
+	) return null
+	return ReaderPresentationEvent.CurlTerminal(
+		token = frame.token,
+		binding = frame.binding,
+		expectedAcknowledgement = settlementRequest?.let { request ->
+			ReaderPageTurnSettlementAck(
+				token = request.token.value,
+				pageIndex = request.destinationOrdinal,
+				foliateSessionId = request.foliateSessionId,
+				rasterGeneration = request.rasterGeneration,
+				textureGeneration = request.textureGeneration
+			)
+		}
+	)
+}
+
+internal data class ReaderAcceptedDeckCallbackFence(
+	val presentationToken: ReaderPresentationToken?,
+	val binding: ReaderPresentationBinding
+)
+
+internal fun readerAcceptedDeckCallbackMatches(
+	callback: ReaderAcceptedDeckCallbackFence,
+	decision: ReaderPresentationDecision,
+	currentPreparationGeneration: Long,
+	currentRasterGeneration: Long,
+	currentTextureGeneration: Long
+): Boolean {
+	val binding = decision.targetBinding?.copy(
+		preparationGeneration = currentPreparationGeneration,
+		rasterGeneration = currentRasterGeneration,
+		textureGeneration = currentTextureGeneration
+	) ?: return false
+	return callback.presentationToken == decision.rendererCallbackTokenOrNull() &&
+		callback.binding == binding
+}
+
+private fun ReaderPresentationDecision.rendererCallbackTokenOrNull(): ReaderPresentationToken? =
+	when (val currentAuthority = authority) {
+		is ReaderPresentationAuthority.CurlGesture -> currentAuthority.frame.frame.token
+		is ReaderPresentationAuthority.CurlSettlementPending ->
+			currentAuthority.retainedFrame.frame.token
+		is ReaderPresentationAuthority.SettledNativePage ->
+			currentAuthority.frame.proof.transitionToken
+		else -> (requiredTransition as? ReaderRequiredTransition.PresentNativePage)?.token
+	}
 
 internal fun readerTerminalContentFailureRecoveryStillCurrent(
 	destroyed: Boolean,
@@ -662,12 +764,12 @@ internal class ReaderRendererOwnedGenerationReleaseGate<Owner>(
 		val deckIdentity = binding.rendererDeckIdentityOrNull() ?: return false
 		val owner = ownerForGeneration(deckIdentity.textureGeneration) ?: return true
 		if (rasterGenerationForOwner(owner) != deckIdentity.rasterGeneration) return false
-		if (isProtectedGeneration(deckIdentity.textureGeneration)) return false
 		return requestOwnedGeneration(deckIdentity.textureGeneration)
 	}
 
 	fun requestOwnedGeneration(generationId: Long): Boolean {
 		if (ownerForGeneration(generationId) == null) return true
+		if (isProtectedGeneration(generationId)) return false
 		return requestRendererRelease(generationId).isAccepted
 	}
 
@@ -932,6 +1034,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val generationOwners = mutableMapOf<Long, PreparedPages>()
 	private val generationRoles = mutableMapOf<Long, ReaderDeckSubmissionRole>()
 	private val generationPreparationGenerations = mutableMapOf<Long, Long>()
+	private val generationCallbackFences = mutableMapOf<Long, ReaderAcceptedDeckCallbackFence>()
 	private val preparedDeckGenerations = mutableSetOf<Long>()
 	private val deckDiagnosticTracker = diagnostics?.let(::ReaderPageDeckDiagnosticTracker)
 	private val repairQaFaultCorrelations =
@@ -1120,6 +1223,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			onReplaced = ::replaceRelocationDiagnosticIdentity
 		)
 	private var nextDeckGeneration = 1L
+	private var commonPresentationDecision: ReaderPresentationDecision? = null
 	private var activeGestureId: Long? = null
 	private val settlementMutationFence = ReaderPageSettlementMutationFence()
 	private val hostOwnedTerminalGestureIds = mutableSetOf<Long>()
@@ -1137,10 +1241,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		ReaderRendererOwnedGenerationReleaseGate(
 			ownerForGeneration = generationOwners::get,
 			rasterGenerationForOwner = { pages -> pages.profile.rasterGeneration },
-			isProtectedGeneration = { generationId ->
-				generationId == activeDeckGenerationId ||
-					generationId == pendingDeckGenerationId
-			},
+			isProtectedGeneration = ::generationBacksCommonPresentation,
 			requestRendererRelease = surfaceView::releaseDeck,
 			retireOwner = ::releaseGeneration
 		)
@@ -1224,6 +1325,29 @@ internal class ReaderPlayLikeCurlFoliateController(
 					return
 				}
 				val role = generationRoles[generationId] ?: return
+				val callbackFence = generationCallbackFences[generationId]
+				if (callbackFence != null) {
+					val decision = commonPresentationDecision
+					val currentTextureGeneration = when (role) {
+						ReaderDeckSubmissionRole.Active -> activeDeckGenerationId
+						ReaderDeckSubmissionRole.Pending -> pendingDeckGenerationId
+					}
+					if (
+						decision == null ||
+						currentTextureGeneration == null ||
+						!readerAcceptedDeckCallbackMatches(
+							callback = callbackFence,
+							decision = decision,
+							currentPreparationGeneration =
+								this@ReaderPlayLikeCurlFoliateController.preparationGeneration,
+							currentRasterGeneration = bundleSource.currentGeneration(),
+							currentTextureGeneration = currentTextureGeneration
+						)
+					) {
+						releaseRendererOwnedGeneration(generationId)
+						return
+					}
+				}
 				preparedDeckGenerations += generationId
 				if (generationId == activeDeckGenerationId) {
 					activeDeckPreparationGeneration = preparationGeneration
@@ -1683,7 +1807,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 						ReaderPageHostLifecycleEvent.GlFailed
 					}
 				)
-				hideSurface()
 				Logger.e(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl render failure generation=${failure.generationId} reason=${failure.reason}"
@@ -1817,7 +1940,35 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private fun rebindAcceptedDeckCallbackFence(decision: ReaderPresentationDecision) {
+		val binding = decision.targetBinding ?: return
+		val textureGeneration = binding.textureGeneration ?: return
+		val fence = generationCallbackFences[textureGeneration] ?: return
+		if (
+			fence.presentationToken != decision.rendererCallbackTokenOrNull() ||
+			fence.binding.copy(
+				destinationCommitIdentity = binding.destinationCommitIdentity
+			) != binding
+		) return
+		generationCallbackFences[textureGeneration] = fence.copy(binding = binding)
+	}
+
+	private fun generationBacksCommonPresentation(generationId: Long): Boolean {
+		val selectedBinding = when (val owner = commonPresentationDecision?.frameOwner) {
+			is ReaderPresentationFrameOwner.NativePage -> owner.proof.binding
+			is ReaderPresentationFrameOwner.Curl -> owner.frame.binding
+			else -> null
+		} ?: return false
+		val selectedDeck = selectedBinding.rendererDeckIdentityOrNull() ?: return false
+		val rasterOwner = generationOwners[generationId] ?: return false
+		return selectedDeck.textureGeneration == generationId &&
+			selectedDeck.rasterGeneration == rasterOwner.profile.rasterGeneration
+	}
+
 	fun synchronizePresentationDecision(decision: ReaderPresentationDecision) {
+		commonPresentationDecision = decision
+		rebindAcceptedDeckCallbackFence(decision)
+		rendererCleanupRetryCoordinator.onRendererAvailabilityRestored()
 		val transition = decision.requiredTransition as?
 			ReaderRequiredTransition.ExposeLiveEngine
 		if (transition?.direction == ReaderLiveEngineHandoffDirection.NativeToLiveEngine) {
@@ -2068,11 +2219,56 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
+	private fun commonAcceptedCurlGestureId(): Long? =
+		(commonPresentationDecision?.authority as?
+			ReaderPresentationAuthority.CurlGesture)?.frame?.frame?.token?.value
+
+	private fun publishCurlClaim(gestureId: Long): Boolean {
+		val decision = commonPresentationDecision ?: return false
+		val event = readerCurlClaimEvent(decision, gestureId) ?: return false
+		val receipt = onPresentationEvent(event).takeIf { it.authorizes(event) } ?: return false
+		val postDecision = readerPresentationDecision(receipt.postState)
+		val claimed = postDecision.authority as? ReaderPresentationAuthority.CurlGesture
+			?: return false
+		if (claimed.frame.frame != event.frame) return false
+		commonPresentationDecision = postDecision
+		return true
+	}
+
+	private fun publishCurlTerminal(
+		gestureId: Long,
+		outcome: ReaderPageGestureTerminalOutcome
+	): Boolean {
+		val settlementRequest = when (outcome) {
+			ReaderPageGestureTerminalOutcome.CommittedForward,
+			ReaderPageGestureTerminalOutcome.CommittedBackward ->
+				relocationQueue.head()?.takeIf { it.gestureId == gestureId } ?: return false
+			else -> null
+		}
+		val currentDecision = commonPresentationDecision ?: return false
+		val event = readerCurlTerminalEvent(currentDecision, gestureId, settlementRequest)
+			?: return false
+		val receipt = onPresentationEvent(event).takeIf { it.authorizes(event) } ?: return false
+		val decision = readerPresentationDecision(receipt.postState)
+		val pending = decision.authority as? ReaderPresentationAuthority.CurlSettlementPending
+			?: return false
+		if (
+			pending.retainedFrame.frame.token != event.token ||
+			pending.binding != event.binding ||
+			pending.expectedAcknowledgement != event.expectedAcknowledgement
+		) return false
+		commonPresentationDecision = decision
+		return true
+	}
+
 	fun onPageTouchEvent(
 		event: MotionEvent,
 		gestureId: Long
 	): ReaderPageCurlDispatchResult {
 		if (event.actionMasked != MotionEvent.ACTION_DOWN) {
+			if (commonAcceptedCurlGestureId() != gestureId) {
+				return ReaderPageCurlDispatchResult.TerminalPublished
+			}
 			surfaceView.onPageTouchEvent(event, gestureId)
 			if (event.actionMasked == MotionEvent.ACTION_MOVE) {
 				revealSurfaceAfterNextPresentedFrame(gestureId)
@@ -2101,7 +2297,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 				metadata = metadata,
 				protocolActionMasked = event.actionMasked,
 				rendererAdmission = {
-					surfaceView.onPageTouchEvent(event, gestureId)
+					admitReaderCurlRendererClaim(
+						gestureId = gestureId,
+						admitRenderer = {
+							surfaceView.onPageTouchEvent(event, gestureId)
+						},
+						publishClaim = { publishCurlClaim(gestureId) },
+						cancelRendererClaim = surfaceView::cancelGesture
+					)
 				},
 				publishTerminal = { outcome, detail ->
 					publishGestureTerminal(gestureId, outcome, detail)
@@ -2235,7 +2438,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 				metadata = metadata,
 				protocolActionMasked = MotionEvent.ACTION_DOWN,
 				rendererAdmission = {
-					surfaceView.turn(pageChange, gestureId)
+					admitReaderCurlRendererClaim(
+						gestureId = gestureId,
+						admitRenderer = { surfaceView.turn(pageChange, gestureId) },
+						publishClaim = { publishCurlClaim(gestureId) },
+						cancelRendererClaim = surfaceView::cancelGesture
+					)
 				},
 				publishTerminal = { outcome, detail ->
 					publishGestureTerminal(gestureId, outcome, detail)
@@ -2342,7 +2550,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 			cancelGesture(gestureId)
 		} else {
 			cancelRendererWork(cancellationReason)
-			hideSurface()
+			if (
+				cancellationReason != ReaderPageLifecycleCancellationReason.UnsafeContextLoss &&
+				cancellationReason != ReaderPageLifecycleCancellationReason.GlFailure
+			) {
+				hideSurface()
+			}
 		}
 		Logger.i(
 			ReaderPlayLikeCurlFoliateControllerTag,
@@ -2391,9 +2604,18 @@ internal class ReaderPlayLikeCurlFoliateController(
 					destinationOrdinal = normalized
 				) &&
 				relocationLiveDispatchCoordinator.isCurrent(head)
+		val exactAuthorityTokenMatches = head != null &&
+			when (val authority = commonPresentationDecision?.authority) {
+				is ReaderPresentationAuthority.CurlGesture ->
+					authority.frame.frame.token.value == head.gestureId
+				is ReaderPresentationAuthority.CurlSettlementPending ->
+					authority.retainedFrame.frame.token.value == head.gestureId
+				else -> false
+			}
 		return readerPageVisualLocationOrigin(
 			foliateSessionRelocationPending = foliateSessionRelocationPending,
 			exactAcknowledgementMatches = exactAcknowledgementMatches,
+			exactAuthorityTokenMatches = exactAuthorityTokenMatches,
 			acknowledgementPresent = acknowledgement != null,
 			relocationInFlight = relocationQueue.hasInFlightHead()
 		)
@@ -2492,14 +2714,32 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun startAcknowledgedVisualHandoff(
 		request: ReaderPageRelocationRequest,
 		qaFaultCorrelation: ReaderPageQaFaultCorrelation?
-	): Boolean = relocationVisualHandoffCoordinator.onAcknowledged(
-		request,
-		qaFaultCorrelation
-	).also { accepted ->
-		if (!accepted) relocationLiveDispatchCoordinator.fail(
+	): Boolean {
+		val decision = commonPresentationDecision
+		val awaitsNativeCurl =
+			(decision?.authority as?
+				ReaderPresentationAuthority.CurlSettlementPending)?.stage ==
+				ReaderCurlSettlementStage.AwaitingNativePresentation &&
+				decision.requiredTransition is ReaderRequiredTransition.PresentNativePage
+		if (awaitsNativeCurl) {
+			return relocationVisualHandoffCoordinator
+				.synchronizeCommonPresentationDecision(decision)
+				.also { accepted ->
+					if (!accepted) relocationLiveDispatchCoordinator.fail(
+						request,
+						ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+					)
+				}
+		}
+		return relocationVisualHandoffCoordinator.onAcknowledged(
 			request,
-			ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
-		)
+			qaFaultCorrelation
+		).also { accepted ->
+			if (!accepted) relocationLiveDispatchCoordinator.fail(
+				request,
+				ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
+			)
+		}
 	}
 
 	private fun completeAcknowledgedRelocation(
@@ -2635,6 +2875,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		deckDiagnosticTracker?.cancelAll()
 		generationRoles.clear()
 		generationPreparationGenerations.clear()
+		generationCallbackFences.clear()
 		preparedDeckGenerations.clear()
 		activeDeckGenerationId = null
 		activeDeckPreparationGeneration = null
@@ -4443,14 +4684,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 		role: ReaderDeckSubmissionRole
 	) {
 		val accepted = checkNotNull(builtRecoveredDecks.remove(generationId))
-		generationRoles[generationId] = role
+		registerAcceptedDeckOwnership(
+			pages = accepted.pages,
+			generationId = generationId,
+			role = role,
+			preparationGeneration = preparationGeneration
+		)
 		recoveredDeckGenerations += generationId
-		if (
-			generationOwners[generationId] !== accepted.pages ||
-			generationRoles[generationId] != role
-		) {
-			return
-		}
 		when (role) {
 			ReaderDeckSubmissionRole.Active -> {
 				activeDeckGenerationId = generationId
@@ -4982,10 +5222,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		role: ReaderDeckSubmissionRole,
 		preparationGeneration: Long
 	) {
-		generationOwners[generationId] = pages
-		pages.generations += generationId
-		generationRoles[generationId] = role
-		generationPreparationGenerations[generationId] = preparationGeneration
+		registerAcceptedDeckOwnership(
+			pages = pages,
+			generationId = generationId,
+			role = role,
+			preparationGeneration = preparationGeneration
+		)
 		when (role) {
 			ReaderDeckSubmissionRole.Active -> {
 				activeDeckGenerationId = generationId
@@ -4999,6 +5241,31 @@ internal class ReaderPlayLikeCurlFoliateController(
 					reason = "pending-deck-submitting:$generationId"
 				)
 			}
+		}
+	}
+
+	private fun registerAcceptedDeckOwnership(
+		pages: PreparedPages,
+		generationId: Long,
+		role: ReaderDeckSubmissionRole,
+		preparationGeneration: Long
+	) {
+		val retainedOwner = generationOwners.putIfAbsent(generationId, pages)
+		check(retainedOwner == null || retainedOwner === pages) {
+			"Accepted deck generation has a different raster owner"
+		}
+		pages.generations += generationId
+		generationRoles[generationId] = role
+		generationPreparationGenerations[generationId] = preparationGeneration
+		commonPresentationDecision?.targetBinding?.let { binding ->
+			generationCallbackFences[generationId] = ReaderAcceptedDeckCallbackFence(
+				presentationToken = commonPresentationDecision?.rendererCallbackTokenOrNull(),
+				binding = binding.copy(
+					preparationGeneration = preparationGeneration,
+					rasterGeneration = pages.profile.rasterGeneration,
+					textureGeneration = generationId
+				)
+			)
 		}
 	}
 
@@ -5687,6 +5954,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun dispatchNextRelocation(): Boolean {
+		val queued = relocationQueue.head()
+		if (queued != null && !commonAuthorityAdmitsRelocationDispatch(queued)) return false
 		val request = relocationQueue.commandToDispatch() ?: run {
 			retryPassiveManifestAuthorityRecovery()
 			return false
@@ -5695,11 +5964,27 @@ internal class ReaderPlayLikeCurlFoliateController(
 		return relocationLiveDispatchCoordinator.dispatch(request)
 	}
 
+	private fun commonAuthorityAdmitsRelocationDispatch(
+		request: ReaderPageRelocationRequest
+	): Boolean {
+		val decision = commonPresentationDecision ?: return true
+		val pending = decision.authority as?
+			ReaderPresentationAuthority.CurlSettlementPending ?: return true
+		if (pending.stage != ReaderCurlSettlementStage.AwaitingNativePresentation) return true
+		val transition = decision.requiredTransition as?
+			ReaderRequiredTransition.PresentNativePage ?: return false
+		return transition.token.value == request.gestureId &&
+			transition.binding.foliateSessionId == request.foliateSessionId &&
+			transition.binding.rasterGeneration == request.rasterGeneration &&
+			transition.binding.textureGeneration == request.textureGeneration
+	}
+
 	private fun relocationDispatchIsCurrent(
 		request: ReaderPageRelocationRequest
 	): Boolean =
 		!destroyed &&
 			enabled &&
+			commonAuthorityAdmitsRelocationDispatch(request) &&
 			currentFoliateSessionId == request.foliateSessionId &&
 			(
 				relocationQueue.matchesDispatchedHead(
@@ -6179,6 +6464,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		rendererCleanupRetryCoordinator.complete(generationId)
 		deckDiagnosticTracker?.cancel(generationId)
 		generationPreparationGenerations.remove(generationId)
+		generationCallbackFences.remove(generationId)
 		val pages = generationOwners.remove(generationId) ?: return
 		val releasedCurrentActive = activeDeckGenerationId == generationId
 		generationRoles.remove(generationId)
@@ -6267,6 +6553,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun hideSurfaceAfterGesture(gestureId: Long) {
+		val authoritativeCurl = commonPresentationDecision?.frameOwner as?
+			ReaderPresentationFrameOwner.Curl
+		if (authoritativeCurl?.frame?.token?.value == gestureId) return
 		if (relocationQueue.ownershipSnapshot().queued > 0) return
 		if (
 			presentedFrameGestureId != gestureId &&
@@ -6486,10 +6775,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		} else {
 			null
 		}
+		val commonCurlTerminalRequired = commonAcceptedCurlGestureId() == gestureId
 		val published = when {
 			gestureId in hostOwnedTerminalGestureIds -> true
 			tapSink == null -> onGestureTerminal(gestureId, outcome, detail)
 			else -> tapSink(outcome, detail)
+		}
+		val terminalPublished = if (commonCurlTerminalRequired) {
+			published && publishCurlTerminal(gestureId, outcome)
+		} else {
+			true
 		}
 		if (activeGestureEnded && activeGestureId == null) {
 			scheduleRecoveredDeckSubmissionRetry()
@@ -6498,7 +6793,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 			publishLatestWhispersyncOverlayIfIdle()
 		}
-		return published
+		return terminalPublished
 	}
 
 	private fun scheduleRecoveredDeckSubmissionRetry() {

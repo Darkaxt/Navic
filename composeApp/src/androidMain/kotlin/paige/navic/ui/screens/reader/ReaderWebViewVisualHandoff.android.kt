@@ -5,6 +5,7 @@ import android.view.View
 import android.webkit.WebView
 import paige.navic.reader.ReaderLiveEngineHandoffDirection
 import paige.navic.reader.ReaderLiveEnginePresentationProof
+import paige.navic.reader.ReaderCurlSettlementStage
 import paige.navic.reader.ReaderDiagnosticPresentation
 import paige.navic.reader.ReaderPageRelocationQueue
 import paige.navic.reader.ReaderPageRelocationRequest
@@ -1337,7 +1338,8 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		decision: ReaderPresentationDecision
 	): Boolean {
 		if (phase == Phase.Closed) return false
-		val request = head ?: return false
+		val request = head ?: return completeAcknowledgedCurlSettlement(decision) ||
+			dispatchQueuedAfterNativePresentation(decision)
 		val pending = pendingCommonPresentationHandoff?.takeIf { it.request == request }
 			?: return false
 		if (phase == Phase.AwaitingPresentationAuthority && currentHandoffAttemptId == null) {
@@ -1377,6 +1379,72 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		check(queue.completeHandoff(request.token.value))
 		onCompleted(request)
 		queue.commandToDispatch()?.let(dispatch)
+		return true
+	}
+
+	private fun completeAcknowledgedCurlSettlement(
+		decision: ReaderPresentationDecision
+	): Boolean {
+		if (
+			!commonPresentationAuthorityEnabled ||
+			phase != Phase.Idle ||
+			pendingCommonPresentationHandoff != null ||
+			currentHandoffAttemptId != null
+		) return false
+		val pending = decision.authority as?
+			ReaderPresentationAuthority.CurlSettlementPending ?: return false
+		val transition = decision.requiredTransition as?
+			ReaderRequiredTransition.PresentNativePage ?: return false
+		val request = queue.head() ?: return false
+		if (
+			pending.stage != ReaderCurlSettlementStage.AwaitingNativePresentation ||
+			pending.expectedAcknowledgement != null ||
+			decision.targetBinding != pending.binding ||
+			decision.frameOwner != pending.retainedFrame ||
+			transition.token != pending.retainedFrame.frame.token ||
+			transition.binding != pending.binding ||
+			transition.token.value != request.gestureId ||
+			pending.binding.foliateSessionId != request.foliateSessionId ||
+			pending.binding.rasterGeneration != request.rasterGeneration ||
+			pending.binding.textureGeneration != request.textureGeneration ||
+			!matchesAcknowledgedHead(request) ||
+			!currentStateMatches(request)
+		) return false
+		return completeCurrent(request)
+	}
+
+	private fun dispatchQueuedAfterNativePresentation(
+		decision: ReaderPresentationDecision
+	): Boolean {
+		if (
+			!commonPresentationAuthorityEnabled ||
+			phase != Phase.Idle ||
+			pendingCommonPresentationHandoff != null ||
+			currentHandoffAttemptId != null ||
+			queue.hasDispatchedHead()
+		) return false
+		val settled = decision.authority as?
+			ReaderPresentationAuthority.SettledNativePage ?: return false
+		val proof = settled.frame.proof
+		val transitionToken = proof.transitionToken ?: return false
+		val request = queue.head() ?: return false
+		val state = currentState()
+		if (
+			decision.requiredTransition != ReaderRequiredTransition.None ||
+			decision.targetBinding != proof.binding ||
+			decision.frameOwner != settled.frame ||
+			transitionToken.value == request.gestureId ||
+			proof.binding.foliateSessionId != request.foliateSessionId ||
+			state.foliateSessionId != proof.binding.foliateSessionId ||
+			state.webViewOrdinal != request.sourceOrdinal ||
+			state.rasterGeneration != proof.rasterGeneration ||
+			state.textureGeneration != proof.textureGeneration ||
+			!state.attached ||
+			!state.resumed
+		) return false
+		val next = queue.commandToDispatch() ?: return false
+		check(next == request)
+		dispatch(next)
 		return true
 	}
 
@@ -2076,13 +2144,18 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	}
 
 	private fun complete(request: ReaderPageRelocationRequest) {
+		if (!completeCurrent(request)) return
+		queue.commandToDispatch()?.let(dispatch)
+	}
+
+	private fun completeCurrent(request: ReaderPageRelocationRequest): Boolean {
 		if (
 			!matchesAcknowledgedHead(request) ||
 			!currentStateMatches(request) ||
 			!queue.completeHandoff(request.token.value)
 		) {
 			recover(request, ReaderWebViewVisualHandoffFailure.Invalidated)
-			return
+			return false
 		}
 		phase = Phase.Idle
 		retainedRepreparedEvidence = null
@@ -2097,8 +2170,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		onCompleted(request)
 		head = null
 		clearQaFaultCorrelation()
-		val next = queue.commandToDispatch()
-		next?.let(dispatch)
+		return true
 	}
 
 	private fun publishCommonHandoffFailure(

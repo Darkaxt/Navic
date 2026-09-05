@@ -793,7 +793,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private fun onPresentationFinalized(")
 		val complete = source
 			.substringAfter("private fun complete(request: ReaderPageRelocationRequest)")
-			.substringBefore("private fun recover(")
+			.substringBefore("private fun completeCurrent(")
+		val completeCurrent = source
+			.substringAfter("private fun completeCurrent(")
+			.substringBefore("private fun publishCommonHandoffFailure(")
 		val productionWiring = controller
 			.substringAfter("ReaderPageRelocationVisualHandoffCoordinator(")
 			.substringBefore("canRecover =")
@@ -807,10 +810,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(commonCommit, "presentedFrameSequence = ready.presentedFrameSequence")
 		assertContains(commonCommit, "receipt.authorizes(event)")
 		assertContains(commonCommit, "onPresentationFinalized(request, finalizationEpoch, accepted)")
-		assertContains(complete, "queue.completeHandoff(request.token.value)")
-		assertContains(complete, "val next = queue.commandToDispatch()")
-		assertContains(complete, "next?.let(dispatch)")
+		assertContains(complete, "completeCurrent(request)")
+		assertContains(complete, "queue.commandToDispatch()?.let(dispatch)")
+		assertContains(completeCurrent, "queue.completeHandoff(request.token.value)")
+		assertFalse(completeCurrent.contains("queue.commandToDispatch()"))
 		assertFalse(complete.contains("hideSurface("))
+		assertFalse(completeCurrent.contains("hideSurface("))
 		assertContains(productionWiring, "requestPresentationHandoff =")
 		assertContains(productionWiring, "commitLiveEngineExposure =")
 		assertFalse(productionWiring.contains("finalizePresentation = ::"))
@@ -2091,6 +2096,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val submittedCancellation = controller
 			.substringAfter("override fun cancelSubmittedRecoveredDeck(")
 			.substringBefore("private fun tombstoneSubmittedRecoveredDeck(")
+		val acceptedRegistration = controller
+			.substringAfter("private fun registerAcceptedDeckOwnership(")
+			.substringBefore("private fun releaseRejectedLibraryDeck(")
+		val normalAcceptance = controller
+			.substringAfter("private fun acceptLibraryDeckOwnership(")
+			.substringBefore("private fun registerAcceptedDeckOwnership(")
 		val renderFailure = controller
 			.substringAfter("override fun onRenderFailure(")
 			.substringBefore("val isAvailable: Boolean")
@@ -2100,6 +2111,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val cleanupAccepted = controller
 			.substringAfter("private fun onRendererCleanupQueueAccepted(")
 			.substringBefore("private fun releaseRendererOwnedGeneration(")
+		val releaseGate = controller
+			.substringAfter("internal class ReaderRendererOwnedGenerationReleaseGate")
+			.substringBefore("internal sealed class ReaderRendererCleanupRequest")
+		val selectedProtection = controller
+			.substringAfter("private fun generationBacksCommonPresentation(")
+			.substringBefore("fun synchronizePresentationDecision(")
+		val decisionSynchronization = controller
+			.substringAfter("fun synchronizePresentationDecision(")
+			.substringBefore("fun setEnabled(")
 
 		assertContains(preparation, "ReaderPageRasterRepairResult.Repaired")
 		assertContains(preparation, "rasterEpoch = generation")
@@ -2134,7 +2154,35 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity"
 		)
 		assertContains(submission, "val accepted = checkNotNull(builtRecoveredDecks.remove(generationId))")
-		assertContains(submission, "generationOwners[generationId] !== accepted.pages")
+		assertContains(submission, "registerAcceptedDeckOwnership(")
+		assertContains(submission, "preparationGeneration = preparationGeneration")
+		assertContains(normalAcceptance, "registerAcceptedDeckOwnership(")
+		assertContains(acceptedRegistration, "generationOwners.putIfAbsent(generationId, pages)")
+		assertContains(acceptedRegistration, "retainedOwner === pages")
+		assertContains(
+			acceptedRegistration,
+			"generationPreparationGenerations[generationId] = preparationGeneration"
+		)
+		assertContains(
+			acceptedRegistration,
+			"generationCallbackFences[generationId] = ReaderAcceptedDeckCallbackFence("
+		)
+		assertContains(releaseGate, "if (isProtectedGeneration(generationId)) return false")
+		assertTrue(
+			releaseGate.indexOf("isProtectedGeneration(generationId)") <
+				releaseGate.indexOf("requestRendererRelease(generationId)")
+		)
+		assertContains(controller, "isProtectedGeneration = ::generationBacksCommonPresentation")
+		assertContains(selectedProtection, "commonPresentationDecision?.frameOwner")
+		assertContains(selectedProtection, "is ReaderPresentationFrameOwner.NativePage")
+		assertContains(selectedProtection, "is ReaderPresentationFrameOwner.Curl")
+		assertContains(selectedProtection, "selectedBinding.rendererDeckIdentityOrNull()")
+		assertTrue(
+			decisionSynchronization.indexOf("commonPresentationDecision = decision") <
+				decisionSynchronization.indexOf(
+					"rendererCleanupRetryCoordinator.onRendererAvailabilityRestored()"
+				)
+		)
 		assertContains(submission, "rollbackAcceptedRecoveredDeck(generationId, role, failure)")
 		assertContains(unsubmittedRelease, "builtRecoveredDecks.remove(generationId) ?: return")
 		assertContains(unsubmittedRelease, "releaseGeneration(generationId)")

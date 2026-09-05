@@ -83,7 +83,8 @@ internal fun ReaderPresentationBinding.isSafeBindingReplacementOf(
 internal fun readerPresentationBindingEventCandidate(
 	previousBinding: ReaderPresentationBinding,
 	currentBinding: ReaderPresentationBinding,
-	relocationPending: Boolean
+	relocationPending: Boolean,
+	relocationAcknowledgement: ReaderPageTurnSettlementAck? = null
 ): ReaderPresentationEvent? = when {
 	previousBinding == currentBinding -> null
 	previousBinding.foliateSessionId != currentBinding.foliateSessionId -> null
@@ -93,7 +94,7 @@ internal fun readerPresentationBindingEventCandidate(
 	currentBinding.isCausalDestinationSuccessorOf(previousBinding) ->
 		ReaderPresentationEvent.FoliateRelocated(
 			binding = currentBinding,
-			acknowledgement = null
+			acknowledgement = relocationAcknowledgement
 		).takeIf { relocationPending }
 	currentBinding.isSafeBindingReplacementOf(previousBinding) ->
 		ReaderPresentationEvent.BindingReplaced(previousBinding, currentBinding)
