@@ -544,11 +544,11 @@ internal class ReaderPageRasterPreparationController(
 		)
 	}
 
-	fun retryPreparation(): Long? {
+	fun retryPreparation(expectedPreparationGeneration: Long? = failedPreparationGeneration): Long? {
 		if (
 			destroyed ||
 				retryPreparationInProgress ||
-				failedPreparationGeneration != preparationGeneration
+				expectedPreparationGeneration != preparationGeneration
 		) return null
 		retryPreparationInProgress = true
 		cancelPrewarm(reason = "fresh-retry")

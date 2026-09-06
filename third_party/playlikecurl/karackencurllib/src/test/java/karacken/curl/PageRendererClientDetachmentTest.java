@@ -115,6 +115,307 @@ public class PageRendererClientDetachmentTest {
         assertEquals(0, released.get());
     }
 
+    @Test
+    public void selectedPredecessorSurvivesAutomaticReplacementBeforeCandidatePreparation()
+            throws Exception {
+        AtomicInteger released = new AtomicInteger();
+        PageRenderer[] holder = new PageRenderer[1];
+        PageRenderer renderer = new PageRenderer(events(released, new AtomicInteger(), holder));
+        holder[0] = renderer;
+        setField(renderer, "maxTextureSize", 4096);
+        renderer.prepareDeck(validPortraitDeck(), true);
+        renderer.setSelectedFrameGeneration(GENERATION);
+
+        // Same renderer command order as PageSurfaceView's accepted idle offer.
+        renderer.releaseDeck(GENERATION, DeckReleaseReason.REPLACED);
+        renderer.prepareDeck(validPortraitDeck(303L), true);
+
+        assertEquals("Submission is not a presentation receipt", 0, released.get());
+        assertEquals(3, textureCount(renderer, GENERATION));
+        assertEquals(GENERATION, generation((PageDeck<?>) field(renderer, "activeDeck")));
+    }
+
+    @Test
+    public void selectedDrawableDoesNotChangeOnPreparationAlone() throws Exception {
+        PageRenderer renderer = new PageRenderer(
+                events(new AtomicInteger(), new AtomicInteger(), new PageRenderer[1]));
+        setField(renderer, "maxTextureSize", 4096);
+        renderer.prepareDeck(validPortraitDeck(), true);
+        renderer.setSelectedFrameGeneration(GENERATION);
+
+        renderer.prepareDeck(validPortraitDeck(303L), true);
+
+        assertEquals("Fresh preparation must stage, not replace the selected draw owner",
+                GENERATION, generation((PageDeck<?>) field(renderer, "activeDeck")));
+        assertEquals(GENERATION,
+                ((PageImage<?>) field(renderer, "portraitFrontResource")).getGenerationId());
+        assertEquals(3, textureCount(renderer, GENERATION));
+        assertEquals(3, textureCount(renderer, 303L));
+    }
+
+    @Test
+    public void ordinaryUnselectedAutomaticReplacementStillReleasesImmediately() throws Exception {
+        AtomicInteger released = new AtomicInteger();
+        PageRenderer[] holder = new PageRenderer[1];
+        PageRenderer renderer = new PageRenderer(events(released, new AtomicInteger(), holder));
+        holder[0] = renderer;
+        setField(renderer, "maxTextureSize", 4096);
+        renderer.prepareDeck(validPortraitDeck(), true);
+
+        renderer.releaseDeck(GENERATION, DeckReleaseReason.REPLACED);
+        renderer.prepareDeck(validPortraitDeck(303L), true);
+
+        assertEquals(1, released.get());
+        assertFalse(retainsGeneration(renderer, GENERATION));
+        assertEquals(303L, generation((PageDeck<?>) field(renderer, "activeDeck")));
+        assertEquals(3, textureCount(renderer, 303L));
+    }
+
+    @Test
+    public void selectedPredecessorCountsAgainstRejectedSuccessorBudget() throws Exception {
+        Map<Long, Integer> released = new LinkedHashMap<>();
+        AtomicInteger budgetFailures = new AtomicInteger();
+        PageRenderer renderer = new PageRenderer(recordingEvents(released, budgetFailures));
+        setField(renderer, "maxTextureSize", 4096);
+        renderer.setGpuBudgetBytes(256L); // One 192-byte deck fits; two do not.
+        renderer.prepareDeck(validPortraitDeck(), true);
+        renderer.setSelectedFrameGeneration(GENERATION);
+
+        renderer.releaseDeck(GENERATION, DeckReleaseReason.REPLACED);
+        renderer.prepareDeck(validPortraitDeck(303L), true);
+
+        assertEquals(1, budgetFailures.get());
+        assertEquals(Integer.valueOf(1), released.get(303L));
+        assertFalse(released.containsKey(GENERATION));
+        assertEquals(GENERATION, generation((PageDeck<?>) field(renderer, "activeDeck")));
+        assertEquals(3, textureCount(renderer, GENERATION));
+        assertEquals(0, textureCount(renderer, 303L));
+        renderer.dispose();
+        assertEquals(Integer.valueOf(1), released.get(GENERATION));
+        assertEquals(0, renderer.textureCount());
+    }
+
+    @Test
+    public void selectedAcceptedReleaseDrainsOnceWhenSelectionClears() throws Exception {
+        Map<Long, Integer> released = new LinkedHashMap<>();
+        PageRenderer renderer = new PageRenderer(recordingEvents(released, new AtomicInteger()));
+        setField(renderer, "maxTextureSize", 4096);
+        renderer.prepareDeck(validPortraitDeck(), true);
+        renderer.setSelectedFrameGeneration(GENERATION);
+        renderer.releaseDeck(GENERATION, DeckReleaseReason.REPLACED);
+        renderer.prepareDeck(validPortraitDeck(303L), true);
+        assertFalse(released.containsKey(GENERATION));
+
+        renderer.setSelectedFrameGeneration(-1L);
+        renderer.setSelectedFrameGeneration(-1L);
+
+        assertEquals(Integer.valueOf(1), released.get(GENERATION));
+        assertEquals(0, textureCount(renderer, GENERATION));
+        renderer.dispose();
+        renderer.dispose();
+        assertEquals(Integer.valueOf(1), released.get(GENERATION));
+        assertEquals(Integer.valueOf(1), released.get(303L));
+        assertEquals(0, renderer.textureCount());
+    }
+
+    @Test
+    public void candidateActivationRetainsDeformationAndOverlayUntilConditionalRollback()
+            throws Exception {
+        Map<Long, Integer> released = new LinkedHashMap<>();
+        PageRenderer renderer = new PageRenderer(recordingEvents(released, new AtomicInteger()));
+        setField(renderer, "maxTextureSize", 4096);
+        installActiveDeck(renderer, true);
+        Object model = renderer.getPortraitModel();
+        Object overlays = field(renderer, "dynamicPageOverlays");
+        renderer.getPortraitModel().getFrontPage().setCurlPosition(0.4f);
+        renderer.setSelectedFrameGeneration(GENERATION);
+        renderer.releaseDeck(GENERATION, DeckReleaseReason.REPLACED);
+        renderer.prepareDeck(validPortraitDeck(303L), true);
+
+        renderer.activateDeck(303L);
+
+        assertEquals(303L, generation((PageDeck<?>) field(renderer, "activeDeck")));
+        assertEquals(GENERATION, generation((PageDeck<?>) field(renderer, "replacementDeck")));
+        assertFalse(released.containsKey(GENERATION));
+        assertEquals(3, textureCount(renderer, GENERATION));
+        assertTrue(renderer.restoreSelectedFrame(303L));
+        assertTrue(model == renderer.getPortraitModel());
+        assertTrue(overlays == field(renderer, "dynamicPageOverlays"));
+        assertEquals(0.4f, renderer.getPortraitModel().getFrontPage().getCurlPosition(), 0f);
+        assertEquals(1, dynamicOverlayCount(renderer));
+        renderer.activateDeck(303L);
+        renderer.setSelectedFrameGeneration(303L);
+        assertFalse("Obsolete cancellation must not restore retired authority",
+                renderer.restoreSelectedFrame(303L));
+        assertEquals(303L, generation((PageDeck<?>) field(renderer, "activeDeck")));
+        assertEquals(Integer.valueOf(1), released.get(GENERATION));
+        renderer.dispose();
+        assertEquals(Integer.valueOf(1), released.get(303L));
+        assertEquals(0, renderer.textureCount());
+    }
+
+    @Test
+    public void interveningSubmissionCannotEvictSelectedReplacementSlot() throws Exception {
+        Map<Long, Integer> released = new LinkedHashMap<>();
+        AtomicInteger capacityFailures = new AtomicInteger();
+        PageRenderer renderer = new PageRenderer(recordingEvents(released, capacityFailures));
+        setField(renderer, "maxTextureSize", 4096);
+        renderer.prepareDeck(validPortraitDeck(), true);
+        renderer.setSelectedFrameGeneration(GENERATION);
+        renderer.releaseDeck(GENERATION, DeckReleaseReason.REPLACED);
+        renderer.prepareDeck(validPortraitDeck(303L), true);
+        renderer.activateDeck(303L);
+
+        renderer.prepareDeck(validPortraitDeck(304L), true);
+
+        assertEquals(1, capacityFailures.get());
+        assertEquals(Integer.valueOf(1), released.get(304L));
+        assertFalse(released.containsKey(GENERATION));
+        assertEquals(303L, generation((PageDeck<?>) field(renderer, "activeDeck")));
+        assertEquals(GENERATION, generation((PageDeck<?>) field(renderer, "replacementDeck")));
+        assertEquals(6, renderer.textureCount());
+        // The actual automatic replacement order can free the candidate, not the predecessor.
+        renderer.releaseDeck(303L, DeckReleaseReason.REPLACED);
+        assertEquals(GENERATION, generation((PageDeck<?>) field(renderer, "activeDeck")));
+        renderer.prepareDeck(validPortraitDeck(305L), true);
+        assertEquals(305L, generation((PageDeck<?>) field(renderer, "replacementDeck")));
+        renderer.dispose();
+        assertEquals(Integer.valueOf(1), released.get(GENERATION));
+        assertEquals(Integer.valueOf(1), released.get(303L));
+        assertEquals(Integer.valueOf(1), released.get(305L));
+        assertEquals(0, renderer.textureCount());
+    }
+
+    @Test
+    @Config(shadows = QueuedSurfaceShadow.class)
+    public void cancelledAndSupersededCandidateQueuesCannotActivateOrPublish() throws Exception {
+        try (CandidateSurfaceFixture fixture = new CandidateSurfaceFixture()) {
+            fixture.prepare();
+            AtomicInteger frames = new AtomicInteger();
+            long cancelled = fixture.surface.requestNativePagePresentedFrame(303L, frames::incrementAndGet);
+            assertTrue(fixture.surface.cancelPresentedFrameRequest(cancelled));
+            fixture.drain();
+            assertTrue(fixture.renderer.hasActiveFrame(GENERATION));
+            assertEquals(PresentedFrameRequest.NO_REQUEST_ID, fixture.requests().markRendered());
+
+            long obsolete = fixture.surface.requestNativePagePresentedFrame(303L, frames::incrementAndGet);
+            long current = fixture.surface.requestNativePagePresentedFrame(303L, frames::incrementAndGet);
+            assertFalse(fixture.surface.cancelPresentedFrameRequest(obsolete));
+            fixture.drain();
+            assertTrue(fixture.renderer.hasActiveFrame(303L));
+            assertEquals(3, textureCount(fixture.renderer, GENERATION));
+            assertTrue(fixture.surface.cancelPresentedFrameRequest(current));
+            fixture.drain();
+            assertTrue(fixture.renderer.hasActiveFrame(GENERATION));
+            assertEquals(PresentedFrameRequest.NO_REQUEST_ID, fixture.requests().markRendered());
+            assertEquals(0, frames.get());
+        }
+    }
+
+    @Test
+    @Config(shadows = QueuedSurfaceShadow.class)
+    public void candidateActivationIsNotConfusedWithFirstSharedFrameWaiter() throws Exception {
+        try (CandidateSurfaceFixture fixture = new CandidateSurfaceFixture()) {
+            fixture.prepare();
+            AtomicInteger genericFrames = new AtomicInteger();
+            AtomicInteger nativeFrames = new AtomicInteger();
+            fixture.surface.requestNextPresentedFrame(genericFrames::incrementAndGet);
+            fixture.surface.requestNativePagePresentedFrame(303L, () -> {
+                assertTrue(fixture.renderer.hasActiveFrame(303L));
+                fixture.surface.setSelectedFrameGeneration(303L);
+                nativeFrames.incrementAndGet();
+            });
+            fixture.drain();
+            assertTrue(fixture.renderer.hasActiveFrame(303L));
+            assertFalse(fixture.released.containsKey(GENERATION));
+            long rendered = fixture.requests().markRendered();
+            fixture.requests().complete(rendered).run();
+            fixture.drain();
+            assertEquals(1, genericFrames.get());
+            assertEquals(1, nativeFrames.get());
+            assertEquals(Integer.valueOf(1), fixture.released.get(GENERATION));
+            assertTrue(fixture.renderer.hasActiveFrame(303L));
+            assertEquals(0, fixture.surface.getPendingCallbackCount());
+        }
+    }
+
+    @org.robolectric.annotation.Implements(android.opengl.GLSurfaceView.class)
+    public static class QueuedSurfaceShadow extends org.robolectric.shadows.ShadowGLSurfaceView {
+        final java.util.ArrayDeque<Runnable> queued = new java.util.ArrayDeque<>();
+        @org.robolectric.annotation.Implementation
+        public void queueEvent(Runnable action) { queued.add(action); }
+        @org.robolectric.annotation.Implementation
+        public void requestRender() {}
+        void drain() { while (!queued.isEmpty()) queued.remove().run(); }
+    }
+
+    private static final class CandidateSurfaceFixture implements AutoCloseable {
+        final org.robolectric.android.controller.ActivityController<android.app.Activity> activity =
+                org.robolectric.Robolectric.buildActivity(android.app.Activity.class).setup();
+        final PageSurfaceView surface = new PageSurfaceView(activity.get());
+        final PageRenderer renderer;
+        final QueuedSurfaceShadow shadow;
+        final Map<Long, Integer> released = new LinkedHashMap<>();
+        CandidateSurfaceFixture() throws Exception {
+            activity.get().setContentView(surface);
+            shadow = org.robolectric.shadow.api.Shadow.extract(surface);
+            renderer = (PageRenderer) field(surface, "renderer");
+            surface.registerMainTerminalExecutor(action -> { action.run(); return true; });
+            surface.setPageSurfaceListener(new PageSurfaceListener() {
+                @Override public void onDeckReleased(long generationId, DeckReleaseReason reason) {
+                    released.put(generationId, released.getOrDefault(generationId, 0) + 1);
+                }
+            });
+            surface.attach();
+            setField(renderer, "maxTextureSize", 4096);
+            setField(renderer, "glReady", true);
+            renderer.setGpuBudgetBytes(1024L);
+            drain();
+        }
+        void prepare() {
+            assertTrue(surface.submitDeckWithResult(validPortraitDeck()).getStatus()
+                    == PageSurfaceDeckSubmissionResult.Status.ACCEPTED);
+            drain();
+            surface.setSelectedFrameGeneration(GENERATION);
+            drain();
+            assertTrue(surface.submitDeckWithResult(validPortraitDeck(303L)).getStatus()
+                    == PageSurfaceDeckSubmissionResult.Status.ACCEPTED);
+            drain();
+            assertTrue(renderer.hasActiveFrame(GENERATION));
+        }
+        PresentedFrameRequest requests() throws Exception {
+            return (PresentedFrameRequest) field(surface, "presentedFrameRequest");
+        }
+        void drain() {
+            shadow.drain();
+            org.robolectric.shadows.ShadowLooper.runUiThreadTasks();
+        }
+        @Override public void close() {
+            surface.dispose();
+            drain();
+            activity.pause().stop().destroy();
+            drain();
+            assertEquals(0, renderer.textureCount());
+            assertEquals(0, surface.getPendingCallbackCount());
+        }
+    }
+
+    private static PageRenderer.Events recordingEvents(
+            Map<Long, Integer> released, AtomicInteger budgetFailures) {
+        return new PageRenderer.Events() {
+            @Override public void onCapabilitiesAvailable(RenderCapabilities capabilities) {}
+            @Override public void onDeckPrepared(long generationId) {}
+            @Override public void onDeckReleased(long generationId, DeckReleaseReason reason) {
+                released.put(generationId, released.getOrDefault(generationId, 0) + 1);
+            }
+            @Override public void onPageOverlayUpdateCompleted(long generationId, boolean applied) {}
+            @Override public void onRenderFailure(RenderFailure failure) {
+                assertEquals(RenderFailureReason.GPU_BUDGET_EXCEEDED, failure.getReason());
+                budgetFailures.incrementAndGet();
+            }
+        };
+    }
+
     private static PageRenderer.Events events(
             AtomicInteger released,
             AtomicInteger failures,
@@ -141,10 +442,8 @@ public class PageRendererClientDetachmentTest {
 
     private static void installActiveDeck(PageRenderer renderer, boolean withOverlay)
             throws Exception {
-        PageImage<Bitmap> previous = page("previous", 0);
-        PageImage<Bitmap> current = page("current", 1);
-        PageImage<Bitmap> next = page("next", 2);
-        PortraitPageDeck<Bitmap> deck = new PortraitPageDeck<>(previous, current, next);
+        PortraitPageDeck<Bitmap> deck = validPortraitDeck();
+        PageImage<Bitmap> current = deck.getCurrent();
         setField(renderer, "activeDeck", deck);
         renderer.applyActiveDeck(deck);
         renderer.retainDeckTextures();
@@ -168,9 +467,13 @@ public class PageRendererClientDetachmentTest {
     }
 
     private static PortraitPageDeck<Bitmap> validPortraitDeck() {
+        return validPortraitDeck(GENERATION);
+    }
+
+    private static PortraitPageDeck<Bitmap> validPortraitDeck(long generationId) {
         PageDisplayRect rect = new PageDisplayRect(0, 0, 4, 4);
         PageMaterial material = new PageMaterial(
-                GENERATION,
+                generationId,
                 0xFFFFFFFF,
                 0xFFFFFFFF,
                 0xFF000000,
@@ -195,7 +498,7 @@ public class PageRendererClientDetachmentTest {
         bitmap.setHasAlpha(false);
         bitmap.eraseColor(0xFFFFFFFF);
         return new PageImage<>(
-                GENERATION,
+                material.getGenerationId(),
                 identity,
                 ordinal,
                 4,

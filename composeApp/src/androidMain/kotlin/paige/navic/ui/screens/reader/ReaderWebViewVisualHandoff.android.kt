@@ -243,7 +243,8 @@ internal class ReaderWebViewVisualHandoff(
 
 	private data class PresentationRequestPayload(
 		var request: ReaderPresentationWebViewVisualHandoffRequest?,
-		val legacyFrameSequenceBinding: ReaderPresentationBinding?
+		val legacyFrameSequenceBinding: ReaderPresentationBinding?,
+		val deadlineDelegated: Boolean = false
 	)
 
 	private data class Active(
@@ -251,9 +252,9 @@ internal class ReaderWebViewVisualHandoff(
 		val token: String,
 		val presentationRequest: PresentationRequestPayload,
 		val visualStateOwnerGeneration: Long,
-		val timeoutToken: Long,
+		val timeoutToken: Long?,
 		val visualStateToken: Long,
-		val timeoutAction: () -> Unit,
+		val timeoutAction: (() -> Unit)?,
 		val onResult: (ReaderWebViewVisualHandoffResult) -> Unit,
 		var nextFrameToken: Long? = null,
 		var nextFrameAction: (() -> Unit)? = null,
@@ -359,9 +360,10 @@ internal class ReaderWebViewVisualHandoff(
 		}
 	}
 
-	private fun reserveInitialCallbacks(): Pair<Long, Long>? {
+	private fun reserveInitialCallbacks(deadlineDelegated: Boolean): Pair<Long?, Long>? {
+		// Keep the existing admission capacity bound, but own only callbacks posted.
 		if (!canReserveInitialCallbacks()) return null
-		val timeout = reserveCallback(PendingCallbackKind.Timeout)
+		val timeout = if (deadlineDelegated) null else reserveCallback(PendingCallbackKind.Timeout)
 		val visualState = reserveCallback(PendingCallbackKind.VisualState)
 		return timeout to visualState
 	}
@@ -389,10 +391,18 @@ internal class ReaderWebViewVisualHandoff(
 		token: ReaderPresentationToken,
 		binding: ReaderPresentationBinding,
 		onResult: (ReaderPresentationWebViewVisualHandoffResult) -> Unit
+	): Unit = await(token, binding, deadlineDelegated = false, onResult)
+
+	fun await(
+		token: ReaderPresentationToken,
+		binding: ReaderPresentationBinding,
+		deadlineDelegated: Boolean,
+		onResult: (ReaderPresentationWebViewVisualHandoffResult) -> Unit
 	) {
 		val payload = PresentationRequestPayload(
 			ReaderPresentationWebViewVisualHandoffRequest(token, binding),
-			null
+			null,
+			deadlineDelegated
 		)
 		awaitInternal("presentation-${token.value}", payload) { result ->
 			val request = requireNotNull(payload.request)
@@ -462,7 +472,7 @@ internal class ReaderWebViewVisualHandoff(
 			)
 			return
 		}
-		val reservation = reserveInitialCallbacks()
+		val reservation = reserveInitialCallbacks(presentationRequest.deadlineDelegated)
 		if (reservation == null) {
 			callbackCapacityRetryToken = token
 			publishTerminal(
@@ -477,16 +487,17 @@ internal class ReaderWebViewVisualHandoff(
 			return
 		}
 		val (timeoutToken, visualStateToken) = reservation
-		lateinit var timeoutAction: () -> Unit
-		timeoutAction = {
-			ownershipMutation {
-				if (consumeCallback(timeoutToken, PendingCallbackKind.Timeout)) {
-					finish(
-						requestId,
-						token,
-						presentationRequest,
-						ReaderWebViewVisualHandoffFailure.TimedOut
-					)
+		val timeoutAction: (() -> Unit)? = timeoutToken?.let { ownedTimeout ->
+			{
+				ownershipMutation {
+					if (consumeCallback(ownedTimeout, PendingCallbackKind.Timeout)) {
+						finish(
+							requestId,
+							token,
+							presentationRequest,
+							ReaderWebViewVisualHandoffFailure.TimedOut
+						)
+					}
 				}
 			}
 		}
@@ -501,7 +512,7 @@ internal class ReaderWebViewVisualHandoff(
 			onResult = onResult
 		)
 		active = request
-		host.postDelayed(timeoutMillis, timeoutAction)
+		timeoutAction?.let { host.postDelayed(timeoutMillis, it) }
 		lateinit var registration: ReaderWebViewVisualDeliveryCell
 		registration = ReaderWebViewVisualDeliveryCell(
 			action = visualState@{
@@ -719,8 +730,9 @@ internal class ReaderWebViewVisualHandoff(
 	}
 
 	private fun removeTimeout(request: Active) {
-		host.removeCallbacks(request.timeoutAction)
-		consumeCallback(request.timeoutToken, PendingCallbackKind.Timeout)
+		val timeoutToken = request.timeoutToken ?: return
+		request.timeoutAction?.let(host::removeCallbacks)
+		consumeCallback(timeoutToken, PendingCallbackKind.Timeout)
 	}
 
 	private fun removeNextFrame(request: Active) {

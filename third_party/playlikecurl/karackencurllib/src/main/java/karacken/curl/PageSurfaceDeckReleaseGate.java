@@ -125,12 +125,22 @@ final class PageSurfaceDeckReleaseGate<T> {
 
     synchronized List<PageSurfaceGenerationReleaseRecord<T>> terminallyAbandonAccepted(
             LongConsumer detachRendererReferences) {
+        return terminallyAbandonAccepted(generationId -> false, detachRendererReferences);
+    }
+
+    synchronized List<PageSurfaceGenerationReleaseRecord<T>> terminallyAbandonAccepted(
+            java.util.function.LongPredicate retainSelected,
+            LongConsumer detachRendererReferences) {
+        Objects.requireNonNull(retainSelected, "retainSelected");
         Objects.requireNonNull(detachRendererReferences, "detachRendererReferences");
         List<PageSurfaceGenerationReleaseRecord<T>> abandoned = new ArrayList<>();
         for (PageSurfaceGenerationReleaseRecord<T> record :
                 new ArrayList<>(releaseRecords.values())) {
             long generationId = record.getGenerationId();
             if (!record.matches(sessionId, generationId)
+                    || (!closed && retainSelected.test(generationId)
+                        && record.getReason() != DeckReleaseReason.FAILED
+                        && record.getReason() != DeckReleaseReason.DISPOSED)
                     || record.getState()
                             != PageSurfaceGenerationReleaseRecord.State.QUEUE_ACCEPTED) {
                 continue;

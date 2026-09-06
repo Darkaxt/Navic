@@ -422,19 +422,14 @@ internal class ReaderPresentationEffectHandler(
 					}
 				}
 				is ReaderPresentationEffect.RetryPreparation -> {
-					val currentRetryToken = when (val transition = decision.requiredTransition) {
-						is ReaderRequiredTransition.CommitShellCover -> transition.token
-						is ReaderRequiredTransition.PresentNativePage -> transition.token
-						is ReaderRequiredTransition.ExposeLiveEngine -> transition.token
-						ReaderRequiredTransition.None -> null
-					}
-					val diagnostic = decision.diagnosticPresentation
+					val request = (decision.authority as? ReaderPresentationAuthority.BlockingPreparation)
+						?.nativePresentationRequest
 					val retryStillCurrent =
 						decision.targetBinding == effect.binding &&
-						currentRetryToken == effect.token &&
-							diagnostic is ReaderDiagnosticPresentation.Failure &&
-							diagnostic.reason == ReaderPresentationFailureReason.PreparationFailed &&
-							diagnostic.retryable
+						request?.binding == effect.binding &&
+						request.token == effect.token &&
+						request.retryAfterPreparationGeneration != null &&
+						decision.diagnosticPresentation == ReaderDiagnosticPresentation.Hidden
 					val retried = !retryStillCurrent || try {
 						retryPreparation(effect)
 					} catch (_: Throwable) {
@@ -1805,6 +1800,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var pageTurnFoliateSessionId: String? = null
 	private var pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null
 	private var presentationDestinationCommitIdentity: ReaderDestinationCommitIdentity? = null
+	private var composeDestinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	private var presentationDecision: ReaderPresentationDecision? = null
 	private var onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt? = { null }
 	private var onAuthoritativePresentationHostEffect:
@@ -1813,16 +1809,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		ReaderNativePagePresentationPublisher(
 			frameSource = playLikeCurlController.presentedFrameSource,
 			currentCandidate = ::currentNativePagePresentationCandidateOrNull,
+			// The presentation bridge owns the whole foreground-time transaction
+			// deadline, including preparation before this publisher has a candidate.
 			currentHandoffTransition = {
 				presentationDecision?.authoritativeLiveEngineToNativeTransitionOrNull()
-			},
-			handoffTimeoutScheduler = object : ReaderPageRelocationDispatchTimeoutScheduler {
-				override fun postDelayed(action: Runnable, delayMillis: Long): Boolean =
-					ownershipMainHandler.postDelayed(action, delayMillis)
-
-				override fun removeCallbacks(action: Runnable) {
-					ownershipMainHandler.removeCallbacks(action)
-				}
 			}
 		) { event ->
 			check(
@@ -2111,7 +2101,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			playLikeCurlController.destroyAndJoin()
 		},
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
-		canStartPreparation = { coldOwnershipAdmitted && rasterPaginationReady },
+		canStartPreparation = {
+			coldOwnershipAdmitted && rasterPaginationReady &&
+				!playLikeCurlController.awaitingPresentationRecoverySnapshot
+		},
 		shouldPreserveCurrentPresentation = {
 			shellCoverVisible ||
 				presentationDecision?.layer?.let { it != ReaderPresentationLayer.Neutral } == true
@@ -2792,12 +2785,22 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			shellCoverVisible = presentationShellCoverVisible,
 			decision = decision
 		)
-		if (presentationDestinationCommitIdentity != destinationCommitIdentity) {
-			presentationDestinationCommitIdentity = destinationCommitIdentity
-			presentationRelocationPending = presentationBindingReporter.lastReportedBinding != null
+		composeDestinationCommitIdentity = destinationCommitIdentity
+		// Compose carries the destination before its visual-location ingress. During
+		// recovery, only that correlated ingress (or an external live event) may
+		// publish it; readiness callbacks must still see the admitted predecessor.
+		if (!playLikeCurlController.awaitingPresentationRecoverySnapshot) {
+			adoptComposeDestinationCommitIdentity()
 		}
 		reportPresentationIdentityIfAvailable()
 		retryPresentationLifecycleDelivery()
+	}
+
+	private fun adoptComposeDestinationCommitIdentity() {
+		if (presentationDestinationCommitIdentity != composeDestinationCommitIdentity) {
+			presentationDestinationCommitIdentity = composeDestinationCommitIdentity
+			presentationRelocationPending = presentationBindingReporter.lastReportedBinding != null
+		}
 	}
 
 	fun releaseStalePresentation(
@@ -3046,14 +3049,54 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	) {
 		require(currentFoliateSessionId.isNotBlank())
 		val normalized = pageIndex?.takeIf { it >= 0 }
+		if (playLikeCurlController.isPresentationRecoverySnapshotReason(reason)) {
+			if (normalized == null || reason == null ||
+				!playLikeCurlController.stagePresentationRecoveryObservation(
+					normalized, reason, currentFoliateSessionId
+				)
+			) return
+			adoptComposeDestinationCommitIdentity()
+			pageTurnVisualPageIndex = normalized
+			pageTurnVisualLocationReason = reason
+			pageTurnSettlementAck = null
+			presentationRelocationPending = presentationBindingReporter.lastReportedBinding != null
+			// Publish the source destination through the normal receipt-fenced reporter
+			// before allowing either worker to prepare a fresh generation.
+			reportPresentationIdentityIfAvailable()
+			val binding = currentPresentationBindingOrNull() ?: return
+			if (presentationBindingReporter.lastReportedBinding != binding ||
+				presentationDecision?.targetBinding != binding
+			) return
+			pageRasterPreparationController.synchronizeVisualPageIndex(normalized, reason)
+			playLikeCurlController.synchronizeVisualPageIndex(normalized, reason, acknowledgement)
+			return
+		}
+		if (normalized != null && playLikeCurlController.continuePresentationRecoveryFromExternalObservation(
+			normalized, currentFoliateSessionId, acknowledgement
+		) {
+			synchronizeOrdinaryPageTurnVisualLocation(normalized, reason, currentFoliateSessionId,
+				acknowledgement, requireRecoveryAdmission = true)
+		}) return
+		synchronizeOrdinaryPageTurnVisualLocation(normalized, reason, currentFoliateSessionId,
+			acknowledgement, requireRecoveryAdmission = false)
+	}
+
+	private fun synchronizeOrdinaryPageTurnVisualLocation(
+		normalized: Int?,
+		reason: String?,
+		currentFoliateSessionId: String,
+		acknowledgement: ReaderPageTurnSettlementAck?,
+		requireRecoveryAdmission: Boolean
+	): Boolean {
 		if (
+			!requireRecoveryAdmission &&
 			pageTurnVisualPageIndex == normalized &&
 			pageTurnVisualLocationReason == reason &&
 			pageTurnFoliateSessionId == currentFoliateSessionId &&
 			pageTurnSettlementAck == acknowledgement
 		) {
 			reportPresentationIdentityIfAvailable()
-			return
+			return true
 		}
 
 		val sessionChanged =
@@ -3079,6 +3122,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				ReaderPageHostLifecycleEvent.ExternalRelocation
 			)
 		}
+		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
+			adoptComposeDestinationCommitIdentity()
+		}
 		pageTurnVisualPageIndex = normalized
 		pageTurnVisualLocationReason = reason
 		pageTurnSettlementAck = acknowledgement
@@ -3090,6 +3136,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				acknowledgement
 			)
 		)
+		if (requireRecoveryAdmission) {
+			val binding = currentPresentationBindingOrNull() ?: return false
+			if (presentationBindingReporter.lastReportedBinding != binding ||
+				presentationDecision?.targetBinding != binding
+			) return false
+		}
 		playLikeCurlController.synchronizeVisualPageIndex(
 			normalized,
 			reason,
@@ -3099,6 +3151,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			pageRasterPreparationController.synchronizeVisualPageIndex(normalized, reason)
 		}
 		commitStartupShellPresentationIfReady()
+		return true
 	}
 
 	fun setShellCoverVisible(
@@ -3138,14 +3191,31 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	fun retryPreparation(effect: ReaderPresentationEffect.RetryPreparation): Boolean {
+		val pending = presentationDecision?.authority as? ReaderPresentationAuthority.BlockingPreparation
+		if (pending?.retainedFrame is ReaderPresentationFrameOwner.Curl &&
+			pending.nativePresentationRequest?.token == effect.token &&
+			pending.nativePresentationRequest?.binding == effect.binding
+		) {
+			return playLikeCurlController.requestPresentationRecoverySnapshot {
+				val current = (presentationDecision?.authority as? ReaderPresentationAuthority.BlockingPreparation)
+					?.nativePresentationRequest
+				if (current?.token == effect.token) {
+					retryCurrentPreparation(effect.binding.preparationGeneration)
+				}
+			}
+		}
 		if (currentPresentationBindingOrNull() != effect.binding) return true
+		return retryCurrentPreparation(effect.binding.preparationGeneration)
+	}
+
+	private fun retryCurrentPreparation(expectedGeneration: Long?): Boolean {
 		val webView = viewerContentContainer.findDescendantWebView()
 		if (passiveRasterPreparationAdapter?.isAvailable != true && webView != null) {
 			closePassiveRasterPreparationAdapter()
 			replacePassiveRasterPreparationAdapter(webView)
 		}
 		val preparationGeneration =
-			pageRasterPreparationController.retryPreparation() ?: return false
+			pageRasterPreparationController.retryPreparation(expectedGeneration) ?: return false
 		playLikeCurlController.retryPreparation(preparationGeneration)
 		if (rasterProfileEpoch == null) {
 			requestPageTurnPrewarmWhenReady()

@@ -125,6 +125,16 @@ public class PageSurfaceView extends GLSurfaceView {
             new PresentedFrameRequest();
     private final Set<Long> preparedGenerations = new LinkedHashSet<>();
     private final PageRenderer renderer;
+    private long selectedFrameGeneration = NO_GENERATION_ID;
+    private volatile NativeFrameRequest nativeFrameRequest;
+
+    private static final class NativeFrameRequest {
+        final long generationId;
+        long requestId;
+        boolean cancelled;
+        NativeFrameRequest(long generationId) { this.generationId = generationId; }
+    }
+
     private final int touchSlop;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AtomicInteger pendingMainTerminalActions = new AtomicInteger();
@@ -386,6 +396,7 @@ public class PageSurfaceView extends GLSurfaceView {
         if (!disposeStarted) {
             failLiveOwnershipRequests();
         }
+        cancelNativeFrameRequest();
         presentedFrameRequest.cancelAll();
         cancelGesture();
         queueDeckRelease(deckCoordinator.releasePending(
@@ -464,6 +475,10 @@ public class PageSurfaceView extends GLSurfaceView {
         }
         boolean activateWhenPrepared =
                 offer.getPlacement() == PageDeckCoordinator.Placement.ACTIVE;
+        NativeFrameRequest candidate = nativeFrameRequest;
+        if (candidate != null && candidate.generationId != deck.getGenerationId()) {
+            cancelNativeFrameRequest();
+        }
         try {
             releaseGate.queueAutomatic(
                     offer.getReleases(),
@@ -640,6 +655,7 @@ public class PageSurfaceView extends GLSurfaceView {
         requireMainThread();
         surfaceVisible = visible;
         if (!visible) {
+            cancelNativeFrameRequest();
             presentedFrameRequest.cancelAll();
             cancelGesture();
         } else {
@@ -675,10 +691,95 @@ public class PageSurfaceView extends GLSurfaceView {
         return requestId;
     }
 
+    /** Projects the client's existing presentation authority; it does not select a new frame. */
+    public void setSelectedFrameGeneration(long generationId) {
+        requireMainThread();
+        if (disposed || selectedFrameGeneration == generationId) return;
+        long previous = selectedFrameGeneration;
+        selectedFrameGeneration = generationId;
+        try {
+            queueEvent(() -> renderer.setSelectedFrameGeneration(generationId));
+        } catch (RuntimeException | Error failure) {
+            selectedFrameGeneration = previous;
+            throw failure;
+        }
+        requestRender();
+    }
+
+    /** Stages are drawable only at this native publisher's authorized candidate boundary. */
+    public long requestNativePagePresentedFrame(long generationId, Runnable callback) {
+        requireMainThread();
+        Objects.requireNonNull(callback, "callback");
+        if (disposed || !attached || !surfaceVisible
+                || activeGenerationId() != generationId
+                || !preparedGenerations.contains(generationId)) {
+            return NO_PRESENTED_FRAME_REQUEST_ID;
+        }
+        cancelNativeFrameRequest();
+        NativeFrameRequest request = new NativeFrameRequest(generationId);
+        request.requestId = presentedFrameRequest.request(() -> {
+            try {
+                callback.run();
+            } finally {
+                if (nativeFrameRequest == request) cancelNativeFrameRequest();
+            }
+        });
+        if (request.requestId == NO_PRESENTED_FRAME_REQUEST_ID) return request.requestId;
+        nativeFrameRequest = request;
+        try {
+            queueEvent(() -> {
+                synchronized (request) {
+                    if (request.cancelled || nativeFrameRequest != request) return;
+                    renderer.activateDeck(generationId);
+                    if (!renderer.hasActiveFrame(generationId)) {
+                        presentedFrameRequest.cancel(request.requestId);
+                        return;
+                    }
+                    // arm's Boolean identifies the first shared waiter, not admission.
+                    presentedFrameRequest.arm(request.requestId);
+                    requestRender();
+                }
+            });
+        } catch (RuntimeException | Error failure) {
+            synchronized (request) { request.cancelled = true; }
+            nativeFrameRequest = null;
+            presentedFrameRequest.cancel(request.requestId);
+            throw failure;
+        }
+        return request.requestId;
+    }
+
+    private void cancelNativeFrameRequest() {
+        NativeFrameRequest request = nativeFrameRequest;
+        if (request == null) return;
+        synchronized (request) {
+            request.cancelled = true;
+            nativeFrameRequest = null;
+            presentedFrameRequest.cancel(request.requestId);
+        }
+        try {
+            queueEvent(() -> {
+                // A newer candidate owns its boundary; obsolete cancellation cannot undo it.
+                if (nativeFrameRequest == null && renderer.restoreSelectedFrame(request.generationId)) {
+                    requestRender();
+                }
+            });
+        } catch (RuntimeException | Error unavailableQueue) {
+            if (!disposeStarted) {
+                handleRenderFailure(new RenderFailure(request.generationId, true,
+                        RenderFailureReason.CONTEXT, "Native frame rollback queue is unavailable",
+                        unavailableQueue));
+            }
+        }
+    }
+
     /** Cancels an outstanding frame-presentation callback without invoking it. */
     public boolean cancelPresentedFrameRequest(long requestId) {
         requireMainThread();
-        return presentedFrameRequest.cancel(requestId);
+        boolean cancelled = presentedFrameRequest.cancel(requestId);
+        NativeFrameRequest nativeRequest = nativeFrameRequest;
+        if (nativeRequest != null && nativeRequest.requestId == requestId) cancelNativeFrameRequest();
+        return cancelled;
     }
 
     /** Sets the logical reading direction used by future gestures and turns. */
@@ -796,6 +897,7 @@ public class PageSurfaceView extends GLSurfaceView {
         PageDeck<Bitmap> activeDeck = deckCoordinator.getActiveDeck();
         if (activeDeck != null
                 && activeDeck.getGenerationId() == generationId) {
+            cancelNativeFrameRequest();
             presentedFrameRequest.cancelAll();
             cancelGesture();
         }
@@ -981,6 +1083,7 @@ public class PageSurfaceView extends GLSurfaceView {
         if (disposedResult != null || disposeStarted) {
             return;
         }
+        cancelNativeFrameRequest();
         presentedFrameRequest.cancelAll();
         ownershipCallbackCapacityListener = null;
         ownershipSnapshotCoordinator.clearCapacityAvailableListener(
@@ -1900,6 +2003,7 @@ public class PageSurfaceView extends GLSurfaceView {
     public void surfaceDestroyed(SurfaceHolder holder) {
         super.surfaceDestroyed(holder);
         terminallyAbandonAcceptedRendererReleases();
+        cancelNativeFrameRequest();
         presentedFrameRequest.cancelAll();
         abandonPendingPageOverlayUpdate();
         renderer.invalidatePageOverlays();
@@ -1976,6 +2080,7 @@ public class PageSurfaceView extends GLSurfaceView {
         if (disposed) {
             return;
         }
+        cancelNativeFrameRequest();
         presentedFrameRequest.cancelAll();
         long generationId = failure.getGenerationId();
         PageSurfaceListener owner = generationId < 0
@@ -2002,6 +2107,7 @@ public class PageSurfaceView extends GLSurfaceView {
         PageDeck<Bitmap> activeDeck = deckCoordinator.getActiveDeck();
         if (activeDeck != null
                 && activeDeck.getGenerationId() == generationId) {
+            cancelNativeFrameRequest();
             presentedFrameRequest.cancelAll();
             cancelGesture();
         }
@@ -2037,6 +2143,8 @@ public class PageSurfaceView extends GLSurfaceView {
     private void terminallyAbandonAcceptedRendererReleases() {
         for (PageSurfaceGenerationReleaseRecord<Bitmap> record :
                 releaseGate.terminallyAbandonAccepted(
+                        generationId -> !disposeStarted && generationId == selectedFrameGeneration
+                                && renderer.retainsValidFrame(generationId),
                         renderer::terminallyAbandonDeck)) {
             long generationId = record.getGenerationId();
             if (preparedGenerations.remove(generationId)) {

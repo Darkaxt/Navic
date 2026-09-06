@@ -459,14 +459,22 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			hostSynchronization,
 			"if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement)"
 		)
-		assertTrue(
-			hostSynchronization.indexOf(
-				"if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement)"
-			) < hostSynchronization.indexOf(
-				"pageRasterPreparationController.synchronizeVisualPageIndex("
-			),
-			"A stale exact acknowledgement must not move raster-preparation authority."
-		)
+		val correlatedRecovery = requiredFoliateSourceSlice(hostSynchronization,
+			"if (playLikeCurlController.isPresentationRecoverySnapshotReason(reason)) {",
+			"\n\t\tif (normalized != null && playLikeCurlController.continuePresentationRecoveryFromExternalObservation(")
+		val ordinarySynchronization = hostSynchronization.substringAfter("val sessionChanged =")
+		val admittedRasterSynchronization = requiredFoliateSourceSlice(ordinarySynchronization,
+			"if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {\n\t\t\tpageRasterPreparationController.",
+			"\n\t\t}")
+		assertContains(admittedRasterSynchronization, "synchronizeVisualPageIndex(normalized, reason)")
+		assertContains(correlatedRecovery, "!playLikeCurlController.stagePresentationRecoveryObservation(")
+		assertContains(correlatedRecovery, ") return")
+		assertContains(correlatedRecovery, "presentationBindingReporter.lastReportedBinding != binding")
+		assertTrue(correlatedRecovery.indexOf("stagePresentationRecoveryObservation(") <
+			correlatedRecovery.indexOf("pageRasterPreparationController.synchronizeVisualPageIndex("))
+		assertTrue(ordinarySynchronization.indexOf("playLikeCurlController.synchronizeVisualPageIndex(") <
+			ordinarySynchronization.indexOf("pageRasterPreparationController.synchronizeVisualPageIndex("),
+			"Ordinary acknowledgements remain queue-classified before raster synchronization.")
 	}
 
 	@Test
@@ -2513,7 +2521,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		val rasterRetry = requiredFoliateSourceSlice(
 			source = rasterPreparationFile.readText(),
-			startDelimiter = "fun retryPreparation(): Long? {",
+			startDelimiter = "fun retryPreparation(expectedPreparationGeneration: Long? = failedPreparationGeneration): Long? {",
 			endDelimiter = "fun onProfileBootstrapFailed()"
 		)
 		val curlRetry = requiredFoliateSourceSlice(
@@ -2531,7 +2539,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(retryRoute, "passiveRasterPreparationAdapter?.isAvailable != true")
 		val closeUnavailable = retryRoute.indexOf("closePassiveRasterPreparationAdapter()")
 		val replaceUnavailable = retryRoute.indexOf("replacePassiveRasterPreparationAdapter(")
-		val rasterAttempt = retryRoute.indexOf("pageRasterPreparationController.retryPreparation()")
+		val rasterAttempt = retryRoute.indexOf("pageRasterPreparationController.retryPreparation(expectedGeneration)")
 		val curlAttempt = retryRoute.indexOf("playLikeCurlController.retryPreparation(preparationGeneration)")
 		assertTrue(closeUnavailable >= 0 && replaceUnavailable > closeUnavailable)
 		assertEquals(1, Regex("closePassiveRasterPreparationAdapter\\(\\)").findAll(retryRoute).count())

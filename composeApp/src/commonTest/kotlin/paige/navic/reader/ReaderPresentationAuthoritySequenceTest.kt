@@ -417,9 +417,13 @@ class ReaderPresentationAuthoritySequenceTest {
 			queue.retain(retried.presentationEffects)
 		}
 
+		val freshRequest = requireNotNull(assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			controller.state.presentation.authority).nativePresentationRequest)
+		assertEquals(ReaderPresentationToken(52L), freshRequest.token)
+		assertEquals(provisional.preparationGeneration, freshRequest.retryAfterPreparationGeneration)
 		assertEquals(1, queue.pendingEffects().size)
 		assertEquals(
-			ReaderPresentationEffect.RetryPreparation(request.token, provisional),
+			ReaderPresentationEffect.RetryPreparation(freshRequest.token, provisional),
 			queue.pendingEffects().single().effect
 		)
 	}

@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -41,6 +42,164 @@ class ReaderPresentationAuthorityReducerTest {
 	)
 	private val nativeFrame = ReaderPresentationFrameOwner.NativePage(nativeProof)
 	private val nativeRetainedFrame = ReaderShellCoverRetainedFrame.NativePage(nativeFrame)
+
+	private data class PendingLivenessFixture(
+		val name: String,
+		val state: ReaderPresentationState,
+		val token: ReaderPresentationToken,
+		val success: List<ReaderPresentationEvent>,
+		val failure: ReaderPresentationEvent
+	)
+
+	private fun pendingLivenessFixtures(): List<PendingLivenessFixture> {
+		val token = ReaderPresentationToken(7L)
+		val cover = shellCoverProof(token, coverGeneration = 8L)
+		val shell = readerPresentationReduce(settledNativeState(7L),
+			ReaderPresentationEvent.ShellCoverRequested(8L)).state
+		val entry = readerPresentationReduce(ReaderPresentationState(
+			authority = ReaderPresentationAuthority.ShellCover(cover), binding = binding,
+			nextTokenValue = 7L), ReaderPresentationEvent.ShellCoverDismissalRequested).state
+		val initial = readerPresentationReduce(ReaderPresentationState(binding = binding,
+			nextTokenValue = 7L), ReaderPresentationEvent.NativePageRequested).state
+		val claimed = readerPresentationReduce(settledNativeState(),
+			ReaderPresentationEvent.CurlClaimed(curlFrame(token).frame)).state
+		val destination = binding.copy(destinationCommitIdentity = ReaderDestinationCommitIdentity(
+			binding.foliateSessionId, 2L), textureGeneration = 8L)
+		val ack = ReaderPageTurnSettlementAck("fixture-7", 2, binding.foliateSessionId, 4L, 8L)
+		val curl = readerPresentationReduce(claimed,
+			ReaderPresentationEvent.CurlTerminal(token, binding, ack)).state
+		val relocated = readerPresentationReduce(curl,
+			ReaderPresentationEvent.FoliateRelocated(destination, ack)).state
+		val live = readerPresentationReduce(settledNativeState(7L),
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.NativeToLiveEngine)).state
+		val liveProof = ReaderLiveEnginePresentationProof(token, binding, 20L)
+		val exposed = readerPresentationReduce(live,
+			ReaderPresentationEvent.LiveEngineExposureCommitted(liveProof)).state
+		val handback = readerPresentationReduce(exposed,
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.LiveEngineToNative)).state
+		fun failed(target: ReaderPresentationBinding) = ReaderPresentationEvent.PreparationFailed(
+			target, preparationFacts(generation = requireNotNull(target.preparationGeneration),
+				phase = ReaderPagePreparationPhase.Failed),
+			ReaderPresentationFailureReason.PreparationFailed, cancellable = true)
+		fun native(target: ReaderPresentationBinding, request: ReaderPresentationToken = token) =
+			ReaderPresentationEvent.NativePagePresented(nativeProofFor(target, 30L).copy(transitionToken = request))
+		return listOf(
+			PendingLivenessFixture("cover commit", shell, token,
+				listOf(ReaderPresentationEvent.ShellCoverCommitted(cover)),
+				ReaderPresentationEvent.ShellCoverFailed(token, binding)),
+			PendingLivenessFixture("cover entry", entry, token, listOf(native(binding)), failed(binding)),
+			PendingLivenessFixture("initial preparation", initial, token, listOf(native(binding)), failed(binding)),
+			PendingLivenessFixture("Foliate settlement", curl, token,
+				listOf(ReaderPresentationEvent.FoliateRelocated(destination, ack), native(destination)), failed(binding)),
+			PendingLivenessFixture("native settlement", relocated, token, listOf(native(destination)), failed(destination)),
+			PendingLivenessFixture("live exposure", live, token,
+				listOf(ReaderPresentationEvent.LiveEngineExposureCommitted(liveProof)),
+				ReaderPresentationEvent.LiveEngineExposureFailed(ReaderLiveEngineHandoffDirection.NativeToLiveEngine,
+					token, binding, ReaderPresentationFailureReason.LiveEngineUnavailable)),
+			PendingLivenessFixture("native handback", handback, ReaderPresentationToken(8L),
+				listOf(native(binding, ReaderPresentationToken(8L))),
+				ReaderPresentationEvent.LiveEngineExposureFailed(ReaderLiveEngineHandoffDirection.LiveEngineToNative,
+					ReaderPresentationToken(8L), binding, ReaderPresentationFailureReason.NativePresentationUnavailable))
+		)
+	}
+
+	@Test
+	fun everyPendingAuthorityHasSuccessFailureTimeoutRetryAndCancelOutcomes() {
+		pendingLivenessFixtures().forEach { fixture ->
+			val succeeded = fixture.success.fold(fixture.state) { state, event ->
+				readerPresentationReduce(state, event).state
+			}
+			assertEquals(ReaderRequiredTransition.None, readerPresentationDecision(succeeded).requiredTransition, fixture.name)
+			assertFalse(succeeded.authority == fixture.state.authority, fixture.name)
+			val failed = readerPresentationReduce(fixture.state, fixture.failure)
+			assertTrue(assertIs<ReaderDiagnosticPresentation.Failure>(failed.decision.diagnosticPresentation).retryable, fixture.name)
+			val timedOut = readerPresentationReduce(fixture.state, ReaderPresentationEvent.TimedOut(fixture.token))
+			assertEquals(ReaderPresentationFailureReason.TimedOut,
+				assertIs<ReaderDiagnosticPresentation.Failure>(timedOut.decision.diagnosticPresentation, fixture.name).reason)
+			assertEquals(ReaderRequiredTransition.None, timedOut.decision.requiredTransition, fixture.name)
+			assertEquals(readerPresentationDecision(fixture.state).frameOwner, timedOut.decision.frameOwner, fixture.name)
+			listOf(failed, timedOut).forEach { terminal ->
+				val retry = readerPresentationReduce(terminal.state, ReaderPresentationEvent.Retry)
+				assertTrue(retry.state.nextTokenValue > fixture.state.nextTokenValue, fixture.name)
+				val duplicate = readerPresentationReduce(retry.state, ReaderPresentationEvent.Retry)
+				assertEquals(retry.state, duplicate.state, fixture.name)
+				assertTrue(duplicate.effects.isEmpty(), fixture.name)
+				assertEquals(retry.state, readerPresentationReduce(retry.state,
+					ReaderPresentationEvent.TimedOut(fixture.token)).state, fixture.name)
+			}
+			val cancelled = readerPresentationReduce(timedOut.state, ReaderPresentationEvent.Cancel)
+			assertEquals(ReaderRequiredTransition.None, cancelled.decision.requiredTransition, fixture.name)
+			val retained = readerPresentationDecision(fixture.state).frameOwner
+			if (fixture.name == "native settlement") {
+				assertEquals(ReaderPresentationAuthority.Unavailable, cancelled.state.authority)
+				assertIs<ReaderDiagnosticPresentation.Failure>(cancelled.decision.diagnosticPresentation)
+			} else {
+				assertEquals(retained, cancelled.decision.frameOwner, fixture.name)
+			}
+		}
+	}
+
+	@Test
+	fun failedCurlRetryIsFreshCurrentDestinationRecoveryNotOldTurnCompletion() {
+		val fixture = pendingLivenessFixtures().first { it.name == "Foliate settlement" }
+		val timedOut = readerPresentationReduce(fixture.state, ReaderPresentationEvent.TimedOut(fixture.token))
+		fixture.success.forEach { oldReceipt ->
+			assertEquals(timedOut.state, readerPresentationReduce(timedOut.state, oldReceipt).state)
+		}
+		val retry = readerPresentationReduce(timedOut.state, ReaderPresentationEvent.Retry)
+		fixture.success.forEach { oldReceipt ->
+			assertEquals(retry.state, readerPresentationReduce(retry.state, oldReceipt).state)
+		}
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(retry.state.authority)
+		assertEquals(readerPresentationDecision(fixture.state).frameOwner, pending.retainedFrame)
+		assertTrue(assertIs<ReaderPresentationEffect.RetryPreparation>(retry.effects.single()).token!!.value > fixture.token.value)
+	}
+
+	@Test
+	fun cancellingUnfailedCurlWaitKeepsAnActionableFreshRecovery() {
+		val fixture = pendingLivenessFixtures().first { it.name == "Foliate settlement" }
+		val cancelled = readerPresentationReduce(fixture.state, ReaderPresentationEvent.Cancel)
+		assertEquals(readerPresentationDecision(fixture.state).frameOwner, cancelled.decision.frameOwner)
+		assertEquals(null, cancelled.decision.pendingTransitionToken)
+		val failure = assertIs<ReaderDiagnosticPresentation.Failure>(cancelled.decision.diagnosticPresentation)
+		assertTrue(failure.retryable)
+		assertFalse(failure.cancellable)
+		val retry = readerPresentationReduce(cancelled.state, ReaderPresentationEvent.Retry)
+		assertIs<ReaderPresentationAuthority.BlockingPreparation>(retry.state.authority)
+		assertTrue(assertNotNull(retry.decision.pendingTransitionToken).value > fixture.token.value)
+		assertIs<ReaderPresentationEffect.RetryPreparation>(retry.effects.single())
+	}
+
+	@Test
+	fun timeoutRejectsLateMaterialThroughTheExistingStaleCleanupRoute() {
+		val fixture = pendingLivenessFixtures().first { it.name == "Foliate settlement" }
+		val timedOut = readerPresentationReduce(fixture.state, ReaderPresentationEvent.TimedOut(fixture.token))
+		val lateBinding = binding.copy(textureGeneration = 99L)
+		val late = ReaderPresentationEvent.NativePagePresented(
+			nativeProofFor(lateBinding, 31L).copy(transitionToken = fixture.token))
+		val rejected = readerPresentationReduce(timedOut.state, late)
+		assertEquals(timedOut.state, rejected.state)
+		assertEquals(ReaderPresentationEventDisposition.Stale, rejected.disposition)
+		assertEquals(listOf(ReaderPresentationEffect.ReleaseStalePresentation(fixture.token, lateBinding)),
+			rejected.effects)
+	}
+
+	@Test
+	fun visibilityRestoreRetainsPublicationAndCurrentProof() {
+		(pendingLivenessFixtures().map { it.state } + settledNativeState()).forEach { state ->
+			val hidden = readerPresentationReduce(state,
+				ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityLost))
+			assertEquals(ReaderRequiredTransition.None, hidden.decision.requiredTransition)
+			val restored = readerPresentationReduce(hidden.state,
+				ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityRestored))
+			assertEquals(state, restored.state)
+			assertEquals(hidden.state.binding, restored.state.binding)
+			assertEquals(hidden.decision.frameOwner, restored.decision.frameOwner)
+			assertFalse(restored.decision.diagnosticPresentation is ReaderDiagnosticPresentation.Failure)
+		}
+	}
 
 	@Test
 	fun initialShellCoverRequestOwnsANeutralTokenizedCommitUntilExactProof() {
@@ -505,18 +664,11 @@ class ReaderPresentationAuthorityReducerTest {
 			assertEquals(ReaderPresentationEventDisposition.Stale, stale.disposition, "event=$event")
 			assertTrue(stale.effects.isEmpty(), "event=$event")
 		}
-		listOf<ReaderPresentationEvent>(
-			ReaderPresentationEvent.TimedOut(fresh.token),
-			ReaderPresentationEvent.Cancel
-		).forEach { event ->
-			val rejected = readerPresentationReduce(retried.state, event)
-			assertEquals(retried.state, rejected.state, "event=$event")
-			assertEquals(
-				ReaderPresentationEventDisposition.Rejected,
-				rejected.disposition,
-				"event=$event"
-			)
-		}
+		// Task 9 admits generic exact timeout and user cancellation; stale typed tails remain fenced.
+		val genericTimeout = readerPresentationReduce(retried.state, ReaderPresentationEvent.TimedOut(fresh.token))
+		assertEquals(ReaderPresentationFailureReason.TimedOut, genericTimeout.state.failure?.reason)
+		val genericCancel = readerPresentationReduce(retried.state, ReaderPresentationEvent.Cancel)
+		assertEquals(settledNativeState().authority, genericCancel.state.authority)
 
 		val cancelled = readerPresentationReduce(
 			retried.state,
@@ -1086,10 +1238,8 @@ class ReaderPresentationAuthorityReducerTest {
 		)
 		assertEquals(relocatedPending, preparationFailure.state.authority)
 		assertEquals(ReaderPresentationFrameOwner.ShellCover(coverProof), preparationFailure.decision.frameOwner)
-		assertEquals(
-			relocated.decision.requiredTransition,
-			preparationFailure.decision.requiredTransition
-		)
+		// Task 9 suspends host work on failure without rejecting a genuine current proof.
+		assertEquals(ReaderRequiredTransition.None, preparationFailure.decision.requiredTransition)
 
 		val rendererLost = readerPresentationReduce(
 			relocated.state,
@@ -1097,10 +1247,7 @@ class ReaderPresentationAuthorityReducerTest {
 		)
 		assertEquals(relocatedPending, rendererLost.state.authority)
 		assertEquals(ReaderPresentationFrameOwner.ShellCover(coverProof), rendererLost.decision.frameOwner)
-		assertEquals(
-			relocated.decision.requiredTransition,
-			rendererLost.decision.requiredTransition
-		)
+		assertEquals(ReaderRequiredTransition.None, rendererLost.decision.requiredTransition)
 
 		val wrongTokenProof = nativeProofFor(target, presentedFrame = 31L).copy(
 			transitionToken = ReaderPresentationToken(99L)
@@ -2024,7 +2171,7 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
-	fun coverBackedFailureKeepsPendingTokenThroughRetryAndFreshGenerationRebind() {
+	fun coverBackedFailureAllocatesFreshRetryTokenAndPreservesItThroughGenerationRebind() {
 		val coverProof = shellCoverProof(ReaderPresentationToken(7L), coverGeneration = 8L)
 		val pending = readerPresentationReduce(
 			ReaderPresentationState(
@@ -2062,23 +2209,24 @@ class ReaderPresentationAuthorityReducerTest {
 			),
 			failed.decision.diagnosticPresentation
 		)
-		assertEquals(failed.state, retryRequested.state)
-		assertEquals(failed.decision, retryRequested.decision)
+		// Task 9: Retry is a new attempt, not a repeat of the failed token.
+		assertEquals(failed.decision.frameOwner, retryRequested.decision.frameOwner)
+		assertNull(retryRequested.state.failure)
 		assertEquals(
 			listOf(
 				ReaderPresentationEffect.RetryPreparation(
-					token = ReaderPresentationToken(8L),
+					token = ReaderPresentationToken(9L),
 					binding = binding
 				)
 			),
 			retryRequested.effects
 		)
 		assertEquals(
-			ReaderNativePagePresentationRequest(ReaderPresentationToken(8L), retryBinding),
+			ReaderNativePagePresentationRequest(ReaderPresentationToken(9L), retryBinding, 6L),
 			reboundPending.nativePresentationRequest
 		)
 		assertEquals(ReaderDiagnosticPresentation.Hidden, rebound.decision.diagnosticPresentation)
-		assertEquals(9L, rebound.state.nextTokenValue)
+		assertEquals(10L, rebound.state.nextTokenValue)
 	}
 
 	@Test
@@ -2554,6 +2702,73 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
+	fun failedRetainedRendererRemovalPreservesDifferentTargetAndFailedRequest() {
+		val fixture = pendingLivenessFixtures().first { it.name == "native settlement" }
+		val timedOut = readerPresentationReduce(fixture.state, ReaderPresentationEvent.TimedOut(fixture.token))
+		val retry = readerPresentationReduce(timedOut.state, ReaderPresentationEvent.Retry)
+		val previousTarget = requireNotNull(retry.state.binding)
+		val nextTarget = previousTarget.copy(
+			profileGeneration = previousTarget.profileGeneration + 1L,
+			preparationGeneration = requireNotNull(previousTarget.preparationGeneration) + 1L,
+			rasterGeneration = requireNotNull(previousTarget.rasterGeneration) + 1L,
+			textureGeneration = requireNotNull(previousTarget.textureGeneration) + 1L)
+		val prepared = readerPresentationReduce(retry.state,
+			ReaderPresentationEvent.BindingReplaced(previousTarget, nextTarget))
+		assertEquals(ReaderPresentationEventDisposition.Accepted, prepared.disposition)
+		val failed = readerPresentationReduce(prepared.state,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.RendererLost))
+		val retained = assertIs<ReaderPresentationFrameOwner.Curl>(failed.decision.frameOwner)
+		val selectedBinding = retained.frame.binding
+		val target = requireNotNull(failed.state.binding)
+		assertFalse(selectedBinding == target)
+		val request = requireNotNull(assertIs<ReaderPresentationAuthority.BlockingPreparation>(failed.state.authority)
+			.nativePresentationRequest)
+		val removal = ReaderPresentationEvent.BindingReplaced(selectedBinding,
+			selectedBinding.copy(rasterGeneration = null, textureGeneration = null))
+
+		// Only actual loss of the exact selected proof enters this bounded removal case.
+		assertEquals(prepared.state, readerPresentationReduce(prepared.state, removal).state)
+		assertEquals(timedOut.state, readerPresentationReduce(timedOut.state, removal).state)
+		val mismatch = selectedBinding.copy(textureGeneration = requireNotNull(selectedBinding.textureGeneration) + 99L)
+		val mismatchedRemoval = ReaderPresentationEvent.BindingReplaced(mismatch,
+			mismatch.copy(rasterGeneration = null, textureGeneration = null))
+		val rejected = readerPresentationReduce(failed.state, mismatchedRemoval)
+		assertEquals(ReaderPresentationEventDisposition.Rejected, rejected.disposition)
+		assertEquals(failed.state, rejected.state)
+		val unrelatedReplacement = ReaderPresentationEvent.BindingReplaced(selectedBinding,
+			selectedBinding.copy(profileGeneration = selectedBinding.profileGeneration + 1L,
+				rasterGeneration = null, textureGeneration = null))
+		assertEquals(failed.state, readerPresentationReduce(failed.state, unrelatedReplacement).state)
+
+		val removed = readerPresentationReduce(failed.state, removal)
+		assertEquals(ReaderPresentationEventDisposition.Accepted, removed.disposition)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, removed.decision.frameOwner)
+		assertEquals(target, removed.state.binding)
+		assertEquals(request, assertIs<ReaderPresentationAuthority.BlockingPreparation>(removed.state.authority)
+			.nativePresentationRequest)
+		assertEquals(failed.state.failure, removed.state.failure)
+		assertEquals(ReaderRequiredTransition.None, removed.decision.requiredTransition)
+		val duplicate = readerPresentationReduce(removed.state, removal)
+		assertEquals(ReaderPresentationEventDisposition.Rejected, duplicate.disposition)
+		assertEquals(removed.state, duplicate.state)
+		val lateProof = ReaderPresentationEvent.NativePagePresented(
+			nativeProofFor(target, 30L).copy(transitionToken = request.token))
+		assertEquals(removed.state, readerPresentationReduce(removed.state, lateProof).state)
+		val fresh = readerPresentationReduce(removed.state, ReaderPresentationEvent.Retry)
+		assertTrue(requireNotNull(fresh.decision.pendingTransitionToken).value > request.token.value)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, fresh.decision.frameOwner)
+		assertEquals(target, fresh.state.binding)
+		assertIs<ReaderPresentationEffect.RetryPreparation>(fresh.effects.single())
+
+		// Once another actual proof is selected, the old selected deck is unselected.
+		val settled = readerPresentationReduce(prepared.state, lateProof)
+		assertIs<ReaderPresentationAuthority.SettledNativePage>(settled.state.authority)
+		val otherFailed = readerPresentationReduce(settled.state,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.RendererLost))
+		assertEquals(otherFailed.state, readerPresentationReduce(otherFailed.state, removal).state)
+	}
+
+	@Test
 	fun rendererLossWithoutFrameUsesNeutralRecoveryOnly() {
 		val state = ReaderPresentationState(binding = binding)
 
@@ -2759,7 +2974,7 @@ class ReaderPresentationAuthorityReducerTest {
 		assertEquals(
 			listOf(
 				ReaderPresentationEffect.RetryPreparation(
-					ReaderPresentationToken(21L),
+					ReaderPresentationToken(22L), // Task 9 fresh Retry identity.
 					partial
 				)
 			),

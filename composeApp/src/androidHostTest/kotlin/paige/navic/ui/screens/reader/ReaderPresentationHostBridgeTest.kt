@@ -44,7 +44,8 @@ class ReaderPresentationHostBridgeTest {
 		var liveEngineRequired = true
 		val events = mutableListOf<ReaderPresentationEvent>()
 		val bridge = ReaderPresentationHostBridge(
-			host = fixture.host,
+			transitionTimeoutScheduler = HostBridgeDeadlineScheduler(),
+			transitionNowMillis = { 0L },			host = fixture.host,
 			liveEngineExposureRequired = { liveEngineRequired }
 		) { event ->
 			events += event
@@ -101,7 +102,8 @@ class ReaderPresentationHostBridgeTest {
 			onEvent = ::dispatch
 		)
 		val bridge = ReaderPresentationHostBridge(
-			host = fixture.host,
+			transitionTimeoutScheduler = HostBridgeDeadlineScheduler(),
+			transitionNowMillis = { 0L },			host = fixture.host,
 			liveEngineExposureRequired = { liveEngineRequired },
 			onEvent = ::dispatch
 		)
@@ -190,7 +192,8 @@ class ReaderPresentationHostBridgeTest {
 			var liveEngineRequired = initialLiveEngineRequired
 			val events = mutableListOf<ReaderPresentationEvent>()
 			val bridge = ReaderPresentationHostBridge(
-				host = fixture.host,
+			transitionTimeoutScheduler = HostBridgeDeadlineScheduler(),
+			transitionNowMillis = { 0L },				host = fixture.host,
 				liveEngineExposureRequired = { liveEngineRequired }
 			) { event ->
 				events += event
@@ -260,7 +263,7 @@ class ReaderPresentationHostBridgeTest {
 		assertEquals(ReaderPresentationFrameOwner.Neutral, pending.frameOwner)
 		val host = FakeReaderPresentationCommitHost(fixture.binding)
 		val events = mutableListOf<ReaderPresentationEvent>()
-		val bridge = ReaderPresentationHostBridge(host) { event ->
+		val bridge = ReaderPresentationHostBridge(host, transitionTimeoutScheduler = HostBridgeDeadlineScheduler(), transitionNowMillis = { 0L }) { event ->
 			events += event
 			presentation = readerPresentationReduce(presentation, event).state
 			readerTestPresentationReceipt(event, presentation)
@@ -309,7 +312,7 @@ class ReaderPresentationHostBridgeTest {
 			failPreparation = true
 		}
 		val events = mutableListOf<ReaderPresentationEvent>()
-		val bridge = ReaderPresentationHostBridge(host) { event ->
+		val bridge = ReaderPresentationHostBridge(host, transitionTimeoutScheduler = HostBridgeDeadlineScheduler(), transitionNowMillis = { 0L }) { event ->
 			events += event
 			presentation = readerPresentationReduce(presentation, event).state
 			readerTestPresentationReceipt(event, presentation)
@@ -795,7 +798,7 @@ class ReaderPresentationHostBridgeTest {
 
 		val host = LayerBackedReaderPresentationCommitHost(bindingB)
 		val receipts = mutableListOf<ReaderPresentationEvent>()
-		val bridge = ReaderPresentationHostBridge(host) { receipt ->
+		val bridge = ReaderPresentationHostBridge(host, transitionTimeoutScheduler = HostBridgeDeadlineScheduler(), transitionNowMillis = { 0L }) { receipt ->
 			receipts += receipt
 			dispatch(receipt)
 			readerTestPresentationReceipt(receipt, presentation)
@@ -959,7 +962,7 @@ class ReaderPresentationHostBridgeTest {
 		val fixture = BridgeFixture()
 		val events = mutableListOf<ReaderPresentationEvent>()
 		var attempt = 0
-		val bridge = ReaderPresentationHostBridge(fixture.host) { event ->
+		val bridge = ReaderPresentationHostBridge(fixture.host, transitionTimeoutScheduler = HostBridgeDeadlineScheduler(), transitionNowMillis = { 0L }) { event ->
 			events += event
 			attempt += 1
 			when (attempt) {
@@ -996,7 +999,7 @@ class ReaderPresentationHostBridgeTest {
 		val fixture = BridgeFixture()
 		val host = LayerBackedReaderPresentationCommitHost(fixture.binding)
 		val events = mutableListOf<ReaderPresentationEvent>()
-		val bridge = ReaderPresentationHostBridge(host) { event ->
+		val bridge = ReaderPresentationHostBridge(host, transitionTimeoutScheduler = HostBridgeDeadlineScheduler(), transitionNowMillis = { 0L }) { event ->
 			events += event
 			readerTestPresentationReceipt(
 				event,
@@ -1046,7 +1049,7 @@ class ReaderPresentationHostBridgeTest {
 			dispatchSelectionLifecycle = true
 		)
 		val events = mutableListOf<ReaderPresentationEvent>()
-		val bridge = ReaderPresentationHostBridge(host) { event ->
+		val bridge = ReaderPresentationHostBridge(host, transitionTimeoutScheduler = HostBridgeDeadlineScheduler(), transitionNowMillis = { 0L }) { event ->
 			events += event
 			readerTestPresentationReceipt(
 				event,
@@ -1205,7 +1208,7 @@ private class HostBridgePresentedFrameSource : ReaderNativePagePresentedFrameSou
 	}
 }
 
-private class HostBridgeDeadlineScheduler : ReaderPageRelocationDispatchTimeoutScheduler {
+internal class HostBridgeDeadlineScheduler : ReaderPageRelocationDispatchTimeoutScheduler {
 	private var pending: Runnable? = null
 	var postCount = 0
 		private set
@@ -1266,7 +1269,7 @@ internal class BridgeFixture {
 	)
 	val host = FakeReaderPresentationCommitHost(binding)
 	val events = mutableListOf<ReaderPresentationEvent>()
-	val bridge = ReaderPresentationHostBridge(host) { event ->
+	val bridge = ReaderPresentationHostBridge(host, transitionTimeoutScheduler = HostBridgeDeadlineScheduler(), transitionNowMillis = { 0L }) { event ->
 		events += event
 		readerTestPresentationReceipt(
 			event,

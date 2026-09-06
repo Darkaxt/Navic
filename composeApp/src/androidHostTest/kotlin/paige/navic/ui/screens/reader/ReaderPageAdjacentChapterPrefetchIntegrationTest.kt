@@ -26,6 +26,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
+import paige.navic.reader.*
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageNewPointerDecision
 import paige.navic.reader.ReaderPagePreparationPhase
@@ -66,6 +67,45 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	private val bundleSource = readerTask9Source(
 		"ReaderPageTurnBundleSource.android.kt"
 	)
+
+	@Test
+	fun presentationTimeoutRetryReachesFreshControllerGenerationAndCoalesces() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler, autoStartRequestedPrewarm = true)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			val oldRequest = assertNotNull(fixture.prewarm.active)
+			val generation = assertNotNull(fixture.preparationGeneration())
+			val binding = ReaderPresentationBinding("fixture", 1L, 2L, 3L,
+				preparationGeneration = generation)
+			val pending = readerPresentationReduce(ReaderPresentationState(binding = binding),
+				ReaderPresentationEvent.NativePageRequested)
+			val token = assertIs<ReaderRequiredTransition.PresentNativePage>(pending.decision.requiredTransition).token
+			val timeout = readerPresentationReduce(pending.state, ReaderPresentationEvent.TimedOut(token))
+			val retry = readerPresentationReduce(timeout.state, ReaderPresentationEvent.Retry)
+			val effect = assertIs<ReaderPresentationEffect.RetryPreparation>(retry.effects.single())
+			val handler = ReaderPresentationEffectHandler(
+				retryPreparation = { current ->
+					fixture.controller.retryPreparation(current.binding.preparationGeneration) != null
+				},
+				releaseStalePresentation = { false })
+			val handled = mutableListOf<ReaderPresentationEffectIdentity>()
+			val queued = listOf(ReaderPendingPresentationEffect(effect.identity(), effect))
+			assertTrue(handler.deliver(queued, retry.decision, handled::add))
+			assertTrue(handler.deliver(queued, retry.decision, handled::add))
+			assertEquals(listOf(effect.identity()), handled)
+			assertEquals(generation + 1L, fixture.preparationGeneration())
+			assertFalse(oldRequest.isStillCurrent())
+			assertNotNull(fixture.prewarm.active)
+			assertTrue(assertNotNull(effect.token).value > token.value)
+			assertTrue(readerPresentationReduce(retry.state, ReaderPresentationEvent.Retry).effects.isEmpty())
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
 
 	@Test
 	fun productionControllerStartsBackgroundRangesInPriorityOrderOnlyAfterReadiness() = runTest {

@@ -63,7 +63,9 @@ import paige.navic.reader.ReaderLiveEnginePresentationProof
 import paige.navic.reader.ReaderCurlPresentationFrame
 import paige.navic.reader.ReaderCurlSettlementStage
 import paige.navic.reader.ReaderPresentationAuthority
+import paige.navic.reader.ReaderDiagnosticPresentation
 import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventReceipt
@@ -955,6 +957,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 			Deferred<ReaderPlayLikeCurlRasterDeck<ReaderPlayLikeCurlRasterImage>?>
 	}
 
+	private class PresentationRecoverySnapshot(
+		val token: paige.navic.reader.ReaderPresentationToken,
+		val binding: ReaderPresentationBinding,
+		val controllerGeneration: Long,
+		val reason: String,
+		val onObserved: () -> Unit
+	) {
+		var observed = false
+		var diagnosticRetired = false
+		var externalSourceInProgress = false
+		var consumingExternalSource = false
+	}
+
+	private var presentationRecoverySnapshot: PresentationRecoverySnapshot? = null
+
 	private class InitialLivePresentationAuthorityRequest(
 		val generationId: Long,
 		val requiredDeckGenerationId: Long?,
@@ -1442,9 +1459,28 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onDeckReleased(generationId: Long, reason: DeckReleaseReason) {
+				val selectedFrame = commonPresentationDecision?.frameOwner
+					.takeIf { generationBacksCommonPresentation(generationId) }
+				val selectedBinding = when (selectedFrame) {
+					is ReaderPresentationFrameOwner.NativePage -> selectedFrame.proof.binding
+					is ReaderPresentationFrameOwner.Curl -> selectedFrame.frame.binding
+					else -> null
+				}
 				rendererCleanupRetryCoordinator.complete(generationId)
 				rendererOwnedGenerationReleaseGate.completeRelease(generationId)
 				deckRecoveryCoordinator.onDeckReleased(generationId)
+				// The physical terminal and owner retirement precede proof removal. Those
+				// callbacks may reenter common, so never revoke a newer selected frame.
+				val current = commonPresentationDecision
+				if (selectedBinding != null && current?.frameOwner == selectedFrame &&
+					(current?.diagnosticPresentation as? ReaderDiagnosticPresentation.Failure)?.reason ==
+						ReaderPresentationFailureReason.RendererLost
+				) {
+					onPresentationEvent(ReaderPresentationEvent.BindingReplaced(
+						previousBinding = selectedBinding,
+						binding = selectedBinding.copy(rasterGeneration = null, textureGeneration = null)
+					))
+				}
 			}
 
 			override fun onGestureRejected(
@@ -1741,9 +1777,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 			override fun onRenderFailure(failure: RenderFailure) {
 				val generationId = failure.generationId
+				val selectedByCommon = generationBacksCommonPresentation(generationId)
 				val nonRecoverableContextFailure =
 					failure.reason == RenderFailureReason.CONTEXT && !failure.isRecoverable
-				if (!nonRecoverableContextFailure && generationId in recoveredDeckGenerations) {
+				if (!selectedByCommon && !nonRecoverableContextFailure && generationId in recoveredDeckGenerations) {
 					val recoveryRole = generationRoles[generationId]
 					val coordinatorOwned =
 						deckRecoveryCoordinator.ownsSubmittedGeneration(generationId)
@@ -1769,7 +1806,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					)
 					return
 				}
-				if (!readerRenderFailureOwnsCurrentPresentation(
+				if (!selectedByCommon && !readerRenderFailureOwnsCurrentPresentation(
 						generationId = generationId,
 						activeGenerationId = activeDeckGenerationId,
 						pendingGenerationId = pendingDeckGenerationId,
@@ -1965,8 +2002,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 			selectedDeck.rasterGeneration == rasterOwner.profile.rasterGeneration
 	}
 
+	private fun synchronizeSelectedRendererFrame() {
+		surfaceView.setSelectedFrameGeneration(
+			if (destroyed) -1L else generationOwners.keys.firstOrNull(::generationBacksCommonPresentation) ?: -1L
+		)
+	}
+
 	fun synchronizePresentationDecision(decision: ReaderPresentationDecision) {
 		commonPresentationDecision = decision
+		synchronizeSelectedRendererFrame()
+		if (presentationRecoverySnapshot?.token != currentCurlRecoveryRequest()?.token) {
+			presentationRecoverySnapshot = null
+		}
+		retryPresentationRecoverySnapshot()
 		rebindAcceptedDeckCallbackFence(decision)
 		rendererCleanupRetryCoordinator.onRendererAvailabilityRestored()
 		val transition = decision.requiredTransition as?
@@ -2011,7 +2059,141 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (enabled) onRequestPrewarm()
 	}
 
+	fun isPresentationRecoverySnapshotReason(reason: String?): Boolean =
+		reason?.startsWith("presentation-recovery-") == true
+
+	private fun currentCurlRecoveryRequest() =
+		(commonPresentationDecision?.authority as? ReaderPresentationAuthority.BlockingPreparation)
+			?.takeIf { it.retainedFrame is paige.navic.reader.ReaderPresentationFrameOwner.Curl }
+			?.nativePresentationRequest?.takeIf { it.retryAfterPreparationGeneration != null }
+
+	val awaitingPresentationRecoverySnapshot: Boolean
+		get() = currentCurlRecoveryRequest()?.let { request ->
+			presentationRecoverySnapshot?.let { snapshot ->
+				snapshot.token == request.token && snapshot.observed
+			} != true
+		} == true
+
+	fun requestPresentationRecoverySnapshot(onObserved: () -> Unit): Boolean {
+		val request = currentCurlRecoveryRequest() ?: return false
+		val decision = commonPresentationDecision ?: return false
+		if (destroyed ||
+			decision.lifecycle != paige.navic.reader.ReaderPresentationLifecycleState.Foreground ||
+			decision.diagnosticPresentation is paige.navic.reader.ReaderDiagnosticPresentation.Failure ||
+			request.binding.foliateSessionId != currentFoliateSessionId
+		) return false
+		presentationRecoverySnapshot?.takeIf {
+			it.token == request.token && (it.observed || it.externalSourceInProgress ||
+				matchesPresentationRecoverySnapshot(it.reason, request.binding.foliateSessionId))
+		}?.let { return true }
+		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
+		requestGeneration = Math.incrementExact(requestGeneration)
+		val snapshot = PresentationRecoverySnapshot(
+			request.token, request.binding, requestGeneration,
+			"presentation-recovery-${request.token.value}-$requestGeneration", onObserved
+		)
+		presentationRecoverySnapshot = snapshot
+		val command = JSONObject().apply {
+			put("type", "diagnosticLocationSnapshot")
+			put("reason", snapshot.reason)
+		}
+		return try {
+			webView.evaluateJavascript("window.NavicReaderBridge?.dispatch?.($command)") { }
+			true
+		} catch (_: Exception) {
+			if (presentationRecoverySnapshot === snapshot) presentationRecoverySnapshot = null
+			false
+		}
+	}
+
+	private fun retryPresentationRecoverySnapshot() {
+		val snapshot = presentationRecoverySnapshot ?: return
+		if (!snapshot.observed) requestPresentationRecoverySnapshot(snapshot.onObserved)
+	}
+
+	fun matchesPresentationRecoverySnapshot(reason: String?, sourceSessionId: String): Boolean {
+		val snapshot = presentationRecoverySnapshot ?: return false
+		val request = currentCurlRecoveryRequest() ?: return false
+		val decision = commonPresentationDecision ?: return false
+		val binding = request.binding
+		return !destroyed && !snapshot.observed && !snapshot.diagnosticRetired && reason == snapshot.reason &&
+			request.token == snapshot.token && requestGeneration == snapshot.controllerGeneration &&
+			decision.lifecycle == paige.navic.reader.ReaderPresentationLifecycleState.Foreground &&
+			decision.diagnosticPresentation !is paige.navic.reader.ReaderDiagnosticPresentation.Failure &&
+			sourceSessionId == snapshot.binding.foliateSessionId &&
+			currentFoliateSessionId == sourceSessionId && binding.foliateSessionId == sourceSessionId &&
+			binding.publicationGeneration == snapshot.binding.publicationGeneration &&
+			binding.viewportGeneration == snapshot.binding.viewportGeneration &&
+			binding.profileGeneration == snapshot.binding.profileGeneration &&
+			binding.preparationGeneration == snapshot.binding.preparationGeneration
+	}
+
+	fun stagePresentationRecoveryObservation(pageIndex: Int, reason: String, sourceSessionId: String): Boolean {
+		if (pageIndex < 0 || !matchesPresentationRecoverySnapshot(reason, sourceSessionId)) return false
+		currentWebViewOrdinal = pageIndex
+		return true
+	}
+
+	private fun isCurrentExternalRecoveryAttempt(snapshot: PresentationRecoverySnapshot): Boolean {
+		val request = currentCurlRecoveryRequest() ?: return false
+		val decision = commonPresentationDecision ?: return false
+		return !destroyed && presentationRecoverySnapshot === snapshot && !snapshot.observed &&
+			request.token == snapshot.token &&
+			decision.lifecycle == paige.navic.reader.ReaderPresentationLifecycleState.Foreground &&
+			decision.diagnosticPresentation !is paige.navic.reader.ReaderDiagnosticPresentation.Failure &&
+			request.binding.foliateSessionId == currentFoliateSessionId &&
+			request.binding.foliateSessionId == snapshot.binding.foliateSessionId &&
+			request.binding.publicationGeneration == snapshot.binding.publicationGeneration &&
+			request.binding.viewportGeneration == snapshot.binding.viewportGeneration &&
+			request.binding.preparationGeneration == snapshot.binding.preparationGeneration &&
+			request.retryAfterPreparationGeneration == snapshot.binding.preparationGeneration
+	}
+
+	fun continuePresentationRecoveryFromExternalObservation(
+		pageIndex: Int,
+		sourceSessionId: String,
+		acknowledgement: ReaderPageTurnSettlementAck?,
+		synchronizeSource: () -> Boolean
+	): Boolean {
+		val snapshot = presentationRecoverySnapshot ?: return false
+		if (snapshot.externalSourceInProgress) return true
+		if (pageIndex < 0 || sourceSessionId != currentFoliateSessionId ||
+			visualLocationOrigin(pageIndex, acknowledgement) != ReaderPageVisualLocationOrigin.External ||
+			!isCurrentExternalRecoveryAttempt(snapshot) ||
+			preparationGeneration != snapshot.binding.preparationGeneration
+		) return false
+		// The external Foliate event is source authority. Retire its predecessor's
+		// diagnostic correlation, but fence reentrant work until fresh allocation.
+		snapshot.diagnosticRetired = true
+		snapshot.externalSourceInProgress = true
+		try {
+			if (synchronizeSource() && isCurrentExternalRecoveryAttempt(snapshot)) {
+				snapshot.consumingExternalSource = true
+				snapshot.onObserved()
+			}
+		} finally {
+			snapshot.consumingExternalSource = false
+			snapshot.externalSourceInProgress = false
+		}
+		return true
+	}
+
 	fun retryPreparation(preparationGeneration: Long) {
+		val snapshot = presentationRecoverySnapshot
+		if (snapshot?.consumingExternalSource == true &&
+			isCurrentExternalRecoveryAttempt(snapshot) &&
+			preparationGeneration > checkNotNull(snapshot.binding.preparationGeneration)
+		) {
+			// The raster controller has allocated this generation. Only now can its
+			// prewarm callbacks and the curl plan producer observe a consumed source.
+			this.preparationGeneration = preparationGeneration
+			snapshot.observed = true
+			snapshot.externalSourceInProgress = false
+		}
+		if (awaitingPresentationRecoverySnapshot) {
+			requestPresentationRecoverySnapshot { retryPreparation(preparationGeneration) }
+			return
+		}
 		if (
 			destroyed ||
 				retryPreparationInProgress ||
@@ -2166,6 +2348,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun onHostContentReady() {
 		if (!enabled || destroyed) return
 		logActivationState("host-content-ready")
+		retryPresentationRecoverySnapshot()
 		requestInitialLivePresentationAuthorityForPassivePreparation()
 		retryPassiveManifestAuthorityRecovery()
 		refreshPreparedDeck()
@@ -2206,6 +2389,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (hostResumed == resumed) return
 		hostResumed = resumed
 		if (resumed && enabled && !destroyed) {
+			retryPresentationRecoverySnapshot()
 			retryPassiveManifestAuthorityRecovery()
 			retryRelocationVisualHandoffResumed()
 		}
@@ -2213,9 +2397,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun onHostWindowHidden() {
 		if (!enabled || destroyed) return
+		val recoveryBinding = currentCurlRecoveryRequest()?.binding
+		// Visibility retires physical work, not an unchanged, published source profile.
+		val preserveProfile = recoveryBinding != null &&
+			recoveryBinding.foliateSessionId == currentFoliateSessionId &&
+			recoveryBinding.profileGeneration == publishedRasterProfileEpoch &&
+			publishedRasterProfile != null &&
+			(requestedProfile == null || requestedProfile == publishedRasterProfile)
 		invalidate(
 			reason = "window-hidden",
-			profileRegeneration = true
+			profileRegeneration = true,
+			preservePublishedProfile = preserveProfile
 		)
 	}
 
@@ -2637,6 +2829,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 		acknowledgement: ReaderPageTurnSettlementAck?
 	) {
 		val normalized = pageIndex?.takeIf { it >= 0 } ?: return
+		if (isPresentationRecoverySnapshotReason(_reason)) {
+			val session = currentFoliateSessionId ?: return
+			if (!matchesPresentationRecoverySnapshot(_reason, session)) return
+			val snapshot = checkNotNull(presentationRecoverySnapshot)
+			// This is an observation of the live source, not an acknowledgment of
+			// the retired turn. Its optional old settlement metadata is irrelevant.
+			currentWebViewOrdinal = normalized
+			currentOrdinal = normalized
+			authoritativeLocationReady = true
+			foliateSessionRelocationPending = false
+			snapshot.observed = true
+			snapshot.onObserved()
+			return
+		}
 		confirmInitialLivePresentationAuthority(normalized, acknowledgement)
 		val origin = visualLocationOrigin(normalized, acknowledgement)
 		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
@@ -2830,7 +3036,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		reason: String,
 		profileRegeneration: Boolean = false,
 		relocationRejectionReason: ReaderPageRelocationDiagnosticRejectionReason =
-			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated
+			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated,
+		preservePublishedProfile: Boolean = false
 	) {
 		confirmedDecklessPassiveAuthority.clear()
 		cancelPassiveManifestAuthorityRecovery()
@@ -2888,7 +3095,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 		rasterAdapter?.let(::retireRasterAdapter)
 		rasterAdapter = null
 		foliateRasterLoader = null
-		publishRasterProfileEpoch(null)
+		if (preservePublishedProfile) {
+			// A dispatch timeout loses prepared material, not the unchanged source
+			// profile identity needed to admit a subsequent source-owned observation.
+			notifyPreparedActiveDeckChanged(null)
+			onProtectedRasterSourcePageIndicesChanged(emptySet())
+		} else {
+			publishRasterProfileEpoch(null)
+		}
 		requestedProfile = null
 		preparedPageSets.toList().forEach(::closeIfUnused)
 		Logger.i(ReaderPlayLikeCurlFoliateControllerTag, "PlayLikeCurl invalidated reason=$reason")
@@ -3421,6 +3635,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		relocationQueue.hasInFlightHead() && currentWebViewOrdinal != currentOrdinal
 
 	private fun refreshPreparedDeck(planRetryAttempt: Int = 0) {
+		if (awaitingPresentationRecoverySnapshot) return
 		val gate = when {
 			!enabled -> "disabled"
 			!attached -> "host-detached"
@@ -5254,6 +5469,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		check(retainedOwner == null || retainedOwner === pages) {
 			"Accepted deck generation has a different raster owner"
 		}
+		synchronizeSelectedRendererFrame()
 		pages.generations += generationId
 		generationRoles[generationId] = role
 		generationPreparationGenerations[generationId] = preparationGeneration
@@ -6081,9 +6297,24 @@ internal class ReaderPlayLikeCurlFoliateController(
 			"PlayLikeCurl dispatched relocation rejected " +
 				"pageIndex=${request.destinationOrdinal} reason=$reason"
 		)
+		val pending = commonPresentationDecision?.authority as?
+			ReaderPresentationAuthority.CurlSettlementPending
+		val retainedBinding = pending?.retainedFrame?.frame?.binding
+		val preservePublishedProfile =
+			reason == ReaderPageRelocationDiagnosticRejectionReason.AcknowledgementTimeout &&
+				pending != null && retainedBinding != null &&
+				pending.retainedFrame.frame.token.value == request.gestureId &&
+				pending.binding.foliateSessionId == request.foliateSessionId &&
+				currentFoliateSessionId == request.foliateSessionId &&
+				pending.binding.publicationGeneration == retainedBinding.publicationGeneration &&
+				pending.binding.viewportGeneration == retainedBinding.viewportGeneration &&
+				pending.binding.profileGeneration == retainedBinding.profileGeneration &&
+				pending.binding.profileGeneration == publishedRasterProfileEpoch &&
+				publishedRasterProfile != null && publishedRasterProfile == requestedProfile
 		invalidate(
 			reason = "relocation-dispatch-${reason.name}",
-			relocationRejectionReason = reason
+			relocationRejectionReason = reason,
+			preservePublishedProfile = preservePublishedProfile
 		)
 		onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)
 		if (enabled) onRequestPrewarm()
@@ -6590,6 +6821,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		presentedFrameGestureId = null
 		presentedSurfaceGestureId = null
 		surfaceView.animate().cancel()
+		// Source/profile invalidation retires gesture callbacks, not the common-selected
+		// retained Curl material. The parent lifecycle controls hidden-window visibility.
+		val selectedCurl = commonPresentationDecision?.frameOwner as? ReaderPresentationFrameOwner.Curl
+		if (!destroyed && selectedCurl != null && generationBacksCommonPresentation(selectedCurl.frame.textureGeneration)) {
+			return
+		}
 		surfaceView.alpha = 0f
 	}
 

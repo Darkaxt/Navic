@@ -15,6 +15,7 @@ import paige.navic.reader.ReaderPresentationEventDisposition
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationFrameOwner
+import paige.navic.reader.ReaderPresentationLifecycleState
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderShellCoverCommitProof
@@ -63,6 +64,9 @@ internal data class ReaderNativePagePresentationCandidate(
 
 internal fun ReaderPresentationDecision.authoritativeLiveEngineToNativeTransitionOrNull():
 	ReaderRequiredTransition.PresentNativePage? {
+	if (lifecycle != ReaderPresentationLifecycleState.Foreground ||
+		diagnosticPresentation is ReaderDiagnosticPresentation.Failure
+	) return null
 	val pending = authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
 		?: return null
 	if (pending.direction != ReaderLiveEngineHandoffDirection.LiveEngineToNative) return null
@@ -124,6 +128,10 @@ internal data class ReaderNativePagePresentationHostSnapshot(
 
 internal interface ReaderNativePagePresentedFrameSource {
 	fun requestNextPresentedFrame(onPresented: (Long) -> Unit): Long
+	fun requestCandidatePresentedFrame(
+		candidate: ReaderNativePagePresentationCandidate,
+		onPresented: (Long) -> Unit
+	): Long = requestNextPresentedFrame(onPresented)
 	fun cancelPresentedFrameRequest(requestId: Long): Boolean
 }
 
@@ -133,6 +141,17 @@ internal class ReaderPageSurfacePresentedFrameSource(
 	override fun requestNextPresentedFrame(onPresented: (Long) -> Unit): Long {
 		var requestId = PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
 		requestId = surface.requestNextPresentedFrame { onPresented(requestId) }
+		return requestId
+	}
+
+	override fun requestCandidatePresentedFrame(
+		candidate: ReaderNativePagePresentationCandidate,
+		onPresented: (Long) -> Unit
+	): Long {
+		val generation = candidate.binding.textureGeneration
+			?: return PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
+		var requestId = PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
+		requestId = surface.requestNativePagePresentedFrame(generation) { onPresented(requestId) }
 		return requestId
 	}
 
@@ -218,7 +237,9 @@ internal class ReaderNativePagePresentationPublisher(
 			(failedTransition != null &&
 				(
 					failedTransition == handoffTransition ||
-					candidate?.matches(failedTransition) == true
+					candidate?.matches(failedTransition) == true ||
+					(candidate?.binding == failedTransition.binding &&
+						candidate.transitionToken == null)
 				)) ||
 			candidate == null ||
 			candidate == lastPublishedCandidate ||
@@ -227,7 +248,7 @@ internal class ReaderNativePagePresentationPublisher(
 		) return
 
 		var requestId = PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
-		requestId = frameSource.requestNextPresentedFrame { presentedRequestId ->
+		requestId = frameSource.requestCandidatePresentedFrame(candidate) { presentedRequestId ->
 			onPresentedFrame(requestId, presentedRequestId, candidate)
 		}
 		if (requestId == PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID) {
@@ -403,6 +424,8 @@ internal class ReaderPresentationHostBridge(
 	private val host: ReaderPresentationCommitHost,
 	private val liveEngineVisualHandoff: ReaderWebViewVisualHandoff? = null,
 	private val liveEngineExposureRequired: () -> Boolean = { false },
+	transitionTimeoutScheduler: ReaderPageRelocationDispatchTimeoutScheduler = HandlerTimeoutScheduler(),
+	transitionNowMillis: () -> Long = android.os.SystemClock::uptimeMillis,
 	private val onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
 ) {
 	private data class ViewportGeometry(
@@ -448,13 +471,28 @@ internal class ReaderPresentationHostBridge(
 	private var committedTransition: ReaderRequiredTransition.CommitShellCover? = null
 	private var presentedFrame = 0L
 	private var disposed = false
+	private val transitionTimeout = ReaderPresentationTransitionTimeout(
+		scheduler = transitionTimeoutScheduler,
+		nowMillis = transitionNowMillis
+	) { event ->
+		val receipt = onEvent(event).takeIf { it.authorizes(event) }
+		if (receipt != null) update(readerPresentationDecision(receipt.postState))
+		receipt != null
+	}
 
 	fun update(decision: ReaderPresentationDecision) {
 		if (disposed) return
 		val liveEngineRequired = liveEngineExposureRequired()
 		synchronizeLiveEngineHandoffIntent(decision, liveEngineRequired)
 		currentDecision = decision
+		transitionTimeout.update(decision)
+		if (currentDecision != decision) return
 		host.applyPresentationFrameOwner(decision)
+		if (decision.lifecycle != ReaderPresentationLifecycleState.Foreground) {
+			cancelPendingCoverCommit()
+			cancelPendingLiveEngineExposure()
+			return
+		}
 		if (requestInitialShellCoverIfRequired(decision, liveEngineRequired)) return
 		if (requestLiveEngineExposureIfRequired(decision, liveEngineRequired)) return
 		if (requestNativePageExposureIfRequired(decision, liveEngineRequired)) return
@@ -514,6 +552,7 @@ internal class ReaderPresentationHostBridge(
 	fun dispose() {
 		if (disposed) return
 		disposed = true
+		transitionTimeout.cancel()
 		cancelPendingCoverCommit()
 		cancelPendingLiveEngineExposure()
 		liveEngineVisualHandoff?.close()
@@ -712,7 +751,7 @@ internal class ReaderPresentationHostBridge(
 			return
 		}
 		try {
-			handoff.await(transition.token, transition.binding) { result ->
+			handoff.await(transition.token, transition.binding, deadlineDelegated = true) { result ->
 				onLiveEngineVisualHandoffResult(next, result)
 			}
 		} catch (_: Throwable) {
@@ -928,6 +967,7 @@ internal class ReaderPresentationHostBridge(
 		pending.acceptedReceipt = receipt
 		val receiptDecision = readerPresentationDecision(receipt.postState)
 		currentDecision = receiptDecision
+		transitionTimeout.update(receiptDecision)
 		if (acceptedShellCoverDecisionMatches(receiptDecision, pending)) {
 			completePendingCoverCommit(pending)
 		}

@@ -54,7 +54,8 @@ public class Gles2RendererSourceTest {
         assertFalse(rendererRelease.contains(
                 "if (!releasesActive && !releasesReplacement) {\n            return;"));
         assertTrue(rendererActivation.contains("PageRendererReleaseTerminal.execute("));
-        assertTrue(rendererActivation.contains("events.onDeckReleased("));
+        assertTrue(rendererActivation.contains("releaseDeck(previous, DeckReleaseReason.REPLACED)"));
+        assertTrue(rendererActivation.contains("!retainSelected"));
     }
 
     @Test

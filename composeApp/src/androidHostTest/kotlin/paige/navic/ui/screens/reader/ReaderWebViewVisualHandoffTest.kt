@@ -8,6 +8,7 @@ import paige.navic.reader.ReaderPageRelocationTransferResult
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -16,6 +17,106 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ReaderWebViewVisualHandoffTest {
+	@Test
+	fun commonExposureUsesOneForegroundDeadlineAcrossRebindRestoreAndTerminalCleanup() {
+		for (finish in listOf("timeout", "proof", "cancel", "dispose")) {
+			val fixture = BridgeFixture()
+			val binding = fixture.binding.copy(destinationCommitIdentity =
+				ReaderDestinationCommitIdentity(fixture.binding.foliateSessionId, 1L))
+			val predecessor = ReaderPresentationFrameOwner.NativePage(fixture.nativeProof.copy(binding = binding))
+			var common = ReaderController(ReaderControllerState(presentation = fixture.nativeState.copy(
+				binding = binding, authority = ReaderPresentationAuthority.SettledNativePage(predecessor))))
+			val host = FakeReaderPresentationCommitHost(binding)
+			val visualHost = FakeVisualHandoffHost(attached = true)
+			val handoff = ReaderWebViewVisualHandoff(visualHost)
+			var now = 0L
+			val scheduled = mutableListOf<Pair<Runnable, Long>>()
+			val pending = linkedSetOf<Runnable>()
+			val events = mutableListOf<ReaderPresentationEvent>()
+			val bridge = ReaderPresentationHostBridge(host, handoff, { true },
+				transitionTimeoutScheduler = object : ReaderPageRelocationDispatchTimeoutScheduler {
+					override fun postDelayed(action: Runnable, delayMillis: Long): Boolean {
+						scheduled += action to delayMillis
+						pending += action
+						return true
+					}
+					override fun removeCallbacks(action: Runnable) { pending -= action }
+				}, transitionNowMillis = { now }) { event ->
+				events += event
+				common.onPresentationEvent(event).also { common = it.controller }.presentationReceipt
+			}
+			fun update() = bridge.update(readerPresentationDecision(common.state.presentation))
+			fun dispatch(event: ReaderPresentationEvent) {
+				common = common.onPresentationEvent(event).controller
+				update()
+			}
+			try {
+				update()
+				val token = readerPresentationDecision(common.state.presentation).pendingTransitionToken
+				assertEquals(listOf(10_000L), scheduled.map { it.second })
+				assertTrue(visualHost.timeoutDelays.isEmpty(),
+					"Bridge-managed exposure must not also schedule the legacy visual deadline")
+				assertEquals(1, handoff.pendingCallbackCount())
+				assertEquals(predecessor, readerPresentationDecision(common.state.presentation).frameOwner)
+				now = 4_000L
+				val successor = binding.copy(destinationCommitIdentity =
+					ReaderDestinationCommitIdentity(binding.foliateSessionId, 2L))
+				host.currentBinding = successor
+				dispatch(ReaderPresentationEvent.FoliateRelocated(successor, acknowledgement = null))
+				assertEquals(token, readerPresentationDecision(common.state.presentation).pendingTransitionToken)
+				assertEquals(1, scheduled.size)
+				dispatch(ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityLost))
+				assertTrue(pending.isEmpty())
+				assertEquals(1, handoff.pendingHostCallbackCount())
+				visualHost.completeVisualState()
+				assertEquals(0, handoff.pendingHostCallbackCount())
+				now = 34_000L
+				scheduled.first().first.run()
+				assertNull(common.state.presentation.failure)
+				dispatch(ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityRestored))
+				assertEquals(listOf(10_000L, 6_000L), scheduled.map { it.second })
+				assertEquals(token, readerPresentationDecision(common.state.presentation).pendingTransitionToken)
+				now = 39_999L
+				update()
+				assertNull(common.state.presentation.failure)
+				when (finish) {
+					"timeout" -> {
+						now = 40_000L
+						pending.remove(scheduled.last().first)
+						scheduled.last().first.run()
+						assertEquals(ReaderPresentationFailureReason.TimedOut,
+							common.state.presentation.failure?.reason)
+						assertEquals(predecessor, readerPresentationDecision(common.state.presentation).frameOwner)
+						visualHost.completeVisualState()
+					}
+					"proof" -> {
+						visualHost.completeVisualState()
+						assertEquals(predecessor, readerPresentationDecision(common.state.presentation).frameOwner)
+						visualHost.runNextFrame()
+						val proof = assertIs<ReaderPresentationFrameOwner.LiveEngine>(
+							readerPresentationDecision(common.state.presentation).frameOwner).proof
+						assertEquals(token, proof.token)
+						assertEquals(successor, proof.binding)
+						assertEquals(1, events.filterIsInstance<ReaderPresentationEvent.LiveEngineExposureCommitted>().size)
+					}
+					"cancel" -> {
+						dispatch(ReaderPresentationEvent.Cancel)
+						visualHost.completeVisualState()
+					}
+					else -> bridge.dispose()
+				}
+				bridge.dispose()
+				val terminalEvents = events.size
+				scheduled.forEach { it.first.run() }
+				assertFalse(visualHost.redeliverLastVisualState())
+				assertEquals(terminalEvents, events.size)
+				assertTrue(pending.isEmpty())
+				assertEquals(0, handoff.pendingCallbackCount())
+				assertEquals(0, handoff.pendingHostCallbackCount())
+			} finally { bridge.dispose(); fixture.bridge.dispose() }
+		}
+	}
+
 	@Test
 	fun ownershipObserverReportsOneMutationPerCallbackTransaction() {
 		val host = FakeVisualHandoffHost(attached = true)
@@ -3270,6 +3371,7 @@ class ReaderWebViewVisualHandoffTest {
 		private var lastDeliveredVisualState: ReaderWebViewVisualDeliveryCell? = null
 		private var nextFrame: (() -> Unit)? = null
 		private var timeout: (() -> Unit)? = null
+		val timeoutDelays = mutableListOf<Long>()
 
 		override val isAttachedToWindow: Boolean get() = attached
 
@@ -3297,6 +3399,7 @@ class ReaderWebViewVisualHandoffTest {
 		}
 
 		override fun postDelayed(delayMillis: Long, action: () -> Unit) {
+			timeoutDelays += delayMillis
 			timeout = action
 		}
 

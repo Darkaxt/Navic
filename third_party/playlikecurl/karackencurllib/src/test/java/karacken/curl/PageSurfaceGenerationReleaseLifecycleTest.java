@@ -168,6 +168,52 @@ public class PageSurfaceGenerationReleaseLifecycleTest {
         assertEquals(1, gate.terminallyAbandonAccepted().size());
     }
 
+    @Test
+    public void nonterminalPauseRetainsSelectedAcceptedReleaseButCloseForcesItOnce() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        DeckLeaseRegistry leases = new DeckLeaseRegistry();
+        PageSurfaceDeckReleaseGate<String> gate =
+                new PageSurfaceDeckReleaseGate<>(coordinator, leases);
+        coordinator.offer(portraitDeck(301, "selected"));
+        assertTrue(leases.acquire(301, new PageSurfaceListener() {}));
+        PageDeckCoordinator.Offer<String> first = coordinator.offer(portraitDeck(302, "obsolete"));
+        assertTrue(leases.acquire(302, new PageSurfaceListener() {}));
+        gate.queueAutomatic(first.getReleases(), () -> {});
+        PageDeckCoordinator.Offer<String> second = coordinator.offer(portraitDeck(303, "candidate"));
+        assertTrue(leases.acquire(303, new PageSurfaceListener() {}));
+        gate.queueAutomatic(second.getReleases(), () -> {});
+        List<Long> detached = new java.util.ArrayList<>();
+
+        List<PageSurfaceGenerationReleaseRecord<String>> paused =
+                gate.terminallyAbandonAccepted(generation -> generation == 301L, detached::add);
+
+        assertEquals(java.util.Collections.singletonList(302L), detached);
+        assertEquals(1, paused.size());
+        assertEquals(PageSurfaceGenerationReleaseRecord.State.QUEUE_ACCEPTED, gate.stateFor(301));
+        assertEquals(PageSurfaceDeckReleaseResult.Status.ALREADY_ACCEPTED,
+                gate.request(301, (generation, reason) -> {
+                    throw new AssertionError("Accepted selected release cannot queue twice");
+                }).getStatus());
+        assertTrue(gate.complete(302));
+        assertTrue(leases.release(302) != null);
+        assertTrue(gate.terminallyAbandonAccepted(generation -> generation == 301L, detached::add).isEmpty());
+        assertEquals(1, gate.releaseInFlightCount(303, -1));
+
+        gate.close();
+        List<PageSurfaceGenerationReleaseRecord<String>> closed =
+                gate.terminallyAbandonAccepted(detached::add);
+        assertEquals(java.util.Arrays.asList(302L, 301L), detached);
+        assertEquals(1, closed.size());
+        assertEquals(DeckReleaseReason.REPLACED, closed.get(0).getReason());
+        assertTrue(gate.complete(301));
+        assertTrue(leases.release(301) != null);
+        assertTrue(gate.terminallyAbandonAccepted(detached::add).isEmpty());
+        assertFalse(gate.rendererDetached(301));
+        assertFalse(gate.complete(301));
+        assertEquals(0, gate.releaseInFlightCount(303, -1));
+        assertEquals(1, leases.size());
+    }
+
     private static PortraitPageDeck<String> portraitDeck(long generationId, String label) {
         return new PortraitPageDeck<>(
                 page(generationId, label + "-previous", 0),

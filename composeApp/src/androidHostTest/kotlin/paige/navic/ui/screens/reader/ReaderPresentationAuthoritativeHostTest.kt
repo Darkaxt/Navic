@@ -55,7 +55,8 @@ class ReaderPresentationAuthoritativeHostTest {
 			)
 		)
 		val host = RecordingPresentationCommitHost()
-		val bridge = ReaderPresentationHostBridge(host) { null }
+		val bridge = ReaderPresentationHostBridge(host,
+			transitionTimeoutScheduler = HostBridgeDeadlineScheduler(), transitionNowMillis = { 0L }) { null }
 
 		host.applyPresentationDecision(exactDecision)
 		bridge.update(cachedDecision)
