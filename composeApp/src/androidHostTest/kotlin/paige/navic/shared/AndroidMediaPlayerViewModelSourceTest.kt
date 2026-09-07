@@ -8,6 +8,25 @@ import kotlin.test.assertTrue
 
 class AndroidMediaPlayerViewModelSourceTest {
 	@Test
+	fun bulkStartupFeedbackIsGlobalAndSupersedingCommandsCancelPreparation() {
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val app = commonSourceFile("App.kt").readText()
+		val dialog = commonSourceFile("ui/components/common/PlaybackStartDialog.kt").readText()
+		assertContains(app, "PlaybackStartDialog(player.playbackStartFeedback)")
+		assertContains(dialog, "CircularProgressIndicator(")
+		assertContains(dialog, "onDismissRequest = feedback::hide")
+		listOf("clearQueue", "selectQueueItem", "playCollection", "startSongRadio", "playRadio", "pause", "next", "previous")
+			.forEach { command ->
+				val body = viewModel.substringAfter("override fun $command(")
+					.substringAfter("{").trimStart()
+				assertTrue(body.startsWith("bulkPlaybackCoordinator.cancel()"), command)
+			}
+		val synchronizer = androidSharedSourceFile("AndroidPlaybackStateSynchronizer.android.kt").readText()
+		assertContains(synchronizer, "restoreJob?.cancel()")
+		assertContains(synchronizer, "restoreGeneration != generation")
+	}
+
+	@Test
 	fun mediaItemMetadataMappingLivesOutsideAndroidMediaPlayerViewModel() {
 		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt")
 		val mediaItemFactory = androidSharedSourceFile("AndroidMediaItemFactory.android.kt")
@@ -348,7 +367,11 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(androidPlayerText, "bulkPlaybackCoordinator.playAll(songs, forceShuffle)")
 		assertContains(bulkPlaybackText, "collectionPlaybackOrder(")
 		assertContains(bulkPlaybackText, "player.setMediaItems(mediaItems, 0, 0L)")
-		assertContains(bulkPlaybackText, "playbackStateSynchronizer.sync(nextState)")
+		assertContains(bulkPlaybackText, "connectedController.filterNotNull().first()")
+		assertContains(bulkPlaybackText, "feedback.launch(scope)")
+		assertContains(bulkPlaybackText, "feedback.awaitSettled()")
+		assertContains(androidPlayerText, "bulkPlaybackCoordinator.onPlayerEvents(player)")
+		assertContains(androidPlayerText, "bulkPlaybackCoordinator.onControllerReady(this)")
 		assertContains(androidPlayerText, "playAll(collection.songs, forceShuffle = true)")
 		assertContains(genreText, "player.playAll(state.collection.songs)")
 		assertContains(artistText, "player.playAll(songs)")

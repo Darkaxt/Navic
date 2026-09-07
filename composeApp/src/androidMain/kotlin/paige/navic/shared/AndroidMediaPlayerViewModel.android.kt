@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.notice_failed_to_play_song
 import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
@@ -105,10 +107,14 @@ class AndroidMediaPlayerViewModel(
 		},
 		onConnectionFailed = { error ->
 			controller = null
+			onBulkPlaybackConnectionLost()
 			Logger.e("MediaPlayer", "Failed to connect media controller", error)
 		},
 		onDisconnected = { disconnectedController ->
-			if (controller === disconnectedController) controller = null
+			if (controller === disconnectedController) {
+				controller = null
+				onBulkPlaybackConnectionLost()
+			}
 			Logger.w("MediaPlayer", "Media controller disconnected; reconnecting")
 			releaseMusicPlayback()
 		}
@@ -216,12 +222,24 @@ class AndroidMediaPlayerViewModel(
 		state = { _uiState.value },
 		publishState = { _uiState.value = it },
 		mediaItemFactory = mediaItemFactory,
-		playbackStateSynchronizer = playbackStateSynchronizer,
+		feedback = playbackStartFeedback,
+		cancelPendingRestore = playbackStateSynchronizer::cancelPendingRestore,
+		onFailure = { error ->
+			Logger.e("MediaPlayer", "Failed to prepare bulk playback", error)
+			_uiState.update { it.copy(isLoading = false, isPaused = controller?.isPlaying != true) }
+			snackBarManager.notify(Res.string.notice_failed_to_play_song)
+		},
 		clearPlaybackRecovery = playbackRecovery::clear,
 		clearPendingQueueSelection = { pendingQueueSelection = null },
 		cancelQueueAutoFill = queueAutoFiller::cancel,
 		claimMusicPlayback = ::claimMusicPlayback
 	)
+
+	private fun onBulkPlaybackConnectionLost() {
+		val wasPending = playbackStartFeedback.isPending
+		bulkPlaybackCoordinator.onControllerUnavailable()
+		if (wasPending) snackBarManager.notify(Res.string.notice_failed_to_play_song)
+	}
 
 	init {
 		observePlaybackArtworkCache()
@@ -330,6 +348,10 @@ class AndroidMediaPlayerViewModel(
 		viewModelScope.launch {
 			controller?.apply {
 				addListener(object : Player.Listener {
+					override fun onEvents(player: Player, events: Player.Events) {
+						bulkPlaybackCoordinator.onPlayerEvents(player)
+					}
+
 					override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
 						updatePlaybackState()
 						playbackRecovery.onMediaItemTransition(mediaItem, currentMediaItemIndex)
@@ -373,6 +395,11 @@ class AndroidMediaPlayerViewModel(
 					}
 
 					override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+						if (!playWhenReady && reason in setOf(
+							Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST,
+							Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS,
+							Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY
+						)) bulkPlaybackCoordinator.cancel()
 						_uiState.update { it.copy(isPaused = !playWhenReady) }
 						if (!playWhenReady) releaseMusicPlayback()
 						playbackDiagnostics.onPlayWhenReadyChanged(
@@ -409,6 +436,7 @@ class AndroidMediaPlayerViewModel(
 					}
 
 					override fun onPlayerError(error: PlaybackException) {
+						playbackStartFeedback.settle()
 						val currentUiState = _uiState.value
 						Logger.w(
 							"MediaPlayer",
@@ -480,7 +508,12 @@ class AndroidMediaPlayerViewModel(
 				playPendingQueueSelectionIfAvailable(this)
 
 				downloadManager.allDownloads.first()
-				playbackStateSynchronizer.onControllerReady()
+				if (playbackStartFeedback.isPending) {
+					playbackStateSynchronizer.cancelPendingRestore()
+				} else {
+					playbackStateSynchronizer.onControllerReady()
+				}
+				bulkPlaybackCoordinator.onControllerReady(this)
 
 				combine(
 					downloadManager.allDownloads,
@@ -684,6 +717,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	private fun markPlaybackRecoveryPending() {
+		if (playbackRecovery.isWaitingForService) playbackStartFeedback.settle()
 		_uiState.update { state ->
 			state.copy(isLoading = !playbackRecovery.isWaitingForService)
 		}
@@ -841,6 +875,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun clearQueue() {
+		bulkPlaybackCoordinator.cancel()
 		viewModelScope.launch {
 			playbackOriginRecorder.setOriginNow(null)
 			pendingQueueSelection = null
@@ -859,6 +894,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun selectQueueItem(index: Int, playWhenReady: Boolean, origin: QueueSelectionOrigin) {
+		bulkPlaybackCoordinator.cancel()
 		val request = QueueSelectionRequest(index, playWhenReady, origin)
 		viewModelScope.launch {
 			if (index < 0) return@launch
@@ -889,6 +925,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun playCollection(collection: DomainSongCollection, startSong: DomainSong) {
+		bulkPlaybackCoordinator.cancel()
 		viewModelScope.launch {
 			playbackRecovery.clear("play-collection")
 			val (items, newCollection) = withContext(Dispatchers.Default) {
@@ -946,6 +983,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun startSongRadio(song: DomainSong) {
+		bulkPlaybackCoordinator.cancel()
 		viewModelScope.launch {
 			playbackRecovery.clear("song-radio")
 			playbackOriginRecorder.setOriginNow(null)
@@ -989,6 +1027,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun playRadio(radio: DomainRadio) {
+		bulkPlaybackCoordinator.cancel()
 		viewModelScope.launch {
 			playbackRecovery.clear("play-radio")
 			playbackOriginRecorder.setOriginNow(null)
@@ -1023,6 +1062,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun pause() {
+		bulkPlaybackCoordinator.cancel()
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val player = controller ?: return@launch
 			playbackRecovery.onUserPause()
@@ -1095,6 +1135,7 @@ class AndroidMediaPlayerViewModel(
 		if (nowPlayingVideoClipAudioActive) 0f else volume.coerceIn(0f, 1f)
 
 	override fun next() {
+		bulkPlaybackCoordinator.cancel()
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			playbackRecovery.clear("next")
 			if (controller?.hasNextMediaItem() == true) controller?.seekToNextMediaItem()
@@ -1102,6 +1143,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun previous() {
+		bulkPlaybackCoordinator.cancel()
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			playbackRecovery.clear("previous")
 			val controller = controller ?: return@launch

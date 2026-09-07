@@ -1159,6 +1159,8 @@
 	<string name="action_open">Open</string>
 	<string name="action_done">Done</string>
 	<string name="action_close">Close</string>
+	<string name="info_preparing_playback">Preparing playback...</string>
+	<string name="info_starting_playback">Starting playback...</string>
 	<string name="action_resync">Resync</string>
 	<string name="action_play_audiobook">Play audiobook</string>
 	<string name="action_pause_audiobook">Pause audiobook</string>

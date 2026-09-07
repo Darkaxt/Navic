@@ -44,6 +44,7 @@ abstract class MediaPlayerViewModel(
 	@Suppress("PropertyName")
 	protected val _uiState = MutableStateFlow(PlayerUiState())
 	val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+	val playbackStartFeedback = PlaybackStartFeedback()
 
 	// Narrow views of uiState so always-on chrome (mini player, bottom bar) can subscribe to
 	// only the slice they render and avoid recomposing on every playback-position tick.
