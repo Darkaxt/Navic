@@ -1387,6 +1387,18 @@ class KomikkuReaderNativeFrameHostTest {
 		task9ActualViewerRecoveryPublication(false, 1, nativePipeline = true, failRetainedSelected = true)
 
 	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task9NoViewTreeLifecycleOwnerShadow::class])
+	fun task9ActualViewerInvalidSelectedPauseReportsFailureBeforeTerminalRemoval() =
+		task9ActualViewerRecoveryPublication(false, 1, nativePipeline = true, retainedPauseInvalid = true)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task9NoViewTreeLifecycleOwnerShadow::class])
+	fun task9ActualViewerValidSelectedPauseRetainsUntilTerminalClose() =
+		task9ActualViewerRecoveryPublication(false, 1, nativePipeline = true, retainedPauseInvalid = false)
+
+	@Test
 	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P])
 	fun task9ActualViewerPhysicalRuntimeDrainsAndSessionRejectsClosedCaptureTail() {
 		val runtime = Task9ControlledPassiveRuntime()
@@ -1443,6 +1455,7 @@ class KomikkuReaderNativeFrameHostTest {
 		nativePipeline: Boolean = false,
 		projectionOnly: Boolean = false,
 		failRetainedSelected: Boolean = false,
+		retainedPauseInvalid: Boolean? = null,
 		livenessBoundary: Task9LivenessBoundary? = null
 	) = runTest {
 		val androidMainThread = Thread.currentThread()
@@ -1475,6 +1488,8 @@ class KomikkuReaderNativeFrameHostTest {
 			val rendererReleaseCounts = mutableMapOf<Long, Int>()
 			val rendererReleaseReasons = mutableMapOf<Long, karacken.curl.DeckReleaseReason>()
 			val producedRendererGenerations = mutableListOf<Long>()
+			val selectedFailureOrder = mutableListOf<String>()
+			val selectedFailureOwned = mutableListOf<Boolean>()
 			if (nativePipeline) {
 				// Observe leases before surface initialization: replacing a listener later
 				// replays cached capabilities and would introduce an extra refresh edge.
@@ -1490,7 +1505,13 @@ class KomikkuReaderNativeFrameHostTest {
 					override fun onRendererAvailabilityRestored() = originalListener.onRendererAvailabilityRestored()
 					override fun onPageOverlayUpdateCapacityAvailable(applied: Boolean) = originalListener.onPageOverlayUpdateCapacityAvailable(applied)
 					override fun onPageOverlayStateInvalidated() = originalListener.onPageOverlayStateInvalidated()
-					override fun onRenderFailure(failure: RenderFailure) = originalListener.onRenderFailure(failure)
+					override fun onRenderFailure(failure: RenderFailure) {
+						if (retainedPauseInvalid != null && failure.generationId == 301L) {
+							selectedFailureOrder += "failure"
+							selectedFailureOwned += task8SurfaceOwnsGeneration(controller.surfaceView, 301L)
+						}
+						originalListener.onRenderFailure(failure)
+					}
 					override fun onGestureRejected(generationId: Long, reason: karacken.curl.GestureRejectionReason) = originalListener.onGestureRejected(generationId, reason)
 					override fun onGestureRejected(gestureId: Long, generationId: Long, reason: karacken.curl.GestureRejectionReason) = originalListener.onGestureRejected(gestureId, generationId, reason)
 					override fun onGestureRejected(gestureId: Long, generationId: Long, reason: karacken.curl.GestureRejectionReason, pageChange: PageChange) = originalListener.onGestureRejected(gestureId, generationId, reason, pageChange)
@@ -1504,6 +1525,14 @@ class KomikkuReaderNativeFrameHostTest {
 					override fun onDeckReleased(generationId: Long, reason: karacken.curl.DeckReleaseReason) {
 						rendererReleaseCounts[generationId] = rendererReleaseCounts.getOrDefault(generationId, 0) + 1
 						rendererReleaseReasons[generationId] = reason
+						if (retainedPauseInvalid != null && generationId == 301L) {
+							selectedFailureOrder += "terminal"
+							assertFalse(task8SurfaceOwnsGeneration(controller.surfaceView, 301L))
+							val renderer = controller.surfaceView.javaClass.task7Field("renderer").get(controller.surfaceView)
+							for (slot in listOf("activeDeck", "replacementDeck")) {
+								assertFalse((renderer.javaClass.task7Field(slot).get(renderer) as PageDeck<*>?)?.generationId == 301L)
+							}
+						}
 						originalListener.onDeckReleased(generationId, reason)
 					}
 				}
@@ -1626,6 +1655,13 @@ class KomikkuReaderNativeFrameHostTest {
 			val events = mutableListOf<ReaderPresentationEvent>()
 			val publish: (ReaderPresentationEvent) -> paige.navic.reader.ReaderPresentationEventReceipt? = { event ->
 				events += event
+				if (retainedPauseInvalid != null) {
+					if (event is ReaderPresentationEvent.Lifecycle && event.event == ReaderPresentationLifecycleEvent.RendererLost)
+						selectedFailureOrder += "renderer-lost"
+					if (event is ReaderPresentationEvent.BindingReplaced && event.previousBinding == binding &&
+						event.binding == binding.copy(rasterGeneration = null, textureGeneration = null))
+						selectedFailureOrder += "proof-removed"
+				}
 				val step = common.onPresentationEvent(event)
 				common = step.controller
 				step.presentationReceipt
@@ -1791,7 +1827,7 @@ class KomikkuReaderNativeFrameHostTest {
 				assertRetainedProjection("retry-effect-delivery")
 				val correlation = assertNotNull(webView.recoveryReasons.lastOrNull())
 				val retryDeadlinePosts = deadlines.postCount
-				fun verifyTimeoutRetryCancel(lateTail: () -> Unit) {
+				fun verifyTimeoutRetryCancel(afterTimeout: () -> Unit = {}, lateTail: () -> Unit) {
 					assertTrue(deadlines.hasPending)
 					val pendingToken = readerPresentationDecision(common.state.presentation).pendingTransitionToken
 					nowMillis += deadlineDelayMillis
@@ -1807,6 +1843,7 @@ class KomikkuReaderNativeFrameHostTest {
 					assertTrue(task8SurfaceOwnsGeneration(controller.surfaceView, 301L))
 					assertEquals(1f, controller.surfaceView.alpha)
 					assertFalse(deadlines.hasPending)
+					afterTimeout()
 					lateTail()
 					ShadowLooper.runUiThreadTasks()
 					assertEquals(failed, common.state, "Late physical/source completion must not revive timeout")
@@ -2144,6 +2181,56 @@ class KomikkuReaderNativeFrameHostTest {
 						assertEquals(1, rendererReleaseCounts[obsolete])
 					}
 					assertNull(rendererReleaseCounts[successorGeneration])
+					if (retainedPauseInvalid != null) {
+						val surface = controller.surfaceView
+						val renderer = surface.javaClass.task7Field("renderer").get(surface)
+						@Suppress("UNCHECKED_CAST")
+						val selectedDeck = renderer.javaClass.task7Field("activeDeck").get(renderer) as PageDeck<Bitmap>
+						assertEquals(301L, selectedDeck.generationId)
+						assertEquals(301L, (renderer.javaClass.task7Field("portraitFrontResource").get(renderer) as PageImage<*>).generationId)
+						assertNull(surface.javaClass.task7Field("nativeFrameRequest").get(surface),
+							"Pause must test retained-material validation, not candidate-cancellation rollback")
+						val releaseGate = surface.javaClass.task7Field("releaseGate").get(surface)
+						fun selectedReleaseState() = releaseGate.javaClass.task7Method("stateFor", java.lang.Long.TYPE)
+							.invoke(releaseGate, 301L)?.toString()
+						assertEquals("QUEUE_ACCEPTED", selectedReleaseState())
+						assertTrue(surface.javaClass.task7Field("attached").getBoolean(surface))
+						assertTrue(controller.javaClass.task7Method("generationBacksCommonPresentation", java.lang.Long.TYPE)
+							.invoke(controller, 301L) as Boolean)
+						selectedFailureOrder.clear()
+						if (retainedPauseInvalid) selectedDeck.pages.first { !it.isFiller }.content.recycle()
+						// The actual pause validates retained client material after the GL thread stops.
+						surface.detach()
+						ShadowLooper.runUiThreadTasks()
+						val decision = readerPresentationDecision(common.state.presentation)
+						if (retainedPauseInvalid) {
+							val diagnostic = assertIs<ReaderDiagnosticPresentation.Failure>(decision.diagnosticPresentation,
+								"Invalid selected pause must deliver actionable failure before retiring its registered owner")
+							assertEquals(ReaderPresentationFailureReason.RendererLost, diagnostic.reason)
+							assertTrue(diagnostic.retryable)
+							assertFalse(diagnostic.cancellable)
+							assertEquals(listOf("failure", "renderer-lost", "terminal", "proof-removed"), selectedFailureOrder)
+							assertEquals(listOf(true), selectedFailureOwned)
+							assertEquals(ReaderPresentationFrameOwner.Neutral, decision.frameOwner)
+							assertEquals(1, predecessorReleases)
+							assertEquals(1, rendererReleaseCounts[301L])
+							assertFalse(owners.containsKey(301L))
+							assertNull(selectedReleaseState())
+						} else {
+							assertNull(common.state.presentation.failure)
+							assertEquals(retained, decision.frameOwner)
+							assertTrue(task8SurfaceOwnsGeneration(surface, 301L))
+							assertEquals("QUEUE_ACCEPTED", selectedReleaseState())
+							assertSame(selectedDeck, renderer.javaClass.task7Field("activeDeck").get(renderer))
+							assertEquals(0, predecessorReleases)
+							assertTrue(selectedFailureOrder.isEmpty())
+						}
+						val paused = common.state
+						surface.detach()
+						ShadowLooper.runUiThreadTasks()
+						assertEquals(paused, common.state)
+						return@runTest
+					}
 					controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
 						.invoke(controller.surfaceView, successorGeneration)
 					ShadowLooper.runUiThreadTasks()
@@ -2191,7 +2278,35 @@ class KomikkuReaderNativeFrameHostTest {
 							assertEquals(6_000L, deadlineDelayMillis)
 							assertEquals(retryDeadlinePosts + 1, deadlines.postCount)
 						}
-						verifyTimeoutRetryCancel {
+						verifyTimeoutRetryCancel(afterTimeout = {
+							if (livenessBoundary == Task9LivenessBoundary.MissingFrame) {
+								val lastRequest = frames.javaClass.task7Field("lastRequestId").getLong(frames)
+								val proofEvents = events.filterIsInstance<ReaderPresentationEvent.NativePagePresented>().size
+								// Replay the current failed Compose model through the real receiving port.
+								updateDestination(common.state.presentation.binding?.destinationCommitIdentity)
+								ShadowLooper.runUiThreadTasks()
+								controller.surfaceView.javaClass.task7Method("handlePresentedFrame", java.lang.Long.TYPE)
+									.invoke(controller.surfaceView, completion)
+								repeat(2) {
+									val nextCompletion = frames.javaClass.task7Method("markRendered").invoke(frames) as Long
+									controller.surfaceView.javaClass.task7Method("handlePresentedFrame", java.lang.Long.TYPE)
+										.invoke(controller.surfaceView, nextCompletion)
+									ShadowLooper.runUiThreadTasks()
+								}
+								assertEquals(lastRequest, frames.javaClass.task7Field("lastRequestId").getLong(frames),
+									"Failed Compose replay must cancel, not register tokenless replacement frames")
+								assertNull(viewerClass.task7Method("currentNativePagePresentationCandidateOrNull").invoke(viewer))
+								val publisher = viewerClass.task7Field("nativePagePresentationPublisher\$delegate").get(viewer) as Lazy<*>
+								val nativePublisher = assertNotNull(publisher.value)
+								assertNull(nativePublisher.javaClass.task7Field("pendingFrame").get(nativePublisher))
+								assertNull(controller.surfaceView.javaClass.task7Field("nativeFrameRequest").get(controller.surfaceView))
+								assertEquals(301L, (physicalRenderer.javaClass.task7Field("activeDeck")
+									.get(physicalRenderer) as PageDeck<*>).generationId)
+								assertEquals(301L, (physicalRenderer.javaClass.task7Field("portraitFrontResource")
+									.get(physicalRenderer) as PageImage<*>).generationId)
+								assertEquals(proofEvents, events.filterIsInstance<ReaderPresentationEvent.NativePagePresented>().size)
+							}
+						}) {
 							controller.surfaceView.javaClass.task7Method("handlePresentedFrame", java.lang.Long.TYPE)
 								.invoke(controller.surfaceView, completion)
 							callbacks.forEach { it.onReceiveValue(plan) }
@@ -2273,6 +2388,10 @@ class KomikkuReaderNativeFrameHostTest {
 					ShadowLooper.runUiThreadTasks()
 					assertEquals(0, controller.surfaceView.pendingCallbackCount)
 					assertEquals(0, controller.applicationOwnershipMetrics().pendingVisualCallbacks)
+					if (retainedPauseInvalid != null && bodyFailure == null) {
+						assertEquals(1, rendererReleaseCounts[301L], "Terminal close must retire retained selection exactly once")
+						assertFalse(task8SurfaceOwnsGeneration(controller.surfaceView, 301L))
+					}
 					for (generation in producedRendererGenerations) {
 						assertEquals(1, rendererReleaseCounts[generation])
 						assertFalse(task8SurfaceOwnsGeneration(controller.surfaceView, generation))

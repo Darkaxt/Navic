@@ -2144,7 +2144,7 @@ public class PageSurfaceView extends GLSurfaceView {
         for (PageSurfaceGenerationReleaseRecord<Bitmap> record :
                 releaseGate.terminallyAbandonAccepted(
                         generationId -> !disposeStarted && generationId == selectedFrameGeneration
-                                && renderer.retainsValidFrame(generationId),
+                                && renderer.retainsValidFrame(generationId, this::handleRenderFailure),
                         renderer::terminallyAbandonDeck)) {
             long generationId = record.getGenerationId();
             if (preparedGenerations.remove(generationId)) {

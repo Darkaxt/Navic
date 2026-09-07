@@ -1659,8 +1659,10 @@ private fun ReaderPresentationState.reduceNativePageProof(
 			request != null &&
 			(retainedCover != null || authority.retainedFrame == ReaderPresentationFrameOwner.Neutral ||
 				request.retryAfterPreparationGeneration != null) &&
+			// A failed fresh-preparation attempt needs another Retry, not its late proof.
 			(request.retryAfterPreparationGeneration == null ||
-				(proof.binding.preparationGeneration ?: -1L) > request.retryAfterPreparationGeneration) &&
+				(failure == null &&
+					(proof.binding.preparationGeneration ?: -1L) > request.retryAfterPreparationGeneration)) &&
 			request.token == proof.transitionToken &&
 			request.binding == proof.binding &&
 			binding == proof.binding

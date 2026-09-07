@@ -2759,6 +2759,21 @@ class ReaderPresentationAuthorityReducerTest {
 		assertEquals(ReaderPresentationFrameOwner.Neutral, fresh.decision.frameOwner)
 		assertEquals(target, fresh.state.binding)
 		assertIs<ReaderPresentationEffect.RetryPreparation>(fresh.effects.single())
+		val freshTarget = target.copy(
+			profileGeneration = target.profileGeneration + 1L,
+			preparationGeneration = requireNotNull(target.preparationGeneration) + 1L,
+			rasterGeneration = requireNotNull(target.rasterGeneration) + 1L,
+			textureGeneration = requireNotNull(target.textureGeneration) + 1L)
+		val freshPrepared = readerPresentationReduce(fresh.state,
+			ReaderPresentationEvent.BindingReplaced(target, freshTarget))
+		assertEquals(ReaderPresentationEventDisposition.Accepted, freshPrepared.disposition)
+		assertEquals(freshPrepared.state, readerPresentationReduce(freshPrepared.state, lateProof).state)
+		val freshProof = ReaderPresentationEvent.NativePagePresented(
+			nativeProofFor(freshTarget, 31L).copy(transitionToken = fresh.decision.pendingTransitionToken))
+		val recovered = readerPresentationReduce(freshPrepared.state, freshProof)
+		assertEquals(ReaderPresentationEventDisposition.Accepted, recovered.disposition)
+		assertIs<ReaderPresentationAuthority.SettledNativePage>(recovered.state.authority)
+		assertNull(recovered.state.failure)
 
 		// Once another actual proof is selected, the old selected deck is unselected.
 		val settled = readerPresentationReduce(prepared.state, lateProof)

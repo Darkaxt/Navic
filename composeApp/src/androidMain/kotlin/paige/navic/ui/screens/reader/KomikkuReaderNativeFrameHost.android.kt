@@ -2980,6 +2980,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun currentNativePagePresentationCandidateOrNull(): ReaderNativePagePresentationCandidate? {
+		// Failed common work is ineligible, not a new tokenless presentation. Returning
+		// no candidate lets the publisher cancel its physical request and roll back.
+		if (presentationDecision?.diagnosticPresentation is ReaderDiagnosticPresentation.Failure) return null
 		val binding = currentPresentationBindingOrNull()
 		if (presentationBindingReporter.lastReportedBinding != binding) return null
 		val deck = preparedActiveDeck

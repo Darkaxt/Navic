@@ -222,7 +222,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     }
 
     /** Called only after the GL thread is paused; retaining client material is not GL proof. */
-    boolean retainsValidFrame(long generationId) {
+    boolean retainsValidFrame(
+            long generationId,
+            java.util.function.Consumer<RenderFailure> onInvalidMaterial) {
         PageDeck<Bitmap> deck = generation(activeDeck) == generationId ? activeDeck
                 : generation(replacementDeck) == generationId ? replacementDeck : null;
         if (disposed || deck == null) return false;
@@ -230,8 +232,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             validateDeck(deck);
             return true;
         } catch (RuntimeException invalidMaterial) {
-            reportFailure(generationId, true, RenderFailureReason.BITMAP,
-                    "Selected retained material is unavailable", invalidMaterial);
+            // This validation runs on main before lease retirement, not on the GL queue.
+            onInvalidMaterial.accept(new RenderFailure(generationId, true, RenderFailureReason.BITMAP,
+                    "Selected retained material is unavailable", invalidMaterial));
             return false;
         }
     }
