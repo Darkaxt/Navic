@@ -26,6 +26,35 @@ import navic.composeapp.generated.resources.info_reader_preparing_pages
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.reader.ReaderDiagnosticPresentation
 import paige.navic.reader.ReaderPreparationPresentation
+import paige.navic.reader.ReaderPresentationAuthority
+import paige.navic.reader.ReaderPresentationDecision
+import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationEventReceipt
+import paige.navic.reader.ReaderPresentationLifecycleState
+
+internal fun readerPreparationCancelCallback(
+	decision: ReaderPresentationDecision,
+	currentDecision: () -> ReaderPresentationDecision,
+	onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
+): () -> Unit = cancel@{
+	// A click from an obsolete overlay must not cancel a newer authority attempt.
+	if (decision != currentDecision() ||
+		decision.lifecycle != ReaderPresentationLifecycleState.Foreground ||
+		(decision.diagnosticPresentation as? ReaderDiagnosticPresentation.Failure)?.cancellable != true
+	) return@cancel
+	val pending = decision.authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
+	onPresentationEvent(
+		if (pending != null) {
+			ReaderPresentationEvent.LiveEngineHandoffCancelled(
+				direction = pending.direction,
+				token = pending.token,
+				binding = pending.binding
+			)
+		} else {
+			ReaderPresentationEvent.Cancel
+		}
+	)
+}
 
 @Composable
 internal fun ReaderPagePreparationOverlay(

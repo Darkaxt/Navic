@@ -1,6 +1,7 @@
 package paige.navic.reader
 
 import java.io.File
+import paige.navic.ui.screens.reader.readerPreparationCancelCallback
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -1094,6 +1095,251 @@ class ReaderPresentationAuthoritySequenceTest {
 			assertTrue(settled.state.rendererCleanupOwnership.isEmpty())
 			assertNull(settled.decision.pendingTransitionToken)
 			settled.state.assertSequenceInvariants()
+		}
+	}
+
+	@Test
+	fun preparationCancelCallbackTerminatesCoverTimeoutWithOriginalCoverRetained() {
+		val fixture = PreparationCancelFixture(committedCoverState())
+		val cover = fixture.decision.frameOwner
+		fixture.dispatch(ReaderPresentationEvent.ShellCoverDismissalRequested)
+		fixture.timeout()
+		assertTrue(assertIs<ReaderDiagnosticPresentation.Failure>(fixture.decision.diagnosticPresentation).cancellable)
+
+		fixture.callback().invoke()
+
+		assertEquals(listOf<ReaderPresentationEvent>(ReaderPresentationEvent.Cancel), fixture.emitted,
+			"The visible cover timeout Cancel callback must dispatch generic Cancel")
+		fixture.assertCancelledCover(cover)
+	}
+
+	@Test
+	fun preparationCancelCallbackRetainsAttributedPartialCoverAndUnallocatedRetryFloor() {
+		for (latestTexture in listOf(false, true)) {
+			val fixture = PreparationCancelFixture(preparingAttributedCoverRetry(latestTexture))
+			val cover = fixture.decision.frameOwner
+			val partial = requireNotNull(fixture.state.binding)
+			val cleanup = fixture.state.rendererCleanupOwnership
+			assertNull(partial.rasterGeneration)
+			assertNull(partial.textureGeneration)
+			fixture.timeout()
+			fixture.callback().invoke()
+			assertEquals(listOf<ReaderPresentationEvent>(ReaderPresentationEvent.Cancel), fixture.emitted,
+				"Cancel must be reachable after attributed fresh Retry with original cover A and partial B")
+			fixture.assertCancelledCover(cover)
+			assertEquals(partial, fixture.state.binding)
+			assertEquals(cleanup, fixture.state.rendererCleanupOwnership)
+
+			fixture.dispatch(ReaderPresentationEvent.ShellCoverDismissalRequested)
+			fixture.timeout()
+			fixture.dispatch(ReaderPresentationEvent.Retry)
+			val request = requireNotNull(assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+				fixture.state.authority).nativePresentationRequest)
+			assertEquals(partial.preparationGeneration, request.retryAfterPreparationGeneration)
+			fixture.timeout()
+			fixture.callback().invoke()
+			assertEquals(listOf<ReaderPresentationEvent>(ReaderPresentationEvent.Cancel, ReaderPresentationEvent.Cancel), fixture.emitted)
+			fixture.assertCancelledCover(cover)
+			assertEquals(partial, fixture.state.binding)
+			assertEquals(cleanup, fixture.state.rendererCleanupOwnership)
+		}
+	}
+
+	@Test
+	fun preparationCancelCallbackRoutesCancellablePreparationFailuresWithoutChangingPolicy() {
+		for (retainCover in listOf(false, true)) {
+			val initial = if (retainCover) committedCoverState() else ReaderPresentationState(
+				binding = requireNotNull(settledNativePresentationState().binding))
+			val fixture = PreparationCancelFixture(initial)
+			val retained = fixture.decision.frameOwner
+			fixture.dispatch(if (retainCover) ReaderPresentationEvent.ShellCoverDismissalRequested
+				else ReaderPresentationEvent.NativePageRequested)
+			fixture.dispatch(ReaderPresentationEvent.PreparationFailed(
+				requireNotNull(fixture.state.binding), settledNativePresentationState().preparationFacts,
+				ReaderPresentationFailureReason.PreparationFailed, cancellable = true))
+			fixture.callback().invoke()
+			assertEquals(listOf<ReaderPresentationEvent>(ReaderPresentationEvent.Cancel), fixture.emitted,
+				"Cancellable preparation failure must dispatch Cancel; retainCover=$retainCover")
+			assertEquals(retained, fixture.decision.frameOwner)
+			assertEquals(ReaderDiagnosticPresentation.Hidden, fixture.decision.diagnosticPresentation)
+			assertNull(fixture.decision.pendingTransitionToken)
+			assertEquals(ReaderRequiredTransition.None, fixture.decision.requiredTransition)
+		}
+	}
+
+	@Test
+	fun preparationCancelCallbackTerminatesCurlAttemptButKeepsTruthfulRetryableFailure() {
+		val fixture = PreparationCancelFixture(settledNativePresentationState())
+		val binding = requireNotNull(fixture.state.binding)
+		val frame = ReaderCurlPresentationFrame(ReaderPresentationToken(40L), binding, 21L,
+			1200, 800, requireNotNull(binding.rasterGeneration), requireNotNull(binding.textureGeneration))
+		fixture.dispatch(ReaderPresentationEvent.CurlClaimed(frame))
+		fixture.dispatch(ReaderPresentationEvent.CurlTerminal(frame.token, binding, expectedAcknowledgement = null))
+		fixture.timeout()
+		fixture.callback().invoke()
+		assertEquals(listOf<ReaderPresentationEvent>(ReaderPresentationEvent.Cancel), fixture.emitted,
+			"Cancellable curl timeout must dispatch Cancel")
+		assertEquals(ReaderPresentationFrameOwner.Curl(frame), fixture.decision.frameOwner)
+		assertIs<ReaderPresentationAuthority.BlockingPreparation>(fixture.state.authority)
+		assertNull(fixture.decision.pendingTransitionToken)
+		assertEquals(ReaderRequiredTransition.None, fixture.decision.requiredTransition)
+		val failure = assertIs<ReaderDiagnosticPresentation.Failure>(fixture.decision.diagnosticPresentation)
+		assertTrue(failure.retryable)
+		assertFalse(failure.cancellable)
+		fixture.callback().invoke()
+		assertEquals(1, fixture.emitted.size, "Terminal curl diagnostic must not authorize another Cancel")
+	}
+
+	@Test
+	fun preparationCancelCallbackPreservesExactHandoffDirectionTokenAndBinding() {
+		for (direction in ReaderLiveEngineHandoffDirection.entries) {
+			val fixture = PreparationCancelFixture(failedHandoffState(direction))
+			val retained = fixture.decision.frameOwner
+			val pending = assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(fixture.state.authority)
+			val exact = ReaderPresentationEvent.LiveEngineHandoffCancelled(direction, pending.token, pending.binding)
+			for (wrong in listOf(
+				exact.copy(direction = ReaderLiveEngineHandoffDirection.entries.first { it != direction }),
+				exact.copy(token = ReaderPresentationToken(pending.token.value + 1L)),
+				exact.copy(binding = pending.binding.copy(viewportGeneration = pending.binding.viewportGeneration + 1L))
+			)) {
+				val rejected = readerPresentationReduce(fixture.state, wrong)
+				assertEquals(ReaderPresentationEventDisposition.Stale, rejected.disposition)
+				assertEquals(fixture.state, rejected.state)
+				assertTrue(rejected.effects.isEmpty())
+			}
+			fixture.callback().invoke()
+			assertEquals(listOf<ReaderPresentationEvent>(exact), fixture.emitted)
+			assertEquals(retained, fixture.decision.frameOwner)
+			assertEquals(ReaderDiagnosticPresentation.Hidden, fixture.decision.diagnosticPresentation)
+			assertNull(fixture.decision.pendingTransitionToken)
+			assertEquals(ReaderRequiredTransition.None, fixture.decision.requiredTransition)
+		}
+	}
+
+	@Test
+	fun preparationCancelCallbackRejectsStaleClicksBeforeComposeCatchesUp() {
+		val cover = PreparationCancelFixture(committedCoverState()).apply {
+			dispatch(ReaderPresentationEvent.ShellCoverDismissalRequested)
+			timeout()
+		}.state
+		for (failed in listOf(cover) + ReaderLiveEngineHandoffDirection.entries.map(::failedHandoffState)) {
+			for (change in listOf("retry", "successor-timeout", "cancel-reentry", "background", "closed", "replacement")) {
+				val fixture = PreparationCancelFixture(failed)
+				val oldClick = fixture.callback()
+				when (change) {
+					"retry", "successor-timeout" -> {
+						fixture.dispatch(ReaderPresentationEvent.Retry)
+						if (change == "successor-timeout") fixture.timeout()
+					}
+					"cancel-reentry" -> {
+						fixture.dispatch(ReaderPresentationEvent.Cancel)
+						val handoff = failed.authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
+						fixture.dispatch(handoff?.let { ReaderPresentationEvent.WebViewHandoffRequested(it.direction) }
+							?: ReaderPresentationEvent.ShellCoverDismissalRequested)
+						fixture.timeout()
+					}
+					"background" -> fixture.dispatch(ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityLost))
+					"closed" -> fixture.dispatch(ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.PublicationClosed))
+					"replacement" -> fixture.dispatch(ReaderPresentationEvent.PublicationOpened(
+						requireNotNull(failed.binding).copy(publicationGeneration = requireNotNull(failed.binding).publicationGeneration + 1L)))
+				}
+				val current = fixture.state
+				oldClick()
+				assertTrue(fixture.emitted.isEmpty(), "A stale $change callback must not dispatch cancellation")
+				assertEquals(current, fixture.state)
+			}
+		}
+	}
+
+	@Test
+	fun preparationCancelCallbackRejectsHiddenNoncancellableAndSuspendedDecisions() {
+		val pendingCover = readerPresentationReduce(committedCoverState(),
+			ReaderPresentationEvent.ShellCoverDismissalRequested).state
+		val failedCover = readerPresentationReduce(pendingCover,
+			ReaderPresentationEvent.TimedOut(readerPresentationDecision(pendingCover).pendingTransitionToken)).state
+		for (failed in listOf(failedCover) + ReaderLiveEngineHandoffDirection.entries.map(::failedHandoffState)) {
+			for (denied in listOf(
+				failed.copy(failure = requireNotNull(failed.failure).copy(cancellable = false)),
+				failed.copy(failure = null),
+				failed.copy(lifecycle = ReaderPresentationLifecycleState.Background),
+				failed.copy(lifecycle = ReaderPresentationLifecycleState.Destroyed)
+			)) {
+				val fixture = PreparationCancelFixture(denied)
+				fixture.callback().invoke()
+				assertTrue(fixture.emitted.isEmpty(), "Hidden, noncancellable or suspended decisions cannot dispatch Cancel")
+				assertEquals(denied, fixture.state)
+			}
+		}
+	}
+
+	@Test
+	fun preparationCancelCallbackIsTheComposeButtonRouteAndReadsCurrentCoordinatorAuthority() {
+		val root = sourceFile("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt").readText()
+		val screen = sourceFile("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt").readText()
+		val overlay = sourceFile("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPagePreparationOverlay.kt").readText()
+		val route = root.substringAfter("ReaderPagePreparationOverlay(").substringBefore("modifier = Modifier.matchParentSize()")
+		assertContains(route, "onCancel = readerPreparationCancelCallback(")
+		assertContains(route, "decision = presentationDecision")
+		assertContains(route, "currentDecision = currentPresentationDecision")
+		assertContains(route, "onPresentationEvent = onPresentationEvent")
+		assertContains(screen, "currentPresentationDecision = { coordinator.controller.state.presentationDecision }")
+		assertContains(overlay, "if (failure.cancellable)")
+		assertContains(overlay, "TextButton(onClick = onCancel)")
+	}
+
+	private fun failedHandoffState(direction: ReaderLiveEngineHandoffDirection): ReaderPresentationState {
+		val fixture = PreparationCancelFixture(settledNativePresentationState())
+		fixture.dispatch(ReaderPresentationEvent.WebViewHandoffRequested(ReaderLiveEngineHandoffDirection.NativeToLiveEngine))
+		if (direction == ReaderLiveEngineHandoffDirection.LiveEngineToNative) {
+			val pending = assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(fixture.state.authority)
+			fixture.dispatch(ReaderPresentationEvent.LiveEngineExposureCommitted(
+				ReaderLiveEnginePresentationProof(pending.token, pending.binding, 1L)))
+			fixture.dispatch(ReaderPresentationEvent.WebViewHandoffRequested(direction))
+		}
+		fixture.timeout()
+		return fixture.state
+	}
+
+	private class PreparationCancelFixture(initial: ReaderPresentationState) {
+		private var controller = ReaderController(ReaderControllerState(presentation = initial,
+			shellCoverVisible = readerPresentationDecision(initial).frameOwner is ReaderPresentationFrameOwner.ShellCover))
+		val emitted = mutableListOf<ReaderPresentationEvent>()
+		val state get() = controller.state.presentation
+		val decision get() = controller.state.presentationDecision
+
+		fun dispatch(event: ReaderPresentationEvent): ReaderPresentationEventReceipt? {
+			val step = controller.onPresentationEvent(event)
+			controller = step.controller
+			return step.presentationReceipt
+		}
+
+		fun timeout() {
+			val pending = decision.authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
+			dispatch(pending?.let { ReaderPresentationEvent.LiveEngineHandoffTimedOut(it.direction, it.token, it.binding) }
+				?: ReaderPresentationEvent.TimedOut(requireNotNull(decision.pendingTransitionToken)))
+			assertEquals(ReaderPresentationFailureReason.TimedOut, state.failure?.reason)
+		}
+
+		fun callback(): () -> Unit = readerPreparationCancelCallback(
+			decision = decision,
+			currentDecision = { decision },
+			onPresentationEvent = { event ->
+				emitted += event
+				dispatch(event)
+			}
+		)
+
+		fun assertCancelledCover(cover: ReaderPresentationFrameOwner) {
+			assertEquals(cover, decision.frameOwner)
+			assertEquals(assertIs<ReaderPresentationFrameOwner.ShellCover>(cover).proof,
+				assertIs<ReaderPresentationAuthority.ShellCover>(state.authority).proof)
+			assertEquals(ReaderPresentationInputPolicy.ShellCover, decision.inputPolicy)
+			assertEquals(ReaderDiagnosticPresentation.Hidden, decision.diagnosticPresentation)
+			assertEquals(ReaderPreparationPresentation.Hidden, decision.preparationPresentation)
+			assertEquals(ReaderRequiredTransition.None, decision.requiredTransition)
+			assertNull(decision.pendingTransitionToken)
+			assertNull(state.failure)
+			assertTrue(controller.state.shellCoverVisible)
 		}
 	}
 

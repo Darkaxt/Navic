@@ -498,9 +498,24 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun preparationOverlayUsesOnlyTheAtomicPresentationDecision() {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val readerScreenText = readerScreenFile().readText()
+		val preparationOverlayText = readerCommonUiFile("ReaderPagePreparationOverlay.kt").readText()
 		val overlay = readerRootText
 			.substringAfter("ReaderPagePreparationOverlay(")
 			.substringBefore("modifier = Modifier.matchParentSize()")
+		val cancelCallback = preparationOverlayText
+			.substringAfter("internal fun readerPreparationCancelCallback(")
+			.substringBefore("\n@Composable")
+		val cancelGuard = cancelCallback.substringBefore("val pending =")
+		val handoffCancellation = cancelCallback
+			.substringAfter("if (pending != null) {")
+			.substringBefore("} else {")
+		val genericCancellation = cancelCallback
+			.substringAfter("} else {")
+			.substringBefore("\n\t\t}")
+		val cancelButton = preparationOverlayText
+			.substringAfter("if (failure.cancellable) {")
+			.substringBefore("if (failure.retryable)")
 
 		assertContains(
 			overlay,
@@ -514,15 +529,35 @@ class ReaderRuntimeShellProgressTest {
 			overlay,
 			"onRetry = { onPresentationEvent(ReaderPresentationEvent.Retry) }"
 		)
+		assertContains(overlay, "onCancel = readerPreparationCancelCallback(")
+		assertContains(overlay, "decision = presentationDecision")
+		assertContains(overlay, "currentDecision = currentPresentationDecision")
+		assertContains(overlay, "onPresentationEvent = onPresentationEvent")
 		assertContains(
-			overlay,
-			"presentationDecision.authority as? " +
-				"ReaderPresentationAuthority.LiveEngineHandoffPending"
+			readerScreenText,
+			"currentPresentationDecision = { coordinator.controller.state.presentationDecision }"
 		)
-		assertContains(overlay, "ReaderPresentationEvent.LiveEngineHandoffCancelled(")
-		assertContains(overlay, "direction = pending.direction")
-		assertContains(overlay, "token = pending.token")
-		assertContains(overlay, "binding = pending.binding")
+		assertContains(cancelGuard, "if (decision != currentDecision() ||")
+		assertContains(
+			cancelGuard,
+			"decision.lifecycle != ReaderPresentationLifecycleState.Foreground ||"
+		)
+		assertContains(
+			cancelGuard,
+			"(decision.diagnosticPresentation as? ReaderDiagnosticPresentation.Failure)?.cancellable != true"
+		)
+		assertContains(cancelGuard, ") return@cancel")
+		assertContains(
+			cancelCallback,
+			"val pending = decision.authority as? ReaderPresentationAuthority.LiveEngineHandoffPending"
+		)
+		assertContains(cancelCallback, "onPresentationEvent(")
+		assertContains(handoffCancellation, "ReaderPresentationEvent.LiveEngineHandoffCancelled(")
+		assertContains(handoffCancellation, "direction = pending.direction")
+		assertContains(handoffCancellation, "token = pending.token")
+		assertContains(handoffCancellation, "binding = pending.binding")
+		assertEquals("ReaderPresentationEvent.Cancel", genericCancellation.trim())
+		assertContains(cancelButton, "TextButton(onClick = onCancel)")
 		assertFalse(overlay.contains("onPresentationEvent(ReaderPresentationEvent.Cancel)"))
 		assertFalse(readerRootText.contains("pagePreparationState"))
 		assertFalse(readerRootText.contains("pagePreparationRetryKey"))
