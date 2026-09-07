@@ -1,6 +1,7 @@
 # Bulk playback startup feedback
 
-Status: implemented and host-verified. Android only; no installation or release.
+Status: implemented and host-verified. Android only; target release iota67.
+No device installation was performed.
 
 ## Evidence and scope
 
@@ -69,5 +70,5 @@ automatic visual enrichment on visible, active consumers, retain cached results,
 and resume only for the current song. Preserve intentional offline downloads and
 visible picture-in-picture/secondary-display consumers. Audio and queue preparation
 must remain independent. This is an evidence-backed optimization opportunity, not
-proof that these requests cause the reported startup delay; implementation is not
-part of the feedback change.
+proof that these requests cause the reported startup delay. This is implemented
+separately under `2026-09-07-visual-enrichment-resume.md` for the same release.

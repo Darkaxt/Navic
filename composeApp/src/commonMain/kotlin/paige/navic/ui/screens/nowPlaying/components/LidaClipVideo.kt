@@ -29,6 +29,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_play_music_video
 import org.jetbrains.compose.resources.stringResource
@@ -62,6 +63,7 @@ import paige.navic.icons.outlined.Movie
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.KeepScreenOn
+import paige.navic.ui.components.common.VisualContentLifecycleEffect
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.lidaClips.PlatformLidaClipPlayer
 
@@ -77,7 +79,10 @@ fun ExtraScreenLidaClipBackground(
 	val lidaClipCacheManager = koinInject<LidaClipCacheManager>()
 	val playerState by player.uiState.collectAsState()
 	var cachedClip by remember(song?.id) { mutableStateOf<DomainLidaClip?>(null) }
-	val shouldLoadClip = shouldShowLidaClipsMusicVideoAction(
+	var visualContentActive by remember { mutableStateOf(false) }
+	VisualContentLifecycleEffect(enabled) { visualContentActive = it }
+	val startup by player.playbackStartFeedback.state.collectAsStateWithLifecycle()
+	val shouldLoadClip = visualContentActive && startup == null && shouldShowLidaClipsMusicVideoAction(
 		lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
 		lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
 		userActionEnabled = enabled,
@@ -91,7 +96,6 @@ fun ExtraScreenLidaClipBackground(
 		preferenceManager.lidaClipsApiKey,
 		preferenceManager.lidaClipsVideoCacheSizeMb
 	) {
-		cachedClip = null
 		val currentSong = song ?: return@LaunchedEffect
 		if (!shouldLoadClip) {
 			return@LaunchedEffect

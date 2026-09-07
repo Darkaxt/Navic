@@ -9,6 +9,8 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.isSuccess
 import kotlinx.serialization.decodeFromString
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.encodeToString
 import paige.navic.data.database.dao.LyricDao
 import paige.navic.data.database.entities.LyricEntity
@@ -70,6 +72,7 @@ class LyricsRepository(
 		}
 
 		for (provider in currentConfig.priority) {
+			currentCoroutineContext().ensureActive()
 			try {
 				var rawContentToCache: String? = null
 
@@ -141,6 +144,7 @@ class LyricsRepository(
 				continue
 			}
 		}
+		currentCoroutineContext().ensureActive()
 		return cachedResult
 	}
 

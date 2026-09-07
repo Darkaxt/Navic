@@ -53,7 +53,8 @@ class LidaClipDownloadManager(
 	suspend fun getOrQueueClipForPlayback(
 		songId: String,
 		clip: DomainLidaClip,
-		persistOffline: Boolean
+		persistOffline: Boolean,
+		canStartRequest: () -> Boolean = { true }
 	): Result<DomainLidaClip?> {
 		if (!canStartDownload(songId)) {
 			return Result.success(null)
@@ -65,6 +66,8 @@ class LidaClipDownloadManager(
 
 		val activeDownload = activeDownloadsMutex.withLock {
 			activeDownloads[songId]?.let { return@withLock it }
+			// Recheck admission after cache/database and mutex suspension points.
+			if (!canStartRequest()) return@withLock null
 
 			val result = CompletableDeferred<Result<DomainLidaClip?>>()
 			val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
@@ -90,7 +93,7 @@ class LidaClipDownloadManager(
 			}
 		}
 
-		return activeDownload.result.await()
+		return activeDownload?.result?.await() ?: Result.success(null)
 	}
 
 	fun cancelDownload(songId: String) {
