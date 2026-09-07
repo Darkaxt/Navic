@@ -547,6 +547,219 @@ class ReaderPresentationAuthoritySequenceTest {
 		assertFalse(iosBody.contains("onPresentationEvent("))
 	}
 
+	@Test
+	fun boundedCoverEntryFailureRetryAndCancelNeverHideFailureOrLeavePendingWork() {
+		var controller = ReaderController(ReaderControllerState(presentation = settledNativePresentationState()))
+		fun dispatch(event: ReaderPresentationEvent): ReaderPresentationDecision {
+			controller = controller.onPresentationEvent(event).controller
+			controller.state.presentation.assertSequenceInvariants()
+			return controller.state.presentationDecision
+		}
+		val retained = controller.state.presentationDecision.frameOwner
+		val first = assertIs<ReaderRequiredTransition.CommitShellCover>(
+			dispatch(ReaderPresentationEvent.ShellCoverRequested(37L)).requiredTransition)
+		val failed = dispatch(ReaderPresentationEvent.TimedOut(first.token))
+		assertEquals(retained, failed.frameOwner)
+		val failure = assertIs<ReaderDiagnosticPresentation.Failure>(failed.diagnosticPresentation)
+		assertTrue(failure.retryable)
+		assertTrue(failure.cancellable)
+		assertEquals(ReaderRequiredTransition.None, failed.requiredTransition)
+		val retry = assertIs<ReaderRequiredTransition.CommitShellCover>(
+			dispatch(ReaderPresentationEvent.Retry).requiredTransition)
+		assertTrue(retry.token.value > first.token.value)
+		repeat(3) { assertEquals(retry, dispatch(ReaderPresentationEvent.Retry).requiredTransition) }
+		val cancelled = dispatch(ReaderPresentationEvent.Cancel)
+		assertEquals(retained, cancelled.frameOwner)
+		assertEquals(null, cancelled.pendingTransitionToken)
+		assertEquals(ReaderRequiredTransition.None, cancelled.requiredTransition)
+		val stale = ReaderShellCoverCommitProof(first.token, first.binding, first.coverGeneration,
+			12L, 1200, 800)
+		assertEquals(cancelled, dispatch(ReaderPresentationEvent.ShellCoverCommitted(stale)))
+	}
+
+	@Test
+	fun textureOnlyReplacementRetainsOriginalCoverThenDismissesOnlyForExactSuccessor() {
+		var state = committedCoverState()
+		val cover = readerPresentationDecision(state).frameOwner
+		val original = requireNotNull(state.binding)
+		var latest = original
+		fun dispatch(event: ReaderPresentationEvent): ReaderPresentationReduction =
+			readerPresentationReduce(state, event).also {
+				state = it.state
+				state.assertSequenceInvariants()
+			}
+		// Repeated page-deck completions cannot manufacture a newer shell receipt.
+		repeat(3) {
+			val successor = latest.copy(textureGeneration = requireNotNull(latest.textureGeneration) + 1L)
+			val replacement = dispatch(ReaderPresentationEvent.BindingReplaced(latest, successor))
+			assertEquals(cover, replacement.decision.frameOwner)
+			assertEquals(successor, replacement.decision.targetBinding)
+			assertEquals(ReaderPresentationInputPolicy.ShellCover, replacement.decision.inputPolicy)
+			assertEquals(ReaderPreparationPresentation.Hidden, replacement.decision.preparationPresentation)
+			assertEquals(ReaderRequiredTransition.None, replacement.decision.requiredTransition)
+			assertEquals(null, replacement.decision.pendingTransitionToken)
+			assertTrue(state.rendererCleanupOwnership.size <= 2)
+			latest = successor
+		}
+		val firstRequest = dispatch(ReaderPresentationEvent.ShellCoverDismissalRequested)
+		val cancelled = dispatch(ReaderPresentationEvent.Cancel)
+		assertEquals(cover, cancelled.decision.frameOwner)
+		assertEquals(latest, cancelled.state.binding)
+		assertEquals(ReaderRequiredTransition.None, cancelled.decision.requiredTransition)
+		val requested = dispatch(ReaderPresentationEvent.ShellCoverDismissalRequested)
+		assertTrue(requireNotNull(requested.decision.pendingTransitionToken).value >
+			requireNotNull(firstRequest.decision.pendingTransitionToken).value)
+		val transition = assertIs<ReaderRequiredTransition.PresentNativePage>(requested.decision.requiredTransition)
+		assertEquals(latest, transition.binding)
+		assertEquals(cover, requested.decision.frameOwner)
+		val exact = nativeProof(latest, 30L).copy(transitionToken = transition.token)
+		listOf(nativeProof(original, 29L).copy(transitionToken = transition.token),
+			exact.copy(transitionToken = ReaderPresentationToken(99L)),
+			exact.copy(transitionToken = null)).forEach { wrong ->
+			assertEquals(cover, dispatch(ReaderPresentationEvent.NativePagePresented(wrong)).decision.frameOwner)
+			assertEquals(transition, readerPresentationDecision(state).requiredTransition)
+		}
+		val settled = dispatch(ReaderPresentationEvent.NativePagePresented(exact))
+		assertEquals(ReaderPresentationFrameOwner.NativePage(exact), settled.decision.frameOwner)
+		assertEquals(ReaderRequiredTransition.None, settled.decision.requiredTransition)
+		assertTrue(state.rendererCleanupOwnership.isEmpty())
+		assertEquals(1, settled.effects.filterIsInstance<ReaderPresentationEffect.ReleaseStalePresentation>()
+			.count { it.binding == original })
+	}
+
+	@Test
+	fun textureOnlyCoverReplacementDoesNotEraseRealPreparationFailure() {
+		val cover = committedCoverState()
+		val original = requireNotNull(cover.binding)
+		val failedFacts = cover.preparationFacts.copy(phase = ReaderPagePreparationPhase.Failed,
+			failure = ReaderPresentationFailureReason.PreparationFailed, retryable = true)
+		val failed = readerPresentationReduce(cover, ReaderPresentationEvent.PreparationFailed(
+			original, failedFacts, ReaderPresentationFailureReason.PreparationFailed, cancellable = false))
+		val replacement = readerPresentationReduce(failed.state, ReaderPresentationEvent.BindingReplaced(
+			original, original.copy(textureGeneration = requireNotNull(original.textureGeneration) + 1L)))
+		assertEquals(failed.decision.frameOwner, replacement.decision.frameOwner)
+		assertEquals(failed.state.failure, replacement.state.failure)
+		assertEquals(failedFacts, replacement.state.preparationFacts)
+		assertIs<ReaderDiagnosticPresentation.Failure>(replacement.decision.diagnosticPresentation)
+		replacement.state.assertSequenceInvariants()
+	}
+
+	@Test
+	fun invalidationAfterTextureReplacementReleasesAbandonedOwnersBeforeRecommittedCoverRefresh() {
+		var state = committedCoverState()
+		val proofA = assertIs<ReaderPresentationAuthority.ShellCover>(state.authority).proof
+		val readyFacts = state.preparationFacts
+		val bindingA = requireNotNull(state.binding)
+		val bindingB = bindingA.copy(textureGeneration = requireNotNull(bindingA.textureGeneration) + 1L)
+		val bindingC = bindingB.copy(viewportGeneration = bindingB.viewportGeneration + 1L,
+			textureGeneration = requireNotNull(bindingB.textureGeneration) + 1L)
+		val bindingD = bindingC.copy(textureGeneration = requireNotNull(bindingC.textureGeneration) + 1L)
+		val reductions = mutableListOf<ReaderPresentationReduction>()
+		fun dispatch(event: ReaderPresentationEvent): ReaderPresentationReduction =
+			readerPresentationReduce(state, event).also {
+				state = it.state
+				state.assertSequenceInvariants()
+				reductions += it
+			}
+		dispatch(ReaderPresentationEvent.BindingReplaced(bindingA, bindingB))
+		assertEquals(listOf(bindingA, bindingB), state.rendererCleanupOwnership.map { it.binding })
+		val invalidationEvent = ReaderPresentationEvent.BindingReplaced(bindingB, bindingC)
+		val invalidated = dispatch(invalidationEvent)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, invalidated.decision.frameOwner)
+		val replayed = dispatch(invalidationEvent)
+		assertEquals(ReaderPresentationEventDisposition.Idempotent, replayed.disposition)
+		assertTrue(replayed.effects.isEmpty())
+		val transition = assertIs<ReaderRequiredTransition.CommitShellCover>(
+			dispatch(ReaderPresentationEvent.ShellCoverRequested(38L)).decision.requiredTransition)
+		val proofC = ReaderShellCoverCommitProof(transition.token, bindingC,
+			transition.coverGeneration, 20L, 1200, 800)
+		dispatch(ReaderPresentationEvent.ShellCoverCommitted(proofC))
+		val refreshed = dispatch(ReaderPresentationEvent.BindingReplaced(bindingC, bindingD))
+		assertEquals(ReaderPresentationFrameOwner.ShellCover(proofC), refreshed.decision.frameOwner)
+		assertEquals(listOf(bindingC, bindingD), state.rendererCleanupOwnership.map { it.binding })
+		assertTrue(invalidated.state.rendererCleanupOwnership.isEmpty())
+		assertEquals(listOf(
+			ReaderPresentationEffect.ReleaseStalePresentation(proofA.token, bindingA),
+			ReaderPresentationEffect.ReleaseStalePresentation(null, bindingB)), invalidated.effects)
+		dispatch(ReaderPresentationEvent.PreparationReported(bindingD, readyFacts))
+		val native = assertIs<ReaderRequiredTransition.PresentNativePage>(
+			dispatch(ReaderPresentationEvent.ShellCoverDismissalRequested).decision.requiredTransition)
+		dispatch(ReaderPresentationEvent.NativePagePresented(
+			nativeProof(bindingD, 21L).copy(transitionToken = native.token)))
+		assertTrue(state.rendererCleanupOwnership.isEmpty())
+		assertEquals(ReaderRequiredTransition.None, readerPresentationDecision(state).requiredTransition)
+		assertEquals(bindingD, assertIs<ReaderPresentationAuthority.SettledNativePage>(state.authority).frame.proof.binding)
+		assertIs<ReaderPageNewPointerDecision.Accept>(assertIs<ReaderPresentationInputPolicy.NativePage>(
+			readerPresentationDecision(state).inputPolicy).policy.newPointer)
+		assertEquals(listOf(bindingA, bindingB, bindingC), reductions.flatMap { it.effects }
+			.filterIsInstance<ReaderPresentationEffect.ReleaseStalePresentation>().map { it.binding })
+	}
+
+	@Test
+	fun textureOnlyCoverExceptionDoesNotRelaxOtherIdentityInvalidations() {
+		val cover = committedCoverState()
+		val original = requireNotNull(cover.binding)
+		val texture = requireNotNull(original.textureGeneration) + 1L
+		listOf(original.copy(textureGeneration = texture, viewportGeneration = original.viewportGeneration + 1L),
+			original.copy(textureGeneration = texture, profileGeneration = original.profileGeneration + 1L),
+			original.copy(textureGeneration = texture, rasterGeneration = requireNotNull(original.rasterGeneration) + 1L),
+			original.copy(textureGeneration = texture, preparationGeneration = requireNotNull(original.preparationGeneration) + 1L)
+		).forEach { invalid ->
+			val result = readerPresentationReduce(cover, ReaderPresentationEvent.BindingReplaced(original, invalid))
+			assertEquals(ReaderPresentationFrameOwner.Neutral, result.decision.frameOwner)
+			assertEquals(invalid, result.state.binding)
+			result.state.assertSequenceInvariants()
+		}
+		listOf(original.copy(publicationGeneration = original.publicationGeneration + 1L),
+			original.copy(foliateSessionId = "sequence-other", destinationCommitIdentity =
+				ReaderDestinationCommitIdentity("sequence-other", 1L))).forEach { invalid ->
+			assertEquals(ReaderPresentationFrameOwner.Neutral,
+				readerPresentationReduce(cover, ReaderPresentationEvent.PublicationOpened(invalid)).decision.frameOwner)
+		}
+		val unrelated = original.copy(destinationCommitIdentity = ReaderDestinationCommitIdentity(
+			original.foliateSessionId, requireNotNull(original.destinationCommitIdentity).commitSequence + 1L))
+		assertEquals(cover, readerPresentationReduce(cover,
+			ReaderPresentationEvent.FoliateRelocated(unrelated, acknowledgement = null)).state)
+	}
+
+	@Test
+	fun cancelAfterTextureReplacementCannotRestoreCoverWithOtherIdentityMismatch() {
+		val cover = committedCoverState()
+		val original = requireNotNull(cover.binding)
+		val pending = readerPresentationReduce(cover, ReaderPresentationEvent.ShellCoverDismissalRequested).state
+		val authority = assertIs<ReaderPresentationAuthority.BlockingPreparation>(pending.authority)
+		val request = requireNotNull(authority.nativePresentationRequest)
+		val successor = original.copy(textureGeneration = requireNotNull(original.textureGeneration) + 1L)
+		listOf(
+			successor.copy(foliateSessionId = "sequence-other", destinationCommitIdentity =
+				ReaderDestinationCommitIdentity("sequence-other", 1L)),
+			successor.copy(publicationGeneration = original.publicationGeneration + 1L),
+			successor.copy(viewportGeneration = original.viewportGeneration + 1L),
+			successor.copy(profileGeneration = original.profileGeneration + 1L),
+			successor.copy(destinationCommitIdentity = ReaderDestinationCommitIdentity(original.foliateSessionId,
+				requireNotNull(original.destinationCommitIdentity).commitSequence + 1L)),
+			successor.copy(rasterGeneration = requireNotNull(original.rasterGeneration) + 1L),
+			successor.copy(preparationGeneration = requireNotNull(original.preparationGeneration) + 1L)
+		).forEach { invalid ->
+			// A retained receipt is not evidence that an independently changed target is compatible.
+			val mismatched = pending.copy(binding = invalid,
+				authority = authority.copy(nativePresentationRequest = request.copy(binding = invalid)))
+			val cancelled = readerPresentationReduce(mismatched, ReaderPresentationEvent.Cancel)
+			assertEquals(ReaderPresentationFrameOwner.Neutral, cancelled.decision.frameOwner)
+			assertIs<ReaderDiagnosticPresentation.Failure>(cancelled.decision.diagnosticPresentation)
+			cancelled.state.assertSequenceInvariants()
+		}
+	}
+
+	private fun committedCoverState(): ReaderPresentationState {
+		val pending = readerPresentationReduce(settledNativePresentationState(),
+			ReaderPresentationEvent.ShellCoverRequested(37L))
+		val transition = assertIs<ReaderRequiredTransition.CommitShellCover>(pending.decision.requiredTransition)
+		return readerPresentationReduce(pending.state, ReaderPresentationEvent.ShellCoverCommitted(
+			ReaderShellCoverCommitProof(transition.token, transition.binding, transition.coverGeneration,
+				12L, 1200, 800))).state
+	}
+
 	private fun settledNativePresentationState(): ReaderPresentationState {
 		val binding = presentationBinding(session = "session-current", destinationSequence = 4L)
 		return ReaderPresentationState(
@@ -602,4 +815,28 @@ class ReaderPresentationAuthoritySequenceTest {
 		File(relativePath),
 		File("composeApp/$relativePath")
 	).firstOrNull(File::isFile) ?: error("Could not locate $relativePath")
+}
+
+/** Shared event-by-event contract; retained predecessor bindings are allowed only with input fenced. */
+internal fun ReaderPresentationState.assertSequenceInvariants() {
+	val decision = readerPresentationDecision(this)
+	assertEquals(authority, decision.authority)
+	assertEquals(binding, decision.targetBinding)
+	assertEquals(decision.frameOwner.layer(), decision.layer)
+	when (val input = decision.inputPolicy) {
+		ReaderPresentationInputPolicy.RecoveryOnly -> assertEquals(ReaderPresentationLayer.Neutral, decision.layer)
+		ReaderPresentationInputPolicy.ChromeOnly -> Unit
+		ReaderPresentationInputPolicy.ShellCover -> assertEquals(ReaderPresentationLayer.ShellCover, decision.layer)
+		ReaderPresentationInputPolicy.LiveEngine -> assertEquals(ReaderPresentationLayer.LiveEngine, decision.layer)
+		is ReaderPresentationInputPolicy.ClaimedCurl -> assertEquals(ReaderPresentationLayer.Curl, decision.layer)
+		is ReaderPresentationInputPolicy.NativePage -> {
+			val frame = assertIs<ReaderPresentationFrameOwner.NativePage>(decision.frameOwner)
+			if (input.policy.newPointer == ReaderPageNewPointerDecision.Accept) {
+				assertEquals(binding, frame.proof.binding)
+			}
+		}
+	}
+	if (failure != null || preparationFacts.failure != null) {
+		assertIs<ReaderDiagnosticPresentation.Failure>(decision.diagnosticPresentation)
+	}
 }

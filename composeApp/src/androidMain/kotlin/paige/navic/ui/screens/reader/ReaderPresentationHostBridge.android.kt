@@ -218,10 +218,12 @@ internal class ReaderNativePagePresentationPublisher(
 
 		val candidate = currentCandidate()
 		val published = lastPublishedCandidate
+		// A consumed native request becomes the same stable, tokenless candidate. This
+		// applies to startup, curl settlement and cover entry as well as engine handback.
+		// Only an already accepted exact candidate can retire its request attribution.
 		if (
 			candidate != null &&
 			published?.transitionToken != null &&
-			published.handoffDirection == ReaderLiveEngineHandoffDirection.LiveEngineToNative &&
 			candidate.transitionToken == null &&
 			candidate.handoffDirection == null &&
 			candidate == published.copy(transitionToken = null, handoffDirection = null)

@@ -856,7 +856,8 @@ private fun ReaderPresentationState.reduceCancel(): ReaderPresentationReducerRes
 	}
 	val current = retainedBinding == binding ||
 		(frame is ReaderPresentationFrameOwner.ShellCover && retainedBinding != null &&
-			binding?.isExactRendererCompletionOf(retainedBinding) == true)
+			(binding?.isExactRendererCompletionOf(retainedBinding) == true ||
+				binding?.isTextureOnlySuccessorOf(retainedBinding) == true))
 	if (!current) return acceptedPresentationResult(copy(
 		authority = ReaderPresentationAuthority.Unavailable,
 		failure = ReaderDiagnosticPresentation.Failure(
@@ -1240,6 +1241,26 @@ private fun ReaderPresentationFrameOwner.rebindPartialPresentation(
 private fun ReaderPresentationState.reduceBindingReplacement(
 	event: ReaderPresentationEvent.BindingReplaced
 ): ReaderPresentationReducerResult {
+	val cover = authority as? ReaderPresentationAuthority.ShellCover
+	if (
+		binding == event.previousBinding && cover != null &&
+		(event.previousBinding == cover.proof.binding ||
+			event.previousBinding.isTextureOnlySuccessorOf(cover.proof.binding)) &&
+		event.binding.isTextureOnlySuccessorOf(event.previousBinding)
+	) {
+		// The independently committed cover receipt does not describe page textures.
+		// Keep it unchanged while tracking the latest page target and its cleanup owners.
+		val cleanup = trackRendererBindingTransition(
+			previousBinding = event.previousBinding,
+			binding = event.binding,
+			previousToken = authority.rendererCleanupTokenFor(event.previousBinding),
+			bindingToken = null
+		)
+		return acceptedPresentationResult(
+			copy(binding = event.binding, rendererCleanupOwnership = cleanup.ownership),
+			effects = cleanup.effects
+		)
+	}
 	val lostSelectedRenderer = authority as? ReaderPresentationAuthority.BlockingPreparation
 	if (
 		lostSelectedRenderer != null &&
@@ -1356,24 +1377,29 @@ private fun ReaderPresentationState.reduceBindingReplacement(
 		binding != event.previousBinding ||
 			!event.binding.isCompleteBindingReplacementOf(event.previousBinding) ->
 			rejectedPresentationResult(this)
-		else -> acceptedPresentationResult(
-			state = copy(
-				authority = ReaderPresentationAuthority.Unavailable,
-				binding = event.binding,
-				preparationFacts = ReaderPagePreparationFacts(),
-				failure = null
-			),
-			effects = if (authority.frameOwner() == ReaderPresentationFrameOwner.Neutral) {
-				emptyList()
+		else -> {
+			// Invalidation abandons the retained frame, so its cleanup ownership must
+			// not survive into a later cover transaction. The effect queue owns release retries.
+			val cleanup = adoptRendererBinding(event.binding)
+			val previousRelease = if (authority.frameOwner() == ReaderPresentationFrameOwner.Neutral) {
+				null
 			} else {
-				listOf(
-					ReaderPresentationEffect.ReleaseStalePresentation(
-						token = authority.releaseIdentityTokenOrNull(),
-						binding = event.previousBinding
-					)
+				ReaderPresentationEffect.ReleaseStalePresentation(
+					token = authority.releaseIdentityTokenOrNull(),
+					binding = event.previousBinding
 				)
 			}
-		)
+			acceptedPresentationResult(
+				state = copy(
+					authority = ReaderPresentationAuthority.Unavailable,
+					binding = event.binding,
+					rendererCleanupOwnership = cleanup.ownership,
+					preparationFacts = ReaderPagePreparationFacts(),
+					failure = null
+				),
+				effects = (cleanup.effects + listOfNotNull(previousRelease)).distinctByRendererDeck()
+			)
+		}
 	}
 }
 
@@ -1421,6 +1447,15 @@ private fun ReaderPresentationBinding.isResolvedProfileReplacementOf(
 	preparationGeneration == predecessor.preparationGeneration &&
 	!predecessor.hasAnyRendererIdentity() &&
 	!hasAnyRendererIdentity()
+
+private fun ReaderPresentationBinding.isTextureOnlySuccessorOf(
+	predecessor: ReaderPresentationBinding
+): Boolean {
+	val texture = textureGeneration ?: return false
+	val previousTexture = predecessor.textureGeneration ?: return false
+	return rasterGeneration != null && preparationGeneration != null &&
+		texture > previousTexture && this == predecessor.copy(textureGeneration = texture)
+}
 
 private fun ReaderPresentationBinding.isCompleteBindingReplacementOf(
 	predecessor: ReaderPresentationBinding
@@ -1494,7 +1529,8 @@ private fun ReaderPresentationState.reduceShellCoverDismissal(): ReaderPresentat
 	val cover = authority as? ReaderPresentationAuthority.ShellCover
 		?: return rejectedPresentationResult(this)
 	val currentBinding = binding?.takeIf {
-		it == cover.proof.binding || it.isExactRendererCompletionOf(cover.proof.binding)
+		it == cover.proof.binding || it.isExactRendererCompletionOf(cover.proof.binding) ||
+			it.isTextureOnlySuccessorOf(cover.proof.binding)
 	} ?: return rejectedPresentationResult(this)
 	val request = ReaderNativePagePresentationRequest(
 		token = ReaderPresentationToken(nextTokenValue),
