@@ -2535,7 +2535,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"onRetry = { onPresentationEvent(ReaderPresentationEvent.Retry) },"
 		)
 		assertContains(host, "is ReaderPresentationEffect.RetryPreparation")
-		assertContains(retryRoute, "currentPresentationBindingOrNull() != effect.binding")
+		assertContains(retryRoute, "val physicalBinding = currentPresentationBindingOrNull()")
+		assertContains(retryRoute, "if (physicalBinding != effect.binding) {")
+		assertContains(retryRoute, "pending?.retainedFrame is ReaderPresentationFrameOwner.ShellCover")
+		assertContains(retryRoute, "physicalBinding != null && physicalBinding == effect.binding.copy(")
+		assertContains(retryRoute, "rasterGeneration = null, textureGeneration = null)")
+		assertContains(retryRoute, "if (!currentCoverRetryWithoutDeck) return true")
 		assertContains(retryRoute, "passiveRasterPreparationAdapter?.isAvailable != true")
 		val closeUnavailable = retryRoute.indexOf("closePassiveRasterPreparationAdapter()")
 		val replaceUnavailable = retryRoute.indexOf("replacePassiveRasterPreparationAdapter(")

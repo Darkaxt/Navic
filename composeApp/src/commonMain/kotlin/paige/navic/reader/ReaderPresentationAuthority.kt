@@ -185,6 +185,13 @@ enum class ReaderCurlSettlementStage {
 	AwaitingNativePresentation
 }
 
+// Physical allocation/profile attribution for one Retry, not another presentation owner.
+data class ReaderPresentationRetryBindingAttribution(
+	val token: ReaderPresentationToken,
+	val preparationGeneration: Long,
+	val profileGeneration: Long
+)
+
 data class ReaderNativePagePresentationRequest(
 	val token: ReaderPresentationToken,
 	val binding: ReaderPresentationBinding,
@@ -412,7 +419,8 @@ sealed interface ReaderPresentationEvent {
 	}
 	data class BindingReplaced(
 		val previousBinding: ReaderPresentationBinding,
-		val binding: ReaderPresentationBinding
+		val binding: ReaderPresentationBinding,
+		val retryAttribution: ReaderPresentationRetryBindingAttribution? = null
 	) : ReaderPresentationEvent {
 		init {
 			require(previousBinding.foliateSessionId == binding.foliateSessionId)
@@ -854,10 +862,18 @@ private fun ReaderPresentationState.reduceCancel(): ReaderPresentationReducerRes
 		is ReaderPresentationFrameOwner.LiveEngine -> frame.proof.binding
 		ReaderPresentationFrameOwner.Neutral -> binding
 	}
+	val request = (authority as? ReaderPresentationAuthority.BlockingPreparation)?.nativePresentationRequest
+	val preparationFloor = request?.retryAfterPreparationGeneration
+	val causalCoverPreparation = frame is ReaderPresentationFrameOwner.ShellCover && binding != null &&
+		request?.binding == binding && preparationFloor != null &&
+		frame.proof.binding.preparationGeneration != null &&
+		preparationFloor >= frame.proof.binding.preparationGeneration &&
+		binding.preparationGeneration != null && binding.preparationGeneration >= preparationFloor &&
+		binding.isPreparationSuccessorOfCommittedCover(frame.proof.binding)
 	val current = retainedBinding == binding ||
 		(frame is ReaderPresentationFrameOwner.ShellCover && retainedBinding != null &&
 			(binding?.isExactRendererCompletionOf(retainedBinding) == true ||
-				binding?.isTextureOnlySuccessorOf(retainedBinding) == true))
+				binding?.isTextureOnlySuccessorOf(retainedBinding) == true || causalCoverPreparation))
 	if (!current) return acceptedPresentationResult(copy(
 		authority = ReaderPresentationAuthority.Unavailable,
 		failure = ReaderDiagnosticPresentation.Failure(
@@ -1161,6 +1177,17 @@ private fun ReaderPresentationAuthority.BlockingPreparation.rebindRequestedPrese
 	)
 }
 
+// An already-retained complete cover is independent of fresh page material.
+// This checks cover validity, not admission of a physical binding replacement.
+private fun ReaderPresentationBinding.isPreparationSuccessorOfCommittedCover(
+	cover: ReaderPresentationBinding
+): Boolean = cover.hasCompleteRendererIdentity() &&
+	(!hasAnyRendererIdentity() || hasCompleteRendererIdentity()) &&
+	preparationGeneration != null && cover.preparationGeneration != null &&
+	preparationGeneration > cover.preparationGeneration && profileGeneration >= cover.profileGeneration &&
+	foliateSessionId == cover.foliateSessionId && publicationGeneration == cover.publicationGeneration &&
+	viewportGeneration == cover.viewportGeneration && destinationCommitIdentity == cover.destinationCommitIdentity
+
 private fun ReaderPresentationBinding.retainedCoverSuccessorBinding(
 	binding: ReaderPresentationBinding
 ): ReaderPresentationBinding = if (!hasAnyRendererIdentity()) {
@@ -1174,7 +1201,10 @@ private fun ReaderPresentationAuthority.rebindPartialPresentation(
 	binding: ReaderPresentationBinding
 ): ReaderPresentationAuthority? = when (this) {
 	ReaderPresentationAuthority.Unavailable -> this
-	is ReaderPresentationAuthority.ShellCover -> proof
+	is ReaderPresentationAuthority.ShellCover -> if (
+		previousBinding.isPreparationSuccessorOfCommittedCover(proof.binding) &&
+		binding.isPreparationSuccessorOfCommittedCover(proof.binding)
+	) this else proof
 		.takeIf { it.binding == previousBinding }
 		?.copy(binding = proof.binding.retainedCoverSuccessorBinding(binding))
 		?.let(ReaderPresentationAuthority::ShellCover)
@@ -1238,9 +1268,36 @@ private fun ReaderPresentationFrameOwner.rebindPartialPresentation(
 	is ReaderPresentationFrameOwner.LiveEngine -> null
 }
 
+internal fun ReaderPresentationState.admitsCurrentCoverRetryBindingReplacement(
+	event: ReaderPresentationEvent.BindingReplaced
+): Boolean {
+	val attribution = event.retryAttribution ?: return false
+	val pending = authority as? ReaderPresentationAuthority.BlockingPreparation ?: return false
+	val cover = pending.retainedFrame as? ReaderPresentationFrameOwner.ShellCover ?: return false
+	val request = pending.nativePresentationRequest ?: return false
+	val previous = event.previousBinding
+	val current = event.binding
+	val floor = previous.preparationGeneration ?: return false
+	return lifecycle == ReaderPresentationLifecycleState.Foreground && failure == null &&
+		binding == previous && request.binding == previous && request.token == attribution.token &&
+		request.retryAfterPreparationGeneration == floor && previous.hasCompleteRendererIdentity() &&
+		cover.proof.binding.hasCompleteRendererIdentity() && !current.hasAnyRendererIdentity() &&
+		attribution.preparationGeneration > floor && current.preparationGeneration == attribution.preparationGeneration &&
+		attribution.profileGeneration > 0L && current.profileGeneration == attribution.profileGeneration &&
+		current.profileGeneration >= previous.profileGeneration &&
+		current.foliateSessionId == previous.foliateSessionId &&
+		current.publicationGeneration == previous.publicationGeneration &&
+		current.viewportGeneration == previous.viewportGeneration &&
+		current.destinationCommitIdentity == previous.destinationCommitIdentity
+}
+
 private fun ReaderPresentationState.reduceBindingReplacement(
 	event: ReaderPresentationEvent.BindingReplaced
 ): ReaderPresentationReducerResult {
+	val attributedRetry = event.retryAttribution != null
+	if (attributedRetry && !admitsCurrentCoverRetryBindingReplacement(event)) {
+		return stalePresentationResult(this)
+	}
 	val cover = authority as? ReaderPresentationAuthority.ShellCover
 	if (
 		binding == event.previousBinding && cover != null &&
@@ -1313,7 +1370,7 @@ private fun ReaderPresentationState.reduceBindingReplacement(
 	if (
 		binding == event.previousBinding &&
 		requested != null &&
-		event.binding.isSafeBindingReplacementOf(event.previousBinding)
+		(event.binding.isSafeBindingReplacementOf(event.previousBinding) || attributedRetry)
 	) {
 		val reboundAuthority = requested.rebindRequestedPresentation(
 			event.previousBinding,
@@ -1350,7 +1407,16 @@ private fun ReaderPresentationState.reduceBindingReplacement(
 		val reboundAuthority = authority.rebindPartialPresentation(
 			event.previousBinding,
 			event.binding
-		) ?: return rejectedPresentationResult(this)
+		) ?: return if (
+			cover != null && event.previousBinding.isPreparationSuccessorOfCommittedCover(cover.proof.binding) &&
+			event.binding.isSafeBindingReplacementOf(event.previousBinding)
+		) {
+			// A current partial viewport may invalidate the retained cover without
+			// stranding the reporter on its obsolete pre-resize target.
+			invalidateRendererBinding(event.previousBinding, event.binding)
+		} else {
+			rejectedPresentationResult(this)
+		}
 		return acceptedPresentationResult(
 			copy(
 				authority = reboundAuthority,
@@ -1377,30 +1443,35 @@ private fun ReaderPresentationState.reduceBindingReplacement(
 		binding != event.previousBinding ||
 			!event.binding.isCompleteBindingReplacementOf(event.previousBinding) ->
 			rejectedPresentationResult(this)
-		else -> {
-			// Invalidation abandons the retained frame, so its cleanup ownership must
-			// not survive into a later cover transaction. The effect queue owns release retries.
-			val cleanup = adoptRendererBinding(event.binding)
-			val previousRelease = if (authority.frameOwner() == ReaderPresentationFrameOwner.Neutral) {
-				null
-			} else {
-				ReaderPresentationEffect.ReleaseStalePresentation(
-					token = authority.releaseIdentityTokenOrNull(),
-					binding = event.previousBinding
-				)
-			}
-			acceptedPresentationResult(
-				state = copy(
-					authority = ReaderPresentationAuthority.Unavailable,
-					binding = event.binding,
-					rendererCleanupOwnership = cleanup.ownership,
-					preparationFacts = ReaderPagePreparationFacts(),
-					failure = null
-				),
-				effects = (cleanup.effects + listOfNotNull(previousRelease)).distinctByRendererDeck()
-			)
-		}
+		else -> invalidateRendererBinding(event.previousBinding, event.binding)
 	}
+}
+
+private fun ReaderPresentationState.invalidateRendererBinding(
+	previousBinding: ReaderPresentationBinding,
+	binding: ReaderPresentationBinding
+): ReaderPresentationReducerResult {
+	// Invalidation abandons the retained frame, so its cleanup ownership must
+	// not survive into a later cover transaction. The effect queue owns release retries.
+	val cleanup = adoptRendererBinding(binding)
+	val previousRelease = if (authority.frameOwner() == ReaderPresentationFrameOwner.Neutral) {
+		null
+	} else {
+		ReaderPresentationEffect.ReleaseStalePresentation(
+			token = authority.releaseIdentityTokenOrNull(),
+			binding = previousBinding
+		)
+	}
+	return acceptedPresentationResult(
+		state = copy(
+			authority = ReaderPresentationAuthority.Unavailable,
+			binding = binding,
+			rendererCleanupOwnership = cleanup.ownership,
+			preparationFacts = ReaderPagePreparationFacts(),
+			failure = null
+		),
+		effects = (cleanup.effects + listOfNotNull(previousRelease)).distinctByRendererDeck()
+	)
 }
 
 internal fun ReaderPresentationState.admitsExactSelectedRendererRemoval(
@@ -1530,11 +1601,17 @@ private fun ReaderPresentationState.reduceShellCoverDismissal(): ReaderPresentat
 		?: return rejectedPresentationResult(this)
 	val currentBinding = binding?.takeIf {
 		it == cover.proof.binding || it.isExactRendererCompletionOf(cover.proof.binding) ||
-			it.isTextureOnlySuccessorOf(cover.proof.binding)
+			it.isTextureOnlySuccessorOf(cover.proof.binding) ||
+			it.isPreparationSuccessorOfCommittedCover(cover.proof.binding)
 	} ?: return rejectedPresentationResult(this)
 	val request = ReaderNativePagePresentationRequest(
 		token = ReaderPresentationToken(nextTokenValue),
-		binding = currentBinding
+		binding = currentBinding,
+		// Reentry into already-fresh material retains its lower bound, not an
+		// allocation command. Initial and texture-only entry still have no floor.
+		retryAfterPreparationGeneration = cover.proof.binding.preparationGeneration.takeIf {
+			currentBinding.isPreparationSuccessorOfCommittedCover(cover.proof.binding)
+		}
 	)
 	return acceptedPresentationResult(
 		copy(

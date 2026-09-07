@@ -1354,6 +1354,19 @@ class KomikkuReaderNativeFrameHostTest {
 	fun task9ActualViewerRetainedCurlProjectionThroughRetry() =
 		task9ActualViewerRecoveryPublication(false, 1, nativePipeline = true, projectionOnly = true)
 
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task9NoViewTreeLifecycleOwnerShadow::class])
+	fun task10ActualViewerCoverNullDeckTimeoutRetryAllocatesFreshPreparation() =
+		task9ActualViewerRecoveryPublication(false, 1, nativePipeline = true, coverNullDeckRetry = true)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task9NoViewTreeLifecycleOwnerShadow::class])
+	fun task10ActualViewerResizeAfterRetryCancelAdoptsPartialAndCompletesReporter() =
+		task9ActualViewerRecoveryPublication(false, 1, nativePipeline = true,
+			coverNullDeckRetry = true, resizeAfterRetryCancel = true)
+
 	private enum class Task9LivenessBoundary { MissingSource, RejectedSource, MissingFrame, HiddenFrame }
 
 	@Test
@@ -1456,7 +1469,9 @@ class KomikkuReaderNativeFrameHostTest {
 		projectionOnly: Boolean = false,
 		failRetainedSelected: Boolean = false,
 		retainedPauseInvalid: Boolean? = null,
-		livenessBoundary: Task9LivenessBoundary? = null
+		livenessBoundary: Task9LivenessBoundary? = null,
+		coverNullDeckRetry: Boolean = false,
+		resizeAfterRetryCancel: Boolean = false
 	) = runTest {
 		val androidMainThread = Thread.currentThread()
 		assertSame(android.os.Looper.getMainLooper().thread, androidMainThread)
@@ -1653,6 +1668,8 @@ class KomikkuReaderNativeFrameHostTest {
 					})
 			}
 			val events = mutableListOf<ReaderPresentationEvent>()
+			val coverRetryEffects = paige.navic.reader.ReaderPresentationEffectQueue()
+			val resizeReceipts = mutableListOf<ReaderPresentationEventReceipt>()
 			val publish: (ReaderPresentationEvent) -> paige.navic.reader.ReaderPresentationEventReceipt? = { event ->
 				events += event
 				if (retainedPauseInvalid != null) {
@@ -1664,6 +1681,8 @@ class KomikkuReaderNativeFrameHostTest {
 				}
 				val step = common.onPresentationEvent(event)
 				common = step.controller
+				if (coverNullDeckRetry) coverRetryEffects.retain(step.presentationEffects)
+				if (resizeAfterRetryCancel) step.presentationReceipt?.let(resizeReceipts::add)
 				step.presentationReceipt
 			}
 			val apply = viewerClass.task7Method("applyPresentationDecision",
@@ -1746,6 +1765,601 @@ class KomikkuReaderNativeFrameHostTest {
 				val dispatchEvent = viewerClass.task7Method("dispatchPresentationEvent", ReaderPresentationEvent::class.java)
 				fun deliver(event: ReaderPresentationEvent) = assertNotNull(
 					dispatchEvent.invoke(viewer, event) as ReaderPresentationEventReceipt?)
+				if (coverNullDeckRetry) {
+					// The committed cover is this focused ingress test's precondition, not
+					// a claim to exercise physical cover drawing or the full Task10 sequence.
+					common = common.onPresentationEvent(ReaderPresentationEvent.ShellCoverRequested(37L)).controller
+					val commit = assertIs<ReaderRequiredTransition.CommitShellCover>(
+						common.state.presentationDecision.requiredTransition)
+					val coverProof = ReaderShellCoverCommitProof(commit.token, commit.binding,
+						commit.coverGeneration, 12L, viewportWidth, viewportHeight)
+					common = common.onPresentationEvent(ReaderPresentationEvent.ShellCoverCommitted(coverProof)).controller
+					updateDestination(binding.destinationCommitIdentity)
+					val cover = ReaderPresentationFrameOwner.ShellCover(coverProof)
+					assertEquals(cover, common.state.presentationDecision.frameOwner)
+					fun physicalBinding() = assertNotNull(viewerClass.task7Method("currentPresentationBinding")
+						.invoke(viewer) as ReaderPresentationBinding?)
+					assertEquals(binding, physicalBinding())
+					val predecessorObservation = assertNotNull(viewerClass.task7Field("preparedActiveDeck").get(viewer))
+					val beforeSubmission = events.size
+					// Reuse the established synthetic material port, but submit through
+					// production ownership/fence capture and actual prepared-deck publication.
+					task8SubmitRecoveredDeck(controller, 302L, ReaderDeckSubmissionRole.Active,
+						sourceProfile as ReaderPlayLikeCurlRasterProfile, {}, true, predecessorRect)
+					producedRendererGenerations += 302L
+					controller.javaClass.task7Field("nextDeckGeneration").setLong(controller, 303L)
+					@Suppress("UNCHECKED_CAST")
+					val fences = controller.javaClass.task7Field("generationCallbackFences").get(controller)
+						as Map<Long, ReaderAcceptedDeckCallbackFence>
+					val oldFence = assertNotNull(fences[302L])
+					assertNull(oldFence.presentationToken)
+					assertEquals(binding.copy(textureGeneration = 302L), oldFence.binding)
+					assertNull(viewerClass.task7Field("preparedActiveDeck").get(viewer))
+					val partial = binding.copy(rasterGeneration = null, textureGeneration = null)
+					assertEquals(partial, physicalBinding())
+					assertEquals(binding, reporter.lastReportedBinding)
+					assertEquals(binding, common.state.presentation.binding)
+					assertTrue(events.drop(beforeSubmission).none { it is ReaderPresentationEvent.BindingReplaced },
+						"Actual complete-to-partial observation must emit no binding replacement")
+					val entry = deliver(ReaderPresentationEvent.ShellCoverDismissalRequested)
+					val entryToken = assertNotNull(readerPresentationDecision(entry.postState).pendingTransitionToken)
+					assertEquals(oldFence, fences[302L], "Entry must not retag the already captured null fence")
+					controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+						.invoke(controller.surfaceView, 302L)
+					ShadowLooper.runUiThreadTasks()
+					assertNull(viewerClass.task7Field("preparedActiveDeck").get(viewer))
+					assertEquals(1, rendererReleaseCounts[302L])
+					assertEquals(cover, common.state.presentationDecision.frameOwner)
+					assertNull(viewerClass.task7Method("currentNativePagePresentationCandidateOrNull").invoke(viewer))
+					assertTrue(deadlines.hasPending)
+					nowMillis += deadlineDelayMillis
+					deadlines.runPending()
+					val diagnostic = assertIs<ReaderDiagnosticPresentation.Failure>(
+						common.state.presentationDecision.diagnosticPresentation)
+					assertEquals(ReaderPresentationFailureReason.TimedOut, diagnostic.reason)
+					assertTrue(diagnostic.retryable && diagnostic.cancellable)
+					assertFalse(deadlines.hasPending)
+					val retry = deliver(ReaderPresentationEvent.Retry)
+					val retryEffect = assertIs<ReaderPresentationEffect.RetryPreparation>(retry.effects.single())
+					assertTrue(assertNotNull(retryEffect.token).value > entryToken.value)
+					assertEquals(binding, retryEffect.binding)
+					assertEquals(partial, physicalBinding(), "Retry must inspect physical null-deck truth, not common target")
+					val generationBeforeRetry = preparation.javaClass.task7Field("preparationGeneration").getLong(preparation)
+					val retryMethod = viewerClass.task7Method("retryPreparation", ReaderPresentationEffect.RetryPreparation::class.java)
+					val decisionField = viewerClass.task7Field("presentationDecision")
+					val authorized = common.state.presentationDecision
+					val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(authorized.authority)
+					val request = assertNotNull(pending.nativePresentationRequest)
+					val rendererRequestBeforeRetry = controller.javaClass.task7Field("requestGeneration").getLong(controller)
+					fun assertIgnoredRetry(label: String, decision: ReaderPresentationDecision,
+						effect: ReaderPresentationEffect.RetryPreparation = retryEffect) {
+						// Fault-injected receiving-port controls, not alternate source traces.
+						// The actual physical snapshot still comes from the viewer's factory.
+						decisionField.set(viewer, decision)
+						try {
+							assertEquals(true, retryMethod.invoke(viewer, effect), label)
+							assertEquals(generationBeforeRetry,
+								preparation.javaClass.task7Field("preparationGeneration").getLong(preparation), label)
+							assertEquals(rendererRequestBeforeRetry,
+								controller.javaClass.task7Field("requestGeneration").getLong(controller), label)
+						} finally { decisionField.set(viewer, authorized) }
+					}
+					for ((label, decision) in listOf(
+						"background" to authorized.copy(lifecycle = ReaderPresentationLifecycleState.Background),
+						"terminal" to authorized.copy(lifecycle = ReaderPresentationLifecycleState.Destroyed),
+						"failure" to authorized.copy(diagnosticPresentation = diagnostic),
+						"wrong-target" to authorized.copy(targetBinding = partial),
+						"wrong-request" to authorized.copy(authority = pending.copy(
+							nativePresentationRequest = request.copy(binding = partial))),
+						"wrong-floor" to authorized.copy(authority = pending.copy(
+							nativePresentationRequest = request.copy(retryAfterPreparationGeneration = generationBeforeRetry + 1L))),
+						"absent-floor" to authorized.copy(authority = pending.copy(
+							nativePresentationRequest = request.copy(retryAfterPreparationGeneration = null))),
+						"non-cover" to authorized.copy(authority = pending.copy(retainedFrame = ReaderPresentationFrameOwner.Neutral))
+					)) assertIgnoredRetry(label, decision)
+					assertIgnoredRetry("stale-token", authorized, retryEffect.copy(token = entryToken))
+					assertIgnoredRetry("absent-token", authorized, retryEffect.copy(token = null))
+					for ((label, effectBinding) in listOf(
+						"one-null-raster" to binding.copy(rasterGeneration = null),
+						"one-null-texture" to binding.copy(textureGeneration = null),
+						"session" to binding.copy(foliateSessionId = "task10-other-session",
+							destinationCommitIdentity = binding.destinationCommitIdentity?.copy(foliateSessionId = "task10-other-session")),
+						"publication" to binding.copy(publicationGeneration = binding.publicationGeneration + 1L),
+						"viewport" to binding.copy(viewportGeneration = binding.viewportGeneration + 1L),
+						"profile" to binding.copy(profileGeneration = binding.profileGeneration + 1L),
+						"destination" to binding.copy(destinationCommitIdentity = binding.destinationCommitIdentity?.copy(commitSequence = 2L)),
+						"preparation" to binding.copy(preparationGeneration = generationBeforeRetry + 1L),
+						"absent-preparation" to binding.copy(preparationGeneration = null)
+					)) {
+						val effect = retryEffect.copy(binding = effectBinding)
+						assertIgnoredRetry(label, authorized.copy(targetBinding = effectBinding,
+							authority = pending.copy(nativePresentationRequest = request.copy(binding = effectBinding,
+								retryAfterPreparationGeneration = effectBinding.preparationGeneration))), effect)
+					}
+					val observedVisibility = viewerClass.task7Field("lastPresentationWindowVisible")
+					val originalVisibility = observedVisibility.get(viewer)
+					observedVisibility.set(viewer, false)
+					try {
+						assertNull(viewerClass.task7Method("currentPresentationBinding").invoke(viewer))
+						assertIgnoredRetry("absent-physical", authorized)
+					} finally { observedVisibility.set(viewer, originalVisibility) }
+					viewerClass.task7Field("preparedActiveDeck").set(viewer, predecessorObservation)
+					try {
+						assertEquals(binding, physicalBinding())
+						val differentRenderer = binding.copy(textureGeneration = 302L)
+						assertIgnoredRetry("different-complete-renderer", authorized.copy(targetBinding = differentRenderer,
+							authority = pending.copy(nativePresentationRequest = request.copy(binding = differentRenderer))),
+							retryEffect.copy(binding = differentRenderer))
+					} finally { viewerClass.task7Field("preparedActiveDeck").set(viewer, null) }
+					// Supply only synthetic source inputs at the same real cache/worker ports
+					// as Task9. Ready, renderer submission and proof remain production outputs.
+					webView.retainPlanCallbacks = true
+					val quality = bundle.javaClass.task7Field("bitmapQuality").get(bundle) as ReaderPageBitmapQuality
+					val bitmapWidth = readerPageTurnAnimationBitmapDimension(viewportWidth, quality)
+					val bitmapHeight = readerPageTurnAnimationBitmapDimension(viewportHeight, quality)
+					assertNotNull(bundle.cacheCurrentSnapshot(initialOrdinal, ReaderPageTurnTransitionKind.PortraitSlide,
+						ReaderPageTurnCaptureResult(
+							Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.WHITE) },
+							android.graphics.Rect(0, 0, viewportWidth, viewportHeight),
+							paige.navic.reader.ReaderPageTurnCaptureGeometry(viewportWidth.toDouble(), viewportHeight.toDouble(),
+								paige.navic.reader.ReaderPageTurnLayoutMode.Single,
+								listOf(paige.navic.reader.ReaderPageTurnPageRect(paige.navic.reader.ReaderPageTurnPageRole.Full,
+									0.0, 0.0, viewportWidth.toDouble(), viewportHeight.toDouble()))), 1L)))
+					val reference = assertNotNull(bundle.retainedCurrentLayoutSnapshot(initialOrdinal,
+						ReaderPageTurnTransitionKind.PortraitSlide))
+					try {
+						val hydrated = kotlinx.coroutines.CompletableDeferred<ReaderPageSlideSnapshot?>()
+						val hydration = bundle.hydrateSnapshot(webView, initialOrdinal,
+							ReaderPageTurnTransitionKind.PortraitSlide, reference, onHydrated = hydrated::complete)
+						try { assertNotNull(hydrated.await()).release() } finally { hydration.cancel() }
+					} finally { reference.release() }
+					bundle.initializeRasterCache(webView)
+					viewerClass.task7Method("setPageTurnPaginationStatus", String::class.java).invoke(viewer, "ready")
+					controller.surfaceView.pageSurfaceListener.onCapabilitiesAvailable(RenderCapabilities(4096, 8L * 1024L * 1024L))
+					val oldPlans = webView.planCallbacks.toList()
+					webView.planCallbacks.clear()
+					val planWitnesses = mutableListOf<String>()
+					webView.onPlanRequested = { producer ->
+						planWitnesses += "$producer request=${controller.javaClass.task7Field("requestGeneration").getLong(controller)} " +
+							"active=${controller.javaClass.task7Field("activeDeckGenerationId").get(controller)} " +
+							"authority=${common.state.presentation.authority::class.simpleName}"
+					}
+					val queue = coverRetryEffects
+					var ingressCalls = 0
+					val releaseIngress = mutableListOf<ReaderPresentationEffect.ReleaseStalePresentation>()
+					val handler = ReaderPresentationEffectHandler(retryPreparation = { effect ->
+						ingressCalls++
+						viewerClass.task7Method("retryPreparation", ReaderPresentationEffect.RetryPreparation::class.java)
+							.invoke(viewer, effect) as Boolean
+					}, releaseStalePresentation = { effect ->
+						releaseIngress += effect
+						viewerClass.task7Method("releaseStalePresentation", ReaderPresentationEffect.ReleaseStalePresentation::class.java)
+							.invoke(viewer, effect) as Boolean
+					})
+					val pendingEffects = queue.pendingEffects()
+					preparation.javaClass.task7Field("retryPreparationInProgress").setBoolean(preparation, true)
+					try {
+						handler.deliver(pendingEffects, authorized) { queue.acknowledge(it) }
+						assertEquals(pendingEffects, queue.pendingEffects(), "Real allocator refusal must remain pending")
+						assertEquals(generationBeforeRetry,
+							preparation.javaClass.task7Field("preparationGeneration").getLong(preparation))
+					} finally { preparation.javaClass.task7Field("retryPreparationInProgress").setBoolean(preparation, false) }
+					handler.deliver(queue.pendingEffects(), common.state.presentationDecision) { queue.acknowledge(it) }
+					assertEquals(2, ingressCalls)
+					assertTrue(queue.pendingEffects().isEmpty())
+					handler.deliver(pendingEffects, common.state.presentationDecision) { queue.acknowledge(it) }
+					assertEquals(2, ingressCalls, "Consumed effect replay must not allocate twice")
+					assertEquals(generationBeforeRetry + 1L,
+						preparation.javaClass.task7Field("preparationGeneration").getLong(preparation),
+						"Acknowledged current cover Retry must reach the actual fresh preparation allocator despite a physical null deck")
+					assertEquals(generationBeforeRetry + 1L,
+						controller.javaClass.task7Field("preparationGeneration").getLong(controller))
+					assertTrue(controller.javaClass.task7Field("requestGeneration").getLong(controller) > rendererRequestBeforeRetry)
+					val capturedRetry = assertNotNull(viewerClass.task7Field("coverRetryBindingCorrelation").get(viewer))
+					assertEquals(retryEffect, capturedRetry.javaClass.task7Field("effect").get(capturedRetry))
+					assertEquals(reporter.captureEpoch(), capturedRetry.javaClass.task7Field("hostEpoch").getLong(capturedRetry))
+					assertEquals(generationBeforeRetry + 1L,
+						capturedRetry.javaClass.task7Field("preparationGeneration").getLong(capturedRetry))
+					val physicalFactsField = viewerClass.task7Field("latestRasterPreparationState")
+					val profileField = viewerClass.task7Field("rasterProfileEpoch")
+					val originalFacts = physicalFactsField.get(viewer) as ReaderPagePreparationState
+					val originalProfileEpoch = profileField.get(viewer)
+					val beforeUnprovenFacts = common.state
+					for ((generation, profile) in listOf(
+						(generationBeforeRetry + 2L) to binding.profileGeneration,
+						(generationBeforeRetry + 1L) to (binding.profileGeneration + 10L)
+					)) {
+						try {
+							physicalFactsField.set(viewer, originalFacts.copy(preparationGeneration = generation))
+							profileField.set(viewer, profile)
+							viewerClass.task7Method("reportPresentationIdentityIfAvailable", ReaderPageTurnSettlementAck::class.java)
+								.invoke(viewer, null)
+							assertEquals(beforeUnprovenFacts, common.state,
+								"Neither a different allocation nor an unobserved profile may borrow the current Retry attribution")
+						} finally {
+							physicalFactsField.set(viewer, originalFacts)
+							profileField.set(viewer, originalProfileEpoch)
+						}
+					}
+					val targets = readerPageRasterBlockingWindow(initialOrdinal, 1, 3).joinToString(",") { ordinal ->
+						val priority = when (ordinal) {
+							initialOrdinal -> "current"
+							initialOrdinal + 1 -> "next-transition"
+							initialOrdinal - 1 -> "previous-transition"
+							else -> "current-chapter"
+						}
+						val authority = if (ordinal == initialOrdinal) "CurrentLive" else "OffscreenPassive"
+						"""{"pageIndex":$ordinal,"priority":"$priority","authority":"$authority"}"""
+					}
+					val plan = """{"context":{"centerPageIndex":$initialOrdinal,"pageCount":3,"layoutMode":"single","step":1,"currentChapterIndex":0,"currentChapterPageStartIndex":0,"currentChapterPageCount":3},"targets":[$targets]}"""
+					val parsedPlan = assertNotNull(readerPageRasterPreparationPlan(plan))
+					val profileResolved = kotlinx.coroutines.CompletableDeferred<Unit>()
+					@Suppress("UNCHECKED_CAST")
+					val originalProfile = controller.javaClass.task7Field("onRasterProfileEpochChanged")
+						.get(controller) as (Long?) -> Unit
+					controller.javaClass.task7Field("onRasterProfileEpochChanged").set(controller, { epoch: Long? ->
+						originalProfile(epoch)
+						if (epoch != null) profileResolved.complete(Unit)
+					})
+					val retryPlans = webView.planCallbacks.toList()
+					webView.planCallbacks.clear()
+					assertNotNull(retryPlans.lastOrNull(), "Actual Retry must request the real source plan").onReceiveValue(plan)
+					if (viewerClass.task7Field("rasterProfileEpoch").get(viewer) == null) {
+						withContext(Dispatchers.Default) { withTimeout(5_000L) { profileResolved.await() } }
+					}
+					assertTrue(preparation.prewarmAdjacent(), "Actual Retry must enter the real raster worker")
+					val workerPlans = webView.planCallbacks.toList()
+					assertNotNull(workerPlans.lastOrNull())
+					webView.planCallbacks.clear()
+					workerPlans.forEach { it.onReceiveValue(plan) }
+					for (ordinal in parsedPlan.targets.filter { it.authority == ReaderPageRasterTargetAuthority.OffscreenPassive }
+						.map { it.pageIndex }) {
+						val work = withContext(Dispatchers.Default) { withTimeout(5_000L) { runtime.commits.receive() } }
+						assertEquals(ordinal, work.manifest.visualPageOrdinal)
+						val physicalFacts = viewerClass.task7Field("latestRasterPreparationState").get(viewer) as ReaderPagePreparationState
+						assertEquals(ReaderPagePreparationPhase.Preparing, physicalFacts.phase)
+						assertEquals(generationBeforeRetry + 1L, physicalFacts.preparationGeneration)
+						val physical = physicalBinding()
+						assertNull(physical.rasterGeneration)
+						assertNull(physical.textureGeneration)
+						assertEquals(physicalFacts.preparationGeneration, physical.preparationGeneration)
+						assertEquals(physical, reporter.lastReportedBinding)
+						assertEquals(physical, common.state.presentation.binding)
+						val attributed = events.filterIsInstance<ReaderPresentationEvent.BindingReplaced>()
+							.single { it.retryAttribution != null }
+						assertEquals(binding, attributed.previousBinding)
+						assertEquals(physical, attributed.binding)
+						assertEquals(retryEffect.token, attributed.retryAttribution?.token)
+						assertEquals(generationBeforeRetry + 1L, attributed.retryAttribution?.preparationGeneration)
+						assertEquals(physical.profileGeneration, attributed.retryAttribution?.profileGeneration)
+						assertTrue(events.filterIsInstance<ReaderPresentationEvent.PreparationReported>().any {
+							it.binding == physical && it.facts.phase == ReaderPagePreparationPhase.Idle
+						}, "Actual profile callback Idle must be admitted before the worker's Preparing facts")
+						assertEquals(ReaderPagePreparationPhase.Preparing, common.state.presentation.preparationFacts.phase,
+							"Actual worker Preparing must reach common facts: physicalPreparation=${physical.preparationGeneration} " +
+								"physicalProfile=${physical.profileGeneration} reportedPreparation=${reporter.lastReportedBinding?.preparationGeneration} " +
+								"reportedProfile=${reporter.lastReportedBinding?.profileGeneration} " +
+								"commonProgress=${common.state.presentationDecision.preparationPresentation::class.simpleName}")
+						assertIs<ReaderPreparationPresentation.Blocking>(common.state.presentationDecision.preparationPresentation)
+						assertEquals(cover, common.state.presentationDecision.frameOwner)
+						if (resizeAfterRetryCancel) {
+							val cleanupBeforeCancel = common.state.presentation.rendererCleanupOwnership
+							val cancelled = deliver(ReaderPresentationEvent.Cancel)
+							assertEquals(ReaderPresentationEventDisposition.Accepted, cancelled.disposition)
+							assertEquals(coverProof, assertIs<ReaderPresentationAuthority.ShellCover>(cancelled.postState.authority).proof)
+							assertEquals(physical, cancelled.postState.binding)
+							assertEquals(cleanupBeforeCancel, cancelled.postState.rendererCleanupOwnership)
+							assertNull(common.state.presentationDecision.pendingTransitionToken)
+							assertFalse(deadlines.hasPending)
+							val beforeResize = resizeReceipts.size
+							val resizedWidth = viewer.width + 40
+							val resizedHeight = viewer.height
+							viewer.measure(View.MeasureSpec.makeMeasureSpec(resizedWidth, View.MeasureSpec.EXACTLY),
+								View.MeasureSpec.makeMeasureSpec(resizedHeight, View.MeasureSpec.EXACTLY))
+							viewer.layout(0, 0, resizedWidth, resizedHeight)
+							val resizedPartial = physical.copy(viewportGeneration = physical.viewportGeneration + 1L)
+							val viewportReceipt = resizeReceipts.drop(beforeResize).first {
+								it.event == ReaderPresentationEvent.BindingReplaced(physical, resizedPartial)
+							}
+							assertEquals(ReaderPresentationEventDisposition.Accepted, viewportReceipt.disposition,
+								"Actual onSizeChanged must acknowledge its partial viewport before subsequent invalidation callbacks")
+							assertEquals(resizedPartial, viewportReceipt.postState.binding)
+							assertEquals(ReaderPresentationAuthority.Unavailable, viewportReceipt.postState.authority)
+							assertTrue(viewportReceipt.postState.rendererCleanupOwnership.isEmpty())
+							assertEquals(cleanupBeforeCancel.map { ReaderPresentationEffect.ReleaseStalePresentation(it.token, it.binding) },
+								viewportReceipt.effects)
+							assertTrue(runtime.isRetired, "Full resize must retire the old passive worker")
+							assertEquals(0, runtime.pendingCallbackCount)
+							assertNull(common.state.presentationDecision.pendingTransitionToken)
+							assertFalse(deadlines.hasPending)
+							handler.deliver(queue.pendingEffects(), common.state.presentationDecision) { queue.acknowledge(it) }
+							ShadowLooper.runUiThreadTasks()
+							assertFalse(task8SurfaceOwnsGeneration(controller.surfaceView, 301L))
+							assertEquals(1, rendererReleaseCounts[301L])
+							// Supply source/material only at existing test ports. Resize, the
+							// callback fence and completion receipt remain production outputs.
+							// Source planning follows the later stable-content callback, not
+							// the synchronous onSizeChanged invalidation itself.
+							controller.onHostContentReady()
+							val resizedPlans = webView.planCallbacks.toList()
+							assertTrue(resizedPlans.isNotEmpty())
+							resizedPlans.forEach { callback ->
+								assertTrue(webView.planCallbacks.remove(callback))
+								callback.onReceiveValue(plan)
+							}
+							val resizedProfile = assertNotNull(controller.javaClass.task7Field("requestedProfile")
+								.get(controller) as ReaderPlayLikeCurlRasterProfile?)
+							val beforeCompletion = physicalBinding()
+							// Draining Activity layout may deliver another real size callback.
+							// Every viewport receipt must advance; completion uses the exact latest one.
+							val viewportReceipts = resizeReceipts.drop(beforeResize).filter {
+								val event = it.event
+								event is ReaderPresentationEvent.BindingReplaced &&
+									event.binding.viewportGeneration != event.previousBinding.viewportGeneration
+							}
+							var previousViewport = physical.viewportGeneration
+							viewportReceipts.forEach { receipt ->
+								val event = assertIs<ReaderPresentationEvent.BindingReplaced>(receipt.event)
+								assertEquals(ReaderPresentationEventDisposition.Accepted, receipt.disposition)
+								assertEquals(previousViewport, event.previousBinding.viewportGeneration)
+								assertEquals(previousViewport + 1L, event.binding.viewportGeneration)
+								previousViewport = event.binding.viewportGeneration
+							}
+							assertEquals(previousViewport, beforeCompletion.viewportGeneration)
+							assertNull(beforeCompletion.rasterGeneration)
+							assertNull(beforeCompletion.textureGeneration)
+							assertEquals(beforeCompletion, reporter.lastReportedBinding)
+							assertEquals(beforeCompletion, common.state.presentation.binding)
+							val resizedOrigin = IntArray(2).also(controller.surfaceView::getLocationInWindow)
+							val resizedGeneration = 903L
+							task8SubmitRecoveredDeck(controller, resizedGeneration, ReaderDeckSubmissionRole.Active,
+								resizedProfile, {}, true, ReaderPlayLikeCurlPhysicalRect(resizedOrigin[0], resizedOrigin[1],
+									resizedOrigin[0] + viewer.width, resizedOrigin[1] + viewer.height))
+							producedRendererGenerations += resizedGeneration
+							val resizedFence = assertNotNull(fences[resizedGeneration])
+							assertNull(resizedFence.presentationToken)
+							assertEquals(beforeCompletion.viewportGeneration, resizedFence.binding.viewportGeneration)
+							assertEquals(beforeCompletion.preparationGeneration, resizedFence.binding.preparationGeneration)
+							assertEquals(beforeCompletion.profileGeneration, resizedFence.binding.profileGeneration)
+							assertEquals(resizedGeneration, resizedFence.binding.textureGeneration)
+							val beforePrepared = resizeReceipts.size
+							controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+								.invoke(controller.surfaceView, resizedGeneration)
+							val completionReceipt = resizeReceipts.drop(beforePrepared).first {
+								it.event is ReaderPresentationEvent.BindingCompleted
+							}
+							assertEquals(ReaderPresentationEventDisposition.Accepted, completionReceipt.disposition)
+							assertEquals(ReaderPresentationEvent.BindingCompleted(beforeCompletion, resizedFence.binding), completionReceipt.event)
+							assertEquals(resizedFence.binding, reporter.lastReportedBinding)
+							assertEquals(resizedFence.binding, common.state.presentation.binding)
+							assertEquals(resizedFence.binding, physicalBinding())
+							assertFalse(common.state.presentationDecision.frameOwner is ReaderPresentationFrameOwner.ShellCover)
+							val currentState = common.state.presentation
+							work.callback(null)
+							(oldPlans + retryPlans + workerPlans).forEach { it.onReceiveValue(plan) }
+							controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+								.invoke(controller.surfaceView, 302L)
+							assertEquals(currentState, common.state.presentation)
+							assertEquals(resizedFence.binding, reporter.lastReportedBinding)
+							assertEquals(1, rendererReleaseCounts[301L])
+							assertEquals(1, rendererReleaseCounts[302L])
+							// This is reporter/completion/liveness coverage, not automatic
+							// post-resize raster preparation or a successful pixel presentation.
+							val requested = deliver(ReaderPresentationEvent.NativePageRequested)
+							assertEquals(ReaderPresentationEventDisposition.Accepted, requested.disposition)
+							assertEquals(resizedFence.binding, requested.postState.binding)
+							assertTrue(deadlines.hasPending)
+							nowMillis += deadlineDelayMillis
+							deadlines.runPending()
+							assertEquals(ReaderPresentationFailureReason.TimedOut,
+								assertIs<ReaderDiagnosticPresentation.Failure>(common.state.presentationDecision.diagnosticPresentation).reason)
+							assertFalse(deadlines.hasPending)
+							assertEquals(resizedFence.binding, reporter.lastReportedBinding)
+							assertEquals(listOf(resizedFence.binding), common.state.presentation.rendererCleanupOwnership.map { it.binding })
+							handler.deliver(queue.pendingEffects(), common.state.presentationDecision) { queue.acknowledge(it) }
+							assertTrue(queue.pendingEffects().isEmpty())
+							return@runTest
+						}
+						runtime.completeCommit(work)
+						val capture = withContext(Dispatchers.Default) { withTimeout(5_000L) { runtime.captures.receive() } }
+						runtime.completeCapture(capture)
+					}
+					assertEquals(generationBeforeRetry + 1L,
+						withContext(Dispatchers.Default) { withTimeout(5_000L) { rasterProofReady.await() } })
+					val proofPlans = webView.planCallbacks.toList()
+					webView.planCallbacks.clear()
+					proofPlans.forEach { it.onReceiveValue(plan) }
+					val rasterJob = controller.javaClass.task7Field("rasterJob").get(controller) as Job
+					withContext(Dispatchers.Default) {
+						withTimeout(5_000L) { rasterJob.children.toList().joinAll() }
+					}
+					@Suppress("UNCHECKED_CAST")
+					val owners = controller.javaClass.task7Field("generationOwners").get(controller) as Map<Long, Any>
+					val successor = assertNotNull(controller.javaClass.task7Field("activeDeckGenerationId").get(controller) as Long?)
+					val plansAfterRaster = webView.planCallbacks.size
+					assertTrue(successor > 302L, "Retry successor must be allocated by the actual renderer producer")
+					producedRendererGenerations += owners.keys.filter { it > 302L }
+					val freshFence = assertNotNull(fences[successor])
+					assertEquals(retryEffect.token, freshFence.presentationToken)
+					assertEquals(generationBeforeRetry + 1L, freshFence.binding.preparationGeneration)
+					assertEquals(bundle.currentGeneration(), freshFence.binding.rasterGeneration)
+					assertEquals(successor, freshFence.binding.textureGeneration)
+					for (obsolete in owners.keys.filter { it > 302L && it != successor }.toList()) {
+						controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+							.invoke(controller.surfaceView, obsolete)
+					}
+					controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+						.invoke(controller.surfaceView, successor)
+					ShadowLooper.runUiThreadTasks()
+					val plansAfterPrepared = webView.planCallbacks.size
+					assertEquals(ReaderPagePreparationPhase.Ready, common.state.presentation.preparationFacts.phase)
+					assertEquals(cover, common.state.presentationDecision.frameOwner)
+					val candidate = assertNotNull(viewerClass.task7Method("currentNativePagePresentationCandidateOrNull")
+						.invoke(viewer) as ReaderNativePagePresentationCandidate?)
+					assertEquals(freshFence.binding, candidate.binding)
+					assertEquals(retryEffect.token, candidate.transitionToken)
+					handler.deliver(queue.pendingEffects(), common.state.presentationDecision) { queue.acknowledge(it) }
+					assertEquals(cover, common.state.presentationDecision.frameOwner)
+					val frames = controller.surfaceView.javaClass.task7Field("presentedFrameRequest").get(controller.surfaceView)
+					val completion = frames.javaClass.task7Method("markRendered").invoke(frames) as Long
+					controller.surfaceView.javaClass.task7Method("handlePresentedFrame", java.lang.Long.TYPE)
+						.invoke(controller.surfaceView, completion)
+					val terminalEffects = queue.pendingEffects()
+					handler.deliver(terminalEffects, common.state.presentationDecision) { queue.acknowledge(it) }
+					ShadowLooper.runUiThreadTasks()
+					assertEquals(candidate.binding,
+						assertIs<ReaderPresentationAuthority.SettledNativePage>(common.state.presentation.authority).frame.proof.binding)
+					// Capacity/source tails cannot drain until their actual downstream
+					// prepared/frame acknowledgements and release effects are delivered.
+					val eventsBeforeSourceTail = events.size
+					val bundleJob = bundle.javaClass.task7Field("rasterJob").get(bundle) as Job
+					val preparationJob = preparation.javaClass.task7Field("teardownJob").get(preparation) as Job
+					val scheduler = assertNotNull(bundle.javaClass.task7Field("rasterScheduler").get(bundle))
+					val schedulerWorker = scheduler.javaClass.task7Field("workerJob").get(scheduler) as Job
+					val schedulerLock = checkNotNull(scheduler.javaClass.task7Field("lock").get(scheduler))
+					var physicalProgress = kotlinx.coroutines.CompletableDeferred<Unit>()
+					@Suppress("UNCHECKED_CAST")
+					val originalPreparationState = preparation.javaClass.task7Field("onPreparationStateChange")
+						.get(preparation) as (ReaderPagePreparationState) -> Unit
+					preparation.javaClass.task7Field("onPreparationStateChange").set(preparation, { state: ReaderPagePreparationState ->
+						originalPreparationState(state)
+						physicalProgress.complete(Unit)
+					})
+					fun physicalJobs(): List<Job> {
+						val scheduled = synchronized(schedulerLock) {
+							(scheduler.javaClass.task7Field("pending").get(scheduler) as Map<*, *>).values.map { work ->
+								checkNotNull(work).javaClass.task7Field("result").get(work) as Job
+							}
+						}
+						// The exact scheduler service waits for wakeups until teardown. Its
+						// lifetime is not work; its requests and active children still are.
+						return (listOf(rasterJob, bundleJob, preparationJob).flatMap { it.children.toList() }
+							.filter { it !== schedulerWorker } + schedulerWorker.children.toList() + scheduled)
+							.filter { !it.isCompleted }
+					}
+					fun hasPendingRetention() = synchronized(schedulerLock) {
+						scheduler.javaClass.task7Field("profilePendingRetention").get(scheduler) != null
+					}
+					fun unpreparedGenerations(): List<Long> {
+						@Suppress("UNCHECKED_CAST")
+						val prepared = controller.javaClass.task7Field("preparedDeckGenerations").get(controller) as Set<Long>
+						return owners.keys.filter { it > 302L && it !in prepared }.sorted()
+					}
+					fun physicalScalars(): String =
+						"physicalPhase=${(viewerClass.task7Field("latestRasterPreparationState").get(viewer) as ReaderPagePreparationState).phase} " +
+							"prewarm=${preparation.javaClass.task7Field("prewarmInProgress").getBoolean(preparation)} " +
+							"batch=${adapter.javaClass.task7Field("activeBatch").get(adapter) != null} " +
+							"runtime=${runtime.pendingCallbackCount} jobs=${physicalJobs().size} retention=${hasPendingRetention()} plans=${webView.planCallbacks.size} " +
+							"renderer=${controller.surfaceView.pendingCallbackCount} unprepared=${unpreparedGenerations().size} visual=${controller.applicationOwnershipMetrics().pendingVisualCallbacks} " +
+							"publication=${bundle.ownershipMetrics().pendingPublicationCallbacks} effects=${queue.pendingEffects().size}"
+					fun hasPhysicalWork() = webView.planCallbacks.isNotEmpty() || runtime.pendingCallbackCount != 0 ||
+						preparation.javaClass.task7Field("prewarmInProgress").getBoolean(preparation) ||
+						adapter.javaClass.task7Field("activeBatch").get(adapter) != null || physicalJobs().isNotEmpty() || hasPendingRetention() ||
+						controller.surfaceView.pendingCallbackCount != 0 || unpreparedGenerations().isNotEmpty() ||
+						controller.applicationOwnershipMetrics().pendingVisualCallbacks != 0 ||
+						bundle.ownershipMetrics().pendingPublicationCallbacks != 0 || queue.pendingEffects().isNotEmpty() ||
+						common.state.presentation.rendererCleanupOwnership.isNotEmpty() || deadlines.hasPending ||
+						common.state.presentationDecision.pendingTransitionToken != null ||
+						controller.surfaceView.javaClass.task7Field("nativeFrameRequest").get(controller.surfaceView) != null
+					var sourceRounds = 0
+					while (hasPhysicalWork()) {
+						assertTrue(sourceRounds++ < 8,
+							"Acknowledged physical continuation must reach bounded quiescence: ${physicalScalars()}")
+						physicalProgress = kotlinx.coroutines.CompletableDeferred()
+						testScheduler.runCurrent()
+						ShadowLooper.runUiThreadTasks()
+						val sourcePlans = webView.planCallbacks.toList()
+						for (sourcePlan in sourcePlans) {
+							check(webView.planCallbacks.remove(sourcePlan))
+							sourcePlan.onReceiveValue(plan)
+						}
+						runtime.commits.tryReceive().getOrNull()?.let(runtime::completeCommit)
+						runtime.captures.tryReceive().getOrNull()?.let(runtime::completeCapture)
+						testScheduler.runCurrent()
+						ShadowLooper.runUiThreadTasks()
+						for (generation in unpreparedGenerations()) {
+							if (generation !in producedRendererGenerations) producedRendererGenerations += generation
+							controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+								.invoke(controller.surfaceView, generation)
+						}
+						ShadowLooper.runUiThreadTasks()
+						if (controller.surfaceView.javaClass.task7Field("nativeFrameRequest").get(controller.surfaceView) != null) {
+							assertNotNull(viewerClass.task7Method("currentNativePagePresentationCandidateOrNull").invoke(viewer))
+							val tailFrames = controller.surfaceView.javaClass.task7Field("presentedFrameRequest").get(controller.surfaceView)
+							val tailCompletion = tailFrames.javaClass.task7Method("markRendered").invoke(tailFrames) as Long
+							controller.surfaceView.javaClass.task7Method("handlePresentedFrame", java.lang.Long.TYPE)
+								.invoke(controller.surfaceView, tailCompletion)
+						}
+						handler.deliver(queue.pendingEffects(), common.state.presentationDecision) { queue.acknowledge(it) }
+						testScheduler.runCurrent()
+						ShadowLooper.runUiThreadTasks()
+						if (hasPhysicalWork() && webView.planCallbacks.isEmpty() && unpreparedGenerations().isEmpty() &&
+							queue.pendingEffects().isEmpty() &&
+							controller.surfaceView.javaClass.task7Field("nativeFrameRequest").get(controller.surfaceView) == null
+						) {
+							// Wait for one causal edge, never all upstream jobs while their
+							// passive commit/capture acknowledgements are still withheld.
+							val jobs = physicalJobs()
+							val progress = physicalProgress
+							val action = withContext(Dispatchers.Default) {
+								kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+									kotlinx.coroutines.selects.select<() -> Unit> {
+										runtime.commits.onReceive { request -> { runtime.completeCommit(request) } }
+										runtime.captures.onReceive { request -> { runtime.completeCapture(request) } }
+										progress.onAwait { { } }
+										jobs.forEach { job -> job.onJoin { { } } }
+									}
+								}
+							}
+							assertNotNull(action, "No reachable physical completion: ${physicalScalars()}").invoke()
+						}
+					}
+					val settled = common.state
+					val finalProof = assertIs<ReaderPresentationAuthority.SettledNativePage>(settled.presentation.authority,
+						"After acknowledged source tail: rounds=$sourceRounds plans=${webView.planCallbacks.size} " +
+							"producers=${planWitnesses.takeLast(8)} events=${events.drop(eventsBeforeSourceTail).map { it::class.simpleName }} " +
+							"owners=${owners.keys.sorted()} phase=${settled.presentation.preparationFacts.phase} " +
+							"targetTexture=${settled.presentation.binding?.textureGeneration} physicalTexture=${physicalBinding().textureGeneration} " +
+							"request=${settled.presentationDecision.pendingTransitionToken?.value} ${physicalScalars()}").frame.proof
+					assertEquals(physicalBinding(), finalProof.binding, physicalScalars())
+					assertEquals(candidate.binding.copy(textureGeneration = finalProof.binding.textureGeneration), finalProof.binding)
+					assertIs<paige.navic.reader.ReaderPageNewPointerDecision.Accept>(
+						assertIs<ReaderPresentationInputPolicy.NativePage>(settled.presentationDecision.inputPolicy).policy.newPointer)
+					assertEquals(1, events.filterIsInstance<ReaderPresentationEvent.NativePagePresented>().count {
+						it.proof.transitionToken == retryEffect.token
+					})
+					val plansAfterNative = webView.planCallbacks.size
+					(oldPlans + retryPlans).forEach { it.onReceiveValue(plan) }
+					controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+						.invoke(controller.surfaceView, 302L)
+					controller.surfaceView.javaClass.task7Method("handlePresentedFrame", java.lang.Long.TYPE)
+						.invoke(controller.surfaceView, completion)
+					ShadowLooper.runUiThreadTasks()
+					assertEquals(settled, common.state)
+					assertEquals(1, rendererReleaseCounts[302L])
+					val releaseCalls = releaseIngress.size
+					handler.deliver(terminalEffects, common.state.presentationDecision) { queue.acknowledge(it) }
+					assertEquals(releaseCalls, releaseIngress.size, "Terminal effect replay must not release twice")
+					assertTrue(releaseIngress.any { it.binding.textureGeneration == 301L })
+					assertEquals(1, predecessorReleases)
+					assertEquals(setOf(finalProof.binding.textureGeneration), owners.keys)
+					assertTrue(common.state.presentation.rendererCleanupOwnership.isEmpty())
+					assertTrue(queue.pendingEffects().isEmpty())
+					assertFalse(deadlines.hasPending)
+					assertNull(common.state.presentationDecision.pendingTransitionToken)
+					assertFalse(hasPhysicalWork(), physicalScalars())
+					assertTrue(runtime.commits.tryReceive().isFailure)
+					assertTrue(runtime.captures.tryReceive().isFailure)
+					assertEquals(0, runtime.pendingCallbackCount)
+					assertEquals(0, controller.surfaceView.pendingCallbackCount)
+					assertEquals(0, controller.applicationOwnershipMetrics().pendingVisualCallbacks)
+					assertEquals(0, bundle.ownershipMetrics().pendingPublicationCallbacks)
+					assertTrue(webView.planCallbacks.isEmpty(),
+						"Undelivered source plans: raster=$plansAfterRaster prepared=$plansAfterPrepared native=$plansAfterNative " +
+							"replay=${webView.planCallbacks.size} producers=${webView.planCallbacks.map { it.javaClass.simpleName.substringBefore('$') }}")
+					assertNull(controller.surfaceView.javaClass.task7Field("nativeFrameRequest").get(controller.surfaceView))
+					return@runTest
+				}
 				val gestureController = if (nativePipeline) controller else source.controller
 				if (nativePipeline) {
 					// Import the source fixture's already-ready predecessor safety policy,
@@ -6066,6 +6680,7 @@ private class Task9RecoveryCommandWebView(context: Context) : WebView(context) {
 
 	val recoveryReasons = mutableListOf<String>()
 	var retainPlanCallbacks = false
+	var onPlanRequested: ((String) -> Unit)? = null
 	val planCallbacks = mutableListOf<android.webkit.ValueCallback<String>>()
 	override fun evaluateJavascript(script: String, resultCallback: android.webkit.ValueCallback<String>?) {
 		if (sourceBinding != null && script.contains("pageTurnPassiveRasterManifestInputs")) {
@@ -6082,6 +6697,14 @@ private class Task9RecoveryCommandWebView(context: Context) : WebView(context) {
 			return
 		}
 		if (retainPlanCallbacks && script.contains("pageTurnRasterPreparationPlan") && resultCallback != null) {
+			onPlanRequested?.let { observe ->
+				// Retain only an allowlisted producer label, never a stack or script.
+				val stack = Throwable().stackTrace
+				val producer = listOf("signalRasterCapacityAvailable", "retireRasterAdapter", "onRasterProofReady",
+					"onPreparationStateChanged", "retryPreparation", "onHostContentReady", "onCapabilitiesAvailable")
+					.firstOrNull { name -> stack.any { it.methodName.startsWith(name) } } ?: "Other"
+				observe(producer)
+			}
 			planCallbacks += resultCallback
 			return
 		}

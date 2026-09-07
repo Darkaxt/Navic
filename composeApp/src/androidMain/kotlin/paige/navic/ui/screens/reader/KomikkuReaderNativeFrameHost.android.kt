@@ -97,6 +97,8 @@ import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncCueMapState
+import paige.navic.reader.ReaderPresentationRetryBindingAttribution
+import paige.navic.reader.admitsCurrentCoverRetryBindingReplacement
 import paige.navic.reader.admitsExactSelectedRendererRemoval
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.publicationIdentity
@@ -353,7 +355,8 @@ internal class ReaderPresentationBindingReporter {
 		currentBinding: ReaderPresentationBinding,
 		publicationOpenPending: Boolean,
 		relocationPending: Boolean,
-		relocationAcknowledgement: ReaderPageTurnSettlementAck? = null
+		relocationAcknowledgement: ReaderPageTurnSettlementAck? = null,
+		retryBindingReplacement: ReaderPresentationEvent.BindingReplaced? = null
 	): ReaderPresentationEvent? {
 		if (authoritativeLifecycle != ReaderPresentationLifecycleState.Foreground) return null
 		if (currentBinding == lastReportedBinding) return null
@@ -362,6 +365,10 @@ internal class ReaderPresentationBindingReporter {
 		}
 		val previousBinding = lastReportedBinding ?: confirmedTargetBinding ?: return null
 		if (currentBinding == previousBinding) return null
+		if (retryBindingReplacement?.previousBinding == previousBinding &&
+			retryBindingReplacement.binding == currentBinding &&
+			authoritativeState?.admitsCurrentCoverRetryBindingReplacement(retryBindingReplacement) == true
+		) return retryBindingReplacement
 		if (
 			authoritativeState?.admitsExactSelectedRendererRemoval(
 				previousBinding = previousBinding,
@@ -1802,6 +1809,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var presentationDestinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	private var composeDestinationCommitIdentity: ReaderDestinationCommitIdentity? = null
 	private var presentationDecision: ReaderPresentationDecision? = null
+	private data class CoverRetryBindingCorrelation(
+		val effect: ReaderPresentationEffect.RetryPreparation,
+		val hostEpoch: Long,
+		val preparationGeneration: Long,
+		val profileGeneration: Long
+	)
+	private var coverRetryBindingCorrelation: CoverRetryBindingCorrelation? = null
 	private var onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt? = { null }
 	private var onAuthoritativePresentationHostEffect:
 		(ReaderPresentationHostEffect) -> Unit = {}
@@ -2334,6 +2348,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun onRasterProfileEpochChanged(epoch: Long?) {
+		val retry = currentCoverRetryBindingCorrelationOrNull()
+		// The producer publishes this synchronously after its request-generation
+		// fence. Record that exact epoch before its preparation callback emits Idle.
+		coverRetryBindingCorrelation = if (epoch != null) retry?.copy(profileGeneration = epoch) else null
 		presentationViewerReplacementFence.observeRasterProfileEpoch(epoch)
 		clearDestinationDeckPrewarm()
 		rasterProfileEpoch = epoch
@@ -2931,7 +2949,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			currentBinding = binding,
 			publicationOpenPending = presentationPublicationOpenPending,
 			relocationPending = presentationRelocationPending,
-			relocationAcknowledgement = relocationAcknowledgement
+			relocationAcknowledgement = relocationAcknowledgement,
+			retryBindingReplacement = currentCoverRetryBindingReplacementOrNull(binding)
 		)
 		if (bindingEvent != null) {
 			val receipt = dispatchPresentationEvent(bindingEvent)
@@ -3015,6 +3034,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	) {
 		presentationDecision = decision
+		currentCoverRetryBindingCorrelationOrNull()
 		playLikeCurlController.synchronizePresentationDecision(decision)
 		presentationInputPolicy = decision.inputPolicy
 		cancelLegacyLivePointerStreamIfContextChanged()
@@ -3193,6 +3213,41 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 	}
 
+	private fun currentCoverRetryBindingCorrelationOrNull(): CoverRetryBindingCorrelation? {
+		val correlation = coverRetryBindingCorrelation ?: return null
+		val decision = presentationDecision
+		val pending = decision?.authority as? ReaderPresentationAuthority.BlockingPreparation
+		val request = pending?.nativePresentationRequest
+		val effect = correlation.effect
+		val current = correlation.hostEpoch == presentationBindingReporter.captureEpoch() &&
+			decision?.lifecycle == ReaderPresentationLifecycleState.Foreground &&
+			decision.diagnosticPresentation == ReaderDiagnosticPresentation.Hidden &&
+			pending?.retainedFrame is ReaderPresentationFrameOwner.ShellCover &&
+			effect.token != null && request?.token == effect.token &&
+			request.binding == effect.binding && decision.targetBinding == effect.binding &&
+			effect.binding.preparationGeneration != null &&
+			request.retryAfterPreparationGeneration == effect.binding.preparationGeneration &&
+			correlation.preparationGeneration > effect.binding.preparationGeneration &&
+			effect.binding.rasterGeneration != null && effect.binding.textureGeneration != null
+		if (!current) coverRetryBindingCorrelation = null
+		return correlation.takeIf { current }
+	}
+
+	private fun currentCoverRetryBindingReplacementOrNull(
+		binding: ReaderPresentationBinding
+	): ReaderPresentationEvent.BindingReplaced? {
+		val correlation = currentCoverRetryBindingCorrelationOrNull() ?: return null
+		val effect = correlation.effect
+		if (binding != effect.binding.copy(
+			preparationGeneration = correlation.preparationGeneration,
+			profileGeneration = correlation.profileGeneration,
+			rasterGeneration = null, textureGeneration = null
+		)) return null
+		return ReaderPresentationEvent.BindingReplaced(effect.binding, binding,
+			ReaderPresentationRetryBindingAttribution(
+				checkNotNull(effect.token), correlation.preparationGeneration, correlation.profileGeneration))
+	}
+
 	fun retryPreparation(effect: ReaderPresentationEffect.RetryPreparation): Boolean {
 		val pending = presentationDecision?.authority as? ReaderPresentationAuthority.BlockingPreparation
 		if (pending?.retainedFrame is ReaderPresentationFrameOwner.Curl &&
@@ -3207,11 +3262,33 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				}
 			}
 		}
-		if (currentPresentationBindingOrNull() != effect.binding) return true
-		return retryCurrentPreparation(effect.binding.preparationGeneration)
+		val physicalBinding = currentPresentationBindingOrNull()
+		if (physicalBinding != effect.binding) {
+			val decision = presentationDecision
+			val request = pending?.nativePresentationRequest
+			// A suppressed null-deck observation leaves the complete common target
+			// intact. Its exact current cover Retry must still reach fresh allocation.
+			val currentCoverRetryWithoutDeck =
+				decision?.lifecycle == ReaderPresentationLifecycleState.Foreground &&
+					decision.diagnosticPresentation == ReaderDiagnosticPresentation.Hidden &&
+					decision.targetBinding == effect.binding &&
+					pending?.retainedFrame is ReaderPresentationFrameOwner.ShellCover &&
+					effect.token != null && request?.token == effect.token &&
+					request.binding == effect.binding &&
+					effect.binding.preparationGeneration != null &&
+					request.retryAfterPreparationGeneration == effect.binding.preparationGeneration &&
+					effect.binding.rasterGeneration != null && effect.binding.textureGeneration != null &&
+					physicalBinding != null && physicalBinding == effect.binding.copy(
+						rasterGeneration = null, textureGeneration = null)
+			if (!currentCoverRetryWithoutDeck) return true
+		}
+		return retryCurrentPreparation(effect.binding.preparationGeneration, effect)
 	}
 
-	private fun retryCurrentPreparation(expectedGeneration: Long?): Boolean {
+	private fun retryCurrentPreparation(
+		expectedGeneration: Long?,
+		retryEffect: ReaderPresentationEffect.RetryPreparation? = null
+	): Boolean {
 		val webView = viewerContentContainer.findDescendantWebView()
 		if (passiveRasterPreparationAdapter?.isAvailable != true && webView != null) {
 			closePassiveRasterPreparationAdapter()
@@ -3219,6 +3296,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 		val preparationGeneration =
 			pageRasterPreparationController.retryPreparation(expectedGeneration) ?: return false
+		// Bind the successful allocation before renderer Retry can synchronously
+		// resolve a profile or publish preparation/deck identity. Never retag a tail.
+		coverRetryBindingCorrelation = retryEffect?.let {
+			CoverRetryBindingCorrelation(it, presentationBindingReporter.captureEpoch(),
+				preparationGeneration, it.binding.profileGeneration)
+		}
+		currentCoverRetryBindingCorrelationOrNull()
 		playLikeCurlController.retryPreparation(preparationGeneration)
 		if (rasterProfileEpoch == null) {
 			requestPageTurnPrewarmWhenReady()
