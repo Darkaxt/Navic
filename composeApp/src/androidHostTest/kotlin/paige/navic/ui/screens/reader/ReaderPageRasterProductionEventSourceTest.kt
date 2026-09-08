@@ -85,9 +85,12 @@ class ReaderPageRasterProductionEventSourceTest {
 		assertContains(host, "rasterProfileEpoch = epoch")
 		assertContains(host, "if (epoch == null && !task4ResourceTeardownStarted)")
 		assertContains(host, "private var rasterPaginationReady = false")
+		val preparationAdmission = host.substringAfter("canStartPreparation = {")
+			.substringBefore("}")
+		assertContains(preparationAdmission, "coldOwnershipAdmitted && rasterPaginationReady &&")
 		assertContains(
-			host,
-			"canStartPreparation = { coldOwnershipAdmitted && rasterPaginationReady }"
+			preparationAdmission,
+			"!playLikeCurlController.awaitingPresentationRecoverySnapshot"
 		)
 		assertContains(host, "readerPageActivePaginationReadiness(")
 		assertContains(host, "readerPagePaginationReadiness(pageTurnPaginationStatus)")
