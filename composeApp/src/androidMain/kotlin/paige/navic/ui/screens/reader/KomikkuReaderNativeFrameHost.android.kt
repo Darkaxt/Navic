@@ -82,6 +82,7 @@ import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationFrameOwner
+import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLayer
 import paige.navic.reader.ReaderPresentationLifecycleEvent
@@ -306,6 +307,9 @@ internal class ReaderPresentationBindingReporter {
 	fun matchesAuthoritativePresentationVersion(
 		version: ReaderPresentationReceiptVersion
 	): Boolean = authoritativeVersion == version
+
+	fun matchesAuthoritativePresentationDecision(decision: ReaderPresentationDecision): Boolean =
+		authoritativeState?.let(::readerPresentationDecision) == decision
 
 	fun captureEpoch(): Long = hostEpoch
 
@@ -1819,6 +1823,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt? = { null }
 	private var onAuthoritativePresentationHostEffect:
 		(ReaderPresentationHostEffect) -> Unit = {}
+	private var nativePresentationDispatchDepth = 0
 	private val nativePagePresentationPublisher by lazy {
 		ReaderNativePagePresentationPublisher(
 			frameSource = playLikeCurlController.presentedFrameSource,
@@ -1834,7 +1839,24 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 					event is ReaderPresentationEvent.LiveEngineHandoffTimedOut ||
 					event is ReaderPresentationEvent.LiveEngineExposureFailed
 			)
-			dispatchPresentationEvent(event)
+			val nativeContinuation = (event as? ReaderPresentationEvent.NativePagePresented)?.let(
+				playLikeCurlController::initialLiveNativeReceiptContinuation
+			)
+			val epoch = presentationBindingReporter.captureEpoch()
+			nativePresentationDispatchDepth += 1
+			val receipt = try {
+				dispatchPresentationEvent(event)
+			} finally {
+				nativePresentationDispatchDepth -= 1
+			}
+			// Common mutation is not acceptance: the original host dispatcher owns this floor.
+			if (receipt != null && receipt.authorizes(event) &&
+				epoch == presentationBindingReporter.captureEpoch() &&
+				presentationBindingReporter.matchesAuthoritativePresentationVersion(receipt.version)
+			) {
+				nativeContinuation?.invoke(epoch, receipt)
+			}
+			receipt
 		}
 	}
 	private val presentationBindingReporter = ReaderPresentationBindingReporter()
@@ -2009,6 +2031,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		foregroundWebViewOwnership = foregroundWebViewOwnership,
 		presentedFrameSequenceSource = ::nextLiveEnginePresentedFrameSequence,
+		presentationHostEpoch = presentationBindingReporter::captureEpoch,
+		initialLiveNativeProofIsCurrent = ::initialLiveNativeProofIsCurrent,
+		initialLiveDecisionIsAuthoritative = presentationBindingReporter::matchesAuthoritativePresentationDecision,
 		bundleSource = pageTurnBundleSource,
 		diagnostics = readerRuntimeDiagnostics,
 		qaFaultRegistry = qaFaultRegistry,
@@ -2804,10 +2829,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			decision = decision
 		)
 		composeDestinationCommitIdentity = destinationCommitIdentity
-		// Compose carries the destination before its visual-location ingress. During
-		// recovery, only that correlated ingress (or an external live event) may
-		// publish it; readiness callbacks must still see the admitted predecessor.
-		if (!playLikeCurlController.awaitingPresentationRecoverySnapshot) {
+		// Compose carries the destination before its visual-location ingress. Recovery
+		// and dispatched native initial-live work need that ingress to correlate the
+		// source before reporting; readiness must still see the admitted predecessor.
+		if (!playLikeCurlController.awaitingPresentationRecoverySnapshot &&
+			!playLikeCurlController.awaitingInitialLiveNativeSource
+		) {
 			adoptComposeDestinationCommitIdentity()
 		}
 		reportPresentationIdentityIfAvailable()
@@ -2854,6 +2881,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			initialPresentationState = state,
 			initialShellCoverVisible = shellCoverVisible
 		)
+		playLikeCurlController.onPresentationHostEpochChanged()
 		presentationLifecycleDelivery.reset(
 			version = version,
 			observedWindowVisible = lastPresentationWindowVisible,
@@ -2904,7 +2932,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 	}
 
-	private fun currentPresentationBindingOrNull(): ReaderPresentationBinding? =
+	private fun currentPresentationBindingOrNull(
+		preparedDeck: ReaderPagePreparedActiveDeck? = preparedActiveDeck
+	): ReaderPresentationBinding? =
 		readerPresentationHostBinding(
 			ReaderPresentationHostBindingSnapshot(
 				pageTurnCanvasEnabled = pageTurnCanvasEnabled,
@@ -2920,8 +2950,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				destinationCommitIdentity = presentationDestinationCommitIdentity,
 				preparationGeneration = latestRasterPreparationState.preparationGeneration,
 				visualPageIndex = pageTurnVisualPageIndex,
-				preparedDeck = preparedActiveDeck,
-				preparedDeckAdmitted = preparedActiveDeck?.let(
+				preparedDeck = preparedDeck,
+				preparedDeckAdmitted = preparedDeck?.let(
 					presentationViewerReplacementFence::admits
 				) == true
 			)
@@ -2930,6 +2960,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun reportPresentationIdentityIfAvailable(
 		relocationAcknowledgement: ReaderPageTurnSettlementAck? = null
 	) {
+		restoreMissingPreparedDeckAtReady(latestRasterPreparationState)
 		val binding = currentPresentationBindingOrNull()
 		if (binding == null) {
 			nativePagePresentationPublisher.update()
@@ -2996,6 +3027,27 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun reportNativePagePresentationIfAvailable() {
 		nativePagePresentationPublisher.update()
+	}
+
+	private fun initialLiveNativeProofIsCurrent(
+		epoch: Long,
+		proof: ReaderNativePagePresentationProof
+	): Boolean {
+		if (nativePresentationDispatchDepth != 0 || epoch != presentationBindingReporter.captureEpoch()) return false
+		val decision = presentationDecision ?: return false
+		val candidate = currentNativePagePresentationCandidateOrNull() ?: return false
+		return decision.lifecycle == ReaderPresentationLifecycleState.Foreground &&
+			presentationBindingReporter.matchesAuthoritativePresentationDecision(decision) &&
+			(decision.authority as? ReaderPresentationAuthority.SettledNativePage)?.frame?.proof == proof &&
+			(decision.frameOwner as? ReaderPresentationFrameOwner.NativePage)?.proof == proof &&
+			decision.targetBinding == proof.binding &&
+			presentationBindingReporter.lastReportedBinding == proof.binding &&
+			candidate.binding == proof.binding &&
+			candidate.viewportWidth == proof.viewportWidth && candidate.viewportHeight == proof.viewportHeight &&
+			decision.requiredTransition == ReaderRequiredTransition.None &&
+			decision.pendingTransitionToken == null &&
+			decision.layer == ReaderPresentationLayer.NativePage &&
+			decision.inputPolicy is ReaderPresentationInputPolicy.NativePage
 	}
 
 	private fun currentNativePagePresentationCandidateOrNull(): ReaderNativePagePresentationCandidate? {
@@ -3111,6 +3163,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		acknowledgement: ReaderPageTurnSettlementAck?,
 		requireRecoveryAdmission: Boolean
 	): Boolean {
+		if (playLikeCurlController.awaitingInitialLiveNativeSource &&
+			composeDestinationCommitIdentity != presentationDestinationCommitIdentity
+		) {
+			// Source correlation precedes both duplicate-input filtering and cleanup.
+			adoptComposeDestinationCommitIdentity()
+			playLikeCurlController.stageInitialLiveNativeSource(
+				currentPresentationBindingOrNull(), normalized, currentFoliateSessionId, acknowledgement
+			)
+			reportPresentationIdentityIfAvailable()
+		}
 		if (
 			!requireRecoveryAdmission &&
 			pageTurnVisualPageIndex == normalized &&
@@ -3139,6 +3201,22 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				normalized,
 				acknowledgement
 			)
+		}
+		// External input cleanup still clears the host's cached observation. Capture
+		// only exact, already-owned material; never carry this across an async turn.
+		val reconciliationDecision = presentationDecision
+		val reconciliationBinding = reconciliationDecision?.targetBinding
+		val reconciliationEpoch = presentationBindingReporter.captureEpoch()
+		val reconciliationDeck = preparedActiveDeck?.takeIf { deck ->
+			!sessionChanged && !requireRecoveryAdmission && acknowledgement == null &&
+				origin == ReaderPageVisualLocationOrigin.External &&
+				normalized == pageTurnVisualPageIndex &&
+				reconciliationDecision != null && reconciliationBinding != null &&
+				presentationBindingReporter.lastReportedBinding == reconciliationBinding &&
+				currentPresentationBindingOrNull() == reconciliationBinding &&
+				playLikeCurlController.canReconcilePreparedActiveDeck(
+					deck, normalized, currentFoliateSessionId, reconciliationDecision
+				)
 		}
 		if (!sessionChanged && origin == ReaderPageVisualLocationOrigin.External) {
 			dispatchPageHostLifecycleEvent(
@@ -3172,6 +3250,19 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		)
 		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
 			pageRasterPreparationController.synchronizeVisualPageIndex(normalized, reason)
+		}
+		if (reconciliationDeck != null && reconciliationDecision != null &&
+			preparedActiveDeck == null &&
+			presentationDecision == reconciliationDecision &&
+			presentationBindingReporter.captureEpoch() == reconciliationEpoch &&
+			presentationBindingReporter.lastReportedBinding == reconciliationBinding &&
+			currentPresentationBindingOrNull(reconciliationDeck) == reconciliationBinding
+		) {
+			// The candidate above is comparison-only. The actual owner must revalidate
+			// before its existing observer can restore the host record and report facts.
+			playLikeCurlController.reconcilePreparedActiveDeck(
+				reconciliationDeck, normalized, currentFoliateSessionId, reconciliationDecision
+			)
 		}
 		commitStartupShellPresentationIfReady()
 		return true
@@ -3310,11 +3401,48 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		return true
 	}
 
+	private fun restoreMissingPreparedDeckAtReady(state: ReaderPagePreparationState) {
+		if (state.phase != ReaderPagePreparationPhase.Ready || preparedActiveDeck != null) return
+		val decision = presentationDecision ?: return
+		val blocking = decision.authority as? ReaderPresentationAuthority.BlockingPreparation ?: return
+		val cover = blocking.retainedFrame as? ReaderPresentationFrameOwner.ShellCover ?: return
+		val request = blocking.nativePresentationRequest ?: return
+		val binding = decision.targetBinding ?: return
+		val epoch = presentationBindingReporter.captureEpoch()
+		if (request.binding != binding || request.token != decision.pendingTransitionToken ||
+			binding.rasterGeneration == null || binding.textureGeneration == null ||
+			binding.preparationGeneration != state.preparationGeneration ||
+			(request.retryAfterPreparationGeneration?.let { state.preparationGeneration <= it } == true)
+		) return
+		playLikeCurlController.publishMissingPreparedDeckAtReady(
+			pageIndex = pageTurnVisualPageIndex,
+			foliateSessionId = pageTurnFoliateSessionId ?: return,
+			decision = decision,
+			hostAdmits = { deck ->
+				!task4ResourceTeardownStarted && pageTurnCanvasEnabled && isAttachedToWindow &&
+					lastPresentationWindowVisible != false &&
+					!presentationPublicationOpenPending && preparedActiveDeck == null &&
+					latestRasterPreparationState == state && presentationDecision == decision &&
+					decision.lifecycle == ReaderPresentationLifecycleState.Foreground &&
+					decision.diagnosticPresentation !is ReaderDiagnosticPresentation.Failure &&
+					decision.frameOwner == cover && decision.layer == ReaderPresentationLayer.ShellCover &&
+					presentationBindingReporter.captureEpoch() == epoch &&
+					presentationBindingReporter.matchesAuthoritativePresentationDecision(decision) &&
+					presentationBindingReporter.lastReportedBinding == binding &&
+					presentationViewerReplacementFence.admits(deck) &&
+					currentPresentationBindingOrNull(deck) == binding
+			}
+		)
+	}
+
 	private fun onPreparedActiveDeckChanged(deck: ReaderPagePreparedActiveDeck?) {
 		val previous = preparedActiveDeck
 		val ownership = foregroundWebViewOwnership.snapshot()
+		val epoch = presentationBindingReporter.captureEpoch()
 		preparedActiveDeck = deck
 		reportPresentationIdentityIfAvailable()
+		// Reporting may synchronously replace the viewer or authority epoch.
+		if (preparedActiveDeck !== deck || presentationBindingReporter.captureEpoch() != epoch) return
 		if (
 			deck != null &&
 			previous != null &&

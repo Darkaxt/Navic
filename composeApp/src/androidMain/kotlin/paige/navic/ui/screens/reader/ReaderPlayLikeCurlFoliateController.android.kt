@@ -70,6 +70,8 @@ import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationFrameOwner
+import paige.navic.reader.ReaderNativePagePresentationProof
+import paige.navic.reader.ReaderPresentationLifecycleState
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.readerPresentationDecision
@@ -892,6 +894,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val foregroundWebViewOwnership: ReaderForegroundWebViewOwnership =
 		ReaderForegroundWebViewOwnership(),
 	private val presentedFrameSequenceSource: ((ReaderPresentationBinding) -> Long)? = null,
+	private val presentationHostEpoch: () -> Long = { 0L },
+	private val initialLiveNativeProofIsCurrent: (Long, ReaderNativePagePresentationProof) -> Boolean =
+		{ _, _ -> false },
+	private val initialLiveDecisionIsAuthoritative: (ReaderPresentationDecision) -> Boolean = { false },
 	private val bundleSource: ReaderPageTurnBundleSource,
 	private val diagnostics: ReaderPageRuntimeDiagnostics? = null,
 	private val qaFaultRegistry: ReaderPageQaFaultRegistry? = null,
@@ -978,9 +984,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val pageIndex: Int,
 		val foliateSessionId: String,
 		val rasterGeneration: Long,
-		val claim: ReaderForegroundWebViewLiveClaim
+		val hostEpoch: Long,
+		val generationOwner: PreparedPages?,
+		val nativeBinding: ReaderPresentationBinding?,
+		val nativeToken: ReaderPresentationToken?
 	) {
+		var claim: ReaderForegroundWebViewLiveClaim? = null
+		var claimAcquisitionPending = false
+		var acceptedNativeProof: ReaderNativePagePresentationProof? = null
 		var target: ReaderPageTurnPresentationTarget.Live? = null
+		var ownSourceBinding: ReaderPresentationBinding? = null
 		var confirmationPending = false
 	}
 
@@ -2011,6 +2024,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun synchronizePresentationDecision(decision: ReaderPresentationDecision) {
 		commonPresentationDecision = decision
 		synchronizeSelectedRendererFrame()
+		retryInitialLivePresentationAuthority()
 		if (presentationRecoverySnapshot?.token != currentCurlRecoveryRequest()?.token) {
 			presentationRecoverySnapshot = null
 		}
@@ -2389,6 +2403,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (hostResumed == resumed) return
 		hostResumed = resumed
 		if (resumed && enabled && !destroyed) {
+			retryInitialLivePresentationAuthority()
 			retryPresentationRecoverySnapshot()
 			retryPassiveManifestAuthorityRecovery()
 			retryRelocationVisualHandoffResumed()
@@ -2415,16 +2430,81 @@ internal class ReaderPlayLikeCurlFoliateController(
 		(commonPresentationDecision?.authority as?
 			ReaderPresentationAuthority.CurlGesture)?.frame?.frame?.token?.value
 
-	private fun publishCurlClaim(gestureId: Long): Boolean {
-		val decision = commonPresentationDecision ?: return false
-		val event = readerCurlClaimEvent(decision, gestureId) ?: return false
-		val receipt = onPresentationEvent(event).takeIf { it.authorizes(event) } ?: return false
-		val postDecision = readerPresentationDecision(receipt.postState)
-		val claimed = postDecision.authority as? ReaderPresentationAuthority.CurlGesture
-			?: return false
-		if (claimed.frame.frame != event.frame) return false
-		commonPresentationDecision = postDecision
-		return true
+	private fun admitCurlClaim(gestureId: Long, admitRenderer: () -> Boolean): Boolean {
+		// Admission may synchronously submit (and prepare) the turn's Pending deck.
+		// Capture its predecessor before touching the renderer, without selecting a claim.
+		val predecessor = commonPresentationDecision
+		val sourceGeneration = activeDeckGenerationId
+		val sourcePages = activePages
+		val sourcePreparation = preparationGeneration
+		val sourceRaster = bundleSource.currentGeneration()
+		val previousPending = pendingDeckGenerationId
+		val attemptGeneration = nextDeckGeneration
+		return admitReaderCurlRendererClaim(
+			gestureId = gestureId,
+			admitRenderer = admitRenderer,
+			publishClaim = claim@{
+				val decision = predecessor ?: return@claim false
+				val event = readerCurlClaimEvent(decision, gestureId) ?: return@claim false
+				fun sourceStillCurrent(): Boolean =
+					!destroyed && enabled && attached && activeGestureId == gestureId &&
+						sourcePages != null && !sourcePages.obsolete && activePages === sourcePages &&
+						activeDeckGenerationId == sourceGeneration &&
+						generationOwners[sourceGeneration] === sourcePages &&
+						event.frame.textureGeneration == sourceGeneration &&
+						event.frame.rasterGeneration == sourceRaster &&
+						sourcePages.profile.rasterGeneration == sourceRaster &&
+						bundleSource.currentGeneration() == sourceRaster &&
+						preparationGeneration == sourcePreparation &&
+						failedPreparationGeneration != sourcePreparation &&
+						event.frame.binding.preparationGeneration == sourcePreparation &&
+						currentFoliateSessionId == event.frame.binding.foliateSessionId
+				// Starting the renderer reports Settling readiness, changing the native
+				// input policy before common selects Curl. Every authority fence must stay exact.
+				fun retainsPredecessor(current: ReaderPresentationDecision?): Boolean =
+					current?.copy(inputPolicy = decision.inputPolicy) == decision
+				if (!retainsPredecessor(commonPresentationDecision) || !sourceStillCurrent()) return@claim false
+				val pending = pendingDeckGenerationId
+				val acceptedPending = pending?.takeIf {
+					it != previousPending && it == attemptGeneration && it < nextDeckGeneration
+				}
+				if (pending != previousPending && acceptedPending == null) return@claim false
+				val pendingFence = acceptedPending?.let(generationCallbackFences::get)
+				fun pendingStillCurrent(): Boolean = pendingDeckGenerationId == pending &&
+					(acceptedPending == null || (
+						generationOwners[acceptedPending] === sourcePages &&
+						generationRoles[acceptedPending] == ReaderDeckSubmissionRole.Pending &&
+						generationPreparationGenerations[acceptedPending] == sourcePreparation &&
+						generationCallbackFences[acceptedPending] === pendingFence &&
+						pendingFence != null && readerAcceptedDeckCallbackMatches(
+							pendingFence, decision, sourcePreparation, sourceRaster, acceptedPending
+						)
+					))
+				if (!pendingStillCurrent()) return@claim false
+				val receipt = onPresentationEvent(event).takeIf { it.authorizes(event) }
+					?: return@claim false
+				val postDecision = readerPresentationDecision(receipt.postState)
+				val claimed = postDecision.authority as? ReaderPresentationAuthority.CurlGesture
+					?: return@claim false
+				if (claimed.frame.frame != event.frame || postDecision.targetBinding != event.frame.binding) {
+					return@claim false
+				}
+				// Receipt dispatch can synchronously cancel or replace either authority or
+				// physical ownership. Never overwrite that successor with the returned receipt.
+				val current = commonPresentationDecision
+				if ((!retainsPredecessor(current) && current != postDecision) ||
+					!sourceStillCurrent() || !pendingStillCurrent()
+				) return@claim false
+				commonPresentationDecision = postDecision
+				if (acceptedPending != null && pendingFence != null) {
+					generationCallbackFences[acceptedPending] = pendingFence.copy(
+						presentationToken = claimed.frame.frame.token
+					)
+				}
+				true
+			},
+			cancelRendererClaim = surfaceView::cancelGesture
+		)
 	}
 
 	private fun publishCurlTerminal(
@@ -2489,14 +2569,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 				metadata = metadata,
 				protocolActionMasked = event.actionMasked,
 				rendererAdmission = {
-					admitReaderCurlRendererClaim(
-						gestureId = gestureId,
-						admitRenderer = {
-							surfaceView.onPageTouchEvent(event, gestureId)
-						},
-						publishClaim = { publishCurlClaim(gestureId) },
-						cancelRendererClaim = surfaceView::cancelGesture
-					)
+					admitCurlClaim(gestureId) {
+						surfaceView.onPageTouchEvent(event, gestureId)
+					}
 				},
 				publishTerminal = { outcome, detail ->
 					publishGestureTerminal(gestureId, outcome, detail)
@@ -2630,12 +2705,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				metadata = metadata,
 				protocolActionMasked = MotionEvent.ACTION_DOWN,
 				rendererAdmission = {
-					admitReaderCurlRendererClaim(
-						gestureId = gestureId,
-						admitRenderer = { surfaceView.turn(pageChange, gestureId) },
-						publishClaim = { publishCurlClaim(gestureId) },
-						cancelRendererClaim = surfaceView::cancelGesture
-					)
+					admitCurlClaim(gestureId) { surfaceView.turn(pageChange, gestureId) }
 				},
 				publishTerminal = { outcome, detail ->
 					publishGestureTerminal(gestureId, outcome, detail)
@@ -2914,7 +2984,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
 			requestInitialLivePresentationAuthorityForPassivePreparation()
 		}
-		requestInitialLivePresentationAuthorityForActiveDeck()
 	}
 
 	private fun startAcknowledgedVisualHandoff(
@@ -4648,6 +4717,121 @@ internal class ReaderPlayLikeCurlFoliateController(
 	override fun hasUsablePreparedActiveDeck(): Boolean =
 		hasPreparedActiveDeckOwnership() &&
 			readinessState.textureDeck == ReaderTextureDeckState.Ready
+
+	// This observes already-prepared material, not an arriving renderer callback.
+	// Preparation may still be running, but every owner and identity floor must match.
+	fun publishMissingPreparedDeckAtReady(
+		pageIndex: Int?,
+		foliateSessionId: String,
+		decision: ReaderPresentationDecision,
+		hostAdmits: (ReaderPagePreparedActiveDeck) -> Boolean
+	) {
+		fun currentDeckOrNull(): ReaderPagePreparedActiveDeck? {
+			val binding = decision.targetBinding ?: return null
+			val liveRequest = initialLivePresentationAuthority
+			val ownership = foregroundWebViewOwnership.snapshot()
+			if (!enabled || !attached || destroyed ||
+				pageIndex == null || currentOrdinal != pageIndex || currentWebViewOrdinal != pageIndex ||
+				currentFoliateSessionId != foliateSessionId || binding.foliateSessionId != foliateSessionId ||
+				commonPresentationDecision != decision ||
+				decision.lifecycle != paige.navic.reader.ReaderPresentationLifecycleState.Foreground ||
+				decision.diagnosticPresentation is paige.navic.reader.ReaderDiagnosticPresentation.Failure ||
+				foliateSessionRelocationPending || presentationRecoverySnapshot != null ||
+				passiveManifestAuthorityRecoveryToken != null || livePresentationRecoveryRequest.pending ||
+				failedLivePresentationGeneration != null || retryPreparationInProgress ||
+				preparationPhase != ReaderPagePreparationPhase.Ready ||
+				failedPreparationGeneration == preparationGeneration ||
+				deckRecoveryCoordinator.state != ReaderPageDeckRecoveryState.Idle ||
+				activeGestureId != null || tapTurnGestureId != null || tapTurnTerminalSink != null ||
+				pendingDeckGenerationId != null || surfaceView.isSettlementRunning ||
+				relocationQueue.occupiedCount() != 0 || readinessState.textureDeck != ReaderTextureDeckState.Ready ||
+				ownership.closed || ownership.liveClaims != 0 || ownership.restorationCallbacks != 0 ||
+				(liveRequest != null && (liveRequest.claim != null || liveRequest.claimAcquisitionPending ||
+					liveRequest.target != null || liveRequest.confirmationPending ||
+					liveRequest.acceptedNativeProof != null || liveRequest.ownSourceBinding != null))
+			) return null
+			val generationId = activeDeckGenerationId ?: return null
+			val pages = generationOwners[generationId] ?: return null
+			val profileEpoch = publishedRasterProfileEpoch ?: return null
+			val preparedGeneration = generationPreparationGenerations[generationId] ?: return null
+			if (binding.textureGeneration != generationId ||
+				generationRoles[generationId] != ReaderDeckSubmissionRole.Active ||
+				generationId !in preparedDeckGenerations || generationId !in pages.generations ||
+				pages !in preparedPageSets || pages.obsolete ||
+				pages.profile != requestedProfile || pages.profile != publishedRasterProfile ||
+				binding.profileGeneration != profileEpoch ||
+				pages.profile.rasterGeneration != bundleSource.currentGeneration() ||
+				binding.rasterGeneration != pages.profile.rasterGeneration ||
+				preparedGeneration != activeDeckPreparationGeneration || preparedGeneration != preparationGeneration ||
+				binding.preparationGeneration != preparedGeneration
+			) return null
+			// Decoded refill may replace activePages without replacing this renderer owner.
+			return ReaderPagePreparedActiveDeck(
+				rasterProfileEpoch = profileEpoch,
+				rasterEpoch = pages.profile.rasterGeneration,
+				sourceCenterPageIndex = pages.profile.pageRequest(pageIndex).sourcePageIndex,
+				generationId = generationId,
+				preparationGeneration = preparedGeneration
+			)
+		}
+		val deck = currentDeckOrNull() ?: return
+		val owner = generationOwners[deck.generationId] ?: return
+		if (!hostAdmits(deck) || currentDeckOrNull() != deck ||
+			generationOwners[deck.generationId] !== owner
+		) return
+		notifyPreparedActiveDeckChanged(deck)
+	}
+
+	fun canReconcilePreparedActiveDeck(
+		deck: ReaderPagePreparedActiveDeck,
+		pageIndex: Int?,
+		foliateSessionId: String,
+		decision: ReaderPresentationDecision
+	): Boolean {
+		val binding = decision.targetBinding ?: return false
+		if (!enabled || !attached || destroyed ||
+			pageIndex == null || currentOrdinal != pageIndex || currentWebViewOrdinal != pageIndex ||
+			currentFoliateSessionId != foliateSessionId || binding.foliateSessionId != foliateSessionId ||
+			commonPresentationDecision != decision ||
+			decision.diagnosticPresentation is paige.navic.reader.ReaderDiagnosticPresentation.Failure ||
+			foliateSessionRelocationPending || presentationRecoverySnapshot != null ||
+			initialLivePresentationAuthority != null || passiveManifestAuthorityRecoveryToken != null ||
+			livePresentationRecoveryRequest.pending || failedLivePresentationGeneration != null ||
+			retryPreparationInProgress || preparationPhase == ReaderPagePreparationPhase.Failed ||
+			failedPreparationGeneration == preparationGeneration ||
+			deckRecoveryCoordinator.state != ReaderPageDeckRecoveryState.Idle ||
+			activeGestureId != null || tapTurnGestureId != null || tapTurnTerminalSink != null ||
+			pendingDeckGenerationId != null || surfaceView.isSettlementRunning ||
+			relocationQueue.occupiedCount() != 0 ||
+			readinessState.textureDeck != ReaderTextureDeckState.Ready
+		) return false
+		val generationId = activeDeckGenerationId ?: return false
+		val pages = generationOwners[generationId] ?: return false
+		return deck.generationId == generationId && binding.textureGeneration == generationId &&
+			generationRoles[generationId] == ReaderDeckSubmissionRole.Active &&
+			generationId in preparedDeckGenerations && pages === activePages && !pages.obsolete &&
+			pages.profile == requestedProfile && pages.profile == publishedRasterProfile &&
+			deck.rasterProfileEpoch == publishedRasterProfileEpoch &&
+			binding.profileGeneration == deck.rasterProfileEpoch &&
+			deck.sourceCenterPageIndex == pages.profile.pageRequest(pageIndex).sourcePageIndex &&
+			deck.rasterEpoch == pages.profile.rasterGeneration &&
+			deck.rasterEpoch == bundleSource.currentGeneration() && binding.rasterGeneration == deck.rasterEpoch &&
+			deck.preparationGeneration == generationPreparationGenerations[generationId] &&
+			deck.preparationGeneration == activeDeckPreparationGeneration &&
+			deck.preparationGeneration == preparationGeneration &&
+			binding.preparationGeneration == preparationGeneration
+	}
+
+	fun reconcilePreparedActiveDeck(
+		deck: ReaderPagePreparedActiveDeck,
+		pageIndex: Int?,
+		foliateSessionId: String,
+		decision: ReaderPresentationDecision
+	) {
+		if (canReconcilePreparedActiveDeck(deck, pageIndex, foliateSessionId, decision)) {
+			publishPreparedActiveDeck()
+		}
+	}
 
 	private fun hasPreparedActiveDeckOwnership(): Boolean {
 		val generationId = activeDeckGenerationId ?: return false
@@ -6458,28 +6642,84 @@ internal class ReaderPlayLikeCurlFoliateController(
 			currentRequest?.generationId == generationId &&
 			currentRequest.requiredDeckGenerationId == requiredDeckGenerationId &&
 			initialLivePresentationAuthorityIsCurrent(currentRequest)
-		) return
+		) {
+			retryInitialLivePresentationAuthority()
+			return
+		}
 		releaseInitialLivePresentationAuthority()
-		val claim = runCatching {
-			foregroundWebViewOwnership.acquireExclusiveLive(generationId)
-		}.getOrNull() ?: return
+		val decision = commonPresentationDecision
+		val nativeBound = requiredDeckGenerationId != null && when (decision?.authority) {
+			is ReaderPresentationAuthority.CurlGesture,
+			is ReaderPresentationAuthority.CurlSettlementPending,
+			is ReaderPresentationAuthority.SettledNativePage -> true
+			else -> false
+		}
+		val nativeBinding = if (nativeBound) decision?.targetBinding ?: return else null
+		val selectedProof = (decision?.frameOwner as? ReaderPresentationFrameOwner.NativePage)?.proof
+		val nativeToken = if (nativeBound) {
+			(decision?.requiredTransition as? ReaderRequiredTransition.PresentNativePage)?.token
+				?: (decision?.frameOwner as? ReaderPresentationFrameOwner.Curl)?.frame?.token
+				?: selectedProof?.takeIf { it.binding == nativeBinding }?.transitionToken
+		} else null
 		val request = InitialLivePresentationAuthorityRequest(
 			generationId = generationId,
 			requiredDeckGenerationId = requiredDeckGenerationId,
 			pageIndex = currentOrdinal,
 			foliateSessionId = sessionId,
 			rasterGeneration = rasterGeneration,
-			claim = claim
+			hostEpoch = presentationHostEpoch(),
+			generationOwner = pages,
+			nativeBinding = nativeBinding,
+			nativeToken = nativeToken
 		)
+		// Existing settled authority is usable only through the same physical host fence.
+		request.acceptedNativeProof = selectedProof?.takeIf {
+			nativeBinding != null && it.binding == nativeBinding &&
+				it.transitionToken == nativeToken && initialLiveNativeProofIsCurrent(request.hostEpoch, it)
+		}
 		initialLivePresentationAuthority = request
+		retryInitialLivePresentationAuthority()
+	}
+
+	private fun retryInitialLivePresentationAuthority() {
+		val request = initialLivePresentationAuthority ?: return
+		if (!initialLivePresentationAuthorityIsCurrent(request)) {
+			releaseInitialLivePresentationAuthority(request)
+			return
+		}
+		if (request.claim != null || request.claimAcquisitionPending || request.target != null ||
+			!initialLivePresentationNativeAdmissionIsCurrent(request)
+		) return
+		val generationId = request.generationId
+		request.claimAcquisitionPending = true
+		val claim = try {
+			runCatching { foregroundWebViewOwnership.acquireExclusiveLive(generationId) }.getOrNull()
+		} finally {
+			request.claimAcquisitionPending = false
+		}
+		if (claim == null) {
+			releaseInitialLivePresentationAuthority(request)
+			return
+		}
+		if (initialLivePresentationAuthority !== request) {
+			foregroundWebViewOwnership.releaseLive(claim)
+			return
+		}
+		request.claim = claim
 		try {
 			foregroundWebViewOwnership.whenLiveReady(claim) { readiness ->
-				if (initialLivePresentationAuthority !== request) return@whenLiveReady
+				if (initialLivePresentationAuthority !== request || request.claim != claim) return@whenLiveReady
 				if (
 					readiness != ReaderForegroundWebViewLiveReadiness.Ready ||
 					!initialLivePresentationAuthorityIsCurrent(request)
 				) {
 					releaseInitialLivePresentationAuthority(request)
+					return@whenLiveReady
+				}
+				if (!initialLivePresentationNativeAdmissionIsCurrent(request)) {
+					// Foreground/current-decision continuation retries this same retained intent.
+					request.claim = null
+					foregroundWebViewOwnership.releaseLive(claim)
 					return@whenLiveReady
 				}
 				val mutationGeneration =
@@ -6532,6 +6772,146 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	// Capture the request before original host dispatch; a replacement cannot inherit its receipt.
+	fun initialLiveNativeReceiptContinuation(
+		event: ReaderPresentationEvent.NativePagePresented
+	): ((Long, ReaderPresentationEventReceipt) -> Unit)? {
+		val request = initialLivePresentationAuthority ?: return null
+		if (request.target != null || request.nativeBinding != event.proof.binding ||
+			request.nativeToken != event.proof.transitionToken
+		) return null
+		return { epoch, receipt ->
+			if (initialLivePresentationAuthority === request && epoch == request.hostEpoch &&
+				epoch == presentationHostEpoch() && receipt.authorizes(event) &&
+				(receipt.postState.authority as? ReaderPresentationAuthority.SettledNativePage)?.frame?.proof == event.proof &&
+				initialLivePresentationAuthorityIsCurrent(request)
+			) {
+				request.acceptedNativeProof = event.proof
+				retryInitialLivePresentationAuthority()
+			}
+		}
+	}
+
+	fun onPresentationHostEpochChanged() {
+		val request = initialLivePresentationAuthority ?: return
+		if (request.hostEpoch != presentationHostEpoch()) releaseInitialLivePresentationAuthority(request)
+	}
+
+	val awaitingInitialLiveNativeSource: Boolean
+		get() = initialLivePresentationAuthority?.let {
+			it.nativeBinding != null && it.target != null
+		} == true
+
+	private fun matchesInitialLiveNativeSourceAcknowledgement(
+		pageIndex: Int?,
+		sourceSessionId: String,
+		acknowledgement: ReaderPageTurnSettlementAck?
+	): Boolean {
+		val request = initialLivePresentationAuthority ?: return false
+		if (request.nativeBinding == null) return false
+		val target = request.target ?: return false
+		val claim = request.claim ?: return false
+		val settled = acknowledgement ?: return false
+		return pageIndex == request.pageIndex && settled.pageIndex == request.pageIndex &&
+			sourceSessionId == request.foliateSessionId &&
+			settled.token == target.token && settled.foliateSessionId == target.foliateSessionId &&
+			settled.rasterGeneration == target.rasterGeneration &&
+			settled.textureGeneration == target.textureGeneration &&
+			initialLivePresentationAuthorityIsCurrent(request) &&
+			foregroundWebViewOwnership.isCurrent(
+				claim, ReaderForegroundWebViewMutationGeneration(target.foregroundMutationGeneration)
+			)
+	}
+
+	fun stageInitialLiveNativeSource(
+		binding: ReaderPresentationBinding?,
+		pageIndex: Int?,
+		sourceSessionId: String,
+		acknowledgement: ReaderPageTurnSettlementAck?
+	) {
+		val request = initialLivePresentationAuthority ?: return
+		val predecessor = request.nativeBinding ?: return
+		if (request.target == null) return
+		val ownAcknowledgement = matchesInitialLiveNativeSourceAcknowledgement(
+			pageIndex, sourceSessionId, acknowledgement
+		)
+		val retainedBinding = request.ownSourceBinding ?: predecessor
+		if (binding == retainedBinding && initialLivePresentationAuthorityIsCurrent(request)) return
+		val destination = binding?.destinationCommitIdentity
+		val predecessorDestination = predecessor.destinationCommitIdentity
+		if (!ownAcknowledgement || request.ownSourceBinding != null || binding == null ||
+			destination == null || predecessorDestination == null ||
+			destination.foliateSessionId != predecessorDestination.foliateSessionId ||
+			destination.commitSequence <= predecessorDestination.commitSequence ||
+			binding.copy(destinationCommitIdentity = predecessorDestination) != predecessor
+		) {
+			releaseInitialLivePresentationAuthority(request)
+			return
+		}
+		// Correlation only: the ordinary host reporter must still admit this exact source binding.
+		// Record it before reporting, which reentrantly synchronizes the destination decision.
+		request.ownSourceBinding = binding
+	}
+
+	private fun initialLivePresentationNativeAuthorityIsCurrent(
+		request: InitialLivePresentationAuthorityRequest
+	): Boolean {
+		val binding = request.nativeBinding ?: return true
+		val decision = commonPresentationDecision ?: return false
+		if (decision.lifecycle == ReaderPresentationLifecycleState.Destroyed ||
+			decision.diagnosticPresentation is ReaderDiagnosticPresentation.Failure
+		) return false
+		if (request.target != null) {
+			val admittedProof = request.acceptedNativeProof ?: return false
+			val authority = decision.authority as? ReaderPresentationAuthority.SettledNativePage
+				?: return false
+			val proof = authority.frame.proof
+			val sourceBinding = request.ownSourceBinding
+			val sourceProofIsCurrent = sourceBinding != null && proof.binding == sourceBinding &&
+				proof.transitionToken == null && proof.presentedFrame > admittedProof.presentedFrame &&
+				proof.viewportWidth == admittedProof.viewportWidth &&
+				proof.viewportHeight == admittedProof.viewportHeight &&
+				proof.rasterGeneration == admittedProof.rasterGeneration &&
+				proof.textureGeneration == admittedProof.textureGeneration
+			return initialLiveDecisionIsAuthoritative(decision) &&
+				decision.targetBinding == (sourceBinding ?: binding) &&
+				decision.frameOwner == authority.frame &&
+				decision.requiredTransition == ReaderRequiredTransition.None &&
+				decision.pendingTransitionToken == null &&
+				(proof == admittedProof || sourceProofIsCurrent)
+		}
+		val token = when (val authority = decision.authority) {
+			is ReaderPresentationAuthority.CurlGesture -> authority.frame.frame.token
+			is ReaderPresentationAuthority.CurlSettlementPending -> authority.retainedFrame.frame.token
+			is ReaderPresentationAuthority.SettledNativePage ->
+				authority.frame.proof.takeIf { it.binding == binding }?.transitionToken
+			else -> return false
+		}
+		return decision.targetBinding == binding && token == request.nativeToken &&
+			(decision.requiredTransition as? ReaderRequiredTransition.PresentNativePage)?.let {
+				it.binding == binding && it.token == request.nativeToken
+			} != false
+	}
+
+	private fun initialLivePresentationNativeAdmissionIsCurrent(
+		request: InitialLivePresentationAuthorityRequest
+	): Boolean {
+		val binding = request.nativeBinding ?: return true
+		val proof = request.acceptedNativeProof ?: return false
+		val decision = commonPresentationDecision ?: return false
+		return hostResumed && decision.lifecycle == ReaderPresentationLifecycleState.Foreground &&
+			proof.binding == binding && proof.transitionToken == request.nativeToken &&
+			proof.rasterGeneration == request.rasterGeneration &&
+			proof.textureGeneration == request.requiredDeckGenerationId &&
+			decision.targetBinding == binding &&
+			(decision.authority as? ReaderPresentationAuthority.SettledNativePage)?.frame?.proof == proof &&
+			(decision.frameOwner as? ReaderPresentationFrameOwner.NativePage)?.proof == proof &&
+			decision.requiredTransition == ReaderRequiredTransition.None &&
+			decision.pendingTransitionToken == null &&
+			generationBacksCommonPresentation(proof.textureGeneration) &&
+			initialLiveNativeProofIsCurrent(request.hostEpoch, proof)
+	}
+
 	private fun initialLivePresentationAuthorityIsCurrent(
 		request: InitialLivePresentationAuthorityRequest
 	): Boolean {
@@ -6540,12 +6920,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		val requiredDeckIsCurrent = request.requiredDeckGenerationId == null || (
 			activeDeckGenerationId == request.requiredDeckGenerationId &&
+			generationOwners[request.requiredDeckGenerationId] === request.generationOwner &&
 			activePages === pages &&
 			request.requiredDeckGenerationId in preparedDeckGenerations
 		)
 		return !destroyed &&
 			enabled &&
 			attached &&
+			presentationHostEpoch() == request.hostEpoch &&
+			initialLivePresentationNativeAuthorityIsCurrent(request) &&
 			requiredDeckIsCurrent &&
 			currentFoliateSessionId == request.foliateSessionId &&
 			currentOrdinal == request.pageIndex &&
@@ -6561,6 +6944,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 	) {
 		val request = initialLivePresentationAuthority ?: return
 		val target = request.target ?: return
+		if (request.nativeBinding != null && !initialLivePresentationAuthorityIsCurrent(request)) {
+			releaseInitialLivePresentationAuthority(request)
+			return
+		}
+		val claim = request.claim ?: return
 		val settled = acknowledgement ?: return
 		if (
 			request.confirmationPending ||
@@ -6571,7 +6959,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			settled.textureGeneration != target.textureGeneration ||
 			!initialLivePresentationAuthorityIsCurrent(request) ||
 			!foregroundWebViewOwnership.isCurrent(
-				request.claim,
+				claim,
 				ReaderForegroundWebViewMutationGeneration(
 					target.foregroundMutationGeneration
 				)
@@ -6634,7 +7022,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (expected != null && request !== expected) return false
 		initialLivePresentationAuthority = null
 		request.confirmationPending = false
-		return foregroundWebViewOwnership.releaseLive(request.claim)
+		request.acceptedNativeProof = null
+		request.ownSourceBinding = null
+		val claim = request.claim
+		request.claim = null
+		return claim?.let(foregroundWebViewOwnership::releaseLive) ?: true
 	}
 
 	private fun onRendererCleanupQueueAccepted(
