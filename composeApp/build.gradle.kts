@@ -73,7 +73,7 @@ tasks {
 					"*Download*Test", "*Lyrics*Test", "*LidaClip*Test", "*Aurral*Test",
 					"*NowPlaying*Test", "*Playlist*Test", "*Genre*Test", "*Enrichment*Test",
 					"*Audio*Test", "*Music*Test", "*Session*Test", "*Database*Test",
-					"*Album*Test", "*Artist*Test", "*Library*Test"
+					"*Album*Test", "*Artist*Test", "*Library*Test", "*MusicSearch*Test", "*SearchDisplay*Test", "*SearchHistory*Test"
 				).forEach { includeTestsMatching(it) }
 				listOf("paige.navic.reader.*", "*Reader*", "*Audiobook*", "*Bindery*", "*Readaloud*", "*Whispersync*")
 					.forEach { excludeTestsMatching(it) }

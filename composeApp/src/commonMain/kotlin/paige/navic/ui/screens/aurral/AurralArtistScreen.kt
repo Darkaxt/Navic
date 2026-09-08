@@ -362,7 +362,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 				AurralArtistActions(
 					localArtist = state.localArtist,
 					aurralConfigured = configured,
-					monitoring = state.monitoring,
+					monitoring = observedMonitoringState.monitoring,
 					monitorPending = observedMonitoringState.monitorPending,
 					monitorConfirmed = observedMonitoringState.monitorConfirmed,
 					onOpenLocalArtist = { localArtist ->
@@ -967,10 +967,12 @@ internal fun AurralArtistUiState.withMonitoringConfirmation(
 ): AurralArtistUiState = when (confirmation?.status) {
 	AurralConfirmationStatus.Pending -> copy(monitorPending = true)
 	AurralConfirmationStatus.Confirmed -> copy(
+		monitoring = false,
 		monitorPending = false,
 		monitorConfirmed = confirmation.expectedMonitored ?: monitorConfirmed
 	)
 	AurralConfirmationStatus.Failed -> copy(
+		monitoring = false,
 		monitorPending = false,
 		error = IllegalStateException(confirmation.message ?: "Aurral monitor confirmation failed.")
 	)

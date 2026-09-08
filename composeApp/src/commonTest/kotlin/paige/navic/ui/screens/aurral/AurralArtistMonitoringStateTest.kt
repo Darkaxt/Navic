@@ -12,6 +12,13 @@ import kotlin.test.assertTrue
 
 class AurralArtistMonitoringStateTest {
 	@Test
+	fun terminalConfirmationStopsSpinnerWhileSubmissionCleanupIsStillRunning() {
+		val submitting = AurralArtistUiState(artist = DomainArtist("artist", "Artist"), monitoring = true)
+		assertFalse(submitting.withMonitoringConfirmation(item(AurralConfirmationStatus.Confirmed)).monitoring)
+		assertFalse(submitting.withMonitoringConfirmation(item(AurralConfirmationStatus.Failed)).monitoring)
+	}
+
+	@Test
 	fun acceptedPendingDoesNotConfirmAndConfirmationSurvivesQueueEviction() {
 		val initial = AurralArtistUiState(artist = DomainArtist("artist", "Artist", musicBrainzId = "mbid"))
 		val pending = initial.withMonitoringConfirmation(item(AurralConfirmationStatus.Pending))

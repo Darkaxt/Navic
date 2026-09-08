@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.firstOrNull
@@ -51,6 +52,8 @@ import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralAlbumTrackItem
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.AurralRepository
+import paige.navic.domain.repositories.AurralConfirmationStatus
+import paige.navic.domain.repositories.aurralArtistMonitoringConfirmationItem
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.domain.repositories.LastFmRepository
@@ -76,6 +79,7 @@ import paige.navic.ui.screens.artist.artistHeaderImageCacheIndex
 import paige.navic.ui.screens.artist.shouldApplyLastFmTopTrackResult
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.withCachedArtistPhoto
+import paige.navic.ui.screens.artist.withConfirmedAurralMonitoring
 import paige.navic.ui.screens.aurral.aurralArtistIdentityCandidatesForLocalArtist
 import paige.navic.ui.screens.aurral.aurralRecommendedAlbumsForArtist
 import paige.navic.ui.screens.aurral.aurralSimilarArtistImageCandidates
@@ -145,7 +149,11 @@ class ArtistDetailViewModel(
 	connectivityManager: ConnectivityManager
 ) : ViewModel() {
 	private val _artistState = MutableStateFlow<UiState<ArtistState>>(UiState.Loading())
-	val artistState = _artistState.asStateFlow()
+	val artistState = combine(
+		_artistState, aurralRepository.confirmationQueue, aurralRepository.libraryArtistMonitorStates
+	) { state, queue, knownMonitoring ->
+		if (state is UiState.Success) UiState.Success(state.data.withConfirmedAurralMonitoring(queue, knownMonitoring)) else state
+	}.stateIn(viewModelScope, SharingStarted.Eagerly, _artistState.value)
 	@OptIn(ExperimentalCoroutinesApi::class)
 	val playlistSongIds = artistState
 		.map { state ->
@@ -1320,8 +1328,12 @@ class ArtistDetailViewModel(
 		}
 		val state = (_artistState.value as? UiState.Success)?.data ?: return
 		val artist = state.aurralActionArtist() ?: return
+		if (_monitoringInAurral.value || aurralArtistMonitoringConfirmationItem(
+			queue = aurralRepository.confirmationQueue.value,
+			artistMbid = artist.musicBrainzId
+		)?.status == AurralConfirmationStatus.Pending) return
+		_monitoringInAurral.value = true
 		viewModelScope.launch {
-			_monitoringInAurral.value = true
 			_artistState.value = UiState.Success(
 				state.copy(
 					aurralError = null,
@@ -1332,24 +1344,9 @@ class ArtistDetailViewModel(
 					}
 				)
 			)
-			aurralRepository.setArtistMonitoring(artist, monitored)
-				.onSuccess {
-					val latestState = (_artistState.value as? UiState.Success)?.data
-					if (latestState != null) {
-						_artistState.value = UiState.Success(
-							latestState.copy(
-								aurralMonitored = monitored,
-								aurralError = null,
-								aurralFeedback = if (monitored) {
-									AurralArtistActionFeedback.MonitoringEnabled
-								} else {
-									AurralArtistActionFeedback.MonitoringDisabled
-								}
-							)
-						)
-					}
-				}
-				.onFailure { error ->
+			try {
+				aurralRepository.setArtistMonitoring(artist, monitored).onFailure { error ->
+					if (error is CancellationException) throw error
 					Logger.w("ArtistDetailViewModel", "Failed to monitor artist in Aurral", error)
 					val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onFailure
 					_artistState.value = UiState.Success(
@@ -1359,7 +1356,9 @@ class ArtistDetailViewModel(
 						)
 					)
 				}
-			_monitoringInAurral.value = false
+			} finally {
+				_monitoringInAurral.value = false
+			}
 		}
 	}
 

@@ -166,8 +166,9 @@ private class OptionalStateAurralApiClient(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
 		artistMbid: String,
-		payload: AurralArtistMonitorPayload
-	) = Unit
+		payload: AurralArtistMonitorPayload,
+		ensureCurrent: () -> Unit
+	) = AurralArtistMonitoringOutcome.AwaitingConfirmation
 
 	override suspend fun fetchReleaseGroupCoverImageUrl(
 		baseUrl: String,

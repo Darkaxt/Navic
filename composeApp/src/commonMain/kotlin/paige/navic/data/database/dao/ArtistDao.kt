@@ -66,6 +66,25 @@ interface ArtistDao {
 	@Insert(onConflict = OnConflictStrategy.IGNORE)
 	suspend fun insertArtistsIgnoringConflicts(artists: List<ArtistEntity>)
 
+	@Query(
+		"""
+		UPDATE ArtistEntity SET albumCount = :albumCount
+		WHERE artistId = :artistId AND albumCount <= 0 AND :albumCount > 0
+		"""
+	)
+	suspend fun updateIncompleteAlbumCount(artistId: String, albumCount: Int)
+
+	@Transaction
+	suspend fun insertSearchArtists(artists: List<ArtistEntity>) {
+		insertArtistsIgnoringConflicts(artists)
+		// Search counts may be absent/default zero; repair only with positive evidence.
+		artists.forEach { artist ->
+			if (artist.albumCount > 0) {
+				updateIncompleteAlbumCount(artist.artistId, artist.albumCount)
+			}
+		}
+	}
+
 	@Query("DELETE FROM ArtistEntity WHERE artistId = :artistId")
 	suspend fun deleteArtist(artistId: String)
 
