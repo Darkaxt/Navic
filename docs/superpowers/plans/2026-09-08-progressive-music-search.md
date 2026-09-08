@@ -42,9 +42,34 @@ monitoring tests, 11 monitoring pipeline tests, and 12 artist monitoring UI-stat
 tests. Existing Kotlin/Gradle warnings remain; no new compile errors were present.
 No release artifact, push, or device installation was produced.
 
-Live service diagnosis is separately incomplete. Public requests established TLS
-but returned no HTTP response within diagnostic windows. The supplied Proxmox
-Tailscale host was online, but SSH requested interactive Tailscale approval before
-running the container command. No live Docker status/logs were obtained and no
-server mutation was made. These host tests do not prove that the live Aurral
-service delay has been repaired.
+At the initial client verification, live service diagnosis was separately
+incomplete: public requests established TLS without returning HTTP responses,
+and SSH required interactive Tailscale approval. No server mutation was made by
+this task.
+
+On 2026-09-09 the user reported the independent server fix, Aurral commit
+`5fca348`: Soulseek had accumulated 821,954 search records whose repeated scans
+blocked the Node event loop. Bounded constant-time lookups replaced those scans,
+including across reconnects. The user's verification was 35 passing Linux tests,
+public health HTTP 200 in 223 ms, and post-restart CPU below 0.1%. This is reported
+server evidence, not a result of Navic host tests or a bundled Navic server fix.
+
+## iota68 Release Gate (2026-09-09)
+
+The user subsequently requested publication. Release scope is the completed
+music-maintenance and progressive-search specifications, commits `fb106c6f7`
+and `6dfdbbdb9`, on current fork master `e1668fad3`. The previously requested
+`9c619f10` is an ancestor. Other active worktrees remain untouched.
+
+- Version: `v1.0.11-iota68`, Android version code 595.
+- Fresh local test execution, with prior test output removed and build cache
+  disabled: 205 suites, 1,111 tests, zero failures, errors, or skips. Command:
+  `:composeApp:cleanTestAndroidHostTest :composeApp:testAndroidHostTest
+  -Pnavic.musicTests=true --no-build-cache`. Build succeeded in 1m 23s.
+- Reader vendor and PlayLikeCurl snapshot verifier self-tests passed.
+- Android release-version verification and `git diff --check` passed.
+- Publication must pass the tag workflow's music tests, Android release build,
+  certificate check, and packaged asset checks. After publication, independently
+  verify the downloaded APK identity, version, checksum, and signer.
+- No device installation or new physical-device acceptance is claimed. No iOS
+  artifact is requested. The server fix is not part of this APK.
