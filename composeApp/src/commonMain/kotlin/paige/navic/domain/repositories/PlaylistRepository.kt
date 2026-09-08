@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import paige.navic.data.database.dao.DownloadDao
+import paige.navic.domain.manager.AccountDownloadRegistry
 import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.mappers.toDomainModel
@@ -21,26 +21,30 @@ import paige.navic.ui.core.UiState
 class PlaylistRepository(
 	private val playlistDao: PlaylistDao,
 	private val dbRepository: DbRepository,
-	private val downloadDao: DownloadDao
+	private val downloadDao: AccountDownloadRegistry
 ) {
 	private suspend fun getLocalData(
 		listType: DomainPlaylistListType,
 		reversed: Boolean
 	): ImmutableList<DomainPlaylist> {
+		val owner = downloadDao.ownerId.value
 		val sorted = when (listType) {
 			DomainPlaylistListType.Name -> playlistDao.getAllPlaylistsByName()
 			DomainPlaylistListType.DateAdded -> playlistDao.getAllPlaylistsByDateAdded()
 			DomainPlaylistListType.Duration -> playlistDao.getAllPlaylistsByDuration()
 			DomainPlaylistListType.Random -> playlistDao.getAllPlaylistsRandom()
 			DomainPlaylistListType.Downloaded -> {
+				val downloadedSongIds = downloadDao.getAllDownloadsList()
+					.filter { downloadDao.owns(it) && it.status == DownloadStatus.DOWNLOADED }
+					.mapTo(mutableSetOf()) { it.songId }
 				playlistDao.getAllPlaylistsByDateAdded().filter { (_, songs) ->
-					downloadDao.getAllDownloadsList()
-						.filter { it.status == DownloadStatus.DOWNLOADED }
-						.map { it.songId }
-						.containsAll(songs.map { it.song.songId })
+					songs.isNotEmpty() && downloadedSongIds.containsAll(songs.map { it.song.songId })
 				}
 			}
 		}.map { it.toDomainModel() }.toImmutableList()
+		if (listType == DomainPlaylistListType.Downloaded &&
+			(owner == null || downloadDao.ownerId.value != owner)
+		) return emptyList<DomainPlaylist>().toImmutableList()
 		return if (reversed) {
 			sorted.reversed().toImmutableList()
 		} else {
@@ -113,10 +117,10 @@ class PlaylistRepository(
 			DomainPlaylistListType.Downloaded -> playlistDao.getAllPlaylistsByDateAddedFlow()
 				.combine(downloadDao.getAllDownloads()) { playlists, downloads ->
 					val downloadedSongIds = downloads
-						.filter { it.status == DownloadStatus.DOWNLOADED }
+						.filter { downloadDao.owns(it) && it.status == DownloadStatus.DOWNLOADED }
 						.map { it.songId }
 					playlists.filter { playlist ->
-						downloadedSongIds.containsAll(playlist.songs.map { it.song.songId })
+						playlist.songs.isNotEmpty() && downloadedSongIds.containsAll(playlist.songs.map { it.song.songId })
 					}
 				}
 		}

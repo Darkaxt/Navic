@@ -54,7 +54,7 @@ class LibraryStartupAsyncSourceTest {
 		val loadAurralEnrichment = source.substring(start, end)
 
 		assertTrue(
-			"viewModelScope.launch(Dispatchers.IO)" in loadAurralEnrichment,
+			"aurralRefresh.launch(viewModelScope, Dispatchers.IO)" in loadAurralEnrichment,
 			"Artist detail Aurral enrichment reads cache/network data and builds broad image candidates; " +
 				"that work must not run on the UI dispatcher."
 		)
@@ -70,7 +70,7 @@ class LibraryStartupAsyncSourceTest {
 			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
 		)
 		val start = source.indexOf("private fun loadAurralEnrichment(")
-		val end = source.indexOf("private fun applyAurralEnrichmentSnapshot", start)
+		val end = source.indexOf("private suspend fun applyAurralEnrichmentSnapshot", start)
 		val loadAurralEnrichment = source.substring(start, end)
 		val statePublish = loadAurralEnrichment.indexOf("applyAurralCoreEnrichmentSnapshot(")
 		val coverHydration = loadAurralEnrichment.indexOf("hydrateAurralArtistAlbumCovers(")
@@ -95,7 +95,7 @@ class LibraryStartupAsyncSourceTest {
 			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
 		)
 		val start = source.indexOf("private fun loadAurralEnrichment(")
-		val end = source.indexOf("private fun applyAurralEnrichmentSnapshot", start)
+		val end = source.indexOf("private suspend fun applyAurralEnrichmentSnapshot", start)
 		val loadAurralEnrichment = source.substring(start, end)
 		val coreFetch = loadAurralEnrichment.indexOf("getArtistCoreEnrichment(")
 		val corePublish = loadAurralEnrichment.indexOf("applyAurralCoreEnrichmentSnapshot(")
@@ -125,7 +125,7 @@ class LibraryStartupAsyncSourceTest {
 			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
 		)
 		val start = source.indexOf("private fun loadAurralEnrichment(")
-		val end = source.indexOf("private fun applyAurralEnrichmentSnapshot", start)
+		val end = source.indexOf("private suspend fun applyAurralEnrichmentSnapshot", start)
 		val loadAurralEnrichment = source.substring(start, end)
 		val corePublish = loadAurralEnrichment.indexOf("applyAurralCoreEnrichmentSnapshot(")
 		val previewFetch = loadAurralEnrichment.indexOf("getArtistPreviewTracks(")
@@ -156,7 +156,7 @@ class LibraryStartupAsyncSourceTest {
 			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
 		)
 		val start = source.indexOf("private fun loadAurralEnrichment(")
-		val end = source.indexOf("private fun applyAurralEnrichmentSnapshot", start)
+		val end = source.indexOf("private suspend fun applyAurralEnrichmentSnapshot", start)
 		val loadAurralEnrichment = source.substring(start, end)
 		val resolvedArtist = loadAurralEnrichment.indexOf("val resolvedAurralArtist =")
 		val requestRefresh = loadAurralEnrichment.indexOf("getArtistAlbumRequests(resolvedAurralArtist)")
@@ -187,7 +187,7 @@ class LibraryStartupAsyncSourceTest {
 			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
 		)
 		val start = source.indexOf("private fun loadAurralEnrichment(")
-		val end = source.indexOf("private fun applyAurralEnrichmentSnapshot", start)
+		val end = source.indexOf("private suspend fun applyAurralEnrichmentSnapshot", start)
 		val loadAurralEnrichment = source.substring(start, end)
 
 		assertTrue(

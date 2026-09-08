@@ -66,6 +66,19 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
 
+      - name: Run music host regressions
+        run: ./gradlew :composeApp:testAndroidHostTest -Pnavic.musicTests=true --stacktrace
+
+      - name: Upload music test reports
+        if: success() || failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: navic-music-host-tests
+          path: |
+            composeApp/build/reports/tests/testAndroidHostTest/
+            composeApp/build/test-results/testAndroidHostTest/
+          if-no-files-found: ignore
+
       - name: Build with Gradle (release)
         id: build_release
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'

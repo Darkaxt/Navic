@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.PlaybackAccountBoundary
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
@@ -30,6 +31,7 @@ import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.ui.core.durablePlayerStateKey
+import paige.navic.ui.core.forPlaybackOwner
 import paige.navic.ui.core.restoredPlayerStateForPreferences
 import paige.navic.util.core.Logger
 import kotlin.time.Duration.Companion.seconds
@@ -38,13 +40,32 @@ abstract class MediaPlayerViewModel(
 	private val stateRepository: PlayerStateRepository,
 	protected val connectivityManager: ConnectivityManager,
 	protected val downloadManager: DownloadManager,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	protected val playbackAccountBoundary: PlaybackAccountBoundary? = null
 ) : ViewModel() {
 
 	@Suppress("PropertyName")
-	protected val _uiState = MutableStateFlow(PlayerUiState())
+	protected val _uiState = MutableStateFlow(PlayerUiState(playbackOwnerId = playbackAccountBoundary?.capture()?.ownerId))
 	val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 	val playbackStartFeedback = PlaybackStartFeedback()
+	private var initialStateRestoreInvalidated = false
+	private val unregisterPlaybackAccount = playbackAccountBoundary?.register { nextOwner ->
+		cancelPendingInitialRestore()
+		playbackStartFeedback.cancel()
+		onPlaybackAccountRevoked()
+		_uiState.value = PlayerUiState(playbackOwnerId = nextOwner, isPaused = true)
+	}
+
+	protected open fun onPlaybackAccountRevoked() {}
+
+	protected fun cancelPendingInitialRestore() {
+		initialStateRestoreInvalidated = true
+	}
+
+	override fun onCleared() {
+		unregisterPlaybackAccount?.invoke()
+		super.onCleared()
+	}
 
 	// Narrow views of uiState so always-on chrome (mini player, bottom bar) can subscribe to
 	// only the slice they render and avoid recomposing on every playback-position tick.
@@ -64,7 +85,7 @@ abstract class MediaPlayerViewModel(
 
 	protected fun isAvailable(songId: String): Boolean {
 		val isOnline = connectivityManager.isOnline.value
-		val isDownloaded = downloadManager.downloadedSongs.value.containsKey(songId)
+		val isDownloaded = downloadManager.getDownloadedFilePath(songId) != null
 		return isOnline || isDownloaded
 	}
 
@@ -150,12 +171,19 @@ abstract class MediaPlayerViewModel(
 	abstract fun syncPlayerWithState(state: PlayerUiState)
 
 	private suspend fun restoreState() {
+		if (initialStateRestoreInvalidated) return
+		val account = playbackAccountBoundary?.capture()
+		if (account != null && account.ownerId == null) return
 		val savedJson = stateRepository.loadState()
+		if (initialStateRestoreInvalidated) return
 		if (!savedJson.isNullOrBlank()) {
 			try {
-				val restoredState = Json.decodeFromJsonElement<PlayerUiState>(
+				val decodedState = Json.decodeFromJsonElement<PlayerUiState>(
 					Json.parseToJsonElement(savedJson)
 				)
+				if (account != null && playbackAccountBoundary?.isCurrent(account) != true) return
+				val restoredState = if (account == null) decodedState else
+					decodedState.forPlaybackOwner(account.ownerId, playbackAccountBoundary?.legacyOwnerId) ?: return
 				val stateToApply = restoredPlayerStateForPreferences(
 					restoredState = restoredState,
 					persistentQueue = preferenceManager.persistentQueue,
@@ -168,7 +196,10 @@ abstract class MediaPlayerViewModel(
 
 			} catch (e: Exception) {
 				Logger.e("MediaPlayerViewModel", "Failed to restore state!", e)
-				_uiState.value = PlayerUiState()
+				if (!initialStateRestoreInvalidated &&
+					(account == null || playbackAccountBoundary?.isCurrent(account) == true)) {
+					_uiState.value = PlayerUiState(playbackOwnerId = account?.ownerId, isPaused = true)
+				}
 			}
 		}
 	}
@@ -187,6 +218,8 @@ abstract class MediaPlayerViewModel(
 
 	private suspend fun persistState(state: PlayerUiState) {
 		try {
+			if (playbackAccountBoundary != null &&
+				state.playbackOwnerId != playbackAccountBoundary.capture().ownerId) return
 			if (!preferenceManager.persistentQueue) {
 				stateRepository.clearState()
 				return

@@ -15,10 +15,11 @@ interface DownloadDao {
 	suspend fun insertDownload(download: DownloadEntity)
 
 	@Transaction
-	suspend fun enqueueFreshIntent(songId: String, queuedAtEpochMs: Long): Long {
-		val generation = (getDownloadById(songId)?.intentGeneration ?: 0L) + 1L
+	suspend fun enqueueFreshIntent(ownerId: String, songId: String, queuedAtEpochMs: Long): Long {
+		val generation = (getDownloadById(ownerId, songId)?.intentGeneration ?: 0L) + 1L
 		insertDownload(
 			DownloadEntity(
+				ownerId = ownerId,
 				songId = songId,
 				status = DownloadStatus.QUEUED,
 				intentGeneration = generation,
@@ -28,40 +29,44 @@ interface DownloadDao {
 		return generation
 	}
 
-	@Query("SELECT * FROM DownloadEntity WHERE songId = :songId")
-	suspend fun getDownloadById(songId: String): DownloadEntity?
+	@Query("SELECT * FROM DownloadEntity WHERE ownerId = :ownerId AND songId = :songId")
+	suspend fun getDownloadById(ownerId: String, songId: String): DownloadEntity?
+
+	@Query("SELECT * FROM DownloadEntity WHERE ownerId = :ownerId")
+	fun getAllDownloads(ownerId: String): Flow<List<DownloadEntity>>
+
+	@Query("SELECT * FROM DownloadEntity WHERE ownerId = :ownerId")
+	suspend fun getAllDownloadsList(ownerId: String): List<DownloadEntity>
 
 	@Query("SELECT * FROM DownloadEntity")
-	fun getAllDownloads(): Flow<List<DownloadEntity>>
-
-	@Query("SELECT * FROM DownloadEntity")
-	suspend fun getAllDownloadsList(): List<DownloadEntity>
+	suspend fun getAllDownloadsForMigration(): List<DownloadEntity>
 
 	@Query(
 		"""
 		SELECT * FROM DownloadEntity
-		WHERE status = 'QUEUED' AND cancelled = 0
+		WHERE ownerId = :ownerId AND status = 'QUEUED' AND cancelled = 0
+			AND songId NOT IN (:excludedSongIds)
 		ORDER BY queuedAtEpochMs ASC, songId ASC
 		LIMIT 1
 		"""
 	)
-	suspend fun getNextQueuedDownload(): DownloadEntity?
+	suspend fun getNextQueuedDownload(ownerId: String, excludedSongIds: Set<String>): DownloadEntity?
 
 	@Query(
 		"""
 		UPDATE DownloadEntity
 		SET status = 'DOWNLOADING', progress = 0
-		WHERE songId = :songId AND intentGeneration = :generation
+		WHERE ownerId = :ownerId AND songId = :songId AND intentGeneration = :generation
 			AND status = 'QUEUED' AND cancelled = 0
 		"""
 	)
-	suspend fun claimQueuedDownload(songId: String, generation: Long): Int
+	suspend fun claimQueuedDownload(ownerId: String, songId: String, generation: Long): Int
 
 	@Transaction
-	suspend fun claimNextQueuedDownload(): DownloadEntity? {
+	suspend fun claimNextQueuedDownload(ownerId: String, excludedSongIds: Set<String> = emptySet()): DownloadEntity? {
 		while (true) {
-			val next = getNextQueuedDownload() ?: return null
-			if (claimQueuedDownload(next.songId, next.intentGeneration) == 1) {
+			val next = getNextQueuedDownload(ownerId, excludedSongIds) ?: return null
+			if (claimQueuedDownload(ownerId, next.songId, next.intentGeneration) == 1) {
 				return next.copy(status = DownloadStatus.DOWNLOADING, progress = 0f)
 			}
 		}
@@ -71,50 +76,51 @@ interface DownloadDao {
 		"""
 		UPDATE DownloadEntity
 		SET status = 'QUEUED', progress = 0, queuedAtEpochMs = :queuedAtEpochMs
-		WHERE songId = :songId AND intentGeneration = :generation
+		WHERE ownerId = :ownerId AND songId = :songId AND intentGeneration = :generation
 			AND status = 'FAILED' AND cancelled = 0
 		"""
 	)
-	suspend fun retryFailedIntent(songId: String, generation: Long, queuedAtEpochMs: Long): Int
+	suspend fun retryFailedIntent(ownerId: String, songId: String, generation: Long, queuedAtEpochMs: Long): Int
 
 	@Query(
 		"""
 		UPDATE DownloadEntity
 		SET status = 'NOT_DOWNLOADED', progress = 0, filePath = NULL,
 			intentGeneration = intentGeneration + 1, cancelled = 1
-		WHERE songId = :songId AND status != 'DOWNLOADED'
+		WHERE ownerId = :ownerId AND songId = :songId AND status != 'DOWNLOADED'
 		"""
 	)
-	suspend fun cancelPendingIntent(songId: String): Int
+	suspend fun cancelPendingIntent(ownerId: String, songId: String): Int
 
 	@Query(
 		"""
 		UPDATE DownloadEntity
 		SET status = 'QUEUED', progress = 0
-		WHERE status = 'DOWNLOADING' AND cancelled = 0
+		WHERE ownerId = :ownerId AND status = 'DOWNLOADING' AND cancelled = 0
 		"""
 	)
-	suspend fun recoverInterruptedDownloads(): Int
+	suspend fun recoverInterruptedDownloads(ownerId: String): Int
 
 	@Query(
 		"""
 		UPDATE DownloadEntity
 		SET status = 'QUEUED', progress = 0
-		WHERE songId = :songId AND intentGeneration = :generation
+		WHERE ownerId = :ownerId AND songId = :songId AND intentGeneration = :generation
 			AND status = 'DOWNLOADING' AND cancelled = 0
 		"""
 	)
-	suspend fun requeueIfCurrent(songId: String, generation: Long): Int
+	suspend fun requeueIfCurrent(ownerId: String, songId: String, generation: Long): Int
 
 	@Query(
 		"""
 		UPDATE DownloadEntity
 		SET status = :status, progress = :progress
-		WHERE songId = :songId AND intentGeneration = :generation
+		WHERE ownerId = :ownerId AND songId = :songId AND intentGeneration = :generation
 			AND status = 'DOWNLOADING' AND cancelled = 0
 		"""
 	)
 	suspend fun updateProgressIfCurrent(
+		ownerId: String,
 		songId: String,
 		generation: Long,
 		status: DownloadStatus,
@@ -125,11 +131,12 @@ interface DownloadDao {
 		"""
 		UPDATE DownloadEntity
 		SET status = :status, progress = :progress, filePath = :filePath
-		WHERE songId = :songId AND intentGeneration = :generation
+		WHERE ownerId = :ownerId AND songId = :songId AND intentGeneration = :generation
 			AND status = 'DOWNLOADING' AND cancelled = 0
 		"""
 	)
 	suspend fun completeIfCurrent(
+		ownerId: String,
 		songId: String,
 		generation: Long,
 		status: DownloadStatus,
@@ -137,12 +144,20 @@ interface DownloadDao {
 		filePath: String?
 	): Int
 
-	@Query("SELECT COUNT(*) FROM DownloadEntity WHERE status = :status")
-	fun getDownloadsCount(status: DownloadStatus = DownloadStatus.DOWNLOADED): Flow<Int>
+	@Query("SELECT COUNT(*) FROM DownloadEntity WHERE ownerId = :ownerId AND status = :status")
+	fun getDownloadsCount(ownerId: String, status: DownloadStatus = DownloadStatus.DOWNLOADED): Flow<Int>
 
-	@Query("DELETE FROM DownloadEntity WHERE songId = :songId")
-	suspend fun deleteDownload(songId: String)
+	@Query("DELETE FROM DownloadEntity WHERE ownerId = :ownerId AND songId = :songId")
+	suspend fun deleteDownload(ownerId: String, songId: String)
 
-	@Query("DELETE FROM DownloadEntity")
-	suspend fun clearAllDownloads()
+	@Query("DELETE FROM DownloadEntity WHERE ownerId = :ownerId AND songId = :songId AND intentGeneration = :generation AND status = :expectedStatus AND filePath IS :expectedFilePath")
+	suspend fun deleteDownloadIfCurrent(
+		ownerId: String, songId: String, generation: Long, expectedStatus: DownloadStatus, expectedFilePath: String?
+	): Int
+
+	@Query("DELETE FROM DownloadEntity WHERE ownerId = :ownerId AND songId = :songId AND intentGeneration = :generation AND status = 'FAILED'")
+	suspend fun deleteFailedDownloadIfCurrent(ownerId: String, songId: String, generation: Long): Int
+
+	@Query("DELETE FROM DownloadEntity WHERE ownerId = :ownerId")
+	suspend fun clearAllDownloads(ownerId: String)
 }

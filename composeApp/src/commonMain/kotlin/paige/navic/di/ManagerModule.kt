@@ -3,6 +3,10 @@ package paige.navic.di
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
 import paige.navic.data.database.ArtistPhotoSnapshotStore
+import paige.navic.data.database.DownloadDatabase
+import paige.navic.domain.manager.AccountDownloadRegistry
+import paige.navic.domain.manager.DownloadAccountIdentity
+import paige.navic.domain.manager.PlaybackAccountBoundary
 import paige.navic.domain.manager.ArtworkColorManager
 import paige.navic.domain.manager.AuthenticatedSessionLifetime
 import paige.navic.domain.manager.AudioPlaybackOwnershipCoordinator
@@ -23,6 +27,12 @@ import paige.navic.data.remote.SubsonicClientFactory
 import paige.navic.data.remote.NetworkClientFactory
 
 val managerModule = module {
+	single(createdAtStart = true) { DownloadAccountIdentity(get()) }
+	single {
+		val identity = get<DownloadAccountIdentity>()
+		PlaybackAccountBoundary(identity.startupOwnerId, identity.legacyOwnerId)
+	}
+	single { AccountDownloadRegistry(get<DownloadDatabase>().downloadDao(), get<DownloadAccountIdentity>().ownerId) }
 	single { ArtistPhotoSnapshotStore(get()) }
 	singleOf(::AudioPlaybackOwnershipCoordinator)
 	singleOf(::AuthenticatedSessionLifetime)

@@ -15,6 +15,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.snapshotFlow
@@ -35,6 +36,8 @@ import paige.navic.domain.interactors.DefaultPlaybackQueueStateReducer
 import paige.navic.domain.interactors.PlaybackQueueInteractor
 import paige.navic.domain.manager.AudioPlaybackOwnershipClaim
 import paige.navic.domain.manager.AudioPlaybackOwnershipCoordinator
+import paige.navic.domain.manager.AuthenticatedSessionLifetime
+import paige.navic.domain.manager.PlaybackAccountBoundary
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.NavidromeAvailability
@@ -83,6 +86,8 @@ class AndroidMediaPlayerViewModel(
 	private val offlineModeCoordinator: OfflineModeCoordinator,
 	private val navidromeAvailabilityManager: NavidromeAvailabilityManager,
 	private val sessionManager: SessionManager,
+	private val sessionLifetime: AuthenticatedSessionLifetime,
+	playbackAccountBoundary: PlaybackAccountBoundary,
 	private val platformContext: CoilPlatformContext,
 	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
 	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository,
@@ -94,7 +99,8 @@ class AndroidMediaPlayerViewModel(
 	stateRepository = stateRepository,
 	downloadManager = downloadManager,
 	connectivityManager = connectivityManager,
-	preferenceManager = preferenceManager
+	preferenceManager = preferenceManager,
+	playbackAccountBoundary = playbackAccountBoundary
 ) {
 	private var controller: MediaController? = null
 	private var playbackClaim: AudioPlaybackOwnershipClaim? = null
@@ -201,7 +207,6 @@ class AndroidMediaPlayerViewModel(
 		effectiveVolume = ::effectivePlaybackVolume
 	)
 	private val playbackOriginRecorder = AndroidPlaybackOriginRecorder(viewModelScope, playbackOriginRepository)
-	private val radioMediaItemFactory = AndroidRadioMediaItemFactory()
 	private val queueStateReducer = DefaultPlaybackQueueStateReducer
 	private val queueAutoFiller = AndroidQueueAutoFiller(
 		scope = viewModelScope,
@@ -223,7 +228,10 @@ class AndroidMediaPlayerViewModel(
 		publishState = { _uiState.value = it },
 		mediaItemFactory = mediaItemFactory,
 		feedback = playbackStartFeedback,
-		cancelPendingRestore = playbackStateSynchronizer::cancelPendingRestore,
+		cancelPendingRestore = {
+			cancelPendingInitialRestore()
+			playbackStateSynchronizer.cancelPendingRestore()
+		},
 		onFailure = { error ->
 			Logger.e("MediaPlayer", "Failed to prepare bulk playback", error)
 			_uiState.update { it.copy(isLoading = false, isPaused = controller?.isPlaying != true) }
@@ -232,7 +240,13 @@ class AndroidMediaPlayerViewModel(
 		clearPlaybackRecovery = playbackRecovery::clear,
 		clearPendingQueueSelection = { pendingQueueSelection = null },
 		cancelQueueAutoFill = queueAutoFiller::cancel,
-		claimMusicPlayback = ::claimMusicPlayback
+		claimMusicPlayback = ::claimMusicPlayback,
+		currentSession = { sessionLifetime.currentScope()?.takeIf { it.isActive } },
+		onStartAccepted = ::invalidateAutomaticResume,
+		loadSongRadio = { song ->
+			playbackQueueInteractor.songRadio(song, SongRadioQueueDefaultSize, ::isAvailable)
+		},
+		clearPlaybackOrigin = { playbackOriginRecorder.setOriginNow(null) }
 	)
 
 	private fun onBulkPlaybackConnectionLost() {
@@ -246,6 +260,16 @@ class AndroidMediaPlayerViewModel(
 		mediaControllerConnection.connect()
 		observeAudioPlaybackClaims()
 		observeNavidromeAvailability()
+		viewModelScope.launch {
+			var previous = sessionLifetime.currentScope()
+			sessionLifetime.sessionScope.collect { session ->
+				if (session !== previous) {
+					bulkPlaybackCoordinator.cancel()
+					invalidateAutomaticResume()
+					previous = session
+				}
+			}
+		}
 	}
 
 	private fun observeNavidromeAvailability() {
@@ -304,6 +328,10 @@ class AndroidMediaPlayerViewModel(
 		viewModelScope.launch {
 			audioPlaybackOwnershipCoordinator.activeClaim.collectLatest { claim ->
 				val claimedOwner = claim?.owner ?: return@collectLatest
+				if (claimedOwner != AudioPlaybackOwner.Music) {
+					bulkPlaybackCoordinator.cancel()
+					invalidateAutomaticResume()
+				}
 				if (controller == null) return@collectLatest
 				if (
 					shouldPauseForAudioPlaybackClaim(
@@ -648,6 +676,7 @@ class AndroidMediaPlayerViewModel(
 			state.copy(
 				currentIndex = index,
 				upcomingIndexes = upcomingIndexes,
+				shuffleOrder = controller.persistableShuffleOrder(),
 				currentSong = currentSong,
 				currentCollection = derivedCollection ?: state.currentCollection,
 				isPaused = !controller.playWhenReady,
@@ -663,34 +692,6 @@ class AndroidMediaPlayerViewModel(
 			currentSong = _uiState.value.currentSong,
 			isPlaying = controller.isPlaying
 		)
-	}
-
-	private fun MediaController.upcomingMediaItemIndexes(): List<Int> {
-		val itemCount = mediaItemCount
-		val currentIndex = currentMediaItemIndex
-		if (itemCount <= 0 || currentIndex !in 0 until itemCount) return emptyList()
-		if (repeatMode == Player.REPEAT_MODE_ONE) return listOf(currentIndex)
-
-		val timeline = currentTimeline
-		if (timeline.isEmpty) return emptyList()
-
-		val indexes = mutableListOf<Int>()
-		var index = currentIndex
-		repeat(itemCount - 1) {
-			val nextIndex = timeline.getNextWindowIndex(
-				index,
-				repeatMode,
-				shuffleModeEnabled
-			)
-			if (nextIndex == C.INDEX_UNSET || nextIndex !in 0 until itemCount) {
-				return indexes
-			}
-			if (nextIndex == currentIndex) return indexes
-
-			indexes += nextIndex
-			index = nextIndex
-		}
-		return indexes
 	}
 
 	private fun updatePlaybackDownloadProgress() {
@@ -734,7 +735,20 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun syncPlayerWithState(state: PlayerUiState) {
+		if (state.playbackOwnerId != playbackAccountBoundary?.capture()?.ownerId) return
 		playbackStateSynchronizer.sync(state)
+	}
+
+	override fun onPlaybackAccountRevoked() {
+		bulkPlaybackCoordinator.cancel()
+		playbackRecovery.clear("account-changed")
+		queueAutoFiller.cancel()
+		playbackVolumeFader.cancel(controller)
+		playbackOriginRecorder.setOriginNow(null)
+		latestDownloadsById = emptyMap()
+		releaseMusicPlayback()
+		controller?.pause()
+		controller?.clearMediaItems()
 	}
 
 	private fun startProgressLoop() {
@@ -786,9 +800,12 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun addToQueueSingle(song: DomainSong, notify: Boolean) {
+		val account = playbackAccountBoundary?.capture()
 		viewModelScope.launch {
 			val player = controller
-			player?.addMediaItem(withContext(Dispatchers.Default) { song.toMediaItem() })
+			val item = withContext(Dispatchers.Default) { song.toMediaItem() }
+			if (account?.ownerId == null || playbackAccountBoundary?.isCurrent(account) != true) return@launch
+			player?.addMediaItem(item)
 			_uiState.update { state -> queueStateReducer.append(state, listOf(song)) }
 			player?.let(::playPendingQueueSelectionIfAvailable)
 			if (notify) snackBarManager.notifyAddedToQueue()
@@ -805,8 +822,10 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun addToQueue(songs: List<DomainSong>, notify: Boolean) {
+		val account = playbackAccountBoundary?.capture()
 		viewModelScope.launch {
 			val items = withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
+			if (account?.ownerId == null || playbackAccountBoundary?.isCurrent(account) != true) return@launch
 			val player = controller
 			player?.addMediaItems(items)
 			_uiState.update { state -> queueStateReducer.append(state, songs) }
@@ -876,6 +895,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun clearQueue() {
 		bulkPlaybackCoordinator.cancel()
+		invalidateAutomaticResume()
 		viewModelScope.launch {
 			playbackOriginRecorder.setOriginNow(null)
 			pendingQueueSelection = null
@@ -884,6 +904,8 @@ class AndroidMediaPlayerViewModel(
 			_uiState.update {
 				it.copy(
 					queue = emptyList(),
+					upcomingIndexes = emptyList(),
+					shuffleOrder = null,
 					currentSong = null,
 					currentIndex = -1,
 					progress = 0f
@@ -895,6 +917,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun selectQueueItem(index: Int, playWhenReady: Boolean, origin: QueueSelectionOrigin) {
 		bulkPlaybackCoordinator.cancel()
+		invalidateAutomaticResume()
 		val request = QueueSelectionRequest(index, playWhenReady, origin)
 		viewModelScope.launch {
 			if (index < 0) return@launch
@@ -925,42 +948,17 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun playCollection(collection: DomainSongCollection, startSong: DomainSong) {
-		bulkPlaybackCoordinator.cancel()
-		viewModelScope.launch {
-			playbackRecovery.clear("play-collection")
-			val (items, newCollection) = withContext(Dispatchers.Default) {
-				val sortedCollection = if (collection is DomainAlbum) {
-					collection.songs.sortedWith(compareBy({ it.discNumber }, { it.trackNumber }))
-				} else {
-					collection.songs
-				}
-				sortedCollection.map { it.toMediaItem() } to sortedCollection
-			}
-
-			val startIndex = newCollection.indexOfFirst { it.id == startSong.id }.coerceAtLeast(0)
-
-			controller?.let { player ->
-				player.setMediaItems(items, startIndex, 0L)
-				player.prepare()
-				claimMusicPlayback()
-				player.play()
-			}
-
-			_uiState.update { state ->
-				state.copy(
-					queue = newCollection,
-					currentIndex = startIndex,
-					currentSong = newCollection.getOrNull(startIndex)
-				)
-			}
-		}
+		bulkPlaybackCoordinator.playCollection(collection, startSong)
 	}
 
 	override fun playNextSingle(song: DomainSong) {
+		val account = playbackAccountBoundary?.capture()
 		viewModelScope.launch {
+			val item = withContext(Dispatchers.Default) { song.toMediaItem() }
+			if (account?.ownerId == null || playbackAccountBoundary?.isCurrent(account) != true) return@launch
 			controller?.addMediaItem(
 				_uiState.value.currentIndex + 1,
-				withContext(Dispatchers.Default) { song.toMediaItem() }
+				item
 			)
 			_uiState.update { state -> queueStateReducer.insertNext(state, listOf(song)) }
 			snackBarManager.notifyPlayNext()
@@ -968,6 +966,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun playNext(collection: DomainSongCollection) {
+		val account = playbackAccountBoundary?.capture()
 		viewModelScope.launch {
 			val (items, newCollection) = withContext(Dispatchers.Default) {
 				val newCollection = if (collection is DomainAlbum) collection.songs.sortedWith(compareBy(
@@ -976,6 +975,7 @@ class AndroidMediaPlayerViewModel(
 				)) else collection.songs
 				newCollection.map { it.toMediaItem() } to newCollection
 			}
+			if (account?.ownerId == null || playbackAccountBoundary?.isCurrent(account) != true) return@launch
 			controller?.addMediaItems(_uiState.value.currentIndex + 1, items)
 			_uiState.update { state -> queueStateReducer.insertNext(state, newCollection) }
 			snackBarManager.notifyPlayNext()
@@ -983,74 +983,11 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun startSongRadio(song: DomainSong) {
-		bulkPlaybackCoordinator.cancel()
-		viewModelScope.launch {
-			playbackRecovery.clear("song-radio")
-			playbackOriginRecorder.setOriginNow(null)
-			try {
-				val radioQueue = withContext(Dispatchers.IO) {
-					playbackQueueInteractor.songRadio(
-						seedSong = song,
-						limit = SongRadioQueueDefaultSize,
-						isAvailable = ::isAvailable
-					)
-				}
-				if (radioQueue.isEmpty()) return@launch
-
-				val mediaItems = withContext(Dispatchers.Default) {
-					radioQueue.map { it.toMediaItem() }
-				}
-				pendingQueueSelection = null
-				queueAutoFiller.cancel()
-				controller?.let { player ->
-					player.shuffleModeEnabled = false
-					player.setMediaItems(mediaItems, 0, 0L)
-					player.prepare()
-					claimMusicPlayback()
-					player.play()
-				}
-
-				_uiState.update {
-					it.copy(
-						queue = radioQueue,
-						currentIndex = 0,
-						currentSong = radioQueue.firstOrNull(),
-						currentCollection = null,
-						isPaused = false,
-						progress = 0f
-					)
-				}
-			} catch (error: Exception) {
-				Logger.w("MediaPlayer", "Song radio failed", error)
-			}
-		}
+		bulkPlaybackCoordinator.startSongRadio(song)
 	}
 
 	override fun playRadio(radio: DomainRadio) {
-		bulkPlaybackCoordinator.cancel()
-		viewModelScope.launch {
-			playbackRecovery.clear("play-radio")
-			playbackOriginRecorder.setOriginNow(null)
-			val radioItem = radioMediaItemFactory.create(radio)
-
-			controller?.let { player ->
-				player.stop()
-				player.clearMediaItems()
-				player.setMediaItem(radioItem.mediaItem)
-				player.prepare()
-				claimMusicPlayback()
-				player.play()
-			}
-
-			_uiState.update { state ->
-				state.copy(
-					queue = listOf(radioItem.song),
-					currentIndex = 0,
-					currentSong = radioItem.song,
-					isLoading = true
-				)
-			}
-		}
+		bulkPlaybackCoordinator.playRadio(radio)
 	}
 
 	override fun shufflePlay(collection: DomainSongCollection) {
@@ -1063,6 +1000,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun pause() {
 		bulkPlaybackCoordinator.cancel()
+		invalidateAutomaticResume()
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val player = controller ?: return@launch
 			playbackRecovery.onUserPause()
@@ -1096,6 +1034,8 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun resume() {
+		bulkPlaybackCoordinator.cancel()
+		invalidateAutomaticResume()
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val player = controller ?: return@launch
 			if (playbackRecovery.onUserResume(player, _uiState.value)) return@launch
@@ -1134,8 +1074,14 @@ class AndroidMediaPlayerViewModel(
 	private fun effectivePlaybackVolume(volume: Float): Float =
 		if (nowPlayingVideoClipAudioActive) 0f else volume.coerceIn(0f, 1f)
 
+	private fun invalidateAutomaticResume() {
+		playbackVolumeFader.cancel(controller)
+		controller?.let(PlaybackService::invalidateAutomaticResume)
+	}
+
 	override fun next() {
 		bulkPlaybackCoordinator.cancel()
+		invalidateAutomaticResume()
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			playbackRecovery.clear("next")
 			if (controller?.hasNextMediaItem() == true) controller?.seekToNextMediaItem()
@@ -1144,6 +1090,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun previous() {
 		bulkPlaybackCoordinator.cancel()
+		invalidateAutomaticResume()
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			playbackRecovery.clear("previous")
 			val controller = controller ?: return@launch
@@ -1182,6 +1129,8 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun seek(normalized: Float) {
+		bulkPlaybackCoordinator.cancel()
+		invalidateAutomaticResume()
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			controller?.let {
 				val progress = normalized.coerceIn(0f, 1f)
@@ -1196,6 +1145,8 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun onCleared() {
+		bulkPlaybackCoordinator.cancel()
+		invalidateAutomaticResume()
 		playbackVolumeFader.cancel(controller)
 		queueAutoFiller.cancel()
 		releaseMusicPlayback()

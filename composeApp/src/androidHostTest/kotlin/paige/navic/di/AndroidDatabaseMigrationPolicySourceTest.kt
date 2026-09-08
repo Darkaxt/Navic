@@ -16,6 +16,8 @@ class AndroidDatabaseMigrationPolicySourceTest {
 		assertEquals(2, source.split("Room.databaseBuilder<").size - 1)
 		assertFalse("fallbackToDestructiveMigration" in source)
 		assertTrue(".addMigrations(DownloadDatabaseMigration4To5)" in source)
+		assertTrue(".addMigrations(DownloadDatabaseMigration5To6(" in source)
+		assertTrue("get<DownloadAccountIdentity>().legacyOwnerId" in source)
 		listOf(
 			"CacheDatabaseMigration20To21",
 			"CacheDatabaseMigration21To22",

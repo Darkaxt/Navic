@@ -62,6 +62,7 @@ internal class DefaultAndroidPlaybackStateSynchronizer(
 	private suspend fun restore(player: MediaController, state: PlayerUiState, generation: Long) {
 		if (state.queue.isEmpty() || player.mediaItemCount > 0) return
 		val mediaItems = withContext(Dispatchers.Default) { state.queue.map(mediaItemForSong) }
+		if (controller() !== player || restoreGeneration != generation) return
 		player.setMediaItems(mediaItems)
 		player.repeatMode = state.repeatMode
 		player.playbackParameters = PlaybackParameters(state.playbackSpeed, state.playbackPitch)
@@ -69,7 +70,7 @@ internal class DefaultAndroidPlaybackStateSynchronizer(
 		val durationMs = state.queue.getOrNull(index)?.duration?.inWholeMilliseconds ?: 0L
 		val position = if (durationMs > 0) (state.progress * durationMs).toLong() else 0L
 		val shuffleOrder = if (state.isShuffleEnabled) {
-			restoredShuffleOrder(mediaItems.size, index, state.upcomingIndexes)
+			restoredShuffleOrder(mediaItems.size, index, state.upcomingIndexes, state.shuffleOrder)
 		} else null
 		if (shuffleOrder == null) {
 			complete(player, state, index, position, generation)

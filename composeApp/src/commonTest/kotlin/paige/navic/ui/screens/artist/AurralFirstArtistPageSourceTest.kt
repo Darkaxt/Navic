@@ -62,11 +62,14 @@ class AurralFirstArtistPageSourceTest {
 		val failureBlock = source.substringAfter("if (coreEnrichment == null) {")
 			.substringBefore("return@launch")
 
-		assertTrue("aurralProfileError = error.message ?: error::class.simpleName" in failureBlock)
-		assertFalse("aurralOwnershipError = error.message ?: error::class.simpleName" in failureBlock)
-		assertFalse("aurralPreviewTracksError = error.message ?: error::class.simpleName" in failureBlock)
-		assertFalse("aurralSimilarArtistsError = error.message ?: error::class.simpleName" in failureBlock)
-		assertFalse("aurralRequestsError = error.message ?: error::class.simpleName" in failureBlock)
+		assertTrue("latestState.withAurralCoreFailure(" in failureBlock)
+		assertTrue("publishAurralState {" in failureBlock)
+		val helper = sourceFile("ui/screens/artist/viewmodels/AurralCoreFailureState.kt").readText()
+		assertTrue("aurralProfileError = message" in helper)
+		assertTrue("aurralPreviewTracksLoading = false" in helper)
+		assertTrue("aurralRequestsLoading = false" in helper)
+		assertFalse("lastFmLoading =" in helper, "Failed Aurral prerequisites must not terminate independent Last.fm work.")
+		assertFalse("similarArtists =" in helper, "Independent local/Last.fm similar artists must be retained.")
 	}
 
 	@Test

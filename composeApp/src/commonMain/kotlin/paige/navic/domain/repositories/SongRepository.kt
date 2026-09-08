@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import paige.navic.data.database.dao.AlbumDao
-import paige.navic.data.database.dao.DownloadDao
+import paige.navic.domain.manager.AccountDownloadRegistry
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.entities.SyncActionType
 import paige.navic.data.database.mappers.toDomainModel
@@ -33,7 +33,7 @@ import kotlin.time.Instant
 class SongRepository(
 	private val songDao: SongDao,
 	private val albumDao: AlbumDao,
-	private val downloadDao: DownloadDao,
+	private val downloadDao: AccountDownloadRegistry,
 	private val dbRepository: DbRepository,
 	private val syncManager: SyncManager,
 	private val preferenceManager: PreferenceManager,
@@ -61,6 +61,7 @@ class SongRepository(
 		reversed: Boolean,
 		artistId: String? = null
 	): ImmutableList<DomainSong> {
+		val owner = downloadDao.ownerId.value
 		if (listType == DomainSongListType.QuickPicks && !preferenceManager.quickPicksEnabled) {
 			return persistentListOf()
 		}
@@ -74,13 +75,16 @@ class SongRepository(
 			songs
 		}.toImmutableList().sortedByListType(
 			listType,
-			downloads = downloadDao.getAllDownloadsList(),
+			downloads = downloadDao.getAllDownloadsList().filter(downloadDao::owns),
 			albumCreatedAt = albumCreatedAt(listType),
 			quickPicksEnabled = preferenceManager.quickPicksEnabled,
 			quickPicksLimit = preferenceManager.quickPicksLimit,
 			quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
 		)
 
+		if (listType == DomainSongListType.Downloaded &&
+			(owner == null || downloadDao.ownerId.value != owner)
+		) return persistentListOf()
 		return if (reversed) {
 			filtered.reversed().toImmutableList()
 		} else {
@@ -134,7 +138,7 @@ class SongRepository(
 	): Flow<ImmutableList<DomainSong>> =
 		combine(
 			songDao.getAllSongsFlow().map { it.map { song -> song.toDomainModel() } },
-			downloadManager.allDownloads,
+			downloadDao.getAllDownloads(),
 			albumCreatedAtFlow(listType)
 		) { songs, downloads, albumCreatedAt ->
 			if (listType == DomainSongListType.QuickPicks && !preferenceManager.quickPicksEnabled) {
@@ -143,7 +147,7 @@ class SongRepository(
 				val filtered = if (artistId != null) songs.filter { it.artistId == artistId } else songs
 				filtered.toImmutableList().sortedByListType(
 					listType,
-					downloads = downloads,
+					downloads = downloads.filter(downloadDao::owns),
 					albumCreatedAt = albumCreatedAt,
 					quickPicksEnabled = preferenceManager.quickPicksEnabled,
 					quickPicksLimit = preferenceManager.quickPicksLimit,

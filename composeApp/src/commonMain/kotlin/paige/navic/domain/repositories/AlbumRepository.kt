@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import paige.navic.domain.manager.SyncManager
 import paige.navic.data.database.dao.AlbumDao
-import paige.navic.data.database.dao.DownloadDao
+import paige.navic.domain.manager.AccountDownloadRegistry
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.SyncActionType
 import paige.navic.data.database.mappers.toDomainModel
@@ -28,7 +28,7 @@ import kotlin.time.Clock
 
 class AlbumRepository(
 	private val albumDao: AlbumDao,
-	private val downloadDao: DownloadDao,
+	private val downloadDao: AccountDownloadRegistry,
 	private val syncManager: SyncManager,
 	private val dbRepository: DbRepository,
 	private val preferenceManager: PreferenceManager,
@@ -39,19 +39,23 @@ class AlbumRepository(
 		listType: DomainAlbumListType,
 		reversed: Boolean
 	): ImmutableList<DomainAlbum> {
+		val owner = downloadDao.ownerId.value
 		val downloadedSongIds = if (listType == DomainAlbumListType.Downloaded) {
 			downloadDao.getAllDownloadsList()
-				.filter { it.status == DownloadStatus.DOWNLOADED }
+				.filter { downloadDao.owns(it) && it.status == DownloadStatus.DOWNLOADED }
 				.map { it.songId }
 				.toSet()
 		} else null
 
-		return albumDao
+		val albums = albumDao
 			.getAlbumsByQuery(listType.toSqlQuery())
 			.map { it.toDomainModel() }
 			.let { if (reversed) it.asReversed() else it }
-			.filter { album -> downloadedSongIds == null || downloadedSongIds.containsAll(album.songs.map { it.id }) }
+			.filter { album -> downloadedSongIds == null || (album.songs.isNotEmpty() && downloadedSongIds.containsAll(album.songs.map { it.id })) }
 			.toImmutableList()
+		return if (listType == DomainAlbumListType.Downloaded &&
+			(owner == null || downloadDao.ownerId.value != owner)
+		) emptyList<DomainAlbum>().toImmutableList() else albums
 	}
 
 	private suspend fun refreshLocalData(
@@ -93,12 +97,12 @@ class AlbumRepository(
 		val queried = albumDao.getAlbumsByQueryFlow(listType.toSqlQuery())
 			.map { rows -> rows.map { it.toDomainModel() } }
 		val filtered = if (listType == DomainAlbumListType.Downloaded) {
-			queried.combine(downloadManager.allDownloads) { albums, downloads ->
+			queried.combine(downloadDao.getAllDownloads()) { albums, downloads ->
 				val downloadedSongIds = downloads
-					.filter { it.status == DownloadStatus.DOWNLOADED }
+					.filter { downloadDao.owns(it) && it.status == DownloadStatus.DOWNLOADED }
 					.map { it.songId }
 					.toSet()
-				albums.filter { album -> downloadedSongIds.containsAll(album.songs.map { it.id }) }
+				albums.filter { album -> album.songs.isNotEmpty() && downloadedSongIds.containsAll(album.songs.map { it.id }) }
 			}
 		} else {
 			queried

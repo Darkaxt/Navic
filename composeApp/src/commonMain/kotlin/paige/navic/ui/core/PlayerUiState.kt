@@ -6,11 +6,13 @@ import paige.navic.domain.models.DomainSongCollection
 
 @Serializable
 data class PlayerUiState(
+	val playbackOwnerId: String? = null,
 	val queue: List<DomainSong> = emptyList(),
 	val currentSong: DomainSong? = null,
 	val currentCollection: DomainSongCollection? = null,
 	val currentIndex: Int = -1,
 	val upcomingIndexes: List<Int> = emptyList(),
+	val shuffleOrder: List<Int>? = null,
 	val isPaused: Boolean = false,
 	val isShuffleEnabled: Boolean = false,
 	val repeatMode: Int = 0,

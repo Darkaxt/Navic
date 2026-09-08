@@ -8,6 +8,22 @@ import kotlin.test.assertTrue
 
 class AndroidMediaPlayerViewModelSourceTest {
 	@Test
+	fun supersedingCommandsInvalidateInitialDatastoreRestoreBeforeUiPublication() {
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val base = commonSourceFile("shared/MediaPlayer.kt").readText()
+		val cancellation = viewModel.substringAfter("cancelPendingRestore = {").substringBefore("},")
+		assertContains(cancellation, "cancelPendingInitialRestore()")
+		assertContains(cancellation, "playbackStateSynchronizer.cancelPendingRestore()")
+		val restore = base.substringAfter("private suspend fun restoreState()")
+			.substringBefore("private fun observeAndSaveState()")
+		val afterLoad = restore.substringAfter("stateRepository.loadState()")
+		assertTrue(afterLoad.indexOf("if (initialStateRestoreInvalidated) return") in
+			0 until afterLoad.indexOf("_uiState.value = stateToApply"))
+		assertContains(restore, "!initialStateRestoreInvalidated &&")
+		assertContains(base, "initialStateRestoreInvalidated = true")
+	}
+
+	@Test
 	fun bulkStartupFeedbackIsGlobalAndSupersedingCommandsCancelPreparation() {
 		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
 		val app = commonSourceFile("App.kt").readText()
@@ -15,12 +31,18 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(app, "PlaybackStartDialog(player.playbackStartFeedback)")
 		assertContains(dialog, "CircularProgressIndicator(")
 		assertContains(dialog, "onDismissRequest = feedback::hide")
-		listOf("clearQueue", "selectQueueItem", "playCollection", "startSongRadio", "playRadio", "pause", "next", "previous")
+		listOf("clearQueue", "selectQueueItem", "pause", "resume", "next", "previous", "seek")
 			.forEach { command ->
 				val body = viewModel.substringAfter("override fun $command(")
 					.substringAfter("{").trimStart()
 				assertTrue(body.startsWith("bulkPlaybackCoordinator.cancel()"), command)
 			}
+		val starts = androidSharedSourceFile("AndroidBulkPlaybackCoordinator.android.kt").readText()
+		listOf("playCollection", "startSongRadio", "playRadio").forEach { command ->
+			assertContains(viewModel, "bulkPlaybackCoordinator.$command(")
+			val body = starts.substringAfter("fun $command(").substringAfter("{").trimStart()
+			assertTrue(body.startsWith("launchStart("), command)
+		}
 		val synchronizer = androidSharedSourceFile("AndroidPlaybackStateSynchronizer.android.kt").readText()
 		assertContains(synchronizer, "restoreJob?.cancel()")
 		assertContains(synchronizer, "restoreGeneration != generation")
@@ -113,14 +135,15 @@ class AndroidMediaPlayerViewModelSourceTest {
 		val radioFactory = androidSharedSourceFile("AndroidRadioMediaItemFactory.android.kt")
 		val viewModelText = viewModel.readText()
 		val radioFactoryText = radioFactory.readText()
+		val starts = androidSharedSourceFile("AndroidBulkPlaybackCoordinator.android.kt").readText()
 
 		assertTrue(
 			viewModel.readLines().size < 1_360,
 			"AndroidMediaPlayerViewModel should not own radio dummy-song and Media3 item construction."
 		)
-		assertContains(viewModelText, "private val radioMediaItemFactory = AndroidRadioMediaItemFactory()")
+		assertContains(starts, "private val radioMediaItemFactory = AndroidRadioMediaItemFactory()")
 		assertContains(viewModelText, "private val playbackArtworkResolver = AndroidPlaybackArtworkResolver(")
-		assertContains(viewModelText, "val radioItem = radioMediaItemFactory.create(radio)")
+		assertContains(starts, "val radioItem = radioMediaItemFactory.create(radio)")
 		assertContains(radioFactoryText, "internal class AndroidRadioMediaItemFactory")
 		assertContains(radioFactoryText, "data class AndroidRadioMediaItem")
 		assertContains(radioFactoryText, "DomainExplicitStatus.Unknown")
@@ -368,7 +391,7 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(bulkPlaybackText, "collectionPlaybackOrder(")
 		assertContains(bulkPlaybackText, "player.setMediaItems(mediaItems, 0, 0L)")
 		assertContains(bulkPlaybackText, "connectedController.filterNotNull().first()")
-		assertContains(bulkPlaybackText, "feedback.launch(scope)")
+		assertContains(bulkPlaybackText, "PlaybackPreparationCoordinator(scope, feedback)")
 		assertContains(bulkPlaybackText, "feedback.awaitSettled()")
 		assertContains(androidPlayerText, "bulkPlaybackCoordinator.onPlayerEvents(player)")
 		assertContains(androidPlayerText, "bulkPlaybackCoordinator.onControllerReady(this)")
@@ -383,9 +406,10 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertFalse(collectionButtonsText.contains("player.playAt(0)"))
 		assertFalse(aurralHubText.contains("player.playAt(0)"))
 
-		val directCollectionBody = androidPlayerText
-			.substringAfter("override fun playCollection(")
-			.substringBefore("override fun playNextSingle(")
+		assertContains(androidPlayerText, "bulkPlaybackCoordinator.playCollection(collection, startSong)")
+		val directCollectionBody = bulkPlaybackText
+			.substringAfter("fun playCollection(")
+			.substringBefore("fun startSongRadio(")
 		assertContains(directCollectionBody, "indexOfFirst { it.id == startSong.id }")
 		assertContains(directCollectionBody, "player.setMediaItems(items, startIndex, 0L)")
 	}

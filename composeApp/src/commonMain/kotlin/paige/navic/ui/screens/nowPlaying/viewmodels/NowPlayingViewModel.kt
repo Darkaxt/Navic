@@ -2,6 +2,7 @@ package paige.navic.ui.screens.nowPlaying.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
@@ -28,6 +29,7 @@ import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
+import paige.navic.ui.core.EnrichmentRequestOwner
 import kotlin.time.Clock
 
 class NowPlayingViewModel(
@@ -58,7 +60,7 @@ class NowPlayingViewModel(
 	private var lidaClipLookupJob: Job? = null
 	private var currentLyricsSongId: String? = null
 	private var lastLyricsProgress: Float? = null
-	private var lyricsLookupJob: Job? = null
+	private val lyricsLookup = EnrichmentRequestOwner()
 	private val visualContentActive = MutableStateFlow(false)
 	private var displayedSongId: String? = null
 	private var previousDemandActive = false
@@ -88,9 +90,11 @@ class NowPlayingViewModel(
 					clearLidaClip()
 					clearLyrics()
 				} else {
-					if (!state.canRequest) return@collect
+					if (!state.canRequest) {
+						deferActiveLyricsLookup()
+						return@collect
+					}
 					if (resuming) {
-						if (_lyricsAvailableState.value is UiState.Error) currentLyricsSongId = null
 						if (_lidaClipState.value is UiState.Error) lastLidaClipsPrefetchKey = null
 					}
 					val previousLyricsProgress = lastLyricsProgress
@@ -100,7 +104,8 @@ class NowPlayingViewModel(
 					loadLyrics(
 						song = song,
 						previousProgress = previousLyricsProgress,
-						currentProgress = state.progress
+						currentProgress = state.progress,
+						resuming = resuming
 					)
 					lastLyricsProgress = state.progress
 				}
@@ -110,6 +115,17 @@ class NowPlayingViewModel(
 
 	fun setVisualContentActive(active: Boolean) {
 		visualContentActive.value = active
+		if (!active) {
+			previousDemandActive = false
+			deferActiveLyricsLookup()
+		}
+	}
+
+	private fun deferActiveLyricsLookup() {
+		if (lyricsLookup.cancel() && _lyricsAvailableState.value is UiState.Loading) {
+			currentLyricsSongId = null
+			lastLyricsProgress = null
+		}
 	}
 
 	private fun canRequestVisualContent(songId: String): Boolean =
@@ -270,7 +286,8 @@ class NowPlayingViewModel(
 	private fun loadLyrics(
 		song: DomainSong,
 		previousProgress: Float?,
-		currentProgress: Float
+		currentProgress: Float,
+		resuming: Boolean
 	) {
 		if (!canRequestVisualContent(song.id)) return
 		if (!shouldStartLyricsLookup(
@@ -278,27 +295,32 @@ class NowPlayingViewModel(
 				requestedSongId = song.id,
 				lyricsState = _lyricsAvailableState.value,
 				previousProgress = previousProgress,
-				currentProgress = currentProgress
+				currentProgress = currentProgress,
+				resuming = resuming
 			)
 		) return
 
 		currentLyricsSongId = song.id
-		lyricsLookupJob?.cancel()
 		_lyricsAvailableState.value = UiState.Loading(false)
-		lyricsLookupJob = viewModelScope.launch {
+		lyricsLookup.launch(viewModelScope) {
 			runCatching { withContext(Dispatchers.IO) { lyricsRepository.fetchLyrics(song) } }
 				.also { currentCoroutineContext().ensureActive() }
 				.onSuccess { result ->
-					if (currentLyricsSongId == song.id) {
-						_lyricsAvailableState.value = UiState.Success(!result?.lines.isNullOrEmpty())
+					lyricsLookup.commit {
+						if (currentLyricsSongId == song.id) {
+							_lyricsAvailableState.value = UiState.Success(!result?.lines.isNullOrEmpty())
+						}
 					}
 				}
 				.onFailure { error ->
-					if (currentLyricsSongId == song.id) {
-						_lyricsAvailableState.value = UiState.Error(
-							error as? Exception ?: Exception(error.message, error),
-							false
-						)
+					if (error is CancellationException) throw error
+					lyricsLookup.commit {
+						if (currentLyricsSongId == song.id) {
+							_lyricsAvailableState.value = UiState.Error(
+								error as? Exception ?: Exception(error.message, error),
+								false
+							)
+						}
 					}
 				}
 		}
@@ -315,7 +337,7 @@ class NowPlayingViewModel(
 	private fun clearLyrics() {
 		currentLyricsSongId = null
 		lastLyricsProgress = null
-		lyricsLookupJob?.cancel()
+		lyricsLookup.cancel()
 		_lyricsAvailableState.value = UiState.Success(false)
 	}
 }

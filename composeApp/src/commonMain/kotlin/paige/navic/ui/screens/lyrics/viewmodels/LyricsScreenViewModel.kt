@@ -4,14 +4,13 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.lyrics.LyricsResult
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.ui.core.UiState
+import paige.navic.ui.core.EnrichmentRequestOwner
 
 class LyricsScreenViewModel(
 	private val song: DomainSong?,
@@ -23,10 +22,13 @@ class LyricsScreenViewModel(
 	val listState = LazyListState()
 	private var visualContentActive = false
 	private var refreshPending = true
-	private var lookupJob: Job? = null
+	private val lookup = EnrichmentRequestOwner()
 
 	fun setVisualContentActive(active: Boolean) {
 		visualContentActive = active
+		if (!active && lookup.cancel() && lyricsState.value is UiState.Loading) {
+			refreshPending = true
+		}
 		if (active && (refreshPending || lyricsState.value is UiState.Error)) refreshResults()
 	}
 
@@ -35,22 +37,21 @@ class LyricsScreenViewModel(
 			refreshPending = true
 			return
 		}
-		if (lookupJob?.isActive == true) return
+		if (lookup.isRunning) return
 		refreshPending = false
-		lookupJob = viewModelScope.launch {
+		lookup.launch(viewModelScope) {
 			if (song == null) {
-				lyricsState.value = UiState.Success(null)
+				lookup.commit { lyricsState.value = UiState.Success(null) }
 				return@launch
 			}
-			lyricsState.value = UiState.Loading()
+			lookup.commit { lyricsState.value = UiState.Loading(lyricsState.value.data) }
 			try {
-				lyricsState.value = UiState.Success(
-					repository.fetchLyrics(song)
-				)
+				val result = repository.fetchLyrics(song)
+				lookup.commit { lyricsState.value = UiState.Success(result) }
 			} catch (cancelled: CancellationException) {
 				throw cancelled
 			} catch (e: Exception) {
-				lyricsState.value = UiState.Error(e)
+				lookup.commit { lyricsState.value = UiState.Error(e, lyricsState.value.data) }
 			}
 		}
 	}
