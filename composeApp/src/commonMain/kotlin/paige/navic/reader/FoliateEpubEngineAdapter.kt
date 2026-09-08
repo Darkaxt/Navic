@@ -61,6 +61,48 @@ data class FoliatePublicationEngineAdapter(
 		)
 }
 
+internal fun ReaderEngineViewState.wordSyncCommandDiagnosticSince(
+	previous: ReaderEngineViewState
+): ReaderWordSyncCommandDiagnostic {
+	val previousCommandKey = (previous as? ReaderEngineViewState.WebViewPublication)?.commandKey
+	val nextCommandKey = (this as? ReaderEngineViewState.WebViewPublication)?.commandKey
+	// Preserve the boundary log's key-change observation, without interpreting the command payload.
+	return ReaderWordSyncCommandDiagnostic(
+		published = nextCommandKey != null && nextCommandKey != previousCommandKey
+	)
+}
+
+internal fun ReaderEngineHostEvent.wordSyncOverlayDiagnostic(): ReaderWordSyncOverlayDiagnostic? =
+	when (val bridgeEvent = (this as? ReaderEngineHostEvent.FoliateBridge)?.event) {
+		is ReaderBridgeEvent.OverlayFragmentActive -> if (
+			bridgeEvent.fragment.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8
+		) {
+			ReaderWordSyncOverlayDiagnostic.Active(anchorPresent = bridgeEvent.anchorReceipt != null)
+		} else null
+		is ReaderBridgeEvent.OverlayFragmentInactive -> if (
+			bridgeEvent.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8
+		) {
+			ReaderWordSyncOverlayDiagnostic.Inactive(bridgeEvent.reason.wordSyncOverlayInactiveReason())
+		} else null
+		else -> null
+	}
+
+private fun String?.wordSyncOverlayInactiveReason(): ReaderWordSyncOverlayInactiveReason = when (this) {
+	"animation-outside-visible-page" -> ReaderWordSyncOverlayInactiveReason.AnimationOutsideVisiblePage
+	"animation-paint-rejected" -> ReaderWordSyncOverlayInactiveReason.AnimationPaintRejected
+	"user-relocation-active" -> ReaderWordSyncOverlayInactiveReason.UserRelocationActive
+	"outside-visible-page" -> ReaderWordSyncOverlayInactiveReason.OutsideVisiblePage
+	"paint-rejected" -> ReaderWordSyncOverlayInactiveReason.PaintRejected
+	"invalid-coordinate-mode" -> ReaderWordSyncOverlayInactiveReason.InvalidCoordinateMode
+	"stale-progress-request" -> ReaderWordSyncOverlayInactiveReason.StaleProgressRequest
+	"progress-outside-visible-page" -> ReaderWordSyncOverlayInactiveReason.ProgressOutsideVisiblePage
+	"progress-paint-rejected" -> ReaderWordSyncOverlayInactiveReason.ProgressPaintRejected
+	"document-loaded" -> ReaderWordSyncOverlayInactiveReason.DocumentLoaded
+	"anchor-rejected" -> ReaderWordSyncOverlayInactiveReason.AnchorRejected
+	null -> ReaderWordSyncOverlayInactiveReason.Absent
+	else -> ReaderWordSyncOverlayInactiveReason.Other
+}
+
 sealed class FoliateWebViewEngineAdapter(
 	override val format: ReaderPublicationFormat,
 	private val currentViewState: ReaderEngineViewState.WebViewPublication? = null,

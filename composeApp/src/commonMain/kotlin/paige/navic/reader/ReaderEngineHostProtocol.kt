@@ -16,6 +16,33 @@ sealed interface ReaderEngineHostEvent {
 	data class SettingsPresentationCommitted(val snapshotKey: Int) : ReaderEngineHostEvent
 }
 
+// Payload-free observations for WordSync logging, not command or presentation authority.
+internal data class ReaderWordSyncCommandDiagnostic(val published: Boolean) {
+	val commandLogValue: String
+		get() = if (published) "update-overlay" else "none"
+}
+
+internal sealed interface ReaderWordSyncOverlayDiagnostic {
+	data class Active(val anchorPresent: Boolean) : ReaderWordSyncOverlayDiagnostic
+	data class Inactive(val reason: ReaderWordSyncOverlayInactiveReason) : ReaderWordSyncOverlayDiagnostic
+}
+
+internal enum class ReaderWordSyncOverlayInactiveReason(val logValue: String) {
+	AnimationOutsideVisiblePage("animation-outside-visible-page"),
+	AnimationPaintRejected("animation-paint-rejected"),
+	UserRelocationActive("user-relocation-active"),
+	OutsideVisiblePage("outside-visible-page"),
+	PaintRejected("paint-rejected"),
+	InvalidCoordinateMode("invalid-coordinate-mode"),
+	StaleProgressRequest("stale-progress-request"),
+	ProgressOutsideVisiblePage("progress-outside-visible-page"),
+	ProgressPaintRejected("progress-paint-rejected"),
+	DocumentLoaded("document-loaded"),
+	AnchorRejected("anchor-rejected"),
+	Absent("absent"),
+	Other("other")
+}
+
 sealed interface ReaderEngineRenderer {
 	data object Empty : ReaderEngineRenderer
 

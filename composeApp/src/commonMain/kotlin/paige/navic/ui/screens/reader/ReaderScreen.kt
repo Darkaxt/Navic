@@ -36,7 +36,6 @@ import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.data.remote.bindery.binderyApiKeyHeaders
-import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
@@ -49,10 +48,8 @@ import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderEngineEvent
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineOpenRequest
-import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderLocator
-import paige.navic.reader.ReaderOverlayCoordinateMode
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPendingPresentationEffect
 import paige.navic.reader.ReaderPresentationEffect
@@ -72,6 +69,7 @@ import paige.navic.reader.ReaderWordSyncBoundaryCancellation
 import paige.navic.reader.ReaderWordSyncBoundaryDispatch
 import paige.navic.reader.ReaderWordSyncBoundaryScheduler
 import paige.navic.reader.ReaderWordSyncEffect
+import paige.navic.reader.ReaderWordSyncOverlayDiagnostic
 import paige.navic.reader.ReaderWordSyncPlaybackIdentity
 import paige.navic.reader.ReaderWordSyncTimelineSnapshot
 import paige.navic.reader.WordSyncPublicationVerificationSession
@@ -105,6 +103,8 @@ import paige.navic.reader.withReaderListeningSettings
 import paige.navic.reader.whispersyncLogValue
 import paige.navic.reader.wordSyncBoundaries
 import paige.navic.reader.wordSyncBoundaryInputDiagnostic
+import paige.navic.reader.wordSyncCommandDiagnosticSince
+import paige.navic.reader.wordSyncOverlayDiagnostic
 import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.shared.AudiobookPlaybackTimelineSnapshot
 import paige.navic.ui.core.AudiobookMiniPlayerUiState
@@ -118,22 +118,6 @@ import paige.navic.util.core.Logger
 import kotlin.time.Clock
 
 private const val ReaderScreenTag = "ReaderScreen"
-
-private fun wordSyncOverlayInactiveReasonLogValue(reason: String?): String = when (reason) {
-	"animation-outside-visible-page",
-	"animation-paint-rejected",
-	"user-relocation-active",
-	"outside-visible-page",
-	"paint-rejected",
-	"invalid-coordinate-mode",
-	"stale-progress-request",
-	"progress-outside-visible-page",
-	"progress-paint-rejected",
-	"document-loaded",
-	"anchor-rejected" -> reason
-	null -> "absent"
-	else -> "other"
-}
 
 @Composable
 fun ReaderScreen(reader: Screen.Reader) {
@@ -476,16 +460,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 	val currentWhispersyncPlaybackPlan = rememberUpdatedState(whispersyncPlaybackPlan)
 	val currentWordSyncBoundaryHandler =
 		rememberUpdatedState<(ReaderWordSyncBoundaryDispatch) -> Unit> { dispatch ->
-			val previousCommandKey =
-				(coordinator.viewState as? ReaderEngineViewState.WebViewPublication)?.commandKey
 			val step = coordinator.onWordSyncBoundary(dispatch)
-			val nextCommandKey =
-				(step.coordinator.viewState as? ReaderEngineViewState.WebViewPublication)?.commandKey
-			val published = nextCommandKey != null && nextCommandKey != previousCommandKey
+			val diagnostic = step.coordinator.viewState.wordSyncCommandDiagnosticSince(coordinator.viewState)
 			Logger.i(
 				WhispersyncSyncLogTag,
-				"WordSync boundary state=dispatch active=$published " +
-					"command=${if (published) "update-overlay" else "none"} " +
+				"WordSync boundary state=dispatch active=${diagnostic.published} " +
+					"command=${diagnostic.commandLogValue} " +
 					"mode=word-exact count=${dispatch.coalescedCount}"
 			)
 			applyCoordinatorStep(step)
@@ -613,27 +593,22 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 
 	fun handleEngineHostEvent(event: ReaderEngineHostEvent) {
-		val bridgeEvent = (event as? ReaderEngineHostEvent.FoliateBridge)?.event
-		when (bridgeEvent) {
-			is ReaderBridgeEvent.OverlayFragmentActive -> if (
-				bridgeEvent.fragment.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8
-			) {
+		when (val diagnostic = event.wordSyncOverlayDiagnostic()) {
+			is ReaderWordSyncOverlayDiagnostic.Active -> {
 				Logger.i(
 					WhispersyncSyncLogTag,
 					"WordSync overlay state=active " +
-						"anchor=${if (bridgeEvent.anchorReceipt != null) "present" else "absent"}"
+						"anchor=${if (diagnostic.anchorPresent) "present" else "absent"}"
 				)
 			}
-			is ReaderBridgeEvent.OverlayFragmentInactive -> if (
-				bridgeEvent.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8
-			) {
+			is ReaderWordSyncOverlayDiagnostic.Inactive -> {
 				Logger.w(
 					WhispersyncSyncLogTag,
 					"WordSync overlay state=inactive anchor=absent " +
-						"reason=${wordSyncOverlayInactiveReasonLogValue(bridgeEvent.reason)}"
+						"reason=${diagnostic.reason.logValue}"
 				)
 			}
-			else -> Unit
+			null -> Unit
 		}
 		applyCoordinatorStep(coordinator.onEngineHostEvent(event))
 	}
