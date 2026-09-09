@@ -179,6 +179,9 @@ jobs:
       - name: Run Gradle tasks
         run: ./gradlew :composeApp:generateValkyrieImageVector
 
+      - name: Compile Kotlin for iOS Simulator ARM64
+        run: ./gradlew :composeApp:compileKotlinIosSimulatorArm64 --rerun-tasks --console=plain --no-daemon
+
       - name: Build IPA
         run: |
           xcodebuild archive \
