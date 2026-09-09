@@ -62,11 +62,17 @@ class ReaderRuntimeNavigationFlowTest {
 		val readaloudHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
 
 		assertContains(runtimeHostText, "val resolved = BinderyReaderPublicationResolver")
-		assertContains(runtimeHostText, "cache=${'$'}{if (resolved.fromCache) \"hit\" else \"miss\"}")
-		assertContains(runtimeHostText, "cacheKey=${'$'}{resolved.cacheKey}")
+		assertTrue(
+			runtimeHostText.contains("fromCache=${'$'}{resolved.fromCache}"),
+			"Publication diagnostics must expose cache hit/miss as a boolean."
+		)
+		assertFalse(runtimeHostText.contains("cacheKey=${'$'}{resolved.cacheKey}"))
 		assertContains(runtimeHostText, "fileBytes=${'$'}{resolved.publicationFile.length()}")
-		assertContains(readaloudHostText, "cache=${'$'}{if (loadedRuntime.fromCache) \"hit\" else \"miss\"}")
-		assertContains(readaloudHostText, "cacheKey=${'$'}{loadedRuntime.cacheKey}")
+		assertTrue(
+			readaloudHostText.contains("fromCache=${'$'}{loadedRuntime.fromCache}"),
+			"Readaloud diagnostics must expose cache hit/miss as a boolean."
+		)
+		assertFalse(readaloudHostText.contains("cacheKey=${'$'}{loadedRuntime.cacheKey}"))
 	}
 
 	@Test

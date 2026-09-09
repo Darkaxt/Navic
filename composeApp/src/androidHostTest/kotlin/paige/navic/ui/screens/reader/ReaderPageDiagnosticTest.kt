@@ -592,6 +592,66 @@ class ReaderPageDiagnosticTest {
 		}
 	}
 
+	@Test
+	fun publicationRuntimeHostLogsOnlyFixedEventsAndSafeScalars() {
+		assertRuntimeHostDiagnostics(
+			fileName = "ReaderPublicationRuntimeHost.android.kt",
+			tag = "ReaderPublicationRuntimeLogTag",
+			messages = listOf(
+				"Reader publication uses direct url kind=${'$'}{reader.kind} shellCoverPresent=${'$'}{preferredShellCoverUrl != null}",
+				"Preparing reader publication kind=${'$'}{reader.kind}",
+				"Fetching reader publication resource",
+				"Fetched reader publication resource bytes=${'$'}{bytes.size}",
+				"Reader publication prepared fromCache=${'$'}{resolved.fromCache} " +
+					"shellCoverPresent=${'$'}{!resolved.shellCoverUrl.isNullOrBlank()} " +
+					"shellCoverTintPresent=${'$'}{!resolved.shellCoverTint.isNullOrBlank()} " +
+					"fileBytes=${'$'}{resolved.publicationFile.length()}",
+				"Reader publication preparation failed kind=${'$'}{reader.kind}",
+				"Reader saved progress lookup failed"
+			)
+		)
+	}
+
+	@Test
+	fun readaloudRuntimeHostLogsOnlyFixedEventsAndSafeScalars() {
+		assertRuntimeHostDiagnostics(
+			fileName = "ReaderReadaloudRuntimeHost.android.kt",
+			tag = "ReadaloudPlaybackLogTag",
+			messages = listOf(
+				"Preparing readaloud publication",
+				"Fetching readaloud resource",
+				"Fetched readaloud resource bytes=${'$'}{bytes.size}",
+				"Readaloud publication prepared fromCache=${'$'}{loadedRuntime.fromCache} " +
+					"tracks=${'$'}{loadedRuntime.playbackPlan.mediaItems.size} " +
+					"clips=${'$'}{loadedRuntime.timeline.clips.size}",
+				"Failed to load readaloud publication"
+			)
+		)
+	}
+
+	private fun assertRuntimeHostDiagnostics(fileName: String, tag: String, messages: List<String>) {
+		val source = readerProductionSource(fileName)
+		val calls = Regex("(?ms)^([ \\t]*)Logger\\.\\w+\\s*\\((.*?)^\\1\\)")
+			.findAll(source).toList()
+		// Pin every complete argument list, not a resource-label helper or a denylist.
+		// This rejects extra Throwable arguments and any unreviewed interpolation.
+		assertEquals(messages.size, calls.size, "Runtime diagnostic call count changed")
+		assertEquals(
+			calls.size + 1,
+			Regex("\\bLogger\\b").findAll(source).count(),
+			"Every runtime Logger reference must be covered, apart from its import"
+		)
+		calls.zip(messages).forEach { (call, message) ->
+			val arguments = call.groupValues[2].trim()
+				.replace(Regex("\\\"\\s*\\+\\s*\\\""), "")
+				.replace(Regex("\\s+"), " ")
+			assertTrue(
+				arguments == "$tag, \"$message\"",
+				"Runtime diagnostics must use only approved scalar fields and no Throwable"
+			)
+		}
+	}
+
 	private fun assertPrivateSentinelsAbsent(vararg messages: String) {
 		messages.forEach { message ->
 			sentinels.forEach { sentinel ->

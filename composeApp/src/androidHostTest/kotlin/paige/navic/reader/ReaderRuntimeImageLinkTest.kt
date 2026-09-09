@@ -246,15 +246,14 @@ class ReaderRuntimeImageLinkTest {
 	fun androidPublicationRuntimeLogsNativeShellCoverResolution() {
 		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
 
-		assertContains(
-			runtimeHostText,
-			"""shellCover=${'$'}{if (resolved.shellCoverUrl.isNullOrBlank()) "missing" else "present"}""",
-			message = "ADB logs must expose whether EPUB native shell-cover extraction succeeded before the WebView opens."
+		assertTrue(
+			runtimeHostText.contains("shellCoverPresent=${'$'}{!resolved.shellCoverUrl.isNullOrBlank()}"),
+			"Publication diagnostics must expose resolved shell-cover availability without its identifier."
 		)
-		assertContains(
-			runtimeHostText,
-			"shellCover=unavailable",
-			message = "Direct/local publication opens must log that no resolver cover extraction ran."
+		assertTrue(
+			runtimeHostText.contains("Reader publication uses direct url kind=${'$'}{reader.kind}") &&
+				runtimeHostText.contains("shellCoverPresent=${'$'}{preferredShellCoverUrl != null}"),
+			"The direct-publication event must report preferred-cover availability separately from resolver extraction."
 		)
 	}
 

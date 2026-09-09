@@ -201,7 +201,10 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(resourceText, "shellCoverTint: String? = null")
 		assertContains(resourceText, "withShellCoverTint()")
 		assertContains(runtimeHostText, "resolved.shellCoverTint")
-		assertContains(runtimeHostText, "shellCoverTint=")
+		assertTrue(
+			runtimeHostText.contains("shellCoverTintPresent=${'$'}{!resolved.shellCoverTint.isNullOrBlank()}"),
+			"Publication diagnostics must report cover-tint availability without its value."
+		)
 		assertContains(runtimeHostText, "resolved.shellCoverTint.isNullOrBlank()")
 		assertContains(readerScreenText, "shellCoverTint")
 		assertContains(openRequestText, "shellCoverTint: String?")

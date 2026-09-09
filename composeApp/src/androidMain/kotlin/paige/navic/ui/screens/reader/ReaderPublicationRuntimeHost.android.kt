@@ -19,7 +19,6 @@ import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.WordSyncPublicationVerifier
 import paige.navic.reader.androidWordSyncPublicationVerifierOrNull
 import paige.navic.reader.readerManagedStorageRoot
-import paige.navic.reader.readerPublicationResourceLogLabel
 import paige.navic.reader.toReaderStartLocatorForReader
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
@@ -67,38 +66,29 @@ actual fun ReaderPublicationRuntimeHost(
 			reader.resourceHref.isBlank() || it.isLocalReaderPublicationUrl()
 		}
 		if (directUrl != null) {
-			val directShellCoverLog = if (preferredShellCoverUrl == null) {
-				"shellCover=unavailable"
-			} else {
-				"shellCover=external"
-			}
 			Logger.i(
 				ReaderPublicationRuntimeLogTag,
 				"Reader publication uses direct url kind=${reader.kind} " +
-					"url=${readerPublicationResourceLogLabel(directUrl)} " +
-					directShellCoverLog
+					"shellCoverPresent=${preferredShellCoverUrl != null}"
 			)
 			currentOnPublicationReady(directUrl, preferredShellCoverUrl, null, savedProgress, null)
 			return@LaunchedEffect
 		}
 		Logger.i(
 			ReaderPublicationRuntimeLogTag,
-			"Preparing reader publication kind=${reader.kind} bookId=${reader.bookId} " +
-				"resource=${readerPublicationResourceLogLabel(reader.resourceHref)} " +
-				"source=${readerPublicationResourceLogLabel(reader.publicationUrl)}"
+			"Preparing reader publication kind=${reader.kind}"
 		)
 		runCatching {
 			val resolved = BinderyReaderPublicationResolver(
 				fetchResourceBytes = { path ->
 					Logger.i(
 						ReaderPublicationRuntimeLogTag,
-						"Fetching reader publication resource path=${readerPublicationResourceLogLabel(path)}"
+						"Fetching reader publication resource"
 					)
 					repository.getResourceBytes(path).getOrThrow().also { bytes ->
 						Logger.i(
 							ReaderPublicationRuntimeLogTag,
-							"Fetched reader publication resource path=${readerPublicationResourceLogLabel(path)} " +
-								"bytes=${bytes.size}"
+							"Fetched reader publication resource bytes=${bytes.size}"
 						)
 					}
 				},
@@ -117,11 +107,9 @@ actual fun ReaderPublicationRuntimeHost(
 			)
 			Logger.i(
 				ReaderPublicationRuntimeLogTag,
-				"Reader publication prepared url=${readerPublicationResourceLogLabel(resolved.publicationUrl)} " +
-					"cache=${if (resolved.fromCache) "hit" else "miss"} " +
-					"cacheKey=${resolved.cacheKey} " +
-					"shellCover=${if (resolved.shellCoverUrl.isNullOrBlank()) "missing" else "present"} " +
-					"shellCoverTint=${if (resolved.shellCoverTint.isNullOrBlank()) "missing" else "present"} " +
+				"Reader publication prepared fromCache=${resolved.fromCache} " +
+					"shellCoverPresent=${!resolved.shellCoverUrl.isNullOrBlank()} " +
+					"shellCoverTintPresent=${!resolved.shellCoverTint.isNullOrBlank()} " +
 					"fileBytes=${resolved.publicationFile.length()}"
 			)
 			resolved
@@ -147,9 +135,7 @@ actual fun ReaderPublicationRuntimeHost(
 			onFailure = { error ->
 				Logger.e(
 					ReaderPublicationRuntimeLogTag,
-					"Reader publication preparation failed kind=${reader.kind} bookId=${reader.bookId} " +
-						"resource=${readerPublicationResourceLogLabel(reader.resourceHref)}",
-					error
+					"Reader publication preparation failed kind=${reader.kind}"
 				)
 				currentOnError(error.message ?: "Unable to load reader publication.")
 			}
@@ -168,9 +154,7 @@ private suspend fun BinderyRepository.savedReaderProgressFor(reader: Screen.Read
 		.onFailure { error ->
 			Logger.w(
 				ReaderPublicationRuntimeLogTag,
-				"Reader saved progress lookup failed bookId=${reader.bookId} " +
-					"resource=${readerPublicationResourceLogLabel(reader.resourceHref)}",
-				error
+				"Reader saved progress lookup failed"
 			)
 		}
 		.getOrNull()

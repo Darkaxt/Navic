@@ -27,7 +27,6 @@ import paige.navic.reader.metadataLabelsForPlaybackPosition
 import paige.navic.reader.onPlaybackPosition
 import paige.navic.reader.onReaderInteraction
 import paige.navic.reader.readerManagedStorageRoot
-import paige.navic.reader.readerPublicationResourceLogLabel
 import paige.navic.reader.setSyncEnabled
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
@@ -106,21 +105,19 @@ actual fun ReaderReadaloudRuntimeHost(
 		consumedUserNavigationCausalSequence = null
 		Logger.i(
 			ReadaloudPlaybackLogTag,
-			"Preparing readaloud publication bookId=${reader.bookId} " +
-				"resource=${readerPublicationResourceLogLabel(reader.resourceHref)} " +
-				"source=${readerPublicationResourceLogLabel(reader.publicationUrl)}"
+			"Preparing readaloud publication"
 		)
 		runCatching {
 			StorytellerReadaloudRuntimeLoader(
 				fetchResourceBytes = { path ->
 					Logger.i(
 						ReadaloudPlaybackLogTag,
-						"Fetching readaloud resource path=${readerPublicationResourceLogLabel(path)}"
+						"Fetching readaloud resource"
 					)
 					repository.getResourceBytes(path).getOrThrow().also { bytes ->
 						Logger.i(
 							ReadaloudPlaybackLogTag,
-							"Fetched readaloud resource path=${readerPublicationResourceLogLabel(path)} bytes=${bytes.size}"
+							"Fetched readaloud resource bytes=${bytes.size}"
 						)
 					}
 				},
@@ -142,9 +139,7 @@ actual fun ReaderReadaloudRuntimeHost(
 				runtime = loadedRuntime
 				Logger.i(
 					ReadaloudPlaybackLogTag,
-					"Readaloud publication prepared url=${readerPublicationResourceLogLabel(loadedRuntime.publicationUrl)} " +
-						"cache=${if (loadedRuntime.fromCache) "hit" else "miss"} " +
-						"cacheKey=${loadedRuntime.cacheKey} " +
+					"Readaloud publication prepared fromCache=${loadedRuntime.fromCache} " +
 						"tracks=${loadedRuntime.playbackPlan.mediaItems.size} " +
 						"clips=${loadedRuntime.timeline.clips.size}"
 				)
@@ -160,10 +155,7 @@ actual fun ReaderReadaloudRuntimeHost(
 			onFailure = { error ->
 				Logger.e(
 					ReadaloudPlaybackLogTag,
-					"Failed to load readaloud publication " +
-						"bookId=${reader.bookId} resource=${readerPublicationResourceLogLabel(reader.resourceHref)} " +
-						"title=${reader.title}",
-					error
+					"Failed to load readaloud publication"
 				)
 				onPlaybackState(ReaderReadaloudPlaybackUiState(isAvailable = false))
 				currentOnError(error.message ?: "Unable to load readaloud publication.")
