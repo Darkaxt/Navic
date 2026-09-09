@@ -6,6 +6,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_lyrics

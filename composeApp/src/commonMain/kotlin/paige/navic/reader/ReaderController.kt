@@ -2,6 +2,11 @@ package paige.navic.reader
 
 import paige.navic.domain.repositories.BinderyReadingProgress
 
+private fun incrementReaderSessionGeneration(generation: Long): Long {
+	if (generation == Long.MAX_VALUE) throw ArithmeticException("Reader session generation overflow")
+	return generation + 1L
+}
+
 data class ReaderControllerStep(
 	val controller: ReaderController,
 	val engineCommands: List<ReaderEngineCommand> = emptyList(),
@@ -44,7 +49,7 @@ data class ReaderController(
 				presentationEventSequence = 0L,
 				presentationPublicationIdentity = null,
 				state = state.copy(
-					readerSessionGeneration = Math.incrementExact(state.readerSessionGeneration),
+					readerSessionGeneration = incrementReaderSessionGeneration(state.readerSessionGeneration),
 					publication = normalizedRequest.publication,
 					activeEngine = normalizedRequest.publication.format,
 					presentation = ReaderPresentationState(

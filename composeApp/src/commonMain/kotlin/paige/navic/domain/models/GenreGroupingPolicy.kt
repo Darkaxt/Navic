@@ -6,7 +6,7 @@ fun genreGroupsFromAlbums(albums: List<DomainAlbum>): List<DomainGenre> {
 	albums.forEach { album ->
 		album.genreNames().forEach { genreName ->
 			val key = genreName.lowercase()
-			namesByKey.putIfAbsent(key, genreName)
+			namesByKey.getOrPut(key) { genreName }
 			albumsByGenre.getOrPut(key) { mutableListOf() }.add(album)
 		}
 	}
@@ -36,8 +36,8 @@ fun genreSummariesFromAlbums(albums: List<GenreAlbumSummaryInput>): List<DomainG
 	albums.forEach { album ->
 		genreNames(album.genre, album.genres).forEach { genreName ->
 			val key = genreName.lowercase()
-			namesByKey.putIfAbsent(key, genreName)
-			albumsByGenre.getOrPut(key) { linkedMapOf() }.putIfAbsent(album.albumId, album)
+			namesByKey.getOrPut(key) { genreName }
+			albumsByGenre.getOrPut(key) { linkedMapOf() }.getOrPut(album.albumId) { album }
 		}
 	}
 

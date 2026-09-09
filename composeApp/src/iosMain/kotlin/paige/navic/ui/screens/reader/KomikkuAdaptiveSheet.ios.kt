@@ -28,8 +28,7 @@ actual fun KomikkuAdaptiveSheet(
 		Dialog(
 			onDismissRequest = onDismissRequest,
 			properties = DialogProperties(
-				usePlatformDefaultWidth = false,
-				decorFitsSystemWindows = true
+				usePlatformDefaultWidth = false
 			)
 		) {
 			if (isTabletUi) {

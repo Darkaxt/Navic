@@ -338,7 +338,7 @@ private fun encodeReaderBookSettings(settingsByBook: Map<String, ReaderSettings>
 			put(
 				"books",
 				buildJsonObject {
-					settingsByBook.toSortedMap().forEach { (bookId, settings) ->
+					settingsByBook.entries.sortedBy { it.key }.forEach { (bookId, settings) ->
 						put(bookId, settings.toJsonObject())
 					}
 				}

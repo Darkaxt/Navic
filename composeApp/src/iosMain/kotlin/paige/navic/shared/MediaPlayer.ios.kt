@@ -361,9 +361,10 @@ class IOSMediaPlayerViewModel(
 		limit: Int
 	): List<DomainSong> =
 		runCatching {
-			sessionManager.api
-				.getSimilarSongsID3(songId, limit.coerceAtLeast(0))
-				.map { it.toEntity().toDomainModel() }
+			sessionManager.withApi { api ->
+				api.getSimilarSongsID3(songId, limit.coerceAtLeast(0))
+					.map { it.toEntity().toDomainModel() }
+			}
 		}.onFailure { error ->
 			Logger.w("IOSMediaPlayerViewModel", "Navidrome similar-song lookup failed", error)
 		}.getOrDefault(emptyList())
@@ -799,13 +800,13 @@ class IOSMediaPlayerViewModel(
 
 	private fun getStreamUrl(id: String) =
 		when (connectivityManager.isCellular.value) {
-			true -> sessionManager.api.getStreamUrl(
+			true -> sessionManager.getStreamUrl(
 				id,
 				if(preferenceManager.isAdvancedTranscodingActive) preferenceManager.customMaxBitrateCellular else preferenceManager.streamingQualityCellular.bitrateIos,
 				preferenceManager.streamingQualityCellular.containerIos
 			)
 
-			false -> sessionManager.api.getStreamUrl(
+			false -> sessionManager.getStreamUrl(
 				id,
 				if(preferenceManager.isAdvancedTranscodingActive) preferenceManager.customMaxBitrateWifi else preferenceManager.streamingQualityWifi.bitrateIos,
 				preferenceManager.streamingQualityWifi.containerIos

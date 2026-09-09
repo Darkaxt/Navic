@@ -1,5 +1,7 @@
 package paige.navic.reader
 
+import kotlin.jvm.JvmInline
+
 @JvmInline
 value class ReaderPageRelocationToken(val value: String)
 
@@ -67,7 +69,7 @@ class ReaderPageRelocationQueue(
 	val capacity: Int = 4,
 	private val onOwnershipMutated: () -> Unit = {}
 ) {
-	private val lock = Any()
+	private val lock = ReaderRelocationMonitor()
 	private var nextReservationId = 1L
 	private var nextToken = 1L
 	private val reservations = linkedMapOf<
@@ -82,23 +84,23 @@ class ReaderPageRelocationQueue(
 		require(capacity > 0)
 	}
 
-	fun reserve(gestureId: Long): ReaderPageRelocationReservationResult = synchronized(lock) {
+	fun reserve(gestureId: Long): ReaderPageRelocationReservationResult = lock.withLock {
 		require(gestureId > 0L)
 		if (reservations.values.any { it.gestureId == gestureId }) {
-			return@synchronized ReaderPageRelocationReservationResult.DuplicateGesture(
+			return@withLock ReaderPageRelocationReservationResult.DuplicateGesture(
 				gestureId,
 				ReaderPageRelocationGestureOccupancy.Reserved
 			)
 		}
 		if (requests.any { it.gestureId == gestureId }) {
-			return@synchronized ReaderPageRelocationReservationResult.DuplicateGesture(
+			return@withLock ReaderPageRelocationReservationResult.DuplicateGesture(
 				gestureId,
 				ReaderPageRelocationGestureOccupancy.Queued
 			)
 		}
 		val occupied = reservations.size + requests.size
 		if (occupied >= capacity) {
-			return@synchronized ReaderPageRelocationReservationResult.CapacityReached(
+			return@withLock ReaderPageRelocationReservationResult.CapacityReached(
 				occupied,
 				capacity
 			)
@@ -120,7 +122,7 @@ class ReaderPageRelocationQueue(
 		destinationOrdinal: Int,
 		logicalDirection: ReaderPageTurnDirection,
 		foliateSessionId: String
-	): ReaderPageRelocationTransferResult = synchronized(lock) {
+	): ReaderPageRelocationTransferResult = lock.withLock {
 		require(rasterGeneration >= 0L)
 		require(textureGeneration >= 0L)
 		require(sourceOrdinal >= 0)
@@ -129,7 +131,7 @@ class ReaderPageRelocationQueue(
 		require(foliateSessionId.isNotBlank())
 		val owned = reservations[reservation.id]
 		if (owned !== reservation) {
-			return@synchronized ReaderPageRelocationTransferResult.ReservationNotOwned
+			return@withLock ReaderPageRelocationTransferResult.ReservationNotOwned
 		}
 		check(requests.none { it.gestureId == reservation.gestureId })
 		val request = ReaderPageRelocationRequest(
@@ -148,28 +150,28 @@ class ReaderPageRelocationQueue(
 		ReaderPageRelocationTransferResult.Enqueued(request)
 	}
 
-	fun release(reservation: ReaderPageRelocationReservation): Boolean = synchronized(lock) {
-		if (reservations[reservation.id] !== reservation) return@synchronized false
+	fun release(reservation: ReaderPageRelocationReservation): Boolean = lock.withLock {
+		if (reservations[reservation.id] !== reservation) return@withLock false
 		reservations.remove(reservation.id)
 		onOwnershipMutated()
 		true
 	}
 
-	fun cancelTransferred(token: String): Boolean = synchronized(lock) {
+	fun cancelTransferred(token: String): Boolean = lock.withLock {
 		val index = requests.indexOfFirst { it.token.value == token }
 		if (
 			index < 0 ||
 			dispatchedToken?.value == token ||
 			acknowledgedToken?.value == token
-		) return@synchronized false
+		) return@withLock false
 		requests.removeAt(index)
 		onOwnershipMutated()
 		true
 	}
 
-	fun commandToDispatch(): ReaderPageRelocationRequest? = synchronized(lock) {
-		val head = requests.firstOrNull() ?: return@synchronized null
-		if (dispatchedToken != null || acknowledgedToken != null) return@synchronized null
+	fun commandToDispatch(): ReaderPageRelocationRequest? = lock.withLock {
+		val head = requests.firstOrNull() ?: return@withLock null
+		if (dispatchedToken != null || acknowledgedToken != null) return@withLock null
 		dispatchedToken = head.token
 		head
 	}
@@ -180,8 +182,8 @@ class ReaderPageRelocationQueue(
 		foliateSessionId: String,
 		rasterGeneration: Long,
 		textureGeneration: Long
-	): Boolean = synchronized(lock) {
-		val head = requests.firstOrNull() ?: return@synchronized false
+	): Boolean = lock.withLock {
+		val head = requests.firstOrNull() ?: return@withLock false
 		if (
 			head.token.value != token ||
 			head.destinationOrdinal != pageIndex ||
@@ -189,7 +191,7 @@ class ReaderPageRelocationQueue(
 			head.rasterGeneration != rasterGeneration ||
 			head.textureGeneration != textureGeneration ||
 			dispatchedToken != head.token
-		) return@synchronized false
+		) return@withLock false
 		dispatchedToken = null
 		acknowledgedToken = head.token
 		true
@@ -203,8 +205,8 @@ class ReaderPageRelocationQueue(
 		expectedTextureGeneration: Long,
 		replacementRasterGeneration: Long,
 		replacementTextureGeneration: Long
-	): ReaderPageRelocationRequest? = synchronized(lock) {
-		val head = requests.firstOrNull() ?: return@synchronized null
+	): ReaderPageRelocationRequest? = lock.withLock {
+		val head = requests.firstOrNull() ?: return@withLock null
 		if (
 			acknowledgedToken != head.token ||
 			!matches(
@@ -222,7 +224,7 @@ class ReaderPageRelocationQueue(
 					replacementTextureGeneration == head.textureGeneration
 			)
 		) {
-			return@synchronized null
+			return@withLock null
 		}
 		val replacement = head.copy(
 			token = ReaderPageRelocationToken("page-turn-${nextToken++}"),
@@ -241,8 +243,8 @@ class ReaderPageRelocationQueue(
 		textureGeneration: Long,
 		foliateSessionId: String,
 		destinationOrdinal: Int
-	): Boolean = synchronized(lock) {
-		val head = requests.firstOrNull() ?: return@synchronized false
+	): Boolean = lock.withLock {
+		val head = requests.firstOrNull() ?: return@withLock false
 		dispatchedToken == head.token && matches(
 			head,
 			token,
@@ -259,8 +261,8 @@ class ReaderPageRelocationQueue(
 		textureGeneration: Long,
 		foliateSessionId: String,
 		destinationOrdinal: Int
-	): Boolean = synchronized(lock) {
-		val head = requests.firstOrNull() ?: return@synchronized false
+	): Boolean = lock.withLock {
+		val head = requests.firstOrNull() ?: return@withLock false
 		acknowledgedToken == head.token && matches(
 			head,
 			token,
@@ -277,7 +279,7 @@ class ReaderPageRelocationQueue(
 		textureGeneration: Long,
 		foliateSessionId: String,
 		destinationOrdinal: Int
-	): Boolean = synchronized(lock) {
+	): Boolean = lock.withLock {
 		requests.firstOrNull()?.let { head ->
 			matches(
 				head,
@@ -303,10 +305,10 @@ class ReaderPageRelocationQueue(
 		head.foliateSessionId == foliateSessionId &&
 		head.destinationOrdinal == destinationOrdinal
 
-	fun completeHandoff(token: String): Boolean = synchronized(lock) {
-		val head = requests.firstOrNull() ?: return@synchronized false
+	fun completeHandoff(token: String): Boolean = lock.withLock {
+		val head = requests.firstOrNull() ?: return@withLock false
 		if (head.token.value != token || acknowledgedToken != head.token) {
-			return@synchronized false
+			return@withLock false
 		}
 		requests.removeAt(0)
 		acknowledgedToken = null
@@ -314,21 +316,21 @@ class ReaderPageRelocationQueue(
 		true
 	}
 
-	fun head(): ReaderPageRelocationRequest? = synchronized(lock) { requests.firstOrNull() }
+	fun head(): ReaderPageRelocationRequest? = lock.withLock { requests.firstOrNull() }
 
-	fun hasDispatchedHead(): Boolean = synchronized(lock) {
-		val head = requests.firstOrNull() ?: return@synchronized false
+	fun hasDispatchedHead(): Boolean = lock.withLock {
+		val head = requests.firstOrNull() ?: return@withLock false
 		dispatchedToken == head.token
 	}
 
-	fun hasInFlightHead(): Boolean = synchronized(lock) {
-		val head = requests.firstOrNull() ?: return@synchronized false
+	fun hasInFlightHead(): Boolean = lock.withLock {
+		val head = requests.firstOrNull() ?: return@withLock false
 		dispatchedToken == head.token || acknowledgedToken == head.token
 	}
 
-	fun hasQueuedAfterHead(): Boolean = synchronized(lock) { requests.size > 1 }
+	fun hasQueuedAfterHead(): Boolean = lock.withLock { requests.size > 1 }
 
-	fun ownershipSnapshot(): ReaderPageRelocationOwnershipSnapshot = synchronized(lock) {
+	fun ownershipSnapshot(): ReaderPageRelocationOwnershipSnapshot = lock.withLock {
 		ReaderPageRelocationOwnershipSnapshot(
 			reserved = reservations.size,
 			queued = requests.size,
@@ -343,12 +345,12 @@ class ReaderPageRelocationQueue(
 	fun size(): Int = ownershipSnapshot().occupied
 	fun hasCapacity(): Boolean = ownershipSnapshot().occupied < capacity
 
-	fun cancelAll(): ReaderPageRelocationDrain = synchronized(lock) {
+	fun cancelAll(): ReaderPageRelocationDrain = lock.withLock {
 		val drain = ReaderPageRelocationDrain(
 			queued = requests.toList(),
 			reservations = reservations.values.toList()
 		)
-		if (drain.queued.isEmpty() && drain.reservations.isEmpty()) return@synchronized drain
+		if (drain.queued.isEmpty() && drain.reservations.isEmpty()) return@withLock drain
 		requests.clear()
 		reservations.clear()
 		dispatchedToken = null

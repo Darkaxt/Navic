@@ -7,6 +7,33 @@ import kotlin.time.Instant
 
 class GenreGroupingPolicyTest {
 	@Test
+	fun duplicateSummaryRowsKeepFirstMetadataAndArtworkInsertionOrder() {
+		val first = genreAlbum("one", "ART Rock", 3)
+		val result = genreSummariesFromAlbums(listOf(
+			first,
+			first.copy(genre = "art rock", genres = emptyList(), songCount = 99, coverArtId = "replacement"),
+			genreAlbum("two", "art rock", 5)
+		)).single()
+		assertEquals("ART Rock", result.name)
+		assertEquals(2, result.albumCount)
+		assertEquals(8, result.songCount)
+		assertEquals(listOf("cover-one", "cover-two"), result.coverArtIds)
+	}
+
+	@Test
+	fun duplicateGroupRowsKeepFirstAlbumAndDisplayName() {
+		val first = album("one", "ART Rock")
+		val result = genreGroupsFromAlbums(listOf(
+			first,
+			first.copy(genre = "art rock", genres = emptyList(), year = 2099)
+		)).single()
+		assertEquals("ART Rock", result.name)
+		assertEquals(1, result.albumCount)
+		assertEquals(1, result.songCount)
+		assertEquals(first, result.albums.single())
+	}
+
+	@Test
 	fun genreSummariesUseOnlyMetadataAndLimitArtwork() {
 		val summaries = genreSummariesFromAlbums(
 			listOf(

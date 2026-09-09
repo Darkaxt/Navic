@@ -494,7 +494,7 @@ class ReaderPresentationViewerActionPolicyTest {
 		assertTrue(controller.contains("legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext"))
 		assertFalse(controller.contains("legacyLiveCompatibilityGranted: Boolean"))
 		assertTrue(state.contains("val readerSessionGeneration: Long = 0L"))
-		assertTrue(readerController.contains("readerSessionGeneration = Math.incrementExact"))
+		assertTrue(readerController.contains("readerSessionGeneration = incrementReaderSessionGeneration(state.readerSessionGeneration)"))
 		assertTrue(screen.contains("val pageTurnCanvasEnabled ="))
 		assertTrue(screen.contains("legacyLiveCompatibilityGate.resolve("))
 		assertTrue(screen.contains("legacyLiveCompatibilityContext = legacyLiveCompatibilityContext"))

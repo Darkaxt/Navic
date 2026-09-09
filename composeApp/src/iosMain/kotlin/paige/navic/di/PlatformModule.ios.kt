@@ -1,6 +1,8 @@
 package paige.navic.di
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import kotlinx.cinterop.ExperimentalForeignApi
+import okio.Path.Companion.toPath
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
@@ -37,7 +39,11 @@ actual val platformModule = module {
 			)
 			directory?.path + "/${PlayerStateRepository.DATASTORE_FILE_NAME}"
 		}
-		PlayerStateRepository(PlayerStateRepository.getInstance(producePath))
+		PlayerStateRepository(
+			PreferenceDataStoreFactory.createWithPath(
+				produceFile = { producePath().toPath() }
+			)
+		)
 	}
 
 	single<AudiobookPlaybackManager> { NoOpAudiobookPlaybackManager() }
