@@ -517,11 +517,18 @@ class ReaderPageRasterPreparationSourceTest {
 		val source = readerRasterPreparationSource()
 		val retry = requiredReaderSourceSlice(
 			source = source,
-			startDelimiter = "fun retryPreparation(): Long? {",
+			startDelimiter = "fun retryPreparation(expectedPreparationGeneration: Long? = failedPreparationGeneration): Long? {",
 			endDelimiter = "fun onProfileBootstrapFailed()"
 		)
 
 		assertContains(retry, "failedPreparationGeneration")
+		assertContains(retry, "destroyed ||")
+		assertContains(retry, "retryPreparationInProgress ||")
+		assertContains(retry, "expectedPreparationGeneration != preparationGeneration")
+		assertContains(retry, ") return null")
+		assertTrue(retry.indexOf(") return null") < retry.indexOf("retryPreparationInProgress = true"))
+		assertTrue(retry.indexOf("retryPreparationInProgress = true") < retry.indexOf("cancelPrewarm("))
+		assertContains(retry, "failedPreparationGeneration = null")
 		assertEquals(1, Regex("Math\\.incrementExact\\(").findAll(retry).count())
 		assertContains(retry, "return preparationGeneration")
 		assertContains(retry, "cancelPrewarm(")

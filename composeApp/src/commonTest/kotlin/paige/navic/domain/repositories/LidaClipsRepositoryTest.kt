@@ -18,6 +18,30 @@ import paige.navic.domain.models.DomainSong
 
 class LidaClipsRepositoryTest {
 	@Test
+	fun cancelledDiscoveryIsNotAnUnavailableServiceOrCachedMiss(): Unit = runBlocking {
+		val preferences = PreferenceManager(MapSettings()).apply {
+			lidaClipsEnabled = true
+			lidaClipsBaseUrl = "https://clips.example.test"
+		}
+		val originalStatus = preferences.integrationAttemptStatusJson
+		val clip = lidaClip()
+		val api = FakeLidaClipsApiClient(
+			directResults = mutableListOf(
+				Result.failure(kotlinx.coroutines.CancellationException("Hidden view")),
+				Result.success(clip)
+			),
+			metadataResults = mutableListOf()
+		)
+		val repository = LidaClipsRepository(preferenceManager = preferences, apiClient = api)
+		assertFailsWith<kotlinx.coroutines.CancellationException> {
+			repository.findClipForSong(lidaSong("song-1"))
+		}
+		assertEquals(originalStatus, preferences.integrationAttemptStatusJson)
+		assertEquals(clip, repository.findClipForSong(lidaSong("song-1")).getOrThrow())
+		assertEquals(listOf("song-1", "song-1"), api.directSongIds)
+	}
+
+	@Test
 	fun lidaClipsEndpointNormalizesBaseUrlAndPath() {
 		assertEquals(
 			"https://clips.remaxku.eu/api/v1/ping",

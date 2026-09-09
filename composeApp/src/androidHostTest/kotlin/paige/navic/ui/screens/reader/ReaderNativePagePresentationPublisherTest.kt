@@ -20,6 +20,10 @@ import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderPresentationAuthority
+import paige.navic.reader.ReaderPresentationReceiptVersion
+import paige.navic.reader.publicationIdentity
+import paige.navic.reader.readerPresentationEventTransition
 
 class ReaderNativePagePresentationPublisherTest {
 	@Test
@@ -167,6 +171,121 @@ class ReaderNativePagePresentationPublisherTest {
 		assertTrue(proofs.all { it.transitionToken == candidate.transitionToken })
 		assertEquals(listOf(1L, 2L, 3L), proofs.map { it.presentedFrame })
 		assertEquals(listOf(1L, 2L, 3L), source.requestedIds)
+	}
+
+	@Test
+	fun acceptedNativePublicationIgnoresOnlyPreparationProgressCounts() {
+		for (retireToken in listOf(false, true)) {
+			assertRealAcceptedCandidateChange(retireToken = retireToken, expectAnotherFrame = false) {
+				it.copy(preparationFacts = it.preparationFacts.copy(completedCount = 0, requiredCount = 0))
+			}
+		}
+	}
+
+	@Test
+	fun acceptedNativePublicationCancelsReentrantProgressOnlyDuplicate() {
+		assertRealAcceptedCandidateChange(reentrant = true, expectAnotherFrame = false) {
+			it.copy(preparationFacts = it.preparationFacts.copy(completedCount = 0, requiredCount = 0))
+		}
+	}
+
+	@Test
+	fun acceptedNativePublicationStillRequestsChangedIdentityAndNonCounterFacts() {
+		for (change in meaningfulCandidateChanges()) {
+			assertRealAcceptedCandidateChange(expectAnotherFrame = true, change = change)
+		}
+	}
+
+	@Test
+	fun initialNativeCallbackStillRevalidatesProgressAndAllOtherCandidateFacts() {
+		val changes = meaningfulCandidateChanges() + listOf<(ReaderNativePagePresentationCandidate) -> ReaderNativePagePresentationCandidate>(
+			{ it.copy(preparationFacts = it.preparationFacts.copy(completedCount = 0)) },
+			{ it.copy(preparationFacts = it.preparationFacts.copy(requiredCount = 3)) }
+		)
+		for (change in changes) {
+			val source = ControllablePresentedFrameSource()
+			var current = candidate(1L).copy(preparationFacts = candidate(1L).preparationFacts.copy(completedCount = 2, requiredCount = 2))
+			var publications = 0
+			val publisher = ReaderNativePagePresentationPublisher(source, { current }, onEvent = {
+				publications++
+				error("Changed initial candidate must not reach the producer")
+			})
+			publisher.update()
+			current = change(current)
+			source.present(1L)
+			assertEquals(0, publications)
+			publisher.dispose()
+		}
+	}
+
+	private fun meaningfulCandidateChanges(): List<(ReaderNativePagePresentationCandidate) -> ReaderNativePagePresentationCandidate> = listOf(
+		{ it.copy(transitionToken = ReaderPresentationToken(99L)) },
+		{ it.copy(binding = it.binding.copy(foliateSessionId = "replacement-session",
+			destinationCommitIdentity = it.binding.destinationCommitIdentity?.copy(foliateSessionId = "replacement-session"))) },
+		{ it.copy(binding = it.binding.copy(publicationGeneration = it.binding.publicationGeneration + 1L)) },
+		{ it.copy(binding = it.binding.copy(viewportGeneration = it.binding.viewportGeneration + 1L)) },
+		{ it.copy(binding = it.binding.copy(profileGeneration = it.binding.profileGeneration + 1L)) },
+		{ it.copy(binding = it.binding.copy(destinationCommitIdentity = it.binding.destinationCommitIdentity?.copy(commitSequence = 9L))) },
+		{ it.copy(binding = it.binding.copy(preparationGeneration = 99L)) },
+		{ it.copy(binding = it.binding.copy(rasterGeneration = 99L)) },
+		{ it.copy(binding = it.binding.copy(textureGeneration = 99L)) },
+		{ it.copy(visualPageIndex = it.visualPageIndex + 1) },
+		{ it.copy(viewportWidth = it.viewportWidth + 1) },
+		{ it.copy(viewportHeight = it.viewportHeight + 1) },
+		{ it.copy(handoffDirection = paige.navic.reader.ReaderLiveEngineHandoffDirection.LiveEngineToNative) },
+		{ it.copy(preparationFacts = it.preparationFacts.copy(phase = ReaderPagePreparationPhase.Preparing)) },
+		{ it.copy(preparationFacts = it.preparationFacts.copy(generation = 99L)) },
+		{ it.copy(preparationFacts = it.preparationFacts.copy(readiness = it.preparationFacts.readiness.copy(textureDeck = paige.navic.reader.ReaderTextureDeckState.Ready))) },
+		{ it.copy(preparationFacts = it.preparationFacts.copy(failure = paige.navic.reader.ReaderPresentationFailureReason.TimedOut)) },
+		{ it.copy(preparationFacts = it.preparationFacts.copy(retryable = true)) }
+	)
+
+	private fun assertRealAcceptedCandidateChange(
+		retireToken: Boolean = true,
+		reentrant: Boolean = false,
+		expectAnotherFrame: Boolean,
+		change: (ReaderNativePagePresentationCandidate) -> ReaderNativePagePresentationCandidate
+	) {
+		val source = ControllablePresentedFrameSource()
+		val initial = candidate(1L).let { it.copy(preparationFacts = it.preparationFacts.copy(completedCount = 2, requiredCount = 2)) }
+		var state = ReaderPresentationState(binding = initial.binding, preparationFacts = initial.preparationFacts)
+		var version = ReaderPresentationReceiptVersion(1L, initial.binding.publicationIdentity, 0L)
+		val requested = readerPresentationEventTransition(state, version, false, ReaderPresentationEvent.NativePageRequested).receipt
+		assertTrue(requested.authorizes(ReaderPresentationEvent.NativePageRequested))
+		state = requested.postState
+		version = requested.version
+		val request = requireNotNull(assertIs<ReaderPresentationAuthority.BlockingPreparation>(state.authority).nativePresentationRequest)
+		var current = initial.copy(transitionToken = request.token)
+		var publications = 0
+		lateinit var publisher: ReaderNativePagePresentationPublisher
+		publisher = ReaderNativePagePresentationPublisher(source, { current }, onEvent = { event ->
+			publications++
+			val receipt = readerPresentationEventTransition(state, version, false, event).receipt
+			assertTrue(receipt.authorizes(event), "The first native receipt must be genuinely authorizing")
+			state = receipt.postState
+			version = receipt.version
+			if (reentrant) {
+				current = change(current.copy(transitionToken = if (retireToken) null else current.transitionToken))
+				publisher.update()
+			}
+			receipt
+		})
+		try {
+			publisher.update()
+			source.present(1L)
+			assertEquals(1, publications)
+			assertIs<ReaderPresentationAuthority.SettledNativePage>(state.authority)
+			if (!reentrant) current = change(current.copy(transitionToken = if (retireToken) null else current.transitionToken))
+			publisher.update()
+			if (reentrant) {
+				assertEquals(listOf(1L, 2L), source.requestedIds)
+				assertEquals(listOf(2L), source.cancelledIds, "Retire the real pending progress-only duplicate")
+				source.present(2L) // The original late callback must remain fenced after cancellation.
+				assertEquals(1, publications)
+			} else {
+				assertEquals(if (expectAnotherFrame) listOf(1L, 2L) else listOf(1L), source.requestedIds)
+			}
+		} finally { publisher.dispose() }
 	}
 
 	private fun candidate(sequence: Long) = ReaderNativePagePresentationCandidate(

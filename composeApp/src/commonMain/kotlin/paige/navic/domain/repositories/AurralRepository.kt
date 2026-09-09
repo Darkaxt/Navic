@@ -2,6 +2,9 @@ package paige.navic.domain.repositories
 
 import paige.navic.data.remote.aurral.*
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -465,7 +468,6 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 		val request = AurralArtistSearchRequest(
 			query = trimmedQuery,
 			limit = limit.coerceIn(1, 50),
@@ -479,9 +481,11 @@ class AurralRepository(
 				path = aurralSearchCachePath(request.query, request.limit, request.offset),
 				operation = "Aurral artist search for $trimmedQuery"
 			) {
+				val requestHeaders = aurralApiRequestHeaders(baseUrl)
 				apiClient.searchArtists(baseUrl, requestHeaders, request)
 			}
 		}.onFailure { error ->
+			if (error is CancellationException) throw error
 			Logger.w(TAG, "Aurral artist search failed for $trimmedQuery", error)
 		}
 	}
@@ -498,7 +502,6 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 		val request = AurralAlbumSearchRequest(
 			query = trimmedQuery,
 			limit = limit.coerceIn(1, 50),
@@ -512,9 +515,11 @@ class AurralRepository(
 				path = aurralSearchCachePath(request.query, request.limit, request.offset),
 				operation = "Aurral album search for $trimmedQuery"
 			) {
+				val requestHeaders = aurralApiRequestHeaders(baseUrl)
 				apiClient.searchAlbums(baseUrl, requestHeaders, request)
 			}
 		}.onFailure { error ->
+			if (error is CancellationException) throw error
 			Logger.w(TAG, "Aurral album search failed for $trimmedQuery", error)
 		}
 	}
@@ -1085,8 +1090,13 @@ class AurralRepository(
 		val cacheKey = aurralMetadataCacheKey(baseUrl, payloadType, path)
 		val currentTime = nowMillis()
 		val cached = runCatching { metadataCache.get(cacheKey) }
-			.onFailure { error -> Logger.w(TAG, "Aurral metadata cache read failed for $operation", error) }
+			.onFailure { error ->
+				currentCoroutineContext().ensureActive()
+				if (error is CancellationException) throw error
+				Logger.w(TAG, "Aurral metadata cache read failed for $operation", error)
+			}
 			.getOrNull()
+		currentCoroutineContext().ensureActive()
 		if (useFreshCache) {
 			cached
 				?.takeIf { it.isFreshAurralMetadata(currentTime) }
@@ -1096,6 +1106,7 @@ class AurralRepository(
 
 		return try {
 			val payload = fetch().also { payload ->
+				currentCoroutineContext().ensureActive()
 				preferenceManager.markIntegrationServiceAvailable(IntegrationService.Aurral)
 				runCatching {
 					metadataCache.put(
@@ -1109,11 +1120,16 @@ class AurralRepository(
 						)
 					)
 				}.onFailure { error ->
+					currentCoroutineContext().ensureActive()
+					if (error is CancellationException) throw error
 					Logger.w(TAG, "Aurral metadata cache write failed for $operation", error)
 				}
 			}
+			currentCoroutineContext().ensureActive()
 			CachedPayload(payload, CachedPayloadSource.Live)
 		} catch (error: Exception) {
+			currentCoroutineContext().ensureActive()
+			if (error is CancellationException) throw error
 			preferenceManager.markIntegrationServiceDown(IntegrationService.Aurral)
 			cached
 				?.decodeAurralMetadata<T>(operation)

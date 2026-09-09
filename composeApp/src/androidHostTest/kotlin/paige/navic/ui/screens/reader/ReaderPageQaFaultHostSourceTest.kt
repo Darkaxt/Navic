@@ -88,13 +88,15 @@ class ReaderPageQaFaultHostSourceTest {
 			.substringAfter("fun setViewerContent(viewerKey: ReaderViewerKey")
 			.substringBefore("fun canAcceptNewPointer()")
 		val binding = source
-			.substringAfter("private fun currentPresentationBindingOrNull()")
-			.substringBefore("private fun reportPresentationIdentityIfAvailable()")
+			.substringAfter("private fun currentPresentationBindingOrNull(", missingDelimiterValue = "")
+			.substringBefore("private fun reportPresentationIdentityIfAvailable(", missingDelimiterValue = "")
 		val bindingResolution = readerSource("ReaderPresentationHostBinding.android.kt")
 
 		assertContains(source, "presentationViewerReplacementFence.begin(")
 		assertContains(source, "presentationViewerReplacementFence.observeRasterProfileEpoch(epoch)")
-		assertContains(binding, "preparedDeckAdmitted = preparedActiveDeck?.let(")
+		assertContains(binding, "preparedDeck: ReaderPagePreparedActiveDeck? = preparedActiveDeck")
+		assertContains(binding, "preparedDeck = preparedDeck")
+		assertContains(binding, "preparedDeckAdmitted = preparedDeck?.let(")
 		assertContains(binding, "presentationViewerReplacementFence::admits")
 		assertContains(bindingResolution, "snapshot.preparedDeckAdmitted &&")
 		val invalidateLegacyDeck = viewerReplacement.indexOf("viewerContainer.replaceViewerContent(viewerView)")
@@ -593,13 +595,17 @@ class ReaderPageQaFaultHostSourceTest {
 	fun hostOrdersBindingReplacementBeforeFactsAndUsesExactSafeDeckRelease() {
 		val host = hostSource()
 		val report = host
-			.substringAfter("private fun reportPresentationIdentityIfAvailable()")
-			.substringBefore("private fun reportPresentationPreparationFacts(")
+			.substringAfter("private fun reportPresentationIdentityIfAvailable(", missingDelimiterValue = "")
+			.substringBefore("private fun reportPresentationPreparationFacts(", missingDelimiterValue = "")
 		val controller = readerSource("ReaderPlayLikeCurlFoliateController.android.kt")
 		val release = controller
 			.substringAfter("fun releaseStalePresentationDeck(")
 			.substringBefore("\n\tfun ")
 
+		assertContains(report, "relocationAcknowledgement: ReaderPageTurnSettlementAck? = null")
+		assertContains(report, "relocationAcknowledgement = relocationAcknowledgement")
+		assertContains(report, "reportPresentationPreparationFacts(")
+		assertContains(report, "reportNativePagePresentationIfAvailable(")
 		assertTrue(report.indexOf("dispatchPresentationEvent(bindingEvent)") >= 0)
 		assertTrue(
 			report.indexOf("dispatchPresentationEvent(bindingEvent)") <

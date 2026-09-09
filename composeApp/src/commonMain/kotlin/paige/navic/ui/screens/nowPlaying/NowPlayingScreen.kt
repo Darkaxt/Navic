@@ -77,6 +77,7 @@ import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.KeepScreenOn
 import paige.navic.ui.components.common.MusicIntegrationServices
+import paige.navic.ui.components.common.VisualContentLifecycleEffect
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
@@ -143,6 +144,7 @@ fun NowPlayingScreen() {
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
+	VisualContentLifecycleEffect(isNowPlayingVisible, viewModel, viewModel::setVisualContentActive)
 	val songIsStarred by viewModel.songIsStarred.collectAsStateWithLifecycle()
 	val songRating by viewModel.songRating.collectAsStateWithLifecycle()
 	val lidaClipState by viewModel.lidaClipState.collectAsStateWithLifecycle()

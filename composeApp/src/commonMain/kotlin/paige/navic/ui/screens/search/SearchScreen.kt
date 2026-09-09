@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
@@ -162,10 +164,8 @@ fun SearchScreen(
 	LaunchedEffect(initialQuery) {
 		viewModel.setInitialQuery(initialQuery)
 	}
-	val aurralSearchConfigured = preferenceManager.aurralEnabled &&
-		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
 	val searchIntegrationIndicators = integrationLoadingIndicators(
-		aurralLoading = query.text.isNotBlank() && aurralSearchConfigured && state is UiState.Loading
+		aurralLoading = MusicSearchSource.AurralArtists in state.pending || MusicSearchSource.AurralAlbums in state.pending
 	)
 	val rawSearchHistory by viewModel.searchHistory.collectAsState(initial = emptyList())
 	val searchHistory = visibleSearchHistory(
@@ -222,6 +222,11 @@ fun SearchScreen(
 					selectedCategory = selectedCategory,
 					onCategorySelect = { selectedCategory = it }
 				)
+				Box(Modifier.fillMaxWidth().height(4.dp)) {
+					if (state.isLoading(selectedCategory)) {
+						LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+					}
+				}
 			}
 		},
 		bottomBar = {
@@ -233,12 +238,20 @@ fun SearchScreen(
 	) { contentPadding ->
 		Box(Modifier.fillMaxSize()) {
 			AnimatedContent(
-				state,
+				state.contentState(selectedCategory),
+				contentKey = { it::class },
 				modifier = Modifier.fillMaxSize()
 			) { uiState ->
 				when (uiState) {
-					is UiState.Loading -> ArtGrid(contentPadding = contentPadding) { artGridPlaceholder() }
-					is UiState.Error -> ErrorBox(uiState, padding = contentPadding)
+					is UiState.Loading -> ArtGrid(contentPadding = contentPadding) {
+						state.failure(selectedCategory)?.let { failure ->
+							item(span = { GridItemSpan(maxLineSpan) }) {
+								ErrorBox(failure, onRetry = viewModel::retrySearch)
+							}
+						}
+						artGridPlaceholder()
+					}
+					is UiState.Error -> ErrorBox(uiState, padding = contentPadding, onRetry = viewModel::retrySearch)
 					is UiState.Success -> {
 						val results = uiState.data
 						val buckets = searchResultBuckets(results, selectedCategory)
@@ -267,6 +280,11 @@ fun SearchScreen(
 						state = viewModel.gridState,
 						verticalArrangement = Arrangement.spacedBy(8.dp)
 					) {
+						state.failure(selectedCategory)?.let { failure ->
+							item(span = { GridItemSpan(maxLineSpan) }) {
+								ErrorBox(failure, onRetry = viewModel::retrySearch)
+							}
+						}
 						if (query.text.isNotBlank()) {
 							if (songs.isNotEmpty()) {
 								item(span = { GridItemSpan(maxLineSpan) }) {
@@ -422,7 +440,7 @@ fun SearchScreen(
 									aurralAlbumMatch = aurralSearchAlbumMatchesByLocalId[album.id]
 										?: aurralAlbumMatchesByLocalAlbumId[album.id],
 									aurralAlbumRequests = aurralAlbumRequests,
-									selected = album == albumListSelection,
+									selected = album.id == albumListSelection?.id,
 									starred = albumListStarred,
 									onSelect = { albumListViewModel.selectAlbum(album) },
 									onDeselect = { albumListViewModel.clearSelection() },
@@ -475,7 +493,8 @@ fun SearchScreen(
 										.width(150.dp),
 									tab = "search",
 									artist = artist,
-									selected = artist == artistListSelection,
+									showUnknownAlbumCount = false,
+									selected = artist.id == artistListSelection?.id,
 									selectedArtistAlbums = artistListSelectionAlbums,
 									starred = artistListStarred,
 									onSelect = { artistListViewModel.selectArtist(artist) },

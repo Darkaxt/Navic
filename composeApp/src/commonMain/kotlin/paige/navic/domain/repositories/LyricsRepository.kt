@@ -5,10 +5,11 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.decodeFromString
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.encodeToString
 import paige.navic.data.database.dao.LyricDao
 import paige.navic.data.database.entities.LyricEntity
@@ -57,6 +58,7 @@ class LyricsRepository(
 		var cachedResult: LyricsResult? = null
 		try {
 			val cached = lyricDao.getLyrics(song.id)
+			currentCoroutineContext().ensureActive()
 			if (cached != null) {
 				val parsed = LyricsContentParser.parse(cached.rawContent)
 				if (!parsed.isNullOrEmpty()) {
@@ -66,140 +68,124 @@ class LyricsRepository(
 					}
 				}
 			}
+		} catch (cancelled: CancellationException) {
+			throw cancelled
 		} catch (_: Exception) {
 		}
 
-		for (provider in currentConfig.priority) {
-			try {
-				var rawContentToCache: String? = null
+		return fetchFirstAvailableLyrics(currentConfig.priority, cachedResult) { provider ->
+			var rawContentToCache: String? = null
 
-				val parsedLyrics = when (provider) {
-					LyricsProvider.LYRICS_PLUS -> {
-						val raw = fetchRawLyricsPlus(song, currentConfig)
-						rawContentToCache = raw
-						raw?.let { LyricsContentParser.parse(it) }
-					}
-
-					LyricsProvider.LRCLIB -> {
-						val raw = fetchRawLrcLib(song, currentConfig)
-						rawContentToCache = raw
-						raw?.let { LyricsContentParser.parse(it) }
-					}
-
-					LyricsProvider.SUBSONIC -> {
-						val subsonicLyrics = sessionManager.withApi { it.getLyrics(song.id) }.firstOrNull()
-
-						val lines = subsonicLyrics?.lines?.flatMap { line ->
-							if (!subsonicLyrics.synced && line.value.contains("\n")) {
-								line.value.lineSequence()
-									.filter { it.isNotBlank() }
-									.map { LyricsLine(time = null, text = it.trim()) }
-									.toList()
-							} else {
-								val time =
-									if (subsonicLyrics.synced) line.start?.milliseconds else null
-								listOf(LyricsLine(time = time, text = line.value))
-							}
-						}
-
-						val mergedLines = lines?.let { LyricsContentParser.mergeDuplicateSyncedLines(it) }
-						if (!mergedLines.isNullOrEmpty()) {
-							rawContentToCache = mergedLines.joinToString("\n") { l ->
-								val t = l.time
-								if (t != null) {
-									val m = t.inWholeMinutes.toString().padStart(2, '0')
-									val s = (t.inWholeSeconds % 60).toString().padStart(2, '0')
-									val ms = ((t.inWholeMilliseconds % 1000) / 10).toString()
-										.padStart(2, '0')
-									l.text.lineSequence().joinToString("\n") { text ->
-										"[$m:$s.$ms]$text"
-									}
-								} else l.text
-							}
-						}
-						mergedLines
-					}
+			val parsedLyrics = when (provider) {
+				LyricsProvider.LYRICS_PLUS -> {
+					val raw = fetchRawLyricsPlus(song, currentConfig)
+					rawContentToCache = raw
+					raw?.let { LyricsContentParser.parse(it) }
 				}
 
-				if (!parsedLyrics.isNullOrEmpty()) {
-					try {
-						rawContentToCache?.let { content ->
-							val entity = LyricEntity(
-								songId = song.id,
-								provider = provider,
-								rawContent = content
-							)
-							lyricDao.insertLyrics(entity)
-						}
-					} catch (e: Exception) {
-						Logger.e("LyricRepository", "Failed to cache lyrics for ${song.title}", e)
-					}
-					return LyricsResult(parsedLyrics, provider, rawContentToCache)
+				LyricsProvider.LRCLIB -> {
+					val raw = fetchRawLrcLib(song, currentConfig)
+					rawContentToCache = raw
+					raw?.let { LyricsContentParser.parse(it) }
 				}
-			} catch (e: Exception) {
-				Logger.e("LyricRepository", "Provider ${provider.name} failed!", e)
-				continue
+
+				LyricsProvider.SUBSONIC -> {
+					val subsonicLyrics = sessionManager.withApi { it.getLyrics(song.id) }.firstOrNull()
+
+					val lines = subsonicLyrics?.lines?.flatMap { line ->
+						if (!subsonicLyrics.synced && line.value.contains("\n")) {
+							line.value.lineSequence()
+								.filter { it.isNotBlank() }
+								.map { LyricsLine(time = null, text = it.trim()) }
+								.toList()
+						} else {
+							val time =
+								if (subsonicLyrics.synced) line.start?.milliseconds else null
+							listOf(LyricsLine(time = time, text = line.value))
+						}
+					}
+
+					val mergedLines = lines?.let { LyricsContentParser.mergeDuplicateSyncedLines(it) }
+					if (!mergedLines.isNullOrEmpty()) {
+						rawContentToCache = mergedLines.joinToString("\n") { l ->
+							val t = l.time
+							if (t != null) {
+								val m = t.inWholeMinutes.toString().padStart(2, '0')
+								val s = (t.inWholeSeconds % 60).toString().padStart(2, '0')
+								val ms = ((t.inWholeMilliseconds % 1000) / 10).toString()
+									.padStart(2, '0')
+								l.text.lineSequence().joinToString("\n") { text ->
+									"[$m:$s.$ms]$text"
+								}
+							} else l.text
+						}
+					}
+					mergedLines
+				}
+			}
+
+			if (!parsedLyrics.isNullOrEmpty()) {
+				try {
+					rawContentToCache?.let { content ->
+						val entity = LyricEntity(
+							songId = song.id,
+							provider = provider,
+							rawContent = content
+						)
+						lyricDao.insertLyrics(entity)
+					}
+				} catch (cancelled: CancellationException) {
+					throw cancelled
+				} catch (e: Exception) {
+					Logger.e("LyricRepository", "Failed to cache lyrics for ${song.title}", e)
+				}
+				LyricsResult(parsedLyrics, provider, rawContentToCache)
+			} else {
+				null
 			}
 		}
-		return cachedResult
 	}
 
 	private suspend fun fetchRawLrcLib(song: DomainSong, config: LyricsConfig): String? {
 		val relaxedTrackName = relaxedLrcLibTrackName(song.title)
 		val durationSeconds = lrcLibDurationSeconds(song.duration)
-		val searchResult = try {
-			val response = client.get(normalizedLrcLibSearchUrl(config.lrcLibBaseUrl)) {
-				parameter("q", "$relaxedTrackName ${song.artistName}")
-				accept(ContentType.Application.Json)
-			}
-			if (!response.status.isSuccess()) {
-				null
+		return fetchFirstAvailableLyrics(listOf(true, false)) { search ->
+			if (search) {
+				val content = client.get(normalizedLrcLibSearchUrl(config.lrcLibBaseUrl)) {
+					parameter("q", "$relaxedTrackName ${song.artistName}")
+					accept(ContentType.Application.Json)
+				}.lyricsContentOrNull()
+				content?.let {
+					selectLrcLibCandidate(
+						candidates = json.decodeFromString<List<LrcLibCandidate>>(content),
+						trackName = relaxedTrackName,
+						artistName = song.artistName,
+						albumName = song.albumTitle,
+						durationSeconds = durationSeconds
+					)?.let(json::encodeToString)
+				}
 			} else {
-				selectLrcLibCandidate(
-					candidates = json.decodeFromString<List<LrcLibCandidate>>(response.bodyAsText()),
-					trackName = relaxedTrackName,
-					artistName = song.artistName,
-					albumName = song.albumTitle,
-					durationSeconds = durationSeconds
-				)?.let(json::encodeToString)
+				client.get(lrcLibExactUrl(config.lrcLibBaseUrl)) {
+					parameter("track_name", song.title)
+					parameter("artist_name", song.artistName)
+					parameter("album_name", song.albumTitle)
+					parameter("duration", durationSeconds)
+					accept(ContentType.Application.Json)
+				}.lyricsContentOrNull()
 			}
-		} catch (_: Exception) {
-			null
-		}
-		if (searchResult != null) return searchResult
-
-		return try {
-			val response = client.get(lrcLibExactUrl(config.lrcLibBaseUrl)) {
-				parameter("track_name", song.title)
-				parameter("artist_name", song.artistName)
-				parameter("album_name", song.albumTitle)
-				parameter("duration", durationSeconds)
-				accept(ContentType.Application.Json)
-			}
-			if (response.status.isSuccess()) response.bodyAsText() else null
-		} catch (_: Exception) {
-			null
 		}
 	}
 
 	private suspend fun fetchRawLyricsPlus(song: DomainSong, config: LyricsConfig): String? {
-		for (baseUrl in config.lyricsPlusMirrors) {
-			try {
-				val response = client.get("$baseUrl/v2/lyrics/get") {
-					parameter("title", song.title)
-					parameter("artist", song.artistName)
-					parameter("album", song.albumTitle)
-					parameter("duration", song.duration)
-					accept(ContentType.Application.Json)
-				}
-				if (response.status.isSuccess()) {
-					return response.bodyAsText()
-				}
-			} catch (_: Exception) {
-				continue
-			}
+		return fetchFirstAvailableLyrics(config.lyricsPlusMirrors) { baseUrl ->
+			client.get("$baseUrl/v2/lyrics/get") {
+				parameter("title", song.title)
+				parameter("artist", song.artistName)
+				parameter("album", song.albumTitle)
+				parameter("duration", song.duration)
+				accept(ContentType.Application.Json)
+			}.lyricsContentOrNull()
 		}
-		return null
 	}
 }
 

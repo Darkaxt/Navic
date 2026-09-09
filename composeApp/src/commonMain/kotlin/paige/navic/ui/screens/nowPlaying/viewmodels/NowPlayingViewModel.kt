@@ -2,12 +2,16 @@ package paige.navic.ui.screens.nowPlaying.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LidaClipDownloadManager
@@ -25,6 +29,7 @@ import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
+import paige.navic.ui.core.EnrichmentRequestOwner
 import kotlin.time.Clock
 
 class NowPlayingViewModel(
@@ -55,22 +60,43 @@ class NowPlayingViewModel(
 	private var lidaClipLookupJob: Job? = null
 	private var currentLyricsSongId: String? = null
 	private var lastLyricsProgress: Float? = null
-	private var lyricsLookupJob: Job? = null
+	private val lyricsLookup = EnrichmentRequestOwner()
+	private val visualContentActive = MutableStateFlow(false)
+	private var displayedSongId: String? = null
+	private var previousDemandActive = false
 	private val integrationEnabledListenerRemovers = mutableListOf<() -> Unit>()
 
 	init {
 		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.LidaClips) { enabled ->
 			if (!enabled) clearLidaClip()
 		}
-		viewModelScope.launch(Dispatchers.IO) {
-			player.uiState.collect { state ->
-				val song = state.currentSong
+		viewModelScope.launch {
+			visualEnrichmentDemand(player.uiState, visualContentActive, player.playbackStartFeedback.state).collect { state ->
+				val song = state.song
+				val resuming = state.canRequest && !previousDemandActive
+				previousDemandActive = state.canRequest
+				if (displayedSongId != song?.id) {
+					displayedSongId = song?.id
+					clearLidaClip()
+					clearLyrics()
+					if (song != null) {
+						_lidaClipState.value = UiState.Loading(null)
+						_lyricsAvailableState.value = UiState.Loading(false)
+					}
+				}
 				if (song == null) {
 					_songIsStarred.value = false
 					_songRating.value = 0
 					clearLidaClip()
 					clearLyrics()
 				} else {
+					if (!state.canRequest) {
+						deferActiveLyricsLookup()
+						return@collect
+					}
+					if (resuming) {
+						if (_lidaClipState.value is UiState.Error) lastLidaClipsPrefetchKey = null
+					}
 					val previousLyricsProgress = lastLyricsProgress
 					_songIsStarred.value = songRepository.isSongStarred(song)
 					_songRating.value = songRepository.getSongRating(song)
@@ -78,11 +104,38 @@ class NowPlayingViewModel(
 					loadLyrics(
 						song = song,
 						previousProgress = previousLyricsProgress,
-						currentProgress = state.progress
+						currentProgress = state.progress,
+						resuming = resuming
 					)
 					lastLyricsProgress = state.progress
 				}
 			}
+		}
+	}
+
+	fun setVisualContentActive(active: Boolean) {
+		visualContentActive.value = active
+		if (!active) {
+			previousDemandActive = false
+			deferActiveLyricsLookup()
+		}
+	}
+
+	private fun deferActiveLyricsLookup() {
+		if (lyricsLookup.cancel() && _lyricsAvailableState.value is UiState.Loading) {
+			currentLyricsSongId = null
+			lastLyricsProgress = null
+		}
+	}
+
+	private fun canRequestVisualContent(songId: String): Boolean =
+		visualContentActive.value && player.playbackStartFeedback.state.value == null &&
+			player.uiState.value.currentSong?.id == songId
+
+	private fun deferClipLookup(songId: String) {
+		if (currentLidaClipSongId == songId) {
+			lastLidaClipsPrefetchKey = null
+			lastLidaClipsPrefetchTimeMillis = null
 		}
 	}
 
@@ -125,6 +178,7 @@ class NowPlayingViewModel(
 	}
 
 	private fun loadLidaClip(song: DomainSong, forceRefresh: Boolean = false) {
+		if (!canRequestVisualContent(song.id)) return
 		if (!canLoadLidaClip(song.id)) {
 			clearLidaClip()
 			return
@@ -153,18 +207,36 @@ class NowPlayingViewModel(
 		_lidaClipState.value = UiState.Loading(
 			if (forceRefresh) null else _lidaClipState.value.data
 		)
-		lidaClipLookupJob = viewModelScope.launch(Dispatchers.IO) {
-			lidaClipsRepository.findClipForSong(song, forceRefresh = forceRefresh)
+		lidaClipLookupJob = viewModelScope.launch {
+			withContext(Dispatchers.IO) {
+				lidaClipsRepository.findClipForSong(song, forceRefresh = forceRefresh)
+			}
+				.also { currentCoroutineContext().ensureActive() }
 				.onSuccess { clip ->
+					if (!canRequestVisualContent(song.id)) {
+						// Discovery may finish after locking. Do not consume demand for resume.
+						deferClipLookup(song.id)
+						return@onSuccess
+					}
 					val cachedClipResult = clip
 						?.takeIf { shouldTreatLidaClipAsMusicVideo(it) }
 						?.let {
 							val persistOffline = downloadManager.isDownloaded(song.id)
+							if (!canRequestVisualContent(song.id)) {
+								deferClipLookup(song.id)
+								return@onSuccess
+							}
 							lidaClipDownloadManager.getOrQueueClipForPlayback(
 								songId = song.id,
 								clip = it,
-								persistOffline = persistOffline
+								persistOffline = persistOffline,
+								canStartRequest = { canRequestVisualContent(song.id) }
 							)
+						}
+					currentCoroutineContext().ensureActive()
+					if (!canRequestVisualContent(song.id)) {
+						deferClipLookup(song.id)
+						return@onSuccess
 					}
 					if (currentLidaClipSongId == song.id) {
 						if (!canLoadLidaClip(song.id)) {
@@ -214,33 +286,41 @@ class NowPlayingViewModel(
 	private fun loadLyrics(
 		song: DomainSong,
 		previousProgress: Float?,
-		currentProgress: Float
+		currentProgress: Float,
+		resuming: Boolean
 	) {
+		if (!canRequestVisualContent(song.id)) return
 		if (!shouldStartLyricsLookup(
 				currentSongId = currentLyricsSongId,
 				requestedSongId = song.id,
 				lyricsState = _lyricsAvailableState.value,
 				previousProgress = previousProgress,
-				currentProgress = currentProgress
+				currentProgress = currentProgress,
+				resuming = resuming
 			)
 		) return
 
 		currentLyricsSongId = song.id
-		lyricsLookupJob?.cancel()
 		_lyricsAvailableState.value = UiState.Loading(false)
-		lyricsLookupJob = viewModelScope.launch(Dispatchers.IO) {
-			runCatching { lyricsRepository.fetchLyrics(song) }
+		lyricsLookup.launch(viewModelScope) {
+			runCatching { withContext(Dispatchers.IO) { lyricsRepository.fetchLyrics(song) } }
+				.also { currentCoroutineContext().ensureActive() }
 				.onSuccess { result ->
-					if (currentLyricsSongId == song.id) {
-						_lyricsAvailableState.value = UiState.Success(!result?.lines.isNullOrEmpty())
+					lyricsLookup.commit {
+						if (currentLyricsSongId == song.id) {
+							_lyricsAvailableState.value = UiState.Success(!result?.lines.isNullOrEmpty())
+						}
 					}
 				}
 				.onFailure { error ->
-					if (currentLyricsSongId == song.id) {
-						_lyricsAvailableState.value = UiState.Error(
-							error as? Exception ?: Exception(error.message, error),
-							false
-						)
+					if (error is CancellationException) throw error
+					lyricsLookup.commit {
+						if (currentLyricsSongId == song.id) {
+							_lyricsAvailableState.value = UiState.Error(
+								error as? Exception ?: Exception(error.message, error),
+								false
+							)
+						}
 					}
 				}
 		}
@@ -257,7 +337,7 @@ class NowPlayingViewModel(
 	private fun clearLyrics() {
 		currentLyricsSongId = null
 		lastLyricsProgress = null
-		lyricsLookupJob?.cancel()
+		lyricsLookup.cancel()
 		_lyricsAvailableState.value = UiState.Success(false)
 	}
 }

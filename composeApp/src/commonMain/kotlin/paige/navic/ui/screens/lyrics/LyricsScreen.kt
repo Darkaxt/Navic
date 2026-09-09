@@ -88,6 +88,7 @@ import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.KeepScreenOn
 import paige.navic.ui.components.common.MusicIntegrationServices
+import paige.navic.ui.components.common.VisualContentLifecycleEffect
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
@@ -119,6 +120,12 @@ fun LyricsScreen(
 		parameters = { parametersOf(song) }
 	)
 	val player = koinInject<MediaPlayerViewModel>()
+	val startup by player.playbackStartFeedback.state.collectAsStateWithLifecycle()
+	VisualContentLifecycleEffect(
+		visible = backStack.lastOrNull() is Screen.Lyrics && startup == null,
+		owner = viewModel,
+		onActiveChanged = viewModel::setVisualContentActive
+	)
 	val playerState by player.uiState.collectAsStateWithLifecycle()
 	val state by viewModel.lyricsState.collectAsState()
 	val shouldAutoDismiss = shouldDismissLyricsPanel(

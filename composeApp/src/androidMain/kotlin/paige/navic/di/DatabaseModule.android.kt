@@ -8,6 +8,7 @@ import org.koin.android.ext.koin.androidApplication
 import org.koin.dsl.module
 import paige.navic.data.database.CacheDatabase
 import paige.navic.data.database.DownloadDatabase
+import paige.navic.domain.manager.DownloadAccountIdentity
 
 actual val databaseModule = module {
 	single<DownloadDatabase> {
@@ -15,6 +16,7 @@ actual val databaseModule = module {
 		Room.databaseBuilder<DownloadDatabase>(get(), dbPath)
 			.setDriver(BundledSQLiteDriver())
 			.addMigrations(DownloadDatabaseMigration4To5)
+			.addMigrations(DownloadDatabaseMigration5To6(get<DownloadAccountIdentity>().legacyOwnerId))
 			.build()
 	}
 
@@ -22,7 +24,7 @@ actual val databaseModule = module {
 		val dbPath = androidApplication().getDatabasePath("cache.db").absolutePath
 		val downloadDatabase = get<DownloadDatabase>()
 		runBlocking(Dispatchers.IO) {
-			migrateLegacyDownloadRegistry(dbPath, downloadDatabase.downloadDao())
+			migrateLegacyDownloadRegistry(dbPath, downloadDatabase.downloadDao(), get<DownloadAccountIdentity>().legacyOwnerId)
 		}
 		val cacheDatabase = Room.databaseBuilder<CacheDatabase>(get(), dbPath)
 			.setDriver(BundledSQLiteDriver())
@@ -56,6 +58,5 @@ private fun org.koin.core.module.Module.registerDatabaseDaos() {
 	single { get<CacheDatabase>().aurralMetadataCacheDao() }
 	single { get<CacheDatabase>().binderyMetadataCacheDao() }
 	single { get<CacheDatabase>().artworkColorDao() }
-	single { get<DownloadDatabase>().downloadDao() }
 	single { get<DownloadDatabase>().lidaClipDownloadDao() }
 }

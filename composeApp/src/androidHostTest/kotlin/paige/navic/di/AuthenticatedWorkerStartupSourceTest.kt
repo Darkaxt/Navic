@@ -3,6 +3,7 @@ package paige.navic.di
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 class AuthenticatedWorkerStartupSourceTest {
@@ -10,7 +11,13 @@ class AuthenticatedWorkerStartupSourceTest {
 	fun backgroundWorkersAreNotStartedByKoinGraphConstruction() {
 		val module = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/di/ManagerModule.kt").readText()
 
-		assertFalse(module.contains("createdAtStart = true"))
+		// Capture persisted migration ownership before Room opens, without starting workers.
+		val eagerIdentity = "single(createdAtStart = true) { DownloadAccountIdentity(get()) }"
+		assertEquals(1, Regex(Regex.escape(eagerIdentity)).findAll(module).count())
+		assertFalse(Regex("createdAtStart\\s*=\\s*true").containsMatchIn(module.replace(eagerIdentity, "")))
+		assertContains(module, "singleOf(::SyncManager)")
+		assertContains(module, "singleOf(::DownloadManager)")
+		assertContains(module, "singleOf(::DownloadQueueNotificationCoordinator)")
 		assertFalse(module.contains("startPeriodicSync()"))
 		assertFalse(module.contains(".apply {\n\t\t\tstart()"))
 	}

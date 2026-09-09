@@ -1,6 +1,11 @@
 package paige.navic.domain.repositories
 
 import paige.navic.data.remote.aurral.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralReleaseGroup
 import paige.navic.domain.models.DomainArtist
@@ -197,65 +202,61 @@ internal class AurralMutationRepositoryActions(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 		val payload = AurralArtistMonitorPayload(
 			foreignArtistId = artistMbid,
 			artistName = artistName,
 			monitorOption = if (monitored) "all" else "none",
 			monitored = monitored
 		)
-		val confirmationId = aurralArtistMonitoringConfirmationId(artistMbid)
-
-		confirmationQueueManager.upsert(
-			AurralConfirmationQueueItem(
-				id = confirmationId,
-				type = AurralConfirmationType.ArtistMonitoring,
-				status = AurralConfirmationStatus.Pending,
-				title = artistName,
-				artistMbid = artistMbid,
-				expectedMonitored = monitored,
-				message = if (monitored) {
-					"Waiting for Aurral to confirm artist monitoring."
-				} else {
-					"Waiting for Aurral to confirm monitoring stopped."
-				},
-				updatedAtMillis = nowMillis()
+		return coroutineScope {
+			currentCoroutineContext().ensureActive()
+			val operation = confirmationQueueManager.beginArtistMonitoring(
+				baseUrl, artistMbid, artistName, monitored, currentCoroutineContext().job
 			)
-		)
-		return runCatching {
-			apiClient.monitorArtist(
-				baseUrl = baseUrl,
-				requestHeaders = requestHeaders,
-				artistMbid = artistMbid,
-				payload = payload
-			)
-			if (confirmationWorkerEnabled) {
-				confirmationQueueManager.startArtistMonitoringConfirmationWorker(
-					confirmationId = confirmationId,
-					baseUrl = baseUrl,
-					requestHeaders = requestHeaders,
-					artistMbid = artistMbid,
-					artistName = artistName,
-					monitored = monitored,
-					payload = payload
-				)
+			var accepted = false
+			try {
+				val requestHeaders = aurralApiRequestHeaders(baseUrl)
+				currentCoroutineContext().ensureActive()
+				confirmationQueueManager.ensureCurrent(operation)
+				val outcome = apiClient.monitorArtist(baseUrl, requestHeaders, artistMbid, payload) {
+					confirmationQueueManager.ensureCurrent(operation)
+				}
+				currentCoroutineContext().ensureActive()
+				confirmationQueueManager.submissionAccepted(operation)
+				if (outcome is AurralArtistMonitoringOutcome.Confirmed && outcome.monitored == monitored) {
+					confirmationQueueManager.confirm(operation)
+				} else if (confirmationWorkerEnabled) {
+					confirmationQueueManager.startArtistMonitoringConfirmationWorker(operation, requestHeaders)
+				}
+				accepted = true
+				try {
+					metadataCache.clearBaseUrl(baseUrl)
+				} catch (error: Exception) {
+					currentCoroutineContext().ensureActive()
+					if (error is CancellationException) throw error
+					Logger.w(TAG, "Aurral metadata cache clear failed", error)
+				}
+				currentCoroutineContext().ensureActive()
+				confirmationQueueManager.ensureCurrent(operation)
+				Result.success(Unit)
+			} catch (error: CancellationException) {
+				// Page disposal cannot retract accepted server work or its repository-owned observer.
+				if (!accepted) confirmationQueueManager.abandon(operation)
+				throw error
+			} catch (error: Exception) {
+				try {
+					currentCoroutineContext().ensureActive()
+					confirmationQueueManager.fail(operation, error, submissionFailed = true)
+					Logger.w(TAG, "Aurral artist monitoring failed for $artistName", error)
+					Result.failure(error)
+				} catch (cancelled: CancellationException) {
+					if (!accepted) confirmationQueueManager.abandon(operation)
+					throw cancelled
+				}
+			} finally {
+				confirmationQueueManager.finishSubmission(operation)
 			}
-			clearAurralMetadataCache(baseUrl)
-		}.onFailure { error ->
-			confirmationQueueManager.upsert(
-				AurralConfirmationQueueItem(
-					id = confirmationId,
-					type = AurralConfirmationType.ArtistMonitoring,
-					status = AurralConfirmationStatus.Failed,
-					title = artistName,
-					artistMbid = artistMbid,
-					expectedMonitored = monitored,
-					message = error.message ?: error::class.simpleName ?: "Aurral confirmation failed.",
-					updatedAtMillis = nowMillis()
-				)
-			)
-			Logger.w(TAG, "Aurral artist monitoring failed for $artistName", error)
-		}.recordAurralAvailability()
+		}
 	}
 
 	private suspend fun clearAurralMetadataCache(baseUrl: String) {

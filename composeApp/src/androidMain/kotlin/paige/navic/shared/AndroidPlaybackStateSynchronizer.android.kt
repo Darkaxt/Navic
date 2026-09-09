@@ -9,6 +9,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import paige.navic.domain.models.DomainSong
@@ -19,6 +20,7 @@ import paige.navic.util.core.Logger
 internal interface AndroidPlaybackStateSynchronizer {
 	fun sync(state: PlayerUiState)
 	fun onControllerReady()
+	fun cancelPendingRestore()
 }
 
 internal class DefaultAndroidPlaybackStateSynchronizer(
@@ -28,15 +30,26 @@ internal class DefaultAndroidPlaybackStateSynchronizer(
 	private val claimMusicPlayback: () -> Unit
 ) : AndroidPlaybackStateSynchronizer {
 	private var pendingState: PlayerUiState? = null
+	private var restoreJob: Job? = null
+	private var restoreGeneration = 0L
+
+	override fun cancelPendingRestore() {
+		restoreGeneration++
+		restoreJob?.cancel()
+		restoreJob = null
+		pendingState = null
+	}
 
 	override fun sync(state: PlayerUiState) {
-		scope.launch {
+		cancelPendingRestore()
+		val generation = restoreGeneration
+		restoreJob = scope.launch {
 			val player = controller()
 			if (player == null) {
 				pendingState = state
 				return@launch
 			}
-			restore(player, state)
+			restore(player, state, generation)
 		}
 	}
 
@@ -46,9 +59,10 @@ internal class DefaultAndroidPlaybackStateSynchronizer(
 		sync(state)
 	}
 
-	private suspend fun restore(player: MediaController, state: PlayerUiState) {
+	private suspend fun restore(player: MediaController, state: PlayerUiState, generation: Long) {
 		if (state.queue.isEmpty() || player.mediaItemCount > 0) return
 		val mediaItems = withContext(Dispatchers.Default) { state.queue.map(mediaItemForSong) }
+		if (controller() !== player || restoreGeneration != generation) return
 		player.setMediaItems(mediaItems)
 		player.repeatMode = state.repeatMode
 		player.playbackParameters = PlaybackParameters(state.playbackSpeed, state.playbackPitch)
@@ -56,10 +70,10 @@ internal class DefaultAndroidPlaybackStateSynchronizer(
 		val durationMs = state.queue.getOrNull(index)?.duration?.inWholeMilliseconds ?: 0L
 		val position = if (durationMs > 0) (state.progress * durationMs).toLong() else 0L
 		val shuffleOrder = if (state.isShuffleEnabled) {
-			restoredShuffleOrder(mediaItems.size, index, state.upcomingIndexes)
+			restoredShuffleOrder(mediaItems.size, index, state.upcomingIndexes, state.shuffleOrder)
 		} else null
 		if (shuffleOrder == null) {
-			complete(player, state, index, position)
+			complete(player, state, index, position, generation)
 			return
 		}
 		Futures.addCallback(
@@ -69,20 +83,20 @@ internal class DefaultAndroidPlaybackStateSynchronizer(
 					if (result?.resultCode != SessionResult.RESULT_SUCCESS) {
 						Logger.w("MediaPlayer", "Persisted shuffle order was rejected; using a new order")
 					}
-					complete(player, state, index, position)
+					complete(player, state, index, position, generation)
 				}
 
 				override fun onFailure(error: Throwable) {
 					Logger.w("MediaPlayer", "Failed to restore persisted shuffle order", error)
-					complete(player, state, index, position)
+					complete(player, state, index, position, generation)
 				}
 			},
 			MoreExecutors.directExecutor()
 		)
 	}
 
-	private fun complete(player: MediaController, state: PlayerUiState, index: Int, position: Long) {
-		if (controller() !== player) return
+	private fun complete(player: MediaController, state: PlayerUiState, index: Int, position: Long, generation: Long) {
+		if (controller() !== player || restoreGeneration != generation) return
 		player.shuffleModeEnabled = state.isShuffleEnabled
 		player.seekTo(index, position)
 		player.prepare()

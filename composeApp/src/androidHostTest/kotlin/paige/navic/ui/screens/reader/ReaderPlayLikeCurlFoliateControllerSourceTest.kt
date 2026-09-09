@@ -1338,21 +1338,39 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	@Test
 	fun preparedInitialDeckEstablishesFreshLivePresentationAuthority() {
 		val source = controllerFile.readText()
-		val deckPrepared = source
-			.substringAfter("override fun onDeckPrepared(generationId: Long)")
-			.substringBefore("override fun onDeckRejected(")
-		val bootstrap = source
-			.substringAfter("private fun requestInitialLivePresentationAuthority(")
-			.substringBefore("private fun releaseInitialLivePresentationAuthority(")
-		val synchronize = source
-			.substringAfter("fun synchronizeVisualPageIndex(")
-			.substringBefore("private fun completeAcknowledgedRelocation(")
+		val deckPrepared = requiredFoliateSourceSlice(source,
+			"override fun onDeckPrepared(generationId: Long)", "override fun onDeckRejected(")
+		val bootstrap = requiredFoliateSourceSlice(source,
+			"private fun requestInitialLivePresentationAuthority(", "private fun releaseInitialLivePresentationAuthority(")
+		val synchronize = requiredFoliateSourceSlice(source,
+			"fun synchronizeVisualPageIndex(", "private fun startAcknowledgedVisualHandoff(")
+		val passive = requiredFoliateSourceSlice(source,
+			"private fun requestInitialLivePresentationAuthorityForPassivePreparation()",
+			"private fun requestInitialLivePresentationAuthorityForActiveDeck()")
+		val active = requiredFoliateSourceSlice(source,
+			"private fun requestInitialLivePresentationAuthorityForActiveDeck()",
+			"private fun requestInitialLivePresentationAuthority(")
+		val mutationReleased = requiredFoliateSourceSlice(source,
+			"fun onForegroundWebViewPassiveMutationReleased()", "fun onHostResumedChanged(")
+		val overlayUnavailable = requiredFoliateSourceSlice(source,
+			"fun onWhispersyncOverlayAnchorUnavailable()", "fun onPassiveManifestAuthorityUnavailable(")
 
 		assertContains(deckPrepared, "requestInitialLivePresentationAuthority(generationId)")
-		assertContains(
-			synchronize,
-			"requestInitialLivePresentationAuthorityForActiveDeck()"
-		)
+		assertContains(synchronize,
+			"if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {\n" +
+				"\t\t\trequestInitialLivePresentationAuthorityForPassivePreparation()")
+		assertFalse(synchronize.contains("requestInitialLivePresentationAuthorityForActiveDeck()"))
+		assertContains(passive, "activeDeckGenerationId == null &&")
+		assertContains(passive, "!confirmedDecklessPassiveAuthorityIsCurrent()")
+		assertContains(passive, "val rasterGeneration = bundleSource.currentGeneration()")
+		assertContains(passive, "requiredDeckGenerationId = null")
+		assertContains(active, "val generationId = activeDeckGenerationId ?: return")
+		assertContains(active, "if (generationId !in preparedDeckGenerations) return")
+		assertContains(active, "requestInitialLivePresentationAuthority(generationId)")
+		for (retryEdge in listOf(mutationReleased, overlayUnavailable)) {
+			assertContains(retryEdge, "if (!enabled || destroyed) return")
+			assertContains(retryEdge, "requestInitialLivePresentationAuthorityForActiveDeck()")
+		}
 		assertContains(bootstrap, "generationId == activeDeckGenerationId")
 		assertContains(bootstrap, "!relocationQueue.hasInFlightHead()")
 		assertContains(bootstrap, "foregroundWebViewOwnership.acquireExclusiveLive(")

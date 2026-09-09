@@ -65,6 +65,21 @@ extensions.configure<AboutLibrariesExtension> {
 }
 
 tasks {
+	withType<org.gradle.api.tasks.testing.Test>().configureEach {
+		if (name == "testAndroidHostTest" && providers.gradleProperty("navic.musicTests").orNull == "true") {
+			filter {
+				listOf(
+					"*Playback*Test", "*Queue*Test", "*Player*Test", "*Offline*Test",
+					"*Download*Test", "*Lyrics*Test", "*LidaClip*Test", "*Aurral*Test",
+					"*NowPlaying*Test", "*Playlist*Test", "*Genre*Test", "*Enrichment*Test",
+					"*Audio*Test", "*Music*Test", "*Session*Test", "*Database*Test",
+					"*Album*Test", "*Artist*Test", "*Library*Test", "*MusicSearch*Test", "*SearchDisplay*Test", "*SearchHistory*Test"
+				).forEach { includeTestsMatching(it) }
+				listOf("paige.navic.reader.*", "*Reader*", "*Audiobook*", "*Bindery*", "*Readaloud*", "*Whispersync*")
+					.forEach { excludeTestsMatching(it) }
+			}
+		}
+	}
 	matching { it.name.startsWith("ksp") }.configureEach {
 		dependsOn(":composeApp:generateValkyrieImageVector")
 	}

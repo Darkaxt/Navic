@@ -31,6 +31,7 @@ class ManagerModuleTest {
 		val app = startKoin {
 			modules(
 				module {
+					single<Settings> { MapSettings() }
 					single<ArtworkColorDao> { FakeArtworkColorDao() }
 				},
 				managerModule
@@ -60,6 +61,7 @@ class ManagerModuleTest {
 		val app = startKoin {
 			modules(
 				module {
+					single<Settings> { MapSettings() }
 					single<ArtistPhotoCacheDao> { FakeArtistPhotoCacheDao() }
 				},
 				managerModule

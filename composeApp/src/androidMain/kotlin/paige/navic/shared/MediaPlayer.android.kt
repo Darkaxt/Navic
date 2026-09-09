@@ -71,6 +71,8 @@ import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.AndroidScrobbleManager
+import paige.navic.domain.manager.AuthenticatedSessionLifetime
+import paige.navic.domain.manager.PlaybackAccountBoundary
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.NavidromeAvailability
@@ -143,9 +145,10 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private var audioManager: AudioManager? = null
 	private var audioDeviceCallback: AudioDeviceCallback? = null
 	private var volumeZeroObserver: ContentObserver? = null
-	private var pauseBetweenSongsJob: Job? = null
+	private var automaticResume: AndroidPlaybackAutoResumeCoordinator? = null
 	private var medleyModeJob: Job? = null
 	private var exoPlayer: ExoPlayer? = null
+	private var unregisterPlaybackAccount: (() -> Unit)? = null
 	private var bassBoost: BassBoost? = null
 	private var bassBoostAudioSessionId: Int? = null
 	private var reverb: PresetReverb? = null
@@ -158,6 +161,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 
 	private val syncManager: SyncManager by inject()
 	private val sessionManager: SessionManager by inject()
+	private val sessionLifetime: AuthenticatedSessionLifetime by inject()
+	private val playbackAccountBoundary: PlaybackAccountBoundary by inject()
 	private val preferenceManager: PreferenceManager by inject()
 	private val navidromeAvailabilityManager: NavidromeAvailabilityManager by inject()
 
@@ -227,6 +232,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 					).build()
 			}
 		exoPlayer = player
+		unregisterPlaybackAccount = bindPlaybackAccount(playbackAccountBoundary, player, ::invalidateAutomaticResume)
 
 		registerAudioEffectsListener(player)
 		registerPauseBetweenSongsListener(player)
@@ -289,6 +295,9 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	override fun onDestroy() {
+		unregisterPlaybackAccount?.invoke()
+		unregisterPlaybackAccount = null
+		invalidateAutomaticResume()
 		unregisterAudioDeviceCallback()
 		unregisterVolumeZeroObserver()
 		scrobbleManager?.release()
@@ -467,38 +476,16 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	private fun registerPauseBetweenSongsListener(player: ExoPlayer) {
-		player.addListener(object : Player.Listener {
-			override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-				if (
-					!shouldPauseBetweenSongsAfterTransition(
-						pauseBetweenSongsSeconds = preferenceManager.pauseBetweenSongsSeconds,
-						isAutomaticTransition = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
-						isPlaying = player.isPlaying,
-						hasMediaItem = mediaItem != null
-					)
-				) {
-					return
-				}
-
-				pauseBetweenSongsJob?.cancel()
-				val mediaItemIndex = player.currentMediaItemIndex
-				val delayMs = pauseBetweenSongsDelayMs(preferenceManager.pauseBetweenSongsSeconds)
-
-				logPlaybackServiceDiagnostic("pause-between-songs-paused", player, "delayMs" to delayMs)
-				player.pause()
-				pauseBetweenSongsJob = serviceScope.launch {
-					delay(delayMs)
-					if (
-						player.currentMediaItemIndex == mediaItemIndex &&
-						player.mediaItemCount > 0 &&
-						player.playbackState != Player.STATE_ENDED
-					) {
-						logPlaybackServiceDiagnostic("pause-between-songs-resumed", player, "delayMs" to delayMs)
-						player.play()
-					}
-				}
-			}
-		})
+		val coordinator = AndroidPlaybackAutoResumeCoordinator(
+			scope = serviceScope,
+			player = player,
+			currentSession = sessionLifetime::currentScope,
+			gapSeconds = { preferenceManager.pauseBetweenSongsSeconds },
+			pauseOnVolumeZero = { preferenceManager.pausePlaybackOnVolumeZero },
+			diagnostic = { event, key, value -> logPlaybackServiceDiagnostic(event, player, key to value) }
+		)
+		automaticResume = coordinator
+		player.addListener(coordinator)
 	}
 
 	private fun startMedleyModeLoop(player: ExoPlayer) {
@@ -536,31 +523,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 
 		val manager = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return
 		val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-			private var pausedByZeroVolume = false
-
 			override fun onChange(selfChange: Boolean) {
-				val volume = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
-				if (
-					shouldPausePlaybackWhenVolumeZero(
-						pausePlaybackOnVolumeZero = preferenceManager.pausePlaybackOnVolumeZero,
-						isPlaying = player.isPlaying,
-						volume = volume
-					)
-				) {
-					logPlaybackServiceDiagnostic("volume-zero-paused", player, "volume" to volume)
-					player.pause()
-					pausedByZeroVolume = true
-				} else if (
-					shouldResumePlaybackAfterVolumeRestored(
-						pausePlaybackOnVolumeZero = preferenceManager.pausePlaybackOnVolumeZero,
-						pausedByZeroVolume = pausedByZeroVolume,
-						volume = volume
-					)
-				) {
-					logPlaybackServiceDiagnostic("volume-restored-resumed", player, "volume" to volume)
-					player.play()
-					pausedByZeroVolume = false
-				}
+				automaticResume?.onVolumeChanged(manager.getStreamVolume(AudioManager.STREAM_MUSIC))
 			}
 		}
 		volumeZeroObserver = observer
@@ -570,6 +534,10 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private fun unregisterVolumeZeroObserver() {
 		volumeZeroObserver?.let(contentResolver::unregisterContentObserver)
 		volumeZeroObserver = null
+	}
+
+	private fun invalidateAutomaticResume() {
+		automaticResume?.invalidate()
 	}
 
 	private fun AudioDeviceInfo.canPlayMusic(): Boolean {
@@ -638,6 +606,17 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private inner class PlaybackSessionCallback(
 		private val player: ExoPlayer
 	) : MediaSession.Callback {
+		@Suppress("OVERRIDE_DEPRECATION")
+		override fun onPlayerCommandRequest(
+			session: MediaSession,
+			controller: MediaSession.ControllerInfo,
+			playerCommand: Int
+		): Int {
+			// Observe requests, not state changes: pause while already paused is still newer intent.
+			automaticResume?.onPlayerCommand(playerCommand)
+			return SessionResult.RESULT_SUCCESS
+		}
+
 		override fun onConnect(
 			session: MediaSession,
 			controllerInfo: MediaSession.ControllerInfo
@@ -647,6 +626,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 				.add(toggleShuffleCommand)
 				.add(toggleRepeatCommand)
 				.add(restoreShuffleOrderCommand)
+				.add(invalidateAutomaticResumeCommand)
 				.build()
 
 			return MediaSession.ConnectionResult.accept(
@@ -661,7 +641,9 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			customCommand: SessionCommand,
 			args: Bundle
 		): ListenableFuture<SessionResult> {
+			invalidateAutomaticResume()
 			when (customCommand.customAction) {
+				ACTION_INVALIDATE_AUTOMATIC_RESUME -> Unit
 				ACTION_TOGGLE_SHUFFLE -> player.shuffleModeEnabled = !player.shuffleModeEnabled
 				ACTION_RESTORE_SHUFFLE_ORDER -> {
 					val order = args.getIntArray(EXTRA_SHUFFLE_ORDER)
@@ -690,6 +672,9 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	companion object {
+		private const val ACTION_INVALIDATE_AUTOMATIC_RESUME =
+			"paige.navic.shared.action.INVALIDATE_AUTOMATIC_RESUME"
+		private val invalidateAutomaticResumeCommand = SessionCommand(ACTION_INVALIDATE_AUTOMATIC_RESUME, Bundle.EMPTY)
 		private const val ACTION_REFRESH_AUDIO_EFFECTS =
 			"paige.navic.shared.action.REFRESH_AUDIO_EFFECTS"
 		private const val ACTION_SET_REPLAY_GAIN_LOUDNESS_BOOST =
@@ -712,6 +697,10 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 
 		fun newSessionToken(context: Context): SessionToken {
 			return SessionToken(context, ComponentName(context, PlaybackService::class.java))
+		}
+
+		fun invalidateAutomaticResume(controller: MediaController) {
+			controller.sendCustomCommand(invalidateAutomaticResumeCommand, Bundle.EMPTY)
 		}
 
 		fun restoreShuffleOrder(

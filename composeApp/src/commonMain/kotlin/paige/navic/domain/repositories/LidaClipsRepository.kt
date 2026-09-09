@@ -194,6 +194,7 @@ class LidaClipsRepository(
 		onSuccess {
 			preferenceManager.markIntegrationServiceAvailable(IntegrationService.LidaClips)
 		}.onFailure {
+			if (it is kotlinx.coroutines.CancellationException) throw it
 			preferenceManager.markIntegrationServiceDown(IntegrationService.LidaClips)
 		}
 

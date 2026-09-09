@@ -72,6 +72,7 @@ import paige.navic.domain.manager.NavidromeAvailabilityManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.snackbars.NavicSnackbar
+import paige.navic.ui.components.common.PlaybackStartDialog
 import paige.navic.ui.components.common.ShakeToSkipEffect
 import paige.navic.ui.components.sheets.ChangelogSheet
 import paige.navic.ui.components.sheets.shouldRunUpdateCheck
@@ -231,6 +232,7 @@ fun App(initialScreenOverride: Screen? = null) {
 			NavicTheme {
 				if (isLoggedIn) {
 					val player = koinInject<MediaPlayerViewModel>()
+					PlaybackStartDialog(player.playbackStartFeedback)
 					ShakeToSkipEffect(
 						enabled = preferenceManager.shakeToSkip,
 						onSkip = player::next

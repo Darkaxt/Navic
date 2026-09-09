@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.runner.RunWith
@@ -2508,7 +2509,10 @@ class ReaderPassiveRasterPrototypeTest {
 					onComplete = completions::add
 				)
 			)
-			withTimeout(5_000L) { store.awaitReadStarted() }
+			// Read entry runs on real IO; the read gate must still be blocked at cancellation.
+			withContext(Dispatchers.Default) {
+				withTimeout(5_000L) { store.awaitReadStarted() }
+			}
 
 			current.adapter.cancel()
 			current.adapter.cancel()

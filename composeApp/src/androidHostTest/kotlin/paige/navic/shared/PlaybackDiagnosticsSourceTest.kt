@@ -35,11 +35,13 @@ class PlaybackDiagnosticsSourceTest {
 	@Test
 	fun playbackServiceLogsExplicitServicePauseAndResumeReasons() {
 		val source = androidSharedSourceFile("MediaPlayer.android.kt").readText()
+		val coordinator = androidSharedSourceFile("AndroidPlaybackAutoResumeCoordinator.android.kt").readText()
 
-		assertContains(source, "logPlaybackServiceDiagnostic(\"pause-between-songs-paused\"")
-		assertContains(source, "logPlaybackServiceDiagnostic(\"pause-between-songs-resumed\"")
-		assertContains(source, "logPlaybackServiceDiagnostic(\"volume-zero-paused\"")
-		assertContains(source, "logPlaybackServiceDiagnostic(\"volume-restored-resumed\"")
+		assertContains(source, "logPlaybackServiceDiagnostic(event, player, key to value)")
+		assertContains(coordinator, "diagnostic(\"pause-between-songs-paused\"")
+		assertContains(coordinator, "diagnostic(\"pause-between-songs-resumed\"")
+		assertContains(coordinator, "diagnostic(\"volume-zero-paused\"")
+		assertContains(coordinator, "diagnostic(\"volume-restored-resumed\"")
 	}
 
 	@Test

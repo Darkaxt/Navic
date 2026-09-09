@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
@@ -89,6 +90,7 @@ import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.repositories.AurralAlbumSearchItem
+import paige.navic.domain.repositories.AurralConfirmationQueueItem
 import paige.navic.domain.repositories.AurralConfirmationStatus
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralRepository
@@ -149,6 +151,14 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 		aurralEnabled = preferenceManager.aurralEnabled,
 		baseUrl = preferenceManager.aurralBaseUrl
 	)
+	val monitorConfirmation = aurralArtistMonitoringConfirmationItem(
+		queue = confirmationQueue,
+		artistMbid = state.artist.musicBrainzId
+	)
+	val observedMonitoringState = state.withMonitoringConfirmation(monitorConfirmation)
+	LaunchedEffect(route, monitorConfirmation) {
+		state = state.withMonitoringConfirmation(monitorConfirmation)
+	}
 
 	LaunchedEffect(route, configured) {
 		val localCatalog = withContext(Dispatchers.IO) {
@@ -211,7 +221,14 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 				aurralRepository.getArtistMonitoring(artist)
 			}
 				.onSuccess { monitored ->
-					monitored?.let { state = state.copy(monitorConfirmed = it) }
+					monitored?.let {
+						state = state.copy(monitorConfirmed = it).withMonitoringConfirmation(
+							aurralArtistMonitoringConfirmationItem(
+								queue = aurralRepository.confirmationQueue.value,
+								artistMbid = state.artist.musicBrainzId
+							)
+						)
+					}
 				}
 		}
 
@@ -345,28 +362,30 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 				AurralArtistActions(
 					localArtist = state.localArtist,
 					aurralConfigured = configured,
-					monitoring = state.monitoring,
-					monitorPending = aurralArtistMonitoringConfirmationItem(
-						queue = confirmationQueue,
-						artistMbid = state.artist.musicBrainzId
-					)?.status == AurralConfirmationStatus.Pending,
-					monitorConfirmed = state.monitorConfirmed,
+					monitoring = observedMonitoringState.monitoring,
+					monitorPending = observedMonitoringState.monitorPending,
+					monitorConfirmed = observedMonitoringState.monitorConfirmed,
 					onOpenLocalArtist = { localArtist ->
 						backStack.add(Screen.ArtistDetail(localArtist.id))
 					},
 					onMonitorArtist = {
-						platformContext.clickSound()
-						scope.launch {
+						if (state.withMonitoringConfirmation(monitorConfirmation).canSubmitMonitoring) {
+							platformContext.clickSound()
+							val artistToMonitor = state.artist
 							state = state.copy(monitoring = true, error = null)
-							launch { snackbarState.showSnackbar(monitorWaitingMessage) }
-							withContext(Dispatchers.IO) {
-								aurralRepository.monitorArtist(state.artist)
-							}
-								.onSuccess {
-									state = state.copy(error = null)
+							scope.launch {
+								launch { snackbarState.showSnackbar(monitorWaitingMessage) }
+								try {
+									withContext(Dispatchers.IO) {
+										aurralRepository.monitorArtist(artistToMonitor)
+									}.onFailure { error ->
+										if (error is CancellationException) throw error
+										state = state.copy(error = error)
+									}
+								} finally {
+									state = state.copy(monitoring = false)
 								}
-								.onFailure { error -> state = state.copy(error = error) }
-							state = state.copy(monitoring = false)
+							}
 						}
 					}
 				)
@@ -922,7 +941,7 @@ private fun String.normalizedAurralArtistName(): String =
 		.lowercase()
 		.replace(Regex("""\s+"""), " ")
 
-private data class AurralArtistUiState(
+internal data class AurralArtistUiState(
 	val artist: DomainArtist,
 	val localArtist: DomainArtist? = null,
 	val heroImageUrl: String? = null,
@@ -935,9 +954,30 @@ private data class AurralArtistUiState(
 	val discovery: AurralDiscoverySummary? = null,
 	val loading: Boolean = false,
 	val monitoring: Boolean = false,
+	val monitorPending: Boolean = false,
 	val monitorConfirmed: Boolean = false,
 	val error: Throwable? = null
-)
+) {
+	val canSubmitMonitoring: Boolean
+		get() = !monitoring && !monitorPending && !monitorConfirmed
+}
+
+internal fun AurralArtistUiState.withMonitoringConfirmation(
+	confirmation: AurralConfirmationQueueItem?
+): AurralArtistUiState = when (confirmation?.status) {
+	AurralConfirmationStatus.Pending -> copy(monitorPending = true)
+	AurralConfirmationStatus.Confirmed -> copy(
+		monitoring = false,
+		monitorPending = false,
+		monitorConfirmed = confirmation.expectedMonitored ?: monitorConfirmed
+	)
+	AurralConfirmationStatus.Failed -> copy(
+		monitoring = false,
+		monitorPending = false,
+		error = IllegalStateException(confirmation.message ?: "Aurral monitor confirmation failed.")
+	)
+	null -> copy(monitorPending = false)
+}
 
 private data class AurralArtistLocalCatalog(
 	val artist: DomainArtist,

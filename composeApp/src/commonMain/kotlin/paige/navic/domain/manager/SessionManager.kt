@@ -19,11 +19,15 @@ class SessionManager(
 	private val syncActionDao: SyncActionDao,
 	private val sessionLifetime: AuthenticatedSessionLifetime,
 	private val clientFactory: SubsonicClientFactory,
-	private val artworkColorManager: ArtworkColorManager
+	private val artworkColorManager: ArtworkColorManager,
+	private val downloadAccountIdentity: DownloadAccountIdentity,
+	private val playbackAccountBoundary: PlaybackAccountBoundary
 ) {
 	private val transitionMutex = Mutex()
 	private val _isLoggedIn = MutableStateFlow(false)
 	val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
+	val ownerId: StateFlow<String?> = downloadAccountIdentity.ownerId
+	val startupOwnerId: String? = downloadAccountIdentity.startupOwnerId
 
 	private val clientSlot = SessionResourceSlot(createClient(
 		instanceUrl = storedInstanceUrl(),
@@ -73,30 +77,37 @@ class SessionManager(
 		}
 
 		transitionMutex.withLock {
-			val accountChanged = _isLoggedIn.value && (
-				storedInstanceUrl() != normalizedInstanceUrl ||
-					settings.getString("username", "") != username
-				)
-			sessionLifetime.endSession()
-			if (accountChanged) {
-				clearOutgoingSyncState()
-				artworkColorManager.clear()
+			withContext(NonCancellable) {
+				val accountChanged = _isLoggedIn.value && (
+					storedInstanceUrl() != normalizedInstanceUrl ||
+						settings.getString("username", "") != username
+					)
+				downloadAccountIdentity.deactivate()
+				sessionLifetime.endSession()
+				playbackAccountBoundary.transitionTo(musicDownloadOwnerId(normalizedInstanceUrl, username))
+				if (accountChanged) {
+					clearOutgoingSyncState()
+					artworkColorManager.clear()
+				}
+
+				settings["instanceUrl"] = normalizedInstanceUrl
+				settings["username"] = username
+				settings["password"] = password
+
+				clientSlot.swap(client)
+				downloadAccountIdentity.activate(normalizedInstanceUrl, username)
+				sessionLifetime.startSession()
+				_isLoggedIn.value = true
 			}
-
-			settings["instanceUrl"] = normalizedInstanceUrl
-			settings["username"] = username
-			settings["password"] = password
-
-			clientSlot.swap(client)
-			sessionLifetime.startSession()
-			_isLoggedIn.value = true
 		}
 	}
 
 	suspend fun logout() {
 		withContext(NonCancellable) {
 			transitionMutex.withLock {
+				downloadAccountIdentity.deactivate()
 				sessionLifetime.endSession()
+				playbackAccountBoundary.transitionTo(null)
 				clearOutgoingSyncState()
 				artworkColorManager.clear()
 				settings["username"] = null

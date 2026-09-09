@@ -180,7 +180,7 @@ fun ArtistDetailScreen(
 	val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
 	val selectedAlbumIsStarred by viewModel.selectedAlbumIsStarred.collectAsStateWithLifecycle()
 	val selectedAlbumRating by viewModel.selectedAlbumRating.collectAsStateWithLifecycle()
-	val monitoringInAurral by viewModel.monitoringInAurral.collectAsStateWithLifecycle()
+	val monitoringRequestInAurral by viewModel.monitoringInAurral.collectAsStateWithLifecycle()
 
 	val downloadManager = koinInject<DownloadManager>()
 	val density = LocalDensity.current
@@ -219,12 +219,14 @@ fun ArtistDetailScreen(
 	var stopMonitoringDialogShown by rememberSaveable { mutableStateOf(false) }
 
 	val artistData = (artistState as? UiState.Success)?.data
-	val artistAurralMonitorPending = artistData?.let { data ->
+	val artistMonitorConfirmation = artistData?.let { data ->
 		aurralArtistMonitoringConfirmationItem(
 			queue = aurralConfirmationQueue,
 			artistMbid = data.aurralArtistMbid ?: data.artist.musicBrainzId
 		)
-	}?.status == AurralConfirmationStatus.Pending
+	}
+	val artistAurralMonitorPending = artistMonitorConfirmation?.status == AurralConfirmationStatus.Pending
+	val monitoringInAurral = aurralMonitoringSubmissionIsVisible(monitoringRequestInAurral, artistMonitorConfirmation?.status)
 	val artistIntegrationIndicators = artistData?.let { data ->
 		integrationLoadingIndicators(
 			aurralLoading = data.aurralLoading ||

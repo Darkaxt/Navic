@@ -15,24 +15,6 @@ internal object CacheDatabaseMigration20To21 : Migration(20, 21) {
 	}
 }
 
-internal object DownloadDatabaseMigration4To5 : Migration(4, 5) {
-	override suspend fun migrate(connection: SQLiteConnection) {
-		connection.execute(
-			"ALTER TABLE DownloadEntity ADD COLUMN intentGeneration INTEGER NOT NULL DEFAULT 0"
-		)
-		connection.execute(
-			"ALTER TABLE DownloadEntity ADD COLUMN queuedAtEpochMs INTEGER NOT NULL DEFAULT 0"
-		)
-		connection.execute(
-			"ALTER TABLE DownloadEntity ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0"
-		)
-		connection.execute(
-			"CREATE INDEX IF NOT EXISTS index_DownloadEntity_status_cancelled_queuedAtEpochMs " +
-				"ON DownloadEntity(status, cancelled, queuedAtEpochMs)"
-		)
-	}
-}
-
 internal object CacheDatabaseMigration21To22 : Migration(21, 22) {
 	override suspend fun migrate(connection: SQLiteConnection) {
 		connection.execute(
@@ -111,10 +93,12 @@ internal object CacheDatabaseMigration23To24 : Migration(23, 24) {
 internal suspend fun migrateLegacyDownloadRegistry(
 	cacheDatabasePath: String,
 	downloadDao: DownloadDao,
+	legacyOwnerId: String?,
 	driver: SQLiteDriver = BundledSQLiteDriver()
 ) {
 	val legacyRows = readLegacyDownloadRegistry(cacheDatabasePath, driver)
-	val currentRows = downloadDao.getAllDownloadsList()
+		.map { it.copy(ownerId = legacyOwnerId.orEmpty()) }
+	val currentRows = downloadDao.getAllDownloadsForMigration()
 	downloadsMissingFromDestination(legacyRows, currentRows).forEach { row ->
 		downloadDao.insertDownload(row)
 	}
@@ -124,8 +108,8 @@ internal fun downloadsMissingFromDestination(
 	legacyRows: List<DownloadEntity>,
 	currentRows: List<DownloadEntity>
 ): List<DownloadEntity> {
-	val currentSongIds = currentRows.mapTo(mutableSetOf(), DownloadEntity::songId)
-	return legacyRows.filter { row -> row.songId !in currentSongIds }
+	val currentKeys = currentRows.mapTo(mutableSetOf()) { it.ownerId to it.songId }
+	return legacyRows.filter { row -> (row.ownerId to row.songId) !in currentKeys }
 }
 
 internal fun readLegacyDownloadRegistry(

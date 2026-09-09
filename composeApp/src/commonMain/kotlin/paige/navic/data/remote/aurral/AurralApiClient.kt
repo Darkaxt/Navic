@@ -13,11 +13,16 @@ import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import paige.navic.domain.models.AurralAlbumRequest
@@ -29,6 +34,11 @@ import paige.navic.data.remote.NetworkClientFactory
 import paige.navic.util.core.Logger
 
 private const val TAG = "AurralApiClient"
+
+sealed interface AurralArtistMonitoringOutcome {
+	data class Confirmed(val monitored: Boolean) : AurralArtistMonitoringOutcome
+	data object AwaitingConfirmation : AurralArtistMonitoringOutcome
+}
 
 interface AurralApiClient {
 	suspend fun testConnection(
@@ -145,6 +155,12 @@ interface AurralApiClient {
 		artistMbid: String
 	): Boolean?
 
+	suspend fun fetchArtistMonitoringConfirmation(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String
+	): Boolean? = fetchLibraryArtistMonitoring(baseUrl, requestHeaders, artistMbid)
+
 	suspend fun requestAlbum(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -161,8 +177,9 @@ interface AurralApiClient {
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
 		artistMbid: String,
-		payload: AurralArtistMonitorPayload
-	)
+		payload: AurralArtistMonitorPayload,
+		ensureCurrent: () -> Unit = {}
+	): AurralArtistMonitoringOutcome
 
 	suspend fun fetchReleaseGroupCoverImageUrl(
 		baseUrl: String,
@@ -568,6 +585,24 @@ internal class KtorAurralApiClient(
 		}
 	}
 
+	override suspend fun fetchArtistMonitoringConfirmation(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String
+	): Boolean? {
+		val response = client.get(aurralEndpoint(baseUrl, "api/library/artists/${aurralEncodeUrlComponent(artistMbid)}")) {
+			aurralJsonRequest(requestHeaders)
+			headers[HttpHeaders.CacheControl] = "no-cache"
+		}
+		return when {
+			response.status == HttpStatusCode.NotFound -> null
+			response.status == HttpStatusCode.OK -> response.monitoringArtistOrNull()
+				?.takeIf { it.matches(artistMbid) }?.monitored
+			response.status.isSuccess() -> null
+			else -> error(aurralHttpErrorMessage("Aurral monitoring confirmation", response.status))
+		}
+	}
+
 	private suspend fun fetchArtistDetails(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -814,30 +849,28 @@ internal class KtorAurralApiClient(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
 		artistMbid: String,
-		payload: AurralArtistMonitorPayload
-	) {
+		payload: AurralArtistMonitorPayload,
+		ensureCurrent: () -> Unit
+	): AurralArtistMonitoringOutcome {
 		val artistEndpoint = aurralEndpoint(baseUrl, "api/library/artists/${aurralEncodeUrlComponent(artistMbid)}")
+		currentCoroutineContext().ensureActive()
+		ensureCurrent()
 		val existingResponse = client.get(artistEndpoint) {
 			aurralJsonRequest(requestHeaders)
+			headers[HttpHeaders.CacheControl] = "no-cache"
 		}
 		if (existingResponse.status.isSuccess()) {
-			val updateResponse = client.put(artistEndpoint) {
-				aurralJsonRequest(requestHeaders)
-				header("Content-Type", ContentType.Application.Json.toString())
-				setBody(payload.toMonitoringUpdatePayload())
-			}
-			if (updateResponse.status.isSuccess()) {
-				return
-			}
-			error(aurralHttpErrorMessage("Aurral artist monitoring", updateResponse.status))
+			return updateArtistMonitoring(artistEndpoint, requestHeaders, artistMbid, payload, ensureCurrent)
 		}
 		if (existingResponse.status != HttpStatusCode.NotFound) {
 			error(aurralHttpErrorMessage("Aurral artist lookup", existingResponse.status))
 		}
 		if (!payload.monitored) {
-			return
+			return AurralArtistMonitoringOutcome.AwaitingConfirmation
 		}
 
+		currentCoroutineContext().ensureActive()
+		ensureCurrent()
 		val addResponse = client.post(aurralEndpoint(baseUrl, "api/library/artists")) {
 			aurralJsonRequest(requestHeaders)
 			header("Content-Type", ContentType.Application.Json.toString())
@@ -846,6 +879,44 @@ internal class KtorAurralApiClient(
 		if (!addResponse.status.isSuccess()) {
 			error(aurralHttpErrorMessage("Aurral artist add", addResponse.status))
 		}
+		if (addResponse.status == HttpStatusCode.OK) {
+			val response = try {
+				addResponse.body<AurralArtistAddAcknowledgement>()
+			} catch (error: Exception) {
+				currentCoroutineContext().ensureActive()
+				if (error is CancellationException) throw error
+				null
+			}
+			// An artist created between GET and POST still needs the requested update.
+			if (response?.queued == false && response.foreignArtistId?.trim().equals(artistMbid, ignoreCase = true)) {
+				return updateArtistMonitoring(artistEndpoint, requestHeaders, artistMbid, payload, ensureCurrent)
+			}
+		}
+		return AurralArtistMonitoringOutcome.AwaitingConfirmation
+	}
+
+	private suspend fun updateArtistMonitoring(
+		artistEndpoint: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		payload: AurralArtistMonitorPayload,
+		ensureCurrent: () -> Unit
+	): AurralArtistMonitoringOutcome {
+		currentCoroutineContext().ensureActive()
+		ensureCurrent()
+		val response = client.put(artistEndpoint) {
+			aurralJsonRequest(requestHeaders)
+			header("Content-Type", ContentType.Application.Json.toString())
+			setBody(payload.toMonitoringUpdatePayload())
+		}
+		if (!response.status.isSuccess()) error(aurralHttpErrorMessage("Aurral artist monitoring", response.status))
+		if (response.status == HttpStatusCode.OK) {
+			val artist = response.monitoringArtistOrNull()
+			if (artist != null && artist.matches(artistMbid) && artist.monitored == payload.monitored) {
+				return AurralArtistMonitoringOutcome.Confirmed(payload.monitored)
+			}
+		}
+		return AurralArtistMonitoringOutcome.AwaitingConfirmation
 	}
 
 	override suspend fun fetchReleaseGroupCoverImageUrl(
@@ -875,6 +946,32 @@ internal class KtorAurralApiClient(
 			else -> null
 		}
 	}
+}
+
+@Serializable
+private data class AurralMonitoringArtistResponse(
+	val mbid: String? = null,
+	val foreignArtistId: String? = null,
+	val monitored: Boolean? = null
+) {
+	fun matches(artistMbid: String): Boolean {
+		val identities = listOfNotNull(mbid, foreignArtistId).map(String::trim).filter(String::isNotEmpty)
+		return identities.isNotEmpty() && identities.all { it.equals(artistMbid, ignoreCase = true) }
+	}
+}
+
+@Serializable
+private data class AurralArtistAddAcknowledgement(
+	val queued: Boolean? = null,
+	val foreignArtistId: String? = null
+)
+
+private suspend fun HttpResponse.monitoringArtistOrNull(): AurralMonitoringArtistResponse? = try {
+	body<AurralMonitoringArtistResponse>()
+} catch (error: Exception) {
+	currentCoroutineContext().ensureActive()
+	if (error is CancellationException) throw error
+	null
 }
 
 class AurralApiException(

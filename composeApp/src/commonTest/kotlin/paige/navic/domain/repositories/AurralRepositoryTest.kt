@@ -4,6 +4,12 @@ import paige.navic.data.remote.aurral.*
 
 import com.russhwolf.settings.MapSettings
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlin.test.Test
@@ -22,6 +28,7 @@ import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralReleaseGroup
 import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.repositories.AurralConfirmationStatus
 import paige.navic.domain.repositories.AurralConfirmationType
 
@@ -2320,6 +2327,181 @@ class AurralRepositoryTest {
 		assertEquals(listOf("https://aurral.example.com"), apiClient.streamTokenBaseUrls)
 	}
 
+	@Test
+	fun freshCredentialedSearchCacheDoesNotLoginOrSearch(): Unit = runBlocking {
+		for (albums in listOf(false, true)) {
+			val cache = seededSearchCache(albums)
+			val apiClient = FakeAurralApiClient()
+			val repository = AurralRepository(
+				searchPreferences(), apiClient, nowMillis = { 2_000L }, metadataCache = cache
+			)
+
+			assertEquals(expectedSearch(albums), search(repository, albums).getOrThrow())
+			assertTrue(apiClient.loginRequests.isEmpty())
+			assertTrue(apiClient.artistSearchRequests.isEmpty())
+			assertTrue(apiClient.albumSearchRequests.isEmpty())
+		}
+	}
+
+	@Test
+	fun cancelledSearchLoginPropagatesWithoutStaleSuccessOrServiceDown(): Unit = runBlocking {
+		assertSearchCancellation(SearchBoundary.Login)
+	}
+
+	@Test
+	fun cancelledSearchCacheReadPropagatesWithoutLoginOrServiceDown(): Unit = runBlocking {
+		assertSearchCancellation(SearchBoundary.CacheRead)
+	}
+
+	@Test
+	fun cancelledSearchProviderPropagatesWithoutStaleSuccessOrServiceDown(): Unit = runBlocking {
+		assertSearchCancellation(SearchBoundary.Provider)
+		assertSearchCancellation(SearchBoundary.Provider, seedCache = false)
+	}
+
+	@Test
+	fun cancelledSearchProviderDisguisedAsOrdinaryFailureStillPropagatesCancellation(): Unit = runBlocking {
+		assertSearchCancellation(SearchBoundary.Provider, disguiseCancellation = true)
+	}
+
+	@Test
+	fun cancelledSearchCacheWritePropagatesWithoutStaleSuccessOrServiceDown(): Unit = runBlocking {
+		assertSearchCancellation(SearchBoundary.CacheWrite)
+	}
+
+	@Test
+	fun genuineSearchProviderFailureStillReturnsStaleCacheAndMarksServiceDown(): Unit = runBlocking {
+		for (albums in listOf(false, true)) {
+			val preferences = searchPreferences()
+			val cache = seededSearchCache(albums)
+			val before = cache.records.toMap()
+			val failure = IllegalStateException("provider offline")
+			val apiClient = FakeAurralApiClient(artistSearchFailure = failure, albumSearchFailure = failure)
+			val repository = AurralRepository(
+				preferences, apiClient,
+				nowMillis = { 1_000L + AURRAL_METADATA_CACHE_FRESH_MILLIS }, metadataCache = cache
+			)
+
+			assertEquals(expectedSearch(albums), search(repository, albums).getOrThrow())
+			assertEquals(setOf(IntegrationService.Aurral), preferences.failedIntegrationServices)
+			assertEquals(before, cache.records)
+		}
+	}
+
+	@Test
+	fun genuineSearchCacheIoFailuresStillReturnLiveResults(): Unit = runBlocking {
+		for (albums in listOf(false, true)) {
+			for (boundary in listOf(SearchBoundary.CacheRead, SearchBoundary.CacheWrite)) {
+				val cache = RecordingAurralMetadataCache()
+				val fail: suspend () -> Unit = { throw IllegalStateException("cache unavailable") }
+				if (boundary == SearchBoundary.CacheRead) cache.beforeGet = fail else cache.beforePut = fail
+				val preferences = searchPreferences()
+				val repository = AurralRepository(preferences, FakeAurralApiClient(), metadataCache = cache)
+
+				val expected = if (albums) AurralAlbumSearchResult() else AurralArtistSearchResult()
+				assertEquals(expected, search(repository, albums).getOrThrow())
+				assertTrue(preferences.failedIntegrationServices.isEmpty())
+			}
+		}
+	}
+
+	private enum class SearchBoundary { Login, CacheRead, Provider, CacheWrite }
+
+	private suspend fun assertSearchCancellation(
+		boundary: SearchBoundary,
+		seedCache: Boolean = true,
+		disguiseCancellation: Boolean = false
+	) {
+		for (albums in listOf(false, true)) {
+			coroutineScope {
+				val entered = CompletableDeferred<Unit>()
+				val suspendAtBoundary: suspend () -> Unit = {
+					entered.complete(Unit)
+					try {
+						awaitCancellation()
+					} catch (error: CancellationException) {
+						if (disguiseCancellation) throw IllegalStateException("provider wrapped cancellation", error)
+						throw error
+					}
+				}
+				val preferences = searchPreferences()
+				val availabilityBefore = preferences.failedIntegrationServices
+				val cache = if (seedCache) seededSearchCache(albums) else RecordingAurralMetadataCache()
+				val recordsBefore = cache.records.toMap()
+				val apiClient = FakeAurralApiClient()
+				when (boundary) {
+					SearchBoundary.Login -> apiClient.beforeLogin = suspendAtBoundary
+					SearchBoundary.CacheRead -> cache.beforeGet = suspendAtBoundary
+					SearchBoundary.Provider -> apiClient.beforeSearch = suspendAtBoundary
+					SearchBoundary.CacheWrite -> cache.beforePut = suspendAtBoundary
+				}
+				val repository = AurralRepository(
+					preferences, apiClient,
+					nowMillis = { 1_000L + AURRAL_METADATA_CACHE_FRESH_MILLIS }, metadataCache = cache
+				)
+				var returnedNormally = false
+				var cancellationPropagated = false
+				val job = launch(start = CoroutineStart.UNDISPATCHED) {
+					try {
+						// Do not unwrap Result: returning Result.failure(cancellation) must fail this test.
+						search(repository, albums)
+						returnedNormally = true
+					} catch (error: CancellationException) {
+						cancellationPropagated = true
+						throw error
+					}
+				}
+				assertTrue(entered.isCompleted, "Search did not reach $boundary (albums=$albums)")
+				job.cancel()
+				job.join()
+
+				assertTrue(cancellationPropagated, "Cancellation swallowed at $boundary (albums=$albums)")
+				assertFalse(returnedNormally)
+				assertEquals(availabilityBefore, preferences.failedIntegrationServices)
+				assertEquals(recordsBefore, cache.records)
+				if (boundary == SearchBoundary.CacheRead) assertTrue(apiClient.loginRequests.isEmpty())
+				if (boundary == SearchBoundary.CacheRead || boundary == SearchBoundary.Login) {
+					assertTrue(apiClient.artistSearchRequests.isEmpty())
+					assertTrue(apiClient.albumSearchRequests.isEmpty())
+				}
+			}
+		}
+	}
+
+	private fun searchPreferences() = PreferenceManager(MapSettings()).apply {
+		aurralEnabled = true
+		aurralBaseUrl = "https://aurral.example.com"
+		aurralUsername = "user"
+		aurralPassword = "pass"
+	}
+
+	private suspend fun search(repository: AurralRepository, albums: Boolean): Result<*> =
+		if (albums) repository.searchAlbums("Koji Kondo") else repository.searchArtists("Koji Kondo")
+
+	private fun expectedSearch(albums: Boolean): Any =
+		if (albums) AurralAlbumSearchResult(query = "Koji Kondo", count = 1, albums = listOf(
+			AurralAlbumSearchItem(
+				id = "album-id", title = "Soundtrack", artistName = "Koji Kondo", artistMbid = "artist-id"
+			)
+		)) else AurralArtistSearchResult(query = "Koji Kondo", count = 1, artists = listOf(
+			AurralDiscoverArtist(id = "artist-id", name = "Koji Kondo")
+		))
+
+	private fun seededSearchCache(albums: Boolean): RecordingAurralMetadataCache {
+		val baseUrl = "https://aurral.example.com"
+		val payloadType = if (albums) AurralMetadataPayloadType.AlbumSearch else AurralMetadataPayloadType.ArtistSearch
+		val path = aurralSearchCachePath("Koji Kondo", 12, 0)
+		val payload = expectedSearch(albums)
+		val record = AurralMetadataCacheRecord(
+			cacheKey = aurralMetadataCacheKey(baseUrl, payloadType, path),
+			baseUrl = baseUrl, payloadType = payloadType, path = path,
+			payloadJson = if (albums) AURRAL_JSON.encodeToString(payload as AurralAlbumSearchResult)
+				else AURRAL_JSON.encodeToString(payload as AurralArtistSearchResult),
+			updatedAtMillis = 1_000L
+		)
+		return RecordingAurralMetadataCache().apply { records[record.cacheKey] = record }
+	}
+
 	private class FakeAurralApiClient(
 		private val connectionResult: AurralConnectionResult = AurralConnectionResult.Connected,
 		private val serviceStatus: AurralServiceStatus = AurralServiceStatus(),
@@ -2348,6 +2530,8 @@ class AurralRepositoryTest {
 		private val sessionToken: String? = null,
 		private val streamToken: String? = null
 	) : AurralApiClient {
+		var beforeLogin: suspend () -> Unit = {}
+		var beforeSearch: suspend () -> Unit = {}
 		val connectionBaseUrls = mutableListOf<String>()
 		val connectionRequestHeaders = mutableListOf<Map<String, String>>()
 		val statusBaseUrls = mutableListOf<String>()
@@ -2444,6 +2628,7 @@ class AurralRepositoryTest {
 			artistSearchBaseUrls += baseUrl
 			artistSearchRequestHeaders += requestHeaders
 			artistSearchRequests += request
+			beforeSearch()
 			artistSearchFailure?.let { throw it }
 			return artistSearch
 		}
@@ -2456,6 +2641,7 @@ class AurralRepositoryTest {
 			albumSearchBaseUrls += baseUrl
 			albumSearchRequestHeaders += requestHeaders
 			albumSearchRequests += request
+			beforeSearch()
 			albumSearchFailure?.let { throw it }
 			return albumSearch
 		}
@@ -2560,12 +2746,14 @@ class AurralRepositoryTest {
 			baseUrl: String,
 			requestHeaders: Map<String, String>,
 			artistMbid: String,
-			payload: AurralArtistMonitorPayload
-		) {
+			payload: AurralArtistMonitorPayload,
+			ensureCurrent: () -> Unit
+		): AurralArtistMonitoringOutcome {
 			monitorArtistBaseUrls += baseUrl
 			monitorArtistRequestHeaders += requestHeaders
 			monitorArtistIds += artistMbid
 			monitorArtistPayloads += payload
+			return AurralArtistMonitoringOutcome.AwaitingConfirmation
 		}
 
 		override suspend fun fetchReleaseGroupCoverImageUrl(
@@ -2632,6 +2820,7 @@ class AurralRepositoryTest {
 			loginBaseUrls += baseUrl
 			loginRequestHeaders += requestHeaders
 			loginRequests += username to password
+			beforeLogin()
 			return sessionToken?.let { AurralAuthSessionDto(token = it) }
 		}
 
@@ -2646,13 +2835,18 @@ class AurralRepositoryTest {
 	}
 
 	private class RecordingAurralMetadataCache : AurralMetadataCache {
+		var beforeGet: suspend () -> Unit = {}
+		var beforePut: suspend () -> Unit = {}
 		val records = linkedMapOf<String, AurralMetadataCacheRecord>()
 		val clearedBaseUrls = mutableListOf<String>()
 
-		override suspend fun get(cacheKey: String): AurralMetadataCacheRecord? =
-			records[cacheKey]
+		override suspend fun get(cacheKey: String): AurralMetadataCacheRecord? {
+			beforeGet()
+			return records[cacheKey]
+		}
 
 		override suspend fun put(record: AurralMetadataCacheRecord) {
+			beforePut()
 			records[record.cacheKey] = record
 		}
 

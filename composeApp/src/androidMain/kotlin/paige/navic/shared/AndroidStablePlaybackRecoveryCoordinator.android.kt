@@ -430,7 +430,7 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 			recovery = recovery.withDownloadLifecycle(PlaybackRecoveryDownloadLifecycle.Rejected)
 			pending = recovery
 		}
-		val localPath = downloadManager.getDownloadedFilePath(recovery.songId)
+		val localPath = downloadManager.getDownloadedFilePath(download)
 		val resolution = playbackRecoveryResolution(
 			pending = recovery,
 			currentSongId = player.currentMediaItem?.mediaId,

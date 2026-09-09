@@ -6,6 +6,14 @@ import kotlin.test.assertNull
 
 class PlaybackShuffleRestorePolicyTest {
 	@Test
+	fun validatesFullTraversalIndependentlyOfRepeatOneProjection() {
+		assertEquals(listOf(2, 0, 1), restoredShuffleOrder(3, 0, listOf(0), listOf(2, 0, 1)))
+		assertNull(restoredShuffleOrder(3, 0, emptyList(), listOf(2, 0, 0)))
+		assertNull(restoredShuffleOrder(3, 0, emptyList(), listOf(2, 0)))
+		assertNull(restoredShuffleOrder(3, 0, emptyList(), listOf(2, 0, 3)))
+	}
+
+	@Test
 	fun placesPreviouslyPlayedItemsBeforeCurrentAndPreservesUpcomingOrder() {
 		assertEquals(
 			listOf(1, 4, 2, 3, 0),

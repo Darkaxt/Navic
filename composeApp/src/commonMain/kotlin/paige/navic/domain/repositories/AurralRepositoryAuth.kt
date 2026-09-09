@@ -2,6 +2,9 @@ package paige.navic.domain.repositories
 
 import paige.navic.data.remote.aurral.*
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import paige.navic.domain.manager.PreferenceManager
 
 internal class AurralRepositoryAuth(
@@ -64,7 +67,10 @@ internal class AurralRepositoryAuth(
 				requestHeaders = requestHeaders,
 				username = username,
 				password = password
-			)?.token?.trim()?.takeIf { it.isNotEmpty() }
+			).also { currentCoroutineContext().ensureActive() }?.token?.trim()?.takeIf { it.isNotEmpty() }
+		}.onFailure { error ->
+			currentCoroutineContext().ensureActive()
+			if (error is CancellationException) throw error
 		}.getOrNull()
 	}
 }

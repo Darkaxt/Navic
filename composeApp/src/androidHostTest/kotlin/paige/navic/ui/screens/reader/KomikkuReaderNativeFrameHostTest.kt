@@ -95,6 +95,7 @@ import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderPresentationEffectQueue
+import paige.navic.reader.retainsPresentationIdentity
 import paige.navic.reader.assertSequenceInvariants
 import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.reader.readerPresentationDecision
@@ -4109,10 +4110,13 @@ class KomikkuReaderNativeFrameHostTest {
 			val predecessorRect = if (nativePipeline) ReaderPlayLikeCurlPhysicalRect(
 				origin[0], origin[1], origin[0] + viewportWidth, origin[1] + viewportHeight
 			) else ReaderPlayLikeCurlPhysicalRect(0, 0, 2, 2)
+			val sourceRasterGeneration = bundle.currentGeneration()
 			val source = task8CurlAuthorityFixture(
-				task8SettledCurlSourceState(viewportGeneration, viewportWidth, viewportHeight),
+				task8SettledCurlSourceState(viewportGeneration, viewportWidth, viewportHeight,
+					rasterGeneration = sourceRasterGeneration),
 				sourceIdentity = if (nativePipeline) "#${Int.MIN_VALUE}" else sourceSession,
-				viewportWidth = viewportWidth, viewportHeight = viewportHeight, physicalRect = predecessorRect
+				viewportWidth = viewportWidth, viewportHeight = viewportHeight, physicalRect = predecessorRect,
+				bundleSource = bundle
 			).also { donor = it }
 			val initialState = assertNotNull(source.store.state)
 			val binding = assertNotNull(initialState.binding)
@@ -4674,10 +4678,265 @@ class KomikkuReaderNativeFrameHostTest {
 					assertEquals(retryEffect.token, candidate.transitionToken)
 					handler.deliver(queue.pendingEffects(), common.state.presentationDecision) { queue.acknowledge(it) }
 					assertEquals(cover, common.state.presentationDecision.frameOwner)
+					var lastNativeCallbackObserved = false
+					var lastNativeReceiptAuthorizes: Boolean? = null
+					val lastNativeReceiptChain = linkedMapOf<String, String>()
+					val firstNativeReceiptChain = linkedMapOf<String, String>()
+					val publicationIdentityFlags = linkedMapOf<String, Boolean>()
+					val firstArmedCandidate = candidate
+					var acceptedAfterFirst: ReaderNativePagePresentationCandidate? = null
+					var observingFirstNative = true
+					var observedProducerReceipt: ReaderPresentationEventReceipt? = null
+					fun chain(label: String, value: Boolean) { lastNativeReceiptChain[label] = value.toString() }
+					fun observeCommonNativeGuards(state: ReaderPresentationState, event: ReaderPresentationEvent.NativePagePresented) {
+						val proof = event.proof
+						chain("commonDestroyed", state.lifecycle == ReaderPresentationLifecycleState.Destroyed)
+						chain("commonTimedOut", state.failure?.reason == ReaderPresentationFailureReason.TimedOut)
+						chain("commonBindingEqualsProof", state.binding == proof.binding)
+						chain("commonPreparationReady", state.preparationFacts.phase == ReaderPagePreparationPhase.Ready)
+						lastNativeReceiptChain["commonNativeBranch"] = when (val authority = state.authority) {
+							ReaderPresentationAuthority.Unavailable -> {
+								chain("commonBindingAbsent", state.binding == null)
+								"Unavailable"
+							}
+							is ReaderPresentationAuthority.SettledNativePage -> {
+								val previous = authority.frame.proof
+								val nextBinding = proof.binding
+								val oldBinding = previous.binding
+								chain("commonProofEqualsSelected", previous == proof)
+								chain("commonProofOnlyFrameDiffers", previous.copy(presentedFrame = proof.presentedFrame) == proof)
+								chain("commonProofFrameEqualsSelected", previous.presentedFrame == proof.presentedFrame)
+								chain("commonProofTokenEqualsSelected", previous.transitionToken == proof.transitionToken)
+								chain("commonProofBindingEqualsSelected", oldBinding == nextBinding)
+								chain("commonProofTokenAbsent", proof.transitionToken == null)
+								chain("commonRendererIdentityComplete", nextBinding.rasterGeneration != null && nextBinding.textureGeneration != null)
+								chain("commonPreparationPresent", nextBinding.preparationGeneration != null)
+								chain("commonOldDestinationPresent", oldBinding.destinationCommitIdentity != null)
+								chain("commonNewDestinationPresent", nextBinding.destinationCommitIdentity != null)
+								chain("commonSessionEqual", nextBinding.foliateSessionId == oldBinding.foliateSessionId)
+								chain("commonPublicationEqual", nextBinding.publicationGeneration == oldBinding.publicationGeneration)
+								chain("commonViewportEqual", nextBinding.viewportGeneration == oldBinding.viewportGeneration)
+								chain("commonProfileEqual", nextBinding.profileGeneration == oldBinding.profileGeneration)
+								chain("commonPreparationCompatible", nextBinding.preparationGeneration == oldBinding.preparationGeneration ||
+									(oldBinding.rasterGeneration != null && oldBinding.textureGeneration != null && nextBinding.rasterGeneration != null && nextBinding.textureGeneration != null && nextBinding.preparationGeneration != null))
+								chain("commonDestinationAdvanced", oldBinding.destinationCommitIdentity?.let { old ->
+									nextBinding.destinationCommitIdentity?.let { next -> next.commitSequence > old.commitSequence }
+								} == true)
+								"SettledNativePage"
+							}
+							is ReaderPresentationAuthority.BlockingPreparation -> {
+								val request = authority.nativePresentationRequest
+								chain("commonRequestPresent", request != null)
+								chain("commonRetainedCover", authority.retainedFrame is ReaderPresentationFrameOwner.ShellCover)
+								chain("commonRetainedNeutral", authority.retainedFrame == ReaderPresentationFrameOwner.Neutral)
+								chain("commonRetryFloorPresent", request?.retryAfterPreparationGeneration != null)
+								chain("commonFailureAbsent", state.failure == null)
+								chain("commonPreparationAboveRetryFloor", request?.retryAfterPreparationGeneration?.let { (proof.binding.preparationGeneration ?: -1L) > it } == true)
+								chain("commonRequestTokenEqual", request?.token == proof.transitionToken)
+								chain("commonRequestBindingEqual", request?.binding == proof.binding)
+								"BlockingPreparation"
+							}
+							is ReaderPresentationAuthority.CurlSettlementPending -> {
+								chain("commonCurlAwaitingNative", authority.stage == paige.navic.reader.ReaderCurlSettlementStage.AwaitingNativePresentation)
+								chain("commonRequestTokenEqual", authority.retainedFrame.frame.token == proof.transitionToken)
+								chain("commonRequestBindingEqual", authority.binding == proof.binding)
+								"CurlSettlementPending"
+							}
+							is ReaderPresentationAuthority.LiveEngineHandoffPending -> {
+								chain("commonHandbackDirection", authority.direction == paige.navic.reader.ReaderLiveEngineHandoffDirection.LiveEngineToNative)
+								chain("commonRetainedLive", authority.retainedFrame is ReaderPresentationFrameOwner.LiveEngine)
+								chain("commonRequestTokenEqual", authority.token == proof.transitionToken)
+								chain("commonRequestBindingEqual", authority.binding == proof.binding)
+								"LiveEngineHandoffPending"
+							}
+							is ReaderPresentationAuthority.ShellCover -> "ShellCover"
+							is ReaderPresentationAuthority.ShellCoverCommitPending -> "ShellCoverCommitPending"
+							is ReaderPresentationAuthority.CurlGesture -> "CurlGesture"
+							is ReaderPresentationAuthority.LiveEngineExposed -> "LiveEngineExposed"
+						}
+					}
+					val nativePublisherDelegate = viewerClass.task7Field("nativePagePresentationPublisher\$delegate").get(viewer) as Lazy<*>
+					assertTrue(nativePublisherDelegate.isInitialized(), "Observe the already initialized production native publisher")
+					val observedNativePublisher = assertNotNull(nativePublisherDelegate.value)
+					val nativeOnEventField = observedNativePublisher.javaClass.task7Field("onEvent")
+					@Suppress("UNCHECKED_CAST")
+					val originalNativeOnEvent = nativeOnEventField.get(observedNativePublisher) as (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
+					val producerOnEventField = viewerClass.task7Field("onPresentationEvent")
+					@Suppress("UNCHECKED_CAST")
+					val originalProducerOnEvent = producerOnEventField.get(viewer) as (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
+					val observedReceiptDispatcher = viewerClass.task7Field("presentationReceiptDispatcher").get(viewer)
+					fun quiescenceOwnerCategories(): String = try {
+						val surface = controller.surfaceView
+						fun pending(field: String, method: String = "pendingCount"): Boolean {
+							val owner = surface.javaClass.task7Field(field).get(surface)
+							return (owner.javaClass.task7Method(method).invoke(owner) as Int) != 0
+						}
+						val sharedFrames = surface.javaClass.task7Field("presentedFrameRequest").get(surface)
+						val nativeRequest = surface.javaClass.task7Field("nativeFrameRequest").get(surface)
+						val frameArmed = synchronized(sharedFrames) {
+							(sharedFrames.javaClass.task7Field("armedRequestIds").get(sharedFrames) as Set<*>).isNotEmpty()
+						}
+						val frameCompleted = synchronized(sharedFrames) {
+							(sharedFrames.javaClass.task7Field("completedCallbacks").get(sharedFrames) as Map<*, *>).isNotEmpty()
+						}
+						val releases = queue.pendingEffects().mapNotNull { it.effect as? ReaderPresentationEffect.ReleaseStalePresentation }
+						val nativeCategory = if (nativeRequest != null) {
+							val publisherDelegate = viewerClass.task7Field("nativePagePresentationPublisher\$delegate").get(viewer) as Lazy<*>
+							val publisher = if (publisherDelegate.isInitialized()) publisherDelegate.value else null
+							val pendingFrame = publisher?.let { it.javaClass.task7Field("pendingFrame").get(it) }
+							val armedCandidate = pendingFrame?.let { it.javaClass.task7Field("candidate").get(it) }
+							val currentCandidate = viewerClass.task7Method("currentNativePagePresentationCandidateOrNull").invoke(viewer)
+							val accepted = acceptedAfterFirst
+							val current = currentCandidate as? ReaderNativePagePresentationCandidate
+							val published = publisher?.let { it.javaClass.task7Field("lastPublishedCandidate").get(it) }
+							publicationIdentityFlags["samePublisherAtLast"] = publisher === observedNativePublisher
+							publicationIdentityFlags["lastPublishedEqualsFirstArmed"] = published == firstArmedCandidate
+							publicationIdentityFlags["lastPublishedSameAcceptedReference"] = published === accepted && accepted != null
+							publicationIdentityFlags["lastAcceptedAndCurrentPresent"] = accepted != null && current != null
+							if (accepted != null && current != null) {
+								val oldFacts = accepted.preparationFacts
+								val newFacts = current.preparationFacts
+								publicationIdentityFlags["lastBindingEqual"] = current.binding == accepted.binding
+								publicationIdentityFlags["lastTokenEqual"] = current.transitionToken == accepted.transitionToken
+								publicationIdentityFlags["lastConsumedTokenShape"] = accepted.transitionToken != null && current.transitionToken == null && current.handoffDirection == null
+								publicationIdentityFlags["lastHandoffEqual"] = current.handoffDirection == accepted.handoffDirection
+								publicationIdentityFlags["lastPageEqual"] = current.visualPageIndex == accepted.visualPageIndex
+								publicationIdentityFlags["lastWidthEqual"] = current.viewportWidth == accepted.viewportWidth
+								publicationIdentityFlags["lastHeightEqual"] = current.viewportHeight == accepted.viewportHeight
+								publicationIdentityFlags["lastPhaseEqual"] = newFacts.phase == oldFacts.phase
+								publicationIdentityFlags["lastGenerationEqual"] = newFacts.generation == oldFacts.generation
+								publicationIdentityFlags["lastCompletedEqual"] = newFacts.completedCount == oldFacts.completedCount
+								publicationIdentityFlags["lastRequiredEqual"] = newFacts.requiredCount == oldFacts.requiredCount
+								publicationIdentityFlags["lastReadinessEqual"] = newFacts.readiness == oldFacts.readiness
+								publicationIdentityFlags["lastFailureEqual"] = newFacts.failure == oldFacts.failure
+								publicationIdentityFlags["lastRetryableEqual"] = newFacts.retryable == oldFacts.retryable
+								publicationIdentityFlags["lastAllOtherFactsEqual"] = newFacts.copy(completedCount = oldFacts.completedCount, requiredCount = oldFacts.requiredCount) == oldFacts
+							}
+							" nativeCandidateCurrent=${armedCandidate != null && armedCandidate == currentCandidate}"
+						} else ""
+						"ownerRequiredDisposal=${pending("requiredDisposeCallback")}" +
+							" ownerAuxiliaryDisposal=${pending("disposeCallbacks")}" +
+							" ownerOwnershipSnapshot=${pending("ownershipSnapshotCoordinator", "size")}" +
+							" ownerTerminalOwnership=${pending("terminalOwnershipCallbacks")}" +
+							" ownerPresentedFrame=${pending("presentedFrameRequest")}" +
+							" ownerMainTerminal=${(surface.javaClass.task7Field("pendingMainTerminalActions").get(surface) as java.util.concurrent.atomic.AtomicInteger).get() != 0}" +
+							" ownerPageOverlay=${surface.javaClass.task7Field("pageOverlayUpdatePending").getBoolean(surface)}" +
+							" effectReleaseStale=${queue.pendingEffects().any { it.effect is ReaderPresentationEffect.ReleaseStalePresentation }}" +
+							" effectRetryPreparation=${queue.pendingEffects().any { it.effect is ReaderPresentationEffect.RetryPreparation }}" +
+							" ownerNativeRequest=${nativeRequest != null} frameArmed=$frameArmed frameCompleted=$frameCompleted" +
+							" releaseRetainedByDecision=${releases.any { common.state.presentationDecision.retainsPresentationIdentity(it.token, it.binding) }}" +
+							" releaseProtectedByController=${releases.any { effect -> effect.binding.textureGeneration?.let { generation ->
+								controller.javaClass.task7Method("generationBacksCommonPresentation", java.lang.Long.TYPE).invoke(controller, generation) as Boolean
+							} == true }}" + nativeCategory +
+							" nativeCallbackObserved=$lastNativeCallbackObserved nativeReceiptAuthorizes=$lastNativeReceiptAuthorizes" +
+							" nativeReceiptChain=[${lastNativeReceiptChain.entries.joinToString(",") { "${it.key}=${it.value}" }}]" +
+							" firstNativeReceiptChain=[${firstNativeReceiptChain.entries.joinToString(",") { "${it.key}=${it.value}" }}]" +
+							" nativePublicationIdentity=[${publicationIdentityFlags.entries.joinToString(",") { "${it.key}=${it.value}" }}]"
+					} catch (_: ReflectiveOperationException) {
+						"quiescenceOwnerDiagnosticsUnavailable=true"
+					}
+					var sourceRounds = 0
+					try {
+						producerOnEventField.set(viewer, { event: ReaderPresentationEvent ->
+							if (event !is ReaderPresentationEvent.NativePagePresented) {
+								originalProducerOnEvent(event)
+							} else {
+								val producerPreState = common.state.presentation
+								val producerPreVersion = common.presentationVersion
+								val producerPreShell = common.state.shellCoverVisible
+								val producerEntryEpoch = reporter.captureEpoch()
+								chain("producerCallbackObserved", true)
+								try {
+									val returned = originalProducerOnEvent(event) // The original producer runs exactly once.
+									observedProducerReceipt = returned
+									returned
+								} catch (failure: Throwable) {
+									chain("producerCallbackThrew", true)
+									throw failure
+								} finally {
+									try {
+										val receipt = observedProducerReceipt
+										chain("producerReceiptPresent", receipt != null)
+										lastNativeReceiptChain["producerDisposition"] = receipt?.disposition?.name ?: "Absent"
+										chain("producerReceiptAuthorizes", receipt.authorizes(event))
+										observeCommonNativeGuards(producerPreState, event)
+										// Pure replay of immutable callback-entry inputs, not a second controller mutation.
+										val producerExpected = paige.navic.reader.readerPresentationEventTransition(
+											producerPreState, producerPreVersion, producerPreShell, event).receipt
+										chain("producerPureTransitionMatches", receipt == producerExpected)
+										lastNativeReceiptChain["commonPureDisposition"] = producerExpected.disposition.name
+										// Snapshot immediately before returning to the original dispatcher's classifyReceipt call.
+										val reporterState = reporter.javaClass.task7Field("authoritativeState").get(reporter) as ReaderPresentationState?
+										val reporterVersion = (reporter.javaClass.task7Field("authoritativeVersion").get(reporter)
+											?: reporter.javaClass.task7Field("minimumComposeVersion").get(reporter)) as paige.navic.reader.ReaderPresentationReceiptVersion?
+										val reporterShell = reporter.javaClass.task7Field("authoritativeShellCoverVisible").getBoolean(reporter)
+										val reporterExpected = if (reporterState != null && reporterVersion != null)
+											paige.navic.reader.readerPresentationEventTransition(reporterState, reporterVersion, reporterShell, event).receipt else null
+										chain("dispatcherBusyBeforeReporterAdmission", observedReceiptDispatcher.javaClass.task7Field("dispatchInProgress").getBoolean(observedReceiptDispatcher))
+										chain("reporterStatePresent", reporterState != null)
+										chain("reporterVersionPresent", reporterVersion != null)
+										chain("reporterEpochCurrent", producerEntryEpoch == reporter.captureEpoch())
+										chain("reporterEventEqual", receipt?.event == event)
+										chain("reporterStateMatchesProducerPre", reporterState == producerPreState)
+										chain("reporterVersionMatchesProducerPre", reporterVersion == producerPreVersion)
+										chain("reporterBindingMatchesProducerPre", reporterState?.binding == producerPreState.binding)
+										chain("reporterBindingEqualsProof", reporterState?.binding == event.proof.binding)
+										chain("reporterShellMatchesProducerPre", reporterShell == producerPreShell)
+										chain("reporterReceiptPreVersionEqual", receipt?.preVersion == reporterExpected?.preVersion)
+										chain("reporterReceiptVersionEqual", receipt?.version == reporterExpected?.version)
+										chain("reporterReceiptDispositionEqual", receipt?.disposition == reporterExpected?.disposition)
+										chain("reporterReceiptPostStateEqual", receipt?.postState == reporterExpected?.postState)
+										chain("reporterReceiptEffectsEqual", receipt?.effects == reporterExpected?.effects)
+										chain("reporterExactTransitionEqual", receipt != null && receipt == reporterExpected)
+										chain("reporterPureAdmission", receipt != null && producerEntryEpoch == reporter.captureEpoch() &&
+											receipt.event == event && reporterState != null && reporterVersion != null && receipt == reporterExpected)
+										lastNativeReceiptChain["reporterPureDisposition"] = reporterExpected?.disposition?.name ?: "Absent"
+									} catch (_: Throwable) { chain("chainDiagnosticsUnavailable", true) }
+								}
+							}
+						})
+						nativeOnEventField.set(observedNativePublisher, { event: ReaderPresentationEvent ->
+							if (event !is ReaderPresentationEvent.NativePagePresented) {
+								originalNativeOnEvent(event)
+							} else {
+								lastNativeCallbackObserved = true
+								lastNativeReceiptAuthorizes = null
+								lastNativeReceiptChain.clear()
+								observedProducerReceipt = null
+								chain("chainDiagnosticsUnavailable", false)
+								chain("producerCallbackObserved", false)
+								chain("producerCallbackThrew", false)
+								chain("finalCallbackThrew", false)
+								try {
+									chain("dispatcherBusyAtNativeCallbackEntry", observedReceiptDispatcher.javaClass.task7Field("dispatchInProgress").getBoolean(observedReceiptDispatcher))
+								} catch (_: Throwable) { chain("chainDiagnosticsUnavailable", true) }
+								try {
+									val returned = originalNativeOnEvent(event) // Exactly once, including null; throws propagate unchanged.
+									lastNativeReceiptAuthorizes = returned.authorizes(event)
+								if (observingFirstNative) {
+									publicationIdentityFlags["firstFinalAuthorizes"] = returned.authorizes(event)
+									try {
+										publicationIdentityFlags["firstReturnAlreadyPending"] = observedNativePublisher.javaClass.task7Field("pendingFrame").get(observedNativePublisher) != null
+									} catch (_: ReflectiveOperationException) { chain("chainDiagnosticsUnavailable", true) }
+								}
+									chain("finalReceiptPresent", returned != null)
+									lastNativeReceiptChain["finalDisposition"] = returned?.disposition?.name ?: "Absent"
+									chain("finalReceiptMatchesProducer", returned == observedProducerReceipt)
+									returned
+								} catch (failure: Throwable) {
+									chain("finalCallbackThrew", true)
+									throw failure
+								} finally { observedProducerReceipt = null }
+							}
+						})
 					val frames = controller.surfaceView.javaClass.task7Field("presentedFrameRequest").get(controller.surfaceView)
 					val completion = frames.javaClass.task7Method("markRendered").invoke(frames) as Long
 					controller.surfaceView.javaClass.task7Method("handlePresentedFrame", java.lang.Long.TYPE)
 						.invoke(controller.surfaceView, completion)
+					observingFirstNative = false
+					firstNativeReceiptChain.putAll(lastNativeReceiptChain)
+					acceptedAfterFirst = observedNativePublisher.javaClass.task7Field("lastPublishedCandidate").get(observedNativePublisher) as ReaderNativePagePresentationCandidate?
+					publicationIdentityFlags["afterFirstHandlePublishedEqualsArmed"] = acceptedAfterFirst == firstArmedCandidate
 					val terminalEffects = queue.pendingEffects()
 					handler.deliver(terminalEffects, common.state.presentationDecision) { queue.acknowledge(it) }
 					ShadowLooper.runUiThreadTasks()
@@ -4735,10 +4994,14 @@ class KomikkuReaderNativeFrameHostTest {
 						common.state.presentation.rendererCleanupOwnership.isNotEmpty() || deadlines.hasPending ||
 						common.state.presentationDecision.pendingTransitionToken != null ||
 						controller.surfaceView.javaClass.task7Field("nativeFrameRequest").get(controller.surfaceView) != null
-					var sourceRounds = 0
 					while (hasPhysicalWork()) {
 						assertTrue(sourceRounds++ < 8,
-							"Acknowledged physical continuation must reach bounded quiescence: ${physicalScalars()}")
+							"Acknowledged physical continuation must reach bounded quiescence: ${physicalScalars()}" +
+								if (sourceRounds > 8) " ${quiescenceOwnerCategories()}" else "")
+						lastNativeCallbackObserved = false
+						lastNativeReceiptAuthorizes = null
+						lastNativeReceiptChain.clear()
+						observedProducerReceipt = null
 						physicalProgress = kotlinx.coroutines.CompletableDeferred()
 						testScheduler.runCurrent()
 						ShadowLooper.runUiThreadTasks()
@@ -4832,6 +5095,14 @@ class KomikkuReaderNativeFrameHostTest {
 						"Undelivered source plans: raster=$plansAfterRaster prepared=$plansAfterPrepared native=$plansAfterNative " +
 							"replay=${webView.planCallbacks.size} producers=${webView.planCallbacks.map { it.javaClass.simpleName.substringBefore('$') }}")
 					assertNull(controller.surfaceView.javaClass.task7Field("nativeFrameRequest").get(controller.surfaceView))
+					} finally {
+						nativeOnEventField.set(observedNativePublisher, originalNativeOnEvent)
+						producerOnEventField.set(viewer, originalProducerOnEvent)
+						observedProducerReceipt = null
+						acceptedAfterFirst = null
+						assertSame(originalNativeOnEvent, nativeOnEventField.get(observedNativePublisher))
+						assertSame(originalProducerOnEvent, producerOnEventField.get(viewer))
+					}
 					return@runTest
 				}
 				val gestureController = if (nativePipeline) controller else source.controller
@@ -4842,6 +5113,27 @@ class KomikkuReaderNativeFrameHostTest {
 						.get(source.controller) as paige.navic.reader.ReaderPageOperationPolicy)
 					assertTrue(controller.isAvailable, "Imported predecessor must admit the actual receiving gesture")
 				}
+				// Receiver startup invalidates the bundle. The donated proof and both
+				// controllers must retain that real raster authority, not a fresh zero epoch.
+				assertSame(bundle, source.controller.javaClass.task7Field("bundleSource").get(source.controller))
+				assertSame(bundle, gestureController.javaClass.task7Field("bundleSource").get(gestureController))
+				assertEquals(sourceRasterGeneration, bundle.currentGeneration(), "Predecessor raster must remain current")
+				assertEquals(sourceRasterGeneration, binding.rasterGeneration)
+				assertEquals(binding, predecessorProof.binding)
+				assertEquals(sourceRasterGeneration, predecessorProof.rasterGeneration)
+				assertEquals(sourceRasterGeneration, (sourceProfile as ReaderPlayLikeCurlRasterProfile).rasterGeneration)
+				val activePages = assertNotNull(gestureController.javaClass.task7Field("activePages").get(gestureController))
+				val activeProfile = activePages.javaClass.task7Field("profile").get(activePages) as ReaderPlayLikeCurlRasterProfile
+				assertEquals(sourceRasterGeneration, activeProfile.rasterGeneration)
+				val activeGeneration = gestureController.javaClass.task7Field("activeDeckGenerationId").get(gestureController)
+				assertEquals(predecessorProof.textureGeneration, activeGeneration)
+				assertEquals(binding.textureGeneration, activeGeneration)
+				val owners = gestureController.javaClass.task7Field("generationOwners").get(gestureController) as Map<*, *>
+				assertSame(activePages, owners[activeGeneration], "Predecessor must be owned by the receiving controller")
+				assertEquals(binding.preparationGeneration,
+					gestureController.javaClass.task7Field("preparationGeneration").getLong(gestureController))
+				assertEquals(binding.foliateSessionId,
+					gestureController.javaClass.task7Field("currentFoliateSessionId").get(gestureController))
 				assertEquals(ReaderPageTurnStartResult.Settling,
 					gestureController.start(225L, PageChange.NEXT) { _, _ -> true })
 				if (!nativePipeline) deliver(assertIs<ReaderPresentationEvent.CurlClaimed>(source.store.presentationEvents.last()))
@@ -8455,7 +8747,8 @@ class KomikkuReaderNativeFrameHostTest {
 	private fun task8SettledCurlSourceState(
 		viewportGeneration: Long = 2L,
 		viewportWidth: Int = 1200,
-		viewportHeight: Int = 800
+		viewportHeight: Int = 800,
+		rasterGeneration: Long = 0L
 	): ReaderPresentationState {
 		val binding = ReaderPresentationBinding(
 			foliateSessionId = "critical-4-session",
@@ -8466,7 +8759,7 @@ class KomikkuReaderNativeFrameHostTest {
 				"critical-4-session",
 				1L
 			),
-			rasterGeneration = 0L,
+			rasterGeneration = rasterGeneration,
 			textureGeneration = 301L,
 			preparationGeneration = 0L
 		)
@@ -8476,7 +8769,7 @@ class KomikkuReaderNativeFrameHostTest {
 			presentedFrame = 4L,
 			viewportWidth = viewportWidth,
 			viewportHeight = viewportHeight,
-			rasterGeneration = 0L,
+			rasterGeneration = rasterGeneration,
 			textureGeneration = 301L
 		)
 		return ReaderPresentationState(
@@ -8495,7 +8788,8 @@ class KomikkuReaderNativeFrameHostTest {
 		sourceIdentity: String = "critical-4-session",
 		viewportWidth: Int = 1200,
 		viewportHeight: Int = 800,
-		physicalRect: ReaderPlayLikeCurlPhysicalRect = ReaderPlayLikeCurlPhysicalRect(0, 0, 2, 2)
+		physicalRect: ReaderPlayLikeCurlPhysicalRect = ReaderPlayLikeCurlPhysicalRect(0, 0, 2, 2),
+		bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource()
 	): Task8CurlAuthorityFixture {
 		val context = RuntimeEnvironment.getApplication()
 		val host = FrameLayout(context).apply { layout(0, 0, viewportWidth, viewportHeight) }
@@ -8510,7 +8804,7 @@ class KomikkuReaderNativeFrameHostTest {
 		val controller = ReaderPlayLikeCurlFoliateController(
 			host = host,
 			webViewProvider = { webView },
-			bundleSource = ReaderPageTurnBundleSource(),
+			bundleSource = bundleSource,
 			onRequestPrewarm = {},
 			onRequestRasterRepair = { _, _ -> },
 			onGestureTerminal = { gestureId, _, _ ->
@@ -8526,7 +8820,7 @@ class KomikkuReaderNativeFrameHostTest {
 			orientation = ReaderPlayLikeCurlOrientation.Portrait,
 			quality = ReaderPageBitmapQuality.Balanced,
 			pageCount = 3,
-			rasterGeneration = 0L
+			rasterGeneration = bundleSource.currentGeneration()
 		)
 		val controllerClass = controller.javaClass
 		controllerClass.task7Field("enabled").setBoolean(controller, true)

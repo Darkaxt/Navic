@@ -240,6 +240,7 @@ fun ArtistsScreenItem(
 	selectedArtistAlbums: ImmutableList<DomainAlbum>?,
 	starred: Boolean,
 	aurralMonitorState: AurralMonitorActionState? = null,
+	showUnknownAlbumCount: Boolean = true,
 	onSelect: () -> Unit,
 	onDeselect: () -> Unit,
 	onPlayNext: () -> Unit,
@@ -266,11 +267,15 @@ fun ArtistsScreenItem(
 			imageRequestHeaders = artistArtwork.imageRequestHeaders,
 			imageDiagnosticLabel = "artist-list-${artist.id}",
 			title = artist.name,
-			subtitle = pluralStringResource(
-				Res.plurals.count_albums,
-				artist.albumCount,
-				artist.albumCount
-			),
+			subtitle = if (shouldShowArtistAlbumCount(artist.albumCount, showUnknownAlbumCount)) {
+				pluralStringResource(
+					Res.plurals.count_albums,
+					artist.albumCount,
+					artist.albumCount
+				)
+			} else {
+				null
+			},
 			coverOverlay = aurralMonitorState?.let { state ->
 				{
 					AurralArtistMonitorBadge(

@@ -7,19 +7,12 @@ import androidx.compose.foundation.text.input.insert
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import paige.navic.domain.models.DomainSong
-import paige.navic.domain.repositories.AurralAlbumSearchResult
-import paige.navic.domain.repositories.AurralArtistSearchResult
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.SearchRepository
 import paige.navic.domain.repositories.SongRepository
@@ -27,11 +20,11 @@ import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.data.remote.aurral.configuredAurralBaseUrl
-import paige.navic.ui.core.UiState
-import paige.navic.ui.screens.search.combinedSearchResults
-import kotlin.time.Duration.Companion.milliseconds
+import paige.navic.ui.screens.search.MusicSearchState
+import paige.navic.ui.screens.search.MusicSearchSource
+import paige.navic.ui.screens.search.musicSearchStates
+import paige.navic.ui.screens.search.eligibleMusicSearchRequest
 
-@OptIn(FlowPreview::class)
 class SearchViewModel(
 	private val repository: SearchRepository,
 	private val aurralRepository: AurralRepository,
@@ -40,8 +33,9 @@ class SearchViewModel(
 	downloadManager: DownloadManager,
 	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
-	private val _searchState = MutableStateFlow<UiState<List<Any>>>(UiState.Success(emptyList()))
+	private val _searchState = MutableStateFlow(MusicSearchState())
 	val searchState = _searchState.asStateFlow()
+	private val retryRevision = MutableStateFlow(0L)
 
 	private val _searchHistory = MutableStateFlow<List<String>>(
 		decodeSearchHistory(preferenceManager.searchHistoryEntries)
@@ -66,44 +60,31 @@ class SearchViewModel(
 
 	init {
 		viewModelScope.launch {
-			snapshotFlow { searchQuery.text }
-				.debounce(300.milliseconds)
-				.collectLatest { queryText ->
-					val query = queryText.toString()
-					if (query.isBlank()) {
-						_searchState.value = UiState.Success(emptyList())
-					} else {
-						_searchState.value = UiState.Loading()
-						try {
-							_searchState.value = UiState.Success(searchEverywhere(query))
-						} catch (e: Exception) {
-							if (e !is CancellationException) {
-								_searchState.value = UiState.Error(e)
-							}
-						}
+			musicSearchStates(
+				queries = combine(snapshotFlow { searchQuery.text.toString() }, retryRevision) { query, _ -> query }
+			) { query ->
+				buildMap {
+					put(MusicSearchSource.Library) { repository.searchLocal(query) }
+					if (isOnline.value) put(MusicSearchSource.Navidrome, eligibleMusicSearchRequest({ isOnline.value }) {
+						repository.searchRemote(query)
+					})
+					if (shouldSearchAurral()) {
+						put(MusicSearchSource.AurralArtists, eligibleMusicSearchRequest(::shouldSearchAurral) {
+							aurralRepository.searchArtists(query).getOrThrow().artists
+						})
+						put(MusicSearchSource.AurralAlbums, eligibleMusicSearchRequest(::shouldSearchAurral) {
+							aurralRepository.searchAlbums(query).getOrThrow().albums
+						})
 					}
 				}
+			}.collect { result ->
+				if (result.query == searchQuery.text.toString().trim()) _searchState.value = result
+			}
 		}
 	}
 
-	private suspend fun searchEverywhere(query: String): List<Any> = coroutineScope {
-		val includeAurral = shouldSearchAurral()
-		val localResults = async { repository.search(query) }
-		val aurralArtists = if (includeAurral) {
-			async { aurralRepository.searchArtists(query).getOrElse { AurralArtistSearchResult() }.artists }
-		} else {
-			null
-		}
-		val aurralAlbums = if (includeAurral) {
-			async { aurralRepository.searchAlbums(query).getOrElse { AurralAlbumSearchResult() }.albums }
-		} else {
-			null
-		}
-		combinedSearchResults(
-			localResults = localResults.await(),
-			aurralArtists = aurralArtists?.await().orEmpty(),
-			aurralAlbums = aurralAlbums?.await().orEmpty()
-		)
+	fun retrySearch() {
+		retryRevision.value++
 	}
 
 	private fun shouldSearchAurral(): Boolean =

@@ -5,7 +5,6 @@ import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.SQLiteStatement
 import java.io.File
 import java.sql.Connection
-import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import kotlinx.coroutines.runBlocking
@@ -17,6 +16,46 @@ import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 
 class DownloadOwnershipMigrationTest {
+	@Test
+	fun accountMigrationPreservesLegacyBytesAndAllowsCollidingSongIds(): Unit = runBlocking {
+		JdbcSQLiteDriver().open(":memory:").use { connection ->
+			connection.execute("CREATE TABLE DownloadEntity (songId TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, progress REAL NOT NULL, filePath TEXT)")
+			connection.execute("INSERT INTO DownloadEntity VALUES ('same', 'DOWNLOADED', 1.0, '/legacy.flac')")
+			DownloadDatabaseMigration4To5.migrate(connection)
+			DownloadDatabaseMigration5To6("alice").migrate(connection)
+			connection.execute("INSERT INTO DownloadEntity VALUES ('same', 'DOWNLOADED', 1.0, '/bob.flac', 2, 42, 0, 'bob')")
+			connection.prepare("SELECT ownerId, filePath FROM DownloadEntity ORDER BY ownerId").use {
+				assertTrue(it.step())
+				assertEquals("alice", it.getText(0))
+				assertEquals("/legacy.flac", it.getText(1))
+				assertTrue(it.step())
+				assertEquals("bob", it.getText(0))
+				assertEquals("/bob.flac", it.getText(1))
+				assertFalse(it.step())
+			}
+			assertTrue(connection.hasIndex("index_DownloadEntity_ownerId_status_cancelled_queuedAtEpochMs"))
+		}
+	}
+
+	@Test
+	fun ownerlessMigrationPreservesRowsButDoesNotAssignThemToALaterAccount(): Unit = runBlocking {
+		JdbcSQLiteDriver().open(":memory:").use { connection ->
+			connection.execute("CREATE TABLE DownloadEntity (songId TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, progress REAL NOT NULL, filePath TEXT)")
+			connection.execute("INSERT INTO DownloadEntity VALUES ('same', 'DOWNLOADED', 1.0, '/legacy.flac')")
+			DownloadDatabaseMigration4To5.migrate(connection)
+			DownloadDatabaseMigration5To6(null).migrate(connection)
+			connection.prepare("SELECT ownerId, filePath FROM DownloadEntity").use {
+				assertTrue(it.step())
+				assertEquals("", it.getText(0))
+				assertEquals("/legacy.flac", it.getText(1))
+			}
+			connection.prepare("SELECT COUNT(*) FROM DownloadEntity WHERE ownerId = 'later'").use {
+				assertTrue(it.step())
+				assertEquals(0L, it.getLong(0))
+			}
+		}
+	}
+
 	@Test
 	fun readsLegacyDownloadRowsFromARealCacheDatabaseFixture() {
 		val file = temporaryDatabaseFile()
@@ -247,7 +286,7 @@ private fun androidx.sqlite.SQLiteConnection.hasIndex(name: String): Boolean =
 
 private class JdbcSQLiteDriver : SQLiteDriver {
 	override fun open(fileName: String): SQLiteConnection =
-		JdbcSQLiteConnection(DriverManager.getConnection("jdbc:sqlite:$fileName"))
+		JdbcSQLiteConnection(org.sqlite.JDBC().connect("jdbc:sqlite:$fileName", java.util.Properties()))
 }
 
 private class JdbcSQLiteConnection(

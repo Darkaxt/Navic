@@ -12,7 +12,6 @@ import io.ktor.http.HttpMethod
 import io.ktor.http.HttpHeaders
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -21,20 +20,21 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import paige.navic.data.database.dao.AlbumDao
-import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.LyricDao
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.entities.DownloadEntity
@@ -49,6 +49,7 @@ import paige.navic.domain.models.clearDownloadQueueSongIds
 import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.models.collectionSongIdsToQueue
 import paige.navic.domain.models.downloadSchedulerWorkerCount
+import paige.navic.domain.models.downloadedAudioPath
 import paige.navic.domain.models.failedDownloadRetryPlan
 import paige.navic.domain.models.HostedDownloadFailureAction
 import paige.navic.domain.models.PlaybackDownloadRequestResult
@@ -62,11 +63,12 @@ import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.util.core.Logger
 import paige.navic.util.core.toNetworkHeaders
 import kotlin.time.Clock
+import kotlin.uuid.Uuid
 import coil3.PlatformContext as CoilPlatformContext
 
 class DownloadManager(
 	private val coilPlatformContext: CoilPlatformContext,
-	private val downloadDao: DownloadDao,
+	private val downloadDao: AccountDownloadRegistry,
 	private val albumDao: AlbumDao,
 	private val songDao: SongDao,
 	private val storageManager: StorageManager,
@@ -86,14 +88,8 @@ class DownloadManager(
 	private val scope: CoroutineScope
 		get() = sessionLifetime.currentScope() ?: inactiveSessionScope
 	private val client = networkClientFactory.create()
-	private val activeDownloadsMutex = Mutex()
-	private val activeDownloads = mutableMapOf<String, Job>()
-	private val runningDownloadSlotsMutex = Mutex()
-	private val runningDownloadSlots = mutableSetOf<String>()
+	private val downloadWork = DownloadWorkCoordinator()
 	private val downloadWakeups = Channel<Unit>(capacity = 1)
-	private val startupQueueRecovery = applicationScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
-		recoverQueuedDownloads()
-	}
 
 	val allDownloads = downloadDao.getAllDownloads().map { it.toImmutableList() }
 	val downloadCount = downloadDao.getDownloadsCount()
@@ -106,8 +102,12 @@ class DownloadManager(
 		paige.navic.domain.models.pendingDownloadCount(downloads)
 	}
 
-	private val _downloadedSongs = MutableStateFlow<Map<String, String>>(emptyMap())
-	val downloadedSongs: StateFlow<Map<String, String>> = _downloadedSongs.asStateFlow()
+	private val downloadedRows = MutableStateFlow<Map<String, DownloadEntity>>(emptyMap())
+	val downloadedSongs: StateFlow<Map<String, String>> = combine(downloadDao.ownerId, downloadedRows) { owner, rows ->
+		// This is a UI projection. Validate files when resolving audio, not on every registry update.
+		rows.mapNotNull { (id, row) -> row.filePath?.takeIf { owner != null && row.ownerId == owner }?.let { id to it } }
+			.toMap()
+	}.stateIn(applicationScope, SharingStarted.Eagerly, emptyMap())
 
 	private var libraryDownloadJob: Job? = null
 	private val _isDownloadingLibrary = MutableStateFlow(false)
@@ -116,48 +116,33 @@ class DownloadManager(
 	val libraryDownloadProgress: StateFlow<Float> = _libraryDownloadProgress.asStateFlow()
 
 	init {
-		startupQueueRecovery.start()
 		applicationScope.launch {
 			allDownloads.collectLatest { downloads ->
-				_downloadedSongs.value = downloads
-					.mapNotNull { download ->
-						val path = download.filePath
-						if (download.status != DownloadStatus.DOWNLOADED || path == null) return@mapNotNull null
-						if (!isUsableDownloadedAudioFile(path)) return@mapNotNull null
-						download.songId to path
-					}
-					.toMap()
+				downloadedRows.value = downloads.filter { it.status == DownloadStatus.DOWNLOADED }.associateBy { it.songId }
 			}
 		}
 		sessionLifetime.repeatInSession {
 			try {
-				recoverQueuedDownloads()
-				launch(Dispatchers.IO) {
-					connectivityManager.isOnline.collect { isOnline ->
-						if (isOnline) {
-							recoverQueuedDownloads()
-						} else {
-							suspendActiveDownloadsForOffline()
-						}
+				runConnectedDownloadWorkers(
+					online = connectivityManager.isOnline,
+					recoverInterrupted = ::recoverQueuedDownloads
+				) {
+					repeat(downloadSchedulerWorkerCount()) {
+						launch(Dispatchers.IO) { processSongDownloadQueueWorker() }
 					}
+					downloadWakeups.trySend(Unit)
+					awaitCancellation()
 				}
-				repeat(downloadSchedulerWorkerCount()) {
-					launch(Dispatchers.IO) {
-						processSongDownloadQueueWorker()
-					}
-				}
-				downloadWakeups.trySend(Unit)
-				awaitCancellation()
 			} finally {
 				withContext(NonCancellable) { cleanupSessionWork() }
 			}
 		}
 	}
 
-	fun getDownloadedFilePath(songId: String): String? {
-		val path = _downloadedSongs.value[songId] ?: return null
-		return path.takeIf(::isUsableDownloadedAudioFile)
-	}
+	fun getDownloadedFilePath(songId: String): String? = getDownloadedFilePath(downloadedRows.value[songId])
+
+	fun getDownloadedFilePath(download: DownloadEntity?): String? =
+		downloadedAudioPath(download, downloadDao.ownerId.value, ::isUsableDownloadedAudioFile)
 
 	private fun isUsableDownloadedAudioFile(path: String): Boolean =
 		storageManager.fileExists(path) &&
@@ -178,10 +163,15 @@ class DownloadManager(
 	suspend fun requestPlaybackRecoveryDownload(
 		song: DomainSong
 	): PlaybackDownloadRequestResult {
-		startupQueueRecovery.join()
 		if (sessionLifetime.currentScope() == null) {
 			return PlaybackDownloadRequestResult.InactiveSession
 		}
+		return sessionLifetime.runInSession {
+			downloadWork.serialized { requestPlaybackRecoveryDownloadLocked(song) }
+		}
+	}
+
+	private suspend fun requestPlaybackRecoveryDownloadLocked(song: DomainSong): PlaybackDownloadRequestResult {
 		if (songDao.getSongById(song.id) == null) {
 			return PlaybackDownloadRequestResult.MissingCatalogEntry
 		}
@@ -258,12 +248,7 @@ class DownloadManager(
 
 	fun cancelDownload(songId: String) {
 		scope.launch(Dispatchers.IO) {
-			downloadDao.cancelPendingIntent(songId)
-
-			activeDownloadsMutex.withLock {
-				activeDownloads[songId]?.cancel()
-				activeDownloads.remove(songId)
-			}
+			cancelDownloadWork(listOf(songId))
 			downloadWakeups.trySend(Unit)
 		}
 	}
@@ -283,7 +268,8 @@ class DownloadManager(
 				localSongIds = songsById.keys
 			)
 			retryPlan.staleSongIdsToDelete.forEach { songId ->
-				downloadDao.deleteDownload(songId)
+				val failed = downloads.firstOrNull { it.songId == songId } ?: return@forEach
+				downloadDao.deleteFailedDownloadIfCurrent(songId, failed.intentGeneration)
 			}
 			var queuedAny = false
 			retryPlan.songIdsToRetry.forEach { songId ->
@@ -307,7 +293,7 @@ class DownloadManager(
 				.firstOrNull()
 				?.toDomainModel()
 			if (song == null) {
-				downloadDao.deleteDownload(songId)
+				downloadDao.deleteFailedDownloadIfCurrent(songId, download.intentGeneration)
 				return@launch
 			}
 			if (
@@ -326,7 +312,7 @@ class DownloadManager(
 		scope.launch(Dispatchers.IO) {
 			downloadDao.getAllDownloadsList()
 				.filter { it.status == DownloadStatus.FAILED }
-				.forEach { downloadDao.deleteDownload(it.songId) }
+				.forEach { downloadDao.deleteFailedDownloadIfCurrent(it.songId, it.intentGeneration) }
 		}
 	}
 
@@ -339,12 +325,10 @@ class DownloadManager(
 	}
 
 	fun deleteDownload(songId: String) {
-		cancelDownload(songId)
 		scope.launch {
-			val download = downloadDao.getDownloadById(songId)
-			download?.filePath?.let { storageManager.deleteFile(it) }
-			storageManager.clearLidaClipOfflineFilesForSong(songId)
-			downloadDao.deleteDownload(songId)
+			val download = cancelDownloadWork(listOf(songId)).firstOrNull()
+			if (download != null) deleteCapturedDownload(download)
+			downloadWakeups.trySend(Unit)
 		}
 	}
 
@@ -355,7 +339,7 @@ class DownloadManager(
 	}
 
 	suspend fun isDownloaded(songId: String): Boolean {
-		return downloadDao.getDownloadById(songId)?.status == DownloadStatus.DOWNLOADED
+		return getDownloadedFilePath(downloadDao.getDownloadById(songId)) != null
 	}
 
 	fun getCollectionDownloadStatus(songIds: List<String>): Flow<DownloadStatus> {
@@ -366,10 +350,10 @@ class DownloadManager(
 
 	fun clearAllDownloads() {
 		scope.launch(Dispatchers.IO) {
-			cancelAllActiveDownloads()
-			storageManager.clearDownloads()
-			storageManager.clearLidaClipOfflineFiles()
-			downloadDao.clearAllDownloads()
+			resetLibraryDownloadState()
+			val rows = cancelDownloadWork(downloadDao.getAllDownloadsList().map { it.songId })
+			rows.forEach { deleteCapturedDownload(it) }
+			downloadWakeups.trySend(Unit)
 			Logger.i("DownloadManager", "cleared all downloads")
 		}
 	}
@@ -380,22 +364,20 @@ class DownloadManager(
 	}
 
 	private suspend fun cleanupSessionWork() {
-		val jobs = activeDownloadsMutex.withLock {
-			activeDownloads.values.toList().also { activeDownloads.clear() }
-		}
-		jobs.forEach { it.cancel() }
-		jobs.forEach { it.join() }
-		runningDownloadSlotsMutex.withLock { runningDownloadSlots.clear() }
 		resetLibraryDownloadState()
 	}
 
-	private suspend fun suspendActiveDownloadsForOffline() = withContext(NonCancellable) {
-		val jobs = activeDownloadsMutex.withLock { activeDownloads.values.toList() }
-		jobs.forEach { it.cancel() }
-		jobs.forEach { it.join() }
-		downloadDao.recoverInterruptedDownloads()
-		Logger.i("DownloadManager", "Suspended hosted downloads while effective Offline Mode is active")
-	}
+	private suspend fun deleteCapturedDownload(download: DownloadEntity) = deletePublishedAudio(
+		deleteRow = {
+			downloadDao.deleteDownloadIfCurrent(
+				download.songId, download.intentGeneration, download.status, download.filePath
+			) == 1
+		},
+		deleteFiles = {
+			download.filePath?.let { storageManager.deleteFile(it) }
+			storageManager.clearLidaClipOfflineFilesForSong(download.songId)
+		}
+	)
 
 	private fun resetLibraryDownloadState() {
 		libraryDownloadJob?.cancel()
@@ -405,68 +387,45 @@ class DownloadManager(
 	}
 
 	private suspend fun clearDownloadRows(songIdsToDelete: (List<DownloadEntity>) -> List<String>) {
-		val jobsToCancel = activeDownloadsMutex.withLock {
-			val copy = activeDownloads.toMap()
-			activeDownloads.clear()
-			copy
-		}
-		jobsToCancel.values.forEach { job -> job.cancel() }
-
-		songIdsToDelete(downloadDao.getAllDownloadsList())
-			.distinct()
-			.forEach { songId -> downloadDao.cancelPendingIntent(songId) }
+		cancelDownloadWork(songIdsToDelete(downloadDao.getAllDownloadsList()))
 		downloadWakeups.trySend(Unit)
 	}
 
+	private suspend fun cancelDownloadWork(songIds: Collection<String>): List<DownloadEntity> {
+		return downloadWork.cancel(songIds) { ids ->
+			ids.mapNotNull { id ->
+				downloadDao.cancelPendingIntent(id)
+				downloadDao.getDownloadById(id)
+			}
+		}
+	}
+
 	private suspend fun processSongDownloadQueueWorker() {
-		startupQueueRecovery.join()
 		for (ignored in downloadWakeups) {
 			while (true) {
 				connectivityManager.isOnline.first { it }
-				val intent = claimNextDownloadSlot() ?: break
-				downloadWakeups.trySend(Unit)
-				try {
+				val processed = downloadWork.runNext(claim = ::claimNextDownloadSlot) { intent ->
+					downloadWakeups.trySend(Unit)
 					val song = songDao.getSongsByIds(listOf(intent.songId))
 						.firstOrNull()
 						?.toDomainModel()
 					if (song == null) {
-						downloadDao.cancelPendingIntent(intent.songId)
-						continue
+						downloadDao.completeIfCurrent(intent.songId, intent.intentGeneration, DownloadStatus.FAILED, 0f, null)
+					} else if (isCurrentDownloadIntent(song.id, intent.intentGeneration)) {
+						executeDownloadProcess(song, intent.intentGeneration)
 					}
-					runDownloadJob(song, intent.intentGeneration)
-				} finally {
-					releaseDownloadSlot(intent.songId)
-					downloadWakeups.trySend(Unit)
 				}
+				if (!processed) break
+				downloadWakeups.trySend(Unit)
 			}
 		}
 	}
 
-	private suspend fun runDownloadJob(song: DomainSong, generation: Long) {
-		val downloadJob = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
-			if (isCurrentDownloadIntent(song.id, generation)) {
-				executeDownloadProcess(song, generation)
-			}
-		}
-
-		activeDownloadsMutex.withLock {
-			activeDownloads[song.id] = downloadJob
-		}
-
-		try {
-			downloadJob.start()
-			downloadJob.join()
-		} finally {
-			activeDownloadsMutex.withLock {
-				if (activeDownloads[song.id] == downloadJob) {
-					activeDownloads.remove(song.id)
-				}
-			}
-		}
+	private suspend fun queueSongDownloads(songs: List<DomainSong>) = sessionLifetime.runInSession {
+		downloadWork.serialized { enqueueSongDownloads(songs) }
 	}
 
-	private suspend fun queueSongDownloads(songs: List<DomainSong>) {
-		startupQueueRecovery.join()
+	private suspend fun enqueueSongDownloads(songs: List<DomainSong>) {
 		val distinctSongs = songs.distinctBy { it.id }
 		if (distinctSongs.isEmpty()) return
 
@@ -506,23 +465,15 @@ class DownloadManager(
 		}
 	}
 
-	private suspend fun claimNextDownloadSlot(): DownloadEntity? = runningDownloadSlotsMutex.withLock {
-		if (!connectivityManager.isOnline.value) return@withLock null
-		if (runningDownloadSlots.size >= paige.navic.domain.models.downloadConcurrencyLimit(
+	private suspend fun claimNextDownloadSlot(runningSongIds: Set<String>): DownloadEntity? {
+		if (!connectivityManager.isOnline.value) return null
+		if (runningSongIds.size >= paige.navic.domain.models.downloadConcurrencyLimit(
 				preferenceManager.maxConcurrentDownloads
 			)
 		) {
-			return@withLock null
+			return null
 		}
-		val intent = downloadDao.claimNextQueuedDownload() ?: return@withLock null
-		runningDownloadSlots += intent.songId
-		intent
-	}
-
-	private suspend fun releaseDownloadSlot(songId: String) {
-		runningDownloadSlotsMutex.withLock {
-			runningDownloadSlots.remove(songId)
-		}
+		return downloadDao.claimNextQueuedDownload(runningSongIds)
 	}
 
 	private suspend fun isCurrentDownloadIntent(songId: String, generation: Long): Boolean {
@@ -535,19 +486,21 @@ class DownloadManager(
 			Logger.i("DownloadManager", "beginning download for ${song.id}")
 			if (!isCurrentDownloadIntent(song.id, generation)) return
 
-			val path = downloadAudioFile(song, generation)
-			if (
-				downloadDao.completeIfCurrent(
-					songId = song.id,
-					generation = generation,
-					status = DownloadStatus.DOWNLOADED,
-					progress = 1f,
-					filePath = path
-				) != 1
-			) {
-				storageManager.deleteFile(path)
-				return
-			}
+			val extension = song.fileExtension.takeIf { value ->
+				value.isNotEmpty() && value.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' }
+			} ?: "audio"
+			val path = storageManager.getDownloadPath("audio-${Uuid.random()}", extension)
+			val published = publishAudioDownload(
+				finalPath = path,
+				write = { temporaryPath -> downloadAudioFile(song, generation, temporaryPath) },
+				isUsable = ::isUsableDownloadedAudioFile,
+				move = storageManager::moveFile,
+				complete = { finalPath ->
+					downloadDao.completeIfCurrent(song.id, generation, DownloadStatus.DOWNLOADED, 1f, finalPath) == 1
+				},
+				delete = { storageManager.deleteFile(it) }
+			)
+			if (!published) return
 			cacheSongCoverArt(song.coverArtId)
 			cacheAlbumCoverArt(song.albumId)
 			cacheLyrics(song)
@@ -674,7 +627,7 @@ class DownloadManager(
 		}
 	}
 
-	private suspend fun downloadAudioFile(song: DomainSong, generation: Long): String {
+	private suspend fun downloadAudioFile(song: DomainSong, generation: Long, path: String) = coroutineScope {
 		var lastProgress = 0f
 		var progressJob: Job? = null
 
@@ -690,7 +643,7 @@ class DownloadManager(
 
 						progressJob?.cancel()
 
-						progressJob = scope.launch {
+						progressJob = launch {
 							downloadDao.updateProgressIfCurrent(
 								song.id,
 								generation,
@@ -705,30 +658,25 @@ class DownloadManager(
 			}
 		}
 
-		return request.execute { response ->
-			if (response.status.value !in 200..299) {
-				throw IllegalStateException(
-					"Stream request failed for ${song.id}: HTTP ${response.status.value} ${response.status.description}"
-				)
-			}
-			val contentType = response.headers[HttpHeaders.ContentType]
-			if (shouldRejectAudioDownloadContentType(contentType)) {
-				throw IllegalStateException(
-					"Stream request returned non-audio content for ${song.id}: $contentType"
-				)
-			}
-			Logger.i("DownloadManager", "writing download for ${song.id}")
-			val path = storageManager.getDownloadPath(song.id, song.fileExtension)
-			try {
+		try {
+			request.execute { response ->
+				if (response.status.value !in 200..299) {
+					throw IllegalStateException(
+						"Stream request failed for ${song.id}: HTTP ${response.status.value} ${response.status.description}"
+					)
+				}
+				val contentType = response.headers[HttpHeaders.ContentType]
+				if (shouldRejectAudioDownloadContentType(contentType)) {
+					throw IllegalStateException(
+						"Stream request returned non-audio content for ${song.id}: $contentType"
+					)
+				}
+				Logger.i("DownloadManager", "writing download for ${song.id}")
 				storageManager.saveFile(path, response.bodyAsChannel())
-			} catch (error: CancellationException) {
-				storageManager.deleteFile(path)
-				throw error
+				Logger.i("DownloadManager", "wrote download for ${song.id}")
 			}
-			Logger.i("DownloadManager", "wrote download for ${song.id}")
-
+		} finally {
 			progressJob?.cancel()
-			path
 		}
 	}
 

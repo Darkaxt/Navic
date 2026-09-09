@@ -10,7 +10,7 @@ import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.LidaClipDownloadEntity
 
 @Database(
-	version = 5,
+	version = 6,
 	entities = [DownloadEntity::class, LidaClipDownloadEntity::class]
 )
 @ConstructedBy(DownloadDatabaseConstructor::class)

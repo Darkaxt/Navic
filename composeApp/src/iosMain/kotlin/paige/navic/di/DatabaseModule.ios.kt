@@ -5,6 +5,7 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import org.koin.dsl.module
 import paige.navic.data.database.CacheDatabase
 import paige.navic.data.database.DownloadDatabase
+import paige.navic.domain.manager.DownloadAccountIdentity
 
 actual val databaseModule = module {
 	single<CacheDatabase> {
@@ -17,7 +18,8 @@ actual val databaseModule = module {
 	single<DownloadDatabase> {
 		Room.databaseBuilder<DownloadDatabase>(documentDirectory() + "/downloads.db")
 			.setDriver(BundledSQLiteDriver())
-			.fallbackToDestructiveMigration(true)
+			.addMigrations(DownloadDatabaseMigration4To5)
+			.addMigrations(DownloadDatabaseMigration5To6(get<DownloadAccountIdentity>().legacyOwnerId))
 			.build()
 	}
 
@@ -38,6 +40,5 @@ private fun org.koin.core.module.Module.registerDatabaseDaos() {
 	single { get<CacheDatabase>().aurralMetadataCacheDao() }
 	single { get<CacheDatabase>().binderyMetadataCacheDao() }
 	single { get<CacheDatabase>().artworkColorDao() }
-	single { get<DownloadDatabase>().downloadDao() }
 	single { get<DownloadDatabase>().lidaClipDownloadDao() }
 }

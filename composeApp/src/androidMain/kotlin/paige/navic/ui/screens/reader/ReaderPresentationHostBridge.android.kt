@@ -218,20 +218,13 @@ internal class ReaderNativePagePresentationPublisher(
 
 		val candidate = currentCandidate()
 		val published = lastPublishedCandidate
-		// A consumed native request becomes the same stable, tokenless candidate. This
-		// applies to startup, curl settlement and cover entry as well as engine handback.
-		// Only an already accepted exact candidate can retire its request attribution.
-		if (
-			candidate != null &&
-			published?.transitionToken != null &&
-			candidate.transitionToken == null &&
-			candidate.handoffDirection == null &&
-			candidate == published.copy(transitionToken = null, handoffDirection = null)
-		) {
+		// Progress counters can reset after Ready without changing the accepted page.
+		// Only an authorizing receipt can supply this deduplication/retired-token anchor.
+		if (candidate != null && published != null && candidate.matchesAcceptedPublication(published)) {
 			lastPublishedCandidate = candidate
 		}
 		val pending = pendingFrame
-		if (pending != null && pending.candidate != candidate) {
+		if (pending != null && (pending.candidate != candidate || candidate == lastPublishedCandidate)) {
 			pendingFrame = null
 			frameSource.cancelPresentedFrameRequest(pending.requestId)
 		}
@@ -269,6 +262,19 @@ internal class ReaderNativePagePresentationPublisher(
 		pendingFrame = null
 		cancelHandoffTimeout()
 		failedHandoffTransition = null
+	}
+
+	private fun ReaderNativePagePresentationCandidate.matchesAcceptedPublication(
+		published: ReaderNativePagePresentationCandidate
+	): Boolean {
+		val comparison = copy(preparationFacts = preparationFacts.copy(
+			completedCount = published.preparationFacts.completedCount,
+			requiredCount = published.preparationFacts.requiredCount
+		))
+		return comparison == published || (
+			published.transitionToken != null && transitionToken == null && handoffDirection == null &&
+				comparison == published.copy(transitionToken = null, handoffDirection = null)
+			)
 	}
 
 	private fun currentLiveEngineToNativeTransition():
