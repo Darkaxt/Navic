@@ -27,6 +27,11 @@ on:
       - "!**/strings.xml"
   workflow_dispatch:
     inputs:
+      native_host_only:
+        description: Run host-only Native compile and monitor bench (no simulator or release)
+        required: false
+        default: false
+        type: boolean
       build_ios:
         description: Build and attach iOS IPA
         required: false
@@ -41,8 +46,46 @@ permissions:
   contents: read
 
 jobs:
+  native-host:
+    name: Native compile and monitor host bench
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.native_host_only && startsWith(github.ref, 'refs/heads/') }}
+    runs-on: macos-26
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact dispatch revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Setup JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-read-only: true
+
+      - name: Run bounded Native host gate
+        run: python3 -B scripts/native_host_gate.py
+
+      - name: Upload sanitized host receipt only
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: task359-native-host-${{ github.sha }}
+          path: ${{ runner.temp }}/task359-receipt/receipt.json
+          if-no-files-found: warn
+          retention-days: 7
+
   build-apk:
     name: Build Android APK
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.native_host_only) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -151,7 +194,7 @@ jobs:
 
   build-ipa:
     name: Build iOS IPA
-    if: ${{ (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')) || (github.event_name == 'workflow_dispatch' && inputs.build_ios) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.native_host_only) && ((startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')) || (github.event_name == 'workflow_dispatch' && inputs.build_ios)) }}
     runs-on: macos-26
     timeout-minutes: 45
     continue-on-error: ${{ startsWith(github.ref, 'refs/tags/v') }}
