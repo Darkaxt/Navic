@@ -520,22 +520,75 @@ contract is implemented and verified.
   same-session TOC relocation clears the completed exact-turn acknowledgement, so
   the next page action advances. It also proved ordinary Home/restore no longer
   classifies `TRIM_MEMORY_UI_HIDDEN` as memory pressure or closes the publication.
-- **New Stage 6 blocker:** Implement
+- **Hierarchical-authority blocker discovery (historical):** Implement
   `docs/superpowers/specs/2026-09-01-reader-hierarchical-presentation-authority-design.md`.
   Bounded testing showed that shell cover, renderer/raster preparation, Compose
-  overlays, and input gates can still publish locally correct but globally
-  contradictory decisions. A returned native cover can display off-screen
-  preparation as foreground work, and the current hide-before-cover-commit ordering
-  lacks an authoritative transaction even though no mixed frame was captured.
+  overlays, and input gates could publish locally correct but globally contradictory
+  decisions. A returned native cover could display off-screen preparation as
+  foreground work, and the hide-before-cover-commit ordering lacked an authoritative
+  transaction even though no mixed frame was captured.
 - **Rejected endpoint:** The focused
   `pageTurnPreparationPresentationVisible` Boolean prototype documents the visible
   cover-progress regression but is not the durable fix. It must not replace the
   hierarchical arbiter, proof-before-hide shell transactions, or fail-visible
   liveness contract.
-- **Acceptance state:** Stage 6 remains open. Before another accepted candidate, one
-  deterministic bounded sequence must pass: page turn, completed acknowledgement,
-  TOC relocation, next turn, cover return, cover dismissal, Home, and restore. Stage
-  7 must not begin.
+- **Hierarchical authority automated checkpoint:** Android production source audit
+  passed at `8d7a61deb61c1e745ad87f46818d5b6785c75cdb`, matching
+  `fork/fix/foreground-webview-handoff-ownership`. One common
+  `ReaderPresentationDecision` drives layer, input, preparation, diagnostic, and
+  transition. The production common/Android path has no reachable
+  `pageTurnPreparationPresentationVisible`, `pagePreparationCoverVisible`, raw-work
+  input grant, direct cover hide, or direct WebView fallback. Current-relocation
+  settlement data replaces the host shadow on every relocation, including with
+  `null`, and exact settlement is consumed by the current token/binding only;
+  `TRIM_MEMORY_UI_HIDDEN` maps only to visibility loss. The pending-authority matrix
+  covers success, failure, timeout, fresh Retry, cancellation/recovery, and restore.
+  Task 355 (`2e9dbc19`) additionally gates native-page publication on an Accepted or
+  Idempotent authorizing receipt before retaining its deduplication anchor. Task 356
+  (`ccf9eff1`) pins runtime publication/readaloud diagnostics to fixed events and
+  approved safe scalar fields without Throwable or protected reader values. No
+  prohibited runtime reader logging or Stage 7 work was found.
+- **Current Android build/lint/compile evidence:** Task 361 MAIN independently
+  verified
+  `C:/Users/darka/Documents/Projects/Android/.codex-temp/task361-host-8d7a61de-v1-b0ed9aed5606480abd68ffba7b6c121e`
+  with summary SHA-256
+  `aa6c1924dda52a2b04de3bed3a239702633128a2f96d4894415de3d2ab5fae51`
+  and final SHA-256
+  `c7e2f62934e165baaca9c0e01e6029d0272d25f0bb3a32c055135891ee7b204d`:
+  `actual=0`, `736.188s`, and all 145 actionable tasks executed, including
+  `assembleReaderDev`, `lintReaderDev`, and `compileAndroidMain`. The 91,458,926-byte
+  ReaderDev APK has SHA-256
+  `bb7bee0185733efdf25d9d7259ecc7023a7012d62e75d08bc2ad1bf635d4a97a`,
+  app ID `darkaxt.navic.readerdev`, version code 595, and version name
+  `v1.0.11-iota68`; lint reported 0 Fatal, 0 Error, 16 Warning, and 1 Hint.
+  Accounting recorded original production `1053 actual / 921 tracked` and identical
+  before/after 2,261-source inventories with canonical-index SHA-256
+  `9db8cde32138cb46b6b5f88a25b96f784d677cf3001c9c021247f6b2a2270c88`.
+  `exportLibraryDefinitions` was explicitly excluded with committed
+  acknowledgements; there were no overlays, filters, or stubs. ReaderDev is a
+  non-release artifact and remains device-pending.
+- **Historical full-test reuse, not a current rerun:** The full Android host/source
+  checkpoint at `b9ab62ca4` in
+  `C:/Users/darka/Documents/Projects/Android/.codex-temp/task357-main-final-v2-36a85438187043d4bf8945d3e98c6d73`
+  (summary SHA-256
+  `32d550b4db10c0dedb7e8406166f85f2d30e3c9a5b166b5a59c241956331578e`)
+  passed six static gates plus 4,294 tests in 514 suites: 2,529 reader and 1,765
+  non-reader tests, with zero failures, errors, or skips, over 2,259 raw app sources
+  and original-input proofs. Task 361 did not rerun the Android host tests or the
+  six static gates. At `8d7a61de`, `composeApp/src` and `androidApp/src` match that
+  checkpoint byte-for-byte by the app-source diff check; only workflow/CI support
+  changed. This identity permits reuse of the historical result but is not
+  represented as a current test or static-gate rerun.
+- **Acceptance state and ordered Android-only gates:** Stage 6 remains open, with no
+  device/runtime or production-signed acceptance claimed. Complete Task 340 broader
+  Navic eBook/Bindery-consumer QA, then Task 339 on an explicitly owned emulator
+  (user device-session ownership is required; no action now), Task 338 production-
+  signed candidate, Task 282 bounded physical-tablet acceptance, and finally Task
+  283/Stage 6 closure. The ReaderDev APK and every other debug APK are barred from
+  physical-tablet acceptance; that gate requires the production-signed candidate.
+  Existing releases and release assets remain immutable. iOS, macOS, and Native are
+  excluded from this Android-only scope. Stage 7 remains blocked, and WordSync is not
+  deferred.
 
 ### Expected outcome
 
