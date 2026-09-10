@@ -1214,10 +1214,10 @@ private fun drawWebViewIntoBitmap(
 	webView.draw(canvas)
 	canvas.restoreToCount(checkpoint)
 	true
-}.getOrElse { failure ->
+}.getOrElse { _ ->
 	Logger.w(
 		ReaderPageTurnBitmapSourceTag,
-		"Page-turn WebView draw fallback failed failureClass=${failure::class.simpleName ?: "unknown"}"
+		"Page-turn WebView draw fallback failed"
 	)
 	false
 }

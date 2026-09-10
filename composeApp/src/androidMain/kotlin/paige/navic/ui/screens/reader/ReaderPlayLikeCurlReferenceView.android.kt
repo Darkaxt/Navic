@@ -177,11 +177,10 @@ class ReaderPlayLikeCurlReferenceView(
 				preparation.await()
 			} catch (cancelled: CancellationException) {
 				throw cancelled
-			} catch (failure: Throwable) {
+			} catch (_: Throwable) {
 				Logger.e(
 					ReaderPlayLikeCurlReferenceViewTag,
-					"Reference raster preparation failed " +
-						"failureClass=${failure::class.simpleName ?: "unknown"}"
+					"Reference raster preparation failed"
 				)
 				return@launch
 			} ?: return@launch

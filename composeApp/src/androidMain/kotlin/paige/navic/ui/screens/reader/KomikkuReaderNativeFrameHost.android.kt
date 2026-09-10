@@ -4497,7 +4497,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		if (shellCoverVisible) {
 			Logger.i(
 				KomikkuReaderNativeFrameHostTag,
-				"Reader shell cover swipe action=$action dx=$deltaX dy=$deltaY threshold=$thresholdPx"
+				"Reader shell cover swipe action=$action"
 			)
 			Logger.i(
 				KomikkuReaderNativeFrameHostTag,
@@ -4506,7 +4506,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		} else {
 			Logger.i(
 				KomikkuReaderNativeFrameHostTag,
-				"Reader native readable swipe action=$action dx=$deltaX dy=$deltaY threshold=$thresholdPx"
+				"Reader native readable swipe action=$action"
 			)
 		}
 		if (shellCoverVisible) {
@@ -4557,7 +4557,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 		Logger.i(
 			KomikkuReaderNativeFrameHostTag,
-			"$label dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
+			label
 		)
 	}
 
@@ -4567,7 +4567,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		nativeDragPreviewDiagnosticLogged = true
 		Logger.i(
 			KomikkuReaderNativeFrameHostTag,
-			"Reader native drag preview dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
+			"Reader native drag preview"
 		)
 	}
 

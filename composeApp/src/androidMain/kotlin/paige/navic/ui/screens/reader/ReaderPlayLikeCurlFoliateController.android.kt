@@ -1324,11 +1324,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			)
 			repairQaFaultCorrelations.remove(operation.attempt)
 		},
-		onStateObserverFailure = { failure ->
+		onStateObserverFailure = { _ ->
 			Logger.e(
 				ReaderPlayLikeCurlFoliateControllerTag,
-				"Deck recovery observer failed " +
-					"failureClass=${failure::class.simpleName ?: "unknown"}"
+				"Deck recovery observer failed"
 			)
 		}
 	)
@@ -1985,11 +1984,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun notifyPreparedActiveDeckChanged(deck: ReaderPagePreparedActiveDeck?) {
 		try {
 			onPreparedActiveDeckChanged(deck)
-		} catch (failure: Throwable) {
+		} catch (_: Throwable) {
 			Logger.e(
 				ReaderPlayLikeCurlFoliateControllerTag,
-				"Prepared active deck observer failed " +
-					"failureClass=${failure::class.simpleName ?: "unknown"}"
+				"Prepared active deck observer failed"
 			)
 		}
 	}
@@ -4098,8 +4096,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						decodedRefillCenterOrdinal = null
 						Logger.e(
 							ReaderPlayLikeCurlFoliateControllerTag,
-							"Decoded refill failed " +
-								"failureClass=${failure::class.simpleName ?: "unknown"}"
+							"Decoded refill failed"
 						)
 						if (activeDeckGenerationId != null) {
 							updateReadiness(
@@ -4607,8 +4604,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						)
 						Logger.e(
 							ReaderPlayLikeCurlFoliateControllerTag,
-							"Raster deck load failed " +
-								"failureClass=${failure::class.simpleName ?: "unknown"}"
+							"Raster deck load failed"
 						)
 					}
 					return@withContext
@@ -6434,11 +6430,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			webView.evaluateJavascript(
 				"window.NavicReaderBridge?.dispatch?.($command)"
 			) { }
-		} catch (failure: Throwable) {
+		} catch (_: Throwable) {
 			Logger.e(
 				ReaderPlayLikeCurlFoliateControllerTag,
-				"PlayLikeCurl exact page dispatch failed " +
-					"failureClass=${failure::class.simpleName ?: "unknown"}"
+				"PlayLikeCurl exact page dispatch failed"
 			)
 			return ReaderPageRelocationExactDispatchResult.Rejected(
 				ReaderPageRelocationDiagnosticRejectionReason.JavascriptDispatchFailed

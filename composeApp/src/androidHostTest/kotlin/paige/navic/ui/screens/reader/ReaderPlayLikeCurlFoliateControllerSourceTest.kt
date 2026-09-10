@@ -133,8 +133,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertFalse(controller.contains("val deck = preparation.await()"))
 		assertContains(reference, "rendererDeckLeaseLimit = deckLeaseLimit")
 		assertContains(reference, "catch (cancelled: CancellationException)")
-		assertContains(reference, "Reference raster preparation failed")
-		assertContains(reference, "failureClass=")
+		assertContains(reference, "\"Reference raster preparation failed\"")
+		assertFalse(reference.contains("failureClass="))
 		assertContains(reference, "registerMainTerminalExecutor")
 		assertContains(reference, "Looper.myLooper() == Looper.getMainLooper()")
 		assertEquals(

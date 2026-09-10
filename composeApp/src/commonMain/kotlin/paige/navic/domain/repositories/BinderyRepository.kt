@@ -495,11 +495,10 @@ class BinderyRepository(
 
 	suspend fun getFindingProviderCoverUrl(finding: BinderyFindingMetadata): Result<String?> {
 		val provider = finding.providerKind ?: finding.provider
-		val findingId = finding.findingId?.trim()?.takeIf { it.isNotEmpty() } ?: "<unknown>"
 		if (!provider.isAudioBookBayProvider()) {
 			Logger.i(
 				TAG,
-				"Bindery audiobook provider cover skipped finding=$findingId provider=${provider.orEmpty()} reason=unsupported-provider"
+				"Bindery audiobook provider cover skipped providerSupported=false reason=unsupported-provider"
 			)
 			return Result.success(null)
 		}
@@ -507,7 +506,7 @@ class BinderyRepository(
 		if (sourceUrl == null) {
 			Logger.i(
 				TAG,
-				"Bindery audiobook provider cover skipped finding=$findingId provider=${provider.orEmpty()} reason=missing-source-url"
+				"Bindery audiobook provider cover skipped provider=audio-book-bay reason=missing-source-url"
 			)
 			return Result.success(null)
 		}
@@ -524,7 +523,7 @@ class BinderyRepository(
 					.onSuccess { payload ->
 						Logger.i(
 							TAG,
-							"Bindery audiobook provider cover cache hit finding=$findingId source=${readerPublicationResourceLogLabel(sourceUrl)} cover=${payload.coverUrl?.let(::readerPublicationResourceLogLabel) ?: "<none>"}"
+							"Bindery audiobook provider cover cache hit provider=audio-book-bay source=${readerPublicationResourceLogLabel(sourceUrl)} cover=${payload.coverUrl?.let(::readerPublicationResourceLogLabel) ?: "<none>"}"
 						)
 						return@withConfiguredClientAvailability Result.success(payload.coverUrl)
 					}
@@ -553,7 +552,7 @@ class BinderyRepository(
 					)
 					Logger.i(
 						TAG,
-						"Bindery audiobook provider cover fetched finding=$findingId source=${readerPublicationResourceLogLabel(sourceUrl)} cover=${coverUrl?.let(::readerPublicationResourceLogLabel) ?: "<none>"}"
+						"Bindery audiobook provider cover fetched provider=audio-book-bay source=${readerPublicationResourceLogLabel(sourceUrl)} cover=${coverUrl?.let(::readerPublicationResourceLogLabel) ?: "<none>"}"
 					)
 					Result.success(coverUrl)
 				},
@@ -570,7 +569,7 @@ class BinderyRepository(
 					)
 					Logger.w(
 						TAG,
-						"Bindery audiobook provider cover fetch failed finding=$findingId source=${readerPublicationResourceLogLabel(sourceUrl)}; cached fallback",
+						"Bindery audiobook provider cover fetch failed provider=audio-book-bay source=${readerPublicationResourceLogLabel(sourceUrl)}; cached fallback",
 						error
 					)
 					Result.success(null)

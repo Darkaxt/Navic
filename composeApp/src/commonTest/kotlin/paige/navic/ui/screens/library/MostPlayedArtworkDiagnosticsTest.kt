@@ -2,36 +2,57 @@ package paige.navic.ui.screens.library
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class MostPlayedArtworkDiagnosticsTest {
 	@Test
-	fun diagnosticUrlSummaryDoesNotLogQueryValues() {
+	fun diagnosticUrlSummaryDoesNotRetainHostPathOrIdentifiers() {
+		val forbiddenMarkers = listOf(
+			"synthetic-artwork.invalid",
+			"SYNTHETIC_PATH_ID",
+			"SYNTHETIC_RESOURCE_ID",
+			"SYNTHETIC_ACTION_ID"
+		)
 		val summary = mostPlayedDiagnosticUrlSummary(
-			"https://aurral.example.com/api/artist/iu/image?token=secret-token&size=large"
+			"https://synthetic-artwork.invalid/SYNTHETIC_PATH_ID/SYNTHETIC_RESOURCE_ID" +
+				"?action=SYNTHETIC_ACTION_ID"
 		)
 
-		assertEquals(
-			"https://aurral.example.com/api/artist/iu/image?query",
-			summary
-		)
+		assertEquals("absolute-url", summary)
+		forbiddenMarkers.forEach { marker -> assertFalse(summary.contains(marker)) }
 	}
 
 	@Test
-	fun diagnosticHeaderSummaryLogsNamesOnly() {
+	fun diagnosticHeaderSummaryReportsOnlyCount() {
 		val summary = mostPlayedDiagnosticHeaderSummary(
 			mapOf(
-				"Authorization" to "Bearer secret-token",
-				"X-Api-Key" to "secret-api-key"
+				"SYNTHETIC_HEADER_ID" to "SYNTHETIC_HEADER_VALUE",
+				"SYNTHETIC_ACTION_ID" to "SYNTHETIC_ACTION_VALUE"
 			)
 		)
 
-		assertEquals("Authorization,X-Api-Key", summary)
+		assertEquals("count=2", summary)
+		assertFalse(summary.contains("SYNTHETIC_HEADER_ID"))
+		assertFalse(summary.contains("SYNTHETIC_ACTION_ID"))
 	}
 
 	@Test
-	fun diagnosticUrlSummaryMarksRelativeUrls() {
-		val summary = mostPlayedDiagnosticUrlSummary("/rest/getArtistImage?id=iu")
+	fun diagnosticUrlSummaryClassifiesRelativeUrls() {
+		val summary = mostPlayedDiagnosticUrlSummary(
+			"/SYNTHETIC_PATH_ID/SYNTHETIC_RESOURCE_ID?id=SYNTHETIC_ACTION_ID"
+		)
 
-		assertEquals("relative:/rest/getArtistImage?query", summary)
+		assertEquals("relative-path", summary)
+		assertFalse(summary.contains("SYNTHETIC_PATH_ID"))
+		assertFalse(summary.contains("SYNTHETIC_RESOURCE_ID"))
+	}
+
+	@Test
+	fun diagnosticTextReportsPresenceWithoutRetainingIdsOrNames() {
+		val summary = mostPlayedDiagnosticText("SYNTHETIC_ARTIST_ID SYNTHETIC_ARTIST_NAME")
+
+		assertEquals("present", summary)
+		assertFalse(summary.contains("SYNTHETIC_ARTIST_ID"))
+		assertFalse(summary.contains("SYNTHETIC_ARTIST_NAME"))
 	}
 }

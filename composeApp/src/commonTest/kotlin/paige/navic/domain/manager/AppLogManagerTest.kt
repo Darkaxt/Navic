@@ -6,6 +6,8 @@ import paige.navic.util.core.AppLogLevel
 import paige.navic.util.core.LoggerEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AppLogManagerTest {
@@ -46,10 +48,11 @@ class AppLogManagerTest {
 	}
 
 	@Test
-	fun enabledIssueLoggingPersistsStructuredRingEntries() {
+	fun enabledIssueLoggingPersistsStructuredRingEntriesWithoutThrowableContent() {
 		val preferences = PreferenceManager(MapSettings()).apply {
 			issueLoggingEnabled = true
 		}
+		val throwableMarker = "SYNTHETIC_THROWABLE_MARKER"
 		var now = 1000L
 		val manager = AppLogManager(
 			preferenceManager = preferences,
@@ -61,7 +64,14 @@ class AppLogManagerTest {
 		)
 
 		manager.record(LoggerEvent(AppLogLevel.Info, "SyncManager", "Sync started", null))
-		manager.record(LoggerEvent(AppLogLevel.Warning, "MediaPlayer", "Playback error", IllegalStateException("decoder failed")))
+		manager.record(
+			LoggerEvent(
+				AppLogLevel.Warning,
+				"MediaPlayer",
+				"Playback error",
+				IllegalStateException(throwableMarker)
+			)
+		)
 		manager.record(LoggerEvent(AppLogLevel.Error, "ReadaloudPlayback", "Playback failed", null))
 
 		assertEquals(
@@ -73,6 +83,9 @@ class AppLogManagerTest {
 			manager.entries.value.map { it.level }
 		)
 		assertTrue(preferences.issueLogJson.contains("ReadaloudPlayback"))
+		assertNull(manager.entries.value.first().throwable)
+		assertFalse(preferences.issueLogJson.contains(throwableMarker))
+		assertFalse(manager.exportText().contains(throwableMarker))
 
 		val restored = AppLogManager(
 			preferenceManager = preferences,
@@ -85,7 +98,59 @@ class AppLogManagerTest {
 
 		assertEquals(manager.entries.value, restored.entries.value)
 		assertTrue(restored.exportText().contains("W/MediaPlayer: Playback error"))
-		assertTrue(restored.exportText().contains("IllegalStateException: decoder failed"))
+		assertFalse(restored.exportText().contains(throwableMarker))
+	}
+
+	@Test
+	fun currentIssueLogDropsThrowableDiagnosticFieldImmediately() {
+		val messageMarker = "SYNTHETIC_CURRENT_THROWABLE_CLASS_MARKER"
+		val preferences = PreferenceManager(MapSettings()).apply {
+			issueLoggingEnabled = true
+		}
+		val manager = AppLogManager(
+			preferenceManager = preferences,
+			clockMillis = { 1000L }
+		)
+
+		manager.record(
+			LoggerEvent(
+				level = AppLogLevel.Error,
+				tag = "Reader",
+				message = "  reader-render failed failureClass=$messageMarker  "
+			)
+		)
+
+		assertEquals(AppLogLevel.Error, manager.entries.value.single().level)
+		assertEquals("  reader-render failed  ", manager.entries.value.single().message)
+		assertFalse(manager.entries.value.single().message.contains(messageMarker))
+		assertFalse(manager.exportText().contains(messageMarker))
+		assertFalse(preferences.issueLogJson.contains(messageMarker))
+	}
+
+	@Test
+	fun restoredIssueLogDropsLegacyThrowableContent() {
+		val throwableMarker = "SYNTHETIC_THROWABLE_MARKER"
+		val messageMarker = "SYNTHETIC_THROWABLE_CLASS_MARKER"
+		val preferences = PreferenceManager(MapSettings()).apply {
+			issueLogJson =
+				"""{"nextId":3,"entries":[{"id":1,"timestampMillis":1000,"level":"Warning","tag":"Reader","message":"reader-event state=failed","throwable":"$throwableMarker"},{"id":2,"timestampMillis":1001,"level":"Error","tag":"Reader","message":"reader-render failed failureClass=$messageMarker","throwable":null}]}"""
+		}
+
+		val manager = AppLogManager(
+			preferenceManager = preferences,
+			clockMillis = { 2000L }
+		)
+
+		assertTrue(manager.entries.value.all { it.throwable == null })
+		assertEquals(listOf(AppLogLevel.Warning, AppLogLevel.Error), manager.entries.value.map { it.level })
+		assertEquals(
+			listOf("reader-event state=failed", "reader-render failed"),
+			manager.entries.value.map { it.message }
+		)
+		assertFalse(manager.exportText().contains(throwableMarker))
+		assertFalse(manager.exportText().contains(messageMarker))
+		assertFalse(preferences.issueLogJson.contains(throwableMarker))
+		assertFalse(preferences.issueLogJson.contains(messageMarker))
 	}
 
 	@Test

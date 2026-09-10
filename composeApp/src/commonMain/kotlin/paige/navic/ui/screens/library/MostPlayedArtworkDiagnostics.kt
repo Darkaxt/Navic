@@ -4,33 +4,16 @@ internal const val MOST_PLAYED_ARTWORK_TAG = "MostPlayedArtwork"
 
 internal fun mostPlayedDiagnosticUrlSummary(value: String?): String {
 	val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return "none"
-	val withoutFragment = trimmed.substringBefore('#')
-	val hasQuery = '?' in withoutFragment
-	val withoutQuery = withoutFragment.substringBefore('?')
-	val prefix = when {
-		withoutQuery.startsWith("http://", ignoreCase = true) ||
-			withoutQuery.startsWith("https://", ignoreCase = true) -> ""
-		withoutQuery.startsWith("/") -> "relative:"
-		else -> "value:"
+	return when {
+		trimmed.startsWith("http://", ignoreCase = true) ||
+			trimmed.startsWith("https://", ignoreCase = true) -> "absolute-url"
+		trimmed.startsWith("/") -> "relative-path"
+		else -> "opaque-resource"
 	}
-	return prefix + withoutQuery.takeLastIfTooLong(maxLength = 140) + if (hasQuery) "?query" else ""
 }
 
 internal fun mostPlayedDiagnosticHeaderSummary(headers: Map<String, String>): String =
-	headers.keys
-		.map { it.trim() }
-		.filter { it.isNotEmpty() }
-		.sorted()
-		.joinToString(",")
-		.ifEmpty { "none" }
+	"count=${headers.keys.count { it.isNotBlank() }}"
 
-internal fun mostPlayedDiagnosticText(value: String?, maxLength: Int = 80): String =
-	value
-		?.trim()
-		?.replace(Regex("""\s+"""), " ")
-		?.takeIf { it.isNotEmpty() }
-		?.takeLastIfTooLong(maxLength)
-		?: "none"
-
-private fun String.takeLastIfTooLong(maxLength: Int): String =
-	if (length <= maxLength) this else "...${takeLast(maxLength - 3)}"
+internal fun mostPlayedDiagnosticText(value: String?): String =
+	if (value.isNullOrBlank()) "none" else "present"

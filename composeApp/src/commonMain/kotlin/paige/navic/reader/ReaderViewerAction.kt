@@ -15,7 +15,9 @@ sealed interface ReaderViewerAction {
 		val viewWidth: Double? = null,
 		val viewHeight: Double? = null,
 		val phase: ReaderPageDragPreviewPhase = ReaderPageDragPreviewPhase.Update
-	) : ReaderViewerAction
+	) : ReaderViewerAction {
+		override fun toString(): String = "PreviewPageDrag(phase=$phase)"
+	}
 
 	data class ScrollViewport(
 		val direction: ReaderViewportScrollDirection
@@ -23,12 +25,16 @@ sealed interface ReaderViewerAction {
 
 	data class NavigateTo(
 		val locator: ReaderLocator
-	) : ReaderViewerAction
+	) : ReaderViewerAction {
+		override fun toString(): String = "NavigateTo"
+	}
 
 	data class ContentLongPressAt(
 		val x: Double,
 		val y: Double,
 		val viewWidth: Double? = null,
 		val viewHeight: Double? = null
-	) : ReaderViewerAction
+	) : ReaderViewerAction {
+		override fun toString(): String = "ContentLongPressAt"
+	}
 }

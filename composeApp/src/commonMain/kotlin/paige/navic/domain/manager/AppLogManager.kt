@@ -46,10 +46,10 @@ class AppLogManager(
 			timestampMillis = clockMillis(),
 			level = event.level,
 			tag = event.tag.sanitizedLogField(MaxTagLength),
-			message = event.message.sanitizedLogField(MaxMessageLength),
-			throwable = event.throwable
-				?.stackTraceToString()
-				?.sanitizedLogField(MaxThrowableLength)
+			message = event.message
+				.sanitizedLogField(MaxMessageLength)
+				.withoutLegacyThrowableDiagnosticFields(),
+			throwable = null
 		)
 		store = AppLogStore(
 			nextId = store.nextId + 1,
@@ -93,20 +93,29 @@ class AppLogManager(
 			}
 		}
 
-	private fun restoreStore(): AppLogStore =
-		preferenceManager.issueLogJson
+	private fun restoreStore(): AppLogStore {
+		val decoded = preferenceManager.issueLogJson
 			.takeIf { it.isNotBlank() }
 			?.let { encoded ->
 				runCatching { json.decodeFromString<AppLogStore>(encoded) }.getOrNull()
 			}
-			?.let { decoded ->
-				val entries = decoded.entries.takeLast(maxEntries.coerceAtLeast(1))
-				decoded.copy(
-					nextId = decoded.nextId.coerceAtLeast((entries.maxOfOrNull { it.id } ?: 0L) + 1L),
-					entries = entries
-				)
-			}
-			?: AppLogStore()
+			?: return AppLogStore()
+		val privacySanitizedEntries = decoded.entries.map { entry ->
+			entry.copy(
+				message = entry.message.withoutLegacyThrowableDiagnosticFields(),
+				throwable = null
+			)
+		}
+		val entries = privacySanitizedEntries.takeLast(maxEntries.coerceAtLeast(1))
+		val restored = decoded.copy(
+			nextId = decoded.nextId.coerceAtLeast((entries.maxOfOrNull { it.id } ?: 0L) + 1L),
+			entries = entries
+		)
+		if (privacySanitizedEntries != decoded.entries) {
+			preferenceManager.issueLogJson = json.encodeToString(restored)
+		}
+		return restored
+	}
 
 	private fun persistStore() {
 		preferenceManager.issueLogJson = json.encodeToString(store)
@@ -117,7 +126,6 @@ class AppLogManager(
 		const val DefaultMaxEntries = 500
 		private const val MaxTagLength = 80
 		private const val MaxMessageLength = 2000
-		private const val MaxThrowableLength = 8000
 	}
 }
 
@@ -139,3 +147,6 @@ private data class AppLogStore(
 
 private fun String.sanitizedLogField(maxLength: Int): String =
 	take(maxLength).replace(Regex("[\\u0000-\\u001f&&[^\\n\\r\\t]]"), " ")
+
+private fun String.withoutLegacyThrowableDiagnosticFields(): String =
+	replace(Regex("(?:^|[ \\t])failureClass=\\S+"), "")

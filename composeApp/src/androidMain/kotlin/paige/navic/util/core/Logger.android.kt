@@ -11,43 +11,43 @@ actual object Logger {
 
 	actual fun d(tag: String, msg: String, tr: Throwable?) {
 		runCatching {
-			Log.d(tag, msg, tr)
+			Log.d(tag, msg)
 		}.getOrElse {
-			println("D/$tag: $msg${tr?.let { throwable -> "\n$throwable" }.orEmpty()}")
+			println("D/$tag: $msg")
 		}
-		emit(AppLogLevel.Debug, tag, msg, tr)
+		emit(AppLogLevel.Debug, tag, msg)
 	}
 
 	actual fun e(tag: String, msg: String, tr: Throwable?) {
 		runCatching {
-			Log.e(tag, msg, tr)
+			Log.e(tag, msg)
 		}.getOrElse {
-			println("E/$tag: $msg${tr?.let { throwable -> "\n$throwable" }.orEmpty()}")
+			println("E/$tag: $msg")
 		}
-		emit(AppLogLevel.Error, tag, msg, tr)
+		emit(AppLogLevel.Error, tag, msg)
 	}
 
 	actual fun i(tag: String, msg: String, tr: Throwable?) {
 		runCatching {
-			Log.i(tag, msg, tr)
+			Log.i(tag, msg)
 		}.getOrElse {
-			println("I/$tag: $msg${tr?.let { throwable -> "\n$throwable" }.orEmpty()}")
+			println("I/$tag: $msg")
 		}
-		emit(AppLogLevel.Info, tag, msg, tr)
+		emit(AppLogLevel.Info, tag, msg)
 	}
 
 	actual fun w(tag: String, msg: String, tr: Throwable?) {
 		runCatching {
-			Log.w(tag, msg, tr)
+			Log.w(tag, msg)
 		}.getOrElse {
-			println("W/$tag: $msg${tr?.let { throwable -> "\n$throwable" }.orEmpty()}")
+			println("W/$tag: $msg")
 		}
-		emit(AppLogLevel.Warning, tag, msg, tr)
+		emit(AppLogLevel.Warning, tag, msg)
 	}
 
-	private fun emit(level: AppLogLevel, tag: String, msg: String, tr: Throwable?) {
+	private fun emit(level: AppLogLevel, tag: String, msg: String) {
 		runCatching {
-			issueLogSink?.invoke(LoggerEvent(level, tag, msg, tr))
+			issueLogSink?.invoke(LoggerEvent(level, tag, msg))
 		}
 	}
 }

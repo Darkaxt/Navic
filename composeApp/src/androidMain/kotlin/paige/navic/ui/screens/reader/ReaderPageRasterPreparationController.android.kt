@@ -1400,11 +1400,10 @@ internal class ReaderPageRasterPreparationController(
 				initializeRasterCache(webView)
 			} catch (failure: CancellationException) {
 				throw failure
-			} catch (failure: Throwable) {
+			} catch (_: Throwable) {
 				Logger.w(
 					ReaderPageRasterPreparationControllerTag,
-					"Page raster cache initialization failed " +
-						"failureClass=${failure::class.simpleName ?: "unknown"}"
+					"Page raster cache initialization failed"
 				)
 			}
 			if (!isPrewarmSessionActive(session)) return@launch

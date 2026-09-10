@@ -3,18 +3,34 @@ package paige.navic.reader
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class ReaderPublicationDiagnosticsTest {
 	@Test
-	fun resourceLogLabelRedactsQueryAndFragment() {
+	fun resourceLogLabelClassifiesAbsoluteUrlsWithoutRetainingIdentifiers() {
+		val forbiddenMarkers = listOf(
+			"synthetic-reader.invalid",
+			"SYNTHETIC_BOOK_ID",
+			"SYNTHETIC_RESOURCE_ID",
+			"SYNTHETIC_ACTION_ID"
+		)
 		val label = readerPublicationResourceLogLabel(
-			" /opds/books/42/resources/book.epub?apiKey=secret&download=1#chapter "
+			"https://synthetic-reader.invalid/books/SYNTHETIC_BOOK_ID/" +
+				"resources/SYNTHETIC_RESOURCE_ID?action=SYNTHETIC_ACTION_ID#chapter"
 		)
 
-		assertEquals("/opds/books/42/resources/book.epub", label)
-		assertFalse(label.contains("secret"))
-		assertFalse(label.contains("apiKey"))
+		assertEquals("absolute-url", label)
+		forbiddenMarkers.forEach { marker -> assertFalse(label.contains(marker)) }
+	}
+
+	@Test
+	fun resourceLogLabelClassifiesRelativePathsWithoutRetainingIdentifiers() {
+		val label = readerPublicationResourceLogLabel(
+			"/books/SYNTHETIC_BOOK_ID/resources/SYNTHETIC_RESOURCE_ID"
+		)
+
+		assertEquals("relative-path", label)
+		assertFalse(label.contains("SYNTHETIC_BOOK_ID"))
+		assertFalse(label.contains("SYNTHETIC_RESOURCE_ID"))
 	}
 
 	@Test
@@ -23,12 +39,13 @@ class ReaderPublicationDiagnosticsTest {
 	}
 
 	@Test
-	fun resourceLogLabelCompactsLongValues() {
-		val label = readerPublicationResourceLogLabel("/opds/" + "a".repeat(240) + "/book.epub")
+	fun viewerActionLogValueDoesNotRetainLocatorIdentifiers() {
+		val label = ReaderViewerAction.NavigateTo(
+			ReaderLocator(href = "/books/SYNTHETIC_BOOK_ID/SYNTHETIC_RESOURCE_ID.xhtml")
+		).toString()
 
-		assertTrue(label.length <= 163)
-		assertTrue(label.startsWith("/opds/"))
-		assertTrue(label.endsWith("/book.epub"))
-		assertTrue(label.contains("..."))
+		assertEquals("NavigateTo", label)
+		assertFalse(label.contains("SYNTHETIC_BOOK_ID"))
+		assertFalse(label.contains("SYNTHETIC_RESOURCE_ID"))
 	}
 }

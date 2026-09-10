@@ -241,6 +241,7 @@ fun CoverArt(
 	val visibleCoverArtId = coverArtId
 	val usesServerCoverArt = resolvedImageUrl == null && visibleCoverArtId != null
 	val resolvedRequestHeaders = if (usesServerCoverArt) serverRequestHeaders else imageRequestHeaders
+	val safeImageDiagnosticLabel = coverArtDiagnosticLabel(imageDiagnosticLabel)
 	val resolvedImageCacheKey = normalizedCoverArtCacheKey(
 		cacheKey = imageCacheKey ?: resolvedImageUrl ?: visibleCoverArtId,
 		normalization = normalization
@@ -257,10 +258,10 @@ fun CoverArt(
 		resolvedImageCacheKey,
 		resolvedRequestHeaders
 	) {
-		if (imageDiagnosticLabel != null) {
+		if (safeImageDiagnosticLabel != null) {
 			Logger.i(
 				"CoverArt",
-				"request [$imageDiagnosticLabel] " +
+				"request [$safeImageDiagnosticLabel] " +
 					"usesServer=$usesServerCoverArt " +
 					"coverArtId=${coverArtDiagnosticValue(coverArtId)} " +
 					"imageUrl=${coverArtDiagnosticValue(resolvedImageUrl)} " +
@@ -390,11 +391,11 @@ fun CoverArt(
 			},
 			error = {
 				LaunchedEffect(it.result.throwable) {
-					if (imageDiagnosticLabel != null) {
+					if (safeImageDiagnosticLabel != null) {
 						Logger.w(
 							"CoverArt",
 							"Failed to load cover art, falling back to placeholder" +
-								" [$imageDiagnosticLabel] usesServer=$usesServerCoverArt " +
+								" [$safeImageDiagnosticLabel] usesServer=$usesServerCoverArt " +
 								"coverArtId=${coverArtDiagnosticValue(coverArtId)} " +
 								"imageUrl=${coverArtDiagnosticValue(resolvedImageUrl)} " +
 								"cacheKey=${coverArtDiagnosticValue(resolvedImageCacheKey)} " +
@@ -585,22 +586,28 @@ private fun softEdgeCompressionEaseIn(value: Float): Float {
 private const val SoftEdgeCompressionBandCount = 8
 private const val SoftEdgeCompressionOuterSourceFraction = 0.22f
 
+private fun coverArtDiagnosticLabel(value: String?): String? {
+	val label = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	return when {
+		label.startsWith("most-played", ignoreCase = true) -> "most-played"
+		label.startsWith("artist-detail", ignoreCase = true) -> "artist-detail"
+		label.startsWith("artist-list", ignoreCase = true) -> "artist-list"
+		else -> "artwork"
+	}
+}
+
 private fun coverArtDiagnosticValue(value: String?): String {
 	val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return "none"
-	val withoutFragment = trimmed.substringBefore('#')
-	val hasQuery = '?' in withoutFragment
-	val withoutQuery = withoutFragment.substringBefore('?')
-	val shortened = if (withoutQuery.length <= 140) withoutQuery else "...${withoutQuery.takeLast(137)}"
-	return shortened + if (hasQuery) "?query" else ""
+	return when {
+		trimmed.startsWith("http://", ignoreCase = true) ||
+			trimmed.startsWith("https://", ignoreCase = true) -> "absolute-url"
+		trimmed.startsWith("/") -> "relative-path"
+		else -> "opaque-resource"
+	}
 }
 
 private fun coverArtDiagnosticHeaderKeys(headers: Map<String, String>): String =
-	headers.keys
-		.map { it.trim() }
-		.filter { it.isNotEmpty() }
-		.sorted()
-		.joinToString(",")
-		.ifEmpty { "none" }
+	"count=${headers.keys.count { it.isNotBlank() }}"
 
 @Composable
 private fun CoverArtFallback(
