@@ -635,9 +635,7 @@ data class ReaderWordSyncPlaybackCoordinator(
 
 	private fun candidateForRawPoint(point: ReaderWordSyncRawPoint): ReaderWordSyncCandidate? {
 		val verified = chapters.values.singleOrNull { it.descriptor.id == point.provenanceId } ?: return null
-		val aggregateOffset = verified.chapter.ebookStart.toLong() + point.byteOffset
-		if (aggregateOffset > Int.MAX_VALUE) return null
-		val word = verified.chapter.wordAtEbookOffset(aggregateOffset.toInt()) ?: return null
+		val word = verified.chapter.wordAtEbookOffset(point.byteOffset) ?: return null
 		return ReaderWordSyncCandidate(verified, word)
 	}
 }
@@ -662,9 +660,8 @@ private data class ReaderWordSyncCandidate(
 		runtimeAudioResource: String? = null,
 		boundarySequence: Long? = null
 	): ReaderOverlayFragment {
-		val chapterStart = verified.chapter.ebookStart
-		val byteStart = word.ebookStart - chapterStart
-		val byteEnd = word.ebookEnd - chapterStart
+		val byteStart = word.ebookStart
+		val byteEnd = word.ebookEnd
 		val compatiblePlayback = playback?.takeIf {
 			it.audioTrackIndex == word.audioTrackIndex
 		}
