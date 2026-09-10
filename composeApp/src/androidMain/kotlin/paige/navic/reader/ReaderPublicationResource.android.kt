@@ -12,7 +12,10 @@ import java.security.MessageDigest
 import java.util.zip.ZipFile
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
@@ -80,9 +83,18 @@ class BinderyReaderPublicationResolver(
 				publicationExtension = publicationExtension
 			)
 		}
-		return resolved
-			.withExternalShellCover(request.externalShellCoverHref, fetchResourceBytes)
-			.withShellCoverTint()
+		var transferred = false
+		try {
+			currentCoroutineContext().ensureActive()
+			val enriched = resolved
+				.withExternalShellCover(request.externalShellCoverHref, fetchResourceBytes)
+				.withShellCoverTint()
+			currentCoroutineContext().ensureActive()
+			transferred = true
+			return enriched
+		} finally {
+			if (!transferred) resolved.sessionLease.release()
+		}
 	}
 }
 
@@ -189,19 +201,26 @@ private suspend fun ReaderResolvedPublicationResource.withExternalShellCover(
 	val publicationDirectory = publicationFile.parentFile ?: return this
 	val cachedCover = publicationDirectory.findCachedExternalShellCover(shellCoverHref)
 	if (cachedCover != null) return copy(shellCoverUrl = cachedCover.toReaderShellCoverAssetUrl(cacheKey))
-	return runCatching {
+	return try {
 		val coverBytes = fetchResourceBytes(shellCoverHref)
-		if (coverBytes.isEmpty()) return@runCatching this
+		currentCoroutineContext().ensureActive()
+		if (coverBytes.isEmpty()) return this
 		val coverFile = publicationDirectory.resolveExternalShellCoverFile(shellCoverHref, coverBytes)
 		coverFile.parentFile?.mkdirs()
 		coverFile.writeBytes(coverBytes)
+		currentCoroutineContext().ensureActive()
 		copy(shellCoverUrl = coverFile.toReaderShellCoverAssetUrl(cacheKey))
-	}.getOrElse { this }
+	} catch (cancelled: CancellationException) {
+		throw cancelled
+	} catch (_: Throwable) {
+		this
+	}
 }
 
 private suspend fun ReaderResolvedPublicationResource.withShellCoverTint(): ReaderResolvedPublicationResource {
 	val coverFile = shellCoverUrl?.readerShellCoverFile(publicationFile.parentFile) ?: return this
 	val tint = withContext(Dispatchers.IO) { coverFile.readerCachedDominantTint() } ?: return this
+	currentCoroutineContext().ensureActive()
 	return copy(shellCoverTint = tint)
 }
 

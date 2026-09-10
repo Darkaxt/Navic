@@ -7,6 +7,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import org.koin.compose.koinInject
 import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.domain.repositories.BinderyRepository
@@ -41,9 +45,8 @@ actual fun ReaderPublicationRuntimeHost(
 
 	val context = LocalContext.current
 	val repository = koinInject<BinderyRepository>()
-	val currentOnPublicationReady by rememberUpdatedState(onPublicationReady)
-	val currentOnError by rememberUpdatedState(onError)
-	val sessionLeases = remember { mutableListOf<ReaderSessionLease>() }
+	val currentReader by rememberUpdatedState(reader)
+	val sessionLeases = remember(reader) { mutableListOf<ReaderSessionLease>() }
 
 	DisposableEffect(sessionLeases) {
 		onDispose {
@@ -51,35 +54,34 @@ actual fun ReaderPublicationRuntimeHost(
 		}
 	}
 
-	LaunchedEffect(
-		reader.bookId,
-		reader.resourceHref,
-		reader.publicationUrl,
-		reader.kind,
-		reader.mediaOverlayEnabled,
-		reader.fullscreenCoverUrl
-	) {
-		val savedProgress = repository.savedReaderProgressFor(reader)
-		val preferredShellCoverUrl = reader.fullscreenCoverUrl?.trim()?.takeIf { it.isNotEmpty() }
+	LaunchedEffect(reader) {
+		val operationReader = reader
+		val operationOnPublicationReady = onPublicationReady
+		val operationOnError = onError
+		val savedProgress = repository.savedReaderProgressFor(operationReader)
+		val preferredShellCoverUrl = operationReader.fullscreenCoverUrl?.trim()?.takeIf { it.isNotEmpty() }
 		val externalShellCoverHref = preferredShellCoverUrl?.takeUnless { it.isLocalReaderPublicationUrl() }
-		val directUrl = reader.publicationUrl.takeIf {
-			reader.resourceHref.isBlank() || it.isLocalReaderPublicationUrl()
+		val directUrl = operationReader.publicationUrl.takeIf {
+			operationReader.resourceHref.isBlank() || it.isLocalReaderPublicationUrl()
 		}
 		if (directUrl != null) {
 			Logger.i(
 				ReaderPublicationRuntimeLogTag,
-				"Reader publication uses direct url kind=${reader.kind} " +
+				"Reader publication uses direct url kind=${operationReader.kind} " +
 					"shellCoverPresent=${preferredShellCoverUrl != null}"
 			)
-			currentOnPublicationReady(directUrl, preferredShellCoverUrl, null, savedProgress, null)
+			currentCoroutineContext().ensureActive()
+			if (currentReader == operationReader) {
+				operationOnPublicationReady(directUrl, preferredShellCoverUrl, null, savedProgress, null)
+			}
 			return@LaunchedEffect
 		}
 		Logger.i(
 			ReaderPublicationRuntimeLogTag,
-			"Preparing reader publication kind=${reader.kind}"
+			"Preparing reader publication kind=${operationReader.kind}"
 		)
-		runCatching {
-			val resolved = BinderyReaderPublicationResolver(
+		val resolved = try {
+			BinderyReaderPublicationResolver(
 				fetchResourceBytes = { path ->
 					Logger.i(
 						ReaderPublicationRuntimeLogTag,
@@ -95,50 +97,64 @@ actual fun ReaderPublicationRuntimeHost(
 				cacheRoot = readerManagedStorageRoot(context)
 			).resolve(
 				ReaderPublicationResourceRequest(
-					bookId = reader.bookId,
-					title = reader.title,
-					resourceHref = reader.resourceHref,
-					sourceUrl = reader.publicationUrl,
-					kind = reader.kind,
-					format = reader.publicationFormat,
-					mediaOverlayEnabled = reader.mediaOverlayEnabled,
+					bookId = operationReader.bookId,
+					title = operationReader.title,
+					resourceHref = operationReader.resourceHref,
+					sourceUrl = operationReader.publicationUrl,
+					kind = operationReader.kind,
+					format = operationReader.publicationFormat,
+					mediaOverlayEnabled = operationReader.mediaOverlayEnabled,
 					externalShellCoverHref = externalShellCoverHref
 				)
 			)
-			Logger.i(
-				ReaderPublicationRuntimeLogTag,
-				"Reader publication prepared fromCache=${resolved.fromCache} " +
-					"shellCoverPresent=${!resolved.shellCoverUrl.isNullOrBlank()} " +
-					"shellCoverTintPresent=${!resolved.shellCoverTint.isNullOrBlank()} " +
-					"fileBytes=${resolved.publicationFile.length()}"
-			)
-			resolved
-		}.fold(
-			onSuccess = { resolved ->
-				sessionLeases += resolved.sessionLease
-				val shellCoverUrl = if (externalShellCoverHref == null) {
-					preferredShellCoverUrl ?: resolved.shellCoverUrl
-				} else {
-					resolved.shellCoverUrl
-				}
-				currentOnPublicationReady(
-						resolved.publicationUrl,
-						shellCoverUrl,
-						resolved.shellCoverTint,
-						savedProgress,
-						androidWordSyncPublicationVerifierOrNull(
-							publicationFile = resolved.publicationFile,
-							format = reader.publicationFormat
-						)
-					)
-			},
-			onFailure = { error ->
+		} catch (cancelled: CancellationException) {
+			throw cancelled
+		} catch (_: Throwable) {
+			currentCoroutineContext().ensureActive()
+			if (currentReader == operationReader) {
 				Logger.e(
 					ReaderPublicationRuntimeLogTag,
-					"Reader publication preparation failed kind=${reader.kind}"
+					"Reader publication preparation failed kind=${operationReader.kind}"
 				)
-				currentOnError(error.message ?: "Unable to load reader publication.")
+				operationOnError("Unable to load reader publication.")
 			}
+			return@LaunchedEffect
+		}
+
+		val operationContext = currentCoroutineContext()
+		if (!operationContext.isActive || currentReader != operationReader) {
+			resolved.sessionLease.release()
+			operationContext.ensureActive()
+			return@LaunchedEffect
+		}
+		sessionLeases += resolved.sessionLease
+		Logger.i(
+			ReaderPublicationRuntimeLogTag,
+			"Reader publication prepared fromCache=${resolved.fromCache} " +
+				"shellCoverPresent=${!resolved.shellCoverUrl.isNullOrBlank()} " +
+				"shellCoverTintPresent=${!resolved.shellCoverTint.isNullOrBlank()} " +
+				"fileBytes=${resolved.publicationFile.length()}"
+		)
+		val shellCoverUrl = if (externalShellCoverHref == null) {
+			preferredShellCoverUrl ?: resolved.shellCoverUrl
+		} else {
+			resolved.shellCoverUrl
+		}
+		currentCoroutineContext().ensureActive()
+		if (currentReader != operationReader) {
+			sessionLeases.remove(resolved.sessionLease)
+			resolved.sessionLease.release()
+			return@LaunchedEffect
+		}
+		operationOnPublicationReady(
+			resolved.publicationUrl,
+			shellCoverUrl,
+			resolved.shellCoverTint,
+			savedProgress,
+			androidWordSyncPublicationVerifierOrNull(
+				publicationFile = resolved.publicationFile,
+				format = operationReader.publicationFormat
+			)
 		)
 	}
 }
@@ -150,8 +166,11 @@ private fun String.isLocalReaderPublicationUrl(): Boolean =
 
 private suspend fun BinderyRepository.savedReaderProgressFor(reader: Screen.Reader): BinderyReadingProgress? {
 	if (reader.bookId.isBlank() || reader.resourceHref.isBlank()) return null
-	return getReadingProgress(bookId = reader.bookId)
-		.onFailure { error ->
+	val result = getReadingProgress(bookId = reader.bookId)
+	val failure = result.exceptionOrNull()
+	if (failure is CancellationException) throw failure
+	return result
+		.onFailure {
 			Logger.w(
 				ReaderPublicationRuntimeLogTag,
 				"Reader saved progress lookup failed"

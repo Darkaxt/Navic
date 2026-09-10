@@ -36,7 +36,6 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyRepository
-import paige.navic.data.remote.bindery.binderyApiKeyHeaders
 import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
@@ -109,8 +108,6 @@ import paige.navic.reader.wordSyncOverlayDiagnostic
 import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.shared.AudiobookPlaybackTimelineSnapshot
 import paige.navic.ui.core.AudiobookMiniPlayerUiState
-import paige.navic.ui.screens.bindery.binderyAudiobookPlaybackPlan
-import paige.navic.ui.screens.bindery.binderyAudiobookResumeProgressForWhispersyncReader
 import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressForReader
 import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressJsonWithUpdate
 import paige.navic.ui.navigation.Screen
@@ -233,13 +230,25 @@ fun ReaderScreen(reader: Screen.Reader) {
 		?.trim()
 		?.takeIf { it.isNotEmpty() }
 		?: reader.whispersyncAudiobookBookFileId?.trim()?.takeIf { it.isNotEmpty() }
-	var whispersyncPlaybackPlan by remember(
-		reader.bookId,
-		reader.resourceHref,
-		reader.publicationUrl,
-		whispersyncAudiobookIdentity
-	) {
+	var whispersyncPlaybackPlan by remember(reader, whispersyncAudiobookIdentity) {
 		mutableStateOf<ReadaloudPlaybackPlan?>(null)
+	}
+	val publicationReadyOrchestration = remember(
+		coroutineScope,
+		binderyRepository,
+		audiobookPlaybackManager,
+		preferenceManager
+	) {
+		ReaderPublicationReadyOrchestration(
+			coroutineScope = coroutineScope,
+			binderyRepository = binderyRepository,
+			audiobookPlaybackManager = audiobookPlaybackManager,
+			preferenceManager = preferenceManager
+		)
+	}
+	DisposableEffect(reader, publicationReadyOrchestration) {
+		publicationReadyOrchestration.attach(reader)
+		onDispose { publicationReadyOrchestration.detach(reader) }
 	}
 	var wordSyncPublicationVerifier by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
 		mutableStateOf<WordSyncPublicationVerifier?>(null)
@@ -731,149 +740,61 @@ fun ReaderScreen(reader: Screen.Reader) {
 			wordSyncVerificationSession = null
 			applyCoordinatorStep(coordinator.configureWordSync(wordSyncReference))
 			attachment?.let { attachment ->
-				if (wordSyncReference == null) {
-					if (wordSyncVerifier == null) {
-						Logger.w(
-							WhispersyncSyncLogTag,
-							"WordSync reference state=unavailable matched=false active=false " +
-								"reason=verifier-missing count=0"
-						)
-					} else {
-						coroutineScope.launch {
-							withContext(Dispatchers.IO) {
-								binderyRepository.getBookSync(
-									bookId = reader.bookId,
-									forceRefresh = true
+				if (wordSyncReference == null && wordSyncVerifier == null) {
+					Logger.w(
+						WhispersyncSyncLogTag,
+						"WordSync reference state=unavailable matched=false active=false " +
+							"reason=verifier-missing count=0"
+					)
+				}
+				publicationReadyOrchestration.handle(
+					ReaderPublicationReadyOrchestrationRequest(
+						reader = reader,
+						attachment = attachment,
+						wordSyncVerifier = wordSyncVerifier,
+						needsWordSyncRecovery = wordSyncReference == null,
+						audiobookIdentity = whispersyncAudiobookIdentity,
+						playbackSpeed = listeningSettings.playbackSpeed,
+						callbacks = ReaderPublicationReadyOrchestrationCallbacks(
+							onWordSyncRecovered = { verifier, recoveredReference ->
+								wordSyncPublicationVerifier = verifier
+								wordSyncVerificationSession = null
+								applyCoordinatorStep(coordinator.configureWordSync(recoveredReference))
+							},
+							onSidecarLoaded = { sidecar ->
+								Logger.i(
+									ReaderScreenTag,
+									"Whispersync sidecar state=loaded matched=true active=false " +
+										"count=${sidecar.timeline.segments.size}"
 								)
-							}.fold(
-								onSuccess = { bookSync ->
-									val resolution = bookSync.wordSyncReferenceResolutionForLaunch(
-										bookId = reader.bookId,
-										attachment = attachment
-									)
-									val recoveredReference = resolution.reference
-									if (recoveredReference == null) {
-										Logger.w(
-											WhispersyncSyncLogTag,
-											"WordSync reference state=unavailable matched=false active=false " +
-												"reason=${resolution.reason.logValue} " +
-												"count=${resolution.candidateCount}"
-										)
-									} else {
-										wordSyncPublicationVerifier = wordSyncVerifier
-										wordSyncVerificationSession = null
-										applyCoordinatorStep(
-											coordinator.configureWordSync(recoveredReference)
-										)
-										Logger.i(
-											WhispersyncSyncLogTag,
-											"WordSync reference state=resolved matched=true active=true " +
-												"reason=book-sync count=1"
+								applyCoordinatorStep(coordinator.dispatch { loadWhispersyncSidecar(sidecar) })
+							},
+							onSidecarUnavailable = {
+								applyCoordinatorStep(
+									coordinator.dispatch {
+										reportWhispersyncLoadFailure(
+											message = ReaderWhispersyncStatusMessage.Unavailable,
+											detail = null
 										)
 									}
-								},
-								onFailure = { _ ->
-									Logger.w(
-										WhispersyncSyncLogTag,
-										"WordSync reference state=unavailable matched=false active=false " +
-											"reason=load-failed count=0"
-									)
-								}
-							)
-						}
-					}
-				}
-				coroutineScope.launch {
-					val sidecar = withContext(Dispatchers.IO) {
-						binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)
-					}.fold(
-						onSuccess = { sidecar ->
-							Logger.i(
-								ReaderScreenTag,
-								"Whispersync sidecar state=loaded matched=true active=false " +
-									"count=${sidecar.timeline.segments.size}"
-							)
-							applyCoordinatorStep(coordinator.dispatch { loadWhispersyncSidecar(sidecar) })
-							sidecar
-						},
-						onFailure = { _ ->
-							applyCoordinatorStep(
-								coordinator.dispatch { reportWhispersyncLoadFailure(
-									message = ReaderWhispersyncStatusMessage.Unavailable,
-									detail = null
-								) }
-							)
-							Logger.w(
-								ReaderScreenTag,
-								"Whispersync sidecar state=failed matched=false active=false " +
-									"reason=load-failed"
-							)
-							null
-						}
-					)
-					withContext(Dispatchers.IO) {
-						binderyRepository.getWhispersyncAudiobookManifest(
-							bookId = reader.bookId,
-							audiobookId = attachment.audiobookId,
-							audiobookBookFileId = attachment.audiobookBookFileId,
-							audiobookManifestHref = sidecar?.audiobookManifestHref
+								)
+							},
+							onPlaybackPlanChanged = { playbackPlan ->
+								whispersyncPlaybackPlan = playbackPlan
+							},
+							onAudiobookUnavailable = {
+								applyCoordinatorStep(
+									coordinator.dispatch {
+										reportWhispersyncLoadFailure(
+											message = ReaderWhispersyncStatusMessage.AudioUnavailable,
+											detail = null
+										)
+									}
+								)
+							}
 						)
-					}.fold(
-						onSuccess = { manifest ->
-							val requestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
-							val resumeProgress = binderyAudiobookResumeProgressForWhispersyncReader(
-								audiobookProgressJson = preferenceManager.binderyAudiobookProgressJson,
-								companionProgressJson = preferenceManager.binderyWhispersyncCompanionProgressJson,
-								bookId = reader.bookId,
-								versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
-								manifest = manifest,
-								audiobookBookFileId = attachment.audiobookBookFileId
-							)
-							val playbackPlan = binderyAudiobookPlaybackPlan(
-								manifest = manifest,
-								versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
-								opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
-								requestHeaders = requestHeaders,
-								resumeProgress = resumeProgress,
-								progressBookId = reader.bookId,
-								audiobookBookFileId = attachment.audiobookBookFileId
-							)
-							whispersyncPlaybackPlan = playbackPlan
-							audiobookPlaybackManager.load(
-								playbackPlan = playbackPlan,
-								bookId = reader.bookId,
-								bookTitle = attachment.audiobookTitle ?: reader.title,
-								versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
-								coverUrl = null,
-								coverCacheKey = null,
-								imageRequestHeaders = requestHeaders,
-								playWhenReady = false
-							)
-							audiobookPlaybackManager.dispatch(
-								ReaderReadaloudPlaybackCommand.SetSpeed(listeningSettings.playbackSpeed)
-							)
-							Logger.i(
-								ReaderScreenTag,
-								"Whispersync audiobook state=loaded matched=true active=false " +
-									"count=${playbackPlan.mediaItems.size}"
-							)
-						},
-						onFailure = { _ ->
-							whispersyncPlaybackPlan = null
-							applyCoordinatorStep(
-								coordinator.dispatch { reportWhispersyncLoadFailure(
-									message = ReaderWhispersyncStatusMessage.AudioUnavailable,
-									detail = null
-								) }
-							)
-							Logger.w(
-								ReaderScreenTag,
-								"Whispersync audiobook state=failed matched=false active=false " +
-									"reason=load-failed"
-							)
-						}
 					)
-				}
+				)
 			}
 		},
 		onError = { message ->

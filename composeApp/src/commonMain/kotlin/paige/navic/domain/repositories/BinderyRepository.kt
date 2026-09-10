@@ -2,6 +2,7 @@ package paige.navic.domain.repositories
 
 import paige.navic.data.remote.bindery.*
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -856,9 +857,14 @@ class BinderyRepository(
 					}
 			}
 
-			runCatching {
-				fetch(baseUrl, headers)
-			}.fold(
+			val liveResult = try {
+				Result.success(fetch(baseUrl, headers))
+			} catch (cancelled: CancellationException) {
+				throw cancelled
+			} catch (error: Throwable) {
+				Result.failure(error)
+			}
+			liveResult.fold(
 				onSuccess = { live ->
 					metadataCache.put(
 						BinderyMetadataCacheRecord(
@@ -969,10 +975,15 @@ class BinderyRepository(
 		action: suspend (baseUrl: String, headers: Map<String, String>) -> T
 	): Result<T> {
 		return withConfiguredClientAvailability { baseUrl, headers ->
-			runCatching {
-				action(baseUrl, headers)
-			}.onFailure { error ->
-				Logger.w(TAG, "Bindery OPDS request failed", error)
+			val result = try {
+				Result.success(action(baseUrl, headers))
+			} catch (cancelled: CancellationException) {
+				throw cancelled
+			} catch (error: Throwable) {
+				Result.failure(error)
+			}
+			result.onFailure {
+				Logger.w(TAG, "Bindery OPDS request failed")
 			}.recordBinderyAvailability()
 		}
 	}
