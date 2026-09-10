@@ -187,8 +187,8 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
-	fun visibilityRestoreRetainsPublicationAndCurrentProof() {
-		(pendingLivenessFixtures().map { it.state } + settledNativeState()).forEach { state ->
+	fun visibilityRestorePreservesPendingTransactionsAndTheirCurrentProof() {
+		pendingLivenessFixtures().map { it.state }.forEach { state ->
 			val hidden = readerPresentationReduce(state,
 				ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityLost))
 			assertEquals(ReaderRequiredTransition.None, hidden.decision.requiredTransition)
@@ -199,6 +199,120 @@ class ReaderPresentationAuthorityReducerTest {
 			assertEquals(hidden.decision.frameOwner, restored.decision.frameOwner)
 			assertFalse(restored.decision.diagnosticPresentation is ReaderDiagnosticPresentation.Failure)
 		}
+	}
+
+	@Test
+	fun visibilityRestoreFencesInvalidatedNativeMaterialUntilExactFreshProof() {
+		val settled = settledNativeState(nextTokenValue = 7L)
+		val hidden = readerPresentationReduce(
+			settled,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityLost)
+		)
+
+		assertEquals(ReaderPresentationLifecycleState.Background, hidden.state.lifecycle)
+		assertEquals(binding, hidden.state.binding)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, hidden.decision.frameOwner)
+		assertEquals(ReaderPresentationLayer.Neutral, hidden.decision.layer)
+		assertEquals(ReaderPresentationInputPolicy.ChromeOnly, hidden.decision.inputPolicy)
+		assertEquals(ReaderRequiredTransition.None, hidden.decision.requiredTransition)
+		assertEquals(null, hidden.state.failure)
+		assertTrue(hidden.effects.isEmpty())
+		val hiddenRequest = assertNotNull(
+			assertIs<ReaderPresentationAuthority.BlockingPreparation>(hidden.state.authority)
+				.nativePresentationRequest
+		)
+		assertEquals(ReaderPresentationToken(7L), hiddenRequest.token)
+		assertEquals(binding, hiddenRequest.binding)
+		assertEquals(binding.preparationGeneration, hiddenRequest.retryAfterPreparationGeneration)
+
+		val restored = readerPresentationReduce(
+			hidden.state,
+			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityRestored)
+		)
+		assertEquals(ReaderPresentationLifecycleState.Foreground, restored.state.lifecycle)
+		assertEquals(binding, restored.state.binding)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, restored.decision.frameOwner)
+		assertEquals(
+			ReaderRequiredTransition.PresentNativePage(
+				token = hiddenRequest.token,
+				binding = binding,
+				direction = null
+			),
+			restored.decision.requiredTransition
+		)
+		assertEquals(null, restored.state.failure)
+		assertTrue(restored.effects.isEmpty())
+
+		val retainedGenerationProof = nativeProof.copy(
+			transitionToken = hiddenRequest.token,
+			presentedFrame = 20L
+		)
+		val rejectedRetainedGeneration = readerPresentationReduce(
+			restored.state,
+			ReaderPresentationEvent.NativePagePresented(retainedGenerationProof)
+		)
+		assertEquals(ReaderPresentationEventDisposition.Stale, rejectedRetainedGeneration.disposition)
+		assertEquals(restored.state, rejectedRetainedGeneration.state)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, rejectedRetainedGeneration.decision.frameOwner)
+
+		val freshBinding = binding.copy(
+			rasterGeneration = 8L,
+			textureGeneration = 9L,
+			preparationGeneration = 10L
+		)
+		val rebound = readerPresentationReduce(
+			restored.state,
+			ReaderPresentationEvent.BindingReplaced(binding, freshBinding)
+		)
+		val reboundRequest = assertNotNull(
+			assertIs<ReaderPresentationAuthority.BlockingPreparation>(rebound.state.authority)
+				.nativePresentationRequest
+		)
+		assertEquals(hiddenRequest.token, reboundRequest.token)
+		assertEquals(freshBinding, reboundRequest.binding)
+		assertEquals(binding.preparationGeneration, reboundRequest.retryAfterPreparationGeneration)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, rebound.decision.frameOwner)
+		val prepared = readerPresentationReduce(
+			rebound.state,
+			ReaderPresentationEvent.PreparationReported(
+				binding = freshBinding,
+				facts = preparationFacts(
+					generation = requireNotNull(freshBinding.preparationGeneration),
+					readiness = readyReadiness
+				)
+			)
+		)
+
+		val wrongGenerationBinding = freshBinding.copy(textureGeneration = 11L)
+		val wrongGeneration = readerPresentationReduce(
+			prepared.state,
+			ReaderPresentationEvent.NativePagePresented(
+				nativeProofFor(wrongGenerationBinding, 21L).copy(
+					transitionToken = hiddenRequest.token
+				)
+			)
+		)
+		assertEquals(ReaderPresentationEventDisposition.Stale, wrongGeneration.disposition)
+		assertEquals(prepared.state, wrongGeneration.state)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, wrongGeneration.decision.frameOwner)
+
+		val exactProof = nativeProofFor(freshBinding, 22L).copy(
+			transitionToken = hiddenRequest.token
+		)
+		val presented = readerPresentationReduce(
+			prepared.state,
+			ReaderPresentationEvent.NativePagePresented(exactProof)
+		)
+		assertEquals(ReaderPresentationEventDisposition.Accepted, presented.disposition)
+		assertEquals(
+			ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(exactProof)
+			),
+			presented.state.authority
+		)
+		assertEquals(ReaderPresentationFrameOwner.NativePage(exactProof), presented.decision.frameOwner)
+		assertEquals(ReaderPresentationInputPolicy.NativePage(operationPolicy), presented.decision.inputPolicy)
+		assertEquals(ReaderRequiredTransition.None, presented.decision.requiredTransition)
 	}
 
 	@Test
@@ -2502,7 +2616,7 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
-	fun visibilityLossRetainsPresentationIdentityButRejectsPageInput() {
+	fun visibilityLossRetainsPendingAuthorityButFencesSettledNativeInputAndFrame() {
 		val pending = readerPresentationReduce(
 			settledNativeState(nextTokenValue = 7L),
 			ReaderPresentationEvent.ShellCoverRequested(coverGeneration = 8L)
@@ -2527,11 +2641,18 @@ class ReaderPresentationAuthorityReducerTest {
 		assertEquals(ReaderPreparationPresentation.Hidden, hiddenPending.decision.preparationPresentation)
 		assertEquals(ReaderDiagnosticPresentation.Hidden, hiddenPending.decision.diagnosticPresentation)
 		assertEquals(ReaderPresentationInputPolicy.ChromeOnly, hiddenNative.decision.inputPolicy)
-		assertEquals(nativeFrame, hiddenNative.decision.frameOwner)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, hiddenNative.decision.frameOwner)
+		val nativeRequest = assertNotNull(
+			assertIs<ReaderPresentationAuthority.BlockingPreparation>(hiddenNative.state.authority)
+				.nativePresentationRequest
+		)
+		assertEquals(binding, nativeRequest.binding)
+		assertEquals(binding.preparationGeneration, nativeRequest.retryAfterPreparationGeneration)
+		assertEquals(nativeState.nextTokenValue + 1L, hiddenNative.state.nextTokenValue)
 	}
 
 	@Test
-	fun visibilityRestoreReturnsToTheSameVisibleAuthorityAndInput() {
+	fun visibilityRestoreKeepsInvalidatedNativeFrameFencedForRevalidation() {
 		val state = settledNativeState()
 		val hidden = readerPresentationReduce(
 			state,
@@ -2543,8 +2664,11 @@ class ReaderPresentationAuthorityReducerTest {
 			ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityRestored)
 		)
 
-		assertEquals(state, restored.state)
-		assertEquals(readerPresentationDecision(state), restored.decision)
+		val expectedState = hidden.copy(lifecycle = ReaderPresentationLifecycleState.Foreground)
+		assertEquals(expectedState, restored.state)
+		assertEquals(readerPresentationDecision(expectedState), restored.decision)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, restored.decision.frameOwner)
+		assertIs<ReaderRequiredTransition.PresentNativePage>(restored.decision.requiredTransition)
 		assertEquals(emptyList(), restored.effects)
 	}
 

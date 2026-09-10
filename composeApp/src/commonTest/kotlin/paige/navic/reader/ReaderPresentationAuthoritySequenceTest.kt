@@ -52,7 +52,7 @@ class ReaderPresentationAuthoritySequenceTest {
 	}
 
 	@Test
-	fun typedVisibilityRoundTripRetainsPresentationIdentity() {
+	fun typedVisibilityRoundTripRetainsSemanticIdentityButRequiresFreshNativeProof() {
 		val settled = settledNativePresentationState()
 		val controller = ReaderController(ReaderControllerState(presentation = settled))
 
@@ -64,11 +64,19 @@ class ReaderPresentationAuthoritySequenceTest {
 		).controller
 
 		assertEquals(settled.binding, hidden.state.presentation.binding)
-		assertEquals(settled.authority, hidden.state.presentation.authority)
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			hidden.state.presentation.authority
+		)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, pending.retainedFrame)
+		assertEquals(settled.binding, pending.nativePresentationRequest?.binding)
 		assertIs<ReaderPresentationInputPolicy.ChromeOnly>(hidden.state.presentationDecision.inputPolicy)
 		assertEquals(settled.binding, restored.state.presentation.binding)
-		assertEquals(settled.authority, restored.state.presentation.authority)
-		assertIs<ReaderPresentationInputPolicy.NativePage>(restored.state.presentationDecision.inputPolicy)
+		assertEquals(pending, restored.state.presentation.authority)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, restored.state.presentationDecision.frameOwner)
+		assertIs<ReaderPresentationInputPolicy.RecoveryOnly>(restored.state.presentationDecision.inputPolicy)
+		assertIs<ReaderRequiredTransition.PresentNativePage>(
+			restored.state.presentationDecision.requiredTransition
+		)
 	}
 
 	@Test

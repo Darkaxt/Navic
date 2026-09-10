@@ -11,6 +11,8 @@ import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPageLifecycleCancellationReason
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
+import paige.navic.reader.ReaderPagePreparationFacts
+import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
@@ -28,6 +30,7 @@ import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderRendererCleanupOwnership
+import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.publicationIdentity
 import paige.navic.reader.readerPageOperationPolicy
@@ -43,6 +46,98 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ReaderPresentationLifecycleDeliveryTest {
+	@Test
+	fun visibilityDeliveryFencesNativeExposureUntilFreshProofFromCurrentHostEpoch() {
+		val binding = completeBinding("visibility-physical-revalidation")
+		val preState = settledState(binding, emptyList()).copy(nextTokenValue = 70L)
+		val controller = ControllerHarness(
+			ReaderController(
+				state = ReaderControllerState(
+					readerSessionGeneration = 364L,
+					presentation = preState
+				)
+			)
+		)
+		val reporter = reporter(controller.controller.presentationVersion, binding, preState)
+		val delivery = delivery(controller.controller.presentationVersion, binding)
+		val applied = mutableListOf<paige.navic.reader.ReaderPresentationDecision>()
+		val dispatcher = ReaderPresentationReceiptDispatcher(reporter, delivery) { decision, _ ->
+			applied += decision
+		}
+
+		delivery.observe(ReaderPresentationLifecycleEvent.VisibilityLost)
+		val hidden = assertNotNull(
+			delivery.retry { event -> dispatcher.dispatch(event, onEvent = controller::dispatch) }
+		)
+		val hiddenAuthority = assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+			hidden.postState.authority
+		)
+		val request = assertNotNull(hiddenAuthority.nativePresentationRequest)
+		assertEquals(binding, hidden.postState.binding)
+		assertEquals(binding.destinationCommitIdentity, hidden.postState.binding?.destinationCommitIdentity)
+		assertEquals(ReaderPresentationLifecycleState.Background, hidden.postState.lifecycle)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, hiddenAuthority.retainedFrame)
+		assertEquals(binding.preparationGeneration, request.retryAfterPreparationGeneration)
+		assertEquals(null, hidden.postState.failure)
+		assertTrue(hidden.effects.isEmpty())
+		assertTrue(controller.effects.isEmpty())
+
+		delivery.observe(ReaderPresentationLifecycleEvent.VisibilityRestored)
+		val restored = assertNotNull(
+			delivery.retry { event -> dispatcher.dispatch(event, onEvent = controller::dispatch) }
+		)
+		assertEquals(ReaderPresentationLifecycleState.Foreground, restored.postState.lifecycle)
+		val restoredDecision = readerPresentationDecision(restored.postState)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, restoredDecision.frameOwner)
+		assertEquals(
+			ReaderRequiredTransition.PresentNativePage(request.token, binding, direction = null),
+			restoredDecision.requiredTransition
+		)
+		assertEquals(null, restored.postState.failure)
+		assertTrue(restored.effects.isEmpty())
+
+		val freshBinding = binding.copy(
+			rasterGeneration = 80L,
+			textureGeneration = 81L,
+			preparationGeneration = 82L
+		)
+		val replacement = ReaderPresentationEvent.BindingReplaced(binding, freshBinding)
+		assertNotNull(dispatcher.dispatch(replacement, onEvent = controller::dispatch))
+		val facts = ReaderPagePreparationFacts(
+			phase = ReaderPagePreparationPhase.Ready,
+			generation = requireNotNull(freshBinding.preparationGeneration),
+			readiness = ReaderPageReadinessState(
+				textureDeck = ReaderTextureDeckState.Ready,
+				interaction = ReaderPageInteractionState.Ready
+			)
+		)
+		val preparation = ReaderPresentationEvent.PreparationReported(freshBinding, facts)
+		assertNotNull(dispatcher.dispatch(preparation, onEvent = controller::dispatch))
+		val proofEvent = ReaderPresentationEvent.NativePagePresented(
+			ReaderNativePagePresentationProof(
+				binding = freshBinding,
+				transitionToken = request.token,
+				presentedFrame = 83L,
+				viewportWidth = 100,
+				viewportHeight = 200,
+				rasterGeneration = requireNotNull(freshBinding.rasterGeneration),
+				textureGeneration = requireNotNull(freshBinding.textureGeneration)
+			)
+		)
+		val exactReceipt = controller.dispatch(proofEvent)
+		val currentHostEpoch = reporter.captureEpoch()
+		val applicationsBeforeProof = applied.size
+
+		assertNull(dispatcher.consumeReturned(currentHostEpoch - 1L, exactReceipt))
+		assertEquals(applicationsBeforeProof, applied.size)
+		assertIs<ReaderPresentationAuthority.BlockingPreparation>(applied.last().authority)
+		assertNotNull(dispatcher.consumeReturned(currentHostEpoch, exactReceipt))
+		assertIs<ReaderPresentationAuthority.SettledNativePage>(applied.last().authority)
+		assertEquals(freshBinding, applied.last().targetBinding)
+		assertIs<ReaderPresentationFrameOwner.NativePage>(applied.last().frameOwner)
+		assertEquals(ReaderPresentationLifecycleState.Foreground, applied.last().lifecycle)
+	}
+
 	@Test
 	fun productionDispatcherRejectsEveryReducerIncompatibleRendererLossReceipt() {
 		val binding = completeBinding("reducer-exact-renderer-loss")

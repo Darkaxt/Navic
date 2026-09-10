@@ -1563,7 +1563,31 @@ private fun ReaderPresentationState.reduceLifecycle(
 	) {
 		idempotentPresentationResult(this)
 	} else {
-		acceptedPresentationResult(copy(lifecycle = ReaderPresentationLifecycleState.Background))
+		val currentBinding = binding
+		// The host invalidates the selected deck after this receipt. Keep the semantic
+		// destination, but require a newer preparation and exact presented-frame proof.
+		if (authority is ReaderPresentationAuthority.SettledNativePage && currentBinding != null) {
+			val token = ReaderPresentationToken(nextTokenValue)
+			acceptedPresentationResult(
+				copy(
+					authority = ReaderPresentationAuthority.BlockingPreparation(
+						retainedFrame = ReaderPresentationFrameOwner.Neutral,
+						nativePresentationRequest = ReaderNativePagePresentationRequest(
+							token = token,
+							binding = currentBinding,
+							retryAfterPreparationGeneration =
+								currentBinding.preparationGeneration ?: preparationFacts.generation
+						)
+					),
+					lifecycle = ReaderPresentationLifecycleState.Background,
+					preparationFacts = ReaderPagePreparationFacts(),
+					failure = null,
+					nextTokenValue = nextTokenValue + 1L
+				)
+			)
+		} else {
+			acceptedPresentationResult(copy(lifecycle = ReaderPresentationLifecycleState.Background))
+		}
 	}
 	ReaderPresentationLifecycleEvent.VisibilityRestored -> if (
 		lifecycle == ReaderPresentationLifecycleState.Foreground

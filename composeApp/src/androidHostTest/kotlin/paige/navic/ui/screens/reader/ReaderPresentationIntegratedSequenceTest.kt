@@ -709,22 +709,43 @@ private class ReaderPresentationSequenceFixture {
 
 	fun sendTrimMemoryUiHidden() {
 		val prior = state
+		val priorBinding = assertNotNull(prior.binding)
 		val event = assertNotNull(readerPresentationLifecycleEventForTrimMemory(
 			ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN))
 		assertEquals(ReaderPresentationLifecycleEvent.VisibilityLost, event)
 		lifecycleDelivery.observe(event)
 		assertNotNull(lifecycleDelivery.retry(::dispatch))
 		synchronizeHost()
-		assertEquals(prior.authority, state.authority)
-		assertEquals(prior.binding, state.binding)
-		assertEquals(prior.preparationFacts, state.preparationFacts)
+		val pending = assertIs<ReaderPresentationAuthority.BlockingPreparation>(state.authority)
+		assertEquals(ReaderPresentationFrameOwner.Neutral, pending.retainedFrame)
+		assertEquals(priorBinding, pending.nativePresentationRequest?.binding)
+		assertEquals(priorBinding.preparationGeneration,
+			pending.nativePresentationRequest?.retryAfterPreparationGeneration)
+		assertEquals(priorBinding, state.binding)
+		assertEquals(priorBinding.destinationCommitIdentity, semanticDestination)
+		assertEquals(ReaderPagePreparationFacts(), state.preparationFacts)
 		assertEquals(publication, controller.state.publication)
+		deck = null
+		materialBindings.remove(assertNotNull(priorBinding.textureGeneration))?.let(retiredBindings::add)
 	}
 
 	fun restoreWindowVisibility() {
 		lifecycleDelivery.observe(readerPresentationLifecycleEventForWindowVisibility(true))
 		assertNotNull(lifecycleDelivery.retry(::dispatch))
 		synchronizeHost()
+		assertEquals(ReaderPresentationFrameOwner.Neutral, decision.frameOwner)
+		assertTrue(frames.callbacks.isEmpty())
+		val previous = assertNotNull(state.binding)
+		val fresh = previous.copy(
+			rasterGeneration = assertNotNull(previous.rasterGeneration) + 1L,
+			textureGeneration = assertNotNull(previous.textureGeneration) + 1L,
+			preparationGeneration = assertNotNull(previous.preparationGeneration) + 1L
+		)
+		dispatch(assertIs<ReaderPresentationEvent.BindingReplaced>(
+			reporter.update(previous, fresh, false, false)))
+		reportPreparationReady()
+		assertEquals(1, frames.callbacks.size)
+		commitNativePageDraw()
 	}
 
 	fun assertQuiescent() {
