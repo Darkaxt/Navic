@@ -73,6 +73,7 @@ import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.ReaderPresentationLifecycleState
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderPresentationTokenDomain
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.ReaderTextureDeckState
@@ -153,7 +154,10 @@ internal fun readerCurlClaimEvent(
 	if (decision.targetBinding != proof.binding) return null
 	return ReaderPresentationEvent.CurlClaimed(
 		ReaderCurlPresentationFrame(
-			token = ReaderPresentationToken(gestureId),
+			token = ReaderPresentationToken(
+				value = gestureId,
+				domain = ReaderPresentationTokenDomain.Gesture
+			),
 			binding = proof.binding,
 			presentedFrame = proof.presentedFrame,
 			viewportWidth = proof.viewportWidth,

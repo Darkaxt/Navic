@@ -1,9 +1,14 @@
 package paige.navic.reader
 
-import kotlin.jvm.JvmInline
+enum class ReaderPresentationTokenDomain {
+	Transition,
+	Gesture
+}
 
-@JvmInline
-value class ReaderPresentationToken(val value: Long) {
+data class ReaderPresentationToken(
+	val value: Long,
+	val domain: ReaderPresentationTokenDomain = ReaderPresentationTokenDomain.Transition
+) {
 	init {
 		require(value > 0L)
 	}
@@ -2216,10 +2221,14 @@ private fun ReaderPresentationAuthority.inputPolicy(
 	ReaderPresentationAuthority.Unavailable -> ReaderPresentationInputPolicy.RecoveryOnly
 	is ReaderPresentationAuthority.ShellCover -> ReaderPresentationInputPolicy.ShellCover
 	is ReaderPresentationAuthority.ShellCoverCommitPending -> ReaderPresentationInputPolicy.ChromeOnly
-	is ReaderPresentationAuthority.LiveEngineHandoffPending -> retainedFrame.inputPolicy(
-		targetBinding,
-		preparationFacts
-	)
+	is ReaderPresentationAuthority.LiveEngineHandoffPending -> when (direction) {
+		ReaderLiveEngineHandoffDirection.LiveEngineToNative ->
+			ReaderPresentationInputPolicy.ChromeOnly
+		ReaderLiveEngineHandoffDirection.NativeToLiveEngine -> retainedFrame.inputPolicy(
+			targetBinding,
+			preparationFacts
+		)
+	}
 	is ReaderPresentationAuthority.CurlGesture -> ReaderPresentationInputPolicy.ClaimedCurl(frame.frame.token)
 	is ReaderPresentationAuthority.CurlSettlementPending -> ReaderPresentationInputPolicy.ChromeOnly
 	is ReaderPresentationAuthority.SettledNativePage -> frame.inputPolicy(

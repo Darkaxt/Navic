@@ -1723,7 +1723,8 @@ internal class ReaderLegacyLivePointerStream {
 		context: ReaderLegacyLivePointerContext
 	) {
 		activeContext = context.takeIf {
-			mode == ReaderPagePhysicalDispatchMode.LegacyLive
+			mode == ReaderPagePhysicalDispatchMode.LegacyLive ||
+				mode == ReaderPagePhysicalDispatchMode.LiveEngine
 		}
 		revoked = false
 	}
@@ -4020,7 +4021,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			dispatchShellCoverPointerEvent(event)
 
 		override fun dispatchLiveEngine(event: MotionEvent): Boolean =
-			viewerContentContainer.dispatchTouchEvent(event)
+			dispatchLegacyLivePointerEvent(event)
 	}
 
 	private fun legacyLivePointerContext() = ReaderLegacyLivePointerContext(

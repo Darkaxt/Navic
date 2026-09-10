@@ -706,7 +706,9 @@ class KomikkuReaderNativeFrameHostTest {
 		val awaitingFoliate = readerPresentationReduce(
 			claimed,
 			ReaderPresentationEvent.CurlTerminal(
-				token = ReaderPresentationToken(first.gestureId),
+				token = assertIs<ReaderPresentationAuthority.CurlGesture>(
+					claimed.authority
+				).frame.frame.token,
 				binding = sourceBinding,
 				expectedAcknowledgement = acknowledgement
 			)
@@ -6168,7 +6170,9 @@ class KomikkuReaderNativeFrameHostTest {
 		val awaitingFoliate = readerPresentationReduce(
 			claimed,
 			ReaderPresentationEvent.CurlTerminal(
-				token = ReaderPresentationToken(first.gestureId),
+				token = assertIs<ReaderPresentationAuthority.CurlGesture>(
+					claimed.authority
+				).frame.frame.token,
 				binding = sourceBinding,
 				expectedAcknowledgement = acknowledgement
 			)
@@ -8547,6 +8551,129 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P])
+	fun pendingNativeHandbackRevokesCapturedLiveEnginePointerUntilNativeProof() {
+		val context = RuntimeEnvironment.getApplication()
+		val (viewerClass, viewer) = task7Viewer(context)
+		val liveActions = mutableListOf<Int>()
+		val liveContent = object : View(context) {
+			override fun onTouchEvent(event: MotionEvent): Boolean {
+				liveActions += event.actionMasked
+				return true
+			}
+		}.apply { isClickable = true }
+		viewerClass.task7Method("replaceViewerContent", View::class.java)
+			.invoke(viewer, liveContent)
+		viewerClass.task7Field("pageTurnCanvasEnabled").setBoolean(viewer, true)
+		viewer.measure(
+			View.MeasureSpec.makeMeasureSpec(1200, View.MeasureSpec.EXACTLY),
+			View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY)
+		)
+		viewer.layout(0, 0, 1200, 800)
+		val applyDecision = viewerClass.task7Method(
+			"applyPresentationDecision",
+			ReaderPresentationDecision::class.java,
+			ReaderRendererLossCancellationIdentity::class.java
+		)
+		fun apply(decision: ReaderPresentationDecision) {
+			applyDecision.invoke(viewer, decision, null)
+		}
+		val binding = ReaderPresentationBinding(
+			"task363-live-stream",
+			1L,
+			2L,
+			3L,
+			ReaderDestinationCommitIdentity("task363-live-stream", 1L),
+			4L,
+			5L,
+			6L
+		)
+		val liveProof = ReaderLiveEnginePresentationProof(
+			ReaderPresentationToken(1L),
+			binding,
+			presentedFrameSequence = 1L
+		)
+		val exposed = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.LiveEngineExposed(
+				ReaderPresentationFrameOwner.LiveEngine(liveProof)
+			),
+			binding = binding,
+			lastLiveEnginePresentedFrameSequence = 1L,
+			nextTokenValue = 2L
+		)
+		apply(readerPresentationDecision(exposed))
+		val down = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, 100f, 100f, 0)
+		val move = MotionEvent.obtain(0L, 1L, MotionEvent.ACTION_MOVE, 180f, 100f, 0)
+		val up = MotionEvent.obtain(0L, 2L, MotionEvent.ACTION_UP, 180f, 100f, 0)
+		try {
+			assertTrue(viewer.dispatchTouchEvent(down))
+			val pending = readerPresentationReduce(
+				exposed,
+				ReaderPresentationEvent.WebViewHandoffRequested(
+					ReaderLiveEngineHandoffDirection.LiveEngineToNative
+				)
+			)
+			apply(pending.decision)
+			assertIs<ReaderPresentationFrameOwner.LiveEngine>(pending.decision.frameOwner)
+			assertEquals(View.VISIBLE, liveContent.visibility)
+			assertTrue(viewer.dispatchTouchEvent(move))
+			assertTrue(viewer.dispatchTouchEvent(up))
+
+			assertEquals(
+				listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_CANCEL),
+				liveActions
+			)
+
+			val handback = assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(
+				pending.state.authority
+			)
+			val nativeProof = ReaderNativePagePresentationProof(
+				binding = binding,
+				transitionToken = handback.token,
+				presentedFrame = 2L,
+				viewportWidth = 1200,
+				viewportHeight = 800,
+				rasterGeneration = 4L,
+				textureGeneration = 5L
+			)
+			val settled = readerPresentationReduce(
+				pending.state,
+				ReaderPresentationEvent.NativePagePresented(nativeProof)
+			)
+			apply(settled.decision)
+			val nativeDown = MotionEvent.obtain(
+				3L,
+				3L,
+				MotionEvent.ACTION_DOWN,
+				100f,
+				100f,
+				0
+			)
+			try {
+				assertTrue(viewer.dispatchTouchEvent(nativeDown))
+				assertEquals(
+					ReaderPagePhysicalDispatchMode.PlayLikeCurl,
+					viewerClass.task7Field("physicalDispatchMode").get(viewer)
+				)
+			} finally {
+				val cancel = MotionEvent.obtain(nativeDown).apply {
+					action = MotionEvent.ACTION_CANCEL
+				}
+				try {
+					viewer.dispatchTouchEvent(cancel)
+				} finally {
+					cancel.recycle()
+					nativeDown.recycle()
+				}
+			}
+		} finally {
+			down.recycle()
+			move.recycle()
+			up.recycle()
+		}
+	}
+
+	@Test
 	fun legacyLivePointerStreamRevokesChangedContextOnceAndSuppressesLateTerminal() {
 		val stream = ReaderLegacyLivePointerStream()
 		val initial = legacyLivePointerContext()
@@ -8564,9 +8691,12 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
-	fun nonLegacyPointerStreamsNeverRevokeLegacyDelivery() {
+	fun nonLiveContentPointerStreamsNeverRevokeLiveDelivery() {
 		ReaderPagePhysicalDispatchMode.entries
-			.filterNot { it == ReaderPagePhysicalDispatchMode.LegacyLive }
+			.filterNot { mode ->
+				mode == ReaderPagePhysicalDispatchMode.LegacyLive ||
+					mode == ReaderPagePhysicalDispatchMode.LiveEngine
+			}
 			.forEach { mode ->
 				val stream = ReaderLegacyLivePointerStream()
 				val context = legacyLivePointerContext()

@@ -534,7 +534,7 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
-	fun nativeHandbackRetainsExactLiveFrameAndInputUntilNativeDrawProofCommits() {
+	fun nativeHandbackRetainsExactLiveFrameAndFreezesInputUntilNativeDrawProofCommits() {
 		val exposureRequest = readerPresentationReduce(
 			settledNativeState(nextTokenValue = 41L),
 			ReaderPresentationEvent.WebViewHandoffRequested(
@@ -568,7 +568,7 @@ class ReaderPresentationAuthorityReducerTest {
 			requested.decision.frameOwner
 		)
 		assertEquals(ReaderPresentationLayer.LiveEngine, requested.decision.layer)
-		assertEquals(ReaderPresentationInputPolicy.LiveEngine, requested.decision.inputPolicy)
+		assertEquals(ReaderPresentationInputPolicy.ChromeOnly, requested.decision.inputPolicy)
 
 		val staleProof = nativeProof.copy(
 			transitionToken = ReaderPresentationToken(transition.token.value + 1L),

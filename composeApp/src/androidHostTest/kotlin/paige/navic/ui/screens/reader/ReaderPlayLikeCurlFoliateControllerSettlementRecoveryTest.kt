@@ -21,6 +21,7 @@ import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationLayer
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderPresentationTokenDomain
 import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.readerPresentationReduce
 
@@ -86,7 +87,10 @@ class ReaderPlayLikeCurlFoliateControllerSettlementRecoveryTest {
 				gestureId = gestureId
 			)
 		)
-		assertEquals(ReaderPresentationToken(gestureId), claimEvent.frame.token)
+		assertEquals(
+			ReaderPresentationToken(gestureId, ReaderPresentationTokenDomain.Gesture),
+			claimEvent.frame.token
+		)
 		val claimed = readerPresentationReduce(settled, claimEvent)
 		val request = ReaderPageRelocationRequest(
 			token = ReaderPageRelocationToken("page-turn-62"),
@@ -106,7 +110,10 @@ class ReaderPlayLikeCurlFoliateControllerSettlementRecoveryTest {
 				settlementRequest = request
 			)
 		)
-		assertEquals(ReaderPresentationToken(gestureId), terminalEvent.token)
+		assertEquals(
+			ReaderPresentationToken(gestureId, ReaderPresentationTokenDomain.Gesture),
+			terminalEvent.token
+		)
 		assertEquals(
 			acknowledgement(
 				request.token.value,

@@ -13,6 +13,168 @@ import paige.navic.reader.*
 
 class ReaderPresentationIntegratedSequenceTest {
 	@Test
+	fun cleanupQueueKeepsTransitionAndGestureProvenanceWhileDeduplicatingRetries() {
+		val staleBinding = ReaderPresentationBinding(
+			"task363-session",
+			1L,
+			2L,
+			3L,
+			ReaderDestinationCommitIdentity("task363-session", 1L),
+			4L,
+			5L,
+			6L
+		)
+		val currentBinding = staleBinding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("task363-session", 2L),
+			rasterGeneration = 7L,
+			textureGeneration = 8L,
+			preparationGeneration = 9L
+		)
+		val currentProof = ReaderNativePagePresentationProof(
+			binding = currentBinding,
+			transitionToken = null,
+			presentedFrame = 1L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 7L,
+			textureGeneration = 8L
+		)
+		val currentState = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(currentProof)
+			),
+			binding = currentBinding,
+			nextTokenValue = 2L
+		)
+		val transitionProof = ReaderNativePagePresentationProof(
+			binding = staleBinding,
+			transitionToken = ReaderPresentationToken(1L),
+			presentedFrame = 2L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 4L,
+			textureGeneration = 5L
+		)
+		val transitionCleanup = assertIs<ReaderPresentationEffect.ReleaseStalePresentation>(
+			readerPresentationReduce(
+				currentState,
+				ReaderPresentationEvent.NativePagePresented(transitionProof)
+			).effects.single()
+		)
+		val gestureSource = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(transitionProof.copy(transitionToken = null))
+			),
+			binding = staleBinding
+		)
+		val gestureClaim = assertNotNull(
+			readerCurlClaimEvent(readerPresentationDecision(gestureSource), gestureId = 1L)
+		)
+		val gestureCleanup = assertIs<ReaderPresentationEffect.ReleaseStalePresentation>(
+			readerPresentationReduce(currentState, gestureClaim).effects.single()
+		)
+		assertEquals(transitionCleanup.token?.value, gestureCleanup.token?.value)
+
+		val queue = ReaderPresentationEffectQueue(capacity = 2)
+		val transitionPending = queue.retain(listOf(transitionCleanup)).single()
+		assertTrue(queue.retain(listOf(transitionCleanup)).isEmpty())
+		val retainedGesture = queue.retain(listOf(gestureCleanup))
+
+		assertEquals(1, retainedGesture.size)
+		assertEquals(2, queue.pendingEffects().size)
+		assertTrue(queue.acknowledge(transitionPending.identity))
+		assertTrue(queue.acknowledge(retainedGesture.single().identity))
+		assertTrue(queue.retain(listOf(transitionCleanup, gestureCleanup)).isEmpty())
+		assertTrue(queue.pendingEffects().isEmpty())
+	}
+
+	@Test
+	fun liveEngineHandbackKeepsFrameButFreezesPhysicalInputUntilNativeProof() {
+		val binding = ReaderPresentationBinding(
+			"task363-handback",
+			1L,
+			2L,
+			3L,
+			ReaderDestinationCommitIdentity("task363-handback", 1L),
+			4L,
+			5L,
+			6L
+		)
+		val liveProof = ReaderLiveEnginePresentationProof(
+			token = ReaderPresentationToken(1L),
+			binding = binding,
+			presentedFrameSequence = 1L
+		)
+		val readyFacts = ReaderPagePreparationFacts(
+			phase = ReaderPagePreparationPhase.Ready,
+			generation = 6L,
+			completedCount = 3,
+			requiredCount = 3,
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Ready,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+				textureDeck = ReaderTextureDeckState.Ready,
+				pendingTextureDeck = ReaderTextureDeckState.Ready,
+				interaction = ReaderPageInteractionState.Ready
+			)
+		)
+		val exposedState = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.LiveEngineExposed(
+				ReaderPresentationFrameOwner.LiveEngine(liveProof)
+			),
+			binding = binding,
+			preparationFacts = readyFacts,
+			lastLiveEnginePresentedFrameSequence = 1L,
+			nextTokenValue = 2L
+		)
+		val pending = readerPresentationReduce(
+			exposedState,
+			ReaderPresentationEvent.WebViewHandoffRequested(
+				ReaderLiveEngineHandoffDirection.LiveEngineToNative
+			)
+		)
+		assertIs<ReaderPresentationFrameOwner.LiveEngine>(pending.decision.frameOwner)
+		assertEquals(ReaderPresentationLayer.LiveEngine, pending.decision.layer)
+
+		assertEquals(
+			ReaderPagePhysicalDispatchMode.ChromeOnly,
+			readerPagePhysicalDispatchMode(
+				pageTurnCanvasEnabled = true,
+				presentationInputPolicy = pending.decision.inputPolicy
+			)
+		)
+
+		val handoff = assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(
+			pending.state.authority
+		)
+		val nativeProof = ReaderNativePagePresentationProof(
+			binding = binding,
+			transitionToken = handoff.token,
+			presentedFrame = 2L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = 4L,
+			textureGeneration = 5L
+		)
+		val settled = readerPresentationReduce(
+			pending.state,
+			ReaderPresentationEvent.NativePagePresented(nativeProof)
+		)
+		assertIs<ReaderPresentationAuthority.SettledNativePage>(settled.state.authority)
+		assertIs<ReaderPageNewPointerDecision.Accept>(
+			assertIs<ReaderPresentationInputPolicy.NativePage>(settled.decision.inputPolicy)
+				.policy.newPointer
+		)
+		assertEquals(
+			ReaderPagePhysicalDispatchMode.PlayLikeCurl,
+			readerPagePhysicalDispatchMode(
+				pageTurnCanvasEnabled = true,
+				presentationInputPolicy = settled.decision.inputPolicy
+			)
+		)
+	}
+
+	@Test
 	fun invalidatingCoverCleanupRetiresObsoleteOwnersButKeepsCurrentRendererAlias() {
 		val session = "cleanup-sequence"
 		val bindingA = ReaderPresentationBinding(session, 1L, 2L, 3L,
@@ -264,12 +426,13 @@ private class ReaderPresentationSequenceFixture {
 			textureGeneration = assertNotNull(binding.textureGeneration) + 10L,
 			preparationGeneration = assertNotNull(binding.preparationGeneration) + 10L)
 		val token = state.nextTokenValue
-		dispatch(assertNotNull(readerCurlClaimEvent(decision, token)))
+		val claim = assertNotNull(readerCurlClaimEvent(decision, token))
+		dispatch(claim)
 		assertIs<ReaderPresentationInputPolicy.ClaimedCurl>(decision.inputPolicy)
 		val event = relocation(next, assertNotNull(controller.state.chrome.currentLocator?.pageIndex) + 1,
 			settleToken = "sequence-turn-$token")
 		pendingRelocation = event
-		dispatch(ReaderPresentationEvent.CurlTerminal(ReaderPresentationToken(token), binding,
+		dispatch(ReaderPresentationEvent.CurlTerminal(claim.frame.token, binding,
 			assertNotNull(event.pageTurnSettlementReceiptOrNull())))
 		assertIs<ReaderPresentationAuthority.CurlSettlementPending>(state.authority)
 		synchronizeHost()
