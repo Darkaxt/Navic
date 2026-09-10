@@ -8487,6 +8487,20 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P])
+	fun shellCoverPolicyDoesNotAdmitCueMapPointerCapture() {
+		val (viewerClass, viewer) = task7Viewer(RuntimeEnvironment.getApplication())
+		viewerClass.task7Field("presentationInputPolicy").set(
+			viewer,
+			ReaderPresentationInputPolicy.ShellCover
+		)
+
+		val admitted = viewerClass.task7Method("allowsCueMapInput").invoke(viewer) as Boolean
+
+		assertFalse(admitted)
+	}
+
+	@Test
 	fun physicalDispatchInvokesOnlyTheSelectedTypedTarget() {
 		val calls = mutableListOf<String>()
 		val target = object : ReaderPagePhysicalDispatchTarget {

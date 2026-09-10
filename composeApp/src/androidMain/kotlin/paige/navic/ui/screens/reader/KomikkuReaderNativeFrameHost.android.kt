@@ -3977,8 +3977,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun allowsCueMapInput(): Boolean = when (presentationInputPolicy) {
 		ReaderPresentationInputPolicy.RecoveryOnly,
 		ReaderPresentationInputPolicy.ChromeOnly,
-		is ReaderPresentationInputPolicy.ClaimedCurl -> false
 		ReaderPresentationInputPolicy.ShellCover,
+		is ReaderPresentationInputPolicy.ClaimedCurl -> false
 		is ReaderPresentationInputPolicy.NativePage,
 		ReaderPresentationInputPolicy.LiveEngine -> true
 	}

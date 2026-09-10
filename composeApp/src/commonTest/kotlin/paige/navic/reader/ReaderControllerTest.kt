@@ -1938,6 +1938,85 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun readerBackDuringCurlDefersShellCoverMutationUntilAuthorityAcceptsRetry() {
+		val readable = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller.withReadyNativePresentationFixture().let { controller ->
+			controller.copy(state = controller.state.copy(shellCoverVisible = false))
+		}
+		val binding = requireNotNull(readable.state.presentation.binding)
+		val curlToken = ReaderPresentationToken(7L)
+		val activeOverlay = ReaderOverlayFragment(
+			resourceHref = "Audio/chapter01.m4b",
+			fragmentId = "active-curl-cue"
+		)
+		val curled = readable.onPresentationEvent(
+			ReaderPresentationEvent.CurlClaimed(
+				ReaderCurlPresentationFrame(
+					token = curlToken,
+					binding = binding,
+					presentedFrame = 11L,
+					viewportWidth = 1200,
+					viewportHeight = 800,
+					rasterGeneration = requireNotNull(binding.rasterGeneration),
+					textureGeneration = requireNotNull(binding.textureGeneration)
+				)
+			)
+		).controller.let { controller ->
+			controller.copy(
+				state = controller.state.copy(
+					activeMediaOverlay = activeOverlay,
+					audioMetadataLabel = "active curl cue"
+				)
+			)
+		}
+
+		val rejected = curled.onBack()
+
+		assertTrue(rejected.handled)
+		assertFalse(rejected.controller.state.shellCoverVisible)
+		assertEquals(curled.state.presentation, rejected.controller.state.presentation)
+		assertEquals(curled.state.whispersync, rejected.controller.state.whispersync)
+		assertEquals(activeOverlay, rejected.controller.state.activeMediaOverlay)
+		assertEquals("active curl cue", rejected.controller.state.audioMetadataLabel)
+		assertTrue(rejected.engineCommands.isEmpty())
+		assertNull(rejected.readaloudPlaybackCommand)
+		assertEquals(
+			ReaderPresentationEventDisposition.Rejected,
+			requireNotNull(rejected.presentationReceipt).disposition
+		)
+
+		val terminal = rejected.controller.onPresentationEvent(
+			ReaderPresentationEvent.CurlTerminal(
+				token = curlToken,
+				binding = binding,
+				expectedAcknowledgement = null
+			)
+		).controller
+		assertIs<ReaderPresentationAuthority.CurlSettlementPending>(
+			terminal.state.presentation.authority
+		)
+
+		val retry = terminal.onBack()
+
+		assertTrue(retry.handled)
+		assertTrue(retry.controller.state.shellCoverVisible)
+		assertIs<ReaderPresentationAuthority.ShellCoverCommitPending>(
+			retry.controller.state.presentation.authority
+		)
+		assertNull(retry.controller.state.activeMediaOverlay)
+		assertNull(retry.controller.state.audioMetadataLabel)
+		assertEquals(
+			ReaderPresentationEventDisposition.Accepted,
+			requireNotNull(retry.presentationReceipt).disposition
+		)
+	}
+
+	@Test
 	fun readerBackToNativeCoverStopsWhispersyncAudiobookPlayback() {
 		val resumeLocator = ReaderLocator(
 			href = "OEBPS/Text/chapter-01.xhtml",
@@ -3951,6 +4030,74 @@ class ReaderControllerTest {
 		val repeated = selected.controller.onEngineEvent(request)
 		assertNull(repeated.whispersyncAudioSeekTarget)
 		assertTrue(repeated.engineCommands.isEmpty())
+	}
+
+	@Test
+	fun shellCoverRejectsRenderedCueMapHoldAndSeekWithoutDiscardingGeometry() {
+		val enabled = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination()
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				whispersyncVisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 0,
+					visibleEnd = 160
+				)
+			).controller
+			.toggleWhispersyncCueMap().controller
+		val presentation = requireNotNull(
+			enabled.state.whispersync.cueMap.presentation(enabled.state)
+		)
+		val rendered = enabled.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCueMapRendered(
+				sourceOrdinalsInDomReadingOrder = listOf(1, 0),
+				revisionDigest = presentation.revisionDigest,
+				presentationGeneration = presentation.presentationGeneration,
+				destinationCommitIdentity = whispersyncTestDestination,
+				markerReceipts = listOf(
+					ReaderWhispersyncCueMapMarkerReceipt(
+						sourceOrdinal = 1,
+						prepared = false,
+						requested = false,
+						audioActive = false,
+						renderedHighlight = false,
+						anchorReceipt = testAnchorReceipt("session-a").copy(
+							boundarySequence = 1L
+						)
+					)
+				)
+			)
+		).controller
+		assertNotNull(rendered.state.whispersync.cueMap.geometryReceipt)
+		val covered = rendered.copy(
+			state = rendered.state.copy(shellCoverVisible = true)
+		)
+		val beforeCueMap = covered.state.whispersync.cueMap
+
+		val hold = covered.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCueMapHoldOutcome(
+				sourceOrdinal = 1,
+				revisionDigest = presentation.revisionDigest,
+				presentationGeneration = presentation.presentationGeneration,
+				outcome = ReaderWhispersyncCueMapHoldOutcome.Completed
+			)
+		)
+		val seek = hold.controller.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCueMapSeekRequested(
+				sourceOrdinal = 1,
+				revisionDigest = presentation.revisionDigest,
+				presentationGeneration = presentation.presentationGeneration,
+				destinationCommitIdentity = whispersyncTestDestination
+			)
+		)
+
+		assertEquals(beforeCueMap, hold.controller.state.whispersync.cueMap)
+		assertEquals(covered.state, seek.controller.state)
+		assertTrue(hold.engineCommands.isEmpty())
+		assertTrue(seek.engineCommands.isEmpty())
+		assertNull(seek.whispersyncAudioSeekTarget)
+		assertNotNull(seek.controller.state.whispersync.cueMap.geometryReceipt)
 	}
 
 	@Test

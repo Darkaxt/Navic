@@ -1611,6 +1611,7 @@ private fun ReaderController.reduceWhispersyncCueMapRendered(
 private fun ReaderController.reduceWhispersyncCueMapSeekRequested(
 	event: ReaderEngineEvent.WhispersyncCueMapSeekRequested
 ): ReaderControllerStep {
+	if (state.shellCoverVisible) return ReaderControllerStep(this)
 	if (!matchesCurrentCueMapPresentation(
 			sourceRevisionDigest = event.revisionDigest,
 			sourcePresentationGeneration = event.presentationGeneration,
@@ -1673,6 +1674,7 @@ private fun ReaderController.reduceWhispersyncCueMapSeekRequested(
 private fun ReaderController.reduceWhispersyncCueMapHoldOutcome(
 	event: ReaderEngineEvent.WhispersyncCueMapHoldOutcome
 ): ReaderControllerStep {
+	if (state.shellCoverVisible) return ReaderControllerStep(this)
 	val cueMap = state.whispersync.cueMap
 	val revisionDigest = state.whispersync.sidecar?.revisionDigest
 	if (

@@ -313,28 +313,27 @@ internal object ReaderOverlayReducer {
 	}
 
 	fun showNativeShellCover(controller: ReaderController): ReaderControllerStep {
-		val state = controller.state
-		val prepared = controller.copy(
-			state = state.copy(
-				shellCoverVisible = true,
-				pendingShellCoverDismissal = null,
-				nativeShellCoverReturnLocatorKey = readerNativeShellCoverReturnLocatorKey(
-					state.chrome.currentLocator
-				),
-				menuVisible = false,
-				dialog = null,
-				whispersync = state.whispersync.forShellCoverPresentation(),
-				activeMediaOverlay = null,
-				activeMediaOverlayAnchorReceipt = null,
-				audioMetadataLabel = null
-			)
-		).requestShellCoverPresentation()
-		return ReaderControllerStep(
-			controller = prepared.controller,
-			engineCommands = state.clearOverlayForShellCoverCommands(),
-			readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand(),
-			presentationEffects = prepared.presentationEffects,
-			presentationReceipt = prepared.presentationReceipt
+		val requested = controller.requestShellCoverPresentation()
+		if (!requested.presentationReceipt.authorizesShellCoverPresentation()) return requested
+		val state = requested.controller.state
+		return requested.copy(
+			controller = requested.controller.copy(
+				state = state.copy(
+					shellCoverVisible = true,
+					pendingShellCoverDismissal = null,
+					nativeShellCoverReturnLocatorKey = readerNativeShellCoverReturnLocatorKey(
+						state.chrome.currentLocator
+					),
+					menuVisible = false,
+					dialog = null,
+					whispersync = state.whispersync.forShellCoverPresentation(),
+					activeMediaOverlay = null,
+					activeMediaOverlayAnchorReceipt = null,
+					audioMetadataLabel = null
+				)
+			),
+			engineCommands = requested.engineCommands + state.clearOverlayForShellCoverCommands(),
+			readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
 		)
 	}
 
@@ -347,25 +346,26 @@ internal object ReaderOverlayReducer {
 			state.canReturnToShellCover &&
 			!state.nativeShellCoverUrl.isNullOrBlank()
 		) {
-			val prepared = controller.copy(
-				state = state.copy(
-					shellCoverVisible = true,
-					menuVisible = false,
-					dialog = null,
-					whispersync = state.whispersync.forShellCoverPresentation(),
-					activeMediaOverlay = null,
-					activeMediaOverlayAnchorReceipt = null,
-					audioMetadataLabel = null
-				)
-			).requestShellCoverPresentation()
-			return ReaderControllerBackStep(
-				controller = prepared.controller,
-				engineCommands = state.clearOverlayForShellCoverCommands(),
-				handled = true,
-				readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand(),
-				presentationEffects = prepared.presentationEffects,
-				presentationReceipt = prepared.presentationReceipt
-			)
+			val requested = controller.requestShellCoverPresentation()
+			if (!requested.presentationReceipt.authorizesShellCoverPresentation()) {
+				return requested.asBackStep()
+			}
+			val state = requested.controller.state
+			return requested.copy(
+				controller = requested.controller.copy(
+					state = state.copy(
+						shellCoverVisible = true,
+						menuVisible = false,
+						dialog = null,
+						whispersync = state.whispersync.forShellCoverPresentation(),
+						activeMediaOverlay = null,
+						activeMediaOverlayAnchorReceipt = null,
+						audioMetadataLabel = null
+					)
+				),
+				engineCommands = requested.engineCommands + state.clearOverlayForShellCoverCommands(),
+				readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
+			).asBackStep()
 		}
 		return ReaderControllerBackStep(controller = controller, handled = false)
 	}
@@ -387,6 +387,17 @@ private fun ReaderController.requestShellCoverPresentation(): ReaderControllerSt
 			coverGeneration = state.presentation.nextTokenValue
 		)
 	)
+
+private fun ReaderPresentationEventReceipt?.authorizesShellCoverPresentation(): Boolean {
+	val receipt = this ?: return false
+	val request = receipt.event as? ReaderPresentationEvent.ShellCoverRequested ?: return false
+	if (
+		receipt.disposition != ReaderPresentationEventDisposition.Accepted &&
+		receipt.disposition != ReaderPresentationEventDisposition.Idempotent
+	) return false
+	return (receipt.postState.authority as? ReaderPresentationAuthority.ShellCoverCommitPending)
+		?.coverGeneration == request.coverGeneration
+}
 
 private fun ReaderControllerState.shellCoverReadaloudResetCommand(): ReaderReadaloudPlaybackCommand? =
 	ReaderReadaloudPlaybackCommand.StopAndReset.takeIf { chrome.readaloudPlayback.isAvailable }
