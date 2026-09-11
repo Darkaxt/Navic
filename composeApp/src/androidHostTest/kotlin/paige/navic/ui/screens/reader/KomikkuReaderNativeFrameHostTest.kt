@@ -7166,6 +7166,42 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
+	fun startupShellPageActionWaitsForMatchingPresentationProofAndThenDispatchesOnce() {
+		val gate = ReaderStartupShellHandoffGate()
+		var dispatches = 0
+		fun dispatchQualifyingCoverAction() {
+			gate.consumesCanvasShellPageAction(shellVisible = true, canvasEnabled = true)
+			if (!gate.consumesCanvasShellPageAction(shellVisible = true, canvasEnabled = true)) {
+				dispatches += 1
+			}
+		}
+
+		dispatchQualifyingCoverAction()
+		assertEquals(0, dispatches)
+		val attempt = assertNotNull(
+			gate.beginAttempt(
+				shellVisible = true,
+				canvasEnabled = true,
+				rasterPhase = ReaderPagePreparationPhase.Ready,
+				textureDeck = ReaderTextureDeckState.Ready
+			)
+		)
+		gate.completeAttempt(
+			attempt = attempt,
+			shellVisible = true,
+			canvasEnabled = true,
+			rasterPhase = ReaderPagePreparationPhase.Ready,
+			textureDeck = ReaderTextureDeckState.Ready,
+			onPrepared = {},
+			onRejected = { error("Matching presentation proof was rejected") }
+		)
+
+		dispatchQualifyingCoverAction()
+
+		assertEquals(1, dispatches)
+	}
+
+	@Test
 	fun startupShellHandoffIsOneShotAcrossAnOrdinaryReturnedCover() {
 		val gate = ReaderStartupShellHandoffGate()
 		assertTrue(gate.consumesCanvasShellPageAction(shellVisible = true, canvasEnabled = true))
@@ -7192,7 +7228,7 @@ class KomikkuReaderNativeFrameHostTest {
 
 		assertEquals(1, prepared)
 		assertEquals(0, rejected)
-		assertTrue(gate.consumesCanvasShellPageAction(shellVisible = true, canvasEnabled = true))
+		assertFalse(gate.consumesCanvasShellPageAction(shellVisible = true, canvasEnabled = true))
 		assertTrue(gate.consumePreparedHandoff())
 		assertFalse(gate.consumesCanvasShellPageAction(shellVisible = true, canvasEnabled = true))
 		assertNull(

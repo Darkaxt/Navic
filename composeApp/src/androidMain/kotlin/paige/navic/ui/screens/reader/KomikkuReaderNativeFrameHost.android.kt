@@ -510,7 +510,7 @@ internal class ReaderStartupShellHandoffGate {
 	fun consumesCanvasShellPageAction(
 		shellVisible: Boolean,
 		canvasEnabled: Boolean
-	): Boolean = (eligible || preparedHandoff) && shellVisible && canvasEnabled
+	): Boolean = eligible && shellVisible && canvasEnabled
 
 	fun beginAttempt(
 		shellVisible: Boolean,
