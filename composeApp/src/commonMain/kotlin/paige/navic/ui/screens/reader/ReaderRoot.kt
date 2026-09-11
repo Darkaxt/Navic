@@ -15,7 +15,6 @@ import androidx.compose.ui.unit.dp
 import paige.navic.reader.DefaultReaderWhispersyncHighlightColorArgb
 import paige.navic.reader.ReaderAnnotation
 import paige.navic.reader.ReaderBookmark
-import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderEngineCapability
@@ -208,13 +207,11 @@ internal fun KomikkuReaderRoot(
 				val receipt = controllerState.whispersync.cueMap.geometryReceipt
 				if (receipt != null) {
 					onEngineHostEvent(
-						ReaderEngineHostEvent.FoliateBridge(
-							ReaderBridgeEvent.WhispersyncCueMapHoldOutcome(
-								sourceOrdinal = sourceOrdinal,
-								revisionDigest = receipt.revisionDigest,
-								presentationGeneration = receipt.presentationGeneration,
-								outcome = outcome
-							)
+						ReaderEngineHostEvent.NativeWhispersyncCueMapHoldOutcome(
+							sourceOrdinal = sourceOrdinal,
+							revisionDigest = receipt.revisionDigest,
+							presentationGeneration = receipt.presentationGeneration,
+							outcome = outcome
 						)
 					)
 				}
@@ -223,13 +220,11 @@ internal fun KomikkuReaderRoot(
 				val receipt = controllerState.whispersync.cueMap.geometryReceipt
 				if (receipt != null) {
 					onEngineHostEvent(
-						ReaderEngineHostEvent.FoliateBridge(
-							ReaderBridgeEvent.WhispersyncCueMapSeekRequested(
-								sourceOrdinal = sourceOrdinal,
-								revisionDigest = receipt.revisionDigest,
-								presentationGeneration = receipt.presentationGeneration,
-								destinationCommitIdentity = receipt.destinationCommitIdentity
-							)
+						ReaderEngineHostEvent.NativeWhispersyncCueMapSeekRequested(
+							sourceOrdinal = sourceOrdinal,
+							revisionDigest = receipt.revisionDigest,
+							presentationGeneration = receipt.presentationGeneration,
+							destinationCommitIdentity = receipt.destinationCommitIdentity
 						)
 					)
 				}

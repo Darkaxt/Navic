@@ -14,6 +14,18 @@ sealed interface ReaderEngineHostCommand {
 sealed interface ReaderEngineHostEvent {
 	data class FoliateBridge(val event: ReaderBridgeEvent) : ReaderEngineHostEvent
 	data class SettingsPresentationCommitted(val snapshotKey: Int) : ReaderEngineHostEvent
+	data class NativeWhispersyncCueMapSeekRequested(
+		val sourceOrdinal: Int,
+		val revisionDigest: String,
+		val presentationGeneration: Long,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity
+	) : ReaderEngineHostEvent
+	data class NativeWhispersyncCueMapHoldOutcome(
+		val sourceOrdinal: Int,
+		val revisionDigest: String,
+		val presentationGeneration: Long,
+		val outcome: ReaderWhispersyncCueMapHoldOutcome
+	) : ReaderEngineHostEvent
 }
 
 // Payload-free observations for WordSync logging, not command or presentation authority.

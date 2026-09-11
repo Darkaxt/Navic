@@ -1189,6 +1189,22 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun readerRootDoesNotExposeRawFoliateBridgeProtocol() {
+		val readerRootText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		).readText()
+
+		assertFalse(
+			readerRootText.contains("ReaderBridgeCommand"),
+			"Active ReaderRoot.kt must not know about raw Foliate/WebView bridge commands."
+		)
+		assertFalse(
+			readerRootText.contains("ReaderBridgeEvent"),
+			"Active ReaderRoot.kt must consume engine-host events, not raw WebView bridge events."
+		)
+	}
+
+	@Test
 	fun activeKomikkuShellAndViewStateDoNotExposeRawFoliateBridgeProtocol() {
 		val activeReaderText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"

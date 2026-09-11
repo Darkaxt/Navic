@@ -742,6 +742,56 @@ class FoliateEpubEngineAdapterTest {
 		)
 	}
 
+	@Test
+	fun mapsTypedNativeCueMapHostEventsWithoutExposingFoliateBridgeProtocol() {
+		val adapter = FoliateEpubEngineAdapter()
+		val destinationIdentity = ReaderDestinationCommitIdentity("session-a", 41L)
+
+		assertEquals(
+			ReaderEngineEvent.WhispersyncCueMapSeekRequested(
+				sourceOrdinal = 7,
+				revisionDigest = "revision-a",
+				presentationGeneration = 11L,
+				destinationCommitIdentity = destinationIdentity
+			),
+			adapter.onHostEvent(
+				ReaderEngineHostEvent.NativeWhispersyncCueMapSeekRequested(
+					sourceOrdinal = 7,
+					revisionDigest = "revision-a",
+					presentationGeneration = 11L,
+					destinationCommitIdentity = destinationIdentity
+				)
+			)
+		)
+		assertEquals(
+			ReaderEngineEvent.WhispersyncCueMapHoldOutcome(
+				sourceOrdinal = 7,
+				revisionDigest = "revision-a",
+				presentationGeneration = 11L,
+				outcome = ReaderWhispersyncCueMapHoldOutcome.Completed
+			),
+			adapter.onHostEvent(
+				ReaderEngineHostEvent.NativeWhispersyncCueMapHoldOutcome(
+					sourceOrdinal = 7,
+					revisionDigest = "revision-a",
+					presentationGeneration = 11L,
+					outcome = ReaderWhispersyncCueMapHoldOutcome.Completed
+				)
+			)
+		)
+		assertNull(
+			FoliatePdfEngineAdapter().onHostEvent(
+				ReaderEngineHostEvent.NativeWhispersyncCueMapSeekRequested(
+					sourceOrdinal = 7,
+					revisionDigest = "revision-a",
+					presentationGeneration = 11L,
+					destinationCommitIdentity = destinationIdentity
+				)
+			),
+			"Typed native cue-map callbacks must retain the adapter capability gate."
+		)
+	}
+
 	private fun hobbitOpenRequest(): ReaderEngineOpenRequest =
 		ReaderEngineOpenRequest(
 			publication = ReaderPublicationIdentity(

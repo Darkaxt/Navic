@@ -200,6 +200,20 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineHostEvent.FoliateBridge -> onBridgeEvent(event.event)
 			is ReaderEngineHostEvent.SettingsPresentationCommitted ->
 				ReaderEngineEvent.SettingsPresentationCommitted(event.snapshotKey)
+			is ReaderEngineHostEvent.NativeWhispersyncCueMapSeekRequested ->
+				ReaderEngineEvent.WhispersyncCueMapSeekRequested(
+					sourceOrdinal = event.sourceOrdinal,
+					revisionDigest = event.revisionDigest,
+					presentationGeneration = event.presentationGeneration,
+					destinationCommitIdentity = event.destinationCommitIdentity
+				).takeIf(::supports)
+			is ReaderEngineHostEvent.NativeWhispersyncCueMapHoldOutcome ->
+				ReaderEngineEvent.WhispersyncCueMapHoldOutcome(
+					sourceOrdinal = event.sourceOrdinal,
+					revisionDigest = event.revisionDigest,
+					presentationGeneration = event.presentationGeneration,
+					outcome = event.outcome
+				).takeIf(::supports)
 		}
 
 	private fun onBridgeEvent(event: ReaderBridgeEvent): ReaderEngineEvent? {
