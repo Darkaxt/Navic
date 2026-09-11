@@ -647,6 +647,34 @@ class ReaderPassiveRasterPrototypeTest {
 	}
 
 	@Test
+	fun cancelledRasterWaitsForCallbackBeforeReplacementAndReleasesLateRasterExactlyOnce() {
+		val fixture = fixture()
+		val runtime = FakePassiveRasterRuntime()
+		val released = mutableListOf<Int>()
+		val session = ReaderPassiveRasterPrototypeSession(runtime, released::add)
+		val results = mutableListOf<ReaderPassiveRasterCaptureResult<Int>?>()
+
+		assertTrue(session.capture(fixture.manifest, results::add))
+		runtime.completeCommit()
+		assertEquals(1, runtime.captureRequests)
+
+		assertTrue(session.cancelActiveCapture())
+
+		assertEquals(listOf<ReaderPassiveRasterCaptureResult<Int>?>(null), results)
+		assertTrue(released.isEmpty())
+		assertFalse(session.isReady)
+		assertFalse(session.capture(fixture.manifest) { error("draining raster must reject replacement") })
+
+		runtime.completeRaster(73)
+
+		assertEquals(listOf<ReaderPassiveRasterCaptureResult<Int>?>(null), results)
+		assertEquals(listOf(73), released)
+		assertEquals(1, session.metrics().rasterReleases)
+		assertTrue(session.isReady)
+		assertTrue(session.capture(fixture.manifest) { })
+	}
+
+	@Test
 	fun pauseFencesTheCallbackAndReleasesALateRasterExactlyOnce() {
 		val fixture = fixture()
 		val runtime = FakePassiveRasterRuntime()
