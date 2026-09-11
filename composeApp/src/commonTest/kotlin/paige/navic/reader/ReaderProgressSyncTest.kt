@@ -379,6 +379,26 @@ class ReaderProgressSyncTest {
 	}
 
 	@Test
+	fun remoteExactResourceProgressDoesNotCrossBooks() {
+		val progress = BinderyReadingProgress(
+			bookId = "foreign-book",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3693/resources/ebook-1",
+			cfi = "epubcfi(/6/8!/4/1:0)",
+			progressFraction = 0.34
+		)
+
+		assertEquals(
+			null,
+			progress.toReaderStartLocatorForReader(
+				bookId = "3693",
+				resourceHref = "/opds/books/3693/resources/ebook-1",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
+	}
+
+	@Test
 	fun remoteProgressFallsBackToProgressOnlyForSameBookKindWhenResourceChanges() {
 		val progress = BinderyReadingProgress(
 			bookId = "3693",

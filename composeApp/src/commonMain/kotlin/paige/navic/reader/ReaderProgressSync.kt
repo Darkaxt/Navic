@@ -50,9 +50,11 @@ fun BinderyReadingProgress.toReaderStartLocatorForReader(
 	bookId: String,
 	resourceHref: String,
 	kind: ReaderPublicationKind
-): ReaderLocator? =
-	toReaderStartLocatorFor(resourceHref = resourceHref, kind = kind)
+): ReaderLocator? {
+	if (!matchesReaderBookKind(bookId = bookId, kind = kind)) return null
+	return toReaderStartLocatorFor(resourceHref = resourceHref, kind = kind)
 		?: toReaderProgressOnlyStartLocatorFor(bookId = bookId, kind = kind)
+}
 
 data class ReaderReadingProgressState(
 	val progresses: List<BinderyReadingProgress> = emptyList()
