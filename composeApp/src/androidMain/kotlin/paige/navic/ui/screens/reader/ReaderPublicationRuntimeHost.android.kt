@@ -17,12 +17,12 @@ import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.reader.BinderyReaderPublicationResolver
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPublicationKind
-import paige.navic.reader.ReaderPublicationResourceRequest
 import paige.navic.reader.ReaderSessionLease
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.WordSyncPublicationVerifier
 import paige.navic.reader.androidWordSyncPublicationVerifierOrNull
 import paige.navic.reader.readerManagedStorageRoot
+import paige.navic.reader.readerPublicationResourceRequest
 import paige.navic.reader.toReaderStartLocatorForReader
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
@@ -96,14 +96,8 @@ actual fun ReaderPublicationRuntimeHost(
 				},
 				cacheRoot = readerManagedStorageRoot(context)
 			).resolve(
-				ReaderPublicationResourceRequest(
-					bookId = operationReader.bookId,
-					title = operationReader.title,
-					resourceHref = operationReader.resourceHref,
-					sourceUrl = operationReader.publicationUrl,
-					kind = operationReader.kind,
-					format = operationReader.publicationFormat,
-					mediaOverlayEnabled = operationReader.mediaOverlayEnabled,
+				operationReader.readerPublicationResourceRequest(
+					accountScopeHash = repository.readerPublicationAccountScopeHash(),
 					externalShellCoverHref = externalShellCoverHref
 				)
 			)

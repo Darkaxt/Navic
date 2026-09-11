@@ -22,7 +22,6 @@ import paige.navic.reader.ReadaloudPlaybackPlan
 import paige.navic.reader.ReadaloudPlaybackPosition
 import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderPublicationKind
-import paige.navic.reader.ReaderPublicationResourceRequest
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderReadaloudReaderInteraction
@@ -34,6 +33,7 @@ import paige.navic.reader.metadataLabelsForPlaybackPosition
 import paige.navic.reader.onPlaybackPosition
 import paige.navic.reader.onReaderInteraction
 import paige.navic.reader.readerManagedStorageRoot
+import paige.navic.reader.readerPublicationResourceRequest
 import paige.navic.reader.setSyncEnabled
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
@@ -216,14 +216,8 @@ internal fun ReaderReadaloudRuntimeHostWithControllerFactory(
 				},
 				cacheRoot = readerManagedStorageRoot(context)
 			).load(
-				ReaderPublicationResourceRequest(
-					bookId = operationReader.bookId,
-					title = operationReader.title,
-					resourceHref = operationReader.resourceHref,
-					sourceUrl = operationReader.publicationUrl,
-					kind = operationReader.kind,
-					format = operationReader.publicationFormat,
-					mediaOverlayEnabled = operationReader.mediaOverlayEnabled
+				operationReader.readerPublicationResourceRequest(
+					accountScopeHash = repository.readerPublicationAccountScopeHash()
 				)
 			)
 		} catch (cancelled: CancellationException) {

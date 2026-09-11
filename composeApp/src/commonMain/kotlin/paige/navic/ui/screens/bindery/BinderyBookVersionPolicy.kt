@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.bindery
 
 import io.ktor.http.encodeURLParameter
+import okio.ByteString.Companion.encodeUtf8
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.repositories.BinderyAudiobookVersion
 import paige.navic.domain.repositories.BinderyCatalog
@@ -83,6 +84,7 @@ data class BinderyBookVersionRow(
 	val subtitle: String?,
 	val format: ReaderPublicationFormat = ReaderPublicationFormat.Epub,
 	val readerSupported: Boolean = true,
+	val publicationRevisionHash: String? = null,
 	val downloadExtension: String? = null,
 	val finding: BinderyCatalogCard.Finding? = null,
 	val audiobookId: String? = null,
@@ -118,6 +120,7 @@ data class BinderyWhispersyncMatch(
 	val oppositeEbookResourceHref: String? = null,
 	val oppositeEbookBookFileId: String? = null,
 	val oppositeEbookFormat: ReaderPublicationFormat? = null,
+	val oppositeEbookPublicationRevisionHash: String? = null,
 	val wordSync: BinderyWordSyncReference? = null
 )
 
@@ -175,6 +178,7 @@ fun binderyReaderDestinationForVersionRow(
 			kind = ReaderPublicationKind.Readaloud,
 			publicationFormat = ReaderPublicationFormat.Epub,
 			mediaOverlayEnabled = readaloudMediaOverlayEnabled,
+			publicationRevisionHash = row.publicationRevisionHash,
 			fullscreenCoverUrl = row.fullscreenCoverUrl(opdsBaseUrl, fullscreenCoverTargetAspectRatio)
 		)
 		BinderyBookVersionRoutingAction.OpenEbook -> Screen.Reader(
@@ -185,6 +189,7 @@ fun binderyReaderDestinationForVersionRow(
 			kind = ReaderPublicationKind.Ebook,
 			publicationFormat = row.format,
 			mediaOverlayEnabled = false,
+			publicationRevisionHash = row.publicationRevisionHash,
 			fullscreenCoverUrl = row.fullscreenCoverUrl(opdsBaseUrl, fullscreenCoverTargetAspectRatio)
 		)
 		BinderyBookVersionRoutingAction.OpenAudiobook,
@@ -233,6 +238,7 @@ fun binderyWhispersyncReaderDestinationForMatch(
 		kind = ReaderPublicationKind.Ebook,
 		publicationFormat = ebookRow.format,
 		mediaOverlayEnabled = false,
+		publicationRevisionHash = ebookRow.publicationRevisionHash,
 		fullscreenCoverUrl = ebookRow.fullscreenCoverUrl(opdsBaseUrl, fullscreenCoverTargetAspectRatio),
 		whispersyncSidecarUrl = binderyEndpoint(opdsBaseUrl, sidecarHref),
 		whispersyncArtifactId = match.artifactId,
@@ -275,6 +281,7 @@ fun binderyWhispersyncReaderDestinationForRowMatch(
 				kind = ReaderPublicationKind.Ebook,
 				publicationFormat = match.oppositeEbookFormat ?: ReaderPublicationFormat.Epub,
 				mediaOverlayEnabled = false,
+				publicationRevisionHash = match.oppositeEbookPublicationRevisionHash,
 				fullscreenCoverUrl = row.fullscreenCoverUrl(opdsBaseUrl, fullscreenCoverTargetAspectRatio),
 				whispersyncSidecarUrl = binderyEndpoint(opdsBaseUrl, sidecarHref),
 				whispersyncArtifactId = match.artifactId,
@@ -482,6 +489,11 @@ private fun BinderySyncPair.toWhispersyncMatch(
 		} else {
 			null
 		},
+		oppositeEbookPublicationRevisionHash = if (oppositeKind == BinderyBookVersionKind.Ebook) {
+			oppositeRow?.publicationRevisionHash
+		} else {
+			null
+		},
 		wordSync = wordSyncReferenceOrNull()
 	)
 }
@@ -608,6 +620,7 @@ private fun BinderyBookResource.toEbookVersionRow(
 		).joinToString(separator = " / ").takeIf { it.isNotBlank() },
 		format = readerFormat ?: ReaderPublicationFormat.Epub,
 		readerSupported = readerFormat != null,
+		publicationRevisionHash = readerPublicationRevisionHash(),
 		downloadExtension = if (readerFormat == null) displayFormat.downloadExtension() else null,
 		finding = bookFileId()?.let(findingByBookFileId::get),
 		ebookBookFileId = bookFileId()
@@ -627,8 +640,35 @@ private fun BinderyBookResource.toReadaloudVersionRow(
 			sizeBytes?.toFileSize()
 		).joinToString(separator = " / ").takeIf { it.isNotBlank() },
 		finding = bookFileId()?.let(findingByBookFileId::get),
-		ebookBookFileId = bookFileId()
+		ebookBookFileId = bookFileId(),
+		publicationRevisionHash = readerPublicationRevisionHash()
 	)
+
+private fun BinderyBookResource.readerPublicationRevisionHash(): String? {
+	val fields = listOf(
+		"version" to metadata.version?.trim()?.takeIf(String::isNotEmpty),
+		"resource" to metadata.resourceKey?.trim()?.takeIf(String::isNotEmpty),
+		"file" to metadata.bookFileId?.trim()?.takeIf(String::isNotEmpty),
+		"bytes" to metadata.sizeBytes?.takeIf { value -> value > 0L }?.toString()
+	)
+	if (fields.all { (_, value) -> value == null }) return null
+	val authority = buildString {
+		append("navic.reader.publication-revision.v1")
+		fields.forEach { (name, value) ->
+			append(name.length)
+			append(':')
+			append(name)
+			if (value == null) {
+				append("-1:")
+			} else {
+				append(value.length)
+				append(':')
+				append(value)
+			}
+		}
+	}
+	return authority.encodeUtf8().sha256().hex()
+}
 
 private fun BinderyAudiobookVersion.matchesLanguage(language: String?): Boolean =
 	language == null || this.language?.normalizedBinderyAvailabilityLanguage() == language

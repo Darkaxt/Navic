@@ -127,7 +127,9 @@ class ReaderPublicationRuntimeOwnershipTest {
 					)
 				}
 			}
-			flush(fixture)
+			flushUntil(fixture, "replacement publication ready") {
+				readyOwners == listOf("b")
+			}
 			assertEquals(listOf("b"), readyOwners)
 
 			releaseA.complete(Unit)
@@ -565,18 +567,24 @@ class ReaderPublicationRuntimeOwnershipTest {
 			}
 
 			val fixture = setContent()
-			flush(fixture)
+			flushUntil(fixture, "first A readaloud controller loaded") {
+				controllerFactory.controllers.singleOrNull()?.loadedPlan != null
+			}
 			val a1Controller = controllerFactory.controllers.single()
 			val oldPlan = a1Controller.loadedPlan ?: error("A1 controller did not load")
 
 			currentReader.value = readerB
 			setContent(fixture)
-			flush(fixture)
+			flushUntil(fixture, "B readaloud controller loaded") {
+				controllerFactory.controllers.getOrNull(1)?.loadedPlan != null
+			}
 			val bController = controllerFactory.controllers[1]
 
 			currentReader.value = readerA
 			setContent(fixture)
-			flush(fixture)
+			flushUntil(fixture, "second A readaloud controller loaded") {
+				controllerFactory.controllers.getOrNull(2)?.loadedPlan != null
+			}
 			val a2Controller = controllerFactory.controllers[2]
 
 			val aCallbacksBeforeOldEmission = playbackCallbacks.getOrDefault("a", 0)
@@ -731,7 +739,9 @@ class ReaderPublicationRuntimeOwnershipTest {
 					)
 				}
 			}
-			flush(fixture)
+			flushUntil(fixture, "replacement readaloud ready") {
+				readyOwners == listOf("b")
+			}
 			assertEquals(listOf("b"), readyOwners)
 			val bPlaybackCallbackCount = playbackCallbackCount
 
@@ -902,6 +912,20 @@ class ReaderPublicationRuntimeOwnershipTest {
 		runCurrent()
 		fixture.frameClock.sendFrame(++fixture.frame * 1_000_000L)
 		runCurrent()
+	}
+
+	private fun TestScope.flushUntil(
+		fixture: ComposeFixture,
+		description: String,
+		condition: () -> Boolean
+	) {
+		val deadlineNanos = System.nanoTime() + 5_000_000_000L
+		while (true) {
+			flush(fixture)
+			if (condition()) return
+			check(System.nanoTime() < deadlineNanos) { "Timed out waiting for $description." }
+			Thread.sleep(5L)
+		}
 	}
 }
 

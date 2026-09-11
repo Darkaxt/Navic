@@ -42,6 +42,9 @@ class BinderyRepository(
 	private val metadataCache: BinderyMetadataCache = NoOpBinderyMetadataCache,
 	private val currentTimeMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() }
 ) {
+	internal fun readerPublicationAccountScopeHash(): String =
+		binderyApiKeyFingerprint(preferenceManager.binderyApiKey)
+
 	suspend fun testConnection(): BinderyConnectionResult {
 		if (!preferenceManager.binderyEnabled) return BinderyConnectionResult.Disabled
 		val urlError = binderyOpdsBaseUrlConfigurationError(preferenceManager.binderyOpdsBaseUrl)

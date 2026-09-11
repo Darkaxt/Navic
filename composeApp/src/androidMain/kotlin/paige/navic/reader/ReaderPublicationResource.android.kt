@@ -4,24 +4,34 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.content.Context
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
+import java.net.URI
 import java.net.URL
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
+import paige.navic.ui.navigation.Screen
 
 internal const val ReaderPublicationCachePathPrefix = "/reader-cache/"
 private const val ReaderPublicationCachePublicationDirectory = "reader-publications"
+private const val ReaderPublicationIntegrityFileName = "publication.integrity"
+private const val ReaderPublicationIntegritySchemaVersion = 1
 
 data class ReaderPublicationResourceRequest(
 	val bookId: String,
@@ -31,7 +41,25 @@ data class ReaderPublicationResourceRequest(
 	val kind: ReaderPublicationKind,
 	val format: ReaderPublicationFormat = ReaderPublicationFormat.Epub,
 	val mediaOverlayEnabled: Boolean,
+	val accountScopeHash: String = "",
+	val contentRevisionHash: String = "",
 	val externalShellCoverHref: String? = null
+)
+
+internal fun Screen.Reader.readerPublicationResourceRequest(
+	accountScopeHash: String,
+	externalShellCoverHref: String? = null
+): ReaderPublicationResourceRequest = ReaderPublicationResourceRequest(
+	bookId = bookId,
+	title = title,
+	resourceHref = resourceHref,
+	sourceUrl = publicationUrl,
+	kind = kind,
+	format = publicationFormat,
+	mediaOverlayEnabled = mediaOverlayEnabled,
+	accountScopeHash = accountScopeHash,
+	contentRevisionHash = publicationRevisionHash.orEmpty(),
+	externalShellCoverHref = externalShellCoverHref
 )
 
 data class ReaderResolvedPublicationResource(
@@ -49,39 +77,78 @@ data class ReaderResolvedPublicationResource(
 
 class BinderyReaderPublicationResolver(
 	private val fetchResourceBytes: suspend (String) -> ByteArray,
-	private val cacheRoot: File
+	private val cacheRoot: File,
+	private val cacheDispatcher: CoroutineDispatcher = Dispatchers.IO,
+	private val cacheWorkObserver: (() -> Unit)? = null
 ) {
 	suspend fun resolve(request: ReaderPublicationResourceRequest): ReaderResolvedPublicationResource {
 		val resourceHref = request.safeResourceHref()
-		val cacheKey = request.readerPublicationCacheKey()
-		val publicationExtension = request.publicationExtension()
+		val prefetchedBytes = if (request.contentRevisionHash.isBlank()) {
+			request.fetchPublicationBytes(resourceHref, fetchResourceBytes).also {
+				currentCoroutineContext().ensureActive()
+			}
+		} else {
+			null
+		}
+		val identifiedRequest = if (prefetchedBytes == null) {
+			request
+		} else {
+			request.copy(
+				contentRevisionHash = cacheWork { prefetchedBytes.sha256Hex() }
+			)
+		}
+		val cacheKey = identifiedRequest.readerPublicationCacheKey()
+		val publicationExtension = identifiedRequest.publicationExtension()
 		val publicationFile = File(
 			File(cacheRoot, "$ReaderPublicationCachePublicationDirectory/$cacheKey"),
 			"publication.$publicationExtension"
 		)
-		val resolved = if (publicationFile.isFile && publicationFile.length() > 0L) {
-			request.resolvedPublicationResource(
-				publicationFile = publicationFile,
-				resourceHref = resourceHref,
-				cacheKey = cacheKey,
-				fromCache = true,
-				publicationExtension = publicationExtension
-			)
-		} else {
-			val bytes = if (request.shouldFetchReaderDevSourceUrl(resourceHref)) {
-				request.fetchReaderDevSourceBytes()
-			} else {
-				fetchResourceBytes(resourceHref)
+		val resolved = ReaderPublicationTargetLocks.withTarget(publicationFile) {
+			val publicationDirectory = publicationFile.parentFile!!
+			val sessionLease = ReaderSessionLease.shared(publicationDirectory)
+			var transferred = false
+			try {
+				val integrityFile = publicationDirectory.resolve(ReaderPublicationIntegrityFileName)
+				val cached = cacheWork {
+					publicationFile.cleanupPublicationTemporaryFiles(integrityFile)
+					if (publicationFile.isValidPublicationCacheMaterial(integrityFile)) {
+						publicationFile.cacheResult(
+							cacheKey = cacheKey,
+							fromCache = true,
+							publicationExtension = publicationExtension
+						)
+					} else {
+						publicationFile.deleteInvalidPublicationCacheMaterial(integrityFile)
+						null
+					}
+				}
+				val cacheResult = cached ?: run {
+					val bytes = prefetchedBytes
+						?: identifiedRequest.fetchPublicationBytes(resourceHref, fetchResourceBytes)
+					currentCoroutineContext().ensureActive()
+					cacheWork {
+						check(bytes.isNotEmpty()) { "Reader publication source returned no cacheable bytes." }
+						check(publicationFile.writePublicationCacheAtomically(integrityFile, bytes)) {
+							"Reader publication cache write failed."
+						}
+						publicationFile.cacheResult(
+							cacheKey = cacheKey,
+							fromCache = false,
+							publicationExtension = publicationExtension
+						)
+					}
+				}
+				currentCoroutineContext().ensureActive()
+				identifiedRequest.resolvedPublicationResource(
+					publicationFile = publicationFile,
+					resourceHref = resourceHref,
+					cacheKey = cacheKey,
+					cacheResult = cacheResult,
+					sessionLease = sessionLease
+				).also { transferred = true }
+			} finally {
+				if (!transferred) sessionLease.release()
 			}
-			publicationFile.parentFile?.mkdirs()
-			publicationFile.writeBytes(bytes)
-			request.resolvedPublicationResource(
-				publicationFile = publicationFile,
-				resourceHref = resourceHref,
-				cacheKey = cacheKey,
-				fromCache = false,
-				publicationExtension = publicationExtension
-			)
 		}
 		var transferred = false
 		try {
@@ -96,6 +163,207 @@ class BinderyReaderPublicationResolver(
 			if (!transferred) resolved.sessionLease.release()
 		}
 	}
+
+	private suspend fun <T> cacheWork(action: suspend () -> T): T =
+		withContext(cacheDispatcher) {
+			currentCoroutineContext().ensureActive()
+			cacheWorkObserver?.invoke()
+			action()
+		}
+}
+
+private data class ReaderPublicationCacheResult(
+	val fromCache: Boolean,
+	val shellCoverUrl: String?
+)
+
+private data class ReaderPublicationTargetLock(
+	val mutex: Mutex,
+	var users: Int
+)
+
+private object ReaderPublicationTargetLocks {
+	private val targets = mutableMapOf<String, ReaderPublicationTargetLock>()
+
+	suspend fun <T> withTarget(target: File, action: suspend () -> T): T {
+		val path = target.absoluteFile.normalize().path
+		val targetLock = synchronized(this) {
+			targets.getOrPut(path) { ReaderPublicationTargetLock(Mutex(), users = 0) }
+				.also { lock -> lock.users += 1 }
+		}
+		var acquired = false
+		return try {
+			targetLock.mutex.lock()
+			acquired = true
+			action()
+		} finally {
+			if (acquired) targetLock.mutex.unlock()
+			synchronized(this) {
+				targetLock.users -= 1
+				check(targetLock.users >= 0)
+				if (targetLock.users == 0) targets.remove(path, targetLock)
+			}
+		}
+	}
+}
+
+private data class ReaderPublicationIntegrity(
+	val byteSize: Long,
+	val contentHash: String
+) {
+	fun encode(): ByteArray = buildString {
+		append(ReaderPublicationIntegritySchemaVersion)
+		append('\n')
+		append(byteSize)
+		append('\n')
+		append(contentHash)
+		append('\n')
+	}.encodeToByteArray()
+}
+
+private suspend fun File.isValidPublicationCacheMaterial(integrityFile: File): Boolean {
+	currentCoroutineContext().ensureActive()
+	if (!isFile || Files.isSymbolicLink(toPath()) || length() <= 0L) return false
+	val integrity = integrityFile.readPublicationIntegrity() ?: return false
+	return length() == integrity.byteSize && sha256Hex() == integrity.contentHash
+}
+
+private fun File.readPublicationIntegrity(): ReaderPublicationIntegrity? {
+	if (!isFile || Files.isSymbolicLink(toPath()) || length() !in 1L..256L) return null
+	return runCatching {
+		val lines = readLines(StandardCharsets.US_ASCII)
+		if (lines.size != 3 || lines[0].toInt() != ReaderPublicationIntegritySchemaVersion) return@runCatching null
+		val byteSize = lines[1].toLong().takeIf { size -> size > 0L } ?: return@runCatching null
+		val contentHash = lines[2].takeIf { hash -> hash.matches(Regex("[0-9a-f]{64}")) }
+			?: return@runCatching null
+		ReaderPublicationIntegrity(byteSize, contentHash)
+	}.getOrNull()
+}
+
+private fun File.deleteInvalidPublicationCacheMaterial(integrityFile: File) {
+	if (exists()) delete()
+	if (integrityFile.exists()) integrityFile.delete()
+}
+
+private suspend fun File.cleanupPublicationTemporaryFiles(integrityFile: File) {
+	val directory = parentFile ?: return
+	directory.listFiles().orEmpty()
+		.filter { file ->
+			file.name.endsWith(".tmp") &&
+				(file.name.startsWith("$name.") || file.name.startsWith("${integrityFile.name}."))
+		}
+		.forEach { file ->
+			currentCoroutineContext().ensureActive()
+			file.delete()
+		}
+}
+
+private suspend fun File.writePublicationCacheAtomically(
+	integrityFile: File,
+	bytes: ByteArray
+): Boolean {
+	currentCoroutineContext().ensureActive()
+	val directory = parentFile ?: return false
+	directory.mkdirs()
+	if (!directory.isDirectory || Files.isSymbolicLink(directory.toPath())) return false
+	cleanupPublicationTemporaryFiles(integrityFile)
+	val suffix = "${System.nanoTime()}.tmp"
+	val publicationTemporary = directory.resolve("$name.$suffix")
+	val integrityTemporary = directory.resolve("${integrityFile.name}.$suffix")
+	val integrity = ReaderPublicationIntegrity(bytes.size.toLong(), bytes.sha256Hex())
+	var publicationPromoted = false
+	return try {
+		publicationTemporary.writeSynced(bytes)
+		integrityTemporary.writeSynced(integrity.encode())
+		currentCoroutineContext().ensureActive()
+		readerPublicationPromote(publicationTemporary, this)
+		publicationPromoted = true
+		currentCoroutineContext().ensureActive()
+		readerPublicationPromote(integrityTemporary, integrityFile)
+		currentCoroutineContext().ensureActive()
+		if (!isValidPublicationCacheMaterial(integrityFile)) {
+			deleteInvalidPublicationCacheMaterial(integrityFile)
+			false
+		} else {
+			true
+		}
+	} catch (cancelled: CancellationException) {
+		if (publicationPromoted) deleteInvalidPublicationCacheMaterial(integrityFile)
+		throw cancelled
+	} catch (_: Throwable) {
+		if (publicationPromoted) deleteInvalidPublicationCacheMaterial(integrityFile)
+		false
+	} finally {
+		publicationTemporary.delete()
+		integrityTemporary.delete()
+	}
+}
+
+private suspend fun File.writeSynced(bytes: ByteArray) {
+	FileOutputStream(this).use { output ->
+		var offset = 0
+		while (offset < bytes.size) {
+			currentCoroutineContext().ensureActive()
+			val count = minOf(DEFAULT_BUFFER_SIZE, bytes.size - offset)
+			output.write(bytes, offset, count)
+			offset += count
+		}
+		currentCoroutineContext().ensureActive()
+		output.fd.sync()
+	}
+}
+
+private fun readerPublicationPromote(source: File, target: File) {
+	try {
+		Files.move(
+			source.toPath(),
+			target.toPath(),
+			StandardCopyOption.ATOMIC_MOVE,
+			StandardCopyOption.REPLACE_EXISTING
+		)
+	} catch (_: AtomicMoveNotSupportedException) {
+		Files.move(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+	}
+}
+
+private suspend fun File.sha256Hex(): String {
+	val digest = MessageDigest.getInstance("SHA-256")
+	inputStream().use { input ->
+		val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+		while (true) {
+			currentCoroutineContext().ensureActive()
+			val count = input.read(buffer)
+			if (count < 0) break
+			digest.update(buffer, 0, count)
+		}
+	}
+	currentCoroutineContext().ensureActive()
+	return digest.digest().toHexString()
+}
+
+private suspend fun ByteArray.sha256Hex(): String {
+	val digest = MessageDigest.getInstance("SHA-256")
+	var offset = 0
+	while (offset < size) {
+		currentCoroutineContext().ensureActive()
+		val count = minOf(DEFAULT_BUFFER_SIZE, size - offset)
+		digest.update(this, offset, count)
+		offset += count
+	}
+	currentCoroutineContext().ensureActive()
+	return digest.digest().toHexString()
+}
+
+private fun ByteArray.toHexString(): String =
+	joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
+private suspend fun ReaderPublicationResourceRequest.fetchPublicationBytes(
+	resourceHref: String,
+	fetchResourceBytes: suspend (String) -> ByteArray
+): ByteArray = if (shouldFetchReaderDevSourceUrl(resourceHref)) {
+	fetchReaderDevSourceBytes()
+} else {
+	fetchResourceBytes(resourceHref)
 }
 
 private fun ReaderPublicationResourceRequest.shouldFetchReaderDevSourceUrl(resourceHref: String): Boolean =
@@ -140,15 +408,56 @@ internal fun ReaderPublicationResourceRequest.safeResourceHref(): String =
 
 internal fun ReaderPublicationResourceRequest.readerPublicationCacheKey(): String {
 	val resourceIdentity = canonicalReaderResourceHref(resourceHref) ?: safeResourceHref()
-	val identity = listOf(
-		bookId.trim().takeIf { it.isNotEmpty() } ?: "anonymous",
-		kind.name,
-		format.name,
-		mediaOverlayEnabled.toString(),
-		resourceIdentity
-	).joinToString(separator = "|")
+	val revisionAuthority = contentRevisionHash.trim().takeIf(String::isNotEmpty)
+		?: error("Reader publication revision authority is required for cache identity.")
+	val identity = readerPublicationStructuredIdentity(
+		"book" to (bookId.trim().takeIf { it.isNotEmpty() } ?: "anonymous"),
+		"kind" to kind.name,
+		"format" to format.name,
+		"media-overlay" to mediaOverlayEnabled.toString(),
+		"resource" to resourceIdentity,
+		"origin" to sourceUrl.readerPublicationOriginHash(),
+		"account" to accountScopeHash.readerPublicationAuthorityHash(),
+		"revision" to revisionAuthority.readerPublicationAuthorityHash()
+	)
 	return "reader-${identity.sha256Hex().take(24)}"
 }
+
+private fun readerPublicationStructuredIdentity(vararg fields: Pair<String, String>): String =
+	buildString {
+		append("navic.reader.publication-cache.v1")
+		fields.forEach { (name, value) ->
+			append(name.length)
+			append(':')
+			append(name)
+			append(value.length)
+			append(':')
+			append(value)
+		}
+	}
+
+private fun String.readerPublicationOriginHash(): String {
+	val raw = trim()
+	val origin = runCatching {
+		val uri = URI(raw)
+		val scheme = uri.scheme?.lowercase()?.takeIf { value -> value == "http" || value == "https" }
+			?: return@runCatching raw
+		val host = uri.host?.lowercase()?.takeIf(String::isNotBlank) ?: return@runCatching raw
+		val port = when {
+			uri.port >= 0 -> uri.port
+			scheme == "https" -> 443
+			else -> 80
+		}
+		"$scheme://$host:$port"
+	}.getOrDefault(raw)
+	return origin.readerPublicationAuthorityHash()
+}
+
+internal fun String.readerPublicationAuthorityHash(): String =
+	normalizedPublicationAuthority().sha256Hex()
+
+private fun String.normalizedPublicationAuthority(): String =
+	trim().takeIf(String::isNotEmpty) ?: "unspecified"
 
 private fun ReaderPublicationResourceRequest.publicationExtension(): String =
 	when {
@@ -163,32 +472,35 @@ private fun ReaderPublicationResourceRequest.publicationExtension(): String =
 		}
 	}
 
+private fun File.cacheResult(
+	cacheKey: String,
+	fromCache: Boolean,
+	publicationExtension: String
+): ReaderPublicationCacheResult = ReaderPublicationCacheResult(
+	fromCache = fromCache,
+	shellCoverUrl = if (publicationExtension == "epub") extractReaderShellCoverUrl(cacheKey) else null
+)
+
 private fun ReaderPublicationResourceRequest.resolvedPublicationResource(
 	publicationFile: File,
 	resourceHref: String,
 	cacheKey: String,
-	fromCache: Boolean,
-	publicationExtension: String
-): ReaderResolvedPublicationResource {
-	val shellCoverUrl = if (publicationExtension == "epub") {
-		publicationFile.extractReaderShellCoverUrl(cacheKey)
-	} else {
-		null
-	}
-	return ReaderResolvedPublicationResource(
+	cacheResult: ReaderPublicationCacheResult,
+	sessionLease: ReaderSessionLease
+): ReaderResolvedPublicationResource =
+	ReaderResolvedPublicationResource(
 		publicationUrl = readerPublicationAssetUrl(
-			"$ReaderPublicationCachePublicationDirectory/$cacheKey/publication.$publicationExtension"
+			"$ReaderPublicationCachePublicationDirectory/$cacheKey/publication.${publicationExtension()}"
 		),
 		publicationFile = publicationFile,
-		sessionLease = ReaderSessionLease.of(publicationFile.parentFile!!),
+		sessionLease = sessionLease,
 		resourceHref = resourceHref,
 		sourceUrl = sourceUrl,
 		cacheKey = cacheKey,
-		fromCache = fromCache,
-		shellCoverUrl = shellCoverUrl,
+		fromCache = cacheResult.fromCache,
+		shellCoverUrl = cacheResult.shellCoverUrl,
 		requestHeaders = emptyMap()
 	)
-}
 
 private suspend fun ReaderResolvedPublicationResource.withExternalShellCover(
 	externalShellCoverHref: String?,
@@ -574,6 +886,4 @@ private val ReaderMetaTagRegex = Regex("""<\s*(?:[\w.-]+:)?meta\b([^>]*)>""", Re
 private val ReaderAttributeRegex = Regex("""([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
 
 private fun String.sha256Hex(): String =
-	MessageDigest.getInstance("SHA-256")
-		.digest(encodeToByteArray())
-		.joinToString(separator = "") { byte -> "%02x".format(byte) }
+	MessageDigest.getInstance("SHA-256").digest(encodeToByteArray()).toHexString()

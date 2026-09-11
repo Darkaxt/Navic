@@ -15,6 +15,7 @@ import paige.navic.domain.repositories.BinderyPropertyBag
 import paige.navic.domain.repositories.BinderyPropertyValue
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceCatalog
+import paige.navic.domain.repositories.BinderyResourceMetadata
 import paige.navic.domain.repositories.BinderyFindingMetadata
 import paige.navic.domain.repositories.BinderySyncPair
 import paige.navic.domain.repositories.BinderyWhispersyncArtifact
@@ -876,6 +877,87 @@ class BinderyBookVersionPolicyTest {
 				opdsBaseUrl = "https://bindery.local/opds"
 			)
 		)
+	}
+
+	@Test
+	fun metadataRevisionChangesOpaqueReaderDestinationsForEbookAndReadaloud() {
+		fun destination(kind: BinderyBookVersionKind, version: String): Screen.Reader {
+			val resourceKind = when (kind) {
+				BinderyBookVersionKind.Ebook -> "ebook"
+				BinderyBookVersionKind.Readaloud -> "readaloud"
+				BinderyBookVersionKind.Audiobook -> error("Unsupported synthetic case")
+			}
+			val row = binderyBookVersionRows(
+				manifest = null,
+				resourceCatalog = BinderyResourceCatalog(
+					title = "Synthetic",
+					resources = listOf(
+						BinderyBookResource(
+							href = "/synthetic/publication",
+							title = "Synthetic",
+							type = "application/epub+zip",
+							kind = resourceKind,
+							metadata = BinderyResourceMetadata(
+								version = version,
+								resourceKey = "synthetic-resource",
+								bookFileId = "synthetic-file",
+								sizeBytes = 4096
+							)
+						)
+					)
+				)
+			).single { candidate -> candidate.kind == kind }
+			return checkNotNull(
+				binderyReaderDestinationForVersionRow(
+					row = row,
+					bookId = "synthetic-book",
+					bookTitle = "Synthetic",
+					opdsBaseUrl = "https://origin.invalid/opds"
+				)
+			)
+		}
+
+		val routesByKind = listOf(
+			BinderyBookVersionKind.Ebook,
+			BinderyBookVersionKind.Readaloud
+		).map { kind -> destination(kind, "revision-a") to destination(kind, "revision-b") }
+
+		assertEquals(listOf(true, true), routesByKind.map { (first, second) -> first != second })
+		assertTrue(
+			routesByKind.flatMap { (first, second) ->
+				listOf(first.publicationRevisionHash, second.publicationRevisionHash)
+			}.all { hash -> hash?.matches(Regex("[0-9a-f]{64}")) == true }
+		)
+	}
+
+	@Test
+	fun metadataRevisionAuthorityPreservesFieldBoundaries() {
+		fun revisionHash(metadata: BinderyResourceMetadata): String = checkNotNull(
+			binderyBookVersionRows(
+				manifest = null,
+				resourceCatalog = BinderyResourceCatalog(
+					title = "Synthetic",
+					resources = listOf(
+						BinderyBookResource(
+							href = "/synthetic/publication",
+							title = "Synthetic",
+							type = "application/epub+zip",
+							kind = "ebook",
+							metadata = metadata
+						)
+					)
+				)
+			).single().publicationRevisionHash
+		)
+
+		val embeddedDelimiter = revisionHash(
+			BinderyResourceMetadata(version = "a|resource:b")
+		)
+		val shiftedBoundary = revisionHash(
+			BinderyResourceMetadata(version = "a", resourceKey = "b")
+		)
+
+		assertNotEquals(embeddedDelimiter, shiftedBoundary)
 	}
 
 	@Test

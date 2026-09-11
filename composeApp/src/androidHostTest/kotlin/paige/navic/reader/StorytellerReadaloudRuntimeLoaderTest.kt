@@ -124,7 +124,8 @@ class StorytellerReadaloudRuntimeLoaderTest {
 			resourceHref = "/opds/books/3693/resources/readaloud-1",
 			sourceUrl = "https://bindery.local/opds/books/3693/resources/readaloud-1",
 			kind = ReaderPublicationKind.Readaloud,
-			mediaOverlayEnabled = true
+			mediaOverlayEnabled = true,
+			contentRevisionHash = "a".repeat(64)
 		)
 
 		val first = loader.load(request)

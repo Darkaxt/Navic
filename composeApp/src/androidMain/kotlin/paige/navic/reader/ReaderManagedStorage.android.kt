@@ -82,30 +82,70 @@ private fun removeObsoleteReaderPageRasterSchemas(root: File) {
 }
 
 class ReaderSessionLease private constructor(
-	private val directories: List<File>
+	private val releaseActions: List<() -> Int>
 ) {
 	private val released = AtomicBoolean(false)
 
 	fun release(): Int {
 		if (!released.compareAndSet(false, true)) return 0
-		return directories.count { directory ->
-			directory.exists() && directory.deleteRecursively()
-		}
+		return releaseActions.sumOf { release -> release() }
 	}
 
 	operator fun plus(other: ReaderSessionLease): ReaderSessionLease =
-		ReaderSessionLease((directories + other.directories).distinctBy(File::getPath))
+		ReaderSessionLease(listOf(this::release, other::release))
 
 	companion object {
 		fun of(vararg directories: File): ReaderSessionLease =
 			ReaderSessionLease(
-				directories
-					.map { directory -> directory.absoluteFile.normalize() }
-					.filter { directory -> directory.parentFile?.name in ReaderSessionStorageDirectoryNames }
-					.distinctBy(File::getPath)
+				directories.validReaderSessionDirectories().map { directory ->
+					{
+						if (directory.exists() && directory.deleteRecursively()) 1 else 0
+					}
+				}
 			)
+
+		internal fun shared(vararg directories: File): ReaderSessionLease {
+			val retainedDirectories = directories.validReaderSessionDirectories()
+			retainedDirectories.forEach(ReaderSharedSessionDirectories::retain)
+			return ReaderSessionLease(
+				retainedDirectories.map { directory ->
+					{ ReaderSharedSessionDirectories.release(directory) }
+				}
+			)
+		}
 	}
 }
+
+private data class ReaderSharedSessionDirectory(
+	val directory: File,
+	var owners: Int
+)
+
+private object ReaderSharedSessionDirectories {
+	private val directories = mutableMapOf<String, ReaderSharedSessionDirectory>()
+
+	fun retain(directory: File) {
+		synchronized(this) {
+			val path = directory.path
+			directories.getOrPut(path) { ReaderSharedSessionDirectory(directory, owners = 0) }
+				.owners += 1
+		}
+	}
+
+	fun release(directory: File): Int = synchronized(this) {
+		val entry = directories[directory.path] ?: return@synchronized 0
+		entry.owners -= 1
+		check(entry.owners >= 0)
+		if (entry.owners > 0) return@synchronized 0
+		directories.remove(directory.path, entry)
+		if (entry.directory.exists() && entry.directory.deleteRecursively()) 1 else 0
+	}
+}
+
+private fun Array<out File>.validReaderSessionDirectories(): List<File> =
+	map { directory -> directory.absoluteFile.normalize() }
+		.filter { directory -> directory.parentFile?.name in ReaderSessionStorageDirectoryNames }
+		.distinctBy(File::getPath)
 
 internal fun readerSessionStorageSizeBytes(vararg roots: File): Long =
 	roots.sumOf { root ->
