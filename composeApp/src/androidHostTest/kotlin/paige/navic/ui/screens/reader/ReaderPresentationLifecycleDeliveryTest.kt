@@ -5,6 +5,7 @@ import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderDiagnosticPresentation
 import paige.navic.reader.ReaderNativePagePresentationProof
+import paige.navic.reader.ReaderNativePagePresentationRequest
 import paige.navic.reader.ReaderPageGestureLifecycle
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageInteractionState
@@ -136,6 +137,101 @@ class ReaderPresentationLifecycleDeliveryTest {
 		assertEquals(freshBinding, applied.last().targetBinding)
 		assertIs<ReaderPresentationFrameOwner.NativePage>(applied.last().frameOwner)
 		assertEquals(ReaderPresentationLifecycleState.Foreground, applied.last().lifecycle)
+	}
+
+
+	@Test
+	fun visibilityRestoreWithoutPreparationFloorPreservesNoRetryAuthority() {
+		val binding = completeBinding("visibility-restore-no-floor").copy(
+			preparationGeneration = null
+		)
+		val request = ReaderNativePagePresentationRequest(
+			token = ReaderPresentationToken(71L),
+			binding = binding,
+			retryAfterPreparationGeneration = null
+		)
+		val preState = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.BlockingPreparation(
+				retainedFrame = ReaderPresentationFrameOwner.Neutral,
+				nativePresentationRequest = request
+			),
+			binding = binding,
+			lifecycle = ReaderPresentationLifecycleState.Background,
+			nextTokenValue = 72L
+		)
+		val controller = ControllerHarness(
+			ReaderController(
+				state = ReaderControllerState(
+					readerSessionGeneration = 365L,
+					presentation = preState
+				)
+			)
+		)
+		val delivery = delivery(
+			controller.controller.presentationVersion,
+			binding,
+			initialLifecycle = ReaderPresentationLifecycleState.Background
+		)
+		delivery.observe(ReaderPresentationLifecycleEvent.VisibilityRestored)
+
+		val restored = assertNotNull(delivery.retry(controller::dispatch))
+
+		assertEquals(ReaderPresentationLifecycleState.Foreground, restored.postState.lifecycle)
+		val restoredRequest = assertNotNull(
+			assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+				restored.postState.authority
+			).nativePresentationRequest
+		)
+		assertEquals(request, restoredRequest)
+		assertNull(restoredRequest.retryAfterPreparationGeneration)
+		assertEquals(0, delivery.pendingEventCount)
+	}
+
+	@Test
+	fun publicationCloseMakesAcceptedRestorePreparationFloorObsolete() {
+		val binding = completeBinding("visibility-restore-obsolete-floor")
+		val request = ReaderNativePagePresentationRequest(
+			token = ReaderPresentationToken(72L),
+			binding = binding,
+			retryAfterPreparationGeneration = binding.preparationGeneration
+		)
+		val preState = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.BlockingPreparation(
+				retainedFrame = ReaderPresentationFrameOwner.Neutral,
+				nativePresentationRequest = request
+			),
+			binding = binding,
+			lifecycle = ReaderPresentationLifecycleState.Background,
+			nextTokenValue = 73L
+		)
+		val controller = ControllerHarness(
+			ReaderController(
+				state = ReaderControllerState(
+					readerSessionGeneration = 366L,
+					presentation = preState
+				)
+			)
+		)
+		val delivery = delivery(
+			controller.controller.presentationVersion,
+			binding,
+			initialLifecycle = ReaderPresentationLifecycleState.Background
+		)
+		delivery.observe(ReaderPresentationLifecycleEvent.VisibilityRestored)
+		val restored = assertNotNull(delivery.retry(controller::dispatch))
+		assertEquals(request, assertNotNull(
+			assertIs<ReaderPresentationAuthority.BlockingPreparation>(
+				restored.postState.authority
+			).nativePresentationRequest
+		))
+
+		delivery.observe(ReaderPresentationLifecycleEvent.PublicationClosed)
+		val closed = assertNotNull(delivery.retry(controller::dispatch))
+
+		assertEquals(ReaderPresentationLifecycleState.Destroyed, closed.postState.lifecycle)
+		assertFalse(closed.postState.authority is ReaderPresentationAuthority.BlockingPreparation)
+		assertNull(closed.postState.binding)
+		assertEquals(0, delivery.pendingEventCount)
 	}
 
 	@Test

@@ -251,7 +251,7 @@ class ReaderRuntimeImageLinkTest {
 			"Publication diagnostics must expose resolved shell-cover availability without its identifier."
 		)
 		assertTrue(
-			runtimeHostText.contains("Reader publication uses direct url kind=${'$'}{reader.kind}") &&
+			runtimeHostText.contains("Reader publication uses direct url kind=${'$'}{operationReader.kind}") &&
 				runtimeHostText.contains("shellCoverPresent=${'$'}{preferredShellCoverUrl != null}"),
 			"The direct-publication event must report preferred-cover availability separately from resolver extraction."
 		)
@@ -263,7 +263,7 @@ class ReaderRuntimeImageLinkTest {
 
 		assertContains(
 			runtimeHostText,
-			"reader.fullscreenCoverUrl",
+			"operationReader.fullscreenCoverUrl",
 			message = "Bindery's optional generated fullscreen cover URL must reach Android publication preparation."
 		)
 		assertContains(
@@ -293,7 +293,7 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			runtimeHostText,
-			"currentOnPublicationReady(",
+			"operationOnPublicationReady(",
 			message = "The preferred cover URL must be the one passed into the common reader open request."
 		)
 		assertContains(runtimeHostText, "shellCoverUrl,")

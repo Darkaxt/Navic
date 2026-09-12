@@ -46,11 +46,11 @@ class ReaderPublicationWordSyncVerifierTest {
 
 		assertContains(
 			androidHost,
-			"currentOnPublicationReady(directUrl, preferredShellCoverUrl, null, savedProgress, null)"
+			"operationOnPublicationReady(directUrl, preferredShellCoverUrl, null, savedProgress, null)"
 		)
 		assertContains(androidHost, "androidWordSyncPublicationVerifierOrNull(")
 		assertContains(androidHost, "publicationFile = resolved.publicationFile")
-		assertContains(androidHost, "format = reader.publicationFormat")
+		assertContains(androidHost, "format = operationReader.publicationFormat")
 		assertContains(iosHost, "onPublicationReady(reader.publicationUrl, null, null, null, null)")
 	}
 }

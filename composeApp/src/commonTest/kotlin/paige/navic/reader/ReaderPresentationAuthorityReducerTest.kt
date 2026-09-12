@@ -106,6 +106,74 @@ class ReaderPresentationAuthorityReducerTest {
 	}
 
 	@Test
+	fun rendererSuccessorLineageAdvancesOnlyAcrossAuthenticatedSettlementOwnership() {
+		val token = ReaderPresentationToken(47L)
+		val claimed = readerPresentationReduce(
+			settledNativeState(),
+			ReaderPresentationEvent.CurlClaimed(curlFrame(token).frame)
+		).state
+		val destination = binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				binding.foliateSessionId,
+				2L
+			),
+			textureGeneration = 48L
+		)
+		val acknowledgement = ReaderPageTurnSettlementAck(
+			"lineage-47",
+			2,
+			binding.foliateSessionId,
+			4L,
+			48L
+		)
+		val terminal = readerPresentationReduce(
+			claimed,
+			ReaderPresentationEvent.CurlTerminal(token, binding, acknowledgement)
+		).state
+		val issued = assertNotNull(terminal.rendererSuccessorReceipt)
+		assertEquals(ReaderRendererSuccessorLineageId(token.value), issued.lineageId)
+		assertEquals(binding, issued.originBinding)
+		assertEquals(binding, issued.currentBinding)
+		assertEquals(4L, issued.rasterGeneration)
+		assertEquals(48L, issued.textureGeneration)
+
+		val unrelatedRelocation = readerPresentationReduce(
+			terminal,
+			ReaderPresentationEvent.FoliateRelocated(
+				destination.copy(viewportGeneration = destination.viewportGeneration + 1L),
+				acknowledgement
+			)
+		)
+		assertEquals(terminal, unrelatedRelocation.state)
+		assertEquals(issued, unrelatedRelocation.state.rendererSuccessorReceipt)
+
+		val relocated = readerPresentationReduce(
+			terminal,
+			ReaderPresentationEvent.FoliateRelocated(destination, acknowledgement)
+		).state
+		assertEquals(destination, assertNotNull(relocated.rendererSuccessorReceipt).currentBinding)
+		val proof = nativeProofFor(destination, 80L).copy(transitionToken = token)
+		val presented = readerPresentationReduce(
+			relocated,
+			ReaderPresentationEvent.NativePagePresented(proof)
+		).state
+		assertEquals(destination, assertNotNull(presented.rendererSuccessorReceipt).currentBinding)
+
+		listOf(
+			readerPresentationReduce(terminal, ReaderPresentationEvent.Cancel).state,
+			readerPresentationReduce(terminal, ReaderPresentationEvent.TimedOut(token)).state,
+			readerPresentationReduce(
+				terminal,
+				ReaderPresentationEvent.PublicationOpened(
+					binding.copy(publicationGeneration = binding.publicationGeneration + 1L)
+				)
+			).state
+		).forEach { invalidated ->
+			assertEquals(null, invalidated.rendererSuccessorReceipt)
+		}
+	}
+
+	@Test
 	fun everyPendingAuthorityHasSuccessFailureTimeoutRetryAndCancelOutcomes() {
 		pendingLivenessFixtures().forEach { fixture ->
 			val succeeded = fixture.success.fold(fixture.state) { state, event ->
@@ -194,7 +262,7 @@ class ReaderPresentationAuthorityReducerTest {
 			assertEquals(ReaderRequiredTransition.None, hidden.decision.requiredTransition)
 			val restored = readerPresentationReduce(hidden.state,
 				ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.VisibilityRestored))
-			assertEquals(state, restored.state)
+			assertEquals(state.copy(rendererSuccessorReceipt = null), restored.state)
 			assertEquals(hidden.state.binding, restored.state.binding)
 			assertEquals(hidden.decision.frameOwner, restored.decision.frameOwner)
 			assertFalse(restored.decision.diagnosticPresentation is ReaderDiagnosticPresentation.Failure)

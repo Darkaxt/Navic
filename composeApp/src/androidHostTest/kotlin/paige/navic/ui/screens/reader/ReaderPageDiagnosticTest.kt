@@ -598,15 +598,15 @@ class ReaderPageDiagnosticTest {
 			fileName = "ReaderPublicationRuntimeHost.android.kt",
 			tag = "ReaderPublicationRuntimeLogTag",
 			messages = listOf(
-				"Reader publication uses direct url kind=${'$'}{reader.kind} shellCoverPresent=${'$'}{preferredShellCoverUrl != null}",
-				"Preparing reader publication kind=${'$'}{reader.kind}",
+				"Reader publication uses direct url kind=${'$'}{operationReader.kind} shellCoverPresent=${'$'}{preferredShellCoverUrl != null}",
+				"Preparing reader publication kind=${'$'}{operationReader.kind}",
 				"Fetching reader publication resource",
 				"Fetched reader publication resource bytes=${'$'}{bytes.size}",
+				"Reader publication preparation failed kind=${'$'}{operationReader.kind}",
 				"Reader publication prepared fromCache=${'$'}{resolved.fromCache} " +
 					"shellCoverPresent=${'$'}{!resolved.shellCoverUrl.isNullOrBlank()} " +
 					"shellCoverTintPresent=${'$'}{!resolved.shellCoverTint.isNullOrBlank()} " +
 					"fileBytes=${'$'}{resolved.publicationFile.length()}",
-				"Reader publication preparation failed kind=${'$'}{reader.kind}",
 				"Reader saved progress lookup failed"
 			)
 		)
@@ -621,10 +621,10 @@ class ReaderPageDiagnosticTest {
 				"Preparing readaloud publication",
 				"Fetching readaloud resource",
 				"Fetched readaloud resource bytes=${'$'}{bytes.size}",
+				"Failed to load readaloud publication",
 				"Readaloud publication prepared fromCache=${'$'}{loadedRuntime.fromCache} " +
 					"tracks=${'$'}{loadedRuntime.playbackPlan.mediaItems.size} " +
-					"clips=${'$'}{loadedRuntime.timeline.clips.size}",
-				"Failed to load readaloud publication"
+					"clips=${'$'}{loadedRuntime.timeline.clips.size}"
 			)
 		)
 	}

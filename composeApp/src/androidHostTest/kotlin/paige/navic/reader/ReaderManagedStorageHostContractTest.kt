@@ -24,11 +24,11 @@ class ReaderManagedStorageHostContractTest {
 		assertFalse(webViewHostText.contains("readerPublicationCacheRoot(context)"))
 		assertContains(fontImporterText, "ReaderImportedFontCache(readerManagedStorageRoot(context))")
 
-		assertContains(publicationHostText, "val sessionLeases = remember { mutableListOf<ReaderSessionLease>() }")
+		assertContains(publicationHostText, "val sessionLeases = remember(reader) { mutableListOf<ReaderSessionLease>() }")
 		assertContains(publicationHostText, "sessionLeases += resolved.sessionLease")
 		assertContains(publicationHostText, "sessionLeases.forEach(ReaderSessionLease::release)")
 
-		assertContains(readaloudHostText, "val sessionLeases = remember { mutableListOf<ReaderSessionLease>() }")
+		assertContains(readaloudHostText, "val sessionLeases = remember(runtimeOwner) { mutableListOf<ReaderSessionLease>() }")
 		assertContains(readaloudHostText, "sessionLeases += loadedRuntime.sessionLease")
 		val readaloudDisposal = readaloudHostText
 			.substringAfter("DisposableEffect(controller, sessionLeases)")

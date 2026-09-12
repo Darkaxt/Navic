@@ -8,6 +8,16 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderRuntimeNavigationFlowTest {
+	private fun publicationResolverBody(runtimeHostText: String): String {
+		val startMarker = "val resolved = try {"
+		val endMarker = "} catch (cancelled: CancellationException) {"
+		val startIndex = runtimeHostText.indexOf(startMarker)
+		assertTrue(startIndex >= 0, "Publication resolver try block is missing")
+		val bodyStart = startIndex + startMarker.length
+		val endIndex = runtimeHostText.indexOf(endMarker, startIndex = bodyStart)
+		assertTrue(endIndex > bodyStart, "Publication resolver try block is not bounded by its cancellation catch")
+		return runtimeHostText.substring(bodyStart, endIndex)
+	}
 	@Test
 	fun androidReaderCarriesCausalSequenceAndDestinationCommitThroughBridgeEvents() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
@@ -60,8 +70,11 @@ class ReaderRuntimeNavigationFlowTest {
 	fun androidReaderPublicationRuntimeLogsCacheHitMissState() {
 		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
 		val readaloudHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
+		val resolverBody = publicationResolverBody(runtimeHostText)
 
-		assertContains(runtimeHostText, "val resolved = BinderyReaderPublicationResolver")
+		assertContains(resolverBody, "BinderyReaderPublicationResolver(")
+		assertContains(resolverBody, ").resolve(")
+		assertContains(resolverBody, "operationReader.readerPublicationResourceRequest(")
 		assertTrue(
 			runtimeHostText.contains("fromCache=${'$'}{resolved.fromCache}"),
 			"Publication diagnostics must expose cache hit/miss as a boolean."
@@ -78,9 +91,11 @@ class ReaderRuntimeNavigationFlowTest {
 	@Test
 	fun androidReaderDevLoopbackPublicationsUseResolverCacheInsteadOfDirectWebViewFetch() {
 		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
+		val resolverBody = publicationResolverBody(runtimeHostText)
 
-		assertContains(runtimeHostText, "val resolved = BinderyReaderPublicationResolver")
-		assertContains(runtimeHostText, "sourceUrl = reader.publicationUrl")
+		assertContains(resolverBody, "BinderyReaderPublicationResolver(")
+		assertContains(resolverBody, ").resolve(")
+		assertContains(resolverBody, "operationReader.readerPublicationResourceRequest(")
 		assertFalse(
 			runtimeHostText.contains("isReaderDevLoopbackPublicationUrl"),
 			"Readerdev loopback HTTP sources must be materialized by the native resolver cache; WebView fetches can fail under the appassets HTTPS origin."

@@ -40,6 +40,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
+import org.robolectric.annotation.RealObject
 import org.robolectric.shadows.ShadowGLSurfaceView
 import org.robolectric.shadows.ShadowLooper
 import org.robolectric.shadow.api.Shadow
@@ -86,6 +87,7 @@ import paige.navic.reader.ReaderPresentationLifecycleEvent
 import paige.navic.reader.ReaderPresentationLifecycleState
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderPresentationTokenDomain
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderPublicationFormat
@@ -846,15 +848,74 @@ class KomikkuReaderNativeFrameHostTest {
 			rasterGeneration = profile.rasterGeneration,
 			textureGeneration = selectedGeneration
 		)
+		val selectedState = ReaderPresentationState(
+			authority = ReaderPresentationAuthority.SettledNativePage(
+				ReaderPresentationFrameOwner.NativePage(selectedProof)
+			),
+			binding = selectedBinding
+		)
 		controller.synchronizePresentationDecision(
-			readerPresentationDecision(
-				ReaderPresentationState(
-					authority = ReaderPresentationAuthority.SettledNativePage(
-						ReaderPresentationFrameOwner.NativePage(selectedProof)
-					),
-					binding = selectedBinding
-				)
+			readerPresentationDecision(selectedState)
+		)
+		controller.onHostResumedChanged(true)
+		controller.onWebViewAttachmentChanged(true)
+		controllerClass.task7Field("nextRasterProfileEpoch").setLong(
+			controller,
+			selectedBinding.profileGeneration
+		)
+		controllerClass.task7Method(
+			"publishRasterProfileEpoch",
+			ReaderPlayLikeCurlRasterProfile::class.java
+		).invoke(controller, profile)
+		var common = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 1L,
+				presentation = selectedState
 			)
+		)
+		val reporter = viewerClass.task7Field("presentationBindingReporter")
+			.get(viewer) as ReaderPresentationBindingReporter
+		viewerClass.task7Method(
+			"preparePresentationEpoch",
+			paige.navic.reader.ReaderPresentationReceiptVersion::class.java,
+			ReaderPresentationState::class.java,
+			java.lang.Boolean.TYPE,
+			java.lang.Boolean.TYPE,
+			java.lang.Boolean.TYPE
+		).invoke(
+			viewer,
+			common.presentationVersion,
+			common.state.presentation,
+			false,
+			true,
+			false
+		)
+		assertTrue(reporter.bindPublication(selectedBinding))
+		val publish: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt? = { event ->
+			val step = common.onPresentationEvent(event)
+			common = step.controller
+			controller.synchronizePresentationDecision(
+				readerPresentationDecision(common.state.presentation)
+			)
+			step.presentationReceipt
+		}
+		viewerClass.task7Field("onPresentationEvent").set(viewer, publish)
+		viewerClass.task7Field("onAuthoritativePresentationHostEffect").set(
+			viewer,
+			{ _: ReaderPresentationHostEffect -> }
+		)
+		val predecessorEvent = ReaderPresentationEvent.NativePagePresented(selectedProof)
+		val predecessorReceipt = assertNotNull(
+			viewerClass.task7Method(
+				"dispatchPresentationEvent",
+				ReaderPresentationEvent::class.java
+			).invoke(viewer, predecessorEvent) as ReaderPresentationEventReceipt?
+		)
+		assertTrue(predecessorReceipt.authorizes(predecessorEvent))
+		assertEquals(selectedBinding, reporter.lastReportedBinding)
+		assertEquals(
+			readerPresentationDecision(predecessorReceipt.postState),
+			controllerClass.task7Field("commonPresentationDecision").get(controller)
 		)
 		val cleanup = controllerClass.task7Field("rendererCleanupRetryCoordinator")
 			.get(controller) as ReaderRendererCleanupRetryCoordinator
@@ -895,6 +956,19 @@ class KomikkuReaderNativeFrameHostTest {
 
 		val pendingGeneration = 102L
 		var pendingRasterReleaseCount = 0
+		val curlClaim = assertNotNull(
+			readerCurlClaimEvent(
+				readerPresentationDecision(common.state.presentation),
+				gestureId = 72L
+			)
+		)
+		val curlClaimReceipt = assertNotNull(
+			viewerClass.task7Method(
+				"dispatchPresentationEvent",
+				ReaderPresentationEvent::class.java
+			).invoke(viewer, curlClaim) as ReaderPresentationEventReceipt?
+		)
+		assertTrue(curlClaimReceipt.authorizes(curlClaim))
 		task8BeginSurfaceSettlement(surface)
 		task8SubmitRecoveredDeck(
 			controller = controller,
@@ -904,26 +978,14 @@ class KomikkuReaderNativeFrameHostTest {
 			onRasterReleased = { pendingRasterReleaseCount += 1 }
 		)
 		assertTrue(task8SurfaceOwnsGeneration(surface, pendingGeneration))
-		val curlBinding = selectedBinding.copy(preparationGeneration = 8L)
-		val curlFrame = ReaderCurlPresentationFrame(
-			token = ReaderPresentationToken(72L),
-			binding = curlBinding,
-			presentedFrame = 9L,
-			viewportWidth = 1200,
-			viewportHeight = 800,
-			rasterGeneration = profile.rasterGeneration,
-			textureGeneration = selectedGeneration
-		)
-		controller.synchronizePresentationDecision(
-			readerPresentationDecision(
-				ReaderPresentationState(
-					authority = ReaderPresentationAuthority.CurlGesture(
-						ReaderPresentationFrameOwner.Curl(curlFrame)
-					),
-					binding = curlBinding
-				)
+		val visibilityLost = readerPresentationReduce(
+			curlClaimReceipt.postState,
+			ReaderPresentationEvent.Lifecycle(
+				ReaderPresentationLifecycleEvent.VisibilityLost
 			)
 		)
+		assertEquals(ReaderPresentationEventDisposition.Accepted, visibilityLost.disposition)
+		controller.synchronizePresentationDecision(visibilityLost.decision)
 
 		listener.onDeckPrepared(pendingGeneration)
 		ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
@@ -937,6 +999,7 @@ class KomikkuReaderNativeFrameHostTest {
 		assertSame(selectedPages, owners[selectedGeneration])
 		assertEquals(0, selectedRasterReleaseCount)
 
+		val curlBinding = selectedBinding.copy(preparationGeneration = 8L)
 		val liveProof = ReaderLiveEnginePresentationProof(
 			token = ReaderPresentationToken(73L),
 			binding = curlBinding,
@@ -968,7 +1031,19 @@ class KomikkuReaderNativeFrameHostTest {
 		shadows = [Task8ImmediateGlSurfaceViewShadow::class]
 	)
 	fun missingCommonAuthorityRejectsPhysicalTouchClaimAndCleansPreclaimOnce() {
-		val fixture = task8CurlAuthorityFixture(initialState = null)
+		var recoveredReleaseCount = 0
+		val fixture = task8CurlAuthorityFixture(
+			initialState = null,
+			onActiveRasterReleased = { recoveredReleaseCount += 1 }
+		)
+		assertFalse(fixture.controller.isAvailable)
+		assertFalse(task8SurfaceOwnsGeneration(fixture.controller.surfaceView, 301L))
+		fixture.controller.releaseUnsubmittedRecoveredDeck(301L)
+		assertEquals(1, recoveredReleaseCount)
+		assertFalse(
+			(fixture.controller.javaClass.task7Field("generationOwners")
+				.get(fixture.controller) as Map<*, *>).containsKey(301L)
+		)
 		val gestureId = 201L
 		val down = task8MotionEvent(MotionEvent.ACTION_DOWN)
 
@@ -990,9 +1065,19 @@ class KomikkuReaderNativeFrameHostTest {
 		shadows = [Task8ImmediateGlSurfaceViewShadow::class]
 	)
 	fun rejectedPreclaimTerminalCleansLocalOwnershipWhenLegacyPublicationRejects() {
+		var recoveredReleaseCount = 0
 		val fixture = task8CurlAuthorityFixture(
 			initialState = null,
-			acceptLocalTerminals = false
+			acceptLocalTerminals = false,
+			onActiveRasterReleased = { recoveredReleaseCount += 1 }
+		)
+		assertFalse(fixture.controller.isAvailable)
+		assertFalse(task8SurfaceOwnsGeneration(fixture.controller.surfaceView, 301L))
+		fixture.controller.releaseUnsubmittedRecoveredDeck(301L)
+		assertEquals(1, recoveredReleaseCount)
+		assertFalse(
+			(fixture.controller.javaClass.task7Field("generationOwners")
+				.get(fixture.controller) as Map<*, *>).containsKey(301L)
 		)
 		fixture.controller.javaClass.task7Field("attached")
 			.setBoolean(fixture.controller, false)
@@ -1470,9 +1555,1482 @@ class KomikkuReaderNativeFrameHostTest {
 		assertEquals(1, releases)
 	}
 
+	private enum class Task373RegistrationProfileBoundary {
+		NoDecision,
+		NoTarget,
+		NoHostLease,
+		ProfileAbsent,
+		Zero,
+		Conflicting
+	}
+
+	private enum class Task373AcceptedCallbackBoundary {
+		ProfileAbsent,
+		ProfileZero,
+		ProfileStale,
+		Token,
+		Binding,
+		Preparation,
+		Raster,
+		Texture,
+		Decision,
+		InputPolicy,
+		HostInputPolicy,
+		HostInputPolicyNewer,
+		AuthorityVersionOlder,
+		NoTarget,
+		Role,
+		Slot,
+		Viewer,
+		Lifecycle
+	}
+
+	private inner class Task373AdmissionScenario(
+		val bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource()
+	) {
+		val initial = task8SettledCurlSourceState()
+		val initialBinding = requireNotNull(initial.binding)
+		val fixture = task8CurlAuthorityFixture(initial, bundleSource = bundleSource)
+		val controller = fixture.controller
+		val controllerClass = controller.javaClass
+		val surface = controller.surfaceView
+		var releases = 0
+
+		@Suppress("UNCHECKED_CAST")
+		val admissions: MutableMap<Long, ReaderDeckAdmission>
+			get() = controllerClass.task7Field("generationAdmissions")
+				.get(controller) as MutableMap<Long, ReaderDeckAdmission>
+
+		@Suppress("UNCHECKED_CAST")
+		val prepared: Set<Long>
+			get() = controllerClass.task7Field("preparedDeckGenerations")
+				.get(controller) as Set<Long>
+
+		fun submit(
+			generation: Long,
+			role: ReaderDeckSubmissionRole,
+			profile: ReaderPlayLikeCurlRasterProfile,
+			expected: ReaderPageRecoveredDeckSubmissionResult? =
+				ReaderPageRecoveredDeckSubmissionResult.Accepted
+		): Any {
+			if (
+				role == ReaderDeckSubmissionRole.Pending &&
+				expected == ReaderPageRecoveredDeckSubmissionResult.Accepted
+			) {
+				val preState = assertNotNull(fixture.store.state)
+				val preBinding = assertNotNull(preState.binding)
+				val projectedBinding = assertNotNull(
+					(controllerClass.task7Field("commonPresentationDecision").get(controller)
+						as ReaderPresentationDecision).targetBinding
+				)
+				val claimBinding = preBinding.copy(
+					profileGeneration = controllerClass
+						.task7Field("publishedRasterProfileEpoch").get(controller) as Long
+				)
+				val preFrame = assertIs<ReaderPresentationAuthority.SettledNativePage>(
+					preState.authority
+				).frame
+				val claimState = preState.copy(
+					authority = ReaderPresentationAuthority.SettledNativePage(
+						ReaderPresentationFrameOwner.NativePage(
+							preFrame.proof.copy(binding = claimBinding)
+						)
+					),
+					binding = claimBinding
+				)
+				fixture.store.state = claimState
+				val claim = assertNotNull(
+					readerCurlClaimEvent(readerPresentationDecision(claimState), generation)
+				)
+				val receipt = assertNotNull(fixture.store.publish(claim))
+				assertTrue(receipt.authorizes(claim))
+				val acceptedDecision = readerPresentationDecision(receipt.postState)
+				val projectedDecision = acceptedDecision.copy(targetBinding = projectedBinding)
+				fixture.admissionHost.commit(receipt.postState, receipt.version)
+				fixture.admissionHost.synchronizeDecision(projectedDecision)
+				val synchronousSubmissionCallback =
+					Task8ImmediateGlSurfaceViewShadow.afterNextQueueEvent
+				Task8ImmediateGlSurfaceViewShadow.afterNextQueueEvent = null
+				try {
+					controller.synchronizePresentationDecision(projectedDecision)
+				} finally {
+					Task8ImmediateGlSurfaceViewShadow.afterNextQueueEvent =
+						synchronousSubmissionCallback
+				}
+			}
+			return task8SubmitRecoveredDeck(
+				controller = controller,
+				generationId = generation,
+				role = role,
+				profile = profile,
+				onRasterReleased = { releases += 1 },
+				expectedSubmissionResult = expected
+			)
+		}
+
+		fun complete(generation: Long) {
+			surface.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+				.invoke(surface, generation)
+		}
+
+		@Suppress("UNCHECKED_CAST")
+		fun role(generation: Long): ReaderDeckSubmissionRole? =
+			(controllerClass.task7Field("generationRoles").get(controller)
+				as Map<Long, ReaderDeckSubmissionRole>)[generation]
+
+		fun slotGeneration(slot: ReaderDeckAdmissionSlot): Long? =
+			controllerClass.task7Field(
+				if (slot == ReaderDeckAdmissionSlot.Active) {
+					"activeDeckGenerationId"
+				} else {
+					"pendingDeckGenerationId"
+				}
+			).get(controller) as Long?
+
+		fun publishResolvedProfileBeforeComposeEcho(): ReaderPlayLikeCurlRasterProfile {
+			val previousProfile = task373PublishCurrentRasterProfile(
+				controller,
+				initialBinding.profileGeneration
+			)
+			val provisionalDecision = readerPresentationDecision(
+				ReaderPresentationState(
+					binding = initialBinding.copy(
+						profileGeneration = 0L,
+						rasterGeneration = null,
+						textureGeneration = null
+					)
+				)
+			)
+			controller.synchronizePresentationDecision(provisionalDecision)
+			fixture.admissionHost.synchronizeDecision(provisionalDecision)
+			val profile = previousProfile.copy(quality = ReaderPageBitmapQuality.High)
+			controllerClass.task7Field("requestedProfile").set(controller, profile)
+			controllerClass.task7Method(
+				"publishRasterProfileEpoch",
+				ReaderPlayLikeCurlRasterProfile::class.java
+			).invoke(controller, profile)
+			val publishedProfile = controllerClass.task7Field("publishedRasterProfileEpoch")
+				.get(controller) as Long
+			assertTrue(publishedProfile > 0L)
+			assertTrue(publishedProfile != initialBinding.profileGeneration)
+			assertEquals(0L, (
+				controllerClass.task7Field("commonPresentationDecision").get(controller)
+					as ReaderPresentationDecision
+			).targetBinding?.profileGeneration)
+			return profile
+		}
+
+		suspend fun destroy() = task373DestroyController(controller)
+	}
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373PublishedProfileCompletesProvisionalDeckAcrossSynchronousCallbackForBothRoles() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		try {
+			ReaderDeckSubmissionRole.entries.forEachIndexed { index, role ->
+				val scenario = Task373AdmissionScenario()
+				val controller = scenario.controller
+				val controllerClass = scenario.controllerClass
+				val provisional = scenario.initialBinding.copy(
+					profileGeneration = 0L,
+					rasterGeneration = null,
+					textureGeneration = null
+				)
+				val profile = scenario.publishResolvedProfileBeforeComposeEcho()
+				val publishedProfile = controllerClass.task7Field("publishedRasterProfileEpoch")
+					.get(controller) as Long
+				val generation = 373_100L + index
+				try {
+					scenario.submit(generation, role, profile)
+					@Suppress("UNCHECKED_CAST")
+					val roles = controllerClass.task7Field("generationRoles")
+						.get(controller) as Map<Long, ReaderDeckSubmissionRole>
+					val admission = assertNotNull(scenario.admissions[generation])
+					val capability = admission.capability
+					assertEquals(role, roles[generation])
+					assertEquals(role, capability.role)
+					assertEquals(role.admissionSlot(), capability.slot)
+					assertEquals(publishedProfile, capability.originBinding.profileGeneration)
+					assertEquals(provisional.foliateSessionId, capability.originBinding.foliateSessionId)
+					assertEquals(provisional.publicationGeneration, capability.originBinding.publicationGeneration)
+					assertEquals(provisional.viewportGeneration, capability.originBinding.viewportGeneration)
+					assertEquals(provisional.destinationCommitIdentity, capability.originBinding.destinationCommitIdentity)
+					assertEquals(profile.rasterGeneration, capability.originBinding.rasterGeneration)
+					assertEquals(generation, capability.originBinding.textureGeneration)
+					assertEquals(provisional.preparationGeneration, capability.originBinding.preparationGeneration)
+					assertEquals(ReaderDeckAdmissionState.RendererOwned, admission.state)
+					scenario.fixture.admissionHost.advanceCompatibleVersion()
+					assertTrue(
+						scenario.fixture.admissionHost.isCurrent(capability),
+						"A newer host receipt may retain only an identical normalized authority identity"
+					)
+
+					// The common decision echo deliberately remains provisional.
+					scenario.complete(generation)
+					assertTrue(generation in scenario.prepared)
+					assertEquals(ReaderDeckAdmissionState.AdmittedRendererOwned, admission.state)
+
+					val delayedEcho = controllerClass.task7Field("commonPresentationDecision")
+						.get(controller) as ReaderPresentationDecision
+					controller.synchronizePresentationDecision(
+						delayedEcho.copy(targetBinding = capability.originBinding)
+					)
+					assertSame(
+						admission,
+						scenario.admissions[generation],
+						"A compatible delayed echo must not replace or retag immutable admission"
+					)
+					assertEquals(
+						generation,
+						controllerClass.task7Field(
+							if (role == ReaderDeckSubmissionRole.Active) {
+								"activeDeckGenerationId"
+							} else {
+								"pendingDeckGenerationId"
+							}
+						).get(controller)
+					)
+				} finally {
+					scenario.destroy()
+				}
+				assertEquals(1, scenario.releases, "$role accepted renderer deck must release exactly once")
+				assertFalse(task8SurfaceOwnsGeneration(scenario.surface, generation))
+			}
+		} finally {
+			Dispatchers.resetMain()
+		}
+	}
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373RegistrationRequiresPublishedPositiveMatchingProfileAuthority() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		try {
+			Task373RegistrationProfileBoundary.entries.forEachIndexed { index, boundary ->
+				val scenario = Task373AdmissionScenario()
+				val controller = scenario.controller
+				val controllerClass = scenario.controllerClass
+				val profile = controllerClass.task7Field("requestedProfile").get(controller)
+					as ReaderPlayLikeCurlRasterProfile
+				when (boundary) {
+					Task373RegistrationProfileBoundary.NoDecision ->
+						controllerClass.task7Field("commonPresentationDecision").set(controller, null)
+					Task373RegistrationProfileBoundary.NoTarget -> {
+						val decision = controllerClass.task7Field("commonPresentationDecision")
+							.get(controller) as ReaderPresentationDecision
+						controller.synchronizePresentationDecision(decision.copy(targetBinding = null))
+					}
+					Task373RegistrationProfileBoundary.NoHostLease -> scenario.fixture.admissionHost.revoke()
+					Task373RegistrationProfileBoundary.ProfileAbsent ->
+						controllerClass.task7Field("publishedRasterProfileEpoch").set(controller, null)
+					Task373RegistrationProfileBoundary.Zero ->
+						controllerClass.task7Field("publishedRasterProfileEpoch").set(controller, 0L)
+					Task373RegistrationProfileBoundary.Conflicting -> {
+						task373PublishCurrentRasterProfile(controller, scenario.initialBinding.profileGeneration)
+						val decision = controllerClass.task7Field("commonPresentationDecision")
+							.get(controller) as ReaderPresentationDecision
+						val binding = assertNotNull(decision.targetBinding)
+						controller.synchronizePresentationDecision(
+							decision.copy(
+								targetBinding = binding.copy(
+									profileGeneration = scenario.initialBinding.profileGeneration + 1L
+								)
+							)
+						)
+					}
+				}
+				val generation = 373_200L + index
+				try {
+					scenario.submit(
+						generation,
+						ReaderDeckSubmissionRole.Pending,
+						profile,
+						expected = null
+					)
+					val submission = runCatching {
+						controller.submitRecoveredDeck(generation, ReaderDeckSubmissionRole.Pending)
+					}
+					assertTrue(
+						submission.isSuccess,
+						"$boundary missing authority must defer before renderer ownership, not throw after transfer"
+					)
+					assertEquals("AwaitingAdmission", submission.getOrNull()?.javaClass?.simpleName)
+					assertEquals(0, scenario.releases, "$boundary unsubmitted raster must remain recoverable")
+					assertFalse(task8SurfaceOwnsGeneration(scenario.surface, generation))
+					controller.releaseUnsubmittedRecoveredDeck(generation)
+					assertEquals(1, scenario.releases, "$boundary explicit cancellation must release retained raster")
+				} finally {
+					scenario.destroy()
+				}
+				assertEquals(1, scenario.releases, "$boundary retained raster release must remain one-shot")
+			}
+		} finally {
+			Dispatchers.resetMain()
+		}
+	}
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373EveryStaleAcceptedAdmissionReleasesItsRendererDeckExactlyOnce() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		try {
+			Task373AcceptedCallbackBoundary.entries.forEachIndexed { index, boundary ->
+				val scenario = Task373AdmissionScenario()
+				val controller = scenario.controller
+				val controllerClass = scenario.controllerClass
+				val profile = task373PublishCurrentRasterProfile(
+					controller,
+					scenario.initialBinding.profileGeneration
+				)
+				val generation = 373_300L + index
+				try {
+					scenario.submit(generation, ReaderDeckSubmissionRole.Pending, profile)
+					val decision = controllerClass.task7Field("commonPresentationDecision")
+						.get(controller) as ReaderPresentationDecision
+					when (boundary) {
+						Task373AcceptedCallbackBoundary.ProfileAbsent ->
+							controllerClass.task7Field("publishedRasterProfileEpoch").set(controller, null)
+						Task373AcceptedCallbackBoundary.ProfileZero ->
+							controllerClass.task7Field("publishedRasterProfileEpoch").set(controller, 0L)
+						Task373AcceptedCallbackBoundary.ProfileStale -> {
+							controllerClass.task7Method(
+								"publishRasterProfileEpoch",
+								ReaderPlayLikeCurlRasterProfile::class.java
+							).invoke(controller, profile.copy(quality = ReaderPageBitmapQuality.High))
+						}
+						Task373AcceptedCallbackBoundary.Token -> {
+							val binding = assertNotNull(decision.targetBinding)
+							controller.synchronizePresentationDecision(
+								decision.copy(
+									authority = ReaderPresentationAuthority.Unavailable,
+									requiredTransition = ReaderRequiredTransition.PresentNativePage(
+										ReaderPresentationToken(373_400L + index), binding, null
+									)
+								)
+							)
+						}
+						Task373AcceptedCallbackBoundary.Binding -> {
+							val binding = assertNotNull(decision.targetBinding)
+							controller.synchronizePresentationDecision(
+								decision.copy(
+									targetBinding = binding.copy(
+										viewportGeneration = binding.viewportGeneration + 1L
+									)
+								)
+							)
+						}
+						Task373AcceptedCallbackBoundary.Preparation ->
+							controllerClass.task7Field("preparationGeneration").setLong(
+								controller,
+								controllerClass.task7Field("preparationGeneration").getLong(controller) + 1L
+							)
+						Task373AcceptedCallbackBoundary.Raster ->
+							scenario.bundleSource.invalidate("task373-stale-raster")
+						Task373AcceptedCallbackBoundary.Texture -> {
+							val original = assertNotNull(scenario.admissions[generation])
+							val staleTextureGeneration = generation + 1L
+							val replacement = ReaderDeckAdmission(
+								original.capability.copy(
+									originBinding = original.capability.originBinding.copy(
+										textureGeneration = staleTextureGeneration
+									),
+									textureGeneration = staleTextureGeneration
+								)
+							)
+							assertEquals(
+								ReaderDeckAdmissionOwnershipDisposition.AwaitingCallback,
+								replacement.acknowledgeRendererOwnership()
+							)
+							scenario.admissions[generation] = replacement
+						}
+						Task373AcceptedCallbackBoundary.Decision ->
+							controllerClass.task7Field("commonPresentationDecision").set(controller, null)
+						Task373AcceptedCallbackBoundary.InputPolicy ->
+							controllerClass.task7Field("commonPresentationDecision").set(
+								controller,
+								decision.copy(inputPolicy = ReaderPresentationInputPolicy.RecoveryOnly)
+							)
+						Task373AcceptedCallbackBoundary.HostInputPolicy ->
+							scenario.fixture.admissionHost.synchronizeDecision(
+								decision.copy(inputPolicy = ReaderPresentationInputPolicy.RecoveryOnly)
+							)
+						Task373AcceptedCallbackBoundary.HostInputPolicyNewer -> {
+							scenario.fixture.admissionHost.synchronizeDecision(
+								decision.copy(inputPolicy = ReaderPresentationInputPolicy.RecoveryOnly)
+							)
+							scenario.fixture.admissionHost.advanceCompatibleVersion()
+						}
+						Task373AcceptedCallbackBoundary.AuthorityVersionOlder ->
+							scenario.fixture.admissionHost.rewindVersion()
+						Task373AcceptedCallbackBoundary.NoTarget ->
+							controller.synchronizePresentationDecision(decision.copy(targetBinding = null))
+						Task373AcceptedCallbackBoundary.Role -> {
+							@Suppress("UNCHECKED_CAST")
+							val roles = controllerClass.task7Field("generationRoles")
+								.get(controller) as MutableMap<Long, ReaderDeckSubmissionRole>
+							roles[generation] = ReaderDeckSubmissionRole.Active
+						}
+						Task373AcceptedCallbackBoundary.Slot ->
+							controllerClass.task7Field("pendingDeckGenerationId").set(controller, generation + 1L)
+						Task373AcceptedCallbackBoundary.Viewer -> scenario.fixture.admissionHost.advanceViewer()
+						Task373AcceptedCallbackBoundary.Lifecycle -> scenario.fixture.admissionHost.retireLifecycle()
+					}
+
+					scenario.complete(generation)
+					scenario.complete(generation)
+					ShadowLooper.runUiThreadTasks()
+					assertFalse(generation in scenario.prepared, "$boundary callback must not prepare")
+					assertEquals(1, scenario.releases, "$boundary stale renderer deck must release once")
+					assertFalse(task8SurfaceOwnsGeneration(scenario.surface, generation))
+				} finally {
+					scenario.destroy()
+				}
+				assertEquals(1, scenario.releases, "$boundary release must remain one-shot after destroy")
+			}
+		} finally {
+			Dispatchers.resetMain()
+		}
+	}
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task374AcceptedCallbackWithoutAuthorityRecordNeverPreparesAndReleasesOnce() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		try {
+			val scenario = Task373AdmissionScenario()
+			val profile = task373PublishCurrentRasterProfile(
+				scenario.controller,
+				scenario.initialBinding.profileGeneration
+			)
+			val generation = 374_100L
+			try {
+				scenario.submit(generation, ReaderDeckSubmissionRole.Pending, profile)
+				assertNotNull(scenario.admissions.remove(generation))
+
+				scenario.complete(generation)
+				scenario.complete(generation)
+				ShadowLooper.runUiThreadTasks()
+				assertFalse(generation in scenario.prepared, "A callback without immutable admission cannot prepare")
+				assertEquals(1, scenario.releases, "A renderer-owned deck without admission must release once")
+				assertFalse(task8SurfaceOwnsGeneration(scenario.surface, generation))
+			} finally {
+				scenario.destroy()
+			}
+			assertEquals(1, scenario.releases, "Duplicate callback and destroy cannot double release")
+		} finally {
+			Dispatchers.resetMain()
+		}
+	}
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373RendererCallbackReentersInsideSubmissionForBothRoles() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		try {
+			ReaderDeckSubmissionRole.entries.forEachIndexed { index, role ->
+				val scenario = Task373AdmissionScenario()
+				val generation = 373_500L + index
+				val profile = scenario.publishResolvedProfileBeforeComposeEcho()
+				var reentered = 0
+				try {
+					Task8ImmediateGlSurfaceViewShadow.afterNextQueueEvent = { view ->
+						val admission = assertNotNull(scenario.admissions[generation])
+						assertEquals(ReaderDeckAdmissionState.Reserved, admission.state)
+						assertTrue(admission.capability.profileGeneration > 0L)
+						assertTrue(
+							admission.capability.profileGeneration != scenario.initialBinding.profileGeneration
+						)
+						assertEquals(0L, (
+							scenario.controllerClass.task7Field("commonPresentationDecision")
+								.get(scenario.controller) as ReaderPresentationDecision
+						).targetBinding?.profileGeneration)
+						assertEquals(role, admission.capability.role)
+						assertEquals(role.admissionSlot(), admission.capability.slot)
+						assertNull(scenario.role(generation))
+						assertFalse(scenario.slotGeneration(admission.capability.slot) == generation)
+						(view as karacken.curl.PageSurfaceView).pageSurfaceListener
+							.onDeckPrepared(generation)
+						assertEquals(ReaderDeckAdmissionState.Reserved, admission.state)
+						reentered += 1
+					}
+
+					scenario.submit(generation, role, profile)
+
+					val admission = assertNotNull(scenario.admissions[generation])
+					assertEquals(1, reentered)
+					assertEquals(role, scenario.role(generation))
+					assertEquals(generation, scenario.slotGeneration(admission.capability.slot))
+					assertEquals(ReaderDeckAdmissionState.AdmittedRendererOwned, admission.state)
+					assertTrue(generation in scenario.prepared)
+				} finally {
+					Task8ImmediateGlSurfaceViewShadow.afterNextQueueEvent = null
+					scenario.destroy()
+				}
+				assertEquals(1, scenario.releases)
+			}
+		} finally {
+			Dispatchers.resetMain()
+		}
+	}
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373StaleRendererCallbackReentryNeverPreparesAndReleasesOnce() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		try {
+			val scenario = Task373AdmissionScenario()
+			val generation = 373_600L
+			val profile = scenario.publishResolvedProfileBeforeComposeEcho()
+			try {
+				Task8ImmediateGlSurfaceViewShadow.afterNextQueueEvent = { view ->
+					val admission = assertNotNull(scenario.admissions[generation])
+					assertTrue(admission.capability.profileGeneration > 0L)
+					assertEquals(0L, (
+						scenario.controllerClass.task7Field("commonPresentationDecision")
+							.get(scenario.controller) as ReaderPresentationDecision
+					).targetBinding?.profileGeneration)
+					(view as karacken.curl.PageSurfaceView).pageSurfaceListener
+						.onDeckPrepared(generation)
+					assertEquals(ReaderDeckAdmissionState.Reserved, admission.state)
+					val decision = scenario.controllerClass.task7Field("commonPresentationDecision")
+						.get(scenario.controller) as ReaderPresentationDecision
+					assertTrue(decision.inputPolicy != ReaderPresentationInputPolicy.ChromeOnly)
+					scenario.fixture.admissionHost.synchronizeDecision(
+						decision.copy(inputPolicy = ReaderPresentationInputPolicy.ChromeOnly)
+					)
+					scenario.fixture.admissionHost.advanceCompatibleVersion()
+				}
+
+				scenario.submit(generation, ReaderDeckSubmissionRole.Pending, profile)
+				ShadowLooper.runUiThreadTasks()
+				assertFalse(generation in scenario.prepared)
+				assertEquals(1, scenario.releases)
+				assertFalse(task8SurfaceOwnsGeneration(scenario.surface, generation))
+			} finally {
+				Task8ImmediateGlSurfaceViewShadow.afterNextQueueEvent = null
+				scenario.destroy()
+			}
+			assertEquals(1, scenario.releases)
+		} finally {
+			Dispatchers.resetMain()
+		}
+	}
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373HostPauseDefersFreshAdmissionAndRejectsReentrantCallback() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		try {
+			val deferred = Task373AdmissionScenario()
+			val generation = 373_700L
+			val profile = deferred.controllerClass.task7Field("requestedProfile")
+				.get(deferred.controller) as ReaderPlayLikeCurlRasterProfile
+			val coordinator = deferred.controllerClass.task7Field("deckRecoveryCoordinator")
+				.get(deferred.controller) as ReaderPageDeckRecoveryCoordinator
+			val submitRecovered = coordinator.javaClass.declaredMethods.single {
+				it.name == "submitRecoveredGeneration"
+			}.apply { isAccessible = true }
+			try {
+				deferred.submit(generation, ReaderDeckSubmissionRole.Active, profile, expected = null)
+				deferred.controller.onHostResumedChanged(false)
+				assertTrue(submitRecovered.invoke(
+					coordinator, generation, setOf(1), 1, profile.rasterGeneration, null
+				) as Boolean)
+				assertIs<ReaderPageDeckRecoveryState.WaitingForAdmission>(coordinator.state)
+				assertNull(deferred.admissions[generation])
+				assertFalse(generation in deferred.prepared)
+				assertFalse(task8SurfaceOwnsGeneration(deferred.surface, generation))
+
+				deferred.controller.onHostResumedChanged(true)
+				assertEquals(
+					ReaderDeckAdmissionState.RendererOwned,
+					assertNotNull(deferred.admissions[generation]).state
+				)
+				assertTrue(task8SurfaceOwnsGeneration(deferred.surface, generation))
+				assertIs<ReaderPageDeckRecoveryState.WaitingForPreparation>(coordinator.state)
+				deferred.complete(generation)
+				assertTrue(generation in deferred.prepared)
+				assertIs<ReaderPageDeckRecoveryState.Ready>(coordinator.state)
+			} finally {
+				deferred.destroy()
+			}
+			assertEquals(1, deferred.releases)
+
+			val crossing = Task373AdmissionScenario()
+			val crossingGeneration = 373_800L
+			val crossingProfile = crossing.controllerClass.task7Field("requestedProfile")
+				.get(crossing.controller) as ReaderPlayLikeCurlRasterProfile
+			try {
+				Task8ImmediateGlSurfaceViewShadow.afterNextQueueEvent = { view ->
+					val admission = assertNotNull(crossing.admissions[crossingGeneration])
+					assertEquals(ReaderDeckAdmissionState.Reserved, admission.state)
+					(view as karacken.curl.PageSurfaceView).pageSurfaceListener
+						.onDeckPrepared(crossingGeneration)
+					assertEquals(ReaderDeckAdmissionState.Reserved, admission.state)
+					crossing.controller.onHostResumedChanged(false)
+					assertEquals(ReaderDeckAdmissionState.ReleaseRequested, admission.state)
+				}
+				crossing.submit(crossingGeneration, ReaderDeckSubmissionRole.Pending, crossingProfile)
+				ShadowLooper.runUiThreadTasks()
+				assertFalse(crossingGeneration in crossing.prepared)
+				assertEquals(1, crossing.releases)
+				assertFalse(task8SurfaceOwnsGeneration(crossing.surface, crossingGeneration))
+			} finally {
+				Task8ImmediateGlSurfaceViewShadow.afterNextQueueEvent = null
+				crossing.destroy()
+			}
+			assertEquals(1, crossing.releases)
+		} finally {
+			Dispatchers.resetMain()
+		}
+	}
+
 	private enum class Task336PendingBoundary {
 		AfterClaim, Synchronous, ClaimRejected, RendererRejected, Cancelled, Successor,
 		PreparationChanged, GenerationChanged, BindingChanged, CancelDuringReceipt, BindingDuringReceipt
+	}
+
+	private enum class Task373DeferredPendingTerminal {
+		Rejected,
+		Cancelled
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373RejectedDeferredPendingAdmissionCannotResurrect() =
+		task373TerminalDeferredPendingAdmission(Task373DeferredPendingTerminal.Rejected)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373CancelledDeferredPendingAdmissionCannotResurrect() =
+		task373TerminalDeferredPendingAdmission(Task373DeferredPendingTerminal.Cancelled)
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373LiveDeferredPendingAdmissionRetriesUnderOriginatingGesture() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		var rasterReleases = 0
+		val fixture = task8CurlAuthorityFixture(
+			task8SettledCurlSourceState(),
+			onActiveRasterReleased = { rasterReleases += 1 }
+		)
+		val controller = fixture.controller
+		val controllerClass = controller.javaClass
+		controllerClass.task7Field("nextDeckGeneration").setLong(controller, 302L)
+		val surface = controller.surfaceView
+		val gesture = 373_901L
+		var failure: Throwable? = null
+		try {
+			fixture.admissionHost.reservationsEnabled = false
+			assertEquals(
+				ReaderPageTurnStartResult.Settling,
+				controller.start(gesture, PageChange.NEXT) { _, _ -> true }
+			)
+			assertEquals(gesture, controllerClass.task7Field("activeGestureId").get(controller))
+			assertNotNull(controllerClass.task7Field("awaitingLibraryDeckAdmission").get(controller))
+			assertNull(controllerClass.task7Field("pendingDeckGenerationId").get(controller))
+
+			fixture.admissionHost.reservationsEnabled = true
+			val retryGeneration = controllerClass.task7Field("nextDeckGeneration").getLong(controller)
+			surface.pageSurfaceListener.onDeckSubmissionCapacityAvailable()
+
+			assertNull(controllerClass.task7Field("awaitingLibraryDeckAdmission").get(controller))
+			assertEquals(retryGeneration, controllerClass.task7Field("pendingDeckGenerationId").get(controller))
+			@Suppress("UNCHECKED_CAST")
+			val admissions = controllerClass.task7Field("generationAdmissions").get(controller)
+				as Map<Long, ReaderDeckAdmission>
+			val admission = assertNotNull(admissions[retryGeneration])
+			assertEquals(ReaderDeckAdmissionState.RendererOwned, admission.state)
+			assertTrue(task8SurfaceOwnsGeneration(surface, retryGeneration))
+			surface.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+				.invoke(surface, retryGeneration)
+			assertEquals(ReaderDeckAdmissionState.AdmittedRendererOwned, admission.state)
+			assertEquals(gesture, admission.capability.presentationToken?.value)
+			assertEquals(ReaderPresentationTokenDomain.Gesture, admission.capability.presentationToken?.domain)
+		} catch (caught: Throwable) {
+			failure = caught
+			throw caught
+		} finally {
+			try {
+				controller.cancelGesture(gesture)
+				surface.detach()
+				val closed = controller.destroy()
+				ShadowLooper.runUiThreadTasks()
+				withContext(Dispatchers.Default) { withTimeout(5_000L) { closed.await() } }
+				assertEquals(1, rasterReleases)
+			} catch (cleanup: Throwable) {
+				if (failure == null) throw cleanup else failure.addSuppressed(cleanup)
+			} finally {
+				fixture.admissionHost.reservationsEnabled = true
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373DelayedPreparedCallbackAdmitsLawfullyPromotedPendingDeck() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		var rasterReleases = 0
+		var callbackStateBeforeReceipt: ReaderDeckAdmissionState? = null
+		var callbackAdmissionBeforeReceipt: ReaderDeckAdmission? = null
+		val fixture = task8CurlAuthorityFixture(
+			initialState = task8SettledCurlSourceState(),
+			onActiveRasterReleased = { rasterReleases += 1 },
+			beforePresentationEventPublished = { callbackController, event ->
+				if (event is ReaderPresentationEvent.CurlTerminal) {
+					val callbackControllerClass = callbackController.javaClass
+					val generation = assertNotNull(
+						callbackControllerClass.task7Field("activeDeckGenerationId")
+							.get(callbackController) as Long?
+					)
+					@Suppress("UNCHECKED_CAST")
+					val callbackAdmissions = callbackControllerClass
+						.task7Field("generationAdmissions").get(callbackController)
+						as Map<Long, ReaderDeckAdmission>
+					val callbackAdmission = assertNotNull(callbackAdmissions[generation])
+					callbackAdmissionBeforeReceipt = callbackAdmission
+					callbackController.surfaceView.javaClass
+						.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+						.invoke(callbackController.surfaceView, generation)
+					callbackStateBeforeReceipt = callbackAdmission.state
+				}
+			}
+		)
+		val controller = fixture.controller
+		val controllerClass = controller.javaClass
+		controllerClass.task7Field("nextDeckGeneration").setLong(controller, 302L)
+		val sourceBinding = requireNotNull(fixture.store.state?.binding)
+		controllerClass.task7Field("nextRasterProfileEpoch")
+			.setLong(controller, sourceBinding.profileGeneration)
+		controllerClass.task7Method(
+			"publishRasterProfileEpoch",
+			ReaderPlayLikeCurlRasterProfile::class.java
+		).invoke(controller, controllerClass.task7Field("requestedProfile").get(controller))
+		val surface = controller.surfaceView
+		val webView = (controllerClass.task7Field("webViewProvider").get(controller)
+			as () -> WebView?)()
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val attachedHost = requireNotNull(webView).parent as View
+		activity.get().setContentView(attachedHost)
+		val hostOrigin = IntArray(2).also(attachedHost::getLocationInWindow)
+		attachedHost.translationX = -hostOrigin[0].toFloat()
+		attachedHost.translationY = -hostOrigin[1].toFloat()
+		ReaderPageRasterPreparationController(
+			host = attachedHost as android.view.ViewGroup,
+			webViewProvider = { webView }
+		)
+		val gesture = 373_902L
+		val down = task8MotionEvent(MotionEvent.ACTION_DOWN)
+		var failure: Throwable? = null
+		try {
+			assertEquals(
+				ReaderPageCurlDispatchResult.Accepted,
+				controller.onPageTouchEvent(down, gesture)
+			)
+			task8BeginSurfaceSettlement(surface)
+			surface.pageSurfaceListener.onSettlementStarted(
+				gesture,
+				301L,
+				"source",
+				"target",
+				PageChange.NEXT
+			)
+			val promotedGeneration = assertNotNull(
+				controllerClass.task7Field("pendingDeckGenerationId").get(controller) as Long?
+			)
+			assertTrue(promotedGeneration >= 302L)
+			@Suppress("UNCHECKED_CAST")
+			val admissions = controllerClass.task7Field("generationAdmissions").get(controller)
+				as Map<Long, ReaderDeckAdmission>
+			val admission = assertNotNull(admissions[promotedGeneration])
+			assertEquals(ReaderDeckSubmissionRole.Pending, admission.capability.role)
+			assertEquals(ReaderDeckAdmissionSlot.Pending, admission.capability.slot)
+			assertEquals(ReaderDeckAdmissionState.RendererOwned, admission.state)
+			assertTrue(task8SurfaceOwnsGeneration(surface, promotedGeneration))
+
+			surface.pageSurfaceListener.onSettlementCompleted(
+				gesture,
+				301L,
+				"target",
+				2,
+				PageChange.NEXT
+			)
+
+			assertSame(admission, callbackAdmissionBeforeReceipt)
+			assertEquals(
+				ReaderDeckAdmissionState.CallbackObserved,
+				callbackStateBeforeReceipt,
+				"A callback between local promotion and the reducer receipt must await its causal successor"
+			)
+			assertNotNull(
+				admission.promotionReceipt,
+				"Local Pending-to-Active promotion must issue one immutable promotion receipt"
+			)
+			assertEquals(
+				promotedGeneration,
+				controllerClass.task7Field("activeDeckGenerationId").get(controller)
+			)
+			assertNull(controllerClass.task7Field("pendingDeckGenerationId").get(controller))
+			@Suppress("UNCHECKED_CAST")
+			val roles = controllerClass.task7Field("generationRoles").get(controller)
+				as Map<Long, ReaderDeckSubmissionRole>
+			assertEquals(ReaderDeckSubmissionRole.Active, roles[promotedGeneration])
+			val settlementDecision = controllerClass.task7Field("commonPresentationDecision")
+				.get(controller) as ReaderPresentationDecision
+			assertIs<ReaderPresentationAuthority.CurlSettlementPending>(
+				settlementDecision.authority
+			)
+			assertEquals(
+				admission.capability.presentationToken,
+				settlementDecision.rendererCallbackTokenOrNull()
+			)
+			val settlementBinding = assertNotNull(
+				readerAcceptedDeckBindingOrNull(
+					targetBinding = settlementDecision.targetBinding,
+					profileGeneration = admission.capability.profileGeneration,
+					preparationGeneration = admission.capability.preparationGeneration,
+					rasterGeneration = admission.capability.rasterGeneration,
+					textureGeneration = admission.capability.textureGeneration
+				)
+			)
+			assertEquals(admission.capability.originBinding, settlementBinding)
+			assertTrue(fixture.admissionHost.isOwnerCurrent(admission.capability))
+			assertFalse(fixture.admissionHost.isCurrent(admission.capability))
+			assertTrue(
+				admission.capability.originDecisionIdentity !=
+					readerDeckAdmissionDecisionIdentityOrNull(settlementDecision, settlementBinding)
+			)
+			assertEquals(
+				ReaderDeckAdmissionState.AdmittedRendererOwned,
+				admission.state,
+				"The CurlTerminal receipt synchronization must retry the observed callback"
+			)
+
+			surface.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+				.invoke(surface, promotedGeneration)
+			surface.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+				.invoke(surface, promotedGeneration)
+
+			@Suppress("UNCHECKED_CAST")
+			val prepared = controllerClass.task7Field("preparedDeckGenerations").get(controller)
+				as Set<Long>
+			assertTrue(
+				promotedGeneration in prepared,
+				"A delayed callback must admit the exact Pending deck lawfully promoted to Active"
+			)
+			assertEquals(ReaderDeckAdmissionState.AdmittedRendererOwned, admission.state)
+			assertTrue(task8SurfaceOwnsGeneration(surface, promotedGeneration))
+			assertEquals(
+				ReaderTextureDeckState.Ready,
+				(controllerClass.task7Field("readinessState").get(controller)
+					as ReaderPageRendererReadinessState).textureDeck
+			)
+		} catch (caught: Throwable) {
+			failure = caught
+			throw caught
+		} finally {
+			try {
+				down.recycle()
+				surface.detach()
+				val closed = controller.destroy()
+				ShadowLooper.runUiThreadTasks()
+				withContext(Dispatchers.Default) { withTimeout(5_000L) { closed.await() } }
+				assertEquals(1, rasterReleases)
+				activity.pause().stop().destroy()
+			} catch (cleanup: Throwable) {
+				if (failure == null) throw cleanup else failure.addSuppressed(cleanup)
+			} finally {
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task380PreparedCallbackAdmitsAfterExactFoliateSuccessorAcknowledgement() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		var rasterReleases = 0
+		val fixture = task8CurlAuthorityFixture(
+			initialState = task8SettledCurlSourceState(),
+			onActiveRasterReleased = { rasterReleases += 1 }
+		)
+		val controller = fixture.controller
+		val controllerClass = controller.javaClass
+		controllerClass.task7Field("nextDeckGeneration").setLong(controller, 302L)
+		val sourceBinding = requireNotNull(fixture.store.state?.binding)
+		controllerClass.task7Field("nextRasterProfileEpoch")
+			.setLong(controller, sourceBinding.profileGeneration)
+		controllerClass.task7Method(
+			"publishRasterProfileEpoch",
+			ReaderPlayLikeCurlRasterProfile::class.java
+		).invoke(controller, controllerClass.task7Field("requestedProfile").get(controller))
+		val surface = controller.surfaceView
+		val webView = (controllerClass.task7Field("webViewProvider").get(controller)
+			as () -> WebView?)()
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val attachedHost = requireNotNull(webView).parent as View
+		activity.get().setContentView(attachedHost)
+		val hostOrigin = IntArray(2).also(attachedHost::getLocationInWindow)
+		attachedHost.translationX = -hostOrigin[0].toFloat()
+		attachedHost.translationY = -hostOrigin[1].toFloat()
+		ReaderPageRasterPreparationController(
+			host = attachedHost as android.view.ViewGroup,
+			webViewProvider = { webView }
+		)
+		val gesture = 380_902L
+		val down = task8MotionEvent(MotionEvent.ACTION_DOWN)
+		var failure: Throwable? = null
+		try {
+			assertEquals(
+				ReaderPageCurlDispatchResult.Accepted,
+				controller.onPageTouchEvent(down, gesture)
+			)
+			task8BeginSurfaceSettlement(surface)
+			surface.pageSurfaceListener.onSettlementStarted(
+				gesture,
+				301L,
+				"source",
+				"target",
+				PageChange.NEXT
+			)
+			val promotedGeneration = assertNotNull(
+				controllerClass.task7Field("pendingDeckGenerationId").get(controller) as Long?
+			)
+			@Suppress("UNCHECKED_CAST")
+			val admissions = controllerClass.task7Field("generationAdmissions").get(controller)
+				as Map<Long, ReaderDeckAdmission>
+			val admission = assertNotNull(admissions[promotedGeneration])
+
+			surface.pageSurfaceListener.onSettlementCompleted(
+				gesture,
+				301L,
+				"target",
+				2,
+				PageChange.NEXT
+			)
+			val awaitingFoliate = assertNotNull(fixture.store.state)
+			val settlement = assertIs<ReaderPresentationAuthority.CurlSettlementPending>(
+				awaitingFoliate.authority
+			)
+			val acknowledgement = assertNotNull(settlement.expectedAcknowledgement)
+			val lineage = assertNotNull(awaitingFoliate.rendererSuccessorReceipt)
+			val destinationBinding = lineage.originBinding.copy(
+				destinationCommitIdentity = ReaderDestinationCommitIdentity(
+					lineage.originBinding.foliateSessionId,
+					acknowledgement.pageIndex.toLong()
+				),
+				rasterGeneration = acknowledgement.rasterGeneration,
+				textureGeneration = acknowledgement.textureGeneration
+			)
+			val relocationEvent = ReaderPresentationEvent.FoliateRelocated(
+				destinationBinding,
+				acknowledgement
+			)
+			val relocationReceipt = assertNotNull(fixture.store.publish(relocationEvent))
+			assertTrue(relocationReceipt.authorizes(relocationEvent))
+			fixture.admissionHost.commit(relocationReceipt.postState, relocationReceipt.version)
+			val awaitingNativeDecision = readerPresentationDecision(relocationReceipt.postState)
+			controller.synchronizePresentationDecision(awaitingNativeDecision)
+			assertEquals(
+				ReaderCurlSettlementStage.AwaitingNativePresentation,
+				assertIs<ReaderPresentationAuthority.CurlSettlementPending>(
+					awaitingNativeDecision.authority
+				).stage
+			)
+			assertEquals(
+				ReaderDeckAdmissionCurrency.Current,
+				fixture.admissionHost.currency(admission, awaitingNativeDecision),
+				"The reducer-authenticated Foliate successor must keep the promoted resource current"
+			)
+			assertNotNull(admission.promotionReceipt)
+
+			surface.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+				.invoke(surface, promotedGeneration)
+			surface.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+				.invoke(surface, promotedGeneration)
+			assertEquals(ReaderDeckAdmissionState.AdmittedRendererOwned, admission.state)
+			@Suppress("UNCHECKED_CAST")
+			val prepared = controllerClass.task7Field("preparedDeckGenerations").get(controller)
+				as Set<Long>
+			assertTrue(promotedGeneration in prepared)
+			assertTrue(task8SurfaceOwnsGeneration(surface, promotedGeneration))
+		} catch (caught: Throwable) {
+			failure = caught
+			throw caught
+		} finally {
+			try {
+				down.recycle()
+				surface.detach()
+				val closed = controller.destroy()
+				ShadowLooper.runUiThreadTasks()
+				withContext(Dispatchers.Default) { withTimeout(5_000L) { closed.await() } }
+				assertEquals(1, rasterReleases)
+				activity.pause().stop().destroy()
+			} catch (cleanup: Throwable) {
+				if (failure == null) throw cleanup else failure.addSuppressed(cleanup)
+			} finally {
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	@Test
+	fun task380AdmissionCurrencyRejectsNonCausalDriftAndPreservesExactOnceRelease() {
+		val settled = task8SettledCurlSourceState()
+		val claimed = readerPresentationReduce(
+			settled,
+			assertNotNull(readerCurlClaimEvent(readerPresentationDecision(settled), 380_903L))
+		).state
+		val originDecision = readerPresentationDecision(claimed)
+		val originBinding = assertNotNull(claimed.binding)
+		val version = paige.navic.reader.ReaderPresentationReceiptVersion(
+			1L,
+			originBinding.publicationIdentity,
+			1L
+		)
+		fun snapshot(
+			state: ReaderPresentationState,
+			hostEpoch: Long = 1L,
+			viewerGeneration: Long = 1L,
+			receiptVersion: paige.navic.reader.ReaderPresentationReceiptVersion = version,
+			bindingSeed: ReaderPresentationBinding = assertNotNull(state.binding),
+			decision: ReaderPresentationDecision = readerPresentationDecision(state),
+			lifecycle: ReaderPresentationLifecycleState = state.lifecycle
+		) = ReaderDeckAdmissionAuthoritySnapshot(
+			hostEpoch = hostEpoch,
+			authorityVersion = receiptVersion,
+			viewerGeneration = viewerGeneration,
+			lifecycle = lifecycle,
+			bindingSeed = bindingSeed,
+			presentationToken = decision.rendererCallbackTokenOrNull(),
+			decision = decision,
+			rendererSuccessorReceipt = state.rendererSuccessorReceipt
+		)
+		val request = ReaderDeckAdmissionRequest(
+			candidateDecision = originDecision,
+			profileGeneration = originBinding.profileGeneration,
+			preparationGeneration = assertNotNull(originBinding.preparationGeneration),
+			rasterGeneration = assertNotNull(originBinding.rasterGeneration),
+			textureGeneration = 302L,
+			role = ReaderDeckSubmissionRole.Pending
+		)
+		val capability = assertNotNull(
+			readerDeckAdmissionCapabilityOrNull(snapshot(claimed), 1L, request)
+		)
+		val admission = ReaderDeckAdmission(capability)
+		assertEquals(
+			ReaderDeckAdmissionOwnershipDisposition.AwaitingCallback,
+			admission.acknowledgeRendererOwnership()
+		)
+		assertTrue(admission.promotePendingToActive())
+		assertFalse(admission.promotePendingToActive())
+		assertEquals(
+			ReaderDeckAdmissionCurrency.AwaitingCausalSuccessor,
+			readerDeckAdmissionAuthorityCurrency(snapshot(claimed), admission, originDecision)
+		)
+
+		val token = assertNotNull(capability.presentationToken)
+		val acknowledgement = ReaderPageTurnSettlementAck(
+			"lineage-${token.value}",
+			2,
+			originBinding.foliateSessionId,
+			capability.rasterGeneration,
+			capability.textureGeneration
+		)
+		val terminal = readerPresentationReduce(
+			claimed,
+			ReaderPresentationEvent.CurlTerminal(token, originBinding, acknowledgement)
+		).state
+		val terminalDecision = readerPresentationDecision(terminal)
+		assertEquals(
+			ReaderDeckAdmissionCurrency.Current,
+			readerDeckAdmissionAuthorityCurrency(
+				snapshot(terminal, receiptVersion = version.copy(eventSequence = 2L)),
+				admission,
+				terminalDecision
+			)
+		)
+		val lineage = assertNotNull(terminal.rendererSuccessorReceipt)
+		val destination = lineage.originBinding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				lineage.originBinding.foliateSessionId,
+				acknowledgement.pageIndex.toLong()
+			),
+			rasterGeneration = acknowledgement.rasterGeneration,
+			textureGeneration = acknowledgement.textureGeneration
+		)
+		val relocated = readerPresentationReduce(
+			terminal,
+			ReaderPresentationEvent.FoliateRelocated(destination, acknowledgement)
+		).state
+		val relocatedDecision = readerPresentationDecision(relocated)
+		val relocatedSnapshot = snapshot(
+			relocated,
+			receiptVersion = version.copy(eventSequence = 3L)
+		)
+		assertEquals(
+			ReaderDeckAdmissionCurrency.Current,
+			readerDeckAdmissionAuthorityCurrency(relocatedSnapshot, admission, relocatedDecision)
+		)
+
+		val publicationIdentity = assertNotNull(version.publicationIdentity)
+		val adversarialAuthorities = listOf(
+			snapshot(
+				claimed,
+				bindingSeed = originBinding.copy(
+					viewportGeneration = originBinding.viewportGeneration + 1L
+				)
+			),
+			snapshot(claimed, hostEpoch = 2L),
+			snapshot(
+				claimed,
+				viewerGeneration = 2L,
+				receiptVersion = version.copy(readerSessionGeneration = 2L)
+			),
+			snapshot(
+				claimed,
+				receiptVersion = version.copy(
+					publicationIdentity = publicationIdentity.copy(
+						publicationGeneration = publicationIdentity.publicationGeneration + 1L
+					)
+				)
+			),
+			snapshot(claimed, lifecycle = ReaderPresentationLifecycleState.Background),
+			relocatedSnapshot.copy(
+				rendererSuccessorReceipt = assertNotNull(relocated.rendererSuccessorReceipt).copy(
+					textureGeneration = capability.textureGeneration + 1L
+				)
+			)
+		)
+		adversarialAuthorities.forEach { adversarial ->
+			assertEquals(
+				ReaderDeckAdmissionCurrency.Revoked,
+				readerDeckAdmissionAuthorityCurrency(adversarial, admission, adversarial.decision)
+			)
+		}
+		assertEquals(
+			ReaderDeckAdmissionCurrency.Revoked,
+			readerDeckAdmissionAuthorityCurrency(
+				relocatedSnapshot,
+				admission,
+				relocatedDecision.copy(targetBinding = null)
+			)
+		)
+
+		val revokedBeforeOwnership = ReaderDeckAdmission(capability.copy(admissionId = 2L))
+		assertFalse(revokedBeforeOwnership.requestRelease())
+		assertEquals(
+			ReaderDeckAdmissionCallbackDisposition.DuplicateOrTerminal,
+			revokedBeforeOwnership.observeCallback()
+		)
+		assertEquals(
+			ReaderDeckAdmissionOwnershipDisposition.Release,
+			revokedBeforeOwnership.acknowledgeRendererOwnership()
+		)
+		assertTrue(revokedBeforeOwnership.markReleased())
+		assertFalse(revokedBeforeOwnership.markReleased())
+		assertFalse(revokedBeforeOwnership.requestRelease())
+		assertEquals(
+			ReaderDeckAdmissionCallbackDisposition.DuplicateOrTerminal,
+			revokedBeforeOwnership.observeCallback()
+		)
+
+		val activeRequest = request.copy(
+			role = ReaderDeckSubmissionRole.Active,
+			slot = ReaderDeckAdmissionSlot.Active
+		)
+		val active = ReaderDeckAdmission(
+			assertNotNull(readerDeckAdmissionCapabilityOrNull(snapshot(claimed), 3L, activeRequest))
+		)
+		assertFalse(active.promotePendingToActive())
+		assertEquals(
+			ReaderDeckAdmissionCallbackDisposition.AwaitingRendererOwnership,
+			active.observeCallback()
+		)
+		assertEquals(
+			ReaderDeckAdmissionOwnershipDisposition.ValidateCallback,
+			active.acknowledgeRendererOwnership()
+		)
+		assertNull(
+			readerDeckAdmissionCapabilityOrNull(
+				snapshot(claimed),
+				4L,
+				activeRequest.copy(slot = ReaderDeckAdmissionSlot.Pending)
+			)
+		)
+	}
+
+	private enum class Task373DeferredPendingAuthorityBoundary {
+		Pause,
+		HostEpoch
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373PausedDeferredPendingAdmissionCannotResumeUnderMatchingGesture() =
+		task373InvalidatedDeferredPendingAdmission(
+			Task373DeferredPendingAuthorityBoundary.Pause
+		)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task373PriorEpochDeferredPendingAdmissionCannotUseReplacementAuthority() =
+		task373InvalidatedDeferredPendingAdmission(
+			Task373DeferredPendingAuthorityBoundary.HostEpoch
+		)
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	private fun task373InvalidatedDeferredPendingAdmission(
+		boundary: Task373DeferredPendingAuthorityBoundary
+	) = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		var rasterReleases = 0
+		val fixture = task8CurlAuthorityFixture(
+			initialState = task8SettledCurlSourceState(),
+			onActiveRasterReleased = { rasterReleases += 1 }
+		)
+		val controller = fixture.controller
+		val controllerClass = controller.javaClass
+		controllerClass.task7Field("nextDeckGeneration").setLong(controller, 302L)
+		val surface = controller.surfaceView
+		val originalListener = surface.pageSurfaceListener
+		val heldSourceReleases = mutableListOf<Pair<Long, karacken.curl.DeckReleaseReason>>()
+		surface.pageSurfaceListener = task8ForwardingPageSurfaceListener(
+			delegate = originalListener,
+			onDeckReleased = { generation, reason ->
+				if (generation == 301L) heldSourceReleases += generation to reason
+				else originalListener.onDeckReleased(generation, reason)
+			}
+		)
+		val gesture = 373_910L + boundary.ordinal
+		var failure: Throwable? = null
+		try {
+			fixture.admissionHost.reservationsEnabled = false
+			assertEquals(
+				ReaderPageTurnStartResult.Settling,
+				controller.start(gesture, PageChange.NEXT) { _, _ -> true }
+			)
+			assertEquals(gesture, controllerClass.task7Field("activeGestureId").get(controller))
+			assertNotNull(controllerClass.task7Field("awaitingLibraryDeckAdmission").get(controller))
+			assertNull(controllerClass.task7Field("pendingDeckGenerationId").get(controller))
+			val decisionBeforeBoundary = controllerClass.task7Field("commonPresentationDecision")
+				.get(controller) as ReaderPresentationDecision
+			assertEquals(
+				ReaderPresentationToken(
+					gesture,
+					ReaderPresentationTokenDomain.Gesture
+				),
+				decisionBeforeBoundary.rendererCallbackTokenOrNull()
+			)
+			val nextGenerationBeforeBoundary =
+				controllerClass.task7Field("nextDeckGeneration").getLong(controller)
+			val eventCountBeforeBoundary = fixture.store.presentationEvents.size
+
+			when (boundary) {
+				Task373DeferredPendingAuthorityBoundary.Pause -> {
+					controller.onHostResumedChanged(false)
+					controller.onHostResumedChanged(false)
+				}
+				Task373DeferredPendingAuthorityBoundary.HostEpoch -> {
+					fixture.admissionHost.advanceHostEpoch()
+					controller.onPresentationHostEpochChanged()
+					controller.onPresentationHostEpochChanged()
+				}
+			}
+			val waitingAfterBoundary =
+				controllerClass.task7Field("awaitingLibraryDeckAdmission").get(controller)
+			fixture.admissionHost.reservationsEnabled = true
+			val resurrected = mutableSetOf<Long>()
+			fun captureResurrection() {
+				(controllerClass.task7Field("pendingDeckGenerationId").get(controller) as Long?)
+					?.let(resurrected::add)
+				@Suppress("UNCHECKED_CAST")
+				val owners = controllerClass.task7Field("generationOwners").get(controller)
+					as Map<Long, *>
+				resurrected += owners.keys.filter { it > 301L }
+				@Suppress("UNCHECKED_CAST")
+				val admissions = controllerClass.task7Field("generationAdmissions").get(controller)
+					as Map<Long, *>
+				resurrected += admissions.keys.filter { it > 301L }
+			}
+
+			if (boundary == Task373DeferredPendingAuthorityBoundary.Pause) {
+				controller.onHostResumedChanged(true)
+			}
+			captureResurrection()
+			surface.pageSurfaceListener.onDeckSubmissionCapacityAvailable()
+			captureResurrection()
+			val currentDecision = controllerClass.task7Field("commonPresentationDecision")
+				.get(controller) as ReaderPresentationDecision
+			controller.synchronizePresentationDecision(currentDecision)
+			ShadowLooper.runUiThreadTasks()
+			captureResurrection()
+
+			assertNull(
+				waitingAfterBoundary,
+				"$boundary must retire the gesture-bound Pending wait before retry"
+			)
+			assertTrue(resurrected.isEmpty(), "$boundary retry edges resurrected $resurrected")
+			assertEquals(
+				nextGenerationBeforeBoundary,
+				controllerClass.task7Field("nextDeckGeneration").getLong(controller),
+				"$boundary must not allocate a replacement admission generation"
+			)
+			assertNull(controllerClass.task7Field("pendingDeckGenerationId").get(controller))
+			assertNull(controllerClass.task7Field("awaitingLibraryDeckAdmission").get(controller))
+			val postBoundaryEvents = fixture.store.presentationEvents.drop(eventCountBeforeBoundary)
+			assertTrue(
+				postBoundaryEvents.none { it is ReaderPresentationEvent.NativePagePresented },
+				"$boundary must not synthesize a native presentation proof"
+			)
+		} catch (caught: Throwable) {
+			failure = caught
+			throw caught
+		} finally {
+			try {
+				fixture.admissionHost.reservationsEnabled = true
+				controller.cancelGesture(gesture)
+				heldSourceReleases.forEach { (generation, reason) ->
+					originalListener.onDeckReleased(generation, reason)
+				}
+				surface.detach()
+				val closed = controller.destroy()
+				ShadowLooper.runUiThreadTasks()
+				withContext(Dispatchers.Default) { withTimeout(5_000L) { closed.await() } }
+				assertEquals(1, rasterReleases, "Shared raster ownership must close exactly once")
+			} catch (cleanup: Throwable) {
+				if (failure == null) throw cleanup else failure.addSuppressed(cleanup)
+			} finally {
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	private fun task373TerminalDeferredPendingAdmission(
+		terminal: Task373DeferredPendingTerminal
+	) = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		var rasterReleases = 0
+		val fixture = task8CurlAuthorityFixture(
+			initialState = task8SettledCurlSourceState(),
+			rejectClaims = terminal == Task373DeferredPendingTerminal.Rejected,
+			onActiveRasterReleased = { rasterReleases += 1 }
+		)
+		val controller = fixture.controller
+		val controllerClass = controller.javaClass
+		controllerClass.task7Field("nextDeckGeneration").setLong(controller, 302L)
+		val surface = controller.surfaceView
+		val gesture = 373_902L + terminal.ordinal
+		var failure: Throwable? = null
+		try {
+			if (terminal == Task373DeferredPendingTerminal.Cancelled) {
+				fixture.admissionHost.reservationsEnabled = false
+			}
+			val result = controller.start(gesture, PageChange.NEXT) { _, _ -> true }
+			when (terminal) {
+				Task373DeferredPendingTerminal.Rejected ->
+					assertIs<ReaderPageTurnStartResult.TerminalPublished>(result)
+				Task373DeferredPendingTerminal.Cancelled -> {
+					assertEquals(ReaderPageTurnStartResult.Settling, result)
+					controller.cancelGesture(gesture)
+				}
+			}
+			assertNull(controllerClass.task7Field("activeGestureId").get(controller))
+			assertFalse(task8SurfaceGestureAccepted(surface))
+			val waitingAfterTerminal =
+				controllerClass.task7Field("awaitingLibraryDeckAdmission").get(controller)
+			val nextGenerationAfterTerminal =
+				controllerClass.task7Field("nextDeckGeneration").getLong(controller)
+			val terminalEventCount = fixture.store.presentationEvents.size
+			fixture.admissionHost.reservationsEnabled = true
+			val resurrected = mutableSetOf<Long>()
+			fun captureResurrection() {
+				(controllerClass.task7Field("pendingDeckGenerationId").get(controller) as Long?)
+					?.let(resurrected::add)
+				@Suppress("UNCHECKED_CAST")
+				val owners = controllerClass.task7Field("generationOwners").get(controller)
+					as Map<Long, *>
+				resurrected += owners.keys.filter { it > 301L }
+				@Suppress("UNCHECKED_CAST")
+				val admissions = controllerClass.task7Field("generationAdmissions").get(controller)
+					as Map<Long, *>
+				resurrected += admissions.keys.filter { it > 301L }
+			}
+
+			surface.pageSurfaceListener.onDeckSubmissionCapacityAvailable()
+			captureResurrection()
+			val currentDecision = controllerClass.task7Field("commonPresentationDecision")
+				.get(controller) as ReaderPresentationDecision
+			controller.synchronizePresentationDecision(currentDecision)
+			captureResurrection()
+			controllerClass.task7Method(
+				"publishGestureTerminal",
+				java.lang.Long.TYPE,
+				ReaderPageGestureTerminalOutcome::class.java,
+				ReaderPageGestureTerminalDetail::class.java
+			).invoke(
+				controller,
+				gesture,
+				ReaderPageGestureTerminalOutcome.CancelledByUser,
+				ReaderPageGestureTerminalDetail.ControllerCancelled
+			)
+			ShadowLooper.runUiThreadTasks()
+			captureResurrection()
+			controller.onPresentationHostEpochChanged()
+			controller.onHostResumedChanged(false)
+			controller.onHostResumedChanged(true)
+			captureResurrection()
+
+			assertNull(waitingAfterTerminal, "A terminal gesture must retire its deferred Pending wait")
+			assertTrue(resurrected.isEmpty(), "Terminal retry edges resurrected generations $resurrected")
+			assertEquals(
+				nextGenerationAfterTerminal,
+				controllerClass.task7Field("nextDeckGeneration").getLong(controller),
+				"A terminal Pending wait must not allocate a retry generation"
+			)
+			assertNull(controllerClass.task7Field("pendingDeckGenerationId").get(controller))
+			assertNull(controllerClass.task7Field("awaitingLibraryDeckAdmission").get(controller))
+			assertNull(controllerClass.task7Field("activeGestureId").get(controller))
+			assertFalse(task8SurfaceGestureAccepted(surface))
+			val postTerminalEvents = fixture.store.presentationEvents.drop(terminalEventCount)
+			assertTrue(
+				postTerminalEvents.none { it is ReaderPresentationEvent.NativePagePresented },
+				"A terminal deferred Pending wait must not publish synthetic native proof"
+			)
+			assertTrue(
+				postTerminalEvents.isEmpty(),
+				"A terminal deferred Pending wait must not publish presentation events"
+			)
+		} catch (caught: Throwable) {
+			failure = caught
+			throw caught
+		} finally {
+			try {
+				surface.detach()
+				val closed = controller.destroy()
+				ShadowLooper.runUiThreadTasks()
+				withContext(Dispatchers.Default) { withTimeout(5_000L) { closed.await() } }
+				assertEquals(1, rasterReleases, "Shared raster ownership must close exactly once")
+			} catch (cleanup: Throwable) {
+				if (failure == null) throw cleanup else failure.addSuppressed(cleanup)
+			} finally {
+				fixture.admissionHost.reservationsEnabled = true
+				Dispatchers.resetMain()
+			}
+		}
 	}
 
 	@Test
@@ -1532,8 +3090,8 @@ class KomikkuReaderNativeFrameHostTest {
 		val gesture = 33611L
 		val owners = controller.javaClass.task7Field("generationOwners").get(controller) as Map<*, *>
 		val prepared = controller.javaClass.task7Field("preparedDeckGenerations").get(controller) as Set<*>
-		val fences = controller.javaClass.task7Field("generationCallbackFences").get(controller) as Map<*, *>
-		val predecessor = fences[301L]
+		val admissions = controller.javaClass.task7Field("generationAdmissions").get(controller) as Map<*, *>
+		val predecessor = admissions[301L]
 		var pending: Long? = null
 		var synchronousCompletions = 0
 		var failure: Throwable? = null
@@ -1546,16 +3104,14 @@ class KomikkuReaderNativeFrameHostTest {
 		}
 		val publish: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt? = { event ->
 			if (event is ReaderPresentationEvent.CurlClaimed) {
-				pending = assertNotNull(controller.javaClass.task7Field("pendingDeckGenerationId").get(controller) as Long?)
-				assertFalse(pending == 301L)
-				assertTrue(owners.containsKey(pending))
-				if (boundary == Task336PendingBoundary.Synchronous) {
-					surface.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE).invoke(surface, pending)
-					assertTrue(pending in prepared, "The renderer completed synchronously before common claim publication")
-					synchronousCompletions++
-				}
+				assertNull(
+					controller.javaClass.task7Field("pendingDeckGenerationId").get(controller) as Long?,
+					"Pending physical ownership must wait for the claim receipt"
+				)
+				assertTrue(owners.keys.none { (it as? Long)?.let { generation -> generation > 301L } == true })
 			}
 			fixture.store.publish(event).also { receipt ->
+				receipt?.let { fixture.admissionHost.commit(it.postState, it.version) }
 				if (event is ReaderPresentationEvent.CurlClaimed && receipt != null) {
 					if (boundary == Task336PendingBoundary.CancelDuringReceipt || boundary == Task336PendingBoundary.BindingDuringReceipt) {
 						controller.synchronizePresentationDecision(readerPresentationDecision(receipt.postState))
@@ -1570,7 +3126,7 @@ class KomikkuReaderNativeFrameHostTest {
 			if (boundary == Task336PendingBoundary.RendererRejected) surface.setVisible(false)
 			val result = controller.start(gesture, PageChange.NEXT) { _, _ -> true }
 			if (owners.containsKey(301L)) {
-				assertTrue(predecessor == fences[301L], "The admission transaction must not rebind the retained predecessor")
+				assertTrue(predecessor === admissions[301L], "The admission transaction must not replace the retained predecessor")
 			} else {
 				assertFalse(task8SurfaceOwnsGeneration(surface, 301L))
 			}
@@ -1578,12 +3134,35 @@ class KomikkuReaderNativeFrameHostTest {
 				assertIs<ReaderPageTurnStartResult.TerminalPublished>(result)
 				assertTrue(fixture.store.presentationEvents.none { it is ReaderPresentationEvent.CurlClaimed })
 				assertNull(pending)
+			} else if (
+				boundary == Task336PendingBoundary.ClaimRejected ||
+				boundary == Task336PendingBoundary.CancelDuringReceipt ||
+				boundary == Task336PendingBoundary.BindingDuringReceipt
+			) {
+				assertIs<ReaderPageTurnStartResult.TerminalPublished>(result)
+				assertNull(pending)
+				assertTrue(
+					admissions.filterKeys { (it as? Long)?.let { generation -> generation > 301L } == true }
+						.values.all {
+							(it as ReaderDeckAdmission).state in setOf(
+								ReaderDeckAdmissionState.ReleaseRequested,
+								ReaderDeckAdmissionState.Released
+							)
+						},
+					"Receipt reentrancy may only leave a terminal successor admission"
+				)
 			} else {
-				val generation = assertNotNull(pending)
-				when (boundary) {
-					Task336PendingBoundary.ClaimRejected, Task336PendingBoundary.CancelDuringReceipt,
-					Task336PendingBoundary.BindingDuringReceipt -> assertIs<ReaderPageTurnStartResult.TerminalPublished>(result)
-					else -> assertEquals(ReaderPageTurnStartResult.Settling, result)
+				val generation = assertNotNull(
+					controller.javaClass.task7Field("pendingDeckGenerationId").get(controller) as Long?
+				).also { pending = it }
+				assertFalse(generation == 301L)
+				assertTrue(owners.containsKey(generation))
+				assertEquals(ReaderPageTurnStartResult.Settling, result)
+				if (boundary == Task336PendingBoundary.Synchronous) {
+					surface.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+						.invoke(surface, generation)
+					assertTrue(generation in prepared, "The first post-receipt callback must prepare")
+					synchronousCompletions++
 				}
 				when (boundary) {
 					Task336PendingBoundary.Cancelled -> controller.cancelGesture(gesture)
@@ -1606,10 +3185,12 @@ class KomikkuReaderNativeFrameHostTest {
 					assertTrue(generation in prepared, "A newly accepted Pending deck must prepare under its successful Curl claim")
 					assertTrue(owners.containsKey(generation))
 					assertTrue(task8SurfaceOwnsGeneration(surface, generation))
-					val callback = assertIs<ReaderAcceptedDeckCallbackFence>(fences[generation])
-					assertTrue(readerAcceptedDeckCallbackMatches(callback,
-						controller.javaClass.task7Field("commonPresentationDecision").get(controller) as ReaderPresentationDecision,
-						0L, 0L, generation), "Both synchronous and deferred completion retain exact claim admission")
+					val admission = assertIs<ReaderDeckAdmission>(admissions[generation])
+					assertEquals(ReaderDeckAdmissionState.AdmittedRendererOwned, admission.state)
+					assertTrue(
+						fixture.admissionHost.isCurrent(admission.capability),
+						"Both synchronous and deferred completion retain exact claim admission"
+					)
 					assertEquals(if (boundary == Task336PendingBoundary.Synchronous) 1 else 0, synchronousCompletions)
 				} else {
 					assertFalse(generation in prepared, "Cancelled, stale and foreign callback inputs cannot prepare")
@@ -1634,11 +3215,30 @@ class KomikkuReaderNativeFrameHostTest {
 		}
 	}
 
+	private enum class Task373VisibilityRestoreBoundary {
+		DelayedRestoreCaller,
+		TemporarilyIneligiblePreparation
+	}
+
 	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 	@Test
 	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
 		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
 	fun task10ActualViewerAutomaticUnreadyCoverEntrySequence() = task336ActualViewerSequence(observeReconciliation = true)
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task373QueuedLossThenDifferentRestoreRetryAdvancesPreparationOnce() =
+		task336ActualViewerSequence(restoreBoundary = Task373VisibilityRestoreBoundary.DelayedRestoreCaller)
+
+	@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task373TemporarilyIneligibleRestoreRetryRetainsFloorUntilLaterIngress() =
+		task336ActualViewerSequence(restoreBoundary = Task373VisibilityRestoreBoundary.TemporarilyIneligiblePreparation)
 
 	@Test
 	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
@@ -1654,6 +3254,19 @@ class KomikkuReaderNativeFrameHostTest {
 	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
 	fun task336ReadyObserverReentrantReplacementWinsWithoutStaleTail() =
 		task336ActualViewerSequence(readyReplacement = Task336ReadyReplacement.Reentrant)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task377ReplacementReleaseBeforeProofRestoresSelectedPredecessor() =
+		task336ActualViewerSequence(selectedPredecessorRollback = true)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task377HostEpochReplacementRetiresSoftPredecessorBeforeSuccessorRelease() =
+		task336ActualViewerSequence(
+			selectedPredecessorRollback = true,
+			replaceHostEpochBeforeSuccessorRelease = true
+		)
 
 	@Test
 	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
@@ -2356,8 +3969,12 @@ class KomikkuReaderNativeFrameHostTest {
 		c6Boundary: Task336C6Boundary? = null,
 		c6NativeBoundary: Task336C6NativeBoundary = Task336C6NativeBoundary.Rejected,
 		readyReplacement: Task336ReadyReplacement? = null,
+		selectedPredecessorRollback: Boolean = false,
+		replaceHostEpochBeforeSuccessorRelease: Boolean = false,
+		restoreBoundary: Task373VisibilityRestoreBoundary? = null,
 		focusedRelocation: ((Class<*>, View, (Int, String) -> Unit) -> Unit)? = null
 	) = runTest {
+		require(!replaceHostEpochBeforeSuccessorRelease || selectedPredecessorRollback)
 		// Only lifecycle, source, capture, draw and renderer callbacks are test inputs.
 		// No Ready facts, presentation proofs, callback fences or reporter state are assigned.
 		val progress = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
@@ -2379,6 +3996,32 @@ class KomikkuReaderNativeFrameHostTest {
 		val reporter = viewerClass.task7Field("presentationBindingReporter").get(viewer) as ReaderPresentationBindingReporter
 		val bundle = curl.javaClass.task7Field("bundleSource").get(curl) as ReaderPageTurnBundleSource
 		val surface = curl.surfaceView
+		val rollbackRendererReleaseCounts = mutableMapOf<Long, Int>()
+		var rollbackPredecessorGeneration: Long? = null
+		var rollbackSuccessorGeneration: Long? = null
+		var rollbackRestoredGeneration: Long? = null
+		var rollbackReplacementHostEpoch: Long? = null
+		var rollbackNativeProofCountBeforeEpoch: Int? = null
+		var rollbackSelectedBindingBeforeEpoch: ReaderPresentationBinding? = null
+		var rollbackCapacityRetry: (() -> Unit)? = null
+		if (selectedPredecessorRollback) {
+			assertNull(surface.renderCapabilities)
+			val originalListener = surface.pageSurfaceListener
+			rollbackCapacityRetry = originalListener::onDeckSubmissionCapacityAvailable
+			surface.pageSurfaceListener = task8ForwardingPageSurfaceListener(
+				delegate = originalListener,
+				onDeckSubmissionCapacityAvailable = {
+					if (rollbackSuccessorGeneration == null) originalListener.onDeckSubmissionCapacityAvailable()
+				},
+				onDeckReleased = { generationId, reason ->
+					rollbackRendererReleaseCounts[generationId] = rollbackRendererReleaseCounts.getOrDefault(generationId, 0) + 1
+					originalListener.onDeckReleased(generationId, reason)
+					if (generationId == rollbackSuccessorGeneration) {
+						rollbackRestoredGeneration = curl.javaClass.task7Field("activeDeckGenerationId").get(curl) as Long?
+					}
+				}
+			)
+		}
 		val runtime = Task9ControlledPassiveRuntime()
 		val deadlines = HostBridgeDeadlineScheduler()
 		val effects = ReaderPresentationEffectQueue()
@@ -2418,6 +4061,7 @@ class KomikkuReaderNativeFrameHostTest {
 		var initialLiveReceiptCount = 0
 		var initialLiveCompletionCount = 0
 		var initialLiveVerifiedRetirementCount = 0
+		var initialLivePreSourceRetirementCount = 0
 		var sourcePresentationSequence = 0L
 		var c6BeforeNativeReceipt: (() -> Unit)? = null
 		val c6NativeReceipts = mutableListOf<Pair<ReaderPresentationEvent.NativePagePresented, ReaderPresentationEventReceipt?>>()
@@ -2448,6 +4092,7 @@ class KomikkuReaderNativeFrameHostTest {
 		fun initialLiveAccounting() = "commands=$initialLiveCommandCount acknowledgements=$initialLiveAcknowledgementCount " +
 			"receipts=$initialLiveReceiptCount completions=$initialLiveCompletionCount " +
 			"verifiedRetirements=$initialLiveVerifiedRetirementCount " +
+			"preSourceRetirements=$initialLivePreSourceRetirementCount " +
 			"pendingCommands=${initialLiveCommands.size} pendingReceipts=${initialLiveReceipts.size} " +
 			"pendingSourceReceipts=${sourceLiveReceipts.size} claimPending=${initialLiveRequest() != null}"
 		webView.onInitialLiveCommand = { command, callback ->
@@ -2469,6 +4114,8 @@ class KomikkuReaderNativeFrameHostTest {
 			} else false
 		}
 		var pendingCallbackAccepted: Boolean? = null
+		var latestTurnAdmissionGeneration: Long? = null
+		var latestTurnAdmission: ReaderDeckAdmission? = null
 		var common = ReaderController(ReaderControllerState(readerSessionGeneration = 1L,
 			publication = publication, nativeShellCoverUrl = "task336-cover", canReturnToShellCover = true,
 			shellCoverVisible = false))
@@ -2667,9 +4314,28 @@ class KomikkuReaderNativeFrameHostTest {
 				decisions += common.state.presentationDecision
 			}
 			var admissionPredecessor: ReaderPresentationDecision? = null
+			var visibilityLossDeliveryEnabled =
+				restoreBoundary != Task373VisibilityRestoreBoundary.DelayedRestoreCaller
+			var blockedVisibilityLossDeliveries = 0
+			val visibilityRestoreDeliveryStacks = mutableListOf<List<String>>()
 			val publish: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt? = { event ->
-				try {
+				if (
+					event == ReaderPresentationEvent.Lifecycle(
+						ReaderPresentationLifecycleEvent.VisibilityLost
+					) && !visibilityLossDeliveryEnabled
+				) {
+					blockedVisibilityLossDeliveries++
+					progress.trySend(Unit)
+					null
+				} else try {
 				events += event
+				if (
+					event == ReaderPresentationEvent.Lifecycle(
+						ReaderPresentationLifecycleEvent.VisibilityRestored
+					)
+				) {
+					visibilityRestoreDeliveryStacks += Throwable().stackTrace.map { it.methodName }
+				}
 				if (event is ReaderPresentationEvent.CurlClaimed) {
 					val predecessor = assertNotNull(admissionPredecessor)
 					val observed = curl.javaClass.task7Field("commonPresentationDecision").get(curl) as ReaderPresentationDecision
@@ -2909,7 +4575,22 @@ class KomikkuReaderNativeFrameHostTest {
 				// their existing exact-acknowledgement owner and never enter this queue.
 				initialLiveCommands.toList().forEach { input ->
 					val request = assertNotNull(input.request, "An emitted initial-live command must have its production request")
-					assertTrue(initialLiveRequest() === request, "Source input must still belong to the emitted request")
+					if (initialLiveRequest() !== request) {
+						assertNull(request.javaClass.task7Field("claim").get(request))
+						assertFalse(request.javaClass.task7Field("confirmationPending").getBoolean(request))
+						assertNull(request.javaClass.task7Field("acceptedNativeProof").get(request))
+						assertNull(request.javaClass.task7Field("ownSourceBinding").get(request))
+						assertTrue(initialLiveReceipts.none { it.first === request })
+						assertNull(sourceLiveReceipts[request])
+						val replacement = initialLiveRequest()
+						input.callback?.onReceiveValue("{}")
+						assertSame(replacement, initialLiveRequest(), "A retired source callback cannot replace current authority")
+						assertTrue(initialLiveCommands.removeFirst() === input)
+						initialLiveVerifiedRetirementCount++
+						initialLivePreSourceRetirementCount++
+						gate10Observations += "initial-live retired-before-source " + initialLiveAccounting()
+						return@forEach
+					}
 					val command = input.command
 					val target = request.javaClass.task7Field("target").get(request) as ReaderPageTurnPresentationTarget.Live
 					val acknowledgement = ReaderPageTurnSettlementAck(command.getString("settleToken"), command.getInt("pageIndex"),
@@ -2996,6 +4677,16 @@ class KomikkuReaderNativeFrameHostTest {
 			}
 			@Suppress("UNCHECKED_CAST")
 			val owners = curl.javaClass.task7Field("generationOwners").get(curl) as Map<Long, Any>
+			fun assertLatestTurnAdmission(boundary: String) {
+				val generation = assertNotNull(latestTurnAdmissionGeneration, "$boundary must retain the accepted generation")
+				val admission = assertNotNull(latestTurnAdmission, "$boundary must retain the accepted admission")
+				@Suppress("UNCHECKED_CAST")
+				val admissions = curl.javaClass.task7Field("generationAdmissions")
+					.get(curl) as Map<Long, ReaderDeckAdmission>
+				assertEquals("AdmittedRendererOwned", admission.state.name, "$boundary must use renderer-owned authority")
+				assertSame(admission, admissions[generation], "$boundary must retain the admission release ledger")
+				assertTrue(owners.containsKey(generation), "$boundary must retain physical renderer ownership")
+			}
 			val preparedCallbacks = mutableSetOf<Long>()
 			fun unprepared(): List<Long> = owners.keys.filter { it !in preparedCallbacks }.sorted()
 			fun completePrepared(generation: Long) {
@@ -3068,7 +4759,7 @@ class KomikkuReaderNativeFrameHostTest {
 				surface.pendingCallbackCount != 0 || bundle.ownershipMetrics().pendingPublicationCallbacks != 0 || prewarmLayoutPending()
 			// A bounded causal input driver: it never advances a presentation deadline or
 			// waits for all jobs while one of their own source/capture callbacks is held.
-			suspend fun drain(label: String) {
+			suspend fun drain(label: String, stopWhen: () -> Boolean = { false }) {
 				var rounds = 0
 				observeCanonical("$label-enter")
 				do {
@@ -3094,6 +4785,7 @@ class KomikkuReaderNativeFrameHostTest {
 					runtime.captures.tryReceive().getOrNull()?.let(runtime::completeCapture)
 					testScheduler.runCurrent()
 					ShadowLooper.runUiThreadTasks()
+					if (stopWhen()) return
 					unprepared().forEach(::completePrepared)
 					if (framePending() && !c6HoldNativeFrames) {
 						assertNotNull(candidate(), "$label native request must retain its exact physical candidate")
@@ -3158,10 +4850,16 @@ class KomikkuReaderNativeFrameHostTest {
 							"visual=${curl.applicationOwnershipMetrics().pendingVisualCallbacks} " +
 							"reportedExact=${physicalBinding() == reporter.lastReportedBinding} " +
 							"targetExact=${physicalBinding() == common.state.presentation.binding}").invoke()
-					}
+																																																					}
 				} while (workPending())
-				assertEquals(initialLiveCommandCount, initialLiveAcknowledgementCount)
-				assertEquals(initialLiveCommandCount, initialLiveReceiptCount)
+				assertEquals(
+					initialLiveCommandCount,
+					initialLiveAcknowledgementCount + initialLivePreSourceRetirementCount
+				)
+				assertEquals(
+					initialLiveCommandCount,
+					initialLiveReceiptCount + initialLivePreSourceRetirementCount
+				)
 				assertEquals(initialLiveCommandCount, initialLiveCompletionCount + initialLiveVerifiedRetirementCount)
 				assertFalse(initialLivePending())
 				assertEquals(0, mainTerminalExecutor.pendingActionCount())
@@ -3323,8 +5021,11 @@ class KomikkuReaderNativeFrameHostTest {
 				})
 				val pending = assertNotNull(curl.javaClass.task7Field("pendingDeckGenerationId").get(curl) as Long?)
 				@Suppress("UNCHECKED_CAST")
-				val fences = curl.javaClass.task7Field("generationCallbackFences").get(curl) as Map<Long, ReaderAcceptedDeckCallbackFence>
-				val capturedFence = fences[pending]
+				val admissions = curl.javaClass.task7Field("generationAdmissions")
+					.get(curl) as Map<Long, ReaderDeckAdmission>
+				val capturedAdmission = admissions[pending]
+				latestTurnAdmissionGeneration = pending
+				latestTurnAdmission = capturedAdmission
 				val prepared = curl.javaClass.task7Field("preparedDeckGenerations").get(curl) as Set<*>
 				fun pendingObservation(boundary: String): String {
 					val roles = curl.javaClass.task7Field("generationRoles").get(curl) as Map<*, *>
@@ -3338,15 +5039,26 @@ class KomikkuReaderNativeFrameHostTest {
 						null -> null
 					}
 					val raster = bundle.currentGeneration()
+					val publishedProfile = curl.javaClass.task7Field("publishedRasterProfileEpoch")
+						.get(curl) as Long?
 					val generationPreparation = (curl.javaClass.task7Field("generationPreparationGenerations").get(curl) as Map<*, *>)[pending]
-					val fullMatch = capturedFence != null && decision != null && texture != null &&
-						readerAcceptedDeckCallbackMatches(capturedFence, decision, preparationGeneration, raster, texture)
+					val capability = capturedAdmission?.capability
+					val fullMatch = capability != null && decision != null && texture != null &&
+						(curl.javaClass.task7Field("deckAdmissionHost").get(curl) as ReaderDeckAdmissionLeaseHost)
+							.isCurrent(capability) &&
+						readerAcceptedDeckBindingOrNull(
+							decision.targetBinding,
+							publishedProfile,
+							preparationGeneration,
+							raster,
+							texture
+						) == capability.originBinding
 					return "$boundary role=$role owner=${owners.containsKey(pending)} prepared=${pending in prepared} " +
-						"surfaceOwner=${task8SurfaceOwnsGeneration(surface, pending)} fencePresent=${fences.containsKey(pending)} " +
-						"capturedFencePresent=${capturedFence != null} capturedTokenPresent=${capturedFence?.presentationToken != null} " +
-						"currentCurlTokenPresent=${token != null} tokenMatchesCurl=${capturedFence?.presentationToken == token} " +
-						"bindingMatches=${capturedFence != null && capturedFence.binding == decision?.targetBinding?.copy(
-							preparationGeneration = preparationGeneration, rasterGeneration = raster, textureGeneration = texture)} " +
+						"surfaceOwner=${task8SurfaceOwnsGeneration(surface, pending)} admissionPresent=${admissions.containsKey(pending)} " +
+						"capturedAdmissionPresent=${capturedAdmission != null} capturedTokenPresent=${capability?.presentationToken != null} " +
+						"currentCurlTokenPresent=${token != null} tokenMatchesCurl=${capability?.presentationToken == token} " +
+						"bindingMatches=${capability != null && capability.originBinding == readerAcceptedDeckBindingOrNull(
+							decision?.targetBinding, publishedProfile, preparationGeneration, raster, texture ?: -1L)} " +
 						"preparationMatches=${generationPreparation == preparationGeneration} " +
 						"preparationFailed=${generationPreparation != null && generationPreparation == curl.javaClass.task7Field("failedPreparationGeneration").get(curl)} " +
 						"fullMatch=$fullMatch " + bindingEqualities() + " " + ownedJobCounts()
@@ -3354,10 +5066,12 @@ class KomikkuReaderNativeFrameHostTest {
 				gate10Observations += pendingObservation("pending-before-callback")
 				completePrepared(pending)
 				pendingCallbackAccepted = pending in prepared
+				assertLatestTurnAdmission("validated pending callback")
 				gate10Observations += pendingObservation("pending-after-callback")
 				// Finish the owned animation input, not just its downstream listener:
 				// production must also complete the model and promote the surface deck.
 				assertNotNull(surface.javaClass.task7Field("settlementAnimator").get(surface) as android.animation.ValueAnimator?).end()
+				assertLatestTurnAdmission("Curl settlement")
 				gate10Observations += "terminal " + bindingEqualities() + " " + ownedJobCounts()
 				assertEquals(1, localTerminalCounts[gesture])
 				assertIs<ReaderPresentationAuthority.CurlSettlementPending>(common.state.presentation.authority)
@@ -3480,9 +5194,11 @@ class KomikkuReaderNativeFrameHostTest {
 					val request = assertNotNull(turn)
 					relocate(request.destinationOrdinal, "page-turn:exact", ReaderPageTurnSettlementAck(request.token.value,
 						request.destinationOrdinal, request.foliateSessionId, request.rasterGeneration, request.textureGeneration))
+					assertLatestTurnAdmission("exact Foliate acknowledgement")
 					val pending = assertIs<ReaderPresentationAuthority.CurlSettlementPending>(common.state.presentation.authority)
 					assertEquals(ReaderCurlSettlementStage.AwaitingNativePresentation, pending.stage)
 					transition = assertIs<ReaderRequiredTransition.PresentNativePage>(common.state.presentationDecision.requiredTransition)
+					assertLatestTurnAdmission("native-frame arm")
 					assertEquals(physicalBinding(), transition.binding)
 					assertEquals(reporter.lastReportedBinding, transition.binding)
 				}
@@ -3497,10 +5213,15 @@ class KomikkuReaderNativeFrameHostTest {
 					assertTrue(beforeProofQuiet, "Genuine initial-live demand must not claim or mutate the accepted Curl destination before exact native proof")
 					val (event, receipt) = presentNativeInput()
 					assertTrue(receipt.authorizes(event))
+					assertLatestTurnAdmission("exact native receipt")
 					val proof = event.proof
 					assertEquals(transition.token, proof.transitionToken)
 					assertEquals(transition.binding, proof.binding)
 					assertEquals(proof, assertIs<ReaderPresentationAuthority.SettledNativePage>(common.state.presentation.authority).frame.proof)
+					assertEquals(latestTurnAdmissionGeneration,
+						curl.javaClass.task7Field("activeDeckGenerationId").get(curl) as Long?,
+						"Exact native proof must promote the admitted Pending deck to Active")
+					assertLatestTurnAdmission("Pending promotion")
 					assertEquals(commandCount + 1, initialLiveCommandCount, "Exact authorizing native completion must retry the retained demand once")
 					if (c6Boundary == Task336C6Boundary.PostDispatchSupersession) {
 						completeInitialLiveSourceInputs(deliverReceipts = false)
@@ -3702,12 +5423,208 @@ class KomikkuReaderNativeFrameHostTest {
 			}
 			suspend fun runMandatoryViewerSequence() {
 				completeExactAcknowledgement(turnPage(3361L))
+				val tocSelectedGeneration = if (readyReplacement != null || selectedPredecessorRollback) {
+					assertNotNull(curl.javaClass.task7Field("activeDeckGenerationId").get(curl) as Long?)
+				} else {
+					null
+				}
+				val tocSelectedPreparation = tocSelectedGeneration?.let { generation ->
+					@Suppress("UNCHECKED_CAST")
+					(curl.javaClass.task7Field("generationPreparationGenerations").get(curl)
+						as Map<Long, Long>)[generation]
+				}
 				accept(common.navigateTo(paige.navic.reader.ReaderLocator(progress = 0.0, pageIndex = 0, pageCount = 3)))
 				relocate(0, "toc")
+				if (tocSelectedGeneration != null) {
+					@Suppress("UNCHECKED_CAST")
+					val roles = curl.javaClass.task7Field("generationRoles").get(curl)
+						as Map<Long, ReaderDeckSubmissionRole>
+					@Suppress("UNCHECKED_CAST")
+					val preparations = curl.javaClass.task7Field("generationPreparationGenerations").get(curl)
+						as Map<Long, Long>
+					@Suppress("UNCHECKED_CAST")
+					val prepared = curl.javaClass.task7Field("preparedDeckGenerations").get(curl)
+						as Set<Long>
+					@Suppress("UNCHECKED_CAST")
+					val admissions = curl.javaClass.task7Field("generationAdmissions").get(curl)
+						as Map<Long, ReaderDeckAdmission>
+					assertTrue(task8SurfaceOwnsGeneration(surface, tocSelectedGeneration),
+						"TOC invalidation must retain the selected physical predecessor")
+					assertTrue(owners.containsKey(tocSelectedGeneration))
+					assertEquals(tocSelectedGeneration,
+						curl.javaClass.task7Field("activeDeckGenerationId").get(curl) as Long?)
+					assertEquals(ReaderDeckSubmissionRole.Active, roles[tocSelectedGeneration])
+					assertEquals(tocSelectedPreparation, preparations[tocSelectedGeneration])
+					assertTrue(tocSelectedGeneration in prepared)
+					assertEquals(ReaderDeckAdmissionState.ReleaseRequested,
+						assertNotNull(admissions[tocSelectedGeneration]).state)
+					assertNull(curl.javaClass.task7Field("activePages").get(curl))
+					assertFalse(curl.isAvailable)
+					assertNull(candidate())
+					assertNull(initialLiveRequest())
+				}
 				assertNull(common.state.pageTurnSettlementAck, "Same-session TOC must not inherit the preceding turn receipt")
 				seedCurrentCapture(0)
+				if (selectedPredecessorRollback) {
+					val predecessor = assertNotNull(tocSelectedGeneration)
+					rollbackPredecessorGeneration = predecessor
+					rollbackSelectedBindingBeforeEpoch = when (val selected = common.state.presentationDecision.frameOwner) {
+						is ReaderPresentationFrameOwner.NativePage -> selected.proof.binding
+						is ReaderPresentationFrameOwner.Curl -> selected.frame.binding
+						else -> error("Expected selected native predecessor before replacement")
+					}
+					Task8ImmediateGlSurfaceViewShadow.afterNextQueueEvent = { queuedSurface ->
+						assertSame(surface, queuedSurface)
+						val coordinator = surface.javaClass.task7Field("deckCoordinator").get(surface)
+						val successor = listOf("activeDeck", "pendingDeck")
+							.mapNotNull { slot -> coordinator.javaClass.task7Field(slot).get(coordinator) as PageDeck<*>? }
+							.single { deck -> deck.generationId != predecessor }
+							.generationId
+						rollbackSuccessorGeneration = successor
+						val releaseSuccessor = {
+							if (replaceHostEpochBeforeSuccessorRelease) {
+								assertEquals(successor,
+									curl.javaClass.task7Field("activeDeckGenerationId").get(curl) as Long?)
+								rollbackNativeProofCountBeforeEpoch =
+									events.filterIsInstance<ReaderPresentationEvent.NativePagePresented>().size
+								val oldEpoch = reporter.captureEpoch()
+								val replacementVersion = common.presentationVersion.copy(
+									readerSessionGeneration = common.presentationVersion.readerSessionGeneration + 1L
+								)
+								val result = viewerClass.task7Method("preparePresentationEpoch",
+									paige.navic.reader.ReaderPresentationReceiptVersion::class.java,
+									ReaderPresentationState::class.java, java.lang.Boolean.TYPE,
+									java.lang.Boolean.TYPE, java.lang.Boolean.TYPE)
+									.invoke(viewer, replacementVersion, common.state.presentation, false, true, false)
+								assertEquals(ReaderPresentationEpochPreparation.Replaced, result)
+								assertTrue(reporter.captureEpoch() > oldEpoch)
+								rollbackReplacementHostEpoch = reporter.captureEpoch()
+								assertNull(reporter.lastReportedBinding)
+							}
+							val releaseStatus = surface.releaseDeck(successor).status.toString()
+							if (replaceHostEpochBeforeSuccessorRelease) {
+								assertTrue(releaseStatus == "ACCEPTED" || releaseStatus == "ALREADY_ACCEPTED")
+							} else {
+								assertEquals("ACCEPTED", releaseStatus)
+							}
+						}
+						if (replaceHostEpochBeforeSuccessorRelease) {
+							surface.post(releaseSuccessor)
+						} else {
+							releaseSuccessor()
+						}
+					}
+				}
 				curl.onHostContentReady()
-				drain("toc-profile")
+				drain("toc-profile") {
+					selectedPredecessorRollback && rollbackSuccessorGeneration?.let {
+						rollbackRendererReleaseCounts[it] == 1
+					} == true
+				}
+				if (selectedPredecessorRollback) {
+					val predecessor = assertNotNull(tocSelectedGeneration)
+					val successor = assertNotNull(rollbackSuccessorGeneration)
+					assertEquals(predecessor, rollbackPredecessorGeneration)
+					val selectedBinding = if (replaceHostEpochBeforeSuccessorRelease) {
+						assertNotNull(rollbackSelectedBindingBeforeEpoch)
+					} else when (val selected = common.state.presentationDecision.frameOwner) {
+						is ReaderPresentationFrameOwner.NativePage -> selected.proof.binding
+						is ReaderPresentationFrameOwner.Curl -> selected.frame.binding
+						else -> error("Expected selected native predecessor before replacement proof")
+					}
+					assertEquals(predecessor, selectedBinding.textureGeneration)
+					assertEquals(1, rollbackRendererReleaseCounts[successor])
+					assertFalse(task8SurfaceOwnsGeneration(surface, successor))
+					assertFalse(owners.containsKey(successor))
+					if (replaceHostEpochBeforeSuccessorRelease) {
+						assertNull(rollbackRestoredGeneration,
+							"An obsolete admission owner scope must not restore selected G")
+						assertNull(curl.javaClass.task7Field("activeDeckGenerationId").get(curl) as Long?)
+						assertNull(curl.javaClass.task7Field("activeDeckPreparationGeneration").get(curl) as Long?)
+						assertNull(curl.javaClass.task7Field("activePages").get(curl))
+						assertFalse(curl.isAvailable)
+						assertNull(candidate())
+						assertNull(initialLiveRequest())
+						assertNull(viewerClass.task7Field("preparedActiveDeck").get(viewer))
+						assertEquals(rollbackReplacementHostEpoch, reporter.captureEpoch())
+						assertNull(reporter.lastReportedBinding)
+						assertEquals(rollbackNativeProofCountBeforeEpoch,
+							events.filterIsInstance<ReaderPresentationEvent.NativePagePresented>().size)
+						val staleControllerBinding = when (
+							val selected = (curl.javaClass.task7Field("commonPresentationDecision").get(curl)
+								as ReaderPresentationDecision).frameOwner
+						) {
+							is ReaderPresentationFrameOwner.NativePage -> selected.proof.binding
+							is ReaderPresentationFrameOwner.Curl -> selected.frame.binding
+							else -> null
+						}
+						assertEquals(predecessor, staleControllerBinding?.textureGeneration,
+							"The controller must fail closed despite its not-yet-echoed common proof")
+						assertEquals(1, rollbackRendererReleaseCounts[predecessor])
+						assertFalse(task8SurfaceOwnsGeneration(surface, predecessor))
+						assertFalse(owners.containsKey(predecessor))
+						assertNull(curl.javaClass.task7Field("retainedSelectedPresentationPredecessorGenerationId").get(curl))
+						@Suppress("UNCHECKED_CAST")
+						val admissions = curl.javaClass.task7Field("generationAdmissions").get(curl)
+							as Map<Long, ReaderDeckAdmission>
+						assertFalse(admissions.containsKey(predecessor))
+						assertFalse(admissions.containsKey(successor))
+						assertTrue(curl.javaClass.task7Field("hostResumed").getBoolean(curl))
+						assertTrue(curl.javaClass.task7Field("enabled").getBoolean(curl))
+						assertTrue(curl.javaClass.task7Field("attached").getBoolean(curl))
+						curl.onPresentationHostEpochChanged()
+						ShadowLooper.runUiThreadTasks()
+						for (generation in listOf(successor, predecessor)) {
+							surface.javaClass.task7Method("handleDeckReleased", java.lang.Long.TYPE,
+								karacken.curl.DeckReleaseReason::class.java)
+								.invoke(surface, generation, karacken.curl.DeckReleaseReason.EXPLICIT)
+							assertEquals(1, rollbackRendererReleaseCounts[generation])
+						}
+						assertNotNull(rollbackCapacityRetry).invoke()
+						testScheduler.runCurrent()
+						ShadowLooper.runUiThreadTasks()
+						assertNull(curl.javaClass.task7Field("activeDeckGenerationId").get(curl) as Long?)
+						assertFalse(owners.containsKey(predecessor))
+						assertFalse(owners.containsKey(successor))
+						assertEquals(rollbackNativeProofCountBeforeEpoch,
+							events.filterIsInstance<ReaderPresentationEvent.NativePagePresented>().size)
+						return
+					}
+					assertEquals(predecessor, rollbackRestoredGeneration)
+					assertEquals(predecessor,
+						curl.javaClass.task7Field("activeDeckGenerationId").get(curl) as Long?)
+					assertEquals(tocSelectedPreparation,
+						curl.javaClass.task7Field("activeDeckPreparationGeneration").get(curl) as Long?)
+					assertNull(curl.javaClass.task7Field("activePages").get(curl))
+					assertFalse(curl.isAvailable)
+					assertNull(candidate())
+					assertTrue(task8SurfaceOwnsGeneration(surface, predecessor))
+					assertTrue(owners.containsKey(predecessor))
+					surface.javaClass.task7Method("handleDeckReleased", java.lang.Long.TYPE,
+						karacken.curl.DeckReleaseReason::class.java)
+						.invoke(surface, successor, karacken.curl.DeckReleaseReason.EXPLICIT)
+					assertEquals(1, rollbackRendererReleaseCounts[successor])
+
+					assertNotNull(publish(ReaderPresentationEvent.Lifecycle(
+						ReaderPresentationLifecycleEvent.RendererLost)))
+					synchronize()
+					if (common.state.presentationDecision.frameOwner != ReaderPresentationFrameOwner.Neutral) {
+						assertNotNull(publish(ReaderPresentationEvent.BindingReplaced(selectedBinding,
+							selectedBinding.copy(rasterGeneration = null, textureGeneration = null))))
+						synchronize()
+					}
+					ShadowLooper.runUiThreadTasks()
+					assertEquals(ReaderPresentationFrameOwner.Neutral,
+						common.state.presentationDecision.frameOwner)
+					assertEquals(1, rollbackRendererReleaseCounts[predecessor])
+					assertFalse(task8SurfaceOwnsGeneration(surface, predecessor))
+					assertFalse(owners.containsKey(predecessor))
+					surface.javaClass.task7Method("handleDeckReleased", java.lang.Long.TYPE,
+						karacken.curl.DeckReleaseReason::class.java)
+						.invoke(surface, predecessor, karacken.curl.DeckReleaseReason.EXPLICIT)
+					assertEquals(1, rollbackRendererReleaseCounts[predecessor])
+					return
+				}
 				preparation.prewarmAdjacent()
 				drain("toc-preparation")
 				assertSettled()
@@ -3808,31 +5725,100 @@ class KomikkuReaderNativeFrameHostTest {
 				assertTrue(expectedLocator.copy(reason = null) == common.state.chrome.currentLocator?.copy(reason = null),
 					"Settled cover entry must preserve the semantic destination")
 				val proof = assertIs<ReaderPresentationFrameOwner.NativePage>(common.state.presentationDecision.frameOwner).proof
+				val visibilityLossPreparationFloor = assertNotNull(proof.binding.preparationGeneration)
 				assertEquals(entryDestination, physicalBinding()?.destinationCommitIdentity)
 				assertEquals(entryDestination, proof.binding.destinationCommitIdentity)
 				assertEquals(expectedOrdinal,
 					(viewerClass.task7Field("preparedActiveDeck").get(viewer) as ReaderPagePreparedActiveDeck).sourceCenterPageIndex)
 				assertEquals(entryToken, proof.transitionToken)
+				val restoreLifecycleBoundary = events.size
 				pauseHostLifecycle()
 				assertFalse(curl.javaClass.task7Field("hostResumed").getBoolean(curl))
 				(preparation.javaClass.task7Field("memoryCallbacks").get(preparation) as android.content.ComponentCallbacks2)
 					.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
-				assertEquals(ReaderPresentationLifecycleState.Background, common.state.presentation.lifecycle)
+				if (restoreBoundary == Task373VisibilityRestoreBoundary.DelayedRestoreCaller) {
+					assertTrue(blockedVisibilityLossDeliveries > 0)
+					assertEquals(ReaderPresentationLifecycleState.Foreground, common.state.presentation.lifecycle)
+					visibilityLossDeliveryEnabled = true
+				} else {
+					assertEquals(ReaderPresentationLifecycleState.Background, common.state.presentation.lifecycle)
+				}
 				assertEquals(publication, common.state.publication)
 				lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_START)
 				lifecycleOwner.registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+				val retryInProgressField = preparation.javaClass.task7Field("retryPreparationInProgress")
+				if (restoreBoundary == Task373VisibilityRestoreBoundary.TemporarilyIneligiblePreparation) {
+					retryInProgressField.setBoolean(preparation, true)
+				}
 				viewerClass.task7Method("onWindowVisibilityChanged", Integer.TYPE).invoke(viewer, View.VISIBLE)
+				if (restoreBoundary == Task373VisibilityRestoreBoundary.TemporarilyIneligiblePreparation) {
+					assertEquals(
+						visibilityLossPreparationFloor,
+						preparation.javaClass.task7Field("preparationGeneration").getLong(preparation),
+						"A temporarily ineligible accepted restore must retain its exact floor"
+					)
+					retryInProgressField.setBoolean(preparation, false)
+				}
+				if (restoreBoundary == Task373VisibilityRestoreBoundary.DelayedRestoreCaller) {
+					val visibilityEvents = events.drop(restoreLifecycleBoundary).mapNotNull {
+						(it as? ReaderPresentationEvent.Lifecycle)?.event
+					}.filter {
+						it == ReaderPresentationLifecycleEvent.VisibilityLost ||
+							it == ReaderPresentationLifecycleEvent.VisibilityRestored
+					}
+					assertEquals(
+						listOf(
+							ReaderPresentationLifecycleEvent.VisibilityLost,
+							ReaderPresentationLifecycleEvent.VisibilityRestored
+						),
+						visibilityEvents
+					)
+					assertTrue(
+						visibilityRestoreDeliveryStacks.single().contains(
+							"reportPresentationIdentityIfAvailable"
+						),
+						"Queued restoration must be accepted by the later identity retry path"
+					)
+				}
+				viewerClass.task7Method("onWindowVisibilityChanged", Integer.TYPE).invoke(viewer, View.VISIBLE)
+				if (restoreBoundary != null) {
+					assertEquals(
+						Math.incrementExact(visibilityLossPreparationFloor),
+						preparation.javaClass.task7Field("preparationGeneration").getLong(preparation),
+						"Accepted restoration must allocate exactly once above its retained floor"
+					)
+				}
 				assertHostResumed()
 				drain("restore")
 				assertSettled()
-				assertEquals(entryDestination, common.state.destinationCommitIdentity)
-				assertEquals(entryDestination, physicalBinding()?.destinationCommitIdentity)
+				val restoredProof = assertIs<ReaderPresentationFrameOwner.NativePage>(
+					common.state.presentationDecision.frameOwner
+				).proof
+				assertEquals(
+					Math.incrementExact(visibilityLossPreparationFloor),
+					restoredProof.binding.preparationGeneration,
+					"Automatic restore must allocate exactly once above its retired proof floor"
+				)
+				val restoredDestination = assertNotNull(common.state.destinationCommitIdentity)
+				assertEquals(entryDestination.foliateSessionId, restoredDestination.foliateSessionId)
+				assertTrue(
+					restoredDestination.commitSequence > entryDestination.commitSequence,
+					"Fresh restore authority must carry a newer same-session source commit"
+				)
+				assertEquals(restoredDestination, physicalBinding()?.destinationCommitIdentity)
+				assertEquals(restoredDestination, restoredProof.binding.destinationCommitIdentity)
+				assertEquals(expectedOrdinal, common.state.chrome.currentLocator?.pageIndex)
 				assertEquals(ReaderPresentationLifecycleState.Foreground, common.state.presentation.lifecycle)
 				assertEquals(publication, common.state.publication)
 				assertTrue(decisions.all { it.diagnosticPresentation == ReaderDiagnosticPresentation.Hidden })
 				assertTrue(events.none { it == ReaderPresentationEvent.Retry || it == ReaderPresentationEvent.Cancel })
 				assertNull(common.state.pendingShellCoverDismissal)
-				assertNull(common.state.pageTurnSettlementAck)
+				val restoreSettlement = assertNotNull(common.state.pageTurnSettlementAck)
+				assertTrue(restoreSettlement.token.startsWith("initial-live-"))
+				assertEquals(expectedOrdinal, restoreSettlement.pageIndex)
+				assertEquals(restoredProof.binding.foliateSessionId, restoreSettlement.foliateSessionId)
+				assertEquals(restoredProof.binding.rasterGeneration, restoreSettlement.rasterGeneration)
+				assertEquals(restoredProof.binding.textureGeneration, restoreSettlement.textureGeneration)
 				assertNull(relocationQueue.head())
 				assertTrue(effects.pendingEffects().isEmpty())
 				assertTrue(common.state.presentation.rendererCleanupOwnership.isEmpty())
@@ -3883,6 +5869,22 @@ class KomikkuReaderNativeFrameHostTest {
 					assertTrue(runtime.isRetired)
 					assertTrue(runtime.deliveredBitmaps.all { it.isRecycled })
 					assertFalse(deadlines.hasPending)
+					latestTurnAdmission?.let { admission ->
+						val generation = assertNotNull(latestTurnAdmissionGeneration)
+						@Suppress("UNCHECKED_CAST")
+						val admissions = curl.javaClass.task7Field("generationAdmissions")
+							.get(curl) as Map<Long, ReaderDeckAdmission>
+						assertEquals(ReaderDeckAdmissionState.Released, admission.state,
+							"Teardown must terminate the admitted renderer ownership")
+						assertFalse(admissions.containsKey(generation), "Teardown must retire the admission release ledger")
+						@Suppress("UNCHECKED_CAST")
+						val remainingOwners = curl.javaClass.task7Field("generationOwners").get(curl) as Map<Long, Any>
+						assertFalse(remainingOwners.containsKey(generation), "Teardown must retire physical renderer ownership")
+					}
+					if (selectedPredecessorRollback) {
+						assertEquals(1, rollbackRendererReleaseCounts[assertNotNull(rollbackSuccessorGeneration)])
+						assertEquals(1, rollbackRendererReleaseCounts[assertNotNull(rollbackPredecessorGeneration)])
+					}
 				}
 				cleanup {
 					if (lifecycleOwner.registry.currentState.isAtLeast(Lifecycle.State.CREATED)) {
@@ -3929,6 +5931,7 @@ class KomikkuReaderNativeFrameHostTest {
 				sourceLiveReceipts.clear()
 				webView.sourceBinding = null
 				webView.planCallbacks.clear()
+				Task8ImmediateGlSurfaceViewShadow.afterNextQueueEvent = null
 				Task336ViewTreeLifecycleOwnerShadow.clear()
 				Dispatchers.resetMain()
 				progress.close()
@@ -3987,34 +5990,16 @@ class KomikkuReaderNativeFrameHostTest {
 				// replays cached capabilities and would introduce an extra refresh edge.
 				assertNull(controller.surfaceView.renderCapabilities)
 				val originalListener = controller.surfaceView.pageSurfaceListener
-				// Kotlin delegation does not forward Java default interface methods.
-				// Explicitly forward the entire boundary, including overloads.
-				controller.surfaceView.pageSurfaceListener = object : karacken.curl.PageSurfaceListener {
-					override fun onCapabilitiesAvailable(capabilities: RenderCapabilities) = originalListener.onCapabilitiesAvailable(capabilities)
-					override fun onDeckPrepared(generationId: Long) = originalListener.onDeckPrepared(generationId)
-					override fun onDeckRejected(generationId: Long, reason: karacken.curl.DeckRejectionReason) = originalListener.onDeckRejected(generationId, reason)
-					override fun onDeckSubmissionCapacityAvailable() = originalListener.onDeckSubmissionCapacityAvailable()
-					override fun onRendererAvailabilityRestored() = originalListener.onRendererAvailabilityRestored()
-					override fun onPageOverlayUpdateCapacityAvailable(applied: Boolean) = originalListener.onPageOverlayUpdateCapacityAvailable(applied)
-					override fun onPageOverlayStateInvalidated() = originalListener.onPageOverlayStateInvalidated()
-					override fun onRenderFailure(failure: RenderFailure) {
+				controller.surfaceView.pageSurfaceListener = task8ForwardingPageSurfaceListener(
+					delegate = originalListener,
+					onRenderFailure = { failure ->
 						if (retainedPauseInvalid != null && failure.generationId == 301L) {
 							selectedFailureOrder += "failure"
 							selectedFailureOwned += task8SurfaceOwnsGeneration(controller.surfaceView, 301L)
 						}
 						originalListener.onRenderFailure(failure)
-					}
-					override fun onGestureRejected(generationId: Long, reason: karacken.curl.GestureRejectionReason) = originalListener.onGestureRejected(generationId, reason)
-					override fun onGestureRejected(gestureId: Long, generationId: Long, reason: karacken.curl.GestureRejectionReason) = originalListener.onGestureRejected(gestureId, generationId, reason)
-					override fun onGestureRejected(gestureId: Long, generationId: Long, reason: karacken.curl.GestureRejectionReason, pageChange: PageChange) = originalListener.onGestureRejected(gestureId, generationId, reason, pageChange)
-					override fun onGestureCancelled(gestureId: Long, generationId: Long) = originalListener.onGestureCancelled(gestureId, generationId)
-					override fun onSettlementStarted(generationId: Long, source: String, target: String, pageChange: PageChange) = originalListener.onSettlementStarted(generationId, source, target, pageChange)
-					override fun onSettlementStarted(gestureId: Long, generationId: Long, source: String, target: String, pageChange: PageChange) = originalListener.onSettlementStarted(gestureId, generationId, source, target, pageChange)
-					override fun onSettlementCompleted(generationId: Long, current: String, ordinal: Int, pageChange: PageChange) = originalListener.onSettlementCompleted(generationId, current, ordinal, pageChange)
-					override fun onSettlementCompleted(gestureId: Long, generationId: Long, current: String, ordinal: Int, pageChange: PageChange) = originalListener.onSettlementCompleted(gestureId, generationId, current, ordinal, pageChange)
-					override fun onSettlementCancelled(generationId: Long, current: String) = originalListener.onSettlementCancelled(generationId, current)
-					override fun onSettlementCancelled(gestureId: Long, generationId: Long, current: String) = originalListener.onSettlementCancelled(gestureId, generationId, current)
-					override fun onDeckReleased(generationId: Long, reason: karacken.curl.DeckReleaseReason) {
+					},
+					onDeckReleased = { generationId, reason ->
 						rendererReleaseCounts[generationId] = rendererReleaseCounts.getOrDefault(generationId, 0) + 1
 						rendererReleaseReasons[generationId] = reason
 						if (retainedPauseInvalid != null && generationId == 301L) {
@@ -4027,7 +6012,7 @@ class KomikkuReaderNativeFrameHostTest {
 						}
 						originalListener.onDeckReleased(generationId, reason)
 					}
-				}
+				)
 			}
 			var donor: Task8CurlAuthorityFixture? = null
 			var sustainedBridge: ReaderPresentationHostBridge? = null
@@ -4205,11 +6190,43 @@ class KomikkuReaderNativeFrameHostTest {
 			}
 			// Establish the already-presented source deck before the actual publication
 			// bootstrap. A provisional publication here would create a different startup request.
+			val requiresRecoveredAdmissionAuthority =
+				nativePipeline || (!failRetainedSelected && retainedPauseInvalid == null)
 			val sourceProfile = source.controller.javaClass.task7Field("requestedProfile").get(source.controller)
 			for (profileController in listOf(source.controller, controller)) {
 				profileController.javaClass.task7Field("nextRasterProfileEpoch").setLong(profileController, binding.profileGeneration)
 				profileController.javaClass.task7Method("publishRasterProfileEpoch", ReaderPlayLikeCurlRasterProfile::class.java)
 					.invoke(profileController, sourceProfile)
+			}
+			if (requiresRecoveredAdmissionAuthority) {
+				controller.onHostResumedChanged(true)
+				controller.onWebViewAttachmentChanged(true)
+				viewerClass.task7Method("preparePresentationEpoch",
+					paige.navic.reader.ReaderPresentationReceiptVersion::class.java, ReaderPresentationState::class.java,
+					java.lang.Boolean.TYPE, java.lang.Boolean.TYPE, java.lang.Boolean.TYPE)
+					.invoke(viewer, common.presentationVersion, common.state.presentation, false, true, false)
+				assertTrue(reporter.bindPublication(binding))
+				viewerClass.task7Field("onPresentationEvent").set(viewer, publish)
+				viewerClass.task7Field("onAuthoritativePresentationHostEffect").set(viewer, onEffect)
+				val admissionEvent = ReaderPresentationEvent.NativePagePresented(predecessorProof)
+				val admissionReceipt = assertNotNull(
+					viewerClass.task7Method("dispatchPresentationEvent", ReaderPresentationEvent::class.java)
+						.invoke(viewer, admissionEvent) as ReaderPresentationEventReceipt?
+				)
+				assertTrue(admissionReceipt.authorizes(admissionEvent))
+				val preAdmissionDecision = readerPresentationDecision(admissionReceipt.postState)
+				assertEquals(binding, reporter.lastReportedBinding)
+				assertEquals(reporter.lastReportedBinding, preAdmissionDecision.targetBinding)
+				assertEquals(preAdmissionDecision,
+					controller.javaClass.task7Field("commonPresentationDecision").get(controller))
+				viewerClass.task7Field("composeDestinationCommitIdentity")
+					.set(viewer, binding.destinationCommitIdentity)
+				viewerClass.task7Field("presentationDestinationCommitIdentity")
+					.set(viewer, binding.destinationCommitIdentity)
+				// This fixture establishes the publication through the exact authoritative
+				// predecessor receipt above rather than through an initial host-binding edge.
+				viewerClass.task7Field("presentationPublicationOpenPending").setBoolean(viewer, false)
+				viewerClass.task7Field("presentationRelocationPending").setBoolean(viewer, false)
 			}
 			var predecessorReleases = 0
 			if (nativePipeline) {
@@ -4219,11 +6236,61 @@ class KomikkuReaderNativeFrameHostTest {
 				assertEquals(predecessorProof.viewportHeight, controller.surfaceView.height)
 				assertEquals(binding.viewportGeneration,
 					viewerClass.task7Field("presentationViewportGeneration").getLong(viewer))
+				val importedReadinessField = controller.javaClass.task7Field("onReadinessStateChange")
+				@Suppress("UNCHECKED_CAST")
+				val importedReadiness = importedReadinessField.get(controller) as (ReaderPageRendererReadinessState) -> Unit
+				val importedPreparedField = controller.javaClass.task7Field("onPreparedActiveDeckChanged")
+				@Suppress("UNCHECKED_CAST")
+				val importedPrepared = importedPreparedField.get(controller) as (ReaderPagePreparedActiveDeck?) -> Unit
+				var bufferedImportedPrepared: ReaderPagePreparedActiveDeck? = null
+				if (requiresRecoveredAdmissionAuthority) {
+					importedReadinessField.set(controller, { _: ReaderPageRendererReadinessState -> })
+					importedPreparedField.set(controller, { deck: ReaderPagePreparedActiveDeck? ->
+						bufferedImportedPrepared = deck
+					})
+				}
 				task8SubmitRecoveredDeck(controller, 301L, ReaderDeckSubmissionRole.Active,
 					sourceProfile as ReaderPlayLikeCurlRasterProfile, { predecessorReleases += 1 }, true,
 					physicalRect = predecessorRect)
+				@Suppress("UNCHECKED_CAST")
+				val importedAdmissions = controller.javaClass.task7Field("generationAdmissions")
+					.get(controller) as Map<Long, ReaderDeckAdmission>
+				val importedAdmission = assertNotNull(importedAdmissions[301L])
+				val importedCapability = importedAdmission.capability
+				val currentAuthorityState = assertNotNull(
+					reporter.javaClass.task7Field("authoritativeState").get(reporter) as ReaderPresentationState?
+				)
+				val currentAuthorityBinding = assertNotNull(reporter.lastReportedBinding)
+				val normalizedCurrentAuthorityBinding = assertNotNull(readerAcceptedDeckBindingOrNull(
+					currentAuthorityBinding,
+					importedCapability.profileGeneration,
+					importedCapability.preparationGeneration,
+					importedCapability.rasterGeneration,
+					importedCapability.textureGeneration
+				))
+				assertEquals(importedCapability.originBinding, normalizedCurrentAuthorityBinding)
+				assertEquals(importedCapability.originDecisionIdentity,
+					readerDeckAdmissionDecisionIdentityOrNull(
+						readerPresentationDecision(currentAuthorityState),
+						normalizedCurrentAuthorityBinding
+					))
+				assertTrue(reporter.isCurrent(importedCapability))
+				assertTrue(controller.javaClass.task7Field("hostResumed").getBoolean(controller))
+				assertTrue(controller.javaClass.task7Field("enabled").getBoolean(controller))
+				assertTrue(controller.javaClass.task7Field("attached").getBoolean(controller))
 				controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
 					.invoke(controller.surfaceView, 301L)
+				assertTrue(reporter.isOwnerCurrent(importedAdmission.capability))
+				assertEquals(ReaderDeckAdmissionState.AdmittedRendererOwned, importedAdmission.state)
+				if (requiresRecoveredAdmissionAuthority) {
+					importedReadinessField.set(controller, importedReadiness)
+					importedPreparedField.set(controller, importedPrepared)
+					importedPrepared(assertNotNull(bufferedImportedPrepared))
+					importedReadiness(
+						controller.javaClass.task7Field("readinessState").get(controller) as ReaderPageRendererReadinessState
+					)
+				}
+				assertTrue(301L in (controller.javaClass.task7Field("preparedDeckGenerations").get(controller) as Set<*>))
 				controller.javaClass.task7Field("nextDeckGeneration").setLong(controller, 302L)
 				assertTrue(task8SurfaceOwnsGeneration(controller.surfaceView, 301L))
 			} else {
@@ -4234,13 +6301,21 @@ class KomikkuReaderNativeFrameHostTest {
 				source.controller.javaClass.task7Method("publishPreparedActiveDeck", Int::class.javaPrimitiveType!!)
 					.invoke(source.controller, source.controller.javaClass.task7Field("currentOrdinal").getInt(source.controller))
 			}
-			viewerClass.task7Method("preparePresentationEpoch",
-				paige.navic.reader.ReaderPresentationReceiptVersion::class.java, ReaderPresentationState::class.java,
-				java.lang.Boolean.TYPE, java.lang.Boolean.TYPE, java.lang.Boolean.TYPE)
-				.invoke(viewer, common.presentationVersion, common.state.presentation, false, true, false)
-			assertTrue(reporter.bindPublication(binding))
-				updateDestination(binding.destinationCommitIdentity)
-				assertEquals(binding, reporter.lastReportedBinding)
+			if (requiresRecoveredAdmissionAuthority) {
+				viewerClass.task7Field("presentationDestinationCommitIdentity").set(viewer, null)
+			}
+			if (!requiresRecoveredAdmissionAuthority) {
+				viewerClass.task7Method("preparePresentationEpoch",
+					paige.navic.reader.ReaderPresentationReceiptVersion::class.java, ReaderPresentationState::class.java,
+					java.lang.Boolean.TYPE, java.lang.Boolean.TYPE, java.lang.Boolean.TYPE)
+					.invoke(viewer, common.presentationVersion, common.state.presentation, false, true, false)
+				assertTrue(reporter.bindPublication(binding))
+			}
+			updateDestination(binding.destinationCommitIdentity)
+			if (requiresRecoveredAdmissionAuthority) {
+				assertTrue(viewerClass.task7Field("presentationRelocationPending").getBoolean(viewer))
+			}
+			assertEquals(binding, reporter.lastReportedBinding)
 				assertIs<ReaderPresentationAuthority.SettledNativePage>(common.state.presentation.authority)
 				val dispatchEvent = viewerClass.task7Method("dispatchPresentationEvent", ReaderPresentationEvent::class.java)
 				fun deliver(event: ReaderPresentationEvent) = assertNotNull(
@@ -4269,11 +6344,11 @@ class KomikkuReaderNativeFrameHostTest {
 					producedRendererGenerations += 302L
 					controller.javaClass.task7Field("nextDeckGeneration").setLong(controller, 303L)
 					@Suppress("UNCHECKED_CAST")
-					val fences = controller.javaClass.task7Field("generationCallbackFences").get(controller)
-						as Map<Long, ReaderAcceptedDeckCallbackFence>
-					val oldFence = assertNotNull(fences[302L])
-					assertNull(oldFence.presentationToken)
-					assertEquals(binding.copy(textureGeneration = 302L), oldFence.binding)
+					val admissions = controller.javaClass.task7Field("generationAdmissions").get(controller)
+						as Map<Long, ReaderDeckAdmission>
+					val oldAdmission = assertNotNull(admissions[302L])
+					assertNull(oldAdmission.capability.presentationToken)
+					assertEquals(binding.copy(textureGeneration = 302L), oldAdmission.capability.originBinding)
 					assertNull(viewerClass.task7Field("preparedActiveDeck").get(viewer))
 					val partial = binding.copy(rasterGeneration = null, textureGeneration = null)
 					assertEquals(partial, physicalBinding())
@@ -4283,7 +6358,7 @@ class KomikkuReaderNativeFrameHostTest {
 						"Actual complete-to-partial observation must emit no binding replacement")
 					val entry = deliver(ReaderPresentationEvent.ShellCoverDismissalRequested)
 					val entryToken = assertNotNull(readerPresentationDecision(entry.postState).pendingTransitionToken)
-					assertEquals(oldFence, fences[302L], "Entry must not retag the already captured null fence")
+					assertSame(oldAdmission, admissions[302L], "Entry must not replace the already issued null-token admission")
 					controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
 						.invoke(controller.surfaceView, 302L)
 					ShadowLooper.runUiThreadTasks()
@@ -4596,12 +6671,12 @@ class KomikkuReaderNativeFrameHostTest {
 								resizedProfile, {}, true, ReaderPlayLikeCurlPhysicalRect(resizedOrigin[0], resizedOrigin[1],
 									resizedOrigin[0] + viewer.width, resizedOrigin[1] + viewer.height))
 							producedRendererGenerations += resizedGeneration
-							val resizedFence = assertNotNull(fences[resizedGeneration])
-							assertNull(resizedFence.presentationToken)
-							assertEquals(beforeCompletion.viewportGeneration, resizedFence.binding.viewportGeneration)
-							assertEquals(beforeCompletion.preparationGeneration, resizedFence.binding.preparationGeneration)
-							assertEquals(beforeCompletion.profileGeneration, resizedFence.binding.profileGeneration)
-							assertEquals(resizedGeneration, resizedFence.binding.textureGeneration)
+							val resizedAdmission = assertNotNull(admissions[resizedGeneration])
+							assertNull(resizedAdmission.capability.presentationToken)
+							assertEquals(beforeCompletion.viewportGeneration, resizedAdmission.capability.originBinding.viewportGeneration)
+							assertEquals(beforeCompletion.preparationGeneration, resizedAdmission.capability.originBinding.preparationGeneration)
+							assertEquals(beforeCompletion.profileGeneration, resizedAdmission.capability.originBinding.profileGeneration)
+							assertEquals(resizedGeneration, resizedAdmission.capability.originBinding.textureGeneration)
 							val beforePrepared = resizeReceipts.size
 							controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
 								.invoke(controller.surfaceView, resizedGeneration)
@@ -4609,10 +6684,10 @@ class KomikkuReaderNativeFrameHostTest {
 								it.event is ReaderPresentationEvent.BindingCompleted
 							}
 							assertEquals(ReaderPresentationEventDisposition.Accepted, completionReceipt.disposition)
-							assertEquals(ReaderPresentationEvent.BindingCompleted(beforeCompletion, resizedFence.binding), completionReceipt.event)
-							assertEquals(resizedFence.binding, reporter.lastReportedBinding)
-							assertEquals(resizedFence.binding, common.state.presentation.binding)
-							assertEquals(resizedFence.binding, physicalBinding())
+							assertEquals(ReaderPresentationEvent.BindingCompleted(beforeCompletion, resizedAdmission.capability.originBinding), completionReceipt.event)
+							assertEquals(resizedAdmission.capability.originBinding, reporter.lastReportedBinding)
+							assertEquals(resizedAdmission.capability.originBinding, common.state.presentation.binding)
+							assertEquals(resizedAdmission.capability.originBinding, physicalBinding())
 							assertFalse(common.state.presentationDecision.frameOwner is ReaderPresentationFrameOwner.ShellCover)
 							val currentState = common.state.presentation
 							work.callback(null)
@@ -4620,22 +6695,22 @@ class KomikkuReaderNativeFrameHostTest {
 							controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
 								.invoke(controller.surfaceView, 302L)
 							assertEquals(currentState, common.state.presentation)
-							assertEquals(resizedFence.binding, reporter.lastReportedBinding)
+							assertEquals(resizedAdmission.capability.originBinding, reporter.lastReportedBinding)
 							assertEquals(1, rendererReleaseCounts[301L])
 							assertEquals(1, rendererReleaseCounts[302L])
 							// This is reporter/completion/liveness coverage, not automatic
 							// post-resize raster preparation or a successful pixel presentation.
 							val requested = deliver(ReaderPresentationEvent.NativePageRequested)
 							assertEquals(ReaderPresentationEventDisposition.Accepted, requested.disposition)
-							assertEquals(resizedFence.binding, requested.postState.binding)
+							assertEquals(resizedAdmission.capability.originBinding, requested.postState.binding)
 							assertTrue(deadlines.hasPending)
 							nowMillis += deadlineDelayMillis
 							deadlines.runPending()
 							assertEquals(ReaderPresentationFailureReason.TimedOut,
 								assertIs<ReaderDiagnosticPresentation.Failure>(common.state.presentationDecision.diagnosticPresentation).reason)
 							assertFalse(deadlines.hasPending)
-							assertEquals(resizedFence.binding, reporter.lastReportedBinding)
-							assertEquals(listOf(resizedFence.binding), common.state.presentation.rendererCleanupOwnership.map { it.binding })
+							assertEquals(resizedAdmission.capability.originBinding, reporter.lastReportedBinding)
+							assertEquals(listOf(resizedAdmission.capability.originBinding), common.state.presentation.rendererCleanupOwnership.map { it.binding })
 							handler.deliver(queue.pendingEffects(), common.state.presentationDecision) { queue.acknowledge(it) }
 							assertTrue(queue.pendingEffects().isEmpty())
 							return@runTest
@@ -4659,11 +6734,11 @@ class KomikkuReaderNativeFrameHostTest {
 					val plansAfterRaster = webView.planCallbacks.size
 					assertTrue(successor > 302L, "Retry successor must be allocated by the actual renderer producer")
 					producedRendererGenerations += owners.keys.filter { it > 302L }
-					val freshFence = assertNotNull(fences[successor])
-					assertEquals(retryEffect.token, freshFence.presentationToken)
-					assertEquals(generationBeforeRetry + 1L, freshFence.binding.preparationGeneration)
-					assertEquals(bundle.currentGeneration(), freshFence.binding.rasterGeneration)
-					assertEquals(successor, freshFence.binding.textureGeneration)
+					val freshAdmission = assertNotNull(admissions[successor])
+					assertEquals(retryEffect.token, freshAdmission.capability.presentationToken)
+					assertEquals(generationBeforeRetry + 1L, freshAdmission.capability.originBinding.preparationGeneration)
+					assertEquals(bundle.currentGeneration(), freshAdmission.capability.originBinding.rasterGeneration)
+					assertEquals(successor, freshAdmission.capability.originBinding.textureGeneration)
 					for (obsolete in owners.keys.filter { it > 302L && it != successor }.toList()) {
 						controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
 							.invoke(controller.surfaceView, obsolete)
@@ -4676,7 +6751,7 @@ class KomikkuReaderNativeFrameHostTest {
 					assertEquals(cover, common.state.presentationDecision.frameOwner)
 					val candidate = assertNotNull(viewerClass.task7Method("currentNativePagePresentationCandidateOrNull")
 						.invoke(viewer) as ReaderNativePagePresentationCandidate?)
-					assertEquals(freshFence.binding, candidate.binding)
+					assertEquals(freshAdmission.capability.originBinding, candidate.binding)
 					assertEquals(retryEffect.token, candidate.transitionToken)
 					handler.deliver(queue.pendingEffects(), common.state.presentationDecision) { queue.acknowledge(it) }
 					assertEquals(cover, common.state.presentationDecision.frameOwner)
@@ -5148,14 +7223,15 @@ class KomikkuReaderNativeFrameHostTest {
 					.get(controller) as Map<Long, Any>).keys.toSet()
 				if (nativePipeline) {
 					@Suppress("UNCHECKED_CAST")
-					val preRetryFences = controller.javaClass.task7Field("generationCallbackFences")
-						.get(controller) as Map<Long, ReaderAcceptedDeckCallbackFence>
-					// The actual tap synchronously submits pending material before its claim.
-					// It belongs to the predecessor generation, not the later Retry output.
+					val preRetryAdmissions = controller.javaClass.task7Field("generationAdmissions")
+						.get(controller) as Map<Long, ReaderDeckAdmission>
+					// The actual tap submits pending material only after its claim receipt
+					// issues immutable admission. It belongs to the predecessor generation,
+					// not the later Retry output.
 					for (generation in preRetryRendererGenerations - 301L) {
-						val fence = assertNotNull(preRetryFences[generation])
-						assertEquals(binding.preparationGeneration, fence.binding.preparationGeneration)
-						assertEquals(binding.profileGeneration, fence.binding.profileGeneration)
+						val admission = assertNotNull(preRetryAdmissions[generation])
+						assertEquals(binding.preparationGeneration, admission.capability.preparationGeneration)
+						assertEquals(binding.profileGeneration, admission.capability.profileGeneration)
 					}
 				}
 				assertNotNull(sustainedBridge).update(readerPresentationDecision(common.state.presentation))
@@ -5506,21 +7582,21 @@ class KomikkuReaderNativeFrameHostTest {
 					assertTrue(successorGeneration != 301L && owners.containsKey(successorGeneration))
 					producedRendererGenerations += owners.keys.filter { it != 301L }.sorted()
 					@Suppress("UNCHECKED_CAST")
-					val fences = controller.javaClass.task7Field("generationCallbackFences").get(controller)
-						as Map<Long, ReaderAcceptedDeckCallbackFence>
-					val fenceScalars = "selected=$successorGeneration owners=${owners.keys.sorted()} " +
-						"fences=${fences.map { (generation, fence) -> listOf(generation, fence.presentationToken?.value, fence.binding.preparationGeneration, fence.binding.profileGeneration, fence.binding.rasterGeneration, fence.binding.textureGeneration) }} " +
+					val admissions = controller.javaClass.task7Field("generationAdmissions").get(controller)
+						as Map<Long, ReaderDeckAdmission>
+					val admissionScalars = "selected=$successorGeneration owners=${owners.keys.sorted()} " +
+						"admissions=${admissions.map { (generation, admission) -> listOf(generation, admission.capability.presentationToken?.value, admission.capability.preparationGeneration, admission.capability.profileGeneration, admission.capability.rasterGeneration, admission.capability.textureGeneration, admission.state) }} " +
 						"prepared=${controller.javaClass.task7Field("preparedDeckGenerations").get(controller)} " +
 						"releases=$rendererReleaseCounts " + recoveryScalars()
 					val retryRendererGenerations = producedRendererGenerations - preRetryRendererGenerations
 					assertTrue(successorGeneration in retryRendererGenerations,
-						"Selected successor must be produced after Retry, not imported/preclaim material; $fenceScalars")
+						"Selected successor must be produced after Retry, not imported/preclaim material; $admissionScalars")
 					for (generation in retryRendererGenerations) {
-						val fence = assertNotNull(fences[generation], "Actual produced callback fence missing; generation=$generation $fenceScalars")
-						assertEquals(retryEffect.token, fence.presentationToken, "Actual produced callback token; generation=$generation $fenceScalars")
+						val admission = assertNotNull(admissions[generation], "Actual produced admission missing; generation=$generation $admissionScalars")
+						assertEquals(retryEffect.token, admission.capability.presentationToken, "Actual produced admission token; generation=$generation $admissionScalars")
 						assertEquals(assertNotNull(common.state.presentation.binding).copy(
 							preparationGeneration = assertNotNull(binding.preparationGeneration) + 1L,
-							rasterGeneration = bundle.currentGeneration(), textureGeneration = generation), fence.binding)
+							rasterGeneration = bundle.currentGeneration(), textureGeneration = generation), admission.capability.originBinding)
 					}
 					// Drain only already-produced main callbacks before injecting any prepared
 					// callback, to distinguish submission-time release from stale-tail handling.
@@ -8917,11 +10993,162 @@ class KomikkuReaderNativeFrameHostTest {
 		}
 	}
 
+	private class DeckAdmissionHostHarness(
+		initialState: ReaderPresentationState?
+	) : ReaderDeckAdmissionLeaseHost {
+		private var nextAdmissionId = 0L
+		private var eventSequence = 1L
+		var reservationsEnabled = true
+		private var authority = initialState?.binding?.let { binding ->
+			ReaderDeckAdmissionAuthoritySnapshot(
+				hostEpoch = 1L,
+				authorityVersion = paige.navic.reader.ReaderPresentationReceiptVersion(
+					1L,
+					binding.publicationIdentity,
+					eventSequence
+				),
+				viewerGeneration = 1L,
+				lifecycle = initialState.lifecycle,
+				bindingSeed = binding,
+				presentationToken = readerPresentationDecision(initialState)
+					.rendererCallbackTokenOrNull(),
+				decision = readerPresentationDecision(initialState),
+				rendererSuccessorReceipt = initialState.rendererSuccessorReceipt
+			)
+		}
+
+		override fun reserve(request: ReaderDeckAdmissionRequest): ReaderDeckAdmission? {
+			if (!reservationsEnabled) return null
+			val admissionId = nextAdmissionId + 1L
+			val capability = readerDeckAdmissionCapabilityOrNull(
+				authority = authority,
+				admissionId = admissionId,
+				request = request
+			) ?: return null
+			nextAdmissionId = admissionId
+			return ReaderDeckAdmission(capability)
+		}
+
+		override fun currency(
+			admission: ReaderDeckAdmission,
+			observedDecision: ReaderPresentationDecision?
+		): ReaderDeckAdmissionCurrency = readerDeckAdmissionAuthorityCurrency(
+			authority,
+			admission,
+			observedDecision
+		)
+
+		override fun isCurrent(admission: ReaderDeckAdmissionCapability): Boolean =
+			readerDeckAdmissionAuthorityMatches(authority, admission)
+
+		override fun isOwnerCurrent(admission: ReaderDeckAdmissionCapability): Boolean =
+			readerDeckAdmissionOwnerAuthorityMatches(authority, admission)
+
+		fun captureEpoch(): Long = authority?.hostEpoch ?: 0L
+
+		fun advanceHostEpoch() {
+			val current = checkNotNull(authority)
+			authority = current.copy(hostEpoch = current.hostEpoch + 1L)
+		}
+
+		fun synchronizeDecision(decision: ReaderPresentationDecision) {
+			val current = authority ?: return
+			authority = current.copy(
+				presentationToken = decision.rendererCallbackTokenOrNull(),
+				decision = decision
+			)
+		}
+
+		fun advanceCompatibleVersion() {
+			val current = authority ?: return
+			eventSequence += 1L
+			authority = current.copy(
+				authorityVersion = current.authorityVersion.copy(eventSequence = eventSequence)
+			)
+		}
+
+		fun rewindVersion() {
+			val current = authority ?: return
+			authority = current.copy(
+				authorityVersion = current.authorityVersion.copy(
+					eventSequence = (current.authorityVersion.eventSequence - 1L).coerceAtLeast(0L)
+				)
+			)
+		}
+
+		fun revoke() {
+			authority = null
+		}
+
+		fun advanceViewer() {
+			val current = authority ?: return
+			eventSequence += 1L
+			val viewerGeneration = current.viewerGeneration + 1L
+			authority = current.copy(
+				authorityVersion = paige.navic.reader.ReaderPresentationReceiptVersion(
+					viewerGeneration,
+					current.bindingSeed.publicationIdentity,
+					eventSequence
+				),
+				viewerGeneration = viewerGeneration
+			)
+		}
+
+		fun retireLifecycle() {
+			val current = authority ?: return
+			authority = current.copy(
+				lifecycle = paige.navic.reader.ReaderPresentationLifecycleState.Background
+			)
+		}
+
+		fun publishProfile(profileGeneration: Long?) {
+			val current = authority ?: return
+			if (profileGeneration == null) {
+				authority = null
+				return
+			}
+			eventSequence += 1L
+			val binding = current.bindingSeed.copy(
+				profileGeneration = profileGeneration,
+				rasterGeneration = null,
+				textureGeneration = null
+			)
+			authority = current.copy(
+				authorityVersion = paige.navic.reader.ReaderPresentationReceiptVersion(
+					current.viewerGeneration,
+					binding.publicationIdentity,
+					eventSequence
+				),
+				bindingSeed = binding
+			)
+		}
+
+		fun commit(state: ReaderPresentationState, version: paige.navic.reader.ReaderPresentationReceiptVersion) {
+			val binding = state.binding ?: run {
+				authority = null
+				return
+			}
+			eventSequence = maxOf(eventSequence, version.eventSequence)
+			authority = ReaderDeckAdmissionAuthoritySnapshot(
+				hostEpoch = authority?.hostEpoch ?: 1L,
+				authorityVersion = version,
+				viewerGeneration = version.readerSessionGeneration,
+				lifecycle = state.lifecycle,
+				bindingSeed = binding,
+				presentationToken = readerPresentationDecision(state)
+					.rendererCallbackTokenOrNull(),
+				decision = readerPresentationDecision(state),
+				rendererSuccessorReceipt = state.rendererSuccessorReceipt
+			)
+		}
+	}
+
 	private data class Task8CurlAuthorityFixture(
 		val controller: ReaderPlayLikeCurlFoliateController,
 		val store: Task8CurlAuthorityStore,
 		val unsafeLifecycleRelay: Task8UnsafeLifecycleRelay,
-		val preparedDeckRelay: Task8PreparedDeckRelay
+		val preparedDeckRelay: Task8PreparedDeckRelay,
+		val admissionHost: DeckAdmissionHostHarness
 	)
 
 	private fun task8SettledCurlSourceState(
@@ -8969,7 +11196,11 @@ class KomikkuReaderNativeFrameHostTest {
 		viewportWidth: Int = 1200,
 		viewportHeight: Int = 800,
 		physicalRect: ReaderPlayLikeCurlPhysicalRect = ReaderPlayLikeCurlPhysicalRect(0, 0, 2, 2),
-		bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource()
+		bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource(),
+		beforePresentationEventPublished: (
+			ReaderPlayLikeCurlFoliateController,
+			ReaderPresentationEvent
+		) -> Unit = { _, _ -> }
 	): Task8CurlAuthorityFixture {
 		val context = RuntimeEnvironment.getApplication()
 		val host = FrameLayout(context).apply { layout(0, 0, viewportWidth, viewportHeight) }
@@ -8979,11 +11210,15 @@ class KomikkuReaderNativeFrameHostTest {
 			rejectClaims,
 			acceptLocalTerminals
 		)
+		val admissionHost = DeckAdmissionHostHarness(initialState)
 		val unsafeLifecycleRelay = Task8UnsafeLifecycleRelay()
 		val preparedDeckRelay = Task8PreparedDeckRelay()
-		val controller = ReaderPlayLikeCurlFoliateController(
+		lateinit var controller: ReaderPlayLikeCurlFoliateController
+		controller = ReaderPlayLikeCurlFoliateController(
 			host = host,
 			webViewProvider = { webView },
+			presentationHostEpoch = admissionHost::captureEpoch,
+			deckAdmissionHost = admissionHost,
 			bundleSource = bundleSource,
 			onRequestPrewarm = {},
 			onRequestRasterRepair = { _, _ -> },
@@ -8991,7 +11226,13 @@ class KomikkuReaderNativeFrameHostTest {
 				store.localTerminalGestureIds += gestureId
 				store.acceptLocalTerminals
 			},
-			onPresentationEvent = store::publish,
+			onPresentationEvent = { event ->
+				beforePresentationEventPublished(controller, event)
+				store.publish(event).also { receipt ->
+					receipt?.let { admissionHost.commit(it.postState, it.version) }
+				}
+			},
+			onRasterProfileEpochChanged = admissionHost::publishProfile,
 			onUnsafeLifecycleEvent = unsafeLifecycleRelay::dispatch,
 			onPreparedActiveDeckChanged = preparedDeckRelay::dispatch
 		)
@@ -9020,9 +11261,16 @@ class KomikkuReaderNativeFrameHostTest {
 		initialState?.let {
 			controller.synchronizePresentationDecision(readerPresentationDecision(it))
 		}
+		val profileEpoch = initialState?.binding?.profileGeneration?.takeIf { it > 0L } ?: 1L
+		controllerClass.task7Field("nextRasterProfileEpoch").setLong(controller, profileEpoch)
+		controllerClass.task7Method(
+			"publishRasterProfileEpoch",
+			ReaderPlayLikeCurlRasterProfile::class.java
+		).invoke(controller, profile)
 		val surface = controller.surfaceView
 		task8PrepareSurface(surface)
 		surface.layout(0, 0, viewportWidth, viewportHeight)
+		controller.onHostResumedChanged(true)
 		task8SubmitRecoveredDeck(
 			controller = controller,
 			generationId = 301L,
@@ -9030,16 +11278,27 @@ class KomikkuReaderNativeFrameHostTest {
 			profile = profile,
 			onRasterReleased = onActiveRasterReleased,
 			populateRasterWindow = true,
-			physicalRect = physicalRect
+			physicalRect = physicalRect,
+			expectedSubmissionResult = if (initialState == null) {
+				ReaderPageRecoveredDeckSubmissionResult.AwaitingAdmission
+			} else {
+				ReaderPageRecoveredDeckSubmissionResult.Accepted
+			}
 		)
-		surface.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
-			.invoke(surface, 301L)
-		assertTrue(controller.isAvailable)
+		if (initialState != null) {
+			surface.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+				.invoke(surface, 301L)
+			assertTrue(controller.isAvailable)
+		} else {
+			assertFalse(task8SurfaceOwnsGeneration(surface, 301L))
+			assertFalse(controller.isAvailable)
+		}
 		return Task8CurlAuthorityFixture(
 			controller,
 			store,
 			unsafeLifecycleRelay,
-			preparedDeckRelay
+			preparedDeckRelay,
+			admissionHost
 		)
 	}
 
@@ -9210,6 +11469,36 @@ class KomikkuReaderNativeFrameHostTest {
 	private fun Class<*>.task7Method(name: String, vararg parameters: Class<*>) =
 		getDeclaredMethod(name, *parameters).apply { isAccessible = true }
 
+	private fun task373PublishCurrentRasterProfile(
+		controller: ReaderPlayLikeCurlFoliateController,
+		expectedEpoch: Long
+	): ReaderPlayLikeCurlRasterProfile {
+		val controllerClass = controller.javaClass
+		val profile = controllerClass.task7Field("requestedProfile").get(controller)
+			as ReaderPlayLikeCurlRasterProfile
+		val publishedField = controllerClass.task7Field("publishedRasterProfileEpoch")
+		if (publishedField.get(controller) == null) {
+			controllerClass.task7Field("nextRasterProfileEpoch").setLong(controller, expectedEpoch)
+			controllerClass.task7Method(
+				"publishRasterProfileEpoch",
+				ReaderPlayLikeCurlRasterProfile::class.java
+			).invoke(controller, profile)
+		}
+		assertEquals(expectedEpoch, publishedField.get(controller))
+		return profile
+	}
+
+	private suspend fun task373DestroyController(
+		controller: ReaderPlayLikeCurlFoliateController
+	) {
+		controller.surfaceView.detach()
+		val closed = controller.destroy()
+		ShadowLooper.runUiThreadTasks()
+		withContext(Dispatchers.Default) {
+			withTimeout(5_000L) { closed.await() }
+		}
+	}
+
 	private fun task8PrepareSurface(surface: karacken.curl.PageSurfaceView) {
 		val capabilities = RenderCapabilities(4_096, 8L * 1024L * 1024L)
 		surface.javaClass.task7Field("attached").setBoolean(surface, true)
@@ -9228,7 +11517,9 @@ class KomikkuReaderNativeFrameHostTest {
 		profile: ReaderPlayLikeCurlRasterProfile,
 		onRasterReleased: () -> Unit,
 		populateRasterWindow: Boolean = false,
-		physicalRect: ReaderPlayLikeCurlPhysicalRect = ReaderPlayLikeCurlPhysicalRect(0, 0, 2, 2)
+		physicalRect: ReaderPlayLikeCurlPhysicalRect = ReaderPlayLikeCurlPhysicalRect(0, 0, 2, 2),
+		expectedSubmissionResult: ReaderPageRecoveredDeckSubmissionResult? =
+			ReaderPageRecoveredDeckSubmissionResult.Accepted
 	): Any {
 		val controllerClass = controller.javaClass
 		val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply {
@@ -9315,11 +11606,41 @@ class KomikkuReaderNativeFrameHostTest {
 			newInstance(preparedPages, 1, pageDeck)
 		}
 		builtRecoveredDecks[generationId] = builtRecoveredDeck
-		assertEquals(
-			ReaderPageRecoveredDeckSubmissionResult.Accepted,
-			controller.submitRecoveredDeck(generationId, role)
-		)
+		expectedSubmissionResult?.let { expected ->
+			assertEquals(
+				expected,
+				controller.submitRecoveredDeck(generationId, role)
+			)
+		}
 		return preparedPages
+	}
+
+	private fun task8ForwardingPageSurfaceListener(
+		delegate: karacken.curl.PageSurfaceListener,
+		onDeckSubmissionCapacityAvailable: () -> Unit = delegate::onDeckSubmissionCapacityAvailable,
+		onRenderFailure: (RenderFailure) -> Unit = delegate::onRenderFailure,
+		onDeckReleased: (Long, karacken.curl.DeckReleaseReason) -> Unit = delegate::onDeckReleased
+	): karacken.curl.PageSurfaceListener = object : karacken.curl.PageSurfaceListener {
+		override fun onCapabilitiesAvailable(capabilities: RenderCapabilities) = delegate.onCapabilitiesAvailable(capabilities)
+		override fun onDeckPrepared(generationId: Long) = delegate.onDeckPrepared(generationId)
+		override fun onDeckRejected(generationId: Long, reason: karacken.curl.DeckRejectionReason) = delegate.onDeckRejected(generationId, reason)
+		override fun onDeckSubmissionCapacityAvailable() = onDeckSubmissionCapacityAvailable.invoke()
+		override fun onRendererAvailabilityRestored() = delegate.onRendererAvailabilityRestored()
+		override fun onPageOverlayUpdateCapacityAvailable(applied: Boolean) = delegate.onPageOverlayUpdateCapacityAvailable(applied)
+		override fun onPageOverlayStateInvalidated() = delegate.onPageOverlayStateInvalidated()
+		override fun onRenderFailure(failure: RenderFailure) = onRenderFailure.invoke(failure)
+		override fun onGestureRejected(generationId: Long, reason: karacken.curl.GestureRejectionReason) = delegate.onGestureRejected(generationId, reason)
+		override fun onGestureRejected(gestureId: Long, generationId: Long, reason: karacken.curl.GestureRejectionReason) = delegate.onGestureRejected(gestureId, generationId, reason)
+		override fun onGestureRejected(gestureId: Long, generationId: Long, reason: karacken.curl.GestureRejectionReason, pageChange: PageChange) = delegate.onGestureRejected(gestureId, generationId, reason, pageChange)
+		override fun onGestureCancelled(gestureId: Long, generationId: Long) = delegate.onGestureCancelled(gestureId, generationId)
+		override fun onSettlementStarted(generationId: Long, source: String, target: String, pageChange: PageChange) = delegate.onSettlementStarted(generationId, source, target, pageChange)
+		override fun onSettlementStarted(gestureId: Long, generationId: Long, source: String, target: String, pageChange: PageChange) = delegate.onSettlementStarted(gestureId, generationId, source, target, pageChange)
+		override fun onSettlementCompleted(generationId: Long, current: String, ordinal: Int, pageChange: PageChange) = delegate.onSettlementCompleted(generationId, current, ordinal, pageChange)
+		override fun onSettlementCompleted(gestureId: Long, generationId: Long, current: String, ordinal: Int, pageChange: PageChange) = delegate.onSettlementCompleted(gestureId, generationId, current, ordinal, pageChange)
+		override fun onSettlementCancelled(generationId: Long, current: String) = delegate.onSettlementCancelled(generationId, current)
+		override fun onSettlementCancelled(gestureId: Long, generationId: Long, current: String) = delegate.onSettlementCancelled(gestureId, generationId, current)
+		override fun onDeckReleased(generationId: Long, reason: karacken.curl.DeckReleaseReason) =
+			onDeckReleased.invoke(generationId, reason)
 	}
 
 	private fun task8BeginSurfaceSettlement(surface: karacken.curl.PageSurfaceView) {
@@ -9731,13 +12052,23 @@ internal class Task9NoViewTreeLifecycleOwnerShadow {
 
 @Implements(GLSurfaceView::class)
 internal class Task8ImmediateGlSurfaceViewShadow : ShadowGLSurfaceView() {
+	@RealObject
+	private lateinit var realView: GLSurfaceView
+
 	@Implementation
 	fun queueEvent(action: Runnable) {
 		action.run()
+		val callback = afterNextQueueEvent ?: return
+		afterNextQueueEvent = null
+		callback(realView)
 	}
 
 	@Implementation
 	fun requestRender() = Unit
+
+	companion object {
+		var afterNextQueueEvent: ((GLSurfaceView) -> Unit)? = null
+	}
 }
 
 private class Task7PresentationStore(initial: ReaderPresentationState) {

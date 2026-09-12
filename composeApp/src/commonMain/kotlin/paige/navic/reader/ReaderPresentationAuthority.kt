@@ -390,10 +390,33 @@ data class ReaderPagePreparationFacts(
 	}
 }
 
+@JvmInline
+value class ReaderRendererSuccessorLineageId(val value: Long) {
+	init {
+		require(value > 0L)
+	}
+}
+
+data class ReaderRendererSuccessorReceipt(
+	val lineageId: ReaderRendererSuccessorLineageId,
+	val token: ReaderPresentationToken,
+	val originBinding: ReaderPresentationBinding,
+	val currentBinding: ReaderPresentationBinding,
+	val rasterGeneration: Long,
+	val textureGeneration: Long
+) {
+	init {
+		require(originBinding.publicationIdentity == currentBinding.publicationIdentity)
+		require(rasterGeneration >= 0L)
+		require(textureGeneration >= 0L)
+	}
+}
+
 data class ReaderPresentationState(
 	val authority: ReaderPresentationAuthority = ReaderPresentationAuthority.Unavailable,
 	val binding: ReaderPresentationBinding? = null,
 	val rendererCleanupOwnership: List<ReaderRendererCleanupOwnership> = emptyList(),
+	val rendererSuccessorReceipt: ReaderRendererSuccessorReceipt? = null,
 	val lifecycle: ReaderPresentationLifecycleState = ReaderPresentationLifecycleState.Foreground,
 	val preparationFacts: ReaderPagePreparationFacts = ReaderPagePreparationFacts(),
 	val failure: ReaderDiagnosticPresentation.Failure? = null,
@@ -689,12 +712,78 @@ fun readerPresentationReduce(
 		ReaderPresentationEvent.Retry -> state.reduceRetry()
 		is ReaderPresentationEvent.Lifecycle -> state.reduceLifecycle(event.event)
 	}
+	val stateWithRendererLineage = reconcileRendererSuccessorLineage(
+		preState = state,
+		postState = result.state,
+		event = event,
+		disposition = result.disposition
+	)
 	return ReaderPresentationReduction(
-		state = result.state,
-		decision = readerPresentationDecision(result.state),
+		state = stateWithRendererLineage,
+		decision = readerPresentationDecision(stateWithRendererLineage),
 		effects = result.effects,
 		disposition = result.disposition
 	)
+}
+
+private fun reconcileRendererSuccessorLineage(
+	preState: ReaderPresentationState,
+	postState: ReaderPresentationState,
+	event: ReaderPresentationEvent,
+	disposition: ReaderPresentationEventDisposition
+): ReaderPresentationState {
+	if (disposition == ReaderPresentationEventDisposition.Accepted &&
+		event is ReaderPresentationEvent.CurlTerminal &&
+		event.expectedAcknowledgement != null &&
+		preState.authority is ReaderPresentationAuthority.CurlGesture
+	) {
+		val acknowledgement = event.expectedAcknowledgement
+		return postState.copy(
+			rendererSuccessorReceipt = ReaderRendererSuccessorReceipt(
+				lineageId = ReaderRendererSuccessorLineageId(event.token.value),
+				token = event.token,
+				originBinding = event.binding,
+				currentBinding = event.binding,
+				rasterGeneration = acknowledgement.rasterGeneration,
+				textureGeneration = acknowledgement.textureGeneration
+			)
+		)
+	}
+	val receipt = preState.rendererSuccessorReceipt
+		?: return postState.copy(rendererSuccessorReceipt = null)
+	if (
+		postState.lifecycle != ReaderPresentationLifecycleState.Foreground ||
+		postState.failure != null
+	) return postState.copy(rendererSuccessorReceipt = null)
+	val retainedReceipt = when (val authority = postState.authority) {
+		is ReaderPresentationAuthority.CurlSettlementPending -> when {
+			authority.retainedFrame.frame.token != receipt.token -> null
+			disposition == ReaderPresentationEventDisposition.Accepted &&
+				event is ReaderPresentationEvent.FoliateRelocated -> {
+				val previous = preState.authority as?
+					ReaderPresentationAuthority.CurlSettlementPending
+				if (
+					previous?.expectedAcknowledgement == event.acknowledgement &&
+					event.binding.rasterGeneration == receipt.rasterGeneration &&
+					event.binding.textureGeneration == receipt.textureGeneration
+				) receipt.copy(currentBinding = event.binding) else null
+			}
+			authority.binding == receipt.currentBinding ||
+				authority.binding == receipt.originBinding -> receipt
+			else -> null
+		}
+		is ReaderPresentationAuthority.SettledNativePage -> {
+			val proof = authority.frame.proof
+			if (
+				proof.transitionToken == receipt.token &&
+				proof.binding == receipt.currentBinding &&
+				proof.rasterGeneration == receipt.rasterGeneration &&
+				proof.textureGeneration == receipt.textureGeneration
+			) receipt else null
+		}
+		else -> null
+	}
+	return postState.copy(rendererSuccessorReceipt = retainedReceipt)
 }
 
 private data class ReaderPresentationReducerResult(

@@ -71,7 +71,10 @@ import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderNativePagePresentationProof
+import paige.navic.reader.ReaderPresentationInputPolicy
+import paige.navic.reader.ReaderPresentationLayer
 import paige.navic.reader.ReaderPresentationLifecycleState
+import paige.navic.reader.ReaderPreparationPresentation
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderPresentationTokenDomain
 import paige.navic.reader.ReaderRequiredTransition
@@ -211,37 +214,6 @@ internal fun readerCurlTerminalEvent(
 		}
 	)
 }
-
-internal data class ReaderAcceptedDeckCallbackFence(
-	val presentationToken: ReaderPresentationToken?,
-	val binding: ReaderPresentationBinding
-)
-
-internal fun readerAcceptedDeckCallbackMatches(
-	callback: ReaderAcceptedDeckCallbackFence,
-	decision: ReaderPresentationDecision,
-	currentPreparationGeneration: Long,
-	currentRasterGeneration: Long,
-	currentTextureGeneration: Long
-): Boolean {
-	val binding = decision.targetBinding?.copy(
-		preparationGeneration = currentPreparationGeneration,
-		rasterGeneration = currentRasterGeneration,
-		textureGeneration = currentTextureGeneration
-	) ?: return false
-	return callback.presentationToken == decision.rendererCallbackTokenOrNull() &&
-		callback.binding == binding
-}
-
-private fun ReaderPresentationDecision.rendererCallbackTokenOrNull(): ReaderPresentationToken? =
-	when (val currentAuthority = authority) {
-		is ReaderPresentationAuthority.CurlGesture -> currentAuthority.frame.frame.token
-		is ReaderPresentationAuthority.CurlSettlementPending ->
-			currentAuthority.retainedFrame.frame.token
-		is ReaderPresentationAuthority.SettledNativePage ->
-			currentAuthority.frame.proof.transitionToken
-		else -> (requiredTransition as? ReaderRequiredTransition.PresentNativePage)?.token
-	}
 
 internal fun readerTerminalContentFailureRecoveryStillCurrent(
 	destroyed: Boolean,
@@ -887,6 +859,11 @@ internal class ReaderRendererCleanupRetryCoordinator(
 	}
 }
 
+internal enum class ReaderRendererSlotInvalidationPolicy {
+	AbandonRendererSlots,
+	RetainSelectedPresentationPredecessor
+}
+
 /**
  * Production bridge between Foliate's passive raster cache and the imported PlayLikeCurl surface.
  * Foliate remains the pagination authority; this controller owns only immutable raster leases,
@@ -899,6 +876,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		ReaderForegroundWebViewOwnership(),
 	private val presentedFrameSequenceSource: ((ReaderPresentationBinding) -> Long)? = null,
 	private val presentationHostEpoch: () -> Long = { 0L },
+	private val deckAdmissionHost: ReaderDeckAdmissionLeaseHost =
+		UnavailableReaderDeckAdmissionLeaseHost,
 	private val initialLiveNativeProofIsCurrent: (Long, ReaderNativePagePresentationProof) -> Boolean =
 		{ _, _ -> false },
 	private val initialLiveDecisionIsAuthoritative: (ReaderPresentationDecision) -> Boolean = { false },
@@ -1007,6 +986,28 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val deck: PageDeck<Bitmap>
 	)
 
+	private data class PendingLibraryDeckAdmissionAuthority(
+		val gestureId: Long,
+		val hostEpoch: Long,
+		val sourceBinding: ReaderPresentationBinding,
+		val profile: ReaderPlayLikeCurlRasterProfile
+	)
+
+	private data class AwaitingLibraryDeckAdmission(
+		val pages: PreparedPages,
+		val ordinal: Int,
+		val role: ReaderDeckSubmissionRole,
+		val preparationGeneration: Long,
+		val pendingAuthority: PendingLibraryDeckAdmissionAuthority?
+	) {
+		init {
+			require(
+				role != ReaderDeckSubmissionRole.Pending ||
+					pendingAuthority != null
+			) { "A deferred Pending library deck requires its originating authority" }
+		}
+	}
+
 	private data class RetainedInlineHandoffSnapshot(
 		val request: ReaderPageRelocationRequest,
 		val snapshot: ReaderPageSlideSnapshot
@@ -1068,7 +1069,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val generationOwners = mutableMapOf<Long, PreparedPages>()
 	private val generationRoles = mutableMapOf<Long, ReaderDeckSubmissionRole>()
 	private val generationPreparationGenerations = mutableMapOf<Long, Long>()
-	private val generationCallbackFences = mutableMapOf<Long, ReaderAcceptedDeckCallbackFence>()
+	private val generationAdmissions = mutableMapOf<Long, ReaderDeckAdmission>()
 	private val preparedDeckGenerations = mutableSetOf<Long>()
 	private val deckDiagnosticTracker = diagnostics?.let(::ReaderPageDeckDiagnosticTracker)
 	private val repairQaFaultCorrelations =
@@ -1106,6 +1107,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	)
 	private val rasterCapacityRefreshPosted = AtomicBoolean(false)
 	private val recoveredDeckSubmissionRetryPosted = AtomicBoolean(false)
+	private var awaitingLibraryDeckAdmission: AwaitingLibraryDeckAdmission? = null
 	private var rasterRetirementFailure: Throwable? = null
 	private var disposedRasterResidencyMetrics: ReaderPlayLikeCurlRasterResidencyMetrics? = null
 	private var ownershipCapacityListener: (() -> Unit)? = null
@@ -1259,6 +1261,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var nextDeckGeneration = 1L
 	private var commonPresentationDecision: ReaderPresentationDecision? = null
 	private var activeGestureId: Long? = null
+	private var curlClaimReceiptInFlight = false
 	private val settlementMutationFence = ReaderPageSettlementMutationFence()
 	private val hostOwnedTerminalGestureIds = mutableSetOf<Long>()
 	private var presentedFrameRequestId: Long? = null
@@ -1270,6 +1273,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		ReaderPageGestureTerminalDetail
 	) -> Boolean)? = null
 	private var activeDeckGenerationId: Long? = null
+	private var retainedSelectedPresentationPredecessorGenerationId: Long? = null
 	private var pendingDeckGenerationId: Long? = null
 	private val rendererOwnedGenerationReleaseGate =
 		ReaderRendererOwnedGenerationReleaseGate(
@@ -1348,71 +1352,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onDeckPrepared(generationId: Long) {
-				val preparationGeneration = generationPreparationGenerations[generationId] ?: return
-				if (
-					preparationGeneration !=
-						this@ReaderPlayLikeCurlFoliateController.preparationGeneration ||
-					preparationGeneration == failedPreparationGeneration
-				) {
-					releaseRendererOwnedGeneration(generationId)
-					return
-				}
-				val role = generationRoles[generationId] ?: return
-				val callbackFence = generationCallbackFences[generationId]
-				if (callbackFence != null) {
-					val decision = commonPresentationDecision
-					val currentTextureGeneration = when (role) {
-						ReaderDeckSubmissionRole.Active -> activeDeckGenerationId
-						ReaderDeckSubmissionRole.Pending -> pendingDeckGenerationId
-					}
-					if (
-						decision == null ||
-						currentTextureGeneration == null ||
-						!readerAcceptedDeckCallbackMatches(
-							callback = callbackFence,
-							decision = decision,
-							currentPreparationGeneration =
-								this@ReaderPlayLikeCurlFoliateController.preparationGeneration,
-							currentRasterGeneration = bundleSource.currentGeneration(),
-							currentTextureGeneration = currentTextureGeneration
-						)
-					) {
-						releaseRendererOwnedGeneration(generationId)
-						return
-					}
-				}
-				preparedDeckGenerations += generationId
-				if (generationId == activeDeckGenerationId) {
-					activeDeckPreparationGeneration = preparationGeneration
-					hasPreparedDeckBefore = true
-					updateReadiness(
-						textureDeck = ReaderTextureDeckState.Ready,
-						interaction = preparedInteractionState(),
-						reason = "deck-prepared:$generationId"
-					)
-					publishPreparedActiveDeck()
-					requestInitialLivePresentationAuthority(generationId)
-					publishLatestWhispersyncOverlayIfIdle()
-				} else if (
-					generationId == pendingDeckGenerationId &&
-					role == ReaderDeckSubmissionRole.Pending
-				) {
-					updateReadiness(
-						pendingTextureDeck = ReaderTextureDeckState.Ready,
-						reason = "pending-deck-prepared:$generationId"
-					)
-				}
-				deckRecoveryCoordinator.onDeckPrepared(generationId)
-				deckDiagnosticTracker?.prepared(
-					generation = generationId,
-					active = activeDeckGenerationId,
-					pending = pendingDeckGenerationId
-				)
-				retryRelocationVisualHandoffForPreparedDeck(generationId)
-				onOwnershipDiagnosticRequested(
-					ReaderPageOwnershipPhase.PeakPreparation
-				)
-				logActivationState("deck-prepared", "generation=$generationId")
+				onRendererDeckPrepared(generationId)
 			}
 
 			override fun onDeckRejected(generationId: Long, reason: DeckRejectionReason) {
@@ -1442,6 +1382,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 			override fun onDeckSubmissionCapacityAvailable() {
 				deckRecoveryCoordinator.onDeckSubmissionCapacityAvailable()
+				retryAwaitingDeckAdmission("renderer-capacity-restored")
 			}
 
 			override fun onRendererAvailabilityRestored() {
@@ -1583,7 +1524,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 					submitLibraryDeck(
 						pages = pages,
 						ordinal = targetOrdinal,
-						role = ReaderDeckSubmissionRole.Pending
+						role = ReaderDeckSubmissionRole.Pending,
+						originatingGestureId = gestureId
 					)
 					prefetchDecodedWorkingSet(gestureId, targetOrdinal)
 				}
@@ -1930,6 +1872,294 @@ internal class ReaderPlayLikeCurlFoliateController(
 				?: ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
 		}
 
+	private fun onRendererDeckPrepared(generationId: Long) {
+		val admission = generationAdmissions[generationId]
+		if (admission == null) {
+			if (generationOwners.containsKey(generationId)) {
+				releaseRendererOwnedGeneration(generationId)
+			}
+			return
+		}
+		when (admission.observeCallback()) {
+			ReaderDeckAdmissionCallbackDisposition.AwaitingRendererOwnership,
+			ReaderDeckAdmissionCallbackDisposition.DuplicateOrTerminal -> return
+			ReaderDeckAdmissionCallbackDisposition.Validate ->
+				completeObservedDeckAdmission(generationId, admission)
+		}
+	}
+
+	private fun acknowledgeRendererDeckOwnership(
+		generationId: Long,
+		admission: ReaderDeckAdmission
+	) {
+		when (admission.acknowledgeRendererOwnership()) {
+			ReaderDeckAdmissionOwnershipDisposition.AwaitingCallback -> Unit
+			ReaderDeckAdmissionOwnershipDisposition.ValidateCallback ->
+				completeObservedDeckAdmission(generationId, admission)
+			ReaderDeckAdmissionOwnershipDisposition.Release ->
+				releaseRendererOwnedGeneration(generationId)
+		}
+	}
+
+	private fun completeObservedDeckAdmission(
+		generationId: Long,
+		admission: ReaderDeckAdmission
+	) {
+		when (acceptedDeckAdmissionCurrency(generationId, admission)) {
+			ReaderDeckAdmissionCurrency.AwaitingCausalSuccessor -> return
+			ReaderDeckAdmissionCurrency.Revoked -> {
+				requestDeckAdmissionRelease(generationId, admission)
+				return
+			}
+			ReaderDeckAdmissionCurrency.Current -> Unit
+		}
+		if (!admission.markAdmittedRendererOwned()) {
+			requestDeckAdmissionRelease(generationId, admission)
+			return
+		}
+		val capability = admission.capability
+		preparedDeckGenerations += generationId
+		if (generationId == activeDeckGenerationId) {
+			activeDeckPreparationGeneration = capability.preparationGeneration
+			hasPreparedDeckBefore = true
+			updateReadiness(
+				textureDeck = ReaderTextureDeckState.Ready,
+				interaction = preparedInteractionState(),
+				reason = "deck-prepared:$generationId"
+			)
+			publishPreparedActiveDeck()
+			requestInitialLivePresentationAuthority(generationId)
+			publishLatestWhispersyncOverlayIfIdle()
+		} else if (
+			generationId == pendingDeckGenerationId &&
+			capability.role == ReaderDeckSubmissionRole.Pending
+		) {
+			updateReadiness(
+				pendingTextureDeck = ReaderTextureDeckState.Ready,
+				reason = "pending-deck-prepared:$generationId"
+			)
+		}
+		deckRecoveryCoordinator.onDeckPrepared(generationId)
+		deckDiagnosticTracker?.prepared(
+			generation = generationId,
+			active = activeDeckGenerationId,
+			pending = pendingDeckGenerationId
+		)
+		retryRelocationVisualHandoffForPreparedDeck(generationId)
+		onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.PeakPreparation)
+		logActivationState("deck-prepared", "generation=$generationId")
+	}
+
+	private fun acceptedDeckAdmissionCurrency(
+		generationId: Long,
+		admission: ReaderDeckAdmission
+	): ReaderDeckAdmissionCurrency {
+		val capability = admission.capability
+		val owner = generationOwners[generationId]
+			?: return ReaderDeckAdmissionCurrency.Revoked
+		val role = generationRoles[generationId]
+			?: return ReaderDeckAdmissionCurrency.Revoked
+		val retainsAuthorizedSlot = admission.promotionReceipt?.let { promotion ->
+			promotion.admissionId == capability.admissionId &&
+				promotion.lineageId == capability.lineageId &&
+				capability.role == ReaderDeckSubmissionRole.Pending &&
+				capability.slot == ReaderDeckAdmissionSlot.Pending &&
+				role == ReaderDeckSubmissionRole.Active &&
+				activeDeckGenerationId == generationId &&
+				pendingDeckGenerationId != generationId &&
+				activePages === owner
+		} ?: run {
+			val slotGeneration = when (capability.slot) {
+				ReaderDeckAdmissionSlot.Active -> activeDeckGenerationId
+				ReaderDeckAdmissionSlot.Pending -> pendingDeckGenerationId
+			}
+			role == capability.role && slotGeneration == generationId
+		}
+		if (
+			!retainsAuthorizedSlot ||
+			!hostResumed ||
+			destroyed ||
+			!enabled ||
+			!attached ||
+			owner.obsolete ||
+			generationPreparationGenerations[generationId] != capability.preparationGeneration ||
+			owner.profile.rasterGeneration != capability.rasterGeneration ||
+			generationId != capability.textureGeneration ||
+			currentFoliateSessionId != capability.originBinding.foliateSessionId ||
+			publishedRasterProfileEpoch != capability.profileGeneration ||
+			(admission.promotionReceipt != null && (
+				requestedProfile != owner.profile || publishedRasterProfile != owner.profile
+			)) ||
+			preparationGeneration != capability.preparationGeneration ||
+			failedPreparationGeneration == capability.preparationGeneration ||
+			bundleSource.currentGeneration() != capability.rasterGeneration
+		) return ReaderDeckAdmissionCurrency.Revoked
+		return deckAdmissionHost.currency(admission, commonPresentationDecision)
+	}
+
+	private fun retryObservedDeckAdmissions() {
+		generationAdmissions.toMap().forEach { (generationId, admission) ->
+			if (admission.state == ReaderDeckAdmissionState.CallbackObserved) {
+				completeObservedDeckAdmission(generationId, admission)
+			}
+		}
+	}
+
+	private fun deckAdmissionIsCurrent(
+		generationId: Long,
+		admission: ReaderDeckAdmission
+	): Boolean = when (admission.state) {
+		ReaderDeckAdmissionState.AdmittedRendererOwned ->
+			admittedRendererOwnershipIsCurrent(generationId, admission.capability)
+		ReaderDeckAdmissionState.Reserved,
+		ReaderDeckAdmissionState.RendererOwned,
+		ReaderDeckAdmissionState.CallbackObserved ->
+			acceptedDeckAdmissionCurrency(generationId, admission) !=
+				ReaderDeckAdmissionCurrency.Revoked
+		ReaderDeckAdmissionState.ReleaseRequested,
+		ReaderDeckAdmissionState.Released -> false
+	}
+
+	private fun admittedRendererOwnershipIsCurrent(
+		generationId: Long,
+		capability: ReaderDeckAdmissionCapability
+	): Boolean {
+		val owner = generationOwners[generationId] ?: return false
+		return hostResumed &&
+			!destroyed &&
+			enabled &&
+			attached &&
+			!owner.obsolete &&
+			(generationId == activeDeckGenerationId || generationId == pendingDeckGenerationId) &&
+			generationPreparationGenerations[generationId] == capability.preparationGeneration &&
+			owner.profile.rasterGeneration == capability.rasterGeneration &&
+			generationId == capability.textureGeneration &&
+			deckAdmissionHost.isOwnerCurrent(capability) &&
+			publishedRasterProfileEpoch == capability.profileGeneration &&
+			preparationGeneration == capability.preparationGeneration &&
+			failedPreparationGeneration != capability.preparationGeneration &&
+			bundleSource.currentGeneration() == capability.rasterGeneration
+	}
+
+	private fun requestDeckAdmissionRelease(
+		generationId: Long,
+		admission: ReaderDeckAdmission
+	) {
+		if (admission.requestRelease()) {
+			releaseRendererOwnedGeneration(generationId)
+		}
+	}
+
+	private fun revokeIncompatibleDeckAdmissions() {
+		generationAdmissions.toMap().forEach { (generationId, admission) ->
+			if (!deckAdmissionIsCurrent(generationId, admission)) {
+				requestDeckAdmissionRelease(generationId, admission)
+			}
+		}
+	}
+
+	private fun capturePendingLibraryDeckAdmissionAuthority(
+		gestureId: Long,
+		pages: PreparedPages,
+		preparationGeneration: Long
+	): PendingLibraryDeckAdmissionAuthority? {
+		val decision = commonPresentationDecision ?: return null
+		val binding = decision.targetBinding ?: return null
+		val profileGeneration = publishedRasterProfileEpoch ?: return null
+		val sourceGeneration = binding.textureGeneration ?: return null
+		if (
+			!hostResumed ||
+			activeGestureId != gestureId ||
+			decision.lifecycle != ReaderPresentationLifecycleState.Foreground ||
+			currentFoliateSessionId != binding.foliateSessionId ||
+			binding.profileGeneration != profileGeneration ||
+			binding.preparationGeneration != preparationGeneration ||
+			binding.rasterGeneration != pages.profile.rasterGeneration ||
+			requestedProfile != pages.profile ||
+			publishedRasterProfile != pages.profile ||
+			bundleSource.currentGeneration() != pages.profile.rasterGeneration ||
+			activeDeckGenerationId != sourceGeneration ||
+			generationOwners[sourceGeneration] !== pages ||
+			generationRoles[sourceGeneration] != ReaderDeckSubmissionRole.Active ||
+			sourceGeneration !in preparedDeckGenerations
+		) return null
+		return PendingLibraryDeckAdmissionAuthority(
+			gestureId = gestureId,
+			hostEpoch = presentationHostEpoch(),
+			sourceBinding = binding,
+			profile = pages.profile
+		)
+	}
+
+	private fun pendingLibraryDeckAdmissionAuthorityIsCurrent(
+		pages: PreparedPages,
+		preparationGeneration: Long,
+		authority: PendingLibraryDeckAdmissionAuthority
+	): Boolean {
+		val sourceGeneration = authority.sourceBinding.textureGeneration ?: return false
+		return hostResumed &&
+			presentationHostEpoch() == authority.hostEpoch &&
+			activeGestureId == authority.gestureId &&
+			commonPresentationDecision?.targetBinding == authority.sourceBinding &&
+			currentFoliateSessionId == authority.sourceBinding.foliateSessionId &&
+			publishedRasterProfileEpoch == authority.sourceBinding.profileGeneration &&
+			preparationGeneration == authority.sourceBinding.preparationGeneration &&
+			this.preparationGeneration == preparationGeneration &&
+			requestedProfile == authority.profile &&
+			publishedRasterProfile == authority.profile &&
+			pages.profile == authority.profile &&
+			bundleSource.currentGeneration() == authority.profile.rasterGeneration &&
+			activeDeckGenerationId == sourceGeneration &&
+			generationOwners[sourceGeneration] === pages &&
+			generationRoles[sourceGeneration] == ReaderDeckSubmissionRole.Active &&
+			sourceGeneration in preparedDeckGenerations
+	}
+
+	private fun retryAwaitingDeckAdmission(reason: String) {
+		val waiting = awaitingLibraryDeckAdmission
+		if (waiting != null) {
+			val pendingAuthority = waiting.pendingAuthority
+			val originatingGestureId = pendingAuthority?.gestureId
+			val pendingAuthorityIsCurrent =
+				pendingAuthority == null ||
+					pendingLibraryDeckAdmissionAuthorityIsCurrent(
+						pages = waiting.pages,
+						preparationGeneration = waiting.preparationGeneration,
+						authority = pendingAuthority
+					)
+			val pendingGestureTokenIsCurrent =
+				originatingGestureId == null ||
+					commonPresentationDecision?.rendererCallbackTokenOrNull() ==
+					ReaderPresentationToken(
+						value = originatingGestureId,
+						domain = ReaderPresentationTokenDomain.Gesture
+					)
+			if (
+				waiting.pages.obsolete ||
+				destroyed ||
+				!enabled ||
+				!attached ||
+				waiting.preparationGeneration != preparationGeneration ||
+				waiting.preparationGeneration == failedPreparationGeneration ||
+				!pendingAuthorityIsCurrent
+			) {
+				awaitingLibraryDeckAdmission = null
+			} else if (!curlClaimReceiptInFlight && pendingGestureTokenIsCurrent) {
+				awaitingLibraryDeckAdmission = null
+				logActivationState("deck-admission-retry", reason)
+				submitLibraryDeck(
+					pages = waiting.pages,
+					ordinal = waiting.ordinal,
+					role = waiting.role,
+					preparationGeneration = waiting.preparationGeneration,
+					originatingGestureId = originatingGestureId,
+					pendingAuthority = pendingAuthority
+				)
+			}
+		}
+		deckRecoveryCoordinator.onDeckAdmissionAvailable()
+	}
+
 	fun updatePaginationReadiness(readiness: ReaderPagePaginationReadiness) {
 		if (publishedPaginationReadiness == readiness) return
 		publishedPaginationReadiness = readiness
@@ -1943,6 +2173,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			notifyPreparedActiveDeckChanged(null)
 			onProtectedRasterSourcePageIndicesChanged(emptySet())
 			onRasterProfileEpochChanged(null)
+			revokeIncompatibleDeckAdmissions()
 			return
 		}
 		if (publishedRasterProfile == profile) return
@@ -1955,6 +2186,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		publishedRasterProfileEpoch = epoch
 		onRasterProfileEpochChanged(epoch)
+		revokeIncompatibleDeckAdmissions()
+		retryAwaitingDeckAdmission("raster-profile-receipt")
 	}
 
 	private fun publishPreparedActiveDeck(sourceOrdinal: Int = currentOrdinal) {
@@ -1992,20 +2225,28 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
-	private fun rebindAcceptedDeckCallbackFence(decision: ReaderPresentationDecision) {
-		val binding = decision.targetBinding ?: return
-		val textureGeneration = binding.textureGeneration ?: return
-		val fence = generationCallbackFences[textureGeneration] ?: return
-		if (
-			fence.presentationToken != decision.rendererCallbackTokenOrNull() ||
-			fence.binding.copy(
-				destinationCommitIdentity = binding.destinationCommitIdentity
-			) != binding
-		) return
-		generationCallbackFences[textureGeneration] = fence.copy(binding = binding)
+	private fun generationAdmissionOwnerIsCurrent(generationId: Long): Boolean =
+		generationAdmissions[generationId]?.let { admission ->
+			deckAdmissionHost.isOwnerCurrent(admission.capability)
+		} == true
+
+	private fun abandonRetainedPresentationPredecessorWithObsoleteOwnerScope() {
+		val generationId = retainedSelectedPresentationPredecessorGenerationId ?: return
+		if (generationAdmissionOwnerIsCurrent(generationId)) return
+		generationRoles.remove(generationId)
+		generationPreparationGenerations.remove(generationId)
+		preparedDeckGenerations -= generationId
+		if (activeDeckGenerationId == generationId) {
+			activeDeckGenerationId = null
+			activeDeckPreparationGeneration = null
+		}
 	}
 
 	private fun generationBacksCommonPresentation(generationId: Long): Boolean {
+		if (
+			generationId == retainedSelectedPresentationPredecessorGenerationId &&
+			!generationAdmissionOwnerIsCurrent(generationId)
+		) return false
 		val selectedBinding = when (val owner = commonPresentationDecision?.frameOwner) {
 			is ReaderPresentationFrameOwner.NativePage -> owner.proof.binding
 			is ReaderPresentationFrameOwner.Curl -> owner.frame.binding
@@ -2031,7 +2272,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 			presentationRecoverySnapshot = null
 		}
 		retryPresentationRecoverySnapshot()
-		rebindAcceptedDeckCallbackFence(decision)
+		revokeIncompatibleDeckAdmissions()
+		retryObservedDeckAdmissions()
+		retryAwaitingDeckAdmission("compatible-presentation-decision")
 		rendererCleanupRetryCoordinator.onRendererAvailabilityRestored()
 		val transition = decision.requiredTransition as?
 			ReaderRequiredTransition.ExposeLiveEngine
@@ -2404,7 +2647,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun onHostResumedChanged(resumed: Boolean) {
 		if (hostResumed == resumed) return
 		hostResumed = resumed
-		if (resumed && enabled && !destroyed) {
+		if (!resumed) {
+			if (awaitingLibraryDeckAdmission?.pendingAuthority != null) {
+				awaitingLibraryDeckAdmission = null
+			}
+			generationAdmissions.toMap().forEach { (generationId, admission) ->
+				requestDeckAdmissionRelease(generationId, admission)
+			}
+			return
+		}
+		if (enabled && !destroyed) {
+			retryAwaitingDeckAdmission("host-lifecycle-resumed")
 			retryInitialLivePresentationAuthority()
 			retryPresentationRecoverySnapshot()
 			retryPassiveManifestAuthorityRecovery()
@@ -2471,20 +2724,25 @@ internal class ReaderPlayLikeCurlFoliateController(
 					it != previousPending && it == attemptGeneration && it < nextDeckGeneration
 				}
 				if (pending != previousPending && acceptedPending == null) return@claim false
-				val pendingFence = acceptedPending?.let(generationCallbackFences::get)
+				val pendingAdmission = acceptedPending?.let(generationAdmissions::get)
 				fun pendingStillCurrent(): Boolean = pendingDeckGenerationId == pending &&
 					(acceptedPending == null || (
 						generationOwners[acceptedPending] === sourcePages &&
 						generationRoles[acceptedPending] == ReaderDeckSubmissionRole.Pending &&
 						generationPreparationGenerations[acceptedPending] == sourcePreparation &&
-						generationCallbackFences[acceptedPending] === pendingFence &&
-						pendingFence != null && readerAcceptedDeckCallbackMatches(
-							pendingFence, decision, sourcePreparation, sourceRaster, acceptedPending
+						generationAdmissions[acceptedPending] === pendingAdmission &&
+						pendingAdmission != null && deckAdmissionIsCurrent(
+							acceptedPending,
+							pendingAdmission
 						)
 					))
 				if (!pendingStillCurrent()) return@claim false
-				val receipt = onPresentationEvent(event).takeIf { it.authorizes(event) }
-					?: return@claim false
+				val receipt = try {
+					curlClaimReceiptInFlight = true
+					onPresentationEvent(event).takeIf { it.authorizes(event) }
+				} finally {
+					curlClaimReceiptInFlight = false
+				} ?: return@claim false
 				val postDecision = readerPresentationDecision(receipt.postState)
 				val claimed = postDecision.authority as? ReaderPresentationAuthority.CurlGesture
 					?: return@claim false
@@ -2498,11 +2756,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 					!sourceStillCurrent() || !pendingStillCurrent()
 				) return@claim false
 				commonPresentationDecision = postDecision
-				if (acceptedPending != null && pendingFence != null) {
-					generationCallbackFences[acceptedPending] = pendingFence.copy(
-						presentationToken = claimed.frame.frame.token
-					)
-				}
+				revokeIncompatibleDeckAdmissions()
+				retryObservedDeckAdmissions()
+				retryAwaitingDeckAdmission("curl-claim-receipt")
 				true
 			},
 			cancelRendererClaim = surfaceView::cancelGesture
@@ -2532,6 +2788,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			pending.expectedAcknowledgement != event.expectedAcknowledgement
 		) return false
 		commonPresentationDecision = decision
+		revokeIncompatibleDeckAdmissions()
+		retryObservedDeckAdmissions()
 		return true
 	}
 
@@ -2978,7 +3236,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 					relocationQueue.occupiedCount() != 0
 				) {
 					currentOrdinal = normalized
-					invalidate("external-page-relocation")
+					invalidate(
+						reason = "external-page-relocation",
+						preservePublishedProfile = true,
+						slotPolicy = ReaderRendererSlotInvalidationPolicy.RetainSelectedPresentationPredecessor
+					)
 					if (enabled) onRequestPrewarm()
 				}
 			}
@@ -3108,8 +3370,31 @@ internal class ReaderPlayLikeCurlFoliateController(
 		profileRegeneration: Boolean = false,
 		relocationRejectionReason: ReaderPageRelocationDiagnosticRejectionReason =
 			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated,
-		preservePublishedProfile: Boolean = false
+		preservePublishedProfile: Boolean = false,
+		slotPolicy: ReaderRendererSlotInvalidationPolicy =
+			ReaderRendererSlotInvalidationPolicy.AbandonRendererSlots
 	) {
+		val retainedPresentationPredecessor = if (
+			slotPolicy == ReaderRendererSlotInvalidationPolicy.RetainSelectedPresentationPredecessor
+		) {
+			when (val selected = commonPresentationDecision?.frameOwner) {
+				is ReaderPresentationFrameOwner.NativePage -> selected.proof.textureGeneration
+				is ReaderPresentationFrameOwner.Curl -> selected.frame.textureGeneration
+				else -> null
+			}?.takeIf { generationId ->
+				generationAdmissionOwnerIsCurrent(generationId) &&
+					generationId == activeDeckGenerationId &&
+					generationOwners.containsKey(generationId) &&
+					generationRoles[generationId] == ReaderDeckSubmissionRole.Active &&
+					generationPreparationGenerations.containsKey(generationId) &&
+					generationId in preparedDeckGenerations
+			}
+		} else {
+			null
+		}
+		val retainedPreparationGeneration = retainedPresentationPredecessor?.let(
+			generationPreparationGenerations::get
+		)
 		confirmedDecklessPassiveAuthority.clear()
 		cancelPassiveManifestAuthorityRecovery()
 		releaseInitialLivePresentationAuthority()
@@ -3146,17 +3431,31 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 		hideSurface()
 		generationOwners.keys.toList().forEach { generationId ->
+			generationAdmissions[generationId]?.requestRelease()
 			rendererCleanupRetryCoordinator.request(
 				ReaderRendererCleanupRequest.Invalidation(generationId)
 			)
 		}
 		deckDiagnosticTracker?.cancelAll()
-		generationRoles.clear()
-		generationPreparationGenerations.clear()
-		generationCallbackFences.clear()
-		preparedDeckGenerations.clear()
-		activeDeckGenerationId = null
-		activeDeckPreparationGeneration = null
+		if (retainedPresentationPredecessor == null) {
+			generationRoles.clear()
+			generationPreparationGenerations.clear()
+			preparedDeckGenerations.clear()
+			activeDeckGenerationId = null
+			activeDeckPreparationGeneration = null
+			retainedSelectedPresentationPredecessorGenerationId = null
+		} else {
+			generationRoles.keys.removeAll { it != retainedPresentationPredecessor }
+			generationPreparationGenerations.keys.removeAll {
+				it != retainedPresentationPredecessor
+			}
+			preparedDeckGenerations.retainAll(setOf(retainedPresentationPredecessor))
+			activeDeckGenerationId = retainedPresentationPredecessor
+			activeDeckPreparationGeneration = retainedPreparationGeneration
+			retainedSelectedPresentationPredecessorGenerationId =
+				retainedPresentationPredecessor
+		}
+		awaitingLibraryDeckAdmission = null
 		retryPreparationInProgress = false
 		pendingDeckGenerationId = null
 		pendingDeckOrdinal = null
@@ -3167,8 +3466,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		rasterAdapter = null
 		foliateRasterLoader = null
 		if (preservePublishedProfile) {
-			// A dispatch timeout loses prepared material, not the unchanged source
-			// profile identity needed to admit a subsequent source-owned observation.
+			// Retiring prepared material does not change the source profile identity
+			// required to admit the same viewer's replacement observation.
 			notifyPreparedActiveDeckChanged(null)
 			onProtectedRasterSourcePageIndicesChanged(emptySet())
 		} else {
@@ -4195,7 +4494,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 						"pages=${pageIndices.joinToString(",")} " +
 						"elapsedMillis=${elapsedMillis(startedAtNanos)}"
 				)
-				if (activeDeckGenerationId == null) {
+				if (
+					activeDeckGenerationId == null ||
+					activeDeckGenerationId == retainedSelectedPresentationPredecessorGenerationId
+				) {
 					currentOrdinal = centerOrdinal.coerceIn(0, profile.pageCount - 1)
 					updateReadiness(
 						textureDeck = ReaderTextureDeckState.Preparing,
@@ -4968,6 +5270,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	override fun currentRecoveredDeckRole(): ReaderDeckSubmissionRole {
 		val operation = when (val state = deckRecoveryCoordinator.state) {
 			is ReaderPageDeckRecoveryState.WaitingForBuild -> state.diagnosticOperation
+			is ReaderPageDeckRecoveryState.WaitingForAdmission -> state.diagnosticOperation
 			is ReaderPageDeckRecoveryState.WaitingForSubmissionCapacity ->
 				state.diagnosticOperation
 			else -> null
@@ -5015,6 +5318,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (settlementMutationFence.blocksExternalDeckMutation(activeGestureId)) {
 			return ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity
 		}
+		val admission = reserveDeckAdmission(
+			generationId = generationId,
+			role = role,
+			preparationGeneration = preparationGeneration,
+			rasterGeneration = built.pages.profile.rasterGeneration
+		) ?: return ReaderPageRecoveredDeckSubmissionResult.AwaitingAdmission
+		check(generationAdmissions.putIfAbsent(generationId, admission) == null) {
+			"Recovered deck generation already has an admission"
+		}
 		val repairDiagnostic =
 			(deckRecoveryCoordinator.state as?
 				ReaderPageDeckRecoveryState.WaitingForPreparation)
@@ -5037,7 +5349,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			submissionCallbackFence.submit(generationId) {
 				surfaceView.submitDeckWithResult(built.deck) {
 					ownershipTransferred = true
-					acceptRecoveredDeckOwnership(generationId, role)
+					acceptRecoveredDeckOwnership(generationId, role, admission)
 					repairDiagnostic?.let { operation ->
 						diagnostics?.repair(
 							operation,
@@ -5051,11 +5363,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 			deckDiagnosticTracker?.cancel(generationId)
 			if (ownershipTransferred) {
 				rollbackAcceptedRecoveredDeck(generationId, role, failure)
+			} else {
+				releaseDeckAdmissionReservation(generationId, admission)
 			}
 			throw failure
 		}
 		if (result.status == PageSurfaceDeckSubmissionResult.Status.REJECTED) {
 			deckDiagnosticTracker?.cancel(generationId)
+			releaseDeckAdmissionReservation(generationId, admission)
 			return if (result.rejectionReason == DeckRejectionReason.RESOURCE_CAPACITY) {
 				ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity
 			} else {
@@ -5080,14 +5395,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private fun acceptRecoveredDeckOwnership(
 		generationId: Long,
-		role: ReaderDeckSubmissionRole
+		role: ReaderDeckSubmissionRole,
+		admission: ReaderDeckAdmission
 	) {
 		val accepted = checkNotNull(builtRecoveredDecks.remove(generationId))
 		registerAcceptedDeckOwnership(
 			pages = accepted.pages,
 			generationId = generationId,
 			role = role,
-			preparationGeneration = preparationGeneration
+			preparationGeneration = preparationGeneration,
+			admission = admission
 		)
 		recoveredDeckGenerations += generationId
 		when (role) {
@@ -5107,6 +5424,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				pendingDeckOrdinal = accepted.ordinal
 			}
 		}
+		acknowledgeRendererDeckOwnership(generationId, admission)
 	}
 
 	override fun releaseUnsubmittedRecoveredDeck(generationId: Long) {
@@ -5233,6 +5551,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 						pendingTextureDeck = ReaderTextureDeckState.Empty,
 						interaction = blockingPreparationState(),
 						reason = "deck-recovery-building-active:${state.requestId}"
+					)
+				}
+			}
+			is ReaderPageDeckRecoveryState.WaitingForAdmission -> {
+				if (hasPreparedActiveDeckOwnership()) {
+					updateReadiness(
+						pendingTextureDeck = ReaderTextureDeckState.Preparing,
+						interaction = preparedInteractionState(),
+						reason = "deck-recovery-awaiting-admission:${state.generationId}"
+					)
+				} else {
+					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Preparing,
+						pendingTextureDeck = ReaderTextureDeckState.Empty,
+						interaction = blockingPreparationState(),
+						reason = "deck-recovery-awaiting-admission:${state.generationId}"
 					)
 				}
 			}
@@ -5516,12 +5850,76 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
+	private fun reserveDeckAdmission(
+		generationId: Long,
+		role: ReaderDeckSubmissionRole,
+		preparationGeneration: Long,
+		rasterGeneration: Long,
+		originatingGestureId: Long? = null,
+		pendingAuthority: PendingLibraryDeckAdmissionAuthority? = null
+	): ReaderDeckAdmission? {
+		if (!hostResumed) return null
+		val candidateDecision = commonPresentationDecision
+		if (
+			role == ReaderDeckSubmissionRole.Pending &&
+			pendingAuthority != null &&
+			(
+				originatingGestureId != pendingAuthority.gestureId ||
+				curlClaimReceiptInFlight ||
+				presentationHostEpoch() != pendingAuthority.hostEpoch ||
+				activeGestureId != pendingAuthority.gestureId ||
+				candidateDecision?.targetBinding != pendingAuthority.sourceBinding ||
+				candidateDecision?.lifecycle != ReaderPresentationLifecycleState.Foreground ||
+				candidateDecision?.rendererCallbackTokenOrNull() !=
+					ReaderPresentationToken(
+						value = pendingAuthority.gestureId,
+						domain = ReaderPresentationTokenDomain.Gesture
+					) ||
+				currentFoliateSessionId != pendingAuthority.sourceBinding.foliateSessionId ||
+				publishedRasterProfileEpoch != pendingAuthority.sourceBinding.profileGeneration ||
+				preparationGeneration != pendingAuthority.sourceBinding.preparationGeneration ||
+				rasterGeneration != pendingAuthority.profile.rasterGeneration ||
+				requestedProfile != pendingAuthority.profile ||
+				publishedRasterProfile != pendingAuthority.profile ||
+				bundleSource.currentGeneration() != pendingAuthority.profile.rasterGeneration
+			)
+		) return null
+		return deckAdmissionHost.reserve(
+			ReaderDeckAdmissionRequest(
+				candidateDecision = candidateDecision,
+				profileGeneration = publishedRasterProfileEpoch,
+				preparationGeneration = preparationGeneration,
+				rasterGeneration = rasterGeneration,
+				textureGeneration = generationId,
+				role = role
+			)
+		)
+	}
+
+	private fun releaseDeckAdmissionReservation(
+		generationId: Long,
+		admission: ReaderDeckAdmission
+	) {
+		if (generationAdmissions[generationId] !== admission) return
+		admission.releaseReservationWithoutRenderer()
+		generationAdmissions.remove(generationId)
+	}
+
 	private fun submitLibraryDeck(
 		pages: PreparedPages,
 		ordinal: Int,
 		role: ReaderDeckSubmissionRole,
-		preparationGeneration: Long = this.preparationGeneration
+		preparationGeneration: Long = this.preparationGeneration,
+		originatingGestureId: Long? = null,
+		pendingAuthority: PendingLibraryDeckAdmissionAuthority? = null
 	) {
+		check(
+			role != ReaderDeckSubmissionRole.Pending || originatingGestureId != null
+		) { "A Pending library deck requires its originating gesture" }
+		check(
+			pendingAuthority == null ||
+				pendingAuthority.gestureId == originatingGestureId
+		) { "A Pending library deck changed its originating gesture" }
 		if (
 			pages.obsolete ||
 				destroyed ||
@@ -5530,6 +5928,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 				preparationGeneration != this.preparationGeneration ||
 				failedPreparationGeneration == preparationGeneration
 		) return
+		val currentPendingAuthority = if (role == ReaderDeckSubmissionRole.Pending) {
+			pendingAuthority ?: capturePendingLibraryDeckAdmissionAuthority(
+				gestureId = checkNotNull(originatingGestureId),
+				pages = pages,
+				preparationGeneration = preparationGeneration
+			) ?: return
+		} else {
+			null
+		}
 		val generationId = nextDeckGeneration++
 		val deck = runCatching {
 			buildLibraryDeck(pages, ordinal, generationId)
@@ -5548,6 +5955,39 @@ internal class ReaderPlayLikeCurlFoliateController(
 			)
 			requestPrewarmIfIdle("deck-build-failed")
 			return
+		}
+		val admission = reserveDeckAdmission(
+			generationId = generationId,
+			role = role,
+			preparationGeneration = preparationGeneration,
+			rasterGeneration = pages.profile.rasterGeneration,
+			originatingGestureId = originatingGestureId,
+			pendingAuthority = currentPendingAuthority
+		)
+		if (admission == null) {
+			awaitingLibraryDeckAdmission = AwaitingLibraryDeckAdmission(
+				pages = pages,
+				ordinal = ordinal,
+				role = role,
+				preparationGeneration = preparationGeneration,
+				pendingAuthority = currentPendingAuthority
+			)
+			when (role) {
+				ReaderDeckSubmissionRole.Active -> updateReadiness(
+					textureDeck = ReaderTextureDeckState.Preparing,
+					interaction = blockingPreparationState(),
+					reason = "deck-awaiting-admission:$generationId"
+				)
+				ReaderDeckSubmissionRole.Pending -> updateReadiness(
+					pendingTextureDeck = ReaderTextureDeckState.Preparing,
+					reason = "pending-deck-awaiting-admission:$generationId"
+				)
+			}
+			return
+		}
+		awaitingLibraryDeckAdmission = null
+		check(generationAdmissions.putIfAbsent(generationId, admission) == null) {
+			"Library deck generation already has an admission"
 		}
 		deckDiagnosticTracker?.begin(
 			generation = generationId,
@@ -5571,7 +6011,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 						ordinal,
 						generationId,
 						role,
-						preparationGeneration
+						preparationGeneration,
+						admission
 					)
 				}
 			}
@@ -5579,11 +6020,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 			deckDiagnosticTracker?.cancel(generationId)
 			if (ownershipTransferred) {
 				rollbackAcceptedLibraryDeck(generationId, role, failure)
+			} else {
+				releaseDeckAdmissionReservation(generationId, admission)
 			}
 			throw failure
 		}
 		if (result.status == PageSurfaceDeckSubmissionResult.Status.REJECTED) {
 			deckDiagnosticTracker?.cancel(generationId)
+			releaseDeckAdmissionReservation(generationId, admission)
 			releaseRejectedLibraryDeck(pages, role)
 			when (role) {
 				ReaderDeckSubmissionRole.Active -> updateReadiness(
@@ -5619,13 +6063,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 		ordinal: Int,
 		generationId: Long,
 		role: ReaderDeckSubmissionRole,
-		preparationGeneration: Long
+		preparationGeneration: Long,
+		admission: ReaderDeckAdmission
 	) {
 		registerAcceptedDeckOwnership(
 			pages = pages,
 			generationId = generationId,
 			role = role,
-			preparationGeneration = preparationGeneration
+			preparationGeneration = preparationGeneration,
+			admission = admission
 		)
 		when (role) {
 			ReaderDeckSubmissionRole.Active -> {
@@ -5641,14 +6087,26 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 			}
 		}
+		acknowledgeRendererDeckOwnership(generationId, admission)
 	}
 
 	private fun registerAcceptedDeckOwnership(
 		pages: PreparedPages,
 		generationId: Long,
 		role: ReaderDeckSubmissionRole,
-		preparationGeneration: Long
+		preparationGeneration: Long,
+		admission: ReaderDeckAdmission
 	) {
+		check(generationAdmissions[generationId] === admission) {
+			"Renderer ownership requires its pre-submission deck admission"
+		}
+		val capability = admission.capability
+		check(
+			capability.textureGeneration == generationId &&
+				capability.role == role &&
+				capability.preparationGeneration == preparationGeneration &&
+				capability.rasterGeneration == pages.profile.rasterGeneration
+		) { "Renderer ownership does not match its immutable deck admission" }
 		val retainedOwner = generationOwners.putIfAbsent(generationId, pages)
 		check(retainedOwner == null || retainedOwner === pages) {
 			"Accepted deck generation has a different raster owner"
@@ -5657,16 +6115,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 		pages.generations += generationId
 		generationRoles[generationId] = role
 		generationPreparationGenerations[generationId] = preparationGeneration
-		commonPresentationDecision?.targetBinding?.let { binding ->
-			generationCallbackFences[generationId] = ReaderAcceptedDeckCallbackFence(
-				presentationToken = commonPresentationDecision?.rendererCallbackTokenOrNull(),
-				binding = binding.copy(
-					preparationGeneration = preparationGeneration,
-					rasterGeneration = pages.profile.rasterGeneration,
-					textureGeneration = generationId
-				)
-			)
-		}
 	}
 
 	private fun releaseRejectedLibraryDeck(
@@ -6792,8 +7240,24 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	fun onPresentationHostEpochChanged() {
-		val request = initialLivePresentationAuthority ?: return
-		if (request.hostEpoch != presentationHostEpoch()) releaseInitialLivePresentationAuthority(request)
+		val waitingAuthority = awaitingLibraryDeckAdmission?.pendingAuthority
+		if (
+			waitingAuthority != null &&
+			waitingAuthority.hostEpoch != presentationHostEpoch()
+		) {
+			awaitingLibraryDeckAdmission = null
+		}
+		synchronizeSelectedRendererFrame()
+		abandonRetainedPresentationPredecessorWithObsoleteOwnerScope()
+		generationAdmissions.toMap().forEach { (generationId, admission) ->
+			requestDeckAdmissionRelease(generationId, admission)
+		}
+		rendererCleanupRetryCoordinator.onRendererAvailabilityRestored()
+		initialLivePresentationAuthority?.let { request ->
+			if (request.hostEpoch != presentationHostEpoch()) {
+				releaseInitialLivePresentationAuthority(request)
+			}
+		}
 	}
 
 	val awaitingInitialLiveNativeSource: Boolean
@@ -7082,22 +7546,40 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
+	private fun restoreSelectedPresentationPredecessorSlot(): Boolean {
+		val generationId = retainedSelectedPresentationPredecessorGenerationId ?: return false
+		val preparationGeneration = generationPreparationGenerations[generationId] ?: return false
+		if (
+			!generationBacksCommonPresentation(generationId) ||
+			generationRoles[generationId] != ReaderDeckSubmissionRole.Active ||
+			generationId !in preparedDeckGenerations
+		) return false
+		activeDeckGenerationId = generationId
+		activeDeckPreparationGeneration = preparationGeneration
+		return true
+	}
+
 	private fun releaseGeneration(generationId: Long) {
 		rendererCleanupRetryCoordinator.complete(generationId)
 		deckDiagnosticTracker?.cancel(generationId)
 		generationPreparationGenerations.remove(generationId)
-		generationCallbackFences.remove(generationId)
+		generationAdmissions[generationId]?.markReleased()
+		generationAdmissions.remove(generationId)
 		val pages = generationOwners.remove(generationId) ?: return
 		val releasedCurrentActive = activeDeckGenerationId == generationId
+		if (retainedSelectedPresentationPredecessorGenerationId == generationId) {
+			retainedSelectedPresentationPredecessorGenerationId = null
+		}
 		generationRoles.remove(generationId)
 		preparedDeckGenerations -= generationId
 		recoveredDeckGenerations -= generationId
 		if (releasedCurrentActive) {
 			releaseInitialLivePresentationAuthority()
-				activeDeckGenerationId = null
+			activeDeckGenerationId = null
 			activeDeckPreparationGeneration = null
 			if (activePages === pages) activePages = null
 			notifyPreparedActiveDeckChanged(null)
+			restoreSelectedPresentationPredecessorSlot()
 		}
 		if (pendingDeckGenerationId == generationId) {
 			pendingDeckGenerationId = null
@@ -7134,6 +7616,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 				reason = "settlement-missing-pending:$currentPageOrdinal"
 			)
 			requestPrewarmIfIdle("settlement-missing-pending")
+			return null
+		}
+		val admission = generationAdmissions[promotedGeneration]
+		if (admission?.promotePendingToActive() != true) {
+			updateReadiness(
+				textureDeck = ReaderTextureDeckState.Failed,
+				interaction = ReaderPageInteractionState.Failed,
+				reason = "settlement-invalid-pending-admission:$currentPageOrdinal"
+			)
+			requestPrewarmIfIdle("settlement-invalid-pending-admission")
 			return null
 		}
 		val promotedPages = generationOwners[promotedGeneration]
@@ -7385,9 +7877,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: ReaderPageGestureTerminalDetail
 	): Boolean {
+		retireAwaitingLibraryDeckAdmission(gestureId)
 		discardDecodedWorkingSetPrefetch("gesture-finished", gestureId)
 		if (!relocationGestureCoordinator.finish(gestureId, outcome, detail)) return false
 		return publishGestureTerminal(gestureId, outcome, detail)
+	}
+
+	private fun retireAwaitingLibraryDeckAdmission(gestureId: Long) {
+		val waiting = awaitingLibraryDeckAdmission ?: return
+		if (
+			waiting.role == ReaderDeckSubmissionRole.Pending &&
+			waiting.pendingAuthority?.gestureId == gestureId
+		) {
+			awaitingLibraryDeckAdmission = null
+		}
 	}
 
 	private fun publishGestureTerminal(
@@ -7395,6 +7898,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: ReaderPageGestureTerminalDetail
 	): Boolean {
+		retireAwaitingLibraryDeckAdmission(gestureId)
 		val activeGestureEnded = activeGestureId == gestureId
 		if (activeGestureEnded) activeGestureId = null
 		val tapSink = if (tapTurnGestureId == gestureId) {

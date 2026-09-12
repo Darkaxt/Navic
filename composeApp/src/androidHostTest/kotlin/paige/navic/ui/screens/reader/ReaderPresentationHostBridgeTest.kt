@@ -124,7 +124,7 @@ class ReaderPresentationHostBridgeTest {
 		)
 		assertEquals(retainedLiveFrame, pending.retainedFrame)
 		assertEquals(
-			paige.navic.reader.ReaderPresentationInputPolicy.LiveEngine,
+			paige.navic.reader.ReaderPresentationInputPolicy.ChromeOnly,
 			readerPresentationDecision(presentation).inputPolicy
 		)
 		publisher.update()
@@ -153,7 +153,7 @@ class ReaderPresentationHostBridgeTest {
 		assertEquals(retainedLiveFrame, rebound.retainedFrame)
 		assertIs<ReaderPresentationFrameOwner.LiveEngine>(reboundDecision.frameOwner)
 		assertEquals(
-			paige.navic.reader.ReaderPresentationInputPolicy.LiveEngine,
+			paige.navic.reader.ReaderPresentationInputPolicy.ChromeOnly,
 			reboundDecision.inputPolicy
 		)
 		val transition = assertIs<ReaderRequiredTransition.PresentNativePage>(

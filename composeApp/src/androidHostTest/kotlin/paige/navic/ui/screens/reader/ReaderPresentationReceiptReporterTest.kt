@@ -124,7 +124,6 @@ class ReaderPresentationReceiptReporterTest {
 			textureGeneration = 9L,
 			preparationGeneration = 10L
 		)
-		val gestureToken = ReaderPresentationToken(72L)
 		val acknowledgement = ReaderPageTurnSettlementAck(
 			token = "page-turn-72",
 			pageIndex = 41,
@@ -133,23 +132,25 @@ class ReaderPresentationReceiptReporterTest {
 			textureGeneration = requireNotNull(destinationBinding.textureGeneration)
 		)
 		val sourceState = settledState(sourceBinding)
-		val claimedState = readerPresentationReduce(
-			sourceState,
-			requireNotNull(
-				readerCurlClaimEvent(
-					readerPresentationDecision(sourceState),
-					gestureToken.value
-				)
+		val claim = assertNotNull(
+			readerCurlClaimEvent(
+				readerPresentationDecision(sourceState),
+				gestureId = 72L
 			)
-		).state
-		val pendingState = readerPresentationReduce(
-			claimedState,
+		)
+		val gestureToken = claim.frame.token
+		val claimed = readerPresentationReduce(sourceState, claim)
+		assertEquals(ReaderPresentationEventDisposition.Accepted, claimed.disposition)
+		val terminal = readerPresentationReduce(
+			claimed.state,
 			ReaderPresentationEvent.CurlTerminal(
 				token = gestureToken,
 				binding = sourceBinding,
 				expectedAcknowledgement = acknowledgement
 			)
-		).state
+		)
+		assertEquals(ReaderPresentationEventDisposition.Accepted, terminal.disposition)
+		val pendingState = terminal.state
 		val controller = ReaderController(
 			ReaderControllerState(
 				readerSessionGeneration = 21L,
@@ -597,6 +598,48 @@ class ReaderPresentationReceiptReporterTest {
 		reporter.reset()
 		assertFalse(reporter.consumeReceipt(staleEpoch, rendererLost, lost.second))
 		assertNull(reporter.lastReportedBinding)
+	}
+
+	@Test
+	fun acceptedClaimReceiptIssuesAdmissionBeforeComposeEcho() {
+		val binding = completeBinding("claim-admission-session", destination = 70L)
+		val initialState = settledState(binding)
+		var controller = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 71L,
+				presentation = initialState
+			)
+		)
+		val reporter = ReaderPresentationBindingReporter()
+		reporter.reset(
+			expectedReaderSessionGeneration = 71L,
+			minimumComposeVersion = controller.presentationVersion,
+			initialPresentationState = initialState
+		)
+		assertTrue(reporter.bindPublication(binding))
+		val claim = assertNotNull(
+			readerCurlClaimEvent(readerPresentationDecision(initialState), gestureId = 72L)
+		)
+		controller = dispatchAndConsume(reporter, controller, claim).first
+		val receiptDecision = readerPresentationDecision(controller.state.presentation)
+
+		val admission = assertNotNull(
+			reporter.reserve(
+				ReaderDeckAdmissionRequest(
+					candidateDecision = receiptDecision,
+					profileGeneration = binding.profileGeneration,
+					preparationGeneration = requireNotNull(binding.preparationGeneration),
+					rasterGeneration = requireNotNull(binding.rasterGeneration),
+					textureGeneration = 73L,
+					role = ReaderDeckSubmissionRole.Pending
+				)
+			)
+		)
+
+		assertEquals(ReaderDeckAdmissionState.Reserved, admission.state)
+		assertEquals(claim.frame.token, admission.capability.presentationToken)
+		assertEquals(73L, admission.capability.originBinding.textureGeneration)
+		assertTrue(reporter.isCurrent(admission.capability))
 	}
 
 	private fun dispatchLifecycleAndConsume(

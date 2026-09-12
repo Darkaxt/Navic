@@ -660,8 +660,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("ReaderPagePreparationPhase.Ready -> {")
 			.substringBefore("ReaderPagePreparationPhase.Failed -> {")
 		val deckPrepared = source
-			.substringAfter("override fun onDeckPrepared(")
-			.substringBefore("override fun onDeckRejected(")
+			.substringAfter("private fun completeObservedDeckAdmission(")
+			.substringBefore("private fun requestDeckAdmissionRelease(")
 		val invalidate = source
 			.substringAfter("fun invalidate(")
 			.substringBefore("fun destroy()")
@@ -1324,22 +1324,35 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private fun completeAcknowledgedRelocation(")
 
 		val externalOrdinalUpdate = synchronize.indexOf("currentOrdinal = normalized")
-		val externalInvalidation = synchronize.indexOf(
-			"invalidate(\"external-page-relocation\")"
+		val externalInvalidation = synchronize.indexOf("invalidate(", externalOrdinalUpdate)
+		val externalReason = synchronize.indexOf(
+			"reason = \"external-page-relocation\"",
+			externalInvalidation
+		)
+		val preservedProfile = synchronize.indexOf(
+			"preservePublishedProfile = true",
+			externalReason
+		)
+		val retainedPredecessor = synchronize.indexOf(
+			"slotPolicy = ReaderRendererSlotInvalidationPolicy.RetainSelectedPresentationPredecessor",
+			preservedProfile
 		)
 		val authorityRequest = synchronize.lastIndexOf(
 			"requestInitialLivePresentationAuthorityForPassivePreparation()"
 		)
 		assertTrue(externalOrdinalUpdate >= 0)
 		assertTrue(externalInvalidation > externalOrdinalUpdate)
-		assertTrue(authorityRequest > externalInvalidation)
+		assertTrue(externalReason > externalInvalidation)
+		assertTrue(preservedProfile > externalReason)
+		assertTrue(retainedPredecessor > preservedProfile)
+		assertTrue(authorityRequest > retainedPredecessor)
 	}
 
 	@Test
 	fun preparedInitialDeckEstablishesFreshLivePresentationAuthority() {
 		val source = controllerFile.readText()
 		val deckPrepared = requiredFoliateSourceSlice(source,
-			"override fun onDeckPrepared(generationId: Long)", "override fun onDeckRejected(")
+			"private fun completeObservedDeckAdmission(", "private fun requestDeckAdmissionRelease(")
 		val bootstrap = requiredFoliateSourceSlice(source,
 			"private fun requestInitialLivePresentationAuthority(", "private fun releaseInitialLivePresentationAuthority(")
 		val synchronize = requiredFoliateSourceSlice(source,
@@ -1356,9 +1369,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"fun onWhispersyncOverlayAnchorUnavailable()", "fun onPassiveManifestAuthorityUnavailable(")
 
 		assertContains(deckPrepared, "requestInitialLivePresentationAuthority(generationId)")
-		assertContains(synchronize,
-			"if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {\n" +
-				"\t\t\trequestInitialLivePresentationAuthorityForPassivePreparation()")
+		assertContains(synchronize, "origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement")
+		assertContains(synchronize, "requestInitialLivePresentationAuthorityForPassivePreparation()")
 		assertFalse(synchronize.contains("requestInitialLivePresentationAuthorityForActiveDeck()"))
 		assertContains(passive, "activeDeckGenerationId == null &&")
 		assertContains(passive, "!confirmedDecklessPassiveAuthorityIsCurrent()")
@@ -2171,7 +2183,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(submission, "submissionCallbackFence.submit(generationId)")
 		assertContains(submission, "surfaceView.submitDeckWithResult(built.deck) {")
 		assertContains(submission, "ownershipTransferred = true")
-		assertContains(submission, "acceptRecoveredDeckOwnership(generationId, role)")
+		assertContains(submission, "acceptRecoveredDeckOwnership(generationId, role, admission)")
 		assertContains(submission, "if (ownershipTransferred)")
 		assertContains(submission, "PageSurfaceDeckSubmissionResult.Status.REJECTED")
 		assertContains(submission, "DeckRejectionReason.RESOURCE_CAPACITY")
@@ -2191,8 +2203,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		assertContains(
 			acceptedRegistration,
-			"generationCallbackFences[generationId] = ReaderAcceptedDeckCallbackFence("
+			"check(generationAdmissions[generationId] === admission)"
 		)
+		assertFalse(controller.contains("rebindAcceptedDeckCallbackFence"))
+		assertFalse(controller.contains("generationCallbackFences"))
 		assertContains(releaseGate, "if (isProtectedGeneration(generationId)) return false")
 		assertTrue(
 			releaseGate.indexOf("isProtectedGeneration(generationId)") <
@@ -2391,8 +2405,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		val deckPrepared = requiredFoliateSourceSlice(
 			source = controller,
-			startDelimiter = "override fun onDeckPrepared(generationId: Long)",
-			endDelimiter = "override fun onDeckRejected("
+			startDelimiter = "private fun completeObservedDeckAdmission(",
+			endDelimiter = "private fun requestDeckAdmissionRelease("
 		)
 		val profilePreparation = requiredFoliateSourceSlice(
 			source = controller,
@@ -2429,14 +2443,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		assertContains(deckPrepared, "preparationGeneration")
 		assertContains(deckPrepared, "failedPreparationGeneration")
-		assertTrue(
-			Regex(
-				"preparationGeneration\\s*!=\\s*" +
-					"this@ReaderPlayLikeCurlFoliateController\\.preparationGeneration"
-			).containsMatchIn(deckPrepared),
-			"Renderer callbacks must match the current preparation generation."
+		assertContains(
+			deckPrepared,
+			"preparationGeneration == capability.preparationGeneration",
+			message = "Renderer callbacks must match the current preparation generation."
 		)
-		assertContains(deckPrepared, "releaseRendererOwnedGeneration(generationId)")
+		assertContains(deckPrepared, "requestDeckAdmissionRelease(generationId, admission)")
 		assertContains(deckPrepared, "activeDeckPreparationGeneration")
 		assertContains(stateCallback, "pendingDeckGenerationId?.let(::releaseRendererOwnedGeneration)")
 		assertContains(rendererRelease, "rendererCleanupRetryCoordinator.request(")
@@ -2470,7 +2482,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"Async deck completion must reject a terminal preparation before submission."
 		)
 		assertTrue(
-			deckPrepared.indexOf("failedPreparationGeneration") <
+			deckPrepared.indexOf("acceptedDeckAdmissionIsCurrent(generationId, admission.capability)") <
 				deckPrepared.indexOf("preparedDeckGenerations += generationId"),
 			"A late renderer callback must be rejected before it can publish deck ownership."
 		)
@@ -3064,11 +3076,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private val destroyFence")
 
 		assertFalse(contentRecovery.contains("relocationLiveDispatchCoordinator.fail("))
+		assertContains(recovery, "relocationLiveDispatchCoordinator.fail(")
 		assertContains(
 			recovery,
-			"relocationLiveDispatchCoordinator.fail(\n" +
-				"\t\t\t\trequest,\n" +
-				"\t\t\t\tReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated"
+			"ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated"
 		)
 		assertFalse(recovery.contains("requestPrewarmIfIdle("))
 		assertContains(failure, "val entry = remove(request) ?: return false")
@@ -3105,11 +3116,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			transfer,
 			"if (relocationQueue.occupiedCount() == 0) {"
 		)
+		assertContains(transfer, "relocationLiveDispatchCoordinator.fail(")
 		assertContains(
 			transfer,
-			"relocationLiveDispatchCoordinator.fail(\n" +
-				"\t\t\t\t\trequest,\n" +
-				"\t\t\t\t\tReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated"
+			"ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated"
 		)
 		assertTrue(
 			transfer.indexOf("relocationLiveDispatchCoordinator.transfer(request, claim)") <

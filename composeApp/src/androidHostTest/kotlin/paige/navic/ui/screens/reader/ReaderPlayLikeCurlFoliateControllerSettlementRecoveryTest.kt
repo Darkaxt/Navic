@@ -4,6 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.reader.ReaderCurlPresentationFrame
 import paige.navic.reader.ReaderCurlSettlementStage
@@ -17,13 +19,16 @@ import paige.navic.reader.ReaderPageRelocationToken
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationFrameOwner
+import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLayer
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderPresentationTokenDomain
 import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.readerPresentationReduce
+import paige.navic.reader.publicationIdentity
 
 class ReaderPlayLikeCurlFoliateControllerSettlementRecoveryTest {
 	@Test
@@ -193,6 +198,69 @@ class ReaderPlayLikeCurlFoliateControllerSettlementRecoveryTest {
 	}
 
 	@Test
+	fun provisionalStartupBindingIssuesImmutableCurrentProfileAdmission() {
+		val provisionalBinding = ReaderPresentationBinding(
+			foliateSessionId = "startup-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 0L,
+			preparationGeneration = 5L
+		)
+		val decision = readerPresentationDecision(
+			ReaderPresentationState(binding = provisionalBinding)
+		)
+		val request = ReaderDeckAdmissionRequest(
+			candidateDecision = decision,
+			profileGeneration = 3L,
+			preparationGeneration = 5L,
+			rasterGeneration = 4L,
+			textureGeneration = 6L,
+			role = ReaderDeckSubmissionRole.Active
+		)
+		val provisionalAdmission = assertNotNull(
+			readerDeckAdmissionCapabilityOrNull(
+				authority = admissionAuthority(provisionalBinding),
+				admissionId = 1L,
+				request = request
+			)
+		)
+		val resolvedAdmission = assertNotNull(
+			readerDeckAdmissionCapabilityOrNull(
+				authority = admissionAuthority(
+					provisionalBinding.copy(profileGeneration = 3L)
+				),
+				admissionId = 2L,
+				request = request
+			)
+		)
+
+		assertEquals(3L, provisionalAdmission.profileGeneration)
+		assertEquals(provisionalAdmission.originBinding, resolvedAdmission.originBinding)
+		assertEquals(ReaderDeckAdmissionSlot.Active, provisionalAdmission.slot)
+		assertNull(
+			readerDeckAdmissionCapabilityOrNull(
+				authority = admissionAuthority(
+					provisionalBinding.copy(profileGeneration = 7L)
+				),
+				admissionId = 3L,
+				request = request
+			)
+		)
+
+		val owner = ReaderDeckAdmission(provisionalAdmission)
+		assertEquals(
+			ReaderDeckAdmissionCallbackDisposition.AwaitingRendererOwnership,
+			owner.observeCallback()
+		)
+		assertEquals(ReaderDeckAdmissionState.Reserved, owner.state)
+		assertEquals(
+			ReaderDeckAdmissionOwnershipDisposition.ValidateCallback,
+			owner.acknowledgeRendererOwnership()
+		)
+		assertEquals(ReaderDeckAdmissionState.CallbackObserved, owner.state)
+	}
+
+	@Test
 	fun staleAndPendingAcceptedDeckCallbacksReleaseExactlyOnceWithoutChangingAuthority() {
 		val sourceBinding = binding(destinationSequence = 20L, textureGeneration = 50L)
 		val token = ReaderPresentationToken(51L)
@@ -235,46 +303,77 @@ class ReaderPlayLikeCurlFoliateControllerSettlementRecoveryTest {
 			onAccepted = {},
 			pendingLimit = 2
 		)
-		val staleCallback = ReaderAcceptedDeckCallbackFence(
-			presentationToken = token,
-			binding = sourceBinding.copy(textureGeneration = 53L)
+		val request = ReaderDeckAdmissionRequest(
+			candidateDecision = decision,
+			profileGeneration = sourceBinding.profileGeneration,
+			preparationGeneration = requireNotNull(sourceBinding.preparationGeneration),
+			rasterGeneration = requireNotNull(sourceBinding.rasterGeneration),
+			textureGeneration = requireNotNull(sourceBinding.textureGeneration),
+			role = ReaderDeckSubmissionRole.Active
 		)
-
-		val currentCallback = staleCallback.copy(binding = sourceBinding)
-		assertTrue(
-			readerAcceptedDeckCallbackMatches(
-				callback = currentCallback,
-				decision = decision,
-				currentPreparationGeneration = requireNotNull(sourceBinding.preparationGeneration),
-				currentRasterGeneration = requireNotNull(sourceBinding.rasterGeneration),
-				currentTextureGeneration = requireNotNull(sourceBinding.textureGeneration)
+		val admission = assertNotNull(
+			readerDeckAdmissionCapabilityOrNull(
+				authority = admissionAuthority(sourceBinding, token, decision),
+				admissionId = 1L,
+				request = request
 			)
 		)
+		assertTrue(readerDeckAdmissionAuthorityMatches(admissionAuthority(sourceBinding, token, decision), admission))
+		assertTrue(
+			readerDeckAdmissionAuthorityMatches(
+				admissionAuthority(sourceBinding, token, decision).copy(
+					authorityVersion = admission.authorityVersion.copy(eventSequence = 2L)
+				),
+				admission
+			),
+			"A newer receipt with the identical normalized decision remains compatible"
+		)
 		assertFalse(
-			readerAcceptedDeckCallbackMatches(
-				callback = currentCallback.copy(
-					binding = sourceBinding.copy(
-						destinationCommitIdentity =
-							ReaderDestinationCommitIdentity("session-a", 22L)
+			readerDeckAdmissionAuthorityMatches(
+				admissionAuthority(sourceBinding, token, decision).copy(
+					authorityVersion = admission.authorityVersion.copy(eventSequence = 0L)
+				),
+				admission
+			),
+			"An older authority version must revoke the admission"
+		)
+		assertFalse(
+			readerDeckAdmissionAuthorityMatches(
+				admissionAuthority(sourceBinding, token, decision).copy(
+					decision = decision.copy(
+						inputPolicy = ReaderPresentationInputPolicy.RecoveryOnly
 					)
 				),
-				decision = decision,
-				currentPreparationGeneration = requireNotNull(sourceBinding.preparationGeneration),
-				currentRasterGeneration = requireNotNull(sourceBinding.rasterGeneration),
-				currentTextureGeneration = requireNotNull(sourceBinding.textureGeneration)
+				admission
+			),
+			"Decision drift at the same authority version must revoke the admission"
+		)
+		assertFalse(
+			readerDeckAdmissionAuthorityMatches(
+				admissionAuthority(sourceBinding, token, decision).copy(
+					authorityVersion = admission.authorityVersion.copy(eventSequence = 2L),
+					decision = decision.copy(
+						inputPolicy = ReaderPresentationInputPolicy.RecoveryOnly
+					)
+				),
+				admission
+			),
+			"A newer authority version cannot conceal incompatible decision drift"
+		)
+		assertFalse(
+			readerDeckAdmissionAuthorityMatches(
+				admissionAuthority(
+					sourceBinding.copy(
+						destinationCommitIdentity =
+							ReaderDestinationCommitIdentity("session-a", 22L)
+					),
+					token
+				),
+				admission
 			)
 		)
 
 		repeat(2) {
-			assertFalse(
-				readerAcceptedDeckCallbackMatches(
-					callback = staleCallback,
-					decision = decision,
-					currentPreparationGeneration = requireNotNull(sourceBinding.preparationGeneration),
-					currentRasterGeneration = requireNotNull(sourceBinding.rasterGeneration),
-					currentTextureGeneration = 54L
-				)
-			)
 			cleanup.request(ReaderRendererCleanupRequest.StaleGeneration(53L))
 		}
 
@@ -285,6 +384,26 @@ class ReaderPlayLikeCurlFoliateControllerSettlementRecoveryTest {
 		assertTrue(cleanup.request(ReaderRendererCleanupRequest.StaleGeneration(53L)))
 		assertEquals(1, releaseCount)
 	}
+
+	private fun admissionAuthority(
+		binding: ReaderPresentationBinding,
+		token: ReaderPresentationToken? = null,
+		decision: ReaderPresentationDecision = readerPresentationDecision(
+			ReaderPresentationState(binding = binding)
+		)
+	) = ReaderDeckAdmissionAuthoritySnapshot(
+		hostEpoch = 1L,
+		authorityVersion = paige.navic.reader.ReaderPresentationReceiptVersion(
+			1L,
+			binding.publicationIdentity,
+			1L
+		),
+		viewerGeneration = 1L,
+		lifecycle = paige.navic.reader.ReaderPresentationLifecycleState.Foreground,
+		bindingSeed = binding,
+		presentationToken = token,
+		decision = decision
+	)
 
 	private fun settledState(
 		binding: ReaderPresentationBinding,

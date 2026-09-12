@@ -1949,6 +1949,9 @@ class ReaderKomikkuBackboneResetTest {
 		val readerRootText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
 		).readText()
+		val publicationOrchestrationText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPublicationReadyOrchestration.kt"
+		).readText()
 		val statusBadgeText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderWhispersyncStatusBadge.kt"
 		).readText()
@@ -1961,8 +1964,14 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderScreen must obtain the shared audiobook manager at the app boundary for Whispersync playback."
 		)
 		assertTrue(
-			readerScreenText.contains("binderyAudiobookPlaybackPlan("),
-			"ReaderScreen must load the selected Bindery audiobook into a playback plan for the paired ebook session."
+			publicationOrchestrationText.contains("binderyAudiobookPlaybackPlan("),
+			"Reader publication orchestration must load the selected Bindery audiobook into a playback plan for the paired ebook session."
+		)
+		assertTrue(
+			readerScreenText.contains("val publicationReadyOrchestration = remember(") &&
+				readerScreenText.contains("ReaderPublicationReadyOrchestration(") &&
+				readerScreenText.contains("publicationReadyOrchestration.handle("),
+			"ReaderScreen must construct and invoke the publication-ready orchestration that loads the paired audiobook."
 		)
 		assertTrue(
 			readerScreenText.contains("readerWhispersyncPlaybackCommandForSeekTarget("),

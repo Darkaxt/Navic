@@ -260,7 +260,7 @@ class ReaderPresentationIntegratedSequenceTest {
 			fixture.commitShellCoverDraw()
 			fixture.beginBackgroundPreparation()
 			fixture.requestCoalescedPageEntry()
-			fixture.assertOldFenceRejectedThenVisibleTimeout()
+			fixture.assertOldAdmissionRejectedThenVisibleTimeout()
 		} finally {
 			fixture.dispose()
 		}
@@ -340,7 +340,7 @@ private class ReaderPresentationSequenceFixture {
 	})
 	private var retainedCoverBinding: ReaderPresentationBinding? = null
 	private var submittedDeck: ReaderPagePreparedActiveDeck? = null
-	private var submittedFence: ReaderAcceptedDeckCallbackFence? = null
+	private var submittedAdmission: ReaderDeckAdmissionCapability? = null
 	private var deck: ReaderPagePreparedActiveDeck? = null
 	private val publisher = ReaderNativePagePresentationPublisher(frames, ::currentCandidate, onEvent = ::dispatch)
 	private var pendingRelocation: ReaderEngineEvent.Relocated? = null
@@ -536,9 +536,31 @@ private class ReaderPresentationSequenceFixture {
 		// Actual active submission allocates only a texture generation and clears the
 		// prepared-deck observation. The old accepted frame/Ready facts are not invalidated.
 		submittedDeck = ready.copy(generationId = ready.generationId + 1L)
-		submittedFence = ReaderAcceptedDeckCallbackFence(null,
-			observedBinding(assertNotNull(submittedDeck)))
-		materialBindings[assertNotNull(submittedDeck).generationId] = assertNotNull(submittedFence).binding
+		val submitted = assertNotNull(submittedDeck)
+		val admittedBinding = observedBinding(submitted)
+		submittedAdmission = ReaderDeckAdmissionCapability(
+			hostEpoch = 1L,
+			admissionId = submitted.generationId,
+			authorityVersion = paige.navic.reader.ReaderPresentationReceiptVersion(
+				1L,
+				admittedBinding.publicationIdentity,
+				submitted.generationId
+			),
+			viewerGeneration = 1L,
+			originDecisionIdentity = assertNotNull(
+				readerDeckAdmissionDecisionIdentityOrNull(decision, admittedBinding)
+			),
+			originBinding = admittedBinding,
+			presentationToken = decision.rendererCallbackTokenOrNull(),
+			lineageId = null,
+			profileGeneration = admittedBinding.profileGeneration,
+			preparationGeneration = submitted.preparationGeneration,
+			rasterGeneration = submitted.rasterEpoch,
+			textureGeneration = submitted.generationId,
+			role = ReaderDeckSubmissionRole.Active,
+			slot = ReaderDeckAdmissionSlot.Active
+		)
+		materialBindings[submitted.generationId] = admittedBinding
 		deck = null
 		val partial = observedBinding(null)
 		assertNull(partial.rasterGeneration)
@@ -569,9 +591,19 @@ private class ReaderPresentationSequenceFixture {
 
 	fun completeBackgroundTextureDeck() {
 		val completed = assertNotNull(submittedDeck)
-		assertTrue(readerAcceptedDeckCallbackMatches(assertNotNull(submittedFence), decision,
-			completed.preparationGeneration, completed.rasterEpoch, completed.generationId),
-			"Completion must pass the actual captured renderer fence, without retagging")
+		val admission = assertNotNull(submittedAdmission)
+		assertEquals(
+			admission.originBinding,
+			readerAcceptedDeckBindingOrNull(
+				decision.targetBinding,
+				assertNotNull(state.binding).profileGeneration,
+				completed.preparationGeneration,
+				completed.rasterEpoch,
+				completed.generationId
+			),
+			"Completion must pass the immutable renderer admission without retagging"
+		)
+		assertEquals(admission.presentationToken, decision.rendererCallbackTokenOrNull())
 		val cover = decision.frameOwner
 		val previous = assertNotNull(state.binding)
 		deck = completed
@@ -583,23 +615,32 @@ private class ReaderPresentationSequenceFixture {
 		assertEquals(replacement, reporter.lastReportedBinding)
 		assertEquals(cover, decision.frameOwner, "Texture completion cannot replace the committed cover receipt")
 		submittedDeck = null
-		submittedFence = null
+		submittedAdmission = null
 		synchronizeHost()
 	}
 
-	fun assertOldFenceRejectedThenVisibleTimeout() {
+	fun assertOldAdmissionRejectedThenVisibleTimeout() {
 		val submitted = assertNotNull(submittedDeck)
-		val fence = assertNotNull(submittedFence)
+		val admission = assertNotNull(submittedAdmission)
 		val cover = decision.frameOwner
 		val token = decision.pendingTransitionToken
-		assertFalse(readerAcceptedDeckCallbackMatches(fence, decision,
-			submitted.preparationGeneration, submitted.rasterEpoch, submitted.generationId))
-		// onDeckPrepared's rejected-fence route releases the actual accepted owner;
+		val currentBinding = readerAcceptedDeckBindingOrNull(
+			decision.targetBinding,
+			assertNotNull(state.binding).profileGeneration,
+			submitted.preparationGeneration,
+			submitted.rasterEpoch,
+			submitted.generationId
+		)
+		assertTrue(
+			currentBinding != admission.originBinding ||
+				decision.rendererCallbackTokenOrNull() != admission.presentationToken
+		)
+		// onDeckPrepared's rejected-admission route releases the actual accepted owner;
 		// no synthetic completion or token replacement is delivered to common.
-		assertTrue(releaseGate.request(fence.binding))
+		assertTrue(releaseGate.request(admission.originBinding))
 		releaseGate.completeRelease(submitted.generationId)
 		submittedDeck = null
-		submittedFence = null
+		submittedAdmission = null
 		synchronizeHost()
 		assertNull(currentCandidate())
 		assertTrue(frames.callbacks.isEmpty())
@@ -751,7 +792,7 @@ private class ReaderPresentationSequenceFixture {
 	fun assertQuiescent() {
 		assertTrue(decisions.all { it.diagnosticPresentation == ReaderDiagnosticPresentation.Hidden })
 		assertNull(submittedDeck)
-		assertNull(submittedFence)
+		assertNull(submittedAdmission)
 		assertNull(decision.pendingTransitionToken)
 		assertEquals(ReaderRequiredTransition.None, decision.requiredTransition)
 		assertNull(pendingRelocation)

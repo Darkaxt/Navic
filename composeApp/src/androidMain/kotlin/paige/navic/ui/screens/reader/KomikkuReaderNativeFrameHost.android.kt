@@ -83,6 +83,7 @@ import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderNativePagePresentationProof
+import paige.navic.reader.ReaderNativePagePresentationRequest
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLayer
 import paige.navic.reader.ReaderPresentationLifecycleEvent
@@ -206,7 +207,7 @@ internal data class ReaderPresentationReceiptAdmission(
 	val postShellCoverVisible: Boolean
 )
 
-internal class ReaderPresentationBindingReporter {
+internal class ReaderPresentationBindingReporter : ReaderDeckAdmissionLeaseHost {
 	var lastReportedBinding: ReaderPresentationBinding? = null
 		private set
 	var expectedReaderSessionGeneration: Long? = null
@@ -219,6 +220,7 @@ internal class ReaderPresentationBindingReporter {
 	private var authoritativeShellCoverVisible: Boolean = false
 	private var authoritativeLifecycle: ReaderPresentationLifecycleState =
 		ReaderPresentationLifecycleState.Foreground
+	private var nextDeckAdmissionId = 0L
 
 	fun reset(
 		expectedReaderSessionGeneration: Long? = null,
@@ -310,6 +312,64 @@ internal class ReaderPresentationBindingReporter {
 
 	fun matchesAuthoritativePresentationDecision(decision: ReaderPresentationDecision): Boolean =
 		authoritativeState?.let(::readerPresentationDecision) == decision
+
+	override fun reserve(request: ReaderDeckAdmissionRequest): ReaderDeckAdmission? {
+		val admissionId = Math.incrementExact(nextDeckAdmissionId)
+		val capability = readerDeckAdmissionCapabilityOrNull(
+			authority = captureDeckAdmissionAuthorityOrNull(),
+			admissionId = admissionId,
+			request = request
+		) ?: return null
+		nextDeckAdmissionId = admissionId
+		return ReaderDeckAdmission(capability)
+	}
+
+	override fun currency(
+		admission: ReaderDeckAdmission,
+		observedDecision: ReaderPresentationDecision?
+	): ReaderDeckAdmissionCurrency = readerDeckAdmissionAuthorityCurrency(
+		authority = captureDeckAdmissionAuthorityOrNull(),
+		admission = admission,
+		observedDecision = observedDecision
+	)
+
+	override fun isCurrent(admission: ReaderDeckAdmissionCapability): Boolean =
+		readerDeckAdmissionAuthorityMatches(
+			authority = captureDeckAdmissionAuthorityOrNull(),
+			admission = admission
+		)
+
+	override fun isOwnerCurrent(admission: ReaderDeckAdmissionCapability): Boolean =
+		readerDeckAdmissionOwnerAuthorityMatches(
+			authority = captureDeckAdmissionAuthorityOrNull(),
+			admission = admission
+		)
+
+	private fun captureDeckAdmissionAuthorityOrNull(): ReaderDeckAdmissionAuthoritySnapshot? {
+		val viewerGeneration = expectedReaderSessionGeneration ?: return null
+		val version = authoritativeVersion ?: return null
+		val state = authoritativeState ?: return null
+		val binding = lastReportedBinding ?: return null
+		if (
+			authoritativeLifecycle != ReaderPresentationLifecycleState.Foreground ||
+			state.lifecycle != ReaderPresentationLifecycleState.Foreground ||
+			state.binding != binding ||
+			expectedPublicationIdentity != binding.publicationIdentity ||
+			version.readerSessionGeneration != viewerGeneration ||
+			version.publicationIdentity != binding.publicationIdentity
+		) return null
+		return ReaderDeckAdmissionAuthoritySnapshot(
+			hostEpoch = hostEpoch,
+			authorityVersion = version,
+			viewerGeneration = viewerGeneration,
+			lifecycle = authoritativeLifecycle,
+			bindingSeed = binding,
+			presentationToken = readerPresentationDecision(state)
+				.rendererCallbackTokenOrNull(),
+			decision = readerPresentationDecision(state),
+			rendererSuccessorReceipt = state.rendererSuccessorReceipt
+		)
+	}
 
 	fun captureEpoch(): Long = hostEpoch
 
@@ -1754,6 +1814,11 @@ internal class ReaderLegacyLivePointerStream {
 	}
 }
 
+private data class DeferredVisibilityRestorePreparation(
+	val request: ReaderNativePagePresentationRequest,
+	val preparationFloor: Long
+)
+
 private class KomikkuReaderNativeViewerContainer(context: Context) :
 	FrameLayout(context),
 	ReaderSettingsWebViewMutationHost {
@@ -1862,6 +1927,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 	private val presentationBindingReporter = ReaderPresentationBindingReporter()
 	private val presentationLifecycleDelivery = ReaderPresentationLifecycleDelivery()
+	private var deferredVisibilityRestorePreparation: DeferredVisibilityRestorePreparation? = null
+	private var visibilityRestorePreparationRetryInProgress = false
 	private val presentationReceiptDispatcher = ReaderPresentationReceiptDispatcher(
 		bindingReporter = presentationBindingReporter,
 		lifecycleDelivery = presentationLifecycleDelivery,
@@ -2033,6 +2100,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		foregroundWebViewOwnership = foregroundWebViewOwnership,
 		presentedFrameSequenceSource = ::nextLiveEnginePresentedFrameSequence,
 		presentationHostEpoch = presentationBindingReporter::captureEpoch,
+		deckAdmissionHost = presentationBindingReporter,
 		initialLiveNativeProofIsCurrent = ::initialLiveNativeProofIsCurrent,
 		initialLiveDecisionIsAuthoritative = presentationBindingReporter::matchesAuthoritativePresentationDecision,
 		bundleSource = pageTurnBundleSource,
@@ -2888,6 +2956,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			observedWindowVisible = lastPresentationWindowVisible,
 			initialLifecycle = state.lifecycle
 		)
+		deferredVisibilityRestorePreparation = null
 		pendingRendererLossCancellationIdentity = null
 		lastReportedPresentationFacts = null
 		nativePagePresentationPublisher.update()
@@ -2913,10 +2982,66 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun retryPresentationLifecycleDelivery(): ReaderPresentationEventReceipt? {
 		val receipt = presentationLifecycleDelivery.retry(::dispatchPresentationEvent)
+		captureDeferredVisibilityRestorePreparation(receipt)
+		retryDeferredVisibilityRestorePreparation()
 		if (!presentationLifecycleDelivery.hasPendingRendererLoss) {
 			pendingRendererLossCancellationIdentity = null
 		}
 		return receipt
+	}
+
+	private fun captureDeferredVisibilityRestorePreparation(
+		receipt: ReaderPresentationEventReceipt?
+	) {
+		val event = (receipt?.event as? ReaderPresentationEvent.Lifecycle)?.event ?: return
+		if (event == ReaderPresentationLifecycleEvent.PublicationClosed) {
+			deferredVisibilityRestorePreparation = null
+			return
+		}
+		if (event != ReaderPresentationLifecycleEvent.VisibilityRestored) return
+		val state = receipt.postState
+		val request = (state.authority as? ReaderPresentationAuthority.BlockingPreparation)
+			?.nativePresentationRequest
+		val floor = request?.retryAfterPreparationGeneration
+		deferredVisibilityRestorePreparation = if (
+			request?.binding == state.binding && floor != null
+		) {
+			DeferredVisibilityRestorePreparation(request, floor)
+		} else {
+			null
+		}
+	}
+
+	private fun retryDeferredVisibilityRestorePreparation() {
+		val obligation = deferredVisibilityRestorePreparation ?: return
+		if (latestRasterPreparationState.preparationGeneration > obligation.preparationFloor) {
+			deferredVisibilityRestorePreparation = null
+			return
+		}
+		val decision = presentationDecision
+		val request = (decision?.authority as? ReaderPresentationAuthority.BlockingPreparation)
+			?.nativePresentationRequest
+		if (
+			decision?.lifecycle != ReaderPresentationLifecycleState.Foreground ||
+			decision.targetBinding != obligation.request.binding ||
+			request != obligation.request
+		) {
+			deferredVisibilityRestorePreparation = null
+			return
+		}
+		if (visibilityRestorePreparationRetryInProgress) return
+		visibilityRestorePreparationRetryInProgress = true
+		try {
+			retryCurrentPreparation(obligation.preparationFloor)
+		} finally {
+			visibilityRestorePreparationRetryInProgress = false
+		}
+		if (
+			deferredVisibilityRestorePreparation == obligation &&
+			latestRasterPreparationState.preparationGeneration > obligation.preparationFloor
+		) {
+			deferredVisibilityRestorePreparation = null
+		}
 	}
 
 	private fun reportPresentationWindowVisibility(visible: Boolean) {

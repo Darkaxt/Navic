@@ -28,13 +28,24 @@ class ReaderWhispersyncCompanionProgressSourceTest {
 
 	@Test
 	fun readerScreenLoadsWhispersyncAudiobookPlanWithCompanionAwareResumeProgress() {
-		val readerScreen = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt")
-			.readText()
+		val readerScreen = sourceFile(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+		val orchestration = sourceFile(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPublicationReadyOrchestration.kt"
+		).readText()
 
 		assertContains(
-			readerScreen,
+			orchestration,
 			"binderyAudiobookResumeProgressForWhispersyncReader(",
 			message = "Whispersync reader sessions must use the same newest direct-or-companion resume policy as the audiobook player, not stale direct audiobook progress only."
+		)
+		assertContains(readerScreen, "val publicationReadyOrchestration = remember(")
+		assertContains(readerScreen, "ReaderPublicationReadyOrchestration(")
+		assertContains(
+			readerScreen,
+			"publicationReadyOrchestration.handle(",
+			message = "ReaderScreen must invoke its publication-ready orchestration so the extracted resume policy is live production behavior."
 		)
 	}
 
@@ -43,10 +54,12 @@ class ReaderWhispersyncCompanionProgressSourceTest {
 		val readerScreen = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt")
 			.readText()
 
-		assertContains(
-			readerScreen,
-			"coordinator.dispatch { reportWhispersyncLoadFailure(",
-			message = "Whispersync sidecar or paired-audiobook load failures must surface through controller-owned native status, not only logs."
+		assertEquals(
+			2,
+			Regex("""coordinator\.dispatch\s*\{\s*reportWhispersyncLoadFailure\(""")
+				.findAll(readerScreen)
+				.count(),
+			message = "Whispersync sidecar and paired-audiobook load failures must surface through controller-owned native status, not only logs."
 		)
 	}
 
