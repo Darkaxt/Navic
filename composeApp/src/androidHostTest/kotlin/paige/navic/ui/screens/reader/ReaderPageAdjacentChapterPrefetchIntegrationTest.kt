@@ -305,6 +305,134 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun postReadyCanonicalManifestDeferralExhaustionPreservesInteractiveReady() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			autoStartRequestedPrewarm = true
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+			val refillStateStart = fixture.states.size
+			val refillStartCount = fixture.prewarm.starts.size
+
+			fixture.startCurrentChapterPreparation()
+			fixture.prewarm.completeDeferred(
+				reason = "canonical-rendered-destination-absent",
+				stage = "passive-manifest"
+			)
+			assertTrue(fixture.controller.onCanonicalLiveCommitIssued())
+			assertNotNull(fixture.prewarm.active)
+			fixture.prewarm.completeDeferred(
+				reason = "canonical-rendered-destination-absent",
+				stage = "passive-manifest"
+			)
+
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+			assertEquals(refillStartCount + 2, fixture.prewarm.starts.size)
+			assertEquals(null, fixture.prewarm.active)
+			assertFalse(
+				fixture.states.drop(refillStateStart).any { state ->
+					state.phase == ReaderPagePreparationPhase.Failed
+				}
+			)
+			assertIs<ReaderPageNewPointerDecision.Accept>(
+				readerPageOperationPolicy(fixture.latestState.readiness).newPointer
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun postReadyUnavailablePassiveHostPreservesInteractiveReady() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			val refillStateStart = fixture.states.size
+			fixture.passiveOwner.currentPort.setAvailable(false)
+
+			assertTrue(fixture.controller.prewarmAdjacent())
+
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+			assertFalse(
+				fixture.states.drop(refillStateStart).any { state ->
+					state.phase == ReaderPagePreparationPhase.Failed
+				}
+			)
+			assertIs<ReaderPageNewPointerDecision.Accept>(
+				readerPageOperationPolicy(fixture.latestState.readiness).newPointer
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun postReadyCapacityReachedPreservesInteractiveReady() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			val refillStateStart = fixture.states.size
+
+			fixture.startCurrentChapterPreparation()
+			val refill = assertNotNull(fixture.prewarm.active)
+			fixture.prewarm.completeCapacityReached(refill.targets.last().pageIndex)
+
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+			assertFalse(
+				fixture.states.drop(refillStateStart).any { state ->
+					state.phase == ReaderPagePreparationPhase.Failed
+				}
+			)
+			assertIs<ReaderPageNewPointerDecision.Accept>(
+				readerPageOperationPolicy(fixture.latestState.readiness).newPointer
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun initialCapacityReachedRemainsBlockingAndRetryable() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			val initial = assertNotNull(fixture.prewarm.active)
+
+			fixture.prewarm.completeCapacityReached(initial.targets.last().pageIndex)
+
+			assertEquals(ReaderPagePreparationPhase.Failed, fixture.latestState.phase)
+			assertTrue(fixture.latestState.retryable)
+			assertIs<ReaderPageNewPointerDecision.Reject>(
+				readerPageOperationPolicy(fixture.latestState.readiness).newPointer
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun passiveBackgroundCancellationNeverEntersForegroundRestorationRecovery() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)

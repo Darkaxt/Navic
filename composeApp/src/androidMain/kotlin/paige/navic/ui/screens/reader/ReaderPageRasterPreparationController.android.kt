@@ -525,6 +525,17 @@ internal class ReaderPageRasterPreparationController(
 		onRequestPrewarm()
 	}
 
+	private fun publishRetainedReadyAfterPassiveRefillFailure(): Boolean {
+		if (
+			!hasPreparedBefore ||
+				readyPreparationGeneration != preparationGeneration
+		) return false
+		retryPreparationInProgress = false
+		pendingReadyBackgroundPrefetch = null
+		publishPreparationState(ReaderPagePreparationPhase.Ready)
+		return true
+	}
+
 	private fun failCurrentPreparationGeneration(error: String) {
 		if (failedPreparationGeneration == preparationGeneration || destroyed) return
 		failedPreparationGeneration = preparationGeneration
@@ -638,9 +649,11 @@ internal class ReaderPageRasterPreparationController(
 		) {
 			return false
 		}
-		failCurrentPreparationGeneration(
-			"Page preparation could not establish live authority."
-		)
+		if (!publishRetainedReadyAfterPassiveRefillFailure()) {
+			failCurrentPreparationGeneration(
+				"Page preparation could not establish live authority."
+			)
+		}
 		return true
 	}
 
@@ -1289,15 +1302,17 @@ internal class ReaderPageRasterPreparationController(
 					pageIndex = currentVisualPageIndex,
 					reason = "passive-raster-unavailable"
 				)
-				failedPreparationGeneration = preparationGeneration
 				retryPreparationInProgress = false
 				cancelRasterRepairs("passive-raster-unavailable")
 				cancelBackgroundPrefetch("passive-raster-unavailable")
-				publishPreparationState(
-					phase = ReaderPagePreparationPhase.Failed,
-					error = "The passive page preparation session is unavailable.",
-					retryable = true
-				)
+				if (!publishRetainedReadyAfterPassiveRefillFailure()) {
+					failedPreparationGeneration = preparationGeneration
+					publishPreparationState(
+						phase = ReaderPagePreparationPhase.Failed,
+						error = "The passive page preparation session is unavailable.",
+						retryable = true
+					)
+				}
 				return true
 			}
 			return false
@@ -1350,7 +1365,9 @@ internal class ReaderPageRasterPreparationController(
 		pendingPrewarmRetryCount = 0
 		prewarmInProgress = true
 		rasterProofPreparationGeneration = null
-		readyPreparationGeneration = null
+		if (!hasPreparedBefore) {
+			readyPreparationGeneration = null
+		}
 		pendingReadyBackgroundPrefetch = null
 		candidateChapterRange = null
 		candidateBlockingPageIndices = emptySet()
@@ -1846,6 +1863,7 @@ internal class ReaderPageRasterPreparationController(
 				preparedRepairPageIndices = candidateRepairPageIndices
 				rasterProofPreparationGeneration = preparationGeneration
 				pendingReadyBackgroundPrefetch = backgroundPrefetch
+				readyPreparationGeneration = null
 				publishReadyPreparationIfProven()
 			}
 			ReaderPageRasterBatchOutcome.Cancelled -> {
@@ -1886,9 +1904,11 @@ internal class ReaderPageRasterPreparationController(
 							reason
 						)
 					}
-					failCurrentPreparationGeneration(
-						"Page preparation did not become ready."
-					)
+					if (!publishRetainedReadyAfterPassiveRefillFailure()) {
+						failCurrentPreparationGeneration(
+							"Page preparation did not become ready."
+						)
+					}
 				} else {
 					deferredPrewarmDiagnostic = preparationDiagnostic
 					publishPreparationState(ReaderPagePreparationPhase.Preparing)
@@ -1905,9 +1925,11 @@ internal class ReaderPageRasterPreparationController(
 						ReaderPagePreparationDiagnosticState.Failed
 					)
 				}
-				failCurrentPreparationGeneration(
-					"Page ${outcome.pageIndex + 1} could not be stored."
-				)
+				if (!publishRetainedReadyAfterPassiveRefillFailure()) {
+					failCurrentPreparationGeneration(
+						"Page ${outcome.pageIndex + 1} could not be stored."
+					)
+				}
 			}
 			is ReaderPageRasterBatchOutcome.Failed -> {
 				preparationDiagnostic?.let { operation ->
@@ -1920,7 +1942,9 @@ internal class ReaderPageRasterPreparationController(
 					ReaderPageRasterPreparationControllerTag,
 					"Page raster preparation failed ${outcome.diagnostic}"
 				)
-				failCurrentPreparationGeneration(outcome.userMessage)
+				if (!publishRetainedReadyAfterPassiveRefillFailure()) {
+					failCurrentPreparationGeneration(outcome.userMessage)
+				}
 			}
 		}
 		if (outcome != ReaderPageRasterBatchOutcome.Ready) {
