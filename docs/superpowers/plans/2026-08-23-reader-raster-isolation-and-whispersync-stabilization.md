@@ -11,6 +11,9 @@ presentation visually atomic without changing Foliate or PlayLikeCurl authority.
 **Active Stage 6 corrective specification:**
 `docs/superpowers/specs/2026-09-13-reader-resumable-transition-coordinator-design.md`
 
+**Active Stage 6 corrective implementation plan:**
+`docs/superpowers/plans/2026-09-13-reader-resumable-transition-coordinator.md`
+
 **Superseded Android control-plane specification and implementation plan:**
 
 - `docs/superpowers/specs/2026-09-01-reader-hierarchical-presentation-authority-design.md`
@@ -19,11 +22,11 @@ presentation visually atomic without changing Foliate or PlayLikeCurl authority.
   — historical implementation record; do not resume it or patch its distributed
   callback control plane.
 
-The active coordinator specification is release-blocking. Its implementation plan
-must be written only after written-spec review. The replacement consolidates visual
-ownership, interaction, deck admission, lifecycle, deadlines, deferred wakes, and
-release accounting under one resumable Android transition owner because the prior
-hierarchical implementation failed the decisive consecutive emulator gate.
+The active coordinator specification and implementation plan are release-blocking.
+The replacement consolidates visual ownership, interaction, deck admission,
+lifecycle, deadlines, deferred wakes, and release accounting under one resumable
+Android transition owner because the prior hierarchical implementation failed the
+decisive consecutive emulator gate.
 
 **Delivery style:** Each stage is a focused TDD checkpoint. Group coherent RED
 tests, run one focused RED gate, implement only the stage contract, run one
