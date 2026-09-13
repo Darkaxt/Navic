@@ -662,7 +662,7 @@ Every row is a Task384 implementation and audit obligation.
 | Input settlement host controller | 7, 8, 10 | pointer/gesture/cancel → apply lease/cancel | gesture + settlement deadline | no local grant policy |
 | Raster preparation controller | 4, 8, 10 | progress/proof/defer/failure → prepare/cancel | exact generation/profile/binding, 10/30 seconds | passive-resource ledger; no readiness consequence |
 | Deferred raster retry coordinator | 8, 10 | typed deferral → persist/consume/cancel | 15 minutes or one restoration | exact finite wake; file deleted |
-| Deck admission and lease host | 3, 4, 10 | reserved/owned/prepared/rejected/released/capacity → reserve/build/release | material deadline | one ledger key; host currency deleted |
+| Deck admission and lease host | 3, 4, 10 | Task 3 exact-key ledger and inactive cutover protocol; Task 4 coordinator-issued lease and reserved/owned/prepared/rejected/released/capacity facts → reserve/build/release | material deadline; Task 4 owns the sole atomic production activation | one ledger key; host currency deleted |
 | PlayLikeCurl Foliate controller local transition writers | 4, 5, 7, 10 | deck/curl/settlement/renderer → deck/semantic/frame/release | exact ownership; 5-second settlement | ledger; listed writers absent |
 | Deck recovery coordinator | 4, 10 | repair/deck/capacity → reserve/build/release | 10/30 seconds | submitted/unsubmitted ledger; file deleted |
 | Process state and ViewModel | 8, 10 | `Restored` → consume/request fresh facts | 15 minutes/one use | no coordinator fields in UI snapshot |
@@ -886,7 +886,7 @@ bounded enums/counts.
 Stage exact changed paths, verify the cached diff, commit
 `feat(reader): add transition coordinator shadow journal`, and push.
 
-### Task 3: Centralize release accounting and cut over deck admission
+### Task 3: Centralize release accounting and prepare deck-admission cutover
 
 **Files:**
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderResumableTransitionCoordinator.android.kt`
@@ -935,16 +935,24 @@ ownership-before-callback, and retains the release-only sink after close timeout
 
 Expected: no coordinator ledger exists and deck currency remains host-local.
 
-- [ ] **Step 3: Implement exact release states and activation order**
+- [ ] **Step 3: Implement exact release states and the inactive cutover protocol**
 
 ```kotlin
 internal enum class ReaderTransitionResourceState { Owned, ReleaseCommandIssued, Released }
 
 internal class ReaderTransitionReleaseLedger {
     private val states = linkedMapOf<ReaderTransitionResourceKey, ReaderTransitionResourceState>()
+    private val earlyReleasedKeys = linkedSetOf<ReaderTransitionResourceKey>()
 
-    fun register(key: ReaderTransitionResourceKey): Boolean =
-        states.putIfAbsent(key, ReaderTransitionResourceState.Owned) == null
+    fun register(key: ReaderTransitionResourceKey): Boolean {
+        if (key in states) return false
+        if (earlyReleasedKeys.remove(key)) {
+            states[key] = ReaderTransitionResourceState.Released
+            return false
+        }
+        states[key] = ReaderTransitionResourceState.Owned
+        return true
+    }
 
     fun requestRelease(key: ReaderTransitionResourceKey): ReaderTransitionCommand.ReleaseResource? {
         if (states[key] != ReaderTransitionResourceState.Owned) return null
@@ -953,26 +961,37 @@ internal class ReaderTransitionReleaseLedger {
     }
 
     fun confirmReleased(key: ReaderTransitionResourceKey): Boolean {
-        if (states[key] != ReaderTransitionResourceState.ReleaseCommandIssued) return false
+        if (states[key] == ReaderTransitionResourceState.Released || key in earlyReleasedKeys) return false
+        if (key !in states) {
+            check(earlyReleasedKeys.size < 32)
+            earlyReleasedKeys += key
+            return true
+        }
         states[key] = ReaderTransitionResourceState.Released
         return true
     }
 }
 ```
 
-Activation order is freeze legacy admission → inventory all owned/pending/discovered
+Implement and test freeze legacy admission → inventory all owned/pending/discovered
 resources → import ledger keys → adopt at most one provable predecessor → release and
-confirm all others → atomically close legacy admission and open coordinator
-admission. Never fall back during that reader session.
+confirm all others → atomically close legacy admission and open coordinator admission
+as inactive infrastructure. Task 3 does not invoke this protocol from production or
+open coordinator admission: the production policy remains `LegacyOnly`, with legacy
+as the sole writer. Task 4 performs the first and only production activation after it
+can assign exact coordinator-issued resource identities to every live deck and
+callback. Once activated, never fall back during that reader session.
 
 - [ ] **Step 4: Run focused GREEN**
 
-Run Step 2. Expected: exact-once release and no dual writer.
+Run Step 2. Expected: exact-once release and cutover protocol pass while the
+production `LegacyOnly` policy keeps legacy as the sole writer.
 
-- [ ] **Step 5: MAIN records privacy-safe counts, commits, and pushes**
+- [ ] **Step 5: MAIN records privacy-safe protocol counts, commits, and pushes**
 
-Record only inventory/adoption/release counts and activation outcome. Commit
-`feat(reader): centralize deck admission ownership` and push.
+Record only inventory/adoption/release counts and the preparatory protocol outcome.
+Do not claim production activation. Commit
+`feat(reader): prepare deck admission cutover` and push.
 
 ### Task 4: Convert raster, renderer callbacks, and recovery into ports
 
@@ -1024,6 +1043,13 @@ port boundary. Renderer callbacks emit facts only. Release methods execute only
 coordinator `ReleaseResource`; preparation phase/proof emits facts only.
 `completeObservedDeckAdmission`, `retryAwaitingDeckAdmission`, and standalone local
 recovery progression become unreachable.
+
+Only after every live legacy deck can be inventoried as an exact
+`ReaderTransitionResourceKey`, every renderer callback can emit a fact bearing its
+`ReaderTransitionId`, and the host close path drives the coordinator close deadline
+and release-only sink may Task 4 invoke freeze → inventory → adopt/drain → atomic
+activation. Otherwise the `LegacyOnly` production policy remains in force and legacy
+remains the sole writer.
 
 - [ ] **Step 4: Run focused GREEN**
 

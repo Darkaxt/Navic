@@ -394,8 +394,11 @@ suspension-and-coalescing path instead of forcing a new renderer API.
 3. **Slice 1 — shadow journal:** introduce typed transition identity, facts, phases,
    outcomes, deterministic clock, and non-reentrant mailbox. Compare privacy-safe
    predicted decisions while legacy code remains the sole consequence writer.
-4. **Slice 2 — deck admission:** freeze legacy admissions, inventory/adopt/drain
-   existing renderer resources, then atomically make coordinator leases and its
+4. **Slice 2 — deck admission:** Task384 Task 3 first establishes the exact-key
+   release ledger and fully tested freeze/inventory/adopt/drain protocol as inactive
+   infrastructure; production remains `LegacyOnly`. Task 4 is the first and only
+   production activation checkpoint: after every live renderer resource and callback
+   has an exact coordinator identity, atomically make coordinator leases and its
    release ledger the sole deck admission/readiness/release writer for each migrated
    reader session.
 5. **Slice 3 — presentation and input:** cut cover, native frame, live handoff, curl
@@ -610,6 +613,20 @@ contract is implemented and verified.
   corrected seven-file implementation. Shadow mode issues no mutating commands and
   legacy presentation remains the sole writer; this checkpoint does not claim deck
   admission cutover, runtime acceptance, or any later migration slice.
+- **Task384 Task 3 preparatory deck-cutover checkpoint:** The exact-key release ledger
+  and inactive freeze/inventory/adopt/drain protocol are implemented with bounded
+  early-confirmation latching, exact-once release accounting, callback-order
+  convergence, release-only late-resource handling, and privacy-safe count/enum
+  snapshots. Architectural adjudication established that exact renderer identities,
+  callback facts, physical release routing, and the sole atomic production activation
+  belong together in Task 4. Production therefore remains explicitly `LegacyOnly`,
+  the Task 2 coordinator remains Shadow-only, and legacy remains the sole deck writer.
+  MAIN's forced focused rerun of `ReaderTransitionReleaseLedgerTest`,
+  `ReaderDeckAdmissionCutoverTest`, `ReaderResumableTransitionCoordinatorTest`, and
+  `ReaderPresentationAuthoritySequenceTest` passed 65 tests with zero failures,
+  errors, or skips. Independent specification and code-quality reviews approved this
+  preparatory boundary. This checkpoint does not claim production cutover, physical
+  resource migration, close-timeout activation, or runtime acceptance.
 - **Current Android build/lint/compile evidence:** Task 361 MAIN independently
   verified
   `C:/Users/darka/Documents/Projects/Android/.codex-temp/task361-host-8d7a61de-v1-b0ed9aed5606480abd68ffba7b6c121e`

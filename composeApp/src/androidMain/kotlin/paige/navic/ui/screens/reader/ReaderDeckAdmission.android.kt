@@ -12,6 +12,9 @@ import paige.navic.reader.ReaderRendererSuccessorLineageId
 import paige.navic.reader.ReaderRendererSuccessorReceipt
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderShellCoverRetainedFrame
+import paige.navic.reader.ReaderTransitionFact
+import paige.navic.reader.ReaderTransitionResourceKey
+import paige.navic.reader.ReaderTransitionResourceKind
 
 internal enum class ReaderDeckAdmissionSlot {
 	Active,
@@ -263,6 +266,227 @@ internal object UnavailableReaderDeckAdmissionLeaseHost : ReaderDeckAdmissionLea
 	): ReaderDeckAdmissionCurrency = ReaderDeckAdmissionCurrency.Revoked
 	override fun isCurrent(admission: ReaderDeckAdmissionCapability): Boolean = false
 	override fun isOwnerCurrent(admission: ReaderDeckAdmissionCapability): Boolean = false
+}
+
+internal enum class ReaderDeckAdmissionProductionMode { LegacyOnly }
+
+internal object ReaderDeckAdmissionProductionPolicy {
+	val mode: ReaderDeckAdmissionProductionMode = ReaderDeckAdmissionProductionMode.LegacyOnly
+	val coordinatorActivationAvailable: Boolean = false
+
+	fun select(legacyHost: ReaderDeckAdmissionLeaseHost): ReaderDeckAdmissionLeaseHost = legacyHost
+}
+
+internal fun ReaderDeckAdmissionLeaseHost.selectedForProductionDeckAdmission():
+	ReaderDeckAdmissionLeaseHost = ReaderDeckAdmissionProductionPolicy.select(this)
+
+internal enum class ReaderLegacyDeckResourceOrigin {
+	Owned,
+	Pending,
+	Discovered
+}
+
+internal enum class ReaderLegacyPredecessorEvidence {
+	Truthful,
+	Unprovable
+}
+
+internal data class ReaderLegacyDeckResource(
+	val key: ReaderTransitionResourceKey,
+	val origin: ReaderLegacyDeckResourceOrigin,
+	val predecessorEvidence: ReaderLegacyPredecessorEvidence =
+		ReaderLegacyPredecessorEvidence.Unprovable
+) {
+	init {
+		require(key.kind == ReaderTransitionResourceKind.Deck)
+	}
+}
+
+internal sealed interface ReaderLegacyDeckInventory {
+	data object Incomplete : ReaderLegacyDeckInventory
+	data class Complete(val resources: List<ReaderLegacyDeckResource>) : ReaderLegacyDeckInventory
+}
+
+internal class ReaderDeckResourceInventoryBoundary(
+	private val inventoryIsComplete: () -> Boolean = { true }
+) {
+	private val resources = linkedSetOf<ReaderLegacyDeckResource>()
+
+	fun register(resource: ReaderLegacyDeckResource): Boolean = resources.add(resource)
+
+	fun freezeAndInventory(): ReaderLegacyDeckInventory =
+		if (inventoryIsComplete()) {
+			ReaderLegacyDeckInventory.Complete(resources.toList())
+		} else {
+			ReaderLegacyDeckInventory.Incomplete
+		}
+}
+
+internal enum class ReaderDeckAdmissionCutoverOutcome {
+	NotAttempted,
+	InventoryIncomplete,
+	Draining,
+	Activated,
+	ReleaseOnly
+}
+
+internal data class ReaderDeckAdmissionCutoverSnapshot(
+	val inventoryCount: Int,
+	val ownedCount: Int,
+	val pendingCount: Int,
+	val discoveredCount: Int,
+	val adoptedCount: Int,
+	val releaseCommandCount: Int,
+	val releaseConfirmationCount: Int,
+	val releaseOwnedCount: Int,
+	val releaseCommandIssuedCount: Int,
+	val releasedCount: Int,
+	val legacyAdmissionOpen: Boolean,
+	val coordinatorAdmissionOpen: Boolean,
+	val activationOutcome: ReaderDeckAdmissionCutoverOutcome
+)
+
+internal class ReaderDeckAdmissionCutover(
+	private val legacyAdmissionHost: ReaderDeckAdmissionLeaseHost,
+	private val coordinatorAdmissionHost: ReaderDeckAdmissionLeaseHost,
+	private val legacyInventory: () -> ReaderLegacyDeckInventory,
+	private val releaseLedger: ReaderTransitionReleaseLedger,
+	private val enqueueResourceFact: (ReaderTransitionFact) -> Unit
+) : ReaderDeckAdmissionLeaseHost {
+	private enum class WriterState { Legacy, Frozen, Coordinator, ReleaseOnly }
+
+	private val origins = linkedMapOf<ReaderTransitionResourceKey, MutableSet<ReaderLegacyDeckResourceOrigin>>()
+	private var writerState = WriterState.Legacy
+	private var adoptedKey: ReaderTransitionResourceKey? = null
+	private var activationOutcome = ReaderDeckAdmissionCutoverOutcome.NotAttempted
+
+	val legacyAdmissionOpen: Boolean
+		get() = writerState == WriterState.Legacy
+
+	val coordinatorAdmissionOpen: Boolean
+		get() = writerState == WriterState.Coordinator
+
+	val coordinatorCommandsAllowed: Boolean
+		get() = writerState == WriterState.Frozen ||
+			writerState == WriterState.Coordinator ||
+			writerState == WriterState.ReleaseOnly
+
+	fun activate(): Boolean {
+		if (writerState == WriterState.Coordinator) return true
+		if (writerState != WriterState.Legacy) return false
+		writerState = WriterState.Frozen
+		val inventory = legacyInventory()
+		if (inventory !is ReaderLegacyDeckInventory.Complete) {
+			writerState = WriterState.Legacy
+			activationOutcome = ReaderDeckAdmissionCutoverOutcome.InventoryIncomplete
+			return false
+		}
+
+		activationOutcome = ReaderDeckAdmissionCutoverOutcome.Draining
+		inventory.resources.forEach(::importResource)
+		val truthfulCandidates = origins.keys.filter { key ->
+			ReaderLegacyDeckResourceOrigin.Owned in origins.getValue(key) &&
+				inventory.resources.any {
+					it.key == key &&
+						it.predecessorEvidence == ReaderLegacyPredecessorEvidence.Truthful
+				}
+		}
+		adoptedKey = truthfulCandidates.singleOrNull()
+		origins.keys.filterNot { it == adoptedKey }.forEach(::enqueueReleaseFact)
+		completeActivationIfDrained()
+		return writerState == WriterState.Coordinator
+	}
+
+	fun observeLegacyResource(resource: ReaderLegacyDeckResource) {
+		if (writerState == WriterState.Legacy) return
+		importResource(resource)
+		if (resource.key != adoptedKey) enqueueReleaseFact(resource.key)
+	}
+
+	fun onCoordinatorResourceFactProcessed(fact: ReaderTransitionFact) {
+		if (fact is ReaderTransitionFact.ResourceReleased) completeActivationIfDrained()
+	}
+
+	fun retainReleaseOnlySinkAfterCloseTimeout() {
+		if (writerState == WriterState.Legacy) return
+		writerState = WriterState.ReleaseOnly
+		activationOutcome = ReaderDeckAdmissionCutoverOutcome.ReleaseOnly
+		adoptedKey = null
+		origins.keys.forEach(::enqueueReleaseFact)
+	}
+
+	fun snapshot(): ReaderDeckAdmissionCutoverSnapshot {
+		val releaseSnapshot = releaseLedger.snapshot()
+		return ReaderDeckAdmissionCutoverSnapshot(
+			inventoryCount = origins.size,
+			ownedCount = origins.values.count { ReaderLegacyDeckResourceOrigin.Owned in it },
+			pendingCount = origins.values.count { ReaderLegacyDeckResourceOrigin.Pending in it },
+			discoveredCount = origins.values.count {
+				ReaderLegacyDeckResourceOrigin.Discovered in it
+			},
+			adoptedCount = if (adoptedKey == null) 0 else 1,
+			releaseCommandCount = releaseSnapshot.issuedCount + releaseSnapshot.releasedCount,
+			releaseConfirmationCount = releaseSnapshot.releasedCount,
+			releaseOwnedCount = releaseSnapshot.ownedCount,
+			releaseCommandIssuedCount = releaseSnapshot.issuedCount,
+			releasedCount = releaseSnapshot.releasedCount,
+			legacyAdmissionOpen = legacyAdmissionOpen,
+			coordinatorAdmissionOpen = coordinatorAdmissionOpen,
+			activationOutcome = activationOutcome
+		)
+	}
+
+	override fun reserve(request: ReaderDeckAdmissionRequest): ReaderDeckAdmission? = when (writerState) {
+		WriterState.Legacy -> legacyAdmissionHost.reserve(request)
+		WriterState.Coordinator -> coordinatorAdmissionHost.reserve(request)
+		WriterState.Frozen,
+		WriterState.ReleaseOnly -> null
+	}
+
+	override fun currency(
+		admission: ReaderDeckAdmission,
+		observedDecision: ReaderPresentationDecision?
+	): ReaderDeckAdmissionCurrency = currentHost().currency(admission, observedDecision)
+
+	override fun isCurrent(admission: ReaderDeckAdmissionCapability): Boolean =
+		currentHost().isCurrent(admission)
+
+	override fun isOwnerCurrent(admission: ReaderDeckAdmissionCapability): Boolean =
+		currentHost().isOwnerCurrent(admission)
+
+	private fun currentHost(): ReaderDeckAdmissionLeaseHost = when (writerState) {
+		WriterState.Legacy,
+		WriterState.Frozen -> legacyAdmissionHost
+		WriterState.Coordinator,
+		WriterState.ReleaseOnly -> coordinatorAdmissionHost
+	}
+
+	private fun importResource(resource: ReaderLegacyDeckResource) {
+		origins.getOrPut(resource.key, ::linkedSetOf).add(resource.origin)
+		releaseLedger.register(resource.key)
+	}
+
+	private fun enqueueReleaseFact(key: ReaderTransitionResourceKey) {
+		val resourceOrigins = origins.getValue(key)
+		val fact = when {
+			ReaderLegacyDeckResourceOrigin.Owned in resourceOrigins ->
+				ReaderTransitionFact.DeckOwned(key.transitionId, key)
+			ReaderLegacyDeckResourceOrigin.Pending in resourceOrigins ->
+				ReaderTransitionFact.DeckReserved(key.transitionId, key)
+			else -> ReaderTransitionFact.ResourceObserved(key.transitionId, key)
+		}
+		enqueueResourceFact(fact)
+	}
+
+	private fun completeActivationIfDrained() {
+		if (writerState != WriterState.Frozen) return
+		val allDrained = origins.keys
+			.filterNot { it == adoptedKey }
+			.all { releaseLedger.stateOf(it) == ReaderTransitionResourceState.Released }
+		if (!allDrained) return
+		writerState = WriterState.Coordinator
+		activationOutcome = ReaderDeckAdmissionCutoverOutcome.Activated
+	}
 }
 
 internal fun readerAcceptedDeckBindingOrNull(

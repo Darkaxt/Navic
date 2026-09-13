@@ -26,6 +26,30 @@ internal interface ReaderResumableTransitionPorts {
 	)
 }
 
+internal class ReaderCutoverTransitionPorts(
+	private val delegate: ReaderResumableTransitionPorts,
+	private val deckCutover: ReaderDeckAdmissionCutover
+) : ReaderResumableTransitionPorts {
+	override val clock: ReaderTransitionClock
+		get() = delegate.clock
+
+	override fun issue(
+		command: ReaderTransitionCommand,
+		onFact: (ReaderTransitionFact) -> Unit
+	) {
+		when (command) {
+			is ReaderTransitionCommand.ReserveDeck -> check(deckCutover.coordinatorAdmissionOpen) {
+				"Coordinator deck admission is not active"
+			}
+			is ReaderTransitionCommand.ReleaseResource -> check(deckCutover.coordinatorCommandsAllowed) {
+				"Coordinator resource release is not active"
+			}
+			else -> Unit
+		}
+		delegate.issue(command, onFact)
+	}
+}
+
 internal class AndroidReaderTransitionClock(
 	private val handler: Handler = Handler(Looper.getMainLooper())
 ) : ReaderTransitionClock {

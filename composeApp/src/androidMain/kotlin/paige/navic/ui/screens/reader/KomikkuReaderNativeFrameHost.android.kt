@@ -2121,7 +2121,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		foregroundWebViewOwnership = foregroundWebViewOwnership,
 		presentedFrameSequenceSource = ::nextLiveEnginePresentedFrameSequence,
 		presentationHostEpoch = presentationBindingReporter::captureEpoch,
-		deckAdmissionHost = presentationBindingReporter,
+		deckAdmissionHost = presentationBindingReporter.selectedForProductionDeckAdmission(),
 		initialLiveNativeProofIsCurrent = ::initialLiveNativeProofIsCurrent,
 		initialLiveDecisionIsAuthoritative = presentationBindingReporter::matchesAuthoritativePresentationDecision,
 		bundleSource = pageTurnBundleSource,
