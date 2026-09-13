@@ -222,10 +222,15 @@ enum class ReaderTransitionFactKind {
     RasterDeferred,
     RasterFailed,
     ResourceObserved,
+    DeckReserved,
+    DeckOwned,
     DeckPrepared,
     DeckRejected,
     ResourceReleased,
     RendererCapacityAvailable,
+    HostAvailable,
+    PaginationProfileReady,
+    RendererGenerationReady,
     PreparedFrame,
     CoverPostDraw,
     WebViewExposure,
@@ -305,6 +310,10 @@ data class ReaderTransitionResourceKey(
 
 enum class ReaderTransitionProofKind {
     SemanticDestination,
+    SettlementAcknowledgement,
+    HostAvailable,
+    PaginationProfile,
+    RendererGeneration,
     Raster,
     DeckOwnership,
     DeckPrepared,
@@ -331,7 +340,7 @@ sealed interface ReaderTransitionInputLease {
     ) : ReaderTransitionInputLease
     data class ClaimedGesture(
         val transitionId: ReaderTransitionId,
-        val gestureId: Long
+        val gestureId: ReaderTransitionGestureId
     ) : ReaderTransitionInputLease
 }
 
@@ -393,8 +402,16 @@ enum class ReaderExternalRelocationSource { Toc, Search, Bookmark, Annotation, J
 sealed interface ReaderTransitionUserIntent
 sealed interface ReaderSemanticSynchronizationIntent : ReaderTransitionUserIntent
 
+@JvmInline
+value class ReaderTransitionGestureId(val value: Long) {
+    init {
+        require(value > 0L)
+    }
+}
+
 data class ReaderPageTurnIntent(
-    val direction: ReaderPageTurnDirection
+    val direction: ReaderPageTurnDirection,
+    val gestureId: ReaderTransitionGestureId
 ) : ReaderSemanticSynchronizationIntent
 
 data class ReaderExternalRelocationIntent(
@@ -444,7 +461,8 @@ sealed interface ReaderTransitionFact {
     data class RasterProven(override val transitionId: ReaderTransitionId) : ReaderTransitionFact
     data class RasterDeferred(
         override val transitionId: ReaderTransitionId,
-        val reason: ReaderTransitionDeferralReason
+        val reason: ReaderTransitionDeferralReason,
+        val resumeRecord: ReaderTransitionResumeRecord
     ) : ReaderTransitionFact
     data class RasterFailed(
         override val transitionId: ReaderTransitionId,
@@ -452,6 +470,14 @@ sealed interface ReaderTransitionFact {
     ) : ReaderTransitionFact
 
     data class ResourceObserved(
+        override val transitionId: ReaderTransitionId,
+        val key: ReaderTransitionResourceKey
+    ) : ReaderTransitionFact
+    data class DeckReserved(
+        override val transitionId: ReaderTransitionId,
+        val key: ReaderTransitionResourceKey
+    ) : ReaderTransitionFact
+    data class DeckOwned(
         override val transitionId: ReaderTransitionId,
         val key: ReaderTransitionResourceKey
     ) : ReaderTransitionFact
@@ -468,18 +494,33 @@ sealed interface ReaderTransitionFact {
         val key: ReaderTransitionResourceKey
     ) : ReaderTransitionFact
     data class RendererCapacityAvailable(override val transitionId: ReaderTransitionId?) : ReaderTransitionFact
+    data class HostAvailable(override val transitionId: ReaderTransitionId) : ReaderTransitionFact
+    data class PaginationProfileReady(
+        override val transitionId: ReaderTransitionId,
+        val profileGeneration: Long
+    ) : ReaderTransitionFact
+    data class RendererGenerationReady(
+        override val transitionId: ReaderTransitionId,
+        val rendererGeneration: Long
+    ) : ReaderTransitionFact
 
     data class PreparedFrame(
         override val transitionId: ReaderTransitionId,
-        val binding: ReaderPresentationBinding
+        val binding: ReaderPresentationBinding,
+        val frameOwner: ReaderPresentationFrameOwner,
+        val resourceKey: ReaderTransitionResourceKey
     ) : ReaderTransitionFact
     data class CoverPostDraw(
         override val transitionId: ReaderTransitionId,
-        val binding: ReaderPresentationBinding
+        val binding: ReaderPresentationBinding,
+        val frameOwner: ReaderPresentationFrameOwner,
+        val resourceKey: ReaderTransitionResourceKey
     ) : ReaderTransitionFact
     data class WebViewExposure(
         override val transitionId: ReaderTransitionId,
-        val binding: ReaderPresentationBinding
+        val binding: ReaderPresentationBinding,
+        val frameOwner: ReaderPresentationFrameOwner,
+        val resourceKey: ReaderTransitionResourceKey
     ) : ReaderTransitionFact
 
     data class VisibilityChanged(
@@ -501,13 +542,28 @@ The pure journal API used by common and Android tests is:
 ```kotlin
 data class ReaderActiveTransition(
     val id: ReaderTransitionId,
-    val phase: ReaderTransitionPhase
+    val phase: ReaderTransitionPhase,
+    val preparedFrameOwner: ReaderPresentationFrameOwner? = null,
+    val resolvedSuccessorBinding: ReaderPresentationBinding? = null,
+    val predecessorResourceKey: ReaderTransitionResourceKey? = null,
+    val ownedResourceKeys: Set<ReaderTransitionResourceKey> = emptySet(),
+    val admittedDeckKey: ReaderTransitionResourceKey? = null,
+    val pendingPreparedDeckKey: ReaderTransitionResourceKey? = null,
+    val successorResourceKey: ReaderTransitionResourceKey? = null,
+    val consumedSettlement: ReaderSettlementConsumptionKey? = null
+)
+
+data class ReaderCommittedTransition(
+    val id: ReaderTransitionId,
+    val owner: ReaderPresentationFrameOwner,
+    val binding: ReaderPresentationBinding,
+    val resourceKey: ReaderTransitionResourceKey
 )
 
 data class ReaderTransitionJournal(
     val active: ReaderActiveTransition? = null,
-    val consumedSettlements: Set<ReaderSettlementConsumptionKey> = emptySet(),
-    val lastOutcome: ReaderTransitionOutcome? = null
+    val lastOutcome: ReaderTransitionOutcome? = null,
+    val committed: ReaderCommittedTransition? = null
 ) {
     fun reduce(
         fact: ReaderTransitionFact,
@@ -522,8 +578,12 @@ data class ReaderTransitionReduction(
 ```
 
 `readerTransitionJournalReduce` is pure and exhaustive over operation, phase, and
-fact. It records settlement consumption in the returned state before returning any
-commands.
+fact. It records at most one settlement consumption key on the active transition
+before returning consequences, clears that key with the physical attempt, and never
+inherits it into a successor transition. Resource-bearing facts are classified as
+registration/observation, release confirmation, accepted proof, or rejected
+resource disposition; one exact-key helper deduplicates release commands while
+protecting only the truthful predecessor or committed successor.
 
 The common command hierarchy uses only common types:
 
@@ -616,8 +676,9 @@ Every row is a Task384 implementation and audit obligation.
 - Create: `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderResumableTransition.kt`
 - Create: `composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderResumableTransitionModelTest.kt`
 - Create: `composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderResumableTransitionLivenessTest.kt`
-- Modify: `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderPresentationAuthority.kt`
+- Verify only: `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderPresentationAuthority.kt`
 - Modify: `docs/superpowers/plans/2026-08-23-reader-raster-isolation-and-whispersync-stabilization.md`
+- Modify: `docs/superpowers/plans/2026-09-13-reader-resumable-transition-coordinator.md`
 
 - [ ] **Step 1: Write grouped RED tests**
 
@@ -638,10 +699,12 @@ fun everyNonTerminalPhaseNamesAllSixLivenessFields() {
 
 @Test
 fun matchingSettlementIsConsumedOnceBeforeConsequences() {
-    val first = journalAwaitingSettlement().reduce(matchingSettlementFact())
-    assertEquals(1, first.state.consumedSettlements.size)
+    val fixture = journalAwaitingSettlement()
+    val fact = matchingSettlementFact(fixture)
+    val first = fixture.journal.reduce(fact)
+    assertEquals(fixture.id, first.state.active?.consumedSettlement?.transitionId)
     assertTrue(first.commands.none { it is ReaderTransitionCommand.ApplyInputLease })
-    val duplicate = first.state.reduce(matchingSettlementFact())
+    val duplicate = first.state.reduce(fact)
     assertTrue(duplicate.commands.isEmpty())
     assertEquals(first.state, duplicate.state)
 }
@@ -680,7 +743,12 @@ Use the shared signatures above. `Deferred` removes the active physical attempt 
 retains only `ReaderTransitionResumeRecord`. External relocation revokes page input,
 retains the predecessor as a noninteractive shield, demands fresh raster/deck/frame
 proof, and releases the predecessor only after successor commit or terminal
-replacement/close.
+replacement/close. Matching current reservation/observation facts register exact
+resource keys; `ResourceReleased` is confirmation-only; rejected or stale
+resource-bearing facts use one deduplicating disposition rule that never releases the
+truthful predecessor shield. `PublicationClose` rejects successors, and tagged close
+acknowledgements require the exact active close identity. Settlement consumption is
+one active-transition key, never a session-history collection.
 
 - [ ] **Step 4: Run focused GREEN**
 
@@ -689,7 +757,8 @@ proof, deadline, retained owner, input lease, terminal outcome, and finite wake.
 
 - [ ] **Step 5: MAIN audits, documents, commits, and pushes**
 
-Record Slice 1 as shadow-only. MAIN stages only the five paths above, runs
+Record Slice 1 as shadow-only. MAIN stages only the three Task 1 Kotlin files and
+the two plan documents above, runs
 `git diff --cached --check`, commits `feat(reader): define resumable transition model`
 with the required co-author footer, and pushes to
 `fork/fix/foreground-webview-handoff-ownership`.
