@@ -8,17 +8,22 @@ presentation visually atomic without changing Foliate or PlayLikeCurl authority.
 **Specification:**
 `docs/superpowers/specs/2026-08-23-reader-raster-isolation-and-whispersync-stabilization-design.md`
 
-**Stage 6 corrective specification:**
-`docs/superpowers/specs/2026-09-01-reader-hierarchical-presentation-authority-design.md`
+**Active Stage 6 corrective specification:**
+`docs/superpowers/specs/2026-09-13-reader-resumable-transition-coordinator-design.md`
 
-**Stage 6 corrective implementation plan:**
-`docs/superpowers/plans/2026-09-01-reader-hierarchical-presentation-authority.md`
+**Superseded Android control-plane specification and implementation plan:**
 
-The corrective specification and implementation plan are release-blocking. They
-centralize visual ownership, interaction policy, shell-cover transactions,
-preparation presentation, and lifecycle semantics after bounded production testing
-exposed cross-component behavioral regressions that component-local managers did
-not prevent.
+- `docs/superpowers/specs/2026-09-01-reader-hierarchical-presentation-authority-design.md`
+  — retain its visual policy and semantic boundaries only.
+- `docs/superpowers/plans/2026-09-01-reader-hierarchical-presentation-authority.md`
+  — historical implementation record; do not resume it or patch its distributed
+  callback control plane.
+
+The active coordinator specification is release-blocking. Its implementation plan
+must be written only after written-spec review. The replacement consolidates visual
+ownership, interaction, deck admission, lifecycle, deadlines, deferred wakes, and
+release accounting under one resumable Android transition owner because the prior
+hierarchical implementation failed the decisive consecutive emulator gate.
 
 **Delivery style:** Each stage is a focused TDD checkpoint. Group coherent RED
 tests, run one focused RED gate, implement only the stage contract, run one
@@ -40,7 +45,12 @@ After every stage:
 4. For every deferral, record the latest stage where it must be completed.
 5. Stop the stage if any blocker remains. Do not compensate with fixed delays,
    retries over stale state, native EPUB inference, or a shared-WebView fallback.
-6. Commit and push the verified checkpoint. Keep `.codex-validation` local.
+6. For every coordinator migration slice, reconcile every row of the active
+   specification's legacy-writer replacement map. Record its sole writer,
+   replacement fact and command, deadline, proof, terminal outcome, release rule,
+   wake source, test evidence, and legacy deletion status. Discovery of an unmapped
+   writer is a blocker, not an implicit deferral.
+7. Commit and push the verified checkpoint. Keep `.codex-validation` local.
 
 Prefer deferral when implementing a requirement now would create unused
 abstractions or speculative integration. Prefer blocking when the next stage
@@ -369,40 +379,50 @@ suspension-and-coalescing path instead of forcing a new renderer API.
 
 ### Steps
 
-1. Cross-check all specification acceptance items and close every deferral whose
-   consumer now exists.
-2. Run consolidated JavaScript, common, Android host, renderer, build, and lint
-   gates with no test failures.
-3. Before resuming emulator acceptance, implement the production-available,
-   opt-in Whispersync cue map defined below. Group its RED tests, run one focused
-   RED boundary, implement only the cue-map/hold-to-seek contract, and run one
-   focused GREEN boundary.
-4. Freeze a new ReaderDev APK from the pushed cue-map commit and run the focused
-   synthetic emulator acceptance. The first checks are: **is the cue overlay
-   rendering?** and **are its visible cue ordinals in reading order?** Then cover
-   initial highlight, Stop/Start, provenance, page-end pause, Retry, passive
-   isolation, and curl material.
-5. Treat any non-monotonic visible cue order as a hard mapping-authority blocker.
-   Halt playback and device acceptance, classify the coordinate boundary from the
-   exact sidecar and EPUB without retaining protected text, and complete the
-   canonical Bindery-to-Foliate text-mapping amendment below before any further
-   live testing.
-6. Group the canonical-mapping RED tests, run one focused RED boundary, implement
-   the coordinated Bindery contract and Foliate projection, run one focused GREEN
-   boundary, then run the consolidated JavaScript/common mapping gate. Regenerate
-   the selected sidecar under the new contract and invalidate only incompatible
-   cached generations.
-7. Freeze and publish a new production-signed candidate from the pushed mapping
-   checkpoint. First prove on the focused emulator that the configured paired
-   book's visible cue ordinals are monotonic and that every admitted cue carries
-   matching canonical-text proof; only then resume physical-device work.
-8. With explicit device ownership, run only the first two landscape pages of
-   Chapter 1 on the approved tablet using privacy-safe evidence.
-9. Classify any remaining cue mismatch as backend data, frontend mapping, or
-   unresolved. Fix it now if it violates the specification or blocks the bounded
-   acceptance.
-10. Re-run only the gates affected by a necessary correction, then run the final
-    consolidated gate once.
+1. Preserve the completed cue-map, canonical Bindery-to-Foliate mapping, WordSync,
+   and prior Stage 6 evidence as historical prerequisites. Do not reinterpret the
+   failed distributed authority implementation as accepted runtime evidence.
+2. Complete written review of
+   `docs/superpowers/specs/2026-09-13-reader-resumable-transition-coordinator-design.md`,
+   then write its task-level implementation plan. Carry the specification's complete
+   legacy-writer replacement map into that plan as the mandatory migration ledger.
+   Close Task383 only after that review/plan handoff; Task384 exclusively owns the
+   five implementation slices.
+3. **Slice 1 — shadow journal:** introduce typed transition identity, facts, phases,
+   outcomes, deterministic clock, and non-reentrant mailbox. Compare privacy-safe
+   predicted decisions while legacy code remains the sole consequence writer.
+4. **Slice 2 — deck admission:** freeze legacy admissions, inventory/adopt/drain
+   existing renderer resources, then atomically make coordinator leases and its
+   release ledger the sole deck admission/readiness/release writer for each migrated
+   reader session.
+5. **Slice 3 — presentation and input:** cut cover, native frame, live handoff, curl
+   settlement, layer visibility, and physical input over together. Host, bridge,
+   controller, and Compose become fact/command adapters; no dual writer or fallback
+   to legacy consequences is permitted.
+6. **Slice 4 — lifecycle, reflow, and persistence:** route visibility, restore,
+   renderer loss, viewport/profile replacement, close, deadlines, and bounded opaque
+   wake persistence through the coordinator. Remove independent lifecycle/retry
+   queues and local deadlines only after their replacement rows are proven.
+7. **Slice 5 — deletion:** delete legacy authority replicas, local admission
+   currencies, callback continuations, transition-starting `update()` paths,
+   duplicate timeout owners, and direct release writers. Reconcile every migration-
+   ledger row with a deletion or a fact/command-only adapter.
+8. For each slice, use grouped TDD: focused RED, minimal GREEN, callback-before-
+   ownership and ownership-before-callback races, one-shot receipt duplication,
+   timeout, Retry, supersession, restore, and exact-once release coverage. After
+   Slice 5, run the deterministic public-fixture sequence and final consolidated
+   JavaScript, common, Android host, renderer, build, and lint gates.
+9. After Task384 completes all migration rows and host gates, close Task382 only as
+   the preserved failed/superseded callback attempt; exclude its superseded patch
+   from the coordinator checkpoint. Commit and push the verified coordinator,
+   freeze ReaderDev from that exact commit, and run Task339's consecutive
+   configured-EPUB emulator gate: cold landscape, landscape turns, portrait reflow,
+   portrait turns, minimize/restore, and one post-restore turn. Automated gates
+   cannot substitute for this run.
+10. Only after Task 339 passes, complete Task 338's GitHub-managed signed candidate,
+    Task 282's production-signed first-two-landscape-pages tablet gate, and Task 283's
+    complete Stage 6 accounting and closure. Existing release assets remain
+    immutable; Stage 7 remains blocked until closure.
 
 ### Production cue-map diagnostic amendment
 
@@ -505,10 +525,14 @@ contract is implemented and verified.
     coordinate version or canonical digest is incompatible. Before audio testing,
     the focused emulator must prove matching canonical receipts and monotonic cue
     ordinals on the first spread.
-11. Publish a new GitHub-managed production-signed RC only after the mapping gates
-    pass. Resume bounded tablet acceptance from a fresh process and stop immediately
-    if any same-spine ordinal is non-monotonic, any digest proof is absent, or any
-    cue is admitted through a foreign raw offset.
+11. **Historical mapping-gate completion only:** The earlier mapping checkpoint and
+    signed RC satisfied this amendment's canonical-ordering investigation. This item
+    no longer authorizes another RC or tablet run. Every future signed candidate and
+    device action must follow the active coordinator ordering: close Task383's
+    design/plan handoff, complete Task384's implementation, pass Task339's
+    consecutive emulator gate, create and verify Task338's production-signed
+    candidate, then run Task282. Task382 remains the preserved failed callback
+    attempt and is not an implementation checkpoint.
 
 ### Stage 6 current blocker ledger
 
@@ -520,7 +544,8 @@ contract is implemented and verified.
   same-session TOC relocation clears the completed exact-turn acknowledgement, so
   the next page action advances. It also proved ordinary Home/restore no longer
   classifies `TRIM_MEMORY_UI_HIDDEN` as memory pressure or closes the publication.
-- **Hierarchical-authority blocker discovery (historical):** Implement
+- **Hierarchical-authority blocker discovery (historical):** The historical response
+  was to implement
   `docs/superpowers/specs/2026-09-01-reader-hierarchical-presentation-authority-design.md`.
   Bounded testing showed that shell cover, renderer/raster preparation, Compose
   overlays, and input gates could publish locally correct but globally contradictory
@@ -532,22 +557,32 @@ contract is implemented and verified.
   cover-progress regression but is not the durable fix. It must not replace the
   hierarchical arbiter, proof-before-hide shell transactions, or fail-visible
   liveness contract.
-- **Hierarchical authority automated checkpoint:** Android production source audit
-  passed at `8d7a61deb61c1e745ad87f46818d5b6785c75cdb`, matching
+- **Historical hierarchical-authority automated checkpoint, not accepted runtime
+  architecture:** Android production source audit passed at
+  `8d7a61deb61c1e745ad87f46818d5b6785c75cdb`, matching
   `fork/fix/foreground-webview-handoff-ownership`. One common
-  `ReaderPresentationDecision` drives layer, input, preparation, diagnostic, and
-  transition. The production common/Android path has no reachable
-  `pageTurnPreparationPresentationVisible`, `pagePreparationCoverVisible`, raw-work
-  input grant, direct cover hide, or direct WebView fallback. Current-relocation
-  settlement data replaces the host shadow on every relocation, including with
-  `null`, and exact settlement is consumed by the current token/binding only;
-  `TRIM_MEMORY_UI_HIDDEN` maps only to visibility loss. The pending-authority matrix
-  covers success, failure, timeout, fresh Retry, cancellation/recovery, and restore.
-  Task 355 (`2e9dbc19`) additionally gates native-page publication on an Accepted or
-  Idempotent authorizing receipt before retaining its deduplication anchor. Task 356
-  (`ccf9eff1`) pins runtime publication/readaloud diagnostics to fixed events and
-  approved safe scalar fields without Throwable or protected reader values. No
-  prohibited runtime reader logging or Stage 7 work was found.
+  `ReaderPresentationDecision` drove layer, input, preparation, diagnostic, and
+  transition projections, and host coverage included success, failure, timeout,
+  Retry, cancellation/recovery, and restore. Task 355 (`2e9dbc19`) gated native-page
+  publication on an Accepted or Idempotent receipt; Task 356 (`ccf9eff1`) retained
+  privacy-safe diagnostics. These automated results remain useful regression
+  evidence but do not establish reader reliability.
+- **Task382 decisive runtime failure:** The final bounded callback continuation passed
+  its focused Android host tests and ReaderDev assembly, then failed at cold start.
+  Raster preparation and renderer deck loading each completed all six targets, but
+  no matching deck-prepared/Ready presentation committed and two separately
+  pre-captured forward taps could not leave the cover. The remaining landscape,
+  portrait/reflow, and minimize/restore sequence was not attempted because the
+  consecutive gate had already failed. No callback-level continuation from the dirty
+  Task382 patch may be committed or represented as a successful checkpoint.
+- **Active Stage 6 architecture replacement:** Task383 and
+  `docs/superpowers/specs/2026-09-13-reader-resumable-transition-coordinator-design.md`
+  define the replacement of the distributed Android control plane with one
+  resumable coordinator, typed terminal outcomes, one deadline owner, bounded
+  opaque wakes, one-shot semantic facts, coordinator-issued input leases, and one
+  exact-once release ledger. Task384 exclusively owns implementation after Task383's
+  design/plan handoff. The exhaustive legacy-writer map and five migration slices
+  are the authoritative implementation and audit boundary.
 - **Current Android build/lint/compile evidence:** Task 361 MAIN independently
   verified
   `C:/Users/darka/Documents/Projects/Android/.codex-temp/task361-host-8d7a61de-v1-b0ed9aed5606480abd68ffba7b6c121e`
@@ -580,12 +615,15 @@ contract is implemented and verified.
   changed. This identity permits reuse of the historical result but is not
   represented as a current test or static-gate rerun.
 - **Acceptance state and ordered Android-only gates:** Stage 6 remains open, with no
-  device/runtime or production-signed acceptance claimed. Complete Task 340 broader
-  Navic eBook/Bindery-consumer QA, then Task 339 on an explicitly owned emulator
-  (user device-session ownership is required; no action now), Task 338 production-
-  signed candidate, Task 282 bounded physical-tablet acceptance, and finally Task
-  283/Stage 6 closure. The ReaderDev APK and every other debug APK are barred from
-  physical-tablet acceptance; that gate requires the production-signed candidate.
+  accepted coordinator runtime or production-signed acceptance claimed. Task 340 is
+  complete. The mandatory order is Task383 written-spec review and implementation
+  plan handoff; Task384 coordinator migration, deletion accounting, public-fixture
+  and consolidated gates; Task382 closure as the preserved failed/superseded
+  attempt; a pushed coordinator checkpoint and frozen ReaderDev; Task339's exact
+  configured-EPUB consecutive emulator gate on an explicitly owned emulator; Task338
+  production-signed candidate from that accepted source; Task282's bounded
+  production-signed physical-tablet acceptance; then Task283 accounting and Stage 6
+  closure. ReaderDev and every debug APK are barred from the physical tablet.
   Existing releases and release assets remain immutable. iOS, macOS, and Native are
   excluded from this Android-only scope. Stage 7 remains blocked, and WordSync is not
   deferred.
@@ -594,36 +632,40 @@ contract is implemented and verified.
 
 The integrated reader satisfies the authoritative interaction contract without
 highlight loss, same-spread Start failure, maintenance-origin audio loops,
-poisoned Retry, black curl material, cross-page highlight leakage, or
-non-monotonic cue placement. Matching Bindery canonical coordinates translate
-deterministically into Foliate-owned DOM ranges; incompatible generations fail
-visibly instead of falling back to foreign offsets. A user can enable the
-production cue map on a tablet and report stable visible cue ordinals plus bounded
-requested/audio/rendered transitions without exposing publication content.
+poisoned Retry, black curl material, cross-page highlight leakage, non-monotonic cue
+placement, or non-terminal accepted transitions. Matching Bindery canonical
+coordinates translate deterministically into Foliate-owned DOM ranges. One Android
+coordinator owns transition identity, presentation commit, input leases, deadlines,
+bounded restoration demand, and exact-once release accounting while Foliate,
+PlayLikeCurl, raster preparation, and Compose retain their domain authorities.
 
 ### Specification validation
 
-Re-read the complete specification and account for every Acceptance Summary
-item plus the canonical-mapping amendment above. Any unimplemented authority,
-privacy, lifecycle, Retry, mask, material, cue-diagnostic, coordinate-version,
-canonical-digest, monotonic-admission, or fail-visible mapping requirement is a
-blocker. The cue map must expose production mapping behavior rather than bypass
-it, and must remain content-free in retained evidence. A remaining feature may
-defer beyond this project only if the specification names it as a non-goal and
+Re-read the complete active coordinator specification and account for every
+Acceptance Summary item, operation-liveness row, and legacy-writer replacement row,
+plus the canonical-mapping amendment above. Any dual writer, callback-started
+transition, local admission currency, inherited semantic receipt, unbounded wake,
+independent deadline, direct callback release, unmapped legacy path, or missing
+terminal outcome is a blocker. The cue map must expose production mapping behavior
+rather than bypass it and must remain content-free in retained evidence. No feature
+may defer beyond Stage 6 unless the active specification names it as a non-goal and
 the bounded acceptance proves it cannot mask a core failure.
 
 ## Stage 7 — Signed Production Delivery
 
 ### Steps
 
-1. Run the final release gates from the exact pushed commit.
-2. Prepare the next immutable version and trigger the GitHub-managed signed
+1. Verify Task283 closed every coordinator migration row, deleted every superseded
+   writer, reconciled all terminal/release/wake outcomes, and recorded the exact
+   accepted emulator, signed-candidate, and tablet provenance.
+2. Run the final release gates from that exact pushed commit.
+3. Prepare the next immutable version and trigger the GitHub-managed signed
    production build.
-3. Verify workflow success, APK hash, package/version, and certificate SHA-256
+4. Verify workflow success, APK hash, package/version, and certificate SHA-256
    `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`.
-4. Publish the immutable release and verify the downloaded asset independently.
-5. Record acceptance evidence and close the deferral ledger.
-6. Save and stop any owned emulator after validation; do not alter unrelated
+5. Publish the immutable release and verify the downloaded asset independently.
+6. Record acceptance evidence and close the deferral ledger.
+7. Save and stop any owned emulator after validation; do not alter unrelated
    emulators or devices.
 
 ### Expected outcome
@@ -634,6 +676,7 @@ untracked deferral remains.
 
 ### Specification validation
 
-Re-read Sections 13-17 and the complete Acceptance Summary before publication.
+Re-read the active coordinator specification, its complete migration map, the Stage 6
+closure ledger, and the original stabilization Acceptance Summary before publication.
 Any unchecked release-path item blocks publication; there is no post-release
 correctness deferral.
