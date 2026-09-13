@@ -10,6 +10,7 @@ import paige.navic.reader.ReaderTransitionOperation
 import paige.navic.reader.ReaderTransitionOutcome
 import paige.navic.reader.ReaderTransitionPhaseKind
 import paige.navic.reader.ReaderTransitionResourceKey
+import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.reader.deadlinePolicy
 
 internal enum class ReaderTransitionFactClassification {
@@ -64,16 +65,126 @@ internal enum class ReaderTransitionResourceState {
 	Released
 }
 
+internal enum class ReaderTransitionRetirementFenceState { Inactive, Active }
+
+internal data class ReaderTransitionReleaseLedgerRetentionSnapshot(
+	val activeStateCount: Int,
+	val earlyConfirmationCount: Int,
+	val terminalTombstoneCount: Int,
+	val terminalTombstoneCapacity: Int,
+	val retirementFenceState: ReaderTransitionRetirementFenceState
+)
+
+internal data class ReaderTransitionTerminalTombstoneSnapshot(
+	val terminalTombstoneCount: Int,
+	val terminalTombstoneCapacity: Int,
+	val retirementFenceState: ReaderTransitionRetirementFenceState
+)
+
+private data class ReaderTransitionLifecycle(
+	val readerSessionGeneration: Long,
+	val coordinatorEpoch: Long
+) : Comparable<ReaderTransitionLifecycle> {
+	override fun compareTo(other: ReaderTransitionLifecycle): Int =
+		compareValuesBy(
+			this,
+			other,
+			ReaderTransitionLifecycle::readerSessionGeneration,
+			ReaderTransitionLifecycle::coordinatorEpoch
+		)
+}
+
+/**
+ * Retains exact terminal identities only for the current callback horizon. Evicted identities are
+ * fenced by their monotonic lifecycle and transition sequence, so old callbacks fail closed
+ * without retaining their resource or lease objects indefinitely.
+ */
+internal class ReaderTransitionTerminalTombstones(
+	private val capacity: Int = TerminalTombstoneCapacity
+) {
+	private val keys = ArrayDeque<ReaderTransitionResourceKey>()
+	private val exactKeys = linkedSetOf<ReaderTransitionResourceKey>()
+	private var lifecycle: ReaderTransitionLifecycle? = null
+	private var retiredThroughSequence = 0L
+
+	fun rejectsRegistration(key: ReaderTransitionResourceKey): Boolean =
+		key in exactKeys || !admitLifecycle(key)
+
+	fun containsOrFenced(key: ReaderTransitionResourceKey): Boolean =
+		key in exactKeys || isFenced(key)
+
+	fun record(key: ReaderTransitionResourceKey, fromActiveRegistration: Boolean = false): Boolean {
+		if (key in exactKeys) return false
+		if (!admitLifecycle(key)) return fromActiveRegistration
+		while (keys.size == capacity) {
+			val evicted = keys.removeFirst()
+			exactKeys.remove(evicted)
+			retiredThroughSequence = maxOf(retiredThroughSequence, evicted.transitionId.sequence)
+		}
+		keys.addLast(key)
+		exactKeys += key
+		return true
+	}
+
+	fun terminalSnapshot(): ReaderTransitionTerminalTombstoneSnapshot =
+		ReaderTransitionTerminalTombstoneSnapshot(
+			terminalTombstoneCount = keys.size,
+			terminalTombstoneCapacity = capacity,
+			retirementFenceState = if (lifecycle == null) {
+				ReaderTransitionRetirementFenceState.Inactive
+			} else {
+				ReaderTransitionRetirementFenceState.Active
+			}
+		)
+
+	fun snapshot(): ReaderTransitionReleaseLedgerRetentionSnapshot =
+		terminalSnapshot().let { terminal ->
+			ReaderTransitionReleaseLedgerRetentionSnapshot(
+				activeStateCount = 0,
+				earlyConfirmationCount = 0,
+				terminalTombstoneCount = terminal.terminalTombstoneCount,
+				terminalTombstoneCapacity = terminal.terminalTombstoneCapacity,
+				retirementFenceState = terminal.retirementFenceState
+			)
+		}
+
+	private fun admitLifecycle(key: ReaderTransitionResourceKey): Boolean {
+		val candidate = key.lifecycle()
+		val current = lifecycle
+		if (current == null || candidate > current) {
+			lifecycle = candidate
+			retiredThroughSequence = 0L
+			keys.clear()
+			exactKeys.clear()
+			return true
+		}
+		if (candidate < current) return false
+		return key.transitionId.sequence > retiredThroughSequence
+	}
+
+	private fun isFenced(key: ReaderTransitionResourceKey): Boolean {
+		val current = lifecycle ?: return false
+		val candidate = key.lifecycle()
+		return candidate < current ||
+			(candidate == current && key.transitionId.sequence <= retiredThroughSequence)
+	}
+
+	private companion object {
+		const val TerminalTombstoneCapacity = 32
+	}
+}
+
+private fun ReaderTransitionResourceKey.lifecycle() = ReaderTransitionLifecycle(
+	readerSessionGeneration = transitionId.readerSessionGeneration,
+	coordinatorEpoch = transitionId.coordinatorEpoch
+)
+
 internal class ReaderTransitionReleaseLedger {
 	private val states = linkedMapOf<ReaderTransitionResourceKey, ReaderTransitionResourceState>()
-	private val earlyReleasedKeys = linkedSetOf<ReaderTransitionResourceKey>()
+	private val terminalTombstones = ReaderTransitionTerminalTombstones()
 
 	fun register(key: ReaderTransitionResourceKey): Boolean {
-		if (key in states) return false
-		if (earlyReleasedKeys.remove(key)) {
-			states[key] = ReaderTransitionResourceState.Released
-			return false
-		}
+		if (key in states || terminalTombstones.rejectsRegistration(key)) return false
 		states[key] = ReaderTransitionResourceState.Owned
 		return true
 	}
@@ -85,36 +196,25 @@ internal class ReaderTransitionReleaseLedger {
 	}
 
 	fun confirmReleased(key: ReaderTransitionResourceKey): Boolean {
-		if (
-			states[key] == ReaderTransitionResourceState.Released ||
-			key in earlyReleasedKeys
-		) return false
-		if (key !in states) {
-			check(earlyReleasedKeys.size < MaxEarlyReleaseConfirmations) {
-				"Reader transition early release confirmation capacity exhausted"
-			}
-			earlyReleasedKeys += key
-			return true
-		}
-		states[key] = ReaderTransitionResourceState.Released
-		return true
+		val activeState = states.remove(key)
+		return terminalTombstones.record(key, fromActiveRegistration = activeState != null)
 	}
 
 	fun stateOf(key: ReaderTransitionResourceKey): ReaderTransitionResourceState? =
-		states[key] ?: ReaderTransitionResourceState.Released.takeIf { key in earlyReleasedKeys }
+		states[key] ?: ReaderTransitionResourceState.Released.takeIf {
+			terminalTombstones.containsOrFenced(key)
+		}
 
 	fun snapshot(): ReaderTransitionReleaseLedgerSnapshot = ReaderTransitionReleaseLedgerSnapshot(
 		ownedCount = states.values.count { it == ReaderTransitionResourceState.Owned },
 		issuedCount = states.values.count {
 			it == ReaderTransitionResourceState.ReleaseCommandIssued
 		},
-		releasedCount = states.values.count { it == ReaderTransitionResourceState.Released } +
-			earlyReleasedKeys.size
+		releasedCount = terminalTombstones.snapshot().terminalTombstoneCount
 	)
 
-	private companion object {
-		const val MaxEarlyReleaseConfirmations = 32
-	}
+	fun retentionSnapshot(): ReaderTransitionReleaseLedgerRetentionSnapshot =
+		terminalTombstones.snapshot().copy(activeStateCount = states.size)
 }
 
 internal data class ReaderTransitionCoordinatorSnapshot(
@@ -164,6 +264,9 @@ internal class ReaderResumableTransitionCoordinator(
 	}
 
 	fun enqueue(fact: ReaderTransitionFact) {
+		check(ports.acceptsFact(fact)) {
+			"Transition ports cannot accept this fact"
+		}
 		check(Looper.myLooper() == Looper.getMainLooper()) {
 			"Reader transition facts must be enqueued on the main thread"
 		}
@@ -448,6 +551,52 @@ private fun ReaderTransitionFact.registeredResourceKeyOrNull(): ReaderTransition
 	is ReaderTransitionFact.DeadlineExpired,
 	is ReaderTransitionFact.Retry,
 	is ReaderTransitionFact.PublicationClosed -> null
+}
+
+internal fun ReaderTransitionFact.isTask4CoordinatorFact(): Boolean = when (this) {
+	is ReaderTransitionFact.RasterProgress,
+	is ReaderTransitionFact.RasterProven,
+	is ReaderTransitionFact.RasterDeferred,
+	is ReaderTransitionFact.RasterFailed,
+	is ReaderTransitionFact.RendererCapacityAvailable,
+	is ReaderTransitionFact.RendererGenerationReady,
+	is ReaderTransitionFact.ResourceLost,
+	is ReaderTransitionFact.DeadlineExpired,
+	is ReaderTransitionFact.Retry,
+	is ReaderTransitionFact.PublicationClosed -> true
+	is ReaderTransitionFact.ResourceObserved -> key.isTask4ResourceKeyFor(transitionId)
+	is ReaderTransitionFact.DeckReserved ->
+		key.isTask4ResourceKeyFor(transitionId, ReaderTransitionResourceKind.Deck)
+	is ReaderTransitionFact.DeckOwned ->
+		key.isTask4ResourceKeyFor(transitionId, ReaderTransitionResourceKind.Deck)
+	is ReaderTransitionFact.DeckPrepared ->
+		key.isTask4ResourceKeyFor(transitionId, ReaderTransitionResourceKind.Deck)
+	is ReaderTransitionFact.DeckRejected ->
+		key.isTask4ResourceKeyFor(transitionId, ReaderTransitionResourceKind.Deck)
+	is ReaderTransitionFact.ResourceReleased ->
+		key.isTask4ResourceKeyFor(transitionId)
+	is ReaderTransitionFact.Intent,
+	is ReaderTransitionFact.FoliateDestinationCommitted,
+	is ReaderTransitionFact.SettlementAcknowledged,
+	is ReaderTransitionFact.ViewportProfileReplaced,
+	is ReaderTransitionFact.HostAvailable,
+	is ReaderTransitionFact.PaginationProfileReady,
+	is ReaderTransitionFact.PreparedFrame,
+	is ReaderTransitionFact.CoverPostDraw,
+	is ReaderTransitionFact.WebViewExposure,
+	is ReaderTransitionFact.VisibilityChanged -> false
+}
+
+private fun ReaderTransitionResourceKey.isTask4ResourceKeyFor(
+	factTransitionId: ReaderTransitionId,
+	vararg allowedKinds: ReaderTransitionResourceKind
+): Boolean {
+	if (transitionId != factTransitionId) return false
+	return if (allowedKinds.isEmpty()) {
+		kind == ReaderTransitionResourceKind.Deck || kind == ReaderTransitionResourceKind.Raster
+	} else {
+		kind in allowedKinds
+	}
 }
 
 private fun Long.saturatingAdd(increment: Long): Long =

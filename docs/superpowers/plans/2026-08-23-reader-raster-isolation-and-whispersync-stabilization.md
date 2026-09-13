@@ -394,13 +394,14 @@ suspension-and-coalescing path instead of forcing a new renderer API.
 3. **Slice 1 — shadow journal:** introduce typed transition identity, facts, phases,
    outcomes, deterministic clock, and non-reentrant mailbox. Compare privacy-safe
    predicted decisions while legacy code remains the sole consequence writer.
-4. **Slice 2 — deck admission:** Task384 Task 3 first establishes the exact-key
+4. **Slice 2 — deck-admission preparation:** Task384 Task 3 establishes the exact-key
    release ledger and fully tested freeze/inventory/adopt/drain protocol as inactive
-   infrastructure; production remains `LegacyOnly`. Task 4 is the first and only
-   production activation checkpoint: after every live renderer resource and callback
-   has an exact coordinator identity, atomically make coordinator leases and its
-   release ledger the sole deck admission/readiness/release writer for each migrated
-   reader session.
+   infrastructure. Task 4 adds exact deck/raster leases, typed callback adapters,
+   bounded exact-once physical-release accounting, and fail-closed Task 4 fact/command
+   ports. Production remains `LegacyOnly`: Task 4 cannot truthfully activate before
+   Task 5 supplies an active semantic transition source and exact identities for every
+   production callback. After those prerequisites and the close/release-only path are
+   complete, perform one atomic cutover with no dual-writer or fallback interval.
 5. **Slice 3 — presentation and input:** cut cover, native frame, live handoff, curl
    settlement, layer visibility, and physical input over together. Host, bridge,
    controller, and Compose become fact/command adapters; no dual writer or fallback
@@ -627,6 +628,28 @@ contract is implemented and verified.
   errors, or skips. Independent specification and code-quality reviews approved this
   preparatory boundary. This checkpoint does not claim production cutover, physical
   resource migration, close-timeout activation, or runtime acceptance.
+- **Task384 Task 4 inactive renderer-adapter checkpoint:** Exact deck and raster leases,
+  binding/generation/provenance validation, Android deck-role mapping, typed renderer
+  and raster fact emitters, capacity deferral/wake behavior, fresh monotonic recovery
+  generations, and kind-dispatched physical release ports are implemented. Task 4
+  accepts only exact matching Deck/Raster fact identities, rejects duplicate or fenced
+  registration before physical reserve/prepare, removes confirmed physical lease and
+  command bookkeeping, and retains only bounded exact tombstones plus fail-closed
+  lifecycle/transition-sequence retirement fences. Active registrations take
+  precedence over retirement fences, so a live old lease remains releasable after
+  later terminal releases or lifecycle advance. Raster/deck facts cannot publish
+  `Ready`, commit a frame, or grant input; `PreparedFrame` remains mandatory.
+  Independent specification and code-quality reviews approved the corrected boundary.
+  MAIN's forced Android host rerun of `ReaderPresentationAuthoritySequenceTest`,
+  `ReaderDeckAdmissionCutoverTest`,
+  `ReaderPageAdjacentChapterPrefetchIntegrationTest`,
+  `ReaderPlayLikeCurlFoliateControllerSettlementRecoveryTest`,
+  `ReaderPlayLikeCurlFoliateControllerSourceTest`,
+  `ReaderResumableTransitionCoordinatorTest`, and
+  `ReaderTransitionReleaseLedgerTest` passed 259 tests with zero failures, errors, or
+  skips. Production remains `LegacyOnly`; this checkpoint does not claim active
+  semantic transition identity, atomic production cutover, Task 5 behavior, emulator
+  acceptance, or runtime reliability.
 - **Current Android build/lint/compile evidence:** Task 361 MAIN independently
   verified
   `C:/Users/darka/Documents/Projects/Android/.codex-temp/task361-host-8d7a61de-v1-b0ed9aed5606480abd68ffba7b6c121e`

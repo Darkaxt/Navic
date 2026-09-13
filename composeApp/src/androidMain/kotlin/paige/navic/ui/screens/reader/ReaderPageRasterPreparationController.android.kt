@@ -27,6 +27,14 @@ import paige.navic.reader.ReaderPresentationLifecycleEvent
 import paige.navic.reader.ReaderPresentationMemoryPressureLevel
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderTextureDeckState
+import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.ReaderTransitionFailureReason
+import paige.navic.reader.ReaderTransitionFact
+import paige.navic.reader.ReaderTransitionId
+import paige.navic.reader.ReaderTransitionResumeRecord
+import paige.navic.reader.ReaderTransitionResourceKey
+import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerPagePreparationState
 import paige.navic.util.core.Logger
@@ -70,6 +78,77 @@ private data class ReaderPageRasterRetryAttempt(
 ) {
 	fun observedVersion(reason: ReaderPageRasterDeferralReason): Long =
 		checkNotNull(observedVersions[reason])
+}
+
+internal data class ReaderRasterPreparationLease(
+	val transitionId: ReaderTransitionId,
+	val binding: ReaderPresentationBinding,
+	val preparationGeneration: Long,
+	val rasterGeneration: Long,
+	val resourceKey: ReaderTransitionResourceKey
+) {
+	init {
+		require(preparationGeneration > 0L)
+		require(rasterGeneration > 0L)
+		require(
+			transitionId.expectedBinding == ReaderExpectedPresentationBinding.Exact(binding)
+		)
+		require(binding.preparationGeneration == preparationGeneration)
+		require(binding.rasterGeneration == rasterGeneration)
+		require(resourceKey.transitionId == transitionId)
+		require(resourceKey.kind == ReaderTransitionResourceKind.Raster)
+		require(resourceKey.opaqueId == rasterGeneration)
+	}
+}
+
+internal class ReaderRasterLeaseFactEmitter(
+	private val lease: ReaderRasterPreparationLease,
+	private val enqueue: (ReaderTransitionFact) -> Unit
+) {
+	private var resourceRegistered = false
+
+	fun registerResource(): Boolean {
+		if (resourceRegistered) return false
+		resourceRegistered = true
+		enqueue(ReaderTransitionFact.ResourceObserved(lease.transitionId, lease.resourceKey))
+		return true
+	}
+
+	fun onProgress(callbackLease: ReaderRasterPreparationLease): Boolean = emit(callbackLease) {
+		ReaderTransitionFact.RasterProgress(lease.transitionId)
+	}
+
+	fun onProven(callbackLease: ReaderRasterPreparationLease): Boolean = emit(callbackLease) {
+		ReaderTransitionFact.RasterProven(lease.transitionId)
+	}
+
+	fun onDeferred(
+		callbackLease: ReaderRasterPreparationLease,
+		resumeRecord: ReaderTransitionResumeRecord
+	): Boolean = emit(callbackLease) {
+		ReaderTransitionFact.RasterDeferred(
+			transitionId = lease.transitionId,
+			reason = resumeRecord.reason,
+			resumeRecord = resumeRecord
+		)
+	}
+
+	fun onFailed(
+		callbackLease: ReaderRasterPreparationLease,
+		reason: ReaderTransitionFailureReason
+	): Boolean = emit(callbackLease) {
+		ReaderTransitionFact.RasterFailed(lease.transitionId, reason)
+	}
+
+	private inline fun emit(
+		callbackLease: ReaderRasterPreparationLease,
+		fact: () -> ReaderTransitionFact
+	): Boolean {
+		if (callbackLease != lease) return false
+		registerResource()
+		enqueue(fact())
+		return true
+	}
 }
 
 internal fun interface ReaderPageRasterPreparationPlanPort {

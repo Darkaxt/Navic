@@ -29,6 +29,17 @@ import paige.navic.reader.ReaderPresentationTokenDomain
 import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.readerPresentationReduce
 import paige.navic.reader.publicationIdentity
+import paige.navic.reader.ReaderActiveTransition
+import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.ReaderTransitionFact
+import paige.navic.reader.ReaderTransitionId
+import paige.navic.reader.ReaderTransitionJournal
+import paige.navic.reader.ReaderTransitionLivenessTable
+import paige.navic.reader.ReaderTransitionOperation
+import paige.navic.reader.ReaderTransitionPhaseKind
+import paige.navic.reader.ReaderTransitionProofKind
+import paige.navic.reader.ReaderTransitionResourceKey
+import paige.navic.reader.ReaderTransitionResourceKind
 
 class ReaderPlayLikeCurlFoliateControllerSettlementRecoveryTest {
 	@Test
@@ -383,6 +394,122 @@ class ReaderPlayLikeCurlFoliateControllerSettlementRecoveryTest {
 		cleanup.complete(53L)
 		assertTrue(cleanup.request(ReaderRendererCleanupRequest.StaleGeneration(53L)))
 		assertEquals(1, releaseCount)
+	}
+
+	@Test
+	fun rasterAndDeckProofsStillAwaitPreparedFrameWithoutCommittingReadiness() {
+		val exactBinding = binding(destinationSequence = 80L, textureGeneration = 83L)
+		val id = ReaderTransitionId(
+			readerSessionGeneration = 89L,
+			coordinatorEpoch = 97L,
+			sequence = 101L,
+			operation = ReaderTransitionOperation.CoverToPageEntry,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(exactBinding)
+		)
+		val retained = ReaderPresentationFrameOwner.NativePage(nativeProof(exactBinding, 103L))
+		val key = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, 83L)
+		var journal = ReaderTransitionJournal(
+			active = ReaderActiveTransition(
+				id = id,
+				phase = ReaderTransitionLivenessTable.phase(
+					id,
+					ReaderTransitionPhaseKind.AwaitingPrerequisites,
+					retained
+				)
+			)
+		)
+
+		journal = journal.reduce(ReaderTransitionFact.RasterProven(id)).state
+		assertTrue(journal.active != null)
+		assertTrue(
+			ReaderTransitionProofKind.PreparedFrame in
+				assertNotNull(journal.active).phase.contract.awaitedProofs
+		)
+		journal = journal.reduce(ReaderTransitionFact.DeckPrepared(id, key)).state
+		assertTrue(journal.active != null)
+		journal = journal.reduce(ReaderTransitionFact.DeckOwned(id, key)).state
+
+		assertTrue(journal.active != null)
+		assertNull(journal.committed)
+		assertTrue(
+			ReaderTransitionProofKind.PreparedFrame in
+				assertNotNull(journal.active).phase.contract.awaitedProofs
+		)
+	}
+
+	@Test
+	fun callbackAndOwnershipOrderingsConvergeOnTheSameExactLeaseFacts() {
+		val exactBinding = binding(destinationSequence = 90L, textureGeneration = 107L)
+		val id = ReaderTransitionId(
+			readerSessionGeneration = 109L,
+			coordinatorEpoch = 113L,
+			sequence = 127L,
+			operation = ReaderTransitionOperation.RendererRecovery,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(exactBinding)
+		)
+		val key = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, 107L)
+		val lease = assertNotNull(
+			readerDeckLeaseOrNull(
+				paige.navic.reader.ReaderTransitionCommand.ReserveDeck(
+					id,
+					exactBinding,
+					paige.navic.reader.ReaderTransitionDeckRole.Recovery
+				),
+				key
+			)
+		)
+
+		fun reduced(order: List<(ReaderDeckLeaseFactEmitter) -> Unit>): ReaderTransitionJournal {
+			var journal = ReaderTransitionJournal(
+				active = ReaderActiveTransition(
+					id,
+					ReaderTransitionLivenessTable.phase(
+						id,
+						ReaderTransitionPhaseKind.AwaitingProof,
+						ReaderPresentationFrameOwner.NativePage(nativeProof(exactBinding, 131L)),
+						satisfiedProofs = setOf(
+							ReaderTransitionProofKind.RendererGeneration
+						)
+					)
+				)
+			)
+			val emitter = ReaderDeckLeaseFactEmitter(lease) { fact -> journal = journal.reduce(fact).state }
+			order.forEach { it(emitter) }
+			return journal
+		}
+
+		val callbackFirst = reduced(listOf({ it.onPrepared(lease) }, { it.onOwned(lease) }))
+		val ownershipFirst = reduced(listOf({ it.onOwned(lease) }, { it.onPrepared(lease) }))
+
+		assertEquals(callbackFirst, ownershipFirst)
+	}
+
+	@Test
+	fun rendererRecoveryAllocatesFreshTransitionPreparationRasterAndTextureGenerations() {
+		val previousBinding = binding(destinationSequence = 100L, textureGeneration = 137L)
+		val previousId = ReaderTransitionId(
+			readerSessionGeneration = 139L,
+			coordinatorEpoch = 149L,
+			sequence = 151L,
+			operation = ReaderTransitionOperation.CoverToPageEntry,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(previousBinding)
+		)
+		val allocator = ReaderDeckRecoveryLeaseAllocator()
+
+		val recovered = allocator.next(previousId, previousBinding)
+		val retried = allocator.next(previousId, previousBinding)
+
+		assertEquals(ReaderTransitionOperation.RendererRecovery, recovered.transitionId.operation)
+		assertTrue(recovered.transitionId.sequence > previousId.sequence)
+		assertTrue(recovered.preparationGeneration > requireNotNull(previousBinding.preparationGeneration))
+		assertTrue(recovered.rasterGeneration > requireNotNull(previousBinding.rasterGeneration))
+		assertTrue(recovered.textureGeneration > requireNotNull(previousBinding.textureGeneration))
+		assertEquals(recovered.textureGeneration, recovered.resourceKey.opaqueId)
+		assertEquals(recovered.transitionId, recovered.resourceKey.transitionId)
+		assertTrue(retried.transitionId.sequence > recovered.transitionId.sequence)
+		assertTrue(retried.preparationGeneration > recovered.preparationGeneration)
+		assertTrue(retried.rasterGeneration > recovered.rasterGeneration)
+		assertTrue(retried.textureGeneration > recovered.textureGeneration)
 	}
 
 	private fun admissionAuthority(

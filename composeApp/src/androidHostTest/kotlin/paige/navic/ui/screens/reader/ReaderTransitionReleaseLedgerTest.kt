@@ -56,16 +56,20 @@ class ReaderTransitionReleaseLedgerTest {
 	}
 
 	@Test
-	fun earlyReleaseConfirmationLatchIsBounded() {
+	fun earlyReleaseConfirmationTombstonesEvictWithoutReopeningOldKeys() {
 		val ledger = ReaderTransitionReleaseLedger()
-		val id = transitionId()
+		val oldest = deckKey(transitionId(), opaqueId = 1_000L)
+		assertTrue(ledger.confirmReleased(oldest))
 		repeat(32) { index ->
-			assertTrue(ledger.confirmReleased(deckKey(id, opaqueId = 1_000L + index)))
+			val key = deckKey(
+				transitionId().copy(sequence = index.toLong() + 30L),
+				opaqueId = 2_000L + index
+			)
+			assertTrue(ledger.confirmReleased(key))
 		}
 
-		assertFailsWith<IllegalStateException> {
-			ledger.confirmReleased(deckKey(id, opaqueId = 2_000L))
-		}
+		assertFalse(ledger.register(oldest))
+		assertNull(ledger.requestRelease(oldest))
 		assertEquals(32, ledger.snapshot().releasedCount)
 	}
 
@@ -109,7 +113,9 @@ class ReaderTransitionReleaseLedgerTest {
 	@Test
 	fun shadowReleasePredictionDoesNotIssueOrPoisonLaterCutoverAdoption() {
 		val ledger = ReaderTransitionReleaseLedger()
-		val ports = TestPorts { _, _ -> error("Shadow mode cannot issue commands") }
+		val ports = TestPorts(onIssue = { _, _ ->
+			error("Shadow mode cannot issue commands")
+		})
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
 			mode = ReaderTransitionMode.Shadow,
@@ -155,12 +161,12 @@ class ReaderTransitionReleaseLedgerTest {
 	fun coordinatorDeduplicatesStaleResourceFactsAndConfirmsThroughItsMailbox() {
 		val commands = mutableListOf<ReaderTransitionCommand>()
 		lateinit var ports: TestPorts
-		ports = TestPorts { command, onFact ->
+		ports = TestPorts(onIssue = { command, onFact ->
 			commands += command
 			if (command is ReaderTransitionCommand.ReleaseResource) {
 				onFact(ReaderTransitionFact.ResourceReleased(command.transitionId, command.key))
 			}
-		}
+		})
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
 			mode = ReaderTransitionMode.Active,
@@ -179,12 +185,12 @@ class ReaderTransitionReleaseLedgerTest {
 	@Test
 	fun closeTimeoutRetainsReleaseOnlySinkForLateFacts() {
 		val commands = mutableListOf<ReaderTransitionCommand>()
-		val ports = TestPorts { command, onFact ->
+		val ports = TestPorts(onIssue = { command, onFact ->
 			commands += command
 			if (command is ReaderTransitionCommand.ReleaseResource) {
 				onFact(ReaderTransitionFact.ResourceReleased(command.transitionId, command.key))
 			}
-		}
+		})
 		val id = transitionId(operation = ReaderTransitionOperation.PublicationClose)
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
@@ -208,8 +214,50 @@ class ReaderTransitionReleaseLedgerTest {
 		assertEquals(null, coordinator.snapshot().activePhase)
 	}
 
+	@Test
+	fun task4FactGateRejectsMalformedResourceFactsBeforeMailboxAccounting() {
+		val commands = mutableListOf<ReaderTransitionCommand>()
+		val ports = TestPorts(
+			onIssue = { command, _ -> commands += command },
+			factAcceptance = ReaderTransitionFact::isTask4CoordinatorFact
+		)
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = ReaderTransitionJournal()
+		)
+		val id = transitionId()
+		val otherId = id.copy(sequence = id.sequence + 1L)
+		val deckKey = deckKey(id, opaqueId = 71L)
+		val malformed = listOf(
+			ReaderTransitionFact.DeckOwned(id, deckKey.copy(transitionId = otherId)) to deckKey,
+			ReaderTransitionFact.DeckPrepared(
+				id,
+				deckKey.copy(kind = ReaderTransitionResourceKind.Raster)
+			) to deckKey,
+			ReaderTransitionFact.ResourceObserved(
+				id,
+				deckKey.copy(kind = ReaderTransitionResourceKind.CallbackRegistration)
+			) to deckKey,
+			ReaderTransitionFact.ResourceReleased(
+				id,
+				deckKey.copy(kind = ReaderTransitionResourceKind.FrameHandoff)
+			) to deckKey
+		)
+		val before = coordinator.snapshot()
+
+		malformed.forEach { (fact, key) ->
+			assertFalse(fact.isTask4CoordinatorFact())
+			assertFailsWith<IllegalStateException> { coordinator.enqueue(fact) }
+			assertEquals(before, coordinator.snapshot())
+			assertNull(coordinator.releaseStateOf(key))
+		}
+		assertTrue(commands.isEmpty())
+	}
+
 	private class TestPorts(
-		private val onIssue: (ReaderTransitionCommand, (ReaderTransitionFact) -> Unit) -> Unit
+		private val onIssue: (ReaderTransitionCommand, (ReaderTransitionFact) -> Unit) -> Unit,
+		private val factAcceptance: (ReaderTransitionFact) -> Boolean = { true }
 	) : ReaderResumableTransitionPorts {
 		override val clock: ReaderTransitionClock = object : ReaderTransitionClock {
 			override fun nowMillis(): Long = 1_000L
@@ -218,6 +266,8 @@ class ReaderTransitionReleaseLedgerTest {
 				action: () -> Unit
 			): ReaderTransitionClockRegistration = ReaderTransitionClockRegistration {}
 		}
+
+		override fun acceptsFact(fact: ReaderTransitionFact): Boolean = factAcceptance(fact)
 
 		override fun issue(command: ReaderTransitionCommand, onFact: (ReaderTransitionFact) -> Unit) {
 			onIssue(command, onFact)

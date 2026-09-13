@@ -24,6 +24,17 @@ private fun requiredFoliateSourceSlice(
 class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	private val controllerFile =
 		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateController.android.kt")
+	private val transitionPortsFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderResumableTransitionPorts.android.kt"
+	)
+	private val transitionCoordinatorFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderResumableTransitionCoordinator.android.kt"
+	)
+	private val deckAdmissionFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderDeckAdmission.android.kt"
+	)
 	private val hostFile =
 		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt")
 	private val readerRootFile =
@@ -69,6 +80,33 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"ReaderPlayLikeCurlReferenceView.android.kt"
 	)
 	private val readerAssetRoot = File("src/androidMain/assets/reader")
+
+	@Test
+	fun task4AdaptersUseExactLeasesAndRejectFrameInputAndSemanticConsequences() {
+		val ports = transitionPortsFile.readText()
+		val coordinator = transitionCoordinatorFile.readText()
+		val admission = deckAdmissionFile.readText()
+
+		assertContains(admission, "internal data class ReaderDeckLease(")
+		assertContains(admission, "val transitionId: ReaderTransitionId")
+		assertContains(admission, "val binding: ReaderPresentationBinding")
+		assertContains(admission, "val preparationGeneration: Long")
+		assertContains(admission, "val rasterGeneration: Long")
+		assertContains(admission, "val textureGeneration: Long")
+		assertContains(admission, "val resourceKey: ReaderTransitionResourceKey")
+		assertContains(admission, "ReaderTransitionResourceProvenance.CoordinatorIssued")
+		assertContains(ports, "internal class ReaderTask4TransitionPorts(")
+		assertContains(ports, "ReaderDeckPhysicalReleasePort")
+		assertContains(ports, "ReaderTransitionFact.ResourceReleased")
+		assertContains(ports, "Task 4 ports cannot execute semantic, frame, or input commands")
+		assertContains(ports, "override fun acceptsFact(fact: ReaderTransitionFact)")
+		assertContains(ports, "delegate.acceptsFact(fact)")
+		assertContains(ports, "fact.isTask4CoordinatorFact()")
+		assertContains(coordinator, "ports.acceptsFact(fact)")
+		assertContains(coordinator, "is ReaderTransitionFact.PreparedFrame")
+		assertContains(coordinator, "is ReaderTransitionFact.CoverPostDraw")
+		assertContains(coordinator, "is ReaderTransitionFact.WebViewExposure")
+	}
 
 	@Test
 	fun productionControllerUsesFoliateRastersAndImportedSurface() {

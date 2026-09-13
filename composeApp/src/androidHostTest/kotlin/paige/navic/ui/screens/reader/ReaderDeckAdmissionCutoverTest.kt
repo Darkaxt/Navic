@@ -4,20 +4,32 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import paige.navic.reader.ReaderActiveTransition
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderExpectedPresentationBinding
 import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderTransitionCommand
 import paige.navic.reader.ReaderTransitionDeckRole
 import paige.navic.reader.ReaderTransitionFact
+import paige.navic.reader.ReaderTransitionFactKind
 import paige.navic.reader.ReaderTransitionId
+import paige.navic.reader.ReaderTransitionJournal
+import paige.navic.reader.ReaderTransitionLivenessTable
 import paige.navic.reader.ReaderTransitionOperation
+import paige.navic.reader.ReaderTransitionPhaseKind
 import paige.navic.reader.ReaderTransitionResourceKey
 import paige.navic.reader.ReaderTransitionResourceKind
+import paige.navic.reader.ReaderTransitionDeferralReason
+import paige.navic.reader.ReaderTransitionNonce
+import paige.navic.reader.ReaderTransitionResumeRecord
+import paige.navic.reader.ReaderTransitionWakeKind
 
 @RunWith(RobolectricTestRunner::class)
 class ReaderDeckAdmissionCutoverTest {
@@ -285,6 +297,759 @@ class ReaderDeckAdmissionCutoverTest {
 	}
 
 	@Test
+	fun `coordinator deck lease maps role and preserves exact generations and resource provenance`() {
+		val id = transitionId()
+		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding.copy(
+			preparationGeneration = 19L,
+			rasterGeneration = 23L,
+			textureGeneration = 29L
+		)
+		val key = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, 29L)
+
+		val lease = assertNotNull(
+			readerDeckLeaseOrNull(
+				ReaderTransitionCommand.ReserveDeck(id, binding, ReaderTransitionDeckRole.Settlement),
+				key
+			)
+		)
+
+		assertEquals(id, lease.transitionId)
+		assertEquals(binding, lease.binding)
+		assertEquals(ReaderDeckSubmissionRole.Pending, lease.role)
+		assertEquals(19L, lease.preparationGeneration)
+		assertEquals(23L, lease.rasterGeneration)
+		assertEquals(29L, lease.textureGeneration)
+		assertEquals(key, lease.resourceKey)
+		assertEquals(ReaderTransitionResourceProvenance.CoordinatorIssued, lease.provenance)
+	}
+
+	@Test
+	fun `deck lease rejects a binding outside the transition exact identity`() {
+		val id = transitionId()
+		val mismatchedBinding =
+			(id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding.copy(
+				textureGeneration = 31L
+			)
+		val key = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, 31L)
+
+		assertNull(
+			readerDeckLeaseOrNull(
+				ReaderTransitionCommand.ReserveDeck(
+					id,
+					mismatchedBinding,
+					ReaderTransitionDeckRole.PageEntry
+				),
+				key
+			)
+		)
+	}
+
+	@Test
+	fun `renderer callbacks require and preserve the exact coordinator lease`() {
+		val id = transitionId()
+		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding.copy(
+			preparationGeneration = 19L,
+			rasterGeneration = 23L,
+			textureGeneration = 29L
+		)
+		val key = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, 29L)
+		val lease = assertNotNull(
+			readerDeckLeaseOrNull(
+				ReaderTransitionCommand.ReserveDeck(id, binding, ReaderTransitionDeckRole.PageEntry),
+				key
+			)
+		)
+		val facts = mutableListOf<ReaderTransitionFact>()
+		val callbacks = ReaderDeckLeaseFactEmitter(lease, facts::add)
+
+		callbacks.onPrepared(lease)
+		callbacks.onOwned(lease)
+
+		assertEquals(
+			listOf(
+				ReaderTransitionFact.DeckPrepared(id, key),
+				ReaderTransitionFact.DeckOwned(id, key)
+			),
+			facts
+		)
+		val mismatchedId = id.copy(sequence = id.sequence + 1L)
+		val mismatched = lease.copy(
+			transitionId = mismatchedId,
+			resourceKey = key.copy(transitionId = mismatchedId)
+		)
+		assertFailsWith<IllegalStateException> { callbacks.onPrepared(mismatched) }
+	}
+
+	@Test
+	fun `capacity rejection defers for bounded renderer wake without retrying automatically`() {
+		val id = transitionId()
+		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding.copy(
+			preparationGeneration = 19L,
+			rasterGeneration = 23L,
+			textureGeneration = 29L
+		)
+		val key = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, 29L)
+		val lease = assertNotNull(
+			readerDeckLeaseOrNull(
+				ReaderTransitionCommand.ReserveDeck(id, binding, ReaderTransitionDeckRole.Recovery),
+				key
+			)
+		)
+		val facts = mutableListOf<ReaderTransitionFact>()
+		val callbacks = ReaderDeckLeaseFactEmitter(lease, facts::add)
+		val resume = ReaderTransitionResumeRecord(
+			operation = id.operation,
+			reason = ReaderTransitionDeferralReason.RendererCapacityUnavailable,
+			nonce = ReaderTransitionNonce(37L, 41L),
+			issuedAtMillis = 100L,
+			expiresAtMillis = 900_100L,
+			remainingRestorations = 1,
+			requiredWake = ReaderTransitionWakeKind.RendererCapacityAvailable
+		)
+
+		callbacks.onCapacityRejected(lease, resume)
+		callbacks.onCapacityAvailable()
+
+		assertEquals(
+			listOf(
+				ReaderTransitionFact.RasterDeferred(
+					id,
+					ReaderTransitionDeferralReason.RendererCapacityUnavailable,
+					resume
+				),
+				ReaderTransitionFact.RendererCapacityAvailable(id)
+			),
+			facts
+		)
+		assertEquals(1, facts.count { it is ReaderTransitionFact.RasterDeferred })
+	}
+
+	@Test
+	fun `physical release command confirms the exact lease once through its mailbox callback`() {
+		val id = transitionId()
+		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding.copy(
+			preparationGeneration = 19L,
+			rasterGeneration = 23L,
+			textureGeneration = 29L
+		)
+		val key = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, 29L)
+		val lease = assertNotNull(
+			readerDeckLeaseOrNull(
+				ReaderTransitionCommand.ReserveDeck(id, binding, ReaderTransitionDeckRole.Initial),
+				key
+			)
+		)
+		val physicalReleases = mutableListOf<ReaderDeckLease>()
+		val callbacks = mutableListOf<() -> Unit>()
+		val port = ReaderDeckPhysicalReleasePort(
+			release = { exactLease, confirmed ->
+				physicalReleases += exactLease
+				callbacks += confirmed
+			}
+		)
+		val facts = mutableListOf<ReaderTransitionFact>()
+		port.register(lease)
+
+		port.release(ReaderTransitionCommand.ReleaseResource(id, key), facts::add)
+		port.release(ReaderTransitionCommand.ReleaseResource(id, key), facts::add)
+		callbacks.single().invoke()
+		callbacks.single().invoke()
+
+		assertEquals(listOf(lease), physicalReleases)
+		assertEquals(
+			listOf<ReaderTransitionFact>(ReaderTransitionFact.ResourceReleased(id, key)),
+			facts
+		)
+	}
+
+	@Test
+	fun `stale renderer callback registers and releases through the shared coordinator ledger`() {
+		val staleId = transitionId()
+		val staleBinding = (staleId.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding.copy(
+			preparationGeneration = 19L,
+			rasterGeneration = 23L,
+			textureGeneration = 29L
+		)
+		val staleKey = ReaderTransitionResourceKey(staleId, ReaderTransitionResourceKind.Deck, 29L)
+		val staleLease = assertNotNull(
+			readerDeckLeaseOrNull(
+				ReaderTransitionCommand.ReserveDeck(
+					staleId,
+					staleBinding,
+					ReaderTransitionDeckRole.PageEntry
+				),
+				staleKey,
+				ReaderTransitionResourceProvenance.AdoptedLegacy
+			)
+		)
+		val currentId = staleId.copy(sequence = staleId.sequence + 1L)
+		val physicalReleases = mutableListOf<ReaderDeckLease>()
+		val renderer = object : ReaderRendererDeckCommandPort {
+			override fun reserve(lease: ReaderDeckLease, callbacks: ReaderDeckLeaseFactEmitter) = Unit
+			override fun release(lease: ReaderDeckLease, onReleased: () -> Unit) {
+				physicalReleases += lease
+				onReleased()
+			}
+			override fun cancelPreparation(transitionId: ReaderTransitionId) = Unit
+		}
+		val ports = ReaderTask4TransitionPorts(
+			clock = object : ReaderTransitionClock {
+				override fun nowMillis(): Long = 1L
+				override fun schedule(
+					atMillis: Long,
+					action: () -> Unit
+				): ReaderTransitionClockRegistration = ReaderTransitionClockRegistration {}
+			},
+			raster = object : ReaderRasterPreparationCommandPort {
+				override fun prepare(
+					lease: ReaderRasterPreparationLease,
+					callbacks: ReaderRasterLeaseFactEmitter
+				) = Unit
+				override fun release(
+					lease: ReaderRasterPreparationLease,
+					onReleased: () -> Unit
+				) = Unit
+				override fun cancel(transitionId: ReaderTransitionId) = Unit
+			},
+			renderer = renderer
+		)
+		ports.registerAdoptedLease(staleLease)
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = ReaderTransitionJournal(
+				active = ReaderActiveTransition(
+					id = currentId,
+					phase = ReaderTransitionLivenessTable.phase(
+						currentId,
+						ReaderTransitionPhaseKind.AwaitingPrerequisites,
+						ReaderPresentationFrameOwner.Neutral
+					)
+				)
+			)
+		)
+
+		coordinator.enqueue(ReaderTransitionFact.DeckPrepared(staleId, staleKey))
+		coordinator.enqueue(ReaderTransitionFact.DeckPrepared(staleId, staleKey))
+
+		assertEquals(listOf(staleLease), physicalReleases)
+		assertEquals(ReaderTransitionResourceState.Released, coordinator.releaseStateOf(staleKey))
+		assertEquals(
+			3,
+			coordinator.snapshot().factClassifications[
+				ReaderTransitionFactClassification.StaleTransition
+			]
+		)
+	}
+
+	@Test
+	fun `task4 ports reject semantic frame and input commands`() {
+		val issuedId = transitionId()
+		val ports = ReaderTask4TransitionPorts(
+			clock = object : ReaderTransitionClock {
+				override fun nowMillis(): Long = 1L
+				override fun schedule(
+					atMillis: Long,
+					action: () -> Unit
+				): ReaderTransitionClockRegistration = ReaderTransitionClockRegistration {}
+			},
+			raster = object : ReaderRasterPreparationCommandPort {
+				override fun prepare(
+					lease: ReaderRasterPreparationLease,
+					callbacks: ReaderRasterLeaseFactEmitter
+				) = Unit
+				override fun release(
+					lease: ReaderRasterPreparationLease,
+					onReleased: () -> Unit
+				) = Unit
+				override fun cancel(transitionId: ReaderTransitionId) = Unit
+			},
+			renderer = object : ReaderRendererDeckCommandPort {
+				override fun reserve(lease: ReaderDeckLease, callbacks: ReaderDeckLeaseFactEmitter) = Unit
+				override fun release(lease: ReaderDeckLease, onReleased: () -> Unit) = Unit
+				override fun cancelPreparation(transitionId: ReaderTransitionId) = Unit
+			}
+		)
+
+		assertFailsWith<IllegalStateException> {
+			ports.issue(
+				ReaderTransitionCommand.ApplyInputLease(
+					issuedId,
+					paige.navic.reader.ReaderTransitionInputLease.ChromeOnly
+				)
+			) {}
+		}
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports,
+			ReaderTransitionMode.Active,
+			ReaderTransitionJournal()
+		)
+		assertFailsWith<IllegalStateException> {
+			coordinator.enqueue(
+				ReaderTransitionFact.Intent(null, paige.navic.reader.ReaderRetryIntent)
+			)
+		}
+	}
+
+	@Test
+	fun `cutover wrapper preserves task4 fact barrier before reduction`() {
+		val task4Ports = ReaderTask4TransitionPorts(
+			clock = testTransitionClock(),
+			raster = noOpRasterPort(),
+			renderer = noOpRendererPort()
+		)
+		val cutover = synchronousCutover(ReaderLegacyDeckInventory.Complete(emptyList()))
+		assertTrue(cutover.activate())
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ReaderCutoverTransitionPorts(task4Ports, cutover),
+			mode = ReaderTransitionMode.Active,
+			journal = ReaderTransitionJournal()
+		)
+		val before = coordinator.snapshot()
+
+		assertFailsWith<IllegalStateException> {
+			coordinator.enqueue(
+				ReaderTransitionFact.Intent(null, paige.navic.reader.ReaderRetryIntent)
+			)
+		}
+
+		assertEquals(before, coordinator.snapshot())
+	}
+
+	@Test
+	fun `superseded raster resource releases exactly once before late callbacks`() {
+		val staleId = transitionId()
+		val binding = (staleId.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
+		val currentId = staleId.copy(sequence = staleId.sequence + 1L)
+		lateinit var callbacks: ReaderRasterLeaseFactEmitter
+		lateinit var submittedLease: ReaderRasterPreparationLease
+		val physicalReleases = mutableListOf<ReaderRasterPreparationLease>()
+		val raster = recordingRasterPort(
+			onPrepare = { lease, emitter ->
+				submittedLease = lease
+				callbacks = emitter
+			},
+			onRelease = { lease, released ->
+				physicalReleases += lease
+				released()
+			}
+		)
+		val ports = ReaderTask4TransitionPorts(
+			clock = testTransitionClock(),
+			raster = raster,
+			renderer = noOpRendererPort()
+		)
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = ReaderTransitionJournal(
+				active = ReaderActiveTransition(
+					id = currentId,
+					phase = ReaderTransitionLivenessTable.phase(
+						currentId,
+						ReaderTransitionPhaseKind.AwaitingPrerequisites,
+						ReaderPresentationFrameOwner.Neutral
+					)
+				)
+			)
+		)
+
+		ports.issue(
+			ReaderTransitionCommand.RequestRasterPreparation(staleId, binding),
+			coordinator::enqueue
+		)
+		val resume = ReaderTransitionResumeRecord(
+			operation = staleId.operation,
+			reason = ReaderTransitionDeferralReason.RendererCapacityUnavailable,
+			nonce = ReaderTransitionNonce(61L, 67L),
+			issuedAtMillis = 100L,
+			expiresAtMillis = 900_100L,
+			remainingRestorations = 1,
+			requiredWake = ReaderTransitionWakeKind.RendererCapacityAvailable
+		)
+		callbacks.onProgress(submittedLease)
+		callbacks.onProven(submittedLease)
+		callbacks.onDeferred(submittedLease, resume)
+		callbacks.onFailed(submittedLease, paige.navic.reader.ReaderTransitionFailureReason.PortRejected)
+		callbacks.onProgress(submittedLease)
+
+		assertEquals(listOf(submittedLease), physicalReleases)
+		assertEquals(
+			ReaderTransitionResourceState.Released,
+			coordinator.releaseStateOf(submittedLease.resourceKey)
+		)
+		assertEquals(1, coordinator.snapshot().releasedResourceCount)
+	}
+
+	@Test
+	fun `raster registration precedes callback facts and terminal release stays exact once`() {
+		val id = transitionId()
+		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
+		lateinit var callbacks: ReaderRasterLeaseFactEmitter
+		lateinit var submittedLease: ReaderRasterPreparationLease
+		val physicalReleases = mutableListOf<ReaderRasterPreparationLease>()
+		val raster = recordingRasterPort(
+			onPrepare = { lease, emitter ->
+				submittedLease = lease
+				callbacks = emitter
+			},
+			onRelease = { lease, released ->
+				physicalReleases += lease
+				released()
+			}
+		)
+		val ports = ReaderTask4TransitionPorts(
+			clock = testTransitionClock(),
+			raster = raster,
+			renderer = noOpRendererPort()
+		)
+		val processedFacts = mutableListOf<ReaderTransitionFactKind>()
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = ReaderTransitionJournal(
+				active = ReaderActiveTransition(
+					id = id,
+					phase = ReaderTransitionLivenessTable.phase(
+						id,
+						ReaderTransitionPhaseKind.AwaitingPrerequisites,
+						ReaderPresentationFrameOwner.Neutral
+					)
+				)
+			),
+			onObservation = { observation ->
+				if (observation.kind == ReaderTransitionCoordinatorObservationKind.FactProcessed) {
+					observation.factKind?.let(processedFacts::add)
+				}
+			}
+		)
+
+		ports.issue(
+			ReaderTransitionCommand.RequestRasterPreparation(id, binding),
+			coordinator::enqueue
+		)
+		callbacks.onProgress(submittedLease)
+		callbacks.onFailed(
+			submittedLease,
+			paige.navic.reader.ReaderTransitionFailureReason.PortRejected
+		)
+		callbacks.onFailed(
+			submittedLease,
+			paige.navic.reader.ReaderTransitionFailureReason.PortRejected
+		)
+
+		assertEquals(
+			listOf(ReaderTransitionFactKind.ResourceObserved, ReaderTransitionFactKind.RasterProgress),
+			processedFacts.take(2)
+		)
+		assertEquals(listOf(submittedLease), physicalReleases)
+		assertEquals(
+			ReaderTransitionResourceState.Released,
+			coordinator.releaseStateOf(submittedLease.resourceKey)
+		)
+	}
+
+	@Test
+	fun `terminal release bookkeeping stays bounded and evicted identities fail closed`() {
+		val releaseCount = 256
+		val ledger = ReaderTransitionReleaseLedger()
+		var deckPhysicalReleaseCount = 0
+		var rasterPhysicalReleaseCount = 0
+		val deckPort = ReaderDeckPhysicalReleasePort { _, released ->
+			deckPhysicalReleaseCount += 1
+			released()
+		}
+		val rasterPort = ReaderRasterPhysicalReleasePort { _, released ->
+			rasterPhysicalReleaseCount += 1
+			released()
+		}
+		lateinit var oldestDeckLease: ReaderDeckLease
+		lateinit var oldestDeckCommand: ReaderTransitionCommand.ReleaseResource
+		lateinit var newestDeckLease: ReaderDeckLease
+		lateinit var newestDeckCommand: ReaderTransitionCommand.ReleaseResource
+
+		repeat(releaseCount) { index ->
+			val sequence = index.toLong() + 1L
+			val binding = ReaderPresentationBinding(
+				foliateSessionId = "stress-fixture",
+				publicationGeneration = 1L,
+				viewportGeneration = 2L,
+				profileGeneration = 3L,
+				preparationGeneration = sequence * 3L,
+				rasterGeneration = sequence * 3L + 1L,
+				textureGeneration = sequence * 3L + 2L
+			)
+			val id = ReaderTransitionId(
+				readerSessionGeneration = 5L,
+				coordinatorEpoch = 7L,
+				sequence = sequence,
+				operation = ReaderTransitionOperation.CoverToPageEntry,
+				expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
+			)
+			val deckKey = ReaderTransitionResourceKey(
+				id,
+				ReaderTransitionResourceKind.Deck,
+				requireNotNull(binding.textureGeneration)
+			)
+			val deckLease = assertNotNull(
+				readerDeckLeaseOrNull(
+					ReaderTransitionCommand.ReserveDeck(
+						id,
+						binding,
+						ReaderTransitionDeckRole.PageEntry
+					),
+					deckKey
+				)
+			)
+			val rasterLease = ReaderRasterPreparationLease(
+				transitionId = id,
+				binding = binding,
+				preparationGeneration = requireNotNull(binding.preparationGeneration),
+				rasterGeneration = requireNotNull(binding.rasterGeneration),
+				resourceKey = ReaderTransitionResourceKey(
+					id,
+					ReaderTransitionResourceKind.Raster,
+					requireNotNull(binding.rasterGeneration)
+				)
+			)
+
+			assertTrue(deckPort.register(deckLease))
+			assertTrue(ledger.register(deckLease.resourceKey))
+			val deckCommand = assertNotNull(ledger.requestRelease(deckLease.resourceKey))
+			assertTrue(deckPort.release(deckCommand) { fact ->
+				assertEquals(
+					ReaderTransitionFact.ResourceReleased(id, deckLease.resourceKey),
+					fact
+				)
+				assertTrue(ledger.confirmReleased(deckLease.resourceKey))
+			})
+
+			assertTrue(rasterPort.register(rasterLease))
+			assertTrue(ledger.register(rasterLease.resourceKey))
+			val rasterCommand = assertNotNull(ledger.requestRelease(rasterLease.resourceKey))
+			assertTrue(rasterPort.release(rasterCommand) { fact ->
+				assertEquals(
+					ReaderTransitionFact.ResourceReleased(id, rasterLease.resourceKey),
+					fact
+				)
+				assertTrue(ledger.confirmReleased(rasterLease.resourceKey))
+			})
+
+			if (index == 0) {
+				oldestDeckLease = deckLease
+				oldestDeckCommand = deckCommand
+			}
+			if (index == releaseCount - 1) {
+				newestDeckLease = deckLease
+				newestDeckCommand = deckCommand
+			}
+		}
+
+		val ledgerRetention = ledger.retentionSnapshot()
+		val deckRetention = deckPort.retentionSnapshot()
+		val rasterRetention = rasterPort.retentionSnapshot()
+		assertEquals(0, ledgerRetention.activeStateCount)
+		assertEquals(0, ledgerRetention.earlyConfirmationCount)
+		assertTrue(ledgerRetention.terminalTombstoneCount <= ledgerRetention.terminalTombstoneCapacity)
+		assertEquals(ReaderTransitionRetirementFenceState.Active, ledgerRetention.retirementFenceState)
+		listOf(deckRetention, rasterRetention).forEach { retention ->
+			assertEquals(0, retention.activeLeaseCount)
+			assertEquals(0, retention.issuedCount)
+			assertEquals(0, retention.confirmingCount)
+			assertTrue(retention.terminalTombstoneCount <= retention.terminalTombstoneCapacity)
+			assertEquals(ReaderTransitionRetirementFenceState.Active, retention.retirementFenceState)
+		}
+		assertEquals(releaseCount, deckPhysicalReleaseCount)
+		assertEquals(releaseCount, rasterPhysicalReleaseCount)
+
+		listOf(
+			oldestDeckLease to oldestDeckCommand,
+			newestDeckLease to newestDeckCommand
+		).forEach { (lease, command) ->
+			assertFalse(ledger.register(lease.resourceKey))
+			assertNull(ledger.requestRelease(lease.resourceKey))
+			assertFalse(deckPort.register(lease))
+			assertFalse(deckPort.release(command) { error("Duplicate release confirmation") })
+		}
+		assertEquals(releaseCount, deckPhysicalReleaseCount)
+	}
+
+	@Test
+	fun `active deck lease releases after tombstone eviction and lifecycle advance`() {
+		val ledger = ReaderTransitionReleaseLedger()
+		val physicalReleases = mutableListOf<ReaderDeckLease>()
+		val port = ReaderDeckPhysicalReleasePort { lease, confirmed ->
+			physicalReleases += lease
+			confirmed()
+		}
+		val oldId = transitionId().copy(sequence = 1L)
+		val oldLease = deckLeaseFor(oldId)
+		assertTrue(port.register(oldLease))
+		assertTrue(ledger.register(oldLease.resourceKey))
+		val oldCommand = assertNotNull(ledger.requestRelease(oldLease.resourceKey))
+
+		repeat(33) { index ->
+			releaseDeck(port, ledger, deckLeaseFor(oldId.copy(sequence = index.toLong() + 2L)))
+		}
+		releaseDeck(
+			port,
+			ledger,
+			deckLeaseFor(oldId.copy(readerSessionGeneration = oldId.readerSessionGeneration + 1L))
+		)
+
+		assertTrue(port.release(oldCommand) { assertTrue(ledger.confirmReleased(oldLease.resourceKey)) })
+		assertEquals(ReaderTransitionResourceState.Released, ledger.stateOf(oldLease.resourceKey))
+		assertEquals(35, physicalReleases.size)
+		assertEquals(1, port.retentionSnapshot().terminalTombstoneCount)
+		assertEquals(1, ledger.retentionSnapshot().terminalTombstoneCount)
+	}
+
+	@Test
+	fun `active raster lease releases after tombstone eviction and lifecycle advance`() {
+		val ledger = ReaderTransitionReleaseLedger()
+		val physicalReleases = mutableListOf<ReaderRasterPreparationLease>()
+		val port = ReaderRasterPhysicalReleasePort { lease, confirmed ->
+			physicalReleases += lease
+			confirmed()
+		}
+		val oldId = transitionId().copy(sequence = 1L)
+		val oldLease = rasterLeaseFor(oldId)
+		assertTrue(port.register(oldLease))
+		assertTrue(ledger.register(oldLease.resourceKey))
+		val oldCommand = assertNotNull(ledger.requestRelease(oldLease.resourceKey))
+
+		repeat(33) { index ->
+			releaseRaster(port, ledger, rasterLeaseFor(oldId.copy(sequence = index.toLong() + 2L)))
+		}
+		releaseRaster(
+			port,
+			ledger,
+			rasterLeaseFor(oldId.copy(readerSessionGeneration = oldId.readerSessionGeneration + 1L))
+		)
+
+		assertTrue(port.release(oldCommand) { assertTrue(ledger.confirmReleased(oldLease.resourceKey)) })
+		assertEquals(ReaderTransitionResourceState.Released, ledger.stateOf(oldLease.resourceKey))
+		assertEquals(35, physicalReleases.size)
+		assertEquals(1, port.retentionSnapshot().terminalTombstoneCount)
+		assertEquals(1, ledger.retentionSnapshot().terminalTombstoneCount)
+	}
+
+	@Test
+	fun `duplicate and terminal deck reservations do not reserve twice`() {
+		var reserveCount = 0
+		val ports = ReaderTask4TransitionPorts(
+			clock = testTransitionClock(),
+			raster = noOpRasterPort(),
+			renderer = object : ReaderRendererDeckCommandPort {
+				override fun reserve(lease: ReaderDeckLease, callbacks: ReaderDeckLeaseFactEmitter) {
+					reserveCount += 1
+				}
+				override fun release(lease: ReaderDeckLease, onReleased: () -> Unit) = onReleased()
+				override fun cancelPreparation(transitionId: ReaderTransitionId) = Unit
+			}
+		)
+		val id = transitionId()
+		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
+		val command = ReaderTransitionCommand.ReserveDeck(id, binding, ReaderTransitionDeckRole.PageEntry)
+		val key = ReaderTransitionResourceKey(
+			id,
+			ReaderTransitionResourceKind.Deck,
+			requireNotNull(binding.textureGeneration)
+		)
+		val facts = mutableListOf<ReaderTransitionFact>()
+
+		ports.issue(command, facts::add)
+		ports.issue(command, facts::add)
+		assertEquals(1, reserveCount)
+		val factsAfterDuplicate = facts.toList()
+		ports.issue(ReaderTransitionCommand.ReleaseResource(id, key), facts::add)
+		val factsAfterRelease = facts.toList()
+		ports.issue(command, facts::add)
+
+		assertEquals(1, reserveCount)
+		assertEquals(1, factsAfterDuplicate.size)
+		assertEquals(factsAfterRelease, facts)
+	}
+
+	@Test
+	fun `duplicate and terminal raster preparations do not prepare twice`() {
+		var prepareCount = 0
+		val ports = ReaderTask4TransitionPorts(
+			clock = testTransitionClock(),
+			raster = object : ReaderRasterPreparationCommandPort {
+				override fun prepare(
+				lease: ReaderRasterPreparationLease,
+				callbacks: ReaderRasterLeaseFactEmitter
+			) {
+					prepareCount += 1
+				}
+				override fun release(lease: ReaderRasterPreparationLease, onReleased: () -> Unit) =
+				onReleased()
+				override fun cancel(transitionId: ReaderTransitionId) = Unit
+			},
+			renderer = noOpRendererPort()
+		)
+		val id = transitionId()
+		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
+		val command = ReaderTransitionCommand.RequestRasterPreparation(id, binding)
+		val key = ReaderTransitionResourceKey(
+			id,
+			ReaderTransitionResourceKind.Raster,
+			requireNotNull(binding.rasterGeneration)
+		)
+		val facts = mutableListOf<ReaderTransitionFact>()
+
+		ports.issue(command, facts::add)
+		ports.issue(command, facts::add)
+		assertEquals(1, prepareCount)
+		val factsAfterDuplicate = facts.toList()
+		ports.issue(ReaderTransitionCommand.ReleaseResource(id, key), facts::add)
+		val factsAfterRelease = facts.toList()
+		ports.issue(command, facts::add)
+
+		assertEquals(1, prepareCount)
+		assertEquals(1, factsAfterDuplicate.size)
+		assertEquals(factsAfterRelease, facts)
+	}
+
+	@Test
+	fun `production policy exposes coordinator activation only through a completed cutover`() {
+		val legacy = UnavailableReaderDeckAdmissionLeaseHost
+		val cutover = synchronousCutover(ReaderLegacyDeckInventory.Complete(emptyList()))
+
+		val selected = ReaderDeckAdmissionProductionPolicy.select(
+			legacy,
+			cutover,
+			ReaderDeckAdmissionActivationPrerequisites.Complete
+		)
+
+		assertTrue(cutover.coordinatorAdmissionOpen)
+		assertEquals(ReaderDeckAdmissionProductionMode.Coordinator, ReaderDeckAdmissionProductionPolicy.mode(selected))
+		assertSame(cutover, selected)
+	}
+
+	@Test
+	fun `incomplete activation prerequisite remains legacy only`() {
+		val legacy = UnavailableReaderDeckAdmissionLeaseHost
+		val cutover = deckCutover(ReaderLegacyDeckInventory.Incomplete)
+
+		val selected = ReaderDeckAdmissionProductionPolicy.select(
+			legacy,
+			cutover,
+			ReaderDeckAdmissionActivationPrerequisites(
+				exactInventoryAvailable = false,
+				callbacksCarryExactLease = true,
+				closeDrainConnected = true
+			)
+		)
+
+		assertSame(legacy, selected)
+		assertTrue(cutover.legacyAdmissionOpen)
+		assertFalse(cutover.coordinatorAdmissionOpen)
+		assertEquals(ReaderDeckAdmissionProductionMode.LegacyOnly, ReaderDeckAdmissionProductionPolicy.mode(selected))
+	}
+
+	@Test
 	fun `snapshot contains only bounded counts and outcome`() {
 		val privateOpaqueId = 918_273_645L
 		val cutover = synchronousCutover(
@@ -296,6 +1061,107 @@ class ReaderDeckAdmissionCutoverTest {
 		assertFalse(snapshot.toString().contains(privateOpaqueId.toString()))
 		assertEquals(1, snapshot.inventoryCount)
 		assertEquals(1, snapshot.releaseCommandCount)
+	}
+
+	private fun deckLeaseFor(id: ReaderTransitionId): ReaderDeckLease {
+		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
+		return assertNotNull(
+			readerDeckLeaseOrNull(
+				ReaderTransitionCommand.ReserveDeck(id, binding, ReaderTransitionDeckRole.PageEntry),
+				ReaderTransitionResourceKey(
+					id,
+					ReaderTransitionResourceKind.Deck,
+					requireNotNull(binding.textureGeneration)
+				)
+			)
+		)
+	}
+
+	private fun rasterLeaseFor(id: ReaderTransitionId): ReaderRasterPreparationLease {
+		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
+		return ReaderRasterPreparationLease(
+			transitionId = id,
+			binding = binding,
+			preparationGeneration = requireNotNull(binding.preparationGeneration),
+			rasterGeneration = requireNotNull(binding.rasterGeneration),
+			resourceKey = ReaderTransitionResourceKey(
+				id,
+				ReaderTransitionResourceKind.Raster,
+				requireNotNull(binding.rasterGeneration)
+			)
+		)
+	}
+
+	private fun releaseDeck(
+		port: ReaderDeckPhysicalReleasePort,
+		ledger: ReaderTransitionReleaseLedger,
+		lease: ReaderDeckLease
+	) {
+		assertTrue(port.register(lease))
+		assertTrue(ledger.register(lease.resourceKey))
+		val command = assertNotNull(ledger.requestRelease(lease.resourceKey))
+		assertTrue(port.release(command) { assertTrue(ledger.confirmReleased(lease.resourceKey)) })
+	}
+
+	private fun releaseRaster(
+		port: ReaderRasterPhysicalReleasePort,
+		ledger: ReaderTransitionReleaseLedger,
+		lease: ReaderRasterPreparationLease
+	) {
+		assertTrue(port.register(lease))
+		assertTrue(ledger.register(lease.resourceKey))
+		val command = assertNotNull(ledger.requestRelease(lease.resourceKey))
+		assertTrue(port.release(command) { assertTrue(ledger.confirmReleased(lease.resourceKey)) })
+	}
+
+	private fun testTransitionClock(): ReaderTransitionClock = object : ReaderTransitionClock {
+		override fun nowMillis(): Long = 1L
+		override fun schedule(
+			atMillis: Long,
+			action: () -> Unit
+		): ReaderTransitionClockRegistration = ReaderTransitionClockRegistration {}
+	}
+
+	private fun noOpRasterPort(): ReaderRasterPreparationCommandPort =
+		object : ReaderRasterPreparationCommandPort {
+			override fun prepare(
+				lease: ReaderRasterPreparationLease,
+				callbacks: ReaderRasterLeaseFactEmitter
+			) = Unit
+
+			override fun release(
+				lease: ReaderRasterPreparationLease,
+				onReleased: () -> Unit
+			) = Unit
+			override fun cancel(transitionId: ReaderTransitionId) = Unit
+		}
+
+	private fun noOpRendererPort(): ReaderRendererDeckCommandPort =
+		object : ReaderRendererDeckCommandPort {
+			override fun reserve(
+				lease: ReaderDeckLease,
+				callbacks: ReaderDeckLeaseFactEmitter
+			) = Unit
+
+			override fun release(lease: ReaderDeckLease, onReleased: () -> Unit) = Unit
+			override fun cancelPreparation(transitionId: ReaderTransitionId) = Unit
+		}
+
+	private fun recordingRasterPort(
+		onPrepare: (ReaderRasterPreparationLease, ReaderRasterLeaseFactEmitter) -> Unit,
+		onRelease: (ReaderRasterPreparationLease, () -> Unit) -> Unit
+	): ReaderRasterPreparationCommandPort = object : ReaderRasterPreparationCommandPort {
+		override fun prepare(
+			lease: ReaderRasterPreparationLease,
+			callbacks: ReaderRasterLeaseFactEmitter
+		) = onPrepare(lease, callbacks)
+
+		override fun release(
+			lease: ReaderRasterPreparationLease,
+			onReleased: () -> Unit
+		) = onRelease(lease, onReleased)
+
+		override fun cancel(transitionId: ReaderTransitionId) = Unit
 	}
 
 	private fun synchronousCutover(inventory: ReaderLegacyDeckInventory): ReaderDeckAdmissionCutover =
@@ -363,7 +1229,10 @@ class ReaderDeckAdmissionCutoverTest {
 				publicationGeneration = 7L,
 				viewportGeneration = 11L,
 				profileGeneration = 13L,
-				destinationCommitIdentity = ReaderDestinationCommitIdentity("synthetic", 17L)
+				destinationCommitIdentity = ReaderDestinationCommitIdentity("synthetic", 17L),
+				preparationGeneration = 19L,
+				rasterGeneration = 23L,
+				textureGeneration = 29L
 			)
 		)
 	)

@@ -44,6 +44,7 @@ import paige.navic.reader.ReaderPageTurnPixelRect
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -67,6 +68,154 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	private val bundleSource = readerTask9Source(
 		"ReaderPageTurnBundleSource.android.kt"
 	)
+
+	@Test
+	fun coordinatorOwnedRasterWorkEmitsFactsWithoutPublishingReadiness() {
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "fixture",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			rasterGeneration = 5L,
+			textureGeneration = 7L,
+			preparationGeneration = 11L
+		)
+		val id = ReaderTransitionId(
+			readerSessionGeneration = 13L,
+			coordinatorEpoch = 17L,
+			sequence = 19L,
+			operation = ReaderTransitionOperation.CoverToPageEntry,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
+		)
+		val lease = ReaderRasterPreparationLease(
+			transitionId = id,
+			binding = binding,
+			preparationGeneration = 11L,
+			rasterGeneration = 5L,
+			resourceKey = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Raster, 5L)
+		)
+		val facts = mutableListOf<ReaderTransitionFact>()
+		var localReadinessPublications = 0
+		val emitter = ReaderRasterLeaseFactEmitter(lease, facts::add)
+
+		emitter.onProgress(lease)
+		emitter.onProven(lease)
+		val staleBinding = binding.copy(rasterGeneration = 23L)
+		val staleId = id.copy(
+			sequence = id.sequence + 1L,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(staleBinding)
+		)
+		val stale = lease.copy(
+			transitionId = staleId,
+			resourceKey = ReaderTransitionResourceKey(
+				staleId,
+				ReaderTransitionResourceKind.Raster,
+				23L
+			),
+			rasterGeneration = 23L,
+			binding = staleBinding
+		)
+		assertFalse(emitter.onProven(stale))
+
+		assertEquals(
+			listOf(
+				ReaderTransitionFact.ResourceObserved(id, lease.resourceKey),
+				ReaderTransitionFact.RasterProgress(id),
+				ReaderTransitionFact.RasterProven(id)
+			),
+			facts
+		)
+		assertEquals(0, localReadinessPublications)
+	}
+
+	@Test
+	fun rasterLeaseRejectsABindingOutsideTheTransitionExactIdentity() {
+		val expectedBinding = ReaderPresentationBinding(
+			foliateSessionId = "fixture",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			rasterGeneration = 5L,
+			textureGeneration = 7L,
+			preparationGeneration = 11L
+		)
+		val id = ReaderTransitionId(
+			readerSessionGeneration = 13L,
+			coordinatorEpoch = 17L,
+			sequence = 19L,
+			operation = ReaderTransitionOperation.CoverToPageEntry,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(expectedBinding)
+		)
+		val mismatchedBinding = expectedBinding.copy(textureGeneration = 23L)
+
+		assertFailsWith<IllegalArgumentException> {
+			ReaderRasterPreparationLease(
+				transitionId = id,
+				binding = mismatchedBinding,
+				preparationGeneration = 11L,
+				rasterGeneration = 5L,
+				resourceKey = ReaderTransitionResourceKey(
+					id,
+					ReaderTransitionResourceKind.Raster,
+					5L
+				)
+			)
+		}
+	}
+
+	@Test
+	fun rasterDeferralAndFailureRemainTypedAndExact() {
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "fixture",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			rasterGeneration = 5L,
+			textureGeneration = 7L,
+			preparationGeneration = 11L
+		)
+		val id = ReaderTransitionId(
+			readerSessionGeneration = 13L,
+			coordinatorEpoch = 17L,
+			sequence = 19L,
+			operation = ReaderTransitionOperation.CoverToPageEntry,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
+		)
+		val lease = ReaderRasterPreparationLease(
+			id,
+			binding,
+			11L,
+			5L,
+			ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Raster, 5L)
+		)
+		val resume = ReaderTransitionResumeRecord(
+			operation = id.operation,
+			reason = ReaderTransitionDeferralReason.RendererCapacityUnavailable,
+			nonce = ReaderTransitionNonce(29L, 31L),
+			issuedAtMillis = 100L,
+			expiresAtMillis = 900_100L,
+			remainingRestorations = 1,
+			requiredWake = ReaderTransitionWakeKind.RendererCapacityAvailable
+		)
+		val facts = mutableListOf<ReaderTransitionFact>()
+		val emitter = ReaderRasterLeaseFactEmitter(lease, facts::add)
+
+		emitter.onDeferred(lease, resume)
+		emitter.onFailed(lease, ReaderTransitionFailureReason.PortRejected)
+
+		assertEquals(
+			listOf(
+				ReaderTransitionFact.ResourceObserved(id, lease.resourceKey),
+				ReaderTransitionFact.RasterDeferred(
+					id,
+					ReaderTransitionDeferralReason.RendererCapacityUnavailable,
+					resume
+				),
+				ReaderTransitionFact.RasterFailed(id, ReaderTransitionFailureReason.PortRejected)
+			),
+			facts
+		)
+	}
 
 	@Test
 	fun presentationTimeoutRetryReachesFreshControllerGenerationAndCoalesces() = runTest {

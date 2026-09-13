@@ -13,8 +13,129 @@ import paige.navic.reader.ReaderRendererSuccessorReceipt
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderShellCoverRetainedFrame
 import paige.navic.reader.ReaderTransitionFact
+import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.ReaderTransitionCommand
+import paige.navic.reader.ReaderTransitionDeckRole
+import paige.navic.reader.ReaderTransitionDeferralReason
+import paige.navic.reader.ReaderTransitionId
+import paige.navic.reader.ReaderTransitionResumeRecord
 import paige.navic.reader.ReaderTransitionResourceKey
 import paige.navic.reader.ReaderTransitionResourceKind
+
+internal enum class ReaderTransitionResourceProvenance {
+	CoordinatorIssued,
+	AdoptedLegacy
+}
+
+internal data class ReaderDeckLease(
+	val transitionId: ReaderTransitionId,
+	val binding: ReaderPresentationBinding,
+	val role: ReaderDeckSubmissionRole,
+	val preparationGeneration: Long,
+	val rasterGeneration: Long,
+	val textureGeneration: Long,
+	val resourceKey: ReaderTransitionResourceKey,
+	val provenance: ReaderTransitionResourceProvenance =
+		ReaderTransitionResourceProvenance.CoordinatorIssued
+) {
+	init {
+		require(preparationGeneration > 0L)
+		require(rasterGeneration > 0L)
+		require(textureGeneration > 0L)
+		require(
+			transitionId.expectedBinding == ReaderExpectedPresentationBinding.Exact(binding)
+		)
+		require(binding.preparationGeneration == preparationGeneration)
+		require(binding.rasterGeneration == rasterGeneration)
+		require(binding.textureGeneration == textureGeneration)
+		require(resourceKey.transitionId == transitionId)
+		require(resourceKey.kind == ReaderTransitionResourceKind.Deck)
+		require(resourceKey.opaqueId == textureGeneration)
+	}
+}
+
+internal fun ReaderTransitionDeckRole.toAndroidDeckSubmissionRole(): ReaderDeckSubmissionRole =
+	when (this) {
+		ReaderTransitionDeckRole.Settlement -> ReaderDeckSubmissionRole.Pending
+		ReaderTransitionDeckRole.Initial,
+		ReaderTransitionDeckRole.PageEntry,
+		ReaderTransitionDeckRole.Reflow,
+		ReaderTransitionDeckRole.Recovery -> ReaderDeckSubmissionRole.Active
+	}
+
+internal fun readerDeckLeaseOrNull(
+	command: ReaderTransitionCommand.ReserveDeck,
+	resourceKey: ReaderTransitionResourceKey,
+	provenance: ReaderTransitionResourceProvenance =
+		ReaderTransitionResourceProvenance.CoordinatorIssued
+): ReaderDeckLease? {
+	val preparationGeneration = command.binding.preparationGeneration ?: return null
+	val rasterGeneration = command.binding.rasterGeneration ?: return null
+	val textureGeneration = command.binding.textureGeneration ?: return null
+	if (
+		command.transitionId.expectedBinding != ReaderExpectedPresentationBinding.Exact(command.binding) ||
+		resourceKey.transitionId != command.transitionId ||
+		resourceKey.kind != ReaderTransitionResourceKind.Deck ||
+		resourceKey.opaqueId != textureGeneration
+	) return null
+	return ReaderDeckLease(
+		transitionId = command.transitionId,
+		binding = command.binding,
+		role = command.role.toAndroidDeckSubmissionRole(),
+		preparationGeneration = preparationGeneration,
+		rasterGeneration = rasterGeneration,
+		textureGeneration = textureGeneration,
+		resourceKey = resourceKey,
+		provenance = provenance
+	)
+}
+
+internal class ReaderDeckLeaseFactEmitter(
+	private val lease: ReaderDeckLease,
+	private val enqueue: (ReaderTransitionFact) -> Unit
+) {
+	fun onReserved(callbackLease: ReaderDeckLease) = emit(callbackLease) {
+		ReaderTransitionFact.DeckReserved(lease.transitionId, lease.resourceKey)
+	}
+
+	fun onOwned(callbackLease: ReaderDeckLease) = emit(callbackLease) {
+		ReaderTransitionFact.DeckOwned(lease.transitionId, lease.resourceKey)
+	}
+
+	fun onPrepared(callbackLease: ReaderDeckLease) = emit(callbackLease) {
+		ReaderTransitionFact.DeckPrepared(lease.transitionId, lease.resourceKey)
+	}
+
+	fun onRejected(callbackLease: ReaderDeckLease) = emit(callbackLease) {
+		ReaderTransitionFact.DeckRejected(lease.transitionId, lease.resourceKey)
+	}
+
+	fun onCapacityRejected(
+		callbackLease: ReaderDeckLease,
+		resumeRecord: ReaderTransitionResumeRecord
+	): Boolean = emit(callbackLease) {
+		check(resumeRecord.operation == lease.transitionId.operation)
+		check(resumeRecord.reason == ReaderTransitionDeferralReason.RendererCapacityUnavailable)
+		ReaderTransitionFact.RasterDeferred(
+			lease.transitionId,
+			ReaderTransitionDeferralReason.RendererCapacityUnavailable,
+			resumeRecord
+		)
+	}
+
+	fun onCapacityAvailable() {
+		enqueue(ReaderTransitionFact.RendererCapacityAvailable(lease.transitionId))
+	}
+
+	private inline fun emit(
+		callbackLease: ReaderDeckLease,
+		fact: () -> ReaderTransitionFact
+	): Boolean {
+		check(callbackLease == lease) { "Renderer callback does not match its exact deck lease" }
+		enqueue(fact())
+		return true
+	}
+}
 
 internal enum class ReaderDeckAdmissionSlot {
 	Active,
@@ -268,13 +389,50 @@ internal object UnavailableReaderDeckAdmissionLeaseHost : ReaderDeckAdmissionLea
 	override fun isOwnerCurrent(admission: ReaderDeckAdmissionCapability): Boolean = false
 }
 
-internal enum class ReaderDeckAdmissionProductionMode { LegacyOnly }
+internal enum class ReaderDeckAdmissionProductionMode { LegacyOnly, Coordinator }
+
+internal data class ReaderDeckAdmissionActivationPrerequisites(
+	val exactInventoryAvailable: Boolean,
+	val callbacksCarryExactLease: Boolean,
+	val closeDrainConnected: Boolean
+) {
+	val complete: Boolean
+		get() = exactInventoryAvailable && callbacksCarryExactLease && closeDrainConnected
+
+	companion object {
+		val Complete = ReaderDeckAdmissionActivationPrerequisites(
+			exactInventoryAvailable = true,
+			callbacksCarryExactLease = true,
+			closeDrainConnected = true
+		)
+	}
+}
 
 internal object ReaderDeckAdmissionProductionPolicy {
 	val mode: ReaderDeckAdmissionProductionMode = ReaderDeckAdmissionProductionMode.LegacyOnly
 	val coordinatorActivationAvailable: Boolean = false
 
 	fun select(legacyHost: ReaderDeckAdmissionLeaseHost): ReaderDeckAdmissionLeaseHost = legacyHost
+
+	fun select(
+		legacyHost: ReaderDeckAdmissionLeaseHost,
+		cutover: ReaderDeckAdmissionCutover,
+		prerequisites: ReaderDeckAdmissionActivationPrerequisites
+	): ReaderDeckAdmissionLeaseHost {
+		if (!prerequisites.complete) return legacyHost
+		val activated = cutover.activate()
+		return when {
+			activated || !cutover.legacyAdmissionOpen -> cutover
+			else -> legacyHost
+		}
+	}
+
+	fun mode(host: ReaderDeckAdmissionLeaseHost): ReaderDeckAdmissionProductionMode =
+		if (host is ReaderDeckAdmissionCutover && host.coordinatorAdmissionOpen) {
+			ReaderDeckAdmissionProductionMode.Coordinator
+		} else {
+			ReaderDeckAdmissionProductionMode.LegacyOnly
+		}
 }
 
 internal fun ReaderDeckAdmissionLeaseHost.selectedForProductionDeckAdmission():

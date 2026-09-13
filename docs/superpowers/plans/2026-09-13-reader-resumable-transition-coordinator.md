@@ -993,7 +993,7 @@ Record only inventory/adoption/release counts and the preparatory protocol outco
 Do not claim production activation. Commit
 `feat(reader): prepare deck admission cutover` and push.
 
-### Task 4: Convert raster, renderer callbacks, and recovery into ports
+### Task 4: Add inactive raster, renderer-callback, and recovery ports
 
 **Files:**
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderResumableTransitionCoordinator.android.kt`
@@ -1001,9 +1001,11 @@ Do not claim production activation. Commit
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageRasterPreparationController.android.kt`
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateController.android.kt`
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderDeckAdmission.android.kt`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderDeckAdmissionCutoverTest.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageAdjacentChapterPrefetchIntegrationTest.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateControllerSettlementRecoveryTest.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateControllerSourceTest.kt`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderTransitionReleaseLedgerTest.kt`
 - Modify: `docs/superpowers/plans/2026-08-23-reader-raster-isolation-and-whispersync-stabilization.md`
 
 - [ ] **Step 1: Write grouped RED adapter tests**
@@ -1039,26 +1041,35 @@ internal data class ReaderDeckLease(
 ```
 
 Map common `ReaderTransitionDeckRole` to Android `ReaderDeckSubmissionRole` at the
-port boundary. Renderer callbacks emit facts only. Release methods execute only
-coordinator `ReleaseResource`; preparation phase/proof emits facts only.
-`completeObservedDeckAdmission`, `retryAwaitingDeckAdmission`, and standalone local
-recovery progression become unreachable.
+port boundary. Typed renderer and raster adapters can emit exact coordinator facts;
+physical release ports execute only coordinator `ReleaseResource`. Reject malformed
+fact/resource identities before mailbox insertion, reject duplicate or fenced
+registration before physical reserve/prepare, and keep exact-once release history
+bounded with lifecycle/transition-sequence retirement fences. Active registered
+resources take precedence over retirement fences so no live lease becomes
+unreleasable.
 
-Only after every live legacy deck can be inventoried as an exact
-`ReaderTransitionResourceKey`, every renderer callback can emit a fact bearing its
-`ReaderTransitionId`, and the host close path drives the coordinator close deadline
-and release-only sink may Task 4 invoke freeze → inventory → adopt/drain → atomic
-activation. Otherwise the `LegacyOnly` production policy remains in force and legacy
-remains the sole writer.
+Task 4 does not remove the production legacy writers or activate coordinator deck
+admission. Production lacks an active semantic transition source that can assign an
+exact `ReaderTransitionId` to every live callback, so invoking freeze → inventory →
+adopt/drain here would fabricate identity or create a dual-writer interval. The
+`LegacyOnly` production policy remains in force. Task 5 must first supply the active
+semantic transition source and exact production callback identities; activation may
+then occur only as one atomic cutover after the remaining inventory, close-path, and
+release-only-sink prerequisites are true.
 
 - [ ] **Step 4: Run focused GREEN**
 
-Run Step 2. Expected: pass; material completion without frame proof cannot publish
-`Ready` or admit input.
+Run Step 2 plus the coordinator, release-ledger, source-contract, and common authority
+sequence suites. Expected: pass; material completion without frame proof cannot
+publish `Ready` or admit input, resource release remains exact-once and bounded, and
+production stays `LegacyOnly`.
 
 - [ ] **Step 5: MAIN reconciles Slice 2 rows, commits, and pushes**
 
-Commit `refactor(reader): route raster decks through coordinator` and push.
+Record that this checkpoint supplies inactive typed adapters and physical release
+ports but no production activation. Commit
+`refactor(reader): add transition resource adapters` and push.
 
 ### Task 5: Cut over one-shot semantic facts and external relocation
 

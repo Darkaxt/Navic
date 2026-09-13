@@ -78,6 +78,13 @@ import paige.navic.reader.ReaderPreparationPresentation
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderPresentationTokenDomain
 import paige.navic.reader.ReaderRequiredTransition
+import paige.navic.reader.ReaderTransitionCommand
+import paige.navic.reader.ReaderTransitionDeckRole
+import paige.navic.reader.ReaderTransitionId
+import paige.navic.reader.ReaderTransitionOperation
+import paige.navic.reader.ReaderTransitionResourceKey
+import paige.navic.reader.ReaderTransitionResourceKind
+import paige.navic.reader.parentIdentity
 import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
@@ -271,6 +278,68 @@ internal data class ReaderPlayLikeCurlControllerOwnershipMetrics(
 internal enum class ReaderDeckSubmissionRole {
 	Active,
 	Pending
+}
+
+internal class ReaderDeckRecoveryLeaseAllocator {
+	private var readerSessionGeneration: Long? = null
+	private var coordinatorEpoch: Long? = null
+	private var sequenceFloor = 0L
+	private var preparationFloor = 0L
+	private var rasterFloor = 0L
+	private var textureFloor = 0L
+
+	fun next(
+		predecessor: ReaderTransitionId,
+		predecessorBinding: ReaderPresentationBinding
+	): ReaderDeckLease {
+		val existingSession = readerSessionGeneration
+		val existingEpoch = coordinatorEpoch
+		check(existingSession == null || existingSession == predecessor.readerSessionGeneration)
+		check(existingEpoch == null || existingEpoch == predecessor.coordinatorEpoch)
+		readerSessionGeneration = predecessor.readerSessionGeneration
+		coordinatorEpoch = predecessor.coordinatorEpoch
+		val sequence = Math.incrementExact(maxOf(sequenceFloor, predecessor.sequence))
+		val preparationGeneration = Math.incrementExact(
+			maxOf(preparationFloor, requireNotNull(predecessorBinding.preparationGeneration))
+		)
+		val rasterGeneration = Math.incrementExact(
+			maxOf(rasterFloor, requireNotNull(predecessorBinding.rasterGeneration))
+		)
+		val textureGeneration = Math.incrementExact(
+			maxOf(textureFloor, requireNotNull(predecessorBinding.textureGeneration))
+		)
+		sequenceFloor = sequence
+		preparationFloor = preparationGeneration
+		rasterFloor = rasterGeneration
+		textureFloor = textureGeneration
+		val binding = predecessorBinding.copy(
+			preparationGeneration = preparationGeneration,
+			rasterGeneration = rasterGeneration,
+			textureGeneration = textureGeneration
+		)
+		val transitionId = ReaderTransitionId(
+			readerSessionGeneration = predecessor.readerSessionGeneration,
+			coordinatorEpoch = predecessor.coordinatorEpoch,
+			sequence = sequence,
+			operation = ReaderTransitionOperation.RendererRecovery,
+			expectedBinding = paige.navic.reader.ReaderExpectedPresentationBinding.Exact(binding),
+			parent = predecessor.parentIdentity()
+		)
+		return checkNotNull(
+			readerDeckLeaseOrNull(
+				ReaderTransitionCommand.ReserveDeck(
+					transitionId,
+					binding,
+					ReaderTransitionDeckRole.Recovery
+				),
+				ReaderTransitionResourceKey(
+					transitionId,
+					ReaderTransitionResourceKind.Deck,
+					textureGeneration
+				)
+			)
+		)
+	}
 }
 
 internal fun readerRecoveredDeckCancellationRoleMatches(
