@@ -27,6 +27,7 @@ import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -95,6 +96,7 @@ import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderRendererBusyFeedbackMaximumMillis
 import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderTextureDeckState
+import paige.navic.reader.ReaderTransitionJournal
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
@@ -765,6 +767,19 @@ actual fun KomikkuReaderNativeFrameHost(
 	viewerContent: @Composable () -> Unit,
 	composeOverlay: @Composable () -> Unit
 ) {
+	val shadowTransitionGateway = checkNotNull(LocalReaderTransitionGateway.current)
+	val shadowCoordinator = remember(shadowTransitionGateway) {
+		ReaderResumableTransitionCoordinator(
+			ports = ReaderShadowTransitionPorts(),
+			mode = ReaderTransitionMode.Shadow,
+			journal = ReaderTransitionJournal()
+		)
+	}
+	DisposableEffect(shadowTransitionGateway, shadowCoordinator) {
+		val registration = shadowTransitionGateway.attachShadow(shadowCoordinator::enqueue)
+		onDispose(registration::close)
+	}
+	val currentShadowTransitionGateway by rememberUpdatedState(shadowTransitionGateway)
 	val currentViewerContent by rememberUpdatedState(viewerContent)
 	val currentComposeOverlay by rememberUpdatedState(composeOverlay)
 	val currentOnViewerAction by rememberUpdatedState(onViewerAction)
@@ -869,7 +884,10 @@ actual fun KomikkuReaderNativeFrameHost(
 					presentationShellCoverVisible,
 					destinationCommitIdentity,
 					viewerKey
-				) { event -> currentOnPresentationEvent(event) }
+				) { event ->
+					currentShadowTransitionGateway.observeLegacyPresentationEvent(event)
+					currentOnPresentationEvent(event)
+				}
 				setViewerContent(viewerKey) { currentViewerContent() }
 				handlePresentationEffects(
 					presentationEffects,
@@ -939,7 +957,10 @@ actual fun KomikkuReaderNativeFrameHost(
 				presentationShellCoverVisible,
 				destinationCommitIdentity,
 				viewerKey
-			) { event -> currentOnPresentationEvent(event) }
+			) { event ->
+				currentShadowTransitionGateway.observeLegacyPresentationEvent(event)
+				currentOnPresentationEvent(event)
+			}
 			root.handlePresentationEffects(
 				presentationEffects,
 				presentationVersion

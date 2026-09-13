@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -61,6 +62,7 @@ internal fun KomikkuReaderRoot(
 	presentationVersion: ReaderPresentationReceiptVersion,
 	pageTurnCanvasEnabled: Boolean,
 	legacyLiveCompatibilityContext: ReaderLegacyLiveCompatibilityContext,
+	shadowTransitionGateway: ReaderTransitionGateway,
 	presentationEffects: List<ReaderPendingPresentationEffect>,
 	onPresentationEffectHandled: (ReaderPresentationEffectIdentity) -> Unit,
 	viewState: ReaderEngineViewState,
@@ -161,183 +163,185 @@ internal fun KomikkuReaderRoot(
 					"shellCover=${controllerState.shellCoverVisible} dialog=${controllerState.dialog}"
 			)
 		}
-		KomikkuReaderNativeFrameHost(
-			navigator = navigator,
-			navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true,
-			chromeOverlayVisible = controllerState.menuVisible,
-			presentationDecision = presentationDecision,
-			presentationState = controllerState.presentation,
-			presentationVersion = presentationVersion,
-			presentationShellCoverVisible = controllerState.shellCoverVisible,
-			legacyLiveCompatibilityContext = legacyLiveCompatibilityContext,
-			presentationEffects = presentationEffects,
-			onPresentationEffectHandled = onPresentationEffectHandled,
-			onPresentationEvent = onPresentationEvent,
-			destinationCommitIdentity = controllerState.destinationCommitIdentity,
-			shellCoverUrl = shellCoverUrl,
-			shellCoverTitle = shellCoverTitle,
-			coverBackdropEnabled = controllerState.chrome.settings.coverBackdropEnabled != false,
-			viewerKey = viewer.key,
-			grayscaleEnabled = controllerState.chrome.settings.grayscaleEnabled == true,
-			invertedColors = controllerState.chrome.settings.invertedColors == true,
-			verticalPageDragPreview = normalizedReaderFlowMode(
-				controllerState.chrome.settings.flowMode,
-				controllerState.chrome.settings.paged
-			) == ReaderFlowPagedVertical,
-			pageTurnCanvasEnabled = pageTurnCanvasEnabled,
-			pageTurnReadingDirection = controllerState.chrome.settings.direction,
-			pageTurnBitmapQuality = controllerState.chrome.settings.pageBitmapQuality,
-			pageTurnSnapshotKey = controllerState.readerSettingsPresentationSnapshotKey
-				?: controllerState.chrome.settings.readerPageRasterSnapshotKey(),
-			pageTurnContentReadyKey = readerPageTurnContentReadyKey(
-				controllerState.paginationProfile
-			),
-			pageTurnPaginationStatus = controllerState.paginationProfile.status,
-			pageTurnVisualPageIndex = controllerState.chrome.currentLocator?.pageIndex,
-			pageTurnVisualLocationReason = controllerState.chrome.currentLocator?.reason,
-			pageTurnFoliateSessionId = controllerState.foliateSessionId,
-			pageTurnSettlementAck = controllerState.pageTurnSettlementAck,
-			whispersyncOverlayActive = controllerState.activeMediaOverlay != null,
-			whispersyncAnchorReceipt = controllerState.activeMediaOverlayAnchorReceipt,
-			whispersyncHighlightColorArgb =
-				controllerState.chrome.settings.whispersyncHighlightColorArgb
-					?: DefaultReaderWhispersyncHighlightColorArgb,
-			whispersyncCueMapState = controllerState.whispersync.cueMap,
-			onWhispersyncCueMapHoldOutcome = { sourceOrdinal, outcome ->
-				val receipt = controllerState.whispersync.cueMap.geometryReceipt
-				if (receipt != null) {
-					onEngineHostEvent(
-						ReaderEngineHostEvent.NativeWhispersyncCueMapHoldOutcome(
-							sourceOrdinal = sourceOrdinal,
-							revisionDigest = receipt.revisionDigest,
-							presentationGeneration = receipt.presentationGeneration,
-							outcome = outcome
+		CompositionLocalProvider(LocalReaderTransitionGateway provides shadowTransitionGateway) {
+			KomikkuReaderNativeFrameHost(
+				navigator = navigator,
+				navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true,
+				chromeOverlayVisible = controllerState.menuVisible,
+				presentationDecision = presentationDecision,
+				presentationState = controllerState.presentation,
+				presentationVersion = presentationVersion,
+				presentationShellCoverVisible = controllerState.shellCoverVisible,
+				legacyLiveCompatibilityContext = legacyLiveCompatibilityContext,
+				presentationEffects = presentationEffects,
+				onPresentationEffectHandled = onPresentationEffectHandled,
+				onPresentationEvent = onPresentationEvent,
+				destinationCommitIdentity = controllerState.destinationCommitIdentity,
+				shellCoverUrl = shellCoverUrl,
+				shellCoverTitle = shellCoverTitle,
+				coverBackdropEnabled = controllerState.chrome.settings.coverBackdropEnabled != false,
+				viewerKey = viewer.key,
+				grayscaleEnabled = controllerState.chrome.settings.grayscaleEnabled == true,
+				invertedColors = controllerState.chrome.settings.invertedColors == true,
+				verticalPageDragPreview = normalizedReaderFlowMode(
+					controllerState.chrome.settings.flowMode,
+					controllerState.chrome.settings.paged
+				) == ReaderFlowPagedVertical,
+				pageTurnCanvasEnabled = pageTurnCanvasEnabled,
+				pageTurnReadingDirection = controllerState.chrome.settings.direction,
+				pageTurnBitmapQuality = controllerState.chrome.settings.pageBitmapQuality,
+				pageTurnSnapshotKey = controllerState.readerSettingsPresentationSnapshotKey
+					?: controllerState.chrome.settings.readerPageRasterSnapshotKey(),
+				pageTurnContentReadyKey = readerPageTurnContentReadyKey(
+					controllerState.paginationProfile
+				),
+				pageTurnPaginationStatus = controllerState.paginationProfile.status,
+				pageTurnVisualPageIndex = controllerState.chrome.currentLocator?.pageIndex,
+				pageTurnVisualLocationReason = controllerState.chrome.currentLocator?.reason,
+				pageTurnFoliateSessionId = controllerState.foliateSessionId,
+				pageTurnSettlementAck = controllerState.pageTurnSettlementAck,
+				whispersyncOverlayActive = controllerState.activeMediaOverlay != null,
+				whispersyncAnchorReceipt = controllerState.activeMediaOverlayAnchorReceipt,
+				whispersyncHighlightColorArgb =
+					controllerState.chrome.settings.whispersyncHighlightColorArgb
+						?: DefaultReaderWhispersyncHighlightColorArgb,
+				whispersyncCueMapState = controllerState.whispersync.cueMap,
+				onWhispersyncCueMapHoldOutcome = { sourceOrdinal, outcome ->
+					val receipt = controllerState.whispersync.cueMap.geometryReceipt
+					if (receipt != null) {
+						onEngineHostEvent(
+							ReaderEngineHostEvent.NativeWhispersyncCueMapHoldOutcome(
+								sourceOrdinal = sourceOrdinal,
+								revisionDigest = receipt.revisionDigest,
+								presentationGeneration = receipt.presentationGeneration,
+								outcome = outcome
+							)
+						)
+					}
+				},
+				onWhispersyncCueMapSeekRequested = { sourceOrdinal ->
+					val receipt = controllerState.whispersync.cueMap.geometryReceipt
+					if (receipt != null) {
+						onEngineHostEvent(
+							ReaderEngineHostEvent.NativeWhispersyncCueMapSeekRequested(
+								sourceOrdinal = sourceOrdinal,
+								revisionDigest = receipt.revisionDigest,
+								presentationGeneration = receipt.presentationGeneration,
+								destinationCommitIdentity = receipt.destinationCommitIdentity
+							)
+						)
+					}
+				},
+				onStartupShellPrepared = {
+					onViewerAction(ReaderViewerAction.NativeShellPrepared)
+				},
+				onViewerAction = { action ->
+					val viewerAction = if (
+						presentationDecision.inputPolicy == ReaderPresentationInputPolicy.ShellCover
+					) {
+						readerShellCoverViewerActionFor(action)
+					} else {
+						viewer.viewerActionFor(action)
+					}
+					onViewerAction(viewerAction)
+				},
+				onPageTurnBoundary = onPageTurnBoundary,
+				onReadableDragPreview = { deltaX, deltaY, width, height, phase ->
+					onViewerAction(
+						ReaderViewerAction.PreviewPageDrag(
+							deltaX = deltaX.toDouble(),
+							deltaY = deltaY.toDouble(),
+							viewWidth = width.toDouble(),
+							viewHeight = height.toDouble(),
+							phase = phase
 						)
 					)
-				}
-			},
-			onWhispersyncCueMapSeekRequested = { sourceOrdinal ->
-				val receipt = controllerState.whispersync.cueMap.geometryReceipt
-				if (receipt != null) {
-					onEngineHostEvent(
-						ReaderEngineHostEvent.NativeWhispersyncCueMapSeekRequested(
-							sourceOrdinal = sourceOrdinal,
-							revisionDigest = receipt.revisionDigest,
-							presentationGeneration = receipt.presentationGeneration,
-							destinationCommitIdentity = receipt.destinationCommitIdentity
+				},
+				onContentLongPress = { x, y, width, height ->
+					onViewerAction(
+						ReaderViewerAction.ContentLongPressAt(
+							x = x.toDouble(),
+							y = y.toDouble(),
+							viewWidth = width.toDouble(),
+							viewHeight = height.toDouble()
 						)
 					)
-				}
-			},
-			onStartupShellPrepared = {
-				onViewerAction(ReaderViewerAction.NativeShellPrepared)
-			},
-			onViewerAction = { action ->
-				val viewerAction = if (
-					presentationDecision.inputPolicy == ReaderPresentationInputPolicy.ShellCover
-				) {
-					readerShellCoverViewerActionFor(action)
-				} else {
-					viewer.viewerActionFor(action)
-				}
-				onViewerAction(viewerAction)
-			},
-			onPageTurnBoundary = onPageTurnBoundary,
-			onReadableDragPreview = { deltaX, deltaY, width, height, phase ->
-				onViewerAction(
-					ReaderViewerAction.PreviewPageDrag(
-						deltaX = deltaX.toDouble(),
-						deltaY = deltaY.toDouble(),
-						viewWidth = width.toDouble(),
-						viewHeight = height.toDouble(),
-						phase = phase
-					)
-				)
-			},
-			onContentLongPress = { x, y, width, height ->
-				onViewerAction(
-					ReaderViewerAction.ContentLongPressAt(
-						x = x.toDouble(),
-						y = y.toDouble(),
-						viewWidth = width.toDouble(),
-						viewHeight = height.toDouble()
-					)
-				)
-			},
-			modifier = Modifier.matchParentSize(),
-			viewerContent = {
-				ReaderViewerHost(
-					readerTitle = reader.title,
-					controllerState = controllerState,
-					engineRenderer = viewer.engineRenderer,
-					onEngineHostEvent = onEngineHostEvent,
-					modifier = Modifier.fillMaxSize()
-				)
-			},
-			composeOverlay = {
-				if (overlayVisible) {
-					KomikkuComposeOverlay(
-						reader = reader,
+				},
+				modifier = Modifier.matchParentSize(),
+				viewerContent = {
+					ReaderViewerHost(
+						readerTitle = reader.title,
 						controllerState = controllerState,
-						whispersyncPlaybackControl = whispersyncPlaybackControl,
-						readaloudPlaybackState = readaloudPlaybackState,
-						onWhispersyncPlaybackCommand = onWhispersyncPlaybackCommand,
-						onToggleWhispersyncCueMap = onToggleWhispersyncCueMap,
-						onPreviousChapter = onPreviousChapter,
-						onNextChapter = onNextChapter,
-						onGoToChapterPage = onGoToChapterPage,
-						onContents = onContents,
-						onSearch = onSearch,
-						onWhispersyncPlayer = onWhispersyncPlayer,
-						onSearchInputChange = onSearchInputChange,
-						onSearchQuery = onSearchQuery,
-						onNavigateToSearchResult = onNavigateToSearchResult,
-						onDismissSearch = onDismissSearch,
-						onNavigateBack = onNavigateBack,
-						onSettings = onSettings,
-						onShowMenus = onShowMenus,
-						onHideMenus = onHideMenus,
-						settingsScope = settingsScope,
-						hasBookSettings = hasBookSettings,
-						publicationFormat = publicationFormat,
-						whispersyncCapable = whispersyncCapable && mediaOverlayAvailable,
-						listeningSettings = listeningSettings,
-						onNavigateToTocItem = onNavigateToTocItem,
-						onToggleCurrentBookmark = onToggleCurrentBookmark,
-						onHighlightSelection = onHighlightSelection,
-						onCopySelection = onCopySelection,
-						onStartSelectionNote = onStartSelectionNote,
-						onSelectionNoteDraftChange = onSelectionNoteDraftChange,
-						onSaveSelectionNote = onSaveSelectionNote,
-						onDismissSelectionNote = onDismissSelectionNote,
-						onDismissAnnotationPopup = onDismissAnnotationPopup,
-						onDismissFootnotePopup = onDismissFootnotePopup,
-						onOpenExternalLink = onOpenExternalLink,
-						onDismissExternalLinkPrompt = onDismissExternalLinkPrompt,
-						onSettingsChange = onSettingsChange,
-						onSettingsScopeChange = onSettingsScopeChange,
-						onResetBookSettings = onResetBookSettings,
-						onRepairWhispersyncMismatch = onRepairWhispersyncMismatch,
-						onListeningSettingsChange = onListeningSettingsChange,
-						onNavigateToBookmark = onNavigateToBookmark,
-						onNavigateToAnnotation = onNavigateToAnnotation,
-						onDismissDialog = onDismissDialog,
+						engineRenderer = viewer.engineRenderer,
+						onEngineHostEvent = onEngineHostEvent,
+						modifier = Modifier.fillMaxSize()
+					)
+				},
+				composeOverlay = {
+					if (overlayVisible) {
+						KomikkuComposeOverlay(
+							reader = reader,
+							controllerState = controllerState,
+							whispersyncPlaybackControl = whispersyncPlaybackControl,
+							readaloudPlaybackState = readaloudPlaybackState,
+							onWhispersyncPlaybackCommand = onWhispersyncPlaybackCommand,
+							onToggleWhispersyncCueMap = onToggleWhispersyncCueMap,
+							onPreviousChapter = onPreviousChapter,
+							onNextChapter = onNextChapter,
+							onGoToChapterPage = onGoToChapterPage,
+							onContents = onContents,
+							onSearch = onSearch,
+							onWhispersyncPlayer = onWhispersyncPlayer,
+							onSearchInputChange = onSearchInputChange,
+							onSearchQuery = onSearchQuery,
+							onNavigateToSearchResult = onNavigateToSearchResult,
+							onDismissSearch = onDismissSearch,
+							onNavigateBack = onNavigateBack,
+							onSettings = onSettings,
+							onShowMenus = onShowMenus,
+							onHideMenus = onHideMenus,
+							settingsScope = settingsScope,
+							hasBookSettings = hasBookSettings,
+							publicationFormat = publicationFormat,
+							whispersyncCapable = whispersyncCapable && mediaOverlayAvailable,
+							listeningSettings = listeningSettings,
+							onNavigateToTocItem = onNavigateToTocItem,
+							onToggleCurrentBookmark = onToggleCurrentBookmark,
+							onHighlightSelection = onHighlightSelection,
+							onCopySelection = onCopySelection,
+							onStartSelectionNote = onStartSelectionNote,
+							onSelectionNoteDraftChange = onSelectionNoteDraftChange,
+							onSaveSelectionNote = onSaveSelectionNote,
+							onDismissSelectionNote = onDismissSelectionNote,
+							onDismissAnnotationPopup = onDismissAnnotationPopup,
+							onDismissFootnotePopup = onDismissFootnotePopup,
+							onOpenExternalLink = onOpenExternalLink,
+							onDismissExternalLinkPrompt = onDismissExternalLinkPrompt,
+							onSettingsChange = onSettingsChange,
+							onSettingsScopeChange = onSettingsScopeChange,
+							onResetBookSettings = onResetBookSettings,
+							onRepairWhispersyncMismatch = onRepairWhispersyncMismatch,
+							onListeningSettingsChange = onListeningSettingsChange,
+							onNavigateToBookmark = onNavigateToBookmark,
+							onNavigateToAnnotation = onNavigateToAnnotation,
+							onDismissDialog = onDismissDialog,
+							modifier = Modifier.matchParentSize()
+						)
+					}
+					ReaderPagePreparationOverlay(
+						preparation = presentationDecision.preparationPresentation,
+						diagnostic = presentationDecision.diagnosticPresentation,
+						onRetry = { onPresentationEvent(ReaderPresentationEvent.Retry) },
+						onCancel = readerPreparationCancelCallback(
+							decision = presentationDecision,
+							currentDecision = currentPresentationDecision,
+							onPresentationEvent = onPresentationEvent
+						),
 						modifier = Modifier.matchParentSize()
 					)
 				}
-				ReaderPagePreparationOverlay(
-					preparation = presentationDecision.preparationPresentation,
-					diagnostic = presentationDecision.diagnosticPresentation,
-					onRetry = { onPresentationEvent(ReaderPresentationEvent.Retry) },
-					onCancel = readerPreparationCancelCallback(
-						decision = presentationDecision,
-						currentDecision = currentPresentationDecision,
-						onPresentationEvent = onPresentationEvent
-					),
-					modifier = Modifier.matchParentSize()
 				)
-			}
-		)
+		}
 	}
 }
 

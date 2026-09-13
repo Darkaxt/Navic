@@ -597,6 +597,19 @@ contract is implemented and verified.
   errors, or skips. Independent specification and code-quality reviews approved the
   resulting Slice 1 contract. This slice is common shadow-model infrastructure only;
   it does not claim Android coordinator wiring or runtime acceptance.
+- **Task384 Slice 2 Android shadow-coordinator checkpoint:** The Android main-thread
+  FIFO mailbox, typed command ports, bounded content-free shadow predictions, and
+  shadow gateway are wired through `ReaderScreen`, `ReaderRoot`, and
+  `KomikkuReaderNativeFrameHost`. Journal state and one immutable per-transition hard
+  deadline are published before effects; no-progress expiry uses the earlier bound,
+  and exact phase/slot fencing rejects cancellation-resistant stale callbacks.
+  Grouped TDD captured the feature-missing RED and four deadline-policy RED failures.
+  MAIN's forced focused rerun of `ReaderResumableTransitionCoordinatorTest` and
+  `ReaderPresentationAuthoritySequenceTest` passed 45 tests with zero failures,
+  errors, or skips. Independent specification and code-quality reviews approved the
+  corrected seven-file implementation. Shadow mode issues no mutating commands and
+  legacy presentation remains the sole writer; this checkpoint does not claim deck
+  admission cutover, runtime acceptance, or any later migration slice.
 - **Current Android build/lint/compile evidence:** Task 361 MAIN independently
   verified
   `C:/Users/darka/Documents/Projects/Android/.codex-temp/task361-host-8d7a61de-v1-b0ed9aed5606480abd68ffba7b6c121e`

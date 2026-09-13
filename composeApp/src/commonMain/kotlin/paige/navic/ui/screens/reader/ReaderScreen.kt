@@ -200,6 +200,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 			)
 		)
 	}
+	val shadowTransitionGateway = remember(
+		reader.bookId,
+		reader.resourceHref,
+		reader.publicationUrl
+	) {
+		ReaderTransitionGateway()
+	}
 	val pendingPresentationEffectQueue = remember(
 		reader.bookId,
 		reader.resourceHref,
@@ -871,6 +878,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		presentationVersion = coordinator.controller.presentationVersion,
 		pageTurnCanvasEnabled = pageTurnCanvasEnabled,
 		legacyLiveCompatibilityContext = legacyLiveCompatibilityContext,
+		shadowTransitionGateway = shadowTransitionGateway,
 		presentationEffects = pendingPresentationEffects,
 		onPresentationEffectHandled = { identity ->
 			acknowledgePresentationEffect(identity)
