@@ -18,6 +18,7 @@ import paige.navic.reader.ReaderAnnotation
 import paige.navic.reader.ReaderBookmark
 import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
+import paige.navic.reader.ReaderCancelIntent
 import paige.navic.reader.ReaderEngineCapability
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineViewState
@@ -39,6 +40,7 @@ import paige.navic.reader.ReaderSearchResult
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderTocItem
+import paige.navic.reader.ReaderTransitionFact
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncPlaybackControlState
 import paige.navic.reader.normalizedReaderFlowMode
@@ -331,11 +333,24 @@ internal fun KomikkuReaderRoot(
 					ReaderPagePreparationOverlay(
 						preparation = presentationDecision.preparationPresentation,
 						diagnostic = presentationDecision.diagnosticPresentation,
-						onRetry = { onPresentationEvent(ReaderPresentationEvent.Retry) },
+						onRetry = {
+							shadowTransitionGateway.dispatchBeforeLegacy(
+								ReaderTransitionFact.Retry(null)
+							) {
+								onPresentationEvent(ReaderPresentationEvent.Retry)
+							}
+						},
 						onCancel = readerPreparationCancelCallback(
 							decision = presentationDecision,
 							currentDecision = currentPresentationDecision,
-							onPresentationEvent = onPresentationEvent
+							onPresentationEvent = onPresentationEvent,
+							dispatchAcceptedCancel = { event, legacyDispatch ->
+								shadowTransitionGateway.dispatchBeforeLegacy(
+									ReaderTransitionFact.Intent(null, ReaderCancelIntent)
+								) {
+									legacyDispatch(event)
+								}
+							}
 						),
 						modifier = Modifier.matchParentSize()
 					)

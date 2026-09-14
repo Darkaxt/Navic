@@ -96,6 +96,7 @@ import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderRendererBusyFeedbackMaximumMillis
 import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderTextureDeckState
+import paige.navic.reader.ReaderTransitionFact
 import paige.navic.reader.ReaderTransitionJournal
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
@@ -776,8 +777,14 @@ actual fun KomikkuReaderNativeFrameHost(
 		)
 	}
 	DisposableEffect(shadowTransitionGateway, shadowCoordinator) {
-		val registration = shadowTransitionGateway.attachShadow(shadowCoordinator::enqueue)
-		onDispose(registration::close)
+		val registration = shadowTransitionGateway.attachShadow(
+			enqueue = shadowCoordinator::enqueue,
+			enqueueReceipt = shadowCoordinator::enqueue
+		)
+		onDispose {
+			shadowCoordinator.enqueue(ReaderTransitionFact.PublicationReplaced(null))
+			registration.close()
+		}
 	}
 	val currentShadowTransitionGateway by rememberUpdatedState(shadowTransitionGateway)
 	val currentViewerContent by rememberUpdatedState(viewerContent)

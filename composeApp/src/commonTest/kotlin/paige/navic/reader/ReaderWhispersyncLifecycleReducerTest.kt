@@ -10,6 +10,76 @@ import kotlin.test.assertTrue
 
 class ReaderWhispersyncLifecycleReducerTest {
 	@Test
+	fun oneShotSettlementReceiptCannotBeDeliveredTwiceOrReusedAfterNewerReceipt() {
+		val binding = transitionTestBinding(commitSequence = 31L)
+		val acknowledgement = ReaderPageTurnSettlementAck(
+			token = "opaque-semantic-receipt",
+			pageIndex = 4,
+			foliateSessionId = binding.foliateSessionId,
+			rasterGeneration = requireNotNull(binding.rasterGeneration),
+			textureGeneration = requireNotNull(binding.textureGeneration)
+		)
+		val initial = ReaderController(
+			ReaderControllerState(
+				readerSessionGeneration = 7L,
+				presentation = ReaderPresentationState(binding = binding)
+			)
+		)
+		val settlementStep = initial.onPresentationEvent(
+			ReaderPresentationEvent.FoliateRelocated(binding, acknowledgement)
+		)
+		val settlementReceipt = assertNotNull(settlementStep.presentationReceipt)
+		val newerBinding = binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(binding.foliateSessionId, 32L)
+		)
+		val newerReceipt = assertNotNull(
+			settlementStep.controller.onPresentationEvent(
+				ReaderPresentationEvent.FoliateRelocated(newerBinding, acknowledgement = null)
+			).presentationReceipt
+		)
+		val consumption = ReaderPresentationSemanticReceiptConsumption()
+
+		assertIs<ReaderPresentationSemanticReceipt.Settlement>(consumption.consume(settlementReceipt))
+		assertNull(consumption.consume(settlementReceipt))
+		assertIs<ReaderPresentationSemanticReceipt.Destination>(consumption.consume(newerReceipt))
+		assertNull(consumption.consume(settlementReceipt))
+	}
+
+	@Test
+	fun newerNonsemanticReceiptFencesAnOlderSettlementReceipt() {
+		val binding = transitionTestBinding(commitSequence = 41L)
+		val acknowledgement = ReaderPageTurnSettlementAck(
+			token = "opaque-fenced-semantic-receipt",
+			pageIndex = 5,
+			foliateSessionId = binding.foliateSessionId,
+			rasterGeneration = requireNotNull(binding.rasterGeneration),
+			textureGeneration = requireNotNull(binding.textureGeneration)
+		)
+		val settlementReceipt = assertNotNull(
+			ReaderController(
+				ReaderControllerState(
+					readerSessionGeneration = 11L,
+					presentation = ReaderPresentationState(binding = binding)
+				)
+			).onPresentationEvent(
+				ReaderPresentationEvent.FoliateRelocated(binding, acknowledgement)
+			).presentationReceipt
+		)
+		val newerNonsemanticReceipt = settlementReceipt.copy(
+			event = ReaderPresentationEvent.Retry,
+			preVersion = settlementReceipt.version,
+			version = settlementReceipt.version.copy(
+				eventSequence = settlementReceipt.version.eventSequence + 1L
+			),
+			disposition = ReaderPresentationEventDisposition.Rejected
+		)
+		val consumption = ReaderPresentationSemanticReceiptConsumption()
+
+		assertNull(consumption.consume(newerNonsemanticReceipt))
+		assertNull(consumption.consume(settlementReceipt))
+	}
+
+	@Test
 	fun canonicalVisibleRangeFenceRequiresMatchingOverlappingRawAuthority() {
 		val fragment = ReaderOverlayFragment(
 			resourceHref = AudioHref,

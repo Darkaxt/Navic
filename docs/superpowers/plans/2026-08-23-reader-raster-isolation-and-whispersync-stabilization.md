@@ -394,18 +394,20 @@ suspension-and-coalescing path instead of forcing a new renderer API.
 3. **Slice 1 — shadow journal:** introduce typed transition identity, facts, phases,
    outcomes, deterministic clock, and non-reentrant mailbox. Compare privacy-safe
    predicted decisions while legacy code remains the sole consequence writer.
-4. **Slice 2 — deck-admission preparation:** Task384 Task 3 establishes the exact-key
-   release ledger and fully tested freeze/inventory/adopt/drain protocol as inactive
-   infrastructure. Task 4 adds exact deck/raster leases, typed callback adapters,
-   bounded exact-once physical-release accounting, and fail-closed Task 4 fact/command
-   ports. Production remains `LegacyOnly`: Task 4 cannot truthfully activate before
-   Task 5 supplies an active semantic transition source and exact identities for every
-   production callback. After those prerequisites and the close/release-only path are
-   complete, perform one atomic cutover with no dual-writer or fallback interval.
-5. **Slice 3 — presentation and input:** cut cover, native frame, live handoff, curl
-   settlement, layer visibility, and physical input over together. Host, bridge,
-   controller, and Compose become fact/command adapters; no dual writer or fallback
-   to legacy consequences is permitted.
+4. **Slice 2 — inactive deck and semantic preparation:** Task384 Task 3 establishes the
+   exact-key release ledger and fully tested freeze/inventory/adopt/drain protocol as
+   inactive infrastructure. Task 4 adds exact deck/raster leases, typed callback
+   adapters, bounded exact-once physical-release accounting, and fail-closed Task 4
+   fact/command ports. Task 5 adds the inactive semantic gateway, one-shot receipt
+   fences, relocation/retry model, and publication-replacement release-only sink.
+   Production remains `Shadow`/`LegacyOnly`; legacy is the sole consequence writer.
+5. **Slice 3 — atomic semantic, presentation, input, and inventory cutover:** Task 6
+   must close `T5-ACTIVE-SOURCE` and `T5-EXACT-SEED` in one activation: freeze and
+   inventory legacy resources, adopt or drain every exact resource, install a truthful
+   committed predecessor seed, bind exact Foliate callbacks to coordinator-issued
+   identities, suppress all legacy semantic dispatch, and activate coordinator
+   semantic/deck/frame/input authority together. No dual writer or fallback to legacy
+   consequences is permitted.
 6. **Slice 4 — lifecycle, reflow, and persistence:** route visibility, restore,
    renderer loss, viewport/profile replacement, close, deadlines, and bounded opaque
    wake persistence through the coordinator. Remove independent lifecycle/retry
@@ -650,6 +652,33 @@ contract is implemented and verified.
   skips. Production remains `LegacyOnly`; this checkpoint does not claim active
   semantic transition identity, atomic production cutover, Task 5 behavior, emulator
   acceptance, or runtime reliability.
+- **Task384 Task 5 inactive semantic-adapter checkpoint:** The shadow gateway records
+  page, cover, TOC, search, bookmark, annotation, jump, Retry, and guarded cancel
+  intent before the corresponding legacy dispatch. Accepted Foliate receipts enter
+  before presentation effects; untagged settlement acknowledgements cannot borrow an
+  active identity or satisfy proof. Exact wrong, duplicate, and superseded receipts
+  fail closed. Post-settlement Retry uses fresh `RendererRecovery` identity without
+  inheriting acknowledgement or gesture authority. Publication replacement retires
+  the old coordinator into a release-only sink, and every truthful active, committed,
+  or retryable publication identity fences foreign destinations. Untagged destination
+  arbitration coalesces an identical accepted binding and supersedes a different
+  same-publication binding with a fresh exact relocation; tagged differing facts stay
+  stale. Independent specification and code-quality reviews approved this preparatory
+  boundary. MAIN's forced consolidated Android host rerun passed 541 unique tests with
+  zero failures, errors, or skips: the Task 5 four-suite group passed 239, the Task 1–4
+  regression group passed 250, and the affected authority/source/routing group passed
+  428. Production remains `Shadow`/`LegacyOnly`; no semantic, deck, frame, input,
+  inventory, or release consequence port is active.
+- **T5-ACTIVE-SOURCE — carried to Task 6:** Atomically suppress every legacy semantic
+  dispatch while activating coordinator semantic, deck, frame, and input authority.
+  Acceptance requires no dual-writer interval and no active-session fallback to
+  legacy.
+- **T5-EXACT-SEED — carried to Task 6:** Freeze legacy acquisition, inventory every
+  exact live resource, adopt or drain each resource, install a truthful committed
+  predecessor seed, and bind the coordinator-issued `ReaderTransitionId` to the
+  command-originated Foliate callback. Acceptance forbids identity inference from
+  journal state, binding similarity, gesture, renderer generation, or legacy
+  acknowledgement data.
 - **Current Android build/lint/compile evidence:** Task 361 MAIN independently
   verified
   `C:/Users/darka/Documents/Projects/Android/.codex-temp/task361-host-8d7a61de-v1-b0ed9aed5606480abd68ffba7b6c121e`

@@ -512,7 +512,7 @@ class ReaderRuntimeShellProgressTest {
 			.substringBefore("} else {")
 		val genericCancellation = cancelCallback
 			.substringAfter("} else {")
-			.substringBefore("\n\t\t}")
+			.substringBefore("\n\t}")
 		val cancelButton = preparationOverlayText
 			.substringAfter("if (failure.cancellable) {")
 			.substringBefore("if (failure.retryable)")
@@ -525,10 +525,10 @@ class ReaderRuntimeShellProgressTest {
 			overlay,
 			"diagnostic = presentationDecision.diagnosticPresentation"
 		)
-		assertContains(
-			overlay,
-			"onRetry = { onPresentationEvent(ReaderPresentationEvent.Retry) }"
-		)
+		assertContains(overlay, "onRetry = {")
+		assertContains(overlay, "shadowTransitionGateway.dispatchBeforeLegacy(")
+		assertContains(overlay, "ReaderTransitionFact.Retry(null)")
+		assertContains(overlay, "onPresentationEvent(ReaderPresentationEvent.Retry)")
 		assertContains(overlay, "onCancel = readerPreparationCancelCallback(")
 		assertContains(overlay, "decision = presentationDecision")
 		assertContains(overlay, "currentDecision = currentPresentationDecision")
@@ -551,7 +551,7 @@ class ReaderRuntimeShellProgressTest {
 			cancelCallback,
 			"val pending = decision.authority as? ReaderPresentationAuthority.LiveEngineHandoffPending"
 		)
-		assertContains(cancelCallback, "onPresentationEvent(")
+		assertContains(cancelCallback, "dispatchAcceptedCancel(event, onPresentationEvent)")
 		assertContains(handoffCancellation, "ReaderPresentationEvent.LiveEngineHandoffCancelled(")
 		assertContains(handoffCancellation, "direction = pending.direction")
 		assertContains(handoffCancellation, "token = pending.token")

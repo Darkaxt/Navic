@@ -2600,8 +2600,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(
 			readerRoot,
-			"onRetry = { onPresentationEvent(ReaderPresentationEvent.Retry) },"
+			"shadowTransitionGateway.dispatchBeforeLegacy("
 		)
+		assertContains(readerRoot, "ReaderTransitionFact.Retry(null)")
+		assertContains(readerRoot, "onPresentationEvent(ReaderPresentationEvent.Retry)")
 		assertContains(host, "is ReaderPresentationEffect.RetryPreparation")
 		assertContains(retryRoute, "val physicalBinding = currentPresentationBindingOrNull()")
 		assertContains(retryRoute, "if (physicalBinding != effect.binding) {")

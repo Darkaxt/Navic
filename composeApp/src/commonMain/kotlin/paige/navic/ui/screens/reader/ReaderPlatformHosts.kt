@@ -22,8 +22,12 @@ import paige.navic.reader.ReaderPresentationLifecycleEvent
 import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderCancelIntent
+import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderTransitionCapabilityKind
 import paige.navic.reader.ReaderTransitionFact
+import paige.navic.reader.ReaderTransitionGestureId
+import paige.navic.reader.ReaderViewerAction
+import paige.navic.reader.readerTransitionIntentForViewerAction
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderRawTextProvenanceDescriptor
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -47,10 +51,13 @@ internal class ReaderTransitionGateway {
 	private var attachment: Attachment? = null
 	private var nextAttachmentToken = 1L
 
-	fun attachShadow(enqueue: (ReaderTransitionFact) -> Unit): ReaderTransitionGatewayRegistration {
+	fun attachShadow(
+		enqueue: (ReaderTransitionFact) -> Unit,
+		enqueueReceipt: (ReaderPresentationEventReceipt) -> Unit = {}
+	): ReaderTransitionGatewayRegistration {
 		check(attachment == null) { "Reader transition shadow gateway is already attached" }
 		val token = nextAttachmentToken++
-		attachment = Attachment(token, enqueue)
+		attachment = Attachment(token, enqueue, enqueueReceipt)
 		return ReaderTransitionGatewayRegistration {
 			if (attachment?.token == token) attachment = null
 		}
@@ -64,17 +71,51 @@ internal class ReaderTransitionGateway {
 		event.toShadowTransitionFactOrNull()?.let(::enqueue)
 	}
 
+	fun observePresentationReceipt(receipt: ReaderPresentationEventReceipt?) {
+		receipt?.let { attachment?.enqueueReceipt?.invoke(it) }
+	}
+
 	private data class Attachment(
 		val token: Long,
-		val enqueue: (ReaderTransitionFact) -> Unit
+		val enqueue: (ReaderTransitionFact) -> Unit,
+		val enqueueReceipt: (ReaderPresentationEventReceipt) -> Unit
 	)
+}
+
+internal inline fun <T> ReaderTransitionGateway.dispatchBeforeLegacy(
+	fact: ReaderTransitionFact?,
+	legacyDispatch: () -> T
+): T {
+	fact?.let(::enqueue)
+	return legacyDispatch()
+}
+
+internal inline fun <T> ReaderTransitionGateway.dispatchViewerActionBeforeLegacy(
+	state: ReaderControllerState,
+	action: ReaderViewerAction,
+	gestureId: ReaderTransitionGestureId,
+	onTransitionIntentRegistered: () -> Unit,
+	legacyDispatch: () -> T
+): T {
+	val fact = readerTransitionIntentForViewerAction(state, action, gestureId)?.let { intent ->
+		onTransitionIntentRegistered()
+		ReaderTransitionFact.Intent(null, intent)
+	}
+	return dispatchBeforeLegacy(fact, legacyDispatch)
+}
+
+internal inline fun ReaderTransitionGateway.observeReceiptBeforeEffects(
+	receipt: ReaderPresentationEventReceipt?,
+	retainEffects: () -> Unit
+) {
+	observePresentationReceipt(receipt)
+	retainEffects()
 }
 
 internal val LocalReaderTransitionGateway = staticCompositionLocalOf<ReaderTransitionGateway?> { null }
 
 private fun ReaderPresentationEvent.toShadowTransitionFactOrNull(): ReaderTransitionFact? = when (this) {
-	is ReaderPresentationEvent.FoliateRelocated ->
-		ReaderTransitionFact.FoliateDestinationCommitted(null, binding)
+	is ReaderPresentationEvent.FoliateRelocated -> null
 	ReaderPresentationEvent.Retry -> ReaderTransitionFact.Retry(null)
 	ReaderPresentationEvent.Cancel -> ReaderTransitionFact.Intent(null, ReaderCancelIntent)
 	is ReaderPresentationEvent.Lifecycle -> when (event) {

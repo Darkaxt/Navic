@@ -129,6 +129,7 @@ enum class ReaderTransitionFactKind {
 	ResourceLost,
 	DeadlineExpired,
 	Retry,
+	PublicationReplaced,
 	PublicationClosed
 }
 
@@ -455,6 +456,7 @@ sealed interface ReaderTransitionFact {
 	) : ReaderTransitionFact
 	data class DeadlineExpired(override val transitionId: ReaderTransitionId) : ReaderTransitionFact
 	data class Retry(override val transitionId: ReaderTransitionId?) : ReaderTransitionFact
+	data class PublicationReplaced(override val transitionId: ReaderTransitionId?) : ReaderTransitionFact
 	data class PublicationClosed(override val transitionId: ReaderTransitionId?) : ReaderTransitionFact
 }
 
@@ -701,8 +703,9 @@ object ReaderTransitionLivenessTable {
 		id: ReaderTransitionId,
 		gestureId: ReaderTransitionGestureId?
 	): ReaderTransitionInputLease = when (id.operation) {
-		ReaderTransitionOperation.CurlClaimAndSettlement ->
-			ReaderTransitionInputLease.ClaimedGesture(id, requireNotNull(gestureId))
+		ReaderTransitionOperation.CurlClaimAndSettlement -> gestureId?.let { gesture ->
+			ReaderTransitionInputLease.ClaimedGesture(id, gesture)
+		} ?: ReaderTransitionInputLease.ChromeOnly
 		ReaderTransitionOperation.PublicationClose -> ReaderTransitionInputLease.None
 		else -> ReaderTransitionInputLease.ChromeOnly
 	}
@@ -778,7 +781,9 @@ data class ReaderActiveTransition(
 	val admittedDeckKey: ReaderTransitionResourceKey? = null,
 	val pendingPreparedDeckKey: ReaderTransitionResourceKey? = null,
 	val successorResourceKey: ReaderTransitionResourceKey? = null,
-	val consumedSettlement: ReaderSettlementConsumptionKey? = null
+	val consumedSettlement: ReaderSettlementConsumptionKey? = null,
+	val semanticIntent: ReaderSemanticSynchronizationIntent? = null,
+	val authoritativeDestinationCommitted: Boolean = false
 ) {
 	init {
 		require(predecessorResourceKey == null || predecessorResourceKey.transitionId != id)
@@ -787,6 +792,7 @@ data class ReaderActiveTransition(
 		require(pendingPreparedDeckKey == null || pendingPreparedDeckKey.kind == ReaderTransitionResourceKind.Deck)
 		require(successorResourceKey == null || successorResourceKey.transitionId == id)
 		require(consumedSettlement == null || consumedSettlement.transitionId == id)
+		require(!authoritativeDestinationCommitted || resolvedSuccessorBinding != null)
 	}
 }
 
@@ -809,10 +815,28 @@ data class ReaderSettlementConsumptionKey(
 	val acknowledgement: ReaderPageTurnSettlementAck
 )
 
+data class ReaderRetryableTransition(
+	val id: ReaderTransitionId,
+	val retainedOwner: ReaderPresentationFrameOwner,
+	val predecessorResourceKey: ReaderTransitionResourceKey?,
+	val semanticIntent: ReaderSemanticSynchronizationIntent?,
+	val resolvedSuccessorBinding: ReaderPresentationBinding?,
+	val gestureId: ReaderTransitionGestureId?,
+	val settlementConsumed: Boolean,
+	val semanticDestinationCommitted: Boolean
+) {
+	init {
+		require(!settlementConsumed || resolvedSuccessorBinding != null)
+		require(!semanticDestinationCommitted || resolvedSuccessorBinding != null)
+	}
+}
+
 data class ReaderTransitionJournal(
 	val active: ReaderActiveTransition? = null,
 	val lastOutcome: ReaderTransitionOutcome? = null,
-	val committed: ReaderCommittedTransition? = null
+	val committed: ReaderCommittedTransition? = null,
+	val retryableTransition: ReaderRetryableTransition? = null,
+	val lastTransitionSequence: Long = 0L
 ) {
 	fun reduce(
 		fact: ReaderTransitionFact,
@@ -897,6 +921,7 @@ private fun ReaderTransitionFact.resourceClassificationOrNull(): ReaderTransitio
 		is ReaderTransitionFact.ResourceLost,
 		is ReaderTransitionFact.DeadlineExpired,
 		is ReaderTransitionFact.Retry,
+		is ReaderTransitionFact.PublicationReplaced,
 		is ReaderTransitionFact.PublicationClosed -> null
 	}
 
@@ -905,6 +930,7 @@ fun readerTransitionJournalReduce(
 	fact: ReaderTransitionFact,
 	nowMillis: Long
 ): ReaderTransitionReduction = when (fact) {
+	is ReaderTransitionFact.Intent -> journal.reduceIntent(fact)
 	is ReaderTransitionFact.SettlementAcknowledged -> journal.reduceSettlement(fact)
 	is ReaderTransitionFact.FoliateDestinationCommitted -> journal.reduceDestination(fact)
 	is ReaderTransitionFact.HostAvailable -> journal.reduceProof(
@@ -956,13 +982,189 @@ fun readerTransitionJournalReduce(
 	is ReaderTransitionFact.DeckReserved -> journal.reduceResourceRegistration(fact)
 	is ReaderTransitionFact.ResourceReleased -> journal.reduceResourceReleased(fact)
 	is ReaderTransitionFact.VisibilityChanged -> journal.unchanged()
+	is ReaderTransitionFact.PublicationReplaced -> journal.reducePublicationReplacement(fact.transitionId)
 	is ReaderTransitionFact.PublicationClosed -> journal.reducePublicationClose(fact.transitionId)
-	is ReaderTransitionFact.Intent,
+	is ReaderTransitionFact.Retry -> journal.reduceRetry(fact.transitionId)
 	is ReaderTransitionFact.ViewportProfileReplaced,
 	is ReaderTransitionFact.RasterProgress,
 	is ReaderTransitionFact.RendererCapacityAvailable,
-	is ReaderTransitionFact.ResourceLost,
-	is ReaderTransitionFact.Retry -> journal.unchanged()
+	is ReaderTransitionFact.ResourceLost -> journal.unchanged()
+}
+
+private fun ReaderTransitionJournal.reduceIntent(
+	fact: ReaderTransitionFact.Intent
+): ReaderTransitionReduction = when (val intent = fact.intent) {
+	ReaderCancelIntent -> reduceUserCancellation(fact.transitionId)
+	ReaderRetryIntent -> reduceRetry(fact.transitionId)
+	ReaderCoverReturnIntent -> unchanged()
+	is ReaderSemanticSynchronizationIntent -> beginSemanticSynchronization(fact.transitionId, intent)
+}
+
+private fun ReaderTransitionJournal.beginSemanticSynchronization(
+	requestedTransitionId: ReaderTransitionId?,
+	intent: ReaderSemanticSynchronizationIntent
+): ReaderTransitionReduction {
+	val current = active
+	if (requestedTransitionId != null && requestedTransitionId != current?.id) return unchanged()
+	if (current?.phase?.contract?.supersession == ReaderTransitionSupersession.RejectSuccessor) {
+		return unchanged()
+	}
+	val predecessor = committed ?: return unchanged()
+	val parentId = current?.id ?: predecessor.id
+	val nextSequence = nextTransitionSequence()
+	val nextId = ReaderTransitionId(
+		readerSessionGeneration = parentId.readerSessionGeneration,
+		coordinatorEpoch = parentId.coordinatorEpoch,
+		sequence = nextSequence,
+		operation = intent.operation(),
+		expectedBinding = ReaderExpectedPresentationBinding.SemanticSuccessor(
+			predecessor = predecessor.binding,
+			requestSequence = nextSequence
+		),
+		parent = parentId.parentIdentity()
+	)
+	val retainedOwner = current?.phase?.contract?.retainedOwner ?: predecessor.owner
+	val predecessorKey = current?.predecessorResourceKey ?: predecessor.resourceKey
+	val gestureId = (intent as? ReaderPageTurnIntent)?.gestureId
+	val next = ReaderActiveTransition(
+		id = nextId,
+		phase = ReaderTransitionLivenessTable.phase(
+			id = nextId,
+			kind = ReaderTransitionPhaseKind.Accepted,
+			retainedOwner = retainedOwner,
+			gestureId = gestureId
+		),
+		predecessorResourceKey = predecessorKey,
+		semanticIntent = intent
+	)
+	return ReaderTransitionReduction(
+		state = copy(
+			active = next,
+			lastOutcome = current?.let {
+				ReaderTransitionOutcome.Cancelled(
+					ReaderTransitionCancellationReason.Superseded,
+					retainedOwner
+				)
+			},
+			retryableTransition = null,
+			lastTransitionSequence = nextSequence
+		),
+		commands = buildList {
+			if (current != null) {
+				add(ReaderTransitionCommand.CancelOwnedWork(current.id))
+				addAll(
+					resourceDispositionCommands(
+						transitionId = current.id,
+						candidates = knownResourceKeys(current),
+						retention = ReaderTransitionResourceRetention.TruthfulPredecessor
+					)
+				)
+			}
+			add(ReaderTransitionCommand.ApplyInputLease(nextId, next.phase.contract.inputLease))
+			add(ReaderTransitionCommand.RequestSemanticSynchronization(nextId, intent))
+		}
+	)
+}
+
+private fun ReaderTransitionJournal.reduceUserCancellation(
+	transitionId: ReaderTransitionId?
+): ReaderTransitionReduction {
+	val current = active ?: return unchanged()
+	if (transitionId != null && transitionId != current.id) return unchanged()
+	return ReaderTransitionReduction(
+		state = copy(
+			active = null,
+			lastOutcome = ReaderTransitionOutcome.Cancelled(
+				ReaderTransitionCancellationReason.UserCancelled,
+				current.phase.contract.retainedOwner
+			),
+			retryableTransition = null
+		),
+		commands = terminalResourceCommands(current)
+	)
+}
+
+private fun ReaderTransitionJournal.reduceRetry(
+	transitionId: ReaderTransitionId?
+): ReaderTransitionReduction {
+	if (active != null) return unchanged()
+	val retryable = retryableTransition ?: return unchanged()
+	if (transitionId != null && transitionId != retryable.id) return unchanged()
+	val nextSequence = nextTransitionSequence()
+	val settledPageBinding = retryable.resolvedSuccessorBinding.takeIf {
+		retryable.settlementConsumed
+	}
+	val authoritativeBinding = retryable.resolvedSuccessorBinding.takeIf {
+		retryable.settlementConsumed || retryable.semanticDestinationCommitted
+	}
+	val nextId = when {
+		settledPageBinding != null -> retryable.id.copy(
+			sequence = nextSequence,
+			operation = ReaderTransitionOperation.RendererRecovery,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(settledPageBinding),
+			parent = retryable.id.parentIdentity()
+		)
+		authoritativeBinding != null -> retryable.id.copy(
+			sequence = nextSequence,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(authoritativeBinding),
+			parent = retryable.id.parentIdentity()
+		)
+		else -> retryable.id.copy(
+			sequence = nextSequence,
+			parent = retryable.id.parentIdentity()
+		)
+	}
+	val satisfiedProofs = if (retryable.semanticDestinationCommitted) {
+		setOf(ReaderTransitionProofKind.SemanticDestination)
+	} else {
+		emptySet()
+	}
+	val next = ReaderActiveTransition(
+		id = nextId,
+		phase = ReaderTransitionLivenessTable.phase(
+			id = nextId,
+			kind = ReaderTransitionPhaseKind.Accepted,
+			retainedOwner = retryable.retainedOwner,
+			satisfiedProofs = satisfiedProofs,
+			gestureId = null
+		),
+		resolvedSuccessorBinding = authoritativeBinding,
+		predecessorResourceKey = retryable.predecessorResourceKey,
+		semanticIntent = retryable.semanticIntent.takeIf { authoritativeBinding == null },
+		authoritativeDestinationCommitted = authoritativeBinding != null
+	)
+	val consequence = when {
+		nextId.operation == ReaderTransitionOperation.RendererRecovery &&
+			authoritativeBinding != null -> ReaderTransitionCommand.ReserveDeck(
+			transitionId = nextId,
+			binding = authoritativeBinding,
+			role = ReaderTransitionDeckRole.Recovery
+		)
+		authoritativeBinding != null -> ReaderTransitionCommand.RequestRasterPreparation(
+			nextId,
+			authoritativeBinding
+		)
+		else -> retryable.semanticIntent?.let { intent ->
+			ReaderTransitionCommand.RequestSemanticSynchronization(nextId, intent)
+		}
+	}
+	return ReaderTransitionReduction(
+		state = copy(
+			active = next,
+			retryableTransition = null,
+			lastTransitionSequence = nextSequence
+		),
+		commands = buildList {
+			add(ReaderTransitionCommand.ApplyInputLease(nextId, next.phase.contract.inputLease))
+			consequence?.let(::add)
+		}
+	)
+}
+
+private fun ReaderSemanticSynchronizationIntent.operation(): ReaderTransitionOperation = when (this) {
+	is ReaderPageTurnIntent -> ReaderTransitionOperation.CurlClaimAndSettlement
+	is ReaderExternalRelocationIntent -> ReaderTransitionOperation.ExternalSemanticRelocation
+	ReaderCoverEntryIntent -> ReaderTransitionOperation.CoverToPageEntry
 }
 
 private fun ReaderTransitionJournal.reduceResourceRegistration(
@@ -1006,7 +1208,9 @@ private fun ReaderTransitionJournal.reduceResourceReleased(
 				},
 				resolvedSuccessorBinding = current.resolvedSuccessorBinding.takeUnless {
 					current.successorResourceKey == key
-				}
+				},
+				authoritativeDestinationCommitted = current.authoritativeDestinationCommitted &&
+					current.successorResourceKey != key
 			)
 		),
 		emptyList()
@@ -1045,6 +1249,74 @@ private fun ReaderTransitionJournal.reduceSettlement(
 	return ReaderTransitionReduction(state, emptyList())
 }
 
+private fun ReaderTransitionJournal.lifecyclePublicationIdentities(): Set<ReaderPresentationPublicationIdentity> =
+	buildSet {
+		committed?.binding?.publicationIdentity?.let(::add)
+		active?.id?.expectedBinding?.publicationIdentity()?.let(::add)
+		active?.resolvedSuccessorBinding?.publicationIdentity?.let(::add)
+		retryableTransition?.id?.expectedBinding?.publicationIdentity()?.let(::add)
+		retryableTransition?.resolvedSuccessorBinding?.publicationIdentity?.let(::add)
+	}
+
+private fun ReaderExpectedPresentationBinding.publicationIdentity(): ReaderPresentationPublicationIdentity =
+	when (this) {
+		is ReaderExpectedPresentationBinding.Exact -> binding.publicationIdentity
+		is ReaderExpectedPresentationBinding.SemanticSuccessor -> predecessor.publicationIdentity
+	}
+
+private enum class ReaderUntaggedDestinationArbitration {
+	ConsumeCurrentIntent,
+	CoalesceCurrentDestination,
+	SupersedeCurrentTransition
+}
+
+private fun ReaderActiveTransition?.arbitrateUntaggedDestination(
+	binding: ReaderPresentationBinding
+): ReaderUntaggedDestinationArbitration {
+	val current = this ?: return ReaderUntaggedDestinationArbitration.SupersedeCurrentTransition
+	if (current.authoritativeDestinationCommitted) {
+		return if (current.resolvedSuccessorBinding == binding) {
+			ReaderUntaggedDestinationArbitration.CoalesceCurrentDestination
+		} else {
+			ReaderUntaggedDestinationArbitration.SupersedeCurrentTransition
+		}
+	}
+	return if (
+		current.semanticIntent != null &&
+		current.id.operation in setOf(
+			ReaderTransitionOperation.ExternalSemanticRelocation,
+			ReaderTransitionOperation.CoverToPageEntry
+		) &&
+		current.id.expectedBinding.matches(binding)
+	) {
+		ReaderUntaggedDestinationArbitration.ConsumeCurrentIntent
+	} else {
+		ReaderUntaggedDestinationArbitration.SupersedeCurrentTransition
+	}
+}
+
+private fun ReaderTransitionJournal.reduceAcceptedSemanticDestination(
+	current: ReaderActiveTransition,
+	binding: ReaderPresentationBinding
+): ReaderTransitionReduction {
+	if (
+		current.authoritativeDestinationCommitted ||
+		current.resolvedSuccessorBinding?.let { it != binding } == true
+	) return unchanged()
+	if (ReaderTransitionProofKind.SemanticDestination in current.phase.contract.awaitedProofs) {
+		return reduceProof(current.id, ReaderTransitionProofKind.SemanticDestination, binding)
+	}
+	return ReaderTransitionReduction(
+		state = copy(
+			active = current.copy(
+				resolvedSuccessorBinding = binding,
+				authoritativeDestinationCommitted = true
+			)
+		),
+		commands = listOf(ReaderTransitionCommand.RequestRasterPreparation(current.id, binding))
+	)
+}
+
 private fun ReaderTransitionJournal.reduceDestination(
 	fact: ReaderTransitionFact.FoliateDestinationCommitted
 ): ReaderTransitionReduction {
@@ -1053,7 +1325,30 @@ private fun ReaderTransitionJournal.reduceDestination(
 		if (current?.id != fact.transitionId || !current.id.expectedBinding.matches(fact.binding)) {
 			return unchanged()
 		}
-		return reduceProof(current.id, ReaderTransitionProofKind.SemanticDestination, fact.binding)
+		return if (
+			current.semanticIntent != null &&
+			current.id.operation in setOf(
+				ReaderTransitionOperation.ExternalSemanticRelocation,
+				ReaderTransitionOperation.CoverToPageEntry
+			)
+		) {
+			reduceAcceptedSemanticDestination(current, fact.binding)
+		} else {
+			reduceProof(current.id, ReaderTransitionProofKind.SemanticDestination, fact.binding)
+		}
+	}
+	val lifecyclePublications = lifecyclePublicationIdentities()
+	if (
+		lifecyclePublications.isNotEmpty() &&
+		(lifecyclePublications.size != 1 || fact.binding.publicationIdentity !in lifecyclePublications)
+	) {
+		return unchanged()
+	}
+	when (current.arbitrateUntaggedDestination(fact.binding)) {
+		ReaderUntaggedDestinationArbitration.ConsumeCurrentIntent ->
+			return reduceAcceptedSemanticDestination(requireNotNull(current), fact.binding)
+		ReaderUntaggedDestinationArbitration.CoalesceCurrentDestination -> return unchanged()
+		ReaderUntaggedDestinationArbitration.SupersedeCurrentTransition -> Unit
 	}
 	if (current?.phase?.contract?.supersession == ReaderTransitionSupersession.RejectSuccessor) {
 		return unchanged()
@@ -1061,10 +1356,11 @@ private fun ReaderTransitionJournal.reduceDestination(
 	val predecessorId = current?.id ?: committed?.id ?: return unchanged()
 	val retainedOwner = current?.phase?.contract?.retainedOwner ?: requireNotNull(committed).owner
 	val predecessorResourceKey = current?.predecessorResourceKey ?: committed?.resourceKey
+	val nextSequence = nextTransitionSequence()
 	val relocationId = ReaderTransitionId(
 		readerSessionGeneration = predecessorId.readerSessionGeneration,
 		coordinatorEpoch = predecessorId.coordinatorEpoch,
-		sequence = predecessorId.sequence.incrementTransitionSequence(),
+		sequence = nextSequence,
 		operation = ReaderTransitionOperation.ExternalSemanticRelocation,
 		expectedBinding = ReaderExpectedPresentationBinding.Exact(fact.binding),
 		parent = predecessorId.parentIdentity()
@@ -1080,7 +1376,9 @@ private fun ReaderTransitionJournal.reduceDestination(
 			active = ReaderActiveTransition(
 				relocationId,
 				phase,
-				predecessorResourceKey = predecessorResourceKey
+				resolvedSuccessorBinding = fact.binding,
+				predecessorResourceKey = predecessorResourceKey,
+				authoritativeDestinationCommitted = true
 			),
 			lastOutcome = if (current != null) {
 				ReaderTransitionOutcome.Cancelled(
@@ -1089,7 +1387,9 @@ private fun ReaderTransitionJournal.reduceDestination(
 				)
 			} else {
 				lastOutcome
-			}
+			},
+			retryableTransition = null,
+			lastTransitionSequence = nextSequence
 		),
 		commands = buildList {
 			if (current != null) {
@@ -1338,22 +1638,27 @@ private fun ReaderTransitionJournal.reduceProof(
 	) return unchanged()
 	val remaining = current.phase.contract.awaitedProofs - proof
 	val resolved = current.copy(
-		resolvedSuccessorBinding = factBinding ?: current.resolvedSuccessorBinding
+		resolvedSuccessorBinding = factBinding ?: current.resolvedSuccessorBinding,
+		authoritativeDestinationCommitted = current.authoritativeDestinationCommitted ||
+			(proof == ReaderTransitionProofKind.SemanticDestination && factBinding != null)
 	)
 	if (remaining.isEmpty()) return completeOrContinue(resolved, remaining)
 	val next = resolved.withAwaitedProofs(remaining)
-	val commands = if (proof == ReaderTransitionProofKind.Raster) {
-		(current.id.expectedBinding.exactBindingOrNull() ?: resolved.resolvedSuccessorBinding)?.let { binding ->
-			listOf(
-				ReaderTransitionCommand.ReserveDeck(
-					transitionId = current.id,
-					binding = binding,
-					role = current.id.operation.deckRole()
-				)
-			)
+	val commands = when (proof) {
+		ReaderTransitionProofKind.SemanticDestination -> factBinding?.let { binding ->
+			listOf(ReaderTransitionCommand.RequestRasterPreparation(current.id, binding))
 		} ?: emptyList()
-	} else {
-		emptyList()
+		ReaderTransitionProofKind.Raster ->
+			(current.id.expectedBinding.exactBindingOrNull() ?: resolved.resolvedSuccessorBinding)?.let { binding ->
+				listOf(
+					ReaderTransitionCommand.ReserveDeck(
+						transitionId = current.id,
+						binding = binding,
+						role = current.id.operation.deckRole()
+					)
+				)
+			} ?: emptyList()
+		else -> emptyList()
 	}
 	return ReaderTransitionReduction(copy(active = next), commands)
 }
@@ -1396,7 +1701,8 @@ private fun ReaderTransitionJournal.succeed(
 				committedOwner,
 				binding,
 				successorResourceKey
-			)
+			),
+			retryableTransition = null
 		),
 		commands = commands
 	)
@@ -1430,7 +1736,8 @@ private fun ReaderTransitionJournal.reduceTimeout(
 				liveness.timeoutFailureReason,
 				liveness.timeoutRetryability,
 				current.phase.contract.retainedOwner
-			)
+			),
+			retryableTransition = current.toRetryableTransition()
 		),
 		commands = terminalResourceCommands(current)
 	)
@@ -1450,7 +1757,8 @@ private fun ReaderTransitionJournal.reduceFailure(
 				reason,
 				ReaderTransitionRetryability.Retryable,
 				current.phase.contract.retainedOwner
-			)
+			),
+			retryableTransition = current.toRetryableTransition()
 		),
 		commands = terminalResourceCommands(current, suppliedResources)
 	)
@@ -1470,11 +1778,23 @@ private fun ReaderTransitionJournal.reduceDeferral(
 			lastOutcome = ReaderTransitionOutcome.Deferred(
 				resumeRecord = resumeRecord,
 				retainedOwner = current.phase.contract.retainedOwner
-			)
+			),
+			retryableTransition = null
 		),
 		commands = terminalResourceCommands(current)
 	)
 }
+
+private fun ReaderActiveTransition.toRetryableTransition() = ReaderRetryableTransition(
+	id = id,
+	retainedOwner = phase.contract.retainedOwner,
+	predecessorResourceKey = predecessorResourceKey,
+	semanticIntent = semanticIntent,
+	resolvedSuccessorBinding = resolvedSuccessorBinding,
+	gestureId = (phase.contract.inputLease as? ReaderTransitionInputLease.ClaimedGesture)?.gestureId,
+	settlementConsumed = consumedSettlement != null,
+	semanticDestinationCommitted = authoritativeDestinationCommitted
+)
 
 private fun ReaderTransitionJournal.terminalResourceCommands(
 	current: ReaderActiveTransition,
@@ -1490,6 +1810,14 @@ private fun ReaderTransitionJournal.terminalResourceCommands(
 	)
 }
 
+private fun ReaderTransitionJournal.reducePublicationReplacement(
+	transitionId: ReaderTransitionId?
+): ReaderTransitionReduction {
+	val current = active
+	if (transitionId != null && current?.id != transitionId) return unchanged()
+	return terminatePublication(ReaderTransitionCancellationReason.PublicationReplaced)
+}
+
 private fun ReaderTransitionJournal.reducePublicationClose(
 	transitionId: ReaderTransitionId?
 ): ReaderTransitionReduction {
@@ -1501,17 +1829,25 @@ private fun ReaderTransitionJournal.reducePublicationClose(
 			current.id.operation != ReaderTransitionOperation.PublicationClose
 		) return unchanged()
 	}
+	return terminatePublication(ReaderTransitionCancellationReason.PublicationClosed)
+}
+
+private fun ReaderTransitionJournal.terminatePublication(
+	reason: ReaderTransitionCancellationReason
+): ReaderTransitionReduction {
+	val current = active
 	val committedState = committed
-	val commandOwnerId = current?.id ?: committedState?.id ?: return unchanged()
+	val commandOwnerId = current?.id ?: committedState?.id ?: retryableTransition?.id ?: return unchanged()
 	val resources = knownResourceKeys(current)
 	return ReaderTransitionReduction(
 		state = copy(
 			active = null,
 			lastOutcome = ReaderTransitionOutcome.Cancelled(
-				ReaderTransitionCancellationReason.PublicationClosed,
+				reason,
 				ReaderPresentationFrameOwner.Neutral
 			),
-			committed = null
+			committed = null,
+			retryableTransition = null
 		),
 		commands = buildList {
 			current?.let { add(ReaderTransitionCommand.CancelOwnedWork(it.id)) }
@@ -1625,6 +1961,13 @@ private fun ReaderTransitionOperation.acceptsCommittedOwner(
 	ReaderTransitionOperation.RendererRecovery -> owner is ReaderPresentationFrameOwner.NativePage
 	ReaderTransitionOperation.PublicationClose -> owner is ReaderPresentationFrameOwner.Neutral
 }
+
+private fun ReaderTransitionJournal.nextTransitionSequence(): Long = maxOf(
+	lastTransitionSequence,
+	active?.id?.sequence ?: 0L,
+	committed?.id?.sequence ?: 0L,
+	retryableTransition?.id?.sequence ?: 0L
+).incrementTransitionSequence()
 
 private fun Long.incrementTransitionSequence(): Long {
 	require(this < Long.MAX_VALUE)

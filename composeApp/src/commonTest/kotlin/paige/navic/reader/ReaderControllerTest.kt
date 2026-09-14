@@ -209,6 +209,110 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun viewerSemanticIntentMappingDistinguishesPageTurnShellCoverEntryAndJump() {
+		val gestureId = ReaderTransitionGestureId(71L)
+		val next = ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		val nativeInputPolicy = ReaderPresentationInputPolicy.NativePage(
+			ReaderPageOperationPolicy(
+				newPointer = ReaderPageNewPointerDecision.Accept,
+				continueActivePointer = true,
+				continueSettlement = true
+			)
+		)
+
+		assertEquals(
+			ReaderPageTurnIntent(ReaderPageTurnDirection.Next, gestureId),
+			readerTransitionIntentForViewerAction(
+				nativeInputPolicy,
+				next,
+				gestureId
+			)
+		)
+		assertEquals(
+			ReaderCoverEntryIntent,
+			readerTransitionIntentForViewerAction(
+				ReaderPresentationInputPolicy.ShellCover,
+				next,
+				gestureId
+			)
+		)
+		val jump = ReaderViewerAction.NavigateTo(
+			ReaderLocator(href = "synthetic-jump.xhtml", pageIndex = 3)
+		)
+		listOf(
+			nativeInputPolicy,
+			ReaderPresentationInputPolicy.LiveEngine
+		).forEach { admittedPolicy ->
+			assertEquals(
+				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Jump),
+				readerTransitionIntentForViewerAction(admittedPolicy, jump, gestureId)
+			)
+		}
+		assertNull(
+			readerTransitionIntentForViewerAction(
+				ReaderPresentationInputPolicy.ChromeOnly,
+				jump,
+				gestureId
+			)
+		)
+		assertNull(
+			readerTransitionIntentForViewerAction(
+				ReaderPresentationInputPolicy.ChromeOnly,
+				ReaderViewerAction.Menu,
+				gestureId
+			)
+		)
+	}
+
+	@Test
+	fun foliateRelocationReceiptExposesOneShotSettlementWithoutInventingTransitionIdentity() {
+		val binding = ReaderPresentationBinding(
+			foliateSessionId = "semantic-receipt-session",
+			publicationGeneration = 1L,
+			viewportGeneration = 2L,
+			profileGeneration = 3L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("semantic-receipt-session", 4L),
+			rasterGeneration = 5L,
+			textureGeneration = 6L,
+			preparationGeneration = 7L
+		)
+		val acknowledgement = ReaderPageTurnSettlementAck(
+			token = "opaque-settlement",
+			pageIndex = 3,
+			foliateSessionId = binding.foliateSessionId,
+			rasterGeneration = 5L,
+			textureGeneration = 6L
+		)
+		val receipt = assertNotNull(
+			ReaderController(
+				ReaderControllerState(
+					readerSessionGeneration = 9L,
+					presentation = ReaderPresentationState(binding = binding)
+				)
+			).onPresentationEvent(
+				ReaderPresentationEvent.FoliateRelocated(binding, acknowledgement)
+			).presentationReceipt
+		)
+
+		val semanticReceipt = assertIs<ReaderPresentationSemanticReceipt.Settlement>(
+			receipt.semanticReceipt
+		)
+		assertEquals(
+			ReaderPresentationSemanticReceipt.Settlement(binding, acknowledgement),
+			semanticReceipt
+		)
+		assertNull(semanticReceipt.transitionId)
+		ReaderPresentationEventDisposition.entries
+			.filterNot { it == ReaderPresentationEventDisposition.Accepted }
+			.forEach { disposition ->
+				assertNull(
+					receipt.copy(disposition = disposition).semanticReceipt,
+					"$disposition must not project semantic authority"
+				)
+			}
+	}
+
+	@Test
 	fun presentationReceiptOwnsStartupReductionAndMonotonicDisposition() {
 		val binding = ReaderPresentationBinding(
 			foliateSessionId = "receipt-startup-session",

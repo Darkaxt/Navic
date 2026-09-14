@@ -33,8 +33,67 @@ data class ReaderPresentationEventReceipt(
 	val version: ReaderPresentationReceiptVersion,
 	val disposition: ReaderPresentationEventDisposition,
 	val postState: ReaderPresentationState,
-	val effects: List<ReaderPresentationEffect>
-)
+	val effects: List<ReaderPresentationEffect>,
+	val originatingTransitionId: ReaderTransitionId? = null
+) {
+	init {
+		require(
+			originatingTransitionId == null ||
+				originatingTransitionId.readerSessionGeneration == version.readerSessionGeneration
+		)
+	}
+
+	val semanticReceipt: ReaderPresentationSemanticReceipt?
+		get() {
+			if (disposition != ReaderPresentationEventDisposition.Accepted) return null
+			return when (val sourceEvent = event) {
+				is ReaderPresentationEvent.FoliateRelocated -> sourceEvent.acknowledgement?.let { acknowledgement ->
+					ReaderPresentationSemanticReceipt.Settlement(
+							binding = sourceEvent.binding,
+							acknowledgement = acknowledgement,
+							transitionId = originatingTransitionId
+						)
+				} ?: ReaderPresentationSemanticReceipt.Destination(
+						binding = sourceEvent.binding,
+						transitionId = originatingTransitionId
+					)
+				else -> null
+			}
+		}
+}
+
+sealed interface ReaderPresentationSemanticReceipt {
+	val transitionId: ReaderTransitionId?
+	val binding: ReaderPresentationBinding
+
+	data class Destination(
+		override val binding: ReaderPresentationBinding,
+		override val transitionId: ReaderTransitionId? = null
+	) : ReaderPresentationSemanticReceipt
+
+	data class Settlement(
+		override val binding: ReaderPresentationBinding,
+		val acknowledgement: ReaderPageTurnSettlementAck,
+		override val transitionId: ReaderTransitionId? = null
+	) : ReaderPresentationSemanticReceipt
+}
+
+internal class ReaderPresentationSemanticReceiptConsumption {
+	private var readerSessionGeneration: Long = -1L
+	private var eventSequence: Long = -1L
+
+	fun consume(receipt: ReaderPresentationEventReceipt): ReaderPresentationSemanticReceipt? {
+		val version = receipt.version
+		if (version.readerSessionGeneration < readerSessionGeneration) return null
+		if (
+			version.readerSessionGeneration == readerSessionGeneration &&
+			version.eventSequence <= eventSequence
+		) return null
+		readerSessionGeneration = version.readerSessionGeneration
+		eventSequence = version.eventSequence
+		return receipt.semanticReceipt
+	}
+}
 
 internal data class ReaderPresentationEventTransition(
 	val receipt: ReaderPresentationEventReceipt,

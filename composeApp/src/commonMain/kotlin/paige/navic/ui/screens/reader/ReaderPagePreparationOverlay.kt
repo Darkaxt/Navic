@@ -35,7 +35,11 @@ import paige.navic.reader.ReaderPresentationLifecycleState
 internal fun readerPreparationCancelCallback(
 	decision: ReaderPresentationDecision,
 	currentDecision: () -> ReaderPresentationDecision,
-	onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
+	onPresentationEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?,
+	dispatchAcceptedCancel: (
+		ReaderPresentationEvent,
+		(ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
+	) -> Unit = { event, dispatch -> dispatch(event) }
 ): () -> Unit = cancel@{
 	// A click from an obsolete overlay must not cancel a newer authority attempt.
 	if (decision != currentDecision() ||
@@ -43,17 +47,16 @@ internal fun readerPreparationCancelCallback(
 		(decision.diagnosticPresentation as? ReaderDiagnosticPresentation.Failure)?.cancellable != true
 	) return@cancel
 	val pending = decision.authority as? ReaderPresentationAuthority.LiveEngineHandoffPending
-	onPresentationEvent(
-		if (pending != null) {
-			ReaderPresentationEvent.LiveEngineHandoffCancelled(
-				direction = pending.direction,
-				token = pending.token,
-				binding = pending.binding
-			)
-		} else {
-			ReaderPresentationEvent.Cancel
-		}
-	)
+	val event = if (pending != null) {
+		ReaderPresentationEvent.LiveEngineHandoffCancelled(
+			direction = pending.direction,
+			token = pending.token,
+			binding = pending.binding
+		)
+	} else {
+		ReaderPresentationEvent.Cancel
+	}
+	dispatchAcceptedCancel(event, onPresentationEvent)
 }
 
 @Composable

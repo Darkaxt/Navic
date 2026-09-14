@@ -1053,10 +1053,11 @@ Task 4 does not remove the production legacy writers or activate coordinator dec
 admission. Production lacks an active semantic transition source that can assign an
 exact `ReaderTransitionId` to every live callback, so invoking freeze → inventory →
 adopt/drain here would fabricate identity or create a dual-writer interval. The
-`LegacyOnly` production policy remains in force. Task 5 must first supply the active
-semantic transition source and exact production callback identities; activation may
-then occur only as one atomic cutover after the remaining inventory, close-path, and
-release-only-sink prerequisites are true.
+`LegacyOnly` production policy remains in force. Task 5 supplies only the inactive
+semantic adapter and receipt fences. Task 6 must supply the active command-bound
+semantic source and exact production callback identities, then perform one atomic
+cutover after the inventory, close-path, and release-only-sink prerequisites are
+true.
 
 - [ ] **Step 4: Run focused GREEN**
 
@@ -1071,7 +1072,7 @@ Record that this checkpoint supplies inactive typed adapters and physical releas
 ports but no production activation. Commit
 `refactor(reader): add transition resource adapters` and push.
 
-### Task 5: Cut over one-shot semantic facts and external relocation
+### Task 5: Build the inactive preparatory semantic-adapter checkpoint
 
 **Files:**
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderPresentationController.kt`
@@ -1107,22 +1108,37 @@ failed relocation’s noninteractive diagnostic shield.
 Expected: an external route issues a consequence before coordinator acceptance or a
 settlement remains reusable.
 
-- [ ] **Step 3: Perform semantic cutover**
+- [ ] **Step 3: Build the inactive semantic adapter**
 
 Route page turn, shell-cover entry, TOC, search, bookmark, annotation, jump, Retry,
-and cancel through `ReaderTransitionGateway`. App-originated relocation registers
-`ExternalSemanticRelocation` before `RequestSemanticSynchronization`; unsolicited
+and cancel through the shadow `ReaderTransitionGateway` before the corresponding
+legacy dispatch. App-originated relocation registers `ExternalSemanticRelocation`
+before the predicted `RequestSemanticSynchronization`; unsolicited same-publication
 `FoliateDestinationCommitted` creates the same operation with semantic proof already
-satisfied. Consumption is persisted before any consequence.
+satisfied. Consumption is persisted before any predicted consequence. Task 5 remains
+an inactive preparatory checkpoint: production stays `Shadow`/`LegacyOnly`, legacy
+remains the sole writer, and no semantic, deck, frame, input, inventory, or release
+consequence port activates here. Untagged settlement acknowledgement cannot satisfy
+proof; exact callback identity remains a Task 6 command-bound prerequisite.
 
 - [ ] **Step 4: Run focused GREEN**
 
 Run Step 2. Expected: all semantic tests pass.
 
-- [ ] **Step 5: MAIN records predecessor release/reuse paths, commits, and pushes**
+- [ ] **Step 5: MAIN records the preparatory checkpoint and carry-forward rows**
 
 Account for successor commit, Retry, subsequent relocation/publication replacement,
-and close. Commit `refactor(reader): coordinate semantic relocation` and push.
+and close. Record `T5-ACTIVE-SOURCE` and `T5-EXACT-SEED` under Task 6 and Stage 6;
+do not claim Task 5 production cutover. Independent specification and code-quality
+reviews must approve the inactive boundary. MAIN must force-rerun the Task 5,
+Task 1–4 regression, and affected authority/source/routing groups before committing.
+
+Checkpoint: independent specification and code-quality reviews approved the inactive
+preparatory boundary. MAIN's forced consolidated Android host rerun passed 541 unique
+tests with zero failures, errors, or skips: Task 5 passed 239, Task 1–4 regression
+passed 250, and the affected authority/source/routing group passed 428. Production
+remains `Shadow`/`LegacyOnly`; Task 6 retains `T5-ACTIVE-SOURCE` and `T5-EXACT-SEED`.
+Commit `refactor(reader): coordinate semantic relocation` and push.
 
 ### Task 6: Cut over frame presentation and physical input together
 
@@ -1136,6 +1152,17 @@ and close. Commit `refactor(reader): coordinate semantic relocation` and push.
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageInputSettlementHostControllerTest.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHostTest.kt`
 - Modify: `docs/superpowers/plans/2026-08-23-reader-raster-isolation-and-whispersync-stabilization.md`
+
+**Mandatory Task 5 carry-forward rows:**
+
+- `T5-ACTIVE-SOURCE`: atomically suppress every legacy semantic dispatch while
+  activating coordinator semantic, deck, frame, and input authority. There is no
+  dual-writer interval and no active-session fallback to legacy.
+- `T5-EXACT-SEED`: freeze legacy acquisition, inventory every exact live resource,
+  adopt or drain each resource, install a truthful committed predecessor seed, and
+  attach the coordinator-issued `ReaderTransitionId` to the command-bound Foliate
+  callback. Identity may not be inferred from active journal state, binding
+  similarity, gesture, renderer generation, or legacy acknowledgement data.
 
 - [ ] **Step 1: Write grouped RED presentation/input tests**
 

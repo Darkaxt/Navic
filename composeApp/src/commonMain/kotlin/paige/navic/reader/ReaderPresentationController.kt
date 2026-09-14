@@ -107,6 +107,65 @@ private fun ReaderLegacyLiveCompatibilityContext.matches(
 	state.hasExactColdLegacyLiveFacts() &&
 	identity == state.legacyLiveCompatibilityIdentity()
 
+internal fun readerTransitionIntentForPageTurnBoundary(
+	state: ReaderControllerState,
+	direction: ReaderPageTurnDirection,
+	gestureId: ReaderTransitionGestureId
+): ReaderTransitionUserIntent = if (
+	direction == ReaderPageTurnDirection.Previous &&
+	state.canReturnToShellCover &&
+	!state.shellCoverVisible &&
+	!state.nativeShellCoverUrl.isNullOrBlank()
+) {
+	ReaderCoverReturnIntent
+} else {
+	ReaderPageTurnIntent(direction, gestureId)
+}
+
+internal fun readerTransitionIntentForViewerAction(
+	state: ReaderControllerState,
+	action: ReaderViewerAction,
+	gestureId: ReaderTransitionGestureId
+): ReaderTransitionUserIntent? {
+	if (
+		action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous) &&
+		state.canReturnToShellCover &&
+		state.nativeShellCoverReturnLocatorKey ==
+			readerNativeShellCoverReturnLocatorKey(state.chrome.currentLocator) &&
+		readerShouldReturnToNativeShellCover(
+			shellCoverUrl = state.nativeShellCoverUrl,
+			shellCoverVisible = state.shellCoverVisible,
+			locator = state.chrome.currentLocator
+		)
+	) return ReaderCoverReturnIntent
+	return readerTransitionIntentForViewerAction(state.presentationDecision.inputPolicy, action, gestureId)
+}
+
+internal fun readerTransitionIntentForViewerAction(
+	inputPolicy: ReaderPresentationInputPolicy,
+	action: ReaderViewerAction,
+	gestureId: ReaderTransitionGestureId
+): ReaderTransitionUserIntent? = when {
+	inputPolicy == ReaderPresentationInputPolicy.ShellCover &&
+		(
+			action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||
+				action == ReaderViewerAction.ScrollViewport(ReaderViewportScrollDirection.Down)
+		) -> ReaderCoverEntryIntent
+	(action is ReaderViewerAction.NavigateTo) &&
+		(
+			(inputPolicy is ReaderPresentationInputPolicy.NativePage &&
+				inputPolicy.policy.newPointer == ReaderPageNewPointerDecision.Accept) ||
+				inputPolicy == ReaderPresentationInputPolicy.LiveEngine
+		) -> ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Jump)
+	(action is ReaderViewerAction.TurnPage) &&
+		(
+			(inputPolicy is ReaderPresentationInputPolicy.NativePage &&
+				inputPolicy.policy.newPointer == ReaderPageNewPointerDecision.Accept) ||
+				inputPolicy == ReaderPresentationInputPolicy.LiveEngine
+		) -> ReaderPageTurnIntent(action.direction, gestureId)
+	else -> null
+}
+
 internal fun readerViewerActionIsAdmitted(
 	inputPolicy: ReaderPresentationInputPolicy,
 	action: ReaderViewerAction,

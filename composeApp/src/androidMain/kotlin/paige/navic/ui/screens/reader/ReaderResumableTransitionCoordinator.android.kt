@@ -1,6 +1,10 @@
 package paige.navic.ui.screens.reader
 
 import android.os.Looper
+import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.ReaderPresentationEventReceipt
+import paige.navic.reader.ReaderPresentationSemanticReceipt
+import paige.navic.reader.ReaderPresentationSemanticReceiptConsumption
 import paige.navic.reader.ReaderTransitionCommand
 import paige.navic.reader.ReaderTransitionFact
 import paige.navic.reader.ReaderTransitionFactKind
@@ -232,6 +236,7 @@ internal data class ReaderTransitionCoordinatorSnapshot(
 	val ownedResourceCount: Int,
 	val releaseCommandIssuedCount: Int,
 	val releasedResourceCount: Int,
+	val consumedSettlementCount: Int,
 	val releaseOnlySink: Boolean
 ) {
 	companion object {
@@ -247,6 +252,7 @@ internal class ReaderResumableTransitionCoordinator(
 	private val onObservation: (ReaderTransitionCoordinatorObservation) -> Unit = {}
 ) {
 	private val mailbox = ArrayDeque<ReaderTransitionFact>()
+	private val semanticReceiptConsumption = ReaderPresentationSemanticReceiptConsumption()
 	private val classificationCounts = linkedMapOf<ReaderTransitionFactClassification, Int>()
 	private val shadowPredictions = ArrayDeque<ReaderTransitionShadowPrediction>()
 	private var advancing = false
@@ -261,6 +267,28 @@ internal class ReaderResumableTransitionCoordinator(
 
 	init {
 		journal.resourceKeys().forEach(releaseLedger::register)
+	}
+
+	fun enqueue(receipt: ReaderPresentationEventReceipt) {
+		check(Looper.myLooper() == Looper.getMainLooper()) {
+			"Reader transition receipts must be enqueued on the main thread"
+		}
+		when (val semantic = semanticReceiptConsumption.consume(receipt)) {
+			is ReaderPresentationSemanticReceipt.Destination -> enqueue(
+				ReaderTransitionFact.FoliateDestinationCommitted(semantic.transitionId, semantic.binding)
+			)
+			is ReaderPresentationSemanticReceipt.Settlement -> {
+				val exactId = semantic.transitionId ?: return
+				enqueue(
+					ReaderTransitionFact.SettlementAcknowledged(
+						exactId,
+						semantic.binding,
+						semantic.acknowledgement
+					)
+				)
+			}
+			null -> Unit
+		}
 	}
 
 	fun enqueue(fact: ReaderTransitionFact) {
@@ -291,6 +319,7 @@ internal class ReaderResumableTransitionCoordinator(
 			ownedResourceCount = releaseSnapshot.ownedCount,
 			releaseCommandIssuedCount = releaseSnapshot.issuedCount,
 			releasedResourceCount = releaseSnapshot.releasedCount,
+			consumedSettlementCount = if (journal.active?.consumedSettlement == null) 0 else 1,
 			releaseOnlySink = releaseOnlySink
 		)
 	}
@@ -329,7 +358,11 @@ internal class ReaderResumableTransitionCoordinator(
 				journal = reduction.state
 				if (
 					journal.active == null &&
-					(fact is ReaderTransitionFact.PublicationClosed || closingOperation)
+					(
+						fact is ReaderTransitionFact.PublicationReplaced ||
+						fact is ReaderTransitionFact.PublicationClosed ||
+						closingOperation
+					)
 				) {
 					releaseOnlySink = true
 				}
@@ -550,6 +583,7 @@ private fun ReaderTransitionFact.registeredResourceKeyOrNull(): ReaderTransition
 	is ReaderTransitionFact.ResourceLost,
 	is ReaderTransitionFact.DeadlineExpired,
 	is ReaderTransitionFact.Retry,
+	is ReaderTransitionFact.PublicationReplaced,
 	is ReaderTransitionFact.PublicationClosed -> null
 }
 
@@ -563,6 +597,7 @@ internal fun ReaderTransitionFact.isTask4CoordinatorFact(): Boolean = when (this
 	is ReaderTransitionFact.ResourceLost,
 	is ReaderTransitionFact.DeadlineExpired,
 	is ReaderTransitionFact.Retry,
+	is ReaderTransitionFact.PublicationReplaced,
 	is ReaderTransitionFact.PublicationClosed -> true
 	is ReaderTransitionFact.ResourceObserved -> key.isTask4ResourceKeyFor(transitionId)
 	is ReaderTransitionFact.DeckReserved ->
@@ -599,6 +634,16 @@ private fun ReaderTransitionResourceKey.isTask4ResourceKeyFor(
 	}
 }
 
+private fun ReaderExpectedPresentationBinding.matchesSemanticReceipt(
+	binding: paige.navic.reader.ReaderPresentationBinding
+): Boolean = when (this) {
+	is ReaderExpectedPresentationBinding.Exact -> this.binding == binding
+	is ReaderExpectedPresentationBinding.SemanticSuccessor ->
+		binding != predecessor &&
+			binding.foliateSessionId == predecessor.foliateSessionId &&
+			binding.publicationGeneration == predecessor.publicationGeneration
+}
+
 private fun Long.saturatingAdd(increment: Long): Long =
 	if (this > Long.MAX_VALUE - increment) Long.MAX_VALUE else this + increment
 
@@ -606,6 +651,22 @@ private fun classify(
 	fact: ReaderTransitionFact,
 	journal: ReaderTransitionJournal
 ): ReaderTransitionFactClassification {
+	if (fact is ReaderTransitionFact.SettlementAcknowledged) {
+		val active = journal.active ?: return ReaderTransitionFactClassification.StaleTransition
+		return if (
+			fact.transitionId == active.id &&
+			active.id.operation == ReaderTransitionOperation.CurlClaimAndSettlement &&
+			active.id.expectedBinding.matchesSemanticReceipt(fact.binding) &&
+			active.resolvedSuccessorBinding?.let { it != fact.binding } != true &&
+			active.consumedSettlement == null &&
+			paige.navic.reader.ReaderTransitionProofKind.SettlementAcknowledgement in
+				active.phase.contract.awaitedProofs
+		) {
+			ReaderTransitionFactClassification.CurrentTransition
+		} else {
+			ReaderTransitionFactClassification.StaleTransition
+		}
+	}
 	val transitionId = fact.transitionId ?: return ReaderTransitionFactClassification.Untagged
 	val activeId = journal.active?.id ?: return ReaderTransitionFactClassification.NoActiveTransition
 	return if (transitionId == activeId) {
@@ -641,6 +702,7 @@ private fun ReaderTransitionFact.kind(): ReaderTransitionFactKind = when (this) 
 	is ReaderTransitionFact.ResourceLost -> ReaderTransitionFactKind.ResourceLost
 	is ReaderTransitionFact.DeadlineExpired -> ReaderTransitionFactKind.DeadlineExpired
 	is ReaderTransitionFact.Retry -> ReaderTransitionFactKind.Retry
+	is ReaderTransitionFact.PublicationReplaced -> ReaderTransitionFactKind.PublicationReplaced
 	is ReaderTransitionFact.PublicationClosed -> ReaderTransitionFactKind.PublicationClosed
 }
 

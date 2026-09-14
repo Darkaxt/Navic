@@ -174,6 +174,395 @@ class ReaderResumableTransitionModelTest {
 	}
 
 	@Test
+	fun everyAppOriginatedExternalRouteRegistersBeforeSemanticCommand() {
+		val fixture = journalAwaitingSettlement()
+		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+
+		ReaderExternalRelocationSource.entries.forEach { source ->
+			val result = idle.reduce(
+				ReaderTransitionFact.Intent(
+					transitionId = null,
+					intent = ReaderExternalRelocationIntent(source)
+				)
+			)
+
+			val active = assertNotNull(result.state.active, source.name)
+			assertEquals(ReaderTransitionOperation.ExternalSemanticRelocation, active.id.operation, source.name)
+			assertEquals(fixture.id.readerSessionGeneration, active.id.readerSessionGeneration, source.name)
+			assertEquals(fixture.id.coordinatorEpoch, active.id.coordinatorEpoch, source.name)
+			assertEquals(fixture.retainedOwner, active.phase.contract.retainedOwner, source.name)
+			assertEquals(ReaderTransitionInputLease.ChromeOnly, active.phase.contract.inputLease, source.name)
+			assertTrue(ReaderTransitionProofKind.SemanticDestination in active.phase.contract.awaitedProofs, source.name)
+			assertEquals(
+				ReaderTransitionCommand.RequestSemanticSynchronization(active.id, ReaderExternalRelocationIntent(source)),
+				result.commands.last(),
+				source.name
+			)
+			assertTrue(
+				result.commands.indexOfLast { it is ReaderTransitionCommand.RequestSemanticSynchronization } >
+					result.commands.indexOfLast { it is ReaderTransitionCommand.ApplyInputLease },
+				source.name
+			)
+			assertTrue(result.commands.none { it is ReaderTransitionCommand.RequestRasterPreparation }, source.name)
+		}
+	}
+
+	@Test
+	fun matchingUntaggedDestinationSettlesRegisteredExternalOperationWithoutSupersession() {
+		val fixture = journalAwaitingSettlement()
+		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val started = idle.reduce(
+			ReaderTransitionFact.Intent(
+				transitionId = null,
+				intent = ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc)
+			)
+		)
+		val registeredId = assertNotNull(started.state.active).id
+
+		val committed = started.state.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(
+				transitionId = null,
+				binding = fixture.successor
+			)
+		)
+
+		val active = assertNotNull(committed.state.active)
+		assertEquals(registeredId, active.id)
+		assertFalse(ReaderTransitionProofKind.SemanticDestination in active.phase.contract.awaitedProofs)
+		assertEquals(
+			listOf(ReaderTransitionCommand.RequestRasterPreparation(registeredId, fixture.successor)),
+			committed.commands
+		)
+		assertFalse(committed.state.lastOutcome is ReaderTransitionOutcome.Cancelled)
+	}
+
+	@Test
+	fun failedExternalRelocationRetainsNoninteractiveShieldAndRetryUsesFreshIdentity() {
+		val fixture = journalAwaitingSettlement()
+		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val started = idle.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+			)
+		)
+		val first = assertNotNull(started.state.active)
+		val failed = started.state.reduce(ReaderTransitionFact.DeadlineExpired(first.id))
+
+		val failure = assertIs<ReaderTransitionOutcome.Failed>(failed.state.lastOutcome)
+		assertEquals(ReaderTransitionFailureReason.ExternalRelocationTimeout, failure.reason)
+		assertEquals(fixture.retainedOwner, failure.retainedOwner)
+		assertEquals(fixture.predecessorResourceKey, failed.state.committed?.resourceKey)
+		assertTrue(failed.commands.none {
+			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+		})
+
+		val retried = failed.state.reduce(ReaderTransitionFact.Retry(null))
+		val retry = assertNotNull(retried.state.active)
+		assertTrue(retry.id != first.id)
+		assertEquals(first.id.parentIdentity(), retry.id.parent)
+		assertEquals(first.id.operation, retry.id.operation)
+		assertEquals(first.id.expectedBinding, retry.id.expectedBinding)
+		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
+		assertEquals(
+			ReaderTransitionCommand.RequestSemanticSynchronization(
+				retry.id,
+				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+			),
+			retried.commands.last()
+		)
+	}
+
+	@Test
+	fun coverEntryRetryAfterAcceptedDestinationReusesExactAuthorityWithoutSemanticReplay() {
+		val fixture = journalAwaitingSettlement()
+		val started = fixture.journal.copy(active = null).reduce(
+			ReaderTransitionFact.Intent(null, ReaderCoverEntryIntent)
+		)
+		val first = assertNotNull(started.state.active)
+		val accepted = started.state.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(first.id, fixture.successor)
+		)
+		val acceptedActive = assertNotNull(accepted.state.active)
+		assertEquals(fixture.successor, acceptedActive.resolvedSuccessorBinding)
+		assertEquals(
+			listOf(ReaderTransitionCommand.RequestRasterPreparation(first.id, fixture.successor)),
+			accepted.commands
+		)
+		val duplicate = accepted.state.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(first.id, fixture.successor)
+		)
+		assertEquals(accepted.state, duplicate.state)
+		assertTrue(duplicate.commands.isEmpty())
+
+		val failed = accepted.state.reduce(ReaderTransitionFact.DeadlineExpired(first.id))
+		val retryable = assertNotNull(failed.state.retryableTransition)
+		assertTrue(retryable.semanticDestinationCommitted)
+		assertTrue(failed.commands.none {
+			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+		})
+
+		val retried = failed.state.reduce(ReaderTransitionFact.Retry(null))
+		val retry = assertNotNull(retried.state.active)
+		assertTrue(retry.id.sequence > first.id.sequence)
+		assertEquals(ReaderTransitionOperation.CoverToPageEntry, retry.id.operation)
+		assertEquals(ReaderExpectedPresentationBinding.Exact(fixture.successor), retry.id.expectedBinding)
+		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
+		assertEquals(fixture.predecessorResourceKey, retry.predecessorResourceKey)
+		assertEquals(
+			listOf(
+				ReaderTransitionCommand.ApplyInputLease(retry.id, ReaderTransitionInputLease.ChromeOnly),
+				ReaderTransitionCommand.RequestRasterPreparation(retry.id, fixture.successor)
+			),
+			retried.commands
+		)
+		assertTrue(retried.commands.none {
+			it is ReaderTransitionCommand.RequestSemanticSynchronization
+		})
+	}
+
+	@Test
+	fun coverEntryRetryBeforeDestinationReissuesSemanticRequest() {
+		val fixture = journalAwaitingSettlement()
+		val started = fixture.journal.copy(active = null).reduce(
+			ReaderTransitionFact.Intent(null, ReaderCoverEntryIntent)
+		)
+		val first = assertNotNull(started.state.active)
+		val failed = started.state.reduce(ReaderTransitionFact.DeadlineExpired(first.id))
+
+		val retried = failed.state.reduce(ReaderTransitionFact.Retry(null))
+		val retry = assertNotNull(retried.state.active)
+		assertTrue(retry.id.sequence > first.id.sequence)
+		assertEquals(first.id.expectedBinding, retry.id.expectedBinding)
+		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
+		assertEquals(
+			ReaderTransitionCommand.RequestSemanticSynchronization(retry.id, ReaderCoverEntryIntent),
+			retried.commands.last()
+		)
+	}
+
+	@Test
+	fun retryBeforeSettlementUsesFreshChromeOnlyIdentityAndReissuesSemanticCommand() {
+		val fixture = journalAwaitingSettlement()
+		val intent = ReaderPageTurnIntent(ReaderPageTurnDirection.Next, fixture.gestureId)
+		val started = fixture.journal.copy(active = null).reduce(
+			ReaderTransitionFact.Intent(null, intent)
+		)
+		val first = assertNotNull(started.state.active)
+		val oldGestureResource = ReaderTransitionResourceKey(
+			first.id,
+			ReaderTransitionResourceKind.CallbackRegistration,
+			211L
+		)
+		val withGestureResource = started.state.copy(
+			active = first.copy(ownedResourceKeys = setOf(oldGestureResource))
+		)
+		val failed = withGestureResource.reduce(
+			ReaderTransitionFact.DeadlineExpired(first.id)
+		)
+
+		val retried = failed.state.reduce(ReaderTransitionFact.Retry(null))
+		val retry = assertNotNull(retried.state.active)
+
+		assertTrue(retry.id.sequence > first.id.sequence)
+		assertEquals(ReaderTransitionOperation.CurlClaimAndSettlement, retry.id.operation)
+		assertEquals(first.id.parentIdentity(), retry.id.parent)
+		assertTrue(ReaderTransitionProofKind.SettlementAcknowledgement in retry.phase.contract.awaitedProofs)
+		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
+		assertTrue(retry.ownedResourceKeys.isEmpty())
+		assertEquals(fixture.predecessorResourceKey, retry.predecessorResourceKey)
+		assertTrue(failed.commands.any {
+			it is ReaderTransitionCommand.ReleaseResource && it.key == oldGestureResource
+		})
+		assertTrue(failed.commands.none {
+			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+		})
+		assertTrue(retried.commands.any { command ->
+			command == ReaderTransitionCommand.RequestSemanticSynchronization(retry.id, intent)
+		})
+		assertTrue(retried.commands.none { it is ReaderTransitionCommand.RequestRasterPreparation })
+	}
+
+	@Test
+	fun retryAfterSettlementUsesFreshRendererRecoveryWithoutGestureOrSecondPageTurn() {
+		val fixture = journalAwaitingSettlement()
+		val oldAttemptResource = ReaderTransitionResourceKey(
+			fixture.id,
+			ReaderTransitionResourceKind.Raster,
+			211L
+		)
+		val registered = fixture.journal.reduce(
+			ReaderTransitionFact.ResourceObserved(fixture.id, oldAttemptResource)
+		)
+		val settled = registered.state.reduce(matchingSettlementFact(fixture))
+		val failed = settled.state.reduce(ReaderTransitionFact.DeadlineExpired(fixture.id))
+
+		val retried = failed.state.reduce(ReaderTransitionFact.Retry(null))
+		val retry = assertNotNull(retried.state.active)
+
+		assertTrue(retry.id.sequence > fixture.id.sequence)
+		assertEquals(ReaderTransitionOperation.RendererRecovery, retry.id.operation)
+		assertEquals(ReaderExpectedPresentationBinding.Exact(fixture.successor), retry.id.expectedBinding)
+		assertEquals(fixture.id.parentIdentity(), retry.id.parent)
+		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
+		assertEquals(
+			setOf(
+				ReaderTransitionProofKind.RendererGeneration,
+				ReaderTransitionProofKind.DeckOwnership,
+				ReaderTransitionProofKind.DeckPrepared,
+				ReaderTransitionProofKind.PreparedFrame
+			),
+			retry.phase.contract.awaitedProofs
+		)
+		assertNull(retry.consumedSettlement)
+		assertNull(retry.semanticIntent)
+		assertEquals(fixture.predecessorResourceKey, retry.predecessorResourceKey)
+		assertTrue(retried.commands.none { it is ReaderTransitionCommand.RequestSemanticSynchronization })
+		assertEquals(
+			ReaderTransitionCommand.ReserveDeck(
+				retry.id,
+				fixture.successor,
+				ReaderTransitionDeckRole.Recovery
+			),
+			retried.commands.last()
+		)
+		assertEquals(
+			listOf(oldAttemptResource),
+			failed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+		)
+		assertTrue(failed.commands.none {
+			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+		})
+
+		val deckKey = ReaderTransitionResourceKey(retry.id, ReaderTransitionResourceKind.Deck, 223L)
+		val owner = transitionTestNativeOwner(retry.id, fixture.successor)
+		val generation = retried.state.reduce(
+			ReaderTransitionFact.RendererGenerationReady(retry.id, rendererGeneration = 227L)
+		)
+		val owned = generation.state.reduce(ReaderTransitionFact.DeckOwned(retry.id, deckKey))
+		val prepared = owned.state.reduce(ReaderTransitionFact.DeckPrepared(retry.id, deckKey))
+		val completed = prepared.state.reduce(
+			ReaderTransitionFact.PreparedFrame(retry.id, fixture.successor, owner, deckKey)
+		)
+		assertNull(completed.state.active)
+		assertEquals(fixture.successor, assertIs<ReaderTransitionOutcome.Succeeded>(completed.state.lastOutcome).binding)
+		assertEquals(
+			listOf(fixture.predecessorResourceKey),
+			completed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+		)
+	}
+
+	@Test
+	fun postSettlementRendererRecoveryCanFailAndRetryWithoutSettlementProof() {
+		val fixture = journalAwaitingSettlement()
+		val settled = fixture.journal.reduce(matchingSettlementFact(fixture))
+		val firstFailure = settled.state.reduce(ReaderTransitionFact.DeadlineExpired(fixture.id))
+		val retried = firstFailure.state.reduce(ReaderTransitionFact.Retry(null))
+		val retry = assertNotNull(retried.state.active)
+
+		val secondFailure = retried.state.reduce(ReaderTransitionFact.DeadlineExpired(retry.id))
+
+		assertNull(secondFailure.state.active)
+		val outcome = assertIs<ReaderTransitionOutcome.Failed>(secondFailure.state.lastOutcome)
+		assertEquals(ReaderTransitionFailureReason.RendererRecoveryTimeout, outcome.reason)
+		assertTrue(secondFailure.commands.none { it is ReaderTransitionCommand.RequestSemanticSynchronization })
+		assertTrue(secondFailure.commands.none {
+			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+		})
+
+		val secondRetry = secondFailure.state.reduce(ReaderTransitionFact.Retry(null))
+		val secondAttempt = assertNotNull(secondRetry.state.active)
+		assertEquals(ReaderTransitionOperation.RendererRecovery, secondAttempt.id.operation)
+		assertTrue(secondAttempt.id.sequence > retry.id.sequence)
+		assertEquals(ReaderTransitionInputLease.ChromeOnly, secondAttempt.phase.contract.inputLease)
+		assertEquals(
+			ReaderTransitionCommand.ReserveDeck(
+				secondAttempt.id,
+				fixture.successor,
+				ReaderTransitionDeckRole.Recovery
+			),
+			secondRetry.commands.last()
+		)
+		assertTrue(secondRetry.commands.none { it is ReaderTransitionCommand.RequestSemanticSynchronization })
+	}
+
+	@Test
+	fun cancelTerminatesRegisteredSemanticOperationWithoutReleasingItsShield() {
+		val fixture = journalAwaitingSettlement()
+		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val started = idle.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Bookmark)
+			)
+		)
+		val active = assertNotNull(started.state.active)
+
+		val cancelled = started.state.reduce(
+			ReaderTransitionFact.Intent(active.id, ReaderCancelIntent)
+		)
+
+		assertNull(cancelled.state.active)
+		val outcome = assertIs<ReaderTransitionOutcome.Cancelled>(cancelled.state.lastOutcome)
+		assertEquals(ReaderTransitionCancellationReason.UserCancelled, outcome.reason)
+		assertEquals(fixture.retainedOwner, outcome.retainedOwner)
+		assertEquals(ReaderTransitionCommand.CancelOwnedWork(active.id), cancelled.commands.first())
+		assertTrue(cancelled.commands.none {
+			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+		})
+	}
+
+	@Test
+	fun relocationAfterCancellationUsesMonotonicallyNewIdentity() {
+		val fixture = journalAwaitingSettlement()
+		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val first = idle.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Bookmark)
+			)
+		)
+		val firstId = assertNotNull(first.state.active).id
+		val cancelled = first.state.reduce(
+			ReaderTransitionFact.Intent(firstId, ReaderCancelIntent)
+		)
+
+		val second = cancelled.state.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Annotation)
+			)
+		)
+		val secondId = assertNotNull(second.state.active).id
+
+		assertTrue(secondId.sequence > firstId.sequence)
+	}
+
+	@Test
+	fun relocationAfterFailureUsesMonotonicallyNewIdentity() {
+		val fixture = journalAwaitingSettlement()
+		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val first = idle.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+			)
+		)
+		val firstId = assertNotNull(first.state.active).id
+		val failed = first.state.reduce(ReaderTransitionFact.DeadlineExpired(firstId))
+
+		val second = failed.state.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc)
+			)
+		)
+		val secondId = assertNotNull(second.state.active).id
+
+		assertTrue(secondId.sequence > firstId.sequence)
+	}
+
+	@Test
 	fun untaggedDestinationCreatesExternalRelocationAndRevokesPageInput() {
 		val fixture = journalAwaitingSettlement()
 		val result = fixture.journal.reduce(
@@ -207,6 +596,194 @@ class ReaderResumableTransitionModelTest {
 		})
 		assertTrue(result.commands.any { it is ReaderTransitionCommand.RequestRasterPreparation })
 		assertTrue(result.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+	}
+
+	@Test
+	fun untaggedAuthoritativeDestinationRetryReusesExactBindingWithoutSemanticReplay() {
+		val fixture = journalAwaitingSettlement()
+		val idle = fixture.journal.copy(active = null)
+		val started = idle.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
+		)
+		val first = assertNotNull(started.state.active)
+
+		val failed = started.state.reduce(ReaderTransitionFact.DeadlineExpired(first.id))
+		assertTrue(failed.commands.none {
+			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+		})
+
+		val retried = failed.state.reduce(ReaderTransitionFact.Retry(null))
+		val retry = assertNotNull(retried.state.active)
+		assertTrue(retry.id.sequence > first.id.sequence)
+		assertEquals(ReaderTransitionOperation.ExternalSemanticRelocation, retry.id.operation)
+		assertEquals(ReaderExpectedPresentationBinding.Exact(fixture.successor), retry.id.expectedBinding)
+		assertEquals(fixture.successor, retry.resolvedSuccessorBinding)
+		assertTrue(retry.authoritativeDestinationCommitted)
+		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
+		assertEquals(fixture.predecessorResourceKey, retry.predecessorResourceKey)
+		assertEquals(
+			listOf(
+				ReaderTransitionCommand.ApplyInputLease(retry.id, ReaderTransitionInputLease.ChromeOnly),
+				ReaderTransitionCommand.RequestRasterPreparation(retry.id, fixture.successor)
+			),
+			retried.commands
+		)
+		assertTrue(retried.commands.none {
+			it is ReaderTransitionCommand.RequestSemanticSynchronization
+		})
+
+		val raster = retried.state.reduce(ReaderTransitionFact.RasterProven(retry.id))
+		val deckKey = ReaderTransitionResourceKey(
+			retry.id,
+			ReaderTransitionResourceKind.Deck,
+			67L
+		)
+		val owned = raster.state.reduce(ReaderTransitionFact.DeckOwned(retry.id, deckKey))
+		val prepared = owned.state.reduce(ReaderTransitionFact.DeckPrepared(retry.id, deckKey))
+		val owner = transitionTestNativeOwner(retry.id, fixture.successor)
+		val completed = prepared.state.reduce(
+			ReaderTransitionFact.PreparedFrame(retry.id, fixture.successor, owner, deckKey)
+		)
+
+		assertNull(completed.state.active)
+		assertEquals(
+			listOf(fixture.predecessorResourceKey),
+			completed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+		)
+	}
+
+	@Test
+	fun untaggedDifferentDestinationSupersedesAcceptedCoverEntry() {
+		assertUntaggedDifferentDestinationSupersedesAcceptedIntent(ReaderCoverEntryIntent)
+	}
+
+	@Test
+	fun untaggedDifferentDestinationSupersedesAcceptedExternalRelocation() {
+		assertUntaggedDifferentDestinationSupersedesAcceptedIntent(
+			ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+		)
+	}
+
+	@Test
+	fun untaggedSameDestinationCoalescesAfterAuthoritativeAcceptance() {
+		val fixture = journalAwaitingSettlement()
+		val started = fixture.journal.copy(active = null).reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+			)
+		)
+		val id = assertNotNull(started.state.active).id
+		val accepted = started.state.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(id, fixture.successor)
+		)
+
+		val duplicate = accepted.state.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
+		)
+
+		assertEquals(accepted.state, duplicate.state)
+		assertTrue(duplicate.commands.isEmpty())
+	}
+
+	@Test
+	fun untaggedSameDestinationCoalescesForExactUnsolicitedRelocation() {
+		val fixture = journalAwaitingSettlement()
+		val started = fixture.journal.copy(active = null).reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
+		)
+
+		val duplicate = started.state.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
+		)
+
+		assertEquals(started.state, duplicate.state)
+		assertTrue(duplicate.commands.isEmpty())
+	}
+
+	@Test
+	fun taggedDifferentDestinationCannotSupersedeAcceptedDestination() {
+		val fixture = journalAwaitingSettlement()
+		val started = fixture.journal.copy(active = null).reduce(
+			ReaderTransitionFact.Intent(null, ReaderCoverEntryIntent)
+		)
+		val id = assertNotNull(started.state.active).id
+		val accepted = started.state.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(id, fixture.successor)
+		)
+		val different = fixture.successor.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				fixture.successor.foliateSessionId,
+				3L
+			)
+		)
+
+		val stale = accepted.state.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(id, different)
+		)
+
+		assertEquals(accepted.state, stale.state)
+		assertTrue(stale.commands.isEmpty())
+	}
+
+	private fun assertUntaggedDifferentDestinationSupersedesAcceptedIntent(
+		intent: ReaderSemanticSynchronizationIntent
+	) {
+		val fixture = journalAwaitingSettlement()
+		val started = fixture.journal.copy(active = null).reduce(
+			ReaderTransitionFact.Intent(null, intent)
+		)
+		val first = assertNotNull(started.state.active)
+		val accepted = started.state.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(first.id, fixture.successor)
+		)
+		val firstOwnedResources = listOf(
+			ReaderTransitionResourceKey(first.id, ReaderTransitionResourceKind.Raster, 71L),
+			ReaderTransitionResourceKey(first.id, ReaderTransitionResourceKind.CallbackRegistration, 73L)
+		)
+		val withResources = firstOwnedResources.fold(accepted.state) { state, key ->
+			state.reduce(ReaderTransitionFact.ResourceObserved(first.id, key)).state
+		}
+		val replacementBinding = fixture.successor.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				fixture.successor.foliateSessionId,
+				3L
+			)
+		)
+
+		val replaced = withResources.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, replacementBinding)
+		)
+		val replacement = assertNotNull(replaced.state.active)
+
+		assertTrue(replacement.id.sequence > first.id.sequence)
+		assertEquals(ReaderTransitionOperation.ExternalSemanticRelocation, replacement.id.operation)
+		assertEquals(
+			ReaderExpectedPresentationBinding.Exact(replacementBinding),
+			replacement.id.expectedBinding
+		)
+		assertEquals(replacementBinding, replacement.resolvedSuccessorBinding)
+		assertTrue(replacement.authoritativeDestinationCommitted)
+		assertEquals(fixture.predecessorResourceKey, replacement.predecessorResourceKey)
+		assertEquals(ReaderTransitionCommand.CancelOwnedWork(first.id), replaced.commands.first())
+		assertEquals(
+			firstOwnedResources,
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+		)
+		assertTrue(replaced.commands.none {
+			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+		})
+		assertEquals(
+			ReaderTransitionCommand.RequestRasterPreparation(replacement.id, replacementBinding),
+			replaced.commands.last()
+		)
+		assertTrue(replaced.commands.none {
+			it is ReaderTransitionCommand.RequestSemanticSynchronization
+		})
+
+		val staleFirst = replaced.state.reduce(ReaderTransitionFact.RasterProven(first.id))
+		assertEquals(replaced.state, staleFirst.state)
+		assertTrue(staleFirst.commands.isEmpty())
 	}
 
 	@Test
@@ -882,6 +1459,188 @@ class ReaderResumableTransitionModelTest {
 	}
 
 	@Test
+	fun destinationFromAnotherPublicationNeverRelocatesTheOldLifecycle() {
+		val fixture = journalAwaitingSettlement()
+		val anotherPublication = fixture.successor.copy(
+			foliateSessionId = "different-publication-session",
+			publicationGeneration = fixture.successor.publicationGeneration + 1L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"different-publication-session",
+				1L
+			)
+		)
+
+		val rejected = fixture.journal.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, anotherPublication)
+		)
+
+		assertEquals(fixture.journal, rejected.state)
+		assertTrue(rejected.commands.isEmpty())
+	}
+
+	@Test
+	fun activeOnlyBootstrapAndRestoreFenceForeignPublicationDestinations() {
+		val local = transitionTestBinding(commitSequence = 1L)
+		val foreign = local.copy(
+			foliateSessionId = "foreign-active-only-session",
+			publicationGeneration = local.publicationGeneration + 1L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"foreign-active-only-session",
+				1L
+			)
+		)
+		val cases = listOf(
+			ReaderTransitionOperation.BootstrapNativePage to ReaderExpectedPresentationBinding.Exact(local),
+			ReaderTransitionOperation.VisibilityRestore to
+				ReaderExpectedPresentationBinding.SemanticSuccessor(local, requestSequence = 17L)
+		)
+
+		cases.forEach { (operation, expectedBinding) ->
+			val id = transitionTestId(operation, expectedBinding)
+			val journal = ReaderTransitionJournal(
+				active = ReaderActiveTransition(
+					id = id,
+					phase = ReaderTransitionLivenessTable.phase(
+						id,
+						ReaderTransitionPhaseKind.AwaitingPrerequisites,
+						ReaderPresentationFrameOwner.Neutral
+					)
+				)
+			)
+
+			val rejected = journal.reduce(
+				ReaderTransitionFact.FoliateDestinationCommitted(null, foreign)
+			)
+
+			assertEquals(journal, rejected.state, operation.name)
+			assertTrue(rejected.commands.isEmpty(), operation.name)
+		}
+	}
+
+	@Test
+	fun retryableOnlyIdentityFencesForeignPublicationDestination() {
+		val fixture = journalAwaitingSettlement()
+		val localId = fixture.id.copy(
+			expectedBinding = ReaderExpectedPresentationBinding.SemanticSuccessor(
+				fixture.predecessor,
+				requestSequence = 19L
+			)
+		)
+		val retryable = ReaderRetryableTransition(
+			id = localId,
+			retainedOwner = fixture.retainedOwner,
+			predecessorResourceKey = fixture.predecessorResourceKey,
+			semanticIntent = ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc),
+			resolvedSuccessorBinding = null,
+			gestureId = null,
+			settlementConsumed = false,
+			semanticDestinationCommitted = false
+		)
+		val journal = ReaderTransitionJournal(
+			retryableTransition = retryable,
+			lastTransitionSequence = localId.sequence
+		)
+		val foreign = fixture.successor.copy(
+			foliateSessionId = "foreign-retryable-only-session",
+			publicationGeneration = fixture.successor.publicationGeneration + 1L,
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"foreign-retryable-only-session",
+				1L
+			)
+		)
+
+		val rejected = journal.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, foreign)
+		)
+
+		assertEquals(journal, rejected.state)
+		assertTrue(rejected.commands.isEmpty())
+	}
+
+	@Test
+	fun publicationReplacementCancelsActiveRelocationAndReleasesEveryOldResourceOnce() {
+		val fixture = journalRelocatingFromLivePredecessor()
+		val active = assertNotNull(fixture.journal.active)
+		val raster = ReaderTransitionResourceKey(active.id, ReaderTransitionResourceKind.Raster, 223L)
+		val deck = ReaderTransitionResourceKey(active.id, ReaderTransitionResourceKind.Deck, 227L)
+		val populated = fixture.journal.copy(
+			active = active.copy(
+				ownedResourceKeys = setOf(raster, deck),
+				admittedDeckKey = deck,
+				pendingPreparedDeckKey = deck,
+				successorResourceKey = deck
+			)
+		)
+
+		val replaced = populated.reduce(ReaderTransitionFact.PublicationReplaced(null))
+
+		assertNull(replaced.state.active)
+		assertNull(replaced.state.committed)
+		assertNull(replaced.state.retryableTransition)
+		assertEquals(
+			ReaderTransitionCancellationReason.PublicationReplaced,
+			assertIs<ReaderTransitionOutcome.Cancelled>(replaced.state.lastOutcome).reason
+		)
+		assertEquals(ReaderTransitionCommand.CancelOwnedWork(active.id), replaced.commands.first())
+		assertEquals(
+			setOf(fixture.predecessorKey, raster, deck),
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }.toSet()
+		)
+		assertEquals(
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().size,
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }.distinct().size
+		)
+	}
+
+	@Test
+	fun publicationReplacementAfterFailedRelocationClearsRetryAndReleasesCommittedShield() {
+		val fixture = journalAwaitingSettlement()
+		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val started = idle.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+			)
+		)
+		val relocationId = assertNotNull(started.state.active).id
+		val failed = started.state.reduce(ReaderTransitionFact.DeadlineExpired(relocationId))
+		assertNotNull(failed.state.retryableTransition)
+
+		val replaced = failed.state.reduce(ReaderTransitionFact.PublicationReplaced(null))
+
+		assertNull(replaced.state.active)
+		assertNull(replaced.state.committed)
+		assertNull(replaced.state.retryableTransition)
+		assertEquals(
+			listOf(fixture.predecessorResourceKey),
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+		)
+	}
+
+	@Test
+	fun publicationReplacementReleasesExactCommittedResourceProvenance() {
+		val binding = transitionTestBinding()
+		val id = transitionTestId(
+			ReaderTransitionOperation.BootstrapNativePage,
+			ReaderExpectedPresentationBinding.Exact(binding)
+		)
+		val owner = transitionTestNativeOwner(id, binding)
+		val key = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, owner.proof.textureGeneration)
+		val journal = ReaderTransitionJournal(
+			committed = ReaderCommittedTransition(id, owner, binding, key)
+		)
+
+		val replaced = journal.reduce(ReaderTransitionFact.PublicationReplaced(null))
+
+		assertNull(replaced.state.active)
+		assertNull(replaced.state.committed)
+		assertEquals(
+			listOf(key),
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+		)
+	}
+
+	@Test
 	fun rejectSuccessorCloseTransitionIgnoresUntaggedDestination() {
 		val fixture = journalAwaitingPublicationClose()
 		val successor = fixture.binding.copy(
@@ -1099,6 +1858,7 @@ class ReaderResumableTransitionModelTest {
 			ReaderTransitionFactKind.ResourceLost,
 			ReaderTransitionFactKind.DeadlineExpired,
 			ReaderTransitionFactKind.Retry,
+			ReaderTransitionFactKind.PublicationReplaced,
 			ReaderTransitionFactKind.PublicationClosed
 		)
 		assertTrue(ReaderTransitionFactKind.entries.containsAll(requiredFacts))

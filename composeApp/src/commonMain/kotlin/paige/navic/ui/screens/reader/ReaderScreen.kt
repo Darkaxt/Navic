@@ -40,6 +40,8 @@ import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderDragAnimationCanvas
+import paige.navic.reader.ReaderExternalRelocationIntent
+import paige.navic.reader.ReaderExternalRelocationSource
 import paige.navic.reader.ReaderLegacyLiveCompatibilityGate
 import paige.navic.reader.ReaderCoordinator
 import paige.navic.reader.ReaderCoordinatorBackStep
@@ -62,6 +64,8 @@ import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderReadaloudReaderInteraction
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
+import paige.navic.reader.ReaderTransitionFact
+import paige.navic.reader.ReaderTransitionGestureId
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncStatusMessage
@@ -96,6 +100,7 @@ import paige.navic.reader.normalizedReaderListeningSettings
 import paige.navic.reader.readerAnnotationState
 import paige.navic.reader.readerBookmarkState
 import paige.navic.reader.readerListeningSettings
+import paige.navic.reader.readerTransitionIntentForPageTurnBoundary
 import paige.navic.reader.readerWhispersyncPlaybackCommandForSeekTarget
 import paige.navic.reader.ReaderReadingProgressState
 import paige.navic.reader.setReaderListeningSettings
@@ -292,6 +297,51 @@ fun ReaderScreen(reader: Screen.Reader) {
 		state = controllerState,
 		pageTurnCanvasEnabled = pageTurnCanvasEnabled
 	)
+	var transitionGestureSequence by remember(shadowTransitionGateway) { mutableStateOf(0L) }
+
+	fun <T> dispatchViewerTransitionBeforeLegacy(
+		action: ReaderViewerAction,
+		legacyDispatch: () -> T
+	): T {
+		if (transitionGestureSequence == Long.MAX_VALUE) {
+			return shadowTransitionGateway.dispatchBeforeLegacy(null, legacyDispatch)
+		}
+		val candidate = ReaderTransitionGestureId(transitionGestureSequence + 1L)
+		return shadowTransitionGateway.dispatchViewerActionBeforeLegacy(
+			state = coordinator.controller.state,
+			action = action,
+			gestureId = candidate,
+			onTransitionIntentRegistered = { transitionGestureSequence = candidate.value },
+			legacyDispatch = legacyDispatch
+		)
+	}
+
+	fun <T> dispatchPageTurnBoundaryBeforeLegacy(
+		direction: ReaderPageTurnDirection,
+		legacyDispatch: () -> T
+	): T {
+		val fact = if (transitionGestureSequence == Long.MAX_VALUE) {
+			null
+		} else {
+			val candidate = ReaderTransitionGestureId(transitionGestureSequence + 1L)
+			val intent = readerTransitionIntentForPageTurnBoundary(
+				state = coordinator.controller.state,
+				direction = direction,
+				gestureId = candidate
+			)
+			transitionGestureSequence = candidate.value
+			ReaderTransitionFact.Intent(null, intent)
+		}
+		return shadowTransitionGateway.dispatchBeforeLegacy(fact, legacyDispatch)
+	}
+
+	fun <T> dispatchExternalRelocationBeforeLegacy(
+		source: ReaderExternalRelocationSource,
+		legacyDispatch: () -> T
+	): T = shadowTransitionGateway.dispatchBeforeLegacy(
+		ReaderTransitionFact.Intent(null, ReaderExternalRelocationIntent(source)),
+		legacyDispatch
+	)
 
 	fun retainPresentationEffects(effects: List<ReaderPresentationEffect>) {
 		if (effects.isEmpty()) return
@@ -319,7 +369,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		step: ReaderCoordinatorStep,
 		retainProcessState: Boolean = true
 	) {
-		retainPresentationEffects(step.presentationEffects)
+		shadowTransitionGateway.observeReceiptBeforeEffects(step.presentationReceipt) {
+			retainPresentationEffects(step.presentationEffects)
+		}
 		val previousControllerState = coordinator.controller.state
 		applyReaderCoordinatorStep(
 			step = step,
@@ -899,8 +951,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onViewerAction = { action ->
 			val beforeMenuVisible = coordinator.controller.state.menuVisible
-			val step = coordinator.dispatch {
-				onViewerAction(action, legacyLiveCompatibilityContext)
+			val step = dispatchViewerTransitionBeforeLegacy(action) {
+				coordinator.dispatch {
+					onViewerAction(action, legacyLiveCompatibilityContext)
+				}
 			}
 			Logger.i(
 				ReaderScreenTag,
@@ -912,7 +966,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onPageTurnBoundary = { direction ->
 			val beforeShellCoverVisible = coordinator.controller.state.shellCoverVisible
-			val step = coordinator.dispatch { onPageTurnBoundary(direction) }
+			val step = dispatchPageTurnBoundaryBeforeLegacy(direction) {
+				coordinator.dispatch { onPageTurnBoundary(direction) }
+			}
 			Logger.i(
 				ReaderScreenTag,
 				"Reader renderer boundary direction=$direction " +
@@ -944,13 +1000,25 @@ fun ReaderScreen(reader: Screen.Reader) {
 			)
 		},
 		onPreviousChapter = {
-			applyCoordinatorStep(coordinator.dispatch { navigateToPreviousChapter() })
+			applyCoordinatorStep(
+				dispatchExternalRelocationBeforeLegacy(ReaderExternalRelocationSource.Jump) {
+					coordinator.dispatch { navigateToPreviousChapter() }
+				}
+			)
 		},
 		onNextChapter = {
-			applyCoordinatorStep(coordinator.dispatch { navigateToNextChapter() })
+			applyCoordinatorStep(
+				dispatchExternalRelocationBeforeLegacy(ReaderExternalRelocationSource.Jump) {
+					coordinator.dispatch { navigateToNextChapter() }
+				}
+			)
 		},
 		onGoToChapterPage = { pageIndex ->
-			applyCoordinatorStep(coordinator.dispatch { navigateToChapterPage(pageIndex) })
+			applyCoordinatorStep(
+				dispatchExternalRelocationBeforeLegacy(ReaderExternalRelocationSource.Jump) {
+					coordinator.dispatch { navigateToChapterPage(pageIndex) }
+				}
+			)
 		},
 		onContents = {
 			applyCoordinatorStep(coordinator.dispatch { openContentsDialog() })
@@ -968,7 +1036,11 @@ fun ReaderScreen(reader: Screen.Reader) {
 			applyCoordinatorStep(coordinator.dispatch { search(query) })
 		},
 		onNavigateToSearchResult = { result ->
-			val navigateStep = coordinator.dispatch { navigateToSearchResult(result) }
+			val navigateStep = dispatchExternalRelocationBeforeLegacy(
+				ReaderExternalRelocationSource.Search
+			) {
+				coordinator.dispatch { navigateToSearchResult(result) }
+			}
 			applyCoordinatorStep(navigateStep)
 			applyCoordinatorStep(navigateStep.coordinator.dispatch { closeDialog() })
 		},
@@ -989,16 +1061,28 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onNavigateToTocItem = { tocItem ->
 			tocItem.href?.let { href ->
-				val navigateStep = coordinator.dispatch { navigateTo(ReaderLocator(href = href)) }
+				val navigateStep = dispatchExternalRelocationBeforeLegacy(
+					ReaderExternalRelocationSource.Toc
+				) {
+					coordinator.dispatch { navigateTo(ReaderLocator(href = href)) }
+				}
 				applyCoordinatorStep(navigateStep)
 				applyCoordinatorStep(navigateStep.coordinator.dispatch { closeDialog() })
 			}
 		},
 		onNavigateToBookmark = { bookmark ->
-			applyCoordinatorStep(coordinator.dispatch { navigateToBookmark(bookmark) })
+			applyCoordinatorStep(
+				dispatchExternalRelocationBeforeLegacy(ReaderExternalRelocationSource.Bookmark) {
+					coordinator.dispatch { navigateToBookmark(bookmark) }
+				}
+			)
 		},
 		onNavigateToAnnotation = { annotation ->
-			applyCoordinatorStep(coordinator.dispatch { navigateToAnnotation(annotation) })
+			applyCoordinatorStep(
+				dispatchExternalRelocationBeforeLegacy(ReaderExternalRelocationSource.Annotation) {
+					coordinator.dispatch { navigateToAnnotation(annotation) }
+				}
+			)
 		},
 		onToggleCurrentBookmark = {
 			applyCoordinatorStep(coordinator.dispatch { toggleCurrentBookmark() })
@@ -1065,20 +1149,26 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 				when (event.key) {
 					Key.VolumeUp -> {
+						val action = ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)
 						applyCoordinatorStep(
-							coordinator.dispatch { onViewerAction(
-								ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous),
-								legacyLiveCompatibilityContext
-							) }
+							dispatchViewerTransitionBeforeLegacy(action) {
+								coordinator.dispatch { onViewerAction(
+									action,
+									legacyLiveCompatibilityContext
+								) }
+							}
 						)
 						true
 					}
 					Key.VolumeDown -> {
+						val action = ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
 						applyCoordinatorStep(
-							coordinator.dispatch { onViewerAction(
-								ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
-								legacyLiveCompatibilityContext
-							) }
+							dispatchViewerTransitionBeforeLegacy(action) {
+								coordinator.dispatch { onViewerAction(
+									action,
+									legacyLiveCompatibilityContext
+								) }
+							}
 						)
 						true
 					}
