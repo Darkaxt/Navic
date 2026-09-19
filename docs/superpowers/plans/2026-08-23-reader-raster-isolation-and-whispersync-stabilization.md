@@ -401,17 +401,58 @@ suspension-and-coalescing path instead of forcing a new renderer API.
    fact/command ports. Task 5 adds the inactive semantic gateway, one-shot receipt
    fences, relocation/retry model, and publication-replacement release-only sink.
    Production remains `Shadow`/`LegacyOnly`; legacy is the sole consequence writer.
-5. **Slice 3 — atomic semantic, presentation, input, and inventory cutover:** Task 6
-   must close `T5-ACTIVE-SOURCE` and `T5-EXACT-SEED` in one activation: freeze and
-   inventory legacy resources, adopt or drain every exact resource, install a truthful
-   committed predecessor seed, bind exact Foliate callbacks to coordinator-issued
-   identities, suppress all legacy semantic dispatch, and activate coordinator
-   semantic/deck/frame/input authority together. No dual writer or fallback to legacy
-   consequences is permitted.
-6. **Slice 4 — lifecycle, reflow, and persistence:** route visibility, restore,
-   renderer loss, viewport/profile replacement, close, deadlines, and bounded opaque
-   wake persistence through the coordinator. Remove independent lifecycle/retry
-   queues and local deadlines only after their replacement rows are proven.
+5. **Slice 3 — one atomic per-session semantic, material/deck, frame, input,
+   inventory, and release-sink cutover:** Task 6 supersedes the prior frame/input-only
+   package. It must close the original six preflight gaps, the six defects found in the
+   first amendment, and the three remaining rereview defects: deadline scheduling must
+   stay Task 7-owned while Task 6 retains one fact-only timer; adopted predecessor kind
+   must match its truthful owner; and physical identity must remain collision-safe across
+   all 16 sources. The earlier defects were route install without initial publication;
+   deadline/lifecycle gaps or dual writers; semantic intents without executable
+   `ReaderSemanticRequestHandle` capability and shared/unbounded slots; transition-
+   dependent adopted retirement; omitted subordinate physical owners; and unsafe direct
+   legacy rollback after destructive drain. Under one opaque token,
+   freeze every legacy semantic dispatch, physical pointer admission,
+   deck/raster/prewarm/repair/capture/hydration/publication/generation/persistence start,
+   renderer/draw/WebView/Foliate/visual-state/pending-owner callback registration, and
+   `ReaderForegroundWebViewOwnership` claim/mutation. Inventory every deck/raster/frame
+   owner and every inspected bundle-source scheduler/ledger/cache/store, bitmap-source
+   presented/live owner plus Handler/renderer/PixelCopy/JavaScript/visual-state/draw
+   callback, validation/teardown, foreground passive/restoration/live claim, lifecycle-
+   delivery registration, and deadline-registration owner using exact `(session/freeze
+   domain, ReaderLegacyInventorySource, source-local opaque token)` identity; aggregate
+   counts do not qualify. Equal local IDs from different sources/domains remain distinct.
+   Capture a complete pre-drain restoration checkpoint, drain all but at most one
+   directly proven predecessor using complete-identity confirmations, and carry the
+   selected row's exact identity, truthful owner/resource kind, binding, and provenance
+   through seed → collision-free imported key → owner-independent retirement
+   registration without a cycle. Neutral has no resource; native-page and curl/native
+   material use `Deck`; shell-cover and live/WebView use `FrameHandoff`. Compute the
+   narrowed initial lease. One
+   `installActivatedSession` commit must switch every route, publish initial owner and
+   physical lease, mark `Activated`, and open egress with no intermediate observation.
+   Failure before first drain may expose unchanged `Legacy` only after complete
+   unfreeze; unfreeze rejection enters frozen `ActivationBlocked`. Failure afterward
+   must restore one
+   complete legacy snapshot through bounded source confirmations or enter
+   `ActivationBlocked`, never partial `Legacy`. Post-install failure stays
+   coordinator-owned. Close enters permanent `ReleaseOnly` before cancellation.
+6. **Slice 4 — lifecycle, reflow, deadlines, and persistence:** Task 7 owns lifecycle
+   normalization/policy, visibility/recreation, viewport/reflow/profile replacement,
+   renderer-loss recovery policy, all deadline scheduling/policy, and SavedState wakes.
+   Task 6 must suppress every legacy lifecycle consequence overlapping activated routes
+   while retaining the existing normalizer as sole fact-only compatibility ingress. For
+   each activated attempt it retains exactly one existing command-scoped physical timer,
+   binds the exact `ReaderTransitionId` before work, and permits only its exact typed
+   expiry/failure fact through FIFO. That timer cannot mutate presentation/input/release,
+   retry locally, or rearm beyond the immutable command contract; production coordinator-
+   clock scheduling stays inactive. Task 7 atomically transfers every live registration's
+   exact transition/current-next-expiry/hard/no-progress snapshot to the coordinator
+   clock and deletes retained physical schedulers. Activation,
+   supersession, close, and transfer may expose neither zero nor two timer owners.
+   `T6-LIFECYCLE-FACT-ONLY`, `T6-NO-DEADLINE-TRANSFER`, and
+   `T6-NO-WAKE-TRANSFER` remain explicit carried rows. Remove compatibility lifecycle/
+   retry queues only after Task 7 replacement proof.
 7. **Slice 5 — deletion:** delete legacy authority replicas, local admission
    currencies, callback continuations, transition-starting `update()` paths,
    duplicate timeout owners, and direct release writers. Reconcile every migration-
@@ -587,11 +628,13 @@ contract is implemented and verified.
 - **Active Stage 6 architecture replacement:** Task383 and
   `docs/superpowers/specs/2026-09-13-reader-resumable-transition-coordinator-design.md`
   define the replacement of the distributed Android control plane with one
-  resumable coordinator, typed terminal outcomes, one deadline owner, bounded
-  opaque wakes, one-shot semantic facts, coordinator-issued input leases, and one
-  exact-once release ledger. Task384 exclusively owns implementation after Task383's
-  design/plan handoff. The exhaustive legacy-writer map and five migration slices
-  are the authoritative implementation and audit boundary.
+  per-session activation coordinator and one resumable transition coordinator, typed
+  terminal outcomes, command-bound semantic receipts, fresh material allocation, one
+  combined owner/input barrier, one deadline owner, bounded opaque wakes, one-shot
+  semantic facts, and one exact-once release ledger. Task384 exclusively owns
+  implementation after Task383's design/plan handoff. The exhaustive legacy-writer
+  map and five migration slices are the authoritative implementation and audit
+  boundary.
 - **Task384 Slice 1 pure-model checkpoint:** The common transition identity,
   eleven-operation liveness matrix, ten finite wakes, typed facts/commands, bounded
   active-only settlement consumption, authoritative external relocation, and
@@ -620,10 +663,10 @@ contract is implemented and verified.
   and inactive freeze/inventory/adopt/drain protocol are implemented with bounded
   early-confirmation latching, exact-once release accounting, callback-order
   convergence, release-only late-resource handling, and privacy-safe count/enum
-  snapshots. Architectural adjudication established that exact renderer identities,
-  callback facts, physical release routing, and the sole atomic production activation
-  belong together in Task 4. Production therefore remains explicitly `LegacyOnly`,
-  the Task 2 coordinator remains Shadow-only, and legacy remains the sole deck writer.
+  snapshots. The checkpoint's deck-only protocol is inactive preparation; Task 6
+  supersedes its activation shape with the exhaustive one-token, all-resource atomic
+  cutover. Production therefore remains explicitly `LegacyOnly`, the Task 2
+  coordinator remains Shadow-only, and legacy remains the sole deck writer.
   MAIN's forced focused rerun of `ReaderTransitionReleaseLedgerTest`,
   `ReaderDeckAdmissionCutoverTest`, `ReaderResumableTransitionCoordinatorTest`, and
   `ReaderPresentationAuthoritySequenceTest` passed 65 tests with zero failures,
@@ -637,11 +680,16 @@ contract is implemented and verified.
   accepts only exact matching Deck/Raster fact identities, rejects duplicate or fenced
   registration before physical reserve/prepare, removes confirmed physical lease and
   command bookkeeping, and retains only bounded exact tombstones plus fail-closed
-  lifecycle/transition-sequence retirement fences. Active registrations take
-  precedence over retirement fences, so a live old lease remains releasable after
-  later terminal releases or lifecycle advance. Raster/deck facts cannot publish
-  `Ready`, commit a frame, or grant input; `PreparedFrame` remains mandatory.
-  Independent specification and code-quality reviews approved the corrected boundary.
+  lifecycle/transition-sequence retirement fences. Those fences are valid for this
+  inactive transition-owned checkpoint only; amended Task 6 must replace them with
+  owner-independent `ReaderResourceRetirementOrder` fences before adopting legacy
+  resources. Active registrations take precedence over either fence, so a live old
+  lease remains releasable after later terminal releases or lifecycle advance. Raster/deck facts cannot publish
+  `Ready`, commit a frame, or grant input; `PreparedFrame` remains mandatory. These
+  inactive adapters validate generations already present on a binding but do not
+  allocate fresh material generations from semantic proof; amended Task 6 owns that
+  missing causal port. Independent specification and code-quality reviews approved
+  the corrected boundary.
   MAIN's forced Android host rerun of `ReaderPresentationAuthoritySequenceTest`,
   `ReaderDeckAdmissionCutoverTest`,
   `ReaderPageAdjacentChapterPrefetchIntegrationTest`,
@@ -669,16 +717,100 @@ contract is implemented and verified.
   regression group passed 250, and the affected authority/source/routing group passed
   428. Production remains `Shadow`/`LegacyOnly`; no semantic, deck, frame, input,
   inventory, or release consequence port is active.
-- **T5-ACTIVE-SOURCE — carried to Task 6:** Atomically suppress every legacy semantic
-  dispatch while activating coordinator semantic, deck, frame, and input authority.
-  Acceptance requires no dual-writer interval and no active-session fallback to
-  legacy.
-- **T5-EXACT-SEED — carried to Task 6:** Freeze legacy acquisition, inventory every
-  exact live resource, adopt or drain each resource, install a truthful committed
-  predecessor seed, and bind the coordinator-issued `ReaderTransitionId` to the
-  command-originated Foliate callback. Acceptance forbids identity inference from
-  journal state, binding similarity, gesture, renderer generation, or legacy
-  acknowledgement data.
+- **Task384 Task 6 preflight and amendment review — activation blockers:** The Task 1–5
+  interfaces cannot truthfully activate production. The original six gaps remain:
+  atomic complete activation, truthful adopted predecessor, complete all-resource
+  inventory/drain, command-bound semantic identity, fresh semantic-to-material
+  allocation, and combined owner/input publication. Independent review of the first
+  amendment found six additional defects that the same Task 6 package must close:
+  (1) initial owner/input publication and egress were fallible post-install steps;
+  (2) active routes had no explicit one-deadline/lifecycle-no-dual-writer boundary;
+  (3) semantic intents carried no executable `ReaderSemanticRequestHandle` capability
+  and slots were not causally isolated/bounded/fully retired; (4) adopted-resource retirement depended on
+  transition ownership; (5) inventory omitted actual `ReaderPageTurnBundleSource`,
+  `ReaderPageTurnBitmapSource`, and `ReaderForegroundWebViewOwnership` subordinate
+  owners; and (6) destructive drain could claim direct rollback to
+  a partially dismantled legacy session. Latest independent rereview found three more:
+  (7) Task 6 incorrectly promoted the coordinator clock despite Task 7 deadline
+  ownership; (8) adopted resource kind was incorrectly universalized as `FrameHandoff`;
+  and (9) source-local scalar identifiers could collide across the 16 independent sources.
+  The prior frame/input-only map and both defective amendments are superseded, not
+  completed. Task 5's 541-test evidence waives none of these blockers and no partial
+  cutover is permitted.
+- **T5-ACTIVE-SOURCE — carried to amended Task 6:** One
+  `installActivatedSession` transaction must suppress every legacy semantic and
+  overlapping lifecycle consequence; activate coordinator semantic-handle/slot,
+  material/deck, frame, retained fact-only timer, successor owner/input, inventory/
+  resource, and release-sink routes while the production coordinator clock stays
+  inactive; publish the adopted/neutral initial owner and physical lease;
+  mark `Activated`; and expose command egress. No installed-but-unpublished snapshot,
+  dual-writer interval, or active-session fallback is legal.
+- **T5-EXACT-SEED — carried to amended Task 6:** One synchronous freeze token must
+  fence all named acquisition/dispatch/registration/mutation paths and identify every
+  deck, raster, callback, frame/handoff, bundle-source subordinate, and foreground
+  ownership resource by composite `(session/freeze domain, source, source-local opaque
+  token)` identity. Aggregate counts do not qualify. Equal local IDs from distinct
+  sources/domains never coalesce; only identical complete identities converge. Drain all
+  but at most one directly proven predecessor with identity-exact confirmation. Carry
+  the selected row's complete identity, exact binding, truthful owner/resource kind,
+  session/epoch, and `AdoptedLegacy` provenance through adopted seed → collision-free
+  imported key → owner-independent retirement registration → initial decision without a
+  fabricated transition, binding-only inference, or seed/key cycle. Neutral has no
+  adopted resource; native-page/curl material uses `Deck`; shell-cover/live-WebView uses
+  `FrameHandoff`. Session/freeze/local components are positive and inventory is bounded
+  by source capacities plus the fixed-point protocol; overflow blocks activation. Raw
+  identity/import/retirement values remain memory-only and are barred from logs,
+  diagnostics, analytics, screenshots, crash metadata, and persistence; only bounded
+  source/state enums, counts, and mismatch categories are diagnostic-safe.
+- **T6-LIFECYCLE-FACT-ONLY — carried to Task 7:** At installation Task 6 suppresses all
+  legacy lifecycle consequences overlapping activated routes. The existing normalizer
+  remains sole ordered ingress through a safety-fact-only compatibility adapter; Task
+  6 may fence/cancel unsafe physical work but cannot create visibility/restore/reflow/
+  recovery or wake policy. Task 7 replaces and owns that policy.
+- **T6-NO-DEADLINE-TRANSFER — carried to Task 7:** Task 7 retains all deadline
+  scheduling and policy. Task 6 keeps production coordinator-clock scheduling inactive
+  and selects exactly one existing command-scoped physical timer for each activated
+  attempt. It binds the exact `ReaderTransitionId` and immutable command bounds before
+  work; its only output is the matching typed `DeadlineExpired`/failure fact through the
+  FIFO. It cannot mutate presentation/input/release, invoke local Retry, or rearm beyond
+  matching progress explicitly allowed by that command. Activation, supersession,
+  settlement, rejection, and close serialize timer ownership with no zero/two-owner
+  interval. Task 7 atomically transfers each live registration and remaining bounds to
+  the coordinator clock, retires the old registration in the same commit, and deletes
+  retained physical schedulers; transfer racing expiry/supersession/close is classified
+  once at the mailbox boundary.
+- **T6-NO-WAKE-TRANSFER — carried to Task 7:** Task 6 does not persist or consume
+  SavedState wake demand. Its one 3-second, all-source pre-drain restoration checkpoint
+  is in-memory activation safety state only. Task 7 owns wake storage, normalization,
+  and resumption.
+- **Task384 Task 6 destructive-drain restoration gate:** Before first drain, capture
+  opaque restart descriptors for all 16 inventory sources. Pre-drain failure exposes
+  unchanged `Legacy` only after complete unfreeze; unfreeze rejection enters frozen
+  `ActivationBlocked`. Post-drain failure enters `RestoringLegacy` and
+  may expose `Legacy` only after every exact source confirmation and one atomic route/
+  lifecycle/deadline/owner/lease restoration commit. Otherwise enter fail-visible
+  `ActivationBlocked` with chrome/navigation only and the permanent release sink.
+- **Task384 Task 6 mandatory RED groups:** A: atomic route + initial owner/physical
+  lease + `Activated` + egress publication, table-driving neutral/no-resource, shell-
+  cover/`FrameHandoff`, native-page/`Deck`, curl-native-material/`Deck`, live-WebView/
+  `FrameHandoff`, and mismatched-kind rejection without binding-only inference; B: all 16
+  exact subordinate inventory sources, late discovery, fixed point, and collision-safe
+  races proving equal local IDs from different sources/domains produce distinct drains
+  and confirmations while identical complete identities converge; C: exact identity/
+  owner/kind/binding/provenance seed/import chain plus cross-source independent release-
+  once and owner-independent ordered/bounded retirement; D: executable opaque handles
+  plus dedicated 16-handle/8-slot/32-out-of-order bounded causality and every retirement
+  path; E: fresh exact material allocation; F: prepared-frame-gated successor owner/
+  input commit; G: exactly one retained fact-only timer per activated attempt, exact
+  transition binding before work, inactive production coordinator clock, FIFO-only
+  expiry, no out-of-contract rearm/local Retry/consequence mutation, no zero/two-owner
+  interval through activation/supersession/close, plus lifecycle fact-only compatibility/
+  no dual consequence; H: pre-drain cancel versus post-drain `RestoringLegacy`/atomic
+  restoration/`ActivationBlocked`; I: post-install no fallback; J: close from all eight
+  activation states into permanent `ReleaseOnly`. Task 7 RED additionally proves atomic
+  timer transfer/deletion during expiry, supersession, and close races without zero/two
+  owners. Every group must begin RED for the named missing behavior and pass before Task
+  6 can claim implementation completion.
 - **Current Android build/lint/compile evidence:** Task 361 MAIN independently
   verified
   `C:/Users/darka/Documents/Projects/Android/.codex-temp/task361-host-8d7a61de-v1-b0ed9aed5606480abd68ffba7b6c121e`
@@ -686,7 +818,7 @@ contract is implemented and verified.
   `aa6c1924dda52a2b04de3bed3a239702633128a2f96d4894415de3d2ab5fae51`
   and final SHA-256
   `c7e2f62934e165baaca9c0e01e6029d0272d25f0bb3a32c055135891ee7b204d`:
-  `actual=0`, `736.188s`, and all 145 actionable tasks executed, including
+  `actual=0`, `736.188s`, and all 165 actionable tasks executed, including
   `assembleReaderDev`, `lintReaderDev`, and `compileAndroidMain`. The 91,458,926-byte
   ReaderDev APK has SHA-256
   `bb7bee0185733efdf25d9d7259ecc7023a7012d62e75d08bc2ad1bf635d4a97a`,
@@ -731,21 +863,42 @@ highlight loss, same-spread Start failure, maintenance-origin audio loops,
 poisoned Retry, black curl material, cross-page highlight leakage, non-monotonic cue
 placement, or non-terminal accepted transitions. Matching Bindery canonical
 coordinates translate deterministically into Foliate-owned DOM ranges. One Android
-coordinator owns transition identity, presentation commit, input leases, deadlines,
-bounded restoration demand, and exact-once release accounting while Foliate,
-PlayLikeCurl, raster preparation, and Compose retain their domain authorities.
+session activation coordinator performs the complete one-token cutover: collision-safe
+16-source composite-identity inventory, truthful predecessor owner/kind adoption, bounded
+restoration/blocked failure handling, executable semantic handles and isolated slots,
+owner-independent retirement, and one atomic route/initial-owner/physical-lease/
+`Activated`/egress publication. One Android transition coordinator owns transition
+identity, command-bound receipts, material allocation, presentation commit, combined
+successor input leases, and exact-once release accounting. Task 6 retains exactly one
+fact-only command timer per active attempt while production coordinator-clock scheduling
+is inactive; Task 7 retains lifecycle/reflow/recreation/deadline/wake policy and
+atomically transfers all timer scheduling to that clock without a zero/two-owner interval.
+Foliate, PlayLikeCurl, raster preparation, and Compose retain their domain authorities.
 
 ### Specification validation
 
 Re-read the complete active coordinator specification and account for every
-Acceptance Summary item, operation-liveness row, and legacy-writer replacement row,
-plus the canonical-mapping amendment above. Any dual writer, callback-started
-transition, local admission currency, inherited semantic receipt, unbounded wake,
-independent deadline, direct callback release, unmapped legacy path, or missing
-terminal outcome is a blocker. The cue map must expose production mapping behavior
-rather than bypass it and must remain content-free in retained evidence. No feature
-may defer beyond Stage 6 unless the active specification names it as a non-goal and
-the bounded acceptance proves it cannot mask a core failure.
+Acceptance Summary item, operation-liveness row, and all 20 legacy-writer/resource-
+owner rows, plus the canonical-mapping amendment above. Any separate install/initial
+publication/egress step, partial activation, incomplete/count-only/collision-prone
+subordinate inventory, coalescing equal local IDs across sources/domains, non-exact drain
+or confirmation identity, direct post-drain legacy rollback, missing/partial restoration,
+fabricated adopted identity, mismatched predecessor owner/resource kind, binding-only
+kind inference, circular seed/key construction, reuse of a source-local token as an
+imported key, transition-dependent retirement, unbounded retirement fence, non-
+executable semantic source metadata, shared/unbounded/unretired command slot, command
+receipt inferred from state, unallocated material binding, split successor owner/input
+publication, post-install fallback, zero or dual Task 6 timer owner, Task 6 production
+coordinator-clock scheduling, a timer that mutates consequences/retries/rearms outside
+its command contract, non-atomic Task 7 timer transfer/deletion, overlapping lifecycle
+consequence writer, Task 6 ownership of Task 7 lifecycle/reflow/recreation/deadline/wake
+policy, callback-started transition, local admission currency, inherited semantic
+receipt, unbounded wake, direct callback release, unmapped path/owner, or missing terminal
+outcome is a blocker. The cue map
+must expose production mapping behavior rather than bypass it and must remain content-
+free in retained evidence. No feature may defer beyond Stage 6 unless the active
+specification names it as a non-goal and the bounded acceptance proves it cannot mask
+a core failure.
 
 ## Stage 7 — Signed Production Delivery
 
