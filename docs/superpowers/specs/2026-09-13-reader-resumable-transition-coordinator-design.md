@@ -153,6 +153,17 @@ equals `seed.resourceKind`; and its retirement session/epoch equal the seed. Nat
 or curl seeds therefore accept only `Deck`; shell-cover or live-engine seeds only
 `FrameHandoff`. No binding-only inference or universal `FrameHandoff` default exists.
 
+`ReaderActivatedSessionPorts` is not a public completeness claim. Production installation
+accepts only a capability-authenticated package constructed inside
+`KomikkuReaderNativeFrameHost` from the exhaustive real gateway, semantic, allocation,
+raster, deck, exact-frame, sole owner/input publication, input-safety, resource,
+release-sink, lifecycle-fact, and fact-only-timer adapters. No public Boolean, generic
+`complete()` factory, production-visible no-op, or all-rejecting package can mint that
+capability. Test fixtures use an unmistakably test-only package type that is not accepted
+by the production installation signature. Successful installation also proves that no
+`Shadow`/`LegacyOnly` route and no legacy semantic/material/frame/input consequence
+writer remains reachable from the installed composition root.
+
 Before this call, the frozen input adapter computes `physicalLease`, verifies that it
 is no broader than `requestedLease`, and includes both in the immutable payload. The
 barrier side-effect-freely validates every route; the adopted/neutral owner; the
@@ -167,10 +178,11 @@ simultaneously:
 - switches gateway semantic routing and the command-bound semantic dispatcher;
 - switches material-generation allocation and raster/deck admission;
 - switches frame request/proof and successor owner/input publication;
-- switches fact-only lifecycle compatibility and retains exactly one existing command-
-  scoped fact-only physical timer per activated attempt after overlapping legacy
-  consequence/timer writers are fenced; the production coordinator clock remains
-  inactive;
+- switches fact-only lifecycle compatibility and selects the sole existing command-scoped
+  fact-only physical-timer source after overlapping legacy consequence/timer writers are
+  fenced; for narrowing operations that source binds exactly one registration only after
+  `Applied(Retained)` and before first timer-requiring work, while the production
+  coordinator clock remains inactive;
 - publishes the seed's initial visible owner, binding, and physical input lease;
 - switches exact resource observation and the permanent release-only sink;
 - marks the session `Activated` and makes coordinator command egress visible.
@@ -278,7 +290,7 @@ release issuer may be the owning transition or the session activation/close auth
 so releasing an adopted predecessor never requires borrowing or fabricating a transition
 identity.
 
-Operation kinds are:
+Operation kinds are exactly eleven and remain:
 
 - bootstrap native page;
 - shell-cover commit;
@@ -325,7 +337,14 @@ Every non-terminal phase must name:
 - its input lease;
 - its exact wake or callback source.
 
-A phase without all six is invalid.
+A phase without all six is invalid. `ReaderTransitionProofKind` includes
+`FrameTargetPreparation` and `OwnerAndInputPublicationAcknowledgement`. An awaiting-
+target phase awaits only the former. Every successor `Committing` phase awaits only the
+latter and lists only `OwnerAndInputPublicationApplied` and
+`OwnerAndInputPublicationRejected` callback sources; consumed `PreparedFrame` is no
+longer awaited. Retained-owner input publication uses the same acknowledgement proof but
+matching `Applied(Retained)` returns the active operation to pre-work rather than
+publishing success.
 
 ## 7. Single Advancement Loop
 
@@ -335,16 +354,25 @@ The coordinator owns a main-thread mailbox and a non-reentrant `advance()` drain
 2. Reject or stale it against the current transition identity.
 3. Update common presentation policy through the existing pure reducer.
 4. Derive one immutable presentation decision.
-5. Record the transition phase or resumable deferral before issuing asynchronous
-   work.
-6. Issue narrow commands through ports.
-7. Enqueue callbacks back into the mailbox.
-8. Commit visual owner and input lease atomically after matching proof.
-9. Publish exactly one terminal outcome and release obsolete resources exactly once.
+5. If accepted work narrows/revokes input, publish retained-publication waiting state and
+   issue only that transaction; exact `Applied(Retained)` returns to pre-work, while
+   rejection terminates before successor work or timer binding.
+6. Record every later transition phase before commands. After prerequisites, coordinator
+   selects/allocates the exact registration, publishes awaiting-target, and issues
+   `PrepareFrameTarget`; only matching FIFO `FrameTargetPrepared` permits presentation.
+7. Convert every synchronous port result into a typed fact and append it to the same
+   mailbox while `advancing`; callbacks follow the same queue and never reduce recursively.
+8. Consume exact prepared-frame proof, remove it from awaited proofs, publish successor
+   `Committing` awaiting only publication acknowledgement, and issue only the combined
+   successor transaction.
+9. Only exact matching `Applied(Successor)` may publish success/committed; publish terminal
+   state before timer cancellation and predecessor release. Rejection publishes failure
+   first and releases successor only.
 
-Transition registration always precedes a port command. Synchronous renderer
-callbacks are therefore queued against an existing transition rather than racing a
-separate host/Compose receipt.
+Transition registration always precedes a port command. Synchronous renderer callbacks
+and synchronous combined-publication results are therefore queued against an existing
+transition rather than racing a separate host/Compose receipt or recursively advancing
+the journal.
 
 ## 8. Typed Facts And Commands
 
@@ -356,7 +384,9 @@ Minimum ingress facts:
 - viewport/profile replacement;
 - raster preparation progress, proof, deferral, or failure;
 - renderer reservation and deck ownership callback;
-- prepared-frame proof;
+- frame-target prepared or rejected fact for the coordinator-supplied registration;
+- prepared-frame proof echoing one immutable prepared target;
+- exact owner/input combined-publication applied or rejected acknowledgement;
 - shell-cover post-draw proof;
 - WebView handoff proof;
 - visibility loss/restore;
@@ -371,8 +401,10 @@ Minimum commands:
 - allocate one exact material binding;
 - request raster preparation;
 - reserve/build/release a deck;
-- request cover, native-frame, or live-frame presentation;
-- commit one immutable visual owner and physical input lease together;
+- prepare one exact sealed frame target against a coordinator-selected/allocated
+  registration, then request presentation only after matching target-prepared fact;
+- atomically publish either one successor owner/input pair or one retained-owner/
+  transitional-input pair through the sole owner/input publication port;
 - cancel transition-owned work;
 - release an exact resource;
 - publish diagnostics and terminal outcome.
@@ -395,14 +427,16 @@ event facts, not session state.
 - Admission of a matching settlement acknowledgement atomically records its
   consumption key before any presentation, input, or renderer consequence is issued.
 
-An app-originated TOC/search/jump intent creates `ExternalSemanticRelocation` before
+An app-originated TOC/search/jump intent creates `ExternalSemanticRelocation`, then
+publishes retained owner/input narrowing and waits for exact `Applied(Retained)` before
 issuing `RequestSemanticSynchronization`. An unsolicited authoritative
-`FoliateDestinationCommitted` creates the same operation directly in `Accepted`
-with semantic proof already satisfied. Both routes revoke page input, retain the
-pre-relocation frame only as a noninteractive transition shield, allocate fresh
-material generations, request raster/deck/frame work only for that allocation, and
-commit only matching prepared-frame proof. The predecessor deck remains ledger-owned
-until successor commit; it is then released exactly once. Failure retains it only as
+`FoliateDestinationCommitted` creates the same operation with semantic proof already
+satisfied but still performs the retained publication gate before successor physical
+work. Both retain the pre-relocation frame as a noninteractive shield, allocate fresh
+material, request raster/deck work, run coordinator-owned target preparation then exact
+presentation, consume `PreparedFrame`, enter `Committing`, and commit only after exact
+`Applied(Successor)`. The predecessor deck remains ledger-owned
+until acknowledged successor commit; it is then released exactly once. Failure retains it only as
 the diagnostic
 shield, while Retry, another relocation, publication replacement, or close either
 reuses it as predecessor or releases it through the ledger.
@@ -568,34 +602,205 @@ fails. Raster/deck code cannot copy nullable generations from an unallocated sem
 binding. `MaterialBindingAllocation` is a required proof for every operation that can
 request raster or deck work; it does not add an operation kind.
 
-### 8.4 Command-driven frame proof and combined owner/input publication
+### 8.4 Coordinator-owned target preparation and two-phase owner/input publication
 
-`RequestFramePresentation` is the only activated route that may ask for a shell,
-native, or live frame. The host bridge and native publisher execute that command and
-emit exact `PreparedFrame` or typed failure facts; they cannot poll current state,
-start a transition, select a candidate, arm a deadline, or commit a frame after
-activation.
-
-After a matching `PreparedFrame`, and only then, the journal may emit:
+A binding is not a frame target, and an adapter cannot mint resource ownership. Frame
+presentation uses two coordinator-issued commands. After material/deck prerequisites,
+the coordinator first selects the exact registration: native/curl use the already
+admitted `Deck`; shell/live receive a transition-owned `FrameHandoff` allocated by the
+coordinator release ledger. The journal publishes an awaiting-target `AwaitingProof`
+phase whose contract awaits exactly
+`ReaderTransitionProofKind.FrameTargetPreparation` and lists only
+`FrameTargetPrepared` and `FrameTargetPreparationRejected` callback sources. It then
+issues:
 
 ```kotlin
-data class CommitOwnerAndInputLease(
+data class PrepareFrameTarget(
     override val transitionId: ReaderTransitionId,
-    val owner: ReaderPresentationFrameOwner,
-    val binding: ReaderPresentationBinding,
-    val preparedFrameResource: ReaderTransitionResourceRegistration,
-    val lease: ReaderTransitionInputLease
+    val specification: ReaderTransitionFrameTargetSpecification,
+    val registration: ReaderTransitionResourceRegistration
 ) : ReaderTransitionCommand
 ```
 
-A single Android-main-thread consequence barrier validates the transition, owner,
-exact binding, prepared-frame resource key, and lease, then publishes the immutable
-visible decision/owner and physical input lease in one transaction before any later
-release, diagnostic, or work command. Partial application fails closed. Before that
-transaction, the input host may narrow or veto the coordinator lease for physical
-safety; the barrier verifies that the result is no broader and then publishes it with
-the owner. The input host may never broaden. `ApplyInputLease` is not a separate
-activated success consequence.
+The responsible adapter binds immutable physical state to that coordinator-supplied
+registration and returns `FrameTargetPrepared(transitionId, target)` through the same
+FIFO. It cannot allocate/register ownership or retirement order. A synchronous prepare
+rejection becomes `FrameTargetPreparationRejected` queued while `advancing`, never a
+recursive reduction. Only a matching fact
+stores `frameTarget`, consumes the target-preparation proof, and permits
+`RequestFramePresentation(target)`. Rejection, supersession, and close retire any
+returned one-shot handle and release the exact registration once. A stale or wrong
+target fact cannot advance the transition and can only report its exact resource to the
+release ledger. This proof/fact/command does not add a twelfth operation.
+
+The common contract is sealed by kind rather than forcing impossible fields onto every
+target:
+
+```kotlin
+sealed interface ReaderTransitionFrameTargetSpecification {
+    val transitionId: ReaderTransitionId
+    val readerSessionGeneration: Long
+    val publicationGeneration: Long
+    val binding: ReaderPresentationBinding
+    val geometry: ReaderTransitionFrameGeometry
+    val requestSequence: Long
+
+    data class ShellCover(
+        override val transitionId: ReaderTransitionId,
+        override val readerSessionGeneration: Long,
+        override val publicationGeneration: Long,
+        override val binding: ReaderPresentationBinding,
+        val hostToken: ReaderShellCoverHostToken,
+        val coverGeneration: Long,
+        val viewportGeneration: Long,
+        override val geometry: ReaderTransitionFrameGeometry,
+        override val requestSequence: Long
+    ) : ReaderTransitionFrameTargetSpecification
+
+    data class NativePage(
+        override val transitionId: ReaderTransitionId,
+        override val readerSessionGeneration: Long,
+        override val publicationGeneration: Long,
+        override val binding: ReaderPresentationBinding,
+        val allocation: ReaderMaterialGenerationAllocation,
+        val hostToken: ReaderNativePageHostTokenState,
+        val deckTarget: ReaderPlayLikeCurlDeckTargetIdentity,
+        override val geometry: ReaderTransitionFrameGeometry,
+        override val requestSequence: Long
+    ) : ReaderTransitionFrameTargetSpecification
+
+    data class CurlSettlementTerminalFrame(
+        override val transitionId: ReaderTransitionId,
+        override val readerSessionGeneration: Long,
+        override val publicationGeneration: Long,
+        override val binding: ReaderPresentationBinding,
+        val allocation: ReaderMaterialGenerationAllocation,
+        val gestureId: ReaderTransitionGestureId,
+        val settlement: ReaderPageTurnSettlementAck,
+        val deckTarget: ReaderPlayLikeCurlDeckTargetIdentity,
+        override val geometry: ReaderTransitionFrameGeometry,
+        override val requestSequence: Long
+    ) : ReaderTransitionFrameTargetSpecification
+
+    data class LiveWebView(
+        override val transitionId: ReaderTransitionId,
+        override val readerSessionGeneration: Long,
+        override val publicationGeneration: Long,
+        override val binding: ReaderPresentationBinding,
+        val handoffToken: ReaderLiveHandoffToken,
+        val direction: ReaderLiveHandoffDirection,
+        val claimIdentity: ReaderLiveHandoffClaimIdentity,
+        val viewportGeneration: Long,
+        override val geometry: ReaderTransitionFrameGeometry,
+        override val requestSequence: Long
+    ) : ReaderTransitionFrameTargetSpecification
+}
+
+sealed interface ReaderTransitionFrameTarget {
+    val handle: ReaderTransitionFrameTargetHandle
+    val specification: ReaderTransitionFrameTargetSpecification
+    val resource: ReaderTransitionResourceRegistration
+
+    data class ShellCover(/* exact ShellCover specification + FrameHandoff */) :
+        ReaderTransitionFrameTarget
+    data class NativePage(/* exact NativePage specification + admitted Deck */) :
+        ReaderTransitionFrameTarget
+    data class CurlSettlementTerminalFrame(
+        /* exact Curl specification + admitted Deck */
+    ) : ReaderTransitionFrameTarget
+    data class LiveWebView(/* exact LiveWebView specification + FrameHandoff */) :
+        ReaderTransitionFrameTarget
+}
+```
+
+Shell requires a typed host token and exact cover/publication/viewport/profile geometry;
+it does not pretend to own native material generations. Native carries exact material
+allocation, explicit `Present(token)` or `AuthoritativeAbsent`, exact PlayLikeCurl deck
+identity, and geometry. Curl carries exact allocation, gesture, settlement, deck
+identity, and geometry. Live carries typed handoff token, direction, claim identity, and
+exact publication/viewport/profile geometry. Every request sequence is positive. There
+is no pre-command `frameSequence`; callback-produced presented-frame sequence exists only
+inside `PreparedFrame.frameOwner` proof evidence.
+
+Admission validates exact transition/session/publication/binding, kind-specific identity,
+resource owner and kind, geometry generations, session/publication-scoped one-shot
+handle, positive request sequence, and legal token presence/authoritative absence.
+`PreparedFrame` echoes the same target handle and registration. The host bridge, native
+publisher, and PlayLikeCurl adapter cannot poll current candidate/decision, select a
+same-binding target, infer/fabricate a token/resource, replace registration, or derive
+retirement order. Curl may finish on stable native ownership without another operation
+only while preserving exact gesture/settlement/PlayLikeCurl deck identity.
+
+For every operation that narrows or revokes input, acceptance first publishes an
+`AwaitingProof` retained-publication phase awaiting exactly
+`OwnerAndInputPublicationAcknowledgement` and listing only
+`OwnerAndInputPublicationApplied` and `OwnerAndInputPublicationRejected`. It emits only
+`PublishRetainedOwnerAndInputLease`. Before exact `Applied(Retained)`, semantic,
+allocation, raster, deck, target-preparation, frame-presentation, and timer-requiring
+physical commands are prohibited. `Applied(Retained)` returns the same active operation
+to its appropriate pre-work `Accepted`/`AwaitingPrerequisites` phase without success;
+`Rejected(Retained)` terminates before successor work. No activated `ApplyInputLease`
+route exists.
+
+Consuming a matching `PreparedFrame` removes `PreparedFrame` from awaited proofs and
+publishes successor `Committing`. Every successor `Committing` phase awaits exactly
+`ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement`, lists exactly
+`OwnerAndInputPublicationApplied` and `OwnerAndInputPublicationRejected` as callback
+sources, retains predecessor truth, timer, target, and successor resource, and emits only
+`CommitOwnerAndInputLease`.
+
+```kotlin
+sealed interface ReaderOwnerAndInputPublicationSubject {
+    data class Successor(
+        val targetHandle: ReaderTransitionFrameTargetHandle,
+        val preparedFrameResource: ReaderTransitionResourceRegistration
+    ) : ReaderOwnerAndInputPublicationSubject
+    data class Retained(
+        val retainedResource: ReaderTransitionResourceRegistration
+    ) : ReaderOwnerAndInputPublicationSubject
+}
+
+sealed interface ReaderOwnerAndInputPublicationResult {
+    data class Applied(
+        val transitionId: ReaderTransitionId,
+        val subject: ReaderOwnerAndInputPublicationSubject,
+        val publishedOwner: ReaderPresentationFrameOwner,
+        val publishedBinding: ReaderPresentationBinding,
+        val finalPhysicalInputLease: ReaderTransitionInputLease,
+        val publicationIdentity: ReaderOwnerAndInputPublicationIdentity
+    ) : ReaderOwnerAndInputPublicationResult
+
+    data class Rejected(
+        val transitionId: ReaderTransitionId,
+        val subject: ReaderOwnerAndInputPublicationSubject,
+        val publicationIdentity: ReaderOwnerAndInputPublicationIdentity,
+        val reason: ReaderTransitionFailureReason
+    ) : ReaderOwnerAndInputPublicationResult
+}
+```
+
+The sole Android-main-thread publication port is synchronous, no-callback, and
+non-suspending. It validates every exact field, lets the input controller only narrow or
+veto physical safety, and either replaces one immutable owner/input snapshot or returns
+`Rejected(AtomicPublicationRejected)`/documented narrower reason with a no-write
+guarantee. Unit, Boolean, accepted-only, and callback acknowledgements are forbidden.
+The dispatcher immediately converts the result into the exact Applied/Rejected fact and
+appends it while `advancing`; it never reduces recursively.
+
+Only exact `Applied(Successor)` may publish `Succeeded`/committed, then cancel the timer,
+then release predecessor. Rejected successor publishes failure first, retains
+predecessor owner/input, and releases successor only. Wrong, stale, duplicate,
+cross-transition, cross-resource, or untagged acknowledgements are inert and cannot
+release predecessor. Initial installation remains the distinct Section 8.5 one-write
+routes/initial-owner/input/`Activated`/egress transaction with no acknowledgement gap.
+Journal state always precedes asynchronous effects: awaiting-target precedes preparation,
+`Committing` precedes commit, and terminal state precedes release.
+
+Raw frame-target handles, host/handoff-token values, handoff-claim identities,
+publication identities, request/presented-frame sequences, and resource registrations
+are in-memory only and forbidden from logs, diagnostics, analytics, screenshots, crash
+metadata, equality diagnostics, and persistence. Only bounded kind/state/mismatch
+categories and counts may be exposed.
 
 ### 8.5 Exact activation sequence
 
@@ -633,13 +838,17 @@ directly.
 ### 8.6 Operation liveness matrix
 
 The durations below are immutable production command contracts. During Task 6, each
-activated attempt retains exactly one existing command-scoped physical timer, bound to
-that attempt's exact `ReaderTransitionId` before any physical work starts. Its only
+activated attempt retains exactly one existing command-scoped physical timer. For an
+operation requiring retained-owner narrowing, no timer is bound while that synchronous
+publication is pending; exact `Applied(Retained)` returns to pre-work, then the timer
+binds to exact `ReaderTransitionId` before any timer-requiring physical work starts. Its only
 output is the exact typed `DeadlineExpired`/scheduler-failure fact enqueued through the
 non-reentrant FIFO. It cannot mutate presentation, input, or release; perform local
 `Retry`; or extend/rearm outside the current command contract. A listed no-progress
 interval permits rearm only for matching progress and never changes hard expiry.
-Settlement, rejection, supersession, and close cancel the exact registration once.
+Matching progress may rearm only as specified below. The timer remains owned through
+`Committing`; only terminal applied/rejected acknowledgement, supersession, or close
+cancels the exact registration once. A matching `PreparedFrame` alone cannot cancel it.
 The production `ReaderTransitionClock` scheduling port remains inactive until Task 7.
 Task 7 atomically imports each live `snapshotForTask7Transfer` transition, next expiry,
 and remaining hard/no-progress bounds,
@@ -722,24 +931,30 @@ ownership protocol; stale physical callbacks have no consequence authority.
 
 | Operation | Truthful retained owner / input | Required proof | Deadline | Timeout outcome | Named wake or recovery |
 |---|---|---|---|---|---|
-| Bootstrap native page | shell cover or neutral shield / chrome only | allocated material binding + current raster proof + admitted deck + prepared-frame proof | 10 s without progress, 30 s hard | `Failed(MaterialTimeout, retryable)` | `Wake.Retry` |
-| Shell-cover commit | prior native/live frame / no new page pointer | matching sized post-draw cover proof | 2 s hard | `Failed(CoverCommitTimeout, retryable)` | `Wake.HostAvailable` or `Wake.Retry` |
-| Cover-to-page entry | shell cover / duplicate entry coalesces | allocated material binding + current raster proof + admitted deck + prepared-frame proof | 10 s without progress, 30 s hard | `Failed(PageEntryTimeout, retryable)` | `Wake.RasterProofAvailable`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
-| Curl claim and settlement | claimed curl stream / matching pointer only | one-shot Foliate settlement + allocated destination raster/deck + prepared-frame proof | 5 s hard | `Failed(SettlementTimeout, retryable)` with stable terminal frame | `Wake.FoliateDestinationCommitted` or `Wake.Retry` |
-| Native-to-live handoff | native frame / no new page pointer | matching WebView content and exposure proof | 2 s hard | `Failed(LiveExposureTimeout, retryable)` | `Wake.WebViewAvailable` or `Wake.Retry` |
-| Live-to-native handback | live frame / no new page pointer | matching native prepared-frame proof | 2 s hard | `Failed(NativeHandbackTimeout, retryable)` | `Wake.RendererCapacityAvailable` or `Wake.Retry` |
-| External semantic relocation | pre-relocation frame retained only as a noninteractive transition shield / chrome only | authoritative `FoliateDestinationCommitted` + fresh allocation + destination raster/deck + prepared-frame proof | 10 s without progress, 30 s hard | `Failed(ExternalRelocationTimeout, retryable)` with visible diagnostic over the retained shield | `Wake.FoliateDestinationCommitted`, `Wake.RasterProofAvailable`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
-| Reflow/profile replacement | last valid cover/native/live frame / chrome only | fresh-profile allocation + raster + deck + prepared-frame proof | 10 s without progress, 30 s hard | `Failed(ReflowTimeout, retryable)` | `Wake.PaginationProfileReady`, `Wake.RasterProofAvailable`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
+| Bootstrap native page | shell cover or neutral shield / chrome only | retained-owner publication ack → allocation + raster + admitted Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(MaterialTimeout, retryable)` | `Wake.Retry` |
+| Shell-cover commit | prior native/live frame / no new page pointer | retained-owner publication ack → coordinator FrameHandoff + shell target preparation → sized post-draw/prepared frame → successor publication ack | 2 s hard | `Failed(CoverCommitTimeout, retryable)` | `Wake.HostAvailable` or `Wake.Retry` |
+| Cover-to-page entry | shell cover / duplicate entry coalesces | retained-owner publication ack → allocation + raster + admitted Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(PageEntryTimeout, retryable)` | `Wake.RasterProofAvailable`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
+| Curl claim and settlement | claimed curl stream / matching pointer only | retained-owner publication ack → one-shot settlement + destination allocation/raster/Deck → curl target preparation → prepared terminal frame → successor publication ack | 5 s hard | `Failed(SettlementTimeout, retryable)` with stable terminal frame | `Wake.FoliateDestinationCommitted` or `Wake.Retry` |
+| Native-to-live handoff | native frame / no new page pointer | retained-owner publication ack → coordinator FrameHandoff + live target preparation → matching WebView exposure/prepared frame → successor publication ack | 2 s hard | `Failed(LiveExposureTimeout, retryable)` | `Wake.WebViewAvailable` or `Wake.Retry` |
+| Live-to-native handback | live frame / no new page pointer | retained-owner publication ack → admitted Deck + native target preparation → prepared frame → successor publication ack | 2 s hard | `Failed(NativeHandbackTimeout, retryable)` | `Wake.RendererCapacityAvailable` or `Wake.Retry` |
+| External semantic relocation | pre-relocation frame retained only as a noninteractive transition shield / chrome only | retained-owner publication ack → destination semantic/allocation/raster/Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(ExternalRelocationTimeout, retryable)` with visible diagnostic over the retained shield | `Wake.FoliateDestinationCommitted`, `Wake.RasterProofAvailable`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
+| Reflow/profile replacement | last valid cover/native/live frame / chrome only | retained-owner publication ack → fresh-profile allocation/raster/Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(ReflowTimeout, retryable)` | `Wake.PaginationProfileReady`, `Wake.RasterProofAvailable`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
 | Visibility loss | latest valid frame identity retained logically / no physical input | persisted deferral accepted | immediate terminal deferral | `Deferred(VisibilityRestore)` | `Wake.VisibilityRestored` or `Wake.Restored` |
-| Visibility restore | retained owner if still provable, otherwise shield / chrome only | fresh host, semantic, profile, allocation, raster, deck, and frame proofs | 10 s without progress, 30 s hard | `Failed(RestoreTimeout, retryable)` | `Wake.HostAvailable`, `Wake.WebViewAvailable`, `Wake.PaginationProfileReady`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
-| Renderer recovery | last truthful non-renderer owner or shield / chrome only | fresh renderer generation + allocation + deck + prepared-frame proof | 10 s without progress, 30 s hard | `Failed(RendererRecoveryTimeout, retryable)` | `Wake.RendererCapacityAvailable` or `Wake.Retry` |
+| Visibility restore | retained owner if still provable, otherwise shield / chrome only | retained-owner publication ack → fresh host/semantic/profile/allocation/raster/Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(RestoreTimeout, retryable)` | `Wake.HostAvailable`, `Wake.WebViewAvailable`, `Wake.PaginationProfileReady`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
+| Renderer recovery | last truthful non-renderer owner or shield / chrome only | retained-owner publication ack → fresh renderer/allocation/Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(RendererRecoveryTimeout, retryable)` | `Wake.RendererCapacityAvailable` or `Wake.Retry` |
 | Publication close | no visual owner / navigation only | cancellation acknowledgements and empty release ledger | 2 s drain budget | `Failed(CloseDrainTimeout, nonretryable)` with the reader already visually closed | none; late facts can only enter the closed release ledger |
 
-`AwaitingPrerequisites` uses the listed no-progress/hard bounds. `CommandIssued` must
-advance synchronously to `AwaitingProof` after the port accepts the command, or fail
-immediately if the port rejects it. `AwaitingProof` carries the same transition
-`hardExpiresAt` with a phase-specific `lastProgressAt`. `Committing` uses at most the
-corresponding 2 s frame-proof budget without extending the transition hard expiry.
+`AwaitingPrerequisites` uses the listed no-progress/hard bounds. Retained publication
+waiting precedes timer binding and all successor work; `Applied(Retained)` returns to
+pre-work, and only then may the attempt timer bind before its first timer-requiring
+command. Target preparation is an `AwaitingProof` phase whose sole proof/callback pair is
+`FrameTargetPreparation`/prepared-or-rejected. `CommandIssued` must advance
+synchronously to its matching `AwaitingProof` after acceptance or fail immediately.
+Consuming `PreparedFrame` removes that proof. `Committing` retains predecessor truth,
+successor resource, and timer while awaiting exactly
+`OwnerAndInputPublicationAcknowledgement` from exactly Applied/Rejected callbacks, and
+uses only the operation's remaining budget without extending hard expiry. Prepared-frame
+receipt is progress, not settlement or success.
 Publication close is exempt from frame proof and uses its dedicated 2 s release-drain
 bound. Task 6 retained-timer binding failure and Task 7 coordinator-clock scheduling
 failure each enqueue the exact immediate typed deadline failure fact; neither invokes a
@@ -761,13 +976,13 @@ The coordinator depends on narrow ports:
 | `ReaderMaterialGenerationAllocationPort` | Allocate and prove fresh exact preparation/raster/texture generations before physical work |
 | `ReaderRasterPreparationPort` | Execute generation-scoped raster commands against an allocation and emit proof |
 | `ReaderDeckPort` | Execute allocation-scoped renderer reservation/deck commands and ownership facts; it never releases independently |
-| `ReaderFramePresentationPort` | Execute command-driven cover/native/live presentation and emit exact prepared-frame proof |
-| `ReaderOwnerAndInputPublicationPort` | Commit successor immutable visible decision/owner and physical input lease atomically; initial publication exists only inside `installActivatedSession` |
-| `ReaderInputLeasePort` | Before install or successor commit, narrow/veto the coordinator lease for physical safety only |
+| `ReaderFramePresentationPort` | Bind physical state to the coordinator-supplied Deck/FrameHandoff via `PrepareFrameTarget`, emit prepared/rejected target fact, then consume only that matching target for presentation; never allocate ownership/retirement, poll, or substitute by binding |
+| `ReaderOwnerAndInputPublicationPort` | Sole synchronous no-callback/no-suspend transaction for successor or retained-owner/input publication; return an exact typed applied/rejected payload that the dispatcher queues as a fact; initial publication exists only inside `installActivatedSession` |
+| `ReaderInputLeasePort` | Narrow/veto physical safety only inside the sole atomic publication transaction; never expose a separate activated input mutation |
 | `ReaderLegacyFreezeAndInventoryPort` | Fence all legacy acquisition/dispatch, enumerate exact resources and subordinate owners under one token, drain with exact confirmation, and restore from the complete pre-drain checkpoint |
 | `ReaderTransitionResourcePort` | Execute owner-independent ordered release registrations/commands for decks, callbacks, rasters, and handoff resources |
 | `ReaderTask6LifecycleFactPort` | Keep the existing lifecycle normalizer as sole Task 6 ingress owner but emit inert ordered facts only; no direct presentation/input/material consequence |
-| `ReaderTask6FactOnlyTimerPort` | Retain exactly one existing command-scoped physical timer per activated attempt, bind its exact transition ID before work, and enqueue only the exact typed expiry/failure fact; no presentation/input/release mutation, local Retry, or out-of-contract rearm |
+| `ReaderTask6FactOnlyTimerPort` | Retain exactly one existing command-scoped physical timer per activated attempt; after any required `Applied(Retained)`, bind exact transition ID before first timer-requiring work and enqueue only exact expiry/failure fact; no presentation/input/release mutation, local Retry, or out-of-contract rearm |
 | `ReaderTransitionClock` | Remain production-inactive during Task 6; Task 7 atomically receives all scheduling ownership, preserves live registration bounds with no zero/two-owner interval, and deletes retained physical schedulers |
 | `ReaderTransitionWakeStore` | Persist and atomically consume opaque resumable demand; activated only in Task 7 |
 
@@ -804,13 +1019,19 @@ Refactor as adapters:
 - `ReaderPresentationController.kt` and `ReaderPresentationReceipt.kt` retain common
   state mutation; the semantic command path supplies explicit origin identity and
   only the coordinator consumes activated Android receipts.
-- `KomikkuReaderNativeFrameHost.android.kt` becomes the activation composition root,
-  exhaustive legacy-resource reporter, immutable decision renderer, and combined
-  owner/input publication host; it stops maintaining an authority replica.
+- `KomikkuReaderNativeFrameHost.android.kt` becomes the sole production activation
+  composition root, exhaustive legacy-resource reporter, immutable decision renderer,
+  and sole combined owner/input publication host. It constructs a capability-authenticated
+  package from real adapters, performs exhaustive installation, proves no installed
+  `Shadow`/`LegacyOnly` or legacy consequence route remains reachable, and cannot use a
+  no-op/rejecting fixture package; it stops maintaining an authority replica.
 - `ReaderPresentationHostBridge.android.kt` and
-  `ReaderNativePagePresentationPublisher` execute exact frame commands and emit
-  prepared-frame/draw/handoff facts; they do not poll, initiate transitions, select
-  candidates, commit owners, or own deadlines.
+  `ReaderNativePagePresentationPublisher` bind coordinator-selected Deck or ledger-
+  allocated FrameHandoff registrations to immutable physical targets, emit target facts,
+  then execute only matching one-shot presentation commands and emit prepared-frame/
+  draw/handoff proof; they do not allocate ownership/retirement, poll, initiate
+  transitions, substitute same-binding candidates, fabricate/replace registrations,
+  commit owners, or own deadlines.
 - `ReaderPageRasterPreparationController.android.kt` exposes fresh monotonic material
   allocation, generation-scoped facts, frozen inventory, and coordinator commands;
   it no longer invents generations or publishes presentation consequences.
@@ -859,22 +1080,22 @@ the replacement fact, and the port accepts commands only from the coordinator.
 | Legacy writer / current consequence | Slice and replacement fact → command | Proof/deadline → terminal outcome | Release rule / wake |
 |---|---|---|---|
 | `ReaderPresentationAuthority.kt:readerPresentationReduce` mutates authority, binding, diagnostics, input, transition, and cleanup effects | 1 shadow; 3 one atomic cutover; 5 delete legacy effect dispatch. All normalized facts → `CommitOwnerAndInputLease` / operation command | Operation-matrix proof and deadline → one typed terminal outcome | Coordinator ledger only / operation-specific fact |
-| `ReaderTransitionGateway` is Shadow-only and every accepted route currently continues to legacy dispatch | 2 inactive observation; 3 `installActivatedSession` switches semantic intent/receipt routing with all material/frame/input/resource routes and publishes the initial owner/lease in the same commit. Intent or unsolicited Foliate fact → coordinator mailbox | Installation succeeds only as a complete package with initial publication and open egress; any post-install failure remains coordinator-owned | `closeToReleaseOnly` permanently rejects non-release routes / no legacy fallback |
+| `ReaderTransitionGateway` is Shadow-only and every accepted route currently continues to legacy dispatch | 2 inactive observation; 3 `installActivatedSession` accepts only the capability-authenticated real-adapter package, switches semantic intent/receipt routing with all material/exact-frame/sole-owner-input/resource routes, publishes initial owner/lease, and makes no Shadow/LegacyOnly or no-op legacy consequence route reachable. Intent or unsolicited Foliate fact → coordinator mailbox | Installation succeeds only as one complete package with initial publication and open egress; a public Boolean/`complete()`/all-rejecting package cannot satisfy completeness; any post-install failure remains coordinator-owned | `closeToReleaseOnly` permanently rejects non-release routes / no legacy fallback |
 | `ReaderPresentationControllerReducer.onPresentationEvent/onViewerAction` admits input, mutates cover state, emits Foliate commands, and currently derives receipts without an executable handle or isolated command slot | 1/2 shadow; 3 intent-only gateway plus `ReaderSemanticRequestHandle`, dedicated bounded slot, and explicit `ReaderPresentationEventOrigin`; 5 remove legacy presentation branches. Command slot → tagged receipt; unsolicited Foliate origin → untagged authoritative fact | Exact handle, slot, command tag, and destination/frame proof → one terminal outcome; wrong/duplicate/stale/untagged settlement cannot satisfy proof | Retire handle/slot on every terminal path; no resources / Foliate callback or unsolicited relocation |
-| `KomikkuReaderNativeFrameHost.android.kt:ReaderPresentationBindingReporter.update`, `reserve`, `classifyReceipt`, and `commitReceipt` maintain an Android authority replica and deck currency | 1 fact source; 2 inactive inventory protocol; 3 exhaustive freeze reporter and combined publication barrier; 5 delete replica. Exact composite physical identity/resource kind/binding/visible owner → adopted seed; `PreparedFrame` → `CommitOwnerAndInputLease` | One directly proven predecessor with truthful owner-kind relation and matching prepared frame only; ambiguity or mismatch blocks install | Every non-adopted complete identity drains exactly; adopted identity enters ledger with `AdoptedLegacy` provenance |
-| `ReaderPresentationLifecycleDelivery.android.kt:ReaderPresentationReceiptDispatcher`, `ReaderPresentationHostEffectApplier`, and `KomikkuReaderNativeFrameHost.android.kt:ReaderPresentationEffectHandler` reorder receipts and directly apply Retry/release effects | 1/2 shadow queues; 3 semantic callbacks enqueue command-tagged receipts into the existing coordinator FIFO and release routes enter the permanent sink; 5 delete. Port receipt or failure → fact; coordinator journal → combined commit or release command | Command-bound receipt and prepared-frame proof → success/failure; callback-before-return remains non-reentrant | Ledger confirms release / exact callback only |
+| `KomikkuReaderNativeFrameHost.android.kt:ReaderPresentationBindingReporter.update`, `reserve`, `classifyReceipt`, and `commitReceipt` maintain an Android authority replica and deck currency | 1 fact source; 2 inactive inventory protocol; 3 exhaustive freeze reporter, capability-authenticated production composition, and sole synchronous combined publication barrier; 5 delete replica. Exact composite physical identity/resource kind/binding/visible owner → adopted seed; exact target `PreparedFrame` → `Committing` → `CommitOwnerAndInputLease` → queued typed applied/rejected acknowledgement | One directly proven predecessor with truthful owner-kind relation; exact target/registration proof; only matching applied acknowledgement may succeed; ambiguity or mismatch blocks install/commit | Every non-adopted complete identity drains exactly; rejected successor alone releases; adopted identity enters ledger with `AdoptedLegacy` provenance |
+| `ReaderPresentationLifecycleDelivery.android.kt:ReaderPresentationReceiptDispatcher`, `ReaderPresentationHostEffectApplier`, and `KomikkuReaderNativeFrameHost.android.kt:ReaderPresentationEffectHandler` reorder receipts and directly apply Retry/release effects | 1/2 shadow queues; 3 semantic callbacks and synchronous publication results enqueue typed facts into the existing coordinator FIFO while `advancing`; release routes enter the permanent sink; 5 delete. Port receipt/result/failure → fact; coordinator journal → combined commit or release command | Command-bound receipt and exact-target prepared proof reach `Committing`; only exact queued applied acknowledgement reaches success; callback/result-before-return remains non-reentrant | Journal terminal publication precedes timer cancellation/release; ledger confirms exact release / exact callback only |
 | `ReaderPresentationLifecycleDelivery.android.kt:ReaderPresentationLifecycleDelivery.observe`/`retry` and `KomikkuReaderNativeFrameHost.android.kt:retryPresentationLifecycleDelivery` own pending lifecycle ordering | 3 install a compatibility fact adapter: the existing normalizer remains the sole ingress owner, but every overlapping legacy presentation/input/material consequence is suppressed and its ordered output can only enqueue an inert safety fact; 4 coordinator becomes sole lifecycle ingress and policy owner; 5 delete. | Task 6 fact may cancel/fence unsafe physical work but cannot create restore/reflow/recovery or wake policy; Task 7 lifecycle matrix owns those outcomes | Cancel registrations once / Task 7 visibility, host, renderer, `Wake.Restored` |
-| `ReaderPresentationHostBridge.android.kt:ReaderPresentationHostBridge.update`, `beginCoverCommit`, and `updateLiveEngineExposure` autonomously start transitions and local timeouts | 3 command-only frame adapter; 5 delete starters/state. `RequestFramePresentation` → exact `PreparedFrame` or typed failure | Matching transition/owner/binding/resource proof → journal emits `CommitOwnerAndInputLease`; host never commits autonomously | Frozen registrations inventory and ledger release / exact frame callback |
-| `ReaderPresentationHostBridge.android.kt:ReaderNativePagePresentationPublisher.update`/`onPresentedFrame` polls candidates, owns deduplication and handback timeout, and publishes native presentation | 3 command-only native publisher; 5 delete autonomous `update`. `RequestFramePresentation` → exact `PreparedFrame` | Matching prepared-frame proof → combined owner/input commit or predecessor-retaining failure | Frozen callback/frame tokens inventory and ledger release / exact frame callback |
-| `ReaderPresentationTransitionTimeout.android.kt` and `ReaderPageRelocationDispatchTimeout.android.kt` independently arm deadlines | 3 retain exactly one existing command-scoped physical timer per activated attempt, bind the exact transition ID before work, and route only typed expiry/failure facts through FIFO while coordinator-clock production scheduling stays inactive; 4 atomically transfer all scheduling to the coordinator clock and delete retained schedulers; 5 verify no hidden owner. Timer emits only exact `DeadlineExpired`/failure | Unchanged matrix command bound; exactly one owner/registration/fact with no zero- or two-owner interval through activation, supersession, close, or transfer → typed failure/deferral, never local Retry | Cancel exact registration once on every terminal path / named fresh fact or Retry |
-| `KomikkuReaderNativeFrameHost.android.kt:applyPresentationFrameOwner`, `dispatchPresentationEvent`, `reportPresentationIdentityIfAvailable`, and `reportPresentationPreparationFacts` apply layers and publish presentation consequences | 1/2 observed facts; 3 activation root and combined publication host; 4 lifecycle/reflow facts; 5 delete direct authority. Exact freeze inventory, prepared frame, and immutable command → coordinator gateway / one main-thread commit | `installActivatedSession` plus matching `CommitOwnerAndInputLease`; container never chooses owner or lease | Execute only ledger release commands / frame or lifecycle fact |
-| `ReaderPageInputSettlementHostController.android.kt:updateInputPolicies`, `dispatchPointer`, and `onLifecycleEvent` locally admit input and cancel gesture work | 3 combined lease consumer; 4 cancellation facts; 5 remove local grant policy. `CommitOwnerAndInputLease` → exact physical lease; pointer/gesture → typed intent/fact | Lease is published with owner; local safety may narrow/veto, never broaden | Ordered cancellation only / exact semantic or physical terminal fact |
+| `ReaderPresentationHostBridge.android.kt:ReaderPresentationHostBridge.update`, `beginCoverCommit`, and `updateLiveEngineExposure` autonomously start transitions and local timeouts | 3 two-step target/presentation adapter; 5 delete starters/state. Coordinator selects Deck or ledger-allocates FrameHandoff → `PrepareFrameTarget` → FIFO target fact → matching `RequestFramePresentation` → target-echoing proof | Awaiting-target proof precedes presentation; adapter cannot allocate ownership/retirement; prepared frame reaches successor `Committing` retaining predecessor truth; exact queued `Applied(Successor)` alone succeeds | Reject/supersede/close retire handle and ledger releases exact registration once / exact callbacks |
+| `ReaderPresentationHostBridge.android.kt:ReaderNativePagePresentationPublisher.update`/`onPresentedFrame` polls candidates, owns deduplication and handback timeout, and publishes native presentation | 3 coordinator-supplied admitted-Deck target preparation plus command-only publisher; 5 delete autonomous `update` | No current-candidate polling, same-binding selection, token/resource fabrication, or registration replacement; target preparation and `PreparedFrame` are not success; successor `Committing` retaining predecessor truth awaits exact queued Applied/Rejected | Frozen callback/frame tokens inventory and ledger release / exact callbacks |
+| `ReaderPresentationTransitionTimeout.android.kt` and `ReaderPageRelocationDispatchTimeout.android.kt` independently arm deadlines | 3 retain one existing timer source; after any required `Applied(Retained)`, bind exact transition before first timer-requiring command and route only expiry/failure facts while coordinator clock stays inactive; 4 atomically transfer scheduling; 5 delete hidden owner | Unchanged command bounds; exactly one owner/registration/fact and no zero/two-owner interval → typed failure/deferral, never local Retry | Cancel exact registration on terminal path / named fresh fact or Retry |
+| `KomikkuReaderNativeFrameHost.android.kt:applyPresentationFrameOwner`, `dispatchPresentationEvent`, `reportPresentationIdentityIfAvailable`, and `reportPresentationPreparationFacts` apply layers and publish presentation consequences | 1/2 observed facts; 3 production composition root and sole publication host; 4 lifecycle/reflow facts; 5 delete direct authority. Operation acceptance → retained publication; exact `Applied(Retained)` → pre-work; target preparation/presentation → successor `Committing` retaining predecessor truth; synchronous result → FIFO acknowledgement | Neither commit command nor `PreparedFrame` succeeds; only exact queued `Applied(Successor)` is the successor success gate | Execute only ledger release commands / frame or lifecycle fact |
+| `ReaderPageInputSettlementHostController.android.kt:updateInputPolicies`, `dispatchPointer`, and `onLifecycleEvent` locally admit input and cancel gesture work | 3 sole publication-port consumer; 4 cancellation facts; 5 remove local grant policy. Accept narrowing operation → retained-owner publication only → exact `Applied(Retained)` returns to pre-work; final successor uses same protocol | Zero semantic/allocation/raster/deck/target/frame/timer work before retained Applied; rejected retained terminates; no separate `ApplyInputLease`; local safety only narrows/vetoes | Ordered cancellation only / exact semantic or physical terminal fact |
 | `ReaderPageRasterPreparationController.android.kt:publishPreparationState`, `prewarmAdjacent`, `finishPrewarm`, `deferPrewarm`, and `retryPreparation` own generation, deferral, Retry, and readiness consequences | 1 facts; 2 inactive raster port; 3 material-allocation command plus allocation-only raster commands and exhaustive freeze inventory; 4 typed lifecycle deferrals; 5 delete transition consequences. Semantic proof → `AllocateMaterialBinding` → `MaterialBindingAllocated` → raster command | Exact fresh monotonic generations and publication/profile/session validation before physical work; prepared frame still required | Frozen and stale raster attempts enter ledger / Task 7 owns Retry wake policy |
 | `ReaderPageTurnBundleSource.android.kt`, `ReaderPageTurnBitmapSource.android.kt`, and their hydration/publication/generation schedulers, publication ledger, pending-callback owner, cache/store, live-validation ownership, and teardown task retain subordinate physical work and bitmap/callback owners not represented by preparation state | 3 add synchronous `freezeForTransitionActivation`, repeated exact `snapshotFrozenOwnership`, composite-identity `drainFrozenOwnership`, and `restoreFromActivationCheckpoint`; no aggregate-count substitution. Every snapshot-cache bitmap, descriptor request/recipient, hydration job/recipient, pending callback lease, publication entry/callback/value/job, persistence-init job, generation work item, bitmap-source presented/live capture ownership, retained candidate, Handler runnable, presented-frame request, PixelCopy write, evaluate-JavaScript/visual-state/draw callback, live-validation capture/worker/final fence, store operation, decoded cache/encode pin/pending release, and teardown owner receives a `(domain, source, source-local opaque token)` identity and registration | Each source fence acknowledges before fixed point; drain/restoration confirmations match complete identity and are bounded; late discoveries join the frozen epoch; equal local IDs from different sources never coalesce | Owner-independent retirement order and release sink / restored source confirmation or `ActivationBlocked` |
 | `ReaderForegroundWebViewOwnership.android.kt` owns passive leases, `cancelAndRestore`, restoration callbacks, live/exclusive claims, readiness callbacks, and current mutation claims | 3 freeze acquisition/mutation synchronously, snapshot each owner/callback with source-qualified composite identities, settle or drain them, and restore from checkpoint before reopening legacy; activated path accepts only coordinator command/fact use | No live/passive mutation crosses the barrier; a pending restoration callback must terminate before fixed point or restoration commit | Exact identity registration/release; no callback-owned publication / restoration confirmation or `ActivationBlocked` |
 | `ReaderPageRasterDeferredRetryCoordinator.android.kt` retains deferred closures and resumes from host events | 2/4 replace; 5 delete. Raster-deferral reason → persist demand or cancel | Section 11 one-consumption/15-minute policy → fresh transition or visible Retry | Clear on all terminal/replacement paths / exact reason wake only |
 | `ReaderDeckAdmission.android.kt:ReaderDeckAdmission` and `ReaderDeckAdmissionLeaseHost` own reservation, callback ordering, promotion, and release | 2 inactive exact-key protocol; 3 exhaustive composite-identity inventory plus allocated coordinator lease; 5 remove host currency. `MaterialBindingAllocated` → `ReserveDeck`; callbacks → exact owned/prepared/rejected/released facts | Exact allocation and ownership proof; any incomplete inventory/drain blocks atomic install | One collision-free imported key per complete physical identity; only release ledger commands / capacity fact |
-| `ReaderPlayLikeCurlFoliateController.android.kt:onRendererDeckPrepared`, `completeObservedDeckAdmission`, `retryAwaitingDeckAdmission`, `synchronizePresentationDecision`, `onPreparationStateChanged`, `onRasterProofReady`, and release methods own deck readiness, recovery, settlement, and direct release | 2 inactive deck/curl facts; 3 semantic command, allocation/deck, frame, and inventory adapter; 5 remove local writers. Coordinator command → Foliate/raster/deck/frame work; exact callback → FIFO fact | One-shot command identity, exact allocation/ownership, and prepared-frame proof → combined commit or typed failure | Frozen/live resources release only through ledger / Task 7 owns recovery wake policy |
+| `ReaderPlayLikeCurlFoliateController.android.kt:onRendererDeckPrepared`, `completeObservedDeckAdmission`, `retryAwaitingDeckAdmission`, `synchronizePresentationDecision`, `onPreparationStateChanged`, `onRasterProofReady`, and release methods own deck readiness, recovery, settlement, and direct release | 2 inactive deck/curl facts; 3 semantic/allocation/deck plus coordinator-registration target-preparation/presentation adapter; 5 remove local writers. Only after `Applied(Retained)`: commands → work; exact callbacks → FIFO facts | Target preparation and `PreparedFrame` lead to successor `Committing` retaining predecessor truth; neither is success; exact queued `Applied(Successor)` alone succeeds | Frozen/live resources release only through ledger / Task 7 owns recovery wake policy |
 | `ReaderPageDeckRecoveryCoordinator.android.kt` independently owns repaired-deck build, capacity, prepared state, and generation release | 2 fold into deck transition; 5 delete state machine. Repair/deck/capacity facts → reserve/build or release | Repaired-window plus deck proof under renderer-recovery deadline → success, deferral, failure, or cancel | Ledger owns submitted and unsubmitted cleanup / repair, capacity, Retry |
 | `ReaderProcessState.kt` and `ReaderProcessStateViewModel.kt` currently persist broader publication/UI state | 4 add a separate opaque transition wake store; 5 remove legacy transition persistence without deleting unrelated UI restoration. `Wake.Restored` → consume demand / request fresh facts | Fresh-fact restore deadline; never accept restored deck/callback proof → success, failure, or new bounded deferral | Clear demand per Section 11 / host, WebView, profile, renderer, Retry |
 | `ReaderRoot.kt`, `ReaderScreen.kt`, and `ReaderPlatformHosts.kt` pass raw events/effects and invoke Retry directly | 3 immutable-decision renderer and intent gateway; 4 restored-wake gateway; 5 remove legacy plumbing. UI intents → coordinator; decision/outcome → Compose | No Compose deadline or proof → render coordinator terminal state only | No release ownership / explicit Retry |
@@ -1098,8 +1319,9 @@ store active operations; decoded-cache owners, encode pins, and pending decoded 
 `cancelAndRestore` closure, restoration lease/callback, live and exclusive claims,
 readiness callbacks, retired-claim terminal delivery, and current mutation claim. The legacy lifecycle-delivery queue/
 registration and each retained existing command-scoped deadline registration are
-separate frozen sources. Atomic installation selects exactly one such physical timer per
-activated attempt and binds its exact transition ID before work; the production
+separate frozen sources. Atomic installation selects the timer source; for each narrowing
+attempt, exact `Applied(Retained)` returns to pre-work before its transition ID is bound,
+and binding precedes the first timer-requiring command. The production
 coordinator clock remains inactive. The existing `ownershipMetrics()` and `snapshot()`
 counts are validation aids only and cannot satisfy inventory.
 
@@ -1231,10 +1453,15 @@ The rollback protocol is exact:
 3. `restoreFromActivationCheckpoint` runs for every source. Each source must either
    confirm the checkpoint ID and rebuilt admission state or report failure. The
    restoration fence has one 3-second hard deadline owned by the activation state
-   machine and a finite source set; it cannot loop or wake from SavedState.
-4. Only after all exact confirmations may one Android-main-thread
-   `commitRestoredLegacy` transaction restore the legacy route table, lifecycle/deadline
-   registrations, visible owner, and physical lease together, then enter `Legacy`.
+   machine and a finite source set; it cannot loop or wake from SavedState. Issuing all
+   requests, or receiving only synchronous accepted returns, does not cancel this
+   deadline: it remains active until every exact asynchronous source confirmation and
+   the final atomic `commitRestoredLegacy` applied result have both been observed.
+4. Only after all exact confirmations may one Android-main-thread, no-callback,
+   no-suspend `commitRestoredLegacy` transaction restore the legacy route table,
+   lifecycle/deadline registrations, visible owner, and physical lease together. Its
+   typed applied result enters `Legacy` and then cancels the restoration deadline; a
+   rejected result guarantees no restoration snapshot write.
 5. Any failed/missing confirmation, deadline expiry, invalid predecessor, or atomic
    restoration-publication rejection enters `ActivationBlocked`. That state exposes a
    diagnostic plus Retry/close chrome, denies page input, never claims legacy is whole,
@@ -1271,8 +1498,8 @@ close narrows the session to it:
   `CloseDrainTimeout`;
 - timeout records the failure but never disables the sink or reopens legacy routes.
 
-A committed cover/native/live frame remains retained until matching successor proof
-and the combined owner/input publication succeed, or terminal lifecycle invalidates
+A committed cover/native/live frame remains retained until exact queued
+`Applied(Successor)` acknowledges the combined owner/input publication, or terminal lifecycle invalidates
 it. Reflow invalidates material identity and input leases, not Foliate semantic
 authority or a valid committed cover. An old callback can report only its exact stale
 resource identity; the coordinator leaves the current transition unchanged and
@@ -1280,8 +1507,14 @@ applies the release ledger.
 
 ## 13. Input Contract
 
-Input is an epoch-scoped coordinator lease published by the same barrier as the
-initial adopted owner and every later committed visual owner.
+Input is an epoch-scoped coordinator lease published by the same sole snapshot
+transaction as the initial adopted owner, every later committed visual owner, and every
+transitional retained-owner narrowing/revocation. `ApplyInputLease` cannot be an
+activated mutation: a transitional change re-publishes the exact retained owner,
+binding, resource, and physical lease atomically through the owner/input port. An
+operation requiring this change first awaits exact `Applied(Retained)` and emits nothing
+else; semantic/allocation/raster/deck/target/frame/timer work is impossible before it.
+Applied returns the operation to pre-work without success; Rejected terminates it.
 
 - New physical pointers are denied unless the current committed owner and phase
   authorize them.
@@ -1307,9 +1540,14 @@ may never both mutate the same consequence.
    legacy semantic/material/deck/frame/input/resource sources and subordinate physical
    owners, captures a complete restoration checkpoint, drains all but at most one
    directly proven predecessor, constructs its adopted registration, and atomically
-   installs semantic command, allocation/deck, frame, release-sink, initial visible
-   owner/physical lease, successor combined-publication, and retained fact-only timer
-   routes while production coordinator-clock scheduling remains inactive. Earlier wording
+   installs semantic command, allocation/deck, coordinator-led target-preparation and
+   exact presentation, release-sink, initial visible owner/physical lease, retained-input
+   and two-phase successor publication, and retained fact-only timer routes from a
+   capability-authenticated real-adapter package while production coordinator-clock
+   scheduling remains inactive. Retained `Applied` gates all successor work; coordinator
+   selects/allocates target registration before `PrepareFrameTarget`; matching target
+   fact gates presentation; consuming `PreparedFrame` reaches `Committing` awaiting only
+   publication acknowledgement; exact queued `Applied(Successor)` alone succeeds. Earlier wording
    that implied separate route installation, initial publication, egress opening, or
    deck activation followed by frame/input activation is superseded. Destructive-drain
    failure restores a complete legacy snapshot or enters `ActivationBlocked`; there is
@@ -1327,10 +1565,15 @@ may never both mutate the same consequence.
 
 Task 6 owns only activation and the activated steady-state routes required for
 executable semantic commands, command-bound receipts, material allocation, raster/deck
-admission, frame proof, atomic initial and successor owner/input publication, adopted
-predecessor ownership, exact resource release, and the permanent release-only sink.
-It must nevertheless avoid a lifecycle gap or a duplicate deadline writer while those
-routes are active.
+admission, coordinator-owned target registration selection/allocation,
+`PrepareFrameTarget`/FIFO target proof/exact presentation, atomic initial publication,
+retained-owner acknowledgement before successor work, two-phase successor owner/input
+publication acknowledgement, adopted predecessor ownership, exact
+resource release, and the permanent release-only sink. It must nevertheless avoid a
+lifecycle gap or a duplicate deadline writer while those routes are active. Production
+composition is incomplete until `KomikkuReaderNativeFrameHost` installs only the
+capability-authenticated real-adapter package and no `Shadow`/`LegacyOnly`, legacy
+consequence writer, no-op `complete()`, or rejecting activated package is reachable.
 
 Task 7 retains lifecycle policy, visibility/recreation handling, reflow/profile
 replacement, renderer-loss recovery policy, all deadline scheduling/policy,
@@ -1348,8 +1591,10 @@ forward evidence:
   wake. Task 7 replaces this adapter and owns policy.
 - `T6-NO-DEADLINE-TRANSFER`: Task 7 retains deadline ownership and policy. Task 6 keeps
   production coordinator-clock scheduling inactive and selects exactly one existing
-  command-scoped physical timer for each activated attempt. Before work begins, that
-  timer binds the exact `ReaderTransitionId` and immutable Section 8.6 command bounds.
+  command-scoped physical timer for each activated attempt. For narrowing operations no
+  timer is bound while retained publication is pending; exact `Applied(Retained)` returns
+  to pre-work, then the timer binds the exact `ReaderTransitionId` and immutable Section
+  8.6 bounds before the first timer-requiring command.
   Its only output is the matching typed `DeadlineExpired`/failure fact enqueued through
   FIFO; it cannot mutate presentation/input/release, invoke local `Retry`, or extend/
   rearm except for matching progress explicitly permitted by that command contract.
@@ -1372,10 +1617,17 @@ neutral, shell-cover, native-page, curl/native-material, and live/WebView predec
 owner-kind cases plus mismatched-kind rejection; complete-identity subordinate-owner
 inventory, cross-source equal-local-ID drain/confirmation/import/release-once races;
 adopted-seed and owner-independent retirement provenance; executable semantic handles
-and isolated bounded slots; material allocation; prepared-frame/combined successor
-publication; one retained fact-only timer with inactive coordinator clock and lifecycle
-compatibility; restoration/blocked activation; no fallback; and close in every activation
-phase. Task 7 RED coverage must prove atomic timer transfer and deletion under expiry,
+and isolated bounded slots; material allocation; retained publication acknowledgement
+before any successor work/timer binding; coordinator-selected Deck or ledger-allocated
+FrameHandoff followed by awaiting-target `PrepareFrameTarget` and FIFO target fact;
+sealed kind-specific target validation with no pre-command frame sequence, adapter-owned
+registration, lookup/polling, or fabrication; consumed `PreparedFrame` followed by
+successor `Committing` retaining predecessor truth awaiting only exact synchronous publication acknowledgement and
+terminal-before-release ordering; capability-authenticated
+production composition with no Shadow/no-op route; one retained fact-only timer with
+inactive coordinator clock and lifecycle compatibility; restoration deadline through
+all asynchronous confirmations and final atomic result; restoration/blocked activation;
+no fallback; and close in every activation phase. Task 7 RED coverage must prove atomic timer transfer and deletion under expiry,
 supersession, and close races with no zero/two-owner interval. Passing tests do not
 replace the bounded running-app gate.
 
@@ -1436,8 +1688,12 @@ to distributed callback patches.
    mapping, complete composite-identity subordinate-owner inventory and cross-source
    collision release races, adopted-seed and owner-independent retirement provenance,
    executable semantic handles and isolated bounded command slots, command-bound
-   synchronous receipts, material allocation, prepared-frame/combined successor
-   publication, exactly one retained Task 6 fact-only timer with inactive production
+   synchronous receipts, material allocation, retained acknowledgement before successor
+   work, coordinator-selected/ledger-allocated registration, awaiting-target
+   `PrepareFrameTarget` plus FIFO target fact, sealed kind-specific target validation,
+   exact presentation proof, consumed `PreparedFrame`, successor `Committing` awaiting
+   only publication acknowledgement, terminal-before-release ordering,
+   capability-authenticated production composition with no Shadow/no-op route, exactly one retained Task 6 fact-only timer with inactive production
    coordinator clock, atomic Task 7 timer transfer, lifecycle fact-only compatibility,
    restoration/blocked activation, no fallback, close in every activation phase, the
    same transition ordering, all operation-liveness rows, one-shot semantic facts,
@@ -1487,9 +1743,11 @@ check. An unmapped writer or dual consequence path blocks implementation.
 
 Implementation is release-ready only after:
 
-- `installActivatedSession` atomically installs every route, publishes the initial
-  owner/physical lease, marks `Activated`, and exposes command egress, with no public
-  post-install publication/open step;
+- `installActivatedSession` atomically installs every route from a capability-authenticated
+  package constructed by `KomikkuReaderNativeFrameHost` from real adapters, publishes the
+  initial owner/physical lease, marks `Activated`, and exposes command egress, with no
+  public post-install publication/open step and no reachable `Shadow`/`LegacyOnly`,
+  legacy consequence writer, production no-op `complete()`, or rejecting fixture port;
 - freeze/inventory/drain covers every named subordinate physical owner under one token
   with collision-safe `(session/freeze domain, source, source-local opaque token)`
   identity; equal local IDs from different sources remain distinct through drain,
@@ -1502,16 +1760,36 @@ Implementation is release-ready only after:
 - semantic requests carry executable opaque handles and each command owns one isolated,
   bounded, exhaustively retired callback slot;
 - every physical raster/deck request follows an exact fresh material allocation;
-- prepared-frame proof gates the combined successor visible-owner/physical-input
-  publication;
+- operations requiring input narrowing publish retained owner/input first; before exact
+  `Applied(Retained)` no semantic/allocation/raster/deck/target/frame/timer work occurs,
+  Applied returns to pre-work without success, and Rejected terminates;
+- coordinator selects admitted Deck or ledger-allocates FrameHandoff, publishes an
+  awaiting-target phase, and issues `PrepareFrameTarget`; only matching FIFO
+  `FrameTargetPrepared` stores target and permits presentation, while adapters cannot
+  allocate ownership/retirement;
+- sealed shell/native/curl/live contracts validate exact legal token state, generation/
+  geometry/request evidence, session/publication/binding, and registration owner/kind;
+  no pre-command frame sequence, binding lookup, candidate polling, token/resource
+  fabrication, replacement, or default retirement exists;
+- consuming prepared-frame proof removes it and publishes `Committing` awaiting exactly
+  `OwnerAndInputPublicationAcknowledgement` with exactly Applied/Rejected callback
+  sources; only exact queued `Applied(Successor)` succeeds before timer cancellation and
+  predecessor release, while Rejected retains predecessor and releases successor only;
+- all raw frame-target/token/claim/publication identities, request/presented-frame
+  sequences, and resource registrations remain in-memory and absent from logs,
+  diagnostics, analytics, screenshots, crash metadata, equality diagnostics, and
+  persistence;
+- the restoration deadline survives request issuance and synchronous returns until all
+  exact asynchronous source confirmations and final atomic restoration application;
 - resource retirement order and bounded fences are independent of transition/resource
   owner identity;
-- every Task 6 activated attempt has exactly one retained command-scoped fact-only timer
-  bound before work while production coordinator-clock scheduling is inactive; Task 7
-  atomically transfers all scheduling to that clock and deletes retained schedulers with
-  no zero/two-owner interval; lifecycle compatibility remains fact-only with no
-  overlapping consequence writer, and Task 7 retains lifecycle/reflow/recreation/
-  deadline/wake policy;
+- every Task 6 activated attempt has exactly one retained command-scoped fact-only timer;
+  for narrowing operations it remains unbound until exact `Applied(Retained)` returns the
+  operation to pre-work, then binds before the first timer-requiring command while
+  production coordinator-clock scheduling is inactive; Task 7 atomically transfers all
+  scheduling to that clock and deletes retained schedulers with no zero/two-owner
+  interval; lifecycle compatibility remains fact-only with no overlapping consequence
+  writer, and Task 7 retains lifecycle/reflow/recreation/deadline/wake policy;
 - post-install failures never return to legacy and close retains the permanent
   release-only sink;
 - all coordinator transition identities and outcomes are typed;

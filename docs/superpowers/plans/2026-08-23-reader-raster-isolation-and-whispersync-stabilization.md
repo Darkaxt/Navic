@@ -404,10 +404,14 @@ suspension-and-coalescing path instead of forcing a new renderer API.
 5. **Slice 3 — one atomic per-session semantic, material/deck, frame, input,
    inventory, and release-sink cutover:** Task 6 supersedes the prior frame/input-only
    package. It must close the original six preflight gaps, the six defects found in the
-   first amendment, and the three remaining rereview defects: deadline scheduling must
-   stay Task 7-owned while Task 6 retains one fact-only timer; adopted predecessor kind
-   must match its truthful owner; and physical identity must remain collision-safe across
-   all 16 sources. The earlier defects were route install without initial publication;
+   first amendment, the three prior rereview defects, and the independently confirmed
+   successor-publication acknowledgement and exact command-bound frame-target defects.
+   Deadline scheduling stays Task 7-owned while Task 6 retains one fact-only timer;
+   adopted predecessor kind must match its truthful owner; physical identity remains
+   collision-safe across all 16 sources; and production composition is incomplete until
+   `KomikkuReaderNativeFrameHost` installs only capability-authenticated real adapters
+   with no reachable `Shadow`/`LegacyOnly`, legacy consequence writer, no-op `complete()`,
+   or rejecting fixture package. The earlier defects were route install without initial publication;
    deadline/lifecycle gaps or dual writers; semantic intents without executable
    `ReaderSemanticRequestHandle` capability and shared/unbounded slots; transition-
    dependent adopted retirement; omitted subordinate physical owners; and unsafe direct
@@ -431,22 +435,77 @@ suspension-and-coalescing path instead of forcing a new renderer API.
    narrowed initial lease. One
    `installActivatedSession` commit must switch every route, publish initial owner and
    physical lease, mark `Activated`, and open egress with no intermediate observation.
+   For any operation that narrows/revokes input, acceptance first publishes a retained-
+   publication waiting phase awaiting `OwnerAndInputPublicationAcknowledgement`, listing
+   only `OwnerAndInputPublicationApplied`/`OwnerAndInputPublicationRejected`, and emits
+   only `PublishRetainedOwnerAndInputLease`; zero
+   semantic/allocation/raster/deck/target/frame/timer work occurs before exact
+   `Applied(Retained)`, which returns to pre-work without success. Rejection terminates.
+   After prerequisites, coordinator selects admitted Deck or ledger-allocates
+   FrameHandoff, publishes awaiting-target with sole
+   `FrameTargetPreparation` proof, listing only `FrameTargetPrepared` and
+   `FrameTargetPreparationRejected`, and emits `PrepareFrameTarget` with exact sealed kind
+   specification and registration. Adapter binds physical state to that supplied
+   registration and returns one of those facts through FIFO; it cannot allocate
+   ownership/retirement. Only exact match stores target and permits presentation;
+   reject/supersede/close retires handle and releases registration once.
+   Shell/live carry actual typed token and publication/viewport/profile/geometry/request
+   identities; native/curl carry exact allocation and Deck identity, native explicit
+   `Present(token)`/`AuthoritativeAbsent` state, and curl exact gesture/settlement. No
+   pre-command frame sequence
+   exists. Consuming exact `PreparedFrame` removes it from awaited proofs and publishes
+   successor `Committing` retaining predecessor truth awaiting only
+   `OwnerAndInputPublicationAcknowledgement`, with
+   `OwnerAndInputPublicationApplied`/`OwnerAndInputPublicationRejected` as exact callback
+   sources. Its synchronous result enters FIFO while advancing. Only exact
+   `Applied(Successor)` succeeds before timer cancellation/predecessor release; rejection
+   retains predecessor and releases successor only. Binding lookup, candidate polling,
+   substitution, token/resource fabrication, registration replacement, and default
+   retirement are forbidden.
+   Raw target handles, token/claim/publication identities, request/presented-frame
+   sequences, and registrations are in-memory only and forbidden from logs, diagnostics,
+   analytics, screenshots, crash metadata, equality diagnostics, and persistence; only
+   bounded kind/state/mismatch categories and counts may be exposed.
    Failure before first drain may expose unchanged `Legacy` only after complete
    unfreeze; unfreeze rejection enters frozen `ActivationBlocked`. Failure afterward
    must restore one
    complete legacy snapshot through bounded source confirmations or enter
-   `ActivationBlocked`, never partial `Legacy`. Post-install failure stays
-   coordinator-owned. Close enters permanent `ReleaseOnly` before cancellation.
+   `ActivationBlocked`, never partial `Legacy`. The restoration deadline survives
+   request issuance and synchronous accepted returns until every exact asynchronous
+   source confirmation and the final atomic `commitRestoredLegacy` applied result.
+   Post-install failure stays
+   coordinator-owned. Close enters permanent `ReleaseOnly` before cancellation. Slice 3
+   cannot release until these named RED tests pass with their exact Task 6 plan mappings:
+   `preparedFrameDoesNotPublishSuccessBeforeCombinedCommitAcknowledgement`,
+   `synchronousCombinedCommitAcknowledgementIsQueuedNonReentrantly`,
+   `rejectedCombinedCommitRetainsPredecessorAndReleasesOnlySuccessor`,
+   `acceptedCombinedCommitPublishesSuccessBeforePredecessorRelease`,
+   `staleOrWrongCombinedCommitAcknowledgementIsInert`,
+   `bindingOnlyFrameRequestIsUnrepresentable`,
+   `shellCoverCommandCarriesExactTokenGenerationAndFrameResource`,
+   `liveExposureCommandCarriesExactHandoffTokenAndFrameResource`,
+   `nativeFrameCommandConsumesExactDeckTargetWithoutPolling`,
+   `curlSettlementFrameCommandPreservesGestureAndExactDeckTarget`,
+   `sameBindingDifferentFrameTargetCannotSatisfyPreparedFrame`,
+   `preparedFrameCannotFabricateResourceRegistration`,
+   `transitionalInputChangeUsesAtomicRetainedOwnerPublication`,
+   `restorationDeadlineSurvivesUntilAllAsynchronousConfirmations`,
+   `task6TimerExposesTransferSnapshotWithoutEnablingCoordinatorClock`,
+   `productionCompositionContainsNoShadowOrNoOpActivatedPort`, and
+   `postInstallLegacyConsequenceWriterIsUnreachable`.
 6. **Slice 4 — lifecycle, reflow, deadlines, and persistence:** Task 7 owns lifecycle
    normalization/policy, visibility/recreation, viewport/reflow/profile replacement,
    renderer-loss recovery policy, all deadline scheduling/policy, and SavedState wakes.
    Task 6 must suppress every legacy lifecycle consequence overlapping activated routes
    while retaining the existing normalizer as sole fact-only compatibility ingress. For
-   each activated attempt it retains exactly one existing command-scoped physical timer,
-   binds the exact `ReaderTransitionId` before work, and permits only its exact typed
+   each activated attempt it retains exactly one existing command-scoped physical timer.
+   For narrowing operations no timer is bound while retained publication is pending;
+   exact `Applied(Retained)` returns to pre-work, then the timer binds exact
+   `ReaderTransitionId` before the first timer-requiring command and permits only its exact typed
    expiry/failure fact through FIFO. That timer cannot mutate presentation/input/release,
-   retry locally, or rearm beyond the immutable command contract; production coordinator-
-   clock scheduling stays inactive. Task 7 atomically transfers every live registration's
+   retry locally, or rearm beyond the immutable command contract; it exposes the exact
+   `snapshotForTask7Transfer` contract without transferring or enabling coordinator-clock
+   scheduling, and production coordinator-clock scheduling stays inactive. Task 7 atomically transfers every live registration's
    exact transition/current-next-expiry/hard/no-progress snapshot to the coordinator
    clock and deletes retained physical schedulers. Activation,
    supersession, close, and transfer may expose neither zero nor two timer owners.
@@ -734,17 +793,27 @@ contract is implemented and verified.
   (7) Task 6 incorrectly promoted the coordinator clock despite Task 7 deadline
   ownership; (8) adopted resource kind was incorrectly universalized as `FrameHandoff`;
   and (9) source-local scalar identifiers could collide across the 16 independent sources.
-  The prior frame/input-only map and both defective amendments are superseded, not
+  A later independent read-only review confirmed two remaining contract defects and one
+  incomplete production area: (10) matching `PreparedFrame` could publish journal success
+  and predecessor release before the fallible physical combined publication returned;
+  (11) binding-only frame commands lacked coordinator-owned target preparation, used an
+  impossible all-kind target shape, and let adapters poll/substitute/fabricate or allocate
+  resource identity independently; and (12) production
+  `KomikkuReaderNativeFrameHost` had not yet proved exhaustive real-adapter composition
+  with all Shadow/LegacyOnly/no-op/legacy consequence routes unreachable. The prior frame/input-only map and both defective amendments are superseded, not
   completed. Task 5's 541-test evidence waives none of these blockers and no partial
   cutover is permitted.
 - **T5-ACTIVE-SOURCE — carried to amended Task 6:** One
-  `installActivatedSession` transaction must suppress every legacy semantic and
-  overlapping lifecycle consequence; activate coordinator semantic-handle/slot,
-  material/deck, frame, retained fact-only timer, successor owner/input, inventory/
-  resource, and release-sink routes while the production coordinator clock stays
-  inactive; publish the adopted/neutral initial owner and physical lease;
-  mark `Activated`; and expose command egress. No installed-but-unpublished snapshot,
-  dual-writer interval, or active-session fallback is legal.
+  `installActivatedSession` transaction must accept only the capability-authenticated
+  real-adapter package constructed by `KomikkuReaderNativeFrameHost`; suppress every
+  legacy semantic and overlapping lifecycle consequence; activate coordinator semantic-
+  handle/slot, material/deck, exact-target frame, retained fact-only timer, sole
+  successor/retained-owner publication, inventory/resource, and release-sink routes while
+  the production coordinator clock stays inactive; publish the adopted/neutral initial
+  owner and physical lease; mark `Activated`; and expose command egress. No public
+  Boolean/`complete()`/no-op package, reachable Shadow/LegacyOnly/legacy writer,
+  installed-but-unpublished snapshot, dual-writer interval, or active-session fallback
+  is legal.
 - **T5-EXACT-SEED — carried to amended Task 6:** One synchronous freeze token must
   fence all named acquisition/dispatch/registration/mutation paths and identify every
   deck, raster, callback, frame/handoff, bundle-source subordinate, and foreground
@@ -761,7 +830,10 @@ contract is implemented and verified.
   by source capacities plus the fixed-point protocol; overflow blocks activation. Raw
   identity/import/retirement values remain memory-only and are barred from logs,
   diagnostics, analytics, screenshots, crash metadata, and persistence; only bounded
-  source/state enums, counts, and mismatch categories are diagnostic-safe.
+  source/state enums, counts, and mismatch categories are diagnostic-safe. The same
+  prohibition covers raw frame-target handles, host/handoff-token values, handoff claims,
+  publication identities, request/presented-frame sequences, and resource registrations,
+  including equality diagnostics.
 - **T6-LIFECYCLE-FACT-ONLY — carried to Task 7:** At installation Task 6 suppresses all
   legacy lifecycle consequences overlapping activated routes. The existing normalizer
   remains sole ordered ingress through a safety-fact-only compatibility adapter; Task
@@ -770,10 +842,13 @@ contract is implemented and verified.
 - **T6-NO-DEADLINE-TRANSFER — carried to Task 7:** Task 7 retains all deadline
   scheduling and policy. Task 6 keeps production coordinator-clock scheduling inactive
   and selects exactly one existing command-scoped physical timer for each activated
-  attempt. It binds the exact `ReaderTransitionId` and immutable command bounds before
-  work; its only output is the matching typed `DeadlineExpired`/failure fact through the
+  attempt. For narrowing operations no timer binds while retained publication is pending;
+  exact `Applied(Retained)` returns to pre-work, then it binds the exact
+  `ReaderTransitionId` and immutable command bounds before timer-requiring work; its only output is the matching typed `DeadlineExpired`/failure fact through the
   FIFO. It cannot mutate presentation/input/release, invoke local Retry, or rearm beyond
-  matching progress explicitly allowed by that command. Activation, supersession,
+  matching progress explicitly allowed by that command. It exposes exact
+  `snapshotForTask7Transfer` state but Task 6 neither transfers ownership nor enables the
+  coordinator clock. Activation, supersession,
   settlement, rejection, and close serialize timer ownership with no zero/two-owner
   interval. Task 7 atomically transfers each live registration and remaining bounds to
   the coordinator clock, retires the old registration in the same commit, and deletes
@@ -787,8 +862,10 @@ contract is implemented and verified.
   opaque restart descriptors for all 16 inventory sources. Pre-drain failure exposes
   unchanged `Legacy` only after complete unfreeze; unfreeze rejection enters frozen
   `ActivationBlocked`. Post-drain failure enters `RestoringLegacy` and
-  may expose `Legacy` only after every exact source confirmation and one atomic route/
-  lifecycle/deadline/owner/lease restoration commit. Otherwise enter fail-visible
+  may expose `Legacy` only after every exact asynchronous source confirmation and one
+  atomic route/lifecycle/deadline/owner/lease restoration commit reports applied. The
+  restoration deadline remains active through request issuance and synchronous returns
+  until both conditions hold. Otherwise enter fail-visible
   `ActivationBlocked` with chrome/navigation only and the permanent release sink.
 - **Task384 Task 6 mandatory RED groups:** A: atomic route + initial owner/physical
   lease + `Activated` + egress publication, table-driving neutral/no-resource, shell-
@@ -800,13 +877,19 @@ contract is implemented and verified.
   owner/kind/binding/provenance seed/import chain plus cross-source independent release-
   once and owner-independent ordered/bounded retirement; D: executable opaque handles
   plus dedicated 16-handle/8-slot/32-out-of-order bounded causality and every retirement
-  path; E: fresh exact material allocation; F: prepared-frame-gated successor owner/
-  input commit; G: exactly one retained fact-only timer per activated attempt, exact
-  transition binding before work, inactive production coordinator clock, FIFO-only
+  path; E: fresh exact material allocation; F: retained publication acknowledgement before
+  successor work; coordinator-selected Deck/ledger-allocated FrameHandoff; awaiting-target
+  `PrepareFrameTarget` → FIFO target fact → exact presentation; sealed kind contracts;
+  consumed `PreparedFrame` → successor `Committing` retaining predecessor truth awaiting only publication acknowledgement
+  → exact queued `Applied(Successor)` as sole success gate, with terminal-before-release
+  ordering; G: exactly one retained fact-only timer per activated attempt, exact
+  transition binding after retained Applied and before timer-requiring work, inactive production coordinator clock, FIFO-only
   expiry, no out-of-contract rearm/local Retry/consequence mutation, no zero/two-owner
   interval through activation/supersession/close, plus lifecycle fact-only compatibility/
   no dual consequence; H: pre-drain cancel versus post-drain `RestoringLegacy`/atomic
-  restoration/`ActivationBlocked`; I: post-install no fallback; J: close from all eight
+  restoration/`ActivationBlocked` with deadline held through all asynchronous
+  confirmations/final commit result; I: capability-authenticated production composition,
+  no Shadow/no-op/legacy consequence route, and post-install no fallback; J: close from all eight
   activation states into permanent `ReleaseOnly`. Task 7 RED additionally proves atomic
   timer transfer/deletion during expiry, supersession, and close races without zero/two
   owners. Every group must begin RED for the named missing behavior and pass before Task
@@ -868,8 +951,13 @@ session activation coordinator performs the complete one-token cutover: collisio
 restoration/blocked failure handling, executable semantic handles and isolated slots,
 owner-independent retirement, and one atomic route/initial-owner/physical-lease/
 `Activated`/egress publication. One Android transition coordinator owns transition
-identity, command-bound receipts, material allocation, presentation commit, combined
-successor input leases, and exact-once release accounting. Task 6 retains exactly one
+identity, command-bound receipts, material allocation, retained acknowledgement before
+successor work, coordinator-owned target registration selection/allocation and awaiting-
+target preparation, sealed kind-specific targets, exact presentation proof, retained
+`Committing` awaiting only publication acknowledgement, terminal-before-release commits,
+and exact-once release accounting. `KomikkuReaderNativeFrameHost` is the capability-
+authenticated production composition root with no reachable Shadow/no-op/legacy writer.
+Task 6 retains exactly one
 fact-only command timer per active attempt while production coordinator-clock scheduling
 is inactive; Task 7 retains lifecycle/reflow/recreation/deadline/wake policy and
 atomically transfers all timer scheduling to that clock without a zero/two-owner interval.
@@ -887,8 +975,19 @@ fabricated adopted identity, mismatched predecessor owner/resource kind, binding
 kind inference, circular seed/key construction, reuse of a source-local token as an
 imported key, transition-dependent retirement, unbounded retirement fence, non-
 executable semantic source metadata, shared/unbounded/unretired command slot, command
-receipt inferred from state, unallocated material binding, split successor owner/input
-publication, post-install fallback, zero or dual Task 6 timer owner, Task 6 production
+receipt inferred from state, unallocated material binding, successor work/timer binding
+before retained Applied, missing `FrameTargetPreparation` proof/command/fact, adapter-
+allocated target ownership/retirement, impossible all-kind target shape, pre-command
+frame sequence, binding-only frame request, `currentCandidate` polling/same-binding
+substitution, fabricated/replaced frame token or registration, default retirement from
+transition sequence, `Committing` that still awaits PreparedFrame or lacks exact
+publication-acknowledgement proof/callbacks, `PreparedFrame` publishing success before exact applied acknowledgement, recursive synchronous result reduction,
+Unit/Boolean/accepted-only publication result, predecessor release on rejection or stale
+acknowledgement, separate activated input mutation, raw target/token/claim/publication/
+sequence/registration data in any log/diagnostic/analytics/screenshot/crash/equality/
+persistence channel, split successor owner/input
+publication, synchronous-only restoration completion, no-op/Boolean package
+completeness, reachable Shadow/LegacyOnly/legacy writer, post-install fallback, zero or dual Task 6 timer owner, Task 6 production
 coordinator-clock scheduling, a timer that mutates consequences/retries/rearms outside
 its command contract, non-atomic Task 7 timer transfer/deletion, overlapping lifecycle
 consequence writer, Task 6 ownership of Task 7 lifecycle/reflow/recreation/deadline/wake
