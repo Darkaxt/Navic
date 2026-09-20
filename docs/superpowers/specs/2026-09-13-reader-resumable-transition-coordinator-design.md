@@ -28,6 +28,14 @@ interfaces. Task 6 therefore replaces the former frame/input-only package with o
 atomic per-session activation package. Production remains `Shadow`/`LegacyOnly`; no
 production coordinator route is active at the time of this amendment.
 
+**Task389 initial-origin amendment:** activation adoption is not a transition operation.
+The activated journal begins from a typed initial committed-presentation origin, never a
+fabricated `ReaderTransitionId`. This amendment is a release blocker before Task 6 source
+and port completion can reopen or production activation can occur. Task #385 is reopened
+for real-owner/source/port wiring against this contract. Task #386 remains fail-closed
+until this amendment is published and Task #385 closes; preparatory adapters are not
+complete production wiring.
+
 ## 2. Decision Evidence
 
 The hierarchical presentation model improved stale-event rejection, release
@@ -119,61 +127,238 @@ input only, and release handling; it is never represented as restored legacy.
 installation below. From `Activated`, the only terminal state is `ReleaseOnly`, never
 `Legacy`.
 
-The installation input contains the complete initial publication:
+The installation input contains the complete validated initial publication origin from
+which the barrier derives the exact common journal baseline. The origin is not an
+operation identity. Its input lease is a separate common type that structurally cannot
+carry `ReaderTransitionId`:
 
 ```kotlin
+enum class ReaderTransitionResourceProvenance {
+    CoordinatorIssued,
+    AdoptedLegacy
+}
+
+sealed interface ReaderInitialPresentationInputLease {
+    data object None : ReaderInitialPresentationInputLease
+    data object ChromeOnly : ReaderInitialPresentationInputLease
+    data object CoverActions : ReaderInitialPresentationInputLease
+
+    data class NativePage(
+        val binding: ReaderPresentationBinding,
+        val textureGeneration: Long
+    ) : ReaderInitialPresentationInputLease {
+        init {
+            require(textureGeneration >= 0L)
+        }
+
+        override fun toString(): String =
+            "ReaderInitialPresentationInputLease.NativePage(<redacted>)"
+    }
+}
+
+sealed interface ReaderInitialCommittedPresentationOrigin {
+    val readerSessionGeneration: Long
+    val coordinatorEpoch: Long
+    val requestedLease: ReaderInitialPresentationInputLease
+    val physicalLease: ReaderInitialPresentationInputLease
+
+    data class AdoptedPredecessor(
+        val seedId: ReaderAdoptedPredecessorSeedId,
+        override val readerSessionGeneration: Long,
+        override val coordinatorEpoch: Long,
+        val owner: ReaderPresentationFrameOwner,
+        val binding: ReaderPresentationBinding,
+        val resource: ReaderTransitionResourceRegistration,
+        override val requestedLease: ReaderInitialPresentationInputLease,
+        override val physicalLease: ReaderInitialPresentationInputLease,
+        val provenance: ReaderTransitionResourceProvenance =
+            ReaderTransitionResourceProvenance.AdoptedLegacy
+    ) : ReaderInitialCommittedPresentationOrigin {
+        init {
+            require(readerSessionGeneration > 0L && coordinatorEpoch > 0L)
+            require(owner != ReaderPresentationFrameOwner.Neutral)
+            require(owner.hasBinding(binding))
+            require(resource.key.ownerId ==
+                ReaderTransitionResourceOwnerId.AdoptedPredecessor(seedId))
+            require(resource.key.kind == owner.resourceKind())
+            require(resource.retirementOrder.readerSessionGeneration ==
+                readerSessionGeneration)
+            require(resource.retirementOrder.coordinatorEpoch == coordinatorEpoch)
+            require(provenance == ReaderTransitionResourceProvenance.AdoptedLegacy)
+            require(readerInitialLeaseIsNoBroaderThan(physicalLease, requestedLease))
+            require(readerInitialLeaseIsCompatibleWithOwner(
+                owner = owner,
+                binding = binding,
+                lease = requestedLease
+            ))
+            require(readerInitialLeaseIsCompatibleWithOwner(
+                owner = owner,
+                binding = binding,
+                lease = physicalLease
+            ))
+        }
+
+        override fun toString(): String =
+            "ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor(<redacted>)"
+    }
+
+    data class Neutral(
+        override val readerSessionGeneration: Long,
+        override val coordinatorEpoch: Long,
+        override val requestedLease: ReaderInitialPresentationInputLease,
+        override val physicalLease: ReaderInitialPresentationInputLease
+    ) : ReaderInitialCommittedPresentationOrigin {
+        init {
+            require(readerSessionGeneration > 0L && coordinatorEpoch > 0L)
+            require(requestedLease == ReaderInitialPresentationInputLease.None ||
+                requestedLease == ReaderInitialPresentationInputLease.ChromeOnly)
+            require(physicalLease == ReaderInitialPresentationInputLease.None ||
+                physicalLease == ReaderInitialPresentationInputLease.ChromeOnly)
+            require(readerInitialLeaseIsNoBroaderThan(physicalLease, requestedLease))
+        }
+
+        override fun toString(): String =
+            "ReaderInitialCommittedPresentationOrigin.Neutral(<redacted>)"
+    }
+}
+
+data class ReaderReservedNeutralBootstrapRequest(
+    val handle: ReaderSemanticRequestHandle,
+    val readerSessionGeneration: Long
+) {
+    init {
+        require(readerSessionGeneration > 0L)
+    }
+
+    override fun toString(): String =
+        "ReaderReservedNeutralBootstrapRequest(<redacted>)"
+}
+
 data class ReaderInitialActivationDecision(
-    val seed: ReaderAdoptedPredecessorSeed,
+    val origin: ReaderInitialCommittedPresentationOrigin,
+    val adoptedSeed: ReaderAdoptedPredecessorSeed?,
     val adoptedResource: ReaderImportedLegacyResourceRegistration?,
-    val requestedLease: ReaderTransitionInputLease,
-    val physicalLease: ReaderTransitionInputLease
-)
+    val neutralBootstrapReservation: ReaderReservedNeutralBootstrapRequest?
+) {
+    init {
+        when (origin) {
+            is ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor ->
+                require(neutralBootstrapReservation == null)
+            is ReaderInitialCommittedPresentationOrigin.Neutral -> {
+                val reservation = requireNotNull(neutralBootstrapReservation)
+                require(reservation.readerSessionGeneration ==
+                    origin.readerSessionGeneration)
+            }
+        }
+    }
+
+    override fun toString(): String = "ReaderInitialActivationDecision(<redacted>)"
+}
 
 data class ReaderActivatedSessionInstallation(
-    val ports: ReaderActivatedSessionPorts,
+    val ports: ReaderProductionActivatedSessionPorts,
     val initialDecision: ReaderInitialActivationDecision
-)
+) {
+    override fun toString(): String = "ReaderActivatedSessionInstallation(<redacted>)"
+}
 
 data class ReaderActivatedSessionSnapshot(
-    val ports: ReaderActivatedSessionPorts,
+    val ports: ReaderProductionActivatedSessionPorts,
     val initialDecision: ReaderInitialActivationDecision,
+    val reservedNeutralBootstrap: ReaderReservedNeutralBootstrapRequest?,
+    val journal: ReaderTransitionJournal,
     val state: ReaderSessionActivationState = ReaderSessionActivationState.Activated,
     val commandEgressOpen: Boolean = true
-)
+) {
+    init {
+        require(state == ReaderSessionActivationState.Activated)
+        require(commandEgressOpen)
+        require(reservedNeutralBootstrap ===
+            initialDecision.neutralBootstrapReservation)
+        require(journal.committed ==
+            ReaderCommittedPresentation.Initial(initialDecision.origin))
+        require(journal.lastTransitionSequence == 0L)
+        require(journal.lastIssuedTransitionIdentity == null)
+        require(journal.releaseOnlyCleanup == null)
+    }
+
+    override fun toString(): String = "ReaderActivatedSessionSnapshot(<redacted>)"
+}
 
 fun installActivatedSession(
     installation: ReaderActivatedSessionInstallation
 ): ReaderActivationInstallResult
 ```
 
-`ReaderInitialActivationDecision` requires neutral iff seed identity/kind/binding and
-`adoptedResource` are absent. Otherwise the imported wrapper's physical identity equals
-the seed identity; its registration owner is `AdoptedPredecessor(seed.id)`; its kind
-equals `seed.resourceKind`; and its retirement session/epoch equal the seed. Native-page
-or curl seeds therefore accept only `Deck`; shell-cover or live-engine seeds only
-`FrameHandoff`. No binding-only inference or universal `FrameHandoff` default exists.
+`ReaderTransitionResourceProvenance` moves from
+`ReaderDeckAdmission.android.kt` to
+`composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderResumableTransition.kt`.
+Android deck/adoption code imports that exact common enum; no Android declaration shadows
+it. This makes the common origin source-set legal while preserving exact provenance.
 
-`ReaderActivatedSessionPorts` is not a public completeness claim. Production installation
-accepts only a capability-authenticated package constructed inside
+For `AdoptedPredecessor`, `adoptedSeed` and `adoptedResource` are both present. The
+origin's seed ID, exact session/epoch, owner, binding, registration, both identity-free
+requested and physical input leases, and `AdoptedLegacy` provenance must equal the
+seed/import decision. Breadth ordering is necessary but not sufficient: both leases must
+independently be compatible with that exact owner/binding in the origin factory,
+restoration checkpoint, activation decision, and installation barrier. The imported wrapper's complete physical identity equals the seed identity, its registration
+owner is `AdoptedPredecessor(seed.id)`, and its kind equals `seed.resourceKind`. Native-
+page seeds may use exact matching identity-free `NativePage`; its authoritative initial
+texture generation is non-negative, so generation zero is lawful. This is an invariant
+correction, not a migration claim. Shell-cover may use
+`CoverActions`; live-engine uses at most `ChromeOnly`. Curl adoption fences/cancels every
+legacy claimed gesture before inventory reaches its fixed point and uses only `None` or
+`ChromeOnly`; no initial lease can encode a gesture or transition identity. For
+`AdoptedPredecessor`, `neutralBootstrapReservation` is absent. For `Neutral`, both adopted
+values are absent, there is no seed ID, binding, resource, or visible owner, both leases
+are lawful identity-free no-owner `None`/`ChromeOnly` values, and one exact session-
+matching neutral-bootstrap reservation is mandatory before `ReadyToCommit`. No binding-
+only inference, universal
+`FrameHandoff` default, or neutral stand-in resource exists. Normal
+`ReaderTransitionInputLease.ClaimedGesture` becomes available only after an authentic real
+operation exists.
+
+For a neutral origin, activation constructs the private current-Foliate-destination closure
+and synchronously calls `ReaderSemanticRequestRegistry.register` while routes and command
+egress are still legacy/closed. Exact non-null reservation is a `ReadyToCommit`
+prerequisite. A null return creates no transition and must not call
+`installActivatedSession`, switch a route, publish owner/input, or open egress. The
+activation protocol releases every activation-owned registration/import/reservation exactly
+once and then performs the existing pre-drain unfreeze or post-drain restoration; failed
+unfreeze/restoration enters `ActivationBlocked`. An adopted origin does not reserve a
+bootstrap request.
+
+`ReaderProductionActivatedSessionPorts` is not a public completeness claim. Production
+installation accepts only a capability-authenticated package constructed inside
 `KomikkuReaderNativeFrameHost` from the exhaustive real gateway, semantic, allocation,
-raster, deck, exact-frame, sole owner/input publication, input-safety, resource,
-release-sink, lifecycle-fact, and fact-only-timer adapters. No public Boolean, generic
+raster, deck, exact-frame, sole owner/input publication, input-safety, resource, owned-work
+cancellation, release-sink, lifecycle-fact, and fact-only-timer adapters. No public Boolean, generic
 `complete()` factory, production-visible no-op, or all-rejecting package can mint that
 capability. Test fixtures use an unmistakably test-only package type that is not accepted
 by the production installation signature. Successful installation also proves that no
 `Shadow`/`LegacyOnly` route and no legacy semantic/material/frame/input consequence
 writer remains reachable from the installed composition root.
 
-Before this call, the frozen input adapter computes `physicalLease`, verifies that it
-is no broader than `requestedLease`, and includes both in the immutable payload. The
-barrier side-effect-freely validates every route; the adopted/neutral owner; the
-selected row's exact resource kind, binding, complete physical identity, and provenance;
-the optional imported registration; and both leases. It then constructs one immutable
+Before this call, the frozen input adapter computes both identity-free leases, verifies
+`physicalLease` is no broader than `requestedLease`, and independently validates each
+against the exact adopted owner/binding; neutral validates both as lawful no-owner
+`None`/`ChromeOnly`. For neutral, the registry has also returned the exact reserved private
+bootstrap handle. The barrier side-
+effect-freely validates every route; the adopted or neutral origin; the selected row's
+exact resource kind, binding, complete physical identity, and common provenance; the
+optional seed/import; both leases and their owner/no-owner compatibility; activation state
+`ReadyToCommit`; an empty pre-install release-sink cleanup slot; and the exact neutral
+reservation/adopted absence. Inside the barrier, after all validation and before
+the sole write, it derives
+`ReaderTransitionJournal(committed = ReaderCommittedPresentation.Initial(origin),
+releaseOnlyCleanup = null, lastTransitionSequence = 0L,
+lastIssuedTransitionIdentity = null)`; callers cannot supply
+or mutate that journal. It then constructs one immutable
 `ReaderActivatedSessionSnapshot` and replaces the composition root's single snapshot
-reference in one non-callback, non-suspending Android-main-thread write. Gateway,
-visible-owner, physical-input, activation-state, and command-egress readers all use
-that same reference; no route or publication has a separate install field. The write
-simultaneously:
+reference in one no-callback, non-suspending Android-main-thread write. Gateway, optional
+visible-owner/binding/resource projection, physical-input, deck-writer, reserved-neutral-
+bootstrap capability, activation-state, journal, and command-egress readers all use that same reference; no route, journal
+baseline, or publication has a separate install field. The write simultaneously:
 
 - switches gateway semantic routing and the command-bound semantic dispatcher;
 - switches material-generation allocation and raster/deck admission;
@@ -183,19 +368,30 @@ simultaneously:
   fenced; for narrowing operations that source binds exactly one registration only after
   `Applied(Retained)` and before first timer-requiring work, while the production
   coordinator clock remains inactive;
-- publishes the seed's initial visible owner, binding, and physical input lease;
-- switches exact resource observation and the permanent release-only sink;
+- publishes the origin's optional initial visible owner/binding/resource and exact
+  identity-free physical input lease, with all three presentation fields absent for
+  neutral;
+- installs the barrier-derived journal with that origin as its committed baseline;
+- transfers the exact pre-reserved neutral-bootstrap capability into the installed snapshot
+  for neutral, or proves it absent for adopted;
+- switches exact resource observation, the keyed owned-work cancellation port, and the
+  permanent release-only sink;
 - marks the session `Activated` and makes coordinator command egress visible.
 
-There is no public `publishInitial` or `openCommandEgress` step. Observers can see only
-the complete legacy snapshot or the complete activated snapshot with its initial owner
-and physical lease; an installed-but-unpublished state is unrepresentable. Failure
-before any destructive drain may cancel the freeze and remain `Legacy`. Failure after
-destructive drain starts must enter `RestoringLegacy`, and may return to `Legacy` only
-after the restoration protocol in Section 12 commits a complete legacy snapshot. A
-restoration failure enters `ActivationBlocked`. A failure after successful atomic
-installation remains coordinator-owned and fails closed without active-session
-fallback.
+There is no public `publishInitial`, `openCommandEgress`, or caller-supplied journal step.
+Observers can see only the complete legacy snapshot or the complete
+activated snapshot with its typed baseline and truthful optional presentation/lease; an
+installed-but-unpublished state is unrepresentable. Installation rejection discards the
+exact reserved neutral handle through the registry's one-shot retirement path before
+restoration/unfreeze and releases other activation-owned state exactly once. Close before
+bootstrap consumption performs that same exact discard; successful sequence-1 bootstrap
+`take` consumes it and leaves only its bounded retirement tombstone, so later close cannot
+release or execute it again. Failure before any destructive drain
+may cancel the freeze and remain `Legacy`. Failure after destructive drain starts must
+enter `RestoringLegacy`, and may return to `Legacy` only after the restoration protocol in
+Section 12 commits a complete legacy snapshot. A restoration failure enters
+`ActivationBlocked`. A failure after successful atomic installation remains coordinator-
+owned and fails closed without active-session fallback.
 
 ## 5. Transition Identity
 
@@ -205,9 +401,82 @@ Every accepted operation has a `ReaderTransitionId` containing:
 - coordinator epoch;
 - monotonically increasing transition sequence;
 - operation kind;
-- immutable expected presentation binding;
-- optional parent transition identity for a settlement, reflow, restore, or recovery
-  successor.
+- immutable expected presentation binding, including explicit
+  `NoCommittedPresentation` for neutral close and `FoliateAuthoritativeInitial` while a
+  neutral bootstrap awaits its first authentic receipt;
+- optional parent transition identity for causal ancestry.
+
+The activated journal also has one committed presentation that is deliberately distinct
+from operation identity:
+
+```kotlin
+sealed interface ReaderCommittedPresentation {
+    val readerSessionGeneration: Long
+    val coordinatorEpoch: Long
+
+    data class Initial(
+        val origin: ReaderInitialCommittedPresentationOrigin
+    ) : ReaderCommittedPresentation {
+        override val readerSessionGeneration: Long = origin.readerSessionGeneration
+        override val coordinatorEpoch: Long = origin.coordinatorEpoch
+        override fun toString(): String =
+            "ReaderCommittedPresentation.Initial(<redacted>)"
+    }
+
+    data class Transition(
+        val committed: ReaderCommittedTransition
+    ) : ReaderCommittedPresentation {
+        override val readerSessionGeneration: Long = committed.id.readerSessionGeneration
+        override val coordinatorEpoch: Long = committed.id.coordinatorEpoch
+        override fun toString(): String =
+            "ReaderCommittedPresentation.Transition(<redacted>)"
+    }
+}
+
+data class ReaderCommittedTransition(
+    val id: ReaderTransitionId,
+    val owner: ReaderPresentationFrameOwner,
+    val binding: ReaderPresentationBinding,
+    val resource: ReaderTransitionResourceRegistration
+) {
+    override fun toString(): String = "ReaderCommittedTransition(<redacted>)"
+}
+
+data class ReaderTransitionJournal(
+    val active: ReaderActiveTransition? = null,
+    val releaseOnlyCleanup: ReaderReleaseOnlyCleanupState? = null,
+    val lastOutcome: ReaderTransitionOutcome? = null,
+    val committed: ReaderCommittedPresentation,
+    val retryableTransition: ReaderRetryableTransition? = null,
+    val lastTransitionSequence: Long = 0L,
+    val lastIssuedTransitionIdentity: ReaderTransitionParentIdentity? = null,
+    val lastPublicationSequence: Long = 0L
+) {
+    override fun toString(): String = "ReaderTransitionJournal(<redacted>)"
+}
+```
+
+`Initial` is the journal baseline. It carries no `ReaderTransitionId`, operation, parent,
+synthetic expected binding, prepared-frame proof, or transition-owned registration.
+`Transition` is created only by exact `Applied(Successor)` for a real operation and keeps
+the existing operation ID/binding/resource invariants. Before atomic install, the inactive
+production coordinator container has no active journal; it must not construct a default
+empty journal and reject the first fact. The installed snapshot supplies the first
+complete journal and origin together. Initial installation requires
+`releaseOnlyCleanup == null`. A non-null cleanup record requires `active == null`, no
+retryable transition, and a cleanup key whose session generation and coordinator epoch match
+`committed`; it is the sole bounded authority for cleanup outcomes after permanent
+`ReleaseOnly`, not a hidden active phase.
+
+The journal stores exact baseline session/epoch plus `lastTransitionSequence` and
+`lastIssuedTransitionIdentity`. The first real operation in that baseline uses sequence
+`1` and `parent = null`. Every later operation increments monotonically and, when a prior
+real operation exists, uses exactly that operation's `parentIdentity()`; abort, timeout,
+Retry, restore, supersession, and close never reuse a sequence. Presentation predecessor
+and causal parent remain separate: an aborted first operation can leave `Initial` as the
+truthful presentation while its Retry receives sequence `2` and the aborted operation as
+parent. No reducer derives session, epoch, sequence, or parent from a fabricated baseline
+operation.
 
 Renderer generations, raster generations, gesture IDs, callback IDs, and relocation
 tokens are evidence attached to the transition. None is sufficient by itself to
@@ -222,16 +491,25 @@ value class ReaderAdoptedPredecessorSeedId internal constructor(val value: Long)
     init {
         require(value > 0L)
     }
+
+    override fun toString(): String =
+        "ReaderAdoptedPredecessorSeedId(<redacted>)"
 }
 
 sealed interface ReaderTransitionResourceOwnerId {
     data class TransitionOwned(
         val transitionId: ReaderTransitionId
-    ) : ReaderTransitionResourceOwnerId
+    ) : ReaderTransitionResourceOwnerId {
+        override fun toString(): String =
+            "ReaderTransitionResourceOwnerId.TransitionOwned(<redacted>)"
+    }
 
     data class AdoptedPredecessor(
         val seedId: ReaderAdoptedPredecessorSeedId
-    ) : ReaderTransitionResourceOwnerId
+    ) : ReaderTransitionResourceOwnerId {
+        override fun toString(): String =
+            "ReaderTransitionResourceOwnerId.AdoptedPredecessor(<redacted>)"
+    }
 }
 
 data class ReaderTransitionResourceKey(
@@ -242,6 +520,8 @@ data class ReaderTransitionResourceKey(
     init {
         require(opaqueId > 0L)
     }
+
+    override fun toString(): String = "ReaderTransitionResourceKey(<redacted>)"
 }
 
 data class ReaderResourceRetirementOrder(
@@ -254,13 +534,19 @@ data class ReaderResourceRetirementOrder(
         require(coordinatorEpoch > 0L)
         require(sequence > 0L)
     }
+
+    override fun toString(): String = "ReaderResourceRetirementOrder(<redacted>)"
 }
 
 data class ReaderTransitionResourceRegistration(
     val key: ReaderTransitionResourceKey,
     val retirementOrder: ReaderResourceRetirementOrder
-)
+) {
+    override fun toString(): String =
+        "ReaderTransitionResourceRegistration(<redacted>)"
+}
 
+// Android-only import wrapper; it is not part of the common release identity.
 data class ReaderImportedLegacyResourceRegistration(
     val physicalIdentity: ReaderLegacyPhysicalIdentity,
     val registration: ReaderTransitionResourceRegistration
@@ -271,6 +557,9 @@ data class ReaderImportedLegacyResourceRegistration(
                 registration.retirementOrder.readerSessionGeneration
         )
     }
+
+    override fun toString(): String =
+        "ReaderImportedLegacyResourceRegistration(<redacted>)"
 }
 ```
 
@@ -304,6 +593,22 @@ Operation kinds are exactly eleven and remain:
 - renderer recovery;
 - publication close.
 
+This list is exhaustive. Initial activation, neutral-bootstrap request admission, frame-
+target preparation, and retained/successor publication acknowledgement are protocols,
+facts, proofs, or commands and never operation values.
+
+A neutral baseline starts physical presentation through exactly the existing
+`BootstrapNativePage` operation. After atomic install, the gateway reads the exact
+pre-reserved handle from the installed snapshot and enqueues one
+`ReaderBootstrapNativePageIntent`; it performs no nullable registry call and does not run
+inside `installActivatedSession`. The operation is sequence `1`, has no parent, and uses
+`ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial(requestSequence = 1)`.
+Its private executable request asks live Foliate for the current authoritative semantic
+destination. Only the command-bound `FoliateDestinationCommitted` receipt replaces that
+expectation with an exact binding; only then may existing material allocation, raster,
+deck, target preparation, frame presentation, and two-phase publication proceed. Neutral
+bootstrap cannot construct a binding from seed, viewport, renderer, or publication state.
+
 ## 6. Phase And Outcome Model
 
 Each active transition has exactly one phase:
@@ -335,39 +640,50 @@ Every non-terminal phase must name:
 - its cancellation/supersession behavior;
 - its retained truthful visual owner;
 - its input lease;
-- its exact wake or callback source.
+- its exact wake or callback source;
+- its finite admissible command-stage set.
 
-A phase without all six is invalid. `ReaderTransitionProofKind` includes
+A phase without all seven is invalid. `ReaderTransitionProofKind` includes
 `FrameTargetPreparation` and `OwnerAndInputPublicationAcknowledgement`. An awaiting-
-target phase awaits only the former. Every successor `Committing` phase awaits only the
-latter and lists only `OwnerAndInputPublicationApplied` and
-`OwnerAndInputPublicationRejected` callback sources; consumed `PreparedFrame` is no
-longer awaited. Retained-owner input publication uses the same acknowledgement proof but
-matching `Applied(Retained)` returns the active operation to pre-work rather than
-publishing success.
+target phase awaits only the former, admits `FrameTargetPreparation`, and lists
+`FrameTargetPrepared`, `FrameTargetPreparationRejected`, and `CommandRejected` callback
+sources. Every successor `Committing` phase awaits only the latter, admits
+`SuccessorPublication`, and lists only `OwnerAndInputPublicationApplied`,
+`OwnerAndInputPublicationRejected`, and `CommandRejected` callback sources; consumed
+`PreparedFrame` is no longer awaited. Retained-owner input publication uses the same
+acknowledgement proof, admits `RetainedPublication`, and includes matching Applied,
+Rejected, and `CommandRejected` callback sources, but matching `Applied(Retained)` returns
+the active operation to pre-work rather than publishing success.
 
 ## 7. Single Advancement Loop
 
 The coordinator owns a main-thread mailbox and a non-reentrant `advance()` drain.
 
 1. Normalize ingress into a typed fact.
-2. Reject or stale it against the current transition identity.
-3. Update common presentation policy through the existing pure reducer.
-4. Derive one immutable presentation decision.
-5. If accepted work narrows/revokes input, publish retained-publication waiting state and
-   issue only that transaction; exact `Applied(Retained)` returns to pre-work, while
-   rejection terminates before successor work or timer binding.
-6. Record every later transition phase before commands. After prerequisites, coordinator
+2. Allocate operation identity only from the journal's immutable baseline session/epoch,
+   monotonic last-issued sequence, and prior authentic operation identity. Sequence `1`
+   has no parent; neither initial-origin variant can be cast or copied into an operation.
+3. Reject or stale the fact against the current authentic transition identity.
+4. Update common presentation policy through the existing pure reducer.
+5. Derive one immutable presentation decision from either the initial baseline or a
+   committed real transition.
+6. If accepted work narrows/revokes an adopted predecessor's input, publish retained-
+   publication waiting state and issue only that transaction; exact `Applied(Retained)`
+   returns to pre-work, while rejection terminates before successor work or timer binding.
+   Neutral has no retained owner/binding/resource transaction to fabricate.
+7. Record every later transition phase and its exact singleton pending command stage before
+   emitting that command. After prerequisites, coordinator
    selects/allocates the exact registration, publishes awaiting-target, and issues
    `PrepareFrameTarget`; only matching FIFO `FrameTargetPrepared` permits presentation.
-7. Convert every synchronous port result into a typed fact and append it to the same
+8. Convert every synchronous port result into a typed fact and append it to the same
    mailbox while `advancing`; callbacks follow the same queue and never reduce recursively.
-8. Consume exact prepared-frame proof, remove it from awaited proofs, publish successor
+9. Consume exact prepared-frame proof, remove it from awaited proofs, publish successor
    `Committing` awaiting only publication acknowledgement, and issue only the combined
    successor transaction.
-9. Only exact matching `Applied(Successor)` may publish success/committed; publish terminal
-   state before timer cancellation and predecessor release. Rejection publishes failure
-   first and releases successor only.
+10. Only exact matching `Applied(Successor)` may replace the initial/transition committed
+    presentation, publish success, and then cancel timer/release predecessor. For an
+    adopted initial baseline this is its first legal release point. Rejection publishes
+    failure first and releases successor only.
 
 Transition registration always precedes a port command. Synchronous renderer callbacks
 and synchronous combined-publication results are therefore queued against an existing
@@ -392,7 +708,9 @@ Minimum ingress facts:
 - visibility loss/restore;
 - renderer/WebView/resource loss;
 - deadline expiry;
+- typed command-stage rejection;
 - Retry;
+- publication replacement;
 - publication close.
 
 Minimum commands:
@@ -409,8 +727,530 @@ Minimum commands:
 - release an exact resource;
 - publish diagnostics and terminal outcome.
 
-Commands carry `ReaderTransitionId` and the minimum matching evidence. Ports may
-reject stale commands but cannot substitute another transition.
+Commands carry `ReaderTransitionId` and the minimum matching evidence. Ports may reject
+stale commands but cannot substitute another transition. Every synchronous rejection is
+converted to a typed fact and appended to the same FIFO while `advancing`; no dispatcher
+may terminate directly, silently return, throw past the mailbox, or substitute a timeout.
+
+### 8.0.1 Typed command-stage rejection
+
+The common model defines bounded, content-free stages and reasons:
+
+```kotlin
+enum class ReaderTransitionCommandStage {
+    SemanticSynchronization,
+    MaterialAllocation,
+    RasterPreparation,
+    DeckReservation,
+    FrameTargetPreparation,
+    FramePresentation,
+    RetainedPublication,
+    SuccessorPublication,
+    TimerBinding
+}
+
+enum class ReaderTransitionCommandRejectionReason {
+    MissingHandle,
+    ExpiredHandle,
+    ConsumedHandle,
+    WrongSessionHandle,
+    SemanticSlotCapacity,
+    SemanticRegistryRejected,
+    SemanticExecutionRejected,
+    MaterialAllocationRejected,
+    RasterPreparationRejected,
+    DeckReservationRejected,
+    FrameTargetRejected,
+    FramePresentationRejected,
+    PublicationRejected,
+    TimerBindingRejected,
+    TimerOwnershipConflict,
+    CommandPortRejected,
+    CommandThrew
+}
+
+@JvmInline
+value class ReaderSemanticInvocationId internal constructor(val value: Long) {
+    init { require(value > 0L) }
+    override fun toString(): String =
+        "ReaderSemanticInvocationId(<redacted>)"
+}
+
+enum class ReaderSaturatingCallbackCount {
+    Zero,
+    One,
+    Two,
+    ThreeOrMore;
+
+    fun increment(): ReaderSaturatingCallbackCount = when (this) {
+        Zero -> One
+        One -> Two
+        Two, ThreeOrMore -> ThreeOrMore
+    }
+}
+
+enum class ReaderSemanticBufferedViolationStatus {
+    None,
+    DuplicateCallback
+}
+
+enum class ReaderSemanticPortContractViolationReason {
+    CallbackThenRejected,
+    CallbackThenThrew,
+    RejectedThenLateCallback,
+    DuplicateCallback,
+    DuplicateCallbackThenRejected,
+    DuplicateCallbackThenThrew,
+    RejectedAfterMutationStarted,
+    ThrowAfterMutationStarted
+}
+
+@JvmInline
+value class ReaderPhysicalReleaseAttemptId internal constructor(val value: Long) {
+    init { require(value > 0L) }
+    override fun toString(): String =
+        "ReaderPhysicalReleaseAttemptId(<redacted>)"
+}
+
+enum class ReaderReleaseCommandRejectionReason {
+    PortRejectedNoEffect,
+    OwnerUnavailableNoEffect,
+    RegistrationRejectedNoEffect
+}
+
+enum class ReaderReleaseCommandAmbiguityReason {
+    ThrowBeforeEffectBoundaryWithoutProof,
+    ThrowAfterPhysicalEffectMayHaveOccurred
+}
+
+enum class ReaderReleasePortContractViolationReason {
+    CallbackThenRejected,
+    CallbackThenThrew,
+    LateCallbackAfterRejected,
+    LateCallbackAfterAmbiguousFailure,
+    DuplicateConfirmation,
+    MultipleViolations
+}
+
+enum class ReaderReleaseBufferedViolationStatus {
+    None,
+    DuplicateConfirmation
+}
+
+data class ReaderReleaseCommandIdentity(
+    val attemptId: ReaderPhysicalReleaseAttemptId,
+    val registration: ReaderTransitionResourceRegistration
+) {
+    override fun toString(): String =
+        "ReaderReleaseCommandIdentity(<redacted>)"
+}
+
+data class ReaderBufferedReleaseCallbackState(
+    val latestAuthoritativeConfirmation: ReaderTransitionFact.ResourceReleased?,
+    val callbackCount: ReaderSaturatingCallbackCount,
+    val violationStatus: ReaderReleaseBufferedViolationStatus
+) {
+    fun record(
+        confirmation: ReaderTransitionFact.ResourceReleased
+    ): ReaderBufferedReleaseCallbackState {
+        val nextCount = callbackCount.increment()
+        return ReaderBufferedReleaseCallbackState(
+            latestAuthoritativeConfirmation = confirmation,
+            callbackCount = nextCount,
+            violationStatus = if (nextCount == ReaderSaturatingCallbackCount.One) {
+                ReaderReleaseBufferedViolationStatus.None
+            } else {
+                ReaderReleaseBufferedViolationStatus.DuplicateConfirmation
+            }
+        )
+    }
+
+    override fun toString(): String =
+        "ReaderBufferedReleaseCallbackState(<redacted>)"
+}
+
+`ReaderTransitionPhaseContract` adds
+`admissibleCommandStages: Set<ReaderTransitionCommandStage>` and
+`ReaderActiveTransition` adds
+`pendingCommandStages: Set<ReaderTransitionCommandStage>`. Both sets are enum-bounded;
+`pendingCommandStages` has cardinality zero or one and must be a subset of the current
+phase's admissible set. A phase with non-empty admissible stages includes
+`ReaderTransitionFactKind.CommandRejected` in `callbackSources`; a phase with an empty
+admissible set cannot carry a pending stage. Command emission is illegal unless the pending
+set is empty; the reducer publishes the new phase/active state with the exact singleton
+stage before returning that command.
+
+sealed interface ReaderTransitionFact {
+    data class CommandRejected(
+        override val transitionId: ReaderTransitionId,
+        val stage: ReaderTransitionCommandStage,
+        val reason: ReaderTransitionCommandRejectionReason
+    ) : ReaderTransitionFact
+
+    data class SemanticPortContractViolated(
+        override val transitionId: ReaderTransitionId,
+        val invocationId: ReaderSemanticInvocationId,
+        val reason: ReaderSemanticPortContractViolationReason,
+        val callbackCount: ReaderSaturatingCallbackCount
+    ) : ReaderTransitionFact {
+        override fun toString(): String =
+            "ReaderTransitionFact.SemanticPortContractViolated(<redacted>)"
+    }
+
+    data class PublicationReplaced(
+        override val transitionId: ReaderTransitionId?
+    ) : ReaderTransitionFact
+
+    data class OwnedWorkCancellationApplied(
+        val cleanupKey: ReaderReleaseOnlyCleanupKey,
+        override val transitionId: ReaderTransitionId
+    ) : ReaderTransitionFact {
+        override fun toString(): String =
+            "ReaderTransitionFact.OwnedWorkCancellationApplied(<redacted>)"
+    }
+
+    data class OwnedWorkCancellationRejected(
+        val cleanupKey: ReaderReleaseOnlyCleanupKey,
+        override val transitionId: ReaderTransitionId,
+        val reason: ReaderReleaseOnlyCleanupFailureReason
+    ) : ReaderTransitionFact {
+        init {
+            require(
+                reason == ReaderReleaseOnlyCleanupFailureReason.CancellationRejected ||
+                    reason ==
+                        ReaderReleaseOnlyCleanupFailureReason.CancellationCommandThrew
+            )
+        }
+
+        override fun toString(): String =
+            "ReaderTransitionFact.OwnedWorkCancellationRejected(<redacted>)"
+    }
+
+    data class ResourceReleased(
+        override val transitionId: ReaderTransitionId?,
+        val identity: ReaderReleaseCommandIdentity
+    ) : ReaderTransitionFact {
+        override fun toString(): String =
+            "ReaderTransitionFact.ResourceReleased(<redacted>)"
+    }
+
+    data class ReleaseOnlyCleanupDeadlineElapsed(
+        val cleanupKey: ReaderReleaseOnlyCleanupKey
+    ) : ReaderTransitionFact {
+        override val transitionId: ReaderTransitionId? = null
+        override fun toString(): String =
+            "ReaderTransitionFact.ReleaseOnlyCleanupDeadlineElapsed(<redacted>)"
+    }
+
+    data class ReleaseCommandRejected(
+        val cleanupKey: ReaderReleaseOnlyCleanupKey?,
+        val identity: ReaderReleaseCommandIdentity,
+        val reason: ReaderReleaseCommandRejectionReason
+    ) : ReaderTransitionFact {
+        override val transitionId: ReaderTransitionId? = null
+        override fun toString(): String =
+            "ReaderTransitionFact.ReleaseCommandRejected(<redacted>)"
+    }
+
+    data class ReleaseCommandThrew(
+        val cleanupKey: ReaderReleaseOnlyCleanupKey?,
+        val identity: ReaderReleaseCommandIdentity,
+        val reason: ReaderReleaseCommandAmbiguityReason
+    ) : ReaderTransitionFact {
+        override val transitionId: ReaderTransitionId? = null
+        override fun toString(): String =
+            "ReaderTransitionFact.ReleaseCommandThrew(<redacted>)"
+    }
+
+    data class ReleasePortContractViolated(
+        val cleanupKey: ReaderReleaseOnlyCleanupKey?,
+        val identity: ReaderReleaseCommandIdentity,
+        val reason: ReaderReleasePortContractViolationReason,
+        val callbackCount: ReaderSaturatingCallbackCount
+    ) : ReaderTransitionFact {
+        override val transitionId: ReaderTransitionId? = null
+        override fun toString(): String =
+            "ReaderTransitionFact.ReleasePortContractViolated(<redacted>)"
+    }
+}
+```
+
+`ReaderTransitionFactKind` includes exact `SemanticPortContractViolated`,
+`OwnedWorkCancellationApplied`, `OwnedWorkCancellationRejected`,
+`ReleaseOnlyCleanupDeadlineElapsed`, `ReleaseCommandRejected`, `ReleaseCommandThrew`, and
+`ReleasePortContractViolated`
+entries matching this hierarchy; exhaustive kind switches may not collapse them into
+`CommandRejected`, ordinary timer expiry, or resource confirmation.
+
+Before issuing each command, the reducer records its exact stage as the active transition's
+singleton pending set and ensures the phase contract admits it. Synchronous rejection leaves
+that stage pending until its queued fact reduces. Exact typed success/acceptance clears the
+stage before phase advance or before another command is emitted; async commands retain it
+until their exact success/rejection callback. A phase advance requires the old pending set
+to be empty. Terminal outcome, abort, supersession, and Retry-source retirement clear any
+remnant before resource cleanup; Retry creates a new active transition with an empty set.
+Close/replacement first copies the exact active ID and required cancellation into the atomic
+release-only cleanup record, then clears active/pending state in that same reduction. Only
+`CommandRejected` with the active ID and a currently
+pending exact stage may consume that singleton and terminate the attempt.
+`RequestSemanticSynchronization` is one reducer command and therefore has exactly one
+reducer-visible stage, `SemanticSynchronization`. Every phase that may emit it includes
+exactly that semantic stage in `admissibleCommandStages` and `CommandRejected` in callback
+sources; it cannot admit an internal semantic substage. Before emitting it, the reducer publishes
+that singleton pending stage. Handle lookup/take, registry validation, isolated-slot
+reservation, and executable-request invocation remain private synchronous work inside the
+port; they never advance reducer stage state. Missing, expired, consumed, or wrong-session
+handle, registry rejection, slot capacity, and execution rejection/throw proven before any
+Foliate mutation or callback each return bounded `Rejected` and become
+`CommandRejected(transitionId, SemanticSynchronization, boundedReason)` before command
+dispatch returns. Once mutation begins, callback ingress retains only the latest authoritative
+receipt, saturating count, and fatal status until result return. Callback-then-rejection/throw,
+rejection/throw after mutation start, late callback after rejection, and arbitrary duplicates
+replace latest evidence without collection growth or callback exception, then queue the final
+receipt exactly once plus one bounded session-fatal `SemanticPortContractViolated` safety fact.
+A contract violation never consumes
+or clears the stage as a normal rejection. The bounded reason may distinguish the internal
+failure class, but no internal substage exists in the phase contract, active state, fact,
+diagnostics, or tests. Exact semantic receipt/success or matching pre-mutation rejection
+consumes the singleton; terminal advancement also clears it. A delayed normal rejection after
+that clearance is inert.
+Material-allocation rejection, timer-bind null/rejection/throw, and every equivalent
+synchronous command-stage rejection follow the same one-command/one-stage rule.
+Specialized `FrameTargetPreparationRejected` and
+`OwnerAndInputPublicationRejected` remain exact protocol acknowledgements; their reducer
+branches have the same terminal-before-release and fail-visible rules rather than being
+collapsed into an untyped result.
+
+An admitted command rejection consumes the already allocated transition sequence,
+publishes `Failed(mappedReason, Retryable, truthfulRetainedOwner)` as a terminal outcome,
+clears command-owned handles/slots/timer reservations and releases only successor/work
+resources. The adopted baseline remains retained; neutral remains ownerless. UI projection
+must expose Retry and close. Retry creates the next authentic operation identity and
+reacquires every required semantic/material/timer fact. Timer-binding rejection terminates
+immediately before timer-requiring work and never arms work without a timer, waits for a
+timeout, or manufactures `DeadlineExpired`. A delayed rejection after exact success cleared
+the stage and advanced phase is inert. The first matching rejection consumes the pending
+stage while terminating; a duplicate therefore finds no active pending stage and is inert.
+Wrong-ID/stage, stale, or post-terminal rejection facts are likewise inert except exact
+resource disposition.
+
+Close and replacement use an irreversible release-only cleanup transaction rather than
+trying to admit cancellation against a cleared active phase:
+
+```kotlin
+enum class ReaderReleaseOnlyCleanupTrigger {
+    PublicationClose,
+    PublicationReplacement,
+    ProcessClose
+}
+
+enum class ReaderReleaseOnlyCancellationStatus {
+    NotRequired,
+    Pending,
+    Applied,
+    Rejected,
+    ProcessClosedPending
+}
+
+enum class ReaderReleaseOnlyCleanupFailureReason {
+    CancellationRejected,
+    CancellationCommandThrew,
+    ProcessClosedBeforeCancellationAcknowledgement
+}
+
+enum class ReaderReleaseOnlyCleanupDeadlineStatus {
+    Armed,
+    CancelledAfterTerminalAccounting,
+    Elapsed,
+    BindingRejected,
+    BindingThrew,
+    CancellationRejected,
+    CancellationThrew,
+    ProcessClosed
+}
+
+enum class ReaderReleaseLedgerCleanupStatus {
+    Open,
+    EmptyReleased,
+    TerminalFailure
+}
+
+@JvmInline
+value class ReaderReleaseOnlyCleanupId internal constructor(val value: Long) {
+    init { require(value > 0L) }
+    override fun toString(): String =
+        "ReaderReleaseOnlyCleanupId(<redacted>)"
+}
+
+@JvmInline
+value class ReaderReleaseOnlyCleanupGeneration internal constructor(val value: Long) {
+    init { require(value > 0L) }
+    override fun toString(): String =
+        "ReaderReleaseOnlyCleanupGeneration(<redacted>)"
+}
+
+data class ReaderReleaseOnlyCleanupKey(
+    val readerSessionGeneration: Long,
+    val coordinatorEpoch: Long,
+    val cleanupId: ReaderReleaseOnlyCleanupId,
+    val generation: ReaderReleaseOnlyCleanupGeneration
+) {
+    init {
+        require(readerSessionGeneration > 0L)
+        require(coordinatorEpoch > 0L)
+    }
+
+    override fun toString(): String =
+        "ReaderReleaseOnlyCleanupKey(<redacted>)"
+}
+
+data class ReaderReleaseOnlyCleanupState(
+    val key: ReaderReleaseOnlyCleanupKey,
+    val trigger: ReaderReleaseOnlyCleanupTrigger,
+    val closeOperationId: ReaderTransitionId?,
+    val preCloseTransitionId: ReaderTransitionId?,
+    val cancellationStatus: ReaderReleaseOnlyCancellationStatus,
+    val cancellationFailure: ReaderReleaseOnlyCleanupFailureReason? = null,
+    val deadlineStatus: ReaderReleaseOnlyCleanupDeadlineStatus
+) {
+    val isCancellationTerminal: Boolean
+        get() = cancellationStatus != ReaderReleaseOnlyCancellationStatus.Pending
+
+    fun shouldFenceDeadline(releaseLedgerStatus: ReaderReleaseLedgerCleanupStatus): Boolean =
+        isCancellationTerminal &&
+            releaseLedgerStatus != ReaderReleaseLedgerCleanupStatus.Open
+
+    fun isTerminal(releaseLedgerStatus: ReaderReleaseLedgerCleanupStatus): Boolean =
+        shouldFenceDeadline(releaseLedgerStatus) &&
+            deadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+
+    fun isSuccessful(releaseLedgerStatus: ReaderReleaseLedgerCleanupStatus): Boolean =
+        (
+            cancellationStatus == ReaderReleaseOnlyCancellationStatus.NotRequired ||
+                cancellationStatus == ReaderReleaseOnlyCancellationStatus.Applied
+        ) &&
+            releaseLedgerStatus == ReaderReleaseLedgerCleanupStatus.EmptyReleased &&
+            deadlineStatus ==
+                ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting
+
+    init {
+        require(trigger != ReaderReleaseOnlyCleanupTrigger.PublicationReplacement ||
+            closeOperationId == null)
+        require(closeOperationId == null ||
+            closeOperationId.operation == ReaderTransitionOperation.PublicationClose)
+        require((preCloseTransitionId == null) ==
+            (cancellationStatus == ReaderReleaseOnlyCancellationStatus.NotRequired))
+        require(
+            when (cancellationStatus) {
+                ReaderReleaseOnlyCancellationStatus.Rejected ->
+                    cancellationFailure ==
+                        ReaderReleaseOnlyCleanupFailureReason.CancellationRejected ||
+                        cancellationFailure ==
+                        ReaderReleaseOnlyCleanupFailureReason.CancellationCommandThrew
+                ReaderReleaseOnlyCancellationStatus.ProcessClosedPending ->
+                    cancellationFailure ==
+                        ReaderReleaseOnlyCleanupFailureReason.ProcessClosedBeforeCancellationAcknowledgement
+                else -> cancellationFailure == null
+            }
+        )
+        require(closeOperationId == null ||
+            closeOperationId.readerSessionGeneration == key.readerSessionGeneration)
+        require(closeOperationId == null ||
+            closeOperationId.coordinatorEpoch == key.coordinatorEpoch)
+        require(preCloseTransitionId == null ||
+            preCloseTransitionId.readerSessionGeneration == key.readerSessionGeneration)
+        require(preCloseTransitionId == null ||
+            preCloseTransitionId.coordinatorEpoch == key.coordinatorEpoch)
+        require(closeOperationId == null || preCloseTransitionId == null ||
+            closeOperationId != preCloseTransitionId)
+    }
+
+    override fun toString(): String =
+        "ReaderReleaseOnlyCleanupState(<redacted>)"
+}
+```
+
+An activated journal carries zero or one `releaseOnlyCleanup` record outside
+`ReaderActiveTransition`. Before atomic installation there is intentionally no journal; the
+activation coordinator's already-created release sink instead owns the same zero-or-one
+cleanup slot for close from `Legacy`, `Freezing`, `DrainingLegacy`, `ReadyToCommit`,
+`RestoringLegacy`, or `ActivationBlocked`. Those authorities are mutually exclusive by
+activation state: installation requires the pre-install slot empty, and no path may create a
+journal merely to represent pre-activation close. On accepted close or replacement, the
+coordinator first prepares one exact two-second Task 6 physical fact-only deadline
+registration; one atomic no-callback/no-suspend reduction then closes all normal ingress,
+snapshots the exact active ID before clearing active/pending stage state, records `Pending`
+cancellation for that ID (or `NotRequired` when no operation was active), installs the
+cleanup ID plus generation and `Armed` deadline status, enters permanent `ReleaseOnly`, and
+returns at most one `CancelOwnedWork(cleanupKey, preCloseTransitionId)`. The cleanup key is
+opaque and redacted, is independent of operation identity, and is not an operation, parent,
+or ninth activation state. The existing `PublicationClose` operation remains the only close
+operation. An activated close stores that operation separately as `closeOperationId` so its
+outcome can terminate after cancellation and release accounting become terminal and the
+deadline is cancelled or elapsed; replacement and pre-activation close store no close
+operation ID. Its cleanup target, when present, is the operation that was active before close
+admission, never the close operation itself. `PublicationReplaced` allocates no operation or
+transition sequence.
+
+`CancelOwnedWork` produces dedicated FIFO
+`OwnedWorkCancellationApplied(cleanupKey, transitionId)` or
+`OwnedWorkCancellationRejected(cleanupKey, transitionId, boundedReason)` facts and matching
+`ReaderTransitionFactKind` values. The keyed command and both facts render fixed redacted
+constants. The cancellation port exposes only dedicated applied/rejected callbacks. A
+callback delivered before `cancel` returns requires `Accepted`; a synchronous `Rejected`
+return guarantees no callback and the dispatcher converts it to exact
+`OwnedWorkCancellationRejected(..., CancellationRejected)`, while an escaping throw becomes
+`OwnedWorkCancellationRejected(..., CancellationCommandThrew)`, all through the FIFO before
+command dispatch returns. No outcome may be dropped or translated to active
+`CommandRejected`. A rejected fact permits only
+`CancellationRejected` or `CancellationCommandThrew`; process teardown alone writes
+`ProcessClosedBeforeCancellationAcknowledgement` directly into the cleanup state.
+Cancellation
+is therefore not a `ReaderTransitionCommandStage` and never depends on active-phase
+`pendingCommandStages`. Command dispatch recognizes `CancelOwnedWork` as cleanup-owned,
+validates its key/ID against the installed `Pending` record rather than active phase state,
+and emits it once. The release-only sink admits an outcome only when both cleanup key
+and captured transition ID match its sole pending record. Exact applied marks `Applied`;
+exact rejected records bounded fail-closed `Rejected`. Both are terminal cancellation
+statuses, issue no Retry, and leave exact resource release progressing through the ledger.
+Duplicate, stale, wrong-key, wrong-ID, and post-terminal cancellation outcomes are inert except
+lawful exact resource observation/release. They cannot replace the record or emit cancellation
+again. Cleanup accounting becomes terminal only when `isCancellationTerminal`, the exact
+release ledger reports `EmptyReleased` or `TerminalFailure`, and the exact deadline is no
+longer `Armed`. The dispatcher requests deadline cancellation only after the first two
+conditions hold; exact accepted cancellation marks
+`CancelledAfterTerminalAccounting`. Rejection or throw from deadline cancellation records
+`CancellationRejected` or `CancellationThrew` respectively, remains fail-closed, and cannot reopen/fallback. For a stored close operation, successful cancellation
+plus `EmptyReleased` publishes its existing successful close outcome; rejected cancellation,
+terminal release failure, deadline binding/cancellation failure, or elapsed deadline publishes
+the corresponding nonretryable fail-closed cleanup outcome. Replacement has no operation
+outcome. Exact deadline elapsed marks `Elapsed`, records `CloseDrainTimeout`, terminalizes
+unresolved release obligations without reissue, and leaves the release-only sink live for
+lawful late exact confirmations.
+
+`PublicationReplaced` remains a distinct fact and
+`ReaderTransitionFactKind.PublicationReplaced`. It is not `PublicationClosed`, Retry, or an
+operation. It uses the same cleanup transaction over active/no-active and adopted/neutral/
+real committed baselines, retires semantic handles/slots/timer registrations, and releases
+active/successor/committed resources exactly once. An adopted initial or real committed
+resource releases through its lawful session/transition issuer; neutral issues no committed-
+resource release. Replacement while already `ReleaseOnly` cannot overwrite the cleanup
+record or emit `CancelOwnedWork` again. A new publication receives a new activation/session
+baseline and inherits no old origin, cleanup record, proof, sequence, parent, Retry record,
+or resource.
+
+Process close invokes this same transaction if normal close has not begun, routing through the
+existing `PublicationClose` operation admission when a close operation is required; it never
+adds a kind. If already `ReleaseOnly`, it freezes the existing cleanup record, emits no
+duplicate cancellation or release, fences/cancels the exact armed cleanup deadline, and drains
+only already-queued exact cleanup outcomes and release confirmations within the fixed close
+budget. A still-`Pending` cancellation becomes `ProcessClosedPending` with
+`ProcessClosedBeforeCancellationAcknowledgement`; unresolved rejected/ambiguous release rows
+become `ProcessClosedUnreleased` with bounded tombstones, and the deadline becomes
+`ProcessClosed`. The existing close outcome records
+`ProcessClosedBeforeCleanupCompletion` when observable. No Task 6 cleanup record, timer,
+wake, or release failure is persisted, retried, or reconstructed after process death; no
+physical release command is reissued.
 
 ### 8.1 One-shot semantic facts
 
@@ -427,19 +1267,23 @@ event facts, not session state.
 - Admission of a matching settlement acknowledgement atomically records its
   consumption key before any presentation, input, or renderer consequence is issued.
 
-An app-originated TOC/search/jump intent creates `ExternalSemanticRelocation`, then
-publishes retained owner/input narrowing and waits for exact `Applied(Retained)` before
-issuing `RequestSemanticSynchronization`. An unsolicited authoritative
-`FoliateDestinationCommitted` creates the same operation with semantic proof already
-satisfied but still performs the retained publication gate before successor physical
-work. Both retain the pre-relocation frame as a noninteractive shield, allocate fresh
-material, request raster/deck work, run coordinator-owned target preparation then exact
-presentation, consume `PreparedFrame`, enter `Committing`, and commit only after exact
-`Applied(Successor)`. The predecessor deck remains ledger-owned
-until acknowledged successor commit; it is then released exactly once. Failure retains it only as
-the diagnostic
-shield, while Retry, another relocation, publication replacement, or close either
-reuses it as predecessor or releases it through the ledger.
+An app-originated TOC/search/jump intent creates `ExternalSemanticRelocation`. From an
+adopted or real committed predecessor it publishes retained owner/input narrowing and
+waits for exact `Applied(Retained)` before issuing `RequestSemanticSynchronization`.
+An unsolicited authoritative `FoliateDestinationCommitted` creates the same operation
+with semantic proof already satisfied. From an adopted baseline it still performs the
+retained publication gate; from a neutral baseline it skips that impossible gate because
+there is no owner, binding, or resource to republish and proceeds from the authoritative
+fact's exact binding. In either baseline the first such operation is sequence `1` with no
+parent. Both paths allocate fresh material, request raster/deck work, run coordinator-owned
+target preparation then exact presentation, consume `PreparedFrame`, enter `Committing`,
+and commit only after exact `Applied(Successor)`. A real predecessor or adopted baseline
+resource remains ledger-owned until that acknowledgement and then releases exactly once.
+Failure from an adopted baseline retains it only as the diagnostic shield; failure from
+neutral retains no visible owner/resource and exposes Retry/close chrome. Retry, another
+relocation, publication replacement, or close either reuses the truthful committed
+presentation or releases it through the ledger. No path invents a retained publication,
+parent, operation, or binding for neutral.
 
 A duplicate settlement fact or tagged fact for another transition is ignored after
 reporting only a privacy-safe mismatch category. No acknowledgement may be inherited
@@ -447,6 +1291,26 @@ by a later transition. Deterministic coverage must prove exact-once consumption,
 duplicate delivery, an unrelated untagged same-session TOC relocation that clears
 the old settlement and updates destination, callback before command return, and a
 stale receipt after supersession.
+
+#### 8.1.1 Initial-baseline reducer contract
+
+Every reducer branch is exhaustive over both initial-origin variants:
+
+| Trigger | Adopted predecessor baseline | Neutral baseline | Identity/release invariant |
+|---|---|---|---|
+| First bootstrap or semantic intent | Retain exact owner/binding/resource; narrow through existing retained publication when required | No retained publication; bootstrap must await authentic Foliate binding | Sequence `1`, no parent; no activation operation |
+| Unsolicited authoritative relocation | Treat fact binding as semantic proof, acknowledge retained narrowing, then fresh physical successor | Treat fact binding as semantic proof and proceed directly to fresh physical successor | Existing `ExternalSemanticRelocation`; no synthetic binding or parent |
+| Abort, typed command rejection, or timeout | Keep initial committed presentation and imported registration; release successor/work only | Keep truthful no-owner baseline; release successor/work only | Retryable terminal outcome precedes release; sequence remains consumed; rejection never waits for timeout |
+| Retry | Create a fresh operation against the same committed baseline | Create a fresh operation against neutral and reacquire semantic binding | Next sequence and exact prior real-operation parent; no proof reuse |
+| Visibility/restoration fact | Task 6 may only fence/cancel through its fact-only compatibility boundary; Task 7 must reacquire all semantic/material/frame proof before a new commit | Same, with no owner/resource resurrection | Initial origin is never persisted or reconstructed; this row does not move Task 7 implementation into Task 6 |
+| Publication replacement | Atomically capture exact active cancellation target when present, enter permanent `ReleaseOnly`, emit keyed cancellation once, and release adopted/active/committed resources exactly once | Same cleanup transaction, with no baseline resource release | No operation/sequence; no-active replacement emits no cancellation; only matching cancellation/deadline/release-failure/resource facts remain admissible |
+| Publication close | Existing close operation atomically captures only the pre-close active cancellation target, then enters permanent `ReleaseOnly`; release imported registration once by session authority | Same; issue no predecessor release | No-active close may be sequence `1`/no parent but emits no fabricated cancellation; cleanup never borrows the close operation identity |
+
+Stale, duplicate, or mismatched facts cannot replace the baseline or release its resource.
+Resource observation/confirmation remains admissible only through the release ledger/sink.
+No equality or mismatch path may format the origin, seed, registration, physical identity,
+session/epoch, binding, or lease; it emits only the bounded diagnostic projection in
+Section 8.4.
 
 ### 8.2 Executable semantic handles and causally isolated receipts
 
@@ -477,31 +1341,123 @@ value class ReaderSemanticCommandSlotId internal constructor(val value: Long) {
     }
 }
 
+sealed interface ReaderSemanticInvocationState {
+    data object BeforeMutation : ReaderSemanticInvocationState
+    data object InvokingWithoutCallback : ReaderSemanticInvocationState
+    data class InvokingWithBufferedCallback(
+        val latestAuthoritativeReceipt: ReaderPresentationEventReceipt,
+        val callbackCount: ReaderSaturatingCallbackCount,
+        val violationStatus: ReaderSemanticBufferedViolationStatus
+    ) : ReaderSemanticInvocationState {
+        fun record(receipt: ReaderPresentationEventReceipt): InvokingWithBufferedCallback {
+            val nextCount = callbackCount.increment()
+            return copy(
+                latestAuthoritativeReceipt = receipt,
+                callbackCount = nextCount,
+                violationStatus = if (nextCount == ReaderSaturatingCallbackCount.One) {
+                    ReaderSemanticBufferedViolationStatus.None
+                } else {
+                    ReaderSemanticBufferedViolationStatus.DuplicateCallback
+                }
+            )
+        }
+
+        override fun toString(): String =
+            "ReaderSemanticInvocationState.InvokingWithBufferedCallback(<redacted>)"
+    }
+    data object AwaitingAsynchronousCallback : ReaderSemanticInvocationState
+    data object ReceiptQueued : ReaderSemanticInvocationState
+    data object RejectedWithoutCallback : ReaderSemanticInvocationState
+    data object ContractViolated : ReaderSemanticInvocationState
+}
+
+data class ReaderSemanticInvocationRecord(
+    val id: ReaderSemanticInvocationId,
+    val transitionId: ReaderTransitionId,
+    val state: ReaderSemanticInvocationState
+) {
+    override fun toString(): String =
+        "ReaderSemanticInvocationRecord(<redacted>)"
+}
+
+sealed interface ReaderSemanticCommandResult {
+    data object Accepted : ReaderSemanticCommandResult
+
+    data class Rejected(
+        val reason: ReaderTransitionCommandRejectionReason
+    ) : ReaderSemanticCommandResult {
+        init {
+            require(
+                reason == ReaderTransitionCommandRejectionReason.MissingHandle ||
+                    reason == ReaderTransitionCommandRejectionReason.ExpiredHandle ||
+                    reason == ReaderTransitionCommandRejectionReason.ConsumedHandle ||
+                    reason == ReaderTransitionCommandRejectionReason.WrongSessionHandle ||
+                    reason == ReaderTransitionCommandRejectionReason.SemanticSlotCapacity ||
+                    reason == ReaderTransitionCommandRejectionReason.SemanticRegistryRejected ||
+                    reason == ReaderTransitionCommandRejectionReason.SemanticExecutionRejected ||
+                    reason == ReaderTransitionCommandRejectionReason.CommandThrew
+            )
+        }
+    }
+}
+
 internal interface ReaderSemanticCommandPort {
     fun synchronize(
         command: ReaderTransitionCommand.RequestSemanticSynchronization,
         onReceipt: (ReaderPresentationEventReceipt) -> Unit
-    ): ReaderPortCommandResult
+    ): ReaderSemanticCommandResult
 }
 ```
 
-Page turn and cover-entry semantic intents carry the same handle in addition to their
-public direction/gesture metadata. The handle resolves exactly once in a bounded
+Page turn, cover-entry, and relocation intents register their private requests before their
+normal operation admission. Neutral bootstrap is different only in reservation timing: its
+private current-destination request is registered synchronously before atomic installation,
+transferred in the installed snapshot, and then carried by the post-install intent without
+a second or nullable registration branch. All semantic intents otherwise use the same
+one-shot handle and slot protocol. The bootstrap intent has no EPUB location and resolves
+to the pre-reserved private live-Foliate request for
+its current authoritative destination. The handle resolves exactly once in a bounded
 Android session registry to a private executable closure containing the real Foliate
 destination/action. Hrefs, CFIs, selections, annotation payloads, and other semantic
-content never enter common state, persistence, diagnostics, equality, or logs. A
-missing, already-taken, expired, superseded, or wrong-session handle rejects the
-command before legacy dispatch or Foliate mutation; it is never reconstructed from
-`source`.
+content never enter common state, persistence, diagnostics, equality, or logs. Before taking
+the executable request, the port reserves one dedicated command slot containing
+`ReaderSemanticCommandSlotId`, exact `ReaderTransitionId`, request handle, and a fresh
+redacted `ReaderSemanticInvocationId`. The limits are eight active command slots and sixteen
+pending request handles per reader session. The production adapter installs
+`BeforeMutation`, performs every rejectable lookup/validation there, changes to
+`InvokingWithoutCallback` immediately before the first possible Foliate mutation, and never
+exposes a synchronous callback while `synchronize` is on the stack. First callback stores
+`latestAuthoritativeReceipt` with count `One`. Every later callback replaces it, advances
+`One → Two → ThreeOrMore → ThreeOrMore`, and marks duplicate violation. This total callback
+path has no collection, size precondition, callback exception, or loss of final authority;
+FIFO publication waits until invocation result return.
 
-Before taking the executable request, the port reserves one dedicated command slot
-containing `ReaderSemanticCommandSlotId`, the exact coordinator-issued
-`ReaderTransitionId`, and that request handle. The limits are eight active command
-slots and sixteen pending request handles per reader session. Each private execution
-receives a callback closure capturing only its own slot ID; there is no shared
-"next callback" slot and an unsolicited Foliate callback cannot consume a command
-slot. The slot is consumed at most once and supplies its identity to the common
-receipt/controller path:
+The ordering matrix is executable and exhaustive:
+
+| Observed order | Required handling |
+|---|---|
+| `Accepted` after exactly one buffered callback | Change to `ReceiptQueued` and flush the latest exact receipt once. |
+| `Accepted` after two or 3+ buffered callbacks | Flush only latest exact authority once, then one bounded duplicate violation with saturated count; close fail-visible. |
+| `Accepted` without callback | Change to `AwaitingAsynchronousCallback`; first later callback queues once. If none arrives, the existing exact operation deadline emits `DeadlineExpired`; no new timer exists. |
+| `Rejected(reason)` in `BeforeMutation` | Guarantee no mutation/callback, retain `RejectedWithoutCallback`, and queue exact `CommandRejected(transitionId, SemanticSynchronization, reason)`. |
+| Throw in `BeforeMutation` | Guarantee no mutation/callback and queue the same exact rejection with `CommandThrew`. |
+| One callback then `Rejected` or throw | Flush latest exact receipt once, no normal rejection, then one exact callback/result violation. |
+| Two or 3+ callbacks then `Rejected` or throw | Flush only latest exact receipt once, then one bounded combined duplicate/result violation carrying saturated count. |
+| Callback after `RejectedWithoutCallback` | Queue late latest exact receipt as authority, then one `RejectedThenLateCallback` violation. |
+| Further callback after fatal marking | Replace retained latest authority and saturate metadata without allocation/throw; one coalesced drain publishes latest once and no second fatal fact. |
+| `Rejected` or throw after mutation began without callback | Queue `RejectedAfterMutationStarted`/`ThrowAfterMutationStarted` violation instead of normal rejection. |
+
+An exact contract-violation safety fact matches session/epoch/invocation tombstone rather than
+the active pending stage. It atomically blocks every later semantic command for that session,
+preserves the latest queued receipt/controller evidence, retires handle/slot once, and drives the
+same fail-visible `PublicationClose` release-only transaction without fallback. Receipt FIFO
+order is authoritative: a later rejection or safety fact cannot clear, replace, or outvote a
+receipt. Repeated violations after the gate closes are inert. A normal accepted callback,
+pre-mutation rejection/throw, supersession, deadline, replacement, or close retires both slot
+and handle. The bounded slot/invocation fence stores one contiguous retired-through sequence
+plus at most 32 out-of-order redacted tombstones; active slots take precedence and overflow
+rejects new semantic work fail-closed. The slot is consumed at most once and supplies its
+identity to the common receipt/controller path:
 
 ```kotlin
 sealed interface ReaderPresentationEventOrigin {
@@ -542,16 +1498,13 @@ fun readerPresentationEventTransition(
 ```
 
 The receipt's `originatingTransitionId` is copied only from the consumed
-`SemanticCommand` slot; no reducer, gateway, host, or callback may infer it. Slots and
-handles retire on accepted callback, command rejection/throw, supersession, deadline,
-publication replacement, or close. A slot-retirement fence stores one contiguous
-retired-through sequence and at most 32 out-of-order sequences; active slots take
-precedence, overflow rejects new semantic work fail-closed, and no tombstone collection
-can grow without bound. If Foliate calls back before `synchronize` returns, the tagged
-receipt is appended to the existing coordinator FIFO and is never reduced recursively.
-Wrong-slot, duplicate, stale, or untagged settlement receipts cannot satisfy exact
-settlement proof. Unsolicited untagged relocation remains authoritative under Task 5's
-existing same-publication arbitration and uses `UnsolicitedFoliate`.
+`SemanticCommand` slot; no reducer, gateway, host, or callback may infer it. A callback before
+`synchronize` returns is buffered and flushed only after `Accepted`, never reduced
+recursively. Wrong-slot, stale, or untagged settlement receipts cannot satisfy exact proof.
+Duplicate/3+ callbacks retain only the latest exact authoritative receipt plus saturating
+bounded metadata, enqueue that latest receipt once, and enter the fatal contract-violation path
+without collection growth or callback throw. Unsolicited untagged relocation remains authoritative under Task 5's existing same-
+publication arbitration and uses `UnsolicitedFoliate`.
 
 ### 8.3 Material causality and allocation
 
@@ -610,9 +1563,10 @@ the coordinator first selects the exact registration: native/curl use the alread
 admitted `Deck`; shell/live receive a transition-owned `FrameHandoff` allocated by the
 coordinator release ledger. The journal publishes an awaiting-target `AwaitingProof`
 phase whose contract awaits exactly
-`ReaderTransitionProofKind.FrameTargetPreparation` and lists only
-`FrameTargetPrepared` and `FrameTargetPreparationRejected` callback sources. It then
-issues:
+`ReaderTransitionProofKind.FrameTargetPreparation`, admits exactly
+`ReaderTransitionCommandStage.FrameTargetPreparation`, and lists
+`FrameTargetPrepared`, `FrameTargetPreparationRejected`, and `CommandRejected` callback
+sources. It then issues:
 
 ```kotlin
 data class PrepareFrameTarget(
@@ -733,8 +1687,9 @@ only while preserving exact gesture/settlement/PlayLikeCurl deck identity.
 
 For every operation that narrows or revokes input, acceptance first publishes an
 `AwaitingProof` retained-publication phase awaiting exactly
-`OwnerAndInputPublicationAcknowledgement` and listing only
-`OwnerAndInputPublicationApplied` and `OwnerAndInputPublicationRejected`. It emits only
+`OwnerAndInputPublicationAcknowledgement`, admits exactly `RetainedPublication`, and lists
+`OwnerAndInputPublicationApplied`, `OwnerAndInputPublicationRejected`, and
+`CommandRejected`. It emits only
 `PublishRetainedOwnerAndInputLease`. Before exact `Applied(Retained)`, semantic,
 allocation, raster, deck, target-preparation, frame-presentation, and timer-requiring
 physical commands are prohibited. `Applied(Retained)` returns the same active operation
@@ -744,9 +1699,10 @@ route exists.
 
 Consuming a matching `PreparedFrame` removes `PreparedFrame` from awaited proofs and
 publishes successor `Committing`. Every successor `Committing` phase awaits exactly
-`ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement`, lists exactly
-`OwnerAndInputPublicationApplied` and `OwnerAndInputPublicationRejected` as callback
-sources, retains predecessor truth, timer, target, and successor resource, and emits only
+`ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement`, admits exactly
+`SuccessorPublication`, lists exactly `OwnerAndInputPublicationApplied`,
+`OwnerAndInputPublicationRejected`, and `CommandRejected` as callback sources, retains
+predecessor truth, timer, target, and successor resource, and emits only
 `CommitOwnerAndInputLease`.
 
 ```kotlin
@@ -797,9 +1753,55 @@ Journal state always precedes asynchronous effects: awaiting-target precedes pre
 `Committing` precedes commit, and terminal state precedes release.
 
 Raw frame-target handles, host/handoff-token values, handoff-claim identities,
-publication identities, request/presented-frame sequences, and resource registrations
-are in-memory only and forbidden from logs, diagnostics, analytics, screenshots, crash
-metadata, equality diagnostics, and persistence. Only bounded kind/state/mismatch
+publication identities, request/presented-frame sequences, resource registrations, and
+all initial-origin seed/session/epoch/owner/binding/resource values are in-memory only and
+forbidden from logs, diagnostics, analytics, screenshots, crash metadata, equality
+diagnostics, and persistence. Production equality/mismatch reporting accepts only this
+projection, never either origin object or its `toString()`:
+
+```kotlin
+enum class ReaderInitialOriginKind { AdoptedPredecessor, Neutral }
+enum class ReaderInitialOriginOwnerKind { ShellCover, NativePage, Curl, LiveEngine }
+enum class ReaderInitialOriginMismatchKind {
+    Variant,
+    Session,
+    Epoch,
+    Seed,
+    Owner,
+    Binding,
+    ResourceOwner,
+    ResourceKind,
+    RetirementDomain,
+    RequestedLease,
+    PhysicalLease,
+    Provenance
+}
+
+data class ReaderInitialOriginEqualityDiagnostic(
+    val originKind: ReaderInitialOriginKind,
+    val ownerKind: ReaderInitialOriginOwnerKind?,
+    val resourceKind: ReaderTransitionResourceKind?,
+    val mismatch: ReaderInitialOriginMismatchKind
+)
+```
+
+All three enums are finite and content-free. Every newly introduced sensitive value type—
+including initial lease/origin, adopted seed, composite physical identity,
+imported registration, restoration checkpoint, decision, installation, committed
+presentation/transition, journal, activated snapshot, semantic invocation ID/record,
+release-only cleanup ID/generation/key/state, cleanup deadline registration/fact,
+physical release attempt ID/identity/imported-legacy dispatch, fixed semantic/release callback state,
+release rejection/throw/port-violation facts, bounded release-failure attempt rows/tombstones,
+explicit retirement-fence snapshot/sanitized projection, and keyed cancellation command/outcome facts—
+overrides `toString()` with a
+constant redacted string or is an explicit non-data-class with equivalent redacted
+rendering/equality. Production and test
+code must not pass whole sensitive values to `assertEquals`, assertion messages, string
+templates, exception messages, logs, or snapshot diff renderers. Tests compare individual
+non-sensitive enum/state/count fields and use sanitized projections for sensitive equality;
+failing messages are fixed bounded text. RED coverage must invoke direct `toString()` on
+each wrapper and intentionally fail sanitized equality helpers to prove no seed/session/
+epoch/binding/resource/lease/port/cleanup-key/close-operation/pre-close-transition value appears. Only bounded kind/state/mismatch
 categories and counts may be exposed.
 
 ### 8.5 Exact activation sequence
@@ -816,24 +1818,43 @@ For each reader session, Task 6 must execute exactly this order:
 5. select at most one directly proven visible predecessor and begin destructive drain
    of every other complete physical identity through identity-exact confirmations until
    the fixed point;
-6. carry the selected row's exact owner, truthful resource kind, binding, complete
-   physical identity, and provenance into the adopted predecessor seed; allocate a
-   collision-free imported key and owner-independent retirement order; and compute the
-   safety-narrowed physical initial lease;
-7. call `installActivatedSession` once with every route/port and the complete immutable
-   initial owner/input decision; successful return is the first observable
-   `Activated` state and command egress is already open.
+6. when a predecessor exists, carry the selected row's exact owner, truthful resource
+   kind, binding, complete physical identity, and common provenance into a non-neutral
+   adopted seed; fence/cancel every legacy claimed gesture; allocate a collision-free
+   imported key and owner-independent retirement order; form `AdoptedPredecessor` from
+   that exact seed/import after validating both requested and physical leases against its
+   exact owner/binding and breadth ordering. With no predecessor, form `Neutral` with exact
+   session/epoch and lawful identity-free no-owner leases but no
+   seed, visible owner, binding, physical identity, kind, or registration;
+7. for neutral only, synchronously register the private current-Foliate-destination request
+   while routes/egress remain closed. A null handle fails before `ReadyToCommit`, performs
+   exact-once activation-state cleanup, and follows pre-drain unfreeze or post-drain
+   restoration/blocking; adopted carries no bootstrap reservation;
+8. call `installActivatedSession` once with the production ports and complete immutable
+   initial decision, including the exact neutral reservation when applicable. Inside the
+   barrier, revalidate both leases and reservation ownership, derive the zero-sequence/no-
+   parent initial journal, and include journal plus reservation in the sole snapshot write;
+   successful return is the first observable
+   `Activated` state, journal, optional owner/binding/resource, deck writer, physical
+   input, reserved bootstrap capability, and open command egress;
+9. only after successful install, enqueue `ReaderBootstrapNativePageIntent` with the exact
+   pre-reserved handle when the origin is neutral. This starts the existing bootstrap
+   operation through normal FIFO routing and live Foliate authority; there is no nullable
+   post-install `register()` branch and it is not part of activation.
 
 No seed/key cycle exists: inventory supplies the complete composite physical identity;
-the handoff mints the seed ID and preserves the row's exact owner/kind/binding/
+only a selected non-neutral row mints a seed ID and preserves its exact owner/kind/binding/
 provenance; ledger import allocates a new collision-free coordinator-global key plus
-retirement order; and only then is the immutable installation payload formed. The
-source-local opaque token is never reused as that key. Failure before step 5 reaches `Legacy` only after accepted complete
-unfreeze; failed unfreeze enters frozen `ActivationBlocked`. Failure from step 5 through atomic install enters `RestoringLegacy`; only a complete
-restoration commit may return to `Legacy`, otherwise the session enters
-`ActivationBlocked`. A failure after successful installation remains coordinator-owned
-and fails closed. Publication close calls `closeToReleaseOnly` and enters `ReleaseOnly`
-directly.
+retirement order; and only then is the adopted origin formed. Neutral mints neither seed
+nor resource key. The source-local opaque token is never reused as a coordinator key.
+Failure before step 5 reaches `Legacy` only after accepted complete unfreeze; rejected
+unfreeze enters frozen `ActivationBlocked`. Failure from step 5 through atomic install
+enters `RestoringLegacy`; only a complete restoration commit may return to `Legacy`,
+otherwise the session enters `ActivationBlocked`. A failure after successful installation
+remains coordinator-owned and fails closed. Publication close/replacement uses the atomic release-only cleanup
+transaction: capture any exact pre-close active cancellation target, install its bounded
+cleanup record, close ingress, and enter `ReleaseOnly` in the same reduction before
+emitting at most one keyed cancellation command.
 
 ### 8.6 Operation liveness matrix
 
@@ -887,6 +1908,21 @@ data class ReaderTask6FactOnlyTimerRegistration(
     }
 }
 
+data class ReaderReleaseOnlyCleanupDeadlineRegistration(
+    val id: ReaderTask6FactOnlyTimerRegistrationId,
+    val cleanupKey: ReaderReleaseOnlyCleanupKey,
+    val physicalIdentity: ReaderLegacyPhysicalIdentity,
+    val hardExpiresAtMillis: Long
+) {
+    init {
+        require(physicalIdentity.source == ReaderLegacyInventorySource.DeadlineRegistration)
+        require(hardExpiresAtMillis >= 0L)
+    }
+
+    override fun toString(): String =
+        "ReaderReleaseOnlyCleanupDeadlineRegistration(<redacted>)"
+}
+
 data class ReaderTask6FactOnlyTimerTransferSnapshot(
     val registration: ReaderTask6FactOnlyTimerRegistration,
     val nextExpiresAtMillis: Long
@@ -903,6 +1939,11 @@ interface ReaderTask6FactOnlyTimerPort {
         onExpired: (ReaderTransitionFact.DeadlineExpired) -> Unit
     ): ReaderTask6FactOnlyTimerRegistration?
 
+    fun prepareCleanupDeadline(
+        cleanupKey: ReaderReleaseOnlyCleanupKey,
+        onElapsed: (ReaderTransitionFact.ReleaseOnlyCleanupDeadlineElapsed) -> Unit
+    ): ReaderReleaseOnlyCleanupDeadlineRegistration?
+
     fun matchingProgress(
         registration: ReaderTask6FactOnlyTimerRegistration,
         nowMillis: Long
@@ -913,25 +1954,52 @@ interface ReaderTask6FactOnlyTimerPort {
     ): ReaderTask6FactOnlyTimerTransferSnapshot?
 
     fun cancel(registration: ReaderTask6FactOnlyTimerRegistration): ReaderPortCommandResult
+
+    fun cancelCleanupDeadline(
+        registration: ReaderReleaseOnlyCleanupDeadlineRegistration
+    ): ReaderPortCommandResult
 }
 ```
 
-A null/rejected bind is translated by the coordinator into the exact typed immediate
-failure fact before physical work; it is not permission to run without a timer.
+Before `bind`, the reducer publishes exact pending `TimerBinding` in a phase whose
+admissible stages include it and whose callback sources include `CommandRejected`.
+Accepted binding clears that pending stage before timer-requiring work. A
+null/rejected/throwing bind is translated before physical work into
+`CommandRejected(transitionId, TimerBinding, TimerBindingRejected)` (or the bounded
+`TimerOwnershipConflict` reason) and appended to FIFO; it is not permission to run without
+a timer and does not synthesize deadline expiry.
 `snapshotForTask7Transfer` returns the immutable registration plus its current exact next
 expiry bounded by hard expiry; it neither transfers ownership nor arms the coordinator
-clock by itself. For initial activation, deadline-requiring physical work cannot start
-until one bound registration ID is accepted as owner. For supersession and close, main-
-thread code binds the successor registration with its callback admission-gated, then
-atomically replaces the accepted registration ID and fences the predecessor before
-physically cancelling it. Before that commit only the predecessor callback is
-admissible; afterward only the successor callback is admissible. Bind failure leaves the
-predecessor sole owner and rejects/terminates successor work. This is the no-zero/no-two
-ownership protocol; stale physical callbacks have no consequence authority.
+clock by itself. For initial activation, deadline-requiring physical work cannot start until
+one bound registration ID is accepted as owner. Supersession uses the existing gated-successor
+swap. Close/replacement instead calls `prepareCleanupDeadline` on that same retained Task 6
+physical timer source with the fresh cleanup ID/generation and an immutable two-second hard
+expiry. Its callback is admission-gated until one atomic release-only commit installs the
+cleanup record with `deadlineStatus = Armed`, replaces/fences any transition-timer owner, and
+activates the cleanup registration. Before that commit only the predecessor timer callback is
+admissible; afterward only exact `ReleaseOnlyCleanupDeadlineElapsed(cleanupKey)` is. Physical
+predecessor cancellation follows the logical swap, so no zero- or two-owner interval exists.
+No Task 7 coordinator-clock scheduling participates.
 
-| Operation | Truthful retained owner / input | Required proof | Deadline | Timeout outcome | Named wake or recovery |
+A null/rejected/throwing cleanup-deadline preparation cannot prevent visual close or reopen
+legacy. The same atomic release-only commit records `BindingRejected`/`BindingThrew`, records
+nonretryable `CloseDrainTimeout`, and terminalizes currently unresolved release entries for
+bounded fail-closed accounting. While `Armed`, the release-only sink admits deadline elapsed
+only for the sole cleanup ID and exact generation. The first match records `Elapsed`,
+nonretryable `CloseDrainTimeout`, and timeout state for every unresolved release obligation;
+stale ID, stale generation, duplicate, or post-completion delivery is inert. The deadline is
+logically fenced and physically cancelled exactly once only after cancellation is terminal
+and the release ledger is `EmptyReleased` or `TerminalFailure`; accepted cancellation records
+`CancelledAfterTerminalAccounting`, `Rejected` records `CancellationRejected`, and throw
+records `CancellationThrew`. Completed or fail-closed terminal cleanup rejects all later timer
+delivery. Process close fences/cancels an armed deadline, marks `ProcessClosed`,
+converts unresolved cleanup/release entries to non-persisted process-closed terminal state,
+and creates no wake, recreation, or persisted deadline. This is the no-zero/no-two ownership
+protocol; stale physical callbacks have no consequence authority.
+
+| Operation or lifecycle trigger | Truthful retained owner / input | Required proof | Deadline | Timeout outcome | Named wake or recovery |
 |---|---|---|---|---|---|
-| Bootstrap native page | shell cover or neutral shield / chrome only | retained-owner publication ack → allocation + raster + admitted Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(MaterialTimeout, retryable)` | `Wake.Retry` |
+| Bootstrap native page | adopted shell/native/live predecessor, or no owner/resource from neutral / chrome only | adopted only: retained-owner publication ack; neutral: command-bound live-Foliate authoritative destination; then allocation + raster + admitted Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(MaterialTimeout, retryable)` retaining adopted baseline or truthful neutral | `Wake.Retry` |
 | Shell-cover commit | prior native/live frame / no new page pointer | retained-owner publication ack → coordinator FrameHandoff + shell target preparation → sized post-draw/prepared frame → successor publication ack | 2 s hard | `Failed(CoverCommitTimeout, retryable)` | `Wake.HostAvailable` or `Wake.Retry` |
 | Cover-to-page entry | shell cover / duplicate entry coalesces | retained-owner publication ack → allocation + raster + admitted Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(PageEntryTimeout, retryable)` | `Wake.RasterProofAvailable`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
 | Curl claim and settlement | claimed curl stream / matching pointer only | retained-owner publication ack → one-shot settlement + destination allocation/raster/Deck → curl target preparation → prepared terminal frame → successor publication ack | 5 s hard | `Failed(SettlementTimeout, retryable)` with stable terminal frame | `Wake.FoliateDestinationCommitted` or `Wake.Retry` |
@@ -939,26 +2007,32 @@ ownership protocol; stale physical callbacks have no consequence authority.
 | Live-to-native handback | live frame / no new page pointer | retained-owner publication ack → admitted Deck + native target preparation → prepared frame → successor publication ack | 2 s hard | `Failed(NativeHandbackTimeout, retryable)` | `Wake.RendererCapacityAvailable` or `Wake.Retry` |
 | External semantic relocation | pre-relocation frame retained only as a noninteractive transition shield / chrome only | retained-owner publication ack → destination semantic/allocation/raster/Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(ExternalRelocationTimeout, retryable)` with visible diagnostic over the retained shield | `Wake.FoliateDestinationCommitted`, `Wake.RasterProofAvailable`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
 | Reflow/profile replacement | last valid cover/native/live frame / chrome only | retained-owner publication ack → fresh-profile allocation/raster/Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(ReflowTimeout, retryable)` | `Wake.PaginationProfileReady`, `Wake.RasterProofAvailable`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
-| Visibility loss | latest valid frame identity retained logically / no physical input | persisted deferral accepted | immediate terminal deferral | `Deferred(VisibilityRestore)` | `Wake.VisibilityRestored` or `Wake.Restored` |
+| Visibility-loss fact (not an operation) | latest valid frame identity retained logically / no physical input | persisted deferral accepted | immediate terminal deferral | `Deferred(VisibilityRestore)` | `Wake.VisibilityRestored` or `Wake.Restored` |
 | Visibility restore | retained owner if still provable, otherwise shield / chrome only | retained-owner publication ack → fresh host/semantic/profile/allocation/raster/Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(RestoreTimeout, retryable)` | `Wake.HostAvailable`, `Wake.WebViewAvailable`, `Wake.PaginationProfileReady`, `Wake.RendererCapacityAvailable`, or `Wake.Retry` |
 | Renderer recovery | last truthful non-renderer owner or shield / chrome only | retained-owner publication ack → fresh renderer/allocation/Deck → target preparation → prepared frame → successor publication ack | 10 s without progress, 30 s hard | `Failed(RendererRecoveryTimeout, retryable)` | `Wake.RendererCapacityAvailable` or `Wake.Retry` |
-| Publication close | no visual owner / navigation only | cancellation acknowledgements and empty release ledger | 2 s drain budget | `Failed(CloseDrainTimeout, nonretryable)` with the reader already visually closed | none; late facts can only enter the closed release ledger |
+| Publication close | no visual owner / navigation only | atomic release-only cleanup capture; exact keyed owned-work cancellation terminal; release ledger `EmptyReleased` or `TerminalFailure`; exact cleanup deadline cancelled or elapsed | exact retained Task 6 2 s physical cleanup deadline | `Failed(CloseDrainTimeout, nonretryable)` with the reader already visually closed, unresolved release rows terminalized without reissue, and bounded failure evidence retained | none; permanent sink admits only exact cancellation/deadline/release-failure/resource facts, while stale or duplicate cleanup generations are inert |
 
-`AwaitingPrerequisites` uses the listed no-progress/hard bounds. Retained publication
-waiting precedes timer binding and all successor work; `Applied(Retained)` returns to
-pre-work, and only then may the attempt timer bind before its first timer-requiring
-command. Target preparation is an `AwaitingProof` phase whose sole proof/callback pair is
-`FrameTargetPreparation`/prepared-or-rejected. `CommandIssued` must advance
+`AwaitingPrerequisites` uses the listed no-progress/hard bounds. When a truthful
+predecessor resource exists, retained publication waiting precedes timer binding and all
+successor work; `Applied(Retained)` returns to pre-work, and only then may the attempt
+timer bind before its first timer-requiring command. A neutral initial origin has nothing
+to republish, so the reducer skips that gate rather than fabricating its subject and binds
+the first real operation's timer before its first timer-requiring semantic command.
+Target preparation is an `AwaitingProof` phase whose sole proof is
+`FrameTargetPreparation`, whose admissible command stage is
+`FrameTargetPreparation`, and whose callback sources are prepared, specialized rejected,
+and `CommandRejected`. `CommandIssued` must advance
 synchronously to its matching `AwaitingProof` after acceptance or fail immediately.
 Consuming `PreparedFrame` removes that proof. `Committing` retains predecessor truth,
 successor resource, and timer while awaiting exactly
-`OwnerAndInputPublicationAcknowledgement` from exactly Applied/Rejected callbacks, and
+`OwnerAndInputPublicationAcknowledgement`, admitting only `SuccessorPublication`, and
+receiving exactly Applied/Rejected protocol callbacks plus `CommandRejected`; it
 uses only the operation's remaining budget without extending hard expiry. Prepared-frame
 receipt is progress, not settlement or success.
 Publication close is exempt from frame proof and uses its dedicated 2 s release-drain
-bound. Task 6 retained-timer binding failure and Task 7 coordinator-clock scheduling
-failure each enqueue the exact immediate typed deadline failure fact; neither invokes a
-local consequence or retry.
+bound. Task 6 retained-timer binding failure enqueues exact `CommandRejected` and Task 7
+coordinator-clock scheduling failure enqueues its exact typed scheduling fact; neither
+invokes a local consequence, substitutes a timeout, or retries automatically.
 
 A deferred logical demand has no hidden running timer or command. It is bounded by
 the resume-record rules in Section 11. If its named wake never arrives, no physical
@@ -994,8 +2068,10 @@ components retain specialized work and expose facts/commands through adapters.
 Create:
 
 - `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderResumableTransition.kt`
-  — transition identity, operation, phase, outcome, facts, pure policy, and
-  resume-record schema.
+  — transition identity, exactly eleven operations, common resource provenance, identity-
+  free initial input leases, typed initial committed-presentation origin and baseline,
+  typed command-stage rejection and publication replacement facts, phase, outcome, pure
+  policy, and resume-record schema.
 - `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderResumableTransitionCoordinator.android.kt`
   — mailbox, advancement loop, journal, deadlines, command issuance, and terminal
   publication.
@@ -1059,7 +2135,8 @@ Refactor as adapters:
   renderer callbacks, and Foliate execution; after activation it accepts semantic,
   allocated deck, and frame commands and emits command-bound exact facts only.
 - `ReaderDeckAdmission.android.kt` retains renderer ownership, contributes complete
-  freeze inventory, and accepts only coordinator-issued allocated bindings.
+  freeze inventory, imports common `ReaderTransitionResourceProvenance` after deleting its
+  Android-only declaration, and accepts only coordinator-issued allocated bindings.
 - `ReaderPageInputSettlementHostController.android.kt` consumes the lease installed by
   the combined owner/input barrier and may narrow or veto only for physical safety.
 - `ReaderPresentationLifecycleDelivery.android.kt` is superseded by the coordinator
@@ -1080,7 +2157,7 @@ the replacement fact, and the port accepts commands only from the coordinator.
 | Legacy writer / current consequence | Slice and replacement fact → command | Proof/deadline → terminal outcome | Release rule / wake |
 |---|---|---|---|
 | `ReaderPresentationAuthority.kt:readerPresentationReduce` mutates authority, binding, diagnostics, input, transition, and cleanup effects | 1 shadow; 3 one atomic cutover; 5 delete legacy effect dispatch. All normalized facts → `CommitOwnerAndInputLease` / operation command | Operation-matrix proof and deadline → one typed terminal outcome | Coordinator ledger only / operation-specific fact |
-| `ReaderTransitionGateway` is Shadow-only and every accepted route currently continues to legacy dispatch | 2 inactive observation; 3 `installActivatedSession` accepts only the capability-authenticated real-adapter package, switches semantic intent/receipt routing with all material/exact-frame/sole-owner-input/resource routes, publishes initial owner/lease, and makes no Shadow/LegacyOnly or no-op legacy consequence route reachable. Intent or unsolicited Foliate fact → coordinator mailbox | Installation succeeds only as one complete package with initial publication and open egress; a public Boolean/`complete()`/all-rejecting package cannot satisfy completeness; any post-install failure remains coordinator-owned | `closeToReleaseOnly` permanently rejects non-release routes / no legacy fallback |
+| `ReaderTransitionGateway` is Shadow-only and every accepted route currently continues to legacy dispatch | 2 inactive observation; 3 `installActivatedSession` accepts only the capability-authenticated real-adapter package, switches semantic intent/receipt routing with all material/exact-frame/sole-owner-input/resource routes, installs the typed adopted/neutral journal baseline with its optional initial owner/resource and exact physical lease, and makes no Shadow/LegacyOnly or no-op legacy consequence route reachable. Intent or unsolicited Foliate fact → coordinator mailbox | Installation succeeds only as one complete package with initial publication and open egress; a public Boolean/`complete()`/all-rejecting package cannot satisfy completeness; any post-install failure remains coordinator-owned | `closeToReleaseOnly` permanently rejects non-release routes / no legacy fallback |
 | `ReaderPresentationControllerReducer.onPresentationEvent/onViewerAction` admits input, mutates cover state, emits Foliate commands, and currently derives receipts without an executable handle or isolated command slot | 1/2 shadow; 3 intent-only gateway plus `ReaderSemanticRequestHandle`, dedicated bounded slot, and explicit `ReaderPresentationEventOrigin`; 5 remove legacy presentation branches. Command slot → tagged receipt; unsolicited Foliate origin → untagged authoritative fact | Exact handle, slot, command tag, and destination/frame proof → one terminal outcome; wrong/duplicate/stale/untagged settlement cannot satisfy proof | Retire handle/slot on every terminal path; no resources / Foliate callback or unsolicited relocation |
 | `KomikkuReaderNativeFrameHost.android.kt:ReaderPresentationBindingReporter.update`, `reserve`, `classifyReceipt`, and `commitReceipt` maintain an Android authority replica and deck currency | 1 fact source; 2 inactive inventory protocol; 3 exhaustive freeze reporter, capability-authenticated production composition, and sole synchronous combined publication barrier; 5 delete replica. Exact composite physical identity/resource kind/binding/visible owner → adopted seed; exact target `PreparedFrame` → `Committing` → `CommitOwnerAndInputLease` → queued typed applied/rejected acknowledgement | One directly proven predecessor with truthful owner-kind relation; exact target/registration proof; only matching applied acknowledgement may succeed; ambiguity or mismatch blocks install/commit | Every non-adopted complete identity drains exactly; rejected successor alone releases; adopted identity enters ledger with `AdoptedLegacy` provenance |
 | `ReaderPresentationLifecycleDelivery.android.kt:ReaderPresentationReceiptDispatcher`, `ReaderPresentationHostEffectApplier`, and `KomikkuReaderNativeFrameHost.android.kt:ReaderPresentationEffectHandler` reorder receipts and directly apply Retry/release effects | 1/2 shadow queues; 3 semantic callbacks and synchronous publication results enqueue typed facts into the existing coordinator FIFO while `advancing`; release routes enter the permanent sink; 5 delete. Port receipt/result/failure → fact; coordinator journal → combined commit or release command | Command-bound receipt and exact-target prepared proof reach `Committing`; only exact queued applied acknowledgement reaches success; callback/result-before-return remains non-reentrant | Journal terminal publication precedes timer cancellation/release; ledger confirms exact release / exact callback only |
@@ -1118,8 +2195,10 @@ A resume record stores only:
 - required wake kind.
 
 It never stores publication text, URLs, hrefs, CFIs, book identifiers, selections,
-annotations, raster payloads, bitmap data, renderer handles, WebView state, or
-Whispersync content. The correlation nonce and timestamps are internal matching
+annotations, raster payloads, bitmap data, renderer handles, WebView state, Whispersync
+content, an initial-origin variant, seed ID, baseline session/epoch, owner, binding,
+resource registration, or physical identity. The correlation nonce and timestamps are
+internal matching
 material and are prohibited from logs, diagnostics, analytics, screenshots, and
 crash metadata.
 
@@ -1173,6 +2252,8 @@ value class ReaderLegacyFreezeToken internal constructor(val value: Long) {
     init {
         require(value > 0L)
     }
+
+    override fun toString(): String = "ReaderLegacyFreezeToken(<redacted>)"
 }
 
 enum class ReaderLegacyInventorySource {
@@ -1201,6 +2282,8 @@ data class ReaderLegacyPhysicalDomain(
     init {
         require(readerSessionGeneration > 0L)
     }
+
+    override fun toString(): String = "ReaderLegacyPhysicalDomain(<redacted>)"
 }
 
 @JvmInline
@@ -1208,13 +2291,31 @@ value class ReaderLegacySourceLocalOpaqueToken internal constructor(val value: L
     init {
         require(value > 0L)
     }
+
+    override fun toString(): String =
+        "ReaderLegacySourceLocalOpaqueToken(<redacted>)"
 }
 
 data class ReaderLegacyPhysicalIdentity(
     val domain: ReaderLegacyPhysicalDomain,
     val source: ReaderLegacyInventorySource,
     val sourceLocalToken: ReaderLegacySourceLocalOpaqueToken
-)
+) {
+    override fun toString(): String = "ReaderLegacyPhysicalIdentity(<redacted>)"
+}
+
+// Android-only envelope: common ReleaseResource remains source-set independent.
+data class ReaderImportedLegacyReleaseDispatch(
+    val command: ReaderTransitionCommand.ReleaseResource,
+    val imported: ReaderImportedLegacyResourceRegistration
+) {
+    init {
+        require(command.identity.registration == imported.registration)
+    }
+
+    override fun toString(): String =
+        "ReaderImportedLegacyReleaseDispatch(<redacted>)"
+}
 
 enum class ReaderLegacyResourceOrigin {
     Owned,
@@ -1253,6 +2354,8 @@ data class ReaderFrozenLegacyResource(
         require(!mayBeCommittedPredecessor ||
             kind == readerAdoptedResourceKindFor(requireNotNull(visibleOwner)))
     }
+
+    override fun toString(): String = "ReaderFrozenLegacyResource(<redacted>)"
 }
 
 fun readerAdoptedResourceKindFor(
@@ -1352,8 +2455,9 @@ activation.
 
 At most one inventory row may become the adopted predecessor. It must be the one frame
 directly reported as physically visible at the handoff, and its exact complete identity,
-resource kind, binding, owner, and provenance must be preserved. Zero is valid only when
-the truthful initial owner is neutral; neutral has no adopted physical resource. Native-
+resource kind, binding, owner, and provenance must be preserved. Zero rows is valid only
+for `ReaderInitialCommittedPresentationOrigin.Neutral`, which publishes no visible owner,
+binding, or physical resource. Native-
 page and curl/native-material predecessors use `Deck`; shell-cover and live/WebView
 predecessors use `FrameHandoff`. Any mismatched owner-kind pair blocks installation. A
 shell cover is a real predecessor and must retain its directly reported identity, kind,
@@ -1361,15 +2465,18 @@ and binding. Zero does not permit a journal guess. The coordinator must never in
 visibility or resource kind from binding alone, active journal state, binding similarity,
 gesture state, renderer generations, or acknowledgements.
 
-At `ReadyToCommit`, mint exactly one `ReaderAdoptedPredecessorSeedId` for the handoff
-epoch and construct:
+Before entering `ReadyToCommit`, construct the candidate for one of the two initial origins;
+neutral must also acquire its exact non-null reservation before the state may advance to
+`ReadyToCommit`. Mint
+`ReaderAdoptedPredecessorSeedId` only when a directly proven non-neutral predecessor
+exists:
 
 ```kotlin
 data class ReaderAdoptedPredecessorSeed(
     val id: ReaderAdoptedPredecessorSeedId,
-    val physicalIdentity: ReaderLegacyPhysicalIdentity?,
-    val resourceKind: ReaderTransitionResourceKind?,
-    val binding: ReaderPresentationBinding?,
+    val physicalIdentity: ReaderLegacyPhysicalIdentity,
+    val resourceKind: ReaderTransitionResourceKind,
+    val binding: ReaderPresentationBinding,
     val owner: ReaderPresentationFrameOwner,
     val readerSessionGeneration: Long,
     val coordinatorEpoch: Long,
@@ -1377,42 +2484,55 @@ data class ReaderAdoptedPredecessorSeed(
         ReaderTransitionResourceProvenance.AdoptedLegacy
 ) {
     init {
-        require((owner == ReaderPresentationFrameOwner.Neutral) ==
-            (physicalIdentity == null && resourceKind == null && binding == null))
-        require(owner == ReaderPresentationFrameOwner.Neutral ||
-            (physicalIdentity != null && resourceKind != null && binding != null))
+        require(owner != ReaderPresentationFrameOwner.Neutral)
         require(resourceKind == readerAdoptedResourceKindFor(owner))
         require(provenance == ReaderTransitionResourceProvenance.AdoptedLegacy)
-        require(physicalIdentity == null ||
-            physicalIdentity.domain.readerSessionGeneration == readerSessionGeneration)
+        require(physicalIdentity.domain.readerSessionGeneration == readerSessionGeneration)
     }
+
+    override fun toString(): String = "ReaderAdoptedPredecessorSeed(<redacted>)"
 }
 ```
 
 When a directly proven predecessor exists, the seed uses its selected row's exact
 complete identity, resource kind, rendered binding, visible owner type, reader-session
 generation, and coordinator epoch. After the seed is minted, and not before, the ledger
-allocates a collision-free coordinator-global resource key and its independent
+allocates a collision-free coordinator-global resource key and independent
 `ReaderResourceRetirementOrder`; the source-local token never becomes key `opaqueId`.
-For a truthful neutral start, seed identity/kind/binding and adopted registration are all
-absent. A truthful shell cover keeps its directly reported shell identity,
-`FrameHandoff` kind, and binding rather than inventing a native resource; native-page or
-curl material keeps `Deck`, and live/WebView handoff keeps `FrameHandoff`. Minting at
-handoff is truthful because the identity describes the coordinator's adoption event,
-not the resource's historical creation. It preserves the reported composite identity,
-kind, binding, owner, and `AdoptedLegacy` provenance and therefore satisfies
-`T5-EXACT-SEED` without assigning a fake transition operation to legacy work.
+The resulting common `AdoptedPredecessor` origin copies the seed ID/session/epoch/owner/
+binding/provenance, the imported registration, and the validated leases. A truthful
+neutral start creates `ReaderInitialCommittedPresentationOrigin.Neutral` directly and
+has no seed, physical identity, kind, binding, visible owner, or adopted registration.
+A truthful shell cover keeps its directly reported shell identity, `FrameHandoff` kind,
+and binding rather than inventing a native resource; native-page or curl material keeps
+`Deck`, and live/WebView handoff keeps `FrameHandoff`. The seed describes only the
+coordinator's non-neutral adoption event, never historical creation or an operation.
+Neither origin assigns a fake transition identity, so both satisfy `T5-EXACT-SEED`.
 
 Before the first destructive drain, the freeze port must return a complete checkpoint:
 
 ```kotlin
 @JvmInline
-value class ReaderLegacyRestorationCheckpointId internal constructor(val value: Long)
+value class ReaderLegacyRestorationCheckpointId internal constructor(val value: Long) {
+    init {
+        require(value > 0L)
+    }
+
+    override fun toString(): String =
+        "ReaderLegacyRestorationCheckpointId(<redacted>)"
+}
 
 data class ReaderLegacySourceRestartHandle(
     val source: ReaderLegacyInventorySource,
     val opaqueId: Long
-)
+) {
+    init {
+        require(opaqueId > 0L)
+    }
+
+    override fun toString(): String =
+        "ReaderLegacySourceRestartHandle(<redacted>)"
+}
 
 data class ReaderLegacyRestorationCheckpoint(
     val id: ReaderLegacyRestorationCheckpointId,
@@ -1425,16 +2545,22 @@ data class ReaderLegacyRestorationCheckpoint(
     val initialPhysicalIdentity: ReaderLegacyPhysicalIdentity?,
     val initialResourceKind: ReaderTransitionResourceKind?,
     val initialProvenance: ReaderTransitionResourceProvenance?,
-    val requestedLease: ReaderTransitionInputLease,
-    val physicalLease: ReaderTransitionInputLease
-)
+    val requestedLease: ReaderInitialPresentationInputLease,
+    val physicalLease: ReaderInitialPresentationInputLease
+) {
+    override fun toString(): String =
+        "ReaderLegacyRestorationCheckpoint(<redacted>)"
+}
 ```
 
 The checkpoint validates positive IDs/generation, exact all-source handle coverage,
 handle/source equality, neutral iff binding/identity/kind/provenance are all absent,
 non-neutral provenance exactly `AdoptedLegacy`, exact
-`readerAdoptedResourceKindFor(initialOwner)`, matching session/freeze domain, and a
-physical lease no broader than the requested lease. It stores the frozen route-table
+`readerAdoptedResourceKindFor(initialOwner)`, matching session/freeze domain, breadth
+ordering, and independent requested-plus-physical lease compatibility with the exact
+non-neutral owner/binding. Neutral validates both as lawful identity-free no-owner
+`None` or `ChromeOnly`; curl restoration/adoption first fences and cancels legacy claimed gestures
+and likewise permits only those two identity-free values. It stores the frozen route-table
 generation, the directly proven initial owner/kind/binding/identity/physical lease, the
 current sole lifecycle registration and exact retained fact-only timer registrations,
 and one opaque in-memory restart handle from every `ReaderLegacyInventorySource`.
@@ -1474,42 +2600,86 @@ restoration, and blocked states; this does not activate any semantic/presentatio
 consequence. Atomic installation binds the activated gateway to the same sink, and
 close narrows the session to it:
 
-- one `ReaderTransitionReleaseLedger` records every coordinator-owned registration and
-  every adopted `ReaderImportedLegacyResourceRegistration` as `Owned`,
-  `ReleaseCommandIssued`, or `Released`; legacy observation, drain, import, release, and
-  confirmation carry the same complete composite identity;
-- equal source-local IDs from different sources/domains allocate distinct imports and
-  each releases once; duplicate observations of one complete identity reuse one
-  registration and cannot issue or confirm a second release;
-- `ReaderResourceRetirementOrder` is allocated at first physical registration and is
-  independent of resource owner and transition identity;
-- only `ReleaseResource` may issue physical release, and only confirmation matching
-  both key and retirement order may reach `Released`;
-- the retirement fence stores `contiguousReleasedThrough` plus at most 32
-  out-of-order released sequences per session/epoch. Active registrations take
-  precedence; overflow rejects new ownership and keeps the sink fail-closed rather
-  than evicting an unconfirmed fence;
-- stale, replaced, failed, newly discovered frozen, restoring, blocked, and closed
-  resources receive exactly one release command;
-- publication close calls `closeToReleaseOnly()` before physical cancellation;
-- `ReleaseOnly` is permanent and accepts only resource observation, release
-  confirmation, and `ReleaseResource`; it rejects semantic, material, deck, frame,
-  input, presentation, Retry, restoration, and transition consequences even after
-  `CloseDrainTimeout`;
-- timeout records the failure but never disables the sink or reopens legacy routes.
+- one `ReaderTransitionReleaseLedger` records every coordinator/imported registration and owns
+  a fresh opaque `ReaderPhysicalReleaseAttemptId` → exact registration row before every
+  physical command, in `ReleaseCommandIssued`, `RejectedNoEffect`, `AmbiguousFailure`,
+  `Released`, `TimedOutUnreleased`, or `ProcessClosedUnreleased`; `Owned` registrations have
+  no attempt yet;
+- `ReleaseResource` always carries mandatory attempt identity and optional cleanup grouping.
+  Imported-legacy dispatch additionally carries complete physical identity in its Android
+  envelope. Equal source-local IDs from different sources/domains remain distinct; one
+  registration can create at most one attempt/physical command;
+- ordinary successor, abort, supersession, timeout, and terminal release attempts exist
+  independently of cleanup. Close/replacement atomically attaches every unresolved ordinary
+  attempt to the cleanup key without changing attempt/resource/state or reissuing a command;
+- generic and legacy release adapters buffer fixed state only: latest exact confirmation,
+  saturating `Zero/One/Two/ThreeOrMore` callback category, and bounded violation status. Before
+  dispatch that state is exactly `latestAuthoritativeConfirmation = null`, count `Zero`, and
+  violation `None`. Every callback replaces latest authority and is total/non-throwing with no
+  collection growth;
+- `Accepted` plus callback flushes exact attempt-keyed confirmation to `Released`; Accepted
+  without callback awaits the existing confirmation/deadline. `Rejected` without callback
+  guarantees no effect/callback and records `RejectedNoEffect`; throw without callback records
+  `AmbiguousFailure`; neither can reissue;
+- callback then Rejected/throw flushes latest confirmation first to `Released`, then one bounded
+  `ReleasePortContractViolated`; result failure cannot override physical evidence. Late
+  callback after rejected/ambiguous likewise promotes exact attempt to `Released` plus one
+  violation. Duplicate/3+ confirmations remain idempotent, retain latest exact authority,
+  saturate metadata, throw nothing, and emit at most one coalesced violation per drain;
+- exact cleanup timeout converts unconfirmed issued/rejected/ambiguous attempts to
+  `TimedOutUnreleased`; process close converts them to `ProcessClosedUnreleased`.
+  Rejected/ambiguous causes additionally receive bounded attempt-keyed tombstones. Active
+  attempt rows are bounded by the existing owned-registration ledger capacity and outrank at most
+  32 tombstones; overflow blocks admission. Wrong attempt,
+  registration/order, cleanup generation, or legacy identity is inert;
+- exact late confirmation may promote issued/rejected/ambiguous/timeout/process-closed attempt
+  to `Released` without reissue. Legacy confirmation must also match complete physical
+  identity. `ReaderResourceRetirementOrder` remains independent of owner/transition;
+- `ReaderResourceRetirementFenceSnapshot` is an explicit non-data class with private raw
+  sequence fields, exact explicit equality, constant non-data-derived hash, fixed redacted
+  `toString()`, internal `confirms(order)`, and a sanitized projection exposing only released-
+  prefix presence, bounded gap count, and capacity category. Raw sequence values are forbidden
+  in assertion operands/messages and diagnostic rendering;
+- publication close/replacement atomically captures any exact pre-close active ID and
+  outstanding owned-work cancellation in one `ReaderReleaseOnlyCleanupState`, attaches every
+  unresolved ordinary release attempt without reissue, prepares and
+  installs the exact two-second Task 6 cleanup deadline, emits `CancelOwnedWork` at most
+  once, and enters `ReleaseOnly`; no-active close records `NotRequired` and fabricates no
+  cancellation;
+- `ReleaseOnly` is permanent and accepts only exact attempt-keyed resource observation/
+  confirmation, release rejection/throw/port-violation, cancellation applied/rejected, and
+  `ReleaseOnlyCleanupDeadlineElapsed` matching the sole cleanup ID plus generation. It
+  rejects semantic, material, deck, frame, input, presentation, ordinary timer, Retry,
+  restoration, and transition consequences;
+- cancellation and release accounting remain independent. The cleanup deadline is cancelled
+  only when cancellation is terminal and the ledger is `EmptyReleased` or
+  `TerminalFailure`; deadline elapsed records nonretryable `CloseDrainTimeout`, terminalizes
+  unresolved release accounting, never retries, and leaves the sink permanently live for
+  lawful late confirmations;
+- replacement/repeated close cannot overwrite the record, re-emit cancellation/release, or
+  create a second cleanup timer. Process close fences the armed deadline, marks unresolved
+  cancellation/release state process-closed, destroys rather than persists it, and creates no
+  Task 6 wake/recreation behavior.
 
-A committed cover/native/live frame remains retained until exact queued
-`Applied(Successor)` acknowledges the combined owner/input publication, or terminal lifecycle invalidates
-it. Reflow invalidates material identity and input leases, not Foliate semantic
-authority or a valid committed cover. An old callback can report only its exact stale
-resource identity; the coordinator leaves the current transition unchanged and
-applies the release ledger.
+An adopted initial baseline or later committed cover/native/live frame remains retained
+until exact queued `Applied(Successor)` acknowledges the combined owner/input publication,
+or terminal lifecycle/close invalidates it. The first successor's `PreparedFrame`, commit
+command return, timeout, abort, retry, or rejected/stale acknowledgement cannot release an
+adopted baseline. Exact applied acknowledgement first replaces
+`ReaderCommittedPresentation.Initial` with `Transition`, publishes terminal success, then
+cancels the timer and issues the adopted resource's single session-authority release. A
+neutral baseline has no release command. Reflow invalidates material identity and input
+leases, not Foliate semantic authority or a valid committed cover. An old callback can
+report only its exact stale resource identity; the coordinator leaves the current
+transition unchanged and applies the release ledger.
 
 ## 13. Input Contract
 
 Input is an epoch-scoped coordinator lease published by the same sole snapshot
-transaction as the initial adopted owner, every later committed visual owner, and every
-transitional retained-owner narrowing/revocation. `ApplyInputLease` cannot be an
+transaction as the typed initial origin, every later committed visual owner, and every
+transitional retained-owner narrowing/revocation. The adopted origin publishes its exact
+owner/binding/resource and lease; neutral publishes no visible presentation and a lease
+that admits no page or cover pointer. `ApplyInputLease` cannot be an
 activated mutation: a transitional change re-publishes the exact retained owner,
 binding, resource, and physical lease atomically through the owner/input port. An
 operation requiring this change first awaits exact `Applied(Retained)` and emits nothing
@@ -1541,10 +2711,14 @@ may never both mutate the same consequence.
    owners, captures a complete restoration checkpoint, drains all but at most one
    directly proven predecessor, constructs its adopted registration, and atomically
    installs semantic command, allocation/deck, coordinator-led target-preparation and
-   exact presentation, release-sink, initial visible owner/physical lease, retained-input
-   and two-phase successor publication, and retained fact-only timer routes from a
-   capability-authenticated real-adapter package while production coordinator-clock
-   scheduling remains inactive. Retained `Applied` gates all successor work; coordinator
+   exact presentation, release-sink, typed adopted/neutral initial committed-presentation
+   origin, its optional visible owner/resource and exact physical lease, baseline-aware
+   pure journal, retained-input and two-phase successor publication, and retained fact-
+   only timer routes from a capability-authenticated real-adapter package while production
+   coordinator-clock scheduling remains inactive. The first real operation is sequence `1`
+   with no parent; neutral physical bootstrap uses the existing `BootstrapNativePage`
+   operation and a command-bound live-Foliate destination before allocation. Retained
+   `Applied` gates successor work only when a predecessor resource exists; coordinator
    selects/allocates target registration before `PrepareFrameTarget`; matching target
    fact gates presentation; consuming `PreparedFrame` reaches `Committing` awaiting only
    publication acknowledgement; exact queued `Applied(Successor)` alone succeeds. Earlier wording
@@ -1566,9 +2740,10 @@ may never both mutate the same consequence.
 Task 6 owns only activation and the activated steady-state routes required for
 executable semantic commands, command-bound receipts, material allocation, raster/deck
 admission, coordinator-owned target registration selection/allocation,
-`PrepareFrameTarget`/FIFO target proof/exact presentation, atomic initial publication,
-retained-owner acknowledgement before successor work, two-phase successor owner/input
-publication acknowledgement, adopted predecessor ownership, exact
+`PrepareFrameTarget`/FIFO target proof/exact presentation, atomic installation of the typed
+initial origin and baseline journal, retained-owner acknowledgement before successor work
+when such an owner exists, two-phase successor owner/input publication acknowledgement,
+adopted predecessor ownership, exact
 resource release, and the permanent release-only sink. It must nevertheless avoid a
 lifecycle gap or a duplicate deadline writer while those routes are active. Production
 composition is incomplete until `KomikkuReaderNativeFrameHost` installs only the
@@ -1576,7 +2751,7 @@ capability-authenticated real-adapter package and no `Shadow`/`LegacyOnly`, lega
 consequence writer, no-op `complete()`, or rejecting activated package is reachable.
 
 Task 7 retains lifecycle policy, visibility/recreation handling, reflow/profile
-replacement, renderer-loss recovery policy, all deadline scheduling/policy,
+replacement, renderer-loss recovery policy, all coordinator-clock deadline scheduling/policy,
 SavedState wakes, and wake-driven resumption. Task 6 nevertheless retains exactly one
 existing command-scoped fact-only physical timer per activated attempt until Task 7 can
 perform the atomic ownership transfer. The following rows are mandatory Task 6 carry-
@@ -1589,7 +2764,8 @@ forward evidence:
   facts that cancel or fence unsafe Task 6 physical work. Task 6 cannot reinterpret
   those facts, create restore/reflow/recovery operations, persist demand, or choose a
   wake. Task 7 replaces this adapter and owns policy.
-- `T6-NO-DEADLINE-TRANSFER`: Task 7 retains deadline ownership and policy. Task 6 keeps
+- `T6-NO-DEADLINE-TRANSFER`: Task 7 retains coordinator-clock deadline ownership and policy.
+  Task 6 keeps
   production coordinator-clock scheduling inactive and selects exactly one existing
   command-scoped physical timer for each activated attempt. For narrowing operations no
   timer is bound while retained publication is pending; exact `Applied(Retained)` returns
@@ -1605,19 +2781,121 @@ forward evidence:
   retained physical schedulers. Pre-commit callbacks belong only to the retained timer;
   post-commit callbacks belong only to the coordinator. Transfer racing expiry,
   supersession, or close is classified once at the mailbox boundary, with no zero- or
-  two-owner interval.
+  two-owner interval. The sole close-only exception is not a Task 7 transfer: Task 6 reuses
+  that retained physical fact-only timer to prepare one exact two-second cleanup deadline
+  keyed by opaque cleanup ID plus generation. Its callback may enqueue only
+  `ReleaseOnlyCleanupDeadlineElapsed`; it creates no persisted wake/recreation and is fenced
+  on cleanup completion or process close.
 - `T6-NO-WAKE-TRANSFER`: Task 6 neither persists nor consumes resumable wake demand;
   Task 7 owns `ReaderTransitionWakeStore` and every SavedState wake route. The
   activation restoration checkpoint is in-memory safety state, not a wake record.
 
 Each slice requires deterministic callback-before-ownership,
 ownership-before-callback, supersession, timeout, restore, and release-once coverage.
-Task 6 additionally requires grouped RED coverage for atomic installation including
-neutral, shell-cover, native-page, curl/native-material, and live/WebView predecessor
-owner-kind cases plus mismatched-kind rejection; complete-identity subordinate-owner
+Task 6 additionally requires these grouped named RED release blockers before existing
+activation coverage:
+
+- `adoptedBaselineFirstSuccessorStartsAtOneWithoutParentAndReleasesAfterApplied`;
+- `neutralBaselineBootstrapUsesFoliateBindingAndExistingOperation`;
+- `unsolicitedRelocationFromAdoptedBaselineRetainsThenReleasesExactlyOnce`;
+- `unsolicitedRelocationFromNeutralBaselineNeedsNoRetainedPublication`;
+- `initialOriginCannotFabricateOperationOrParent`;
+- `transitionSequenceIsMonotonicAcrossAbortRetryAndRestore`;
+- `retryAndRestorationPreserveTruthfulInitialBaseline`;
+- `adoptedBaselineReleaseWaitsForSuccessorPublicationAcknowledgement`;
+- `closeFromAdoptedBaselineReleasesOnceWithoutTransitionBorrowing`;
+- `closeFromNeutralBaselineEntersReleaseOnlyWithoutResourceCommand`;
+- `initialLeaseCannotCarryClaimedGestureOrTransitionId`;
+- `curlAdoptionFencesLegacyGestureAndUsesIdentityFreeLease`;
+- `neutralBootstrapRegistrationNullBlocksActivationBeforeAtomicInstall`;
+- `failedNeutralBootstrapSemanticResolutionQueuesTypedRetryableFact`;
+- `semanticMissingHandleRejectsSingleSynchronizationStage`;
+- `semanticExpiredHandleRejectsSingleSynchronizationStage`;
+- `semanticConsumedHandleRejectsSingleSynchronizationStage`;
+- `semanticWrongSessionHandleRejectsSingleSynchronizationStage`;
+- `semanticRegistryFailureRejectsSingleSynchronizationStage`;
+- `semanticSlotCapacityRejectsSingleSynchronizationStage`;
+- `semanticExecutionFailureRejectsSingleSynchronizationStage`;
+- `semanticSynchronousCallbackThenAcceptedBuffersAndFlushesReceipt`;
+- `semanticAcceptedThenAsynchronousCallbackQueuesOneReceipt`;
+- `semanticRejectedWithoutCallbackQueuesExactSynchronizationRejection`;
+- `semanticThrowBeforeMutationQueuesExactSynchronizationRejection`;
+- `semanticCallbackThenRejectedPreservesReceiptAndClosesFailVisible`;
+- `semanticCallbackThenThrowPreservesReceiptAndClosesFailVisible`;
+- `semanticRejectedThenLateCallbackIsFatalContractViolation`;
+- `semanticDuplicateCallbackIsFatalContractViolation`;
+- `semanticThreeOrMoreSynchronousCallbacksSaturateWithoutThrowing`;
+- `semanticDifferingDuplicateCallbacksRetainLatestAuthority`;
+- `semanticCallbackCountSaturatesAtThreeOrMore`;
+- `semanticDuplicateCallbackPathNeverThrows`;
+- `semanticFatalFlushesLatestReceiptOnce`;
+- `semanticAcceptedWithoutCallbackUsesExistingExactTimeout`;
+- `delayedSemanticSynchronizationRejectionAfterStageClearIsInert`;
+- `duplicateSemanticSynchronizationRejectionAfterStageClearIsInert`;
+- `retryAfterFailedNeutralBootstrapUsesNextAuthenticIdentity`;
+- `materialAllocationRejectionQueuesTypedFactAndTerminatesRetryable`;
+- `timerBindingRejectionQueuesTypedFactWithoutTimeoutSubstitution`;
+- `delayedCommandRejectionAfterStageAdvanceIsInert`;
+- `duplicateCommandRejectionIsInertAfterPendingStageConsumed`;
+- `timerBindingRejectionRequiresPendingTimerBindingStage`;
+- `mismatchedRequestedLeaseRejectedForShellAdoption`;
+- `mismatchedRequestedLeaseRejectedForNativeAdoption`;
+- `mismatchedRequestedLeaseRejectedForCurlAdoption`;
+- `mismatchedRequestedLeaseRejectedForLiveAdoption`;
+- `initialNativePageLeaseAllowsTextureGenerationZero`;
+- `publicationReplacementFromAdoptedBaselineClosesAndReleasesOnce`;
+- `publicationReplacementFromNeutralBaselineClosesWithoutBaselineRelease`;
+- `closeDuringSequenceOneOperationCapturesCleanupAndCancelsOnce`;
+- `releaseOnlyCancellationRejectionRecordsFailClosedCleanupFailure`;
+- `duplicateReleaseOnlyCancellationOutcomeIsInert`;
+- `staleReleaseOnlyCancellationOutcomeIsInert`;
+- `closeWithNoActiveOperationEmitsNoCancellation`;
+- `releaseOnlyRejectsWorkAndCannotReopenTransition`;
+- `replacementDuringActiveOperationUsesSameReleaseOnlyCleanupTransaction`;
+- `replacementCannotReplaceExistingReleaseOnlyCleanupRecord`;
+- `processCloseDoesNotReemitPendingCleanupCancellation`;
+- `releaseOnlyCleanupDeadlineFiresAndRecordsCloseDrainTimeout`;
+- `releaseOnlyCleanupDeadlineCancelsAfterCancellationAndLedgerTerminal`;
+- `releaseOnlyCleanupDeadlineBindFailureFailsClosed`;
+- `staleReleaseOnlyCleanupDeadlineGenerationIsInert`;
+- `duplicateReleaseOnlyCleanupDeadlineElapsedIsInert`;
+- `processCloseFencesReleaseOnlyCleanupDeadlineWithoutWake`;
+- `completedCleanupCannotReceiveDeadlineElapsed`;
+- `releaseCommandRejectedRecordsNoEffectWithoutReissue`;
+- `releaseCommandThrowBeforeEffectBoundaryRecordsAmbiguousFailure`;
+- `releaseCommandThrowAfterPossibleEffectRecordsAmbiguousFailure`;
+- `ordinaryActivatedSuccessorReleaseRejectedTracksAttemptWithoutCleanup`;
+- `ordinaryTerminalReleaseThrowTracksAttemptWithoutCleanup`;
+- `unresolvedOrdinaryReleaseAttemptTransfersIntoCleanupWithoutReissue`;
+- `genericReleaseOrderingMatrixIsAttemptExact`;
+- `legacyReleaseOrderingMatrixIsAttemptAndPhysicalIdentityExact`;
+- `releaseCallbackThenRejectedKeepsReleasedAndReportsViolation`;
+- `releaseCallbackThenThrowKeepsReleasedAndReportsViolation`;
+- `releaseLateCallbackPromotesRejectedOrAmbiguousAttempt`;
+- `releaseDuplicateAndManyCallbacksSaturateWithoutThrowing`;
+- `releaseLatestConfirmationRemainsAuthoritative`;
+- `duplicateOrStaleReleaseFailureOutcomeIsInert`;
+- `ambiguousReleaseFailureNeverIssuesSecondPhysicalRelease`;
+- `releaseFailureBlocksCompletionUntilCleanupTimeout`;
+- `resourceRetirementFenceRenderingIsContentFree`;
+- `resourceRetirementFenceFailingEqualityUsesSanitizedProjection`;
+- `resourceRetirementFenceAssertionsNeverRenderRawSequences`;
+- `sensitiveInitialWrappersRenderOnlyRedactedConstants`;
+- `sensitiveInitialEqualityFailureUsesSanitizedProjection`;
+- `initialOriginEqualityDiagnosticsExposeOnlyBoundedCategories`.
+
+The same RED group must table-drive atomic installation including
+neutral, shell-cover, native-page (including texture generation zero), curl/native-material,
+and live/WebView predecessor owner-kind cases; independently mismatched requested and
+physical lease rejection for every adopted owner; neutral pre-install handle reservation,
+null-registration cleanup/restoration with no snapshot write; complete-identity subordinate-owner
 inventory, cross-source equal-local-ID drain/confirmation/import/release-once races;
 adopted-seed and owner-independent retirement provenance; executable semantic handles
-and isolated bounded slots; material allocation; retained publication acknowledgement
+and isolated bounded slots behind one reducer-visible `SemanticSynchronization` stage with
+all internal failure mappings, fixed latest-authoritative callback state, a saturating
+`Zero`/`One`/`Two`/`ThreeOrMore` count, accepted/rejected/throw ordering, exact timeout,
+and delayed/late/arbitrarily-many duplicate coverage proving no collection growth or callback
+exception; material allocation; retained publication acknowledgement
 before any successor work/timer binding; coordinator-selected Deck or ledger-allocated
 FrameHandoff followed by awaiting-target `PrepareFrameTarget` and FIFO target fact;
 sealed kind-specific target validation with no pre-command frame sequence, adapter-owned
@@ -1627,7 +2905,17 @@ terminal-before-release ordering; capability-authenticated
 production composition with no Shadow/no-op route; one retained fact-only timer with
 inactive coordinator clock and lifecycle compatibility; restoration deadline through
 all asynchronous confirmations and final atomic result; restoration/blocked activation;
-no fallback; and close in every activation phase. Task 7 RED coverage must prove atomic timer transfer and deletion under expiry,
+no fallback; and close/replacement in every activation phase with exact pre-close cleanup
+capture, keyed applied/rejected outcomes, cleanup ID/generation and retained two-second
+fact-only deadline, no-active/duplicate/stale/process-close fencing; every ordinary or
+cleanup-grouped physical release has a mandatory opaque attempt ID plus exact registration,
+unresolved ordinary attempts transfer into cleanup without command reissue, and generic and
+imported-legacy adapters obey the complete callback/result/throw matrix with fixed
+latest-confirmation state, bounded saturated violation metadata, callback-authoritative release,
+late promotion, optional cleanup grouping, imported Android physical-identity matching,
+bounded active rows/tombstones with active-attempt precedence, and content-free explicit
+retirement-fence rendering/equality diagnostics; permanent work rejection and no
+Task 6 wake/recreation. Task 7 RED coverage must prove atomic timer transfer and deletion under expiry,
 supersession, and close races with no zero/two-owner interval. Passing tests do not
 replace the bounded running-app gate.
 
@@ -1682,20 +2970,32 @@ to distributed callback patches.
 
 ### 16.1 Authoritative validation and delivery order
 
-1. Task384 completes all five migration slices. The public synthetic fixture must
-   then pass deterministic common/Android host coverage for atomic installation with
+1. Task389 publishes this initial-origin amendment and its independent review. Task #385
+   then completes the reopened real-owner/source/port wiring; Task #386 stays fail-closed
+   until both are closed. Only then may Task384 complete the remaining migration slices.
+   The public synthetic fixture must pass deterministic common/Android host coverage for
+   typed adopted/neutral journal baselines, first-operation sequence/parent rules,
+   neutral Foliate-authoritative bootstrap, unsolicited relocation from both baselines,
+   retry/restoration and close, atomic installation with
    initial owner/input publication and truthful neutral/shell/native/curl/live owner-kind
    mapping, complete composite-identity subordinate-owner inventory and cross-source
    collision release races, adopted-seed and owner-independent retirement provenance,
-   executable semantic handles and isolated bounded command slots, command-bound
-   synchronous receipts, material allocation, retained acknowledgement before successor
+   executable semantic handles and isolated bounded command slots, command-bound fixed
+   latest-authoritative synchronous callback buffering and exhaustive Accepted/Rejected/throw/
+   late/arbitrarily-many-duplicate/timeout receipt ordering with saturating metadata and no
+   callback-path exception, material allocation, retained acknowledgement before successor
    work, coordinator-selected/ledger-allocated registration, awaiting-target
    `PrepareFrameTarget` plus FIFO target fact, sealed kind-specific target validation,
    exact presentation proof, consumed `PreparedFrame`, successor `Committing` awaiting
    only publication acknowledgement, terminal-before-release ordering,
    capability-authenticated production composition with no Shadow/no-op route, exactly one retained Task 6 fact-only timer with inactive production
    coordinator clock, atomic Task 7 timer transfer, lifecycle fact-only compatibility,
-   restoration/blocked activation, no fallback, close in every activation phase, the
+   restoration/blocked activation, no fallback, close in every activation phase with exact
+   cleanup ID/generation, two-second retained fact-only deadline and process-close fencing,
+   mandatory attempt-exact ordinary and cleanup-grouped release accounting, no-reissue
+   transfer of unresolved ordinary attempts into cleanup, complete generic/imported-legacy
+   callback/result/throw ordering, bounded active rows and tombstones, and sanitized
+   retirement-fence diagnostics, with no physical command reissue; the
    same transition ordering, all operation-liveness rows, one-shot semantic facts,
    persistence expiry, and release-ledger adoption/drain. Then run the final consolidated
    JavaScript, common, Android host, renderer, build, and lint gates.
@@ -1743,9 +3043,32 @@ check. An unmapped writer or dual consequence path blocks implementation.
 
 Implementation is release-ready only after:
 
-- `installActivatedSession` atomically installs every route from a capability-authenticated
-  package constructed by `KomikkuReaderNativeFrameHost` from real adapters, publishes the
-  initial owner/physical lease, marks `Activated`, and exposes command egress, with no
+- `ReaderCommittedPresentation.Initial` represents adopted or neutral baseline without a
+  `ReaderTransitionId`, operation, parent, binding/resource for neutral, or prepared-frame
+  proof; first real operation is sequence `1` with no parent, later identities are
+  monotonic and preserve authentic causal parent identity across abort/Retry/restore;
+- neutral bootstrap uses only `BootstrapNativePage`; its private current-destination handle
+  is reserved synchronously before `ReadyToCommit`, transferred by atomic install, consumed
+  by sequence 1 after install, obtains binding from a command-bound live-Foliate receipt,
+  and then uses existing allocation/resource/frame protocols. Null registration prevents
+  installation and every route/publication/egress switch, retires activation-owned state
+  exactly once, and follows the existing unfreeze/restoration/`ActivationBlocked`
+  protocol;
+- initial requested/physical leases use `ReaderInitialPresentationInputLease`, cannot
+  encode `ReaderTransitionId` or `ClaimedGesture`, preserve breadth ordering, and are each
+  independently owner/binding-compatible at origin, checkpoint, decision, and barrier;
+  neutral validates both as lawful no-owner leases, curl fences/cancels every legacy
+  claimed gesture, and initial native texture generation accepts zero without a migration
+  claim;
+- commonMain owns the exact two-value `ReaderTransitionResourceProvenance`; Android
+  deletes its duplicate declaration and imports the common type;
+- `installActivatedSession` atomically installs every route from an exact
+  `ReaderProductionActivatedSessionPorts` package constructed by
+  `KomikkuReaderNativeFrameHost` from real adapters, derives the zero-sequence/no-parent
+  journal inside the validated barrier, and installs the
+  typed baseline journal, exact pre-reserved neutral-bootstrap capability when applicable,
+  optional initial owner/resource, and exact identity-free physical lease,
+  marks `Activated`, and exposes command egress, with no
   public post-install publication/open step and no reachable `Shadow`/`LegacyOnly`,
   legacy consequence writer, production no-op `complete()`, or rejecting fixture port;
 - freeze/inventory/drain covers every named subordinate physical owner under one token
@@ -1758,8 +3081,70 @@ Implementation is release-ready only after:
 - destructive-drain failure restores one complete legacy snapshot or enters coherent
   `ActivationBlocked`, never direct partial `Legacy`;
 - semantic requests carry executable opaque handles and each command owns one isolated,
-  bounded, exhaustively retired callback slot;
+  bounded, exhaustively retired callback slot; the neutral bootstrap handle alone is
+  reserved pre-install and is discarded exactly once on installation rejection or close if
+  not consumed; successful sequence-1 `take` consumes it and leaves only a bounded
+  tombstone;
+- every active transition stores a zero-or-one `pendingCommandStages` set constrained by
+  its phase's finite admissible set; `CommandRejected` is admitted only for matching active
+  identity plus currently pending stage; exact success/rejection/phase advance/terminal cleanup,
+  Abort, Retry, and supersession consume or clear it; replacement/close first captures the
+  exact active cancellation target in the cleanup record and then clears it, so delayed,
+  duplicate, stale, and wrong-stage rejection are inert;
 - every physical raster/deck request follows an exact fresh material allocation;
+- `RequestSemanticSynchronization` exposes exactly one reducer-visible
+  `SemanticSynchronization` stage recorded before emission; handle lookup/take, registry,
+  slot, and execution remain private port internals. The adapter buffers synchronous callback
+  evidence until `synchronize` returns: `Accepted` flushes exactly one buffered receipt or
+  awaits exactly one asynchronous receipt under the existing transition timeout; pre-mutation
+  `Rejected`/throw queues the exact typed stage rejection and guarantees no callback. Callback
+  ingress uses fixed state only: the first callback stores `latestAuthoritativeReceipt`; every
+  later callback replaces it, marks fatal duplicate status, and increments a bounded count that
+  saturates at `ThreeOrMore`. Callback then rejected/throw, rejection then late callback,
+  mutation-started rejection/throw, or any duplicate callback queues the final latest exact
+  receipt once plus one bounded `SemanticPortContractViolated`, blocks later semantic commands
+  for the session, and enters fail-visible close/release-only with no fallback. Ingress never
+  grows a collection, throws from a size precondition, propagates a callback exception, or loses
+  the final authoritative receipt;
+- every synchronous semantic internal, allocation, timer-bind, or equivalent command-stage
+  rejection queues exact `CommandRejected` through FIFO, reduces to a
+  retryable fail-visible terminal outcome, and never substitutes silence or timeout;
+- `PublicationReplaced` exists in fact kind and fact hierarchies, is exhaustive over both
+  baselines, allocates no operation, and uses the same irreversible release-only cleanup
+  transaction as close: capture exact pre-close active ID in one bounded record before
+  clearing active state, emit one keyed cancellation only when required, and release only
+  lawful exact resources once;
+- the permanent release-only sink keeps any admitted `PublicationClose` ID separate from the
+  pre-close cancellation target and admits only exact cancellation applied/rejected, cleanup
+  deadline elapsed, attempt-keyed release confirmation/rejection/throw/port violation, and
+  lawful resource observation matching either its sole cleanup ID plus generation or an
+  ordinary unresolved attempt atomically transferred into that cleanup. Transfer changes only
+  optional cleanup grouping and emits no second release command. Cancellation and release
+  accounting become terminal independently; the two-second retained Task 6 physical deadline
+  is cancelled only
+  when cancellation is terminal and the ledger is `EmptyReleased` or `TerminalFailure`.
+  Exact elapsed records `CloseDrainTimeout`, terminalizes unresolved release entries, and
+  never reopens or falls back; stale/duplicate/post-completion generations are inert. Process
+  close fences the timer and creates no persisted wake/recreation. No-active close emits no
+  cancellation; replacement/repeated/process close cannot overwrite or re-emit;
+- before every generic or imported-legacy physical release dispatch, the ledger allocates one
+  opaque `ReaderPhysicalReleaseAttemptId` and installs an active attempt row keyed by that ID
+  plus exact registration; cleanup grouping is optional and the Android legacy envelope also
+  carries complete physical identity. One registration can issue at most one command. Fixed
+  adapter state starts with null latest confirmation, count `Zero`, and violation `None`.
+  `Accepted` plus callback flushes the latest exact confirmation; accepted without callback
+  waits for confirmation/deadline. `Rejected` without callback records `RejectedNoEffect`;
+  throw without callback records `AmbiguousFailure`; neither reissues. Callback then rejected
+  or throw remains `Released` and adds one bounded port violation. A late exact callback
+  promotes rejected/ambiguous state to `Released`. Duplicate and arbitrarily many callbacks are
+  idempotent, retain only latest evidence, saturate metadata at `ThreeOrMore`, and never throw.
+  Confirmation/rejection/throw/violation facts match attempt ID plus exact registration, and
+  imported legacy additionally matches complete physical identity. Active attempt rows outrank
+  tombstones throughout ordinary operation, cleanup transfer, timeout, and process close;
+  active rows and tombstones have bounded retention, and retirement-fence snapshots have fixed
+  redacted rendering, explicit exact equality, a constant non-data-derived hash, and only
+  sanitized bounded assertion projections with no raw retirement sequence in values, messages,
+  or diagnostics;
 - operations requiring input narrowing publish retained owner/input first; before exact
   `Applied(Retained)` no semantic/allocation/raster/deck/target/frame/timer work occurs,
   Applied returns to pre-work without success, and Rejected terminates;
@@ -1772,13 +3157,31 @@ Implementation is release-ready only after:
   no pre-command frame sequence, binding lookup, candidate polling, token/resource
   fabrication, replacement, or default retirement exists;
 - consuming prepared-frame proof removes it and publishes `Committing` awaiting exactly
-  `OwnerAndInputPublicationAcknowledgement` with exactly Applied/Rejected callback
-  sources; only exact queued `Applied(Successor)` succeeds before timer cancellation and
+  `OwnerAndInputPublicationAcknowledgement`, admitting only `SuccessorPublication`, with
+  exactly Applied/Rejected protocol callback sources plus `CommandRejected`; only exact
+  queued `Applied(Successor)` succeeds before timer cancellation and
   predecessor release, while Rejected retains predecessor and releases successor only;
-- all raw frame-target/token/claim/publication identities, request/presented-frame
-  sequences, and resource registrations remain in-memory and absent from logs,
-  diagnostics, analytics, screenshots, crash metadata, equality diagnostics, and
-  persistence;
+- an adopted initial baseline follows that identical acknowledgement gate for its first
+  successor and is never released by preparation, abort, timeout, Retry, stale/rejected
+  acknowledgement, or diagnostic equality; neutral emits no predecessor release;
+- raw initial-origin seed/session/epoch/resource identities, semantic invocation identities,
+  release-only cleanup ID/generation/key/close-operation/pre-close IDs, cleanup deadline
+  registrations/facts, physical release attempt IDs/identities/imported-legacy dispatches, fixed callback states, release
+  rejection/throw/port-violation facts, active attempt rows/tombstones, retirement-fence raw
+  sequences, and all frame-target/token/claim/publication identities, request/presented-frame
+  sequences, and resource registrations remain in-memory and absent from logs, diagnostics,
+  analytics,
+  screenshots, crash metadata, equality diagnostics, and persistence; every newly
+  introduced sensitive value type (lease/origin/seed/composite identity/import/checkpoint/
+  decision/installation/committed transition/journal/snapshot/semantic invocation/release-only
+  cleanup ID/generation/key/state/cleanup deadline registration and fact/physical release
+  attempt and command identity/fixed callback state/rejection, throw, and port-violation fact/
+  active attempt row and bounded tombstone/explicit retirement-fence snapshot and sanitized
+  projection/keyed cancellation command and outcome facts) renders a constant redacted string
+  or uses explicit non-data-class redacted rendering and exact equality with a safe hash policy,
+  whole sensitive values are forbidden in assertions, raw retirement sequences never appear in
+  assertion values/messages/diagnostics, and failing sanitized comparisons expose only
+  bounded origin kind, owner/resource-kind, and mismatch categories;
 - the restoration deadline survives request issuance and synchronous returns until all
   exact asynchronous source confirmations and final atomic restoration application;
 - resource retirement order and bounded fences are independent of transition/resource
@@ -1786,12 +3189,15 @@ Implementation is release-ready only after:
 - every Task 6 activated attempt has exactly one retained command-scoped fact-only timer;
   for narrowing operations it remains unbound until exact `Applied(Retained)` returns the
   operation to pre-work, then binds before the first timer-requiring command while
-  production coordinator-clock scheduling is inactive; Task 7 atomically transfers all
+  production coordinator-clock scheduling is inactive. Release-only atomically replaces/
+  fences that attempt owner with one exact two-second cleanup deadline keyed by cleanup ID plus
+  generation; only its exact elapsed fact is admitted, and terminal accounting/process close
+  fences it without persistence, wake, or recreation. Task 7 atomically transfers all other
   scheduling to that clock and deletes retained schedulers with no zero/two-owner
   interval; lifecycle compatibility remains fact-only with no overlapping consequence
   writer, and Task 7 retains lifecycle/reflow/recreation/deadline/wake policy;
-- post-install failures never return to legacy and close retains the permanent
-  release-only sink;
+- post-install failures never return to legacy and close retains the permanent release-only
+  sink plus its bounded cleanup tombstone until completion or process teardown;
 - all coordinator transition identities and outcomes are typed;
 - no Android adapter directly publishes visual/input consequences;
 - no accepted transition lacks a deadline and terminal route;
