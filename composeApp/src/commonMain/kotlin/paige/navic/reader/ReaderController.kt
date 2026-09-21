@@ -97,8 +97,10 @@ data class ReaderController(
 		)
 	}
 
-	fun onPresentationEvent(event: ReaderPresentationEvent): ReaderControllerStep =
-		ReaderPresentationControllerReducer.onPresentationEvent(this, event)
+	fun onPresentationEvent(
+		event: ReaderPresentationEvent,
+		origin: ReaderPresentationEventOrigin = ReaderPresentationEventOrigin.NonSemantic
+	): ReaderControllerStep = ReaderPresentationControllerReducer.onPresentationEvent(this, event, origin)
 
 	fun onEngineEvent(event: ReaderEngineEvent): ReaderControllerStep {
 		if (event.requiredCapability?.let(state::supportsReaderEngineCapability) == false) {

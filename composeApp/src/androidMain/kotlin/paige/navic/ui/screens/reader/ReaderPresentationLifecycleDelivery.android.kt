@@ -9,6 +9,8 @@ import paige.navic.reader.ReaderPresentationLifecycleState
 import paige.navic.reader.ReaderPresentationPublicationIdentity
 import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderPresentationState
+import paige.navic.reader.ReaderTransitionFailureReason
+import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.reader.readerPresentationDecision
 
 internal const val ReaderPresentationLifecyclePendingEventLimit = 14
@@ -18,7 +20,28 @@ internal data class ReaderPresentationLifecycleReceiptAdmission(
 	val receipt: ReaderPresentationEventReceipt
 )
 
-internal class ReaderPresentationLifecycleDelivery {
+internal class ReaderPresentationLifecycleDelivery(
+	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator()
+) {
+	private data class RestartSnapshot(
+		val expectedReaderSessionGeneration: Long?,
+		val expectedPublicationIdentity: ReaderPresentationPublicationIdentity?,
+		val minimumEventSequence: Long,
+		val acknowledgedVersion: ReaderPresentationReceiptVersion?,
+		val initialLifecycle: ReaderPresentationLifecycleState,
+		val acknowledgedLifecycle: ReaderPresentationLifecycleState?,
+		val observedWindowVisible: Boolean?,
+		val visibilityLossRequired: Boolean,
+		val visibilityConfirmationRequired: Boolean,
+		val pendingMemoryPressure: Set<ReaderPresentationLifecycleEvent>,
+		val rendererLossPending: Boolean,
+		val publicationClosePending: Boolean,
+		val publicationCloseAcknowledged: Boolean,
+		val retryInProgress: Boolean,
+		val activationToken: ReaderLegacySourceLocalOpaqueToken
+	)
+
 	private var expectedReaderSessionGeneration: Long? = null
 	private var expectedPublicationIdentity: ReaderPresentationPublicationIdentity? = null
 	private var minimumEventSequence: Long = 0L
@@ -35,6 +58,9 @@ internal class ReaderPresentationLifecycleDelivery {
 	private var publicationClosePending = false
 	private var publicationCloseAcknowledged = false
 	private var retryInProgress = false
+	private var activationToken: ReaderLegacySourceLocalOpaqueToken? = null
+	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var restartSnapshot: RestartSnapshot? = null
 
 	val pendingEventCount: Int
 		get() = visibilityPendingEventCount() +
@@ -51,7 +77,9 @@ internal class ReaderPresentationLifecycleDelivery {
 		initialLifecycle: ReaderPresentationLifecycleState =
 			ReaderPresentationLifecycleState.Foreground
 	) {
+		check(frozenDomain == null) { "Lifecycle delivery reset is frozen" }
 		expectedReaderSessionGeneration = version.readerSessionGeneration
+		activationToken = tokenAllocator.allocate()
 		expectedPublicationIdentity = null
 		minimumEventSequence = version.eventSequence
 		acknowledgedVersion = null
@@ -68,7 +96,11 @@ internal class ReaderPresentationLifecycleDelivery {
 	}
 
 	fun bindPublication(identity: ReaderPresentationPublicationIdentity): Boolean {
-		if (expectedReaderSessionGeneration == null || publicationCloseAcknowledged) return false
+		if (
+			frozenDomain != null ||
+			expectedReaderSessionGeneration == null ||
+			publicationCloseAcknowledged
+		) return false
 		val expected = expectedPublicationIdentity
 		if (expected != null && expected != identity) return false
 		expectedPublicationIdentity = identity
@@ -76,6 +108,7 @@ internal class ReaderPresentationLifecycleDelivery {
 	}
 
 	fun advanceComposeVersion(version: ReaderPresentationReceiptVersion): Boolean {
+		if (frozenDomain != null) return false
 		val expectedSession = expectedReaderSessionGeneration ?: return false
 		val expectedPublication = expectedPublicationIdentity ?: return false
 		if (
@@ -87,7 +120,7 @@ internal class ReaderPresentationLifecycleDelivery {
 	}
 
 	fun observe(event: ReaderPresentationLifecycleEvent) {
-		if (publicationCloseAcknowledged) return
+		if (frozenDomain != null || publicationCloseAcknowledged) return
 		if (event == ReaderPresentationLifecycleEvent.PublicationClosed) {
 			publicationClosePending = true
 			return
@@ -121,7 +154,7 @@ internal class ReaderPresentationLifecycleDelivery {
 	fun retry(
 		dispatch: (ReaderPresentationEvent.Lifecycle) -> ReaderPresentationEventReceipt?
 	): ReaderPresentationEventReceipt? {
-		if (retryInProgress || expectedPublicationIdentity == null) return null
+		if (frozenDomain != null || retryInProgress || expectedPublicationIdentity == null) return null
 		val lifecycleEvent = nextPendingEvent() ?: return null
 		val event = ReaderPresentationEvent.Lifecycle(lifecycleEvent)
 		retryInProgress = true
@@ -142,13 +175,130 @@ internal class ReaderPresentationLifecycleDelivery {
 		event: ReaderPresentationEvent.Lifecycle,
 		receipt: ReaderPresentationEventReceipt?
 	): ReaderPresentationLifecycleReceiptAdmission? {
+		if (frozenDomain != null) return null
 		if (event.event != nextPendingEvent()) return null
 		if (!receiptAcknowledges(event, receipt)) return null
 		return ReaderPresentationLifecycleReceiptAdmission(event, checkNotNull(receipt))
 	}
 
 	fun commitReceipt(admission: ReaderPresentationLifecycleReceiptAdmission) {
+		if (frozenDomain != null) return
 		acknowledge(admission.event.event, admission.receipt)
+	}
+
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = when {
+		domain.readerSessionGeneration != expectedReaderSessionGeneration ->
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		frozenDomain == null -> {
+			frozenDomain = domain
+			ReaderPortCommandResult.Accepted
+		}
+		frozenDomain == domain -> ReaderPortCommandResult.Accepted
+		else -> ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+	}
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
+		val domain = frozenDomain ?: return emptyList()
+		val token = activationToken ?: return emptyList()
+		return listOf(
+			ReaderFrozenLegacyResource(
+				freezeToken = domain.freezeToken,
+				physicalIdentity = ReaderLegacyPhysicalIdentity(
+					domain = domain,
+					source = ReaderLegacyInventorySource.LifecycleDelivery,
+					sourceLocalToken = token
+				),
+				kind = ReaderTransitionResourceKind.CallbackRegistration,
+				binding = null,
+				visibleOwner = null,
+				origin = ReaderLegacyResourceOrigin.Owned,
+				state = ReaderLegacyResourceState.Registered,
+				mayBeCommittedPredecessor = false
+			)
+		)
+	}
+
+	fun drainFrozenOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult {
+		val domain = frozenDomain
+		val token = activationToken
+		if (
+			domain == null ||
+			token == null ||
+			physicalIdentity.domain != domain ||
+			physicalIdentity.source != ReaderLegacyInventorySource.LifecycleDelivery ||
+			physicalIdentity.sourceLocalToken != token ||
+			restartSnapshot != null
+		) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		restartSnapshot = captureRestartSnapshot(token)
+		activationToken = null
+		visibilityLossRequired = false
+		visibilityConfirmationRequired = false
+		pendingMemoryPressure.clear()
+		rendererLossPending = false
+		publicationClosePending = false
+		retryInProgress = false
+		onConfirmed(physicalIdentity)
+		return ReaderPortCommandResult.Accepted
+	}
+
+	fun restoreAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		if (frozenDomain != domain) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		restartSnapshot?.let(::restoreRestartSnapshot)
+		restartSnapshot = null
+		frozenDomain = null
+		return ReaderPortCommandResult.Accepted
+	}
+
+	private fun captureRestartSnapshot(
+		token: ReaderLegacySourceLocalOpaqueToken
+	) = RestartSnapshot(
+		expectedReaderSessionGeneration = expectedReaderSessionGeneration,
+		expectedPublicationIdentity = expectedPublicationIdentity,
+		minimumEventSequence = minimumEventSequence,
+		acknowledgedVersion = acknowledgedVersion,
+		initialLifecycle = initialLifecycle,
+		acknowledgedLifecycle = acknowledgedLifecycle,
+		observedWindowVisible = observedWindowVisible,
+		visibilityLossRequired = visibilityLossRequired,
+		visibilityConfirmationRequired = visibilityConfirmationRequired,
+		pendingMemoryPressure = pendingMemoryPressure.toSet(),
+		rendererLossPending = rendererLossPending,
+		publicationClosePending = publicationClosePending,
+		publicationCloseAcknowledged = publicationCloseAcknowledged,
+		retryInProgress = retryInProgress,
+		activationToken = token
+	)
+
+	private fun restoreRestartSnapshot(snapshot: RestartSnapshot) {
+		expectedReaderSessionGeneration = snapshot.expectedReaderSessionGeneration
+		expectedPublicationIdentity = snapshot.expectedPublicationIdentity
+		minimumEventSequence = snapshot.minimumEventSequence
+		acknowledgedVersion = snapshot.acknowledgedVersion
+		initialLifecycle = snapshot.initialLifecycle
+		acknowledgedLifecycle = snapshot.acknowledgedLifecycle
+		observedWindowVisible = snapshot.observedWindowVisible
+		visibilityLossRequired = snapshot.visibilityLossRequired
+		visibilityConfirmationRequired = snapshot.visibilityConfirmationRequired
+		pendingMemoryPressure.clear()
+		pendingMemoryPressure += snapshot.pendingMemoryPressure
+		rendererLossPending = snapshot.rendererLossPending
+		publicationClosePending = snapshot.publicationClosePending
+		publicationCloseAcknowledged = snapshot.publicationCloseAcknowledged
+		retryInProgress = snapshot.retryInProgress
+		activationToken = snapshot.activationToken
 	}
 
 	private fun nextPendingEvent(): ReaderPresentationLifecycleEvent? {

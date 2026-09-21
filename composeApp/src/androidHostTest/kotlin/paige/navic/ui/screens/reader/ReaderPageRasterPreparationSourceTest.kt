@@ -6,8 +6,102 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import paige.navic.reader.ReaderDestinationCommitIdentity
+import paige.navic.reader.ReaderPresentationBinding
+import paige.navic.reader.ReaderTransitionResourceKind
 
 class ReaderPageRasterPreparationSourceTest {
+	@Test
+	fun physicalPreparationFreezesDrainsAndRestoresWithStableExactIdentity() {
+		val releases = mutableListOf<() -> Unit>()
+		val restored = mutableListOf<ReaderRasterPreparationPhysicalRestartDescriptor>()
+		val adapter = ReaderRasterPreparationPhysicalOwnershipAdapter(
+			releasePhysicalPreparation = { _, onReleased ->
+				releases.add(onReleased)
+				true
+			},
+			restorePhysicalPreparation = { descriptor ->
+				restored += descriptor
+				descriptor
+			}
+		)
+		val lease = checkNotNull(adapter.register(rasterPreparationDescriptor()))
+		assertTrue(adapter.acknowledgePhysicalOwnership(lease))
+		val domain = ReaderLegacyPhysicalDomain(73L, ReaderLegacyFreezeToken(79L))
+
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.freezeForTransitionActivation(domain))
+		assertEquals(null, adapter.register(rasterPreparationDescriptor()))
+		val rows = adapter.snapshotFrozenOwnership()
+		assertEquals(2, rows.size)
+		assertEquals(setOf(ReaderLegacyInventorySource.RasterPreparation), rows.map { it.physicalIdentity.source }.toSet())
+		assertEquals(
+			setOf(ReaderTransitionResourceKind.Raster, ReaderTransitionResourceKind.CallbackRegistration),
+			rows.map { it.kind }.toSet()
+		)
+		val callbackRow = rows.single { it.kind == ReaderTransitionResourceKind.CallbackRegistration }
+		val preparationRow = rows.single { it.kind == ReaderTransitionResourceKind.Raster }
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.drainFrozenOwnership(callbackRow.physicalIdentity, confirmations::add)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.drainFrozenOwnership(preparationRow.physicalIdentity, confirmations::add)
+		)
+		assertEquals(listOf(callbackRow.physicalIdentity), confirmations)
+		assertEquals(1, releases.size)
+		releases.single().invoke()
+		assertEquals(
+			listOf(callbackRow.physicalIdentity, preparationRow.physicalIdentity),
+			confirmations
+		)
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.restoreAfterTransitionActivation(domain))
+		assertEquals(listOf(rasterPreparationDescriptor()), restored)
+
+		val secondDomain = ReaderLegacyPhysicalDomain(73L, ReaderLegacyFreezeToken(83L))
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.freezeForTransitionActivation(secondDomain))
+		val secondRows = adapter.snapshotFrozenOwnership()
+		assertEquals(
+			rows.map { it.physicalIdentity.sourceLocalToken }.toSet(),
+			secondRows.map { it.physicalIdentity.sourceLocalToken }.toSet()
+		)
+	}
+
+	@Test
+	fun physicalPreparationCallbackCompletingAfterFreezeBecomesDrainableTombstone() {
+		var released: (() -> Unit)? = null
+		val adapter = ReaderRasterPreparationPhysicalOwnershipAdapter(
+			releasePhysicalPreparation = { _, onReleased ->
+				released = onReleased
+				true
+			},
+			restorePhysicalPreparation = { it }
+		)
+		val lease = checkNotNull(adapter.register(rasterPreparationDescriptor()))
+		assertTrue(adapter.acknowledgePhysicalOwnership(lease))
+		val domain = ReaderLegacyPhysicalDomain(73L, ReaderLegacyFreezeToken(89L))
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.freezeForTransitionActivation(domain))
+
+		assertFalse(adapter.observePhysicalCallback(lease))
+		val rows = adapter.snapshotFrozenOwnership()
+		val callbackRow = rows.single { it.kind == ReaderTransitionResourceKind.CallbackRegistration }
+		assertEquals(ReaderLegacyResourceState.ReleaseRequested, callbackRow.state)
+		val confirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.drainFrozenOwnership(callbackRow.physicalIdentity, confirmed::add)
+		)
+		val preparationRow = rows.single { it.kind == ReaderTransitionResourceKind.Raster }
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.drainFrozenOwnership(preparationRow.physicalIdentity, confirmed::add)
+		)
+		checkNotNull(released).invoke()
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmed.toSet())
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.restoreAfterTransitionActivation(domain))
+	}
+
 	@Test
 	fun productionAcquisitionTriggerDistinguishesColdWarmAndLiveRefill() {
 		assertEquals(
@@ -1042,6 +1136,26 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(bridge, "pageTurnPassiveRasterManifestInputs:")
 	}
 }
+
+private fun rasterPreparationDescriptor() = ReaderRasterPreparationPhysicalRestartDescriptor(
+	binding = ReaderPresentationBinding(
+		foliateSessionId = "raster-preparation-session",
+		publicationGeneration = 3L,
+		viewportGeneration = 5L,
+		profileGeneration = 7L,
+		destinationCommitIdentity = ReaderDestinationCommitIdentity(
+			"raster-preparation-session",
+			11L
+		),
+		preparationGeneration = 13L,
+		rasterGeneration = 17L,
+		textureGeneration = 19L
+	),
+	operation = ReaderRasterPreparationPhysicalOperation.Repair,
+	preparationGeneration = 13L,
+	rasterGeneration = 17L,
+	pageOrdinal = 2
+)
 
 private fun requiredReaderSourceSlice(
 	source: String,

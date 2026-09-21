@@ -17,6 +17,18 @@ import paige.navic.reader.ReaderPresentationFailureReason
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationLifecycleState
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.ReaderTransitionCommand
+import paige.navic.reader.ReaderTransitionFact
+import paige.navic.reader.ReaderTransitionFrameTarget
+import paige.navic.reader.ReaderTransitionFrameTargetHandle
+import paige.navic.reader.ReaderTransitionFrameTargetSpecification
+import paige.navic.reader.ReaderNativePageHostTokenState
+import paige.navic.reader.ReaderTransitionFailureReason
+import paige.navic.reader.ReaderTransitionResourceKey
+import paige.navic.reader.ReaderTransitionResourceKind
+import paige.navic.reader.ReaderTransitionResourceOwnerId
+import paige.navic.reader.ReaderTransitionResourceRegistration
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderShellCoverRetainedFrame
@@ -167,30 +179,161 @@ internal class ReaderNativePagePresentationPublisher(
 	},
 	private val handoffTimeoutScheduler: ReaderPageRelocationDispatchTimeoutScheduler? = null,
 	private val handoffTimeoutMillis: Long = 10_000L,
+	private val handoffNowMillis: () -> Long = android.os.SystemClock::uptimeMillis,
+	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator(),
 	private val onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
 ) {
 	private data class PendingFrame(
 		val requestId: Long,
-		val candidate: ReaderNativePagePresentationCandidate
+		val candidate: ReaderNativePagePresentationCandidate,
+		val activationToken: ReaderLegacySourceLocalOpaqueToken
+	)
+
+	private data class PreparedCommandTarget(
+		val target: ReaderTransitionFrameTarget.NativePage,
+		val candidate: ReaderNativePagePresentationCandidate,
+		val activationToken: ReaderLegacySourceLocalOpaqueToken
+	)
+
+	private data class PendingCommandFrame(
+		val requestId: Long,
+		val command: ReaderTransitionCommand.RequestFramePresentation,
+		val prepared: PreparedCommandTarget,
+		val onFact: (ReaderTransitionFact) -> Unit,
+		val activationToken: ReaderLegacySourceLocalOpaqueToken
 	)
 
 	private data class PendingHandoffTimeout(
 		var transition: ReaderRequiredTransition.PresentNativePage,
-		val action: Runnable
+		val action: Runnable,
+		val expiresAtMillis: Long,
+		val activationToken: ReaderLegacySourceLocalOpaqueToken
 	)
 
 	private var pendingFrame: PendingFrame? = null
+	private var pendingCommandFrame: PendingCommandFrame? = null
+	private var commandTargetResolver: ((ReaderTransitionFrameTargetSpecification.NativePage) ->
+		ReaderNativePagePresentationCandidate?)? = null
+	private val preparedCommandTargets = linkedMapOf<ReaderTransitionFrameTargetHandle, PreparedCommandTarget>()
+	private var nextFrameTargetOpaqueId = 1L
 	private var pendingHandoffTimeout: PendingHandoffTimeout? = null
 	private var failedHandoffTransition: ReaderRequiredTransition.PresentNativePage? = null
 	private var lastPublishedCandidate: ReaderNativePagePresentationCandidate? = null
+	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private val restartPreparedCommandTargets =
+		linkedMapOf<ReaderTransitionFrameTargetHandle, PreparedCommandTarget>()
+	private var restartPendingCommandFrame: PendingCommandFrame? = null
+	private var restartPendingFrame: PendingFrame? = null
+	private var restartHandoffTimeout: PendingHandoffTimeout? = null
+	private val completedFrozen = linkedSetOf<ReaderLegacySourceLocalOpaqueToken>()
 	private var disposed = false
 
 	init {
 		require(handoffTimeoutMillis > 0L)
 	}
 
+	fun activateCommandOnly(
+		resolveTarget: (ReaderTransitionFrameTargetSpecification.NativePage) ->
+			ReaderNativePagePresentationCandidate?
+	) {
+		check(!disposed)
+		check(frozenDomain == null) { "Native publisher activation is frozen" }
+		check(commandTargetResolver == null) { "Native publisher activation is irreversible" }
+		pendingFrame?.let { frameSource.cancelPresentedFrameRequest(it.requestId) }
+		pendingFrame = null
+		cancelHandoffTimeout()
+		failedHandoffTransition = null
+		commandTargetResolver = resolveTarget
+	}
+
+	fun prepareTarget(
+		command: ReaderTransitionCommand.PrepareFrameTarget,
+		onFact: (ReaderTransitionFact) -> Unit
+	): ReaderPortCommandResult {
+		if (disposed || frozenDomain != null || commandTargetResolver == null ||
+			preparedCommandTargets.size >= paige.navic.reader.ReaderMaximumPendingFrameTargets
+		) return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		val specification = command.specification as? ReaderTransitionFrameTargetSpecification.NativePage
+			?: return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		if (
+			command.transitionId != specification.transitionId ||
+			command.registration.key.kind != ReaderTransitionResourceKind.Deck ||
+			command.registration.key.ownerId != ReaderTransitionResourceOwnerId.TransitionOwned(command.transitionId)
+		) return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.StaleProof)
+		val candidate = commandTargetResolver?.invoke(specification)
+			?: return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.StaleProof)
+		val tokenMatches = when (val token = specification.hostToken) {
+			is ReaderNativePageHostTokenState.Present ->
+				candidate.transitionToken?.value == token.token.value
+			ReaderNativePageHostTokenState.AuthoritativeAbsent -> candidate.transitionToken == null
+		}
+		if (
+			candidate.binding != specification.binding ||
+			!tokenMatches ||
+			candidate.preparationFacts.phase != ReaderPagePreparationPhase.Ready ||
+			candidate.preparationFacts.failure != null ||
+			candidate.viewportWidth != specification.geometry.targetWidthPx ||
+			candidate.viewportHeight != specification.geometry.targetHeightPx ||
+			specification.geometry.viewportGeneration != specification.binding.viewportGeneration ||
+			specification.geometry.layoutProfileGeneration != specification.binding.profileGeneration
+		) return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.StaleProof)
+		val handle = ReaderTransitionFrameTargetHandle(
+			readerSessionGeneration = specification.readerSessionGeneration,
+			publicationGeneration = specification.publicationGeneration,
+			opaqueId = nextFrameTargetOpaqueId++
+		)
+		val target = ReaderTransitionFrameTarget.NativePage(handle, specification, command.registration)
+		preparedCommandTargets[handle] = PreparedCommandTarget(
+			target,
+			candidate,
+			tokenAllocator.allocate()
+		)
+		onFact(ReaderTransitionFact.FrameTargetPrepared(command.transitionId, target))
+		return ReaderPortCommandResult.Accepted
+	}
+
+	fun present(
+		command: ReaderTransitionCommand.RequestFramePresentation,
+		onFact: (ReaderTransitionFact) -> Unit
+	): ReaderPortCommandResult {
+		if (
+			disposed || frozenDomain != null || commandTargetResolver == null ||
+			pendingCommandFrame != null
+		) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+		val target = command.target as? ReaderTransitionFrameTarget.NativePage
+			?: return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		val prepared = preparedCommandTargets.remove(target.handle)
+		if (prepared?.target != target || target.specification.transitionId != command.transitionId) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.StaleProof)
+		}
+
+		var requestId = PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
+		var callbackBeforeBind: Long? = null
+		var bound = false
+		requestId = frameSource.requestCandidatePresentedFrame(prepared.candidate) { presentedRequestId ->
+			if (bound) onCommandPresentedFrame(requestId, presentedRequestId)
+			else callbackBeforeBind = presentedRequestId
+		}
+		if (requestId == PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+		pendingCommandFrame = PendingCommandFrame(
+			requestId,
+			command,
+			prepared,
+			onFact,
+			tokenAllocator.allocate()
+		)
+		bound = true
+		callbackBeforeBind?.let { onCommandPresentedFrame(requestId, it) }
+		return ReaderPortCommandResult.Accepted
+	}
+
 	fun update() {
-		if (disposed) return
+		if (disposed || frozenDomain != null || commandTargetResolver != null) return
 		val handoffTransition = currentLiveEngineToNativeTransition()
 		failedHandoffTransition?.let { failed ->
 			failedHandoffTransition = when {
@@ -252,14 +395,213 @@ internal class ReaderNativePagePresentationPublisher(
 			}
 			return
 		}
-		pendingFrame = PendingFrame(requestId, candidate)
+		pendingFrame = PendingFrame(requestId, candidate, tokenAllocator.allocate())
 	}
+
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = when {
+		disposed -> ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		frozenDomain == null -> {
+			frozenDomain = domain
+			ReaderPortCommandResult.Accepted
+		}
+		frozenDomain == domain -> ReaderPortCommandResult.Accepted
+		else -> ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+	}
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
+		val domain = frozenDomain ?: return emptyList()
+		val prepared = preparedCommandTargets.values.map { target ->
+			publisherOwnershipRow(
+				domain,
+				target.activationToken,
+				ReaderTransitionResourceKind.FrameHandoff,
+				ReaderLegacyResourceOrigin.Owned,
+				ReaderLegacyResourceState.Prepared
+			)
+		}
+		val pending = pendingCommandFrame?.let { frame ->
+			listOf(
+				publisherOwnershipRow(
+					domain,
+					frame.activationToken,
+					ReaderTransitionResourceKind.CallbackRegistration,
+					ReaderLegacyResourceOrigin.Pending,
+					ReaderLegacyResourceState.Registered
+				)
+			)
+		}.orEmpty()
+		val legacyPending = pendingFrame?.let { frame ->
+			listOf(
+				publisherOwnershipRow(
+					domain,
+					frame.activationToken,
+					ReaderTransitionResourceKind.CallbackRegistration,
+					ReaderLegacyResourceOrigin.Pending,
+					ReaderLegacyResourceState.Registered
+				)
+			)
+		}.orEmpty()
+		val timeout = pendingHandoffTimeout?.let { registration ->
+			listOf(
+				publisherOwnershipRow(
+					domain,
+					registration.activationToken,
+					ReaderTransitionResourceKind.CallbackRegistration,
+					ReaderLegacyResourceOrigin.Pending,
+					ReaderLegacyResourceState.Registered
+				)
+			)
+		}.orEmpty()
+		return prepared + pending + legacyPending + timeout
+	}
+
+	fun drainFrozenOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult {
+		val domain = frozenDomain
+		if (
+			domain == null ||
+			physicalIdentity.domain != domain ||
+			physicalIdentity.source != ReaderLegacyInventorySource.FrameOrHandoff
+		) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		val token = physicalIdentity.sourceLocalToken
+		val prepared = preparedCommandTargets.entries.firstOrNull {
+			it.value.activationToken == token
+		}
+		if (prepared != null) {
+			preparedCommandTargets.remove(prepared.key)
+			restartPreparedCommandTargets[prepared.key] = prepared.value
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		val pending = pendingCommandFrame
+		if (pending?.activationToken == token) {
+			pendingCommandFrame = null
+			frameSource.cancelPresentedFrameRequest(pending.requestId)
+			restartPendingCommandFrame = pending
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		val legacyPending = pendingFrame
+		if (legacyPending?.activationToken == token) {
+			pendingFrame = null
+			frameSource.cancelPresentedFrameRequest(legacyPending.requestId)
+			restartPendingFrame = legacyPending
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		val timeout = pendingHandoffTimeout
+		if (timeout?.activationToken == token) {
+			pendingHandoffTimeout = null
+			handoffTimeoutScheduler?.removeCallbacks(timeout.action)
+			restartHandoffTimeout = timeout
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		if (completedFrozen.remove(token)) {
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+	}
+
+	fun restoreAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		if (frozenDomain != domain) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		preparedCommandTargets.putAll(restartPreparedCommandTargets)
+		restartPreparedCommandTargets.clear()
+		val pending = restartPendingCommandFrame
+		frozenDomain = null
+		completedFrozen.clear()
+		if (pending != null && !restartCommandFrame(pending)) {
+			frozenDomain = domain
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+		restartPendingCommandFrame = null
+		val legacyPending = restartPendingFrame
+		if (legacyPending != null && !restartLegacyFrame(legacyPending)) {
+			frozenDomain = domain
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+		restartPendingFrame = null
+		restartHandoffTimeout?.let { timeout ->
+			armHandoffTimeout(timeout.transition, timeout.expiresAtMillis)
+		}
+		restartHandoffTimeout = null
+		return ReaderPortCommandResult.Accepted
+	}
+
+	private fun restartLegacyFrame(previous: PendingFrame): Boolean {
+		var requestId = PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
+		requestId = frameSource.requestCandidatePresentedFrame(previous.candidate) {
+			presentedRequestId ->
+			onPresentedFrame(requestId, presentedRequestId, previous.candidate)
+		}
+		if (requestId == PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID) return false
+		pendingFrame = previous.copy(requestId = requestId)
+		return true
+	}
+
+	private fun restartCommandFrame(previous: PendingCommandFrame): Boolean {
+		var requestId = PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
+		var callbackBeforeBind: Long? = null
+		var bound = false
+		requestId = frameSource.requestCandidatePresentedFrame(previous.prepared.candidate) {
+			presentedRequestId ->
+			if (bound) onCommandPresentedFrame(requestId, presentedRequestId)
+			else callbackBeforeBind = presentedRequestId
+		}
+		if (requestId == PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID) return false
+		pendingCommandFrame = previous.copy(requestId = requestId)
+		bound = true
+		callbackBeforeBind?.let { onCommandPresentedFrame(requestId, it) }
+		return true
+	}
+
+	private fun publisherOwnershipRow(
+		domain: ReaderLegacyPhysicalDomain,
+		token: ReaderLegacySourceLocalOpaqueToken,
+		kind: ReaderTransitionResourceKind,
+		origin: ReaderLegacyResourceOrigin,
+		state: ReaderLegacyResourceState
+	) = ReaderFrozenLegacyResource(
+		freezeToken = domain.freezeToken,
+		physicalIdentity = ReaderLegacyPhysicalIdentity(
+			domain,
+			ReaderLegacyInventorySource.FrameOrHandoff,
+			token
+		),
+		kind = kind,
+		binding = null,
+		visibleOwner = null,
+		origin = origin,
+		state = state,
+		mayBeCommittedPredecessor = false
+	)
 
 	fun dispose() {
 		if (disposed) return
 		disposed = true
 		pendingFrame?.let { frameSource.cancelPresentedFrameRequest(it.requestId) }
 		pendingFrame = null
+		pendingCommandFrame?.let { frameSource.cancelPresentedFrameRequest(it.requestId) }
+		pendingCommandFrame = null
+		preparedCommandTargets.clear()
+		commandTargetResolver = null
 		cancelHandoffTimeout()
 		failedHandoffTransition = null
 	}
@@ -293,13 +635,23 @@ internal class ReaderNativePagePresentationPublisher(
 		binding == transition.binding
 
 	private fun armHandoffTimeout(
-		transition: ReaderRequiredTransition.PresentNativePage
+		transition: ReaderRequiredTransition.PresentNativePage,
+		expiresAtMillis: Long = handoffNowMillis().let { now ->
+			if (now > Long.MAX_VALUE - handoffTimeoutMillis) Long.MAX_VALUE
+			else now + handoffTimeoutMillis
+		}
 	) {
 		val scheduler = handoffTimeoutScheduler ?: return
 		lateinit var action: Runnable
 		action = Runnable { onHandoffTimeout(action) }
-		pendingHandoffTimeout = PendingHandoffTimeout(transition, action)
-		if (!scheduler.postDelayed(action, handoffTimeoutMillis)) action.run()
+		pendingHandoffTimeout = PendingHandoffTimeout(
+			transition,
+			action,
+			expiresAtMillis,
+			tokenAllocator.allocate()
+		)
+		val remainingMillis = maxOf(0L, expiresAtMillis - handoffNowMillis())
+		if (!scheduler.postDelayed(action, remainingMillis)) action.run()
 	}
 
 	private fun onHandoffTimeout(action: Runnable) {
@@ -309,6 +661,12 @@ internal class ReaderNativePagePresentationPublisher(
 			disposed || timeout.action !== action ||
 			currentLiveEngineToNativeTransition() != transition
 		) return
+		if (frozenDomain != null) {
+			pendingHandoffTimeout = null
+			restartHandoffTimeout = timeout
+			completedFrozen += timeout.activationToken
+			return
+		}
 		pendingHandoffTimeout = null
 		pendingFrame?.takeIf { it.candidate.matches(transition) }?.let { pending ->
 			pendingFrame = null
@@ -345,6 +703,41 @@ internal class ReaderNativePagePresentationPublisher(
 		handoffTimeoutScheduler?.removeCallbacks(timeout.action)
 	}
 
+	private fun onCommandPresentedFrame(
+		expectedRequestId: Long,
+		presentedRequestId: Long
+	) {
+		if (disposed || expectedRequestId != presentedRequestId) return
+		val pending = pendingCommandFrame ?: return
+		if (pending.requestId != expectedRequestId) return
+		if (frozenDomain != null) {
+			pendingCommandFrame = null
+			restartPendingCommandFrame = pending
+			completedFrozen += pending.activationToken
+			return
+		}
+		pendingCommandFrame = null
+		val candidate = pending.prepared.candidate
+		val target = pending.prepared.target
+		val proof = ReaderNativePagePresentationProof(
+			binding = target.specification.binding,
+			transitionToken = candidate.transitionToken,
+			presentedFrame = presentedRequestId,
+			viewportWidth = target.specification.geometry.targetWidthPx,
+			viewportHeight = target.specification.geometry.targetHeightPx,
+			rasterGeneration = target.specification.allocation.rasterGeneration,
+			textureGeneration = target.specification.allocation.textureGeneration
+		)
+		pending.onFact(
+			ReaderTransitionFact.PreparedFrame(
+				pending.command.transitionId,
+				target,
+				ReaderPresentationFrameOwner.NativePage(proof),
+				target.resource
+			)
+		)
+	}
+
 	private fun onPresentedFrame(
 		expectedRequestId: Long,
 		presentedRequestId: Long,
@@ -353,6 +746,12 @@ internal class ReaderNativePagePresentationPublisher(
 		if (disposed || expectedRequestId != presentedRequestId) return
 		val pending = pendingFrame
 		if (pending?.requestId != expectedRequestId || pending.candidate != armedCandidate) return
+		if (frozenDomain != null) {
+			pendingFrame = null
+			restartPendingFrame = pending
+			completedFrozen += pending.activationToken
+			return
+		}
 		pendingFrame = null
 		currentLiveEngineToNativeTransition()?.takeIf { transition ->
 			armedCandidate.matches(transition)
@@ -434,6 +833,8 @@ internal class ReaderPresentationHostBridge(
 	private val liveEngineExposureRequired: () -> Boolean = { false },
 	transitionTimeoutScheduler: ReaderPageRelocationDispatchTimeoutScheduler = HandlerTimeoutScheduler(),
 	transitionNowMillis: () -> Long = android.os.SystemClock::uptimeMillis,
+	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator(),
 	private val onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
 ) {
 	private data class ViewportGeometry(
@@ -443,10 +844,14 @@ internal class ReaderPresentationHostBridge(
 
 	private class PendingCoverCommit(
 		val transition: ReaderRequiredTransition.CommitShellCover,
-		val geometry: ViewportGeometry
+		val geometry: ViewportGeometry,
+		val ownershipToken: ReaderLegacySourceLocalOpaqueToken,
+		val callbackToken: ReaderLegacySourceLocalOpaqueToken
 	) {
 		var registration: ReaderPresentationDrawRegistration? = null
 		var registrationRemoved = false
+		var callbackOwned = true
+		var callbackEpoch = 0L
 		var frameScheduled = false
 		var acceptedReceipt: ReaderPresentationEventReceipt? = null
 		var emittedProof: ReaderShellCoverCommitProof? = null
@@ -478,6 +883,9 @@ internal class ReaderPresentationHostBridge(
 	private var lastLiveEngineExposureRequired: Boolean? = null
 	private var committedTransition: ReaderRequiredTransition.CommitShellCover? = null
 	private var presentedFrame = 0L
+	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var restartPendingCoverCommit: PendingCoverCommit? = null
+	private val completedFrozen = linkedSetOf<ReaderLegacySourceLocalOpaqueToken>()
 	private var disposed = false
 	private val transitionTimeout = ReaderPresentationTransitionTimeout(
 		scheduler = transitionTimeoutScheduler,
@@ -489,7 +897,7 @@ internal class ReaderPresentationHostBridge(
 	}
 
 	fun update(decision: ReaderPresentationDecision) {
-		if (disposed) return
+		if (disposed || frozenDomain != null) return
 		val liveEngineRequired = liveEngineExposureRequired()
 		synchronizeLiveEngineHandoffIntent(decision, liveEngineRequired)
 		currentDecision = decision
@@ -553,8 +961,149 @@ internal class ReaderPresentationHostBridge(
 	}
 
 	fun onHostDetached() {
+		if (frozenDomain != null) return
 		cancelPendingCoverCommit()
 		cancelPendingLiveEngineExposure()
+	}
+
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		if (disposed || (frozenDomain != null && frozenDomain != domain)) {
+			return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+		}
+		val timeoutResult = transitionTimeout.freezeForTransitionActivation(domain)
+		if (timeoutResult != ReaderPortCommandResult.Accepted) return timeoutResult
+		frozenDomain = domain
+		return ReaderPortCommandResult.Accepted
+	}
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
+		val domain = frozenDomain ?: return emptyList()
+		val coverRows = pendingCoverCommit?.let { pending ->
+			buildList {
+				add(hostBridgeOwnershipRow(
+					domain,
+					pending.ownershipToken,
+					ReaderTransitionResourceKind.FrameHandoff,
+					ReaderLegacyResourceState.Running
+				))
+				if (pending.callbackOwned) {
+					add(hostBridgeOwnershipRow(
+						domain,
+						pending.callbackToken,
+						ReaderTransitionResourceKind.CallbackRegistration,
+						ReaderLegacyResourceState.Registered
+					))
+				}
+			}
+		}.orEmpty()
+		return coverRows + transitionTimeout.snapshotFrozenOwnership()
+	}
+
+	private fun hostBridgeOwnershipRow(
+		domain: ReaderLegacyPhysicalDomain,
+		token: ReaderLegacySourceLocalOpaqueToken,
+		kind: ReaderTransitionResourceKind,
+		state: ReaderLegacyResourceState
+	) = ReaderFrozenLegacyResource(
+		freezeToken = domain.freezeToken,
+		physicalIdentity = ReaderLegacyPhysicalIdentity(
+			domain,
+			ReaderLegacyInventorySource.FrameOrHandoff,
+			token
+		),
+		kind = kind,
+		binding = null,
+		visibleOwner = null,
+		origin = ReaderLegacyResourceOrigin.Owned,
+		state = state,
+		mayBeCommittedPredecessor = false
+	)
+
+	fun drainFrozenOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult {
+		if (physicalIdentity.source == ReaderLegacyInventorySource.DeadlineRegistration) {
+			return transitionTimeout.drainFrozenOwnership(physicalIdentity, onConfirmed)
+		}
+		val domain = frozenDomain
+		if (
+			domain == null ||
+			physicalIdentity.domain != domain ||
+			physicalIdentity.source != ReaderLegacyInventorySource.FrameOrHandoff
+		) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		val token = physicalIdentity.sourceLocalToken
+		val pending = pendingCoverCommit
+		if (pending?.callbackToken == token && pending.callbackOwned) {
+			pending.callbackOwned = false
+			pending.callbackEpoch = Math.incrementExact(pending.callbackEpoch)
+			pending.unregisterOnce()
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		if (pending?.ownershipToken == token) {
+			pendingCoverCommit = null
+			if (pending.callbackOwned) {
+				pending.callbackOwned = false
+				pending.callbackEpoch = Math.incrementExact(pending.callbackEpoch)
+				pending.unregisterOnce()
+				completedFrozen += pending.callbackToken
+			}
+			host.cancelOpaqueShellCoverPreparation(pending.transition.coverGeneration)
+			restartPendingCoverCommit = pending
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		if (completedFrozen.remove(token)) {
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+	}
+
+	fun restoreAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		if (frozenDomain != domain) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		val restart = restartPendingCoverCommit
+		try {
+			if (restart != null) {
+				host.prepareOpaqueShellCover(restart.transition.coverGeneration)
+				restart.registration = null
+				restart.registrationRemoved = false
+				restart.callbackOwned = true
+				restart.frameScheduled = false
+				pendingCoverCommit = restart
+				registerCoverDrawListener(restart)
+			} else {
+				pendingCoverCommit?.takeIf { !it.callbackOwned }?.let { pending ->
+					pending.registration = null
+					pending.registrationRemoved = false
+					pending.callbackOwned = true
+					registerCoverDrawListener(pending)
+				}
+			}
+		} catch (_: Throwable) {
+			return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.PortRejected
+			)
+		}
+		val timeoutResult = transitionTimeout.restoreAfterTransitionActivation(domain)
+		if (timeoutResult != ReaderPortCommandResult.Accepted) return timeoutResult
+		restartPendingCoverCommit = null
+		completedFrozen.clear()
+		frozenDomain = null
+		return ReaderPortCommandResult.Accepted
 	}
 
 	fun dispose() {
@@ -894,16 +1443,25 @@ internal class ReaderPresentationHostBridge(
 			return
 		}
 
-		val pending = PendingCoverCommit(transition, geometry)
+		val pending = PendingCoverCommit(
+			transition,
+			geometry,
+			tokenAllocator.allocate(),
+			tokenAllocator.allocate()
+		)
 		pendingCoverCommit = pending
-		val registration = try {
-			host.registerShellCoverDrawListener {
-				onCoverDrawn(pending)
-			}
+		try {
+			registerCoverDrawListener(pending)
 		} catch (_: Throwable) {
 			pendingCoverCommit = null
 			failCoverCommit(transition)
-			return
+		}
+	}
+
+	private fun registerCoverDrawListener(pending: PendingCoverCommit) {
+		val callbackEpoch = pending.callbackEpoch
+		val registration = host.registerShellCoverDrawListener {
+			onCoverDrawn(pending, callbackEpoch)
 		}
 		pending.registration = registration
 		when {
@@ -912,8 +1470,23 @@ internal class ReaderPresentationHostBridge(
 		}
 	}
 
-	private fun onCoverDrawn(pending: PendingCoverCommit) {
-		if (pendingCoverCommit !== pending || pending.frameScheduled) return
+	private fun onCoverDrawn(
+		pending: PendingCoverCommit,
+		callbackEpoch: Long
+	) {
+		if (
+			pendingCoverCommit !== pending ||
+			pending.frameScheduled ||
+			!pending.callbackOwned ||
+			pending.callbackEpoch != callbackEpoch
+		) return
+		if (frozenDomain != null) {
+			pending.callbackOwned = false
+			pending.callbackEpoch = Math.incrementExact(pending.callbackEpoch)
+			pending.unregisterOnce()
+			completedFrozen += pending.callbackToken
+			return
+		}
 		val decision = currentDecision
 		if (
 			decision == null ||
@@ -931,12 +1504,24 @@ internal class ReaderPresentationHostBridge(
 		pending.frameScheduled = true
 		pending.unregisterOnce()
 		host.postShellCoverAnimationFrame {
-			onCoverAnimationFrame(pending)
+			onCoverAnimationFrame(pending, callbackEpoch)
 		}
 	}
 
-	private fun onCoverAnimationFrame(pending: PendingCoverCommit) {
-		if (pendingCoverCommit !== pending) return
+	private fun onCoverAnimationFrame(
+		pending: PendingCoverCommit,
+		callbackEpoch: Long
+	) {
+		if (
+			pendingCoverCommit !== pending ||
+			!pending.callbackOwned ||
+			pending.callbackEpoch != callbackEpoch
+		) return
+		pending.callbackOwned = false
+		if (frozenDomain != null) {
+			completedFrozen += pending.callbackToken
+			return
+		}
 		val decision = currentDecision
 		if (
 			decision == null ||

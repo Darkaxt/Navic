@@ -124,6 +124,82 @@ class KomikkuReaderNativeFrameHostTest {
 	)
 
 	@Test
+	fun playLikeCurlPhysicalDeckOwnerFreezesExactDeckAndCallbackBeforeDispatch() {
+		val fixture = task8CurlAuthorityFixture(
+			initialState = task8SettledCurlSourceState(),
+			prepareActiveDeck = false
+		)
+		val controller = fixture.controller
+		val domain = ReaderLegacyPhysicalDomain(1L, ReaderLegacyFreezeToken(29L))
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.freezeDeckOwnershipForTransitionActivation(domain)
+		)
+		val frozen = controller.snapshotFrozenDeckOwnership()
+		assertEquals(2, frozen.size)
+		val deck = frozen.single { it.kind == paige.navic.reader.ReaderTransitionResourceKind.Deck }
+		val callback = frozen.single {
+			it.kind == paige.navic.reader.ReaderTransitionResourceKind.CallbackRegistration
+		}
+		assertEquals(ReaderLegacyInventorySource.Deck, deck.physicalIdentity.source)
+		assertEquals(ReaderLegacyResourceState.RendererOwned, deck.state)
+		assertEquals(ReaderLegacyResourceState.Registered, callback.state)
+
+		controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+			.invoke(controller.surfaceView, 301L)
+
+		assertFalse(controller.isAvailable)
+		val afterCallback = controller.snapshotFrozenDeckOwnership()
+		assertEquals(deck.physicalIdentity, afterCallback.single {
+			it.kind == paige.navic.reader.ReaderTransitionResourceKind.Deck
+		}.physicalIdentity)
+		val completedCallback = afterCallback.single {
+			it.kind == paige.navic.reader.ReaderTransitionResourceKind.CallbackRegistration
+		}
+		assertEquals(ReaderLegacyResourceState.ReleaseRequested, completedCallback.state)
+		val confirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.drainFrozenDeckOwnership(
+				completedCallback.physicalIdentity,
+				confirmed::add
+			)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.drainFrozenDeckOwnership(deck.physicalIdentity, confirmed::add)
+		)
+		controller.surfaceView.javaClass.task7Method(
+			"handleDeckReleased",
+			java.lang.Long.TYPE,
+			karacken.curl.DeckReleaseReason::class.java
+		).invoke(controller.surfaceView, 301L, karacken.curl.DeckReleaseReason.EXPLICIT)
+		assertEquals(setOf(completedCallback.physicalIdentity, deck.physicalIdentity), confirmed.toSet())
+		assertTrue(controller.snapshotFrozenDeckOwnership().isEmpty())
+		assertFalse(task8SurfaceOwnsGeneration(controller.surfaceView, 301L))
+		@Suppress("UNCHECKED_CAST")
+		val restarts = controller.javaClass.task7Field("frozenPhysicalDeckRestarts")
+			.get(controller) as Map<Long, Any>
+		val restart = assertNotNull(restarts[301L])
+		val restartPages = restart.javaClass.task7Field("pages").get(restart)
+		assertFalse(restartPages.javaClass.task7Field("obsolete").getBoolean(restartPages))
+		val restartAdmission = restart.javaClass.task7Field("admission").get(restart) as ReaderDeckAdmission
+		assertEquals(ReaderDeckAdmissionState.Released, restartAdmission.state)
+
+		val restoration = controller.restoreDeckOwnershipAfterTransitionActivation(domain)
+		assertEquals(ReaderPortCommandResult.Accepted, restoration)
+		val restoredGeneration = assertNotNull(
+			controller.javaClass.task7Field("activeDeckGenerationId").get(controller) as Long?
+		)
+		assertTrue(restoredGeneration > 301L)
+		assertTrue(task8SurfaceOwnsGeneration(controller.surfaceView, restoredGeneration))
+		controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+			.invoke(controller.surfaceView, restoredGeneration)
+		assertTrue(controller.isAvailable)
+	}
+
+	@Test
 	fun productionRelocationTimeoutFailsExactCommonHandoffAndRetainsNativeAuthority() {
 		val queue = ReaderPageRelocationQueue()
 		val request = enqueueTask7Relocation(
@@ -11197,6 +11273,7 @@ class KomikkuReaderNativeFrameHostTest {
 		viewportHeight: Int = 800,
 		physicalRect: ReaderPlayLikeCurlPhysicalRect = ReaderPlayLikeCurlPhysicalRect(0, 0, 2, 2),
 		bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource(),
+		prepareActiveDeck: Boolean = true,
 		beforePresentationEventPublished: (
 			ReaderPlayLikeCurlFoliateController,
 			ReaderPresentationEvent
@@ -11285,10 +11362,13 @@ class KomikkuReaderNativeFrameHostTest {
 				ReaderPageRecoveredDeckSubmissionResult.Accepted
 			}
 		)
-		if (initialState != null) {
+		if (initialState != null && prepareActiveDeck) {
 			surface.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
 				.invoke(surface, 301L)
 			assertTrue(controller.isAvailable)
+		} else if (initialState != null) {
+			assertTrue(task8SurfaceOwnsGeneration(surface, 301L))
+			assertFalse(controller.isAvailable)
 		} else {
 			assertFalse(task8SurfaceOwnsGeneration(surface, 301L))
 			assertFalse(controller.isAvailable)

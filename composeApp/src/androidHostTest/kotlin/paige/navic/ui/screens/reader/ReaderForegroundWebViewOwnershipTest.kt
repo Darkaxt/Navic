@@ -10,6 +10,111 @@ import kotlin.test.assertTrue
 
 class ReaderForegroundWebViewOwnershipTest {
 	@Test
+	fun frozenOwnershipInventoriesPassiveAndRestorationOwnership() {
+		val passiveOwnership = ReaderForegroundWebViewOwnership()
+		val passive = assertNotNull(
+			passiveOwnership.tryAcquirePassive(7L) { error("not preempted") }
+		)
+		val passiveDomain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(23L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			passiveOwnership.freezeForTransitionActivation(passiveDomain)
+		)
+		val passiveRow = passiveOwnership.snapshotFrozenOwnership().single()
+		val passiveConfirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			passiveOwnership.drainFrozenOwnership(
+				passiveRow.physicalIdentity,
+				passiveConfirmed::add
+			)
+		)
+		assertEquals(listOf(passiveRow.physicalIdentity), passiveConfirmed)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			passiveOwnership.restoreAfterTransitionActivation(passiveDomain)
+		)
+		assertTrue(passiveOwnership.isCurrent(passive))
+
+		var finishRestoration: ((ReaderPageRasterCancellationRestoration) -> Unit)? = null
+		val restoringOwnership = ReaderForegroundWebViewOwnership()
+		assertNotNull(
+			restoringOwnership.tryAcquirePassive(8L) { finishRestoration = it }
+		)
+		restoringOwnership.acquireLive(24L)
+		val restoringDomain = ReaderLegacyPhysicalDomain(19L, ReaderLegacyFreezeToken(29L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			restoringOwnership.freezeForTransitionActivation(restoringDomain)
+		)
+		val restorationRow = restoringOwnership.snapshotFrozenOwnership().single {
+			it.kind == paige.navic.reader.ReaderTransitionResourceKind.CallbackRegistration
+		}
+		val restorationConfirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			restoringOwnership.drainFrozenOwnership(
+				restorationRow.physicalIdentity,
+				restorationConfirmed::add
+			)
+		)
+		assertEquals(listOf(restorationRow.physicalIdentity), restorationConfirmed)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			restoringOwnership.restoreAfterTransitionActivation(restoringDomain)
+		)
+		checkNotNull(finishRestoration)(ReaderPageRasterCancellationRestoration.Restored)
+		assertEquals(0, restoringOwnership.snapshot().restorationCallbacks)
+	}
+
+	@Test
+	fun frozenOwnershipInventoriesAndDrainsExactLiveClaimsAndReadinessCallbacks() {
+		val ownership = ReaderForegroundWebViewOwnership()
+		val first = ownership.acquireLive(14L)
+		val exclusive = ownership.acquireExclusiveLive(15L)
+		val readiness = mutableListOf<ReaderForegroundWebViewLiveReadiness>()
+		ownership.whenLiveReady(exclusive, readiness::add)
+		val domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(19L))
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			ownership.freezeForTransitionActivation(domain)
+		)
+		val rows = ownership.snapshotFrozenOwnership()
+		assertEquals(3, rows.size)
+		assertEquals(rows.size, rows.map { it.physicalIdentity }.toSet().size)
+		assertTrue(rows.all {
+			it.physicalIdentity.source ==
+				ReaderLegacyInventorySource.ForegroundWebViewOwnership
+		})
+		assertFailsWith<IllegalStateException> { ownership.acquireLive(16L) }
+		assertNull(ownership.beginLiveMutation(first))
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		rows.sortedBy { it.kind != paige.navic.reader.ReaderTransitionResourceKind.CallbackRegistration }
+			.forEach { row ->
+				assertEquals(
+					ReaderPortCommandResult.Accepted,
+					ownership.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+				)
+			}
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+		assertEquals(
+			listOf<ReaderForegroundWebViewLiveReadiness>(
+				ReaderForegroundWebViewLiveReadiness.Invalidated
+			),
+			readiness
+		)
+		assertTrue(ownership.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			ownership.restoreAfterTransitionActivation(domain)
+		)
+		assertEquals(2, ownership.snapshot().liveClaims)
+		assertTrue(ownership.releaseLive(first))
+		assertTrue(ownership.releaseLive(exclusive))
+	}
+
+	@Test
 	fun liveClaimWaitsForPassiveRestorationBeforeMutation() {
 		var finishRestoration:
 			((ReaderPageRasterCancellationRestoration) -> Unit)? = null

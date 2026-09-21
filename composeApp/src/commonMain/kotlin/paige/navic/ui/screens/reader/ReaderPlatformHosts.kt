@@ -30,6 +30,9 @@ import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.readerTransitionIntentForViewerAction
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderRawTextProvenanceDescriptor
+import paige.navic.reader.ReaderSemanticExecutableRequest
+import paige.navic.reader.ReaderSemanticRequestHandle
+import paige.navic.reader.ReaderSemanticSynchronizationIntent
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderReadaloudReaderInteraction
@@ -40,24 +43,54 @@ import paige.navic.reader.ReaderWhispersyncCueMapState
 import paige.navic.reader.WordSyncPublicationVerifier
 import paige.navic.ui.navigation.Screen
 
-internal enum class ReaderTransitionGatewayMode { Shadow }
+internal enum class ReaderTransitionGatewayMode { Shadow, Activated }
 
 internal fun interface ReaderTransitionGatewayRegistration {
 	fun close()
 }
 
 internal class ReaderTransitionGateway {
-	val mode: ReaderTransitionGatewayMode = ReaderTransitionGatewayMode.Shadow
+	var mode: ReaderTransitionGatewayMode = ReaderTransitionGatewayMode.Shadow
+		private set
 	private var attachment: Attachment? = null
 	private var nextAttachmentToken = 1L
+	private var nextObservedSemanticRequestHandle = 1L
+
+	fun observedSemanticRequestHandle(): ReaderSemanticRequestHandle {
+		check(mode == ReaderTransitionGatewayMode.Shadow) {
+			"Activated semantic requests require executable registry admission"
+		}
+		val value = nextObservedSemanticRequestHandle
+		check(value < Long.MAX_VALUE) { "Reader semantic request handle sequence exhausted" }
+		nextObservedSemanticRequestHandle += 1L
+		return ReaderSemanticRequestHandle(value)
+	}
 
 	fun attachShadow(
 		enqueue: (ReaderTransitionFact) -> Unit,
 		enqueueReceipt: (ReaderPresentationEventReceipt) -> Unit = {}
 	): ReaderTransitionGatewayRegistration {
+		check(mode != ReaderTransitionGatewayMode.Activated) {
+			"An activated reader transition gateway cannot reopen legacy routing"
+		}
 		check(attachment == null) { "Reader transition shadow gateway is already attached" }
 		val token = nextAttachmentToken++
-		attachment = Attachment(token, enqueue, enqueueReceipt)
+		attachment = Attachment(token, enqueue, enqueueReceipt, null)
+		return ReaderTransitionGatewayRegistration {
+			if (attachment?.token == token) attachment = null
+		}
+	}
+
+	fun attachActivated(
+		enqueue: (ReaderTransitionFact) -> Unit,
+		enqueueReceipt: (ReaderPresentationEventReceipt) -> Unit = {},
+		registerSemanticRequest: (ReaderSemanticExecutableRequest) -> ReaderSemanticRequestHandle
+	): ReaderTransitionGatewayRegistration {
+		check(attachment == null) { "Reader transition gateway is already attached" }
+		val token = nextAttachmentToken++
+		val candidate = Attachment(token, enqueue, enqueueReceipt, registerSemanticRequest)
+		attachment = candidate
+		mode = ReaderTransitionGatewayMode.Activated
 		return ReaderTransitionGatewayRegistration {
 			if (attachment?.token == token) attachment = null
 		}
@@ -67,8 +100,19 @@ internal class ReaderTransitionGateway {
 		attachment?.enqueue?.invoke(fact)
 	}
 
-	fun observeLegacyPresentationEvent(event: ReaderPresentationEvent) {
+	fun registerSemanticRequest(request: ReaderSemanticExecutableRequest): ReaderSemanticRequestHandle {
+		check(mode == ReaderTransitionGatewayMode.Activated) {
+			"Executable semantic requests are admitted only after activation"
+		}
+		return checkNotNull(attachment?.registerSemanticRequest) {
+			"Activated semantic request registry is unavailable"
+		}(request)
+	}
+
+	fun observeLegacyPresentationEvent(event: ReaderPresentationEvent): Boolean {
+		if (mode != ReaderTransitionGatewayMode.Shadow) return false
 		event.toShadowTransitionFactOrNull()?.let(::enqueue)
+		return true
 	}
 
 	fun observePresentationReceipt(receipt: ReaderPresentationEventReceipt?) {
@@ -78,7 +122,8 @@ internal class ReaderTransitionGateway {
 	private data class Attachment(
 		val token: Long,
 		val enqueue: (ReaderTransitionFact) -> Unit,
-		val enqueueReceipt: (ReaderPresentationEventReceipt) -> Unit
+		val enqueueReceipt: (ReaderPresentationEventReceipt) -> Unit,
+		val registerSemanticRequest: ((ReaderSemanticExecutableRequest) -> ReaderSemanticRequestHandle)?
 	)
 }
 
@@ -90,6 +135,32 @@ internal inline fun <T> ReaderTransitionGateway.dispatchBeforeLegacy(
 	return legacyDispatch()
 }
 
+internal inline fun <T> ReaderTransitionGateway.dispatchActivatedOrLegacy(
+	fact: ReaderTransitionFact,
+	activatedResult: () -> T,
+	legacyDispatch: () -> T
+): T = if (mode == ReaderTransitionGatewayMode.Activated) {
+	enqueue(fact)
+	activatedResult()
+} else {
+	dispatchBeforeLegacy(fact, legacyDispatch)
+}
+
+internal fun <T> ReaderTransitionGateway.dispatchSemanticActivatedOrLegacy(
+	intent: (ReaderSemanticRequestHandle) -> ReaderSemanticSynchronizationIntent,
+	request: ReaderSemanticExecutableRequest,
+	activatedResult: () -> T,
+	legacyDispatch: () -> T
+): T {
+	if (mode == ReaderTransitionGatewayMode.Activated) {
+		val handle = registerSemanticRequest(request)
+		enqueue(ReaderTransitionFact.Intent(null, intent(handle)))
+		return activatedResult()
+	}
+	val observedIntent = intent(observedSemanticRequestHandle())
+	return dispatchBeforeLegacy(ReaderTransitionFact.Intent(null, observedIntent), legacyDispatch)
+}
+
 internal inline fun <T> ReaderTransitionGateway.dispatchViewerActionBeforeLegacy(
 	state: ReaderControllerState,
 	action: ReaderViewerAction,
@@ -97,7 +168,12 @@ internal inline fun <T> ReaderTransitionGateway.dispatchViewerActionBeforeLegacy
 	onTransitionIntentRegistered: () -> Unit,
 	legacyDispatch: () -> T
 ): T {
-	val fact = readerTransitionIntentForViewerAction(state, action, gestureId)?.let { intent ->
+	val fact = readerTransitionIntentForViewerAction(
+		state,
+		action,
+		gestureId,
+		observedSemanticRequestHandle()
+	)?.let { intent ->
 		onTransitionIntentRegistered()
 		ReaderTransitionFact.Intent(null, intent)
 	}

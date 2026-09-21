@@ -99,6 +99,7 @@ class ReaderPresentationHostBridgeTest {
 			},
 			handoffTimeoutScheduler = deadlines,
 			handoffTimeoutMillis = 1_000L,
+			handoffNowMillis = { 0L },
 			onEvent = ::dispatch
 		)
 		val bridge = ReaderPresentationHostBridge(
@@ -464,6 +465,100 @@ class ReaderPresentationHostBridgeTest {
 	}
 
 	@Test
+	fun shellCoverPhysicalOwnersFreezeDrainAndRestoreWithStableExactIdentities() {
+		val fixture = BridgeFixture()
+		val domain = ReaderLegacyPhysicalDomain(2L, ReaderLegacyFreezeToken(47L))
+		fixture.bridge.update(fixture.pendingDecision)
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			fixture.bridge.freezeForTransitionActivation(domain)
+		)
+		val rows = fixture.bridge.snapshotFrozenOwnership()
+		assertEquals(3, rows.size)
+		assertEquals(
+			setOf(
+				ReaderLegacyInventorySource.FrameOrHandoff,
+				ReaderLegacyInventorySource.DeadlineRegistration
+			),
+			rows.map { it.physicalIdentity.source }.toSet()
+		)
+		assertEquals(
+			setOf(
+				paige.navic.reader.ReaderTransitionResourceKind.FrameHandoff,
+				paige.navic.reader.ReaderTransitionResourceKind.CallbackRegistration
+			),
+			rows.map { it.kind }.toSet()
+		)
+		assertEquals(3, rows.map { it.physicalIdentity }.toSet().size)
+
+		fixture.bridge.update(
+			fixture.pendingDecision(
+				ReaderPresentationToken(fixture.transition.token.value + 1L),
+				fixture.transition.coverGeneration + 1L
+			)
+		)
+		assertEquals(rows, fixture.bridge.snapshotFrozenOwnership())
+		assertEquals(1, fixture.host.registrations.size)
+
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		rows.sortedBy { it.kind == paige.navic.reader.ReaderTransitionResourceKind.FrameHandoff }
+			.forEach { row ->
+				assertEquals(
+					ReaderPortCommandResult.Accepted,
+					fixture.bridge.drainFrozenOwnership(
+						row.physicalIdentity,
+						confirmations::add
+					)
+				)
+			}
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+		assertTrue(fixture.bridge.snapshotFrozenOwnership().isEmpty())
+		assertEquals(1, fixture.host.registrations.single().unregisterCount)
+		assertEquals(1, fixture.host.cancelPreparationCount)
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			fixture.bridge.restoreAfterTransitionActivation(domain)
+		)
+		assertTrue(fixture.host.coverPrepared)
+		assertEquals(2, fixture.host.registrations.size)
+		fixture.host.registrations.last().draw()
+		fixture.host.runNextAnimationFrame()
+		assertIs<ReaderPresentationEvent.ShellCoverCommitted>(fixture.events.single())
+	}
+
+	@Test
+	fun drainedCoverFrameCallbackCannotCompleteAfterRestoredDrawRegistration() {
+		val fixture = BridgeFixture()
+		val domain = ReaderLegacyPhysicalDomain(2L, ReaderLegacyFreezeToken(53L))
+		fixture.bridge.update(fixture.pendingDecision)
+		fixture.host.registrations.single().draw()
+		assertEquals(1, fixture.host.animationFrames.size)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			fixture.bridge.freezeForTransitionActivation(domain)
+		)
+		val rows = fixture.bridge.snapshotFrozenOwnership()
+		rows.forEach { row ->
+			assertEquals(
+				ReaderPortCommandResult.Accepted,
+				fixture.bridge.drainFrozenOwnership(row.physicalIdentity) {}
+			)
+		}
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			fixture.bridge.restoreAfterTransitionActivation(domain)
+		)
+
+		fixture.host.runNextAnimationFrame()
+		assertTrue(fixture.events.isEmpty())
+		fixture.host.registrations.last().draw()
+		fixture.host.runNextAnimationFrame()
+		assertIs<ReaderPresentationEvent.ShellCoverCommitted>(fixture.events.single())
+	}
+
+	@Test
 	fun productionNativeProofSettlesAuthorityBeforeReturnToCoverCanCommit() {
 		val fixture = BridgeFixture()
 		var presentation = paige.navic.reader.ReaderPresentationState()
@@ -561,6 +656,7 @@ class ReaderPresentationHostBridgeTest {
 			},
 			handoffTimeoutScheduler = deadlines,
 			handoffTimeoutMillis = 1_000L,
+			handoffNowMillis = { 0L },
 			onEvent = { event ->
 				events += event
 				presentation = readerPresentationReduce(presentation, event).state

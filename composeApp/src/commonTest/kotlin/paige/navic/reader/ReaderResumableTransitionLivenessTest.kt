@@ -57,6 +57,7 @@ class ReaderResumableTransitionLivenessTest {
 	@Test
 	fun livenessMatrixNamesExactProofsAndCallbackSourcesPerOperation() {
 		val materialSources = setOf(
+			ReaderTransitionFactKind.MaterialBindingAllocated,
 			ReaderTransitionFactKind.RasterProgress,
 			ReaderTransitionFactKind.RasterProven,
 			ReaderTransitionFactKind.RasterDeferred,
@@ -71,13 +72,17 @@ class ReaderResumableTransitionLivenessTest {
 			ReaderTransitionFactKind.DeadlineExpired
 		)
 		val materialProofs = setOf(
+			ReaderTransitionProofKind.MaterialBindingAllocation,
 			ReaderTransitionProofKind.Raster,
 			ReaderTransitionProofKind.DeckOwnership,
 			ReaderTransitionProofKind.DeckPrepared,
 			ReaderTransitionProofKind.PreparedFrame
 		)
 		val expected = mapOf(
-			ReaderTransitionOperation.BootstrapNativePage to (materialProofs to materialSources),
+			ReaderTransitionOperation.BootstrapNativePage to (
+				(materialProofs + ReaderTransitionProofKind.SemanticDestination) to
+					(materialSources + ReaderTransitionFactKind.FoliateDestinationCommitted)
+			),
 			ReaderTransitionOperation.ShellCoverCommit to (
 				setOf(ReaderTransitionProofKind.CoverPostDraw) to setOf(
 					ReaderTransitionFactKind.CoverPostDraw,
@@ -133,10 +138,12 @@ class ReaderResumableTransitionLivenessTest {
 			ReaderTransitionOperation.RendererRecovery to (
 				setOf(
 					ReaderTransitionProofKind.RendererGeneration,
+					ReaderTransitionProofKind.MaterialBindingAllocation,
 					ReaderTransitionProofKind.DeckOwnership,
 					ReaderTransitionProofKind.DeckPrepared,
 					ReaderTransitionProofKind.PreparedFrame
 				) to setOf(
+					ReaderTransitionFactKind.MaterialBindingAllocated,
 					ReaderTransitionFactKind.RendererGenerationReady,
 					ReaderTransitionFactKind.DeckReserved,
 					ReaderTransitionFactKind.DeckOwned,

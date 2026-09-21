@@ -18,6 +18,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageRasterPriority
+import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.reader.readerAndroidFile
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -520,6 +521,78 @@ class ReaderPageRasterSchedulerTest {
 		assertEquals(0, metrics.decodedEntries)
 		assertEquals(0, metrics.uniqueDecodedBitmaps)
 		assertEquals(0, metrics.activeEncodePins)
+	}
+
+	@Test
+	fun frozenSchedulerInventoriesQueuedAndActiveWorkAndRestoresRestartDescriptors() = runBlocking {
+		val gate = CompletableDeferred<Unit>()
+		val generator = FakeRasterGenerator(firstGate = gate)
+		val profile = rasterProfile("activation")
+		val scheduler = ReaderPageRasterScheduler(
+			scope = scope,
+			store = FakeRasterStore(),
+			generator = generator,
+			release = { }
+		)
+		scheduler.activateProfile(profile)
+		val activeKey = rasterKey(profile, page = 1)
+		val queuedKey = rasterKey(profile, page = 2)
+		val active = scheduler.request(activeKey, ReaderPageRasterPriority.Current)
+		generator.firstStarted.await()
+		val queued = scheduler.request(queuedKey, ReaderPageRasterPriority.NextTransition)
+		val domain = ReaderLegacyPhysicalDomain(
+			readerSessionGeneration = 61L,
+			freezeToken = ReaderLegacyFreezeToken(62L)
+		)
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.freezeForTransitionActivation(domain)
+		)
+		val first = scheduler.snapshotFrozenOwnership()
+		val second = scheduler.snapshotFrozenOwnership()
+		assertEquals(first, second)
+		assertEquals(2, first.size)
+		assertEquals(1, first.count { it.state == ReaderLegacyResourceState.Running })
+		assertEquals(1, first.count { it.state == ReaderLegacyResourceState.Reserved })
+		assertTrue(first.all { row ->
+			row.physicalIdentity.domain == domain &&
+				row.physicalIdentity.source ==
+				ReaderLegacyInventorySource.RasterGenerationAndPersistence &&
+				row.kind == ReaderTransitionResourceKind.Raster
+		})
+		val fenced = scheduler.request(
+			rasterKey(profile, page = 3),
+			ReaderPageRasterPriority.Current
+		)
+		assertEquals(ReaderPageRasterScheduleStatus.Stale, fenced.await().status)
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		first.forEach { row ->
+			assertEquals(
+				ReaderPortCommandResult.Accepted,
+				scheduler.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+			)
+		}
+		assertEquals(ReaderPageRasterScheduleStatus.Stale, queued.await().status)
+		assertEquals(1, confirmations.size)
+		gate.complete(Unit)
+		assertEquals(ReaderPageRasterScheduleStatus.Stale, active.await().status)
+		withTimeout(2_000L) {
+			while (confirmations.size != 2) yield()
+		}
+		assertEquals(first.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+		assertTrue(scheduler.snapshotFrozenOwnership().isEmpty())
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.restoreAfterTransitionActivation(domain)
+		)
+		withTimeout(2_000L) {
+			while (generator.calls.count { it == activeKey } < 2 ||
+				generator.calls.count { it == queuedKey } < 1
+			) yield()
+		}
+		scheduler.closeAndJoin()
 	}
 
 	@Test

@@ -137,6 +137,61 @@ private const val PageTurnPrewarmRequiredStableFrames = 2
 private const val AndroidGestureDoubleTapMinTimeMillis = 40L
 private val ReaderPageDiagnosticSessionIds = AtomicLong()
 
+private object ReaderNativeHostProductionActivatedPortCapability :
+	ReaderProductionActivatedPortCapability
+
+internal class ReaderProductionActivatedSessionPorts private constructor(
+	val gateway: ReaderActivatedGatewayPort,
+	val semantic: ReaderSemanticCommandPort,
+	val materialAllocation: ReaderMaterialGenerationAllocationPort,
+	val raster: ReaderActivatedRasterPreparationPort,
+	val deck: ReaderActivatedDeckPort,
+	val frame: ReaderFramePresentationPort,
+	val ownerAndInput: ReaderOwnerAndInputPublicationPort,
+	val inputSafety: ReaderInputLeasePort,
+	val resources: ReaderTransitionResourcePort,
+	val releaseSink: ReaderReleaseOnlySinkPort,
+	val lifecycleFacts: ReaderTask6LifecycleFactPort,
+	val factOnlyTimer: ReaderTask6FactOnlyTimerPort,
+	private val productionCapability: ReaderProductionActivatedPortCapability
+) {
+	init {
+		require(productionCapability === ReaderNativeHostProductionActivatedPortCapability)
+	}
+
+	companion object {
+		internal fun mint(
+			gateway: ReaderActivatedGatewayPort,
+			semantic: ReaderSemanticCommandPort,
+			materialAllocation: ReaderMaterialGenerationAllocationPort,
+			raster: ReaderActivatedRasterPreparationPort,
+			deck: ReaderActivatedDeckPort,
+			frame: ReaderFramePresentationPort,
+			ownerAndInput: ReaderOwnerAndInputPublicationPort,
+			inputSafety: ReaderInputLeasePort,
+			resources: ReaderTransitionResourcePort,
+			releaseSink: ReaderReleaseOnlySinkPort,
+			lifecycleFacts: ReaderTask6LifecycleFactPort,
+			factOnlyTimer: ReaderTask6FactOnlyTimerPort,
+			productionCapability: ReaderProductionActivatedPortCapability
+		): ReaderProductionActivatedSessionPorts = ReaderProductionActivatedSessionPorts(
+			gateway = gateway,
+			semantic = semantic,
+			materialAllocation = materialAllocation,
+			raster = raster,
+			deck = deck,
+			frame = frame,
+			ownerAndInput = ownerAndInput,
+			inputSafety = inputSafety,
+			resources = resources,
+			releaseSink = releaseSink,
+			lifecycleFacts = lifecycleFacts,
+			factOnlyTimer = factOnlyTimer,
+			productionCapability = productionCapability
+		)
+	}
+}
+
 internal class ReaderPassiveRasterRendererLossFence {
 	private var currentIdentity: Any? = null
 
@@ -769,22 +824,12 @@ actual fun KomikkuReaderNativeFrameHost(
 	composeOverlay: @Composable () -> Unit
 ) {
 	val shadowTransitionGateway = checkNotNull(LocalReaderTransitionGateway.current)
-	val shadowCoordinator = remember(shadowTransitionGateway) {
-		ReaderResumableTransitionCoordinator(
-			ports = ReaderShadowTransitionPorts(),
-			mode = ReaderTransitionMode.Shadow,
-			journal = ReaderTransitionJournal()
-		)
-	}
-	DisposableEffect(shadowTransitionGateway, shadowCoordinator) {
+	DisposableEffect(shadowTransitionGateway) {
 		val registration = shadowTransitionGateway.attachShadow(
-			enqueue = shadowCoordinator::enqueue,
-			enqueueReceipt = shadowCoordinator::enqueue
+			enqueue = {},
+			enqueueReceipt = {}
 		)
-		onDispose {
-			shadowCoordinator.enqueue(ReaderTransitionFact.PublicationReplaced(null))
-			registration.close()
-		}
+		onDispose { registration.close() }
 	}
 	val currentShadowTransitionGateway by rememberUpdatedState(shadowTransitionGateway)
 	val currentViewerContent by rememberUpdatedState(viewerContent)
@@ -892,8 +937,11 @@ actual fun KomikkuReaderNativeFrameHost(
 					destinationCommitIdentity,
 					viewerKey
 				) { event ->
-					currentShadowTransitionGateway.observeLegacyPresentationEvent(event)
-					currentOnPresentationEvent(event)
+					if (currentShadowTransitionGateway.observeLegacyPresentationEvent(event)) {
+						currentOnPresentationEvent(event)
+					} else {
+						null
+					}
 				}
 				setViewerContent(viewerKey) { currentViewerContent() }
 				handlePresentationEffects(
@@ -965,8 +1013,11 @@ actual fun KomikkuReaderNativeFrameHost(
 				destinationCommitIdentity,
 				viewerKey
 			) { event ->
-				currentShadowTransitionGateway.observeLegacyPresentationEvent(event)
-				currentOnPresentationEvent(event)
+				if (currentShadowTransitionGateway.observeLegacyPresentationEvent(event)) {
+					currentOnPresentationEvent(event)
+				} else {
+					null
+				}
 			}
 			root.handlePresentationEffects(
 				presentationEffects,

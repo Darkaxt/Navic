@@ -27,6 +27,20 @@ data class ReaderPresentationReceiptVersion(
 	}
 }
 
+@JvmInline
+value class ReaderSemanticCommandSlotId(val value: Long) {
+	init { require(value > 0L) }
+}
+
+sealed interface ReaderPresentationEventOrigin {
+	data object NonSemantic : ReaderPresentationEventOrigin
+	data object UnsolicitedFoliate : ReaderPresentationEventOrigin
+	data class SemanticCommand(
+		val transitionId: ReaderTransitionId,
+		val slotId: ReaderSemanticCommandSlotId
+	) : ReaderPresentationEventOrigin
+}
+
 data class ReaderPresentationEventReceipt(
 	val event: ReaderPresentationEvent,
 	val preVersion: ReaderPresentationReceiptVersion,
@@ -34,28 +48,33 @@ data class ReaderPresentationEventReceipt(
 	val disposition: ReaderPresentationEventDisposition,
 	val postState: ReaderPresentationState,
 	val effects: List<ReaderPresentationEffect>,
-	val originatingTransitionId: ReaderTransitionId? = null
+	val origin: ReaderPresentationEventOrigin
 ) {
+	val originatingTransitionId: ReaderTransitionId?
+		get() = (origin as? ReaderPresentationEventOrigin.SemanticCommand)?.transitionId
+
 	init {
+		val transitionId = originatingTransitionId
 		require(
-			originatingTransitionId == null ||
-				originatingTransitionId.readerSessionGeneration == version.readerSessionGeneration
+			transitionId == null ||
+				transitionId.readerSessionGeneration == version.readerSessionGeneration
 		)
 	}
 
 	val semanticReceipt: ReaderPresentationSemanticReceipt?
 		get() {
 			if (disposition != ReaderPresentationEventDisposition.Accepted) return null
+			val commandOrigin = origin as? ReaderPresentationEventOrigin.SemanticCommand ?: return null
 			return when (val sourceEvent = event) {
 				is ReaderPresentationEvent.FoliateRelocated -> sourceEvent.acknowledgement?.let { acknowledgement ->
 					ReaderPresentationSemanticReceipt.Settlement(
 							binding = sourceEvent.binding,
 							acknowledgement = acknowledgement,
-							transitionId = originatingTransitionId
+							transitionId = commandOrigin.transitionId
 						)
 				} ?: ReaderPresentationSemanticReceipt.Destination(
 						binding = sourceEvent.binding,
-						transitionId = originatingTransitionId
+						transitionId = commandOrigin.transitionId
 					)
 				else -> null
 			}
@@ -106,7 +125,8 @@ internal fun readerPresentationEventTransition(
 	preState: ReaderPresentationState,
 	preVersion: ReaderPresentationReceiptVersion,
 	shellCoverVisible: Boolean,
-	event: ReaderPresentationEvent
+	event: ReaderPresentationEvent,
+	origin: ReaderPresentationEventOrigin = ReaderPresentationEventOrigin.NonSemantic
 ): ReaderPresentationEventTransition {
 	val previousAuthority = preState.authority
 	val primaryReduction = readerPresentationReduce(preState, event)
@@ -164,7 +184,12 @@ internal fun readerPresentationEventTransition(
 			version = version,
 			disposition = reduction.disposition,
 			postState = reduction.state,
-			effects = reduction.effects.toList()
+			effects = if (origin is ReaderPresentationEventOrigin.SemanticCommand) {
+				emptyList()
+			} else {
+				reduction.effects.toList()
+			},
+			origin = origin
 		),
 		publicationIdentity = publicationIdentity,
 		shellCoverVisible = when {

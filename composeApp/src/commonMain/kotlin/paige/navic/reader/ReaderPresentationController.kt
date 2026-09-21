@@ -110,7 +110,8 @@ private fun ReaderLegacyLiveCompatibilityContext.matches(
 internal fun readerTransitionIntentForPageTurnBoundary(
 	state: ReaderControllerState,
 	direction: ReaderPageTurnDirection,
-	gestureId: ReaderTransitionGestureId
+	gestureId: ReaderTransitionGestureId,
+	requestHandle: ReaderSemanticRequestHandle
 ): ReaderTransitionUserIntent = if (
 	direction == ReaderPageTurnDirection.Previous &&
 	state.canReturnToShellCover &&
@@ -119,13 +120,14 @@ internal fun readerTransitionIntentForPageTurnBoundary(
 ) {
 	ReaderCoverReturnIntent
 } else {
-	ReaderPageTurnIntent(direction, gestureId)
+	ReaderPageTurnIntent(direction, gestureId, requestHandle)
 }
 
 internal fun readerTransitionIntentForViewerAction(
 	state: ReaderControllerState,
 	action: ReaderViewerAction,
-	gestureId: ReaderTransitionGestureId
+	gestureId: ReaderTransitionGestureId,
+	requestHandle: ReaderSemanticRequestHandle
 ): ReaderTransitionUserIntent? {
 	if (
 		action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous) &&
@@ -138,31 +140,37 @@ internal fun readerTransitionIntentForViewerAction(
 			locator = state.chrome.currentLocator
 		)
 	) return ReaderCoverReturnIntent
-	return readerTransitionIntentForViewerAction(state.presentationDecision.inputPolicy, action, gestureId)
+	return readerTransitionIntentForViewerAction(
+		state.presentationDecision.inputPolicy,
+		action,
+		gestureId,
+		requestHandle
+	)
 }
 
 internal fun readerTransitionIntentForViewerAction(
 	inputPolicy: ReaderPresentationInputPolicy,
 	action: ReaderViewerAction,
-	gestureId: ReaderTransitionGestureId
+	gestureId: ReaderTransitionGestureId,
+	requestHandle: ReaderSemanticRequestHandle
 ): ReaderTransitionUserIntent? = when {
 	inputPolicy == ReaderPresentationInputPolicy.ShellCover &&
 		(
 			action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||
 				action == ReaderViewerAction.ScrollViewport(ReaderViewportScrollDirection.Down)
-		) -> ReaderCoverEntryIntent
+		) -> ReaderCoverEntryIntent(requestHandle)
 	(action is ReaderViewerAction.NavigateTo) &&
 		(
 			(inputPolicy is ReaderPresentationInputPolicy.NativePage &&
 				inputPolicy.policy.newPointer == ReaderPageNewPointerDecision.Accept) ||
 				inputPolicy == ReaderPresentationInputPolicy.LiveEngine
-		) -> ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Jump)
+		) -> ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Jump, requestHandle)
 	(action is ReaderViewerAction.TurnPage) &&
 		(
 			(inputPolicy is ReaderPresentationInputPolicy.NativePage &&
 				inputPolicy.policy.newPointer == ReaderPageNewPointerDecision.Accept) ||
 				inputPolicy == ReaderPresentationInputPolicy.LiveEngine
-		) -> ReaderPageTurnIntent(action.direction, gestureId)
+		) -> ReaderPageTurnIntent(action.direction, gestureId, requestHandle)
 	else -> null
 }
 
@@ -255,14 +263,16 @@ internal class ReaderPresentationEffectQueue(
 internal object ReaderPresentationControllerReducer {
 	fun onPresentationEvent(
 		controller: ReaderController,
-		event: ReaderPresentationEvent
+		event: ReaderPresentationEvent,
+		origin: ReaderPresentationEventOrigin = ReaderPresentationEventOrigin.NonSemantic
 	): ReaderControllerStep {
 		val state = controller.state
 		val transition = readerPresentationEventTransition(
 			preState = state.presentation,
 			preVersion = controller.presentationVersion,
 			shellCoverVisible = state.shellCoverVisible,
-			event = event
+			event = event,
+			origin = origin
 		)
 		val receipt = transition.receipt
 		val reduction = ReaderPresentationReduction(

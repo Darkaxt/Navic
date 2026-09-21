@@ -39,6 +39,8 @@ import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.ReaderPageTurnPixelRect
+import paige.navic.reader.ReaderTransitionFailureReason
+import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.reader.readerPageRasterStorageRoot
 import paige.navic.util.core.Logger
 import kotlin.coroutines.resume
@@ -1149,6 +1151,13 @@ private class InFlightRasterHydration(
 	var job: Job? = null
 )
 
+private data class ReaderFrozenSnapshotCacheEntry(
+	val snapshot: ReaderPageSlideSnapshot,
+	val durability: ReaderPageRasterHydrationDurability?,
+	val exactRasterIdentity: String?,
+	val token: ReaderLegacySourceLocalOpaqueToken
+)
+
 internal data class ReaderPageRasterPublicationValue<T : Any>(
 	val key: ReaderPageRasterKey,
 	val generation: ReaderPageRasterGeneration<T>
@@ -1193,7 +1202,19 @@ internal class ReaderPageTurnBundleSource(
 	private val hydrationStorePort: ReaderPageRasterHydrationStorePort? = null,
 	private val diagnostics: ReaderPageRuntimeDiagnostics? = null,
 	private val qaFaultRegistry: ReaderPageQaFaultRegistry? = null,
-	private val onOwnershipMutated: () -> Unit = {}
+	private val onOwnershipMutated: () -> Unit = {},
+	private val hydrationOwnershipTokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator(),
+	private val publicationOwnershipTokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator(),
+	private val descriptorOwnershipTokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator(),
+	private val snapshotCacheOwnershipTokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator(),
+	private val hydrationSchedulerOverride: ReaderPageRasterHydrationScheduler? = null,
+	private val publicationSchedulerOverride: ReaderPageRasterPublicationScheduler? = null,
+	private val pendingDescriptorOwnersOverride:
+		ReaderPagePendingCallbackOwners<ReaderPageSlideSnapshot>? = null
 ) {
 	private var activeGeneration = 0L
 	private var bitmapQuality = ReaderPageBitmapQuality.Balanced
@@ -1207,15 +1228,22 @@ internal class ReaderPageTurnBundleSource(
 	private val rasterInitializationMutex = Mutex()
 	private val rasterPersistenceJobLock = Any()
 	private val rasterPersistenceJobs = linkedSetOf<Job>()
-	private val pendingDescriptorOwners = ReaderPagePendingCallbackOwners<ReaderPageSlideSnapshot>(
-		retain = ReaderPageSlideSnapshot::retain,
-		release = ReaderPageSlideSnapshot::release
-	)
+	private val pendingDescriptorOwners = pendingDescriptorOwnersOverride
+		?: ReaderPagePendingCallbackOwners<ReaderPageSlideSnapshot>(
+			retain = ReaderPageSlideSnapshot::retain,
+			release = ReaderPageSlideSnapshot::release,
+			tokenAllocator = descriptorOwnershipTokenAllocator
+		)
 	private val visualStateRequestId = AtomicLong()
 	private val persistenceAttemptIds = AtomicLong()
 	private val rasterPhysicalLayoutEpoch = AtomicLong()
 	private var physicalLayoutAuthority: ReaderPageRasterPhysicalLayoutAuthority? = null
 	private val snapshotCache = LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)
+	private val snapshotCacheTokens =
+		IdentityHashMap<ReaderPageSlideSnapshot, ReaderLegacySourceLocalOpaqueToken>()
+	private val frozenSnapshotCacheEntries =
+		linkedMapOf<ReaderLegacySourceLocalOpaqueToken, ReaderFrozenSnapshotCacheEntry>()
+	private var frozenSnapshotCacheDomain: ReaderLegacyPhysicalDomain? = null
 	private val snapshotDurability =
 		IdentityHashMap<ReaderPageSlideSnapshot, ReaderPageRasterHydrationDurability>()
 	private val snapshotExactRasterIdentities =
@@ -1228,14 +1256,16 @@ internal class ReaderPageTurnBundleSource(
 		linkedMapOf<ReaderPageRasterDescriptorIdentity, ReaderPageRasterDescriptor>()
 	private val inFlightRasterHydrations =
 		mutableMapOf<ReaderPageRasterHydrationIdentity, InFlightRasterHydration>()
-	private val hydrationScheduler = ReaderPageRasterHydrationScheduler(
+	private val hydrationScheduler = hydrationSchedulerOverride ?: ReaderPageRasterHydrationScheduler(
 		scope = rasterScope,
-		maxConcurrentWorkers = 2
+		maxConcurrentWorkers = 2,
+		tokenAllocator = hydrationOwnershipTokenAllocator
 	)
 	private var nextHydrationToken = 0L
-	private val publicationScheduler = ReaderPageRasterPublicationScheduler(
+	private val publicationScheduler = publicationSchedulerOverride ?: ReaderPageRasterPublicationScheduler(
 		scope = rasterScope,
-		maxConcurrentWorkers = 1
+		maxConcurrentWorkers = 1,
+		tokenAllocator = publicationOwnershipTokenAllocator
 	)
 	private val publicationLedger =
 		ReaderPageRasterPublicationLedger<
@@ -1247,6 +1277,7 @@ internal class ReaderPageTurnBundleSource(
 			persistenceWorkerLimit = publicationScheduler.maxConcurrentWorkers,
 			callbackLimit = ReaderPageMaximumPublicationCallbacks,
 			onOwnershipMutated = onOwnershipMutated,
+			tokenAllocator = publicationOwnershipTokenAllocator,
 			release = { value ->
 				ReaderAndroidPageRasterCodec.release(value.generation.value)
 			}
@@ -1325,6 +1356,166 @@ internal class ReaderPageTurnBundleSource(
 	)
 	val isAvailable: Boolean
 		get() = bitmapSource.isAvailable
+
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		if (
+			frozenSnapshotCacheDomain != null &&
+			frozenSnapshotCacheDomain != domain
+		) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		val hydrationResult = hydrationScheduler.freezeForTransitionActivation(domain)
+		if (hydrationResult != ReaderPortCommandResult.Accepted) return hydrationResult
+		val publicationResult = publicationScheduler.freezeForTransitionActivation(domain)
+		if (publicationResult != ReaderPortCommandResult.Accepted) {
+			hydrationScheduler.restoreAfterTransitionActivation(domain)
+			return publicationResult
+		}
+		val ledgerResult = publicationLedger.freezeForTransitionActivation(domain)
+		if (ledgerResult != ReaderPortCommandResult.Accepted) {
+			publicationScheduler.restoreAfterTransitionActivation(domain)
+			hydrationScheduler.restoreAfterTransitionActivation(domain)
+			return ledgerResult
+		}
+		val descriptorResult = pendingDescriptorOwners.freezeForTransitionActivation(domain)
+		if (descriptorResult != ReaderPortCommandResult.Accepted) {
+			publicationLedger.restoreAfterTransitionActivation(domain)
+			publicationScheduler.restoreAfterTransitionActivation(domain)
+			hydrationScheduler.restoreAfterTransitionActivation(domain)
+			return descriptorResult
+		}
+		frozenSnapshotCacheDomain = domain
+		return ReaderPortCommandResult.Accepted
+	}
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> =
+		hydrationScheduler.snapshotFrozenOwnership() +
+			publicationScheduler.snapshotFrozenOwnership() +
+			publicationLedger.snapshotFrozenOwnership() +
+			pendingDescriptorOwners.snapshotFrozenOwnership() +
+			snapshotFrozenCacheOwnership()
+
+	private fun snapshotFrozenCacheOwnership(): List<ReaderFrozenLegacyResource> {
+		val domain = frozenSnapshotCacheDomain ?: return emptyList()
+		return snapshotCache.values.map { snapshot ->
+			ReaderFrozenLegacyResource(
+				freezeToken = domain.freezeToken,
+				physicalIdentity = ReaderLegacyPhysicalIdentity(
+					domain = domain,
+					source = ReaderLegacyInventorySource.RasterSnapshotCache,
+					sourceLocalToken = checkNotNull(snapshotCacheTokens[snapshot])
+				),
+				kind = ReaderTransitionResourceKind.Raster,
+				binding = null,
+				visibleOwner = null,
+				origin = ReaderLegacyResourceOrigin.Owned,
+				state = ReaderLegacyResourceState.Prepared,
+				mayBeCommittedPredecessor = false
+			)
+		}
+	}
+
+	fun drainFrozenOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult = when (physicalIdentity.source) {
+		ReaderLegacyInventorySource.RasterSnapshotCache ->
+			drainFrozenSnapshotCacheOwnership(physicalIdentity, onConfirmed)
+		ReaderLegacyInventorySource.RasterHydration ->
+			hydrationScheduler.drainFrozenOwnership(physicalIdentity, onConfirmed)
+		ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback ->
+			pendingDescriptorOwners.drainFrozenOwnership(physicalIdentity, onConfirmed)
+		ReaderLegacyInventorySource.RasterPublication -> {
+			val schedulerResult = publicationScheduler.drainFrozenOwnership(
+				physicalIdentity,
+				onConfirmed
+			)
+			if (schedulerResult == ReaderPortCommandResult.Accepted) schedulerResult
+			else publicationLedger.drainFrozenOwnership(physicalIdentity, onConfirmed)
+		}
+		else -> ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+	}
+
+	private fun drainFrozenSnapshotCacheOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult {
+		val domain = frozenSnapshotCacheDomain
+		if (
+			domain == null ||
+			physicalIdentity.domain != domain ||
+			physicalIdentity.source != ReaderLegacyInventorySource.RasterSnapshotCache
+		) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		val snapshot = snapshotCache.values.firstOrNull {
+			snapshotCacheTokens[it] == physicalIdentity.sourceLocalToken
+		} ?: return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		snapshot.retain()
+		val restart = ReaderFrozenSnapshotCacheEntry(
+			snapshot = snapshot,
+			durability = snapshotDurability[snapshot],
+			exactRasterIdentity = snapshotExactRasterIdentities[snapshot],
+			token = physicalIdentity.sourceLocalToken
+		)
+		val removed = removeCachedSnapshot(
+			key = snapshot.key,
+			expected = snapshot,
+			retainTokenForRestart = true
+		) ?: run {
+			snapshot.release()
+			return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+		}
+		frozenSnapshotCacheEntries[restart.token] = restart
+		removed.releaseCacheOwnership()
+		onConfirmed(physicalIdentity)
+		return ReaderPortCommandResult.Accepted
+	}
+
+	fun restoreAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		if (frozenSnapshotCacheDomain != domain || snapshotCache.isNotEmpty()) {
+			return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+		}
+		val hydrationResult = hydrationScheduler.restoreAfterTransitionActivation(domain)
+		val publicationResult = publicationScheduler.restoreAfterTransitionActivation(domain)
+		val ledgerResult = publicationLedger.restoreAfterTransitionActivation(domain)
+		val descriptorResult = pendingDescriptorOwners.restoreAfterTransitionActivation(domain)
+		return if (
+			hydrationResult == ReaderPortCommandResult.Accepted &&
+			publicationResult == ReaderPortCommandResult.Accepted &&
+			ledgerResult == ReaderPortCommandResult.Accepted &&
+			descriptorResult == ReaderPortCommandResult.Accepted
+		) {
+			frozenSnapshotCacheEntries.values.forEach { restart ->
+				val snapshot = restart.snapshot
+				snapshotCache[snapshot.key] = snapshot
+				snapshotCacheTokens[snapshot] = restart.token
+				restart.durability?.let { snapshotDurability[snapshot] = it }
+				restart.exactRasterIdentity?.let {
+					snapshotExactRasterIdentities[snapshot] = it
+				}
+			}
+			frozenSnapshotCacheEntries.clear()
+			frozenSnapshotCacheDomain = null
+			ReaderPortCommandResult.Accepted
+		} else {
+			ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+		}
+	}
 
 	fun setPublicationCapacityAvailableListener(listener: () -> Unit) {
 		publicationLedger.setCapacityAvailableListener(listener)
@@ -1701,6 +1892,7 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	fun protectDecodedPageIndices(pageIndices: Set<Int>) {
+		if (frozenSnapshotCacheDomain != null) return
 		protectedSnapshotPageIndices = pageIndices.filterTo(linkedSetOf()) { it >= 0 }
 		trimSnapshotCacheToCapacity()
 		rasterCache?.protectDecodedPageIndices(protectedSnapshotPageIndices)
@@ -1721,17 +1913,20 @@ internal class ReaderPageTurnBundleSource(
 
 	private fun removeCachedSnapshot(
 		key: ReaderPageSlideSnapshotKey,
-		expected: ReaderPageSlideSnapshot? = null
+		expected: ReaderPageSlideSnapshot? = null,
+		retainTokenForRestart: Boolean = false
 	): ReaderPageSlideSnapshot? {
 		val cached = snapshotCache[key] ?: return null
 		if (expected != null && cached !== expected) return null
 		val removed = snapshotCache.remove(key) ?: return null
 		snapshotDurability.remove(removed)
 		snapshotExactRasterIdentities.remove(removed)
+		if (!retainTokenForRestart) snapshotCacheTokens.remove(removed)
 		return removed
 	}
 
 	fun trimMemory(reason: String) {
+		if (frozenSnapshotCacheDomain != null) return
 		val removedSnapshots = snapshotCache.entries
 			.filter { (key, _) -> key.visualPageIndex !in protectedSnapshotPageIndices }
 			.map { it.key to it.value }
@@ -2844,8 +3039,15 @@ internal class ReaderPageTurnBundleSource(
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
 		current: ReaderPageTurnCaptureResult,
-		generation: Long = activeGeneration
-	): ReaderPageSlideSnapshot? = cacheSnapshot(pageIndex, kind, current, generation)
+		generation: Long = activeGeneration,
+		persist: Boolean = true
+	): ReaderPageSlideSnapshot? {
+		if (frozenSnapshotCacheDomain != null) {
+			current.bitmap.takeUnless { it.isRecycled }?.recycle()
+			return null
+		}
+		return cacheSnapshot(pageIndex, kind, current, generation, persist)
+	}
 
 	fun ensurePersistentSnapshot(
 		snapshot: ReaderPageSlideSnapshot,
@@ -2867,7 +3069,8 @@ internal class ReaderPageTurnBundleSource(
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
 		current: ReaderPageTurnCaptureResult,
-		generation: Long
+		generation: Long,
+		persist: Boolean = true
 	): ReaderPageSlideSnapshot? {
 		if (generation != activeGeneration) {
 			current.bitmap.takeUnless { it.isRecycled }?.recycle()
@@ -2895,7 +3098,11 @@ internal class ReaderPageTurnBundleSource(
 			return null
 		}
 		activatePhysicalLayout(kind, physicalLayout)
-		return putSnapshot(snapshot, ReaderPageRasterPriority.Current)
+		return putSnapshot(
+			snapshot = snapshot,
+			priority = ReaderPageRasterPriority.Current,
+			persist = persist
+		)
 	}
 
 	private fun cachedSnapshot(
@@ -3022,6 +3229,10 @@ internal class ReaderPageTurnBundleSource(
 				snapshotExactRasterIdentities[cached] == exactRasterIdentity
 			if (mayReuse) {
 				if (cached === snapshot) {
+					snapshotCacheTokens.putIfAbsent(
+						cached,
+						snapshotCacheOwnershipTokenAllocator.allocate()
+					)
 					exactRasterIdentity?.let { identity ->
 						snapshotExactRasterIdentities[cached] = identity
 					}
@@ -3042,6 +3253,7 @@ internal class ReaderPageTurnBundleSource(
 			removeCachedSnapshot(snapshot.key, cached)?.releaseCacheOwnership()
 		}
 		snapshotCache[snapshot.key] = snapshot
+		snapshotCacheTokens[snapshot] = snapshotCacheOwnershipTokenAllocator.allocate()
 		exactRasterIdentity?.let { identity ->
 			snapshotExactRasterIdentities[snapshot] = identity
 		}
@@ -3769,6 +3981,7 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	fun invalidate(reason: String) {
+		if (frozenSnapshotCacheDomain != null && reason != "close") return
 		synchronized(closeFenceLock) { activeGeneration += 1 }
 		try {
 			pendingDescriptorOwners.cancelAll()
@@ -3796,6 +4009,10 @@ internal class ReaderPageTurnBundleSource(
 			.forEach { recipient -> deliverHydrationResult(recipient.callback, null) }
 		snapshotCache.values.distinctBy { System.identityHashCode(it) }.forEach { it.releaseCacheOwnership() }
 		snapshotCache.clear()
+		snapshotCacheTokens.clear()
+		frozenSnapshotCacheEntries.values.forEach { it.snapshot.release() }
+		frozenSnapshotCacheEntries.clear()
+		frozenSnapshotCacheDomain = null
 		snapshotDurability.clear()
 		snapshotExactRasterIdentities.clear()
 		Logger.i(ReaderPageTurnBundleSourceTag, "Page-turn snapshot cache cleared reason=$reason")

@@ -6,6 +6,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import paige.navic.reader.ReaderTransitionResourceKind
 
 class ReaderPagePendingCallbackOwnersTest {
 	@Test
@@ -94,5 +95,54 @@ class ReaderPagePendingCallbackOwnersTest {
 		assertEquals(listOf(1, 2), cancellationAttempts)
 		assertTrue(failure.suppressed.isEmpty())
 		assertEquals(0, owners.pendingCount())
+	}
+
+	@Test
+	fun freezeFencesAcquisitionAndExactDrainAbandonsOnlyTheSelectedLease() {
+		val released = mutableListOf<Int>()
+		val abandoned = mutableListOf<Int>()
+		val owners = ReaderPagePendingCallbackOwners<Int>(
+			retain = {},
+			release = released::add
+		)
+		owners.acquire(1) { abandoned += 1 }
+		owners.acquire(2) { abandoned += 2 }
+		val domain = ReaderLegacyPhysicalDomain(
+			readerSessionGeneration = 51L,
+			freezeToken = ReaderLegacyFreezeToken(52L)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			owners.freezeForTransitionActivation(domain)
+		)
+		val rows = owners.snapshotFrozenOwnership()
+
+		assertEquals(2, rows.size)
+		assertTrue(rows.all { row ->
+			row.physicalIdentity.domain == domain &&
+				row.physicalIdentity.source ==
+				ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback &&
+				row.kind == ReaderTransitionResourceKind.CallbackRegistration
+		})
+		assertNull(owners.acquire(3) { })
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			owners.drainFrozenOwnership(rows.first().physicalIdentity, confirmations::add)
+		)
+		assertEquals(listOf(1), released)
+		assertEquals(listOf(1), abandoned)
+		assertEquals(listOf(rows.first().physicalIdentity), confirmations)
+		assertEquals(listOf(rows.last()), owners.snapshotFrozenOwnership())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			owners.drainFrozenOwnership(rows.last().physicalIdentity, confirmations::add)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			owners.restoreAfterTransitionActivation(domain)
+		)
+		assertTrue(owners.acquire(4) { } != null)
+		owners.close()
 	}
 }

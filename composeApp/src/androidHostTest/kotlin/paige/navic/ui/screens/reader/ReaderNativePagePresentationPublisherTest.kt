@@ -22,10 +22,290 @@ import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationReceiptVersion
+import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.ReaderResourceRetirementOrder
+import paige.navic.reader.ReaderRequiredTransition
+import paige.navic.reader.ReaderMaterialGenerationAllocation
+import paige.navic.reader.ReaderLiveEngineHandoffDirection
+import paige.navic.reader.ReaderNativePageHostTokenState
+import paige.navic.reader.ReaderPlayLikeCurlDeckTargetIdentity
+import paige.navic.reader.ReaderTransitionCommand
+import paige.navic.reader.ReaderTransitionDeckRole
+import paige.navic.reader.ReaderTransitionFact
+import paige.navic.reader.ReaderTransitionFrameGeometry
+import paige.navic.reader.ReaderTransitionFrameTarget
+import paige.navic.reader.ReaderTransitionFrameTargetSpecification
+import paige.navic.reader.ReaderTransitionId
+import paige.navic.reader.ReaderTransitionOperation
+import paige.navic.reader.ReaderTransitionResourceKey
+import paige.navic.reader.ReaderTransitionResourceKind
+import paige.navic.reader.ReaderTransitionResourceOwnerId
+import paige.navic.reader.ReaderTransitionResourceRegistration
 import paige.navic.reader.publicationIdentity
+import paige.navic.reader.parentIdentity
 import paige.navic.reader.readerPresentationEventTransition
 
 class ReaderNativePagePresentationPublisherTest {
+	@Test
+	fun handoffTimeoutAndFrameRegistrationDrainAndRestoreWithRemainingDeadline() {
+		val source = ControllablePresentedFrameSource()
+		val candidate = candidate(sequence = 3L).copy(
+			handoffDirection = ReaderLiveEngineHandoffDirection.LiveEngineToNative
+		)
+		val transition = ReaderRequiredTransition.PresentNativePage(
+			checkNotNull(candidate.transitionToken),
+			candidate.binding,
+			ReaderLiveEngineHandoffDirection.LiveEngineToNative
+		)
+		var now = 100L
+		val scheduled = mutableListOf<Pair<Runnable, Long>>()
+		val removed = mutableListOf<Runnable>()
+		val scheduler = object : ReaderPageRelocationDispatchTimeoutScheduler {
+			override fun postDelayed(action: Runnable, delayMillis: Long): Boolean {
+				scheduled += action to delayMillis
+				return true
+			}
+
+			override fun removeCallbacks(action: Runnable) {
+				removed += action
+			}
+		}
+		val publisher = ReaderNativePagePresentationPublisher(
+			frameSource = source,
+			currentCandidate = { candidate },
+			currentHandoffTransition = { transition },
+			handoffTimeoutScheduler = scheduler,
+			handoffTimeoutMillis = 1_000L,
+			handoffNowMillis = { now },
+			onEvent = { null }
+		)
+		publisher.update()
+		val domain = ReaderLegacyPhysicalDomain(3L, ReaderLegacyFreezeToken(43L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.freezeForTransitionActivation(domain)
+		)
+		val rows = publisher.snapshotFrozenOwnership()
+		assertEquals(2, rows.size)
+		now = 400L
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		rows.forEach { row ->
+			assertEquals(
+				ReaderPortCommandResult.Accepted,
+				publisher.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+			)
+		}
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+		assertEquals(1, removed.size)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.restoreAfterTransitionActivation(domain)
+		)
+		assertEquals(listOf(1_000L, 700L), scheduled.map { it.second })
+	}
+
+	@Test
+	fun legacyPublisherFreezesDrainsAndRestoresPendingFrameCallback() {
+		val source = ControllablePresentedFrameSource()
+		val candidate = candidate(sequence = 1L)
+		val events = mutableListOf<ReaderPresentationEvent>()
+		val publisher = ReaderNativePagePresentationPublisher(
+			frameSource = source,
+			currentCandidate = { candidate },
+			onEvent = { event ->
+				events += event
+				readerTestPresentationReceipt(
+					event,
+					ReaderPresentationState(binding = candidate.binding)
+				)
+			}
+		)
+		publisher.update()
+		val domain = ReaderLegacyPhysicalDomain(3L, ReaderLegacyFreezeToken(41L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.freezeForTransitionActivation(domain)
+		)
+		val row = publisher.snapshotFrozenOwnership().single()
+		assertEquals(ReaderTransitionResourceKind.CallbackRegistration, row.kind)
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+		)
+		assertEquals(listOf(row.physicalIdentity), confirmations)
+		assertEquals(listOf(1L), source.cancelledIds)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.restoreAfterTransitionActivation(domain)
+		)
+		assertEquals(listOf(1L, 2L), source.requestedIds)
+		source.present(1L)
+		assertTrue(events.isEmpty())
+		source.present(2L)
+		assertEquals(1, events.size)
+	}
+
+	@Test
+	fun commandPublisherFreezesExactPreparedTargetAndPendingFrameOwnership() {
+		val source = ControllablePresentedFrameSource()
+		val candidate = candidate(sequence = 1L)
+		val publisher = ReaderNativePagePresentationPublisher(
+			frameSource = source,
+			currentCandidate = { candidate },
+			onEvent = { error("command publication must not emit legacy events") }
+		)
+		val firstId = ReaderTransitionId(
+			3L, 5L, 7L,
+			ReaderTransitionOperation.BootstrapNativePage,
+			ReaderExpectedPresentationBinding.Exact(candidate.binding),
+			paige.navic.reader.ReaderTransitionParentIdentity(3L, 5L, 6L)
+		)
+		val secondId = firstId.copy(sequence = 8L, parent = firstId.parentIdentity())
+		publisher.activateCommandOnly { candidate }
+		val facts = mutableListOf<ReaderTransitionFact>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.prepareTarget(nativePrepareCommand(firstId, candidate), facts::add)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.prepareTarget(nativePrepareCommand(secondId, candidate), facts::add)
+		)
+		val targets = facts.map { assertIs<ReaderTransitionFact.FrameTargetPrepared>(it).target }
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.present(
+				ReaderTransitionCommand.RequestFramePresentation(firstId, targets.first())
+			) { }
+		)
+		val domain = ReaderLegacyPhysicalDomain(3L, ReaderLegacyFreezeToken(37L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.freezeForTransitionActivation(domain)
+		)
+		val rows = publisher.snapshotFrozenOwnership()
+		assertEquals(2, rows.size)
+		assertEquals(rows.size, rows.map { it.physicalIdentity }.toSet().size)
+		assertTrue(rows.all {
+			it.physicalIdentity.source == ReaderLegacyInventorySource.FrameOrHandoff
+		})
+		assertIs<ReaderPortCommandResult.Rejected>(
+			publisher.prepareTarget(nativePrepareCommand(firstId, candidate)) { }
+		)
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		rows.sortedBy { it.kind != ReaderTransitionResourceKind.CallbackRegistration }
+			.forEach { row ->
+				assertEquals(
+					ReaderPortCommandResult.Accepted,
+					publisher.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+				)
+			}
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+		assertEquals(listOf(1L), source.cancelledIds)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.restoreAfterTransitionActivation(domain)
+		)
+		assertEquals(listOf(1L, 2L), source.requestedIds)
+		source.present(2L)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.present(
+				ReaderTransitionCommand.RequestFramePresentation(secondId, targets.last())
+			) { }
+		)
+	}
+
+	@Test
+	fun activatedPublisherStartsOnlyFromExactFrameCommandAndEmitsPreparedFact() {
+		val source = ControllablePresentedFrameSource()
+		val candidate = candidate(sequence = 1L)
+		var candidateReads = 0
+		val facts = mutableListOf<ReaderTransitionFact>()
+		val publisher = ReaderNativePagePresentationPublisher(
+			frameSource = source,
+			currentCandidate = { candidateReads += 1; candidate },
+			onEvent = { error("Activated publication must not emit legacy events") }
+		)
+		val id = ReaderTransitionId(
+			readerSessionGeneration = 3L,
+			coordinatorEpoch = 5L,
+			sequence = 7L,
+			operation = ReaderTransitionOperation.BootstrapNativePage,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(candidate.binding),
+			parent = paige.navic.reader.ReaderTransitionParentIdentity(3L, 5L, 6L)
+		)
+		publisher.activateCommandOnly { specification ->
+			candidateReads += 1
+			candidate.takeIf { it.binding == specification.binding }
+		}
+		val preparationFacts = mutableListOf<ReaderTransitionFact>()
+		val prepareCommand = nativePrepareCommand(id, candidate)
+
+		publisher.update()
+		assertEquals(0, candidateReads)
+		assertTrue(source.requestedIds.isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.prepareTarget(prepareCommand, preparationFacts::add)
+		)
+		assertEquals(1, candidateReads)
+		val preparedTarget = assertIs<ReaderTransitionFact.FrameTargetPrepared>(
+			preparationFacts.single()
+		).target
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			publisher.present(
+				ReaderTransitionCommand.RequestFramePresentation(id, preparedTarget),
+				facts::add
+			)
+		)
+		assertEquals(1, candidateReads)
+		assertEquals(listOf(1L), source.requestedIds)
+		assertTrue(facts.isEmpty())
+
+		source.present(1L)
+
+		val fact = assertIs<ReaderTransitionFact.PreparedFrame>(facts.single())
+		assertEquals(id, fact.transitionId)
+		assertEquals(preparedTarget, fact.target)
+		assertEquals(prepareCommand.registration, fact.resource)
+		assertEquals(
+			ReaderTransitionResourceOwnerId.TransitionOwned(id),
+			fact.resource.key.ownerId
+		)
+		assertEquals(ReaderTransitionResourceKind.Deck, fact.resource.key.kind)
+	}
+
+	@Test
+	fun activatedPublisherRejectsMismatchedCommandBeforePhysicalFrameWork() {
+		val source = ControllablePresentedFrameSource()
+		val candidate = candidate(sequence = 1L)
+		val publisher = ReaderNativePagePresentationPublisher(
+			frameSource = source,
+			currentCandidate = { candidate },
+			onEvent = { error("Activated publication must not emit legacy events") }
+		)
+		val wrongBinding = candidate.binding.copy(publicationGeneration = 99L)
+		val id = ReaderTransitionId(
+			3L,
+			5L,
+			7L,
+			ReaderTransitionOperation.BootstrapNativePage,
+			ReaderExpectedPresentationBinding.Exact(wrongBinding),
+			paige.navic.reader.ReaderTransitionParentIdentity(3L, 5L, 6L)
+		)
+		publisher.activateCommandOnly { candidate }
+
+		val result = publisher.prepareTarget(
+			nativePrepareCommand(id, candidate.copy(binding = wrongBinding))
+		) { error("A rejected command cannot emit a fact") }
+
+		assertIs<ReaderPortCommandResult.Rejected>(result)
+		assertTrue(source.requestedIds.isEmpty())
+	}
+
 	@Test
 	fun deckReadyOnlyArmsAndExactPresentedFramePublishesProof() {
 		val source = ControllablePresentedFrameSource()
@@ -286,6 +566,62 @@ class ReaderNativePagePresentationPublisherTest {
 				assertEquals(if (expectAnotherFrame) listOf(1L, 2L) else listOf(1L), source.requestedIds)
 			}
 		} finally { publisher.dispose() }
+	}
+
+	private fun nativePrepareCommand(
+		id: ReaderTransitionId,
+		candidate: ReaderNativePagePresentationCandidate
+	): ReaderTransitionCommand.PrepareFrameTarget {
+		val binding = candidate.binding
+		val allocation = ReaderMaterialGenerationAllocation(
+			id,
+			binding,
+			requireNotNull(binding.preparationGeneration),
+			requireNotNull(binding.rasterGeneration),
+			requireNotNull(binding.textureGeneration)
+		)
+		val specification = ReaderTransitionFrameTargetSpecification.NativePage(
+			transitionId = id,
+			readerSessionGeneration = id.readerSessionGeneration,
+			publicationGeneration = binding.publicationGeneration,
+			binding = binding,
+			allocation = allocation,
+			hostToken = candidate.transitionToken?.let {
+				ReaderNativePageHostTokenState.Present(
+					paige.navic.reader.ReaderNativePageHostToken(it.value)
+				)
+			} ?: ReaderNativePageHostTokenState.AuthoritativeAbsent,
+			deckTarget = ReaderPlayLikeCurlDeckTargetIdentity(
+				rendererGeneration = 1L,
+				deckGeneration = requireNotNull(binding.textureGeneration),
+				role = ReaderTransitionDeckRole.Initial
+			),
+			geometry = ReaderTransitionFrameGeometry(
+				binding.viewportGeneration,
+				binding.profileGeneration,
+				0,
+				0,
+				candidate.viewportWidth,
+				candidate.viewportHeight
+			),
+			requestSequence = 1L
+		)
+		return ReaderTransitionCommand.PrepareFrameTarget(
+			id,
+			specification,
+			ReaderTransitionResourceRegistration(
+				ReaderTransitionResourceKey(
+					ReaderTransitionResourceOwnerId.TransitionOwned(id),
+					ReaderTransitionResourceKind.Deck,
+					requireNotNull(binding.textureGeneration)
+				),
+				ReaderResourceRetirementOrder(
+					id.readerSessionGeneration,
+					id.coordinatorEpoch,
+					1L
+				)
+			)
+		)
 	}
 
 	private fun candidate(sequence: Long) = ReaderNativePagePresentationCandidate(

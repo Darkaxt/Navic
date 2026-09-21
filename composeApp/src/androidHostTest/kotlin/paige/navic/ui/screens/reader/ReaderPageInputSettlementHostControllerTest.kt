@@ -19,6 +19,7 @@ import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderTextureDeckState
+import paige.navic.reader.ReaderTransitionInputLease
 import paige.navic.reader.readerPageOperationPolicy
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -170,6 +171,73 @@ class ReaderPageInputSettlementHostControllerTest {
 			null -> 0
 			else -> 1
 		}
+	}
+
+	@Test
+	fun physicalInputOwnersFreezeDrainAndRestoreWithStableExactIdentities() {
+		val (host, router, _) = host()
+		val down = host.dispatchPointer(
+			ReaderPageHostPointerEvent.Down(20f, 30f, downTimeMillis = 71L)
+		)
+		assertEquals(ReaderPagePointerRoute.Content, down.route)
+		val domain = ReaderLegacyPhysicalDomain(5L, ReaderLegacyFreezeToken(61L))
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			host.freezeForTransitionActivation(domain)
+		)
+		val rows = host.snapshotFrozenOwnership()
+		assertEquals(2, rows.size)
+		assertTrue(rows.all { it.physicalIdentity.source == ReaderLegacyInventorySource.Input })
+		assertEquals(2, rows.map { it.physicalIdentity }.toSet().size)
+		assertEquals(
+			ReaderPagePointerRoute.Ignore,
+			host.dispatchPointer(ReaderPageHostPointerEvent.Move(30f, 30f, 8f)).route
+		)
+
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		rows.forEach { row ->
+			assertEquals(
+				ReaderPortCommandResult.Accepted,
+				host.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+			)
+		}
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+		assertTrue(host.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			host.restoreAfterTransitionActivation(domain)
+		)
+		assertEquals(
+			down.gestureId,
+			host.dispatchPointer(ReaderPageHostPointerEvent.Up).gestureId
+		)
+		assertEquals(1, router.trackedSequenceCount())
+	}
+
+	@Test
+	fun coordinatorLeaseCanOnlyBePreservedOrNarrowedForLocalSafety() {
+		val readyHost = host().first
+		val nativeLease = ReaderTransitionInputLease.NativePage(nativeBinding, 5L)
+		assertEquals(nativeLease, readyHost.narrowOrVeto(nativeLease))
+		assertEquals(
+			ReaderTransitionInputLease.ChromeOnly,
+			readyHost.narrowOrVeto(ReaderTransitionInputLease.ChromeOnly)
+		)
+		assertEquals(
+			ReaderTransitionInputLease.None,
+			readyHost.narrowOrVeto(ReaderTransitionInputLease.None)
+		)
+
+		val unsafeHost = host(localReadiness = settling).first
+		assertEquals(
+			ReaderTransitionInputLease.ChromeOnly,
+			unsafeHost.narrowOrVeto(nativeLease)
+		)
+		assertEquals(
+			ReaderTransitionInputLease.ChromeOnly,
+			unsafeHost.narrowOrVeto(ReaderTransitionInputLease.ChromeOnly)
+		)
 	}
 
 	@Test

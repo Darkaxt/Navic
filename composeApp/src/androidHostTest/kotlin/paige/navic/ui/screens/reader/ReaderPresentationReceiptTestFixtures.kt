@@ -2,6 +2,7 @@ package paige.navic.ui.screens.reader
 
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventDisposition
+import paige.navic.reader.ReaderPresentationEventOrigin
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderPresentationState
@@ -11,7 +12,8 @@ internal fun readerTestPresentationReceipt(
 	event: ReaderPresentationEvent,
 	postState: ReaderPresentationState,
 	disposition: ReaderPresentationEventDisposition =
-		ReaderPresentationEventDisposition.Accepted
+		ReaderPresentationEventDisposition.Accepted,
+	origin: ReaderPresentationEventOrigin = ReaderPresentationEventOrigin.NonSemantic
 ): ReaderPresentationEventReceipt = ReaderPresentationEventReceipt(
 	event = event,
 	preVersion = ReaderPresentationReceiptVersion(
@@ -26,5 +28,6 @@ internal fun readerTestPresentationReceipt(
 	),
 	disposition = disposition,
 	postState = postState,
-	effects = emptyList()
+	effects = emptyList(),
+	origin = origin
 )

@@ -155,6 +155,60 @@ class ReaderPresentationTransitionTimeoutTest {
 	}
 
 	@Test
+	fun deadlineRegistrationFreezesDrainsAndRestoresItsRemainingDelay() {
+		val scheduled = mutableListOf<Pair<Runnable, Long>>()
+		val removed = mutableListOf<Runnable>()
+		var now = 100L
+		val delivered = mutableListOf<ReaderPresentationEvent.TimedOut>()
+		val timer = ReaderPresentationTransitionTimeout(
+			scheduler = object : ReaderPageRelocationDispatchTimeoutScheduler {
+				override fun postDelayed(action: Runnable, delayMillis: Long): Boolean {
+					scheduled += action to delayMillis
+					return true
+				}
+				override fun removeCallbacks(action: Runnable) { removed += action }
+			},
+			nowMillis = { now },
+			onTimeout = { delivered += it; true }
+		)
+		val fixture = Fixture()
+		val pending = readerPresentationReduce(
+			fixture.state,
+			ReaderPresentationEvent.NativePageRequested
+		)
+		timer.update(pending.decision)
+		now = 4_100L
+		val domain = ReaderLegacyPhysicalDomain(3L, ReaderLegacyFreezeToken(59L))
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			timer.freezeForTransitionActivation(domain)
+		)
+		val row = timer.snapshotFrozenOwnership().single()
+		assertEquals(ReaderLegacyInventorySource.DeadlineRegistration, row.physicalIdentity.source)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			timer.drainFrozenOwnership(row.physicalIdentity) {}
+		)
+		assertEquals(1, removed.size)
+		assertTrue(timer.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			timer.restoreAfterTransitionActivation(domain)
+		)
+		assertEquals(listOf(10_000L, 6_000L), scheduled.map { it.second })
+		scheduled.first().first.run()
+		assertTrue(delivered.isEmpty())
+		scheduled.last().first.run()
+		assertEquals(
+			listOf(ReaderPresentationEvent.TimedOut(pending.decision.pendingTransitionToken)),
+			delivered
+		)
+		timer.cancel()
+		fixture.bridge.dispose()
+	}
+
+	@Test
 	fun cancelledSchedulerCallbacksCannotExpireRestoredOrSuccessorAttempts() {
 		val fixture = Fixture()
 		val scheduled = mutableListOf<Pair<Runnable, Long>>()

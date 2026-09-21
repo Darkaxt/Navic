@@ -11,11 +11,16 @@ import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import paige.navic.reader.ReaderActiveTransition
+import paige.navic.reader.ReaderAdoptedPredecessorSeedId
+import paige.navic.reader.ReaderCommittedPresentation
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.ReaderInitialCommittedPresentationOrigin
+import paige.navic.reader.ReaderInitialPresentationInputLease
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderResourceRetirementOrder
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderTransitionCommand
 import paige.navic.reader.ReaderTransitionFact
@@ -26,6 +31,9 @@ import paige.navic.reader.ReaderTransitionOperation
 import paige.navic.reader.ReaderTransitionPhaseKind
 import paige.navic.reader.ReaderTransitionResourceKey
 import paige.navic.reader.ReaderTransitionResourceKind
+import paige.navic.reader.ReaderTransitionResourceOwnerId
+import paige.navic.reader.ReaderTransitionResourceRegistration
+import paige.navic.reader.parentIdentity
 
 @RunWith(RobolectricTestRunner::class)
 class ReaderTransitionReleaseLedgerTest {
@@ -62,7 +70,7 @@ class ReaderTransitionReleaseLedgerTest {
 		assertTrue(ledger.confirmReleased(oldest))
 		repeat(32) { index ->
 			val key = deckKey(
-				transitionId().copy(sequence = index.toLong() + 30L),
+				transitionId(sequence = index.toLong() + 30L),
 				opaqueId = 2_000L + index
 			)
 			assertTrue(ledger.confirmReleased(key))
@@ -119,12 +127,16 @@ class ReaderTransitionReleaseLedgerTest {
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
 			mode = ReaderTransitionMode.Shadow,
-			journal = ReaderTransitionJournal(),
+			journal = readerAndroidHostTestJournal(
+				committed = readerAndroidHostTestNeutralInitial(1L, 1L),
+				lastTransitionSequence = 0L,
+				lastIssuedTransitionIdentity = null
+			),
 			releaseLedger = ledger
 		)
 		val key = deckKey(transitionId(), opaqueId = 57L)
 		coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
-		coordinator.enqueue(ReaderTransitionFact.ResourceObserved(key.transitionId, key))
+		coordinator.enqueue(ReaderTransitionFact.ResourceObserved(requireNotNull(key.owningTransitionIdOrNull), key))
 
 		val coordinatorSnapshot = coordinator.snapshot()
 		assertEquals(
@@ -170,12 +182,16 @@ class ReaderTransitionReleaseLedgerTest {
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
 			mode = ReaderTransitionMode.Active,
-			journal = ReaderTransitionJournal()
+			journal = readerAndroidHostTestJournal(
+				committed = readerAndroidHostTestNeutralInitial(1L, 1L),
+				lastTransitionSequence = 0L,
+				lastIssuedTransitionIdentity = null
+			)
 		)
 		val key = deckKey(transitionId(), opaqueId = 59L)
 
-		coordinator.enqueue(ReaderTransitionFact.ResourceObserved(key.transitionId, key))
-		coordinator.enqueue(ReaderTransitionFact.ResourceObserved(key.transitionId, key))
+		coordinator.enqueue(ReaderTransitionFact.ResourceObserved(requireNotNull(key.owningTransitionIdOrNull), key))
+		coordinator.enqueue(ReaderTransitionFact.ResourceObserved(requireNotNull(key.owningTransitionIdOrNull), key))
 
 		assertEquals(1, commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().size)
 		assertEquals(ReaderTransitionResourceState.Released, coordinator.releaseStateOf(key))
@@ -201,9 +217,9 @@ class ReaderTransitionReleaseLedgerTest {
 		coordinator.enqueue(ReaderTransitionFact.DeadlineExpired(id))
 		assertTrue(coordinator.snapshot().releaseOnlySink)
 		val commandCountAtClose = commands.size
-		val lateKey = deckKey(id.copy(sequence = id.sequence + 1L), opaqueId = 61L)
-		coordinator.enqueue(ReaderTransitionFact.ResourceObserved(lateKey.transitionId, lateKey))
-		coordinator.enqueue(ReaderTransitionFact.DeckOwned(lateKey.transitionId, lateKey))
+		val lateKey = deckKey(id.copy(sequence = id.sequence + 1L, parent = id.parentIdentity()), opaqueId = 61L)
+		coordinator.enqueue(ReaderTransitionFact.ResourceObserved(requireNotNull(lateKey.owningTransitionIdOrNull), lateKey))
+		coordinator.enqueue(ReaderTransitionFact.DeckOwned(requireNotNull(lateKey.owningTransitionIdOrNull), lateKey))
 
 		assertEquals(
 			1,
@@ -212,6 +228,73 @@ class ReaderTransitionReleaseLedgerTest {
 		assertEquals(ReaderTransitionResourceState.Released, coordinator.releaseStateOf(lateKey))
 		assertTrue(coordinator.snapshot().releaseOnlySink)
 		assertEquals(null, coordinator.snapshot().activePhase)
+	}
+
+	@Test
+	fun adoptedReleaseConfirmationUsesRegistrationRetirementFenceWithoutTransitionTombstone() {
+		val binding = transitionId().let {
+			(it.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
+		}
+		val owner = ReaderPresentationFrameOwner.ShellCover(
+			ReaderShellCoverCommitProof(
+				ReaderPresentationToken(79L),
+				binding,
+				83L,
+				89L,
+				1200,
+				800
+			)
+		)
+		val seedId = ReaderAdoptedPredecessorSeedId.fromValidatedImport(97L)
+		val registration = ReaderTransitionResourceRegistration(
+			ReaderTransitionResourceKey(
+				ReaderTransitionResourceOwnerId.AdoptedPredecessor(seedId),
+				ReaderTransitionResourceKind.FrameHandoff,
+				101L
+			),
+			ReaderResourceRetirementOrder(19L, 23L, 1L)
+		)
+		val journal = ReaderTransitionJournal(
+			committed = ReaderCommittedPresentation.Initial(
+				ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor(
+					seedId = seedId,
+					readerSessionGeneration = 19L,
+					coordinatorEpoch = 23L,
+					owner = owner,
+					binding = binding,
+					resource = registration,
+					requestedLease = ReaderInitialPresentationInputLease.ChromeOnly,
+					physicalLease = ReaderInitialPresentationInputLease.ChromeOnly
+				)
+			)
+		)
+		val issued = mutableListOf<ReaderTransitionCommand.ReleaseResource>()
+		val ports = TestPorts(onIssue = { command, onFact ->
+			if (command is ReaderTransitionCommand.ReleaseResource) {
+				issued += command
+				onFact(
+					ReaderTransitionFact.ResourceReleased(
+						command.transitionId,
+						command.key,
+						command.registration
+					)
+				)
+			}
+		})
+		val ledger = ReaderTransitionReleaseLedger()
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = journal,
+			releaseLedger = ledger
+		)
+
+		coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
+
+		assertEquals(1, issued.size)
+		assertNull(issued.single().transitionId)
+		assertEquals(0, ledger.retentionSnapshot().activeStateCount)
+		assertEquals(1L, ledger.retentionSnapshot().contiguousReleasedThrough)
 	}
 
 	@Test
@@ -224,10 +307,14 @@ class ReaderTransitionReleaseLedgerTest {
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
 			mode = ReaderTransitionMode.Active,
-			journal = ReaderTransitionJournal()
+			journal = readerAndroidHostTestJournal(
+				committed = readerAndroidHostTestNeutralInitial(1L, 1L),
+				lastTransitionSequence = 0L,
+				lastIssuedTransitionIdentity = null
+			)
 		)
 		val id = transitionId()
-		val otherId = id.copy(sequence = id.sequence + 1L)
+		val otherId = id.copy(sequence = id.sequence + 1L, parent = id.parentIdentity())
 		val deckKey = deckKey(id, opaqueId = 71L)
 		val malformed = listOf(
 			ReaderTransitionFact.DeckOwned(id, deckKey.copy(transitionId = otherId)) to deckKey,
@@ -286,7 +373,15 @@ class ReaderTransitionReleaseLedgerTest {
 				viewportHeight = 800
 			)
 		)
-		return ReaderTransitionJournal(
+		return readerAndroidHostTestJournal(
+			committed = readerAndroidHostTestAdoptedInitial(
+				owner = owner,
+				binding = binding,
+				readerSessionGeneration = id.readerSessionGeneration,
+				coordinatorEpoch = id.coordinatorEpoch
+			),
+			lastTransitionSequence = id.sequence,
+			lastIssuedTransitionIdentity = id.parentIdentity(),
 			active = ReaderActiveTransition(
 				id = id,
 				phase = ReaderTransitionLivenessTable.phase(
@@ -299,7 +394,8 @@ class ReaderTransitionReleaseLedgerTest {
 	}
 
 	private fun transitionId(
-		operation: ReaderTransitionOperation = ReaderTransitionOperation.CoverToPageEntry
+		operation: ReaderTransitionOperation = ReaderTransitionOperation.CoverToPageEntry,
+		sequence: Long = 1L
 	): ReaderTransitionId {
 		val binding = ReaderPresentationBinding(
 			foliateSessionId = "synthetic",
@@ -314,9 +410,14 @@ class ReaderTransitionReleaseLedgerTest {
 		return ReaderTransitionId(
 			readerSessionGeneration = 19L,
 			coordinatorEpoch = 23L,
-			sequence = 29L,
+			sequence = sequence,
 			operation = operation,
-			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding),
+			parent = if (sequence == 1L) null else paige.navic.reader.ReaderTransitionParentIdentity(
+				19L,
+				23L,
+				sequence - 1L
+			)
 		)
 	}
 

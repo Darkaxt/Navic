@@ -12,6 +12,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import paige.navic.reader.ReaderActiveTransition
 import paige.navic.reader.ReaderCancelIntent
+import paige.navic.reader.ReaderCommittedPresentation
 import paige.navic.reader.ReaderCommittedTransition
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderCoverEntryIntent
@@ -33,10 +34,13 @@ import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderResourceRetirementOrder
+import paige.navic.reader.ReaderSemanticRequestHandle
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderTransitionCommand
 import paige.navic.reader.ReaderTransitionFact
 import paige.navic.reader.ReaderTransitionFactKind
+import paige.navic.reader.ReaderTransitionFailureReason
 import paige.navic.reader.ReaderTransitionGestureId
 import paige.navic.reader.ReaderTransitionId
 import paige.navic.reader.ReaderTransitionJournal
@@ -45,9 +49,11 @@ import paige.navic.reader.ReaderTransitionOperation
 import paige.navic.reader.ReaderTransitionPhaseKind
 import paige.navic.reader.ReaderTransitionResourceKey
 import paige.navic.reader.ReaderTransitionResourceKind
+import paige.navic.reader.ReaderTransitionResourceRegistration
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.journalAwaitingSettlement
 import paige.navic.reader.matchingSettlementFact
+import paige.navic.reader.parentIdentity
 import paige.navic.reader.publicationIdentity
 import paige.navic.reader.withReadyNativePresentationFixture
 
@@ -105,13 +111,34 @@ class ReaderResumableTransitionCoordinatorTest {
 			)
 		)
 		val clock = RecordingClock()
-		val ports = RecordingPorts(clock) { command, onFact ->
-			if (command is ReaderTransitionCommand.RequestSemanticSynchronization) {
-				trace += "issue-semantic"
-				trace += "enqueue-callback"
-				onFact(ReaderTransitionFact.FoliateDestinationCommitted(null, successor))
+		val ports = RecordingPorts(
+			clock,
+			onIssue = { command, onFact ->
+				if (command is ReaderTransitionCommand.RequestSemanticSynchronization) {
+					trace += "issue-semantic"
+					trace += "enqueue-callback"
+					onFact(ReaderTransitionFact.FoliateDestinationCommitted(null, successor))
+				}
+			},
+			ownerAndInputPublication = object : ReaderOwnerAndInputPublicationPort {
+				override fun publish(command: ReaderTransitionCommand.CommitOwnerAndInputLease) =
+					error("This fixture cannot publish a successor")
+				override fun publish(command: ReaderTransitionCommand.PublishRetainedOwnerAndInputLease):
+					paige.navic.reader.ReaderOwnerAndInputPublicationResult {
+					trace += "publish-retained"
+					return paige.navic.reader.ReaderOwnerAndInputPublicationResult.Applied(
+						command.transitionId,
+						paige.navic.reader.ReaderOwnerAndInputPublicationSubject.Retained(
+							command.retainedResource
+						),
+						command.retainedOwner,
+						command.retainedBinding,
+						command.requestedLease,
+						command.publicationIdentity
+					).also { trace += "return-applied" }
+				}
 			}
-		}
+		)
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
 			mode = ReaderTransitionMode.Active,
@@ -120,7 +147,15 @@ class ReaderResumableTransitionCoordinatorTest {
 					predecessorId,
 					predecessorOwner,
 					predecessor,
-					predecessorKey
+					predecessorKey,
+					ReaderTransitionResourceRegistration(
+						predecessorKey,
+						ReaderResourceRetirementOrder(
+							predecessorId.readerSessionGeneration,
+							predecessorId.coordinatorEpoch,
+							1L
+						)
+					)
 				)
 			),
 			onObservation = { observation ->
@@ -137,12 +172,22 @@ class ReaderResumableTransitionCoordinatorTest {
 		coordinator.enqueue(
 			ReaderTransitionFact.Intent(
 				null,
-				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc)
+				ReaderExternalRelocationIntent(
+						ReaderExternalRelocationSource.Toc,
+						ReaderSemanticRequestHandle(1L)
+					)
 			)
 		)
 
 		assertEquals(
-			listOf("register", "issue-semantic", "enqueue-callback", "admit-callback"),
+			listOf(
+				"register",
+				"publish-retained",
+				"return-applied",
+				"issue-semantic",
+				"enqueue-callback",
+				"admit-callback"
+			),
 			trace
 		)
 		assertEquals(1, coordinator.snapshot().activeTransitionsRegistered)
@@ -162,15 +207,18 @@ class ReaderResumableTransitionCoordinatorTest {
 
 		val snapshot = coordinator.snapshot()
 		assertEquals(0, snapshot.consumedSettlementCount)
-		assertTrue(snapshot.factClassifications.isEmpty())
-		assertEquals(ReaderTransitionOperation.CurlClaimAndSettlement, snapshot.activeOperation)
+		assertEquals(1, snapshot.factClassifications[ReaderTransitionFactClassification.Untagged])
+		assertEquals(ReaderTransitionOperation.ExternalSemanticRelocation, snapshot.activeOperation)
 		registration.close()
 	}
 
 	@Test
 	fun wrongExactSettlementReceiptThroughGatewayIsClassifiedStale() {
 		val model = journalAwaitingSettlement()
-		val wrongId = model.id.copy(sequence = model.id.sequence + 1L)
+		val wrongId = model.id.copy(
+			sequence = model.id.sequence + 1L,
+			parent = model.id.parentIdentity()
+		)
 		val coordinator = settlementCoordinator(model)
 		val gateway = ReaderTransitionGateway()
 		val registration = gateway.attachShadow(coordinator::enqueue, coordinator::enqueue)
@@ -284,7 +332,14 @@ class ReaderResumableTransitionCoordinatorTest {
 		val releases = fixture.ports.commands
 			.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
 			.map { it.key }
-		assertEquals(listOf(owned, late), releases)
+		assertEquals(3, releases.size)
+		assertTrue(owned in releases, "Replacement must release the observed active resource")
+		assertTrue(late in releases, "Release-only must release the exact late resource once")
+		assertEquals(
+			1,
+			releases.count { it.kind == ReaderTransitionResourceKind.FrameHandoff },
+			"Replacement must release the truthful committed shell predecessor"
+		)
 		assertEquals(1, fixture.ports.commands.count { it is ReaderTransitionCommand.CancelOwnedWork })
 		assertTrue(fixture.coordinator.snapshot().releaseOnlySink)
 		assertEquals(0, fixture.coordinator.snapshot().scheduledCallbackCount)
@@ -309,10 +364,12 @@ class ReaderResumableTransitionCoordinatorTest {
 		val processed = mutableListOf<ReaderTransitionFactKind>()
 		val fixture = coordinatorFixture(
 			onIssue = { command, onFact ->
-				val key = deckKey(command.transitionId)
-				onFact(ReaderTransitionFact.DeckReserved(command.transitionId, key))
-				onFact(ReaderTransitionFact.DeckOwned(command.transitionId, key))
-				onFact(ReaderTransitionFact.DeckPrepared(command.transitionId, key))
+				if (command is ReaderTransitionCommand.ReserveDeck) {
+					val key = deckKey(command.transitionId)
+					onFact(ReaderTransitionFact.DeckReserved(command.transitionId, key))
+					onFact(ReaderTransitionFact.DeckOwned(command.transitionId, key))
+					onFact(ReaderTransitionFact.DeckPrepared(command.transitionId, key))
+				}
 			},
 			onObservation = { observation ->
 				if (observation.kind == ReaderTransitionCoordinatorObservationKind.FactProcessed) {
@@ -338,7 +395,10 @@ class ReaderResumableTransitionCoordinatorTest {
 	@Test
 	fun staleFactsAreClassifiedDeterministicallyWithoutChangingTheJournal() {
 		val fixture = coordinatorFixture()
-		val staleId = fixture.id.copy(sequence = fixture.id.sequence + 1L)
+		val staleId = fixture.id.copy(
+			sequence = fixture.id.sequence + 1L,
+			parent = fixture.id.parentIdentity()
+		)
 
 		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(staleId))
 
@@ -347,7 +407,7 @@ class ReaderResumableTransitionCoordinatorTest {
 			1,
 			snapshot.factClassifications[ReaderTransitionFactClassification.StaleTransition]
 		)
-		assertEquals(ReaderTransitionPhaseKind.AwaitingPrerequisites, snapshot.activePhase)
+		assertEquals(ReaderTransitionPhaseKind.AwaitingProof, snapshot.activePhase)
 		assertTrue(fixture.ports.commands.isEmpty())
 	}
 
@@ -355,8 +415,9 @@ class ReaderResumableTransitionCoordinatorTest {
 	fun synchronousPortCallbacksNeverIncreaseAdvancementDepthAboveOne() {
 		val fixture = coordinatorFixture(
 			onIssue = { command, onFact ->
-				val key = deckKey(command.transitionId)
-				onFact(ReaderTransitionFact.DeckOwned(command.transitionId, key))
+				val transitionId = requireNotNull(command.transitionId)
+				val key = deckKey(transitionId)
+				onFact(ReaderTransitionFact.DeckOwned(transitionId, key))
 			}
 		)
 
@@ -364,6 +425,22 @@ class ReaderResumableTransitionCoordinatorTest {
 
 		assertEquals(1, fixture.coordinator.snapshot().maxAdvanceDepth)
 		assertEquals(0, fixture.coordinator.snapshot().mailboxSize)
+	}
+
+	@Test
+	fun synchronousCombinedCommitAcknowledgementIsQueuedNonReentrantly() {
+		val publicationPort = ReaderOwnerAndInputPublicationPort::class.java
+		val publishMethods = publicationPort.methods.filter { it.name == "publish" }
+		assertEquals(2, publishMethods.size)
+		assertTrue(publishMethods.all { method ->
+			method.returnType.name == "paige.navic.reader.ReaderOwnerAndInputPublicationResult"
+		})
+		assertTrue(
+			ReaderResumableTransitionCoordinator::class.java.declaredMethods.any {
+				it.name.contains("publication", ignoreCase = true)
+			},
+			"dispatcher must convert synchronous publication results into queued facts"
+		)
 	}
 
 	@Test
@@ -375,19 +452,14 @@ class ReaderResumableTransitionCoordinatorTest {
 		assertEquals(1, fixture.clock.scheduleCount)
 		assertEquals(1, fixture.clock.activeRegistrationCount)
 
-		val successor = binding("synthetic").copy(
-			destinationCommitIdentity = ReaderDestinationCommitIdentity(
-				"synthetic",
-				2L
-			)
-		)
-		fixture.coordinator.enqueue(ReaderTransitionFact.FoliateDestinationCommitted(null, successor))
-		assertEquals(2, fixture.clock.scheduleCount)
+		fixture.coordinator.enqueue(ReaderTransitionFact.PublicationReplaced(null))
+		assertEquals(1, fixture.clock.scheduleCount)
 		assertEquals(1, fixture.clock.cancelCount)
-		assertEquals(1, fixture.clock.activeRegistrationCount)
+		assertEquals(0, fixture.clock.activeRegistrationCount)
+		assertEquals(0, fixture.coordinator.snapshot().scheduledCallbackCount)
 
 		fixture.clock.fireLast()
-		assertEquals(2, fixture.clock.cancelCount)
+		assertEquals(1, fixture.clock.cancelCount)
 		assertEquals(0, fixture.clock.activeRegistrationCount)
 		assertEquals(0, fixture.coordinator.snapshot().scheduledCallbackCount)
 	}
@@ -412,6 +484,65 @@ class ReaderResumableTransitionCoordinatorTest {
 		assertEquals(listOf(11_000L, 16_000L), fixture.clock.scheduledAtMillis)
 		assertEquals(1, fixture.clock.cancelCount)
 		assertEquals(1, fixture.clock.activeRegistrationCount)
+	}
+
+	@Test
+	fun activatedHardDeadlineProgressRetainsTheOriginalTimer() {
+		val timer = RejectingProgressTimer(
+			callbackBeforeReject = false,
+			permitsMatchingProgressRearm = false
+		)
+		val model = journalAwaitingSettlement()
+		val ports = RecordingPorts(
+			clock = RecordingClock(),
+			task6FactOnlyTimer = timer,
+			onIssue = { _, _ -> }
+		)
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = model.journal,
+			activationState = { ReaderSessionActivationState.Activated }
+		)
+		coordinator.enqueue(ReaderTransitionFact.HostAvailable(model.id))
+
+		coordinator.enqueue(matchingSettlementFact(model))
+
+		val snapshot = coordinator.snapshot()
+		assertEquals(1, timer.bindCount)
+		assertEquals(0, timer.progressCount)
+		assertEquals(0, timer.cancelCount)
+		assertEquals(ReaderTransitionOperation.CurlClaimAndSettlement, snapshot.activeOperation)
+		assertEquals(1, snapshot.consumedSettlementCount)
+		assertEquals(null, snapshot.lastOutcome)
+	}
+
+	@Test
+	fun rejectedTask6ProgressRearmClearsRegistrationAndFailsClosed() {
+		listOf(false, true).forEach { callbackBeforeReject ->
+			val timer = RejectingProgressTimer(callbackBeforeReject)
+			val observedFacts = mutableListOf<ReaderTransitionFactKind>()
+			val fixture = coordinatorFixture(
+				task6FactOnlyTimer = timer,
+				activationState = { ReaderSessionActivationState.Activated },
+				onObservation = { observation ->
+					observation.factKind?.let(observedFacts::add)
+				}
+			)
+			fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+			assertEquals(1, timer.bindCount)
+
+			fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+
+			val snapshot = fixture.coordinator.snapshot()
+			assertEquals(1, timer.progressCount)
+			assertEquals(1, timer.cancelCount)
+			assertTrue(timer.cancelledBoundRegistration)
+			assertEquals(null, snapshot.activeOperation)
+			assertEquals(ReaderTransitionOutcomeKind.Failed, snapshot.lastOutcome)
+			assertEquals(0, snapshot.mailboxSize)
+			assertEquals(1, observedFacts.count { it == ReaderTransitionFactKind.DeadlineExpired })
+		}
 	}
 
 	@Test
@@ -499,7 +630,10 @@ class ReaderResumableTransitionCoordinatorTest {
 	fun boundedContentFreeShadowDiagnosticsExcludeBindingsAndPayloads() {
 		val secret = "private-publication-href-cfi-user-session-payload"
 		val fixture = coordinatorFixture(bindingValue = secret, mode = ReaderTransitionMode.Shadow)
-		val staleId = fixture.id.copy(sequence = fixture.id.sequence + 1L)
+		val staleId = fixture.id.copy(
+			sequence = fixture.id.sequence + 1L,
+			parent = fixture.id.parentIdentity()
+		)
 
 		repeat(ReaderTransitionCoordinatorSnapshot.MaxShadowPredictions + 9) {
 			fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(staleId))
@@ -543,7 +677,10 @@ class ReaderResumableTransitionCoordinatorTest {
 		val expectedFacts: List<ReaderTransitionFact> = listOf(
 			ReaderTransitionFact.Intent(
 				null,
-				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Jump)
+				ReaderExternalRelocationIntent(
+						ReaderExternalRelocationSource.Jump,
+						ReaderSemanticRequestHandle(1L)
+					)
 			)
 		)
 		assertEquals(expectedFacts, facts)
@@ -584,16 +721,17 @@ class ReaderResumableTransitionCoordinatorTest {
 					null,
 					ReaderPageTurnIntent(
 						ReaderPageTurnDirection.Next,
-						ReaderTransitionGestureId(101L)
+						ReaderTransitionGestureId(101L),
+						ReaderSemanticRequestHandle(3L)
 					)
 				)
 			)
-			add("cover" to ReaderTransitionFact.Intent(null, ReaderCoverEntryIntent))
+			add("cover" to ReaderTransitionFact.Intent(null, ReaderCoverEntryIntent(ReaderSemanticRequestHandle(5L))))
 			ReaderExternalRelocationSource.entries.forEach { source ->
 				add(
 					source.name to ReaderTransitionFact.Intent(
 						null,
-						ReaderExternalRelocationIntent(source)
+						ReaderExternalRelocationIntent(source, ReaderSemanticRequestHandle(7L))
 					)
 				)
 			}
@@ -644,6 +782,32 @@ class ReaderResumableTransitionCoordinatorTest {
 	}
 
 	@Test
+	fun activatedGatewayRejectsLegacyEventsBeforeHostConsequenceDispatch() {
+		val facts = mutableListOf<ReaderTransitionFact>()
+		val gateway = ReaderTransitionGateway()
+		gateway.attachActivated(
+			enqueue = facts::add,
+			registerSemanticRequest = { ReaderSemanticRequestHandle(1L) }
+		)
+		var legacyConsequenceCount = 0
+
+		val accepted: Any? = gateway.observeLegacyPresentationEvent(ReaderPresentationEvent.Retry)
+		if (accepted == true) legacyConsequenceCount += 1
+
+		assertEquals(false, accepted)
+		assertTrue(facts.isEmpty())
+		assertEquals(0, legacyConsequenceCount)
+		val host = source(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"KomikkuReaderNativeFrameHost.android.kt"
+		)
+		assertEquals(
+			2,
+			host.split("if (currentShadowTransitionGateway.observeLegacyPresentationEvent(event))").size - 1
+		)
+	}
+
+	@Test
 	fun gatewayObservesOnlyShadowFactsAndDetachesExactly() {
 		val received = mutableListOf<ReaderTransitionFact>()
 		val gateway = ReaderTransitionGateway()
@@ -684,7 +848,8 @@ class ReaderResumableTransitionCoordinatorTest {
 			version = version,
 			disposition = ReaderPresentationEventDisposition.Accepted,
 			postState = ReaderPresentationState(binding = model.successor),
-			effects = emptyList()
+			effects = emptyList(),
+			origin = paige.navic.reader.ReaderPresentationEventOrigin.NonSemantic
 		)
 		val receivedFacts = mutableListOf<ReaderTransitionFact>()
 		val receivedReceipts = mutableListOf<ReaderPresentationEventReceipt>()
@@ -728,12 +893,9 @@ class ReaderResumableTransitionCoordinatorTest {
 		assertContains(platform, "class ReaderTransitionGateway")
 		assertContains(platform, "ReaderTransitionGatewayMode.Shadow")
 		assertContains(platform, "fun observePresentationReceipt(")
-		assertContains(androidHost, "ReaderTransitionMode.Shadow")
-		assertContains(androidHost, "enqueueReceipt = shadowCoordinator::enqueue")
-		assertContains(
-			androidHost,
-			"shadowCoordinator.enqueue(ReaderTransitionFact.PublicationReplaced(null))"
-		)
+		assertContains(androidHost, "attachShadow(")
+		assertContains(androidHost, "enqueue = {}")
+		assertContains(androidHost, "enqueueReceipt = {}")
 		assertContains(androidHost, "currentShadowTransitionGateway.observeLegacyPresentationEvent(event)")
 		assertContains(androidHost, "currentOnPresentationEvent(event)")
 		assertFalse(androidHost.contains("ReaderTransitionMode.Active"))
@@ -794,7 +956,12 @@ class ReaderResumableTransitionCoordinatorTest {
 			disposition = ReaderPresentationEventDisposition.Accepted,
 			postState = ReaderPresentationState(binding = model.successor),
 			effects = emptyList(),
-			originatingTransitionId = originatingTransitionId
+			origin = originatingTransitionId?.let {
+				paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand(
+					it,
+					paige.navic.reader.ReaderSemanticCommandSlotId(eventSequence)
+				)
+			} ?: paige.navic.reader.ReaderPresentationEventOrigin.UnsolicitedFoliate
 		)
 	}
 
@@ -814,7 +981,8 @@ class ReaderResumableTransitionCoordinatorTest {
 			version = version,
 			disposition = ReaderPresentationEventDisposition.Accepted,
 			postState = ReaderPresentationState(binding = binding),
-			effects = emptyList()
+			effects = emptyList(),
+			origin = paige.navic.reader.ReaderPresentationEventOrigin.UnsolicitedFoliate
 		)
 	}
 
@@ -823,13 +991,23 @@ class ReaderResumableTransitionCoordinatorTest {
 		bindingValue: String = "synthetic",
 		operation: ReaderTransitionOperation = ReaderTransitionOperation.CoverToPageEntry,
 		clock: RecordingClock = RecordingClock(),
+		task6FactOnlyTimer: ReaderTask6FactOnlyTimerPort? = null,
+		activationState: () -> ReaderSessionActivationState = { ReaderSessionActivationState.Legacy },
 		onIssue: (ReaderTransitionCommand, (ReaderTransitionFact) -> Unit) -> Unit = { _, _ -> },
 		onObservation: (ReaderTransitionCoordinatorObservation) -> Unit = {}
 	): CoordinatorFixture {
 		val binding = binding(bindingValue)
 		val id = transitionId(binding, operation)
 		val owner = shellOwner(binding)
-		val journal = ReaderTransitionJournal(
+		var journal = readerAndroidHostTestJournal(
+			committed = readerAndroidHostTestAdoptedInitial(
+				owner = owner,
+				binding = binding,
+				readerSessionGeneration = id.readerSessionGeneration,
+				coordinatorEpoch = id.coordinatorEpoch
+			),
+			lastTransitionSequence = id.sequence,
+			lastIssuedTransitionIdentity = id.parentIdentity(),
 			active = ReaderActiveTransition(
 				id = id,
 				phase = ReaderTransitionLivenessTable.phase(
@@ -839,7 +1017,28 @@ class ReaderResumableTransitionCoordinatorTest {
 				)
 			)
 		)
-		val ports = RecordingPorts(clock, onIssue)
+		if (
+			paige.navic.reader.ReaderTransitionProofKind.MaterialBindingAllocation in
+				journal.active!!.phase.contract.awaitedProofs
+		) {
+			journal = journal.reduce(
+				ReaderTransitionFact.MaterialBindingAllocated(
+					id,
+					paige.navic.reader.ReaderMaterialGenerationAllocation(
+						id,
+						binding,
+						requireNotNull(binding.preparationGeneration),
+						requireNotNull(binding.rasterGeneration),
+						requireNotNull(binding.textureGeneration)
+					)
+				)
+			).state
+		}
+		val ports = RecordingPorts(
+			clock,
+			task6FactOnlyTimer = task6FactOnlyTimer,
+			onIssue = onIssue
+		)
 		return CoordinatorFixture(
 			id = id,
 			clock = clock,
@@ -848,9 +1047,93 @@ class ReaderResumableTransitionCoordinatorTest {
 				ports = ports,
 				mode = mode,
 				journal = journal,
+				activationState = activationState,
 				onObservation = onObservation
 			)
 		)
+	}
+
+	@Test
+	fun sharedJournalFixturePreservesAuthenticCommittedChainAndIssuedHistory() {
+		val binding = binding("authentic-chain")
+		val owner = shellOwner(binding)
+		fun id(sequence: Long, parent: paige.navic.reader.ReaderTransitionParentIdentity?) =
+			ReaderTransitionId(
+				readerSessionGeneration = 17L,
+				coordinatorEpoch = 19L,
+				sequence = sequence,
+				operation = ReaderTransitionOperation.ShellCoverCommit,
+				expectedBinding = ReaderExpectedPresentationBinding.Exact(binding),
+				parent = parent
+			)
+		val root = id(1L, null)
+		val committedId = id(2L, root.parentIdentity())
+		val activeId = id(3L, committedId.parentIdentity())
+		val key = ReaderTransitionResourceKey(
+			committedId,
+			ReaderTransitionResourceKind.FrameHandoff,
+			307L
+		)
+		val registration = ReaderTransitionResourceRegistration(
+			key,
+			ReaderResourceRetirementOrder(17L, 19L, 2L)
+		)
+		val committed = ReaderCommittedPresentation.Transition(
+			ReaderCommittedTransition(committedId, owner, binding, key, registration)
+		)
+		val active = ReaderActiveTransition(
+			id = activeId,
+			phase = ReaderTransitionLivenessTable.phase(
+				id = activeId,
+				kind = ReaderTransitionPhaseKind.AwaitingPrerequisites,
+				retainedOwner = owner
+			)
+		)
+
+		val journal = readerAndroidHostTestJournal(
+			committed = committed,
+			lastTransitionSequence = activeId.sequence,
+			lastIssuedTransitionIdentity = activeId.parentIdentity(),
+			active = active
+		)
+
+		assertEquals(committed, journal.committed)
+		assertEquals(3L, journal.lastTransitionSequence)
+		assertEquals(activeId.parentIdentity(), journal.lastIssuedTransitionIdentity)
+	}
+
+	@Test
+	fun coordinatorPreservesExactCommittedRegistrationWhenReleasing() {
+		val binding = binding("registered-release")
+		val id = transitionId(binding, ReaderTransitionOperation.ShellCoverCommit)
+		val owner = shellOwner(binding)
+		val key = ReaderTransitionResourceKey(
+			id,
+			ReaderTransitionResourceKind.FrameHandoff,
+			41L
+		)
+		val registration = ReaderTransitionResourceRegistration(
+			key,
+			ReaderResourceRetirementOrder(
+				id.readerSessionGeneration,
+				id.coordinatorEpoch,
+				99L
+			)
+		)
+		val clock = RecordingClock()
+		val ports = RecordingPorts(clock, onIssue = { _, _ -> })
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = ReaderTransitionJournal(
+				committed = ReaderCommittedTransition(id, owner, binding, key, registration)
+			)
+		)
+
+		coordinator.enqueue(ReaderTransitionFact.PublicationReplaced(null))
+
+		val release = assertIs<ReaderTransitionCommand.ReleaseResource>(ports.commands.single())
+		assertEquals(registration, release.registration)
 	}
 
 	private fun binding(value: String) = ReaderPresentationBinding(
@@ -870,7 +1153,7 @@ class ReaderResumableTransitionCoordinatorTest {
 	) = ReaderTransitionId(
 		readerSessionGeneration = 17L,
 		coordinatorEpoch = 19L,
-		sequence = 23L,
+		sequence = 1L,
 		operation = operation,
 		expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
 	)
@@ -895,6 +1178,64 @@ class ReaderResumableTransitionCoordinatorTest {
 	private fun source(path: String) = File(path).readText()
 }
 
+internal fun readerAndroidHostTestJournal(
+	committed: ReaderCommittedPresentation,
+	lastTransitionSequence: Long,
+	lastIssuedTransitionIdentity: paige.navic.reader.ReaderTransitionParentIdentity?,
+	active: ReaderActiveTransition? = null,
+	lastOutcome: paige.navic.reader.ReaderTransitionOutcome? = null,
+	retryableTransition: paige.navic.reader.ReaderRetryableTransition? = null
+): ReaderTransitionJournal = ReaderTransitionJournal(
+	active = active,
+	lastOutcome = lastOutcome,
+	committed = committed,
+	retryableTransition = retryableTransition,
+	lastTransitionSequence = lastTransitionSequence,
+	lastIssuedTransitionIdentity = lastIssuedTransitionIdentity
+)
+
+internal fun readerAndroidHostTestNeutralInitial(
+	readerSessionGeneration: Long,
+	coordinatorEpoch: Long
+): ReaderCommittedPresentation = ReaderCommittedPresentation.Initial(
+	paige.navic.reader.ReaderInitialCommittedPresentationOrigin.Neutral(
+		readerSessionGeneration = readerSessionGeneration,
+		coordinatorEpoch = coordinatorEpoch,
+		requestedLease = paige.navic.reader.ReaderInitialPresentationInputLease.ChromeOnly,
+		physicalLease = paige.navic.reader.ReaderInitialPresentationInputLease.None
+	)
+)
+
+internal fun readerAndroidHostTestAdoptedInitial(
+	owner: ReaderPresentationFrameOwner,
+	binding: ReaderPresentationBinding,
+	readerSessionGeneration: Long,
+	coordinatorEpoch: Long,
+	seedValue: Long = 1L
+): ReaderCommittedPresentation {
+	val seedId = paige.navic.reader.ReaderAdoptedPredecessorSeedId.fromValidatedImport(seedValue)
+	val registration = ReaderTransitionResourceRegistration(
+		ReaderTransitionResourceKey(
+			paige.navic.reader.ReaderTransitionResourceOwnerId.AdoptedPredecessor(seedId),
+			requireNotNull(readerAdoptedResourceKindFor(owner)),
+			seedValue
+		),
+		ReaderResourceRetirementOrder(readerSessionGeneration, coordinatorEpoch, 1L)
+	)
+	return ReaderCommittedPresentation.Initial(
+		paige.navic.reader.ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor(
+			seedId = seedId,
+			readerSessionGeneration = readerSessionGeneration,
+			coordinatorEpoch = coordinatorEpoch,
+			owner = owner,
+			binding = binding,
+			resource = registration,
+			requestedLease = paige.navic.reader.ReaderInitialPresentationInputLease.ChromeOnly,
+			physicalLease = paige.navic.reader.ReaderInitialPresentationInputLease.ChromeOnly
+		)
+	)
+}
+
 private data class CoordinatorFixture(
 	val id: ReaderTransitionId,
 	val clock: RecordingClock,
@@ -904,6 +1245,8 @@ private data class CoordinatorFixture(
 
 private class RecordingPorts(
 	override val clock: RecordingClock,
+	override val ownerAndInputPublication: ReaderOwnerAndInputPublicationPort? = null,
+	override val task6FactOnlyTimer: ReaderTask6FactOnlyTimerPort? = null,
 	private val onIssue: (ReaderTransitionCommand, (ReaderTransitionFact) -> Unit) -> Unit
 ) : ReaderResumableTransitionPorts {
 	val commands = mutableListOf<ReaderTransitionCommand>()
@@ -911,6 +1254,70 @@ private class RecordingPorts(
 	override fun issue(command: ReaderTransitionCommand, onFact: (ReaderTransitionFact) -> Unit) {
 		commands += command
 		onIssue(command, onFact)
+	}
+}
+
+private class RejectingProgressTimer(
+	private val callbackBeforeReject: Boolean,
+	private val permitsMatchingProgressRearm: Boolean = true
+) : ReaderTask6FactOnlyTimerPort {
+	private var onExpired: ((ReaderTransitionFact.DeadlineExpired) -> Unit)? = null
+	private var boundRegistration: ReaderTask6FactOnlyTimerRegistration? = null
+	var bindCount = 0
+		private set
+	var progressCount = 0
+		private set
+	var cancelCount = 0
+		private set
+	var cancelledBoundRegistration = false
+		private set
+
+	override fun bindBeforeWork(
+		transitionId: ReaderTransitionId,
+		onExpired: (ReaderTransitionFact.DeadlineExpired) -> Unit
+	): ReaderTask6FactOnlyTimerRegistration {
+		bindCount += 1
+		this.onExpired = onExpired
+		val registration = ReaderTask6FactOnlyTimerRegistration(
+			id = ReaderTask6FactOnlyTimerRegistrationId(bindCount.toLong()),
+			transitionId = transitionId,
+			physicalIdentity = ReaderLegacyPhysicalIdentity(
+				domain = ReaderLegacyPhysicalDomain(
+					transitionId.readerSessionGeneration,
+					ReaderLegacyFreezeToken(bindCount.toLong())
+				),
+				source = ReaderLegacyInventorySource.DeadlineRegistration,
+				sourceLocalToken = ReaderLegacySourceLocalOpaqueToken(bindCount.toLong())
+			),
+			hardExpiresAtMillis = 31_000L,
+			noProgressIntervalMillis = 10_000L.takeIf { permitsMatchingProgressRearm },
+			permitsMatchingProgressRearm = permitsMatchingProgressRearm
+		)
+		boundRegistration = registration
+		return registration
+	}
+
+	override fun matchingProgress(
+		registration: ReaderTask6FactOnlyTimerRegistration,
+		nowMillis: Long
+	): ReaderPortCommandResult {
+		progressCount += 1
+		if (callbackBeforeReject) {
+			requireNotNull(onExpired)(ReaderTransitionFact.DeadlineExpired(registration.transitionId))
+		}
+		return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+	}
+
+	override fun snapshotForTask7Transfer(
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): ReaderTask6FactOnlyTimerTransferSnapshot? = null
+
+	override fun cancel(
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): ReaderPortCommandResult {
+		cancelCount += 1
+		cancelledBoundRegistration = registration === boundRegistration
+		return ReaderPortCommandResult.Accepted
 	}
 }
 

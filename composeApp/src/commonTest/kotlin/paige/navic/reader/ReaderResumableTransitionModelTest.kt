@@ -11,9 +11,9 @@ import kotlin.test.assertTrue
 
 class ReaderResumableTransitionModelTest {
 	@Test
-	fun transitionIdentityCarriesExactAndSemanticBindingsAndOptionalParent() {
+	fun transitionIdentityCarriesExactAndSemanticBindingsAndImmediateParent() {
 		val predecessor = transitionTestBinding(commitSequence = 1L)
-		val parent = ReaderTransitionParentIdentity(7L, 11L, 13L)
+		val parent = ReaderTransitionParentIdentity(7L, 11L, 12L)
 		val exact = transitionTestId(
 			operation = ReaderTransitionOperation.BootstrapNativePage,
 			expectedBinding = ReaderExpectedPresentationBinding.Exact(predecessor),
@@ -33,6 +33,90 @@ class ReaderResumableTransitionModelTest {
 	}
 
 	@Test
+	fun materialAllocationValidationAcceptsPublishedBindingsAndFencesTransitionIdentity() {
+		val predecessor = transitionTestBinding(
+			commitSequence = 1L,
+			rasterGeneration = null,
+			textureGeneration = null
+		).copy(preparationGeneration = null)
+		val successor = predecessor.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("synthetic-session", 2L)
+		)
+		val cases = listOf(
+			ReaderExpectedPresentationBinding.Exact(predecessor) to predecessor,
+			ReaderExpectedPresentationBinding.SemanticSuccessor(predecessor, 1L) to successor,
+			ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial(1L) to successor
+		)
+
+		cases.forEach { (expected, published) ->
+			val id = transitionTestId(
+				operation = ReaderTransitionOperation.BootstrapNativePage,
+				expectedBinding = expected
+			)
+			val allocated = published.copy(
+				preparationGeneration = 101L,
+				rasterGeneration = 103L,
+				textureGeneration = 107L
+			)
+			val allocation = ReaderMaterialGenerationAllocation(
+				id,
+				allocated,
+				101L,
+				103L,
+				107L
+			)
+			assertTrue(readerTransitionMaterialBindingIsValid(id, allocated, allocation))
+
+			val foreignId = id.copy(sequence = id.sequence + 1L, parent = id.parentIdentity())
+			assertFalse(
+				readerTransitionMaterialBindingIsValid(
+					id,
+					allocated,
+					allocation.copy(transitionId = foreignId)
+				)
+			)
+		}
+	}
+
+	@Test
+	fun transitionIdentityRequiresExactImmediateParentChain() {
+		val binding = transitionTestBinding(commitSequence = 1L)
+		fun identity(
+			session: Long = 7L,
+			epoch: Long = 11L,
+			sequence: Long,
+			parent: ReaderTransitionParentIdentity?
+		) = ReaderTransitionId(
+			readerSessionGeneration = session,
+			coordinatorEpoch = epoch,
+			sequence = sequence,
+			operation = ReaderTransitionOperation.BootstrapNativePage,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding),
+			parent = parent
+		)
+
+		val root = identity(sequence = 1L, parent = null)
+		val second = identity(sequence = 2L, parent = root.parentIdentity())
+		assertEquals(root.parentIdentity(), second.parent)
+		assertFailsWith<IllegalArgumentException> {
+			identity(sequence = 1L, parent = ReaderTransitionParentIdentity(7L, 11L, 1L))
+		}
+		assertFailsWith<IllegalArgumentException> { identity(sequence = 2L, parent = null) }
+		assertFailsWith<IllegalArgumentException> {
+			identity(sequence = 2L, parent = ReaderTransitionParentIdentity(8L, 11L, 1L))
+		}
+		assertFailsWith<IllegalArgumentException> {
+			identity(sequence = 2L, parent = ReaderTransitionParentIdentity(7L, 12L, 1L))
+		}
+		assertFailsWith<IllegalArgumentException> {
+			identity(sequence = 3L, parent = ReaderTransitionParentIdentity(7L, 11L, 1L))
+		}
+		assertFailsWith<IllegalArgumentException> {
+			identity(sequence = 3L, parent = ReaderTransitionParentIdentity(7L, 11L, 3L))
+		}
+	}
+
+	@Test
 	fun curlLeaseRetainsSuppliedGestureIdentityIndependentOfTransitionSequence() {
 		val fixture = journalAwaitingSettlement()
 		val lease = assertIs<ReaderTransitionInputLease.ClaimedGesture>(
@@ -43,7 +127,11 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(fixture.id.sequence != lease.gestureId.value)
 		assertEquals(
 			fixture.gestureId,
-			ReaderPageTurnIntent(ReaderPageTurnDirection.Next, fixture.gestureId).gestureId
+			ReaderPageTurnIntent(
+				ReaderPageTurnDirection.Next,
+				fixture.gestureId,
+				transitionTestSemanticHandle()
+			).gestureId
 		)
 	}
 
@@ -58,11 +146,18 @@ class ReaderResumableTransitionModelTest {
 		val firstConsumption = assertNotNull(active.consumedSettlement)
 		assertEquals(fixture.id, firstConsumption.transitionId)
 		assertEquals(
-			setOf(ReaderTransitionProofKind.PreparedFrame),
+			setOf(ReaderTransitionProofKind.FrameTargetPreparation),
 			active.phase.contract.awaitedProofs
 		)
-		assertTrue(first.commands.isEmpty())
-		assertTrue(first.commands.none { it is ReaderTransitionCommand.ApplyInputLease })
+		val targetPreparation = assertIs<ReaderTransitionCommand.PrepareFrameTarget>(
+			first.commands.single()
+		)
+		assertEquals(fixture.id, targetPreparation.transitionId)
+		assertEquals(fixture.successor, targetPreparation.specification.binding)
+		assertIs<ReaderTransitionFrameTargetSpecification.CurlSettlementTerminalFrame>(
+			targetPreparation.specification
+		)
+		assertTrue(first.commands.none { it is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease })
 		val duplicate = first.state.reduce(fact)
 		assertTrue(duplicate.commands.isEmpty())
 		assertEquals(first.state, duplicate.state)
@@ -106,7 +201,14 @@ class ReaderResumableTransitionModelTest {
 		)
 		assertNull(replacement.state.active?.consumedSettlement)
 
-		val nextId = fixture.id.copy(sequence = fixture.id.sequence + 2L)
+		val nextId = fixture.id.copy(
+			sequence = fixture.id.sequence + 2L,
+			parent = ReaderTransitionParentIdentity(
+				fixture.id.readerSessionGeneration,
+				fixture.id.coordinatorEpoch,
+				fixture.id.sequence + 1L
+			)
+		)
 		val nextPhase = ReaderTransitionLivenessTable.phase(
 			id = nextId,
 			kind = ReaderTransitionPhaseKind.AwaitingProof,
@@ -118,7 +220,9 @@ class ReaderResumableTransitionModelTest {
 				id = nextId,
 				phase = nextPhase,
 				predecessorResourceKey = fixture.predecessorResourceKey
-			)
+			),
+			lastTransitionSequence = nextId.sequence,
+			lastIssuedTransitionIdentity = nextId.parentIdentity()
 		)
 		val nextSettlement = ReaderTransitionFact.SettlementAcknowledged(
 			transitionId = nextId,
@@ -134,55 +238,49 @@ class ReaderResumableTransitionModelTest {
 	}
 
 	@Test
-	fun semanticSuccessorCommitsInEitherFactOrderAndConsumesSettlementOnce() {
-		listOf(false, true).forEach { frameFirst ->
-			val fixture = journalAwaitingSemanticSuccessor()
-			val successorOwner = transitionTestNativeOwner(fixture.id, fixture.successor)
-			val successorKey = ReaderTransitionResourceKey(
+	fun semanticSuccessorCommitsOnlyAfterTargetPreparationFrameAndPublicationAcknowledgement() {
+		val fixture = journalAwaitingSemanticSuccessor()
+		val successorOwner = transitionTestNativeOwner(fixture.id, fixture.successor)
+		val settled = fixture.journal.reduce(matchingSettlementFact(fixture))
+		val (awaitingFrame, target) = transitionTestApplyTargetPreparation(settled)
+		val prepared = awaitingFrame.reduce(
+			ReaderTransitionFact.PreparedFrame(
 				fixture.id,
-				ReaderTransitionResourceKind.Deck,
-				requireNotNull(fixture.successor.textureGeneration)
-			)
-			val frame = ReaderTransitionFact.PreparedFrame(
-				fixture.id,
-				fixture.successor,
+				target,
 				successorOwner,
-				successorKey
+				target.resource
 			)
-			val settlement = matchingSettlementFact(fixture)
-			val first = fixture.journal.reduce(if (frameFirst) frame else settlement)
-			if (!frameFirst) {
-				assertTrue(first.commands.none { it is ReaderTransitionCommand.ApplyInputLease })
-			}
-			val second = first.state.reduce(if (frameFirst) settlement else frame)
+		)
 
-			assertNull(second.state.active)
-			val succeeded = assertIs<ReaderTransitionOutcome.Succeeded>(second.state.lastOutcome)
-			assertEquals(fixture.successor, succeeded.binding)
-			assertEquals(successorOwner, succeeded.committedOwner)
-			assertEquals(successorKey, second.state.committed?.resourceKey)
-			if (!frameFirst) {
-				assertEquals(
-					fixture.id,
-					first.state.active?.consumedSettlement?.transitionId
-				)
-			}
-			val duplicate = second.state.reduce(settlement)
-			assertEquals(second.state, duplicate.state)
-			assertTrue(duplicate.commands.isEmpty())
-		}
+		assertEquals(ReaderTransitionPhaseKind.Committing, prepared.state.active?.phase?.kind)
+		assertNull(prepared.state.lastOutcome)
+		assertTrue(prepared.state.committed.retainedOwnerForTest() == fixture.retainedOwner, "Committed owner category mismatch")
+
+		val completed = transitionTestApplySuccessorAcknowledgement(prepared)
+		assertNull(completed.state.active)
+		val succeeded = assertIs<ReaderTransitionOutcome.Succeeded>(completed.state.lastOutcome)
+		assertEquals(fixture.successor, succeeded.binding)
+		assertEquals(successorOwner, succeeded.committedOwner)
+		assertTrue(completed.state.committed.retainedResourceKeyForTest() == target.resource.key, "Committed resource mismatch")
+		assertEquals(
+			fixture.id,
+			settled.state.active?.consumedSettlement?.transitionId
+		)
+		val duplicate = completed.state.reduce(matchingSettlementFact(fixture))
+		assertEquals(completed.state, duplicate.state)
+		assertTrue(duplicate.commands.isEmpty())
 	}
 
 	@Test
 	fun everyAppOriginatedExternalRouteRegistersBeforeSemanticCommand() {
 		val fixture = journalAwaitingSettlement()
-		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val idle = fixture.idleCommittedJournal()
 
 		ReaderExternalRelocationSource.entries.forEach { source ->
 			val result = idle.reduce(
 				ReaderTransitionFact.Intent(
 					transitionId = null,
-					intent = ReaderExternalRelocationIntent(source)
+					intent = ReaderExternalRelocationIntent(source, transitionTestSemanticHandle())
 				)
 			)
 
@@ -192,17 +290,18 @@ class ReaderResumableTransitionModelTest {
 			assertEquals(fixture.id.coordinatorEpoch, active.id.coordinatorEpoch, source.name)
 			assertEquals(fixture.retainedOwner, active.phase.contract.retainedOwner, source.name)
 			assertEquals(ReaderTransitionInputLease.ChromeOnly, active.phase.contract.inputLease, source.name)
-			assertTrue(ReaderTransitionProofKind.SemanticDestination in active.phase.contract.awaitedProofs, source.name)
 			assertEquals(
-				ReaderTransitionCommand.RequestSemanticSynchronization(active.id, ReaderExternalRelocationIntent(source)),
-				result.commands.last(),
+				setOf(ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement),
+				active.phase.contract.awaitedProofs,
 				source.name
 			)
-			assertTrue(
-				result.commands.indexOfLast { it is ReaderTransitionCommand.RequestSemanticSynchronization } >
-					result.commands.indexOfLast { it is ReaderTransitionCommand.ApplyInputLease },
-				source.name
+			val retainedPublication = assertIs<ReaderTransitionCommand.PublishRetainedOwnerAndInputLease>(
+				result.commands.single()
 			)
+			assertEquals(active.id, retainedPublication.transitionId, source.name)
+			assertEquals(fixture.retainedOwner, retainedPublication.retainedOwner, source.name)
+			assertEquals(ReaderTransitionInputLease.ChromeOnly, retainedPublication.requestedLease, source.name)
+			assertTrue(result.commands.none { it is ReaderTransitionCommand.RequestSemanticSynchronization }, source.name)
 			assertTrue(result.commands.none { it is ReaderTransitionCommand.RequestRasterPreparation }, source.name)
 		}
 	}
@@ -210,16 +309,20 @@ class ReaderResumableTransitionModelTest {
 	@Test
 	fun matchingUntaggedDestinationSettlesRegisteredExternalOperationWithoutSupersession() {
 		val fixture = journalAwaitingSettlement()
-		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val idle = fixture.idleCommittedJournal()
 		val started = idle.reduce(
 			ReaderTransitionFact.Intent(
 				transitionId = null,
-				intent = ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc)
+				intent = ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Toc,
+					transitionTestSemanticHandle()
+				)
 			)
 		)
 		val registeredId = assertNotNull(started.state.active).id
+		val admitted = transitionTestApplyRetainedAcknowledgement(started)
 
-		val committed = started.state.reduce(
+		val committed = admitted.state.reduce(
 			ReaderTransitionFact.FoliateDestinationCommitted(
 				transitionId = null,
 				binding = fixture.successor
@@ -230,7 +333,7 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(registeredId, active.id)
 		assertFalse(ReaderTransitionProofKind.SemanticDestination in active.phase.contract.awaitedProofs)
 		assertEquals(
-			listOf(ReaderTransitionCommand.RequestRasterPreparation(registeredId, fixture.successor)),
+			listOf(ReaderTransitionCommand.AllocateMaterialBinding(registeredId, fixture.successor.withoutTestMaterial())),
 			committed.commands
 		)
 		assertFalse(committed.state.lastOutcome is ReaderTransitionOutcome.Cancelled)
@@ -239,11 +342,14 @@ class ReaderResumableTransitionModelTest {
 	@Test
 	fun failedExternalRelocationRetainsNoninteractiveShieldAndRetryUsesFreshIdentity() {
 		val fixture = journalAwaitingSettlement()
-		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val idle = fixture.idleCommittedJournal()
 		val started = idle.reduce(
 			ReaderTransitionFact.Intent(
 				null,
-				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Search,
+					transitionTestSemanticHandle()
+				)
 			)
 		)
 		val first = assertNotNull(started.state.active)
@@ -252,7 +358,7 @@ class ReaderResumableTransitionModelTest {
 		val failure = assertIs<ReaderTransitionOutcome.Failed>(failed.state.lastOutcome)
 		assertEquals(ReaderTransitionFailureReason.ExternalRelocationTimeout, failure.reason)
 		assertEquals(fixture.retainedOwner, failure.retainedOwner)
-		assertEquals(fixture.predecessorResourceKey, failed.state.committed?.resourceKey)
+		assertTrue(failed.state.committed.retainedResourceKeyForTest() == fixture.predecessorResourceKey, "Retained resource mismatch")
 		assertTrue(failed.commands.none {
 			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
 		})
@@ -264,29 +370,35 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(first.id.operation, retry.id.operation)
 		assertEquals(first.id.expectedBinding, retry.id.expectedBinding)
 		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
+		val resumed = transitionTestApplyRetainedAcknowledgement(retried)
 		assertEquals(
 			ReaderTransitionCommand.RequestSemanticSynchronization(
 				retry.id,
-				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Search,
+					transitionTestSemanticHandle()
+				),
+				transitionTestSemanticHandle()
 			),
-			retried.commands.last()
+			resumed.commands.single()
 		)
 	}
 
 	@Test
 	fun coverEntryRetryAfterAcceptedDestinationReusesExactAuthorityWithoutSemanticReplay() {
 		val fixture = journalAwaitingSettlement()
-		val started = fixture.journal.copy(active = null).reduce(
-			ReaderTransitionFact.Intent(null, ReaderCoverEntryIntent)
+		val started = fixture.idleCommittedJournal().reduce(
+			ReaderTransitionFact.Intent(null, ReaderCoverEntryIntent(transitionTestSemanticHandle()))
 		)
 		val first = assertNotNull(started.state.active)
-		val accepted = started.state.reduce(
+		val admitted = transitionTestApplyRetainedAcknowledgement(started)
+		val accepted = admitted.state.reduce(
 			ReaderTransitionFact.FoliateDestinationCommitted(first.id, fixture.successor)
 		)
 		val acceptedActive = assertNotNull(accepted.state.active)
 		assertEquals(fixture.successor, acceptedActive.resolvedSuccessorBinding)
 		assertEquals(
-			listOf(ReaderTransitionCommand.RequestRasterPreparation(first.id, fixture.successor)),
+			listOf(ReaderTransitionCommand.AllocateMaterialBinding(first.id, fixture.successor.withoutTestMaterial())),
 			accepted.commands
 		)
 		val duplicate = accepted.state.reduce(
@@ -309,13 +421,12 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(ReaderExpectedPresentationBinding.Exact(fixture.successor), retry.id.expectedBinding)
 		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
 		assertEquals(fixture.predecessorResourceKey, retry.predecessorResourceKey)
-		assertEquals(
-			listOf(
-				ReaderTransitionCommand.ApplyInputLease(retry.id, ReaderTransitionInputLease.ChromeOnly),
-				ReaderTransitionCommand.RequestRasterPreparation(retry.id, fixture.successor)
-			),
-			retried.commands
+		val retainedPublication = assertIs<ReaderTransitionCommand.PublishRetainedOwnerAndInputLease>(
+			retried.commands.single()
 		)
+		assertEquals(retry.id, retainedPublication.transitionId)
+		assertEquals(ReaderTransitionInputLease.ChromeOnly, retainedPublication.requestedLease)
+		assertTrue(retried.commands.none { it is ReaderTransitionCommand.AllocateMaterialBinding })
 		assertTrue(retried.commands.none {
 			it is ReaderTransitionCommand.RequestSemanticSynchronization
 		})
@@ -324,8 +435,8 @@ class ReaderResumableTransitionModelTest {
 	@Test
 	fun coverEntryRetryBeforeDestinationReissuesSemanticRequest() {
 		val fixture = journalAwaitingSettlement()
-		val started = fixture.journal.copy(active = null).reduce(
-			ReaderTransitionFact.Intent(null, ReaderCoverEntryIntent)
+		val started = fixture.idleCommittedJournal().reduce(
+			ReaderTransitionFact.Intent(null, ReaderCoverEntryIntent(transitionTestSemanticHandle()))
 		)
 		val first = assertNotNull(started.state.active)
 		val failed = started.state.reduce(ReaderTransitionFact.DeadlineExpired(first.id))
@@ -335,17 +446,26 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(retry.id.sequence > first.id.sequence)
 		assertEquals(first.id.expectedBinding, retry.id.expectedBinding)
 		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
+		val resumed = transitionTestApplyRetainedAcknowledgement(retried)
 		assertEquals(
-			ReaderTransitionCommand.RequestSemanticSynchronization(retry.id, ReaderCoverEntryIntent),
-			retried.commands.last()
+			ReaderTransitionCommand.RequestSemanticSynchronization(
+				retry.id,
+				ReaderCoverEntryIntent(transitionTestSemanticHandle()),
+				transitionTestSemanticHandle()
+			),
+			resumed.commands.single()
 		)
 	}
 
 	@Test
 	fun retryBeforeSettlementUsesFreshChromeOnlyIdentityAndReissuesSemanticCommand() {
 		val fixture = journalAwaitingSettlement()
-		val intent = ReaderPageTurnIntent(ReaderPageTurnDirection.Next, fixture.gestureId)
-		val started = fixture.journal.copy(active = null).reduce(
+		val intent = ReaderPageTurnIntent(
+				ReaderPageTurnDirection.Next,
+				fixture.gestureId,
+				transitionTestSemanticHandle()
+			)
+		val started = fixture.idleCommittedJournal().reduce(
 			ReaderTransitionFact.Intent(null, intent)
 		)
 		val first = assertNotNull(started.state.active)
@@ -367,7 +487,10 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(retry.id.sequence > first.id.sequence)
 		assertEquals(ReaderTransitionOperation.CurlClaimAndSettlement, retry.id.operation)
 		assertEquals(first.id.parentIdentity(), retry.id.parent)
-		assertTrue(ReaderTransitionProofKind.SettlementAcknowledgement in retry.phase.contract.awaitedProofs)
+		assertEquals(
+			setOf(ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement),
+			retry.phase.contract.awaitedProofs
+		)
 		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
 		assertTrue(retry.ownedResourceKeys.isEmpty())
 		assertEquals(fixture.predecessorResourceKey, retry.predecessorResourceKey)
@@ -377,10 +500,16 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(failed.commands.none {
 			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
 		})
-		assertTrue(retried.commands.any { command ->
-			command == ReaderTransitionCommand.RequestSemanticSynchronization(retry.id, intent)
-		})
-		assertTrue(retried.commands.none { it is ReaderTransitionCommand.RequestRasterPreparation })
+		val resumed = transitionTestApplyRetainedAcknowledgement(retried)
+		assertTrue(
+			ReaderTransitionProofKind.SettlementAcknowledgement in
+				requireNotNull(resumed.state.active).phase.contract.awaitedProofs
+		)
+		assertEquals(
+			ReaderTransitionCommand.RequestSemanticSynchronization(retry.id, intent, intent.requestHandle),
+			resumed.commands.single()
+		)
+		assertTrue(resumed.commands.none { it is ReaderTransitionCommand.RequestRasterPreparation })
 	}
 
 	@Test
@@ -406,25 +535,30 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(fixture.id.parentIdentity(), retry.id.parent)
 		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
 		assertEquals(
-			setOf(
-				ReaderTransitionProofKind.RendererGeneration,
-				ReaderTransitionProofKind.DeckOwnership,
-				ReaderTransitionProofKind.DeckPrepared,
-				ReaderTransitionProofKind.PreparedFrame
-			),
+			setOf(ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement),
 			retry.phase.contract.awaitedProofs
 		)
 		assertNull(retry.consumedSettlement)
 		assertNull(retry.semanticIntent)
 		assertEquals(fixture.predecessorResourceKey, retry.predecessorResourceKey)
 		assertTrue(retried.commands.none { it is ReaderTransitionCommand.RequestSemanticSynchronization })
+		val resumed = transitionTestApplyRetainedAcknowledgement(retried)
 		assertEquals(
-			ReaderTransitionCommand.ReserveDeck(
-				retry.id,
-				fixture.successor,
-				ReaderTransitionDeckRole.Recovery
+			setOf(
+				ReaderTransitionProofKind.RendererGeneration,
+				ReaderTransitionProofKind.MaterialBindingAllocation,
+				ReaderTransitionProofKind.DeckOwnership,
+				ReaderTransitionProofKind.DeckPrepared,
+				ReaderTransitionProofKind.PreparedFrame
 			),
-			retried.commands.last()
+			requireNotNull(resumed.state.active).phase.contract.awaitedProofs
+		)
+		assertEquals(
+			ReaderTransitionCommand.AllocateMaterialBinding(
+				retry.id,
+				fixture.successor.withoutTestMaterial()
+			),
+			resumed.commands.single()
 		)
 		assertEquals(
 			listOf(oldAttemptResource),
@@ -434,16 +568,28 @@ class ReaderResumableTransitionModelTest {
 			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
 		})
 
-		val deckKey = ReaderTransitionResourceKey(retry.id, ReaderTransitionResourceKind.Deck, 223L)
+		val deckKey = ReaderTransitionResourceKey(
+			retry.id,
+			ReaderTransitionResourceKind.Deck,
+			requireNotNull(fixture.successor.textureGeneration)
+		)
 		val owner = transitionTestNativeOwner(retry.id, fixture.successor)
-		val generation = retried.state.reduce(
+		val allocated = resumed.state.reduce(testAllocationFact(retry.id, fixture.successor))
+		val withTarget = allocated.state.withTransitionTestNativeTarget(
+			retry.id,
+			fixture.successor,
+			deckKey
+		)
+		val generation = withTarget.reduce(
 			ReaderTransitionFact.RendererGenerationReady(retry.id, rendererGeneration = 227L)
 		)
 		val owned = generation.state.reduce(ReaderTransitionFact.DeckOwned(retry.id, deckKey))
 		val prepared = owned.state.reduce(ReaderTransitionFact.DeckPrepared(retry.id, deckKey))
-		val completed = prepared.state.reduce(
-			ReaderTransitionFact.PreparedFrame(retry.id, fixture.successor, owner, deckKey)
+		val (awaitingFrame, target) = transitionTestApplyTargetPreparation(prepared)
+		val committing = awaitingFrame.reduce(
+			ReaderTransitionFact.PreparedFrame(retry.id, target, owner, target.resource)
 		)
+		val completed = transitionTestApplySuccessorAcknowledgement(committing)
 		assertNull(completed.state.active)
 		assertEquals(fixture.successor, assertIs<ReaderTransitionOutcome.Succeeded>(completed.state.lastOutcome).binding)
 		assertEquals(
@@ -475,13 +621,13 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(ReaderTransitionOperation.RendererRecovery, secondAttempt.id.operation)
 		assertTrue(secondAttempt.id.sequence > retry.id.sequence)
 		assertEquals(ReaderTransitionInputLease.ChromeOnly, secondAttempt.phase.contract.inputLease)
+		val resumedSecondAttempt = transitionTestApplyRetainedAcknowledgement(secondRetry)
 		assertEquals(
-			ReaderTransitionCommand.ReserveDeck(
+			ReaderTransitionCommand.AllocateMaterialBinding(
 				secondAttempt.id,
-				fixture.successor,
-				ReaderTransitionDeckRole.Recovery
+				fixture.successor.withoutTestMaterial()
 			),
-			secondRetry.commands.last()
+			resumedSecondAttempt.commands.single()
 		)
 		assertTrue(secondRetry.commands.none { it is ReaderTransitionCommand.RequestSemanticSynchronization })
 	}
@@ -489,11 +635,14 @@ class ReaderResumableTransitionModelTest {
 	@Test
 	fun cancelTerminatesRegisteredSemanticOperationWithoutReleasingItsShield() {
 		val fixture = journalAwaitingSettlement()
-		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val idle = fixture.idleCommittedJournal()
 		val started = idle.reduce(
 			ReaderTransitionFact.Intent(
 				null,
-				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Bookmark)
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Bookmark,
+					transitionTestSemanticHandle()
+				)
 			)
 		)
 		val active = assertNotNull(started.state.active)
@@ -515,11 +664,14 @@ class ReaderResumableTransitionModelTest {
 	@Test
 	fun relocationAfterCancellationUsesMonotonicallyNewIdentity() {
 		val fixture = journalAwaitingSettlement()
-		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val idle = fixture.idleCommittedJournal()
 		val first = idle.reduce(
 			ReaderTransitionFact.Intent(
 				null,
-				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Bookmark)
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Bookmark,
+					transitionTestSemanticHandle()
+				)
 			)
 		)
 		val firstId = assertNotNull(first.state.active).id
@@ -530,7 +682,10 @@ class ReaderResumableTransitionModelTest {
 		val second = cancelled.state.reduce(
 			ReaderTransitionFact.Intent(
 				null,
-				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Annotation)
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Annotation,
+					transitionTestSemanticHandle()
+				)
 			)
 		)
 		val secondId = assertNotNull(second.state.active).id
@@ -541,11 +696,14 @@ class ReaderResumableTransitionModelTest {
 	@Test
 	fun relocationAfterFailureUsesMonotonicallyNewIdentity() {
 		val fixture = journalAwaitingSettlement()
-		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val idle = fixture.idleCommittedJournal()
 		val first = idle.reduce(
 			ReaderTransitionFact.Intent(
 				null,
-				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Search,
+					transitionTestSemanticHandle()
+				)
 			)
 		)
 		val firstId = assertNotNull(first.state.active).id
@@ -554,7 +712,10 @@ class ReaderResumableTransitionModelTest {
 		val second = failed.state.reduce(
 			ReaderTransitionFact.Intent(
 				null,
-				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc)
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Toc,
+					transitionTestSemanticHandle()
+				)
 			)
 		)
 		val secondId = assertNotNull(second.state.active).id
@@ -581,27 +742,26 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(fixture.id.parentIdentity(), active.id.parent)
 		assertEquals(fixture.retainedOwner, active.phase.contract.retainedOwner)
 		assertEquals(ReaderTransitionInputLease.ChromeOnly, active.phase.contract.inputLease)
-		assertFalse(ReaderTransitionProofKind.SemanticDestination in active.phase.contract.awaitedProofs)
-		assertTrue(ReaderTransitionProofKind.Raster in active.phase.contract.awaitedProofs)
-		assertTrue(ReaderTransitionProofKind.DeckOwnership in active.phase.contract.awaitedProofs)
-		assertTrue(ReaderTransitionProofKind.DeckPrepared in active.phase.contract.awaitedProofs)
-		assertTrue(ReaderTransitionProofKind.PreparedFrame in active.phase.contract.awaitedProofs)
+		assertEquals(
+			setOf(ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement),
+			active.phase.contract.awaitedProofs
+		)
 		assertEquals(
 			ReaderTransitionCommand.CancelOwnedWork(fixture.id),
 			result.commands.first()
 		)
 		assertTrue(result.commands.any {
-			it is ReaderTransitionCommand.ApplyInputLease &&
-				it.lease == ReaderTransitionInputLease.ChromeOnly
+			it is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease &&
+				it.requestedLease == ReaderTransitionInputLease.ChromeOnly
 		})
-		assertTrue(result.commands.any { it is ReaderTransitionCommand.RequestRasterPreparation })
+		assertTrue(result.commands.none { it is ReaderTransitionCommand.AllocateMaterialBinding })
 		assertTrue(result.commands.none { it is ReaderTransitionCommand.ReleaseResource })
 	}
 
 	@Test
 	fun untaggedAuthoritativeDestinationRetryReusesExactBindingWithoutSemanticReplay() {
 		val fixture = journalAwaitingSettlement()
-		val idle = fixture.journal.copy(active = null)
+		val idle = fixture.idleCommittedJournal()
 		val started = idle.reduce(
 			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
 		)
@@ -621,29 +781,37 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(retry.authoritativeDestinationCommitted)
 		assertEquals(ReaderTransitionInputLease.ChromeOnly, retry.phase.contract.inputLease)
 		assertEquals(fixture.predecessorResourceKey, retry.predecessorResourceKey)
-		assertEquals(
-			listOf(
-				ReaderTransitionCommand.ApplyInputLease(retry.id, ReaderTransitionInputLease.ChromeOnly),
-				ReaderTransitionCommand.RequestRasterPreparation(retry.id, fixture.successor)
-			),
-			retried.commands
+		val retainedPublication = assertIs<ReaderTransitionCommand.PublishRetainedOwnerAndInputLease>(
+			retried.commands.single()
 		)
+		assertEquals(retry.id, retainedPublication.transitionId)
+		assertEquals(ReaderTransitionInputLease.ChromeOnly, retainedPublication.requestedLease)
+		assertTrue(retried.commands.none { it is ReaderTransitionCommand.AllocateMaterialBinding })
 		assertTrue(retried.commands.none {
 			it is ReaderTransitionCommand.RequestSemanticSynchronization
 		})
 
-		val raster = retried.state.reduce(ReaderTransitionFact.RasterProven(retry.id))
+		val resumed = transitionTestApplyRetainedAcknowledgement(retried)
+		val allocated = resumed.state.reduce(testAllocationFact(retry.id, fixture.successor))
 		val deckKey = ReaderTransitionResourceKey(
 			retry.id,
 			ReaderTransitionResourceKind.Deck,
-			67L
+			requireNotNull(fixture.successor.textureGeneration)
 		)
+		var physicalState = allocated.state.withTransitionTestNativeTarget(
+			retry.id,
+			fixture.successor,
+			deckKey
+		)
+		val raster = physicalState.reduce(ReaderTransitionFact.RasterProven(retry.id))
 		val owned = raster.state.reduce(ReaderTransitionFact.DeckOwned(retry.id, deckKey))
 		val prepared = owned.state.reduce(ReaderTransitionFact.DeckPrepared(retry.id, deckKey))
+		val (awaitingFrame, target) = transitionTestApplyTargetPreparation(prepared)
 		val owner = transitionTestNativeOwner(retry.id, fixture.successor)
-		val completed = prepared.state.reduce(
-			ReaderTransitionFact.PreparedFrame(retry.id, fixture.successor, owner, deckKey)
+		val committing = awaitingFrame.reduce(
+			ReaderTransitionFact.PreparedFrame(retry.id, target, owner, target.resource)
 		)
+		val completed = transitionTestApplySuccessorAcknowledgement(committing)
 
 		assertNull(completed.state.active)
 		assertEquals(
@@ -654,23 +822,29 @@ class ReaderResumableTransitionModelTest {
 
 	@Test
 	fun untaggedDifferentDestinationSupersedesAcceptedCoverEntry() {
-		assertUntaggedDifferentDestinationSupersedesAcceptedIntent(ReaderCoverEntryIntent)
+		assertUntaggedDifferentDestinationSupersedesAcceptedIntent(ReaderCoverEntryIntent(transitionTestSemanticHandle()))
 	}
 
 	@Test
 	fun untaggedDifferentDestinationSupersedesAcceptedExternalRelocation() {
 		assertUntaggedDifferentDestinationSupersedesAcceptedIntent(
-			ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+			ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Search,
+					transitionTestSemanticHandle()
+				)
 		)
 	}
 
 	@Test
 	fun untaggedSameDestinationCoalescesAfterAuthoritativeAcceptance() {
 		val fixture = journalAwaitingSettlement()
-		val started = fixture.journal.copy(active = null).reduce(
+		val started = fixture.idleCommittedJournal().reduce(
 			ReaderTransitionFact.Intent(
 				null,
-				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Search,
+					transitionTestSemanticHandle()
+				)
 			)
 		)
 		val id = assertNotNull(started.state.active).id
@@ -689,7 +863,7 @@ class ReaderResumableTransitionModelTest {
 	@Test
 	fun untaggedSameDestinationCoalescesForExactUnsolicitedRelocation() {
 		val fixture = journalAwaitingSettlement()
-		val started = fixture.journal.copy(active = null).reduce(
+		val started = fixture.idleCommittedJournal().reduce(
 			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
 		)
 
@@ -704,8 +878,8 @@ class ReaderResumableTransitionModelTest {
 	@Test
 	fun taggedDifferentDestinationCannotSupersedeAcceptedDestination() {
 		val fixture = journalAwaitingSettlement()
-		val started = fixture.journal.copy(active = null).reduce(
-			ReaderTransitionFact.Intent(null, ReaderCoverEntryIntent)
+		val started = fixture.idleCommittedJournal().reduce(
+			ReaderTransitionFact.Intent(null, ReaderCoverEntryIntent(transitionTestSemanticHandle()))
 		)
 		val id = assertNotNull(started.state.active).id
 		val accepted = started.state.reduce(
@@ -730,11 +904,12 @@ class ReaderResumableTransitionModelTest {
 		intent: ReaderSemanticSynchronizationIntent
 	) {
 		val fixture = journalAwaitingSettlement()
-		val started = fixture.journal.copy(active = null).reduce(
+		val started = fixture.idleCommittedJournal().reduce(
 			ReaderTransitionFact.Intent(null, intent)
 		)
 		val first = assertNotNull(started.state.active)
-		val accepted = started.state.reduce(
+		val admitted = transitionTestApplyRetainedAcknowledgement(started)
+		val accepted = admitted.state.reduce(
 			ReaderTransitionFact.FoliateDestinationCommitted(first.id, fixture.successor)
 		)
 		val firstOwnedResources = listOf(
@@ -773,10 +948,11 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(replaced.commands.none {
 			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
 		})
-		assertEquals(
-			ReaderTransitionCommand.RequestRasterPreparation(replacement.id, replacementBinding),
+		val retainedPublication = assertIs<ReaderTransitionCommand.PublishRetainedOwnerAndInputLease>(
 			replaced.commands.last()
 		)
+		assertEquals(replacement.id, retainedPublication.transitionId)
+		assertTrue(replaced.commands.none { it is ReaderTransitionCommand.AllocateMaterialBinding })
 		assertTrue(replaced.commands.none {
 			it is ReaderTransitionCommand.RequestSemanticSynchronization
 		})
@@ -875,11 +1051,11 @@ class ReaderResumableTransitionModelTest {
 	}
 
 	@Test
-	fun externalRelocationCommitsAfterEachFreshProofArrivesOnceInAnyOrder() {
+	fun externalRelocationCommitsAfterFreshMaterialProofsInAnyOrderThenExactFrameAcknowledgement() {
 		val permutations = listOf(
-			listOf(RelocationProof.Frame, RelocationProof.Raster, RelocationProof.DeckPrepared, RelocationProof.DeckOwned),
-			listOf(RelocationProof.DeckOwned, RelocationProof.Frame, RelocationProof.Raster, RelocationProof.DeckPrepared),
-			listOf(RelocationProof.Raster, RelocationProof.DeckPrepared, RelocationProof.DeckOwned, RelocationProof.Frame)
+			listOf(RelocationProof.Raster, RelocationProof.DeckPrepared, RelocationProof.DeckOwned),
+			listOf(RelocationProof.DeckOwned, RelocationProof.Raster, RelocationProof.DeckPrepared),
+			listOf(RelocationProof.DeckPrepared, RelocationProof.DeckOwned, RelocationProof.Raster)
 		)
 
 		permutations.forEach { permutation ->
@@ -887,33 +1063,55 @@ class ReaderResumableTransitionModelTest {
 			val started = fixture.journal.reduce(
 				ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
 			)
-			val relocationId = requireNotNull(started.state.active).id
-			val deckKey = ReaderTransitionResourceKey(relocationId, ReaderTransitionResourceKind.Deck, 19L)
+			val admitted = transitionTestApplyRetainedAcknowledgement(started)
+			val relocationId = requireNotNull(admitted.state.active).id
+			val deckKey = ReaderTransitionResourceKey(
+				relocationId,
+				ReaderTransitionResourceKind.Deck,
+				requireNotNull(fixture.successor.textureGeneration)
+			)
 			val successorOwner = transitionTestNativeOwner(relocationId, fixture.successor)
-			var state = started.state
-			val commands = started.commands.toMutableList()
+			val allocation = admitted.state.reduce(testAllocationFact(relocationId, fixture.successor))
+			var state = allocation.state.withTransitionTestNativeTarget(
+				relocationId,
+				fixture.successor,
+				deckKey
+			)
+			val commands = (started.commands + admitted.commands + allocation.commands).toMutableList()
+			lateinit var targetPreparation: ReaderTransitionReduction
 
 			permutation.forEachIndexed { index, proof ->
 				val reduction = when (proof) {
 					RelocationProof.Raster -> state.reduce(ReaderTransitionFact.RasterProven(relocationId))
 					RelocationProof.DeckOwned -> state.reduce(ReaderTransitionFact.DeckOwned(relocationId, deckKey))
 					RelocationProof.DeckPrepared -> state.reduce(ReaderTransitionFact.DeckPrepared(relocationId, deckKey))
-					RelocationProof.Frame -> state.reduce(
-						ReaderTransitionFact.PreparedFrame(
-							relocationId,
-							fixture.successor,
-							successorOwner,
-							deckKey
-						)
-					)
+					RelocationProof.Frame -> error("Frame follows exact target preparation")
 				}
 				state = reduction.state
 				commands += reduction.commands
 				if (index < permutation.lastIndex) {
 					assertEquals(fixture.retainedOwner, state.active?.phase?.contract?.retainedOwner)
 					assertTrue(reduction.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+				} else {
+					targetPreparation = reduction
 				}
 			}
+
+			val (awaitingFrame, target) = transitionTestApplyTargetPreparation(targetPreparation)
+			val prepared = awaitingFrame.reduce(
+				ReaderTransitionFact.PreparedFrame(
+					relocationId,
+					target,
+					successorOwner,
+					target.resource
+				)
+			)
+			commands += prepared.commands
+			assertEquals(ReaderTransitionPhaseKind.Committing, prepared.state.active?.phase?.kind)
+			assertTrue(prepared.state.committed.retainedOwnerForTest() == fixture.retainedOwner, "Committed owner category mismatch")
+			val completed = transitionTestApplySuccessorAcknowledgement(prepared)
+			state = completed.state
+			commands += completed.commands
 
 			assertNull(state.active)
 			val succeeded = assertIs<ReaderTransitionOutcome.Succeeded>(state.lastOutcome)
@@ -922,8 +1120,8 @@ class ReaderResumableTransitionModelTest {
 			val releases = commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
 			assertEquals(listOf(fixture.predecessorResourceKey), releases.map { it.key })
 			assertTrue(commands.any {
-				it is ReaderTransitionCommand.ApplyInputLease &&
-					it.lease is ReaderTransitionInputLease.NativePage
+				it is ReaderTransitionCommand.CommitOwnerAndInputLease &&
+					it.requestedLease is ReaderTransitionInputLease.NativePage
 			})
 		}
 	}
@@ -946,7 +1144,8 @@ class ReaderResumableTransitionModelTest {
 				committedId,
 				committedOwner,
 				predecessor,
-				predecessorKey
+				predecessorKey,
+				transitionTestRegistration(predecessorKey)
 			)
 		)
 		val successor = transitionTestBinding(commitSequence = 2L, rasterGeneration = 23L, textureGeneration = 29L)
@@ -960,7 +1159,8 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(predecessorKey, active.predecessorResourceKey)
 		assertEquals(ReaderTransitionInputLease.ChromeOnly, active.phase.contract.inputLease)
 		assertTrue(result.commands.none { it is ReaderTransitionCommand.CancelOwnedWork })
-		assertTrue(result.commands.any { it is ReaderTransitionCommand.RequestRasterPreparation })
+		assertIs<ReaderTransitionCommand.PublishRetainedOwnerAndInputLease>(result.commands.single())
+		assertTrue(result.commands.none { it is ReaderTransitionCommand.AllocateMaterialBinding })
 	}
 
 	@Test
@@ -986,7 +1186,14 @@ class ReaderResumableTransitionModelTest {
 			)
 			val phase = ReaderTransitionLivenessTable.phase(id, ReaderTransitionPhaseKind.AwaitingProof, predecessor)
 			val journal = ReaderTransitionJournal(
-				ReaderActiveTransition(id, phase, predecessorResourceKey = predecessorKey)
+				active = ReaderActiveTransition(id, phase, predecessorResourceKey = predecessorKey),
+				committed = ReaderCommittedTransition(
+					predecessorId,
+					predecessor,
+					binding,
+					predecessorKey,
+					transitionTestRegistration(predecessorKey)
+				)
 			)
 			val successor = when (operation) {
 				ReaderTransitionOperation.ShellCoverCommit -> transitionTestCoverOwner(id, binding)
@@ -998,20 +1205,27 @@ class ReaderResumableTransitionModelTest {
 				ReaderTransitionResourceKind.FrameHandoff,
 				67L
 			)
-			val reduction = when (operation) {
-				ReaderTransitionOperation.ShellCoverCommit -> journal.reduce(
-					ReaderTransitionFact.CoverPostDraw(id, binding, successor, successorKey)
+			val preparedFact = transitionTestPreparedFrame(id, binding, successor, successorKey)
+			val awaitingFramePhase = phase.copy(
+				contract = phase.contract.copy(
+					awaitedProofs = setOf(ReaderTransitionProofKind.PreparedFrame),
+					callbackSources = setOf(ReaderTransitionFactKind.PreparedFrame)
 				)
-				ReaderTransitionOperation.NativeToLiveHandoff -> journal.reduce(
-					ReaderTransitionFact.WebViewExposure(id, binding, successor, successorKey)
+			)
+			val committing = journal.copy(
+				active = requireNotNull(journal.active).copy(
+					phase = awaitingFramePhase,
+					frameTarget = preparedFact.target
 				)
-			}
+			).reduce(preparedFact)
+			assertEquals(ReaderTransitionPhaseKind.Committing, committing.state.active?.phase?.kind)
+			val reduction = transitionTestApplySuccessorAcknowledgement(committing)
 
 			assertNull(reduction.state.active)
 			assertEquals(successor, assertIs<ReaderTransitionOutcome.Succeeded>(reduction.state.lastOutcome).committedOwner)
 			val releases = reduction.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
 			assertEquals(listOf(predecessorKey), releases.map { it.key })
-			val lease = reduction.commands.filterIsInstance<ReaderTransitionCommand.ApplyInputLease>().single().lease
+			val lease = committing.commands.filterIsInstance<ReaderTransitionCommand.CommitOwnerAndInputLease>().single().requestedLease
 			when (operation) {
 				ReaderTransitionOperation.ShellCoverCommit ->
 					assertEquals(ReaderTransitionInputLease.CoverActions, lease)
@@ -1041,19 +1255,26 @@ class ReaderResumableTransitionModelTest {
 		)
 		val phase = ReaderTransitionLivenessTable.phase(id, ReaderTransitionPhaseKind.AwaitingProof, predecessor)
 		val journal = ReaderTransitionJournal(
-			ReaderActiveTransition(id, phase, predecessorResourceKey = predecessorKey)
+			active = ReaderActiveTransition(id, phase, predecessorResourceKey = predecessorKey),
+			committed = ReaderCommittedTransition(
+				predecessorId,
+				predecessor,
+				binding,
+				predecessorKey,
+				transitionTestRegistration(predecessorKey)
+			)
 		)
 		val wrongOwner = transitionTestLiveOwner(id, binding)
 		val wrongKey = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.FrameHandoff, 71L)
 
 		val rejected = journal.reduce(
-			ReaderTransitionFact.PreparedFrame(id, binding, wrongOwner, wrongKey)
+			transitionTestPreparedFrame(id, binding, wrongOwner, wrongKey)
 		)
 
 		assertEquals(journal, rejected.state)
 		assertEquals(
-			listOf(ReaderTransitionCommand.ReleaseResource(id, wrongKey)),
-			rejected.commands
+			listOf(wrongKey),
+			rejected.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
 		)
 
 		val nativeOwner = transitionTestNativeOwner(id, binding)
@@ -1062,14 +1283,18 @@ class ReaderResumableTransitionModelTest {
 			ReaderTransitionResourceKind.Deck,
 			nativeOwner.proof.textureGeneration
 		)
-		val committed = rejected.state.reduce(
-			ReaderTransitionFact.PreparedFrame(id, binding, nativeOwner, nativeKey)
+		val preparedFact = transitionTestPreparedFrame(id, binding, nativeOwner, nativeKey)
+		val awaitingExactTarget = rejected.state.copy(
+			active = requireNotNull(rejected.state.active).copy(frameTarget = preparedFact.target)
 		)
+		val committing = awaitingExactTarget.reduce(preparedFact)
+		assertEquals(ReaderTransitionPhaseKind.Committing, committing.state.active?.phase?.kind)
+		val committed = transitionTestApplySuccessorAcknowledgement(committing)
 		assertEquals(nativeOwner, assertIs<ReaderTransitionOutcome.Succeeded>(committed.state.lastOutcome).committedOwner)
-		assertEquals(nativeKey, committed.state.committed?.resourceKey)
+		assertTrue(committed.state.committed.retainedResourceKeyForTest() == nativeKey, "Native resource mismatch")
 		assertEquals(
 			ReaderTransitionInputLease.NativePage(binding, nativeOwner.proof.textureGeneration),
-			committed.commands.filterIsInstance<ReaderTransitionCommand.ApplyInputLease>().single().lease
+			committing.commands.filterIsInstance<ReaderTransitionCommand.CommitOwnerAndInputLease>().single().requestedLease
 		)
 		assertEquals(
 			listOf(predecessorKey),
@@ -1080,7 +1305,14 @@ class ReaderResumableTransitionModelTest {
 	@Test
 	fun rejectedPreparedFramesDrainExactStaleAndMismatchedResourcesButNotRetainedShield() {
 		val fixture = journalAwaitingSettlement()
-		val staleId = fixture.id.copy(sequence = 11L)
+		val staleId = fixture.id.copy(
+			sequence = 11L,
+			parent = ReaderTransitionParentIdentity(
+				fixture.id.readerSessionGeneration,
+				fixture.id.coordinatorEpoch,
+				10L
+			)
+		)
 		val staleOwner = transitionTestNativeOwner(staleId, fixture.successor)
 		val staleKey = ReaderTransitionResourceKey(
 			staleId,
@@ -1100,13 +1332,13 @@ class ReaderResumableTransitionModelTest {
 			97L
 		)
 		val rejectedFacts = listOf(
-			ReaderTransitionFact.PreparedFrame(
+			transitionTestPreparedFrame(
 				staleId,
 				fixture.successor,
 				staleOwner,
 				staleKey
 			),
-			ReaderTransitionFact.PreparedFrame(
+			transitionTestPreparedFrame(
 				fixture.id,
 				mismatchedBinding,
 				mismatchedOwner,
@@ -1118,14 +1350,14 @@ class ReaderResumableTransitionModelTest {
 			val rejected = fixture.journal.reduce(fact)
 			assertEquals(fixture.journal, rejected.state)
 			assertEquals(
-				listOf(ReaderTransitionCommand.ReleaseResource(fixture.id, expectedKey)),
-				rejected.commands
+				listOf(expectedKey),
+				rejected.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
 			)
 		}
 
 		val retained = fixture.journal.reduce(
-			ReaderTransitionFact.PreparedFrame(
-				fixture.predecessorResourceKey.transitionId,
+			transitionTestPreparedFrame(
+				requireNotNull(fixture.predecessorResourceKey.owningTransitionIdOrNull),
 				fixture.predecessor,
 				fixture.retainedOwner,
 				fixture.predecessorResourceKey
@@ -1141,13 +1373,15 @@ class ReaderResumableTransitionModelTest {
 		val started = fixture.journal.reduce(
 			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
 		)
-		val id = requireNotNull(started.state.active).id
+		val admittedResult = transitionTestApplyRetainedAcknowledgement(started)
+		val id = requireNotNull(admittedResult.state.active).id
 		val admitted = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, 73L)
 		val wrongTransition = admitted.copy(transitionId = fixture.id)
 		val wrongDeck = admitted.copy(opaqueId = 79L)
+		val allocated = admittedResult.state.reduce(testAllocationFact(id, fixture.successor))
 
-		val staleOwned = started.state.reduce(ReaderTransitionFact.DeckOwned(id, wrongTransition))
-		assertEquals(started.state, staleOwned.state)
+		val staleOwned = allocated.state.reduce(ReaderTransitionFact.DeckOwned(id, wrongTransition))
+		assertEquals(allocated.state, staleOwned.state)
 		assertEquals(
 			listOf(wrongTransition),
 			staleOwned.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
@@ -1220,7 +1454,7 @@ class ReaderResumableTransitionModelTest {
 		terminalCases.forEach { (fact, releasedKeys) ->
 			val terminal = populated.reduce(fact)
 			assertNull(terminal.state.active)
-			assertEquals(fixture.predecessorResourceKey, terminal.state.committed?.resourceKey)
+			assertTrue(terminal.state.committed.retainedResourceKeyForTest() == fixture.predecessorResourceKey, "Terminal retained resource mismatch")
 			assertEquals(
 				listOf(ReaderTransitionCommand.CancelOwnedWork(active.id)) +
 					releasedKeys.map { key ->
@@ -1296,11 +1530,11 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(duplicate.commands.isEmpty())
 
 		val staleKey = key.copy(
-			transitionId = fixture.predecessorKey.transitionId,
+			transitionId = requireNotNull(fixture.predecessorKey.owningTransitionIdOrNull),
 			opaqueId = 157L
 		)
 		val stale = duplicate.state.reduce(
-			ReaderTransitionFact.ResourceReleased(staleKey.transitionId, staleKey)
+			ReaderTransitionFact.ResourceReleased(requireNotNull(staleKey.owningTransitionIdOrNull), staleKey)
 		)
 		assertEquals(duplicate.state, stale.state)
 		assertTrue(stale.commands.isEmpty())
@@ -1321,29 +1555,40 @@ class ReaderResumableTransitionModelTest {
 		val started = fixture.journal.reduce(
 			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
 		)
-		val activeId = requireNotNull(started.state.active).id
+		val admitted = transitionTestApplyRetainedAcknowledgement(started)
+		val activeId = requireNotNull(admitted.state.active).id
 		val owner = transitionTestNativeOwner(activeId, fixture.successor)
 		val keyA = ReaderTransitionResourceKey(
 			activeId,
 			ReaderTransitionResourceKind.Deck,
-			163L
+			requireNotNull(fixture.successor.textureGeneration)
 		)
-		val keyB = keyA.copy(opaqueId = 167L)
-		val frameA = ReaderTransitionFact.PreparedFrame(
+		val keyB = keyA.copy(opaqueId = keyA.opaqueId + 1L)
+		val allocated = admitted.state.reduce(testAllocationFact(activeId, fixture.successor))
+		var state = allocated.state.withTransitionTestNativeTarget(
 			activeId,
 			fixture.successor,
-			owner,
 			keyA
 		)
+		state = state.reduce(ReaderTransitionFact.RasterProven(activeId)).state
+		state = state.reduce(ReaderTransitionFact.DeckOwned(activeId, keyA)).state
+		val deckPrepared = state.reduce(ReaderTransitionFact.DeckPrepared(activeId, keyA))
+		val (awaitingFrame, targetA) = transitionTestApplyTargetPreparation(deckPrepared)
+		val frameA = ReaderTransitionFact.PreparedFrame(
+			activeId,
+			targetA,
+			owner,
+			targetA.resource
+		)
 
-		val retained = started.state.reduce(frameA)
+		val retained = awaitingFrame.reduce(frameA)
 		assertEquals(keyA, retained.state.active?.successorResourceKey)
 		val duplicate = retained.state.reduce(frameA)
 		assertEquals(retained.state, duplicate.state)
 		assertTrue(duplicate.commands.isEmpty())
 
 		val conflicting = retained.state.reduce(
-			ReaderTransitionFact.PreparedFrame(
+			transitionTestPreparedFrame(
 				activeId,
 				fixture.successor,
 				owner,
@@ -1353,8 +1598,8 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(retained.state, conflicting.state)
 		assertEquals(keyA, conflicting.state.active?.successorResourceKey)
 		assertEquals(
-			listOf(ReaderTransitionCommand.ReleaseResource(activeId, keyB)),
-			conflicting.commands
+			listOf(keyB),
+			conflicting.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
 		)
 	}
 
@@ -1382,7 +1627,7 @@ class ReaderResumableTransitionModelTest {
 		cases.forEach { case ->
 			val protected = fixture.journal.reduce(
 				case.create(
-					fixture.predecessorKey.transitionId,
+					requireNotNull(fixture.predecessorKey.owningTransitionIdOrNull),
 					fixture.predecessor,
 					fixture.predecessorKey
 				)
@@ -1392,7 +1637,7 @@ class ReaderResumableTransitionModelTest {
 
 			val rejected = fixture.journal.reduce(
 				case.create(
-					unprotected.transitionId,
+					requireNotNull(unprotected.owningTransitionIdOrNull),
 					fixture.predecessor,
 					unprotected
 				)
@@ -1505,7 +1750,10 @@ class ReaderResumableTransitionModelTest {
 						ReaderTransitionPhaseKind.AwaitingPrerequisites,
 						ReaderPresentationFrameOwner.Neutral
 					)
-				)
+				),
+				committed = transitionTestNeutralCommitted(id),
+				lastTransitionSequence = id.sequence,
+				lastIssuedTransitionIdentity = id.parentIdentity()
 			)
 
 			val rejected = journal.reduce(
@@ -1530,15 +1778,20 @@ class ReaderResumableTransitionModelTest {
 			id = localId,
 			retainedOwner = fixture.retainedOwner,
 			predecessorResourceKey = fixture.predecessorResourceKey,
-			semanticIntent = ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc),
+			semanticIntent = ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Toc,
+					transitionTestSemanticHandle()
+				),
 			resolvedSuccessorBinding = null,
 			gestureId = null,
 			settlementConsumed = false,
 			semanticDestinationCommitted = false
 		)
 		val journal = ReaderTransitionJournal(
+			committed = fixture.journal.committed,
 			retryableTransition = retryable,
-			lastTransitionSequence = localId.sequence
+			lastTransitionSequence = localId.sequence,
+			lastIssuedTransitionIdentity = localId.parentIdentity()
 		)
 		val foreign = fixture.successor.copy(
 			foliateSessionId = "foreign-retryable-only-session",
@@ -1575,7 +1828,7 @@ class ReaderResumableTransitionModelTest {
 		val replaced = populated.reduce(ReaderTransitionFact.PublicationReplaced(null))
 
 		assertNull(replaced.state.active)
-		assertNull(replaced.state.committed)
+		assertTrue(replaced.state.committed === populated.committed)
 		assertNull(replaced.state.retryableTransition)
 		assertEquals(
 			ReaderTransitionCancellationReason.PublicationReplaced,
@@ -1595,11 +1848,14 @@ class ReaderResumableTransitionModelTest {
 	@Test
 	fun publicationReplacementAfterFailedRelocationClearsRetryAndReleasesCommittedShield() {
 		val fixture = journalAwaitingSettlement()
-		val idle = fixture.journal.copy(active = null, lastOutcome = null)
+		val idle = fixture.idleCommittedJournal()
 		val started = idle.reduce(
 			ReaderTransitionFact.Intent(
 				null,
-				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Search)
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Search,
+					transitionTestSemanticHandle()
+				)
 			)
 		)
 		val relocationId = assertNotNull(started.state.active).id
@@ -1609,7 +1865,7 @@ class ReaderResumableTransitionModelTest {
 		val replaced = failed.state.reduce(ReaderTransitionFact.PublicationReplaced(null))
 
 		assertNull(replaced.state.active)
-		assertNull(replaced.state.committed)
+		assertTrue(replaced.state.committed === failed.state.committed)
 		assertNull(replaced.state.retryableTransition)
 		assertEquals(
 			listOf(fixture.predecessorResourceKey),
@@ -1627,13 +1883,13 @@ class ReaderResumableTransitionModelTest {
 		val owner = transitionTestNativeOwner(id, binding)
 		val key = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, owner.proof.textureGeneration)
 		val journal = ReaderTransitionJournal(
-			committed = ReaderCommittedTransition(id, owner, binding, key)
+			committed = ReaderCommittedTransition(id, owner, binding, key, transitionTestRegistration(key))
 		)
 
 		val replaced = journal.reduce(ReaderTransitionFact.PublicationReplaced(null))
 
 		assertNull(replaced.state.active)
-		assertNull(replaced.state.committed)
+		assertTrue(replaced.state.committed === journal.committed)
 		assertEquals(
 			listOf(key),
 			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
@@ -1663,9 +1919,22 @@ class ReaderResumableTransitionModelTest {
 	fun taggedPublicationCloseRequiresExactActiveCloseIdentity() {
 		val fixture = journalAwaitingPublicationClose()
 		val staleIds = listOf(
-			fixture.id.copy(readerSessionGeneration = fixture.id.readerSessionGeneration + 1L),
-			fixture.id.copy(coordinatorEpoch = fixture.id.coordinatorEpoch + 1L),
-			fixture.id.copy(sequence = fixture.id.sequence + 1L)
+			fixture.id.copy(
+				readerSessionGeneration = fixture.id.readerSessionGeneration + 1L,
+				parent = requireNotNull(fixture.id.parent).copy(
+					readerSessionGeneration = fixture.id.readerSessionGeneration + 1L
+				)
+			),
+			fixture.id.copy(
+				coordinatorEpoch = fixture.id.coordinatorEpoch + 1L,
+				parent = requireNotNull(fixture.id.parent).copy(
+					coordinatorEpoch = fixture.id.coordinatorEpoch + 1L
+				)
+			),
+			fixture.id.copy(
+				sequence = fixture.id.sequence + 1L,
+				parent = fixture.id.parentIdentity()
+			)
 		)
 
 		staleIds.forEach { staleId ->
@@ -1687,7 +1956,7 @@ class ReaderResumableTransitionModelTest {
 			ReaderTransitionFact.PublicationClosed(fixture.id)
 		)
 		assertNull(exact.state.active)
-		assertNull(exact.state.committed)
+		assertTrue(exact.state.committed === fixture.journal.committed)
 		assertIs<ReaderTransitionOutcome.Cancelled>(exact.state.lastOutcome)
 	}
 
@@ -1701,13 +1970,13 @@ class ReaderResumableTransitionModelTest {
 		val owner = transitionTestNativeOwner(id, binding)
 		val key = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, owner.proof.textureGeneration)
 		val journal = ReaderTransitionJournal(
-			committed = ReaderCommittedTransition(id, owner, binding, key)
+			committed = ReaderCommittedTransition(id, owner, binding, key, transitionTestRegistration(key))
 		)
 
 		val closed = journal.reduce(ReaderTransitionFact.PublicationClosed(null))
 
 		assertNull(closed.state.active)
-		assertNull(closed.state.committed)
+		assertTrue(closed.state.committed === journal.committed)
 		assertEquals(
 			listOf(key),
 			closed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
@@ -1723,14 +1992,17 @@ class ReaderResumableTransitionModelTest {
 		)
 		val retainedOwner = transitionTestNativeOwner(id, binding)
 		val journal = ReaderTransitionJournal(
-			ReaderActiveTransition(
+			active = ReaderActiveTransition(
 				id,
 				ReaderTransitionLivenessTable.phase(
 					id,
 					ReaderTransitionPhaseKind.AwaitingPrerequisites,
 					retainedOwner
 				)
-			)
+			),
+			committed = transitionTestNeutralCommitted(id),
+			lastTransitionSequence = id.sequence,
+			lastIssuedTransitionIdentity = id.parentIdentity()
 		)
 		val resumeRecord = ReaderTransitionResumeRecord(
 			operation = id.operation,
@@ -1875,13 +2147,1142 @@ class ReaderResumableTransitionModelTest {
 		)
 		assertEquals(ReaderTransitionDeckRole.PageEntry, assertIs<ReaderTransitionCommand.ReserveDeck>(command).role)
 	}
+
+	@Test
+	fun initialJournalRejectsSequenceOrIdentityBeforeAnyAuthenticOperation() {
+		val committed = neutralInitialJournal().committed
+		val fabricatedIdentity = ReaderTransitionParentIdentity(7L, 11L, 1L)
+
+		assertFailsWith<IllegalArgumentException>("Initial journal must reject a positive sequence without identity") {
+			ReaderTransitionJournal(
+				committed = committed,
+				lastTransitionSequence = 1L
+			)
+		}
+		assertFailsWith<IllegalArgumentException>("Initial journal must reject identity at sequence zero") {
+			ReaderTransitionJournal(
+				committed = committed,
+				lastIssuedTransitionIdentity = fabricatedIdentity
+			)
+		}
+	}
+
+	@Test
+	fun transitionedJournalRejectsMissingOrMismatchedLastIssuedIdentity() {
+		val fixture = journalAwaitingSettlement()
+		val committed = requireNotNull(fixture.journal.committed)
+		val committedId = assertIs<ReaderCommittedPresentation.Transition>(committed).committed.id
+
+		assertFailsWith<IllegalArgumentException>("Transitioned journal must reject sequence zero") {
+			ReaderTransitionJournal(committed = committed)
+		}
+		assertFailsWith<IllegalArgumentException>("Transitioned journal must reject mismatched identity") {
+			ReaderTransitionJournal(
+				committed = committed,
+				lastTransitionSequence = committedId.sequence,
+				lastIssuedTransitionIdentity = committedId.copy(
+					sequence = committedId.sequence + 1L
+				).parentIdentity()
+			)
+		}
+	}
+
+	@Test
+	fun adoptedBaselineFirstSuccessorStartsAtOneWithoutParentAndReleasesAfterApplied() {
+		val fixture = legacyAdoptedBaselineFixture()
+		val started = fixture.journal.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
+		)
+		val first = assertNotNull(started.state.active)
+		assertNull(fixture.adoptedResource.key.owningTransitionIdOrNull)
+		assertEquals(1L, first.id.sequence)
+		assertNull(first.id.parent)
+		assertTrue(started.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+
+		val retained = transitionTestApplyRetainedAcknowledgement(started)
+		val allocated = retained.state.reduce(testAllocationFact(first.id, fixture.successor))
+		val successorKey = ReaderTransitionResourceKey(
+			first.id,
+			ReaderTransitionResourceKind.Deck,
+			requireNotNull(fixture.successor.textureGeneration)
+		)
+		var state = allocated.state.withTransitionTestNativeTarget(
+			first.id,
+			fixture.successor,
+			successorKey
+		)
+		state = state.reduce(ReaderTransitionFact.RasterProven(first.id)).state
+		state = state.reduce(ReaderTransitionFact.DeckOwned(first.id, successorKey)).state
+		val preparedDeck = state.reduce(ReaderTransitionFact.DeckPrepared(first.id, successorKey))
+		val (awaitingFrame, target) = transitionTestApplyTargetPreparation(preparedDeck)
+		val committing = awaitingFrame.reduce(
+			ReaderTransitionFact.PreparedFrame(
+				first.id,
+				target,
+				transitionTestNativeOwner(first.id, fixture.successor),
+				target.resource
+			)
+		)
+		assertTrue(committing.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+
+		val applied = transitionTestApplySuccessorAcknowledgement(committing)
+		val release = applied.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().single()
+		assertTrue(release.key == fixture.adoptedResource.key, "Adopted release key mismatch")
+		assertNull(release.issuerTransitionId)
+	}
+
+	@Test
+	fun neutralBaselineBootstrapUsesFoliateBindingAndExistingOperation() {
+		val binding = transitionTestBinding(commitSequence = 2L)
+		val intent = ReaderBootstrapNativePageIntent(transitionTestSemanticHandle())
+		val admitted = neutralInitialJournal().reduce(
+			ReaderTransitionFact.Intent(null, intent)
+		)
+		val active = assertNotNull(admitted.state.active)
+		assertEquals(ReaderTransitionOperation.BootstrapNativePage, active.id.operation)
+		assertEquals(1L, active.id.sequence)
+		assertNull(active.id.parent)
+		assertIs<ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial>(active.id.expectedBinding)
+		val semanticCommand = assertIs<ReaderTransitionCommand.RequestSemanticSynchronization>(
+			admitted.commands.single()
+		)
+		assertTrue(semanticCommand.transitionId == active.id, "Bootstrap transition identity mismatch")
+		assertEquals(intent.requestHandle.value, semanticCommand.requestHandle.value)
+
+		val resolved = admitted.state.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(active.id, binding)
+		)
+		assertTrue(resolved.state.committed === admitted.state.committed)
+		assertTrue(
+			assertNotNull(resolved.state.active).resolvedSuccessorBinding == binding,
+			"Resolved bootstrap binding mismatch"
+		)
+		val allocation = assertIs<ReaderTransitionCommand.AllocateMaterialBinding>(resolved.commands.single())
+		assertTrue(allocation.transitionId == active.id, "Allocation transition identity mismatch")
+		assertTrue(allocation.binding == binding.withoutTestMaterial(), "Allocation binding mismatch")
+	}
+
+	@Test
+	fun initialOriginCannotFabricateOperationOrParent() {
+		val fixture = legacyAdoptedBaselineFixture()
+		val started = fixture.journal.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Toc,
+					transitionTestSemanticHandle()
+				)
+			)
+		)
+
+		val first = assertNotNull(started.state.active)
+		assertEquals(1L, first.id.sequence)
+		assertNull(first.id.parent)
+		assertEquals(11, ReaderTransitionOperation.entries.size)
+		assertEquals("ReaderCommittedPresentation.Initial(<redacted>)", fixture.baseline.toString())
+		assertEquals(
+			"ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor(<redacted>)",
+			fixture.baseline.origin.toString()
+		)
+	}
+
+	@Test
+	fun transitionSequenceIsMonotonicAcrossAbortRetryAndRestore() {
+		val fixture = legacyAdoptedBaselineFixture()
+		val started = fixture.journal.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Search,
+					transitionTestSemanticHandle()
+				)
+			)
+		)
+		val first = assertNotNull(started.state.active)
+		val failed = started.state.reduce(ReaderTransitionFact.DeadlineExpired(first.id))
+		val retried = failed.state.reduce(ReaderTransitionFact.Retry(first.id))
+		val second = assertNotNull(retried.state.active)
+		val aborted = retried.state.reduce(ReaderTransitionFact.Intent(second.id, ReaderCancelIntent))
+		val restored = aborted.state.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
+		)
+		val third = assertNotNull(restored.state.active)
+
+		assertEquals(listOf(1L, 2L, 3L), listOf(first.id.sequence, second.id.sequence, third.id.sequence))
+		assertNull(first.id.parent)
+		assertTrue(second.id.parent == first.id.parentIdentity(), "Retry parent mismatch")
+		assertTrue(third.id.parent == second.id.parentIdentity(), "Restoration parent mismatch")
+	}
+
+	@Test
+	fun retryAndRestorationPreserveTruthfulInitialBaseline() {
+		val fixture = legacyAdoptedBaselineFixture()
+		val started = fixture.journal.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Bookmark,
+					transitionTestSemanticHandle()
+				)
+			)
+		)
+		val first = assertNotNull(started.state.active)
+		val failed = started.state.reduce(ReaderTransitionFact.DeadlineExpired(first.id))
+		val retried = failed.state.reduce(ReaderTransitionFact.Retry(first.id))
+
+		assertTrue(failed.state.committed === fixture.baseline)
+		assertTrue(retried.state.committed === fixture.baseline)
+		assertTrue((retried.state.active?.ownedResourceKeys).orEmpty().isEmpty())
+		val restored = retried.state.reduce(ReaderTransitionFact.VisibilityChanged(null, visible = true))
+		assertTrue(restored.state.committed === fixture.baseline)
+		assertTrue(restored.commands.isEmpty())
+
+		val neutral = neutralInitialJournal()
+		val neutralIntent = ReaderBootstrapNativePageIntent(transitionTestSemanticHandle(433L))
+		val neutralStarted = neutral.reduce(ReaderTransitionFact.Intent(null, neutralIntent))
+		val neutralFirst = assertNotNull(neutralStarted.state.active)
+		val neutralFailed = neutralStarted.state.reduce(
+			ReaderTransitionFact.DeadlineExpired(neutralFirst.id)
+		)
+		val neutralRetried = neutralFailed.state.reduce(ReaderTransitionFact.Retry(neutralFirst.id))
+		val neutralSecond = assertNotNull(neutralRetried.state.active)
+		assertTrue(neutralFailed.state.committed === neutral.committed)
+		assertTrue(neutralRetried.state.committed === neutral.committed)
+		assertEquals(2L, neutralSecond.id.sequence)
+		assertEquals(
+			2L,
+			assertIs<ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial>(
+				neutralSecond.id.expectedBinding
+			).requestSequence
+		)
+		assertEquals(neutralFirst.id.parentIdentity(), neutralSecond.id.parent)
+	}
+
+	@Test
+	fun initialLeaseCannotCarryClaimedGestureOrTransitionId() {
+		val fixture = legacyAdoptedBaselineFixture()
+		val origin = assertIs<ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor>(
+			fixture.baseline.origin
+		)
+		val requestedLease: Any = origin.requestedLease
+		val physicalLease: Any = origin.physicalLease
+		assertFalse(requestedLease is ReaderTransitionInputLease.ClaimedGesture)
+		assertFalse(physicalLease is ReaderTransitionInputLease.ClaimedGesture)
+
+		val started = fixture.journal.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderPageTurnIntent(
+					ReaderPageTurnDirection.Next,
+					ReaderTransitionGestureId(401L),
+					transitionTestSemanticHandle()
+				)
+			)
+		)
+		assertEquals(1L, assertNotNull(started.state.active).id.sequence)
+	}
+
+	@Test
+	fun initialNativePageLeaseAllowsTextureGenerationZero() {
+		val binding = transitionTestBinding(textureGeneration = 0L)
+		val fixtureOnlyOwnerId = transitionTestId(
+			ReaderTransitionOperation.BootstrapNativePage,
+			ReaderExpectedPresentationBinding.Exact(binding)
+		)
+		val owner = transitionTestNativeOwner(fixtureOnlyOwnerId, binding)
+		val seedId = ReaderAdoptedPredecessorSeedId.fromValidatedImport(409L)
+		val resource = ReaderTransitionResourceRegistration(
+			ReaderTransitionResourceKey(
+				ReaderTransitionResourceOwnerId.AdoptedPredecessor(seedId),
+				ReaderTransitionResourceKind.Deck,
+				419L
+			),
+			ReaderResourceRetirementOrder(7L, 11L, 421L)
+		)
+		val lease = ReaderInitialPresentationInputLease.NativePage(binding, textureGeneration = 0L)
+		val origin = ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor(
+			seedId = seedId,
+			readerSessionGeneration = 7L,
+			coordinatorEpoch = 11L,
+			owner = owner,
+			binding = binding,
+			resource = resource,
+			requestedLease = lease,
+			physicalLease = lease
+		)
+		assertEquals(0L, assertIs<ReaderInitialPresentationInputLease.NativePage>(origin.physicalLease).textureGeneration)
+	}
+
+	@Test
+	fun publicationReplacementFromAdoptedBaselineClosesAndReleasesOnce() {
+		val fixture = legacyAdoptedBaselineFixture()
+		val replaced = fixture.journal.reduce(ReaderTransitionFact.PublicationReplaced(null))
+
+		assertTrue(replaced.state.committed.retainedResourceKeyForTest() == fixture.adoptedResource.key, "Adopted resource mismatch")
+		val release = replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().single()
+		assertTrue(release.key == fixture.adoptedResource.key, "Adopted release key mismatch")
+		assertNull(release.issuerTransitionId)
+		val duplicate = replaced.state.reduce(ReaderTransitionFact.PublicationReplaced(null))
+		assertTrue(duplicate.commands.isEmpty())
+	}
+
+	@Test
+	fun publicationReplacementFromNeutralBaselineClosesWithoutBaselineRelease() {
+		val baseline = neutralInitialJournal()
+		val replaced = baseline.reduce(ReaderTransitionFact.PublicationReplaced(null))
+
+		assertTrue(replaced.state.committed === baseline.committed)
+		assertIs<ReaderTransitionOutcome.Cancelled>(replaced.state.lastOutcome)
+		assertEquals(0L, replaced.state.lastTransitionSequence)
+		assertNull(replaced.state.lastIssuedTransitionIdentity)
+		assertTrue(replaced.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		val rejectedWork = replaced.state.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderBootstrapNativePageIntent(transitionTestSemanticHandle(443L))
+			)
+		)
+		assertTrue(rejectedWork.state === replaced.state)
+		assertTrue(rejectedWork.commands.isEmpty())
+	}
+
+	@Test
+	fun closeFromAdoptedBaselineReleasesOnceWithoutTransitionBorrowing() {
+		val fixture = legacyAdoptedBaselineFixture()
+		val closed = fixture.journal.reduce(ReaderTransitionFact.PublicationClosed(null))
+
+		assertTrue(closed.state.committed === fixture.baseline)
+		assertNull(fixture.adoptedResource.key.owningTransitionIdOrNull)
+		assertEquals(1L, closed.state.lastTransitionSequence)
+		assertEquals(1L, closed.state.lastIssuedTransitionIdentity?.sequence)
+		val release = closed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().single()
+		assertTrue(release.key === fixture.adoptedResource.key)
+		assertNull(release.issuerTransitionId)
+		assertTrue(closed.state.reduce(ReaderTransitionFact.PublicationClosed(null)).commands.isEmpty())
+	}
+
+	@Test
+	fun closeFromNeutralBaselineEntersReleaseOnlyWithoutResourceCommand() {
+		val baseline = neutralInitialJournal()
+		val closed = baseline.reduce(ReaderTransitionFact.PublicationClosed(null))
+
+		assertIs<ReaderTransitionOutcome.Cancelled>(closed.state.lastOutcome)
+		assertTrue(closed.state.committed === baseline.committed)
+		assertEquals(1L, closed.state.lastTransitionSequence)
+		assertEquals(1L, closed.state.lastIssuedTransitionIdentity?.sequence)
+		assertTrue(closed.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		val duplicate = closed.state.reduce(ReaderTransitionFact.PublicationClosed(null))
+		assertTrue(duplicate.commands.isEmpty())
+		val rejectedWork = closed.state.reduce(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderBootstrapNativePageIntent(transitionTestSemanticHandle(449L))
+			)
+		)
+		assertTrue(rejectedWork.state === closed.state)
+		assertTrue(rejectedWork.commands.isEmpty())
+	}
+
+	@Test
+	fun unsolicitedRelocationFromAdoptedBaselineRetainsThenReleasesExactlyOnce() {
+		val fixture = legacyAdoptedBaselineFixture()
+		val started = fixture.journal.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
+		)
+		val first = assertNotNull(started.state.active)
+		assertEquals(ReaderTransitionOperation.ExternalSemanticRelocation, first.id.operation)
+		assertEquals(1L, first.id.sequence)
+		assertNull(first.id.parent)
+		assertIs<ReaderTransitionCommand.PublishRetainedOwnerAndInputLease>(started.commands.single())
+		assertTrue(started.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+
+		val flow = completeInitialRelocationFlow(started, fixture.successor)
+		assertTrue(flow.committing.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		val releases = flow.applied.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+		assertEquals(1, releases.size)
+		assertTrue(releases.single().key == fixture.adoptedResource.key, "Adopted resource release mismatch")
+		assertNull(releases.single().issuerTransitionId)
+		val duplicate = flow.applied.state.reduce(flow.appliedFact)
+		assertTrue(duplicate.commands.isEmpty())
+	}
+
+	@Test
+	fun unsolicitedRelocationFromNeutralBaselineNeedsNoRetainedPublication() {
+		val baseline = neutralInitialJournal()
+		val binding = transitionTestBinding(commitSequence = 2L, rasterGeneration = 23L, textureGeneration = 29L)
+		val started = baseline.reduce(ReaderTransitionFact.FoliateDestinationCommitted(null, binding))
+		val first = assertNotNull(started.state.active)
+
+		assertEquals(ReaderTransitionOperation.ExternalSemanticRelocation, first.id.operation)
+		assertEquals(1L, first.id.sequence)
+		assertNull(first.id.parent)
+		assertTrue(started.commands.none {
+			it is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease ||
+				it is ReaderTransitionCommand.ReleaseResource
+		})
+		assertIs<ReaderTransitionCommand.AllocateMaterialBinding>(started.commands.single())
+		val flow = completeInitialRelocationFlow(started, binding)
+		assertTrue(flow.applied.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		assertIs<ReaderCommittedPresentation.Transition>(flow.applied.state.committed)
+	}
+
+	@Test
+	fun adoptedBaselineReleaseWaitsForSuccessorPublicationAcknowledgement() {
+		val fixture = legacyAdoptedBaselineFixture()
+		fun started() = fixture.journal.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
+		)
+		fun assertBaselineNotReleased(reduction: ReaderTransitionReduction) {
+			assertTrue(
+				reduction.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+					.none { it.key == fixture.adoptedResource.key },
+				"Adopted baseline released before exact successor acknowledgement"
+			)
+		}
+
+		val timedOutStart = started()
+		val timedOutId = assertNotNull(timedOutStart.state.active).id
+		val timedOut = timedOutStart.state.reduce(ReaderTransitionFact.DeadlineExpired(timedOutId))
+		assertBaselineNotReleased(timedOut)
+		val retried = timedOut.state.reduce(ReaderTransitionFact.Retry(timedOutId))
+		assertBaselineNotReleased(retried)
+		val abortedStart = started()
+		val abortedId = assertNotNull(abortedStart.state.active).id
+		assertBaselineNotReleased(
+			abortedStart.state.reduce(ReaderTransitionFact.Intent(abortedId, ReaderCancelIntent))
+		)
+
+		val flow = completeInitialRelocationFlow(started(), fixture.successor, applySuccessor = false)
+		assertBaselineNotReleased(flow.committing)
+		val command = assertIs<ReaderTransitionCommand.CommitOwnerAndInputLease>(flow.committing.commands.single())
+		val stale = flow.committing.state.reduce(
+			ReaderTransitionFact.OwnerAndInputPublicationApplied(
+				command.transitionId,
+				ReaderOwnerAndInputPublicationSubject.Successor(
+					command.targetHandle,
+					command.preparedFrameResource
+				),
+				command.owner,
+				command.binding,
+				command.requestedLease,
+				ReaderOwnerAndInputPublicationIdentity(command.publicationIdentity.value + 1L)
+			)
+		)
+		assertBaselineNotReleased(stale)
+		val raster = ReaderTransitionResourceKey(
+			command.transitionId,
+			ReaderTransitionResourceKind.Raster,
+			701L
+		)
+		val deck = ReaderTransitionResourceKey(
+			command.transitionId,
+			ReaderTransitionResourceKind.Deck,
+			709L
+		)
+		val callback = ReaderTransitionResourceKey(
+			command.transitionId,
+			ReaderTransitionResourceKind.CallbackRegistration,
+			719L
+		)
+		val registered = listOf(raster, deck, callback).fold(flow.committing.state) { state, key ->
+			state.reduce(ReaderTransitionFact.ResourceObserved(command.transitionId, key)).state
+		}
+		val rejected = registered.reduce(
+			ReaderTransitionFact.OwnerAndInputPublicationRejected(
+				command.transitionId,
+				ReaderOwnerAndInputPublicationSubject.Successor(
+					command.targetHandle,
+					command.preparedFrameResource
+				),
+				command.publicationIdentity,
+				ReaderTransitionFailureReason.AtomicPublicationRejected
+			)
+		)
+		assertBaselineNotReleased(rejected)
+		assertEquals(1, rejected.commands.filterIsInstance<ReaderTransitionCommand.CancelOwnedWork>().size)
+		val released = rejected.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+			.map { it.key }
+		assertEquals(setOf(raster, deck, callback, flow.successorKey), released.toSet())
+		assertEquals(released.size, released.distinct().size, "Rejected resources released more than once")
+	}
+
+	@Test
+	fun initialOriginEqualityDiagnosticsExposeOnlyBoundedCategories() {
+		val adopted = legacyAdoptedBaselineFixture().baseline.origin
+		val neutral = assertIs<ReaderCommittedPresentation.Initial>(neutralInitialJournal().committed).origin
+		val variant = assertNotNull(adopted.equalityDiagnostic(neutral))
+		assertEquals(ReaderInitialOriginKind.AdoptedPredecessor, variant.originKind)
+		assertEquals(ReaderInitialOriginOwnerKind.NativePage, variant.ownerKind)
+		assertEquals(ReaderTransitionResourceKind.Deck, variant.resourceKind)
+		assertEquals(ReaderInitialOriginMismatchKind.Variant, variant.mismatch)
+
+		val changedSession = ReaderInitialCommittedPresentationOrigin.Neutral(
+			readerSessionGeneration = neutral.readerSessionGeneration + 1L,
+			coordinatorEpoch = neutral.coordinatorEpoch,
+			requestedLease = neutral.requestedLease,
+			physicalLease = neutral.physicalLease
+		)
+		val session = assertNotNull(neutral.equalityDiagnostic(changedSession))
+		assertEquals(ReaderInitialOriginKind.Neutral, session.originKind)
+		assertNull(session.ownerKind)
+		assertNull(session.resourceKind)
+		assertEquals(ReaderInitialOriginMismatchKind.Session, session.mismatch)
+		assertNull(neutral.equalityDiagnostic(neutral))
+	}
+
+	@Test
+	fun adoptedInitialOriginDiagnosticsCoverEveryRegistrationField() {
+		val origin = assertIs<ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor>(
+			legacyAdoptedBaselineFixture().baseline.origin
+		)
+		val changedOpaqueIdentity = origin.copy(
+			resource = origin.resource.copy(
+				key = origin.resource.key.copy(opaqueId = origin.resource.key.opaqueId + 1L)
+			)
+		)
+		val changedRetirementSequence = origin.copy(
+			resource = origin.resource.copy(
+				retirementOrder = origin.resource.retirementOrder.copy(
+					sequence = origin.resource.retirementOrder.sequence + 1L
+				)
+			)
+		)
+
+		val opaqueDiagnostic = assertNotNull(origin.equalityDiagnostic(changedOpaqueIdentity))
+		assertTrue(
+			opaqueDiagnostic.mismatch in ReaderInitialOriginMismatchKind.entries,
+			"Opaque resource identity mismatch must produce a bounded diagnostic"
+		)
+		val retirementDiagnostic = assertNotNull(origin.equalityDiagnostic(changedRetirementSequence))
+		assertTrue(
+			retirementDiagnostic.mismatch in ReaderInitialOriginMismatchKind.entries,
+			"Retirement sequence mismatch must produce a bounded diagnostic"
+		)
+	}
+
+	@Test
+	fun adoptedReleaseCommandsExposeSessionAuthorityWithoutTransitionCast() {
+		val fixture = legacyAdoptedBaselineFixture()
+		val directRelease = ReaderTransitionCommand.ReleaseResource(fixture.adoptedResource)
+		assertNull(directRelease.transitionId, "Adopted release must not fabricate transition authority")
+
+		val started = fixture.journal.reduce(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
+		)
+		val successorRelease = completeInitialRelocationFlow(started, fixture.successor).applied.commands
+			.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+			.single { it.key == fixture.adoptedResource.key }
+		assertNull(successorRelease.transitionId, "Successor release must retain session authority")
+
+		val closeRelease = fixture.journal.reduce(ReaderTransitionFact.PublicationClosed(null)).commands
+			.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+			.single()
+		assertNull(closeRelease.transitionId, "Close release must retain session authority")
+	}
+
+	@Test
+	fun sensitiveInitialWrappersRenderOnlyRedactedConstants() {
+		val first = legacyAdoptedBaselineFixture()
+		val second = legacyAdoptedBaselineFixture(seedValue = 509L, opaqueResourceId = 521L)
+		val origin = assertIs<ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor>(first.baseline.origin)
+		val release = ReaderTransitionCommand.ReleaseResource(first.adoptedResource)
+		val exact = ReaderExpectedPresentationBinding.Exact(origin.binding)
+		val otherExact = ReaderExpectedPresentationBinding.Exact(
+			origin.binding.copy(
+				destinationCommitIdentity = ReaderDestinationCommitIdentity(
+					origin.binding.foliateSessionId,
+					17L
+				)
+			)
+		)
+
+		assertEquals("ReaderAdoptedPredecessorSeedId(<redacted>)", origin.seedId.toString())
+		assertEquals("ReaderTransitionResourceOwnerId.AdoptedPredecessor(<redacted>)", origin.resource.key.ownerId.toString())
+		assertEquals("ReaderTransitionResourceKey(<redacted>)", origin.resource.key.toString())
+		assertEquals("ReaderTransitionResourceRegistration(<redacted>)", origin.resource.toString())
+		assertEquals("ReaderInitialPresentationInputLease.NativePage(<redacted>)", origin.requestedLease.toString())
+		assertEquals("ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor(<redacted>)", origin.toString())
+		assertEquals("ReaderCommittedPresentation.Initial(<redacted>)", first.baseline.toString())
+		assertEquals("ReaderTransitionJournal(<redacted>)", first.journal.toString())
+		assertEquals("ReaderExpectedPresentationBinding.Exact(<redacted>)", exact.toString())
+		assertEquals("ReaderTransitionCommand.ReleaseResource(<redacted>)", release.toString())
+		assertEquals(first.baseline.hashCode(), second.baseline.hashCode())
+		assertEquals(first.journal.hashCode(), second.journal.hashCode())
+		assertEquals(first.adoptedResource.key.hashCode(), second.adoptedResource.key.hashCode())
+		assertEquals(origin.requestedLease.hashCode(),
+			assertIs<ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor>(second.baseline.origin)
+				.requestedLease.hashCode())
+		assertEquals(exact.hashCode(), otherExact.hashCode())
+		assertEquals(release.hashCode(), ReaderTransitionCommand.ReleaseResource(second.adoptedResource).hashCode())
+	}
+
+	@Test
+	fun sensitiveInitialEqualityFailureUsesSanitizedProjection() {
+		val adopted = legacyAdoptedBaselineFixture().baseline.origin
+		val neutral = assertIs<ReaderCommittedPresentation.Initial>(neutralInitialJournal().committed).origin
+		val expected = assertNotNull(adopted.equalityDiagnostic(neutral))
+		val actual = ReaderInitialOriginEqualityDiagnostic(
+			ReaderInitialOriginKind.AdoptedPredecessor,
+			ReaderInitialOriginOwnerKind.NativePage,
+			ReaderTransitionResourceKind.Deck,
+			ReaderInitialOriginMismatchKind.Binding
+		)
+		val failure = assertFailsWith<AssertionError> {
+			assertEquals(expected, actual, "Initial origin category mismatch")
+		}
+		val message = failure.message.orEmpty()
+		assertTrue(message.contains("Initial origin category mismatch"))
+		assertFalse(message.contains("synthetic-session"))
+		assertFalse(message.contains("307"))
+		assertFalse(message.contains("311"))
+		assertFalse(message.contains("ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor(<redacted>)"))
+	}
+
+	@Test
+	fun mismatchedRequestedLeaseRejectedForShellAdoption() {
+		val binding = transitionTestBinding()
+		val id = transitionTestId(ReaderTransitionOperation.ShellCoverCommit,
+			ReaderExpectedPresentationBinding.Exact(binding))
+		assertMismatchedRequestedLeaseRejected(
+			transitionTestCoverOwner(id, binding),
+			binding,
+			ReaderTransitionResourceKind.FrameHandoff,
+			ReaderInitialPresentationInputLease.NativePage(binding, requireNotNull(binding.textureGeneration))
+		)
+	}
+
+	@Test
+	fun mismatchedRequestedLeaseRejectedForNativeAdoption() {
+		val binding = transitionTestBinding()
+		val id = transitionTestId(ReaderTransitionOperation.BootstrapNativePage,
+			ReaderExpectedPresentationBinding.Exact(binding))
+		assertMismatchedRequestedLeaseRejected(
+			transitionTestNativeOwner(id, binding),
+			binding,
+			ReaderTransitionResourceKind.Deck,
+			ReaderInitialPresentationInputLease.CoverActions
+		)
+	}
+
+	@Test
+	fun mismatchedRequestedLeaseRejectedForCurlAdoption() {
+		val fixture = journalAwaitingSettlement()
+		assertMismatchedRequestedLeaseRejected(
+			fixture.retainedOwner,
+			fixture.predecessor,
+			ReaderTransitionResourceKind.Deck,
+			ReaderInitialPresentationInputLease.CoverActions
+		)
+	}
+
+	@Test
+	fun mismatchedRequestedLeaseRejectedForLiveAdoption() {
+		val binding = transitionTestBinding()
+		val id = transitionTestId(ReaderTransitionOperation.NativeToLiveHandoff,
+			ReaderExpectedPresentationBinding.Exact(binding))
+		assertMismatchedRequestedLeaseRejected(
+			transitionTestLiveOwner(id, binding),
+			binding,
+			ReaderTransitionResourceKind.FrameHandoff,
+			ReaderInitialPresentationInputLease.CoverActions
+		)
+	}
 }
+
+private data class InitialRelocationFlow(
+	val committing: ReaderTransitionReduction,
+	val applied: ReaderTransitionReduction,
+	val appliedFact: ReaderTransitionFact.OwnerAndInputPublicationApplied,
+	val successorKey: ReaderTransitionResourceKey
+)
+
+private fun completeInitialRelocationFlow(
+	started: ReaderTransitionReduction,
+	successor: ReaderPresentationBinding,
+	applySuccessor: Boolean = true
+): InitialRelocationFlow {
+	val admitted = if (started.commands.any {
+		it is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease
+	}) {
+		transitionTestApplyRetainedAcknowledgement(started)
+	} else {
+		started
+	}
+	val id = requireNotNull(admitted.state.active).id
+	val allocated = admitted.state.reduce(testAllocationFact(id, successor))
+	val successorKey = ReaderTransitionResourceKey(
+		id,
+		ReaderTransitionResourceKind.Deck,
+		requireNotNull(successor.textureGeneration)
+	)
+	var state = allocated.state.withTransitionTestNativeTarget(id, successor, successorKey)
+	state = state.reduce(ReaderTransitionFact.RasterProven(id)).state
+	state = state.reduce(ReaderTransitionFact.DeckOwned(id, successorKey)).state
+	val preparedDeck = state.reduce(ReaderTransitionFact.DeckPrepared(id, successorKey))
+	val (awaitingFrame, target) = transitionTestApplyTargetPreparation(preparedDeck)
+	val committing = awaitingFrame.reduce(
+		ReaderTransitionFact.PreparedFrame(
+			id,
+			target,
+			transitionTestNativeOwner(id, successor),
+			target.resource
+		)
+	)
+	val command = assertIs<ReaderTransitionCommand.CommitOwnerAndInputLease>(committing.commands.single())
+	val appliedFact = ReaderTransitionFact.OwnerAndInputPublicationApplied(
+		command.transitionId,
+		ReaderOwnerAndInputPublicationSubject.Successor(
+			command.targetHandle,
+			command.preparedFrameResource
+		),
+		command.owner,
+		command.binding,
+		command.requestedLease,
+		command.publicationIdentity
+	)
+	return InitialRelocationFlow(
+		committing = committing,
+		applied = if (applySuccessor) committing.state.reduce(appliedFact) else committing,
+		appliedFact = appliedFact,
+		successorKey = successorKey
+	)
+}
+
+private fun assertMismatchedRequestedLeaseRejected(
+	owner: ReaderPresentationFrameOwner,
+	binding: ReaderPresentationBinding,
+	resourceKind: ReaderTransitionResourceKind,
+	requestedLease: ReaderInitialPresentationInputLease
+) {
+	val seed = ReaderAdoptedPredecessorSeedId.fromValidatedImport(601L)
+	val resource = ReaderTransitionResourceRegistration(
+		ReaderTransitionResourceKey(
+			ReaderTransitionResourceOwnerId.AdoptedPredecessor(seed),
+			resourceKind,
+			607L
+		),
+		ReaderResourceRetirementOrder(7L, 11L, 613L)
+	)
+	assertFailsWith<IllegalArgumentException>("Owner-incompatible requested lease must be rejected") {
+		ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor(
+			seedId = seed,
+			readerSessionGeneration = 7L,
+			coordinatorEpoch = 11L,
+			owner = owner,
+			binding = binding,
+			resource = resource,
+			requestedLease = requestedLease,
+			physicalLease = ReaderInitialPresentationInputLease.None
+		)
+	}
+}
+
+private fun transitionTestNeutralCommitted(id: ReaderTransitionId): ReaderCommittedPresentation.Initial =
+	ReaderCommittedPresentation.Initial(
+		ReaderInitialCommittedPresentationOrigin.Neutral(
+			readerSessionGeneration = id.readerSessionGeneration,
+			coordinatorEpoch = id.coordinatorEpoch,
+			requestedLease = ReaderInitialPresentationInputLease.ChromeOnly,
+			physicalLease = ReaderInitialPresentationInputLease.None
+		)
+	)
+
+private fun ReaderCommittedPresentation.retainedOwnerForTest(): ReaderPresentationFrameOwner? = when (this) {
+	is ReaderCommittedPresentation.Initial -> when (val initial = origin) {
+		is ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor -> initial.owner
+		is ReaderInitialCommittedPresentationOrigin.Neutral -> null
+	}
+	is ReaderCommittedPresentation.Transition -> committed.owner
+}
+
+private fun ReaderCommittedPresentation.retainedResourceKeyForTest(): ReaderTransitionResourceKey? = when (this) {
+	is ReaderCommittedPresentation.Initial -> when (val initial = origin) {
+		is ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor -> initial.resource.key
+		is ReaderInitialCommittedPresentationOrigin.Neutral -> null
+	}
+	is ReaderCommittedPresentation.Transition -> committed.resourceKey
+}
+
+private data class LegacyAdoptedBaselineFixture(
+	val journal: ReaderTransitionJournal,
+	val baseline: ReaderCommittedPresentation.Initial,
+	val successor: ReaderPresentationBinding,
+	val adoptedResource: ReaderTransitionResourceRegistration
+)
+
+private fun legacyAdoptedBaselineFixture(
+	seedValue: Long = 307L,
+	opaqueResourceId: Long = 311L
+): LegacyAdoptedBaselineFixture {
+	val binding = transitionTestBinding(commitSequence = 1L)
+	val owner = ReaderPresentationFrameOwner.NativePage(
+		ReaderNativePagePresentationProof(
+			binding = binding,
+			transitionToken = null,
+			presentedFrame = 47L,
+			viewportWidth = 1200,
+			viewportHeight = 800,
+			rasterGeneration = requireNotNull(binding.rasterGeneration),
+			textureGeneration = requireNotNull(binding.textureGeneration)
+		)
+	)
+	val seedId = ReaderAdoptedPredecessorSeedId.fromValidatedImport(seedValue)
+	val key = ReaderTransitionResourceKey(
+		ReaderTransitionResourceOwnerId.AdoptedPredecessor(seedId),
+		ReaderTransitionResourceKind.Deck,
+		opaqueResourceId
+	)
+	val resource = ReaderTransitionResourceRegistration(
+		key,
+		ReaderResourceRetirementOrder(7L, 11L, 313L)
+	)
+	val lease = ReaderInitialPresentationInputLease.NativePage(
+		binding,
+		owner.proof.textureGeneration
+	)
+	val baseline = ReaderCommittedPresentation.Initial(
+		ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor(
+			seedId = seedId,
+			readerSessionGeneration = 7L,
+			coordinatorEpoch = 11L,
+			owner = owner,
+			binding = binding,
+			resource = resource,
+			requestedLease = lease,
+			physicalLease = lease
+		)
+	)
+	return LegacyAdoptedBaselineFixture(
+		journal = ReaderTransitionJournal(committed = baseline),
+		baseline = baseline,
+		successor = transitionTestBinding(
+			commitSequence = 2L,
+			rasterGeneration = 23L,
+			textureGeneration = 29L
+		),
+		adoptedResource = resource
+	)
+}
+
+private fun neutralInitialJournal(): ReaderTransitionJournal = ReaderTransitionJournal(
+	committed = ReaderCommittedPresentation.Initial(
+		ReaderInitialCommittedPresentationOrigin.Neutral(
+			readerSessionGeneration = 7L,
+			coordinatorEpoch = 11L,
+			requestedLease = ReaderInitialPresentationInputLease.ChromeOnly,
+			physicalLease = ReaderInitialPresentationInputLease.None
+		)
+	)
+)
 
 private enum class RelocationProof {
 	Raster,
 	DeckOwned,
 	DeckPrepared,
 	Frame
+}
+
+private fun transitionTestSemanticHandle(value: Long = 1L) = ReaderSemanticRequestHandle(value)
+
+private fun transitionTestRegistration(
+	key: ReaderTransitionResourceKey,
+	sequence: Long = key.opaqueId
+): ReaderTransitionResourceRegistration {
+	val id = requireNotNull(key.owningTransitionIdOrNull)
+	return ReaderTransitionResourceRegistration(
+		key,
+		ReaderResourceRetirementOrder(id.readerSessionGeneration, id.coordinatorEpoch, sequence)
+	)
+}
+
+private fun ReaderTransitionJournal.withTransitionTestNativeTarget(
+	id: ReaderTransitionId,
+	binding: ReaderPresentationBinding,
+	key: ReaderTransitionResourceKey
+): ReaderTransitionJournal {
+	val current = requireNotNull(active)
+	val allocation = requireNotNull(current.materialAllocation)
+	val registration = ReaderTransitionResourceRegistration(
+		key,
+		ReaderResourceRetirementOrder(id.readerSessionGeneration, id.coordinatorEpoch, key.opaqueId)
+	)
+	val specification = ReaderTransitionFrameTargetSpecification.NativePage(
+		id,
+		id.readerSessionGeneration,
+		binding.publicationGeneration,
+		binding,
+		allocation,
+		ReaderNativePageHostTokenState.Present(ReaderNativePageHostToken(id.sequence)),
+		ReaderPlayLikeCurlDeckTargetIdentity(
+			1L,
+			requireNotNull(binding.textureGeneration),
+			when (id.operation) {
+				ReaderTransitionOperation.CoverToPageEntry -> ReaderTransitionDeckRole.PageEntry
+				ReaderTransitionOperation.ReflowProfileReplacement -> ReaderTransitionDeckRole.Reflow
+				ReaderTransitionOperation.RendererRecovery -> ReaderTransitionDeckRole.Recovery
+				else -> ReaderTransitionDeckRole.Initial
+			}
+		),
+		ReaderTransitionFrameGeometry(
+			binding.viewportGeneration,
+			binding.profileGeneration,
+			0,
+			0,
+			1200,
+			800
+		),
+		1L
+	)
+	return copy(
+		active = current.copy(
+			pendingFrameTargetSpecification = specification,
+			pendingFrameTargetRegistration = registration
+		)
+	)
+}
+
+private fun transitionTestPreparedTarget(
+	command: ReaderTransitionCommand.PrepareFrameTarget
+): ReaderTransitionFrameTarget {
+	val handle = ReaderTransitionFrameTargetHandle(
+		command.transitionId.readerSessionGeneration,
+		command.specification.publicationGeneration,
+		command.registration.key.opaqueId
+	)
+	return when (val specification = command.specification) {
+		is ReaderTransitionFrameTargetSpecification.ShellCover ->
+			ReaderTransitionFrameTarget.ShellCover(handle, specification, command.registration)
+		is ReaderTransitionFrameTargetSpecification.NativePage ->
+			ReaderTransitionFrameTarget.NativePage(handle, specification, command.registration)
+		is ReaderTransitionFrameTargetSpecification.CurlSettlementTerminalFrame ->
+			ReaderTransitionFrameTarget.CurlSettlementTerminalFrame(
+				handle,
+				specification,
+				command.registration
+			)
+		is ReaderTransitionFrameTargetSpecification.LiveWebView ->
+			ReaderTransitionFrameTarget.LiveWebView(handle, specification, command.registration)
+	}
+}
+
+private fun transitionTestApplyTargetPreparation(
+	reduction: ReaderTransitionReduction
+): Pair<ReaderTransitionJournal, ReaderTransitionFrameTarget> {
+	val command = reduction.commands.filterIsInstance<ReaderTransitionCommand.PrepareFrameTarget>().single()
+	val target = transitionTestPreparedTarget(command)
+	val prepared = reduction.state.reduce(
+		ReaderTransitionFact.FrameTargetPrepared(command.transitionId, target)
+	)
+	assertEquals(
+		listOf(ReaderTransitionCommand.RequestFramePresentation(command.transitionId, target)),
+		prepared.commands
+	)
+	return prepared.state to target
+}
+
+private fun transitionTestApplySuccessorAcknowledgement(
+	reduction: ReaderTransitionReduction
+): ReaderTransitionReduction {
+	val command = assertIs<ReaderTransitionCommand.CommitOwnerAndInputLease>(
+		reduction.commands.single()
+	)
+	return reduction.state.reduce(
+		ReaderTransitionFact.OwnerAndInputPublicationApplied(
+			command.transitionId,
+			ReaderOwnerAndInputPublicationSubject.Successor(
+				command.targetHandle,
+				command.preparedFrameResource
+			),
+			command.owner,
+			command.binding,
+			command.requestedLease,
+			command.publicationIdentity
+		)
+	)
+}
+
+private fun transitionTestApplyRetainedAcknowledgement(
+	reduction: ReaderTransitionReduction
+): ReaderTransitionReduction {
+	val command = reduction.commands.filterIsInstance<
+		ReaderTransitionCommand.PublishRetainedOwnerAndInputLease
+	>().single()
+	return reduction.state.reduce(
+		ReaderTransitionFact.OwnerAndInputPublicationApplied(
+			command.transitionId,
+			ReaderOwnerAndInputPublicationSubject.Retained(command.retainedResource),
+			command.retainedOwner,
+			command.retainedBinding,
+			command.requestedLease,
+			command.publicationIdentity
+		)
+	)
+}
+
+private fun transitionTestPreparedFrame(
+	transitionId: ReaderTransitionId,
+	binding: ReaderPresentationBinding,
+	frameOwner: ReaderPresentationFrameOwner,
+	resourceKey: ReaderTransitionResourceKey
+): ReaderTransitionFact.PreparedFrame {
+	val registration = ReaderTransitionResourceRegistration(
+		resourceKey,
+		ReaderResourceRetirementOrder(
+			transitionId.readerSessionGeneration,
+			transitionId.coordinatorEpoch,
+			resourceKey.opaqueId
+		)
+	)
+	val handle = ReaderTransitionFrameTargetHandle(
+		transitionId.readerSessionGeneration,
+		binding.publicationGeneration,
+		resourceKey.opaqueId
+	)
+	val geometry = when (frameOwner) {
+		is ReaderPresentationFrameOwner.NativePage -> ReaderTransitionFrameGeometry(
+			binding.viewportGeneration,
+			binding.profileGeneration,
+			0,
+			0,
+			frameOwner.proof.viewportWidth,
+			frameOwner.proof.viewportHeight
+		)
+		is ReaderPresentationFrameOwner.ShellCover -> ReaderTransitionFrameGeometry(
+			binding.viewportGeneration,
+			binding.profileGeneration,
+			0,
+			0,
+			frameOwner.proof.viewportWidth,
+			frameOwner.proof.viewportHeight
+		)
+		else -> ReaderTransitionFrameGeometry(
+			binding.viewportGeneration,
+			binding.profileGeneration,
+			0,
+			0,
+			1200,
+			800
+		)
+	}
+	val target: ReaderTransitionFrameTarget = when (frameOwner) {
+		is ReaderPresentationFrameOwner.ShellCover -> ReaderTransitionFrameTarget.ShellCover(
+			handle,
+			ReaderTransitionFrameTargetSpecification.ShellCover(
+				transitionId,
+				transitionId.readerSessionGeneration,
+				binding.publicationGeneration,
+				binding,
+				ReaderShellCoverHostToken(frameOwner.proof.token.value),
+				frameOwner.proof.coverGeneration,
+				binding.viewportGeneration,
+				geometry,
+				resourceKey.opaqueId
+			),
+			registration
+		)
+		is ReaderPresentationFrameOwner.LiveEngine -> ReaderTransitionFrameTarget.LiveWebView(
+			handle,
+			ReaderTransitionFrameTargetSpecification.LiveWebView(
+				transitionId,
+				transitionId.readerSessionGeneration,
+				binding.publicationGeneration,
+				binding,
+				ReaderLiveHandoffToken(frameOwner.proof.token.value),
+				ReaderLiveHandoffDirection.NativeToLive,
+				ReaderLiveHandoffClaimIdentity(resourceKey.opaqueId),
+				binding.viewportGeneration,
+				geometry,
+				resourceKey.opaqueId
+			),
+			registration
+		)
+		is ReaderPresentationFrameOwner.NativePage -> {
+			val allocation = ReaderMaterialGenerationAllocation(
+				transitionId,
+				binding,
+				requireNotNull(binding.preparationGeneration),
+				requireNotNull(binding.rasterGeneration),
+				requireNotNull(binding.textureGeneration)
+			)
+			val deckTarget = ReaderPlayLikeCurlDeckTargetIdentity(
+				1L,
+				requireNotNull(binding.textureGeneration),
+				if (transitionId.operation == ReaderTransitionOperation.CurlClaimAndSettlement) {
+					ReaderTransitionDeckRole.Settlement
+				} else ReaderTransitionDeckRole.Initial
+			)
+			if (transitionId.operation == ReaderTransitionOperation.CurlClaimAndSettlement) {
+				ReaderTransitionFrameTarget.CurlSettlementTerminalFrame(
+					handle,
+					ReaderTransitionFrameTargetSpecification.CurlSettlementTerminalFrame(
+						transitionId,
+						transitionId.readerSessionGeneration,
+						binding.publicationGeneration,
+						binding,
+						allocation,
+						ReaderTransitionGestureId(101L),
+						ReaderPageTurnSettlementAck(
+							"synthetic",
+							0,
+							binding.foliateSessionId,
+							requireNotNull(binding.rasterGeneration),
+							requireNotNull(binding.textureGeneration)
+						),
+						deckTarget,
+						geometry,
+						resourceKey.opaqueId
+					),
+					registration
+				)
+			} else ReaderTransitionFrameTarget.NativePage(
+				handle,
+				ReaderTransitionFrameTargetSpecification.NativePage(
+					transitionId,
+					transitionId.readerSessionGeneration,
+					binding.publicationGeneration,
+					binding,
+					allocation,
+					frameOwner.proof.transitionToken?.let {
+						ReaderNativePageHostTokenState.Present(ReaderNativePageHostToken(it.value))
+					} ?: ReaderNativePageHostTokenState.AuthoritativeAbsent,
+					deckTarget,
+					geometry,
+					resourceKey.opaqueId
+				),
+				registration
+			)
+		}
+		is ReaderPresentationFrameOwner.Curl -> {
+			val allocation = ReaderMaterialGenerationAllocation(
+				transitionId,
+				binding,
+				requireNotNull(binding.preparationGeneration),
+				requireNotNull(binding.rasterGeneration),
+				requireNotNull(binding.textureGeneration)
+			)
+			ReaderTransitionFrameTarget.NativePage(
+				handle,
+				ReaderTransitionFrameTargetSpecification.NativePage(
+					transitionId,
+					transitionId.readerSessionGeneration,
+					binding.publicationGeneration,
+					binding,
+					allocation,
+					ReaderNativePageHostTokenState.AuthoritativeAbsent,
+					ReaderPlayLikeCurlDeckTargetIdentity(
+						1L,
+						requireNotNull(binding.textureGeneration),
+						ReaderTransitionDeckRole.Initial
+					),
+					geometry,
+					resourceKey.opaqueId
+				),
+				registration
+			)
+		}
+		ReaderPresentationFrameOwner.Neutral -> error("Unsupported prepared-frame fixture owner")
+	}
+	return ReaderTransitionFact.PreparedFrame(transitionId, target, frameOwner, registration)
 }
 
 private fun transitionTestCoverOwner(
@@ -1939,7 +3340,7 @@ private fun resourceBearingFactCases() = listOf(
 		ReaderTransitionFact.ResourceReleased(id, key)
 	},
 	ResourceBearingFactCase("PreparedFrame") { id, binding, key ->
-		ReaderTransitionFact.PreparedFrame(
+		transitionTestPreparedFrame(
 			id,
 			binding,
 			transitionTestLiveOwner(id, binding),
@@ -1988,7 +3389,8 @@ private fun journalRelocatingFromLivePredecessor(): LivePredecessorRelocationFix
 			predecessorId,
 			predecessorOwner,
 			predecessor,
-			predecessorKey
+			predecessorKey,
+			transitionTestRegistration(predecessorKey)
 		)
 	)
 	val successor = transitionTestBinding(
@@ -2045,7 +3447,8 @@ private fun journalAwaitingPublicationClose(): PublicationCloseFixture {
 				predecessorId,
 				owner,
 				binding,
-				predecessorKey
+				predecessorKey,
+				transitionTestRegistration(predecessorKey)
 			)
 		),
 		id = id,
@@ -2053,8 +3456,29 @@ private fun journalAwaitingPublicationClose(): PublicationCloseFixture {
 	)
 }
 
+private fun ReaderPresentationBinding.withoutTestMaterial() = copy(
+	preparationGeneration = null,
+	rasterGeneration = null,
+	textureGeneration = null
+)
+
+private fun testAllocationFact(
+	id: ReaderTransitionId,
+	binding: ReaderPresentationBinding
+) = ReaderTransitionFact.MaterialBindingAllocated(
+	id,
+	ReaderMaterialGenerationAllocation(
+		id,
+		binding,
+		requireNotNull(binding.preparationGeneration),
+		requireNotNull(binding.rasterGeneration),
+		requireNotNull(binding.textureGeneration)
+	)
+)
+
 private fun ReaderTransitionCommand.startsNewPhysicalAttempt(): Boolean = when (this) {
 	is ReaderTransitionCommand.RequestSemanticSynchronization,
+	is ReaderTransitionCommand.AllocateMaterialBinding,
 	is ReaderTransitionCommand.RequestRasterPreparation,
 	is ReaderTransitionCommand.ReserveDeck,
 	is ReaderTransitionCommand.RequestFramePresentation -> true
@@ -2070,6 +3494,17 @@ internal data class ReaderTransitionModelFixture(
 	val predecessorResourceKey: ReaderTransitionResourceKey,
 	val gestureId: ReaderTransitionGestureId
 )
+
+private fun ReaderTransitionModelFixture.idleCommittedJournal(): ReaderTransitionJournal {
+	val committedId = assertIs<ReaderCommittedPresentation.Transition>(journal.committed).committed.id
+	return journal.copy(
+		active = null,
+		lastOutcome = null,
+		retryableTransition = null,
+		lastTransitionSequence = committedId.sequence,
+		lastIssuedTransitionIdentity = committedId.parentIdentity()
+	)
+}
 
 internal fun journalAwaitingSettlement(): ReaderTransitionModelFixture {
 	val predecessor = transitionTestBinding(commitSequence = 1L, rasterGeneration = 17L, textureGeneration = 19L)
@@ -2106,18 +3541,70 @@ internal fun journalAwaitingSettlement(): ReaderTransitionModelFixture {
 		retainedOwner = retainedOwner,
 		gestureId = gestureId
 	)
+	val successorRegistration = ReaderTransitionResourceRegistration(
+		ReaderTransitionResourceKey(
+			id,
+			ReaderTransitionResourceKind.Deck,
+			requireNotNull(successor.textureGeneration)
+		),
+		ReaderResourceRetirementOrder(
+			id.readerSessionGeneration,
+			id.coordinatorEpoch,
+			2L
+		)
+	)
+	val allocation = ReaderMaterialGenerationAllocation(
+		id,
+		successor,
+		requireNotNull(successor.preparationGeneration),
+		requireNotNull(successor.rasterGeneration),
+		requireNotNull(successor.textureGeneration)
+	)
+	val targetSpecification = ReaderTransitionFrameTargetSpecification.CurlSettlementTerminalFrame(
+		id,
+		id.readerSessionGeneration,
+		successor.publicationGeneration,
+		successor,
+		allocation,
+		gestureId,
+		ReaderPageTurnSettlementAck(
+			"synthetic",
+			0,
+			successor.foliateSessionId,
+			requireNotNull(successor.rasterGeneration),
+			requireNotNull(successor.textureGeneration)
+		),
+		ReaderPlayLikeCurlDeckTargetIdentity(
+			1L,
+			requireNotNull(successor.textureGeneration),
+			ReaderTransitionDeckRole.Settlement
+		),
+		ReaderTransitionFrameGeometry(
+			successor.viewportGeneration,
+			successor.profileGeneration,
+			0,
+			0,
+			1200,
+			800
+		),
+		1L
+	)
 	return ReaderTransitionModelFixture(
 		journal = ReaderTransitionJournal(
 			active = ReaderActiveTransition(
 				id,
 				phase,
-				predecessorResourceKey = predecessorResourceKey
+				predecessorResourceKey = predecessorResourceKey,
+				pendingFrameTargetSpecification = targetSpecification,
+				pendingFrameTargetRegistration = successorRegistration,
+				materialAllocation = allocation
 			),
 			committed = ReaderCommittedTransition(
 				predecessorId,
 				retainedOwner,
 				predecessor,
-				predecessorResourceKey
+				predecessorResourceKey,
+				transitionTestRegistration(predecessorResourceKey)
 			)
 		),
 		id = id,
@@ -2143,12 +3630,26 @@ internal fun journalAwaitingSemanticSuccessor(): ReaderTransitionModelFixture {
 		retainedOwner = base.retainedOwner,
 		gestureId = base.gestureId
 	)
+	val baseActive = requireNotNull(base.journal.active)
+	val baseSpecification = baseActive.pendingFrameTargetSpecification as
+		ReaderTransitionFrameTargetSpecification.CurlSettlementTerminalFrame
+	val allocation = requireNotNull(baseActive.materialAllocation).copy(transitionId = id)
+	val specification = baseSpecification.copy(
+		transitionId = id,
+		allocation = allocation
+	)
+	val registration = requireNotNull(baseActive.pendingFrameTargetRegistration).let {
+		it.copy(key = it.key.copy(transitionId = id))
+	}
 	return base.copy(
 		journal = base.journal.copy(
 			active = ReaderActiveTransition(
 				id,
 				phase,
-				predecessorResourceKey = base.predecessorResourceKey
+				predecessorResourceKey = base.predecessorResourceKey,
+				pendingFrameTargetSpecification = specification,
+				pendingFrameTargetRegistration = registration,
+				materialAllocation = allocation
 			)
 		),
 		id = id
@@ -2187,7 +3688,11 @@ internal fun transitionTestId(
 	operation: ReaderTransitionOperation,
 	expectedBinding: ReaderExpectedPresentationBinding,
 	sequence: Long = 13L,
-	parent: ReaderTransitionParentIdentity? = null
+	parent: ReaderTransitionParentIdentity? = if (sequence == 1L) {
+		null
+	} else {
+		ReaderTransitionParentIdentity(7L, 11L, sequence - 1L)
+	}
 ) = ReaderTransitionId(
 	readerSessionGeneration = 7L,
 	coordinatorEpoch = 11L,

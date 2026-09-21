@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.reader
 
+import paige.navic.reader.ReaderTransitionFailureReason
+
 @JvmInline
 internal value class ReaderForegroundWebViewMutationGeneration(val value: Long) {
 	init {
@@ -36,15 +38,22 @@ internal data class ReaderForegroundWebViewOwnershipSnapshot(
 )
 
 internal class ReaderForegroundWebViewOwnership(
+	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator(),
 	private val onPassiveMutationReleased: () -> Unit = {},
 	private val onPassiveAvailable: () -> Unit = {}
 ) {
+	private data class OwnedReadinessCallback(
+		val activationToken: ReaderLegacySourceLocalOpaqueToken,
+		val callback: (ReaderForegroundWebViewLiveReadiness) -> Unit
+	)
+
 	private data class LiveClaimState(
 		val claim: ReaderForegroundWebViewLiveClaim,
 		val blockedByExclusiveClaim: Boolean,
 		var terminal: ReaderForegroundWebViewLiveReadiness?,
-		val callbacks: MutableList<(ReaderForegroundWebViewLiveReadiness) -> Unit> =
-			mutableListOf()
+		val activationToken: ReaderLegacySourceLocalOpaqueToken,
+		val callbacks: MutableList<OwnedReadinessCallback> = mutableListOf()
 	)
 
 	private data class RetiredClaimTerminal(
@@ -52,26 +61,46 @@ internal class ReaderForegroundWebViewOwnership(
 		val terminal: ReaderForegroundWebViewLiveReadiness
 	)
 
+	private data class RestartPassive(
+		val lease: ReaderForegroundWebViewPassiveLease,
+		val cancelAndRestore: (((ReaderPageRasterCancellationRestoration) -> Unit) -> Unit),
+		val activationToken: ReaderLegacySourceLocalOpaqueToken
+	)
+
+	private data class RestartRestoration(
+		val leaseId: Long,
+		val activationToken: ReaderLegacySourceLocalOpaqueToken
+	)
+
 	private var mutationGeneration = 0L
 	private var nextLeaseId = 0L
 	private var nextClaimId = 0L
 	private var passiveLease: ReaderForegroundWebViewPassiveLease? = null
+	private var passiveActivationToken: ReaderLegacySourceLocalOpaqueToken? = null
 	private var cancelAndRestore: (
 		(
 			(ReaderPageRasterCancellationRestoration) -> Unit
 		) -> Unit
 	)? = null
 	private var restorationLeaseId: Long? = null
+	private var restorationActivationToken: ReaderLegacySourceLocalOpaqueToken? = null
 	private val liveClaims = linkedMapOf<Long, LiveClaimState>()
 	private val retiredClaimTerminals =
 		linkedMapOf<Long, RetiredClaimTerminal>()
 	private var exclusiveClaimId: Long? = null
 	private var currentMutationClaimId: Long? = null
 	private var passiveAvailabilityVersion = 0L
+	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private val restartClaims = linkedMapOf<Long, LiveClaimState>()
+	private val restartExclusiveClaimIds = linkedSetOf<Long>()
+	private var restartPassive: RestartPassive? = null
+	private var restartRestoration: RestartRestoration? = null
+	private val completedFrozen = linkedSetOf<ReaderLegacySourceLocalOpaqueToken>()
 	private var closed = false
 
 	fun canAcquirePassive(): Boolean =
 		!closed &&
+			frozenDomain == null &&
 			passiveLease == null &&
 			restorationLeaseId == null &&
 			liveClaims.isEmpty()
@@ -96,6 +125,7 @@ internal class ReaderForegroundWebViewOwnership(
 		mutationGeneration = nextGeneration
 		currentMutationClaimId = null
 		passiveLease = lease
+		passiveActivationToken = tokenAllocator.allocate()
 		this.cancelAndRestore = cancelAndRestore
 		return lease
 	}
@@ -111,8 +141,9 @@ internal class ReaderForegroundWebViewOwnership(
 	private fun acquireLive(
 		gestureId: Long,
 		exclusive: Boolean
-	): ReaderForegroundWebViewLiveClaim {
+	) : ReaderForegroundWebViewLiveClaim {
 		check(!closed) { "Foreground WebView ownership is closed" }
+		check(frozenDomain == null) { "Foreground WebView ownership is frozen" }
 		if (exclusive) {
 			check(exclusiveClaimId == null) {
 				"Foreground WebView exclusive claim already exists"
@@ -138,15 +169,18 @@ internal class ReaderForegroundWebViewOwnership(
 				null
 			} else {
 				ReaderForegroundWebViewLiveReadiness.Ready
-			}
+			},
+			activationToken = tokenAllocator.allocate()
 		)
 		if (exclusive) exclusiveClaimId = claimId
 
 		val preemptedLease = passiveLease ?: return claim
 		val preemption = checkNotNull(cancelAndRestore)
 		passiveLease = null
+		passiveActivationToken = null
 		cancelAndRestore = null
 		restorationLeaseId = preemptedLease.leaseId
+		restorationActivationToken = tokenAllocator.allocate()
 		currentMutationClaimId = null
 		preemption { restoration ->
 			completeRestoration(preemptedLease.leaseId, restoration)
@@ -158,7 +192,7 @@ internal class ReaderForegroundWebViewOwnership(
 		claim: ReaderForegroundWebViewLiveClaim,
 		callback: (ReaderForegroundWebViewLiveReadiness) -> Unit
 	) {
-		if (closed) {
+		if (closed || frozenDomain != null) {
 			callback(ReaderForegroundWebViewLiveReadiness.Invalidated)
 			return
 		}
@@ -176,7 +210,10 @@ internal class ReaderForegroundWebViewOwnership(
 		}
 		val terminal = state.terminal
 		if (terminal == null) {
-			state.callbacks += callback
+			state.callbacks += OwnedReadinessCallback(
+				tokenAllocator.allocate(),
+				callback
+			)
 		} else {
 			callback(terminal)
 		}
@@ -188,6 +225,7 @@ internal class ReaderForegroundWebViewOwnership(
 		val state = liveClaims[claim.claimId]
 		if (
 			closed ||
+			frozenDomain != null ||
 			state?.claim != claim ||
 			state.terminal != ReaderForegroundWebViewLiveReadiness.Ready ||
 			restorationLeaseId != null
@@ -224,7 +262,9 @@ internal class ReaderForegroundWebViewOwnership(
 
 	fun releasePassive(lease: ReaderForegroundWebViewPassiveLease): Boolean {
 		if (closed || passiveLease != lease) return false
+		if (frozenDomain != null) passiveActivationToken?.let(completedFrozen::add)
 		passiveLease = null
+		passiveActivationToken = null
 		cancelAndRestore = null
 		onPassiveMutationReleased()
 		return true
@@ -235,6 +275,10 @@ internal class ReaderForegroundWebViewOwnership(
 		val state = liveClaims[claim.claimId]
 		if (state?.claim != claim) return false
 		liveClaims.remove(claim.claimId)
+		if (frozenDomain != null) {
+			completedFrozen += state.activationToken
+			completedFrozen += state.callbacks.map { it.activationToken }
+		}
 		if (exclusiveClaimId == claim.claimId) {
 			exclusiveClaimId = null
 		}
@@ -255,6 +299,208 @@ internal class ReaderForegroundWebViewOwnership(
 		return true
 	}
 
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = when {
+		closed -> ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		frozenDomain == null -> {
+			frozenDomain = domain
+			ReaderPortCommandResult.Accepted
+		}
+		frozenDomain == domain -> ReaderPortCommandResult.Accepted
+		else -> ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+	}
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
+		val domain = frozenDomain ?: return emptyList()
+		val topLevel = buildList {
+			passiveActivationToken?.let { token ->
+				add(
+					foregroundOwnershipRow(
+						domain,
+						token,
+						paige.navic.reader.ReaderTransitionResourceKind.FrameHandoff,
+						ReaderLegacyResourceOrigin.Owned,
+						ReaderLegacyResourceState.Running
+					)
+				)
+			}
+			restorationActivationToken?.let { token ->
+				add(
+					foregroundOwnershipRow(
+						domain,
+						token,
+						paige.navic.reader.ReaderTransitionResourceKind.CallbackRegistration,
+						ReaderLegacyResourceOrigin.Pending,
+						ReaderLegacyResourceState.Registered
+					)
+				)
+			}
+		}
+		return topLevel + liveClaims.values.flatMap { state ->
+			listOf(
+				ReaderFrozenLegacyResource(
+					freezeToken = domain.freezeToken,
+					physicalIdentity = ReaderLegacyPhysicalIdentity(
+						domain,
+						ReaderLegacyInventorySource.ForegroundWebViewOwnership,
+						state.activationToken
+					),
+					kind = paige.navic.reader.ReaderTransitionResourceKind.FrameHandoff,
+					binding = null,
+					visibleOwner = null,
+					origin = ReaderLegacyResourceOrigin.Owned,
+					state = if (state.terminal == null) {
+						ReaderLegacyResourceState.Reserved
+					} else {
+						ReaderLegacyResourceState.Running
+					},
+					mayBeCommittedPredecessor = false
+				)
+			) + state.callbacks.map { callback ->
+				ReaderFrozenLegacyResource(
+					freezeToken = domain.freezeToken,
+					physicalIdentity = ReaderLegacyPhysicalIdentity(
+						domain,
+						ReaderLegacyInventorySource.ForegroundWebViewOwnership,
+						callback.activationToken
+					),
+					kind = paige.navic.reader.ReaderTransitionResourceKind.CallbackRegistration,
+					binding = null,
+					visibleOwner = null,
+					origin = ReaderLegacyResourceOrigin.Pending,
+					state = ReaderLegacyResourceState.Registered,
+					mayBeCommittedPredecessor = false
+				)
+			}
+		}
+	}
+
+	private fun foregroundOwnershipRow(
+		domain: ReaderLegacyPhysicalDomain,
+		token: ReaderLegacySourceLocalOpaqueToken,
+		kind: paige.navic.reader.ReaderTransitionResourceKind,
+		origin: ReaderLegacyResourceOrigin,
+		state: ReaderLegacyResourceState
+	) = ReaderFrozenLegacyResource(
+		freezeToken = domain.freezeToken,
+		physicalIdentity = ReaderLegacyPhysicalIdentity(
+			domain,
+			ReaderLegacyInventorySource.ForegroundWebViewOwnership,
+			token
+		),
+		kind = kind,
+		binding = null,
+		visibleOwner = null,
+		origin = origin,
+		state = state,
+		mayBeCommittedPredecessor = false
+	)
+
+	fun drainFrozenOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult {
+		val domain = frozenDomain
+		if (
+			domain == null ||
+			physicalIdentity.domain != domain ||
+			physicalIdentity.source !=
+				ReaderLegacyInventorySource.ForegroundWebViewOwnership
+		) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		val token = physicalIdentity.sourceLocalToken
+		if (passiveActivationToken == token) {
+			restartPassive = RestartPassive(
+				checkNotNull(passiveLease),
+				checkNotNull(cancelAndRestore),
+				token
+			)
+			passiveLease = null
+			passiveActivationToken = null
+			cancelAndRestore = null
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		if (restorationActivationToken == token) {
+			restartRestoration = RestartRestoration(
+				checkNotNull(restorationLeaseId),
+				token
+			)
+			restorationLeaseId = null
+			restorationActivationToken = null
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		liveClaims.values.forEach { state ->
+			val callback = state.callbacks.firstOrNull { it.activationToken == token }
+			if (callback != null) {
+				state.callbacks.remove(callback)
+				callback.callback(ReaderForegroundWebViewLiveReadiness.Invalidated)
+				onConfirmed(physicalIdentity)
+				return ReaderPortCommandResult.Accepted
+			}
+		}
+		val claimEntry = liveClaims.entries.firstOrNull {
+			it.value.activationToken == token
+		}
+		if (claimEntry != null) {
+			val state = claimEntry.value
+			liveClaims.remove(claimEntry.key)
+			if (exclusiveClaimId == claimEntry.key) {
+				restartExclusiveClaimIds += claimEntry.key
+				exclusiveClaimId = null
+			}
+			if (currentMutationClaimId == claimEntry.key) currentMutationClaimId = null
+			state.callbacks.forEach { callback ->
+				completedFrozen += callback.activationToken
+				callback.callback(ReaderForegroundWebViewLiveReadiness.Invalidated)
+			}
+			state.callbacks.clear()
+			restartClaims[claimEntry.key] = state
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		if (completedFrozen.remove(token)) {
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+	}
+
+	fun restoreAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		if (frozenDomain != domain) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		liveClaims.putAll(restartClaims)
+		restartClaims.clear()
+		restartPassive?.let { restart ->
+			passiveLease = restart.lease
+			cancelAndRestore = restart.cancelAndRestore
+			passiveActivationToken = restart.activationToken
+		}
+		restartPassive = null
+		restartRestoration?.let { restart ->
+			restorationLeaseId = restart.leaseId
+			restorationActivationToken = restart.activationToken
+		}
+		restartRestoration = null
+		exclusiveClaimId = restartExclusiveClaimIds.singleOrNull()
+		restartExclusiveClaimIds.clear()
+		completedFrozen.clear()
+		frozenDomain = null
+		return ReaderPortCommandResult.Accepted
+	}
+
 	fun snapshot(): ReaderForegroundWebViewOwnershipSnapshot =
 		ReaderForegroundWebViewOwnershipSnapshot(
 			passiveOwners = if (passiveLease == null) 0 else 1,
@@ -267,8 +513,10 @@ internal class ReaderForegroundWebViewOwnership(
 		if (closed) return
 		closed = true
 		passiveLease = null
+		passiveActivationToken = null
 		cancelAndRestore = null
 		restorationLeaseId = null
+		restorationActivationToken = null
 		exclusiveClaimId = null
 		currentMutationClaimId = null
 		val invalidatedClaims = liveClaims.values.toList()
@@ -286,7 +534,9 @@ internal class ReaderForegroundWebViewOwnership(
 		restoration: ReaderPageRasterCancellationRestoration
 	) {
 		if (closed || restorationLeaseId != leaseId) return
+		if (frozenDomain != null) restorationActivationToken?.let(completedFrozen::add)
 		restorationLeaseId = null
+		restorationActivationToken = null
 		if (restoration == ReaderPageRasterCancellationRestoration.Restored) {
 			if (liveClaims.isEmpty()) {
 				publishPassiveAvailable()
@@ -311,7 +561,7 @@ internal class ReaderForegroundWebViewOwnership(
 			state.claim to callbacks
 		}
 		stagedDeliveries.forEach { (claim, callbacks) ->
-			callbacks.forEach { callback -> callback(terminal) }
+			callbacks.forEach { owned -> owned.callback(terminal) }
 			if (callbacks.isNotEmpty()) {
 				retiredClaimTerminals.remove(claim.claimId)
 			}
@@ -358,7 +608,7 @@ internal class ReaderForegroundWebViewOwnership(
 		state.terminal = terminal
 		val callbacks = state.callbacks.toList()
 		state.callbacks.clear()
-		callbacks.forEach { callback -> callback(terminal) }
+		callbacks.forEach { owned -> owned.callback(terminal) }
 	}
 
 	private fun publishPassiveAvailable() {

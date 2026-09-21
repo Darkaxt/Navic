@@ -284,6 +284,7 @@ internal class ReaderDeckRecoveryLeaseAllocator {
 	private var readerSessionGeneration: Long? = null
 	private var coordinatorEpoch: Long? = null
 	private var sequenceFloor = 0L
+	private var lastIssuedTransitionIdentity: paige.navic.reader.ReaderTransitionParentIdentity? = null
 	private var preparationFloor = 0L
 	private var rasterFloor = 0L
 	private var textureFloor = 0L
@@ -323,8 +324,13 @@ internal class ReaderDeckRecoveryLeaseAllocator {
 			sequence = sequence,
 			operation = ReaderTransitionOperation.RendererRecovery,
 			expectedBinding = paige.navic.reader.ReaderExpectedPresentationBinding.Exact(binding),
-			parent = predecessor.parentIdentity()
+			parent = if (predecessor.sequence == sequence - 1L) {
+				predecessor.parentIdentity()
+			} else {
+				requireNotNull(lastIssuedTransitionIdentity)
+			}
 		)
+		lastIssuedTransitionIdentity = transitionId.parentIdentity()
 		return checkNotNull(
 			readerDeckLeaseOrNull(
 				ReaderTransitionCommand.ReserveDeck(
@@ -809,11 +815,24 @@ internal class ReaderRendererOwnedGenerationReleaseGate<Owner>(
 	private val requestRendererRelease: (Long) -> PageSurfaceDeckReleaseResult,
 	private val retireOwner: (Long) -> Unit
 ) {
-	fun request(binding: ReaderPresentationBinding): Boolean {
+	fun request(binding: ReaderPresentationBinding): Boolean =
+		requestExactBinding(binding, permitsProtectedGeneration = false)
+
+	fun requestFrozenTransition(binding: ReaderPresentationBinding): Boolean =
+		requestExactBinding(binding, permitsProtectedGeneration = true)
+
+	private fun requestExactBinding(
+		binding: ReaderPresentationBinding,
+		permitsProtectedGeneration: Boolean
+	): Boolean {
 		val deckIdentity = binding.rendererDeckIdentityOrNull() ?: return false
 		val owner = ownerForGeneration(deckIdentity.textureGeneration) ?: return true
 		if (rasterGenerationForOwner(owner) != deckIdentity.rasterGeneration) return false
-		return requestOwnedGeneration(deckIdentity.textureGeneration)
+		return if (permitsProtectedGeneration) {
+			requestRendererRelease(deckIdentity.textureGeneration).isAccepted
+		} else {
+			requestOwnedGeneration(deckIdentity.textureGeneration)
+		}
 	}
 
 	fun requestOwnedGeneration(generationId: Long): Boolean {
@@ -1077,6 +1096,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private data class FrozenPhysicalDeckRestart(
+		val pages: PreparedPages,
+		val ordinal: Int,
+		val role: ReaderDeckSubmissionRole,
+		val preparationGeneration: Long,
+		val admission: ReaderDeckAdmission
+	)
+
 	private data class RetainedInlineHandoffSnapshot(
 		val request: ReaderPageRelocationRequest,
 		val snapshot: ReaderPageSlideSnapshot
@@ -1139,6 +1166,32 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val generationRoles = mutableMapOf<Long, ReaderDeckSubmissionRole>()
 	private val generationPreparationGenerations = mutableMapOf<Long, Long>()
 	private val generationAdmissions = mutableMapOf<Long, ReaderDeckAdmission>()
+	private val physicalDeckLeases =
+		mutableMapOf<Long, ReaderDeckPhysicalOwnershipAdapter.Lease>()
+	private val frozenPhysicalDeckRestarts = mutableMapOf<Long, FrozenPhysicalDeckRestart>()
+	private val physicalDeckReleaseConfirmations = mutableMapOf<Long, () -> Unit>()
+	private val physicalDeckOwnership = ReaderDeckPhysicalOwnershipAdapter(
+		releasePhysicalDeck = { descriptor, onReleased ->
+			val generationId = descriptor.textureGeneration
+			val restart = captureFrozenPhysicalDeckRestart(generationId)
+			if (
+				restart == null ||
+				frozenPhysicalDeckRestarts.putIfAbsent(generationId, restart) != null ||
+				physicalDeckReleaseConfirmations.putIfAbsent(generationId, onReleased) != null
+			) {
+				false
+			} else {
+				val accepted = rendererOwnedGenerationReleaseGate
+					.requestFrozenTransition(descriptor.binding)
+				if (!accepted) {
+					physicalDeckReleaseConfirmations.remove(generationId)
+					frozenPhysicalDeckRestarts.remove(generationId)
+				}
+				accepted
+			}
+		},
+		restorePhysicalDeck = ::restoreFrozenPhysicalDeck
+	)
 	private val preparedDeckGenerations = mutableSetOf<Long>()
 	private val deckDiagnosticTracker = diagnostics?.let(::ReaderPageDeckDiagnosticTracker)
 	private val repairQaFaultCorrelations =
@@ -1507,6 +1560,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						binding = selectedBinding.copy(rasterGeneration = null, textureGeneration = null)
 					))
 				}
+				physicalDeckReleaseConfirmations.remove(generationId)?.invoke()
 			}
 
 			override fun onGestureRejected(
@@ -1887,7 +1941,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	val isAvailable: Boolean
-		get() = readerPageLivePresentationAvailable(
+		get() = !physicalDeckOwnership.isFrozen && readerPageLivePresentationAvailable(
 			hasFailedLivePresentation = failedLivePresentationGeneration != null,
 			otherwiseAvailable = readerPlayLikeCurlTurnAdmissionAvailable(
 				relocationQueue = relocationQueue,
@@ -1897,6 +1951,25 @@ internal class ReaderPlayLikeCurlFoliateController(
 					pageOperationPolicy.newPointer is ReaderPageNewPointerDecision.Accept
 			)
 		)
+
+	fun freezeDeckOwnershipForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = physicalDeckOwnership.freezeForTransitionActivation(domain)
+
+	fun snapshotFrozenDeckOwnership(): List<ReaderFrozenLegacyResource> =
+		physicalDeckOwnership.snapshotFrozenOwnership()
+
+	fun drainFrozenDeckOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult = physicalDeckOwnership.drainFrozenOwnership(
+		physicalIdentity,
+		onConfirmed
+	)
+
+	fun restoreDeckOwnershipAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = physicalDeckOwnership.restoreAfterTransitionActivation(domain)
 
 	private val canPresentAcceptedGesture: Boolean
 		get() = enabled && attached && (
@@ -1942,6 +2015,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 
 	private fun onRendererDeckPrepared(generationId: Long) {
+		physicalDeckLeases[generationId]?.let { lease ->
+			if (!physicalDeckOwnership.observeRendererCallback(lease)) return
+		}
 		val admission = generationAdmissions[generationId]
 		if (admission == null) {
 			if (generationOwners.containsKey(generationId)) {
@@ -5927,7 +6003,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		originatingGestureId: Long? = null,
 		pendingAuthority: PendingLibraryDeckAdmissionAuthority? = null
 	): ReaderDeckAdmission? {
-		if (!hostResumed) return null
+		if (physicalDeckOwnership.isFrozen || !hostResumed) return null
 		val candidateDecision = commonPresentationDecision
 		if (
 			role == ReaderDeckSubmissionRole.Pending &&
@@ -6176,6 +6252,25 @@ internal class ReaderPlayLikeCurlFoliateController(
 				capability.preparationGeneration == preparationGeneration &&
 				capability.rasterGeneration == pages.profile.rasterGeneration
 		) { "Renderer ownership does not match its immutable deck admission" }
+		val existingPhysicalLease = physicalDeckLeases[generationId]
+		val physicalLease = existingPhysicalLease ?:
+			checkNotNull(
+				physicalDeckOwnership.register(
+					ReaderDeckPhysicalRestartDescriptor(
+						binding = capability.originBinding,
+						role = role,
+						preparationGeneration = preparationGeneration,
+						rasterGeneration = pages.profile.rasterGeneration,
+						textureGeneration = generationId
+					)
+				)
+			) { "Frozen deck ownership admitted a renderer generation" }
+				.also { physicalDeckLeases[generationId] = it }
+		if (existingPhysicalLease == null || !physicalDeckOwnership.isFrozen) {
+			check(physicalDeckOwnership.acknowledgeRendererOwnership(physicalLease)) {
+				"Renderer ownership did not match its physical deck lease"
+			}
+		}
 		val retainedOwner = generationOwners.putIfAbsent(generationId, pages)
 		check(retainedOwner == null || retainedOwner === pages) {
 			"Accepted deck generation has a different raster owner"
@@ -7609,6 +7704,109 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private fun captureFrozenPhysicalDeckRestart(
+		generationId: Long
+	): FrozenPhysicalDeckRestart? {
+		val pages = generationOwners[generationId] ?: return null
+		val role = generationRoles[generationId] ?: return null
+		val ordinal = when (role) {
+			ReaderDeckSubmissionRole.Active -> currentOrdinal
+			ReaderDeckSubmissionRole.Pending -> pendingDeckOrdinal ?: return null
+		}
+		return FrozenPhysicalDeckRestart(
+			pages = pages,
+			ordinal = ordinal,
+			role = role,
+			preparationGeneration = generationPreparationGenerations[generationId] ?: return null,
+			admission = generationAdmissions[generationId] ?: return null
+		)
+	}
+
+	private fun restoreFrozenPhysicalDeck(
+		descriptor: ReaderDeckPhysicalRestartDescriptor
+	): ReaderDeckPhysicalRestartDescriptor? {
+		val releasedGenerationId = descriptor.textureGeneration
+		val restart = frozenPhysicalDeckRestarts[releasedGenerationId] ?: return null
+		if (
+			restart.pages.obsolete ||
+			restart.role != descriptor.role ||
+			restart.preparationGeneration != descriptor.preparationGeneration ||
+			restart.pages.profile.rasterGeneration != descriptor.rasterGeneration ||
+			restart.admission.capability.originBinding != descriptor.binding
+		) return null
+		val restoredGenerationId = maxOf(nextDeckGeneration, releasedGenerationId + 1L)
+		nextDeckGeneration = Math.incrementExact(restoredGenerationId)
+		val admission = deckAdmissionHost.reserve(
+			ReaderDeckAdmissionRequest(
+				candidateDecision = commonPresentationDecision,
+				profileGeneration = publishedRasterProfileEpoch,
+				preparationGeneration = restart.preparationGeneration,
+				rasterGeneration = restart.pages.profile.rasterGeneration,
+				textureGeneration = restoredGenerationId,
+				role = restart.role
+			)
+		) ?: return null
+		val deck = runCatching {
+			buildLibraryDeck(restart.pages, restart.ordinal, restoredGenerationId)
+		}.getOrElse {
+			admission.releaseReservationWithoutRenderer()
+			return null
+		}
+		val physicalLease = physicalDeckLeases.remove(releasedGenerationId) ?: run {
+			admission.releaseReservationWithoutRenderer()
+			return null
+		}
+		physicalDeckLeases[restoredGenerationId] = physicalLease
+		generationAdmissions[restoredGenerationId] = admission
+		var ownershipTransferred = false
+		val result = runCatching {
+			submissionCallbackFence.submit(restoredGenerationId) {
+				surfaceView.submitDeckWithResult(deck) {
+					ownershipTransferred = true
+					registerAcceptedDeckOwnership(
+						pages = restart.pages,
+						generationId = restoredGenerationId,
+						role = restart.role,
+						preparationGeneration = restart.preparationGeneration,
+						admission = admission
+					)
+					when (restart.role) {
+						ReaderDeckSubmissionRole.Active -> {
+							activeDeckGenerationId = restoredGenerationId
+							activePages = restart.pages
+						}
+						ReaderDeckSubmissionRole.Pending -> {
+							pendingDeckGenerationId = restoredGenerationId
+							pendingDeckOrdinal = restart.ordinal
+						}
+					}
+					acknowledgeRendererDeckOwnership(restoredGenerationId, admission)
+				}
+			}
+		}.getOrElse {
+			generationAdmissions.remove(restoredGenerationId)
+			physicalDeckLeases.remove(restoredGenerationId)
+			physicalDeckLeases[releasedGenerationId] = physicalLease
+			admission.releaseReservationWithoutRenderer()
+			return null
+		}
+		if (
+			result.status != PageSurfaceDeckSubmissionResult.Status.ACCEPTED ||
+			!ownershipTransferred
+		) {
+			generationAdmissions.remove(restoredGenerationId)
+			physicalDeckLeases.remove(restoredGenerationId)
+			physicalDeckLeases[releasedGenerationId] = physicalLease
+			admission.releaseReservationWithoutRenderer()
+			return null
+		}
+		frozenPhysicalDeckRestarts.remove(releasedGenerationId)
+		return descriptor.copy(
+			binding = admission.capability.originBinding,
+			textureGeneration = restoredGenerationId
+		)
+	}
+
 	private fun releaseRendererOwnedGeneration(generationId: Long) {
 		rendererCleanupRetryCoordinator.request(
 			ReaderRendererCleanupRequest.StaleGeneration(generationId)
@@ -7629,8 +7827,31 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun releaseGeneration(generationId: Long) {
+		if (!physicalDeckOwnership.isFrozen) {
+			physicalDeckLeases.remove(generationId)?.let(physicalDeckOwnership::retireNormally)
+		}
 		rendererCleanupRetryCoordinator.complete(generationId)
 		deckDiagnosticTracker?.cancel(generationId)
+		val frozenRestart = frozenPhysicalDeckRestarts[generationId]
+		if (physicalDeckOwnership.isFrozen && frozenRestart != null) {
+			generationPreparationGenerations.remove(generationId)
+			frozenRestart.admission.markReleased()
+			generationAdmissions.remove(generationId)
+			generationOwners.remove(generationId)
+			generationRoles.remove(generationId)
+			preparedDeckGenerations -= generationId
+			recoveredDeckGenerations -= generationId
+			if (activeDeckGenerationId == generationId) {
+				activeDeckGenerationId = null
+				activeDeckPreparationGeneration = null
+			}
+			if (pendingDeckGenerationId == generationId) {
+				pendingDeckGenerationId = null
+				pendingDeckOrdinal = null
+			}
+			frozenRestart.pages.generations -= generationId
+			return
+		}
 		generationPreparationGenerations.remove(generationId)
 		generationAdmissions[generationId]?.markReleased()
 		generationAdmissions.remove(generationId)

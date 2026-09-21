@@ -1,7 +1,14 @@
 package paige.navic.ui.screens.reader
 
 import android.os.Looper
+import paige.navic.reader.ReaderActiveTransition
+import paige.navic.reader.ReaderCommittedPresentation
+import paige.navic.reader.ReaderInitialCommittedPresentationOrigin
 import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.ReaderOwnerAndInputPublicationResult
+import paige.navic.reader.ReaderPresentationEvent
+import paige.navic.reader.ReaderPresentationEventDisposition
+import paige.navic.reader.ReaderPresentationEventOrigin
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationSemanticReceipt
 import paige.navic.reader.ReaderPresentationSemanticReceiptConsumption
@@ -15,6 +22,9 @@ import paige.navic.reader.ReaderTransitionOutcome
 import paige.navic.reader.ReaderTransitionPhaseKind
 import paige.navic.reader.ReaderTransitionResourceKey
 import paige.navic.reader.ReaderTransitionResourceKind
+import paige.navic.reader.ReaderTransitionResourceRegistration
+import paige.navic.reader.ReaderResourceRetirementOrder
+import paige.navic.reader.ReaderTransitionResourceOwnerId
 import paige.navic.reader.deadlinePolicy
 
 internal enum class ReaderTransitionFactClassification {
@@ -26,10 +36,13 @@ internal enum class ReaderTransitionFactClassification {
 
 internal enum class ReaderTransitionCommandKind {
 	RequestSemanticSynchronization,
+	AllocateMaterialBinding,
 	RequestRasterPreparation,
 	ReserveDeck,
+	PrepareFrameTarget,
 	RequestFramePresentation,
-	ApplyInputLease,
+	PublishRetainedOwnerAndInputLease,
+	CommitOwnerAndInputLease,
 	ReleaseResource,
 	CancelOwnedWork
 }
@@ -76,7 +89,9 @@ internal data class ReaderTransitionReleaseLedgerRetentionSnapshot(
 	val earlyConfirmationCount: Int,
 	val terminalTombstoneCount: Int,
 	val terminalTombstoneCapacity: Int,
-	val retirementFenceState: ReaderTransitionRetirementFenceState
+	val retirementFenceState: ReaderTransitionRetirementFenceState,
+	val contiguousReleasedThrough: Long = 0L,
+	val outOfOrderReleasedCount: Int = 0
 )
 
 internal data class ReaderTransitionTerminalTombstoneSnapshot(
@@ -123,7 +138,11 @@ internal class ReaderTransitionTerminalTombstones(
 		while (keys.size == capacity) {
 			val evicted = keys.removeFirst()
 			exactKeys.remove(evicted)
-			retiredThroughSequence = maxOf(retiredThroughSequence, evicted.transitionId.sequence)
+			val evictedSequence = when (val owner = evicted.ownerId) {
+				is ReaderTransitionResourceOwnerId.TransitionOwned -> owner.transitionId.sequence
+				is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> continue
+			}
+			retiredThroughSequence = maxOf(retiredThroughSequence, evictedSequence)
 		}
 		keys.addLast(key)
 		exactKeys += key
@@ -153,7 +172,11 @@ internal class ReaderTransitionTerminalTombstones(
 		}
 
 	private fun admitLifecycle(key: ReaderTransitionResourceKey): Boolean {
-		val candidate = key.lifecycle()
+		val owner = when (val candidate = key.ownerId) {
+			is ReaderTransitionResourceOwnerId.TransitionOwned -> candidate.transitionId
+			is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> return false
+		}
+		val candidate = owner.lifecycle()
 		val current = lifecycle
 		if (current == null || candidate > current) {
 			lifecycle = candidate
@@ -163,14 +186,18 @@ internal class ReaderTransitionTerminalTombstones(
 			return true
 		}
 		if (candidate < current) return false
-		return key.transitionId.sequence > retiredThroughSequence
+		return owner.sequence > retiredThroughSequence
 	}
 
 	private fun isFenced(key: ReaderTransitionResourceKey): Boolean {
+		val owner = when (val candidate = key.ownerId) {
+			is ReaderTransitionResourceOwnerId.TransitionOwned -> candidate.transitionId
+			is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> return false
+		}
 		val current = lifecycle ?: return false
-		val candidate = key.lifecycle()
+		val candidate = owner.lifecycle()
 		return candidate < current ||
-			(candidate == current && key.transitionId.sequence <= retiredThroughSequence)
+			(candidate == current && owner.sequence <= retiredThroughSequence)
 	}
 
 	private companion object {
@@ -178,47 +205,155 @@ internal class ReaderTransitionTerminalTombstones(
 	}
 }
 
-private fun ReaderTransitionResourceKey.lifecycle() = ReaderTransitionLifecycle(
-	readerSessionGeneration = transitionId.readerSessionGeneration,
-	coordinatorEpoch = transitionId.coordinatorEpoch
-)
+private fun paige.navic.reader.ReaderTransitionId.lifecycle(): ReaderTransitionLifecycle =
+	ReaderTransitionLifecycle(
+		readerSessionGeneration = readerSessionGeneration,
+		coordinatorEpoch = coordinatorEpoch
+	)
 
 internal class ReaderTransitionReleaseLedger {
 	private val states = linkedMapOf<ReaderTransitionResourceKey, ReaderTransitionResourceState>()
+	private val registrations = linkedMapOf<ReaderTransitionResourceKey, ReaderTransitionResourceRegistration>()
+	private val explicitRegistrations = linkedSetOf<ReaderTransitionResourceKey>()
 	private val terminalTombstones = ReaderTransitionTerminalTombstones()
+	private var registrationLifecycle: Pair<Long, Long>? = null
+	private var nextRetirementSequence = 1L
+	private var contiguousReleasedThrough = 0L
+	private val outOfOrderReleased = sortedSetOf<Long>()
 
 	fun register(key: ReaderTransitionResourceKey): Boolean {
+		val owner = key.ownerId as? ReaderTransitionResourceOwnerId.TransitionOwned ?: return false
 		if (key in states || terminalTombstones.rejectsRegistration(key)) return false
+		val id = owner.transitionId
+		registrations[key] = ReaderTransitionResourceRegistration(
+			key,
+			ReaderResourceRetirementOrder(
+				id.readerSessionGeneration,
+				id.coordinatorEpoch,
+				id.sequence
+			)
+		)
+		states[key] = ReaderTransitionResourceState.Owned
+		return true
+	}
+
+	fun register(registration: ReaderTransitionResourceRegistration): Boolean {
+		val key = registration.key
+		val existing = registrations[key]
+		if (existing != null) return existing == registration && false
+		if (key in states) return false
+		if (key.owningTransitionIdOrNull != null && terminalTombstones.rejectsRegistration(key)) return false
+		if (!admitRetirementOrder(registration.retirementOrder)) return false
+		registrations[key] = registration
+		explicitRegistrations += key
 		states[key] = ReaderTransitionResourceState.Owned
 		return true
 	}
 
 	fun requestRelease(key: ReaderTransitionResourceKey): ReaderTransitionCommand.ReleaseResource? {
 		if (states[key] != ReaderTransitionResourceState.Owned) return null
+		val registration = registrations[key] ?: return null
 		states[key] = ReaderTransitionResourceState.ReleaseCommandIssued
-		return ReaderTransitionCommand.ReleaseResource(key.transitionId, key)
+		return if (key in explicitRegistrations) {
+			ReaderTransitionCommand.ReleaseResource(registration)
+		} else {
+			when (val owner = key.ownerId) {
+				is ReaderTransitionResourceOwnerId.TransitionOwned ->
+					ReaderTransitionCommand.ReleaseResource(owner.transitionId, key)
+				is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> null
+			}
+		}
 	}
 
 	fun confirmReleased(key: ReaderTransitionResourceKey): Boolean {
+		val explicitRegistration = registrations[key]?.takeIf { key in explicitRegistrations }
+		if (explicitRegistration != null) return confirmReleased(explicitRegistration)
 		val activeState = states.remove(key)
-		return terminalTombstones.record(key, fromActiveRegistration = activeState != null)
+		registrations.remove(key)
+		val recorded = terminalTombstones.record(key, fromActiveRegistration = activeState != null)
+		return recorded
+	}
+
+	fun confirmReleased(registration: ReaderTransitionResourceRegistration): Boolean {
+		val key = registration.key
+		if (registrations[key] != registration || key !in explicitRegistrations) return false
+		val sequence = registration.retirementOrder.sequence
+		if (
+			sequence > contiguousReleasedThrough + 1L &&
+			sequence !in outOfOrderReleased &&
+			outOfOrderReleased.size >= 32
+		) return false
+		if (states.remove(key) == null) return false
+		registrations.remove(key)
+		explicitRegistrations.remove(key)
+		val recorded = when (key.ownerId) {
+			is ReaderTransitionResourceOwnerId.TransitionOwned ->
+				terminalTombstones.record(key, fromActiveRegistration = true)
+			is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> true
+		}
+		if (!recorded) return false
+		advanceRetirementFence(registration.retirementOrder.sequence)
+		return true
 	}
 
 	fun stateOf(key: ReaderTransitionResourceKey): ReaderTransitionResourceState? =
 		states[key] ?: ReaderTransitionResourceState.Released.takeIf {
-			terminalTombstones.containsOrFenced(key)
+			key.owningTransitionIdOrNull?.let { terminalTombstones.containsOrFenced(key) } == true
 		}
 
 	fun snapshot(): ReaderTransitionReleaseLedgerSnapshot = ReaderTransitionReleaseLedgerSnapshot(
 		ownedCount = states.values.count { it == ReaderTransitionResourceState.Owned },
-		issuedCount = states.values.count {
-			it == ReaderTransitionResourceState.ReleaseCommandIssued
-		},
+		issuedCount = states.values.count { it == ReaderTransitionResourceState.ReleaseCommandIssued },
 		releasedCount = terminalTombstones.snapshot().terminalTombstoneCount
 	)
 
 	fun retentionSnapshot(): ReaderTransitionReleaseLedgerRetentionSnapshot =
-		terminalTombstones.snapshot().copy(activeStateCount = states.size)
+		terminalTombstones.snapshot().copy(
+			activeStateCount = states.size,
+			contiguousReleasedThrough = contiguousReleasedThrough,
+			outOfOrderReleasedCount = outOfOrderReleased.size
+		)
+
+	private fun allocateRetirementOrder(session: Long, epoch: Long): ReaderResourceRetirementOrder {
+		val lifecycle = session to epoch
+		if (registrationLifecycle != lifecycle) {
+			registrationLifecycle = lifecycle
+			nextRetirementSequence = 1L
+			contiguousReleasedThrough = 0L
+			outOfOrderReleased.clear()
+		}
+		val sequence = nextRetirementSequence
+		check(sequence < Long.MAX_VALUE) { "Resource retirement order exhausted" }
+		nextRetirementSequence += 1L
+		return ReaderResourceRetirementOrder(session, epoch, sequence)
+	}
+
+	private fun admitRetirementOrder(order: ReaderResourceRetirementOrder): Boolean {
+		val lifecycle = order.readerSessionGeneration to order.coordinatorEpoch
+		val current = registrationLifecycle
+		if (current == null || compareValuesBy(lifecycle, current, Pair<Long, Long>::first, Pair<Long, Long>::second) > 0) {
+			registrationLifecycle = lifecycle
+			nextRetirementSequence = order.sequence + 1L
+			contiguousReleasedThrough = 0L
+			outOfOrderReleased.clear()
+			return true
+		}
+		if (lifecycle != current || order.sequence <= contiguousReleasedThrough || order.sequence in outOfOrderReleased) return false
+		nextRetirementSequence = maxOf(nextRetirementSequence, order.sequence + 1L)
+		return true
+	}
+
+	private fun advanceRetirementFence(sequence: Long) {
+		if (sequence == contiguousReleasedThrough + 1L) {
+			contiguousReleasedThrough = sequence
+			while (outOfOrderReleased.remove(contiguousReleasedThrough + 1L)) {
+				contiguousReleasedThrough += 1L
+			}
+		} else if (sequence > contiguousReleasedThrough + 1L) {
+			check(outOfOrderReleased.size < 32) { "Resource retirement tombstone capacity exceeded" }
+			outOfOrderReleased += sequence
+		}
+	}
 }
 
 internal data class ReaderTransitionCoordinatorSnapshot(
@@ -249,6 +384,9 @@ internal class ReaderResumableTransitionCoordinator(
 	private val mode: ReaderTransitionMode,
 	private var journal: ReaderTransitionJournal,
 	private val releaseLedger: ReaderTransitionReleaseLedger = ReaderTransitionReleaseLedger(),
+	private val activationState: () -> ReaderSessionActivationState = {
+		ReaderSessionActivationState.Legacy
+	},
 	private val onObservation: (ReaderTransitionCoordinatorObservation) -> Unit = {}
 ) {
 	private val mailbox = ArrayDeque<ReaderTransitionFact>()
@@ -262,16 +400,29 @@ internal class ReaderResumableTransitionCoordinator(
 	private var registeredTransitionId: ReaderTransitionId? = null
 	private var deadlineRecord: ActiveDeadlineRecord? = null
 	private var deadlineSlot: DeadlineSlot? = null
+	private var task6TimerRegistration: ReaderTask6FactOnlyTimerRegistration? = null
 	private var nextDeadlineSlotToken = 1L
 	private var releaseOnlySink = false
 
 	init {
+		journal.resourceRegistrations().forEach(releaseLedger::register)
 		journal.resourceKeys().forEach(releaseLedger::register)
 	}
 
 	fun enqueue(receipt: ReaderPresentationEventReceipt) {
 		check(Looper.myLooper() == Looper.getMainLooper()) {
 			"Reader transition receipts must be enqueued on the main thread"
+		}
+		when (receipt.origin) {
+			ReaderPresentationEventOrigin.NonSemantic -> return
+			ReaderPresentationEventOrigin.UnsolicitedFoliate -> {
+				val relocation = receipt.event as? ReaderPresentationEvent.FoliateRelocated ?: return
+				if (receipt.disposition == ReaderPresentationEventDisposition.Accepted) {
+					enqueue(ReaderTransitionFact.FoliateDestinationCommitted(null, relocation.binding))
+				}
+				return
+			}
+			is ReaderPresentationEventOrigin.SemanticCommand -> Unit
 		}
 		when (val semantic = semanticReceiptConsumption.consume(receipt)) {
 			is ReaderPresentationSemanticReceipt.Destination -> enqueue(
@@ -343,7 +494,8 @@ internal class ReaderResumableTransitionCoordinator(
 				val registeredKey = fact.registeredResourceKeyOrNull()
 				registeredKey?.let(releaseLedger::register)
 				if (fact is ReaderTransitionFact.ResourceReleased) {
-					releaseLedger.confirmReleased(fact.key)
+					fact.registration?.let(releaseLedger::confirmReleased)
+						?: releaseLedger.confirmReleased(fact.key)
 				}
 				val closingOperation = before.active?.id?.operation ==
 					ReaderTransitionOperation.PublicationClose
@@ -371,14 +523,19 @@ internal class ReaderResumableTransitionCoordinator(
 				val predictedCommands = buildList {
 					addAll(reduction.commands)
 					if (releaseOnlySink && registeredKey != null) {
-						add(ReaderTransitionCommand.ReleaseResource(registeredKey.transitionId, registeredKey))
+						when (val owner = registeredKey.ownerId) {
+							is ReaderTransitionResourceOwnerId.TransitionOwned -> add(
+								ReaderTransitionCommand.ReleaseResource(owner.transitionId, registeredKey)
+							)
+							is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> Unit
+						}
 					}
 				}
 				recordShadowPrediction(fact, classification, before, predictedCommands)
 
 				if (mode == ReaderTransitionMode.Active) {
 					predictedCommands.forEach { predicted ->
-						accountCommand(predicted)?.let { command -> ports.issue(command, ::enqueue) }
+						accountCommand(predicted)?.let(::issueCommandWithPublicationAcknowledgement)
 					}
 				}
 				onObservation(
@@ -394,9 +551,39 @@ internal class ReaderResumableTransitionCoordinator(
 		}
 	}
 
+	private fun issueCommandWithPublicationAcknowledgement(command: ReaderTransitionCommand) {
+		if (command is ReaderTransitionCommand.RequestSemanticSynchronization) {
+			val semantic = ports.semanticCommand
+			if (semantic != null) {
+				when (val result = semantic.synchronize(command, ::enqueue)) {
+					ReaderPortCommandResult.Accepted -> Unit
+					is ReaderPortCommandResult.Rejected -> enqueue(
+						ReaderTransitionFact.RasterFailed(command.transitionId, result.reason)
+					)
+				}
+				return
+			}
+		}
+		val publication = ports.ownerAndInputPublication
+		val result = when (command) {
+			is ReaderTransitionCommand.CommitOwnerAndInputLease -> publication?.publish(command)
+			is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease -> publication?.publish(command)
+			else -> null
+		}
+		if (result == null) {
+			ports.issue(command, ::enqueue)
+		} else {
+			enqueue(result.toTransitionFact())
+		}
+	}
+
 	private fun accountCommand(command: ReaderTransitionCommand): ReaderTransitionCommand? =
 		if (command is ReaderTransitionCommand.ReleaseResource) {
-			releaseLedger.register(command.key)
+			if (command.registration == null) {
+				releaseLedger.register(command.key)
+			} else {
+				releaseLedger.register(command.registration)
+			}
 			releaseLedger.requestRelease(command.key)
 		} else {
 			command
@@ -422,8 +609,12 @@ internal class ReaderResumableTransitionCoordinator(
 		fact: ReaderTransitionFact,
 		classification: ReaderTransitionFactClassification
 	) {
+		if (activationState() == ReaderSessionActivationState.Activated) {
+			reconcileTask6FactOnlyTimer(nowMillis, before, fact, classification)
+			return
+		}
 		val active = journal.active
-		if (active == null) {
+		if (active == null || active.isAwaitingRetainedPublication()) {
 			cancelDeadlineSlot()
 			deadlineRecord = null
 			return
@@ -483,6 +674,64 @@ internal class ReaderResumableTransitionCoordinator(
 		}
 	}
 
+	private fun reconcileTask6FactOnlyTimer(
+		nowMillis: Long,
+		before: ReaderTransitionJournal,
+		fact: ReaderTransitionFact,
+		classification: ReaderTransitionFactClassification
+	) {
+		cancelDeadlineSlot()
+		deadlineRecord = null
+		val port = ports.task6FactOnlyTimer
+		val active = journal.active
+		if (active == null || active.isAwaitingRetainedPublication()) {
+			task6TimerRegistration?.let { registration -> port?.cancel(registration) }
+			task6TimerRegistration = null
+			return
+		}
+		if (port == null) {
+			enqueue(ReaderTransitionFact.DeadlineExpired(active.id))
+			return
+		}
+		val existing = task6TimerRegistration
+		if (existing?.transitionId == active.id) {
+			if (
+				existing.permitsMatchingProgressRearm &&
+				fact.isMatchingProgress(classification, before, journal)
+			) {
+				val result = port.matchingProgress(existing, nowMillis)
+				if (result is ReaderPortCommandResult.Rejected) {
+					task6TimerRegistration = null
+					port.cancel(existing)
+					if (mailbox.none {
+						it is ReaderTransitionFact.DeadlineExpired && it.transitionId == active.id
+					}) {
+						enqueue(ReaderTransitionFact.DeadlineExpired(active.id))
+					}
+				}
+			}
+			return
+		}
+		var callbackBeforeBindReturn = false
+		val successor = port.bindBeforeWork(active.id) { expired ->
+			val accepted = task6TimerRegistration
+			if (accepted?.transitionId == expired.transitionId && journal.active?.id == expired.transitionId) {
+				enqueue(expired)
+			} else {
+				callbackBeforeBindReturn = true
+			}
+		}
+		if (successor == null) {
+			enqueue(ReaderTransitionFact.DeadlineExpired(active.id))
+			return
+		}
+		task6TimerRegistration = successor
+		existing?.let(port::cancel)
+		if (callbackBeforeBindReturn) {
+			enqueue(ReaderTransitionFact.DeadlineExpired(active.id))
+		}
+	}
+
 	private fun cancelDeadlineSlot() {
 		val obsolete = deadlineSlot ?: return
 		deadlineSlot = null
@@ -535,6 +784,31 @@ internal class ReaderResumableTransitionCoordinator(
 	)
 }
 
+private fun ReaderActiveTransition.isAwaitingRetainedPublication(): Boolean =
+	pendingPublicationIdentity != null &&
+		frameTarget == null &&
+		preparedFrameOwner == null &&
+		phase.contract.awaitedProofs == setOf(
+			paige.navic.reader.ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement
+		)
+
+private fun ReaderOwnerAndInputPublicationResult.toTransitionFact(): ReaderTransitionFact = when (this) {
+	is ReaderOwnerAndInputPublicationResult.Applied -> ReaderTransitionFact.OwnerAndInputPublicationApplied(
+		transitionId,
+		subject,
+		publishedOwner,
+		publishedBinding,
+		finalPhysicalInputLease,
+		publicationIdentity
+	)
+	is ReaderOwnerAndInputPublicationResult.Rejected -> ReaderTransitionFact.OwnerAndInputPublicationRejected(
+		transitionId,
+		subject,
+		publicationIdentity,
+		reason
+	)
+}
+
 private fun ReaderTransitionFact.isMatchingProgress(
 	classification: ReaderTransitionFactClassification,
 	before: ReaderTransitionJournal,
@@ -546,8 +820,29 @@ private fun ReaderTransitionFact.isMatchingProgress(
 	return this is ReaderTransitionFact.RasterProgress || before != after
 }
 
+private fun ReaderTransitionJournal.resourceRegistrations(): Set<ReaderTransitionResourceRegistration> = buildSet {
+	when (val presentation = committed) {
+		is ReaderCommittedPresentation.Initial -> when (val origin = presentation.origin) {
+			is ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor -> add(origin.resource)
+			is ReaderInitialCommittedPresentationOrigin.Neutral -> Unit
+		}
+		is ReaderCommittedPresentation.Transition -> add(presentation.committed.resourceRegistration)
+	}
+	active?.let { current ->
+		current.predecessorResourceRegistration?.let(::add)
+		current.pendingFrameTargetRegistration?.let(::add)
+		current.successorResourceRegistration?.let(::add)
+	}
+}
+
 private fun ReaderTransitionJournal.resourceKeys(): Set<ReaderTransitionResourceKey> = buildSet {
-	committed?.resourceKey?.let(::add)
+	when (val presentation = committed) {
+		is ReaderCommittedPresentation.Initial -> when (val origin = presentation.origin) {
+			is ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor -> add(origin.resource.key)
+			is ReaderInitialCommittedPresentationOrigin.Neutral -> Unit
+		}
+		is ReaderCommittedPresentation.Transition -> add(presentation.committed.resourceKey)
+	}
 	active?.let { current ->
 		current.predecessorResourceKey?.let(::add)
 		addAll(current.ownedResourceKeys)
@@ -563,12 +858,17 @@ private fun ReaderTransitionFact.registeredResourceKeyOrNull(): ReaderTransition
 	is ReaderTransitionFact.DeckOwned -> key
 	is ReaderTransitionFact.DeckPrepared -> key
 	is ReaderTransitionFact.DeckRejected -> key
-	is ReaderTransitionFact.PreparedFrame -> resourceKey
+	is ReaderTransitionFact.FrameTargetPrepared -> target.resource.key
+	is ReaderTransitionFact.FrameTargetPreparationRejected -> resource.key
+	is ReaderTransitionFact.PreparedFrame -> resource.key
 	is ReaderTransitionFact.CoverPostDraw -> resourceKey
 	is ReaderTransitionFact.WebViewExposure -> resourceKey
 	is ReaderTransitionFact.Intent,
 	is ReaderTransitionFact.FoliateDestinationCommitted,
 	is ReaderTransitionFact.SettlementAcknowledged,
+	is ReaderTransitionFact.MaterialBindingAllocated,
+	is ReaderTransitionFact.OwnerAndInputPublicationApplied,
+	is ReaderTransitionFact.OwnerAndInputPublicationRejected,
 	is ReaderTransitionFact.ViewportProfileReplaced,
 	is ReaderTransitionFact.RasterProgress,
 	is ReaderTransitionFact.RasterProven,
@@ -588,6 +888,7 @@ private fun ReaderTransitionFact.registeredResourceKeyOrNull(): ReaderTransition
 }
 
 internal fun ReaderTransitionFact.isTask4CoordinatorFact(): Boolean = when (this) {
+	is ReaderTransitionFact.MaterialBindingAllocated,
 	is ReaderTransitionFact.RasterProgress,
 	is ReaderTransitionFact.RasterProven,
 	is ReaderTransitionFact.RasterDeferred,
@@ -616,17 +917,21 @@ internal fun ReaderTransitionFact.isTask4CoordinatorFact(): Boolean = when (this
 	is ReaderTransitionFact.ViewportProfileReplaced,
 	is ReaderTransitionFact.HostAvailable,
 	is ReaderTransitionFact.PaginationProfileReady,
+	is ReaderTransitionFact.FrameTargetPrepared,
+	is ReaderTransitionFact.FrameTargetPreparationRejected,
 	is ReaderTransitionFact.PreparedFrame,
+	is ReaderTransitionFact.OwnerAndInputPublicationApplied,
+	is ReaderTransitionFact.OwnerAndInputPublicationRejected,
 	is ReaderTransitionFact.CoverPostDraw,
 	is ReaderTransitionFact.WebViewExposure,
 	is ReaderTransitionFact.VisibilityChanged -> false
 }
 
 private fun ReaderTransitionResourceKey.isTask4ResourceKeyFor(
-	factTransitionId: ReaderTransitionId,
+	factTransitionId: ReaderTransitionId?,
 	vararg allowedKinds: ReaderTransitionResourceKind
 ): Boolean {
-	if (transitionId != factTransitionId) return false
+	if (owningTransitionIdOrNull != factTransitionId) return false
 	return if (allowedKinds.isEmpty()) {
 		kind == ReaderTransitionResourceKind.Deck || kind == ReaderTransitionResourceKind.Raster
 	} else {
@@ -680,6 +985,7 @@ private fun ReaderTransitionFact.kind(): ReaderTransitionFactKind = when (this) 
 	is ReaderTransitionFact.Intent -> ReaderTransitionFactKind.Intent
 	is ReaderTransitionFact.FoliateDestinationCommitted -> ReaderTransitionFactKind.FoliateDestinationCommitted
 	is ReaderTransitionFact.SettlementAcknowledged -> ReaderTransitionFactKind.SettlementAcknowledged
+	is ReaderTransitionFact.MaterialBindingAllocated -> ReaderTransitionFactKind.MaterialBindingAllocated
 	is ReaderTransitionFact.ViewportProfileReplaced -> ReaderTransitionFactKind.ViewportProfileReplaced
 	is ReaderTransitionFact.RasterProgress -> ReaderTransitionFactKind.RasterProgress
 	is ReaderTransitionFact.RasterProven -> ReaderTransitionFactKind.RasterProven
@@ -695,7 +1001,11 @@ private fun ReaderTransitionFact.kind(): ReaderTransitionFactKind = when (this) 
 	is ReaderTransitionFact.HostAvailable -> ReaderTransitionFactKind.HostAvailable
 	is ReaderTransitionFact.PaginationProfileReady -> ReaderTransitionFactKind.PaginationProfileReady
 	is ReaderTransitionFact.RendererGenerationReady -> ReaderTransitionFactKind.RendererGenerationReady
+	is ReaderTransitionFact.FrameTargetPrepared -> ReaderTransitionFactKind.FrameTargetPrepared
+	is ReaderTransitionFact.FrameTargetPreparationRejected -> ReaderTransitionFactKind.FrameTargetPreparationRejected
 	is ReaderTransitionFact.PreparedFrame -> ReaderTransitionFactKind.PreparedFrame
+	is ReaderTransitionFact.OwnerAndInputPublicationApplied -> ReaderTransitionFactKind.OwnerAndInputPublicationApplied
+	is ReaderTransitionFact.OwnerAndInputPublicationRejected -> ReaderTransitionFactKind.OwnerAndInputPublicationRejected
 	is ReaderTransitionFact.CoverPostDraw -> ReaderTransitionFactKind.CoverPostDraw
 	is ReaderTransitionFact.WebViewExposure -> ReaderTransitionFactKind.WebViewExposure
 	is ReaderTransitionFact.VisibilityChanged -> ReaderTransitionFactKind.VisibilityChanged
@@ -709,10 +1019,14 @@ private fun ReaderTransitionFact.kind(): ReaderTransitionFactKind = when (this) 
 private fun ReaderTransitionCommand.kind(): ReaderTransitionCommandKind = when (this) {
 	is ReaderTransitionCommand.RequestSemanticSynchronization ->
 		ReaderTransitionCommandKind.RequestSemanticSynchronization
+	is ReaderTransitionCommand.AllocateMaterialBinding -> ReaderTransitionCommandKind.AllocateMaterialBinding
 	is ReaderTransitionCommand.RequestRasterPreparation -> ReaderTransitionCommandKind.RequestRasterPreparation
 	is ReaderTransitionCommand.ReserveDeck -> ReaderTransitionCommandKind.ReserveDeck
+	is ReaderTransitionCommand.PrepareFrameTarget -> ReaderTransitionCommandKind.PrepareFrameTarget
 	is ReaderTransitionCommand.RequestFramePresentation -> ReaderTransitionCommandKind.RequestFramePresentation
-	is ReaderTransitionCommand.ApplyInputLease -> ReaderTransitionCommandKind.ApplyInputLease
+	is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease ->
+		ReaderTransitionCommandKind.PublishRetainedOwnerAndInputLease
+	is ReaderTransitionCommand.CommitOwnerAndInputLease -> ReaderTransitionCommandKind.CommitOwnerAndInputLease
 	is ReaderTransitionCommand.ReleaseResource -> ReaderTransitionCommandKind.ReleaseResource
 	is ReaderTransitionCommand.CancelOwnedWork -> ReaderTransitionCommandKind.CancelOwnedWork
 }

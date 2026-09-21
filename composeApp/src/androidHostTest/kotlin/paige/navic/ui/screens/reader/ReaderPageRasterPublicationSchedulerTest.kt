@@ -10,6 +10,9 @@ import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import paige.navic.reader.ReaderTransitionFailureReason
+import paige.navic.reader.ReaderTransitionResourceKind
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderPageRasterPublicationSchedulerTest {
@@ -122,5 +125,67 @@ class ReaderPageRasterPublicationSchedulerTest {
 		firstClose.await()
 		secondClose.await()
 		assertEquals(0, scheduler.activeWorkerCount())
+	}
+
+	@Test
+	fun freezeSnapshotsAndDrainsExactPublicationJobsBeforeRestoration() = runTest {
+		val scheduler = ReaderPageRasterPublicationScheduler(
+			scope = this,
+			maxConcurrentWorkers = 1
+		)
+		val started = CompletableDeferred<Unit>()
+		val release = CompletableDeferred<Unit>()
+		val completedFinally = CompletableDeferred<Unit>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.schedule(ReaderPageRasterPublicationRequest("owned", 3L)) {
+				started.complete(Unit)
+				try {
+					release.await()
+				} finally {
+					completedFinally.complete(Unit)
+				}
+			}
+		)
+		started.await()
+		val domain = ReaderLegacyPhysicalDomain(
+			readerSessionGeneration = 21L,
+			freezeToken = ReaderLegacyFreezeToken(22L)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.freezeForTransitionActivation(domain)
+		)
+		val row = scheduler.snapshotFrozenOwnership().single()
+
+		assertEquals(domain, row.physicalIdentity.domain)
+		assertEquals(ReaderLegacyInventorySource.RasterPublication, row.physicalIdentity.source)
+		assertEquals(ReaderTransitionResourceKind.Raster, row.kind)
+		assertEquals(ReaderLegacyResourceState.Running, row.state)
+		assertEquals(
+			ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			),
+			scheduler.schedule(ReaderPageRasterPublicationRequest("fenced", 3L)) { }
+		)
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+		)
+		completedFinally.await()
+		runCurrent()
+		assertEquals(listOf(row.physicalIdentity), confirmations)
+		assertTrue(scheduler.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.restoreAfterTransitionActivation(domain)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.schedule(ReaderPageRasterPublicationRequest("restored", 3L)) { }
+		)
+		release.complete(Unit)
+		scheduler.closeAndJoin()
 	}
 }

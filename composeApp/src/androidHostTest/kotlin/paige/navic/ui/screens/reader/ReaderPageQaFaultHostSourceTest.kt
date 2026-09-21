@@ -317,6 +317,35 @@ class ReaderPageQaFaultHostSourceTest {
 	}
 
 	@Test
+	fun frozenTransitionReleaseBypassesSelectedProtectionOnlyForExactDeckIdentity() {
+		val binding = presentationBinding()
+		val generationId = requireNotNull(binding.textureGeneration)
+		val rasterGeneration = requireNotNull(binding.rasterGeneration)
+		val owners = mutableMapOf(generationId to rasterGeneration)
+		val releaseRequests = mutableListOf<Long>()
+		val releaseGate = ReaderRendererOwnedGenerationReleaseGate(
+			ownerForGeneration = owners::get,
+			rasterGenerationForOwner = { it },
+			isProtectedGeneration = { true },
+			requestRendererRelease = { candidate ->
+				releaseRequests += candidate
+				PageSurfaceDeckReleaseResult.accepted()
+			},
+			retireOwner = { owners.remove(it) }
+		)
+
+		assertFalse(releaseGate.request(binding))
+		assertFalse(
+			releaseGate.requestFrozenTransition(
+				binding.copy(rasterGeneration = rasterGeneration + 1L)
+			)
+		)
+		assertTrue(releaseGate.requestFrozenTransition(binding))
+		assertEquals(listOf(generationId), releaseRequests)
+		assertEquals(setOf(generationId), owners.keys)
+	}
+
+	@Test
 	fun rejectedAutomaticCleanupRetriesOnRendererAvailabilityWithoutManualRequest() {
 		val recoveredGeneration = 77L
 		val staleGeneration = 78L

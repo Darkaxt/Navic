@@ -12,6 +12,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import paige.navic.reader.ReaderTransitionResourceKind
 
 class ReaderPageRasterPublicationLedgerTest {
 	@Test
@@ -678,5 +679,139 @@ class ReaderPageRasterPublicationLedgerTest {
 			listOf(1 to 1, 1 to 2, 0 to 0, 1 to 1, 0 to 0),
 			ownershipCounts
 		)
+	}
+
+	@Test
+	fun freezeRejectsLateCapacityListenerRegistrationBeforeOwnershipMutation() {
+		val ledger = ReaderPageRasterPublicationLedger<String> { }
+		val domain = ReaderLegacyPhysicalDomain(
+			readerSessionGeneration = 35L,
+			freezeToken = ReaderLegacyFreezeToken(36L)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			ledger.freezeForTransitionActivation(domain)
+		)
+
+		assertFailsWith<IllegalStateException> {
+			ledger.setCapacityAvailableListener { }
+		}
+		assertTrue(ledger.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			ledger.restoreAfterTransitionActivation(domain)
+		)
+	}
+
+	@Test
+	fun activeFrozenPublicationConfirmsEveryExactOwnerOnlyAfterWorkerCompletion() {
+		val events = mutableListOf<String>()
+		val ledger = ReaderPageRasterPublicationLedger(
+			currentEpochEntryLimit = 1,
+			persistenceWorkerLimit = 1,
+			callbackLimit = 2,
+			release = { value: String -> events += "release-$value" }
+		)
+		val started = assertIs<ReaderPageRasterPublicationRegistration.Started>(
+			ledger.begin("active", "value") { events += "callback-$it" }
+		)
+		assertEquals("value", ledger.acquireForPersistence(started.request))
+		val domain = ReaderLegacyPhysicalDomain(
+			readerSessionGeneration = 33L,
+			freezeToken = ReaderLegacyFreezeToken(34L)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			ledger.freezeForTransitionActivation(domain)
+		)
+		val rows = ledger.snapshotFrozenOwnership()
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+
+		rows.forEach { row ->
+			assertEquals(
+				ReaderPortCommandResult.Accepted,
+				ledger.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+			)
+		}
+		assertEquals(listOf("callback-false"), events)
+		assertTrue(confirmations.isEmpty())
+		assertFalse(ledger.complete(started.request, persisted = true))
+		assertEquals(listOf("callback-false", "release-value"), events)
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+		assertTrue(ledger.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			ledger.restoreAfterTransitionActivation(domain)
+		)
+	}
+
+	@Test
+	fun frozenInventorySeparatesEntryValueCallbacksAndCapacityListenerUntilExactDrain() {
+		val events = mutableListOf<String>()
+		val listener: () -> Unit = { events += "capacity" }
+		val ledger = ReaderPageRasterPublicationLedger(
+			currentEpochEntryLimit = 2,
+			persistenceWorkerLimit = 1,
+			callbackLimit = 4,
+			release = { value: String -> events += "release-$value" }
+		)
+		ledger.setCapacityAvailableListener(listener)
+		assertIs<ReaderPageRasterPublicationRegistration.Started>(
+			ledger.begin("digest", "owner") { events += "owner-$it" }
+		)
+		assertIs<ReaderPageRasterPublicationRegistration.Coalesced>(
+			ledger.begin("digest", "waiter") { events += "waiter-$it" }
+		)
+		val domain = ReaderLegacyPhysicalDomain(
+			readerSessionGeneration = 31L,
+			freezeToken = ReaderLegacyFreezeToken(32L)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			ledger.freezeForTransitionActivation(domain)
+		)
+		val rows = ledger.snapshotFrozenOwnership()
+
+		assertEquals(5, rows.size)
+		assertEquals(rows.size, rows.map { it.physicalIdentity }.toSet().size)
+		assertTrue(rows.all { row ->
+			row.physicalIdentity.domain == domain &&
+				row.physicalIdentity.source == ReaderLegacyInventorySource.RasterPublication
+		})
+		assertEquals(2, rows.count { it.kind == ReaderTransitionResourceKind.Raster })
+		assertEquals(3, rows.count { it.kind == ReaderTransitionResourceKind.CallbackRegistration })
+		val fenced = assertIs<ReaderPageRasterPublicationRegistration.Rejected>(
+			ledger.begin("fenced", "fenced") { events += "fenced-$it" }
+		)
+		assertEquals(ReaderPageRasterPublicationRejection.ActivationFrozen, fenced.reason)
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		rows.forEach { row ->
+			assertEquals(
+				ReaderPortCommandResult.Accepted,
+				ledger.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+			)
+		}
+
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+		assertEquals(
+			listOf(
+				"release-waiter",
+				"fenced-false",
+				"release-fenced",
+				"owner-false",
+				"waiter-false",
+				"release-owner"
+			),
+			events
+		)
+		assertTrue(ledger.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			ledger.restoreAfterTransitionActivation(domain)
+		)
+		assertIs<ReaderPageRasterPublicationRegistration.Started>(
+			ledger.begin("restored", "restored") { }
+		)
+		ledger.invalidate()
 	}
 }

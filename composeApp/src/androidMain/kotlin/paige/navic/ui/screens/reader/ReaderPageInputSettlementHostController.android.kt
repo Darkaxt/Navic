@@ -13,6 +13,7 @@ import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderTransitionInputLease
 import paige.navic.reader.readerPageNewPointerDecision
 
 internal enum class ReaderPageHostLifecycleEvent {
@@ -186,6 +187,8 @@ internal class ReaderPageInputSettlementHostController(
 	private val chromeToggleTarget: (Float, Float) -> Boolean = { _, _ -> false },
 	private val onChromeToggle: () -> Unit = {},
 	private val chromeTapTimeoutMillis: Long = 500L,
+	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator(),
 	private val publishLifecycleCancellation: (
 		gestureId: Long,
 		reason: ReaderPageLifecycleCancellationReason
@@ -223,6 +226,22 @@ internal class ReaderPageInputSettlementHostController(
 		val progress: RendererLossCancellationProgress
 	)
 
+	private data class RestartPhysicalStream(
+		val gestureId: Long,
+		val claimedCurlStream: ClaimedCurlStream?,
+		val activationToken: ReaderLegacySourceLocalOpaqueToken
+	)
+
+	private data class RestartContentToken(
+		val token: ReaderPageContentGestureToken,
+		val activationToken: ReaderLegacySourceLocalOpaqueToken
+	)
+
+	private data class RestartChromeStream(
+		val pendingTap: PendingChromeTap?,
+		val activationToken: ReaderLegacySourceLocalOpaqueToken
+	)
+
 	private var presentationInputPolicy = initialPresentationInputPolicy
 	private var localSafetyPolicy = initialLocalSafetyPolicy
 	private var nativeTapContinuationIdentity = initialNativeTapContinuationIdentity
@@ -238,9 +257,173 @@ internal class ReaderPageInputSettlementHostController(
 	private var rendererLossCancellationProgress: ActiveRendererLossCancellation? = null
 	private val contentTokenByGestureId =
 		linkedMapOf<Long, ReaderPageContentGestureToken>()
+	private val contentActivationTokenByGestureId =
+		linkedMapOf<Long, ReaderLegacySourceLocalOpaqueToken>()
+	private var physicalStreamActivationToken: ReaderLegacySourceLocalOpaqueToken? = null
+	private var chromeStreamActivationToken: ReaderLegacySourceLocalOpaqueToken? = null
+	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var restartPhysicalStream: RestartPhysicalStream? = null
+	private var restartChromeStream: RestartChromeStream? = null
+	private val restartContentTokens = linkedMapOf<Long, RestartContentToken>()
+	private val completedFrozen = linkedSetOf<ReaderLegacySourceLocalOpaqueToken>()
 
 	init {
 		require(chromeTapTimeoutMillis >= 0L)
+	}
+
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = when {
+		frozenDomain == null -> {
+			frozenDomain = domain
+			ReaderPortCommandResult.Accepted
+		}
+		frozenDomain == domain -> ReaderPortCommandResult.Accepted
+		else -> ReaderPortCommandResult.Rejected(
+			paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+	}
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
+		val domain = frozenDomain ?: return emptyList()
+		return buildList {
+			physicalStreamActivationToken?.takeIf { physicalStreamGestureId != null }?.let { token ->
+				add(inputOwnershipRow(domain, token, ReaderLegacyResourceState.Running))
+			}
+			chromeStreamActivationToken?.takeIf { chromePhysicalStreamActive }?.let { token ->
+				add(inputOwnershipRow(domain, token, ReaderLegacyResourceState.Running))
+			}
+			contentTokenByGestureId.keys.forEach { gestureId ->
+				contentActivationTokenByGestureId[gestureId]?.let { token ->
+					add(inputOwnershipRow(domain, token, ReaderLegacyResourceState.Reserved))
+				}
+			}
+		}
+	}
+
+	private fun inputOwnershipRow(
+		domain: ReaderLegacyPhysicalDomain,
+		token: ReaderLegacySourceLocalOpaqueToken,
+		state: ReaderLegacyResourceState
+	) = ReaderFrozenLegacyResource(
+		freezeToken = domain.freezeToken,
+		physicalIdentity = ReaderLegacyPhysicalIdentity(
+			domain,
+			ReaderLegacyInventorySource.Input,
+			token
+		),
+		kind = paige.navic.reader.ReaderTransitionResourceKind.CallbackRegistration,
+		binding = null,
+		visibleOwner = null,
+		origin = ReaderLegacyResourceOrigin.Owned,
+		state = state,
+		mayBeCommittedPredecessor = false
+	)
+
+	fun drainFrozenOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult {
+		val domain = frozenDomain
+		if (
+			domain == null ||
+			physicalIdentity.domain != domain ||
+			physicalIdentity.source != ReaderLegacyInventorySource.Input
+		) return ReaderPortCommandResult.Rejected(
+			paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		val token = physicalIdentity.sourceLocalToken
+		if (physicalStreamActivationToken == token && physicalStreamGestureId != null) {
+			restartPhysicalStream = RestartPhysicalStream(
+				checkNotNull(physicalStreamGestureId),
+				claimedCurlStream,
+				token
+			)
+			physicalStreamGestureId = null
+			claimedCurlStream = null
+			physicalStreamActivationToken = null
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		if (chromeStreamActivationToken == token && chromePhysicalStreamActive) {
+			restartChromeStream = RestartChromeStream(pendingChromeTap, token)
+			chromePhysicalStreamActive = false
+			pendingChromeTap = null
+			chromeStreamActivationToken = null
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		val contentEntry = contentActivationTokenByGestureId.entries.firstOrNull {
+			it.value == token
+		}
+		if (contentEntry != null) {
+			val gestureId = contentEntry.key
+			restartContentTokens[gestureId] = RestartContentToken(
+				checkNotNull(contentTokenByGestureId.remove(gestureId)),
+				token
+			)
+			contentActivationTokenByGestureId.remove(gestureId)
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		if (completedFrozen.remove(token)) {
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		return ReaderPortCommandResult.Rejected(
+			paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+	}
+
+	fun restoreAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		if (frozenDomain != domain) return ReaderPortCommandResult.Rejected(
+			paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		restartPhysicalStream?.let { restart ->
+			physicalStreamGestureId = restart.gestureId
+			claimedCurlStream = restart.claimedCurlStream
+			physicalStreamActivationToken = restart.activationToken
+		}
+		restartPhysicalStream = null
+		restartChromeStream?.let { restart ->
+			chromePhysicalStreamActive = true
+			pendingChromeTap = restart.pendingTap
+			chromeStreamActivationToken = restart.activationToken
+		}
+		restartChromeStream = null
+		restartContentTokens.forEach { (gestureId, restart) ->
+			contentTokenByGestureId[gestureId] = restart.token
+			contentActivationTokenByGestureId[gestureId] = restart.activationToken
+		}
+		restartContentTokens.clear()
+		completedFrozen.clear()
+		frozenDomain = null
+		return ReaderPortCommandResult.Accepted
+	}
+
+	fun narrowOrVeto(lease: ReaderTransitionInputLease): ReaderTransitionInputLease = when (lease) {
+		ReaderTransitionInputLease.None -> ReaderTransitionInputLease.None
+		ReaderTransitionInputLease.ChromeOnly -> ReaderTransitionInputLease.ChromeOnly
+		ReaderTransitionInputLease.CoverActions -> if (
+			!pointerAdmissionClosed &&
+			localSafetyPolicy.newPointer == ReaderPageNewPointerDecision.Accept
+		) lease else ReaderTransitionInputLease.ChromeOnly
+		is ReaderTransitionInputLease.NativePage -> {
+			val continuation = nativeTapContinuationIdentity
+			if (
+				!pointerAdmissionClosed &&
+				localSafetyPolicy.newPointer == ReaderPageNewPointerDecision.Accept &&
+				continuation?.binding == lease.binding &&
+				lease.binding.textureGeneration == lease.textureGeneration
+			) lease else ReaderTransitionInputLease.ChromeOnly
+		}
+		is ReaderTransitionInputLease.ClaimedGesture -> if (
+			!pointerDeliveryClosed &&
+			localSafetyPolicy.continueActivePointer &&
+			physicalStreamGestureId == lease.gestureId.value
+		) lease else ReaderTransitionInputLease.ChromeOnly
 	}
 
 	fun updateInputPolicies(
@@ -249,6 +432,7 @@ internal class ReaderPageInputSettlementHostController(
 		nativeTapContinuationIdentity: ReaderNativeTapContinuationIdentity? = null,
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	) {
+		if (frozenDomain != null) return
 		val incomingCurlToken = (presentationInputPolicy as?
 			ReaderPresentationInputPolicy.ClaimedCurl)?.token
 		val claimedStream = claimedCurlStream?.takeIf {
@@ -327,6 +511,7 @@ internal class ReaderPageInputSettlementHostController(
 	}
 
 	fun dispatchChromeOnlyPointer(event: ReaderPageHostPointerEvent): Boolean {
+		if (frozenDomain != null) return false
 		val terminalCurlGestureId = physicalStreamGestureId?.takeIf {
 			claimedCurlStream?.let { claim ->
 				claim.gestureId == it && claim.terminalPublished
@@ -344,6 +529,7 @@ internal class ReaderPageInputSettlementHostController(
 				)
 				clearPhysicalCurlClaim(terminalCurlGestureId)
 				physicalStreamGestureId = null
+				physicalStreamActivationToken = null
 				closeDeliveryAfterFinalPhysicalTail()
 			}
 			return true
@@ -361,6 +547,7 @@ internal class ReaderPageInputSettlementHostController(
 					"A ChromeOnly physical pointer stream is already active"
 				}
 				chromePhysicalStreamActive = true
+				chromeStreamActivationToken = tokenAllocator.allocate()
 				pendingChromeTap = PendingChromeTap(
 					downX = event.x,
 					downY = event.y,
@@ -391,6 +578,7 @@ internal class ReaderPageInputSettlementHostController(
 				val pending = pendingChromeTap
 				pendingChromeTap = null
 				chromePhysicalStreamActive = false
+				chromeStreamActivationToken = null
 				val elapsedMillis = pending?.let { event.eventTimeMillis - it.downTimeMillis }
 				if (
 					pending != null &&
@@ -424,10 +612,14 @@ internal class ReaderPageInputSettlementHostController(
 		val consumed = chromePhysicalStreamActive
 		pendingChromeTap = null
 		chromePhysicalStreamActive = false
+		chromeStreamActivationToken = null
 		return consumed
 	}
 
 	fun dispatchPointer(event: ReaderPageHostPointerEvent): ReaderPageHostPointerDispatchResult {
+		if (frozenDomain != null) {
+			return ReaderPageHostPointerDispatchResult(null, ReaderPagePointerRoute.Ignore)
+		}
 		if (
 			pointerDeliveryClosed ||
 			(pointerAdmissionClosed && event is ReaderPageHostPointerEvent.Down)
@@ -441,6 +633,7 @@ internal class ReaderPageInputSettlementHostController(
 				}
 				val begin = beginPointer(event.x, event.y)
 				physicalStreamGestureId = begin.gestureId
+				physicalStreamActivationToken = tokenAllocator.allocate()
 				if (begin.route == ReaderPagePointerRoute.Content) {
 					bindContentToken(
 						downTimeMillis = event.downTimeMillis,
@@ -528,11 +721,15 @@ internal class ReaderPageInputSettlementHostController(
 		}
 		clearPhysicalCurlClaim(gestureId)
 		physicalStreamGestureId = null
+		physicalStreamActivationToken = null
 		closeDeliveryAfterFinalPhysicalTail()
 		return ReaderPageHostPointerDispatchResult(gestureId, route)
 	}
 
 	fun claimContentAction(downTimeMillis: Long): ReaderPageHostPointerDispatchResult {
+		if (frozenDomain != null) {
+			return ReaderPageHostPointerDispatchResult(null, ReaderPagePointerRoute.Ignore)
+		}
 		contentTokenByGestureId.values
 			.asSequence()
 			.filter { token ->
@@ -557,6 +754,7 @@ internal class ReaderPageInputSettlementHostController(
 	private fun takeDelayedTapMatching(
 		matches: (ReaderPageContentGestureToken) -> Boolean
 	): ReaderPageContentGestureToken? {
+		if (frozenDomain != null) return null
 		val entry = contentTokenByGestureId.entries.firstOrNull { (gestureId, token) ->
 			matches(token) && pointerRouter.isDelayedTapPending(gestureId)
 		} ?: return null
@@ -568,10 +766,10 @@ internal class ReaderPageInputSettlementHostController(
 				entry.key,
 				ReaderPageGestureTerminalOutcome.CancelledLifecycle
 			)
-			contentTokenByGestureId.remove(entry.key)
+			releaseContentToken(entry.key)
 			return null
 		}
-		contentTokenByGestureId.remove(entry.key)
+		releaseContentToken(entry.key)
 		return entry.value
 	}
 
@@ -591,7 +789,7 @@ internal class ReaderPageInputSettlementHostController(
 					cancellationPort.cancelForPointerInterruption(gestureId)
 				}
 			}
-			contentTokenByGestureId.remove(gestureId)
+			releaseContentToken(gestureId)
 		}
 	}
 
@@ -616,10 +814,14 @@ internal class ReaderPageInputSettlementHostController(
 			y = y,
 			continuationIdentity = continuationIdentity
 		)
+		contentActivationTokenByGestureId[gestureId] = tokenAllocator.allocate()
 	}
 
 	private fun releaseContentToken(gestureId: Long) {
 		contentTokenByGestureId.remove(gestureId)
+		contentActivationTokenByGestureId.remove(gestureId)?.let { token ->
+			if (frozenDomain != null) completedFrozen += token
+		}
 	}
 
 	private fun endPointer(gestureId: Long): ReaderPagePointerRoute =
@@ -636,6 +838,7 @@ internal class ReaderPageInputSettlementHostController(
 		if (finalStreamEvent) {
 			clearPhysicalCurlClaim(gestureId)
 			physicalStreamGestureId = null
+			physicalStreamActivationToken = null
 			closeDeliveryAfterFinalPhysicalTail()
 		}
 		return ReaderPageHostPointerDispatchResult(gestureId, route)
@@ -645,6 +848,7 @@ internal class ReaderPageInputSettlementHostController(
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome
 	): Boolean {
+		if (frozenDomain != null) return false
 		val completed = pointerRouter.complete(gestureId, outcome)
 		if (completed) {
 			releaseContentToken(gestureId)
@@ -661,6 +865,7 @@ internal class ReaderPageInputSettlementHostController(
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome
 	): Boolean {
+		if (frozenDomain != null) return false
 		val completed = pointerRouter.completeDelayedTap(gestureId, outcome)
 		if (completed) releaseContentToken(gestureId)
 		return completed
@@ -670,6 +875,7 @@ internal class ReaderPageInputSettlementHostController(
 		event: ReaderPageHostLifecycleEvent,
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	): List<Long> {
+		if (frozenDomain != null) return emptyList()
 		val reason = event.cancellationReason()
 		require(
 			rendererLossCancellationIdentity == null ||
@@ -819,6 +1025,7 @@ internal class ReaderPageInputSettlementHostController(
 	}
 
 	fun abandonPhysicalPointerStream(reason: ReaderPageLifecycleCancellationReason) {
+		if (frozenDomain != null) return
 		require(
 			reason == ReaderPageLifecycleCancellationReason.HostDetached ||
 				reason == ReaderPageLifecycleCancellationReason.HostDestroyed ||
@@ -842,8 +1049,10 @@ internal class ReaderPageInputSettlementHostController(
 		}
 		pointerDeliveryClosed = true
 		physicalStreamGestureId = null
+		physicalStreamActivationToken = null
 		claimedCurlStream = null
 		finishChromeOnlyPointerStream()
 		contentTokenByGestureId.clear()
+		contentActivationTokenByGestureId.clear()
 	}
 }

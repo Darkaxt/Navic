@@ -28,7 +28,8 @@ import paige.navic.reader.ReaderPresentationMemoryPressureLevel
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderPresentationBinding
-import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.readerTransitionMaterialBindingIsValid
+import paige.navic.reader.ReaderMaterialGenerationAllocation
 import paige.navic.reader.ReaderTransitionFailureReason
 import paige.navic.reader.ReaderTransitionFact
 import paige.navic.reader.ReaderTransitionId
@@ -85,17 +86,16 @@ internal data class ReaderRasterPreparationLease(
 	val binding: ReaderPresentationBinding,
 	val preparationGeneration: Long,
 	val rasterGeneration: Long,
-	val resourceKey: ReaderTransitionResourceKey
+	val resourceKey: ReaderTransitionResourceKey,
+	val allocation: ReaderMaterialGenerationAllocation? = null
 ) {
 	init {
 		require(preparationGeneration > 0L)
 		require(rasterGeneration > 0L)
-		require(
-			transitionId.expectedBinding == ReaderExpectedPresentationBinding.Exact(binding)
-		)
+		require(readerTransitionMaterialBindingIsValid(transitionId, binding, allocation))
 		require(binding.preparationGeneration == preparationGeneration)
 		require(binding.rasterGeneration == rasterGeneration)
-		require(resourceKey.transitionId == transitionId)
+		require(resourceKey.owningTransitionIdOrNull == transitionId)
 		require(resourceKey.kind == ReaderTransitionResourceKind.Raster)
 		require(resourceKey.opaqueId == rasterGeneration)
 	}
@@ -261,6 +261,249 @@ internal fun readerPageRasterAcquisitionTrigger(
  * This class intentionally has no gesture, deformation, shader, or settlement behavior. Those
  * responsibilities belong exclusively to the imported PlayLikeCurl library and its Foliate bridge.
  */
+internal enum class ReaderRasterPreparationPhysicalOperation {
+	Prewarm,
+	Repair,
+	BackgroundPrefetch,
+	CacheInitialization,
+	VisualRestoration
+}
+
+internal data class ReaderRasterPreparationPhysicalRestartDescriptor(
+	val binding: ReaderPresentationBinding?,
+	val operation: ReaderRasterPreparationPhysicalOperation,
+	val preparationGeneration: Long,
+	val rasterGeneration: Long,
+	val pageOrdinal: Int? = null
+) {
+	init {
+		require(preparationGeneration >= 0L)
+		require(rasterGeneration >= 0L)
+		require(pageOrdinal == null || pageOrdinal >= 0)
+		binding?.let {
+			require(it.preparationGeneration == preparationGeneration)
+			require(it.rasterGeneration == rasterGeneration)
+		}
+	}
+}
+
+/** Exact physical raster-preparation work and completion ownership retained across activation. */
+internal class ReaderRasterPreparationPhysicalOwnershipAdapter(
+	private val releasePhysicalPreparation: (
+		ReaderRasterPreparationPhysicalRestartDescriptor,
+		onReleased: () -> Unit
+	) -> Boolean,
+	private val restorePhysicalPreparation: (
+		ReaderRasterPreparationPhysicalRestartDescriptor
+	) -> ReaderRasterPreparationPhysicalRestartDescriptor?,
+	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator()
+) {
+	internal class Lease internal constructor(
+		internal var descriptor: ReaderRasterPreparationPhysicalRestartDescriptor,
+		internal val preparationToken: ReaderLegacySourceLocalOpaqueToken,
+		internal val callbackToken: ReaderLegacySourceLocalOpaqueToken
+	) {
+		internal var state = ReaderLegacyResourceState.Reserved
+		internal var restartState = ReaderLegacyResourceState.Reserved
+		internal var preparationOwned = true
+		internal var callbackOwned = true
+		internal var releaseRequested = false
+		internal var drainIdentity: ReaderLegacyPhysicalIdentity? = null
+		internal var drainConfirmation: ((ReaderLegacyPhysicalIdentity) -> Unit)? = null
+	}
+
+	private val leases = linkedSetOf<Lease>()
+	private val completedFrozenCallbacks =
+		linkedSetOf<ReaderLegacySourceLocalOpaqueToken>()
+	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+
+	val isFrozen: Boolean
+		get() = frozenDomain != null
+
+	fun register(descriptor: ReaderRasterPreparationPhysicalRestartDescriptor): Lease? {
+		if (frozenDomain != null) return null
+		return Lease(
+			descriptor = descriptor,
+			preparationToken = tokenAllocator.allocate(),
+			callbackToken = tokenAllocator.allocate()
+		).also(leases::add)
+	}
+
+	fun acknowledgePhysicalOwnership(lease: Lease): Boolean {
+		if (frozenDomain != null || lease !in leases || !lease.preparationOwned) return false
+		lease.state = ReaderLegacyResourceState.Running
+		return true
+	}
+
+	fun observePhysicalCallback(lease: Lease): Boolean {
+		if (lease !in leases || !lease.callbackOwned) return false
+		if (frozenDomain != null) {
+			lease.callbackOwned = false
+			completedFrozenCallbacks += lease.callbackToken
+			return false
+		}
+		lease.callbackOwned = false
+		lease.state = ReaderLegacyResourceState.Prepared
+		return true
+	}
+
+	fun retireNormally(lease: Lease): Boolean {
+		if (frozenDomain != null || !leases.remove(lease)) return false
+		lease.preparationOwned = false
+		lease.callbackOwned = false
+		lease.state = ReaderLegacyResourceState.Released
+		return true
+	}
+
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = when {
+		frozenDomain == null -> {
+			frozenDomain = domain
+			ReaderPortCommandResult.Accepted
+		}
+		frozenDomain == domain -> ReaderPortCommandResult.Accepted
+		else -> ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+	}
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
+		val domain = frozenDomain ?: return emptyList()
+		return buildList {
+			leases.forEach { lease ->
+				if (lease.preparationOwned) add(
+					ownershipRow(
+						domain,
+						lease,
+						lease.preparationToken,
+						ReaderTransitionResourceKind.Raster,
+						lease.state
+					)
+				)
+				if (lease.callbackOwned || lease.callbackToken in completedFrozenCallbacks) add(
+					ownershipRow(
+						domain,
+						lease,
+						lease.callbackToken,
+						ReaderTransitionResourceKind.CallbackRegistration,
+						if (lease.callbackOwned) {
+							ReaderLegacyResourceState.Registered
+						} else {
+							ReaderLegacyResourceState.ReleaseRequested
+						}
+					)
+				)
+			}
+		}
+	}
+
+	private fun ownershipRow(
+		domain: ReaderLegacyPhysicalDomain,
+		lease: Lease,
+		token: ReaderLegacySourceLocalOpaqueToken,
+		kind: ReaderTransitionResourceKind,
+		state: ReaderLegacyResourceState
+	) = ReaderFrozenLegacyResource(
+		freezeToken = domain.freezeToken,
+		physicalIdentity = ReaderLegacyPhysicalIdentity(
+			domain = domain,
+			source = ReaderLegacyInventorySource.RasterPreparation,
+			sourceLocalToken = token
+		),
+		kind = kind,
+		binding = lease.descriptor.binding,
+		visibleOwner = null,
+		origin = if (state == ReaderLegacyResourceState.Reserved) {
+			ReaderLegacyResourceOrigin.Pending
+		} else {
+			ReaderLegacyResourceOrigin.Owned
+		},
+		state = state,
+		mayBeCommittedPredecessor = false
+	)
+
+	fun drainFrozenOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult {
+		val domain = frozenDomain
+		if (
+			domain == null ||
+			physicalIdentity.domain != domain ||
+			physicalIdentity.source != ReaderLegacyInventorySource.RasterPreparation
+		) return invalidResource()
+		val lease = leases.firstOrNull {
+			it.preparationToken == physicalIdentity.sourceLocalToken ||
+				it.callbackToken == physicalIdentity.sourceLocalToken
+		} ?: return invalidResource()
+		if (lease.callbackToken == physicalIdentity.sourceLocalToken) {
+			if (!lease.callbackOwned && !completedFrozenCallbacks.remove(lease.callbackToken)) {
+				return invalidResource()
+			}
+			lease.callbackOwned = false
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		if (!lease.preparationOwned || lease.releaseRequested) return invalidResource()
+		lease.restartState = lease.state
+		lease.state = ReaderLegacyResourceState.ReleaseRequested
+		lease.releaseRequested = true
+		lease.drainIdentity = physicalIdentity
+		lease.drainConfirmation = onConfirmed
+		if (!releasePhysicalPreparation(lease.descriptor) { completePhysicalRelease(lease) }) {
+			lease.state = lease.restartState
+			lease.releaseRequested = false
+			lease.drainIdentity = null
+			lease.drainConfirmation = null
+			return invalidResource()
+		}
+		return ReaderPortCommandResult.Accepted
+	}
+
+	private fun completePhysicalRelease(lease: Lease) {
+		if (!lease.releaseRequested || !lease.preparationOwned) return
+		lease.preparationOwned = false
+		lease.state = ReaderLegacyResourceState.Released
+		lease.releaseRequested = false
+		val identity = lease.drainIdentity
+		val confirmation = lease.drainConfirmation
+		lease.drainIdentity = null
+		lease.drainConfirmation = null
+		if (identity != null && confirmation != null) confirmation(identity)
+	}
+
+	fun restoreAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		if (
+			frozenDomain != domain ||
+			completedFrozenCallbacks.isNotEmpty() ||
+			leases.any { it.callbackOwned || it.releaseRequested }
+		) return invalidResource()
+		val restored = leases.filterNot { it.preparationOwned }.all { lease ->
+			val descriptor = restorePhysicalPreparation(lease.descriptor)
+			if (descriptor == null) {
+				false
+			} else {
+				lease.descriptor = descriptor
+				lease.preparationOwned = true
+				lease.callbackOwned = true
+				lease.state = lease.restartState
+				true
+			}
+		}
+		if (!restored) return invalidResource()
+		frozenDomain = null
+		return ReaderPortCommandResult.Accepted
+	}
+
+	private fun invalidResource(): ReaderPortCommandResult = ReaderPortCommandResult.Rejected(
+		ReaderTransitionFailureReason.InvalidLegacyResource
+	)
+}
+
 internal class ReaderPageRasterPreparationController(
 	private val host: ViewGroup,
 	private val webViewProvider: () -> WebView?,

@@ -85,7 +85,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			coordinatorEpoch = 17L,
 			sequence = 19L,
 			operation = ReaderTransitionOperation.CoverToPageEntry,
-			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding),
+			parent = paige.navic.reader.ReaderTransitionParentIdentity(13L, 17L, 18L)
 		)
 		val lease = ReaderRasterPreparationLease(
 			transitionId = id,
@@ -103,7 +104,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		val staleBinding = binding.copy(rasterGeneration = 23L)
 		val staleId = id.copy(
 			sequence = id.sequence + 1L,
-			expectedBinding = ReaderExpectedPresentationBinding.Exact(staleBinding)
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(staleBinding),
+			parent = id.parentIdentity()
 		)
 		val stale = lease.copy(
 			transitionId = staleId,
@@ -144,7 +146,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			coordinatorEpoch = 17L,
 			sequence = 19L,
 			operation = ReaderTransitionOperation.CoverToPageEntry,
-			expectedBinding = ReaderExpectedPresentationBinding.Exact(expectedBinding)
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(expectedBinding),
+			parent = paige.navic.reader.ReaderTransitionParentIdentity(13L, 17L, 18L)
 		)
 		val mismatchedBinding = expectedBinding.copy(textureGeneration = 23L)
 
@@ -179,7 +182,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			coordinatorEpoch = 17L,
 			sequence = 19L,
 			operation = ReaderTransitionOperation.CoverToPageEntry,
-			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding),
+			parent = paige.navic.reader.ReaderTransitionParentIdentity(13L, 17L, 18L)
 		)
 		val lease = ReaderRasterPreparationLease(
 			id,

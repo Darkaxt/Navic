@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -26,13 +27,180 @@ import paige.navic.reader.ReaderTransitionOperation
 import paige.navic.reader.ReaderTransitionPhaseKind
 import paige.navic.reader.ReaderTransitionResourceKey
 import paige.navic.reader.ReaderTransitionResourceKind
+import paige.navic.reader.ReaderTransitionResourceProvenance
 import paige.navic.reader.ReaderTransitionDeferralReason
 import paige.navic.reader.ReaderTransitionNonce
 import paige.navic.reader.ReaderTransitionResumeRecord
 import paige.navic.reader.ReaderTransitionWakeKind
+import paige.navic.reader.parentIdentity
 
 @RunWith(RobolectricTestRunner::class)
 class ReaderDeckAdmissionCutoverTest {
+	@Test
+	fun physicalDeckAndCallbackFreezeDrainAndRestoreByStableExactIdentity() {
+		val releaseCallbacks = mutableListOf<() -> Unit>()
+		val restored = mutableListOf<ReaderDeckPhysicalRestartDescriptor>()
+		val adapter = ReaderDeckPhysicalOwnershipAdapter(
+			releasePhysicalDeck = { _, onReleased -> releaseCallbacks.add(onReleased) },
+			restorePhysicalDeck = { restart ->
+				restored += restart
+				restart
+			}
+		)
+		val descriptor = ReaderDeckPhysicalRestartDescriptor(
+			binding = binding(textureGeneration = 401L),
+			role = ReaderDeckSubmissionRole.Active,
+			preparationGeneration = 11L,
+			rasterGeneration = 31L,
+			textureGeneration = 401L
+		)
+		val lease = assertNotNull(adapter.register(descriptor))
+		assertTrue(adapter.acknowledgeRendererOwnership(lease))
+		val domain = ReaderLegacyPhysicalDomain(7L, ReaderLegacyFreezeToken(13L))
+
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.freezeForTransitionActivation(domain))
+		assertNull(
+			adapter.register(
+				descriptor.copy(
+					binding = binding(textureGeneration = 402L),
+					textureGeneration = 402L
+				)
+			)
+		)
+		val frozen = adapter.snapshotFrozenOwnership()
+		assertEquals(2, frozen.size)
+		val deck = frozen.single { it.kind == ReaderTransitionResourceKind.Deck }
+		val callback = frozen.single {
+			it.kind == ReaderTransitionResourceKind.CallbackRegistration
+		}
+		assertEquals(ReaderLegacyInventorySource.Deck, deck.physicalIdentity.source)
+		assertEquals(ReaderLegacyInventorySource.Deck, callback.physicalIdentity.source)
+		assertEquals(ReaderLegacyResourceState.RendererOwned, deck.state)
+		assertEquals(ReaderLegacyResourceState.Registered, callback.state)
+		assertEquals(2, frozen.map { it.physicalIdentity }.toSet().size)
+
+		val confirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.drainFrozenOwnership(callback.physicalIdentity, confirmed::add)
+		)
+		assertEquals(listOf(callback.physicalIdentity), confirmed)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.drainFrozenOwnership(deck.physicalIdentity, confirmed::add)
+		)
+		assertEquals(1, releaseCallbacks.size)
+		assertEquals(listOf(callback.physicalIdentity), confirmed)
+
+		releaseCallbacks.single().invoke()
+		assertEquals(setOf(callback.physicalIdentity, deck.physicalIdentity), confirmed.toSet())
+		assertTrue(adapter.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.restoreAfterTransitionActivation(domain)
+		)
+		assertEquals(listOf(descriptor), restored)
+	}
+
+	@Test
+	fun rendererCallbackBeforeDrainIsTombstonedAndRestoredWithoutDispatch() {
+		val releaseCallbacks = mutableListOf<() -> Unit>()
+		val adapter = ReaderDeckPhysicalOwnershipAdapter(
+			releasePhysicalDeck = { _, onReleased -> releaseCallbacks.add(onReleased) },
+			restorePhysicalDeck = { it }
+		)
+		val lease = assertNotNull(
+			adapter.register(
+				ReaderDeckPhysicalRestartDescriptor(
+					binding = binding(textureGeneration = 403L),
+					role = ReaderDeckSubmissionRole.Active,
+					preparationGeneration = 11L,
+					rasterGeneration = 31L,
+					textureGeneration = 403L
+				)
+			)
+		)
+		assertTrue(adapter.acknowledgeRendererOwnership(lease))
+		val domain = ReaderLegacyPhysicalDomain(7L, ReaderLegacyFreezeToken(17L))
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.freezeForTransitionActivation(domain))
+		val original = adapter.snapshotFrozenOwnership()
+		val callback = original.single {
+			it.kind == ReaderTransitionResourceKind.CallbackRegistration
+		}
+
+		assertFalse(adapter.observeRendererCallback(lease))
+		val discovered = adapter.snapshotFrozenOwnership().single {
+			it.kind == ReaderTransitionResourceKind.CallbackRegistration
+		}
+		assertEquals(callback.physicalIdentity, discovered.physicalIdentity)
+		assertEquals(ReaderLegacyResourceState.ReleaseRequested, discovered.state)
+
+		val confirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.drainFrozenOwnership(discovered.physicalIdentity, confirmed::add)
+		)
+		assertEquals(listOf(discovered.physicalIdentity), confirmed)
+		val deck = adapter.snapshotFrozenOwnership().single()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.drainFrozenOwnership(deck.physicalIdentity, confirmed::add)
+		)
+		releaseCallbacks.single().invoke()
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.restoreAfterTransitionActivation(domain))
+		val restoredDomain = ReaderLegacyPhysicalDomain(7L, ReaderLegacyFreezeToken(19L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.freezeForTransitionActivation(restoredDomain)
+		)
+		assertEquals(
+			ReaderLegacyResourceState.Registered,
+			adapter.snapshotFrozenOwnership().single {
+				it.kind == ReaderTransitionResourceKind.CallbackRegistration
+			}.state
+		)
+	}
+
+	@Test
+	fun rejectedPhysicalDeckReleaseRetainsExactFrozenOwnershipForRetry() {
+		var releases = 0
+		val adapter = ReaderDeckPhysicalOwnershipAdapter(
+			releasePhysicalDeck = { _, _ ->
+				releases += 1
+				false
+			},
+			restorePhysicalDeck = { it }
+		)
+		val lease = assertNotNull(
+			adapter.register(
+				ReaderDeckPhysicalRestartDescriptor(
+					binding = binding(textureGeneration = 405L),
+					role = ReaderDeckSubmissionRole.Active,
+					preparationGeneration = 11L,
+					rasterGeneration = 31L,
+					textureGeneration = 405L
+				)
+			)
+		)
+		assertTrue(adapter.acknowledgeRendererOwnership(lease))
+		val domain = ReaderLegacyPhysicalDomain(7L, ReaderLegacyFreezeToken(23L))
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.freezeForTransitionActivation(domain))
+		val deck = adapter.snapshotFrozenOwnership().single {
+			it.kind == ReaderTransitionResourceKind.Deck
+		}
+
+		assertIs<ReaderPortCommandResult.Rejected>(
+			adapter.drainFrozenOwnership(deck.physicalIdentity) {}
+		)
+		assertEquals(1, releases)
+		assertEquals(deck.physicalIdentity, adapter.snapshotFrozenOwnership().single {
+			it.kind == ReaderTransitionResourceKind.Deck
+		}.physicalIdentity)
+		assertEquals(ReaderLegacyResourceState.RendererOwned, adapter.snapshotFrozenOwnership().single {
+			it.kind == ReaderTransitionResourceKind.Deck
+		}.state)
+	}
+
 	@Test
 	fun productionDefaultDeckAdmissionPolicyRemainsLegacyOnlyUntilTask4() {
 		val legacyHost = UnavailableReaderDeckAdmissionLeaseHost
@@ -274,23 +442,23 @@ class ReaderDeckAdmissionCutoverTest {
 		val inactivePorts = ReaderCutoverTransitionPorts(delegate, inactive)
 		val key = resource(159L).key
 		assertFailsWith<IllegalStateException> {
-			inactivePorts.issue(ReaderTransitionCommand.ReleaseResource(key.transitionId, key), callbacks::add)
+			inactivePorts.issue(ReaderTransitionCommand.ReleaseResource(requireNotNull(key.owningTransitionIdOrNull), key), callbacks::add)
 		}
 		assertTrue(issued.isEmpty())
 
 		val active = synchronousCutover(ReaderLegacyDeckInventory.Complete(emptyList()))
 		assertTrue(active.activate())
 		val activePorts = ReaderCutoverTransitionPorts(delegate, active)
-		val binding = (key.transitionId.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
+		val binding = (requireNotNull(key.owningTransitionIdOrNull).expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
 		activePorts.issue(
 			ReaderTransitionCommand.ReserveDeck(
-				transitionId = key.transitionId,
+				transitionId = requireNotNull(key.owningTransitionIdOrNull),
 				binding = binding,
 				role = ReaderTransitionDeckRole.Initial
 			),
 			callbacks::add
 		)
-		activePorts.issue(ReaderTransitionCommand.ReleaseResource(key.transitionId, key), callbacks::add)
+		activePorts.issue(ReaderTransitionCommand.ReleaseResource(requireNotNull(key.owningTransitionIdOrNull), key), callbacks::add)
 
 		assertEquals(2, issued.size)
 		assertEquals(1, callbacks.size)
@@ -345,6 +513,75 @@ class ReaderDeckAdmissionCutoverTest {
 	}
 
 	@Test
+	fun `task4 allocation raster and deck accept Foliate and semantic successor bindings`() {
+		val predecessor = binding(29L).copy(
+			preparationGeneration = null,
+			rasterGeneration = null,
+			textureGeneration = null
+		)
+		val cases = listOf(
+			ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial(1L) to
+				predecessor.copy(destinationCommitIdentity = ReaderDestinationCommitIdentity("physical-deck-session", 31L)),
+			ReaderExpectedPresentationBinding.SemanticSuccessor(predecessor, 2L) to
+				predecessor.copy(destinationCommitIdentity = ReaderDestinationCommitIdentity("physical-deck-session", 37L))
+		)
+		val rasterLeases = mutableListOf<ReaderRasterPreparationLease>()
+		val deckLeases = mutableListOf<ReaderDeckLease>()
+		val ports = ReaderTask4TransitionPorts(
+			clock = testTransitionClock(),
+			raster = recordingRasterPort(
+				onPrepare = { lease, _ -> rasterLeases += lease },
+				onRelease = { _, _ -> }
+			),
+			renderer = object : ReaderRendererDeckCommandPort {
+				override fun reserve(lease: ReaderDeckLease, callbacks: ReaderDeckLeaseFactEmitter) {
+					deckLeases += lease
+				}
+				override fun release(lease: ReaderDeckLease, onReleased: () -> Unit) = Unit
+				override fun cancelPreparation(transitionId: ReaderTransitionId) = Unit
+			}
+		)
+
+		cases.forEachIndexed { index, (expected, commandBinding) ->
+			val sequence = index + 1L
+			val id = ReaderTransitionId(
+				readerSessionGeneration = 2L,
+				coordinatorEpoch = 3L,
+				sequence = sequence,
+				operation = if (index == 0) {
+					ReaderTransitionOperation.BootstrapNativePage
+				} else ReaderTransitionOperation.ExternalSemanticRelocation,
+				expectedBinding = expected,
+				parent = if (sequence == 1L) null else paige.navic.reader.ReaderTransitionParentIdentity(
+					2L,
+					3L,
+					sequence - 1L
+				)
+			)
+			val facts = mutableListOf<ReaderTransitionFact>()
+			ports.issue(ReaderTransitionCommand.AllocateMaterialBinding(id, commandBinding), facts::add)
+			val allocation = assertIs<ReaderTransitionFact.MaterialBindingAllocated>(facts.single()).allocation
+			val allocated = allocation.allocatedBinding
+			ports.issue(
+				ReaderTransitionCommand.RequestRasterPreparation(id, allocated, allocation),
+				facts::add
+			)
+			ports.issue(
+				ReaderTransitionCommand.ReserveDeck(
+					id,
+					allocated,
+					ReaderTransitionDeckRole.Initial,
+					allocation
+				),
+				facts::add
+			)
+		}
+
+		assertEquals(2, rasterLeases.size)
+		assertEquals(2, deckLeases.size)
+	}
+
+	@Test
 	fun `renderer callbacks require and preserve the exact coordinator lease`() {
 		val id = transitionId()
 		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding.copy(
@@ -372,7 +609,7 @@ class ReaderDeckAdmissionCutoverTest {
 			),
 			facts
 		)
-		val mismatchedId = id.copy(sequence = id.sequence + 1L)
+		val mismatchedId = id.copy(sequence = id.sequence + 1L, parent = id.parentIdentity())
 		val mismatched = lease.copy(
 			transitionId = mismatchedId,
 			resourceKey = key.copy(transitionId = mismatchedId)
@@ -482,7 +719,7 @@ class ReaderDeckAdmissionCutoverTest {
 				ReaderTransitionResourceProvenance.AdoptedLegacy
 			)
 		)
-		val currentId = staleId.copy(sequence = staleId.sequence + 1L)
+		val currentId = staleId.copy(sequence = staleId.sequence + 1L, parent = staleId.parentIdentity())
 		val physicalReleases = mutableListOf<ReaderDeckLease>()
 		val renderer = object : ReaderRendererDeckCommandPort {
 			override fun reserve(lease: ReaderDeckLease, callbacks: ReaderDeckLeaseFactEmitter) = Unit
@@ -517,7 +754,13 @@ class ReaderDeckAdmissionCutoverTest {
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
 			mode = ReaderTransitionMode.Active,
-			journal = ReaderTransitionJournal(
+			journal = readerAndroidHostTestJournal(
+				committed = readerAndroidHostTestNeutralInitial(
+					currentId.readerSessionGeneration,
+					currentId.coordinatorEpoch
+				),
+				lastTransitionSequence = currentId.sequence,
+				lastIssuedTransitionIdentity = currentId.parentIdentity(),
 				active = ReaderActiveTransition(
 					id = currentId,
 					phase = ReaderTransitionLivenessTable.phase(
@@ -573,16 +816,23 @@ class ReaderDeckAdmissionCutoverTest {
 
 		assertFailsWith<IllegalStateException> {
 			ports.issue(
-				ReaderTransitionCommand.ApplyInputLease(
+				ReaderTransitionCommand.RequestSemanticSynchronization(
 					issuedId,
-					paige.navic.reader.ReaderTransitionInputLease.ChromeOnly
+					paige.navic.reader.ReaderCoverEntryIntent(
+						paige.navic.reader.ReaderSemanticRequestHandle(1L)
+					),
+					paige.navic.reader.ReaderSemanticRequestHandle(1L)
 				)
 			) {}
 		}
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports,
 			ReaderTransitionMode.Active,
-			ReaderTransitionJournal()
+			readerAndroidHostTestJournal(
+				committed = readerAndroidHostTestNeutralInitial(1L, 1L),
+				lastTransitionSequence = 0L,
+				lastIssuedTransitionIdentity = null
+			)
 		)
 		assertFailsWith<IllegalStateException> {
 			coordinator.enqueue(
@@ -603,7 +853,11 @@ class ReaderDeckAdmissionCutoverTest {
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ReaderCutoverTransitionPorts(task4Ports, cutover),
 			mode = ReaderTransitionMode.Active,
-			journal = ReaderTransitionJournal()
+			journal = readerAndroidHostTestJournal(
+				committed = readerAndroidHostTestNeutralInitial(1L, 1L),
+				lastTransitionSequence = 0L,
+				lastIssuedTransitionIdentity = null
+			)
 		)
 		val before = coordinator.snapshot()
 
@@ -620,7 +874,7 @@ class ReaderDeckAdmissionCutoverTest {
 	fun `superseded raster resource releases exactly once before late callbacks`() {
 		val staleId = transitionId()
 		val binding = (staleId.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
-		val currentId = staleId.copy(sequence = staleId.sequence + 1L)
+		val currentId = staleId.copy(sequence = staleId.sequence + 1L, parent = staleId.parentIdentity())
 		lateinit var callbacks: ReaderRasterLeaseFactEmitter
 		lateinit var submittedLease: ReaderRasterPreparationLease
 		val physicalReleases = mutableListOf<ReaderRasterPreparationLease>()
@@ -642,7 +896,13 @@ class ReaderDeckAdmissionCutoverTest {
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
 			mode = ReaderTransitionMode.Active,
-			journal = ReaderTransitionJournal(
+			journal = readerAndroidHostTestJournal(
+				committed = readerAndroidHostTestNeutralInitial(
+					currentId.readerSessionGeneration,
+					currentId.coordinatorEpoch
+				),
+				lastTransitionSequence = currentId.sequence,
+				lastIssuedTransitionIdentity = currentId.parentIdentity(),
 				active = ReaderActiveTransition(
 					id = currentId,
 					phase = ReaderTransitionLivenessTable.phase(
@@ -707,7 +967,13 @@ class ReaderDeckAdmissionCutoverTest {
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
 			mode = ReaderTransitionMode.Active,
-			journal = ReaderTransitionJournal(
+			journal = readerAndroidHostTestJournal(
+				committed = readerAndroidHostTestNeutralInitial(
+					id.readerSessionGeneration,
+					id.coordinatorEpoch
+				),
+				lastTransitionSequence = id.sequence,
+				lastIssuedTransitionIdentity = id.parentIdentity(),
 				active = ReaderActiveTransition(
 					id = id,
 					phase = ReaderTransitionLivenessTable.phase(
@@ -784,7 +1050,12 @@ class ReaderDeckAdmissionCutoverTest {
 				coordinatorEpoch = 7L,
 				sequence = sequence,
 				operation = ReaderTransitionOperation.CoverToPageEntry,
-				expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
+				expectedBinding = ReaderExpectedPresentationBinding.Exact(binding),
+				parent = if (sequence == 1L) null else paige.navic.reader.ReaderTransitionParentIdentity(
+					5L,
+					7L,
+					sequence - 1L
+				)
 			)
 			val deckKey = ReaderTransitionResourceKey(
 				id,
@@ -882,14 +1153,21 @@ class ReaderDeckAdmissionCutoverTest {
 			physicalReleases += lease
 			confirmed()
 		}
-		val oldId = transitionId().copy(sequence = 1L)
+		val oldId = transitionId().copy(sequence = 1L, parent = null)
 		val oldLease = deckLeaseFor(oldId)
 		assertTrue(port.register(oldLease))
 		assertTrue(ledger.register(oldLease.resourceKey))
 		val oldCommand = assertNotNull(ledger.requestRelease(oldLease.resourceKey))
 
 		repeat(33) { index ->
-			releaseDeck(port, ledger, deckLeaseFor(oldId.copy(sequence = index.toLong() + 2L)))
+			releaseDeck(port, ledger, deckLeaseFor(oldId.copy(
+				sequence = index.toLong() + 2L,
+				parent = paige.navic.reader.ReaderTransitionParentIdentity(
+					oldId.readerSessionGeneration,
+					oldId.coordinatorEpoch,
+					index.toLong() + 1L
+				)
+			)))
 		}
 		releaseDeck(
 			port,
@@ -912,14 +1190,21 @@ class ReaderDeckAdmissionCutoverTest {
 			physicalReleases += lease
 			confirmed()
 		}
-		val oldId = transitionId().copy(sequence = 1L)
+		val oldId = transitionId().copy(sequence = 1L, parent = null)
 		val oldLease = rasterLeaseFor(oldId)
 		assertTrue(port.register(oldLease))
 		assertTrue(ledger.register(oldLease.resourceKey))
 		val oldCommand = assertNotNull(ledger.requestRelease(oldLease.resourceKey))
 
 		repeat(33) { index ->
-			releaseRaster(port, ledger, rasterLeaseFor(oldId.copy(sequence = index.toLong() + 2L)))
+			releaseRaster(port, ledger, rasterLeaseFor(oldId.copy(
+				sequence = index.toLong() + 2L,
+				parent = paige.navic.reader.ReaderTransitionParentIdentity(
+					oldId.readerSessionGeneration,
+					oldId.coordinatorEpoch,
+					index.toLong() + 1L
+				)
+			)))
 		}
 		releaseRaster(
 			port,
@@ -1218,6 +1503,20 @@ class ReaderDeckAdmissionCutoverTest {
 		predecessorEvidence = predecessor
 	)
 
+	private fun binding(textureGeneration: Long) = ReaderPresentationBinding(
+		foliateSessionId = "physical-deck-session",
+		publicationGeneration = 3L,
+		viewportGeneration = 5L,
+		profileGeneration = 7L,
+		destinationCommitIdentity = ReaderDestinationCommitIdentity(
+			"physical-deck-session",
+			9L
+		),
+		preparationGeneration = 11L,
+		rasterGeneration = 31L,
+		textureGeneration = textureGeneration
+	)
+
 	private fun transitionId() = ReaderTransitionId(
 		readerSessionGeneration = 2L,
 		coordinatorEpoch = 3L,
@@ -1234,6 +1533,7 @@ class ReaderDeckAdmissionCutoverTest {
 				rasterGeneration = 23L,
 				textureGeneration = 29L
 			)
-		)
+		),
+		parent = paige.navic.reader.ReaderTransitionParentIdentity(2L, 3L, 4L)
 	)
 }

@@ -13,7 +13,7 @@ import paige.navic.reader.ReaderRendererSuccessorReceipt
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderShellCoverRetainedFrame
 import paige.navic.reader.ReaderTransitionFact
-import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.ReaderMaterialGenerationAllocation
 import paige.navic.reader.ReaderTransitionCommand
 import paige.navic.reader.ReaderTransitionDeckRole
 import paige.navic.reader.ReaderTransitionDeferralReason
@@ -21,11 +21,10 @@ import paige.navic.reader.ReaderTransitionId
 import paige.navic.reader.ReaderTransitionResumeRecord
 import paige.navic.reader.ReaderTransitionResourceKey
 import paige.navic.reader.ReaderTransitionResourceKind
-
-internal enum class ReaderTransitionResourceProvenance {
-	CoordinatorIssued,
-	AdoptedLegacy
-}
+import paige.navic.reader.ReaderTransitionResourceOwnerId
+import paige.navic.reader.ReaderTransitionResourceProvenance
+import paige.navic.reader.ReaderTransitionFailureReason
+import paige.navic.reader.readerTransitionMaterialBindingIsValid
 
 internal data class ReaderDeckLease(
 	val transitionId: ReaderTransitionId,
@@ -35,20 +34,18 @@ internal data class ReaderDeckLease(
 	val rasterGeneration: Long,
 	val textureGeneration: Long,
 	val resourceKey: ReaderTransitionResourceKey,
-	val provenance: ReaderTransitionResourceProvenance =
-		ReaderTransitionResourceProvenance.CoordinatorIssued
+	val provenance: ReaderTransitionResourceProvenance = ReaderTransitionResourceProvenance.CoordinatorIssued,
+	val allocation: ReaderMaterialGenerationAllocation? = null
 ) {
 	init {
 		require(preparationGeneration > 0L)
 		require(rasterGeneration > 0L)
 		require(textureGeneration > 0L)
-		require(
-			transitionId.expectedBinding == ReaderExpectedPresentationBinding.Exact(binding)
-		)
+		require(readerTransitionMaterialBindingIsValid(transitionId, binding, allocation))
 		require(binding.preparationGeneration == preparationGeneration)
 		require(binding.rasterGeneration == rasterGeneration)
 		require(binding.textureGeneration == textureGeneration)
-		require(resourceKey.transitionId == transitionId)
+		require(resourceKey.owningTransitionIdOrNull == transitionId)
 		require(resourceKey.kind == ReaderTransitionResourceKind.Deck)
 		require(resourceKey.opaqueId == textureGeneration)
 	}
@@ -73,8 +70,8 @@ internal fun readerDeckLeaseOrNull(
 	val rasterGeneration = command.binding.rasterGeneration ?: return null
 	val textureGeneration = command.binding.textureGeneration ?: return null
 	if (
-		command.transitionId.expectedBinding != ReaderExpectedPresentationBinding.Exact(command.binding) ||
-		resourceKey.transitionId != command.transitionId ||
+		!readerTransitionMaterialBindingIsValid(command.transitionId, command.binding, command.allocation) ||
+		resourceKey.owningTransitionIdOrNull != command.transitionId ||
 		resourceKey.kind != ReaderTransitionResourceKind.Deck ||
 		resourceKey.opaqueId != textureGeneration
 	) return null
@@ -86,6 +83,7 @@ internal fun readerDeckLeaseOrNull(
 		rasterGeneration = rasterGeneration,
 		textureGeneration = textureGeneration,
 		resourceKey = resourceKey,
+		allocation = command.allocation,
 		provenance = provenance
 	)
 }
@@ -389,6 +387,246 @@ internal object UnavailableReaderDeckAdmissionLeaseHost : ReaderDeckAdmissionLea
 	override fun isOwnerCurrent(admission: ReaderDeckAdmissionCapability): Boolean = false
 }
 
+internal data class ReaderDeckPhysicalRestartDescriptor(
+	val binding: ReaderPresentationBinding,
+	val role: ReaderDeckSubmissionRole,
+	val preparationGeneration: Long,
+	val rasterGeneration: Long,
+	val textureGeneration: Long,
+	val visibleOwner: ReaderPresentationFrameOwner? = null
+) {
+	init {
+		require(preparationGeneration >= 0L)
+		require(rasterGeneration >= 0L)
+		require(textureGeneration > 0L)
+		require(binding.preparationGeneration == preparationGeneration)
+		require(binding.rasterGeneration == rasterGeneration)
+		require(binding.textureGeneration == textureGeneration)
+	}
+}
+
+/** Exact physical deck and renderer-callback ownership retained across a failed activation. */
+internal class ReaderDeckPhysicalOwnershipAdapter(
+	private val releasePhysicalDeck: (
+		ReaderDeckPhysicalRestartDescriptor,
+		onReleased: () -> Unit
+	) -> Boolean,
+	private val restorePhysicalDeck: (
+		ReaderDeckPhysicalRestartDescriptor
+	) -> ReaderDeckPhysicalRestartDescriptor?,
+	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator()
+) {
+	internal class Lease internal constructor(
+		internal var descriptor: ReaderDeckPhysicalRestartDescriptor,
+		internal val deckToken: ReaderLegacySourceLocalOpaqueToken,
+		internal val callbackToken: ReaderLegacySourceLocalOpaqueToken
+	) {
+		internal var state = ReaderLegacyResourceState.Reserved
+		internal var restartState = ReaderLegacyResourceState.Reserved
+		internal var deckOwned = true
+		internal var callbackOwned = true
+		internal var deckReleaseRequested = false
+		internal var deckDrainConfirmation: ((ReaderLegacyPhysicalIdentity) -> Unit)? = null
+		internal var deckDrainIdentity: ReaderLegacyPhysicalIdentity? = null
+	}
+
+	private val leases = linkedSetOf<Lease>()
+	private val completedFrozenCallbacks =
+		linkedSetOf<ReaderLegacySourceLocalOpaqueToken>()
+	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+
+	val isFrozen: Boolean
+		get() = frozenDomain != null
+
+	fun register(descriptor: ReaderDeckPhysicalRestartDescriptor): Lease? {
+		if (frozenDomain != null) return null
+		return Lease(
+			descriptor = descriptor,
+			deckToken = tokenAllocator.allocate(),
+			callbackToken = tokenAllocator.allocate()
+		).also(leases::add)
+	}
+
+	fun acknowledgeRendererOwnership(lease: Lease): Boolean {
+		if (frozenDomain != null || lease !in leases || !lease.deckOwned) return false
+		lease.state = ReaderLegacyResourceState.RendererOwned
+		return true
+	}
+
+	fun observeRendererCallback(lease: Lease): Boolean {
+		if (lease !in leases || !lease.callbackOwned) return false
+		if (frozenDomain != null) {
+			lease.callbackOwned = false
+			completedFrozenCallbacks += lease.callbackToken
+			return false
+		}
+		lease.callbackOwned = false
+		lease.state = ReaderLegacyResourceState.Prepared
+		return true
+	}
+
+	fun retireNormally(lease: Lease): Boolean {
+		if (frozenDomain != null || !leases.remove(lease)) return false
+		lease.deckOwned = false
+		lease.callbackOwned = false
+		lease.state = ReaderLegacyResourceState.Released
+		return true
+	}
+
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = when {
+		frozenDomain == null -> {
+			frozenDomain = domain
+			ReaderPortCommandResult.Accepted
+		}
+		frozenDomain == domain -> ReaderPortCommandResult.Accepted
+		else -> ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+	}
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
+		val domain = frozenDomain ?: return emptyList()
+		return buildList {
+			leases.forEach { lease ->
+				if (lease.deckOwned) add(
+					ownershipRow(
+						domain = domain,
+						lease = lease,
+						token = lease.deckToken,
+						kind = ReaderTransitionResourceKind.Deck,
+						state = lease.state
+					)
+				)
+				if (lease.callbackOwned || lease.callbackToken in completedFrozenCallbacks) add(
+					ownershipRow(
+						domain = domain,
+						lease = lease,
+						token = lease.callbackToken,
+						kind = ReaderTransitionResourceKind.CallbackRegistration,
+						state = if (lease.callbackOwned) {
+							ReaderLegacyResourceState.Registered
+						} else {
+							ReaderLegacyResourceState.ReleaseRequested
+						}
+					)
+				)
+			}
+		}
+	}
+
+	private fun ownershipRow(
+		domain: ReaderLegacyPhysicalDomain,
+		lease: Lease,
+		token: ReaderLegacySourceLocalOpaqueToken,
+		kind: ReaderTransitionResourceKind,
+		state: ReaderLegacyResourceState
+	) = ReaderFrozenLegacyResource(
+		freezeToken = domain.freezeToken,
+		physicalIdentity = ReaderLegacyPhysicalIdentity(
+			domain = domain,
+			source = ReaderLegacyInventorySource.Deck,
+			sourceLocalToken = token
+		),
+		kind = kind,
+		binding = lease.descriptor.binding,
+		visibleOwner = lease.descriptor.visibleOwner,
+		origin = if (state == ReaderLegacyResourceState.Reserved) {
+			ReaderLegacyResourceOrigin.Pending
+		} else {
+			ReaderLegacyResourceOrigin.Owned
+		},
+		state = state,
+		mayBeCommittedPredecessor =
+			state == ReaderLegacyResourceState.Visible && lease.descriptor.visibleOwner != null
+	)
+
+	fun drainFrozenOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult {
+		val domain = frozenDomain
+		if (
+			domain == null ||
+			physicalIdentity.domain != domain ||
+			physicalIdentity.source != ReaderLegacyInventorySource.Deck
+		) return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		val lease = leases.firstOrNull {
+			it.deckToken == physicalIdentity.sourceLocalToken ||
+				it.callbackToken == physicalIdentity.sourceLocalToken
+		} ?: return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		if (lease.callbackToken == physicalIdentity.sourceLocalToken) {
+			if (!lease.callbackOwned && !completedFrozenCallbacks.remove(lease.callbackToken)) {
+				return ReaderPortCommandResult.Rejected(
+					ReaderTransitionFailureReason.InvalidLegacyResource
+				)
+			}
+			lease.callbackOwned = false
+			onConfirmed(physicalIdentity)
+			return ReaderPortCommandResult.Accepted
+		}
+		if (!lease.deckOwned || lease.deckReleaseRequested) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		lease.restartState = lease.state
+		lease.state = ReaderLegacyResourceState.ReleaseRequested
+		lease.deckReleaseRequested = true
+		lease.deckDrainIdentity = physicalIdentity
+		lease.deckDrainConfirmation = onConfirmed
+		if (!releasePhysicalDeck(lease.descriptor) { completePhysicalDeckRelease(lease) }) {
+			lease.state = lease.restartState
+			lease.deckReleaseRequested = false
+			lease.deckDrainIdentity = null
+			lease.deckDrainConfirmation = null
+			return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+		}
+		return ReaderPortCommandResult.Accepted
+	}
+
+	private fun completePhysicalDeckRelease(lease: Lease) {
+		if (!lease.deckReleaseRequested || !lease.deckOwned) return
+		lease.deckOwned = false
+		lease.state = ReaderLegacyResourceState.Released
+		lease.deckReleaseRequested = false
+		val identity = lease.deckDrainIdentity
+		val confirmation = lease.deckDrainConfirmation
+		lease.deckDrainIdentity = null
+		lease.deckDrainConfirmation = null
+		if (identity != null && confirmation != null) confirmation(identity)
+	}
+
+	fun restoreAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		if (
+			frozenDomain != domain ||
+			completedFrozenCallbacks.isNotEmpty() ||
+			leases.any { it.callbackOwned || it.deckReleaseRequested }
+		) return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		val restored = leases.filterNot { it.deckOwned }.all { lease ->
+			val restoredDescriptor = restorePhysicalDeck(lease.descriptor)
+			if (restoredDescriptor == null) {
+				false
+			} else {
+				lease.descriptor = restoredDescriptor
+				lease.deckOwned = true
+				lease.callbackOwned = true
+				lease.state = lease.restartState
+				true
+			}
+		}
+		if (!restored) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		frozenDomain = null
+		return ReaderPortCommandResult.Accepted
+	}
+}
+
 internal enum class ReaderDeckAdmissionProductionMode { LegacyOnly, Coordinator }
 
 internal data class ReaderDeckAdmissionActivationPrerequisites(
@@ -625,13 +863,17 @@ internal class ReaderDeckAdmissionCutover(
 	}
 
 	private fun enqueueReleaseFact(key: ReaderTransitionResourceKey) {
+		val transitionId = when (val owner = key.ownerId) {
+			is ReaderTransitionResourceOwnerId.TransitionOwned -> owner.transitionId
+			is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> return
+		}
 		val resourceOrigins = origins.getValue(key)
 		val fact = when {
 			ReaderLegacyDeckResourceOrigin.Owned in resourceOrigins ->
-				ReaderTransitionFact.DeckOwned(key.transitionId, key)
+				ReaderTransitionFact.DeckOwned(transitionId, key)
 			ReaderLegacyDeckResourceOrigin.Pending in resourceOrigins ->
-				ReaderTransitionFact.DeckReserved(key.transitionId, key)
-			else -> ReaderTransitionFact.ResourceObserved(key.transitionId, key)
+				ReaderTransitionFact.DeckReserved(transitionId, key)
+			else -> ReaderTransitionFact.ResourceObserved(transitionId, key)
 		}
 		enqueueResourceFact(fact)
 	}

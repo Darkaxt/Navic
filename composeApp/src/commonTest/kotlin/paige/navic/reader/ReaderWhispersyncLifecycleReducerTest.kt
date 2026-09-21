@@ -12,6 +12,9 @@ class ReaderWhispersyncLifecycleReducerTest {
 	@Test
 	fun oneShotSettlementReceiptCannotBeDeliveredTwiceOrReusedAfterNewerReceipt() {
 		val binding = transitionTestBinding(commitSequence = 31L)
+		val predecessor = binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(binding.foliateSessionId, 30L)
+		)
 		val acknowledgement = ReaderPageTurnSettlementAck(
 			token = "opaque-semantic-receipt",
 			pageIndex = 4,
@@ -22,19 +25,53 @@ class ReaderWhispersyncLifecycleReducerTest {
 		val initial = ReaderController(
 			ReaderControllerState(
 				readerSessionGeneration = 7L,
-				presentation = ReaderPresentationState(binding = binding)
+				presentation = ReaderPresentationState(binding = predecessor)
 			)
 		)
+		assertEquals(predecessor, initial.state.presentation.binding)
+		val settlementTransition = ReaderTransitionId(
+			readerSessionGeneration = 7L,
+			coordinatorEpoch = 1L,
+			sequence = 1L,
+			operation = ReaderTransitionOperation.CurlClaimAndSettlement,
+			expectedBinding = ReaderExpectedPresentationBinding.SemanticSuccessor(predecessor, 1L)
+		)
+		val settlementExpected = assertIs<ReaderExpectedPresentationBinding.SemanticSuccessor>(
+			settlementTransition.expectedBinding
+		)
+		assertEquals(predecessor, settlementExpected.predecessor)
+		assertEquals(1L, settlementExpected.requestSequence)
 		val settlementStep = initial.onPresentationEvent(
-			ReaderPresentationEvent.FoliateRelocated(binding, acknowledgement)
+			ReaderPresentationEvent.FoliateRelocated(binding, acknowledgement),
+			ReaderPresentationEventOrigin.SemanticCommand(
+				settlementTransition,
+				ReaderSemanticCommandSlotId(1L)
+			)
 		)
 		val settlementReceipt = assertNotNull(settlementStep.presentationReceipt)
 		val newerBinding = binding.copy(
 			destinationCommitIdentity = ReaderDestinationCommitIdentity(binding.foliateSessionId, 32L)
 		)
+		val newerTransition = ReaderTransitionId(
+			readerSessionGeneration = 7L,
+			coordinatorEpoch = 1L,
+			sequence = 2L,
+			operation = ReaderTransitionOperation.ExternalSemanticRelocation,
+			expectedBinding = ReaderExpectedPresentationBinding.SemanticSuccessor(binding, 2L),
+			parent = settlementTransition.parentIdentity()
+		)
+		val newerExpected = assertIs<ReaderExpectedPresentationBinding.SemanticSuccessor>(
+			newerTransition.expectedBinding
+		)
+		assertEquals(binding, newerExpected.predecessor)
+		assertEquals(2L, newerExpected.requestSequence)
 		val newerReceipt = assertNotNull(
 			settlementStep.controller.onPresentationEvent(
-				ReaderPresentationEvent.FoliateRelocated(newerBinding, acknowledgement = null)
+				ReaderPresentationEvent.FoliateRelocated(newerBinding, acknowledgement = null),
+				ReaderPresentationEventOrigin.SemanticCommand(
+					newerTransition,
+					ReaderSemanticCommandSlotId(2L)
+				)
 			).presentationReceipt
 		)
 		val consumption = ReaderPresentationSemanticReceiptConsumption()

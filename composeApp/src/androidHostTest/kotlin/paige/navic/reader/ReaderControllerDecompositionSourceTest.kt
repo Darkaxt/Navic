@@ -23,7 +23,7 @@ class ReaderControllerDecompositionSourceTest {
 		assertFalse("data class ReaderSelection" in controller)
 		assertContains(
 			controller,
-			"ReaderPresentationControllerReducer.onPresentationEvent(this, event)"
+			"ReaderPresentationControllerReducer.onPresentationEvent(this, event, origin)"
 		)
 		assertContains(
 			controller,

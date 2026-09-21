@@ -327,7 +327,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 			val intent = readerTransitionIntentForPageTurnBoundary(
 				state = coordinator.controller.state,
 				direction = direction,
-				gestureId = candidate
+				gestureId = candidate,
+				requestHandle = shadowTransitionGateway.observedSemanticRequestHandle()
 			)
 			transitionGestureSequence = candidate.value
 			ReaderTransitionFact.Intent(null, intent)
@@ -339,7 +340,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 		source: ReaderExternalRelocationSource,
 		legacyDispatch: () -> T
 	): T = shadowTransitionGateway.dispatchBeforeLegacy(
-		ReaderTransitionFact.Intent(null, ReaderExternalRelocationIntent(source)),
+		ReaderTransitionFact.Intent(
+			null,
+			ReaderExternalRelocationIntent(
+				source,
+				shadowTransitionGateway.observedSemanticRequestHandle()
+			)
+		),
 		legacyDispatch
 	)
 

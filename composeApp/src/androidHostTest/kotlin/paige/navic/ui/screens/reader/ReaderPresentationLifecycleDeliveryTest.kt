@@ -27,12 +27,14 @@ import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationLifecycleEvent
 import paige.navic.reader.ReaderPresentationLifecycleState
 import paige.navic.reader.ReaderPresentationMemoryPressureLevel
+import paige.navic.reader.ReaderPresentationPublicationIdentity
 import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderRendererCleanupOwnership
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderTextureDeckState
+import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.reader.publicationIdentity
 import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.reader.readerPresentationDecision
@@ -47,6 +49,49 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ReaderPresentationLifecycleDeliveryTest {
+	@Test
+	fun lifecycleDeliveryFreezesDrainsAndRestoresItsExactPendingOwner() {
+		val delivery = ReaderPresentationLifecycleDelivery()
+		delivery.reset(
+			ReaderPresentationReceiptVersion(101L, null, 1L),
+			observedWindowVisible = null
+		)
+		assertTrue(
+			delivery.bindPublication(ReaderPresentationPublicationIdentity("fixture", 7L))
+		)
+		delivery.observe(ReaderPresentationLifecycleEvent.RendererLost)
+		val domain = ReaderLegacyPhysicalDomain(101L, ReaderLegacyFreezeToken(103L))
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			delivery.freezeForTransitionActivation(domain)
+		)
+		val row = delivery.snapshotFrozenOwnership().single()
+		assertEquals(ReaderLegacyInventorySource.LifecycleDelivery, row.physicalIdentity.source)
+		assertEquals(ReaderTransitionResourceKind.CallbackRegistration, row.kind)
+		delivery.observe(
+			ReaderPresentationLifecycleEvent.RunningMemoryPressure(
+				ReaderPresentationMemoryPressureLevel.Low
+			)
+		)
+		assertEquals(1, delivery.pendingEventCount)
+		assertNull(delivery.retry { error("frozen delivery must not dispatch") })
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			delivery.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+		)
+		assertEquals(listOf(row.physicalIdentity), confirmations)
+		assertEquals(0, delivery.pendingEventCount)
+		assertTrue(delivery.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			delivery.restoreAfterTransitionActivation(domain)
+		)
+		assertEquals(1, delivery.pendingEventCount)
+		assertTrue(delivery.hasPendingRendererLoss)
+	}
+
 	@Test
 	fun visibilityDeliveryFencesNativeExposureUntilFreshProofFromCurrentHostEpoch() {
 		val binding = completeBinding("visibility-physical-revalidation")
@@ -1297,7 +1342,8 @@ class ReaderPresentationLifecycleDeliveryTest {
 			version = floor.copy(eventSequence = 6L),
 			disposition = ReaderPresentationEventDisposition.Rejected,
 			postState = ReaderPresentationState(binding = binding),
-			effects = emptyList()
+			effects = emptyList(),
+			origin = paige.navic.reader.ReaderPresentationEventOrigin.NonSemantic
 		)
 		val wrongGeneralReceipt = generalReceipt.copy(
 			event = ReaderPresentationEvent.PublicationOpened(binding)
@@ -1920,7 +1966,8 @@ class ReaderPresentationLifecycleDeliveryTest {
 		version = version,
 		disposition = disposition,
 		postState = postState,
-		effects = emptyList()
+		effects = emptyList(),
+		origin = paige.navic.reader.ReaderPresentationEventOrigin.NonSemantic
 	)
 
 	private companion object {
