@@ -199,9 +199,98 @@ enum class ReaderTransitionFactKind {
 	VisibilityChanged,
 	ResourceLost,
 	DeadlineExpired,
+	CommandRejected,
+	SemanticPortContractViolated,
 	Retry,
 	PublicationReplaced,
 	PublicationClosed
+}
+
+enum class ReaderTransitionCommandStage {
+	SemanticSynchronization,
+	MaterialAllocation,
+	RasterPreparation,
+	DeckReservation,
+	FrameTargetPreparation,
+	FramePresentation,
+	RetainedPublication,
+	SuccessorPublication,
+	TimerBinding
+}
+
+enum class ReaderTransitionCommandRejectionReason {
+	MissingHandle,
+	ExpiredHandle,
+	ConsumedHandle,
+	WrongSessionHandle,
+	SemanticSlotCapacity,
+	SemanticRegistryRejected,
+	SemanticExecutionRejected,
+	MaterialAllocationRejected,
+	RasterPreparationRejected,
+	DeckReservationRejected,
+	FrameTargetRejected,
+	FramePresentationRejected,
+	PublicationRejected,
+	TimerBindingRejected,
+	TimerOwnershipConflict,
+	CommandPortRejected,
+	CommandThrew
+}
+
+private fun ReaderTransitionCommandRejectionReason.isCompatibleWith(
+	stage: ReaderTransitionCommandStage
+): Boolean = when (this) {
+	ReaderTransitionCommandRejectionReason.MissingHandle,
+	ReaderTransitionCommandRejectionReason.ExpiredHandle,
+	ReaderTransitionCommandRejectionReason.ConsumedHandle,
+	ReaderTransitionCommandRejectionReason.WrongSessionHandle,
+	ReaderTransitionCommandRejectionReason.SemanticSlotCapacity,
+	ReaderTransitionCommandRejectionReason.SemanticRegistryRejected,
+	ReaderTransitionCommandRejectionReason.SemanticExecutionRejected ->
+		stage == ReaderTransitionCommandStage.SemanticSynchronization
+	ReaderTransitionCommandRejectionReason.MaterialAllocationRejected ->
+		stage == ReaderTransitionCommandStage.MaterialAllocation
+	ReaderTransitionCommandRejectionReason.RasterPreparationRejected ->
+		stage == ReaderTransitionCommandStage.RasterPreparation
+	ReaderTransitionCommandRejectionReason.DeckReservationRejected ->
+		stage == ReaderTransitionCommandStage.DeckReservation
+	ReaderTransitionCommandRejectionReason.FrameTargetRejected ->
+		stage == ReaderTransitionCommandStage.FrameTargetPreparation
+	ReaderTransitionCommandRejectionReason.FramePresentationRejected ->
+		stage == ReaderTransitionCommandStage.FramePresentation
+	ReaderTransitionCommandRejectionReason.PublicationRejected ->
+		stage == ReaderTransitionCommandStage.RetainedPublication ||
+			stage == ReaderTransitionCommandStage.SuccessorPublication
+	ReaderTransitionCommandRejectionReason.TimerBindingRejected,
+	ReaderTransitionCommandRejectionReason.TimerOwnershipConflict ->
+		stage == ReaderTransitionCommandStage.TimerBinding
+	ReaderTransitionCommandRejectionReason.CommandPortRejected,
+	ReaderTransitionCommandRejectionReason.CommandThrew -> true
+}
+
+enum class ReaderSaturatingCallbackCount {
+	Zero,
+	One,
+	Two,
+	ThreeOrMore;
+
+	fun increment(): ReaderSaturatingCallbackCount = when (this) {
+		Zero -> One
+		One -> Two
+		Two, ThreeOrMore -> ThreeOrMore
+	}
+}
+
+enum class ReaderSemanticPortContractViolationReason {
+	CallbackThenRejected,
+	CallbackThenThrew,
+	RejectedThenLateCallback,
+	DuplicateCallback,
+	DuplicateCallbackThenRejected,
+	DuplicateCallbackThenThrew,
+	RejectedAfterMutationStarted,
+	ThrowAfterMutationStarted
 }
 
 data class ReaderTransitionPhaseContract(
@@ -210,11 +299,16 @@ data class ReaderTransitionPhaseContract(
 	val supersession: ReaderTransitionSupersession,
 	val retainedOwner: ReaderPresentationFrameOwner,
 	val inputLease: ReaderTransitionInputLease,
-	val callbackSources: Set<ReaderTransitionFactKind>
+	val callbackSources: Set<ReaderTransitionFactKind>,
+	val admissibleCommandStages: Set<ReaderTransitionCommandStage>
 ) {
 	init {
 		require(awaitedProofs.isNotEmpty())
 		require(callbackSources.isNotEmpty())
+		require(
+			(ReaderTransitionFactKind.CommandRejected in callbackSources) ==
+				admissibleCommandStages.isNotEmpty()
+		)
 	}
 }
 
@@ -633,6 +727,94 @@ enum class ReaderTransitionCancellationReason {
 	PublicationReplaced,
 	PublicationClosed,
 	UserCancelled
+}
+
+enum class ReaderReleaseOnlyCleanupTrigger {
+	PublicationClose,
+	PublicationReplacement,
+	ProcessClose
+}
+
+enum class ReaderReleaseOnlyCancellationStatus {
+	NotRequired,
+	Pending,
+	Applied,
+	Rejected,
+	ProcessClosedPending
+}
+
+enum class ReaderReleaseOnlyCleanupDeadlineStatus {
+	Armed,
+	CancelledAfterTerminalAccounting,
+	Elapsed,
+	BindingRejected,
+	BindingThrew,
+	CancellationRejected,
+	CancellationThrew,
+	ProcessClosed
+}
+
+@JvmInline
+value class ReaderReleaseOnlyCleanupId internal constructor(val value: Long) {
+	init { require(value > 0L) }
+	override fun toString(): String = "ReaderReleaseOnlyCleanupId(<redacted>)"
+}
+
+@JvmInline
+value class ReaderReleaseOnlyCleanupGeneration internal constructor(val value: Long) {
+	init { require(value > 0L) }
+	override fun toString(): String = "ReaderReleaseOnlyCleanupGeneration(<redacted>)"
+}
+
+data class ReaderReleaseOnlyCleanupKey(
+	val readerSessionGeneration: Long,
+	val coordinatorEpoch: Long,
+	val cleanupId: ReaderReleaseOnlyCleanupId,
+	val generation: ReaderReleaseOnlyCleanupGeneration
+) {
+	init {
+		require(readerSessionGeneration > 0L)
+		require(coordinatorEpoch > 0L)
+	}
+
+	override fun hashCode(): Int = 0x524F434B
+	override fun toString(): String = "ReaderReleaseOnlyCleanupKey(<redacted>)"
+}
+
+data class ReaderReleaseOnlySemanticAuthority(
+	val binding: ReaderPresentationBinding
+) {
+	override fun hashCode(): Int = 0x524F5341
+	override fun toString(): String = "ReaderReleaseOnlySemanticAuthority(<redacted>)"
+}
+
+data class ReaderReleaseOnlyCleanupState(
+	val key: ReaderReleaseOnlyCleanupKey,
+	val trigger: ReaderReleaseOnlyCleanupTrigger,
+	val closeOperationId: ReaderTransitionId?,
+	val preCloseTransitionId: ReaderTransitionId?,
+	val authoritativeSemanticDestination: ReaderReleaseOnlySemanticAuthority? = null,
+	val cancellationStatus: ReaderReleaseOnlyCancellationStatus,
+	val deadlineStatus: ReaderReleaseOnlyCleanupDeadlineStatus
+) {
+	init {
+		require(trigger != ReaderReleaseOnlyCleanupTrigger.PublicationReplacement || closeOperationId == null)
+		require(closeOperationId == null || closeOperationId.operation == ReaderTransitionOperation.PublicationClose)
+		require((preCloseTransitionId == null) ==
+			(cancellationStatus == ReaderReleaseOnlyCancellationStatus.NotRequired))
+		require(closeOperationId == null ||
+			closeOperationId.readerSessionGeneration == key.readerSessionGeneration)
+		require(closeOperationId == null || closeOperationId.coordinatorEpoch == key.coordinatorEpoch)
+		require(preCloseTransitionId == null ||
+			preCloseTransitionId.readerSessionGeneration == key.readerSessionGeneration)
+		require(preCloseTransitionId == null ||
+			preCloseTransitionId.coordinatorEpoch == key.coordinatorEpoch)
+		require(closeOperationId == null || preCloseTransitionId == null ||
+			closeOperationId != preCloseTransitionId)
+	}
+
+	override fun hashCode(): Int = 0x524F4353
+	override fun toString(): String = "ReaderReleaseOnlyCleanupState(<redacted>)"
 }
 
 enum class ReaderTransitionDeferralReason {
@@ -1094,6 +1276,22 @@ sealed interface ReaderTransitionFact {
 		val kind: ReaderTransitionCapabilityKind
 	) : ReaderTransitionFact
 	data class DeadlineExpired(override val transitionId: ReaderTransitionId) : ReaderTransitionFact
+	data class CommandRejected(
+		override val transitionId: ReaderTransitionId,
+		val stage: ReaderTransitionCommandStage,
+		val reason: ReaderTransitionCommandRejectionReason
+	) : ReaderTransitionFact {
+		init { require(reason.isCompatibleWith(stage)) }
+	}
+	data class SemanticPortContractViolated(
+		override val transitionId: ReaderTransitionId,
+		val reason: ReaderSemanticPortContractViolationReason,
+		val callbackCount: ReaderSaturatingCallbackCount
+	) : ReaderTransitionFact {
+		override fun hashCode(): Int = 0x53504356
+		override fun toString(): String =
+			"ReaderTransitionFact.SemanticPortContractViolated(<redacted>)"
+	}
 	data class Retry(override val transitionId: ReaderTransitionId?) : ReaderTransitionFact
 	data class PublicationReplaced(override val transitionId: ReaderTransitionId?) : ReaderTransitionFact
 	data class PublicationClosed(override val transitionId: ReaderTransitionId?) : ReaderTransitionFact
@@ -1286,8 +1484,12 @@ sealed interface ReaderTransitionCommand {
 	}
 
 	data class CancelOwnedWork(
-		override val transitionId: ReaderTransitionId
-	) : ReaderTransitionCommand
+		override val transitionId: ReaderTransitionId,
+		val cleanupKey: ReaderReleaseOnlyCleanupKey? = null
+	) : ReaderTransitionCommand {
+		override fun hashCode(): Int = 0x434F574B
+		override fun toString(): String = "ReaderTransitionCommand.CancelOwnedWork(<redacted>)"
+	}
 }
 
 data class ReaderTransitionLiveness(
@@ -1303,6 +1505,16 @@ data class ReaderTransitionLiveness(
 		require(requiredProofs.isNotEmpty())
 		require(callbackSources.isNotEmpty())
 	}
+}
+
+private fun admissibleStagesFor(
+	physicalStage: ReaderTransitionCommandStage
+): Set<ReaderTransitionCommandStage> = if (
+	physicalStage == ReaderTransitionCommandStage.RetainedPublication
+) {
+	setOf(physicalStage)
+} else {
+	setOf(physicalStage, ReaderTransitionCommandStage.TimerBinding)
 }
 
 object ReaderTransitionLivenessTable {
@@ -1473,6 +1685,13 @@ object ReaderTransitionLivenessTable {
 		val liveness = forOperation(id.operation)
 		val awaitedProofs = liveness.requiredProofs - satisfiedProofs
 		require(awaitedProofs.isNotEmpty())
+		val admissibleCommandStages = when {
+			id.operation == ReaderTransitionOperation.PublicationClose ->
+				setOf(ReaderTransitionCommandStage.TimerBinding)
+			ReaderTransitionProofKind.SemanticDestination in satisfiedProofs ->
+				admissibleStagesFor(ReaderTransitionCommandStage.MaterialAllocation)
+			else -> admissibleStagesFor(ReaderTransitionCommandStage.SemanticSynchronization)
+		}
 		return ReaderTransitionPhase(
 			kind = kind,
 			contract = ReaderTransitionPhaseContract(
@@ -1481,7 +1700,12 @@ object ReaderTransitionLivenessTable {
 				supersession = liveness.supersession,
 				retainedOwner = retainedOwner,
 				inputLease = inputLeaseFor(id, gestureId),
-				callbackSources = liveness.callbackSources
+				callbackSources = if (admissibleCommandStages.isEmpty()) {
+					liveness.callbackSources
+				} else {
+					liveness.callbackSources + ReaderTransitionFactKind.CommandRejected
+				},
+				admissibleCommandStages = admissibleCommandStages
 			)
 		)
 	}
@@ -1571,6 +1795,7 @@ object ReaderTransitionLivenessTable {
 data class ReaderActiveTransition(
 	val id: ReaderTransitionId,
 	val phase: ReaderTransitionPhase,
+	val pendingCommandStages: Set<ReaderTransitionCommandStage> = emptySet(),
 	val preparedFrameOwner: ReaderPresentationFrameOwner? = null,
 	val resolvedSuccessorBinding: ReaderPresentationBinding? = null,
 	val predecessorResourceKey: ReaderTransitionResourceKey? = null,
@@ -1590,6 +1815,10 @@ data class ReaderActiveTransition(
 	val authoritativeDestinationCommitted: Boolean = false
 ) {
 	init {
+		require(pendingCommandStages.size <= 1)
+		require(pendingCommandStages.all { it in phase.contract.admissibleCommandStages })
+		require(pendingCommandStages.isEmpty() ||
+			ReaderTransitionFactKind.CommandRejected in phase.contract.callbackSources)
 		require(predecessorResourceKey?.owningTransitionIdOrNull != id)
 		require(predecessorResourceRegistration == null ||
 			predecessorResourceRegistration.key == predecessorResourceKey)
@@ -1717,6 +1946,7 @@ data class ReaderRetryableTransition(
 
 data class ReaderTransitionJournal(
 	val active: ReaderActiveTransition? = null,
+	val releaseOnlyCleanup: ReaderReleaseOnlyCleanupState? = null,
 	val lastOutcome: ReaderTransitionOutcome? = null,
 	val committed: ReaderCommittedPresentation,
 	val retryableTransition: ReaderRetryableTransition? = null,
@@ -1750,6 +1980,12 @@ data class ReaderTransitionJournal(
 
 	init {
 		require(lastTransitionSequence >= 0L)
+		require(releaseOnlyCleanup == null || active == null)
+		require(releaseOnlyCleanup == null || retryableTransition == null)
+		require(releaseOnlyCleanup == null ||
+			releaseOnlyCleanup.key.readerSessionGeneration == committed.readerSessionGeneration)
+		require(releaseOnlyCleanup == null ||
+			releaseOnlyCleanup.key.coordinatorEpoch == committed.coordinatorEpoch)
 		if (lastTransitionSequence == 0L) {
 			require(lastIssuedTransitionIdentity == null)
 			require(committed is ReaderCommittedPresentation.Initial)
@@ -1892,18 +2128,14 @@ private fun ReaderTransitionFact.resourceClassificationOrNull(): ReaderTransitio
 		is ReaderTransitionFact.VisibilityChanged,
 		is ReaderTransitionFact.ResourceLost,
 		is ReaderTransitionFact.DeadlineExpired,
+		is ReaderTransitionFact.CommandRejected,
+		is ReaderTransitionFact.SemanticPortContractViolated,
 		is ReaderTransitionFact.Retry,
 		is ReaderTransitionFact.PublicationReplaced,
 		is ReaderTransitionFact.PublicationClosed -> null
 	}
 
-private fun ReaderTransitionJournal.isReleaseOnly(): Boolean =
-	active == null &&
-		retryableTransition == null &&
-		(lastOutcome as? ReaderTransitionOutcome.Cancelled)?.reason in setOf(
-			ReaderTransitionCancellationReason.PublicationReplaced,
-			ReaderTransitionCancellationReason.PublicationClosed
-		)
+private fun ReaderTransitionJournal.isReleaseOnly(): Boolean = releaseOnlyCleanup != null
 
 fun readerTransitionJournalReduce(
 	journal: ReaderTransitionJournal,
@@ -1913,7 +2145,7 @@ fun readerTransitionJournalReduce(
 	if (journal.isReleaseOnly() && fact !is ReaderTransitionFact.ResourceReleased) {
 		return ReaderTransitionReduction(journal, emptyList())
 	}
-	return when (fact) {
+	val reduction = when (fact) {
 	is ReaderTransitionFact.Intent -> journal.reduceIntent(fact)
 	is ReaderTransitionFact.SettlementAcknowledged -> journal.reduceSettlement(fact)
 	is ReaderTransitionFact.MaterialBindingAllocated -> journal.reduceMaterialAllocation(fact)
@@ -1960,12 +2192,11 @@ fun readerTransitionJournalReduce(
 		fact.resourceKey
 	)
 	is ReaderTransitionFact.DeadlineExpired -> journal.reduceTimeout(fact.transitionId)
-	is ReaderTransitionFact.RasterDeferred -> journal.reduceDeferral(
-		fact.transitionId,
-		fact.reason,
-		fact.resumeRecord
-	)
-	is ReaderTransitionFact.RasterFailed -> journal.reduceFailure(fact.transitionId, fact.reason)
+	is ReaderTransitionFact.CommandRejected -> journal.reduceCommandRejected(fact)
+	is ReaderTransitionFact.SemanticPortContractViolated ->
+		journal.reduceSemanticPortContractViolation(fact)
+	is ReaderTransitionFact.RasterDeferred -> journal.reduceRasterDeferral(fact)
+	is ReaderTransitionFact.RasterFailed -> journal.reduceRasterFailure(fact)
 	is ReaderTransitionFact.DeckRejected -> journal.reduceDeckRejected(fact)
 	is ReaderTransitionFact.ResourceObserved,
 	is ReaderTransitionFact.DeckReserved -> journal.reduceResourceRegistration(fact)
@@ -1979,6 +2210,49 @@ fun readerTransitionJournalReduce(
 	is ReaderTransitionFact.RendererCapacityAvailable,
 	is ReaderTransitionFact.ResourceLost -> journal.unchanged()
 	}
+	return reduction.withPendingCommandAuthority()
+}
+
+private fun ReaderTransitionReduction.withPendingCommandAuthority(): ReaderTransitionReduction {
+	val stages = commands.mapNotNull(ReaderTransitionCommand::pendingStageOrNull).distinct()
+	if (stages.isEmpty()) return this
+	check(stages.size == 1) { "A reduction cannot emit multiple rejectable command stages" }
+	val current = state.active ?: error("Rejectable command emission requires an active transition")
+	check(current.pendingCommandStages.isEmpty()) {
+		"Rejectable command emission requires cleared prior command authority"
+	}
+	val stage = stages.single()
+	val admissibleCommandStages = admissibleStagesFor(stage)
+	return copy(
+		state = state.copy(
+			active = current.copy(
+				phase = current.phase.copy(
+					contract = current.phase.contract.copy(
+						callbackSources = current.phase.contract.callbackSources +
+							ReaderTransitionFactKind.CommandRejected,
+						admissibleCommandStages = admissibleCommandStages
+					)
+				),
+				pendingCommandStages = setOf(stage)
+			)
+		)
+	)
+}
+
+internal fun ReaderTransitionCommand.pendingStageOrNull(): ReaderTransitionCommandStage? = when (this) {
+	is ReaderTransitionCommand.RequestSemanticSynchronization ->
+		ReaderTransitionCommandStage.SemanticSynchronization
+	is ReaderTransitionCommand.AllocateMaterialBinding -> ReaderTransitionCommandStage.MaterialAllocation
+	is ReaderTransitionCommand.RequestRasterPreparation -> ReaderTransitionCommandStage.RasterPreparation
+	is ReaderTransitionCommand.ReserveDeck -> ReaderTransitionCommandStage.DeckReservation
+	is ReaderTransitionCommand.PrepareFrameTarget -> ReaderTransitionCommandStage.FrameTargetPreparation
+	is ReaderTransitionCommand.RequestFramePresentation -> ReaderTransitionCommandStage.FramePresentation
+	is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease ->
+		ReaderTransitionCommandStage.RetainedPublication
+	is ReaderTransitionCommand.CommitOwnerAndInputLease ->
+		ReaderTransitionCommandStage.SuccessorPublication
+	is ReaderTransitionCommand.ReleaseResource,
+	is ReaderTransitionCommand.CancelOwnedWork -> null
 }
 
 private fun ReaderTransitionJournal.reduceIntent(
@@ -2045,8 +2319,10 @@ private fun ReaderTransitionJournal.beginSemanticSynchronization(
 				awaitedProofs = setOf(ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement),
 				callbackSources = setOf(
 					ReaderTransitionFactKind.OwnerAndInputPublicationApplied,
-					ReaderTransitionFactKind.OwnerAndInputPublicationRejected
-				)
+					ReaderTransitionFactKind.OwnerAndInputPublicationRejected,
+					ReaderTransitionFactKind.CommandRejected
+				),
+				admissibleCommandStages = setOf(ReaderTransitionCommandStage.RetainedPublication)
 			)
 		)
 	} else {
@@ -2188,8 +2464,10 @@ private fun ReaderTransitionJournal.reduceRetry(
 				awaitedProofs = setOf(ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement),
 				callbackSources = setOf(
 					ReaderTransitionFactKind.OwnerAndInputPublicationApplied,
-					ReaderTransitionFactKind.OwnerAndInputPublicationRejected
-				)
+					ReaderTransitionFactKind.OwnerAndInputPublicationRejected,
+					ReaderTransitionFactKind.CommandRejected
+				),
+				admissibleCommandStages = setOf(ReaderTransitionCommandStage.RetainedPublication)
 			)
 		)
 	} else {
@@ -2268,6 +2546,15 @@ private fun ReaderTransitionJournal.reduceResourceRegistration(
 		(fact is ReaderTransitionFact.DeckReserved &&
 			classification.key.kind != ReaderTransitionResourceKind.Deck)
 	) return reduceRejectedResourceKey(classification.key)
+	val expectedStage = when (classification.key.kind) {
+		ReaderTransitionResourceKind.Raster -> ReaderTransitionCommandStage.RasterPreparation
+		ReaderTransitionResourceKind.Deck -> ReaderTransitionCommandStage.DeckReservation
+		ReaderTransitionResourceKind.CallbackRegistration,
+		ReaderTransitionResourceKind.FrameHandoff -> null
+	}
+	if (expectedStage != null && current.pendingCommandStages != setOf(expectedStage)) {
+		return reduceRejectedResourceKey(classification.key)
+	}
 	return ReaderTransitionReduction(
 		copy(
 			active = current.copy(
@@ -2321,11 +2608,13 @@ private fun ReaderTransitionJournal.reduceMaterialAllocation(
 			allocation.allocatedBinding,
 			allocation
 		) ||
+		current.pendingCommandStages != setOf(ReaderTransitionCommandStage.MaterialAllocation) ||
 		ReaderTransitionProofKind.MaterialBindingAllocation !in current.phase.contract.awaitedProofs ||
 		current.resolvedSuccessorBinding?.let { !it.matchesAllocation(allocation.allocatedBinding) } == true
 	) return unchanged()
 	val remaining = current.phase.contract.awaitedProofs - ReaderTransitionProofKind.MaterialBindingAllocation
 	val updated = current.copy(
+		pendingCommandStages = current.pendingCommandStages - ReaderTransitionCommandStage.MaterialAllocation,
 		resolvedSuccessorBinding = allocation.allocatedBinding,
 		materialAllocation = allocation
 	)
@@ -2356,6 +2645,7 @@ private fun ReaderTransitionJournal.reduceSettlement(
 	if (
 		current.id.operation != ReaderTransitionOperation.CurlClaimAndSettlement ||
 		fact.transitionId != current.id ||
+		current.pendingCommandStages != setOf(ReaderTransitionCommandStage.SemanticSynchronization) ||
 		!current.id.expectedBinding.matches(fact.binding) ||
 		current.resolvedSuccessorBinding?.let { it != fact.binding } == true ||
 		ReaderTransitionProofKind.SettlementAcknowledgement !in current.phase.contract.awaitedProofs
@@ -2368,6 +2658,8 @@ private fun ReaderTransitionJournal.reduceSettlement(
 	if (current.consumedSettlement != null) return unchanged()
 	val remaining = current.phase.contract.awaitedProofs - ReaderTransitionProofKind.SettlementAcknowledgement
 	val resolved = current.copy(
+		pendingCommandStages = current.pendingCommandStages -
+			ReaderTransitionCommandStage.SemanticSynchronization,
 		resolvedSuccessorBinding = fact.binding,
 		consumedSettlement = key
 	)
@@ -2442,21 +2734,37 @@ private fun ReaderTransitionJournal.reduceAcceptedSemanticDestination(
 ): ReaderTransitionReduction {
 	if (
 		current.authoritativeDestinationCommitted ||
+		current.pendingCommandStages != setOf(ReaderTransitionCommandStage.SemanticSynchronization) ||
 		current.resolvedSuccessorBinding?.let { it != binding } == true
 	) return unchanged()
 	if (ReaderTransitionProofKind.SemanticDestination in current.phase.contract.awaitedProofs) {
 		return reduceProof(current.id, ReaderTransitionProofKind.SemanticDestination, binding)
 	}
+	val awaitingRetainedPublication =
+		current.pendingCommandStages == setOf(ReaderTransitionCommandStage.RetainedPublication)
 	return ReaderTransitionReduction(
 		state = copy(
 			active = current.copy(
+				pendingCommandStages = if (awaitingRetainedPublication) {
+					current.pendingCommandStages
+				} else {
+					current.pendingCommandStages -
+						ReaderTransitionCommandStage.SemanticSynchronization
+				},
 				resolvedSuccessorBinding = binding,
 				authoritativeDestinationCommitted = true
 			)
 		),
-		commands = listOf(
-			ReaderTransitionCommand.AllocateMaterialBinding(current.id, binding.withoutMaterialGenerations())
-		)
+		commands = if (awaitingRetainedPublication) {
+			emptyList()
+		} else {
+			listOf(
+				ReaderTransitionCommand.AllocateMaterialBinding(
+					current.id,
+					binding.withoutMaterialGenerations()
+				)
+			)
+		}
 	)
 }
 
@@ -2535,8 +2843,10 @@ private fun ReaderTransitionJournal.reduceDestination(
 				awaitedProofs = setOf(ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement),
 				callbackSources = setOf(
 					ReaderTransitionFactKind.OwnerAndInputPublicationApplied,
-					ReaderTransitionFactKind.OwnerAndInputPublicationRejected
-				)
+					ReaderTransitionFactKind.OwnerAndInputPublicationRejected,
+					ReaderTransitionFactKind.CommandRejected
+				),
+				admissibleCommandStages = setOf(ReaderTransitionCommandStage.RetainedPublication)
 			)
 		)
 	} else {
@@ -2609,14 +2919,20 @@ private fun ReaderTransitionJournal.reduceFrameTargetPrepared(
 	fact: ReaderTransitionFact.FrameTargetPrepared
 ): ReaderTransitionReduction {
 	val current = active ?: return reduceRejectedResourceKey(fact.target.resource.key)
+	if (fact.transitionId != current.id) {
+		return reduceRejectedResourceKey(fact.target.resource.key)
+	}
+	if (current.pendingCommandStages != setOf(ReaderTransitionCommandStage.FrameTargetPreparation)) {
+		return reduceRejectedResourceKey(fact.target.resource.key)
+	}
 	if (
-		fact.transitionId != current.id ||
 		ReaderTransitionProofKind.FrameTargetPreparation !in current.phase.contract.awaitedProofs ||
 		current.pendingFrameTargetSpecification != fact.target.specification ||
 		current.pendingFrameTargetRegistration != fact.target.resource ||
 		!current.id.expectedBinding.acceptsMaterialAllocation(fact.target.specification.binding)
 	) return reduceRejectedResourceKey(fact.target.resource.key)
 	val next = current.copy(
+		pendingCommandStages = emptySet(),
 		phase = current.phase.copy(
 			kind = ReaderTransitionPhaseKind.AwaitingProof,
 			contract = current.phase.contract.copy(
@@ -2624,7 +2940,11 @@ private fun ReaderTransitionJournal.reduceFrameTargetPrepared(
 				callbackSources = setOf(
 					ReaderTransitionFactKind.PreparedFrame,
 					ReaderTransitionFactKind.ResourceLost,
-					ReaderTransitionFactKind.DeadlineExpired
+					ReaderTransitionFactKind.DeadlineExpired,
+					ReaderTransitionFactKind.CommandRejected
+				),
+				admissibleCommandStages = admissibleStagesFor(
+					ReaderTransitionCommandStage.FramePresentation
 				)
 			)
 		),
@@ -2644,6 +2964,7 @@ private fun ReaderTransitionJournal.reduceFrameTargetPreparationRejected(
 	val current = active
 	if (
 		current?.id != fact.transitionId ||
+		current.pendingCommandStages != setOf(ReaderTransitionCommandStage.FrameTargetPreparation) ||
 		ReaderTransitionProofKind.FrameTargetPreparation !in current.phase.contract.awaitedProofs ||
 		current.pendingFrameTargetSpecification != fact.specification ||
 		current.pendingFrameTargetRegistration != fact.resource
@@ -2655,6 +2976,12 @@ private fun ReaderTransitionJournal.reducePreparedFrame(
 	fact: ReaderTransitionFact.PreparedFrame
 ): ReaderTransitionReduction {
 	val current = active ?: return reduceRejectedResourceKey(fact.resource.key)
+	if (fact.transitionId != current.id) {
+		return reduceRejectedResourceKey(fact.resource.key)
+	}
+	if (current.pendingCommandStages != setOf(ReaderTransitionCommandStage.FramePresentation)) {
+		return reduceRejectedResourceKey(fact.resource.key)
+	}
 	if (
 		current.phase.kind == ReaderTransitionPhaseKind.Committing &&
 		current.frameTarget == fact.target &&
@@ -2663,7 +2990,6 @@ private fun ReaderTransitionJournal.reducePreparedFrame(
 	) return unchanged()
 	val target = current.frameTarget
 	if (
-		fact.transitionId != current.id ||
 		ReaderTransitionProofKind.PreparedFrame !in current.phase.contract.awaitedProofs ||
 		target == null ||
 		fact.target != target ||
@@ -2672,6 +2998,7 @@ private fun ReaderTransitionJournal.reducePreparedFrame(
 	) return reduceRejectedResourceKey(fact.resource.key)
 	val binding = target.specification.binding
 	val resolved = current.copy(
+		pendingCommandStages = current.pendingCommandStages - ReaderTransitionCommandStage.FramePresentation,
 		preparedFrameOwner = fact.frameOwner,
 		resolvedSuccessorBinding = binding,
 		successorResourceKey = fact.resource.key,
@@ -2701,12 +3028,17 @@ private fun ReaderTransitionJournal.beginSuccessorCommit(
 			awaitedProofs = setOf(ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement),
 			callbackSources = setOf(
 				ReaderTransitionFactKind.OwnerAndInputPublicationApplied,
-				ReaderTransitionFactKind.OwnerAndInputPublicationRejected
+				ReaderTransitionFactKind.OwnerAndInputPublicationRejected,
+				ReaderTransitionFactKind.CommandRejected
+			),
+			admissibleCommandStages = admissibleStagesFor(
+				ReaderTransitionCommandStage.SuccessorPublication
 			)
 		)
 	)
 	val committing = current.copy(
 		phase = committingPhase,
+		pendingCommandStages = emptySet(),
 		preparedFrameOwner = owner,
 		resolvedSuccessorBinding = binding,
 		successorResourceKey = registration.key,
@@ -2736,8 +3068,15 @@ private fun ReaderTransitionJournal.reduceOwnerAndInputPublicationApplied(
 	fact: ReaderTransitionFact.OwnerAndInputPublicationApplied
 ): ReaderTransitionReduction {
 	val current = active ?: return unchanged()
+	val expectedStage = when (fact.subject) {
+		is ReaderOwnerAndInputPublicationSubject.Retained ->
+			ReaderTransitionCommandStage.RetainedPublication
+		is ReaderOwnerAndInputPublicationSubject.Successor ->
+			ReaderTransitionCommandStage.SuccessorPublication
+	}
 	if (
 		fact.transitionId != current.id ||
+		current.pendingCommandStages != setOf(expectedStage) ||
 		ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement !in
 			current.phase.contract.awaitedProofs ||
 		fact.publicationIdentity != current.pendingPublicationIdentity
@@ -2767,6 +3106,7 @@ private fun ReaderTransitionJournal.reduceOwnerAndInputPublicationApplied(
 			)
 			val resumed = current.copy(
 				phase = phase,
+				pendingCommandStages = emptySet(),
 				pendingPublicationIdentity = null
 			)
 			val command = when {
@@ -2809,8 +3149,15 @@ private fun ReaderTransitionJournal.reduceOwnerAndInputPublicationRejected(
 	fact: ReaderTransitionFact.OwnerAndInputPublicationRejected
 ): ReaderTransitionReduction {
 	val current = active ?: return unchanged()
+	val expectedStage = when (fact.subject) {
+		is ReaderOwnerAndInputPublicationSubject.Retained ->
+			ReaderTransitionCommandStage.RetainedPublication
+		is ReaderOwnerAndInputPublicationSubject.Successor ->
+			ReaderTransitionCommandStage.SuccessorPublication
+	}
 	if (
 		fact.transitionId != current.id ||
+		current.pendingCommandStages != setOf(expectedStage) ||
 		ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement !in
 			current.phase.contract.awaitedProofs ||
 		fact.publicationIdentity != current.pendingPublicationIdentity
@@ -2896,6 +3243,9 @@ private fun ReaderTransitionJournal.reduceDeckOwned(
 	if (ReaderTransitionProofKind.DeckOwnership !in current.phase.contract.awaitedProofs) {
 		return if (current.admittedDeckKey == fact.key) unchanged() else reduceRejectedResourceKey(fact.key)
 	}
+	if (current.pendingCommandStages != setOf(ReaderTransitionCommandStage.DeckReservation)) {
+		return reduceRejectedResourceKey(fact.key)
+	}
 	if (
 		current.admittedDeckKey?.let { it != fact.key } == true ||
 		current.successorResourceKey?.takeIf { it.kind == ReaderTransitionResourceKind.Deck }
@@ -2908,11 +3258,21 @@ private fun ReaderTransitionJournal.reduceDeckOwned(
 		add(ReaderTransitionProofKind.DeckOwnership)
 		if (pendingMatches) add(ReaderTransitionProofKind.DeckPrepared)
 	}
+	val remaining = current.phase.contract.awaitedProofs - satisfied
 	val updated = current.copy(
+		pendingCommandStages = if (
+			ReaderTransitionProofKind.RendererGeneration !in remaining &&
+			ReaderTransitionProofKind.DeckOwnership !in remaining &&
+			ReaderTransitionProofKind.DeckPrepared !in remaining
+		) {
+			emptySet()
+		} else {
+			current.pendingCommandStages
+		},
 		admittedDeckKey = fact.key,
 		pendingPreparedDeckKey = null
 	)
-	val reduction = completeOrContinue(updated, current.phase.contract.awaitedProofs - satisfied)
+	val reduction = completeOrContinue(updated, remaining)
 	return if (stalePending == null) {
 		reduction
 	} else {
@@ -2938,6 +3298,9 @@ private fun ReaderTransitionJournal.reduceDeckPrepared(
 	if (ReaderTransitionProofKind.DeckPrepared !in current.phase.contract.awaitedProofs) {
 		return if (current.admittedDeckKey == fact.key) unchanged() else reduceRejectedResourceKey(fact.key)
 	}
+	if (current.pendingCommandStages != setOf(ReaderTransitionCommandStage.DeckReservation)) {
+		return reduceRejectedResourceKey(fact.key)
+	}
 	val admitted = current.admittedDeckKey
 	if (admitted == null) {
 		if (
@@ -2945,14 +3308,26 @@ private fun ReaderTransitionJournal.reduceDeckPrepared(
 				?.let { it != fact.key } == true
 		) return reduceRejectedResourceKey(fact.key)
 		return ReaderTransitionReduction(
-			copy(active = current.copy(pendingPreparedDeckKey = fact.key)),
+			copy(
+				active = current.copy(pendingPreparedDeckKey = fact.key)
+			),
 			emptyList()
 		)
 	}
 	if (admitted != fact.key) return reduceRejectedResourceKey(fact.key)
+	val remaining = current.phase.contract.awaitedProofs - ReaderTransitionProofKind.DeckPrepared
 	return completeOrContinue(
-		current,
-		current.phase.contract.awaitedProofs - ReaderTransitionProofKind.DeckPrepared
+		current.copy(
+			pendingCommandStages = if (
+				ReaderTransitionProofKind.RendererGeneration !in remaining &&
+				ReaderTransitionProofKind.DeckOwnership !in remaining
+			) {
+				current.pendingCommandStages - ReaderTransitionCommandStage.DeckReservation
+			} else {
+				current.pendingCommandStages
+			}
+		),
+		remaining
 	)
 }
 
@@ -2968,13 +3343,18 @@ private fun ReaderTransitionJournal.completeOrContinue(
 			current.pendingFrameTargetRegistration != null
 		) {
 			val awaitingTarget = current.copy(
+				pendingCommandStages = emptySet(),
 				phase = current.phase.copy(
 					kind = ReaderTransitionPhaseKind.AwaitingProof,
 					contract = current.phase.contract.copy(
 						awaitedProofs = setOf(ReaderTransitionProofKind.FrameTargetPreparation),
 						callbackSources = setOf(
 							ReaderTransitionFactKind.FrameTargetPrepared,
-							ReaderTransitionFactKind.FrameTargetPreparationRejected
+							ReaderTransitionFactKind.FrameTargetPreparationRejected,
+							ReaderTransitionFactKind.CommandRejected
+						),
+						admissibleCommandStages = admissibleStagesFor(
+							ReaderTransitionCommandStage.FrameTargetPreparation
 						)
 					)
 				)
@@ -3013,6 +3393,8 @@ private fun ReaderTransitionJournal.knownResourceKeys(
 	current?.ownedResourceKeys?.let(::addAll)
 	current?.admittedDeckKey?.let(::add)
 	current?.pendingPreparedDeckKey?.let(::add)
+	current?.pendingFrameTargetRegistration?.key?.let(::add)
+	current?.frameTarget?.resource?.key?.let(::add)
 	current?.successorResourceKey?.let(::add)
 	addAll(additional)
 }
@@ -3061,14 +3443,17 @@ private fun ReaderTransitionJournal.reduceRejectedResourceFact(
 
 private fun ReaderTransitionJournal.reduceRejectedResourceKey(
 	key: ReaderTransitionResourceKey
-): ReaderTransitionReduction = ReaderTransitionReduction(
-	state = this,
-	commands = resourceDispositionCommands(
-		transitionId = active?.id ?: key.owningTransitionIdOrNull,
-		candidates = listOf(key),
-		retention = ReaderTransitionResourceRetention.TruthfulPredecessor
+): ReaderTransitionReduction {
+	if (key in knownResourceKeys()) return unchanged()
+	return ReaderTransitionReduction(
+		state = this,
+		commands = resourceDispositionCommands(
+			transitionId = active?.id ?: key.owningTransitionIdOrNull,
+			candidates = listOf(key),
+			retention = ReaderTransitionResourceRetention.TruthfulPredecessor
+		)
 	)
-)
+}
 
 private fun ReaderTransitionJournal.reduceProof(
 	transitionId: ReaderTransitionId,
@@ -3082,8 +3467,32 @@ private fun ReaderTransitionJournal.reduceProof(
 		(factBinding != null && !current.id.expectedBinding.matches(factBinding)) ||
 		(current.resolvedSuccessorBinding?.let { factBinding != null && it != factBinding } == true)
 	) return unchanged()
+	val completedStage = when (proof) {
+		ReaderTransitionProofKind.SemanticDestination ->
+			ReaderTransitionCommandStage.SemanticSynchronization
+		ReaderTransitionProofKind.Raster -> ReaderTransitionCommandStage.RasterPreparation
+		ReaderTransitionProofKind.RendererGeneration -> ReaderTransitionCommandStage.DeckReservation
+		else -> null
+	}
+	if (completedStage != null && current.pendingCommandStages != setOf(completedStage)) {
+		return unchanged()
+	}
 	val remaining = current.phase.contract.awaitedProofs - proof
+	val commandStageComplete = when (completedStage) {
+		ReaderTransitionCommandStage.DeckReservation -> remaining.none {
+			it == ReaderTransitionProofKind.RendererGeneration ||
+				it == ReaderTransitionProofKind.DeckOwnership ||
+				it == ReaderTransitionProofKind.DeckPrepared
+		}
+		null -> false
+		else -> true
+	}
 	val resolved = current.copy(
+		pendingCommandStages = if (commandStageComplete) {
+			current.pendingCommandStages - requireNotNull(completedStage)
+		} else {
+			current.pendingCommandStages
+		},
 		resolvedSuccessorBinding = factBinding ?: current.resolvedSuccessorBinding,
 		authoritativeDestinationCommitted = current.authoritativeDestinationCommitted ||
 			(proof == ReaderTransitionProofKind.SemanticDestination && factBinding != null)
@@ -3097,7 +3506,10 @@ private fun ReaderTransitionJournal.reduceProof(
 				)
 			)
 		} ?: emptyList()
-		ReaderTransitionProofKind.Raster -> resolved.materialAllocation?.let { allocation ->
+		ReaderTransitionProofKind.Raster -> resolved.materialAllocation?.takeIf {
+			ReaderTransitionProofKind.DeckOwnership in remaining ||
+				ReaderTransitionProofKind.DeckPrepared in remaining
+		}?.let { allocation ->
 			listOf(
 				ReaderTransitionCommand.ReserveDeck(
 					transitionId = current.id,
@@ -3151,6 +3563,28 @@ private fun ReaderTransitionJournal.succeedAfterPublication(
 	)
 }
 
+private fun ReaderTransitionJournal.reduceRasterFailure(
+	fact: ReaderTransitionFact.RasterFailed
+): ReaderTransitionReduction {
+	val current = active ?: return unchanged()
+	if (
+		current.id != fact.transitionId ||
+		current.pendingCommandStages != setOf(ReaderTransitionCommandStage.RasterPreparation)
+	) return unchanged()
+	return reduceFailure(fact.transitionId, fact.reason)
+}
+
+private fun ReaderTransitionJournal.reduceRasterDeferral(
+	fact: ReaderTransitionFact.RasterDeferred
+): ReaderTransitionReduction {
+	val current = active ?: return unchanged()
+	if (
+		current.id != fact.transitionId ||
+		current.pendingCommandStages != setOf(ReaderTransitionCommandStage.RasterPreparation)
+	) return unchanged()
+	return reduceDeferral(fact.transitionId, fact.reason, fact.resumeRecord)
+}
+
 private fun ReaderTransitionJournal.reduceDeckRejected(
 	fact: ReaderTransitionFact.DeckRejected
 ): ReaderTransitionReduction {
@@ -3158,7 +3592,8 @@ private fun ReaderTransitionJournal.reduceDeckRejected(
 	if (
 		current?.id != fact.transitionId ||
 		fact.key.owningTransitionIdOrNull != fact.transitionId ||
-		fact.key.kind != ReaderTransitionResourceKind.Deck
+		fact.key.kind != ReaderTransitionResourceKind.Deck ||
+		current.pendingCommandStages != setOf(ReaderTransitionCommandStage.DeckReservation)
 	) return reduceRejectedResourceFact(fact)
 	return reduceFailure(
 		transitionId = fact.transitionId,
@@ -3172,17 +3607,87 @@ private fun ReaderTransitionJournal.reduceTimeout(
 ): ReaderTransitionReduction {
 	val current = active?.takeIf { it.id == transitionId } ?: return unchanged()
 	val liveness = ReaderTransitionLivenessTable.forOperation(current.id.operation)
+	val outcome = ReaderTransitionOutcome.Failed(
+		liveness.timeoutFailureReason,
+		liveness.timeoutRetryability,
+		current.phase.contract.retainedOwner
+	)
+	if (current.id.operation == ReaderTransitionOperation.PublicationClose) {
+		return terminatePublication(
+			reason = ReaderTransitionCancellationReason.PublicationClosed,
+			trigger = ReaderReleaseOnlyCleanupTrigger.PublicationClose,
+			closeOperationId = current.id,
+			outcomeOverride = outcome,
+			deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.Elapsed
+		)
+	}
 	return ReaderTransitionReduction(
 		state = copy(
 			active = null,
-			lastOutcome = ReaderTransitionOutcome.Failed(
-				liveness.timeoutFailureReason,
-				liveness.timeoutRetryability,
-				current.phase.contract.retainedOwner
-			),
+			lastOutcome = outcome,
 			retryableTransition = current.toRetryableTransition()
 		),
 		commands = terminalResourceCommands(current)
+	)
+}
+
+private fun ReaderTransitionJournal.reduceCommandRejected(
+	fact: ReaderTransitionFact.CommandRejected
+): ReaderTransitionReduction {
+	val current = active ?: return unchanged()
+	if (
+		current.id != fact.transitionId ||
+		current.pendingCommandStages != setOf(fact.stage)
+	) return unchanged()
+	if (
+		current.id.operation == ReaderTransitionOperation.PublicationClose &&
+		fact.stage == ReaderTransitionCommandStage.TimerBinding
+	) {
+		return terminatePublication(
+			reason = ReaderTransitionCancellationReason.PublicationClosed,
+			trigger = ReaderReleaseOnlyCleanupTrigger.PublicationClose,
+			closeOperationId = current.id,
+			outcomeOverride = ReaderTransitionOutcome.Failed(
+				reason = fact.reason.toFailureReason(),
+				retryability = ReaderTransitionRetryability.NonRetryable,
+				retainedOwner = current.phase.contract.retainedOwner
+			),
+			deadlineStatus = if (
+				fact.reason == ReaderTransitionCommandRejectionReason.CommandThrew
+			) {
+				ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew
+			} else {
+				ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected
+			}
+		)
+	}
+	return reduceFailure(
+		transitionId = fact.transitionId,
+		reason = fact.reason.toFailureReason()
+	)
+}
+
+private fun ReaderTransitionCommandRejectionReason.toFailureReason(): ReaderTransitionFailureReason =
+	when (this) {
+		ReaderTransitionCommandRejectionReason.MaterialAllocationRejected ->
+			ReaderTransitionFailureReason.MaterialAllocationRejected
+		ReaderTransitionCommandRejectionReason.PublicationRejected ->
+			ReaderTransitionFailureReason.AtomicPublicationRejected
+		else -> ReaderTransitionFailureReason.PortRejected
+	}
+
+private fun ReaderTransitionJournal.reduceSemanticPortContractViolation(
+	fact: ReaderTransitionFact.SemanticPortContractViolated
+): ReaderTransitionReduction {
+	val current = active?.takeIf { it.id == fact.transitionId } ?: return unchanged()
+	return terminatePublication(
+		reason = ReaderTransitionCancellationReason.PublicationClosed,
+		trigger = ReaderReleaseOnlyCleanupTrigger.ProcessClose,
+		outcomeOverride = ReaderTransitionOutcome.Failed(
+			reason = ReaderTransitionFailureReason.PortRejected,
+			retryability = ReaderTransitionRetryability.NonRetryable,
+			retainedOwner = current.phase.contract.retainedOwner
+		)
 	)
 }
 
@@ -3258,7 +3763,10 @@ private fun ReaderTransitionJournal.reducePublicationReplacement(
 ): ReaderTransitionReduction {
 	val current = active
 	if (transitionId != null && current?.id != transitionId) return unchanged()
-	return terminatePublication(ReaderTransitionCancellationReason.PublicationReplaced)
+	return terminatePublication(
+		reason = ReaderTransitionCancellationReason.PublicationReplaced,
+		trigger = ReaderReleaseOnlyCleanupTrigger.PublicationReplacement
+	)
 }
 
 private fun ReaderTransitionJournal.reducePublicationClose(
@@ -3271,67 +3779,71 @@ private fun ReaderTransitionJournal.reducePublicationClose(
 			current.id != transitionId ||
 			current.id.operation != ReaderTransitionOperation.PublicationClose
 		) return unchanged()
-		return terminatePublication(
-			ReaderTransitionCancellationReason.PublicationClosed,
-			closeOperationId = current.id
-		)
 	}
-	val baseline = committed.authority()
-	val nextSequence = nextTransitionSequence()
-	val closeOperationId = ReaderTransitionId(
-		readerSessionGeneration = baseline.readerSessionGeneration,
-		coordinatorEpoch = baseline.coordinatorEpoch,
-		sequence = nextSequence,
-		operation = ReaderTransitionOperation.PublicationClose,
-		expectedBinding = when (baseline) {
-			is ReaderCommittedPresentationAuthority.Retained ->
-				ReaderExpectedPresentationBinding.Exact(baseline.binding)
-			is ReaderCommittedPresentationAuthority.Neutral ->
-				ReaderExpectedPresentationBinding.NoCommittedPresentation(nextSequence)
-		},
-		parent = lastIssuedTransitionIdentity
-	)
 	return terminatePublication(
-		ReaderTransitionCancellationReason.PublicationClosed,
-		closeOperationId = closeOperationId
+		reason = ReaderTransitionCancellationReason.PublicationClosed,
+		trigger = ReaderReleaseOnlyCleanupTrigger.PublicationClose,
+		closeOperationId = current?.id?.takeIf {
+			it.operation == ReaderTransitionOperation.PublicationClose
+		}
 	)
 }
 
 private fun ReaderTransitionJournal.terminatePublication(
 	reason: ReaderTransitionCancellationReason,
-	closeOperationId: ReaderTransitionId? = null
+	trigger: ReaderReleaseOnlyCleanupTrigger,
+	closeOperationId: ReaderTransitionId? = null,
+	outcomeOverride: ReaderTransitionOutcome? = null,
+	deadlineStatus: ReaderReleaseOnlyCleanupDeadlineStatus =
+		ReaderReleaseOnlyCleanupDeadlineStatus.Armed
 ): ReaderTransitionReduction {
-	if (
-		active == null &&
-		retryableTransition == null &&
-		(lastOutcome as? ReaderTransitionOutcome.Cancelled)?.reason in setOf(
-			ReaderTransitionCancellationReason.PublicationReplaced,
-			ReaderTransitionCancellationReason.PublicationClosed
-		)
-	) return unchanged()
+	if (releaseOnlyCleanup != null) return unchanged()
 	val current = active
-	val commandOwnerId = current?.id ?: retryableTransition?.id ?: when (val state = committed) {
-		is ReaderCommittedPresentation.Initial -> when (state.origin) {
-			is ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor,
-			is ReaderInitialCommittedPresentationOrigin.Neutral -> null
-		}
+	val preCloseTransitionId = current?.id?.takeUnless { it == closeOperationId }
+	val cleanupValue = maxOf(lastTransitionSequence, lastPublicationSequence).let { value ->
+		require(value < Long.MAX_VALUE)
+		value + 1L
+	}
+	val cleanupKey = ReaderReleaseOnlyCleanupKey(
+		readerSessionGeneration = committed.readerSessionGeneration,
+		coordinatorEpoch = committed.coordinatorEpoch,
+		cleanupId = ReaderReleaseOnlyCleanupId(cleanupValue),
+		generation = ReaderReleaseOnlyCleanupGeneration(cleanupValue)
+	)
+	val cleanup = ReaderReleaseOnlyCleanupState(
+		key = cleanupKey,
+		trigger = trigger,
+		closeOperationId = closeOperationId,
+		preCloseTransitionId = preCloseTransitionId,
+		authoritativeSemanticDestination = current?.resolvedSuccessorBinding?.takeIf {
+			current.authoritativeDestinationCommitted || current.consumedSettlement != null
+		}?.let(::ReaderReleaseOnlySemanticAuthority),
+		cancellationStatus = if (preCloseTransitionId == null) {
+			ReaderReleaseOnlyCancellationStatus.NotRequired
+		} else {
+			ReaderReleaseOnlyCancellationStatus.Pending
+		},
+		deadlineStatus = deadlineStatus
+	)
+	val commandOwnerId = preCloseTransitionId ?: retryableTransition?.id ?: when (val state = committed) {
+		is ReaderCommittedPresentation.Initial -> null
 		is ReaderCommittedPresentation.Transition -> state.committed.id
 	}
 	val resources = knownResourceKeys(current)
 	return ReaderTransitionReduction(
 		state = copy(
 			active = null,
-			lastOutcome = ReaderTransitionOutcome.Cancelled(
+			releaseOnlyCleanup = cleanup,
+			lastOutcome = outcomeOverride ?: ReaderTransitionOutcome.Cancelled(
 				reason,
 				ReaderPresentationFrameOwner.Neutral
 			),
-			retryableTransition = null,
-			lastTransitionSequence = closeOperationId?.sequence ?: lastTransitionSequence,
-			lastIssuedTransitionIdentity = closeOperationId?.parentIdentity()
-				?: lastIssuedTransitionIdentity
+			retryableTransition = null
 		),
 		commands = buildList {
-			current?.let { add(ReaderTransitionCommand.CancelOwnedWork(it.id)) }
+			preCloseTransitionId?.let {
+				add(ReaderTransitionCommand.CancelOwnedWork(it, cleanupKey))
+			}
 			addAll(
 				resourceDispositionCommands(
 					transitionId = commandOwnerId,

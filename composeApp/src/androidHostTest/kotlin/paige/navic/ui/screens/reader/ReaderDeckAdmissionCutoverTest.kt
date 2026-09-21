@@ -14,9 +14,11 @@ import org.robolectric.RobolectricTestRunner
 import paige.navic.reader.ReaderActiveTransition
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.ReaderMaterialGenerationAllocation
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderTransitionCommand
+import paige.navic.reader.ReaderTransitionCommandStage
 import paige.navic.reader.ReaderTransitionDeckRole
 import paige.navic.reader.ReaderTransitionFact
 import paige.navic.reader.ReaderTransitionFactKind
@@ -25,6 +27,7 @@ import paige.navic.reader.ReaderTransitionJournal
 import paige.navic.reader.ReaderTransitionLivenessTable
 import paige.navic.reader.ReaderTransitionOperation
 import paige.navic.reader.ReaderTransitionPhaseKind
+import paige.navic.reader.ReaderTransitionProofKind
 import paige.navic.reader.ReaderTransitionResourceKey
 import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.reader.ReaderTransitionResourceProvenance
@@ -943,8 +946,8 @@ class ReaderDeckAdmissionCutoverTest {
 
 	@Test
 	fun `raster registration precedes callback facts and terminal release stays exact once`() {
-		val id = transitionId()
-		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
+		val fixtureId = transitionId()
+		val binding = (fixtureId.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
 		lateinit var callbacks: ReaderRasterLeaseFactEmitter
 		lateinit var submittedLease: ReaderRasterPreparationLease
 		val physicalReleases = mutableListOf<ReaderRasterPreparationLease>()
@@ -964,25 +967,59 @@ class ReaderDeckAdmissionCutoverTest {
 			renderer = noOpRendererPort()
 		)
 		val processedFacts = mutableListOf<ReaderTransitionFactKind>()
+		val destinationReduction = readerAndroidHostTestJournal(
+			committed = readerAndroidHostTestNeutralInitial(
+				fixtureId.readerSessionGeneration,
+				fixtureId.coordinatorEpoch
+			),
+			lastTransitionSequence = 0L,
+			lastIssuedTransitionIdentity = null
+		).reduce(ReaderTransitionFact.FoliateDestinationCommitted(null, binding))
+		val materialCommand = assertIs<ReaderTransitionCommand.AllocateMaterialBinding>(
+			destinationReduction.commands.single()
+		)
+		val materialActive = requireNotNull(destinationReduction.state.active)
+		val id = materialActive.id
+		assertEquals(id, materialCommand.transitionId)
+		assertEquals(setOf(ReaderTransitionCommandStage.MaterialAllocation), materialActive.pendingCommandStages)
+		assertEquals(binding, materialActive.resolvedSuccessorBinding)
+		assertTrue(materialActive.authoritativeDestinationCommitted)
+		val allocation = ReaderMaterialGenerationAllocation(
+			transitionId = id,
+			allocatedBinding = binding,
+			preparationGeneration = requireNotNull(binding.preparationGeneration),
+			rasterGeneration = requireNotNull(binding.rasterGeneration),
+			textureGeneration = requireNotNull(binding.textureGeneration)
+		)
+		val rasterReduction = destinationReduction.state.reduce(
+			ReaderTransitionFact.MaterialBindingAllocated(id, allocation)
+		)
+		val rasterCommand = assertIs<ReaderTransitionCommand.RequestRasterPreparation>(
+			rasterReduction.commands.single()
+		)
+		assertEquals(
+			ReaderTransitionCommand.RequestRasterPreparation(id, binding, allocation),
+			rasterCommand
+		)
+		val rasterActive = requireNotNull(rasterReduction.state.active)
+		assertEquals(setOf(ReaderTransitionCommandStage.RasterPreparation), rasterActive.pendingCommandStages)
+		assertEquals(binding, rasterActive.resolvedSuccessorBinding)
+		assertEquals(allocation, rasterActive.materialAllocation)
+		assertFalse(
+			ReaderTransitionProofKind.MaterialBindingAllocation in
+				rasterActive.phase.contract.awaitedProofs
+		)
+		assertEquals(
+			setOf(
+				ReaderTransitionCommandStage.RasterPreparation,
+				ReaderTransitionCommandStage.TimerBinding
+			),
+			rasterActive.phase.contract.admissibleCommandStages
+		)
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
 			mode = ReaderTransitionMode.Active,
-			journal = readerAndroidHostTestJournal(
-				committed = readerAndroidHostTestNeutralInitial(
-					id.readerSessionGeneration,
-					id.coordinatorEpoch
-				),
-				lastTransitionSequence = id.sequence,
-				lastIssuedTransitionIdentity = id.parentIdentity(),
-				active = ReaderActiveTransition(
-					id = id,
-					phase = ReaderTransitionLivenessTable.phase(
-						id,
-						ReaderTransitionPhaseKind.AwaitingPrerequisites,
-						ReaderPresentationFrameOwner.Neutral
-					)
-				)
-			),
+			journal = rasterReduction.state,
 			onObservation = { observation ->
 				if (observation.kind == ReaderTransitionCoordinatorObservationKind.FactProcessed) {
 					observation.factKind?.let(processedFacts::add)
@@ -990,10 +1027,7 @@ class ReaderDeckAdmissionCutoverTest {
 			}
 		)
 
-		ports.issue(
-			ReaderTransitionCommand.RequestRasterPreparation(id, binding),
-			coordinator::enqueue
-		)
+		ports.issue(rasterCommand, coordinator::enqueue)
 		callbacks.onProgress(submittedLease)
 		callbacks.onFailed(
 			submittedLease,

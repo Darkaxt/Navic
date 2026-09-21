@@ -35,9 +35,12 @@ import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderResourceRetirementOrder
+import paige.navic.reader.ReaderReleaseOnlyCleanupDeadlineStatus
 import paige.navic.reader.ReaderSemanticRequestHandle
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderTransitionCommand
+import paige.navic.reader.ReaderTransitionCommandRejectionReason
+import paige.navic.reader.ReaderTransitionCommandStage
 import paige.navic.reader.ReaderTransitionFact
 import paige.navic.reader.ReaderTransitionFactKind
 import paige.navic.reader.ReaderTransitionFailureReason
@@ -346,6 +349,20 @@ class ReaderResumableTransitionCoordinatorTest {
 	}
 
 	@Test
+	fun activatedCloseDispatchesCleanupWhenTimerCancellationRejectsOrThrows() {
+		assertActivatedTerminalCleanupSurvivesTimerCancellationFailure { _ ->
+			ReaderTransitionFact.PublicationClosed(null)
+		}
+	}
+
+	@Test
+	fun activatedReplacementDispatchesCleanupWhenTimerCancellationRejectsOrThrows() {
+		assertActivatedTerminalCleanupSurvivesTimerCancellationFailure { _ ->
+			ReaderTransitionFact.PublicationReplaced(null)
+		}
+	}
+
+	@Test
 	fun shadowModeIssuesNoMutatingCommands() {
 		val fixture = coordinatorFixture(mode = ReaderTransitionMode.Shadow)
 
@@ -518,6 +535,321 @@ class ReaderResumableTransitionCoordinatorTest {
 	}
 
 	@Test
+	fun failedSuccessorTimerStillDispatchesExactSupersededCleanup() {
+		listOf(
+			TestTimerBindOutcome.Rejected,
+			TestTimerBindOutcome.Throws,
+			TestTimerBindOutcome.SynchronousExpiry
+		).forEach { bindOutcome ->
+			val timer = ScriptedBindingTimer(bindOutcome)
+			val model = activatedNeutralTransitionFixture(timer)
+			val fixture = model.fixture
+			val successor = model.binding.copy(
+				destinationCommitIdentity = ReaderDestinationCommitIdentity(
+					model.binding.foliateSessionId,
+					requireNotNull(model.binding.destinationCommitIdentity).commitSequence + 1L
+				)
+			)
+
+			fixture.coordinator.enqueue(
+				ReaderTransitionFact.FoliateDestinationCommitted(null, successor)
+			)
+
+			assertEquals(
+				1,
+				fixture.ports.commands.filterIsInstance<ReaderTransitionCommand.CancelOwnedWork>()
+					.count { it.transitionId == fixture.id }
+			)
+			assertEquals(
+				listOf(model.owned),
+				fixture.ports.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+					.map { it.key }
+			)
+			assertTrue(
+				fixture.ports.commands.none { it is ReaderTransitionCommand.AllocateMaterialBinding }
+			)
+			assertEquals(ReaderTransitionOutcomeKind.Failed, fixture.coordinator.snapshot().lastOutcome)
+		}
+	}
+
+	@Test
+	fun sameTransitionStaleDeckCleanupSurvivesTimerFailure() {
+		listOf(
+			TestTimerProgressOutcome.Rejected,
+			TestTimerProgressOutcome.Throws,
+			TestTimerProgressOutcome.SynchronousExpiry
+		).forEach { progressOutcome ->
+			val timer = SequencedFactOnlyTimer(
+				bindScript = listOf(TestTimerBindOutcome.Accepted),
+				progressScript = listOf(
+					TestTimerProgressOutcome.Accepted,
+					progressOutcome
+				)
+			)
+			val fixture = coordinatorFixture(
+				task6FactOnlyTimer = timer,
+				activationState = { ReaderSessionActivationState.Activated }
+			)
+			val current = deckKey(fixture.id)
+			val stale = current.copy(opaqueId = current.opaqueId + 1L)
+
+			fixture.coordinator.enqueue(ReaderTransitionFact.RasterProven(fixture.id))
+			fixture.coordinator.enqueue(ReaderTransitionFact.DeckPrepared(fixture.id, stale))
+			fixture.coordinator.enqueue(ReaderTransitionFact.DeckOwned(fixture.id, current))
+
+			assertEquals(
+				1,
+				fixture.ports.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+					.count { it.key == stale }
+			)
+			assertEquals(ReaderTransitionOutcomeKind.Failed, fixture.coordinator.snapshot().lastOutcome)
+		}
+	}
+
+	@Test
+	fun acceptedCancellationClearsEveryAliasOfOneExactRegistration() {
+		val timer = AliasingFactOnlyTimer()
+		val model = activatedNeutralTransitionFixture(timer)
+		val fixture = model.fixture
+		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+		val successor = model.binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				model.binding.foliateSessionId,
+				requireNotNull(model.binding.destinationCommitIdentity).commitSequence + 1L
+			)
+		)
+
+		fixture.coordinator.enqueue(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, successor)
+		)
+
+		assertEquals(2, timer.bindCount)
+		assertEquals(1, timer.cancelCount)
+		assertEquals(0, timer.trackedRegistrationCount)
+		assertEquals(0, fixture.coordinator.snapshot().scheduledCallbackCount)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.Retry(null))
+
+		assertEquals(3, timer.bindCount)
+		assertEquals(1, timer.cancelCount)
+		assertEquals(1, timer.trackedRegistrationCount)
+		assertEquals(1, fixture.coordinator.snapshot().scheduledCallbackCount)
+		assertNotNull(fixture.coordinator.snapshot().activeOperation)
+	}
+
+	@Test
+	fun exactExpiryClearsOnlyOneOfTwoSameTransitionRegistrations() {
+		val timer = SequencedFactOnlyTimer(
+			bindScript = listOf(
+				TestTimerBindOutcome.Accepted,
+				TestTimerBindOutcome.WrongPreviousOwner,
+				TestTimerBindOutcome.Accepted
+			),
+			cancelScript = List(6) { TestTimerCancelOutcome.Rejected }
+		)
+		val model = activatedNeutralTransitionFixture(timer)
+		val fixture = model.fixture
+		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+		val successor = model.binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				model.binding.foliateSessionId,
+				requireNotNull(model.binding.destinationCommitIdentity).commitSequence + 1L
+			)
+		)
+
+		fixture.coordinator.enqueue(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, successor)
+		)
+		assertEquals(2, timer.bindCount)
+		assertEquals(2, timer.trackedRegistrationCount)
+		assertEquals(2, fixture.coordinator.snapshot().scheduledCallbackCount)
+
+		timer.fireRegistration(ReaderTask6FactOnlyTimerRegistrationId(2L))
+		assertEquals(1, timer.trackedRegistrationCount)
+		assertEquals(1, fixture.coordinator.snapshot().scheduledCallbackCount)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.Retry(null))
+		assertEquals(2, timer.bindCount)
+		assertEquals(1, timer.trackedRegistrationCount)
+		assertEquals(1, fixture.coordinator.snapshot().scheduledCallbackCount)
+
+		timer.fireRegistration(ReaderTask6FactOnlyTimerRegistrationId(1L))
+		assertEquals(0, timer.trackedRegistrationCount)
+		assertEquals(0, fixture.coordinator.snapshot().scheduledCallbackCount)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.Retry(null))
+		assertEquals(3, timer.bindCount)
+		assertEquals(1, timer.trackedRegistrationCount)
+		assertEquals(1, fixture.coordinator.snapshot().scheduledCallbackCount)
+		assertNotNull(fixture.coordinator.snapshot().activeOperation)
+	}
+
+	@Test
+	fun wrongOwnerRollbackCancellationFailureRetainsOwnershipUntilRetryCanBind() {
+		listOf(
+			TestTimerCancelOutcome.Rejected,
+			TestTimerCancelOutcome.Throws
+		).forEach { firstCancellation ->
+			val timer = SequencedFactOnlyTimer(
+				bindScript = listOf(
+					TestTimerBindOutcome.WrongOwner,
+					TestTimerBindOutcome.Accepted
+				),
+				cancelScript = listOf(
+					firstCancellation,
+					TestTimerCancelOutcome.Accepted
+				)
+			)
+			val fixture = activatedNeutralTransitionFixture(timer).fixture
+
+			fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+			assertEquals(null, fixture.coordinator.snapshot().activeOperation)
+			assertEquals(0, timer.trackedRegistrationCount)
+
+			fixture.coordinator.enqueue(ReaderTransitionFact.Retry(null))
+
+			assertEquals(2, timer.bindCount)
+			assertEquals(2, timer.cancelCount)
+			assertEquals(1, timer.trackedRegistrationCount)
+			assertNotNull(fixture.coordinator.snapshot().activeOperation)
+		}
+	}
+
+	@Test
+	fun failedOldAndRollbackCancellationRetainBothUntilRetryWithoutAccumulation() {
+		val timer = SequencedFactOnlyTimer(
+			bindScript = listOf(
+				TestTimerBindOutcome.Accepted,
+				TestTimerBindOutcome.Accepted,
+				TestTimerBindOutcome.Accepted
+			),
+			cancelScript = listOf(
+				TestTimerCancelOutcome.Rejected,
+				TestTimerCancelOutcome.Rejected,
+				TestTimerCancelOutcome.Accepted,
+				TestTimerCancelOutcome.Accepted
+			)
+		)
+		val model = activatedNeutralTransitionFixture(timer)
+		val fixture = model.fixture
+		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+		val successor = model.binding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				model.binding.foliateSessionId,
+				requireNotNull(model.binding.destinationCommitIdentity).commitSequence + 1L
+			)
+		)
+
+		fixture.coordinator.enqueue(
+			ReaderTransitionFact.FoliateDestinationCommitted(null, successor)
+		)
+		assertEquals(0, timer.trackedRegistrationCount)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.Retry(null))
+
+		assertEquals(3, timer.bindCount)
+		assertEquals(4, timer.cancelCount)
+		assertEquals(1, timer.trackedRegistrationCount)
+		assertNotNull(fixture.coordinator.snapshot().activeOperation)
+	}
+
+	@Test
+	fun exactExpiryBeforeRearmRejectionClearsOwnershipAndRetryBindsOnce() {
+		val timer = SequencedFactOnlyTimer(
+			bindScript = listOf(
+				TestTimerBindOutcome.Accepted,
+				TestTimerBindOutcome.Accepted
+			),
+			cancelScript = listOf(TestTimerCancelOutcome.Rejected),
+			callbackBeforeProgressReject = true
+		)
+		val model = activatedNeutralTransitionFixture(timer)
+		val fixture = model.fixture
+		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+		fixture.coordinator.enqueue(
+			ReaderTransitionFact.MaterialBindingAllocated(
+				fixture.id,
+				paige.navic.reader.ReaderMaterialGenerationAllocation(
+					fixture.id,
+					model.binding,
+					requireNotNull(model.binding.preparationGeneration),
+					requireNotNull(model.binding.rasterGeneration),
+					requireNotNull(model.binding.textureGeneration)
+				)
+			)
+		)
+		assertEquals(null, fixture.coordinator.snapshot().activeOperation)
+		assertEquals(0, timer.trackedRegistrationCount)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.Retry(null))
+
+		assertEquals(2, timer.bindCount)
+		assertEquals(0, timer.cancelCount)
+		assertEquals(1, timer.trackedRegistrationCount)
+		assertNotNull(fixture.coordinator.snapshot().activeOperation)
+	}
+
+	@Test
+	fun rejectedOrThrowingTimerRearmBlocksCommandEmittingRasterProgression() {
+		listOf(
+			TestTimerProgressOutcome.Rejected,
+			TestTimerProgressOutcome.Throws
+		).forEach { progressOutcome ->
+			val observedFacts = mutableListOf<ReaderTransitionFactKind>()
+			val timer = ScriptedBindingTimer(
+				outcome = TestTimerBindOutcome.Accepted,
+				progressOutcome = progressOutcome
+			)
+			val fixture = coordinatorFixture(
+				task6FactOnlyTimer = timer,
+				activationState = { ReaderSessionActivationState.Activated },
+				onObservation = { observation ->
+					observation.factKind?.let(observedFacts::add)
+				}
+			)
+			fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+
+			fixture.coordinator.enqueue(ReaderTransitionFact.RasterProven(fixture.id))
+
+			val snapshot = fixture.coordinator.snapshot()
+			assertTrue(fixture.ports.commands.none { it is ReaderTransitionCommand.ReserveDeck })
+			assertEquals(null, snapshot.activeOperation)
+			assertEquals(ReaderTransitionOutcomeKind.Failed, snapshot.lastOutcome)
+			assertEquals(0, snapshot.mailboxSize)
+			assertEquals(1, observedFacts.count { it == ReaderTransitionFactKind.CommandRejected })
+			assertEquals(0, observedFacts.count { it == ReaderTransitionFactKind.DeadlineExpired })
+		}
+	}
+
+	@Test
+	fun synchronousExpiryBeforeTimerBindReturnBlocksCommandEmittingRasterProgression() {
+		val observedFacts = mutableListOf<ReaderTransitionFactKind>()
+		val timer = ScriptedBindingTimer(TestTimerBindOutcome.SynchronousExpiry)
+		val fixture = coordinatorFixture(
+			task6FactOnlyTimer = timer,
+			activationState = { ReaderSessionActivationState.Activated },
+			onObservation = { observation ->
+				observation.factKind?.let(observedFacts::add)
+			}
+		)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProven(fixture.id))
+
+		val snapshot = fixture.coordinator.snapshot()
+		assertTrue(fixture.ports.commands.none { it is ReaderTransitionCommand.ReserveDeck })
+		assertEquals(null, snapshot.activeOperation)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, snapshot.lastOutcome)
+		assertEquals(0, snapshot.mailboxSize)
+		assertEquals(
+			listOf(
+				ReaderTransitionFactKind.RasterProven,
+				ReaderTransitionFactKind.DeadlineExpired
+			),
+			observedFacts
+		)
+	}
+
+	@Test
 	fun rejectedTask6ProgressRearmClearsRegistrationAndFailsClosed() {
 		listOf(false, true).forEach { callbackBeforeReject ->
 			val timer = RejectingProgressTimer(callbackBeforeReject)
@@ -536,12 +868,16 @@ class ReaderResumableTransitionCoordinatorTest {
 
 			val snapshot = fixture.coordinator.snapshot()
 			assertEquals(1, timer.progressCount)
-			assertEquals(1, timer.cancelCount)
-			assertTrue(timer.cancelledBoundRegistration)
+			assertEquals(if (callbackBeforeReject) 0 else 1, timer.cancelCount)
+			assertEquals(!callbackBeforeReject, timer.cancelledBoundRegistration)
 			assertEquals(null, snapshot.activeOperation)
 			assertEquals(ReaderTransitionOutcomeKind.Failed, snapshot.lastOutcome)
 			assertEquals(0, snapshot.mailboxSize)
-			assertEquals(1, observedFacts.count { it == ReaderTransitionFactKind.DeadlineExpired })
+			assertEquals(
+				if (callbackBeforeReject) 1 else 0,
+				observedFacts.count { it == ReaderTransitionFactKind.DeadlineExpired }
+			)
+			assertEquals(1, observedFacts.count { it == ReaderTransitionFactKind.CommandRejected })
 		}
 	}
 
@@ -928,6 +1264,266 @@ class ReaderResumableTransitionCoordinatorTest {
 		)
 	}
 
+	@Test
+	fun resumedSpecializedFrameTargetPhaseBindsTimerAndRestoresPhysicalAuthority() {
+		val binding = binding("resumed-frame-target")
+		val id = transitionId(binding, ReaderTransitionOperation.CoverToPageEntry)
+		val owner = shellOwner(binding)
+		val basePhase = ReaderTransitionLivenessTable.phase(
+			id = id,
+			kind = ReaderTransitionPhaseKind.AwaitingProof,
+			retainedOwner = owner,
+			satisfiedProofs = setOf(paige.navic.reader.ReaderTransitionProofKind.SemanticDestination)
+		)
+		val specializedPhase = basePhase.copy(
+			contract = basePhase.contract.copy(
+				awaitedProofs = setOf(paige.navic.reader.ReaderTransitionProofKind.FrameTargetPreparation),
+				callbackSources = setOf(
+					ReaderTransitionFactKind.FrameTargetPrepared,
+					ReaderTransitionFactKind.FrameTargetPreparationRejected,
+					ReaderTransitionFactKind.DeadlineExpired,
+					ReaderTransitionFactKind.CommandRejected
+				),
+				admissibleCommandStages = setOf(
+					ReaderTransitionCommandStage.FrameTargetPreparation,
+					ReaderTransitionCommandStage.TimerBinding
+				)
+			)
+		)
+		val journal = readerAndroidHostTestJournal(
+			committed = readerAndroidHostTestAdoptedInitial(
+				owner = owner,
+				binding = binding,
+				readerSessionGeneration = id.readerSessionGeneration,
+				coordinatorEpoch = id.coordinatorEpoch
+			),
+			lastTransitionSequence = id.sequence,
+			lastIssuedTransitionIdentity = id.parentIdentity(),
+			active = ReaderActiveTransition(
+				id = id,
+				phase = specializedPhase,
+				pendingCommandStages = setOf(ReaderTransitionCommandStage.FrameTargetPreparation)
+			)
+		)
+		val timer = RejectingProgressTimer(callbackBeforeReject = false)
+		val ports = RecordingPorts(RecordingClock(), task6FactOnlyTimer = timer) { _, _ -> }
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = journal,
+			activationState = { ReaderSessionActivationState.Activated }
+		)
+
+		coordinator.enqueue(ReaderTransitionFact.RasterProgress(id))
+
+		assertEquals(1, timer.bindCount)
+		assertEquals(ReaderTransitionOperation.CoverToPageEntry, coordinator.snapshot().activeOperation)
+		coordinator.enqueue(
+			ReaderTransitionFact.CommandRejected(
+				id,
+				ReaderTransitionCommandStage.FrameTargetPreparation,
+				ReaderTransitionCommandRejectionReason.FrameTargetRejected
+			)
+		)
+		assertEquals(null, coordinator.snapshot().activeOperation)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, coordinator.snapshot().lastOutcome)
+	}
+
+	@Test
+	fun activatedPublicationCloseBindsTimerAndClosesWithoutConstructorCrash() {
+		val timer = ScriptedBindingTimer(TestTimerBindOutcome.Accepted)
+		val fixture = activatedPublicationCloseFixture(timer)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.HostAvailable(fixture.id))
+
+		val bound = fixture.coordinator.snapshot()
+		assertEquals(1, timer.bindCount)
+		assertEquals(ReaderTransitionOperation.PublicationClose, bound.activeOperation)
+		assertEquals(null, bound.lastOutcome)
+		assertFalse(bound.releaseOnlySink)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.PublicationClosed(fixture.id))
+
+		val closed = fixture.coordinator.snapshot()
+		assertEquals(null, closed.activeOperation)
+		assertEquals(ReaderTransitionOutcomeKind.Cancelled, closed.lastOutcome)
+		assertTrue(closed.releaseOnlySink)
+		assertEquals(1, timer.cancelCount)
+	}
+
+	@Test
+	fun activatedPublicationCloseTimerExpiryFailsIntoPermanentReleaseOnly() {
+		val timer = ScriptedBindingTimer(TestTimerBindOutcome.Accepted)
+		val fixture = activatedPublicationCloseFixture(timer)
+		fixture.coordinator.enqueue(ReaderTransitionFact.HostAvailable(fixture.id))
+
+		timer.fire()
+
+		val expired = fixture.coordinator.snapshot()
+		assertEquals(null, expired.activeOperation)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, expired.lastOutcome)
+		assertTrue(expired.releaseOnlySink)
+		assertEquals(0, timer.cancelCount)
+		fixture.coordinator.enqueue(ReaderTransitionFact.Retry(fixture.id))
+		assertEquals(null, fixture.coordinator.snapshot().activeOperation)
+		assertEquals(1, timer.bindCount)
+	}
+
+	@Test
+	fun activatedPublicationCloseWithoutTimerFailsDirectlyIntoReleaseOnly() {
+		val fixture = activatedPublicationCloseFixture(timer = null)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.HostAvailable(fixture.id))
+
+		val failed = fixture.coordinator.snapshot()
+		assertEquals(null, failed.activeOperation)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, failed.lastOutcome)
+		assertTrue(failed.releaseOnlySink)
+		assertEquals(0, failed.mailboxSize)
+	}
+
+	@Test
+	fun activatedPublicationCloseRejectedTimerBindFailsDirectlyIntoReleaseOnly() {
+		val timer = ScriptedBindingTimer(TestTimerBindOutcome.Rejected)
+		val fixture = activatedPublicationCloseFixture(timer)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.HostAvailable(fixture.id))
+
+		val failed = fixture.coordinator.snapshot()
+		assertEquals(1, timer.bindCount)
+		assertEquals(null, failed.activeOperation)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, failed.lastOutcome)
+		assertTrue(failed.releaseOnlySink)
+	}
+
+	@Test
+	fun activatedPublicationCloseThrowingTimerBindFailsDirectlyIntoReleaseOnly() {
+		val timer = ScriptedBindingTimer(TestTimerBindOutcome.Throws)
+		val fixture = activatedPublicationCloseFixture(timer)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.HostAvailable(fixture.id))
+
+		val failed = fixture.coordinator.snapshot()
+		assertEquals(1, timer.bindCount)
+		assertEquals(null, failed.activeOperation)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, failed.lastOutcome)
+		assertTrue(failed.releaseOnlySink)
+	}
+
+	@Test
+	fun activatedPublicationCloseTimerOwnershipConflictFailsDirectlyIntoReleaseOnly() {
+		val timer = ScriptedBindingTimer(TestTimerBindOutcome.WrongOwner)
+		val fixture = activatedPublicationCloseFixture(timer)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.HostAvailable(fixture.id))
+
+		val failed = fixture.coordinator.snapshot()
+		assertEquals(1, timer.bindCount)
+		assertEquals(1, timer.cancelCount)
+		assertEquals(null, failed.activeOperation)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, failed.lastOutcome)
+		assertTrue(failed.releaseOnlySink)
+	}
+
+	@Test
+	fun timerBindingRejectionQueuesTypedFactWithoutTimeoutSubstitution() {
+		val observedFacts = mutableListOf<ReaderTransitionFactKind>()
+		val fixture = coordinatorFixture(
+			task6FactOnlyTimer = null,
+			activationState = { ReaderSessionActivationState.Activated },
+			onObservation = { observation -> observation.factKind?.let(observedFacts::add) }
+		)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProven(fixture.id))
+
+		val snapshot = fixture.coordinator.snapshot()
+		assertEquals(ReaderTransitionOutcomeKind.Failed, snapshot.lastOutcome)
+		assertEquals(null, snapshot.activeOperation)
+		assertTrue(fixture.ports.commands.none { it is ReaderTransitionCommand.ReserveDeck })
+		assertEquals(1, observedFacts.count { it == ReaderTransitionFactKind.CommandRejected })
+		assertEquals(0, observedFacts.count { it == ReaderTransitionFactKind.DeadlineExpired })
+	}
+
+	@Test
+	fun timerBindingThrowQueuesBoundedCommandRejectionBeforePhysicalWork() {
+		val observedFacts = mutableListOf<ReaderTransitionFactKind>()
+		val throwingTimer = object : ReaderTask6FactOnlyTimerPort {
+			override fun bindBeforeWork(
+				transitionId: ReaderTransitionId,
+				onExpired: (ReaderTransitionFact.DeadlineExpired) -> Unit
+			): ReaderTask6FactOnlyTimerRegistration? = error("private timer detail")
+
+			override fun matchingProgress(
+				registration: ReaderTask6FactOnlyTimerRegistration,
+				nowMillis: Long
+			) = ReaderPortCommandResult.Accepted
+
+			override fun snapshotForTask7Transfer(
+				registration: ReaderTask6FactOnlyTimerRegistration
+			): ReaderTask6FactOnlyTimerTransferSnapshot? = null
+
+			override fun cancel(
+				registration: ReaderTask6FactOnlyTimerRegistration
+			) = ReaderPortCommandResult.Accepted
+		}
+		val fixture = coordinatorFixture(
+			task6FactOnlyTimer = throwingTimer,
+			activationState = { ReaderSessionActivationState.Activated },
+			onObservation = { observation -> observation.factKind?.let(observedFacts::add) }
+		)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProven(fixture.id))
+
+		assertEquals(ReaderTransitionOutcomeKind.Failed, fixture.coordinator.snapshot().lastOutcome)
+		assertTrue(fixture.ports.commands.none { it is ReaderTransitionCommand.ReserveDeck })
+		assertEquals(1, observedFacts.count { it == ReaderTransitionFactKind.CommandRejected })
+		assertEquals(0, observedFacts.count { it == ReaderTransitionFactKind.DeadlineExpired })
+	}
+
+	@Test
+	fun materialAllocationRejectionReentersFifoAsExactRetryableCommandFact() {
+		val binding = binding("typed-material-rejection")
+		val observedFacts = mutableListOf<ReaderTransitionFactKind>()
+		lateinit var ports: RecordingPorts
+		ports = RecordingPorts(RecordingClock()) { command, onFact ->
+			when (command) {
+				is ReaderTransitionCommand.RequestSemanticSynchronization -> onFact(
+					ReaderTransitionFact.FoliateDestinationCommitted(command.transitionId, binding)
+				)
+				is ReaderTransitionCommand.AllocateMaterialBinding -> onFact(
+					ReaderTransitionFact.CommandRejected(
+						command.transitionId,
+						paige.navic.reader.ReaderTransitionCommandStage.MaterialAllocation,
+						paige.navic.reader.ReaderTransitionCommandRejectionReason.MaterialAllocationRejected
+					)
+				)
+				else -> Unit
+			}
+		}
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = ReaderTransitionJournal(
+				committed = readerAndroidHostTestNeutralInitial(17L, 19L)
+			),
+			onObservation = { observation -> observation.factKind?.let(observedFacts::add) }
+		)
+
+		coordinator.enqueue(
+			ReaderTransitionFact.Intent(
+				null,
+				paige.navic.reader.ReaderBootstrapNativePageIntent(ReaderSemanticRequestHandle(1L))
+			)
+		)
+
+		val snapshot = coordinator.snapshot()
+		assertEquals(ReaderTransitionOutcomeKind.Failed, snapshot.lastOutcome)
+		assertEquals(null, snapshot.activeOperation)
+		assertEquals(1, observedFacts.count { it == ReaderTransitionFactKind.CommandRejected })
+		assertEquals(0, observedFacts.count { it == ReaderTransitionFactKind.DeadlineExpired })
+		assertTrue(ports.commands.any { it is ReaderTransitionCommand.AllocateMaterialBinding })
+	}
+
 	private fun settlementCoordinator(
 		model: paige.navic.reader.ReaderTransitionModelFixture
 	) = ReaderResumableTransitionCoordinator(
@@ -986,6 +1582,161 @@ class ReaderResumableTransitionCoordinatorTest {
 		)
 	}
 
+	private fun activatedNeutralTransitionFixture(
+		timer: ReaderTask6FactOnlyTimerPort,
+		onObservation: (ReaderTransitionCoordinatorObservation) -> Unit = {}
+	): NeutralCoordinatorFixture {
+		val binding = binding("activated-neutral")
+		val id = transitionId(binding, ReaderTransitionOperation.CoverToPageEntry)
+		val owned = ReaderTransitionResourceKey(
+			id,
+			ReaderTransitionResourceKind.Raster,
+			401L
+		)
+		val journal = readerAndroidHostTestJournal(
+			committed = readerAndroidHostTestNeutralInitial(
+				id.readerSessionGeneration,
+				id.coordinatorEpoch
+			),
+			lastTransitionSequence = id.sequence,
+			lastIssuedTransitionIdentity = id.parentIdentity(),
+			active = ReaderActiveTransition(
+				id = id,
+				phase = ReaderTransitionLivenessTable.phase(
+					id = id,
+					kind = ReaderTransitionPhaseKind.AwaitingPrerequisites,
+					retainedOwner = ReaderPresentationFrameOwner.Neutral,
+					satisfiedProofs = setOf(
+						paige.navic.reader.ReaderTransitionProofKind.SemanticDestination
+					)
+				),
+				pendingCommandStages = setOf(ReaderTransitionCommandStage.MaterialAllocation),
+				resolvedSuccessorBinding = binding,
+				ownedResourceKeys = setOf(owned),
+				authoritativeDestinationCommitted = true
+			)
+		)
+		val clock = RecordingClock()
+		val ports = RecordingPorts(clock, task6FactOnlyTimer = timer) { _, _ -> }
+		return NeutralCoordinatorFixture(
+			binding = binding,
+			owned = owned,
+			fixture = CoordinatorFixture(
+				id = id,
+				clock = clock,
+				ports = ports,
+				coordinator = ReaderResumableTransitionCoordinator(
+					ports = ports,
+					mode = ReaderTransitionMode.Active,
+					journal = journal,
+					activationState = { ReaderSessionActivationState.Activated },
+					onObservation = onObservation
+				)
+			)
+		)
+	}
+
+	private fun assertActivatedTerminalCleanupSurvivesTimerCancellationFailure(
+		terminalFact: (ReaderTransitionId) -> ReaderTransitionFact
+	) {
+		listOf(
+			TestTimerCancelOutcome.Rejected,
+			TestTimerCancelOutcome.Throws
+		).forEach { cancelOutcome ->
+			val timer = ScriptedBindingTimer(
+				outcome = TestTimerBindOutcome.Accepted,
+				cancelOutcome = cancelOutcome
+			)
+			val fixture = coordinatorFixture(
+				task6FactOnlyTimer = timer,
+				activationState = { ReaderSessionActivationState.Activated }
+			)
+			val owned = ReaderTransitionResourceKey(
+				fixture.id,
+				ReaderTransitionResourceKind.Raster,
+				307L
+			)
+			fixture.coordinator.enqueue(ReaderTransitionFact.ResourceObserved(fixture.id, owned))
+			assertEquals(1, timer.bindCount)
+
+			val terminal = terminalFact(fixture.id)
+			fixture.coordinator.enqueue(terminal)
+
+			val releases = fixture.ports.commands
+				.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+			assertEquals(2, releases.size)
+			assertEquals(2, releases.map { it.key }.distinct().size)
+			assertTrue(releases.any { it.key == owned })
+			assertEquals(
+				1,
+				fixture.ports.commands.count { it is ReaderTransitionCommand.CancelOwnedWork }
+			)
+			val snapshot = fixture.coordinator.snapshot()
+			assertTrue(snapshot.releaseOnlySink)
+			assertEquals(null, snapshot.activeOperation)
+			assertEquals(1, snapshot.scheduledCallbackCount)
+			assertEquals(
+				when (cancelOutcome) {
+					TestTimerCancelOutcome.Rejected ->
+						ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected
+					TestTimerCancelOutcome.Throws ->
+						ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew
+					TestTimerCancelOutcome.Accepted -> error("Failure case required")
+				},
+				snapshot.releaseOnlyDeadlineStatus
+			)
+			assertEquals(1, timer.cancelCount)
+
+			fixture.coordinator.enqueue(terminal)
+			assertEquals(2, fixture.ports.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().size)
+			assertEquals(
+				1,
+				fixture.ports.commands.count { it is ReaderTransitionCommand.CancelOwnedWork }
+			)
+			assertEquals(1, timer.cancelCount)
+			assertTrue(fixture.coordinator.snapshot().releaseOnlySink)
+		}
+	}
+
+	private fun activatedPublicationCloseFixture(
+		timer: ReaderTask6FactOnlyTimerPort?
+	): CoordinatorFixture {
+		val binding = binding("activated-publication-close")
+		val id = transitionId(binding, ReaderTransitionOperation.PublicationClose)
+		val owner = shellOwner(binding)
+		val journal = readerAndroidHostTestJournal(
+			committed = readerAndroidHostTestAdoptedInitial(
+				owner = owner,
+				binding = binding,
+				readerSessionGeneration = id.readerSessionGeneration,
+				coordinatorEpoch = id.coordinatorEpoch
+			),
+			lastTransitionSequence = id.sequence,
+			lastIssuedTransitionIdentity = id.parentIdentity(),
+			active = ReaderActiveTransition(
+				id = id,
+				phase = ReaderTransitionLivenessTable.phase(
+					id = id,
+					kind = ReaderTransitionPhaseKind.AwaitingProof,
+					retainedOwner = ReaderPresentationFrameOwner.Neutral
+				)
+			)
+		)
+		val clock = RecordingClock()
+		val ports = RecordingPorts(clock, task6FactOnlyTimer = timer) { _, _ -> }
+		return CoordinatorFixture(
+			id = id,
+			clock = clock,
+			ports = ports,
+			coordinator = ReaderResumableTransitionCoordinator(
+				ports = ports,
+				mode = ReaderTransitionMode.Active,
+				journal = journal,
+				activationState = { ReaderSessionActivationState.Activated }
+			)
+		)
+	}
+
 	private fun coordinatorFixture(
 		mode: ReaderTransitionMode = ReaderTransitionMode.Active,
 		bindingValue: String = "synthetic",
@@ -1013,8 +1764,14 @@ class ReaderResumableTransitionCoordinatorTest {
 				phase = ReaderTransitionLivenessTable.phase(
 					id = id,
 					kind = ReaderTransitionPhaseKind.AwaitingPrerequisites,
-					retainedOwner = owner
-				)
+					retainedOwner = owner,
+					satisfiedProofs = setOf(
+						paige.navic.reader.ReaderTransitionProofKind.SemanticDestination
+					)
+				),
+				pendingCommandStages = setOf(ReaderTransitionCommandStage.MaterialAllocation),
+				resolvedSuccessorBinding = binding,
+				authoritativeDestinationCommitted = true
 			)
 		)
 		if (
@@ -1236,6 +1993,12 @@ internal fun readerAndroidHostTestAdoptedInitial(
 	)
 }
 
+private data class NeutralCoordinatorFixture(
+	val binding: ReaderPresentationBinding,
+	val owned: ReaderTransitionResourceKey,
+	val fixture: CoordinatorFixture
+)
+
 private data class CoordinatorFixture(
 	val id: ReaderTransitionId,
 	val clock: RecordingClock,
@@ -1254,6 +2017,272 @@ private class RecordingPorts(
 	override fun issue(command: ReaderTransitionCommand, onFact: (ReaderTransitionFact) -> Unit) {
 		commands += command
 		onIssue(command, onFact)
+	}
+}
+
+private enum class TestTimerBindOutcome {
+	Accepted,
+	Rejected,
+	Throws,
+	WrongOwner,
+	WrongPreviousOwner,
+	SynchronousExpiry
+}
+
+private enum class TestTimerProgressOutcome { Accepted, Rejected, Throws, SynchronousExpiry }
+
+private enum class TestTimerCancelOutcome { Accepted, Rejected, Throws }
+
+private class AliasingFactOnlyTimer : ReaderTask6FactOnlyTimerPort {
+	private var activeRegistration: ReaderTask6FactOnlyTimerRegistration? = null
+	var bindCount = 0
+		private set
+	var cancelCount = 0
+		private set
+	val trackedRegistrationCount: Int
+		get() = if (activeRegistration == null) 0 else 1
+
+	override fun bindBeforeWork(
+		transitionId: ReaderTransitionId,
+		onExpired: (ReaderTransitionFact.DeadlineExpired) -> Unit
+	): ReaderTask6FactOnlyTimerRegistration {
+		bindCount += 1
+		if (bindCount == 2) return requireNotNull(activeRegistration)
+		return ReaderTask6FactOnlyTimerRegistration(
+			id = ReaderTask6FactOnlyTimerRegistrationId(bindCount.toLong()),
+			transitionId = transitionId,
+			physicalIdentity = ReaderLegacyPhysicalIdentity(
+				domain = ReaderLegacyPhysicalDomain(
+					transitionId.readerSessionGeneration,
+					ReaderLegacyFreezeToken(bindCount.toLong())
+				),
+				source = ReaderLegacyInventorySource.DeadlineRegistration,
+				sourceLocalToken = ReaderLegacySourceLocalOpaqueToken(bindCount.toLong())
+			),
+			hardExpiresAtMillis = 31_000L,
+			noProgressIntervalMillis = 10_000L,
+			permitsMatchingProgressRearm = true
+		).also { activeRegistration = it }
+	}
+
+	override fun matchingProgress(
+		registration: ReaderTask6FactOnlyTimerRegistration,
+		nowMillis: Long
+	): ReaderPortCommandResult = ReaderPortCommandResult.Accepted
+
+	override fun snapshotForTask7Transfer(
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): ReaderTask6FactOnlyTimerTransferSnapshot? = null
+
+	override fun cancel(
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): ReaderPortCommandResult {
+		cancelCount += 1
+		return if (activeRegistration == registration) {
+			activeRegistration = null
+			ReaderPortCommandResult.Accepted
+		} else {
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+	}
+}
+
+private class SequencedFactOnlyTimer(
+	bindScript: List<TestTimerBindOutcome>,
+	cancelScript: List<TestTimerCancelOutcome> = emptyList(),
+	progressScript: List<TestTimerProgressOutcome> = emptyList(),
+	private val callbackBeforeProgressReject: Boolean = false
+) : ReaderTask6FactOnlyTimerPort {
+	private val bindOutcomes = ArrayDeque(bindScript)
+	private val cancelOutcomes = ArrayDeque(cancelScript)
+	private val progressOutcomes = ArrayDeque(progressScript)
+	private val activeRegistrations = linkedSetOf<ReaderTask6FactOnlyTimerRegistration>()
+	private val expirationCallbacks = linkedMapOf<
+		ReaderTask6FactOnlyTimerRegistrationId,
+		(ReaderTransitionFact.DeadlineExpired) -> Unit
+	>()
+	private var firstTransitionId: ReaderTransitionId? = null
+	var bindCount = 0
+		private set
+	var cancelCount = 0
+		private set
+	val trackedRegistrationCount: Int
+		get() = activeRegistrations.size
+
+	override fun bindBeforeWork(
+		transitionId: ReaderTransitionId,
+		onExpired: (ReaderTransitionFact.DeadlineExpired) -> Unit
+	): ReaderTask6FactOnlyTimerRegistration? {
+		bindCount += 1
+		val outcome = bindOutcomes.removeFirstOrNull() ?: TestTimerBindOutcome.Accepted
+		if (outcome == TestTimerBindOutcome.Throws) error("private bind detail")
+		if (outcome == TestTimerBindOutcome.Rejected) return null
+		if (firstTransitionId == null) firstTransitionId = transitionId
+		val owner = when (outcome) {
+			TestTimerBindOutcome.WrongOwner ->
+				transitionId.copy(readerSessionGeneration = transitionId.readerSessionGeneration + 1L)
+			TestTimerBindOutcome.WrongPreviousOwner -> requireNotNull(firstTransitionId)
+			else -> transitionId
+		}
+		val registration = ReaderTask6FactOnlyTimerRegistration(
+			id = ReaderTask6FactOnlyTimerRegistrationId(bindCount.toLong()),
+			transitionId = owner,
+			physicalIdentity = ReaderLegacyPhysicalIdentity(
+				domain = ReaderLegacyPhysicalDomain(
+					owner.readerSessionGeneration,
+					ReaderLegacyFreezeToken(bindCount.toLong())
+				),
+				source = ReaderLegacyInventorySource.DeadlineRegistration,
+				sourceLocalToken = ReaderLegacySourceLocalOpaqueToken(bindCount.toLong())
+			),
+			hardExpiresAtMillis = 31_000L,
+			noProgressIntervalMillis = 10_000L,
+			permitsMatchingProgressRearm = true
+		)
+		activeRegistrations += registration
+		expirationCallbacks[registration.id] = onExpired
+		if (outcome == TestTimerBindOutcome.SynchronousExpiry) {
+			activeRegistrations -= registration
+			expirationCallbacks.remove(registration.id)
+			onExpired(ReaderTransitionFact.DeadlineExpired(owner))
+		}
+		return registration
+	}
+
+	override fun matchingProgress(
+		registration: ReaderTask6FactOnlyTimerRegistration,
+		nowMillis: Long
+	): ReaderPortCommandResult {
+		val outcome = progressOutcomes.removeFirstOrNull() ?: if (callbackBeforeProgressReject) {
+			TestTimerProgressOutcome.Rejected
+		} else {
+			TestTimerProgressOutcome.Accepted
+		}
+		if (
+			outcome == TestTimerProgressOutcome.SynchronousExpiry ||
+			callbackBeforeProgressReject
+		) {
+			activeRegistrations -= registration
+			val callback = expirationCallbacks.remove(registration.id)
+			requireNotNull(callback)(ReaderTransitionFact.DeadlineExpired(registration.transitionId))
+		}
+		return when (outcome) {
+			TestTimerProgressOutcome.Accepted,
+			TestTimerProgressOutcome.SynchronousExpiry -> ReaderPortCommandResult.Accepted
+			TestTimerProgressOutcome.Rejected ->
+				ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+			TestTimerProgressOutcome.Throws -> error("private progress detail")
+		}
+	}
+
+	fun fireRegistration(id: ReaderTask6FactOnlyTimerRegistrationId) {
+		val registration = requireNotNull(activeRegistrations.singleOrNull { it.id == id })
+		activeRegistrations -= registration
+		val callback = requireNotNull(expirationCallbacks.remove(id))
+		callback(ReaderTransitionFact.DeadlineExpired(registration.transitionId))
+	}
+
+	override fun snapshotForTask7Transfer(
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): ReaderTask6FactOnlyTimerTransferSnapshot? = null
+
+	override fun cancel(
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): ReaderPortCommandResult {
+		cancelCount += 1
+		return when (cancelOutcomes.removeFirstOrNull() ?: TestTimerCancelOutcome.Accepted) {
+			TestTimerCancelOutcome.Accepted -> {
+				activeRegistrations -= registration
+				expirationCallbacks.remove(registration.id)
+				ReaderPortCommandResult.Accepted
+			}
+			TestTimerCancelOutcome.Rejected ->
+				ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+			TestTimerCancelOutcome.Throws -> error("private cancel detail")
+		}
+	}
+}
+
+private class ScriptedBindingTimer(
+	private val outcome: TestTimerBindOutcome,
+	private val progressOutcome: TestTimerProgressOutcome = TestTimerProgressOutcome.Accepted,
+	private val cancelOutcome: TestTimerCancelOutcome = TestTimerCancelOutcome.Accepted
+) : ReaderTask6FactOnlyTimerPort {
+	private var onExpired: ((ReaderTransitionFact.DeadlineExpired) -> Unit)? = null
+	private var registration: ReaderTask6FactOnlyTimerRegistration? = null
+	var bindCount = 0
+		private set
+	var cancelCount = 0
+		private set
+
+	override fun bindBeforeWork(
+		transitionId: ReaderTransitionId,
+		onExpired: (ReaderTransitionFact.DeadlineExpired) -> Unit
+	): ReaderTask6FactOnlyTimerRegistration? {
+		bindCount += 1
+		if (outcome == TestTimerBindOutcome.Throws) error("private timer detail")
+		if (outcome == TestTimerBindOutcome.Rejected) return null
+		this.onExpired = onExpired
+		val owner = if (outcome == TestTimerBindOutcome.WrongOwner) {
+			transitionId.copy(readerSessionGeneration = transitionId.readerSessionGeneration + 1L)
+		} else {
+			transitionId
+		}
+		val permitsProgressRearm = progressOutcome != TestTimerProgressOutcome.Accepted
+		val result = ReaderTask6FactOnlyTimerRegistration(
+			id = ReaderTask6FactOnlyTimerRegistrationId(bindCount.toLong()),
+			transitionId = owner,
+			physicalIdentity = ReaderLegacyPhysicalIdentity(
+				domain = ReaderLegacyPhysicalDomain(
+					owner.readerSessionGeneration,
+					ReaderLegacyFreezeToken(bindCount.toLong())
+				),
+				source = ReaderLegacyInventorySource.DeadlineRegistration,
+				sourceLocalToken = ReaderLegacySourceLocalOpaqueToken(bindCount.toLong())
+			),
+			hardExpiresAtMillis = 3_000L,
+			noProgressIntervalMillis = 1_000L.takeIf { permitsProgressRearm },
+			permitsMatchingProgressRearm = permitsProgressRearm
+		).also { registration = it }
+		if (outcome == TestTimerBindOutcome.SynchronousExpiry) {
+			onExpired(ReaderTransitionFact.DeadlineExpired(owner))
+		}
+		return result
+	}
+
+	fun fire() {
+		val current = requireNotNull(registration)
+		requireNotNull(onExpired)(ReaderTransitionFact.DeadlineExpired(current.transitionId))
+	}
+
+	override fun matchingProgress(
+		registration: ReaderTask6FactOnlyTimerRegistration,
+		nowMillis: Long
+	): ReaderPortCommandResult = when (progressOutcome) {
+		TestTimerProgressOutcome.Accepted -> ReaderPortCommandResult.Accepted
+		TestTimerProgressOutcome.Rejected ->
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		TestTimerProgressOutcome.Throws -> error("private progress detail")
+		TestTimerProgressOutcome.SynchronousExpiry -> {
+			requireNotNull(onExpired)(ReaderTransitionFact.DeadlineExpired(registration.transitionId))
+			ReaderPortCommandResult.Accepted
+		}
+	}
+
+	override fun snapshotForTask7Transfer(
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): ReaderTask6FactOnlyTimerTransferSnapshot? = null
+
+	override fun cancel(
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): ReaderPortCommandResult {
+		cancelCount += 1
+		return when (cancelOutcome) {
+			TestTimerCancelOutcome.Accepted -> ReaderPortCommandResult.Accepted
+			TestTimerCancelOutcome.Rejected ->
+				ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+			TestTimerCancelOutcome.Throws -> error("private cancellation detail")
+		}
 	}
 }
 

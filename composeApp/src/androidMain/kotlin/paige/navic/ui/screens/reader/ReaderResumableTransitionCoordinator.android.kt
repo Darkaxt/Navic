@@ -12,7 +12,10 @@ import paige.navic.reader.ReaderPresentationEventOrigin
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationSemanticReceipt
 import paige.navic.reader.ReaderPresentationSemanticReceiptConsumption
+import paige.navic.reader.ReaderReleaseOnlyCleanupDeadlineStatus
 import paige.navic.reader.ReaderTransitionCommand
+import paige.navic.reader.ReaderTransitionCommandRejectionReason
+import paige.navic.reader.ReaderTransitionCommandStage
 import paige.navic.reader.ReaderTransitionFact
 import paige.navic.reader.ReaderTransitionFactKind
 import paige.navic.reader.ReaderTransitionId
@@ -26,6 +29,7 @@ import paige.navic.reader.ReaderTransitionResourceRegistration
 import paige.navic.reader.ReaderResourceRetirementOrder
 import paige.navic.reader.ReaderTransitionResourceOwnerId
 import paige.navic.reader.deadlinePolicy
+import paige.navic.reader.pendingStageOrNull
 
 internal enum class ReaderTransitionFactClassification {
 	CurrentTransition,
@@ -372,7 +376,8 @@ internal data class ReaderTransitionCoordinatorSnapshot(
 	val releaseCommandIssuedCount: Int,
 	val releasedResourceCount: Int,
 	val consumedSettlementCount: Int,
-	val releaseOnlySink: Boolean
+	val releaseOnlySink: Boolean,
+	val releaseOnlyDeadlineStatus: ReaderReleaseOnlyCleanupDeadlineStatus?
 ) {
 	companion object {
 		const val MaxShadowPredictions = 32
@@ -389,6 +394,78 @@ internal class ReaderResumableTransitionCoordinator(
 	},
 	private val onObservation: (ReaderTransitionCoordinatorObservation) -> Unit = {}
 ) {
+	private data class Task6AuthoritativeExpiry(
+		val fact: ReaderTransitionFact.DeadlineExpired,
+		val registration: ReaderTask6FactOnlyTimerRegistration
+	)
+
+	private class Task6TimerOwnership {
+		var primary: ReaderTask6FactOnlyTimerRegistration? = null
+			private set
+		var rollback: ReaderTask6FactOnlyTimerRegistration? = null
+			private set
+		private val cancellationFailures = linkedMapOf<
+			ReaderTask6FactOnlyTimerRegistration,
+			ReaderReleaseOnlyCleanupDeadlineStatus
+		>()
+
+		val registrations: List<ReaderTask6FactOnlyTimerRegistration>
+			get() = listOfNotNull(primary, rollback).distinct()
+		val failures: Collection<ReaderReleaseOnlyCleanupDeadlineStatus>
+			get() = cancellationFailures.values
+		val count: Int
+			get() = registrations.size
+
+		fun contains(registration: ReaderTask6FactOnlyTimerRegistration): Boolean =
+			primary == registration || rollback == registration
+
+		fun failure(
+			registration: ReaderTask6FactOnlyTimerRegistration
+		): ReaderReleaseOnlyCleanupDeadlineStatus? = cancellationFailures[registration]
+
+		fun trackPrimary(registration: ReaderTask6FactOnlyTimerRegistration) {
+			check(primary == null || primary == registration) {
+				"Task 6 primary timer ownership is bounded to one exact registration"
+			}
+			primary = registration
+			if (rollback == registration) rollback = null
+			cancellationFailures.remove(registration)
+		}
+
+		fun trackRollback(registration: ReaderTask6FactOnlyTimerRegistration) {
+			if (primary == registration) {
+				check(rollback == null)
+				return
+			}
+			check(rollback == null || rollback == registration) {
+				"Task 6 rollback timer ownership is bounded to one exact registration"
+			}
+			rollback = registration
+			cancellationFailures.remove(registration)
+		}
+
+		fun promoteToPrimary(registration: ReaderTask6FactOnlyTimerRegistration) {
+			check(contains(registration))
+			primary = registration
+			if (rollback == registration) rollback = null
+			cancellationFailures.remove(registration)
+		}
+
+		fun recordCancellationFailure(
+			registration: ReaderTask6FactOnlyTimerRegistration,
+			disposition: ReaderReleaseOnlyCleanupDeadlineStatus
+		) {
+			check(contains(registration))
+			cancellationFailures[registration] = disposition
+		}
+
+		fun clear(registration: ReaderTask6FactOnlyTimerRegistration) {
+			if (primary == registration) primary = null
+			if (rollback == registration) rollback = null
+			cancellationFailures.remove(registration)
+		}
+	}
+
 	private val mailbox = ArrayDeque<ReaderTransitionFact>()
 	private val semanticReceiptConsumption = ReaderPresentationSemanticReceiptConsumption()
 	private val classificationCounts = linkedMapOf<ReaderTransitionFactClassification, Int>()
@@ -400,7 +477,8 @@ internal class ReaderResumableTransitionCoordinator(
 	private var registeredTransitionId: ReaderTransitionId? = null
 	private var deadlineRecord: ActiveDeadlineRecord? = null
 	private var deadlineSlot: DeadlineSlot? = null
-	private var task6TimerRegistration: ReaderTask6FactOnlyTimerRegistration? = null
+	private val task6TimerOwnership = Task6TimerOwnership()
+	private val task6AuthoritativeExpiries = mutableListOf<Task6AuthoritativeExpiry>()
 	private var nextDeadlineSlotToken = 1L
 	private var releaseOnlySink = false
 
@@ -463,7 +541,7 @@ internal class ReaderResumableTransitionCoordinator(
 			activeTransitionsRegistered = activeTransitionsRegistered,
 			activeOperation = journal.active?.id?.operation,
 			activePhase = journal.active?.phase?.kind,
-			scheduledCallbackCount = if (deadlineSlot == null) 0 else 1,
+			scheduledCallbackCount = (if (deadlineSlot == null) 0 else 1) + task6TimerOwnership.count,
 			factClassifications = classificationCounts.toMap(),
 			shadowPredictions = shadowPredictions.toList(),
 			lastOutcome = journal.lastOutcome?.kind(),
@@ -471,7 +549,8 @@ internal class ReaderResumableTransitionCoordinator(
 			releaseCommandIssuedCount = releaseSnapshot.issuedCount,
 			releasedResourceCount = releaseSnapshot.releasedCount,
 			consumedSettlementCount = if (journal.active?.consumedSettlement == null) 0 else 1,
-			releaseOnlySink = releaseOnlySink
+			releaseOnlySink = releaseOnlySink,
+			releaseOnlyDeadlineStatus = journal.releaseOnlyCleanup?.deadlineStatus
 		)
 	}
 
@@ -486,6 +565,7 @@ internal class ReaderResumableTransitionCoordinator(
 		try {
 			while (mailbox.isNotEmpty()) {
 				val fact = mailbox.removeFirst()
+				accountAuthoritativeTask6Expiry(fact)
 				val before = journal
 				val classification = classify(fact, before)
 				classificationCounts[classification] =
@@ -497,8 +577,6 @@ internal class ReaderResumableTransitionCoordinator(
 					fact.registration?.let(releaseLedger::confirmReleased)
 						?: releaseLedger.confirmReleased(fact.key)
 				}
-				val closingOperation = before.active?.id?.operation ==
-					ReaderTransitionOperation.PublicationClose
 				val reduction = if (releaseOnlySink) {
 					paige.navic.reader.ReaderTransitionReduction(before, emptyList())
 				} else {
@@ -508,18 +586,16 @@ internal class ReaderResumableTransitionCoordinator(
 				// These assignments are the coordinator's publication barrier: callbacks may run
 				// synchronously from either deadline registration or command issuance below.
 				journal = reduction.state
-				if (
-					journal.active == null &&
-					(
-						fact is ReaderTransitionFact.PublicationReplaced ||
-						fact is ReaderTransitionFact.PublicationClosed ||
-						closingOperation
-					)
-				) {
+				if (journal.releaseOnlyCleanup != null) {
 					releaseOnlySink = true
 				}
 				persistActiveRegistration()
-				reconcileDeadline(nowMillis, before, fact, classification)
+				val commandDispatchAllowed = reconcileDeadline(
+					nowMillis,
+					before,
+					fact,
+					classification
+				)
 				val predictedCommands = buildList {
 					addAll(reduction.commands)
 					if (releaseOnlySink && registeredKey != null) {
@@ -535,7 +611,9 @@ internal class ReaderResumableTransitionCoordinator(
 
 				if (mode == ReaderTransitionMode.Active) {
 					predictedCommands.forEach { predicted ->
-						accountCommand(predicted)?.let(::issueCommandWithPublicationAcknowledgement)
+						if (commandDispatchAllowed || predicted.pendingStageOrNull() == null) {
+							accountCommand(predicted)?.let(::issueCommandWithPublicationAcknowledgement)
+						}
 					}
 				}
 				onObservation(
@@ -555,26 +633,57 @@ internal class ReaderResumableTransitionCoordinator(
 		if (command is ReaderTransitionCommand.RequestSemanticSynchronization) {
 			val semantic = ports.semanticCommand
 			if (semantic != null) {
-				when (val result = semantic.synchronize(command, ::enqueue)) {
+				val result = try {
+					semantic.synchronize(command, ::enqueue)
+				} catch (_: Throwable) {
+					enqueueCommandThrow(command)
+					return
+				}
+				when (result) {
 					ReaderPortCommandResult.Accepted -> Unit
 					is ReaderPortCommandResult.Rejected -> enqueue(
-						ReaderTransitionFact.RasterFailed(command.transitionId, result.reason)
+						ReaderTransitionFact.CommandRejected(
+							command.transitionId,
+							ReaderTransitionCommandStage.SemanticSynchronization,
+							ReaderTransitionCommandRejectionReason.SemanticExecutionRejected
+						)
 					)
 				}
 				return
 			}
 		}
 		val publication = ports.ownerAndInputPublication
-		val result = when (command) {
-			is ReaderTransitionCommand.CommitOwnerAndInputLease -> publication?.publish(command)
-			is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease -> publication?.publish(command)
-			else -> null
+		val result = try {
+			when (command) {
+				is ReaderTransitionCommand.CommitOwnerAndInputLease -> publication?.publish(command)
+				is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease -> publication?.publish(command)
+				else -> null
+			}
+		} catch (_: Throwable) {
+			enqueueCommandThrow(command)
+			return
 		}
 		if (result == null) {
-			ports.issue(command, ::enqueue)
+			try {
+				ports.issue(command, ::enqueue)
+			} catch (throwable: Throwable) {
+				if (command.pendingStageOrNull() == null) throw throwable
+				enqueueCommandThrow(command)
+			}
 		} else {
 			enqueue(result.toTransitionFact())
 		}
+	}
+
+	private fun enqueueCommandThrow(command: ReaderTransitionCommand) {
+		val stage = command.pendingStageOrNull() ?: return
+		enqueue(
+			ReaderTransitionFact.CommandRejected(
+				requireNotNull(command.transitionId),
+				stage,
+				ReaderTransitionCommandRejectionReason.CommandThrew
+			)
+		)
 	}
 
 	private fun accountCommand(command: ReaderTransitionCommand): ReaderTransitionCommand? =
@@ -608,16 +717,15 @@ internal class ReaderResumableTransitionCoordinator(
 		before: ReaderTransitionJournal,
 		fact: ReaderTransitionFact,
 		classification: ReaderTransitionFactClassification
-	) {
+	): Boolean {
 		if (activationState() == ReaderSessionActivationState.Activated) {
-			reconcileTask6FactOnlyTimer(nowMillis, before, fact, classification)
-			return
+			return reconcileTask6FactOnlyTimer(nowMillis, before, fact, classification)
 		}
 		val active = journal.active
 		if (active == null || active.isAwaitingRetainedPublication()) {
 			cancelDeadlineSlot()
 			deadlineRecord = null
-			return
+			return true
 		}
 
 		val policy = active.id.operation.deadlinePolicy()
@@ -645,7 +753,7 @@ internal class ReaderResumableTransitionCoordinator(
 		val atMillis = noProgressExpiresAtMillis?.let { noProgressExpiry ->
 			minOf(record.hardExpiresAtMillis, noProgressExpiry)
 		} ?: record.hardExpiresAtMillis
-		if (deadlineSlot?.key == nextKey && deadlineSlot?.atMillis == atMillis) return
+		if (deadlineSlot?.key == nextKey && deadlineSlot?.atMillis == atMillis) return true
 
 		cancelDeadlineSlot()
 		val token = nextDeadlineSlotToken
@@ -672,6 +780,7 @@ internal class ReaderResumableTransitionCoordinator(
 		} else {
 			registration?.cancel()
 		}
+		return true
 	}
 
 	private fun reconcileTask6FactOnlyTimer(
@@ -679,57 +788,276 @@ internal class ReaderResumableTransitionCoordinator(
 		before: ReaderTransitionJournal,
 		fact: ReaderTransitionFact,
 		classification: ReaderTransitionFactClassification
-	) {
+	): Boolean {
 		cancelDeadlineSlot()
 		deadlineRecord = null
 		val port = ports.task6FactOnlyTimer
 		val active = journal.active
 		if (active == null || active.isAwaitingRetainedPublication()) {
-			task6TimerRegistration?.let { registration -> port?.cancel(registration) }
-			task6TimerRegistration = null
-			return
+			cancelTask6TimersForTerminalState(port)
+			return true
 		}
-		if (port == null) {
-			enqueue(ReaderTransitionFact.DeadlineExpired(active.id))
-			return
+		val rollback = task6TimerOwnership.rollback
+		if (rollback != null) {
+			val disposition = cancelTrackedTask6Timer(port, rollback)
+			if (disposition != null) {
+				journal = journal.copy(
+					active = active.copy(
+						pendingCommandStages = setOf(ReaderTransitionCommandStage.TimerBinding)
+					)
+				)
+				enqueueTimerBindingRejection(
+					active.id,
+					ReaderTransitionCommandRejectionReason.TimerOwnershipConflict
+				)
+				return false
+			}
 		}
-		val existing = task6TimerRegistration
+
+		var existing = task6TimerOwnership.primary
+		if (
+			existing != null &&
+			task6TimerOwnership.failure(existing) != null &&
+			existing.transitionId != active.id
+		) {
+			val disposition = cancelTrackedTask6Timer(port, existing)
+			if (disposition == null) {
+				existing = null
+			} else {
+				journal = journal.copy(
+					active = active.copy(
+						pendingCommandStages = setOf(ReaderTransitionCommandStage.TimerBinding)
+					)
+				)
+				enqueueTimerBindingRejection(
+					active.id,
+					ReaderTransitionCommandRejectionReason.TimerOwnershipConflict
+				)
+				return false
+			}
+		}
+
+		if (mailbox.any {
+				it is ReaderTransitionFact.CommandRejected &&
+					it.transitionId == active.id &&
+					it.stage == ReaderTransitionCommandStage.TimerBinding
+			}) return false
+
 		if (existing?.transitionId == active.id) {
 			if (
 				existing.permitsMatchingProgressRearm &&
 				fact.isMatchingProgress(classification, before, journal)
 			) {
-				val result = port.matchingProgress(existing, nowMillis)
-				if (result is ReaderPortCommandResult.Rejected) {
-					task6TimerRegistration = null
-					port.cancel(existing)
-					if (mailbox.none {
-						it is ReaderTransitionFact.DeadlineExpired && it.transitionId == active.id
-					}) {
-						enqueue(ReaderTransitionFact.DeadlineExpired(active.id))
-					}
+				val pendingPhysicalStage = active.pendingCommandStages.singleOrNull()
+				journal = journal.copy(
+					active = active.copy(
+						pendingCommandStages = setOf(ReaderTransitionCommandStage.TimerBinding)
+					)
+				)
+				val result = try {
+					port?.matchingProgress(existing, nowMillis)
+				} catch (_: Throwable) {
+					enqueueTimerBindingRejection(
+						active.id,
+						ReaderTransitionCommandRejectionReason.CommandThrew
+					)
+					return false
+				}
+				if (result != ReaderPortCommandResult.Accepted) {
+					enqueueTimerBindingRejection(
+						active.id,
+						ReaderTransitionCommandRejectionReason.TimerBindingRejected
+					)
+					return false
+				}
+				if (hasPendingAuthoritativeTask6Expiry(existing)) return false
+				restorePhysicalCommandStage(active.id, pendingPhysicalStage)
+			}
+			return true
+		}
+
+		val pendingPhysicalStage = active.pendingCommandStages.singleOrNull()
+		journal = journal.copy(
+			active = active.copy(
+				pendingCommandStages = setOf(ReaderTransitionCommandStage.TimerBinding)
+			)
+		)
+		if (port == null) {
+			enqueueTimerBindingRejection(
+				active.id,
+				ReaderTransitionCommandRejectionReason.TimerBindingRejected
+			)
+			return false
+		}
+
+		var bindingInProgress = true
+		var boundRegistration: ReaderTask6FactOnlyTimerRegistration? = null
+		var preReturnExpiry: ReaderTransitionFact.DeadlineExpired? = null
+		val successor = try {
+			port.bindBeforeWork(active.id) { expired ->
+				val registration = boundRegistration
+				when {
+					registration != null && isTrackedTask6TimerRegistration(registration) ->
+						enqueueAuthoritativeTask6Expiry(expired, registration)
+					bindingInProgress -> preReturnExpiry = expired
 				}
 			}
-			return
+		} catch (_: Throwable) {
+			bindingInProgress = false
+			enqueueTimerBindingRejection(
+				active.id,
+				ReaderTransitionCommandRejectionReason.CommandThrew
+			)
+			return false
 		}
-		var callbackBeforeBindReturn = false
-		val successor = port.bindBeforeWork(active.id) { expired ->
-			val accepted = task6TimerRegistration
-			if (accepted?.transitionId == expired.transitionId && journal.active?.id == expired.transitionId) {
-				enqueue(expired)
-			} else {
-				callbackBeforeBindReturn = true
+		boundRegistration = successor
+		bindingInProgress = false
+		if (successor == null) {
+			enqueueTimerBindingRejection(
+				active.id,
+				ReaderTransitionCommandRejectionReason.TimerBindingRejected
+			)
+			return false
+		}
+		val observedExpiry = preReturnExpiry?.takeIf { it.transitionId == successor.transitionId }
+		if (successor.transitionId != active.id) {
+			task6TimerOwnership.trackRollback(successor)
+			observedExpiry?.let { enqueueAuthoritativeTask6Expiry(it, successor) }
+			cancelTrackedTask6Timer(port, successor)
+			enqueueTimerBindingRejection(
+				active.id,
+				ReaderTransitionCommandRejectionReason.TimerOwnershipConflict
+			)
+			return false
+		}
+		if (existing != null) {
+			task6TimerOwnership.trackRollback(successor)
+			observedExpiry?.let { enqueueAuthoritativeTask6Expiry(it, successor) }
+			val oldDisposition = cancelTrackedTask6Timer(port, existing)
+			if (oldDisposition != null) {
+				cancelTrackedTask6Timer(port, successor)
+				enqueueTimerBindingRejection(
+					active.id,
+					ReaderTransitionCommandRejectionReason.TimerOwnershipConflict
+				)
+				return false
+			}
+			task6TimerOwnership.promoteToPrimary(successor)
+		} else {
+			task6TimerOwnership.trackPrimary(successor)
+			observedExpiry?.let { enqueueAuthoritativeTask6Expiry(it, successor) }
+		}
+		if (hasPendingAuthoritativeTask6Expiry(successor)) return false
+		restorePhysicalCommandStage(active.id, pendingPhysicalStage)
+		return true
+	}
+
+	private fun restorePhysicalCommandStage(
+		transitionId: ReaderTransitionId,
+		stage: ReaderTransitionCommandStage?
+	) {
+		journal.active?.takeIf {
+			it.id == transitionId &&
+				it.pendingCommandStages == setOf(ReaderTransitionCommandStage.TimerBinding)
+		}?.let { current ->
+			journal = journal.copy(
+				active = current.copy(pendingCommandStages = setOfNotNull(stage))
+			)
+		}
+	}
+
+	private fun attemptTask6TimerCancellation(
+		port: ReaderTask6FactOnlyTimerPort?,
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): ReaderReleaseOnlyCleanupDeadlineStatus? = try {
+		when (port?.cancel(registration)) {
+			ReaderPortCommandResult.Accepted -> null
+			is ReaderPortCommandResult.Rejected,
+			null -> ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected
+		}
+	} catch (_: Throwable) {
+		ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew
+	}
+
+	private fun cancelTrackedTask6Timer(
+		port: ReaderTask6FactOnlyTimerPort?,
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): ReaderReleaseOnlyCleanupDeadlineStatus? {
+		check(task6TimerOwnership.contains(registration))
+		val disposition = attemptTask6TimerCancellation(port, registration)
+		if (disposition == null) {
+			task6TimerOwnership.clear(registration)
+		} else {
+			task6TimerOwnership.recordCancellationFailure(registration, disposition)
+		}
+		return disposition
+	}
+
+	private fun cancelTask6TimersForTerminalState(port: ReaderTask6FactOnlyTimerPort?) {
+		val permanent = journal.releaseOnlyCleanup != null
+		task6TimerOwnership.registrations.toList().forEach { registration ->
+			if (!permanent || task6TimerOwnership.failure(registration) == null) {
+				cancelTrackedTask6Timer(port, registration)
 			}
 		}
-		if (successor == null) {
-			enqueue(ReaderTransitionFact.DeadlineExpired(active.id))
-			return
+		recordTask6TimerCancellationDisposition()
+	}
+
+	private fun recordTask6TimerCancellationDisposition() {
+		val cleanup = journal.releaseOnlyCleanup ?: return
+		val failures = task6TimerOwnership.failures
+		val disposition = when {
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew in failures ->
+				ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected in failures ->
+				ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected
+			task6TimerOwnership.count == 0 &&
+				cleanup.deadlineStatus == ReaderReleaseOnlyCleanupDeadlineStatus.Armed ->
+				ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting
+			else -> return
 		}
-		task6TimerRegistration = successor
-		existing?.let(port::cancel)
-		if (callbackBeforeBindReturn) {
-			enqueue(ReaderTransitionFact.DeadlineExpired(active.id))
-		}
+		journal = journal.copy(
+			releaseOnlyCleanup = cleanup.copy(deadlineStatus = disposition)
+		)
+	}
+
+	private fun isTrackedTask6TimerRegistration(
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): Boolean = task6TimerOwnership.contains(registration)
+
+	private fun hasPendingAuthoritativeTask6Expiry(
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): Boolean = task6AuthoritativeExpiries.any { it.registration == registration }
+
+	private fun enqueueAuthoritativeTask6Expiry(
+		fact: ReaderTransitionFact.DeadlineExpired,
+		registration: ReaderTask6FactOnlyTimerRegistration
+	) {
+		require(fact.transitionId == registration.transitionId)
+		if (hasPendingAuthoritativeTask6Expiry(registration)) return
+		task6AuthoritativeExpiries += Task6AuthoritativeExpiry(fact, registration)
+		enqueue(fact)
+	}
+
+	private fun accountAuthoritativeTask6Expiry(fact: ReaderTransitionFact) {
+		val expiry = fact as? ReaderTransitionFact.DeadlineExpired ?: return
+		val evidenceIndex = task6AuthoritativeExpiries.indexOfFirst { it.fact === expiry }
+		if (evidenceIndex < 0) return
+		val registration = task6AuthoritativeExpiries.removeAt(evidenceIndex).registration
+		task6TimerOwnership.clear(registration)
+	}
+
+	private fun enqueueTimerBindingRejection(
+		transitionId: ReaderTransitionId,
+		reason: ReaderTransitionCommandRejectionReason
+	) {
+		enqueue(
+			ReaderTransitionFact.CommandRejected(
+				transitionId,
+				ReaderTransitionCommandStage.TimerBinding,
+				reason
+			)
+		)
 	}
 
 	private fun cancelDeadlineSlot() {
@@ -848,6 +1176,8 @@ private fun ReaderTransitionJournal.resourceKeys(): Set<ReaderTransitionResource
 		addAll(current.ownedResourceKeys)
 		current.admittedDeckKey?.let(::add)
 		current.pendingPreparedDeckKey?.let(::add)
+		current.pendingFrameTargetRegistration?.key?.let(::add)
+		current.frameTarget?.resource?.key?.let(::add)
 		current.successorResourceKey?.let(::add)
 	}
 }
@@ -882,6 +1212,8 @@ private fun ReaderTransitionFact.registeredResourceKeyOrNull(): ReaderTransition
 	is ReaderTransitionFact.VisibilityChanged,
 	is ReaderTransitionFact.ResourceLost,
 	is ReaderTransitionFact.DeadlineExpired,
+	is ReaderTransitionFact.CommandRejected,
+	is ReaderTransitionFact.SemanticPortContractViolated,
 	is ReaderTransitionFact.Retry,
 	is ReaderTransitionFact.PublicationReplaced,
 	is ReaderTransitionFact.PublicationClosed -> null
@@ -897,6 +1229,7 @@ internal fun ReaderTransitionFact.isTask4CoordinatorFact(): Boolean = when (this
 	is ReaderTransitionFact.RendererGenerationReady,
 	is ReaderTransitionFact.ResourceLost,
 	is ReaderTransitionFact.DeadlineExpired,
+	is ReaderTransitionFact.CommandRejected,
 	is ReaderTransitionFact.Retry,
 	is ReaderTransitionFact.PublicationReplaced,
 	is ReaderTransitionFact.PublicationClosed -> true
@@ -912,6 +1245,7 @@ internal fun ReaderTransitionFact.isTask4CoordinatorFact(): Boolean = when (this
 	is ReaderTransitionFact.ResourceReleased ->
 		key.isTask4ResourceKeyFor(transitionId)
 	is ReaderTransitionFact.Intent,
+	is ReaderTransitionFact.SemanticPortContractViolated,
 	is ReaderTransitionFact.FoliateDestinationCommitted,
 	is ReaderTransitionFact.SettlementAcknowledged,
 	is ReaderTransitionFact.ViewportProfileReplaced,
@@ -1011,6 +1345,9 @@ private fun ReaderTransitionFact.kind(): ReaderTransitionFactKind = when (this) 
 	is ReaderTransitionFact.VisibilityChanged -> ReaderTransitionFactKind.VisibilityChanged
 	is ReaderTransitionFact.ResourceLost -> ReaderTransitionFactKind.ResourceLost
 	is ReaderTransitionFact.DeadlineExpired -> ReaderTransitionFactKind.DeadlineExpired
+	is ReaderTransitionFact.CommandRejected -> ReaderTransitionFactKind.CommandRejected
+	is ReaderTransitionFact.SemanticPortContractViolated ->
+		ReaderTransitionFactKind.SemanticPortContractViolated
 	is ReaderTransitionFact.Retry -> ReaderTransitionFactKind.Retry
 	is ReaderTransitionFact.PublicationReplaced -> ReaderTransitionFactKind.PublicationReplaced
 	is ReaderTransitionFact.PublicationClosed -> ReaderTransitionFactKind.PublicationClosed

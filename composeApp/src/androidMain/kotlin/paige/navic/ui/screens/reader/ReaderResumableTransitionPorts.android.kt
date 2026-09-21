@@ -14,6 +14,8 @@ import paige.navic.reader.ReaderSemanticCommandSlotId
 import paige.navic.reader.ReaderSemanticExecutableRequest
 import paige.navic.reader.ReaderSemanticRequestHandle
 import paige.navic.reader.ReaderTransitionCommand
+import paige.navic.reader.ReaderTransitionCommandRejectionReason
+import paige.navic.reader.ReaderTransitionCommandStage
 import paige.navic.reader.ReaderTransitionFailureReason
 import paige.navic.reader.ReaderTransitionFact
 import paige.navic.reader.ReaderTransitionId
@@ -508,9 +510,10 @@ internal class ReaderTask4TransitionPorts(
 			is ReaderTransitionCommand.AllocateMaterialBinding -> {
 				if (!command.transitionId.expectedBinding.acceptsMaterialAllocation(command.binding)) {
 					onFact(
-						ReaderTransitionFact.RasterFailed(
+						ReaderTransitionFact.CommandRejected(
 							command.transitionId,
-							ReaderTransitionFailureReason.MaterialAllocationRejected
+							ReaderTransitionCommandStage.MaterialAllocation,
+							ReaderTransitionCommandRejectionReason.MaterialAllocationRejected
 						)
 					)
 					return
@@ -550,9 +553,10 @@ internal class ReaderTask4TransitionPorts(
 					)
 				) {
 					onFact(
-						ReaderTransitionFact.RasterFailed(
+						ReaderTransitionFact.CommandRejected(
 							command.transitionId,
-							ReaderTransitionFailureReason.PortRejected
+							ReaderTransitionCommandStage.RasterPreparation,
+							ReaderTransitionCommandRejectionReason.RasterPreparationRejected
 						)
 					)
 					return
@@ -578,9 +582,10 @@ internal class ReaderTask4TransitionPorts(
 				val textureGeneration = command.binding.textureGeneration
 				if (textureGeneration == null) {
 					onFact(
-						ReaderTransitionFact.RasterFailed(
+						ReaderTransitionFact.CommandRejected(
 							command.transitionId,
-							ReaderTransitionFailureReason.PortRejected
+							ReaderTransitionCommandStage.DeckReservation,
+							ReaderTransitionCommandRejectionReason.DeckReservationRejected
 						)
 					)
 					return
@@ -593,9 +598,10 @@ internal class ReaderTask4TransitionPorts(
 				val lease = readerDeckLeaseOrNull(command, key)
 				if (lease == null) {
 					onFact(
-						ReaderTransitionFact.RasterFailed(
+						ReaderTransitionFact.CommandRejected(
 							command.transitionId,
-							ReaderTransitionFailureReason.PortRejected
+							ReaderTransitionCommandStage.DeckReservation,
+							ReaderTransitionCommandRejectionReason.DeckReservationRejected
 						)
 					)
 					return
@@ -708,14 +714,49 @@ internal class ReaderActivatedTransitionPorts(
 				is ReaderTransitionCommand.ReleaseResource -> command.transitionId?.let {
 					ReaderTransitionFact.RasterFailed(it, result.reason)
 				}
-				else -> ReaderTransitionFact.RasterFailed(
-					requireNotNull(command.transitionId),
+				is ReaderTransitionCommand.CancelOwnedWork -> ReaderTransitionFact.RasterFailed(
+					command.transitionId,
 					result.reason
 				)
+				else -> command.toCommandRejectedFact()
 			}
 			failure?.let(onFact)
 		}
 	}
+}
+
+private fun ReaderTransitionCommand.toCommandRejectedFact(): ReaderTransitionFact.CommandRejected {
+	val (stage, reason) = when (this) {
+		is ReaderTransitionCommand.RequestSemanticSynchronization ->
+			ReaderTransitionCommandStage.SemanticSynchronization to
+				ReaderTransitionCommandRejectionReason.SemanticExecutionRejected
+		is ReaderTransitionCommand.AllocateMaterialBinding ->
+			ReaderTransitionCommandStage.MaterialAllocation to
+				ReaderTransitionCommandRejectionReason.MaterialAllocationRejected
+		is ReaderTransitionCommand.RequestRasterPreparation ->
+			ReaderTransitionCommandStage.RasterPreparation to
+				ReaderTransitionCommandRejectionReason.RasterPreparationRejected
+		is ReaderTransitionCommand.ReserveDeck ->
+			ReaderTransitionCommandStage.DeckReservation to
+				ReaderTransitionCommandRejectionReason.DeckReservationRejected
+		is ReaderTransitionCommand.PrepareFrameTarget ->
+			ReaderTransitionCommandStage.FrameTargetPreparation to
+				ReaderTransitionCommandRejectionReason.FrameTargetRejected
+		is ReaderTransitionCommand.RequestFramePresentation ->
+			ReaderTransitionCommandStage.FramePresentation to
+				ReaderTransitionCommandRejectionReason.FramePresentationRejected
+		is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease ->
+			ReaderTransitionCommandStage.RetainedPublication to
+				ReaderTransitionCommandRejectionReason.PublicationRejected
+		is ReaderTransitionCommand.CommitOwnerAndInputLease ->
+			ReaderTransitionCommandStage.SuccessorPublication to
+				ReaderTransitionCommandRejectionReason.PublicationRejected
+		is ReaderTransitionCommand.ReleaseResource,
+		is ReaderTransitionCommand.CancelOwnedWork -> error(
+			"Release commands do not use ordinary command-stage rejection"
+		)
+	}
+	return ReaderTransitionFact.CommandRejected(requireNotNull(transitionId), stage, reason)
 }
 
 internal class ReaderCutoverTransitionPorts(

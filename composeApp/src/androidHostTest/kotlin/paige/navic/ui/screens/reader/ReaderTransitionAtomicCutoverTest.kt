@@ -557,13 +557,23 @@ class ReaderTransitionAtomicCutoverTest {
 		val phase = basePhase.copy(
 			contract = basePhase.contract.copy(
 				awaitedProofs = setOf(paige.navic.reader.ReaderTransitionProofKind.PreparedFrame),
-				callbackSources = setOf(paige.navic.reader.ReaderTransitionFactKind.PreparedFrame)
+				callbackSources = setOf(
+					paige.navic.reader.ReaderTransitionFactKind.PreparedFrame,
+					paige.navic.reader.ReaderTransitionFactKind.CommandRejected
+				),
+				admissibleCommandStages = setOf(
+					paige.navic.reader.ReaderTransitionCommandStage.FramePresentation,
+					paige.navic.reader.ReaderTransitionCommandStage.TimerBinding
+				)
 			)
 		)
 		val journal = paige.navic.reader.ReaderTransitionJournal(
 			active = paige.navic.reader.ReaderActiveTransition(
 				id = id,
 				phase = phase,
+				pendingCommandStages = setOf(
+					paige.navic.reader.ReaderTransitionCommandStage.FramePresentation
+				),
 				predecessorResourceKey = predecessorKey,
 				frameTarget = target
 			),
@@ -851,13 +861,23 @@ class ReaderTransitionAtomicCutoverTest {
 		val awaitingFrame = basePhase.copy(
 			contract = basePhase.contract.copy(
 				awaitedProofs = setOf(paige.navic.reader.ReaderTransitionProofKind.PreparedFrame),
-				callbackSources = setOf(paige.navic.reader.ReaderTransitionFactKind.PreparedFrame)
+				callbackSources = setOf(
+					paige.navic.reader.ReaderTransitionFactKind.PreparedFrame,
+					paige.navic.reader.ReaderTransitionFactKind.CommandRejected
+				),
+				admissibleCommandStages = setOf(
+					paige.navic.reader.ReaderTransitionCommandStage.FramePresentation,
+					paige.navic.reader.ReaderTransitionCommandStage.TimerBinding
+				)
 			)
 		)
 		val journal = paige.navic.reader.ReaderTransitionJournal(
 			active = paige.navic.reader.ReaderActiveTransition(
 				id,
 				awaitingFrame,
+				pendingCommandStages = setOf(
+					paige.navic.reader.ReaderTransitionCommandStage.FramePresentation
+				),
 				predecessorResourceKey = predecessorKey,
 				frameTarget = target
 			),
