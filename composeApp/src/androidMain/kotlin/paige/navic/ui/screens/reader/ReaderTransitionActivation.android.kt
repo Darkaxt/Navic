@@ -582,11 +582,26 @@ internal interface ReaderActivatedGatewayPort {
 	fun closeToReleaseOnly()
 }
 
+internal sealed interface ReaderSemanticCommandResult {
+	data object Accepted : ReaderSemanticCommandResult
+	data class RejectedBeforeMutation(
+		val reason: ReaderTransitionFailureReason
+	) : ReaderSemanticCommandResult
+	data object ThrewBeforeMutation : ReaderSemanticCommandResult
+	data object RejectedAfterMutationStarted : ReaderSemanticCommandResult
+	data object ThrewAfterMutationStarted : ReaderSemanticCommandResult
+}
+
+internal fun interface ReaderSemanticCommandRegistration {
+	fun retire()
+}
+
 internal fun interface ReaderSemanticCommandPort {
 	fun synchronize(
 		command: ReaderTransitionCommand.RequestSemanticSynchronization,
+		onRegistration: (ReaderSemanticCommandRegistration) -> Unit,
 		onReceipt: (ReaderPresentationEventReceipt) -> Unit
-	): ReaderPortCommandResult
+	): ReaderSemanticCommandResult
 }
 
 internal fun interface ReaderMaterialGenerationAllocationPort {

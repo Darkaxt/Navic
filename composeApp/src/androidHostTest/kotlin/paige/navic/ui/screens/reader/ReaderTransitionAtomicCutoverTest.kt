@@ -1,5 +1,9 @@
 package paige.navic.ui.screens.reader
 
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -15,6 +19,7 @@ import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderResourceRetirementOrder
+import paige.navic.reader.ReaderSemanticExecutableResult
 import paige.navic.reader.ReaderSemanticRequestHandle
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderTransitionCommand
@@ -265,21 +270,23 @@ class ReaderTransitionAtomicCutoverTest {
 		)
 		var delayedCallback: ((paige.navic.reader.ReaderPresentationEventReceipt) -> Unit)? = null
 		var delayedOrigin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand? = null
-		val activeHandle = registry.register { origin, callback ->
+		val activeHandle = registry.register { origin, _, callback ->
 			delayedOrigin = origin
 			delayedCallback = callback
+			ReaderSemanticExecutableResult.Accepted
 		}
-		val pendingHandle = registry.register { _, _ -> }
+		val pendingHandle = registry.register { _, _, _ -> ReaderSemanticExecutableResult.Accepted }
 		val executor = ReaderSemanticCommandExecutor(registry, tokens)
 		val id = transitionId().copy(operation = ReaderTransitionOperation.ExternalSemanticRelocation)
 		assertEquals(
-			ReaderPortCommandResult.Accepted,
+			ReaderSemanticCommandResult.Accepted,
 			executor.synchronize(
 				ReaderTransitionCommand.RequestSemanticSynchronization(
 					id,
 					ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, activeHandle),
 					activeHandle
-				)
+				),
+				onRegistration = { }
 			) { }
 		)
 		val domain = ReaderLegacyPhysicalDomain(
@@ -297,17 +304,20 @@ class ReaderTransitionAtomicCutoverTest {
 			it.physicalIdentity.source == ReaderLegacyInventorySource.SemanticCommandSlot
 		})
 		assertEquals(
-			ReaderPortCommandResult.Rejected(paige.navic.reader.ReaderTransitionFailureReason.PortRejected),
+			ReaderSemanticCommandResult.RejectedBeforeMutation(
+				paige.navic.reader.ReaderTransitionFailureReason.PortRejected
+			),
 			executor.synchronize(
 				ReaderTransitionCommand.RequestSemanticSynchronization(
 					id,
 					ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, pendingHandle),
 					pendingHandle
-				)
+				),
+				onRegistration = { }
 			) { }
 		)
 		assertEquals(rows, executor.snapshotFrozenOwnership())
-		assertFailsWith<IllegalStateException> { registry.register { _, _ -> } }
+		assertFailsWith<IllegalStateException> { registry.register { _, _, _ -> ReaderSemanticExecutableResult.Accepted } }
 		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
 		rows.forEach { row ->
 			assertEquals(
@@ -323,41 +333,278 @@ class ReaderTransitionAtomicCutoverTest {
 			ReaderPortCommandResult.Accepted,
 			executor.restoreAfterTransitionActivation(domain)
 		)
-		assertTrue(registry.register { _, _ -> }.value > 0L)
+		assertTrue(registry.register { _, _, _ -> ReaderSemanticExecutableResult.Accepted }.value > 0L)
 	}
 
 	@Test
-	fun synchronousSemanticCallbackConsumesItsDedicatedSlotOnce() {
+	fun synchronousSemanticCallbacksRemainObservableAfterSlotRetirement() {
 		val trace = mutableListOf<String>()
 		val registry = ReaderSemanticExecutableRequestRegistry(readerSessionGeneration = 3L)
 		val origins = mutableListOf<paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand>()
 		val receipts = mutableListOf<paige.navic.reader.ReaderPresentationEventReceipt>()
-		val handle: ReaderSemanticRequestHandle = registry.register { origin, callback ->
+		val handle: ReaderSemanticRequestHandle = registry.register { origin, _, callback ->
 			trace += "invoke"
 			origins += origin
 			val receipt = semanticReceipt(origin)
 			callback(receipt)
 			callback(receipt)
+			ReaderSemanticExecutableResult.Accepted
 		}
 		val executor = ReaderSemanticCommandExecutor(registry)
 		val id = transitionId().copy(operation = ReaderTransitionOperation.ExternalSemanticRelocation)
 
 		assertEquals(
-			ReaderPortCommandResult.Accepted,
+			ReaderSemanticCommandResult.Accepted,
 			executor.synchronize(
 				ReaderTransitionCommand.RequestSemanticSynchronization(
 					id,
 					ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, handle),
 					handle
-				)
+				),
+				onRegistration = { }
 			) { receipt -> receipts += receipt }
 		)
 		assertEquals(listOf("invoke"), trace)
 		assertEquals(1, origins.size)
 		assertEquals(id, origins.single().transitionId)
-		assertEquals(1, receipts.size)
+		assertEquals(2, receipts.size)
+		assertTrue(receipts.all { it.originatingTransitionId == id })
 		assertEquals(0, registry.activeHandleCount)
 		assertEquals(0, executor.activeSlotCount)
+	}
+
+	@Test
+	fun retiredSemanticRegistrationCannotRetireNewerSlotWithSameTransitionIdentity() {
+		lateinit var oldOrigin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var oldCallback: (paige.navic.reader.ReaderPresentationEventReceipt) -> Unit
+		val registry = ReaderSemanticExecutableRequestRegistry(readerSessionGeneration = 3L)
+		val firstHandle = registry.register { origin, _, callback ->
+			oldOrigin = origin
+			oldCallback = callback
+			ReaderSemanticExecutableResult.Accepted
+		}
+		val secondHandle = registry.register { _, _, _ ->
+			ReaderSemanticExecutableResult.Accepted
+		}
+		val executor = ReaderSemanticCommandExecutor(registry)
+		val id = transitionId().copy(operation = ReaderTransitionOperation.ExternalSemanticRelocation)
+		lateinit var firstRegistration: ReaderSemanticCommandRegistration
+		assertEquals(
+			ReaderSemanticCommandResult.Accepted,
+			executor.synchronize(
+				ReaderTransitionCommand.RequestSemanticSynchronization(
+					id,
+					ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, firstHandle),
+					firstHandle
+				),
+				onRegistration = { firstRegistration = it },
+				onReceipt = { }
+			)
+		)
+		assertEquals(1, executor.activeSlotCount)
+		firstRegistration.retire()
+		firstRegistration.retire()
+		assertEquals(0, executor.activeSlotCount)
+		lateinit var secondRegistration: ReaderSemanticCommandRegistration
+		assertEquals(
+			ReaderSemanticCommandResult.Accepted,
+			executor.synchronize(
+				ReaderTransitionCommand.RequestSemanticSynchronization(
+					id,
+					ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, secondHandle),
+					secondHandle
+				),
+				onRegistration = { secondRegistration = it },
+				onReceipt = { }
+			)
+		)
+		assertEquals(1, executor.activeSlotCount)
+
+		oldCallback(semanticReceipt(oldOrigin))
+
+		assertEquals(1, executor.activeSlotCount)
+		secondRegistration.retire()
+		assertEquals(0, executor.activeSlotCount)
+	}
+
+	@Test
+	fun workerMutationStartBeforeRejectOrThrowAlwaysClassifiesPostMutation() {
+		val worker = Executors.newSingleThreadExecutor()
+		try {
+			repeat(16) { cycle ->
+				listOf(false, true).forEach { throws ->
+					val registry = ReaderSemanticExecutableRequestRegistry(readerSessionGeneration = 3L)
+					val mutationRecorded = CountDownLatch(1)
+					lateinit var mutationFuture: java.util.concurrent.Future<*>
+					val handle = registry.register { _, mutationStart, _ ->
+						mutationFuture = worker.submit {
+							mutationStart.mutationStarted()
+							mutationRecorded.countDown()
+						}
+						assertTrue(mutationRecorded.await(2L, TimeUnit.SECONDS))
+						if (throws) error("private semantic detail")
+						ReaderSemanticExecutableResult.Rejected
+					}
+					val executor = ReaderSemanticCommandExecutor(registry)
+					lateinit var registration: ReaderSemanticCommandRegistration
+					val id = transitionId(sequence = cycle.toLong() + 1L).copy(
+						operation = ReaderTransitionOperation.ExternalSemanticRelocation
+					)
+
+					val result = executor.synchronize(
+						ReaderTransitionCommand.RequestSemanticSynchronization(
+							id,
+							ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, handle),
+							handle
+						),
+						onRegistration = { registration = it },
+						onReceipt = { }
+					)
+
+					assertEquals(
+						if (throws) {
+							ReaderSemanticCommandResult.ThrewAfterMutationStarted
+						} else {
+							ReaderSemanticCommandResult.RejectedAfterMutationStarted
+						},
+						result
+					)
+					mutationFuture.get(2L, TimeUnit.SECONDS)
+					registration.retire()
+					assertEquals(0, executor.activeSlotCount)
+				}
+			}
+		} finally {
+			worker.shutdownNow()
+			assertTrue(worker.awaitTermination(2L, TimeUnit.SECONDS))
+		}
+	}
+
+	@Test
+	fun callbackAndExplicitRetirementRaceWithFreezeSnapshotsWithoutCorruption() {
+		val workers = Executors.newFixedThreadPool(3)
+		try {
+			repeat(32) { cycle ->
+				val tokens = ReaderLegacySourceLocalTokenAllocator()
+				val registry = ReaderSemanticExecutableRequestRegistry(3L, tokens)
+				lateinit var origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+				lateinit var callback: (paige.navic.reader.ReaderPresentationEventReceipt) -> Unit
+				val handle = registry.register { suppliedOrigin, _, suppliedCallback ->
+					origin = suppliedOrigin
+					callback = suppliedCallback
+					ReaderSemanticExecutableResult.Accepted
+				}
+				val executor = ReaderSemanticCommandExecutor(registry, tokens)
+				lateinit var registration: ReaderSemanticCommandRegistration
+				val id = transitionId(sequence = cycle.toLong() + 1L).copy(
+					operation = ReaderTransitionOperation.ExternalSemanticRelocation
+				)
+				assertEquals(
+					ReaderSemanticCommandResult.Accepted,
+					executor.synchronize(
+						ReaderTransitionCommand.RequestSemanticSynchronization(
+							id,
+							ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, handle),
+							handle
+						),
+						onRegistration = { registration = it },
+						onReceipt = { }
+					)
+				)
+				val domain = ReaderLegacyPhysicalDomain(3L, ReaderLegacyFreezeToken(cycle.toLong() + 1L))
+				val start = CyclicBarrier(4)
+				val futures = listOf(
+					workers.submit {
+						start.await(2L, TimeUnit.SECONDS)
+						callback(semanticReceipt(origin))
+					},
+					workers.submit {
+						start.await(2L, TimeUnit.SECONDS)
+						registration.retire()
+					},
+					workers.submit {
+						start.await(2L, TimeUnit.SECONDS)
+						assertEquals(
+							ReaderPortCommandResult.Accepted,
+							executor.freezeForTransitionActivation(domain)
+						)
+					}
+				)
+				start.await(2L, TimeUnit.SECONDS)
+				repeat(32) {
+					val snapshot = executor.retirementSnapshot()
+					assertTrue(snapshot.activeSlotCount in 0..1)
+					executor.snapshotFrozenOwnership()
+				}
+				futures.forEach { it.get(2L, TimeUnit.SECONDS) }
+				assertEquals(0, executor.activeSlotCount)
+				assertEquals(0, executor.retirementSnapshot().activeSlotCount)
+				assertEquals(
+					ReaderPortCommandResult.Accepted,
+					executor.restoreAfterTransitionActivation(domain)
+				)
+			}
+		} finally {
+			workers.shutdownNow()
+			assertTrue(workers.awaitTermination(2L, TimeUnit.SECONDS))
+		}
+	}
+
+	@Test
+	fun oldLeaseRetirementRacingNewSameTransitionSlotNeverRemovesNewSlot() {
+		val workers = Executors.newFixedThreadPool(2)
+		try {
+			repeat(32) { cycle ->
+				val registry = ReaderSemanticExecutableRequestRegistry(readerSessionGeneration = 3L)
+				val oldHandle = registry.register { _, _, _ -> ReaderSemanticExecutableResult.Accepted }
+				val newHandle = registry.register { _, _, _ -> ReaderSemanticExecutableResult.Accepted }
+				val executor = ReaderSemanticCommandExecutor(registry)
+				val id = transitionId(sequence = cycle.toLong() + 1L).copy(
+					operation = ReaderTransitionOperation.ExternalSemanticRelocation
+				)
+				lateinit var oldRegistration: ReaderSemanticCommandRegistration
+				executor.synchronize(
+					ReaderTransitionCommand.RequestSemanticSynchronization(
+						id,
+						ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, oldHandle),
+						oldHandle
+					),
+					onRegistration = { oldRegistration = it },
+					onReceipt = { }
+				)
+				lateinit var newRegistration: ReaderSemanticCommandRegistration
+				val start = CyclicBarrier(3)
+				val retire = workers.submit {
+					start.await(2L, TimeUnit.SECONDS)
+					oldRegistration.retire()
+				}
+				val admit = workers.submit {
+					start.await(2L, TimeUnit.SECONDS)
+					assertEquals(
+						ReaderSemanticCommandResult.Accepted,
+						executor.synchronize(
+							ReaderTransitionCommand.RequestSemanticSynchronization(
+								id,
+								ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, newHandle),
+								newHandle
+							),
+							onRegistration = { newRegistration = it },
+							onReceipt = { }
+						)
+					)
+				}
+				start.await(2L, TimeUnit.SECONDS)
+				retire.get(2L, TimeUnit.SECONDS)
+				admit.get(2L, TimeUnit.SECONDS)
+				oldRegistration.retire()
+				assertEquals(1, executor.activeSlotCount)
+				newRegistration.retire()
+				assertEquals(0, executor.activeSlotCount)
+			}
+		} finally {
+			workers.shutdownNow()
+			assertTrue(workers.awaitTermination(2L, TimeUnit.SECONDS))
+		}
 	}
 
 	@Test
@@ -409,16 +656,20 @@ class ReaderTransitionAtomicCutoverTest {
 		val registry = ReaderSemanticExecutableRequestRegistry(readerSessionGeneration = 3L)
 		val executor = ReaderSemanticCommandExecutor(registry)
 		repeat(40) { index ->
-			val handle = registry.register { origin, callback -> callback(semanticReceipt(origin)) }
+			val handle = registry.register { origin, _, callback ->
+				callback(semanticReceipt(origin))
+				ReaderSemanticExecutableResult.Accepted
+			}
 			val id = transitionId(sequence = index.toLong() + 1L)
 			assertEquals(
-				ReaderPortCommandResult.Accepted,
+				ReaderSemanticCommandResult.Accepted,
 				executor.synchronize(
 					ReaderTransitionCommand.RequestSemanticSynchronization(
 						id,
 						ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, handle),
 						handle
-					)
+					),
+					onRegistration = { }
 				) {}
 			)
 		}
@@ -443,9 +694,10 @@ class ReaderTransitionAtomicCutoverTest {
 			intent = { handle ->
 				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, handle)
 			},
-			request = { origin, callback ->
+			request = { origin, _, callback ->
 				privateRequestCalls += 1
 				callback(semanticReceipt(origin))
+				ReaderSemanticExecutableResult.Accepted
 			},
 			activatedResult = { "pending" },
 			legacyDispatch = {
@@ -464,14 +716,15 @@ class ReaderTransitionAtomicCutoverTest {
 		)
 		val receipts = mutableListOf<paige.navic.reader.ReaderPresentationEventReceipt>()
 		assertEquals(
-			ReaderPortCommandResult.Accepted,
+			ReaderSemanticCommandResult.Accepted,
 			ReaderSemanticCommandExecutor(registry).synchronize(
 				ReaderTransitionCommand.RequestSemanticSynchronization(
 					transitionId,
 					semanticIntent,
 					semanticIntent.requestHandle
 				),
-				receipts::add
+				onRegistration = { },
+				onReceipt = receipts::add
 			)
 		)
 		assertEquals(1, privateRequestCalls)

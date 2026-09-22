@@ -2064,7 +2064,7 @@ private fun completeActivatedSessionPorts(): ReaderTestActivatedSessionPorts {
 			override fun routeReceipt(receipt: paige.navic.reader.ReaderPresentationEventReceipt) = accepted
 			override fun closeToReleaseOnly() = Unit
 		},
-		semantic = ReaderSemanticCommandPort { _, _ -> accepted },
+		semantic = ReaderSemanticCommandPort { _, _, _ -> ReaderSemanticCommandResult.Accepted },
 		materialAllocation = ReaderMaterialGenerationAllocationPort { _, _ -> accepted },
 		raster = ReaderActivatedRasterPreparationPort { _, _ -> accepted },
 		deck = ReaderActivatedDeckPort { _, _ -> accepted },

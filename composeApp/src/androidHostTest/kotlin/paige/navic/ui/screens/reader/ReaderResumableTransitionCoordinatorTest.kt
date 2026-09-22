@@ -1,6 +1,11 @@
 package paige.navic.ui.screens.reader
 
+import android.os.Looper
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -36,6 +41,10 @@ import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderResourceRetirementOrder
 import paige.navic.reader.ReaderReleaseOnlyCleanupDeadlineStatus
+import paige.navic.reader.ReaderSaturatingCallbackCount
+import paige.navic.reader.ReaderSemanticExecutableRequest
+import paige.navic.reader.ReaderSemanticExecutableResult
+import paige.navic.reader.ReaderSemanticPortContractViolationReason
 import paige.navic.reader.ReaderSemanticRequestHandle
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderTransitionCommand
@@ -196,6 +205,1226 @@ class ReaderResumableTransitionCoordinatorTest {
 		assertEquals(1, coordinator.snapshot().activeTransitionsRegistered)
 		assertEquals(1, coordinator.snapshot().maxAdvanceDepth)
 		assertEquals(ReaderTransitionOperation.ExternalSemanticRelocation, coordinator.snapshot().activeOperation)
+	}
+
+	@Test
+	fun semanticSynchronousCallbackThenAcceptedQueuesOneReceiptNonReentrantly() {
+		val destination = binding("opaque-sync")
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { command, _, onReceipt ->
+				onReceipt(semanticDestinationReceipt(command, destination, 1L))
+				ReaderSemanticCommandResult.Accepted
+			}
+		)
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+
+		assertEquals(1, fixture.ports.acceptedFacts.count {
+			it is ReaderTransitionFact.FoliateDestinationCommitted
+		})
+		assertTrue(fixture.ports.acceptedFacts.none {
+			it is ReaderTransitionFact.SemanticPortContractViolated
+		})
+		assertEquals(1, fixture.coordinator.snapshot().maxAdvanceDepth)
+		assertEquals(ReaderTransitionOperation.BootstrapNativePage, fixture.coordinator.snapshot().activeOperation)
+	}
+
+	@Test
+	fun semanticAcceptedThenAsynchronousCallbackQueuesOneReceipt() {
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		lateinit var command: ReaderTransitionCommand.RequestSemanticSynchronization
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { issued, _, onReceipt ->
+				command = issued
+				callback = onReceipt
+				ReaderSemanticCommandResult.Accepted
+			}
+		)
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+		assertTrue(fixture.ports.acceptedFacts.none {
+			it is ReaderTransitionFact.FoliateDestinationCommitted
+		})
+
+		callback(semanticDestinationReceipt(command, binding("opaque-async"), 1L))
+
+		assertEquals(1, fixture.ports.acceptedFacts.count {
+			it is ReaderTransitionFact.FoliateDestinationCommitted
+		})
+		assertTrue(fixture.ports.acceptedFacts.none {
+			it is ReaderTransitionFact.SemanticPortContractViolated
+		})
+		assertEquals(1, fixture.coordinator.snapshot().maxAdvanceDepth)
+	}
+
+	@Test
+	fun semanticRejectedWithoutCallbackQueuesDistinctSynchronizationRejection() {
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { _, _, _ ->
+				ReaderSemanticCommandResult.RejectedBeforeMutation(
+					ReaderTransitionFailureReason.PortRejected
+				)
+			}
+		)
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+
+		val rejection = fixture.ports.acceptedFacts
+			.filterIsInstance<ReaderTransitionFact.CommandRejected>()
+			.single()
+		assertEquals(ReaderTransitionCommandStage.SemanticSynchronization, rejection.stage)
+		assertEquals(ReaderTransitionCommandRejectionReason.SemanticExecutionRejected, rejection.reason)
+		assertTrue(fixture.ports.acceptedFacts.none {
+			it is ReaderTransitionFact.SemanticPortContractViolated
+		})
+		assertFalse(fixture.coordinator.snapshot().releaseOnlySink)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, fixture.coordinator.snapshot().lastOutcome)
+	}
+
+	@Test
+	fun semanticThrowWithoutCallbackQueuesDistinctSynchronizationRejection() {
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { _, _, _ -> error("private semantic detail") }
+		)
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+
+		val rejection = fixture.ports.acceptedFacts
+			.filterIsInstance<ReaderTransitionFact.CommandRejected>()
+			.single()
+		assertEquals(ReaderTransitionCommandStage.SemanticSynchronization, rejection.stage)
+		assertEquals(ReaderTransitionCommandRejectionReason.CommandThrew, rejection.reason)
+		assertTrue(fixture.ports.acceptedFacts.none {
+			it is ReaderTransitionFact.SemanticPortContractViolated
+		})
+		assertFalse(fixture.coordinator.snapshot().releaseOnlySink)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, fixture.coordinator.snapshot().lastOutcome)
+	}
+
+	@Test
+	fun semanticCallbackThenRejectedPreservesReceiptBeforeFatalViolation() {
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { command, _, onReceipt ->
+				onReceipt(semanticDestinationReceipt(command, binding("opaque-rejected"), 1L))
+				ReaderSemanticCommandResult.RejectedBeforeMutation(
+					ReaderTransitionFailureReason.PortRejected
+				)
+			}
+		)
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.CallbackThenRejected,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertReceiptImmediatelyPrecedesViolation(fixture)
+		assertTrue(fixture.coordinator.snapshot().releaseOnlySemanticAuthorityRetained)
+	}
+
+	@Test
+	fun semanticCallbackThenThrowPreservesReceiptBeforeFatalViolation() {
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { command, _, onReceipt ->
+				onReceipt(semanticDestinationReceipt(command, binding("opaque-thrown"), 1L))
+				error("private semantic detail")
+			}
+		)
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.CallbackThenThrew,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertReceiptImmediatelyPrecedesViolation(fixture)
+		assertTrue(fixture.coordinator.snapshot().releaseOnlySemanticAuthorityRetained)
+	}
+
+	@Test
+	fun semanticRejectedThenLateCallbackPreservesReceiptAndClosesReleaseOnly() {
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		lateinit var command: ReaderTransitionCommand.RequestSemanticSynchronization
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { issued, _, onReceipt ->
+				command = issued
+				callback = onReceipt
+				ReaderSemanticCommandResult.RejectedBeforeMutation(
+					ReaderTransitionFailureReason.PortRejected
+				)
+			}
+		)
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+		assertFalse(fixture.coordinator.snapshot().releaseOnlySink)
+
+		callback(semanticDestinationReceipt(command, binding("opaque-late-rejected"), 1L))
+
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.RejectedThenLateCallback,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertReceiptImmediatelyPrecedesViolation(fixture)
+	}
+
+	@Test
+	fun semanticThrowThenLateCallbackPreservesReceiptAndClosesReleaseOnly() {
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		lateinit var command: ReaderTransitionCommand.RequestSemanticSynchronization
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { issued, _, onReceipt ->
+				command = issued
+				callback = onReceipt
+				error("private semantic detail")
+			}
+		)
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+		assertFalse(fixture.coordinator.snapshot().releaseOnlySink)
+
+		callback(semanticDestinationReceipt(command, binding("opaque-late-thrown"), 1L))
+
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.RejectedThenLateCallback,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertReceiptImmediatelyPrecedesViolation(fixture)
+	}
+
+	@Test
+	fun semanticDuplicateEqualCallbacksQueueLatestOnceThenFatalViolation() {
+		val destination = binding("opaque-equal")
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { command, _, onReceipt ->
+				val receipt = semanticDestinationReceipt(command, destination, 1L)
+				onReceipt(receipt)
+				onReceipt(receipt)
+				ReaderSemanticCommandResult.Accepted
+			}
+		)
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+
+		assertEquals(1, fixture.ports.acceptedFacts.count {
+			it is ReaderTransitionFact.FoliateDestinationCommitted
+		})
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.DuplicateCallback,
+			ReaderSaturatingCallbackCount.Two
+		)
+	}
+
+	@Test
+	fun semanticDifferingSecondCallbackRetainsOnlyLatestAuthority() {
+		val first = binding("opaque-differing").copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("opaque-differing", 2L)
+		)
+		val latest = first.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("opaque-differing", 3L)
+		)
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { command, _, onReceipt ->
+				onReceipt(semanticDestinationReceipt(command, first, 1L))
+				onReceipt(semanticDestinationReceipt(command, latest, 2L))
+				ReaderSemanticCommandResult.Accepted
+			}
+		)
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+
+		val allocation = fixture.ports.commands
+			.filterIsInstance<ReaderTransitionCommand.AllocateMaterialBinding>()
+			.single()
+		assertEquals(3L, allocation.binding.destinationCommitIdentity?.commitSequence)
+		assertEquals(1, fixture.ports.acceptedFacts.count {
+			it is ReaderTransitionFact.FoliateDestinationCommitted
+		})
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.DuplicateCallback,
+			ReaderSaturatingCallbackCount.Two
+		)
+	}
+
+	@Test
+	fun semanticThreeOrMoreCallbacksSaturateWithoutThrowingOrGrowingReceiptHistory() {
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { command, _, onReceipt ->
+				repeat(5) { index ->
+					onReceipt(
+						semanticDestinationReceipt(
+							command,
+							binding("opaque-many").copy(
+								destinationCommitIdentity = ReaderDestinationCommitIdentity(
+									"opaque-many",
+									index.toLong() + 2L
+								)
+							),
+							index.toLong() + 1L
+						)
+					)
+				}
+				ReaderSemanticCommandResult.Accepted
+			}
+		)
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+
+		assertEquals(1, fixture.ports.acceptedFacts.count {
+			it is ReaderTransitionFact.FoliateDestinationCommitted
+		})
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.DuplicateCallback,
+			ReaderSaturatingCallbackCount.ThreeOrMore
+		)
+	}
+
+	@Test
+	fun semanticThreeCallbacksThenRejectedUseCombinedSaturatedViolation() {
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { command, _, onReceipt ->
+				repeat(3) { index ->
+					onReceipt(
+						semanticDestinationReceipt(
+							command,
+							binding("opaque-many-rejected").copy(
+								destinationCommitIdentity = ReaderDestinationCommitIdentity(
+									"opaque-many-rejected",
+									index.toLong() + 2L
+								)
+							),
+							index.toLong() + 1L
+						)
+					)
+				}
+				ReaderSemanticCommandResult.RejectedBeforeMutation(
+					ReaderTransitionFailureReason.PortRejected
+				)
+			}
+		)
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+
+		assertEquals(1, fixture.ports.acceptedFacts.count {
+			it is ReaderTransitionFact.FoliateDestinationCommitted
+		})
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.DuplicateCallbackThenRejected,
+			ReaderSaturatingCallbackCount.ThreeOrMore
+		)
+		assertReceiptImmediatelyPrecedesViolation(fixture)
+	}
+
+	@Test
+	fun semanticDuplicateCallbacksThenThrowUseCombinedViolation() {
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { command, _, onReceipt ->
+				onReceipt(semanticDestinationReceipt(command, binding("opaque-duplicate-throw"), 1L))
+				onReceipt(semanticDestinationReceipt(command, binding("opaque-duplicate-throw"), 2L))
+				error("private semantic detail")
+			}
+		)
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+
+		assertEquals(1, fixture.ports.acceptedFacts.count {
+			it is ReaderTransitionFact.FoliateDestinationCommitted
+		})
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.DuplicateCallbackThenThrew,
+			ReaderSaturatingCallbackCount.Two
+		)
+		assertReceiptImmediatelyPrecedesViolation(fixture)
+	}
+
+	@Test
+	fun semanticCallbackAfterAcceptedInvocationCompletionIsBoundedFatalDuplicate() {
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		lateinit var command: ReaderTransitionCommand.RequestSemanticSynchronization
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { issued, _, onReceipt ->
+				command = issued
+				callback = onReceipt
+				ReaderSemanticCommandResult.Accepted
+			}
+		)
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+		val receipt = semanticDestinationReceipt(command, binding("opaque-post-terminal"), 1L)
+		callback(receipt)
+
+		callback(receipt)
+
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.DuplicateCallback,
+			ReaderSaturatingCallbackCount.Two
+		)
+		assertEquals(1, fixture.ports.acceptedFacts.count {
+			it is ReaderTransitionFact.FoliateDestinationCommitted
+		})
+	}
+
+	@Test
+	fun delayedSemanticCallbackAfterCoordinatorTerminalStateIsSafeAndCannotReopen() {
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		lateinit var command: ReaderTransitionCommand.RequestSemanticSynchronization
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { issued, _, onReceipt ->
+				command = issued
+				callback = onReceipt
+				ReaderSemanticCommandResult.Accepted
+			}
+		)
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+		fixture.coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
+		assertTrue(fixture.coordinator.snapshot().releaseOnlySink)
+
+		callback(semanticDestinationReceipt(command, binding("opaque-after-close"), 1L))
+
+		assertTrue(fixture.coordinator.snapshot().releaseOnlySink)
+		assertEquals(null, fixture.coordinator.snapshot().activeOperation)
+		assertEquals(1, fixture.coordinator.snapshot().maxAdvanceDepth)
+	}
+
+	@Test
+	fun delayedSemanticCallbackAfterTransitionSupersessionCannotMutateSuccessor() {
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		lateinit var command: ReaderTransitionCommand.RequestSemanticSynchronization
+		val predecessor = binding("opaque-predecessor")
+		val owner = shellOwner(predecessor)
+		val ports = RecordingPorts(
+			clock = RecordingClock(),
+			ownerAndInputPublication = object : ReaderOwnerAndInputPublicationPort {
+				override fun publish(command: ReaderTransitionCommand.CommitOwnerAndInputLease) =
+					error("Successor publication is outside this fixture")
+
+				override fun publish(
+					command: ReaderTransitionCommand.PublishRetainedOwnerAndInputLease
+				) = paige.navic.reader.ReaderOwnerAndInputPublicationResult.Applied(
+					command.transitionId,
+					paige.navic.reader.ReaderOwnerAndInputPublicationSubject.Retained(
+						command.retainedResource
+					),
+					command.retainedOwner,
+					command.retainedBinding,
+					command.requestedLease,
+					command.publicationIdentity
+				)
+			},
+			semanticCommand = ReaderSemanticCommandPort { issued, _, onReceipt ->
+				command = issued
+				callback = onReceipt
+				ReaderSemanticCommandResult.Accepted
+			},
+			onIssue = { _, _ -> }
+		)
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = ReaderTransitionJournal(
+				committed = readerAndroidHostTestAdoptedInitial(
+					owner,
+					predecessor,
+					17L,
+					19L
+				)
+			)
+		)
+		coordinator.enqueue(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(
+					ReaderExternalRelocationSource.Toc,
+					ReaderSemanticRequestHandle(1L)
+				)
+			)
+		)
+		coordinator.enqueue(ReaderTransitionFact.FoliateDestinationCommitted(null, predecessor))
+		val registrationsAfterSupersession = coordinator.snapshot().activeTransitionsRegistered
+		assertEquals(2, registrationsAfterSupersession)
+
+		callback(
+			semanticDestinationReceipt(
+				command,
+				predecessor.copy(
+					destinationCommitIdentity = ReaderDestinationCommitIdentity(
+						"opaque-predecessor",
+						2L
+					)
+				),
+				1L
+			)
+		)
+
+		assertEquals(registrationsAfterSupersession, coordinator.snapshot().activeTransitionsRegistered)
+		val violation = ports.acceptedFacts
+			.filterIsInstance<ReaderTransitionFact.SemanticPortContractViolated>()
+			.single()
+		assertEquals(
+			ReaderSemanticPortContractViolationReason.CallbackAfterTerminalDisposition,
+			violation.reason
+		)
+		assertEquals(ReaderSaturatingCallbackCount.One, violation.callbackCount)
+		assertTrue(coordinator.snapshot().releaseOnlySink)
+		assertEquals(null, coordinator.snapshot().activeOperation)
+		assertEquals(1, coordinator.snapshot().maxAdvanceDepth)
+	}
+
+	@Test
+	fun realExecutorDuplicateCallbacksReachCoordinatorAndRetainLatestAuthority() {
+		val first = binding("opaque-real-duplicate").copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("opaque-real-duplicate", 2L)
+		)
+		val latest = first.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("opaque-real-duplicate", 3L)
+		)
+		val fixture = realSemanticCoordinatorFixture { origin, _, callback ->
+			callback(semanticDestinationReceipt(origin, first, 1L))
+			callback(semanticDestinationReceipt(origin, latest, 2L))
+			ReaderSemanticExecutableResult.Accepted
+		}
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+
+		assertSemanticViolation(
+			fixture.semanticFixture,
+			ReaderSemanticPortContractViolationReason.DuplicateCallback,
+			ReaderSaturatingCallbackCount.Two
+		)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorAsynchronousDifferingDuplicateReplacesAppliedFirstAuthority() {
+		lateinit var origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		val fixture = realSemanticCoordinatorFixture { suppliedOrigin, _, suppliedCallback ->
+			origin = suppliedOrigin
+			callback = suppliedCallback
+			ReaderSemanticExecutableResult.Accepted
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+		val first = binding("opaque-real-async").copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("opaque-real-async", 2L)
+		)
+		val latest = first.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("opaque-real-async", 3L)
+		)
+		callback(semanticDestinationReceipt(origin, first, 1L))
+
+		callback(semanticDestinationReceipt(origin, latest, 2L))
+
+		assertSemanticViolation(
+			fixture.semanticFixture,
+			ReaderSemanticPortContractViolationReason.DuplicateCallback,
+			ReaderSaturatingCallbackCount.Two
+		)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorMutationStartedRejectionWithoutCallbackIsFatal() {
+		val fixture = realSemanticCoordinatorFixture { _, mutationStart, _ ->
+			mutationStart.mutationStarted()
+			ReaderSemanticExecutableResult.Rejected
+		}
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+
+		val violation = fixture.ports.acceptedFacts
+			.filterIsInstance<ReaderTransitionFact.SemanticPortContractViolated>()
+			.single()
+		assertEquals(
+			ReaderSemanticPortContractViolationReason.RejectedAfterMutationStarted,
+			violation.reason
+		)
+		assertEquals(ReaderSaturatingCallbackCount.Zero, violation.callbackCount)
+		assertTrue(fixture.coordinator.snapshot().releaseOnlySink)
+		assertEquals(0, fixture.executor.activeSlotCount)
+	}
+
+	@Test
+	fun realExecutorThrowThenLateCallbackRetainsLateAuthority() {
+		lateinit var origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		val fixture = realSemanticCoordinatorFixture {
+				suppliedOrigin, mutationStart, suppliedCallback ->
+			origin = suppliedOrigin
+			callback = suppliedCallback
+			mutationStart.mutationStarted()
+			error("private semantic detail")
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+		val mutationThrowViolation = fixture.ports.acceptedFacts
+			.filterIsInstance<ReaderTransitionFact.SemanticPortContractViolated>()
+			.single()
+		assertEquals(
+			ReaderSemanticPortContractViolationReason.ThrowAfterMutationStarted,
+			mutationThrowViolation.reason
+		)
+		assertEquals(ReaderSaturatingCallbackCount.Zero, mutationThrowViolation.callbackCount)
+		assertEquals(0, fixture.executor.activeSlotCount)
+		val latest = binding("opaque-real-throw-late")
+
+		callback(semanticDestinationReceipt(origin, latest, 1L))
+
+		assertTrue(fixture.coordinator.snapshot().releaseOnlySink)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorCallbackAfterPublicationCloseIsFatalAndRetainsAuthority() {
+		lateinit var origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		val fixture = realSemanticCoordinatorFixture { suppliedOrigin, _, suppliedCallback ->
+			origin = suppliedOrigin
+			callback = suppliedCallback
+			ReaderSemanticExecutableResult.Accepted
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+		assertEquals(1, fixture.executor.activeSlotCount)
+		fixture.coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
+		assertEquals(0, fixture.executor.activeSlotCount)
+		val latest = binding("opaque-real-after-close")
+
+		callback(semanticDestinationReceipt(origin, latest, 1L))
+
+		val violation = fixture.ports.acceptedFacts
+			.filterIsInstance<ReaderTransitionFact.SemanticPortContractViolated>()
+			.single()
+		assertEquals(
+			ReaderSemanticPortContractViolationReason.CallbackAfterTerminalDisposition,
+			violation.reason
+		)
+		assertEquals(ReaderSaturatingCallbackCount.One, violation.callbackCount)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorAcceptedSilenceThenNewInvocationMakesOldCallbackFatal() {
+		lateinit var firstOrigin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var firstCallback: (ReaderPresentationEventReceipt) -> Unit
+		var secondInvocationStarted = false
+		val fixture = realSemanticCoordinatorFixture { suppliedOrigin, _, suppliedCallback ->
+			firstOrigin = suppliedOrigin
+			firstCallback = suppliedCallback
+			ReaderSemanticExecutableResult.Accepted
+		}
+		val secondHandle = fixture.registry.register { _, _, _ ->
+			secondInvocationStarted = true
+			ReaderSemanticExecutableResult.Accepted
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+		assertEquals(1, fixture.executor.activeSlotCount)
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(secondHandle))
+		assertTrue(secondInvocationStarted)
+		assertEquals(1, fixture.executor.activeSlotCount)
+		val latest = binding("opaque-real-superseded")
+
+		firstCallback(semanticDestinationReceipt(firstOrigin, latest, 1L))
+
+		assertSemanticViolation(
+			fixture.semanticFixture,
+			ReaderSemanticPortContractViolationReason.CallbackAfterTerminalDisposition,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+		assertEquals(0, fixture.executor.activeSlotCount)
+	}
+
+	@Test
+	fun realExecutorAcceptedSilenceThenDeadlineMakesLateCallbackFatal() {
+		lateinit var origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		val fixture = realSemanticCoordinatorFixture { suppliedOrigin, _, suppliedCallback ->
+			origin = suppliedOrigin
+			callback = suppliedCallback
+			ReaderSemanticExecutableResult.Accepted
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+		fixture.ports.clock.fireLast()
+		val latest = binding("opaque-real-after-deadline")
+
+		callback(semanticDestinationReceipt(origin, latest, 1L))
+
+		assertSemanticViolation(
+			fixture.semanticFixture,
+			ReaderSemanticPortContractViolationReason.CallbackAfterTerminalDisposition,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorMutationRejectionThenLateCallbackRetainsExactAuthority() {
+		lateinit var origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		val fixture = realSemanticCoordinatorFixture {
+				suppliedOrigin, mutationStart, suppliedCallback ->
+			origin = suppliedOrigin
+			callback = suppliedCallback
+			mutationStart.mutationStarted()
+			ReaderSemanticExecutableResult.Rejected
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+		val latest = binding("opaque-real-reject-late")
+
+		callback(semanticDestinationReceipt(origin, latest, 1L))
+
+		val violation = fixture.ports.acceptedFacts
+			.filterIsInstance<ReaderTransitionFact.SemanticPortContractViolated>()
+			.single()
+		assertEquals(
+			ReaderSemanticPortContractViolationReason.RejectedAfterMutationStarted,
+			violation.reason
+		)
+		assertEquals(ReaderSaturatingCallbackCount.Zero, violation.callbackCount)
+		assertTrue(fixture.coordinator.snapshot().releaseOnlySink)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorCallbackThenMutationRejectionIsFatalWithExactAuthority() {
+		val latest = binding("opaque-real-callback-reject")
+		val fixture = realSemanticCoordinatorFixture { origin, mutationStart, callback ->
+			mutationStart.mutationStarted()
+			callback(semanticDestinationReceipt(origin, latest, 1L))
+			ReaderSemanticExecutableResult.Rejected
+		}
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+
+		assertSemanticViolation(
+			fixture.semanticFixture,
+			ReaderSemanticPortContractViolationReason.CallbackThenRejected,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorCallbackThenThrowIsFatalWithExactAuthority() {
+		val latest = binding("opaque-real-callback-throw")
+		val fixture = realSemanticCoordinatorFixture { origin, mutationStart, callback ->
+			mutationStart.mutationStarted()
+			callback(semanticDestinationReceipt(origin, latest, 1L))
+			error("private semantic detail")
+		}
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+
+		assertSemanticViolation(
+			fixture.semanticFixture,
+			ReaderSemanticPortContractViolationReason.CallbackThenThrew,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorExecutableRejectionBeforeMutationRemainsOrdinaryCommandRejection() {
+		val fixture = realSemanticCoordinatorFixture { _, _, _ ->
+			ReaderSemanticExecutableResult.Rejected
+		}
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+
+		val rejection = fixture.ports.acceptedFacts
+			.filterIsInstance<ReaderTransitionFact.CommandRejected>()
+			.single()
+		assertEquals(ReaderTransitionCommandStage.SemanticSynchronization, rejection.stage)
+		assertEquals(
+			ReaderTransitionCommandRejectionReason.SemanticExecutionRejected,
+			rejection.reason
+		)
+		assertTrue(fixture.ports.acceptedFacts.none {
+			it is ReaderTransitionFact.SemanticPortContractViolated
+		})
+		assertFalse(fixture.coordinator.snapshot().releaseOnlySink)
+	}
+
+	@Test
+	fun realExecutorExecutableThrowBeforeMutationRemainsOrdinaryCommandRejection() {
+		val fixture = realSemanticCoordinatorFixture { _, _, _ ->
+			error("private semantic detail")
+		}
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+
+		val rejection = fixture.ports.acceptedFacts
+			.filterIsInstance<ReaderTransitionFact.CommandRejected>()
+			.single()
+		assertEquals(ReaderTransitionCommandStage.SemanticSynchronization, rejection.stage)
+		assertEquals(ReaderTransitionCommandRejectionReason.CommandThrew, rejection.reason)
+		assertTrue(fixture.ports.acceptedFacts.none {
+			it is ReaderTransitionFact.SemanticPortContractViolated
+		})
+		assertFalse(fixture.coordinator.snapshot().releaseOnlySink)
+	}
+
+	@Test
+	fun realExecutorPrevalidationRejectionRemainsOrdinaryCommandRejection() {
+		val fixture = realSemanticCoordinatorFixture { _, _, _ ->
+			error("unregistered request must not execute")
+		}
+
+		fixture.coordinator.enqueue(
+			bootstrapSemanticIntent(ReaderSemanticRequestHandle(fixture.handle.value + 1L))
+		)
+
+		val rejection = fixture.ports.acceptedFacts
+			.filterIsInstance<ReaderTransitionFact.CommandRejected>()
+			.single()
+		assertEquals(ReaderTransitionCommandStage.SemanticSynchronization, rejection.stage)
+		assertEquals(
+			ReaderTransitionCommandRejectionReason.SemanticExecutionRejected,
+			rejection.reason
+		)
+		assertTrue(fixture.ports.acceptedFacts.none {
+			it is ReaderTransitionFact.SemanticPortContractViolated
+		})
+		assertFalse(fixture.coordinator.snapshot().releaseOnlySink)
+	}
+
+	@Test
+	fun semanticRejectionThenRetryMakesOldCallbackFatalToNewInvocation() {
+		lateinit var oldCommand: ReaderTransitionCommand.RequestSemanticSynchronization
+		lateinit var oldCallback: (ReaderPresentationEventReceipt) -> Unit
+		var invocationCount = 0
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { command, _, callback ->
+				invocationCount += 1
+				if (invocationCount == 1) {
+					oldCommand = command
+					oldCallback = callback
+					ReaderSemanticCommandResult.RejectedBeforeMutation(
+						ReaderTransitionFailureReason.PortRejected
+					)
+				} else {
+					ReaderSemanticCommandResult.Accepted
+				}
+			}
+		)
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+		fixture.coordinator.enqueue(ReaderTransitionFact.Retry(null))
+		assertEquals(2, invocationCount)
+		val latest = binding("opaque-rejected-retry-late")
+
+		oldCallback(semanticDestinationReceipt(oldCommand, latest, 1L))
+
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.RejectedThenLateCallback,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun semanticThrowThenRetryMakesOldCallbackFatalToNewInvocation() {
+		lateinit var oldCommand: ReaderTransitionCommand.RequestSemanticSynchronization
+		lateinit var oldCallback: (ReaderPresentationEventReceipt) -> Unit
+		var invocationCount = 0
+		val fixture = semanticCoordinatorFixture(
+			ReaderSemanticCommandPort { command, _, callback ->
+				invocationCount += 1
+				if (invocationCount == 1) {
+					oldCommand = command
+					oldCallback = callback
+					error("private semantic detail")
+				}
+				ReaderSemanticCommandResult.Accepted
+			}
+		)
+		fixture.coordinator.enqueue(bootstrapSemanticIntent())
+		fixture.coordinator.enqueue(ReaderTransitionFact.Retry(null))
+		assertEquals(2, invocationCount)
+		val latest = binding("opaque-thrown-retry-late")
+
+		oldCallback(semanticDestinationReceipt(oldCommand, latest, 1L))
+
+		assertSemanticViolation(
+			fixture,
+			ReaderSemanticPortContractViolationReason.RejectedThenLateCallback,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorAcceptedSilenceRetiresEveryTerminalSlotAndPreservesLateFatalCallback() {
+		val callbacks = mutableListOf<Pair<
+			paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand,
+			(ReaderPresentationEventReceipt) -> Unit
+		>>()
+		val request: ReaderSemanticExecutableRequest = { origin, _, callback ->
+			callbacks += origin to callback
+			ReaderSemanticExecutableResult.Accepted
+		}
+		val fixture = realSemanticCoordinatorFixture(request)
+
+		repeat(8) { cycle ->
+			val handle = if (cycle == 0) fixture.handle else fixture.registry.register(request)
+			fixture.coordinator.enqueue(bootstrapSemanticIntent(handle))
+			assertEquals(1, fixture.executor.activeSlotCount)
+			fixture.ports.clock.fireLast()
+			assertEquals(0, fixture.executor.activeSlotCount)
+		}
+		val ninthHandle = fixture.registry.register(request)
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(ninthHandle))
+		assertEquals(1, fixture.executor.activeSlotCount)
+		val (retiredOrigin, retiredCallback) = callbacks.first()
+		val latest = binding("opaque-real-retired-capacity")
+
+		retiredCallback(semanticDestinationReceipt(retiredOrigin, latest, 1L))
+
+		assertSemanticViolation(
+			fixture.semanticFixture,
+			ReaderSemanticPortContractViolationReason.CallbackAfterTerminalDisposition,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertEquals(0, fixture.executor.activeSlotCount)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorRejectionBeforeMutationThenNewInvocationMakesOldCallbackFatal() {
+		lateinit var oldOrigin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var oldCallback: (ReaderPresentationEventReceipt) -> Unit
+		val fixture = realSemanticCoordinatorFixture { origin, _, callback ->
+			oldOrigin = origin
+			oldCallback = callback
+			ReaderSemanticExecutableResult.Rejected
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+		assertEquals(0, fixture.executor.activeSlotCount)
+		val secondHandle = fixture.registry.register { _, _, _ ->
+			ReaderSemanticExecutableResult.Accepted
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(secondHandle))
+		assertEquals(1, fixture.executor.activeSlotCount)
+		val latest = binding("opaque-real-rejected-new-invocation")
+
+		oldCallback(semanticDestinationReceipt(oldOrigin, latest, 1L))
+
+		assertSemanticViolation(
+			fixture.semanticFixture,
+			ReaderSemanticPortContractViolationReason.RejectedThenLateCallback,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertEquals(0, fixture.executor.activeSlotCount)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorThrowBeforeMutationThenNewInvocationMakesOldCallbackFatal() {
+		lateinit var oldOrigin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var oldCallback: (ReaderPresentationEventReceipt) -> Unit
+		val fixture = realSemanticCoordinatorFixture { origin, _, callback ->
+			oldOrigin = origin
+			oldCallback = callback
+			error("private semantic detail")
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+		assertEquals(0, fixture.executor.activeSlotCount)
+		val secondHandle = fixture.registry.register { _, _, _ ->
+			ReaderSemanticExecutableResult.Accepted
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(secondHandle))
+		assertEquals(1, fixture.executor.activeSlotCount)
+		val latest = binding("opaque-real-thrown-new-invocation")
+
+		oldCallback(semanticDestinationReceipt(oldOrigin, latest, 1L))
+
+		assertSemanticViolation(
+			fixture.semanticFixture,
+			ReaderSemanticPortContractViolationReason.RejectedThenLateCallback,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertEquals(0, fixture.executor.activeSlotCount)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, latest)
+	}
+
+	@Test
+	fun realExecutorThreeOrMoreCallbacksSaturateOnceAndRetainLatestAuthority() {
+		val destinations = (2L..5L).map { sequence ->
+			binding("opaque-real-many").copy(
+				destinationCommitIdentity = ReaderDestinationCommitIdentity(
+					"opaque-real-many",
+					sequence
+				)
+			)
+		}
+		val fixture = realSemanticCoordinatorFixture { origin, _, callback ->
+			destinations.forEachIndexed { index, destination ->
+				callback(
+					semanticDestinationReceipt(
+						origin,
+						destination,
+						index.toLong() + 1L
+					)
+				)
+			}
+			ReaderSemanticExecutableResult.Accepted
+		}
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+
+		assertSemanticViolation(
+			fixture.semanticFixture,
+			ReaderSemanticPortContractViolationReason.DuplicateCallback,
+			ReaderSaturatingCallbackCount.ThreeOrMore
+		)
+		assertEquals(
+			1,
+			fixture.ports.acceptedFacts.count {
+				it is ReaderTransitionFact.SemanticPortContractViolated
+			}
+		)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, destinations.last())
+	}
+
+	@Test
+	fun realExecutorWrongOriginBeforeRetirementCannotConsumeOrContaminateExactCallback() {
+		val wrong = binding("opaque-real-wrong-before")
+		val exact = binding("opaque-real-exact-before").copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity(
+				"opaque-real-exact-before",
+				2L
+			)
+		)
+		val fixture = realSemanticCoordinatorFixture { origin, _, callback ->
+			val wrongOrigin = origin.copy(
+				slotId = paige.navic.reader.ReaderSemanticCommandSlotId(origin.slotId.value + 100L)
+			)
+			callback(semanticDestinationReceipt(wrongOrigin, wrong, 1L))
+			callback(semanticDestinationReceipt(origin, exact, 2L))
+			ReaderSemanticExecutableResult.Accepted
+		}
+
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+
+		assertEquals(0, fixture.executor.activeSlotCount)
+		assertEquals(
+			1,
+			fixture.ports.acceptedFacts.count {
+				it is ReaderTransitionFact.FoliateDestinationCommitted
+			}
+		)
+		assertTrue(fixture.ports.acceptedFacts.none {
+			it is ReaderTransitionFact.SemanticPortContractViolated
+		})
+		val allocation = fixture.ports.commands
+			.filterIsInstance<ReaderTransitionCommand.AllocateMaterialBinding>()
+			.single()
+		assertEquals(
+			exact.destinationCommitIdentity,
+			allocation.binding.destinationCommitIdentity
+		)
+	}
+
+	@Test
+	fun realExecutorWrongOriginAfterRetirementCannotContaminateLateExactCallback() {
+		lateinit var origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		val fixture = realSemanticCoordinatorFixture { suppliedOrigin, _, suppliedCallback ->
+			origin = suppliedOrigin
+			callback = suppliedCallback
+			ReaderSemanticExecutableResult.Accepted
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+		fixture.ports.clock.fireLast()
+		assertEquals(0, fixture.executor.activeSlotCount)
+		val wrongOrigin = origin.copy(
+			slotId = paige.navic.reader.ReaderSemanticCommandSlotId(origin.slotId.value + 100L)
+		)
+		callback(
+			semanticDestinationReceipt(
+				wrongOrigin,
+				binding("opaque-real-wrong-after"),
+				1L
+			)
+		)
+		assertTrue(fixture.ports.acceptedFacts.none {
+			it is ReaderTransitionFact.SemanticPortContractViolated
+		})
+		val exact = binding("opaque-real-exact-after")
+
+		callback(semanticDestinationReceipt(origin, exact, 2L))
+
+		assertSemanticViolation(
+			fixture.semanticFixture,
+			ReaderSemanticPortContractViolationReason.CallbackAfterTerminalDisposition,
+			ReaderSaturatingCallbackCount.One
+		)
+		assertReleaseOnlySemanticAuthority(fixture.coordinator, exact)
+	}
+
+	@Test
+	fun workerCallbackBeforeExecutableReturnPrecedesRejectedCompletionOnMain() {
+		val worker = Executors.newSingleThreadExecutor()
+		val callbackReturned = CountDownLatch(1)
+		val reducerThreads = mutableListOf<Boolean>()
+		lateinit var callbackFuture: java.util.concurrent.Future<*>
+		try {
+			val fixture = realSemanticCoordinatorFixtureWithObservation( { origin, _, callback ->
+					callbackFuture = worker.submit {
+						try {
+							callback(
+								semanticDestinationReceipt(
+									origin,
+									binding("opaque-worker-before-return"),
+									1L
+								)
+							)
+						} finally {
+							callbackReturned.countDown()
+						}
+					}
+					assertTrue(callbackReturned.await(2L, TimeUnit.SECONDS))
+					ReaderSemanticExecutableResult.Rejected
+				},
+				onObservation = { reducerThreads += Looper.myLooper() == Looper.getMainLooper() }
+			)
+
+			fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+			callbackFuture.get(2L, TimeUnit.SECONDS)
+
+			assertSemanticViolation(
+				fixture.semanticFixture,
+				ReaderSemanticPortContractViolationReason.CallbackThenRejected,
+				ReaderSaturatingCallbackCount.One
+			)
+			assertTrue(reducerThreads.isNotEmpty())
+			assertTrue(reducerThreads.all { it })
+			assertEquals(1, fixture.coordinator.snapshot().maxAdvanceDepth)
+		} finally {
+			worker.shutdownNow()
+			assertTrue(worker.awaitTermination(2L, TimeUnit.SECONDS))
+		}
+	}
+
+	@Test
+	fun workerCallbackAfterRejectedCompletionRemainsOrderedAfterCompletion() {
+		val worker = Executors.newSingleThreadExecutor()
+		lateinit var origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		try {
+			val fixture = realSemanticCoordinatorFixture { suppliedOrigin, _, suppliedCallback ->
+				origin = suppliedOrigin
+				callback = suppliedCallback
+				ReaderSemanticExecutableResult.Rejected
+			}
+			fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+
+			worker.submit {
+				callback(
+					semanticDestinationReceipt(
+						origin,
+						binding("opaque-worker-after-completion"),
+						1L
+					)
+				)
+			}.get(2L, TimeUnit.SECONDS)
+			org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+			assertSemanticViolation(
+				fixture.semanticFixture,
+				ReaderSemanticPortContractViolationReason.RejectedThenLateCallback,
+				ReaderSaturatingCallbackCount.One
+			)
+			assertEquals(1, fixture.coordinator.snapshot().maxAdvanceDepth)
+		} finally {
+			worker.shutdownNow()
+			assertTrue(worker.awaitTermination(2L, TimeUnit.SECONDS))
+		}
+	}
+
+	@Test
+	fun delayedWorkerCallbackAfterAcceptedIsDeliveredWithoutWorkerException() {
+		val worker = Executors.newSingleThreadExecutor()
+		lateinit var origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		try {
+			val fixture = realSemanticCoordinatorFixture { suppliedOrigin, _, suppliedCallback ->
+				origin = suppliedOrigin
+				callback = suppliedCallback
+				ReaderSemanticExecutableResult.Accepted
+			}
+			fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+			val destination = binding("opaque-worker-delayed-accepted")
+
+			worker.submit {
+				callback(semanticDestinationReceipt(origin, destination, 1L))
+			}.get(2L, TimeUnit.SECONDS)
+			org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+			assertEquals(
+				1,
+				fixture.ports.acceptedFacts.count {
+					it is ReaderTransitionFact.FoliateDestinationCommitted
+				}
+			)
+			assertTrue(fixture.ports.acceptedFacts.none {
+				it is ReaderTransitionFact.SemanticPortContractViolated
+			})
+			assertEquals(1, fixture.coordinator.snapshot().maxAdvanceDepth)
+		} finally {
+			worker.shutdownNow()
+			assertTrue(worker.awaitTermination(2L, TimeUnit.SECONDS))
+		}
+	}
+
+	@Test
+	fun concurrentWorkerCallbacksSaturateOnceAndReduceOnlyOnMain() {
+		val workers = Executors.newFixedThreadPool(4)
+		val start = CyclicBarrier(5)
+		val reducerThreads = mutableListOf<Boolean>()
+		lateinit var origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand
+		lateinit var callback: (ReaderPresentationEventReceipt) -> Unit
+		try {
+			val fixture = realSemanticCoordinatorFixtureWithObservation( { suppliedOrigin, _, suppliedCallback ->
+					origin = suppliedOrigin
+					callback = suppliedCallback
+					ReaderSemanticExecutableResult.Accepted
+				},
+				onObservation = { reducerThreads += Looper.myLooper() == Looper.getMainLooper() }
+			)
+			fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+			val destination = binding("opaque-worker-concurrent-duplicates")
+			val futures = (1L..4L).map { sequence ->
+				workers.submit {
+					start.await(2L, TimeUnit.SECONDS)
+					callback(semanticDestinationReceipt(origin, destination, sequence))
+				}
+			}
+			start.await(2L, TimeUnit.SECONDS)
+			futures.forEach { it.get(2L, TimeUnit.SECONDS) }
+			org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+			assertSemanticViolation(
+				fixture.semanticFixture,
+				ReaderSemanticPortContractViolationReason.DuplicateCallback,
+				ReaderSaturatingCallbackCount.ThreeOrMore
+			)
+			assertEquals(
+				1,
+				fixture.ports.acceptedFacts.count {
+					it is ReaderTransitionFact.SemanticPortContractViolated
+				}
+			)
+			assertTrue(reducerThreads.isNotEmpty())
+			assertTrue(reducerThreads.all { it })
+			assertEquals(1, fixture.coordinator.snapshot().maxAdvanceDepth)
+		} finally {
+			workers.shutdownNow()
+			assertTrue(workers.awaitTermination(2L, TimeUnit.SECONDS))
+		}
 	}
 
 	@Test
@@ -1524,6 +2753,149 @@ class ReaderResumableTransitionCoordinatorTest {
 		assertTrue(ports.commands.any { it is ReaderTransitionCommand.AllocateMaterialBinding })
 	}
 
+	private fun realSemanticCoordinatorFixture(
+		request: ReaderSemanticExecutableRequest
+	): RealSemanticCoordinatorFixture = realSemanticCoordinatorFixtureWithObservation(request) { }
+
+	private fun realSemanticCoordinatorFixtureWithObservation(
+		request: ReaderSemanticExecutableRequest,
+		onObservation: (ReaderTransitionCoordinatorObservation) -> Unit
+	): RealSemanticCoordinatorFixture {
+		val registry = ReaderSemanticExecutableRequestRegistry(17L)
+		val handle = registry.register(request)
+		val executor = ReaderSemanticCommandExecutor(registry)
+		val ports = RecordingPorts(
+			clock = RecordingClock(),
+			semanticCommand = ReaderSemanticCommandPort(executor::synchronize),
+			onIssue = { _, _ -> }
+		)
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = ReaderTransitionJournal(
+				committed = readerAndroidHostTestNeutralInitial(17L, 19L)
+			),
+			onObservation = onObservation
+		)
+		return RealSemanticCoordinatorFixture(
+			handle = handle,
+			registry = registry,
+			executor = executor,
+			semanticFixture = SemanticCoordinatorFixture(ports, coordinator)
+		)
+	}
+
+	private fun semanticCoordinatorFixture(
+		semanticPort: ReaderSemanticCommandPort
+	): SemanticCoordinatorFixture {
+		val ports = RecordingPorts(
+			clock = RecordingClock(),
+			semanticCommand = semanticPort,
+			onIssue = { _, _ -> }
+		)
+		return SemanticCoordinatorFixture(
+			ports = ports,
+			coordinator = ReaderResumableTransitionCoordinator(
+				ports = ports,
+				mode = ReaderTransitionMode.Active,
+				journal = ReaderTransitionJournal(
+					committed = readerAndroidHostTestNeutralInitial(17L, 19L)
+				)
+			)
+		)
+	}
+
+	private fun bootstrapSemanticIntent(
+		handle: ReaderSemanticRequestHandle = ReaderSemanticRequestHandle(1L)
+	) = ReaderTransitionFact.Intent(
+		transitionId = null,
+		intent = paige.navic.reader.ReaderBootstrapNativePageIntent(handle)
+	)
+
+	private fun semanticDestinationReceipt(
+		command: ReaderTransitionCommand.RequestSemanticSynchronization,
+		binding: ReaderPresentationBinding,
+		eventSequence: Long
+	): ReaderPresentationEventReceipt {
+		val version = ReaderPresentationReceiptVersion(
+			readerSessionGeneration = command.transitionId.readerSessionGeneration,
+			publicationIdentity = binding.publicationIdentity,
+			eventSequence = eventSequence
+		)
+		return ReaderPresentationEventReceipt(
+			event = ReaderPresentationEvent.FoliateRelocated(binding, null),
+			preVersion = version.copy(eventSequence = eventSequence - 1L),
+			version = version,
+			disposition = ReaderPresentationEventDisposition.Accepted,
+			postState = ReaderPresentationState(binding = binding),
+			effects = emptyList(),
+			origin = paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand(
+				command.transitionId,
+				paige.navic.reader.ReaderSemanticCommandSlotId(1L)
+			)
+		)
+	}
+
+	private fun semanticDestinationReceipt(
+		origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand,
+		binding: ReaderPresentationBinding,
+		eventSequence: Long
+	): ReaderPresentationEventReceipt {
+		val version = ReaderPresentationReceiptVersion(
+			readerSessionGeneration = origin.transitionId.readerSessionGeneration,
+			publicationIdentity = binding.publicationIdentity,
+			eventSequence = eventSequence
+		)
+		return ReaderPresentationEventReceipt(
+			event = ReaderPresentationEvent.FoliateRelocated(binding, null),
+			preVersion = version.copy(eventSequence = eventSequence - 1L),
+			version = version,
+			disposition = ReaderPresentationEventDisposition.Accepted,
+			postState = ReaderPresentationState(binding = binding),
+			effects = emptyList(),
+			origin = origin
+		)
+	}
+
+	private fun assertReleaseOnlySemanticAuthority(
+		coordinator: ReaderResumableTransitionCoordinator,
+		expected: ReaderPresentationBinding
+	) {
+		val journal = ReaderResumableTransitionCoordinator::class.java
+			.getDeclaredField("journal")
+			.apply { isAccessible = true }
+			.get(coordinator) as ReaderTransitionJournal
+		assertEquals(
+			expected,
+			assertNotNull(journal.releaseOnlyCleanup?.authoritativeSemanticDestination).binding
+		)
+	}
+
+	private fun assertSemanticViolation(
+		fixture: SemanticCoordinatorFixture,
+		reason: ReaderSemanticPortContractViolationReason,
+		callbackCount: ReaderSaturatingCallbackCount
+	) {
+		val violation = fixture.ports.acceptedFacts
+			.filterIsInstance<ReaderTransitionFact.SemanticPortContractViolated>()
+			.single()
+		assertEquals(reason, violation.reason)
+		assertEquals(callbackCount, violation.callbackCount)
+		assertTrue(fixture.coordinator.snapshot().releaseOnlySink)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, fixture.coordinator.snapshot().lastOutcome)
+		assertEquals(null, fixture.coordinator.snapshot().activeOperation)
+	}
+
+	private fun assertReceiptImmediatelyPrecedesViolation(fixture: SemanticCoordinatorFixture) {
+		val semanticFacts = fixture.ports.acceptedFacts.filter {
+			it is ReaderTransitionFact.FoliateDestinationCommitted ||
+				it is ReaderTransitionFact.SemanticPortContractViolated
+		}
+		assertEquals(2, semanticFacts.size)
+		assertTrue(semanticFacts[0] is ReaderTransitionFact.FoliateDestinationCommitted)
+		assertTrue(semanticFacts[1] is ReaderTransitionFact.SemanticPortContractViolated)
+	}
+
 	private fun settlementCoordinator(
 		model: paige.navic.reader.ReaderTransitionModelFixture
 	) = ReaderResumableTransitionCoordinator(
@@ -1999,6 +3371,21 @@ private data class NeutralCoordinatorFixture(
 	val fixture: CoordinatorFixture
 )
 
+private data class RealSemanticCoordinatorFixture(
+	val handle: ReaderSemanticRequestHandle,
+	val registry: ReaderSemanticExecutableRequestRegistry,
+	val executor: ReaderSemanticCommandExecutor,
+	val semanticFixture: SemanticCoordinatorFixture
+) {
+	val ports: RecordingPorts get() = semanticFixture.ports
+	val coordinator: ReaderResumableTransitionCoordinator get() = semanticFixture.coordinator
+}
+
+private data class SemanticCoordinatorFixture(
+	val ports: RecordingPorts,
+	val coordinator: ReaderResumableTransitionCoordinator
+)
+
 private data class CoordinatorFixture(
 	val id: ReaderTransitionId,
 	val clock: RecordingClock,
@@ -2010,9 +3397,16 @@ private class RecordingPorts(
 	override val clock: RecordingClock,
 	override val ownerAndInputPublication: ReaderOwnerAndInputPublicationPort? = null,
 	override val task6FactOnlyTimer: ReaderTask6FactOnlyTimerPort? = null,
+	override val semanticCommand: ReaderSemanticCommandPort? = null,
 	private val onIssue: (ReaderTransitionCommand, (ReaderTransitionFact) -> Unit) -> Unit
 ) : ReaderResumableTransitionPorts {
 	val commands = mutableListOf<ReaderTransitionCommand>()
+	val acceptedFacts = mutableListOf<ReaderTransitionFact>()
+
+	override fun acceptsFact(fact: ReaderTransitionFact): Boolean {
+		acceptedFacts += fact
+		return true
+	}
 
 	override fun issue(command: ReaderTransitionCommand, onFact: (ReaderTransitionFact) -> Unit) {
 		commands += command

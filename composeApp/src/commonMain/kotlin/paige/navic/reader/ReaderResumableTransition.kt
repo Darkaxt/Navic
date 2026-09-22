@@ -289,6 +289,7 @@ enum class ReaderSemanticPortContractViolationReason {
 	DuplicateCallback,
 	DuplicateCallbackThenRejected,
 	DuplicateCallbackThenThrew,
+	CallbackAfterTerminalDisposition,
 	RejectedAfterMutationStarted,
 	ThrowAfterMutationStarted
 }
@@ -849,10 +850,17 @@ value class ReaderSemanticRequestHandle(val value: Long) {
 	init { require(value > 0L) }
 }
 
+internal enum class ReaderSemanticExecutableResult { Accepted, Rejected }
+
+internal fun interface ReaderSemanticMutationStartEvidence {
+	fun mutationStarted()
+}
+
 internal typealias ReaderSemanticExecutableRequest = (
 	origin: ReaderPresentationEventOrigin.SemanticCommand,
+	mutationStart: ReaderSemanticMutationStartEvidence,
 	onReceipt: (ReaderPresentationEventReceipt) -> Unit
-) -> Unit
+) -> ReaderSemanticExecutableResult
 
 sealed interface ReaderTransitionUserIntent
 sealed interface ReaderSemanticSynchronizationIntent : ReaderTransitionUserIntent {
@@ -3678,16 +3686,72 @@ private fun ReaderTransitionCommandRejectionReason.toFailureReason(): ReaderTran
 
 private fun ReaderTransitionJournal.reduceSemanticPortContractViolation(
 	fact: ReaderTransitionFact.SemanticPortContractViolated
+): ReaderTransitionReduction = reduceSemanticPortContractViolation(
+	fact = fact,
+	trustedSemanticAuthority = null,
+	trustedInvocation = false
+)
+
+internal fun ReaderTransitionJournal.reduceTrustedSemanticPortContractViolation(
+	fact: ReaderTransitionFact.SemanticPortContractViolated,
+	authority: ReaderReleaseOnlySemanticAuthority?
+): ReaderTransitionReduction = reduceSemanticPortContractViolation(
+	fact = fact,
+	trustedSemanticAuthority = authority,
+	trustedInvocation = true
+)
+
+internal fun ReaderTransitionJournal.retainTrustedSemanticAuthority(
+	authority: ReaderReleaseOnlySemanticAuthority
+): ReaderTransitionJournal {
+	val cleanup = releaseOnlyCleanup ?: return this
+	if (cleanup.authoritativeSemanticDestination == authority) return this
+	return copy(
+		releaseOnlyCleanup = cleanup.copy(authoritativeSemanticDestination = authority)
+	)
+}
+
+private fun ReaderTransitionJournal.reduceSemanticPortContractViolation(
+	fact: ReaderTransitionFact.SemanticPortContractViolated,
+	trustedSemanticAuthority: ReaderReleaseOnlySemanticAuthority?,
+	trustedInvocation: Boolean
 ): ReaderTransitionReduction {
-	val current = active?.takeIf { it.id == fact.transitionId } ?: return unchanged()
+	if (releaseOnlyCleanup != null) {
+		return if (trustedInvocation && trustedSemanticAuthority != null) {
+			ReaderTransitionReduction(
+				retainTrustedSemanticAuthority(trustedSemanticAuthority),
+				emptyList()
+			)
+		} else {
+			unchanged()
+		}
+	}
+	val exactRetainedOwner = active?.takeIf { it.id == fact.transitionId }
+		?.phase
+		?.contract
+		?.retainedOwner
+		?: retryableTransition?.takeIf { it.id == fact.transitionId }?.retainedOwner
+		?: (committed as? ReaderCommittedPresentation.Transition)
+			?.committed
+			?.takeIf { it.id == fact.transitionId }
+			?.owner
+	val retainedOwner = exactRetainedOwner ?: if (trustedInvocation) {
+		active?.phase?.contract?.retainedOwner ?: when (val authority = committed.authority()) {
+			is ReaderCommittedPresentationAuthority.Retained -> authority.owner
+			is ReaderCommittedPresentationAuthority.Neutral -> ReaderPresentationFrameOwner.Neutral
+		}
+	} else {
+		return unchanged()
+	}
 	return terminatePublication(
 		reason = ReaderTransitionCancellationReason.PublicationClosed,
 		trigger = ReaderReleaseOnlyCleanupTrigger.ProcessClose,
 		outcomeOverride = ReaderTransitionOutcome.Failed(
 			reason = ReaderTransitionFailureReason.PortRejected,
 			retryability = ReaderTransitionRetryability.NonRetryable,
-			retainedOwner = current.phase.contract.retainedOwner
-		)
+			retainedOwner = retainedOwner
+		),
+		authoritativeSemanticDestination = trustedSemanticAuthority
 	)
 }
 
@@ -3795,7 +3859,8 @@ private fun ReaderTransitionJournal.terminatePublication(
 	closeOperationId: ReaderTransitionId? = null,
 	outcomeOverride: ReaderTransitionOutcome? = null,
 	deadlineStatus: ReaderReleaseOnlyCleanupDeadlineStatus =
-		ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+		ReaderReleaseOnlyCleanupDeadlineStatus.Armed,
+	authoritativeSemanticDestination: ReaderReleaseOnlySemanticAuthority? = null
 ): ReaderTransitionReduction {
 	if (releaseOnlyCleanup != null) return unchanged()
 	val current = active
@@ -3815,9 +3880,12 @@ private fun ReaderTransitionJournal.terminatePublication(
 		trigger = trigger,
 		closeOperationId = closeOperationId,
 		preCloseTransitionId = preCloseTransitionId,
-		authoritativeSemanticDestination = current?.resolvedSuccessorBinding?.takeIf {
-			current.authoritativeDestinationCommitted || current.consumedSettlement != null
-		}?.let(::ReaderReleaseOnlySemanticAuthority),
+		authoritativeSemanticDestination = authoritativeSemanticDestination ?: current
+			?.resolvedSuccessorBinding
+			?.takeIf {
+				current.authoritativeDestinationCommitted || current.consumedSettlement != null
+			}
+			?.let(::ReaderReleaseOnlySemanticAuthority),
 		cancellationStatus = if (preCloseTransitionId == null) {
 			ReaderReleaseOnlyCancellationStatus.NotRequired
 		} else {

@@ -3771,6 +3771,81 @@ class ReaderResumableTransitionModelTest {
 	}
 
 	@Test
+	fun trustedSupersededSemanticViolationClosesCurrentSessionWithLatestAuthority() {
+		val fixture = journalAwaitingSettlement()
+		val supersededId = fixture.id.copy(
+			sequence = fixture.id.sequence + 1L,
+			parent = fixture.id.parentIdentity()
+		)
+		val authority = ReaderReleaseOnlySemanticAuthority(fixture.successor)
+		val violation = ReaderTransitionFact.SemanticPortContractViolated(
+			transitionId = supersededId,
+			reason = ReaderSemanticPortContractViolationReason.CallbackAfterTerminalDisposition,
+			callbackCount = ReaderSaturatingCallbackCount.One
+		)
+
+		val fatal = fixture.journal.reduceTrustedSemanticPortContractViolation(
+			violation,
+			authority
+		)
+
+		assertNull(fatal.state.active)
+		assertEquals(
+			fixture.successor,
+			assertNotNull(
+				fatal.state.releaseOnlyCleanup?.authoritativeSemanticDestination
+			).binding
+		)
+		assertIs<ReaderTransitionOutcome.Failed>(fatal.state.lastOutcome)
+	}
+
+	@Test
+	fun untrustedSupersededSemanticViolationRemainsInert() {
+		val fixture = journalAwaitingSettlement()
+		val violation = ReaderTransitionFact.SemanticPortContractViolated(
+			transitionId = fixture.id.copy(
+				sequence = fixture.id.sequence + 1L,
+				parent = fixture.id.parentIdentity()
+			),
+			reason = ReaderSemanticPortContractViolationReason.CallbackAfterTerminalDisposition,
+			callbackCount = ReaderSaturatingCallbackCount.One
+		)
+
+		val ignored = fixture.journal.reduce(violation)
+
+		assertEquals(fixture.journal, ignored.state)
+		assertTrue(ignored.commands.isEmpty())
+	}
+
+	@Test
+	fun trustedLateSemanticAuthorityRefreshReplacesEarlierAuthorityWithoutReopening() {
+		val fixture = journalAwaitingSettlement()
+		val first = ReaderReleaseOnlySemanticAuthority(fixture.predecessor)
+		val latest = ReaderReleaseOnlySemanticAuthority(fixture.successor)
+		val violation = ReaderTransitionFact.SemanticPortContractViolated(
+			transitionId = fixture.id,
+			reason = ReaderSemanticPortContractViolationReason.ThrowAfterMutationStarted,
+			callbackCount = ReaderSaturatingCallbackCount.Zero
+		)
+		val fatal = fixture.journal.reduceTrustedSemanticPortContractViolation(
+			violation,
+			first
+		).state
+
+		val refreshed = fatal.retainTrustedSemanticAuthority(latest)
+
+		assertNull(refreshed.active)
+		assertNotNull(refreshed.releaseOnlyCleanup)
+		assertEquals(
+			fixture.successor,
+			assertNotNull(
+				refreshed.releaseOnlyCleanup.authoritativeSemanticDestination
+			).binding
+		)
+		assertEquals(fatal.lastOutcome, refreshed.lastOutcome)
+	}
+
+	@Test
 	fun closeFromNeutralDoesNotFabricateCloseOperationIdentity() {
 		val baseline = neutralInitialJournal()
 		val closed = baseline.reduce(ReaderTransitionFact.PublicationClosed(null))

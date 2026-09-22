@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import android.os.Handler
 import android.os.Looper
 import paige.navic.reader.ReaderActiveTransition
 import paige.navic.reader.ReaderCommittedPresentation
@@ -13,6 +14,9 @@ import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationSemanticReceipt
 import paige.navic.reader.ReaderPresentationSemanticReceiptConsumption
 import paige.navic.reader.ReaderReleaseOnlyCleanupDeadlineStatus
+import paige.navic.reader.ReaderReleaseOnlySemanticAuthority
+import paige.navic.reader.ReaderSaturatingCallbackCount
+import paige.navic.reader.ReaderSemanticPortContractViolationReason
 import paige.navic.reader.ReaderTransitionCommand
 import paige.navic.reader.ReaderTransitionCommandRejectionReason
 import paige.navic.reader.ReaderTransitionCommandStage
@@ -30,6 +34,8 @@ import paige.navic.reader.ReaderResourceRetirementOrder
 import paige.navic.reader.ReaderTransitionResourceOwnerId
 import paige.navic.reader.deadlinePolicy
 import paige.navic.reader.pendingStageOrNull
+import paige.navic.reader.reduceTrustedSemanticPortContractViolation
+import paige.navic.reader.retainTrustedSemanticAuthority
 
 internal enum class ReaderTransitionFactClassification {
 	CurrentTransition,
@@ -377,6 +383,7 @@ internal data class ReaderTransitionCoordinatorSnapshot(
 	val releasedResourceCount: Int,
 	val consumedSettlementCount: Int,
 	val releaseOnlySink: Boolean,
+	val releaseOnlySemanticAuthorityRetained: Boolean,
 	val releaseOnlyDeadlineStatus: ReaderReleaseOnlyCleanupDeadlineStatus?
 ) {
 	companion object {
@@ -466,15 +473,104 @@ internal class ReaderResumableTransitionCoordinator(
 		}
 	}
 
-	private val mailbox = ArrayDeque<ReaderTransitionFact>()
+	private sealed interface MailboxEntry {
+		data class Fact(
+			val fact: ReaderTransitionFact,
+			val trustedSemanticAuthority: ReaderReleaseOnlySemanticAuthority? = null,
+			val trustedSemanticViolation: Boolean = false
+		) : MailboxEntry
+		data class SemanticCallbackDrain(
+			val invocation: SemanticInvocation,
+			val batch: SemanticCallbackBatch
+		) : MailboxEntry
+		data class SemanticCompletion(
+			val invocation: SemanticInvocation,
+			val outcome: SemanticCompletionOutcome
+		) : MailboxEntry
+		data class SemanticAuthorityRefresh(
+			val authority: ReaderReleaseOnlySemanticAuthority
+		) : MailboxEntry
+	}
+
+	private enum class SemanticCompletionOutcome {
+		Accepted,
+		RejectedBeforeMutation,
+		ThrewBeforeMutation,
+		RejectedAfterMutationStarted,
+		ThrewAfterMutationStarted
+	}
+
+	private enum class SemanticInvocationCompletion {
+		Pending,
+		Accepted,
+		RejectedWithoutCallback,
+		ThrewWithoutCallback,
+		RejectedAfterCallback,
+		ThrewAfterCallback,
+		RejectedAfterMutationStarted,
+		ThrewAfterMutationStarted
+	}
+
+	private enum class SemanticInvocationDisposition {
+		Active,
+		ReceiptQueued,
+		Rejected,
+		Threw,
+		Superseded,
+		Terminal
+	}
+
+	private class SemanticCallbackBatch {
+		var latestAuthoritativeReceipt: ReaderPresentationEventReceipt? = null
+			private set
+		var callbackCount: ReaderSaturatingCallbackCount = ReaderSaturatingCallbackCount.Zero
+			private set
+
+		fun record(receipt: ReaderPresentationEventReceipt) {
+			latestAuthoritativeReceipt = receipt
+			callbackCount = callbackCount.increment()
+		}
+	}
+
+	private class SemanticInvocation(
+		val transitionId: ReaderTransitionId
+	) {
+		var latestAuthoritativeReceipt: ReaderPresentationEventReceipt? = null
+		var latestSemanticAuthority: ReaderReleaseOnlySemanticAuthority? = null
+		var callbackCount: ReaderSaturatingCallbackCount = ReaderSaturatingCallbackCount.Zero
+		var completion: SemanticInvocationCompletion = SemanticInvocationCompletion.Pending
+		var disposition: SemanticInvocationDisposition = SemanticInvocationDisposition.Active
+		var registration: ReaderSemanticCommandRegistration? = null
+		var openCallbackBatch: SemanticCallbackBatch? = null
+		var violationQueued: Boolean = false
+
+		fun record(batch: SemanticCallbackBatch) {
+			val receipt = batch.latestAuthoritativeReceipt ?: return
+			latestAuthoritativeReceipt = receipt
+			receipt.semanticReceipt?.binding?.let { binding ->
+				latestSemanticAuthority = ReaderReleaseOnlySemanticAuthority(binding)
+			}
+			repeat(batch.callbackCount.boundedValue()) {
+				callbackCount = callbackCount.increment()
+			}
+		}
+	}
+
+	// Linearizes callback, completion, and fact publication only. Reduction and port calls never
+	// execute while this lock is held.
+	private val mailboxLock = Any()
+	private val mailbox = ArrayDeque<MailboxEntry>()
+	private val mainHandler = Handler(Looper.getMainLooper())
 	private val semanticReceiptConsumption = ReaderPresentationSemanticReceiptConsumption()
 	private val classificationCounts = linkedMapOf<ReaderTransitionFactClassification, Int>()
 	private val shadowPredictions = ArrayDeque<ReaderTransitionShadowPrediction>()
 	private var advancing = false
+	private var mainDrainScheduled = false
 	private var advanceDepth = 0
 	private var maxAdvanceDepth = 0
 	private var activeTransitionsRegistered = 0
 	private var registeredTransitionId: ReaderTransitionId? = null
+	private var activeSemanticInvocation: SemanticInvocation? = null
 	private var deadlineRecord: ActiveDeadlineRecord? = null
 	private var deadlineSlot: DeadlineSlot? = null
 	private val task6TimerOwnership = Task6TimerOwnership()
@@ -527,17 +623,19 @@ internal class ReaderResumableTransitionCoordinator(
 		check(Looper.myLooper() == Looper.getMainLooper()) {
 			"Reader transition facts must be enqueued on the main thread"
 		}
-		mailbox.addLast(fact)
-		if (!advancing) advance()
+		appendMailboxEntry(MailboxEntry.Fact(fact))
 	}
 
 	fun snapshot(): ReaderTransitionCoordinatorSnapshot {
 		val releaseSnapshot = releaseLedger.snapshot()
+		val mailboxSnapshot = synchronized(mailboxLock) {
+			Triple(mailbox.size, advancing, maxAdvanceDepth)
+		}
 		return ReaderTransitionCoordinatorSnapshot(
 			mode = mode,
-			mailboxSize = mailbox.size,
-			advancing = advancing,
-			maxAdvanceDepth = maxAdvanceDepth,
+			mailboxSize = mailboxSnapshot.first,
+			advancing = mailboxSnapshot.second,
+			maxAdvanceDepth = mailboxSnapshot.third,
 			activeTransitionsRegistered = activeTransitionsRegistered,
 			activeOperation = journal.active?.id?.operation,
 			activePhase = journal.active?.phase?.kind,
@@ -550,6 +648,8 @@ internal class ReaderResumableTransitionCoordinator(
 			releasedResourceCount = releaseSnapshot.releasedCount,
 			consumedSettlementCount = if (journal.active?.consumedSettlement == null) 0 else 1,
 			releaseOnlySink = releaseOnlySink,
+			releaseOnlySemanticAuthorityRetained =
+				journal.releaseOnlyCleanup?.authoritativeSemanticDestination != null,
 			releaseOnlyDeadlineStatus = journal.releaseOnlyCleanup?.deadlineStatus
 		)
 	}
@@ -557,14 +657,81 @@ internal class ReaderResumableTransitionCoordinator(
 	fun releaseStateOf(key: ReaderTransitionResourceKey): ReaderTransitionResourceState? =
 		releaseLedger.stateOf(key)
 
+	private fun appendMailboxEntry(entry: MailboxEntry) {
+		val shouldDispatch = synchronized(mailboxLock) {
+			mailbox.addLast(entry)
+			markMainDrainScheduledLocked()
+		}
+		if (shouldDispatch) dispatchMainDrain()
+	}
+
+	private fun markMainDrainScheduledLocked(): Boolean {
+		if (advancing || mainDrainScheduled) return false
+		mainDrainScheduled = true
+		return true
+	}
+
+	private fun dispatchMainDrain() {
+		if (Looper.myLooper() == Looper.getMainLooper()) {
+			advance()
+		} else {
+			postMainDrain()
+		}
+	}
+
+	private fun postMainDrain() {
+		if (mainHandler.post(::advance)) return
+		synchronized(mailboxLock) {
+			mainDrainScheduled = false
+		}
+	}
+
 	private fun advance() {
-		if (advancing) return
-		advancing = true
-		advanceDepth += 1
-		maxAdvanceDepth = maxOf(maxAdvanceDepth, advanceDepth)
+		check(Looper.myLooper() == Looper.getMainLooper()) {
+			"Reader transition mailbox must drain on the main thread"
+		}
+		val admitted = synchronized(mailboxLock) {
+			if (advancing) {
+				false
+			} else {
+				advancing = true
+				mainDrainScheduled = false
+				advanceDepth += 1
+				maxAdvanceDepth = maxOf(maxAdvanceDepth, advanceDepth)
+				true
+			}
+		}
+		if (!admitted) return
 		try {
-			while (mailbox.isNotEmpty()) {
-				val fact = mailbox.removeFirst()
+			while (true) {
+				val entry = synchronized(mailboxLock) {
+					if (mailbox.isEmpty()) {
+						null
+					} else {
+						mailbox.removeFirst().also { removed ->
+							if (
+								removed is MailboxEntry.SemanticCallbackDrain &&
+								removed.invocation.openCallbackBatch === removed.batch
+							) {
+								removed.invocation.openCallbackBatch = null
+							}
+						}
+					}
+				} ?: break
+				if (entry is MailboxEntry.SemanticCallbackDrain) {
+					processSemanticCallbackDrain(entry.invocation, entry.batch)
+					continue
+				}
+				if (entry is MailboxEntry.SemanticCompletion) {
+					processSemanticCompletion(entry.invocation, entry.outcome)
+					continue
+				}
+				if (entry is MailboxEntry.SemanticAuthorityRefresh) {
+					journal = journal.retainTrustedSemanticAuthority(entry.authority)
+					continue
+				}
+				val factEntry = entry as MailboxEntry.Fact
+				val fact = factEntry.fact
 				accountAuthoritativeTask6Expiry(fact)
 				val before = journal
 				val classification = classify(fact, before)
@@ -577,10 +744,13 @@ internal class ReaderResumableTransitionCoordinator(
 					fact.registration?.let(releaseLedger::confirmReleased)
 						?: releaseLedger.confirmReleased(fact.key)
 				}
-				val reduction = if (releaseOnlySink) {
-					paige.navic.reader.ReaderTransitionReduction(before, emptyList())
-				} else {
-					journal.reduce(fact, nowMillis)
+				val reduction = when {
+					factEntry.trustedSemanticViolation -> journal.reduceTrustedSemanticPortContractViolation(
+						fact as ReaderTransitionFact.SemanticPortContractViolated,
+						factEntry.trustedSemanticAuthority
+					)
+					releaseOnlySink -> paige.navic.reader.ReaderTransitionReduction(before, emptyList())
+					else -> journal.reduce(fact, nowMillis)
 				}
 
 				// These assignments are the coordinator's publication barrier: callbacks may run
@@ -622,10 +792,20 @@ internal class ReaderResumableTransitionCoordinator(
 						fact.kind()
 					)
 				)
+				retireSemanticInvocationWhenAuthorityEnds()
 			}
 		} finally {
-			advanceDepth -= 1
-			advancing = false
+			val postDrain = synchronized(mailboxLock) {
+				advanceDepth -= 1
+				advancing = false
+				if (mailbox.isNotEmpty() && !mainDrainScheduled) {
+					mainDrainScheduled = true
+					true
+				} else {
+					false
+				}
+			}
+			if (postDrain) postMainDrain()
 		}
 	}
 
@@ -633,22 +813,39 @@ internal class ReaderResumableTransitionCoordinator(
 		if (command is ReaderTransitionCommand.RequestSemanticSynchronization) {
 			val semantic = ports.semanticCommand
 			if (semantic != null) {
-				val result = try {
-					semantic.synchronize(command, ::enqueue)
+				val invocation = SemanticInvocation(command.transitionId)
+				activeSemanticInvocation?.let { active ->
+					retireSemanticInvocation(active, SemanticInvocationDisposition.Superseded)
+				}
+				activeSemanticInvocation = invocation
+				val outcome = try {
+					when (
+						semantic.synchronize(
+							command,
+							onRegistration = { registration ->
+								check(invocation.registration == null) {
+									"Semantic invocation registration must be exact and singular"
+								}
+								invocation.registration = registration
+							}
+						) { receipt ->
+							enqueueSemanticCallback(invocation, receipt)
+						}
+					) {
+						ReaderSemanticCommandResult.Accepted -> SemanticCompletionOutcome.Accepted
+						is ReaderSemanticCommandResult.RejectedBeforeMutation ->
+							SemanticCompletionOutcome.RejectedBeforeMutation
+						ReaderSemanticCommandResult.ThrewBeforeMutation ->
+							SemanticCompletionOutcome.ThrewBeforeMutation
+						ReaderSemanticCommandResult.RejectedAfterMutationStarted ->
+							SemanticCompletionOutcome.RejectedAfterMutationStarted
+						ReaderSemanticCommandResult.ThrewAfterMutationStarted ->
+							SemanticCompletionOutcome.ThrewAfterMutationStarted
+					}
 				} catch (_: Throwable) {
-					enqueueCommandThrow(command)
-					return
+					SemanticCompletionOutcome.ThrewBeforeMutation
 				}
-				when (result) {
-					ReaderPortCommandResult.Accepted -> Unit
-					is ReaderPortCommandResult.Rejected -> enqueue(
-						ReaderTransitionFact.CommandRejected(
-							command.transitionId,
-							ReaderTransitionCommandStage.SemanticSynchronization,
-							ReaderTransitionCommandRejectionReason.SemanticExecutionRejected
-						)
-					)
-				}
+				enqueueSemanticCompletion(invocation, outcome)
 				return
 			}
 		}
@@ -673,6 +870,287 @@ internal class ReaderResumableTransitionCoordinator(
 		} else {
 			enqueue(result.toTransitionFact())
 		}
+	}
+
+	private fun enqueueSemanticCallback(
+		invocation: SemanticInvocation,
+		receipt: ReaderPresentationEventReceipt
+	) {
+		val shouldDispatch = synchronized(mailboxLock) {
+			val batch = invocation.openCallbackBatch ?: SemanticCallbackBatch().also {
+				invocation.openCallbackBatch = it
+				mailbox.addLast(MailboxEntry.SemanticCallbackDrain(invocation, it))
+			}
+			batch.record(receipt)
+			markMainDrainScheduledLocked()
+		}
+		if (shouldDispatch) dispatchMainDrain()
+	}
+
+	private fun enqueueSemanticCompletion(
+		invocation: SemanticInvocation,
+		outcome: SemanticCompletionOutcome
+	) {
+		val shouldDispatch = synchronized(mailboxLock) {
+			// Seal callbacks observed before return; a later callback receives a batch behind completion.
+			invocation.openCallbackBatch = null
+			mailbox.addLast(MailboxEntry.SemanticCompletion(invocation, outcome))
+			markMainDrainScheduledLocked()
+		}
+		if (shouldDispatch) dispatchMainDrain()
+	}
+
+	private fun processSemanticCallbackDrain(
+		invocation: SemanticInvocation,
+		batch: SemanticCallbackBatch
+	) {
+		check(Looper.myLooper() == Looper.getMainLooper())
+		invocation.record(batch)
+		if (invocation.latestAuthoritativeReceipt == null) return
+		when (invocation.disposition) {
+			SemanticInvocationDisposition.Superseded,
+			SemanticInvocationDisposition.Terminal -> {
+				enqueueLatestSemanticReceipt(invocation)
+				enqueueSemanticViolation(
+					invocation,
+					ReaderSemanticPortContractViolationReason.CallbackAfterTerminalDisposition
+				)
+				retireSemanticInvocation(invocation, invocation.disposition)
+			}
+			SemanticInvocationDisposition.Rejected,
+			SemanticInvocationDisposition.Threw -> {
+				enqueueLatestSemanticReceipt(invocation)
+				enqueueSemanticViolation(
+					invocation,
+					ReaderSemanticPortContractViolationReason.RejectedThenLateCallback
+				)
+				retireSemanticInvocation(invocation, invocation.disposition)
+			}
+			SemanticInvocationDisposition.ReceiptQueued -> {
+				enqueueLatestSemanticReceipt(invocation)
+				enqueueSemanticViolation(
+					invocation,
+					ReaderSemanticPortContractViolationReason.DuplicateCallback
+				)
+				retireSemanticInvocation(invocation, SemanticInvocationDisposition.ReceiptQueued)
+			}
+			SemanticInvocationDisposition.Active -> when (invocation.completion) {
+				SemanticInvocationCompletion.Pending -> Unit
+				SemanticInvocationCompletion.Accepted -> {
+					enqueueLatestSemanticReceipt(invocation)
+					if (invocation.callbackCount != ReaderSaturatingCallbackCount.One) {
+						enqueueSemanticViolation(
+							invocation,
+							ReaderSemanticPortContractViolationReason.DuplicateCallback
+						)
+					}
+					retireSemanticInvocation(
+						invocation,
+						SemanticInvocationDisposition.ReceiptQueued
+					)
+				}
+				SemanticInvocationCompletion.RejectedWithoutCallback,
+				SemanticInvocationCompletion.RejectedAfterCallback,
+				SemanticInvocationCompletion.RejectedAfterMutationStarted -> {
+					enqueueLatestSemanticReceipt(invocation)
+					enqueueSemanticViolation(
+						invocation,
+						ReaderSemanticPortContractViolationReason.RejectedThenLateCallback
+					)
+					retireSemanticInvocation(invocation, SemanticInvocationDisposition.Rejected)
+				}
+				SemanticInvocationCompletion.ThrewWithoutCallback,
+				SemanticInvocationCompletion.ThrewAfterCallback,
+				SemanticInvocationCompletion.ThrewAfterMutationStarted -> {
+					enqueueLatestSemanticReceipt(invocation)
+					enqueueSemanticViolation(
+						invocation,
+						ReaderSemanticPortContractViolationReason.RejectedThenLateCallback
+					)
+					retireSemanticInvocation(invocation, SemanticInvocationDisposition.Threw)
+				}
+			}
+		}
+	}
+
+	private fun processSemanticCompletion(
+		invocation: SemanticInvocation,
+		outcome: SemanticCompletionOutcome
+	) {
+		check(Looper.myLooper() == Looper.getMainLooper())
+		if (invocation.completion != SemanticInvocationCompletion.Pending) return
+		when (outcome) {
+			SemanticCompletionOutcome.Accepted -> {
+				invocation.completion = SemanticInvocationCompletion.Accepted
+				if (invocation.callbackCount != ReaderSaturatingCallbackCount.Zero) {
+					enqueueLatestSemanticReceipt(invocation)
+					if (invocation.callbackCount != ReaderSaturatingCallbackCount.One) {
+						enqueueSemanticViolation(
+							invocation,
+							ReaderSemanticPortContractViolationReason.DuplicateCallback
+						)
+					}
+					retireSemanticInvocation(
+						invocation,
+						SemanticInvocationDisposition.ReceiptQueued
+					)
+				}
+			}
+			SemanticCompletionOutcome.RejectedBeforeMutation -> {
+				if (invocation.callbackCount == ReaderSaturatingCallbackCount.Zero) {
+					invocation.completion = SemanticInvocationCompletion.RejectedWithoutCallback
+					enqueueSemanticCommandRejection(
+						invocation.transitionId,
+						ReaderTransitionCommandRejectionReason.SemanticExecutionRejected
+					)
+				} else {
+					invocation.completion = SemanticInvocationCompletion.RejectedAfterCallback
+					enqueueLatestSemanticReceipt(invocation)
+					enqueueSemanticViolation(
+						invocation,
+						if (invocation.callbackCount == ReaderSaturatingCallbackCount.One) {
+							ReaderSemanticPortContractViolationReason.CallbackThenRejected
+						} else {
+							ReaderSemanticPortContractViolationReason.DuplicateCallbackThenRejected
+						}
+					)
+				}
+				retireSemanticInvocation(invocation, SemanticInvocationDisposition.Rejected)
+			}
+			SemanticCompletionOutcome.ThrewBeforeMutation -> {
+				if (invocation.callbackCount == ReaderSaturatingCallbackCount.Zero) {
+					invocation.completion = SemanticInvocationCompletion.ThrewWithoutCallback
+					enqueueSemanticCommandRejection(
+						invocation.transitionId,
+						ReaderTransitionCommandRejectionReason.CommandThrew
+					)
+				} else {
+					invocation.completion = SemanticInvocationCompletion.ThrewAfterCallback
+					enqueueLatestSemanticReceipt(invocation)
+					enqueueSemanticViolation(
+						invocation,
+						if (invocation.callbackCount == ReaderSaturatingCallbackCount.One) {
+							ReaderSemanticPortContractViolationReason.CallbackThenThrew
+						} else {
+							ReaderSemanticPortContractViolationReason.DuplicateCallbackThenThrew
+						}
+					)
+				}
+				retireSemanticInvocation(invocation, SemanticInvocationDisposition.Threw)
+			}
+			SemanticCompletionOutcome.RejectedAfterMutationStarted -> {
+				invocation.completion = SemanticInvocationCompletion.RejectedAfterMutationStarted
+				if (invocation.callbackCount == ReaderSaturatingCallbackCount.Zero) {
+					enqueueSemanticViolation(
+						invocation,
+						ReaderSemanticPortContractViolationReason.RejectedAfterMutationStarted
+					)
+				} else {
+					enqueueLatestSemanticReceipt(invocation)
+					enqueueSemanticViolation(
+						invocation,
+						if (invocation.callbackCount == ReaderSaturatingCallbackCount.One) {
+							ReaderSemanticPortContractViolationReason.CallbackThenRejected
+						} else {
+							ReaderSemanticPortContractViolationReason.DuplicateCallbackThenRejected
+						}
+					)
+				}
+				retireSemanticInvocation(invocation, SemanticInvocationDisposition.Rejected)
+			}
+			SemanticCompletionOutcome.ThrewAfterMutationStarted -> {
+				invocation.completion = SemanticInvocationCompletion.ThrewAfterMutationStarted
+				if (invocation.callbackCount == ReaderSaturatingCallbackCount.Zero) {
+					enqueueSemanticViolation(
+						invocation,
+						ReaderSemanticPortContractViolationReason.ThrowAfterMutationStarted
+					)
+				} else {
+					enqueueLatestSemanticReceipt(invocation)
+					enqueueSemanticViolation(
+						invocation,
+						if (invocation.callbackCount == ReaderSaturatingCallbackCount.One) {
+							ReaderSemanticPortContractViolationReason.CallbackThenThrew
+						} else {
+							ReaderSemanticPortContractViolationReason.DuplicateCallbackThenThrew
+						}
+					)
+				}
+				retireSemanticInvocation(invocation, SemanticInvocationDisposition.Threw)
+			}
+		}
+	}
+
+	private fun enqueueLatestSemanticReceipt(invocation: SemanticInvocation) {
+		val receipt = invocation.latestAuthoritativeReceipt ?: return
+		invocation.latestAuthoritativeReceipt = null
+		enqueue(receipt)
+	}
+
+	private fun enqueueSemanticViolation(
+		invocation: SemanticInvocation,
+		reason: ReaderSemanticPortContractViolationReason
+	) {
+		if (invocation.violationQueued) {
+			invocation.latestSemanticAuthority?.let { authority ->
+				appendMailboxEntry(MailboxEntry.SemanticAuthorityRefresh(authority))
+			}
+			return
+		}
+		invocation.violationQueued = true
+		val fact = ReaderTransitionFact.SemanticPortContractViolated(
+			transitionId = invocation.transitionId,
+			reason = reason,
+			callbackCount = invocation.callbackCount
+		)
+		check(ports.acceptsFact(fact)) {
+			"Transition ports cannot accept semantic contract violations"
+		}
+		appendMailboxEntry(
+			MailboxEntry.Fact(
+				fact = fact,
+				trustedSemanticAuthority = invocation.latestSemanticAuthority,
+				trustedSemanticViolation = true
+			)
+		)
+	}
+
+	private fun enqueueSemanticCommandRejection(
+		transitionId: ReaderTransitionId,
+		reason: ReaderTransitionCommandRejectionReason
+	) {
+		enqueue(
+			ReaderTransitionFact.CommandRejected(
+				transitionId,
+				ReaderTransitionCommandStage.SemanticSynchronization,
+				reason
+			)
+		)
+	}
+
+	private fun retireSemanticInvocationWhenAuthorityEnds() {
+		val invocation = activeSemanticInvocation ?: return
+		val current = journal.active
+		val disposition = when {
+			releaseOnlySink || current == null -> SemanticInvocationDisposition.Terminal
+			current.id != invocation.transitionId -> SemanticInvocationDisposition.Superseded
+			ReaderTransitionCommandStage.SemanticSynchronization !in current.pendingCommandStages ->
+				SemanticInvocationDisposition.Terminal
+			else -> return
+		}
+		retireSemanticInvocation(invocation, disposition)
+	}
+
+	private fun retireSemanticInvocation(
+		invocation: SemanticInvocation,
+		disposition: SemanticInvocationDisposition
+	) {
+		if (invocation.disposition == SemanticInvocationDisposition.Active) {
+			invocation.disposition = disposition
+		}
+		invocation.registration?.retire()
+		invocation.registration = null
+		if (activeSemanticInvocation === invocation) activeSemanticInvocation = null
 	}
 
 	private fun enqueueCommandThrow(command: ReaderTransitionCommand) {
@@ -837,10 +1315,13 @@ internal class ReaderResumableTransitionCoordinator(
 			}
 		}
 
-		if (mailbox.any {
-				it is ReaderTransitionFact.CommandRejected &&
-					it.transitionId == active.id &&
-					it.stage == ReaderTransitionCommandStage.TimerBinding
+		if (synchronized(mailboxLock) {
+				mailbox.any { entry ->
+					val queued = (entry as? MailboxEntry.Fact)?.fact
+					queued is ReaderTransitionFact.CommandRejected &&
+						queued.transitionId == active.id &&
+						queued.stage == ReaderTransitionCommandStage.TimerBinding
+				}
 			}) return false
 
 		if (existing?.transitionId == active.id) {
@@ -1281,6 +1762,13 @@ private fun ReaderExpectedPresentationBinding.matchesSemanticReceipt(
 		binding != predecessor &&
 			binding.foliateSessionId == predecessor.foliateSessionId &&
 			binding.publicationGeneration == predecessor.publicationGeneration
+}
+
+private fun ReaderSaturatingCallbackCount.boundedValue(): Int = when (this) {
+	ReaderSaturatingCallbackCount.Zero -> 0
+	ReaderSaturatingCallbackCount.One -> 1
+	ReaderSaturatingCallbackCount.Two -> 2
+	ReaderSaturatingCallbackCount.ThreeOrMore -> 3
 }
 
 private fun Long.saturatingAdd(increment: Long): Long =
