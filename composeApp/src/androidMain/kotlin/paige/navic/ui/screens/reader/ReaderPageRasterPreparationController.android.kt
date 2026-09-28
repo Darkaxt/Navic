@@ -6,6 +6,7 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -265,8 +266,35 @@ internal enum class ReaderRasterPreparationPhysicalOperation {
 	Prewarm,
 	Repair,
 	BackgroundPrefetch,
-	CacheInitialization,
-	VisualRestoration
+	CacheInitialization
+}
+
+internal enum class ReaderRasterPreparationStartOutcome {
+	Accepted,
+	Rejected,
+	Fenced
+}
+
+internal class ReaderRasterPreparationStartSettlement(
+	val outcome: ReaderRasterPreparationStartOutcome,
+	private val acknowledgePublication: () -> Unit
+) {
+	private val publicationAcknowledged = AtomicBoolean()
+
+	fun publishLogicalOutcome(
+		publish: (ReaderRasterPreparationStartOutcome) -> Unit
+	) {
+		try {
+			publish(outcome)
+		} finally {
+			if (publicationAcknowledged.compareAndSet(false, true)) {
+				acknowledgePublication()
+			}
+		}
+	}
+
+	override fun hashCode(): Int = 0x52525053
+	override fun toString(): String = "ReaderRasterPreparationStartSettlement(<redacted>)"
 }
 
 internal data class ReaderRasterPreparationPhysicalRestartDescriptor(
@@ -285,142 +313,297 @@ internal data class ReaderRasterPreparationPhysicalRestartDescriptor(
 			require(it.rasterGeneration == rasterGeneration)
 		}
 	}
+
+	override fun hashCode(): Int = 0x52525044
+	override fun toString(): String =
+		"ReaderRasterPreparationPhysicalRestartDescriptor(<redacted>)"
 }
 
-/** Exact physical raster-preparation work and completion ownership retained across activation. */
-internal class ReaderRasterPreparationPhysicalOwnershipAdapter(
-	private val releasePhysicalPreparation: (
-		ReaderRasterPreparationPhysicalRestartDescriptor,
-		onReleased: () -> Unit
-	) -> Boolean,
-	private val restorePhysicalPreparation: (
-		ReaderRasterPreparationPhysicalRestartDescriptor
-	) -> ReaderRasterPreparationPhysicalRestartDescriptor?,
+private typealias ReaderRasterPreparationRelease = (onReleased: () -> Unit) -> Boolean
+private typealias ReaderRasterPreparationStart = (
+	onCompleted: (delivery: () -> Unit) -> Unit
+) -> Boolean
+
+/** Exact physical raster-preparation work accepted by the real controller. */
+internal class ReaderRasterPreparationPhysicalOwnership(
 	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
 		ReaderLegacySourceLocalTokenAllocator()
 ) {
-	internal class Lease internal constructor(
-		internal var descriptor: ReaderRasterPreparationPhysicalRestartDescriptor,
-		internal val preparationToken: ReaderLegacySourceLocalOpaqueToken,
-		internal val callbackToken: ReaderLegacySourceLocalOpaqueToken
-	) {
-		internal var state = ReaderLegacyResourceState.Reserved
-		internal var restartState = ReaderLegacyResourceState.Reserved
-		internal var preparationOwned = true
-		internal var callbackOwned = true
-		internal var releaseRequested = false
-		internal var drainIdentity: ReaderLegacyPhysicalIdentity? = null
-		internal var drainConfirmation: ((ReaderLegacyPhysicalIdentity) -> Unit)? = null
+	private enum class OwnerState {
+		Active,
+		ReleaseRequested,
+		Drained,
+		CompletedFrozen,
+		CompletedDrained
 	}
 
+	private enum class CallbackState { Registered, CompletedFrozen, Drained }
+
+	private class StartPublication {
+		var acknowledged = false
+	}
+
+	private class StartAttempt(
+		val descriptor: ReaderRasterPreparationPhysicalRestartDescriptor,
+		val releasePhysicalPreparation: ReaderRasterPreparationRelease,
+		val restorePhysicalPreparation: ReaderRasterPreparationStart
+	) {
+		var settled = false
+		var lease: Lease? = null
+		var synchronousCompletion: (() -> Unit)? = null
+	}
+
+	private class Lease(
+		val descriptor: ReaderRasterPreparationPhysicalRestartDescriptor,
+		val ownerToken: ReaderLegacySourceLocalOpaqueToken,
+		val callbackToken: ReaderLegacySourceLocalOpaqueToken,
+		val releasePhysicalPreparation: ReaderRasterPreparationRelease,
+		val restorePhysicalPreparation: ReaderRasterPreparationStart,
+		var origin: ReaderLegacyResourceOrigin
+	) {
+		var ownerState = OwnerState.Active
+		var callbackState = CallbackState.Registered
+		var releaseIdentity: ReaderLegacyPhysicalIdentity? = null
+		var releaseConfirmation: ((ReaderLegacyPhysicalIdentity) -> Unit)? = null
+		var pendingDelivery: (() -> Unit)? = null
+		var terminalObserved = false
+		var restorationInProgress = false
+		var restorationCompletion: (() -> Unit)? = null
+		var restoredWhileFrozen = false
+	}
+
+	private val lock = Any()
 	private val leases = linkedSetOf<Lease>()
-	private val completedFrozenCallbacks =
-		linkedSetOf<ReaderLegacySourceLocalOpaqueToken>()
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var unsettledStartAttempts = 0
+	private var restorationAttemptInProgress = false
 
 	val isFrozen: Boolean
-		get() = frozenDomain != null
+		get() = synchronized(lock) { frozenDomain != null }
 
-	fun register(descriptor: ReaderRasterPreparationPhysicalRestartDescriptor): Lease? {
-		if (frozenDomain != null) return null
-		return Lease(
+	/**
+	 * Runs the physical acceptance call outside the ownership lock. A row is allocated only when
+	 * that call genuinely accepts the work. A synchronous terminal callback is settled only after
+	 * the acceptance result is known. Inventory and restoration remain unsettled until the caller
+	 * publishes the corresponding logical outcome.
+	 */
+	fun start(
+		descriptor: ReaderRasterPreparationPhysicalRestartDescriptor,
+		releasePhysicalPreparation: ReaderRasterPreparationRelease,
+		restorePhysicalPreparation: ReaderRasterPreparationStart,
+		startPhysicalPreparation: ReaderRasterPreparationStart
+	): Boolean {
+		val settlement = startWithOutcome(
 			descriptor = descriptor,
-			preparationToken = tokenAllocator.allocate(),
-			callbackToken = tokenAllocator.allocate()
-		).also(leases::add)
-	}
-
-	fun acknowledgePhysicalOwnership(lease: Lease): Boolean {
-		if (frozenDomain != null || lease !in leases || !lease.preparationOwned) return false
-		lease.state = ReaderLegacyResourceState.Running
-		return true
-	}
-
-	fun observePhysicalCallback(lease: Lease): Boolean {
-		if (lease !in leases || !lease.callbackOwned) return false
-		if (frozenDomain != null) {
-			lease.callbackOwned = false
-			completedFrozenCallbacks += lease.callbackToken
-			return false
-		}
-		lease.callbackOwned = false
-		lease.state = ReaderLegacyResourceState.Prepared
-		return true
-	}
-
-	fun retireNormally(lease: Lease): Boolean {
-		if (frozenDomain != null || !leases.remove(lease)) return false
-		lease.preparationOwned = false
-		lease.callbackOwned = false
-		lease.state = ReaderLegacyResourceState.Released
-		return true
-	}
-
-	fun freezeForTransitionActivation(
-		domain: ReaderLegacyPhysicalDomain
-	): ReaderPortCommandResult = when {
-		frozenDomain == null -> {
-			frozenDomain = domain
-			ReaderPortCommandResult.Accepted
-		}
-		frozenDomain == domain -> ReaderPortCommandResult.Accepted
-		else -> ReaderPortCommandResult.Rejected(
-			ReaderTransitionFailureReason.InvalidLegacyResource
+			releasePhysicalPreparation = releasePhysicalPreparation,
+			restorePhysicalPreparation = restorePhysicalPreparation,
+			startPhysicalPreparation = startPhysicalPreparation
 		)
+		settlement.publishLogicalOutcome {}
+		return settlement.outcome == ReaderRasterPreparationStartOutcome.Accepted
 	}
 
-	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
-		val domain = frozenDomain ?: return emptyList()
-		return buildList {
-			leases.forEach { lease ->
-				if (lease.preparationOwned) add(
-					ownershipRow(
-						domain,
-						lease,
-						lease.preparationToken,
-						ReaderTransitionResourceKind.Raster,
-						lease.state
-					)
+	fun startWithOutcome(
+		descriptor: ReaderRasterPreparationPhysicalRestartDescriptor,
+		releasePhysicalPreparation: ReaderRasterPreparationRelease,
+		restorePhysicalPreparation: ReaderRasterPreparationStart,
+		startPhysicalPreparation: ReaderRasterPreparationStart
+	): ReaderRasterPreparationStartSettlement {
+		val publication = StartPublication()
+		val attempt = synchronized(lock) {
+			unsettledStartAttempts += 1
+			if (frozenDomain != null) {
+				null
+			} else {
+				StartAttempt(
+					descriptor = descriptor,
+					releasePhysicalPreparation = releasePhysicalPreparation,
+					restorePhysicalPreparation = restorePhysicalPreparation
 				)
-				if (lease.callbackOwned || lease.callbackToken in completedFrozenCallbacks) add(
-					ownershipRow(
-						domain,
-						lease,
-						lease.callbackToken,
-						ReaderTransitionResourceKind.CallbackRegistration,
-						if (lease.callbackOwned) {
-							ReaderLegacyResourceState.Registered
-						} else {
-							ReaderLegacyResourceState.ReleaseRequested
-						}
-					)
+			}
+		}
+		if (attempt == null) {
+			return startSettlement(ReaderRasterPreparationStartOutcome.Fenced, publication)
+		}
+		val accepted = runCatching {
+			startPhysicalPreparation { delivery -> completeStart(attempt, delivery) }
+		}.getOrDefault(false)
+		var delivery: (() -> Unit)? = null
+		var fencedAtSettlement = false
+		synchronized(lock) {
+			attempt.settled = true
+			fencedAtSettlement = frozenDomain != null
+			if (accepted) {
+				val lease = Lease(
+					descriptor = attempt.descriptor,
+					ownerToken = tokenAllocator.allocate(),
+					callbackToken = tokenAllocator.allocate(),
+					releasePhysicalPreparation = attempt.releasePhysicalPreparation,
+					restorePhysicalPreparation = attempt.restorePhysicalPreparation,
+					origin = if (frozenDomain == null) {
+						ReaderLegacyResourceOrigin.Owned
+					} else {
+						ReaderLegacyResourceOrigin.Discovered
+					}
 				)
+				attempt.lease = lease
+				leases += lease
+				attempt.synchronousCompletion?.let { completion ->
+					delivery = completeAcceptedLeaseLocked(lease, completion)
+				}
+			}
+		}
+		deliverSafely(delivery)
+		val outcome = when {
+			accepted -> ReaderRasterPreparationStartOutcome.Accepted
+			fencedAtSettlement -> ReaderRasterPreparationStartOutcome.Fenced
+			else -> ReaderRasterPreparationStartOutcome.Rejected
+		}
+		return startSettlement(outcome, publication)
+	}
+
+	private fun startSettlement(
+		outcome: ReaderRasterPreparationStartOutcome,
+		publication: StartPublication
+	) = ReaderRasterPreparationStartSettlement(outcome) {
+		synchronized(lock) {
+			if (!publication.acknowledged) {
+				publication.acknowledged = true
+				check(unsettledStartAttempts > 0)
+				unsettledStartAttempts -= 1
 			}
 		}
 	}
 
-	private fun ownershipRow(
-		domain: ReaderLegacyPhysicalDomain,
+	private fun completeStart(attempt: StartAttempt, delivery: () -> Unit) {
+		var deliverNow: (() -> Unit)? = null
+		synchronized(lock) {
+			if (!attempt.settled) {
+				if (attempt.synchronousCompletion == null) {
+					attempt.synchronousCompletion = delivery
+				}
+				return@synchronized
+			}
+			val lease = attempt.lease ?: return@synchronized
+			deliverNow = completeAcceptedLeaseLocked(lease, delivery)
+		}
+		deliverSafely(deliverNow)
+	}
+
+	private fun deliverSafely(delivery: (() -> Unit)?) {
+		if (delivery != null) runCatching { delivery() }
+	}
+
+	private fun completeAcceptedLeaseLocked(
 		lease: Lease,
-		token: ReaderLegacySourceLocalOpaqueToken,
-		kind: ReaderTransitionResourceKind,
-		state: ReaderLegacyResourceState
+		delivery: () -> Unit
+	): (() -> Unit)? {
+		if (lease !in leases) return null
+		if (lease.restorationInProgress) {
+			if (!lease.terminalObserved) {
+				lease.terminalObserved = true
+				lease.restorationCompletion = delivery
+			}
+			return null
+		}
+		if (lease.terminalObserved) return null
+		lease.terminalObserved = true
+		if (frozenDomain == null) {
+			leases.remove(lease)
+			return delivery
+		}
+		if (lease.ownerState == OwnerState.ReleaseRequested) {
+			if (lease.callbackState != CallbackState.Drained) {
+				lease.callbackState = CallbackState.CompletedFrozen
+			}
+			return null
+		}
+		lease.pendingDelivery = lease.pendingDelivery ?: delivery
+		if (lease.restoredWhileFrozen) {
+			lease.ownerState = OwnerState.CompletedDrained
+			lease.callbackState = CallbackState.Drained
+		} else {
+			lease.ownerState = OwnerState.CompletedFrozen
+			if (lease.callbackState != CallbackState.Drained) {
+				lease.callbackState = CallbackState.CompletedFrozen
+			}
+		}
+		return null
+	}
+
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = synchronized(lock) {
+		when {
+			frozenDomain == null -> {
+				frozenDomain = domain
+				ReaderPortCommandResult.Accepted
+			}
+			frozenDomain == domain -> ReaderPortCommandResult.Accepted
+			else -> invalidResource()
+		}
+	}
+
+	fun snapshotFrozenOwnership(): ReaderLegacyConnectedSourceInventory? = synchronized(lock) {
+		val domain = frozenDomain ?: return@synchronized null
+		if (unsettledStartAttempts != 0) return@synchronized null
+		ReaderLegacyConnectedSourceInventory(
+			source = ReaderLegacyInventorySource.RasterPreparation,
+			domain = domain,
+			resources = buildList {
+				leases.forEach { lease ->
+					when (lease.ownerState) {
+						OwnerState.Active,
+						OwnerState.ReleaseRequested,
+						OwnerState.Drained,
+						OwnerState.CompletedFrozen -> add(ownerRow(domain, lease))
+						OwnerState.CompletedDrained -> Unit
+					}
+					when (lease.callbackState) {
+						CallbackState.Registered,
+						CallbackState.CompletedFrozen -> add(callbackRow(domain, lease))
+						CallbackState.Drained -> Unit
+					}
+				}
+			}
+		)
+	}
+
+	private fun ownerRow(
+		domain: ReaderLegacyPhysicalDomain,
+		lease: Lease
 	) = ReaderFrozenLegacyResource(
 		freezeToken = domain.freezeToken,
-		physicalIdentity = ReaderLegacyPhysicalIdentity(
-			domain = domain,
-			source = ReaderLegacyInventorySource.RasterPreparation,
-			sourceLocalToken = token
-		),
-		kind = kind,
+		physicalIdentity = identity(domain, lease.ownerToken),
+		kind = ReaderTransitionResourceKind.Raster,
 		binding = lease.descriptor.binding,
 		visibleOwner = null,
-		origin = if (state == ReaderLegacyResourceState.Reserved) {
-			ReaderLegacyResourceOrigin.Pending
-		} else {
-			ReaderLegacyResourceOrigin.Owned
+		origin = lease.origin,
+		state = when (lease.ownerState) {
+			OwnerState.Active -> ReaderLegacyResourceState.Running
+			OwnerState.ReleaseRequested,
+			OwnerState.CompletedFrozen -> ReaderLegacyResourceState.ReleaseRequested
+			OwnerState.Drained -> ReaderLegacyResourceState.Released
+			OwnerState.CompletedDrained -> error("Completed drained owners are not inventoried")
 		},
-		state = state,
+		mayBeCommittedPredecessor = false
+	)
+
+	private fun callbackRow(
+		domain: ReaderLegacyPhysicalDomain,
+		lease: Lease
+	) = ReaderFrozenLegacyResource(
+		freezeToken = domain.freezeToken,
+		physicalIdentity = identity(domain, lease.callbackToken),
+		kind = ReaderTransitionResourceKind.CallbackRegistration,
+		binding = lease.descriptor.binding,
+		visibleOwner = null,
+		origin = lease.origin,
+		state = if (lease.callbackState == CallbackState.Registered) {
+			ReaderLegacyResourceState.Registered
+		} else {
+			ReaderLegacyResourceState.ReleaseRequested
+		},
 		mayBeCommittedPredecessor = false
 	)
 
@@ -428,76 +611,194 @@ internal class ReaderRasterPreparationPhysicalOwnershipAdapter(
 		physicalIdentity: ReaderLegacyPhysicalIdentity,
 		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
 	): ReaderPortCommandResult {
-		val domain = frozenDomain
-		if (
-			domain == null ||
-			physicalIdentity.domain != domain ||
-			physicalIdentity.source != ReaderLegacyInventorySource.RasterPreparation
-		) return invalidResource()
-		val lease = leases.firstOrNull {
-			it.preparationToken == physicalIdentity.sourceLocalToken ||
-				it.callbackToken == physicalIdentity.sourceLocalToken
-		} ?: return invalidResource()
-		if (lease.callbackToken == physicalIdentity.sourceLocalToken) {
-			if (!lease.callbackOwned && !completedFrozenCallbacks.remove(lease.callbackToken)) {
-				return invalidResource()
+		var release: ReaderRasterPreparationRelease? = null
+		var releaseLease: Lease? = null
+		var confirmNow = false
+		synchronized(lock) {
+			val domain = frozenDomain
+			if (
+				domain == null ||
+				physicalIdentity.domain != domain ||
+				physicalIdentity.source != ReaderLegacyInventorySource.RasterPreparation
+			) return invalidResource()
+			val lease = leases.firstOrNull {
+				it.ownerToken == physicalIdentity.sourceLocalToken ||
+					it.callbackToken == physicalIdentity.sourceLocalToken
+			} ?: return invalidResource()
+			if (lease.callbackToken == physicalIdentity.sourceLocalToken) {
+				if (lease.callbackState == CallbackState.Drained) return invalidResource()
+				lease.callbackState = CallbackState.Drained
+				confirmNow = true
+			} else {
+				when (lease.ownerState) {
+					OwnerState.CompletedFrozen -> {
+						lease.ownerState = OwnerState.CompletedDrained
+						confirmNow = true
+					}
+					OwnerState.Active -> {
+						lease.ownerState = OwnerState.ReleaseRequested
+						lease.releaseIdentity = physicalIdentity
+						lease.releaseConfirmation = onConfirmed
+						release = lease.releasePhysicalPreparation
+						releaseLease = lease
+					}
+					OwnerState.ReleaseRequested,
+					OwnerState.Drained,
+					OwnerState.CompletedDrained -> return invalidResource()
+				}
 			}
-			lease.callbackOwned = false
-			onConfirmed(physicalIdentity)
+		}
+		if (confirmNow) {
+			runCatching { onConfirmed(physicalIdentity) }
 			return ReaderPortCommandResult.Accepted
 		}
-		if (!lease.preparationOwned || lease.releaseRequested) return invalidResource()
-		lease.restartState = lease.state
-		lease.state = ReaderLegacyResourceState.ReleaseRequested
-		lease.releaseRequested = true
-		lease.drainIdentity = physicalIdentity
-		lease.drainConfirmation = onConfirmed
-		if (!releasePhysicalPreparation(lease.descriptor) { completePhysicalRelease(lease) }) {
-			lease.state = lease.restartState
-			lease.releaseRequested = false
-			lease.drainIdentity = null
-			lease.drainConfirmation = null
-			return invalidResource()
+		val lease = checkNotNull(releaseLease)
+		val accepted = runCatching {
+			checkNotNull(release).invoke { completeRelease(lease) }
+		}.getOrDefault(false)
+		if (!accepted) {
+			val releaseCompleted = synchronized(lock) {
+				if (lease.ownerState == OwnerState.Drained) {
+					true
+				} else {
+					if (lease.ownerState == OwnerState.ReleaseRequested) {
+						lease.ownerState = OwnerState.Active
+						lease.releaseIdentity = null
+						lease.releaseConfirmation = null
+					}
+					false
+				}
+			}
+			if (!releaseCompleted) return invalidResource()
 		}
 		return ReaderPortCommandResult.Accepted
 	}
 
-	private fun completePhysicalRelease(lease: Lease) {
-		if (!lease.releaseRequested || !lease.preparationOwned) return
-		lease.preparationOwned = false
-		lease.state = ReaderLegacyResourceState.Released
-		lease.releaseRequested = false
-		val identity = lease.drainIdentity
-		val confirmation = lease.drainConfirmation
-		lease.drainIdentity = null
-		lease.drainConfirmation = null
-		if (identity != null && confirmation != null) confirmation(identity)
+	private fun completeRelease(lease: Lease) {
+		var identity: ReaderLegacyPhysicalIdentity? = null
+		var confirmation: ((ReaderLegacyPhysicalIdentity) -> Unit)? = null
+		synchronized(lock) {
+			if (lease !in leases || lease.ownerState != OwnerState.ReleaseRequested) {
+				return@synchronized
+			}
+			lease.ownerState = OwnerState.Drained
+			identity = lease.releaseIdentity
+			confirmation = lease.releaseConfirmation
+			lease.releaseIdentity = null
+			lease.releaseConfirmation = null
+		}
+		val confirmedIdentity = identity
+		if (confirmedIdentity != null) {
+			runCatching { confirmation?.invoke(confirmedIdentity) }
+		}
 	}
 
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult {
-		if (
-			frozenDomain != domain ||
-			completedFrozenCallbacks.isNotEmpty() ||
-			leases.any { it.callbackOwned || it.releaseRequested }
-		) return invalidResource()
-		val restored = leases.filterNot { it.preparationOwned }.all { lease ->
-			val descriptor = restorePhysicalPreparation(lease.descriptor)
-			if (descriptor == null) {
-				false
-			} else {
-				lease.descriptor = descriptor
-				lease.preparationOwned = true
-				lease.callbackOwned = true
-				lease.state = lease.restartState
-				true
+		val restoreCandidates = synchronized(lock) {
+			if (
+				restorationAttemptInProgress ||
+				unsettledStartAttempts != 0 ||
+				frozenDomain != domain ||
+				leases.any { lease ->
+					lease.ownerState == OwnerState.ReleaseRequested ||
+						lease.ownerState == OwnerState.CompletedFrozen ||
+						(
+							lease.callbackState != CallbackState.Drained &&
+								!(
+									lease.restoredWhileFrozen &&
+										lease.ownerState == OwnerState.Active &&
+										lease.callbackState == CallbackState.Registered
+								)
+						)
+				}
+			) return invalidResource()
+			restorationAttemptInProgress = true
+			leases.filter { it.ownerState == OwnerState.Drained }
+		}
+		try {
+			for (lease in restoreCandidates) {
+				synchronized(lock) {
+					if (frozenDomain != domain || lease.ownerState != OwnerState.Drained) {
+						return invalidResource()
+					}
+					lease.restorationInProgress = true
+					lease.restorationCompletion = null
+					lease.terminalObserved = false
+				}
+				val restored = runCatching {
+					lease.restorePhysicalPreparation { delivery ->
+						completeRestorationCallback(lease, delivery)
+					}
+				}.getOrDefault(false)
+				synchronized(lock) {
+					lease.restorationInProgress = false
+					val completion = lease.restorationCompletion
+					lease.restorationCompletion = null
+					if (!restored) return invalidResource()
+					lease.restoredWhileFrozen = true
+					if (completion == null) {
+						lease.ownerState = OwnerState.Active
+						lease.callbackState = CallbackState.Registered
+					} else {
+						lease.ownerState = OwnerState.CompletedDrained
+						lease.callbackState = CallbackState.Drained
+						lease.pendingDelivery = lease.pendingDelivery ?: completion
+					}
+				}
+			}
+			val deliveries = synchronized(lock) {
+				if (frozenDomain != domain) return invalidResource()
+				if (leases.any { lease ->
+					lease.ownerState == OwnerState.Drained ||
+						lease.ownerState == OwnerState.ReleaseRequested ||
+						lease.ownerState == OwnerState.CompletedFrozen ||
+						lease.callbackState == CallbackState.CompletedFrozen
+				}) return invalidResource()
+				frozenDomain = null
+				val completed = leases.filter { it.ownerState == OwnerState.CompletedDrained }
+				val actions = completed.mapNotNull { it.pendingDelivery }
+				leases.removeAll(completed.toSet())
+				leases.forEach { lease ->
+					lease.origin = ReaderLegacyResourceOrigin.Owned
+					lease.restoredWhileFrozen = false
+				}
+				actions
+			}
+			deliveries.forEach(::deliverSafely)
+			return ReaderPortCommandResult.Accepted
+		} finally {
+			synchronized(lock) {
+				restorationAttemptInProgress = false
 			}
 		}
-		if (!restored) return invalidResource()
-		frozenDomain = null
-		return ReaderPortCommandResult.Accepted
 	}
+
+	private fun completeRestorationCallback(lease: Lease, delivery: () -> Unit) {
+		var deliverNow: (() -> Unit)? = null
+		synchronized(lock) {
+			if (lease !in leases) return@synchronized
+			if (lease.restorationInProgress) {
+				if (!lease.terminalObserved) {
+					lease.terminalObserved = true
+					lease.restorationCompletion = delivery
+				}
+			} else {
+				deliverNow = completeAcceptedLeaseLocked(lease, delivery)
+			}
+		}
+		deliverSafely(deliverNow)
+	}
+
+	private fun identity(
+		domain: ReaderLegacyPhysicalDomain,
+		token: ReaderLegacySourceLocalOpaqueToken
+	) = ReaderLegacyPhysicalIdentity(
+		domain = domain,
+		source = ReaderLegacyInventorySource.RasterPreparation,
+		sourceLocalToken = token
+	)
 
 	private fun invalidResource(): ReaderPortCommandResult = ReaderPortCommandResult.Rejected(
 		ReaderTransitionFailureReason.InvalidLegacyResource
@@ -544,6 +845,8 @@ internal class ReaderPageRasterPreparationController(
 		kind: ReaderPageTurnTransitionKind
 	) -> ReaderPageSlideSnapshot? = bundleSource::retainedSnapshot
 ) {
+	private val physicalRasterPreparationOwnership =
+		ReaderRasterPreparationPhysicalOwnership()
 	private val deferredRetryCoordinator = ReaderPageRasterDeferredRetryCoordinator()
 	private val adjacentChapterPrefetchCoordinator =
 		ReaderPageAdjacentChapterPrefetchCoordinator(
@@ -637,6 +940,7 @@ internal class ReaderPageRasterPreparationController(
 	private val pendingVisualRestorations = linkedSetOf<CompletableDeferred<Unit>>()
 	private var resumePreparationAfterVisualRestoration = false
 	private var pointerInteractionActive = false
+	private val deferredBackgroundPrefetchStartLock = Any()
 	private var deferredBackgroundPrefetchStart:
 		ReaderPageRasterDeferredBackgroundPrefetchStart? = null
 	private var destroyed = false
@@ -646,6 +950,36 @@ internal class ReaderPageRasterPreparationController(
 		teardownJob + Dispatchers.Main.immediate
 	)
 	private val rasterCacheInitializationJobs = linkedSetOf<Job>()
+
+	fun freezeRasterPreparationOwnershipForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult =
+		physicalRasterPreparationOwnership.freezeForTransitionActivation(domain)
+
+	fun snapshotFrozenRasterPreparationOwnership(): ReaderLegacyConnectedSourceInventory? =
+		physicalRasterPreparationOwnership.snapshotFrozenOwnership()
+
+	fun drainFrozenRasterPreparationOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult = physicalRasterPreparationOwnership.drainFrozenOwnership(
+		physicalIdentity = physicalIdentity,
+		onConfirmed = onConfirmed
+	)
+
+	fun restoreRasterPreparationOwnershipAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		val result = physicalRasterPreparationOwnership.restoreAfterTransitionActivation(domain)
+		if (
+			result == ReaderPortCommandResult.Accepted &&
+				!physicalRasterPreparationOwnership.isFrozen
+		) {
+			startNextRasterRepair()
+			resumeDeferredBackgroundPrefetchStart()
+		}
+		return result
+	}
 
 	internal val shouldSuppressViewerContentInput: Boolean
 		get() = pendingVisualRestorations.isNotEmpty()
@@ -943,9 +1277,7 @@ internal class ReaderPageRasterPreparationController(
 		) {
 			return
 		}
-		if (deferredBackgroundPrefetchStart != null) {
-			resumeDeferredBackgroundPrefetchStart()
-		}
+		resumeDeferredBackgroundPrefetchStart()
 		if (deferredRasterRepairPageIndex != null) {
 			if (deferredRasterRepairSessionId == null) {
 				deferredRasterRepairPageIndex = null
@@ -1252,7 +1584,8 @@ internal class ReaderPageRasterPreparationController(
 	) {
 		val repairPages = eligibleRasterRepairPageIndices()
 		val immediateFailure = when {
-			destroyed -> ReaderPageRasterRepairResult.Cancelled
+			destroyed || physicalRasterPreparationOwnership.isFrozen ->
+				ReaderPageRasterRepairResult.Cancelled
 			pageIndex < 0 || pageIndex !in repairPages ->
 				ReaderPageRasterRepairResult.Failed("outside-prepared-window")
 			else -> null
@@ -1289,7 +1622,13 @@ internal class ReaderPageRasterPreparationController(
 		)
 	}
 
+	private fun publishFencedRasterRepairStart(pageIndex: Int) {
+		clearActiveRasterRepair(pageIndex, "repair-fenced")
+		if (!physicalRasterPreparationOwnership.isFrozen) startNextRasterRepair()
+	}
+
 	private fun startNextRasterRepair() {
+		if (physicalRasterPreparationOwnership.isFrozen) return
 		if (deferPreparationForVisualRestoration()) return
 		if (
 			activeRasterRepairPageIndex != null ||
@@ -1346,9 +1685,9 @@ internal class ReaderPageRasterPreparationController(
 			onRequestPrewarm()
 			return
 		}
-		val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
-			?.takeIf { it.isAvailable }
-		if (passiveRasterPreparationPort == null) {
+		val passiveHostAvailable = passiveRasterPreparationPortProvider()
+			?.takeIf { it.isAvailable } != null
+		if (!passiveHostAvailable) {
 			reference.release()
 			finishRasterRepair(
 				pageIndex,
@@ -1362,74 +1701,124 @@ internal class ReaderPageRasterPreparationController(
 		val generation = bundleSource.currentGeneration()
 		val preparationGeneration = preparationGeneration
 		val repairPages = eligibleRasterRepairPageIndices()
-		val started = passiveRasterPreparationPort.start(
-			kind = kind,
-			reference = reference,
-			targets = listOf(
-				ReaderPageRasterBatchTarget(
-					pageIndex = pageIndex,
-					priority = ReaderPageRasterPriority.CurrentChapter,
-					authority = ReaderPageRasterTargetAuthority.OffscreenPassive
+		var initialReference: ReaderPageSlideSnapshot? = reference
+		var activePort: ReaderPassiveRasterPreparationPort? = null
+		var startInvoked = false
+		lateinit var startPhysicalPreparation: (
+			onCompleted: (delivery: () -> Unit) -> Unit
+		) -> Boolean
+		startPhysicalPreparation = { onCompleted ->
+			startInvoked = true
+			val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
+				?.takeIf { it.isAvailable }
+			val ownedReference = initialReference?.also { initialReference = null }
+				?: retainedSnapshot(centerOrdinal, kind)
+			if (passiveRasterPreparationPort == null || ownedReference == null) {
+				ownedReference?.release()
+				false
+			} else {
+				activePort = passiveRasterPreparationPort
+				passiveRasterPreparationPort.start(
+					kind = kind,
+					reference = ownedReference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = pageIndex,
+							priority = ReaderPageRasterPriority.CurrentChapter,
+							authority = ReaderPageRasterTargetAuthority.OffscreenPassive
+						)
+					),
+					rasterGeneration = generation,
+					preparationGeneration = preparationGeneration,
+					isPreparationGenerationCurrent = ::isPreparationGenerationCurrent,
+					isStillCurrent = {
+						activeRasterRepairPageIndex == pageIndex &&
+							activeRasterRepairSessionId == retryAttempt.sessionId &&
+							generation == bundleSource.currentGeneration() &&
+							isPreparationGenerationCurrent(preparationGeneration) &&
+							!destroyed
+					},
+					trigger = ReaderPageRasterAcquisitionTrigger.Repair,
+					onComplete = { outcome ->
+						onCompleted completed@{
+							if (
+								activeRasterRepairPageIndex != pageIndex ||
+									activeRasterRepairSessionId != retryAttempt.sessionId
+							) return@completed
+							when {
+								!isPreparationGenerationCurrent(preparationGeneration) ||
+									generation != bundleSource.currentGeneration() -> finishRasterRepair(
+									pageIndex,
+									ReaderPageRasterRepairResult.Cancelled,
+									outcome.toString()
+								)
+								outcome == ReaderPageRasterBatchOutcome.Ready -> finishRasterRepair(
+									pageIndex,
+									readerPageRasterRepairedResult(
+										repairedPageIndices = repairPages,
+										centerOrdinal = centerOrdinal,
+										rasterEpoch = generation,
+										diagnosticOperation = rasterRepairDiagnostics[pageIndex]
+									),
+									outcome.toString()
+								)
+								outcome == ReaderPageRasterBatchOutcome.Cancelled -> finishRasterRepair(
+									pageIndex,
+									ReaderPageRasterRepairResult.Cancelled,
+									outcome.toString()
+								)
+								outcome is ReaderPageRasterBatchOutcome.Deferred -> deferRasterRepair(
+									pageIndex = pageIndex,
+									reason = readerPageRasterDeferralReason(outcome),
+									retryAttempt = retryAttempt,
+									detail = outcome.toString()
+								)
+								outcome is ReaderPageRasterBatchOutcome.Failed -> finishRasterRepair(
+									pageIndex,
+									ReaderPageRasterRepairResult.Failed(outcome.diagnostic),
+									outcome.toString()
+								)
+							}
+						}
+					}
 				)
+			}
+		}
+		val startSettlement = physicalRasterPreparationOwnership.startWithOutcome(
+			descriptor = ReaderRasterPreparationPhysicalRestartDescriptor(
+				binding = null,
+				operation = ReaderRasterPreparationPhysicalOperation.Repair,
+				preparationGeneration = preparationGeneration,
+				rasterGeneration = generation,
+				pageOrdinal = pageIndex
 			),
-			rasterGeneration = generation,
-			preparationGeneration = preparationGeneration,
-			isPreparationGenerationCurrent = ::isPreparationGenerationCurrent,
-			isStillCurrent = {
-				activeRasterRepairPageIndex == pageIndex &&
-					activeRasterRepairSessionId == retryAttempt.sessionId &&
-					generation == bundleSource.currentGeneration() &&
-					isPreparationGenerationCurrent(preparationGeneration) &&
-					!destroyed
+			releasePhysicalPreparation = { onReleased ->
+				val port = activePort
+				if (port == null) {
+					false
+				} else {
+					port.cancel()
+					onReleased()
+					true
+				}
 			},
-			trigger = ReaderPageRasterAcquisitionTrigger.Repair,
-			onComplete = completed@{ outcome ->
-				if (
-					activeRasterRepairPageIndex != pageIndex ||
-						activeRasterRepairSessionId != retryAttempt.sessionId
-				) return@completed
-				when {
-					!isPreparationGenerationCurrent(preparationGeneration) ||
-						generation != bundleSource.currentGeneration() -> finishRasterRepair(
+			restorePhysicalPreparation = startPhysicalPreparation,
+			startPhysicalPreparation = startPhysicalPreparation
+		)
+		startSettlement.publishLogicalOutcome { startOutcome ->
+			if (!startInvoked) reference.release()
+			if (activeRasterRepairSessionId == retryAttempt.sessionId) {
+				when (startOutcome) {
+					ReaderRasterPreparationStartOutcome.Accepted -> Unit
+					ReaderRasterPreparationStartOutcome.Fenced ->
+						publishFencedRasterRepairStart(pageIndex)
+					ReaderRasterPreparationStartOutcome.Rejected -> finishRasterRepair(
 						pageIndex,
-						ReaderPageRasterRepairResult.Cancelled,
-						outcome.toString()
-					)
-					outcome == ReaderPageRasterBatchOutcome.Ready -> finishRasterRepair(
-						pageIndex,
-						readerPageRasterRepairedResult(
-							repairedPageIndices = repairPages,
-							centerOrdinal = centerOrdinal,
-							rasterEpoch = generation,
-							diagnosticOperation = rasterRepairDiagnostics[pageIndex]
-						),
-						outcome.toString()
-					)
-					outcome == ReaderPageRasterBatchOutcome.Cancelled -> finishRasterRepair(
-						pageIndex,
-						ReaderPageRasterRepairResult.Cancelled,
-						outcome.toString()
-					)
-					outcome is ReaderPageRasterBatchOutcome.Deferred -> deferRasterRepair(
-						pageIndex = pageIndex,
-						reason = readerPageRasterDeferralReason(outcome),
-						retryAttempt = retryAttempt,
-						detail = outcome.toString()
-					)
-					outcome is ReaderPageRasterBatchOutcome.Failed -> finishRasterRepair(
-						pageIndex,
-						ReaderPageRasterRepairResult.Failed(outcome.diagnostic),
-						outcome.toString()
+						ReaderPageRasterRepairResult.Failed("passive-raster-unavailable"),
+						"passive-raster-unavailable"
 					)
 				}
 			}
-		)
-		if (!started && activeRasterRepairSessionId == retryAttempt.sessionId) {
-			finishRasterRepair(
-				pageIndex,
-				ReaderPageRasterRepairResult.Failed("passive-raster-unavailable"),
-				"passive-raster-unavailable"
-			)
 		}
 	}
 
@@ -1526,6 +1915,7 @@ internal class ReaderPageRasterPreparationController(
 		callbacks.forEach { callback -> callback(result) }
 		if (rasterRepairCallbacks.isEmpty()) {
 			adjacentChapterPrefetchCoordinator.resumeAfterForegroundWork()
+			resumeDeferredBackgroundPrefetchStart()
 		}
 		if (rasterRepairCallbacks.isEmpty() && resumePrewarmAfterRasterRepairs) {
 			resumePrewarmAfterRasterRepairs = false
@@ -1595,7 +1985,11 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	fun prewarmAdjacent(): Boolean {
-		if (!canStartPreparation() || destroyed) return false
+		if (
+			physicalRasterPreparationOwnership.isFrozen ||
+				destroyed ||
+				!canStartPreparation()
+		) return false
 		if (failedPreparationGeneration == preparationGeneration) return true
 		if (prewarmInProgress) return true
 		if (deferPreparationForVisualRestoration()) return true
@@ -1734,41 +2128,92 @@ internal class ReaderPageRasterPreparationController(
 		webView: WebView,
 		session: Long
 	) {
-		val initializationJob = teardownScope.launch {
-			try {
-				initializeRasterCache(webView)
-			} catch (failure: CancellationException) {
-				throw failure
-			} catch (_: Throwable) {
-				Logger.w(
-					ReaderPageRasterPreparationControllerTag,
-					"Page raster cache initialization failed"
-				)
+		var initializationJob: Job? = null
+		lateinit var launchInitialization: (
+			onCompleted: (delivery: () -> Unit) -> Unit
+		) -> Boolean
+		launchInitialization = { onCompleted ->
+			if (!isPrewarmSessionActive(session)) {
+				false
+			} else {
+				val job = teardownScope.launch {
+					try {
+						initializeRasterCache(webView)
+					} catch (failure: CancellationException) {
+						onCompleted {}
+						throw failure
+					} catch (_: Throwable) {
+						Logger.w(
+							ReaderPageRasterPreparationControllerTag,
+							"Page raster cache initialization failed"
+						)
+					}
+					onCompleted {
+						continueAfterRasterCacheInitialization(webView, session)
+					}
+				}
+				initializationJob = job
+				rasterCacheInitializationJobs += job
+				job.invokeOnCompletion {
+					rasterCacheInitializationJobs -= job
+				}
+				true
 			}
-			if (!isPrewarmSessionActive(session)) return@launch
-			if (!webView.isAttachedToWindow) {
-				finishPrewarm(
-					ReaderPageRasterBatchOutcome.Deferred(
-						stage = "raster-cache",
-						pageIndex = currentVisualPageIndex,
-						reason = "webview-detached"
-					)
-				)
-				return@launch
-			}
-			if (!prewarmAcquisitionTriggerClassified) {
-				activeAcquisitionTrigger = readerPageRasterAcquisitionTrigger(
-					hasPreparedBefore = hasPreparedBefore,
-					persistentRasterEntries = bundleSource.rasterCacheMetrics().diskEntries
-				)
-				prewarmAcquisitionTriggerClassified = true
-			}
-			queryRasterPreparationPlan(webView, session)
 		}
-		rasterCacheInitializationJobs += initializationJob
-		initializationJob.invokeOnCompletion {
-			rasterCacheInitializationJobs -= initializationJob
+		val startSettlement = physicalRasterPreparationOwnership.startWithOutcome(
+			descriptor = ReaderRasterPreparationPhysicalRestartDescriptor(
+				binding = null,
+				operation = ReaderRasterPreparationPhysicalOperation.CacheInitialization,
+				preparationGeneration = preparationGeneration,
+				rasterGeneration = bundleSource.currentGeneration(),
+				pageOrdinal = currentVisualPageIndex
+			),
+			releasePhysicalPreparation = { onReleased ->
+				val job = initializationJob
+				if (job == null) {
+					false
+				} else {
+					job.invokeOnCompletion { onReleased() }
+					job.cancel()
+					true
+				}
+			},
+			restorePhysicalPreparation = launchInitialization,
+			startPhysicalPreparation = launchInitialization
+		)
+		startSettlement.publishLogicalOutcome { startOutcome ->
+			if (
+				startOutcome != ReaderRasterPreparationStartOutcome.Accepted &&
+					isPrewarmSessionActive(session)
+			) {
+				finishPrewarm(ReaderPageRasterBatchOutcome.Cancelled)
+			}
 		}
+	}
+
+	private fun continueAfterRasterCacheInitialization(
+		webView: WebView,
+		session: Long
+	) {
+		if (!isPrewarmSessionActive(session)) return
+		if (!webView.isAttachedToWindow) {
+			finishPrewarm(
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "raster-cache",
+					pageIndex = currentVisualPageIndex,
+					reason = "webview-detached"
+				)
+			)
+			return
+		}
+		if (!prewarmAcquisitionTriggerClassified) {
+			activeAcquisitionTrigger = readerPageRasterAcquisitionTrigger(
+				hasPreparedBefore = hasPreparedBefore,
+				persistentRasterEntries = bundleSource.rasterCacheMetrics().diskEntries
+			)
+			prewarmAcquisitionTriggerClassified = true
+		}
+		queryRasterPreparationPlan(webView, session)
 	}
 
 	private fun consumeQaDeferral(
@@ -2046,66 +2491,103 @@ internal class ReaderPageRasterPreparationController(
 				generation == bundleSource.currentGeneration() &&
 				isPreparationGenerationCurrent(preparationGeneration)
 		}
-		val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
-			?.takeIf { it.isAvailable }
-		if (passiveRasterPreparationPort == null) {
-			reference.release()
-			onComplete(
-				ReaderPageRasterBatchOutcome.Deferred(
-					stage = "passive-host",
-					pageIndex = targets.firstOrNull()?.pageIndex,
-					reason = "passive-raster-unavailable:$batchLabel"
+		var initialReference: ReaderPageSlideSnapshot? = reference
+		var activePort: ReaderPassiveRasterPreparationPort? = null
+		var startInvoked = false
+		lateinit var startPhysicalPreparation: (
+			onCompleted: (delivery: () -> Unit) -> Unit
+		) -> Boolean
+		startPhysicalPreparation = { onCompleted ->
+			startInvoked = true
+			val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
+				?.takeIf { it.isAvailable }
+			val ownedReference = initialReference?.also { initialReference = null }
+				?: retainedSnapshot(
+					currentVisualPageIndex ?: targets.first().pageIndex,
+					kind
 				)
-			)
-			return
-		}
-		val started = passiveRasterPreparationPort.start(
-			kind = kind,
-			reference = reference,
-			targets = targets,
-			rasterGeneration = generation,
-			preparationGeneration = preparationGeneration,
-			isPreparationGenerationCurrent = ::isPreparationGenerationCurrent,
-			isStillCurrent = isBatchCurrent,
-			trigger = activeAcquisitionTrigger,
-			onActiveTarget = { target ->
-				if (isBatchCurrent()) {
-					activePreparationPageNumber = target.pageIndex + 1
-					publishPreparationState(ReaderPagePreparationPhase.Preparing)
-				}
-			},
-			onHydrationMiss = {},
-			onTargetDurable = { target ->
-				if (isBatchCurrent()) {
-					durableRasterPageIndices += target.pageIndex
-				}
-			},
-			onProgress = { completedCount, _ ->
-				if (isBatchCurrent()) {
-					rasterPreparationCompleted = completedOffset + completedCount
-					rasterPreparationRequired = totalRequired
-					rasterInteractiveCompleted = minOf(
-						rasterPreparationCompleted,
-						rasterInteractiveRequired
-					)
-					publishPreparationState(ReaderPagePreparationPhase.Preparing)
-				}
-			},
-			onComplete = { outcome ->
-				if (!isBatchCurrent()) {
-					return@start
-				}
-				onComplete(outcome)
+			if (passiveRasterPreparationPort == null || ownedReference == null) {
+				ownedReference?.release()
+				false
+			} else {
+				activePort = passiveRasterPreparationPort
+				passiveRasterPreparationPort.start(
+					kind = kind,
+					reference = ownedReference,
+					targets = targets,
+					rasterGeneration = generation,
+					preparationGeneration = preparationGeneration,
+					isPreparationGenerationCurrent = ::isPreparationGenerationCurrent,
+					isStillCurrent = isBatchCurrent,
+					trigger = activeAcquisitionTrigger,
+					onActiveTarget = { target ->
+						if (!physicalRasterPreparationOwnership.isFrozen && isBatchCurrent()) {
+							activePreparationPageNumber = target.pageIndex + 1
+							publishPreparationState(ReaderPagePreparationPhase.Preparing)
+						}
+					},
+					onHydrationMiss = {},
+					onTargetDurable = { target ->
+						if (!physicalRasterPreparationOwnership.isFrozen && isBatchCurrent()) {
+							durableRasterPageIndices += target.pageIndex
+						}
+					},
+					onProgress = { completedCount, _ ->
+						if (!physicalRasterPreparationOwnership.isFrozen && isBatchCurrent()) {
+							rasterPreparationCompleted = completedOffset + completedCount
+							rasterPreparationRequired = totalRequired
+							rasterInteractiveCompleted = minOf(
+								rasterPreparationCompleted,
+								rasterInteractiveRequired
+							)
+							publishPreparationState(ReaderPagePreparationPhase.Preparing)
+						}
+					},
+					onComplete = { outcome ->
+						onCompleted {
+							if (isBatchCurrent()) onComplete(outcome)
+						}
+					}
+				)
 			}
+		}
+		val startSettlement = physicalRasterPreparationOwnership.startWithOutcome(
+			descriptor = ReaderRasterPreparationPhysicalRestartDescriptor(
+				binding = null,
+				operation = ReaderRasterPreparationPhysicalOperation.Prewarm,
+				preparationGeneration = preparationGeneration,
+				rasterGeneration = generation,
+				pageOrdinal = currentVisualPageIndex
+			),
+			releasePhysicalPreparation = { onReleased ->
+				val port = activePort
+				if (port == null) {
+					false
+				} else {
+					port.cancel()
+					onReleased()
+					true
+				}
+			},
+			restorePhysicalPreparation = startPhysicalPreparation,
+			startPhysicalPreparation = startPhysicalPreparation
 		)
-		if (!started && isBatchCurrent()) {
-			onComplete(
-				ReaderPageRasterBatchOutcome.Deferred(
-					stage = "passive-host",
-					pageIndex = targets.firstOrNull()?.pageIndex,
-					reason = "passive-raster-unavailable:$batchLabel"
-				)
-			)
+		startSettlement.publishLogicalOutcome { startOutcome ->
+			if (!startInvoked) reference.release()
+			if (isBatchCurrent()) {
+				when (startOutcome) {
+					ReaderRasterPreparationStartOutcome.Accepted -> Unit
+					ReaderRasterPreparationStartOutcome.Fenced ->
+						onComplete(ReaderPageRasterBatchOutcome.Cancelled)
+					ReaderRasterPreparationStartOutcome.Rejected -> onComplete(
+						ReaderPageRasterBatchOutcome.Deferred(
+							stage = "passive-host",
+							pageIndex = targets.firstOrNull()?.pageIndex,
+							reason = "passive-raster-unavailable:$batchLabel"
+						)
+					)
+				}
+			}
 		}
 	}
 
@@ -2434,11 +2916,50 @@ internal class ReaderPageRasterPreparationController(
 		}
 	}
 
+	private fun deferBackgroundPrefetchStart(
+		submission: ReaderPageAdjacentChapterPrefetchSubmission,
+		prefetch: ReaderPageRasterBackgroundPrefetch
+	) {
+		synchronized(deferredBackgroundPrefetchStartLock) {
+			deferredBackgroundPrefetchStart =
+				ReaderPageRasterDeferredBackgroundPrefetchStart(submission, prefetch)
+		}
+	}
+
+	private fun clearDeferredBackgroundPrefetchStart(
+		submission: ReaderPageAdjacentChapterPrefetchSubmission
+	) {
+		synchronized(deferredBackgroundPrefetchStartLock) {
+			if (deferredBackgroundPrefetchStart?.submission == submission) {
+				deferredBackgroundPrefetchStart = null
+			}
+		}
+	}
+
 	private fun resumeDeferredBackgroundPrefetchStart() {
-		val deferred = deferredBackgroundPrefetchStart ?: return
-		deferredBackgroundPrefetchStart = null
-		if (isBackgroundPrefetchActive(deferred.submission, deferred.prefetch)) {
-			scheduleBackgroundPrefetchStart(deferred.submission, deferred.prefetch)
+		val candidate = synchronized(deferredBackgroundPrefetchStartLock) {
+			deferredBackgroundPrefetchStart
+		} ?: return
+		if (!isBackgroundPrefetchActive(candidate.submission, candidate.prefetch)) return
+		val claimed = synchronized(deferredBackgroundPrefetchStartLock) {
+			if (deferredBackgroundPrefetchStart !== candidate) {
+				null
+			} else {
+				deferredBackgroundPrefetchStart = null
+				candidate
+			}
+		} ?: return
+		scheduleBackgroundPrefetchStart(claimed.submission, claimed.prefetch)
+	}
+
+	private fun publishFencedBackgroundPrefetchStart(
+		submission: ReaderPageAdjacentChapterPrefetchSubmission,
+		prefetch: ReaderPageRasterBackgroundPrefetch
+	) {
+		if (backgroundBatchSubmission == submission) backgroundBatchSubmission = null
+		deferBackgroundPrefetchStart(submission, prefetch)
+		if (!physicalRasterPreparationOwnership.isFrozen) {
+			resumeDeferredBackgroundPrefetchStart()
 		}
 	}
 
@@ -2447,17 +2968,19 @@ internal class ReaderPageRasterPreparationController(
 		prefetch: ReaderPageRasterBackgroundPrefetch
 	) {
 		if (!isBackgroundPrefetchActive(submission, prefetch)) return
-		if (pendingVisualRestorations.isNotEmpty()) {
-			deferredBackgroundPrefetchStart =
-				ReaderPageRasterDeferredBackgroundPrefetchStart(submission, prefetch)
+		if (physicalRasterPreparationOwnership.isFrozen) {
+			publishFencedBackgroundPrefetchStart(submission, prefetch)
 			return
 		}
-		deferredBackgroundPrefetchStart = null
-		val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
-			?.takeIf { it.isAvailable }
-		if (passiveRasterPreparationPort == null) {
-			deferredBackgroundPrefetchStart =
-				ReaderPageRasterDeferredBackgroundPrefetchStart(submission, prefetch)
+		if (pendingVisualRestorations.isNotEmpty()) {
+			deferBackgroundPrefetchStart(submission, prefetch)
+			return
+		}
+		clearDeferredBackgroundPrefetchStart(submission)
+		val passiveHostAvailable = passiveRasterPreparationPortProvider()
+			?.takeIf { it.isAvailable } != null
+		if (!passiveHostAvailable) {
+			deferBackgroundPrefetchStart(submission, prefetch)
 			return
 		}
 		emitPrefetchDiagnostic(submission, ReaderPagePrefetchDiagnosticState.Running)
@@ -2481,84 +3004,145 @@ internal class ReaderPageRasterPreparationController(
 			detail = "session=${submission.sessionId} chapter=${submission.chapter.identity.chapterIndex} " +
 				"pages=${submission.targets.size} generation=${prefetch.generation}"
 		)
-		val started = passiveRasterPreparationPort.start(
-			kind = prefetch.kind,
-			reference = reference,
-			targets = submission.targets,
-			rasterGeneration = prefetch.generation,
-			preparationGeneration = prefetch.preparationGeneration,
-			isPreparationGenerationCurrent = ::isPreparationGenerationCurrent,
-			isStillCurrent = {
-				backgroundBatchSubmission == submission &&
-					isBackgroundPrefetchActive(submission, prefetch)
-			},
-			trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
-			capacityPolicy = ReaderPageRasterCapacityPolicy.StopBackgroundRefill,
-			onTargetDurable = { target ->
-				if (
-					backgroundBatchSubmission == submission &&
-					isBackgroundPrefetchActive(submission, prefetch) &&
-					adjacentChapterPrefetchCoordinator.onTargetDurable(
-						submission = submission,
-						pageIndex = target.pageIndex
-					)
-				) {
-					durableRasterPageIndices += target.pageIndex
-				}
-			},
-			onProgress = { completed, required ->
-				if (
-					backgroundBatchSubmission == submission &&
-					isBackgroundPrefetchActive(submission, prefetch)
-				) {
-					logLoadingEvent(
-						event = "background-prefetch-progress",
-						detail = "session=${submission.sessionId} completed=$completed/$required " +
-							"chapter=${submission.chapter.identity.chapterIndex} " +
-							"generation=${prefetch.generation}"
-					)
-				}
-			},
-			onComplete = backgroundComplete@ { outcome ->
-				if (backgroundBatchSubmission != submission) return@backgroundComplete
-				backgroundBatchSubmission = null
-				val batchAccepted =
-					adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
-				if (!batchAccepted) return@backgroundComplete
-				emitPrefetchDiagnostic(
-					submission,
-					when (outcome) {
-						ReaderPageRasterBatchOutcome.Ready ->
-							ReaderPagePrefetchDiagnosticState.Completed
-						is ReaderPageRasterBatchOutcome.CapacityReached ->
-							ReaderPagePrefetchDiagnosticState.CapacityReached
-						ReaderPageRasterBatchOutcome.Cancelled ->
-							ReaderPagePrefetchDiagnosticState.Cancelled
-						else -> ReaderPagePrefetchDiagnosticState.Failed
+		var initialReference: ReaderPageSlideSnapshot? = reference
+		var activePort: ReaderPassiveRasterPreparationPort? = null
+		var startInvoked = false
+		lateinit var startPhysicalPreparation: (
+			onCompleted: (delivery: () -> Unit) -> Unit
+		) -> Boolean
+		startPhysicalPreparation = { onCompleted ->
+			startInvoked = true
+			val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
+				?.takeIf { it.isAvailable }
+			val ownedReference = initialReference?.also { initialReference = null }
+				?: retainedSnapshot(prefetch.centerPageIndex, prefetch.kind)
+			if (passiveRasterPreparationPort == null || ownedReference == null) {
+				ownedReference?.release()
+				false
+			} else {
+				activePort = passiveRasterPreparationPort
+				passiveRasterPreparationPort.start(
+					kind = prefetch.kind,
+					reference = ownedReference,
+					targets = submission.targets,
+					rasterGeneration = prefetch.generation,
+					preparationGeneration = prefetch.preparationGeneration,
+					isPreparationGenerationCurrent = ::isPreparationGenerationCurrent,
+					isStillCurrent = {
+						backgroundBatchSubmission == submission &&
+							isBackgroundPrefetchActive(submission, prefetch)
+					},
+					trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
+					capacityPolicy = ReaderPageRasterCapacityPolicy.StopBackgroundRefill,
+					onTargetDurable = { target ->
+						if (
+							!physicalRasterPreparationOwnership.isFrozen &&
+								backgroundBatchSubmission == submission &&
+								isBackgroundPrefetchActive(submission, prefetch) &&
+								adjacentChapterPrefetchCoordinator.onTargetDurable(
+									submission = submission,
+									pageIndex = target.pageIndex
+								)
+						) {
+							durableRasterPageIndices += target.pageIndex
+						}
+					},
+					onProgress = { completed, required ->
+						if (
+							!physicalRasterPreparationOwnership.isFrozen &&
+								backgroundBatchSubmission == submission &&
+								isBackgroundPrefetchActive(submission, prefetch)
+						) {
+							logLoadingEvent(
+								event = "background-prefetch-progress",
+								detail = "session=${submission.sessionId} completed=$completed/$required " +
+									"chapter=${submission.chapter.identity.chapterIndex} " +
+									"generation=${prefetch.generation}"
+							)
+						}
+					},
+					onComplete = { outcome ->
+						onCompleted {
+							completeBackgroundPrefetch(submission, prefetch, outcome)
+						}
 					}
 				)
-				logLoadingEvent(
-					event = when (outcome) {
-						ReaderPageRasterBatchOutcome.Ready ->
-							"background-prefetch-completed"
-						is ReaderPageRasterBatchOutcome.CapacityReached ->
-							"background-prefetch-capacity-reached"
-						else -> "background-prefetch-failed"
-					},
-					detail = "session=${submission.sessionId} outcome=$outcome " +
-						"chapter=${submission.chapter.identity.chapterIndex} " +
-						"generation=${prefetch.generation}"
-				)
+			}
+		}
+		val startSettlement = physicalRasterPreparationOwnership.startWithOutcome(
+			descriptor = ReaderRasterPreparationPhysicalRestartDescriptor(
+				binding = null,
+				operation = ReaderRasterPreparationPhysicalOperation.BackgroundPrefetch,
+				preparationGeneration = prefetch.preparationGeneration,
+				rasterGeneration = prefetch.generation,
+				pageOrdinal = prefetch.centerPageIndex
+			),
+			releasePhysicalPreparation = { onReleased ->
+				val port = activePort
+				if (port == null) {
+					false
+				} else {
+					port.cancel()
+					onReleased()
+					true
+				}
+			},
+			restorePhysicalPreparation = startPhysicalPreparation,
+			startPhysicalPreparation = startPhysicalPreparation
+		)
+		startSettlement.publishLogicalOutcome { startOutcome ->
+			if (!startInvoked) reference.release()
+			if (backgroundBatchSubmission == submission) {
+				when (startOutcome) {
+					ReaderRasterPreparationStartOutcome.Accepted -> Unit
+					ReaderRasterPreparationStartOutcome.Fenced ->
+						publishFencedBackgroundPrefetchStart(submission, prefetch)
+					ReaderRasterPreparationStartOutcome.Rejected -> {
+						backgroundBatchSubmission = null
+						emitPrefetchDiagnostic(
+							submission,
+							ReaderPagePrefetchDiagnosticState.Failed
+						)
+						adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
+					}
+				}
+			}
+		}
+	}
+
+	private fun completeBackgroundPrefetch(
+		submission: ReaderPageAdjacentChapterPrefetchSubmission,
+		prefetch: ReaderPageRasterBackgroundPrefetch,
+		outcome: ReaderPageRasterBatchOutcome
+	) {
+		if (backgroundBatchSubmission != submission) return
+		backgroundBatchSubmission = null
+		val batchAccepted = adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
+		if (!batchAccepted) return
+		emitPrefetchDiagnostic(
+			submission,
+			when (outcome) {
+				ReaderPageRasterBatchOutcome.Ready ->
+					ReaderPagePrefetchDiagnosticState.Completed
+				is ReaderPageRasterBatchOutcome.CapacityReached ->
+					ReaderPagePrefetchDiagnosticState.CapacityReached
+				ReaderPageRasterBatchOutcome.Cancelled ->
+					ReaderPagePrefetchDiagnosticState.Cancelled
+				else -> ReaderPagePrefetchDiagnosticState.Failed
 			}
 		)
-		if (!started && backgroundBatchSubmission == submission) {
-			backgroundBatchSubmission = null
-			emitPrefetchDiagnostic(
-				submission,
-				ReaderPagePrefetchDiagnosticState.Failed
-			)
-			adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
-		}
+		logLoadingEvent(
+			event = when (outcome) {
+				ReaderPageRasterBatchOutcome.Ready ->
+					"background-prefetch-completed"
+				is ReaderPageRasterBatchOutcome.CapacityReached ->
+					"background-prefetch-capacity-reached"
+				else -> "background-prefetch-failed"
+			},
+			detail = "session=${submission.sessionId} outcome=$outcome " +
+				"chapter=${submission.chapter.identity.chapterIndex} " +
+				"generation=${prefetch.generation}"
+		)
 	}
 
 	private fun isBackgroundPrefetchActive(
@@ -2663,9 +3247,7 @@ internal class ReaderPageRasterPreparationController(
 			submission,
 			ReaderPagePrefetchDiagnosticState.Cancelled
 		)
-		if (deferredBackgroundPrefetchStart?.submission == submission) {
-			deferredBackgroundPrefetchStart = null
-		}
+		clearDeferredBackgroundPrefetchStart(submission)
 		val batchStarted = backgroundBatchSubmission == submission
 		if (batchStarted) {
 			backgroundBatchSubmission = null

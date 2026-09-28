@@ -129,6 +129,25 @@ internal data class ReaderFrozenLegacyResource(
 	}
 }
 
+/** A source that participated in fencing, including the truthful zero-row case. */
+internal data class ReaderLegacyConnectedSourceInventory(
+	val source: ReaderLegacyInventorySource,
+	val domain: ReaderLegacyPhysicalDomain,
+	val resources: List<ReaderFrozenLegacyResource>
+) {
+	init {
+		require(resources.all { resource ->
+			resource.freezeToken == domain.freezeToken &&
+				resource.physicalIdentity.domain == domain &&
+				resource.physicalIdentity.source == source
+		})
+		require(resources.distinctBy { it.physicalIdentity }.size == resources.size)
+	}
+
+	override fun hashCode(): Int = 0x524C4353
+	override fun toString(): String = "ReaderLegacyConnectedSourceInventory(<redacted>)"
+}
+
 internal data class ReaderRestartablePhysicalDescriptor<Payload : Any>(
 	val restartPayload: Payload,
 	val kind: ReaderTransitionResourceKind,
