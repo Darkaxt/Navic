@@ -9,6 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import paige.navic.reader.ReaderAdoptedPredecessorSeedId
 import paige.navic.reader.ReaderDestinationCommitIdentity
@@ -18,6 +19,7 @@ import paige.navic.reader.ReaderExternalRelocationSource
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderResourceReleaseIssuer
 import paige.navic.reader.ReaderResourceRetirementOrder
 import paige.navic.reader.ReaderSemanticExecutableResult
 import paige.navic.reader.ReaderSemanticRequestHandle
@@ -40,28 +42,48 @@ class ReaderTransitionAtomicCutoverTest {
 			ReaderTransitionResourceKind.Deck,
 			41L
 		)
-		val adoptedKey = ReaderTransitionResourceKey(
-			ReaderTransitionResourceOwnerId.AdoptedPredecessor(ReaderAdoptedPredecessorSeedId.fromValidatedImport(43L)),
-			ReaderTransitionResourceKind.Deck,
-			47L
-		)
 		val first = ReaderTransitionResourceRegistration(
 			transitionKey,
 			ReaderResourceRetirementOrder(3L, 5L, 1L)
 		)
-		val second = ReaderTransitionResourceRegistration(
-			adoptedKey,
-			ReaderResourceRetirementOrder(3L, 5L, 2L)
-		)
 		val ledger = ReaderTransitionReleaseLedger()
-
 		assertTrue(ledger.register(first))
-		assertTrue(ledger.register(second))
-		assertEquals(first, ledger.requestRelease(first.key)?.registration)
-		assertEquals(second, ledger.requestRelease(second.key)?.registration)
-		assertTrue(ledger.confirmReleased(second))
-		assertTrue(ledger.confirmReleased(first))
-		assertEquals(2L, ledger.retentionSnapshot().contiguousReleasedThrough)
+		val physicalIdentity = ReaderLegacyPhysicalIdentity(
+			ReaderLegacyPhysicalDomain(3L, ReaderLegacyFreezeToken(43L)),
+			ReaderLegacyInventorySource.Deck,
+			ReaderLegacySourceLocalOpaqueToken(47L)
+		)
+		val imported = assertNotNull(
+			ledger.importLegacy(
+				physicalIdentity,
+				ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+					ReaderAdoptedPredecessorSeedId.fromValidatedImport(43L)
+				),
+				ReaderTransitionResourceKind.Deck,
+				5L
+			)
+		)
+		val second = imported.registration
+
+		val firstCommand = assertNotNull(ledger.requestRelease(first.key))
+		val secondCommand = assertNotNull(
+			ledger.requestRelease(ReaderResourceReleaseIssuer.Session(3L, 5L), second)
+		)
+		assertEquals(first, firstCommand.registration)
+		assertEquals(second, secondCommand.registration)
+		assertTrue(
+			ledger.confirmLegacyReleased(
+				physicalIdentity,
+				paige.navic.reader.ReaderTransitionFact.ResourceReleased(secondCommand.identity)
+			)
+		)
+		assertTrue(
+			ledger.confirmReleased(
+				paige.navic.reader.ReaderTransitionFact.ResourceReleased(firstCommand.identity)
+			)
+		)
+		assertTrue(ledger.retirementFence().confirms(first.retirementOrder))
+		assertTrue(ledger.retirementFence().confirms(second.retirementOrder))
 	}
 
 	@Test
@@ -865,7 +887,7 @@ class ReaderTransitionAtomicCutoverTest {
 		assertEquals(1, reduction.commands.count {
 			it is ReaderTransitionCommand.CommitOwnerAndInputLease
 		})
-		assertTrue(reduction.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		assertTrue(reduction.commands.none { it is ReaderTransitionCommand.RequestResourceRelease })
 	}
 
 	@Test
@@ -888,10 +910,10 @@ class ReaderTransitionAtomicCutoverTest {
 		assertEquals(fixture.predecessorOwner, assertIs<paige.navic.reader.ReaderCommittedPresentation.Transition>(rejected.state.committed).committed.owner)
 		assertEquals(
 			listOf(fixture.successorRegistration.key),
-			rejected.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			rejected.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 		assertTrue(rejected.commands.none {
-			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorKey
+			it is ReaderTransitionCommand.RequestResourceRelease && it.key == fixture.predecessorKey
 		})
 	}
 
@@ -920,7 +942,7 @@ class ReaderTransitionAtomicCutoverTest {
 		assertEquals(fixture.successorOwner, assertIs<paige.navic.reader.ReaderCommittedPresentation.Transition>(accepted.state.committed).committed.owner)
 		assertEquals(
 			listOf(fixture.predecessorKey),
-			accepted.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			accepted.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 	}
 

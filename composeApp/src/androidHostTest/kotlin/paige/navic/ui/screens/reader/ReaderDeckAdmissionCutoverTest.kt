@@ -106,6 +106,133 @@ class ReaderDeckAdmissionCutoverTest {
 	}
 
 	@Test
+	fun `successful physical handoff retires nonselected and transfers selected lease once`() {
+		val releaseCallbacks = linkedMapOf<Long, () -> Unit>()
+		val adapter = ReaderDeckPhysicalOwnershipAdapter(
+			releasePhysicalDeck = { descriptor, onReleased ->
+				releaseCallbacks[descriptor.textureGeneration] = onReleased
+				true
+			},
+			restorePhysicalDeck = { it }
+		)
+		fun descriptor(generation: Long) = ReaderDeckPhysicalRestartDescriptor(
+			binding = binding(textureGeneration = generation),
+			role = ReaderDeckSubmissionRole.Active,
+			preparationGeneration = 11L,
+			rasterGeneration = 31L,
+			textureGeneration = generation
+		)
+		val selectedLease = assertNotNull(adapter.register(descriptor(451L)))
+		val retiredLease = assertNotNull(adapter.register(descriptor(457L)))
+		assertTrue(adapter.acknowledgeRendererOwnership(selectedLease))
+		assertTrue(adapter.acknowledgeRendererOwnership(retiredLease))
+		val domain = ReaderLegacyPhysicalDomain(7L, ReaderLegacyFreezeToken(23L))
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.freezeForTransitionActivation(domain))
+		val rows = adapter.snapshotFrozenOwnership()
+		val selectedDeck = rows.single {
+			it.kind == ReaderTransitionResourceKind.Deck &&
+				it.binding?.textureGeneration == 451L
+		}
+		val selectedCallback = rows.single {
+			it.kind == ReaderTransitionResourceKind.CallbackRegistration &&
+				it.binding?.textureGeneration == 451L
+		}
+		val retiredDeck = rows.single {
+			it.kind == ReaderTransitionResourceKind.Deck &&
+				it.binding?.textureGeneration == 457L
+		}
+		val retiredCallback = rows.single {
+			it.kind == ReaderTransitionResourceKind.CallbackRegistration &&
+				it.binding?.textureGeneration == 457L
+		}
+		val confirmed = linkedSetOf<ReaderLegacyPhysicalIdentity>()
+		listOf(selectedCallback, retiredCallback).forEach { row ->
+			assertEquals(
+				ReaderPortCommandResult.Accepted,
+				adapter.drainFrozenOwnership(row.physicalIdentity, confirmed::add)
+			)
+		}
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.drainFrozenOwnership(retiredDeck.physicalIdentity, confirmed::add)
+		)
+		releaseCallbacks.getValue(457L).invoke()
+
+		var transferred: ReaderDeckPhysicalOwnershipAdapter.Lease? = null
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.finalizeActivatedHandoff(
+				domain = domain,
+				selectedIdentity = selectedDeck.physicalIdentity,
+				confirmedRetirements = confirmed
+			) { selected, retired ->
+				transferred = selected
+				assertEquals(listOf(retiredLease), retired)
+				true
+			}
+		)
+		assertTrue(transferred === selectedLease)
+		assertTrue(selectedLease.deckOwned)
+		assertFalse(retiredLease.deckOwned)
+		assertFalse(adapter.isFrozen)
+		assertTrue(adapter.snapshotFrozenOwnership().isEmpty())
+		assertEquals(1, releaseCallbacks.size)
+		assertIs<ReaderPortCommandResult.Rejected>(
+			adapter.finalizeActivatedHandoff(
+				domain,
+				selectedDeck.physicalIdentity,
+				confirmed
+			) { _, _ -> error("Finalization cannot run twice") }
+		)
+		assertIs<ReaderPortCommandResult.Rejected>(
+			adapter.drainFrozenOwnership(retiredDeck.physicalIdentity) {
+				error("Retired physical ownership cannot confirm twice")
+			}
+		)
+	}
+
+	@Test
+	fun `physical handoff does not fabricate retirement for callback completed before freeze`() {
+		val adapter = ReaderDeckPhysicalOwnershipAdapter(
+			releasePhysicalDeck = { _, _ -> error("Selected deck must remain owned") },
+			restorePhysicalDeck = { it }
+		)
+		val lease = assertNotNull(
+			adapter.register(
+				ReaderDeckPhysicalRestartDescriptor(
+					binding = binding(textureGeneration = 461L),
+					role = ReaderDeckSubmissionRole.Active,
+					preparationGeneration = 11L,
+					rasterGeneration = 31L,
+					textureGeneration = 461L
+				)
+			)
+		)
+		assertTrue(adapter.acknowledgeRendererOwnership(lease))
+		assertTrue(adapter.observeRendererCallback(lease))
+		val domain = ReaderLegacyPhysicalDomain(7L, ReaderLegacyFreezeToken(29L))
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.freezeForTransitionActivation(domain))
+		val selectedDeck = adapter.snapshotFrozenOwnership().single()
+		assertEquals(ReaderTransitionResourceKind.Deck, selectedDeck.kind)
+
+		var transferred: ReaderDeckPhysicalOwnershipAdapter.Lease? = null
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			adapter.finalizeActivatedHandoff(
+				domain = domain,
+				selectedIdentity = selectedDeck.physicalIdentity,
+				confirmedRetirements = emptySet()
+			) { selected, retired ->
+				transferred = selected
+				assertTrue(retired.isEmpty())
+				true
+			}
+		)
+		assertTrue(transferred === lease)
+		assertFalse(adapter.isFrozen)
+	}
+
+	@Test
 	fun rendererCallbackBeforeDrainIsTombstonedAndRestoredWithoutDispatch() {
 		val releaseCallbacks = mutableListOf<() -> Unit>()
 		val adapter = ReaderDeckPhysicalOwnershipAdapter(
@@ -299,13 +426,13 @@ class ReaderDeckAdmissionCutoverTest {
 		assertEquals(3, cutover.snapshot().releaseCommandIssuedCount)
 
 		callbacks.take(2).zip(commands.take(2)).forEach { (callback, command) ->
-			callback(ReaderTransitionFact.ResourceReleased(command.transitionId, command.key))
+			callback(ReaderTransitionFact.ResourceReleased(command.identity))
 		}
 		assertFalse(cutover.coordinatorAdmissionOpen)
 		assertEquals(1, cutover.snapshot().releaseCommandIssuedCount)
 
 		callbacks.last().invoke(
-			ReaderTransitionFact.ResourceReleased(commands.last().transitionId, commands.last().key)
+			ReaderTransitionFact.ResourceReleased(commands.last().identity)
 		)
 		assertTrue(cutover.coordinatorAdmissionOpen)
 		assertFalse(cutover.legacyAdmissionOpen)
@@ -329,7 +456,7 @@ class ReaderDeckAdmissionCutoverTest {
 
 		assertFalse(cutover.activate())
 		assertEquals(1, commands.size)
-		val released = ReaderTransitionFact.ResourceReleased(commands.single().transitionId, commands.single().key)
+		val released = ReaderTransitionFact.ResourceReleased(commands.single().identity)
 		callbacks.single()(released)
 		callbacks.single()(released)
 		cutover.observeLegacyResource(duplicate)
@@ -400,9 +527,9 @@ class ReaderDeckAdmissionCutoverTest {
 				val key = (fact as ReaderTransitionFact.DeckReserved).key
 				ledger.register(key)
 				val command = requireNotNull(ledger.requestRelease(key))
-				ledger.confirmReleased(command.key)
+				ledger.confirmReleased(ReaderTransitionFact.ResourceReleased(command.identity))
 				cutover.onCoordinatorResourceFactProcessed(
-					ReaderTransitionFact.ResourceReleased(command.transitionId, command.key)
+					ReaderTransitionFact.ResourceReleased(command.identity)
 				)
 			}
 		)
@@ -437,7 +564,7 @@ class ReaderDeckAdmissionCutoverTest {
 			) {
 				issued += command
 				if (command is ReaderTransitionCommand.ReleaseResource) {
-					onFact(ReaderTransitionFact.ResourceReleased(command.transitionId, command.key))
+					onFact(ReaderTransitionFact.ResourceReleased(command.identity))
 				}
 			}
 		}
@@ -445,7 +572,7 @@ class ReaderDeckAdmissionCutoverTest {
 		val inactivePorts = ReaderCutoverTransitionPorts(delegate, inactive)
 		val key = resource(159L).key
 		assertFailsWith<IllegalStateException> {
-			inactivePorts.issue(ReaderTransitionCommand.ReleaseResource(requireNotNull(key.owningTransitionIdOrNull), key), callbacks::add)
+			inactivePorts.issue(releaseCommand(requireNotNull(key.owningTransitionIdOrNull), key), callbacks::add)
 		}
 		assertTrue(issued.isEmpty())
 
@@ -461,10 +588,67 @@ class ReaderDeckAdmissionCutoverTest {
 			),
 			callbacks::add
 		)
-		activePorts.issue(ReaderTransitionCommand.ReleaseResource(requireNotNull(key.owningTransitionIdOrNull), key), callbacks::add)
+		activePorts.issue(releaseCommand(requireNotNull(key.owningTransitionIdOrNull), key), callbacks::add)
 
 		assertEquals(2, issued.size)
 		assertEquals(1, callbacks.size)
+	}
+
+	@Test
+	fun `cutover forwards imported legacy release without generic degradation`() {
+		var genericDispatchCount = 0
+		var importedDispatchCount = 0
+		val delegate = object : ReaderResumableTransitionPorts {
+			override val clock = testTransitionClock()
+			override fun issue(
+				command: ReaderTransitionCommand,
+				onFact: (ReaderTransitionFact) -> Unit
+			) {
+				genericDispatchCount += 1
+			}
+
+			override fun issueImportedLegacyRelease(
+				dispatch: ReaderImportedLegacyReleaseDispatch,
+				onFact: (ReaderTransitionFact) -> Unit
+			) {
+				importedDispatchCount += 1
+				onFact(ReaderTransitionFact.ResourceReleased(dispatch.command.identity))
+			}
+		}
+		val cutover = synchronousCutover(ReaderLegacyDeckInventory.Complete(emptyList()))
+		assertTrue(cutover.activate())
+		val ledger = ReaderTransitionReleaseLedger()
+		val physicalIdentity = ReaderLegacyPhysicalIdentity(
+			ReaderLegacyPhysicalDomain(2L, ReaderLegacyFreezeToken(601L)),
+			ReaderLegacyInventorySource.Deck,
+			ReaderLegacySourceLocalOpaqueToken(607L)
+		)
+		val imported = assertNotNull(
+			ledger.importLegacy(
+				physicalIdentity,
+				paige.navic.reader.ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+					paige.navic.reader.ReaderAdoptedPredecessorSeedId.fromValidatedImport(613L)
+				),
+				ReaderTransitionResourceKind.Deck,
+				3L
+			)
+		)
+		val command = assertNotNull(
+			ledger.requestRelease(
+				paige.navic.reader.ReaderResourceReleaseIssuer.Session(2L, 3L),
+				imported.registration
+			)
+		)
+		val facts = mutableListOf<ReaderTransitionFact>()
+
+		ReaderCutoverTransitionPorts(delegate, cutover).issueImportedLegacyRelease(
+			ReaderImportedLegacyReleaseDispatch(command, imported),
+			facts::add
+		)
+
+		assertEquals(0, genericDispatchCount)
+		assertEquals(1, importedDispatchCount)
+		assertEquals(command.identity, assertIs<ReaderTransitionFact.ResourceReleased>(facts.single()).identity)
 	}
 
 	@Test
@@ -690,14 +874,14 @@ class ReaderDeckAdmissionCutoverTest {
 		val facts = mutableListOf<ReaderTransitionFact>()
 		port.register(lease)
 
-		port.release(ReaderTransitionCommand.ReleaseResource(id, key), facts::add)
-		port.release(ReaderTransitionCommand.ReleaseResource(id, key), facts::add)
+		port.release(releaseCommand(id, key), facts::add)
+		port.release(releaseCommand(id, key), facts::add)
 		callbacks.single().invoke()
 		callbacks.single().invoke()
 
 		assertEquals(listOf(lease), physicalReleases)
 		assertEquals(
-			listOf<ReaderTransitionFact>(ReaderTransitionFact.ResourceReleased(id, key)),
+			listOf<ReaderTransitionFact>(ReaderTransitionFact.ResourceReleased(releaseCommand(id, key).identity)),
 			facts
 		)
 	}
@@ -1123,10 +1307,12 @@ class ReaderDeckAdmissionCutoverTest {
 			val deckCommand = assertNotNull(ledger.requestRelease(deckLease.resourceKey))
 			assertTrue(deckPort.release(deckCommand) { fact ->
 				assertEquals(
-					ReaderTransitionFact.ResourceReleased(id, deckLease.resourceKey),
+					ReaderTransitionFact.ResourceReleased(deckCommand.identity),
 					fact
 				)
-				assertTrue(ledger.confirmReleased(deckLease.resourceKey))
+				assertTrue(
+					ledger.confirmReleased(assertIs<ReaderTransitionFact.ResourceReleased>(fact))
+				)
 			})
 
 			assertTrue(rasterPort.register(rasterLease))
@@ -1134,10 +1320,12 @@ class ReaderDeckAdmissionCutoverTest {
 			val rasterCommand = assertNotNull(ledger.requestRelease(rasterLease.resourceKey))
 			assertTrue(rasterPort.release(rasterCommand) { fact ->
 				assertEquals(
-					ReaderTransitionFact.ResourceReleased(id, rasterLease.resourceKey),
+					ReaderTransitionFact.ResourceReleased(rasterCommand.identity),
 					fact
 				)
-				assertTrue(ledger.confirmReleased(rasterLease.resourceKey))
+				assertTrue(
+					ledger.confirmReleased(assertIs<ReaderTransitionFact.ResourceReleased>(fact))
+				)
 			})
 
 			if (index == 0) {
@@ -1193,7 +1381,7 @@ class ReaderDeckAdmissionCutoverTest {
 		assertTrue(ledger.register(oldLease.resourceKey))
 		val oldCommand = assertNotNull(ledger.requestRelease(oldLease.resourceKey))
 
-		repeat(33) { index ->
+		repeat(32) { index ->
 			releaseDeck(port, ledger, deckLeaseFor(oldId.copy(
 				sequence = index.toLong() + 2L,
 				parent = paige.navic.reader.ReaderTransitionParentIdentity(
@@ -1209,9 +1397,13 @@ class ReaderDeckAdmissionCutoverTest {
 			deckLeaseFor(oldId.copy(readerSessionGeneration = oldId.readerSessionGeneration + 1L))
 		)
 
-		assertTrue(port.release(oldCommand) { assertTrue(ledger.confirmReleased(oldLease.resourceKey)) })
+		assertTrue(port.release(oldCommand) { fact ->
+			assertTrue(
+				ledger.confirmReleased(assertIs<ReaderTransitionFact.ResourceReleased>(fact))
+			)
+		})
 		assertEquals(ReaderTransitionResourceState.Released, ledger.stateOf(oldLease.resourceKey))
-		assertEquals(35, physicalReleases.size)
+		assertEquals(34, physicalReleases.size)
 		assertEquals(1, port.retentionSnapshot().terminalTombstoneCount)
 		assertEquals(1, ledger.retentionSnapshot().terminalTombstoneCount)
 	}
@@ -1230,7 +1422,7 @@ class ReaderDeckAdmissionCutoverTest {
 		assertTrue(ledger.register(oldLease.resourceKey))
 		val oldCommand = assertNotNull(ledger.requestRelease(oldLease.resourceKey))
 
-		repeat(33) { index ->
+		repeat(32) { index ->
 			releaseRaster(port, ledger, rasterLeaseFor(oldId.copy(
 				sequence = index.toLong() + 2L,
 				parent = paige.navic.reader.ReaderTransitionParentIdentity(
@@ -1246,9 +1438,13 @@ class ReaderDeckAdmissionCutoverTest {
 			rasterLeaseFor(oldId.copy(readerSessionGeneration = oldId.readerSessionGeneration + 1L))
 		)
 
-		assertTrue(port.release(oldCommand) { assertTrue(ledger.confirmReleased(oldLease.resourceKey)) })
+		assertTrue(port.release(oldCommand) { fact ->
+			assertTrue(
+				ledger.confirmReleased(assertIs<ReaderTransitionFact.ResourceReleased>(fact))
+			)
+		})
 		assertEquals(ReaderTransitionResourceState.Released, ledger.stateOf(oldLease.resourceKey))
-		assertEquals(35, physicalReleases.size)
+		assertEquals(34, physicalReleases.size)
 		assertEquals(1, port.retentionSnapshot().terminalTombstoneCount)
 		assertEquals(1, ledger.retentionSnapshot().terminalTombstoneCount)
 	}
@@ -1281,7 +1477,7 @@ class ReaderDeckAdmissionCutoverTest {
 		ports.issue(command, facts::add)
 		assertEquals(1, reserveCount)
 		val factsAfterDuplicate = facts.toList()
-		ports.issue(ReaderTransitionCommand.ReleaseResource(id, key), facts::add)
+		ports.issue(releaseCommand(id, key), facts::add)
 		val factsAfterRelease = facts.toList()
 		ports.issue(command, facts::add)
 
@@ -1322,7 +1518,7 @@ class ReaderDeckAdmissionCutoverTest {
 		ports.issue(command, facts::add)
 		assertEquals(1, prepareCount)
 		val factsAfterDuplicate = facts.toList()
-		ports.issue(ReaderTransitionCommand.ReleaseResource(id, key), facts::add)
+		ports.issue(releaseCommand(id, key), facts::add)
 		val factsAfterRelease = facts.toList()
 		ports.issue(command, facts::add)
 
@@ -1382,6 +1578,24 @@ class ReaderDeckAdmissionCutoverTest {
 		assertEquals(1, snapshot.releaseCommandCount)
 	}
 
+	private fun releaseCommand(
+		id: ReaderTransitionId,
+		key: ReaderTransitionResourceKey
+	) = ReaderTransitionCommand.ReleaseResource(
+		issuer = paige.navic.reader.ReaderResourceReleaseIssuer.Transition(id),
+		identity = paige.navic.reader.ReaderReleaseCommandIdentity(
+			paige.navic.reader.ReaderPhysicalReleaseAttemptId.fromLedger(key.opaqueId),
+			paige.navic.reader.ReaderTransitionResourceRegistration(
+				key,
+				paige.navic.reader.ReaderResourceRetirementOrder(
+					id.readerSessionGeneration,
+					id.coordinatorEpoch,
+					id.sequence
+				)
+			)
+		)
+	)
+
 	private fun deckLeaseFor(id: ReaderTransitionId): ReaderDeckLease {
 		val binding = (id.expectedBinding as ReaderExpectedPresentationBinding.Exact).binding
 		return assertNotNull(
@@ -1419,7 +1633,11 @@ class ReaderDeckAdmissionCutoverTest {
 		assertTrue(port.register(lease))
 		assertTrue(ledger.register(lease.resourceKey))
 		val command = assertNotNull(ledger.requestRelease(lease.resourceKey))
-		assertTrue(port.release(command) { assertTrue(ledger.confirmReleased(lease.resourceKey)) })
+		assertTrue(port.release(command) { fact ->
+			assertTrue(
+				ledger.confirmReleased(assertIs<ReaderTransitionFact.ResourceReleased>(fact))
+			)
+		})
 	}
 
 	private fun releaseRaster(
@@ -1430,7 +1648,11 @@ class ReaderDeckAdmissionCutoverTest {
 		assertTrue(port.register(lease))
 		assertTrue(ledger.register(lease.resourceKey))
 		val command = assertNotNull(ledger.requestRelease(lease.resourceKey))
-		assertTrue(port.release(command) { assertTrue(ledger.confirmReleased(lease.resourceKey)) })
+		assertTrue(port.release(command) { fact ->
+			assertTrue(
+				ledger.confirmReleased(assertIs<ReaderTransitionFact.ResourceReleased>(fact))
+			)
+		})
 	}
 
 	private fun testTransitionClock(): ReaderTransitionClock = object : ReaderTransitionClock {
@@ -1485,7 +1707,7 @@ class ReaderDeckAdmissionCutoverTest {
 
 	private fun synchronousCutover(inventory: ReaderLegacyDeckInventory): ReaderDeckAdmissionCutover =
 		deckCutover(inventory) { command, onFact ->
-			onFact(ReaderTransitionFact.ResourceReleased(command.transitionId, command.key))
+			onFact(ReaderTransitionFact.ResourceReleased(command.identity))
 		}
 
 	private fun deckCutover(
@@ -1513,7 +1735,7 @@ class ReaderDeckAdmissionCutoverTest {
 				ledger.requestRelease(key)?.let { command ->
 					release(command) { callbackFact ->
 						if (callbackFact is ReaderTransitionFact.ResourceReleased) {
-							ledger.confirmReleased(callbackFact.key)
+							ledger.confirmReleased(callbackFact)
 						}
 						cutover.onCoordinatorResourceFactProcessed(callbackFact)
 					}

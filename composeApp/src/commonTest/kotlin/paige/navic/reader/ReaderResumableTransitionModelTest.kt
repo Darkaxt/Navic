@@ -273,6 +273,150 @@ class ReaderResumableTransitionModelTest {
 	}
 
 	@Test
+	fun terminalSuccessorAdmissionFailureEntersReleaseOnlyWithPredecessorAuthority() {
+		val fixture = journalAwaitingSemanticSuccessor()
+		val successorOwner = transitionTestNativeOwner(fixture.id, fixture.successor)
+		val settled = fixture.journal.reduce(matchingSettlementFact(fixture))
+		val (awaitingFrame, target) = transitionTestApplyTargetPreparation(settled)
+		val prepared = awaitingFrame.reduce(
+			ReaderTransitionFact.PreparedFrame(
+				fixture.id,
+				target,
+				successorOwner,
+				target.resource
+			)
+		)
+		val completed = transitionTestApplySuccessorAcknowledgement(prepared)
+		val predecessorRelease = completed.commands
+			.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
+			.single { it.key == fixture.predecessorResourceKey }
+
+		val rejected = completed.state.reduce(
+			ReaderTransitionFact.ReleaseLedgerAdmissionRejected(
+				key = predecessorRelease.key,
+				cleanupKey = null,
+				reason = ReaderReleaseLedgerAdmissionRejectionReason.AttemptRejected,
+				rejectedRequest = predecessorRelease
+			)
+		)
+
+		assertNull(rejected.state.active)
+		assertTrue(rejected.state.committed === completed.state.committed)
+		assertEquals(
+			ReaderReleaseOnlyCleanupTrigger.ReleaseLedgerAdmissionRejected,
+			assertNotNull(rejected.state.releaseOnlyCleanup).trigger
+		)
+		assertEquals(
+			setOf(target.resource.key, predecessorRelease.key),
+			rejected.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
+				.mapTo(linkedSetOf()) { it.key }
+		)
+		assertIs<ReaderTransitionOutcome.Failed>(rejected.state.lastOutcome)
+	}
+
+	@Test
+	fun staleExactAdmissionFailureFailsClosedWithOwnerIndependentCleanup() {
+		val fixture = journalAwaitingSettlement()
+		val committed = assertIs<ReaderCommittedPresentation.Transition>(fixture.journal.committed)
+		val rejectedRequest = ReaderTransitionCommand.RequestResourceRelease(
+			issuer = ReaderResourceReleaseIssuer.Transition(committed.committed.id),
+			key = committed.committed.resourceKey,
+			registration = committed.committed.resourceRegistration
+		)
+
+		val rejected = fixture.journal.reduce(
+			ReaderTransitionFact.ReleaseLedgerAdmissionRejected(
+			key = rejectedRequest.key,
+			cleanupKey = null,
+			reason = ReaderReleaseLedgerAdmissionRejectionReason.AttemptRejected,
+			rejectedRequest = rejectedRequest
+			)
+		)
+
+		assertNull(rejected.state.active)
+		assertTrue(rejected.state.committed === fixture.journal.committed)
+		assertEquals(
+			ReaderReleaseOnlyCleanupTrigger.ReleaseLedgerAdmissionRejected,
+			assertNotNull(rejected.state.releaseOnlyCleanup).trigger
+		)
+		assertEquals(
+			fixture.id,
+			rejected.commands.filterIsInstance<ReaderTransitionCommand.CancelOwnedWork>().single().transitionId
+		)
+		assertEquals(
+			1,
+			rejected.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
+				.count { it.key == rejectedRequest.key && it.cleanupKey == rejected.state.releaseOnlyCleanup?.key }
+		)
+	}
+
+	@Test
+	fun processCloseCannotRewriteCompletedReleaseOnlyCleanup() {
+		val fixture = journalAwaitingSettlement()
+		val entered = fixture.journal.reduce(ReaderTransitionFact.PublicationReplaced(null)).state
+		val cleanup = assertNotNull(entered.releaseOnlyCleanup)
+		val completed = entered.copy(
+			releaseOnlyCleanup = cleanup.copy(
+				cancellationStatus = ReaderReleaseOnlyCancellationStatus.Applied,
+				deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting
+			)
+		)
+
+		val afterProcessClose = completed.markReleaseOnlyCleanupProcessClosed(cleanup.key)
+
+		assertEquals(completed, afterProcessClose)
+	}
+
+	@Test
+	fun processCloseCannotRewriteTerminalReleaseOnlyCleanupFailures() {
+		val fixture = journalAwaitingSettlement()
+		val entered = fixture.journal.reduce(ReaderTransitionFact.PublicationReplaced(null)).state
+		val cleanup = assertNotNull(entered.releaseOnlyCleanup)
+		val failed = entered.markReleaseOnlyCleanupDeadlineElapsed(cleanup.key)
+		val terminalStatuses = listOf(
+			ReaderReleaseOnlyCleanupDeadlineStatus.Elapsed,
+			ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected,
+			ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew,
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected,
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew
+		)
+
+		terminalStatuses.forEach { status ->
+			val terminal = failed.copy(
+				releaseOnlyCleanup = assertNotNull(failed.releaseOnlyCleanup).copy(
+					deadlineStatus = status
+				)
+			)
+
+			assertEquals(
+				terminal,
+				terminal.markReleaseOnlyCleanupProcessClosed(cleanup.key),
+				status.name
+			)
+		}
+	}
+
+	@Test
+	fun lateAdmissionFailureCannotRewriteTerminalCleanupOutcome() {
+		val fixture = journalAwaitingSettlement()
+		val entered = fixture.journal.reduce(ReaderTransitionFact.PublicationReplaced(null)).state
+		val cleanup = assertNotNull(entered.releaseOnlyCleanup)
+		val terminal = entered.markReleaseOnlyCleanupProcessClosed(cleanup.key)
+		val committed = assertIs<ReaderCommittedPresentation.Transition>(fixture.journal.committed)
+
+		val late = terminal.reduce(
+			ReaderTransitionFact.ReleaseLedgerAdmissionRejected(
+				key = committed.committed.resourceKey,
+				cleanupKey = cleanup.key,
+				reason = ReaderReleaseLedgerAdmissionRejectionReason.AttemptRejected
+			)
+		)
+
+		assertEquals(terminal, late.state)
+		assertTrue(late.commands.isEmpty())
+	}
+
+	@Test
 	fun everyAppOriginatedExternalRouteRegistersBeforeSemanticCommand() {
 		val fixture = journalAwaitingSettlement()
 		val idle = fixture.idleCommittedJournal()
@@ -361,7 +505,7 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(fixture.retainedOwner, failure.retainedOwner)
 		assertTrue(failed.state.committed.retainedResourceKeyForTest() == fixture.predecessorResourceKey, "Retained resource mismatch")
 		assertTrue(failed.commands.none {
-			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+			it is ReaderTransitionCommand.RequestResourceRelease && it.key == fixture.predecessorResourceKey
 		})
 
 		val retried = failed.state.reduce(ReaderTransitionFact.Retry(null))
@@ -412,7 +556,7 @@ class ReaderResumableTransitionModelTest {
 		val retryable = assertNotNull(failed.state.retryableTransition)
 		assertTrue(retryable.semanticDestinationCommitted)
 		assertTrue(failed.commands.none {
-			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+			it is ReaderTransitionCommand.RequestResourceRelease && it.key == fixture.predecessorResourceKey
 		})
 
 		val retried = failed.state.reduce(ReaderTransitionFact.Retry(null))
@@ -496,10 +640,10 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(retry.ownedResourceKeys.isEmpty())
 		assertEquals(fixture.predecessorResourceKey, retry.predecessorResourceKey)
 		assertTrue(failed.commands.any {
-			it is ReaderTransitionCommand.ReleaseResource && it.key == oldGestureResource
+			it is ReaderTransitionCommand.RequestResourceRelease && it.key == oldGestureResource
 		})
 		assertTrue(failed.commands.none {
-			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+			it is ReaderTransitionCommand.RequestResourceRelease && it.key == fixture.predecessorResourceKey
 		})
 		val resumed = transitionTestApplyRetainedAcknowledgement(retried)
 		assertTrue(
@@ -568,10 +712,10 @@ class ReaderResumableTransitionModelTest {
 				oldAttemptResource,
 				requireNotNull(fixture.journal.active?.pendingFrameTargetRegistration).key
 			),
-			failed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			failed.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 		assertTrue(failed.commands.none {
-			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+			it is ReaderTransitionCommand.RequestResourceRelease && it.key == fixture.predecessorResourceKey
 		})
 
 		val deckKey = ReaderTransitionResourceKey(
@@ -600,7 +744,7 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(fixture.successor, assertIs<ReaderTransitionOutcome.Succeeded>(completed.state.lastOutcome).binding)
 		assertEquals(
 			listOf(fixture.predecessorResourceKey),
-			completed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			completed.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 	}
 
@@ -619,7 +763,7 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(ReaderTransitionFailureReason.RendererRecoveryTimeout, outcome.reason)
 		assertTrue(secondFailure.commands.none { it is ReaderTransitionCommand.RequestSemanticSynchronization })
 		assertTrue(secondFailure.commands.none {
-			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+			it is ReaderTransitionCommand.RequestResourceRelease && it.key == fixture.predecessorResourceKey
 		})
 
 		val secondRetry = secondFailure.state.reduce(ReaderTransitionFact.Retry(null))
@@ -663,7 +807,7 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(fixture.retainedOwner, outcome.retainedOwner)
 		assertEquals(ReaderTransitionCommand.CancelOwnedWork(active.id), cancelled.commands.first())
 		assertTrue(cancelled.commands.none {
-			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+			it is ReaderTransitionCommand.RequestResourceRelease && it.key == fixture.predecessorResourceKey
 		})
 	}
 
@@ -763,7 +907,7 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(result.commands.none { it is ReaderTransitionCommand.AllocateMaterialBinding })
 		assertEquals(
 			listOf(requireNotNull(fixture.journal.active?.pendingFrameTargetRegistration).key),
-			result.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			result.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 	}
 
@@ -778,7 +922,7 @@ class ReaderResumableTransitionModelTest {
 
 		val failed = started.state.reduce(ReaderTransitionFact.DeadlineExpired(first.id))
 		assertTrue(failed.commands.none {
-			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+			it is ReaderTransitionCommand.RequestResourceRelease && it.key == fixture.predecessorResourceKey
 		})
 
 		val retried = failed.state.reduce(ReaderTransitionFact.Retry(null))
@@ -825,7 +969,7 @@ class ReaderResumableTransitionModelTest {
 		assertNull(completed.state.active)
 		assertEquals(
 			listOf(fixture.predecessorResourceKey),
-			completed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			completed.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 	}
 
@@ -954,10 +1098,10 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(ReaderTransitionCommand.CancelOwnedWork(first.id), replaced.commands.first())
 		assertEquals(
 			firstOwnedResources,
-			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 		assertTrue(replaced.commands.none {
-			it is ReaderTransitionCommand.ReleaseResource && it.key == fixture.predecessorResourceKey
+			it is ReaderTransitionCommand.RequestResourceRelease && it.key == fixture.predecessorResourceKey
 		})
 		val retainedPublication = assertIs<ReaderTransitionCommand.PublishRetainedOwnerAndInputLease>(
 			replaced.commands.last()
@@ -1013,7 +1157,7 @@ class ReaderResumableTransitionModelTest {
 			replaced.commands.first()
 		)
 		val releasedKeys = replaced.commands
-			.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+			.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 			.map { it.key }
 		assertEquals(listOf(admitted, pending, successor), releasedKeys)
 		assertFalse(fixture.predecessorResourceKey in releasedKeys)
@@ -1052,7 +1196,7 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(
 			listOf(shared),
 			replaced.commands
-				.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+				.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 				.map { it.key }
 		)
 		assertEquals(
@@ -1101,7 +1245,7 @@ class ReaderResumableTransitionModelTest {
 				commands += reduction.commands
 				if (index < permutation.lastIndex) {
 					assertEquals(fixture.retainedOwner, state.active?.phase?.contract?.retainedOwner)
-					assertTrue(reduction.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+					assertTrue(reduction.commands.none { it is ReaderTransitionCommand.RequestResourceRelease })
 				} else {
 					targetPreparation = reduction
 				}
@@ -1127,7 +1271,7 @@ class ReaderResumableTransitionModelTest {
 			val succeeded = assertIs<ReaderTransitionOutcome.Succeeded>(state.lastOutcome)
 			assertEquals(fixture.successor, succeeded.binding)
 			assertEquals(successorOwner, succeeded.committedOwner)
-			val releases = commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+			val releases = commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 			assertEquals(
 				listOf(
 					requireNotNull(fixture.journal.active?.pendingFrameTargetRegistration).key,
@@ -1247,7 +1391,7 @@ class ReaderResumableTransitionModelTest {
 
 			assertNull(reduction.state.active)
 			assertEquals(successor, assertIs<ReaderTransitionOutcome.Succeeded>(reduction.state.lastOutcome).committedOwner)
-			val releases = reduction.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+			val releases = reduction.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 			assertEquals(listOf(predecessorKey), releases.map { it.key })
 			val lease = committing.commands.filterIsInstance<ReaderTransitionCommand.CommitOwnerAndInputLease>().single().requestedLease
 			when (operation) {
@@ -1316,7 +1460,7 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(journal, rejected.state)
 		assertEquals(
 			listOf(wrongKey),
-			rejected.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			rejected.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 
 		val nativeOwner = transitionTestNativeOwner(id, binding)
@@ -1340,7 +1484,7 @@ class ReaderResumableTransitionModelTest {
 		)
 		assertEquals(
 			listOf(predecessorKey),
-			committed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			committed.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 	}
 
@@ -1414,7 +1558,7 @@ class ReaderResumableTransitionModelTest {
 			assertEquals(source, rejected.state)
 			assertEquals(
 				listOf(expectedKey),
-				rejected.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+				rejected.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 			)
 		}
 
@@ -1448,7 +1592,7 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(deckPending.state, staleOwned.state)
 		assertEquals(
 			listOf(wrongTransition),
-			staleOwned.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			staleOwned.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 
 		val owned = staleOwned.state.reduce(ReaderTransitionFact.DeckOwned(id, admitted))
@@ -1459,7 +1603,7 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(ReaderTransitionProofKind.DeckPrepared in requireNotNull(mismatchedPrepared.state.active).phase.contract.awaitedProofs)
 		assertEquals(
 			listOf(wrongDeck),
-			mismatchedPrepared.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			mismatchedPrepared.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 
 		val prepared = mismatchedPrepared.state.reduce(ReaderTransitionFact.DeckPrepared(id, admitted))
@@ -1548,7 +1692,7 @@ class ReaderResumableTransitionModelTest {
 			assertEquals(
 				listOf(ReaderTransitionCommand.CancelOwnedWork(active.id)) +
 					releasedKeys.map { key ->
-						ReaderTransitionCommand.ReleaseResource(active.id, key)
+						transitionTestReleaseRequest(active.id, key)
 					},
 				terminal.commands
 			)
@@ -1620,7 +1764,7 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(
 			listOf(reserved, observed),
 			terminal.commands
-				.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+				.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 				.map { it.key }
 		)
 	}
@@ -1639,12 +1783,12 @@ class ReaderResumableTransitionModelTest {
 		).state
 
 		val confirmed = registered.reduce(
-			ReaderTransitionFact.ResourceReleased(activeId, key)
+			transitionTestReleaseFact(activeId, key)
 		)
 		assertTrue(confirmed.commands.isEmpty())
 		assertFalse(key in requireNotNull(confirmed.state.active).ownedResourceKeys)
 		val duplicate = confirmed.state.reduce(
-			ReaderTransitionFact.ResourceReleased(activeId, key)
+			transitionTestReleaseFact(activeId, key)
 		)
 		assertEquals(confirmed.state, duplicate.state)
 		assertTrue(duplicate.commands.isEmpty())
@@ -1654,7 +1798,7 @@ class ReaderResumableTransitionModelTest {
 			opaqueId = 157L
 		)
 		val stale = duplicate.state.reduce(
-			ReaderTransitionFact.ResourceReleased(requireNotNull(staleKey.owningTransitionIdOrNull), staleKey)
+			transitionTestReleaseFact(requireNotNull(staleKey.owningTransitionIdOrNull), staleKey)
 		)
 		assertEquals(duplicate.state, stale.state)
 		assertTrue(stale.commands.isEmpty())
@@ -1664,7 +1808,7 @@ class ReaderResumableTransitionModelTest {
 		)
 		assertTrue(
 			terminal.commands
-				.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+				.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 				.none { it.key == key }
 		)
 	}
@@ -1719,14 +1863,13 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(keyA, conflicting.state.active?.successorResourceKey)
 		assertEquals(
 			listOf(keyB),
-			conflicting.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			conflicting.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 	}
 
 	@Test
 	fun everyStaleResourceFactUsesSemanticDispositionAndProtectsPredecessor() {
 		val fixture = journalRelocatingFromLivePredecessor()
-		val activeId = requireNotNull(fixture.journal.active).id
 		val unprotected = fixture.predecessorKey.copy(opaqueId = 127L)
 		val cases = resourceBearingFactCases()
 		assertEquals(
@@ -1765,7 +1908,12 @@ class ReaderResumableTransitionModelTest {
 			assertEquals(fixture.journal, rejected.state, case.name)
 			assertEquals(
 				if (case.staleUnprotectedReleases) {
-					listOf(ReaderTransitionCommand.ReleaseResource(activeId, unprotected))
+					listOf(
+						transitionTestReleaseRequest(
+							requireNotNull(unprotected.owningTransitionIdOrNull),
+							unprotected
+						)
+					)
 				} else {
 					emptyList()
 				},
@@ -1817,7 +1965,7 @@ class ReaderResumableTransitionModelTest {
 			val rejected = fixture.journal.reduce(fact)
 			assertEquals(fixture.journal, rejected.state)
 			assertEquals(
-				listOf(ReaderTransitionCommand.ReleaseResource(active.id, expectedKey)),
+				listOf(transitionTestReleaseRequest(active.id, expectedKey)),
 				rejected.commands
 			)
 		}
@@ -1959,12 +2107,61 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(replaced.state.releaseOnlyCleanup?.key, cancellation.cleanupKey)
 		assertEquals(
 			setOf(fixture.predecessorKey, raster, deck),
-			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }.toSet()
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }.toSet()
 		)
 		assertEquals(
-			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().size,
-			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }.distinct().size
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().size,
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }.distinct().size
 		)
+	}
+
+	@Test
+	fun cleanupKeyedCancellationOutcomesResolveOnlyTheExactPendingCancellation() {
+		val fixture = journalAwaitingSettlement()
+		val releaseOnly = fixture.journal.reduce(
+			ReaderTransitionFact.PublicationReplaced(null)
+		).state
+		val cleanup = assertNotNull(releaseOnly.releaseOnlyCleanup)
+		val cancelledTransitionId = assertNotNull(cleanup.preCloseTransitionId)
+		assertEquals(ReaderReleaseOnlyCancellationStatus.Pending, cleanup.cancellationStatus)
+		val outcomes = listOf(
+			ReaderOwnedWorkCancellationOutcome.Applied to
+				ReaderReleaseOnlyCancellationStatus.Applied,
+			ReaderOwnedWorkCancellationOutcome.Rejected to
+				ReaderReleaseOnlyCancellationStatus.Rejected,
+			ReaderOwnedWorkCancellationOutcome.Threw to
+				ReaderReleaseOnlyCancellationStatus.Threw
+		)
+
+		outcomes.forEach { (outcome, expectedStatus) ->
+			val reduced = releaseOnly.reduce(
+				ReaderTransitionFact.OwnedWorkCancellationCompleted(
+					cleanup.key,
+					cancelledTransitionId,
+					outcome
+				)
+			)
+
+			assertEquals(
+				expectedStatus,
+				assertNotNull(reduced.state.releaseOnlyCleanup).cancellationStatus
+			)
+			assertTrue(reduced.commands.isEmpty())
+		}
+
+		val wrongCleanup = cleanup.key.copy(
+			cleanupId = ReaderReleaseOnlyCleanupId(cleanup.key.cleanupId.value + 1L),
+			generation = ReaderReleaseOnlyCleanupGeneration(cleanup.key.generation.value + 1L)
+		)
+		val stale = releaseOnly.reduce(
+			ReaderTransitionFact.OwnedWorkCancellationCompleted(
+				wrongCleanup,
+				cancelledTransitionId,
+				ReaderOwnedWorkCancellationOutcome.Applied
+			)
+		)
+		assertEquals(releaseOnly, stale.state)
+		assertTrue(stale.commands.isEmpty())
 	}
 
 	@Test
@@ -1991,7 +2188,7 @@ class ReaderResumableTransitionModelTest {
 		assertNull(replaced.state.retryableTransition)
 		assertEquals(
 			listOf(fixture.predecessorResourceKey),
-			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 	}
 
@@ -2014,7 +2211,7 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(replaced.state.committed === journal.committed)
 		assertEquals(
 			listOf(key),
-			replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			replaced.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 	}
 
@@ -2122,7 +2319,7 @@ class ReaderResumableTransitionModelTest {
 			assertEquals(ReaderTransitionRetryability.NonRetryable, outcome.retryability)
 			assertEquals(
 				listOf(fixture.journal.committed.retainedResourceKeyForTest()),
-				failed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+				failed.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 			)
 
 			val duplicate = failed.state.reduce(fact)
@@ -2205,7 +2402,13 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(closed.state.committed === journal.committed)
 		assertEquals(
 			listOf(key),
-			closed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			closed.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
+		)
+		assertEquals(
+			assertNotNull(closed.state.releaseOnlyCleanup).key,
+			closed.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
+				.single()
+				.cleanupKey
 		)
 	}
 
@@ -2365,6 +2568,8 @@ class ReaderResumableTransitionModelTest {
 			ReaderTransitionFactKind.VisibilityChanged,
 			ReaderTransitionFactKind.ResourceLost,
 			ReaderTransitionFactKind.DeadlineExpired,
+			ReaderTransitionFactKind.OwnedWorkCancellationCompleted,
+			ReaderTransitionFactKind.ReleaseLedgerAdmissionRejected,
 			ReaderTransitionFactKind.Retry,
 			ReaderTransitionFactKind.PublicationReplaced,
 			ReaderTransitionFactKind.PublicationClosed
@@ -2433,7 +2638,7 @@ class ReaderResumableTransitionModelTest {
 		assertNull(fixture.adoptedResource.key.owningTransitionIdOrNull)
 		assertEquals(1L, first.id.sequence)
 		assertNull(first.id.parent)
-		assertTrue(started.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		assertTrue(started.commands.none { it is ReaderTransitionCommand.RequestResourceRelease })
 
 		val retained = transitionTestApplyRetainedAcknowledgement(started)
 		val allocated = retained.state.reduce(testAllocationFact(first.id, fixture.successor))
@@ -2459,12 +2664,12 @@ class ReaderResumableTransitionModelTest {
 				target.resource
 			)
 		)
-		assertTrue(committing.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		assertTrue(committing.commands.none { it is ReaderTransitionCommand.RequestResourceRelease })
 
 		val applied = transitionTestApplySuccessorAcknowledgement(committing)
-		val release = applied.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().single()
+		val release = applied.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().single()
 		assertTrue(release.key == fixture.adoptedResource.key, "Adopted release key mismatch")
-		assertNull(release.issuerTransitionId)
+		assertNull(release.transitionId)
 	}
 
 	@Test
@@ -2655,9 +2860,9 @@ class ReaderResumableTransitionModelTest {
 		val replaced = fixture.journal.reduce(ReaderTransitionFact.PublicationReplaced(null))
 
 		assertTrue(replaced.state.committed.retainedResourceKeyForTest() == fixture.adoptedResource.key, "Adopted resource mismatch")
-		val release = replaced.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().single()
+		val release = replaced.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().single()
 		assertTrue(release.key == fixture.adoptedResource.key, "Adopted release key mismatch")
-		assertNull(release.issuerTransitionId)
+		assertNull(release.transitionId)
 		val duplicate = replaced.state.reduce(ReaderTransitionFact.PublicationReplaced(null))
 		assertTrue(duplicate.commands.isEmpty())
 	}
@@ -2671,7 +2876,7 @@ class ReaderResumableTransitionModelTest {
 		assertIs<ReaderTransitionOutcome.Cancelled>(replaced.state.lastOutcome)
 		assertEquals(0L, replaced.state.lastTransitionSequence)
 		assertNull(replaced.state.lastIssuedTransitionIdentity)
-		assertTrue(replaced.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		assertTrue(replaced.commands.none { it is ReaderTransitionCommand.RequestResourceRelease })
 		val rejectedWork = replaced.state.reduce(
 			ReaderTransitionFact.Intent(
 				null,
@@ -2691,9 +2896,10 @@ class ReaderResumableTransitionModelTest {
 		assertNull(fixture.adoptedResource.key.owningTransitionIdOrNull)
 		assertEquals(0L, closed.state.lastTransitionSequence)
 		assertNull(closed.state.lastIssuedTransitionIdentity)
-		val release = closed.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().single()
+		val release = closed.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().single()
 		assertTrue(release.key === fixture.adoptedResource.key)
-		assertNull(release.issuerTransitionId)
+		assertNull(release.transitionId)
+		assertEquals(assertNotNull(closed.state.releaseOnlyCleanup).key, release.cleanupKey)
 		assertTrue(closed.state.reduce(ReaderTransitionFact.PublicationClosed(null)).commands.isEmpty())
 	}
 
@@ -2706,7 +2912,7 @@ class ReaderResumableTransitionModelTest {
 		assertTrue(closed.state.committed === baseline.committed)
 		assertEquals(0L, closed.state.lastTransitionSequence)
 		assertNull(closed.state.lastIssuedTransitionIdentity)
-		assertTrue(closed.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		assertTrue(closed.commands.none { it is ReaderTransitionCommand.RequestResourceRelease })
 		val duplicate = closed.state.reduce(ReaderTransitionFact.PublicationClosed(null))
 		assertTrue(duplicate.commands.isEmpty())
 		val rejectedWork = closed.state.reduce(
@@ -2730,14 +2936,14 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(1L, first.id.sequence)
 		assertNull(first.id.parent)
 		assertIs<ReaderTransitionCommand.PublishRetainedOwnerAndInputLease>(started.commands.single())
-		assertTrue(started.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		assertTrue(started.commands.none { it is ReaderTransitionCommand.RequestResourceRelease })
 
 		val flow = completeInitialRelocationFlow(started, fixture.successor)
-		assertTrue(flow.committing.commands.none { it is ReaderTransitionCommand.ReleaseResource })
-		val releases = flow.applied.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+		assertTrue(flow.committing.commands.none { it is ReaderTransitionCommand.RequestResourceRelease })
+		val releases = flow.applied.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 		assertEquals(1, releases.size)
 		assertTrue(releases.single().key == fixture.adoptedResource.key, "Adopted resource release mismatch")
-		assertNull(releases.single().issuerTransitionId)
+		assertNull(releases.single().transitionId)
 		val duplicate = flow.applied.state.reduce(flow.appliedFact)
 		assertTrue(duplicate.commands.isEmpty())
 	}
@@ -2754,11 +2960,11 @@ class ReaderResumableTransitionModelTest {
 		assertNull(first.id.parent)
 		assertTrue(started.commands.none {
 			it is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease ||
-				it is ReaderTransitionCommand.ReleaseResource
+				it is ReaderTransitionCommand.RequestResourceRelease
 		})
 		assertIs<ReaderTransitionCommand.AllocateMaterialBinding>(started.commands.single())
 		val flow = completeInitialRelocationFlow(started, binding)
-		assertTrue(flow.applied.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		assertTrue(flow.applied.commands.none { it is ReaderTransitionCommand.RequestResourceRelease })
 		assertIs<ReaderCommittedPresentation.Transition>(flow.applied.state.committed)
 	}
 
@@ -2770,7 +2976,7 @@ class ReaderResumableTransitionModelTest {
 		)
 		fun assertBaselineNotReleased(reduction: ReaderTransitionReduction) {
 			assertTrue(
-				reduction.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+				reduction.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 					.none { it.key == fixture.adoptedResource.key },
 				"Adopted baseline released before exact successor acknowledgement"
 			)
@@ -2838,7 +3044,7 @@ class ReaderResumableTransitionModelTest {
 		)
 		assertBaselineNotReleased(rejected)
 		assertEquals(1, rejected.commands.filterIsInstance<ReaderTransitionCommand.CancelOwnedWork>().size)
-		val released = rejected.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+		val released = rejected.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 			.map { it.key }
 		assertEquals(setOf(raster, deck, callback, flow.successorKey), released.toSet())
 		assertEquals(released.size, released.distinct().size, "Rejected resources released more than once")
@@ -2901,21 +3107,77 @@ class ReaderResumableTransitionModelTest {
 	@Test
 	fun adoptedReleaseCommandsExposeSessionAuthorityWithoutTransitionCast() {
 		val fixture = legacyAdoptedBaselineFixture()
-		val directRelease = ReaderTransitionCommand.ReleaseResource(fixture.adoptedResource)
+		val directRelease = transitionTestReleaseRequest(null, fixture.adoptedResource.key, fixture.adoptedResource)
 		assertNull(directRelease.transitionId, "Adopted release must not fabricate transition authority")
 
 		val started = fixture.journal.reduce(
 			ReaderTransitionFact.FoliateDestinationCommitted(null, fixture.successor)
 		)
 		val successorRelease = completeInitialRelocationFlow(started, fixture.successor).applied.commands
-			.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+			.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 			.single { it.key == fixture.adoptedResource.key }
 		assertNull(successorRelease.transitionId, "Successor release must retain session authority")
 
 		val closeRelease = fixture.journal.reduce(ReaderTransitionFact.PublicationClosed(null)).commands
-			.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+			.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 			.single()
 		assertNull(closeRelease.transitionId, "Close release must retain session authority")
+	}
+
+	@Test
+	fun releaseRequestRejectsTransitionAuthorityForAdoptedResource() {
+		val fixture = legacyAdoptedBaselineFixture()
+		val transitionId = transitionTestId(
+			operation = ReaderTransitionOperation.BootstrapNativePage,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(fixture.successor),
+			sequence = 1L
+		)
+
+		assertFailsWith<IllegalArgumentException> {
+			ReaderTransitionCommand.RequestResourceRelease(
+				issuer = ReaderResourceReleaseIssuer.Transition(transitionId),
+				key = fixture.adoptedResource.key,
+				registration = fixture.adoptedResource
+			)
+		}
+	}
+
+	@Test
+	fun physicalReleaseRejectsDifferentTransitionInSameLifecycle() {
+		val fixture = legacyAdoptedBaselineFixture()
+		val first = transitionTestId(
+			operation = ReaderTransitionOperation.BootstrapNativePage,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(fixture.successor),
+			sequence = 1L
+		)
+		val second = transitionTestId(
+			operation = ReaderTransitionOperation.RendererRecovery,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(fixture.successor),
+			sequence = 2L,
+			parent = first.parentIdentity()
+		)
+		val registration = ReaderTransitionResourceRegistration(
+			ReaderTransitionResourceKey(
+				first,
+				ReaderTransitionResourceKind.Deck,
+				601L
+			),
+			ReaderResourceRetirementOrder(
+				first.readerSessionGeneration,
+				first.coordinatorEpoch,
+				1L
+			)
+		)
+
+		assertFailsWith<IllegalArgumentException> {
+			ReaderTransitionCommand.ReleaseResource(
+				issuer = ReaderResourceReleaseIssuer.Transition(second),
+				identity = ReaderReleaseCommandIdentity(
+					ReaderPhysicalReleaseAttemptId.fromLedger(1L),
+					registration
+				)
+			)
+		}
 	}
 
 	@Test
@@ -2923,7 +3185,7 @@ class ReaderResumableTransitionModelTest {
 		val first = legacyAdoptedBaselineFixture()
 		val second = legacyAdoptedBaselineFixture(seedValue = 509L, opaqueResourceId = 521L)
 		val origin = assertIs<ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor>(first.baseline.origin)
-		val release = ReaderTransitionCommand.ReleaseResource(first.adoptedResource)
+		val release = transitionTestReleaseRequest(null, first.adoptedResource.key, first.adoptedResource)
 		val exact = ReaderExpectedPresentationBinding.Exact(origin.binding)
 		val otherExact = ReaderExpectedPresentationBinding.Exact(
 			origin.binding.copy(
@@ -2943,7 +3205,7 @@ class ReaderResumableTransitionModelTest {
 		assertEquals("ReaderCommittedPresentation.Initial(<redacted>)", first.baseline.toString())
 		assertEquals("ReaderTransitionJournal(<redacted>)", first.journal.toString())
 		assertEquals("ReaderExpectedPresentationBinding.Exact(<redacted>)", exact.toString())
-		assertEquals("ReaderTransitionCommand.ReleaseResource(<redacted>)", release.toString())
+		assertEquals("ReaderTransitionCommand.RequestResourceRelease(<redacted>)", release.toString())
 		assertEquals(first.baseline.hashCode(), second.baseline.hashCode())
 		assertEquals(first.journal.hashCode(), second.journal.hashCode())
 		assertEquals(first.adoptedResource.key.hashCode(), second.adoptedResource.key.hashCode())
@@ -2951,7 +3213,7 @@ class ReaderResumableTransitionModelTest {
 			assertIs<ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor>(second.baseline.origin)
 				.requestedLease.hashCode())
 		assertEquals(exact.hashCode(), otherExact.hashCode())
-		assertEquals(release.hashCode(), ReaderTransitionCommand.ReleaseResource(second.adoptedResource).hashCode())
+		assertEquals(release.hashCode(), transitionTestReleaseRequest(null, second.adoptedResource.key, second.adoptedResource).hashCode())
 	}
 
 	@Test
@@ -3231,7 +3493,7 @@ class ReaderResumableTransitionModelTest {
 		assertEquals(frameTargetPending.state, unknown.state)
 		assertEquals(
 			listOf(unknownDeck),
-			unknown.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().map { it.key }
+			unknown.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>().map { it.key }
 		)
 	}
 
@@ -3282,7 +3544,7 @@ class ReaderResumableTransitionModelTest {
 			assertEquals(journal, rejected.state)
 			assertEquals(
 				listOf(unknownKey),
-				rejected.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+				rejected.commands.filterIsInstance<ReaderTransitionCommand.RequestResourceRelease>()
 					.map { it.key },
 				fact::class.simpleName
 			)
@@ -4378,6 +4640,39 @@ private fun transitionTestLiveOwner(
 	)
 )
 
+private fun transitionTestReleaseRequest(
+	transitionId: ReaderTransitionId?,
+	key: ReaderTransitionResourceKey,
+	registration: ReaderTransitionResourceRegistration? = null
+) = ReaderTransitionCommand.RequestResourceRelease(
+	issuer = transitionId?.let(ReaderResourceReleaseIssuer::Transition)
+		?: requireNotNull(registration).retirementOrder.let {
+			ReaderResourceReleaseIssuer.Session(
+				it.readerSessionGeneration,
+				it.coordinatorEpoch
+			)
+		},
+	key = key,
+	registration = registration
+)
+
+private fun transitionTestReleaseFact(
+	transitionId: ReaderTransitionId,
+	key: ReaderTransitionResourceKey
+) = ReaderTransitionFact.ResourceReleased(
+	ReaderReleaseCommandIdentity(
+		ReaderPhysicalReleaseAttemptId.fromLedger(key.opaqueId),
+		ReaderTransitionResourceRegistration(
+			key,
+			ReaderResourceRetirementOrder(
+				transitionId.readerSessionGeneration,
+				transitionId.coordinatorEpoch,
+				transitionId.sequence
+			)
+		)
+	)
+)
+
 private data class ResourceBearingFactCase(
 	val name: String,
 	val staleUnprotectedReleases: Boolean = true,
@@ -4405,7 +4700,7 @@ private fun resourceBearingFactCases() = listOf(
 		ReaderTransitionFact.DeckRejected(id, key)
 	},
 	ResourceBearingFactCase("ResourceReleased", staleUnprotectedReleases = false) { id, _, key ->
-		ReaderTransitionFact.ResourceReleased(id, key)
+		transitionTestReleaseFact(id, key)
 	},
 	ResourceBearingFactCase("PreparedFrame") { id, binding, key ->
 		transitionTestPreparedFrame(

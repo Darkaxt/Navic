@@ -426,6 +426,7 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 		internal var restartState = ReaderLegacyResourceState.Reserved
 		internal var deckOwned = true
 		internal var callbackOwned = true
+		internal var callbackInventoriedAtFreeze = false
 		internal var deckReleaseRequested = false
 		internal var deckDrainConfirmation: ((ReaderLegacyPhysicalIdentity) -> Unit)? = null
 		internal var deckDrainIdentity: ReaderLegacyPhysicalIdentity? = null
@@ -478,6 +479,7 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult = when {
 		frozenDomain == null -> {
+			leases.forEach { it.callbackInventoriedAtFreeze = it.callbackOwned }
 			frozenDomain = domain
 			ReaderPortCommandResult.Accepted
 		}
@@ -599,6 +601,66 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 		if (identity != null && confirmation != null) confirmation(identity)
 	}
 
+	fun finalizeActivatedHandoff(
+		domain: ReaderLegacyPhysicalDomain,
+		selectedIdentity: ReaderLegacyPhysicalIdentity?,
+		confirmedRetirements: Set<ReaderLegacyPhysicalIdentity>,
+		onValidated: (selected: Lease?, retired: List<Lease>) -> Boolean
+	): ReaderPortCommandResult {
+		if (frozenDomain != domain) return invalidPhysicalResource()
+		if (
+			selectedIdentity != null &&
+			(selectedIdentity.domain != domain ||
+				selectedIdentity.source != ReaderLegacyInventorySource.Deck)
+		) return invalidPhysicalResource()
+		val selected = selectedIdentity?.let { identity ->
+			leases.singleOrNull { it.deckToken == identity.sourceLocalToken }
+				?: return invalidPhysicalResource()
+		}
+		val expectedRetirements = buildSet {
+			leases.forEach { lease ->
+				if (lease !== selected) add(identity(domain, lease.deckToken))
+				if (lease.callbackInventoriedAtFreeze) {
+					add(identity(domain, lease.callbackToken))
+				}
+			}
+		}
+		if (
+			confirmedRetirements != expectedRetirements ||
+			completedFrozenCallbacks.isNotEmpty() ||
+			leases.any { lease ->
+				lease.callbackOwned ||
+					lease.deckReleaseRequested ||
+					if (lease === selected) !lease.deckOwned else lease.deckOwned
+			}
+		) return invalidPhysicalResource()
+		val retired = leases.filterNot { it === selected }
+		val accepted = try {
+			onValidated(selected, retired)
+		} catch (_: Throwable) {
+			false
+		}
+		if (!accepted) return invalidPhysicalResource()
+		retired.forEach { it.state = ReaderLegacyResourceState.Released }
+		leases.clear()
+		completedFrozenCallbacks.clear()
+		frozenDomain = null
+		return ReaderPortCommandResult.Accepted
+	}
+
+	private fun identity(
+		domain: ReaderLegacyPhysicalDomain,
+		token: ReaderLegacySourceLocalOpaqueToken
+	) = ReaderLegacyPhysicalIdentity(
+		domain = domain,
+		source = ReaderLegacyInventorySource.Deck,
+		sourceLocalToken = token
+	)
+
+	private fun invalidPhysicalResource() = ReaderPortCommandResult.Rejected(
+		ReaderTransitionFailureReason.InvalidLegacyResource
+	)
+
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult {
@@ -622,6 +684,7 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 		if (!restored) return ReaderPortCommandResult.Rejected(
 			ReaderTransitionFailureReason.InvalidLegacyResource
 		)
+		leases.forEach { it.callbackInventoriedAtFreeze = false }
 		frozenDomain = null
 		return ReaderPortCommandResult.Accepted
 	}

@@ -13,8 +13,14 @@ import paige.navic.reader.ReaderPresentationEventOrigin
 import paige.navic.reader.ReaderPresentationEventReceipt
 import paige.navic.reader.ReaderPresentationSemanticReceipt
 import paige.navic.reader.ReaderPresentationSemanticReceiptConsumption
+import paige.navic.reader.ReaderReleaseLedgerAdmissionRejectionReason
+import paige.navic.reader.ReaderReleaseOnlyCancellationStatus
 import paige.navic.reader.ReaderReleaseOnlyCleanupDeadlineStatus
+import paige.navic.reader.ReaderReleaseOnlyCleanupKey
 import paige.navic.reader.ReaderReleaseOnlySemanticAuthority
+import paige.navic.reader.ReaderResourceReleaseIssuer
+import paige.navic.reader.ReaderReleaseCommandIdentity
+import paige.navic.reader.ReaderReleaseLedgerCleanupStatus
 import paige.navic.reader.ReaderSaturatingCallbackCount
 import paige.navic.reader.ReaderSemanticPortContractViolationReason
 import paige.navic.reader.ReaderTransitionCommand
@@ -33,6 +39,8 @@ import paige.navic.reader.ReaderTransitionResourceRegistration
 import paige.navic.reader.ReaderResourceRetirementOrder
 import paige.navic.reader.ReaderTransitionResourceOwnerId
 import paige.navic.reader.deadlinePolicy
+import paige.navic.reader.markReleaseOnlyCleanupDeadlineElapsed
+import paige.navic.reader.markReleaseOnlyCleanupProcessClosed
 import paige.navic.reader.pendingStageOrNull
 import paige.navic.reader.reduceTrustedSemanticPortContractViolation
 import paige.navic.reader.retainTrustedSemanticAuthority
@@ -89,7 +97,80 @@ internal data class ReaderTransitionReleaseLedgerSnapshot(
 internal enum class ReaderTransitionResourceState {
 	Owned,
 	ReleaseCommandIssued,
-	Released
+	RejectedNoEffect,
+	AmbiguousFailure,
+	Released,
+	TimedOutUnreleased,
+	ProcessClosedUnreleased
+}
+
+internal enum class ReaderReleaseFailureTombstoneReason {
+	RejectedNoEffectTimedOut,
+	AmbiguousFailureTimedOut,
+	RejectedNoEffectProcessClosed,
+	AmbiguousFailureProcessClosed
+}
+
+internal data class ReaderReleaseFailureTombstone(
+	val cleanupKey: paige.navic.reader.ReaderReleaseOnlyCleanupKey,
+	val identity: paige.navic.reader.ReaderReleaseCommandIdentity,
+	val reason: ReaderReleaseFailureTombstoneReason
+) {
+	override fun hashCode(): Int = 0x52465453
+	override fun toString(): String = "ReaderReleaseFailureTombstone(<redacted>)"
+}
+
+internal data class ReaderReleaseFailureFenceSnapshot(
+	val tombstones: Set<ReaderReleaseFailureTombstone>
+) {
+	init { require(tombstones.size <= 32) }
+	override fun hashCode(): Int = 0x52464653
+	override fun toString(): String = "ReaderReleaseFailureFenceSnapshot(<redacted>)"
+}
+
+internal enum class ReaderResourceRetirementFenceCapacityStatus { Available, Full }
+
+internal data class ReaderResourceRetirementFenceSanitizedProjection(
+	val hasContiguousReleasedPrefix: Boolean,
+	val outOfOrderReleasedCount: Int,
+	val capacityStatus: ReaderResourceRetirementFenceCapacityStatus
+)
+
+internal class ReaderResourceRetirementFenceSnapshot internal constructor(
+	private val readerSessionGeneration: Long,
+	private val coordinatorEpoch: Long,
+	private val contiguousReleasedThrough: Long,
+	private val outOfOrderReleasedSequences: Set<Long>
+) {
+	init {
+		require(readerSessionGeneration > 0L)
+		require(coordinatorEpoch > 0L)
+		require(contiguousReleasedThrough >= 0L)
+		require(outOfOrderReleasedSequences.size <= 32)
+		require(outOfOrderReleasedSequences.all { it > contiguousReleasedThrough })
+	}
+
+	internal fun confirms(order: ReaderResourceRetirementOrder): Boolean =
+		order.readerSessionGeneration == readerSessionGeneration &&
+			order.coordinatorEpoch == coordinatorEpoch &&
+			(order.sequence <= contiguousReleasedThrough || order.sequence in outOfOrderReleasedSequences)
+
+	internal fun sanitizedProjection() = ReaderResourceRetirementFenceSanitizedProjection(
+		hasContiguousReleasedPrefix = contiguousReleasedThrough > 0L,
+		outOfOrderReleasedCount = outOfOrderReleasedSequences.size,
+		capacityStatus = if (outOfOrderReleasedSequences.size == 32) {
+			ReaderResourceRetirementFenceCapacityStatus.Full
+		} else ReaderResourceRetirementFenceCapacityStatus.Available
+	)
+
+	override fun equals(other: Any?): Boolean =
+		other is ReaderResourceRetirementFenceSnapshot &&
+			readerSessionGeneration == other.readerSessionGeneration &&
+			coordinatorEpoch == other.coordinatorEpoch &&
+			contiguousReleasedThrough == other.contiguousReleasedThrough &&
+			outOfOrderReleasedSequences == other.outOfOrderReleasedSequences
+	override fun hashCode(): Int = 0x52524653
+	override fun toString(): String = "ReaderResourceRetirementFenceSnapshot(<redacted>)"
 }
 
 internal enum class ReaderTransitionRetirementFenceState { Inactive, Active }
@@ -99,9 +180,7 @@ internal data class ReaderTransitionReleaseLedgerRetentionSnapshot(
 	val earlyConfirmationCount: Int,
 	val terminalTombstoneCount: Int,
 	val terminalTombstoneCapacity: Int,
-	val retirementFenceState: ReaderTransitionRetirementFenceState,
-	val contiguousReleasedThrough: Long = 0L,
-	val outOfOrderReleasedCount: Int = 0
+	val retirementFenceState: ReaderTransitionRetirementFenceState
 )
 
 internal data class ReaderTransitionTerminalTombstoneSnapshot(
@@ -222,147 +301,581 @@ private fun paige.navic.reader.ReaderTransitionId.lifecycle(): ReaderTransitionL
 	)
 
 internal class ReaderTransitionReleaseLedger {
-	private val states = linkedMapOf<ReaderTransitionResourceKey, ReaderTransitionResourceState>()
+	private data class AttemptRow(
+		val identity: ReaderReleaseCommandIdentity,
+		val commandCleanupKey: ReaderReleaseOnlyCleanupKey?,
+		var cleanupKey: ReaderReleaseOnlyCleanupKey?,
+		var state: ReaderTransitionResourceState
+	)
+
+	private data class UnresolvedAdmissionRow(
+		val key: ReaderTransitionResourceKey,
+		var cleanupKey: ReaderReleaseOnlyCleanupKey?,
+		var state: ReaderTransitionResourceState = ReaderTransitionResourceState.Owned
+	)
+
+	private data class UnresolvedAttemptAdmissionRow(
+		val registration: ReaderTransitionResourceRegistration,
+		var cleanupKey: ReaderReleaseOnlyCleanupKey?,
+		var state: ReaderTransitionResourceState = ReaderTransitionResourceState.Owned
+	)
+
+	private data class UnresolvedAdmissionOverflowRow(
+		var cleanupKey: ReaderReleaseOnlyCleanupKey?,
+		var state: ReaderTransitionResourceState = ReaderTransitionResourceState.Owned
+	)
+
 	private val registrations = linkedMapOf<ReaderTransitionResourceKey, ReaderTransitionResourceRegistration>()
-	private val explicitRegistrations = linkedSetOf<ReaderTransitionResourceKey>()
-	private val terminalTombstones = ReaderTransitionTerminalTombstones()
-	private var registrationLifecycle: Pair<Long, Long>? = null
-	private var nextRetirementSequence = 1L
-	private var contiguousReleasedThrough = 0L
+	private val imports = linkedMapOf<ReaderLegacyPhysicalIdentity, ReaderImportedLegacyResourceRegistration>()
+	private val physicalByRegistration = linkedMapOf<ReaderTransitionResourceRegistration, ReaderLegacyPhysicalIdentity>()
+	private val attempts = linkedMapOf<ReaderTransitionResourceRegistration, AttemptRow>()
+	private val unresolvedAdmissions = linkedMapOf<ReaderTransitionResourceKey, UnresolvedAdmissionRow>()
+	private val unresolvedAttemptAdmissions = linkedMapOf<
+		ReaderTransitionResourceRegistration,
+		UnresolvedAttemptAdmissionRow
+	>()
+	private var unresolvedAdmissionOverflow: UnresolvedAdmissionOverflowRow? = null
+	private val transitionTombstones = ReaderTransitionTerminalTombstones()
+	private val adoptedTerminalRegistrations = linkedSetOf<ReaderTransitionResourceRegistration>()
+	private val failureTombstones = ArrayDeque<ReaderReleaseFailureTombstone>()
+	private var lifecycle: Pair<Long, Long>? = null
+	private var nextRetirement = 1L
+	private var nextImportedKey = 1L
+	private var nextAttempt = 1L
+	private var contiguousReleased = 0L
 	private val outOfOrderReleased = sortedSetOf<Long>()
 
+	fun register(
+		key: ReaderTransitionResourceKey,
+		session: Long,
+		epoch: Long
+	): ReaderTransitionResourceRegistration? {
+		if (key.ownerId !is ReaderTransitionResourceOwnerId.TransitionOwned) return null
+		return registerAuthoritativeKey(key, session, epoch)
+	}
+
+	private fun registerAuthoritativeKey(
+		key: ReaderTransitionResourceKey,
+		session: Long,
+		epoch: Long
+	): ReaderTransitionResourceRegistration? {
+		key.owningTransitionIdOrNull?.let {
+			if (it.readerSessionGeneration != session || it.coordinatorEpoch != epoch) return null
+		}
+		registrations[key]?.let { return it }
+		if (
+			key in unresolvedAdmissions ||
+			!canAdmitLifecycle(session to epoch) ||
+			registrations.size >= MaxActive ||
+			adoptedTerminalRegistrations.any { it.key == key } ||
+			(key.owningTransitionIdOrNull != null && transitionTombstones.rejectsRegistration(key))
+		) return null
+		return ReaderTransitionResourceRegistration(key, allocateOrder(session, epoch)).also { registrations[key] = it }
+	}
+
 	fun register(key: ReaderTransitionResourceKey): Boolean {
-		val owner = key.ownerId as? ReaderTransitionResourceOwnerId.TransitionOwned ?: return false
-		if (key in states || terminalTombstones.rejectsRegistration(key)) return false
-		val id = owner.transitionId
-		registrations[key] = ReaderTransitionResourceRegistration(
-			key,
-			ReaderResourceRetirementOrder(
-				id.readerSessionGeneration,
-				id.coordinatorEpoch,
-				id.sequence
-			)
-		)
-		states[key] = ReaderTransitionResourceState.Owned
+		val id = key.owningTransitionIdOrNull ?: return false
+		if (key in registrations || adoptedTerminalRegistrations.any { it.key == key }) return false
+		return register(key, id.readerSessionGeneration, id.coordinatorEpoch) != null
+	}
+
+	fun retainUnresolvedAdmission(
+		key: ReaderTransitionResourceKey,
+		cleanupKey: ReaderReleaseOnlyCleanupKey?
+	): Boolean {
+		unresolvedAdmissions[key]?.let { existing ->
+			if (existing.cleanupKey == null) existing.cleanupKey = cleanupKey
+			return true
+		}
+		if (
+			key in registrations ||
+			adoptedTerminalRegistrations.any { it.key == key }
+		) return false
+		if (unresolvedAdmissions.size >= MaxUnresolvedAdmissions) {
+			val overflow = unresolvedAdmissionOverflow
+			if (overflow == null) {
+				unresolvedAdmissionOverflow = UnresolvedAdmissionOverflowRow(cleanupKey)
+			} else if (overflow.cleanupKey == null) {
+				overflow.cleanupKey = cleanupKey
+			}
+			return true
+		}
+		unresolvedAdmissions[key] = UnresolvedAdmissionRow(key, cleanupKey)
 		return true
 	}
 
 	fun register(registration: ReaderTransitionResourceRegistration): Boolean {
-		val key = registration.key
-		val existing = registrations[key]
-		if (existing != null) return existing == registration && false
-		if (key in states) return false
-		if (key.owningTransitionIdOrNull != null && terminalTombstones.rejectsRegistration(key)) return false
-		if (!admitRetirementOrder(registration.retirementOrder)) return false
-		registrations[key] = registration
-		explicitRegistrations += key
-		states[key] = ReaderTransitionResourceState.Owned
+		if (registration.key.ownerId !is ReaderTransitionResourceOwnerId.TransitionOwned) {
+			return false
+		}
+		if (!canAdmitOrder(registration.retirementOrder)) return false
+		if (
+			registration.key in registrations ||
+			registration.key in unresolvedAdmissions ||
+			adoptedTerminalRegistrations.any { it.key == registration.key } ||
+			registrations.values.any { it.retirementOrder == registration.retirementOrder } ||
+			registrations.size >= MaxActive ||
+			(
+				registration.key.owningTransitionIdOrNull != null &&
+					transitionTombstones.rejectsRegistration(registration.key)
+			)
+		) return false
+		if (!admitOrder(registration.retirementOrder)) return false
+		registrations[registration.key] = registration
 		return true
 	}
 
-	fun requestRelease(key: ReaderTransitionResourceKey): ReaderTransitionCommand.ReleaseResource? {
-		if (states[key] != ReaderTransitionResourceState.Owned) return null
-		val registration = registrations[key] ?: return null
-		states[key] = ReaderTransitionResourceState.ReleaseCommandIssued
-		return if (key in explicitRegistrations) {
-			ReaderTransitionCommand.ReleaseResource(registration)
-		} else {
-			when (val owner = key.ownerId) {
-				is ReaderTransitionResourceOwnerId.TransitionOwned ->
-					ReaderTransitionCommand.ReleaseResource(owner.transitionId, key)
-				is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> null
+	fun importLegacy(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		ownerId: ReaderTransitionResourceOwnerId.AdoptedPredecessor,
+		kind: ReaderTransitionResourceKind,
+		coordinatorEpoch: Long
+	): ReaderImportedLegacyResourceRegistration? {
+		imports[physicalIdentity]?.let { existing ->
+			return existing.takeIf {
+				it.registration.key.ownerId == ownerId &&
+					it.registration.key.kind == kind &&
+					it.registration.retirementOrder.coordinatorEpoch == coordinatorEpoch
 			}
 		}
-	}
-
-	fun confirmReleased(key: ReaderTransitionResourceKey): Boolean {
-		val explicitRegistration = registrations[key]?.takeIf { key in explicitRegistrations }
-		if (explicitRegistration != null) return confirmReleased(explicitRegistration)
-		val activeState = states.remove(key)
-		registrations.remove(key)
-		val recorded = terminalTombstones.record(key, fromActiveRegistration = activeState != null)
-		return recorded
-	}
-
-	fun confirmReleased(registration: ReaderTransitionResourceRegistration): Boolean {
-		val key = registration.key
-		if (registrations[key] != registration || key !in explicitRegistrations) return false
-		val sequence = registration.retirementOrder.sequence
-		if (
-			sequence > contiguousReleasedThrough + 1L &&
-			sequence !in outOfOrderReleased &&
-			outOfOrderReleased.size >= 32
-		) return false
-		if (states.remove(key) == null) return false
-		registrations.remove(key)
-		explicitRegistrations.remove(key)
-		val recorded = when (key.ownerId) {
-			is ReaderTransitionResourceOwnerId.TransitionOwned ->
-				terminalTombstones.record(key, fromActiveRegistration = true)
-			is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> true
+		if (imports.size >= MaxActive || nextImportedKey == Long.MAX_VALUE) return null
+		val registration = registerAuthoritativeKey(
+			ReaderTransitionResourceKey(ownerId, kind, nextImportedKey++),
+			physicalIdentity.domain.readerSessionGeneration,
+			coordinatorEpoch
+		) ?: return null
+		return ReaderImportedLegacyResourceRegistration(physicalIdentity, registration).also {
+			imports[physicalIdentity] = it
+			physicalByRegistration[registration] = physicalIdentity
 		}
-		if (!recorded) return false
-		advanceRetirementFence(registration.retirementOrder.sequence)
+	}
+
+	fun rollbackUnpublishedImport(
+		imported: ReaderImportedLegacyResourceRegistration
+	): Boolean {
+		val registration = imported.registration
+		val order = registration.retirementOrder
+		val key = registration.key
+		if (
+			imports[imported.physicalIdentity] != imported ||
+			physicalByRegistration[registration] != imported.physicalIdentity ||
+			registrations[key] != registration ||
+			registration in attempts ||
+			registration in unresolvedAttemptAdmissions ||
+			registration in adoptedTerminalRegistrations ||
+			lifecycle != (order.readerSessionGeneration to order.coordinatorEpoch) ||
+			nextRetirement != order.sequence + 1L ||
+			nextImportedKey != key.opaqueId + 1L ||
+			order.sequence <= contiguousReleased ||
+			order.sequence in outOfOrderReleased
+		) return false
+		imports.remove(imported.physicalIdentity)
+		physicalByRegistration.remove(registration)
+		registrations.remove(key)
+		nextRetirement = order.sequence
+		nextImportedKey = key.opaqueId
 		return true
 	}
 
-	fun stateOf(key: ReaderTransitionResourceKey): ReaderTransitionResourceState? =
-		states[key] ?: ReaderTransitionResourceState.Released.takeIf {
-			key.owningTransitionIdOrNull?.let { terminalTombstones.containsOrFenced(key) } == true
+	fun requestRelease(
+		issuer: paige.navic.reader.ReaderResourceReleaseIssuer,
+		registration: ReaderTransitionResourceRegistration,
+		cleanupKey: ReaderReleaseOnlyCleanupKey? = null
+	): ReaderTransitionCommand.ReleaseResource? {
+		if (!issuerMatchesRegistration(issuer, registration)) return null
+		if (
+			registrations[registration.key] != registration ||
+			registration in attempts
+		) return null
+		val unresolved = unresolvedAttemptAdmissions[registration]
+		if (unresolved != null && unresolved.state != ReaderTransitionResourceState.Owned) {
+			return null
 		}
-
-	fun snapshot(): ReaderTransitionReleaseLedgerSnapshot = ReaderTransitionReleaseLedgerSnapshot(
-		ownedCount = states.values.count { it == ReaderTransitionResourceState.Owned },
-		issuedCount = states.values.count { it == ReaderTransitionResourceState.ReleaseCommandIssued },
-		releasedCount = terminalTombstones.snapshot().terminalTombstoneCount
-	)
-
-	fun retentionSnapshot(): ReaderTransitionReleaseLedgerRetentionSnapshot =
-		terminalTombstones.snapshot().copy(
-			activeStateCount = states.size,
-			contiguousReleasedThrough = contiguousReleasedThrough,
-			outOfOrderReleasedCount = outOfOrderReleased.size
+		if (
+			unresolved?.cleanupKey != null && cleanupKey != null &&
+			unresolved.cleanupKey != cleanupKey
+		) return null
+		val authoritativeCleanupKey = unresolved?.cleanupKey ?: cleanupKey
+		if (
+			attempts.size >= MaxActive ||
+			failureTombstones.size >= MaxTerminal ||
+			wouldExceedAdoptedTerminalCapacity(registration) ||
+			wouldExceedRetirementFenceCapacity(registration.retirementOrder) ||
+			nextAttempt == Long.MAX_VALUE
+		) {
+			if (unresolved == null) {
+				check(unresolvedAttemptAdmissions.size < MaxActive) {
+					"Unresolved release-attempt admission capacity exhausted"
+				}
+				unresolvedAttemptAdmissions[registration] = UnresolvedAttemptAdmissionRow(
+					registration,
+					authoritativeCleanupKey
+				)
+			} else if (unresolved.cleanupKey == null) {
+				unresolved.cleanupKey = authoritativeCleanupKey
+			}
+			return null
+		}
+		unresolvedAttemptAdmissions.remove(registration)
+		val identity = ReaderReleaseCommandIdentity(
+			paige.navic.reader.ReaderPhysicalReleaseAttemptId.fromLedger(nextAttempt++), registration
 		)
-
-	private fun allocateRetirementOrder(session: Long, epoch: Long): ReaderResourceRetirementOrder {
-		val lifecycle = session to epoch
-		if (registrationLifecycle != lifecycle) {
-			registrationLifecycle = lifecycle
-			nextRetirementSequence = 1L
-			contiguousReleasedThrough = 0L
-			outOfOrderReleased.clear()
-		}
-		val sequence = nextRetirementSequence
-		check(sequence < Long.MAX_VALUE) { "Resource retirement order exhausted" }
-		nextRetirementSequence += 1L
-		return ReaderResourceRetirementOrder(session, epoch, sequence)
+		attempts[registration] = AttemptRow(
+			identity = identity,
+			commandCleanupKey = authoritativeCleanupKey,
+			cleanupKey = authoritativeCleanupKey,
+			state = ReaderTransitionResourceState.ReleaseCommandIssued
+		)
+		return ReaderTransitionCommand.ReleaseResource(issuer, identity, authoritativeCleanupKey)
 	}
 
-	private fun admitRetirementOrder(order: ReaderResourceRetirementOrder): Boolean {
-		val lifecycle = order.readerSessionGeneration to order.coordinatorEpoch
-		val current = registrationLifecycle
-		if (current == null || compareValuesBy(lifecycle, current, Pair<Long, Long>::first, Pair<Long, Long>::second) > 0) {
-			registrationLifecycle = lifecycle
-			nextRetirementSequence = order.sequence + 1L
-			contiguousReleasedThrough = 0L
+	private fun wouldExceedAdoptedTerminalCapacity(
+		registration: ReaderTransitionResourceRegistration
+	): Boolean {
+		if (registration.key.ownerId !is ReaderTransitionResourceOwnerId.AdoptedPredecessor) {
+			return false
+		}
+		val reserved = adoptedTerminalRegistrations.size + attempts.keys.count {
+			it.key.ownerId is ReaderTransitionResourceOwnerId.AdoptedPredecessor
+		}
+		return reserved >= MaxTerminal
+	}
+
+	private fun wouldExceedRetirementFenceCapacity(
+		order: ReaderResourceRetirementOrder
+	): Boolean {
+		val domain = lifecycle ?: return false
+		if (
+			order.readerSessionGeneration != domain.first ||
+			order.coordinatorEpoch != domain.second ||
+			order.sequence <= contiguousReleased + 1L
+		) return false
+		val reservedGapCount = outOfOrderReleased.size + attempts.values.count { row ->
+			val candidate = row.identity.registration.retirementOrder
+			candidate.readerSessionGeneration == domain.first &&
+				candidate.coordinatorEpoch == domain.second &&
+				candidate.sequence > contiguousReleased + 1L
+		}
+		return reservedGapCount >= MaxTerminal
+	}
+
+	private fun issuerMatchesRegistration(
+		issuer: ReaderResourceReleaseIssuer,
+		registration: ReaderTransitionResourceRegistration
+	): Boolean = when (issuer) {
+		is ReaderResourceReleaseIssuer.Transition ->
+			registration.key.ownerId == ReaderTransitionResourceOwnerId.TransitionOwned(
+				issuer.transitionId
+			)
+		is ReaderResourceReleaseIssuer.Session ->
+			registration.key.ownerId is ReaderTransitionResourceOwnerId.AdoptedPredecessor &&
+				registration.retirementOrder.readerSessionGeneration ==
+					issuer.readerSessionGeneration &&
+				registration.retirementOrder.coordinatorEpoch == issuer.coordinatorEpoch
+	}
+
+	fun requestRelease(
+		key: ReaderTransitionResourceKey,
+		cleanupKey: ReaderReleaseOnlyCleanupKey? = null
+	): ReaderTransitionCommand.ReleaseResource? {
+		val registration = registrations[key] ?: return null
+		val issuer = when (val owner = key.ownerId) {
+			is ReaderTransitionResourceOwnerId.TransitionOwned -> paige.navic.reader.ReaderResourceReleaseIssuer.Transition(owner.transitionId)
+			is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> paige.navic.reader.ReaderResourceReleaseIssuer.Session(
+				registration.retirementOrder.readerSessionGeneration, registration.retirementOrder.coordinatorEpoch
+			)
+		}
+		return requestRelease(issuer, registration, cleanupKey)
+	}
+
+	fun owns(registration: ReaderTransitionResourceRegistration): Boolean =
+		registrations[registration.key] == registration
+
+	fun importedFor(registration: ReaderTransitionResourceRegistration): ReaderImportedLegacyResourceRegistration? =
+		physicalByRegistration[registration]?.let(imports::get)
+
+	fun transferOutstandingAttemptsToCleanup(key: ReaderReleaseOnlyCleanupKey): Int {
+		var count = 0
+		attempts.values.forEach { if (it.cleanupKey == null) { it.cleanupKey = key; count += 1 } }
+		unresolvedAdmissions.values.forEach {
+			if (it.cleanupKey == null) {
+				it.cleanupKey = key
+				count += 1
+			}
+		}
+		unresolvedAdmissionOverflow?.let {
+			if (it.cleanupKey == null) {
+				it.cleanupKey = key
+				count += 1
+			}
+		}
+		unresolvedAttemptAdmissions.values.forEach {
+			if (it.cleanupKey == null) {
+				it.cleanupKey = key
+				count += 1
+			}
+		}
+		return count
+	}
+
+	fun recordRejectedNoEffect(fact: ReaderTransitionFact.ReleaseCommandRejected): Boolean =
+		setFailure(fact.identity, fact.cleanupKey, ReaderTransitionResourceState.RejectedNoEffect)
+
+	fun recordAmbiguousFailure(fact: ReaderTransitionFact.ReleaseCommandThrew): Boolean =
+		setFailure(fact.identity, fact.cleanupKey, ReaderTransitionResourceState.AmbiguousFailure)
+
+	fun recordPortContractViolation(fact: ReaderTransitionFact.ReleasePortContractViolated): Boolean =
+		matchingOutcome(fact.identity, fact.cleanupKey) != null
+
+	private fun setFailure(identity: ReaderReleaseCommandIdentity, key: ReaderReleaseOnlyCleanupKey?, state: ReaderTransitionResourceState): Boolean {
+		val row = matchingOutcome(identity, key) ?: return false
+		if (row.state != ReaderTransitionResourceState.ReleaseCommandIssued) return false
+		row.state = state
+		return true
+	}
+
+	private fun matchingOutcome(
+		identity: ReaderReleaseCommandIdentity,
+		key: ReaderReleaseOnlyCleanupKey?
+	): AttemptRow? {
+		val row = attempts[identity.registration] ?: return null
+		return row.takeIf { it.identity == identity && it.commandCleanupKey == key }
+	}
+
+	fun confirmReleased(fact: ReaderTransitionFact.ResourceReleased): Boolean = confirm(null, fact)
+	fun confirmLegacyReleased(identity: ReaderLegacyPhysicalIdentity, fact: ReaderTransitionFact.ResourceReleased): Boolean = confirm(identity, fact)
+
+	private fun confirm(physical: ReaderLegacyPhysicalIdentity?, fact: ReaderTransitionFact.ResourceReleased): Boolean {
+		val registration = fact.identity.registration
+		if (attempts[registration]?.identity != fact.identity) return false
+		if (physicalByRegistration[registration] != physical) return false
+		attempts.remove(registration)
+		registrations.remove(registration.key)
+		physicalByRegistration.remove(registration)
+		when (registration.key.ownerId) {
+			is ReaderTransitionResourceOwnerId.TransitionOwned ->
+				check(transitionTombstones.record(registration.key, fromActiveRegistration = true))
+			is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> {
+				check(adoptedTerminalRegistrations.size < MaxTerminal) {
+					"Adopted terminal capacity must be reserved before release dispatch"
+				}
+				check(adoptedTerminalRegistrations.add(registration))
+			}
+		}
+		advanceFence(registration.retirementOrder)
+		return true
+	}
+
+	fun markCleanupDeadlineElapsed(key: ReaderReleaseOnlyCleanupKey): Int = terminalize(key, false)
+	fun markProcessClosed(key: ReaderReleaseOnlyCleanupKey): Int = terminalize(key, true)
+
+	private fun terminalize(key: ReaderReleaseOnlyCleanupKey, processClose: Boolean): Int {
+		var count = 0
+		attempts.values.forEach { row ->
+			if (row.cleanupKey != key || row.state == ReaderTransitionResourceState.TimedOutUnreleased || row.state == ReaderTransitionResourceState.ProcessClosedUnreleased) return@forEach
+			val prior = row.state
+			row.state = if (processClose) ReaderTransitionResourceState.ProcessClosedUnreleased else ReaderTransitionResourceState.TimedOutUnreleased
+			if (
+				(prior == ReaderTransitionResourceState.RejectedNoEffect ||
+					prior == ReaderTransitionResourceState.AmbiguousFailure) &&
+				failureTombstones.size < MaxTerminal
+			) {
+				val reason = when (prior to processClose) {
+					ReaderTransitionResourceState.RejectedNoEffect to false -> ReaderReleaseFailureTombstoneReason.RejectedNoEffectTimedOut
+					ReaderTransitionResourceState.RejectedNoEffect to true -> ReaderReleaseFailureTombstoneReason.RejectedNoEffectProcessClosed
+					ReaderTransitionResourceState.AmbiguousFailure to false -> ReaderReleaseFailureTombstoneReason.AmbiguousFailureTimedOut
+					else -> ReaderReleaseFailureTombstoneReason.AmbiguousFailureProcessClosed
+				}
+				failureTombstones += ReaderReleaseFailureTombstone(key, row.identity, reason)
+			}
+			count += 1
+		}
+		unresolvedAdmissions.values.forEach { row ->
+			if (
+				row.cleanupKey != key ||
+				row.state == ReaderTransitionResourceState.TimedOutUnreleased ||
+				row.state == ReaderTransitionResourceState.ProcessClosedUnreleased
+			) return@forEach
+			row.state = if (processClose) {
+				ReaderTransitionResourceState.ProcessClosedUnreleased
+			} else {
+				ReaderTransitionResourceState.TimedOutUnreleased
+			}
+			count += 1
+		}
+		unresolvedAdmissionOverflow?.let { row ->
+			if (
+				row.cleanupKey == key &&
+				row.state != ReaderTransitionResourceState.TimedOutUnreleased &&
+				row.state != ReaderTransitionResourceState.ProcessClosedUnreleased
+			) {
+				row.state = if (processClose) {
+					ReaderTransitionResourceState.ProcessClosedUnreleased
+				} else {
+					ReaderTransitionResourceState.TimedOutUnreleased
+				}
+				count += 1
+			}
+		}
+		unresolvedAttemptAdmissions.values.forEach { row ->
+			if (
+				row.cleanupKey != key ||
+				row.state == ReaderTransitionResourceState.TimedOutUnreleased ||
+				row.state == ReaderTransitionResourceState.ProcessClosedUnreleased
+			) return@forEach
+			row.state = if (processClose) {
+				ReaderTransitionResourceState.ProcessClosedUnreleased
+			} else {
+				ReaderTransitionResourceState.TimedOutUnreleased
+			}
+			count += 1
+		}
+		return count
+	}
+
+	fun cleanupStatus(key: ReaderReleaseOnlyCleanupKey): ReaderReleaseLedgerCleanupStatus {
+		val attemptRows = attempts.values.filter { it.cleanupKey == key }
+		val unresolvedRows = unresolvedAdmissions.values.filter { it.cleanupKey == key }
+		val overflowRow = unresolvedAdmissionOverflow?.takeIf { it.cleanupKey == key }
+		val unresolvedAttemptRows = unresolvedAttemptAdmissions.values.filter { it.cleanupKey == key }
+		return when {
+			attemptRows.isEmpty() && unresolvedRows.isEmpty() && overflowRow == null &&
+				unresolvedAttemptRows.isEmpty() -> ReaderReleaseLedgerCleanupStatus.EmptyReleased
+			attemptRows.any {
+				it.state != ReaderTransitionResourceState.TimedOutUnreleased &&
+					it.state != ReaderTransitionResourceState.ProcessClosedUnreleased
+			} || unresolvedRows.any {
+				it.state != ReaderTransitionResourceState.TimedOutUnreleased &&
+					it.state != ReaderTransitionResourceState.ProcessClosedUnreleased
+			} || overflowRow?.let {
+				it.state != ReaderTransitionResourceState.TimedOutUnreleased &&
+					it.state != ReaderTransitionResourceState.ProcessClosedUnreleased
+			} == true || unresolvedAttemptRows.any {
+				it.state != ReaderTransitionResourceState.TimedOutUnreleased &&
+					it.state != ReaderTransitionResourceState.ProcessClosedUnreleased
+			} -> ReaderReleaseLedgerCleanupStatus.Open
+			else -> ReaderReleaseLedgerCleanupStatus.TerminalFailure
+		}
+	}
+
+	fun stateOf(key: ReaderTransitionResourceKey): ReaderTransitionResourceState? {
+		unresolvedAdmissions[key]?.let { return it.state }
+		val registration = registrations[key]
+		if (registration != null) {
+			return attempts[registration]?.state ?: unresolvedAttemptAdmissions[registration]?.state
+				?: ReaderTransitionResourceState.Owned
+		}
+		val released = when (key.ownerId) {
+			is ReaderTransitionResourceOwnerId.TransitionOwned ->
+				transitionTombstones.containsOrFenced(key)
+			is ReaderTransitionResourceOwnerId.AdoptedPredecessor ->
+				adoptedTerminalRegistrations.any { it.key == key }
+		}
+		return ReaderTransitionResourceState.Released.takeIf { released }
+	}
+
+	fun retirementFence(): ReaderResourceRetirementFenceSnapshot {
+		val domain = lifecycle ?: (1L to 1L)
+		return ReaderResourceRetirementFenceSnapshot(domain.first, domain.second, contiguousReleased, outOfOrderReleased.toSet())
+	}
+	fun failureFence() = ReaderReleaseFailureFenceSnapshot(failureTombstones.toSet())
+	fun snapshot() = ReaderTransitionReleaseLedgerSnapshot(
+		registrations.values.count { registration ->
+			registration !in attempts &&
+				(unresolvedAttemptAdmissions[registration]?.state
+					?: ReaderTransitionResourceState.Owned) == ReaderTransitionResourceState.Owned
+		} + unresolvedAdmissions.values.count {
+			it.state == ReaderTransitionResourceState.Owned
+		} + if (unresolvedAdmissionOverflow?.state == ReaderTransitionResourceState.Owned) 1 else 0,
+		attempts.size,
+		transitionTombstones.terminalSnapshot().terminalTombstoneCount +
+			adoptedTerminalRegistrations.size
+	)
+	fun retentionSnapshot() = ReaderTransitionReleaseLedgerRetentionSnapshot(
+		registrations.size + unresolvedAdmissions.size +
+			if (unresolvedAdmissionOverflow == null) 0 else 1,
+		0,
+		transitionTombstones.terminalSnapshot().terminalTombstoneCount,
+		MaxTerminal,
+		if (lifecycle == null) {
+			ReaderTransitionRetirementFenceState.Inactive
+		} else {
+			ReaderTransitionRetirementFenceState.Active
+		}
+	)
+
+	private fun canAdmitLifecycle(domain: Pair<Long, Long>): Boolean {
+		val current = lifecycle ?: return true
+		return compareValuesBy(
+			domain,
+			current,
+			Pair<Long, Long>::first,
+			Pair<Long, Long>::second
+		) >= 0
+	}
+
+	private fun allocateOrder(session: Long, epoch: Long): ReaderResourceRetirementOrder {
+		val domain = session to epoch
+		if (lifecycle != domain) {
+			check(canAdmitLifecycle(domain)) { "Cannot restore a retired retirement domain" }
+			lifecycle = domain
+			nextRetirement = 1L
+			contiguousReleased = 0L
+			outOfOrderReleased.clear()
+		}
+		check(nextRetirement < Long.MAX_VALUE)
+		return ReaderResourceRetirementOrder(session, epoch, nextRetirement++)
+	}
+
+	private fun canAdmitOrder(order: ReaderResourceRetirementOrder): Boolean {
+		if (order.sequence == Long.MAX_VALUE) return false
+		val domain = order.readerSessionGeneration to order.coordinatorEpoch
+		val current = lifecycle
+		if (current == null || domain != current) return canAdmitLifecycle(domain)
+		return order.sequence > contiguousReleased && order.sequence !in outOfOrderReleased
+	}
+
+	private fun admitOrder(order: ReaderResourceRetirementOrder): Boolean {
+		val domain = order.readerSessionGeneration to order.coordinatorEpoch
+		val current = lifecycle
+		if (current == null || domain != current) {
+			if (!canAdmitLifecycle(domain) || order.sequence == Long.MAX_VALUE) return false
+			lifecycle = domain
+			nextRetirement = order.sequence + 1L
+			contiguousReleased = 0L
 			outOfOrderReleased.clear()
 			return true
 		}
-		if (lifecycle != current || order.sequence <= contiguousReleasedThrough || order.sequence in outOfOrderReleased) return false
-		nextRetirementSequence = maxOf(nextRetirementSequence, order.sequence + 1L)
+		if (
+			order.sequence <= contiguousReleased ||
+			order.sequence in outOfOrderReleased ||
+			order.sequence == Long.MAX_VALUE
+		) return false
+		nextRetirement = maxOf(nextRetirement, order.sequence + 1L)
 		return true
 	}
 
-	private fun advanceRetirementFence(sequence: Long) {
-		if (sequence == contiguousReleasedThrough + 1L) {
-			contiguousReleasedThrough = sequence
-			while (outOfOrderReleased.remove(contiguousReleasedThrough + 1L)) {
-				contiguousReleasedThrough += 1L
+	private fun advanceFence(order: ReaderResourceRetirementOrder) {
+		val domain = lifecycle ?: return
+		if (
+			order.readerSessionGeneration != domain.first ||
+			order.coordinatorEpoch != domain.second
+		) return
+		val sequence = order.sequence
+		if (sequence == contiguousReleased + 1L) {
+			contiguousReleased = sequence
+			while (outOfOrderReleased.remove(contiguousReleased + 1L)) contiguousReleased += 1L
+		} else if (sequence > contiguousReleased + 1L) {
+			check(outOfOrderReleased.size < MaxTerminal) {
+				"Retirement fence capacity must be reserved before release dispatch"
 			}
-		} else if (sequence > contiguousReleasedThrough + 1L) {
-			check(outOfOrderReleased.size < 32) { "Resource retirement tombstone capacity exceeded" }
 			outOfOrderReleased += sequence
 		}
+	}
+	private companion object {
+		const val MaxActive = 64
+		const val MaxTerminal = 32
+		const val MaxUnresolvedAdmissions = 32
 	}
 }
 
@@ -477,7 +990,8 @@ internal class ReaderResumableTransitionCoordinator(
 		data class Fact(
 			val fact: ReaderTransitionFact,
 			val trustedSemanticAuthority: ReaderReleaseOnlySemanticAuthority? = null,
-			val trustedSemanticViolation: Boolean = false
+			val trustedSemanticViolation: Boolean = false,
+			val importedLegacyIdentity: ReaderLegacyPhysicalIdentity? = null
 		) : MailboxEntry
 		data class SemanticCallbackDrain(
 			val invocation: SemanticInvocation,
@@ -489,6 +1003,17 @@ internal class ReaderResumableTransitionCoordinator(
 		) : MailboxEntry
 		data class SemanticAuthorityRefresh(
 			val authority: ReaderReleaseOnlySemanticAuthority
+		) : MailboxEntry
+		data class ReleaseCleanupDeadlineElapsed(
+			val key: ReaderReleaseOnlyCleanupKey,
+			val token: Long
+		) : MailboxEntry
+		data class ActivatedReleaseCleanupDeadlineElapsed(
+			val key: ReaderReleaseOnlyCleanupKey,
+			val token: Long
+		) : MailboxEntry
+		data class ReleaseCleanupProcessClosed(
+			val key: ReaderReleaseOnlyCleanupKey
 		) : MailboxEntry
 	}
 
@@ -575,12 +1100,33 @@ internal class ReaderResumableTransitionCoordinator(
 	private var deadlineSlot: DeadlineSlot? = null
 	private val task6TimerOwnership = Task6TimerOwnership()
 	private val task6AuthoritativeExpiries = mutableListOf<Task6AuthoritativeExpiry>()
+	private val retiredTask6TimerCallbacks = linkedSetOf<ReaderTask6FactOnlyTimerRegistration>()
+	private val releaseAdmissionFailures = ArrayDeque<
+		ReaderTransitionFact.ReleaseLedgerAdmissionRejected
+	>()
 	private var nextDeadlineSlotToken = 1L
+	private var releaseCleanupDeadlineSlot: ReleaseCleanupDeadlineSlot? = null
+	private var activatedReleaseCleanupDeadlineSlot: ActivatedReleaseCleanupDeadlineSlot? = null
+	private var nextReleaseCleanupDeadlineToken = 1L
+	private var processClosedCleanupKey: ReaderReleaseOnlyCleanupKey? = null
 	private var releaseOnlySink = false
 
 	init {
-		journal.resourceRegistrations().forEach(releaseLedger::register)
-		journal.resourceKeys().forEach(releaseLedger::register)
+		journal.resourceRegistrations().forEach { registration ->
+			check(
+				releaseLedger.owns(registration) || releaseLedger.register(registration)
+			) { "Reader transition journal requires its exact release ledger" }
+			if (registration.key.ownerId is ReaderTransitionResourceOwnerId.AdoptedPredecessor) {
+				check(releaseLedger.importedFor(registration) != null) {
+					"Adopted journal authority requires an exact imported release registration"
+				}
+			}
+		}
+		journal.resourceKeys().forEach { key ->
+			check(
+				releaseLedger.stateOf(key) != null || releaseLedger.register(key)
+			) { "Reader transition journal resource cannot be admitted to its release ledger" }
+		}
 	}
 
 	fun enqueue(receipt: ReaderPresentationEventReceipt) {
@@ -626,6 +1172,25 @@ internal class ReaderResumableTransitionCoordinator(
 		appendMailboxEntry(MailboxEntry.Fact(fact))
 	}
 
+	private fun enqueuePhysicalReleaseFact(
+		fact: ReaderTransitionFact,
+		importedLegacyIdentity: ReaderLegacyPhysicalIdentity? = null
+	) {
+		if (!ports.acceptsFact(fact)) return
+		appendMailboxEntry(
+			MailboxEntry.Fact(
+				fact = fact,
+				importedLegacyIdentity = importedLegacyIdentity.takeIf {
+					fact is ReaderTransitionFact.ResourceReleased
+				}
+			)
+		)
+	}
+
+	fun enqueueProcessClosed(cleanupKey: ReaderReleaseOnlyCleanupKey) {
+		appendMailboxEntry(MailboxEntry.ReleaseCleanupProcessClosed(cleanupKey))
+	}
+
 	fun snapshot(): ReaderTransitionCoordinatorSnapshot {
 		val releaseSnapshot = releaseLedger.snapshot()
 		val mailboxSnapshot = synchronized(mailboxLock) {
@@ -639,7 +1204,10 @@ internal class ReaderResumableTransitionCoordinator(
 			activeTransitionsRegistered = activeTransitionsRegistered,
 			activeOperation = journal.active?.id?.operation,
 			activePhase = journal.active?.phase?.kind,
-			scheduledCallbackCount = (if (deadlineSlot == null) 0 else 1) + task6TimerOwnership.count,
+			scheduledCallbackCount = (if (deadlineSlot == null) 0 else 1) +
+				task6TimerOwnership.count +
+				(if (releaseCleanupDeadlineSlot == null) 0 else 1) +
+				(if (activatedReleaseCleanupDeadlineSlot == null) 0 else 1),
 			factClassifications = classificationCounts.toMap(),
 			shadowPredictions = shadowPredictions.toList(),
 			lastOutcome = journal.lastOutcome?.kind(),
@@ -730,33 +1298,90 @@ internal class ReaderResumableTransitionCoordinator(
 					journal = journal.retainTrustedSemanticAuthority(entry.authority)
 					continue
 				}
+				if (entry is MailboxEntry.ReleaseCleanupDeadlineElapsed) {
+					processReleaseCleanupDeadlineElapsed(entry)
+					continue
+				}
+				if (entry is MailboxEntry.ActivatedReleaseCleanupDeadlineElapsed) {
+					processActivatedReleaseCleanupDeadlineElapsed(entry)
+					continue
+				}
+				if (entry is MailboxEntry.ReleaseCleanupProcessClosed) {
+					processReleaseCleanupProcessClosed(entry)
+					continue
+				}
 				val factEntry = entry as MailboxEntry.Fact
 				val fact = factEntry.fact
-				accountAuthoritativeTask6Expiry(fact)
+				val authoritativeTask6Expiry = accountAuthoritativeTask6Expiry(fact)
 				val before = journal
-				val classification = classify(fact, before)
-				classificationCounts[classification] =
-					classificationCounts.getOrElse(classification) { 0 } + 1
 				val nowMillis = ports.clock.nowMillis()
 				val registeredKey = fact.registeredResourceKeyOrNull()
-				registeredKey?.let(releaseLedger::register)
-				if (fact is ReaderTransitionFact.ResourceReleased) {
-					fact.registration?.let(releaseLedger::confirmReleased)
-						?: releaseLedger.confirmReleased(fact.key)
+				val registrationAdmissionRejected = registeredKey != null &&
+					releaseLedger.stateOf(registeredKey) == null &&
+					!releaseLedger.register(registeredKey)
+				if (registrationAdmissionRejected) {
+					enqueueReleaseLedgerAdmissionRejected(
+						requireNotNull(registeredKey),
+						journal.releaseOnlyCleanup?.key,
+						ReaderReleaseLedgerAdmissionRejectionReason.RegistrationRejected
+					)
 				}
+				val exactReleaseConfirmation = when (fact) {
+					is ReaderTransitionFact.ResourceReleased -> {
+						val imported = factEntry.importedLegacyIdentity
+						if (imported == null) {
+							releaseLedger.confirmReleased(fact)
+						} else {
+							releaseLedger.confirmLegacyReleased(imported, fact)
+						}
+					}
+					else -> null
+				}
+				when (fact) {
+					is ReaderTransitionFact.ReleaseCommandRejected -> releaseLedger.recordRejectedNoEffect(fact)
+					is ReaderTransitionFact.ReleaseCommandThrew -> releaseLedger.recordAmbiguousFailure(fact)
+					is ReaderTransitionFact.ReleasePortContractViolated -> releaseLedger.recordPortContractViolation(fact)
+					else -> Unit
+				}
+				val classification = if (exactReleaseConfirmation == false) {
+					ReaderTransitionFactClassification.StaleTransition
+				} else {
+					classify(fact, before)
+				}
+				classificationCounts[classification] =
+					classificationCounts.getOrElse(classification) { 0 } + 1
 				val reduction = when {
+					registrationAdmissionRejected ->
+						paige.navic.reader.ReaderTransitionReduction(before, emptyList())
+					exactReleaseConfirmation == false ->
+						paige.navic.reader.ReaderTransitionReduction(before, emptyList())
+					authoritativeTask6Expiry && before.releaseOnlyCleanup != null ->
+						paige.navic.reader.ReaderTransitionReduction(
+							before.markReleaseOnlyCleanupDeadlineElapsed(
+								requireNotNull(before.releaseOnlyCleanup).key
+							),
+							emptyList()
+						)
 					factEntry.trustedSemanticViolation -> journal.reduceTrustedSemanticPortContractViolation(
 						fact as ReaderTransitionFact.SemanticPortContractViolated,
 						factEntry.trustedSemanticAuthority
 					)
-					releaseOnlySink -> paige.navic.reader.ReaderTransitionReduction(before, emptyList())
+					releaseOnlySink &&
+						fact !is ReaderTransitionFact.OwnedWorkCancellationCompleted &&
+						fact !is ReaderTransitionFact.ReleaseLedgerAdmissionRejected ->
+						paige.navic.reader.ReaderTransitionReduction(before, emptyList())
 					else -> journal.reduce(fact, nowMillis)
 				}
 
 				// These assignments are the coordinator's publication barrier: callbacks may run
 				// synchronously from either deadline registration or command issuance below.
 				journal = reduction.state
-				if (journal.releaseOnlyCleanup != null) {
+				val cleanup = journal.releaseOnlyCleanup
+				val cleanupKey = cleanup?.key
+				if (cleanupKey != null && before.releaseOnlyCleanup?.key != cleanupKey) {
+					releaseLedger.transferOutstandingAttemptsToCleanup(cleanupKey)
+				}
+				if (cleanup != null) {
 					releaseOnlySink = true
 				}
 				persistActiveRegistration()
@@ -769,21 +1394,44 @@ internal class ReaderResumableTransitionCoordinator(
 				val predictedCommands = buildList {
 					addAll(reduction.commands)
 					if (releaseOnlySink && registeredKey != null) {
-						when (val owner = registeredKey.ownerId) {
-							is ReaderTransitionResourceOwnerId.TransitionOwned -> add(
-								ReaderTransitionCommand.ReleaseResource(owner.transitionId, registeredKey)
+						if (mode == ReaderTransitionMode.Active) {
+							requestReleaseOrReject(registeredKey, cleanupKey)?.let(::add)
+						} else {
+							val owner = requireNotNull(registeredKey.owningTransitionIdOrNull)
+							add(
+								ReaderTransitionCommand.RequestResourceRelease(
+									ReaderResourceReleaseIssuer.Transition(owner),
+									registeredKey,
+									cleanupKey = cleanupKey
+								)
 							)
-							is ReaderTransitionResourceOwnerId.AdoptedPredecessor -> Unit
 						}
 					}
 				}
 				recordShadowPrediction(fact, classification, before, predictedCommands)
 
 				if (mode == ReaderTransitionMode.Active) {
-					predictedCommands.forEach { predicted ->
+					var commandsToIssue = predictedCommands.mapNotNull { predicted ->
 						if (commandDispatchAllowed || predicted.pendingStageOrNull() == null) {
-							accountCommand(predicted)?.let(::issueCommandWithPublicationAcknowledgement)
+							accountCommand(predicted)
+						} else {
+							null
 						}
+					}
+					if (cleanupKey != null && processClosedCleanupKey == cleanupKey) {
+						releaseLedger.markProcessClosed(cleanupKey)
+						journal = journal.markReleaseOnlyCleanupProcessClosed(cleanupKey)
+						commandsToIssue = commandsToIssue.filterNot {
+							it is ReaderTransitionCommand.ReleaseResource
+						}
+					}
+					reconcileReleaseCleanupDeadline(nowMillis, cleanupKey)
+					val cleanupDeadlineStatus = journal.releaseOnlyCleanup?.deadlineStatus
+					if (
+						cleanupDeadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected &&
+						cleanupDeadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew
+					) {
+						commandsToIssue.forEach(::issueCommandWithPublicationAcknowledgement)
 					}
 				}
 				onObservation(
@@ -810,6 +1458,17 @@ internal class ReaderResumableTransitionCoordinator(
 	}
 
 	private fun issueCommandWithPublicationAcknowledgement(command: ReaderTransitionCommand) {
+		if (command is ReaderTransitionCommand.ReleaseResource) {
+			val imported = releaseLedger.importedFor(command.registration)
+			if (imported != null) {
+				ports.issueImportedLegacyRelease(
+					ReaderImportedLegacyReleaseDispatch(command, imported)
+				) { fact ->
+					enqueuePhysicalReleaseFact(fact, imported.physicalIdentity)
+				}
+				return
+			}
+		}
 		if (command is ReaderTransitionCommand.RequestSemanticSynchronization) {
 			val semantic = ports.semanticCommand
 			if (semantic != null) {
@@ -862,7 +1521,11 @@ internal class ReaderResumableTransitionCoordinator(
 		}
 		if (result == null) {
 			try {
-				ports.issue(command, ::enqueue)
+				if (command is ReaderTransitionCommand.ReleaseResource) {
+					ports.issue(command) { fact -> enqueuePhysicalReleaseFact(fact) }
+				} else {
+					ports.issue(command, ::enqueue)
+				}
 			} catch (throwable: Throwable) {
 				if (command.pendingStageOrNull() == null) throw throwable
 				enqueueCommandThrow(command)
@@ -1165,16 +1828,100 @@ internal class ReaderResumableTransitionCoordinator(
 	}
 
 	private fun accountCommand(command: ReaderTransitionCommand): ReaderTransitionCommand? =
-		if (command is ReaderTransitionCommand.ReleaseResource) {
-			if (command.registration == null) {
-				releaseLedger.register(command.key)
-			} else {
-				releaseLedger.register(command.registration)
+		when (command) {
+			is ReaderTransitionCommand.RequestResourceRelease -> {
+				val registration = command.registration?.let { supplied ->
+					when {
+						releaseLedger.owns(supplied) -> supplied
+						releaseLedger.register(supplied) -> supplied
+						else -> null
+					}
+				} ?: if (command.registration == null) {
+					val id = requireNotNull(command.key.owningTransitionIdOrNull)
+					releaseLedger.register(
+						command.key,
+						id.readerSessionGeneration,
+						id.coordinatorEpoch
+					)
+				} else {
+					null
+				}
+				if (registration == null) {
+					val state = releaseLedger.stateOf(command.key)
+					if (state == null || state == ReaderTransitionResourceState.Owned) {
+						enqueueReleaseLedgerAdmissionRejected(
+							command.key,
+							command.cleanupKey,
+							ReaderReleaseLedgerAdmissionRejectionReason.RegistrationRejected,
+							command
+						)
+					}
+					null
+				} else {
+					val release = releaseLedger.requestRelease(
+						command.issuer,
+						registration,
+						command.cleanupKey
+					)
+					if (
+						release == null &&
+						releaseLedger.stateOf(command.key) == ReaderTransitionResourceState.Owned
+					) {
+						enqueueReleaseLedgerAdmissionRejected(
+							command.key,
+							command.cleanupKey,
+							ReaderReleaseLedgerAdmissionRejectionReason.AttemptRejected,
+							command
+						)
+					}
+					release
+				}
 			}
-			releaseLedger.requestRelease(command.key)
-		} else {
-			command
+			else -> command
 		}
+
+	private fun requestReleaseOrReject(
+		key: ReaderTransitionResourceKey,
+		cleanupKey: ReaderReleaseOnlyCleanupKey?
+	): ReaderTransitionCommand.ReleaseResource? {
+		val release = releaseLedger.requestRelease(key, cleanupKey)
+		if (
+			release == null &&
+			releaseLedger.stateOf(key) == ReaderTransitionResourceState.Owned
+		) {
+			enqueueReleaseLedgerAdmissionRejected(
+				key,
+				cleanupKey,
+				ReaderReleaseLedgerAdmissionRejectionReason.AttemptRejected
+			)
+		}
+		return release
+	}
+
+	private fun enqueueReleaseLedgerAdmissionRejected(
+		key: ReaderTransitionResourceKey,
+		cleanupKey: ReaderReleaseOnlyCleanupKey?,
+		reason: ReaderReleaseLedgerAdmissionRejectionReason,
+		rejectedRequest: ReaderTransitionCommand.RequestResourceRelease? = null
+	) {
+		if (reason == ReaderReleaseLedgerAdmissionRejectionReason.RegistrationRejected) {
+			check(releaseLedger.retainUnresolvedAdmission(key, cleanupKey)) {
+				"Bounded unresolved release-admission authority exhausted"
+			}
+		}
+		val failure = ReaderTransitionFact.ReleaseLedgerAdmissionRejected(
+			key,
+			cleanupKey,
+			reason,
+			rejectedRequest
+		)
+		if (failure in releaseAdmissionFailures) return
+		if (releaseAdmissionFailures.size == MaxReleaseAdmissionFailures) {
+			releaseAdmissionFailures.removeFirst()
+		}
+		releaseAdmissionFailures.addLast(failure)
+		appendMailboxEntry(MailboxEntry.Fact(failure))
+	}
 
 	private fun persistActiveRegistration() {
 		val activeId = journal.active?.id
@@ -1272,6 +2019,7 @@ internal class ReaderResumableTransitionCoordinator(
 		val port = ports.task6FactOnlyTimer
 		val active = journal.active
 		if (active == null || active.isAwaitingRetainedPublication()) {
+			if (active == null && journal.releaseOnlyCleanup != null) return true
 			cancelTask6TimersForTerminalState(port)
 			return true
 		}
@@ -1378,8 +2126,7 @@ internal class ReaderResumableTransitionCoordinator(
 			port.bindBeforeWork(active.id) { expired ->
 				val registration = boundRegistration
 				when {
-					registration != null && isTrackedTask6TimerRegistration(registration) ->
-						enqueueAuthoritativeTask6Expiry(expired, registration)
+					registration != null -> routeTask6TimerExpiry(expired, registration)
 					bindingInProgress -> preReturnExpiry = expired
 				}
 			}
@@ -1474,6 +2221,28 @@ internal class ReaderResumableTransitionCoordinator(
 		return disposition
 	}
 
+	private fun retireTask6TimerForReleaseCleanup(
+		port: ReaderTask6FactOnlyTimerPort?,
+		registration: ReaderTask6FactOnlyTimerRegistration
+	): ReaderReleaseOnlyCleanupDeadlineStatus? {
+		check(task6TimerOwnership.contains(registration))
+		val priorFailure = task6TimerOwnership.failure(registration)
+		val expiryAlreadyObserved = task6AuthoritativeExpiries.removeAll {
+			it.registration == registration
+		}
+		task6TimerOwnership.clear(registration)
+		if (expiryAlreadyObserved) return null
+		check(
+			retiredTask6TimerCallbacks.size < MaxRetiredTask6TimerCallbacks ||
+				registration in retiredTask6TimerCallbacks
+		) { "Retired Task 6 callback authority is bounded" }
+		retiredTask6TimerCallbacks += registration
+		if (priorFailure != null) return priorFailure
+		val disposition = attemptTask6TimerCancellation(port, registration)
+		if (disposition == null) retiredTask6TimerCallbacks.remove(registration)
+		return disposition
+	}
+
 	private fun cancelTask6TimersForTerminalState(port: ReaderTask6FactOnlyTimerPort?) {
 		val permanent = journal.releaseOnlyCleanup != null
 		task6TimerOwnership.registrations.toList().forEach { registration ->
@@ -1502,9 +2271,18 @@ internal class ReaderResumableTransitionCoordinator(
 		)
 	}
 
-	private fun isTrackedTask6TimerRegistration(
+	private fun routeTask6TimerExpiry(
+		fact: ReaderTransitionFact.DeadlineExpired,
 		registration: ReaderTask6FactOnlyTimerRegistration
-	): Boolean = task6TimerOwnership.contains(registration)
+	) {
+		if (fact.transitionId != registration.transitionId) return
+		when {
+			task6TimerOwnership.contains(registration) ->
+				enqueueAuthoritativeTask6Expiry(fact, registration)
+			registration in retiredTask6TimerCallbacks ->
+				retiredTask6TimerCallbacks.remove(registration)
+		}
+	}
 
 	private fun hasPendingAuthoritativeTask6Expiry(
 		registration: ReaderTask6FactOnlyTimerRegistration
@@ -1520,12 +2298,13 @@ internal class ReaderResumableTransitionCoordinator(
 		enqueue(fact)
 	}
 
-	private fun accountAuthoritativeTask6Expiry(fact: ReaderTransitionFact) {
-		val expiry = fact as? ReaderTransitionFact.DeadlineExpired ?: return
+	private fun accountAuthoritativeTask6Expiry(fact: ReaderTransitionFact): Boolean {
+		val expiry = fact as? ReaderTransitionFact.DeadlineExpired ?: return false
 		val evidenceIndex = task6AuthoritativeExpiries.indexOfFirst { it.fact === expiry }
-		if (evidenceIndex < 0) return
+		if (evidenceIndex < 0) return false
 		val registration = task6AuthoritativeExpiries.removeAt(evidenceIndex).registration
 		task6TimerOwnership.clear(registration)
+		return true
 	}
 
 	private fun enqueueTimerBindingRejection(
@@ -1539,6 +2318,386 @@ internal class ReaderResumableTransitionCoordinator(
 				reason
 			)
 		)
+	}
+
+	private fun reconcileReleaseCleanupDeadline(
+		nowMillis: Long,
+		cleanupKey: ReaderReleaseOnlyCleanupKey?
+	) {
+		if (activationState() == ReaderSessionActivationState.Activated) {
+			cancelReleaseCleanupDeadline()
+			reconcileActivatedReleaseCleanup(cleanupKey)
+			return
+		}
+		val cleanup = journal.releaseOnlyCleanup
+		if (cleanupKey == null || cleanup?.key != cleanupKey) {
+			cancelReleaseCleanupDeadline()
+			return
+		}
+		if (processClosedCleanupKey == cleanupKey) {
+			releaseLedger.markProcessClosed(cleanupKey)
+			journal = journal.markReleaseOnlyCleanupProcessClosed(cleanupKey)
+			cancelReleaseCleanupDeadline()
+			return
+		}
+		when (cleanup.deadlineStatus) {
+			ReaderReleaseOnlyCleanupDeadlineStatus.Elapsed -> {
+				releaseLedger.markCleanupDeadlineElapsed(cleanupKey)
+				cancelReleaseCleanupDeadline()
+				return
+			}
+			ReaderReleaseOnlyCleanupDeadlineStatus.ProcessClosed -> {
+				releaseLedger.markProcessClosed(cleanupKey)
+				cancelReleaseCleanupDeadline()
+				return
+			}
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting -> {
+				if (releaseLedger.cleanupStatus(cleanupKey) == ReaderReleaseLedgerCleanupStatus.Open) {
+					releaseLedger.markCleanupDeadlineElapsed(cleanupKey)
+					journal = journal.markReleaseOnlyCleanupDeadlineElapsed(cleanupKey)
+				}
+				cancelReleaseCleanupDeadline()
+				return
+			}
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected,
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew -> return
+			else -> Unit
+		}
+		val cancellationAccounted = when (cleanup.cancellationStatus) {
+			ReaderReleaseOnlyCancellationStatus.NotRequired,
+			ReaderReleaseOnlyCancellationStatus.Applied,
+			ReaderReleaseOnlyCancellationStatus.Rejected,
+			ReaderReleaseOnlyCancellationStatus.Threw -> true
+			ReaderReleaseOnlyCancellationStatus.Pending,
+			ReaderReleaseOnlyCancellationStatus.ProcessClosedPending -> false
+		}
+		when (releaseLedger.cleanupStatus(cleanupKey)) {
+			ReaderReleaseLedgerCleanupStatus.TerminalFailure -> {
+				journal = journal.markReleaseOnlyCleanupDeadlineElapsed(cleanupKey)
+				cancelReleaseCleanupDeadline()
+				return
+			}
+			ReaderReleaseLedgerCleanupStatus.EmptyReleased -> if (cancellationAccounted) {
+				val cancellationFailure = cancelReleaseCleanupDeadline()
+				val currentCleanup = journal.releaseOnlyCleanup?.takeIf { it.key == cleanupKey }
+				if (
+					cancellationFailure == null &&
+					currentCleanup?.deadlineStatus == ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+				) {
+					journal = journal.copy(
+						releaseOnlyCleanup = currentCleanup.copy(
+							deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting
+						)
+					)
+				}
+				return
+			}
+			ReaderReleaseLedgerCleanupStatus.EmptyReleased,
+			ReaderReleaseLedgerCleanupStatus.Open -> Unit
+		}
+		if (releaseCleanupDeadlineSlot?.key == cleanupKey) return
+		cancelReleaseCleanupDeadline()
+		val token = nextReleaseCleanupDeadlineToken
+		check(token < Long.MAX_VALUE) { "Release cleanup deadline token exhausted" }
+		nextReleaseCleanupDeadlineToken = token + 1L
+		val atMillis = nowMillis.saturatingAdd(ReleaseCleanupDeadlineMillis)
+		val slot = ReleaseCleanupDeadlineSlot(cleanupKey, token, atMillis)
+		releaseCleanupDeadlineSlot = slot
+		val registration = try {
+			ports.clock.schedule(atMillis) {
+				slot.expirationObserved = true
+				appendMailboxEntry(
+					MailboxEntry.ReleaseCleanupDeadlineElapsed(cleanupKey, token)
+				)
+			}
+		} catch (_: Throwable) {
+			null
+		}
+		if (releaseCleanupDeadlineSlot?.token == token) {
+			slot.registration = registration
+			if (registration == null) {
+				slot.expirationObserved = true
+				appendMailboxEntry(
+					MailboxEntry.ReleaseCleanupDeadlineElapsed(cleanupKey, token)
+				)
+			}
+		} else {
+			try {
+				registration?.cancel()
+			} catch (_: Throwable) {
+			}
+		}
+	}
+
+	private fun reconcileActivatedReleaseCleanup(
+		cleanupKey: ReaderReleaseOnlyCleanupKey?
+	) {
+		val cleanup = journal.releaseOnlyCleanup
+		if (cleanupKey == null || cleanup?.key != cleanupKey) return
+		if (processClosedCleanupKey == cleanupKey) {
+			releaseLedger.markProcessClosed(cleanupKey)
+			journal = journal.markReleaseOnlyCleanupProcessClosed(cleanupKey)
+			discardTask6CleanupTimers()
+			return
+		}
+		when (cleanup.deadlineStatus) {
+			ReaderReleaseOnlyCleanupDeadlineStatus.ProcessClosed -> {
+				releaseLedger.markProcessClosed(cleanupKey)
+				discardTask6CleanupTimers()
+				return
+			}
+			ReaderReleaseOnlyCleanupDeadlineStatus.Elapsed,
+			ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected,
+			ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew -> {
+				releaseLedger.markCleanupDeadlineElapsed(cleanupKey)
+				return
+			}
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting -> {
+				if (releaseLedger.cleanupStatus(cleanupKey) == ReaderReleaseLedgerCleanupStatus.Open) {
+					releaseLedger.markCleanupDeadlineElapsed(cleanupKey)
+					journal = journal.markReleaseOnlyCleanupDeadlineElapsed(cleanupKey)
+				}
+				return
+			}
+			ReaderReleaseOnlyCleanupDeadlineStatus.Armed -> Unit
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected,
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew -> return
+		}
+		val ledgerStatus = releaseLedger.cleanupStatus(cleanupKey)
+		if (ledgerStatus == ReaderReleaseLedgerCleanupStatus.TerminalFailure) {
+			journal = journal.markReleaseOnlyCleanupDeadlineElapsed(cleanupKey)
+			return
+		}
+		val cancellationAccounted = when (cleanup.cancellationStatus) {
+			ReaderReleaseOnlyCancellationStatus.NotRequired,
+			ReaderReleaseOnlyCancellationStatus.Applied,
+			ReaderReleaseOnlyCancellationStatus.Rejected,
+			ReaderReleaseOnlyCancellationStatus.Threw -> true
+			ReaderReleaseOnlyCancellationStatus.Pending,
+			ReaderReleaseOnlyCancellationStatus.ProcessClosedPending -> false
+		}
+		if (ledgerStatus == ReaderReleaseLedgerCleanupStatus.EmptyReleased && cancellationAccounted) {
+			cancelActivatedReleaseCleanupDeadline(terminalAccounting = true)
+			cancelTask6TimersForTerminalState(ports.task6FactOnlyTimer)
+			return
+		}
+		if (activatedReleaseCleanupDeadlineSlot?.key == cleanupKey) return
+		if (task6TimerOwnership.count > 0) {
+			task6TimerOwnership.registrations.toList().forEach { registration ->
+				retireTask6TimerForReleaseCleanup(
+					ports.task6FactOnlyTimer,
+					registration
+				)
+			}
+		}
+		bindActivatedReleaseCleanupDeadline(cleanupKey)
+	}
+
+	private fun bindActivatedReleaseCleanupDeadline(cleanupKey: ReaderReleaseOnlyCleanupKey) {
+		val token = nextReleaseCleanupDeadlineToken
+		check(token < Long.MAX_VALUE) { "Release cleanup deadline token exhausted" }
+		nextReleaseCleanupDeadlineToken = token + 1L
+		val slot = ActivatedReleaseCleanupDeadlineSlot(cleanupKey, token)
+		activatedReleaseCleanupDeadlineSlot = slot
+		val port = ports.task6FactOnlyTimer
+		val registration = try {
+			port?.bindReleaseOnlyCloseBudget(cleanupKey) { expiredKey ->
+				if (expiredKey == cleanupKey) {
+					appendMailboxEntry(
+						MailboxEntry.ActivatedReleaseCleanupDeadlineElapsed(cleanupKey, token)
+					)
+				}
+			}
+		} catch (_: Throwable) {
+			activatedReleaseCleanupDeadlineSlot = null
+			failActivatedReleaseCleanupBinding(
+				cleanupKey,
+				ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew
+			)
+			return
+		}
+		if (registration == null) {
+			activatedReleaseCleanupDeadlineSlot = null
+			failActivatedReleaseCleanupBinding(
+				cleanupKey,
+				ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected
+			)
+			return
+		}
+		if (activatedReleaseCleanupDeadlineSlot?.token == token) {
+			slot.registration = registration
+		} else {
+			try {
+				port?.cancelReleaseOnlyCloseBudget(registration)
+			} catch (_: Throwable) {
+			}
+		}
+	}
+
+	private fun failActivatedReleaseCleanupBinding(
+		cleanupKey: ReaderReleaseOnlyCleanupKey,
+		status: ReaderReleaseOnlyCleanupDeadlineStatus
+	) {
+		require(
+			status == ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected ||
+				status == ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew
+		)
+		val cleanup = journal.releaseOnlyCleanup?.takeIf { it.key == cleanupKey } ?: return
+		releaseLedger.markCleanupDeadlineElapsed(cleanupKey)
+		journal = journal.copy(
+			releaseOnlyCleanup = cleanup.copy(deadlineStatus = status),
+			lastOutcome = ReaderTransitionOutcome.Failed(
+				paige.navic.reader.ReaderTransitionFailureReason.CloseDrainTimeout,
+				paige.navic.reader.ReaderTransitionRetryability.NonRetryable,
+				paige.navic.reader.ReaderPresentationFrameOwner.Neutral
+			),
+			retryableTransition = null
+		)
+	}
+
+	private fun cancelActivatedReleaseCleanupDeadline(terminalAccounting: Boolean) {
+		val slot = activatedReleaseCleanupDeadlineSlot
+		if (slot == null) {
+			val cleanup = journal.releaseOnlyCleanup
+			if (
+				terminalAccounting &&
+				cleanup?.deadlineStatus == ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+			) {
+				journal = journal.copy(
+					releaseOnlyCleanup = cleanup.copy(
+						deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting
+					)
+				)
+			}
+			return
+		}
+		val registration = slot.registration ?: return
+		val disposition = try {
+			when (ports.task6FactOnlyTimer?.cancelReleaseOnlyCloseBudget(registration)) {
+				ReaderPortCommandResult.Accepted -> null
+				is ReaderPortCommandResult.Rejected,
+				null -> ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected
+			}
+		} catch (_: Throwable) {
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew
+		}
+		val cleanup = journal.releaseOnlyCleanup?.takeIf { it.key == slot.key } ?: return
+		if (disposition == null) {
+			activatedReleaseCleanupDeadlineSlot = null
+			if (terminalAccounting && cleanup.deadlineStatus == ReaderReleaseOnlyCleanupDeadlineStatus.Armed) {
+				journal = journal.copy(
+					releaseOnlyCleanup = cleanup.copy(
+						deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting
+					)
+				)
+			}
+		} else {
+			journal = journal.copy(
+				releaseOnlyCleanup = cleanup.copy(deadlineStatus = disposition),
+				lastOutcome = ReaderTransitionOutcome.Failed(
+					paige.navic.reader.ReaderTransitionFailureReason.CloseDrainTimeout,
+					paige.navic.reader.ReaderTransitionRetryability.NonRetryable,
+					paige.navic.reader.ReaderPresentationFrameOwner.Neutral
+				),
+				retryableTransition = null
+			)
+		}
+	}
+
+	private fun discardTask6CleanupTimers() {
+		activatedReleaseCleanupDeadlineSlot?.let { slot ->
+			try {
+				slot.registration?.let { registration ->
+					ports.task6FactOnlyTimer?.cancelReleaseOnlyCloseBudget(registration)
+				}
+			} catch (_: Throwable) {
+			}
+			activatedReleaseCleanupDeadlineSlot = null
+		}
+		task6TimerOwnership.registrations.toList().forEach { registration ->
+			attemptTask6TimerCancellation(ports.task6FactOnlyTimer, registration)
+			task6TimerOwnership.clear(registration)
+			task6AuthoritativeExpiries.removeAll { it.registration == registration }
+		}
+		retiredTask6TimerCallbacks.clear()
+	}
+
+	private fun processActivatedReleaseCleanupDeadlineElapsed(
+		entry: MailboxEntry.ActivatedReleaseCleanupDeadlineElapsed
+	) {
+		val slot = activatedReleaseCleanupDeadlineSlot ?: return
+		if (slot.key != entry.key || slot.token != entry.token) return
+		activatedReleaseCleanupDeadlineSlot = null
+		if (journal.releaseOnlyCleanup?.key != entry.key) return
+		releaseLedger.markCleanupDeadlineElapsed(entry.key)
+		journal = journal.markReleaseOnlyCleanupDeadlineElapsed(entry.key)
+	}
+
+	private fun processReleaseCleanupDeadlineElapsed(
+		entry: MailboxEntry.ReleaseCleanupDeadlineElapsed
+	) {
+		val slot = releaseCleanupDeadlineSlot ?: return
+		if (slot.key != entry.key || slot.token != entry.token) return
+		releaseCleanupDeadlineSlot = null
+		try {
+			slot.registration?.cancel()
+		} catch (_: Throwable) {
+		}
+		if (journal.releaseOnlyCleanup?.key != entry.key) return
+		releaseLedger.markCleanupDeadlineElapsed(entry.key)
+		journal = journal.markReleaseOnlyCleanupDeadlineElapsed(entry.key)
+	}
+
+	private fun processReleaseCleanupProcessClosed(
+		entry: MailboxEntry.ReleaseCleanupProcessClosed
+	) {
+		if (journal.releaseOnlyCleanup?.key != entry.key) return
+		processClosedCleanupKey = entry.key
+		cancelReleaseCleanupDeadline()
+		releaseLedger.markProcessClosed(entry.key)
+		journal = journal.markReleaseOnlyCleanupProcessClosed(entry.key)
+		if (activationState() == ReaderSessionActivationState.Activated) {
+			discardTask6CleanupTimers()
+		}
+	}
+
+	private fun cancelReleaseCleanupDeadline(): ReaderReleaseOnlyCleanupDeadlineStatus? {
+		val slot = releaseCleanupDeadlineSlot ?: return null
+		val disposition = try {
+			val registration = slot.registration
+			if (registration == null) {
+				ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected
+			} else {
+				registration.cancel()
+				null
+			}
+		} catch (_: Throwable) {
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew
+		}
+		val exactDisposition = if (
+			disposition == null && slot.expirationObserved
+		) {
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected
+		} else {
+			disposition
+		}
+		if (exactDisposition == null) {
+			if (releaseCleanupDeadlineSlot === slot) releaseCleanupDeadlineSlot = null
+			return null
+		}
+		val cleanup = journal.releaseOnlyCleanup?.takeIf { it.key == slot.key }
+		if (cleanup?.deadlineStatus == ReaderReleaseOnlyCleanupDeadlineStatus.Armed) {
+			journal = journal.copy(
+				releaseOnlyCleanup = cleanup.copy(deadlineStatus = exactDisposition),
+				lastOutcome = ReaderTransitionOutcome.Failed(
+					paige.navic.reader.ReaderTransitionFailureReason.CloseDrainTimeout,
+					paige.navic.reader.ReaderTransitionRetryability.NonRetryable,
+					paige.navic.reader.ReaderPresentationFrameOwner.Neutral
+				),
+				retryableTransition = null
+			)
+		}
+		return exactDisposition
 	}
 
 	private fun cancelDeadlineSlot() {
@@ -1591,6 +2750,26 @@ internal class ReaderResumableTransitionCoordinator(
 		val atMillis: Long,
 		var registration: ReaderTransitionClockRegistration? = null
 	)
+
+	private class ReleaseCleanupDeadlineSlot(
+		val key: ReaderReleaseOnlyCleanupKey,
+		val token: Long,
+		val atMillis: Long,
+		var registration: ReaderTransitionClockRegistration? = null,
+		var expirationObserved: Boolean = false
+	)
+
+	private class ActivatedReleaseCleanupDeadlineSlot(
+		val key: ReaderReleaseOnlyCleanupKey,
+		val token: Long,
+		var registration: ReaderTask6ReleaseOnlyTimerRegistration? = null
+	)
+
+	private companion object {
+		const val ReleaseCleanupDeadlineMillis = 10_000L
+		const val MaxReleaseAdmissionFailures = 32
+		const val MaxRetiredTask6TimerCallbacks = 2
+	}
 }
 
 private fun ReaderActiveTransition.isAwaitingRetainedPublication(): Boolean =
@@ -1695,6 +2874,11 @@ private fun ReaderTransitionFact.registeredResourceKeyOrNull(): ReaderTransition
 	is ReaderTransitionFact.DeadlineExpired,
 	is ReaderTransitionFact.CommandRejected,
 	is ReaderTransitionFact.SemanticPortContractViolated,
+	is ReaderTransitionFact.ReleaseCommandRejected,
+	is ReaderTransitionFact.ReleaseCommandThrew,
+	is ReaderTransitionFact.ReleasePortContractViolated,
+	is ReaderTransitionFact.OwnedWorkCancellationCompleted,
+	is ReaderTransitionFact.ReleaseLedgerAdmissionRejected,
 	is ReaderTransitionFact.Retry,
 	is ReaderTransitionFact.PublicationReplaced,
 	is ReaderTransitionFact.PublicationClosed -> null
@@ -1711,6 +2895,11 @@ internal fun ReaderTransitionFact.isTask4CoordinatorFact(): Boolean = when (this
 	is ReaderTransitionFact.ResourceLost,
 	is ReaderTransitionFact.DeadlineExpired,
 	is ReaderTransitionFact.CommandRejected,
+	is ReaderTransitionFact.ReleaseCommandRejected,
+	is ReaderTransitionFact.ReleaseCommandThrew,
+	is ReaderTransitionFact.ReleasePortContractViolated,
+	is ReaderTransitionFact.OwnedWorkCancellationCompleted,
+	is ReaderTransitionFact.ReleaseLedgerAdmissionRejected,
 	is ReaderTransitionFact.Retry,
 	is ReaderTransitionFact.PublicationReplaced,
 	is ReaderTransitionFact.PublicationClosed -> true
@@ -1836,6 +3025,13 @@ private fun ReaderTransitionFact.kind(): ReaderTransitionFactKind = when (this) 
 	is ReaderTransitionFact.CommandRejected -> ReaderTransitionFactKind.CommandRejected
 	is ReaderTransitionFact.SemanticPortContractViolated ->
 		ReaderTransitionFactKind.SemanticPortContractViolated
+	is ReaderTransitionFact.ReleaseCommandRejected -> ReaderTransitionFactKind.ReleaseCommandRejected
+	is ReaderTransitionFact.ReleaseCommandThrew -> ReaderTransitionFactKind.ReleaseCommandThrew
+	is ReaderTransitionFact.ReleasePortContractViolated -> ReaderTransitionFactKind.ReleasePortContractViolated
+	is ReaderTransitionFact.OwnedWorkCancellationCompleted ->
+		ReaderTransitionFactKind.OwnedWorkCancellationCompleted
+	is ReaderTransitionFact.ReleaseLedgerAdmissionRejected ->
+		ReaderTransitionFactKind.ReleaseLedgerAdmissionRejected
 	is ReaderTransitionFact.Retry -> ReaderTransitionFactKind.Retry
 	is ReaderTransitionFact.PublicationReplaced -> ReaderTransitionFactKind.PublicationReplaced
 	is ReaderTransitionFact.PublicationClosed -> ReaderTransitionFactKind.PublicationClosed
@@ -1852,6 +3048,7 @@ private fun ReaderTransitionCommand.kind(): ReaderTransitionCommandKind = when (
 	is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease ->
 		ReaderTransitionCommandKind.PublishRetainedOwnerAndInputLease
 	is ReaderTransitionCommand.CommitOwnerAndInputLease -> ReaderTransitionCommandKind.CommitOwnerAndInputLease
+	is ReaderTransitionCommand.RequestResourceRelease,
 	is ReaderTransitionCommand.ReleaseResource -> ReaderTransitionCommandKind.ReleaseResource
 	is ReaderTransitionCommand.CancelOwnedWork -> ReaderTransitionCommandKind.CancelOwnedWork
 }

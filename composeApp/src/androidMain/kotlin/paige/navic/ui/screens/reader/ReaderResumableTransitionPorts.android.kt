@@ -7,10 +7,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 import paige.navic.reader.acceptsMaterialAllocation
 import paige.navic.reader.readerTransitionMaterialBindingIsValid
 import paige.navic.reader.ReaderMaterialGenerationAllocation
+import paige.navic.reader.ReaderOwnedWorkCancellationOutcome
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderPresentationEventOrigin
 import paige.navic.reader.ReaderPresentationEventReceipt
+import paige.navic.reader.ReaderBufferedReleaseCallbackState
+import paige.navic.reader.ReaderReleaseBufferedViolationStatus
+import paige.navic.reader.ReaderReleaseCommandAmbiguityReason
+import paige.navic.reader.ReaderReleaseCommandRejectionReason
+import paige.navic.reader.ReaderReleasePortContractViolationReason
 import paige.navic.reader.ReaderResourceReleaseIssuer
+import paige.navic.reader.ReaderSaturatingCallbackCount
 import paige.navic.reader.ReaderSemanticCommandSlotId
 import paige.navic.reader.ReaderSemanticExecutableRequest
 import paige.navic.reader.ReaderSemanticExecutableResult
@@ -35,6 +42,153 @@ internal fun interface ReaderTransitionClockRegistration {
 internal interface ReaderTransitionClock {
 	fun nowMillis(): Long
 	fun schedule(atMillis: Long, action: () -> Unit): ReaderTransitionClockRegistration?
+}
+
+internal class ReaderPhysicalReleaseCommandAdapter {
+	private enum class Completion { Calling, Accepted, Rejected, Threw }
+
+	private class Invocation(
+		val command: ReaderTransitionCommand.ReleaseResource,
+		val onFact: (ReaderTransitionFact) -> Unit
+	) {
+		var completion = Completion.Calling
+		var callbacks = ReaderBufferedReleaseCallbackState(
+			latestAuthoritativeConfirmation = null,
+			callbackCount = ReaderSaturatingCallbackCount.Zero,
+			violationStatus = ReaderReleaseBufferedViolationStatus.None
+		)
+		var publishedCallbackCount = ReaderSaturatingCallbackCount.Zero
+		var completionWithoutCallbackPublished = false
+	}
+
+	fun dispatchGeneric(
+		command: ReaderTransitionCommand.ReleaseResource,
+		invoke: ((ReaderTransitionFact.ResourceReleased) -> Unit) -> ReaderPortCommandResult,
+		onFact: (ReaderTransitionFact) -> Unit
+	) = dispatch(command, invoke, onFact)
+
+	fun dispatchLegacy(
+		dispatch: ReaderImportedLegacyReleaseDispatch,
+		invoke: ((ReaderLegacyPhysicalIdentity, ReaderTransitionFact.ResourceReleased) -> Unit) -> ReaderPortCommandResult,
+		onFact: (ReaderTransitionFact) -> Unit
+	) = dispatch(
+		command = dispatch.command,
+		invoke = { callback ->
+			invoke { physical, fact ->
+				if (physical == dispatch.imported.physicalIdentity) callback(fact)
+			}
+		},
+		onFact = onFact
+	)
+
+	private fun dispatch(
+		command: ReaderTransitionCommand.ReleaseResource,
+		invoke: ((ReaderTransitionFact.ResourceReleased) -> Unit) -> ReaderPortCommandResult,
+		onFact: (ReaderTransitionFact) -> Unit
+	) {
+		val invocation = Invocation(command, onFact)
+		val result = try {
+			invoke { confirmation -> recordCallback(invocation, confirmation) }
+		} catch (_: Throwable) {
+			complete(invocation, Completion.Threw)
+			return
+		}
+		complete(
+			invocation,
+			if (result == ReaderPortCommandResult.Accepted) Completion.Accepted else Completion.Rejected
+		)
+	}
+
+	private fun recordCallback(
+		invocation: Invocation,
+		confirmation: ReaderTransitionFact.ResourceReleased
+	) {
+		if (confirmation.identity != invocation.command.identity) return
+		val publications = synchronized(invocation) {
+			invocation.callbacks = invocation.callbacks.record(confirmation)
+			if (invocation.completion == Completion.Calling) emptyList() else publications(invocation, late = true)
+		}
+		publish(invocation, publications)
+	}
+
+	private fun complete(invocation: Invocation, completion: Completion) {
+		val publications = synchronized(invocation) {
+			if (invocation.completion != Completion.Calling) return
+			invocation.completion = completion
+			publications(invocation, late = false)
+		}
+		publish(invocation, publications)
+	}
+
+	private fun publish(invocation: Invocation, publications: List<ReaderTransitionFact>) {
+		publications.forEach { fact ->
+			try {
+				invocation.onFact(fact)
+			} catch (_: Throwable) {
+				// Physical callbacks are total. Production ingress is non-throwing and owns
+				// durable classification; an invalid external sink cannot escape the callback.
+			}
+		}
+	}
+
+	private fun publications(invocation: Invocation, late: Boolean): List<ReaderTransitionFact> {
+		val callback = invocation.callbacks.latestAuthoritativeConfirmation
+		val count = invocation.callbacks.callbackCount
+		if (callback == null) {
+			if (invocation.completionWithoutCallbackPublished) return emptyList()
+			val publication = when (invocation.completion) {
+				Completion.Rejected -> ReaderTransitionFact.ReleaseCommandRejected(
+					invocation.command.cleanupKey,
+					invocation.command.identity,
+					ReaderReleaseCommandRejectionReason.PortRejectedNoEffect
+				)
+				Completion.Threw -> ReaderTransitionFact.ReleaseCommandThrew(
+					invocation.command.cleanupKey,
+					invocation.command.identity,
+					ReaderReleaseCommandAmbiguityReason.ThrowAfterPhysicalEffectMayHaveOccurred
+				)
+				else -> null
+			}
+			if (publication != null) invocation.completionWithoutCallbackPublished = true
+			return listOfNotNull(publication)
+		}
+		invocation.callbacks = invocation.callbacks.copy(latestAuthoritativeConfirmation = null)
+		val priorPublishedCount = invocation.publishedCallbackCount
+		if (count == priorPublishedCount) return emptyList()
+		invocation.publishedCallbackCount = count
+		val firstConfirmation = priorPublishedCount == ReaderSaturatingCallbackCount.Zero
+		val completionViolation = when {
+			invocation.completion == Completion.Rejected && late ->
+				ReaderReleasePortContractViolationReason.LateCallbackAfterRejected
+			invocation.completion == Completion.Threw && late ->
+				ReaderReleasePortContractViolationReason.LateCallbackAfterAmbiguousFailure
+			invocation.completion == Completion.Rejected ->
+				ReaderReleasePortContractViolationReason.CallbackThenRejected
+			invocation.completion == Completion.Threw ->
+				ReaderReleasePortContractViolationReason.CallbackThenThrew
+			else -> null
+		}
+		val duplicate = count != ReaderSaturatingCallbackCount.One
+		val violation = when {
+			duplicate && completionViolation != null ->
+				ReaderReleasePortContractViolationReason.MultipleViolations
+			duplicate -> ReaderReleasePortContractViolationReason.DuplicateConfirmation
+			else -> completionViolation
+		}
+		return buildList {
+			if (firstConfirmation) add(callback)
+			violation?.let { reason ->
+				add(
+					ReaderTransitionFact.ReleasePortContractViolated(
+						invocation.command.cleanupKey,
+						invocation.command.identity,
+						reason,
+						count
+					)
+				)
+			}
+		}
+	}
 }
 
 internal data class ReaderPhysicalReleaseRetentionSnapshot(
@@ -75,7 +229,7 @@ private class ReaderPhysicalReleaseBookkeeper<Lease>(
 				command.key.owningTransitionIdOrNull != null
 			) { "Transition-authorized release requires transition-owned resource identity" }
 			is ReaderResourceReleaseIssuer.Session -> check(
-				command.key.owningTransitionIdOrNull == null && command.registration != null
+				command.key.owningTransitionIdOrNull == null
 			) { "Session-authorized release requires an imported registration" }
 		}
 		val lease = leases[command.key]
@@ -99,13 +253,7 @@ private class ReaderPhysicalReleaseBookkeeper<Lease>(
 						"Adopted release requires its imported registration retirement order"
 					}
 				}
-				onFact(
-					ReaderTransitionFact.ResourceReleased(
-						command.transitionId,
-						command.key,
-						command.registration
-					)
-				)
+				onFact(ReaderTransitionFact.ResourceReleased(command.identity))
 			}
 		}
 		return true
@@ -731,6 +879,7 @@ internal class ReaderTask4TransitionPorts(
 				raster.cancel(command.transitionId)
 				renderer.cancelPreparation(command.transitionId)
 			}
+			is ReaderTransitionCommand.RequestResourceRelease,
 			is ReaderTransitionCommand.RequestSemanticSynchronization,
 			is ReaderTransitionCommand.PrepareFrameTarget,
 			is ReaderTransitionCommand.RequestFramePresentation,
@@ -762,21 +911,18 @@ internal interface ReaderResumableTransitionPorts {
 		command: ReaderTransitionCommand,
 		onFact: (ReaderTransitionFact) -> Unit
 	)
+
+	fun issueImportedLegacyRelease(
+		dispatch: ReaderImportedLegacyReleaseDispatch,
+		onFact: (ReaderTransitionFact) -> Unit
+	) = issue(dispatch.command, onFact)
 }
 
 internal class ReaderActivatedTransitionPorts(
 	private val ports: ReaderProductionActivatedSessionPorts
 ) : ReaderResumableTransitionPorts {
-	override val clock: ReaderTransitionClock = object : ReaderTransitionClock {
-		override fun nowMillis(): Long = SystemClock.uptimeMillis()
-
-		override fun schedule(
-			atMillis: Long,
-			action: () -> Unit
-		): ReaderTransitionClockRegistration? = error(
-			"Activated Task 6 transitions use only the fact-only timer"
-		)
-	}
+	private val physicalRelease = ReaderPhysicalReleaseCommandAdapter()
+	override val clock: ReaderTransitionClock = ReaderActivatedFactOnlyTransitionClock
 	override val task6FactOnlyTimer: ReaderTask6FactOnlyTimerPort
 		get() = ports.factOnlyTimer
 	override val ownerAndInputPublication: ReaderOwnerAndInputPublicationPort
@@ -784,10 +930,53 @@ internal class ReaderActivatedTransitionPorts(
 	override val semanticCommand: ReaderSemanticCommandPort
 		get() = ports.semantic
 
+	override fun issueImportedLegacyRelease(
+		dispatch: ReaderImportedLegacyReleaseDispatch,
+		onFact: (ReaderTransitionFact) -> Unit
+	) {
+		physicalRelease.dispatchLegacy(
+			dispatch = dispatch,
+			invoke = { callback ->
+				ports.resources.releaseLegacy(
+					dispatch.command,
+					dispatch.imported,
+					callback
+				)
+			},
+			onFact = onFact
+		)
+	}
+
 	override fun issue(
 		command: ReaderTransitionCommand,
 		onFact: (ReaderTransitionFact) -> Unit
 	) {
+		if (command is ReaderTransitionCommand.ReleaseResource) {
+			physicalRelease.dispatchGeneric(
+				command,
+				invoke = { callback -> ports.resources.release(command, callback) },
+				onFact = onFact
+			)
+			return
+		}
+		if (command is ReaderTransitionCommand.CancelOwnedWork && command.cleanupKey != null) {
+			val outcome = try {
+				when (ports.resources.cancelOwnedWork(command)) {
+					ReaderPortCommandResult.Accepted -> ReaderOwnedWorkCancellationOutcome.Applied
+					is ReaderPortCommandResult.Rejected -> ReaderOwnedWorkCancellationOutcome.Rejected
+				}
+			} catch (_: Throwable) {
+				ReaderOwnedWorkCancellationOutcome.Threw
+			}
+			onFact(
+				ReaderTransitionFact.OwnedWorkCancellationCompleted(
+					requireNotNull(command.cleanupKey),
+					command.transitionId,
+					outcome
+				)
+			)
+			return
+		}
 		val result = when (command) {
 			is ReaderTransitionCommand.AllocateMaterialBinding ->
 				ports.materialAllocation.allocate(command) { onFact(it) }
@@ -799,8 +988,10 @@ internal class ReaderActivatedTransitionPorts(
 				ports.frame.prepareTarget(command, onFact)
 			is ReaderTransitionCommand.RequestFramePresentation ->
 				ports.frame.present(command, onFact)
-			is ReaderTransitionCommand.ReleaseResource ->
-				ports.resources.release(command) { onFact(it) }
+			is ReaderTransitionCommand.RequestResourceRelease,
+			is ReaderTransitionCommand.ReleaseResource -> error(
+				"Activated release requests must be ledger-accounted before dispatch"
+			)
 			is ReaderTransitionCommand.CancelOwnedWork -> ports.resources.cancelOwnedWork(command)
 			is ReaderTransitionCommand.RequestSemanticSynchronization -> error(
 				"Activated semantic commands must use the dedicated semantic port"
@@ -859,6 +1050,7 @@ private fun ReaderTransitionCommand.toCommandRejectedFact(): ReaderTransitionFac
 		is ReaderTransitionCommand.CommitOwnerAndInputLease ->
 			ReaderTransitionCommandStage.SuccessorPublication to
 				ReaderTransitionCommandRejectionReason.PublicationRejected
+		is ReaderTransitionCommand.RequestResourceRelease,
 		is ReaderTransitionCommand.ReleaseResource,
 		is ReaderTransitionCommand.CancelOwnedWork -> error(
 			"Release commands do not use ordinary command-stage rejection"
@@ -882,6 +1074,16 @@ internal class ReaderCutoverTransitionPorts(
 
 	override fun acceptsFact(fact: ReaderTransitionFact): Boolean = delegate.acceptsFact(fact)
 
+	override fun issueImportedLegacyRelease(
+		dispatch: ReaderImportedLegacyReleaseDispatch,
+		onFact: (ReaderTransitionFact) -> Unit
+	) {
+		check(deckCutover.coordinatorCommandsAllowed) {
+			"Coordinator resource release is not active"
+		}
+		delegate.issueImportedLegacyRelease(dispatch, onFact)
+	}
+
 	override fun issue(
 		command: ReaderTransitionCommand,
 		onFact: (ReaderTransitionFact) -> Unit
@@ -899,9 +1101,20 @@ internal class ReaderCutoverTransitionPorts(
 	}
 }
 
-internal class AndroidReaderTransitionClock(
-	private val handler: Handler = Handler(Looper.getMainLooper())
-) : ReaderTransitionClock {
+private object ReaderActivatedFactOnlyTransitionClock : ReaderTransitionClock {
+	override fun nowMillis(): Long = SystemClock.uptimeMillis()
+
+	override fun schedule(
+		atMillis: Long,
+		action: () -> Unit
+	): ReaderTransitionClockRegistration = error(
+		"Activated deadlines belong exclusively to the retained Task 6 fact timer"
+	)
+}
+
+internal class AndroidReaderTransitionClock : ReaderTransitionClock {
+	private val handler: Handler by lazy { Handler(Looper.getMainLooper()) }
+
 	override fun nowMillis(): Long = SystemClock.uptimeMillis()
 
 	override fun schedule(

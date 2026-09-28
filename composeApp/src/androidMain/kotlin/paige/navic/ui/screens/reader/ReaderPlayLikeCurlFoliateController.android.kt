@@ -80,6 +80,7 @@ import paige.navic.reader.ReaderPresentationTokenDomain
 import paige.navic.reader.ReaderRequiredTransition
 import paige.navic.reader.ReaderTransitionCommand
 import paige.navic.reader.ReaderTransitionDeckRole
+import paige.navic.reader.ReaderTransitionFailureReason
 import paige.navic.reader.ReaderTransitionId
 import paige.navic.reader.ReaderTransitionOperation
 import paige.navic.reader.ReaderTransitionResourceKey
@@ -1104,6 +1105,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val admission: ReaderDeckAdmission
 	)
 
+	private class ActivatedPhysicalDeckAuthority(
+		val imported: ReaderImportedLegacyResourceRegistration,
+		val generationId: Long,
+		val binding: ReaderPresentationBinding
+	) {
+		var releaseRequested = false
+		override fun hashCode(): Int = 0x41504441
+		override fun toString(): String =
+			"ActivatedPhysicalDeckAuthority(<redacted>)"
+	}
+
 	private data class RetainedInlineHandoffSnapshot(
 		val request: ReaderPageRelocationRequest,
 		val snapshot: ReaderPageSlideSnapshot
@@ -1168,7 +1180,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val generationAdmissions = mutableMapOf<Long, ReaderDeckAdmission>()
 	private val physicalDeckLeases =
 		mutableMapOf<Long, ReaderDeckPhysicalOwnershipAdapter.Lease>()
+	private val activatedPhysicalDeckAuthorities =
+		mutableMapOf<ReaderLegacyPhysicalIdentity, ActivatedPhysicalDeckAuthority>()
+	private var deckActivationDomain: ReaderLegacyPhysicalDomain? = null
 	private val frozenPhysicalDeckRestarts = mutableMapOf<Long, FrozenPhysicalDeckRestart>()
+	private var physicalFinalizationActivePagesNotificationPending = false
 	private val physicalDeckReleaseConfirmations = mutableMapOf<Long, () -> Unit>()
 	private val physicalDeckOwnership = ReaderDeckPhysicalOwnershipAdapter(
 		releasePhysicalDeck = { descriptor, onReleased ->
@@ -1954,7 +1970,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun freezeDeckOwnershipForTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
-	): ReaderPortCommandResult = physicalDeckOwnership.freezeForTransitionActivation(domain)
+	): ReaderPortCommandResult {
+		val current = deckActivationDomain
+		if (current != null && current != domain) {
+			return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+		}
+		return physicalDeckOwnership.freezeForTransitionActivation(domain).also { result ->
+			if (result == ReaderPortCommandResult.Accepted) deckActivationDomain = domain
+		}
+	}
 
 	fun snapshotFrozenDeckOwnership(): List<ReaderFrozenLegacyResource> =
 		physicalDeckOwnership.snapshotFrozenOwnership()
@@ -1967,9 +1993,91 @@ internal class ReaderPlayLikeCurlFoliateController(
 		onConfirmed
 	)
 
+	fun finalizeDeckOwnershipAfterTransitionActivation(
+		token: ReaderLegacyFreezeToken,
+		selected: ReaderImportedLegacyResourceRegistration?,
+		confirmedRetirements: Set<ReaderLegacyPhysicalIdentity>
+	): ReaderPortCommandResult {
+		val domain = deckActivationDomain
+			?: return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+		if (domain.freezeToken != token) {
+			return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+		}
+		val selectedForDeck = selected?.takeIf {
+			it.physicalIdentity.source == ReaderLegacyInventorySource.Deck
+		}
+		val deckRetirements = confirmedRetirements.filterTo(linkedSetOf()) {
+			it.source == ReaderLegacyInventorySource.Deck
+		}
+		val result = physicalDeckOwnership.finalizeActivatedHandoff(
+			domain = domain,
+			selectedIdentity = selectedForDeck?.physicalIdentity,
+			confirmedRetirements = deckRetirements
+		) { selectedLease, retiredLeases ->
+			finalizeValidatedPhysicalDecks(
+				selected = selectedForDeck,
+				selectedLease = selectedLease,
+				retiredLeases = retiredLeases
+			)
+		}
+		if (result == ReaderPortCommandResult.Accepted) deckActivationDomain = null
+		return result
+	}
+
+	fun releaseActivatedDeckOwnership(
+		imported: ReaderImportedLegacyResourceRegistration,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult {
+		val identity = imported.physicalIdentity
+		val authority = activatedPhysicalDeckAuthorities[identity]
+		if (
+			authority == null ||
+			authority.imported != imported ||
+			authority.releaseRequested ||
+			physicalDeckReleaseConfirmations.containsKey(authority.generationId)
+		) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
+		if (generationOwners[authority.generationId] == null) {
+			if (activatedPhysicalDeckAuthorities.remove(identity) !== authority) {
+				return ReaderPortCommandResult.Rejected(
+					ReaderTransitionFailureReason.InvalidLegacyResource
+				)
+			}
+			onConfirmed(identity)
+			return ReaderPortCommandResult.Accepted
+		}
+		authority.releaseRequested = true
+		physicalDeckReleaseConfirmations[authority.generationId] = {
+			if (activatedPhysicalDeckAuthorities.remove(identity) === authority) {
+				onConfirmed(identity)
+			}
+		}
+		val accepted = rendererOwnedGenerationReleaseGate.requestFrozenTransition(
+			authority.binding
+		)
+		if (!accepted) {
+			physicalDeckReleaseConfirmations.remove(authority.generationId)
+			authority.releaseRequested = false
+			return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+		}
+		return ReaderPortCommandResult.Accepted
+	}
+
 	fun restoreDeckOwnershipAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult = physicalDeckOwnership.restoreAfterTransitionActivation(domain)
+		.also { result ->
+			if (result == ReaderPortCommandResult.Accepted && deckActivationDomain == domain) {
+				deckActivationDomain = null
+			}
+		}
 
 	private val canPresentAcceptedGesture: Boolean
 		get() = enabled && attached && (
@@ -7704,6 +7812,87 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private fun finalizeValidatedPhysicalDecks(
+		selected: ReaderImportedLegacyResourceRegistration?,
+		selectedLease: ReaderDeckPhysicalOwnershipAdapter.Lease?,
+		retiredLeases: List<ReaderDeckPhysicalOwnershipAdapter.Lease>
+	): Boolean {
+		if ((selected == null) != (selectedLease == null)) return false
+		val allLeases = listOfNotNull(selectedLease) + retiredLeases
+		val generationIds = allLeases.map { it.descriptor.textureGeneration }
+		if (generationIds.size != generationIds.distinct().size) return false
+
+		if (selected != null && selectedLease != null) {
+			val generationId = selectedLease.descriptor.textureGeneration
+			if (
+				selected.registration.key.kind != ReaderTransitionResourceKind.Deck ||
+				physicalDeckLeases[generationId] !== selectedLease ||
+				generationOwners[generationId] == null ||
+				generationAdmissions[generationId] == null ||
+				frozenPhysicalDeckRestarts.containsKey(generationId) ||
+				physicalDeckReleaseConfirmations.containsKey(generationId) ||
+				activatedPhysicalDeckAuthorities.containsKey(selected.physicalIdentity)
+			) return false
+		}
+		if (retiredLeases.any { lease ->
+				val generationId = lease.descriptor.textureGeneration
+				val restart = frozenPhysicalDeckRestarts[generationId]
+				physicalDeckLeases[generationId] !== lease ||
+					restart == null ||
+					restart.admission.state != ReaderDeckAdmissionState.Released ||
+					generationOwners.containsKey(generationId) ||
+					generationAdmissions.containsKey(generationId) ||
+					physicalDeckReleaseConfirmations.containsKey(generationId)
+			}) return false
+
+		val pagesToRetire = retiredLeases.mapTo(linkedSetOf()) { lease ->
+			checkNotNull(frozenPhysicalDeckRestarts[lease.descriptor.textureGeneration]).pages
+		}
+		for (pages in pagesToRetire) {
+			if (pages.generations.isNotEmpty() || pages !in preparedPageSets) continue
+			if (activePages === pages) {
+				activePages = null
+				physicalFinalizationActivePagesNotificationPending = true
+			}
+		}
+		if (physicalFinalizationActivePagesNotificationPending) {
+			try {
+				notifyPreparedActiveDeckChanged(null)
+				physicalFinalizationActivePagesNotificationPending = false
+			} catch (_: Throwable) {
+				return false
+			}
+		}
+		for (pages in pagesToRetire) {
+			if (pages.generations.isNotEmpty() || pages !in preparedPageSets) continue
+			pages.obsolete = true
+			try {
+				closeIfUnused(pages)
+			} catch (_: Throwable) {
+				// close() is a one-way physical boundary: a throw cannot prove that the
+				// underlying deck stayed open, so retirement continues without reissue.
+			}
+		}
+
+		// The installed coordinator authority is published before its legacy lease is removed.
+		if (selected != null && selectedLease != null) {
+			val generationId = selectedLease.descriptor.textureGeneration
+			activatedPhysicalDeckAuthorities[selected.physicalIdentity] =
+				ActivatedPhysicalDeckAuthority(
+					imported = selected,
+					generationId = generationId,
+					binding = selectedLease.descriptor.binding
+				)
+			check(physicalDeckLeases.remove(generationId) === selectedLease)
+		}
+		retiredLeases.forEach { lease ->
+			val generationId = lease.descriptor.textureGeneration
+			check(physicalDeckLeases.remove(generationId) === lease)
+			checkNotNull(frozenPhysicalDeckRestarts.remove(generationId))
+		}
+		return true
+	}
+
 	private fun captureFrozenPhysicalDeckRestart(
 		generationId: Long
 	): FrozenPhysicalDeckRestart? {
@@ -7951,8 +8140,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun closeIfUnused(pages: PreparedPages) {
-		if (!pages.obsolete || pages.generations.isNotEmpty()) return
-		preparedPageSets -= pages
+		if (!pages.obsolete || pages.generations.isNotEmpty() || pages !in preparedPageSets) return
+		check(preparedPageSets.remove(pages))
 		pages.deck.close()
 	}
 

@@ -2,6 +2,7 @@ package paige.navic.ui.screens.reader
 
 import java.io.File
 import java.lang.reflect.Modifier
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -21,6 +22,7 @@ import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.ReaderPresentationBinding
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderSemanticRequestHandle
 import paige.navic.reader.ReaderTransitionFailureReason
 import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.reader.ReaderTransitionResourceProvenance
@@ -139,6 +141,337 @@ class ReaderTransitionActivationTest {
 		assertNull(timer.snapshotForTask7Transfer(registration))
 		scheduledActions.forEach { it() }
 		assertEquals(1, expired.size)
+	}
+
+	@Test
+	fun retainedFactOnlyTimerKeepsCallbackAuthorityWhenPhysicalCancelThrows() {
+		lateinit var scheduledExpiry: () -> Unit
+		val timer = ReaderRetainedFactOnlyTimer(
+			domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(97L)),
+			nowMillis = { 100L },
+			schedule = { _, action ->
+				scheduledExpiry = action
+				ReaderTransitionClockRegistration { error("private cancel detail") }
+			}
+		)
+		val binding = ReaderPresentationBinding(
+			"fixture", 2L, 3L, 5L,
+			ReaderDestinationCommitIdentity("fixture", 1L),
+			7L, 11L, 13L
+		)
+		val id = ReaderTransitionId(
+			readerSessionGeneration = 17L,
+			coordinatorEpoch = 19L,
+			sequence = 1L,
+			operation = ReaderTransitionOperation.BootstrapNativePage,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
+		)
+		val expired = mutableListOf<paige.navic.reader.ReaderTransitionFact.DeadlineExpired>()
+		val registration = requireNotNull(timer.bindBeforeWork(id, expired::add))
+
+		assertFailsWith<IllegalStateException> { timer.cancel(registration) }
+		assertNotNull(
+			timer.snapshotForTask7Transfer(registration),
+			"A failed physical cancel must retain the exact callback registration"
+		)
+
+		scheduledExpiry()
+
+		assertEquals(
+			listOf(paige.navic.reader.ReaderTransitionFact.DeadlineExpired(id)),
+			expired
+		)
+		assertNull(timer.snapshotForTask7Transfer(registration))
+		assertEquals(
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource),
+			timer.cancel(registration)
+		)
+	}
+
+	@Test
+	fun retainedFactOnlyTimerAcceptedCancelSuppressesStaleExpiry() {
+		lateinit var scheduledExpiry: () -> Unit
+		var physicalCancelCount = 0
+		val timer = ReaderRetainedFactOnlyTimer(
+			domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(99L)),
+			nowMillis = { 100L },
+			schedule = { _, action ->
+				scheduledExpiry = action
+				ReaderTransitionClockRegistration { physicalCancelCount += 1 }
+			}
+		)
+		val binding = ReaderPresentationBinding(
+			"fixture", 2L, 3L, 5L,
+			ReaderDestinationCommitIdentity("fixture", 1L),
+			7L, 11L, 13L
+		)
+		val id = ReaderTransitionId(
+			readerSessionGeneration = 17L,
+			coordinatorEpoch = 19L,
+			sequence = 1L,
+			operation = ReaderTransitionOperation.BootstrapNativePage,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
+		)
+		val expired = mutableListOf<paige.navic.reader.ReaderTransitionFact.DeadlineExpired>()
+		val registration = requireNotNull(timer.bindBeforeWork(id, expired::add))
+
+		assertEquals(ReaderPortCommandResult.Accepted, timer.cancel(registration))
+		scheduledExpiry()
+
+		assertEquals(1, physicalCancelCount)
+		assertTrue(expired.isEmpty())
+		assertNull(timer.snapshotForTask7Transfer(registration))
+		assertEquals(
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource),
+			timer.cancel(registration)
+		)
+	}
+
+	@Test
+	fun retainedFactOnlyTimerExpiryDuringPhysicalCancelPublishesExactlyOnce() {
+		lateinit var scheduledExpiry: () -> Unit
+		val timer = ReaderRetainedFactOnlyTimer(
+			domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(100L)),
+			nowMillis = { 100L },
+			schedule = { _, action ->
+				scheduledExpiry = action
+				ReaderTransitionClockRegistration { scheduledExpiry() }
+			}
+		)
+		val binding = ReaderPresentationBinding(
+			"fixture", 2L, 3L, 5L,
+			ReaderDestinationCommitIdentity("fixture", 1L),
+			7L, 11L, 13L
+		)
+		val id = ReaderTransitionId(
+			readerSessionGeneration = 17L,
+			coordinatorEpoch = 19L,
+			sequence = 1L,
+			operation = ReaderTransitionOperation.BootstrapNativePage,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
+		)
+		val expired = mutableListOf<paige.navic.reader.ReaderTransitionFact.DeadlineExpired>()
+		val registration = requireNotNull(timer.bindBeforeWork(id, expired::add))
+
+		assertEquals(ReaderPortCommandResult.Accepted, timer.cancel(registration))
+		scheduledExpiry()
+
+		assertEquals(listOf(paige.navic.reader.ReaderTransitionFact.DeadlineExpired(id)), expired)
+		assertNull(timer.snapshotForTask7Transfer(registration))
+		assertEquals(
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource),
+			timer.cancel(registration)
+		)
+	}
+
+	@Test
+	fun retainedFactOnlyTimerOwnsExactTwoSecondReleaseOnlyCloseBudget() {
+		var now = 400L
+		var scheduledAt = -1L
+		lateinit var scheduledExpiry: () -> Unit
+		val timer = ReaderRetainedFactOnlyTimer(
+			domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(101L)),
+			nowMillis = { now },
+			schedule = { atMillis, action ->
+				scheduledAt = atMillis
+				scheduledExpiry = action
+				ReaderTransitionClockRegistration { }
+			}
+		)
+		val cleanupKey = paige.navic.reader.ReaderReleaseOnlyCleanupKey(
+			readerSessionGeneration = 17L,
+			coordinatorEpoch = 19L,
+			cleanupId = paige.navic.reader.ReaderReleaseOnlyCleanupId(1L),
+			generation = paige.navic.reader.ReaderReleaseOnlyCleanupGeneration(1L)
+		)
+		val expired = mutableListOf<paige.navic.reader.ReaderReleaseOnlyCleanupKey>()
+
+		val registration = requireNotNull(
+			timer.bindReleaseOnlyCloseBudget(cleanupKey, expired::add)
+		)
+
+		assertEquals(2_400L, registration.expiresAtMillis)
+		assertEquals(registration.expiresAtMillis, scheduledAt)
+		now = registration.expiresAtMillis
+		scheduledExpiry()
+		scheduledExpiry()
+		assertEquals(listOf(cleanupKey), expired)
+		assertEquals(
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource),
+			timer.cancelReleaseOnlyCloseBudget(registration)
+		)
+	}
+
+	@Test
+	fun retainedReleaseOnlyTimerAcceptedCancelWinsAgainstStaleExpiry() {
+		lateinit var scheduledExpiry: () -> Unit
+		var physicalCancelCount = 0
+		val timer = ReaderRetainedFactOnlyTimer(
+			domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(103L)),
+			nowMillis = { 100L },
+			schedule = { _, action ->
+				scheduledExpiry = action
+				ReaderTransitionClockRegistration { physicalCancelCount += 1 }
+			}
+		)
+		val cleanupKey = paige.navic.reader.ReaderReleaseOnlyCleanupKey(
+			readerSessionGeneration = 17L,
+			coordinatorEpoch = 19L,
+			cleanupId = paige.navic.reader.ReaderReleaseOnlyCleanupId(2L),
+			generation = paige.navic.reader.ReaderReleaseOnlyCleanupGeneration(1L)
+		)
+		val expired = mutableListOf<paige.navic.reader.ReaderReleaseOnlyCleanupKey>()
+		val registration = requireNotNull(
+			timer.bindReleaseOnlyCloseBudget(cleanupKey, expired::add)
+		)
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			timer.cancelReleaseOnlyCloseBudget(registration)
+		)
+		scheduledExpiry()
+
+		assertEquals(1, physicalCancelCount)
+		assertTrue(expired.isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource),
+			timer.cancelReleaseOnlyCloseBudget(registration)
+		)
+	}
+
+	@Test
+	fun retainedReleaseOnlyTimerKeepsExpiryAuthorityWhenPhysicalCancelThrows() {
+		lateinit var scheduledExpiry: () -> Unit
+		val timer = ReaderRetainedFactOnlyTimer(
+			domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(107L)),
+			nowMillis = { 100L },
+			schedule = { _, action ->
+				scheduledExpiry = action
+				ReaderTransitionClockRegistration { error("private cancel detail") }
+			}
+		)
+		val cleanupKey = paige.navic.reader.ReaderReleaseOnlyCleanupKey(
+			readerSessionGeneration = 17L,
+			coordinatorEpoch = 19L,
+			cleanupId = paige.navic.reader.ReaderReleaseOnlyCleanupId(3L),
+			generation = paige.navic.reader.ReaderReleaseOnlyCleanupGeneration(1L)
+		)
+		val expired = mutableListOf<paige.navic.reader.ReaderReleaseOnlyCleanupKey>()
+		val registration = requireNotNull(
+			timer.bindReleaseOnlyCloseBudget(cleanupKey, expired::add)
+		)
+
+		assertFailsWith<IllegalStateException> {
+			timer.cancelReleaseOnlyCloseBudget(registration)
+		}
+		scheduledExpiry()
+		scheduledExpiry()
+
+		assertEquals(listOf(cleanupKey), expired)
+		assertEquals(
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource),
+			timer.cancelReleaseOnlyCloseBudget(registration)
+		)
+	}
+
+	@Test
+	fun retainedReleaseOnlyTimerExpiryWinsRaceBeforeCancelWithoutDuplicateCallback() {
+		lateinit var scheduledExpiry: () -> Unit
+		var physicalCancelCount = 0
+		val timer = ReaderRetainedFactOnlyTimer(
+			domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(109L)),
+			nowMillis = { 100L },
+			schedule = { _, action ->
+				scheduledExpiry = action
+				ReaderTransitionClockRegistration { physicalCancelCount += 1 }
+			}
+		)
+		val cleanupKey = paige.navic.reader.ReaderReleaseOnlyCleanupKey(
+			readerSessionGeneration = 17L,
+			coordinatorEpoch = 19L,
+			cleanupId = paige.navic.reader.ReaderReleaseOnlyCleanupId(4L),
+			generation = paige.navic.reader.ReaderReleaseOnlyCleanupGeneration(1L)
+		)
+		val expired = mutableListOf<paige.navic.reader.ReaderReleaseOnlyCleanupKey>()
+		val registration = requireNotNull(
+			timer.bindReleaseOnlyCloseBudget(cleanupKey, expired::add)
+		)
+
+		scheduledExpiry()
+		assertEquals(
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource),
+			timer.cancelReleaseOnlyCloseBudget(registration)
+		)
+		scheduledExpiry()
+
+		assertEquals(listOf(cleanupKey), expired)
+		assertEquals(0, physicalCancelCount)
+	}
+
+	@Test
+	fun retainedReleaseOnlyTimerRollsBackProvisionalEntryWhenScheduleThrows() {
+		var scheduleAttempts = 0
+		val timer = ReaderRetainedFactOnlyTimer(
+			domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(113L)),
+			nowMillis = { 100L },
+			schedule = { _, _ ->
+				scheduleAttempts += 1
+				if (scheduleAttempts == 1) error("private schedule detail")
+				ReaderTransitionClockRegistration {}
+			}
+		)
+		val cleanupKey = paige.navic.reader.ReaderReleaseOnlyCleanupKey(
+			readerSessionGeneration = 17L,
+			coordinatorEpoch = 19L,
+			cleanupId = paige.navic.reader.ReaderReleaseOnlyCleanupId(5L),
+			generation = paige.navic.reader.ReaderReleaseOnlyCleanupGeneration(1L)
+		)
+
+		assertFailsWith<IllegalStateException> {
+			timer.bindReleaseOnlyCloseBudget(cleanupKey) {}
+		}
+		val rebound = assertNotNull(timer.bindReleaseOnlyCloseBudget(cleanupKey) {})
+
+		assertEquals(2, scheduleAttempts)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			timer.cancelReleaseOnlyCloseBudget(rebound)
+		)
+	}
+
+	@Test
+	fun retainedReleaseOnlyTimerReportsSynchronousExpiryAsCancelWinner() {
+		lateinit var scheduledExpiry: () -> Unit
+		val timer = ReaderRetainedFactOnlyTimer(
+			domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(127L)),
+			nowMillis = { 100L },
+			schedule = { _, action ->
+				scheduledExpiry = action
+				ReaderTransitionClockRegistration { scheduledExpiry() }
+			}
+		)
+		val cleanupKey = paige.navic.reader.ReaderReleaseOnlyCleanupKey(
+			readerSessionGeneration = 17L,
+			coordinatorEpoch = 19L,
+			cleanupId = paige.navic.reader.ReaderReleaseOnlyCleanupId(6L),
+			generation = paige.navic.reader.ReaderReleaseOnlyCleanupGeneration(1L)
+		)
+		val expired = mutableListOf<paige.navic.reader.ReaderReleaseOnlyCleanupKey>()
+		val registration = assertNotNull(
+			timer.bindReleaseOnlyCloseBudget(cleanupKey, expired::add)
+		)
+
+		assertEquals(
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected),
+			timer.cancelReleaseOnlyCloseBudget(registration)
+		)
+		scheduledExpiry()
+
+		assertEquals(listOf(cleanupKey), expired)
+		assertEquals(
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource),
+			timer.cancelReleaseOnlyCloseBudget(registration)
+		)
 	}
 
 	@Test
@@ -360,6 +693,74 @@ class ReaderTransitionActivationTest {
 	}
 
 	@Test
+	fun selectorRejectsVisibleOwnerBindingMismatchBeforeAuthorityImport() {
+		val ownerBinding = activationBinding()
+		val inventoryBinding = ownerBinding.copy(
+			viewportGeneration = ownerBinding.viewportGeneration + 1L
+		)
+		val owner = ReaderPresentationFrameOwner.ShellCover(
+			ReaderShellCoverCommitProof(
+				ReaderPresentationToken(1L),
+				ownerBinding,
+				2L,
+				3L,
+				1200,
+				800
+			)
+		)
+		val token = ReaderLegacyFreezeToken(5L)
+		val row = ReaderFrozenLegacyResource(
+			freezeToken = token,
+			physicalIdentity = ReaderLegacyPhysicalIdentity(
+				ReaderLegacyPhysicalDomain(3L, token),
+				ReaderLegacyInventorySource.FrameOrHandoff,
+				ReaderLegacySourceLocalOpaqueToken(7L)
+			),
+			kind = ReaderTransitionResourceKind.FrameHandoff,
+			binding = inventoryBinding,
+			visibleOwner = owner,
+			origin = ReaderLegacyResourceOrigin.Owned,
+			state = ReaderLegacyResourceState.Visible,
+			mayBeCommittedPredecessor = true
+		)
+
+		assertIs<ReaderAdoptedPredecessorSelection.Neutral>(
+			ReaderAdoptedPredecessorSelector.select(listOf(row))
+		)
+	}
+
+	@Test
+	fun importedLegacyAuthorityRejectsTransitionOwnedRegistration() {
+		val binding = activationBinding()
+		val id = ReaderTransitionId(
+			readerSessionGeneration = 3L,
+			coordinatorEpoch = 5L,
+			sequence = 1L,
+			operation = ReaderTransitionOperation.BootstrapNativePage,
+			expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
+		)
+		val registration = paige.navic.reader.ReaderTransitionResourceRegistration(
+			paige.navic.reader.ReaderTransitionResourceKey(
+				id,
+				ReaderTransitionResourceKind.Deck,
+				11L
+			),
+			paige.navic.reader.ReaderResourceRetirementOrder(3L, 5L, 1L)
+		)
+
+		assertFailsWith<IllegalArgumentException> {
+			ReaderImportedLegacyResourceRegistration(
+				ReaderLegacyPhysicalIdentity(
+					ReaderLegacyPhysicalDomain(3L, ReaderLegacyFreezeToken(13L)),
+					ReaderLegacyInventorySource.Deck,
+					ReaderLegacySourceLocalOpaqueToken(17L)
+				),
+				registration
+			)
+		}
+	}
+
+	@Test
 	fun ambiguousVisiblePredecessorIsRejected() {
 		val binding = paige.navic.reader.ReaderPresentationBinding(
 			"fixture", 2L, 3L, 5L,
@@ -423,6 +824,8 @@ class ReaderTransitionActivationTest {
 		val stale = row(ReaderLegacyInventorySource.RasterPreparation, 1L, false)
 		var snapshotSequence = 0L
 		val drained = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		val finalizedRetirements = mutableListOf<Set<ReaderLegacyPhysicalIdentity>>()
+		lateinit var store: ReaderActivatedSessionSnapshotStore
 		val checkpoint = activationCheckpoint(token, visibleOwner, binding, predecessor.physicalIdentity)
 		val legacy = object : ReaderLegacyFreezeAndInventoryPort {
 			override fun freeze() = token
@@ -453,14 +856,26 @@ class ReaderTransitionActivationTest {
 			): ReaderPortCommandResult = error("Successful activation cannot restore")
 			override fun commitRestoredLegacy(checkpoint: ReaderLegacyRestorationCheckpoint) =
 				ReaderLegacyCommitRestoredResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+			override fun finalizeActivatedHandoff(
+				token: ReaderLegacyFreezeToken,
+				selected: ReaderImportedLegacyResourceRegistration?,
+				confirmedRetirements: Set<ReaderLegacyPhysicalIdentity>
+			): ReaderPortCommandResult {
+				assertEquals(1, store.atomicWriteCount)
+				assertEquals(predecessor.physicalIdentity, selected?.physicalIdentity)
+				finalizedRetirements += confirmedRetirements
+				return ReaderPortCommandResult.Accepted
+			}
 		}
-		val store = ReaderActivatedSessionSnapshotStore()
+		val releaseLedger = ReaderTransitionReleaseLedger()
+		store = ReaderActivatedSessionSnapshotStore()
 		val coordinator = ReaderSessionActivationCoordinator(
 			readerSessionGeneration = 3L,
 			coordinatorEpoch = 5L,
 			legacy = legacy,
 			installationBarrier = ReaderActivatedSessionInstallationBarrier(store),
-			narrowInitialLease = { it }
+			narrowInitialLease = { it },
+			releaseLedger = releaseLedger
 		)
 
 		assertEquals(
@@ -487,6 +902,649 @@ class ReaderTransitionActivationTest {
 			"Adopted install must atomically include the initial journal"
 		)
 		assertEquals(1, store.atomicWriteCount)
+		assertEquals(1, finalizedRetirements.size)
+		assertEquals(setOf(stale.physicalIdentity), finalizedRetirements.single())
+		val imported = requireNotNull(store.initialDecision.adoptedResource)
+		assertEquals(
+			predecessor.physicalIdentity,
+			imported.physicalIdentity,
+			"Selected physical release authority must remain coordinator-owned"
+		)
+		val installedSnapshot = assertNotNull(store.snapshot)
+		val installedLedgerField = installedSnapshot.javaClass.declaredFields.singleOrNull {
+			it.name == "releaseLedger"
+		}
+		assertNotNull(
+			installedLedgerField,
+			"Atomic activation install must transfer the selected import ledger"
+		).isAccessible = true
+		assertTrue(
+			installedLedgerField.get(installedSnapshot) === releaseLedger,
+			"Installed runtime authority must own the exact activation ledger"
+		)
+		val release = requireNotNull(
+			releaseLedger.requestRelease(
+				paige.navic.reader.ReaderResourceReleaseIssuer.Session(3L, 5L),
+				imported.registration
+			)
+		)
+		assertNull(release.transitionId)
+		val confirmation = paige.navic.reader.ReaderTransitionFact.ResourceReleased(
+			release.identity
+		)
+		assertTrue(releaseLedger.confirmLegacyReleased(imported.physicalIdentity, confirmation))
+		assertFalse(releaseLedger.confirmLegacyReleased(imported.physicalIdentity, confirmation))
+		assertEquals(
+			ReaderTransitionResourceState.Released,
+			releaseLedger.stateOf(imported.registration.key)
+		)
+	}
+
+	@Test
+	fun selectedPredecessorMustRemainExactThroughFinalInventory() {
+		val token = ReaderLegacyFreezeToken(157L)
+		val domain = ReaderLegacyPhysicalDomain(3L, token)
+		val binding = activationBinding()
+		val owner = ReaderPresentationFrameOwner.ShellCover(
+			ReaderShellCoverCommitProof(
+				ReaderPresentationToken(159L),
+				binding,
+				161L,
+				163L,
+				1200,
+				800
+			)
+		)
+		val selected = ReaderFrozenLegacyResource(
+			freezeToken = token,
+			physicalIdentity = ReaderLegacyPhysicalIdentity(
+				domain,
+				ReaderLegacyInventorySource.FrameOrHandoff,
+				ReaderLegacySourceLocalOpaqueToken(165L)
+			),
+			kind = ReaderTransitionResourceKind.FrameHandoff,
+			binding = binding,
+			visibleOwner = owner,
+			origin = ReaderLegacyResourceOrigin.Owned,
+			state = ReaderLegacyResourceState.Visible,
+			mayBeCommittedPredecessor = true
+		)
+		val stale = activationDrainRow(
+			token,
+			ReaderLegacyInventorySource.RasterPreparation,
+			167L
+		)
+		var inventoryCalls = 0L
+		var finalizeCalls = 0
+		val checkpoint = activationCheckpoint(
+			token,
+			owner,
+			binding,
+			selected.physicalIdentity
+		)
+		val legacy = object : ReaderLegacyFreezeAndInventoryPort {
+			override fun freeze() = token
+			override fun checkpointBeforeDrain(token: ReaderLegacyFreezeToken) = checkpoint
+			override fun inventory(token: ReaderLegacyFreezeToken) =
+				ReaderLegacyResourceInventory.Complete(
+					token,
+					++inventoryCalls,
+					1L,
+					ReaderLegacyInventorySource.entries.toSet(),
+					if (inventoryCalls <= 2L) listOf(selected, stale) else emptyList()
+				)
+			override fun drain(
+				token: ReaderLegacyFreezeToken,
+				physicalIdentity: ReaderLegacyPhysicalIdentity,
+				onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+			): ReaderPortCommandResult {
+				assertTrue(physicalIdentity == stale.physicalIdentity)
+				onConfirmed(physicalIdentity)
+				return ReaderPortCommandResult.Accepted
+			}
+			override fun cancelFreezeBeforeDrain(token: ReaderLegacyFreezeToken) =
+				error("A destructive drain requires restoration")
+			override fun restoreFromActivationCheckpoint(
+				checkpoint: ReaderLegacyRestorationCheckpoint,
+				source: ReaderLegacyInventorySource,
+				onConfirmed: (ReaderLegacyInventorySource, ReaderLegacyRestorationResult) -> Unit
+			): ReaderPortCommandResult {
+				onConfirmed(source, ReaderLegacyRestorationResult.Restored)
+				return ReaderPortCommandResult.Accepted
+			}
+			override fun commitRestoredLegacy(checkpoint: ReaderLegacyRestorationCheckpoint) =
+				ReaderLegacyCommitRestoredResult.Applied
+			override fun finalizeActivatedHandoff(
+				token: ReaderLegacyFreezeToken,
+				selected: ReaderImportedLegacyResourceRegistration?,
+				confirmedRetirements: Set<ReaderLegacyPhysicalIdentity>
+			): ReaderPortCommandResult {
+				finalizeCalls += 1
+				return ReaderPortCommandResult.Accepted
+			}
+		}
+		val store = ReaderActivatedSessionSnapshotStore()
+		val coordinator = ReaderSessionActivationCoordinator(
+			readerSessionGeneration = 3L,
+			coordinatorEpoch = 5L,
+			legacy = legacy,
+			installationBarrier = ReaderActivatedSessionInstallationBarrier(store),
+			narrowInitialLease = { it }
+		)
+
+		assertEquals(
+			ReaderActivationInstallResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			),
+			coordinator.activateForTest(
+				completeActivatedSessionPorts(),
+				ReaderInitialPresentationInputLease.ChromeOnly
+			)
+		)
+		assertEquals(ReaderSessionActivationState.Legacy, coordinator.state)
+		assertEquals(0, store.atomicWriteCount)
+		assertEquals(0, finalizeCalls)
+	}
+
+	@Test
+	fun rejectedAtomicInstallRollsBackUnpublishedSelectedReleaseAuthority() {
+		val token = ReaderLegacyFreezeToken(167L)
+		val domain = ReaderLegacyPhysicalDomain(3L, token)
+		val binding = activationBinding()
+		val owner = ReaderPresentationFrameOwner.ShellCover(
+			ReaderShellCoverCommitProof(
+				ReaderPresentationToken(169L),
+				binding,
+				171L,
+				173L,
+				1200,
+				800
+			)
+		)
+		val physicalIdentity = ReaderLegacyPhysicalIdentity(
+			domain,
+			ReaderLegacyInventorySource.FrameOrHandoff,
+			ReaderLegacySourceLocalOpaqueToken(175L)
+		)
+		val selected = ReaderFrozenLegacyResource(
+			freezeToken = token,
+			physicalIdentity = physicalIdentity,
+			kind = ReaderTransitionResourceKind.FrameHandoff,
+			binding = binding,
+			visibleOwner = owner,
+			origin = ReaderLegacyResourceOrigin.Owned,
+			state = ReaderLegacyResourceState.Visible,
+			mayBeCommittedPredecessor = true
+		)
+		var snapshotSequence = 0L
+		var unfreezeCount = 0
+		val legacy = object : ReaderLegacyFreezeAndInventoryPort {
+			override fun freeze() = token
+			override fun checkpointBeforeDrain(token: ReaderLegacyFreezeToken) =
+				activationCheckpoint(token, owner, binding, physicalIdentity)
+			override fun inventory(token: ReaderLegacyFreezeToken) =
+				ReaderLegacyResourceInventory.Complete(
+					token,
+					++snapshotSequence,
+					1L,
+					ReaderLegacyInventorySource.entries.toSet(),
+					listOf(selected)
+				)
+			override fun drain(
+				token: ReaderLegacyFreezeToken,
+				physicalIdentity: ReaderLegacyPhysicalIdentity,
+				onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+			) = error("Selected predecessor must not drain")
+			override fun cancelFreezeBeforeDrain(token: ReaderLegacyFreezeToken): ReaderPortCommandResult {
+				unfreezeCount += 1
+				return ReaderPortCommandResult.Accepted
+			}
+			override fun restoreFromActivationCheckpoint(
+				checkpoint: ReaderLegacyRestorationCheckpoint,
+				source: ReaderLegacyInventorySource,
+				onConfirmed: (ReaderLegacyInventorySource, ReaderLegacyRestorationResult) -> Unit
+			) = error("No destructive drain requires restoration")
+			override fun commitRestoredLegacy(checkpoint: ReaderLegacyRestorationCheckpoint) =
+				error("No destructive drain requires restoration")
+		}
+		val store = ReaderActivatedSessionSnapshotStore()
+		val installation = ReaderActivatedSessionInstallationBarrier(store)
+		assertEquals(
+			ReaderActivationInstallResult.Installed,
+			installation.installTestActivatedSession(
+				completeActivatedSessionPorts(),
+				neutralDecision()
+			)
+		)
+		val releaseLedger = ReaderTransitionReleaseLedger()
+		val coordinator = ReaderSessionActivationCoordinator(
+			readerSessionGeneration = 3L,
+			coordinatorEpoch = 5L,
+			legacy = legacy,
+			installationBarrier = installation,
+			narrowInitialLease = { it },
+			releaseLedger = releaseLedger
+		)
+
+		assertEquals(
+			ReaderActivationInstallResult.Rejected(
+				ReaderTransitionFailureReason.AtomicPublicationRejected
+			),
+			coordinator.activateForTest(
+				completeActivatedSessionPorts(),
+				ReaderInitialPresentationInputLease.ChromeOnly
+			)
+		)
+		assertEquals(ReaderSessionActivationState.Legacy, coordinator.state)
+		assertEquals(1, unfreezeCount)
+		assertEquals(0, releaseLedger.retentionSnapshot().activeStateCount)
+		val replacement = assertNotNull(
+			releaseLedger.importLegacy(
+				physicalIdentity = physicalIdentity,
+				ownerId = paige.navic.reader.ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+					ReaderAdoptedPredecessorSeedId.fromValidatedImport(2L)
+				),
+				kind = ReaderTransitionResourceKind.FrameHandoff,
+				coordinatorEpoch = 5L
+			)
+		)
+		assertEquals(1L, replacement.registration.retirementOrder.sequence)
+		assertEquals(1L, replacement.registration.key.opaqueId)
+	}
+
+	@Test
+	fun legacyFinalizationFailureAfterInstallFailsClosedInReleaseOnly() {
+		val token = ReaderLegacyFreezeToken(173L)
+		val checkpoint = activationCheckpoint(
+			token,
+			ReaderPresentationFrameOwner.Neutral,
+			null,
+			null
+		)
+		var snapshotSequence = 0L
+		val legacy = object : ReaderLegacyFreezeAndInventoryPort {
+			override fun freeze() = token
+			override fun checkpointBeforeDrain(token: ReaderLegacyFreezeToken) = checkpoint
+			override fun inventory(token: ReaderLegacyFreezeToken) =
+				ReaderLegacyResourceInventory.Complete(
+					token,
+					++snapshotSequence,
+					1L,
+					ReaderLegacyInventorySource.entries.toSet(),
+					emptyList()
+				)
+			override fun drain(
+				token: ReaderLegacyFreezeToken,
+				physicalIdentity: ReaderLegacyPhysicalIdentity,
+				onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+			) = error("Neutral activation has nothing to drain")
+			override fun cancelFreezeBeforeDrain(token: ReaderLegacyFreezeToken) =
+				ReaderPortCommandResult.Accepted
+			override fun restoreFromActivationCheckpoint(
+				checkpoint: ReaderLegacyRestorationCheckpoint,
+				source: ReaderLegacyInventorySource,
+				onConfirmed: (ReaderLegacyInventorySource, ReaderLegacyRestorationResult) -> Unit
+			) = error("Installed activation cannot restore")
+			override fun commitRestoredLegacy(checkpoint: ReaderLegacyRestorationCheckpoint) =
+				error("Installed activation cannot commit legacy restoration")
+			override fun finalizeActivatedHandoff(
+				token: ReaderLegacyFreezeToken,
+				selected: ReaderImportedLegacyResourceRegistration?,
+				confirmedRetirements: Set<ReaderLegacyPhysicalIdentity>
+			) = ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.LegacyDrainFailed)
+		}
+		val store = ReaderActivatedSessionSnapshotStore()
+		val coordinator = ReaderSessionActivationCoordinator(
+			readerSessionGeneration = 3L,
+			coordinatorEpoch = 5L,
+			legacy = legacy,
+			installationBarrier = ReaderActivatedSessionInstallationBarrier(store),
+			narrowInitialLease = { it },
+			reserveNeutralBootstrap = {
+				ReaderReservedNeutralBootstrapRequest(ReaderSemanticRequestHandle(179L), 3L)
+			}
+		)
+
+		val activatedPorts = completeActivatedSessionPorts()
+		assertEquals(
+			ReaderActivationInstallResult.Rejected(ReaderTransitionFailureReason.LegacyDrainFailed),
+			coordinator.activateForTest(
+				activatedPorts,
+				ReaderInitialPresentationInputLease.ChromeOnly
+			)
+		)
+		assertEquals(2, store.atomicWriteCount)
+		assertEquals(ReaderSessionActivationState.ReleaseOnly, coordinator.state)
+		assertEquals(ReaderSessionActivationState.ReleaseOnly, store.state)
+		assertFalse(store.commandEgressOpen)
+		assertNull(store.reservedNeutralBootstrap)
+		assertNull(store.snapshot?.portAuthority)
+		val releaseOnlyAuthority = assertNotNull(store.snapshot?.releaseOnlyPortAuthority)
+		assertTrue(releaseOnlyAuthority.resources === activatedPorts.resources)
+		assertTrue(releaseOnlyAuthority.releaseSink === activatedPorts.releaseSink)
+		assertTrue(releaseOnlyAuthority.factOnlyTimer === activatedPorts.factOnlyTimer)
+		val projection = runCatching { requireNotNull(store.snapshot).sanitizedProjection }
+		assertNull(
+			projection.exceptionOrNull(),
+			"A valid release-only snapshot must retain total authority-free diagnostics"
+		)
+		assertEquals(
+			ReaderSessionActivationState.ReleaseOnly,
+			projection.getOrThrow().activationState
+		)
+	}
+
+	@Test
+	fun adoptedFinalizationFailureRetainsExactImportedReleaseAuthority() {
+		val token = ReaderLegacyFreezeToken(181L)
+		val binding = activationBinding()
+		val owner = ReaderPresentationFrameOwner.ShellCover(
+			ReaderShellCoverCommitProof(
+				ReaderPresentationToken(191L), binding, 193L, 197L, 1200, 800
+			)
+		)
+		val physicalIdentity = ReaderLegacyPhysicalIdentity(
+			ReaderLegacyPhysicalDomain(3L, token),
+			ReaderLegacyInventorySource.FrameOrHandoff,
+			ReaderLegacySourceLocalOpaqueToken(199L)
+		)
+		val predecessor = ReaderFrozenLegacyResource(
+			freezeToken = token,
+			physicalIdentity = physicalIdentity,
+			kind = ReaderTransitionResourceKind.FrameHandoff,
+			binding = binding,
+			visibleOwner = owner,
+			origin = ReaderLegacyResourceOrigin.Owned,
+			state = ReaderLegacyResourceState.Visible,
+			mayBeCommittedPredecessor = true
+		)
+		val checkpoint = activationCheckpoint(token, owner, binding, physicalIdentity)
+		var snapshotSequence = 0L
+		val legacy = object : ReaderLegacyFreezeAndInventoryPort {
+			override fun freeze() = token
+			override fun checkpointBeforeDrain(token: ReaderLegacyFreezeToken) = checkpoint
+			override fun inventory(token: ReaderLegacyFreezeToken) =
+				ReaderLegacyResourceInventory.Complete(
+					token,
+					++snapshotSequence,
+					1L,
+					ReaderLegacyInventorySource.entries.toSet(),
+					listOf(predecessor)
+				)
+			override fun drain(
+				token: ReaderLegacyFreezeToken,
+				physicalIdentity: ReaderLegacyPhysicalIdentity,
+				onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+			) = error("The selected predecessor must remain owned")
+			override fun cancelFreezeBeforeDrain(token: ReaderLegacyFreezeToken) =
+				ReaderPortCommandResult.Accepted
+			override fun restoreFromActivationCheckpoint(
+				checkpoint: ReaderLegacyRestorationCheckpoint,
+				source: ReaderLegacyInventorySource,
+				onConfirmed: (ReaderLegacyInventorySource, ReaderLegacyRestorationResult) -> Unit
+			) = error("Installed activation cannot restore")
+			override fun commitRestoredLegacy(checkpoint: ReaderLegacyRestorationCheckpoint) =
+				error("Installed activation cannot commit legacy restoration")
+			override fun finalizeActivatedHandoff(
+				token: ReaderLegacyFreezeToken,
+				selected: ReaderImportedLegacyResourceRegistration?,
+				confirmedRetirements: Set<ReaderLegacyPhysicalIdentity>
+			): ReaderPortCommandResult {
+				assertEquals(physicalIdentity, selected?.physicalIdentity)
+				return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.LegacyDrainFailed)
+			}
+		}
+		var importedReleaseCount = 0
+		var genericReleaseCount = 0
+		var closeBudgetBindCount = 0
+		var closeBudgetCancelCount = 0
+		var confirmImportedRelease: (() -> Unit)? = null
+		var expireCloseBudget: (() -> Unit)? = null
+		val timer = object : ReaderTask6FactOnlyTimerPort {
+			override fun bindBeforeWork(
+				transitionId: paige.navic.reader.ReaderTransitionId,
+				onExpired: (paige.navic.reader.ReaderTransitionFact.DeadlineExpired) -> Unit
+			): ReaderTask6FactOnlyTimerRegistration? = null
+			override fun matchingProgress(
+				registration: ReaderTask6FactOnlyTimerRegistration,
+				nowMillis: Long
+			) = ReaderPortCommandResult.Accepted
+			override fun snapshotForTask7Transfer(
+				registration: ReaderTask6FactOnlyTimerRegistration
+			): ReaderTask6FactOnlyTimerTransferSnapshot? = null
+			override fun cancel(registration: ReaderTask6FactOnlyTimerRegistration) =
+				ReaderPortCommandResult.Accepted
+			override fun bindReleaseOnlyCloseBudget(
+				cleanupKey: paige.navic.reader.ReaderReleaseOnlyCleanupKey,
+				onExpired: (paige.navic.reader.ReaderReleaseOnlyCleanupKey) -> Unit
+			): ReaderTask6ReleaseOnlyTimerRegistration {
+				closeBudgetBindCount += 1
+				expireCloseBudget = { onExpired(cleanupKey) }
+				return ReaderTask6ReleaseOnlyTimerRegistration(
+					ReaderTask6FactOnlyTimerRegistrationId(1L),
+					cleanupKey,
+					ReaderLegacyPhysicalIdentity(
+						ReaderLegacyPhysicalDomain(3L, token),
+						ReaderLegacyInventorySource.DeadlineRegistration,
+						ReaderLegacySourceLocalOpaqueToken(211L)
+					),
+					2_000L
+				)
+			}
+			override fun cancelReleaseOnlyCloseBudget(
+				registration: ReaderTask6ReleaseOnlyTimerRegistration
+			): ReaderPortCommandResult {
+				closeBudgetCancelCount += 1
+				return ReaderPortCommandResult.Accepted
+			}
+		}
+		val resourcePort = object : ReaderTransitionResourcePort, ReaderReleaseOnlySinkPort {
+			override fun release(
+				command: ReaderTransitionCommand.ReleaseResource,
+				onFact: (paige.navic.reader.ReaderTransitionFact.ResourceReleased) -> Unit
+			): ReaderPortCommandResult {
+				genericReleaseCount += 1
+				return ReaderPortCommandResult.Accepted
+			}
+			override fun releaseLegacy(
+				command: ReaderTransitionCommand.ReleaseResource,
+				imported: ReaderImportedLegacyResourceRegistration,
+				onConfirmed: (
+					ReaderLegacyPhysicalIdentity,
+					paige.navic.reader.ReaderTransitionFact.ResourceReleased
+				) -> Unit
+			): ReaderPortCommandResult {
+				importedReleaseCount += 1
+				confirmImportedRelease = {
+					onConfirmed(
+						imported.physicalIdentity,
+						paige.navic.reader.ReaderTransitionFact.ResourceReleased(command.identity)
+					)
+				}
+				return ReaderPortCommandResult.Accepted
+			}
+			override fun cancelOwnedWork(command: ReaderTransitionCommand.CancelOwnedWork) =
+				ReaderPortCommandResult.Accepted
+			override fun observe(fact: paige.navic.reader.ReaderTransitionFact.ResourceObserved) =
+				ReaderPortCommandResult.Accepted
+			override fun observeLegacy(imported: ReaderImportedLegacyResourceRegistration) =
+				ReaderPortCommandResult.Accepted
+			override fun confirm(fact: paige.navic.reader.ReaderTransitionFact.ResourceReleased) =
+				ReaderPortCommandResult.Accepted
+			override fun confirmLegacy(
+				physicalIdentity: ReaderLegacyPhysicalIdentity,
+				fact: paige.navic.reader.ReaderTransitionFact.ResourceReleased
+			) = ReaderPortCommandResult.Accepted
+			override fun release(command: ReaderTransitionCommand.ReleaseResource): ReaderPortCommandResult {
+				genericReleaseCount += 1
+				return ReaderPortCommandResult.Accepted
+			}
+		}
+		val activatedPorts = completeActivatedSessionPorts().copy(
+			resources = resourcePort,
+			releaseSink = resourcePort,
+			factOnlyTimer = timer
+		)
+		val releaseLedger = ReaderTransitionReleaseLedger()
+		val finalizationCleanupQueue = ArrayDeque<() -> Unit>()
+		val store = ReaderActivatedSessionSnapshotStore { action ->
+			finalizationCleanupQueue.addLast(action)
+			true
+		}
+		val coordinator = ReaderSessionActivationCoordinator(
+			readerSessionGeneration = 3L,
+			coordinatorEpoch = 5L,
+			legacy = legacy,
+			installationBarrier = ReaderActivatedSessionInstallationBarrier(store),
+			narrowInitialLease = { it },
+			releaseLedger = releaseLedger
+		)
+
+		assertEquals(
+			ReaderActivationInstallResult.Rejected(ReaderTransitionFailureReason.LegacyDrainFailed),
+			coordinator.activateForTest(
+				activatedPorts,
+				ReaderInitialPresentationInputLease.ChromeOnly
+			)
+		)
+		val callbackFailure = AtomicReference<Throwable?>()
+		Thread {
+			try {
+				requireNotNull(confirmImportedRelease).invoke()
+				requireNotNull(expireCloseBudget).invoke()
+			} catch (throwable: Throwable) {
+				callbackFailure.set(throwable)
+			}
+		}.apply {
+			start()
+			join()
+		}
+		assertTrue(
+			callbackFailure.get() == null,
+			"Background finalization cleanup callbacks must be nonthrowing"
+		)
+		assertEquals(
+			paige.navic.reader.ReaderReleaseOnlyCleanupDeadlineStatus.Armed,
+			store.snapshot?.journal?.releaseOnlyCleanup?.deadlineStatus,
+			"Cleanup callbacks must serialize through the main queue before mutating state"
+		)
+		while (finalizationCleanupQueue.isNotEmpty()) {
+			finalizationCleanupQueue.removeFirst().invoke()
+		}
+
+		val snapshot = assertNotNull(store.snapshot)
+		val authority = assertNotNull(snapshot.releaseOnlyPortAuthority)
+		assertNull(snapshot.portAuthority)
+		assertTrue(snapshot.releaseLedger === releaseLedger)
+		assertTrue(authority.resources === resourcePort)
+		assertTrue(authority.releaseSink === resourcePort)
+		assertTrue(authority.factOnlyTimer === activatedPorts.factOnlyTimer)
+		val committed = assertIs<paige.navic.reader.ReaderCommittedPresentation.Initial>(
+			snapshot.journal.committed
+		)
+		val origin = assertIs<paige.navic.reader.ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor>(
+			committed.origin
+		)
+		val registration = origin.resource
+		assertNull(
+			snapshot.releaseLedger.importedFor(registration),
+			"Confirmed cleanup must retire the imported physical authority"
+		)
+		val cleanup = assertNotNull(snapshot.journal.releaseOnlyCleanup)
+		assertEquals(
+			paige.navic.reader.ReaderReleaseOnlyCleanupTrigger.PublicationClose,
+			cleanup.trigger
+		)
+		assertEquals(
+			paige.navic.reader.ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting,
+			cleanup.deadlineStatus
+		)
+		assertEquals(1, closeBudgetBindCount)
+		assertEquals(1, closeBudgetCancelCount)
+		assertEquals(1, importedReleaseCount)
+		assertEquals(0, genericReleaseCount, "Finalization failure must not reopen ordinary egress")
+		assertEquals(
+			ReaderTransitionResourceState.Released,
+			snapshot.releaseLedger.stateOf(registration.key)
+		)
+	}
+
+	@Test
+	fun synchronousFinalizationCleanupExpiryPreventsPhysicalReleaseBeforeMainDrain() {
+		val decision = adoptedDecisionForPrivacy(373L, 1L)
+		val importedDecision = assertNotNull(decision.adoptedResource)
+		val ownerId = importedDecision.registration.key.ownerId as
+			paige.navic.reader.ReaderTransitionResourceOwnerId.AdoptedPredecessor
+		val releaseLedger = ReaderTransitionReleaseLedger()
+		val imported = releaseLedger.importLegacy(
+			importedDecision.physicalIdentity,
+			ownerId,
+			importedDecision.registration.key.kind,
+			coordinatorEpoch = 5L
+		)
+		assertTrue(
+			imported?.registration == importedDecision.registration,
+			"Fixture must install the exact imported registration"
+		)
+		val finalizationCleanupQueue = ArrayDeque<() -> Unit>()
+		val store = ReaderActivatedSessionSnapshotStore { action ->
+			finalizationCleanupQueue.addLast(action)
+			true
+		}
+		val basePorts = completeActivatedSessionPorts()
+		var importedReleaseCount = 0
+		val resources = object : ReaderTransitionResourcePort by requireNotNull(basePorts.resources) {
+			override fun releaseLegacy(
+				command: ReaderTransitionCommand.ReleaseResource,
+				imported: ReaderImportedLegacyResourceRegistration,
+				onConfirmed: (
+					ReaderLegacyPhysicalIdentity,
+					paige.navic.reader.ReaderTransitionFact.ResourceReleased
+				) -> Unit
+			): ReaderPortCommandResult {
+				importedReleaseCount += 1
+				return ReaderPortCommandResult.Accepted
+			}
+		}
+		val timer = object : ReaderTask6FactOnlyTimerPort by requireNotNull(basePorts.factOnlyTimer) {
+			override fun bindReleaseOnlyCloseBudget(
+				cleanupKey: paige.navic.reader.ReaderReleaseOnlyCleanupKey,
+				onExpired: (paige.navic.reader.ReaderReleaseOnlyCleanupKey) -> Unit
+			): ReaderTask6ReleaseOnlyTimerRegistration {
+				onExpired(cleanupKey)
+				return ReaderTask6ReleaseOnlyTimerRegistration(
+					ReaderTask6FactOnlyTimerRegistrationId(379L),
+					cleanupKey,
+					ReaderLegacyPhysicalIdentity(
+						ReaderLegacyPhysicalDomain(3L, ReaderLegacyFreezeToken(383L)),
+						ReaderLegacyInventorySource.DeadlineRegistration,
+						ReaderLegacySourceLocalOpaqueToken(389L)
+					),
+					2_000L
+				)
+			}
+		}
+		val ports = basePorts.copy(resources = resources, factOnlyTimer = timer)
+		val barrier = ReaderActivatedSessionInstallationBarrier(store)
+		assertEquals(
+			ReaderActivationInstallResult.Installed,
+			barrier.installTestActivatedSession(ports, decision, releaseLedger)
+		)
+
+		assertTrue(barrier.failClosedAfterFinalizationRejection(decision))
+
+		assertEquals(
+			0,
+			importedReleaseCount,
+			"An already observed close-budget expiry must suppress physical release"
+		)
+		while (finalizationCleanupQueue.isNotEmpty()) {
+			finalizationCleanupQueue.removeFirst().invoke()
+		}
+		assertEquals(
+			paige.navic.reader.ReaderReleaseOnlyCleanupDeadlineStatus.Elapsed,
+			store.snapshot?.journal?.releaseOnlyCleanup?.deadlineStatus
+		)
 	}
 
 	@Test
@@ -610,6 +1668,11 @@ class ReaderTransitionActivationTest {
 			) = error("Successful curl adoption cannot restore")
 			override fun commitRestoredLegacy(checkpoint: ReaderLegacyRestorationCheckpoint) =
 				ReaderLegacyCommitRestoredResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+			override fun finalizeActivatedHandoff(
+				token: ReaderLegacyFreezeToken,
+				selected: ReaderImportedLegacyResourceRegistration?,
+				confirmedRetirements: Set<ReaderLegacyPhysicalIdentity>
+			) = ReaderPortCommandResult.Accepted
 		}
 		val store = ReaderActivatedSessionSnapshotStore()
 		var fencedGestureCount = 0
@@ -924,6 +1987,11 @@ class ReaderTransitionActivationTest {
 			}
 			override fun commitRestoredLegacy(checkpoint: ReaderLegacyRestorationCheckpoint) =
 				ReaderLegacyCommitRestoredResult.Applied
+			override fun finalizeActivatedHandoff(
+				token: ReaderLegacyFreezeToken,
+				selected: ReaderImportedLegacyResourceRegistration?,
+				confirmedRetirements: Set<ReaderLegacyPhysicalIdentity>
+			) = ReaderPortCommandResult.Accepted
 		}
 		val coordinator = ReaderSessionActivationCoordinator(
 			readerSessionGeneration = 3L,
@@ -1238,40 +2306,63 @@ class ReaderTransitionActivationTest {
 	}
 
 	@Test
-	fun activatedDispatcherRoutesCancellationToProductionResourcePort() {
-		val testPorts = completeActivatedSessionPorts()
-		var routed: ReaderTransitionCommand.CancelOwnedWork? = null
-		val resources = object : ReaderTransitionResourcePort by requireNotNull(testPorts.resources) {
-			override fun cancelOwnedWork(
-				command: ReaderTransitionCommand.CancelOwnedWork
-			): ReaderPortCommandResult {
-				routed = command
-				return ReaderPortCommandResult.Accepted
+	fun activatedDispatcherPublishesCleanupKeyedCancellationOutcomes() {
+		listOf("Applied", "Rejected", "Threw").forEachIndexed { index, expectedOutcome ->
+			val testPorts = completeActivatedSessionPorts()
+			var routed: ReaderTransitionCommand.CancelOwnedWork? = null
+			val resources = object : ReaderTransitionResourcePort by requireNotNull(testPorts.resources) {
+				override fun cancelOwnedWork(
+					command: ReaderTransitionCommand.CancelOwnedWork
+				): ReaderPortCommandResult {
+					routed = command
+					return when (expectedOutcome) {
+						"Applied" -> ReaderPortCommandResult.Accepted
+						"Rejected" -> ReaderPortCommandResult.Rejected(
+							ReaderTransitionFailureReason.PortRejected
+						)
+						else -> error("bounded cancellation throw")
+					}
+				}
 			}
-		}
-		val dispatcher = ReaderActivatedTransitionPorts(
-			productionActivatedSessionPorts(testPorts.copy(resources = resources))
-		)
-		val binding = ReaderPresentationBinding(
-			"fixture", 2L, 3L, 5L,
-			ReaderDestinationCommitIdentity("fixture", 1L),
-			7L, 11L, 13L
-		)
-		val command = ReaderTransitionCommand.CancelOwnedWork(
-			ReaderTransitionId(
+			val dispatcher = ReaderActivatedTransitionPorts(
+				productionActivatedSessionPorts(testPorts.copy(resources = resources))
+			)
+			val binding = ReaderPresentationBinding(
+				"fixture", 2L, 3L, 5L,
+				ReaderDestinationCommitIdentity("fixture", 1L),
+				7L, 11L, 13L
+			)
+			val transitionId = ReaderTransitionId(
 				readerSessionGeneration = 17L,
 				coordinatorEpoch = 19L,
 				sequence = 1L,
 				operation = ReaderTransitionOperation.BootstrapNativePage,
 				expectedBinding = ReaderExpectedPresentationBinding.Exact(binding)
 			)
-		)
-		val callbackFacts = mutableListOf<paige.navic.reader.ReaderTransitionFact>()
+			val cleanupKey = paige.navic.reader.ReaderReleaseOnlyCleanupKey(
+				readerSessionGeneration = 17L,
+				coordinatorEpoch = 19L,
+				cleanupId = paige.navic.reader.ReaderReleaseOnlyCleanupId(23L + index),
+				generation = paige.navic.reader.ReaderReleaseOnlyCleanupGeneration(29L + index)
+			)
+			val command = ReaderTransitionCommand.CancelOwnedWork(transitionId, cleanupKey)
+			val callbackFacts = mutableListOf<paige.navic.reader.ReaderTransitionFact>()
 
-		dispatcher.issue(command, callbackFacts::add)
+			val dispatch = runCatching { dispatcher.issue(command, callbackFacts::add) }
 
-		assertEquals(command, routed)
-		assertTrue(callbackFacts.isEmpty())
+			assertNull(dispatch.exceptionOrNull())
+			assertEquals(command, routed)
+			val outcomeFact = callbackFacts.single()
+			assertEquals("OwnedWorkCancellationCompleted", outcomeFact::class.simpleName)
+			val factClass = outcomeFact.javaClass
+			assertEquals(cleanupKey, factClass.getMethod("getCleanupKey").invoke(outcomeFact))
+			assertEquals(
+				expectedOutcome,
+				requireNotNull(
+					factClass.getMethod("getOutcome").invoke(outcomeFact)
+				).toString()
+			)
+		}
 	}
 
 	@Test
@@ -1368,7 +2459,13 @@ class ReaderTransitionActivationTest {
 			),
 			ReaderTransitionCommand.PrepareFrameTarget(id, specification, registration),
 			ReaderTransitionCommand.RequestFramePresentation(id, target),
-			ReaderTransitionCommand.ReleaseResource(registration)
+			ReaderTransitionCommand.ReleaseResource(
+				issuer = paige.navic.reader.ReaderResourceReleaseIssuer.Transition(id),
+				identity = paige.navic.reader.ReaderReleaseCommandIdentity(
+					paige.navic.reader.ReaderPhysicalReleaseAttemptId.fromLedger(1L),
+					registration
+				)
+			)
 		)
 
 		commands.forEach { dispatcher.issue(it) {} }
@@ -1377,9 +2474,14 @@ class ReaderTransitionActivationTest {
 		assertTrue(dispatcher.semanticCommand === production.semantic)
 		assertTrue(dispatcher.ownerAndInputPublication === production.ownerAndInput)
 		assertTrue(dispatcher.task6FactOnlyTimer === production.factOnlyTimer)
-		assertFailsWith<IllegalStateException> {
-			dispatcher.clock.schedule(73L) {}
-		}
+		assertFalse(
+			dispatcher.clock is AndroidReaderTransitionClock,
+			"Activated dispatch must not re-enable an independent coordinator clock"
+		)
+		assertTrue(
+			runCatching { dispatcher.clock.schedule(1L) {} }.isFailure,
+			"Only the retained Task 6 fact timer may schedule activated deadlines"
+		)
 	}
 
 	@Test
@@ -1539,7 +2641,28 @@ class ReaderTransitionActivationTest {
 			),
 			initialDecision = first,
 			reservedNeutralBootstrap = null,
-			journal = journal
+			journal = journal,
+			releaseLedger = ReaderTransitionReleaseLedger()
+		)
+
+		val firstTimer = ReaderTask6ReleaseOnlyTimerRegistration(
+			ReaderTask6FactOnlyTimerRegistrationId(337L),
+			paige.navic.reader.ReaderReleaseOnlyCleanupKey(
+				3L,
+				5L,
+				paige.navic.reader.ReaderReleaseOnlyCleanupId(1L),
+				paige.navic.reader.ReaderReleaseOnlyCleanupGeneration(1L)
+			),
+			ReaderLegacyPhysicalIdentity(
+				ReaderLegacyPhysicalDomain(3L, ReaderLegacyFreezeToken(347L)),
+				ReaderLegacyInventorySource.DeadlineRegistration,
+				ReaderLegacySourceLocalOpaqueToken(349L)
+			),
+			353L
+		)
+		val secondTimer = firstTimer.copy(
+			id = ReaderTask6FactOnlyTimerRegistrationId(359L),
+			expiresAtMillis = 367L
 		)
 
 		assertEquals("ReaderLegacyRestorationCheckpoint(<redacted>)", checkpoint.toString())
@@ -1550,6 +2673,15 @@ class ReaderTransitionActivationTest {
 		)
 		assertEquals("ReaderInitialActivationDecision(<redacted>)", first.toString())
 		assertEquals("ReaderActivatedSessionSnapshot(<redacted>)", snapshot.toString())
+		assertTrue(
+			firstTimer.toString() ==
+				"ReaderTask6ReleaseOnlyTimerRegistration(<redacted>)",
+			"Release-only timer rendering must be constant and redacted"
+		)
+		assertTrue(
+			firstTimer.hashCode() == secondTimer.hashCode(),
+			"Release-only timer hashing must not expose exact timer fields"
+		)
 		assertEquals(first.adoptedSeed.hashCode(), second.adoptedSeed.hashCode())
 		assertEquals(first.adoptedResource.hashCode(), second.adoptedResource.hashCode())
 		assertEquals(first.hashCode(), second.hashCode())

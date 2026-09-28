@@ -46,6 +46,7 @@ import org.robolectric.shadows.ShadowLooper
 import org.robolectric.shadow.api.Shadow
 import org.robolectric.util.ReflectionHelpers.ClassParameter
 import paige.navic.reader.ReaderController
+import paige.navic.reader.ReaderAdoptedPredecessorSeedId
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderControllerStep
 import paige.navic.reader.ReaderCurlPresentationFrame
@@ -89,11 +90,16 @@ import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderPresentationTokenDomain
 import paige.navic.reader.ReaderRequiredTransition
+import paige.navic.reader.ReaderResourceRetirementOrder
 import paige.navic.reader.ReaderShellCoverCommitProof
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationIdentity
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderTextureDeckState
+import paige.navic.reader.ReaderTransitionResourceKey
+import paige.navic.reader.ReaderTransitionResourceKind
+import paige.navic.reader.ReaderTransitionResourceOwnerId
+import paige.navic.reader.ReaderTransitionResourceRegistration
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderPresentationEffectQueue
@@ -197,6 +203,300 @@ class KomikkuReaderNativeFrameHostTest {
 		controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
 			.invoke(controller.surfaceView, restoredGeneration)
 		assertTrue(controller.isAvailable)
+	}
+
+	@Test
+	fun activatedPhysicalDeckFinalizationTransfersAndReleasesSelectedAuthorityOnce() {
+		val fixture = task8CurlAuthorityFixture(
+			initialState = task8SettledCurlSourceState(),
+			prepareActiveDeck = false
+		)
+		val controller = fixture.controller
+		val token = ReaderLegacyFreezeToken(37L)
+		val domain = ReaderLegacyPhysicalDomain(1L, token)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.freezeDeckOwnershipForTransitionActivation(domain)
+		)
+		val frozen = controller.snapshotFrozenDeckOwnership()
+		val selected = frozen.single { it.kind == ReaderTransitionResourceKind.Deck }
+		controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+			.invoke(controller.surfaceView, 301L)
+		val callback = controller.snapshotFrozenDeckOwnership().single {
+			it.kind == ReaderTransitionResourceKind.CallbackRegistration
+		}
+		val confirmedRetirements = linkedSetOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.drainFrozenDeckOwnership(callback.physicalIdentity, confirmedRetirements::add)
+		)
+		val seedId = ReaderAdoptedPredecessorSeedId.fromValidatedImport(41L)
+		val imported = ReaderImportedLegacyResourceRegistration(
+			physicalIdentity = selected.physicalIdentity,
+			registration = ReaderTransitionResourceRegistration(
+				ReaderTransitionResourceKey(
+					ReaderTransitionResourceOwnerId.AdoptedPredecessor(seedId),
+					ReaderTransitionResourceKind.Deck,
+					43L
+				),
+				ReaderResourceRetirementOrder(1L, 2L, 1L)
+			)
+		)
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.finalizeDeckOwnershipAfterTransitionActivation(
+				token,
+				imported,
+				confirmedRetirements
+			)
+		)
+		assertTrue(controller.snapshotFrozenDeckOwnership().isEmpty())
+		assertTrue(task8SurfaceOwnsGeneration(controller.surfaceView, 301L))
+		@Suppress("UNCHECKED_CAST")
+		val activatedAuthorities = controller.javaClass.task7Field(
+			"activatedPhysicalDeckAuthorities"
+		).get(controller) as Map<ReaderLegacyPhysicalIdentity, Any>
+		assertEquals(setOf(selected.physicalIdentity), activatedAuthorities.keys)
+
+		val releaseConfirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.releaseActivatedDeckOwnership(imported, releaseConfirmations::add)
+		)
+		assertIs<ReaderPortCommandResult.Rejected>(
+			controller.releaseActivatedDeckOwnership(imported, releaseConfirmations::add)
+		)
+		controller.surfaceView.javaClass.task7Method(
+			"handleDeckReleased",
+			java.lang.Long.TYPE,
+			karacken.curl.DeckReleaseReason::class.java
+		).invoke(controller.surfaceView, 301L, karacken.curl.DeckReleaseReason.EXPLICIT)
+
+		assertEquals(listOf(selected.physicalIdentity), releaseConfirmations)
+		assertFalse(task8SurfaceOwnsGeneration(controller.surfaceView, 301L))
+		assertTrue(activatedAuthorities.isEmpty())
+		assertIs<ReaderPortCommandResult.Rejected>(
+			controller.releaseActivatedDeckOwnership(imported, releaseConfirmations::add)
+		)
+		@Suppress("UNCHECKED_CAST")
+		val physicalLeases = controller.javaClass.task7Field("physicalDeckLeases")
+			.get(controller) as Map<Long, Any>
+		assertTrue(physicalLeases.isEmpty())
+	}
+
+	@Test
+	fun activatedSelectedDeckAlreadyRetiredConfirmsCoordinatorReleaseSynchronously() {
+		val fixture = task8CurlAuthorityFixture(
+			initialState = task8SettledCurlSourceState(),
+			prepareActiveDeck = false
+		)
+		val controller = fixture.controller
+		val token = ReaderLegacyFreezeToken(45L)
+		val domain = ReaderLegacyPhysicalDomain(1L, token)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.freezeDeckOwnershipForTransitionActivation(domain)
+		)
+		val selected = controller.snapshotFrozenDeckOwnership().single {
+			it.kind == ReaderTransitionResourceKind.Deck
+		}
+		controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+			.invoke(controller.surfaceView, 301L)
+		val callback = controller.snapshotFrozenDeckOwnership().single {
+			it.kind == ReaderTransitionResourceKind.CallbackRegistration
+		}
+		val confirmedRetirements = linkedSetOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.drainFrozenDeckOwnership(callback.physicalIdentity, confirmedRetirements::add)
+		)
+		val imported = ReaderImportedLegacyResourceRegistration(
+			physicalIdentity = selected.physicalIdentity,
+			registration = ReaderTransitionResourceRegistration(
+				ReaderTransitionResourceKey(
+					ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+						ReaderAdoptedPredecessorSeedId.fromValidatedImport(47L)
+					),
+					ReaderTransitionResourceKind.Deck,
+					49L
+				),
+				ReaderResourceRetirementOrder(1L, 2L, 1L)
+			)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.finalizeDeckOwnershipAfterTransitionActivation(
+				token,
+				imported,
+				confirmedRetirements
+			)
+		)
+		controller.surfaceView.javaClass.task7Method(
+			"handleDeckReleased",
+			java.lang.Long.TYPE,
+			karacken.curl.DeckReleaseReason::class.java
+		).invoke(controller.surfaceView, 301L, karacken.curl.DeckReleaseReason.EXPLICIT)
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.releaseActivatedDeckOwnership(imported, confirmations::add)
+		)
+		assertEquals(listOf(selected.physicalIdentity), confirmations)
+		@Suppress("UNCHECKED_CAST")
+		val authorities = controller.javaClass.task7Field("activatedPhysicalDeckAuthorities")
+			.get(controller) as Map<ReaderLegacyPhysicalIdentity, Any>
+		assertTrue(authorities.isEmpty())
+	}
+
+	@Test
+	fun activatedPhysicalDeckFinalizationRetiresNonselectedRestartLeaseAdmissionAndPages() {
+		val fixture = task8CurlAuthorityFixture(
+			initialState = task8SettledCurlSourceState(),
+			prepareActiveDeck = false
+		)
+		val controller = fixture.controller
+		val token = ReaderLegacyFreezeToken(47L)
+		val domain = ReaderLegacyPhysicalDomain(1L, token)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.freezeDeckOwnershipForTransitionActivation(domain)
+		)
+		val deck = controller.snapshotFrozenDeckOwnership().single {
+			it.kind == ReaderTransitionResourceKind.Deck
+		}
+		controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+			.invoke(controller.surfaceView, 301L)
+		val callback = controller.snapshotFrozenDeckOwnership().single {
+			it.kind == ReaderTransitionResourceKind.CallbackRegistration
+		}
+		val confirmedRetirements = linkedSetOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.drainFrozenDeckOwnership(callback.physicalIdentity, confirmedRetirements::add)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.drainFrozenDeckOwnership(deck.physicalIdentity, confirmedRetirements::add)
+		)
+		controller.surfaceView.javaClass.task7Method(
+			"handleDeckReleased",
+			java.lang.Long.TYPE,
+			karacken.curl.DeckReleaseReason::class.java
+		).invoke(controller.surfaceView, 301L, karacken.curl.DeckReleaseReason.EXPLICIT)
+		@Suppress("UNCHECKED_CAST")
+		val restarts = controller.javaClass.task7Field("frozenPhysicalDeckRestarts")
+			.get(controller) as Map<Long, Any>
+		val restart = assertNotNull(restarts[301L])
+		val restartPages = assertNotNull(restart.javaClass.task7Field("pages").get(restart))
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.finalizeDeckOwnershipAfterTransitionActivation(
+				token,
+				null,
+				confirmedRetirements
+			)
+		)
+		assertTrue(restarts.isEmpty())
+		assertNull(controller.javaClass.task7Field("activePages").get(controller))
+		@Suppress("UNCHECKED_CAST")
+		val preparedPageSets = controller.javaClass.task7Field("preparedPageSets")
+			.get(controller) as Set<Any>
+		assertFalse(restartPages in preparedPageSets)
+		@Suppress("UNCHECKED_CAST")
+		val generationAdmissions = controller.javaClass.task7Field("generationAdmissions")
+			.get(controller) as Map<Long, Any>
+		assertTrue(generationAdmissions.isEmpty())
+		@Suppress("UNCHECKED_CAST")
+		val physicalLeases = controller.javaClass.task7Field("physicalDeckLeases")
+			.get(controller) as Map<Long, Any>
+		assertTrue(physicalLeases.isEmpty())
+		assertIs<ReaderPortCommandResult.Rejected>(
+			controller.finalizeDeckOwnershipAfterTransitionActivation(
+				token,
+				null,
+				confirmedRetirements
+			)
+		)
+	}
+
+	@Test
+	fun throwingPreparedPagesCloseIsTerminalAndCannotFabricateRetryAuthority() {
+		var closeCalls = 0
+		val fixture = task8CurlAuthorityFixture(
+			initialState = task8SettledCurlSourceState(),
+			prepareActiveDeck = false,
+			onActiveRasterReleased = {
+				closeCalls += 1
+				error("synthetic post-close callback failure")
+			}
+		)
+		val controller = fixture.controller
+		val token = ReaderLegacyFreezeToken(51L)
+		val domain = ReaderLegacyPhysicalDomain(1L, token)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.freezeDeckOwnershipForTransitionActivation(domain)
+		)
+		val deck = controller.snapshotFrozenDeckOwnership().single {
+			it.kind == ReaderTransitionResourceKind.Deck
+		}
+		controller.surfaceView.javaClass.task7Method("handleDeckPrepared", java.lang.Long.TYPE)
+			.invoke(controller.surfaceView, 301L)
+		val callback = controller.snapshotFrozenDeckOwnership().single {
+			it.kind == ReaderTransitionResourceKind.CallbackRegistration
+		}
+		val confirmedRetirements = linkedSetOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.drainFrozenDeckOwnership(callback.physicalIdentity, confirmedRetirements::add)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.drainFrozenDeckOwnership(deck.physicalIdentity, confirmedRetirements::add)
+		)
+		controller.surfaceView.javaClass.task7Method(
+			"handleDeckReleased",
+			java.lang.Long.TYPE,
+			karacken.curl.DeckReleaseReason::class.java
+		).invoke(controller.surfaceView, 301L, karacken.curl.DeckReleaseReason.EXPLICIT)
+		@Suppress("UNCHECKED_CAST")
+		val restarts = controller.javaClass.task7Field("frozenPhysicalDeckRestarts")
+			.get(controller) as Map<Long, Any>
+		val restart = assertNotNull(restarts[301L])
+		val restartPages = assertNotNull(restart.javaClass.task7Field("pages").get(restart))
+		@Suppress("UNCHECKED_CAST")
+		val physicalLeases = controller.javaClass.task7Field("physicalDeckLeases")
+			.get(controller) as Map<Long, Any>
+		@Suppress("UNCHECKED_CAST")
+		val preparedPageSets = controller.javaClass.task7Field("preparedPageSets")
+			.get(controller) as Set<Any>
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			controller.finalizeDeckOwnershipAfterTransitionActivation(
+				token,
+				null,
+				confirmedRetirements
+			)
+		)
+		assertEquals(1, closeCalls)
+		assertTrue(physicalLeases.isEmpty())
+		assertTrue(restarts.isEmpty())
+		assertFalse(restartPages in preparedPageSets)
+		assertIs<ReaderPortCommandResult.Rejected>(
+			controller.finalizeDeckOwnershipAfterTransitionActivation(
+				token,
+				null,
+				confirmedRetirements
+			)
+		)
+		assertEquals(1, closeCalls, "An ambiguous close must never be physically reissued")
+		assertIs<ReaderPortCommandResult.Rejected>(
+			controller.restoreDeckOwnershipAfterTransitionActivation(domain)
+		)
 	}
 
 	@Test

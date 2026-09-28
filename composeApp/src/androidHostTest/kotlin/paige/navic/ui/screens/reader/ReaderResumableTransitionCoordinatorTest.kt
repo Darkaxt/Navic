@@ -10,6 +10,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -39,7 +40,9 @@ import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderPresentationState
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationToken
+import paige.navic.reader.ReaderOwnedWorkCancellationOutcome
 import paige.navic.reader.ReaderResourceRetirementOrder
+import paige.navic.reader.ReaderReleaseOnlyCancellationStatus
 import paige.navic.reader.ReaderReleaseOnlyCleanupDeadlineStatus
 import paige.navic.reader.ReaderSaturatingCallbackCount
 import paige.navic.reader.ReaderSemanticExecutableRequest
@@ -623,6 +626,21 @@ class ReaderResumableTransitionCoordinatorTest {
 			},
 			onIssue = { _, _ -> }
 		)
+		val releaseLedger = ReaderTransitionReleaseLedger()
+		val imported = assertNotNull(
+			releaseLedger.importLegacy(
+				physicalIdentity = ReaderLegacyPhysicalIdentity(
+					ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(211L)),
+					ReaderLegacyInventorySource.FrameOrHandoff,
+					ReaderLegacySourceLocalOpaqueToken(223L)
+				),
+				ownerId = paige.navic.reader.ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+					paige.navic.reader.ReaderAdoptedPredecessorSeedId.fromValidatedImport(1L)
+				),
+				kind = ReaderTransitionResourceKind.FrameHandoff,
+				coordinatorEpoch = 19L
+			)
+		)
 		val coordinator = ReaderResumableTransitionCoordinator(
 			ports = ports,
 			mode = ReaderTransitionMode.Active,
@@ -631,9 +649,11 @@ class ReaderResumableTransitionCoordinatorTest {
 					owner,
 					predecessor,
 					17L,
-					19L
+					19L,
+					resource = imported.registration
 				)
-			)
+			),
+			releaseLedger = releaseLedger
 		)
 		coordinator.enqueue(
 			ReaderTransitionFact.Intent(
@@ -1574,7 +1594,275 @@ class ReaderResumableTransitionCoordinatorTest {
 		)
 		assertEquals(1, fixture.ports.commands.count { it is ReaderTransitionCommand.CancelOwnedWork })
 		assertTrue(fixture.coordinator.snapshot().releaseOnlySink)
-		assertEquals(0, fixture.coordinator.snapshot().scheduledCallbackCount)
+		assertEquals(1, fixture.coordinator.snapshot().scheduledCallbackCount)
+	}
+
+	@Test
+	fun releaseOnlyCoordinatorAdmitsExactCleanupCancellationOutcomes() {
+		val outcomes = listOf(
+			ReaderOwnedWorkCancellationOutcome.Applied to
+				ReaderReleaseOnlyCancellationStatus.Applied,
+			ReaderOwnedWorkCancellationOutcome.Rejected to
+				ReaderReleaseOnlyCancellationStatus.Rejected,
+			ReaderOwnedWorkCancellationOutcome.Threw to
+				ReaderReleaseOnlyCancellationStatus.Threw
+		)
+
+		outcomes.forEach { (outcome, expectedStatus) ->
+			val fixture = coordinatorFixture(mode = ReaderTransitionMode.Active)
+			fixture.coordinator.enqueue(ReaderTransitionFact.PublicationReplaced(null))
+			val cancellation = fixture.ports.commands
+				.filterIsInstance<ReaderTransitionCommand.CancelOwnedWork>()
+				.single()
+			val cleanupKey = assertNotNull(cancellation.cleanupKey)
+
+			fixture.coordinator.enqueue(
+				ReaderTransitionFact.OwnedWorkCancellationCompleted(
+					cleanupKey,
+					cancellation.transitionId,
+					outcome
+				)
+			)
+
+			val journal = ReaderResumableTransitionCoordinator::class.java
+				.getDeclaredField("journal")
+				.apply { isAccessible = true }
+				.get(fixture.coordinator) as ReaderTransitionJournal
+			assertEquals(
+				expectedStatus,
+				assertNotNull(journal.releaseOnlyCleanup).cancellationStatus
+			)
+		}
+	}
+
+	@Test
+	fun rejectedOrThrownOwnedWorkCancellationTerminallyAccountsWithoutTimeout() {
+		listOf(
+			ReaderOwnedWorkCancellationOutcome.Rejected to ReaderReleaseOnlyCancellationStatus.Rejected,
+			ReaderOwnedWorkCancellationOutcome.Threw to ReaderReleaseOnlyCancellationStatus.Threw
+		).forEach { (outcome, expectedStatus) ->
+			val timer = ScriptedBindingTimer(TestTimerBindOutcome.Accepted)
+			val model = activatedNeutralTransitionFixture(timer)
+			val fixture = model.fixture
+			fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+			fixture.coordinator.enqueue(ReaderTransitionFact.PublicationReplaced(null))
+			val releases = fixture.ports.commands
+				.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+			assertTrue(releases.isNotEmpty())
+			releases.forEach { release ->
+				fixture.coordinator.enqueue(ReaderTransitionFact.ResourceReleased(release.identity))
+			}
+			val cancellation = fixture.ports.commands
+				.filterIsInstance<ReaderTransitionCommand.CancelOwnedWork>()
+				.single()
+
+			fixture.coordinator.enqueue(
+				ReaderTransitionFact.OwnedWorkCancellationCompleted(
+					cleanupKey = assertNotNull(cancellation.cleanupKey),
+					cancelledTransitionId = cancellation.transitionId,
+					outcome = outcome
+				)
+			)
+
+			val after = coordinatorJournal(fixture.coordinator)
+			assertEquals(
+				expectedStatus,
+				assertNotNull(after.releaseOnlyCleanup).cancellationStatus
+			)
+			assertEquals(
+				ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting,
+				after.releaseOnlyCleanup?.deadlineStatus
+			)
+			assertEquals(
+				ReaderTransitionFailureReason.PortRejected,
+				assertIs<paige.navic.reader.ReaderTransitionOutcome.Failed>(after.lastOutcome).reason
+			)
+			assertEquals(0, fixture.coordinator.snapshot().scheduledCallbackCount)
+			assertEquals(1, timer.releaseOnlyBindCount)
+		}
+	}
+
+	@Test
+	fun activatedReleaseOnlyCloseBudgetIsPublishedBeforeCleanupEgress() {
+		val timer = ScriptedBindingTimer(TestTimerBindOutcome.Accepted)
+		val timerBindingsAtEgress = mutableListOf<Int>()
+		val model = activatedIdleCommittedFixture(timer) { command, _ ->
+			if (
+				command is ReaderTransitionCommand.ReleaseResource ||
+				command is ReaderTransitionCommand.CancelOwnedWork
+			) {
+				timerBindingsAtEgress += timer.releaseOnlyBindCount
+			}
+		}
+
+		model.fixture.coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
+
+		assertTrue(timerBindingsAtEgress.isNotEmpty())
+		assertTrue(
+			timerBindingsAtEgress.all { it == 1 },
+			"The exact close budget must own authority before cleanup port calls begin"
+		)
+		assertEquals(1, timer.releaseOnlyBindCount)
+	}
+
+	@Test
+	fun activatedEmptyCleanupTerminalAccountingWithoutDeadlineSlotIsTerminal() {
+		val timer = ScriptedBindingTimer(TestTimerBindOutcome.Accepted)
+		val ports = RecordingPorts(
+			clock = RecordingClock(),
+			task6FactOnlyTimer = timer,
+			onIssue = { _, _ -> }
+		)
+		val releaseOnly = ReaderTransitionJournal(
+			committed = readerAndroidHostTestNeutralInitial(17L, 19L)
+		).reduce(ReaderTransitionFact.PublicationClosed(null)).state
+		val coordinator = ReaderResumableTransitionCoordinator(
+			ports = ports,
+			mode = ReaderTransitionMode.Active,
+			journal = releaseOnly,
+			activationState = { ReaderSessionActivationState.Activated }
+		)
+
+		ReaderResumableTransitionCoordinator::class.java.getDeclaredMethod(
+			"cancelActivatedReleaseCleanupDeadline",
+			java.lang.Boolean.TYPE
+		).apply { isAccessible = true }.invoke(coordinator, true)
+
+		assertEquals(
+			ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting,
+			coordinator.snapshot().releaseOnlyDeadlineStatus
+		)
+		assertEquals(0, timer.releaseOnlyBindCount)
+		assertEquals(0, coordinator.snapshot().scheduledCallbackCount)
+		assertTrue(ports.commands.isEmpty())
+	}
+
+	@Test
+	fun activatedReleaseOnlyWithoutOperationTimerStartsOneCloseBudget() {
+		val timer = ScriptedBindingTimer(TestTimerBindOutcome.Accepted)
+		val model = activatedIdleCommittedFixture(timer)
+		val coordinator = model.fixture.coordinator
+
+		coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
+
+		assertEquals(
+			ReaderTransitionResourceState.ReleaseCommandIssued,
+			coordinator.releaseStateOf(model.owned),
+			"Physical release must be dispatched before the close budget can expire"
+		)
+		assertEquals(ReaderReleaseOnlyCleanupDeadlineStatus.Armed, coordinator.snapshot().releaseOnlyDeadlineStatus)
+		assertEquals(1, timer.releaseOnlyBindCount)
+		assertEquals(1, coordinator.snapshot().scheduledCallbackCount)
+	}
+
+	@Test
+	fun activatedReleaseOnlyCloseBudgetBindingFailureIsTypedAndTerminal() {
+		listOf(
+			TestTimerBindOutcome.Rejected to ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected,
+			TestTimerBindOutcome.Throws to ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew
+		).forEach { (bindOutcome, expectedStatus) ->
+			val timer = ScriptedBindingTimer(bindOutcome)
+			val model = activatedIdleCommittedFixture(timer)
+
+			model.fixture.coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
+
+			val snapshot = model.fixture.coordinator.snapshot()
+			assertEquals(expectedStatus, snapshot.releaseOnlyDeadlineStatus)
+			assertEquals(ReaderTransitionOutcomeKind.Failed, snapshot.lastOutcome)
+			assertEquals(
+				ReaderTransitionFailureReason.CloseDrainTimeout,
+				assertIs<paige.navic.reader.ReaderTransitionOutcome.Failed>(
+					coordinatorJournal(model.fixture.coordinator).lastOutcome
+				).reason
+			)
+			assertEquals(0, snapshot.scheduledCallbackCount)
+			assertTrue(
+				model.fixture.ports.commands.none {
+					it is ReaderTransitionCommand.ReleaseResource ||
+						it is ReaderTransitionCommand.CancelOwnedWork
+				},
+				"A terminal close-budget bind failure must prevent physical cleanup egress"
+			)
+			assertEquals(
+				ReaderTransitionResourceState.TimedOutUnreleased,
+				model.fixture.coordinator.releaseStateOf(model.owned)
+			)
+			assertEquals(1, timer.releaseOnlyBindCount)
+		}
+	}
+
+	@Test
+	fun activatedReleaseOnlyCloseBudgetCancellationKeepsExactRaceAuthority() {
+		TestTimerCancelOutcome.entries.forEach { cancelOutcome ->
+			val timer = ScriptedBindingTimer(
+				outcome = TestTimerBindOutcome.Accepted,
+				cancelOutcome = cancelOutcome
+			)
+			val model = activatedIdleCommittedFixture(timer)
+			val coordinator = model.fixture.coordinator
+			coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
+			val release = model.fixture.ports.commands
+				.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+				.single { it.key == model.owned }
+
+			coordinator.enqueue(ReaderTransitionFact.ResourceReleased(release.identity))
+
+			val afterCancellation = coordinator.snapshot()
+			val expectedStatus = when (cancelOutcome) {
+				TestTimerCancelOutcome.Accepted ->
+					ReaderReleaseOnlyCleanupDeadlineStatus.CancelledAfterTerminalAccounting
+				TestTimerCancelOutcome.Rejected ->
+					ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected
+				TestTimerCancelOutcome.Throws ->
+					ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew
+			}
+			assertEquals(expectedStatus, afterCancellation.releaseOnlyDeadlineStatus)
+			assertEquals(1, timer.cancelCount)
+			assertEquals(
+				if (cancelOutcome == TestTimerCancelOutcome.Accepted) 0 else 1,
+				afterCancellation.scheduledCallbackCount
+			)
+			if (cancelOutcome != TestTimerCancelOutcome.Accepted) {
+				assertEquals(
+					ReaderTransitionFailureReason.CloseDrainTimeout,
+					assertIs<paige.navic.reader.ReaderTransitionOutcome.Failed>(
+						coordinatorJournal(coordinator).lastOutcome
+					).reason
+				)
+			}
+
+			coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
+			assertEquals(1, timer.cancelCount, "A terminal physical cancel must not be retried")
+			timer.fireLastReleaseOnly()
+
+			val afterRace = coordinator.snapshot()
+			if (cancelOutcome == TestTimerCancelOutcome.Accepted) {
+				assertEquals(expectedStatus, afterRace.releaseOnlyDeadlineStatus)
+				assertEquals(ReaderTransitionResourceState.Released, coordinator.releaseStateOf(model.owned))
+			} else {
+				assertEquals(expectedStatus, afterRace.releaseOnlyDeadlineStatus)
+				assertEquals(0, afterRace.scheduledCallbackCount)
+			}
+		}
+	}
+
+	@Test
+	fun adoptedJournalRejectsCoordinatorConstructionWithTheWrongLedger() {
+		val fixture = activatedPublicationCloseFixture(timer = null)
+		val journal = ReaderResumableTransitionCoordinator::class.java
+			.getDeclaredField("journal")
+			.apply { isAccessible = true }
+			.get(fixture.coordinator) as ReaderTransitionJournal
+
+		assertFailsWith<IllegalStateException> {
+			ReaderResumableTransitionCoordinator(
+				ports = fixture.ports,
+				mode = ReaderTransitionMode.Active,
+				journal = journal,
+				releaseLedger = ReaderTransitionReleaseLedger(),
+				activationState = { ReaderSessionActivationState.Activated }
+			)
+		}
 	}
 
 	@Test
@@ -1699,13 +1987,13 @@ class ReaderResumableTransitionCoordinatorTest {
 		assertEquals(1, fixture.clock.activeRegistrationCount)
 
 		fixture.coordinator.enqueue(ReaderTransitionFact.PublicationReplaced(null))
-		assertEquals(1, fixture.clock.scheduleCount)
+		assertEquals(2, fixture.clock.scheduleCount)
 		assertEquals(1, fixture.clock.cancelCount)
-		assertEquals(0, fixture.clock.activeRegistrationCount)
-		assertEquals(0, fixture.coordinator.snapshot().scheduledCallbackCount)
+		assertEquals(1, fixture.clock.activeRegistrationCount)
+		assertEquals(1, fixture.coordinator.snapshot().scheduledCallbackCount)
 
 		fixture.clock.fireLast()
-		assertEquals(1, fixture.clock.cancelCount)
+		assertEquals(2, fixture.clock.cancelCount)
 		assertEquals(0, fixture.clock.activeRegistrationCount)
 		assertEquals(0, fixture.coordinator.snapshot().scheduledCallbackCount)
 	}
@@ -2519,12 +2807,31 @@ class ReaderResumableTransitionCoordinatorTest {
 				)
 			)
 		)
+		val releaseLedger = ReaderTransitionReleaseLedger()
+		val imported = assertNotNull(
+			releaseLedger.importLegacy(
+				physicalIdentity = ReaderLegacyPhysicalIdentity(
+					ReaderLegacyPhysicalDomain(
+						id.readerSessionGeneration,
+						ReaderLegacyFreezeToken(227L)
+					),
+					ReaderLegacyInventorySource.FrameOrHandoff,
+					ReaderLegacySourceLocalOpaqueToken(229L)
+				),
+				ownerId = paige.navic.reader.ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+					paige.navic.reader.ReaderAdoptedPredecessorSeedId.fromValidatedImport(1L)
+				),
+				kind = ReaderTransitionResourceKind.FrameHandoff,
+				coordinatorEpoch = id.coordinatorEpoch
+			)
+		)
 		val journal = readerAndroidHostTestJournal(
 			committed = readerAndroidHostTestAdoptedInitial(
 				owner = owner,
 				binding = binding,
 				readerSessionGeneration = id.readerSessionGeneration,
-				coordinatorEpoch = id.coordinatorEpoch
+				coordinatorEpoch = id.coordinatorEpoch,
+				resource = imported.registration
 			),
 			lastTransitionSequence = id.sequence,
 			lastIssuedTransitionIdentity = id.parentIdentity(),
@@ -2540,6 +2847,7 @@ class ReaderResumableTransitionCoordinatorTest {
 			ports = ports,
 			mode = ReaderTransitionMode.Active,
 			journal = journal,
+			releaseLedger = releaseLedger,
 			activationState = { ReaderSessionActivationState.Activated }
 		)
 
@@ -2578,6 +2886,8 @@ class ReaderResumableTransitionCoordinatorTest {
 		assertEquals(ReaderTransitionOutcomeKind.Cancelled, closed.lastOutcome)
 		assertTrue(closed.releaseOnlySink)
 		assertEquals(1, timer.cancelCount)
+		assertEquals(1, timer.releaseOnlyBindCount)
+		assertEquals(1, closed.scheduledCallbackCount)
 	}
 
 	@Test
@@ -2954,6 +3264,13 @@ class ReaderResumableTransitionCoordinatorTest {
 		)
 	}
 
+	private fun coordinatorJournal(
+		coordinator: ReaderResumableTransitionCoordinator
+	): ReaderTransitionJournal = ReaderResumableTransitionCoordinator::class.java
+		.getDeclaredField("journal")
+		.apply { isAccessible = true }
+		.get(coordinator) as ReaderTransitionJournal
+
 	private fun activatedNeutralTransitionFixture(
 		timer: ReaderTask6FactOnlyTimerPort,
 		onObservation: (ReaderTransitionCoordinatorObservation) -> Unit = {}
@@ -3046,18 +3363,17 @@ class ReaderResumableTransitionCoordinatorTest {
 			val snapshot = fixture.coordinator.snapshot()
 			assertTrue(snapshot.releaseOnlySink)
 			assertEquals(null, snapshot.activeOperation)
-			assertEquals(1, snapshot.scheduledCallbackCount)
 			assertEquals(
-				when (cancelOutcome) {
-					TestTimerCancelOutcome.Rejected ->
-						ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected
-					TestTimerCancelOutcome.Throws ->
-						ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew
-					TestTimerCancelOutcome.Accepted -> error("Failure case required")
-				},
+				1,
+				snapshot.scheduledCallbackCount,
+				"Only the exact release-only close budget may remain authoritative"
+			)
+			assertEquals(
+				ReaderReleaseOnlyCleanupDeadlineStatus.Armed,
 				snapshot.releaseOnlyDeadlineStatus
 			)
 			assertEquals(1, timer.cancelCount)
+			assertEquals(1, timer.releaseOnlyBindCount)
 
 			fixture.coordinator.enqueue(terminal)
 			assertEquals(2, fixture.ports.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().size)
@@ -3066,8 +3382,77 @@ class ReaderResumableTransitionCoordinatorTest {
 				fixture.ports.commands.count { it is ReaderTransitionCommand.CancelOwnedWork }
 			)
 			assertEquals(1, timer.cancelCount)
+			assertEquals(1, timer.releaseOnlyBindCount)
 			assertTrue(fixture.coordinator.snapshot().releaseOnlySink)
+
+			timer.fire()
+			val afterOldOperationExpiry = fixture.coordinator.snapshot()
+			assertEquals(1, afterOldOperationExpiry.scheduledCallbackCount)
+			assertEquals(
+				ReaderReleaseOnlyCleanupDeadlineStatus.Armed,
+				afterOldOperationExpiry.releaseOnlyDeadlineStatus,
+				"A failed old-timer cancellation must not turn its callback into the close deadline"
+			)
+			assertEquals(
+				ReaderTransitionResourceState.ReleaseCommandIssued,
+				fixture.coordinator.releaseStateOf(owned)
+			)
+
+			timer.fireLastReleaseOnly()
+			val expired = fixture.coordinator.snapshot()
+			assertEquals(0, expired.scheduledCallbackCount)
+			assertEquals(
+				ReaderReleaseOnlyCleanupDeadlineStatus.Elapsed,
+				expired.releaseOnlyDeadlineStatus
+			)
+			assertEquals(ReaderTransitionResourceState.TimedOutUnreleased, fixture.coordinator.releaseStateOf(owned))
+			assertEquals(ReaderTransitionOutcomeKind.Failed, expired.lastOutcome)
 		}
+	}
+
+	private fun activatedIdleCommittedFixture(
+		timer: ReaderTask6FactOnlyTimerPort,
+		onIssue: (ReaderTransitionCommand, (ReaderTransitionFact) -> Unit) -> Unit = { _, _ -> }
+	): NeutralCoordinatorFixture {
+		val binding = binding("activated-release-only-budget")
+		val id = transitionId(binding, ReaderTransitionOperation.ShellCoverCommit)
+		val owner = shellOwner(binding)
+		val key = ReaderTransitionResourceKey(
+			id,
+			ReaderTransitionResourceKind.FrameHandoff,
+			401L
+		)
+		val registration = ReaderTransitionResourceRegistration(
+			key,
+			ReaderResourceRetirementOrder(
+				id.readerSessionGeneration,
+				id.coordinatorEpoch,
+				1L
+			)
+		)
+		val clock = RecordingClock()
+		val ports = RecordingPorts(
+			clock = clock,
+			task6FactOnlyTimer = timer,
+			onIssue = onIssue
+		)
+		return NeutralCoordinatorFixture(
+			binding = binding,
+			owned = key,
+			fixture = CoordinatorFixture(
+				id = id,
+				clock = clock,
+				ports = ports,
+				coordinator = ReaderResumableTransitionCoordinator(
+					ports = ports,
+					mode = ReaderTransitionMode.Active,
+					journal = ReaderTransitionJournal(
+						committed = ReaderCommittedTransition(id, owner, binding, key, registration)
+					),
+					activationState = { ReaderSessionActivationState.Activated }
+				)
+			)
+		)
 	}
 
 	private fun activatedPublicationCloseFixture(
@@ -3076,12 +3461,32 @@ class ReaderResumableTransitionCoordinatorTest {
 		val binding = binding("activated-publication-close")
 		val id = transitionId(binding, ReaderTransitionOperation.PublicationClose)
 		val owner = shellOwner(binding)
+		val seedId = paige.navic.reader.ReaderAdoptedPredecessorSeedId.fromValidatedImport(1L)
+		val releaseLedger = ReaderTransitionReleaseLedger()
+		val imported = assertNotNull(
+			releaseLedger.importLegacy(
+				physicalIdentity = ReaderLegacyPhysicalIdentity(
+					ReaderLegacyPhysicalDomain(
+						id.readerSessionGeneration,
+						ReaderLegacyFreezeToken(1L)
+					),
+					ReaderLegacyInventorySource.FrameOrHandoff,
+					ReaderLegacySourceLocalOpaqueToken(1L)
+				),
+				ownerId = paige.navic.reader.ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+					seedId
+				),
+				kind = ReaderTransitionResourceKind.FrameHandoff,
+				coordinatorEpoch = id.coordinatorEpoch
+			)
+		)
 		val journal = readerAndroidHostTestJournal(
 			committed = readerAndroidHostTestAdoptedInitial(
 				owner = owner,
 				binding = binding,
 				readerSessionGeneration = id.readerSessionGeneration,
-				coordinatorEpoch = id.coordinatorEpoch
+				coordinatorEpoch = id.coordinatorEpoch,
+				resource = imported.registration
 			),
 			lastTransitionSequence = id.sequence,
 			lastIssuedTransitionIdentity = id.parentIdentity(),
@@ -3104,6 +3509,7 @@ class ReaderResumableTransitionCoordinatorTest {
 				ports = ports,
 				mode = ReaderTransitionMode.Active,
 				journal = journal,
+				releaseLedger = releaseLedger,
 				activationState = { ReaderSessionActivationState.Activated }
 			)
 		)
@@ -3122,12 +3528,32 @@ class ReaderResumableTransitionCoordinatorTest {
 		val binding = binding(bindingValue)
 		val id = transitionId(binding, operation)
 		val owner = shellOwner(binding)
+		val seedId = paige.navic.reader.ReaderAdoptedPredecessorSeedId.fromValidatedImport(1L)
+		val releaseLedger = ReaderTransitionReleaseLedger()
+		val imported = assertNotNull(
+			releaseLedger.importLegacy(
+				physicalIdentity = ReaderLegacyPhysicalIdentity(
+					ReaderLegacyPhysicalDomain(
+						id.readerSessionGeneration,
+						ReaderLegacyFreezeToken(1L)
+					),
+					ReaderLegacyInventorySource.FrameOrHandoff,
+					ReaderLegacySourceLocalOpaqueToken(1L)
+				),
+				ownerId = paige.navic.reader.ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+					seedId
+				),
+				kind = ReaderTransitionResourceKind.FrameHandoff,
+				coordinatorEpoch = id.coordinatorEpoch
+			)
+		)
 		var journal = readerAndroidHostTestJournal(
 			committed = readerAndroidHostTestAdoptedInitial(
 				owner = owner,
 				binding = binding,
 				readerSessionGeneration = id.readerSessionGeneration,
-				coordinatorEpoch = id.coordinatorEpoch
+				coordinatorEpoch = id.coordinatorEpoch,
+				resource = imported.registration
 			),
 			lastTransitionSequence = id.sequence,
 			lastIssuedTransitionIdentity = id.parentIdentity(),
@@ -3176,6 +3602,7 @@ class ReaderResumableTransitionCoordinatorTest {
 				ports = ports,
 				mode = mode,
 				journal = journal,
+				releaseLedger = releaseLedger,
 				activationState = activationState,
 				onObservation = onObservation
 			)
@@ -3340,10 +3767,11 @@ internal fun readerAndroidHostTestAdoptedInitial(
 	binding: ReaderPresentationBinding,
 	readerSessionGeneration: Long,
 	coordinatorEpoch: Long,
-	seedValue: Long = 1L
+	seedValue: Long = 1L,
+	resource: ReaderTransitionResourceRegistration? = null
 ): ReaderCommittedPresentation {
 	val seedId = paige.navic.reader.ReaderAdoptedPredecessorSeedId.fromValidatedImport(seedValue)
-	val registration = ReaderTransitionResourceRegistration(
+	val registration = resource ?: ReaderTransitionResourceRegistration(
 		ReaderTransitionResourceKey(
 			paige.navic.reader.ReaderTransitionResourceOwnerId.AdoptedPredecessor(seedId),
 			requireNotNull(readerAdoptedResourceKindFor(owner)),
@@ -3604,7 +4032,12 @@ private class ScriptedBindingTimer(
 ) : ReaderTask6FactOnlyTimerPort {
 	private var onExpired: ((ReaderTransitionFact.DeadlineExpired) -> Unit)? = null
 	private var registration: ReaderTask6FactOnlyTimerRegistration? = null
+	private var releaseOnlyRegistration: ReaderTask6ReleaseOnlyTimerRegistration? = null
+	private var onReleaseOnlyExpired: ((paige.navic.reader.ReaderReleaseOnlyCleanupKey) -> Unit)? = null
+	private var lastReleaseOnlyExpiry: (() -> Unit)? = null
 	var bindCount = 0
+		private set
+	var releaseOnlyBindCount = 0
 		private set
 	var cancelCount = 0
 		private set
@@ -3649,6 +4082,10 @@ private class ScriptedBindingTimer(
 		requireNotNull(onExpired)(ReaderTransitionFact.DeadlineExpired(current.transitionId))
 	}
 
+	fun fireLastReleaseOnly() {
+		requireNotNull(lastReleaseOnlyExpiry).invoke()
+	}
+
 	override fun matchingProgress(
 		registration: ReaderTask6FactOnlyTimerRegistration,
 		nowMillis: Long
@@ -3673,6 +4110,52 @@ private class ScriptedBindingTimer(
 		cancelCount += 1
 		return when (cancelOutcome) {
 			TestTimerCancelOutcome.Accepted -> ReaderPortCommandResult.Accepted
+			TestTimerCancelOutcome.Rejected ->
+				ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+			TestTimerCancelOutcome.Throws -> error("private cancellation detail")
+		}
+	}
+
+	override fun bindReleaseOnlyCloseBudget(
+		cleanupKey: paige.navic.reader.ReaderReleaseOnlyCleanupKey,
+		onExpired: (paige.navic.reader.ReaderReleaseOnlyCleanupKey) -> Unit
+	): ReaderTask6ReleaseOnlyTimerRegistration? {
+		releaseOnlyBindCount += 1
+		if (outcome == TestTimerBindOutcome.Throws) error("private timer detail")
+		if (outcome == TestTimerBindOutcome.Rejected) return null
+		this.onReleaseOnlyExpired = onExpired
+		lastReleaseOnlyExpiry = { onExpired(cleanupKey) }
+		val result = ReaderTask6ReleaseOnlyTimerRegistration(
+			id = ReaderTask6FactOnlyTimerRegistrationId(1_000L + releaseOnlyBindCount),
+			cleanupKey = cleanupKey,
+			physicalIdentity = ReaderLegacyPhysicalIdentity(
+				domain = ReaderLegacyPhysicalDomain(
+					cleanupKey.readerSessionGeneration,
+					ReaderLegacyFreezeToken(1_000L + releaseOnlyBindCount)
+				),
+				source = ReaderLegacyInventorySource.DeadlineRegistration,
+				sourceLocalToken = ReaderLegacySourceLocalOpaqueToken(
+					1_000L + releaseOnlyBindCount
+				)
+			),
+			expiresAtMillis = 3_000L
+		).also { releaseOnlyRegistration = it }
+		if (outcome == TestTimerBindOutcome.SynchronousExpiry) onExpired(cleanupKey)
+		return result
+	}
+
+	override fun cancelReleaseOnlyCloseBudget(
+		registration: ReaderTask6ReleaseOnlyTimerRegistration
+	): ReaderPortCommandResult {
+		cancelCount += 1
+		return when (cancelOutcome) {
+			TestTimerCancelOutcome.Accepted -> {
+				if (releaseOnlyRegistration == registration) {
+					releaseOnlyRegistration = null
+					onReleaseOnlyExpired = null
+				}
+				ReaderPortCommandResult.Accepted
+			}
 			TestTimerCancelOutcome.Rejected ->
 				ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
 			TestTimerCancelOutcome.Throws -> error("private cancellation detail")
