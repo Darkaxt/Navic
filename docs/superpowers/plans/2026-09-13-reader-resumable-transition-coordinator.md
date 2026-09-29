@@ -39,6 +39,29 @@ competing control plane.
 - Each package uses one coherent RED group, one focused RED command, minimal GREEN implementation, one focused GREEN command, specification audit, then a MAIN-only commit and push.
 - Focused GREEN never substitutes for the package’s broader affected gate or the final consolidated gate.
 
+## Task395 live-checkpoint amendment (2026-09-30)
+
+The explicitly approved responsiveness checkpoint ran before Task396 rather than
+being replaced by host tests. At `a84aa2c92355af56654cc17c7b513c482184891e`,
+Android CI passed and the owned emulator reached six prepared raster targets and
+a prepared renderer deck, with no outside-prepared-window failures. Common
+presentation nevertheless remained blocking; one bounded Retry did not recover,
+and no curl/performance acceptance was completed. Retained state-only timing
+places material readiness after the legacy whole-transaction deadline. This is
+failed legacy-path evidence, not acceptance of the new coordinator or evidence
+that its inactive ownership controls caused the failure.
+
+The user approved amending the live-before-Task396 gate: continue the existing
+remaining Task 6 wiring batches, retaining this failed checkpoint, and require
+full owned-emulator curl/lifecycle/performance acceptance when complete production
+composition and cutover are ready. Do not add another legacy callback-local
+publication patch, increase the timeout blindly, bypass failed authority, or
+activate partial composition. `Shadow`/`LegacyOnly` and unavailable production
+activation remain fail-closed until the normal complete-composition gates close.
+Task396 remains limited to real raster generation/persistence ownership and lazy
+initialization fencing; this amendment does not authorize Task9, Stage 7,
+physical-device work, or a change to the architecture.
+
 ## Mandatory isolated-worktree preflight
 
 The evidence worktree contains six rejected Task382 files and one protected crash log:
