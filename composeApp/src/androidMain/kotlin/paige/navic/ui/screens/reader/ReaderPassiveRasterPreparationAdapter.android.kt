@@ -144,7 +144,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 	private val bundleSource: ReaderPageTurnBundleSource,
 	initialCaptureEpoch: Long,
 	private val currentLivePublicationPort: ReaderPageRasterCurrentLivePublicationPort =
-		ReaderPageBundleCurrentLivePublicationPort(bundleSource)
+		ReaderPageBundleCurrentLivePublicationPort(bundleSource),
+	private val onCancellationDrained: () -> Unit = { }
 ) : ReaderPassiveRasterPreparationPort {
 	private enum class Lifecycle {
 		Active,
@@ -252,7 +253,10 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		batch?.hydration = null
 		batch?.releaseCommittedCapture()
 		batch?.releasePendingCapture()
-		session.cancelActiveCapture()
+		val cancellationPending = session.cancelActiveCapture(onCancellationDrained)
+		if (!cancellationPending && isAvailable) {
+			onCancellationDrained()
+		}
 		if (batch != null) {
 			batch.reference.release()
 			batch.onComplete(ReaderPageRasterBatchOutcome.Cancelled)

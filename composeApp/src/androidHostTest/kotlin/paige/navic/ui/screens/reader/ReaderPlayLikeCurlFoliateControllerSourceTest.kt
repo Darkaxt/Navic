@@ -51,6 +51,18 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderPageRasterPreparationController.android.kt"
 	)
+	private val passiveRasterWebViewHostFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderPassiveRasterWebViewHost.android.kt"
+	)
+	private val passiveRasterPreparationAdapterFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderPassiveRasterPreparationAdapter.android.kt"
+	)
+	private val passiveRasterPrototypeFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderPassiveRasterPrototype.android.kt"
+	)
 	private val bundleSourceFile = File(
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderPageTurnBundleSource.android.kt"
@@ -1352,6 +1364,194 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertTrue(contentReadyRequest >= 0)
 		assertTrue(passiveAdapter > contentReadyRequest)
 		assertTrue(passivePrewarm > passiveAdapter)
+	}
+
+	@Test
+	fun firstAuthoritativeLocationRefreshesPreparedDeckWhenOrdinalMatchesDefault() {
+		val source = controllerFile.readText()
+		val synchronize = requiredFoliateSourceSlice(
+			source,
+			"fun synchronizeVisualPageIndex(",
+			"private fun startAcknowledgedVisualHandoff("
+		)
+
+		val priorReadiness = synchronize.indexOf(
+			"val authoritativeLocationWasReady = authoritativeLocationReady"
+		)
+		val authorityRequest = synchronize.lastIndexOf(
+			"requestInitialLivePresentationAuthorityForPassivePreparation()"
+		)
+		val readinessEdge = synchronize.indexOf(
+			"!authoritativeLocationWasReady",
+			authorityRequest
+		)
+		val duplicateGate = synchronize.indexOf(
+			"!prewarmRequestedForLocation",
+			readinessEdge
+		)
+		val rearm = synchronize.indexOf("onRequestPrewarm()", duplicateGate)
+		assertTrue(priorReadiness >= 0)
+		assertTrue(authorityRequest > priorReadiness)
+		assertTrue(readinessEdge > authorityRequest)
+		assertTrue(duplicateGate > readinessEdge)
+		assertTrue(rearm > duplicateGate)
+		assertFalse(synchronize.substring(readinessEdge).contains("refreshPreparedDeck()"))
+	}
+
+	@Test
+	fun passivePreparationWaitsForReadinessEventsWithoutPerFrameInvalidation() {
+		val host = hostFile.readText()
+		val prewarm = requiredFoliateSourceSlice(
+			host,
+			"private fun requestPageTurnPrewarmWhenReady()",
+			"private fun pageTurnPrewarmLayoutSignature("
+		)
+		val passiveWait = requiredFoliateSourceSlice(
+			prewarm,
+			"if (passiveRasterPreparationAdapter?.isAvailable != true)",
+			"onPassiveRasterPreparationAvailable()"
+		)
+		val profileChanged = requiredFoliateSourceSlice(
+			prewarm,
+			"if (profileEpoch != rasterProfileEpoch)",
+			"if (rasterProfileEpoch == null)"
+		)
+		val profileWait = requiredFoliateSourceSlice(
+			prewarm,
+			"if (rasterProfileEpoch == null)",
+			"if (!rasterPaginationReady)"
+		)
+		val passiveAvailability = requiredFoliateSourceSlice(
+			host,
+			"private fun onPassiveRasterPreparationAvailable()",
+			"private fun onCanonicalLiveCommitIssued()"
+		)
+		val runtimeWiring = requiredFoliateSourceSlice(
+			host,
+			"val runtime = ReaderPassiveRasterWebViewHost(",
+			"val session = ReaderPassiveRasterPrototypeSession("
+		)
+		val runtime = passiveRasterWebViewHostFile.readText()
+		val runtimeConstructor = requiredFoliateSourceSlice(
+			runtime,
+			"internal class ReaderPassiveRasterWebViewHost(",
+			") : ReaderPassiveRasterRuntimePort<Bitmap>"
+		)
+		val runtimeReady = requiredFoliateSourceSlice(
+			runtime,
+			"private fun pollRuntimeReady(",
+			"private fun pollCommitResult("
+		)
+
+		assertContains(passiveWait, "removePageTurnPrewarmLayoutListener()")
+		assertFalse(passiveWait.contains("postInvalidateOnAnimation()"))
+		assertContains(profileChanged, "removePageTurnPrewarmLayoutListener()")
+		assertContains(profileChanged, "requestPageTurnPrewarmWhenReady()")
+		assertFalse(profileChanged.contains("postInvalidateOnAnimation()"))
+		assertContains(profileWait, "removePageTurnPrewarmLayoutListener()")
+		assertFalse(profileWait.contains("postInvalidateOnAnimation()"))
+		assertEquals(
+			2,
+			Regex("postInvalidateOnAnimation\\(\\)").findAll(prewarm).count(),
+			"Only bounded layout stabilization and the initial draw may request a frame."
+		)
+		val preparationAvailable = passiveAvailability.indexOf(
+			"pageRasterPreparationController.onPassiveRasterPreparationAvailable()"
+		)
+		assertTrue(preparationAvailable >= 0)
+		assertFalse(passiveAvailability.contains("requestPageTurnPrewarmWhenReady()"))
+		assertEquals(
+			1,
+			Regex("onPassiveRasterPreparationAvailable\\(\\)").findAll(prewarm).count(),
+			"One stable listener admission must publish one passive-availability edge."
+		)
+		assertContains(runtimeConstructor, "private val onRuntimeReady: () -> Unit = { }")
+		assertContains(runtimeReady, "if (!runtimeReady) {")
+		val publishReady = runtimeReady.indexOf("runtimeReady = true")
+		val notifyReady = runtimeReady.indexOf("onRuntimeReady()")
+		assertTrue(publishReady >= 0)
+		assertTrue(notifyReady > publishReady)
+		assertContains(runtimeWiring, "onRuntimeReady = {")
+		assertContains(
+			runtimeWiring,
+			"passiveRasterRendererLossFence.isCurrent(runtimeIdentity)"
+		)
+		assertContains(runtimeWiring, "passiveRasterPreparationAdapter?.isAvailable != true")
+		assertContains(runtimeWiring, "requestPageTurnPrewarmWhenReady()")
+		assertFalse(runtimeWiring.contains("onPassiveRasterPreparationAvailable()"))
+	}
+
+	@Test
+	fun cancelledPassiveCaptureRearmsPreparationOnlyAfterDrain() {
+		val host = hostFile.readText()
+		val adapter = passiveRasterPreparationAdapterFile.readText()
+		val prototype = passiveRasterPrototypeFile.readText()
+		val adapterConstructor = requiredFoliateSourceSlice(
+			adapter,
+			"internal class ReaderPassiveRasterPreparationAdapter(",
+			") : ReaderPassiveRasterPreparationPort"
+		)
+		val cancellation = requiredFoliateSourceSlice(
+			adapter,
+			"override fun cancel()",
+			"override fun pause()"
+		)
+		val sessionCancellation = requiredFoliateSourceSlice(
+			prototype,
+			"fun cancelActiveCapture(): Boolean",
+			"fun pause()"
+		)
+		val adapterWiring = requiredFoliateSourceSlice(
+			host,
+			"passiveRasterPreparationAdapter = ReaderPassiveRasterPreparationAdapter(",
+			"passiveRasterRendererLossFence.replace(runtimeIdentity)"
+		)
+
+		assertContains(adapterConstructor, "private val onCancellationDrained: () -> Unit = { }")
+		assertContains(sessionCancellation, "fun cancelActiveCapture(onDrained: () -> Unit): Boolean")
+		assertContains(cancellation, "session.cancelActiveCapture(onCancellationDrained)")
+		assertContains(cancellation, "if (!cancellationPending && isAvailable)")
+		assertContains(cancellation, "onCancellationDrained()")
+		assertContains(adapterWiring, "onCancellationDrained = {")
+		assertContains(
+			adapterWiring,
+			"passiveRasterRendererLossFence.isCurrent(runtimeIdentity)"
+		)
+		assertContains(adapterWiring, "passiveRasterPreparationAdapter?.isAvailable != true")
+		assertContains(adapterWiring, "requestPageTurnPrewarmWhenReady()")
+		assertFalse(adapterWiring.contains("onPassiveRasterPreparationAvailable()"))
+	}
+
+	@Test
+	fun prewarmLayoutStabilityResetsAcrossLifecyclePause() {
+		val host = hostFile.readText()
+		val prewarm = requiredFoliateSourceSlice(
+			host,
+			"private fun requestPageTurnPrewarmWhenReady()",
+			"private fun pageTurnPrewarmLayoutSignature("
+		)
+		val lifecycle = requiredFoliateSourceSlice(
+			host,
+			"private val hostLifecycleObserver = object : DefaultLifecycleObserver",
+			"override fun onAttachedToWindow()"
+		)
+		val pause = requiredFoliateSourceSlice(
+			lifecycle,
+			"override fun onPause(owner: LifecycleOwner)",
+			"override fun onStop(owner: LifecycleOwner)"
+		)
+		val stop = requiredFoliateSourceSlice(
+			lifecycle,
+			"override fun onStop(owner: LifecycleOwner)",
+			"override fun onDestroy(owner: LifecycleOwner)"
+		)
+
+		assertContains(
+			prewarm,
+			"observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true"
+		)
+		assertContains(pause, "removePageTurnPrewarmLayoutListener()")
+		assertContains(stop, "removePageTurnPrewarmLayoutListener()")
 	}
 
 	@Test
@@ -2663,7 +2863,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val pressure = requiredFoliateSourceSlice(
 			source = viewer,
 			startDelimiter = "private fun onPassiveRasterMemoryPressure(",
-			endDelimiter = "private fun replacePassiveRasterPreparationAdapter("
+			endDelimiter = "private fun onPassiveRasterPreparationAvailable()"
 		)
 		val laterPrewarm = requiredFoliateSourceSlice(
 			source = viewer,

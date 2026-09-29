@@ -235,6 +235,7 @@ internal class ReaderPassiveRasterWebViewHost(
 	override val passiveSessionId: String,
 	private val viewportGeometry: ReaderPassiveRasterGeometry,
 	private val mainHandler: Handler = Handler(Looper.getMainLooper()),
+	private val onRuntimeReady: () -> Unit = { },
 	private val onRendererGone: () -> Unit = { }
 ) : ReaderPassiveRasterRuntimePort<Bitmap> {
 	private class ActiveCommit(
@@ -418,7 +419,10 @@ internal class ReaderPassiveRasterWebViewHost(
 		) { encoded ->
 			if (!callbackIsCurrent(generation)) return@evaluateJavascript
 			if (encoded == "true") {
-				runtimeReady = true
+				if (!runtimeReady) {
+					runtimeReady = true
+					onRuntimeReady()
+				}
 			} else {
 				webView.postOnAnimation {
 					pollRuntimeReady(generation, pollCount + 1)

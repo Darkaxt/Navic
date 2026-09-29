@@ -508,9 +508,12 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 		if (committed == null || !committed.capture(onCaptured)) onCaptured(null)
 	}
 
-	fun cancelActiveCapture(): Boolean = cancelActiveCapture(onDrained = null)
+	fun cancelActiveCapture(): Boolean = cancelActiveCaptureInternal(onDrained = null)
 
-	private fun cancelActiveCapture(onDrained: (() -> Unit)?): Boolean {
+	fun cancelActiveCapture(onDrained: () -> Unit): Boolean =
+		cancelActiveCaptureInternal(onDrained)
+
+	private fun cancelActiveCaptureInternal(onDrained: (() -> Unit)?): Boolean {
 		var drainCommitted: (() -> Unit)? = null
 		val cancellation = synchronized(lock) {
 			if (lifecycle == ReaderPassiveRasterLifecycle.Destroyed) return false

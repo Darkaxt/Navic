@@ -3729,6 +3729,17 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			activity = activity,
 			passiveSessionId = UUID.randomUUID().toString(),
 			viewportGeometry = geometry,
+			onRuntimeReady = {
+				post {
+					if (
+						!passiveRasterRendererLossFence.isCurrent(runtimeIdentity) ||
+						passiveRasterPreparationAdapter?.isAvailable != true
+					) {
+						return@post
+					}
+					requestPageTurnPrewarmWhenReady()
+				}
+			},
 			onRendererGone = {
 				post {
 					if (!passiveRasterRendererLossFence.isCurrent(runtimeIdentity)) {
@@ -3751,7 +3762,18 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				viewerContentContainer.findDescendantWebView()
 			},
 			bundleSource = pageTurnBundleSource,
-			initialCaptureEpoch = passiveRasterCaptureEpoch
+			initialCaptureEpoch = passiveRasterCaptureEpoch,
+			onCancellationDrained = {
+				post {
+					if (
+						!passiveRasterRendererLossFence.isCurrent(runtimeIdentity) ||
+						passiveRasterPreparationAdapter?.isAvailable != true
+					) {
+						return@post
+					}
+					requestPageTurnPrewarmWhenReady()
+				}
+			}
 		)
 		passiveRasterRendererLossFence.replace(runtimeIdentity)
 		passiveRasterPreparationGeometry = geometry
@@ -3789,7 +3811,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			if (
 				task4ResourceTeardownStarted ||
 				!pageTurnCanvasEnabled ||
-				!isAttachedToWindow
+				!isAttachedToWindow ||
+				observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true
 			) {
 				removePageTurnPrewarmLayoutListener()
 				return@OnPreDrawListener true
@@ -3828,12 +3851,17 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			}
 			replacePassiveRasterPreparationAdapter(webView)
 			if (passiveRasterPreparationAdapter?.isAvailable != true) {
-				postInvalidateOnAnimation()
+				removePageTurnPrewarmLayoutListener()
 				return@OnPreDrawListener true
 			}
 			onPassiveRasterPreparationAvailable()
-			if (profileEpoch == null) {
-				postInvalidateOnAnimation()
+			if (profileEpoch != rasterProfileEpoch) {
+				removePageTurnPrewarmLayoutListener()
+				requestPageTurnPrewarmWhenReady()
+				return@OnPreDrawListener true
+			}
+			if (rasterProfileEpoch == null) {
+				removePageTurnPrewarmLayoutListener()
 				return@OnPreDrawListener true
 			}
 			if (!rasterPaginationReady) {
@@ -3883,12 +3911,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 
 		override fun onPause(owner: LifecycleOwner) {
+			removePageTurnPrewarmLayoutListener()
 			passiveRasterPreparationAdapter?.pause()
 			pageRasterHostEventController.lifecycleResumedChanged(false)
 			playLikeCurlController.onHostResumedChanged(false)
 		}
 
 		override fun onStop(owner: LifecycleOwner) {
+			removePageTurnPrewarmLayoutListener()
 			passiveRasterPreparationAdapter?.pause()
 			pageRasterHostEventController.lifecycleResumedChanged(false)
 			playLikeCurlController.onHostResumedChanged(false)

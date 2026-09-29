@@ -130,6 +130,52 @@ class KomikkuReaderNativeFrameHostTest {
 	)
 
 	@Test
+	fun firstAuthoritativeDefaultOrdinalRequestsOneHostPrewarmEdge() {
+		var prewarmRequests = 0
+		val fixture = task8CurlAuthorityFixture(
+			initialState = null,
+			currentOrdinal = 0,
+			onRequestPrewarm = { prewarmRequests += 1 }
+		)
+		val controller = fixture.controller
+		val baselineRequests = prewarmRequests
+		assertFalse(
+			controller.javaClass.task7Field("authoritativeLocationReady")
+				.getBoolean(controller)
+		)
+
+		controller.synchronizeVisualPageIndex(0, "initial-location", null)
+
+		assertEquals(baselineRequests + 1, prewarmRequests)
+		assertTrue(
+			controller.javaClass.task7Field("authoritativeLocationReady")
+				.getBoolean(controller)
+		)
+		controller.synchronizeVisualPageIndex(0, "repeated-location", null)
+		assertEquals(baselineRequests + 1, prewarmRequests)
+	}
+
+	@Test
+	fun firstAuthoritativeNonDefaultOrdinalRequestsOneHostPrewarmEdge() {
+		var prewarmRequests = 0
+		val fixture = task8CurlAuthorityFixture(
+			initialState = null,
+			currentOrdinal = 0,
+			onRequestPrewarm = { prewarmRequests += 1 }
+		)
+		val baselineRequests = prewarmRequests
+
+		fixture.controller.synchronizeVisualPageIndex(2, "initial-location", null)
+
+		assertEquals(baselineRequests + 1, prewarmRequests)
+		assertEquals(
+			2,
+			fixture.controller.javaClass.task7Field("currentOrdinal")
+				.getInt(fixture.controller)
+		)
+	}
+
+	@Test
 	fun playLikeCurlPhysicalDeckOwnerFreezesExactDeckAndCallbackBeforeDispatch() {
 		val fixture = task8CurlAuthorityFixture(
 			initialState = task8SettledCurlSourceState(),
@@ -11574,6 +11620,8 @@ class KomikkuReaderNativeFrameHostTest {
 		physicalRect: ReaderPlayLikeCurlPhysicalRect = ReaderPlayLikeCurlPhysicalRect(0, 0, 2, 2),
 		bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource(),
 		prepareActiveDeck: Boolean = true,
+		currentOrdinal: Int = 1,
+		onRequestPrewarm: () -> Unit = {},
 		beforePresentationEventPublished: (
 			ReaderPlayLikeCurlFoliateController,
 			ReaderPresentationEvent
@@ -11597,7 +11645,7 @@ class KomikkuReaderNativeFrameHostTest {
 			presentationHostEpoch = admissionHost::captureEpoch,
 			deckAdmissionHost = admissionHost,
 			bundleSource = bundleSource,
-			onRequestPrewarm = {},
+			onRequestPrewarm = onRequestPrewarm,
 			onRequestRasterRepair = { _, _ -> },
 			onGestureTerminal = { gestureId, _, _ ->
 				store.localTerminalGestureIds += gestureId
@@ -11626,7 +11674,7 @@ class KomikkuReaderNativeFrameHostTest {
 		controllerClass.task7Field("currentFoliateSessionId")
 			.set(controller, "critical-4-session")
 		controllerClass.task7Field("requestedProfile").set(controller, profile)
-		controllerClass.task7Field("currentOrdinal").setInt(controller, 1)
+		controllerClass.task7Field("currentOrdinal").setInt(controller, currentOrdinal)
 		controller.setPageOperationPolicy(
 			readerPageOperationPolicy(
 				ReaderPageReadinessState(

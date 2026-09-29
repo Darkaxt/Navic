@@ -124,11 +124,13 @@ class ReaderPageRasterProductionEventSourceTest {
 			.substringBefore("pageTurnPrewarmLayoutListener = listener")
 
 		val refresh = listener.indexOf("playLikeCurlController.onHostContentReady()")
-		val profileGate = listener.indexOf("if (profileEpoch == null)")
+		val profileChanged = listener.indexOf("if (profileEpoch != rasterProfileEpoch)")
+		val profileGate = listener.indexOf("if (rasterProfileEpoch == null)")
 		val paginationGate = listener.indexOf("if (!rasterPaginationReady)")
 		val stopWaiting = listener.indexOf("removePageTurnPrewarmLayoutListener()", paginationGate)
 		val prewarm = listener.indexOf("pageRasterPreparationController.prewarmAdjacent()")
-		assertEquals(true, refresh >= 0 && refresh < profileGate)
+		assertEquals(true, refresh >= 0 && refresh < profileChanged)
+		assertEquals(true, profileChanged < profileGate)
 		assertEquals(true, profileGate < paginationGate)
 		assertEquals(true, paginationGate < stopWaiting && stopWaiting < prewarm)
 	}

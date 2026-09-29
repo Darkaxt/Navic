@@ -3412,6 +3412,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		acknowledgement: ReaderPageTurnSettlementAck?
 	) {
 		val normalized = pageIndex?.takeIf { it >= 0 } ?: return
+		val authoritativeLocationWasReady = authoritativeLocationReady
+		var prewarmRequestedForLocation = false
 		if (isPresentationRecoverySnapshotReason(_reason)) {
 			val session = currentFoliateSessionId ?: return
 			if (!matchesPresentationRecoverySnapshot(_reason, session)) return
@@ -3494,12 +3496,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 						preservePublishedProfile = true,
 						slotPolicy = ReaderRendererSlotInvalidationPolicy.RetainSelectedPresentationPredecessor
 					)
-					if (enabled) onRequestPrewarm()
+					if (enabled) {
+						onRequestPrewarm()
+						prewarmRequestedForLocation = true
+					}
 				}
 			}
 		}
 		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
 			requestInitialLivePresentationAuthorityForPassivePreparation()
+			if (
+				!authoritativeLocationWasReady &&
+				authoritativeLocationReady &&
+				!prewarmRequestedForLocation
+			) {
+				onRequestPrewarm()
+			}
 		}
 	}
 

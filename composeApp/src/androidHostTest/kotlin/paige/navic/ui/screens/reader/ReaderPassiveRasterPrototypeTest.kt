@@ -599,6 +599,24 @@ class ReaderPassiveRasterPrototypeTest {
 	}
 
 	@Test
+	fun cancelledCommitPublishesDrainOnlyAfterReplacementCanStart() {
+		val fixture = fixture()
+		val runtime = FakePassiveRasterRuntime()
+		val session = ReaderPassiveRasterPrototypeSession(runtime) { error("no raster exists") }
+		var drained = 0
+
+		assertTrue(session.capture(fixture.manifest) { })
+		assertTrue(session.cancelActiveCapture { drained += 1 })
+		assertEquals(0, drained)
+		assertFalse(session.isReady)
+
+		runtime.completeCommitCancellation()
+
+		assertEquals(1, drained)
+		assertTrue(session.isReady)
+	}
+
+	@Test
 	fun cancelledCommitDrainsBeforeAReplacementCaptureCanStart() {
 		val fixture = fixture()
 		val runtime = FakePassiveRasterRuntime()
