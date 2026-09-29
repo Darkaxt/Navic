@@ -9,6 +9,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.PixelCopy
 import android.webkit.WebView
+import java.util.concurrent.atomic.AtomicBoolean
 import karacken.curl.PageSurfaceView
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
@@ -24,6 +25,7 @@ import paige.navic.reader.ReaderPageTurnLayoutMode
 import paige.navic.reader.ReaderPageTurnPageRect
 import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
+import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.util.core.Logger
 import kotlin.coroutines.resume
 import kotlin.math.abs
@@ -122,6 +124,9 @@ internal class ReaderPageTurnLiveCaptureOwnership<T : Any>(
 
 	val isOpen: Boolean
 		get() = synchronized(lock) { state == State.Open }
+
+	val isTerminal: Boolean
+		get() = synchronized(lock) { state == State.Terminal }
 
 	fun retain(candidate: T): Boolean = synchronized(lock) {
 		if (state != State.Open || candidateRetained) return@synchronized false
@@ -347,15 +352,297 @@ internal class ReaderPageTurnPresentedCaptureOwnership<T : Any>(
 	}
 }
 
+private class ReaderPageTrackedBitmapCapture(
+	private val ownership: ReaderExactPhysicalOwnerRegistry,
+	private val onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
+) {
+	private val lock = Any()
+	private var owners: List<ReaderExactPhysicalOwnerRegistry.Owner>? = null
+	private var terminal = false
+	private var callbackRunning = false
+
+	fun attach(admitted: List<ReaderExactPhysicalOwnerRegistry.Owner>) {
+		val completeNow = synchronized(lock) {
+			check(owners == null) { "Bitmap capture ownership attached twice" }
+			owners = admitted
+			terminal && !callbackRunning
+		}
+		if (completeNow) ownership.complete(admitted)
+	}
+
+	fun complete(result: ReaderPageTurnCaptureResult?) {
+		val deliver = synchronized(lock) {
+			if (terminal) return@synchronized false
+			terminal = true
+			callbackRunning = true
+			true
+		}
+		if (!deliver) {
+			result?.bitmap?.takeUnless { bitmap -> bitmap.isRecycled }?.recycle()
+			return
+		}
+		try {
+			onCaptured(result)
+		} finally {
+			val admitted = synchronized(lock) {
+				callbackRunning = false
+				owners
+			}
+			admitted?.let(ownership::complete)
+		}
+	}
+
+	fun cancel(): Boolean {
+		val shouldCancel = synchronized(lock) { !terminal }
+		if (!shouldCancel) return true
+		complete(null)
+		return true
+	}
+}
+
+private class ReaderPageTrackedBitmapStage(
+	private val ownership: ReaderExactPhysicalOwnerRegistry,
+	private val onCancelled: () -> Unit,
+	private val cancelExternal: (() -> Unit)? = null
+) {
+	private enum class State { Open, Running, Cancelled, Terminal }
+
+	private val lock = Any()
+	private var owner: ReaderExactPhysicalOwnerRegistry.Owner? = null
+	private var state = State.Open
+
+	fun attach(admitted: ReaderExactPhysicalOwnerRegistry.Owner) {
+		val terminal = synchronized(lock) {
+			check(owner == null) { "Bitmap stage ownership attached twice" }
+			owner = admitted
+			state == State.Terminal
+		}
+		if (terminal) ownership.complete(admitted)
+	}
+
+	fun run(action: () -> Unit): Boolean {
+		val admitted = synchronized(lock) {
+			if (state != State.Open) return false
+			state = State.Running
+			owner
+		}
+		try {
+			action()
+		} finally {
+			synchronized(lock) { state = State.Terminal }
+			admitted?.let(ownership::complete)
+		}
+		return true
+	}
+
+	fun cancel(): Boolean {
+		var completeNow = false
+		val accepted = synchronized(lock) {
+			when (state) {
+				State.Open -> {
+					state = State.Terminal
+					completeNow = true
+					true
+				}
+				State.Running -> {
+					state = State.Cancelled
+					true
+				}
+				State.Cancelled,
+				State.Terminal -> true
+			}
+		}
+		if (!accepted) return false
+		runCatching { cancelExternal?.invoke() }
+		onCancelled()
+		if (completeNow) {
+			synchronized(lock) { owner }?.let(ownership::complete)
+		}
+		return true
+	}
+}
+
+private class ReaderPageTrackedBitmapOperation(
+	private val ownership: ReaderExactPhysicalOwnerRegistry,
+	private val cancelPhysical: () -> Boolean,
+	private val cancellationCompleted: () -> Boolean,
+	private val onCancelled: () -> Unit
+) {
+	private val lock = Any()
+	private var owners: List<ReaderExactPhysicalOwnerRegistry.Owner>? = null
+	private var terminal = false
+	private var callbackRunning = false
+	private var cancellationPending = false
+
+	fun attach(admitted: List<ReaderExactPhysicalOwnerRegistry.Owner>) {
+		val completeNow = synchronized(lock) {
+			check(owners == null) { "Bitmap operation ownership attached twice" }
+			owners = admitted
+			terminal && !callbackRunning
+		}
+		if (completeNow) ownership.complete(admitted)
+	}
+
+	fun runCompletion(action: () -> Unit): Boolean {
+		synchronized(lock) {
+			if (terminal) return false
+			terminal = true
+			callbackRunning = true
+		}
+		try {
+			action()
+		} finally {
+			val admitted = synchronized(lock) {
+				callbackRunning = false
+				owners
+			}
+			admitted?.let(ownership::complete)
+		}
+		return true
+	}
+
+	fun cancel(): Boolean {
+		val shouldCancel = synchronized(lock) {
+			if (terminal || cancellationPending) return true
+			cancellationPending = true
+			true
+		}
+		if (!shouldCancel) return true
+		val accepted = try {
+			cancelPhysical()
+		} catch (_: Throwable) {
+			false
+		}
+		if (!accepted) {
+			synchronized(lock) {
+				if (!terminal) cancellationPending = false
+			}
+			return false
+		}
+		if (cancellationCompleted()) runCompletion(onCancelled)
+		return true
+	}
+}
+
 internal class ReaderPageTurnBitmapSource(
 	private var bitmapQuality: ReaderPageBitmapQuality = ReaderPageBitmapQuality.Balanced
 ) {
 	private var visualStateRequestId = 0L
 	private var liveCaptureEpoch = 0L
 	private val mainHandler = Handler(Looper.getMainLooper())
+	private val physicalOwnership = ReaderExactPhysicalOwnerRegistry(
+		ReaderLegacyInventorySource.RasterCaptureAndVisualState
+	)
 
 	val isAvailable: Boolean
 		get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = physicalOwnership.freezeForTransitionActivation(domain)
+
+	fun connectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? =
+		physicalOwnership.connectedFrozenOwnership()
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> =
+		physicalOwnership.snapshotFrozenOwnership()
+
+	fun drainFrozenOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult =
+		physicalOwnership.drainFrozenOwnership(physicalIdentity, onConfirmed)
+
+	fun restoreAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = physicalOwnership.restoreAfterTransitionActivation(domain)
+
+	private fun registerOperation(
+		cancelPhysical: () -> Boolean,
+		cancellationCompleted: () -> Boolean = { true },
+		onCancelled: () -> Unit
+	): ReaderPageTrackedBitmapOperation? {
+		val operation = ReaderPageTrackedBitmapOperation(
+			ownership = physicalOwnership,
+			cancelPhysical = cancelPhysical,
+			cancellationCompleted = cancellationCompleted,
+			onCancelled = onCancelled
+		)
+		val owners = physicalOwnership.admit(
+			listOf(
+				ReaderExactPhysicalOwnerDescriptor(
+					kind = ReaderTransitionResourceKind.Raster,
+					state = ReaderLegacyResourceState.Running
+				),
+				ReaderExactPhysicalOwnerDescriptor(
+					kind = ReaderTransitionResourceKind.CallbackRegistration,
+					origin = ReaderLegacyResourceOrigin.Pending,
+					state = ReaderLegacyResourceState.Registered
+				)
+			),
+			cancelPhysical = operation::cancel
+		) ?: return null
+		operation.attach(owners)
+		return operation
+	}
+
+	private fun registerStage(
+		kind: ReaderTransitionResourceKind,
+		state: ReaderLegacyResourceState,
+		onCancelled: () -> Unit,
+		cancelExternal: (() -> Unit)? = null
+	): ReaderPageTrackedBitmapStage? {
+		val stage = ReaderPageTrackedBitmapStage(
+			ownership = physicalOwnership,
+			onCancelled = onCancelled,
+			cancelExternal = cancelExternal
+		)
+		val owner = physicalOwnership.admit(
+			ReaderExactPhysicalOwnerDescriptor(
+				kind = kind,
+				origin = if (kind == ReaderTransitionResourceKind.CallbackRegistration) {
+					ReaderLegacyResourceOrigin.Pending
+				} else {
+					ReaderLegacyResourceOrigin.Owned
+				},
+				state = state
+			),
+			cancelPhysical = stage::cancel
+		) ?: return null
+		stage.attach(owner)
+		return stage
+	}
+
+	private fun captureOwned(
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
+		start: ((ReaderPageTurnCaptureResult?) -> Unit) -> Unit
+	) {
+		val operation = ReaderPageTrackedBitmapCapture(physicalOwnership, onCaptured)
+		val admitted = physicalOwnership.admit(
+			listOf(
+				ReaderExactPhysicalOwnerDescriptor(
+					kind = ReaderTransitionResourceKind.Raster,
+					state = ReaderLegacyResourceState.Running
+				),
+				ReaderExactPhysicalOwnerDescriptor(
+					kind = ReaderTransitionResourceKind.CallbackRegistration,
+					origin = ReaderLegacyResourceOrigin.Pending,
+					state = ReaderLegacyResourceState.Registered
+				)
+			),
+			cancelPhysical = operation::cancel
+		)
+		if (admitted == null) {
+			onCaptured(null)
+			return
+		}
+		operation.attach(admitted)
+		try {
+			start(operation::complete)
+		} catch (_: Throwable) {
+			operation.complete(null)
+		}
+	}
 
 	fun updateBitmapQuality(quality: ReaderPageBitmapQuality) {
 		bitmapQuality = quality
@@ -365,24 +652,28 @@ internal class ReaderPageTurnBitmapSource(
 		webView: WebView,
 		direction: ReaderPageTurnPhysicalDirection,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
-	) = capture(webView, onCaptured) { geometry, location ->
-		geometry.sourceRectInWindow(
-			direction = direction,
-			webViewWindowLeft = location[0],
-			webViewWindowTop = location[1],
-			webViewWidth = webView.width,
-			webViewHeight = webView.height
-		)
+	) = captureOwned(onCaptured) { ownedCallback ->
+		capture(webView, ownedCallback) { geometry, location ->
+			geometry.sourceRectInWindow(
+				direction = direction,
+				webViewWindowLeft = location[0],
+				webViewWindowTop = location[1],
+				webViewWidth = webView.width,
+				webViewHeight = webView.height
+			)
+		}
 	}
 
 	fun captureSurface(
 		webView: WebView,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
-	) = captureSurface(
-		webView,
-		allowStableLowContrast = false,
-		onCaptured = onCaptured
-	)
+	) = captureOwned(onCaptured) { onCaptured ->
+		captureSurface(
+			webView,
+			allowStableLowContrast = false,
+			onCaptured = onCaptured
+		)
+	}
 
 	private fun captureSurface(
 		webView: WebView,
@@ -407,13 +698,15 @@ internal class ReaderPageTurnBitmapSource(
 		webView: WebView,
 		geometry: ReaderPageTurnCaptureGeometry,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
-	) = captureResolvedGeometry(webView, geometry, onCaptured) { resolved, location ->
-		resolved.surfaceRectInWindow(
-			webViewWindowLeft = location[0],
-			webViewWindowTop = location[1],
-			webViewWidth = webView.width,
-			webViewHeight = webView.height
-		)
+	) = captureOwned(onCaptured) { onCaptured ->
+		captureResolvedGeometry(webView, geometry, onCaptured) { resolved, location ->
+			resolved.surfaceRectInWindow(
+				webViewWindowLeft = location[0],
+				webViewWindowTop = location[1],
+				webViewWidth = webView.width,
+				webViewHeight = webView.height
+			)
+		}
 	}
 
 	fun capturePresentedSurface(
@@ -422,19 +715,38 @@ internal class ReaderPageTurnBitmapSource(
 		isStillCurrent: () -> Boolean = { true },
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
 	): ReaderPageRelocationContentValidationHandle {
+		var candidatePhysicalOwner: ReaderExactPhysicalOwnerRegistry.Owner? = null
+		fun completeCandidatePhysicalOwner() {
+			candidatePhysicalOwner?.let(physicalOwnership::complete)
+			candidatePhysicalOwner = null
+		}
 		val ownership = ReaderPageTurnPresentedCaptureOwnership(
 			release = { rejected: ReaderPageTurnCaptureResult ->
 				rejected.bitmap.takeUnless { it.isRecycled }?.recycle()
+				completeCandidatePhysicalOwner()
 			}
 		)
-		if (!isStillCurrent() || !canCapture(webView)) {
-			ownership.complete()
+		val physicalOperation = registerOperation(
+			cancelPhysical = ownership::cancel,
+			onCancelled = { onCaptured(null) }
+		) ?: run {
+			ownership.cancel()
 			onCaptured(null)
 			return ownership
 		}
+		fun deliver(result: ReaderPageTurnCaptureResult?) {
+			if (!physicalOperation.runCompletion { onCaptured(result) }) {
+				result?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+			}
+		}
+		if (!isStillCurrent() || !canCapture(webView)) {
+			ownership.complete()
+			deliver(null)
+			return ReaderPageRelocationContentValidationHandle(physicalOperation::cancel)
+		}
 		queryPresentationReceipt(webView, target) initial@{ initialReceipt ->
 			if (!isStillCurrent() || initialReceipt?.matches(target) != true) {
-				if (ownership.complete() != null) onCaptured(null)
+				if (ownership.complete() != null) deliver(null)
 				return@initial
 			}
 			captureSurface(
@@ -444,40 +756,58 @@ internal class ReaderPageTurnBitmapSource(
 			) { candidate ->
 				if (!runCatching(isStillCurrent).getOrDefault(false)) {
 					candidate?.bitmap?.takeUnless { it.isRecycled }?.recycle()
-					if (ownership.complete() != null) onCaptured(null)
+					if (ownership.complete() != null) deliver(null)
 					return@captureSurface
 				}
+				val candidateOwner = candidate?.let {
+					physicalOwnership.admit(
+						ReaderExactPhysicalOwnerDescriptor(
+							kind = ReaderTransitionResourceKind.Raster,
+							state = ReaderLegacyResourceState.Prepared
+						),
+						cancelPhysical = physicalOperation::cancel
+					)
+				}
+				if (candidate != null && candidateOwner == null) {
+					candidate.bitmap.takeUnless { it.isRecycled }?.recycle()
+					if (ownership.complete() != null) deliver(null)
+					return@captureSurface
+				}
+				check(candidatePhysicalOwner == null)
+				candidatePhysicalOwner = candidateOwner
 				if (!ownership.retain(candidate)) {
 					candidate?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+					completeCandidatePhysicalOwner()
 					return@captureSurface
 				}
 				if (!runCatching(isStillCurrent).getOrDefault(false)) {
 					val completed = ownership.complete() ?: return@captureSurface
 					completed.candidate?.bitmap?.takeUnless { it.isRecycled }?.recycle()
-					onCaptured(null)
+					completeCandidatePhysicalOwner()
+					deliver(null)
 					return@captureSurface
 				}
 				queryPresentationReceipt(webView, target) { finalReceipt ->
 					val completed = ownership.complete() ?: return@queryPresentationReceipt
-					onCaptured(
-						readerPageTurnPresentedSurfaceCandidate(
-							target = target,
-							initialReceipt = initialReceipt,
-							finalReceipt = finalReceipt,
-							candidate = completed.candidate,
-							foregroundSuccess = completed.candidate != null,
-							isStillCurrent = isStillCurrent(),
-							recycle = { rejected ->
-								rejected.bitmap
-									.takeUnless { it.isRecycled }
-									?.recycle()
-							}
-						)
+					val result = readerPageTurnPresentedSurfaceCandidate(
+						target = target,
+						initialReceipt = initialReceipt,
+						finalReceipt = finalReceipt,
+						candidate = completed.candidate,
+						foregroundSuccess = completed.candidate != null,
+						isStillCurrent = isStillCurrent(),
+						recycle = { rejected ->
+							rejected.bitmap
+								.takeUnless { it.isRecycled }
+								?.recycle()
+						}
 					)
+					completeCandidatePhysicalOwner()
+					deliver(result)
 				}
 			}
 		}
-		return ownership
+		return ReaderPageRelocationContentValidationHandle(physicalOperation::cancel)
 	}
 
 	fun captureLiveCompositedSurface(
@@ -489,34 +819,57 @@ internal class ReaderPageTurnBitmapSource(
 		isStillCurrent: () -> Boolean = { true },
 		onCaptured: (ReaderPageTurnLiveCaptureResult?) -> Unit
 	): ReaderPageRelocationContentValidationHandle {
+		var candidatePhysicalOwner: ReaderExactPhysicalOwnerRegistry.Owner? = null
+		fun completeCandidatePhysicalOwner() {
+			candidatePhysicalOwner?.let(physicalOwnership::complete)
+			candidatePhysicalOwner = null
+		}
 		val ownership = ReaderPageTurnLiveCaptureOwnership(
 			release = { rejected: ReaderPageTurnCaptureResult ->
 				rejected.bitmap.takeUnless { it.isRecycled }?.recycle()
+				completeCandidatePhysicalOwner()
 			}
 		)
+		val physicalOperation = registerOperation(
+			cancelPhysical = ownership::cancel,
+			cancellationCompleted = { ownership.isTerminal },
+			onCancelled = { onCaptured(null) }
+		) ?: run {
+			ownership.cancel()
+			onCaptured(null)
+			return ownership
+		}
+		fun deliver(result: ReaderPageTurnLiveCaptureResult?) {
+			if (!physicalOperation.runCompletion { onCaptured(result) }) {
+				result?.captured?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+			}
+		}
 		var startRunnable: Runnable? = null
 		var presentedFrameRequestId: Long? = null
+		var presentedFrameStage: ReaderPageTrackedBitmapStage? = null
 		var presentationAuthorityRefreshes = 0
 
 		fun clearPresentedFrameRequest() {
 			startRunnable?.let { callback -> runCatching { mainHandler.removeCallbacks(callback) } }
 			startRunnable = null
+			val stage = presentedFrameStage
+			presentedFrameStage = null
 			presentedFrameRequestId?.let { requestId ->
 				runCatching { rendererSurface.cancelPresentedFrameRequest(requestId) }
 			}
 			presentedFrameRequestId = null
+			stage?.run { }
 		}
 
 		fun reject() {
 			val completion = ownership.finish(accepted = false) ?: return
 			clearPresentedFrameRequest()
 			check(completion.candidate == null)
-			onCaptured(null)
+			deliver(null)
 		}
 
 		lateinit var start: Runnable
 		start = Runnable start@{
-			startRunnable = null
 			if (
 				!ownership.isOpen ||
 				expectedBitmapWidth <= 0 ||
@@ -543,11 +896,20 @@ internal class ReaderPageTurnBitmapSource(
 					reject()
 					return@initial
 				}
+				val geometryStage = registerStage(
+					kind = ReaderTransitionResourceKind.CallbackRegistration,
+					state = ReaderLegacyResourceState.Registered,
+					onCancelled = ::reject
+				) ?: run {
+					reject()
+					return@initial
+				}
 				try {
 					webView.evaluateJavascript(
 						"JSON.stringify(window.NavicReaderBridge?.pageTurnCaptureGeometry?.() ?? null)"
-					) geometry@{ encodedGeometry ->
-					val geometry = parseGeometry(encodedGeometry)
+					) { encodedGeometry ->
+						geometryStage.run geometry@{
+						val geometry = parseGeometry(encodedGeometry)
 					if (!requestCurrent() || geometry == null) {
 						reject()
 						return@geometry
@@ -601,6 +963,18 @@ internal class ReaderPageTurnBitmapSource(
 						reject()
 						return@geometry
 					}
+					val candidateOwner = physicalOwnership.admit(
+						ReaderExactPhysicalOwnerDescriptor(
+							kind = ReaderTransitionResourceKind.Raster,
+							state = ReaderLegacyResourceState.Prepared
+						),
+						cancelPhysical = physicalOperation::cancel
+					) ?: run {
+						reject()
+						return@geometry
+					}
+					check(candidatePhysicalOwner == null)
+					candidatePhysicalOwner = candidateOwner
 					val bitmap = runCatching {
 						Bitmap.createBitmap(
 							expectedBitmapWidth,
@@ -609,6 +983,7 @@ internal class ReaderPageTurnBitmapSource(
 						)
 					}.getOrNull()
 					if (bitmap == null) {
+						completeCandidatePhysicalOwner()
 						reject()
 						return@geometry
 					}
@@ -620,6 +995,7 @@ internal class ReaderPageTurnBitmapSource(
 					)
 					if (!ownership.retain(candidate)) {
 						bitmap.takeUnless { it.isRecycled }?.recycle()
+						completeCandidatePhysicalOwner()
 						return@geometry
 					}
 
@@ -630,9 +1006,29 @@ internal class ReaderPageTurnBitmapSource(
 							reject()
 							return
 						}
+						val pixelCopyOwners = physicalOwnership.admit(
+							listOf(
+								ReaderExactPhysicalOwnerDescriptor(
+									kind = ReaderTransitionResourceKind.Raster,
+									state = ReaderLegacyResourceState.Running
+								),
+								ReaderExactPhysicalOwnerDescriptor(
+									kind = ReaderTransitionResourceKind.CallbackRegistration,
+									origin = ReaderLegacyResourceOrigin.Pending,
+									state = ReaderLegacyResourceState.Registered
+								)
+							),
+							cancelPhysical = physicalOperation::cancel
+						) ?: run {
+							reject()
+							return
+						}
 						pixelCopyStarted = true
 						clearPresentedFrameRequest()
-						if (!ownership.beginExternalWrite()) return
+						if (!ownership.beginExternalWrite()) {
+							physicalOwnership.complete(pixelCopyOwners)
+							return
+						}
 						try {
 							PixelCopy.request(
 								rendererSurface.holder.surface,
@@ -644,7 +1040,8 @@ internal class ReaderPageTurnBitmapSource(
 								),
 								bitmap,
 								{ copyResult ->
-									val copyAccepted = try {
+									try {
+										val copyAccepted = try {
 										copyResult == PixelCopy.SUCCESS &&
 											environmentCurrent() &&
 											ownership.externalWriteIsCurrent()
@@ -678,7 +1075,10 @@ internal class ReaderPageTurnBitmapSource(
 										bitmap.setPremultiplied(true)
 										true
 									}.getOrDefault(false)
-									if (!ownership.endExternalWrite()) return@request
+									if (!ownership.endExternalWrite()) {
+										deliver(null)
+										return@request
+									}
 									if (!bitmapAccepted || !environmentCurrent()) {
 										reject()
 										return@request
@@ -711,12 +1111,13 @@ internal class ReaderPageTurnBitmapSource(
 												foregroundSuccess = true
 											)
 										val completion = ownership.finish(accepted) ?: return@final
+										completeCandidatePhysicalOwner()
 										clearPresentedFrameRequest()
 										val captured = completion.candidate
 										if (captured == null || finalReceipt == null) {
-											onCaptured(null)
+											deliver(null)
 										} else {
-											onCaptured(
+											deliver(
 												ReaderPageTurnLiveCaptureResult(
 													captured = captured.copy(
 														elapsedMs = SystemClock.uptimeMillis() - startedAt
@@ -727,22 +1128,45 @@ internal class ReaderPageTurnBitmapSource(
 											)
 										}
 									}
-								},
-								mainHandler
+								} finally {
+									physicalOwnership.complete(pixelCopyOwners)
+								}
+							},
+							mainHandler
 							)
 						} catch (_: Throwable) {
-							if (ownership.endExternalWrite()) reject()
+							val stillCurrent = ownership.endExternalWrite()
+							physicalOwnership.complete(pixelCopyOwners)
+							if (stillCurrent) reject() else deliver(null)
 						}
 					}
 
+					val frameStage = registerStage(
+						kind = ReaderTransitionResourceKind.CallbackRegistration,
+						state = ReaderLegacyResourceState.Registered,
+						onCancelled = ::reject,
+						cancelExternal = {
+							presentedFrameRequestId?.let { requestId ->
+								rendererSurface.cancelPresentedFrameRequest(requestId)
+							}
+							presentedFrameRequestId = null
+						}
+					) ?: run {
+						reject()
+						return@geometry
+					}
+					presentedFrameStage = frameStage
 					val requestId = runCatching {
 						rendererSurface.requestNextPresentedFrame {
-							presentedFrameRequestId = null
-							if (!environmentCurrent()) {
-								reject()
-								return@requestNextPresentedFrame
+							frameStage.run presented@{
+								presentedFrameStage = null
+								presentedFrameRequestId = null
+								if (!environmentCurrent()) {
+									reject()
+									return@presented
+								}
+								requestPixelCopy()
 							}
-							requestPixelCopy()
 						}
 					}.getOrNull()
 					if (
@@ -753,21 +1177,43 @@ internal class ReaderPageTurnBitmapSource(
 						return@geometry
 					}
 					presentedFrameRequestId = requestId
-				}
+						}
+					}
 				} catch (_: Throwable) {
 					reject()
 				}
 			}
 		}
-		startRunnable = start
-		if (Looper.myLooper() == Looper.getMainLooper()) {
-			start.run()
-		} else if (!mainHandler.post(start)) {
+		val startPending = AtomicBoolean(true)
+		lateinit var postedStart: Runnable
+		val handlerStage = registerStage(
+			kind = ReaderTransitionResourceKind.CallbackRegistration,
+			state = ReaderLegacyResourceState.Registered,
+			onCancelled = ::reject,
+			cancelExternal = { mainHandler.removeCallbacks(postedStart) }
+		) ?: run {
 			reject()
+			return ReaderPageRelocationContentValidationHandle(physicalOperation::cancel)
+		}
+		postedStart = Runnable {
+			startPending.set(false)
+			startRunnable = null
+			handlerStage.run { start.run() }
+		}
+		startRunnable = postedStart
+		if (Looper.myLooper() == Looper.getMainLooper()) {
+			postedStart.run()
+		} else if (!mainHandler.post(postedStart)) {
+			handlerStage.run { reject() }
 		}
 		return ReaderPageRelocationContentValidationHandle {
-			val cancelled = ownership.cancel()
-			if (cancelled) {
+			val queuedStart = startPending.getAndSet(false)
+			val cancelled = try {
+				physicalOperation.cancel()
+			} finally {
+				handlerStage.cancel()
+			}
+			if (cancelled && !queuedStart) {
 				if (Looper.myLooper() == Looper.getMainLooper()) clearPresentedFrameRequest()
 				else mainHandler.post { clearPresentedFrameRequest() }
 			}
@@ -881,6 +1327,14 @@ internal class ReaderPageTurnBitmapSource(
 			onReceipt(null)
 			return
 		}
+		val receiptStage = registerStage(
+			kind = ReaderTransitionResourceKind.CallbackRegistration,
+			state = ReaderLegacyResourceState.Registered,
+			onCancelled = { onReceipt(null) }
+		) ?: run {
+			onReceipt(null)
+			return
+		}
 		val getter = when (target) {
 			is ReaderPageTurnPresentationTarget.Preview ->
 				"pageTurnPreviewPresentationReceipt"
@@ -891,10 +1345,12 @@ internal class ReaderPageTurnBitmapSource(
 			webView.evaluateJavascript(
 				"JSON.stringify(window.NavicReaderBridge?.$getter?.() ?? null)"
 			) { encodedReceipt ->
-				onReceipt(readerPageTurnPresentationReceipt(encodedReceipt))
+				receiptStage.run {
+					onReceipt(readerPageTurnPresentationReceipt(encodedReceipt))
+				}
 			}
 		} catch (_: Throwable) {
-			onReceipt(null)
+			receiptStage.run { onReceipt(null) }
 		}
 	}
 
@@ -916,31 +1372,45 @@ internal class ReaderPageTurnBitmapSource(
 			return
 		}
 		val startedAt = SystemClock.uptimeMillis()
-		webView.evaluateJavascript(
-			"JSON.stringify(window.NavicReaderBridge?.pageTurnCaptureGeometry?.() ?? null)"
-		) { encodedGeometry ->
-			if (!runCatching(isStillCurrent).getOrDefault(false)) {
-				onCaptured(null)
-				return@evaluateJavascript
+		val javascriptStage = registerStage(
+			kind = ReaderTransitionResourceKind.CallbackRegistration,
+			state = ReaderLegacyResourceState.Registered,
+			onCancelled = { onCaptured(null) }
+		) ?: run {
+			onCaptured(null)
+			return
+		}
+		try {
+			webView.evaluateJavascript(
+				"JSON.stringify(window.NavicReaderBridge?.pageTurnCaptureGeometry?.() ?? null)"
+			) { encodedGeometry ->
+				javascriptStage.run {
+					if (!runCatching(isStillCurrent).getOrDefault(false)) {
+						onCaptured(null)
+						return@run
+					}
+					val geometry = parseGeometry(encodedGeometry)
+					if (geometry == null) {
+						Logger.i(
+							ReaderPageTurnBitmapSourceTag,
+							"Page-turn capture unavailable reason=geometry-unavailable"
+						)
+						onCaptured(null)
+						return@run
+					}
+					captureResolvedGeometry(
+						webView = webView,
+						geometry = geometry,
+						startedAt = startedAt,
+						onCaptured = onCaptured,
+						allowStableLowContrast = allowStableLowContrast,
+						isStillCurrent = isStillCurrent,
+						resolveRect = resolveRect
+					)
+				}
 			}
-			val geometry = parseGeometry(encodedGeometry)
-			if (geometry == null) {
-				Logger.i(
-					ReaderPageTurnBitmapSourceTag,
-					"Page-turn capture unavailable reason=geometry-unavailable"
-				)
-				onCaptured(null)
-				return@evaluateJavascript
-			}
-			captureResolvedGeometry(
-				webView = webView,
-				geometry = geometry,
-				startedAt = startedAt,
-				onCaptured = onCaptured,
-				allowStableLowContrast = allowStableLowContrast,
-				isStillCurrent = isStillCurrent,
-				resolveRect = resolveRect
-			)
+		} catch (_: Throwable) {
+			javascriptStage.run { onCaptured(null) }
 		}
 	}
 
@@ -984,32 +1454,56 @@ internal class ReaderPageTurnBitmapSource(
 			return
 		}
 		val requestId = ++visualStateRequestId
-		webView.postVisualStateCallback(requestId, object : WebView.VisualStateCallback() {
-			override fun onComplete(requestId: Long) {
-				if (
-					!webView.isAttachedToWindow ||
-					!runCatching(isStillCurrent).getOrDefault(false)
-				) {
-					onCaptured(null)
-					return
-				}
-				webView.postOnAnimation {
-					if (!runCatching(isStillCurrent).getOrDefault(false)) {
-						onCaptured(null)
-						return@postOnAnimation
+		val visualStateStage = registerStage(
+			kind = ReaderTransitionResourceKind.CallbackRegistration,
+			state = ReaderLegacyResourceState.Registered,
+			onCancelled = { onCaptured(null) }
+		) ?: run {
+			onCaptured(null)
+			return
+		}
+		try {
+			webView.postVisualStateCallback(requestId, object : WebView.VisualStateCallback() {
+				override fun onComplete(requestId: Long) {
+					visualStateStage.run visual@{
+						if (
+							!webView.isAttachedToWindow ||
+							!runCatching(isStillCurrent).getOrDefault(false)
+						) {
+							onCaptured(null)
+							return@visual
+						}
+						val animationStage = registerStage(
+							kind = ReaderTransitionResourceKind.CallbackRegistration,
+							state = ReaderLegacyResourceState.Registered,
+							onCancelled = { onCaptured(null) }
+						) ?: run {
+							onCaptured(null)
+							return@visual
+						}
+						webView.postOnAnimation {
+							animationStage.run animation@{
+								if (!runCatching(isStillCurrent).getOrDefault(false)) {
+									onCaptured(null)
+									return@animation
+								}
+								captureVisualState(
+									webView = webView,
+									geometry = geometry,
+									startedAt = startedAt,
+									onCaptured = onCaptured,
+									resolveRect = resolveRect,
+									allowStableLowContrast = allowStableLowContrast,
+									isStillCurrent = isStillCurrent
+								)
+							}
+						}
 					}
-					captureVisualState(
-						webView = webView,
-						geometry = geometry,
-						startedAt = startedAt,
-						onCaptured = onCaptured,
-						resolveRect = resolveRect,
-						allowStableLowContrast = allowStableLowContrast,
-						isStillCurrent = isStillCurrent
-					)
 				}
-			}
-		})
+			})
+		} catch (_: Throwable) {
+			visualStateStage.run { onCaptured(null) }
+		}
 	}
 
 	private fun captureVisualState(
@@ -1037,6 +1531,14 @@ internal class ReaderPageTurnBitmapSource(
 			return
 		}
 		val sourceRect = Rect(pixelRect.left, pixelRect.top, pixelRect.right, pixelRect.bottom)
+		val drawStage = registerStage(
+			kind = ReaderTransitionResourceKind.Raster,
+			state = ReaderLegacyResourceState.Running,
+			onCancelled = { onCaptured(null) }
+		) ?: run {
+			onCaptured(null)
+			return
+		}
 		val bitmap = runCatching {
 			Bitmap.createBitmap(
 				readerPageTurnAnimationBitmapDimension(pixelRect.width, bitmapQuality),
@@ -1044,19 +1546,26 @@ internal class ReaderPageTurnBitmapSource(
 				Bitmap.Config.ARGB_8888
 			)
 		}.getOrElse { error ->
+			drawStage.run { }
 			Logger.w(ReaderPageTurnBitmapSourceTag, "Page-turn bitmap allocation failed", error)
 			onCaptured(null)
 			return
 		}
 		val backgroundColor = readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb)
-		bitmap.eraseColor(backgroundColor)
-		val drawn = drawWebViewIntoBitmap(
-			webView,
-			location,
-			sourceRect,
-			bitmap,
-			backgroundColor
-		)
+		var drawn = false
+		if (!drawStage.run {
+				bitmap.eraseColor(backgroundColor)
+				drawn = drawWebViewIntoBitmap(
+					webView,
+					location,
+					sourceRect,
+					bitmap,
+					backgroundColor
+				)
+			}) {
+			bitmap.recycle()
+			return
+		}
 		val foreground = if (drawn) bitmap.analyzeRenderableForeground() else null
 		val rejectedSignature = foreground?.settlementSignature(allowStableLowContrast)
 		val settledRejected = previousRejectedSignature != null &&
@@ -1090,21 +1599,31 @@ internal class ReaderPageTurnBitmapSource(
 					"distant=${foreground.distantSampleCount} " +
 					"required=${foreground.requiredDistantSampleCount}"
 			)
+			val retryAnimationStage = registerStage(
+				kind = ReaderTransitionResourceKind.CallbackRegistration,
+				state = ReaderLegacyResourceState.Registered,
+				onCancelled = { onCaptured(null) }
+			) ?: run {
+				onCaptured(null)
+				return
+			}
 			webView.postOnAnimation {
-				if (!runCatching(isStillCurrent).getOrDefault(false)) {
-					onCaptured(null)
-					return@postOnAnimation
+				retryAnimationStage.run retry@{
+					if (!runCatching(isStillCurrent).getOrDefault(false)) {
+						onCaptured(null)
+						return@retry
+					}
+					captureVisualState(
+						webView = webView,
+						geometry = geometry,
+						startedAt = startedAt,
+						onCaptured = onCaptured,
+						resolveRect = resolveRect,
+						allowStableLowContrast = allowStableLowContrast,
+						isStillCurrent = isStillCurrent,
+						previousRejectedSignature = rejectedSignature
+					)
 				}
-				captureVisualState(
-					webView = webView,
-					geometry = geometry,
-					startedAt = startedAt,
-					onCaptured = onCaptured,
-					resolveRect = resolveRect,
-					allowStableLowContrast = allowStableLowContrast,
-					isStillCurrent = isStillCurrent,
-					previousRejectedSignature = rejectedSignature
-				)
 			}
 			return
 		}

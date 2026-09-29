@@ -63,22 +63,68 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 	private data class Entry<T : Any>(
 		val entryToken: ReaderLegacySourceLocalOpaqueToken,
 		val valueToken: ReaderLegacySourceLocalOpaqueToken,
+		val completionToken: ReaderLegacySourceLocalOpaqueToken,
 		val value: T,
 		val callbacks: MutableList<OwnedCallback>,
 		var producerState: ProducerState = ProducerState.Queued,
 		var stale: Boolean = false,
+		var invalidationDispatching: Boolean = false,
 		var activationDrainTokens: List<ReaderLegacySourceLocalOpaqueToken>? = null
 	) {
 		fun ownershipTokens(): List<ReaderLegacySourceLocalOpaqueToken> =
 			activationDrainTokens
-				?: (listOf(entryToken, valueToken) + callbacks.map(OwnedCallback::token))
+				?: (
+					listOf(entryToken, valueToken, completionToken) +
+						callbacks.map(OwnedCallback::token)
+				)
+
+		fun ownershipKind(
+			token: ReaderLegacySourceLocalOpaqueToken
+		): ReaderTransitionResourceKind = if (
+			token == entryToken || token == valueToken || token == completionToken
+		) {
+			ReaderTransitionResourceKind.Raster
+		} else {
+			ReaderTransitionResourceKind.CallbackRegistration
+		}
+
+		fun ownershipState(
+			token: ReaderLegacySourceLocalOpaqueToken
+		): ReaderLegacyResourceState = when {
+			token == completionToken -> ReaderLegacyResourceState.Reserved
+			token == entryToken || token == valueToken -> when (producerState) {
+				ProducerState.Queued -> ReaderLegacyResourceState.Reserved
+				ProducerState.Active -> ReaderLegacyResourceState.Running
+			}
+			else -> ReaderLegacyResourceState.Registered
+		}
 	}
+
+	private data class DispatchingOwnership(
+		val kind: ReaderTransitionResourceKind,
+		val state: ReaderLegacyResourceState
+	)
+
+	private class FrozenRejectedCleanupOwnership(
+		val callbackToken: ReaderLegacySourceLocalOpaqueToken,
+		val valueToken: ReaderLegacySourceLocalOpaqueToken
+	) {
+		val remainingTokens = linkedSetOf(callbackToken, valueToken)
+		val tokens: List<ReaderLegacySourceLocalOpaqueToken>
+			get() = listOf(callbackToken, valueToken)
+	}
+
+	private data class CapacityDispatch(
+		val token: ReaderLegacySourceLocalOpaqueToken,
+		val listener: () -> Unit
+	)
 
 	private data class Completion<T : Any>(
 		val value: T,
 		val callbacks: List<(Boolean) -> Unit>,
 		val accepted: Boolean,
 		val persisted: Boolean,
+		val dispatchingTokens: List<ReaderLegacySourceLocalOpaqueToken> = emptyList(),
 		val drainConfirmations: List<() -> Unit> = emptyList()
 	)
 
@@ -92,6 +138,16 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
 	private val pendingDrainConfirmations =
 		linkedMapOf<ReaderLegacySourceLocalOpaqueToken, () -> Unit>()
+	private val releasedFrozenOwnership =
+		linkedMapOf<ReaderLegacySourceLocalOpaqueToken, ReaderTransitionResourceKind>()
+	private val dispatchingOwnership =
+		linkedMapOf<ReaderLegacySourceLocalOpaqueToken, DispatchingOwnership>()
+	private val dispatchingCallbackOwnership =
+		linkedSetOf<ReaderLegacySourceLocalOpaqueToken>()
+	private val dispatchingCapacityListenerTokens =
+		linkedSetOf<ReaderLegacySourceLocalOpaqueToken>()
+	private val frozenRejectedCleanupOwnership =
+		mutableListOf<FrozenRejectedCleanupOwnership>()
 
 	init {
 		require(currentEpochEntryLimit > 0)
@@ -100,7 +156,7 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 	}
 
 	fun setCapacityAvailableListener(listener: () -> Unit) {
-		val notify = synchronized(this) {
+		val dispatch = synchronized(this) {
 			check(frozenDomain == null) {
 				"Publication capacity listener registration is frozen"
 			}
@@ -109,19 +165,32 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 					capacityAvailableListener === listener
 			) { "Publication capacity listener is already owned" }
 			capacityAvailableListener = listener
-			if (capacityAvailableListenerToken == null) {
-				capacityAvailableListenerToken = nextOwnershipTokenLocked()
-			}
-			capacityRetryPending.also { pending ->
-				if (pending) capacityRetryPending = false
+			val token = capacityAvailableListenerToken
+				?: nextOwnershipTokenLocked().also { capacityAvailableListenerToken = it }
+			if (capacityRetryPending) {
+				capacityRetryPending = false
+				CapacityDispatch(token, listener)
+			} else {
+				null
 			}
 		}
-		if (notify) dispatchCapacityAvailable(listener)
+		dispatch?.let(::dispatchCapacityAvailable)
 	}
 
 	fun clearCapacityAvailableListener(listener: () -> Unit) {
 		synchronized(this) {
 			if (capacityAvailableListener === listener) {
+				capacityAvailableListenerToken?.let { token ->
+					if (token in dispatchingCapacityListenerTokens) {
+						dispatchingOwnership[token] = DispatchingOwnership(
+							kind = ReaderTransitionResourceKind.CallbackRegistration,
+							state = ReaderLegacyResourceState.Registered
+						)
+					} else if (frozenDomain != null) {
+						releasedFrozenOwnership[token] =
+							ReaderTransitionResourceKind.CallbackRegistration
+					}
+				}
 				capacityAvailableListener = null
 				capacityAvailableListenerToken = null
 				capacityRetryPending = false
@@ -154,6 +223,7 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 	): ReaderPageRasterPublicationRegistration {
 		var rejectedCallback: ((Boolean) -> Unit)? = null
 		var detachedValue: T? = null
+		var cleanupTokens = emptyList<ReaderLegacySourceLocalOpaqueToken>()
 		val registration = synchronized(this) {
 			val request = ReaderPageRasterPublicationRequest(
 				digest = digest,
@@ -164,10 +234,50 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 			val globalCallbackCapacityReached = callbackCountLocked() >= callbackLimit
 			val entryCallbackCapacityReached =
 				(existing?.callbacks?.size ?: 0) >= MaximumCallbacksPerEntry
+			fun ownRejectedCleanup() {
+				val callbackToken = nextOwnershipTokenLocked()
+				val valueToken = nextOwnershipTokenLocked()
+				dispatchingOwnership[callbackToken] = DispatchingOwnership(
+					kind = ReaderTransitionResourceKind.CallbackRegistration,
+					state = ReaderLegacyResourceState.Registered
+				)
+				dispatchingOwnership[valueToken] = DispatchingOwnership(
+					kind = ReaderTransitionResourceKind.Raster,
+					state = ReaderLegacyResourceState.Running
+				)
+				cleanupTokens = listOf(callbackToken, valueToken)
+			}
+			fun ownFrozenRejectedCleanup() {
+				check(frozenRejectedCleanupOwnership.size < callbackLimit) {
+					"Frozen publication cleanup ownership capacity exhausted"
+				}
+				val ownership = FrozenRejectedCleanupOwnership(
+					callbackToken = nextOwnershipTokenLocked(),
+					valueToken = nextOwnershipTokenLocked()
+				).also(frozenRejectedCleanupOwnership::add)
+				dispatchingOwnership[ownership.callbackToken] = DispatchingOwnership(
+					kind = ReaderTransitionResourceKind.CallbackRegistration,
+					state = ReaderLegacyResourceState.Registered
+				)
+				dispatchingOwnership[ownership.valueToken] = DispatchingOwnership(
+					kind = ReaderTransitionResourceKind.Raster,
+					state = ReaderLegacyResourceState.Running
+				)
+				cleanupTokens = ownership.tokens
+			}
+			fun ownDetachedValueCleanup() {
+				val valueToken = nextOwnershipTokenLocked()
+				dispatchingOwnership[valueToken] = DispatchingOwnership(
+					kind = ReaderTransitionResourceKind.Raster,
+					state = ReaderLegacyResourceState.Running
+				)
+				cleanupTokens = listOf(valueToken)
+			}
 			val result = when {
 				frozenDomain != null -> {
 					rejectedCallback = callback
 					detachedValue = value
+					ownFrozenRejectedCleanup()
 					ReaderPageRasterPublicationRegistration.Rejected(
 						ReaderPageRasterPublicationRejection.ActivationFrozen
 					)
@@ -177,6 +287,7 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 					capacityRetryPending = true
 					rejectedCallback = callback
 					detachedValue = value
+					ownRejectedCleanup()
 					ReaderPageRasterPublicationRegistration.Rejected(
 						ReaderPageRasterPublicationRejection.CallbackCapacity
 					)
@@ -187,12 +298,14 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 						callback = callback
 					)
 					detachedValue = value
+					ownDetachedValueCleanup()
 					ReaderPageRasterPublicationRegistration.Coalesced(request)
 				}
 				currentEpochEntryCountLocked() >= currentEpochEntryLimit -> {
 					capacityRetryPending = true
 					rejectedCallback = callback
 					detachedValue = value
+					ownRejectedCleanup()
 					ReaderPageRasterPublicationRegistration.Rejected(
 						ReaderPageRasterPublicationRejection.EntryCapacity
 					)
@@ -201,6 +314,7 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 					capacityRetryPending = true
 					rejectedCallback = callback
 					detachedValue = value
+					ownRejectedCleanup()
 					ReaderPageRasterPublicationRegistration.Rejected(
 						ReaderPageRasterPublicationRejection.CallbackCapacity
 					)
@@ -209,6 +323,7 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 					entries[request] = Entry(
 						entryToken = nextOwnershipTokenLocked(),
 						valueToken = nextOwnershipTokenLocked(),
+						completionToken = nextOwnershipTokenLocked(),
 						value = value,
 						callbacks = mutableListOf(
 							OwnedCallback(nextOwnershipTokenLocked(), callback)
@@ -226,6 +341,9 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 			callbacks = listOfNotNull(rejectedCallback),
 			callbackResult = false,
 			values = listOfNotNull(detachedValue)
+		)
+		dispatchConfirmationsBestEffort(
+			finishDispatchingOwnership(cleanupTokens)
 		)
 		return registration
 	}
@@ -297,39 +415,46 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> = synchronized(this) {
 		val domain = frozenDomain ?: return@synchronized emptyList()
 		buildList {
-			entries.values.forEach { entry ->
-				fun addRow(
-					token: ReaderLegacySourceLocalOpaqueToken,
-					kind: ReaderTransitionResourceKind,
-					state: ReaderLegacyResourceState
-				) {
-					add(
-						ReaderFrozenLegacyResource(
-							freezeToken = domain.freezeToken,
-							physicalIdentity = ReaderLegacyPhysicalIdentity(
-								domain = domain,
-								source = ReaderLegacyInventorySource.RasterPublication,
-								sourceLocalToken = token
-							),
-							kind = kind,
-							binding = null,
-							visibleOwner = null,
-							origin = ReaderLegacyResourceOrigin.Owned,
-							state = if (token in pendingDrainConfirmations) {
-								ReaderLegacyResourceState.ReleaseRequested
-							} else {
-								state
-							},
-							mayBeCommittedPredecessor = false
-						)
+			fun addRow(
+				token: ReaderLegacySourceLocalOpaqueToken,
+				kind: ReaderTransitionResourceKind,
+				state: ReaderLegacyResourceState
+			) {
+				add(
+					ReaderFrozenLegacyResource(
+						freezeToken = domain.freezeToken,
+						physicalIdentity = ReaderLegacyPhysicalIdentity(
+							domain = domain,
+							source = ReaderLegacyInventorySource.RasterPublication,
+							sourceLocalToken = token
+						),
+						kind = kind,
+						binding = null,
+						visibleOwner = null,
+						origin = ReaderLegacyResourceOrigin.Owned,
+						state = if (token in pendingDrainConfirmations) {
+							ReaderLegacyResourceState.ReleaseRequested
+						} else {
+							state
+						},
+						mayBeCommittedPredecessor = false
 					)
-				}
+				)
+			}
+			val attachedOwnershipTokens = mutableSetOf<ReaderLegacySourceLocalOpaqueToken>()
+			entries.values.forEach { entry ->
 				val producerState = when (entry.producerState) {
 					ProducerState.Queued -> ReaderLegacyResourceState.Reserved
 					ProducerState.Active -> ReaderLegacyResourceState.Running
 				}
+				attachedOwnershipTokens += entry.ownershipTokens()
 				addRow(entry.entryToken, ReaderTransitionResourceKind.Raster, producerState)
 				addRow(entry.valueToken, ReaderTransitionResourceKind.Raster, producerState)
+				addRow(
+					entry.completionToken,
+					ReaderTransitionResourceKind.Raster,
+					ReaderLegacyResourceState.Reserved
+				)
 				entry.callbacks.forEach { owned ->
 					addRow(
 						owned.token,
@@ -337,6 +462,14 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 						ReaderLegacyResourceState.Registered
 					)
 				}
+			}
+			dispatchingOwnership
+				.filterKeys { token -> token !in attachedOwnershipTokens }
+				.forEach { (token, ownership) ->
+					addRow(token, ownership.kind, ownership.state)
+				}
+			releasedFrozenOwnership.forEach { (token, kind) ->
+				addRow(token, kind, ReaderLegacyResourceState.Released)
 			}
 			capacityAvailableListenerToken?.let { token ->
 				add(
@@ -365,6 +498,7 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 	): ReaderPortCommandResult {
 		var completion: Completion<T>? = null
 		var callbacksToReject = emptyList<(Boolean) -> Unit>()
+		var rejectedCallbackTokens = emptyList<ReaderLegacySourceLocalOpaqueToken>()
 		var directConfirmation: (() -> Unit)? = null
 		val accepted = synchronized(this) {
 			val domain = frozenDomain
@@ -377,34 +511,71 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 			}
 			val token = physicalIdentity.sourceLocalToken
 			if (token in pendingDrainConfirmations) return@synchronized false
+			if (releasedFrozenOwnership.remove(token) != null) {
+				retireFrozenRejectedCleanupTokenLocked(token)
+				directConfirmation = { onConfirmed(physicalIdentity) }
+				return@synchronized true
+			}
 			if (capacityAvailableListenerToken == token) {
 				capacityAvailableListener = null
 				capacityAvailableListenerToken = null
 				capacityRetryPending = false
-				directConfirmation = { onConfirmed(physicalIdentity) }
+				if (token in dispatchingCapacityListenerTokens) {
+					dispatchingOwnership[token] = DispatchingOwnership(
+						kind = ReaderTransitionResourceKind.CallbackRegistration,
+						state = ReaderLegacyResourceState.Registered
+					)
+					pendingDrainConfirmations[token] = {
+						onConfirmed(physicalIdentity)
+					}
+				} else {
+					directConfirmation = { onConfirmed(physicalIdentity) }
+				}
 				return@synchronized true
 			}
 			val ownedEntry = entries.entries.firstOrNull { (_, entry) ->
 				token in entry.ownershipTokens()
-			} ?: return@synchronized false
+			}
+			if (ownedEntry == null) {
+				if (token !in dispatchingOwnership) return@synchronized false
+				pendingDrainConfirmations[token] = { onConfirmed(physicalIdentity) }
+				return@synchronized true
+			}
 			pendingDrainConfirmations[token] = { onConfirmed(physicalIdentity) }
 			val ownershipTokens = ownedEntry.value.ownershipTokens()
 			if (ownershipTokens.all(pendingDrainConfirmations::containsKey)) {
 				val entry = ownedEntry.value
-				entry.activationDrainTokens = ownershipTokens
+				val rejectedCallbacks = entry.callbacks.filterNot { owned ->
+					owned.token in dispatchingCallbackOwnership
+				}
+				rejectedCallbackTokens = rejectedCallbacks.map(OwnedCallback::token)
+				callbacksToReject = rejectedCallbacks.map(OwnedCallback::callback)
+				rejectedCallbackTokens.forEach { callbackToken ->
+					dispatchingOwnership[callbackToken] = DispatchingOwnership(
+						kind = ReaderTransitionResourceKind.CallbackRegistration,
+						state = ReaderLegacyResourceState.Registered
+					)
+				}
+				entry.activationDrainTokens = ownershipTokens.filterNot {
+					it in rejectedCallbackTokens
+				}
+				entry.callbacks.removeAll { owned ->
+					owned.token in rejectedCallbackTokens
+				}
 				entry.stale = true
-				callbacksToReject = entry.callbacks.map(OwnedCallback::callback)
-				entry.callbacks.clear()
-				if (entry.producerState == ProducerState.Queued) {
+				if (
+					entry.producerState == ProducerState.Queued &&
+					!entry.invalidationDispatching
+				) {
 					entries.remove(ownedEntry.key)
 					completion = Completion(
 						value = entry.value,
 						callbacks = emptyList(),
 						accepted = false,
 						persisted = false,
-						drainConfirmations = ownershipTokens.mapNotNull(
-							pendingDrainConfirmations::remove
-						)
+						drainConfirmations = entry.ownershipTokens()
+							.filterNot(dispatchingCallbackOwnership::contains)
+							.mapNotNull(pendingDrainConfirmations::remove)
 					)
 					onOwnershipMutated()
 				}
@@ -417,11 +588,14 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 			)
 		}
 		dispatchBestEffort(callbacksToReject, false, emptyList())
+		dispatchConfirmationsBestEffort(
+			finishDispatchingOwnership(rejectedCallbackTokens)
+		)
 		completion?.let { drained ->
 			dispatchBestEffort(emptyList(), false, listOf(drained.value))
-			drained.drainConfirmations.forEach { confirmation -> confirmation() }
+			dispatchConfirmationsBestEffort(drained.drainConfirmations)
 		}
-		directConfirmation?.invoke()
+		dispatchConfirmationsBestEffort(listOfNotNull(directConfirmation))
 		return ReaderPortCommandResult.Accepted
 	}
 
@@ -433,6 +607,8 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 				ReaderTransitionFailureReason.InvalidLegacyResource
 			)
 		} else {
+			releasedFrozenOwnership.clear()
+			frozenRejectedCleanupOwnership.clear()
 			frozenDomain = null
 			ReaderPortCommandResult.Accepted
 		}
@@ -440,6 +616,18 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 
 	private fun nextOwnershipTokenLocked(): ReaderLegacySourceLocalOpaqueToken =
 		tokenAllocator.allocate()
+
+	private fun retireFrozenRejectedCleanupTokenLocked(
+		token: ReaderLegacySourceLocalOpaqueToken
+	) {
+		val ownership = frozenRejectedCleanupOwnership.firstOrNull { candidate ->
+			token in candidate.remainingTokens
+		} ?: return
+		ownership.remainingTokens.remove(token)
+		if (ownership.remainingTokens.isEmpty()) {
+			frozenRejectedCleanupOwnership.remove(ownership)
+		}
+	}
 
 	fun commitFence(
 		request: ReaderPageRasterPublicationRequest
@@ -474,7 +662,7 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 		request: ReaderPageRasterPublicationRequest,
 		persisted: Boolean
 	): Boolean {
-		var capacityAvailable: (() -> Unit)? = null
+		var capacityAvailable: CapacityDispatch? = null
 		val completion = synchronized(this) {
 			val entry = entries.remove(request) ?: return false
 			check(entry.producerState == ProducerState.Active) {
@@ -482,17 +670,29 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 			}
 			val accepted = !entry.stale && request.epoch == epoch
 			if (capacityRetryPending) {
-				capacityAvailable = capacityAvailableListener
-				if (capacityAvailable != null) capacityRetryPending = false
+				val listener = capacityAvailableListener
+				val listenerToken = capacityAvailableListenerToken
+				if (listener != null && listenerToken != null) {
+					capacityAvailable = CapacityDispatch(listenerToken, listener)
+					capacityRetryPending = false
+				}
+			}
+			val dispatchingTokens = entry.ownershipTokens()
+				.filterNot(dispatchingCallbackOwnership::contains)
+			dispatchingTokens.forEach { token ->
+				dispatchingOwnership[token] = DispatchingOwnership(
+					kind = entry.ownershipKind(token),
+					state = entry.ownershipState(token)
+				)
 			}
 			Completion(
 				value = entry.value,
-				callbacks = entry.callbacks.map(OwnedCallback::callback),
+				callbacks = entry.callbacks
+					.filterNot { owned -> owned.token in dispatchingCallbackOwnership }
+					.map(OwnedCallback::callback),
 				accepted = accepted,
 				persisted = persisted,
-				drainConfirmations = entry.ownershipTokens().mapNotNull(
-					pendingDrainConfirmations::remove
-				)
+				dispatchingTokens = dispatchingTokens
 			).also { onOwnershipMutated() }
 		}
 		dispatchBestEffort(
@@ -500,39 +700,135 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 			callbackResult = completion.persisted && completion.accepted,
 			values = listOf(completion.value)
 		)
-		completion.drainConfirmations.forEach { confirmation -> confirmation() }
+		dispatchConfirmationsBestEffort(
+			completion.drainConfirmations +
+				finishDispatchingOwnership(completion.dispatchingTokens)
+		)
 		capacityAvailable?.let(::dispatchCapacityAvailable)
 		return completion.accepted
 	}
 
 	fun invalidate() {
 		val callbacks = mutableListOf<(Boolean) -> Unit>()
+		val invalidatedCallbacks = mutableListOf<Pair<Entry<T>, OwnedCallback>>()
 		val queuedValues = mutableListOf<T>()
+		val queuedEntries = mutableListOf<
+			Pair<ReaderPageRasterPublicationRequest, Entry<T>>
+		>()
 		synchronized(this) {
 			epoch += 1L
 			capacityRetryPending = false
-			val ownershipChanged = entries.isNotEmpty()
-			val iterator = entries.iterator()
-			while (iterator.hasNext()) {
-				val (_, entry) = iterator.next()
+			entries.forEach { (request, entry) ->
+				if (entry.stale) return@forEach
 				entry.stale = true
-				callbacks += entry.callbacks.map(OwnedCallback::callback)
-				entry.callbacks.clear()
+				entry.callbacks.forEach { owned ->
+					callbacks += owned.callback
+					invalidatedCallbacks += entry to owned
+					dispatchingCallbackOwnership += owned.token
+					dispatchingOwnership[owned.token] = DispatchingOwnership(
+						kind = ReaderTransitionResourceKind.CallbackRegistration,
+						state = ReaderLegacyResourceState.Registered
+					)
+				}
 				if (entry.producerState == ProducerState.Queued) {
+					entry.invalidationDispatching = true
 					queuedValues += entry.value
-					iterator.remove()
+					queuedEntries += request to entry
 				}
 			}
-			if (ownershipChanged) onOwnershipMutated()
 		}
 		dispatchBestEffort(callbacks, false, queuedValues)
+		val confirmations = mutableListOf<() -> Unit>()
+		synchronized(this) {
+			fun completeOwnershipToken(
+				kind: ReaderTransitionResourceKind,
+				token: ReaderLegacySourceLocalOpaqueToken
+			) {
+				val confirmation = pendingDrainConfirmations.remove(token)
+				if (confirmation != null) {
+					confirmations += confirmation
+				} else if (frozenDomain != null) {
+					releasedFrozenOwnership[token] = kind
+				}
+			}
+			queuedEntries.forEach { (request, entry) ->
+				if (entries[request] !== entry) return@forEach
+				entry.invalidationDispatching = false
+				entries.remove(request)
+				entry.ownershipTokens()
+					.filterNot(dispatchingCallbackOwnership::contains)
+					.forEach { token ->
+						completeOwnershipToken(entry.ownershipKind(token), token)
+					}
+			}
+			invalidatedCallbacks.forEach { (entry, owned) ->
+				dispatchingCallbackOwnership.remove(owned.token)
+				dispatchingOwnership.remove(owned.token)
+				entry.activationDrainTokens = entry.activationDrainTokens?.filterNot { token ->
+					token == owned.token
+				}
+				entry.callbacks.removeAll { callback -> callback.token == owned.token }
+				completeOwnershipToken(
+					ReaderTransitionResourceKind.CallbackRegistration,
+					owned.token
+				)
+			}
+			if (queuedEntries.isNotEmpty() || invalidatedCallbacks.isNotEmpty()) {
+				onOwnershipMutated()
+			}
+		}
+		dispatchConfirmationsBestEffort(confirmations)
 	}
 
-	private fun dispatchCapacityAvailable(listener: () -> Unit) {
+	private fun finishDispatchingOwnership(
+		tokens: List<ReaderLegacySourceLocalOpaqueToken>
+	): List<() -> Unit> = synchronized(this) {
+		buildList {
+			tokens.forEach { token ->
+				val ownership = dispatchingOwnership.remove(token) ?: return@forEach
+				val confirmation = pendingDrainConfirmations.remove(token)
+				if (confirmation != null) {
+					retireFrozenRejectedCleanupTokenLocked(token)
+					add(confirmation)
+				} else if (frozenDomain != null) {
+					releasedFrozenOwnership[token] = ownership.kind
+				}
+			}
+		}
+	}
+
+	private fun dispatchConfirmationsBestEffort(confirmations: List<() -> Unit>) {
+		confirmations.forEach { confirmation ->
+			runCatching(confirmation).onFailure(::recordFailure)
+		}
+	}
+
+	private fun dispatchCapacityAvailable(dispatch: CapacityDispatch) {
+		val admitted = synchronized(this) {
+			if (
+				capacityAvailableListenerToken != dispatch.token ||
+				capacityAvailableListener !== dispatch.listener
+			) {
+				false
+			} else {
+				dispatchingCapacityListenerTokens.add(dispatch.token)
+			}
+		}
+		if (!admitted) return
 		try {
-			listener()
+			dispatch.listener()
 		} catch (failure: Throwable) {
 			recordFailure(failure)
+		} finally {
+			val detached = synchronized(this) {
+				dispatchingCapacityListenerTokens.remove(dispatch.token)
+				capacityAvailableListenerToken != dispatch.token
+			}
+			if (detached) {
+				dispatchConfirmationsBestEffort(
+					finishDispatchingOwnership(listOf(dispatch.token))
+				)
+			}
 		}
 	}
 

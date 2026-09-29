@@ -803,7 +803,7 @@ class ReaderPageTurnBundleTest {
 		val thirdReceiptCallback = publication
 			.substringAfter("bitmapSource.confirmLivePresentationReceipt(")
 			.substringAfter(") { currentReceipt ->")
-			.substringBefore("ownership.attachFinalFence(")
+			.substringBefore("finalFence?.let(ownership::attachFinalFence)")
 		assertTrue(thirdReceiptCallback.contains("ownership.publish"))
 		assertTrue(thirdReceiptCallback.contains("onValidated("))
 		assertFalse(thirdReceiptCallback.contains("mainHandler.post"))
@@ -840,9 +840,10 @@ class ReaderPageTurnBundleTest {
 		assertTrue(validator.contains("expectedBitmapHeight = expectedTargetBitmapHeight"))
 		assertTrue(validator.contains("isStillCurrent = ::validationIsCurrent"))
 		assertFalse(validator.contains("isStillCurrent = isStillCurrent"))
-		assertTrue(validator.contains("rasterScope.launch(Dispatchers.Default)"))
-		val worker = validator.substringAfter("rasterScope.launch(Dispatchers.Default)")
+		assertTrue(validator.contains("workerJob = rasterScope.launch("))
+		val worker = validator.substringAfter("workerJob = rasterScope.launch(")
 			.substringBefore("ownership.attachWorker(")
+		assertTrue(worker.contains("context = liveValidationDispatcher"))
 		assertTrue(worker.contains("readerPageLiveCaptureValidationResult("))
 		assertTrue(worker.contains("workerContext.ensureActive()"))
 		val publication = source.substringAfter("private fun postLiveValidationResult(")
@@ -870,7 +871,7 @@ class ReaderPageTurnBundleTest {
 		val validator = source.substringAfter(
 			"fun validateLivePresentation("
 		).substringBefore("fun capturePreparedRasterPage(")
-		val worker = validator.substringAfter("rasterScope.launch(Dispatchers.Default)")
+		val worker = validator.substringAfter("workerJob = rasterScope.launch(")
 			.substringBefore("ownership.attachWorker(")
 		val hydrationClose = source.substringAfter("closeRasterHydrationWorkers = {")
 			.substringBefore("},\n\t\tclosePersistentStore")

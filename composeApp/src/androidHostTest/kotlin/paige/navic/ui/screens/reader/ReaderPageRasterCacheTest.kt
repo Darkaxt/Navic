@@ -6,6 +6,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
@@ -21,6 +22,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import paige.navic.reader.ReaderPageBitmapQuality
+import paige.navic.reader.ReaderTransitionFailureReason
 
 class ReaderPageRasterCacheTest {
 	private val cacheSourceFile =
@@ -1299,6 +1301,124 @@ class ReaderPageRasterCacheTest {
 		assertTrue(metrics.diskBytes <= metrics.diskByteLimit)
 	}
 
+	@Test
+	fun storeAndEncodePinFreezeDrainOnlyAfterTheActualWriteCompletes() {
+		val encodeStarted = CountDownLatch(1)
+		val allowEncode = CountDownLatch(1)
+		val encodeCalls = AtomicInteger()
+		val tokens = ReaderLegacySourceLocalTokenAllocator()
+		val cache = rasterCache<Any>(
+			encode = { _, target ->
+				encodeCalls.incrementAndGet()
+				encodeStarted.countDown()
+				check(allowEncode.await(5, TimeUnit.SECONDS))
+				target.writeBytes(byteArrayOf(1))
+				true
+			},
+			ownershipTokenAllocator = tokens
+		)
+		val store = ReaderPageRasterCacheStore(cache, tokens)
+		val writer = thread(start = true, name = "raster-store-owner") {
+			store.write(ownedKey(1), metadata(), Any())
+		}
+		assertTrue(encodeStarted.await(5, TimeUnit.SECONDS))
+		val domain = ReaderLegacyPhysicalDomain(61L, ReaderLegacyFreezeToken(62L))
+		assertEquals(ReaderPortCommandResult.Accepted, store.freezeForTransitionActivation(domain))
+		assertEquals(ReaderPortCommandResult.Accepted, cache.freezeForTransitionActivation(domain))
+		val rows = store.snapshotFrozenOwnership() + cache.snapshotFrozenOwnership()
+		assertEquals(2, rows.size)
+		assertTrue(rows.all {
+			it.physicalIdentity.source == ReaderLegacyInventorySource.RasterStoreAndCache
+		})
+		assertEquals(rows.size, rows.map { it.physicalIdentity }.toSet().size)
+
+		val rejected = store.write(ownedKey(2), metadata(), Any())
+		assertFalse(rejected.persisted)
+		assertEquals(1, encodeCalls.get())
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		rows.forEach { row ->
+			val storeResult = store.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+			val result = if (storeResult == ReaderPortCommandResult.Accepted) {
+				storeResult
+			} else {
+				cache.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+			}
+			assertEquals(ReaderPortCommandResult.Accepted, result)
+		}
+		assertTrue(confirmations.isEmpty())
+		allowEncode.countDown()
+		writer.join(5_000L)
+		assertFalse(writer.isAlive)
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+		assertEquals(ReaderPortCommandResult.Accepted, store.restoreAfterTransitionActivation(domain))
+		assertEquals(ReaderPortCommandResult.Accepted, cache.restoreAfterTransitionActivation(domain))
+		store.close()
+		cache.close()
+	}
+
+	@Test
+	fun decodedOwnerDrainConfirmsOnlyAfterItsBlockingPhysicalRelease() {
+		val releaseStarted = CountDownLatch(1)
+		val allowRelease = CountDownLatch(1)
+		val tokens = ReaderLegacySourceLocalTokenAllocator()
+		val value = Any()
+		val cache = rasterCache<Any>(
+			release = { released ->
+				if (released === value) {
+					releaseStarted.countDown()
+					check(allowRelease.await(5, TimeUnit.SECONDS))
+				}
+			},
+			ownershipTokenAllocator = tokens
+		)
+		assertTrue(cache.write(ownedKey(1), metadata(), value).persisted)
+		val domain = ReaderLegacyPhysicalDomain(63L, ReaderLegacyFreezeToken(64L))
+		assertEquals(ReaderPortCommandResult.Accepted, cache.freezeForTransitionActivation(domain))
+		val row = cache.snapshotFrozenOwnership().single()
+		assertEquals(ReaderLegacyResourceState.Prepared, row.state)
+		assertEquals(
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource),
+			cache.drainFrozenOwnership(
+				row.physicalIdentity.copy(
+					source = ReaderLegacyInventorySource.RasterLiveValidation
+				)
+			) {}
+		)
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		val drainResult = AtomicReference<ReaderPortCommandResult>()
+		val drainer = thread(start = true, name = "decoded-owner-drain") {
+			drainResult.set(
+				cache.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+			)
+		}
+		assertTrue(releaseStarted.await(5, TimeUnit.SECONDS))
+		assertTrue(confirmations.isEmpty())
+		allowRelease.countDown()
+		drainer.join(5_000L)
+		assertFalse(drainer.isAlive)
+		assertEquals(ReaderPortCommandResult.Accepted, drainResult.get())
+		assertEquals(listOf(row.physicalIdentity), confirmations)
+		assertEquals(ReaderPortCommandResult.Accepted, cache.restoreAfterTransitionActivation(domain))
+		cache.close()
+	}
+
+	@Test
+	fun closedStoreAndCacheFreezeAsConnectedEmptyDuringStartedTeardown() {
+		val tokens = ReaderLegacySourceLocalTokenAllocator()
+		val cache = rasterCache<Any>(ownershipTokenAllocator = tokens)
+		val store = ReaderPageRasterCacheStore(cache, tokens)
+		store.close()
+		cache.close()
+		val domain = ReaderLegacyPhysicalDomain(65L, ReaderLegacyFreezeToken(66L))
+
+		assertEquals(ReaderPortCommandResult.Accepted, store.freezeForTransitionActivation(domain))
+		assertEquals(ReaderPortCommandResult.Accepted, cache.freezeForTransitionActivation(domain))
+		assertTrue(checkNotNull(store.connectedFrozenOwnership()).resources.isEmpty())
+		assertTrue(checkNotNull(cache.connectedFrozenOwnership()).resources.isEmpty())
+		assertEquals(ReaderPortCommandResult.Accepted, store.restoreAfterTransitionActivation(domain))
+		assertEquals(ReaderPortCommandResult.Accepted, cache.restoreAfterTransitionActivation(domain))
+	}
+
 	private fun assertTrue(result: ReaderPageRasterWriteResult) {
 		kotlin.test.assertTrue(result.persisted)
 	}
@@ -1318,7 +1438,9 @@ class ReaderPageRasterCacheTest {
 		},
 		decode: (File) -> T? = { null },
 		release: (T) -> Unit = {},
-		onOwnershipMutated: () -> Unit = {}
+		onOwnershipMutated: () -> Unit = {},
+		ownershipTokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+			ReaderLegacySourceLocalTokenAllocator()
 	): ReaderPageRasterCache<T> {
 		val root = createTempDirectory("navic-reader-page-raster-owners").toFile()
 		return ReaderPageRasterCache(
@@ -1334,7 +1456,8 @@ class ReaderPageRasterCacheTest {
 			maxDiskBytes = maxDiskBytes,
 			maxDecodedEntries = maxDecodedEntries,
 			clock = clock,
-			onOwnershipMutated = onOwnershipMutated
+			onOwnershipMutated = onOwnershipMutated,
+			ownershipTokenAllocator = ownershipTokenAllocator
 		)
 	}
 

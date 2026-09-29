@@ -2,11 +2,13 @@ package paige.navic.ui.screens.reader
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -219,5 +221,130 @@ class ReaderPageRasterHydrationSchedulerTest {
 		)
 		assertTrue(checkNotNull(scheduler.schedule { }).also { runCurrent() }.isCompleted)
 		scheduler.closeAndJoin()
+	}
+
+	@Test
+	fun completedFrozenJobRetainsItsReleasedIdentityUntilExactDrain() = runTest {
+		val scheduler = ReaderPageRasterHydrationScheduler(backgroundScope, 1)
+		val started = CompletableDeferred<Unit>()
+		val release = CompletableDeferred<Unit>()
+		val job = checkNotNull(scheduler.schedule {
+			started.complete(Unit)
+			release.await()
+		})
+		started.await()
+		val domain = ReaderLegacyPhysicalDomain(
+			readerSessionGeneration = 19L,
+			freezeToken = ReaderLegacyFreezeToken(20L)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.freezeForTransitionActivation(domain)
+		)
+		val identity = scheduler.snapshotFrozenOwnership().single().physicalIdentity
+
+		release.complete(Unit)
+		job.join()
+		runCurrent()
+
+		val released = scheduler.snapshotFrozenOwnership().single()
+		assertEquals(identity, released.physicalIdentity)
+		assertEquals(ReaderLegacyResourceState.Released, released.state)
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.drainFrozenOwnership(identity, confirmations::add)
+		)
+		assertEquals(listOf(identity), confirmations)
+		assertTrue(scheduler.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.restoreAfterTransitionActivation(domain)
+		)
+		scheduler.closeAndJoin()
+	}
+
+	@Test
+	fun restorationDiscardsACompletedFrozenJobBeforeTheNextFreeze() = runTest {
+		val scheduler = ReaderPageRasterHydrationScheduler(backgroundScope, 1)
+		val release = CompletableDeferred<Unit>()
+		val started = CompletableDeferred<Unit>()
+		val job = checkNotNull(scheduler.schedule {
+			started.complete(Unit)
+			release.await()
+		})
+		started.await()
+		val firstDomain = ReaderLegacyPhysicalDomain(25L, ReaderLegacyFreezeToken(26L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.freezeForTransitionActivation(firstDomain)
+		)
+		release.complete(Unit)
+		job.join()
+		runCurrent()
+		assertEquals(
+			ReaderLegacyResourceState.Released,
+			scheduler.snapshotFrozenOwnership().single().state
+		)
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.restoreAfterTransitionActivation(firstDomain)
+		)
+		val secondDomain = ReaderLegacyPhysicalDomain(25L, ReaderLegacyFreezeToken(27L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.freezeForTransitionActivation(secondDomain)
+		)
+		assertTrue(scheduler.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.restoreAfterTransitionActivation(secondDomain)
+		)
+		scheduler.closeAndJoin()
+	}
+
+	@Test
+	fun restorationWaitsForAnAcceptedDrainToPhysicallyComplete() = runTest {
+		val scheduler = ReaderPageRasterHydrationScheduler(backgroundScope, 1)
+		val started = CompletableDeferred<Unit>()
+		val release = CompletableDeferred<Unit>()
+		val job = checkNotNull(scheduler.schedule {
+			started.complete(Unit)
+			withContext(NonCancellable) { release.await() }
+		})
+		started.await()
+		val domain = ReaderLegacyPhysicalDomain(33L, ReaderLegacyFreezeToken(34L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.freezeForTransitionActivation(domain)
+		)
+		val identity = scheduler.snapshotFrozenOwnership().single().physicalIdentity
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.drainFrozenOwnership(identity, confirmations::add)
+		)
+		runCurrent()
+
+		val prematureRestore = scheduler.restoreAfterTransitionActivation(domain)
+		assertTrue(confirmations.isEmpty())
+		release.complete(Unit)
+		job.join()
+		runCurrent()
+		assertEquals(listOf(identity), confirmations)
+		if (prematureRestore != ReaderPortCommandResult.Accepted) {
+			assertEquals(
+				ReaderPortCommandResult.Accepted,
+				scheduler.restoreAfterTransitionActivation(domain)
+			)
+		}
+		scheduler.closeAndJoin()
+		assertEquals(
+			ReaderPortCommandResult.Rejected(
+				paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource
+			),
+			prematureRestore
+		)
 	}
 }

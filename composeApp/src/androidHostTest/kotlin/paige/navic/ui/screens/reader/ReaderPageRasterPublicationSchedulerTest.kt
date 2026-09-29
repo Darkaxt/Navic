@@ -188,4 +188,144 @@ class ReaderPageRasterPublicationSchedulerTest {
 		release.complete(Unit)
 		scheduler.closeAndJoin()
 	}
+
+	@Test
+	fun completedFrozenJobRetainsItsReleasedIdentityUntilExactDrain() = runTest {
+		val scheduler = ReaderPageRasterPublicationScheduler(
+			scope = this,
+			maxConcurrentWorkers = 1
+		)
+		val started = CompletableDeferred<Unit>()
+		val release = CompletableDeferred<Unit>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.schedule(ReaderPageRasterPublicationRequest("completed", 5L)) {
+				started.complete(Unit)
+				release.await()
+			}
+		)
+		started.await()
+		val domain = ReaderLegacyPhysicalDomain(
+			readerSessionGeneration = 23L,
+			freezeToken = ReaderLegacyFreezeToken(24L)
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.freezeForTransitionActivation(domain)
+		)
+		val identity = scheduler.snapshotFrozenOwnership().single().physicalIdentity
+
+		release.complete(Unit)
+		runCurrent()
+
+		val released = scheduler.snapshotFrozenOwnership().single()
+		assertEquals(identity, released.physicalIdentity)
+		assertEquals(ReaderLegacyResourceState.Released, released.state)
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.drainFrozenOwnership(identity, confirmations::add)
+		)
+		assertEquals(listOf(identity), confirmations)
+		assertTrue(scheduler.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.restoreAfterTransitionActivation(domain)
+		)
+		scheduler.closeAndJoin()
+	}
+
+	@Test
+	fun restorationDiscardsACompletedFrozenJobBeforeTheNextFreeze() = runTest {
+		val scheduler = ReaderPageRasterPublicationScheduler(
+			scope = this,
+			maxConcurrentWorkers = 1
+		)
+		val release = CompletableDeferred<Unit>()
+		val started = CompletableDeferred<Unit>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.schedule(ReaderPageRasterPublicationRequest("restored", 7L)) {
+				started.complete(Unit)
+				release.await()
+			}
+		)
+		started.await()
+		val firstDomain = ReaderLegacyPhysicalDomain(29L, ReaderLegacyFreezeToken(30L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.freezeForTransitionActivation(firstDomain)
+		)
+		release.complete(Unit)
+		runCurrent()
+		assertEquals(
+			ReaderLegacyResourceState.Released,
+			scheduler.snapshotFrozenOwnership().single().state
+		)
+
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.restoreAfterTransitionActivation(firstDomain)
+		)
+		val secondDomain = ReaderLegacyPhysicalDomain(29L, ReaderLegacyFreezeToken(31L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.freezeForTransitionActivation(secondDomain)
+		)
+		assertTrue(scheduler.snapshotFrozenOwnership().isEmpty())
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.restoreAfterTransitionActivation(secondDomain)
+		)
+		scheduler.closeAndJoin()
+	}
+
+	@Test
+	fun restorationWaitsForAnAcceptedDrainToPhysicallyComplete() = runTest {
+		val scheduler = ReaderPageRasterPublicationScheduler(
+			scope = this,
+			maxConcurrentWorkers = 1
+		)
+		val started = CompletableDeferred<Unit>()
+		val release = CompletableDeferred<Unit>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.schedule(ReaderPageRasterPublicationRequest("pending", 9L)) {
+				started.complete(Unit)
+				withContext(NonCancellable) { release.await() }
+			}
+		)
+		started.await()
+		val domain = ReaderLegacyPhysicalDomain(35L, ReaderLegacyFreezeToken(36L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.freezeForTransitionActivation(domain)
+		)
+		val identity = scheduler.snapshotFrozenOwnership().single().physicalIdentity
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			scheduler.drainFrozenOwnership(identity, confirmations::add)
+		)
+		runCurrent()
+
+		val prematureRestore = scheduler.restoreAfterTransitionActivation(domain)
+		assertTrue(confirmations.isEmpty())
+		release.complete(Unit)
+		runCurrent()
+		assertEquals(listOf(identity), confirmations)
+		if (prematureRestore != ReaderPortCommandResult.Accepted) {
+			assertEquals(
+				ReaderPortCommandResult.Accepted,
+				scheduler.restoreAfterTransitionActivation(domain)
+			)
+		}
+		scheduler.closeAndJoin()
+		assertEquals(
+			ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			),
+			prematureRestore
+		)
+	}
 }

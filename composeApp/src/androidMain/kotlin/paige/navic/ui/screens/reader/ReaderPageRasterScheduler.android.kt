@@ -109,9 +109,15 @@ internal interface ReaderPageRasterStore<T : Any> {
 }
 
 internal class ReaderPageRasterCacheStore<T : Any>(
-	private val cache: ReaderPageRasterCache<T>
+	private val cache: ReaderPageRasterCache<T>,
+	ownershipTokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator()
 ) : ReaderPageRasterStore<T>, AutoCloseable {
 	private val lock = Any()
+	private val physicalOwnership = ReaderExactPhysicalOwnerRegistry(
+		ReaderLegacyInventorySource.RasterStoreAndCache,
+		ownershipTokenAllocator
+	)
 	private var activeOperations = 0
 	private var closed = false
 
@@ -119,14 +125,16 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 		closedResult: R,
 		action: () -> R
 	): R {
-		val admitted = synchronized(lock) {
-			if (closed) false
-			else {
-				activeOperations += 1
-				true
-			}
-		}
-		if (!admitted) return closedResult
+		val physicalOwner = synchronized(lock) {
+			if (closed) null
+			else physicalOwnership.admit(
+				ReaderExactPhysicalOwnerDescriptor(
+					kind = ReaderTransitionResourceKind.Raster,
+					origin = ReaderLegacyResourceOrigin.Pending,
+					state = ReaderLegacyResourceState.Running
+				)
+			)?.also { activeOperations += 1 }
+		} ?: return closedResult
 		return try {
 			action()
 		} finally {
@@ -134,7 +142,32 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 				check(activeOperations > 0)
 				activeOperations -= 1
 			}
+			physicalOwnership.complete(physicalOwner)
 		}
+	}
+
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = synchronized(lock) {
+		physicalOwnership.freezeForTransitionActivation(domain)
+	}
+
+	fun connectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? =
+		physicalOwnership.connectedFrozenOwnership()
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> =
+		physicalOwnership.snapshotFrozenOwnership()
+
+	fun drainFrozenOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult =
+		physicalOwnership.drainFrozenOwnership(physicalIdentity, onConfirmed)
+
+	fun restoreAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = synchronized(lock) {
+		physicalOwnership.restoreAfterTransitionActivation(domain)
 	}
 
 	override fun contains(key: ReaderPageRasterKey): Boolean =

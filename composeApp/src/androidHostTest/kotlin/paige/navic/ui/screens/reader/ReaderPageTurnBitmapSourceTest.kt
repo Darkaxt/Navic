@@ -128,11 +128,7 @@ class ReaderPageTurnBitmapSourceTest {
 		assertTrue(presented.contains("ownership.complete()"))
 		assertTrue(presented.contains("return ownership"))
 		assertTrue(presented.contains("readerPageTurnPresentedSurfaceCandidate("))
-		assertTrue(
-			source.contains(
-				"allowStableLowContrast = false,\n\t\tonCaptured = onCaptured"
-			)
-		)
+		assertTrue(source.contains("allowStableLowContrast = false,"))
 		assertTrue(source.contains("pageTurnPreviewPresentationReceipt"))
 		assertTrue(source.contains("pageTurnLivePresentationReceipt"))
 	}

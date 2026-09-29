@@ -52,6 +52,14 @@ internal class ReaderPageSlideSnapshot(
 		recycleIfUnowned()
 	}
 
+	@Synchronized
+	fun transferRetainToCacheOwnership() {
+		check(!cacheOwned) { "Page snapshot already has cache ownership" }
+		check(retainCount > 0) { "Page snapshot cache restoration requires a retain" }
+		cacheOwned = true
+		retainCount -= 1
+	}
+
 	private fun recycleIfUnowned() {
 		if (cacheOwned || retainCount > 0 || recycled) return
 		recycled = true

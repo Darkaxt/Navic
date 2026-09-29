@@ -527,6 +527,61 @@ class ReaderTransitionActivationTest {
 	}
 
 	@Test
+	fun throwingFirstDrainConfirmationCannotStrandLaterPairedOwner() {
+		val registry = ReaderExactPhysicalOwnerRegistry(
+			ReaderLegacyInventorySource.RasterCaptureAndVisualState
+		)
+		val owners = requireNotNull(
+			registry.admit(
+				listOf(
+					ReaderExactPhysicalOwnerDescriptor(
+						kind = ReaderTransitionResourceKind.Raster,
+						state = ReaderLegacyResourceState.Running
+					),
+					ReaderExactPhysicalOwnerDescriptor(
+						kind = ReaderTransitionResourceKind.CallbackRegistration,
+						origin = ReaderLegacyResourceOrigin.Pending,
+						state = ReaderLegacyResourceState.Registered
+					)
+				)
+			)
+		)
+		val domain = ReaderLegacyPhysicalDomain(3L, ReaderLegacyFreezeToken(131L))
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			registry.freezeForTransitionActivation(domain)
+		)
+		val rows = registry.snapshotFrozenOwnership()
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			registry.drainFrozenOwnership(rows.first().physicalIdentity) { identity ->
+				confirmations += identity
+				error("bounded first confirmation failure")
+			}
+		)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			registry.drainFrozenOwnership(rows.last().physicalIdentity, confirmations::add)
+		)
+
+		val completion = runCatching { registry.complete(owners) }
+
+		assertNull(
+			completion.exceptionOrNull(),
+			"One failing exact confirmation must not abort paired owner completion"
+		)
+		assertEquals(rows.map { it.physicalIdentity }, confirmations)
+		assertTrue(registry.snapshotFrozenOwnership().isEmpty())
+		registry.complete(owners)
+		assertEquals(rows.map { it.physicalIdentity }, confirmations)
+		assertEquals(
+			ReaderPortCommandResult.Accepted,
+			registry.restoreAfterTransitionActivation(domain)
+		)
+	}
+
+	@Test
 	fun inventoryHasAllSixteenSourcesAndCompositeIdentityDoesNotCollide() {
 		assertEquals(16, ReaderLegacyInventorySource.entries.size)
 		val token = ReaderLegacyFreezeToken(1L)
@@ -545,136 +600,6 @@ class ReaderTransitionActivationTest {
 		assertTrue(first != otherFreeze, "Physical identity freeze domain must participate in equality")
 		assertTrue(first == exactDuplicate, "Exact physical identity copy must remain equal")
 		assertEquals(3, linkedSetOf(first, otherSource, otherFreeze, exactDuplicate).size)
-	}
-
-	@Test
-	fun restartablePhysicalAdaptersCoverCaptureValidationAndStoreSourcesExactly() {
-		val sources = listOf(
-			ReaderLegacyInventorySource.RasterCaptureAndVisualState,
-			ReaderLegacyInventorySource.RasterLiveValidation,
-			ReaderLegacyInventorySource.RasterStoreAndCache
-		)
-		sources.forEachIndexed { index, source ->
-			val releaseCallbacks = mutableListOf<() -> Unit>()
-			val restoredPayloads = mutableListOf<Int>()
-			val releasePhysicalOwner = { _: Int, onReleased: () -> Unit ->
-				releaseCallbacks.add(onReleased)
-				true
-			}
-			val restorePhysicalOwner = { payload: Int ->
-				restoredPayloads += payload
-				payload
-			}
-			val adapter = when (source) {
-				ReaderLegacyInventorySource.RasterCaptureAndVisualState ->
-					readerRasterCaptureAndVisualStatePhysicalOwnershipAdapter(
-						releasePhysicalOwner,
-						restorePhysicalOwner
-					)
-				ReaderLegacyInventorySource.RasterLiveValidation ->
-					readerRasterLiveValidationPhysicalOwnershipAdapter(
-						releasePhysicalOwner,
-						restorePhysicalOwner
-					)
-				ReaderLegacyInventorySource.RasterStoreAndCache ->
-					readerRasterStoreAndCachePhysicalOwnershipAdapter(
-						releasePhysicalOwner,
-						restorePhysicalOwner
-					)
-				else -> error("unexpected source")
-			}
-			val lease = checkNotNull(
-				adapter.register(
-					ReaderRestartablePhysicalDescriptor(
-						restartPayload = index + 1,
-						kind = ReaderTransitionResourceKind.Raster,
-						binding = activationBinding(),
-						state = ReaderLegacyResourceState.Running,
-						ownsCallbackRegistration = true
-					)
-				)
-			)
-			val domain = ReaderLegacyPhysicalDomain(101L, ReaderLegacyFreezeToken((index + 1).toLong()))
-			assertEquals(ReaderPortCommandResult.Accepted, adapter.freezeForTransitionActivation(domain))
-			assertEquals(null, adapter.register(lease.descriptor))
-			val rows = adapter.snapshotFrozenOwnership()
-			assertEquals(2, rows.size)
-			assertTrue(rows.all { it.physicalIdentity.source == source })
-			assertEquals(rows.size, rows.map { it.physicalIdentity }.toSet().size)
-			val confirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
-			val owner = rows.single { it.kind == ReaderTransitionResourceKind.Raster }
-			val callback = rows.single { it.kind == ReaderTransitionResourceKind.CallbackRegistration }
-			assertEquals(ReaderPortCommandResult.Accepted, adapter.drainFrozenOwnership(owner.physicalIdentity, confirmed::add))
-			assertEquals(ReaderPortCommandResult.Accepted, adapter.drainFrozenOwnership(callback.physicalIdentity, confirmed::add))
-			assertEquals(1, confirmed.size)
-			assertTrue(
-				confirmed.single() == callback.physicalIdentity,
-				"Callback drain must confirm only its exact physical identity"
-			)
-			releaseCallbacks.single().invoke()
-			assertTrue(
-				rows.map { it.physicalIdentity }.toSet() == confirmed.toSet(),
-				"Restartable source must confirm exactly the frozen physical identities"
-			)
-			assertEquals(ReaderPortCommandResult.Accepted, adapter.restoreAfterTransitionActivation(domain))
-			assertEquals(listOf(index + 1), restoredPayloads)
-		}
-	}
-
-	@Test
-	fun failedRestartablePhysicalRestorationCanRetryWithoutLosingRestoredOwners() {
-		val releases = mutableListOf<() -> Unit>()
-		var secondRestorationFails = true
-		val adapter = ReaderRestartablePhysicalSourceAdapter(
-			source = ReaderLegacyInventorySource.RasterLiveValidation,
-			releasePhysicalOwner = { _: Int, onReleased ->
-				releases.add(onReleased)
-				true
-			},
-			restorePhysicalOwner = { payload: Int ->
-				payload.takeUnless { payload == 2 && secondRestorationFails }
-			}
-		)
-		listOf(1, 2).forEach { payload ->
-			checkNotNull(
-				adapter.register(
-					ReaderRestartablePhysicalDescriptor(
-						restartPayload = payload,
-						kind = ReaderTransitionResourceKind.Raster,
-						binding = activationBinding(),
-						state = ReaderLegacyResourceState.Running,
-						ownsCallbackRegistration = true
-					)
-				)
-			)
-		}
-		val domain = ReaderLegacyPhysicalDomain(101L, ReaderLegacyFreezeToken(17L))
-		assertEquals(ReaderPortCommandResult.Accepted, adapter.freezeForTransitionActivation(domain))
-		val initialRows = adapter.snapshotFrozenOwnership()
-		val confirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
-		initialRows.filter { it.kind == ReaderTransitionResourceKind.CallbackRegistration }.forEach { row ->
-			assertEquals(ReaderPortCommandResult.Accepted, adapter.drainFrozenOwnership(row.physicalIdentity, confirmed::add))
-		}
-		initialRows.filter { it.kind == ReaderTransitionResourceKind.Raster }.forEach { row ->
-			assertEquals(ReaderPortCommandResult.Accepted, adapter.drainFrozenOwnership(row.physicalIdentity, confirmed::add))
-		}
-		releases.forEach { it() }
-
-		assertEquals(
-			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource),
-			adapter.restoreAfterTransitionActivation(domain)
-		)
-		assertTrue(adapter.isFrozen)
-		val partiallyRestored = adapter.snapshotFrozenOwnership()
-		assertEquals(2, partiallyRestored.size)
-		assertTrue(
-			initialRows.take(2).map { it.physicalIdentity.sourceLocalToken }.toSet() ==
-				partiallyRestored.map { it.physicalIdentity.sourceLocalToken }.toSet(),
-			"Partial restoration must retain exactly the first two source-local identities"
-		)
-		secondRestorationFails = false
-		assertEquals(ReaderPortCommandResult.Accepted, adapter.restoreAfterTransitionActivation(domain))
-		assertFalse(adapter.isFrozen)
 	}
 
 	@Test

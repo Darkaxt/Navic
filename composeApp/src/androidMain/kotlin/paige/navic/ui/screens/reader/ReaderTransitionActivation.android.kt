@@ -148,250 +148,220 @@ internal data class ReaderLegacyConnectedSourceInventory(
 	override fun toString(): String = "ReaderLegacyConnectedSourceInventory(<redacted>)"
 }
 
-internal data class ReaderRestartablePhysicalDescriptor<Payload : Any>(
-	val restartPayload: Payload,
+internal data class ReaderExactPhysicalOwnerDescriptor(
 	val kind: ReaderTransitionResourceKind,
-	val binding: ReaderPresentationBinding?,
+	val binding: ReaderPresentationBinding? = null,
 	val visibleOwner: ReaderPresentationFrameOwner? = null,
 	val origin: ReaderLegacyResourceOrigin = ReaderLegacyResourceOrigin.Owned,
 	val state: ReaderLegacyResourceState,
-	val ownsCallbackRegistration: Boolean = false,
 	val mayBeCommittedPredecessor: Boolean = false
 ) {
 	init {
 		require(!mayBeCommittedPredecessor || state == ReaderLegacyResourceState.Visible)
 		require(!mayBeCommittedPredecessor || (binding != null && visibleOwner != null))
-		require(!mayBeCommittedPredecessor || kind == readerAdoptedResourceKindFor(requireNotNull(visibleOwner)))
+		require(
+			!mayBeCommittedPredecessor ||
+				kind == readerAdoptedResourceKindFor(requireNotNull(visibleOwner))
+		)
 	}
 }
 
-/** Reusable exact-owner protocol for source adapters whose restart payload stays in memory. */
-internal class ReaderRestartablePhysicalSourceAdapter<Payload : Any>(
+/** Exact per-owner bookkeeping shared by real physical source implementations. */
+internal class ReaderExactPhysicalOwnerRegistry(
 	private val source: ReaderLegacyInventorySource,
-	private val releasePhysicalOwner: (Payload, onReleased: () -> Unit) -> Boolean,
-	private val restorePhysicalOwner: (Payload) -> Payload?,
 	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
 		ReaderLegacySourceLocalTokenAllocator()
 ) {
-	internal class Lease<Payload : Any> internal constructor(
-		internal var descriptor: ReaderRestartablePhysicalDescriptor<Payload>,
-		internal val ownerToken: ReaderLegacySourceLocalOpaqueToken,
-		internal val callbackToken: ReaderLegacySourceLocalOpaqueToken?
+	internal class Owner internal constructor(
+		internal val token: ReaderLegacySourceLocalOpaqueToken,
+		internal val descriptor: ReaderExactPhysicalOwnerDescriptor,
+		internal val cancelPhysical: (() -> Boolean)?
 	) {
-		internal var ownerPresent = true
-		internal var callbackPresent = callbackToken != null
-		internal var callbackCompletedFrozen = false
-		internal var releaseRequested = false
-		internal var restartState = descriptor.state
+		internal var state = descriptor.state
+		internal var completed = false
+		internal var drainRequested = false
+		internal var cancellationIssued = false
 		internal var drainIdentity: ReaderLegacyPhysicalIdentity? = null
 		internal var drainConfirmation: ((ReaderLegacyPhysicalIdentity) -> Unit)? = null
 	}
 
-	private val leases = linkedSetOf<Lease<Payload>>()
+	private val lock = Any()
+	private val owners = linkedSetOf<Owner>()
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
 
 	val isFrozen: Boolean
-		get() = frozenDomain != null
+		get() = synchronized(lock) { frozenDomain != null }
 
-	fun register(descriptor: ReaderRestartablePhysicalDescriptor<Payload>): Lease<Payload>? {
-		if (frozenDomain != null) return null
-		return newLease(descriptor)
-	}
-
-	fun discoverAfterFreeze(
-		descriptor: ReaderRestartablePhysicalDescriptor<Payload>
-	): Lease<Payload>? {
-		if (frozenDomain == null) return null
-		return newLease(descriptor.copy(origin = ReaderLegacyResourceOrigin.Discovered))
-	}
-
-	private fun newLease(
-		descriptor: ReaderRestartablePhysicalDescriptor<Payload>
-	): Lease<Payload> = Lease(
-		descriptor = descriptor,
-		ownerToken = tokenAllocator.allocate(),
-		callbackToken = if (descriptor.ownsCallbackRegistration) tokenAllocator.allocate() else null
-	).also(leases::add)
-
-	fun observeCallback(lease: Lease<Payload>): Boolean {
-		if (lease !in leases || !lease.callbackPresent) return false
-		lease.callbackPresent = false
-		if (frozenDomain != null) {
-			lease.callbackCompletedFrozen = true
-			return false
+	fun admit(
+		descriptors: List<ReaderExactPhysicalOwnerDescriptor>,
+		cancelPhysical: (() -> Boolean)? = null
+	): List<Owner>? = synchronized(lock) {
+		if (frozenDomain != null) return@synchronized null
+		descriptors.map { descriptor ->
+			Owner(tokenAllocator.allocate(), descriptor, cancelPhysical).also(owners::add)
 		}
-		return true
 	}
 
-	fun retireNormally(lease: Lease<Payload>): Boolean {
-		if (frozenDomain != null || !leases.remove(lease)) return false
-		lease.ownerPresent = false
-		lease.callbackPresent = false
-		return true
+	fun admit(
+		descriptor: ReaderExactPhysicalOwnerDescriptor,
+		cancelPhysical: (() -> Boolean)? = null
+	): Owner? = admit(listOf(descriptor), cancelPhysical)?.single()
+
+	fun admitLateDiscoveredDuringFrozenEpoch(
+		domain: ReaderLegacyPhysicalDomain,
+		descriptor: ReaderExactPhysicalOwnerDescriptor,
+		cancelPhysical: (() -> Boolean)? = null
+	): Owner? = synchronized(lock) {
+		if (frozenDomain != domain) return@synchronized null
+		Owner(tokenAllocator.allocate(), descriptor, cancelPhysical).also(owners::add)
+	}
+
+	fun updateState(owner: Owner, state: ReaderLegacyResourceState): Boolean =
+		synchronized(lock) {
+			if (owner !in owners || owner.completed) return@synchronized false
+			if (owner.state != state) {
+				owner.state = state
+			}
+			true
+		}
+
+	fun complete(owner: Owner): Boolean {
+		var confirmation: (() -> Unit)? = null
+		val completed = synchronized(lock) {
+			if (owner !in owners || owner.completed) return@synchronized false
+			owner.completed = true
+			if (frozenDomain == null) {
+				owners.remove(owner)
+			} else if (owner.drainRequested) {
+				owners.remove(owner)
+				val identity = owner.drainIdentity
+				val callback = owner.drainConfirmation
+				owner.drainIdentity = null
+				owner.drainConfirmation = null
+				if (identity != null && callback != null) {
+					confirmation = { callback(identity) }
+				}
+			}
+			true
+		}
+		runCatching { confirmation?.invoke() }
+		return completed
+	}
+
+	fun complete(owned: Collection<Owner>) {
+		owned.forEach(::complete)
 	}
 
 	fun freezeForTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
-	): ReaderPortCommandResult = when {
-		frozenDomain == null -> {
-			frozenDomain = domain
-			ReaderPortCommandResult.Accepted
-		}
-		frozenDomain == domain -> ReaderPortCommandResult.Accepted
-		else -> invalidResource()
-	}
-
-	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
-		val domain = frozenDomain ?: return emptyList()
-		return buildList {
-			leases.forEach { lease ->
-				if (lease.ownerPresent) add(ownerRow(domain, lease))
-				if (lease.callbackPresent || lease.callbackCompletedFrozen) add(callbackRow(domain, lease))
+	): ReaderPortCommandResult = synchronized(lock) {
+		when {
+			frozenDomain == null -> {
+				frozenDomain = domain
+				ReaderPortCommandResult.Accepted
 			}
+			frozenDomain == domain -> ReaderPortCommandResult.Accepted
+			else -> invalidResource()
 		}
 	}
 
-	private fun ownerRow(
-		domain: ReaderLegacyPhysicalDomain,
-		lease: Lease<Payload>
-	) = ReaderFrozenLegacyResource(
-		freezeToken = domain.freezeToken,
-		physicalIdentity = identity(domain, lease.ownerToken),
-		kind = lease.descriptor.kind,
-		binding = lease.descriptor.binding,
-		visibleOwner = lease.descriptor.visibleOwner,
-		origin = lease.descriptor.origin,
-		state = if (lease.releaseRequested) {
-			ReaderLegacyResourceState.ReleaseRequested
-		} else {
-			lease.descriptor.state
-		},
-		mayBeCommittedPredecessor = lease.descriptor.mayBeCommittedPredecessor
-	)
+	fun connectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? = synchronized(lock) {
+		val domain = frozenDomain ?: return@synchronized null
+		ReaderLegacyConnectedSourceInventory(source, domain, frozenRowsLocked(domain))
+	}
 
-	private fun callbackRow(
-		domain: ReaderLegacyPhysicalDomain,
-		lease: Lease<Payload>
-	) = ReaderFrozenLegacyResource(
-		freezeToken = domain.freezeToken,
-		physicalIdentity = identity(domain, checkNotNull(lease.callbackToken)),
-		kind = ReaderTransitionResourceKind.CallbackRegistration,
-		binding = lease.descriptor.binding,
-		visibleOwner = null,
-		origin = lease.descriptor.origin,
-		state = if (lease.callbackPresent) {
-			ReaderLegacyResourceState.Registered
-		} else {
-			ReaderLegacyResourceState.ReleaseRequested
-		},
-		mayBeCommittedPredecessor = false
-	)
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> = synchronized(lock) {
+		val domain = frozenDomain ?: return@synchronized emptyList()
+		frozenRowsLocked(domain)
+	}
+
+	private fun frozenRowsLocked(
+		domain: ReaderLegacyPhysicalDomain
+	): List<ReaderFrozenLegacyResource> = owners.map { owner ->
+		ReaderFrozenLegacyResource(
+			freezeToken = domain.freezeToken,
+			physicalIdentity = ReaderLegacyPhysicalIdentity(domain, source, owner.token),
+			kind = owner.descriptor.kind,
+			binding = owner.descriptor.binding,
+			visibleOwner = owner.descriptor.visibleOwner,
+			origin = owner.descriptor.origin,
+			state = when {
+				owner.drainRequested -> ReaderLegacyResourceState.ReleaseRequested
+				owner.completed -> ReaderLegacyResourceState.Released
+				else -> owner.state
+			},
+			mayBeCommittedPredecessor = owner.descriptor.mayBeCommittedPredecessor
+		)
+	}
 
 	fun drainFrozenOwnership(
 		physicalIdentity: ReaderLegacyPhysicalIdentity,
 		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
 	): ReaderPortCommandResult {
-		val domain = frozenDomain
-		if (
-			domain == null ||
-			physicalIdentity.domain != domain ||
-			physicalIdentity.source != source
-		) return invalidResource()
-		val lease = leases.firstOrNull {
-			it.ownerToken == physicalIdentity.sourceLocalToken ||
-				it.callbackToken == physicalIdentity.sourceLocalToken
+		var cancel: (() -> Boolean)? = null
+		var confirmNow = false
+		val owner = synchronized(lock) {
+			val domain = frozenDomain
+			if (
+				domain == null ||
+				physicalIdentity.domain != domain ||
+				physicalIdentity.source != source
+			) return@synchronized null
+			val matched = owners.firstOrNull { it.token == physicalIdentity.sourceLocalToken }
+				?: return@synchronized null
+			if (matched.drainRequested) return@synchronized null
+			matched.drainRequested = true
+			matched.drainIdentity = physicalIdentity
+			matched.drainConfirmation = onConfirmed
+			if (matched.completed) {
+				owners.remove(matched)
+				matched.drainIdentity = null
+				matched.drainConfirmation = null
+				confirmNow = true
+			} else if (!matched.cancellationIssued && matched.cancelPhysical != null) {
+				matched.cancellationIssued = true
+				cancel = matched.cancelPhysical
+			}
+			matched
 		} ?: return invalidResource()
-		if (lease.callbackToken == physicalIdentity.sourceLocalToken) {
-			if (!lease.callbackPresent && !lease.callbackCompletedFrozen) return invalidResource()
-			lease.callbackPresent = false
-			lease.callbackCompletedFrozen = false
-			onConfirmed(physicalIdentity)
+		if (confirmNow) {
+			runCatching { onConfirmed(physicalIdentity) }
 			return ReaderPortCommandResult.Accepted
 		}
-		if (!lease.ownerPresent || lease.releaseRequested) return invalidResource()
-		lease.restartState = lease.descriptor.state
-		lease.releaseRequested = true
-		lease.drainIdentity = physicalIdentity
-		lease.drainConfirmation = onConfirmed
-		if (!releasePhysicalOwner(lease.descriptor.restartPayload) { completeRelease(lease) }) {
-			lease.releaseRequested = false
-			lease.drainIdentity = null
-			lease.drainConfirmation = null
-			return invalidResource()
+		val cancellation = cancel ?: return ReaderPortCommandResult.Accepted
+		val accepted = try {
+			cancellation()
+		} catch (_: Throwable) {
+			false
 		}
-		return ReaderPortCommandResult.Accepted
-	}
-
-	private fun completeRelease(lease: Lease<Payload>) {
-		if (!lease.ownerPresent || !lease.releaseRequested) return
-		lease.ownerPresent = false
-		lease.releaseRequested = false
-		val identity = lease.drainIdentity
-		val confirmation = lease.drainConfirmation
-		lease.drainIdentity = null
-		lease.drainConfirmation = null
-		if (identity != null && confirmation != null) confirmation(identity)
+		if (accepted) return ReaderPortCommandResult.Accepted
+		val rolledBack = synchronized(lock) {
+			if (owner.completed || owner !in owners) return@synchronized false
+			owner.drainRequested = false
+			owner.cancellationIssued = false
+			owner.drainIdentity = null
+			owner.drainConfirmation = null
+			true
+		}
+		return if (rolledBack) invalidResource() else ReaderPortCommandResult.Accepted
 	}
 
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
-	): ReaderPortCommandResult {
+	): ReaderPortCommandResult = synchronized(lock) {
 		if (
 			frozenDomain != domain ||
-			leases.any {
-				it.releaseRequested ||
-					(!it.ownerPresent && (it.callbackPresent || it.callbackCompletedFrozen))
-			}
-		) return invalidResource()
-		val drained = leases.filterNot { it.ownerPresent }
-		for (lease in drained) {
-			val restoredPayload = restorePhysicalOwner(lease.descriptor.restartPayload)
-				?: return invalidResource()
-			lease.descriptor = lease.descriptor.copy(restartPayload = restoredPayload)
-			lease.ownerPresent = true
-			lease.callbackPresent = lease.callbackToken != null
-			lease.descriptor = lease.descriptor.copy(state = lease.restartState)
-		}
+			owners.any { owner -> owner.drainRequested && !owner.completed }
+		) return@synchronized invalidResource()
+		owners.removeAll { owner -> owner.completed }
 		frozenDomain = null
-		return ReaderPortCommandResult.Accepted
+		ReaderPortCommandResult.Accepted
 	}
-
-	private fun identity(
-		domain: ReaderLegacyPhysicalDomain,
-		token: ReaderLegacySourceLocalOpaqueToken
-	) = ReaderLegacyPhysicalIdentity(domain, source, token)
 
 	private fun invalidResource(): ReaderPortCommandResult = ReaderPortCommandResult.Rejected(
 		ReaderTransitionFailureReason.InvalidLegacyResource
 	)
 }
-
-internal fun <Payload : Any> readerRasterCaptureAndVisualStatePhysicalOwnershipAdapter(
-	releasePhysicalOwner: (Payload, onReleased: () -> Unit) -> Boolean,
-	restorePhysicalOwner: (Payload) -> Payload?
-) = ReaderRestartablePhysicalSourceAdapter(
-	source = ReaderLegacyInventorySource.RasterCaptureAndVisualState,
-	releasePhysicalOwner = releasePhysicalOwner,
-	restorePhysicalOwner = restorePhysicalOwner
-)
-
-internal fun <Payload : Any> readerRasterLiveValidationPhysicalOwnershipAdapter(
-	releasePhysicalOwner: (Payload, onReleased: () -> Unit) -> Boolean,
-	restorePhysicalOwner: (Payload) -> Payload?
-) = ReaderRestartablePhysicalSourceAdapter(
-	source = ReaderLegacyInventorySource.RasterLiveValidation,
-	releasePhysicalOwner = releasePhysicalOwner,
-	restorePhysicalOwner = restorePhysicalOwner
-)
-
-internal fun <Payload : Any> readerRasterStoreAndCachePhysicalOwnershipAdapter(
-	releasePhysicalOwner: (Payload, onReleased: () -> Unit) -> Boolean,
-	restorePhysicalOwner: (Payload) -> Payload?
-) = ReaderRestartablePhysicalSourceAdapter(
-	source = ReaderLegacyInventorySource.RasterStoreAndCache,
-	releasePhysicalOwner = releasePhysicalOwner,
-	restorePhysicalOwner = restorePhysicalOwner
-)
 
 internal sealed interface ReaderLegacyResourceInventory {
 	data object Incomplete : ReaderLegacyResourceInventory

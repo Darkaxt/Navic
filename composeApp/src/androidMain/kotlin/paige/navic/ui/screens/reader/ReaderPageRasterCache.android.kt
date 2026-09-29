@@ -7,6 +7,7 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.IdentityHashMap
+import paige.navic.reader.ReaderTransitionResourceKind
 
 internal const val ReaderPageRasterDiskMaxBytes = 384L * 1024L * 1024L
 internal const val ReaderPageRasterDecodedMaxEntries = 5
@@ -42,7 +43,9 @@ internal class ReaderPageRasterCache<T : Any>(
 	private val maxDecodedEntries: Int = ReaderPageRasterDecodedMaxEntries,
 	private val clock: () -> Long = System::currentTimeMillis,
 	private val onDiagnostic: (String) -> Unit = {},
-	private val onOwnershipMutated: () -> Unit = {}
+	private val onOwnershipMutated: () -> Unit = {},
+	private val ownershipTokenAllocator: ReaderLegacySourceLocalTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator()
 ) {
 	private data class EncodedWindowProtection(
 		val profile: ReaderPageRasterProfile,
@@ -61,7 +64,9 @@ internal class ReaderPageRasterCache<T : Any>(
 		val value: T,
 		var state: DecodedCacheOwnerState = DecodedCacheOwnerState.Active,
 		var entryReferences: Int = 0
-	)
+	) {
+		lateinit var physicalOwner: ReaderExactPhysicalOwnerRegistry.Owner
+	}
 
 	private class DecodedCacheEntry<T : Any>(
 		val key: ReaderPageRasterKey,
@@ -75,7 +80,8 @@ internal class ReaderPageRasterCache<T : Any>(
 	)
 
 	private class DecodedCacheEncodePin<T : Any>(
-		val value: T
+		val value: T,
+		val physicalOwner: ReaderExactPhysicalOwnerRegistry.Owner
 	) {
 		var released = false
 	}
@@ -87,6 +93,7 @@ internal class ReaderPageRasterCache<T : Any>(
 
 		data object IdentityReleasing : DecodedCacheEncodeAdmission<Nothing>
 		data object CacheClosed : DecodedCacheEncodeAdmission<Nothing>
+		data object CacheFrozen : DecodedCacheEncodeAdmission<Nothing>
 	}
 
 	private enum class DecodedCacheAdoption {
@@ -100,6 +107,10 @@ internal class ReaderPageRasterCache<T : Any>(
 	private val uniqueDecodedBitmapLimit = maxDecodedEntries.coerceAtLeast(0)
 	private val storageAvailable = !root.exists() || !Files.isSymbolicLink(root.toPath())
 	private val manifest = ReaderPageRasterManifest(root)
+	private val physicalOwnership = ReaderExactPhysicalOwnerRegistry(
+		ReaderLegacyInventorySource.RasterStoreAndCache,
+		ownershipTokenAllocator
+	)
 	private val entries = linkedMapOf<String, ReaderPageRasterManifestEntry>()
 	private val entryRevisions = mutableMapOf<String, Long>()
 	private val decoded =
@@ -139,6 +150,30 @@ internal class ReaderPageRasterCache<T : Any>(
 			persistManifest()
 			assertDiskBoundLocked()
 		}
+	}
+
+	fun freezeForTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = synchronized(this) {
+		physicalOwnership.freezeForTransitionActivation(domain)
+	}
+
+	fun connectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? =
+		physicalOwnership.connectedFrozenOwnership()
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> =
+		physicalOwnership.snapshotFrozenOwnership()
+
+	fun drainFrozenOwnership(
+		physicalIdentity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
+	): ReaderPortCommandResult =
+		physicalOwnership.drainFrozenOwnership(physicalIdentity, onConfirmed)
+
+	fun restoreAfterTransitionActivation(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult = synchronized(this) {
+		physicalOwnership.restoreAfterTransitionActivation(domain)
 	}
 
 	fun write(
@@ -772,10 +807,18 @@ internal class ReaderPageRasterCache<T : Any>(
 		)
 		if ((decodedEncodePins[owner.value] ?: 0) > 0) {
 			owner.state = DecodedCacheOwnerState.ReleasePendingForEncode
+			physicalOwnership.updateState(
+				owner.physicalOwner,
+				ReaderLegacyResourceState.ReleaseRequested
+			)
 			onOwnershipMutated()
 			return
 		}
 		owner.state = DecodedCacheOwnerState.Releasing
+		physicalOwnership.updateState(
+			owner.physicalOwner,
+			ReaderLegacyResourceState.ReleaseRequested
+		)
 		pendingDecodedReleases += 1
 		scheduled += owner
 		onOwnershipMutated()
@@ -813,11 +856,20 @@ internal class ReaderPageRasterCache<T : Any>(
 			DecodedCacheOwnerState.ReleasePendingForEncode,
 			null -> Unit
 		}
+		val physicalOwner = physicalOwnership.admit(
+			ReaderExactPhysicalOwnerDescriptor(
+				kind = ReaderTransitionResourceKind.Raster,
+				origin = ReaderLegacyResourceOrigin.Pending,
+				state = ReaderLegacyResourceState.Running
+			)
+		) ?: return@synchronized DecodedCacheEncodeAdmission.CacheFrozen
 		decodedEncodePins[value] = (decodedEncodePins[value] ?: 0) + 1
 		activeEncodePins += 1
 		assertDecodedBoundsLocked()
 		onOwnershipMutated()
-		DecodedCacheEncodeAdmission.Pinned(DecodedCacheEncodePin(value))
+		DecodedCacheEncodeAdmission.Pinned(
+			DecodedCacheEncodePin(value, physicalOwner)
+		)
 	}
 
 	private fun requirePersistOnlyIdentityAvailable(value: T) {
@@ -864,6 +916,7 @@ internal class ReaderPageRasterCache<T : Any>(
 			}
 			assertDecodedBoundsLocked()
 		}
+		physicalOwnership.complete(pin.physicalOwner)
 		releaseDecodedOwners(scheduled)
 	}
 
@@ -888,7 +941,8 @@ internal class ReaderPageRasterCache<T : Any>(
 						ReaderPageRasterWriteFailureReason.EncodeIdentityReleasing
 				)
 			}
-			DecodedCacheEncodeAdmission.CacheClosed -> {
+			DecodedCacheEncodeAdmission.CacheClosed,
+			DecodedCacheEncodeAdmission.CacheFrozen -> {
 				return ReaderPageRasterWriteResult(
 					persisted = false,
 					ownership = ReaderPageRasterValueOwnership.Caller
@@ -935,6 +989,9 @@ internal class ReaderPageRasterCache<T : Any>(
 		while (true) {
 			val scheduled = mutableListOf<DecodedCacheOwner<T>>()
 			val decision = synchronized(this) {
+				if (physicalOwnership.isFrozen) {
+					return@synchronized DecodedCacheAdoption.Caller
+				}
 				val durableEntry = entries[key.digest]
 				if (decodedClosed ||
 					durableEntry?.key?.identity != key.identity ||
@@ -976,6 +1033,14 @@ internal class ReaderPageRasterCache<T : Any>(
 					null -> {
 						if (decodedOwners.size < uniqueDecodedBitmapLimit) {
 							val owner = DecodedCacheOwner(value)
+							val physicalOwner = physicalOwnership.admit(
+								ReaderExactPhysicalOwnerDescriptor(
+									kind = ReaderTransitionResourceKind.Raster,
+									state = ReaderLegacyResourceState.Prepared
+								),
+								cancelPhysical = { drainDecodedOwner(owner) }
+							) ?: return@synchronized DecodedCacheAdoption.Caller
+							owner.physicalOwner = physicalOwner
 							decodedOwners[value] = owner
 							attachDecodedEntryLocked(key, metadata, owner)
 							DecodedCacheAdoption.Adopted
@@ -1011,6 +1076,29 @@ internal class ReaderPageRasterCache<T : Any>(
 		}
 	}
 
+	private fun drainDecodedOwner(owner: DecodedCacheOwner<T>): Boolean {
+		val scheduled = mutableListOf<DecodedCacheOwner<T>>()
+		synchronized(this) {
+			if (decodedOwners[owner.value] !== owner) return true
+			when (owner.state) {
+				DecodedCacheOwnerState.Active -> {
+					decoded.entries
+						.filter { (_, entry) -> entry.owner === owner }
+						.map { (digest, _) -> digest }
+						.forEach { digest -> detachDecodedEntryLocked(digest, scheduled) }
+					if (owner.entryReferences == 0 && owner.state == DecodedCacheOwnerState.Active) {
+						scheduleDecodedOwnerReleaseLocked(owner, scheduled)
+					}
+				}
+				DecodedCacheOwnerState.ReleasePendingForEncode,
+				DecodedCacheOwnerState.Releasing -> Unit
+				DecodedCacheOwnerState.Released -> return true
+			}
+		}
+		releaseDecodedOwners(scheduled)
+		return true
+	}
+
 	private fun releaseDecodedOwners(owners: List<DecodedCacheOwner<T>>) {
 		owners.forEach { owner ->
 			var callbackFailure: Throwable? = null
@@ -1029,6 +1117,7 @@ internal class ReaderPageRasterCache<T : Any>(
 					assertDecodedBoundsLocked()
 					onOwnershipMutated()
 				}
+				physicalOwnership.complete(owner.physicalOwner)
 			}
 		}
 	}
