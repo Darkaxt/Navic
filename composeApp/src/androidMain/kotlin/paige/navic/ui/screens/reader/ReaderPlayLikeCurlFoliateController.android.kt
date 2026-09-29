@@ -5103,6 +5103,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		} else {
 			publishProtectedWindow(pageIndices)
 		}
+		if (
+			preparationPhase != ReaderPagePreparationPhase.Ready &&
+			!retryPreparationInProgress
+		) {
+			logActivationState(
+				"refresh-gated",
+				"raster-preparation-not-ready phase=$preparationPhase"
+			)
+			return
+		}
 		val adapter = rasterAdapter
 			?: createRasterAdapterOrDefer(profile)
 			?: run {

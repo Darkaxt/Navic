@@ -176,6 +176,77 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
+	fun initialProfileBootstrapWaitsForRasterPreparationBeforeDeckLoad() {
+		val fixture = task8CurlAuthorityFixture(
+			initialState = null,
+			currentOrdinal = 0
+		)
+		val controller = fixture.controller
+		val controllerClass = controller.javaClass
+		val requestedProfile = controllerClass.task7Field("requestedProfile")
+		val profile = assertNotNull(requestedProfile.get(controller) as ReaderPlayLikeCurlRasterProfile?)
+		requestedProfile.set(controller, null)
+		controllerClass.task7Field("publishedRasterProfile").set(controller, null)
+		controllerClass.task7Field("publishedRasterProfileEpoch").set(controller, null)
+		assertEquals(
+			ReaderPagePreparationPhase.Idle,
+			controllerClass.task7Field("preparationPhase").get(controller)
+		)
+		assertNull(controllerClass.task7Field("rasterAdapter").get(controller))
+
+		controllerClass.task7Method(
+			"prepareProfile",
+			java.lang.Long.TYPE,
+			ReaderPlayLikeCurlRasterProfile::class.java,
+			Integer.TYPE
+		).invoke(
+			controller,
+			controllerClass.task7Field("requestGeneration").getLong(controller),
+			profile,
+			0
+		)
+
+		assertSame(profile, requestedProfile.get(controller))
+		assertNull(
+			controllerClass.task7Field("rasterAdapter").get(controller),
+			"The initial foreground deck must wait for passive raster preparation"
+		)
+
+		@Suppress("UNCHECKED_CAST")
+		val webView = assertNotNull(
+			(controllerClass.task7Field("webViewProvider").get(controller) as () -> WebView?)()
+		) as Task9RecoveryCommandWebView
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		activity.get().setContentView(webView.parent as View)
+		try {
+			assertTrue(webView.isAttachedToWindow)
+			webView.retainPlanCallbacks = true
+			controllerClass.task7Field("capabilitiesAvailable").setBoolean(controller, true)
+			controller.synchronizeVisualPageIndex(0, "initial-location", null)
+			assertNull(controllerClass.task7Field("activePages").get(controller))
+			assertTrue(webView.planCallbacks.isEmpty())
+
+			controller.onPreparationStateChanged(
+				ReaderPagePreparationState(phase = ReaderPagePreparationPhase.Ready)
+			)
+
+			val planCallback = webView.planCallbacks.single()
+			webView.planCallbacks.clear()
+			planCallback.onReceiveValue(
+				"""{"context":{"centerPageIndex":0,"pageCount":3,"layoutMode":"single","step":1,"currentChapterIndex":0,"currentChapterPageStartIndex":0,"currentChapterPageCount":3},"targets":[{"pageIndex":0,"priority":"current","authority":"CurrentLive"}]}"""
+			)
+			assertNotNull(
+				controllerClass.task7Field("rasterAdapter").get(controller),
+				"Ready must resume the foreground deck producer through the actual plan callback"
+			)
+		} finally {
+			controller.surfaceView.detach()
+			controller.destroy()
+			activity.pause().stop().destroy()
+		}
+	}
+
+	@Test
 	fun playLikeCurlPhysicalDeckOwnerFreezesExactDeckAndCallbackBeforeDispatch() {
 		val fixture = task8CurlAuthorityFixture(
 			initialState = task8SettledCurlSourceState(),
