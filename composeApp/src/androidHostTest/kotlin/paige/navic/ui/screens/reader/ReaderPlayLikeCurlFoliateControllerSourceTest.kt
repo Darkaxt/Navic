@@ -4163,6 +4163,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val bundleClose = bundle
 			.substringAfter("fun fenceForClose()")
 			.substringBefore("private fun restoreLiveComposition(")
+		val persistenceLaunch = bundle
+			.substringAfter("private fun launchRasterPersistenceRequest(")
+			.substringBefore("private suspend fun runRasterPersistenceRequest(")
+		val persistenceTracking = bundle
+			.substringAfter("private fun trackRasterPersistenceJob(")
+			.substringBefore("private suspend fun rasterScheduler(")
 		val hostTeardown = host.substringAfter("private fun teardownTask4Resources()")
 
 		assertContains(preparation, "closeRendererAndAdapter: suspend () -> Unit")
@@ -4185,7 +4191,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(bundleWiring, "rasterPersistenceJobs.isEmpty()")
 		assertContains(bundleWiring, "pendingDescriptorOwners.pendingCount() == 0")
 		assertContains(bundleWiring, "hydrationScheduler.closeAndJoin()")
-		assertContains(bundle, "trackRasterPersistenceJob(persistenceJob)")
+		assertContains(persistenceLaunch, "val launched = rasterScope.launch(start = CoroutineStart.LAZY)")
+		assertContains(persistenceLaunch, "trackRasterPersistenceJob(launched) { settle() }")
+		assertTrue(
+			persistenceLaunch.indexOf("trackRasterPersistenceJob(launched) { settle() }") <
+				persistenceLaunch.indexOf("launched.start()")
+		)
+		assertContains(persistenceTracking, "rasterPersistenceJobs += job")
+		assertContains(persistenceTracking, "job.invokeOnCompletion {")
+		assertContains(persistenceTracking.substringAfter("job.invokeOnCompletion {"), "onSettled()")
 		assertContains(bundle, "pendingDescriptorOwners.acquire(snapshot)")
 		assertContains(bundle, "pendingDescriptorOwners.claim(descriptorOwner)")
 		assertContains(bundle, "pendingDescriptorOwners.complete(claimedOwner)")

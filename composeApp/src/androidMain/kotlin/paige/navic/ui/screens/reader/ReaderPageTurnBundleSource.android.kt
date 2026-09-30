@@ -60,6 +60,7 @@ private val ReaderPageTurnBundleInventorySources = listOf(
 	ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback,
 	ReaderLegacyInventorySource.RasterHydration,
 	ReaderLegacyInventorySource.RasterPublication,
+	ReaderLegacyInventorySource.RasterGenerationAndPersistence,
 	ReaderLegacyInventorySource.RasterCaptureAndVisualState,
 	ReaderLegacyInventorySource.RasterLiveValidation,
 	ReaderLegacyInventorySource.RasterStoreAndCache
@@ -1175,6 +1176,78 @@ private data class ReaderFrozenSnapshotCacheEntry(
 	val token: ReaderLegacySourceLocalOpaqueToken
 )
 
+private data class ReaderRasterPersistenceRestartContract(
+	val snapshot: WeakReference<ReaderPageSlideSnapshot>,
+	val webView: WeakReference<WebView>,
+	val key: ReaderPageRasterKey,
+	val metadata: ReaderPageRasterMetadata,
+	val captureMillis: Long,
+	val priority: ReaderPageRasterPriority,
+	val generation: Long,
+	val physicalLayoutEpoch: Long,
+	val mutationGeneration: ReaderForegroundWebViewMutationGeneration?,
+	val isStillCurrent: () -> Boolean,
+	val onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit
+)
+
+private class ReaderRasterPersistenceRequest(
+	val contract: ReaderRasterPersistenceRestartContract,
+	var restartRequired: Boolean = false,
+	var attemptActive: Boolean = false,
+	var completed: Boolean = false
+)
+
+private class ReaderRasterGenerationPersistenceJobControl {
+	private val lock = Any()
+	private var job: Job? = null
+	private var cancellationRequested = false
+	private var ownedBitmap: Bitmap? = null
+	private var transferred = false
+	private var settled = false
+
+	fun own(bitmap: Bitmap) {
+		synchronized(lock) {
+			check(!settled && ownedBitmap == null)
+			ownedBitmap = bitmap
+		}
+	}
+
+	fun transfer() {
+		synchronized(lock) {
+			transferred = true
+			ownedBitmap = null
+		}
+	}
+
+	fun settle(cleanup: (Bitmap?, Boolean) -> Unit): Boolean {
+		val bitmap = synchronized(lock) {
+			if (settled) return false
+			settled = true
+			(ownedBitmap to transferred).also { ownedBitmap = null }
+		}
+		cleanup(bitmap.first, bitmap.second)
+		return true
+	}
+
+	fun attach(job: Job) {
+		val cancelNow = synchronized(lock) {
+			check(this.job == null) { "Raster persistence owner already has a job" }
+			this.job = job
+			cancellationRequested
+		}
+		if (cancelNow) job.cancel()
+	}
+
+	fun cancel(): Boolean {
+		val jobToCancel = synchronized(lock) {
+			cancellationRequested = true
+			job
+		}
+		jobToCancel?.cancel()
+		return true
+	}
+}
+
 private enum class ReaderPageTurnBundleRestorationStep {
 	Bitmap,
 	LiveValidation,
@@ -1182,6 +1255,7 @@ private enum class ReaderPageTurnBundleRestorationStep {
 	HydrationOwners,
 	PublicationScheduler,
 	PublicationLedger,
+	RasterGenerationAndPersistence,
 	PendingDescriptors,
 	DescriptorRequests,
 	PersistentStore,
@@ -1355,7 +1429,8 @@ internal class ReaderPageTurnBundleSource(
 	private val publicationSchedulerOverride: ReaderPageRasterPublicationScheduler? = null,
 	private val pendingDescriptorOwnersOverride:
 		ReaderPagePendingCallbackOwners<ReaderPageSlideSnapshot>? = null,
-	private val liveValidationDispatcher: CoroutineDispatcher = Dispatchers.Default
+	private val liveValidationDispatcher: CoroutineDispatcher = Dispatchers.Default,
+	private val rasterInitializationDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
 	private var activeGeneration = 0L
 	private var bitmapQuality = ReaderPageBitmapQuality.Balanced
@@ -1379,9 +1454,19 @@ internal class ReaderPageTurnBundleSource(
 	private val teardownOwnershipLock = Any()
 	private var teardownPhysicalOwner: ReaderExactPhysicalOwnerRegistry.Owner? = null
 	private var teardownOwnershipRegistered = false
+	private val rasterGenerationAndPersistenceOwnershipTokenAllocator =
+		ReaderLegacySourceLocalTokenAllocator()
+	private val rasterGenerationAndPersistenceOwnership = ReaderExactPhysicalOwnerRegistry(
+		ReaderLegacyInventorySource.RasterGenerationAndPersistence,
+		rasterGenerationAndPersistenceOwnershipTokenAllocator
+	)
+	private val rasterInitializationFenceLock = Any()
 	private val rasterInitializationMutex = Mutex()
 	private val rasterPersistenceJobLock = Any()
 	private val rasterPersistenceJobs = linkedSetOf<Job>()
+	private val rasterPersistenceRequests = linkedSetOf<ReaderRasterPersistenceRequest>()
+	private val rasterPersistenceAttempts = linkedSetOf<ReaderRasterGenerationPersistenceJobControl>()
+	private val rasterInitializationRestarts = linkedSetOf<WeakReference<WebView>>()
 	private val descriptorOwnershipAdmissionLock = Any()
 	private val descriptorRequestOwnership = ReaderExactPhysicalOwnerRegistry(
 		ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback,
@@ -1406,6 +1491,7 @@ internal class ReaderPageTurnBundleSource(
 		IdentityHashMap<ReaderPageSlideSnapshot, ReaderLegacySourceLocalOpaqueToken>()
 	private val frozenSnapshotCacheEntries =
 		linkedMapOf<ReaderLegacySourceLocalOpaqueToken, ReaderFrozenSnapshotCacheEntry>()
+	@Volatile
 	private var frozenSnapshotCacheDomain: ReaderLegacyPhysicalDomain? = null
 	private var restorationProgressDomain: ReaderLegacyPhysicalDomain? = null
 	private val restoredTransitionSteps =
@@ -1471,6 +1557,7 @@ internal class ReaderPageTurnBundleSource(
 	private var rasterPhysicalCloseFinished = false
 	private var rasterScheduler: ReaderPageRasterScheduler<Bitmap>? = null
 	private var activeWebView = WeakReference<WebView>(null)
+	@Volatile
 	private var closed = false
 	private var closeInvalidationFailure: Throwable? = null
 	private var disposedRasterCacheMetrics: ReaderPageRasterCacheMetrics? = null
@@ -1556,10 +1643,27 @@ internal class ReaderPageTurnBundleSource(
 		}
 		val bitmapResult = bitmapSource.freezeForTransitionActivation(domain)
 		if (bitmapResult != ReaderPortCommandResult.Accepted) return bitmapResult
+		val generationAndPersistenceResult = synchronized(rasterInitializationFenceLock) {
+			rasterGenerationAndPersistenceOwnership.freezeForTransitionActivation(domain)
+		}
+		if (generationAndPersistenceResult != ReaderPortCommandResult.Accepted) {
+			bitmapSource.restoreAfterTransitionActivation(domain)
+			return generationAndPersistenceResult
+		}
+		val schedulerResult = synchronized(rasterInitializationFenceLock) {
+			rasterScheduler?.freezeForTransitionActivation(domain)
+				?: ReaderPortCommandResult.Accepted
+		}
+		if (schedulerResult != ReaderPortCommandResult.Accepted) {
+			rasterGenerationAndPersistenceOwnership.restoreAfterTransitionActivation(domain)
+			bitmapSource.restoreAfterTransitionActivation(domain)
+			return schedulerResult
+		}
 		val validationResult = synchronized(liveValidationAdmissionLock) {
 			liveValidationOwnership.freezeForTransitionActivation(domain)
 		}
 		if (validationResult != ReaderPortCommandResult.Accepted) {
+			restoreRasterGenerationAndPersistenceOwnership(domain)
 			bitmapSource.restoreAfterTransitionActivation(domain)
 			return validationResult
 		}
@@ -1577,6 +1681,7 @@ internal class ReaderPageTurnBundleSource(
 		}
 		if (hydrationResult != ReaderPortCommandResult.Accepted) {
 			liveValidationOwnership.restoreAfterTransitionActivation(domain)
+			restoreRasterGenerationAndPersistenceOwnership(domain)
 			bitmapSource.restoreAfterTransitionActivation(domain)
 			return hydrationResult
 		}
@@ -1584,6 +1689,7 @@ internal class ReaderPageTurnBundleSource(
 		if (publicationResult != ReaderPortCommandResult.Accepted) {
 			restoreHydrationOwnership(domain)
 			liveValidationOwnership.restoreAfterTransitionActivation(domain)
+			restoreRasterGenerationAndPersistenceOwnership(domain)
 			bitmapSource.restoreAfterTransitionActivation(domain)
 			return publicationResult
 		}
@@ -1592,6 +1698,7 @@ internal class ReaderPageTurnBundleSource(
 			publicationScheduler.restoreAfterTransitionActivation(domain)
 			restoreHydrationOwnership(domain)
 			liveValidationOwnership.restoreAfterTransitionActivation(domain)
+			restoreRasterGenerationAndPersistenceOwnership(domain)
 			bitmapSource.restoreAfterTransitionActivation(domain)
 			return ledgerResult
 		}
@@ -1612,6 +1719,7 @@ internal class ReaderPageTurnBundleSource(
 			publicationScheduler.restoreAfterTransitionActivation(domain)
 			restoreHydrationOwnership(domain)
 			liveValidationOwnership.restoreAfterTransitionActivation(domain)
+			restoreRasterGenerationAndPersistenceOwnership(domain)
 			bitmapSource.restoreAfterTransitionActivation(domain)
 			return descriptorResult
 		}
@@ -1623,6 +1731,7 @@ internal class ReaderPageTurnBundleSource(
 			publicationScheduler.restoreAfterTransitionActivation(domain)
 			restoreHydrationOwnership(domain)
 			liveValidationOwnership.restoreAfterTransitionActivation(domain)
+			restoreRasterGenerationAndPersistenceOwnership(domain)
 			bitmapSource.restoreAfterTransitionActivation(domain)
 			return storeResult
 		}
@@ -1635,6 +1744,7 @@ internal class ReaderPageTurnBundleSource(
 			publicationScheduler.restoreAfterTransitionActivation(domain)
 			restoreHydrationOwnership(domain)
 			liveValidationOwnership.restoreAfterTransitionActivation(domain)
+			restoreRasterGenerationAndPersistenceOwnership(domain)
 			bitmapSource.restoreAfterTransitionActivation(domain)
 			return cacheResult
 		}
@@ -1653,6 +1763,7 @@ internal class ReaderPageTurnBundleSource(
 			publicationScheduler.restoreAfterTransitionActivation(domain)
 			restoreHydrationOwnership(domain)
 			liveValidationOwnership.restoreAfterTransitionActivation(domain)
+			restoreRasterGenerationAndPersistenceOwnership(domain)
 			bitmapSource.restoreAfterTransitionActivation(domain)
 			return teardownResult
 		}
@@ -1674,6 +1785,40 @@ internal class ReaderPageTurnBundleSource(
 				ReaderTransitionFailureReason.InvalidLegacyResource
 			)
 		}
+	}
+
+	private fun restoreRasterGenerationAndPersistenceOwnership(
+		domain: ReaderLegacyPhysicalDomain
+	): ReaderPortCommandResult {
+		if (rasterGenerationAndPersistenceOwnership.snapshotFrozenOwnership().any {
+				it.state != ReaderLegacyResourceState.Released
+			}) return invalidRestorationResource()
+		val physicalResult = if (rasterGenerationAndPersistenceOwnership.isFrozen) {
+			rasterGenerationAndPersistenceOwnership.restoreAfterTransitionActivation(domain)
+		} else {
+			ReaderPortCommandResult.Accepted
+		}
+		if (physicalResult != ReaderPortCommandResult.Accepted) return physicalResult
+		val schedulerResult = rasterScheduler?.let { scheduler ->
+			if (scheduler.isFrozen) scheduler.restoreAfterTransitionActivation(domain)
+			else ReaderPortCommandResult.Accepted
+		} ?: ReaderPortCommandResult.Accepted
+		return schedulerResult
+	}
+
+	private fun resumeRasterGenerationAndPersistenceRequests() {
+		val restarts = synchronized(rasterInitializationFenceLock) {
+			if (closed || frozenSnapshotCacheDomain != null) return
+			val initialization = rasterInitializationRestarts.toList()
+			rasterInitializationRestarts.clear()
+			initialization to rasterPersistenceRequests.filter { it.restartRequired && !it.attemptActive && !it.completed }
+		}
+		restarts.first.forEach { reference ->
+			reference.get()?.takeIf { it.isAttachedToWindow }?.let { webView ->
+				rasterScope.launch { initializeRasterCache(webView) }
+			}
+		}
+		restarts.second.forEach(::launchRasterPersistenceRequest)
 	}
 
 	private fun restoreDescriptorOwnership(
@@ -1700,12 +1845,17 @@ internal class ReaderPageTurnBundleSource(
 			hydrationScheduler.snapshotFrozenOwnership() +
 			publicationScheduler.snapshotFrozenOwnership() +
 			publicationLedger.snapshotFrozenOwnership() +
+			rasterGenerationAndPersistenceOwnership.snapshotFrozenOwnership() +
+			rasterScheduler.orEmptyFrozenOwnership() +
 			descriptorRequestOwnership.snapshotFrozenOwnership() +
 			pendingDescriptorOwners.snapshotFrozenOwnership() +
 			snapshotFrozenCacheOwnership() +
 			persistentStore.orEmptyFrozenOwnership() +
 			rasterCache.orEmptyFrozenOwnership() +
 			teardownOwnership.snapshotFrozenOwnership()
+
+	private fun ReaderPageRasterScheduler<Bitmap>?.orEmptyFrozenOwnership():
+		List<ReaderFrozenLegacyResource> = this?.snapshotFrozenOwnership().orEmpty()
 
 	private fun ReaderPageRasterCacheStore<Bitmap>?.orEmptyFrozenOwnership():
 		List<ReaderFrozenLegacyResource> = this?.snapshotFrozenOwnership().orEmpty()
@@ -1764,6 +1914,18 @@ internal class ReaderPageTurnBundleSource(
 		physicalIdentity: ReaderLegacyPhysicalIdentity,
 		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
 	): ReaderPortCommandResult = when (physicalIdentity.source) {
+		ReaderLegacyInventorySource.RasterGenerationAndPersistence -> {
+			val physicalResult = rasterGenerationAndPersistenceOwnership
+				.drainFrozenOwnership(physicalIdentity, onConfirmed)
+			if (physicalResult == ReaderPortCommandResult.Accepted) {
+				physicalResult
+			} else {
+				rasterScheduler?.drainFrozenOwnership(physicalIdentity, onConfirmed)
+					?: ReaderPortCommandResult.Rejected(
+						ReaderTransitionFailureReason.InvalidLegacyResource
+					)
+			}
+		}
 		ReaderLegacyInventorySource.RasterCaptureAndVisualState ->
 			bitmapSource.drainFrozenOwnership(physicalIdentity, onConfirmed)
 		ReaderLegacyInventorySource.RasterLiveValidation ->
@@ -1905,7 +2067,7 @@ internal class ReaderPageTurnBundleSource(
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult {
-		if (frozenSnapshotCacheDomain != domain) return invalidRestorationResource()
+		if (frozenSnapshotCacheDomain != domain || closed) return invalidRestorationResource()
 		val progressDomain = restorationProgressDomain
 		if (progressDomain != null && progressDomain != domain) {
 			return invalidRestorationResource()
@@ -1967,6 +2129,7 @@ internal class ReaderPageTurnBundleSource(
 		}
 		val preSnapshotSteps = ReaderPageTurnBundleRestorationStep.entries -
 			setOf(
+				ReaderPageTurnBundleRestorationStep.RasterGenerationAndPersistence,
 				ReaderPageTurnBundleRestorationStep.SnapshotCache,
 				ReaderPageTurnBundleRestorationStep.Teardown
 			)
@@ -1978,26 +2141,30 @@ internal class ReaderPageTurnBundleSource(
 			ReaderPortCommandResult.Accepted
 		}
 		val preTeardownSteps = ReaderPageTurnBundleRestorationStep.entries -
-			ReaderPageTurnBundleRestorationStep.Teardown
+			setOf(ReaderPageTurnBundleRestorationStep.Teardown, ReaderPageTurnBundleRestorationStep.RasterGenerationAndPersistence)
 		if (!restoredTransitionSteps.containsAll(preTeardownSteps)) {
 			return invalidRestorationResource()
 		}
 
-		val result = synchronized(teardownOwnershipLock) {
-			val teardownResult = restoreTransitionStep(
-				ReaderPageTurnBundleRestorationStep.Teardown
-			) {
+		val teardownResult = synchronized(teardownOwnershipLock) {
+			restoreTransitionStep(ReaderPageTurnBundleRestorationStep.Teardown) {
 				teardownOwnership.restoreAfterTransitionActivation(domain)
 			}
-			if (teardownResult != ReaderPortCommandResult.Accepted) {
-				return@synchronized invalidRestorationResource()
-			}
+		}
+		if (teardownResult != ReaderPortCommandResult.Accepted) return invalidRestorationResource()
+		val generationResult = restoreTransitionStep(ReaderPageTurnBundleRestorationStep.RasterGenerationAndPersistence) {
+			restoreRasterGenerationAndPersistenceOwnership(domain)
+		}
+		if (generationResult != ReaderPortCommandResult.Accepted) return generationResult
+		val result = synchronized(teardownOwnershipLock) {
+			if (closed) return@synchronized invalidRestorationResource()
 			frozenSnapshotCacheDomain = null
 			restorationProgressDomain = null
 			restoredTransitionSteps.clear()
 			ReaderPortCommandResult.Accepted
 		}
 		if (result == ReaderPortCommandResult.Accepted) {
+			resumeRasterGenerationAndPersistenceRequests()
 			clearClosedRasterReferencesIfSettled()
 		}
 		return result
@@ -2027,9 +2194,10 @@ internal class ReaderPageTurnBundleSource(
 			)
 
 	suspend fun initializeRasterCache(webView: WebView) {
+		val restart = WeakReference(webView)
 		withContext(Dispatchers.Main.immediate) {
 			requireRasterInitializationOpen()
-			rasterScheduler(webView)
+			rasterScheduler(webView, restart)
 		}
 	}
 
@@ -4377,166 +4545,29 @@ internal class ReaderPageTurnBundleSource(
 					persistentDescriptor
 				)
 				val key = persistentDescriptor.key(snapshot.key.bitmapQuality)
-				val persistentBitmap = runCatching {
-					snapshot.bitmap.copy(Bitmap.Config.ARGB_8888, false)
-				}.getOrNull()
-				if (persistentBitmap == null) {
-					rasterPersistenceSkipped(
-						pageIndex,
-						"bitmap-copy-failed",
-						generation
+				val request = ReaderRasterPersistenceRequest(
+					ReaderRasterPersistenceRestartContract(
+						snapshot = WeakReference(snapshot),
+						webView = WeakReference(webView),
+						key = key,
+						metadata = snapshot.toRasterMetadata(),
+						captureMillis = snapshot.captureMillis.coerceAtLeast(0L),
+						priority = priority,
+						generation = generation,
+						physicalLayoutEpoch = physicalLayoutEpoch,
+						mutationGeneration = mutationGeneration,
+						isStillCurrent = isStillCurrent,
+						onPersisted = onPersisted
 					)
-					onPersisted(failedCompletion)
-					return@callback
-				}
-				val rasterGeneration = ReaderPageRasterGeneration(
-					metadata = snapshot.toRasterMetadata(),
-					value = persistentBitmap,
-					captureMillis = snapshot.captureMillis.coerceAtLeast(0L)
 				)
-				val persistenceJob = rasterScope.launch {
-					var publicationValueTransferred = false
-					try {
-						val scheduler = rasterScheduler(webView)
-						if (
-							closed ||
-							!runCatching(isStillCurrent).getOrDefault(false) ||
-							generation != activeGeneration ||
-							physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get()
-						) {
-							rasterPersistenceSkipped(
-								pageIndex,
-								"generation-or-physical-layout-changed",
-								generation
-							)
-							onPersisted(failedCompletion)
-							return@launch
-						}
-						scheduler.activateProfile(key.profile)
-						stageEncodedWindowProtection(key.profile)
-						val protectedCenter = protectedEncodedCenterPageIndex
-						if (protectedCenter != null && protectedEncodedPageIndices.isNotEmpty()) {
-							scheduler.protectEncodedWindow(
-								profile = key.profile,
-								centerPageOrdinal = protectedCenter,
-								pinnedPageOrdinals = protectedEncodedPageIndices
-							)
-						}
-						val value = ReaderPageRasterPublicationValue(
-							key = key,
-							generation = rasterGeneration
-						)
-						val publicationEpoch = publicationLedger.currentEpoch()
-						val publicationRequest = ReaderPageRasterPublicationRequest(
-							digest = key.digest,
-							epoch = publicationEpoch,
-							mutationGeneration = mutationGeneration
-						)
-						val publicationStartedAt = diagnostics?.now() ?: 0L
-						val persistenceAttemptId = ReaderPagePersistenceAttemptId(
-							persistenceAttemptIds.incrementAndGet()
-						)
-						var publicationQaFaultCorrelation:
-							ReaderPageQaFaultCorrelation? = null
-						val registration = publicationLedger.begin(
-							digest = key.digest,
-							value = value,
-							mutationGeneration = mutationGeneration
-						) { persisted ->
-							val publicationCompletion = when {
-								persisted -> ReaderPageRasterPublicationCompletion(
-									ReaderPageRasterPublicationResult.Durable
-								)
-								closed || publicationEpoch != publicationLedger.currentEpoch() ->
-									failedCompletion
-								else -> publicationCompletionResults[publicationRequest]
-									?: failedCompletion
-							}
-							val publicationResult = publicationCompletion.result
-							diagnostics?.publication(
-								digest = key.digest,
-								rasterEpoch = publicationEpoch,
-								persistenceAttemptId = persistenceAttemptId,
-								result = when {
-									persisted -> ReaderPagePublicationDiagnosticResult.Durable
-									closed -> ReaderPagePublicationDiagnosticResult.Cancelled
-									publicationEpoch != publicationLedger.currentEpoch() ->
-										ReaderPagePublicationDiagnosticResult.Stale
-									publicationResult ==
-										ReaderPageRasterPublicationResult.CapacityReached ->
-										ReaderPagePublicationDiagnosticResult.CapacityReached
-									else -> ReaderPagePublicationDiagnosticResult.Failed
-								},
-								startedAtMs = publicationStartedAt,
-								qaFaultCorrelation = publicationQaFaultCorrelation
-							)
-							publicationQaFaultCorrelation
-								?.takeIf { correlation ->
-									correlation.relation == ReaderPageQaFaultRelation.Retry &&
-										persistenceRetryCorrelations[key.digest]
-											?.requestId == correlation.requestId
-								}
-								?.let { persistenceRetryCorrelations.remove(key.digest) }
-							if (publicationResult == ReaderPageRasterPublicationResult.Failed) {
-								rasterPersistenceSkipped(
-									pageIndex,
-									"durable-publication-failed",
-									generation
-								)
-							}
-							onPersisted(publicationCompletion)
-						}
-						publicationQaFaultCorrelation =
-							readerPageRasterPublicationRetryCorrelation(
-								registration,
-								persistenceRetryCorrelations[key.digest]
-							)
-						publicationValueTransferred = true
-						when (registration) {
-							is ReaderPageRasterPublicationRegistration.Started -> {
-								scheduleRasterPublication(
-									request = registration.request,
-									physicalLayoutEpoch = physicalLayoutEpoch,
-									persistenceAttemptId = persistenceAttemptId,
-									isStillCurrent = isStillCurrent,
-									onQaFaultApplied = { correlation ->
-										publicationQaFaultCorrelation = correlation
-									}
-								)
-							}
-							is ReaderPageRasterPublicationRegistration.Coalesced ->
-								Unit
-							is ReaderPageRasterPublicationRegistration.Rejected ->
-								rasterPersistenceSkipped(
-									pageIndex,
-									"publication-${
-										registration.reason.name.lowercase()
-									}",
-									generation
-								)
-						}
-					} catch (failure: CancellationException) {
-						if (!publicationValueTransferred) {
-							onPersisted(failedCompletion)
-						}
-						throw failure
-					} catch (failure: Throwable) {
-						publicationLedger.recordFailure(failure)
-						rasterPersistenceSkipped(
-							pageIndex,
-							"publication-initialization-failed",
-							generation
-						)
-						if (!publicationValueTransferred) {
-							onPersisted(failedCompletion)
-						}
-					} finally {
-						if (!publicationValueTransferred) {
-							ReaderAndroidPageRasterCodec.release(persistentBitmap)
-						}
-					}
+				val admitted = synchronized(rasterInitializationFenceLock) {
+					// A claimed pre-fence descriptor carries logical demand, not new physical work.
+					if (closed ||
+						rasterPersistenceRequests.size >= ReaderPageMaximumPublicationCallbacks
+					) false else rasterPersistenceRequests.add(request)
 				}
-				trackRasterPersistenceJob(persistenceJob)
+				if (admitted) launchRasterPersistenceRequest(request)
+				else onPersisted(failedCompletion)
 			} finally {
 				pendingDescriptorOwners.complete(claimedOwner)
 			}
@@ -4559,6 +4590,272 @@ internal class ReaderPageTurnBundleSource(
 				if (reportingFailure !== failure) failure.addSuppressed(reportingFailure)
 			}
 			publicationLedger.recordFailure(failure)
+		}
+	}
+
+	private fun completeRasterPersistenceRequest(
+		request: ReaderRasterPersistenceRequest,
+		completion: ReaderPageRasterPublicationCompletion
+	) {
+		val deliver = synchronized(rasterInitializationFenceLock) {
+			when {
+				request.completed -> false
+				!closed && (frozenSnapshotCacheDomain != null || rasterGenerationAndPersistenceOwnership.isFrozen) -> {
+					request.restartRequired = true
+					false
+				}
+				else -> {
+					request.completed = true
+					request.restartRequired = false
+					rasterPersistenceRequests.remove(request)
+					true
+				}
+			}
+		}
+		if (deliver) {
+			try {
+				request.contract.onPersisted(completion)
+			} catch (failure: Throwable) {
+				publicationLedger.recordFailure(failure)
+			}
+		}
+	}
+
+	private fun launchRasterPersistenceRequest(request: ReaderRasterPersistenceRequest) {
+		val control = ReaderRasterGenerationPersistenceJobControl()
+		val owner = synchronized(rasterInitializationFenceLock) {
+			if (request.completed || request.attemptActive || closed) return
+			if (frozenSnapshotCacheDomain != null || rasterGenerationAndPersistenceOwnership.isFrozen) {
+				request.restartRequired = true
+				return
+			}
+			rasterGenerationAndPersistenceOwnership.admit(
+				ReaderExactPhysicalOwnerDescriptor(
+					kind = ReaderTransitionResourceKind.Raster,
+					origin = ReaderLegacyResourceOrigin.Pending,
+					state = ReaderLegacyResourceState.Reserved
+				),
+				control::cancel
+			)?.also {
+				request.attemptActive = true
+				request.restartRequired = false
+				rasterPersistenceAttempts.add(control)
+			}
+		} ?: return
+		val failedCompletion = ReaderPageRasterPublicationCompletion(ReaderPageRasterPublicationResult.Failed)
+		var job: Job? = null
+		fun settle() {
+			control.settle { bitmap, transferred ->
+				try {
+					bitmap?.let(ReaderAndroidPageRasterCodec::release)
+					if (!transferred) completeRasterPersistenceRequest(request, failedCompletion)
+				} finally {
+					synchronized(rasterInitializationFenceLock) {
+						request.attemptActive = false
+						rasterPersistenceAttempts.remove(control)
+					}
+					synchronized(rasterPersistenceJobLock) { job?.let(rasterPersistenceJobs::remove) }
+					rasterGenerationAndPersistenceOwnership.complete(owner)
+				}
+			}
+		}
+		try {
+			val contract = request.contract
+			val snapshot = contract.snapshot.get()
+			if (snapshot == null || snapshot.bitmap.isRecycled ||
+				contract.generation != activeGeneration ||
+				contract.physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get() ||
+				!runCatching(contract.isStillCurrent).getOrDefault(false)
+			) {
+				settle()
+				return
+			}
+			if (!synchronized(rasterInitializationFenceLock) { rasterInitializationIsOpen() }) {
+				settle()
+				return
+			}
+			val bitmap = snapshot.bitmap.copy(Bitmap.Config.ARGB_8888, false)
+				?: throw IllegalStateException("Raster persistence bitmap copy failed")
+			control.own(bitmap)
+			val value = ReaderPageRasterGeneration(contract.metadata, bitmap, contract.captureMillis)
+			val launched = rasterScope.launch(start = CoroutineStart.LAZY) {
+				val entered = synchronized(rasterInitializationFenceLock) {
+					rasterInitializationIsOpen() && rasterGenerationAndPersistenceOwnership
+						.updateState(owner, ReaderLegacyResourceState.Running)
+				}
+				if (!entered) return@launch
+				runRasterPersistenceRequest(request, value, control)
+			}
+			job = launched
+			trackRasterPersistenceJob(launched) { settle() }
+			control.attach(launched)
+			onOwnershipMutated()
+			if (synchronized(rasterInitializationFenceLock) { rasterInitializationIsOpen() }) {
+				launched.start()
+			} else {
+				launched.cancel()
+			}
+		} catch (failure: Throwable) {
+			publicationLedger.recordFailure(failure)
+			val failedJob = job
+			if (failedJob == null) settle()
+			else {
+				failedJob.cancel()
+				if (failedJob.isCompleted) settle()
+			}
+		}
+	}
+
+	private suspend fun runRasterPersistenceRequest(
+		request: ReaderRasterPersistenceRequest,
+		rasterGeneration: ReaderPageRasterGeneration<Bitmap>,
+		control: ReaderRasterGenerationPersistenceJobControl
+	) {
+		val contract = request.contract
+		val webView = contract.webView.get() ?: return
+		val key = contract.key
+		val pageIndex = key.visualPageOrdinal
+		val generation = contract.generation
+		val physicalLayoutEpoch = contract.physicalLayoutEpoch
+		val mutationGeneration = contract.mutationGeneration
+		val isStillCurrent = contract.isStillCurrent
+		val failedCompletion = ReaderPageRasterPublicationCompletion(ReaderPageRasterPublicationResult.Failed)
+		var publicationValueTransferred = false
+		try {
+			val scheduler = rasterScheduler(webView)
+			if (
+				closed ||
+				!runCatching(isStillCurrent).getOrDefault(false) ||
+				generation != activeGeneration ||
+				physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get()
+			) {
+				rasterPersistenceSkipped(
+					pageIndex,
+					"generation-or-physical-layout-changed",
+					generation
+				)
+				completeRasterPersistenceRequest(request, failedCompletion)
+				return
+			}
+			scheduler.activateProfile(key.profile)
+			stageEncodedWindowProtection(key.profile)
+			val protectedCenter = protectedEncodedCenterPageIndex
+			if (protectedCenter != null && protectedEncodedPageIndices.isNotEmpty()) {
+				scheduler.protectEncodedWindow(
+					profile = key.profile,
+					centerPageOrdinal = protectedCenter,
+					pinnedPageOrdinals = protectedEncodedPageIndices
+				)
+			}
+			val value = ReaderPageRasterPublicationValue(
+				key = key,
+				generation = rasterGeneration
+			)
+			val publicationEpoch = publicationLedger.currentEpoch()
+			val publicationRequest = ReaderPageRasterPublicationRequest(
+				digest = key.digest,
+				epoch = publicationEpoch,
+				mutationGeneration = mutationGeneration
+			)
+			val publicationStartedAt = diagnostics?.now() ?: 0L
+			val persistenceAttemptId = ReaderPagePersistenceAttemptId(
+				persistenceAttemptIds.incrementAndGet()
+			)
+			var publicationQaFaultCorrelation:
+				ReaderPageQaFaultCorrelation? = null
+			val registration = publicationLedger.begin(
+				digest = key.digest,
+				value = value,
+				mutationGeneration = mutationGeneration
+			) { persisted ->
+				val publicationCompletion = when {
+					persisted -> ReaderPageRasterPublicationCompletion(
+						ReaderPageRasterPublicationResult.Durable
+					)
+					closed || publicationEpoch != publicationLedger.currentEpoch() ->
+						failedCompletion
+					else -> publicationCompletionResults[publicationRequest]
+						?: failedCompletion
+				}
+				val publicationResult = publicationCompletion.result
+				diagnostics?.publication(
+					digest = key.digest,
+					rasterEpoch = publicationEpoch,
+					persistenceAttemptId = persistenceAttemptId,
+					result = when {
+						persisted -> ReaderPagePublicationDiagnosticResult.Durable
+						closed -> ReaderPagePublicationDiagnosticResult.Cancelled
+						publicationEpoch != publicationLedger.currentEpoch() ->
+							ReaderPagePublicationDiagnosticResult.Stale
+						publicationResult ==
+							ReaderPageRasterPublicationResult.CapacityReached ->
+							ReaderPagePublicationDiagnosticResult.CapacityReached
+						else -> ReaderPagePublicationDiagnosticResult.Failed
+					},
+					startedAtMs = publicationStartedAt,
+					qaFaultCorrelation = publicationQaFaultCorrelation
+				)
+				publicationQaFaultCorrelation
+					?.takeIf { correlation ->
+						correlation.relation == ReaderPageQaFaultRelation.Retry &&
+							persistenceRetryCorrelations[key.digest]
+								?.requestId == correlation.requestId
+					}
+					?.let { persistenceRetryCorrelations.remove(key.digest) }
+				if (publicationResult == ReaderPageRasterPublicationResult.Failed) {
+					rasterPersistenceSkipped(
+						pageIndex,
+						"durable-publication-failed",
+						generation
+					)
+				}
+				completeRasterPersistenceRequest(request, publicationCompletion)
+			}
+			publicationQaFaultCorrelation =
+				readerPageRasterPublicationRetryCorrelation(
+					registration,
+					persistenceRetryCorrelations[key.digest]
+				)
+			publicationValueTransferred = true
+			control.transfer()
+			when (registration) {
+				is ReaderPageRasterPublicationRegistration.Started -> {
+					scheduleRasterPublication(
+						request = registration.request,
+						physicalLayoutEpoch = physicalLayoutEpoch,
+						persistenceAttemptId = persistenceAttemptId,
+						isStillCurrent = isStillCurrent,
+						onQaFaultApplied = { correlation ->
+							publicationQaFaultCorrelation = correlation
+						}
+					)
+				}
+				is ReaderPageRasterPublicationRegistration.Coalesced ->
+					Unit
+				is ReaderPageRasterPublicationRegistration.Rejected ->
+					rasterPersistenceSkipped(
+						pageIndex,
+						"publication-${
+							registration.reason.name.lowercase()
+						}",
+						generation
+					)
+			}
+		} catch (failure: CancellationException) {
+			if (!publicationValueTransferred) {
+				completeRasterPersistenceRequest(request, failedCompletion)
+			}
+			throw failure
+		} catch (failure: Throwable) {
+			publicationLedger.recordFailure(failure)
+			rasterPersistenceSkipped(
+				pageIndex,
+				"publication-initialization-failed",
+				generation
+			)
+			if (!publicationValueTransferred) {
+				completeRasterPersistenceRequest(request, failedCompletion)
+			}
 		}
 	}
 
@@ -4720,84 +5017,135 @@ internal class ReaderPageTurnBundleSource(
 		)
 	}
 
-	private fun trackRasterPersistenceJob(job: Job) {
+	private fun trackRasterPersistenceJob(
+		job: Job,
+		onSettled: () -> Unit
+	) {
 		synchronized(rasterPersistenceJobLock) {
 			rasterPersistenceJobs += job
 		}
 		job.invokeOnCompletion {
-			synchronized(rasterPersistenceJobLock) {
-				rasterPersistenceJobs -= job
+			try {
+				onSettled()
+			} finally {
+				synchronized(rasterPersistenceJobLock) {
+					rasterPersistenceJobs -= job
+				}
 			}
 		}
 	}
 
-	private suspend fun rasterScheduler(webView: WebView): ReaderPageRasterScheduler<Bitmap> =
-		rasterInitializationMutex.withLock {
-			rasterScheduler?.let { return@withLock it }
-			var cache: ReaderPageRasterCache<Bitmap>? = null
-			var store: ReaderPageRasterCacheStore<Bitmap>? = null
-			var scheduler: ReaderPageRasterScheduler<Bitmap>? = null
-			try {
-				requireRasterInitializationOpen()
-				withContext(Dispatchers.IO) {
-					ReaderPageRasterCache(
-						root = readerPageRasterStorageRoot(webView.context.applicationContext),
-						codec = ReaderAndroidPageRasterCodec,
-						onDiagnostic = { diagnostic ->
-							Logger.w(ReaderPageTurnBundleSourceTag, "Page raster cache $diagnostic")
-						},
-						onOwnershipMutated = onOwnershipMutated,
-						ownershipTokenAllocator = storeAndCacheOwnershipTokenAllocator
-					).also { created -> cache = created }
-				}
-				requireRasterInitializationOpen()
-				val createdCache = checkNotNull(cache)
-				val createdStore = ReaderPageRasterCacheStore(
-					createdCache,
-					storeAndCacheOwnershipTokenAllocator
-				)
-				store = createdStore
-				val createdScheduler = ReaderPageRasterScheduler(
-					scope = rasterScope,
-					store = createdStore,
-					generator = ReaderPageRasterGenerator { null },
-					release = ReaderAndroidPageRasterCodec::release
-				)
-				scheduler = createdScheduler
-				requireRasterInitializationOpen()
-				createdCache.protectDecodedPageIndices(protectedSnapshotPageIndices)
-				val protectedCenter = protectedEncodedCenterPageIndex
-				val protectedProfile = protectedEncodedProfile
-				if (
-					protectedCenter != null &&
-					protectedProfile != null &&
-					protectedEncodedPageIndices.isNotEmpty()
-				) {
-					createdCache.stageEncodedWindowProtection(
-						profile = protectedProfile,
-						centerPageOrdinal = protectedCenter,
-						pinnedPageOrdinals = protectedEncodedPageIndices
-					)
-				}
-				rasterCache = createdCache
-				persistentStore = createdStore
-				rasterScheduler = createdScheduler
-					onOwnershipMutated()
-				createdScheduler
-			} catch (failure: Throwable) {
-				closeUnpublishedRasterOwners(
-					cache = cache,
-					store = store,
-					scheduler = scheduler,
-					failure = failure
-				)
-				throw failure
-			}
+	private suspend fun rasterScheduler(
+		webView: WebView,
+		restartInitialization: WeakReference<WebView>? = null
+	): ReaderPageRasterScheduler<Bitmap> {
+		val initializationJob = checkNotNull(currentCoroutineContext()[Job]) {
+			"Raster persistence initialization requires a coroutine job"
 		}
+		val initializationOwner = rasterGenerationAndPersistenceOwnership.admit(
+			ReaderExactPhysicalOwnerDescriptor(
+				kind = ReaderTransitionResourceKind.Raster,
+				origin = ReaderLegacyResourceOrigin.Pending,
+				state = ReaderLegacyResourceState.Reserved
+			),
+			cancelPhysical = {
+				initializationJob.cancel()
+				true
+			}
+		) ?: throw CancellationException("Raster persistence initialization is frozen")
+		return try {
+			rasterInitializationMutex.withLock {
+				requireRasterInitializationOpen()
+				rasterScheduler?.let { return@withLock it }
+				var cache: ReaderPageRasterCache<Bitmap>? = null
+				var store: ReaderPageRasterCacheStore<Bitmap>? = null
+				var scheduler: ReaderPageRasterScheduler<Bitmap>? = null
+				try {
+					requireRasterInitializationOpen()
+					withContext(rasterInitializationDispatcher) {
+						synchronized(rasterInitializationFenceLock) {
+							requireRasterInitializationOpen()
+							check(rasterGenerationAndPersistenceOwnership.updateState(
+								initializationOwner, ReaderLegacyResourceState.Running
+							)) { "Raster persistence initialization lost physical ownership" }
+						}
+						ReaderPageRasterCache(
+							root = readerPageRasterStorageRoot(webView.context.applicationContext),
+							codec = ReaderAndroidPageRasterCodec,
+							onDiagnostic = { diagnostic ->
+								Logger.w(ReaderPageTurnBundleSourceTag, "Page raster cache $diagnostic")
+							},
+							onOwnershipMutated = onOwnershipMutated,
+							ownershipTokenAllocator = storeAndCacheOwnershipTokenAllocator
+						).also { created -> cache = created }
+					}
+					requireRasterInitializationOpen()
+					val createdCache = checkNotNull(cache)
+					val createdStore = ReaderPageRasterCacheStore(
+						createdCache,
+						storeAndCacheOwnershipTokenAllocator
+					)
+					store = createdStore
+					val createdScheduler = ReaderPageRasterScheduler(
+						scope = rasterScope,
+						store = createdStore,
+						generator = ReaderPageRasterGenerator { null },
+						release = ReaderAndroidPageRasterCodec::release,
+						tokenAllocator = rasterGenerationAndPersistenceOwnershipTokenAllocator
+					)
+					scheduler = createdScheduler
+					requireRasterInitializationOpen()
+					createdCache.protectDecodedPageIndices(protectedSnapshotPageIndices)
+					val protectedCenter = protectedEncodedCenterPageIndex
+					val protectedProfile = protectedEncodedProfile
+					if (
+						protectedCenter != null &&
+						protectedProfile != null &&
+						protectedEncodedPageIndices.isNotEmpty()
+					) {
+						createdCache.stageEncodedWindowProtection(
+							profile = protectedProfile,
+							centerPageOrdinal = protectedCenter,
+							pinnedPageOrdinals = protectedEncodedPageIndices
+						)
+					}
+					val published = synchronized(rasterInitializationFenceLock) {
+						requireRasterInitializationOpen()
+						rasterCache = createdCache
+						persistentStore = createdStore
+						rasterScheduler = createdScheduler
+						createdScheduler
+					}
+					onOwnershipMutated()
+					published
+				} catch (failure: Throwable) {
+					closeUnpublishedRasterOwners(
+						cache = cache,
+						store = store,
+						scheduler = scheduler,
+						failure = failure
+					)
+					throw failure
+				}
+			}
+		} finally {
+			synchronized(rasterInitializationFenceLock) {
+				if (!closed && restartInitialization != null && rasterGenerationAndPersistenceOwnership.isFrozen) {
+					rasterInitializationRestarts.add(restartInitialization)
+				}
+			}
+			rasterGenerationAndPersistenceOwnership.complete(initializationOwner)
+		}
+	}
+
+	private fun rasterInitializationIsOpen(): Boolean {
+		val fenced = synchronized(closeFenceLock) { closed }
+		return !fenced && frozenSnapshotCacheDomain == null &&
+			!rasterGenerationAndPersistenceOwnership.isFrozen && rasterJob.isActive
+	}
 
 	private fun requireRasterInitializationOpen() {
-		val fenced = synchronized(closeFenceLock) { closed }
-		if (fenced || !rasterJob.isActive) {
+		if (!rasterInitializationIsOpen()) {
 			throw CancellationException(
 				"Raster persistence initialization is closed"
 			)
@@ -5079,6 +5427,13 @@ internal class ReaderPageTurnBundleSource(
 			}
 		}
 		try {
+			val terminalRequests = synchronized(rasterInitializationFenceLock) {
+				rasterInitializationRestarts.clear()
+				rasterPersistenceRequests.filter { !it.attemptActive }
+			}
+			terminalRequests.forEach { request ->
+				captureCloseFailure { completeRasterPersistenceRequest(request, ReaderPageRasterPublicationCompletion(ReaderPageRasterPublicationResult.Failed)) }
+			}
 			if (frozen) captureCloseFailure(::invalidatePublications)
 			liveValidations.forEach { validation ->
 				captureCloseFailure { validation.cancel() }

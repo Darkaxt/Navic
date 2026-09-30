@@ -292,7 +292,26 @@ internal class ReaderPageRasterScheduler<T : Any>(
 		val profileGeneration: Long,
 		val result: CompletableDeferred<ReaderPageRasterScheduleResult>,
 		val activationToken: ReaderLegacySourceLocalOpaqueToken,
-		var activationDrainConfirmation: (() -> Unit)? = null
+		var activationDrainConfirmation: (() -> Unit)? = null,
+		var deliveringResult: Boolean = false
+	)
+
+	private sealed interface MaintenanceRequest {
+		data class RetainProfile(val profile: ReaderPageRasterProfile) : MaintenanceRequest
+		data class ProtectWindow(
+			val profile: ReaderPageRasterProfile,
+			val center: Int,
+			val pins: Set<Int>
+		) : MaintenanceRequest
+		data class ProtectChapter(val chapter: ReaderPageRasterChapterKey?) : MaintenanceRequest
+	}
+
+	private class MaintenanceWork(
+		val request: MaintenanceRequest,
+		val owner: ReaderExactPhysicalOwnerRegistry.Owner,
+		var dispatched: Boolean = false,
+		var settled: Boolean = false,
+		var drainRequested: Boolean = false
 	)
 
 	private data class RestartDescriptor(
@@ -310,7 +329,13 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	private var activeProfile: ReaderPageRasterProfile? = null
 	private var activeProfileGeneration = 0L
 	private var nextSequence = 0L
-	private var profilePendingRetention: ReaderPageRasterProfile? = null
+	private val maintenanceOwnership = ReaderExactPhysicalOwnerRegistry(
+		ReaderLegacyInventorySource.RasterGenerationAndPersistence,
+		tokenAllocator
+	)
+	private val maintenance = linkedSetOf<MaintenanceWork>()
+	private val maintenanceQueue = ArrayDeque<MaintenanceWork>()
+	private var profilePendingRetention: MaintenanceWork? = null
 	private var retainedWorkerFailure: Throwable? = null
 	private var activeWork: Work<T>? = null
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
@@ -318,6 +343,9 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	private val completedFrozen =
 		mutableMapOf<ReaderLegacySourceLocalOpaqueToken, RestartDescriptor>()
 	private var closed = false
+
+	val isFrozen: Boolean
+		get() = synchronized(lock) { frozenDomain != null }
 
 	private val workerJob = scope.launch {
 		try {
@@ -328,21 +356,19 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	}
 
 	fun activateProfile(profile: ReaderPageRasterProfile) {
+		var obsoleteRetention: MaintenanceWork? = null
 		val stale = synchronized(lock) {
 			if (closed || frozenDomain != null) return
 			if (activeProfile == profile) return
 			activeProfile = profile
 			activeProfileGeneration += 1L
-			profilePendingRetention = profile
+			obsoleteRetention = profilePendingRetention
+			profilePendingRetention = admitMaintenanceLocked(MaintenanceRequest.RetainProfile(profile))
 			val obsolete = queue.filter { work -> work.key.profile != profile }
 			queue.removeAll(obsolete.toSet())
-			obsolete.forEach { work ->
-				pending[work.key.digest]
-					?.takeIf { current -> current === work }
-					?.let { pending.remove(work.key.digest) }
-			}
 			obsolete
 		}
+		obsoleteRetention?.let(::completeMaintenance)
 		completeDetached(stale, ReaderPageRasterScheduleStatus.Stale)
 		wakeups.trySend(Unit)
 	}
@@ -350,54 +376,58 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	fun request(
 		key: ReaderPageRasterKey,
 		priority: ReaderPageRasterPriority
-	): Deferred<ReaderPageRasterScheduleResult> = synchronized(lock) {
-		if (closed || frozenDomain != null) {
-			return@synchronized CompletableDeferred(
-				ReaderPageRasterScheduleResult(
-					key,
-					ReaderPageRasterScheduleStatus.Stale
+	): Deferred<ReaderPageRasterScheduleResult> {
+		var wakeWorker = false
+		val result = synchronized(lock) {
+			if (closed || frozenDomain != null) {
+				return@synchronized CompletableDeferred(
+					ReaderPageRasterScheduleResult(
+						key,
+						ReaderPageRasterScheduleStatus.Stale
+					)
 				)
-			)
-		}
-		pending[key.digest]
-			?.takeIf { work -> work.key.identity == key.identity }
-			?.let { work ->
-				if (priority.rank < work.priority.rank && queue.remove(work)) {
-					work.priority = priority
-					queue.add(work)
-				}
-				return@synchronized work.result
 			}
-		if (activeProfile != key.profile) {
-			return@synchronized CompletableDeferred(
-				ReaderPageRasterScheduleResult(
-					key,
-					ReaderPageRasterScheduleStatus.Stale
+			pending[key.digest]
+				?.takeIf { work -> work.key.identity == key.identity }
+				?.let { work ->
+					if (priority.rank < work.priority.rank && queue.remove(work)) {
+						work.priority = priority
+						queue.add(work)
+					}
+					return@synchronized work.result
+				}
+			if (activeProfile != key.profile) {
+				return@synchronized CompletableDeferred(
+					ReaderPageRasterScheduleResult(
+						key,
+						ReaderPageRasterScheduleStatus.Stale
+					)
 				)
+			}
+			val work = Work<T>(
+				key = key,
+				priority = priority,
+				sequence = nextSequence++,
+				profileGeneration = activeProfileGeneration,
+				result = CompletableDeferred(),
+				activationToken = tokenAllocator.allocate()
 			)
+			pending[key.digest] = work
+			queue.add(work)
+			wakeWorker = true
+			work.result
 		}
-		val work = Work<T>(
-			key = key,
-			priority = priority,
-			sequence = nextSequence++,
-			profileGeneration = activeProfileGeneration,
-			result = CompletableDeferred(),
-			activationToken = tokenAllocator.allocate()
-		)
-		pending[key.digest] = work
-		queue.add(work)
-		wakeups.trySend(Unit)
-		work.result
+		if (wakeWorker) wakeups.trySend(Unit)
+		return result
 	}
 
 	fun freezeForTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult = synchronized(lock) {
+		// Closing rejects work and restoration, not inventory of unsettled physical tails.
 		when {
-			closed -> ReaderPortCommandResult.Rejected(
-				ReaderTransitionFailureReason.InvalidLegacyResource
-			)
 			frozenDomain == null -> {
+				maintenanceOwnership.freezeForTransitionActivation(domain)
 				frozenDomain = domain
 				ReaderPortCommandResult.Accepted
 			}
@@ -410,7 +440,7 @@ internal class ReaderPageRasterScheduler<T : Any>(
 
 	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> = synchronized(lock) {
 		val domain = frozenDomain ?: return@synchronized emptyList()
-		pending.values.distinctBy(Work<T>::activationToken).map { work ->
+		val pendingRows = pending.values.distinctBy(Work<T>::activationToken).map { work ->
 			ReaderFrozenLegacyResource(
 				freezeToken = domain.freezeToken,
 				physicalIdentity = ReaderLegacyPhysicalIdentity(
@@ -425,18 +455,37 @@ internal class ReaderPageRasterScheduler<T : Any>(
 				state = when {
 					work.activationDrainConfirmation != null ->
 						ReaderLegacyResourceState.ReleaseRequested
-					activeWork === work -> ReaderLegacyResourceState.Running
+					activeWork === work || work.deliveringResult -> ReaderLegacyResourceState.Running
 					else -> ReaderLegacyResourceState.Reserved
 				},
 				mayBeCommittedPredecessor = false
 			)
 		}
+		val completedRows = completedFrozen.keys.map { token ->
+			ReaderFrozenLegacyResource(
+				freezeToken = domain.freezeToken,
+				physicalIdentity = ReaderLegacyPhysicalIdentity(
+					domain = domain,
+					source = ReaderLegacyInventorySource.RasterGenerationAndPersistence,
+					sourceLocalToken = token
+				),
+				kind = ReaderTransitionResourceKind.Raster,
+				binding = null,
+				visibleOwner = null,
+				origin = ReaderLegacyResourceOrigin.Owned,
+				state = ReaderLegacyResourceState.Released,
+				mayBeCommittedPredecessor = false
+			)
+		}
+		pendingRows + completedRows + maintenanceOwnership.snapshotFrozenOwnership()
 	}
 
 	fun drainFrozenOwnership(
 		physicalIdentity: ReaderLegacyPhysicalIdentity,
 		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
 	): ReaderPortCommandResult {
+		val maintenanceResult = maintenanceOwnership.drainFrozenOwnership(physicalIdentity, onConfirmed)
+		if (maintenanceResult == ReaderPortCommandResult.Accepted) return maintenanceResult
 		var detached: Work<T>? = null
 		var completedBeforeDrain = false
 		val accepted = synchronized(lock) {
@@ -456,14 +505,9 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			val work = pending.values.firstOrNull { it.activationToken == token }
 				?: return@synchronized false
 			if (work.activationDrainConfirmation != null) return@synchronized false
-			if (activeWork === work) {
-				work.activationDrainConfirmation = { onConfirmed(physicalIdentity) }
-			} else {
+			work.activationDrainConfirmation = { onConfirmed(physicalIdentity) }
+			if (activeWork !== work && !work.deliveringResult) {
 				queue.remove(work)
-				pending[work.key.digest]
-					?.takeIf { it === work }
-					?.let { pending.remove(work.key.digest) }
-				restartDescriptors += RestartDescriptor(work.key, work.priority)
 				detached = work
 			}
 			true
@@ -472,17 +516,9 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			ReaderTransitionFailureReason.InvalidLegacyResource
 		)
 		if (completedBeforeDrain) {
-			onConfirmed(physicalIdentity)
+			runCatching { onConfirmed(physicalIdentity) }.onFailure(::recordWorkerFailure)
 		} else {
-			detached?.let { work ->
-				work.result.complete(
-					ReaderPageRasterScheduleResult(
-						work.key,
-						ReaderPageRasterScheduleStatus.Stale
-					)
-				)
-				onConfirmed(physicalIdentity)
-			}
+			detached?.let { complete(it, ReaderPageRasterScheduleStatus.Stale) }
 		}
 		return ReaderPortCommandResult.Accepted
 	}
@@ -492,35 +528,46 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	): ReaderPortCommandResult {
 		val restart = synchronized(lock) {
 			if (
+				closed ||
 				frozenDomain != domain ||
-				pending.values.any { it.activationDrainConfirmation != null }
+				pending.values.any { it.activationDrainConfirmation != null || it.deliveringResult } ||
+				maintenance.any { it.dispatched && !it.settled }
 			) return@synchronized null
+			if (maintenanceOwnership.restoreAfterTransitionActivation(domain) != ReaderPortCommandResult.Accepted) {
+				return@synchronized null
+			}
+			val maintenanceRestart = maintenance.filter { it.settled }.map { it.request }.filter { request ->
+				request !is MaintenanceRequest.RetainProfile || request.profile == activeProfile
+			}
+			maintenance.removeAll { it.settled }
 			frozenDomain = null
+			maintenanceRestart.forEach { request ->
+				admitMaintenanceLocked(request)?.let(maintenanceQueue::addLast)
+			}
+			completedFrozen.values.forEach { restartDescriptors += it }
 			completedFrozen.clear()
 			restartDescriptors.toList().also { restartDescriptors.clear() }
 		} ?: return ReaderPortCommandResult.Rejected(
 			ReaderTransitionFailureReason.InvalidLegacyResource
 		)
 		restart.forEach { descriptor -> request(descriptor.key, descriptor.priority) }
+		wakeups.trySend(Unit)
 		return ReaderPortCommandResult.Accepted
 	}
 
 	fun close() {
+		var staleMaintenance = emptyList<MaintenanceWork>()
 		val stale = synchronized(lock) {
 			if (closed) return
 			closed = true
 			activeProfile = null
 			activeProfileGeneration += 1L
 			profilePendingRetention = null
-			queue.toList().also { queued ->
-				queue.clear()
-				queued.forEach { work ->
-					pending[work.key.digest]
-						?.takeIf { current -> current === work }
-						?.let { pending.remove(work.key.digest) }
-				}
-			}
+			maintenanceQueue.clear()
+			staleMaintenance = maintenance.filter { !it.dispatched && !it.settled }
+			queue.toList().also { queue.clear() }
 		}
+		staleMaintenance.forEach(::completeMaintenance)
 		completeDetached(stale, ReaderPageRasterScheduleStatus.Stale)
 		wakeups.close()
 	}
@@ -550,31 +597,102 @@ internal class ReaderPageRasterScheduler<T : Any>(
 		centerPageOrdinal: Int,
 		pinnedPageOrdinals: Set<Int>
 	) {
-		withContext(ioDispatcher) {
-			store.protectEncodedWindow(profile, centerPageOrdinal, pinnedPageOrdinals)
-		}
+		val work = synchronized(lock) {
+			admitMaintenanceLocked(MaintenanceRequest.ProtectWindow(profile, centerPageOrdinal, pinnedPageOrdinals.toSet()))
+		} ?: return
+		runMaintenance(work)
 	}
 
 	suspend fun protectChapter(chapter: ReaderPageRasterChapterKey?) {
-		withContext(ioDispatcher) { store.protectChapter(chapter) }
+		val work = synchronized(lock) {
+			admitMaintenanceLocked(MaintenanceRequest.ProtectChapter(chapter))
+		} ?: return
+		runMaintenance(work)
+	}
+
+	private fun admitMaintenanceLocked(request: MaintenanceRequest): MaintenanceWork? {
+		if (closed || frozenDomain != null) return null
+		lateinit var work: MaintenanceWork
+		val owner = maintenanceOwnership.admit(
+			ReaderExactPhysicalOwnerDescriptor(
+				kind = ReaderTransitionResourceKind.Raster,
+				origin = ReaderLegacyResourceOrigin.Pending,
+				state = ReaderLegacyResourceState.Reserved
+			),
+			cancelPhysical = {
+				val completeNow = synchronized(lock) {
+					work.drainRequested = true
+					if (profilePendingRetention === work) profilePendingRetention = null
+					maintenanceQueue.remove(work)
+					!work.dispatched
+				}
+				if (completeNow) completeMaintenance(work)
+				true
+			}
+		) ?: return null
+		work = MaintenanceWork(request, owner)
+		maintenance += work
+		return work
+	}
+
+	private suspend fun runMaintenance(work: MaintenanceWork) {
+		val dispatched = synchronized(lock) {
+			if (work.settled || work.dispatched) return
+			if (closed || frozenDomain != null || work.drainRequested) false
+			else {
+				work.dispatched = true
+				maintenanceOwnership.updateState(work.owner, ReaderLegacyResourceState.Running)
+				true
+			}
+		}
+		if (!dispatched) {
+			completeMaintenance(work)
+			return
+		}
+		try {
+			withContext(ioDispatcher) {
+				val start = synchronized(lock) { !closed && frozenDomain == null && !work.drainRequested }
+				if (start) when (val request = work.request) {
+					is MaintenanceRequest.RetainProfile -> store.retainProfile(request.profile)
+					is MaintenanceRequest.ProtectWindow -> store.protectEncodedWindow(request.profile, request.center, request.pins)
+					is MaintenanceRequest.ProtectChapter -> store.protectChapter(request.chapter)
+				}
+			}
+		} catch (cancelled: CancellationException) {
+			throw cancelled
+		} catch (failure: Throwable) {
+			recordWorkerFailure(failure)
+		} finally {
+			completeMaintenance(work)
+		}
+	}
+
+	private fun completeMaintenance(work: MaintenanceWork) {
+		val complete = synchronized(lock) {
+			if (work.settled) false
+			else {
+				work.settled = true
+				if (frozenDomain == null) maintenance.remove(work)
+				true
+			}
+		}
+		if (complete) maintenanceOwnership.complete(work.owner)
 	}
 
 	private suspend fun drain() {
 		while (true) {
 			val retention = synchronized(lock) {
+				if (closed || frozenDomain != null) return
 				profilePendingRetention.also { profilePendingRetention = null }
+					?: maintenanceQueue.removeFirstOrNull()
 			}
 			if (retention != null) {
-				try {
-					withContext(ioDispatcher) { store.retainProfile(retention) }
-				} catch (cancelled: CancellationException) {
-					throw cancelled
-				} catch (failure: Throwable) {
-					recordWorkerFailure(failure)
-				}
+				runMaintenance(retention)
+				continue
 			}
 			val work = synchronized(lock) {
-				queue.poll()?.also { activeWork = it }
+				if (closed || frozenDomain != null) null
+				else queue.poll()?.also { activeWork = it }
 			} ?: return
 			process(work)
 		}
@@ -616,9 +734,10 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	private suspend fun processOwned(
 		work: Work<T>
 	): ReaderPageRasterScheduleStatus {
-		if (withContext(ioDispatcher) { store.contains(work.key) }) {
-			return ReaderPageRasterScheduleStatus.Cached
-		}
+		if (!isCurrent(work)) return ReaderPageRasterScheduleStatus.Stale
+		val cached = withContext(ioDispatcher) { isCurrent(work) && store.contains(work.key) }
+		if (!isCurrent(work)) return ReaderPageRasterScheduleStatus.Stale
+		if (cached) return ReaderPageRasterScheduleStatus.Cached
 		if (!isCurrent(work)) {
 			return ReaderPageRasterScheduleStatus.Stale
 		}
@@ -634,11 +753,11 @@ internal class ReaderPageRasterScheduler<T : Any>(
 				var completedWrite: ReaderPageRasterWriteResult? = null
 				try {
 					withContext(NonCancellable + ioDispatcher) {
-						completedWrite = store.write(
+						completedWrite = if (isCurrent(work)) store.write(
 							work.key,
 							generated.metadata,
 							generated.value
-						)
+						) else ReaderPageRasterWriteResult(false, ReaderPageRasterValueOwnership.Caller)
 					}
 				} catch (cancelled: CancellationException) {
 					if (completedWrite == null) throw cancelled
@@ -681,7 +800,7 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	}
 
 	private fun isCurrent(work: Work<T>): Boolean = synchronized(lock) {
-		work.activationDrainConfirmation == null &&
+		!closed && frozenDomain == null && work.activationDrainConfirmation == null &&
 			activeProfileGeneration == work.profileGeneration &&
 			activeProfile == work.key.profile
 	}
@@ -690,25 +809,30 @@ internal class ReaderPageRasterScheduler<T : Any>(
 		work: Work<T>,
 		status: ReaderPageRasterScheduleStatus
 	) {
-		val drainConfirmation = synchronized(lock) {
-			pending[work.key.digest]
-				?.takeIf { current -> current === work }
-				?.let { pending.remove(work.key.digest) }
-			if (activeWork === work) activeWork = null
-			if (frozenDomain != null) {
-				val descriptor = RestartDescriptor(work.key, work.priority)
-				if (work.activationDrainConfirmation != null) {
-					restartDescriptors += descriptor
-				} else {
-					completedFrozen[work.activationToken] = descriptor
-				}
-			}
-			work.activationDrainConfirmation.also {
-				work.activationDrainConfirmation = null
-			}
+		val deliveryStatus = synchronized(lock) {
+			if (work.deliveringResult) return
+			work.deliveringResult = true
+			if (closed || frozenDomain != null) ReaderPageRasterScheduleStatus.Stale else status
 		}
-		work.result.complete(ReaderPageRasterScheduleResult(work.key, status))
-		drainConfirmation?.invoke()
+		try {
+			work.result.complete(ReaderPageRasterScheduleResult(work.key, deliveryStatus))
+		} catch (failure: Throwable) {
+			recordWorkerFailure(failure)
+		} finally {
+			val drainConfirmation = synchronized(lock) {
+				pending[work.key.digest]
+					?.takeIf { current -> current === work }
+					?.let { pending.remove(work.key.digest) }
+				if (activeWork === work) activeWork = null
+				if (frozenDomain != null) {
+					val descriptor = RestartDescriptor(work.key, work.priority)
+					if (work.activationDrainConfirmation != null) restartDescriptors += descriptor
+					else completedFrozen[work.activationToken] = descriptor
+				}
+				work.activationDrainConfirmation.also { work.activationDrainConfirmation = null }
+			}
+			runCatching { drainConfirmation?.invoke() }.onFailure(::recordWorkerFailure)
+		}
 	}
 
 	private fun completePendingAfterWorkerExit() {
@@ -717,11 +841,12 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			activeProfile = null
 			activeProfileGeneration += 1L
 			profilePendingRetention = null
-			pending.values.toList().also {
-				pending.clear()
-				queue.clear()
-			}
+			maintenanceQueue.clear()
+			queue.clear()
+			pending.values.toList()
 		}
+		val staleMaintenance = synchronized(lock) { maintenance.filter { !it.dispatched && !it.settled } }
+		staleMaintenance.forEach(::completeMaintenance)
 		wakeups.close()
 		completeDetached(stale, ReaderPageRasterScheduleStatus.Stale)
 	}
@@ -730,14 +855,6 @@ internal class ReaderPageRasterScheduler<T : Any>(
 		work: List<Work<T>>,
 		status: ReaderPageRasterScheduleStatus
 	) {
-		work.forEach { item ->
-			try {
-				item.result.complete(
-					ReaderPageRasterScheduleResult(item.key, status)
-				)
-			} catch (failure: Throwable) {
-				recordWorkerFailure(failure)
-			}
-		}
+		work.forEach { complete(it, status) }
 	}
 }

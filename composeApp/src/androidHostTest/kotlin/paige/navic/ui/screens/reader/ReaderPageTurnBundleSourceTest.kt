@@ -1,6 +1,8 @@
 package paige.navic.ui.screens.reader
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -15,6 +17,7 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.View
 import android.widget.FrameLayout
+import java.io.File
 import java.lang.reflect.Proxy
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
@@ -24,10 +27,15 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
+import kotlin.coroutines.CoroutineContext
 import karacken.curl.PageSurfaceView
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -39,7 +47,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -50,6 +62,7 @@ import org.robolectric.annotation.Implements
 import org.robolectric.annotation.Resetter
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -1157,7 +1170,7 @@ class ReaderPageTurnBundleSourceTest {
 	}
 
 	@Test
-	fun bundleReportsExactlySevenConnectedSourcesIncludingTruthfulEmptyRows() = runTest {
+	fun bundleReportsExactlyEightConnectedSourcesIncludingTruthfulEmptyRows() = runTest {
 		val source = ReaderPageTurnBundleSource()
 		assertEquals(null, source.snapshotConnectedFrozenOwnership())
 		val domain = ReaderLegacyPhysicalDomain(45L, ReaderLegacyFreezeToken(46L))
@@ -1173,6 +1186,7 @@ class ReaderPageTurnBundleSourceTest {
 				ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback,
 				ReaderLegacyInventorySource.RasterHydration,
 				ReaderLegacyInventorySource.RasterPublication,
+				ReaderLegacyInventorySource.RasterGenerationAndPersistence,
 				ReaderLegacyInventorySource.RasterCaptureAndVisualState,
 				ReaderLegacyInventorySource.RasterLiveValidation,
 				ReaderLegacyInventorySource.RasterStoreAndCache
@@ -1186,6 +1200,773 @@ class ReaderPageTurnBundleSourceTest {
 		)
 		source.closeAndJoin()
 	}
+
+	@Test
+	fun frozenColdRasterInitializationCannotCreateLateOwners() = runTest {
+		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+		val webView = WebView(activity)
+		activity.setContentView(webView)
+		val source = ReaderPageTurnBundleSource()
+		val domain = ReaderLegacyPhysicalDomain(47L, ReaderLegacyFreezeToken(48L))
+		try {
+			assertEquals(
+				ReaderPortCommandResult.Accepted,
+				source.freezeForTransitionActivation(domain)
+			)
+			assertTrue(
+				assertNotNull(source.snapshotConnectedFrozenOwnership())
+					.single { it.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence }
+					.resources
+					.isEmpty()
+			)
+
+			assertFailsWith<CancellationException> {
+				runBlocking { source.initializeRasterCache(webView) }
+			}
+
+			assertTrue(
+				assertNotNull(source.snapshotConnectedFrozenOwnership())
+					.single { it.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence }
+					.resources
+					.isEmpty()
+			)
+			assertNull(bundleRasterScheduler(source))
+			assertNull(bundleRasterCache(source))
+			assertNull(bundlePersistentStore(source))
+			assertEquals(
+				ReaderPortCommandResult.Accepted,
+				source.restoreAfterTransitionActivation(domain)
+			)
+		} finally {
+			source.closeAndJoin()
+		}
+	}
+
+	@Test
+	fun frozenInFlightRasterInitializationIsDrainableBeforeItCanPublish() = runTest {
+		Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+		val webView = WebView(activity)
+		activity.setContentView(webView)
+		val source = ReaderPageTurnBundleSource()
+		val initializationMutex = rasterInitializationMutex(source)
+		val domain = ReaderLegacyPhysicalDomain(49L, ReaderLegacyFreezeToken(50L))
+		var initialization: Deferred<Unit>? = null
+		var mutexLocked = false
+		try {
+			withContext(Dispatchers.Main.immediate) {
+				initializationMutex.lock()
+				mutexLocked = true
+				initialization = async(start = CoroutineStart.UNDISPATCHED) {
+					source.initializeRasterCache(webView)
+				}
+				assertFalse(checkNotNull(initialization).isCompleted)
+				assertEquals(
+					ReaderPortCommandResult.Accepted,
+					source.freezeForTransitionActivation(domain)
+				)
+				val row = source.snapshotFrozenOwnership().single {
+					it.physicalIdentity.source ==
+						ReaderLegacyInventorySource.RasterGenerationAndPersistence
+				}
+				val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+				assertEquals(
+					ReaderPortCommandResult.Accepted,
+					source.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+				)
+				assertTrue(confirmations.isEmpty())
+				assertEquals(
+					ReaderPortCommandResult.Rejected(
+						ReaderTransitionFailureReason.InvalidLegacyResource
+					),
+					source.restoreAfterTransitionActivation(domain)
+				)
+
+				initializationMutex.unlock()
+				mutexLocked = false
+				val failure = try {
+					checkNotNull(initialization).await()
+					null
+				} catch (caught: Throwable) {
+					caught
+				}
+				assertTrue(failure is CancellationException)
+				assertEquals(listOf(row.physicalIdentity), confirmations)
+				assertNull(bundleRasterScheduler(source))
+				assertNull(bundleRasterCache(source))
+				assertNull(bundlePersistentStore(source))
+				assertEquals(
+					ReaderPortCommandResult.Accepted,
+					source.restoreAfterTransitionActivation(domain)
+				)
+			}
+		} finally {
+			if (mutexLocked) initializationMutex.unlock()
+			initialization?.cancel()
+			try {
+				source.closeAndJoin()
+			} finally {
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	@Test
+	fun activationBoundaryNativeMainCancellationRequiresLooperDeliveryBeforeTeardownCanSettle() = runTest {
+		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+		val webView = DeferredJavascriptWebView(activity)
+		activity.setContentView(webView)
+		layoutForCapture(webView)
+		var copiedBitmap: Bitmap? = null
+		lateinit var source: ReaderPageTurnBundleSource
+		source = ReaderPageTurnBundleSource(onOwnershipMutated = {
+			if (copiedBitmap == null) copiedBitmap = ownedPersistenceBitmap(source)
+		})
+		val mutex = rasterInitializationMutex(source)
+		val snapshot = assertNotNull(source.cacheCurrentSnapshot(2, ReaderPageTurnTransitionKind.PortraitSlide, captureResult(), persist = false))
+		val completions = mutableListOf<ReaderPageRasterPublicationCompletion>()
+		val confirmations = Collections.synchronizedList(mutableListOf<ReaderLegacyPhysicalIdentity>())
+		var locked = false
+		try {
+			source.hydrateSnapshotWithDurability(webView, 2, snapshot.key.kind, snapshot) { it?.snapshot?.release() }
+			mutex.lock()
+			locked = true
+			source.ensurePersistentSnapshot(snapshot, paige.navic.reader.ReaderPageRasterPriority.Current, onPersisted = completions::add)
+			webView.completeNextJavascript(persistenceDescriptorJson(2))
+			val domain = ReaderLegacyPhysicalDomain(125L, ReaderLegacyFreezeToken(126L))
+			source.freezeForTransitionActivation(domain)
+			val rows = source.snapshotFrozenOwnership().filter {
+				it.physicalIdentity.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence
+			}
+			assertEquals(2, rows.size)
+			withContext(Dispatchers.Default) {
+				rows.forEach { row ->
+					assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(row.physicalIdentity, confirmations::add))
+				}
+			}
+			assertTrue(confirmations.isEmpty())
+			assertFalse(checkNotNull(copiedBitmap).isRecycled)
+			val closing = source.close()
+			assertFalse(closing.isCompleted)
+			org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+			assertTrue(checkNotNull(copiedBitmap).isRecycled)
+			assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+			assertEquals(listOf(ReaderPageRasterPublicationCompletion(ReaderPageRasterPublicationResult.Failed)), completions)
+			mutex.unlock()
+			locked = false
+			closing.await()
+			teardownCompletionJob(source).join()
+		} finally {
+			if (locked) mutex.unlock()
+			val closing = source.close()
+			org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+			closing.await()
+		}
+	}
+
+	@Test
+	fun activationBoundaryLauncherEligibilityFreezeReplaysWithoutPoisoningClose() = runTest {
+		Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+		val webView = DeferredJavascriptWebView(activity)
+		activity.setContentView(webView)
+		layoutForCapture(webView)
+		val source = ReaderPageTurnBundleSource()
+		val snapshot = assertNotNull(source.cacheCurrentSnapshot(2, ReaderPageTurnTransitionKind.PortraitSlide, captureResult(), persist = false))
+		val domain = ReaderLegacyPhysicalDomain(143L, ReaderLegacyFreezeToken(144L))
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		val completions = mutableListOf<ReaderPageRasterPublicationCompletion>()
+		val completed = CompletableDeferred<Unit>()
+		var eligibilityCalls = 0
+		var closeOutcome: Result<Unit>? = null
+		try {
+			source.hydrateSnapshotWithDurability(webView, 2, snapshot.key.kind, snapshot) { it?.snapshot?.release() }
+			source.ensurePersistentSnapshot(snapshot, paige.navic.reader.ReaderPageRasterPriority.Current, isStillCurrent = {
+				eligibilityCalls += 1
+				if (eligibilityCalls == 3) {
+					assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain))
+					val rows = source.snapshotFrozenOwnership().filter {
+						it.physicalIdentity.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence ||
+							it.physicalIdentity.source == ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback
+					}
+					assertEquals(2, rows.size)
+					assertNull(ownedPersistenceBitmap(source))
+					rows.forEach { assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(it.physicalIdentity, confirmations::add)) }
+					assertTrue(confirmations.isEmpty(), "Launcher/descriptor tail confirmed on the third eligibility stack")
+					assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.restoreAfterTransitionActivation(domain))
+				}
+				true
+			}) {
+				completions += it
+				completed.complete(Unit)
+			}
+			webView.completeNextJavascript(persistenceDescriptorJson(2))
+			assertEquals(3, eligibilityCalls)
+			assertEquals(2, confirmations.size)
+			assertTrue(completions.isEmpty())
+			assertEquals(0, bundlePersistenceJobCount(source))
+			assertNull(ownedPersistenceBitmap(source))
+			assertEquals(ReaderPortCommandResult.Accepted, source.restoreAfterTransitionActivation(domain))
+			completed.await()
+			assertEquals(listOf(ReaderPageRasterPublicationCompletion(ReaderPageRasterPublicationResult.Durable)), completions)
+			val key = assertNotNull(readerPageRasterDescriptor(persistenceDescriptorJson(2))).key(snapshot.key.bitmapQuality)
+			assertTrue(assertNotNull(bundlePersistentStore(source)).contains(key))
+			assertEquals(0, webView.pendingJavascriptCount)
+			val closing = source.close()
+			runCurrent()
+			val outcome = runCatching { closing.await() }
+			closeOutcome = outcome
+			teardownCompletionJob(source).join()
+			assertNull(outcome.exceptionOrNull(), "Normal launcher freeze/replay retained a PublicationDispatch failure through close")
+			assertNull(publicationLedger(source).dispatchFailure())
+			assertEquals(1, completions.size)
+		} finally {
+			val closing = source.close()
+			runCurrent()
+			try {
+				if (closeOutcome == null) closing.await()
+				teardownCompletionJob(source).join()
+			} finally {
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	@Test
+	fun activationBoundaryPersistenceFreezeAloneFencesLaunchAndQueuedRunningEntry() = runTest {
+		assertPersistenceFreezeAlone(freezeFromOwnershipObserver = false)
+		assertPersistenceFreezeAlone(freezeFromOwnershipObserver = true)
+	}
+
+	private suspend fun kotlinx.coroutines.test.TestScope.assertPersistenceFreezeAlone(
+		freezeFromOwnershipObserver: Boolean
+	) {
+		Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+		val webView = DeferredJavascriptWebView(activity)
+		activity.setContentView(webView)
+		layoutForCapture(webView)
+		val page = if (freezeFromOwnershipObserver) 3 else 2
+		val domain = ReaderLegacyPhysicalDomain(147L, ReaderLegacyFreezeToken(if (freezeFromOwnershipObserver) 149L else 148L))
+		var copiedBitmap: Bitmap? = null
+		var lazyJob: Job? = null
+		lateinit var source: ReaderPageTurnBundleSource
+		source = ReaderPageTurnBundleSource(onOwnershipMutated = {
+			val bitmap = ownedPersistenceBitmap(source)
+			if (copiedBitmap == null && bitmap != null) {
+				copiedBitmap = bitmap
+				lazyJob = (ReaderPageTurnBundleSource::class.java.getDeclaredField("rasterPersistenceJobs")
+					.apply { isAccessible = true }.get(source) as Set<*>).single() as Job
+				if (freezeFromOwnershipObserver) {
+					assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain))
+				}
+			}
+		})
+		val snapshot = assertNotNull(source.cacheCurrentSnapshot(page, ReaderPageTurnTransitionKind.PortraitSlide, captureResult(), persist = false))
+		val completions = mutableListOf<ReaderPageRasterPublicationCompletion>()
+		val completed = CompletableDeferred<Unit>()
+		try {
+			source.hydrateSnapshotWithDurability(webView, page, snapshot.key.kind, snapshot) { it?.snapshot?.release() }
+			source.ensurePersistentSnapshot(snapshot, paige.navic.reader.ReaderPageRasterPriority.Current) {
+				completions += it
+				completed.complete(Unit)
+			}
+			webView.completeNextJavascript(persistenceDescriptorJson(page))
+			val bitmap = assertNotNull(copiedBitmap)
+			val job = assertNotNull(lazyJob)
+			if (freezeFromOwnershipObserver) {
+				assertFalse(job.isActive, "Freeze-alone persistence launcher started its lazy job after the observer fence")
+			} else {
+				assertTrue(job.isActive)
+				assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain))
+			}
+			val identity = source.snapshotFrozenOwnership().single {
+				it.physicalIdentity.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence
+			}.physicalIdentity
+			val owner = persistencePhysicalOwner(source, identity.sourceLocalToken)
+			runCurrent()
+			assertEquals(ReaderLegacyResourceState.Reserved, owner.state, "Frozen queued persistence entered Running before drain")
+			assertTrue(job.isCompleted)
+			assertTrue(bitmap.isRecycled, "Rejected frozen persistence retained its copied pixels")
+			assertNull(ownedPersistenceBitmap(source))
+			assertEquals(0, bundlePersistenceJobCount(source))
+			assertNull(bundleRasterScheduler(source))
+			assertTrue(completions.isEmpty())
+			val rows = source.snapshotFrozenOwnership().filter {
+				it.physicalIdentity.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence ||
+					it.physicalIdentity.source == ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback
+			}
+			val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+			rows.forEach { row ->
+				assertEquals(ReaderLegacyResourceState.Released, row.state)
+				assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(row.physicalIdentity) {
+					assertTrue(bitmap.isRecycled)
+					confirmations += it
+				})
+			}
+			assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+			assertEquals(rows.size, confirmations.size)
+			assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.drainFrozenOwnership(identity) {})
+			assertEquals(ReaderPortCommandResult.Accepted, source.restoreAfterTransitionActivation(domain))
+			completed.await()
+			assertEquals(listOf(ReaderPageRasterPublicationCompletion(ReaderPageRasterPublicationResult.Durable)), completions)
+			val key = assertNotNull(readerPageRasterDescriptor(persistenceDescriptorJson(page))).key(snapshot.key.bitmapQuality)
+			assertTrue(assertNotNull(bundlePersistentStore(source)).contains(key))
+			assertEquals(0, webView.pendingJavascriptCount, "Frozen persistence repeated descriptor lookup")
+		} finally {
+			source.snapshotFrozenOwnership().forEach { source.drainFrozenOwnership(it.physicalIdentity) {} }
+			val closing = source.close()
+			runCurrent()
+			try {
+				closing.await()
+				teardownCompletionJob(source).join()
+			} finally {
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	@Suppress("UNCHECKED_CAST")
+	private fun persistencePhysicalOwner(
+		source: ReaderPageTurnBundleSource,
+		token: ReaderLegacySourceLocalOpaqueToken
+	): ReaderExactPhysicalOwnerRegistry.Owner {
+		val registry = ReaderPageTurnBundleSource::class.java.getDeclaredField("rasterGenerationAndPersistenceOwnership")
+			.apply { isAccessible = true }.get(source) as ReaderExactPhysicalOwnerRegistry
+		val owners = ReaderExactPhysicalOwnerRegistry::class.java.getDeclaredField("owners")
+			.apply { isAccessible = true }.get(registry) as Set<ReaderExactPhysicalOwnerRegistry.Owner>
+		return owners.single { it.token == token }
+	}
+
+	@Test
+	fun activationBoundaryQueuedInitializationCannotStartAfterFreezeAndRestartsOnce() = runTest {
+		Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+		val context = InitializationStorageContext(activity)
+		val webView = WebView(context)
+		activity.setContentView(webView)
+		context.filesDirectoryReads = 0
+		val io = HeldInitializationIoDispatcher()
+		val source = ReaderPageTurnBundleSource(rasterInitializationDispatcher = io)
+		val domain = ReaderLegacyPhysicalDomain(135L, ReaderLegacyFreezeToken(136L))
+		try {
+			val initialization = backgroundScope.async { source.initializeRasterCache(webView) }
+			runCurrent()
+			assertEquals(1, io.queuedCount)
+			assertEquals(0, context.filesDirectoryReads)
+			assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain))
+			val row = source.snapshotFrozenOwnership().single {
+				it.physicalIdentity.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence
+			}
+			io.runNext()
+			runCurrent()
+			assertFailsWith<CancellationException> { initialization.await() }
+			assertEquals(0, context.filesDirectoryReads, "Queued initialization touched physical storage after freeze")
+			assertEquals(ReaderLegacyResourceState.Reserved, row.state)
+			assertNull(bundleRasterCache(source))
+			assertNull(bundlePersistentStore(source))
+			assertNull(bundleRasterScheduler(source))
+			assertEquals(ReaderLegacyResourceState.Released, source.snapshotFrozenOwnership().single().state)
+			var confirmed = false
+			assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(row.physicalIdentity) { confirmed = true })
+			assertTrue(confirmed)
+			assertEquals(ReaderPortCommandResult.Accepted, source.restoreAfterTransitionActivation(domain))
+			runCurrent()
+			assertEquals(1, io.queuedCount, "Restoration lost the immutable initialization restart")
+			io.runNext()
+			runCurrent()
+			assertEquals(1, context.filesDirectoryReads)
+			assertNotNull(bundleRasterCache(source))
+			assertNotNull(bundlePersistentStore(source))
+			assertNotNull(bundleRasterScheduler(source))
+			val nextDomain = ReaderLegacyPhysicalDomain(135L, ReaderLegacyFreezeToken(137L))
+			assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(nextDomain))
+			assertTrue(source.snapshotFrozenOwnership().isEmpty())
+			assertEquals(ReaderPortCommandResult.Accepted, source.restoreAfterTransitionActivation(nextDomain))
+			runCurrent()
+			assertEquals(0, io.queuedCount)
+			assertEquals(1, context.filesDirectoryReads, "Initialization replayed more than once")
+		} finally {
+			val closing = source.close()
+			runCurrent()
+			try {
+				closing.await()
+				teardownCompletionJob(source).join()
+			} finally {
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	@Test
+	fun activationBoundaryRunningInitializationOwnsPartialCleanupUntilMainReturn() = runTest {
+		Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+		val context = InitializationStorageContext(activity)
+		val webView = WebView(context)
+		activity.setContentView(webView)
+		context.filesDirectoryReads = 0
+		val io = HeldInitializationIoDispatcher()
+		val source = ReaderPageTurnBundleSource(rasterInitializationDispatcher = io)
+		val domain = ReaderLegacyPhysicalDomain(139L, ReaderLegacyFreezeToken(140L))
+		var confirmed = false
+		context.onFilesDirectoryRead = {
+			context.onFilesDirectoryRead = null
+			assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain))
+			val row = source.snapshotFrozenOwnership().single()
+			assertEquals(ReaderLegacyResourceState.Running, row.state)
+			assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(row.physicalIdentity) { confirmed = true })
+			assertFalse(confirmed, "Running IO owner confirmed before partial construction returned")
+			assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.restoreAfterTransitionActivation(domain))
+		}
+		try {
+			val initialization = backgroundScope.async { source.initializeRasterCache(webView) }
+			runCurrent()
+			io.runNext()
+			assertEquals(1, context.filesDirectoryReads)
+			assertFalse(confirmed, "IO owner confirmed before Main cleanup delivery")
+			assertEquals(ReaderLegacyResourceState.ReleaseRequested, source.snapshotFrozenOwnership().single().state)
+			runCurrent()
+			assertFailsWith<CancellationException> { initialization.await() }
+			assertTrue(confirmed)
+			assertTrue(source.snapshotFrozenOwnership().isEmpty())
+			assertNull(bundleRasterCache(source))
+			assertNull(bundlePersistentStore(source))
+			assertNull(bundleRasterScheduler(source))
+			assertEquals(ReaderPortCommandResult.Accepted, source.restoreAfterTransitionActivation(domain))
+			runCurrent()
+			assertEquals(1, io.queuedCount)
+			io.runNext()
+			runCurrent()
+			assertEquals(2, context.filesDirectoryReads)
+			assertNotNull(bundleRasterScheduler(source))
+		} finally {
+			context.onFilesDirectoryRead = null
+			val closing = source.close()
+			runCurrent()
+			try {
+				closing.await()
+				teardownCompletionJob(source).join()
+			} finally {
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	private class InitializationStorageContext(base: Context) : ContextWrapper(base) {
+		var filesDirectoryReads = 0
+		var onFilesDirectoryRead: (() -> Unit)? = null
+
+		override fun getApplicationContext(): Context = this
+
+		override fun getFilesDir(): File {
+			filesDirectoryReads += 1
+			onFilesDirectoryRead?.invoke()
+			return super.getFilesDir()
+		}
+	}
+
+	private class HeldInitializationIoDispatcher : CoroutineDispatcher() {
+		private val queued = ArrayDeque<Runnable>()
+		val queuedCount: Int get() = queued.size
+
+		override fun dispatch(context: CoroutineContext, block: Runnable) {
+			queued.addLast(block)
+		}
+
+		fun runNext() {
+			assertEquals(1, queued.size, "Expected exactly one real initialization IO continuation")
+			queued.removeFirst().run()
+		}
+	}
+
+	@Test
+	fun activationBoundaryDescriptorHandoffFreezesWithoutLosingImmutablePersistenceDemand() = runTest {
+		Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+		val webView = DeferredJavascriptWebView(activity)
+		activity.setContentView(webView)
+		layoutForCapture(webView)
+		val source = ReaderPageTurnBundleSource()
+		val snapshot = assertNotNull(source.cacheCurrentSnapshot(2, ReaderPageTurnTransitionKind.PortraitSlide, captureResult(), persist = false))
+		val domain = ReaderLegacyPhysicalDomain(127L, ReaderLegacyFreezeToken(128L))
+		val completions = mutableListOf<ReaderPageRasterPublicationCompletion>()
+		val completed = CompletableDeferred<Unit>()
+		var eligibilityCalls = 0
+		var descriptorConfirmed = false
+		try {
+			source.hydrateSnapshotWithDurability(webView, 2, snapshot.key.kind, snapshot) { it?.snapshot?.release() }
+			source.ensurePersistentSnapshot(snapshot, paige.navic.reader.ReaderPageRasterPriority.Current, isStillCurrent = {
+				eligibilityCalls += 1
+				if (eligibilityCalls == 2) {
+					assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain))
+					val descriptorRow = source.snapshotFrozenOwnership().single {
+						it.physicalIdentity.source == ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback
+					}
+					assertEquals(ReaderLegacyResourceState.Registered, descriptorRow.state)
+					assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(descriptorRow.physicalIdentity) { descriptorConfirmed = true })
+					assertFalse(descriptorConfirmed, "Descriptor handoff confirmed before callback returned")
+					assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.restoreAfterTransitionActivation(domain))
+					assertEquals(0, bundlePersistenceJobCount(source), "Partial handoff restoration started persistence")
+				}
+				true
+			}) {
+				completions += it
+				completed.complete(Unit)
+			}
+			webView.completeNextJavascript(persistenceDescriptorJson(2))
+			assertTrue(completions.isEmpty(), "Descriptor handoff delivered Failure while frozen")
+			assertEquals(2, eligibilityCalls)
+			assertTrue(descriptorConfirmed)
+			assertEquals(0, bundlePersistenceJobCount(source))
+			assertNull(ownedPersistenceBitmap(source), "Frozen handoff retained copied pixels")
+			assertTrue(source.snapshotFrozenOwnership().none {
+				it.physicalIdentity.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence
+			}, "Frozen logical handoff admitted a new physical owner")
+			assertEquals(ReaderPortCommandResult.Accepted, source.restoreAfterTransitionActivation(domain))
+			assertTrue(bundlePersistenceJobCount(source) > 0, "Restoration accepted without restarting handoff persistence")
+			completed.await()
+			assertEquals(listOf(ReaderPageRasterPublicationCompletion(ReaderPageRasterPublicationResult.Durable)), completions)
+			val key = assertNotNull(readerPageRasterDescriptor(persistenceDescriptorJson(2))).key(snapshot.key.bitmapQuality)
+			assertTrue(assertNotNull(bundlePersistentStore(source)).contains(key))
+			assertEquals(0, webView.pendingJavascriptCount, "Handoff replay repeated descriptor lookup")
+			val nextDomain = ReaderLegacyPhysicalDomain(127L, ReaderLegacyFreezeToken(129L))
+			assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(nextDomain))
+			source.snapshotFrozenOwnership().forEach { source.drainFrozenOwnership(it.physicalIdentity) {} }
+			assertEquals(ReaderPortCommandResult.Accepted, source.restoreAfterTransitionActivation(nextDomain))
+			runCurrent()
+			assertEquals(1, completions.size)
+		} finally {
+			val closing = source.close()
+			runCurrent()
+			try {
+				closing.await()
+				teardownCompletionJob(source).join()
+			} finally {
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	@Test
+	fun activationBoundaryInitializedCloseRemainsConnectedUntilPublicationAndTeardownSettle() = runTest {
+		Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+		val webView = WebView(activity)
+		activity.setContentView(webView)
+		val publicationTokens = ReaderLegacySourceLocalTokenAllocator()
+		val publication = ReaderPageRasterPublicationScheduler(backgroundScope, 1, publicationTokens)
+		val source = ReaderPageTurnBundleSource(publicationOwnershipTokenAllocator = publicationTokens, publicationSchedulerOverride = publication)
+		val started = CompletableDeferred<Unit>()
+		val cancelling = CompletableDeferred<Unit>()
+		val allowCompletion = CompletableDeferred<Unit>()
+		try {
+			source.initializeRasterCache(webView)
+			val raster = assertNotNull(bundleRasterScheduler(source))
+			val rasterWorker = ReaderPageRasterScheduler::class.java.getDeclaredField("workerJob")
+				.apply { isAccessible = true }.get(raster) as Job
+			assertEquals(ReaderPortCommandResult.Accepted, publication.schedule(ReaderPageRasterPublicationRequest("initialized-close", 1L)) {
+				started.complete(Unit)
+				try {
+					awaitCancellation()
+				} finally {
+					cancelling.complete(Unit)
+					withContext(NonCancellable) { allowCompletion.await() }
+				}
+			})
+			started.await()
+			val closing = source.close()
+			rasterWorker.join()
+			cancelling.await()
+			assertTrue(ReaderPageRasterScheduler::class.java.getDeclaredField("closed")
+				.apply { isAccessible = true }.getBoolean(raster), "Actual initialized raster worker did not exit")
+			assertFalse(closing.isCompleted)
+			val domain = ReaderLegacyPhysicalDomain(131L, ReaderLegacyFreezeToken(132L))
+			assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain), "Initialized close-in-progress lost connected drain access")
+			val inventories = assertNotNull(source.snapshotConnectedFrozenOwnership())
+			assertEquals(8, inventories.size)
+			assertTrue(inventories.all { it.domain == domain })
+			assertTrue(inventories.single { it.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence }.resources.isEmpty())
+			val tails = listOf(
+				inventories.single { it.source == ReaderLegacyInventorySource.RasterPublication }.resources.single(),
+				inventories.single { it.source == ReaderLegacyInventorySource.RasterStoreAndCache }.resources.single()
+			)
+			val wrongDomain = ReaderLegacyPhysicalDomain(131L, ReaderLegacyFreezeToken(133L))
+			assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.freezeForTransitionActivation(wrongDomain))
+			assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.drainFrozenOwnership(tails.first().physicalIdentity.copy(domain = wrongDomain)) {})
+			assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.restoreAfterTransitionActivation(domain))
+			val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+			tails.forEach { assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(it.physicalIdentity, confirmations::add)) }
+			assertTrue(confirmations.isEmpty(), "Closing tails confirmed before physical settlement")
+			assertTrue(bundleRasterScheduler(source) === raster, "Closing scheduler reference was discarded before frozen drain")
+			allowCompletion.complete(Unit)
+			closing.await()
+			teardownCompletionJob(source).join()
+			assertEquals(tails.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+			assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.restoreAfterTransitionActivation(domain))
+			assertFailsWith<CancellationException> { source.initializeRasterCache(webView) }
+		} finally {
+			allowCompletion.complete(Unit)
+			val closing = source.close()
+			runCurrent()
+			try {
+				closing.await()
+				teardownCompletionJob(source).join()
+			} finally {
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	@Test
+	fun activationBoundaryActualPersistenceCancelledBeforeBodyRestoresItsExactCompletion() = runTest {
+		assertActualPersistenceRestoration(startInitialization = false, permanentlyClose = false)
+	}
+
+	@Test
+	fun activationBoundaryActualPersistenceCancelledInInitializationRestoresItsExactCompletion() = runTest {
+		assertActualPersistenceRestoration(startInitialization = true, permanentlyClose = false)
+	}
+
+	@Test
+	fun activationBoundaryActualPersistencePermanentCloseSettlesBeforeConfirmation() = runTest {
+		assertActualPersistenceRestoration(startInitialization = false, permanentlyClose = true)
+	}
+
+	@Test
+	fun activationBoundaryActualPersistenceCancelledBeforeStartReleasesCopiedBitmap() = runTest {
+		assertActualPersistenceRestoration(startInitialization = false, permanentlyClose = false, cancelBeforeStart = true)
+	}
+
+	@Test
+	fun activationBoundaryActualPersistenceThrowingCompletionStillReleasesAndConfirms() = runTest {
+		assertActualPersistenceRestoration(startInitialization = false, permanentlyClose = true, throwOnCompletion = true)
+	}
+
+	private suspend fun kotlinx.coroutines.test.TestScope.assertActualPersistenceRestoration(
+		startInitialization: Boolean,
+		permanentlyClose: Boolean,
+		cancelBeforeStart: Boolean = false,
+		throwOnCompletion: Boolean = false
+	) {
+		Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+		val webView = DeferredJavascriptWebView(activity)
+		activity.setContentView(webView)
+		layoutForCapture(webView)
+		val domain = ReaderLegacyPhysicalDomain(121L, ReaderLegacyFreezeToken(122L))
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		var beforeStartRows = emptyList<ReaderFrozenLegacyResource>()
+		var copiedBitmap: Bitmap? = null
+		var descriptorConfirmed = false
+		lateinit var source: ReaderPageTurnBundleSource
+		source = ReaderPageTurnBundleSource(onOwnershipMutated = {
+			if (copiedBitmap == null) copiedBitmap = ownedPersistenceBitmap(source)
+			if (cancelBeforeStart && copiedBitmap != null && beforeStartRows.isEmpty()) {
+				assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain))
+				beforeStartRows = source.snapshotFrozenOwnership().filter {
+					it.physicalIdentity.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence
+				}
+				assertEquals(ReaderLegacyResourceState.Reserved, beforeStartRows.single().state)
+				source.drainFrozenOwnership(beforeStartRows.single().physicalIdentity) {
+					assertTrue(checkNotNull(copiedBitmap).isRecycled)
+					confirmations += it
+				}
+				val descriptorRow = source.snapshotFrozenOwnership().single {
+					it.physicalIdentity.source == ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback
+				}
+				assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(descriptorRow.physicalIdentity) { descriptorConfirmed = true })
+				assertFalse(descriptorConfirmed, "Descriptor callback tail confirmed while still on-stack")
+				assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.restoreAfterTransitionActivation(domain))
+				assertEquals(0, bundlePersistenceJobCount(source), "Partial restoration started persistence")
+				assertNull(bundleRasterScheduler(source))
+			}
+		})
+		val mutex = rasterInitializationMutex(source)
+		val snapshot = assertNotNull(source.cacheCurrentSnapshot(
+			pageIndex = 2,
+			kind = ReaderPageTurnTransitionKind.PortraitSlide,
+			current = captureResult(),
+			persist = false
+		))
+		val completions = mutableListOf<ReaderPageRasterPublicationCompletion>()
+		val completed = CompletableDeferred<Unit>()
+		var locked = false
+		try {
+			source.hydrateSnapshotWithDurability(webView, 2, snapshot.key.kind, snapshot) { it?.snapshot?.release() }
+			mutex.lock()
+			locked = true
+			source.ensurePersistentSnapshot(snapshot, paige.navic.reader.ReaderPageRasterPriority.Current) {
+				completions += it
+				completed.complete(Unit)
+				if (throwOnCompletion) throw IllegalStateException("persistence-completion-failed")
+			}
+			assertEquals(1, webView.pendingJavascriptCount)
+			webView.completeNextJavascript(persistenceDescriptorJson(2))
+			if (cancelBeforeStart) assertTrue(descriptorConfirmed)
+			if (startInitialization) runCurrent()
+			assertNotNull(copiedBitmap)
+			assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain))
+			val rows = if (cancelBeforeStart) beforeStartRows else source.snapshotFrozenOwnership().filter {
+				it.physicalIdentity.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence
+			}
+			assertEquals(if (startInitialization) 2 else 1, rows.size)
+			assertEquals(rows.size, rows.map { it.physicalIdentity }.toSet().size)
+			if (permanentlyClose) source.fenceForClose()
+			if (!cancelBeforeStart) rows.forEach { row ->
+				assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(row.physicalIdentity) {
+					if (permanentlyClose) assertEquals(1, completions.size, "Confirmation preceded terminal result")
+					confirmations += it
+				})
+			}
+			runCurrent()
+			mutex.unlock()
+			locked = false
+			runCurrent()
+			assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+			assertTrue(checkNotNull(copiedBitmap).isRecycled, "Drained persistence retained its copied bitmap")
+			assertNull(bundleRasterScheduler(source))
+			assertNull(bundleRasterCache(source))
+			if (permanentlyClose) {
+				assertEquals(listOf(ReaderPageRasterPublicationCompletion(ReaderPageRasterPublicationResult.Failed)), completions)
+				assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.restoreAfterTransitionActivation(domain))
+			} else {
+				assertTrue(completions.isEmpty(), "Cancellation delivered a legacy consequence while frozen")
+				assertEquals(ReaderPortCommandResult.Accepted, source.restoreAfterTransitionActivation(domain))
+				assertTrue(bundlePersistenceJobCount(source) > 0, "Restoration accepted without restarting actual persistence")
+				completed.await()
+				assertEquals(listOf(ReaderPageRasterPublicationCompletion(ReaderPageRasterPublicationResult.Durable)), completions)
+				assertEquals(0, webView.pendingJavascriptCount, "Restore repeated descriptor lookup instead of immutable request")
+				val key = assertNotNull(readerPageRasterDescriptor(persistenceDescriptorJson(2))).key(snapshot.key.bitmapQuality)
+				assertTrue(assertNotNull(bundlePersistentStore(source)).contains(key))
+				val nextDomain = ReaderLegacyPhysicalDomain(121L, ReaderLegacyFreezeToken(123L))
+				assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(nextDomain))
+				source.snapshotFrozenOwnership().forEach { source.drainFrozenOwnership(it.physicalIdentity) {} }
+				assertEquals(ReaderPortCommandResult.Accepted, source.restoreAfterTransitionActivation(nextDomain))
+				runCurrent()
+				assertEquals(1, completions.size)
+			}
+		} finally {
+			if (locked) mutex.unlock()
+			val closing = source.close()
+			runCurrent()
+			try {
+				if (throwOnCompletion) {
+					assertEquals("persistence-completion-failed", assertFailsWith<IllegalStateException> { closing.await() }.cause?.message)
+				} else closing.await()
+				teardownCompletionJob(source).join()
+			} finally {
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	private fun persistenceDescriptorJson(page: Int): String = """
+		{"publicationUrl":"publication-boundary","paginationFingerprint":"pagination-boundary",
+		"layoutFingerprint":"layout-boundary","decorationFingerprint":"decoration-boundary",
+		"viewportWidth":20,"viewportHeight":30,"pageCount":20,"spineIndex":0,
+		"href":"chapter","chapterPageIndex":$page,"chapterPageCount":20,"visualPageOrdinal":$page}
+	""".trimIndent()
 
 	@Test
 	fun captureAndVisualStateFreezeDrainsItsExactOwnerAndRejectsLateAdmission() = runTest {
@@ -2840,7 +3621,7 @@ class ReaderPageTurnBundleSourceTest {
 	}
 
 	@Test
-	fun closeInProgressFreezeFencesAllSevenSourcesAndInventoriesActivePublication() = runTest {
+	fun closeInProgressFreezeFencesAllEightSourcesAndInventoriesActivePublication() = runTest {
 		val scheduler = ReaderPageRasterPublicationScheduler(backgroundScope, 1)
 		val workerStarted = CompletableDeferred<Unit>()
 		val teardownReachedWorker = CompletableDeferred<Unit>()
@@ -2868,13 +3649,14 @@ class ReaderPageTurnBundleSourceTest {
 				source.freezeForTransitionActivation(domain)
 			)
 			val inventories = assertNotNull(source.snapshotConnectedFrozenOwnership())
-			assertEquals(7, inventories.size)
+			assertEquals(8, inventories.size)
 			assertEquals(
 				setOf(
 					ReaderLegacyInventorySource.RasterSnapshotCache,
 					ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback,
 					ReaderLegacyInventorySource.RasterHydration,
 					ReaderLegacyInventorySource.RasterPublication,
+					ReaderLegacyInventorySource.RasterGenerationAndPersistence,
 					ReaderLegacyInventorySource.RasterCaptureAndVisualState,
 					ReaderLegacyInventorySource.RasterLiveValidation,
 					ReaderLegacyInventorySource.RasterStoreAndCache
@@ -3304,6 +4086,48 @@ class ReaderPageTurnBundleSourceTest {
 			.get(source) as ReaderPageRasterPublicationLedger<
 				ReaderPageRasterPublicationValue<Bitmap>
 			>
+
+	private fun ownedPersistenceBitmap(source: ReaderPageTurnBundleSource): Bitmap? {
+		val attempts = ReaderPageTurnBundleSource::class.java.getDeclaredField("rasterPersistenceAttempts")
+			.apply { isAccessible = true }.get(source) as Set<*>
+		val attempt = attempts.singleOrNull() ?: return null
+		return attempt.javaClass.getDeclaredField("ownedBitmap")
+			.apply { isAccessible = true }.get(attempt) as Bitmap?
+	}
+
+	private fun bundlePersistenceJobCount(source: ReaderPageTurnBundleSource): Int =
+		(ReaderPageTurnBundleSource::class.java.getDeclaredField("rasterPersistenceJobs")
+			.apply { isAccessible = true }.get(source) as Set<*>).size
+
+	private fun rasterInitializationMutex(source: ReaderPageTurnBundleSource): Mutex =
+		ReaderPageTurnBundleSource::class.java
+			.getDeclaredField("rasterInitializationMutex")
+			.apply { isAccessible = true }
+			.get(source) as Mutex
+
+	@Suppress("UNCHECKED_CAST")
+	private fun bundleRasterScheduler(
+		source: ReaderPageTurnBundleSource
+	): ReaderPageRasterScheduler<Bitmap>? = ReaderPageTurnBundleSource::class.java
+		.getDeclaredField("rasterScheduler")
+		.apply { isAccessible = true }
+		.get(source) as ReaderPageRasterScheduler<Bitmap>?
+
+	@Suppress("UNCHECKED_CAST")
+	private fun bundleRasterCache(
+		source: ReaderPageTurnBundleSource
+	): ReaderPageRasterCache<Bitmap>? = ReaderPageTurnBundleSource::class.java
+		.getDeclaredField("rasterCache")
+		.apply { isAccessible = true }
+		.get(source) as ReaderPageRasterCache<Bitmap>?
+
+	@Suppress("UNCHECKED_CAST")
+	private fun bundlePersistentStore(
+		source: ReaderPageTurnBundleSource
+	): ReaderPageRasterCacheStore<Bitmap>? = ReaderPageTurnBundleSource::class.java
+		.getDeclaredField("persistentStore")
+		.apply { isAccessible = true }
+		.get(source) as ReaderPageRasterCacheStore<Bitmap>?
 
 	private fun rasterPhysicalLayoutEpoch(source: ReaderPageTurnBundleSource): Long =
 		(
