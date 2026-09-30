@@ -135,8 +135,55 @@ private class ReaderEngineWebView(context: Context) : WebView(context) {
 private class ActiveReaderSettingsWebViewMutation(
 	val commandId: String,
 	val runtimeGeneration: Int,
-	val mutation: ReaderSettingsWebViewMutation
+	val mutation: ReaderSettingsWebViewMutation,
+	val boundary: ReaderSettingsWebViewPhysicalBoundary
 )
+
+/** The composable's actual JS/visual primitives, with separately parked unstarted phases. */
+internal class ReaderSettingsWebViewPhysicalBoundary(
+	private val webView: WebView,
+	private val mutation: ReaderSettingsWebViewMutation,
+	private val isHostCurrent: () -> Boolean
+) {
+	private var javascriptStarted = false
+	private var visualStarted = false
+
+	fun dispatch(script: String): Boolean {
+		if (javascriptStarted) return false
+		val current = isHostCurrent() // External host authority may freeze reentrantly.
+		if (!current) { mutation.cancel(); return false }
+		val started = mutation.invokeMutation {
+			javascriptStarted = true
+			webView.evaluateJavascript(script, null)
+		}
+		if (!started) mutation.deferPhase { dispatch(script) }
+		return started
+	}
+
+	fun acknowledge(
+		sequence: Long,
+		snapshotKey: Int,
+		onCommitted: () -> Unit,
+		dispatchNext: () -> Unit,
+		isVisualCurrent: () -> Boolean = { true }
+	): Boolean {
+		if (!javascriptStarted || visualStarted) return false
+		val current = isHostCurrent()
+		if (!current) { mutation.cancel(); return false }
+		val registered = mutation.invokeMutationWithResult<Long>({ result ->
+			visualStarted = true
+			webView.postVisualStateCallback(sequence, object : WebView.VisualStateCallback() {
+				override fun onComplete(requestId: Long) { result(requestId) }
+			})
+		}) { requestId ->
+			val currentResult = isHostCurrent() && isVisualCurrent()
+			if (requestId != sequence || !currentResult) mutation.cancel()
+			else mutation.completePresentation(snapshotKey, onCommitted, dispatchNext)
+		}
+		if (!registered) mutation.deferPhase { acknowledge(sequence, snapshotKey, onCommitted, dispatchNext, isVisualCurrent) }
+		return registered
+	}
+}
 
 private object ReaderWebViewReleaseQueue {
 	private val handler = Handler(Looper.getMainLooper())
@@ -297,10 +344,16 @@ actual fun ReaderEngineWebViewHost(
 						readiness.mutation.cancel()
 						return@acquireSettingsMutation
 					}
+					val boundary = ReaderSettingsWebViewPhysicalBoundary(targetView, readiness.mutation) {
+						expectedGeneration == webViewGeneration && webView === targetView &&
+							activeSettingsMutation.get()?.mutation === readiness.mutation &&
+							commandDispatchState.acknowledgedCommand(dispatch.id) == dispatch.command
+					}
 					val active = ActiveReaderSettingsWebViewMutation(
 						commandId = dispatch.id,
 						runtimeGeneration = expectedGeneration,
-						mutation = readiness.mutation
+						mutation = readiness.mutation,
+						boundary = boundary
 					)
 					if (!activeSettingsMutation.compareAndSet(null, active)) {
 						readiness.mutation.cancel()
@@ -310,10 +363,13 @@ actual fun ReaderEngineWebViewHost(
 						ReaderEngineWebViewHostTag,
 						ReaderEngineLogProjector.command(dispatch)
 					)
-					evaluateJavascript(
-						ReaderWebRuntime.commandScript(dispatch),
-						null
-					)
+					val script = ReaderWebRuntime.commandScript(dispatch)
+					try { boundary.dispatch(script) }
+					catch (failure: Throwable) {
+						activeSettingsMutation.compareAndSet(active, null)
+						readiness.mutation.cancel()
+						throw failure
+					}
 				}
 				is ReaderSettingsWebViewMutationReadiness.Rejected -> {
 					Logger.w(
@@ -369,43 +425,18 @@ actual fun ReaderEngineWebViewHost(
 		active: ActiveReaderSettingsWebViewMutation
 	) {
 		val sequence = settingsVisualStateSequence.incrementAndGet()
-		val expectedGeneration = webViewGeneration
-		val targetView = this
-		postVisualStateCallback(
-			sequence,
-			object : WebView.VisualStateCallback() {
-				override fun onComplete(requestId: Long) {
-					val mutation = active.mutation
-					if (
-						settingsVisualStateSequence.get() != sequence ||
-						expectedGeneration != webViewGeneration ||
-						webView !== targetView ||
-						activeSettingsMutation.get() !== active ||
-						!mutation.isCurrent()
-					) {
-						if (activeSettingsMutation.compareAndSet(active, null)) {
-							mutation.cancel()
-						}
-						return
-					}
-					val snapshotKey = settings.readerPageRasterSnapshotKey()
-					if (
-						!activeSettingsMutation.compareAndSet(active, null) ||
-						!mutation.commit(snapshotKey)
-					) {
-						mutation.cancel()
-						return
-					}
-					commandDispatchState =
-						commandDispatchState.acknowledge(active.commandId)
-					currentOnEvent(
-						ReaderEngineHostEvent.SettingsPresentationCommitted(
-							snapshotKey
-						)
-					)
-					dispatchReadyReaderCommands()
-				}
-			}
+		val snapshotKey = settings.readerPageRasterSnapshotKey()
+		active.boundary.acknowledge(
+			sequence = sequence,
+			snapshotKey = snapshotKey,
+			onCommitted = {
+				commandDispatchState = commandDispatchState.acknowledge(active.commandId)
+				currentOnEvent(ReaderEngineHostEvent.SettingsPresentationCommitted(snapshotKey))
+			},
+			dispatchNext = {
+				if (activeSettingsMutation.compareAndSet(active, null)) dispatchReadyReaderCommands()
+			},
+			isVisualCurrent = { settingsVisualStateSequence.get() == sequence }
 		)
 	}
 

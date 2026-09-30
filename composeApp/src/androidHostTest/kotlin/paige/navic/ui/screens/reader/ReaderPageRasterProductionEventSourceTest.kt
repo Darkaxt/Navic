@@ -184,7 +184,27 @@ class ReaderPageRasterProductionEventSourceTest {
 			foliate,
 			"onCanonicalLiveCommitRecoveryFailed(recoveryToken)"
 		)
-		assertContains(foliate, "!resumedDeferredPreparation")
+		val authorityRequest = foliate
+			.substringAfter("private class InitialLivePresentationAuthorityRequest(", missingDelimiterValue = "")
+			.substringBefore("private data class BuiltRecoveredDeck(", missingDelimiterValue = "")
+		val canonicalPublication = foliate
+			.substringAfter("private fun publishInitialLiveConfirmation(", missingDelimiterValue = "")
+			.substringBefore("private fun releaseInitialLivePresentationAuthority(", missingDelimiterValue = "")
+		val canonicalOutcome = "2 -> request.resumedDeferredPreparation = onCanonicalLiveCommitIssued()"
+		val conditionalPrewarm =
+			"4 -> if (request.requiredDeckGenerationId == null && request.resumedDeferredPreparation == false) onRequestPrewarm()"
+
+		assertContains(authorityRequest, "var resumedDeferredPreparation: Boolean? = null")
+		assertContains(canonicalPublication, "when (request.confirmationPublicationPhase++)")
+		assertContains(canonicalPublication, canonicalOutcome)
+		assertContains(canonicalPublication, conditionalPrewarm)
+		assertEquals(
+			true,
+			canonicalPublication.indexOf(canonicalOutcome) < canonicalPublication.indexOf(conditionalPrewarm),
+			"Prewarm requires a returned false canonical retry outcome; unknown must not become false."
+		)
+		assertEquals(1, canonicalPublication.split("onCanonicalLiveCommitIssued()").size - 1)
+		assertEquals(1, canonicalPublication.split("onRequestPrewarm()").size - 1)
 	}
 
 	@Test

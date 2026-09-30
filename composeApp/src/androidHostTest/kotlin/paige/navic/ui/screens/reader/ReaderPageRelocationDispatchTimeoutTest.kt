@@ -427,6 +427,39 @@ class ReaderPageRelocationDispatchTimeoutTest {
 		assertTrue(ownership.canAcquirePassive())
 	}
 
+	@Test
+	fun reentrantAuthorityAfterGenerationGrantCannotStartExactDispatch() {
+		val ownership = ReaderForegroundWebViewOwnership()
+		val request = request("synthetic-authority-fence")
+		val claim = ownership.acquireLive(request.gestureId)
+		val domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(23L))
+		var dispatches = 0
+		var fenced = false
+		val coordinator = ReaderPageRelocationLiveDispatchCoordinator(
+			foregroundWebViewOwnership = ownership,
+			isDispatchCurrent = {
+				if (!fenced && ownership.isMutationGenerationCurrent(1L)) {
+					fenced = true
+					ownership.freezeForTransitionActivation(domain)
+				}
+				true
+			},
+			dispatchExact = { _, _ ->
+				dispatches++
+				ReaderPageRelocationExactDispatchResult.Dispatched
+			},
+			onRejected = { _, _ -> }
+		)
+		assertTrue(coordinator.transfer(request, claim))
+		coordinator.dispatch(request)
+		assertTrue(fenced, "exercise authority after reservation, not before acquisition")
+		assertEquals(0, dispatches, "physical currency is not permission to start dispatch")
+		ownership.snapshotFrozenOwnership().forEach { ownership.drainFrozenOwnership(it.physicalIdentity) {} }
+		assertTrue(ownership.snapshotFrozenOwnership().isEmpty())
+		assertEquals(ReaderPortCommandResult.Accepted, ownership.restoreAfterTransitionActivation(domain))
+		assertEquals(1, dispatches, "only the unstarted exact phase replays")
+	}
+
 	private fun request(token: String): ReaderPageRelocationRequest =
 		ReaderPageRelocationRequest(
 			token = ReaderPageRelocationToken(token),

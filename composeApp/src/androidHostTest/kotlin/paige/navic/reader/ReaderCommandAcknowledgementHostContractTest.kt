@@ -45,18 +45,33 @@ class ReaderCommandAcknowledgementHostContractTest {
 	@Test
 	fun settingsCommandAcquiresForegroundOwnershipBeforeJavascriptMutation() {
 		val hostText = readerEngineWebViewHostFile().readText()
-		val settingsDispatch = hostText
-			.substringAfter("fun WebView.dispatchSettingsCommand")
-			.substringBefore("fun WebView.dispatchReadyReaderCommands")
+		val settingsDispatch = sourceBlock(
+			hostText, "fun WebView.dispatchSettingsCommand", "fun WebView.dispatchReadyReaderCommands"
+		)
+		val boundary = sourceBlock(
+			hostText, "internal class ReaderSettingsWebViewPhysicalBoundary(", "private object ReaderWebViewReleaseQueue"
+		)
+		val physicalDispatch = sourceBlock(boundary, "fun dispatch(script: String)", "fun acknowledge(")
 
 		assertContains(settingsDispatch, "findReaderSettingsWebViewMutationHost()")
-		assertContains(settingsDispatch, "acquireSettingsMutation(")
-		assertContains(settingsDispatch, "ReaderSettingsWebViewMutationReadiness.Ready")
-		assertTrue(
-			settingsDispatch.indexOf("ReaderSettingsWebViewMutationReadiness.Ready") <
-				settingsDispatch.indexOf("evaluateJavascript("),
-			"ApplySettings must wait for foreground ownership and passive restoration before mutating the WebView."
+		assertContains(settingsDispatch, "mutation = readiness.mutation")
+		assertContains(settingsDispatch, "boundary = boundary")
+		assertInOrder(
+			settingsDispatch,
+			"acquireSettingsMutation(",
+			"ReaderSettingsWebViewMutationReadiness.Ready",
+			"ReaderSettingsWebViewPhysicalBoundary(targetView, readiness.mutation)",
+			"activeSettingsMutation.compareAndSet(null, active)",
+			"boundary.dispatch(script)"
 		)
+		assertInOrder(
+			physicalDispatch,
+			"val current = isHostCurrent()",
+			"if (!current) { mutation.cancel(); return false }",
+			"mutation.invokeMutation {",
+			"webView.evaluateJavascript(script, null)"
+		)
+		assertContains(physicalDispatch, "if (!started) mutation.deferPhase { dispatch(script) }")
 	}
 
 	@Test
@@ -83,28 +98,73 @@ class ReaderCommandAcknowledgementHostContractTest {
 		val eventBlock = hostText
 			.substringAfter("fun handleReaderBridgeEvent")
 			.substringBefore("val bridge = remember")
-		val visualCommit = hostText
-			.substringAfter("fun WebView.commitSettingsPresentation")
-			.substringBefore("fun handleReaderBridgeEvent")
+		val visualCommit = sourceBlock(
+			hostText, "fun WebView.commitSettingsPresentation", "fun handleReaderBridgeEvent"
+		)
+		val boundary = sourceBlock(
+			hostText, "internal class ReaderSettingsWebViewPhysicalBoundary(", "private object ReaderWebViewReleaseQueue"
+		)
+		val visualBoundary = boundary.substringAfter("fun acknowledge(", missingDelimiterValue = "")
+		val mutationText = readerAndroidFile("ReaderSettingsWebViewMutationCoordinator.android.kt").readText()
+		val completePresentation = sourceBlock(mutationText, "fun completePresentation(", "private fun publishNextPhase(")
+		val publication = sourceBlock(mutationText, "private fun publishNextPhase(", "fun cancel()")
 
 		assertContains(eventBlock, "acknowledgedCommand(event.commandId)")
 		assertContains(eventBlock, "is ReaderBridgeCommand.ApplySettings")
-		assertContains(visualCommit, "postVisualStateCallback")
-		assertContains(visualCommit, "settingsVisualStateSequence")
-		assertContains(visualCommit, "mutation.isCurrent()")
-		assertContains(visualCommit, "mutation.commit(snapshotKey)")
-		assertContains(
+		assertContains(eventBlock, "targetView.commitSettingsPresentation(")
+		assertContains(visualCommit, "settingsVisualStateSequence.incrementAndGet()")
+		assertContains(visualCommit, "active.boundary.acknowledge(")
+		assertContains(visualCommit, "snapshotKey = snapshotKey")
+		assertContains(visualCommit, "onCommitted = {")
+		assertContains(visualCommit, "dispatchNext = {")
+		assertContains(visualCommit, "isVisualCurrent = { settingsVisualStateSequence.get() == sequence }")
+		assertInOrder(
+			visualBoundary,
+			"val current = isHostCurrent()",
+			"if (!current) { mutation.cancel(); return false }",
+			"mutation.invokeMutationWithResult<Long>",
+			"webView.postVisualStateCallback(sequence,",
+			"override fun onComplete(requestId: Long) { result(requestId) }",
+			"val currentResult = isHostCurrent() && isVisualCurrent()",
+			"if (requestId != sequence || !currentResult) mutation.cancel()",
+			"else mutation.completePresentation(snapshotKey, onCommitted, dispatchNext)"
+		)
+		assertInOrder(
+			completePresentation,
+			"this.snapshotKey = snapshotKey",
+			"this.onCommitted = onCommitted",
+			"this.dispatchNext = dispatchNext",
+			"return publishNextPhase()"
+		)
+		assertInOrder(
+			publication,
+			"ownership.invokeLivePublication(claim, generation)",
+			"when (publicationPhase++)",
+			"0 -> onSnapshotCommitted(checkNotNull(snapshotKey))",
+			"1 -> onCommitted()",
+			"2 -> {",
+			"ownership.releaseLive(claim, dispatchNext)"
+		)
+		assertInOrder(
 			visualCommit,
-			"commandDispatchState.acknowledge(active.commandId)"
+			"onCommitted = {",
+			"commandDispatchState.acknowledge(active.commandId)",
+			"ReaderEngineHostEvent.SettingsPresentationCommitted(snapshotKey)",
+			"dispatchNext = {"
 		)
-		assertContains(
-			visualCommit,
-			"ReaderEngineHostEvent.SettingsPresentationCommitted("
-		)
-		assertTrue(
-			visualCommit.indexOf("postVisualStateCallback") <
-				visualCommit.indexOf("ReaderEngineHostEvent.SettingsPresentationCommitted("),
-			"Raster invalidation must follow the WebView visual-state callback."
-		)
+	}
+
+	private fun sourceBlock(source: String, start: String, end: String): String {
+		assertContains(source, start)
+		val remainder = source.substringAfter(start)
+		assertContains(remainder, end)
+		return remainder.substringBefore(end)
+	}
+
+	private fun assertInOrder(source: String, vararg statements: String) {
+		statements.forEach { assertContains(source, it) }
+		statements.toList().zipWithNext().forEach { (before, after) ->
+			assertTrue(source.indexOf(before) < source.indexOf(after), "'$before' must precede '$after'.")
+		}
 	}
 }

@@ -124,6 +124,287 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
 class KomikkuReaderNativeFrameHostTest {
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task397RelocationProviderFreezeDeniesActualJavascript() =
+		task397ActualWebViewFence(initial = false, confirmation = false, authority = false)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task397InitialLiveProviderFreezeDeniesActualJavascript() =
+		task397ActualWebViewFence(initial = true, confirmation = false, authority = false)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task397InitialLiveAuthorityFreezeDeniesActualJavascript() =
+		task397ActualWebViewFence(initial = true, confirmation = false, authority = true)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task397InitialLiveConfirmationProviderFreezeParksUnstartedGetter() =
+		task397ActualWebViewFence(initial = true, confirmation = true, authority = false)
+
+	private fun task397ActualWebViewFence(initial: Boolean, confirmation: Boolean, authority: Boolean) {
+		val fixture = task8CurlAuthorityFixture(task8SettledCurlSourceState())
+		val curl = fixture.controller
+		val type = curl.javaClass
+		val ownership = type.task7Field("foregroundWebViewOwnership").get(curl) as ReaderForegroundWebViewOwnership
+		type.task7Method("releaseInitialLivePresentationAuthority",
+			type.declaredClasses.single { it.simpleName == "InitialLivePresentationAuthorityRequest" }).invoke(curl, null)
+		@Suppress("UNCHECKED_CAST")
+		val oldView = (type.task7Field("webViewProvider").get(curl) as () -> WebView?)()!!
+		val host = oldView.parent as FrameLayout
+		val view = object : WebView(RuntimeEnvironment.getApplication()) {
+			var calls = 0
+			override fun evaluateJavascript(script: String, resultCallback: android.webkit.ValueCallback<String>?) {
+				calls++
+				resultCallback?.onReceiveValue("null")
+			}
+		}
+		host.addView(view)
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		activity.get().setContentView(host)
+		val domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(23L))
+		var fenced = false
+		var enabledFence = !confirmation
+		val beforeGeneration = ownership.javaClass.task7Field("mutationGeneration").getLong(ownership)
+		fun freezeOnce() {
+			if (enabledFence && !fenced) {
+				fenced = true
+				ownership.freezeForTransitionActivation(domain)
+			}
+		}
+		type.task7Field("webViewProvider").set(curl, { if (!authority) freezeOnce(); view })
+		if (authority) {
+			@Suppress("UNCHECKED_CAST")
+			val epoch = type.task7Field("presentationHostEpoch").get(curl) as () -> Long
+			type.task7Field("presentationHostEpoch").set(curl, {
+				val result = epoch()
+				if (ownership.javaClass.task7Field("mutationGeneration").getLong(ownership) > beforeGeneration) freezeOnce()
+				result
+			})
+		}
+		try {
+			assertTrue(view.isAttachedToWindow)
+			if (initial) {
+				type.task7Method("requestInitialLivePresentationAuthority", java.lang.Long.TYPE,
+					java.lang.Long::class.java).invoke(curl, 701L, null)
+				if (confirmation) {
+					assertEquals(1, view.calls, "actual navigation precedes confirmation")
+					val request = assertNotNull(type.task7Field("initialLivePresentationAuthority").get(curl))
+					val target = request.javaClass.task7Field("target").get(request) as ReaderPageTurnPresentationTarget.Live
+					val ack = ReaderPageTurnSettlementAck(target.token, target.pageIndex.toInt(),
+						target.foliateSessionId, target.rasterGeneration, target.textureGeneration)
+					enabledFence = true
+					type.task7Method("confirmInitialLivePresentationAuthority", Integer.TYPE,
+						ReaderPageTurnSettlementAck::class.java).invoke(curl, target.pageIndex.toInt(), ack)
+				}
+			} else {
+				val coordinator = type.task7Field("relocationLiveDispatchCoordinator").get(curl) as ReaderPageRelocationLiveDispatchCoordinator
+				coordinator.javaClass.task7Field("isDispatchCurrent").set(coordinator, { _: ReaderPageRelocationRequest -> true })
+				val request = ReaderPageRelocationRequest(
+					paige.navic.reader.ReaderPageRelocationToken("synthetic-boundary"), 701L,
+					0L, 301L, 1, 0, ReaderPageTurnDirection.Previous, "critical-4-session")
+				assertTrue(coordinator.transfer(request, ownership.acquireLive(request.gestureId)))
+				coordinator.dispatch(request)
+			}
+			assertTrue(fenced, "the actual external provider/authority must run")
+			assertEquals(if (confirmation) 1 else 0, view.calls, "no primitive starts after reentrant freeze")
+			ownership.snapshotFrozenOwnership().forEach { ownership.drainFrozenOwnership(it.physicalIdentity) {} }
+			assertTrue(ownership.snapshotFrozenOwnership().isEmpty(), "denied next phase is not running physical work")
+			assertEquals(ReaderPortCommandResult.Accepted, ownership.restoreAfterTransitionActivation(domain))
+			assertEquals(if (confirmation) 2 else 1, view.calls, "replay only the unstarted phase once")
+		} finally {
+			curl.destroy()
+			activity.pause().stop().destroy()
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task397RetainedInitialGetterFreezeThrowDrainsAndConsumesBooleanRecipientOnce() =
+		task397AcceptedInitialGetter(throwCanonical = true, synchronousGetter = false)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task397AcceptedInitialGetterRetainsOutermostInvocationAfterLogicalRelease() =
+		task397AcceptedInitialGetter(throwCanonical = false, synchronousGetter = true)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task397InitialGetterBooleanThrowWithoutFreezeFinishesSafeDisposition() =
+		task397AcceptedInitialGetter(throwCanonical = true, synchronousGetter = false, freezeCanonical = false)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task397SynchronousInitialGetterCanonicalThrowFinishesAndPropagates() =
+		task397AcceptedInitialGetter(throwCanonical = true, synchronousGetter = true, freezeCanonical = false)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task397SynchronousInitialGetterFreezeThrowParksAndPropagates() =
+		task397AcceptedInitialGetter(throwCanonical = true, synchronousGetter = true)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task397SynchronousInitialGetterWrappedCanonicalThrowPreservesCause() =
+		task397AcceptedInitialGetter(throwCanonical = true, synchronousGetter = true,
+			freezeCanonical = false, wrapCallbackFailure = true)
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
+	fun task397InitialGetterPrimitiveFailureRetainsLegacyCleanup() =
+		task397AcceptedInitialGetter(throwCanonical = false, synchronousGetter = true,
+			freezeCanonical = false, failPrimitive = true)
+
+	private fun task397AcceptedInitialGetter(
+		throwCanonical: Boolean,
+		synchronousGetter: Boolean,
+		freezeCanonical: Boolean = throwCanonical,
+		wrapCallbackFailure: Boolean = false,
+		failPrimitive: Boolean = false
+	) {
+		var prewarm = 0
+		val fixture = task8CurlAuthorityFixture(task8SettledCurlSourceState(), onRequestPrewarm = { prewarm++ })
+		val curl = fixture.controller
+		val type = curl.javaClass
+		val ownership = type.task7Field("foregroundWebViewOwnership").get(curl) as ReaderForegroundWebViewOwnership
+		type.task7Method("releaseInitialLivePresentationAuthority",
+			type.declaredClasses.single { it.simpleName == "InitialLivePresentationAuthorityRequest" }).invoke(curl, null)
+		@Suppress("UNCHECKED_CAST")
+		val oldView = (type.task7Field("webViewProvider").get(curl) as () -> WebView?)()!!
+		val host = oldView.parent as FrameLayout
+		val domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(23L))
+		var confirmations = 0
+		var canonical = 0
+		var receipt: String? = null
+		var outerReturning = false
+		val canonicalFailure = IllegalStateException("controlled canonical failure")
+		val drainedIdentities = mutableSetOf<ReaderLegacyPhysicalIdentity>()
+		val confirmedIdentities = mutableSetOf<ReaderLegacyPhysicalIdentity>()
+		fun drainAcceptedTails() {
+			val tails = ownership.snapshotFrozenOwnership()
+			assertTrue(tails.size >= 2, "getter invocation and accepted result-return tails remain physically owned")
+			tails.forEach { tail ->
+				drainedIdentities += tail.physicalIdentity
+				ownership.drainFrozenOwnership(tail.physicalIdentity) { identity ->
+					if (synchronousGetter) assertTrue(outerReturning, "no exact confirmation before outer primitive return")
+					assertEquals(tail.physicalIdentity, identity)
+					assertTrue(confirmedIdentities.add(identity), "each physical identity confirms exactly once")
+					confirmations++
+				}
+			}
+			assertEquals(0, confirmations, "accepted result and outer registration have not returned")
+		}
+		val callbacks = mutableListOf<android.webkit.ValueCallback<String>>()
+		val view = object : WebView(RuntimeEnvironment.getApplication()) {
+			var calls = 0
+			override fun evaluateJavascript(script: String, resultCallback: android.webkit.ValueCallback<String>?) {
+				calls++
+				val accepted = checkNotNull(resultCallback)
+				if (calls == 2 && synchronousGetter) {
+					callbacks += accepted
+					try {
+						if (failPrimitive) throw IllegalArgumentException("controlled primitive failure")
+						try { accepted.onReceiveValue(checkNotNull(receipt)) }
+						catch (failure: Throwable) {
+							if (wrapCallbackFailure) throw IllegalArgumentException("controlled primitive wrapper", failure)
+							throw failure
+						}
+						assertEquals(ReaderPortCommandResult.Accepted, ownership.freezeForTransitionActivation(domain))
+						drainAcceptedTails()
+					} finally {
+						assertEquals(0, confirmations, "no exact drain confirmation inside outermost primitive invocation")
+						outerReturning = true
+					}
+				} else callbacks += accepted
+			}
+		}
+		host.addView(view)
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		activity.get().setContentView(host)
+		type.task7Field("webViewProvider").set(curl, { view })
+		type.task7Field("onCanonicalLiveCommitIssued").set(curl, {
+			canonical++
+			if (throwCanonical) {
+				if (freezeCanonical) {
+					ownership.freezeForTransitionActivation(domain)
+					drainAcceptedTails()
+				}
+				throw canonicalFailure
+			}
+			false
+		})
+		try {
+			type.task7Method("requestInitialLivePresentationAuthority", java.lang.Long.TYPE,
+				java.lang.Long::class.java).invoke(curl, 701L, null)
+			assertEquals(1, view.calls)
+			assertEquals(1, callbacks.size)
+			callbacks.removeAt(0).onReceiveValue("null")
+			val request = assertNotNull(type.task7Field("initialLivePresentationAuthority").get(curl))
+			val target = request.javaClass.task7Field("target").get(request) as ReaderPageTurnPresentationTarget.Live
+			receipt = org.json.JSONObject().apply {
+				put("scope", "live"); put("token", target.token); put("pageIndex", target.pageIndex)
+				put("foliateSessionId", target.foliateSessionId); put("rasterGeneration", target.rasterGeneration)
+				put("textureGeneration", target.textureGeneration)
+				put("foregroundMutationGeneration", target.foregroundMutationGeneration); put("presentationSequence", 1L)
+			}.toString()
+			assertTrue(readerPageTurnPresentationReceipt(receipt)?.matches(target) == true)
+			val baselinePrewarm = prewarm
+			val availabilityVersion = ownership.javaClass.task7Field("passiveAvailabilityVersion").getLong(ownership)
+			fun publicationPhase() = request.javaClass.task7Field("confirmationPublicationPhase").getInt(request)
+			val ack = ReaderPageTurnSettlementAck(target.token, target.pageIndex.toInt(), target.foliateSessionId,
+				target.rasterGeneration, target.textureGeneration)
+			val invocationFailure = runCatching {
+				type.task7Method("confirmInitialLivePresentationAuthority", Integer.TYPE,
+					ReaderPageTurnSettlementAck::class.java).invoke(curl, target.pageIndex.toInt(), ack)
+			}.exceptionOrNull()
+			assertEquals(2, view.calls)
+			if (!synchronousGetter) {
+				assertNull(invocationFailure)
+				assertEquals(0, canonical)
+				val accepted = callbacks.single()
+				assertSame(canonicalFailure, runCatching { accepted.onReceiveValue(checkNotNull(receipt)) }.exceptionOrNull())
+			} else if (!throwCanonical) assertNull(invocationFailure, "ordinary primitive failure retains legacy nonthrowing cleanup")
+			assertEquals(if (failPrimitive) 0 else 1, canonical)
+			assertTrue(ownership.snapshotFrozenOwnership().isEmpty(), "unstarted safe phases must not pin a completed getter")
+			if (freezeCanonical && !failPrimitive) {
+				assertSame(request, type.task7Field("initialLivePresentationAuthority").get(curl), "safe remainder stays parked")
+				assertEquals(3, publicationPhase(), "throwing Boolean recipient is consumed, overlay/release remain unstarted")
+				assertNotNull(request.javaClass.task7Field("claim").get(request), "parked continuation retains its claim")
+				assertEquals(ReaderPortCommandResult.Accepted, ownership.restoreAfterTransitionActivation(domain))
+			} else assertNull(type.task7Field("initialLivePresentationAuthority").get(curl),
+				"throw alone or primitive failure must complete safe disposition without restore")
+			assertEquals(if (failPrimitive) 0 else 6, publicationPhase(), "safe overlay and release phases are consumed once")
+			assertNull(request.javaClass.task7Field("claim").get(request))
+			val disposedAvailabilityVersion = ownership.javaClass.task7Field("passiveAvailabilityVersion").getLong(ownership)
+			assertEquals(availabilityVersion + 1L, disposedAvailabilityVersion, "logical release publishes availability exactly once")
+			callbacks.single().onReceiveValue(checkNotNull(receipt))
+			type.task7Method("confirmInitialLivePresentationAuthority", Integer.TYPE,
+				ReaderPageTurnSettlementAck::class.java).invoke(curl, target.pageIndex.toInt(), ack)
+			assertEquals(2, view.calls, "duplicate confirmation cannot start another getter")
+			assertEquals(if (failPrimitive) 0 else 1, canonical, "duplicate result cannot republish consumed recipients")
+			assertEquals(if (failPrimitive) 0 else 6, publicationPhase())
+			assertEquals(disposedAvailabilityVersion, ownership.javaClass.task7Field("passiveAvailabilityVersion").getLong(ownership))
+			assertEquals(baselinePrewarm + if (throwCanonical || failPrimitive) 0 else 1, prewarm,
+				"unknown Boolean outcome must not invent false and request conditional prewarm")
+			if (freezeCanonical || synchronousGetter && !throwCanonical && !failPrimitive) assertTrue(confirmations >= 2)
+			assertEquals(drainedIdentities, confirmedIdentities, "exact confirmations preserve all accepted physical identities")
+			assertEquals(confirmedIdentities.size, confirmations)
+			assertNull(type.task7Field("initialLivePresentationAuthority").get(curl))
+			assertEquals(0, ownership.snapshot().liveClaims)
+			assertTrue(ownership.snapshotFrozenOwnership().isEmpty())
+			if (synchronousGetter && throwCanonical) {
+				assertIs<java.lang.reflect.InvocationTargetException>(invocationFailure,
+					"accepted synchronous callback failure must be observable at the production confirmation boundary")
+				assertSame(canonicalFailure, invocationFailure.cause, "primitive wrapping must preserve actual accepted failure causality")
+			}
+		} finally {
+			curl.destroy()
+			activity.pause().stop().destroy()
+		}
+	}
+
 	private val hostFile = File(
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"KomikkuReaderNativeFrameHost.android.kt"

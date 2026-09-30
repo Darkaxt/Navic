@@ -522,6 +522,7 @@ internal sealed interface ReaderPageTapDispatchResult {
 
 internal sealed interface ReaderPageRelocationExactDispatchResult {
 	data object Dispatched : ReaderPageRelocationExactDispatchResult
+	data object Deferred : ReaderPageRelocationExactDispatchResult
 
 	data class Rejected(
 		val reason: ReaderPageRelocationDiagnosticRejectionReason
@@ -633,31 +634,59 @@ internal class ReaderPageRelocationLiveDispatchCoordinator(
 			)
 			return
 		}
-		if (
-			claims[token] != Entry(request, claim) ||
-			!isDispatchCurrent(request) ||
-			token in mutationGenerations
-		) {
-			return
-		}
+		if (claims[token] != Entry(request, claim) || token in mutationGenerations) return
 		mutationGenerations[token] = generation
-		if (!foregroundWebViewOwnership.isCurrent(claim, generation)) {
-			fail(
-				request,
-				ReaderPageRelocationDiagnosticRejectionReason.OwnershipInvalidated
-			)
-			return
-		}
-		val result = try {
-			dispatchExact(request, generation)
+		dispatchReserved(request, claim, generation)
+	}
+
+	private fun dispatchReserved(
+		request: ReaderPageRelocationRequest,
+		claim: ReaderForegroundWebViewLiveClaim,
+		generation: ReaderForegroundWebViewMutationGeneration
+	) {
+		val token = request.token.value
+		// Resolve external authority first, then recheck the local entry and the actual-start fence.
+		val authorized = isDispatchCurrent(request)
+		if (!authorized || claims[token] != Entry(request, claim) || mutationGenerations[token] != generation) return
+		try {
+			val started = foregroundWebViewOwnership.invokeLiveMutation(claim, generation) {
+				val result = dispatchExact(request, generation)
+				if (result is ReaderPageRelocationExactDispatchResult.Rejected) fail(request, result.reason)
+			}
+			if (!started) foregroundWebViewOwnership.deferLiveContinuation(claim, generation) {
+				dispatchReserved(request, claim, generation)
+			}
 		} catch (_: Throwable) {
-			ReaderPageRelocationExactDispatchResult.Rejected(
-				ReaderPageRelocationDiagnosticRejectionReason.JavascriptDispatchFailed
-			)
+			fail(request, ReaderPageRelocationDiagnosticRejectionReason.JavascriptDispatchFailed)
 		}
-		if (result is ReaderPageRelocationExactDispatchResult.Rejected) {
-			fail(request, result.reason)
+	}
+
+	fun invokeExactMutation(
+		request: ReaderPageRelocationRequest,
+		generation: ReaderForegroundWebViewMutationGeneration,
+		invoke: ((String) -> Unit) -> Unit
+	): Boolean {
+		val entry = claims[request.token.value]?.takeIf { it.request == request } ?: return false
+		if (mutationGenerations[request.token.value] != generation) return false
+		val started = foregroundWebViewOwnership.invokeLiveMutationWithResult(entry.claim, generation, invoke) {}
+		if (!started) foregroundWebViewOwnership.deferLiveContinuation(entry.claim, generation) {
+			dispatchReserved(request, entry.claim, generation)
 		}
+		return started
+	}
+
+	fun publishOrDefer(
+		request: ReaderPageRelocationRequest,
+		generation: ReaderForegroundWebViewMutationGeneration,
+		publish: () -> Unit
+	): Boolean {
+		val entry = claims[request.token.value]?.takeIf { it.request == request } ?: return false
+		if (mutationGenerations[request.token.value] != generation) return false
+		val published = foregroundWebViewOwnership.invokeLivePublication(entry.claim, generation, publish)
+		if (!published) foregroundWebViewOwnership.deferLiveContinuation(entry.claim, generation) {
+			publishOrDefer(request, generation, publish)
+		}
+		return published
 	}
 
 	fun mutationGeneration(
@@ -1067,6 +1096,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		var target: ReaderPageTurnPresentationTarget.Live? = null
 		var ownSourceBinding: ReaderPresentationBinding? = null
 		var confirmationPending = false
+		var confirmationPublicationPhase = 0
+		// Null means the consumed Boolean recipient did not return; neither outcome may be invented.
+		var resumedDeferredPreparation: Boolean? = null
 	}
 
 	private data class BuiltRecoveredDeck(
@@ -7168,10 +7200,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPlayLikeCurlFoliateControllerTag,
 			"PlayLikeCurl exact page dispatched pageIndex=${request.destinationOrdinal}"
 		)
+		val script = "window.NavicReaderBridge?.dispatch?.($command)"
 		try {
-			webView.evaluateJavascript(
-				"window.NavicReaderBridge?.dispatch?.($command)"
-			) { }
+			// Provider and script preparation precede the fence adjacent to the real primitive.
+			if (!relocationLiveDispatchCoordinator.invokeExactMutation(request, generation) { result ->
+				webView.evaluateJavascript(script) { result(it) }
+			}) return ReaderPageRelocationExactDispatchResult.Deferred
 		} catch (_: Throwable) {
 			Logger.e(
 				ReaderPlayLikeCurlFoliateControllerTag,
@@ -7181,12 +7215,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 				ReaderPageRelocationDiagnosticRejectionReason.JavascriptDispatchFailed
 			)
 		}
-		emitRelocationDiagnostic(
-			request,
-			ReaderPageRelocationDiagnosticState.Dispatched
-		)
-		relocationDispatchTimeout.arm(request)
+		finishExactVisualDispatch(request, generation)
 		return ReaderPageRelocationExactDispatchResult.Dispatched
+	}
+
+	private fun finishExactVisualDispatch(
+		request: ReaderPageRelocationRequest,
+		generation: ReaderForegroundWebViewMutationGeneration
+	) {
+		relocationLiveDispatchCoordinator.publishOrDefer(request, generation) {
+			emitRelocationDiagnostic(request, ReaderPageRelocationDiagnosticState.Dispatched)
+			// Diagnostic recipients can freeze reentrantly; timer registration is a separate start.
+			relocationLiveDispatchCoordinator.publishOrDefer(request, generation) {
+				relocationDispatchTimeout.arm(request)
+			}
+		}
 	}
 
 	private fun rejectDispatchedRelocation(
@@ -7473,44 +7516,51 @@ internal class ReaderPlayLikeCurlFoliateController(
 					releaseInitialLivePresentationAuthority(request)
 					return@whenLiveReady
 				}
-				val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
-				if (webView == null) {
-					releaseInitialLivePresentationAuthority(request)
-					return@whenLiveReady
-				}
-				val target = ReaderPageTurnPresentationTarget.Live(
-					token = "initial-live-$generationId-${mutationGeneration.value}",
-					pageIndex = request.pageIndex.toLong(),
-					foliateSessionId = request.foliateSessionId,
-					rasterGeneration = request.rasterGeneration,
-					textureGeneration = generationId,
-					foregroundMutationGeneration = mutationGeneration.value
-				)
-				request.target = target
-				val command = JSONObject().apply {
-					put("type", "goToVisualPage")
-					put("pageIndex", request.pageIndex)
-					put("settleToken", target.token)
-					put("settleGestureId", generationId)
-					put("settleSessionId", request.foliateSessionId)
-					put("settleRasterGeneration", request.rasterGeneration)
-					put("settleTextureGeneration", generationId)
-					put(
-						"settleForegroundMutationGeneration",
-						mutationGeneration.value
-					)
-				}
-				try {
-					webView.evaluateJavascript(
-						"window.NavicReaderBridge?.dispatch?.($command)"
-					) { }
-				} catch (_: Throwable) {
-					releaseInitialLivePresentationAuthority(request)
-				}
+				dispatchInitialLiveNavigation(request, claim, mutationGeneration)
 			}
 		} catch (_: Throwable) {
 			releaseInitialLivePresentationAuthority(request)
 		}
+	}
+
+	private fun dispatchInitialLiveNavigation(
+		request: InitialLivePresentationAuthorityRequest,
+		claim: ReaderForegroundWebViewLiveClaim,
+		generation: ReaderForegroundWebViewMutationGeneration
+	) {
+		if (initialLivePresentationAuthority !== request || request.claim != claim || request.target != null) return
+		if (!initialLivePresentationAuthorityIsCurrent(request)) {
+			releaseInitialLivePresentationAuthority(request)
+			return
+		}
+		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
+		if (webView == null) {
+			releaseInitialLivePresentationAuthority(request)
+			return
+		}
+		val target = ReaderPageTurnPresentationTarget.Live(
+			token = "initial-live-${request.generationId}-${generation.value}",
+			pageIndex = request.pageIndex.toLong(), foliateSessionId = request.foliateSessionId,
+			rasterGeneration = request.rasterGeneration, textureGeneration = request.generationId,
+			foregroundMutationGeneration = generation.value
+		)
+		val command = JSONObject().apply {
+			put("type", "goToVisualPage"); put("pageIndex", request.pageIndex)
+			put("settleToken", target.token); put("settleGestureId", request.generationId)
+			put("settleSessionId", request.foliateSessionId); put("settleRasterGeneration", request.rasterGeneration)
+			put("settleTextureGeneration", request.generationId); put("settleForegroundMutationGeneration", generation.value)
+		}
+		val script = "window.NavicReaderBridge?.dispatch?.($command)"
+		if (initialLivePresentationAuthority !== request || request.claim != claim || request.target != null) return
+		try {
+			val started = foregroundWebViewOwnership.invokeLiveMutationWithResult<String>(claim, generation, { result ->
+				request.target = target // Actual navigation begins, not merely a reserved generation.
+				webView.evaluateJavascript(script) { result(it) }
+			}) {}
+			if (!started) foregroundWebViewOwnership.deferLiveContinuation(claim, generation) {
+				dispatchInitialLiveNavigation(request, claim, generation)
+			}
+		} catch (_: Throwable) { releaseInitialLivePresentationAuthority(request) }
 	}
 
 	// Capture the request before original host dispatch; a replacement cannot inherit its receipt.
@@ -7729,46 +7779,78 @@ internal class ReaderPlayLikeCurlFoliateController(
 			releaseInitialLivePresentationAuthority(request)
 			return
 		}
-		request.confirmationPending = true
-		val getter =
-			"pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor"
+		val generation = ReaderForegroundWebViewMutationGeneration(target.foregroundMutationGeneration)
+		val getter = "pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor"
+		val script = "JSON.stringify(window.NavicReaderBridge?.$getter?.() ?? null)"
+		if (initialLivePresentationAuthority !== request || request.claim != claim || request.confirmationPending) return
+		var acceptedResultFailure: Throwable? = null
 		try {
-			webView.evaluateJavascript(
-				"JSON.stringify(window.NavicReaderBridge?.$getter?.() ?? null)"
-			) { encodedReceipt ->
-				if (initialLivePresentationAuthority !== request) {
-					return@evaluateJavascript
-				}
-				request.confirmationPending = false
-				val receipt = readerPageTurnPresentationReceipt(encodedReceipt)
-				val confirmed = receipt?.matches(target) == true &&
-					initialLivePresentationAuthorityIsCurrent(request) &&
-					webView.isAttachedToWindow
-				if (confirmed && request.requiredDeckGenerationId == null) {
-					confirmedDecklessPassiveAuthority.confirm(
-						foliateSessionId = target.foliateSessionId,
-						visualPageOrdinal = request.pageIndex,
-						rasterGeneration = target.rasterGeneration,
-						liveTargetToken = target.token,
-						foregroundMutationGeneration =
-							target.foregroundMutationGeneration
-					)
-				}
-				releaseInitialLivePresentationAuthority(request)
-				if (confirmed) {
-					completePassiveManifestAuthorityRecovery()
-					val resumedDeferredPreparation = onCanonicalLiveCommitIssued()
-					publishLatestWhispersyncOverlayIfIdle()
-					if (
-						request.requiredDeckGenerationId == null &&
-						!resumedDeferredPreparation
-					) {
-						onRequestPrewarm()
+			val started = foregroundWebViewOwnership.invokeLiveMutationWithResult<String>(claim, generation, { result ->
+				request.confirmationPending = true
+				webView.evaluateJavascript(script) { result(it) }
+			}) { encodedReceipt ->
+				try {
+					if (initialLivePresentationAuthority === request && request.claim == claim) {
+						request.confirmationPending = false
+						val receipt = readerPageTurnPresentationReceipt(encodedReceipt)
+						val confirmed = receipt?.matches(target) == true &&
+							initialLivePresentationAuthorityIsCurrent(request) && webView.isAttachedToWindow
+						if (confirmed) publishInitialLiveConfirmation(request, target)
+						else releaseInitialLivePresentationAuthority(request)
 					}
+				} catch (failure: Throwable) {
+					acceptedResultFailure = failure
+					throw failure
 				}
 			}
+			acceptedResultFailure?.let { throw it }
+			if (!started) foregroundWebViewOwnership.deferLiveContinuation(claim, generation) {
+				confirmInitialLivePresentationAuthority(pageIndex, settled)
+			}
 		} catch (_: Throwable) {
-			releaseInitialLivePresentationAuthority(request)
+			// Preserve accepted callback causality even if the primitive wraps it or safe release clears the claim.
+			acceptedResultFailure?.let { throw it }
+			if (request.confirmationPublicationPhase == 0) releaseInitialLivePresentationAuthority(request)
+		}
+	}
+
+	private fun publishInitialLiveConfirmation(
+		request: InitialLivePresentationAuthorityRequest,
+		target: ReaderPageTurnPresentationTarget.Live
+	) {
+		val claim = request.claim ?: return
+		if (initialLivePresentationAuthority !== request || request.target != target) return
+		val generation = ReaderForegroundWebViewMutationGeneration(target.foregroundMutationGeneration)
+		try {
+			val published = foregroundWebViewOwnership.invokeLivePublication(claim, generation) {
+				// Persist consumption at actual entry, including a recipient that freezes and throws.
+				when (request.confirmationPublicationPhase++) {
+					0 -> if (request.requiredDeckGenerationId == null) confirmedDecklessPassiveAuthority.confirm(
+						foliateSessionId = target.foliateSessionId, visualPageOrdinal = request.pageIndex,
+						rasterGeneration = target.rasterGeneration, liveTargetToken = target.token,
+						foregroundMutationGeneration = target.foregroundMutationGeneration)
+					1 -> completePassiveManifestAuthorityRecovery()
+					2 -> request.resumedDeferredPreparation = onCanonicalLiveCommitIssued()
+					3 -> publishLatestWhispersyncOverlayIfIdle()
+					// Interrupted Boolean return: consume neither conditional branch. Only safe remaining
+					// overlay/release phases run; do not replay the recipient or assert successful recovery.
+					4 -> if (request.requiredDeckGenerationId == null && request.resumedDeferredPreparation == false) onRequestPrewarm()
+					5 -> releaseInitialLivePresentationAuthority(request)
+				}
+			}
+			if (!published) {
+				foregroundWebViewOwnership.deferLiveContinuation(claim, generation) {
+					publishInitialLiveConfirmation(request, target)
+				}
+			} else if (request.confirmationPublicationPhase <= 5) publishInitialLiveConfirmation(request, target)
+		} catch (failure: Throwable) {
+			// Remaining UNSTARTED phases are logical demand, not an indefinitely running getter.
+			if (foregroundWebViewOwnership.isFrozenForTransitionActivation()) {
+				foregroundWebViewOwnership.deferLiveContinuation(claim, generation) {
+					publishInitialLiveConfirmation(request, target)
+				}
+			} else runCatching { publishInitialLiveConfirmation(request, target) }
+			throw failure
 		}
 	}
 

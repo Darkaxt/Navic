@@ -24,20 +24,60 @@ internal class ReaderSettingsWebViewMutation internal constructor(
 	private val onSnapshotCommitted: (Int) -> Unit
 ) {
 	private var terminal = false
+	private var snapshotKey: Int? = null
+	private var publicationPhase = 0
+	private var onCommitted: () -> Unit = {}
+	private var dispatchNext: () -> Unit = {}
 
-	fun isCurrent(): Boolean =
-		!terminal && ownership.isCurrent(claim, generation)
+	fun isCurrent(): Boolean = !terminal && ownership.isCurrent(claim, generation)
 
-	fun commit(snapshotKey: Int): Boolean {
+	fun invokeMutation(invoke: () -> Unit): Boolean =
+		!terminal && ownership.invokeLiveMutation(claim, generation, invoke)
+
+	fun <T> invokeMutationWithResult(invoke: ((T) -> Unit) -> Unit, onResult: (T) -> Unit): Boolean =
+		!terminal && ownership.invokeLiveMutationWithResult(claim, generation, invoke, onResult)
+
+	fun deferPhase(invoke: () -> Unit): Boolean =
+		!terminal && ownership.deferLiveContinuation(claim, generation, invoke)
+
+	fun commit(snapshotKey: Int): Boolean = completePresentation(snapshotKey, {}, {})
+
+	fun completePresentation(snapshotKey: Int, onCommitted: () -> Unit, dispatchNext: () -> Unit): Boolean {
 		if (terminal) return false
-		terminal = true
-		val current = ownership.isCurrent(claim, generation)
+		if (this.snapshotKey == null) {
+			this.snapshotKey = snapshotKey
+			this.onCommitted = onCommitted
+			this.dispatchNext = dispatchNext
+		} else if (this.snapshotKey != snapshotKey) return false
+		return publishNextPhase()
+	}
+
+	private fun publishNextPhase(): Boolean {
+		if (terminal) return false
 		try {
-			if (current) onSnapshotCommitted(snapshotKey)
-		} finally {
-			ownership.releaseLive(claim)
+			val published = ownership.invokeLivePublication(claim, generation) {
+				// Consume this recipient only at invocation, never at reservation/checkpoint time.
+				when (publicationPhase++) {
+					0 -> onSnapshotCommitted(checkNotNull(snapshotKey))
+					1 -> onCommitted()
+					2 -> {
+						terminal = true
+						ownership.releaseLive(claim, dispatchNext)
+					}
+				}
+			}
+			if (!published) {
+				deferPhase { publishNextPhase() }
+				return false
+			}
+		} catch (failure: Throwable) {
+			// The invoked recipient is consumed. A refreeze parks only the remaining phases;
+			// without a freeze, finish safe remaining recipients now rather than await a nonexistent restore.
+			if (ownership.isFrozenForTransitionActivation()) deferPhase { publishNextPhase() }
+			else runCatching { publishNextPhase() }
+			throw failure
 		}
-		return current
+		return if (terminal) true else publishNextPhase()
 	}
 
 	fun cancel(): Boolean {

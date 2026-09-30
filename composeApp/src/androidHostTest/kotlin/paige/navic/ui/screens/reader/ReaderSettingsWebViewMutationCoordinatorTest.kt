@@ -8,6 +8,49 @@ import kotlin.test.assertTrue
 
 class ReaderSettingsWebViewMutationCoordinatorTest {
 	@Test
+	fun frozenCommitKeepsPhysicalCurrencyAndDefersTheOriginalSnapshotExactlyOnce() {
+		var snapshots = 0
+		val ownership = ReaderForegroundWebViewOwnership()
+		val coordinator = ReaderSettingsWebViewMutationCoordinator(ownership) { snapshots++ }
+		var accepted: ReaderSettingsWebViewMutation? = null
+		coordinator.acquireSettingsMutation(11L) {
+			accepted = assertIs<ReaderSettingsWebViewMutationReadiness.Ready>(it).mutation
+		}
+		val mutation = checkNotNull(accepted)
+		val domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(23L))
+		ownership.freezeForTransitionActivation(domain)
+		assertTrue(mutation.isCurrent(), "physical cleanup currency survives freeze alone")
+		assertFalse(mutation.commit(29), "a frozen owner cannot start snapshot publication")
+		assertEquals(0, snapshots)
+		ownership.snapshotFrozenOwnership().forEach { ownership.drainFrozenOwnership(it.physicalIdentity) {} }
+		assertTrue(ownership.snapshotFrozenOwnership().isEmpty(), "unstarted publication is not running physical work")
+		assertEquals(ReaderPortCommandResult.Accepted, ownership.restoreAfterTransitionActivation(domain))
+		assertEquals(1, snapshots)
+		assertFalse(mutation.commit(29))
+		assertEquals(1, snapshots)
+	}
+
+	@Test
+	fun frozenCommitThenPermanentCloseNeverReplaysSnapshot() {
+		var snapshots = 0
+		val ownership = ReaderForegroundWebViewOwnership()
+		val coordinator = ReaderSettingsWebViewMutationCoordinator(ownership) { snapshots++ }
+		var accepted: ReaderSettingsWebViewMutation? = null
+		coordinator.acquireSettingsMutation(11L) {
+			accepted = assertIs<ReaderSettingsWebViewMutationReadiness.Ready>(it).mutation
+		}
+		val mutation = checkNotNull(accepted)
+		val domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(23L))
+		ownership.freezeForTransitionActivation(domain)
+		mutation.commit(29)
+		ownership.close()
+		ownership.snapshotFrozenOwnership().forEach { ownership.drainFrozenOwnership(it.physicalIdentity) {} }
+		assertTrue(ownership.restoreAfterTransitionActivation(domain) is ReaderPortCommandResult.Rejected)
+		assertEquals(0, snapshots)
+		assertFalse(mutation.isCurrent())
+	}
+
+	@Test
 	fun settingsMutationWaitsForPassiveRestorationAndCommitsBeforePassiveResumes() {
 		var finishRestoration:
 			((ReaderPageRasterCancellationRestoration) -> Unit)? = null
