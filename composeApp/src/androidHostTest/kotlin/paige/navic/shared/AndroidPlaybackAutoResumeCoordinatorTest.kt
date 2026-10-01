@@ -6,6 +6,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import androidx.core.net.toUri
 import androidx.test.core.app.ApplicationProvider
 import java.lang.reflect.Proxy
 import kotlinx.coroutines.test.advanceTimeBy
@@ -14,6 +17,10 @@ import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.koin.core.context.startKoin
+import org.koin.core.context.stopKoin
+import org.koin.dsl.module
+import paige.navic.domain.manager.PlaybackAccountBoundary
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -23,6 +30,78 @@ import kotlin.test.assertTrue
 @Config(manifest = Config.NONE, sdk = [35])
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class AndroidPlaybackAutoResumeCoordinatorTest {
+	@Test
+	fun serviceSourceRefreshKeepsPendingResumeAndRejectsAnotherApp() = runTest {
+		startKoin { modules(module { single { PlaybackAccountBoundary("account") } }) }
+		try {
+			for (gap in listOf(true, false)) {
+				val fake = TestPlayer()
+				val owner = Any()
+				val coordinator = AndroidPlaybackAutoResumeCoordinator(this, fake.player, { owner }, { 1 }, { true })
+				fake.player.addListener(coordinator)
+				val service = PlaybackService()
+				PlaybackService::class.java.getDeclaredField("automaticResume").apply {
+					isAccessible = true
+					set(service, coordinator)
+				}
+				val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+				val exo = ExoPlayer.Builder(context).build()
+				val callback = PlaybackService::class.java.declaredClasses.single { it.simpleName == "PlaybackSessionCallback" }
+					.getDeclaredConstructor(PlaybackService::class.java, ExoPlayer::class.java)
+					.apply { isAccessible = true }.newInstance(service, exo) as MediaSession.Callback
+				val session = MediaSession.Builder(context, stablePlaybackSessionPlayer(exo)).setCallback(callback).build()
+				try {
+					val next = MediaItem.Builder().setMediaId("next").setUri("https://server/next").build()
+					exo.setMediaItems(listOf(fake.item.buildUpon().setUri("file:///music/current.flac").build(), next))
+					exo.addListener(coordinator)
+					if (gap) coordinator.onMediaItemTransition(fake.item, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+					else coordinator.onVolumeChanged(0)
+					runCurrent()
+					val args = queuedPlaybackSourceArgs("account", 0, listOf(
+						QueuedPlaybackSourceUpdate(1, "next", next.localConfiguration!!.uri, "file:///music/next.flac".toUri())))
+					val command = SessionCommand("paige.navic.shared.action.REFRESH_QUEUED_SOURCES", Bundle.EMPTY)
+					val own = MediaSession.ControllerInfo.createTestOnlyControllerInfo(
+						context.packageName, 2, android.os.Process.myUid(), 0, 0, false, Bundle.EMPTY, false)
+					val external = MediaSession.ControllerInfo.createTestOnlyControllerInfo(
+						"external.app", 2, android.os.Process.myUid() + 1, 0, 0, false, Bundle.EMPTY, false)
+					assertEquals(SessionResult.RESULT_ERROR_PERMISSION_DENIED,
+						callback.onCustomCommand(session, external, command, args).get().resultCode)
+					assertEquals(SessionResult.RESULT_SUCCESS,
+						callback.onCustomCommand(session, own, command, args).get().resultCode)
+					assertEquals("file", exo.getMediaItemAt(1).localConfiguration!!.uri.scheme)
+					if (gap) { advanceTimeBy(1_000); runCurrent() } else coordinator.onVolumeChanged(5)
+					assertEquals(1, fake.playCalls, "gap=$gap")
+				} finally {
+					coordinator.invalidate()
+					session.release()
+					exo.release()
+				}
+			}
+		} finally { stopKoin() }
+	}
+
+	@Test
+	fun sourceRefreshPreservesAutomaticResumeButExplicitCommandsStillCancelIt() = runTest {
+		for (gap in listOf(true, false)) {
+			for (explicitCommand in listOf(false, true)) {
+				val fake = TestPlayer()
+				val owner = Any()
+				val coordinator = AndroidPlaybackAutoResumeCoordinator(this, fake.player, { owner }, { 1 }, { true })
+				fake.player.addListener(coordinator)
+				if (gap) coordinator.onMediaItemTransition(fake.item, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+				else coordinator.onVolumeChanged(0)
+				runCurrent()
+				coordinator.refreshUpcomingSources {
+					coordinator.onTimelineChanged(Timeline.EMPTY, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+					if (explicitCommand) coordinator.onPlayerCommand(Player.COMMAND_PLAY_PAUSE)
+				}
+				if (gap) { advanceTimeBy(1_000); runCurrent() } else coordinator.onVolumeChanged(5)
+				assertEquals(if (explicitCommand) 0 else 1, fake.playCalls, "gap=$gap explicit=$explicitCommand")
+				coordinator.invalidate()
+			}
+		}
+	}
+
 	@Test
 	fun secondaryControllerDisconnectPreservesResumeUnlessPlaybackSessionWasLost() = runTest {
 		for (gap in listOf(true, false)) {

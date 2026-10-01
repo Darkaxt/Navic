@@ -23,6 +23,17 @@ internal class AndroidPlaybackAutoResumeCoordinator(
 	private val intent = PlaybackAutoResumeIntent()
 	private var gapJob: Job? = null
 	private var zeroVolumeResume: PlaybackAutoResumeIntent.Token? = null
+	private var refreshingUpcomingSources = false
+
+	fun refreshUpcomingSources(refresh: () -> Unit) {
+		val previous = refreshingUpcomingSources
+		refreshingUpcomingSources = true
+		try {
+			refresh()
+		} finally {
+			refreshingUpcomingSources = previous
+		}
+	}
 
 	fun invalidate() {
 		intent.invalidate()
@@ -40,7 +51,7 @@ internal class AndroidPlaybackAutoResumeCoordinator(
 	}
 
 	override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-		if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) invalidate()
+		if (!refreshingUpcomingSources && reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) invalidate()
 	}
 
 	override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {

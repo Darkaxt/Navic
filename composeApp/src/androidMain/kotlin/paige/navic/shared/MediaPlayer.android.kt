@@ -257,7 +257,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 		)
 
-		mediaSession = MediaSession.Builder(this, player)
+		mediaSession = MediaSession.Builder(this, stablePlaybackSessionPlayer(player))
 			.setSessionActivity(sessionPendingIntent)
 			.setCallback(PlaybackSessionCallback(player))
 			.build()
@@ -627,6 +627,9 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 				.add(toggleRepeatCommand)
 				.add(restoreShuffleOrderCommand)
 				.add(invalidateAutomaticResumeCommand)
+				.apply {
+					if (controllerInfo.uid == android.os.Process.myUid()) add(refreshQueuedSourcesCommand)
+				}
 				.build()
 
 			return MediaSession.ConnectionResult.accept(
@@ -641,6 +644,20 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			customCommand: SessionCommand,
 			args: Bundle
 		): ListenableFuture<SessionResult> {
+			if (customCommand.customAction == ACTION_REFRESH_QUEUED_SOURCES) {
+				if (controllerInfo.uid != android.os.Process.myUid()) {
+					return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED))
+				}
+				val account = playbackAccountBoundary.capture()
+				var accepted = false
+				val refresh = {
+					accepted = applyQueuedPlaybackSources(session.player, args, account.ownerId, account.revision)
+				}
+				automaticResume?.refreshUpcomingSources(refresh) ?: refresh()
+				return Futures.immediateFuture(SessionResult(
+					if (accepted) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_BAD_VALUE
+				))
+			}
 			invalidateAutomaticResume()
 			when (customCommand.customAction) {
 				ACTION_INVALIDATE_AUTOMATIC_RESUME -> Unit
@@ -672,6 +689,22 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	companion object {
+		private const val ACTION_REFRESH_QUEUED_SOURCES = "paige.navic.shared.action.REFRESH_QUEUED_SOURCES"
+		private val refreshQueuedSourcesCommand = SessionCommand(ACTION_REFRESH_QUEUED_SOURCES, Bundle.EMPTY)
+
+		internal fun refreshQueuedSources(
+			controller: MediaController,
+			account: PlaybackAccountBoundary.Lease,
+			updates: List<QueuedPlaybackSourceUpdate>
+		) {
+			val ownerId = account.ownerId ?: return
+			// Bound Binder payloads without sending artwork or one command per song.
+			updates.chunked(128).forEach { batch ->
+				controller.sendCustomCommand(refreshQueuedSourcesCommand,
+					queuedPlaybackSourceArgs(ownerId, account.revision, batch))
+			}
+		}
+
 		private const val ACTION_INVALIDATE_AUTOMATIC_RESUME =
 			"paige.navic.shared.action.INVALIDATE_AUTOMATIC_RESUME"
 		private val invalidateAutomaticResumeCommand = SessionCommand(ACTION_INVALIDATE_AUTOMATIC_RESUME, Bundle.EMPTY)

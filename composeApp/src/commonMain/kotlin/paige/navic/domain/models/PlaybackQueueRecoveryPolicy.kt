@@ -42,12 +42,16 @@ fun firstPlayableUpcomingIndex(
 	currentIndex: Int,
 	queueSongIds: List<String>,
 	availableSongIds: Set<String>,
-	upcomingIndexes: List<Int> = (currentIndex + 1 until queueSongIds.size).toList()
-): Int? =
-	upcomingIndexes
+	upcomingIndexes: List<Int> = (currentIndex + 1 until queueSongIds.size).toList(),
+	preferredSongIds: Set<String> = emptySet()
+): Int? {
+	val candidates = upcomingIndexes
 		.asSequence()
 		.filter { index -> index != currentIndex && index in queueSongIds.indices }
-		.firstOrNull { index -> queueSongIds[index] in availableSongIds }
+		.filter { index -> queueSongIds[index] in availableSongIds }
+	return candidates.firstOrNull { index -> queueSongIds[index] in preferredSongIds }
+		?: candidates.firstOrNull()
+}
 
 fun playbackFailureTargetIndex(
 	skipMediaOnError: Boolean,

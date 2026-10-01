@@ -3,6 +3,7 @@ package paige.navic.shared
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -28,6 +29,8 @@ import paige.navic.domain.models.playbackRecoveryResolution
 import paige.navic.domain.models.resolveOfflinePlaybackFallback
 import paige.navic.domain.models.resolvePlaybackRecoveryConnectivity
 import paige.navic.domain.models.shouldProbeStalePlaybackSong
+import paige.navic.domain.models.shouldKeepLocalPlaybackDuringOutage
+import paige.navic.domain.models.playbackRecoveryPositionMs
 import paige.navic.ui.core.PlayerUiState
 import java.io.File
 
@@ -78,9 +81,7 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 	}
 
 	fun isServiceUnavailable(error: PlaybackException): Boolean =
-		error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-			error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
-			classifyNavidromeFailure(error) == NavidromeFailureDisposition.ServiceUnavailable
+		isNavidromePlaybackOutage(error)
 
 	fun handleServiceUnavailable(
 		player: MediaController,
@@ -90,6 +91,11 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 	) {
 		val currentIndex = player.currentMediaItemIndex
 		val song = state.queue.getOrNull(currentIndex) ?: state.currentSong ?: return
+		if (shouldKeepLocalPlaybackDuringOutage(
+			currentUsesLocalFile = player.currentMediaItem?.localConfiguration?.uri?.scheme == "file",
+			hasPlayerError = error != null || player.playerError != null,
+			isIdleOrEnded = player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED
+		)) return
 		if (pendingServiceOutage && pending?.songId == song.id && pending?.queueIndex == currentIndex) return
 		if (pending != null) clear("service-outage-replaces-recovery")
 
@@ -383,8 +389,7 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 			clear("stale-song-terminal-hold")
 			return
 		}
-		player.seekTo(targetIndex, 0L)
-		player.prepare()
+		seekToRecoveryTarget(player, state, targetIndex)
 		claimMusicPlayback()
 		player.play()
 		clear("stale-song-terminal-skip")
@@ -705,8 +710,11 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		return PendingPlaybackRecovery(
 			songId = song.id,
 			queueIndex = currentIndex,
-			positionMs = player.currentPosition.takeIf { it > 0L }
-				?: fallbackPositionMs.coerceAtLeast(0L),
+			positionMs = playbackRecoveryPositionMs(
+				playerPositionMs = player.currentPosition,
+				uiProgressBelongsToCurrentItem = state.currentIndex == currentIndex && state.currentSong?.id == song.id,
+				uiPositionMs = fallbackPositionMs
+			),
 			shouldResume = player.playWhenReady || !state.isPaused,
 			reason = reason
 		)
@@ -757,8 +765,7 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 			return
 		}
 
-		player.seekTo(targetIndex, 0L)
-		player.prepare()
+		seekToRecoveryTarget(player, state, targetIndex)
 		if (recovery.shouldResume) {
 			claimMusicPlayback()
 			player.play()
@@ -766,7 +773,23 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		clear("terminal-download-skip")
 	}
 
+	private fun seekToRecoveryTarget(player: MediaController, state: PlayerUiState, targetIndex: Int) {
+		val targetItem = player.getMediaItemAt(targetIndex)
+		val song = state.queue.getOrNull(targetIndex)
+		val localPath = song?.let { downloadManager.getDownloadedFilePath(it.id) }
+		if (localPath != null) {
+			val localUri = File(localPath).toUri()
+			if (targetItem.localConfiguration?.uri != localUri) {
+				player.replaceMediaItem(targetIndex, targetItem.buildUpon().setUri(localUri).build())
+			}
+		}
+		player.seekTo(targetIndex, 0L)
+		player.prepare()
+	}
+
 	private fun nextPlayableIndex(state: PlayerUiState, currentIndex: Int, currentSongId: String?): Int? {
+		val cachedSongIds = state.queue.asSequence().map { it.id }
+			.filter { it != currentSongId && downloadManager.getDownloadedFilePath(it) != null }.toSet()
 		val availableSongIds = state.queue
 			.asSequence()
 			.map { it.id }
@@ -776,7 +799,8 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 			currentIndex = currentIndex,
 			queueSongIds = state.queue.map { it.id },
 			availableSongIds = availableSongIds,
-			upcomingIndexes = state.upcomingIndexes
+			upcomingIndexes = state.upcomingIndexes,
+			preferredSongIds = cachedSongIds
 		)
 	}
 
@@ -788,6 +812,13 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		nextPlayableIndex = nextPlayableIndex(state, recovery.queueIndex, recovery.songId)
 	)
 }
+
+// Media3's 2xxx codes are source IO errors; an internal player timeout is not an outage.
+internal fun isNavidromePlaybackOutage(error: PlaybackException): Boolean =
+	error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+		error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+		(error.errorCode / 1_000 == 2 &&
+			classifyNavidromeFailure(error) == NavidromeFailureDisposition.ServiceUnavailable)
 
 private data class RemoteSourceRefreshKey(
 	val songId: String,

@@ -5,7 +5,6 @@ import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.lifecycle.viewModelScope
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
@@ -15,11 +14,13 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -61,7 +62,6 @@ import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.shouldPauseForAudioPlaybackClaim
 import paige.navic.domain.models.shouldFadePlaybackCommand
 import paige.navic.domain.models.shouldHandlePlaybackErrorVisibly
-import paige.navic.domain.models.shouldReplaceQueuedMediaItemForDownloadAvailability
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
 import paige.navic.domain.models.SongRadioQueueDefaultSize
 import paige.navic.domain.models.settings.OfflineMode
@@ -71,7 +71,6 @@ import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.ui.core.withQueueSongReplacement
 import paige.navic.util.core.Logger
-import java.io.File
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
 import coil3.PlatformContext as CoilPlatformContext
@@ -103,6 +102,8 @@ class AndroidMediaPlayerViewModel(
 	playbackAccountBoundary = playbackAccountBoundary
 ) {
 	private var controller: MediaController? = null
+	private var controllerSetupJob: Job? = null
+	private val sourceTimelineRevision = MutableStateFlow(0L)
 	private var playbackClaim: AudioPlaybackOwnershipClaim? = null
 	private val mediaControllerConnection: AndroidMediaControllerConnection = DefaultAndroidMediaControllerConnection(
 		application = application,
@@ -112,12 +113,14 @@ class AndroidMediaPlayerViewModel(
 			setupController()
 		},
 		onConnectionFailed = { error ->
+			controllerSetupJob?.cancel()
 			controller = null
 			onBulkPlaybackConnectionLost()
 			Logger.e("MediaPlayer", "Failed to connect media controller", error)
 		},
 		onDisconnected = { disconnectedController ->
 			if (controller === disconnectedController) {
+				controllerSetupJob?.cancel()
 				controller = null
 				onBulkPlaybackConnectionLost()
 			}
@@ -373,7 +376,8 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	private fun setupController() {
-		viewModelScope.launch {
+		controllerSetupJob?.cancel()
+		controllerSetupJob = viewModelScope.launch {
 			controller?.apply {
 				addListener(object : Player.Listener {
 					override fun onEvents(player: Player, events: Player.Events) {
@@ -381,6 +385,8 @@ class AndroidMediaPlayerViewModel(
 					}
 
 					override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+						sourceTimelineRevision.update { it + 1 }
+						_uiState.update { state -> state.withPlaybackTracks(Tracks.EMPTY) }
 						updatePlaybackState()
 						playbackRecovery.onMediaItemTransition(mediaItem, currentMediaItemIndex)
 
@@ -516,6 +522,7 @@ class AndroidMediaPlayerViewModel(
 					}
 
 					override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+						sourceTimelineRevision.update { it + 1 }
 						updatePlaybackState()
 					}
 				})
@@ -550,17 +557,13 @@ class AndroidMediaPlayerViewModel(
 					snapshotFlow { preferenceManager.streamingQualityCellular },
 					snapshotFlow { preferenceManager.isAdvancedTranscodingActive },
 					snapshotFlow { preferenceManager.customMaxBitrateWifi },
-					snapshotFlow { preferenceManager.customMaxBitrateCellular }
+					snapshotFlow { preferenceManager.customMaxBitrateCellular },
+					sourceTimelineRevision
 				) { it }.collectLatest { args ->
 					@Suppress("UNCHECKED_CAST")
 					val downloads = args[0] as List<DownloadEntity>
 					latestDownloadsById = downloads.associateBy { download -> download.songId }
 					updatePlaybackDownloadProgress()
-					val downloadedMap = downloads
-						.filter { download ->
-							download.status == DownloadStatus.DOWNLOADED && download.filePath != null
-						}
-						.associate { download -> download.songId to download.filePath!! }
 					val player = controller ?: return@collectLatest
 					playbackDiagnostics.onRecoveryDownloadStatus(
 						playbackRecovery.pendingSongId,
@@ -573,40 +576,25 @@ class AndroidMediaPlayerViewModel(
 						downloadsById = latestDownloadsById
 					)
 					val currentIndex = player.currentMediaItemIndex
+					val account = playbackAccountBoundary?.capture() ?: return@collectLatest
+					val updates = mutableListOf<QueuedPlaybackSourceUpdate>()
 
 					for (i in 0 until player.mediaItemCount) {
 						val item = player.getMediaItemAt(i)
-						val id = item.mediaId
-						val localPath = downloadedMap[id]
-
-						val isCurrentlyLocal = item.localConfiguration?.uri?.scheme == "file"
-						if (
-							!shouldReplaceQueuedMediaItemForDownloadAvailability(
-								isCurrentItem = i == currentIndex,
-								hasDownloadedFile = localPath != null,
-								isCurrentlyLocal = isCurrentlyLocal,
-								isRecoveringFromSourceError = false
-							)
-						) {
-							continue
+						val localPath = downloadManager.getDownloadedFilePath(latestDownloadsById[item.mediaId])
+						val newItem = playbackSourceUpdate(
+							item = item,
+							localPath = localPath,
+							isCurrentItem = i == currentIndex,
+							isRecoveringFromSourceError = false,
+							streamUriForSongId = ::getStreamUrl
+						)
+						newItem?.localConfiguration?.uri?.let { uri ->
+							updates += QueuedPlaybackSourceUpdate(i, item.mediaId, item.localConfiguration?.uri, uri)
 						}
-
-						val newItem = if (localPath != null) {
-							if (!isCurrentlyLocal) {
-								item.buildUpon()
-									.setUri(File(localPath).toUri())
-									.build()
-							} else null
-						} else {
-							val newUri = getStreamUrl(id)
-							if (isCurrentlyLocal || item.localConfiguration?.uri != newUri) {
-								item.buildUpon()
-									.setUri(newUri)
-									.build()
-							} else null
-						}
-
-						newItem?.let { player.replaceMediaItem(i, it) }
+					}
+					if (updates.isNotEmpty() && playbackAccountBoundary.isCurrent(account)) {
+						PlaybackService.refreshQueuedSources(player, account, updates)
 					}
 				}
 			}
@@ -681,7 +669,8 @@ class AndroidMediaPlayerViewModel(
 				currentCollection = derivedCollection ?: state.currentCollection,
 				isPaused = !controller.playWhenReady,
 				isShuffleEnabled = controller.shuffleModeEnabled,
-				repeatMode = controller.repeatMode
+				repeatMode = controller.repeatMode,
+				playbackRequestedTranscodeBitrate = controller.currentMediaItem?.requestedPlaybackBitrateKbps()
 			)
 		}
 		refreshPlaybackVolume()
@@ -780,23 +769,7 @@ class AndroidMediaPlayerViewModel(
 
 	@OptIn(UnstableApi::class)
 	private fun updatePlaybackProperties(tracks: Tracks) {
-		val audioGroup = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
-		if (audioGroup != null) {
-			for (i in 0 until audioGroup.length) {
-				if (audioGroup.isTrackSelected(i)) {
-					val format = audioGroup.getTrackFormat(i)
-					Logger.i("MediaPlayer", "Active Track Format: $format")
-					_uiState.update { state ->
-						state.copy(
-							playbackBitrate = format.bitrate.takeIf { it > 0 },
-							playbackSampleRate = format.sampleRate.takeIf { it > 0 },
-							playbackMimeType = format.sampleMimeType
-						)
-					}
-					break
-				}
-			}
-		}
+		_uiState.update { state -> state.withPlaybackTracks(tracks) }
 	}
 
 	override fun addToQueueSingle(song: DomainSong, notify: Boolean) {
@@ -935,6 +908,7 @@ class AndroidMediaPlayerViewModel(
 
 		playbackDiagnostics.onQueueSelection(request, _uiState.value.queue.getOrNull(request.index))
 		player.seekTo(request.index, 0L)
+		player.prepareIdlePlaybackAfterSeek()
 		if (request.playWhenReady) claimMusicPlayback()
 		player.playWhenReady = request.playWhenReady
 		return true
@@ -1039,6 +1013,16 @@ class AndroidMediaPlayerViewModel(
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val player = controller ?: return@launch
 			if (playbackRecovery.onUserResume(player, _uiState.value)) return@launch
+			if (player.playbackState == Player.STATE_IDLE || player.playerError != null) {
+				player.currentMediaItem?.let { item ->
+					val positionMs = player.currentPosition.coerceAtLeast(0L)
+					playbackSourceUpdate(item, downloadManager.getDownloadedFilePath(item.mediaId), true, true,
+						::getStreamUrl)?.let { refreshed ->
+						player.replaceMediaItem(player.currentMediaItemIndex, refreshed)
+						player.seekTo(player.currentMediaItemIndex, positionMs)
+					}
+				}
+			}
 			playbackVolumeFader.cancel(player)
 			val fadeDurationMs = preferenceManager.audioFadeDurationMs
 			if (
@@ -1084,7 +1068,12 @@ class AndroidMediaPlayerViewModel(
 		invalidateAutomaticResume()
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			playbackRecovery.clear("next")
-			if (controller?.hasNextMediaItem() == true) controller?.seekToNextMediaItem()
+			controller?.let { player ->
+				if (player.hasNextMediaItem()) {
+					player.seekToNextMediaItem()
+					player.prepareIdlePlaybackAfterSeek()
+				}
+			}
 		}
 	}
 
@@ -1105,6 +1094,7 @@ class AndroidMediaPlayerViewModel(
 			} else {
 				controller.seekToPreviousMediaItem()
 			}
+			controller.prepareIdlePlaybackAfterSeek()
 		}
 	}
 
@@ -1145,6 +1135,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun onCleared() {
+		controllerSetupJob?.cancel()
 		bulkPlaybackCoordinator.cancel()
 		invalidateAutomaticResume()
 		playbackVolumeFader.cancel(controller)

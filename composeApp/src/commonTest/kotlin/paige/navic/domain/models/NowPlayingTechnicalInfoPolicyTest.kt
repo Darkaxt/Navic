@@ -7,6 +7,22 @@ import kotlin.test.assertNull
 
 class NowPlayingTechnicalInfoPolicyTest {
 	@Test
+	fun opusDoesNotBorrowAnOriginalFlacBitrateWhenTheSelectedBitrateIsUnknown() {
+		val info = nowPlayingTechnicalInfo(NowPlayingTechnicalInfoStyle.Compact,
+			NowPlayingTechnicalInfoInput(playbackMimeType = "audio/opus", fileExtension = "flac",
+				playbackSampleRateHz = 48_000, sourceBitrateKbps = 1681))
+		assertEquals("OPUS • 48 kHz • -- kbps", info.primary)
+	}
+
+	@Test
+	fun anOriginalCachedFlacCanStillShowItsSourceBitrate() {
+		val info = nowPlayingTechnicalInfo(NowPlayingTechnicalInfoStyle.Compact,
+			NowPlayingTechnicalInfoInput(playbackMimeType = "audio/flac", fileExtension = "flac",
+				playbackSampleRateHz = 48_000, sourceBitrateKbps = 1681))
+		assertEquals("FLAC • 48 kHz • 1681 kbps", info.primary)
+	}
+
+	@Test
 	fun compactStyleFormatsCurrentPlaybackDetails() {
 		val info = nowPlayingTechnicalInfo(
 			style = NowPlayingTechnicalInfoStyle.Compact,

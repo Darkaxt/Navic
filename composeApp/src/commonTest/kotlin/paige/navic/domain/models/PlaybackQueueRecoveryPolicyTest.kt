@@ -6,6 +6,31 @@ import kotlin.test.assertEquals
 
 class PlaybackQueueRecoveryPolicyTest {
 	@Test
+	fun recoveryPrefersCachedSongsWithinTheCurrentTraversal() {
+		assertEquals(3, firstPlayableUpcomingIndex(
+			currentIndex = 1,
+			queueSongIds = listOf("earlier-cache", "current", "remote", "cache", "other-cache"),
+			availableSongIds = setOf("earlier-cache", "remote", "cache", "other-cache"),
+			upcomingIndexes = listOf(2, 3, 4, 0),
+			preferredSongIds = setOf("earlier-cache", "cache", "other-cache")
+		))
+		assertEquals(2, firstPlayableUpcomingIndex(
+			currentIndex = 1,
+			queueSongIds = listOf("missing", "current", "remote", "cache"),
+			availableSongIds = setOf("remote"),
+			upcomingIndexes = listOf(2, 3, 0),
+			preferredSongIds = setOf("cache")
+		))
+		assertEquals(null, firstPlayableUpcomingIndex(
+			currentIndex = 1,
+			queueSongIds = listOf("missing", "current", "remote"),
+			availableSongIds = emptySet(),
+			upcomingIndexes = listOf(2, 0),
+			preferredSongIds = setOf("current")
+		))
+	}
+
+	@Test
 	fun firstPlayableUpcomingIndexSkipsUnavailableItems() {
 		assertEquals(
 			3,

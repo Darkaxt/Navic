@@ -3,6 +3,10 @@ package paige.navic.shared
 import androidx.media3.common.C
 import androidx.media3.common.Player
 
+internal fun Player.prepareIdlePlaybackAfterSeek() {
+	if (playbackState == Player.STATE_IDLE && mediaItemCount > 0) prepare()
+}
+
 internal fun Player.upcomingMediaItemIndexes(): List<Int> {
 	val itemCount = mediaItemCount
 	val currentIndex = currentMediaItemIndex

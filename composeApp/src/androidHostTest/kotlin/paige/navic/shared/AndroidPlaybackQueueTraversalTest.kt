@@ -18,6 +18,42 @@ import kotlin.test.assertEquals
 @Config(manifest = Config.NONE, sdk = [35])
 class AndroidPlaybackQueueTraversalTest {
 	@Test
+	fun sameIdentitySourceReplacementPreservesTheActualSessionShuffleOrder() {
+		val player = ExoPlayer.Builder(ApplicationProvider.getApplicationContext()).build()
+		try {
+			val items = (0..3).map { MediaItem.Builder().setMediaId("song-$it").setUri("https://server/song-$it.mp3").build() }
+			player.setMediaItems(items, 0, 51_000L)
+			player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(intArrayOf(3, 0, 2, 1), 0))
+			player.shuffleModeEnabled = true
+			val sessionPlayer = stablePlaybackSessionPlayer(player)
+			sessionPlayer.replaceMediaItem(2, items[2].buildUpon().setUri("file:///music/song-2.mp3").build())
+			assertEquals(listOf(3, 0, 2, 1), player.persistableShuffleOrder())
+			assertEquals(0, player.currentMediaItemIndex)
+			assertEquals(51_000L, player.currentPosition)
+		} finally {
+			player.release()
+		}
+	}
+
+	@Test
+	fun selectionAfterIdleErrorPreparesWithoutRebuildingQueueOrResumingPausedIntent() {
+		val player = ExoPlayer.Builder(ApplicationProvider.getApplicationContext()).build()
+		try {
+			player.setMediaItems((0..2).map { MediaItem.Builder().setMediaId("song-$it").setUri("file:///song-$it.mp3").build() })
+			player.pause()
+			assertEquals(Player.STATE_IDLE, player.playbackState)
+			player.seekTo(1, 0L)
+			player.prepareIdlePlaybackAfterSeek()
+			assertEquals(Player.STATE_BUFFERING, player.playbackState)
+			assertEquals(1, player.currentMediaItemIndex)
+			assertEquals(3, player.mediaItemCount)
+			assertEquals(false, player.playWhenReady)
+		} finally {
+			player.release()
+		}
+	}
+
+	@Test
 	fun repeatOneProjectionDoesNotAlterPersistedTimelineTraversalAcrossRestart() {
 		val original = ExoPlayer.Builder(ApplicationProvider.getApplicationContext()).build()
 		val restored = ExoPlayer.Builder(ApplicationProvider.getApplicationContext()).build()

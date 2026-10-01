@@ -14,7 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
-import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.NowPlayingTechnicalInfoInput
 import paige.navic.domain.models.nowPlayingTechnicalInfo
@@ -25,17 +24,10 @@ fun NowPlayingTechnicalInfoRow(
 	modifier: Modifier = Modifier
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
-	val connectivityManager = koinInject<ConnectivityManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsState()
 	val song = playerState.currentSong
 
-	val isCellular = connectivityManager.isCellular.value
-	val requestedBitrate = if (preferenceManager.isAdvancedTranscodingActive) {
-		if (isCellular) preferenceManager.customMaxBitrateCellular else preferenceManager.customMaxBitrateWifi
-	} else {
-		if (isCellular) preferenceManager.streamingQualityCellular.bitrateAndroid else preferenceManager.streamingQualityWifi.bitrateAndroid
-	}
 	val info = nowPlayingTechnicalInfo(
 		style = preferenceManager.nowPlayingTechnicalInfoStyle,
 		input = NowPlayingTechnicalInfoInput(
@@ -45,7 +37,7 @@ fun NowPlayingTechnicalInfoRow(
 			sourceSampleRateHz = song?.sampleRate,
 			playbackBitrateBps = playerState.playbackBitrate,
 			sourceBitrateKbps = song?.bitRate,
-			requestedTranscodeBitrateKbps = requestedBitrate,
+			requestedTranscodeBitrateKbps = playerState.playbackRequestedTranscodeBitrate,
 			bitDepth = song?.bitDepth,
 			channelCount = song?.audioChannelCount,
 			fileSizeBytes = song?.fileSize ?: 0L,

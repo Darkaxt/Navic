@@ -11,6 +11,7 @@ import paige.navic.domain.models.QueueSelectionRequest
 import paige.navic.domain.models.StalePlaybackMatchStrength
 import paige.navic.domain.models.StalePlaybackProbeResolution
 import paige.navic.domain.models.playbackDiagnosticMessage
+import paige.navic.domain.models.playbackErrorCauseDetails
 import paige.navic.util.core.Logger
 
 internal class AndroidPlaybackDiagnosticsLogger {
@@ -105,6 +106,7 @@ internal class AndroidPlaybackDiagnosticsLogger {
 			playbackDiagnosticMessage(
 				"playback-error",
 				"code" to error.errorCodeName,
+				"causes" to playbackErrorCauseDetails(error),
 				"message" to error.message,
 				"songId" to (currentSong?.id ?: player.currentMediaItem?.mediaId),
 				"title" to currentSong?.title,

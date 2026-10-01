@@ -8,6 +8,56 @@ import kotlin.test.assertTrue
 
 class AndroidMediaPlayerViewModelSourceTest {
 	@Test
+	fun networkQualityAndTrackDetailsFollowTheSelectedSource() {
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val collect = viewModel.substringAfter("latestDownloadsById = downloads.associateBy")
+			.substringBefore("override fun refreshAudioEffects")
+		assertContains(collect, "downloadManager.getDownloadedFilePath(latestDownloadsById[item.mediaId])")
+		assertContains(collect, "val newItem = playbackSourceUpdate(")
+		assertContains(collect, "isCurrentItem = i == currentIndex")
+		assertContains(collect, "PlaybackService.refreshQueuedSources(player, account, updates)")
+		assertFalse(collect.contains("player.replaceMediaItem(i,"))
+		assertContains(viewModel, "sourceTimelineRevision.update { it + 1 }")
+		assertContains(viewModel, "controllerSetupJob?.cancel()")
+		assertContains(viewModel, "state.withPlaybackTracks(Tracks.EMPTY)")
+		assertContains(viewModel, "state.withPlaybackTracks(tracks)")
+		assertContains(viewModel, "controller.currentMediaItem?.requestedPlaybackBitrateKbps()")
+		val resume = viewModel.substringAfter("override fun resume()").substringBefore("private fun effectivePlaybackVolume")
+		assertContains(resume, "player.playbackState == Player.STATE_IDLE || player.playerError != null")
+		assertContains(resume, "playbackSourceUpdate(item,")
+		val row = commonSourceFile("ui/screens/nowPlaying/components/rows/TechnicalInfoRow.kt").readText()
+		assertContains(row, "requestedTranscodeBitrateKbps = playerState.playbackRequestedTranscodeBitrate")
+		assertFalse(row.contains("streamingQualityCellular"))
+	}
+
+	@Test
+	fun recoveryTargetsResolveAUsableLocalSourceBeforeSeeking() {
+		val recovery = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
+		assertContains(recovery, "preferredSongIds = cachedSongIds")
+		for (function in listOf("finishConfirmedMissingSong", "finishTerminalFailure")) {
+			assertContains(recovery.substringAfter("fun $function(").substringBefore("\n\t}"),
+				"seekToRecoveryTarget(player, state, targetIndex)")
+		}
+		val seek = recovery.substringAfter("fun seekToRecoveryTarget(").substringBefore("\n\t}")
+		assertTrue(seek.indexOf("getDownloadedFilePath") < seek.indexOf("player.seekTo"))
+		assertContains(seek, "setUri(localUri)")
+	}
+
+	@Test
+	fun idleNavigationAndOutageRecoveryAreWiredToTheBehavioralPolicies() {
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		for (command in listOf("selectQueueItemIfAvailable", "next", "previous")) {
+			val body = viewModel.substringAfter("fun $command(").substringBefore("\n\t}")
+			assertContains(body, "prepareIdlePlaybackAfterSeek()", message = command)
+		}
+		val recovery = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
+		val outage = recovery.substringAfter("fun handleServiceUnavailable(")
+			.substringBefore("fun handleServiceRestored(")
+		assertTrue(outage.indexOf("shouldKeepLocalPlaybackDuringOutage(") < outage.indexOf("val recovery = pendingRecovery("))
+		assertContains(recovery, "positionMs = playbackRecoveryPositionMs(")
+	}
+
+	@Test
 	fun supersedingCommandsInvalidateInitialDatastoreRestoreBeforeUiPublication() {
 		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
 		val base = commonSourceFile("shared/MediaPlayer.kt").readText()

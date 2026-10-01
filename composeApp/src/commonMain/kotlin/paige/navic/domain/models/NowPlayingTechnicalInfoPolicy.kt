@@ -28,7 +28,7 @@ fun nowPlayingTechnicalInfo(
 ): NowPlayingTechnicalInfo {
 	val primary = listOf(
 		formatAudioFormat(input.playbackMimeType, input.fileExtension),
-		formatSampleRate(input.playbackSampleRateHz ?: input.sourceSampleRateHz),
+		formatSampleRate(input.playbackSampleRateHz ?: input.sourceSampleRateHz?.takeIf { mayUseSourceStats(input) }),
 		formatBitrate(input)
 	).joinToString(" • ")
 
@@ -76,10 +76,14 @@ private fun formatBitrate(input: NowPlayingTechnicalInfoInput): String {
 	}
 	val bitrateKbps = playbackBitrateKbps
 		?: requestedOpusBitrateKbps
-		?: input.sourceBitrateKbps?.takeIf { it > 0 }
+		?: input.sourceBitrateKbps?.takeIf { it > 0 && mayUseSourceStats(input) }
 
 	return bitrateKbps?.let { "$it kbps" } ?: "-- kbps"
 }
+
+private fun mayUseSourceStats(input: NowPlayingTechnicalInfoInput): Boolean =
+	input.playbackMimeType == null ||
+		formatAudioFormat(input.playbackMimeType, null) == formatAudioFormat(null, input.fileExtension)
 
 private fun formatFileSize(bytes: Long): String? {
 	if (bytes <= 0L) return null

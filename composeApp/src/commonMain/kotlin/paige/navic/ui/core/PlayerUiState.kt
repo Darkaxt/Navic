@@ -23,7 +23,8 @@ data class PlayerUiState(
 	val playbackPitch: Float = 1.0f,
 	val playbackBitrate: Int? = null,
 	val playbackSampleRate: Int? = null,
-	val playbackMimeType: String? = null
+	val playbackMimeType: String? = null,
+	@kotlinx.serialization.Transient val playbackRequestedTranscodeBitrate: Int? = null
 )
 
 fun PlayerUiState.withQueueSongReplacement(index: Int, replacement: DomainSong): PlayerUiState {

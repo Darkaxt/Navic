@@ -1,5 +1,18 @@
 package paige.navic.domain.models
 
+fun shouldKeepLocalPlaybackDuringOutage(
+	currentUsesLocalFile: Boolean,
+	hasPlayerError: Boolean,
+	isIdleOrEnded: Boolean
+): Boolean = currentUsesLocalFile && !hasPlayerError && !isIdleOrEnded
+
+fun playbackRecoveryPositionMs(
+	playerPositionMs: Long,
+	uiProgressBelongsToCurrentItem: Boolean,
+	uiPositionMs: Long
+): Long = if (playerPositionMs >= 0L) playerPositionMs
+	else if (uiProgressBelongsToCurrentItem) uiPositionMs.coerceAtLeast(0L) else 0L
+
 sealed interface OfflinePlaybackFallbackResolution {
 	data object KeepCurrent : OfflinePlaybackFallbackResolution
 	data object Hold : OfflinePlaybackFallbackResolution
