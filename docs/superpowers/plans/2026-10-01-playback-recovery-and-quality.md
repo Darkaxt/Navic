@@ -57,10 +57,15 @@ Blockers: none. Tracked deferrals: none.
 
 ## Stage 4: Authorized Public Delivery
 
-Status: ACTIVE. Requirement: R8.
+Status: COMPLETE. Requirement: public-delivery portion of R8.
 Publish `v1.0.11-iota69` (versionCode 596) from the verified implementation.
 Verify tag CI, public release, independently downloaded package/version,
 SHA-256, and certificate. Clean registered expendable artifacts and preserve
 the specifications and verified source. Do not install on devices. Remaining
-acceptance criteria: all delivery checks and cleanup. Blockers: none.
-Tracked deferrals: none. After delivery, run `shutdown -h -t 00` as requested.
+delivery acceptance criteria: none. Blockers: none. Tracked deferrals: none.
+Verification: tag CI succeeded, public package/version/certificate/checksum and
+packaged governance checks passed, and both reviewed cleanup transactions applied
+without residual errors. See the specification's Public Delivery Verification.
+Post-delivery action: execute `shutdown -h -t 00` after this result is recorded.
+Hibernation is a simple final machine command outside the implementation stages;
+it remains required and is not claimed executed by this checkpoint document.

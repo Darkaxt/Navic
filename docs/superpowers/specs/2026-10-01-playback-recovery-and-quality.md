@@ -112,9 +112,41 @@ that every possible long-pause failure is resolved.
 - R6: Always-retained diagnostics persist cause classes/messages, redact URLs,
   and terminate cyclic cause chains. Verified with the real log manager.
 - R7: Real Media3 timeout and source IO/HTTP exception tests verify classification.
-- R8: Delivery pending. Host proof does not establish the unreproduced historical
-  long-pause cause or constitute live phone verification of the new binary.
+- R8: Public Android delivery and cleanup are verified below. Hibernation is the
+  final post-delivery machine action, not a device deployment. Host proof does not
+  establish the unreproduced historical long-pause cause or constitute live phone
+  verification of the new binary.
 
 Focused host checks and the final music-only host gate passed on 2026-10-01.
 The inspected final XML contains 1,132 tests, no failures/errors/skips. Reader and
 audiobook behavior was not changed; no development APK was installed.
+
+## Public Delivery Verification
+
+- Release: [v1.0.11-iota69](https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-iota69),
+  published 2026-10-01 00:52:07 UTC, not a draft or prerelease.
+- Release source: `39767ca48bb219ed5783106bb07ebe86758c2686`.
+- [Tag CI 36797237183](https://github.com/Darkaxt/Navic/actions/runs/36797237183)
+  passed Android packaging, release signing, music host tests, and packaged
+  governance checks. iOS was skipped. The redundant master build for the same
+  commit was cancelled; no unrelated run was cancelled.
+- Independently downloaded `Navic.apk`: `darkaxt.navic`, versionCode `596`,
+  versionName `v1.0.11-iota69`, 47,124,814 bytes, ARM64 and ARMv7.
+- SHA-256: `b6f219cbc816436b8d40ae1c5b9e349570aa229791647c4ff7484c6551ccaf9f`.
+  The local file matched GitHub's public asset digest.
+- Certificate SHA-256:
+  `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`.
+  Independent apksigner verification passed with the expected release identity.
+- Windows and independently downloaded Linux XML both report 1,132 tests across
+  210 suites, with no failures, errors, or skips.
+- Independent public APK vendor/attribution verification passed. No device
+  installation, network toggle, queue replacement, or device-log clearing occurred.
+- Reviewed cleanup transactions `06f8f951052879f1f108443637cc04b3` and
+  `9261aa64aead175719cd4fb353353689` applied successfully without residual errors:
+  284,508,828 bytes of expendable generated outputs and verification downloads
+  removed. Source, specification, public APK, release notes, and CI artifacts are
+  preserved. Cleanup coverage is limited to the explicitly registered paths.
+
+All development and release acceptance criteria are satisfied. The authorized
+final action after recording this result is `shutdown -h -t 00`; Windows reports
+Hibernate as available. This document does not pre-claim execution of that command.
