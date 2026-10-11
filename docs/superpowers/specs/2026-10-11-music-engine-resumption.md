@@ -143,18 +143,66 @@ Blockers: none. Tracked deferrals: none.
 
 ### Stage 3: Public Release
 
-Status: ACTIVE
+Status: COMPLETE
 
 Requirements: R7.
 Acceptance: the verified integrated source is committed and synchronized with
 the fork; the next iota release is public; independently downloaded release
 assets match the verified source, version, digest, size, and signing identity.
+Record durable verification evidence before removing task-owned build/download
+scratch. Preserve the diagnostic deliverables and unrelated worktrees.
 
-Evidence: functional implementation committed as 65550854e. Release version is
-v1.0.11-iota70, Android versionCode 597. Public build/publication and independent
-asset verification remain pending; this stage is not complete.
-The failed run 38177210970 published no APK or release. Its architectural
-blocker is resolved by Stage 2's verified extraction. The unpublished tag will
-be updated to the corrected source without consuming another release number.
-Public publication and asset-proof acceptance remain unsatisfied.
+Evidence: functional implementation committed as 65550854e, followed by the
+verified transport extraction in d6ef928b29d89571e882e5ba3357daa3993ffe67. The
+unpublished failed tag was updated with an exact old-tag lease; no published
+release was replaced and no additional version number was consumed.
+
+Public release: https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-iota70
+
+Successful source/build run:
+https://github.com/Darkaxt/Navic/actions/runs/38179332442
+
+Downloaded and inspected CI XML: 213 music suites, 1,158 tests, zero
+failures/errors/skips. The signed release build, pinned certificate check,
+packaged vendor governance, and attribution checks passed. iOS was skipped.
+The workflow head SHA and peeled release tag both identify the exact d6ef928b2
+commit above. The duplicate master build was cancelled; the release-tag run
+performed the full required checks.
+
+An independent unauthenticated curl download of the public Navic.apk returned
+HTTP 200 and matched the CI artifact and GitHub release asset digest/size:
+
+- Package: darkaxt.navic (not the debug package).
+- Version: v1.0.11-iota70; Android versionCode 597.
+- Size: 47,541,078 bytes.
+- APK SHA-256: dd25406e166a1250f8809746f37164a3fb3719fb2dee0c8af24e8a062465b0fc.
+- apksigner: valid APK v2 signature, one 4096-bit RSA release signer.
+- Certificate SHA-256: ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7.
+
+Public publication and independent asset-proof acceptance are satisfied.
+Cleanup transactions 9f8ac5931cb7d558953caea82a48bfb7 and
+df14399487a068cca5d94029cff6d2ca both report applied, with no errors or pending
+members: 792,884,886 bytes of task-owned build/download/report output removed.
+The scratch root and obsolete generated HTML report are absent. Diagnostic
+deliverables at D:/Temp/navic-music-resume-diagnosis-20261011 and maintained source
+remain present; unrelated worktrees, signing material, and devices were untouched.
 Blockers: none. Tracked deferrals: none.
+
+## Final Requirement Reconciliation
+
+- R1: verified by retained 409-item position/settings restoration, navigation,
+  exact shuffle traversal, and ViewModel transport wiring.
+- R2: verified by awaitable readiness, latest-navigation and Pause cancellation,
+  plus reentrant cancellation checks through real players/controllers.
+- R3: verified by Clear, replacement, reconnect, revocation, and disposal tests.
+- R4: verified by empty-engine UI-state protection, retained state after mapping
+  failure, explicit retry, and loading/error/diagnostic wiring.
+- R5: verified through real MediaSession/MediaController resumption without a
+  ViewModel, rejected state cases, settings/shuffle, and shared cache/source policy.
+- R6: current Android sources, focused host checks, full Linux music suite, and
+  Android packaging passed. Physical-device playback was not tested or claimed.
+- R7: public release and independent source/version/signature/digest/size proof
+  above are verified. Task-owned verification cleanup is complete.
+
+All required acceptance criteria are satisfied at the explicitly stated
+verification boundaries. There are no unresolved blockers or required deferrals.
