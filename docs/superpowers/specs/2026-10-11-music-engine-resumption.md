@@ -123,12 +123,14 @@ Blockers: none identified. Tracked deferrals: none.
 
 ### Stage 3: Public Release
 
-Status: NOT STARTED
+Status: ACTIVE
 
 Requirements: R7.
 Acceptance: the verified integrated source is committed and synchronized with
 the fork; the next iota release is public; independently downloaded release
 assets match the verified source, version, digest, size, and signing identity.
 
-Evidence: pending.
+Evidence: functional implementation committed as 65550854e. Release version is
+v1.0.11-iota70, Android versionCode 597. Public build/publication and independent
+asset verification remain pending; this stage is not complete.
 Blockers: none identified. Tracked deferrals: none.
