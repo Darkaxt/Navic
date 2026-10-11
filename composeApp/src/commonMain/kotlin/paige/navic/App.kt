@@ -232,7 +232,7 @@ fun App(initialScreenOverride: Screen? = null) {
 			NavicTheme {
 				if (isLoggedIn) {
 					val player = koinInject<MediaPlayerViewModel>()
-					PlaybackStartDialog(player.playbackStartFeedback)
+					PlaybackStartDialog(player.playbackStartFeedback, onCancel = player::cancelPlaybackStart)
 					ShakeToSkipEffect(
 						enabled = preferenceManager.shakeToSkip,
 						onSkip = player::next

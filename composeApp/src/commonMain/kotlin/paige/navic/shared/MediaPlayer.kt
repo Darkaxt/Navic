@@ -124,6 +124,7 @@ abstract class MediaPlayerViewModel(
 	abstract fun startSongRadio(song: DomainSong)
 	abstract fun playRadio(radio: DomainRadio)
 	abstract fun pause()
+	open fun cancelPlaybackStart() { playbackStartFeedback.cancel() }
 	abstract fun resume()
 	abstract fun seek(normalized: Float)
 	abstract fun next()

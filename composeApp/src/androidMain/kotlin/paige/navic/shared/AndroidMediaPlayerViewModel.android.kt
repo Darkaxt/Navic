@@ -977,6 +977,8 @@ class AndroidMediaPlayerViewModel(
 		bulkPlaybackCoordinator.playAll(songs, forceShuffle)
 	}
 
+	override fun cancelPlaybackStart() = bulkPlaybackCoordinator.cancelFromUser(::pause)
+
 	override fun pause() {
 		bulkPlaybackCoordinator.cancel(invalidateRestore = false)
 		cancelTransportCommand()

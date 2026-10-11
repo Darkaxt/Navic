@@ -14,6 +14,13 @@ internal class PlaybackPreparationCoordinator(
 	private var generation = 0L
 	private var job: Job? = null
 
+	fun cancelFromUser(onStartingCancelled: () -> Unit) {
+		if (!feedback.isPending) return
+		val wasStarting = feedback.state.value?.phase == PlaybackStartPhase.Starting
+		cancel()
+		if (wasStarting) onStartingCancelled()
+	}
+
 	fun cancel() {
 		generation++
 		job?.cancel()

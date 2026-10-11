@@ -3,7 +3,6 @@ package paige.navic.ui.screens.nowPlaying.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -26,9 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
@@ -38,10 +34,6 @@ import paige.navic.domain.models.NowPlayingDiscContentScale
 import paige.navic.domain.models.NowPlayingDiscFitMode
 import paige.navic.domain.models.NowPlayingArtworkRequestIdentity
 import paige.navic.domain.models.NowPlayingArtworkRevealDurationMs
-import paige.navic.domain.models.NowPlayingVinylGrooveEndRadiusFraction
-import paige.navic.domain.models.NowPlayingVinylGrooveStartRadiusFraction
-import paige.navic.domain.models.NowPlayingVinylLabelRadiusFraction
-import paige.navic.domain.models.NowPlayingVinylSpindleRadiusFraction
 import paige.navic.domain.models.nowPlayingDiscContentScale
 import paige.navic.domain.models.nowPlayingDiscFitMode
 import paige.navic.domain.models.nowPlayingFallbackLabelStyle
@@ -64,7 +56,7 @@ import paige.navic.ui.components.common.CoverArtNormalization
 import paige.navic.ui.components.common.GeneratedArtworkVariant
 import paige.navic.ui.components.common.generatedArtworkSpec
 import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
-import kotlin.math.min
+import paige.navic.ui.components.common.VinylRecordOverlay
 
 @Composable
 fun NowPlayingArtwork(
@@ -255,72 +247,6 @@ fun NowPlayingArtwork(
 				modifier = Modifier.size(96.dp)
 			)
 		}
-	}
-}
-
-@Composable
-private fun VinylRecordOverlay(modifier: Modifier = Modifier) {
-	val colorScheme = MaterialTheme.colorScheme
-	Canvas(modifier = modifier) {
-		val radius = min(size.width, size.height) / 2f
-		if (radius <= 0f) return@Canvas
-
-		val center = Offset(size.width / 2f, size.height / 2f)
-		val startRadius = radius * NowPlayingVinylGrooveStartRadiusFraction
-		val endRadius = radius * NowPlayingVinylGrooveEndRadiusFraction
-		val grooveCount = 48
-		val baseStrokeWidth = (radius * 0.0028f).coerceAtLeast(0.65f)
-		val accentStrokeWidth = (radius * 0.004f).coerceAtLeast(0.9f)
-
-		drawCircle(
-			color = colorScheme.scrim.copy(alpha = 0.16f),
-			radius = radius * 0.985f,
-			center = center
-		)
-		drawCircle(
-			color = colorScheme.onSurface.copy(alpha = 0.16f),
-			radius = radius * 0.99f,
-			center = center,
-			style = Stroke(width = radius * 0.018f)
-		)
-
-		repeat(grooveCount) { index ->
-			val progress = index / (grooveCount - 1).toFloat()
-			val grooveRadius = startRadius + (endRadius - startRadius) * progress
-			val alpha = if (index % 7 == 0) 0.22f else 0.13f
-			drawCircle(
-				color = colorScheme.onSurface.copy(alpha = alpha),
-				radius = grooveRadius,
-				center = center,
-				style = Stroke(
-					width = if (index % 7 == 0) accentStrokeWidth else baseStrokeWidth,
-					cap = StrokeCap.Round
-				)
-			)
-		}
-
-		drawCircle(
-			color = colorScheme.surface.copy(alpha = 0.22f),
-			radius = radius * NowPlayingVinylLabelRadiusFraction,
-			center = center
-		)
-		drawCircle(
-			color = colorScheme.onSurface.copy(alpha = 0.32f),
-			radius = radius * NowPlayingVinylLabelRadiusFraction,
-			center = center,
-			style = Stroke(width = radius * 0.008f)
-		)
-		drawCircle(
-			color = colorScheme.surface.copy(alpha = 0.92f),
-			radius = radius * NowPlayingVinylSpindleRadiusFraction,
-			center = center
-		)
-		drawCircle(
-			color = colorScheme.onSurface.copy(alpha = 0.28f),
-			radius = radius * NowPlayingVinylSpindleRadiusFraction,
-			center = center,
-			style = Stroke(width = radius * 0.004f)
-		)
 	}
 }
 

@@ -9,9 +9,73 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PlaybackPreparationCoordinatorTest {
+	@Test
+	fun backCancellationPreservesPreviousPlaybackAndRejectsLatePreparation() = runTest {
+		val feedback = PlaybackStartFeedback()
+		val coordinator = PlaybackPreparationCoordinator(this, feedback)
+		val prepared = CompletableDeferred<Unit>()
+		var playing = "previous"
+		var pauses = 0
+		coordinator.launch(bulk = true) {
+			withContext(NonCancellable) { prepared.await() }
+			commit { playing = "replacement" }
+		}
+		runCurrent()
+		coordinator.cancelFromUser { pauses++; playing = "paused" }
+		assertNull(feedback.state.value)
+		assertFalse(feedback.isPending)
+		prepared.complete(Unit)
+		runCurrent()
+		assertEquals("previous", playing)
+		assertEquals(0, pauses)
+	}
+
+	@Test
+	fun backAfterQueueCommitPausesOnlyThePendingStartAndAllowsAnotherRequest() = runTest {
+		val feedback = PlaybackStartFeedback()
+		val coordinator = PlaybackPreparationCoordinator(this, feedback)
+		var queue = listOf("previous")
+		var playing = false
+		coordinator.launch(bulk = true) {
+			commit { queue = listOf("new", "next"); playing = true; feedback.starting() }
+			feedback.awaitSettled()
+		}
+		runCurrent()
+		coordinator.cancelFromUser { playing = false }
+		assertFalse(playing)
+		assertEquals(listOf("new", "next"), queue)
+		assertNull(feedback.state.value)
+		coordinator.cancelFromUser { error("No request must not pause unrelated playback") }
+		coordinator.launch(bulk = true) { feedback.starting(); feedback.awaitSettled() }
+		runCurrent()
+		assertTrue(feedback.isPending)
+		assertEquals(PlaybackStartPhase.Starting, feedback.state.value?.phase)
+		coordinator.cancel()
+	}
+
+	@Test
+	fun cancelledBulkCleanupCannotDismissItsReplacement() = runTest {
+		val feedback = PlaybackStartFeedback()
+		val coordinator = PlaybackPreparationCoordinator(this, feedback)
+		val prepared = CompletableDeferred<Unit>()
+		coordinator.launch(bulk = true) {
+			withContext(NonCancellable) { prepared.await() }
+			commit { error("Cancelled request committed") }
+		}
+		runCurrent()
+		coordinator.cancelFromUser { error("Preparation must not pause") }
+		coordinator.launch(bulk = true) { feedback.starting(); feedback.awaitSettled() }
+		prepared.complete(Unit)
+		runCurrent()
+		assertEquals(PlaybackStartPhase.Starting, feedback.state.value?.phase)
+		assertTrue(feedback.isPending)
+		coordinator.cancel()
+	}
+
 	@Test
 	fun supersededPreparationCannotCommitEvenWhenItsDependencyIgnoresCancellation() = runTest {
 		for (command in listOf("pause", "clear", "selection", "ownership-loss", "session", "controller")) {

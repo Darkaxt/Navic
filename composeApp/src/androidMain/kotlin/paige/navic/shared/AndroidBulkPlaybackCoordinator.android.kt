@@ -55,6 +55,8 @@ internal class AndroidBulkPlaybackCoordinator(
 		clearPendingQueueSelection()
 	}
 
+	fun cancelFromUser(onStartingCancelled: () -> Unit) = preparation.cancelFromUser(onStartingCancelled)
+
 	fun onPlayerEvents(player: Player) {
 		if (controller() !== player) return
 		if (player.isPlaying || player.playerError != null ||
