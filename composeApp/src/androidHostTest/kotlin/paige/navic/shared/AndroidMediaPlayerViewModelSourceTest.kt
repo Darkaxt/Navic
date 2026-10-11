@@ -116,10 +116,14 @@ class AndroidMediaPlayerViewModelSourceTest {
 		}
 		val transport = viewModel.substringAfter("private fun runTransportCommand(").substringBefore("override fun resume()")
 		assertContains(transport, "bulkPlaybackCoordinator.cancel(invalidateRestore = false)")
-		assertTrue(transport.indexOf("awaitInitialStateRestore()") < transport.indexOf("restoreForCommand(state)"))
-		assertTrue(transport.indexOf("restoreForCommand(state)") < transport.indexOf("command(player)"))
-		assertContains(transport, "generation != transportGeneration")
-		assertContains(transport, "playbackAccountBoundary.isCurrent(account)")
+		assertContains(transport, "transportCommands.run(reason, preservePlayIntent, beforeWait, command)")
+		assertContains(viewModel, "playbackStateSynchronizer::restoreForCommand")
+		assertContains(viewModel, "{ awaitInitialStateRestore() }")
+		val commands = androidSharedSourceFile("AndroidPlaybackTransportCoordinator.android.kt").readText()
+		assertTrue(commands.indexOf("awaitInitialState()") < commands.indexOf("restore(snapshot)"))
+		assertTrue(commands.indexOf("restore(snapshot)") < commands.indexOf("command(player)"))
+		assertContains(commands, "revision != generation")
+		assertContains(commands, "accountBoundary.isCurrent(account)")
 		val starts = androidSharedSourceFile("AndroidBulkPlaybackCoordinator.android.kt").readText()
 		listOf("playCollection", "startSongRadio", "playRadio").forEach { command ->
 			assertContains(viewModel, "bulkPlaybackCoordinator.$command(")

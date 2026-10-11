@@ -53,6 +53,11 @@ saved-queue restoration. Keep command ownership and account checks on the main
 thread, with media-item construction off the main thread. Preserve real live
 engine queues rather than replace them with stale persisted snapshots.
 
+Keep the ViewModel below its existing architectural size guard by placing the
+new transport operation's job, revision, readiness wait, and account/controller
+fences in AndroidPlaybackTransportCoordinator. It delegates queue reconstruction
+to the existing synchronizer; it is not another queue store or playback engine.
+
 The service implements Media3's resumption callback using the existing state
 repository and media-item factory. Its cancellable operation is invalidated by
 newer player intent, account revocation, and service destruction. It uses the same
@@ -119,7 +124,22 @@ diff is limited to music resumption, its regression tests, and this specificatio
 The shared gate was acquired. Fresh Gradle markers verified two workers,
 parallel=false, a 3 GiB Gradle heap, and one 512 MiB fail-fast test fork. Kotlin
 used in-process compilation. No memory-related failure or budget increase occurred.
-Blockers: none identified. Tracked deferrals: none.
+Release-gate reconciliation: the first Linux music-suite run passed 1,152 tests
+and failed AndroidMediaPlayerDecompositionSourceTest because the ViewModel grew
+to 1,232 lines, exceeding its existing less-than-1,200-line guard. The previously
+verified playback behavior is unchanged, but integrated acceptance is reopened
+until transport coordination is extracted and the guard plus affected tests pass.
+No size threshold or acceptance criterion was weakened. Gate ticket 669 then
+passed the architectural guard, ViewModel wiring, all twelve real-controller
+resumption checks, eight engine-reconciliation checks, and five new transport
+behavior checks (49 tests, no failures/errors/skips, inspected XML). The new
+checks verify readiness before navigation, newest intent, Pause cancellation,
+reconnection during mapping, account revocation, and cancellation inside the
+navigation command before its preserved Play action. Android packaging passed
+again; aapt confirms the rebuilt debug APK has code 597/v1.0.11-iota70. It was
+not installed. The same fresh two-worker/3 GiB/single-512-MiB-test-fork profile
+was verified. Integrated R1-R6 and the architectural constraint are satisfied.
+Blockers: none. Tracked deferrals: none.
 
 ### Stage 3: Public Release
 
@@ -133,4 +153,8 @@ assets match the verified source, version, digest, size, and signing identity.
 Evidence: functional implementation committed as 65550854e. Release version is
 v1.0.11-iota70, Android versionCode 597. Public build/publication and independent
 asset verification remain pending; this stage is not complete.
-Blockers: none identified. Tracked deferrals: none.
+The failed run 38177210970 published no APK or release. Its architectural
+blocker is resolved by Stage 2's verified extraction. The unpublished tag will
+be updated to the corrected source without consuming another release number.
+Public publication and asset-proof acceptance remain unsatisfied.
+Blockers: none. Tracked deferrals: none.

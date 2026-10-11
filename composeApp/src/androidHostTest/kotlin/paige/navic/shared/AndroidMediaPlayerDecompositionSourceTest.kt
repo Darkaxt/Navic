@@ -13,6 +13,7 @@ class AndroidMediaPlayerDecompositionSourceTest {
 		assertTrue(viewModel.lines().size < 1_200, "Android media player ViewModel must remain below 1,200 lines")
 		assertContains(viewModel, "AndroidMediaControllerConnection")
 		assertContains(viewModel, "AndroidPlaybackStateSynchronizer")
+		assertContains(viewModel, "AndroidPlaybackTransportCoordinator")
 		assertContains(viewModel, "AndroidDownloadedMediaRecovery")
 		assertContains(viewModel, "AndroidAudioEffectsController")
 		assertContains(viewModel, "AndroidBulkPlaybackCoordinator")
