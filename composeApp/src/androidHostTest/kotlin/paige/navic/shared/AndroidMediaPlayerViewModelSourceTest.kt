@@ -8,6 +8,22 @@ import kotlin.test.assertTrue
 
 class AndroidMediaPlayerViewModelSourceTest {
 	@Test
+	fun serviceResumptionSharesTheValidatedCacheAndStreamingSourcePolicy() {
+		val service = androidSharedSourceFile("MediaPlayer.android.kt").readText()
+		val factory = androidSharedSourceFile("AndroidMediaItemFactory.android.kt").readText()
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		assertContains(service, "override fun onPlaybackResumption(")
+		assertContains(service, "AndroidMediaItemFactory(sessionManager, downloadManager, applicationContext,")
+		assertContains(service, "itemFactory::toMediaItem")
+		assertContains(service, "playbackResumption?.onPlayerCommand(playerCommand)")
+		assertContains(service, "playbackResumption?.close()")
+		assertContains(service, "playbackStreamUri(id, sessionManager, preferenceManager, connectivityManager.isCellular.value)")
+		assertContains(viewModel, "playbackStreamUri(id, sessionManager, preferenceManager, connectivityManager.isCellular.value)")
+		val sourceSelection = factory.substringAfter("private fun DomainSong.mediaUri()")
+		assertTrue(sourceSelection.indexOf("downloadManager.getDownloadedFilePath(id)") < sourceSelection.indexOf("streamUriForSongId(id)"))
+	}
+
+	@Test
 	fun networkQualityAndTrackDetailsFollowTheSelectedSource() {
 		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
 		val collect = viewModel.substringAfter("latestDownloadsById = downloads.associateBy")
@@ -71,6 +87,8 @@ class AndroidMediaPlayerViewModelSourceTest {
 			0 until afterLoad.indexOf("_uiState.value = stateToApply"))
 		assertContains(restore, "!initialStateRestoreInvalidated &&")
 		assertContains(base, "initialStateRestoreInvalidated = true")
+		val cancelInitial = base.substringAfter("protected fun cancelPendingInitialRestore()").substringBefore("\n\t}")
+		assertContains(cancelInitial, "initialStateRestoreCompleted.complete(Unit)")
 	}
 
 	@Test
@@ -81,12 +99,27 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(app, "PlaybackStartDialog(player.playbackStartFeedback)")
 		assertContains(dialog, "CircularProgressIndicator(")
 		assertContains(dialog, "onDismissRequest = feedback::hide")
-		listOf("clearQueue", "selectQueueItem", "pause", "resume", "next", "previous", "seek")
+		listOf("clearQueue")
 			.forEach { command ->
 				val body = viewModel.substringAfter("override fun $command(")
 					.substringAfter("{").trimStart()
 				assertTrue(body.startsWith("bulkPlaybackCoordinator.cancel()"), command)
 			}
+		val pause = viewModel.substringAfter("override fun pause()").substringBefore("private fun cancelTransportCommand")
+		assertContains(pause, "bulkPlaybackCoordinator.cancel(invalidateRestore = false)")
+		assertContains(pause, "cancelTransportCommand()")
+		assertContains(pause, "playbackStateSynchronizer.cancelPendingRestore()")
+		assertContains(pause, "suppressInitialRestorePlayback()")
+		listOf("selectQueueItem", "resume", "next", "previous", "seek").forEach { command ->
+			val body = viewModel.substringAfter("override fun $command(").substringBefore("\n\t}")
+			assertContains(body, "runTransportCommand(", message = command)
+		}
+		val transport = viewModel.substringAfter("private fun runTransportCommand(").substringBefore("override fun resume()")
+		assertContains(transport, "bulkPlaybackCoordinator.cancel(invalidateRestore = false)")
+		assertTrue(transport.indexOf("awaitInitialStateRestore()") < transport.indexOf("restoreForCommand(state)"))
+		assertTrue(transport.indexOf("restoreForCommand(state)") < transport.indexOf("command(player)"))
+		assertContains(transport, "generation != transportGeneration")
+		assertContains(transport, "playbackAccountBoundary.isCurrent(account)")
 		val starts = androidSharedSourceFile("AndroidBulkPlaybackCoordinator.android.kt").readText()
 		listOf("playCollection", "startSongRadio", "playRadio").forEach { command ->
 			assertContains(viewModel, "bulkPlaybackCoordinator.$command(")

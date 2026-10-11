@@ -46,12 +46,12 @@ internal class AndroidBulkPlaybackCoordinator(
 
 	fun onControllerUnavailable() {
 		connectedController.value = null
-		cancel()
+		preparation.cancel()
 	}
 
-	fun cancel() {
+	fun cancel(invalidateRestore: Boolean = true) {
 		preparation.cancel()
-		cancelPendingRestore()
+		if (invalidateRestore) cancelPendingRestore()
 		clearPendingQueueSelection()
 	}
 

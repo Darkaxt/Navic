@@ -66,6 +66,7 @@ import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import paige.navic.data.database.dao.AlbumDao
+import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toEntity
@@ -146,6 +147,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private var audioDeviceCallback: AudioDeviceCallback? = null
 	private var volumeZeroObserver: ContentObserver? = null
 	private var automaticResume: AndroidPlaybackAutoResumeCoordinator? = null
+	private var playbackResumption: AndroidPlaybackResumption? = null
 	private var medleyModeJob: Job? = null
 	private var exoPlayer: ExoPlayer? = null
 	private var unregisterPlaybackAccount: (() -> Unit)? = null
@@ -165,6 +167,10 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private val playbackAccountBoundary: PlaybackAccountBoundary by inject()
 	private val preferenceManager: PreferenceManager by inject()
 	private val navidromeAvailabilityManager: NavidromeAvailabilityManager by inject()
+	private val playerStateRepository: PlayerStateRepository by inject()
+	private val downloadManager: DownloadManager by inject()
+	private val artworkRepository: MusicBrainzArtworkRepository by inject()
+	private val artistPhotoCacheDao: ArtistPhotoCacheDao by inject()
 
 	@OptIn(UnstableApi::class)
 	override fun onCreate() {
@@ -257,7 +263,18 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 		)
 
-		mediaSession = MediaSession.Builder(this, stablePlaybackSessionPlayer(player))
+		val artworkResolver = AndroidPlaybackArtworkResolver(preferenceManager, artworkRepository)
+		val itemFactory = AndroidMediaItemFactory(sessionManager, downloadManager, applicationContext,
+			artworkResolver::resolve, { id -> playbackStreamUri(id, sessionManager, preferenceManager, connectivityManager.isCellular.value) })
+		val resumption = AndroidPlaybackResumption(serviceScope, player, playbackAccountBoundary,
+			{ preferenceManager.persistentQueue }, {
+				downloadManager.allDownloads.first()
+				artworkResolver.updateArtistPhotoCache(artistPhotoCacheDao.observeArtistPhotoCache().first())
+				playerStateRepository.loadState()
+			}, itemFactory::toMediaItem)
+		playbackResumption = resumption
+		mediaSession = MediaSession.Builder(this, stablePlaybackSessionPlayer(player,
+			resumption::allowsFrameworkPlaybackMutation, resumption::onPlaylistInstalled))
 			.setSessionActivity(sessionPendingIntent)
 			.setCallback(PlaybackSessionCallback(player))
 			.build()
@@ -295,6 +312,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	override fun onDestroy() {
+		playbackResumption?.close()
+		playbackResumption = null
 		unregisterPlaybackAccount?.invoke()
 		unregisterPlaybackAccount = null
 		invalidateAutomaticResume()
@@ -606,6 +625,13 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private inner class PlaybackSessionCallback(
 		private val player: ExoPlayer
 	) : MediaSession.Callback {
+		override fun onPlaybackResumption(
+			session: MediaSession,
+			controller: MediaSession.ControllerInfo,
+			isForPlayback: Boolean
+		): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
+			checkNotNull(playbackResumption).request(isForPlayback)
+
 		@Suppress("OVERRIDE_DEPRECATION")
 		override fun onPlayerCommandRequest(
 			session: MediaSession,
@@ -614,6 +640,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		): Int {
 			// Observe requests, not state changes: pause while already paused is still newer intent.
 			automaticResume?.onPlayerCommand(playerCommand)
+			playbackResumption?.onPlayerCommand(playerCommand)
 			return SessionResult.RESULT_SUCCESS
 		}
 
@@ -659,6 +686,11 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 				))
 			}
 			invalidateAutomaticResume()
+			when (customCommand.customAction) {
+				ACTION_TOGGLE_SHUFFLE -> playbackResumption?.onPlayerCommand(Player.COMMAND_SET_SHUFFLE_MODE)
+				ACTION_TOGGLE_REPEAT -> playbackResumption?.onPlayerCommand(Player.COMMAND_SET_REPEAT_MODE)
+				else -> playbackResumption?.invalidate()
+			}
 			when (customCommand.customAction) {
 				ACTION_INVALIDATE_AUTOMATIC_RESUME -> Unit
 				ACTION_TOGGLE_SHUFFLE -> player.shuffleModeEnabled = !player.shuffleModeEnabled

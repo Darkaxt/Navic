@@ -7,8 +7,24 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 
 @androidx.annotation.OptIn(UnstableApi::class)
-internal fun stablePlaybackSessionPlayer(player: ExoPlayer): Player =
+internal fun stablePlaybackSessionPlayer(
+    player: ExoPlayer,
+    allowsResumptionMutation: () -> Boolean = { true },
+    onPlaylistInstalled: (List<MediaItem>) -> Unit = {}
+): Player =
     object : ForwardingPlayer(player) {
+        override fun play() { if (allowsResumptionMutation()) super.play() }
+        override fun prepare() { if (allowsResumptionMutation()) super.prepare() }
+        override fun seekToDefaultPosition() { if (allowsResumptionMutation()) super.seekToDefaultPosition() }
+        override fun seekToDefaultPosition(mediaItemIndex: Int) {
+            if (allowsResumptionMutation()) super.seekToDefaultPosition(mediaItemIndex)
+        }
+        override fun setMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long) {
+            if (!allowsResumptionMutation()) return
+            super.setMediaItems(mediaItems, startIndex, startPositionMs)
+            onPlaylistInstalled(mediaItems)
+        }
+
         override fun replaceMediaItem(index: Int, mediaItem: MediaItem) {
             replaceMediaItems(index, index + 1, listOf(mediaItem))
         }

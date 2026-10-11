@@ -14,6 +14,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.cancel
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -102,19 +104,30 @@ class AndroidMediaPlayerViewModel(
 	playbackAccountBoundary = playbackAccountBoundary
 ) {
 	private var controller: MediaController? = null
+	private val transportController = MutableStateFlow<MediaController?>(null)
+	private var transportJob: Job? = null
+	private var transportGeneration = 0L
+	private var controllerConnectionFailed = false
 	private var controllerSetupJob: Job? = null
 	private val sourceTimelineRevision = MutableStateFlow(0L)
 	private var playbackClaim: AudioPlaybackOwnershipClaim? = null
 	private val mediaControllerConnection: AndroidMediaControllerConnection = DefaultAndroidMediaControllerConnection(
 		application = application,
 		onConnected = { connectedController ->
+			controllerConnectionFailed = false
 			controller = connectedController
+			transportController.value = connectedController
 			Logger.i("MediaPlayer", "Media controller connected")
 			setupController()
 		},
 		onConnectionFailed = { error ->
+			controllerConnectionFailed = true
+			val commandWasPending = transportJob?.isActive == true
+			cancelTransportCommand()
+			if (commandWasPending) snackBarManager.notify(Res.string.notice_failed_to_play_song)
 			controllerSetupJob?.cancel()
 			controller = null
+			transportController.value = null
 			onBulkPlaybackConnectionLost()
 			Logger.e("MediaPlayer", "Failed to connect media controller", error)
 		},
@@ -122,6 +135,7 @@ class AndroidMediaPlayerViewModel(
 			if (controller === disconnectedController) {
 				controllerSetupJob?.cancel()
 				controller = null
+				transportController.value = null
 				onBulkPlaybackConnectionLost()
 			}
 			Logger.w("MediaPlayer", "Media controller disconnected; reconnecting")
@@ -232,6 +246,7 @@ class AndroidMediaPlayerViewModel(
 		mediaItemFactory = mediaItemFactory,
 		feedback = playbackStartFeedback,
 		cancelPendingRestore = {
+			cancelTransportCommand()
 			cancelPendingInitialRestore()
 			playbackStateSynchronizer.cancelPendingRestore()
 		},
@@ -267,7 +282,7 @@ class AndroidMediaPlayerViewModel(
 			var previous = sessionLifetime.currentScope()
 			sessionLifetime.sessionScope.collect { session ->
 				if (session !== previous) {
-					bulkPlaybackCoordinator.cancel()
+					bulkPlaybackCoordinator.cancel(invalidateRestore = false)
 					invalidateAutomaticResume()
 					previous = session
 				}
@@ -359,21 +374,8 @@ class AndroidMediaPlayerViewModel(
 		playbackClaim = null
 	}
 
-	private fun getStreamUrl(id: String): Uri {
-		val isCellular = connectivityManager.isCellular.value
-		val bitrate = if (preferenceManager.isAdvancedTranscodingActive) {
-			if (isCellular) preferenceManager.customMaxBitrateCellular else preferenceManager.customMaxBitrateWifi
-		} else {
-			if (isCellular) preferenceManager.streamingQualityCellular.bitrateAndroid else preferenceManager.streamingQualityWifi.bitrateAndroid
-		}
-		val container = if (isCellular) preferenceManager.streamingQualityCellular.containerAndroid else preferenceManager.streamingQualityWifi.containerAndroid
-
-		return sessionManager.getStreamUrl(id, bitrate, container)
-			.toUri()
-			.buildUpon()
-			.appendQueryParameter("estimateContentLength", "true")
-			.build()
-	}
+	private fun getStreamUrl(id: String): Uri =
+		playbackStreamUri(id, sessionManager, preferenceManager, connectivityManager.isCellular.value)
 
 	private fun setupController() {
 		controllerSetupJob?.cancel()
@@ -545,8 +547,11 @@ class AndroidMediaPlayerViewModel(
 				downloadManager.allDownloads.first()
 				if (playbackStartFeedback.isPending) {
 					playbackStateSynchronizer.cancelPendingRestore()
-				} else {
-					playbackStateSynchronizer.onControllerReady()
+				} else if (transportJob?.isActive != true) {
+					awaitInitialStateRestore()
+					if (controller === this) {
+						if (mediaItemCount == 0) syncPlayerWithState(_uiState.value) else updatePlaybackState()
+					}
 				}
 				bulkPlaybackCoordinator.onControllerReady(this)
 
@@ -645,6 +650,8 @@ class AndroidMediaPlayerViewModel(
 
 	private fun updatePlaybackState() {
 		val controller = controller ?: return
+		// An unhydrated engine has no authority to reset a retained queue's selection or progress.
+		if (controller.mediaItemCount == 0 && _uiState.value.queue.isNotEmpty()) return
 		val index = controller.currentMediaItemIndex
 		val currentSong = _uiState.value.queue.getOrNull(index)
 		val upcomingIndexes = controller.upcomingMediaItemIndexes()
@@ -889,17 +896,12 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun selectQueueItem(index: Int, playWhenReady: Boolean, origin: QueueSelectionOrigin) {
-		bulkPlaybackCoordinator.cancel()
-		invalidateAutomaticResume()
 		val request = QueueSelectionRequest(index, playWhenReady, origin)
-		viewModelScope.launch {
-			if (index < 0) return@launch
+		if (index < 0) return
+		// playNow may enqueue items asynchronously immediately after clearing the queue.
+		runTransportCommand("select", beforeWait = { pendingQueueSelection = request }) { player ->
 			playbackRecovery.clear("queue-selection")
-
-			val player = controller
-			if (player == null || !selectQueueItemIfAvailable(player, request)) {
-				pendingQueueSelection = request
-			}
+			if (selectQueueItemIfAvailable(player, request)) pendingQueueSelection = null
 		}
 	}
 
@@ -973,8 +975,12 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun pause() {
-		bulkPlaybackCoordinator.cancel()
+		bulkPlaybackCoordinator.cancel(invalidateRestore = false)
+		cancelTransportCommand()
+		playbackStateSynchronizer.cancelPendingRestore()
+		suppressInitialRestorePlayback()
 		invalidateAutomaticResume()
+		_uiState.update { it.copy(isPaused = true, isLoading = false) }
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val player = controller ?: return@launch
 			playbackRecovery.onUserPause()
@@ -1007,12 +1013,75 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
-	override fun resume() {
-		bulkPlaybackCoordinator.cancel()
+	private fun cancelTransportCommand() {
+		transportGeneration++
+		if (transportJob?.isActive == true) _uiState.update { it.copy(isLoading = false) }
+		transportJob?.cancel()
+		transportJob = null
+	}
+
+	private fun runTransportCommand(
+		reason: String,
+		preservePlayIntent: Boolean = false,
+		beforeWait: () -> Unit = {},
+		command: (MediaController) -> Unit
+	) {
+		bulkPlaybackCoordinator.cancel(invalidateRestore = false)
 		invalidateAutomaticResume()
-		viewModelScope.launch(Dispatchers.Main.immediate) {
-			val player = controller ?: return@launch
-			if (playbackRecovery.onUserResume(player, _uiState.value)) return@launch
+		cancelTransportCommand()
+		if (controllerConnectionFailed) {
+			controllerConnectionFailed = false
+			mediaControllerConnection.connect()
+			if (controllerConnectionFailed) {
+				snackBarManager.notify(Res.string.notice_failed_to_play_song)
+				return
+			}
+		}
+		val generation = transportGeneration
+		val account = playbackAccountBoundary?.capture() ?: return
+		if (account.ownerId == null) return
+		beforeWait()
+		transportJob = viewModelScope.launch(Dispatchers.Main.immediate) {
+			try {
+				awaitInitialStateRestore()
+				_uiState.update { if (it.queue.isNotEmpty()) it.copy(isLoading = true) else it }
+				while (isActive && generation == transportGeneration && playbackAccountBoundary.isCurrent(account)) {
+					val player = transportController.filterNotNull().first()
+					if (generation != transportGeneration || !playbackAccountBoundary.isCurrent(account)) return@launch
+					val state = _uiState.value
+					if (state.playbackOwnerId != account.ownerId) return@launch
+					val restoringEmptyEngine = player.mediaItemCount == 0
+					if (restoringEmptyEngine) {
+						if (state.queue.isEmpty()) return@launch
+						_uiState.update { it.copy(isLoading = true) }
+					}
+					val ready = playbackStateSynchronizer.restoreForCommand(state)
+					if (controller !== player) continue
+					if (!ready || generation != transportGeneration || !playbackAccountBoundary.isCurrent(account)) return@launch
+					Logger.i("PlaybackRestore", "Applying transport=$reason queueSize=${player.mediaItemCount}")
+					command(player)
+					if (restoringEmptyEngine && preservePlayIntent && !state.isPaused) {
+						claimMusicPlayback()
+						player.play()
+					}
+					return@launch
+				}
+			} catch (cancelled: CancellationException) {
+				throw cancelled
+			} catch (error: Exception) {
+				Logger.e("PlaybackRestore", "Transport reconciliation failed command=$reason; retaining queue", error)
+				snackBarManager.notify(Res.string.notice_failed_to_play_song)
+			} finally {
+				if (generation == transportGeneration) _uiState.update {
+					it.copy(isLoading = controller?.playbackState == Player.STATE_BUFFERING || playbackRecovery.pendingSongId != null)
+				}
+			}
+		}
+	}
+
+	override fun resume() {
+		runTransportCommand("resume") { player ->
+			if (playbackRecovery.onUserResume(player, _uiState.value)) return@runTransportCommand
 			if (player.playbackState == Player.STATE_IDLE || player.playerError != null) {
 				player.currentMediaItem?.let { item ->
 					val positionMs = player.currentPosition.coerceAtLeast(0L)
@@ -1032,8 +1101,9 @@ class AndroidMediaPlayerViewModel(
 				)
 			) {
 				claimMusicPlayback()
+				player.prepareIdlePlaybackAfterSeek()
 				player.play()
-				return@launch
+				return@runTransportCommand
 			}
 
 			val targetVolume = audioEffectsController.targetVolume(
@@ -1049,6 +1119,7 @@ class AndroidMediaPlayerViewModel(
 				onStart = {
 					claimMusicPlayback()
 					player.volume = 0f
+					player.prepareIdlePlaybackAfterSeek()
 					player.play()
 				}
 			)
@@ -1064,25 +1135,18 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun next() {
-		bulkPlaybackCoordinator.cancel()
-		invalidateAutomaticResume()
-		viewModelScope.launch(Dispatchers.Main.immediate) {
+		runTransportCommand("next", preservePlayIntent = true) { player ->
 			playbackRecovery.clear("next")
-			controller?.let { player ->
-				if (player.hasNextMediaItem()) {
-					player.seekToNextMediaItem()
-					player.prepareIdlePlaybackAfterSeek()
-				}
+			if (player.hasNextMediaItem()) {
+				player.seekToNextMediaItem()
+				player.prepareIdlePlaybackAfterSeek()
 			}
 		}
 	}
 
 	override fun previous() {
-		bulkPlaybackCoordinator.cancel()
-		invalidateAutomaticResume()
-		viewModelScope.launch(Dispatchers.Main.immediate) {
+		runTransportCommand("previous", preservePlayIntent = true) { controller ->
 			playbackRecovery.clear("previous")
-			val controller = controller ?: return@launch
 			if (
 				shouldRestartCurrentOnPrevious(
 					smartRewindSeconds = preferenceManager.smartRewindSeconds,
@@ -1119,22 +1183,19 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun seek(normalized: Float) {
-		bulkPlaybackCoordinator.cancel()
-		invalidateAutomaticResume()
-		viewModelScope.launch(Dispatchers.Main.immediate) {
-			controller?.let {
-				val progress = normalized.coerceIn(0f, 1f)
-				val target = (it.duration * progress).toLong()
-				it.seekTo(target)
-				_uiState.update { state ->
-					state.copy(progress = progress)
-				}
-				publishSeekEvent(progress)
-			}
+		runTransportCommand("seek", preservePlayIntent = true) { player ->
+			val progress = normalized.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: return@runTransportCommand
+			val duration = player.duration.takeIf { it > 0L }
+				?: _uiState.value.currentSong?.duration?.inWholeMilliseconds ?: return@runTransportCommand
+			player.seekTo((duration * progress).toLong())
+			player.prepareIdlePlaybackAfterSeek()
+			_uiState.update { state -> state.copy(progress = progress) }
+			publishSeekEvent(progress)
 		}
 	}
 
 	override fun onCleared() {
+		cancelTransportCommand()
 		controllerSetupJob?.cancel()
 		bulkPlaybackCoordinator.cancel()
 		invalidateAutomaticResume()

@@ -3,6 +3,7 @@ package paige.navic.shared
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +50,13 @@ abstract class MediaPlayerViewModel(
 	val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 	val playbackStartFeedback = PlaybackStartFeedback()
 	private var initialStateRestoreInvalidated = false
+	private var initialRestorePlaybackSuppressed = false
+	private val initialStateRestoreCompleted = CompletableDeferred<Unit>()
+
+	protected suspend fun awaitInitialStateRestore() = initialStateRestoreCompleted.await()
+	protected fun suppressInitialRestorePlayback() {
+		initialRestorePlaybackSuppressed = true
+	}
 	private val unregisterPlaybackAccount = playbackAccountBoundary?.register { nextOwner ->
 		cancelPendingInitialRestore()
 		playbackStartFeedback.cancel()
@@ -60,6 +68,7 @@ abstract class MediaPlayerViewModel(
 
 	protected fun cancelPendingInitialRestore() {
 		initialStateRestoreInvalidated = true
+		initialStateRestoreCompleted.complete(Unit)
 	}
 
 	override fun onCleared() {
@@ -91,7 +100,11 @@ abstract class MediaPlayerViewModel(
 
 	init {
 		viewModelScope.launch {
-			restoreState()
+			try {
+				restoreState()
+			} finally {
+				initialStateRestoreCompleted.complete(Unit)
+			}
 			observeAndSaveState()
 		}
 	}
@@ -188,7 +201,7 @@ abstract class MediaPlayerViewModel(
 					restoredState = restoredState,
 					persistentQueue = preferenceManager.persistentQueue,
 					resumePlaybackOnStartup = preferenceManager.resumePlaybackOnStartup
-				) ?: return
+				)?.let { if (initialRestorePlaybackSuppressed) it.copy(isPaused = true) else it } ?: return
 
 				_uiState.value = stateToApply
 
