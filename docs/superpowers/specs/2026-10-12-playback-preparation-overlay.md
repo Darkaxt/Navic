@@ -52,7 +52,7 @@ Status: ACTIVE
 
 Requirements: R1-R5.
 Changes: route UI Back through the player to the existing preparation owner;
-preserve pre-commit playback and use Pause only for a pending committed start.
+preserve pre-commit playback and use Pause then Stop for a pending committed start.
 Replace dialog content with a responsive vinyl presentation and modal semantics.
 Verification: focused cancellation/regression tests, Android rendering/input
 checks, source wiring guards, Android build. Reconcile R1-R5 before closure.
@@ -98,6 +98,14 @@ R1-R2 and Android packaging remain unverified. Added bounded TextAutoSize and
 relative line height, plus captures/layout diagnostics before assertions. Host
 tests now include real Android resources and the Compose resource provider;
 they do not substitute mocked strings or an HTML replica. Focused recheck pending.
+
+The third attempt reached the native dialog but Compose captureToImage failed
+waiting for WindowCapture.forceRedraw's device callback in Robolectric. The test
+now draws the real native dialog decor into a native Bitmap synchronously after
+Compose idleness. It retains the no-overflow, nonblank-pixel, native modal-window,
+outside-input and Back/cancellation assertions. No application timeout was added.
+The redundant remote run was cancelled after this capture incompatibility was
+identified; it is not passing verification evidence.
 
 All local Gradle attempts acquired Local\\Darka.AndroidGradleBuildGate and
 reported max_workers=2, parallel=false and actual Gradle heap 3,221,225,472 bytes.

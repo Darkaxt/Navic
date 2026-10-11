@@ -1,5 +1,7 @@
 package paige.navic.ui.components.common
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.WindowManager
@@ -21,12 +23,10 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -125,13 +125,16 @@ class PlaybackStartDialogTest {
 			compose.onNode(isDialog()).assertIsDisplayed()
 			compose.onNodeWithText("Cancel").assertDoesNotExist()
 			compose.onNodeWithText("Close").assertDoesNotExist()
-			val image = compose.onNode(isDialog()).captureToImage()
-			val bitmap = image.asAndroidBitmap()
+			val dialog = assertNotNull(ShadowDialog.getLatestDialog()) as ComponentDialog
+			val decor = assertNotNull(dialog.window).decorView
+			// Draw the actual native view; PixelCopy's device redraw callback is not driven by Robolectric.
+			val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
+			compose.runOnIdle { decor.draw(Canvas(bitmap)) }
 			val directory = File(System.getProperty("navic.overlay.captures",
 				"build/test-results/testAndroidHostTest/overlay-captures"))
 			directory.mkdirs()
 			File(directory, "$name.png").outputStream().use {
-				bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+				bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
 			}
 			val record = compose.onNodeWithTag("playback-preparation-vinyl").fetchSemanticsNode().boundsInRoot
 			val label = compose.onNodeWithTag("playback-preparation-message").fetchSemanticsNode().boundsInRoot
@@ -143,7 +146,6 @@ class PlaybackStartDialogTest {
 			val layout = textLayouts.single()
 			assertFalse(layout.hasVisualOverflow,
 				"$name: status text clipped; record=$record label=$label text=${layout.size} lines=${layout.lineCount}")
-			val dialog = assertNotNull(ShadowDialog.getLatestDialog()) as ComponentDialog
 			val attributes = assertNotNull(dialog.window).attributes
 			assertTrue(attributes.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND != 0)
 			assertTrue(attributes.dimAmount > 0f && attributes.dimAmount < 1f)
@@ -153,7 +155,7 @@ class PlaybackStartDialogTest {
 			try { dialog.dispatchTouchEvent(outside) } finally { outside.recycle() }
 			assertTrue(feedback.isPending)
 			assertEquals(0, backgroundClicks)
-			assertTrue(image.width > 0 && image.height > 0)
+			assertTrue(bitmap.width > 0 && bitmap.height > 0)
 			val colors = mutableSetOf<Int>()
 			for (y in 0 until bitmap.height step 8) for (x in 0 until bitmap.width step 8) {
 				colors += bitmap.getPixel(x, y)
