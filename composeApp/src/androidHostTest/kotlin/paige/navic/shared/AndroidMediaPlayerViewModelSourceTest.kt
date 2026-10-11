@@ -102,7 +102,10 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(dialog, "VinylRecordOverlay(")
 		assertFalse(dialog.contains("TextButton("))
 		assertFalse(dialog.contains("feedback::hide"))
-		assertContains(viewModel, "override fun cancelPlaybackStart() = bulkPlaybackCoordinator.cancelFromUser(::pause)")
+		val cancelStart = viewModel.substringAfter("override fun cancelPlaybackStart()").substringBefore("override fun pause()")
+		assertContains(cancelStart, "bulkPlaybackCoordinator.cancelFromUser")
+		assertContains(cancelStart, "pause()")
+		assertContains(cancelStart, "controller?.stop()")
 		listOf("clearQueue")
 			.forEach { command ->
 				val body = viewModel.substringAfter("override fun $command(")

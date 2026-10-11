@@ -29,8 +29,9 @@ deadlines, synthetic progress, or iOS-specific work is authorized by this change
   generation. Late completion must not replace the queue or start playback.
   Previously playing music, queue and independent downloads are not cancelled.
 - R4: If the queue already committed and the request is still Starting, Back
-  uses the existing Pause path to revoke the pending play intent and recovery;
-  retain that queue, do not clear or reconstruct it. Back with no pending request
+  uses the existing Pause path to revoke the pending play intent and recovery,
+  then Stop to cancel Media3's native buffering/preparation. Pause alone may
+  continue loading. Retain that queue, do not clear or reconstruct it. Back with no pending request
   is a no-op for playback. New requests remain admissible; stale completion must
   not clear newer feedback. Repeated bulk Play must not duplicate preparation.
 - R5: Verify the cancellation contracts with focused behavioral tests and the
@@ -56,9 +57,11 @@ Replace dialog content with a responsive vinyl presentation and modal semantics.
 Verification: focused cancellation/regression tests, Android rendering/input
 checks, source wiring guards, Android build. Reconcile R1-R5 before closure.
 
-Acceptance satisfied: R3-R4, verified by preparation/feedback behavioral tests,
+Acceptance satisfied: R3, verified by preparation/feedback behavioral tests,
 real ExoPlayer cancellation tests and production ViewModel wiring guards.
-Acceptance remaining: R1, R2 and R5. Native large-font rendering failed the
+Acceptance remaining: R1, R2, R4 and R5. R4's native Stop boundary is strengthened
+to cancel buffering as well as revoke playback, with fresh verification pending.
+Native large-font rendering failed the
 no-clipping assertion; bounded text autosizing and relative line height have
 been applied, with fresh native rendering/input and packaging checks pending.
 Blockers: none. Tracked deferrals: none.

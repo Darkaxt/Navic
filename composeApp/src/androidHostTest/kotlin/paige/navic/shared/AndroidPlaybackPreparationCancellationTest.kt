@@ -1,6 +1,7 @@
 package paige.navic.shared
 
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CompletableDeferred
@@ -38,7 +39,7 @@ class AndroidPlaybackPreparationCancellationTest {
 				commit { player.setMediaItem(item("replacement")); player.play() }
 			}
 			runCurrent()
-			preparation.cancelFromUser(player::pause)
+			preparation.cancelFromUser { player.pause(); player.stop() }
 			pending.complete(Unit)
 			download.complete(Unit)
 			runCurrent()
@@ -66,13 +67,14 @@ class AndroidPlaybackPreparationCancellationTest {
 			}
 			runCurrent()
 			assertTrue(player.playWhenReady)
-			preparation.cancelFromUser(player::pause)
+			preparation.cancelFromUser { player.pause(); player.stop() }
 			runCurrent()
 			assertFalse(player.playWhenReady)
+			assertEquals(Player.STATE_IDLE, player.playbackState)
 			assertEquals(2, player.mediaItemCount)
 			assertEquals("new", player.currentMediaItem?.mediaId)
 			player.play()
-			preparation.cancelFromUser(player::pause)
+			preparation.cancelFromUser { player.pause(); player.stop() }
 			assertTrue(player.playWhenReady, "A stale Back must not pause later playback")
 		} finally { preparation.cancel(); player.release() }
 	}
