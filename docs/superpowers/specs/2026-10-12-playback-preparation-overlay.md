@@ -63,15 +63,16 @@ Blockers: none. Tracked deferrals: none.
 
 ### Stage 2: Verified Public Release
 
-Status: ACTIVE
+Status: COMPLETE
 
 Requirements: R6.
 Changes: bump the next iota version, commit, sync, tag and publish only after the
 integrated feature passes Stage 1. Inspect required CI music and packaging gates,
 independently validate the public APK, record durable evidence, clean scratch.
 
-Acceptance satisfied: none yet.
-Acceptance remaining: R6.
+Acceptance satisfied: R6, including source synchronization, public release,
+independent artifact/source proof, recorded evidence and reviewed scratch cleanup.
+Acceptance remaining: none.
 Blockers: none. Tracked deferrals: none.
 
 ## Verification Ledger
@@ -139,4 +140,45 @@ permission to delete another process's files.
 
 Local build evidence: gate log 031a5163f31c470f8423358b0c7b8d34.log; inspected
 host-test XML reports and native PNG captures. These expendable local outputs
-will be removed after the public-release proof is recorded. No device was changed.
+were removed after the public-release proof was recorded. No device was changed.
+
+## Public Release Verification
+
+- Public release: https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-iota71
+  (published 2026-10-12T00:15:13Z; neither draft nor prerelease).
+- Release source: 16f7253277e0d6d6f588672a6d84164d1f4c1a34, synchronized
+  to fork/master. The remote annotated tag peels to this exact commit.
+- CI: https://github.com/Darkaxt/Navic/actions/runs/38186620219 completed
+  successfully at that source SHA. Inspected XML: 1,168 tests, 215 suites,
+  zero failures, errors or skips. Native rendering/input/animation checks,
+  production signing and packaged vendor/attribution gates passed; iOS skipped.
+- Independently downloaded the pinned public Navic.apk URL using unauthenticated
+  curl, not the Actions artifact endpoint. Compared it with the separately
+  downloaded CI APK and the GitHub release asset metadata.
+- All copies: 47,541,078 bytes; SHA-256
+  `87ccce7ba41c4301ae26b50d391a69c545bf5031f85042b195db67cf6aa2639a`.
+- aapt: package `darkaxt.navic`, versionName `v1.0.11-iota71`, versionCode
+  `598`, no application-debuggable flag. apksigner verify succeeded (v2) with
+  the pinned production certificate SHA-256
+  `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`.
+- Native dialog capture corner alpha is 0, while the disc is opaque: the
+  content does not replace the native dim-behind scrim with a solid full-screen
+  background. Phone/tablet/landscape captures were visually inspected.
+- Removed the task-owned verification branch after proving its commit was an
+  ancestor of fork/master, using an exact-SHA deletion lease. Confirmed absent.
+  Redundant task-owned master/candidate CI runs were cancelled, not other builds.
+- No device installation, reader changes, production preferences, signing-key
+  changes, server changes or hibernation were performed.
+
+Cleanup completed: transaction `848eb8e164dd8fbc5f5ebc1f600358c8`, exact
+root `D:/Temp/navic-playback-overlay-20261012`, state `applied`. All 35,479
+reviewed entries were deleted (1,722,700,940 attributed bytes), with no warnings,
+errors or residuals; the exact root is absent. Only generated verification
+outputs, extracted dependency inspection copies, captures and APK copies were
+included. Maintained worktrees, shared caches and previous diagnostic evidence
+were outside its scope and preserved. Final evidence synchronization is a
+documentation-only commit; production files remain identical to the release tag.
+
+Final reconciliation: R1-R6 satisfied and verified. Both stages COMPLETE, no
+required blockers or tracked deferrals. Progress filling remains explicitly out
+of scope, not an unfulfilled requirement.
