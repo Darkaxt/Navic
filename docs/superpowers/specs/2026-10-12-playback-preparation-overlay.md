@@ -48,7 +48,7 @@ deadlines, synthetic progress, or iOS-specific work is authorized by this change
 
 ### Stage 1: Integrated Overlay And Cancellation
 
-Status: ACTIVE
+Status: COMPLETE
 
 Requirements: R1-R5.
 Changes: route UI Back through the player to the existing preparation owner;
@@ -57,18 +57,13 @@ Replace dialog content with a responsive vinyl presentation and modal semantics.
 Verification: focused cancellation/regression tests, Android rendering/input
 checks, source wiring guards, Android build. Reconcile R1-R5 before closure.
 
-Acceptance satisfied: R3, verified by preparation/feedback behavioral tests,
-real ExoPlayer cancellation tests and production ViewModel wiring guards.
-Acceptance remaining: R1, R2, R4 and R5. R4's native Stop boundary is strengthened
-to cancel buffering as well as revoke playback, with fresh verification pending.
-Native large-font rendering failed the
-no-clipping assertion; bounded text autosizing and relative line height have
-been applied, with fresh native rendering/input and packaging checks pending.
+Acceptance satisfied: R1-R5. See the final Stage 1 reconciliation below.
+Acceptance remaining: none.
 Blockers: none. Tracked deferrals: none.
 
 ### Stage 2: Verified Public Release
 
-Status: NOT STARTED
+Status: ACTIVE
 
 Requirements: R6.
 Changes: bump the next iota version, commit, sync, tag and publish only after the
@@ -113,3 +108,35 @@ Kotlin was configured in-process; tests configured one 512 MiB fail-fast fork.
 No diagnosed memory exhaustion or budget increase. Existing SQLite loader
 warnings about locked native libraries were not treated as playback failures or
 permission to delete another process's files.
+
+## Final Stage 1 Reconciliation
+
+- R1: Native dialog rendering passed for 393x851 phone, 1280x800 tablet and
+  640x320 landscape. Actual Android resource font scale 2 was verified through
+  TextLayoutResult (a parent composition-local override does not test a separate
+  dialog window). Captures were visually inspected: centered, circular, readable,
+  no clipping. Disabled animations and cancellation during the reveal passed.
+- R2: Real modal window flags verified dim-behind with a fractional opacity,
+  focusable/touch-modal isolation, ignored outside events, no Cancel/Close action,
+  and Back consumed without underlying navigation. Direct decor captures contain
+  dialog content; the separate window compositor supplies the background scrim.
+- R3: Owning-job and generation tests reject late non-cooperative completion,
+  preserve previous engine item/position/play intent and independent downloads,
+  and retain duplicate-admission/stale-owner protection.
+- R4: Real ExoPlayer tests passed Pause plus Stop, STATE_IDLE, retained media
+  items/current item, and stale Back no-op. Production ViewModel wiring checks
+  passed and explicit resume already prepares an idle retained queue.
+- R5: Gate ticket 687 completed successfully on candidate 308775bb0: all 30
+  focused native UI/engine/wiring checks passed, and assembleDebug packaged
+  Navic.apk (76,240,963 bytes). Gate acquisition, two workers, no parallelism and
+  actual 3 GiB Gradle heap were verified; Kotlin was configured in-process and
+  the test task configured one 512 MiB fork. No memory-related failure occurred.
+  CI run 38185662155 tested the identical production source: all existing music
+  regressions and cancellation checks passed; its only failure was the new
+  manual-clock capture assertion. That harness sequencing was corrected and
+  passed in the focused run above, alongside a stronger native-font assertion.
+  Full current-source music CI is also required by the Stage 2 release workflow.
+
+Local build evidence: gate log 031a5163f31c470f8423358b0c7b8d34.log; inspected
+host-test XML reports and native PNG captures. These expendable local outputs
+will be removed after the public-release proof is recorded. No device was changed.
