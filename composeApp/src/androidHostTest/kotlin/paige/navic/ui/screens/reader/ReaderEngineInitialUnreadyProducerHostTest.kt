@@ -42,6 +42,7 @@ class ReaderEngineInitialUnreadyProducerHostTest {
             f.post("commandAck", pending.pendingCommands[0].dispatch.id)
             assertEquals(2, f.pending().pendingCommands.size, "Undispatched opening ACK cannot bypass actual opening custody")
             assertEquals(0, f.receipts.size)
+            f.finishEntrypointBeforeReady()
             f.post("ready")
             assertTrue(f.scriptType() == "openPublication")
             f.post("commandAck", f.pending().pendingCommands.first().dispatch.id)
@@ -63,6 +64,7 @@ class ReaderEngineInitialUnreadyProducerHostTest {
             assertEquals(0, f.executor.activeSlotCount)
             assertEquals(0, f.registry.activeHandleCount)
             assertTrue(f.pending().pendingCommands.none { it.dispatch.command is ReaderBridgeCommand.ResolveCurrentDestination })
+            f.finishEntrypointBeforeReady()
             f.post("ready")
             assertTrue(f.scriptType() == "openPublication")
             f.post("commandAck", f.pending().pendingCommands.first().dispatch.id)
@@ -139,6 +141,16 @@ class ReaderEngineInitialUnreadyProducerHostTest {
         fun drain() {
             compose.measure(View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY))
             compose.layout(0, 0, 800, 600); shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(48))
+        }
+        fun finishEntrypointBeforeReady() {
+            val target = engine() as ReaderEngineWebView
+            assertEquals(ReaderWebRuntime.entrypointUrl, target.url)
+            target.webViewClient.onPageFinished(target, target.url)
+            drain()
+            assertTrue(target.runtimeInitializationCompleted)
+            assertTrue(pending().pendingCommands.all { it.lastDispatchedGeneration == null })
+            assertNull(shadowOf(target).lastEvaluatedJavascript, "Entrypoint completion alone cannot dispatch before Ready")
+            assertTrue(receipts.isEmpty())
         }
         fun post(type: String, id: String? = null) = post(buildJsonObject { put("type", type); id?.let { put("commandId", it) } })
         fun post(message: JsonObject) {

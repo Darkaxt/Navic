@@ -2,6 +2,7 @@ package paige.navic.ui.screens.reader
 
 import android.content.Intent
 import android.os.Build
+import android.os.Bundle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -11,6 +12,146 @@ import org.junit.Test
 import org.junit.rules.TestRule
 import org.junit.runner.RunWith
 import paige.navic.reader.*
+import paige.navic.util.core.AppLogLevel
+import paige.navic.util.core.Logger
+import paige.navic.util.core.LoggerEvent
+
+/** Per-fixture, failure-only projection of source-static logger markers. It preserves a preexisting
+ * sink through the exact Android Logger field and never retains a message, payload or throwable. */
+internal class Task407LoggerStartupObservation {
+    private val lock = Any()
+    private var priorSink: ((LoggerEvent) -> Unit)? = null
+    private var issueLogSinkField: java.lang.reflect.Field? = null
+    private var installed = false
+    private var bitmapGeometryUnavailable = false
+    private var bitmapAllocationFailed = false
+    private var bitmapDrawFallbackFailed = false
+    private var bitmapDrawSuccesses = 0
+    private var bitmapStableSurfaceWaits = 0
+    private var bitmapUnpaintedSurfaceRejections = 0
+    private var liveCaptureUnavailable = false
+    private var liveValidationAccepted = 0
+    private var liveValidationContentRejected = 0
+    private var liveValidationInvalidated = 0
+    private val persistenceSkipCounts = linkedMapOf(
+        "bundle-source-closed" to 0,
+        "webview-unavailable" to 0,
+        "physical-layout-stale" to 0,
+        "generation-or-physical-layout-changed" to 0,
+        "descriptor-unavailable" to 0,
+        "descriptor-mismatch" to 0,
+        "descriptor-request-failed" to 0,
+        "durable-publication-failed" to 0,
+        "publication-entrycapacity" to 0,
+        "publication-callbackcapacity" to 0,
+        "publication-activationfrozen" to 0,
+        "publication-initialization-failed" to 0
+    )
+
+    private val sink: (LoggerEvent) -> Unit = { event ->
+        try { observe(event) } catch (_: Throwable) { }
+        try { priorSink?.invoke(event) } catch (_: Throwable) { }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun install() {
+        if (installed) return
+        val field = Logger::class.java.getDeclaredField("issueLogSink").apply { isAccessible = true }
+        priorSink = field.get(Logger) as? ((LoggerEvent) -> Unit)
+        issueLogSinkField = field
+        Logger.configureIssueLogSink(sink)
+        installed = true
+    }
+
+    fun restore() {
+        if (!installed) return
+        val field = issueLogSinkField ?: return
+        if (field.get(Logger) === sink) Logger.configureIssueLogSink(priorSink)
+        installed = false
+    }
+
+    /** Tags are source-qualified to ReaderPageTurnBitmapSource.android.kt and
+     * ReaderPageTurnBundleSource.android.kt; message data is compared but never retained. */
+    private fun observe(event: LoggerEvent) = synchronized(lock) {
+        when (event.tag) {
+            "ReaderPageTurnBitmapSource" -> observeBitmapSource(event)
+            "ReaderPageTurnBundleSource" -> observeBundleSource(event)
+        }
+    }
+
+    private fun observeBitmapSource(event: LoggerEvent) {
+        when {
+            event.level == AppLogLevel.Info &&
+                event.message == "Page-turn capture unavailable reason=geometry-unavailable" ->
+                bitmapGeometryUnavailable = true
+            event.level == AppLogLevel.Warning && event.message == "Page-turn bitmap allocation failed" ->
+                bitmapAllocationFailed = true
+            event.level == AppLogLevel.Warning && event.message == "Page-turn WebView draw fallback failed" ->
+                bitmapDrawFallbackFailed = true
+            event.level == AppLogLevel.Info &&
+                event.message.startsWith("Page-turn capture success method=webview-draw rect=") ->
+                bitmapDrawSuccesses += 1
+            event.level == AppLogLevel.Info &&
+                event.message.startsWith("Page-turn capture awaiting stable ") ->
+                bitmapStableSurfaceWaits += 1
+            event.level == AppLogLevel.Info &&
+                event.message.startsWith("Page-turn capture rejected unpainted surface rect=") ->
+                bitmapUnpaintedSurfaceRejections += 1
+        }
+    }
+
+    private fun observeBundleSource(event: LoggerEvent) {
+        when {
+            event.level == AppLogLevel.Info &&
+                event.message == "Live page-turn validation capture result=Unavailable" ->
+                liveCaptureUnavailable = true
+            event.level == AppLogLevel.Info &&
+                event.message == "Live page-turn validation comparison result=Accepted" ->
+                liveValidationAccepted += 1
+            event.level == AppLogLevel.Info &&
+                event.message == "Live page-turn validation comparison result=ContentRejected" ->
+                liveValidationContentRejected += 1
+            event.level == AppLogLevel.Info &&
+                event.message == "Live page-turn validation comparison result=Invalidated" ->
+                liveValidationInvalidated += 1
+            event.level == AppLogLevel.Warning &&
+                event.message.startsWith("Page raster persistence skipped page=") ->
+                persistenceSkipCounts.keys.firstOrNull { reason ->
+                    event.message.contains(" reason=$reason requestGeneration=")
+                }?.let { reason -> persistenceSkipCounts[reason] = persistenceSkipCounts.getValue(reason) + 1 }
+        }
+    }
+
+    fun labels(): List<String> = synchronized(lock) { buildList {
+        if (bitmapGeometryUnavailable) add("E407.Observation.BitmapGeometryUnavailable")
+        if (bitmapAllocationFailed) add("E407.Observation.BitmapAllocationFailed")
+        if (bitmapDrawFallbackFailed) add("E407.Observation.BitmapDrawFallbackFailed")
+        if (bitmapDrawSuccesses > 0) add("E407.Observation.BitmapWebViewDrawObserved")
+        if (bitmapStableSurfaceWaits > 0) add("E407.Observation.BitmapStableSurfaceWaitObserved")
+        if (bitmapUnpaintedSurfaceRejections > 0)
+            add("E407.Observation.BitmapUnpaintedSurfaceRejectionObserved")
+        if (liveCaptureUnavailable) add("E407.Observation.LiveValidationCaptureUnavailable")
+        if (liveValidationAccepted > 0) add("E407.Observation.LiveValidationAccepted")
+        if (liveValidationContentRejected > 0) add("E407.Observation.LiveValidationContentRejected")
+        if (liveValidationInvalidated > 0) add("E407.Observation.LiveValidationInvalidated")
+        persistenceSkipCounts.forEach { (reason, count) ->
+            if (count > 0) add(when (reason) {
+                "bundle-source-closed" -> "E407.Observation.PersistenceSourceClosed"
+                "webview-unavailable" -> "E407.Observation.PersistenceWebViewUnavailable"
+                "physical-layout-stale" -> "E407.Observation.PersistencePhysicalLayoutStale"
+                "generation-or-physical-layout-changed" -> "E407.Observation.PersistenceGenerationOrLayoutChanged"
+                "descriptor-unavailable" -> "E407.Observation.PersistenceDescriptorUnavailable"
+                "descriptor-mismatch" -> "E407.Observation.PersistenceDescriptorMismatch"
+                "descriptor-request-failed" -> "E407.Observation.PersistenceDescriptorRequestFailed"
+                "durable-publication-failed" -> "E407.Observation.PersistenceDurablePublicationFailed"
+                "publication-entrycapacity" -> "E407.Observation.PersistenceEntryCapacity"
+                "publication-callbackcapacity" -> "E407.Observation.PersistenceCallbackCapacity"
+                "publication-activationfrozen" -> "E407.Observation.PersistenceActivationFrozen"
+                else -> "E407.Observation.PersistenceInitializationFailed"
+            })
+        }
+    } }
+}
 
 /** Integrated, unexecuted Android runtime candidate. Authentic typed terminal DRAW is joined through
  * original accepted Commit/Applied, journal commit and pre-release source/target physical custody.
@@ -179,13 +320,13 @@ class ReaderNormalProductionStartupRuntimeTest {
         // no producer/release is delayed and no sampled declaration is treated as an ACK.
         var original: Task407OriginalOwners? = null
         var work: ReaderActivatedRasterWork? = null
-        task407AwaitOriginal("C407.BootstrapCancel.OriginalPendingPreparationRequired") {
+        awaitStartupBoundary(fixture, "C407.BootstrapCancel.OriginalPendingPreparationRequired") {
             if (fixture.rootOrNull() == null || fixture.store().snapshot == null || fixture.material() == null ||
-                fixture.engine() == null || fixture.passiveRuntime() == null) return@task407AwaitOriginal false
-            val pending = fixture.registeredActiveWork() ?: return@task407AwaitOriginal false
+                fixture.engine() == null || fixture.passiveRuntime() == null) return@awaitStartupBoundary false
+            val pending = fixture.registeredActiveWork() ?: return@awaitStartupBoundary false
             if (fixture.journal().active?.id != pending.lease.transitionId || !pending.isCurrent() ||
                 pending.preparationFacts?.phase == ReaderPagePreparationPhase.Ready ||
-                pending.lease.transitionId.operation != ReaderTransitionOperation.BootstrapNativePage) return@task407AwaitOriginal false
+                pending.lease.transitionId.operation != ReaderTransitionOperation.BootstrapNativePage) return@awaitStartupBoundary false
             original = fixture.owners()
             fixture.requireSameOwners(original!!)
             work = pending
@@ -226,11 +367,35 @@ class ReaderNormalProductionStartupRuntimeTest {
     private data class Startup(val owners: Task407OriginalOwners, val work: ReaderActivatedRasterWork,
         val publication: ReaderOwnerAndInputPublicationSnapshot)
 
+    private fun awaitStartupBoundary(fixture: Task407NormalRuntimeRoot, fixedLabel: String,
+        predicate: () -> Boolean) {
+        try {
+            task407AwaitOriginal(fixedLabel) {
+                fixture.observeStartupBoundary()
+                predicate()
+            }
+        } catch (failure: Task407FixedFailure) {
+            // Failure-only source-static observations, not acceptance or producer facts. Keep the
+            // original timeout/failure and independent cleanup unchanged even if diagnosis fails.
+            val labels = buildList {
+                try { addAll(task407OnMain { fixture.startupObservationLabels() }) }
+                catch (_: Throwable) { add("E407.Observation.Unavailable") }
+                try { addAll(fixture.loggerObservationLabels()) } catch (_: Throwable) { }
+            }.distinct()
+            try {
+                InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
+                    putString("stream", labels.joinToString("\n"))
+                })
+            } catch (_: Throwable) { /* Diagnostic transport cannot replace the primary failure. */ }
+            throw failure
+        }
+    }
+
     private fun awaitBootstrap(fixture: Task407NormalRuntimeRoot): Startup {
         var displayed: ReaderOwnerAndInputPublicationSnapshot? = null
-        task407AwaitOriginal("E407.Startup.RealProducerDrawAndAtomicPublicationRequired") {
+        awaitStartupBoundary(fixture, "E407.Startup.RealProducerDrawAndAtomicPublicationRequired") {
             if (fixture.rootOrNull() == null || fixture.store().snapshot == null || fixture.runtime() == null ||
-                fixture.material() == null || fixture.engine() == null || fixture.passiveRuntime() == null) return@task407AwaitOriginal false
+                fixture.material() == null || fixture.engine() == null || fixture.passiveRuntime() == null) return@awaitStartupBoundary false
             displayed = fixture.displayed()
             displayed != null
         }
@@ -294,11 +459,15 @@ class ReaderNormalProductionStartupRuntimeTest {
         var epub: Task407PublicEpub? = null
         var scenario: ActivityScenario<Task407RuntimeActivity>? = null
         val root = AtomicReference<Task407NormalRuntimeRoot?>()
+        val loggerObservation = Task407LoggerStartupObservation()
         var cleanupCustody: Task407OriginalCleanupCustody? = null
         var custodyCaptured = false
         var compositionDisposed = false
         var scenarioClosed = false
         var physicalReturned = false
+        // Android Logger emits synchronously after Log output. Keep this per-fixture observer live
+        // from before mount through independent cleanup, without making its failure test-fatal.
+        try { loggerObservation.install() } catch (_: Throwable) { }
         try {
             val material = Task407PublicEpub.create(context)
             epub = material
@@ -307,7 +476,7 @@ class ReaderNormalProductionStartupRuntimeTest {
             val mountFailure = AtomicReference<Task407FixedFailure?>()
             activityScenario.onActivity { activity ->
                 try {
-                    val fixture = Task407NormalRuntimeRoot(activity, material)
+                    val fixture = Task407NormalRuntimeRoot(activity, material, loggerObservation)
                     root.set(fixture)
                     fixture.mount()
                 } catch (safe: Task407FixedFailure) { mountFailure.set(safe.sanitizedCopy()) }
@@ -368,6 +537,7 @@ class ReaderNormalProductionStartupRuntimeTest {
                 failures.record(Task407FixedFailure("C407.Cleanup.EpubRetainedForUnreturnedPhysicalOwners"),
                     "C407.Cleanup.EpubRetainedForUnreturnedPhysicalOwners")
             }
+            try { loggerObservation.restore() } catch (_: Throwable) { }
         }
         failures.throwIfAny()
     }

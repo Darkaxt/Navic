@@ -47,7 +47,7 @@ export const readerValidateCurrentDestinationQuery = (
 // exact current CFI and chapter coordinates; never navigate or mint another commit.
 const currentResolvedLayout = source => {
   if (source.view.renderer !== source.renderer) return undefined
-  if (source.resolvedLayout?.isCurrent() === true) return source.resolvedLayout.layout
+  if (source.resolvedLayout?.isCurrent() === true) return source.resolvedLayout
   const { cfi, chapterPageIndex, chapterPageCount } = source.locator
   if (typeof cfi !== 'string' || !cfi || source.view.lastLocation?.cfi !== cfi ||
       !Number.isInteger(chapterPageIndex) || !Number.isInteger(chapterPageCount)) return undefined
@@ -59,10 +59,12 @@ const currentResolvedLayout = source => {
   if (previous && (layout.viewGeneration !== previous.viewGeneration ||
       layout.navigationGeneration !== previous.navigationGeneration ||
       layout.sectionIndex !== previous.sectionIndex)) return undefined
-  return layout
+  return fresh
 }
 
 export const readerPostCurrentDestinationReply = (command, source) => {
+  const capture = currentResolvedLayout(source)
+  const layout = capture?.layout && Object.freeze({ ...capture.layout })
   const delivered = post({
     type: 'currentDestinationResolved',
     commandId: command.commandId,
@@ -73,8 +75,54 @@ export const readerPostCurrentDestinationReply = (command, source) => {
     // A still-current numeric layout snapshot only. Never serialize the closure,
     // renderer, view, document, font set or content. Semantic replies without layout
     // remain semantic replies; a material allocator must independently require it.
-    resolvedLayout: currentResolvedLayout(source),
+    resolvedLayout: layout,
   })
   if (!delivered) throw new Error('Current destination unavailable')
+  source.successfulQuery = Object.freeze({
+    owner: source, commandId: command.commandId, sessionId: source.sessionId,
+    commitSequence: source.commitSequence, capture, layout,
+  })
   return true
+}
+
+const layoutFields = Object.freeze([
+  'layoutGeneration', 'viewGeneration', 'navigationGeneration', 'sectionIndex',
+  'pageIndex', 'pageCount', 'width', 'height',
+])
+const validLayout = layout => layout &&
+  Number.isSafeInteger(layout.layoutGeneration) && layout.layoutGeneration > 0 &&
+  Number.isSafeInteger(layout.viewGeneration) && layout.viewGeneration > 0 &&
+  Number.isSafeInteger(layout.navigationGeneration) && layout.navigationGeneration >= 0 &&
+  Number.isSafeInteger(layout.sectionIndex) && layout.sectionIndex >= 0 &&
+  Number.isSafeInteger(layout.pageIndex) && layout.pageIndex >= 0 &&
+  Number.isSafeInteger(layout.pageCount) && layout.pageCount > layout.pageIndex &&
+  Number.isFinite(layout.width) && layout.width > 0 &&
+  Number.isFinite(layout.height) && layout.height > 0
+
+// Wire copies of the basis are expected. Copies of the private successful source
+// are not: only its original post-success metadata retains the original capture.
+export const readerInitialCurrentDestinationCaptureBasis = (
+  candidate, source, view, sessionId, commitSequence,
+) => {
+  const query = source?.successfulQuery
+  if (!candidate || candidate.kind !== 'initial-current-destination' || !query ||
+      query.owner !== source || typeof query.commandId !== 'string' || !query.commandId ||
+      query.commandId !== query.commandId.trim() ||
+      !Number.isSafeInteger(commitSequence) || commitSequence <= 0 ||
+      typeof sessionId !== 'string' || !sessionId || sessionId !== sessionId.trim() ||
+      source.view !== view || !view || view.renderer !== source.renderer ||
+      source.sessionId !== sessionId || query.sessionId !== sessionId || sessionId === 'foliate-unbound' ||
+      source.commitSequence !== commitSequence || query.commitSequence !== commitSequence ||
+      candidate.commandId !== query.commandId ||
+      candidate.destinationCommitIdentity?.foliateSessionId !== sessionId ||
+      candidate.destinationCommitIdentity?.commitSequence !== commitSequence ||
+      !validLayout(candidate.resolvedLayout) || !validLayout(query.layout) ||
+      query.capture?.isCurrent() !== true ||
+      !layoutFields.every(key => candidate.resolvedLayout[key] === query.layout[key] &&
+        query.capture.layout[key] === query.layout[key])) return null
+  return Object.freeze({
+    kind: 'initial-current-destination', commandId: query.commandId,
+    destinationCommitIdentity: Object.freeze({ foliateSessionId: sessionId, commitSequence }),
+    resolvedLayout: query.layout,
+  })
 }

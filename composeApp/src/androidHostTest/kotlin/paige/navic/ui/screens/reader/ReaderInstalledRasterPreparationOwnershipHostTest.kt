@@ -32,6 +32,34 @@ import paige.navic.reader.*
 @Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P])
 class ReaderInstalledRasterPreparationOwnershipHostTest {
 	@Test
+	fun initialBasisWorkIsBoundToOriginalAllocationAndCannotOutliveItsSourceOrRetirement() {
+		val f = Fixture()
+		val semantic = f.lease.binding.copy(profileGeneration = 0L, preparationGeneration = null,
+			rasterGeneration = null, textureGeneration = null)
+		val allocation = assertNotNull(f.lease.allocation).copy(requestedBinding = semantic)
+		val lease = f.lease.copy(allocation = allocation)
+		val basis = ReaderInitialCurrentDestinationCaptureBasis("public-synthetic-initial-query",
+			assertNotNull(semantic.destinationCommitIdentity), ReaderFoliateResolvedLayout(11L, 13L, 17L, 0, 0, 8, 800.0, 600.0))
+		var sourceCurrent = true
+		val work = ReaderActivatedRasterWork(f.domain, f.store, f.snapshot, lease, basis) { f.current && sourceCurrent }
+		assertSame(basis, work.initialCaptureBasis)
+		assertTrue(work.isCurrent())
+		sourceCurrent = false
+		assertFalse(work.isCurrent(), "Semantic metadata cannot outlive the original physical/source predicate")
+		sourceCurrent = true
+		assertTrue(work.isCurrent())
+		work.retire()
+		assertFalse(work.isCurrent())
+		assertNull(work.admit(f.installedRegistry(), f.physicalDescriptor()))
+		assertTrue(runCatching {
+			ReaderActivatedRasterWork(f.domain, f.store, f.snapshot, lease,
+				basis.copy(destinationCommitIdentity = basis.destinationCommitIdentity.copy(commitSequence = 2L))) { true }
+		}.isFailure)
+		assertTrue(runCatching { ReaderActivatedRasterWork(f.domain, f.store, f.snapshot, f.lease, basis) { true } }.isFailure,
+			"Initial metadata requires the original requested allocation binding, not a legacy binding-only lease")
+	}
+
+	@Test
 	fun installedWorkRequiresFinalizedOriginalDomainAndExactInstallation() {
 		val f = Fixture(finalize = false)
 		assertEquals(ReaderRasterPreparationStartOutcome.Fenced, f.start())

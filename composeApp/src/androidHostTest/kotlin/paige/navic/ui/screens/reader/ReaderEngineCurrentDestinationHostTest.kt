@@ -671,6 +671,7 @@ class ReaderEngineCurrentDestinationHostTest {
 			bench.retireRenderer()
 			assertTrue(bench.webView() !== oldEngine, "Renderer control must install a different real Engine")
 			check(bench.bridge() !== oldBridge) { "Fixture retirement must install a different real bridge" }
+			bench.webView().let { it.webViewClient.onPageFinished(it, ReaderWebRuntime.entrypointUrl) }
 			bench.post(bench.envelope("ready"))
 			bench.expectDispatch("openPublication")
 			val script = bench.lastScript()
@@ -897,6 +898,7 @@ internal class CurrentDestinationEngineBench {
 		}
 		bridge() // Installed by the actual Engine runtime start gate.
 		check(engine.url == ReaderWebRuntime.entrypointUrl) { "Fixture runtime must load its actual entrypoint" }
+		engine.webViewClient.onPageFinished(engine, ReaderWebRuntime.entrypointUrl)
 		post(envelope("ready"))
 		openDispatch = expectDispatch("openPublication")
 		check(openDispatch.session.isNotBlank()) { "Fixture must parse the actual dispatched open session" }

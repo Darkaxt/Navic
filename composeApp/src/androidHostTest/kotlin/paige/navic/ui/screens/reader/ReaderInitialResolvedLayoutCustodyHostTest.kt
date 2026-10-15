@@ -49,6 +49,39 @@ class ReaderInitialResolvedLayoutCustodyHostTest {
         assertNull(f.take(receipt))
         assertFalse(f.retain(f.child, receipt))
     }
+    @Test fun typedInitialBasisUsesOriginalEventAndIsConsumedWithExactReceiptOnce() = useFixture { f ->
+        f.adopt()
+        val receipt = f.receipt()
+        val event = f.result(receipt)
+        assertTrue(f.custody.retainResolvedLayout(f.child, receipt, event))
+        assertNull(f.custody.takeResolvedCapture(receipt.copy()))
+        val captured = assertNotNull(f.custody.takeResolvedCapture(receipt))
+        assertSame(f.layout, captured.first)
+        assertEquals(ReaderInitialCurrentDestinationCaptureBasis(f.child.commandId,
+            event.destinationCommitIdentity, f.layout), captured.second)
+        assertNull(f.custody.takeResolvedCapture(receipt))
+    }
+    @Test fun typedInitialBasisRejectsWrongQueryDestinationMissingLayoutAndLateClose() = useFixture { f ->
+        f.adopt()
+        val receipt = f.receipt()
+        val event = f.result(receipt)
+        assertFalse(f.custody.retainResolvedLayout(f.child, receipt, event.copy(commandId = "foreign-query")))
+        assertFalse(f.custody.retainResolvedLayout(f.child, receipt, event.copy(
+            destinationCommitIdentity = event.destinationCommitIdentity.copy(commitSequence = 2L))))
+        assertFalse(f.custody.retainResolvedLayout(f.child, receipt, event.copy(resolvedLayout = null)))
+        assertTrue(f.custody.retainResolvedLayout(f.child, receipt, event))
+        f.registration.retire()
+        assertNull(f.custody.takeResolvedCapture(receipt))
+        assertFalse(f.custody.retainResolvedLayout(f.child, receipt, event))
+    }
+    @Test fun layoutOnlyCompatibilityCannotInventInitialCaptureBasis() = useFixture { f ->
+        f.adopt()
+        val receipt = f.receipt()
+        assertTrue(f.retain(f.child, receipt))
+        val captured = assertNotNull(f.custody.takeResolvedCapture(receipt))
+        assertSame(f.layout, captured.first)
+        assertNull(captured.second)
+    }
     private inline fun useFixture(block: (Fixture) -> Unit) {
         val f = Fixture()
         try { block(f) } finally { f.close() }
@@ -95,8 +128,13 @@ class ReaderInitialResolvedLayoutCustodyHostTest {
             return assertNotNull(ReaderCoordinator(controller = opened).reduceSemanticDestination(
                 ReaderPresentationEvent.FoliateRelocated(binding, null), origin).presentationReceipt)
         }
+        fun result(receipt: ReaderPresentationEventReceipt) = ReaderBridgeEvent.CurrentDestinationResolved(
+            child.commandId, child.expectedFoliateSessionId, assertNotNull(receipt.semanticReceipt?.binding?.destinationCommitIdentity),
+            ReaderLocator(pageIndex = 0), layout)
         fun retain(token: ReaderEngineCurrentDestinationContinuation, receipt: ReaderPresentationEventReceipt): Boolean {
-            val method = custody.javaClass.declaredMethods.singleOrNull { it.name == "retainResolvedLayout" }
+            val method = custody.javaClass.declaredMethods.singleOrNull {
+                it.name == "retainResolvedLayout" && it.parameterTypes.lastOrNull() == ReaderFoliateResolvedLayout::class.java
+            }
             assertNotNull(method, "Original construction custody must retain only its exact query and validated receipt layout")
             return method.apply { isAccessible = true }.invoke(custody, token, receipt, layout) as Boolean
         }

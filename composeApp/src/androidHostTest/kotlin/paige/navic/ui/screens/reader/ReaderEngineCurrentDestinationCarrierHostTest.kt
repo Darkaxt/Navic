@@ -59,7 +59,12 @@ class ReaderEngineCurrentDestinationCarrierHostTest {
             bench.post(bench.envelope("commandFailed", head.id))
             assertEquals(1, outcomes.size)
             assertTrue((outcomes.single() as? ReaderCurrentDestinationQueryOutcome.Failed)?.reason == ReaderCurrentDestinationQueryFailure.RuntimeRetired)
-            assertTrue(old !== bench.webView())
+            val replacement = bench.webView()
+            assertTrue(old !== replacement)
+            replacement.webViewClient.onPageFinished(replacement, ReaderWebRuntime.entrypointUrl)
+            assertTrue((replacement as ReaderEngineWebView).runtimeInitializationCompleted)
+            assertNull(shadowOf(replacement).lastEvaluatedJavascript,
+                "Entrypoint completion alone must not dispatch before distinct Javascript Ready")
             bench.post(bench.envelope("ready")); val open = bench.expectDispatch("openPublication")
             bench.post(bench.envelope("commandAck", open.id))
             // The original ordinary request is replayed by the unchanged Engine generation policy.
@@ -366,6 +371,11 @@ class ReaderEngineCurrentDestinationCarrierHostTest {
             bench.replacePublication()
             assertEquals(before, bench.events.size)
             assertTrue(bench.pending().pendingCommands.none { it.currentDestinationContinuation != null })
+            val replacement = bench.webView()
+            replacement.webViewClient.onPageFinished(replacement, ReaderWebRuntime.entrypointUrl)
+            assertTrue((replacement as ReaderEngineWebView).runtimeInitializationCompleted)
+            assertNull(shadowOf(replacement).lastEvaluatedJavascript,
+                "Entrypoint completion alone must not dispatch before distinct Javascript Ready")
             bench.post(bench.envelope("ready")); bench.expectDispatch("openPublication")
             f.close()
         }

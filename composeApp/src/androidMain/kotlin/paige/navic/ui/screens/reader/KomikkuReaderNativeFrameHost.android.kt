@@ -3984,7 +3984,9 @@ private class KomikkuReaderNativeViewerContainer(
 				},
 				custody, ingress)
 			val receiveInitialReceipt: (ReaderPresentationEventReceipt) -> Unit = receive@{ receipt ->
-				val layout = custody.takeResolvedLayout(receipt)
+				val capture = custody.takeResolvedCapture(receipt)
+				val layout = capture?.first
+				val captureBasis = capture?.second
 				if (!initialDestinationSemanticContextIsCurrent(captured, candidate, reservation, origin, context) ||
 					!presentationBindingReporter.consumeInitialSemanticReceipt(captured.reporterEpoch, captured.version, origin, receipt)) {
 					custody.fail(ReaderSemanticAsyncFailure.Rejected)
@@ -3992,8 +3994,8 @@ private class KomikkuReaderNativeViewerContainer(
 				}
 				val binding = receipt.semanticReceipt?.binding
 				val sourceCurrency = source.captureResolvedLayoutCurrency()
-				if (layout != null && binding != null && sourceCurrency != null) captured.installation.initialResolvedLayout =
-					ReaderNativeInitialResolvedLayout(captured, id, binding, layout, receipt.version, sourceCurrency)
+				if (layout != null && captureBasis != null && binding != null && sourceCurrency != null) captured.installation.initialResolvedLayout =
+					ReaderNativeInitialResolvedLayout(captured, id, binding, layout, receipt.version, sourceCurrency, captureBasis)
 				// Original executor owns FIFO forwarding and retirement. Retaining numeric
 				// metadata is neither material allocation nor physical presentation.
 				onReceipt(receipt)
@@ -4017,7 +4019,7 @@ private class KomikkuReaderNativeViewerContainer(
 			if (!custody.active || !current() || !mountNeutralSemanticViewerContent(wrapper, candidate, origin, context)) {
 				custody.retire(); return@request ReaderSemanticExecutableResult.Rejected
 			}
-			custody.mountCompleted() // Only releases an already-observed genuine configure callback.
+			custody.mountCompleted() // Only releases an already-observed exact entrypoint completion.
 			ReaderSemanticExecutableResult.Accepted
 		} catch (failure: Throwable) {
 			custody.retire()
@@ -4458,8 +4460,40 @@ private class KomikkuReaderNativeViewerContainer(
 			allocation.rasterGeneration, ReaderTransitionResourceKey(command.transitionId, ReaderTransitionResourceKind.Raster,
 				allocation.rasterGeneration), allocation)
 		val installed = activatedSessionStore.snapshot ?: return installedRejected()
-		val work = ReaderActivatedRasterWork(domain, activatedSessionStore, installed, lease) {
-			commandIsCurrent(lease)
+		val initial = command.transitionId.operation == paige.navic.reader.ReaderTransitionOperation.BootstrapNativePage &&
+			command.transitionId.expectedBinding is paige.navic.reader.ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial
+		val resolved = if (initial) currentFrameInstallation?.initialResolvedLayout else null
+		if (initial && (resolved?.captureBasis == null || resolved.transitionId != command.transitionId ||
+			allocation.requestedBinding != resolved.binding || allocation.allocatedBinding != command.binding ||
+			resolved.captureBasis.destinationCommitIdentity != command.binding.destinationCommitIdentity ||
+			resolved.captureBasis.resolvedLayout != resolved.layout)) return installedRejected()
+		fun sourceCurrent(): Boolean {
+			if (!initial) return true
+			val original = resolved ?: return false
+			val captured = original.scope
+			val installation = captured.installation
+			val engine = captured.engine.get() ?: return false
+			if (Looper.myLooper() != Looper.getMainLooper() || !isAttachedToWindow || windowVisibility != VISIBLE ||
+				lastPresentationWindowVisible != true || finalHostLifecycleEvent != null || task4ResourceTeardownStarted ||
+				activatedSessionStore.snapshot !== captured.installedSnapshot || installed !== captured.installedSnapshot ||
+				currentFrameInstallation !== installation || installation.initialResolvedLayout !== original ||
+				!installation.owned || installation.operating || installation.permanent || !installation.addInvoked ||
+				installation.imported != null || installation.state != ReaderLegacyResourceState.Registered ||
+				installation.owner != null || installation.binding != null || installation.beforeCommandAdd == null ||
+				!framePhysicalOwnership.hasInstallation(installation.wrapper) || installation.container !== viewerContentContainer ||
+				installation.wrapper.parent !== viewerContentContainer || !installation.wrapper.isAttachedToWindow ||
+				engine !== currentLiveWebView() || !engine.isAttachedToWindow ||
+				width != captured.width || height != captured.height || width <= 0 || height <= 0 ||
+				presentationPublicationGeneration != captured.publicationGeneration || presentationViewportGeneration != captured.viewportGeneration ||
+				(rasterProfileEpoch ?: 0L) != captured.profileGeneration ||
+				presentationBindingReporter.captureEpoch() != captured.reporterEpoch ||
+				presentationBindingReporter.captureSemanticContextVersionOrNull(original.binding) != original.version) return false
+			var ancestor: View = engine
+			while (ancestor !== installation.wrapper) ancestor = ancestor.parent as? View ?: return false
+			return original.sourceIsCurrent()
+		}
+		val work = ReaderActivatedRasterWork(domain, activatedSessionStore, installed, lease, resolved?.captureBasis) {
+			commandIsCurrent(lease) && sourceCurrent() && commandIsCurrent(lease)
 		}
 		val plan = playLikeCurlController.activatedPreparationPlan(work) ?: return installedRejected()
 		val engine = currentLiveWebView() ?: return installedRejected()

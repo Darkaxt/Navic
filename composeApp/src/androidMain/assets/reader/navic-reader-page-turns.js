@@ -538,9 +538,23 @@ function pageTurnPassiveRasterDescriptor(visualPageOrdinal) {
 function pageTurnPassiveRasterManifestInputs(
   visualPageOrdinal,
   captureEpoch,
-  rasterGeneration
+  rasterGeneration,
+  preparationGeneration = null,
+  initialCaptureBasis = null,
 ) {
   const target = this.pageTurnLivePresentationTargetValue
+  const initialRequested = initialCaptureBasis != null
+  const captureBasis = initialRequested && this.foregroundMutationGeneration === 0 &&
+    !target && !this.pageTurnLivePresentationReceiptValue && this.pageTurnPresentationSequence === 0 &&
+    !this.exactPageTurnNavigationInProgress && !this.exactPageTurnNavigationToken &&
+    !this.activeExactPageTurnSettlementToken && !this.nativePageTurnSettledState &&
+    !this.nativePageTurnSettledToken && !this.pendingNativePageTurnSettleToken &&
+    this.pendingExactPageTurnSettlements?.size === 0 &&
+    this.completedExactPageTurnSettlements?.size === 0 &&
+    this.retiredExactPageTurnSettlements?.size === 0 &&
+    Number.isSafeInteger(preparationGeneration) && preparationGeneration > 0
+      ? this.initialCurrentDestinationCaptureBasis?.(initialCaptureBasis) ?? null
+      : null
   const ordinal = Math.floor(Number(visualPageOrdinal))
   const epoch = Math.floor(Number(captureEpoch))
   const generation = Math.floor(Number(rasterGeneration))
@@ -554,18 +568,27 @@ function pageTurnPassiveRasterManifestInputs(
     !Number.isSafeInteger(this.publicationSessionGeneration) ||
     this.publicationSessionGeneration <= 0
   ) return Object.freeze({ failureReason: 'manifest-request-invalid' })
-  const canonicalCommit = pageTurnLivePresentationTargetCanonicalCommit.call(
+  const canonicalCommit = initialRequested ? null : pageTurnLivePresentationTargetCanonicalCommit.call(
     this,
     target
   )
-  if (!canonicalCommit) {
+  if (initialRequested ? !captureBasis : !canonicalCommit) {
     return Object.freeze({
       failureReason: 'canonical-rendered-destination-absent',
     })
   }
   const descriptor = pageTurnPassiveRasterDescriptor.call(this, ordinal)
   const captureGeometry = this.pageTurnCaptureGeometry()
-  if (!descriptor || !captureGeometry) {
+  if (!descriptor || !captureGeometry || (initialRequested && (
+    !Number.isSafeInteger(visualPageOrdinal) || !Number.isSafeInteger(captureEpoch) ||
+    !Number.isSafeInteger(rasterGeneration) ||
+    !Number.isFinite(captureGeometry.viewportWidth) || captureGeometry.viewportWidth <= 0 ||
+    !Number.isFinite(captureGeometry.viewportHeight) || captureGeometry.viewportHeight <= 0 ||
+    !Number.isSafeInteger(descriptor.pageCount) || descriptor.pageCount <= ordinal ||
+    !Number.isSafeInteger(descriptor.spineIndex) || descriptor.spineIndex < 0 ||
+    !Number.isSafeInteger(descriptor.chapterPageIndex) || descriptor.chapterPageIndex < 0 ||
+    !Number.isSafeInteger(descriptor.chapterPageCount) || descriptor.chapterPageCount <= descriptor.chapterPageIndex
+  ))) {
     return Object.freeze({
       failureReason: 'current-live-profile-or-layout-unavailable',
     })
@@ -575,6 +598,10 @@ function pageTurnPassiveRasterManifestInputs(
   const deviceScaleFactor = Math.max(1, Number(window.devicePixelRatio) || 1)
   const physicalViewportWidth = Math.max(1, Math.round(viewportWidth * deviceScaleFactor))
   const physicalViewportHeight = Math.max(1, Math.round(viewportHeight * deviceScaleFactor))
+  if (initialRequested && (!Number.isSafeInteger(physicalViewportWidth) || physicalViewportWidth <= 0 ||
+      !Number.isSafeInteger(physicalViewportHeight) || physicalViewportHeight <= 0)) {
+    return Object.freeze({ failureReason: 'current-live-profile-or-layout-unavailable' })
+  }
   const rasterProfileKey = descriptor.rasterProfileKey
   const opaqueCaptureTarget = JSON.stringify({
     publicationUrl: descriptor.publicationUrl,
@@ -597,9 +624,9 @@ function pageTurnPassiveRasterManifestInputs(
   })
   return Object.freeze({
     captureEpoch: epoch,
-    liveFoliateSessionId: target.foliateSessionId,
+    liveFoliateSessionId: captureBasis?.destinationCommitIdentity.foliateSessionId ?? target.foliateSessionId,
     publicationSessionGeneration: this.publicationSessionGeneration,
-    destinationCommitToken: target.token,
+    ...(captureBasis ? { captureBasis } : { destinationCommitToken: target.token }),
     opaqueCaptureTarget,
     visualPageOrdinal: ordinal,
     profileAuthority: descriptor.profileAuthority,

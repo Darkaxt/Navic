@@ -114,7 +114,8 @@ internal class ReaderNativeInitialResolvedLayout(
     val binding: ReaderPresentationBinding,
     val layout: paige.navic.reader.ReaderFoliateResolvedLayout,
     val version: ReaderPresentationReceiptVersion,
-    val sourceIsCurrent: () -> Boolean
+    val sourceIsCurrent: () -> Boolean,
+    val captureBasis: ReaderInitialCurrentDestinationCaptureBasis? = null
 ) {
     override fun toString() = "ReaderNativeInitialResolvedLayout(<redacted>)"
 }

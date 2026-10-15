@@ -16112,6 +16112,7 @@ private class Task9ControlledPassiveRuntime : ReaderPassiveRasterRuntimePort<Bit
 			echoedLiveFoliateSessionId = manifest.liveFoliateSessionId,
 			echoedPublicationSessionGeneration = manifest.publicationSessionGeneration,
 			echoedDestinationCommitToken = manifest.destinationCommitToken,
+			echoedCaptureBasis = manifest.captureBasis,
 			observedCaptureTarget = manifest.opaqueCaptureTarget,
 			observedVisualPageOrdinal = manifest.visualPageOrdinal,
 			observedRasterProfileKey = manifest.rasterProfileKey,
@@ -16203,16 +16204,22 @@ private class Task9RecoveryCommandWebView(
 		put("visualPageOrdinal", ordinal)
 	}
 
-	private fun manifest(arguments: List<String>): String {
+	private fun manifest(arguments: org.json.JSONArray): String {
+		check(arguments.length() == 5)
 		val binding = checkNotNull(sourceBinding).invoke()
-		val ordinal = arguments[1].toInt()
+		val ordinal = arguments.getInt(0)
 		val descriptor = descriptor(ordinal)
 		val json = org.json.JSONObject().apply {
-			put("captureEpoch", arguments[2].toLong())
-			put("rasterGeneration", arguments[3].toLong())
+			put("captureEpoch", arguments.getLong(1))
+			put("rasterGeneration", arguments.getLong(2))
 			put("liveFoliateSessionId", binding.foliateSessionId)
 			put("publicationSessionGeneration", binding.publicationGeneration)
-			put("destinationCommitToken", "task9-commit-${checkNotNull(binding.destinationCommitIdentity).commitSequence}")
+			// Echo an initial basis from the request, never reconstruct it from fixture state.
+			if (arguments.isNull(4)) {
+				put("destinationCommitToken", "task9-commit-${checkNotNull(binding.destinationCommitIdentity).commitSequence}")
+			} else {
+				put("captureBasis", arguments.getJSONObject(4))
+			}
 			put("rasterProfileKey", "task9-profile-$width-$height")
 			for (key in listOf("paginationFingerprint", "layoutFingerprint", "decorationFingerprint")) {
 				put(key, descriptor.getString(key))
@@ -16245,7 +16252,9 @@ private class Task9RecoveryCommandWebView(
 				resultCallback?.onReceiveValue(response)
 				return
 			}
-			val arguments = checkNotNull(Regex("""\((\d+), (\d+), (\d+), (\d+)\)""").find(script)).groupValues
+			val arguments = org.json.JSONArray("[" + script
+				.substringAfter("pageTurnPassiveRasterManifestInputs?.(")
+				.substringBeforeLast(") ?? null)") + "]")
 			resultCallback?.onReceiveValue(manifest(arguments))
 			return
 		}

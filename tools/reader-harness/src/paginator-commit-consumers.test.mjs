@@ -319,6 +319,10 @@ const turnsModulePath = new URL(
 const { NavicReaderPaginationMethods } = await import(paginationModulePath.href)
 const { NavicReaderPageTurnPreviewMethods } = await import(previewModulePath.href)
 const { NavicReaderPageTurnMethods } = await import(turnsModulePath.href)
+const currentDestination = await import(new URL(
+  '../../../composeApp/src/androidMain/assets/reader/navic-reader-current-destination.js',
+  import.meta.url,
+).href)
 
 const paginationProfile = (
   counts = [3, 2],
@@ -1808,6 +1812,289 @@ test('passive manifest requests cannot bootstrap or mutate live authority', asyn
     overlay: fixture.runtime.activeOverlayAuthority,
     location: fixture.runtime.committedLocationAuthority,
   }, canonicalAuthorityBefore)
+})
+
+// The runtime's delivery record is private. As in the paginator browser contract,
+// use its real factory/reply helpers around a public synthetic original Live view.
+// The seam delegates authentication to production; it does not manufacture a receipt,
+// validate the proposed basis itself, or install a rendered destination target.
+const initialPassiveManifestFixture = ({ delivery = 'successful' } = {}) => {
+  const fixture = liveSettlementRuntime({
+    counts: [1, 4],
+    currentPagePosition: {
+      pageIndex: 0, pageCount: 5, spineIndex: 0,
+      chapterPageIndex: 0, chapterPageCount: 1,
+    },
+    results: [resultFor({ requestedIndex: 0, requestedPageIndex: 0, pageCount: 1 })],
+  })
+  const { runtime, renderer } = fixture
+  const rect = () => ({ left: 0, top: 0, width: 800, height: 1200 })
+  const element = dataset => ({
+    dataset, getAttribute: name => name === 'dir' ? 'ltr' : null,
+    getBoundingClientRect: rect,
+  })
+  const style = { getPropertyValue: name => ({
+    direction: 'ltr', 'font-family': 'serif', 'font-size': '16px',
+    'line-height': '24px', color: 'rgb(0, 0, 0)',
+    'background-color': 'rgb(255, 255, 255)', display: 'block',
+    'margin-top': '0px', 'margin-bottom': '0px',
+  })[name] || '' }
+  const paragraph = element({})
+  const doc = {
+    documentElement: element({ navicReaderTheme: 'day' }), body: element({}),
+    fonts: { status: 'loaded' }, defaultView: { getComputedStyle: () => style },
+    querySelector: selector => selector.startsWith('p,') ? paragraph : null,
+    querySelectorAll: () => [],
+  }
+  const layout = Object.freeze({
+    width: 800, height: 1200, layoutGeneration: 11, viewGeneration: 13,
+    navigationGeneration: 17, sectionIndex: 0, pageIndex: 0, pageCount: 1,
+  })
+  let layoutCurrent = true
+  const capture = Object.freeze({ layout, isCurrent: () => layoutCurrent })
+  Object.assign(renderer, {
+    captureResolvedLayout: () => capture,
+    getAttribute: name => ({
+      flow: 'paginated', 'max-inline-size': '800px', 'max-block-size': '1200px',
+      'max-column-count': '1', 'column-threshold': '720px',
+      'top-margin': '90px', 'bottom-margin': '50px',
+    })[name] || null,
+    getContents: () => [{ index: 0, doc }],
+  })
+  const cfi = 'public-synthetic-initial-destination'
+  Object.assign(runtime.view, {
+    book: { dir: 'ltr', sections: [{}, {}] }, lastLocation: { cfi },
+    getBoundingClientRect: rect,
+  })
+  Object.assign(runtime, {
+    publicationSessionGeneration: 9, publicationUrl: 'public-synthetic-publication',
+    destinationCommitSequence: 1, readerSettings: Object.freeze({ theme: 'day' }),
+    pageTurnCaptureGeometry: () => Object.freeze({
+      mode: 'single', pages: [], viewportWidth: 800, viewportHeight: 1200,
+    }),
+    activeAnchorAuthority: Object.freeze({ token: 'public-synthetic-anchor' }),
+    activeOverlayAuthority: Object.freeze({ token: 'public-synthetic-overlay' }),
+    committedLocationAuthority: Object.freeze({ token: 'public-synthetic-location' }),
+  })
+  let source = currentDestination.readerCurrentDestinationDeliveryRecord({
+    destinationCommitSequence: 1, cfi, pageIndex: 0, pageCount: 5,
+    chapterPageIndex: 0, chapterPageCount: 1,
+  }, runtime.view, runtime.foliateSessionId, runtime.view, runtime.foliateSessionId)
+  assert.notEqual(source, null)
+  const command = Object.freeze({
+    commandId: 'public-synthetic-initial-query', foliateSessionId: runtime.foliateSessionId,
+  })
+  let reply = null
+  const previousBridge = window.NavicAndroidBridge
+  try {
+    window.NavicAndroidBridge = delivery === 'failed' ? undefined : {
+      postMessage: message => { reply = JSON.parse(message) },
+    }
+    currentDestination.readerValidateCurrentDestinationQuery(
+      command, source, runtime.view, runtime.foliateSessionId, runtime.destinationCommitSequence,
+    )
+    if (delivery === 'failed') {
+      assert.throws(() => currentDestination.readerPostCurrentDestinationReply(command, source),
+        /Current destination unavailable/)
+    } else if (delivery === 'successful') {
+      assert.equal(currentDestination.readerPostCurrentDestinationReply(command, source), true)
+      assert.deepEqual(reply.resolvedLayout, layout)
+    }
+  } finally {
+    window.NavicAndroidBridge = previousBridge
+  }
+  const basis = Object.freeze({
+    kind: 'initial-current-destination',
+    commandId: reply?.commandId ?? command.commandId,
+    destinationCommitIdentity: Object.freeze({
+      foliateSessionId: reply?.destinationFoliateSessionId ?? runtime.foliateSessionId,
+      commitSequence: reply?.destinationCommitSequence ?? runtime.destinationCommitSequence,
+    }),
+    resolvedLayout: Object.freeze({ ...(reply?.resolvedLayout ?? layout) }),
+  })
+  runtime.initialCurrentDestinationCaptureBasis = candidate =>
+    currentDestination.readerInitialCurrentDestinationCaptureBasis?.(
+      candidate, source, runtime.view, runtime.foliateSessionId, runtime.destinationCommitSequence,
+    ) ?? null
+  return {
+    ...fixture, basis, command,
+    copyDeliveryRecord: () => { source = { ...source } },
+    retireDeliveryRecord: () => { source = null },
+    invalidateLayout: () => { layoutCurrent = false },
+  }
+}
+
+test('initial basis accepts a wire copy but never recaptures permission after the successful reply', () => {
+  const fixture = initialPassiveManifestFixture()
+  const wireCopy = JSON.parse(JSON.stringify(fixture.basis))
+  assert.deepEqual(fixture.runtime.pageTurnPassiveRasterManifestInputs(1, 4, 7, 19, wireCopy).captureBasis, fixture.basis)
+  fixture.invalidateLayout()
+  let recaptures = 0
+  fixture.renderer.captureResolvedLayout = () => { recaptures += 1; throw new Error('must not recapture') }
+  assert.equal(fixture.runtime.pageTurnPassiveRasterManifestInputs(1, 4, 7, 19, wireCopy).failureReason,
+    'canonical-rendered-destination-absent')
+  assert.equal(recaptures, 0)
+})
+
+test('Ready layout refresh retains the exact fresh capture closure chosen before query post', () => {
+  const layout = Object.freeze({ layoutGeneration: 11, viewGeneration: 13, navigationGeneration: 17,
+    sectionIndex: 0, pageIndex: 0, pageCount: 1, width: 800, height: 1200 })
+  let oldCurrent = true
+  let freshCurrent = true
+  let captures = 0
+  const old = Object.freeze({ layout, isCurrent: () => oldCurrent })
+  const fresh = Object.freeze({ layout: Object.freeze({ ...layout, layoutGeneration: 12 }), isCurrent: () => freshCurrent })
+  const renderer = { captureResolvedLayout: () => { captures += 1; return oldCurrent ? old : fresh } }
+  const cfi = 'public-synthetic-ready-destination'
+  const view = { renderer, lastLocation: { cfi } }
+  const session = 'public-synthetic-ready-session'
+  const source = currentDestination.readerCurrentDestinationDeliveryRecord({ destinationCommitSequence: 1,
+    cfi, chapterPageIndex: 0, chapterPageCount: 1 }, view, session, view, session)
+  oldCurrent = false
+  const command = { commandId: 'public-synthetic-ready-query', foliateSessionId: session }
+  let reply
+  const previousBridge = window.NavicAndroidBridge
+  try {
+    window.NavicAndroidBridge = { postMessage: message => { reply = JSON.parse(message) } }
+    currentDestination.readerValidateCurrentDestinationQuery(command, source, view, session, 1)
+    currentDestination.readerPostCurrentDestinationReply(command, source)
+  } finally { window.NavicAndroidBridge = previousBridge }
+  const basis = JSON.parse(JSON.stringify({ kind: 'initial-current-destination', commandId: command.commandId,
+    destinationCommitIdentity: { foliateSessionId: session, commitSequence: 1 }, resolvedLayout: reply.resolvedLayout }))
+  assert.deepEqual(currentDestination.readerInitialCurrentDestinationCaptureBasis(basis, source, view, session, 1), basis)
+  assert.equal(captures, 2)
+  freshCurrent = false
+  assert.equal(currentDestination.readerInitialCurrentDestinationCaptureBasis(basis, source, view, session, 1), null)
+  assert.equal(captures, 2)
+})
+
+test('initial basis compares every layout number and initial navigation currency without mutation', () => {
+  for (const key of ['layoutGeneration', 'viewGeneration', 'navigationGeneration', 'sectionIndex', 'pageIndex', 'pageCount', 'width', 'height']) {
+    const fixture = initialPassiveManifestFixture()
+    const bad = { ...fixture.basis, resolvedLayout: { ...fixture.basis.resolvedLayout,
+      [key]: fixture.basis.resolvedLayout[key] + 1 } }
+    assert.equal(fixture.runtime.pageTurnPassiveRasterManifestInputs(1, 4, 7, 19, bad).failureReason,
+      'canonical-rendered-destination-absent', key)
+  }
+  for (const key of ['foregroundMutationGeneration', 'exactPageTurnNavigationInProgress', 'exactPageTurnNavigationToken',
+    'activeExactPageTurnSettlementToken', 'nativePageTurnSettledToken', 'pendingNativePageTurnSettleToken', 'pageTurnPresentationSequence']) {
+    const fixture = initialPassiveManifestFixture()
+    fixture.runtime[key] = key === 'exactPageTurnNavigationInProgress' ? true : 1
+    assert.equal(fixture.runtime.pageTurnPassiveRasterManifestInputs(1, 4, 7, 19, fixture.basis).failureReason,
+      'canonical-rendered-destination-absent', key)
+  }
+  for (const generation of [0, -1, 1.5, '19', Number.MAX_SAFE_INTEGER + 1]) {
+    const fixture = initialPassiveManifestFixture()
+    assert.equal(fixture.runtime.pageTurnPassiveRasterManifestInputs(1, 4, 7, generation, fixture.basis).failureReason,
+      'canonical-rendered-destination-absent')
+  }
+})
+
+const initialManifestAuthority = runtime => ({
+  foregroundMutationGeneration: runtime.foregroundMutationGeneration,
+  liveTarget: runtime.pageTurnLivePresentationTargetValue,
+  liveReceipt: runtime.pageTurnLivePresentationReceiptValue,
+  currentPagePosition: runtime.currentPagePosition,
+  relocateSequence: runtime.relocateSequence,
+  anchor: runtime.activeAnchorAuthority,
+  overlay: runtime.activeOverlayAuthority,
+  location: runtime.committedLocationAuthority,
+  pending: runtime.pendingExactPageTurnSettlements.size,
+  completed: runtime.completedExactPageTurnSettlements.size,
+  settled: runtime.nativePageTurnSettledState,
+  presentationSequence: runtime.pageTurnPresentationSequence,
+})
+
+test('fresh initial passive manifest uses the successful current-destination query without rendered settlement', () => {
+  const fixture = initialPassiveManifestFixture()
+  const before = initialManifestAuthority(fixture.runtime)
+  const manifests = [0, 1].map(ordinal =>
+    fixture.runtime.pageTurnPassiveRasterManifestInputs(ordinal, 4, 7, 19, fixture.basis))
+
+  assert.equal(fixture.commits.length, 0)
+  assert.equal(fixture.layoutApplications, 0)
+  assert.deepEqual(initialManifestAuthority(fixture.runtime), before)
+  assert.equal(before.liveTarget, null)
+  assert.equal(before.liveReceipt, null)
+  for (const [ordinal, manifest] of manifests.entries()) {
+    assert.equal(manifest.failureReason, undefined,
+      'successful initial query/layout must acquire passive material without a post-turn rendered target')
+    assert.deepEqual(manifest.captureBasis, fixture.basis)
+    assert.equal(manifest.destinationCommitToken, undefined,
+      'a query command ID is not a rendered-destination token')
+    assert.equal(manifest.visualPageOrdinal, ordinal)
+    assert.equal(manifest.captureEpoch, 4)
+    assert.equal(manifest.rasterGeneration, 7)
+    assert.equal(manifest.liveFoliateSessionId, 'live-session')
+    assert.equal(manifest.publicationSessionGeneration, 9)
+    assert.equal(manifest.rasterDescriptor.spineIndex, ordinal)
+    assert.equal(manifest.profileAuthority, ordinal === 0 ? 'live-realized-v1' : 'passive-realized-v1')
+  }
+})
+
+test('initial passive manifest rejects missing failed copied foreign stale or changed query custody', () => {
+  for (const scenario of [
+    'missing', 'undelivered', 'failed', 'copied-delivery', 'wrong-kind', 'wrong-command',
+    'wrong-session', 'wrong-commit', 'wrong-layout', 'stale-commit', 'foreign-view',
+    'foreign-renderer', 'closed-session', 'layout-invalidated', 'retired-delivery',
+  ]) {
+    const fixture = initialPassiveManifestFixture({
+      delivery: scenario === 'failed' ? 'failed' : scenario === 'undelivered' ? 'none' : 'successful',
+    })
+    const { runtime } = fixture
+    let basis = fixture.basis
+    switch (scenario) {
+      case 'missing': basis = undefined; break
+      case 'copied-delivery': fixture.copyDeliveryRecord(); break
+      case 'wrong-kind': basis = { ...basis, kind: 'rendered-destination' }; break
+      case 'wrong-command': basis = { ...basis, commandId: 'public-synthetic-foreign-query' }; break
+      case 'wrong-session': basis = { ...basis, destinationCommitIdentity: {
+        ...basis.destinationCommitIdentity, foliateSessionId: 'public-synthetic-foreign-session',
+      } }; break
+      case 'wrong-commit': basis = { ...basis, destinationCommitIdentity: {
+        ...basis.destinationCommitIdentity, commitSequence: 2,
+      } }; break
+      case 'wrong-layout': basis = { ...basis, resolvedLayout: {
+        ...basis.resolvedLayout, layoutGeneration: 12,
+      } }; break
+      case 'stale-commit': runtime.destinationCommitSequence += 1; break
+      case 'foreign-view': runtime.view = { ...runtime.view }; break
+      case 'foreign-renderer': runtime.view.renderer = {}; break
+      case 'closed-session': runtime.foliateSessionId = 'foliate-unbound'; break
+      case 'layout-invalidated': fixture.invalidateLayout(); break
+      case 'retired-delivery': fixture.retireDeliveryRecord(); break
+    }
+    const before = initialManifestAuthority(runtime)
+    const manifest = runtime.pageTurnPassiveRasterManifestInputs(1, 4, 7, 19, basis)
+    assert.equal(manifest.failureReason, 'canonical-rendered-destination-absent', scenario)
+    assert.equal(fixture.commits.length, 0, scenario)
+    assert.deepEqual(initialManifestAuthority(runtime), before, scenario)
+  }
+})
+
+test('initial query basis cannot fall through to or rescue post-turn rendered authority', async () => {
+  const fixture = initialPassiveManifestFixture()
+  const { runtime } = fixture
+  await runtime.goToVisualPage(liveSettlementCommand('public-synthetic-real-turn', 0))
+  assert.notEqual(runtime.pageTurnLivePresentationTargetValue, null)
+  const before = initialManifestAuthority(runtime)
+  const wrongBasis = { ...fixture.basis, commandId: 'public-synthetic-foreign-query' }
+
+  assert.equal(
+    runtime.pageTurnPassiveRasterManifestInputs(1, 4, 7, 19, wrongBasis).failureReason,
+    'canonical-rendered-destination-absent',
+    'an explicitly rejected initial basis must not fall through to valid rendered authority',
+  )
+  assert.deepEqual(initialManifestAuthority(runtime), before)
+  runtime.clearPageTurnLivePresentationTarget()
+  const afterClear = initialManifestAuthority(runtime)
+  assert.equal(
+    runtime.pageTurnPassiveRasterManifestInputs(1, 4, 7, 19, fixture.basis).failureReason,
+    'canonical-rendered-destination-absent',
+    'initial query data must not substitute for a missing post-turn target',
+  )
+  assert.deepEqual(initialManifestAuthority(runtime), afterClear)
+  assert.equal(fixture.commits.length, 1)
 })
 
 const liveSettlementCommand = (

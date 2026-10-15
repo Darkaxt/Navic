@@ -121,6 +121,7 @@ const assertReceiptMatchesManifest = (receipt, manifest) => {
     manifest.publicationSessionGeneration,
   )
   assert.equal(receipt.echoedDestinationCommitToken, manifest.destinationCommitToken)
+  assert.deepEqual(receipt.echoedCaptureBasis, manifest.captureBasis)
   assert.equal(receipt.observedCaptureTarget, manifest.opaqueCaptureTarget)
   assert.equal(receipt.observedVisualPageOrdinal, manifest.visualPageOrdinal)
   assert.equal(receipt.observedRasterProfileKey, manifest.rasterProfileKey)
@@ -240,6 +241,77 @@ test('live and passive Foliate sessions preserve synthetic parity across the Sta
     )
     const replacementReceipt = await captureManifest(passivePage, replacementSession, ++sequence)
     assertReceiptMatchesManifest(replacementReceipt, replacementSession.manifest)
+  } finally {
+    await livePage?.close().catch(() => {})
+    await passivePage?.close().catch(() => {})
+    await browser.close()
+    await new Promise(resolve => server.close(resolve))
+  }
+})
+
+test('passive receipt wire union echoes initial metadata without inventing a rendered token', async () => {
+  // Synthetic wire/receipt coverage only; query-source authorization is exercised
+  // independently by the actual current-destination producer/consumer tests.
+  const { server, passiveEntrypoint, liveEntrypoint } = await startAssetServer()
+  const browser = await chromium.launch({ headless: true })
+  let livePage
+  let passivePage
+  try {
+    livePage = await openHarnessPage(browser, liveEntrypoint, 'NavicLiveRasterFixture', { width: 800, height: 1200 })
+    passivePage = await openHarnessPage(browser, passiveEntrypoint, 'NavicPassiveRasterPrototype', { width: 800, height: 1200 })
+    const issued = await issueManifest(livePage, {
+      profileKey: 'portrait-day', targetKey: 'section-0-page-0', rasterGeneration: 1,
+    })
+    const { destinationCommitToken, ...common } = issued.manifest
+    const basis = {
+      kind: 'initial-current-destination', commandId: 'public-synthetic-wire-query',
+      destinationCommitIdentity: { foliateSessionId: common.liveFoliateSessionId, commitSequence: 1 },
+      resolvedLayout: { layoutGeneration: 11, viewGeneration: 13, navigationGeneration: 17,
+        sectionIndex: 0, pageIndex: 0, pageCount: 1, width: 800, height: 1200 },
+    }
+    const manifest = { ...common, captureBasis: basis }
+    const receipt = await captureManifest(passivePage, { ...issued, manifest }, 1)
+    assert.deepEqual(receipt.echoedCaptureBasis, basis)
+    assert.equal(Object.hasOwn(receipt, 'echoedDestinationCommitToken'), false)
+    assert.equal(receipt.observedCaptureTarget, issued.manifest.opaqueCaptureTarget)
+    assert.equal(receipt.observedLayoutFingerprint, issued.manifest.layoutFingerprint)
+    const rendered = await captureManifest(passivePage, issued, 2)
+    assert.equal(rendered.echoedDestinationCommitToken, destinationCommitToken)
+    assert.equal(Object.hasOwn(rendered, 'echoedCaptureBasis'), false)
+    const malformed = [
+      common,
+      { ...manifest, destinationCommitToken },
+      { ...common, captureBasis: null },
+      { ...common, captureBasis: { ...basis, kind: 'rendered-destination' } },
+      { ...common, captureBasis: { ...basis, commandId: ' ' } },
+      { ...common, captureBasis: { ...basis, destinationCommitIdentity: {
+        ...basis.destinationCommitIdentity, foliateSessionId: 'foreign-session',
+      } } },
+      ...[0, 1.5, '1', Number.MAX_SAFE_INTEGER + 1].map(commitSequence => ({
+        ...common, captureBasis: { ...basis, destinationCommitIdentity: {
+          ...basis.destinationCommitIdentity, commitSequence,
+        } },
+      })),
+      ...['layoutGeneration', 'viewGeneration', 'pageCount', 'width', 'height'].map(key => ({
+        ...common, captureBasis: { ...basis, resolvedLayout: { ...basis.resolvedLayout, [key]: 0 } },
+      })),
+      ...['navigationGeneration', 'sectionIndex', 'pageIndex'].map(key => ({
+        ...common, captureBasis: { ...basis, resolvedLayout: { ...basis.resolvedLayout, [key]: -1 } },
+      })),
+    ]
+    for (const bad of malformed) {
+      const rejected = await passivePage.evaluate(async input => {
+        const { PassiveRasterFoliateSession } = await import('./passive-raster-foliate-session.js')
+        const session = new PassiveRasterFoliateSession(document.createElement('div'))
+        try {
+          await session.commitCapture(input)
+          return { rejected: false, coreAbsent: session.core === null }
+        } catch (error) {
+          return { rejected: error instanceof TypeError, coreAbsent: session.core === null }
+        }
+      }, { manifest: bad, captureTarget: issued.captureTarget, passiveCommitSequence: 3 })
+      assert.deepEqual(rejected, { rejected: true, coreAbsent: true })
+    }
   } finally {
     await livePage?.close().catch(() => {})
     await passivePage?.close().catch(() => {})

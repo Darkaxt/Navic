@@ -161,6 +161,9 @@ class ReaderNativeInitialResolvedLayoutHostTest {
             (shadowOf(engine()).getJavascriptInterface(ReaderWebRuntime.AndroidBridgeName) as ReaderJavascriptBridge).postMessage(message.toString()); drain()
         }
         fun resolve() {
+            val target = engine()
+            target.webViewClient.onPageFinished(target, ReaderWebRuntime.entrypointUrl)
+            drain()
             post(buildJsonObject { put("type", "ready") })
             val opening = pending().pendingCommands.first()
             assertTrue(opening.dispatch.command is ReaderBridgeCommand.OpenPublication)

@@ -12,8 +12,11 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
+import paige.navic.reader.ReaderBridgeCommand
+import paige.navic.reader.ReaderWebRuntime
 
 /** Synthetic in-memory host logs only; no device logcat, real publication, or live renderer. */
 @RunWith(RobolectricTestRunner::class)
@@ -24,28 +27,52 @@ class ReaderEngineCurrentDestinationPrivacyHostTest {
 	fun actualDispatchSkipDiagnosticDoesNotExposeCurrentUrlTail() = runTest {
 		withCurrentDestinationEngine { bench ->
 			val view = bench.webView()
-			val start = logCount()
 			view.loadUrl("https://synthetic.invalid/SYNTHETIC_SKIP_URL_204")
-			view.webViewClient.onPageFinished(view, null)
+			val beforeDispatch = bench.lastScript()
+			val start = logCount()
+			bench.submit(ReaderBridgeCommand.PreviousPage)
+			// Update rejects a foreign URL silently. A synthetic Ready replay through the
+			// installed bridge reaches the logged inner guard without enqueueing the command.
+			bench.post(bench.envelope("ready"))
 			val messages = messagesAfter(start)
-			assertTrue(messages.any { it.startsWith("Skipping reader command dispatch:") },
-				"Fixture must exercise the actual dispatch-skip diagnostic")
+			assertTrue(messages.any { it == "Skipping reader command dispatch: ready=true entrypoint=false" },
+				"Synthetic Ready replay must exercise the actual non-entrypoint dispatch-skip diagnostic")
+			assertTrue(bench.lastScript() == beforeDispatch && bench.pending().pendingCommands.isEmpty(),
+				"A non-entrypoint URL must not dispatch the requested reader command")
 			assertFalse(messages.any { it.contains("SYNTHETIC_SKIP_URL_204") },
 				"Dispatch-skip diagnostic must not expose URL payload")
 		}
 	}
 
 	@Test
-	fun actualPageFinishedDiagnosticDoesNotExposeCallbackUrlTail() = runTest {
+	fun actualPageFinishedRejectsCallbackUrlTailWithoutInitializationOrDiagnostic() = runTest {
 		withCurrentDestinationEngine { bench ->
-			val view = bench.webView()
-			val start = logCount()
+			bench.retireRenderer()
+			val view = bench.webView() as ReaderEngineWebView
+			assertTrue(view.url == ReaderWebRuntime.entrypointUrl)
+			assertFalse(view.runtimeInitializationCompleted)
+			val rejectedStart = logCount()
 			view.webViewClient.onPageFinished(view, "https://synthetic.invalid/SYNTHETIC_FINISHED_URL_204")
-			val messages = messagesAfter(start)
-			assertTrue(messages.any { it.startsWith("Reader engine page finished:") },
-				"Fixture must exercise the actual page-finished diagnostic")
-			assertFalse(messages.any { it.contains("SYNTHETIC_FINISHED_URL_204") },
-				"Page-finished diagnostic must not expose URL payload")
+			bench.drain()
+			assertFalse(view.runtimeInitializationCompleted,
+				"A callback URL that is not the exact entrypoint must not initialize the runtime")
+			assertTrue(shadowOf(view).lastEvaluatedJavascript == null,
+				"A rejected callback must not dispatch before the real entrypoint and Javascript Ready")
+			assertTrue(messagesAfter(rejectedStart).isEmpty(),
+				"A rejected callback must remain diagnostic-silent rather than log its private URL")
+
+			view.webViewClient.onPageFinished(view, ReaderWebRuntime.entrypointUrl)
+			assertTrue(view.runtimeInitializationCompleted)
+			assertTrue(shadowOf(view).lastEvaluatedJavascript == null,
+				"Entrypoint completion alone must not dispatch before distinct Javascript Ready")
+			val admittedStart = logCount()
+			bench.post(bench.envelope("ready"))
+			bench.expectDispatch("openPublication")
+			val admittedMessages = messagesAfter(admittedStart)
+			assertTrue(admittedMessages.any { it.startsWith("Dispatching reader engine command:") },
+				"An admitted entrypoint plus real Javascript Ready must retain safe positive command diagnostics")
+			assertFalse(admittedMessages.any { it.contains("SYNTHETIC_FINISHED_URL_204") },
+				"Admitted runtime diagnostics must not retain the rejected callback URL")
 		}
 	}
 

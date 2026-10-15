@@ -715,12 +715,13 @@ private fun readerPassiveRasterCommitJson(
 	put("passiveCommitSequence", passiveCommitSequence)
 }.toString()
 
-private fun ReaderPassiveRasterCaptureManifest.toJson(): JSONObject = JSONObject().apply {
+internal fun ReaderPassiveRasterCaptureManifest.toJson(): JSONObject = JSONObject().apply {
 	put("manifestSequence", manifestSequence)
 	put("captureEpoch", captureEpoch)
 	put("liveFoliateSessionId", liveFoliateSessionId)
 	put("publicationSessionGeneration", publicationSessionGeneration)
-	put("destinationCommitToken", destinationCommitToken)
+	if (captureBasis != null) put("captureBasis", captureBasis.toJson())
+	else put("destinationCommitToken", destinationCommitToken)
 	put("opaqueCaptureTarget", opaqueCaptureTarget)
 	put("visualPageOrdinal", visualPageOrdinal)
 	put("profileAuthority", profileAuthority.serializedValue)
@@ -730,6 +731,59 @@ private fun ReaderPassiveRasterCaptureManifest.toJson(): JSONObject = JSONObject
 	put("decorationFingerprint", decorationFingerprint)
 	put("viewportAndCaptureGeometry", viewportAndCaptureGeometry.toJson())
 	put("rasterGeneration", rasterGeneration)
+}
+
+internal fun ReaderInitialCurrentDestinationCaptureBasis.toJson(): JSONObject = JSONObject().apply {
+	put("kind", kind)
+	put("commandId", commandId)
+	put("destinationCommitIdentity", JSONObject().apply {
+		put("foliateSessionId", destinationCommitIdentity.foliateSessionId)
+		put("commitSequence", destinationCommitIdentity.commitSequence)
+	})
+	put("resolvedLayout", JSONObject().apply {
+		put("layoutGeneration", resolvedLayout.layoutGeneration)
+		put("viewGeneration", resolvedLayout.viewGeneration)
+		put("navigationGeneration", resolvedLayout.navigationGeneration)
+		put("sectionIndex", resolvedLayout.sectionIndex)
+		put("pageIndex", resolvedLayout.pageIndex)
+		put("pageCount", resolvedLayout.pageCount)
+		put("width", resolvedLayout.width)
+		put("height", resolvedLayout.height)
+	})
+}
+
+/** Strict wire metadata: numeric strings and fractional/truncated integers are not authority. */
+internal fun JSONObject.readerPassiveRasterSafeInteger(key: String, minimum: Long = 0L): Long {
+	val number = get(key) as? Number ?: error("Invalid numeric metadata")
+	val value = number.toDouble()
+	require(value.isFinite() && value >= minimum.toDouble() && value <= 9_007_199_254_740_991.0 && value == kotlin.math.floor(value))
+	return number.toLong()
+}
+
+internal fun JSONObject.readerPassiveRasterSafeInt(key: String, minimum: Long = 0L): Int =
+	readerPassiveRasterSafeInteger(key, minimum).also { require(it <= Int.MAX_VALUE) }.toInt()
+
+internal fun readerInitialCurrentDestinationCaptureBasis(json: JSONObject): ReaderInitialCurrentDestinationCaptureBasis {
+	require(json.get("kind") == "initial-current-destination")
+	val destination = json.getJSONObject("destinationCommitIdentity")
+	val layout = json.getJSONObject("resolvedLayout")
+	fun index(key: String, minimum: Long = 0L): Int = layout.readerPassiveRasterSafeInteger(key, minimum).also {
+		require(it <= Int.MAX_VALUE)
+	}.toInt()
+	fun dimension(key: String): Double = (layout.get(key) as? Number)?.toDouble()?.also {
+		require(it.isFinite() && it > 0.0)
+	} ?: error("Invalid geometry metadata")
+	return ReaderInitialCurrentDestinationCaptureBasis(
+		json.get("commandId") as String,
+		paige.navic.reader.ReaderDestinationCommitIdentity(destination.get("foliateSessionId") as String,
+			destination.readerPassiveRasterSafeInteger("commitSequence", 1L)),
+		paige.navic.reader.ReaderFoliateResolvedLayout(
+			layout.readerPassiveRasterSafeInteger("layoutGeneration", 1L),
+			layout.readerPassiveRasterSafeInteger("viewGeneration", 1L),
+			layout.readerPassiveRasterSafeInteger("navigationGeneration"),
+			index("sectionIndex"), index("pageIndex"), index("pageCount", 1L),
+			dimension("width"), dimension("height"))
+	)
 }
 
 private fun ReaderPassiveRasterGeometry.toJson(): JSONObject = JSONObject().apply {
@@ -785,27 +839,33 @@ private fun readerPassiveRasterObservedGeometry(
 	)
 }.getOrNull()
 
-private fun readerPassiveRasterReceipt(
+internal fun readerPassiveRasterReceipt(
 	json: JSONObject,
 	observedCaptureGeometry: ReaderPassiveRasterGeometry
 ): ReaderPassiveRasterCaptureReceipt? = runCatching {
+	require(json.has("echoedCaptureBasis") != json.has("echoedDestinationCommitToken"))
+	val basis = if (json.has("echoedCaptureBasis"))
+		readerInitialCurrentDestinationCaptureBasis(json.getJSONObject("echoedCaptureBasis")) else null
+	val token = if (basis == null) (json.get("echoedDestinationCommitToken") as String).also { require(it.isNotBlank()) } else null
+	require(basis == null || basis.destinationCommitIdentity.foliateSessionId == json.get("echoedLiveFoliateSessionId"))
 	ReaderPassiveRasterCaptureReceipt(
 		passiveSessionId = json.getString("passiveSessionId"),
-		echoedManifestSequence = json.getLong("echoedManifestSequence"),
-		echoedCaptureEpoch = json.getLong("echoedCaptureEpoch"),
+		echoedManifestSequence = json.readerPassiveRasterSafeInteger("echoedManifestSequence"),
+		echoedCaptureEpoch = json.readerPassiveRasterSafeInteger("echoedCaptureEpoch"),
 		echoedLiveFoliateSessionId = json.getString("echoedLiveFoliateSessionId"),
 		echoedPublicationSessionGeneration =
-			json.getLong("echoedPublicationSessionGeneration"),
-		echoedDestinationCommitToken = json.getString("echoedDestinationCommitToken"),
+			json.readerPassiveRasterSafeInteger("echoedPublicationSessionGeneration"),
+		echoedDestinationCommitToken = token,
+		echoedCaptureBasis = basis,
 		observedCaptureTarget = json.getString("observedCaptureTarget"),
-		observedVisualPageOrdinal = json.getInt("observedVisualPageOrdinal"),
+		observedVisualPageOrdinal = json.readerPassiveRasterSafeInt("observedVisualPageOrdinal"),
 		observedRasterProfileKey = json.getString("observedRasterProfileKey"),
 		observedPaginationFingerprint = json.getString("observedPaginationFingerprint"),
 		observedLayoutFingerprint = json.getString("observedLayoutFingerprint"),
 		observedDecorationFingerprint = json.getString("observedDecorationFingerprint"),
 		observedViewportAndCaptureGeometry = observedCaptureGeometry,
-		echoedRasterGeneration = json.getLong("echoedRasterGeneration"),
-		passiveCommitSequence = json.getLong("passiveCommitSequence")
+		echoedRasterGeneration = json.readerPassiveRasterSafeInteger("echoedRasterGeneration"),
+		passiveCommitSequence = json.readerPassiveRasterSafeInteger("passiveCommitSequence")
 	)
 }.getOrNull()
 

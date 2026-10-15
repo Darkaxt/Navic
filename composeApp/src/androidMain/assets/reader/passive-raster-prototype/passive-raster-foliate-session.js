@@ -8,6 +8,45 @@ import {
   SyntheticRasterFoliateSessionCore,
 } from './synthetic-raster-foliate-session.js'
 
+const captureAuthority = manifest => {
+  const hasBasis = Object.hasOwn(manifest, 'captureBasis')
+  if (hasBasis === Object.hasOwn(manifest, 'destinationCommitToken')) {
+    throw new TypeError('Exactly one capture authority is required')
+  }
+  if (!hasBasis) {
+    const token = requiredString(manifest.destinationCommitToken, 'destinationCommitToken')
+    if (!token.trim()) throw new TypeError('Invalid rendered destination token')
+    return Object.freeze({ echoedDestinationCommitToken: token })
+  }
+  const basis = manifest.captureBasis
+  const destination = basis?.destinationCommitIdentity
+  const layout = basis?.resolvedLayout
+  const commandId = requiredString(basis?.commandId, 'commandId')
+  const sessionId = requiredString(destination?.foliateSessionId, 'foliateSessionId')
+  if (basis?.kind !== 'initial-current-destination' || commandId !== commandId.trim() ||
+      sessionId !== sessionId.trim() || sessionId === 'foliate-unbound' ||
+      sessionId !== manifest.liveFoliateSessionId ||
+      requiredSequence(destination?.commitSequence, 'commitSequence') <= 0 ||
+      !layout || requiredSequence(layout.layoutGeneration, 'layoutGeneration') <= 0 ||
+      requiredSequence(layout.viewGeneration, 'viewGeneration') <= 0 ||
+      requiredSequence(layout.navigationGeneration, 'navigationGeneration') < 0 ||
+      requiredSequence(layout.sectionIndex, 'sectionIndex') < 0 ||
+      requiredSequence(layout.pageIndex, 'pageIndex') >= requiredSequence(layout.pageCount, 'pageCount') ||
+      !Number.isFinite(layout.width) || layout.width <= 0 ||
+      !Number.isFinite(layout.height) || layout.height <= 0) {
+    throw new TypeError('Invalid initial capture basis')
+  }
+  return Object.freeze({ echoedCaptureBasis: Object.freeze({
+    kind: basis.kind, commandId,
+    destinationCommitIdentity: Object.freeze({ foliateSessionId: sessionId, commitSequence: destination.commitSequence }),
+    resolvedLayout: Object.freeze({
+      layoutGeneration: layout.layoutGeneration, viewGeneration: layout.viewGeneration,
+      navigationGeneration: layout.navigationGeneration, sectionIndex: layout.sectionIndex,
+      pageIndex: layout.pageIndex, pageCount: layout.pageCount, width: layout.width, height: layout.height,
+    }),
+  }) })
+}
+
 export class PassiveRasterFoliateSession {
   constructor(host = document.getElementById('passive-raster-stage')) {
     this.host = host
@@ -28,6 +67,7 @@ export class PassiveRasterFoliateSession {
     if (!manifest || typeof manifest !== 'object') {
       throw new TypeError('manifest must be an object')
     }
+    const authority = captureAuthority(manifest)
     const captureTarget = requiredString(input?.captureTarget, 'captureTarget')
     const core = this.coreForCaptureTarget(captureTarget)
     const requestedPassiveSessionId = input?.passiveSessionId == null
@@ -58,10 +98,7 @@ export class PassiveRasterFoliateSession {
         manifest.publicationSessionGeneration,
         'publicationSessionGeneration',
       ),
-      echoedDestinationCommitToken: requiredString(
-        manifest.destinationCommitToken,
-        'destinationCommitToken',
-      ),
+      ...authority,
       observedCaptureTarget: observation.opaqueCaptureTarget,
       observedVisualPageOrdinal: observation.visualPageOrdinal,
       observedRasterProfileKey: observation.rasterProfileKey,

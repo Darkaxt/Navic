@@ -58,7 +58,7 @@ class ReaderRootComposedInitialIngressHostTest {
         try {
             assertEquals(ReaderSemanticCommandResult.Accepted, f.start(provideIngress = true),
                 "A407.ComposedIngress.OriginalBootstrapAccepted")
-            f.drain(); assertNotNull(f.rootWrapper())
+            f.drain(finishEntrypointBeforeReady = true); assertNotNull(f.rootWrapper())
             assertEquals(2, f.pending().pendingCommands.size)
             f.resolve()
             val receipt = f.receipts.single()
@@ -252,12 +252,21 @@ class ReaderRootComposedInitialIngressHostTest {
                 View.MeasureSpec.makeMeasureSpec(root.measuredHeight, View.MeasureSpec.EXACTLY))
             root.layout(0, 0, root.measuredWidth, root.measuredHeight)
         }
-        fun drain() {
+        fun drain(finishEntrypointBeforeReady: Boolean = false) {
             // Consume only the known composition -> actual layout -> Engine configure
             // boundaries. Elapsed looper time is not observation of a composition local.
             commitCompositionFrame()
             layoutOriginalRoot()
             shadowOf(Looper.getMainLooper()).idle()
+            if (finishEntrypointBeforeReady) {
+                val target = engine() as ReaderEngineWebView
+                assertEquals(ReaderWebRuntime.entrypointUrl, target.url)
+                target.webViewClient.onPageFinished(target, target.url)
+                assertTrue(target.runtimeInitializationCompleted)
+                assertTrue(pending().pendingCommands.all { it.lastDispatchedGeneration == null })
+                assertNull(shadowOf(target).lastEvaluatedJavascript)
+                assertTrue(receipts.isEmpty())
+            }
             commitCompositionFrame()
             layoutOriginalRoot()
             assertEquals(Recomposer.State.Idle, recomposer.currentState.value,

@@ -2365,6 +2365,14 @@ class ReaderNormalProductionStartupHostTest {
             val materialLayout = compositionBoundaryLabel()
             withInitialGeometryBoundary(ReaderInitialGeometryWitnessBoundary.LooperDrain) {
                 shadowOf(Looper.getMainLooper()).idle() // Actual Engine configure/attachment callbacks only.
+                val target = engine() as? ReaderEngineWebView
+                if (target != null && !target.runtimeInitializationCompleted) {
+                    assertTrue(target.url == ReaderWebRuntime.entrypointUrl,
+                        "A407.EntrypointFinish.OriginalLoadedEntrypoint")
+                    target.webViewClient.onPageFinished(target, target.url)
+                    assertTrue(target.runtimeInitializationCompleted,
+                        "A407.EntrypointFinish.OriginalCallbackInitializedRuntime")
+                }
             }
             val configureReturn = compositionBoundaryLabel()
             withInitialGeometryBoundary(ReaderInitialGeometryWitnessBoundary.CompositionFrame) { commitCompositionFrame() }

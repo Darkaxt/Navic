@@ -26,7 +26,8 @@ import paige.navic.reader.*
  * All exact custody is retained in memory only. No callback or sampled state fabricates acceptance.
  */
 internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActivity,
-    private val epub: Task407PublicEpub) {
+    private val epub: Task407PublicEpub,
+    private val loggerObservation: Task407LoggerStartupObservation? = null) {
     private val compose = activity.readerComposeView
     val gateway = ReaderTransitionGateway()
     private val opened = ReaderController().open(ReaderEngineOpenRequest(
@@ -66,6 +67,20 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
     private var observationFailure: Task407FixedFailure? = null
     private var turnAdmission: Task407TurnAdmission? = null
     private val acceptedTurnCustody = mutableListOf<Task407AcceptedTurnCustody>()
+    private var observedStartupRuntime: ReaderPassiveRasterWebViewHost? = null
+    private var observedStartupWork: ReaderActivatedRasterWork? = null
+    private var observedStartupJavascriptReady = false
+    private var observedStartupRuntimeReady = false
+    private var observedStartupAttachment = false
+    private var observedStartupReadinessPresent = false
+    private var observedStartupReadinessDelivered = false
+    private var observedStartupBatchPresent = false
+    private var observedStartupBatchAtFirstTarget = false
+    private var observedStartupBatchPastFirstTarget = false
+    private var observedStartupSessionCaptureAttempt = false
+    private var observedStartupSessionCaptureFailure = false
+    private var observedStartupSessionActiveCapture = false
+    private var startupObservationUnavailable = false
 
     /** The existing local is called ONLY by the authenticated original FIFO publication closure,
      * after original snapshot carry/validation and before the original predecessor release.
@@ -296,6 +311,145 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
     }
 
     fun requireNoObservationFailure() { observationFailure?.let { throw it.sanitizedCopy() } }
+    fun loggerObservationLabels(): List<String> = loggerObservation?.labels().orEmpty()
+
+    /** Sample only bounded original references/booleans before a producer can lawfully retire.
+     * Diagnostic retention never delays close/release and cannot establish a successful boundary. */
+    fun observeStartupBoundary() {
+        try {
+            task407Require(Looper.myLooper() == Looper.getMainLooper(), "A407.Runtime.RealMainLooper")
+            if (rootOrNull() == null || runtime() == null) return
+            registeredActiveWork()?.let { observedStartupWork = it }
+            val adapter = passive()
+            passiveRuntime()?.let { original ->
+                observedStartupRuntime = original
+                observedStartupRuntimeReady = observedStartupRuntimeReady || original.isReady
+                val type = original.javaClass
+                observedStartupJavascriptReady = observedStartupJavascriptReady ||
+                    type.getDeclaredField("runtimeReady").apply { isAccessible = true }.get(original) == true
+                val webView = type.getDeclaredField("webView").apply { isAccessible = true }.get(original) as View
+                observedStartupAttachment = observedStartupAttachment || webView.isAttachedToWindow
+            }
+            if (adapter != null) {
+                val type = adapter.javaClass
+                val session = type.getDeclaredField("session").apply { isAccessible = true }
+                    .get(adapter) as ReaderPassiveRasterPrototypeSession<Bitmap>
+                val readiness = type.getDeclaredField("installedReadiness").apply { isAccessible = true }
+                    .get(adapter)
+                observedStartupReadinessPresent = observedStartupReadinessPresent || readiness != null
+                if (readiness != null) {
+                    observedStartupReadinessDelivered = observedStartupReadinessDelivered ||
+                        readiness.javaClass.getDeclaredField("delivered").apply { isAccessible = true }
+                            .get(readiness) == true
+                }
+                val batch = type.getDeclaredField("activeBatch").apply { isAccessible = true }.get(adapter)
+                observedStartupBatchPresent = observedStartupBatchPresent || batch != null
+                if (batch != null) {
+                    val targetIndex = batch.javaClass.getDeclaredField("targetIndex").apply { isAccessible = true }
+                        .get(batch) as Int
+                    observedStartupBatchAtFirstTarget = observedStartupBatchAtFirstTarget || targetIndex == 0
+                    observedStartupBatchPastFirstTarget = observedStartupBatchPastFirstTarget || targetIndex > 0
+                }
+                val metrics = session.metrics()
+                observedStartupSessionCaptureAttempt = observedStartupSessionCaptureAttempt || metrics.captureAttempts > 0
+                observedStartupSessionCaptureFailure = observedStartupSessionCaptureFailure || metrics.captureFailures > 0
+                observedStartupSessionActiveCapture = observedStartupSessionActiveCapture || metrics.activeCaptures > 0
+            }
+        } catch (_: Throwable) { startupObservationUnavailable = true }
+    }
+
+    /** Failure-only, read-only boundary observations. Presence labels grant no readiness, identity,
+     * resource or publication authority; no producer is invoked and no payload is inspected. */
+    fun startupObservationLabels(): List<String> = buildList {
+        task407Require(Looper.myLooper() == Looper.getMainLooper(), "A407.Runtime.RealMainLooper")
+        val exactRoot = rootOrNull() ?: return@buildList
+        add("E407.Observation.RootPresent")
+        if (store().snapshot != null) add("E407.Observation.InstallationPresent")
+        val coordinator = runtime() ?: return@buildList
+        add("E407.Observation.CoordinatorPresent")
+        if (material() != null) add("E407.Observation.MaterialPresent")
+        if (engine() != null) add("E407.Observation.EnginePresent")
+        if (initialIngressCount > 0) add("E407.Observation.InitialSemanticIngressObserved")
+        if (material()?.initialResolvedLayout != null) add("E407.Observation.InitialResolvedLayoutPresent")
+        if (viewer().context is android.app.Activity) add("E407.Observation.ViewerContextIsActivity")
+        if (startupObservationUnavailable) add("E407.Observation.EarlyObservationUnavailable")
+        if (observedStartupRuntimeReady) add("E407.Observation.PassiveRuntimeReadyObserved")
+        if (observedStartupJavascriptReady) add("E407.Observation.PassiveJavascriptReadyObserved")
+        if (observedStartupAttachment) add("E407.Observation.PassiveAttachmentObserved")
+        if (observedStartupReadinessPresent) add("E407.Observation.PassiveReadinessPresent")
+        if (observedStartupReadinessDelivered) add("E407.Observation.PassiveReadinessDelivered")
+        if (observedStartupBatchPresent) add("E407.Observation.PassiveBatchPresent")
+        if (observedStartupBatchAtFirstTarget) add("E407.Observation.PassiveBatchAtFirstTarget")
+        if (observedStartupBatchPastFirstTarget) add("E407.Observation.PassiveBatchPastFirstTarget")
+        if (observedStartupSessionCaptureAttempt) add("E407.Observation.PassiveSessionCaptureAttemptObserved")
+        if (observedStartupSessionCaptureFailure) add("E407.Observation.PassiveSessionCaptureFailureObserved")
+        if (observedStartupSessionActiveCapture) add("E407.Observation.PassiveSessionActiveCaptureObserved")
+        observedStartupRuntime?.let { original ->
+            add("E407.Observation.PassiveRuntimeObserved")
+            if (original.isRetired) add("E407.Observation.ObservedPassiveRuntimeRetired")
+            val capture = original.captureMetrics()
+            if (capture.captureRequests > 0) add("E407.Observation.CaptureRequestObserved")
+            if (capture.preconditionFailures > 0) add("E407.Observation.CapturePreconditionFailureObserved")
+            if (capture.pixelCopyAttempts > 0) add("E407.Observation.PixelCopyAttemptObserved")
+            if (capture.pixelCopySuccesses > 0) add("E407.Observation.PixelCopySuccessObserved")
+            if (capture.pixelCopyFailures > 0) add("E407.Observation.PixelCopyFailureObserved")
+        }
+        observedStartupWork?.let { original ->
+            add("E407.Observation.RasterWorkObserved")
+            if (original.preparationFacts?.phase == ReaderPagePreparationPhase.Ready)
+                add("E407.Observation.ObservedRasterTargetsReady")
+        }
+        when (val outcome = journal().lastOutcome) {
+            is ReaderTransitionOutcome.Failed -> add(when (outcome.reason) {
+                ReaderTransitionFailureReason.PortRejected -> "E407.Observation.TerminalPortRejected"
+                ReaderTransitionFailureReason.MaterialTimeout -> "E407.Observation.TerminalMaterialTimeout"
+                ReaderTransitionFailureReason.MaterialAllocationRejected -> "E407.Observation.TerminalMaterialAllocationRejected"
+                ReaderTransitionFailureReason.AtomicPublicationRejected -> "E407.Observation.TerminalAtomicPublicationRejected"
+                else -> "E407.Observation.TerminalOtherFailure"
+            })
+            is ReaderTransitionOutcome.Cancelled -> add("E407.Observation.TerminalCancelled")
+            is ReaderTransitionOutcome.Deferred -> add("E407.Observation.TerminalDeferred")
+            is ReaderTransitionOutcome.Succeeded -> add("E407.Observation.TerminalSucceeded")
+            null -> Unit
+        }
+        val passiveRuntime = passiveRuntime()
+        if (passiveRuntime != null) {
+            add("E407.Observation.PassiveRuntimePresent")
+            if (passiveRuntime.isReady) add("E407.Observation.PassiveRuntimeReady")
+            val type = passiveRuntime.javaClass
+            if (type.getDeclaredField("runtimeReady").apply { isAccessible = true }.get(passiveRuntime) == true)
+                add("E407.Observation.PassiveJavascriptReady")
+            val webView = type.getDeclaredField("webView").apply { isAccessible = true }.get(passiveRuntime) as View
+            if (webView.isAttachedToWindow) add("E407.Observation.PassiveWebViewAttached")
+            val capture = passiveRuntime.captureMetrics()
+            if (capture.captureRequests > 0) add("E407.Observation.CaptureRequested")
+            if (capture.pixelCopyAttempts > 0) add("E407.Observation.PixelCopyAttempted")
+            if (capture.pixelCopySuccesses > 0) add("E407.Observation.PixelCopySucceeded")
+        }
+        if (passive()?.isAvailable == true) add("E407.Observation.PassiveAdapterAvailable")
+        val active = journal().active
+        if (active != null) {
+            add("E407.Observation.TransitionActive")
+            val work = registeredActiveWork()
+            if (work != null) add("E407.Observation.RasterWorkPresent")
+            if (work?.isCurrent() == true) add("E407.Observation.RasterWorkCurrent")
+            if (work?.preparationFacts?.phase == ReaderPagePreparationPhase.Ready)
+                add("E407.Observation.RasterTargetsReady")
+            if (active.admittedDeckKey != null) add("E407.Observation.DeckAdmitted")
+            if (active.pendingPreparedDeckKey != null) add("E407.Observation.DeckPreparedPending")
+            if (active.frameTarget != null) add("E407.Observation.FrameTargetPresent")
+            if (active.preparedFrameOwner != null) add("E407.Observation.PreparedFrameOwnerPresent")
+        }
+        if (journal().retryableTransition != null) add("E407.Observation.RetryableTransitionPresent")
+        if (journal().lastOutcome != null) add("E407.Observation.TerminalOutcomePresent")
+        if (publication() != null) add("E407.Observation.PublicationPresent")
+        if (canAcceptPointer(exactRoot)) add("E407.Observation.PointerGranted")
+        val surface = curl().surfaceView
+        if (surface.isAttachedToWindow) add("E407.Observation.CurlSurfaceAttached")
+        if (surface.width > 0 && surface.height > 0) add("E407.Observation.CurlSurfaceSized")
+        if (surface.alpha > 0f) add("E407.Observation.CurlSurfaceNonzeroAlpha")
+        add("E407.Observation.Completed")
+    }
 
     /** Checks the ACTUAL bound owning callback reference, not symbol presence. */
     fun requireInstalledPageTurnModelIngressBinding() {

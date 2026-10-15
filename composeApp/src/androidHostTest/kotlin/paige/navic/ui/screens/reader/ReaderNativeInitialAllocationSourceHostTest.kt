@@ -36,6 +36,24 @@ import paige.navic.reader.*
     Task8ImmediateGlSurfaceViewShadow::class, Task398MaterialVisualStateShadow::class,
     Task398CanonicalStoragePathShadow::class])
 class ReaderNativeInitialAllocationSourceHostTest {
+    @Test fun originalQueryBasisRetainsExactCommandBindingLayoutAndDiesWithPhysicalInstallation() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            val resolved = assertIs<ReaderNativeInitialResolvedLayout>(f.capture())
+            val basis = assertNotNull(resolved.captureBasis)
+            assertEquals(f.resolvedQueryCommandId, basis.commandId)
+            assertEquals(f.command().binding.destinationCommitIdentity, basis.destinationCommitIdentity)
+            assertEquals(resolved.layout, basis.resolvedLayout)
+            assertSame(assertNotNull(f.material()), resolved.scope.installation)
+            assertTrue(resolved.sourceIsCurrent())
+            f.call("closeReader"); f.drain()
+            assertNull(f.material()?.initialResolvedLayout)
+            assertFalse(resolved.sourceIsCurrent())
+            assertNull(f.capture())
+        } finally { f.dispose() }
+    }
+
     @Test fun originalReporterConsumesGenuineInitialReceiptBeforeExecutorForwarding() = runTest {
         val f = ConstructionFixture(testScheduler)
         try {
@@ -165,6 +183,38 @@ class ReaderNativeInitialAllocationSourceHostTest {
             assertNull(physical.binding); assertNull(physical.owner)
         } finally { f.dispose() }
     }
+    @Config(shadows = [Task407UnitWebViewMeasureBoundary::class])
+    @Test fun originalInitialRasterWorkRetainsExactQueryBasisAfterAllocationAndFencesSourceChanges() = runTest {
+        // Actual Native construction/allocation/preparation admission, with synthetic
+        // query/plan inputs. Passive Ready, a receipt, display and pixels are not supplied.
+        for (change in listOf("destination", "dimensions", "profile", "publication", "viewport", "detach", "candidate", "close", "retire")) {
+            val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+            try {
+                assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain()
+                f.layoutOriginalRasterMaterial(); f.resolve()
+                val original = assertIs<ReaderNativeInitialResolvedLayout>(f.capture())
+                assertEquals(ReaderPortCommandResult.Accepted, f.allocate()); f.returnPlan()
+                val work = f.prepareRaster()
+                assertSame(original.captureBasis, work.initialCaptureBasis)
+                assertTrue(work.isCurrent(), "An exact allocated command must not reuse retired semantic executor currency")
+                assertFalse(assertNotNull(f.material()).commandCurrency?.invoke() == true)
+                assertEquals(ReaderLegacyResourceState.Registered, assertNotNull(f.material()).state)
+                when (change) {
+                    "destination" -> f.postNewDestination()
+                    "dimensions" -> f.resize()
+                    "profile" -> f.replaceProfileIdentity()
+                    "publication" -> f.replacePublicationIdentity()
+                    "viewport" -> f.replaceViewportIdentity()
+                    "detach" -> f.detachOriginalWrapper()
+                    "candidate" -> f.closeCandidate()
+                    "close" -> f.call("closeReader")
+                    "retire" -> work.retire()
+                }
+                assertFalse(work.isCurrent(), change)
+            } finally { f.dispose() }
+        }
+    }
+
     @Test fun originalInitialAllocationCannotRunBeforeOriginalOwnerFinalization() = runTest {
         val f = ConstructionFixture(testScheduler)
         try {
@@ -273,6 +323,7 @@ class ReaderNativeInitialAllocationSourceHostTest {
                 it is ReaderTransitionFact.CommandRejected
         }
         var materialCommandCurrent = true
+        var resolvedQueryCommandId: String? = null; private set
         private var allocationPort: ReaderMaterialGenerationAllocationPort? = null
         private val confirmedMaterialOwners = mutableSetOf<ReaderLegacyPhysicalIdentity>()
         init {
@@ -384,12 +435,62 @@ class ReaderNativeInitialAllocationSourceHostTest {
         fun post(message: JsonObject) {
             (shadowOf(engine()).getJavascriptInterface(ReaderWebRuntime.AndroidBridgeName) as ReaderJavascriptBridge).postMessage(message.toString()); drain()
         }
+        // Same controlled UNIT driver as the normal Root fixture: request through
+        // Compose's original interop nodes, then place the stored original Engine.
+        // The SDK-28 provider shadow forwards original View callbacks, not reader readiness.
+        fun layoutOriginalRasterMaterial() {
+            val material = assertNotNull(material(), "R407.Layout.OriginalMaterial")
+            val content = material.wrapper
+            assertTrue(content === wrapper && content is ComposeView, "R407.Layout.OriginalComposeWrapper")
+            val parent = assertNotNull(content.parent as? ViewGroup, "R407.Layout.OriginalMaterialParent")
+            assertTrue(parent === field("viewerContentContainer") && parent.isAttachedToWindow &&
+                parent.width > 0 && parent.height > 0, "R407.Layout.OriginalParentHasPhysicalBounds")
+            fun requestOriginalMeasurement(view: View) {
+                if (view is ViewGroup) for (index in 0 until view.childCount) {
+                    requestOriginalMeasurement(view.getChildAt(index))
+                }
+                view.requestLayout()
+            }
+            requestOriginalMeasurement(content)
+            content.measure(View.MeasureSpec.makeMeasureSpec(parent.width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(parent.height, View.MeasureSpec.EXACTLY))
+            content.layout(0, 0, parent.width, parent.height)
+            val target = engine()
+            val holder = assertNotNull(target.parent as? ViewGroup, "R407.Layout.OriginalHolder")
+            val handler = assertNotNull(holder.parent as? ViewGroup, "R407.Layout.OriginalHandler")
+            val owner = assertNotNull(handler.parent as? ViewGroup, "R407.Layout.OriginalComposeOwner")
+            assertTrue(owner.parent === content && holder.javaClass.simpleName == "ViewFactoryHolder" &&
+                handler.javaClass.simpleName == "AndroidViewsHandler" && owner.javaClass.simpleName == "AndroidComposeView",
+                "R407.Layout.OriginalInteropHierarchy")
+            assertTrue(target.isAttachedToWindow, "R407.Layout.OriginalEngineAttached")
+            assertTrue(holder.width > 0 && holder.height > 0 && holder.width == holder.measuredWidth &&
+                holder.height == holder.measuredHeight, "R407.Layout.OriginalHolderMeasuredAndPlaced")
+            assertTrue((shadowOf(target) as Task407UnitWebViewMeasureBoundary).originalExactSpecsObserved,
+                "R407.Layout.OriginalExactMeasureSpecs")
+            assertTrue(target.measuredWidth == holder.measuredWidth && target.measuredHeight == holder.measuredHeight,
+                "R407.Layout.OriginalEngineMeasuredByHolder")
+            val originalHolder = holder.javaClass.superclass
+            assertTrue(originalHolder.simpleName == "AndroidViewHolder", "R407.Layout.OriginalPlacementCallbackOwner")
+            val originalChild = originalHolder.getDeclaredField("view").apply { isAccessible = true }.get(holder)
+            assertTrue(originalChild === target && holder.childCount == 1 && holder.getChildAt(0) === originalChild,
+                "R407.Layout.OriginalStoredEngine")
+            originalHolder.getDeclaredMethod("onLayout", Boolean::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType, Int::class.javaPrimitiveType).apply { isAccessible = true }
+                .invoke(holder, false, holder.left, holder.top, holder.right, holder.bottom)
+            assertTrue(target.parent === holder && target.width == holder.width && target.height == holder.height,
+                "R407.Layout.OriginalEnginePlacedByHolder")
+        }
         fun resolve(includeLayout: Boolean = true, globalPageIndex: Int = 0, sectionIndex: Int = 0) {
+            val target = engine()
+            target.webViewClient.onPageFinished(target, ReaderWebRuntime.entrypointUrl)
+            drain()
             post(buildJsonObject { put("type", "ready") })
             val opening = pending().pendingCommands.first()
             assertTrue(opening.dispatch.command is ReaderBridgeCommand.OpenPublication)
             post(buildJsonObject { put("type", "commandAck"); put("commandId", opening.dispatch.id) })
             val query = pending().pendingCommands.first().dispatch
+            resolvedQueryCommandId = query.id
             val command = query.command as ReaderBridgeCommand.ResolveCurrentDestination
             post(buildJsonObject { put("type", "currentDestinationResolved"); put("commandId", query.id)
                 put("foliateSessionId", command.foliateSessionId); put("destinationFoliateSessionId", command.foliateSessionId)
@@ -427,6 +528,42 @@ class ReaderNativeInitialAllocationSourceHostTest {
             }
             return port.allocate(command()) { materialFacts += it }
         }
+        fun prepareRaster(): ReaderActivatedRasterWork {
+            val allocation = (materialEvidence.last() as ReaderTransitionFact.MaterialBindingAllocated).allocation
+            val command = ReaderTransitionCommand.RequestRasterPreparation(allocation.transitionId,
+                allocation.allocatedBinding, allocation)
+            val readPublication: () -> ReaderOwnerAndInputPublicationSnapshot? = { null }
+            val current = { candidate.isSelected && store.snapshot?.commandEgressOpen == true && materialCommandCurrent }
+            assertEquals(ReaderPortCommandResult.Accepted, call("bindInstalledPublicationReaders", readPublication, current))
+            val currency: (ReaderRasterPreparationLease) -> Boolean = { lease ->
+                current() && lease.transitionId == command.transitionId && lease.binding == command.binding && lease.allocation == allocation
+            }
+            val facts: (ReaderTransitionFact) -> Unit = { materialFacts += it }
+            val original = assertNotNull(material()?.initialResolvedLayout, "R407.Raster.InitialLayoutPresent")
+            assertTrue(original === capture(), "R407.Raster.ExactSourceCurrentBeforePreparation")
+            assertTrue(original.scope.installedSnapshot === store.snapshot, "R407.Raster.ExactInstalledSnapshotBeforePreparation")
+            assertTrue(current(), "R407.Raster.InstalledCommandCurrentBeforePreparation")
+            assertTrue(original.binding == allocation.requestedBinding, "R407.Raster.ExactRequestedBindingBeforePreparation")
+            assertTrue(original.transitionId == command.transitionId, "R407.Raster.ExactTransitionBeforePreparation")
+            assertTrue(original.captureBasis?.destinationCommitIdentity == command.binding.destinationCommitIdentity,
+                "R407.Raster.ExactCaptureDestinationBeforePreparation")
+            val target = engine()
+            assertTrue(target.width > 0 && target.height > 0, "R407.Raster.PositiveEngineSizeBeforePreparation")
+            val controller = field("pageRasterPreparationController") as ReaderPageRasterPreparationController
+            assertTrue(domain == controller.activatedMaterialDomain, "R407.Raster.ExactPreparationDomainBeforePreparation")
+            val result = call("prepareInstalledRaster", command, domain, currency, facts)
+            assertTrue(original.scope.installedSnapshot === store.snapshot, "R407.Raster.ExactInstalledSnapshotAfterPreparation")
+            assertTrue(original === material()?.initialResolvedLayout, "R407.Raster.ExactInitialLayoutAfterPreparation")
+            assertTrue(current(), "R407.Raster.InstalledCommandCurrentAfterPreparation")
+            assertTrue(native.width == original.scope.width && native.height == original.scope.height,
+                "R407.Raster.ExactNativeSizeAfterPreparation")
+            assertTrue(target.width > 0 && target.height > 0, "R407.Raster.PositiveEngineSizeAfterPreparation")
+            assertTrue(original.sourceIsCurrent(), "R407.Raster.EngineLayoutSourceCurrentAfterPreparation")
+            assertTrue(original === capture(), "R407.Raster.ExactSourceCurrentAfterPreparation")
+            assertEquals(ReaderPortCommandResult.Accepted, result)
+            val key = ReaderTransitionResourceKey(command.transitionId, ReaderTransitionResourceKind.Raster, allocation.rasterGeneration)
+            return assertNotNull(controller.installedWorkFor(key))
+        }
         fun planCallback(): android.webkit.ValueCallback<String> {
             val source = shadowOf(engine())
             assertTrue(source.lastEvaluatedJavascript?.contains("pageTurnRasterPreparationPlan") == true,
@@ -437,6 +574,15 @@ class ReaderNativeInitialAllocationSourceHostTest {
             sectionIndex: Int = 0, layoutGeneration: Long? = 7L,
             callback: android.webkit.ValueCallback<String> = planCallback()) {
             val plan = buildJsonObject {
+                // The synthetic original-plan response must include the geometry
+                // required for raster admission, not only allocation's layout metadata.
+                put("captureGeometry", buildJsonObject {
+                    put("viewportWidth", 560.0); put("viewportHeight", 420.0); put("mode", "single")
+                    put("pages", buildJsonArray { add(buildJsonObject {
+                        put("role", "full"); put("left", 0.0); put("top", 0.0)
+                        put("width", 560.0); put("height", 420.0)
+                    }) })
+                })
                 if (layoutGeneration != null) put("resolvedLayout", buildJsonObject {
                     put("layoutGeneration", layoutGeneration); put("viewGeneration", 3L); put("navigationGeneration", 5L)
                     put("sectionIndex", sectionIndex); put("pageIndex", 0); put("pageCount", 8)

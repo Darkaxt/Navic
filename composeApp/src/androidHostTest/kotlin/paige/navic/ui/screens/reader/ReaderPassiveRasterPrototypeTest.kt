@@ -120,6 +120,161 @@ class ReaderPassiveRasterPrototypeTest {
 	}
 
 	@Test
+	fun originalLiveManifestPortSerializesPreparationAndExactInitialBasisAsDistinctArguments() {
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val scripts = mutableListOf<String>()
+		val webView = object : WebView(activity.get()) {
+			override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
+				scripts += script
+				resultCallback?.onReceiveValue("\"null\"")
+			}
+		}
+		activity.get().setContentView(FrameLayout(activity.get()).also { it.addView(webView) })
+		webView.layout(0, 0, 800, 1200)
+		Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+		try {
+			assertTrue(webView.isAttachedToWindow)
+			val port = ReaderPageLivePassiveRasterManifestPort { webView }
+			val basis = initialCaptureBasis()
+			port.request(4, 8L, 12L, 16L, basis) {}
+			val encoded = scripts.single().substringAfter("pageTurnPassiveRasterManifestInputs?.(")
+				.substringBeforeLast(") ?? null)")
+			val args = org.json.JSONArray("[$encoded]")
+			assertEquals(5, args.length())
+			assertEquals(4, args.getInt(0)); assertEquals(8L, args.getLong(1))
+			assertEquals(12L, args.getLong(2)); assertEquals(16L, args.getLong(3))
+			assertEquals(basis, readerInitialCurrentDestinationCaptureBasis(args.getJSONObject(4)))
+			port.request(4, 8L, 12L, 16L) {}
+			assertContains(scripts.last(), "4, 8, 12, 16, null)")
+			var unsupported: ReaderPassiveRasterManifestResolution? = null
+			val oldPort = ReaderPassiveRasterLiveManifestPort { _, _, _, _, _ ->
+				error("An old transport must not silently discard an initial basis")
+			}
+			oldPort.request(4, 8L, 12L, 16L, basis) { unsupported = it }
+			assertEquals(ReaderPassiveRasterManifestResolution.Failed("manifest-invalid"), unsupported)
+		} finally {
+			webView.destroy()
+			activity.pause().stop().destroy()
+		}
+	}
+
+	@Test
+	fun initialCaptureUnionPreservesExactBasisThroughIssuerReceiptAndCurrentAdmission() {
+		val basis = initialCaptureBasis()
+		val commit = canonicalCommit().copy(destinationCommitToken = null, captureBasis = basis)
+		val f = fixture(commit)
+		assertEquals(basis, f.manifest.captureBasis)
+		assertNull(f.manifest.destinationCommitToken)
+		assertEquals(basis, f.receipt.echoedCaptureBasis)
+		assertNull(f.receipt.echoedDestinationCommitToken)
+		assertNull(readerPassiveRasterAuthorityMismatch(f.context, f.manifest, f.receipt))
+		assertTrue(runCatching { commit.copy(destinationCommitToken = "rendered-token") }.isFailure)
+		assertTrue(runCatching { canonicalCommit().copy(destinationCommitToken = null) }.isFailure)
+		assertTrue(runCatching { commit.copy(liveFoliateSessionId = "foreign-session") }.isFailure)
+		assertEquals("ReaderInitialCurrentDestinationCaptureBasis(<redacted>)", basis.toString())
+		val mutations = listOf(
+			basis.copy(commandId = "foreign-query"),
+			basis.copy(destinationCommitIdentity = basis.destinationCommitIdentity.copy(foliateSessionId = "foreign-session")),
+			basis.copy(destinationCommitIdentity = basis.destinationCommitIdentity.copy(commitSequence = 2L)),
+			basis.copy(resolvedLayout = basis.resolvedLayout.copy(layoutGeneration = 12L)),
+			basis.copy(resolvedLayout = basis.resolvedLayout.copy(viewGeneration = 14L)),
+			basis.copy(resolvedLayout = basis.resolvedLayout.copy(navigationGeneration = 18L)),
+			basis.copy(resolvedLayout = basis.resolvedLayout.copy(sectionIndex = 1)),
+			basis.copy(resolvedLayout = basis.resolvedLayout.copy(pageIndex = 1)),
+			basis.copy(resolvedLayout = basis.resolvedLayout.copy(pageCount = 9)),
+			basis.copy(resolvedLayout = basis.resolvedLayout.copy(width = 801.0)),
+			basis.copy(resolvedLayout = basis.resolvedLayout.copy(height = 1201.0))
+		)
+		for (changed in mutations) {
+			assertEquals(ReaderPassiveRasterRejection.DestinationCommit,
+				readerPassiveRasterAuthorityMismatch(f.context.copy(currentCaptureBasis = changed), f.manifest, f.receipt))
+			assertEquals(ReaderPassiveRasterRejection.DestinationCommit,
+				readerPassiveRasterAuthorityMismatch(f.context, f.manifest, f.receipt.copy(echoedCaptureBasis = changed)))
+		}
+		assertEquals(ReaderPassiveRasterRejection.DestinationCommit,
+			readerPassiveRasterAuthorityMismatch(f.context, f.manifest,
+				f.receipt.copy(echoedDestinationCommitToken = basis.commandId, echoedCaptureBasis = null)))
+		assertEquals(ReaderPassiveRasterRejection.DestinationCommit,
+			readerPassiveRasterAuthorityMismatch(f.context.copy(currentCaptureBasis = null), f.manifest, f.receipt))
+	}
+
+	@Test
+	fun initialManifestAndReceiptWireUnionRoundTripRejectsBothNeitherAndUnsafeMetadata() {
+		val f = fixture(canonicalCommit().copy(destinationCommitToken = null, captureBasis = initialCaptureBasis()))
+		val manifestJson = f.manifest.toJson().put("rasterDescriptor", JSONObject().apply {
+			put("publicationUrl", "public-synthetic-publication")
+			put("paginationFingerprint", f.manifest.paginationFingerprint)
+			put("layoutFingerprint", f.manifest.layoutFingerprint)
+			put("decorationFingerprint", f.manifest.decorationFingerprint)
+			put("viewportWidth", 800); put("viewportHeight", 1200); put("pageCount", 8)
+			put("spineIndex", 0); put("href", "chapter-0"); put("chapterPageIndex", 4)
+			put("chapterPageCount", 8); put("visualPageOrdinal", 4)
+		})
+		assertFalse(manifestJson.has("destinationCommitToken"))
+		val parsed = assertIs<ReaderPassiveRasterManifestResolution.Available>(
+			readerPassiveRasterManifestResolution(JSONObject.quote(manifestJson.toString())))
+		assertEquals(f.manifest.captureBasis, parsed.inputs.canonicalCommit.captureBasis)
+		assertNull(parsed.inputs.canonicalCommit.destinationCommitToken)
+		val receiptJson = JSONObject().apply {
+			put("passiveSessionId", f.receipt.passiveSessionId)
+			put("echoedManifestSequence", f.receipt.echoedManifestSequence)
+			put("echoedCaptureEpoch", f.receipt.echoedCaptureEpoch)
+			put("echoedLiveFoliateSessionId", f.receipt.echoedLiveFoliateSessionId)
+			put("echoedPublicationSessionGeneration", f.receipt.echoedPublicationSessionGeneration)
+			put("echoedCaptureBasis", assertNotNull(f.manifest.captureBasis).toJson())
+			put("observedCaptureTarget", f.receipt.observedCaptureTarget)
+			put("observedVisualPageOrdinal", f.receipt.observedVisualPageOrdinal)
+			put("observedRasterProfileKey", f.receipt.observedRasterProfileKey)
+			put("observedPaginationFingerprint", f.receipt.observedPaginationFingerprint)
+			put("observedLayoutFingerprint", f.receipt.observedLayoutFingerprint)
+			put("observedDecorationFingerprint", f.receipt.observedDecorationFingerprint)
+			put("echoedRasterGeneration", f.receipt.echoedRasterGeneration)
+			put("passiveCommitSequence", f.receipt.passiveCommitSequence)
+		}
+		assertEquals(f.receipt, readerPassiveRasterReceipt(receiptJson, f.manifest.viewportAndCaptureGeometry))
+		val invalidBases: List<(JSONObject) -> Unit> = listOf(
+			{ it.put("kind", "unknown-kind") },
+			{ it.remove("commandId"); Unit },
+			{ it.put("commandId", " ") },
+			{ it.getJSONObject("destinationCommitIdentity").put("commitSequence", 1.5) },
+			{ it.getJSONObject("destinationCommitIdentity").put("commitSequence", "1") },
+			{ it.getJSONObject("destinationCommitIdentity").put("commitSequence", 9_007_199_254_740_992L) },
+			{ it.getJSONObject("resolvedLayout").remove("navigationGeneration"); Unit },
+			{ it.getJSONObject("resolvedLayout").put("layoutGeneration", 0) },
+			{ it.getJSONObject("resolvedLayout").put("pageIndex", 8) },
+			{ it.getJSONObject("resolvedLayout").put("width", 0) },
+			{ it.getJSONObject("resolvedLayout").put("height", "1200") }
+		)
+		for (mutate in invalidBases) {
+			val badManifest = JSONObject(manifestJson.toString())
+			mutate(badManifest.getJSONObject("captureBasis"))
+			assertIs<ReaderPassiveRasterManifestResolution.Failed>(readerPassiveRasterManifestResolution(JSONObject.quote(badManifest.toString())))
+			val badReceipt = JSONObject(receiptJson.toString())
+			mutate(badReceipt.getJSONObject("echoedCaptureBasis"))
+			assertNull(readerPassiveRasterReceipt(badReceipt, f.manifest.viewportAndCaptureGeometry))
+		}
+		for (both in listOf(false, true)) {
+			val badManifest = JSONObject(manifestJson.toString())
+			val badReceipt = JSONObject(receiptJson.toString())
+			if (both) {
+				badManifest.put("destinationCommitToken", "rendered-token")
+				badReceipt.put("echoedDestinationCommitToken", "rendered-token")
+			} else {
+				badManifest.remove("captureBasis"); badReceipt.remove("echoedCaptureBasis")
+			}
+			assertIs<ReaderPassiveRasterManifestResolution.Failed>(readerPassiveRasterManifestResolution(JSONObject.quote(badManifest.toString())))
+			assertNull(readerPassiveRasterReceipt(badReceipt, f.manifest.viewportAndCaptureGeometry))
+		}
+		val rendered = JSONObject(manifestJson.toString()).apply { remove("captureBasis"); put("destinationCommitToken", "rendered-token") }
+		assertNull(assertIs<ReaderPassiveRasterManifestResolution.Available>(readerPassiveRasterManifestResolution(JSONObject.quote(rendered.toString())))
+			.inputs.canonicalCommit.captureBasis)
+	}
+
+	private fun initialCaptureBasis() = ReaderInitialCurrentDestinationCaptureBasis(
+		"public-synthetic-initial-query", ReaderDestinationCommitIdentity("live-session-a", 1L),
+		paige.navic.reader.ReaderFoliateResolvedLayout(11L, 13L, 17L, 0, 0, 8, 800.0, 1200.0))
+
+	@Test
 	fun manifestIssuanceRequiresTheCurrentCanonicalLiveCommit() {
 		val issuer = ReaderPassiveRasterManifestIssuer()
 		val first = issuer.replaceCanonicalCommit(canonicalCommit())
@@ -1616,7 +1771,7 @@ class ReaderPassiveRasterPrototypeTest {
 			assertNull(failed.persistentPublicationResult)
 			assertEquals("raster-rejected-or-publication-failed", failed.reason)
 			assertContains(failed.diagnostic, "passiveRasterRejection=DestinationCommit")
-			assertFalse(failed.diagnostic.contains(commit.destinationCommitToken))
+			assertFalse(failed.diagnostic.contains(assertNotNull(commit.destinationCommitToken)))
 			assertFalse(failed.diagnostic.contains("replacement-private-commit"))
 			assertEquals(2, manifestRequests)
 			assertEquals(1, rasterReleases)
@@ -2972,6 +3127,7 @@ class ReaderPassiveRasterPrototypeTest {
 					liveFoliateSessionId = manifest.liveFoliateSessionId,
 					publicationSessionGeneration = manifest.publicationSessionGeneration,
 					destinationCommitToken = manifest.destinationCommitToken,
+					captureBasis = manifest.captureBasis,
 					rasterProfileKey = manifest.rasterProfileKey,
 					paginationFingerprint = manifest.paginationFingerprint,
 					layoutFingerprint = manifest.layoutFingerprint,
@@ -3471,7 +3627,7 @@ class ReaderPassiveRasterPrototypeTest {
 		private val canonicalCommit: ReaderPassiveRasterCanonicalCommit,
 		private val descriptor: ReaderPageRasterDescriptor
 	) : WebView(context) {
-		private var liveReceipt = canonicalCommit.destinationCommitToken
+		private var liveReceipt = checkNotNull(canonicalCommit.destinationCommitToken)
 		private var activeAnchor = "epubcfi(/6/4[chapter]!/4/2/1:0)"
 		private var overlay = "annotation-overlay-a"
 		private var committedLocation = "chapter=3;page=4;fraction=0.375"
@@ -3625,6 +3781,7 @@ class ReaderPassiveRasterPrototypeTest {
 				currentLiveFoliateSessionId = manifest.liveFoliateSessionId,
 				activePublicationSessionGeneration = manifest.publicationSessionGeneration,
 				currentDestinationCommitToken = manifest.destinationCommitToken,
+				currentCaptureBasis = manifest.captureBasis,
 				currentOpaqueCaptureTarget = manifest.opaqueCaptureTarget,
 				currentVisualPageOrdinal = manifest.visualPageOrdinal,
 				currentRasterProfileKey = manifest.rasterProfileKey,
@@ -3691,6 +3848,7 @@ class ReaderPassiveRasterPrototypeTest {
 		echoedLiveFoliateSessionId = manifest.liveFoliateSessionId,
 		echoedPublicationSessionGeneration = manifest.publicationSessionGeneration,
 		echoedDestinationCommitToken = manifest.destinationCommitToken,
+		echoedCaptureBasis = manifest.captureBasis,
 		observedCaptureTarget = manifest.opaqueCaptureTarget,
 		observedVisualPageOrdinal = manifest.visualPageOrdinal,
 		observedRasterProfileKey = manifest.rasterProfileKey,

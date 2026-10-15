@@ -39,6 +39,7 @@ class ReaderRootInitialConstructionProducerHostTest {
             assertEquals(ReaderSemanticCommandResult.Accepted, f.start())
             assertNotNull(f.rootWrapper())
             f.drain() // Scheduling only, outside the executable; no injected construction notification.
+            f.pageFinished()
             val material = assertNotNull(f.material())
             assertSame<View?>(material.wrapper, f.rootWrapper())
             assertEquals(f.viewerKeyValue(), f.rootKey())
@@ -63,6 +64,7 @@ class ReaderRootInitialConstructionProducerHostTest {
             assertEquals(ReaderSemanticCommandResult.Accepted, f.start())
             f.registration.retire()
             f.drain()
+            f.pageFinished()
             assertEquals(0, f.receipts.size)
             assertEquals(0, f.executor.activeSlotCount); assertEquals(0, f.registry.activeHandleCount)
             assertTrue(f.pending().pendingCommands.none { it.dispatch.command is ReaderBridgeCommand.ResolveCurrentDestination })
@@ -193,6 +195,11 @@ class ReaderRootInitialConstructionProducerHostTest {
         } ?: error("Actual owning Engine ledger required")
         private fun post(message: JsonObject) {
             (shadowOf(engine()).getJavascriptInterface(ReaderWebRuntime.AndroidBridgeName) as ReaderJavascriptBridge).postMessage(message.toString()); drain()
+        }
+        fun pageFinished() {
+            val target = engine()
+            target.webViewClient.onPageFinished(target, ReaderWebRuntime.entrypointUrl)
+            drain()
         }
         fun resolve() {
             post(buildJsonObject { put("type", "ready") })

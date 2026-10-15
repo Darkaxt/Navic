@@ -196,6 +196,13 @@ class ReaderNativeInitialLayoutProvenanceHostTest {
                 "slotActive=${executor.activeSlotCount > 0} handleActive=${registry.activeHandleCount > 0}")
         }
         fun openAndResolve(replaceProfileBeforeResult: Boolean = false) {
+            val target = engine() as ReaderEngineWebView
+            assertEquals(ReaderWebRuntime.entrypointUrl, target.url)
+            target.webViewClient.onPageFinished(target, target.url)
+            assertTrue(target.runtimeInitializationCompleted)
+            assertTrue(pending().pendingCommands.all { it.lastDispatchedGeneration == null })
+            assertNull(shadowOf(target).lastEvaluatedJavascript)
+            assertTrue(receipts.isEmpty())
             post(buildJsonObject { put("type", "ready") })
             val opening = pending().pendingCommands.first()
             assertTrue(opening.dispatch.command is ReaderBridgeCommand.OpenPublication)

@@ -219,6 +219,14 @@ class ReaderNativeInitialDestinationProducerHostTest {
                 "slotActive=${executor.activeSlotCount > 0} handleActive=${registry.activeHandleCount > 0}")
         }
         fun openAndResolve() {
+            val target = engine() as ReaderEngineWebView
+            assertEquals(ReaderWebRuntime.entrypointUrl, target.url)
+            target.webViewClient.onPageFinished(target, target.url)
+            drain()
+            assertTrue(target.runtimeInitializationCompleted)
+            assertTrue(pending().pendingCommands.all { it.lastDispatchedGeneration == null })
+            assertNull(shadowOf(target).lastEvaluatedJavascript, "Entrypoint completion alone cannot dispatch before Ready")
+            assertTrue(receipts.isEmpty())
             post(buildJsonObject { put("type", "ready") })
             val opening = pending().pendingCommands.first()
             assertTrue(opening.dispatch.command is ReaderBridgeCommand.OpenPublication)

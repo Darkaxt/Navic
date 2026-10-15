@@ -25,7 +25,7 @@ internal enum class ReaderInitialGeometryWitnessBoundary {
 }
 
 /** One exact executor transport, from Native construction through its original Engine query.
- * The existing foreground source reports actual configure completion. It is not JS Ready,
+ * The existing foreground source reports exact entrypoint completion. It is not JS Ready,
  * Foliate/layout/material success, another callback registry, or another command dispatcher. */
 internal class ReaderEngineInitialDestinationConstructionCustody(
     private val origin: ReaderPresentationEventOrigin.SemanticCommand,
@@ -37,7 +37,7 @@ internal class ReaderEngineInitialDestinationConstructionCustody(
         data object Starting : Phase
         class Query(val token: ReaderEngineCurrentDestinationContinuation) : Phase {
             var layoutOffered = false
-            var layout: Pair<ReaderPresentationEventReceipt, ReaderFoliateResolvedLayout>? = null
+            var layout: Triple<ReaderPresentationEventReceipt, ReaderFoliateResolvedLayout, ReaderInitialCurrentDestinationCaptureBasis?>? = null
         }
         data object Retired : Phase
     }
@@ -128,13 +128,31 @@ internal class ReaderEngineInitialDestinationConstructionCustody(
         return result
     }
 
-    /** Subordinate numeric handoff only, after the original producer validates its
+    /** Subordinate layout and exact initial-query basis, after the original producer validates its
      * consumed result and receipt. Neither retention nor taking allocates material,
      * upgrades a profile, creates a binding or transfers executor retirement. */
     fun retainResolvedLayout(
         token: ReaderEngineCurrentDestinationContinuation,
         receipt: ReaderPresentationEventReceipt,
-        layout: ReaderFoliateResolvedLayout
+        event: ReaderBridgeEvent.CurrentDestinationResolved
+    ): Boolean {
+        val layout = event.resolvedLayout ?: return false
+        val binding = (receipt.event as? ReaderPresentationEvent.FoliateRelocated)?.binding ?: return false
+        if (event.commandId != token.commandId || event.foliateSessionId != token.expectedFoliateSessionId ||
+            binding.destinationCommitIdentity != event.destinationCommitIdentity) return false
+        return retainCapture(token, receipt, layout,
+            ReaderInitialCurrentDestinationCaptureBasis(event.commandId, event.destinationCommitIdentity, layout))
+    }
+
+    fun retainResolvedLayout(token: ReaderEngineCurrentDestinationContinuation,
+        receipt: ReaderPresentationEventReceipt, layout: ReaderFoliateResolvedLayout): Boolean =
+        retainCapture(token, receipt, layout, null)
+
+    private fun retainCapture(
+        token: ReaderEngineCurrentDestinationContinuation,
+        receipt: ReaderPresentationEventReceipt,
+        layout: ReaderFoliateResolvedLayout,
+        captureBasis: ReaderInitialCurrentDestinationCaptureBasis?
     ): Boolean = synchronized(lock) {
         val query = phase as? Phase.Query ?: return@synchronized false
         val event = receipt.event as? ReaderPresentationEvent.FoliateRelocated ?: return@synchronized false
@@ -143,16 +161,19 @@ internal class ReaderEngineInitialDestinationConstructionCustody(
             event.binding.foliateSessionId != token.expectedFoliateSessionId ||
             receipt.preVersion.publicationIdentity != null || receipt.effects.isNotEmpty()) return@synchronized false
         query.layoutOffered = true
-        query.layout = receipt to layout
+        query.layout = Triple(receipt, layout, captureBasis)
         true
     }
 
-    fun takeResolvedLayout(receipt: ReaderPresentationEventReceipt): ReaderFoliateResolvedLayout? = synchronized(lock) {
+    fun takeResolvedLayout(receipt: ReaderPresentationEventReceipt): ReaderFoliateResolvedLayout? =
+        takeResolvedCapture(receipt)?.first
+
+    fun takeResolvedCapture(receipt: ReaderPresentationEventReceipt): Pair<ReaderFoliateResolvedLayout, ReaderInitialCurrentDestinationCaptureBasis?>? = synchronized(lock) {
         val query = phase as? Phase.Query ?: return@synchronized null
         val retained = query.layout ?: return@synchronized null
         if (query.token.retired || retained.first !== receipt) return@synchronized null
         query.layout = null // Consume before the Native owner can invoke another callback.
-        retained.second
+        retained.second to retained.third
     }
 
     fun fail(failure: ReaderSemanticAsyncFailure) {

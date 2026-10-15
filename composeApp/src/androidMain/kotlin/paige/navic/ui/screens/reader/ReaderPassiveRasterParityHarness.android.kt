@@ -193,6 +193,7 @@ private class ReaderPassiveRasterParityHarnessImpl(
 				currentLiveFoliateSessionId = manifest.liveFoliateSessionId,
 				activePublicationSessionGeneration = manifest.publicationSessionGeneration,
 				currentDestinationCommitToken = manifest.destinationCommitToken,
+				currentCaptureBasis = manifest.captureBasis,
 				currentOpaqueCaptureTarget = manifest.opaqueCaptureTarget,
 				currentVisualPageOrdinal = manifest.visualPageOrdinal,
 				currentRasterProfileKey = manifest.rasterProfileKey,

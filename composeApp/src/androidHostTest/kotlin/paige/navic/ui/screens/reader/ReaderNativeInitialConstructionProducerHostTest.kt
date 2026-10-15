@@ -42,6 +42,7 @@ class ReaderNativeInitialConstructionProducerHostTest {
             assertEquals(ReaderSemanticCommandResult.Accepted, f.start())
             assertEquals(1, f.constructions)
             f.drain() // Scheduling only, outside the executable; no injected construction notification.
+            f.pageFinished(ReaderWebRuntime.entrypointUrl)
             val material = assertNotNull(f.material())
             assertEquals(ReaderLegacyResourceState.Registered, material.state)
             assertNull(material.binding); assertNull(material.owner); assertNull(material.imported)
@@ -57,12 +58,103 @@ class ReaderNativeInitialConstructionProducerHostTest {
             assertEquals(0, f.executor.activeSlotCount); assertEquals(0, f.registry.activeHandleCount)
         } finally { f.dispose() }
     }
+    @Test fun nonEntrypointPageFinishCannotInitializeInitialQuery() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start())
+            f.drain()
+            assertTrue(f.pending().pendingCommands.isEmpty(),
+                "Initial query must wait for this generation's exact entrypoint finish")
+            f.pageFinished("https://example.invalid/stale-reader-runtime")
+            assertTrue(f.pending().pendingCommands.isEmpty(),
+                "A stale/non-entrypoint finish must not initialize the Native-owned query")
+            f.pageFinished(null)
+            assertTrue(f.pending().pendingCommands.isEmpty(),
+                "A missing page-finish URL must not initialize the Native-owned query")
+            assertEquals(0, f.receipts.size)
+        } finally { f.dispose() }
+    }
+
+    @Test fun exactPageFinishQueuesOriginalOpeningAndQueryBeforeJsReady() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start())
+            f.pageFinished(ReaderWebRuntime.entrypointUrl)
+            val pending = f.pending().pendingCommands
+            assertEquals(2, pending.size)
+            assertTrue(pending[0].dispatch.command is ReaderBridgeCommand.OpenPublication)
+            assertTrue(pending[1].dispatch.command is ReaderBridgeCommand.ResolveCurrentDestination)
+            assertTrue(pending.all { it.lastDispatchedGeneration == null })
+            assertNull(shadowOf(f.engine()).lastEvaluatedJavascript,
+                "Exact load completion initializes custody; JS Ready alone owns dispatch")
+            assertEquals(0, f.receipts.size)
+        } finally { f.dispose() }
+    }
+
+    @Test fun jsReadyBeforeExactPageFinishCannotDispatchOpeningThenExactFinishCompletesOneIngress() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start())
+            f.ready()
+            assertTrue(f.pending().pendingCommands.isEmpty())
+            assertNull(shadowOf(f.engine()).lastEvaluatedJavascript,
+                "JS Ready must remain latched without dispatching before exact load completion")
+            f.pageFinished(ReaderWebRuntime.entrypointUrl)
+            val opening = f.pending().pendingCommands.first()
+            assertTrue(opening.dispatch.command is ReaderBridgeCommand.OpenPublication)
+            assertNotNull(opening.lastDispatchedGeneration)
+            assertEquals("openPublication", f.scriptType())
+            f.post("commandAck", opening.dispatch.id)
+            assertEquals("resolveCurrentDestination", f.scriptType())
+            f.resolveDispatchedQuery()
+            assertEquals(1, f.receipts.size)
+            assertEquals(0, f.executor.activeSlotCount)
+            assertEquals(0, f.registry.activeHandleCount)
+        } finally { f.dispose() }
+    }
+
+    @Test fun wrongViewAndActualUrlCannotBorrowExactEntrypointCompletion() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start())
+            f.drain()
+            val current = f.engine() as ReaderEngineWebView
+            val foreign = ReaderEngineWebView(current.context)
+            try {
+                foreign.loadUrl(ReaderWebRuntime.entrypointUrl)
+                current.webViewClient.onPageFinished(foreign, ReaderWebRuntime.entrypointUrl)
+                assertTrue(f.pending().pendingCommands.isEmpty())
+                assertFalse(current.runtimeInitializationCompleted)
+                current.loadUrl("https://example.invalid/foreign-document")
+                f.pageFinished(ReaderWebRuntime.entrypointUrl)
+                assertTrue(f.pending().pendingCommands.isEmpty())
+                assertFalse(current.runtimeInitializationCompleted)
+            } finally { foreign.destroy() }
+        } finally { f.dispose() }
+    }
+
+    @Test fun retiredEngineCannotCompleteInitializationOrDispatchLatchedReady() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start())
+            f.drain()
+            val current = f.engine() as ReaderEngineWebView
+            current.clearCurrentDestinationQueryDelegate()
+            f.ready()
+            f.pageFinished(ReaderWebRuntime.entrypointUrl)
+            assertFalse(current.runtimeInitializationCompleted)
+            assertTrue(f.pending().pendingCommands.isEmpty())
+            assertEquals(0, f.receipts.size)
+        } finally { f.dispose() }
+    }
+
     @Test fun canceledConstructionCannotSubmitInitialQueryFromLaterActualEngineInitialization() = runTest {
         val f = ConstructionFixture(testScheduler)
         try {
             assertEquals(ReaderSemanticCommandResult.Accepted, f.start())
             f.registration.retire()
             f.drain()
+            f.pageFinished(ReaderWebRuntime.entrypointUrl)
             assertEquals(0, f.receipts.size)
             assertEquals(0, f.executor.activeSlotCount); assertEquals(0, f.registry.activeHandleCount)
             assertTrue(f.pending().pendingCommands.none { it.dispatch.command is ReaderBridgeCommand.ResolveCurrentDestination })
@@ -177,7 +269,7 @@ class ReaderNativeInitialConstructionProducerHostTest {
             shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(48))
             scheduler.runCurrent()
         }
-        private fun engine(): WebView {
+        fun engine(): WebView {
             fun visit(v: View): WebView? {
                 if (v is WebView) return v
                 if (v is ViewGroup) for (i in 0 until v.childCount) visit(v.getChildAt(i))?.let { return it }
@@ -189,6 +281,29 @@ class ReaderNativeInitialConstructionProducerHostTest {
             val value = it.apply { isAccessible = true }.get(engine().webViewClient)
             (value as? State<*>)?.value as? ReaderWebCommandDispatchState
         } ?: error("Actual owning Engine ledger required")
+        fun pageFinished(url: String?) {
+            drain() // Let the genuine posted configure/loadUrl run before its framework callback.
+            val target = engine()
+            target.webViewClient.onPageFinished(target, url)
+            drain()
+        }
+        fun ready() = post("ready")
+        fun post(type: String, id: String? = null) = post(buildJsonObject {
+            put("type", type)
+            id?.let { put("commandId", it) }
+        })
+        fun scriptType(): String? {
+            val script = shadowOf(engine()).lastEvaluatedJavascript ?: return null
+            return (Json.parseToJsonElement(script.removePrefix("window.NavicReaderBridge.dispatch(").removeSuffix(");")) as JsonObject)["type"]
+                ?.jsonPrimitive?.content
+        }
+        fun resolveDispatchedQuery() {
+            val query = pending().pendingCommands.first().dispatch
+            val command = query.command as ReaderBridgeCommand.ResolveCurrentDestination
+            post(buildJsonObject { put("type", "currentDestinationResolved"); put("commandId", query.id)
+                put("foliateSessionId", command.foliateSessionId); put("destinationFoliateSessionId", command.foliateSessionId)
+                put("destinationCommitSequence", 1L); put("pageIndex", 0) })
+        }
         private fun post(message: JsonObject) {
             (shadowOf(engine()).getJavascriptInterface(ReaderWebRuntime.AndroidBridgeName) as ReaderJavascriptBridge).postMessage(message.toString()); drain()
         }

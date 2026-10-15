@@ -10,6 +10,7 @@ import {
   readerCurrentDestinationDeliveryRecord,
   readerValidateCurrentDestinationQuery,
   readerPostCurrentDestinationReply,
+  readerInitialCurrentDestinationCaptureBasis,
 } from './navic-reader-current-destination.js'
 import {
   CenterTapMovementSlop,
@@ -385,6 +386,11 @@ class NavicReaderRuntime {
   resolveCurrentDestination(command) {
     this.validateCurrentDestinationQuery(command)
     return readerPostCurrentDestinationReply(command, this.#successfulCurrentDestination)
+  }
+
+  initialCurrentDestinationCaptureBasis(candidate) {
+    return readerInitialCurrentDestinationCaptureBasis(candidate, this.#successfulCurrentDestination,
+      this.view, this.foliateSessionId, this.destinationCommitSequence)
   }
 
   dispatch(command) {
@@ -1576,11 +1582,13 @@ window.NavicReaderBridge = {
   pageTurnLivePresentationReceipt: () => runtime.pageTurnLivePresentationReceipt(),
   pageTurnPassiveRasterDescriptor: visualPageOrdinal =>
     runtime.pageTurnPassiveRasterDescriptor(visualPageOrdinal),
-  pageTurnPassiveRasterManifestInputs: (visualPageOrdinal, captureEpoch, rasterGeneration) =>
+  pageTurnPassiveRasterManifestInputs: (visualPageOrdinal, captureEpoch, rasterGeneration, preparationGeneration, captureBasis) =>
     runtime.pageTurnPassiveRasterManifestInputs(
       visualPageOrdinal,
       captureEpoch,
-      rasterGeneration
+      rasterGeneration,
+      preparationGeneration,
+      captureBasis,
     ),
   pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor: () =>
     runtime.pageTurnLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor(),

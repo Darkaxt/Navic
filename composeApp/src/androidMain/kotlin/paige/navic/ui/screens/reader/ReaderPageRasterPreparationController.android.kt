@@ -110,8 +110,16 @@ internal class ReaderActivatedRasterWork(
 	val store: ReaderActivatedSessionSnapshotStore,
 	val snapshot: ReaderActivatedSessionSnapshot,
 	val lease: ReaderRasterPreparationLease,
+	val initialCaptureBasis: ReaderInitialCurrentDestinationCaptureBasis? = null,
 	private val commandIsCurrent: () -> Boolean
 ) {
+	init {
+		require(initialCaptureBasis == null || (
+			lease.transitionId.operation == paige.navic.reader.ReaderTransitionOperation.BootstrapNativePage &&
+			lease.transitionId.expectedBinding is paige.navic.reader.ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial &&
+			lease.allocation?.requestedBinding?.destinationCommitIdentity == initialCaptureBasis.destinationCommitIdentity &&
+			lease.binding.destinationCommitIdentity == initialCaptureBasis.destinationCommitIdentity))
+	}
 	@Volatile private var retired = false
 	internal val preparationReturn = ReaderInstalledRasterReturnProgress(2)
 	internal val bundleReturn = ReaderInstalledRasterReturnProgress(8)

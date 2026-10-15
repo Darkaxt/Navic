@@ -82,10 +82,10 @@ internal fun readerEngineInitialDestinationSemanticRequest(
                         context.reportAsyncFailure(origin, ReaderSemanticAsyncFailure.Rejected)
                         return@outcome
                     }
-                    // Carry only validated numeric layout through the original construction
-                    // custody. Native takes it for this exact receipt before executor retirement;
+                    // Carry validated layout and the original query basis through construction
+                    // custody. Native takes them for this exact receipt before executor retirement;
                     // absent/malformed layout remains absent, never configuration readiness.
-                    event.resolvedLayout?.let { constructionCustody?.retainResolvedLayout(token, receipt, it) }
+                    event.resolvedLayout?.let { constructionCustody?.retainResolvedLayout(token, receipt, event) }
                     // Existing executor forwards the receipt FIFO before finally retiring its
                     // captured transport outside locks. This producer never disposes that owner.
                     onReceipt(receipt)

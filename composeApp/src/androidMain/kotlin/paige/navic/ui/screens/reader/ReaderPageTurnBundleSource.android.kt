@@ -2557,6 +2557,7 @@ internal class ReaderPageTurnBundleSource(
 				currentLiveFoliateSessionId = commit.liveFoliateSessionId,
 				activePublicationSessionGeneration = commit.publicationSessionGeneration,
 				currentDestinationCommitToken = commit.destinationCommitToken,
+				currentCaptureBasis = commit.captureBasis,
 				currentOpaqueCaptureTarget = inputs.opaqueCaptureTarget,
 				currentVisualPageOrdinal = inputs.visualPageOrdinal,
 				currentRasterProfileKey = commit.rasterProfileKey,

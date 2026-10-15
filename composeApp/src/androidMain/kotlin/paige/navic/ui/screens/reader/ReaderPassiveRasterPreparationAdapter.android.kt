@@ -80,6 +80,18 @@ internal fun interface ReaderPassiveRasterLiveManifestPort {
 		preparationGeneration: Long,
 		onResolved: (ReaderPassiveRasterManifestResolution) -> Unit
 	)
+
+	fun request(
+		visualPageOrdinal: Int,
+		captureEpoch: Long,
+		rasterGeneration: Long,
+		preparationGeneration: Long,
+		captureBasis: ReaderInitialCurrentDestinationCaptureBasis?,
+		onResolved: (ReaderPassiveRasterManifestResolution) -> Unit
+	) {
+		if (captureBasis == null) request(visualPageOrdinal, captureEpoch, rasterGeneration, preparationGeneration, onResolved)
+		else onResolved(ReaderPassiveRasterManifestResolution.Failed("manifest-invalid"))
+	}
 }
 
 internal fun interface ReaderPageRasterCurrentLivePublicationPort {
@@ -435,7 +447,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			visualPageOrdinal = target.pageIndex,
 			captureEpoch = captureEpoch,
 			rasterGeneration = batch.rasterGeneration,
-			preparationGeneration = batch.preparationGeneration
+			preparationGeneration = batch.preparationGeneration,
+			captureBasis = batch.work?.initialCaptureBasis
 		) manifestInputs@{ resolution ->
 			if (
 				!isPreparationGenerationCurrent(batch) ||
@@ -771,7 +784,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			visualPageOrdinal = target.pageIndex,
 			captureEpoch = captureEpoch,
 			rasterGeneration = batch.rasterGeneration,
-			preparationGeneration = batch.preparationGeneration
+			preparationGeneration = batch.preparationGeneration,
+			captureBasis = batch.work?.initialCaptureBasis
 		) currentAuthority@{ resolution ->
 			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) {
 				return@currentAuthority
@@ -846,6 +860,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			activePublicationSessionGeneration =
 				inputs.canonicalCommit.publicationSessionGeneration,
 			currentDestinationCommitToken = inputs.canonicalCommit.destinationCommitToken,
+			currentCaptureBasis = inputs.canonicalCommit.captureBasis,
 			currentOpaqueCaptureTarget = inputs.opaqueCaptureTarget,
 			currentVisualPageOrdinal = inputs.visualPageOrdinal,
 			currentRasterProfileKey = inputs.canonicalCommit.rasterProfileKey,
@@ -934,7 +949,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			visualPageOrdinal = target.pageIndex,
 			captureEpoch = captureEpoch,
 			rasterGeneration = batch.rasterGeneration,
-			preparationGeneration = batch.preparationGeneration
+			preparationGeneration = batch.preparationGeneration,
+			captureBasis = batch.work?.initialCaptureBasis
 		) currentAuthority@{ resolution ->
 			val currentInputs =
 				(resolution as? ReaderPassiveRasterManifestResolution.Available)?.inputs
@@ -942,7 +958,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				batch.releasePendingCapture(capture)
 				return@currentAuthority
 			}
-			if (currentInputs == null) {
+			if (currentInputs == null || !manifestInputsAreCurrent(batch, target, currentInputs)) {
 				batch.releasePendingCapture(capture)
 				val outcome = when (resolution) {
 					is ReaderPassiveRasterManifestResolution.Unavailable ->
@@ -1086,7 +1102,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		batch: Batch,
 		target: ReaderPageRasterBatchTarget,
 		inputs: ReaderPassiveRasterManifestInputs
-	): Boolean = inputs.visualPageOrdinal == target.pageIndex &&
+	): Boolean = batchIsCurrent(batch) && inputs.canonicalCommit.captureBasis == batch.work?.initialCaptureBasis &&
+		inputs.visualPageOrdinal == target.pageIndex &&
 		inputs.rasterDescriptor.visualPageOrdinal == target.pageIndex &&
 		inputs.rasterDescriptor.paginationFingerprint ==
 			inputs.canonicalCommit.paginationFingerprint &&
@@ -1123,6 +1140,15 @@ internal class ReaderPageLivePassiveRasterManifestPort(
 		rasterGeneration: Long,
 		preparationGeneration: Long,
 		onResolved: (ReaderPassiveRasterManifestResolution) -> Unit
+	) = request(visualPageOrdinal, captureEpoch, rasterGeneration, preparationGeneration, null, onResolved)
+
+	override fun request(
+		visualPageOrdinal: Int,
+		captureEpoch: Long,
+		rasterGeneration: Long,
+		preparationGeneration: Long,
+		captureBasis: ReaderInitialCurrentDestinationCaptureBasis?,
+		onResolved: (ReaderPassiveRasterManifestResolution) -> Unit
 	) {
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
 		if (webView == null) {
@@ -1138,7 +1164,7 @@ internal class ReaderPageLivePassiveRasterManifestPort(
 				"JSON.stringify(window.NavicReaderBridge?." +
 					"pageTurnPassiveRasterManifestInputs?.(" +
 					"$visualPageOrdinal, $captureEpoch, $rasterGeneration, " +
-						"$preparationGeneration) ?? null)"
+						"$preparationGeneration, ${captureBasis?.toJson()?.toString() ?: "null"}) ?? null)"
 			) { encoded ->
 				val resolution = readerPassiveRasterManifestResolution(encoded)
 				val normalized = when (resolution) {
@@ -1220,6 +1246,10 @@ private fun readerPassiveRasterManifestInputs(
 ): ReaderPassiveRasterManifestInputs? = runCatching {
 	val jsonText = JSONTokener(encoded).nextValue() as? String ?: return null
 	val json = JSONObject(jsonText)
+	require(json.has("captureBasis") != json.has("destinationCommitToken"))
+	val captureBasis = if (json.has("captureBasis"))
+		readerInitialCurrentDestinationCaptureBasis(json.getJSONObject("captureBasis")) else null
+	val destinationToken = if (captureBasis == null) json.get("destinationCommitToken") as String else null
 	val geometry = json.getJSONObject("viewportAndCaptureGeometry")
 	val profileAuthority = json.optString("profileAuthority").takeIf(String::isNotBlank)
 		?.let(ReaderPassiveRasterProfileAuthority::fromSerializedValue)
@@ -1230,27 +1260,28 @@ private fun readerPassiveRasterManifestInputs(
 		}
 	ReaderPassiveRasterManifestInputs(
 		canonicalCommit = ReaderPassiveRasterCanonicalCommit(
-			captureEpoch = json.getLong("captureEpoch"),
+			captureEpoch = json.readerPassiveRasterSafeInteger("captureEpoch"),
 			liveFoliateSessionId = json.getString("liveFoliateSessionId"),
-			publicationSessionGeneration = json.getLong("publicationSessionGeneration"),
-			destinationCommitToken = json.getString("destinationCommitToken"),
+			publicationSessionGeneration = json.readerPassiveRasterSafeInteger("publicationSessionGeneration"),
+			destinationCommitToken = destinationToken,
+			captureBasis = captureBasis,
 			rasterProfileKey = json.getString("rasterProfileKey"),
 			paginationFingerprint = json.getString("paginationFingerprint"),
 			layoutFingerprint = json.getString("layoutFingerprint"),
 			decorationFingerprint = json.getString("decorationFingerprint"),
 			viewportAndCaptureGeometry = ReaderPassiveRasterGeometry(
-				viewportWidth = geometry.getInt("viewportWidth"),
-				viewportHeight = geometry.getInt("viewportHeight"),
-				captureLeft = geometry.getInt("captureLeft"),
-				captureTop = geometry.getInt("captureTop"),
-				captureRight = geometry.getInt("captureRight"),
-				captureBottom = geometry.getInt("captureBottom")
+				viewportWidth = geometry.readerPassiveRasterSafeInt("viewportWidth"),
+				viewportHeight = geometry.readerPassiveRasterSafeInt("viewportHeight"),
+				captureLeft = geometry.readerPassiveRasterSafeInt("captureLeft"),
+				captureTop = geometry.readerPassiveRasterSafeInt("captureTop"),
+				captureRight = geometry.readerPassiveRasterSafeInt("captureRight"),
+				captureBottom = geometry.readerPassiveRasterSafeInt("captureBottom")
 			),
-			rasterGeneration = json.getLong("rasterGeneration"),
+			rasterGeneration = json.readerPassiveRasterSafeInteger("rasterGeneration"),
 			profileAuthority = profileAuthority
 		),
 		opaqueCaptureTarget = json.getString("opaqueCaptureTarget"),
-		visualPageOrdinal = json.getInt("visualPageOrdinal"),
+		visualPageOrdinal = json.readerPassiveRasterSafeInt("visualPageOrdinal"),
 		rasterDescriptor = readerPageRasterDescriptor(
 			json.getJSONObject("rasterDescriptor").toString()
 		) ?: return null

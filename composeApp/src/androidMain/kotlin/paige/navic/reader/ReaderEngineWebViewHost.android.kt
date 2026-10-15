@@ -284,7 +284,8 @@ internal class ReaderEngineWebView(context: Context) : WebView(context), ReaderE
 	var windowVisibilityListener: ((Int) -> Unit)? = null
 	private var foregroundAttachmentHost: ReaderForegroundWebViewAttachmentHost? = null
 	private var foregroundSource: ReaderForegroundWebViewSource? = null
-	private var runtimeInitializationCompleted = false
+	var runtimeInitializationCompleted = false
+		private set
 	fun completeRuntimeInitialization() {
 		if (runtimeRetired || runtimeInitializationCompleted) return
 		runtimeInitializationCompleted = true
@@ -646,7 +647,7 @@ actual fun ReaderEngineWebViewHost(
 		if (webView !== this || (this as? ReaderEngineWebView)?.runtimeRetired == true || queryCallbackDepth.get() != 0) return
 		if (
 			!shouldDispatchReaderCommandsToWebRuntime(
-				runtimeReady = readerRuntimeReady,
+				runtimeReady = readerRuntimeReady && (this as? ReaderEngineWebView)?.runtimeInitializationCompleted == true,
 				currentUrl = url,
 				entrypointUrl = ReaderWebRuntime.entrypointUrl
 			)
@@ -912,8 +913,6 @@ actual fun ReaderEngineWebViewHost(
 				bridge,
 				enableDebugging = settings.webContentsDebuggingEnabled == true
 			)
-			// Construction/configure completion only. Actual JS Ready still owns dispatch.
-			(this as? ReaderEngineWebView)?.completeRuntimeInitialization()
 		}
 
 		DisposableEffect(bridge, generation) {
@@ -1140,10 +1139,12 @@ actual fun ReaderEngineWebViewHost(
 								?: super.shouldInterceptRequest(view, request)
 
 						override fun onPageFinished(view: WebView, url: String?) {
-							Logger.i(
-								ReaderEngineWebViewHostTag,
-								"Reader engine page finished: callback"
-							)
+							val engineView = view as? ReaderEngineWebView ?: return
+							if (generationDisposed.get() || generation != webViewGeneration ||
+								webView !== view || generationWebView.get() !== view || engineView.runtimeRetired ||
+								url != ReaderWebRuntime.entrypointUrl || view.url != ReaderWebRuntime.entrypointUrl) return
+							// Native synchronously queues the authentic opening/query before Ready dispatch.
+							engineView.completeRuntimeInitialization()
 							view.dispatchReadyReaderCommands()
 						}
 

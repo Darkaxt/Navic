@@ -1,6 +1,29 @@
 package paige.navic.ui.screens.reader
 
+import paige.navic.reader.ReaderDestinationCommitIdentity
+import paige.navic.reader.ReaderFoliateResolvedLayout
+
 private const val ReaderPassiveRasterMaximumSafeInteger = 9_007_199_254_740_991L
+
+/** Semantic acquisition metadata, never a rendered-destination token or readiness proof. */
+internal data class ReaderInitialCurrentDestinationCaptureBasis(
+	val commandId: String,
+	val destinationCommitIdentity: ReaderDestinationCommitIdentity,
+	val resolvedLayout: ReaderFoliateResolvedLayout
+) {
+	init {
+		require(commandId.isNotBlank() && commandId == commandId.trim())
+		require(destinationCommitIdentity.foliateSessionId.isNotBlank() &&
+			destinationCommitIdentity.foliateSessionId != "foliate-unbound" &&
+			destinationCommitIdentity.foliateSessionId == destinationCommitIdentity.foliateSessionId.trim())
+		require(destinationCommitIdentity.commitSequence in 1L..ReaderPassiveRasterMaximumSafeInteger)
+	}
+	val kind: String get() = "initial-current-destination"
+	override fun toString() = "ReaderInitialCurrentDestinationCaptureBasis(<redacted>)"
+}
+
+private fun validCaptureAuthority(token: String?, basis: ReaderInitialCurrentDestinationCaptureBasis?): Boolean =
+	if (basis == null) !token.isNullOrBlank() else token == null
 
 internal data class ReaderPassiveRasterGeometry(
 	val viewportWidth: Int,
@@ -43,7 +66,7 @@ internal data class ReaderPassiveRasterCanonicalCommit(
 	val captureEpoch: Long,
 	val liveFoliateSessionId: String,
 	val publicationSessionGeneration: Long,
-	val destinationCommitToken: String,
+	val destinationCommitToken: String?,
 	val rasterProfileKey: String,
 	val paginationFingerprint: String,
 	val layoutFingerprint: String,
@@ -51,13 +74,15 @@ internal data class ReaderPassiveRasterCanonicalCommit(
 	val viewportAndCaptureGeometry: ReaderPassiveRasterGeometry,
 	val rasterGeneration: Long,
 	val profileAuthority: ReaderPassiveRasterProfileAuthority =
-		ReaderPassiveRasterProfileAuthority.LiveRealized
+		ReaderPassiveRasterProfileAuthority.LiveRealized,
+	val captureBasis: ReaderInitialCurrentDestinationCaptureBasis? = null
 ) {
 	init {
 		requireSafeIdentity(captureEpoch)
 		require(liveFoliateSessionId.isNotBlank())
 		requireSafeIdentity(publicationSessionGeneration)
-		require(destinationCommitToken.isNotBlank())
+		require(validCaptureAuthority(destinationCommitToken, captureBasis))
+		require(captureBasis == null || captureBasis.destinationCommitIdentity.foliateSessionId == liveFoliateSessionId)
 		require(rasterProfileKey.isNotBlank())
 		require(paginationFingerprint.isNotBlank())
 		require(layoutFingerprint.isNotBlank())
@@ -83,7 +108,7 @@ internal data class ReaderPassiveRasterCaptureManifest(
 	val captureEpoch: Long,
 	val liveFoliateSessionId: String,
 	val publicationSessionGeneration: Long,
-	val destinationCommitToken: String,
+	val destinationCommitToken: String?,
 	val opaqueCaptureTarget: String,
 	val visualPageOrdinal: Int,
 	val rasterProfileKey: String,
@@ -93,8 +118,14 @@ internal data class ReaderPassiveRasterCaptureManifest(
 	val viewportAndCaptureGeometry: ReaderPassiveRasterGeometry,
 	val rasterGeneration: Long,
 	val profileAuthority: ReaderPassiveRasterProfileAuthority =
-		ReaderPassiveRasterProfileAuthority.LiveRealized
-)
+		ReaderPassiveRasterProfileAuthority.LiveRealized,
+	val captureBasis: ReaderInitialCurrentDestinationCaptureBasis? = null
+) {
+	init {
+		require(validCaptureAuthority(destinationCommitToken, captureBasis))
+		require(captureBasis == null || captureBasis.destinationCommitIdentity.foliateSessionId == liveFoliateSessionId)
+	}
+}
 
 internal class ReaderPassiveRasterManifestIssuer {
 	private val issuerIdentity = Any()
@@ -142,7 +173,8 @@ internal class ReaderPassiveRasterManifestIssuer {
 			decorationFingerprint = commit.decorationFingerprint,
 			viewportAndCaptureGeometry = commit.viewportAndCaptureGeometry,
 			rasterGeneration = commit.rasterGeneration,
-			profileAuthority = commit.profileAuthority
+			profileAuthority = commit.profileAuthority,
+			captureBasis = commit.captureBasis
 		)
 	}
 }
@@ -153,7 +185,7 @@ internal data class ReaderPassiveRasterCaptureReceipt(
 	val echoedCaptureEpoch: Long,
 	val echoedLiveFoliateSessionId: String,
 	val echoedPublicationSessionGeneration: Long,
-	val echoedDestinationCommitToken: String,
+	val echoedDestinationCommitToken: String?,
 	val observedCaptureTarget: String,
 	val observedVisualPageOrdinal: Int,
 	val observedRasterProfileKey: String,
@@ -162,7 +194,8 @@ internal data class ReaderPassiveRasterCaptureReceipt(
 	val observedDecorationFingerprint: String,
 	val observedViewportAndCaptureGeometry: ReaderPassiveRasterGeometry,
 	val echoedRasterGeneration: Long,
-	val passiveCommitSequence: Long
+	val passiveCommitSequence: Long,
+	val echoedCaptureBasis: ReaderInitialCurrentDestinationCaptureBasis? = null
 )
 
 internal data class ReaderPassiveRasterAdmissionContext(
@@ -170,7 +203,7 @@ internal data class ReaderPassiveRasterAdmissionContext(
 	val currentCaptureEpoch: Long,
 	val currentLiveFoliateSessionId: String,
 	val activePublicationSessionGeneration: Long,
-	val currentDestinationCommitToken: String,
+	val currentDestinationCommitToken: String?,
 	val currentOpaqueCaptureTarget: String,
 	val currentVisualPageOrdinal: Int,
 	val currentRasterProfileKey: String,
@@ -182,7 +215,8 @@ internal data class ReaderPassiveRasterAdmissionContext(
 	val activePassiveSessionId: String,
 	val expectedPassiveCommitSequence: Long,
 	val currentProfileAuthority: ReaderPassiveRasterProfileAuthority =
-		ReaderPassiveRasterProfileAuthority.LiveRealized
+		ReaderPassiveRasterProfileAuthority.LiveRealized,
+	val currentCaptureBasis: ReaderInitialCurrentDestinationCaptureBasis? = null
 )
 
 internal enum class ReaderPassiveRasterRejection {
@@ -295,7 +329,9 @@ private fun ReaderPassiveRasterCaptureManifest.currentMismatch(
 		ReaderPassiveRasterRejection.LiveFoliateSession
 	publicationSessionGeneration != context.activePublicationSessionGeneration ->
 		ReaderPassiveRasterRejection.PublicationGeneration
-	destinationCommitToken != context.currentDestinationCommitToken ->
+	!validCaptureAuthority(destinationCommitToken, captureBasis) ||
+		!validCaptureAuthority(context.currentDestinationCommitToken, context.currentCaptureBasis) ||
+		destinationCommitToken != context.currentDestinationCommitToken || captureBasis != context.currentCaptureBasis ->
 		ReaderPassiveRasterRejection.DestinationCommit
 	opaqueCaptureTarget != context.currentOpaqueCaptureTarget ->
 		ReaderPassiveRasterRejection.OpaqueTarget
@@ -342,7 +378,8 @@ private fun ReaderPassiveRasterCaptureReceipt.manifestMismatch(
 		ReaderPassiveRasterRejection.LiveFoliateSession
 	echoedPublicationSessionGeneration != manifest.publicationSessionGeneration ->
 		ReaderPassiveRasterRejection.PublicationGeneration
-	echoedDestinationCommitToken != manifest.destinationCommitToken ->
+	!validCaptureAuthority(echoedDestinationCommitToken, echoedCaptureBasis) ||
+		echoedDestinationCommitToken != manifest.destinationCommitToken || echoedCaptureBasis != manifest.captureBasis ->
 		ReaderPassiveRasterRejection.DestinationCommit
 	observedCaptureTarget != manifest.opaqueCaptureTarget ->
 		ReaderPassiveRasterRejection.OpaqueTarget
