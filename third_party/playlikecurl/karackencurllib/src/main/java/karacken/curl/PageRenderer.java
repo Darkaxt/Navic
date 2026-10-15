@@ -176,7 +176,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private volatile ReadingDirection readingDirection = ReadingDirection.LEFT_TO_RIGHT;
     private long appliedPageOverlayEpoch;
     private boolean glReady;
-    private boolean disposed;
+    private volatile boolean disposed;
+    private long rendererContextSequence;
+    private volatile long rendererGeneration;
 
     PageRenderer(Events events) {
         this(events, (stage, index) -> {});
@@ -217,8 +219,24 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         if (release != null) releaseDeck(previous, release);
     }
 
+    long getRendererGeneration() {
+        return disposed ? 0L : rendererGeneration;
+    }
+
     boolean hasActiveFrame(long generationId) {
         return !disposed && generationId >= 0 && generation(activeDeck) == generationId;
+    }
+
+    /** GL-thread validation of the exact active target, not readiness or a draw receipt. */
+    boolean hasActiveFrame(long generationId, int currentOrdinal) {
+        return hasActiveFrame(generationId)
+                && activeDeck.getSettlementPage(PageChange.NONE).getOrdinal() == currentOrdinal;
+    }
+
+    /** Original selected source custody, checked only on the GL thread. */
+    boolean hasRetainedSelectedFrame(long generationId) {
+        return !disposed && generationId >= 0 && selectedFrameGeneration == generationId
+                && (generation(activeDeck) == generationId || generation(replacementDeck) == generationId);
     }
 
     /** Called only after the GL thread is paused; retaining client material is not GL proof. */
@@ -861,6 +879,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         if (disposed) {
             return;
         }
+        rendererGeneration = 0L;
+        long contextGeneration = ++rendererContextSequence;
         appliedPageOverlayEpoch = dynamicPageOverlayEpoch.get();
         glReady = false;
         dynamicPageOverlays.clear();
@@ -919,9 +939,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             }
             dynamicPageOverlays.forEach(DynamicPageOverlayTexture::resetGl);
             glReady = true;
+            rendererGeneration = contextGeneration;
             publishCapabilities();
             rehydrateRetainedDecks();
         } catch (RuntimeException exception) {
+            rendererGeneration = 0L;
             glReady = false;
             reportFailure(
                     activeGeneration(),

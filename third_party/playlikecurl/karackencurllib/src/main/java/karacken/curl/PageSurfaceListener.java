@@ -87,6 +87,17 @@ public interface PageSurfaceListener {
                 pageChange);
     }
 
+    /** Authentic source settlement observation; null for non-navigating/unobserved completion. */
+    default void onSettlementCompleted(
+            long gestureId,
+            long generationId,
+            String currentLogicalPageId,
+            int currentOrdinal,
+            PageChange pageChange,
+            PageSurfaceView.CurlSettlementCompletion completion) {
+        onSettlementCompleted(gestureId, generationId, currentLogicalPageId, currentOrdinal, pageChange);
+    }
+
     default void onSettlementCancelled(
             long generationId,
             String currentLogicalPageId) {}

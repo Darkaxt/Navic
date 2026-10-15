@@ -78,6 +78,9 @@ import paige.navic.reader.ReaderWordSyncPlaybackIdentity
 import paige.navic.reader.ReaderWordSyncTimelineSnapshot
 import paige.navic.reader.WordSyncPublicationVerificationSession
 import paige.navic.reader.WordSyncPublicationVerifier
+import paige.navic.reader.reduceSemanticDestination
+import paige.navic.reader.onInstalledPageTurnRelocation
+import paige.navic.reader.onInstalledPhysicalPublication
 import paige.navic.reader.restoreProcessState
 import paige.navic.reader.whispersyncPlaybackCommandLogValue
 import paige.navic.reader.ReadaloudPlaybackPlan
@@ -299,12 +302,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 	)
 	var transitionGestureSequence by remember(shadowTransitionGateway) { mutableStateOf(0L) }
 
-	fun <T> dispatchViewerTransitionBeforeLegacy(
+	fun dispatchViewerTransitionBeforeLegacy(
 		action: ReaderViewerAction,
-		legacyDispatch: () -> T
-	): T {
+		legacyDispatch: () -> ReaderCoordinatorStep
+	): ReaderCoordinatorStep {
+		if (action == ReaderViewerAction.Menu) return legacyDispatch()
 		if (transitionGestureSequence == Long.MAX_VALUE) {
-			return shadowTransitionGateway.dispatchBeforeLegacy(null, legacyDispatch)
+			return shadowTransitionGateway.dispatchBeforeLegacy(null, { ReaderCoordinatorStep(coordinator) }, legacyDispatch)
 		}
 		val candidate = ReaderTransitionGestureId(transitionGestureSequence + 1L)
 		return shadowTransitionGateway.dispatchViewerActionBeforeLegacy(
@@ -312,14 +316,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 			action = action,
 			gestureId = candidate,
 			onTransitionIntentRegistered = { transitionGestureSequence = candidate.value },
+			selectedResult = { ReaderCoordinatorStep(coordinator) },
 			legacyDispatch = legacyDispatch
 		)
 	}
 
-	fun <T> dispatchPageTurnBoundaryBeforeLegacy(
+	fun dispatchPageTurnBoundaryBeforeLegacy(
 		direction: ReaderPageTurnDirection,
-		legacyDispatch: () -> T
-	): T {
+		legacyDispatch: () -> ReaderCoordinatorStep
+	): ReaderCoordinatorStep {
+		if (shadowTransitionGateway.mode != ReaderTransitionGatewayMode.Shadow) return ReaderCoordinatorStep(coordinator)
 		val fact = if (transitionGestureSequence == Long.MAX_VALUE) {
 			null
 		} else {
@@ -336,22 +342,22 @@ fun ReaderScreen(reader: Screen.Reader) {
 		return shadowTransitionGateway.dispatchBeforeLegacy(fact, legacyDispatch)
 	}
 
-	fun <T> dispatchExternalRelocationBeforeLegacy(
+	fun dispatchExternalRelocationBeforeLegacy(
 		source: ReaderExternalRelocationSource,
-		legacyDispatch: () -> T
-	): T = shadowTransitionGateway.dispatchBeforeLegacy(
-		ReaderTransitionFact.Intent(
-			null,
-			ReaderExternalRelocationIntent(
-				source,
-				shadowTransitionGateway.observedSemanticRequestHandle()
-			)
-		),
-		legacyDispatch
-	)
+		legacyDispatch: () -> ReaderCoordinatorStep
+	): ReaderCoordinatorStep {
+		if (shadowTransitionGateway.mode != ReaderTransitionGatewayMode.Shadow) return ReaderCoordinatorStep(coordinator)
+		return shadowTransitionGateway.dispatchBeforeLegacy(
+			ReaderTransitionFact.Intent(
+				null,
+				ReaderExternalRelocationIntent(source, shadowTransitionGateway.observedSemanticRequestHandle())
+			),
+			legacyDispatch
+		)
+	}
 
 	fun retainPresentationEffects(effects: List<ReaderPresentationEffect>) {
-		if (effects.isEmpty()) return
+		if (shadowTransitionGateway.mode == ReaderTransitionGatewayMode.Preparing || effects.isEmpty()) return
 		val retained = pendingPresentationEffectQueue.retain(effects)
 		if (retained.isEmpty()) return
 		pendingPresentationEffects = pendingPresentationEffectQueue.pendingEffects()
@@ -374,9 +380,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 
 	fun applyCoordinatorStep(
 		step: ReaderCoordinatorStep,
-		retainProcessState: Boolean = true
+		retainProcessState: Boolean = true,
+		observePresentationReceipt: Boolean = true
 	) {
-		shadowTransitionGateway.observeReceiptBeforeEffects(step.presentationReceipt) {
+		if (observePresentationReceipt) {
+			shadowTransitionGateway.observeReceiptBeforeEffects(step.presentationReceipt) {
+				retainPresentationEffects(step.presentationEffects)
+			}
+		} else {
+			// Installed semantic producer forwards the exact receipt only AFTER this owning
+			// data/progress/WordSync application. Never enqueue it twice through the gateway.
 			retainPresentationEffects(step.presentationEffects)
 		}
 		val previousControllerState = coordinator.controller.state
@@ -929,6 +942,22 @@ fun ReaderScreen(reader: Screen.Reader) {
 		}
 	)
 
+	val currentInitialSemanticReceiptIngress by rememberUpdatedState<ReaderInitialSemanticReceiptIngress>({ event, origin ->
+		val step = coordinator.reduceSemanticDestination(event, origin)
+		coordinator = step.coordinator // Initial authority is published before executor receipt forwarding.
+		step.presentationReceipt
+	})
+	val currentSemanticReceiptIngress by rememberUpdatedState<ReaderSemanticReceiptIngress>({ event, origin ->
+		val step = coordinator.reduceSemanticDestination(event, origin)
+		coordinator = step.coordinator // Publish common authority before the executor observes its receipt.
+		step.presentationReceipt
+	})
+	val currentInstalledPhysicalPublicationIngress by rememberUpdatedState<ReaderInstalledPhysicalPublicationIngress>({ command, applied ->
+		coordinator = coordinator.onInstalledPhysicalPublication(
+			command, applied.publishedOwner, applied.publishedBinding, applied.finalPhysicalInputLease
+		)
+	})
+
 	KomikkuReaderRoot(
 		reader = reader,
 		controllerState = controllerState,
@@ -938,6 +967,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 		pageTurnCanvasEnabled = pageTurnCanvasEnabled,
 		legacyLiveCompatibilityContext = legacyLiveCompatibilityContext,
 		shadowTransitionGateway = shadowTransitionGateway,
+		semanticReceiptIngress = { event, origin -> currentSemanticReceiptIngress(event, origin) },
+		initialSemanticReceiptIngress = { event, origin -> currentInitialSemanticReceiptIngress(event, origin) },
+		installedPhysicalPublicationIngress = { command, applied -> currentInstalledPhysicalPublicationIngress(command, applied) },
+		installedPageTurnModelIngress = { event, predecessor, origin ->
+			val step = coordinator.onInstalledPageTurnRelocation(event, predecessor, origin)
+			applyCoordinatorStep(step, observePresentationReceipt = false)
+			step.presentationReceipt
+		},
 		presentationEffects = pendingPresentationEffects,
 		onPresentationEffectHandled = { identity ->
 			acknowledgePresentationEffect(identity)
@@ -952,9 +989,11 @@ fun ReaderScreen(reader: Screen.Reader) {
 		readaloudPlaybackState = whispersyncReadaloudPlaybackState,
 		onEngineHostEvent = { event -> handleEngineHostEvent(event) },
 		onPresentationEvent = { event: ReaderPresentationEvent ->
-			val step = coordinator.onPresentationEvent(event)
-			applyCoordinatorStep(step)
-			step.presentationReceipt
+			shadowTransitionGateway.dispatchBeforeLegacy(null, selectedResult = { null }) {
+				val step = coordinator.onPresentationEvent(event)
+				applyCoordinatorStep(step)
+				step.presentationReceipt
+			}
 		},
 		onViewerAction = { action ->
 			val beforeMenuVisible = coordinator.controller.state.menuVisible

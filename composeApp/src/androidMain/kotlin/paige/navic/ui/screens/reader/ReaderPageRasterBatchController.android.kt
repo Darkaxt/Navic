@@ -14,6 +14,8 @@ import org.json.JSONTokener
 import paige.navic.reader.ReaderPageAdjacentChapterDirection
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
+import paige.navic.reader.ReaderFoliateResolvedLayout
+import paige.navic.reader.toFoliateResolvedLayout
 
 internal enum class ReaderPageRasterTargetAuthority {
 	CurrentLive,
@@ -46,7 +48,8 @@ internal data class ReaderPageRasterPreparationPlan(
 	val nextChapterPageStartIndex: Int,
 	val nextChapterPageCount: Int,
 	val targets: List<ReaderPageRasterBatchTarget>,
-	val captureGeometry: ReaderPageTurnCaptureGeometry? = null
+	val captureGeometry: ReaderPageTurnCaptureGeometry? = null,
+	val resolvedLayout: ReaderFoliateResolvedLayout? = null
 )
 
 internal data class ReaderPageRasterPreparedChapterRange(
@@ -295,7 +298,8 @@ internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRaster
 		targets = targets,
 		captureGeometry = root["captureGeometry"]?.let { encodedGeometry ->
 			readerPageTurnCaptureGeometry(encodedGeometry.toString())
-		}
+		},
+		resolvedLayout = (root["resolvedLayout"] as? kotlinx.serialization.json.JsonObject)?.toFoliateResolvedLayout()
 	)
 }
 

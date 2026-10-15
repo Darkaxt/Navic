@@ -370,6 +370,8 @@ sealed interface ReaderPresentationLifecycleEvent {
 		val level: ReaderPresentationMemoryPressureLevel
 	) : ReaderPresentationLifecycleEvent
 	data object RendererLost : ReaderPresentationLifecycleEvent
+	data object HostDetached : ReaderPresentationLifecycleEvent
+	data object WebViewDetached : ReaderPresentationLifecycleEvent
 	data object PublicationClosed : ReaderPresentationLifecycleEvent
 }
 
@@ -421,7 +423,9 @@ data class ReaderPresentationState(
 	val preparationFacts: ReaderPagePreparationFacts = ReaderPagePreparationFacts(),
 	val failure: ReaderDiagnosticPresentation.Failure? = null,
 	val lastLiveEnginePresentedFrameSequence: Long = 0L,
-	val nextTokenValue: Long = 1L
+	val nextTokenValue: Long = 1L,
+	// Activated sessions project their accepted physical lease without inventing readiness.
+	val installedPhysicalInputLease: ReaderTransitionInputLease? = null
 ) {
 	init {
 		require(lastLiveEnginePresentedFrameSequence >= 0L)
@@ -470,6 +474,14 @@ sealed interface ReaderPresentationEvent {
 		val binding: ReaderPresentationBinding,
 		val acknowledgement: ReaderPageTurnSettlementAck?
 	) : ReaderPresentationEvent
+	/** Read-only confirmation of an already-current binding, scoped to one executor invocation. */
+	class CurrentDestinationConfirmed internal constructor(
+		val binding: ReaderPresentationBinding,
+		val expectedVersion: ReaderPresentationReceiptVersion,
+		internal val expectedOrigin: ReaderPresentationEventOrigin.SemanticCommand
+	) : ReaderPresentationEvent {
+		override fun toString(): String = "ReaderPresentationEvent.CurrentDestinationConfirmed(<redacted>)"
+	}
 	data object NativePageRequested : ReaderPresentationEvent
 	data class ShellCoverRequested(val coverGeneration: Long) : ReaderPresentationEvent {
 		init {
@@ -591,7 +603,9 @@ fun readerPresentationDecision(state: ReaderPresentationState): ReaderPresentati
 	val authority = state.authority
 	val frameOwner = authority.frameOwner()
 	val inputPolicy = when (state.lifecycle) {
-		ReaderPresentationLifecycleState.Foreground -> authority.inputPolicy(
+		ReaderPresentationLifecycleState.Foreground -> state.installedPhysicalInputLease?.let { lease ->
+			readerTransitionPresentationInputPolicy(frameOwner, state.binding, lease)
+		} ?: authority.inputPolicy(
 			state.binding,
 			state.preparationFacts
 		)
@@ -660,6 +674,7 @@ fun readerPresentationReduce(
 		is ReaderPresentationEvent.BindingCompleted -> state.reduceBindingCompletion(event)
 		is ReaderPresentationEvent.BindingReplaced -> state.reduceBindingReplacement(event)
 		is ReaderPresentationEvent.FoliateRelocated -> state.reduceFoliateRelocation(event)
+		is ReaderPresentationEvent.CurrentDestinationConfirmed -> rejectedPresentationResult(state)
 		ReaderPresentationEvent.NativePageRequested -> state.reduceNativePageRequest()
 		is ReaderPresentationEvent.ShellCoverRequested -> {
 			val retainedFrame = when (val authority = state.authority) {
@@ -712,12 +727,18 @@ fun readerPresentationReduce(
 		ReaderPresentationEvent.Retry -> state.reduceRetry()
 		is ReaderPresentationEvent.Lifecycle -> state.reduceLifecycle(event.event)
 	}
-	val stateWithRendererLineage = reconcileRendererSuccessorLineage(
-		preState = state,
-		postState = result.state,
-		event = event,
-		disposition = result.disposition
-	)
+	// Confirmation observes existing material. Even a rejected/stale observation must not
+	// replay renderer-lineage reconciliation or replace the current presentation object.
+	val stateWithRendererLineage = if (event is ReaderPresentationEvent.CurrentDestinationConfirmed) {
+		state
+	} else {
+		reconcileRendererSuccessorLineage(
+			preState = state,
+			postState = result.state,
+			event = event,
+			disposition = result.disposition
+		)
+	}
 	return ReaderPresentationReduction(
 		state = stateWithRendererLineage,
 		decision = readerPresentationDecision(stateWithRendererLineage),
@@ -1686,7 +1707,9 @@ private fun ReaderPresentationState.reduceLifecycle(
 		acceptedPresentationResult(copy(lifecycle = ReaderPresentationLifecycleState.Foreground))
 	}
 	is ReaderPresentationLifecycleEvent.RunningMemoryPressure,
-	is ReaderPresentationLifecycleEvent.BackgroundMemoryPressure -> acceptedPresentationResult(this)
+	is ReaderPresentationLifecycleEvent.BackgroundMemoryPressure,
+	ReaderPresentationLifecycleEvent.HostDetached,
+	ReaderPresentationLifecycleEvent.WebViewDetached -> acceptedPresentationResult(this)
 	ReaderPresentationLifecycleEvent.RendererLost -> acceptedPresentationResult(
 		copy(
 			authority = if (

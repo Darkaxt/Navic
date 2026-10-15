@@ -1846,9 +1846,12 @@ class ReaderRuntimeAssetsTest {
 	@Test
 	fun androidPaginatorDoesNotThrowWhenDocumentElementIsTemporarilyUnavailable() {
 		val paginatorText = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val measurement = paginatorText
+			.substringAfter("#measureExpansion() {", missingDelimiterValue = "")
+			.substringBefore("\n    hasResolvedLayout() {", missingDelimiterValue = "")
 		val expand = paginatorText
-			.substringAfter("expand() {")
-			.substringBefore("\n    set overlayer(")
+			.substringAfter("\n    expand() {", missingDelimiterValue = "")
+			.substringBefore("\n    set overlayer(", missingDelimiterValue = "")
 		val destroyView = paginatorText
 			.substringAfter("destroy() {")
 			.substringBefore("\n    }")
@@ -1857,28 +1860,37 @@ class ReaderRuntimeAssetsTest {
 			.substringBefore("\n    #applyVisibleViewport()")
 
 		assertContains(
-			expand,
-			"if (this.#destroyed) return",
+			measurement,
+			"if (this.#destroyed) return null",
 			message = "Queued ResizeObserver and font callbacks must become inert after the view is destroyed."
 		)
 		assertContains(
-			expand,
+			measurement,
 			"const documentElement = doc?.documentElement",
 			message = "Late ResizeObserver and font callbacks must tolerate an iframe between documents."
 		)
-		assertContains(expand, "const contentRoot = documentStyleRoot(doc)")
+		assertContains(measurement, "const contentRoot = documentStyleRoot(doc)")
 		assertContains(
-			expand,
-			"if (!documentElement?.isConnected || !contentRoot?.isConnected) return false",
+			measurement,
+			"if (!documentElement?.isConnected || !contentRoot?.isConnected) return null",
 			message = "Expansion must not measure a detached Foliate content root or transient null document root."
 		)
 		assertContains(
-			expand,
+			measurement,
 			"this.#contentRange.selectNodeContents(contentRoot)",
 			message = "Late body growth must refresh the measured range before comparing the layout signature."
 		)
+		val connected = measurement.indexOf("if (!documentElement?.isConnected || !contentRoot?.isConnected) return null")
+		val range = measurement.indexOf("this.#contentRange.selectNodeContents(contentRoot)")
+		assertTrue(connected >= 0 && range > connected, "Detached roots must be rejected before the range is refreshed.")
+		val measure = expand.indexOf("const measured = this.#measureExpansion()")
+		val absent = expand.indexOf("if (!measured) return false")
+		val destructure = expand.indexOf("const { documentElement, side, otherSide, expandedSize, padding, signature } = measured")
+		val write = expand.indexOf("this.#element.style.padding = padding")
+		assertTrue(measure >= 0 && absent > measure && destructure > absent && write > destructure,
+			"The actual expansion consumer must return false before destructuring or writing an absent measurement.")
 		assertFalse(
-			expand.contains("const { documentElement } = this.document"),
+			(measurement + expand).contains("const { documentElement } = this.document"),
 			"Destructuring a transient iframe document leaves a null root that throws during measurement."
 		)
 		assertContains(
@@ -1929,9 +1941,12 @@ class ReaderRuntimeAssetsTest {
 		val wrapper = paginator
 			.substringAfter("async goToTextPage(index, pageIndex, reason = 'navigation') {")
 			.substringBefore("\n    #scrollPrev(distance) {")
+		val measurement = paginator
+			.substringAfter("#measureExpansion() {", missingDelimiterValue = "")
+			.substringBefore("\n    hasResolvedLayout() {", missingDelimiterValue = "")
 		val expand = paginator
-			.substringAfter("expand() {")
-			.substringBefore("\n    set overlayer(")
+			.substringAfter("\n    expand() {", missingDelimiterValue = "")
+			.substringBefore("\n    set overlayer(", missingDelimiterValue = "")
 		val attributeChanged = paginator
 			.substringAfter("attributeChangedCallback(name, oldValue, value) {")
 			.substringBefore("\n    open(book) {")
@@ -2039,11 +2054,21 @@ class ReaderRuntimeAssetsTest {
 			paginator.contains("#mutationObserver"),
 			"Navic body injections must not trigger an extra full-range layout measurement hot path."
 		)
-		assertContains(expand, "this.#column ? null : [")
-		assertContains(expand, "padding,")
-		assertContains(expand, "rounded(this.#layout.margin)")
-		assertContains(expand, "rounded(this.#layout.gap)")
-		assertContains(expand, "rounded(this.#layout.columnWidth)")
+		assertContains(measurement, "this.#column ? null : [")
+		assertContains(measurement, "padding,")
+		assertContains(measurement, "rounded(this.#layout.margin)")
+		assertContains(measurement, "rounded(this.#layout.gap)")
+		assertContains(measurement, "rounded(this.#layout.columnWidth)")
+		assertContains(measurement, "return { documentElement, side, otherSide, expandedSize, padding, signature }")
+		val measure = expand.indexOf("const measured = this.#measureExpansion()")
+		val absent = expand.indexOf("if (!measured) return false")
+		val destructure = expand.indexOf("const { documentElement, side, otherSide, expandedSize, padding, signature } = measured")
+		val duplicate = expand.indexOf("if (signature === this.#layoutSignature) return false")
+		val invalidation = expand.indexOf("this.onBeforeExpand?.(signature)")
+		val write = expand.indexOf("this.#element.style.padding = padding")
+		assertTrue(measure >= 0 && absent > measure && destructure > absent && duplicate > destructure &&
+			invalidation > duplicate && write > invalidation,
+			"The connected expansion consumer must measure once, reject missing or duplicate geometry, then invalidate before DOM writes.")
 		assertContains(paginator, "return !this.#destroyed && view === this.#view &&")
 		assertContains(paginator, "layoutGeneration === this.#layoutGeneration")
 		assertContains(open, "if (this.#view) this.#discardCandidateView(this.#view)")

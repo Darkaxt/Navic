@@ -21,6 +21,109 @@ private fun requiredFoliateSourceSlice(
 	return slice
 }
 
+// These helpers are local to the three repaired contracts. Exact headers are
+// deliberate lexical requirements; balanced bodies prevent unrelated-text matches.
+private fun uniqueFoliateSourceStart(source: String, exactHeader: String): Int {
+	val matches = Regex("(?m)^[\\t ]*${Regex.escape(exactHeader)}").findAll(source).toList()
+	assertEquals(1, matches.size, "A policy declaration/block must be unique.")
+	return matches.single().range.first + matches.single().value.indexOf(exactHeader)
+}
+
+private fun requiredUniqueFoliateBlock(source: String, exactHeader: String): String {
+	val start = uniqueFoliateSourceStart(source, exactHeader)
+	val open = start + exactHeader.lastIndexOf('{')
+	assertTrue(exactHeader.contains('{'), "A braced policy must have an exact opening brace.")
+	val indentation = source.substring(source.lastIndexOf('\n', start - 1) + 1, start)
+	var depth = 0
+	var index = open
+	while (index < source.length) {
+		when {
+			source.startsWith("//", index) -> {
+				index = source.indexOf('\n', index).takeIf { it >= 0 } ?: source.length
+			}
+			source.startsWith("/*", index) -> {
+				val end = source.indexOf("*/", index + 2)
+				assertTrue(end >= 0, "A policy comment must terminate.")
+				index = end + 2
+			}
+			source.startsWith("\"\"\"", index) -> {
+				val end = source.indexOf("\"\"\"", index + 3)
+				assertTrue(end >= 0, "A policy string must terminate.")
+				index = end + 3
+			}
+			source[index] == '"' || source[index] == '\'' -> {
+				val quote = source[index++]
+				while (index < source.length && source[index] != quote) {
+					index += if (source[index] == '\\') 2 else 1
+				}
+				assertTrue(index < source.length, "A policy literal must terminate.")
+				index += 1
+			}
+			else -> {
+				if (source[index] == '{') depth += 1
+				if (source[index] == '}') {
+					depth -= 1
+					if (depth == 0) {
+						assertEquals(
+							indentation,
+							source.substring(source.lastIndexOf('\n', index - 1) + 1, index),
+							"A policy body must end at its own indentation."
+						)
+						val block = source.substring(start, index + 1)
+						assertFalse(
+							Regex("(?m)^${Regex.escape(indentation)}(?:private |override |internal )?fun ")
+								.containsMatchIn(block.substring(exactHeader.length)),
+							"A policy body must not absorb the next declaration."
+						)
+						return block
+					}
+				}
+				index += 1
+			}
+		}
+	}
+	assertTrue(false, "A policy body must have a balanced closing brace.")
+	return ""
+}
+
+private fun requiredUniqueFoliateExpression(
+	source: String,
+	exactHeader: String,
+	nextExactHeader: String
+): String {
+	assertTrue(exactHeader.endsWith("="), "An expression policy must use an exact expression header.")
+	val start = uniqueFoliateSourceStart(source, exactHeader)
+	val end = uniqueFoliateSourceStart(source, nextExactHeader)
+	assertTrue(end > start, "An expression policy must precede its next exact declaration.")
+	return source.substring(start, end).trim()
+}
+
+private fun assertUniqueFoliateOrder(source: String, vararg statements: String) {
+	var previous = -1
+	statements.forEach { statement ->
+		assertEquals(1, Regex(Regex.escape(statement)).findAll(source).count(), "A policy statement must be unique.")
+		val current = source.indexOf(statement)
+		assertTrue(current > previous, "Policy statements must retain their guarded order.")
+		previous = current
+	}
+}
+
+private fun assertPassivePrewarmAvailabilityPolicy(prewarm: String): String {
+	// == true denies both null and false, as the old nullable != true branch did;
+	// lifecycle admission adds denial, never a foreground-owner dependency.
+	val snapshot = "val passiveAvailable = passiveRasterPreparationAdapter?.isAvailable == true"
+	val denial = "if (!legacyLifecycleConsequencesOpen || !passiveAvailable) {"
+	val passiveWait = requiredUniqueFoliateBlock(prewarm, denial)
+	assertUniqueFoliateOrder(prewarm, snapshot, denial, "onPassiveRasterPreparationAvailable()")
+	assertEquals(
+		listOf("removePageTurnPrewarmLayoutListener()", "return@OnPreDrawListener true"),
+		passiveWait.substringAfter('{').substringBeforeLast('}').trim().lines().map { it.trim() },
+		"Unavailable passive preparation must remove the listener and return before publication."
+	)
+	assertFalse(passiveWait.contains("postInvalidateOnAnimation()"))
+	return passiveWait
+}
+
 class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	private val controllerFile =
 		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateController.android.kt")
@@ -176,8 +279,28 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(controller, "private suspend fun <T> awaitRasterPreparation(")
 		assertContains(controller, "catch (cancelled: CancellationException)")
 		assertContains(controller, "Result.failure(failure)")
+		val factory = requiredFoliateSourceSlice(controller,
+			"private fun createRasterAdapter(", "private fun createRasterAdapterOrDefer(")
+		assertContains(factory, "rendererDeckLeaseLimit = surfaceView.deckLeaseLimit")
+		assertContains(factory, "residencyBudget = rasterResidencyBudget")
+		val installed = requiredFoliateSourceSlice(controller,
+			"internal fun reserveInstalledDeck(", "internal fun releaseInstalledDeck(")
+		val refill = requiredFoliateSourceSlice(controller,
+			"private fun refillDecodedWorkingSet(", "private fun scheduleDecodedWorkingSetRefillRetry(")
+		val profile = requiredFoliateSourceSlice(controller,
+			"private fun prepareProfile(", "override fun isCurrentRepairWindow(")
+		assertContains(installed, "val adapter = createRasterAdapter(profile, work)")
+		val legacyFactory = requiredFoliateSourceSlice(controller,
+			"private fun createRasterAdapterOrDefer(", "private fun isAwaitingAuthoritativeRelocation()")
+		assertContains(legacyFactory, "val adapter = createRasterAdapter(profile)")
+		assertContains(legacyFactory, "rasterAdapter = adapter")
+		assertContains(refill, "val adapter = rasterAdapter ?: return")
+		assertContains(profile, "?: createRasterAdapterOrDefer(profile)")
+		assertEquals(1, Regex("awaitRasterPreparation\\(preparation\\)").findAll(installed).count())
+		assertEquals(1, Regex("awaitRasterPreparation\\(preparation\\)").findAll(refill).count())
+		assertEquals(1, Regex("awaitRasterPreparation\\(preparation\\)").findAll(profile).count())
 		assertEquals(
-			2,
+			3,
 			Regex("awaitRasterPreparation\\(preparation\\)").findAll(controller).count()
 		)
 		assertFalse(controller.contains("val deck = preparation.await()"))
@@ -266,7 +389,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 	@Test
 	fun hostKeepsForegroundOwnershipOutOfAllPassiveRasterPreparation() {
-		val host = hostFile.readText()
+		assertPassiveIsolationPolicy(hostFile.readText())
+	}
+
+	private fun assertPassiveIsolationPolicy(host: String) {
 		val viewer = requiredFoliateSourceSlice(
 			source = host,
 			startDelimiter = "private class KomikkuReaderNativeViewerContainer",
@@ -282,21 +408,14 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			startDelimiter = "private val pageRasterPreparationController: ReaderPageRasterPreparationController =",
 			endDelimiter = "private val pageRasterHostEventController"
 		)
-		val passiveAvailability = requiredFoliateSourceSlice(
-			source = viewer,
-			startDelimiter = "private fun onPassiveRasterPreparationAvailable()",
-			endDelimiter = "private fun replacePassiveRasterPreparationAdapter("
+		val passiveAvailability = requiredUniqueFoliateBlock(
+			viewer, "private fun onPassiveRasterPreparationAvailable() {"
 		)
-		val prewarm = requiredFoliateSourceSlice(
-			source = viewer,
-			startDelimiter = "private fun requestPageTurnPrewarmWhenReady()",
-			endDelimiter = "private fun pageTurnPrewarmLayoutSignature"
+		val prewarm = requiredUniqueFoliateBlock(
+			viewer, "private fun requestPageTurnPrewarmWhenReady() {"
 		)
-		val teardown = requiredFoliateSourceSlice(
-			source = host,
-			startDelimiter = "private fun teardownTask4Resources()",
-			endDelimiter = "private fun View.findDescendantWebView"
-		)
+		val teardown = requiredUniqueFoliateBlock(host, "private fun teardownTask4Resources() {")
+		val drainCompletion = requiredUniqueFoliateBlock(teardown, "teardown.invokeOnCompletion { failure ->")
 
 		assertEquals(
 			1,
@@ -320,13 +439,20 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"Passive raster work must not consult live ownership."
 		)
 		assertFalse(prewarm.contains("foregroundWebViewOwnership"))
-		assertContains(prewarm, "passiveRasterPreparationAdapter?.isAvailable != true")
+		assertPassivePrewarmAvailabilityPolicy(prewarm)
 		assertContains(teardown, "teardown.invokeOnCompletion")
 		assertContains(teardown, "runCatching(foregroundWebViewOwnership::close)")
 		assertTrue(
 			teardown.indexOf("val teardown = pageRasterPreparationController.destroy()") <
 				teardown.indexOf("runCatching(foregroundWebViewOwnership::close)"),
 			"Passive preparation must drain independently before the live owner closes."
+		)
+		assertContains(drainCompletion, "runCatching(foregroundWebViewOwnership::close)")
+		assertUniqueFoliateOrder(
+			teardown,
+			"val teardown = pageRasterPreparationController.destroy()",
+			"teardown.invokeOnCompletion",
+			"runCatching(foregroundWebViewOwnership::close)"
 		)
 	}
 
@@ -1400,38 +1526,20 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 	@Test
 	fun passivePreparationWaitsForReadinessEventsWithoutPerFrameInvalidation() {
-		val host = hostFile.readText()
-		val prewarm = requiredFoliateSourceSlice(
-			host,
-			"private fun requestPageTurnPrewarmWhenReady()",
-			"private fun pageTurnPrewarmLayoutSignature("
-		)
-		val passiveWait = requiredFoliateSourceSlice(
-			prewarm,
-			"if (passiveRasterPreparationAdapter?.isAvailable != true)",
-			"onPassiveRasterPreparationAvailable()"
-		)
-		val profileChanged = requiredFoliateSourceSlice(
-			prewarm,
-			"if (profileEpoch != rasterProfileEpoch)",
-			"if (rasterProfileEpoch == null)"
-		)
-		val profileWait = requiredFoliateSourceSlice(
-			prewarm,
-			"if (rasterProfileEpoch == null)",
-			"if (!rasterPaginationReady)"
-		)
-		val passiveAvailability = requiredFoliateSourceSlice(
-			host,
-			"private fun onPassiveRasterPreparationAvailable()",
-			"private fun onCanonicalLiveCommitIssued()"
-		)
+		assertPassiveReadinessPolicy(hostFile.readText(), passiveRasterWebViewHostFile.readText())
+	}
+
+	private fun assertPassiveReadinessPolicy(host: String, runtime: String) {
+		val prewarm = requiredUniqueFoliateBlock(host, "private fun requestPageTurnPrewarmWhenReady() {")
+		val passiveWait = assertPassivePrewarmAvailabilityPolicy(prewarm)
+		val profileChanged = requiredUniqueFoliateBlock(prewarm, "if (profileEpoch != rasterProfileEpoch) {")
+		val profileWait = requiredUniqueFoliateBlock(prewarm, "if (rasterProfileEpoch == null) {")
+		val passiveAvailability = requiredUniqueFoliateBlock(host, "private fun onPassiveRasterPreparationAvailable() {")
 		val runtimeWiring = requiredFoliateSourceSlice(
 			host,
 			"val runtime = ReaderPassiveRasterWebViewHost(",
 			"val session = ReaderPassiveRasterPrototypeSession("
 		)
-		val runtime = passiveRasterWebViewHostFile.readText()
 		val runtimeConstructor = requiredFoliateSourceSlice(
 			runtime,
 			"internal class ReaderPassiveRasterWebViewHost(",
@@ -1494,6 +1602,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val cancellation = requiredFoliateSourceSlice(
 			adapter,
 			"override fun cancel()",
+			"internal fun awaitInstalledReadiness("
+		)
+		val cancelOwned = requiredFoliateSourceSlice(
+			adapter,
+			"private fun cancelOwned(",
 			"override fun pause()"
 		)
 		val sessionCancellation = requiredFoliateSourceSlice(
@@ -1503,15 +1616,20 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		val adapterWiring = requiredFoliateSourceSlice(
 			host,
-			"passiveRasterPreparationAdapter = ReaderPassiveRasterPreparationAdapter(",
+			"originalAdapter = ReaderPassiveRasterPreparationAdapter(",
 			"passiveRasterRendererLossFence.replace(runtimeIdentity)"
 		)
 
 		assertContains(adapterConstructor, "private val onCancellationDrained: () -> Unit = { }")
 		assertContains(sessionCancellation, "fun cancelActiveCapture(onDrained: () -> Unit): Boolean")
-		assertContains(cancellation, "session.cancelActiveCapture(onCancellationDrained)")
-		assertContains(cancellation, "if (!cancellationPending && isAvailable)")
-		assertContains(cancellation, "onCancellationDrained()")
+		assertContains(cancellation, "cancelOwned(onCancellationDrained)")
+		assertContains(cancelOwned, "onDrained: () -> Unit, requireReady: Boolean = true")
+		assertContains(cancelOwned, "session.cancelActiveCapture(onDrained)")
+		assertContains(cancelOwned, "if (!cancellationPending && (!requireReady || isAvailable)) onDrained()")
+		assertTrue(cancelOwned.indexOf("session.cancelActiveCapture(onDrained)") <
+			cancelOwned.indexOf("if (!cancellationPending && (!requireReady || isAvailable)) onDrained()"),
+			"Legacy cancellation may rearm directly only after the original session reports no pending drain.")
+		assertContains(adapterWiring, "passiveRasterPreparationAdapter = originalAdapter")
 		assertContains(adapterWiring, "onCancellationDrained = {")
 		assertContains(
 			adapterWiring,
@@ -1774,25 +1892,91 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 	@Test
 	fun committedTurnsPublishOneVersionedWindowBeforePersistentFarEdgeRefill() {
-		val source = controllerFile.readText()
+		assertCommittedWindowPolicy(controllerFile.readText())
+	}
+
+	private fun assertCommittedWindowPolicy(source: String) {
 		val preparation = source
 			.substringAfter("fun onPreparationStateChanged(")
 			.substringBefore("fun onHostAttached()")
-		val settlement = source
-			.substringAfter("override fun onSettlementCompleted(")
-			.substringBefore("override fun onSettlementCancelled(")
-		val schedule = source
-			.substringAfter("private fun schedulePersistentRefill(")
-			.substringBefore("private fun requestRasterRepair(")
-		val publisher = source
-			.substringAfter("private fun publishProtectedWindow(")
-			.substringBefore("private fun publishProtectedRasterOrdinals(")
-		val committedPublication = settlement
-			.substringAfter("publishCommittedTerminal = {")
-			.substringBefore("dispatch = ::transferAndDispatchRelocation")
-		val adapterFence = source
-			.substringAfter("private fun rasterPublicationFence(")
-			.substringBefore("private fun publishProtectedWindow(")
+		val settlement = requiredUniqueFoliateBlock(
+			source,
+			"override fun onSettlementCompleted(\n" +
+				"\t\t\t\tgestureId: Long,\n\t\t\t\tgenerationId: Long,\n" +
+				"\t\t\t\tcurrentLogicalPageId: String,\n\t\t\t\tcurrentPageOrdinal: Int,\n" +
+				"\t\t\t\tpageChange: PageChange\n\t\t\t) {"
+		)
+		val schedule = requiredUniqueFoliateBlock(
+			source,
+			"private fun schedulePersistentRefill(\n\t\tdirection: ReaderPageTurnDirection,\n" +
+				"\t\tdestinationOrdinal: Int,\n\t\texpectedTurnVersion: Long\n\t) {"
+		)
+		// Keep compatibility delegation separate from the admission-aware braced overload.
+		assertEquals(2, Regex("private fun publishProtectedWindow\\(").findAll(source).count())
+		val overloadHeader =
+			"private fun publishProtectedWindow(window: List<Int>, legacyConsequencesAdmitted: () -> Boolean): Long {"
+		val wrapper = requiredUniqueFoliateExpression(
+			source,
+			"private fun publishProtectedWindow(window: List<Int>): Long =",
+			overloadHeader
+		)
+		assertEquals(
+			"private fun publishProtectedWindow(window: List<Int>): Long =\n" +
+				"\t\tpublishProtectedWindow(window, { true })",
+			wrapper,
+			"Ordinary committed turns must delegate with default-true admission."
+		)
+		val publisher = requiredUniqueFoliateBlock(source, overloadHeader)
+		val applyWindow = requiredUniqueFoliateBlock(
+			source,
+			"private fun applyProtectedWindow(\n" +
+				"\t\twindow: List<Int>, version: Long, legacyConsequencesAdmitted: () -> Boolean = { true }\n\t) {"
+		)
+		val ordinals = requiredUniqueFoliateBlock(
+			source,
+			"private fun publishProtectedRasterOrdinals(\n" +
+				"\t\tlogicalOrdinals: List<Int>, legacyConsequencesAdmitted: () -> Boolean = { true }\n\t) {"
+		)
+		assertEquals(1, Regex("private fun applyProtectedWindow\\(").findAll(source).count())
+		assertEquals(1, Regex("private fun publishProtectedRasterOrdinals\\(").findAll(source).count())
+		assertContains(publisher, "val immutableWindow = window.toList()")
+		assertContains(
+			publisher,
+			"val version = if (currentProtectedWindow != immutableWindow) {\n" +
+				"\t\t\tMath.incrementExact(protectedWindowVersion)\n" +
+				"\t\t} else {\n\t\t\tprotectedWindowVersion\n\t\t}"
+		)
+		assertUniqueFoliateOrder(
+			publisher,
+			"if (!legacyConsequencesAdmitted()) return protectedWindowVersion",
+			"val immutableWindow = window.toList()",
+			"val version = if (currentProtectedWindow != immutableWindow)",
+			"applyProtectedWindow(immutableWindow, version, legacyConsequencesAdmitted)",
+			"\n\t\treturn protectedWindowVersion"
+		)
+		assertUniqueFoliateOrder(
+			applyWindow,
+			"if (!legacyConsequencesAdmitted()) return",
+			"currentProtectedWindow = window",
+			"protectedWindowVersion = version",
+			"rasterAdapter?.updateProtectedPageIndices(profile, window)",
+			"publishProtectedRasterOrdinals(window, legacyConsequencesAdmitted)"
+		)
+		assertUniqueFoliateOrder(
+			ordinals,
+			"if (!legacyConsequencesAdmitted()) return",
+			"val profile = requestedProfile",
+			"readerPlayLikeCurlProtectedSourcePageIndices(profile, logicalOrdinals)",
+			"bundleSource.protectDecodedPageIndices(sourcePageIndices)",
+			"if (legacyConsequencesAdmitted()) onProtectedRasterSourcePageIndicesChanged(sourcePageIndices)"
+		)
+		val committedPublication = requiredUniqueFoliateBlock(settlement, "publishCommittedTerminal = {")
+		val adapterFence = requiredUniqueFoliateBlock(
+			source,
+			"private fun rasterPublicationFence(\n\t\tprofile: ReaderPlayLikeCurlRasterProfile,\n" +
+				"\t\tcenterOrdinal: Int,\n\t\tprotectedWindow: List<Int>,\n" +
+				"\t\texpectedRequestGeneration: Long\n\t): ReaderPlayLikeCurlRasterPublicationFence {"
+		)
 
 		assertContains(source, "private val persistentRefillCoordinator")
 		assertContains(source, "private var committedTurnVersion = 0L")
@@ -1857,14 +2041,180 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(adapterFence, "currentProtectedWindow == expectedWindow")
 		assertContains(source, "rasterAdapter?.hasDecoded(profile, logicalOrdinal)")
 		assertContains(source, "publicationDispatcher = Dispatchers.Main.immediate")
-		assertContains(publisher, "applyProtectedWindow(immutableWindow, version)")
-		assertContains(publisher, "publishProtectedRasterOrdinals(window)")
+		assertContains(publisher, "applyProtectedWindow(immutableWindow, version, legacyConsequencesAdmitted)")
+		assertContains(applyWindow, "publishProtectedRasterOrdinals(window, legacyConsequencesAdmitted)")
 		assertEquals(
 			2,
 			Regex("publishProtectedRasterOrdinals\\(").findAll(source).count(),
 			"Only the central protected-window publisher may replace raster protection."
 		)
 	}
+
+	private fun mutateFoliateSourceOnce(source: String, old: String, replacement: String): String {
+		assertEquals(1, Regex(Regex.escape(old)).findAll(source).count(), "A mutation must target one real policy site.")
+		assertTrue(old != replacement, "A mutation must change the real source fixture.")
+		return source.replace(old, replacement)
+	}
+
+	private fun assertFoliatePolicyRejectsMutations(
+		source: String,
+		policy: (String) -> Unit,
+		mutations: List<Pair<String, String>>
+	) {
+		policy(source) // Positive control uses exactly the real-contract checker.
+		mutations.forEach { (label, mutated) ->
+			assertTrue(mutated != source, "A negative fixture must differ from its positive control.")
+			kotlin.test.assertFailsWith<AssertionError>(label) { policy(mutated) }
+		}
+	}
+
+	@Test
+	fun passiveSourceContractsRejectMissingDuplicateAndWrongDeclarations() {
+		val host = hostFile.readText()
+		val runtime = passiveRasterWebViewHostFile.readText()
+		val header = "private fun requestPageTurnPrewarmWhenReady() {"
+		val prewarm = requiredUniqueFoliateBlock(host, header)
+		assertFoliatePolicyRejectsMutations(
+			host,
+			{ assertPassiveReadinessPolicy(it, runtime); assertPassiveIsolationPolicy(it) },
+			listOf(
+				"Missing full prewarm declaration" to mutateFoliateSourceOnce(host, prewarm, ""),
+				"Duplicate full prewarm declaration" to (host + "\n\t$prewarm\n"),
+				"Wrong prewarm declaration" to mutateFoliateSourceOnce(host, header, "private fun requestPageTurnPrewarmWhenReady(unrelated: Boolean) {"),
+				"Unbalanced prewarm body" to mutateFoliateSourceOnce(host, prewarm, prewarm.dropLast(1)),
+				"Missing passive availability declaration" to mutateFoliateSourceOnce(host, "private fun onPassiveRasterPreparationAvailable() {", "private fun renamedPassiveAvailability() {")
+			)
+		)
+	}
+
+	@Test
+	fun passiveSourceContractsRejectLostDenialWaitFramesAndForegroundLeaks() {
+		val host = hostFile.readText()
+		val runtime = passiveRasterWebViewHostFile.readText()
+		val prewarm = requiredUniqueFoliateBlock(host, "private fun requestPageTurnPrewarmWhenReady() {")
+		val denialHeader = "if (!legacyLifecycleConsequencesOpen || !passiveAvailable) {"
+		val denial = requiredUniqueFoliateBlock(prewarm, denialHeader)
+		val snapshot = "val passiveAvailable = passiveRasterPreparationAdapter?.isAvailable == true"
+		val profileWait = requiredUniqueFoliateBlock(prewarm, "if (rasterProfileEpoch == null) {")
+		val availability = requiredUniqueFoliateBlock(host, "private fun onPassiveRasterPreparationAvailable() {")
+		val completion = "teardown.invokeOnCompletion { failure ->"
+		fun prewarmMutation(old: String, replacement: String): String =
+			mutateFoliateSourceOnce(host, prewarm, mutateFoliateSourceOnce(prewarm, old, replacement))
+		assertFoliatePolicyRejectsMutations(
+			host,
+			{ assertPassiveReadinessPolicy(it, runtime); assertPassiveIsolationPolicy(it) },
+			listOf(
+				"Missing availability denial" to mutateFoliateSourceOnce(host, denial, ""),
+				"Duplicate availability denial" to mutateFoliateSourceOnce(host, denial, "$denial\n\t\t\t$denial"),
+				"Missing availability snapshot" to prewarmMutation(snapshot, ""),
+				"Wrong nullable availability semantics" to prewarmMutation(snapshot, "val passiveAvailable = passiveRasterPreparationAdapter?.isAvailable != false"),
+				"Missing lifecycle denial" to mutateFoliateSourceOnce(host, denialHeader, "if (!passiveAvailable) {"),
+				"Missing listener removal on denial" to mutateFoliateSourceOnce(host, denial, denial.replace("removePageTurnPrewarmLayoutListener()", "Unit")),
+				"Missing true return on denial" to mutateFoliateSourceOnce(host, denial, denial.replace("return@OnPreDrawListener true", "true")),
+				"Passive wait frame insertion" to mutateFoliateSourceOnce(host, denial, denial.replace("removePageTurnPrewarmLayoutListener()", "postInvalidateOnAnimation()\n\t\t\t\tremovePageTurnPrewarmLayoutListener()")),
+				"Profile wait frame insertion" to mutateFoliateSourceOnce(host, profileWait, profileWait.replace("removePageTurnPrewarmLayoutListener()", "postInvalidateOnAnimation()\n\t\t\t\tremovePageTurnPrewarmLayoutListener()")),
+				"Prewarm foreground ownership leak" to prewarmMutation(snapshot, "foregroundWebViewOwnership.snapshot()\n\t\t\t$snapshot"),
+				"Availability foreground ownership leak" to mutateFoliateSourceOnce(host, availability, availability.replace("pageRasterPreparationController.onPassiveRasterPreparationAvailable()", "foregroundWebViewOwnership.canAcquirePassive()\n\t\tpageRasterPreparationController.onPassiveRasterPreparationAvailable()")),
+				"Second live owner" to prewarmMutation(snapshot, "ReaderForegroundWebViewOwnership()\n\t\t\t$snapshot"),
+				"Live owner closes outside drain completion" to mutateFoliateSourceOnce(host, completion, "runCatching(foregroundWebViewOwnership::close)\n\t\t$completion")
+			)
+		)
+	}
+
+	@Test
+	fun committedWindowContractRejectsMissingDuplicateAndWrongOverloads() {
+		val source = controllerFile.readText()
+		val wrapperHeader = "private fun publishProtectedWindow(window: List<Int>): Long ="
+		val overloadHeader = "private fun publishProtectedWindow(window: List<Int>, legacyConsequencesAdmitted: () -> Boolean): Long {"
+		val wrapper = requiredUniqueFoliateExpression(source, wrapperHeader, overloadHeader)
+		val overload = requiredUniqueFoliateBlock(source, overloadHeader)
+		val applyHeader = "private fun applyProtectedWindow(\n" +
+			"\t\twindow: List<Int>, version: Long, legacyConsequencesAdmitted: () -> Boolean = { true }\n\t) {"
+		val applyWindow = requiredUniqueFoliateBlock(source, applyHeader)
+		val ordinalsHeader = "private fun publishProtectedRasterOrdinals(\n" +
+			"\t\tlogicalOrdinals: List<Int>, legacyConsequencesAdmitted: () -> Boolean = { true }\n\t) {"
+		val ordinals = requiredUniqueFoliateBlock(source, ordinalsHeader)
+		assertFoliatePolicyRejectsMutations(
+			source,
+			::assertCommittedWindowPolicy,
+			listOf(
+				"Missing compatibility wrapper" to mutateFoliateSourceOnce(source, wrapper, ""),
+				"Duplicate compatibility wrapper" to (source + "\n\t$wrapper\n"),
+				"Braced wrapper cannot masquerade as expression body" to mutateFoliateSourceOnce(source, wrapper, wrapper.replace("Long =", "Long {") + "\n\t}"),
+				"Compatibility wrapper denies ordinary committed turns" to mutateFoliateSourceOnce(source, wrapper, wrapper.replace("{ true }", "{ false }")),
+				"Missing admission overload" to mutateFoliateSourceOnce(source, overload, ""),
+				"Duplicate admission overload" to (source + "\n\t$overload\n"),
+				"Wrong admission overload parameter" to mutateFoliateSourceOnce(source, overload, overload.replace("legacyConsequencesAdmitted: () -> Boolean", "unrelatedAdmission: () -> Boolean")),
+				"Expression overload cannot masquerade as braced body" to mutateFoliateSourceOnce(source, overloadHeader, overloadHeader.dropLast(1) + "="),
+				"Missing apply declaration" to mutateFoliateSourceOnce(source, applyWindow, ""),
+				"Duplicate apply declaration" to (source + "\n\t$applyWindow\n"),
+				"Wrong apply declaration" to mutateFoliateSourceOnce(source, applyWindow, applyWindow.replace("version: Long", "version: Int")),
+				"Missing ordinals declaration" to mutateFoliateSourceOnce(source, ordinals, ""),
+				"Duplicate ordinals declaration" to (source + "\n\t$ordinals\n"),
+				"Wrong ordinals declaration" to mutateFoliateSourceOnce(source, ordinals, ordinals.replace("logicalOrdinals: List<Int>", "logicalOrdinals: Set<Int>"))
+			)
+		)
+	}
+
+	@Test
+	fun committedWindowContractRejectsWrongAdmissionCopyVersionAndPublisherOrder() {
+		val source = controllerFile.readText()
+		val overload = requiredUniqueFoliateBlock(source, "private fun publishProtectedWindow(window: List<Int>, legacyConsequencesAdmitted: () -> Boolean): Long {")
+		val applyWindow = requiredUniqueFoliateBlock(source, "private fun applyProtectedWindow(\n" +
+			"\t\twindow: List<Int>, version: Long, legacyConsequencesAdmitted: () -> Boolean = { true }\n\t) {")
+		val ordinals = requiredUniqueFoliateBlock(source, "private fun publishProtectedRasterOrdinals(\n" +
+			"\t\tlogicalOrdinals: List<Int>, legacyConsequencesAdmitted: () -> Boolean = { true }\n\t) {")
+		val applyCall = "applyProtectedWindow(immutableWindow, version, legacyConsequencesAdmitted)"
+		val ordinalCall = "publishProtectedRasterOrdinals(window, legacyConsequencesAdmitted)"
+		val deniedReturn = "if (!legacyConsequencesAdmitted()) return"
+		assertFoliatePolicyRejectsMutations(
+			source,
+			::assertCommittedWindowPolicy,
+			listOf(
+				"Omitted apply admission" to mutateFoliateSourceOnce(source, applyCall, "applyProtectedWindow(immutableWindow, version)"),
+				"Wrong apply admission" to mutateFoliateSourceOnce(source, applyCall, "applyProtectedWindow(immutableWindow, version, { true })"),
+				"Omitted ordinals admission" to mutateFoliateSourceOnce(source, ordinalCall, "publishProtectedRasterOrdinals(window)"),
+				"Wrong ordinals admission" to mutateFoliateSourceOnce(source, ordinalCall, "publishProtectedRasterOrdinals(window, { true })"),
+				"Missing publisher admission guard" to mutateFoliateSourceOnce(source, overload, overload.replace("$deniedReturn protectedWindowVersion", "")),
+				"Missing apply admission guard" to mutateFoliateSourceOnce(source, applyWindow, applyWindow.replace(deniedReturn, "")),
+				"Missing ordinals admission guard" to mutateFoliateSourceOnce(source, ordinals, ordinals.replace(deniedReturn, "")),
+				"Wrong protected recipient admission" to mutateFoliateSourceOnce(source, ordinals, ordinals.replace("if (legacyConsequencesAdmitted()) onProtectedRasterSourcePageIndicesChanged", "if (true) onProtectedRasterSourcePageIndicesChanged")),
+				"Lost immutable window copy" to mutateFoliateSourceOnce(source, "val immutableWindow = window.toList()", "val immutableWindow = window"),
+				"Inverted conditional window version" to mutateFoliateSourceOnce(source, "val version = if (currentProtectedWindow != immutableWindow)", "val version = if (currentProtectedWindow == immutableWindow)"),
+				"Unchecked window version increment" to mutateFoliateSourceOnce(source, overload, overload.replace("Math.incrementExact(protectedWindowVersion)", "protectedWindowVersion + 1L")),
+				"Second protection publisher" to mutateFoliateSourceOnce(source, ordinalCall, "$ordinalCall\n\t\t$ordinalCall"),
+				"Reordered window version writes" to mutateFoliateSourceOnce(source, "currentProtectedWindow = window\n\t\tprotectedWindowVersion = version", "protectedWindowVersion = version\n\t\tcurrentProtectedWindow = window"),
+				"Unbalanced apply body" to mutateFoliateSourceOnce(source, applyWindow, applyWindow.dropLast(1))
+			)
+		)
+	}
+
+	@Test
+	fun committedWindowContractRejectsTerminalReorderingAndWeakenedRefillFences() {
+		val source = controllerFile.readText()
+		val publication = requiredUniqueFoliateBlock(source, "publishCommittedTerminal = {")
+		val schedule = requiredUniqueFoliateBlock(
+			source,
+			"private fun schedulePersistentRefill(\n\t\tdirection: ReaderPageTurnDirection,\n" +
+				"\t\tdestinationOrdinal: Int,\n\t\texpectedTurnVersion: Long\n\t) {"
+		)
+		val windowCall = "publishProtectedWindow(destinationWindow)"
+		val reordered = publication.replace("\t\t\t\t\t\t$windowCall\n", "")
+			.substringBeforeLast('}') + "\t$windowCall\n\t\t\t\t\t}"
+		assertFoliatePolicyRejectsMutations(
+			source,
+			::assertCommittedWindowPolicy,
+			listOf(
+				"Window publication after committed terminal" to mutateFoliateSourceOnce(source, publication, reordered),
+				"Weakened persistent window version fence" to mutateFoliateSourceOnce(source, "protectedWindowVersion == fence.protectedWindowVersion", "protectedWindowVersion >= fence.protectedWindowVersion"),
+				"Weakened persistent turn version fence" to mutateFoliateSourceOnce(source, "committedTurnVersion == fence.committedTurnVersion", "committedTurnVersion >= fence.committedTurnVersion"),
+				"Weakened adapter window version fence" to mutateFoliateSourceOnce(source, "protectedWindowVersion == expectedWindowVersion", "protectedWindowVersion >= expectedWindowVersion"),
+				"Missing persistent generation fence" to mutateFoliateSourceOnce(source, schedule, schedule.replace("requestGeneration == expectedGeneration", "true")),
+				"Lost asynchronous persistent launch" to mutateFoliateSourceOnce(source, "rasterScope.launch(Dispatchers.Main.immediate)", "run")
+			)
+		)
+	}
+
 
 	@Test
 	fun deckDeliveryRechecksImmutableFenceOnEveryHostPostOutcome() {

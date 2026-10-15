@@ -23,21 +23,35 @@ internal class ReaderPageRasterHydrationScheduler(
 	private val lock = Any()
 	private val permits = Semaphore(maxConcurrentWorkers.also { require(it > 0) })
 	private val jobs = linkedSetOf<Job>()
-	private val jobTokens = IdentityHashMap<Job, ReaderLegacySourceLocalOpaqueToken>()
+	private data class JobCustody(
+		val token: ReaderLegacySourceLocalOpaqueToken,
+		val work: ReaderActivatedRasterWork?
+	)
+
+	private val jobTokens = IdentityHashMap<Job, JobCustody>()
 	private val activeJobs = java.util.Collections.newSetFromMap(IdentityHashMap<Job, Boolean>())
 	private val completedJobs = java.util.Collections.newSetFromMap(IdentityHashMap<Job, Boolean>())
 	private val drainConfirmations = IdentityHashMap<Job, () -> Unit>()
 	private val closedSignal = CompletableDeferred<Unit>()
 	private var closed = false
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var legacyFinalized = false
 	private var activeWorkers = 0
 
 	val activeWorkerCount: Int
 		get() = synchronized(lock) { activeWorkers }
 
-	fun schedule(worker: suspend () -> Unit): Job? {
+	fun schedule(worker: suspend () -> Unit): Job? = scheduleOwned(null, worker)
+
+	fun scheduleInstalled(work: ReaderActivatedRasterWork, worker: suspend () -> Unit): Job? =
+		scheduleOwned(work, worker)
+
+	private fun scheduleOwned(work: ReaderActivatedRasterWork?, worker: suspend () -> Unit): Job? {
+		if (work != null && !work.isCurrent()) return null
 		val job = synchronized(lock) {
-			if (closed || frozenDomain != null) {
+			val admitted = if (work == null) frozenDomain == null else
+				legacyFinalized && frozenDomain == work.domain && work.installationIsCurrent()
+			if (closed || !admitted) {
 				null
 			} else {
 				scope.launch(start = CoroutineStart.LAZY) {
@@ -57,7 +71,7 @@ internal class ReaderPageRasterHydrationScheduler(
 					}
 				}.also { ownedJob ->
 					jobs += ownedJob
-					jobTokens[ownedJob] = tokenAllocator.allocate()
+					jobTokens[ownedJob] = JobCustody(tokenAllocator.allocate(), work)
 				}
 			}
 		} ?: return null
@@ -65,7 +79,7 @@ internal class ReaderPageRasterHydrationScheduler(
 			val confirmation = synchronized(lock) {
 				activeJobs.remove(job)
 				val pending = drainConfirmations.remove(job)
-				if (pending != null || frozenDomain == null) {
+				if (pending != null || frozenDomain == null || work != null) {
 					jobs.remove(job)
 					jobTokens.remove(job)
 					completedJobs.remove(job)
@@ -78,6 +92,25 @@ internal class ReaderPageRasterHydrationScheduler(
 		}
 		job.start()
 		return job
+	}
+
+	fun releaseInstalled(work: ReaderActivatedRasterWork, onReleased: () -> Unit): ReaderPortCommandResult {
+		val selected = synchronized(lock) {
+			if (!legacyFinalized || frozenDomain != work.domain) return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+			jobs.filter { jobTokens[it]?.work === work }
+		}
+		if (selected.isEmpty()) {
+			onReleased()
+		} else {
+			val pending = java.util.concurrent.atomic.AtomicInteger(selected.size)
+			selected.forEach { job ->
+				job.invokeOnCompletion { if (pending.decrementAndGet() == 0) onReleased() }
+			}
+			selected.forEach(Job::cancel)
+		}
+		return ReaderPortCommandResult.Accepted
 	}
 
 	fun freezeForTransitionActivation(
@@ -95,13 +128,23 @@ internal class ReaderPageRasterHydrationScheduler(
 		}
 	}
 
+	internal val originalLegacyAdmissionRestored: Boolean
+		get() = synchronized(lock) { !closed && frozenDomain == null }
+
+	fun connectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? = synchronized(lock) {
+		val domain = frozenDomain ?: return@synchronized null
+		ReaderLegacyConnectedSourceInventory(
+			ReaderLegacyInventorySource.RasterHydration, domain, snapshotFrozenOwnership()
+		)
+	}
+
 	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> = synchronized(lock) {
 		val domain = frozenDomain ?: return@synchronized emptyList()
-		jobs.map { job ->
+		jobs.filter { checkNotNull(jobTokens[it]).work == null }.map { job ->
 			val identity = ReaderLegacyPhysicalIdentity(
 				domain = domain,
 				source = ReaderLegacyInventorySource.RasterHydration,
-				sourceLocalToken = checkNotNull(jobTokens[job])
+				sourceLocalToken = checkNotNull(jobTokens[job]).token
 			)
 			ReaderFrozenLegacyResource(
 				freezeToken = domain.freezeToken,
@@ -136,7 +179,7 @@ internal class ReaderPageRasterHydrationScheduler(
 				return@synchronized null
 			}
 			val matched = jobs.firstOrNull { ownedJob ->
-				jobTokens[ownedJob] == physicalIdentity.sourceLocalToken
+				jobTokens[ownedJob]?.let { it.work == null && it.token == physicalIdentity.sourceLocalToken } == true
 			} ?: return@synchronized null
 			if (matched in drainConfirmations) return@synchronized null
 			if (completedJobs.remove(matched)) {
@@ -154,11 +197,19 @@ internal class ReaderPageRasterHydrationScheduler(
 		return ReaderPortCommandResult.Accepted
 	}
 
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult = synchronized(lock) {
+		if (closed || legacyFinalized || frozenDomain != domain || jobs.isNotEmpty() || activeWorkers != 0 ||
+			drainConfirmations.isNotEmpty())
+			return@synchronized ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		legacyFinalized = true
+		ReaderPortCommandResult.Accepted
+	}
+
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult = synchronized(lock) {
 		if (
-			frozenDomain != domain ||
+			legacyFinalized || frozenDomain != domain ||
 			closed ||
 			drainConfirmations.isNotEmpty()
 		) {

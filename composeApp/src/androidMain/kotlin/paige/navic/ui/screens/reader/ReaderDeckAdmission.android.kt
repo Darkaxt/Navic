@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.reader
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import paige.navic.reader.ReaderNativePagePresentationProof
 import paige.navic.reader.ReaderPresentationAuthority
 import paige.navic.reader.ReaderPresentationBinding
@@ -35,7 +37,8 @@ internal data class ReaderDeckLease(
 	val textureGeneration: Long,
 	val resourceKey: ReaderTransitionResourceKey,
 	val provenance: ReaderTransitionResourceProvenance = ReaderTransitionResourceProvenance.CoordinatorIssued,
-	val allocation: ReaderMaterialGenerationAllocation? = null
+	val allocation: ReaderMaterialGenerationAllocation? = null,
+	val transitionRole: ReaderTransitionDeckRole? = null
 ) {
 	init {
 		require(preparationGeneration > 0L)
@@ -49,6 +52,87 @@ internal data class ReaderDeckLease(
 		require(resourceKey.kind == ReaderTransitionResourceKind.Deck)
 		require(resourceKey.opaqueId == textureGeneration)
 	}
+}
+
+/** Immutable capture provenance and independently published display association on the ORIGINAL
+ * deck lease. This is decoration metadata, never admission/currentness or a second policy owner. */
+internal data class ReaderInstalledDeckDecorationAssociation(
+	val deck: ReaderDeckLease,
+	val plan: ReaderPageRasterPreparationPlan,
+	val displayedProof: ReaderNativePagePresentationProof
+) {
+	override fun toString(): String = "ReaderInstalledDeckDecorationAssociation(<redacted>)"
+}
+
+/** Renderer source identity, subordinate to the installed original deck and typed turn intent. */
+internal data class ReaderInstalledCurlGestureSource(
+	val work: ReaderActivatedRasterWork,
+	val deck: ReaderDeckLease,
+	val intent: paige.navic.reader.ReaderPageTurnIntent,
+	private val originalController: ReaderPlayLikeCurlFoliateController? = null
+) {
+	fun bindOriginalSemanticTransport(
+		retirement: paige.navic.reader.ReaderSemanticTransportRetirement,
+		onSettlement: (ReaderInstalledCurlSettlementObservation) -> Unit
+	): Boolean = originalController?.bindOriginalSemanticTransport(this, retirement, onSettlement) == true
+
+	fun retainOriginalSemanticReceipt(retirement: paige.navic.reader.ReaderSemanticTransportRetirement,
+		receipt: paige.navic.reader.ReaderPresentationEventReceipt): Boolean =
+		originalController?.retainOriginalSemanticReceipt(this, retirement, receipt) == true
+
+	fun reserveOriginalForegroundMutation(retirement: paige.navic.reader.ReaderSemanticTransportRetirement):
+		ReaderForegroundWebViewOwnership.InstalledMutation? =
+		originalController?.reserveOriginalForegroundMutation(this, retirement)
+
+	fun invokeOriginalForegroundMutation(mutation: ReaderForegroundWebViewOwnership.InstalledMutation,
+		invoke: () -> Unit): Boolean = originalController?.invokeOriginalForegroundMutation(this, mutation, invoke) == true
+
+	fun releaseOriginalForegroundMutation(mutation: ReaderForegroundWebViewOwnership.InstalledMutation) {
+		originalController?.releaseOriginalForegroundMutation(this, mutation)
+	}
+
+	fun retireOriginalSemanticTransportExact(retirement: paige.navic.reader.ReaderSemanticTransportRetirement) {
+		originalController?.retireOriginalSemanticTransportExact(this, retirement)
+	}
+
+	override fun toString(): String = "ReaderInstalledCurlGestureSource(<redacted>)"
+}
+
+internal enum class ReaderInstalledCurlSettlementStage { Started, Completed, Cancelled, Rejected }
+
+/** Original listener custody only. Neither registration nor observation selects a frame. */
+internal class ReaderInstalledCurlGestureObservationOwner(
+	val source: ReaderInstalledCurlGestureSource,
+	val onSettlement: (ReaderInstalledCurlSettlementObservation) -> Unit
+) {
+	var rendererCommandIssued = false
+	var rendererAdmissionInFlight = false
+	var rendererAdmitted = false
+	var started = false
+	var terminal: ReaderInstalledCurlSettlementObservation? = null
+	// The ONE original listener/waiting cell. The same token is bound by Engine to
+	// its original command ledger; neither owner creates a second transport registry.
+	var semanticTransportRetirement: paige.navic.reader.ReaderSemanticTransportRetirement? = null
+	var semanticSettlementConsumer: ((ReaderInstalledCurlSettlementObservation) -> Unit)? = null
+	var semanticTransportBound = false
+	var semanticTransportRetired = false
+	var semanticSettlementDelivered = false
+	// Observation metadata on the ORIGINAL cell survives executor transport retirement;
+	// it is not source currency, renderer completion or a second presentation producer.
+	var semanticReceipt: paige.navic.reader.ReaderPresentationEventReceipt? = null
+	override fun toString(): String = "ReaderInstalledCurlGestureObservationOwner(<redacted>)"
+}
+
+/** An original renderer callback is a typed observation, NOT Foliate settlement or a frame ACK. */
+internal data class ReaderInstalledCurlSettlementObservation(
+	val source: ReaderInstalledCurlGestureSource,
+	val stage: ReaderInstalledCurlSettlementStage,
+	val rendererDeckGeneration: Long,
+	val pageChange: karacken.curl.PageChange,
+	val settledOrdinal: Int? = null,
+	val rendererCompletion: karacken.curl.PageSurfaceView.CurlSettlementCompletion? = null
+) {
+	override fun toString(): String = "ReaderInstalledCurlSettlementObservation(<redacted>)"
 }
 
 internal fun ReaderTransitionDeckRole.toAndroidDeckSubmissionRole(): ReaderDeckSubmissionRole =
@@ -84,6 +168,7 @@ internal fun readerDeckLeaseOrNull(
 		textureGeneration = textureGeneration,
 		resourceKey = resourceKey,
 		allocation = command.allocation,
+		transitionRole = command.role,
 		provenance = provenance
 	)
 }
@@ -420,7 +505,11 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 	internal class Lease internal constructor(
 		internal var descriptor: ReaderDeckPhysicalRestartDescriptor,
 		internal val deckToken: ReaderLegacySourceLocalOpaqueToken,
-		internal val callbackToken: ReaderLegacySourceLocalOpaqueToken
+		internal val callbackToken: ReaderLegacySourceLocalOpaqueToken,
+		internal val installedWork: ReaderActivatedRasterWork? = null,
+		internal val installedDeck: ReaderDeckLease? = null,
+		internal val installedCallbacks: ReaderDeckLeaseFactEmitter? = null,
+		internal val installedPlan: ReaderPageRasterPreparationPlan? = null
 	) {
 		internal var state = ReaderLegacyResourceState.Reserved
 		internal var restartState = ReaderLegacyResourceState.Reserved
@@ -430,18 +519,32 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 		internal var deckReleaseRequested = false
 		internal var deckDrainConfirmation: ((ReaderLegacyPhysicalIdentity) -> Unit)? = null
 		internal var deckDrainIdentity: ReaderLegacyPhysicalIdentity? = null
+		internal var installedPreparation: Job? = null
+		internal var installedCloseAdapter: (() -> Unit)? = null
+		internal var installedRetireAdapter: ((() -> Unit) -> Unit)? = null
+		internal var installedRendererOwned = false
+		internal val installedRendererReturned = CompletableDeferred<Unit>()
+		internal var installedPrepared = false
+		internal var installedDisplayedProof: ReaderNativePagePresentationProof? = null
+		// One subordinate listener consumer on this original lease, not a gesture registry.
+		internal var installedGesture: ReaderInstalledCurlGestureObservationOwner? = null
 	}
 
 	private val leases = linkedSetOf<Lease>()
 	private val completedFrozenCallbacks =
 		linkedSetOf<ReaderLegacySourceLocalOpaqueToken>()
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var legacyFinalized = false
+	private var activatedDomain: ReaderLegacyPhysicalDomain? = null
 
 	val isFrozen: Boolean
 		get() = frozenDomain != null
 
+	val legacyAdmissionOpen: Boolean
+		get() = !legacyFinalized && frozenDomain == null
+
 	fun register(descriptor: ReaderDeckPhysicalRestartDescriptor): Lease? {
-		if (frozenDomain != null) return null
+		if (!legacyAdmissionOpen) return null
 		return Lease(
 			descriptor = descriptor,
 			deckToken = tokenAllocator.allocate(),
@@ -449,15 +552,36 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 		).also(leases::add)
 	}
 
+	fun registerInstalled(
+		work: ReaderActivatedRasterWork,
+		deck: ReaderDeckLease,
+		callbacks: ReaderDeckLeaseFactEmitter,
+		plan: ReaderPageRasterPreparationPlan? = null
+	): Lease? {
+		if (!legacyFinalized || activatedDomain != work.domain || !work.isCurrent() ||
+			deck.transitionId != work.lease.transitionId || deck.binding != work.lease.binding ||
+			deck.allocation != work.lease.allocation ||
+			leases.any { it.descriptor.textureGeneration == deck.textureGeneration }) return null
+		return Lease(
+			ReaderDeckPhysicalRestartDescriptor(deck.binding, deck.role, deck.preparationGeneration,
+				deck.rasterGeneration, deck.textureGeneration),
+			tokenAllocator.allocate(), tokenAllocator.allocate(), work, deck, callbacks,
+			plan?.let { original -> original.copy(
+				targets = original.targets.toList(),
+				captureGeometry = original.captureGeometry?.let { it.copy(pages = it.pages.toList()) }
+			) }
+		).also(leases::add)
+	}
+
 	fun acknowledgeRendererOwnership(lease: Lease): Boolean {
-		if (frozenDomain != null || lease !in leases || !lease.deckOwned) return false
+		if ((!legacyAdmissionOpen && lease.installedWork == null) || lease !in leases || !lease.deckOwned) return false
 		lease.state = ReaderLegacyResourceState.RendererOwned
 		return true
 	}
 
 	fun observeRendererCallback(lease: Lease): Boolean {
 		if (lease !in leases || !lease.callbackOwned) return false
-		if (frozenDomain != null) {
+		if (frozenDomain != null && lease.installedWork == null) {
 			lease.callbackOwned = false
 			completedFrozenCallbacks += lease.callbackToken
 			return false
@@ -468,7 +592,7 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 	}
 
 	fun retireNormally(lease: Lease): Boolean {
-		if (frozenDomain != null || !leases.remove(lease)) return false
+		if ((!legacyAdmissionOpen && lease.installedWork == null) || !leases.remove(lease)) return false
 		lease.deckOwned = false
 		lease.callbackOwned = false
 		lease.state = ReaderLegacyResourceState.Released
@@ -478,6 +602,7 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 	fun freezeForTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult = when {
+		legacyFinalized -> invalidPhysicalResource()
 		frozenDomain == null -> {
 			leases.forEach { it.callbackInventoriedAtFreeze = it.callbackOwned }
 			frozenDomain = domain
@@ -485,6 +610,11 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 		}
 		frozenDomain == domain -> ReaderPortCommandResult.Accepted
 		else -> ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+	}
+
+	fun snapshotConnectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? {
+		val domain = frozenDomain ?: return null
+		return ReaderLegacyConnectedSourceInventory(ReaderLegacyInventorySource.Deck, domain, snapshotFrozenOwnership())
 	}
 
 	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
@@ -607,7 +737,7 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 		confirmedRetirements: Set<ReaderLegacyPhysicalIdentity>,
 		onValidated: (selected: Lease?, retired: List<Lease>) -> Boolean
 	): ReaderPortCommandResult {
-		if (frozenDomain != domain) return invalidPhysicalResource()
+		if (legacyFinalized || frozenDomain != domain) return invalidPhysicalResource()
 		if (
 			selectedIdentity != null &&
 			(selectedIdentity.domain != domain ||
@@ -635,6 +765,9 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 			}
 		) return invalidPhysicalResource()
 		val retired = leases.filterNot { it === selected }
+		// Consume restart/admission authority before irreversible original cleanup. An
+		// unknown physical outcome may not replay that callback or reopen legacy work.
+		legacyFinalized = true
 		val accepted = try {
 			onValidated(selected, retired)
 		} catch (_: Throwable) {
@@ -642,6 +775,7 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 		}
 		if (!accepted) return invalidPhysicalResource()
 		retired.forEach { it.state = ReaderLegacyResourceState.Released }
+		activatedDomain = domain
 		leases.clear()
 		completedFrozenCallbacks.clear()
 		frozenDomain = null
@@ -665,7 +799,7 @@ internal class ReaderDeckPhysicalOwnershipAdapter(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult {
 		if (
-			frozenDomain != domain ||
+			legacyFinalized || frozenDomain != domain ||
 			completedFrozenCallbacks.isNotEmpty() ||
 			leases.any { it.callbackOwned || it.deckReleaseRequested }
 		) return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)

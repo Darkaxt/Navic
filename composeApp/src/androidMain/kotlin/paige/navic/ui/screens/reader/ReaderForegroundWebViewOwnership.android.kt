@@ -140,6 +140,53 @@ internal class ReaderForegroundWebViewOwnership(
 	private var restoring = false
 	private var closed = false
 
+	/** Installed mutation occupies the same original physical owner and monotonic counter.
+	 * Its source is the original lease's waiting cell; reservation is not a primitive start. */
+	internal class InstalledMutation internal constructor(
+		val source: ReaderInstalledCurlGestureSource,
+		val retirement: paige.navic.reader.ReaderSemanticTransportRetirement,
+		val generation: ReaderForegroundWebViewMutationGeneration,
+		internal val owner: ReaderExactPhysicalOwnerRegistry.Owner
+	) {
+		internal var invocationDepth = 0
+		internal var returned = false
+		internal var mutationStarted = false
+	}
+	private var installedMutation: InstalledMutation? = null
+
+	internal fun reserveInstalledMutation(source: ReaderInstalledCurlGestureSource,
+		retirement: paige.navic.reader.ReaderSemanticTransportRetirement): InstalledMutation? {
+		if (closed || restoring || frozenDomain != source.work.domain || restartCheckpoint != null ||
+			installedMutation != null || !source.work.installationIsCurrent()) return null
+		val generation = nextMutationGeneration() ?: return null
+		val owner = physical.admitInstalledPhysicalOwner(source.work.domain, source.work.store, source.work.snapshot,
+			ReaderExactPhysicalOwnerDescriptor(ReaderTransitionResourceKind.FrameHandoff,
+				binding = source.deck.binding, state = ReaderLegacyResourceState.Reserved)) ?: return null
+		mutationGeneration = generation
+		return InstalledMutation(source, retirement, ReaderForegroundWebViewMutationGeneration(generation), owner)
+			.also { installedMutation = it }
+	}
+
+	internal fun invokeInstalledMutation(mutation: InstalledMutation, invoke: () -> Unit): Boolean {
+		if (closed || installedMutation !== mutation || mutation.returned ||
+			mutation.generation.value != mutationGeneration || !mutation.source.work.installationIsCurrent()) return false
+		mutation.mutationStarted = true
+		mutation.invocationDepth++
+		try { invoke() }
+		finally {
+			mutation.invocationDepth--
+			if (mutation.returned && mutation.invocationDepth == 0) physical.complete(mutation.owner)
+		}
+		return true
+	}
+
+	internal fun releaseInstalledMutation(mutation: InstalledMutation) {
+		if (installedMutation !== mutation || mutation.returned) return
+		installedMutation = null
+		mutation.returned = true
+		if (mutation.invocationDepth == 0) physical.complete(mutation.owner)
+	}
+
 	fun canAcquirePassive(): Boolean = !closed && frozenDomain == null && !restoring &&
 		passive == null && restoration == null && liveClaims.isEmpty()
 
@@ -416,7 +463,15 @@ internal class ReaderForegroundWebViewOwnership(
 		return physical.freezeForTransitionActivation(domain)
 	}
 
+	internal val originalLegacyAdmissionRestored: Boolean
+		get() = !closed && !restoring && frozenDomain == null && !physical.isFrozen
+
 	fun connectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? = physical.connectedFrozenOwnership()
+	fun snapshotConnectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? {
+		if (closed || restoring) return null
+		return physical.connectedFrozenOwnership()?.takeIf { it.domain == frozenDomain }
+	}
+
 	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> = physical.snapshotFrozenOwnership()
 
 	fun drainFrozenOwnership(
@@ -434,6 +489,25 @@ internal class ReaderForegroundWebViewOwnership(
 				?.let(physical::complete)
 		}
 		return result
+	}
+
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult {
+		if (closed || restoring || frozenDomain != domain || passive != null || restoration != null ||
+			(liveClaims.values + retiredClaimTerminals.values + releasedClaimObligations.values).any {
+				it.invocationDepth != 0 || it.results.isNotEmpty() || it.callbacks.any { callback -> callback.running }
+			}) return invalidResource()
+		val result = physical.finalizeActivatedHandoff(domain)
+		if (result != ReaderPortCommandResult.Accepted) return result
+		restartCheckpoint = null
+		lateClaimOutcomes.clear()
+		lateContinuations.clear()
+		pendingPassiveReleaseNotifications.clear()
+		liveClaims.clear()
+		retiredClaimTerminals.clear()
+		releasedClaimObligations.clear()
+		exclusiveClaimId = null
+		currentMutationClaimId = null
+		return ReaderPortCommandResult.Accepted
 	}
 
 	fun restoreAfterTransitionActivation(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult {
@@ -521,6 +595,7 @@ internal class ReaderForegroundWebViewOwnership(
 	fun close() {
 		if (closed) return
 		closed = true
+		installedMutation?.retirement?.retire()
 		exclusiveClaimId = null
 		currentMutationClaimId = null
 		val states = (liveClaims.values + retiredClaimTerminals.values + releasedClaimObligations.values).distinct()

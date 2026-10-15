@@ -122,10 +122,42 @@ internal class ReaderPageInlineRasterShield(
 			.start()
 	}
 
-	fun dismiss() {
-		cancelPendingPresentation()
-		cancelFade()
-		clearPresentation()
+	fun dismiss(legacyConsequencesAdmitted: () -> Boolean = { true }) {
+		// Move only this invocation's resource ownership out before cancellation can
+		// synchronously present a successor. Release is independent of visual admission.
+		val snapshot = ownedSnapshot
+		val overlay = ownedWhispersyncOverlay
+		val request = nextRequest
+		val fadeRequest = activeFadeRequest
+		ownedSnapshot = null
+		ownedWhispersyncOverlay = null
+		val capturedPresentationIsCurrent = { nextRequest == request && ownedSnapshot == null }
+		// A recipient failure cannot orphan the resources already moved into this
+		// invocation. Finish each independent predecessor cleanup before rethrowing.
+		var failure: Throwable? = null
+		fun finishCapturedCleanup(action: () -> Unit) {
+			try {
+				action()
+			} catch (cleanupFailure: Throwable) {
+				val originalFailure = failure
+				if (originalFailure == null) failure = cleanupFailure
+				else if (originalFailure !== cleanupFailure) originalFailure.addSuppressed(cleanupFailure)
+			}
+		}
+		finishCapturedCleanup { cancelPendingPresentation() }
+		finishCapturedCleanup {
+			if (activeFadeRequest == fadeRequest) {
+				cancelFade(
+					legacyConsequencesAdmitted,
+					capturedPresentationIsCurrent,
+					ownsCapturedPresentation = {
+						snapshot?.bitmap?.isRecycled == false && view.visibility == View.VISIBLE
+					}
+				)
+			}
+		}
+		finishCapturedCleanup { clearPresentation(snapshot, overlay, request, legacyConsequencesAdmitted) }
+		failure?.let { throw it }
 	}
 
 	fun ownsPresentation(): Boolean =
@@ -291,38 +323,48 @@ internal class ReaderPageInlineRasterShield(
 			check(presentationCallback == null)
 			return
 		}
-		firstFrame?.let(view::removeCallbacks)
-		committedFrame?.let(view::removeCallbacks)
-		timeout?.let(view::removeCallbacks)
+		val first = firstFrame
+		val committed = committedFrame
+		val timeoutAction = timeout
+		val callback = presentationCallback
 		firstFrame = null
 		committedFrame = null
 		timeout = null
-		val hadRequest = activeRequest != null
 		activeRequest = null
-		val callback = presentationCallback
 		presentationCallback = null
+		first?.let { view.removeCallbacks(it); host.removeCallbacks(it) }
+		committed?.let { view.removeCallbacks(it); host.removeCallbacks(it) }
+		timeoutAction?.let { view.removeCallbacks(it); host.removeCallbacks(it) }
 		callback?.invoke(false)
-		if (hadRequest) onOwnershipMutated()
+		onOwnershipMutated()
 	}
 
-	private fun cancelFade() {
+	private fun cancelFade(
+		legacyConsequencesAdmitted: () -> Boolean = { true },
+		capturedPresentationIsCurrent: () -> Boolean = { true },
+		ownsCapturedPresentation: () -> Boolean = ::ownsPresentation
+	) {
 		if (activeFadeRequest == null) {
 			check(fadeCallback == null)
 			return
 		}
-		firstFrame?.let(host::removeCallbacks)
-		committedFrame?.let(host::removeCallbacks)
-		timeout?.let(host::removeCallbacks)
+		val first = firstFrame
+		val committed = committedFrame
+		val timeoutAction = timeout
+		val callback = fadeCallback
 		firstFrame = null
 		committedFrame = null
 		timeout = null
-		val hadFade = activeFadeRequest != null
 		activeFadeRequest = null
-		val callback = fadeCallback
 		fadeCallback = null
-		view.animate().cancel()
-		if (ownsPresentation()) view.alpha = 1f
-		if (hadFade) onOwnershipMutated()
+		first?.let(host::removeCallbacks)
+		committed?.let(host::removeCallbacks)
+		timeoutAction?.let(host::removeCallbacks)
+		val animation = view.animate()
+		if (capturedPresentationIsCurrent()) animation.cancel()
+		val ownsPresentation = ownsCapturedPresentation()
+		if (capturedPresentationIsCurrent() && legacyConsequencesAdmitted() && ownsPresentation) view.alpha = 1f
+		onOwnershipMutated()
 		callback?.invoke(false)
 	}
 
@@ -354,14 +396,37 @@ internal class ReaderPageInlineRasterShield(
 		ownedWhispersyncOverlay = null
 	}
 
-	private fun clearPresentation() {
-		val hadPresentation = ownedSnapshot != null || view.visibility != View.GONE
-		clearWhispersyncOverlay()
-		rasterView.setImageDrawable(null)
-		view.alpha = 1f
-		view.visibility = View.GONE
-		ownedSnapshot?.release()
-		ownedSnapshot = null
+	private fun clearPresentation(
+		snapshot: ReaderPageSlideSnapshot? = ownedSnapshot,
+		overlay: Bitmap? = ownedWhispersyncOverlay,
+		request: Long = nextRequest,
+		legacyConsequencesAdmitted: () -> Boolean = { true }
+	) {
+		val hadPresentation = snapshot != null || view.visibility != View.GONE
+		if (ownedSnapshot === snapshot) ownedSnapshot = null
+		if (ownedWhispersyncOverlay === overlay) ownedWhispersyncOverlay = null
+		val capturedPresentationIsCurrent = { nextRequest == request && ownedSnapshot == null }
+		clearWhispersyncOverlay(overlay, request, legacyConsequencesAdmitted)
+		val drawable = rasterView.drawable as? android.graphics.drawable.BitmapDrawable
+		if (capturedPresentationIsCurrent() && (snapshot == null || drawable?.bitmap === snapshot.bitmap)) {
+			// Sever only the obsolete snapshot's borrowing reference, not visual authority.
+			rasterView.setImageDrawable(null)
+		}
+		if (capturedPresentationIsCurrent() && legacyConsequencesAdmitted()) view.alpha = 1f
+		if (capturedPresentationIsCurrent() && legacyConsequencesAdmitted()) view.visibility = View.GONE
+		snapshot?.release()
 		if (hadPresentation) onOwnershipMutated()
+	}
+
+	private fun clearWhispersyncOverlay(
+		overlay: Bitmap?, request: Long, legacyConsequencesAdmitted: () -> Boolean
+	) {
+		val drawable = overlayView.drawable as? android.graphics.drawable.BitmapDrawable
+		val capturedOverlayIsCurrent = { nextRequest == request && ownedWhispersyncOverlay == null }
+		if (capturedOverlayIsCurrent() && (overlay == null || drawable?.bitmap === overlay)) {
+			overlayView.setImageDrawable(null)
+		}
+		if (capturedOverlayIsCurrent() && legacyConsequencesAdmitted()) overlayView.visibility = View.GONE
+		overlay?.takeUnless(Bitmap::isRecycled)?.recycle()
 	}
 }

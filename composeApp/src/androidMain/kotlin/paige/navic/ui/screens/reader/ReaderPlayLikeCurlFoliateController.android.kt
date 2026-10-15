@@ -32,6 +32,7 @@ import karacken.curl.RenderFailureReason
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
@@ -51,6 +52,7 @@ import paige.navic.reader.ReaderPageNewPointerDecision
 import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderPagePreparationFacts
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPageRelocationDrain
@@ -85,6 +87,7 @@ import paige.navic.reader.ReaderTransitionId
 import paige.navic.reader.ReaderTransitionOperation
 import paige.navic.reader.ReaderTransitionResourceKey
 import paige.navic.reader.ReaderTransitionResourceKind
+import paige.navic.reader.acceptsMaterialAllocation
 import paige.navic.reader.parentIdentity
 import paige.navic.reader.readerPresentationDecision
 import paige.navic.reader.ReaderTextureDeckState
@@ -1031,7 +1034,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val hasStaticRasterShieldOwnership: () -> Boolean = { true },
 	private val onOwnershipMutated: () -> Unit = {},
 	private val onOwnershipAvailabilityEdge: () -> Unit = {},
-	private val onOwnershipDiagnosticRequested: (ReaderPageOwnershipPhase) -> Unit = {}
+	private val onOwnershipDiagnosticRequested: (ReaderPageOwnershipPhase) -> Unit = {},
+	// Controls only the original raster worker/copy execution context. Default production
+	// execution is unchanged; tests still run the real loader/adapter and callback custody.
+	private val rasterDispatcher: CoroutineDispatcher = Dispatchers.Default,
+	// Read-only view of the ORIGINAL sole atomic sink. Presence grants no capability;
+	// every use authenticates its published snapshot against original physical custody.
+	private val readInstalledOwnerAndInput: (() -> ReaderOwnerAndInputPublicationSnapshot?)? = null
 ) : ReaderPageTapTurnPort,
 	ReaderPageDeckRecoveryHost,
 	ReaderPageRendererOwnershipHost {
@@ -1189,7 +1198,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			onCapacityAvailable = ::signalRasterCapacityAvailable
 		)
 	private val rasterJob = SupervisorJob()
-	private val rasterScope = CoroutineScope(rasterJob + Dispatchers.Default)
+	private val rasterScope = CoroutineScope(rasterJob + rasterDispatcher)
 	private val teardownJob = SupervisorJob()
 	private val teardownScope = CoroutineScope(
 		teardownJob + Dispatchers.Main.immediate
@@ -1215,6 +1224,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val activatedPhysicalDeckAuthorities =
 		mutableMapOf<ReaderLegacyPhysicalIdentity, ActivatedPhysicalDeckAuthority>()
 	private var deckActivationDomain: ReaderLegacyPhysicalDomain? = null
+	internal var activatedMaterialDomain: ReaderLegacyPhysicalDomain? = null
+		private set
+	private var activatedMaterialAllocation: paige.navic.reader.ReaderMaterialGenerationAllocation? = null
+	private var activatedMaterialPlan: ReaderPageRasterPreparationPlan? = null
+	private val installedOwnerAndInputReader: (() -> ReaderOwnerAndInputPublicationSnapshot?)?
+		get() = readInstalledOwnerAndInput.takeIf { activatedMaterialDomain != null }
 	private val frozenPhysicalDeckRestarts = mutableMapOf<Long, FrozenPhysicalDeckRestart>()
 	private var physicalFinalizationActivePagesNotificationPending = false
 	private val physicalDeckReleaseConfirmations = mutableMapOf<Long, () -> Unit>()
@@ -1526,6 +1541,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onDeckRejected(generationId: Long, reason: DeckRejectionReason) {
+				physicalDeckLeases[generationId]?.takeIf { it.installedWork != null }?.let { lease ->
+					lease.installedRendererReturned.complete(Unit)
+					generationOwners[generationId]?.obsolete = true
+					releaseGeneration(generationId)
+					if (lease.installedWork?.isCurrent() == true) {
+						lease.installedDeck?.let { lease.installedCallbacks?.onRejected(it) }
+					}
+					return
+				}
 				if (submissionCallbackFence.onDeckRejected(generationId, reason)) return
 				val activeRejected = generationId == activeDeckGenerationId
 				val pendingRejected = generationId == pendingDeckGenerationId
@@ -1551,6 +1575,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onDeckSubmissionCapacityAvailable() {
+				onOwnershipAvailabilityEdge()
 				deckRecoveryCoordinator.onDeckSubmissionCapacityAvailable()
 				retryAwaitingDeckAdmission("renderer-capacity-restored")
 			}
@@ -1586,6 +1611,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onDeckReleased(generationId: Long, reason: DeckReleaseReason) {
+				physicalDeckLeases[generationId]?.takeIf { it.installedWork != null }?.let { lease ->
+					lease.installedRendererReturned.complete(Unit)
+					// Actual renderer return ends this lease's listener custody, not a fabricated
+					// gesture/semantic terminal. No common publication is emitted by cleanup.
+					lease.installedGesture?.let { observer ->
+						retireOriginalGestureTransport(observer)
+						val gestureId = observer.source.intent.gestureId.value
+						if (activeGestureId == gestureId) activeGestureId = null
+						if (observer.started && observer.terminal == null) {
+							settlementMutationFence.onSettlementReconciled(gestureId, generationId, activeGestureId)
+						}
+					}
+					lease.installedGesture = null
+					generationOwners[generationId]?.obsolete = true
+				}
 				val selectedFrame = commonPresentationDecision?.frameOwner
 					.takeIf { generationBacksCommonPresentation(generationId) }
 				val selectedBinding = when (selectedFrame) {
@@ -1617,6 +1657,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 				reason: GestureRejectionReason,
 				pageChange: PageChange
 			) {
+				if (observeInstalledCurlSettlement(gestureId, generationId,
+					ReaderInstalledCurlSettlementStage.Rejected, pageChange)) return
 				val boundaryTurn = if (reason == GestureRejectionReason.BOUNDARY) {
 					when (pageChange) {
 						PageChange.PREVIOUS -> ReaderPageTurnDirection.Previous
@@ -1650,6 +1692,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onGestureCancelled(gestureId: Long, generationId: Long) {
+				if (observeInstalledCurlSettlement(gestureId, generationId,
+					ReaderInstalledCurlSettlementStage.Cancelled, PageChange.NONE)) return
 				if (!finishGesture(
 						gestureId,
 						ReaderPageGestureTerminalOutcome.CancelledByUser,
@@ -1668,6 +1712,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 				targetLogicalPageId: String,
 				pageChange: PageChange
 			) {
+				if (observeInstalledCurlSettlement(gestureId, generationId,
+					ReaderInstalledCurlSettlementStage.Started, pageChange)) return
 				check(activeGestureId == gestureId) {
 					"Settlement source does not own the active gesture"
 				}
@@ -1712,8 +1758,24 @@ internal class ReaderPlayLikeCurlFoliateController(
 				generationId: Long,
 				currentLogicalPageId: String,
 				currentPageOrdinal: Int,
+				pageChange: PageChange,
+				completion: PageSurfaceView.CurlSettlementCompletion?
+			) {
+				if (observeInstalledCurlSettlement(gestureId, generationId,
+					ReaderInstalledCurlSettlementStage.Completed, pageChange, currentPageOrdinal, completion)) return
+				// Preserve one legacy delivery only; never replay the installed observation untagged.
+				onSettlementCompleted(gestureId, generationId, currentLogicalPageId, currentPageOrdinal, pageChange)
+			}
+
+			override fun onSettlementCompleted(
+				gestureId: Long,
+				generationId: Long,
+				currentLogicalPageId: String,
+				currentPageOrdinal: Int,
 				pageChange: PageChange
 			) {
+				if (observeInstalledCurlSettlement(gestureId, generationId,
+					ReaderInstalledCurlSettlementStage.Completed, pageChange, currentPageOrdinal)) return
 				try {
 					if (pageChange == PageChange.NONE) {
 						if (!finishGesture(
@@ -1868,6 +1930,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 				generationId: Long,
 				currentLogicalPageId: String
 			) {
+				if (observeInstalledCurlSettlement(gestureId, generationId,
+					ReaderInstalledCurlSettlementStage.Cancelled, PageChange.NONE)) return
 				try {
 					if (!finishGesture(
 							gestureId,
@@ -1989,7 +2053,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	val isAvailable: Boolean
-		get() = !physicalDeckOwnership.isFrozen && readerPageLivePresentationAvailable(
+		get() = physicalDeckOwnership.legacyAdmissionOpen && readerPageLivePresentationAvailable(
 			hasFailedLivePresentation = failedLivePresentationGeneration != null,
 			otherwiseAvailable = readerPlayLikeCurlTurnAdmissionAvailable(
 				relocationQueue = relocationQueue,
@@ -2012,6 +2076,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 		return physicalDeckOwnership.freezeForTransitionActivation(domain).also { result ->
 			if (result == ReaderPortCommandResult.Accepted) deckActivationDomain = domain
 		}
+	}
+
+	internal val originalLegacyDeckAdmissionRestored: Boolean
+		get() = deckActivationDomain == null && physicalDeckOwnership.legacyAdmissionOpen
+
+	fun snapshotConnectedFrozenDeckOwnership(): ReaderLegacyConnectedSourceInventory? {
+		val domain = deckActivationDomain ?: return null
+		return physicalDeckOwnership.snapshotConnectedFrozenOwnership()?.takeIf { it.domain == domain }
 	}
 
 	fun snapshotFrozenDeckOwnership(): List<ReaderFrozenLegacyResource> =
@@ -2056,8 +2128,654 @@ internal class ReaderPlayLikeCurlFoliateController(
 				retiredLeases = retiredLeases
 			)
 		}
-		if (result == ReaderPortCommandResult.Accepted) deckActivationDomain = null
+		if (result == ReaderPortCommandResult.Accepted) {
+			activatedMaterialDomain = domain
+			deckActivationDomain = null
+		}
 		return result
+	}
+
+	internal fun reserveActivatedMaterialBinding(
+		command: ReaderTransitionCommand.AllocateMaterialBinding,
+		domain: ReaderLegacyPhysicalDomain,
+		webView: WebView,
+		plan: ReaderPageRasterPreparationPlan,
+		preparation: Long,
+		raster: Long
+	): paige.navic.reader.ReaderMaterialGenerationAllocation? {
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed || activatedMaterialDomain != domain ||
+			command.transitionId.readerSessionGeneration != domain.readerSessionGeneration ||
+			activatedMaterialAllocation?.transitionId == command.transitionId || !webView.isAttachedToWindow ||
+			preparation <= 0L || raster <= 0L || bundleSource.currentGeneration() != raster) return null
+		val requested = command.binding
+		if (requested.destinationCommitIdentity == null || requested.preparationGeneration != null ||
+			requested.rasterGeneration != null || requested.textureGeneration != null ||
+			nextRasterProfileEpoch <= requested.profileGeneration ||
+			!command.transitionId.expectedBinding.acceptsMaterialAllocation(requested)) return null
+		val orientation = if (plan.layoutMode == "spread") ReaderPlayLikeCurlOrientation.Landscape
+			else ReaderPlayLikeCurlOrientation.Portrait
+		val profile = ReaderPlayLikeCurlRasterProfile(
+			sourceIdentity = "${webView.url.orEmpty()}#$snapshotKey",
+			orientation = orientation,
+			quality = bitmapQuality,
+			pageCount = plan.pageCount,
+			readerDirection = plan.readerDirection,
+			spreadAnchorParity = if (orientation == ReaderPlayLikeCurlOrientation.Landscape)
+				Math.floorMod(plan.centerPageIndex, 2) else 0,
+			rasterGeneration = raster
+		)
+		val profileEpoch = nextRasterProfileEpoch
+		nextRasterProfileEpoch = Math.incrementExact(profileEpoch)
+		val texture = nextDeckGeneration
+		nextDeckGeneration = Math.incrementExact(texture)
+		val binding = command.binding.copy(profileGeneration = profileEpoch,
+			preparationGeneration = preparation, rasterGeneration = raster, textureGeneration = texture)
+		val allocation = paige.navic.reader.ReaderMaterialGenerationAllocation(
+			command.transitionId, binding, preparation, raster, texture, requestedBinding = requested)
+		// Original profile/generation custody, not legacy publication or material readiness.
+		requestedProfile = profile
+		publishedRasterProfile = profile
+		publishedRasterProfileEpoch = profileEpoch
+		preparationGeneration = preparation
+		activatedMaterialPlan = plan
+		activatedMaterialAllocation = allocation
+		return allocation
+	}
+
+	internal fun activatedPreparationPlan(
+		work: ReaderActivatedRasterWork
+	): ReaderPageRasterPreparationPlan? = activatedMaterialPlan.takeIf {
+		work.isCurrent() && activatedMaterialDomain == work.domain &&
+			activatedMaterialAllocation == work.lease.allocation
+	}
+
+	internal fun installedWorkFor(resourceKey: ReaderTransitionResourceKey): ReaderActivatedRasterWork? =
+		physicalDeckLeases.values.singleOrNull { it.installedWork?.lease?.resourceKey == resourceKey }
+			?.installedWork
+
+	internal fun installedDeckFor(resourceKey: ReaderTransitionResourceKey): ReaderDeckLease? =
+		physicalDeckLeases.values.singleOrNull { it.installedDeck?.resourceKey == resourceKey }
+			?.installedDeck
+
+	internal fun installedPreparationFactsFor(work: ReaderActivatedRasterWork): ReaderPagePreparationFacts? =
+		work.preparationFacts.takeIf { work.isCurrent() && activatedMaterialDomain == work.domain &&
+			(activatedMaterialAllocation == work.lease.allocation ||
+				physicalDeckLeases.values.any { lease -> lease.installedWork === work }) }
+
+	internal fun installedNativeCandidate(
+		deck: ReaderDeckLease,
+		transitionToken: ReaderPresentationToken?,
+		viewportWidth: Int,
+		viewportHeight: Int
+	): ReaderNativePagePresentationCandidate? {
+		val lease = physicalDeckLeases[deck.textureGeneration]?.takeIf { it.installedDeck == deck }
+			?: return null
+		val work = lease.installedWork ?: return null
+		val pages = generationOwners[deck.textureGeneration] ?: return null
+		// Preparation currentness admits work; the independently published original deck
+		// admits read-only access after that work has physically returned. Never reopen it.
+		val retained = if (work.isCurrent()) null else installedDecorationAssociationFor(deck)
+		val facts = if (work.isCurrent()) installedPreparationFactsFor(work)
+			else retained?.let { work.preparationFacts }
+		if (facts == null || (retained != null && (
+			retained.displayedProof.transitionToken != transitionToken ||
+			retained.displayedProof.viewportWidth != viewportWidth ||
+			retained.displayedProof.viewportHeight != viewportHeight))) return null
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed || !work.installationIsCurrent() ||
+			lease.deckReleaseRequested || !lease.installedRendererOwned || !lease.installedPrepared ||
+			lease.installedRendererReturned.isCompleted || pages.obsolete ||
+			pages.profile.rasterGeneration != deck.rasterGeneration ||
+			generationPreparationGenerations[deck.textureGeneration] != deck.preparationGeneration ||
+			!pages.deck.pageIndices.containsAll(pages.profile.preparedPageIndices(pages.centerOrdinal)) ||
+			viewportWidth <= 0 || viewportHeight <= 0) return null
+		return ReaderNativePagePresentationCandidate(
+			binding = deck.binding,
+			transitionToken = transitionToken,
+			visualPageIndex = pages.centerOrdinal,
+			viewportWidth = viewportWidth,
+			viewportHeight = viewportHeight,
+			preparationFacts = facts.copy(readiness = facts.readiness.copy(
+				decodedWorkingSet = paige.navic.reader.ReaderDecodedWorkingSetState.Ready,
+				textureDeck = ReaderTextureDeckState.Ready,
+				interaction = ReaderPageInteractionState.Ready
+			))
+		)
+	}
+
+	/** Subordinate projection AFTER the sole atomic sink has published. The incoming object
+	 * cannot certify itself: staging, copies and foreign physical leases all reject. This
+	 * records decoration association only; it does not select a frame or issue input. */
+	fun onInstalledOwnerAndInputPublished(publication: ReaderOwnerAndInputPublicationSnapshot): ReaderPortCommandResult {
+		fun rejected() = ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed ||
+			installedOwnerAndInputReader?.invoke() !== publication) return rejected()
+		val deck = installedDeckFor(publication.resource.key) ?: return rejected()
+		val lease = physicalDeckLeases[deck.textureGeneration] ?: return rejected()
+		val work = lease.installedWork ?: return rejected()
+		val pages = generationOwners[deck.textureGeneration] ?: return rejected()
+		val plan = lease.installedPlan ?: return rejected()
+		if (!work.installationIsCurrent() || activatedMaterialDomain != work.domain ||
+			work.lease.binding != deck.binding || work.lease.allocation != deck.allocation ||
+			work.lease.transitionId != deck.transitionId || publication.binding != deck.binding ||
+			lease.deckReleaseRequested || !lease.installedRendererOwned || !lease.installedPrepared ||
+			lease.installedRendererReturned.isCompleted || pages.obsolete ||
+			pages.profile.rasterGeneration != deck.rasterGeneration || pages.centerOrdinal != plan.centerPageIndex ||
+			generationPreparationGenerations[deck.textureGeneration] != deck.preparationGeneration ||
+			!pages.deck.pageIndices.containsAll(pages.profile.preparedPageIndices(pages.centerOrdinal))) return rejected()
+		when (val owner = publication.owner) {
+			is ReaderPresentationFrameOwner.NativePage -> {
+				val proof = owner.proof
+				if (proof.binding != deck.binding || proof.rasterGeneration != deck.rasterGeneration ||
+					proof.textureGeneration != deck.textureGeneration || proof.presentedFrame <= 0L ||
+					proof.viewportWidth <= 0 || proof.viewportHeight <= 0) return rejected()
+				lease.installedDisplayedProof = proof
+			}
+			is ReaderPresentationFrameOwner.Curl -> {
+				val proof = lease.installedDisplayedProof ?: return rejected()
+				if (!installedOwnerRetainsProof(owner, proof)) return rejected()
+			}
+			else -> return rejected()
+		}
+		return ReaderPortCommandResult.Accepted
+	}
+
+	private fun installedOwnerRetainsProof(owner: ReaderPresentationFrameOwner,
+		proof: ReaderNativePagePresentationProof): Boolean = when (owner) {
+		is ReaderPresentationFrameOwner.NativePage -> owner.proof == proof
+		is ReaderPresentationFrameOwner.Curl -> owner.frame.binding == proof.binding &&
+			owner.frame.presentedFrame == proof.presentedFrame && owner.frame.rasterGeneration == proof.rasterGeneration &&
+			owner.frame.textureGeneration == proof.textureGeneration
+		else -> false
+	}
+
+	/** Read-only association on the original physical deck, independent of command admission.
+	 * Returning metadata cannot admit a raster command, publish a frame, or apply a highlight. */
+	internal fun installedDecorationAssociationFor(deck: ReaderDeckLease): ReaderInstalledDeckDecorationAssociation? {
+		val lease = physicalDeckLeases[deck.textureGeneration]?.takeIf { it.installedDeck == deck } ?: return null
+		val work = lease.installedWork ?: return null
+		val proof = lease.installedDisplayedProof ?: return null
+		val plan = lease.installedPlan ?: return null
+		val pages = generationOwners[deck.textureGeneration] ?: return null
+		val installedReader = installedOwnerAndInputReader
+		val selected = if (installedReader != null) {
+			val publication = installedReader.invoke()
+			publication != null && publication.resource.key == deck.resourceKey &&
+				publication.binding == deck.binding && installedOwnerRetainsProof(publication.owner, proof)
+		} else {
+			// Preserve the default legacy unit/control route; a bound installed reader
+			// never falls back to this decision, including while it returns null.
+			commonPresentationDecision?.frameOwner?.let { installedOwnerRetainsProof(it, proof) } == true
+		}
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed || !work.installationIsCurrent() ||
+			activatedMaterialDomain != work.domain || work.lease.binding != deck.binding ||
+			work.lease.allocation != deck.allocation || work.lease.transitionId != deck.transitionId ||
+			lease.deckReleaseRequested || !lease.installedRendererOwned || !lease.installedPrepared ||
+			lease.installedRendererReturned.isCompleted || pages.obsolete || proof.binding != deck.binding || !selected ||
+			pages.profile.rasterGeneration != deck.rasterGeneration || pages.centerOrdinal != plan.centerPageIndex ||
+			generationPreparationGenerations[deck.textureGeneration] != deck.preparationGeneration ||
+			!pages.deck.pageIndices.containsAll(pages.profile.preparedPageIndices(pages.centerOrdinal))) return null
+		return ReaderInstalledDeckDecorationAssociation(deck, plan, proof)
+	}
+
+	/** Accepts an applicable decoration for the independently selected physical deck. Acceptance
+	 * owns the latest coalesced boundary; it is NOT a renderer/frame acknowledgement. */
+	internal fun setInstalledWhispersyncOverlay(
+		deck: ReaderDeckLease,
+		displayedProof: ReaderNativePagePresentationProof,
+		receipt: ReaderWhispersyncAnchorReceipt?,
+		highlightColorArgb: Int
+	): ReaderPortCommandResult {
+		val association = installedDecorationAssociationFor(deck)
+			?: return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		if (association.displayedProof != displayedProof ||
+			(receipt != null && !installedWhispersyncReceiptIsApplicable(association, receipt))) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+		val incoming = receipt?.nativePresentationProof()
+		val previous = latestWhispersyncPresentationProof?.takeIf {
+			it.foliateSessionId == deck.binding.foliateSessionId && it.textureGeneration == deck.textureGeneration
+		}
+		if (incoming != null && previous != null &&
+			(!incoming.hasSameDestinationPresentation(previous) || !incoming.isAdmissibleReplacementFor(previous) ||
+				(latestWhispersyncAnchorReceipt == null && incoming == previous))) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+		if (receipt == latestWhispersyncAnchorReceipt && highlightColorArgb == whispersyncHighlightColorArgb) {
+			return ReaderPortCommandResult.Accepted
+		}
+		latestWhispersyncAnchorReceipt = receipt
+		// A clear retains the high-water mark, so a late boundary cannot restore a cleared word.
+		if (incoming != null) latestWhispersyncPresentationProof = incoming
+		whispersyncHighlightColorArgb = highlightColorArgb
+		publishLatestWhispersyncOverlayIfIdle()
+		return ReaderPortCommandResult.Accepted
+	}
+
+	private fun installedWhispersyncReceiptIsApplicable(
+		association: ReaderInstalledDeckDecorationAssociation,
+		receipt: ReaderWhispersyncAnchorReceipt
+	): Boolean {
+		val deck = association.deck
+		val plan = association.plan
+		val layout = plan.resolvedLayout ?: return false
+		val range = plan.preparedChapterRange() ?: return false
+		val pages = generationOwners[deck.textureGeneration] ?: return false
+		if (receipt.foliateSessionId != deck.binding.foliateSessionId ||
+			receipt.rasterGeneration != deck.rasterGeneration || receipt.textureGeneration != deck.textureGeneration ||
+			receipt.commitSequence != deck.binding.destinationCommitIdentity?.commitSequence ||
+			receipt.layoutGeneration != layout.layoutGeneration || receipt.viewGeneration != layout.viewGeneration ||
+			receipt.spineIndex != layout.sectionIndex || receipt.committedSpineIndex != plan.currentChapterIndex ||
+			receipt.committedChapterPageCount != range.pageCount ||
+			receipt.committedChapterPageIndex != layout.pageIndex ||
+			receipt.visualPageOrdinal != plan.centerPageIndex || !range.contains(receipt.visualPageOrdinal) ||
+			receipt.committedChapterPageIndex != receipt.visualPageOrdinal - range.startPageIndex ||
+			receipt.captureGeometry != plan.captureGeometry ||
+			pages.profile.rasterGeneration != deck.rasterGeneration || pages.centerOrdinal != plan.centerPageIndex) return false
+		val targets = readerWhispersyncNativeOverlayTargets(receipt, receipt.nativePresentationProof(),
+			deck.binding.foliateSessionId, pages.profile, pages.centerOrdinal, deck.textureGeneration) ?: return false
+		return targets.isNotEmpty() && targets.all { target ->
+			val image = pages.deck.value(target.logicalOrdinal) ?: return@all false
+			!image.bitmap.isRecycled && image.leaf.matches(target.role) &&
+				receipt.maskRectsFor(target.role, image.bitmap.width, image.bitmap.height).isNotEmpty()
+		}
+	}
+
+	/** Retains one exact typed consumer on the original physical lease. This is source admission,
+	 * not renderer admission, semantic settlement, publication or a presented-frame proof. */
+	internal fun beginInstalledCurlGesture(
+		deck: ReaderDeckLease,
+		intent: paige.navic.reader.ReaderPageTurnIntent,
+		onSettlement: (ReaderInstalledCurlSettlementObservation) -> Unit
+	): ReaderPortCommandResult {
+		if (installedDecorationAssociationFor(deck) == null ||
+			physicalDeckLeases.values.any { it.installedGesture?.terminal == null && it.installedGesture != null } ||
+			activeGestureId != null || settlementMutationFence.hasUnreconciledSettlement) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+		val lease = physicalDeckLeases[deck.textureGeneration]
+			?: return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		val work = lease.installedWork
+			?: return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		val prior = lease.installedGesture
+		if (prior != null && (intent.gestureId.value <= prior.source.intent.gestureId.value ||
+			(prior.terminal?.stage == ReaderInstalledCurlSettlementStage.Completed &&
+				prior.terminal?.pageChange != PageChange.NONE))) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+		prior?.let(::retireOriginalGestureTransport)
+		if (physicalDeckLeases[deck.textureGeneration] !== lease || lease.installedGesture !== prior ||
+			installedDecorationAssociationFor(deck) == null) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+		lease.installedGesture = ReaderInstalledCurlGestureObservationOwner(
+			ReaderInstalledCurlGestureSource(work, deck, intent, this), onSettlement)
+		return ReaderPortCommandResult.Accepted
+	}
+
+	internal fun discardUnstartedInstalledCurlGesture(deck: ReaderDeckLease, intent: paige.navic.reader.ReaderPageTurnIntent): Boolean {
+		if (Looper.myLooper() != Looper.getMainLooper()) return false
+		val lease = physicalDeckLeases[deck.textureGeneration] ?: return false
+		val observer = lease.installedGesture ?: return false
+		if (observer.source.deck != deck || observer.source.intent != intent || observer.rendererCommandIssued || observer.started) return false
+		retireOriginalGestureTransport(observer)
+		if (lease.installedGesture !== observer) return false
+		lease.installedGesture = null // No renderer primitive was ever invoked; no synthetic terminal.
+		return true
+	}
+
+	/** Return only the minted object from original lease custody, never a reconstructed source. */
+	internal fun originalInstalledCurlGestureSource(deck: ReaderDeckLease,
+		intent: paige.navic.reader.ReaderPageTurnIntent): ReaderInstalledCurlGestureSource? {
+		if (Looper.myLooper() != Looper.getMainLooper() || installedDecorationAssociationFor(deck) == null) return null
+		return physicalDeckLeases[deck.textureGeneration]?.installedGesture?.source?.takeIf {
+			it.deck == deck && it.intent == intent
+		}
+	}
+
+	internal fun bindOriginalSemanticTransport(source: ReaderInstalledCurlGestureSource,
+		retirement: paige.navic.reader.ReaderSemanticTransportRetirement,
+		onSettlement: (ReaderInstalledCurlSettlementObservation) -> Unit): Boolean {
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed ||
+			installedDecorationAssociationFor(source.deck) == null) return false
+		val observer = originalGestureObserver(source) ?: return false
+		if (observer.semanticTransportBound || observer.semanticTransportRetired ||
+			observer.terminal?.stage == ReaderInstalledCurlSettlementStage.Cancelled ||
+			observer.terminal?.stage == ReaderInstalledCurlSettlementStage.Rejected) return false
+		observer.semanticTransportBound = true
+		observer.semanticTransportRetirement = retirement
+		observer.semanticSettlementConsumer = onSettlement
+		observer.terminal?.let { deliverOriginalSemanticSettlement(observer, it) }
+		return true
+	}
+
+	internal fun retainOriginalSemanticReceipt(source: ReaderInstalledCurlGestureSource,
+		retirement: paige.navic.reader.ReaderSemanticTransportRetirement, receipt: ReaderPresentationEventReceipt): Boolean {
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed || !source.work.installationIsCurrent()) return false
+		val observer = originalGestureObserver(source) ?: return false
+		val terminal = observer.terminal ?: return false
+		val semantic = receipt.semanticReceipt ?: return false
+		val settlement = (receipt.event as? ReaderPresentationEvent.FoliateRelocated)?.acknowledgement ?: return false
+		if (observer.semanticTransportRetired || observer.semanticTransportRetirement !== retirement || observer.semanticReceipt != null ||
+			terminal.stage != ReaderInstalledCurlSettlementStage.Completed || semantic.transitionId?.operation != paige.navic.reader.ReaderTransitionOperation.CurlClaimAndSettlement ||
+			semantic.binding.foliateSessionId != source.deck.binding.foliateSessionId || settlement.pageIndex != terminal.settledOrdinal ||
+			settlement.rasterGeneration != source.deck.rasterGeneration || settlement.textureGeneration != source.deck.textureGeneration) return false
+		observer.semanticReceipt = receipt
+		return true
+	}
+
+	internal fun reserveOriginalForegroundMutation(source: ReaderInstalledCurlGestureSource,
+		retirement: paige.navic.reader.ReaderSemanticTransportRetirement): ReaderForegroundWebViewOwnership.InstalledMutation? {
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed || !source.work.installationIsCurrent()) return null
+		val observer = originalGestureObserver(source) ?: return null
+		val terminal = observer.terminal ?: return null
+		if (observer.semanticTransportRetired || observer.semanticTransportRetirement !== retirement ||
+			!observer.semanticSettlementDelivered || terminal.stage != ReaderInstalledCurlSettlementStage.Completed) return null
+		return foregroundWebViewOwnership.reserveInstalledMutation(source, retirement)
+	}
+
+	internal fun invokeOriginalForegroundMutation(source: ReaderInstalledCurlGestureSource,
+		mutation: ReaderForegroundWebViewOwnership.InstalledMutation, invoke: () -> Unit): Boolean {
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed || mutation.source !== source) return false
+		val observer = originalGestureObserver(source) ?: return false
+		if (observer.semanticTransportRetired || observer.semanticTransportRetirement !== mutation.retirement) return false
+		return foregroundWebViewOwnership.invokeInstalledMutation(mutation, invoke)
+	}
+
+	internal fun releaseOriginalForegroundMutation(source: ReaderInstalledCurlGestureSource,
+		mutation: ReaderForegroundWebViewOwnership.InstalledMutation) {
+		if (mutation.source === source) foregroundWebViewOwnership.releaseInstalledMutation(mutation)
+	}
+
+	internal fun retireOriginalSemanticTransportExact(source: ReaderInstalledCurlGestureSource,
+		retirement: paige.navic.reader.ReaderSemanticTransportRetirement) {
+		if (Looper.myLooper() != Looper.getMainLooper()) return
+		val observer = originalGestureObserver(source) ?: return
+		if (observer.semanticTransportRetirement !== retirement) return
+		observer.semanticTransportRetired = true
+		observer.semanticSettlementConsumer = null
+		observer.semanticTransportRetirement = null
+	}
+
+	private fun originalGestureObserver(source: ReaderInstalledCurlGestureSource): ReaderInstalledCurlGestureObservationOwner? =
+		physicalDeckLeases[source.deck.textureGeneration]?.takeIf {
+			it.installedDeck == source.deck && it.installedWork === source.work
+		}?.installedGesture?.takeIf { it.source === source }
+
+	private fun deliverOriginalSemanticSettlement(observer: ReaderInstalledCurlGestureObservationOwner,
+		observation: ReaderInstalledCurlSettlementObservation) {
+		if (observation.stage == ReaderInstalledCurlSettlementStage.Started ||
+			observer.semanticTransportRetired || observer.semanticSettlementDelivered ||
+			observer.terminal !== observation) return
+		val consumer = observer.semanticSettlementConsumer ?: return
+		observer.semanticSettlementDelivered = true
+		observer.semanticSettlementConsumer = null // Consume before synchronous Engine/model reentry.
+		consumer(observation)
+	}
+
+	private fun retireOriginalGestureTransport(observer: ReaderInstalledCurlGestureObservationOwner) {
+		val token = observer.semanticTransportRetirement ?: return
+		retireOriginalSemanticTransportExact(observer.source, token)
+		try { token.retire() } catch (_: Throwable) { /* Exact cell is already fenced. */ }
+	}
+
+	private fun observeInstalledCurlSettlement(
+		gestureId: Long,
+		generationId: Long,
+		stage: ReaderInstalledCurlSettlementStage,
+		pageChange: PageChange,
+		settledOrdinal: Int? = null,
+		rendererCompletion: PageSurfaceView.CurlSettlementCompletion? = null
+	): Boolean {
+		val lease = physicalDeckLeases[generationId]
+		// Activated callbacks can never fall through to legacy relocation/publication, including
+		// late callbacks after the exact physical lease has returned.
+		if (lease?.installedWork == null) return activatedMaterialDomain != null
+		val observer = lease.installedGesture ?: return true
+		val source = observer.source
+		if (source.deck != lease.installedDeck || source.work !== lease.installedWork ||
+			source.intent.gestureId.value != gestureId || source.deck.textureGeneration != generationId ||
+			activeGestureId != gestureId || observer.terminal != null ||
+			!observer.rendererCommandIssued || destroyed ||
+			!source.work.installationIsCurrent() || lease.deckReleaseRequested ||
+			!lease.installedRendererOwned || lease.installedRendererReturned.isCompleted) return true
+		val expectedChange = when (source.intent.direction) {
+			ReaderPageTurnDirection.Next -> PageChange.NEXT
+			ReaderPageTurnDirection.Previous -> PageChange.PREVIOUS
+		}
+		if ((stage == ReaderInstalledCurlSettlementStage.Started && pageChange != expectedChange) ||
+			(stage == ReaderInstalledCurlSettlementStage.Completed && pageChange != PageChange.NONE &&
+				pageChange != expectedChange)) return true
+		if (stage == ReaderInstalledCurlSettlementStage.Started) {
+			if (observer.started || settlementMutationFence.hasUnreconciledSettlement) return true
+			observer.started = true
+			settlementMutationFence.onSettlementStarted(gestureId, generationId)
+		} else {
+			if (stage == ReaderInstalledCurlSettlementStage.Completed) {
+				if (!observer.started) return true
+				val pages = generationOwners[generationId] ?: return true
+				val expectedOrdinal = if (pageChange == PageChange.NONE) pages.centerOrdinal else
+					readerPlayLikeCurlSettlementTargetOrdinal(
+						orientation = pages.profile.orientation, currentOrdinal = pages.centerOrdinal,
+						pageCount = pages.profile.pageCount, pageChange = pageChange,
+						readerDirection = pages.profile.readerDirection, spreadAnchorParity = pages.profile.spreadAnchorParity)
+				if (settledOrdinal != expectedOrdinal) return true
+			}
+		}
+		if (rendererCompletion != null && (stage != ReaderInstalledCurlSettlementStage.Completed ||
+			rendererCompletion.sourceGenerationId != generationId || rendererCompletion.gestureId != gestureId ||
+			rendererCompletion.currentOrdinal != settledOrdinal || rendererCompletion.pageChange != pageChange ||
+			!surfaceView.isCurlSettlementCompletionCurrent(rendererCompletion))) return true
+		val observation = ReaderInstalledCurlSettlementObservation(source, stage, generationId, pageChange,
+			settledOrdinal, rendererCompletion)
+		if (stage != ReaderInstalledCurlSettlementStage.Started) observer.terminal = observation
+		try {
+			observer.onSettlement(observation)
+		} finally {
+			try { deliverOriginalSemanticSettlement(observer, observation) }
+			finally {
+				if (stage != ReaderInstalledCurlSettlementStage.Started) {
+					if (activeGestureId == gestureId) activeGestureId = null
+					if (observer.started) settlementMutationFence.onSettlementReconciled(gestureId, generationId, activeGestureId)
+					publishLatestWhispersyncOverlayIfIdle()
+				}
+			}
+		}
+		return true
+	}
+
+	internal fun installedCurlTerminalSpecification(deck: ReaderDeckLease,
+		deckTarget: paige.navic.reader.ReaderPlayLikeCurlDeckTargetIdentity,
+		geometry: paige.navic.reader.ReaderTransitionFrameGeometry):
+		paige.navic.reader.ReaderTransitionFrameTargetSpecification.CurlSettlementTerminalFrame? {
+		val original = physicalDeckLeases.values.singleOrNull {
+			it.installedGesture?.semanticReceipt?.semanticReceipt?.transitionId == deck.transitionId
+		} ?: return null
+		val observer = original.installedGesture ?: return null
+		val terminal = observer.terminal ?: return null
+		val completion = terminal.rendererCompletion ?: return null
+		val receipt = observer.semanticReceipt ?: return null
+		val settlement = (receipt.event as? ReaderPresentationEvent.FoliateRelocated)?.acknowledgement ?: return null
+		val sourceDeck = original.installedDeck ?: return null
+		val specification = paige.navic.reader.ReaderTransitionFrameTargetSpecification.CurlSettlementTerminalFrame(
+			deck.transitionId, deck.transitionId.readerSessionGeneration, deck.binding.publicationGeneration, deck.binding,
+			deck.allocation ?: return null, observer.source.intent.gestureId, settlement, deckTarget, geometry,
+			deck.transitionId.sequence, paige.navic.reader.ReaderCurlSettlementTerminalIdentity(sourceDeck.resourceKey,
+				paige.navic.reader.ReaderPlayLikeCurlDeckTargetIdentity(completion.rendererGenerationAtStart,
+					sourceDeck.textureGeneration, sourceDeck.transitionRole ?: return null), completion.sequence))
+		return specification.takeIf { installedCurlTerminalCompletion(it) === completion }
+	}
+
+	/** Join the exact original gesture completion, semantic receipt and installed successor.
+	 * No ordinary Native declaration or generic frame callback can certify this terminal. */
+	internal fun installedCurlTerminalCandidate(
+		specification: paige.navic.reader.ReaderTransitionFrameTargetSpecification.CurlSettlementTerminalFrame
+	): ReaderCurlSettlementTerminalPresentationCandidate? =
+		if (installedCurlTerminalCompletion(specification) != null) ReaderCurlSettlementTerminalPresentationCandidate(specification) else null
+
+	private fun installedCurlTerminalCompletion(
+		specification: paige.navic.reader.ReaderTransitionFrameTargetSpecification.CurlSettlementTerminalFrame
+	): PageSurfaceView.CurlSettlementCompletion? {
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed) return null
+		val identity = specification.terminalIdentity ?: return null
+		val sourceLease = physicalDeckLeases[identity.sourceDeckTarget.deckGeneration] ?: return null
+		val sourceDeck = sourceLease.installedDeck ?: return null
+		val observer = sourceLease.installedGesture ?: return null
+		val terminal = observer.terminal ?: return null
+		val completion = terminal.rendererCompletion ?: return null
+		val semantic = observer.semanticReceipt?.semanticReceipt ?: return null
+		val targetLease = physicalDeckLeases[specification.deckTarget.deckGeneration] ?: return null
+		val targetDeck = targetLease.installedDeck ?: return null
+		val target = installedNativeCandidate(targetDeck, null, specification.geometry.targetWidthPx,
+			specification.geometry.targetHeightPx) ?: return null
+		if (!sourceLease.installedRendererOwned || sourceLease.installedRendererReturned.isCompleted || sourceLease.deckReleaseRequested ||
+			!observer.source.work.installationIsCurrent() || terminal.stage != ReaderInstalledCurlSettlementStage.Completed ||
+			identity.sourceDeckKey != sourceDeck.resourceKey || identity.sourceDeckTarget.role != sourceDeck.transitionRole ||
+			specification.deckTarget.role != targetDeck.transitionRole || identity.terminalSequence != completion.sequence ||
+			identity.sourceDeckTarget.rendererGeneration != completion.rendererGenerationAtStart ||
+			completion.rendererGenerationAtCompletion != specification.deckTarget.rendererGeneration ||
+			surfaceView.rendererGeneration != specification.deckTarget.rendererGeneration ||
+			completion.sourceGenerationId != sourceDeck.textureGeneration || completion.gestureId != specification.gestureId.value ||
+			observer.source.intent.gestureId != specification.gestureId || completion.currentOrdinal != specification.settlement.pageIndex ||
+			terminal.settledOrdinal != specification.settlement.pageIndex ||
+			specification.settlement.foliateSessionId != sourceDeck.binding.foliateSessionId ||
+			specification.settlement.rasterGeneration != sourceDeck.rasterGeneration ||
+			specification.settlement.textureGeneration != sourceDeck.textureGeneration ||
+			semantic.transitionId != specification.transitionId || semantic.binding.destinationCommitIdentity != specification.binding.destinationCommitIdentity ||
+			targetDeck.transitionId != specification.transitionId || targetDeck.binding != specification.binding ||
+			targetDeck.allocation != specification.allocation || target.visualPageIndex != completion.currentOrdinal ||
+			!surfaceView.isCurlSettlementCompletionCurrent(completion)) return null
+		return completion
+	}
+
+	internal fun requestInstalledCurlTerminalPresentedFrame(
+		candidate: ReaderCurlSettlementTerminalPresentationCandidate,
+		onPresented: (Long) -> Unit
+	): Long {
+		val completion = installedCurlTerminalCompletion(candidate.specification) ?: return PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
+		var requestId = PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID
+		requestId = surfaceView.requestCurlSettlementTerminalPresentedFrame(completion,
+			candidate.specification.deckTarget.deckGeneration) {
+			if (installedCurlTerminalCompletion(candidate.specification) === completion) onPresented(requestId)
+		}
+		return requestId
+	}
+
+	internal fun reserveInstalledDeck(
+		work: ReaderActivatedRasterWork,
+		deck: ReaderDeckLease,
+		onFact: (paige.navic.reader.ReaderTransitionFact) -> Unit
+	): ReaderPortCommandResult {
+		val plan = activatedPreparationPlan(work)
+		val profile = publishedRasterProfile
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed || plan == null || profile == null ||
+			installedPreparationFactsFor(work) == null ||
+			deck.binding != work.lease.binding || deck.allocation != work.lease.allocation ||
+			profile.rasterGeneration != deck.rasterGeneration ||
+			publishedRasterProfileEpoch != deck.binding.profileGeneration ||
+			rasterAdapterOwners.size == rasterAdapterOwners.ownerLimit) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+		val callbacks = ReaderDeckLeaseFactEmitter(deck, onFact)
+		val lease = physicalDeckOwnership.registerInstalled(work, deck, callbacks, plan)
+			?: return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		// Consume the original allocation's deck reservation once, without allocating a successor.
+		activatedMaterialPlan = null
+		val generationId = deck.textureGeneration
+		check(physicalDeckLeases.putIfAbsent(generationId, lease) == null)
+		val adapter = createRasterAdapter(profile, work)
+		check(rasterAdapterOwners.tryAdd(adapter))
+		lease.installedCloseAdapter = adapter::close
+		lease.installedRetireAdapter = { returned -> retireRasterAdapter(adapter, returned) }
+		lease.installedPreparation = teardownScope.launch(start = CoroutineStart.LAZY) {
+			val preparation = adapter.prepare(
+				profile = profile,
+				pageIndices = profile.preparedPageIndices(plan.centerPageIndex),
+				publicationFence = ReaderPlayLikeCurlRasterPublicationFence(work::isCurrent),
+				missingRasterPolicy = ReaderPlayLikeCurlMissingRasterPolicy.CacheOnly
+			)
+			val result = awaitRasterPreparation(preparation)
+			withContext(NonCancellable + Dispatchers.Main.immediate) {
+				val rasterDeck = result.getOrNull()
+				if (rasterDeck == null || !work.isCurrent() || lease.deckReleaseRequested) {
+					rasterDeck?.close()
+					if (work.isCurrent() && !lease.deckReleaseRequested) callbacks.onRejected(deck)
+					return@withContext
+				}
+				val pages = PreparedPages(profile, rasterDeck, plan.centerPageIndex)
+				pages.generations += generationId
+				preparedPageSets += pages
+				generationOwners[generationId] = pages
+				generationRoles[generationId] = deck.role
+				generationPreparationGenerations[generationId] = deck.preparationGeneration
+				val libraryDeck = runCatching {
+					buildLibraryDeck(pages, plan.centerPageIndex, generationId)
+				}.getOrNull()
+				if (libraryDeck == null) {
+					pages.obsolete = true
+					releaseGeneration(generationId)
+					callbacks.onRejected(deck)
+					return@withContext
+				}
+				updateSurfaceBounds()
+				setSurfaceReadingDirection(profile)
+				val submission = runCatching {
+					surfaceView.submitDeckWithResult(libraryDeck) {
+						lease.installedRendererOwned = true
+						check(physicalDeckOwnership.acknowledgeRendererOwnership(lease))
+						callbacks.onOwned(deck)
+						if (lease.installedPrepared && work.isCurrent()) callbacks.onPrepared(deck)
+					}
+				}.getOrNull()
+				if (submission?.status != PageSurfaceDeckSubmissionResult.Status.ACCEPTED &&
+					!lease.installedRendererOwned) {
+					pages.obsolete = true
+					releaseGeneration(generationId)
+					if (work.isCurrent()) callbacks.onRejected(deck)
+				}
+			}
+		}
+		callbacks.onReserved(deck)
+		lease.installedPreparation?.start()
+		return ReaderPortCommandResult.Accepted
+	}
+
+	internal fun releaseInstalledDeck(
+		deck: ReaderDeckLease,
+		onReleased: () -> Unit
+	): ReaderPortCommandResult {
+		val lease = physicalDeckLeases[deck.textureGeneration]
+		if (Looper.myLooper() != Looper.getMainLooper() || lease?.installedDeck != deck ||
+			lease.deckReleaseRequested) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		}
+		lease.deckReleaseRequested = true
+		lease.installedGesture?.let(::retireOriginalGestureTransport)
+		lease.installedWork?.retire()
+		lease.installedCloseAdapter?.invoke()
+		teardownScope.launch {
+			withContext(NonCancellable) {
+				lease.installedPreparation?.join()
+				withContext(Dispatchers.Main.immediate) {
+					if (lease.installedRendererOwned && !lease.installedRendererReturned.isCompleted) {
+						rendererCleanupRetryCoordinator.request(
+							ReaderRendererCleanupRequest.StaleGeneration(deck.textureGeneration)
+						)
+					}
+				}
+				if (lease.installedRendererOwned) lease.installedRendererReturned.await()
+				withContext(Dispatchers.Main.immediate) {
+					generationOwners[deck.textureGeneration]?.obsolete = true
+					releaseGeneration(deck.textureGeneration)
+					lease.installedRetireAdapter?.invoke {
+						if (physicalDeckLeases.remove(deck.textureGeneration) === lease) {
+							check(physicalDeckOwnership.retireNormally(lease))
+							onReleased()
+						}
+					}
+				}
+			}
+		}
+		return ReaderPortCommandResult.Accepted
 	}
 
 	fun releaseActivatedDeckOwnership(
@@ -2157,6 +2875,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun onRendererDeckPrepared(generationId: Long) {
 		physicalDeckLeases[generationId]?.let { lease ->
 			if (!physicalDeckOwnership.observeRendererCallback(lease)) return
+			if (lease.installedWork != null) {
+				lease.installedPrepared = true
+				if (lease.installedRendererOwned && !lease.deckReleaseRequested &&
+					lease.installedWork.isCurrent()) {
+					lease.installedDeck?.let { lease.installedCallbacks?.onPrepared(it) }
+				}
+				return
+			}
 		}
 		val admission = generationAdmissions[generationId]
 		if (admission == null) {
@@ -2451,13 +3177,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 		onPaginationReadinessChanged(readiness)
 	}
 
-	private fun publishRasterProfileEpoch(profile: ReaderPlayLikeCurlRasterProfile?) {
+	private fun publishRasterProfileEpoch(profile: ReaderPlayLikeCurlRasterProfile?) =
+		publishRasterProfileEpoch(profile, { true })
+
+	private fun publishRasterProfileEpoch(
+		profile: ReaderPlayLikeCurlRasterProfile?,
+		legacyConsequencesAdmitted: () -> Boolean
+	) {
 		if (profile == null) {
-			publishedRasterProfile = null
-			publishedRasterProfileEpoch = null
-			notifyPreparedActiveDeckChanged(null)
-			onProtectedRasterSourcePageIndicesChanged(emptySet())
-			onRasterProfileEpochChanged(null)
+			if (legacyConsequencesAdmitted()) {
+				publishedRasterProfile = null
+				publishedRasterProfileEpoch = null
+				notifyPreparedActiveDeckChanged(null)
+			}
+			if (legacyConsequencesAdmitted()) onProtectedRasterSourcePageIndicesChanged(emptySet())
+			if (legacyConsequencesAdmitted()) onRasterProfileEpochChanged(null)
 			revokeIncompatibleDeckAdmissions()
 			return
 		}
@@ -2551,6 +3285,25 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun synchronizePresentationDecision(decision: ReaderPresentationDecision) {
 		commonPresentationDecision = decision
+		val native = (decision.frameOwner as? ReaderPresentationFrameOwner.NativePage)?.proof
+		val selected = native?.binding?.textureGeneration?.let(physicalDeckLeases::get)
+		val selectedDeck = selected?.installedDeck
+		val selectedPages = selectedDeck?.textureGeneration?.let(generationOwners::get)
+		if (readInstalledOwnerAndInput == null && native != null && selected != null && selectedDeck != null && selectedPages != null &&
+			native.binding == selectedDeck.binding &&
+			selected.installedWork?.installationIsCurrent() == true && selected.installedRendererOwned &&
+			selected.installedPrepared && !selected.deckReleaseRequested &&
+			!selected.installedRendererReturned.isCompleted && !selectedPages.obsolete) {
+			// Consume the actual common publication, not a prepared callback or same-binding poll.
+			// The anchor receipt never supplies this independent display association.
+			selected.installedDisplayedProof = native
+			activePages = selectedPages
+			activeDeckGenerationId = selectedDeck.textureGeneration
+			activeDeckPreparationGeneration = selectedDeck.preparationGeneration
+			preparedDeckGenerations += selectedDeck.textureGeneration
+			currentOrdinal = selectedPages.centerOrdinal
+			currentFoliateSessionId = selectedDeck.binding.foliateSessionId
+		}
 		synchronizeSelectedRendererFrame()
 		retryInitialLivePresentationAuthority()
 		if (presentationRecoverySnapshot?.token != currentCurlRecoveryRequest()?.token) {
@@ -3082,6 +3835,39 @@ internal class ReaderPlayLikeCurlFoliateController(
 		event: MotionEvent,
 		gestureId: Long
 	): ReaderPageCurlDispatchResult {
+		if (activatedMaterialDomain != null) {
+			val lease = physicalDeckLeases.values.singleOrNull {
+				it.installedGesture?.source?.intent?.gestureId?.value == gestureId
+			} ?: return ReaderPageCurlDispatchResult.TerminalPublished
+			val observer = lease.installedGesture ?: return ReaderPageCurlDispatchResult.TerminalPublished
+			if (observer.terminal != null || lease.deckReleaseRequested || destroyed ||
+				!observer.source.work.installationIsCurrent() || !lease.installedRendererOwned ||
+				lease.installedRendererReturned.isCompleted) return ReaderPageCurlDispatchResult.TerminalPublished
+			if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+				if (observer.rendererCommandIssued || observer.rendererAdmissionInFlight || activeGestureId != null ||
+					installedDecorationAssociationFor(observer.source.deck) == null) {
+					return ReaderPageCurlDispatchResult.TerminalPublished
+				}
+				activeGestureId = gestureId
+				// A thrown call cannot prove that renderer input had no physical effect.
+				observer.rendererCommandIssued = true
+				observer.rendererAdmissionInFlight = true
+				val accepted = try { surfaceView.onPageTouchEvent(event, gestureId) }
+				finally { observer.rendererAdmissionInFlight = false }
+				observer.rendererAdmitted = accepted
+				if (!accepted || observer.terminal != null) {
+					if (observer.terminal != null && activeGestureId == gestureId) activeGestureId = null
+					return ReaderPageCurlDispatchResult.TerminalPublished
+				}
+			} else {
+				if (!observer.rendererAdmitted || activeGestureId != gestureId) {
+					return ReaderPageCurlDispatchResult.TerminalPublished
+				}
+				surfaceView.onPageTouchEvent(event, gestureId)
+			}
+			return if (observer.terminal == null) ReaderPageCurlDispatchResult.Accepted
+				else ReaderPageCurlDispatchResult.TerminalPublished
+		}
 		if (event.actionMasked != MotionEvent.ACTION_DOWN) {
 			if (commonAcceptedCurlGestureId() != gestureId) {
 				return ReaderPageCurlDispatchResult.TerminalPublished
@@ -3331,6 +4117,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	fun cancelGesture(gestureId: Long) {
+		if (activatedMaterialDomain != null) {
+			val lease = physicalDeckLeases.values.singleOrNull {
+				it.installedGesture?.source?.intent?.gestureId?.value == gestureId
+			} ?: return
+			val observer = lease.installedGesture ?: return
+			retireOriginalGestureTransport(observer)
+			if (observer.terminal != null) return
+			if (!observer.rendererCommandIssued) {
+				// No renderer command was issued; withdraw only its unstarted listener consumer.
+				lease.installedGesture = null
+			} else {
+				// Only the original renderer cancellation callback can settle this consumer.
+				surfaceView.cancelGesture(gestureId)
+			}
+			return
+		}
 		activeGestureId = gestureId
 		surfaceView.cancelGesture(gestureId)
 		if (activeGestureId == gestureId) {
@@ -3670,6 +4472,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 		preservePublishedProfile: Boolean = false,
 		slotPolicy: ReaderRendererSlotInvalidationPolicy =
 			ReaderRendererSlotInvalidationPolicy.AbandonRendererSlots
+	) = invalidate(reason, profileRegeneration, relocationRejectionReason, preservePublishedProfile, slotPolicy, { true })
+
+	fun invalidate(
+		reason: String,
+		profileRegeneration: Boolean = false,
+		relocationRejectionReason: ReaderPageRelocationDiagnosticRejectionReason =
+			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated,
+		preservePublishedProfile: Boolean = false,
+		slotPolicy: ReaderRendererSlotInvalidationPolicy =
+			ReaderRendererSlotInvalidationPolicy.AbandonRendererSlots,
+		legacyConsequencesAdmitted: () -> Boolean
 	) {
 		val retainedPresentationPredecessor = if (
 			slotPolicy == ReaderRendererSlotInvalidationPolicy.RetainSelectedPresentationPredecessor
@@ -3709,7 +4522,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		discardDecodedWorkingSetPrefetch("invalidated:$reason")
 		deckRecoveryCoordinator.cancelAll()
 		repairQaFaultCorrelations.clear()
-		publishProtectedWindow(emptyList())
+		publishProtectedWindow(emptyList(), legacyConsequencesAdmitted)
 		rasterRepairRequests.clear()
 		relocationVisualHandoffCoordinator.cancelForQueueInvalidation()
 		drainRelocationOwnership(
@@ -3724,9 +4537,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			} else {
 				ReaderPageInteractionState.BlockingInitialPreparation
 			},
-			reason = "invalidated:$reason"
+			reason = "invalidated:$reason",
+			legacyConsequencesAdmitted = legacyConsequencesAdmitted
 		)
-		hideSurface()
+		hideSurface(legacyConsequencesAdmitted)
 		generationOwners.keys.toList().forEach { generationId ->
 			generationAdmissions[generationId]?.requestRelease()
 			rendererCleanupRetryCoordinator.request(
@@ -3765,10 +4579,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (preservePublishedProfile) {
 			// Retiring prepared material does not change the source profile identity
 			// required to admit the same viewer's replacement observation.
-			notifyPreparedActiveDeckChanged(null)
-			onProtectedRasterSourcePageIndicesChanged(emptySet())
+			if (legacyConsequencesAdmitted()) notifyPreparedActiveDeckChanged(null)
+			if (legacyConsequencesAdmitted()) onProtectedRasterSourcePageIndicesChanged(emptySet())
 		} else {
-			publishRasterProfileEpoch(null)
+			publishRasterProfileEpoch(null, legacyConsequencesAdmitted)
 		}
 		requestedProfile = null
 		preparedPageSets.toList().forEach(::closeIfUnused)
@@ -3782,6 +4596,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			cancelPassiveManifestAuthorityRecovery()
 			releaseInitialLivePresentationAuthority()
 				destroyed = true
+			physicalDeckLeases.values.mapNotNull { it.installedGesture }.forEach(::retireOriginalGestureTransport)
 			enabled = false
 			latestWhispersyncAnchorReceipt = null
 			latestWhispersyncPresentationProof = null
@@ -4169,7 +4984,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (!rasterCapacityRefreshPosted.compareAndSet(false, true)) return true
 		val accepted = mainHandler.post {
 			rasterCapacityRefreshPosted.set(false)
-			if (!destroyed) refreshPreparedDeck()
+			if (!destroyed) {
+				onOwnershipAvailabilityEdge()
+				refreshPreparedDeck()
+			}
 		}
 		if (!accepted) {
 			rasterCapacityRefreshPosted.set(false)
@@ -4196,7 +5014,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun retireRasterAdapter(
-		adapter: ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>
+		adapter: ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>,
+		onDrained: () -> Unit = {}
 	) {
 		adapter.close()
 		rasterScope.launch {
@@ -4208,6 +5027,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				if (drained) {
 					check(rasterAdapterOwners.remove(adapter))
 					onOwnershipMutated()
+					onOwnershipAvailabilityEdge()
 					if (!destroyed) refreshPreparedDeck()
 				}
 
@@ -4220,6 +5040,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					} else {
 						null
 					}
+				if (failure == null && drained) onDrained()
 				if (failure != null) {
 					recordRasterRetirementFailure(failure)
 					logActivationState(
@@ -4238,7 +5059,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun createRasterAdapter(
-		profile: ReaderPlayLikeCurlRasterProfile
+		profile: ReaderPlayLikeCurlRasterProfile,
+		work: ReaderActivatedRasterWork? = null
 	): ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage> {
 		val loader = ReaderPlayLikeCurlFoliateRasterLoader(
 			bundleSource = bundleSource,
@@ -4248,9 +5070,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 				val preferred = profile.pageRequest(currentOrdinal).sourcePageIndex
 				bundleSource.retainedReferenceSnapshot(
 					preferred,
-					profile.transitionKind()
+					profile.transitionKind(), work
 				)
 			},
+			work = work,
+			copyDispatcher = rasterDispatcher,
 			diagnostics = diagnostics,
 			qaFaultRegistry = qaFaultRegistry,
 			qaMissTargetOrdinalProvider = { currentOrdinal },
@@ -4302,6 +5126,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		relocationQueue.hasInFlightHead() && currentWebViewOrdinal != currentOrdinal
 
 	private fun refreshPreparedDeck(planRetryAttempt: Int = 0) {
+		if (!physicalDeckOwnership.legacyAdmissionOpen) return
 		if (awaitingPresentationRecoverySnapshot) return
 		val gate = when {
 			!enabled -> "disabled"
@@ -4903,27 +5728,37 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
-	private fun publishProtectedWindow(window: List<Int>): Long {
+	private fun publishProtectedWindow(window: List<Int>): Long =
+		publishProtectedWindow(window, { true })
+
+	private fun publishProtectedWindow(window: List<Int>, legacyConsequencesAdmitted: () -> Boolean): Long {
+		if (!legacyConsequencesAdmitted()) return protectedWindowVersion
 		val immutableWindow = window.toList()
 		val version = if (currentProtectedWindow != immutableWindow) {
 			Math.incrementExact(protectedWindowVersion)
 		} else {
 			protectedWindowVersion
 		}
-		applyProtectedWindow(immutableWindow, version)
+		applyProtectedWindow(immutableWindow, version, legacyConsequencesAdmitted)
 		return protectedWindowVersion
 	}
 
-	private fun applyProtectedWindow(window: List<Int>, version: Long) {
+	private fun applyProtectedWindow(
+		window: List<Int>, version: Long, legacyConsequencesAdmitted: () -> Boolean = { true }
+	) {
+		if (!legacyConsequencesAdmitted()) return
 		currentProtectedWindow = window
 		protectedWindowVersion = version
 		requestedProfile?.let { profile ->
 			rasterAdapter?.updateProtectedPageIndices(profile, window)
 		}
-		publishProtectedRasterOrdinals(window)
+		publishProtectedRasterOrdinals(window, legacyConsequencesAdmitted)
 	}
 
-	private fun publishProtectedRasterOrdinals(logicalOrdinals: List<Int>) {
+	private fun publishProtectedRasterOrdinals(
+		logicalOrdinals: List<Int>, legacyConsequencesAdmitted: () -> Boolean = { true }
+	) {
+		if (!legacyConsequencesAdmitted()) return
 		val profile = requestedProfile
 		val sourcePageIndices = if (profile == null) {
 			emptySet()
@@ -4931,7 +5766,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			readerPlayLikeCurlProtectedSourcePageIndices(profile, logicalOrdinals)
 		}
 		bundleSource.protectDecodedPageIndices(sourcePageIndices)
-		onProtectedRasterSourcePageIndicesChanged(sourcePageIndices)
+		if (legacyConsequencesAdmitted()) onProtectedRasterSourcePageIndicesChanged(sourcePageIndices)
 	}
 
 	private fun isLogicalRasterDecoded(logicalOrdinal: Int): Boolean {
@@ -5969,12 +6804,26 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun publishLatestWhispersyncOverlayIfIdle() {
-		if (destroyed || !enabled || !attached) return
-		val generationId = activeDeckGenerationId ?: return
-		val pages = activePages ?: return
+		if (destroyed) return
+		val installedPublication = installedOwnerAndInputReader?.invoke()
+		val generationId = if (installedOwnerAndInputReader != null) {
+			installedPublication?.binding?.textureGeneration ?: return
+		} else activeDeckGenerationId ?: return
+		val installedDeck = physicalDeckLeases[generationId]?.installedDeck
+		if (installedDeck == null && (!enabled || !attached || installedOwnerAndInputReader != null)) return
+		if (installedDeck != null) {
+			val association = installedDecorationAssociationFor(installedDeck) ?: return
+			latestWhispersyncAnchorReceipt?.let { receipt ->
+				if (!installedWhispersyncReceiptIsApplicable(association, receipt)) return
+			}
+		}
+		val pages = if (installedOwnerAndInputReader != null) generationOwners[generationId] ?: return
+			else activePages ?: return
+		val displayedOrdinal = if (installedOwnerAndInputReader != null) pages.centerOrdinal else currentOrdinal
 		val receipt = latestWhispersyncAnchorReceipt
 		val presentationProof = latestWhispersyncPresentationProof
-		val sessionId = currentFoliateSessionId
+		val sessionId = if (installedOwnerAndInputReader != null) installedDeck?.binding?.foliateSessionId
+			else currentFoliateSessionId
 		if (whispersyncOverlayClearPending) {
 			clearWhispersyncOverlayIfNeeded(generationId)
 			return
@@ -5985,7 +6834,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				presentationProof = latestWhispersyncPresentationProof,
 				foliateSessionId = sessionId,
 				profile = pages.profile,
-				currentOrdinal = currentOrdinal,
+				currentOrdinal = displayedOrdinal,
 				textureGeneration = generationId
 			)
 		} else {
@@ -6005,6 +6854,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 			inlineRasterShield.setWhispersyncOverlay(receipt = null, colorArgb = 0)
 			clearWhispersyncOverlayIfNeeded(generationId)
 			return
+		}
+		if (installedDeck != null) {
+			// Give admitted clears priority; freeze a nonempty source highlight during the
+			// original Curl claim/settlement until its original terminal callback returns.
+			val observer = physicalDeckLeases[generationId]?.installedGesture
+			if (observer != null && (observer.terminal == null ||
+				(observer.terminal?.stage == ReaderInstalledCurlSettlementStage.Completed &&
+					observer.terminal?.pageChange != PageChange.NONE))) return
+			if (activeGestureId != null || settlementMutationFence.hasUnreconciledSettlement ||
+				surfaceView.isSettlementRunning) return
 		}
 		if (
 			inlineRasterShield.ownsPresentation() &&
@@ -6165,7 +7024,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		originatingGestureId: Long? = null,
 		pendingAuthority: PendingLibraryDeckAdmissionAuthority? = null
 	): ReaderDeckAdmission? {
-		if (physicalDeckOwnership.isFrozen || !hostResumed) return null
+		if (!physicalDeckOwnership.legacyAdmissionOpen || !hostResumed) return null
 		val candidateDecision = commonPresentationDecision
 		if (
 			role == ReaderDeckSubmissionRole.Pending &&
@@ -8120,7 +8979,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun releaseGeneration(generationId: Long) {
-		if (!physicalDeckOwnership.isFrozen) {
+		if (!physicalDeckOwnership.isFrozen &&
+			physicalDeckLeases[generationId]?.installedWork == null) {
 			physicalDeckLeases.remove(generationId)?.let(physicalDeckOwnership::retireNormally)
 		}
 		rendererCleanupRetryCoordinator.complete(generationId)
@@ -8267,19 +9127,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 		presentedFrameGestureId?.let { owner -> owner > gestureId } == true ||
 			presentedSurfaceGestureId?.let { owner -> owner > gestureId } == true
 
-	private fun hideSurface() {
+	private fun hideSurface() = hideSurface { true }
+
+	private fun hideSurface(legacyConsequencesAdmitted: () -> Boolean) {
 		if (
 			!destroyed &&
 			(retainsRejectedSurfaceInputShield || failedLivePresentationGeneration != null)
 		) {
 			return
 		}
-		hideCurlSurface()
-		inlineRasterShield.dismiss()
+		hideCurlSurface(legacyConsequencesAdmitted)
+		inlineRasterShield.dismiss(legacyConsequencesAdmitted)
 		clearRetainedInlineHandoffSnapshot()
 	}
 
-	private fun hideCurlSurface() {
+	private fun hideCurlSurface(legacyConsequencesAdmitted: () -> Boolean = { true }) {
 		presentedFrameRequestId?.let { requestId ->
 			surfaceView.cancelPresentedFrameRequest(requestId)
 		}
@@ -8293,7 +9155,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (!destroyed && selectedCurl != null && generationBacksCommonPresentation(selectedCurl.frame.textureGeneration)) {
 			return
 		}
-		surfaceView.alpha = 0f
+		if (legacyConsequencesAdmitted()) surfaceView.alpha = 0f
 	}
 
 	private fun preparedInteractionState(): ReaderPageInteractionState =
@@ -8317,7 +9179,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		pendingTextureDeck: ReaderTextureDeckState = readinessState.pendingTextureDeck,
 		interaction: ReaderPageInteractionState = readinessState.interaction,
 		reason: String
+	) = updateReadiness(textureDeck, pendingTextureDeck, interaction, reason, { true })
+
+	private fun updateReadiness(
+		textureDeck: ReaderTextureDeckState,
+		pendingTextureDeck: ReaderTextureDeckState,
+		interaction: ReaderPageInteractionState,
+		reason: String,
+		legacyConsequencesAdmitted: () -> Boolean
 	) {
+		if (!legacyConsequencesAdmitted()) return
 		val latchedInteraction = readerPageLivePresentationInteractionState(
 			hasFailedLivePresentation = failedLivePresentationGeneration != null,
 			proposed = interaction
@@ -8336,7 +9207,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				"pending=${previous.pendingTextureDeck}->${next.pendingTextureDeck} " +
 				"interaction=${previous.interaction}->${next.interaction} reason=$reason"
 		)
-		onReadinessStateChange(next)
+		if (legacyConsequencesAdmitted()) onReadinessStateChange(next)
 	}
 
 	private fun requestLivePresentationRecovery(
@@ -8541,6 +9412,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: ReaderPageGestureTerminalDetail
 	) {
+		if (activatedMaterialDomain != null) {
+			activeGestureId?.let(::cancelGesture)
+			return
+		}
 		activeGestureId?.let { gestureId -> finishGesture(gestureId, outcome, detail) }
 	}
 }

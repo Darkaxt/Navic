@@ -7,6 +7,18 @@ import karacken.curl.RenderFailureReason
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import paige.navic.reader.ReaderExpectedPresentationBinding
+import paige.navic.reader.ReaderInitialCommittedPresentationOrigin
+import paige.navic.reader.ReaderInitialPresentationInputLease
+import paige.navic.reader.ReaderNativePagePresentationProof
+import paige.navic.reader.ReaderOwnerAndInputPublicationIdentity
+import paige.navic.reader.ReaderOwnerAndInputPublicationResult
+import paige.navic.reader.ReaderPresentationFrameOwner
+import paige.navic.reader.ReaderTransitionCommand
+import paige.navic.reader.ReaderTransitionId
+import paige.navic.reader.ReaderTransitionOperation
+import paige.navic.reader.ReaderTransitionResourceKey
+import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.reader.ReaderPageGestureLifecycle
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageInteractionState
@@ -213,6 +225,221 @@ class ReaderPageInputSettlementHostControllerTest {
 			host.dispatchPointer(ReaderPageHostPointerEvent.Up).gestureId
 		)
 		assertEquals(1, router.trackedSequenceCount())
+	}
+
+	@Test
+	fun finalizedInputRetirementCancelsOriginalDelayedTapAndFencesLegacyPolicyUpdates() {
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, router, _) = host(published = published)
+		val down = host.dispatchPointer(
+			ReaderPageHostPointerEvent.Down(20f, 30f, downTimeMillis = 81L))
+		assertEquals(ReaderPagePointerRoute.Content, down.route)
+		assertEquals(ReaderPagePointerRoute.Content,
+			host.dispatchPointer(ReaderPageHostPointerEvent.Up).route)
+		val domain = ReaderLegacyPhysicalDomain(5L, ReaderLegacyFreezeToken(67L))
+		assertEquals(ReaderPortCommandResult.Accepted,
+			host.freezeForTransitionActivation(domain))
+		val row = host.snapshotFrozenOwnership().single()
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		assertEquals(ReaderPortCommandResult.Accepted,
+			host.drainFrozenOwnership(row.physicalIdentity, confirmations::add))
+		assertEquals(listOf(row.physicalIdentity), confirmations)
+		assertTrue(host.snapshotFrozenOwnership().isEmpty())
+
+		assertEquals(ReaderPortCommandResult.Accepted, host.finalizeActivatedHandoff(domain))
+		assertEquals(listOf(down.gestureId to ReaderPageGestureTerminalOutcome.CancelledLifecycle),
+			published)
+		assertEquals(0, router.trackedSequenceCount())
+		assertIs<ReaderPortCommandResult.Rejected>(host.restoreAfterTransitionActivation(domain))
+		val continuation = nativeTapContinuation()
+		host.updateInputPolicies(
+			ReaderPresentationInputPolicy.NativePage(continuation.authorityPolicy),
+			continuation.localSafetyPolicy, continuation)
+		assertNull(host.takeDelayedTap(81L))
+		assertFalse(host.completeDelayedTap(requireNotNull(down.gestureId),
+			ReaderPageGestureTerminalOutcome.CompletedTapAction))
+		assertEquals(ReaderPagePointerRoute.Ignore, host.dispatchPointer(
+			ReaderPageHostPointerEvent.Down(20f, 30f, downTimeMillis = 82L)).route)
+		assertEquals(1, published.size)
+		assertEquals(0, host.contentGestureTokenCount())
+	}
+
+	private fun finalizeInputForInstalledPublication(host: ReaderPageInputSettlementHostController) {
+		val domain = ReaderLegacyPhysicalDomain(5L, ReaderLegacyFreezeToken(89L))
+		assertEquals(ReaderPortCommandResult.Accepted, host.freezeForTransitionActivation(domain))
+		assertTrue(host.snapshotFrozenOwnership().isEmpty())
+		assertEquals(ReaderPortCommandResult.Accepted, host.finalizeActivatedHandoff(domain))
+		assertIs<ReaderPortCommandResult.Rejected>(host.restoreAfterTransitionActivation(domain))
+	}
+
+	private fun installedNativePublicationCommand(): ReaderTransitionCommand.PublishRetainedOwnerAndInputLease {
+		// A different binding and token from the legacy continuation: only the physical reader may admit it.
+		val binding = nativeBinding.copy(viewportGeneration = 12L, textureGeneration = 15L)
+		val id = ReaderTransitionId(5L, 9L, 1L, ReaderTransitionOperation.BootstrapNativePage,
+			ReaderExpectedPresentationBinding.Exact(binding))
+		val ledger = ReaderTransitionReleaseLedger()
+		val key = ReaderTransitionResourceKey(id, ReaderTransitionResourceKind.Deck, 97L)
+		val registration = requireNotNull(ledger.register(key, id.readerSessionGeneration, id.coordinatorEpoch))
+		return ReaderTransitionCommand.PublishRetainedOwnerAndInputLease(
+			id,
+			ReaderPresentationFrameOwner.NativePage(ReaderNativePagePresentationProof(
+				binding, ReaderPresentationToken(101L), 1L, 1200, 800,
+				requireNotNull(binding.rasterGeneration), requireNotNull(binding.textureGeneration))),
+			binding, registration, ReaderTransitionInputLease.NativePage(binding, 15L),
+			ReaderOwnerAndInputPublicationIdentity(1L))
+	}
+
+	@Test
+	fun installedPublicationDrivesOriginalNextPointerAndKeepsLegacyFenced() {
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, router, _) = host(published = published,
+			presentationInputPolicy = ReaderPresentationInputPolicy.ChromeOnly)
+		finalizeInputForInstalledPublication(host)
+		var physical: ReaderOwnerAndInputPublicationSnapshot? = null
+		val initial = ReaderInitialCommittedPresentationOrigin.Neutral(5L, 9L,
+			ReaderInitialPresentationInputLease.None, ReaderInitialPresentationInputLease.None)
+		assertEquals(ReaderPortCommandResult.Accepted,
+			host.activateInstalledInput({ physical }, { initial }))
+		assertFalse(host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, 90L)).route ==
+			ReaderPagePointerRoute.Content)
+		host.dispatchPointer(ReaderPageHostPointerEvent.Up)
+
+		var acceptWrite = true
+		val barrier = ReaderOwnerAndInputPublicationBarrier({ _, lease -> host.narrowOrVeto(lease) }) { candidate ->
+			if (acceptWrite) { physical = candidate; true } else false
+		}
+		val command = installedNativePublicationCommand()
+		val applied = assertIs<ReaderOwnerAndInputPublicationResult.Applied>(barrier.publish(command))
+		assertEquals(command.requestedLease, applied.finalPhysicalInputLease)
+		assertEquals(command.retainedOwner, physical?.owner)
+		assertEquals(command.requestedLease, physical?.lease)
+		// Neither restoring the old domain nor legacy policy updates may overwrite the installed reader.
+		host.updateInputPolicies(ReaderPresentationInputPolicy.RecoveryOnly,
+			readerPageOperationPolicy(ready), null)
+		val down = host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, 91L))
+		assertEquals(ReaderPagePointerRoute.Content, down.route)
+		assertEquals(ReaderPagePointerRoute.Content, host.dispatchPointer(ReaderPageHostPointerEvent.Up).route)
+		val tap = requireNotNull(host.takeDelayedTap(91L))
+		assertEquals(command.retainedBinding, tap.continuationIdentity.binding)
+		assertEquals(ReaderPresentationToken(101L), tap.continuationIdentity.presentationToken)
+		assertTrue(host.completeDelayedTap(tap.gestureId, ReaderPageGestureTerminalOutcome.CompletedTapAction))
+		assertNull(host.takeDelayedTap(91L))
+		assertEquals(0, router.trackedSequenceCount())
+
+		val beforeRejectedWrite = physical
+		acceptWrite = false
+		assertIs<ReaderOwnerAndInputPublicationResult.Rejected>(barrier.publish(command.copy(
+			requestedLease = ReaderTransitionInputLease.None,
+			publicationIdentity = ReaderOwnerAndInputPublicationIdentity(2L))))
+		assertEquals(beforeRejectedWrite, physical)
+		assertEquals(ReaderPagePointerRoute.Content,
+			host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, 92L)).route)
+		host.dispatchPointer(ReaderPageHostPointerEvent.Cancel)
+		acceptWrite = true
+		assertIs<ReaderOwnerAndInputPublicationResult.Applied>(barrier.publish(command.copy(
+			requestedLease = ReaderTransitionInputLease.None,
+			publicationIdentity = ReaderOwnerAndInputPublicationIdentity(3L))))
+		assertFalse(host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, 93L)).route ==
+			ReaderPagePointerRoute.Content)
+		host.dispatchPointer(ReaderPageHostPointerEvent.Up)
+		assertEquals(0, host.contentGestureTokenCount())
+	}
+
+	@Test
+	fun installedNeutralAndNarrowedPublicationNeverElevateLocalSafety() {
+		for (initialLease in listOf(ReaderInitialPresentationInputLease.None,
+			ReaderInitialPresentationInputLease.ChromeOnly)) {
+			for (localReadiness in listOf(ready, settling)) {
+				var toggles = 0
+				val (host, router, _) = host(presentationInputPolicy = ReaderPresentationInputPolicy.ChromeOnly,
+					localReadiness = localReadiness, chromeToggleTarget = { _, _ -> true },
+					onChromeToggle = { toggles++ })
+				finalizeInputForInstalledPublication(host)
+				var physical: ReaderOwnerAndInputPublicationSnapshot? = null
+				val initial = ReaderInitialCommittedPresentationOrigin.Neutral(5L, 9L, initialLease, initialLease)
+				assertEquals(ReaderPortCommandResult.Accepted,
+					host.activateInstalledInput({ physical }, { initial }))
+				// A fenced legacy Native grant cannot create an owner during Neutral/preparation.
+				val old = nativeTapContinuation()
+				host.updateInputPolicies(ReaderPresentationInputPolicy.NativePage(old.authorityPolicy),
+					old.localSafetyPolicy, old)
+				assertFalse(host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, 110L)).route ==
+					ReaderPagePointerRoute.Content)
+				host.dispatchPointer(ReaderPageHostPointerEvent.Up)
+				assertEquals(initialLease == ReaderInitialPresentationInputLease.ChromeOnly,
+					host.dispatchChromeOnlyPointer(ReaderPageHostPointerEvent.Down(50f, 50f, 111L)))
+				host.dispatchChromeOnlyPointer(ReaderPageHostPointerEvent.PositionedUp(50f, 50f, 8f, 141L))
+				assertEquals(if (initialLease == ReaderInitialPresentationInputLease.ChromeOnly) 1 else 0, toggles)
+				assertEquals(0, router.trackedSequenceCount())
+
+				val barrier = ReaderOwnerAndInputPublicationBarrier({ _, lease -> host.narrowOrVeto(lease) }) { physical = it; true }
+				val native = installedNativePublicationCommand()
+				val applied = assertIs<ReaderOwnerAndInputPublicationResult.Applied>(barrier.publish(native))
+				assertEquals(if (localReadiness == ready) native.requestedLease else ReaderTransitionInputLease.ChromeOnly,
+					applied.finalPhysicalInputLease)
+				val down = host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, 112L))
+				assertEquals(localReadiness == ready, down.route == ReaderPagePointerRoute.Content)
+				host.dispatchPointer(ReaderPageHostPointerEvent.Cancel)
+				// Retained narrowing is itself the next physical policy, not an invitation to restore Native.
+				assertIs<ReaderOwnerAndInputPublicationResult.Applied>(barrier.publish(native.copy(
+					requestedLease = ReaderTransitionInputLease.ChromeOnly,
+					publicationIdentity = ReaderOwnerAndInputPublicationIdentity(2L))))
+				assertFalse(host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, 113L)).route ==
+					ReaderPagePointerRoute.Content)
+				host.dispatchPointer(ReaderPageHostPointerEvent.Up)
+				assertEquals(ReaderTransitionInputLease.ChromeOnly, host.narrowOrVeto(ReaderTransitionInputLease.ChromeOnly))
+				assertEquals(ReaderTransitionInputLease.None, host.narrowOrVeto(ReaderTransitionInputLease.None))
+				assertEquals(0, host.contentGestureTokenCount())
+			}
+		}
+	}
+
+	@Test
+	fun installedSafetyAndLifecycleUseOriginalRouterWithoutReopeningLegacy() {
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, router, _) = host(published = published,
+			presentationInputPolicy = ReaderPresentationInputPolicy.ChromeOnly)
+		val domain = ReaderLegacyPhysicalDomain(5L, ReaderLegacyFreezeToken(89L))
+		assertEquals(ReaderPortCommandResult.Accepted, host.freezeForTransitionActivation(domain))
+		var physical: ReaderOwnerAndInputPublicationSnapshot? = null
+		var initial: ReaderInitialCommittedPresentationOrigin = ReaderInitialCommittedPresentationOrigin.Neutral(
+			5L, 9L, ReaderInitialPresentationInputLease.None, ReaderInitialPresentationInputLease.None)
+		assertEquals(ReaderPortCommandResult.Accepted, host.activateInstalledInput({ physical }, { initial }))
+		assertEquals(ReaderPagePointerRoute.Ignore,
+			host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, 120L)).route)
+		assertEquals(ReaderPortCommandResult.Accepted, host.finalizeActivatedHandoff(domain))
+		val barrier = ReaderOwnerAndInputPublicationBarrier({ _, lease -> host.narrowOrVeto(lease) }) { physical = it; true }
+		val native = installedNativePublicationCommand()
+		assertIs<ReaderOwnerAndInputPublicationResult.Applied>(barrier.publish(native))
+		val down = host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, 121L))
+		host.dispatchPointer(ReaderPageHostPointerEvent.Up)
+		assertEquals(ReaderPagePointerRoute.Content, down.route)
+		host.updateInstalledLocalSafety(readerPageOperationPolicy(settling))
+		assertNull(host.takeDelayedTap(121L))
+		assertEquals(listOf(down.gestureId to ReaderPageGestureTerminalOutcome.CancelledLifecycle), published)
+		assertEquals(0, router.trackedSequenceCount())
+		host.updateInstalledLocalSafety(readerPageOperationPolicy(ready))
+		assertEquals(ReaderPageNewPointerDecision.Accept, host.newPointerDecision())
+		assertIs<ReaderOwnerAndInputPublicationResult.Applied>(barrier.publish(native.copy(
+			requestedLease = ReaderTransitionInputLease.ChromeOnly,
+			publicationIdentity = ReaderOwnerAndInputPublicationIdentity(2L))))
+		host.updateInstalledLocalSafety(readerPageOperationPolicy(ready))
+		assertIs<ReaderPageNewPointerDecision.Reject>(host.newPointerDecision())
+		// A changed origin epoch is not the installed session, even with the old physical snapshot.
+		initial = ReaderInitialCommittedPresentationOrigin.Neutral(5L, 10L,
+			ReaderInitialPresentationInputLease.ChromeOnly, ReaderInitialPresentationInputLease.ChromeOnly)
+		assertFalse(host.dispatchChromeOnlyPointer(ReaderPageHostPointerEvent.Down(50f, 50f, 122L)))
+		initial = ReaderInitialCommittedPresentationOrigin.Neutral(5L, 9L,
+			ReaderInitialPresentationInputLease.None, ReaderInitialPresentationInputLease.None)
+		assertIs<ReaderOwnerAndInputPublicationResult.Applied>(barrier.publish(native.copy(
+			publicationIdentity = ReaderOwnerAndInputPublicationIdentity(3L))))
+		val closing = host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, 123L))
+		assertEquals(listOf(closing.gestureId), host.onLifecycleEvent(ReaderPageHostLifecycleEvent.ReaderClosed))
+		host.dispatchPointer(ReaderPageHostPointerEvent.Up)
+		assertEquals(ReaderPagePointerRoute.Ignore,
+			host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 30f, 124L)).route)
+		assertIs<ReaderPortCommandResult.Rejected>(host.restoreAfterTransitionActivation(domain))
+		assertEquals(0, router.trackedSequenceCount())
 	}
 
 	@Test

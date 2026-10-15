@@ -1049,7 +1049,9 @@ class ReaderPageRasterSchedulerTest {
 		private val gate: CompletableDeferred<Unit>? = null,
 		private val firstGate: CompletableDeferred<Unit>? = null
 	) : ReaderPageRasterGenerator<String> {
-		val calls = mutableListOf<ReaderPageRasterKey>()
+		// The actual IO worker appends while the host thread observes restart
+		// progress; snapshot iteration must not race ArrayList mutation.
+		val calls = java.util.concurrent.CopyOnWriteArrayList<ReaderPageRasterKey>()
 		val firstStarted = CompletableDeferred<Unit>()
 
 		override suspend fun generate(key: ReaderPageRasterKey): ReaderPageRasterGeneration<String>? {

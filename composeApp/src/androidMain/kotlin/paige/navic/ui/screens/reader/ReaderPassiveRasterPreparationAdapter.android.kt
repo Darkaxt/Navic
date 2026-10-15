@@ -169,13 +169,27 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		val onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
 		val onProgress: (Int, Int) -> Unit,
 		val onComplete: (ReaderPageRasterBatchOutcome) -> Unit,
+		val work: ReaderActivatedRasterWork? = null,
 		var targetIndex: Int = 0,
 		var hydration: ReaderPageRasterHydrationRequest? = null,
 		var committedCapture: ReaderPassiveRasterCommittedCapture<Bitmap>? = null,
 		var pendingCapture: ReaderPassiveRasterCaptureResult<Bitmap>? = null
 	)
 
+	/** The single original runtime-ready consumer. Its record also retains return custody
+	 * while delivery is on-stack; it is not another preparation lease or resource registry. */
+	private class InstalledReadiness(
+		val work: ReaderActivatedRasterWork,
+		var onReady: (() -> Unit)?
+	) {
+		var executing = false
+		var delivered = false
+		var removed = false
+		var onReturned: (() -> Unit)? = null
+	}
+
 	private val manifestIssuer = ReaderPassiveRasterManifestIssuer()
+	private var installedReadiness: InstalledReadiness? = null
 	private var lifecycle = Lifecycle.Active
 	private var captureEpoch = initialCaptureEpoch
 	private var nextBatchToken = 0L
@@ -206,8 +220,45 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
 		onProgress: (completedCount: Int, requiredCount: Int) -> Unit,
 		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
+	): Boolean = startOwned(
+		kind, reference, targets, rasterGeneration, preparationGeneration,
+		isPreparationGenerationCurrent, isStillCurrent, trigger, capacityPolicy,
+		onActiveTarget, onHydrationMiss, onTargetDurable, onProgress, onComplete
+	)
+
+	fun startInstalled(
+		kind: ReaderPageTurnTransitionKind,
+		reference: ReaderPageSlideSnapshot,
+		targets: List<ReaderPageRasterBatchTarget>,
+		work: ReaderActivatedRasterWork,
+		trigger: ReaderPageRasterAcquisitionTrigger,
+		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
+	): Boolean = startOwned(
+		kind, reference, targets, work.lease.rasterGeneration, work.lease.preparationGeneration,
+		{ it == work.lease.preparationGeneration && work.isCurrent() }, work::isCurrent,
+		trigger, ReaderPageRasterCapacityPolicy.FailClosed,
+		{}, {}, {}, { _, _ -> }, onComplete, work
+	)
+
+	private fun startOwned(
+		kind: ReaderPageTurnTransitionKind,
+		reference: ReaderPageSlideSnapshot,
+		targets: List<ReaderPageRasterBatchTarget>,
+		rasterGeneration: Long,
+		preparationGeneration: Long,
+		isPreparationGenerationCurrent: (Long) -> Boolean,
+		isStillCurrent: () -> Boolean,
+		trigger: ReaderPageRasterAcquisitionTrigger,
+		capacityPolicy: ReaderPageRasterCapacityPolicy,
+		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
+		onHydrationMiss: (ReaderPageRasterBatchTarget) -> Unit,
+		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
+		onProgress: (Int, Int) -> Unit,
+		onComplete: (ReaderPageRasterBatchOutcome) -> Unit,
+		work: ReaderActivatedRasterWork? = null
 	): Boolean {
 		if (
+			(work != null && !work.isCurrent()) ||
 			!isAvailable ||
 			activeBatch != null ||
 			targets.isEmpty() ||
@@ -235,7 +286,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			onHydrationMiss = onHydrationMiss,
 			onTargetDurable = onTargetDurable,
 			onProgress = onProgress,
-			onComplete = onComplete
+			onComplete = onComplete,
+			work = work
 		)
 		activeBatch = batch
 		onProgress(0, targets.size)
@@ -244,7 +296,87 @@ internal class ReaderPassiveRasterPreparationAdapter(
 	}
 
 	override fun cancel() {
-		if (lifecycle == Lifecycle.Closed) return
+		cancelOwned(onCancellationDrained)
+	}
+
+	/** Registers before caller acceptance, including while the original runtime is unready. */
+	internal fun awaitInstalledReadiness(
+		work: ReaderActivatedRasterWork,
+		onReady: () -> Unit
+	): Boolean {
+		if (lifecycle != Lifecycle.Active || isRetired || !work.isCurrent() ||
+			installedReadiness != null || activeBatch != null) return false
+		installedReadiness = InstalledReadiness(work, onReady)
+		// Already-ready admission uses the same actual session readiness, not an assumed wake.
+		onOriginalRuntimeReady()
+		return true
+	}
+
+	/** Called by the original runtime-ready edge. A premature edge cannot dispatch work. */
+	internal fun onOriginalRuntimeReady() {
+		val consumer = installedReadiness ?: return
+		if (!isAvailable || consumer.removed || consumer.delivered ||
+			!consumer.work.isCurrent()) return
+		val callback = consumer.onReady ?: return
+		consumer.delivered = true
+		consumer.executing = true
+		try {
+			callback()
+		} finally {
+			consumer.executing = false
+			consumer.onReady = null
+			completeInstalledReadinessReturn(consumer)
+		}
+	}
+
+	/** Physical removal of this exact consumer; retirement cannot substitute for removal. */
+	internal fun cancelInstalledReadiness(
+		work: ReaderActivatedRasterWork,
+		onReturned: () -> Unit
+	): Boolean {
+		val consumer = installedReadiness ?: return false
+		if (consumer.work !== work || consumer.onReturned != null) return false
+		consumer.onReturned = onReturned
+		consumer.removed = true
+		consumer.onReady = null
+		completeInstalledReadinessReturn(consumer)
+		return true
+	}
+
+	private fun completeInstalledReadinessReturn(consumer: InstalledReadiness) {
+		if (installedReadiness !== consumer || !consumer.removed || consumer.executing) return
+		val returned = consumer.onReturned ?: return
+		installedReadiness = null
+		consumer.onReturned = null
+		returned()
+	}
+
+	fun cancelInstalled(work: ReaderActivatedRasterWork, onDrained: () -> Unit): Boolean {
+		val consumer = installedReadiness
+		val batch = activeBatch
+		if ((consumer != null && (consumer.work !== work || consumer.onReturned != null)) ||
+			(batch != null && batch.work !== work)) return false
+		if (consumer == null) return if (batch?.work === work) cancelOwned(onDrained, requireReady = false) else false
+		// No commit/capture exists for an undelivered consumer. Exact removal is its return.
+		if (!consumer.delivered) return cancelInstalledReadiness(work, onDrained)
+		if (lifecycle == Lifecycle.Closed) return false
+		var readinessReturned = false
+		var captureReturned = false
+		var confirmed = false
+		fun confirm() {
+			if (!confirmed && readinessReturned && captureReturned) {
+				confirmed = true
+				onDrained()
+			}
+		}
+		if (!cancelInstalledReadiness(work) { readinessReturned = true; confirm() }) return false
+		// The original readiness callback can still be executing when capture cancellation
+		// returns synchronously. Neither return substitutes for the other.
+		return cancelOwned({ captureReturned = true; confirm() }, requireReady = false)
+	}
+
+	private fun cancelOwned(onDrained: () -> Unit, requireReady: Boolean = true): Boolean {
+		if (lifecycle == Lifecycle.Closed) return false
 		val batch = activeBatch
 		activeBatch = null
 		retireCaptureEpoch()
@@ -253,14 +385,13 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		batch?.hydration = null
 		batch?.releaseCommittedCapture()
 		batch?.releasePendingCapture()
-		val cancellationPending = session.cancelActiveCapture(onCancellationDrained)
-		if (!cancellationPending && isAvailable) {
-			onCancellationDrained()
-		}
+		val cancellationPending = session.cancelActiveCapture(onDrained)
+		if (!cancellationPending && (!requireReady || isAvailable)) onDrained()
 		if (batch != null) {
 			batch.reference.release()
 			batch.onComplete(ReaderPageRasterBatchOutcome.Cancelled)
 		}
+		return true
 	}
 
 	override fun pause() {
@@ -375,15 +506,9 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			)
 			return
 		}
-		currentLivePublicationPort.publish(
-			reference = reference,
-			priority = target.priority,
-			isStillCurrent = {
-				isPreparationGenerationCurrent(batch) && batchIsCurrent(batch)
-			}
-		) { completion ->
+		val published: (ReaderPageRasterPublicationCompletion) -> Unit = publication@ { completion ->
 			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) {
-				return@publish
+				return@publication
 			}
 			readerPageRasterPersistenceTerminalOutcome(
 				trigger = batch.trigger,
@@ -392,9 +517,19 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				pageIndex = target.pageIndex
 			)?.let { outcome ->
 				finish(batch, outcome)
-				return@publish
+				return@publication
 			}
 			completeTarget(batch, target)
+		}
+		val current = { isPreparationGenerationCurrent(batch) && batchIsCurrent(batch) }
+		val work = batch.work
+		if (work == null) {
+			currentLivePublicationPort.publish(reference, target.priority, current, published)
+		} else {
+			bundleSource.ensurePersistentSnapshot(
+				snapshot = reference, priority = target.priority,
+				isStillCurrent = current, work = work, onPersisted = published
+			)
 		}
 	}
 
@@ -418,7 +553,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			reference = batch.reference,
 			priority = target.priority,
 			rasterDescriptor = inputs.rasterDescriptor,
-			isStillCurrent = { batchIsCurrent(batch) }
+			isStillCurrent = { batchIsCurrent(batch) },
+			work = batch.work
 		) resolved@{ completion ->
 			hydrationCompleted = true
 			if (batch.targetIndex == targetIndex) batch.hydration = null
@@ -560,7 +696,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			priority = target.priority,
 			rasterDescriptor = descriptor,
 			persistentOnly = true,
-			isStillCurrent = { batchIsCurrent(batch) }
+			isStillCurrent = { batchIsCurrent(batch) },
+			work = batch.work
 		) resolved@{ completion ->
 			hydrationCompleted = true
 			if (batch.targetIndex == targetIndex) batch.hydration = null
@@ -848,6 +985,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				preparationGeneration = batch.preparationGeneration,
 				isPreparationGenerationCurrent = batch.isPreparationGenerationCurrent,
 				isStillCurrent = { batchIsCurrent(batch) },
+				work = batch.work,
 				onRejected = { rejection -> passiveRasterRejection = rejection }
 			) admitted@{ completion ->
 				if (!batchIsCurrent(batch)) return@admitted

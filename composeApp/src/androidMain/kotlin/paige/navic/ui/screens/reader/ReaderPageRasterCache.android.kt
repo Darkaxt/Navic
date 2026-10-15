@@ -158,6 +158,9 @@ internal class ReaderPageRasterCache<T : Any>(
 		physicalOwnership.freezeForTransitionActivation(domain)
 	}
 
+	internal val originalLegacyAdmissionRestored: Boolean
+		get() = synchronized(this) { !decodedClosed && !physicalOwnership.isFrozen }
+
 	fun connectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? =
 		physicalOwnership.connectedFrozenOwnership()
 
@@ -169,6 +172,12 @@ internal class ReaderPageRasterCache<T : Any>(
 		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
 	): ReaderPortCommandResult =
 		physicalOwnership.drainFrozenOwnership(physicalIdentity, onConfirmed)
+
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult = synchronized(this) {
+		if (decodedClosed) return@synchronized ReaderPortCommandResult.Rejected(
+			paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource)
+		physicalOwnership.finalizeActivatedHandoff(domain)
+	}
 
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain

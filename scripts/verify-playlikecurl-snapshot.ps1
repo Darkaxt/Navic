@@ -18,6 +18,8 @@ $expectedCandidateCommit = "283f02dda29b0a7da2a11492ff01ca1db5beab71"
 $expectedCandidateManifestSha256 =
 	"8799328bd8401e5cd804ec62ad3234eba67a4edf41c14ae52a39d4feebbf65a7"
 $expectedCandidateLicenseBlob = "8aa26455d23acf904be3ed9dfb3a3efe3e49245a"
+# Navic's exact source delta, not an upstream commit, release, or QA attestation.
+$expectedDownstreamSha256 = "d80f34118d2e1e6a0a2cd7f3d9473b442105edcbd21a1100c4f1947625348088"
 
 $repositoryRootPath = (Resolve-Path -LiteralPath $RepositoryRoot).Path
 . (Join-Path $PSScriptRoot "../tools/playlikecurl-snapshot-common.ps1")
@@ -207,6 +209,97 @@ function Get-CandidateMirrorEntries {
 	return $entries
 }
 
+function Get-EffectiveCandidateFiles {
+	param([object[]] $CandidateFiles, [string] $DownstreamPath)
+
+	if (-not (Test-Path -LiteralPath $DownstreamPath)) {
+		return $CandidateFiles
+	}
+	if (-not (Test-Path -LiteralPath $DownstreamPath -PathType Leaf)) {
+		throw "Downstream source descriptor is not a file."
+	}
+	Assert-ExactString `
+		(Get-PlayLikeCurlSha256 ([System.IO.File]::ReadAllBytes($DownstreamPath))) `
+		$expectedDownstreamSha256 `
+		"Downstream source descriptor digest is not trusted."
+	$json = Get-Content -LiteralPath $DownstreamPath -Raw
+	Assert-JsonStructure $json "Downstream source descriptor"
+	$descriptor = $json | ConvertFrom-Json
+	Assert-ExactProperties $descriptor @(
+		"schemaVersion", "downstream", "apiVersion", "baseCommit",
+		"baseSourceManifestSha256", "modifiedFiles", "addedFiles"
+	) "Downstream source descriptor has unknown, missing, or mis-cased fields."
+	Assert-JsonInteger $descriptor.schemaVersion 1 "Wrong downstream schema version."
+	Assert-ExactString $descriptor.downstream "Navic" "Wrong downstream identity."
+	Assert-JsonInteger $descriptor.apiVersion 3 "Wrong downstream API version."
+	Assert-ExactString $descriptor.baseCommit $expectedCandidateCommit "Wrong downstream base commit."
+	Assert-ExactString $descriptor.baseSourceManifestSha256 $expectedCandidateManifestSha256 `
+		"Wrong downstream base source manifest digest."
+	if ($descriptor.modifiedFiles -isnot [array] -or
+		$descriptor.addedFiles -isnot [array] -or
+		$descriptor.modifiedFiles.Count -ne 3 -or $descriptor.addedFiles.Count -ne 3) {
+		throw "Downstream source delta must contain three modifications and three additions."
+	}
+
+	$effective = [System.Collections.Generic.Dictionary[string, object]]::new(
+		[System.StringComparer]::Ordinal
+	)
+	$allPaths = [System.Collections.Generic.HashSet[string]]::new(
+		[System.StringComparer]::OrdinalIgnoreCase
+	)
+	$modifiedPaths = [System.Collections.Generic.HashSet[string]]::new(
+		[System.StringComparer]::OrdinalIgnoreCase
+	)
+	foreach ($file in $CandidateFiles) {
+		$effective.Add($file.path, $file)
+		[void]$allPaths.Add($file.path)
+	}
+	foreach ($kind in @("modifiedFiles", "addedFiles")) {
+		foreach ($file in $descriptor.$kind) {
+			$properties = @("mode", "blob", "path")
+			if ($kind -eq "modifiedFiles") { $properties += "beforeBlob" }
+			Assert-ExactProperties $file $properties `
+				"Downstream source entry has unknown, missing, or mis-cased fields."
+			if ($file.mode -isnot [string] -or $file.mode -cne "100644") {
+				throw "Downstream source entry has an invalid Git mode."
+			}
+			if ($file.blob -isnot [string] -or $file.blob -cnotmatch "^[0-9a-f]{40}$") {
+				throw "Downstream source entry has an invalid Git blob."
+			}
+			if ($file.path -isnot [string] -or
+				$file.path -cnotmatch "^karackencurllib/[A-Za-z0-9._/-]+$" -or
+				$file.path.Contains("//") -or
+				@($file.path.Split("/") | Where-Object { $_ -in @(".", "..") }).Count -ne 0) {
+				throw "Downstream source entry has an invalid path."
+			}
+			if ($kind -eq "modifiedFiles") {
+				if (-not $modifiedPaths.Add($file.path)) {
+					throw "Downstream source path is duplicated or already present."
+				}
+				if (-not $effective.ContainsKey($file.path)) {
+					throw "Downstream modification has no exact baseline path."
+				}
+				$before = $effective[$file.path]
+				Assert-ExactString $file.beforeBlob $before.blob `
+					"Downstream modification does not match its baseline blob."
+				Assert-ExactString $file.mode $before.mode `
+					"Downstream modification does not match its baseline mode."
+				if ($file.blob -ceq $file.beforeBlob) {
+					throw "Downstream modification must change its baseline blob."
+				}
+			} elseif (-not $allPaths.Add($file.path)) {
+				throw "Downstream source path is duplicated or already present."
+			}
+			$effective[$file.path] = [pscustomobject]@{
+				mode = $file.mode
+				blob = $file.blob
+				path = $file.path
+			}
+		}
+	}
+	return @($effective.Values)
+}
+
 function Assert-CandidateSource {
 	param([string] $CandidatePath)
 
@@ -280,13 +373,17 @@ function Assert-CandidateSource {
 		$expectedCandidateManifestSha256 `
 		"Candidate source entries do not reconstruct the canonical manifest."
 
-	$mirrorEntries = @(Get-CandidateMirrorEntries $candidateFiles)
+	# Reconstruct and verify the immutable upstream manifest above before applying any delta.
+	$effectiveFiles = @(Get-EffectiveCandidateFiles $candidateFiles $downstreamPath)
+	$mirrorEntries = @(Get-CandidateMirrorEntries $effectiveFiles)
 	Assert-Equal `
 		$mirrorEntries.Count `
-		$candidateFiles.Count `
+		$effectiveFiles.Count `
 		"Candidate source entry count drift."
-	$candidateByPath = @{}
-	foreach ($file in $candidateFiles) {
+	$candidateByPath = [System.Collections.Generic.Dictionary[string, object]]::new(
+		[System.StringComparer]::Ordinal
+	)
+	foreach ($file in $effectiveFiles) {
 		$candidateByPath.Add([string]$file.path, $file)
 	}
 	foreach ($entry in $mirrorEntries) {
@@ -311,6 +408,7 @@ function Assert-CandidateSource {
 		$licenseBlobLines[0] `
 		$expectedCandidateLicenseBlob `
 		"Candidate PlayLikeCurl license blob drift."
+	return (Test-Path -LiteralPath $downstreamPath -PathType Leaf)
 }
 
 $snapshotRoot = Join-Path $repositoryRootPath "third_party/playlikecurl"
@@ -318,6 +416,7 @@ $moduleRoot = Join-Path $snapshotRoot "karackencurllib"
 $licensePath = Join-Path $snapshotRoot "LICENSE.txt"
 $provenancePath = Join-Path $snapshotRoot "provenance.json"
 $candidatePath = Join-Path $snapshotRoot "candidate-source.json"
+$downstreamPath = Join-Path $snapshotRoot "downstream-source.json"
 
 foreach ($requiredPath in @($moduleRoot, $licensePath, $provenancePath)) {
 	if (-not (Test-Path -LiteralPath $requiredPath)) {
@@ -374,11 +473,22 @@ if (@($productionApiLines | Where-Object {
 $candidateActive = $provenance.apiVersion -eq 2 -and $importedApiVersion -eq 3
 
 if ($candidateActive) {
-	Assert-CandidateSource $candidatePath
-	Write-Host (
-		"PlayLikeCurl source candidate verified: commit $expectedCandidateCommit, " +
-		"API $importedApiVersion; immutable release provenance remains tag $expectedTag."
-	)
+	$downstreamActive = Assert-CandidateSource $candidatePath
+	if ($downstreamActive) {
+		Write-Host (
+			"PlayLikeCurl downstream patched reader verified: Navic, API $importedApiVersion, " +
+			"97 closed source files (3 modified, 3 added); upstream base commit " +
+			"$expectedCandidateCommit, manifest $expectedCandidateManifestSha256; " +
+			"downstream descriptor SHA256 $expectedDownstreamSha256. " +
+			"This is a source delta, not an upstream release or QA claim; " +
+			"immutable release provenance remains tag $expectedTag."
+		)
+	} else {
+		Write-Host (
+			"PlayLikeCurl source candidate verified: commit $expectedCandidateCommit, " +
+			"API $importedApiVersion; immutable release provenance remains tag $expectedTag."
+		)
+	}
 	exit 0
 }
 

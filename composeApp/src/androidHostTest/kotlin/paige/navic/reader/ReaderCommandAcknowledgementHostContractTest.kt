@@ -16,7 +16,15 @@ class ReaderCommandAcknowledgementHostContractTest {
 			.substringAfter("override fun onRenderProcessGone")
 			.substringBefore("post { startReaderRuntimeIfVisible() }")
 
-		assertContains(hostText, "runtimeGeneration = webViewGeneration")
+		val readyDispatch = sourceBlock(
+			hostText, "fun WebView.dispatchReadyReaderCommands", "fun WebView.commitSettingsPresentation"
+		)
+		assertInOrder(
+			readyDispatch,
+			"val dispatchGeneration = webViewGeneration",
+			"commandDispatchState.commandsForReadyReaderRuntime(",
+			"runtimeGeneration = dispatchGeneration"
+		)
 		assertContains(hostText, "ReaderWebRuntime.commandScript(dispatch)")
 		assertContains(eventBlock, "is ReaderBridgeEvent.CommandAcknowledged")
 		assertContains(eventBlock, "commandDispatchState.acknowledge(event.commandId)")

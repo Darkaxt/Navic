@@ -128,11 +128,59 @@ public class PageSurfaceView extends GLSurfaceView {
     private long selectedFrameGeneration = NO_GENERATION_ID;
     private volatile NativeFrameRequest nativeFrameRequest;
 
+    /**
+     * Privately produced observation of the original navigating animator's successful settlement.
+     * Not a draw, compositor or display receipt. Public provenance is not producer authority.
+     */
+    public static final class CurlSettlementCompletion {
+        private final long sourceGenerationId;
+        private final long gestureId;
+        private final int currentOrdinal;
+        private final PageChange pageChange;
+        private final long rendererGenerationAtStart;
+        private final long rendererGenerationAtCompletion;
+        private final long sequence;
+        private final PageSurfaceListener sourceListener;
+
+        private CurlSettlementCompletion(SettlementContext source, int ordinal,
+                long rendererGenerationAtCompletion, long sequence) {
+            this.sourceGenerationId = source.generationId;
+            this.gestureId = source.gestureId;
+            this.currentOrdinal = ordinal;
+            this.pageChange = source.pageChange;
+            this.rendererGenerationAtStart = source.rendererGenerationAtStart;
+            this.rendererGenerationAtCompletion = rendererGenerationAtCompletion;
+            this.sequence = sequence;
+            this.sourceListener = source.listener;
+        }
+
+        public long getSourceGenerationId() { return sourceGenerationId; }
+        public long getGestureId() { return gestureId; }
+        public int getCurrentOrdinal() { return currentOrdinal; }
+        public PageChange getPageChange() { return pageChange; }
+        public long getRendererGenerationAtStart() { return rendererGenerationAtStart; }
+        public long getRendererGenerationAtCompletion() { return rendererGenerationAtCompletion; }
+        public long getSequence() { return sequence; }
+    }
+
+    private volatile CurlSettlementCompletion currentCurlCompletion;
+    // One observation slot, not another request/callback registry. Issuance is main-thread only.
+    private long curlObservationSequence;
+    private boolean curlCompletionIssued;
+
     private static final class NativeFrameRequest {
         final long generationId;
+        final CurlSettlementCompletion curlCompletion;
         long requestId;
         boolean cancelled;
-        NativeFrameRequest(long generationId) { this.generationId = generationId; }
+        boolean activated;
+        boolean drawn;
+        boolean callbackConsumed;
+        NativeFrameRequest(long generationId) { this(generationId, null); }
+        NativeFrameRequest(long generationId, CurlSettlementCompletion completion) {
+            this.generationId = generationId;
+            this.curlCompletion = completion;
+        }
     }
 
     private final int touchSlop;
@@ -345,9 +393,28 @@ public class PageSurfaceView extends GLSurfaceView {
 
             @Override
             public void onDrawFrame(GL10 gl) {
+                NativeFrameRequest candidate = nativeFrameRequest;
+                if (candidate != null && candidate.curlCompletion != null) {
+                    synchronized (candidate) {
+                        if (candidate.activated && !isCurlCandidateDrawableOnGl(candidate)) {
+                            cancelCurlCandidateOnGl(candidate);
+                        }
+                    }
+                }
                 boolean frameRendered = PageSurfaceView.this.renderer.drawFrame(gl);
                 if (!frameRendered) {
                     return;
+                }
+                if (candidate != null && candidate.curlCompletion != null) {
+                    synchronized (candidate) {
+                        if (nativeFrameRequest == candidate && candidate.activated && !candidate.cancelled) {
+                            if (isCurlCandidateDrawableOnGl(candidate)) {
+                                candidate.drawn = true;
+                            } else {
+                                cancelCurlCandidateOnGl(candidate);
+                            }
+                        }
+                    }
                 }
                 long presentedCompletionId = presentedFrameRequest.markRendered();
                 if (presentedCompletionId != NO_PRESENTED_FRAME_REQUEST_ID) {
@@ -355,6 +422,9 @@ public class PageSurfaceView extends GLSurfaceView {
                             () -> handlePresentedFrame(presentedCompletionId)));
                     if (!posted) {
                         presentedFrameRequest.complete(presentedCompletionId);
+                        if (candidate != null && candidate.curlCompletion != null) {
+                            cancelCurlCandidateOnGl(candidate);
+                        }
                     }
                 }
                 long frameToken = boundaryRestorationProtocol.armedToken();
@@ -749,12 +819,127 @@ public class PageSurfaceView extends GLSurfaceView {
         return request.requestId;
     }
 
+    /** Read-only producer/custody check, including while the original frame consumer runs. */
+    public boolean isCurlSettlementCompletionCurrent(CurlSettlementCompletion completion) {
+        requireMainThread();
+        return isCurlCompletionContextCurrent(completion)
+                && !disposed && attached && surfaceVisible
+                && selectedFrameGeneration == completion.sourceGenerationId
+                && completion.sourceListener != null
+                && leaseRegistry.ownerFor(completion.sourceGenerationId) == completion.sourceListener;
+    }
+
+    private boolean isCurlCompletionContextCurrent(CurlSettlementCompletion completion) {
+        return completion != null && currentCurlCompletion == completion
+                && completion.rendererGenerationAtStart > 0L
+                && completion.rendererGenerationAtStart == completion.rendererGenerationAtCompletion
+                && completion.rendererGenerationAtCompletion == renderer.getRendererGeneration();
+    }
+
+    private boolean isCurlTargetCurrent(CurlSettlementCompletion completion, long generationId) {
+        PageDeck<Bitmap> target = deckCoordinator.getActiveDeck();
+        return isCurlSettlementCompletionCurrent(completion)
+                && generationId != completion.sourceGenerationId
+                && target != null && target.getGenerationId() == generationId
+                && currentPosition(target) == completion.currentOrdinal
+                && preparedGenerations.contains(generationId);
+    }
+
+    /**
+     * Draws the explicit successor of a genuine source settlement through the original singleton
+     * candidate and bounded next-frame owner. It does not prove endpoint/compositor presentation.
+     */
+    public long requestCurlSettlementTerminalPresentedFrame(
+            CurlSettlementCompletion completion, long targetGenerationId, Runnable callback) {
+        requireMainThread();
+        Objects.requireNonNull(callback, "callback");
+        if (curlCompletionIssued || !isCurlTargetCurrent(completion, targetGenerationId)) {
+            return NO_PRESENTED_FRAME_REQUEST_ID;
+        }
+        cancelNativeFrameRequest();
+        NativeFrameRequest request = new NativeFrameRequest(targetGenerationId, completion);
+        request.requestId = presentedFrameRequest.request(() -> {
+            synchronized (request) {
+                if (request.cancelled || request.callbackConsumed || nativeFrameRequest != request
+                        || !request.drawn || !isCurlTargetCurrent(completion, targetGenerationId)) {
+                    if (nativeFrameRequest == request) cancelNativeFrameRequest();
+                    return;
+                }
+                // Shared callback custody is already consumed; consume this owner before reentry.
+                request.callbackConsumed = true;
+            }
+            try {
+                callback.run();
+            } finally {
+                if (nativeFrameRequest == request) cancelNativeFrameRequest();
+            }
+        });
+        if (request.requestId == NO_PRESENTED_FRAME_REQUEST_ID) return request.requestId;
+        curlCompletionIssued = true;
+        nativeFrameRequest = request;
+        try {
+            queueEvent(() -> {
+                synchronized (request) {
+                    if (request.cancelled || nativeFrameRequest != request) return;
+                    if (!isCurlCompletionContextCurrent(completion)
+                            || !renderer.hasRetainedSelectedFrame(completion.sourceGenerationId)) {
+                        cancelCurlCandidateOnGl(request);
+                        return;
+                    }
+                    renderer.activateDeck(targetGenerationId);
+                    if (!isCurlCandidateDrawableOnGl(request)) {
+                        cancelCurlCandidateOnGl(request);
+                        return;
+                    }
+                    request.activated = true;
+                    presentedFrameRequest.arm(request.requestId);
+                    requestRender();
+                }
+            });
+        } catch (RuntimeException | Error failure) {
+            cancelNativeFrameRequest();
+            throw failure;
+        }
+        return request.requestId;
+    }
+
+    private boolean isCurlCandidateDrawableOnGl(NativeFrameRequest request) {
+        return !request.cancelled && nativeFrameRequest == request
+                && isCurlCompletionContextCurrent(request.curlCompletion)
+                && renderer.hasRetainedSelectedFrame(request.curlCompletion.sourceGenerationId)
+                && renderer.hasActiveFrame(request.generationId, request.curlCompletion.currentOrdinal);
+    }
+
+    /** The GL queue owns this conditional rollback, using no second candidate/callback slot. */
+    private void cancelCurlCandidateOnGl(NativeFrameRequest request) {
+        synchronized (request) {
+            if (nativeFrameRequest != request) return;
+            request.cancelled = true;
+            nativeFrameRequest = null;
+            if (currentCurlCompletion == request.curlCompletion) currentCurlCompletion = null;
+            presentedFrameRequest.cancel(request.requestId);
+            if (renderer.restoreSelectedFrame(request.generationId)) requestRender();
+        }
+    }
+
+    private void retireCurlCompletion() {
+        CurlSettlementCompletion completion = currentCurlCompletion;
+        currentCurlCompletion = null;
+        NativeFrameRequest candidate = nativeFrameRequest;
+        if (completion != null && candidate != null && candidate.curlCompletion == completion) {
+            cancelNativeFrameRequest();
+        }
+    }
+
     private void cancelNativeFrameRequest() {
         NativeFrameRequest request = nativeFrameRequest;
         if (request == null) return;
         synchronized (request) {
             request.cancelled = true;
             nativeFrameRequest = null;
+            if (request.curlCompletion != null && currentCurlCompletion == request.curlCompletion) {
+                currentCurlCompletion = null;
+            }
             presentedFrameRequest.cancel(request.requestId);
         }
         try {
@@ -801,6 +986,7 @@ public class PageSurfaceView extends GLSurfaceView {
     /** Cancels the identified gesture or settlement without navigating. */
     public void cancelGesture(long gestureId) {
         requireMainThread();
+        retireCurlCompletion();
         SettlementContext cancelledSettlement = cancelSettlementAnimator();
         long cancelledGestureId = activeGestureId != NO_GESTURE_ID
                 ? activeGestureId
@@ -1083,6 +1269,7 @@ public class PageSurfaceView extends GLSurfaceView {
         if (disposedResult != null || disposeStarted) {
             return;
         }
+        retireCurlCompletion();
         cancelNativeFrameRequest();
         presentedFrameRequest.cancelAll();
         ownershipCallbackCapacityListener = null;
@@ -1796,6 +1983,11 @@ public class PageSurfaceView extends GLSurfaceView {
         return renderCapabilities;
     }
 
+    /** Current GL-context identity, never a deck-readiness or presentation receipt. */
+    public long getRendererGeneration() {
+        return renderer.getRendererGeneration();
+    }
+
     public int getCurrentPosition() {
         return currentPosition(deckCoordinator.getActiveDeck());
     }
@@ -2002,6 +2194,7 @@ public class PageSurfaceView extends GLSurfaceView {
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         super.surfaceDestroyed(holder);
+        retireCurlCompletion();
         terminallyAbandonAcceptedRendererReleases();
         cancelNativeFrameRequest();
         presentedFrameRequest.cancelAll();
@@ -2080,6 +2273,7 @@ public class PageSurfaceView extends GLSurfaceView {
         if (disposed) {
             return;
         }
+        retireCurlCompletion();
         cancelNativeFrameRequest();
         presentedFrameRequest.cancelAll();
         long generationId = failure.getGenerationId();
@@ -2094,6 +2288,9 @@ public class PageSurfaceView extends GLSurfaceView {
     private void handleCapabilitiesAvailable(RenderCapabilities capabilities) {
         if (disposed) {
             return;
+        }
+        if (currentCurlCompletion != null && !isCurlCompletionContextCurrent(currentCurlCompletion)) {
+            retireCurlCompletion();
         }
         renderCapabilities = capabilities;
         advanceOwnershipEpoch();
@@ -2127,6 +2324,8 @@ public class PageSurfaceView extends GLSurfaceView {
         if (lease == null) {
             return;
         }
+        CurlSettlementCompletion completion = currentCurlCompletion;
+        if (completion != null && completion.sourceGenerationId == generationId) retireCurlCompletion();
         notifyDeckReleased(
                 lease.getListener(),
                 generationId,
@@ -2256,7 +2455,9 @@ public class PageSurfaceView extends GLSurfaceView {
             startBoundaryRestoration(settlement);
             return;
         }
+        retireCurlCompletion();
         SettlementContext context = settlementContext(settlement.getPageChange());
+        curlCompletionIssued = false;
         activeGestureId = NO_GESTURE_ID;
         activeSettlementContext = context;
         deckCoordinator.beginSettlement();
@@ -2267,6 +2468,7 @@ public class PageSurfaceView extends GLSurfaceView {
                 context.sourceLogicalPageId,
                 context.targetLogicalPageId,
                 settlement.getPageChange());
+        if (!settlementRunning || activeSettlementContext != context || disposed) return;
         startSettlementAnimation(
                 settlement,
                 () -> completeSettlement(settlement, context));
@@ -2405,12 +2607,30 @@ public class PageSurfaceView extends GLSurfaceView {
     }
 
     private void completeSettlement(Settlement settlement, SettlementContext context) {
+        // Only the still-live original animator/context may report successful completion.
+        if (!settlementRunning || activeSettlementContext != context || disposed) return;
+        PlayLikeCurlModel observedModel = interactionModelOrNull();
+        PageDeck<Bitmap> observedDeck = deckCoordinator.getActiveDeck();
+        if (observedModel == null || observedDeck == null) {
+            cancelGesture(context.gestureId);
+            return;
+        }
         LandscapeSpreadModel spread = landscapeModelOrNull();
         if (spread != null) {
             spread.completeSettlement(settlement);
         } else {
-            interactionModelOrNull().completeSettlement(settlement);
+            observedModel.completeSettlement(settlement);
         }
+        int observedPosition = observedModel.getCurrentPosition();
+        PageChange observedChange = observedPosition == 0 ? PageChange.PREVIOUS
+                : observedPosition == 2 ? PageChange.NEXT : PageChange.NONE;
+        int observedOrdinal = observedDeck.getSettlementPage(observedChange).getOrdinal();
+        boolean originalNavigatingObservation = observedModel == context.sourceModel
+                && context.gestureId != NO_GESTURE_ID
+                && observedDeck.getGenerationId() == context.generationId
+                && context.listener != null && leaseRegistry.ownerFor(context.generationId) == context.listener
+                && context.pageChange != PageChange.NONE && observedChange == context.pageChange
+                && observedOrdinal == context.targetOrdinal;
         settlementRunning = false;
         settlementAnimator = null;
         activeSettlementContext = null;
@@ -2428,12 +2648,23 @@ public class PageSurfaceView extends GLSurfaceView {
         }
         requestRender();
 
-        listenerFor(context.generationId).onSettlementCompleted(
+        CurlSettlementCompletion completion = null;
+        if (originalNavigatingObservation
+                && leaseRegistry.ownerFor(context.generationId) == context.listener) {
+            curlObservationSequence = Math.incrementExact(curlObservationSequence);
+            completion = new CurlSettlementCompletion(context, observedOrdinal,
+                    renderer.getRendererGeneration(), curlObservationSequence);
+            currentCurlCompletion = completion;
+        }
+        PageSurfaceListener sourceListener = context.listener != null
+                ? context.listener : listenerFor(context.generationId);
+        sourceListener.onSettlementCompleted(
                 context.gestureId,
                 context.generationId,
                 context.targetLogicalPageId,
                 context.targetOrdinal,
-                settlement.getPageChange());
+                settlement.getPageChange(),
+                completion);
         if (settlement.getPageChange() != PageChange.NONE
                 && onPageChangeListener != null) {
             onPageChangeListener.onPageChanged(context.targetOrdinal);
@@ -2558,7 +2789,10 @@ public class PageSurfaceView extends GLSurfaceView {
                 activeGestureId,
                 source,
                 target,
-                reportedPageChange);
+                reportedPageChange,
+                leaseRegistry.ownerFor(deck.getGenerationId()),
+                renderer.getRendererGeneration(),
+                interactionModelOrNull());
     }
 
     private PlayLikeCurlModel interactionModelOrNull() {
@@ -2703,6 +2937,9 @@ public class PageSurfaceView extends GLSurfaceView {
         private final String targetLogicalPageId;
         private final int targetOrdinal;
         private final PageChange pageChange;
+        private final PageSurfaceListener listener;
+        private final long rendererGenerationAtStart;
+        private final PlayLikeCurlModel sourceModel;
 
         private SettlementContext(
                 long gestureId,
@@ -2710,27 +2947,39 @@ public class PageSurfaceView extends GLSurfaceView {
                 String sourceLogicalPageId,
                 String targetLogicalPageId,
                 int targetOrdinal,
-                PageChange pageChange) {
+                PageChange pageChange,
+                PageSurfaceListener listener,
+                long rendererGenerationAtStart,
+                PlayLikeCurlModel sourceModel) {
             this.gestureId = gestureId;
             this.generationId = generationId;
             this.sourceLogicalPageId = sourceLogicalPageId;
             this.targetLogicalPageId = targetLogicalPageId;
             this.targetOrdinal = targetOrdinal;
             this.pageChange = pageChange;
+            this.listener = listener;
+            this.rendererGenerationAtStart = rendererGenerationAtStart;
+            this.sourceModel = sourceModel;
         }
 
         static SettlementContext from(
                 long gestureId,
                 PageImage<Bitmap> source,
                 PageImage<Bitmap> target,
-                PageChange pageChange) {
+                PageChange pageChange,
+                PageSurfaceListener listener,
+                long rendererGenerationAtStart,
+                PlayLikeCurlModel sourceModel) {
             return new SettlementContext(
                     gestureId,
                     source.getGenerationId(),
                     source.getLogicalPageId(),
                     target.getLogicalPageId(),
                     target.getOrdinal(),
-                    pageChange);
+                    pageChange,
+                    listener,
+                    rendererGenerationAtStart,
+                    sourceModel);
         }
     }
 }

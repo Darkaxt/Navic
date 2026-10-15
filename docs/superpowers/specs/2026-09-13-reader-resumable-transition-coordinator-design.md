@@ -2,6 +2,14 @@
 
 **Status:** Stage 6 architecture replacement specification and release blocker
 
+**Scoped development-checkpoint amendment (2026-10-04):**
+`docs/superpowers/specs/2026-10-04-reader-fresh-session-checkpoint-amendment.md`
+— genuine fresh-session staging, separate layout/visual/captured-decoration evidence,
+and explicit NOT_CHEAP adapter dependencies. The user resumed the approved evidence-first
+plan; the bounded core continues, but the experimental route remains blocked until real
+adapters satisfy its GO gate. This does not waive complete production composition,
+physical ownership/inventory, release/signing, Task 7 or device gates.
+
 **Supersedes the Android control-plane implementation of:**
 `docs/superpowers/specs/2026-09-01-reader-hierarchical-presentation-authority-design.md`
 

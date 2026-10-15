@@ -27,6 +27,15 @@ import androidx.webkit.WebViewAssetLoader
 import paige.navic.reader.ReaderBridgeCommand
 import paige.navic.reader.ReaderBridgeDispatchCommand
 import paige.navic.reader.ReaderBridgeEvent
+import paige.navic.reader.ReaderCurrentDestinationContinuation
+import paige.navic.reader.ReaderCurrentDestinationQueryOutcome
+import paige.navic.reader.ReaderCurrentDestinationQueryFailure
+import paige.navic.reader.ReaderPresentationEventOrigin
+import paige.navic.reader.ReaderSemanticExecutableResult
+import paige.navic.reader.ReaderSemanticMutationStartEvidence
+import paige.navic.reader.ReaderSemanticTransportBindingResult
+import paige.navic.reader.ReaderSemanticTransportRetirement
+import paige.navic.reader.ReaderTransitionCommand
 import paige.navic.reader.ReaderEngineHostCommand
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderJavascriptBridge
@@ -43,11 +52,32 @@ import paige.navic.reader.readerManagedStorageRoot
 import paige.navic.reader.readerPageRasterSnapshotKey
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 private const val ReaderEngineWebViewHostTag = "ReaderEngineWebViewHost"
+
+/** Geometry/destination barriers only. Continuing decoration/provenance/query input
+ * must not require an empty command queue to authenticate the original source. */
+private fun ReaderBridgeCommand.affectsResolvedLayoutSource(): Boolean = when (this) {
+	is ReaderBridgeCommand.OpenPublication, is ReaderBridgeCommand.GoToVisualPage, is ReaderBridgeCommand.GoToLocator,
+	is ReaderBridgeCommand.GoToCfi, is ReaderBridgeCommand.GoToHref,
+	is ReaderBridgeCommand.GoToProgress, is ReaderBridgeCommand.GoToChapterProgress,
+	ReaderBridgeCommand.NextPage, is ReaderBridgeCommand.CausalNextPage,
+	ReaderBridgeCommand.PreviousPage, is ReaderBridgeCommand.CausalPreviousPage,
+	is ReaderBridgeCommand.PreviewPageDrag, is ReaderBridgeCommand.ScrollViewport,
+	is ReaderBridgeCommand.ContentLongPressAt, is ReaderBridgeCommand.ApplySettings -> true
+	is ReaderBridgeCommand.ResolveCurrentDestination, is ReaderBridgeCommand.ApplyHighlight,
+	is ReaderBridgeCommand.ApplyHighlights, is ReaderBridgeCommand.RequestVisibleTextRange,
+	is ReaderBridgeCommand.InstallRawTextProvenance, is ReaderBridgeCommand.ValidateWhispersyncCanonicalCues,
+	is ReaderBridgeCommand.ApplyOverlayFragment, is ReaderBridgeCommand.UpdateOverlayFragmentProgress,
+	is ReaderBridgeCommand.ReplaceWhispersyncCueMap, is ReaderBridgeCommand.CancelWhispersyncCueMapHold,
+	is ReaderBridgeCommand.ClearOverlayPresentation, ReaderBridgeCommand.ClearOverlay,
+	is ReaderBridgeCommand.Search, ReaderBridgeCommand.ClearSearch -> false
+}
 
 internal object ReaderEngineLogProjector {
 	private const val RedactedConsoleDiagnostic = "[redacted-reader-console]"
@@ -95,6 +125,7 @@ internal object ReaderEngineLogProjector {
 			is ReaderBridgeEvent.InternalLinkRequested -> "internalLink"
 			is ReaderBridgeEvent.ExternalLink -> "externalLink"
 			is ReaderBridgeEvent.LocationChanged -> "locationChanged"
+			is ReaderBridgeEvent.CurrentDestinationResolved -> "currentDestinationResolved"
 			is ReaderBridgeEvent.DuplicatePageSuspected -> "duplicatePageSuspected"
 			is ReaderBridgeEvent.CfiChanged -> "cfiChanged"
 			is ReaderBridgeEvent.TocItemChanged -> "tocItemChanged"
@@ -123,13 +154,181 @@ internal object ReaderEngineLogProjector {
 		}
 }
 
-private class ReaderEngineWebView(context: Context) : WebView(context) {
+internal interface ReaderEnginePhysicalDestructionSource {
+	fun bindPhysicalDestruction(onDestroyed: (WebView) -> Unit): Boolean
+}
+
+internal class ReaderEngineWebView(context: Context) : WebView(context), ReaderEngineCurrentDestinationQuerySource,
+	ReaderEnginePhysicalDestructionSource {
+	private var physicalDestructionConfirmation: ((WebView) -> Unit)? = null
+	private var physicalDestructionInProgress = false
+	private var physicallyDestroyed = false
+	override fun bindPhysicalDestruction(onDestroyed: (WebView) -> Unit): Boolean {
+		if (physicallyDestroyed || physicalDestructionInProgress) return false
+		val existing = physicalDestructionConfirmation
+		if (existing != null) return existing === onDestroyed
+		physicalDestructionConfirmation = onDestroyed
+		return true
+	}
+
+	override fun destroy() {
+		if (physicallyDestroyed || physicalDestructionInProgress) return
+		physicalDestructionInProgress = true
+		try {
+			super.destroy()
+			physicallyDestroyed = true
+		} finally {
+			physicalDestructionInProgress = false
+		}
+		clearCurrentDestinationQueryDelegate()
+		runtimeInitializationVisibilityListener = null
+		windowVisibilityListener = null
+		val confirmation = physicalDestructionConfirmation
+		physicalDestructionConfirmation = null
+		confirmation?.invoke(this)
+	}
+
+	var runtimeInitializationVisibilityListener: ((Int) -> Unit)? = null
+	override fun createInitialDestinationSemanticRequest(
+		reservation: ReaderReservedNeutralBootstrapRequest,
+		version: paige.navic.reader.ReaderPresentationReceiptVersion,
+		publicationGeneration: Long,
+		viewportGeneration: Long,
+		profileGeneration: Long,
+		isAdmissionCurrent: () -> Boolean,
+		ingress: (paige.navic.reader.ReaderPresentationEvent.FoliateRelocated, ReaderPresentationEventOrigin.SemanticCommand) -> paige.navic.reader.ReaderPresentationEventReceipt?
+	): paige.navic.reader.ReaderSemanticExecutableRequest = readerEngineInitialDestinationSemanticRequest(
+		this, reservation, version, publicationGeneration, viewportGeneration, profileGeneration, isAdmissionCurrent, ingress = ingress
+	)
+	override fun createInitialDestinationConstructionSemanticRequest(
+		reservation: ReaderReservedNeutralBootstrapRequest,
+		version: paige.navic.reader.ReaderPresentationReceiptVersion,
+		publicationGeneration: Long,
+		viewportGeneration: Long,
+		profileGeneration: Long,
+		isAdmissionCurrent: () -> Boolean,
+		constructionCustody: ReaderEngineInitialDestinationConstructionCustody,
+		ingress: (paige.navic.reader.ReaderPresentationEvent.FoliateRelocated, ReaderPresentationEventOrigin.SemanticCommand) -> paige.navic.reader.ReaderPresentationEventReceipt?
+	): paige.navic.reader.ReaderSemanticExecutableRequest = readerEngineInitialDestinationSemanticRequest(
+		this, reservation, version, publicationGeneration, viewportGeneration, profileGeneration, isAdmissionCurrent, constructionCustody, ingress
+	)
+	// Cancellation forwarding only: authority remains in the original Curl cell/ledger token.
+	private var installedTurnRetirement: ReaderEngineInstalledPageTurnContinuation? = null
+	fun connectInstalledTurnRetirement(token: ReaderEngineInstalledPageTurnContinuation): Boolean {
+		if (runtimeRetired || installedTurnRetirement != null) return false
+		installedTurnRetirement = token
+		return true
+	}
+	override fun createInstalledPageTurnSemanticRequest(source: ReaderInstalledCurlGestureSource,
+		isAdmissionCurrent: () -> Boolean, ingress: ReaderBoundPageTurnSemanticIngress): paige.navic.reader.ReaderSemanticExecutableRequest =
+		readerEngineInstalledPageTurnSemanticRequest(this, source, isAdmissionCurrent, ingress)
+	override fun submitInstalledPageTurn(continuation: ReaderEngineInstalledPageTurnContinuation,
+		dispatch: ReaderBridgeDispatchCommand): Boolean = !runtimeRetired && installedTurnRetirement === continuation &&
+		currentDestinationQueryDelegate?.submitInstalledPageTurn(continuation, dispatch) == true
+	override fun retireInstalledPageTurnExact(continuation: ReaderEngineInstalledPageTurnContinuation) {
+		if (installedTurnRetirement === continuation) installedTurnRetirement = null
+		currentDestinationQueryDelegate?.retireInstalledPageTurnExact(continuation)
+	}
+
+	fun retireInstalledTurnTransport() {
+		val installed = installedTurnRetirement
+		installedTurnRetirement = null
+		installed?.retire()
+	}
+
+	var currentDestinationQueryDelegate: ReaderEngineCurrentDestinationQuerySource? = null
+	var runtimeRetired = false
+		private set
+	fun clearCurrentDestinationQueryDelegate() {
+		runtimeRetired = true
+		val installed = installedTurnRetirement
+		installedTurnRetirement = null
+		installed?.retire()
+		currentDestinationQueryDelegate = null
+	}
+	override fun queryInitialDestination(
+		origin: ReaderPresentationEventOrigin.SemanticCommand,
+		context: ReaderSemanticMutationStartEvidence,
+		isAdmissionCurrent: () -> Boolean,
+		constructionCustody: ReaderEngineInitialDestinationConstructionCustody?,
+		onOutcome: (ReaderCurrentDestinationQueryOutcome) -> Unit
+	): ReaderSemanticExecutableResult = currentDestinationQueryDelegate
+		?.queryInitialDestination(origin, context, isAdmissionCurrent, constructionCustody, onOutcome)
+		?: ReaderSemanticExecutableResult.Rejected
+	override fun queryCurrentDestination(
+		origin: ReaderPresentationEventOrigin.SemanticCommand,
+		context: ReaderSemanticMutationStartEvidence,
+		isAdmissionCurrent: () -> Boolean,
+		onOutcome: (ReaderCurrentDestinationQueryOutcome) -> Unit
+	): ReaderSemanticExecutableResult = currentDestinationQueryDelegate
+		?.queryCurrentDestination(origin, context, isAdmissionCurrent, onOutcome)
+		?: ReaderSemanticExecutableResult.Rejected
+	override fun queryAllocationLayout(
+		command: ReaderTransitionCommand.AllocateMaterialBinding,
+		isAdmissionCurrent: () -> Boolean,
+		onOutcome: (ReaderCurrentDestinationQueryOutcome) -> Unit
+	): ReaderSemanticTransportRetirement? = currentDestinationQueryDelegate
+		?.queryAllocationLayout(command, isAdmissionCurrent, onOutcome)
+	override fun admitsCurrentDestinationSession(foliateSessionId: String): Boolean =
+		currentDestinationQueryDelegate?.admitsCurrentDestinationSession(foliateSessionId) == true
+	override fun captureResolvedLayoutCurrency(): (() -> Boolean)? =
+		currentDestinationQueryDelegate?.captureResolvedLayoutCurrency()
+	override fun retireCurrentDestinationQueryExact(continuation: ReaderCurrentDestinationContinuation) {
+		currentDestinationQueryDelegate?.retireCurrentDestinationQueryExact(continuation)
+	}
+	override fun closeCurrentDestinationQueries() {
+		val delegate = currentDestinationQueryDelegate ?: return
+		clearCurrentDestinationQueryDelegate() // Fence admission before any external continuation.
+		delegate.closeCurrentDestinationQueries()
+	}
 	var windowVisibilityListener: ((Int) -> Unit)? = null
+	private var foregroundAttachmentHost: ReaderForegroundWebViewAttachmentHost? = null
+	private var foregroundSource: ReaderForegroundWebViewSource? = null
+	private var runtimeInitializationCompleted = false
+	fun completeRuntimeInitialization() {
+		if (runtimeRetired || runtimeInitializationCompleted) return
+		runtimeInitializationCompleted = true
+		foregroundSource?.runtimeInitializationCompleted()
+	}
+
+	override fun onAttachedToWindow() {
+		val host = findReaderForegroundWebViewAttachmentHost()
+		foregroundAttachmentHost = host
+		if (host == null) super.onAttachedToWindow()
+		else host.withForegroundWebViewAttachment(this) { exactSource ->
+			foregroundSource = exactSource
+			super.onAttachedToWindow()
+			if (runtimeInitializationCompleted && !runtimeRetired) exactSource?.runtimeInitializationCompleted()
+		}
+	}
+
+	override fun onDetachedFromWindow() {
+		val source = foregroundSource
+		if (source == null) super.onDetachedFromWindow()
+		else source.physicalSourceReturn { super.onDetachedFromWindow() }
+	}
 
 	override fun onWindowVisibilityChanged(visibility: Int) {
 		super.onWindowVisibilityChanged(visibility)
+		// Construction can finish while installed presentation consequences stay fenced.
+		if (!runtimeRetired && !runtimeInitializationCompleted) {
+			runtimeInitializationVisibilityListener?.invoke(visibility)
+		}
+		// Recheck the immutable Native installation authority after framework work.
+		// This fence changes no runtime start/recovery/command policy.
+		if (foregroundAttachmentHost?.foregroundLegacyConsequencesOpen == false ||
+			foregroundSource?.legacyConsequencesOpen == false) return
 		windowVisibilityListener?.invoke(visibility)
 	}
+}
+
+private fun View.findReaderForegroundWebViewAttachmentHost(): ReaderForegroundWebViewAttachmentHost? {
+	var candidate: View? = this
+	while (candidate != null) {
+		if (candidate is ReaderForegroundWebViewAttachmentHost) return candidate
+		candidate = candidate.parent as? View
+	}
+	return null
 }
 
 private class ActiveReaderSettingsWebViewMutation(
@@ -289,12 +488,71 @@ actual fun ReaderEngineWebViewHost(
 	}
 	var readerRuntimeReady by remember { mutableStateOf(false) }
 	val runtimeRecovery = remember { ReaderEngineRuntimeRecovery() }
+	// Only a local linearization fence: dispatch custody remains in the existing ledger.
+	val queryCallbackDepth = remember { AtomicInteger(0) }
+	// One dynamically scoped delivery on the original callback path, not a result
+	// ledger. Failed/retirement callbacks cannot capture a successful source scope.
+	val resolvedDestinationDelivery = remember { AtomicReference<ReaderBridgeEvent.CurrentDestinationResolved?>(null) }
+	// Source provenance on this original Engine, not another command owner. A consumed
+	// navigation cannot become current again merely because decoration replaced its key.
+	val resolvedLayoutMutation = remember { AtomicReference(Any()) }
+	val resolvedLayoutDestination = remember {
+		AtomicReference<paige.navic.reader.ReaderDestinationCommitIdentity?>(null)
+	}
+	fun observeResolvedLayoutDestination(destination: paige.navic.reader.ReaderDestinationCommitIdentity?) {
+		if (resolvedLayoutDestination.getAndSet(destination) != destination) resolvedLayoutMutation.set(Any())
+	}
+
+	fun deliverQueryOutcome(continuation: ReaderCurrentDestinationContinuation, outcome: ReaderCurrentDestinationQueryOutcome) {
+		(outcome as? ReaderCurrentDestinationQueryOutcome.Resolved)?.event?.let {
+			observeResolvedLayoutDestination(it.destinationCommitIdentity)
+		}
+		queryCallbackDepth.incrementAndGet()
+		val previousDelivery = resolvedDestinationDelivery.getAndSet((outcome as? ReaderCurrentDestinationQueryOutcome.Resolved)?.event)
+		try { continuation.complete(outcome) }
+		finally {
+			resolvedDestinationDelivery.set(previousDelivery)
+			queryCallbackDepth.decrementAndGet()
+		}
+	}
+
+	fun retireQueries(generation: Int?, reason: ReaderCurrentDestinationQueryFailure) {
+		val previous = commandDispatchState
+		if (generation != null && previous.runtimeGeneration != generation) return
+		val retired = previous.pendingCommands.filter { it.dispatch.command is ReaderBridgeCommand.ResolveCurrentDestination }
+		val retiredTurns = previous.pendingCommands.mapNotNull { it.installedPageTurnContinuation }
+		commandDispatchState = previous.closeCurrentDestinationQueries().closeInstalledPageTurns() // Bulk custody before any callback.
+		queryCallbackDepth.incrementAndGet()
+		try {
+			retiredTurns.forEach { it.complete(null) }
+			retired.forEach { pending -> pending.currentDestinationContinuation?.complete(ReaderCurrentDestinationQueryOutcome.Failed(reason)) }
+		} finally { queryCallbackDepth.decrementAndGet() }
+	}
+
+	fun queryContextIsCurrent(token: ReaderEngineCurrentDestinationContinuation, target: WebView): Boolean =
+		token.active && token.belongsTo(target) && webView === target &&
+			(target as? ReaderEngineWebView)?.runtimeRetired == false &&
+			webViewGeneration == token.expectedGeneration && (readerRuntimeReady || token.initialBootstrap) &&
+			target.url == ReaderWebRuntime.entrypointUrl &&
+			currentPublicationKey == token.expectedPublicationKey &&
+			commandDispatchState.publicationKey == token.expectedPublicationKey &&
+			commandDispatchState.runtimeGeneration == token.expectedGeneration &&
+			commandDispatchState.foliateSessionId == token.expectedFoliateSessionId
+
+	fun retireReplacedPublicationQueries() {
+		if (commandDispatchState.publicationKey != null && commandDispatchState.publicationKey != currentPublicationKey) {
+			(webView as? ReaderEngineWebView)?.retireInstalledTurnTransport()
+			retireQueries(null, ReaderCurrentDestinationQueryFailure.PublicationReplaced)
+		}
+	}
 
 	fun restartInterruptedReaderRuntime(
 		generation: Int,
 		retireGeneration: () -> Boolean
 	) {
+		val interruptedView = webView
 		if (generation != webViewGeneration || !retireGeneration()) return
+		if (generation != webViewGeneration || webView !== interruptedView || interruptedView == null) return
 		runtimeRecovery.reset()
 		readerRuntimeReady = false
 		Logger.i(
@@ -382,6 +640,10 @@ actual fun ReaderEngineWebViewHost(
 	}
 
 	fun WebView.dispatchReadyReaderCommands() {
+		if (webView !== this || (this as? ReaderEngineWebView)?.runtimeRetired == true || queryCallbackDepth.get() != 0) return
+		retireReplacedPublicationQueries()
+		// Retirement callbacks can close or replace this exact view before projection.
+		if (webView !== this || (this as? ReaderEngineWebView)?.runtimeRetired == true || queryCallbackDepth.get() != 0) return
 		if (
 			!shouldDispatchReaderCommandsToWebRuntime(
 				runtimeReady = readerRuntimeReady,
@@ -391,20 +653,55 @@ actual fun ReaderEngineWebViewHost(
 		) {
 			Logger.i(
 				ReaderEngineWebViewHostTag,
-				"Skipping reader command dispatch: ready=$readerRuntimeReady url=${url?.engineUrlLabel().orEmpty()}"
+				"Skipping reader command dispatch: ready=$readerRuntimeReady entrypoint=${url == ReaderWebRuntime.entrypointUrl}"
 			)
 			return
 		}
+		val dispatchGeneration = webViewGeneration
+		val dispatchPublicationKey = currentPublicationKey
+		val publicationChanged = commandDispatchState.publicationKey != dispatchPublicationKey
 		val step = commandDispatchState.commandsForReadyReaderRuntime(
-			runtimeGeneration = webViewGeneration,
-			publicationKey = currentPublicationKey,
+			runtimeGeneration = dispatchGeneration,
+			publicationKey = dispatchPublicationKey,
 			openCommand = currentOpenCommand,
 			commands = currentCommands,
 			commandKey = currentCommandKey,
 			rawTextProvenanceDescriptors = currentRawTextProvenanceDescriptors
 		)
 		commandDispatchState = step.state
+		queryCallbackDepth.incrementAndGet()
+		try {
+			step.retiredInstalledPageTurnContinuations.forEach { it.complete(null) }
+			step.retiredCurrentDestinationContinuations.forEach {
+				it.complete(ReaderCurrentDestinationQueryOutcome.Failed(if (publicationChanged)
+					ReaderCurrentDestinationQueryFailure.PublicationReplaced else ReaderCurrentDestinationQueryFailure.RuntimeRetired))
+			}
+		} finally { queryCallbackDepth.decrementAndGet() }
 		step.commands.forEach { dispatch ->
+			if (webView !== this || (this as? ReaderEngineWebView)?.runtimeRetired == true ||
+				webViewGeneration != dispatchGeneration || currentPublicationKey != dispatchPublicationKey ||
+				commandDispatchState.publicationKey != dispatchPublicationKey ||
+				commandDispatchState.pendingCommands.firstOrNull()?.dispatch?.id != dispatch.id) return@forEach
+			val token = commandDispatchState.pendingCommands.firstOrNull()?.currentDestinationContinuation as? ReaderEngineCurrentDestinationContinuation
+			if (token != null && (!token.admits() || !queryContextIsCurrent(token, this) ||
+				commandDispatchState.pendingCommands.firstOrNull()?.currentDestinationContinuation !== token)) {
+				commandDispatchState = commandDispatchState.retireCurrentDestinationQueryExact(token)
+				deliverQueryOutcome(token, ReaderCurrentDestinationQueryOutcome.Failed(ReaderCurrentDestinationQueryFailure.SubmissionRejected))
+				webView?.dispatchReadyReaderCommands()
+				return@forEach
+			}
+			val installedTurn = commandDispatchState.pendingCommands.firstOrNull()?.installedPageTurnContinuation as? ReaderEngineInstalledPageTurnContinuation
+			if (installedTurn != null) {
+				val script = ReaderWebRuntime.commandScript(dispatch)
+				try {
+					if (!installedTurn.invokeNavigation {
+						resolvedLayoutMutation.set(Any())
+						evaluateJavascript(script, null)
+					}) installedTurn.fail()
+				} catch (_: Throwable) { installedTurn.fail(paige.navic.reader.ReaderSemanticAsyncFailure.Threw) }
+				return@forEach
+			}
+			if (dispatch.command.affectsResolvedLayoutSource()) resolvedLayoutMutation.set(Any())
 			if (dispatch.command is ReaderBridgeCommand.ApplySettings) {
 				dispatchSettingsCommand(dispatch)
 			} else {
@@ -412,10 +709,14 @@ actual fun ReaderEngineWebViewHost(
 					ReaderEngineWebViewHostTag,
 					ReaderEngineLogProjector.command(dispatch)
 				)
-				evaluateJavascript(
-					ReaderWebRuntime.commandScript(dispatch),
-					null
-				)
+				try {
+					evaluateJavascript(ReaderWebRuntime.commandScript(dispatch), null)
+				} catch (failure: Throwable) {
+					if (token == null) throw failure
+					commandDispatchState = commandDispatchState.retireCurrentDestinationQueryExact(token)
+					deliverQueryOutcome(token, ReaderCurrentDestinationQueryOutcome.Failed(ReaderCurrentDestinationQueryFailure.SubmissionThrew))
+					webView?.dispatchReadyReaderCommands()
+				}
 			}
 		}
 	}
@@ -442,6 +743,57 @@ actual fun ReaderEngineWebViewHost(
 
 	fun handleReaderBridgeEvent(event: ReaderBridgeEvent) {
 		Logger.i(ReaderEngineWebViewHostTag, ReaderEngineLogProjector.event(event))
+		val installedHead = commandDispatchState.pendingCommands.firstOrNull()?.dispatch?.command is ReaderBridgeCommand.GoToVisualPage
+		if ((event is ReaderBridgeEvent.LocationChanged && (installedHead || event.commandId?.startsWith("reader-turn-") == true)) ||
+			(event is ReaderBridgeEvent.CommandFailed && (installedHead || event.commandId.startsWith("reader-turn-")))) {
+			if (commandDispatchState.publicationKey != currentPublicationKey) return
+			val previous = commandDispatchState
+			val consumed = previous.consumeInstalledPageTurnResult(event, webViewGeneration)
+			commandDispatchState = consumed.state // Exact head consumed BEFORE external model/progress/WordSync.
+			consumed.event?.let { observeResolvedLayoutDestination(it.destinationCommitIdentity) }
+			queryCallbackDepth.incrementAndGet()
+			try { consumed.continuation?.complete(consumed.event) }
+			finally { queryCallbackDepth.decrementAndGet() }
+			if (consumed.state !== previous) webView?.dispatchReadyReaderCommands()
+			return // Wrong, duplicate and retired installed settlements never enter ordinary key/model replay.
+		}
+		if (
+			event is ReaderBridgeEvent.CurrentDestinationResolved ||
+			(event is ReaderBridgeEvent.CommandFailed &&
+				commandDispatchState.acknowledgedCommand(event.commandId) is ReaderBridgeCommand.ResolveCurrentDestination)
+		) {
+			// This private read-only transport result never enters the generic presentation route.
+			// Persist actual dispatched-head consumption before any successor dispatch can reenter.
+			if (commandDispatchState.publicationKey != currentPublicationKey) return
+			val previous = commandDispatchState
+			val step = previous.consumeCurrentDestinationResult(event, webViewGeneration)
+			commandDispatchState = step.state
+			val continuation = step.continuation
+			val outcome = step.outcome
+			if (continuation != null && outcome != null) {
+				val token = continuation as? ReaderEngineCurrentDestinationContinuation
+				val target = webView
+				val admitted = outcome !is ReaderCurrentDestinationQueryOutcome.Resolved || token == null ||
+					(token.admits() && target != null && queryContextIsCurrent(token, target))
+				val allocation = token?.allocationCommand
+				// The original ledger already correlated the actually dispatched head/session.
+				// Only wire semantic destination and validated numeric layout are compared here;
+				// Native generations/physical installation remain in token.admits().
+				val allocationMatches = allocation == null || outcome !is ReaderCurrentDestinationQueryOutcome.Resolved ||
+					(outcome.event.foliateSessionId == allocation.binding.foliateSessionId &&
+						outcome.event.destinationCommitIdentity == allocation.binding.destinationCommitIdentity &&
+						outcome.event.resolvedLayout != null)
+				val delivered = when {
+					!admitted || !allocationMatches -> ReaderCurrentDestinationQueryOutcome.Failed(ReaderCurrentDestinationQueryFailure.SubmissionRejected)
+					outcome is ReaderCurrentDestinationQueryOutcome.Resolved -> ReaderCurrentDestinationQueryOutcome.Resolved(outcome.event, token)
+					else -> outcome
+				}
+				deliverQueryOutcome(continuation, delivered)
+			}
+			// Never use the old step's successor after external callback reentrancy.
+			if (step.state !== previous) webView?.dispatchReadyReaderCommands()
+			return
+		}
 		when (event) {
 			ReaderBridgeEvent.Ready -> {
 				runtimeRecovery.onRuntimeReady()
@@ -470,6 +822,12 @@ actual fun ReaderEngineWebViewHost(
 			is ReaderBridgeEvent.CommandFailed -> {
 				val failed = commandDispatchState.acknowledgedCommand(event.commandId)
 					?: return
+				val failedGeneration = webViewGeneration
+				val failedView = webView
+				runtimeRecovery.reset()
+				readerRuntimeReady = false
+				(failedView as? ReaderEngineWebView)?.clearCurrentDestinationQueryDelegate()
+				retireQueries(failedGeneration, ReaderCurrentDestinationQueryFailure.RuntimeRetired)
 				if (failed is ReaderBridgeCommand.ApplySettings) {
 					val active = activeSettingsMutation.get()
 						?.takeIf { it.commandId == event.commandId }
@@ -480,12 +838,13 @@ actual fun ReaderEngineWebViewHost(
 						active.mutation.cancel()
 					}
 				}
-				runtimeRecovery.reset()
-				readerRuntimeReady = false
-				if (webView != null) webViewGeneration += 1
+				if (failedView != null && webView === failedView && webViewGeneration == failedGeneration) webViewGeneration += 1
 				return
 			}
 			is ReaderBridgeEvent.LocationChanged -> {
+				if (event.foliateSessionId == commandDispatchState.foliateSessionId) {
+					observeResolvedLayoutDestination(event.destinationCommitIdentity)
+				}
 				commandDispatchState = commandDispatchState.observeLocator(event.locator)
 			}
 			else -> Unit
@@ -517,6 +876,9 @@ actual fun ReaderEngineWebViewHost(
 		val retireGeneration: () -> Boolean = {
 			if (generationDisposed.compareAndSet(false, true)) {
 				bridge.deactivate()
+				(generationWebView.get() as? ReaderEngineWebView)?.clearCurrentDestinationQueryDelegate()
+				if (generation == webViewGeneration && webView === generationWebView.get()) readerRuntimeReady = false
+				retireQueries(generation, ReaderCurrentDestinationQueryFailure.RuntimeRetired)
 				cancelActiveSettingsMutation(generation)
 				true
 			} else {
@@ -550,6 +912,8 @@ actual fun ReaderEngineWebViewHost(
 				bridge,
 				enableDebugging = settings.webContentsDebuggingEnabled == true
 			)
+			// Construction/configure completion only. Actual JS Ready still owns dispatch.
+			(this as? ReaderEngineWebView)?.completeRuntimeInitialization()
 		}
 
 		DisposableEffect(bridge, generation) {
@@ -564,6 +928,175 @@ actual fun ReaderEngineWebViewHost(
 				ReaderEngineWebView(context).apply {
 					webView = this
 					generationWebView.set(this)
+					val queryView = this
+					fun querySourceIsCurrent(allowUnreadyInitial: Boolean = false): Boolean = Looper.myLooper() == Looper.getMainLooper() &&
+						!generationDisposed.get() && !queryView.runtimeRetired && webView === queryView && generation == webViewGeneration &&
+						(readerRuntimeReady || allowUnreadyInitial) && queryView.url == ReaderWebRuntime.entrypointUrl &&
+						commandDispatchState.runtimeGeneration == generation && commandDispatchState.publicationKey == currentPublicationKey &&
+						commandDispatchState.foliateSessionId != null && commandDispatchState.foliateSessionId != ReaderUnboundFoliateSessionId
+					currentDestinationQueryDelegate = object : ReaderEngineCurrentDestinationQuerySource {
+						override fun submitInstalledPageTurn(continuation: ReaderEngineInstalledPageTurnContinuation,
+							dispatch: ReaderBridgeDispatchCommand): Boolean {
+							if (!querySourceIsCurrent() || !continuation.admits() ||
+								!querySourceIsCurrent()) return false
+							val next = commandDispatchState.enqueueInstalledPageTurn(dispatch, continuation) ?: return false
+							commandDispatchState = next
+							queryView.dispatchReadyReaderCommands()
+							return true
+						}
+						override fun retireInstalledPageTurnExact(continuation: ReaderEngineInstalledPageTurnContinuation) {
+							if (Looper.myLooper() != Looper.getMainLooper()) {
+								Handler(Looper.getMainLooper()).post { queryView.retireInstalledPageTurnExact(continuation) }
+								return
+							}
+							if (generation != webViewGeneration || webView !== queryView) return
+							val previous = commandDispatchState
+							commandDispatchState = previous.retireInstalledPageTurnExact(continuation)
+							if (commandDispatchState !== previous && !queryView.runtimeRetired) queryView.dispatchReadyReaderCommands()
+						}
+
+						override fun admitsCurrentDestinationSession(foliateSessionId: String): Boolean =
+							querySourceIsCurrent() && commandDispatchState.foliateSessionId == foliateSessionId
+
+						override fun captureResolvedLayoutCurrency(): (() -> Boolean)? {
+							val delivery = resolvedDestinationDelivery.get() ?: return null
+							if (queryCallbackDepth.get() == 0 || !querySourceIsCurrent() ||
+								delivery.foliateSessionId != commandDispatchState.foliateSessionId) return null
+							val publication = currentPublicationKey
+							val session = delivery.foliateSessionId
+							val locator = commandDispatchState.lastKnownLocator
+							val settings = currentOpenCommand.settings
+							val settingsRequest = settingsMutationRequestSequence.get()
+							val settingsVisual = settingsVisualStateSequence.get()
+							val capturedCommandKey = commandDispatchState.lastCommandKey
+							val mutation = resolvedLayoutMutation.get()
+							val destination = delivery.destinationCommitIdentity
+							fun current(): Boolean = querySourceIsCurrent() && queryView.isAttachedToWindow &&
+								resolvedLayoutMutation.get() === mutation && resolvedLayoutDestination.get() == destination &&
+								currentPublicationKey == publication && commandDispatchState.foliateSessionId == session &&
+								commandDispatchState.lastKnownLocator === locator && currentOpenCommand.settings == settings &&
+								settingsMutationRequestSequence.get() == settingsRequest &&
+								settingsVisualStateSequence.get() == settingsVisual && activeSettingsMutation.get() == null &&
+								commandDispatchState.pendingCommands.none { it.dispatch.command.affectsResolvedLayoutSource() } &&
+								(currentCommandKey == capturedCommandKey || currentCommands.none { it.affectsResolvedLayoutSource() })
+							// No token/admission/executor currency is retained or revived here.
+							return if (current()) ::current else null
+						}
+
+						override fun queryInitialDestination(
+							origin: ReaderPresentationEventOrigin.SemanticCommand,
+							context: ReaderSemanticMutationStartEvidence,
+							isAdmissionCurrent: () -> Boolean,
+							constructionCustody: ReaderEngineInitialDestinationConstructionCustody?,
+							onOutcome: (ReaderCurrentDestinationQueryOutcome) -> Unit
+						): ReaderSemanticExecutableResult {
+							if (Looper.myLooper() != Looper.getMainLooper() || generationDisposed.get() || queryView.runtimeRetired ||
+								webView !== queryView || generation != webViewGeneration || queryView.url != ReaderWebRuntime.entrypointUrl ||
+								origin.transitionId.operation != paige.navic.reader.ReaderTransitionOperation.BootstrapNativePage ||
+								origin.transitionId.expectedBinding !is paige.navic.reader.ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial ||
+								!isAdmissionCurrent()) return ReaderSemanticExecutableResult.Rejected
+							val publicationChanged = commandDispatchState.publicationKey != currentPublicationKey
+							// The original opening pipeline, with dispatch disabled until actual Ready.
+							val prepared = commandDispatchState.commandsForReadyReaderRuntime(
+								generation, currentPublicationKey, currentOpenCommand, currentCommands,
+								currentCommandKey, currentRawTextProvenanceDescriptors, dispatchHead = false)
+							commandDispatchState = prepared.state
+							queryCallbackDepth.incrementAndGet()
+							try {
+								prepared.retiredCurrentDestinationContinuations.forEach {
+									it.complete(ReaderCurrentDestinationQueryOutcome.Failed(if (publicationChanged)
+										ReaderCurrentDestinationQueryFailure.PublicationReplaced else ReaderCurrentDestinationQueryFailure.RuntimeRetired))
+								}
+							} finally { queryCallbackDepth.decrementAndGet() }
+							return submitDestinationQuery(origin, context, isAdmissionCurrent, onOutcome, initialBootstrap = true,
+								constructionCustody = constructionCustody)
+						}
+
+						override fun queryCurrentDestination(
+							origin: ReaderPresentationEventOrigin.SemanticCommand,
+							context: ReaderSemanticMutationStartEvidence,
+							isAdmissionCurrent: () -> Boolean,
+							onOutcome: (ReaderCurrentDestinationQueryOutcome) -> Unit
+						): ReaderSemanticExecutableResult = submitDestinationQuery(origin, context, isAdmissionCurrent, onOutcome, initialBootstrap = false)
+
+						override fun queryAllocationLayout(
+							command: ReaderTransitionCommand.AllocateMaterialBinding,
+							isAdmissionCurrent: () -> Boolean,
+							onOutcome: (ReaderCurrentDestinationQueryOutcome) -> Unit
+						): ReaderSemanticTransportRetirement? {
+							if (!querySourceIsCurrent() || command.binding.foliateSessionId != commandDispatchState.foliateSessionId ||
+								command.binding.destinationCommitIdentity == null) return null
+							val transition = command.transitionId
+							// Retrying the same allocation retains its authority, not its retired wire attempt.
+							val id = "reader-allocation-query-${commandDispatchState.publicationSequence}-$generation-${transition.readerSessionGeneration}-${transition.coordinatorEpoch}-${transition.sequence}-${UUID.randomUUID()}"
+							val token = ReaderEngineCurrentDestinationContinuation(queryView, id, generation, currentPublicationKey,
+								command.binding.foliateSessionId, isAdmissionCurrent, onOutcome, allocationCommand = command)
+							// Allocation already has its actual binding; no semantic context/slot is rebound.
+							return if (enqueueDestinationQuery(token)) token else null
+						}
+
+						private fun submitDestinationQuery(
+							origin: ReaderPresentationEventOrigin.SemanticCommand,
+							context: ReaderSemanticMutationStartEvidence,
+							isAdmissionCurrent: () -> Boolean,
+							onOutcome: (ReaderCurrentDestinationQueryOutcome) -> Unit,
+							initialBootstrap: Boolean,
+							constructionCustody: ReaderEngineInitialDestinationConstructionCustody? = null
+						): ReaderSemanticExecutableResult {
+							if (!querySourceIsCurrent(initialBootstrap)) return ReaderSemanticExecutableResult.Rejected
+							val session = checkNotNull(commandDispatchState.foliateSessionId)
+							val id = "reader-query-${commandDispatchState.publicationSequence}-$generation-${origin.transitionId.readerSessionGeneration}-${origin.transitionId.coordinatorEpoch}-${origin.transitionId.sequence}-${origin.slotId.value}"
+							val token = ReaderEngineCurrentDestinationContinuation(queryView, id, generation, currentPublicationKey, session,
+								isAdmissionCurrent, onOutcome, initialBootstrap)
+							val binding = try {
+								constructionCustody?.adoptQuery(origin, context, token) ?: context.bindTransportRetirement(origin, token)
+							}
+							catch (failure: Throwable) { token.retire(); throw failure }
+							when (binding) {
+								ReaderSemanticTransportBindingResult.Rejected -> { token.retire(); return ReaderSemanticExecutableResult.Rejected }
+								ReaderSemanticTransportBindingResult.RetiredAndDisposed -> return ReaderSemanticExecutableResult.Rejected
+								ReaderSemanticTransportBindingResult.Bound -> Unit
+							}
+							// Binding and external admission can reenter; the exact original context/token remains authoritative.
+							return if (enqueueDestinationQuery(token)) ReaderSemanticExecutableResult.Accepted
+								else ReaderSemanticExecutableResult.Rejected
+						}
+
+						private fun enqueueDestinationQuery(token: ReaderEngineCurrentDestinationContinuation): Boolean {
+							if (!token.admits() || !queryContextIsCurrent(token, queryView)) {
+								token.retire(); return false
+							}
+							val next = commandDispatchState.enqueueCurrentDestinationQuery(
+								ReaderBridgeDispatchCommand(token.commandId, ReaderBridgeCommand.ResolveCurrentDestination(token.expectedFoliateSessionId)), token,
+								requiresDispatchedOpening = token.initialBootstrap)
+							if (next == null) { token.retire(); return false }
+							commandDispatchState = next
+							queryView.dispatchReadyReaderCommands()
+							return true
+						}
+
+						override fun retireCurrentDestinationQueryExact(continuation: ReaderCurrentDestinationContinuation) {
+							if (Looper.myLooper() != Looper.getMainLooper()) {
+								Handler(Looper.getMainLooper()).post { queryView.retireCurrentDestinationQueryExact(continuation) }
+								return
+							}
+							if (generationDisposed.get() || generation != webViewGeneration || webView !== queryView) return
+							val previous = commandDispatchState
+							commandDispatchState = previous.retireCurrentDestinationQueryExact(continuation)
+							if (commandDispatchState !== previous) webView?.dispatchReadyReaderCommands()
+						}
+
+						override fun closeCurrentDestinationQueries() {
+							generationDisposed.set(true)
+							bridge.deactivate()
+							if (generation == webViewGeneration && webView === queryView) readerRuntimeReady = false
+							retireQueries(generation, ReaderCurrentDestinationQueryFailure.Closed)
+							cancelActiveSettingsMutation(generation)
+						}
+					}
+					runtimeInitializationVisibilityListener = { visibility ->
+						if (visibility == View.VISIBLE) startReaderRuntimeIfVisible()
+					}
 					windowVisibilityListener = { visibility ->
 						val visible = visibility == View.VISIBLE
 						if (runtimeRecovery.onWindowVisibilityChanged(visible)) {
@@ -609,7 +1142,7 @@ actual fun ReaderEngineWebViewHost(
 						override fun onPageFinished(view: WebView, url: String?) {
 							Logger.i(
 								ReaderEngineWebViewHostTag,
-								"Reader engine page finished: ${url?.engineUrlLabel().orEmpty()}"
+								"Reader engine page finished: callback"
 							)
 							view.dispatchReadyReaderCommands()
 						}
@@ -622,8 +1155,7 @@ actual fun ReaderEngineWebViewHost(
 							Logger.e(
 								ReaderEngineWebViewHostTag,
 								"Reader engine WebView error main=${request.isForMainFrame} " +
-									"url=${request.url.toString().engineUrlLabel()} " +
-									"code=${error.errorCode} description=${error.description}"
+									"code=${error.errorCode}"
 							)
 						}
 
@@ -635,8 +1167,7 @@ actual fun ReaderEngineWebViewHost(
 							Logger.w(
 								ReaderEngineWebViewHostTag,
 								"Reader engine WebView HTTP error main=${request.isForMainFrame} " +
-									"url=${request.url.toString().engineUrlLabel()} " +
-									"status=${errorResponse.statusCode} reason=${errorResponse.reasonPhrase}"
+									"status=${errorResponse.statusCode}"
 							)
 						}
 
@@ -652,11 +1183,11 @@ actual fun ReaderEngineWebViewHost(
 							Logger.e(
 								ReaderEngineWebViewHostTag,
 								"Reader engine WebView render process gone didCrash=${detail.didCrash()} " +
-									"priorityAtExit=${detail.rendererPriorityAtExit()} " +
-									"publication=${currentPublicationKey.hashCode()}"
+									"priorityAtExit=${detail.rendererPriorityAtExit()}"
 							)
 							runtimeRecovery.reset()
 							readerRuntimeReady = false
+							val retired = retireGeneration()
 							currentOnEvent(
 								ReaderEngineHostEvent.FoliateBridge(
 									ReaderBridgeEvent.Error(
@@ -665,7 +1196,7 @@ actual fun ReaderEngineWebViewHost(
 									)
 								)
 							)
-							if (retireGeneration() && generation == webViewGeneration) {
+							if (retired && generation == webViewGeneration && webView === view) {
 								webViewGeneration += 1
 							}
 							return true
@@ -675,12 +1206,16 @@ actual fun ReaderEngineWebViewHost(
 				}
 			},
 			onRelease = { view ->
+				retireGeneration()
+				view.runtimeInitializationVisibilityListener = null
 				view.windowVisibilityListener = null
 				ReaderWebViewReleaseQueue.enqueue {
 					releaseGeneration(view)
 				}
 			},
 			update = { view ->
+				// Publication retirement is independent of runtime readiness/the dispatch gate.
+				if (generation == webViewGeneration && webView === view) retireReplacedPublicationQueries()
 				view.keepScreenOn = settings.keepScreenOn == true
 				ReaderWebRuntime.setWebContentsDebuggingEnabled(settings.webContentsDebuggingEnabled == true)
 				if (
@@ -720,13 +1255,3 @@ private fun ReaderBridgeCommand.withEngineNativeTapZones(): ReaderBridgeCommand 
 		is ReaderBridgeCommand.ApplySettings -> copy(settings = settings.copy(nativeTapZones = true))
 		else -> this
 	}
-
-private fun String.engineUrlLabel(): String {
-	val scheme = substringBefore(":", missingDelimiterValue = "").takeIf { it.isNotBlank() }
-	val tail = substringAfterLast('/').take(80)
-	return when {
-		scheme != null && tail.isNotBlank() -> "$scheme:$tail"
-		scheme != null -> scheme
-		else -> take(80)
-	}
-}

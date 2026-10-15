@@ -60,7 +60,7 @@ class ReaderEngineRuntimeRecoveryTest {
 		val loadStartedIndex = runtimeStart.indexOf("runtimeRecovery.onRuntimeLoadStarted()")
 		val configureIndex = runtimeStart.indexOf("ReaderWebRuntime.configure(")
 
-		assertContains(source, "private class ReaderEngineWebView")
+		assertContains(source, "internal class ReaderEngineWebView")
 		assertContains(source, "override fun onWindowVisibilityChanged(visibility: Int)")
 		assertContains(source, "runtimeRecovery.onWindowVisibilityChanged(")
 		assertContains(source, "restartInterruptedReaderRuntime(")

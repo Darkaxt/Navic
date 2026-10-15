@@ -76,6 +76,13 @@ data class ReaderPresentationEventReceipt(
 						binding = sourceEvent.binding,
 						transitionId = commandOrigin.transitionId
 					)
+				is ReaderPresentationEvent.CurrentDestinationConfirmed ->
+					if (sourceEvent.expectedOrigin === commandOrigin) {
+						ReaderPresentationSemanticReceipt.Destination(
+							binding = sourceEvent.binding,
+							transitionId = commandOrigin.transitionId
+						)
+					} else null
 				else -> null
 			}
 		}
@@ -121,6 +128,77 @@ internal data class ReaderPresentationEventTransition(
 	val acceptedShellCoverDismissal: Boolean
 )
 
+private fun currentDestinationConfirmationReduction(
+	state: ReaderPresentationState,
+	version: ReaderPresentationReceiptVersion,
+	event: ReaderPresentationEvent.CurrentDestinationConfirmed,
+	origin: ReaderPresentationEventOrigin
+): ReaderPresentationReduction {
+	val commandOrigin = origin as? ReaderPresentationEventOrigin.SemanticCommand
+	val disposition = when {
+		state.lifecycle == ReaderPresentationLifecycleState.Destroyed ->
+			ReaderPresentationEventDisposition.Destroyed
+		commandOrigin == null || commandOrigin !== event.expectedOrigin ->
+			ReaderPresentationEventDisposition.Rejected
+		version != event.expectedVersion -> ReaderPresentationEventDisposition.Stale
+		version.readerSessionGeneration <= 0L ||
+			commandOrigin.transitionId.readerSessionGeneration != version.readerSessionGeneration ||
+			version.publicationIdentity != event.binding.publicationIdentity ||
+			state.binding != event.binding -> ReaderPresentationEventDisposition.Rejected
+		state.lifecycle != ReaderPresentationLifecycleState.Foreground || state.failure != null ||
+			event.binding.destinationCommitIdentity == null || event.binding.profileGeneration <= 0L ||
+			(event.binding.rasterGeneration == null) != (event.binding.textureGeneration == null) ->
+			ReaderPresentationEventDisposition.Rejected
+		else -> ReaderPresentationEventDisposition.Accepted
+	}
+	return ReaderPresentationReduction(
+		state = state,
+		decision = readerPresentationDecision(state),
+		effects = emptyList(),
+		disposition = disposition
+	)
+}
+
+/** Installed Curl's owning relocation has already reduced the source acknowledgement.
+ * This command-scoped observation certifies semantics only; the predecessor's material,
+ * cleanup ownership, frame and input policy remain exactly as they were. */
+private fun commandScopedSettlementReduction(
+	state: ReaderPresentationState,
+	version: ReaderPresentationReceiptVersion,
+	event: ReaderPresentationEvent.FoliateRelocated,
+	origin: ReaderPresentationEventOrigin.SemanticCommand
+): ReaderPresentationReduction {
+	val expected = origin.transitionId.expectedBinding as? ReaderExpectedPresentationBinding.SemanticSuccessor
+	val predecessor = expected?.takeUnless {
+		it is ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial ||
+			it is ReaderExpectedPresentationBinding.NoCommittedPresentation
+	}?.predecessor
+	val destination = event.binding.destinationCommitIdentity
+	val predecessorDestination = predecessor?.destinationCommitIdentity
+	val acknowledgement = event.acknowledgement
+	val disposition = when {
+		state.lifecycle == ReaderPresentationLifecycleState.Destroyed -> ReaderPresentationEventDisposition.Destroyed
+		state.lifecycle != ReaderPresentationLifecycleState.Foreground || state.failure != null ->
+			ReaderPresentationEventDisposition.Rejected
+		version.readerSessionGeneration <= 0L ||
+			origin.transitionId.readerSessionGeneration != version.readerSessionGeneration ||
+			predecessor == null || version.publicationIdentity != predecessor.publicationIdentity ||
+			state.binding != predecessor -> ReaderPresentationEventDisposition.Stale
+		predecessorDestination == null || destination == null ||
+			destination.foliateSessionId != predecessor.foliateSessionId ||
+			destination.commitSequence <= predecessorDestination.commitSequence ||
+			predecessor.profileGeneration <= 0L ||
+			event.binding != predecessor.copy(destinationCommitIdentity = destination,
+				preparationGeneration = null, rasterGeneration = null, textureGeneration = null) ||
+			acknowledgement == null || acknowledgement.foliateSessionId != predecessor.foliateSessionId ||
+			acknowledgement.token.isBlank() || acknowledgement.pageIndex < 0 ||
+			acknowledgement.rasterGeneration < 0L || acknowledgement.textureGeneration < 0L ->
+			ReaderPresentationEventDisposition.Rejected
+		else -> ReaderPresentationEventDisposition.Accepted
+	}
+	return ReaderPresentationReduction(state, readerPresentationDecision(state), emptyList(), disposition)
+}
+
 internal fun readerPresentationEventTransition(
 	preState: ReaderPresentationState,
 	preVersion: ReaderPresentationReceiptVersion,
@@ -129,7 +207,20 @@ internal fun readerPresentationEventTransition(
 	origin: ReaderPresentationEventOrigin = ReaderPresentationEventOrigin.NonSemantic
 ): ReaderPresentationEventTransition {
 	val previousAuthority = preState.authority
-	val primaryReduction = readerPresentationReduce(preState, event)
+	val primaryReduction = if (event is ReaderPresentationEvent.CurrentDestinationConfirmed) {
+		// Only this genuine versioned receipt boundary can confirm a command-scoped observation.
+		// The ordinary reducer continues to reject it, and equal relocation stays Idempotent.
+		currentDestinationConfirmationReduction(preState, preVersion, event, origin)
+	} else if (event is ReaderPresentationEvent.FoliateRelocated &&
+		origin is ReaderPresentationEventOrigin.SemanticCommand &&
+		origin.transitionId.operation == ReaderTransitionOperation.CurlClaimAndSettlement &&
+		event.acknowledgement != null && !event.binding.hasAnyRendererIdentity() &&
+		event.binding.preparationGeneration == null
+	) {
+		commandScopedSettlementReduction(preState, preVersion, event, origin)
+	} else {
+		readerPresentationReduce(preState, event)
+	}
 	val startupReduction = if (
 		event is ReaderPresentationEvent.PublicationOpened &&
 		primaryReduction.state.binding == event.binding &&

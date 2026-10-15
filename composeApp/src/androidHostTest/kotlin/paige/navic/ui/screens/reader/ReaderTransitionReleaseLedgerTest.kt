@@ -480,10 +480,14 @@ class ReaderTransitionReleaseLedgerTest {
 				)
 			)
 
-			assertEquals(expectedStatus, coordinator.snapshot().releaseOnlyDeadlineStatus)
+			// The entry timer failed; the separate bounded cleanup deadline is genuinely armed.
+			assertEquals(ReaderReleaseOnlyCleanupDeadlineStatus.Armed, coordinator.snapshot().releaseOnlyDeadlineStatus)
+			assertEquals(expectedStatus, coordinator.snapshot().releaseOnlyEntryTimerBindingFailureOrigin)
 			assertEquals(ReaderTransitionResourceState.ReleaseCommandIssued, coordinator.releaseStateOf(key))
 			assertEquals(1, clock.activeRegistrationCount)
 			clock.fireOnlyActive()
+			assertEquals(ReaderReleaseOnlyCleanupDeadlineStatus.Elapsed, coordinator.snapshot().releaseOnlyDeadlineStatus)
+			assertEquals(expectedStatus, coordinator.snapshot().releaseOnlyEntryTimerBindingFailureOrigin)
 			assertEquals(ReaderTransitionResourceState.TimedOutUnreleased, coordinator.releaseStateOf(key))
 		}
 	}

@@ -111,9 +111,24 @@ extensions.configure<KotlinMultiplatformExtension> {
 
 	extensions.configure<KotlinMultiplatformAndroidLibraryExtension> {
 		namespace = "paige.navic"
+		testNamespace = "paige.navic.task407.runtime"
 		compileSdk = libs.versions.android.compileSdk.get().toInt()
 		minSdk = libs.versions.android.minSdk.get().toInt()
-		withHostTest {}
+		withHostTest {
+			isIncludeAndroidResources = true
+			targetSdk {
+				version = release(28)
+			}
+		}
+
+		withDeviceTest {
+			instrumentationRunner = "paige.navic.ui.screens.reader.Task407RuntimeRunner"
+			execution = "HOST"
+			animationsDisabled = false
+			targetSdk { version = release(37) }
+			instrumentationRunnerArguments["class"] =
+				"paige.navic.ui.screens.reader.ReaderNormalProductionStartupRuntimeTest"
+		}
 
 		androidResources.enable = true
 
@@ -177,6 +192,15 @@ extensions.configure<KotlinMultiplatformExtension> {
 				implementation(
 					"org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0"
 				)
+			}
+		}
+
+		named("androidDeviceTest") {
+			dependencies {
+				implementation("androidx.test:core:1.7.0")
+				implementation("androidx.test:runner:1.7.0")
+				implementation("androidx.test.ext:junit:1.3.0")
+				implementation("junit:junit:4.13.2")
 			}
 		}
 

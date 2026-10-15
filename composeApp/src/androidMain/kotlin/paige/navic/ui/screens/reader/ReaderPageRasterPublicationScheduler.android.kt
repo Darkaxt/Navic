@@ -24,7 +24,12 @@ internal class ReaderPageRasterPublicationScheduler(
 	private val permits = Semaphore(maxConcurrentWorkers)
 	private val jobs =
 		linkedMapOf<ReaderPageRasterPublicationRequest, Job>()
-	private val jobTokens = IdentityHashMap<Job, ReaderLegacySourceLocalOpaqueToken>()
+	private data class JobCustody(
+		val token: ReaderLegacySourceLocalOpaqueToken,
+		val work: ReaderActivatedRasterWork?
+	)
+
+	private val jobTokens = IdentityHashMap<Job, JobCustody>()
 	private val activeJobs = java.util.Collections.newSetFromMap(IdentityHashMap<Job, Boolean>())
 	private val completedJobs = java.util.Collections.newSetFromMap(IdentityHashMap<Job, Boolean>())
 	private val drainConfirmations = IdentityHashMap<Job, () -> Unit>()
@@ -32,6 +37,7 @@ internal class ReaderPageRasterPublicationScheduler(
 	private var activeWorkers = 0
 	private var closed = false
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var legacyFinalized = false
 
 	private fun removeJobLocked(job: Job) {
 		jobs.entries.firstOrNull { (_, owned) -> owned === job }
@@ -48,10 +54,27 @@ internal class ReaderPageRasterPublicationScheduler(
 	fun schedule(
 		request: ReaderPageRasterPublicationRequest,
 		worker: suspend () -> Unit
+	): ReaderPortCommandResult = scheduleOwned(request, null, worker)
+
+	fun scheduleInstalled(
+		request: ReaderPageRasterPublicationRequest,
+		work: ReaderActivatedRasterWork,
+		worker: suspend () -> Unit
+	): ReaderPortCommandResult = scheduleOwned(request, work, worker)
+
+	private fun scheduleOwned(
+		request: ReaderPageRasterPublicationRequest,
+		work: ReaderActivatedRasterWork?,
+		worker: suspend () -> Unit
 	): ReaderPortCommandResult {
+		if (work != null && !work.isCurrent()) return ReaderPortCommandResult.Rejected(
+			ReaderTransitionFailureReason.InvalidLegacyResource
+		)
 		val job = synchronized(lock) {
 			check(!closed) { "Publication scheduler is closed" }
-			if (frozenDomain != null) return@synchronized null
+			val admitted = if (work == null) frozenDomain == null else
+				legacyFinalized && frozenDomain == work.domain && work.installationIsCurrent()
+			if (!admitted) return@synchronized null
 			check(request !in jobs) {
 				"Publication request already scheduled: $request"
 			}
@@ -72,7 +95,7 @@ internal class ReaderPageRasterPublicationScheduler(
 				}
 			}.also { created ->
 				jobs[request] = created
-				jobTokens[created] = tokenAllocator.allocate()
+				jobTokens[created] = JobCustody(tokenAllocator.allocate(), work)
 			}
 		} ?: return ReaderPortCommandResult.Rejected(
 			ReaderTransitionFailureReason.InvalidLegacyResource
@@ -81,7 +104,7 @@ internal class ReaderPageRasterPublicationScheduler(
 			val confirmation = synchronized(lock) {
 				activeJobs.remove(job)
 				val pending = drainConfirmations.remove(job)
-				if (pending != null || frozenDomain == null) {
+				if (pending != null || frozenDomain == null || work != null) {
 					removeJobLocked(job)
 				} else {
 					completedJobs += job
@@ -91,6 +114,25 @@ internal class ReaderPageRasterPublicationScheduler(
 			confirmation?.invoke()
 		}
 		job.start()
+		return ReaderPortCommandResult.Accepted
+	}
+
+	fun releaseInstalled(work: ReaderActivatedRasterWork, onReleased: () -> Unit): ReaderPortCommandResult {
+		val selected = synchronized(lock) {
+			if (!legacyFinalized || frozenDomain != work.domain) return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+			jobs.values.filter { jobTokens[it]?.work === work }
+		}
+		if (selected.isEmpty()) {
+			onReleased()
+		} else {
+			val pending = java.util.concurrent.atomic.AtomicInteger(selected.size)
+			selected.forEach { job ->
+				job.invokeOnCompletion { if (pending.decrementAndGet() == 0) onReleased() }
+			}
+			selected.forEach(Job::cancel)
+		}
 		return ReaderPortCommandResult.Accepted
 	}
 
@@ -109,15 +151,25 @@ internal class ReaderPageRasterPublicationScheduler(
 		}
 	}
 
+	internal val originalLegacyAdmissionRestored: Boolean
+		get() = synchronized(lock) { !closed && frozenDomain == null }
+
+	fun connectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? = synchronized(lock) {
+		val domain = frozenDomain ?: return@synchronized null
+		ReaderLegacyConnectedSourceInventory(
+			ReaderLegacyInventorySource.RasterPublication, domain, snapshotFrozenOwnership()
+		)
+	}
+
 	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> = synchronized(lock) {
 		val domain = frozenDomain ?: return@synchronized emptyList()
-		jobs.values.map { job ->
+		jobs.values.filter { checkNotNull(jobTokens[it]).work == null }.map { job ->
 			ReaderFrozenLegacyResource(
 				freezeToken = domain.freezeToken,
 				physicalIdentity = ReaderLegacyPhysicalIdentity(
 					domain = domain,
 					source = ReaderLegacyInventorySource.RasterPublication,
-					sourceLocalToken = checkNotNull(jobTokens[job])
+					sourceLocalToken = checkNotNull(jobTokens[job]).token
 				),
 				kind = ReaderTransitionResourceKind.Raster,
 				binding = null,
@@ -149,7 +201,7 @@ internal class ReaderPageRasterPublicationScheduler(
 				return@synchronized null
 			}
 			val matched = jobs.values.firstOrNull { ownedJob ->
-				jobTokens[ownedJob] == physicalIdentity.sourceLocalToken
+				jobTokens[ownedJob]?.let { it.work == null && it.token == physicalIdentity.sourceLocalToken } == true
 			} ?: return@synchronized null
 			if (matched in drainConfirmations) return@synchronized null
 			if (completedJobs.remove(matched)) {
@@ -166,11 +218,19 @@ internal class ReaderPageRasterPublicationScheduler(
 		return ReaderPortCommandResult.Accepted
 	}
 
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult = synchronized(lock) {
+		if (closed || legacyFinalized || frozenDomain != domain || jobs.isNotEmpty() || activeWorkers != 0 ||
+			drainConfirmations.isNotEmpty())
+			return@synchronized ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		legacyFinalized = true
+		ReaderPortCommandResult.Accepted
+	}
+
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult = synchronized(lock) {
 		if (
-			frozenDomain != domain ||
+			legacyFinalized || frozenDomain != domain ||
 			closed ||
 			drainConfirmations.isNotEmpty()
 		) {

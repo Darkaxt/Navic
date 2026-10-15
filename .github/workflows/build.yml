@@ -90,6 +90,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          # Source-verifier fixtures reconstruct the pinned upstream-before blobs.
+          fetch-depth: 0
 
       - name: Verify reader vendor governance
         shell: pwsh

@@ -530,7 +530,7 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
   const layoutMode = geometry.mode
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
   const step = layoutMode === 'spread' ? 2 : 1
-  const requestedCenter = Number(pageIndexOverride)
+  const requestedCenter = pageIndexOverride == null ? NaN : Number(pageIndexOverride)
   const pageCount = Math.max(1, Math.floor(Number(this.currentPagePosition?.pageCount) || 1))
   const centerPageIndex = Number.isFinite(requestedCenter)
     ? Math.max(0, Math.min(pageCount - 1, Math.floor(requestedCenter)))
@@ -598,7 +598,10 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
     ? Math.max(0, Math.floor(Number(chapter.pageStartIndex) || 0))
     : -1
   const chapterCount = chapter => Math.max(0, Math.floor(Number(chapter?.pageCount) || 0))
+  const resolved = this.view?.renderer?.captureResolvedLayout?.()
   return Object.freeze({
+    // Subordinate numeric Live layout only; never transport its currentness closure.
+    resolvedLayout: resolved?.isCurrent() === true ? resolved.layout : null,
     context: Object.freeze({
       centerPageIndex,
       pageCount,

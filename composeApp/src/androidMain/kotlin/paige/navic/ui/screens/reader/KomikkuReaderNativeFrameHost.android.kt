@@ -27,9 +27,12 @@ import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.currentCompositionLocalContext
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,7 +51,14 @@ import androidx.lifecycle.findViewTreeLifecycleOwner
 import karacken.curl.PageChange
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.delay
+import java.lang.ref.WeakReference
 import java.util.UUID
+import paige.navic.reader.ReaderCurrentDestinationQueryOutcome
+import paige.navic.reader.ReaderCurrentDestinationQueryFailure
+import paige.navic.reader.ReaderPresentationEventOrigin
+import paige.navic.reader.ReaderSemanticExecutableRequest
+import paige.navic.reader.ReaderSemanticExecutableResult
+import paige.navic.reader.ReaderSemanticAsyncFailure
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderDiagnosticPresentation
 import paige.navic.reader.ReaderLegacyLiveCompatibilityContext
@@ -97,6 +107,18 @@ import paige.navic.reader.ReaderRendererBusyFeedbackMaximumMillis
 import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderTransitionFact
+import paige.navic.reader.ReaderTransitionCommand
+import paige.navic.reader.ReaderTransitionFailureReason
+import paige.navic.reader.ReaderTransitionInputLease
+import paige.navic.reader.ReaderTransitionResourceKey
+import paige.navic.reader.ReaderTransitionResourceKind
+import paige.navic.reader.ReaderTransitionFrameTargetSpecification
+import paige.navic.reader.ReaderTransitionFrameGeometry
+import paige.navic.reader.ReaderNativePageHostTokenState
+import paige.navic.reader.ReaderPlayLikeCurlDeckTargetIdentity
+import paige.navic.reader.ReaderBootstrapNativePageIntent
+import paige.navic.reader.ReaderOwnerAndInputPublicationResult
+import paige.navic.reader.ReaderInitialPresentationInputLease
 import paige.navic.reader.ReaderTransitionJournal
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
@@ -367,6 +389,54 @@ internal class ReaderPresentationBindingReporter : ReaderDeckAdmissionLeaseHost 
 	fun matchesAuthoritativePresentationVersion(
 		version: ReaderPresentationReceiptVersion
 	): Boolean = authoritativeVersion == version
+
+	/** Initial semantic authority is the genuine unbound Compose model, never its minimum
+	 * version floor or an already-bound confirmation context relabelled as Neutral. */
+	fun captureInitialSemanticContextVersionOrNull(): ReaderPresentationReceiptVersion? {
+		val version = authoritativeVersion ?: return null
+		val state = authoritativeState ?: return null
+		if (expectedReaderSessionGeneration != version.readerSessionGeneration ||
+			expectedPublicationIdentity != null || version.publicationIdentity != null ||
+			lastReportedBinding != null || state.binding != null ||
+			state.authority != ReaderPresentationAuthority.Unavailable ||
+			state.rendererCleanupOwnership.isNotEmpty() || state.rendererSuccessorReceipt != null ||
+			authoritativeLifecycle != ReaderPresentationLifecycleState.Foreground ||
+			state.lifecycle != ReaderPresentationLifecycleState.Foreground ||
+			readerPresentationDecision(state).frameOwner != ReaderPresentationFrameOwner.Neutral) return null
+		return version
+	}
+
+	/** Consume the original command receipt on the original reporter, without legacy
+	 * physical effects or a second receipt authority. */
+	fun consumeInitialSemanticReceipt(
+		epoch: Long,
+		version: ReaderPresentationReceiptVersion,
+		origin: ReaderPresentationEventOrigin.SemanticCommand,
+		receipt: ReaderPresentationEventReceipt
+	): Boolean {
+		if (epoch != hostEpoch || captureInitialSemanticContextVersionOrNull() != version ||
+			receipt.preVersion != version || receipt.origin !== origin ||
+			origin.transitionId.operation != paige.navic.reader.ReaderTransitionOperation.BootstrapNativePage ||
+			origin.transitionId.expectedBinding !is paige.navic.reader.ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial ||
+			receipt.event !is ReaderPresentationEvent.FoliateRelocated || receipt.effects.isNotEmpty()) return false
+		val semantic = receipt.semanticReceipt ?: return false
+		if (semantic.transitionId != origin.transitionId || receipt.postState.binding != semantic.binding) return false
+		val transition = readerPresentationEventTransition(checkNotNull(authoritativeState), version,
+			authoritativeShellCoverVisible, receipt.event, origin)
+		if (transition.receipt != receipt || !bindPublication(semantic.binding)) return false
+		commitReceipt(ReaderPresentationReceiptAdmission(receipt, transition.shellCoverVisible))
+		return true
+	}
+
+	fun captureSemanticContextVersionOrNull(binding: ReaderPresentationBinding): ReaderPresentationReceiptVersion? {
+		val version = authoritativeVersion ?: return null
+		val state = authoritativeState ?: return null
+		if (expectedReaderSessionGeneration != version.readerSessionGeneration ||
+			expectedPublicationIdentity != binding.publicationIdentity || version.publicationIdentity != binding.publicationIdentity ||
+			lastReportedBinding != binding || state.binding != binding ||
+			authoritativeLifecycle != ReaderPresentationLifecycleState.Foreground || state.lifecycle != ReaderPresentationLifecycleState.Foreground) return null
+		return version
+	}
 
 	fun matchesAuthoritativePresentationDecision(decision: ReaderPresentationDecision): Boolean =
 		authoritativeState?.let(::readerPresentationDecision) == decision
@@ -823,13 +893,34 @@ actual fun KomikkuReaderNativeFrameHost(
 	viewerContent: @Composable () -> Unit,
 	composeOverlay: @Composable () -> Unit
 ) {
+	val sessionGeneration = presentationVersion.readerSessionGeneration
 	val shadowTransitionGateway = checkNotNull(LocalReaderTransitionGateway.current)
-	DisposableEffect(shadowTransitionGateway) {
-		val registration = shadowTransitionGateway.attachShadow(
-			enqueue = {},
-			enqueueReceipt = {}
-		)
-		onDispose { registration.close() }
+	if (!shadowTransitionGateway.admitsNormalSession(sessionGeneration)) return
+	val activatedSessionStore = remember(sessionGeneration) { ReaderActivatedSessionSnapshotStore() }
+	var nativeFrameRoot by remember(sessionGeneration) { mutableStateOf<KomikkuReaderNativeFrameRoot?>(null) }
+	val semanticRequests = remember(activatedSessionStore, sessionGeneration) {
+		ReaderSemanticExecutableRequestRegistry(sessionGeneration, activationStore = activatedSessionStore)
+	}
+	val semanticExecutor = remember(semanticRequests) { ReaderSemanticCommandExecutor(semanticRequests) }
+	// Select before AndroidView construction or any competing legacy presentation effect.
+	// Selection is private bootstrap custody, never semantic/layout/frame readiness.
+	val productionCandidate = remember(shadowTransitionGateway, activatedSessionStore, sessionGeneration) {
+		checkNotNull(shadowTransitionGateway.reserveActivatedCandidate(
+			readerSessionGeneration = sessionGeneration,
+			coordinatorEpoch = 1L,
+			installationSource = activatedSessionStore,
+			enqueue = { fact -> checkNotNull(nativeFrameRoot).enqueueActivatedFact(fact) },
+			enqueueReceipt = { receipt -> checkNotNull(nativeFrameRoot).enqueueActivatedReceipt(receipt) },
+			registerSemanticRequest = semanticRequests::register,
+			discardSemanticReservation = semanticRequests::discardCandidateReservations,
+			retireSemanticRequests = semanticExecutor::clear
+		))
+	}
+	DisposableEffect(productionCandidate) {
+		onDispose {
+			shadowTransitionGateway.retireNormalProductionCandidate(productionCandidate)
+			semanticExecutor.clear()
+		}
 	}
 	val currentShadowTransitionGateway by rememberUpdatedState(shadowTransitionGateway)
 	val currentViewerContent by rememberUpdatedState(viewerContent)
@@ -843,8 +934,23 @@ actual fun KomikkuReaderNativeFrameHost(
 	val currentOnStartupShellPrepared by rememberUpdatedState(onStartupShellPrepared)
 	val currentOnPresentationEffectHandled by rememberUpdatedState(onPresentationEffectHandled)
 	val currentOnPresentationEvent by rememberUpdatedState(onPresentationEvent)
+	val currentSemanticReceiptIngress by rememberUpdatedState(LocalReaderSemanticReceiptIngress.current)
+	val currentInitialSemanticReceiptIngress by rememberUpdatedState(LocalReaderInitialSemanticReceiptIngress.current)
+	val currentInstalledPageTurnModelIngress by rememberUpdatedState(LocalReaderInstalledPageTurnModelIngress.current)
+	val currentInstalledPhysicalPublicationIngress by rememberUpdatedState(LocalReaderInstalledPhysicalPublicationIngress.current)
+	val currentReaderCompositionLocals by rememberUpdatedState(currentCompositionLocalContext)
+	@Composable
+	fun ReaderNestedContent(content: @Composable () -> Unit) {
+		CompositionLocalProvider(currentReaderCompositionLocals) {
+			CompositionLocalProvider(
+				LocalReaderTransitionGateway provides currentShadowTransitionGateway,
+				LocalReaderSemanticReceiptIngress provides currentSemanticReceiptIngress,
+				LocalReaderInitialSemanticReceiptIngress provides currentInitialSemanticReceiptIngress,
+				LocalReaderInstalledPageTurnModelIngress provides currentInstalledPageTurnModelIngress
+			) { content() }
+		}
+	}
 	var rendererBusyFeedbackToken by remember { mutableLongStateOf(0L) }
-	var nativeFrameRoot by remember { mutableStateOf<KomikkuReaderNativeFrameRoot?>(null) }
 	val hostedComposeOverlay: @Composable () -> Unit = {
 		val rendererBusyFeedbackVisibility = remember { MutableTransitionState(false) }
 		var fullyVisibleRejectionToken by remember { mutableLongStateOf(0L) }
@@ -914,13 +1020,14 @@ actual fun KomikkuReaderNativeFrameHost(
 		rendererBusyFeedbackToken += 1L
 	}
 
+	key(sessionGeneration) {
 	AndroidView(
 		modifier = modifier,
 		factory = { context ->
-			KomikkuReaderNativeFrameRoot(context).apply {
+			KomikkuReaderNativeFrameRoot(context, activatedSessionStore).apply {
 				nativeFrameRoot = this
 				setOnStartupShellPrepared { currentOnStartupShellPrepared() }
-				setComposeOverlay(hostedComposeOverlay)
+				setComposeOverlay { ReaderNestedContent(hostedComposeOverlay) }
 				setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
 				setChromeOverlayVisible(chromeOverlayVisible)
 				setShellCover(
@@ -943,7 +1050,11 @@ actual fun KomikkuReaderNativeFrameHost(
 						null
 					}
 				}
-				setViewerContent(viewerKey) { currentViewerContent() }
+				setInitialSemanticReceiptIngress(presentationVersion, currentInitialSemanticReceiptIngress)
+				setInstalledPageTurnModelIngress(currentInstalledPageTurnModelIngress)
+				setInstalledPhysicalPublicationIngress(currentInstalledPhysicalPublicationIngress)
+				prepareNormalProductionCandidate(productionCandidate, semanticRequests, semanticExecutor)
+				setViewerContent(viewerKey) { ReaderNestedContent(currentViewerContent) }
 				handlePresentationEffects(
 					presentationEffects,
 					presentationVersion
@@ -1019,6 +1130,9 @@ actual fun KomikkuReaderNativeFrameHost(
 					null
 				}
 			}
+			root.setInitialSemanticReceiptIngress(presentationVersion, currentInitialSemanticReceiptIngress)
+			root.setInstalledPageTurnModelIngress(currentInstalledPageTurnModelIngress)
+			root.setInstalledPhysicalPublicationIngress(currentInstalledPhysicalPublicationIngress)
 			root.handlePresentationEffects(
 				presentationEffects,
 				presentationVersion
@@ -1045,8 +1159,8 @@ actual fun KomikkuReaderNativeFrameHost(
 					currentOnWhispersyncCueMapSeekRequested(sourceOrdinal)
 				}
 			)
-			root.setViewerContent(viewerKey) { currentViewerContent() }
-			root.setComposeOverlay(hostedComposeOverlay)
+			root.setViewerContent(viewerKey) { ReaderNestedContent(currentViewerContent) }
+			root.setComposeOverlay { ReaderNestedContent(hostedComposeOverlay) }
 			root.setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
 			root.setOnPageTurnBoundary { direction -> currentOnPageTurnBoundary(direction) }
@@ -1055,11 +1169,12 @@ actual fun KomikkuReaderNativeFrameHost(
 			}
 			root.setOnContentLongPress { x, y, width, height -> currentOnContentLongPress(x, y, width, height) }
 		},
-		onRelease = { root ->
-			if (nativeFrameRoot === root) nativeFrameRoot = null
-			root.closeReader()
-		}
-	)
+			onRelease = { root ->
+				root.closeReader()
+				if (nativeFrameRoot === root) nativeFrameRoot = null
+			}
+		)
+	}
 }
 
 private class ReaderNestedComposeDisposalQueue {
@@ -1079,9 +1194,30 @@ private class ReaderNestedComposeDisposalQueue {
 	}
 }
 
-private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(context) {
+/** Temporary source-static legacy invocation diagnostic, not material or readiness authority. */
+internal enum class ReaderOriginalViewerContentOperation {
+	CaptureReplacement, BeginReturn, ComposeConstruction, CompositionStrategy, SetContent,
+	CancelPointer, ReplacementAdmission, ReplacementLifecycle, CurlInvalidation, RasterInvalidation,
+	RemovePrewarmListener, ReportDetached, RetireCaptured, ReserveInstallation, MountInstallation,
+	ReportAttached, RequestPrewarm, AcceptReplacement, CompleteReplacement, ReplacementCleanup, EndReturn
+}
+
+/** One enum cell for one original Root invocation, shared with its native replacement only. */
+internal class ReaderOriginalViewerContentOperationWitness {
+	var failure: ReaderOriginalViewerContentOperation? = null
+		private set
+
+	fun record(operation: ReaderOriginalViewerContentOperation) {
+		if (failure == null) failure = operation
+	}
+}
+
+private class KomikkuReaderNativeFrameRoot(
+	context: Context,
+	private val activatedSessionStore: ReaderActivatedSessionSnapshotStore
+) : FrameLayout(context) {
 	private val readerContainer = FrameLayout(context)
-	private val viewerContainer = KomikkuReaderNativeViewerContainer(context)
+	private val viewerContainer = KomikkuReaderNativeViewerContainer(context, activatedSessionStore)
 	private val shellCoverView = KomikkuReaderNativeShellCoverView(context)
 	private val pagePreparationShieldView = View(context).apply {
 		setBackgroundColor(Color.rgb(32, 35, 41))
@@ -1094,6 +1230,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private val nestedCompositionDisposalQueue = ReaderNestedComposeDisposalQueue()
 	private var currentViewerKey: ReaderViewerKey? = null
 	private var currentViewerComposeView: ComposeView? = null
+	private var originalViewerContentOperationWitness: ReaderOriginalViewerContentOperationWitness? = null
+	fun originalViewerContentOperationFailure(): ReaderOriginalViewerContentOperation? =
+		originalViewerContentOperationWitness?.failure
+	private var initialSemanticIngress: Pair<ReaderPresentationReceiptVersion, ReaderInitialSemanticReceiptIngress>? = null
 	private var shellCoverVisible: Boolean = false
 	private var presentationViewerKey: ReaderViewerKey? = null
 	private var presentationDecision: ReaderPresentationDecision? = null
@@ -1149,6 +1289,11 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		presentedFrameSequenceSource = viewerContainer::nextLiveEnginePresentedFrameSequence
 	)
 	private val presentationCommitHost = object : ReaderPresentationCommitHost {
+		override val liveMaterialWitnessRequired: Boolean get() = true
+		override fun captureLiveFrameInstallation() = viewerContainer.captureLiveFrameInstallation()
+		override fun confirmLiveFramePresentation(installation: ReaderFramePhysicalOwnershipAdapter.LiveInstallation,
+			witness: ReaderLiveEnginePhysicalWitness, owner: paige.navic.reader.ReaderPresentationFrameOwner.LiveEngine): Boolean =
+			viewerContainer.confirmLiveFramePresentation(installation, witness, owner)
 		override val isAttachedToWindow: Boolean
 			get() = shellCoverView.isAttachedToWindow
 		override val currentPresentationBinding: ReaderPresentationBinding?
@@ -1228,8 +1373,271 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private val presentationHostBridge = ReaderPresentationHostBridge(
 		host = presentationCommitHost,
 		liveEngineVisualHandoff = presentationWebViewVisualHandoff,
-		liveEngineExposureRequired = viewerContainer::requiresLiveEngineExposureHandoff
+		liveEngineExposureRequired = viewerContainer::requiresLiveEngineExposureHandoff,
+		tokenAllocator = viewerContainer.frameSourceTokenAllocator
 	) { event -> viewerContainer.dispatchPresentationEvent(event) }
+
+	/** Borrow the original owner for package composition; this does not install a session. */
+	val factOnlyTimerPort: ReaderTask6FactOnlyTimerPort
+		get() = presentationHostBridge.factOnlyTimerPort
+
+	fun finalizeActivatedDeadlineHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult =
+		presentationHostBridge.finalizeActivatedDeadlineHandoff(domain)
+
+	private val frameOrHandoffPhysicalSource by lazy { viewerContainer.createFrameOrHandoffSource(presentationHostBridge) }
+	private val originalPhysicalInventoryCapture = ReaderOriginalPhysicalInventoryCapture(
+		admissionEpoch = viewerContainer::physicalInventoryAdmissionEpoch,
+		freezeOriginalOwners = { domain, executor ->
+			val native = viewerContainer.freezeOriginalPhysicalInventoryOwners(domain, executor)
+			if (native != ReaderPortCommandResult.Accepted) native
+			else frameOrHandoffPhysicalSource.freezeForTransitionActivation(domain)
+		},
+		captureOriginalOwners = { domain, executor ->
+			val native = viewerContainer.snapshotOriginalPhysicalInventoryOwners(domain, executor)
+			val frame = frameOrHandoffPhysicalSource.snapshotConnectedFrozenOwnership()
+			val deadline = presentationHostBridge.snapshotConnectedFrozenDeadlineOwnership()
+			if (native == null || frame == null || deadline == null) null
+			else native + listOf(frame, deadline)
+		},
+		originalOwnersRestored = { executor -> viewerContainer.originalPhysicalAdmissionsRestored(executor) &&
+			frameOrHandoffPhysicalSource.originalLegacyAdmissionsRestored }
+	)
+	private var nextOriginalCheckpointId = 1L
+	private var normalProductionCandidate: ReaderTransitionGatewayCandidate? = null
+	private var normalSemanticRequests: ReaderSemanticExecutableRequestRegistry? = null
+	private var normalSemanticExecutor: ReaderSemanticCommandExecutor? = null
+	private var normalOriginalPort: ReaderLegacyFreezeAndInventoryPort? = null
+	private var activatedTransitionCoordinator: ReaderResumableTransitionCoordinator? = null
+	private var normalActivationCoordinator: ReaderSessionActivationCoordinator? = null
+	private var normalViewerContent: Pair<ReaderViewerKey, @Composable () -> Unit>? = null
+	private var readerClosed = false
+
+	/** Attachment, measured child geometry and the genuine initial Compose ingress are
+	 * prerequisite edges, not readiness proofs. The original activation state guards both
+	 * immediate and asynchronous completion; no layout tick retries an admitted attempt. */
+	private fun startNormalProductionSessionIfEligible() {
+		if (readerClosed || normalActivationCoordinator != null || !isAttachedToWindow ||
+			width <= 0 || height <= 0 || viewerContainer.width <= 0 || viewerContainer.height <= 0 ||
+			initialSemanticIngress == null) return
+		val candidate = normalProductionCandidate?.takeIf { it.isSelected } ?: return
+		val (viewerKey, content) = normalViewerContent ?: return
+		if (viewerKey != presentationViewerKey || !viewerContainer.hasInitialCommandContext()) return
+		val requests = checkNotNull(normalSemanticRequests)
+		val executor = checkNotNull(normalSemanticExecutor)
+		val domain = ReaderLegacyPhysicalDomain(candidate.readerSessionGeneration,
+			ReaderLegacyFreezeToken(candidate.coordinatorEpoch))
+		val ledger = ReaderTransitionReleaseLedger()
+		val inputSafety = object : ReaderInputLeasePort {
+			override fun narrowOrVeto(lease: ReaderTransitionInputLease): ReaderTransitionInputLease =
+				viewerContainer.narrowInstalledInputLease(null, lease)
+
+			override fun narrowOrVeto(command: ReaderTransitionCommand,
+				lease: ReaderTransitionInputLease): ReaderTransitionInputLease {
+				val coordinator = activatedTransitionCoordinator ?: return ReaderTransitionInputLease.None
+				val currency = coordinator.capturePublicationCommandCurrency(command)
+					?: return ReaderTransitionInputLease.None
+				val requested = when (command) {
+					is ReaderTransitionCommand.CommitOwnerAndInputLease -> command.requestedLease
+					is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease -> command.requestedLease
+					else -> return ReaderTransitionInputLease.None
+				}
+				if (lease != requested || !currency()) return ReaderTransitionInputLease.None
+				val narrowed = viewerContainer.narrowInstalledInputLease(command, lease)
+				return if (activatedTransitionCoordinator === coordinator && currency() && candidate.isSelected)
+					narrowed else ReaderTransitionInputLease.None
+			}
+		}
+		val publication = ReaderOwnerAndInputPublicationBarrier(
+			narrowOrVeto = inputSafety::narrowOrVeto,
+			publishAtomically = viewerContainer::canPublishInstalledOwnerAndInput)
+		val resources = viewerContainer.createInstalledResourcePort(frameOrHandoffPhysicalSource, executor)
+		val releaseSink = object : ReaderReleaseOnlySinkPort {
+			override fun observe(fact: ReaderTransitionFact.ResourceObserved): ReaderPortCommandResult {
+				enqueueActivatedFact(fact)
+				return ReaderPortCommandResult.Accepted
+			}
+			override fun observeLegacy(imported: ReaderImportedLegacyResourceRegistration): ReaderPortCommandResult =
+				if (ledger.importedFor(imported.registration) == imported) ReaderPortCommandResult.Accepted
+				else ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+			override fun confirm(fact: ReaderTransitionFact.ResourceReleased): ReaderPortCommandResult {
+				enqueueActivatedFact(fact)
+				return ReaderPortCommandResult.Accepted
+			}
+			override fun confirmLegacy(physicalIdentity: ReaderLegacyPhysicalIdentity,
+				fact: ReaderTransitionFact.ResourceReleased): ReaderPortCommandResult =
+				if (ledger.confirmLegacyReleased(physicalIdentity, fact)) ReaderPortCommandResult.Accepted
+				else ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+			override fun release(command: ReaderTransitionCommand.ReleaseResource): ReaderPortCommandResult =
+				resources.release(command) { enqueueActivatedFact(it) }
+		}
+		val ports = ReaderProductionActivatedSessionPorts.mint(
+			gateway = ReaderSnapshotBackedActivatedGatewayPort(candidate),
+			semantic = executor,
+			materialAllocation = viewerContainer.createOriginalInitialMaterialAllocationPort(candidate,
+				{ command -> activatedTransitionCoordinator?.materialCommandIsCurrent(command) == true }, ::enqueueActivatedFact),
+			raster = ReaderActivatedRasterPreparationPort { command, onFact ->
+				viewerContainer.prepareInstalledRaster(command, domain,
+					{ lease -> activatedTransitionCoordinator?.materialCommandIsCurrent(lease) == true }, onFact)
+			},
+			deck = ReaderActivatedDeckPort { command, onFact ->
+				viewerContainer.reserveInstalledDeck(command, onFact) { specification, key ->
+					checkNotNull(activatedTransitionCoordinator).enqueueFrameTargetDeclaration(specification, key)
+				}
+			},
+			frame = viewerContainer.createInstalledFramePort(),
+			ownerAndInput = object : ReaderOwnerAndInputPublicationPort {
+				override fun publish(command: ReaderTransitionCommand.CommitOwnerAndInputLease) = publication.publish(command)
+				override fun publish(command: ReaderTransitionCommand.PublishRetainedOwnerAndInputLease) = publication.publish(command)
+			},
+			inputSafety = inputSafety,
+			resources = resources,
+			releaseSink = releaseSink,
+			lifecycleFacts = ReaderTask6LifecycleFactPort { fact ->
+				val runtime = activatedTransitionCoordinator
+				if (runtime == null) ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.ActivationPrerequisiteMissing)
+				else {
+					runtime.enqueue(when (fact.kind) {
+						ReaderTask6LifecycleSafetyKind.VisibilityLost -> ReaderTransitionFact.VisibilityChanged(null, false)
+						ReaderTask6LifecycleSafetyKind.HostDetached ->
+							ReaderTransitionFact.ResourceLost(null, paige.navic.reader.ReaderTransitionCapabilityKind.Host)
+						ReaderTask6LifecycleSafetyKind.WebViewDetached ->
+							ReaderTransitionFact.ResourceLost(null, paige.navic.reader.ReaderTransitionCapabilityKind.WebView)
+						ReaderTask6LifecycleSafetyKind.RendererUnavailable ->
+							ReaderTransitionFact.ResourceLost(null, paige.navic.reader.ReaderTransitionCapabilityKind.Renderer)
+						ReaderTask6LifecycleSafetyKind.PublicationClosed -> ReaderTransitionFact.PublicationClosed(null)
+					})
+					ReaderPortCommandResult.Accepted
+				}
+			},
+			factOnlyTimer = factOnlyTimerPort,
+			productionCapability = ReaderNativeHostProductionActivatedPortCapability)
+		val activation = ReaderSessionActivationCoordinator(
+			readerSessionGeneration = candidate.readerSessionGeneration,
+			coordinatorEpoch = candidate.coordinatorEpoch,
+			legacy = checkNotNull(normalOriginalPort),
+			installationBarrier = ReaderActivatedSessionInstallationBarrier(activatedSessionStore),
+			narrowInitialLease = { requested -> viewerContainer.originalNeutralCheckpointLease() ?: ReaderInitialPresentationInputLease.None },
+			reserveNeutralBootstrap = {
+				var reservation: ReaderReservedNeutralBootstrapRequest? = null
+				val request: ReaderSemanticExecutableRequest = { origin, context, onReceipt ->
+					createComposedInitialDestinationBootstrapRequest(viewerKey, candidate,
+						checkNotNull(reservation), content)(origin, context, onReceipt)
+				}
+				requests.reserveNeutralBootstrap(domain, candidate, request).also { reservation = it }
+			},
+			discardNeutralBootstrap = { requests.discardNeutralBootstrap(it) },
+			releaseLedger = ledger,
+			onInstalledBeforeFinalization = {
+				val installed = checkNotNull(activatedSessionStore.snapshot)
+				activatedTransitionCoordinator = ReaderResumableTransitionCoordinator(
+					ReaderActivatedTransitionPorts(ports), ReaderTransitionMode.Active, installed.journal,
+					installed.releaseLedger, activationState = { checkNotNull(normalActivationCoordinator).state },
+					onAcceptedPublication = { command, applied ->
+						if (viewerContainer.refreshInstalledPresentationConsumers(command, applied)) {
+							viewerContainer.installedPhysicalPublicationIngress?.invoke(command, applied)
+						}
+					})
+				viewerContainer.bindInstalledPublicationReaders(
+					readPublication = { publication.snapshot },
+					commandCurrency = { candidate.isSelected &&
+						activatedTransitionCoordinator?.snapshot()?.releaseOnlySink == false })
+			},
+			onActivated = {
+				viewerContainer.activateInstalledFrameCommands()
+				val reservation = checkNotNull(activatedSessionStore.reservedNeutralBootstrap)
+				check(ports.gateway.routeIntent(ReaderTransitionFact.Intent(null,
+					ReaderBootstrapNativePageIntent(reservation.handle))) == ReaderPortCommandResult.Accepted)
+			})
+		normalActivationCoordinator = activation // Retain before original drain/finalization can call out.
+		activation.activate(ports, checkNotNull(viewerContainer.originalNeutralCheckpointLease()))
+	}
+
+
+	fun prepareNormalProductionCandidate(candidate: ReaderTransitionGatewayCandidate,
+		requests: ReaderSemanticExecutableRequestRegistry, executor: ReaderSemanticCommandExecutor) {
+		check(candidate.isSelected && candidate.installationSource === activatedSessionStore &&
+			candidate.readerSessionGeneration == requests.readerSessionGeneration)
+		normalProductionCandidate?.let { previous ->
+			check(previous === candidate && normalSemanticRequests === requests && normalSemanticExecutor === executor)
+			return
+		}
+		normalProductionCandidate = candidate
+		normalSemanticRequests = requests
+		normalSemanticExecutor = executor
+		val domain = ReaderLegacyPhysicalDomain(candidate.readerSessionGeneration, ReaderLegacyFreezeToken(candidate.coordinatorEpoch))
+		// Borrow and fence all sixteen ORIGINAL sources before ordinary viewer/settings
+		// effects can start. No inventory, registration or selection is a readiness ACK.
+		normalOriginalPort = createOriginalLegacyFreezeAndInventoryPort(domain, executor).also { it.freeze() }
+	}
+
+	fun enqueueActivatedFact(fact: ReaderTransitionFact) {
+		checkNotNull(activatedTransitionCoordinator).enqueue(fact)
+	}
+
+	fun enqueueActivatedReceipt(receipt: ReaderPresentationEventReceipt) {
+		checkNotNull(activatedTransitionCoordinator).enqueue(receipt)
+	}
+
+	fun createOriginalLegacyFreezeAndInventoryPort(domain: ReaderLegacyPhysicalDomain,
+		executor: ReaderSemanticCommandExecutor): ReaderLegacyFreezeAndInventoryPort {
+		check(nextOriginalCheckpointId < Long.MAX_VALUE)
+		val id = ReaderLegacyRestorationCheckpointId(nextOriginalCheckpointId++)
+		val frame = ReaderOriginalRestorationGroup(
+			setOf(ReaderLegacyInventorySource.FrameOrHandoff, ReaderLegacyInventorySource.DeadlineRegistration),
+			{ frameOrHandoffPhysicalSource.restoreAfterTransitionActivation(domain) },
+			{ frameOrHandoffPhysicalSource.originalLegacyAdmissionsRestored }, {
+				val epoch = viewerContainer.physicalInventoryAdmissionEpoch(domain)
+				val currency: () -> Boolean = { epoch != null && viewerContainer.physicalInventoryAdmissionEpoch(domain) == epoch }
+				currency
+			})
+		return ReaderOriginalLegacyFreezeAndInventoryPort(domain, executor, originalPhysicalInventoryCapture,
+			activatedSessionStore, id, viewerContainer.originalRestorationGroups(domain, executor) + frame,
+			captureNeutralLease = {
+				if (presentationDecision?.frameOwner == ReaderPresentationFrameOwner.Neutral && presentationDecision?.targetBinding == null)
+					viewerContainer.originalNeutralCheckpointLease() else null
+			}, drainOriginal = { identity, confirmation -> drainPhysicalSourceForTransitionActivation(domain, identity, confirmation) },
+			finalizeOriginal = { selected, confirmed ->
+				val native = viewerContainer.finalizeOriginalPhysicalInventoryOwners(domain, executor, selected, confirmed)
+				if (native != ReaderPortCommandResult.Accepted) native
+				else {
+					val frameSelected = selected?.takeIf { it.physicalIdentity.source == ReaderLegacyInventorySource.FrameOrHandoff }
+					val frame = frameOrHandoffPhysicalSource.finalizeActivatedHandoff(domain.freezeToken, frameSelected,
+						confirmed.filterTo(linkedSetOf()) { it.source == ReaderLegacyInventorySource.FrameOrHandoff })
+					if (frame != ReaderPortCommandResult.Accepted) frame
+					else presentationHostBridge.finalizeActivatedDeadlineHandoff(domain).also { result ->
+						if (result == ReaderPortCommandResult.Accepted) originalPhysicalInventoryCapture.retire()
+					}
+				}
+			})
+	}
+
+	fun freezePhysicalSourcesForTransitionActivation(domain: ReaderLegacyPhysicalDomain,
+		executor: ReaderSemanticCommandExecutor): ReaderPortCommandResult =
+		originalPhysicalInventoryCapture.freeze(domain, executor)
+
+	fun snapshotPhysicalSourcesForTransitionActivation(domain: ReaderLegacyPhysicalDomain): ReaderLegacyResourceInventory =
+		originalPhysicalInventoryCapture.snapshot(domain)
+
+	private val transitionMainHandler = Handler(Looper.getMainLooper())
+	fun drainPhysicalSourceForTransitionActivation(domain: ReaderLegacyPhysicalDomain,
+		identity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit): ReaderPortCommandResult {
+		if (identity.domain != domain) return ReaderPortCommandResult.Rejected(
+			paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource)
+		val executor = originalPhysicalInventoryCapture.executorForFrozenDomain(domain)
+			?: return ReaderPortCommandResult.Rejected(paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource)
+		val originalConfirmation: (ReaderLegacyPhysicalIdentity) -> Unit = { exact ->
+			// Worker retirement is original physical evidence. Only its delivery moves
+			// to the existing Android/main activation loop; never manufacture an ACK.
+			if (Looper.myLooper() == Looper.getMainLooper()) onConfirmed(exact)
+			else transitionMainHandler.post { onConfirmed(exact) }
+		}
+		return when (identity.source) {
+			ReaderLegacyInventorySource.FrameOrHandoff -> frameOrHandoffPhysicalSource.drainFrozenOwnership(identity, originalConfirmation)
+			ReaderLegacyInventorySource.DeadlineRegistration -> presentationHostBridge.drainFrozenOwnership(identity, originalConfirmation)
+			else -> viewerContainer.drainOriginalPhysicalInventoryOwner(identity, executor, originalConfirmation)
+		}
+	}
 
 	init {
 		setBackgroundColor(Color.rgb(32, 35, 41))
@@ -1511,28 +1919,191 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		viewerContainer.onContentLongPress = onContentLongPress
 	}
 
-	fun setViewerContent(viewerKey: ReaderViewerKey, content: @Composable () -> Unit) {
-		if (currentViewerKey != viewerKey || currentViewerComposeView == null) {
-			val previousViewer = currentViewerComposeView
-			val viewerView = ComposeView(context).apply {
-				setViewCompositionStrategy(
-					ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
-				)
-				setContent(content)
-			}
-			viewerContainer.replaceViewerContent(viewerView)
-			viewerContainer.completePresentationViewerReplacement()
-			currentViewerComposeView = viewerView
-			currentViewerKey = viewerKey
-			nestedCompositionDisposalQueue.enqueue(previousViewer)
-		} else {
-			currentViewerComposeView?.setContent(content)
+	fun setInstalledPhysicalPublicationIngress(ingress: ReaderInstalledPhysicalPublicationIngress?) {
+		viewerContainer.installedPhysicalPublicationIngress = ingress
+	}
+
+	fun setInstalledPageTurnModelIngress(ingress: ReaderInstalledPageTurnModelIngress?) {
+		viewerContainer.installedPageTurnModelIngress = ingress
+		viewerContainer.installedPointerTurnRoute = route@{ direction, gestureId ->
+			val candidate = normalProductionCandidate?.takeIf { it.isSelected } ?: return@route false
+			val requests = normalSemanticRequests ?: return@route false
+			viewerContainer.beginInstalledPointerSemanticTurn(candidate, requests, direction, gestureId)
 		}
 	}
 
+	fun setInitialSemanticReceiptIngress(
+		version: ReaderPresentationReceiptVersion,
+		ingress: ReaderInitialSemanticReceiptIngress?
+	) {
+		if (!viewerContainer.matchesAuthoritativePresentationVersion(version)) return
+		initialSemanticIngress = if (version.publicationIdentity == null) ingress?.let { version to it } else null
+		startNormalProductionSessionIfEligible()
+	}
+
+	/** Capture the distinct initial Compose ingress for this actual command invocation.
+	 * The existing Native admission still owns reservation, epoch, construction and query custody. */
+	fun createComposedInitialDestinationBootstrapRequest(
+		viewerKey: ReaderViewerKey,
+		candidate: ReaderTransitionGatewayCandidate,
+		reservation: ReaderReservedNeutralBootstrapRequest,
+		content: @Composable () -> Unit
+	): ReaderSemanticExecutableRequest = request@{ origin, context, onReceipt ->
+		val captured = initialSemanticIngress ?: return@request ReaderSemanticExecutableResult.Rejected
+		val version = captured.first
+		if (version.publicationIdentity != null || version.readerSessionGeneration != origin.transitionId.readerSessionGeneration ||
+			!viewerContainer.matchesAuthoritativePresentationVersion(version)) return@request ReaderSemanticExecutableResult.Rejected
+		val pureInitialIngress: ReaderInitialSemanticReceiptIngress = { event, semanticOrigin ->
+			if (initialSemanticIngress?.first != version || semanticOrigin !== origin ||
+				!viewerContainer.matchesAuthoritativePresentationVersion(version)) null
+			else captured.second(event, semanticOrigin)
+		}
+		createInitialDestinationBootstrapRequest(viewerKey, candidate, reservation, content, pureInitialIngress)(origin, context, onReceipt)
+	}
+
+	/** Original Root custody for the command-created Compose installation. This is not
+	 * legacy replacement, semantic confirmation, or physical presentation acceptance. */
+	fun createInitialDestinationBootstrapRequest(
+		viewerKey: ReaderViewerKey,
+		candidate: ReaderTransitionGatewayCandidate,
+		reservation: ReaderReservedNeutralBootstrapRequest,
+		content: @Composable () -> Unit,
+		ingress: (ReaderPresentationEvent.FoliateRelocated, ReaderPresentationEventOrigin.SemanticCommand) -> ReaderPresentationEventReceipt?
+	): ReaderSemanticExecutableRequest = request@{ origin, context, onReceipt ->
+		if (!isAttachedToWindow || currentViewerComposeView != null || currentViewerKey != null)
+			return@request ReaderSemanticExecutableResult.Rejected
+		var constructed: ComposeView? = null
+		val create: () -> View = {
+			check(currentViewerComposeView == null && currentViewerKey == null)
+			ComposeView(this.context).also { incoming ->
+				constructed = incoming
+				// Root close/disposal must find this exact view before setContent or addView
+				// can synchronously invoke external construction/lifecycle work.
+				currentViewerComposeView = incoming
+				currentViewerKey = viewerKey
+				incoming.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+				incoming.setContent(content)
+			}
+		}
+		val request = viewerContainer.createInitialDestinationBootstrapRequest(candidate, reservation, create, ingress)
+		try { request(origin, context, onReceipt) }
+		finally {
+			constructed?.takeIf { !viewerContainer.hasViewerMaterial(it) }?.let { incoming ->
+				// Uncertain physical removal remains owned; never dispose a different or
+				// still-held installation merely because the executable was rejected.
+				if (currentViewerComposeView === incoming) {
+					currentViewerComposeView = null
+					currentViewerKey = null
+				}
+				nestedCompositionDisposalQueue.enqueue(incoming)
+			}
+		}
+	}
+
+	fun setViewerContent(viewerKey: ReaderViewerKey, content: @Composable () -> Unit) {
+		originalViewerContentOperationWitness = null
+		if (normalProductionCandidate != null) {
+			if (readerClosed || presentationViewerKey != viewerKey) return
+			normalViewerContent = viewerKey to content
+			// Refresh the original command-created composition; never reopen replacement.
+			if (currentViewerKey == viewerKey) currentViewerComposeView?.setContent(content)
+			startNormalProductionSessionIfEligible()
+			return
+		}
+		val witness = ReaderOriginalViewerContentOperationWitness()
+		originalViewerContentOperationWitness = witness
+		var operation = ReaderOriginalViewerContentOperation.CaptureReplacement
+		try {
+			// Capture both public and exact inner identities before construction/setContent can call out.
+			val previousViewer = currentViewerComposeView
+			val previousKey = currentViewerKey
+			val capture = viewerContainer.captureViewerReplacement(
+				replacementRequested = previousKey != viewerKey || previousViewer == null
+			) ?: return
+			capture.originalOperationWitness = witness
+			operation = ReaderOriginalViewerContentOperation.BeginReturn
+			val sourceReturn = viewerContainer.beginViewerContentReturn()
+			var viewerView: ComposeView? = null
+			var adopted = false
+			var innerEntered = false
+			var failure: Throwable? = null
+			try {
+				if (previousKey == viewerKey && previousViewer != null) {
+					operation = ReaderOriginalViewerContentOperation.SetContent
+					previousViewer.setContent(content)
+					return
+				}
+				operation = ReaderOriginalViewerContentOperation.ComposeConstruction
+				viewerView = ComposeView(context).apply {
+					operation = ReaderOriginalViewerContentOperation.CompositionStrategy
+					setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+					operation = ReaderOriginalViewerContentOperation.SetContent
+					setContent(content)
+				}
+				innerEntered = true
+				// The original native call records its own first operation on this same cell.
+				adopted = viewerContainer.replaceCapturedViewerContent(capture, viewerView)
+				operation = ReaderOriginalViewerContentOperation.AcceptReplacement
+				if (!adopted || !viewerContainer.acceptedViewerReplacement(capture, viewerView)) return
+				operation = ReaderOriginalViewerContentOperation.CompleteReplacement
+				viewerContainer.completePresentationViewerReplacement()
+				operation = ReaderOriginalViewerContentOperation.AcceptReplacement
+				if (!viewerContainer.acceptedViewerReplacement(capture, viewerView) ||
+					currentViewerComposeView !== previousViewer || currentViewerKey != previousKey) return
+				currentViewerComposeView = viewerView
+				currentViewerKey = viewerKey
+				operation = ReaderOriginalViewerContentOperation.ReplacementCleanup
+				nestedCompositionDisposalQueue.enqueue(previousViewer)
+			} catch (original: Throwable) {
+				witness.record(operation)
+				failure = original
+			} finally {
+				try {
+					operation = ReaderOriginalViewerContentOperation.ReplacementCleanup
+					if (!adopted && previousKey != viewerKey) {
+						operation = ReaderOriginalViewerContentOperation.RetireCaptured
+						val cleanup = if (innerEntered) null else viewerContainer.retireCapturedViewerReplacement(capture)
+						if (cleanup != null) witness.record(operation)
+						operation = ReaderOriginalViewerContentOperation.ReplacementCleanup
+						if (failure == null) failure = cleanup else if (cleanup != null && cleanup !== failure) failure!!.addSuppressed(cleanup)
+						if (previousViewer != null && !viewerContainer.hasViewerMaterial(previousViewer)) {
+							if (currentViewerComposeView === previousViewer && currentViewerKey == previousKey) {
+								currentViewerComposeView = null; currentViewerKey = null
+							}
+							nestedCompositionDisposalQueue.enqueue(previousViewer)
+						}
+					}
+					viewerView?.takeIf { currentViewerComposeView !== it && !viewerContainer.hasViewerMaterial(it) }
+						?.let(nestedCompositionDisposalQueue::enqueue)
+				} catch (cleanup: Throwable) {
+					witness.record(operation)
+					if (failure == null) failure = cleanup else if (cleanup !== failure) failure!!.addSuppressed(cleanup)
+				} finally {
+					operation = ReaderOriginalViewerContentOperation.EndReturn
+					viewerContainer.endViewerContentReturn(sourceReturn)
+				}
+				failure?.let { throw it }
+			}
+		} catch (original: Throwable) {
+			witness.record(operation)
+			throw original
+		} finally {
+			// A reentrant call cannot leave its different invocation's cell on this Root.
+			originalViewerContentOperationWitness = witness
+		}
+	}
 	fun canAcceptNewPointer(): Boolean = viewerContainer.canAcceptNewPointer()
 
 	fun closeReader() {
+		if (readerClosed) return
+		readerClosed = true
+		normalViewerContent = null
+		normalProductionCandidate?.let { it.gateway.retireNormalProductionCandidate(it) }
+		normalActivationCoordinator?.closeToReleaseOnly()
+		normalSemanticExecutor?.clear()
+		initialSemanticIngress = null
+		originalPhysicalInventoryCapture.retire()
+		viewerContainer.closeCurrentDestinationQueries()
 		presentationHostBridge.dispose()
 		viewerContainer.closeReader()
 		detachNestedCompositionViews()
@@ -1542,6 +2113,12 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	override fun onAttachedToWindow() {
 		super.onAttachedToWindow()
 		presentationDecision?.let(presentationHostBridge::update)
+		startNormalProductionSessionIfEligible()
+	}
+
+	override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+		super.onLayout(changed, left, top, right, bottom)
+		startNormalProductionSessionIfEligible()
 	}
 
 	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -1898,9 +2475,27 @@ private data class DeferredVisibilityRestorePreparation(
 	val preparationFloor: Long
 )
 
-private class KomikkuReaderNativeViewerContainer(context: Context) :
-	FrameLayout(context),
-	ReaderSettingsWebViewMutationHost {
+// Android-only physical handoff; it carries the exact Native-owned registration,
+// not a runtime-generation or activation authority.
+internal interface ReaderForegroundWebViewSource {
+	val legacyConsequencesOpen: Boolean
+	fun physicalSourceReturn(action: () -> Unit)
+	fun runtimeInitializationCompleted() = Unit
+}
+
+internal interface ReaderForegroundWebViewAttachmentHost {
+	val foregroundLegacyConsequencesOpen: Boolean
+	fun withForegroundWebViewAttachment(webView: WebView, attach: (ReaderForegroundWebViewSource?) -> Unit)
+}
+
+private class KomikkuReaderNativeViewerContainer(
+	context: Context,
+	private val activatedSessionStore: ReaderActivatedSessionSnapshotStore
+) : FrameLayout(context), ReaderSettingsWebViewMutationHost, ReaderForegroundWebViewAttachmentHost {
+	constructor(context: Context) : this(context, ReaderActivatedSessionSnapshotStore())
+
+	private val legacyLifecycleConsequencesOpen: Boolean
+		get() = activatedSessionStore.legacyConsequencesOpen
 	private val viewerContentContainer = FrameLayout(context)
 	private val liveEnginePresentedFrameSequenceAuthority =
 		ReaderLiveEnginePresentedFrameSequenceAuthority()
@@ -1971,7 +2566,20 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var nativePresentationDispatchDepth = 0
 	private val nativePagePresentationPublisher by lazy {
 		ReaderNativePagePresentationPublisher(
-			frameSource = playLikeCurlController.presentedFrameSource,
+			frameSource = object : ReaderNativePagePresentedFrameSource {
+				override fun requestNextPresentedFrame(onPresented: (Long) -> Unit): Long =
+					playLikeCurlController.presentedFrameSource.requestNextPresentedFrame(onPresented)
+				override fun requestCandidatePresentedFrame(candidate: ReaderNativePagePresentationCandidate,
+					onPresented: (Long) -> Unit): Long =
+					playLikeCurlController.presentedFrameSource.requestCandidatePresentedFrame(candidate, onPresented)
+				override fun requestCurlSettlementTerminalPresentedFrame(
+					candidate: ReaderCurlSettlementTerminalPresentationCandidate,
+					onPresented: (Long) -> Unit): Long =
+					playLikeCurlController.requestInstalledCurlTerminalPresentedFrame(candidate, onPresented)
+				override fun cancelPresentedFrameRequest(requestId: Long): Boolean =
+					playLikeCurlController.presentedFrameSource.cancelPresentedFrameRequest(requestId)
+			},
+			tokenAllocator = frameTokenAllocator,
 			currentCandidate = ::currentNativePagePresentationCandidateOrNull,
 			// The presentation bridge owns the whole foreground-time transaction
 			// deadline, including preparation before this publisher has a candidate.
@@ -2005,7 +2613,103 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 	}
 	private val presentationBindingReporter = ReaderPresentationBindingReporter()
-	private val presentationLifecycleDelivery = ReaderPresentationLifecycleDelivery()
+	private val presentationLifecycleDelivery = ReaderPresentationLifecycleDelivery(
+		activatedSessionStore = activatedSessionStore
+	)
+	override val foregroundLegacyConsequencesOpen: Boolean
+		get() = legacyLifecycleConsequencesOpen
+
+	private var foregroundWebViewRegistration: ForegroundWebViewRegistration? = null
+
+	private inner class ForegroundWebViewRegistration(
+		val webView: WebView,
+		val mount: View
+	) : ReaderForegroundWebViewSource {
+		var physicallyDetached = false
+		var removalFailure: Throwable? = null
+		override val legacyConsequencesOpen: Boolean
+			get() = legacyLifecycleConsequencesOpen
+
+		private val listener = object : View.OnAttachStateChangeListener {
+			override fun onViewAttachedToWindow(view: View) {
+				if (view !== webView) return
+				physicallyDetached = false
+				registration.callback { }
+			}
+			override fun onViewDetachedFromWindow(view: View) {
+				if (view !== webView) return
+				physicallyDetached = true
+				// The captured registration remains valid after its parent is removed.
+				// Neither descendant rediscovery nor a mutable latest-root lookup is used.
+				registration.callback(installedSafetyObservation = {
+					reportPresentationLifecycleEvent(ReaderPresentationLifecycleEvent.WebViewDetached)
+				}) { }
+			}
+		}
+		val registration: ReaderPresentationLifecycleDelivery.RegisteredRoot = presentationLifecycleDelivery.registeredRoot(
+			registerPhysical = { webView.addOnAttachStateChangeListener(listener) },
+			unregisterPhysical = {
+				try { webView.removeOnAttachStateChangeListener(listener) }
+				catch (failure: Throwable) { removalFailure = failure; throw failure }
+			},
+			isValid = { foregroundWebViewRegistration === this &&
+				finalHostLifecycleEvent == null && !task4ResourceTeardownStarted }
+		)
+
+		override fun runtimeInitializationCompleted() {
+			physicalSourceReturn {
+				val lease = currentFrameInstallation
+				if (foregroundWebViewRegistration === this && lease?.wrapper === mount && lease.owned &&
+					lease.commandCurrency != null && finalHostLifecycleEvent == null && !task4ResourceTeardownStarted) {
+					initialDestinationConstruction?.runtimeInitialized(webView)
+				}
+			}
+		}
+		override fun physicalSourceReturn(action: () -> Unit) {
+			val owner = presentationLifecycleDelivery.beginRegisteredRootReturn()
+			try { action() }
+			finally { if (owner != null) presentationLifecycleDelivery.endPhysicalDelivery(owner) }
+		}
+	}
+
+	override fun withForegroundWebViewAttachment(
+		webView: WebView,
+		attach: (ReaderForegroundWebViewSource?) -> Unit
+	) {
+		val sourceReturn = presentationLifecycleDelivery.beginRegisteredRootReturn()
+		var exact: ForegroundWebViewRegistration? = null
+		try {
+			// Resolve only the genuine ancestor chain of this actual engine, before
+			// framework attachment can synchronously invoke external work.
+			var mount: View = webView
+			while (mount.parent !== viewerContentContainer) {
+				mount = mount.parent as? View ?: return
+			}
+			if (finalHostLifecycleEvent != null || task4ResourceTeardownStarted) return
+			val predecessor = foregroundWebViewRegistration
+			if (predecessor != null && (predecessor.webView !== webView || predecessor.mount !== mount)) {
+				if (!predecessor.physicallyDetached || !predecessor.registration.remove(permanent = true)) return
+				foregroundWebViewRegistration = null
+			}
+			exact = foregroundWebViewRegistration ?: ForegroundWebViewRegistration(webView, mount).also {
+				foregroundWebViewRegistration = it
+			}
+			val destructionSource = webView as? ReaderEnginePhysicalDestructionSource
+			if (destructionSource?.bindPhysicalDestruction(originalEngineDestructionConfirmation) == false ||
+				(destructionSource == null && currentFrameInstallation?.commandCurrency != null)) {
+				// Original material/listener custody remains retained. Reject the command's
+				// continuation, not the physical installation or somebody else's consumer.
+				initialDestinationConstruction?.fail(ReaderSemanticAsyncFailure.Rejected)
+				return
+			}
+			if (presentationLifecycleDelivery.registeredRootAdmissionOpen) exact.registration.register()
+			else exact.registration.registerInstalledSafetyIngress()
+		} finally {
+			try { attach(exact) }
+			finally { if (sourceReturn != null) presentationLifecycleDelivery.endPhysicalDelivery(sourceReturn) }
+		}
+	}
+
 	private var deferredVisibilityRestorePreparation: DeferredVisibilityRestorePreparation? = null
 	private var visibilityRestorePreparationRetryInProgress = false
 	private val presentationReceiptDispatcher = ReaderPresentationReceiptDispatcher(
@@ -2028,6 +2732,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var preparedActiveDeck: ReaderPagePreparedActiveDeck? = null
 	private var whispersyncOverlayActive = false
 	private var whispersyncAnchorAvailable = false
+	// Latest Compose observations only. Installed overlay consumers must authenticate
+	// the canonical receipt against the original captured/displayed deck before use.
+	private var whispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt? = null
+	private var whispersyncHighlightColorArgb = 0
 	private var destinationDeckPrewarmPending = false
 	private var shellCoverVisible: Boolean = false
 	private val startupShellHandoff = ReaderStartupShellHandoffGate()
@@ -2073,6 +2781,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		qaFaultRegistry = qaFaultRegistry,
 		onOwnershipMutated = applicationOwnershipEpoch::ownerMutationCommitted
 	)
+	// One stable original consumer, including repeat attachment of the same Engine.
+	// The Engine publishes only after super.destroy returns; detach and logical
+	// cancellation are not destruction and must never retire its descriptor callbacks.
+	private val originalEngineDestructionConfirmation: (WebView) -> Unit = { exactView ->
+		pageTurnBundleSource.onOriginalEngineDestroyed(exactView)
+	}
 	private var passiveRasterPreparationGeometry: ReaderPassiveRasterGeometry? = null
 	private var passiveRasterPreparationAdapter: ReaderPassiveRasterPreparationAdapter? = null
 	private val passiveRasterRendererLossFence = ReaderPassiveRasterRendererLossFence()
@@ -2182,6 +2896,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		deckAdmissionHost = presentationBindingReporter.selectedForProductionDeckAdmission(),
 		initialLiveNativeProofIsCurrent = ::initialLiveNativeProofIsCurrent,
 		initialLiveDecisionIsAuthoritative = presentationBindingReporter::matchesAuthoritativePresentationDecision,
+		readInstalledOwnerAndInput = { readInstalledPublication?.invoke().takeIf {
+			installedCommandCurrency?.invoke() == true && finalHostLifecycleEvent == null && !task4ResourceTeardownStarted
+		} },
 		bundleSource = pageTurnBundleSource,
 		diagnostics = readerRuntimeDiagnostics,
 		qaFaultRegistry = qaFaultRegistry,
@@ -2217,6 +2934,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				event == ReaderPageHostLifecycleEvent.UnsafeContextLost ||
 					event == ReaderPageHostLifecycleEvent.GlFailed
 			)
+			if (!legacyLifecycleConsequencesOpen) {
+				reportPresentationLifecycleEvent(ReaderPresentationLifecycleEvent.RendererLost)
+				return@ReaderPlayLikeCurlFoliateController
+			}
 			rendererLossEpoch = Math.incrementExact(rendererLossEpoch)
 			val cancellationIdentity = ReaderRendererLossCancellationIdentity(
 				presentationEpoch = presentationBindingReporter.captureEpoch(),
@@ -2227,6 +2948,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			reportPresentationLifecycleEvent(
 				ReaderPresentationLifecycleEvent.RendererLost
 			)
+			if (!legacyLifecycleConsequencesOpen) return@ReaderPlayLikeCurlFoliateController
 			dispatchPageHostLifecycleEvent(
 				event = event,
 				rendererLossCancellationIdentity = cancellationIdentity
@@ -2279,6 +3001,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		passiveRasterPreparationPortProvider = { passiveRasterPreparationAdapter },
 		onPassiveRasterMemoryPressure = ::onPassiveRasterMemoryPressure,
 		onPresentationLifecycleEvent = ::reportPresentationLifecycleEvent,
+		presentationLifecycleDelivery = presentationLifecycleDelivery,
+		activatedSessionStore = activatedSessionStore,
 		fenceCallbacks = {
 			ReaderPageQaFaultControl.detach(qaFaultRegistration)
 			qaFaultRegistry.closeAndDrain()
@@ -2327,7 +3051,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			onRetryEvent = pageRasterPreparationController::onRetryEvent,
 			cancelAllDeferredRetries = pageRasterPreparationController::cancelAllDeferredRetries,
 			onWebViewAttachmentChanged = { attached ->
+				if (!legacyLifecycleConsequencesOpen) return@ReaderPageRasterHostEventController
 				pageRasterPreparationController.onWebViewAttachmentChanged(attached)
+				if (!legacyLifecycleConsequencesOpen) return@ReaderPageRasterHostEventController
 				playLikeCurlController.onWebViewAttachmentChanged(attached)
 			}
 		)
@@ -2677,33 +3403,358 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		pageRasterPreparationController.invalidate("shell-cover-visible")
 	}
 
-	fun replaceViewerContent(viewerView: View) {
-		cancelLegacyLivePointerStream()
-		startupShellHandoff.resetForNewViewer()
-		dispatchPageHostLifecycleEvent(
-			ReaderPageHostLifecycleEvent.RendererReplaced
+	private val frameTokenAllocator = ReaderLegacySourceLocalTokenAllocator()
+	val frameSourceTokenAllocator: ReaderLegacySourceLocalTokenAllocator get() = frameTokenAllocator
+	private var composedFrameSource: ReaderFrameOrHandoffPhysicalSource? = null
+	fun physicalInventoryAdmissionEpoch(domain: ReaderLegacyPhysicalDomain): Long? {
+		if (Looper.myLooper() != Looper.getMainLooper() ||
+			finalHostLifecycleEvent != null || task4ResourceTeardownStarted ||
+			presentationBindingReporter.expectedReaderSessionGeneration != domain.readerSessionGeneration) return null
+		activatedSessionStore.snapshot?.let { installed ->
+			val gateway = (installed.portAuthority as? ReaderActivatedSessionPortAuthority.Production)?.ports?.gateway
+				as? ReaderSnapshotBackedActivatedGatewayPort ?: return null
+			if (!gateway.candidate.isSelected || gateway.candidate.installationSource !== activatedSessionStore ||
+				!activatedSessionStore.ownsInstalledCandidate(gateway.candidate.epoch, domain.readerSessionGeneration,
+					gateway.candidate.coordinatorEpoch)) return null
+		}
+		return presentationBindingReporter.captureEpoch()
+	}
+
+	fun freezeOriginalPhysicalInventoryOwners(domain: ReaderLegacyPhysicalDomain,
+		executor: ReaderSemanticCommandExecutor): ReaderPortCommandResult {
+		if (physicalInventoryAdmissionEpoch(domain) == null) return ReaderPortCommandResult.Rejected(
+			paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource)
+		for (freeze in listOf(presentationLifecycleDelivery::freezeForTransitionActivation,
+			playLikeCurlController::freezeDeckOwnershipForTransitionActivation,
+			pageRasterPreparationController::freezeRasterPreparationOwnershipForTransitionActivation,
+			pageTurnBundleSource::freezeForTransitionActivation,
+			foregroundWebViewOwnership::freezeForTransitionActivation,
+			executor::freezeForTransitionActivation,
+			pageInputSettlementHostController::freezeForTransitionActivation)) {
+			val result = freeze(domain)
+			if (result != ReaderPortCommandResult.Accepted) return result
+		}
+		return ReaderPortCommandResult.Accepted
+	}
+
+	fun snapshotOriginalPhysicalInventoryOwners(domain: ReaderLegacyPhysicalDomain,
+		executor: ReaderSemanticCommandExecutor): List<ReaderLegacyConnectedSourceInventory>? {
+		if (physicalInventoryAdmissionEpoch(domain) == null) return null
+		val deck = playLikeCurlController.snapshotConnectedFrozenDeckOwnership() ?: return null
+		val preparation = pageRasterPreparationController.snapshotFrozenRasterPreparationOwnership() ?: return null
+		val bundle = pageTurnBundleSource.snapshotFullyConnectedFrozenOwnership() ?: return null
+		val foreground = foregroundWebViewOwnership.snapshotConnectedFrozenOwnership() ?: return null
+		val semantic = executor.snapshotConnectedFrozenOwnership() ?: return null
+		val lifecycle = presentationLifecycleDelivery.snapshotConnectedFrozenOwnership() ?: return null
+		val input = pageInputSettlementHostController.snapshotConnectedFrozenOwnership() ?: return null
+		return listOf(deck, preparation, foreground, semantic, lifecycle, input) + bundle
+	}
+
+	fun drainOriginalPhysicalInventoryOwner(identity: ReaderLegacyPhysicalIdentity,
+		executor: ReaderSemanticCommandExecutor,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit): ReaderPortCommandResult = when (identity.source) {
+		ReaderLegacyInventorySource.Deck -> playLikeCurlController.drainFrozenDeckOwnership(identity, onConfirmed)
+		ReaderLegacyInventorySource.RasterPreparation -> pageRasterPreparationController.drainFrozenRasterPreparationOwnership(identity, onConfirmed)
+		ReaderLegacyInventorySource.RasterSnapshotCache,
+		ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback,
+		ReaderLegacyInventorySource.RasterHydration,
+		ReaderLegacyInventorySource.RasterPublication,
+		ReaderLegacyInventorySource.RasterGenerationAndPersistence,
+		ReaderLegacyInventorySource.RasterCaptureAndVisualState,
+		ReaderLegacyInventorySource.RasterLiveValidation,
+		ReaderLegacyInventorySource.RasterStoreAndCache -> pageTurnBundleSource.drainFrozenOwnership(identity, onConfirmed)
+		ReaderLegacyInventorySource.ForegroundWebViewOwnership -> foregroundWebViewOwnership.drainFrozenOwnership(identity, onConfirmed)
+		ReaderLegacyInventorySource.SemanticCommandSlot -> executor.drainFrozenOwnership(identity, onConfirmed)
+		ReaderLegacyInventorySource.LifecycleDelivery -> presentationLifecycleDelivery.drainFrozenOwnership(identity, onConfirmed)
+		ReaderLegacyInventorySource.Input -> pageInputSettlementHostController.drainFrozenOwnership(identity, onConfirmed)
+		ReaderLegacyInventorySource.FrameOrHandoff,
+		ReaderLegacyInventorySource.DeadlineRegistration -> ReaderPortCommandResult.Rejected(paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource)
+	}
+
+	fun finalizeOriginalPhysicalInventoryOwners(domain: ReaderLegacyPhysicalDomain, executor: ReaderSemanticCommandExecutor,
+		selected: ReaderImportedLegacyResourceRegistration?, confirmed: Set<ReaderLegacyPhysicalIdentity>): ReaderPortCommandResult {
+		if (physicalInventoryAdmissionEpoch(domain) == null || snapshotOriginalPhysicalInventoryOwners(domain, executor) == null)
+			return ReaderPortCommandResult.Rejected(paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource)
+		for (finalize in listOf<() -> ReaderPortCommandResult>(
+			{ pageInputSettlementHostController.finalizeActivatedHandoff(domain) },
+			{ playLikeCurlController.finalizeDeckOwnershipAfterTransitionActivation(domain.freezeToken, selected, confirmed) },
+			{ pageRasterPreparationController.finalizeRasterPreparationOwnershipAfterTransitionActivation(domain) },
+			{ pageTurnBundleSource.finalizeActivatedHandoff(domain) },
+			{ foregroundWebViewOwnership.finalizeActivatedHandoff(domain) },
+			{ executor.finalizeActivatedHandoff(domain) },
+			{ presentationLifecycleDelivery.finalizeActivatedHandoff(domain) }
+		)) {
+			val result = finalize()
+			if (result != ReaderPortCommandResult.Accepted) return result
+		}
+		return ReaderPortCommandResult.Accepted
+	}
+
+	fun originalNeutralCheckpointLease(): paige.navic.reader.ReaderInitialPresentationInputLease? {
+		val decision = presentationDecision ?: return null
+		if (presentationBindingReporter.lastReportedBinding != null || decision.targetBinding != null ||
+			decision.frameOwner != ReaderPresentationFrameOwner.Neutral) return null
+		return pageInputSettlementHostController.originalIdentityFreeInitialLease()
+	}
+
+	fun originalPhysicalAdmissionsRestored(executor: ReaderSemanticCommandExecutor): Boolean =
+		playLikeCurlController.originalLegacyDeckAdmissionRestored &&
+			pageRasterPreparationController.originalLegacyPreparationAdmissionRestored &&
+			pageTurnBundleSource.originalLegacyAdmissionsRestored && foregroundWebViewOwnership.originalLegacyAdmissionRestored &&
+			executor.originalLegacyAdmissionRestored && presentationLifecycleDelivery.originalLegacyAdmissionRestored &&
+			pageInputSettlementHostController.originalLegacyAdmissionRestored
+
+	fun originalRestorationGroups(domain: ReaderLegacyPhysicalDomain,
+		executor: ReaderSemanticCommandExecutor): List<ReaderOriginalRestorationGroup> {
+		fun captureLifetime(): () -> Boolean {
+			val epoch = physicalInventoryAdmissionEpoch(domain)
+			return { epoch != null && physicalInventoryAdmissionEpoch(domain) == epoch }
+		}
+		return listOf(
+			ReaderOriginalRestorationGroup(setOf(ReaderLegacyInventorySource.Deck),
+				{ playLikeCurlController.restoreDeckOwnershipAfterTransitionActivation(domain) },
+				{ playLikeCurlController.originalLegacyDeckAdmissionRestored }, ::captureLifetime),
+			ReaderOriginalRestorationGroup(setOf(ReaderLegacyInventorySource.RasterPreparation),
+				{ pageRasterPreparationController.restoreRasterPreparationOwnershipAfterTransitionActivation(domain) },
+				{ pageRasterPreparationController.originalLegacyPreparationAdmissionRestored }, ::captureLifetime),
+			ReaderOriginalRestorationGroup(ReaderPageTurnBundleInventorySources.toSet(),
+				{ pageTurnBundleSource.restoreAfterTransitionActivation(domain) },
+				{ pageTurnBundleSource.originalLegacyAdmissionsRestored }, {
+					val lifetime = captureLifetime()
+					val backends = pageTurnBundleSource.captureOriginalRestorationCurrency()
+					val currency: () -> Boolean = { lifetime() && backends() }
+					currency
+				}),
+			ReaderOriginalRestorationGroup(setOf(ReaderLegacyInventorySource.ForegroundWebViewOwnership),
+				{ foregroundWebViewOwnership.restoreAfterTransitionActivation(domain) },
+				{ foregroundWebViewOwnership.originalLegacyAdmissionRestored }, ::captureLifetime),
+			ReaderOriginalRestorationGroup(setOf(ReaderLegacyInventorySource.SemanticCommandSlot),
+				{ executor.restoreAfterTransitionActivation(domain) }, { executor.originalLegacyAdmissionRestored }, ::captureLifetime),
+			ReaderOriginalRestorationGroup(setOf(ReaderLegacyInventorySource.LifecycleDelivery),
+				{ presentationLifecycleDelivery.restoreAfterTransitionActivation(domain) },
+				{ presentationLifecycleDelivery.originalLegacyAdmissionRestored }, ::captureLifetime),
+			ReaderOriginalRestorationGroup(setOf(ReaderLegacyInventorySource.Input),
+				{ pageInputSettlementHostController.restoreAfterTransitionActivation(domain) },
+				{ pageInputSettlementHostController.originalLegacyAdmissionRestored }, ::captureLifetime)
 		)
-		playLikeCurlController.invalidate("viewer-replaced")
-		pageRasterPreparationController.invalidate(
-			reason = "viewer-replaced",
-			clearVisualPageIndex = true
-		)
-		removePageTurnPrewarmLayoutListener()
-		pageRasterHostEventController.webViewAttachmentChanged(false)
-		viewerContentContainer.removeAllViews()
-		viewerContentContainer.addView(
-			viewerView,
-			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
-		)
-		pageRasterHostEventController.webViewAttachmentChanged(
-			viewerContentContainer.findDescendantWebView()?.isAttachedToWindow == true
-		)
-		requestPageTurnPrewarmWhenReady()
+	}
+
+	fun createFrameOrHandoffSource(bridge: ReaderPresentationHostBridge): ReaderFrameOrHandoffPhysicalSource {
+		check(bridge.usesFrameTokenAllocator(frameTokenAllocator))
+		val existing = composedFrameSource
+		if (existing != null) { check(existing.usesBridge(bridge)); return existing }
+		return ReaderFrameOrHandoffPhysicalSource(framePhysicalOwnership, nativePagePresentationPublisher, bridge)
+			.also { composedFrameSource = it }
+	}
+	private val framePhysicalOwnership = ReaderFramePhysicalOwnershipAdapter(
+		tokenAllocator = frameTokenAllocator,
+		physicalReturn = { action ->
+			val invocation = presentationLifecycleDelivery.beginRegisteredRootReturn()
+			try { action() }
+			finally { if (invocation != null) presentationLifecycleDelivery.endPhysicalDelivery(invocation) }
+		},
+		returnsInFlight = { presentationLifecycleDelivery.hasPhysicalReturnsInFlight }
+	)
+	private var currentFrameInstallation: ReaderFramePhysicalOwnershipAdapter.Lease? = null
+	private var initialDestinationConstruction: ReaderEngineInitialDestinationConstructionCustody? = null
+	// Temporary original witness only. No geometry, callback or admission authority is retained.
+	private var initialGeometryWitnessBoundary = ReaderInitialGeometryWitnessBoundary.OutsideFixture
+	fun captureLiveFrameInstallation(): ReaderFramePhysicalOwnershipAdapter.LiveInstallation? {
+		val lease = currentFrameInstallation ?: return null
+		val engine = currentLiveWebView() ?: return null
+		val installed = activatedSessionStore.snapshot
+		val serial = viewerReplacementSerial
+		return framePhysicalOwnership.captureLiveInstallation(lease, engine,
+			currency = { activatedSessionStore.snapshot === installed && serial == viewerReplacementSerial &&
+				legacyLifecycleConsequencesOpen && finalHostLifecycleEvent == null && !task4ResourceTeardownStarted &&
+				currentFrameInstallation === lease && currentLiveWebView() === engine },
+			displayed = { viewerContentContainer.isShown && lease.wrapper.isShown && engine.isShown &&
+				viewerContentContainer.alpha > 0f && lease.wrapper.alpha > 0f && engine.alpha > 0f })
+	}
+	fun confirmLiveFramePresentation(installation: ReaderFramePhysicalOwnershipAdapter.LiveInstallation,
+		witness: ReaderLiveEnginePhysicalWitness, owner: paige.navic.reader.ReaderPresentationFrameOwner.LiveEngine): Boolean =
+		framePhysicalOwnership.acceptLivePresentation(installation, witness, owner)
+	private var viewerReplacementSerial = 0L
+	internal class ViewerReplacementCapture internal constructor(
+		internal val serial: Long,
+		internal val deliveryEpoch: Long,
+		internal val materialEpoch: Long,
+		internal val installed: ReaderActivatedSessionSnapshot?,
+		internal val material: ReaderFramePhysicalOwnershipAdapter.Lease?,
+		internal val listener: Any?
+	) {
+		// Borrow Root's invocation-local diagnostic cell; no admission or custody reads it.
+		internal var originalOperationWitness: ReaderOriginalViewerContentOperationWitness? = null
+		override fun toString(): String = "ReaderViewerReplacementCapture(<redacted>)"
+	}
+	fun captureViewerReplacement(): ViewerReplacementCapture? =
+		captureViewerReplacement(replacementRequested = true)
+
+	fun captureViewerReplacement(replacementRequested: Boolean): ViewerReplacementCapture? {
+		if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmissionOpen || !framePhysicalOwnership.admissionOpen) return null
+		// Refreshing the same ComposeView is not a new physical installation.
+		if (replacementRequested) viewerReplacementSerial = Math.incrementExact(viewerReplacementSerial)
+		return ViewerReplacementCapture(viewerReplacementSerial, presentationLifecycleDelivery.capturePhysicalAdmission(),
+			framePhysicalOwnership.captureEpoch(), activatedSessionStore.snapshot, currentFrameInstallation, foregroundWebViewRegistration)
+	}
+	private fun admitsReplacement(capture: ViewerReplacementCapture): Boolean =
+		capture.serial == viewerReplacementSerial && activatedSessionStore.snapshot === capture.installed &&
+			legacyLifecycleConsequencesOpen && presentationLifecycleDelivery.registeredRootAdmits(capture.deliveryEpoch) &&
+			framePhysicalOwnership.admits(capture.materialEpoch)
+	fun acceptedViewerReplacement(capture: ViewerReplacementCapture, incoming: View): Boolean =
+		admitsReplacement(capture) && currentFrameInstallation?.let { it.wrapper === incoming && it.owned && it.state == ReaderLegacyResourceState.Registered } == true
+	fun beginViewerContentReturn(): ReaderExactPhysicalOwnerRegistry.Owner? = presentationLifecycleDelivery.beginRegisteredRootReturn()
+	fun endViewerContentReturn(owner: ReaderExactPhysicalOwnerRegistry.Owner?) {
+		if (owner != null) presentationLifecycleDelivery.endPhysicalDelivery(owner)
+	}
+	fun hasViewerMaterial(view: View): Boolean = framePhysicalOwnership.hasInstallation(view)
+	fun retireCapturedViewerReplacement(capture: ViewerReplacementCapture): Throwable? {
+		var failure: Throwable? = null
+		capture.material?.let { lease ->
+			val result = framePhysicalOwnership.retire(lease)
+			failure = result.failure
+			if (result.completed && currentFrameInstallation === lease) currentFrameInstallation = null
+		}
+		val exact = capture.listener as? ForegroundWebViewRegistration
+		if (exact != null) {
+			exact.removalFailure = null
+			val removed = exact.registration.remove(permanent = true)
+			val later = exact.removalFailure
+			if (failure == null) failure = later else if (later != null && later !== failure) failure!!.addSuppressed(later)
+			if (removed && foregroundWebViewRegistration === exact) foregroundWebViewRegistration = null
+		}
+		return failure
+	}
+	/** Coordinator bootstrap material, with exact original-container custody and no legacy replacement. */
+	fun mountNeutralSemanticViewerContent(
+		viewerView: View,
+		candidate: ReaderTransitionGatewayCandidate,
+		origin: paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand,
+		context: paige.navic.reader.ReaderSemanticMutationStartEvidence
+	): Boolean {
+		if (finalHostLifecycleEvent != null || task4ResourceTeardownStarted ||
+			currentFrameInstallation?.let { it.owned || it.operating } == true) return false
+		lateinit var lease: ReaderFramePhysicalOwnershipAdapter.Lease
+		lease = framePhysicalOwnership.reserveNeutralSemanticInstallation(
+			viewerContentContainer, viewerView, candidate, activatedSessionStore, origin, context
+		) { currentFrameInstallation === lease && finalHostLifecycleEvent == null && !task4ResourceTeardownStarted }
+			?: return false
+		// Retain before addView: reentrant detach/close must find this exact captured material.
+		currentFrameInstallation = lease
+		return try {
+			framePhysicalOwnership.mount(lease)
+		} finally {
+			if (!lease.owned && currentFrameInstallation === lease) currentFrameInstallation = null
+		}
+	}
+
+	fun replaceViewerContent(viewerView: View): Boolean {
+		val capture = captureViewerReplacement() ?: return false
+		return replaceCapturedViewerContent(capture, viewerView)
+	}
+	fun replaceCapturedViewerContent(capture: ViewerReplacementCapture, viewerView: View): Boolean {
+		val witness = capture.originalOperationWitness
+		var operation = ReaderOriginalViewerContentOperation.BeginReturn
+		try {
+			val sourceReturn = presentationLifecycleDelivery.beginRegisteredRootReturn()
+			var failure: Throwable? = null
+			var prefixComplete = false
+			try {
+				operation = ReaderOriginalViewerContentOperation.ReplacementAdmission
+				if (!admitsReplacement(capture)) return false
+				operation = ReaderOriginalViewerContentOperation.CancelPointer
+				cancelLegacyLivePointerStream()
+				operation = ReaderOriginalViewerContentOperation.ReplacementAdmission
+				if (!admitsReplacement(capture)) return false
+				operation = ReaderOriginalViewerContentOperation.ReplacementLifecycle
+				startupShellHandoff.resetForNewViewer()
+				dispatchPageHostLifecycleEvent(ReaderPageHostLifecycleEvent.RendererReplaced)
+				operation = ReaderOriginalViewerContentOperation.ReplacementAdmission
+				if (!admitsReplacement(capture)) return false
+				operation = ReaderOriginalViewerContentOperation.CurlInvalidation
+				playLikeCurlController.invalidate("viewer-replaced", legacyConsequencesAdmitted = { admitsReplacement(capture) })
+				operation = ReaderOriginalViewerContentOperation.ReplacementAdmission
+				if (!admitsReplacement(capture)) return false
+				operation = ReaderOriginalViewerContentOperation.RasterInvalidation
+				pageRasterPreparationController.invalidate(reason = "viewer-replaced", clearVisualPageIndex = true)
+				operation = ReaderOriginalViewerContentOperation.ReplacementAdmission
+				if (!admitsReplacement(capture)) return false
+				operation = ReaderOriginalViewerContentOperation.RemovePrewarmListener
+				removePageTurnPrewarmLayoutListener()
+				operation = ReaderOriginalViewerContentOperation.ReplacementAdmission
+				if (!admitsReplacement(capture)) return false
+				operation = ReaderOriginalViewerContentOperation.ReportDetached
+				pageRasterHostEventController.webViewAttachmentChanged(false)
+				prefixComplete = true
+			} catch (original: Throwable) {
+				witness?.record(operation)
+				failure = original
+			} finally {
+				try {
+					operation = ReaderOriginalViewerContentOperation.RetireCaptured
+					val cleanup = retireCapturedViewerReplacement(capture)
+					if (cleanup != null) witness?.record(operation)
+					operation = ReaderOriginalViewerContentOperation.ReplacementCleanup
+					if (failure == null) failure = cleanup else if (cleanup != null && cleanup !== failure) failure!!.addSuppressed(cleanup)
+				} catch (cleanup: Throwable) {
+					witness?.record(operation)
+					if (failure == null) failure = cleanup else if (cleanup !== failure) failure!!.addSuppressed(cleanup)
+				}
+				if (!prefixComplete || failure != null) {
+					if (sourceReturn != null) {
+						operation = ReaderOriginalViewerContentOperation.EndReturn
+						presentationLifecycleDelivery.endPhysicalDelivery(sourceReturn)
+					}
+				}
+				// A return in the prefix still owes exact mandatory cleanup and its original failure.
+				if (!prefixComplete && failure != null) throw failure!!
+			}
+			try {
+				failure?.let { throw it }
+				operation = ReaderOriginalViewerContentOperation.ReplacementAdmission
+				if (!admitsReplacement(capture)) return false
+				lateinit var lease: ReaderFramePhysicalOwnershipAdapter.Lease
+				operation = ReaderOriginalViewerContentOperation.ReserveInstallation
+				lease = framePhysicalOwnership.reserve(viewerContentContainer, viewerView) { currentFrameInstallation === lease } ?: return false
+				currentFrameInstallation = lease
+				operation = ReaderOriginalViewerContentOperation.MountInstallation
+				if (!framePhysicalOwnership.mount(lease)) return false
+				operation = ReaderOriginalViewerContentOperation.ReplacementAdmission
+				if (!admitsReplacement(capture) || currentFrameInstallation !== lease) return false
+				operation = ReaderOriginalViewerContentOperation.ReportAttached
+				pageRasterHostEventController.webViewAttachmentChanged(viewerContentContainer.findDescendantWebView()?.isAttachedToWindow == true)
+				operation = ReaderOriginalViewerContentOperation.ReplacementAdmission
+				if (!admitsReplacement(capture) || currentFrameInstallation !== lease) return false
+				operation = ReaderOriginalViewerContentOperation.RequestPrewarm
+				requestPageTurnPrewarmWhenReady()
+				operation = ReaderOriginalViewerContentOperation.ReplacementAdmission
+				return admitsReplacement(capture) && currentFrameInstallation === lease
+			} catch (original: Throwable) {
+				// Record before native finally can throw; cleanup must not relabel this invocation.
+				witness?.record(operation)
+				throw original
+			} finally {
+				if (prefixComplete && failure == null && sourceReturn != null) {
+					operation = ReaderOriginalViewerContentOperation.EndReturn
+					presentationLifecycleDelivery.endPhysicalDelivery(sourceReturn)
+				}
+			}
+		} catch (original: Throwable) {
+			witness?.record(operation)
+			throw original
+		}
 	}
 
 	fun detachViewerContent(viewerView: View?) {
-		if (viewerView?.parent === viewerContentContainer) {
-			viewerContentContainer.removeView(viewerView)
+		val sourceReturn = presentationLifecycleDelivery.beginRegisteredRootReturn()
+		val exact = currentFrameInstallation?.takeIf { it.wrapper === viewerView }
+		val listener = foregroundWebViewRegistration?.takeIf { it.mount === viewerView }
+		try {
+			val capture = ViewerReplacementCapture(viewerReplacementSerial, presentationLifecycleDelivery.capturePhysicalAdmission(),
+				framePhysicalOwnership.captureEpoch(), activatedSessionStore.snapshot, exact, listener)
+			retireCapturedViewerReplacement(capture)?.let { throw it }
+		} finally {
+			if (sourceReturn != null) presentationLifecycleDelivery.endPhysicalDelivery(sourceReturn)
 		}
 	}
 
@@ -2856,6 +3907,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		)
 		whispersyncOverlayActive = active
 		whispersyncAnchorAvailable = anchorAvailable
+		whispersyncAnchorReceipt = receipt
+		whispersyncHighlightColorArgb = highlightColorArgb
+		// Observing a receipt is neither a canonical capture proof nor displayed-deck
+		// authority. Installed decoration consumes the separate original publication;
+		// never reopen the frozen legacy overlay/restoration writers.
+		if (readInstalledPublication != null) {
+			refreshInstalledWhispersyncConsumer()
+			return
+		}
+		if (!legacyLifecycleConsequencesOpen) return
 		playLikeCurlController.setWhispersyncOverlay(
 			receipt,
 			highlightColorArgb
@@ -2873,6 +3934,903 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		whispersyncCueMapView.onHoldOutcome = onHoldOutcome
 		whispersyncCueMapView.onSeekRequested = onSeekRequested
 		whispersyncCueMapView.setPresentation(state)
+	}
+
+	/** Authenticate before constructor effects, then retain one transport through actual
+	 * Engine configure completion and query custody. No host drain or synthetic Ready. */
+	fun createInitialDestinationBootstrapRequest(
+		candidate: ReaderTransitionGatewayCandidate,
+		reservation: ReaderReservedNeutralBootstrapRequest,
+		create: () -> View,
+		ingress: (ReaderPresentationEvent.FoliateRelocated, ReaderPresentationEventOrigin.SemanticCommand) -> ReaderPresentationEventReceipt?
+	): ReaderSemanticExecutableRequest = request@{ origin, context, onReceipt ->
+		if (Looper.myLooper() != Looper.getMainLooper() || !isAttachedToWindow || windowVisibility != View.VISIBLE ||
+			lastPresentationWindowVisible != true || finalHostLifecycleEvent != null || task4ResourceTeardownStarted ||
+			width <= 0 || height <= 0 || currentFrameInstallation?.let { it.owned || it.operating } == true ||
+			initialDestinationConstruction?.active == true) return@request ReaderSemanticExecutableResult.Rejected
+		val installed = activatedSessionStore.snapshot?.takeIf { it.commandEgressOpen }
+			?: return@request ReaderSemanticExecutableResult.Rejected
+		val neutral = installed.initialDecision?.origin as? paige.navic.reader.ReaderInitialCommittedPresentationOrigin.Neutral
+			?: return@request ReaderSemanticExecutableResult.Rejected
+		val id = origin.transitionId
+		val version = presentationBindingReporter.captureInitialSemanticContextVersionOrNull()
+			?: return@request ReaderSemanticExecutableResult.Rejected
+		fun current(): Boolean = activatedSessionStore.snapshot === installed && installed.commandEgressOpen &&
+			installed.reservedNeutralBootstrap === reservation && candidate.installationSource === activatedSessionStore &&
+			candidate.isSelected && activatedSessionStore.ownsInstalledCandidate(candidate.epoch, id.readerSessionGeneration, id.coordinatorEpoch) &&
+			reservation.readerSessionGeneration == neutral.readerSessionGeneration && id.readerSessionGeneration == neutral.readerSessionGeneration &&
+			id.coordinatorEpoch == neutral.coordinatorEpoch && id.operation == paige.navic.reader.ReaderTransitionOperation.BootstrapNativePage &&
+			id.expectedBinding is paige.navic.reader.ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial &&
+			version.readerSessionGeneration == id.readerSessionGeneration &&
+			presentationBindingReporter.captureInitialSemanticContextVersionOrNull() == version &&
+			finalHostLifecycleEvent == null && !task4ResourceTeardownStarted && context.isExecutionCurrent(origin, reservation.handle)
+		if (!current()) return@request ReaderSemanticExecutableResult.Rejected
+		lateinit var custody: ReaderEngineInitialDestinationConstructionCustody
+		custody = ReaderEngineInitialDestinationConstructionCustody(origin, context) initialized@{ engine ->
+			if (!custody.active || !current()) { custody.fail(ReaderSemanticAsyncFailure.Rejected); return@initialized }
+			val captured = captureInitialDestinationSemanticContext(candidate, reservation, origin, context)
+			if (captured == null || captured.engine.get() !== engine) {
+				custody.fail(ReaderSemanticAsyncFailure.Rejected); return@initialized
+			}
+			custody.initialGeometryScopeCaptured = true // Diagnostic ordering only; never rearm or recapture.
+			val source = engine as? ReaderEngineCurrentDestinationQuerySource
+				?: run { custody.fail(ReaderSemanticAsyncFailure.Rejected); return@initialized }
+			val request = source.createInitialDestinationConstructionSemanticRequest(reservation, captured.version,
+				captured.publicationGeneration, captured.viewportGeneration, captured.profileGeneration,
+				{
+					if (custody.initialAdmissionEvaluationActive)
+						custody.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.ConstructionInactive
+					custody.active && initialDestinationSemanticContextIsCurrent(captured, candidate, reservation, origin, context, custody)
+				},
+				custody, ingress)
+			val receiveInitialReceipt: (ReaderPresentationEventReceipt) -> Unit = receive@{ receipt ->
+				val layout = custody.takeResolvedLayout(receipt)
+				if (!initialDestinationSemanticContextIsCurrent(captured, candidate, reservation, origin, context) ||
+					!presentationBindingReporter.consumeInitialSemanticReceipt(captured.reporterEpoch, captured.version, origin, receipt)) {
+					custody.fail(ReaderSemanticAsyncFailure.Rejected)
+					return@receive
+				}
+				val binding = receipt.semanticReceipt?.binding
+				val sourceCurrency = source.captureResolvedLayoutCurrency()
+				if (layout != null && binding != null && sourceCurrency != null) captured.installation.initialResolvedLayout =
+					ReaderNativeInitialResolvedLayout(captured, id, binding, layout, receipt.version, sourceCurrency)
+				// Original executor owns FIFO forwarding and retirement. Retaining numeric
+				// metadata is neither material allocation nor physical presentation.
+				onReceipt(receipt)
+			}
+			if (request(origin, context, receiveInitialReceipt) != ReaderSemanticExecutableResult.Accepted)
+				custody.fail(ReaderSemanticAsyncFailure.Rejected)
+		}
+		when (custody.bindExecutor()) {
+			paige.navic.reader.ReaderSemanticTransportBindingResult.Bound -> Unit
+			paige.navic.reader.ReaderSemanticTransportBindingResult.Rejected -> {
+				custody.retire(); return@request ReaderSemanticExecutableResult.Rejected
+			}
+			paige.navic.reader.ReaderSemanticTransportBindingResult.RetiredAndDisposed -> return@request ReaderSemanticExecutableResult.Rejected
+		}
+		if (!custody.active || !current()) { custody.retire(); return@request ReaderSemanticExecutableResult.Rejected }
+		initialDestinationConstruction = custody // Retain before constructors/addView can reenter close.
+		try {
+			context.mutationStarted() // Compose construction may allocate/register actual physical owners.
+			if (!custody.active || !current()) return@request ReaderSemanticExecutableResult.Rejected
+			val wrapper = create()
+			if (!custody.active || !current() || !mountNeutralSemanticViewerContent(wrapper, candidate, origin, context)) {
+				custody.retire(); return@request ReaderSemanticExecutableResult.Rejected
+			}
+			custody.mountCompleted() // Only releases an already-observed genuine configure callback.
+			ReaderSemanticExecutableResult.Accepted
+		} catch (failure: Throwable) {
+			custody.retire()
+			throw failure // The original executor classifies the actual mutation boundary.
+		}
+	}
+
+	private fun captureInitialDestinationSemanticContext(
+		candidate: ReaderTransitionGatewayCandidate,
+		reservation: ReaderReservedNeutralBootstrapRequest,
+		origin: ReaderPresentationEventOrigin.SemanticCommand,
+		context: paige.navic.reader.ReaderSemanticMutationStartEvidence,
+		admissionWitness: ReaderEngineInitialDestinationConstructionCustody? = null
+	): ReaderNativeInitialDestinationSemanticContext? {
+		val witness = admissionWitness?.takeIf { it.initialAdmissionEvaluationActive }
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.NativePhysicalEligibility
+		if (Looper.myLooper() != Looper.getMainLooper() || !isAttachedToWindow ||
+			windowVisibility != View.VISIBLE || lastPresentationWindowVisible != true ||
+			finalHostLifecycleEvent != null || task4ResourceTeardownStarted || width <= 0 || height <= 0) return null
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.CandidateReservationTransitionEligibility
+		val installed = activatedSessionStore.snapshot?.takeIf { it.commandEgressOpen } ?: return null
+		val neutral = installed.initialDecision?.origin as? paige.navic.reader.ReaderInitialCommittedPresentationOrigin.Neutral
+			?: return null
+		val id = origin.transitionId
+		if (installed.reservedNeutralBootstrap !== reservation || candidate.installationSource !== activatedSessionStore ||
+			!candidate.isSelected || !activatedSessionStore.ownsInstalledCandidate(candidate.epoch, id.readerSessionGeneration, id.coordinatorEpoch) ||
+			reservation.readerSessionGeneration != neutral.readerSessionGeneration || id.readerSessionGeneration != neutral.readerSessionGeneration ||
+			id.coordinatorEpoch != neutral.coordinatorEpoch || id.operation != paige.navic.reader.ReaderTransitionOperation.BootstrapNativePage ||
+			id.expectedBinding !is paige.navic.reader.ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial) return null
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.ExecutionAtActivation
+		if (!context.isExecutionCurrent(origin, reservation.handle)) return null
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.InstallationStructure
+		val lease = currentFrameInstallation ?: return null
+		if (!lease.owned || lease.operating || lease.permanent || !lease.addInvoked ||
+			lease.state != ReaderLegacyResourceState.Registered || lease.owner != null || lease.binding != null || lease.imported != null ||
+			lease.container !== viewerContentContainer || lease.wrapper.parent !== viewerContentContainer ||
+			!lease.wrapper.isAttachedToWindow || lease.beforeCommandAdd == null) return null
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.InstallationCurrentness
+		if (!lease.isCurrent()) return null
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.InstallationCurrency
+		val commandCurrent = try { lease.commandCurrency?.invoke() == true }
+		finally {
+			// The original currency closure records its actually evaluated nested branch.
+			// This also retains that category if the predicate throws; no second invocation.
+			witness?.initialAdmissionEvaluatedStage = lease.initialAdmissionCurrencyStage
+		}
+		if (!commandCurrent) return null
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.EngineAncestry
+		val engine = currentLiveWebView() ?: return null
+		if (engine !is ReaderEngineCurrentDestinationQuerySource || !engine.isAttachedToWindow) return null
+		// The measured Engine must belong to the original command-created wrapper.
+		var ancestor: View = engine
+		while (ancestor !== lease.wrapper) ancestor = ancestor.parent as? View ?: return null
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.ReporterVersion
+		val version = presentationBindingReporter.captureInitialSemanticContextVersionOrNull() ?: return null
+		val profile = rasterProfileEpoch ?: 0L // Existing truthful provisional identity, not resolved readiness.
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.ReporterGenerationValidity
+		if (version.readerSessionGeneration != id.readerSessionGeneration || presentationPublicationGeneration <= 0L ||
+			presentationViewportGeneration <= 0L || profile < 0L) return null
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.ExecutionFinal
+		if (!context.isExecutionCurrent(origin, reservation.handle)) return null
+		return ReaderNativeInitialDestinationSemanticContext(WeakReference(engine), lease, presentationBindingReporter.captureEpoch(),
+			version, width, height, presentationPublicationGeneration, presentationViewportGeneration, profile, installed)
+	}
+
+	private fun initialDestinationSemanticContextIsCurrent(
+		captured: ReaderNativeInitialDestinationSemanticContext,
+		candidate: ReaderTransitionGatewayCandidate,
+		reservation: ReaderReservedNeutralBootstrapRequest,
+		origin: ReaderPresentationEventOrigin.SemanticCommand,
+		context: paige.navic.reader.ReaderSemanticMutationStartEvidence,
+		admissionWitness: ReaderEngineInitialDestinationConstructionCustody? = null
+	): Boolean {
+		val current = captureInitialDestinationSemanticContext(candidate, reservation, origin, context, admissionWitness) ?: return false
+		val witness = admissionWitness?.takeIf { it.initialAdmissionEvaluationActive }
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.CapturedScopeIdentity
+		if (current.engine.get() !== captured.engine.get() || current.installation !== captured.installation ||
+			current.installedSnapshot !== captured.installedSnapshot) return false
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.CapturedScopeVersion
+		if (current.reporterEpoch != captured.reporterEpoch || current.version != captured.version) return false
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.CapturedScopeDimensions
+		if (current.width != captured.width || current.height != captured.height) return false
+		witness?.initialAdmissionEvaluatedStage = ReaderInitialAdmissionStage.CapturedScopeGenerations
+		return current.publicationGeneration == captured.publicationGeneration && current.viewportGeneration == captured.viewportGeneration &&
+			current.profileGeneration == captured.profileGeneration
+	}
+
+	/** Post-semantic source authentication on the original installation. This does not
+	 * revive consumed executor currency or promote Registered material to display-ready. */
+	fun captureInitialResolvedLayoutForAllocation(
+		candidate: ReaderTransitionGatewayCandidate,
+		command: paige.navic.reader.ReaderTransitionCommand.AllocateMaterialBinding
+	): ReaderNativeInitialResolvedLayout? {
+		if (Looper.myLooper() != Looper.getMainLooper() || !isAttachedToWindow ||
+			windowVisibility != View.VISIBLE || lastPresentationWindowVisible != true ||
+			finalHostLifecycleEvent != null || task4ResourceTeardownStarted) return null
+		val lease = currentFrameInstallation ?: return null
+		val resolved = lease.initialResolvedLayout ?: return null
+		val captured = resolved.scope
+		val installed = activatedSessionStore.snapshot ?: return null
+		val id = command.transitionId
+		if (installed !== captured.installedSnapshot || !installed.commandEgressOpen ||
+			candidate.installationSource !== activatedSessionStore || !candidate.isSelected ||
+			!activatedSessionStore.ownsInstalledCandidate(candidate.epoch, id.readerSessionGeneration, id.coordinatorEpoch) ||
+			resolved.transitionId != id || resolved.binding != command.binding ||
+			id.operation != paige.navic.reader.ReaderTransitionOperation.BootstrapNativePage ||
+			id.expectedBinding !is paige.navic.reader.ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial ||
+			lease !== captured.installation || !lease.owned || lease.operating || lease.permanent || !lease.addInvoked ||
+			lease.state != ReaderLegacyResourceState.Registered || lease.binding != null || lease.owner != null || lease.imported != null ||
+			lease.beforeCommandAdd == null || !framePhysicalOwnership.hasInstallation(lease.wrapper) ||
+			lease.container !== viewerContentContainer || lease.wrapper.parent !== viewerContentContainer || !lease.wrapper.isAttachedToWindow ||
+			width != captured.width || height != captured.height || width <= 0 || height <= 0 ||
+			presentationPublicationGeneration != captured.publicationGeneration || presentationViewportGeneration != captured.viewportGeneration ||
+			(rasterProfileEpoch ?: 0L) != captured.profileGeneration ||
+			presentationBindingReporter.captureEpoch() != captured.reporterEpoch ||
+			presentationBindingReporter.captureSemanticContextVersionOrNull(command.binding) != resolved.version) return null
+		val engine = captured.engine.get() ?: return null
+		if (engine !== currentLiveWebView() || !engine.isAttachedToWindow) return null
+		var ancestor: View = engine
+		while (ancestor !== lease.wrapper) ancestor = ancestor.parent as? View ?: return null
+		return resolved.takeIf { it.sourceIsCurrent() }
+	}
+
+	var installedPhysicalPublicationIngress: ReaderInstalledPhysicalPublicationIngress? = null
+	var installedPageTurnModelIngress: ReaderInstalledPageTurnModelIngress? = null
+	var installedPointerTurnRoute: ((ReaderPageTurnDirection, Long) -> Boolean)? = null
+
+	private fun admitInstalledPointerTurn(event: MotionEvent, originalDown: MotionEvent, gestureId: Long): Boolean {
+		if (activatedSessionStore.legacyConsequencesOpen) return true
+		val movedLeft = event.x < originalDown.x
+		if (event.x == originalDown.x) return false
+		val next = movedLeft != (pageTurnReadingDirection == "rtl")
+		return installedPointerTurnRoute?.invoke(if (next) ReaderPageTurnDirection.Next else ReaderPageTurnDirection.Previous,
+			gestureId) == true
+	}
+
+	fun beginInstalledPointerSemanticTurn(candidate: ReaderTransitionGatewayCandidate,
+		requests: ReaderSemanticExecutableRequestRegistry, direction: ReaderPageTurnDirection, gestureId: Long): Boolean {
+		val ingress = installedPageTurnModelIngress ?: return false
+		val publication = readInstalledPublication?.invoke() ?: return false
+		if (!candidate.isSelected || installedCommandCurrency?.invoke() != true ||
+			finalHostLifecycleEvent != null || task4ResourceTeardownStarted || !isAttachedToWindow ||
+			windowVisibility != VISIBLE || publication.owner !is ReaderPresentationFrameOwner.NativePage) return false
+		val deck = playLikeCurlController.installedDeckFor(publication.resource.key) ?: return false
+		val engine = currentLiveWebView() as? ReaderEngineWebView ?: return false
+		var originalSource: ReaderInstalledCurlGestureSource? = null
+		val handle = requests.register { origin, context, onReceipt ->
+			val source = originalSource ?: return@register ReaderSemanticExecutableResult.Rejected
+			engine.createInstalledPageTurnSemanticRequest(source,
+				{ candidate.isSelected && installedCommandCurrency?.invoke() == true && source.work.installationIsCurrent() },
+				ReaderBoundPageTurnSemanticIngress { observedSource, observedOrigin, event ->
+					if (observedSource !== source || observedOrigin !== origin || !candidate.isSelected) null
+					else ingress(event, source.deck.binding, observedOrigin)
+				})(origin, context, onReceipt)
+		}
+		val intent = paige.navic.reader.ReaderPageTurnIntent(direction, paige.navic.reader.ReaderTransitionGestureId(gestureId), handle)
+		if (playLikeCurlController.beginInstalledCurlGesture(deck, intent) { observation ->
+			if (observation.stage != ReaderInstalledCurlSettlementStage.Started) {
+				val outcome = when {
+					observation.stage == ReaderInstalledCurlSettlementStage.Rejected -> ReaderPageGestureTerminalOutcome.FailedRenderer
+					observation.stage == ReaderInstalledCurlSettlementStage.Cancelled || observation.pageChange == PageChange.NONE -> ReaderPageGestureTerminalOutcome.CancelledByUser
+					observation.pageChange == PageChange.NEXT -> ReaderPageGestureTerminalOutcome.CommittedForward
+					else -> ReaderPageGestureTerminalOutcome.CommittedBackward
+				}
+				completeHostGesture(gestureId, outcome)
+			}
+		} != ReaderPortCommandResult.Accepted) { requests.retire(handle); return false }
+		originalSource = playLikeCurlController.originalInstalledCurlGestureSource(deck, intent)
+		if (originalSource == null || ReaderSnapshotBackedActivatedGatewayPort(candidate).routeIntent(ReaderTransitionFact.Intent(null, intent)) != ReaderPortCommandResult.Accepted) {
+			playLikeCurlController.discardUnstartedInstalledCurlGesture(deck, intent)
+			requests.retire(handle)
+			return false
+		}
+		return true
+	}
+
+	private var readInstalledPublication: (() -> ReaderOwnerAndInputPublicationSnapshot?)? = null
+	private var installedCommandCurrency: (() -> Boolean)? = null
+	private class InstalledRasterInvocation(
+		val work: ReaderActivatedRasterWork,
+		val plan: ReaderPageRasterPreparationPlan,
+		val callbacks: ReaderRasterLeaseFactEmitter
+	)
+	// References to the original command only. Preparation/readiness/release authority
+	// belongs to the same original controller lease, including its pre-start interval.
+	private var pendingInstalledRaster: InstalledRasterInvocation? = null
+
+	private class InstalledMaterialAllocationInvocation(val command: ReaderTransitionCommand.AllocateMaterialBinding) {
+		var query: paige.navic.reader.ReaderSemanticTransportRetirement? = null
+		var queryDelivered = false
+		var planHandled = false
+	}
+	// Invocation admission only: the original Engine continuation/FIFO owns its query.
+	private var pendingInstalledMaterialAllocation: InstalledMaterialAllocationInvocation? = null
+
+	private fun retireInstalledMaterialAllocation(invocation: InstalledMaterialAllocationInvocation) {
+		if (pendingInstalledMaterialAllocation !== invocation) return
+		pendingInstalledMaterialAllocation = null // Fence the original plan callback before outward retirement.
+		val query = invocation.query
+		invocation.query = null
+		query?.retire()
+	}
+
+	fun hasInitialCommandContext(): Boolean = finalHostLifecycleEvent == null && !task4ResourceTeardownStarted &&
+		presentationBindingReporter.captureInitialSemanticContextVersionOrNull() != null &&
+		currentFrameInstallation == null && context is Activity
+
+	fun bindInstalledPublicationReaders(
+		readPublication: () -> ReaderOwnerAndInputPublicationSnapshot?,
+		commandCurrency: () -> Boolean
+	): ReaderPortCommandResult {
+		if (readInstalledPublication != null) return installedRejected()
+		readInstalledPublication = readPublication
+		installedCommandCurrency = commandCurrency
+		return pageInputSettlementHostController.activateInstalledInput(readPublication) {
+			activatedSessionStore.snapshot?.initialDecision?.origin.takeIf { commandCurrency() }
+		}
+	}
+
+	fun narrowInstalledInputLease(command: ReaderTransitionCommand?, lease: ReaderTransitionInputLease): ReaderTransitionInputLease {
+		fun current(): Boolean = Looper.myLooper() == Looper.getMainLooper() && installedCommandCurrency?.invoke() == true &&
+			finalHostLifecycleEvent == null && !task4ResourceTeardownStarted &&
+			isAttachedToWindow && windowVisibility == VISIBLE && lastPresentationWindowVisible == true
+		if (!current()) return ReaderTransitionInputLease.None
+		return when (lease) {
+			is ReaderTransitionInputLease.NativePage -> {
+				// The original command identifies the prepared readable successor BEFORE
+				// its sole atomic publication. A requested lease alone is never evidence.
+				val owner: ReaderPresentationFrameOwner
+				val binding: ReaderPresentationBinding
+				val resource: paige.navic.reader.ReaderTransitionResourceRegistration
+				when (command) {
+					is ReaderTransitionCommand.CommitOwnerAndInputLease -> {
+						owner = command.owner; binding = command.binding; resource = command.preparedFrameResource
+					}
+					is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease -> {
+						owner = command.retainedOwner; binding = command.retainedBinding; resource = command.retainedResource
+					}
+					else -> return ReaderTransitionInputLease.ChromeOnly
+				}
+				val transitionId = command.transitionId ?: return ReaderTransitionInputLease.ChromeOnly
+				val native = owner as? ReaderPresentationFrameOwner.NativePage ?: return ReaderTransitionInputLease.ChromeOnly
+				val domain = playLikeCurlController.activatedMaterialDomain ?: return ReaderTransitionInputLease.ChromeOnly
+				val installed = activatedSessionStore.snapshot ?: return ReaderTransitionInputLease.ChromeOnly
+				val initial = installed.initialDecision?.origin ?: return ReaderTransitionInputLease.ChromeOnly
+				val engine = currentLiveWebView() as? ReaderEngineWebView ?: return ReaderTransitionInputLease.ChromeOnly
+				if (!installed.commandEgressOpen || installedPhysicalPublicationIngress == null || installedPageTurnModelIngress == null ||
+					installedPointerTurnRoute == null || !engine.isAttachedToWindow || !engine.admitsCurrentDestinationSession(binding.foliateSessionId) ||
+					pageRasterPreparationController.activatedMaterialDomain != domain || pageTurnBundleSource.activatedMaterialDomain != domain ||
+					domain.readerSessionGeneration != transitionId.readerSessionGeneration ||
+					initial.readerSessionGeneration != transitionId.readerSessionGeneration || initial.coordinatorEpoch != transitionId.coordinatorEpoch ||
+					resource.retirementOrder.readerSessionGeneration != transitionId.readerSessionGeneration ||
+					resource.retirementOrder.coordinatorEpoch != transitionId.coordinatorEpoch || resource.key.kind != ReaderTransitionResourceKind.Deck ||
+					binding != lease.binding || native.proof.binding != lease.binding ||
+					native.proof.textureGeneration != lease.textureGeneration || binding.textureGeneration != lease.textureGeneration)
+					return ReaderTransitionInputLease.ChromeOnly
+				val deck = playLikeCurlController.installedDeckFor(resource.key) ?: return ReaderTransitionInputLease.ChromeOnly
+				val candidate = playLikeCurlController.installedNativeCandidate(deck, native.proof.transitionToken, width, height)
+					?: return ReaderTransitionInputLease.ChromeOnly
+				fun candidateCurrent(): Boolean = current() && activatedSessionStore.snapshot === installed && currentLiveWebView() === engine &&
+					engine.isAttachedToWindow && engine.admitsCurrentDestinationSession(binding.foliateSessionId) &&
+					playLikeCurlController.installedDeckFor(resource.key) === deck && deck.binding == binding &&
+					playLikeCurlController.installedNativeCandidate(deck, native.proof.transitionToken, width, height) == candidate &&
+					candidate.binding == native.proof.binding && candidate.viewportWidth == native.proof.viewportWidth &&
+					candidate.viewportHeight == native.proof.viewportHeight
+				if (!candidateCurrent()) return ReaderTransitionInputLease.ChromeOnly
+				// Readiness only updates the original local veto, never an owner/policy grant.
+				val safety = readerPageOperationPolicy(candidate.preparationFacts.readiness)
+				pageInputSettlementHostController.updateInstalledLocalSafety(safety)
+				if (!candidateCurrent()) return ReaderTransitionInputLease.ChromeOnly
+				val narrowed = pageInputSettlementHostController.narrowOrVeto(lease)
+				if (candidateCurrent()) narrowed else ReaderTransitionInputLease.ChromeOnly
+			}
+			is ReaderTransitionInputLease.ClaimedGesture -> {
+				// The original physical stream alone can retain its claim, never grant a
+				// new pointer or upgrade the retained publication to Native input.
+				val publication = readInstalledPublication?.invoke() ?: return ReaderTransitionInputLease.ChromeOnly
+				val retained = command as? ReaderTransitionCommand.PublishRetainedOwnerAndInputLease
+					?: return ReaderTransitionInputLease.ChromeOnly
+				val expected = lease.transitionId.expectedBinding as? paige.navic.reader.ReaderExpectedPresentationBinding.SemanticSuccessor
+				if (expected?.predecessor != publication.binding || retained.transitionId != lease.transitionId ||
+					retained.retainedOwner != publication.owner || retained.retainedBinding != publication.binding ||
+					retained.retainedResource != publication.resource || publication.owner !is ReaderPresentationFrameOwner.NativePage ||
+					publication.resource.retirementOrder.readerSessionGeneration != lease.transitionId.readerSessionGeneration ||
+					publication.resource.retirementOrder.coordinatorEpoch != lease.transitionId.coordinatorEpoch ||
+					playLikeCurlController.installedDeckFor(publication.resource.key)?.binding != publication.binding)
+					ReaderTransitionInputLease.ChromeOnly
+				else {
+					val narrowed = pageInputSettlementHostController.narrowOrVeto(lease)
+					if (current() && readInstalledPublication?.invoke() === publication) narrowed else ReaderTransitionInputLease.ChromeOnly
+				}
+			}
+			ReaderTransitionInputLease.None, ReaderTransitionInputLease.ChromeOnly -> lease
+			else -> ReaderTransitionInputLease.ChromeOnly
+		}
+	}
+
+	fun canPublishInstalledOwnerAndInput(publication: ReaderOwnerAndInputPublicationSnapshot): Boolean {
+		if (Looper.myLooper() != Looper.getMainLooper() || installedCommandCurrency?.invoke() != true ||
+			finalHostLifecycleEvent != null || task4ResourceTeardownStarted || !isAttachedToWindow || windowVisibility != VISIBLE)
+			return false
+		val deck = playLikeCurlController.installedDeckFor(publication.resource.key) ?: return false
+		if (deck.binding != publication.binding) return false
+		val native = publication.owner as? ReaderPresentationFrameOwner.NativePage ?: return false
+		val candidate = playLikeCurlController.installedNativeCandidate(deck, native.proof.transitionToken, width, height)
+		return candidate != null && native.proof.binding == candidate.binding &&
+			native.proof.viewportWidth == candidate.viewportWidth && native.proof.viewportHeight == candidate.viewportHeight
+	}
+
+	/** Only the ORIGINAL accepted FIFO row projects physical owner/input. Recomposition
+	 * and generic observations may refresh decoration, never borrow an unaccepted barrier. */
+	fun refreshInstalledPresentationConsumers(command: ReaderTransitionCommand,
+		applied: ReaderOwnerAndInputPublicationResult.Applied): Boolean {
+		fun rejected(): Boolean {
+			presentationInputPolicy = ReaderPresentationInputPolicy.RecoveryOnly
+			pageInputSettlementHostController.updateInstalledLocalSafety(readerPageOperationPolicy(ReaderPageReadinessState()))
+			return false
+		}
+		val readers = readInstalledPublication ?: return rejected()
+		val resource = when (command) {
+			is ReaderTransitionCommand.CommitOwnerAndInputLease -> command.preparedFrameResource
+			is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease -> command.retainedResource
+			else -> return rejected()
+		}
+		// Carry the ORIGINAL committed barrier object. Reading it only validates this
+		// accepted command/result; structural equality cannot replace Curl's identity guard.
+		val publication = readers()
+		val acceptedContextMatches = when (command) {
+			is ReaderTransitionCommand.CommitOwnerAndInputLease ->
+				applied.publicationIdentity == command.publicationIdentity && applied.publishedOwner == command.owner &&
+					applied.publishedBinding == command.binding && applied.subject ==
+					paige.navic.reader.ReaderOwnerAndInputPublicationSubject.Successor(command.targetHandle, resource)
+			is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease ->
+				applied.publicationIdentity == command.publicationIdentity && applied.publishedOwner == command.retainedOwner &&
+					applied.publishedBinding == command.retainedBinding && applied.subject ==
+					paige.navic.reader.ReaderOwnerAndInputPublicationSubject.Retained(resource)
+			else -> false
+		}
+		if (Looper.myLooper() != Looper.getMainLooper() || installedCommandCurrency?.invoke() != true ||
+			finalHostLifecycleEvent != null || task4ResourceTeardownStarted || !isAttachedToWindow || windowVisibility != VISIBLE ||
+			!acceptedContextMatches || applied.transitionId != command.transitionId || publication == null ||
+			publication.owner != applied.publishedOwner || publication.binding != applied.publishedBinding ||
+			publication.resource != resource || publication.lease != applied.finalPhysicalInputLease) return rejected()
+		if (playLikeCurlController.onInstalledOwnerAndInputPublished(publication) != ReaderPortCommandResult.Accepted)
+			return rejected()
+		presentationInputPolicy = paige.navic.reader.readerTransitionPresentationInputPolicy(
+			publication.owner, publication.binding, publication.lease)
+		// Decoration is independently readable from the committed displayed deck even
+		// when another preparation/native-candidate command cannot currently progress.
+		refreshInstalledWhispersyncConsumer()
+		val deck = playLikeCurlController.installedDeckFor(publication.resource.key) ?: return rejected()
+		val candidate = playLikeCurlController.installedNativeCandidate(deck,
+			(publication.owner as? ReaderPresentationFrameOwner.NativePage)?.proof?.transitionToken, width, height)
+			?: return rejected()
+		val nativeProof = (publication.owner as? ReaderPresentationFrameOwner.NativePage)?.proof
+		if (deck.binding != publication.binding || candidate.binding != publication.binding ||
+			(nativeProof != null && (nativeProof.transitionToken != candidate.transitionToken ||
+				nativeProof.viewportWidth != candidate.viewportWidth || nativeProof.viewportHeight != candidate.viewportHeight)) ||
+			readers() !== publication || installedCommandCurrency?.invoke() != true) return rejected()
+		localPageSafetyPolicy = readerPageOperationPolicy(candidate.preparationFacts.readiness)
+		pageInputSettlementHostController.updateInstalledLocalSafety(localPageSafetyPolicy)
+		playLikeCurlController.surfaceView.alpha = 1f
+		playLikeCurlController.inlineRasterShieldView.alpha = 0f
+		playLikeCurlController.surfaceView.bringToFront()
+		shellCoverView?.visibility = GONE
+		whispersyncCueMapView.bringToFront()
+		// Outward owning projection remains on the original accepted-publication closure,
+		// never a generic observation or a sampled publication reader.
+		if (readers() !== publication || installedCommandCurrency?.invoke() != true ||
+			finalHostLifecycleEvent != null || task4ResourceTeardownStarted || !isAttachedToWindow || windowVisibility != VISIBLE)
+			return rejected()
+		return true
+	}
+
+	/** Display authority comes from the sole atomic owner publication AND B's original
+	 * displayed-deck record. Incoming word anchors cannot certify their own display.
+	 * Optional preparation/semantic progress does not make this record disposable. */
+	private fun refreshInstalledWhispersyncConsumer(): ReaderPortCommandResult {
+		if (Looper.myLooper() != Looper.getMainLooper() || installedCommandCurrency?.invoke() != true ||
+			finalHostLifecycleEvent != null || task4ResourceTeardownStarted || !isAttachedToWindow || windowVisibility != VISIBLE)
+			return installedRejected()
+		val publication = readInstalledPublication?.invoke() ?: return installedRejected()
+		val deck = playLikeCurlController.installedDeckFor(publication.resource.key) ?: return installedRejected()
+		if (deck.binding != publication.binding) return installedRejected()
+		val association = playLikeCurlController.installedDecorationAssociationFor(deck) ?: return installedRejected()
+		val proof = association.displayedProof
+		val ownerMatches = when (val owner = publication.owner) {
+			is ReaderPresentationFrameOwner.NativePage -> owner.proof == proof
+			is ReaderPresentationFrameOwner.Curl -> owner.frame.binding == proof.binding &&
+				owner.frame.presentedFrame == proof.presentedFrame &&
+				owner.frame.rasterGeneration == proof.rasterGeneration && owner.frame.textureGeneration == proof.textureGeneration
+			else -> false
+		}
+		if (!ownerMatches) return installedRejected()
+		return playLikeCurlController.setInstalledWhispersyncOverlay(deck, proof,
+			whispersyncAnchorReceipt.takeIf { whispersyncOverlayActive }, whispersyncHighlightColorArgb)
+	}
+
+	fun activateInstalledFrameCommands() {
+		nativePagePresentationPublisher.activateCommandOnly { specification ->
+			if (installedCommandCurrency?.invoke() != true || finalHostLifecycleEvent != null || task4ResourceTeardownStarted ||
+				!isAttachedToWindow || windowVisibility != VISIBLE ||
+				playLikeCurlController.surfaceView.rendererGeneration != specification.deckTarget.rendererGeneration)
+				return@activateCommandOnly null
+			val key = ReaderTransitionResourceKey(specification.transitionId, ReaderTransitionResourceKind.Deck,
+				specification.deckTarget.deckGeneration)
+			val deck = playLikeCurlController.installedDeckFor(key) ?: return@activateCommandOnly null
+			val token = when (val hostToken = specification.hostToken) {
+				ReaderNativePageHostTokenState.AuthoritativeAbsent -> null
+				is ReaderNativePageHostTokenState.Present -> paige.navic.reader.ReaderPresentationToken(hostToken.token.value)
+			}
+			playLikeCurlController.installedNativeCandidate(deck, token, width, height)
+		}
+		// Typed terminal admission shares the ORIGINAL publisher, cancellation and frame
+		// custody. Only a genuine source completion joined to its exact successor is eligible;
+		// an ordinary Native frame is never a fallback.
+		nativePagePresentationPublisher.activateCurlTerminalCommands { specification ->
+			if (installedCommandCurrency?.invoke() != true || finalHostLifecycleEvent != null || task4ResourceTeardownStarted ||
+				!isAttachedToWindow || windowVisibility != VISIBLE)
+				return@activateCurlTerminalCommands null
+			playLikeCurlController.installedCurlTerminalCandidate(specification)
+		}
+	}
+
+	fun createInstalledFramePort(): ReaderFramePresentationPort = object : ReaderFramePresentationPort {
+		override fun prepareTarget(command: ReaderTransitionCommand.PrepareFrameTarget,
+			onFact: (ReaderTransitionFact) -> Unit) = nativePagePresentationPublisher.prepareTarget(command, onFact)
+		override fun present(command: ReaderTransitionCommand.RequestFramePresentation,
+			onFact: (ReaderTransitionFact) -> Unit) = nativePagePresentationPublisher.present(command, onFact)
+	}
+
+	fun prepareInstalledRaster(command: ReaderTransitionCommand.RequestRasterPreparation,
+		domain: ReaderLegacyPhysicalDomain, commandIsCurrent: (ReaderRasterPreparationLease) -> Boolean,
+		onFact: (ReaderTransitionFact) -> Unit): ReaderPortCommandResult {
+		if (pendingInstalledRaster != null || installedCommandCurrency?.invoke() != true) return installedRejected()
+		val allocation = command.allocation ?: return installedRejected()
+		val lease = ReaderRasterPreparationLease(command.transitionId, command.binding, allocation.preparationGeneration,
+			allocation.rasterGeneration, ReaderTransitionResourceKey(command.transitionId, ReaderTransitionResourceKind.Raster,
+				allocation.rasterGeneration), allocation)
+		val installed = activatedSessionStore.snapshot ?: return installedRejected()
+		val work = ReaderActivatedRasterWork(domain, activatedSessionStore, installed, lease) {
+			commandIsCurrent(lease)
+		}
+		val plan = playLikeCurlController.activatedPreparationPlan(work) ?: return installedRejected()
+		val engine = currentLiveWebView() ?: return installedRejected()
+		val invocation = InstalledRasterInvocation(work, plan, ReaderRasterLeaseFactEmitter(lease, onFact))
+		pendingInstalledRaster = invocation // References precede construction/callback reentry, not a second lease.
+		if (!ensureInstalledPassiveRasterAdapter(engine, work)) {
+			if (pendingInstalledRaster === invocation) pendingInstalledRaster = null
+			return installedRejected()
+		}
+		// Call exactly once, even before availability. The original preparation controller
+		// registers this same work before awaitInstalledReadiness in its physical-start
+		// closure; the genuine adapter-ready edge resumes it, not Native polling/retry.
+		val result = pageRasterPreparationController.prepareInstalled(work, plan,
+			onReady = {
+				if (pendingInstalledRaster === invocation) pendingInstalledRaster = null
+				// Detach invocation admission only. The keyed work remains readable and
+				// owned until its original physical return, including reentrant deck use.
+				if (work.isCurrent()) invocation.callbacks.onProven(lease)
+			},
+			onFailed = {
+				if (pendingInstalledRaster === invocation) pendingInstalledRaster = null
+				if (work.isCurrent()) invocation.callbacks.onFailed(lease, ReaderTransitionFailureReason.PortRejected)
+			})
+		if (result == ReaderPortCommandResult.Accepted) invocation.callbacks.registerResource()
+		else if (pageRasterPreparationController.installedWorkFor(lease.resourceKey) !== work &&
+			pendingInstalledRaster === invocation) pendingInstalledRaster = null
+		return result
+	}
+
+	fun reserveInstalledDeck(command: ReaderTransitionCommand.ReserveDeck,
+		onFact: (ReaderTransitionFact) -> Unit,
+		declareTarget: (ReaderTransitionFrameTargetSpecification, ReaderTransitionResourceKey) -> ReaderPortCommandResult
+	): ReaderPortCommandResult {
+		val raster = command.binding.rasterGeneration ?: return installedRejected()
+		val rasterKey = ReaderTransitionResourceKey(command.transitionId, ReaderTransitionResourceKind.Raster, raster)
+		val work = pageRasterPreparationController.installedWorkFor(rasterKey)
+			?.takeIf { it.lease.resourceKey == rasterKey && it.lease.binding == command.binding &&
+				it.lease.allocation == command.allocation && it.isCurrent() } ?: return installedRejected()
+		val texture = command.binding.textureGeneration ?: return installedRejected()
+		val deck = readerDeckLeaseOrNull(command,
+			ReaderTransitionResourceKey(command.transitionId, ReaderTransitionResourceKind.Deck, texture)) ?: return installedRejected()
+		return playLikeCurlController.reserveInstalledDeck(work, deck) { fact ->
+			onFact(fact)
+			if (fact is ReaderTransitionFact.DeckPrepared && work.isCurrent()) {
+				val renderer = playLikeCurlController.surfaceView.rendererGeneration
+				val candidate = playLikeCurlController.installedNativeCandidate(deck, null, width, height)
+				if (renderer <= 0L || candidate == null) {
+					onFact(ReaderTransitionFact.CommandRejected(command.transitionId,
+						paige.navic.reader.ReaderTransitionCommandStage.DeckReservation,
+						paige.navic.reader.ReaderTransitionCommandRejectionReason.DeckReservationRejected))
+					return@reserveInstalledDeck
+				}
+				onFact(ReaderTransitionFact.RendererGenerationReady(command.transitionId, renderer))
+				val deckTarget = ReaderPlayLikeCurlDeckTargetIdentity(renderer, texture, command.role)
+				val geometry = ReaderTransitionFrameGeometry(deck.binding.viewportGeneration, deck.binding.profileGeneration,
+					0, 0, candidate.viewportWidth, candidate.viewportHeight)
+				val specification = if (command.transitionId.operation == paige.navic.reader.ReaderTransitionOperation.CurlClaimAndSettlement) {
+					playLikeCurlController.installedCurlTerminalSpecification(deck, deckTarget, geometry) ?: return@reserveInstalledDeck
+				} else ReaderTransitionFrameTargetSpecification.NativePage(command.transitionId,
+					command.transitionId.readerSessionGeneration, deck.binding.publicationGeneration, deck.binding, checkNotNull(deck.allocation),
+					ReaderNativePageHostTokenState.AuthoritativeAbsent, deckTarget, geometry, command.transitionId.sequence)
+				declareTarget(specification, deck.resourceKey)
+			}
+		}
+	}
+
+	fun createInstalledResourcePort(frameSource: ReaderFrameOrHandoffPhysicalSource,
+		executor: ReaderSemanticCommandExecutor): ReaderTransitionResourcePort = object : ReaderTransitionResourcePort {
+		override fun release(command: ReaderTransitionCommand.ReleaseResource,
+			onFact: (ReaderTransitionFact.ResourceReleased) -> Unit): ReaderPortCommandResult {
+			val returned = { onFact(ReaderTransitionFact.ResourceReleased(command.identity)) }
+			return when (command.key.kind) {
+				ReaderTransitionResourceKind.Raster -> {
+					val work = pageRasterPreparationController.installedWorkFor(command.key)
+						?: playLikeCurlController.installedWorkFor(command.key) ?: return installedRejected()
+					val invocation = pendingInstalledRaster?.takeIf { it.work === work }
+					work.retire()
+					// The same original lease owns waiting readiness and running preparation.
+					// Retirement alone never confirms physical callback/removal/destruction.
+					pageRasterPreparationController.releaseInstalled(work) {
+						if (invocation != null && pendingInstalledRaster === invocation) pendingInstalledRaster = null
+						returned()
+					}
+				}
+				ReaderTransitionResourceKind.Deck -> {
+					val deck = playLikeCurlController.installedDeckFor(command.key) ?: return installedRejected()
+					playLikeCurlController.releaseInstalledDeck(deck, returned)
+				}
+				ReaderTransitionResourceKind.FrameHandoff, ReaderTransitionResourceKind.CallbackRegistration -> installedRejected()
+			}
+		}
+		override fun releaseLegacy(command: ReaderTransitionCommand.ReleaseResource,
+			imported: ReaderImportedLegacyResourceRegistration,
+			onConfirmed: (ReaderLegacyPhysicalIdentity, ReaderTransitionFact.ResourceReleased) -> Unit): ReaderPortCommandResult =
+			when (imported.physicalIdentity.source) {
+				ReaderLegacyInventorySource.FrameOrHandoff -> frameSource.releaseLegacy(command, imported, onConfirmed)
+				ReaderLegacyInventorySource.Deck -> playLikeCurlController.releaseActivatedDeckOwnership(imported) { identity ->
+					onConfirmed(identity, ReaderTransitionFact.ResourceReleased(command.identity))
+				}
+				else -> installedRejected()
+			}
+		override fun cancelOwnedWork(command: ReaderTransitionCommand.CancelOwnedWork): ReaderPortCommandResult {
+			pendingInstalledMaterialAllocation?.takeIf { it.command.transitionId == command.transitionId }
+				?.let(::retireInstalledMaterialAllocation)
+			// Fence the exact admission slot before publisher/executor/query retirement
+			// can reenter. Logical retirement cannot return its keyed physical material.
+			val pending = pendingInstalledRaster?.takeIf { it.work.lease.transitionId == command.transitionId }
+			if (pending != null && pendingInstalledRaster === pending) pendingInstalledRaster = null
+			pending?.work?.retire()
+			val frameResult = nativePagePresentationPublisher.cancelOwnedWork(command.transitionId)
+			executor.retireTransition(command.transitionId)
+			if (command.cleanupKey != null) closeCurrentDestinationQueries()
+			return frameResult // Only the original release callbacks confirm physical removal.
+		}
+	}
+
+	private fun installedRejected() = ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.StaleProof)
+
+	fun createOriginalInitialMaterialAllocationPort(
+		candidate: ReaderTransitionGatewayCandidate,
+		isCommandCurrent: (paige.navic.reader.ReaderTransitionCommand.AllocateMaterialBinding) -> Boolean,
+		enqueue: (ReaderTransitionFact) -> Unit
+	): ReaderMaterialGenerationAllocationPort = ReaderMaterialGenerationAllocationPort allocate@{ command, onFact ->
+		if (pendingInstalledMaterialAllocation != null) return@allocate installedRejected()
+		val domain = pageRasterPreparationController.activatedMaterialDomain ?: return@allocate installedRejected()
+		val installed = activatedSessionStore.snapshot ?: return@allocate installedRejected()
+		val installation = currentFrameInstallation ?: return@allocate installedRejected()
+		val engine = currentLiveWebView() ?: return@allocate installedRejected()
+		val source = engine as? ReaderEngineCurrentDestinationQuerySource ?: return@allocate installedRejected()
+		val epoch = presentationBindingReporter.captureEpoch()
+		val measuredWidth = width
+		val measuredHeight = height
+		val publicationGeneration = presentationPublicationGeneration
+		val viewportGeneration = presentationViewportGeneration
+		val profile = rasterProfileEpoch
+		fun physicalCurrent(): Boolean {
+			val initial = installed.initialDecision?.origin ?: return false
+			if (Looper.myLooper() != Looper.getMainLooper() || !isAttachedToWindow || windowVisibility != VISIBLE ||
+				lastPresentationWindowVisible != true || finalHostLifecycleEvent != null || task4ResourceTeardownStarted ||
+				activatedSessionStore.snapshot !== installed || !installed.commandEgressOpen ||
+				candidate.installationSource !== activatedSessionStore || !candidate.isSelected ||
+				!activatedSessionStore.ownsInstalledCandidate(candidate.epoch, command.transitionId.readerSessionGeneration, command.transitionId.coordinatorEpoch) ||
+				initial.readerSessionGeneration != command.transitionId.readerSessionGeneration || initial.coordinatorEpoch != command.transitionId.coordinatorEpoch ||
+				pageRasterPreparationController.activatedMaterialDomain != domain || pageTurnBundleSource.activatedMaterialDomain != domain ||
+				playLikeCurlController.activatedMaterialDomain != domain || domain.readerSessionGeneration != command.transitionId.readerSessionGeneration ||
+				currentFrameInstallation !== installation || !installation.owned || installation.operating || installation.permanent ||
+				!framePhysicalOwnership.hasInstallation(installation.wrapper) || installation.container !== viewerContentContainer ||
+				installation.wrapper.parent !== viewerContentContainer || !installation.wrapper.isAttachedToWindow ||
+				currentLiveWebView() !== engine || !engine.isAttachedToWindow || !source.admitsCurrentDestinationSession(command.binding.foliateSessionId) ||
+				width != measuredWidth || height != measuredHeight || width <= 0 || height <= 0 ||
+				presentationBindingReporter.captureEpoch() != epoch || presentationPublicationGeneration != publicationGeneration ||
+				presentationViewportGeneration != viewportGeneration || rasterProfileEpoch != profile ||
+				command.binding.publicationGeneration != publicationGeneration || command.binding.viewportGeneration != viewportGeneration ||
+				command.binding.destinationCommitIdentity == null || command.binding.preparationGeneration != null ||
+				command.binding.rasterGeneration != null || command.binding.textureGeneration != null) return false
+			var ancestor: View = engine
+			while (ancestor !== installation.wrapper) ancestor = ancestor.parent as? View ?: return false
+			return isCommandCurrent(command)
+		}
+		if (!physicalCurrent()) return@allocate installedRejected()
+		val initialCommand = command.transitionId.operation == paige.navic.reader.ReaderTransitionOperation.BootstrapNativePage &&
+			command.transitionId.expectedBinding is paige.navic.reader.ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial
+		val resolved = if (initialCommand) captureInitialResolvedLayoutForAllocation(candidate, command) else null
+		if (initialCommand && resolved == null) return@allocate installedRejected()
+		val invocation = InstalledMaterialAllocationInvocation(command)
+		pendingInstalledMaterialAllocation = invocation // Retain BEFORE query or Javascript may reenter cancel/close.
+		fun current(): Boolean = pendingInstalledMaterialAllocation === invocation && physicalCurrent() &&
+			pendingInstalledMaterialAllocation === invocation
+		fun reject(reason: paige.navic.reader.ReaderTransitionCommandRejectionReason =
+			paige.navic.reader.ReaderTransitionCommandRejectionReason.MaterialAllocationRejected) {
+			if (!current()) { retireInstalledMaterialAllocation(invocation); return }
+			retireInstalledMaterialAllocation(invocation)
+			if (physicalCurrent()) enqueue(ReaderTransitionFact.CommandRejected(command.transitionId,
+				paige.navic.reader.ReaderTransitionCommandStage.MaterialAllocation, reason))
+		}
+		fun requestPlan(layout: paige.navic.reader.ReaderFoliateResolvedLayout, layoutCurrent: () -> Boolean) {
+			fun planCurrent(): Boolean = current() && layoutCurrent() && current()
+			if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return }
+			engine.evaluateJavascript(
+				"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterPreparationPlan?.(null) ?? null)"
+			) callback@{ encoded ->
+				if (invocation.planHandled) return@callback
+				invocation.planHandled = true
+				try {
+					if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return@callback }
+					val plan = runCatching { readerPageRasterPreparationPlan(encoded) }.getOrNull()
+					if (plan == null || plan.resolvedLayout != layout || plan.currentChapterIndex != layout.sectionIndex ||
+						plan.currentChapterPageStartIndex < 0 || plan.currentChapterPageCount != layout.pageCount ||
+						plan.centerPageIndex.toLong() - plan.currentChapterPageStartIndex.toLong() != layout.pageIndex.toLong() ||
+						plan.currentChapterPageStartIndex.toLong() + plan.currentChapterPageCount.toLong() > plan.pageCount.toLong() ||
+						plan.blockingTargetsOrNull() == null) {
+						reject(); return@callback
+					}
+					// Same complete initial/successor validation, same original counter owners and order.
+					// Reservations never manufacture readiness, presentation, a deck or an ACK.
+					if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return@callback }
+					val preparation = pageRasterPreparationController.reserveActivatedPreparationGeneration(command, domain)
+					if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return@callback }
+					val raster = preparation?.let { pageTurnBundleSource.reserveActivatedRasterGeneration(command, domain) }
+					if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return@callback }
+					val allocation = if (preparation != null && raster != null)
+						playLikeCurlController.reserveActivatedMaterialBinding(command, domain, engine, plan, preparation, raster) else null
+					if (allocation == null) { reject(); return@callback }
+					if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return@callback }
+					retireInstalledMaterialAllocation(invocation) // Consumed before outward coordinator callbacks.
+					if (!physicalCurrent() || !layoutCurrent()) return@callback
+					// Scalar qualification belongs only to initial bootstrap. Successor/retry
+					// profile association is carried by this same original allocation.
+					if (initialCommand) enqueue(ReaderTransitionFact.PaginationProfileReady(command.transitionId,
+						allocation.allocatedBinding.profileGeneration))
+					if (physicalCurrent() && layoutCurrent()) onFact(ReaderTransitionFact.MaterialBindingAllocated(command.transitionId, allocation))
+				} catch (_: Throwable) {
+					reject(paige.navic.reader.ReaderTransitionCommandRejectionReason.CommandThrew)
+				}
+			}
+		}
+		try {
+			if (resolved != null) {
+				// This remains genuinely initial-only; never reuse its retired query for a successor.
+				requestPlan(resolved.layout) { captureInitialResolvedLayoutForAllocation(candidate, command) === resolved }
+			} else {
+				if (!current()) { retireInstalledMaterialAllocation(invocation); return@allocate installedRejected() }
+				val retirement = source.queryAllocationLayout(command, ::current) outcome@{ outcome ->
+					if (invocation.queryDelivered) return@outcome
+					if (!current()) { retireInstalledMaterialAllocation(invocation); return@outcome }
+					invocation.queryDelivered = true
+					try {
+						val event = (outcome as? ReaderCurrentDestinationQueryOutcome.Resolved)?.event
+						val layout = event?.resolvedLayout
+						// Capture ONLY in the original successful delivery. Its lifetime is not
+						// the consumed query token, the semantic slot or the invocation admission.
+						val layoutCurrency = if (event != null) source.captureResolvedLayoutCurrency() else null
+						if (event == null || layout == null || layoutCurrency == null ||
+							event.foliateSessionId != command.binding.foliateSessionId ||
+							event.destinationCommitIdentity != command.binding.destinationCommitIdentity || !current()) {
+							reject(); return@outcome
+						}
+						requestPlan(layout, layoutCurrency)
+					} catch (_: Throwable) {
+						reject(paige.navic.reader.ReaderTransitionCommandRejectionReason.CommandThrew)
+					}
+				}
+				if (!current()) {
+					retireInstalledMaterialAllocation(invocation)
+					retirement?.retire()
+				}
+				else if (retirement == null) { retireInstalledMaterialAllocation(invocation); return@allocate installedRejected() }
+				else invocation.query = retirement
+			}
+		} catch (failure: Throwable) {
+			retireInstalledMaterialAllocation(invocation)
+			throw failure // Original command adapter accounts the actual throw; no invented return.
+		}
+		ReaderPortCommandResult.Accepted
+	}
+
+	fun createInitialDestinationSemanticRequest(
+		candidate: ReaderTransitionGatewayCandidate,
+		reservation: ReaderReservedNeutralBootstrapRequest,
+		ingress: (ReaderPresentationEvent.FoliateRelocated, ReaderPresentationEventOrigin.SemanticCommand) -> ReaderPresentationEventReceipt?
+	): ReaderSemanticExecutableRequest = request@{ origin, context, onReceipt ->
+		val captured = captureInitialDestinationSemanticContext(candidate, reservation, origin, context)
+			?: return@request ReaderSemanticExecutableResult.Rejected
+		val source = captured.engine.get() as? ReaderEngineCurrentDestinationQuerySource
+			?: return@request ReaderSemanticExecutableResult.Rejected
+		val request = source.createInitialDestinationSemanticRequest(reservation, captured.version,
+			captured.publicationGeneration, captured.viewportGeneration, captured.profileGeneration,
+			{ initialDestinationSemanticContextIsCurrent(captured, candidate, reservation, origin, context) }, ingress)
+		request(origin, context, onReceipt)
+	}
+
+	private fun captureCurrentDestinationSemanticContext(
+		origin: ReaderPresentationEventOrigin.SemanticCommand
+	): ReaderNativeCurrentDestinationSemanticContext? {
+		if (Looper.myLooper() != Looper.getMainLooper() || !isAttachedToWindow ||
+			windowVisibility != View.VISIBLE || lastPresentationWindowVisible != true ||
+			finalHostLifecycleEvent != null || task4ResourceTeardownStarted || width <= 0 || height <= 0) return null
+		val installed = activatedSessionStore.snapshot?.takeIf { it.commandEgressOpen } ?: return null
+		val initial = installed.initialDecision?.origin ?: return null
+		if (initial.readerSessionGeneration != origin.transitionId.readerSessionGeneration ||
+			initial.coordinatorEpoch != origin.transitionId.coordinatorEpoch) return null
+		val engine = currentLiveWebView() ?: return null
+		val source = engine as? ReaderEngineCurrentDestinationQuerySource ?: return null
+		val binding = currentPresentationBindingOrNull() ?: return null
+		val profile = rasterProfileEpoch?.takeIf { it > 0L } ?: return null
+		val page = pageTurnVisualPageIndex?.takeIf { it >= 0 } ?: return null
+		if (presentationPublicationGeneration <= 0L || presentationViewportGeneration <= 0L ||
+			binding.publicationGeneration != presentationPublicationGeneration ||
+			binding.viewportGeneration != presentationViewportGeneration || binding.profileGeneration != profile ||
+			binding.destinationCommitIdentity == null ||
+			(binding.rasterGeneration == null) != (binding.textureGeneration == null) ||
+			!source.admitsCurrentDestinationSession(binding.foliateSessionId)) return null
+		val version = presentationBindingReporter.captureSemanticContextVersionOrNull(binding) ?: return null
+		if (version.readerSessionGeneration != origin.transitionId.readerSessionGeneration) return null
+		return ReaderNativeCurrentDestinationSemanticContext(WeakReference(engine), presentationBindingReporter.captureEpoch(),
+			version, binding, width, height, page, profile, installed)
+	}
+
+	private fun currentDestinationSemanticContextIsCurrent(
+		captured: ReaderNativeCurrentDestinationSemanticContext,
+		origin: ReaderPresentationEventOrigin.SemanticCommand
+	): Boolean {
+		val current = captureCurrentDestinationSemanticContext(origin) ?: return false
+		return current.engine.get() === captured.engine.get() && current.installedSnapshot === captured.installedSnapshot &&
+			current.reporterEpoch == captured.reporterEpoch && current.version == captured.version &&
+			current.binding == captured.binding && current.width == captured.width && current.height == captured.height &&
+			current.visualPageIndex == captured.visualPageIndex && current.profileEpoch == captured.profileEpoch
+	}
+
+	fun createCurrentDestinationSemanticRequest(
+		gateway: ReaderTransitionGateway,
+		ingress: ReaderSemanticReceiptIngress
+	): ReaderSemanticExecutableRequest {
+		// Capture this attachment, never whichever successor happens to be current later.
+		val epoch = gateway.captureActivatedSemanticEpoch()
+		return request@{ origin, context, onReceipt ->
+			if (epoch == null || !gateway.isCurrentActivatedSemanticEpoch(epoch)) return@request ReaderSemanticExecutableResult.Rejected
+			val captured = captureCurrentDestinationSemanticContext(origin) ?: return@request ReaderSemanticExecutableResult.Rejected
+			val source = captured.engine.get() as? ReaderEngineCurrentDestinationQuerySource ?: return@request ReaderSemanticExecutableResult.Rejected
+			val isCurrent = { gateway.isCurrentActivatedSemanticEpoch(epoch) && currentDestinationSemanticContextIsCurrent(captured, origin) }
+			source.queryCurrentDestination(origin, context, isCurrent) outcome@{ outcome ->
+				when (outcome) {
+					is ReaderCurrentDestinationQueryOutcome.Failed -> context.reportAsyncFailure(origin,
+						if (outcome.reason == ReaderCurrentDestinationQueryFailure.SubmissionThrew) ReaderSemanticAsyncFailure.Threw
+						else ReaderSemanticAsyncFailure.Rejected)
+					is ReaderCurrentDestinationQueryOutcome.Resolved -> {
+						val token = outcome.carrier as? ReaderEngineCurrentDestinationContinuation ?: run {
+							context.reportAsyncFailure(origin, ReaderSemanticAsyncFailure.Rejected); return@outcome
+						}
+						if (token.retired) return@outcome
+						val event = outcome.event
+						if (!isCurrent() || event.foliateSessionId != captured.binding.foliateSessionId ||
+							event.destinationCommitIdentity != captured.binding.destinationCommitIdentity ||
+							event.locator.pageIndex != captured.visualPageIndex) {
+							context.reportAsyncFailure(origin, ReaderSemanticAsyncFailure.Rejected); return@outcome
+						}
+						// Observe the exact captured destination without replaying relocation or renderer lineage.
+						val confirmation = ReaderPresentationEvent.CurrentDestinationConfirmed(
+							captured.binding, captured.version, origin
+						)
+						val receipt = try { ingress(confirmation, origin) } catch (_: Throwable) {
+							if (!token.retired) context.reportAsyncFailure(origin, ReaderSemanticAsyncFailure.Threw)
+							return@outcome
+						}
+						// Cancellation during model ingress owns this same token, even after its callback cell was consumed.
+						if (token.retired) return@outcome
+						val semantic = receipt?.semanticReceipt
+						if (!isCurrent() || receipt == null || receipt.origin !== origin || receipt.event !== confirmation ||
+							receipt.preVersion != captured.version || receipt.effects.isNotEmpty() ||
+							receipt.version.readerSessionGeneration != origin.transitionId.readerSessionGeneration ||
+							receipt.version.publicationIdentity != captured.binding.publicationIdentity ||
+							semantic?.transitionId != origin.transitionId || semantic.binding != captured.binding) {
+							// Only the genuine exact confirmation can supply a semantic receipt.
+							context.reportAsyncFailure(origin, ReaderSemanticAsyncFailure.Rejected); return@outcome
+						}
+						onReceipt(receipt)
+					}
+				}
+			}
+		}
+	}
+
+	private fun closeInitialDestinationConstruction() {
+		val construction = initialDestinationConstruction
+		initialDestinationConstruction = null // Fence the exact cell before external retirement.
+		construction?.fail(ReaderSemanticAsyncFailure.Rejected)
+	}
+	fun closeCurrentDestinationQueries() {
+		pendingInstalledMaterialAllocation?.let(::retireInstalledMaterialAllocation)
+		closeInitialDestinationConstruction()
+		(currentLiveWebView() as? ReaderEngineCurrentDestinationQuerySource)?.closeCurrentDestinationQueries()
 	}
 
 	fun currentPresentationBinding(): ReaderPresentationBinding? =
@@ -3061,8 +5019,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun retryPresentationLifecycleDelivery(): ReaderPresentationEventReceipt? {
 		val receipt = presentationLifecycleDelivery.retry(::dispatchPresentationEvent)
+		if (!legacyLifecycleConsequencesOpen) return receipt
 		captureDeferredVisibilityRestorePreparation(receipt)
+		if (!legacyLifecycleConsequencesOpen) return receipt
 		retryDeferredVisibilityRestorePreparation()
+		if (!legacyLifecycleConsequencesOpen) return receipt
 		if (!presentationLifecycleDelivery.hasPendingRendererLoss) {
 			pendingRendererLossCancellationIdentity = null
 		}
@@ -3092,6 +5053,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun retryDeferredVisibilityRestorePreparation() {
+		if (!legacyLifecycleConsequencesOpen) return
 		val obligation = deferredVisibilityRestorePreparation ?: return
 		if (latestRasterPreparationState.preparationGeneration > obligation.preparationFloor) {
 			deferredVisibilityRestorePreparation = null
@@ -3129,7 +5091,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		val event = readerPresentationLifecycleEventForWindowVisibility(visible)
 		presentationLifecycleDelivery.observe(event)
 		retryPresentationLifecycleDelivery()
-		if (!visibilityChanged) return
+		if (!legacyLifecycleConsequencesOpen || !visibilityChanged) return
 		if (visible) {
 			reportPresentationIdentityIfAvailable()
 		} else {
@@ -3165,7 +5127,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun reportPresentationIdentityIfAvailable(
 		relocationAcknowledgement: ReaderPageTurnSettlementAck? = null
 	) {
+		if (!legacyLifecycleConsequencesOpen) return
 		restoreMissingPreparedDeckAtReady(latestRasterPreparationState)
+		if (!legacyLifecycleConsequencesOpen) return
 		val binding = currentPresentationBindingOrNull()
 		if (binding == null) {
 			nativePagePresentationPublisher.update()
@@ -3190,6 +5154,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		)
 		if (bindingEvent != null) {
 			val receipt = dispatchPresentationEvent(bindingEvent)
+			if (!legacyLifecycleConsequencesOpen) return
 			if (
 				receipt.authorizes(bindingEvent) &&
 				receipt?.postState?.binding == binding
@@ -3204,7 +5169,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			}
 		}
 		reportPresentationPreparationFacts(latestRasterPreparationState)
+		if (!legacyLifecycleConsequencesOpen) return
 		reportNativePagePresentationIfAvailable()
+		if (!legacyLifecycleConsequencesOpen) return
 		retryPresentationLifecycleDelivery()
 	}
 
@@ -3291,6 +5258,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	) {
 		presentationDecision = decision
+		if (readInstalledPublication != null) {
+			// Owning semantic recomposition is not an owner/input publication ACK.
+			refreshInstalledWhispersyncConsumer()
+			return // The common model is an observation, not a second installed owner writer.
+		}
 		currentCoverRetryBindingCorrelationOrNull()
 		playLikeCurlController.synchronizePresentationDecision(decision)
 		presentationInputPolicy = decision.inputPolicy
@@ -3307,6 +5279,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun updateInputSettlementPolicies(
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	) {
+		if (readInstalledPublication != null) {
+			pageInputSettlementHostController.updateInstalledLocalSafety(localPageSafetyPolicy,
+				rendererLossCancellationIdentity)
+			return
+		}
 		pageInputSettlementHostController.updateInputPolicies(
 			presentationInputPolicy = presentationInputPolicy,
 			localSafetyPolicy = localPageSafetyPolicy,
@@ -3329,6 +5306,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	) {
 		require(currentFoliateSessionId.isNotBlank())
 		val normalized = pageIndex?.takeIf { it >= 0 }
+		if (!legacyLifecycleConsequencesOpen) {
+			// Data-only ingress. An observed ordinal/ACK cannot settle an installed
+			// turn, select a deck or revive recovery/prewarm/legacy Curl publication.
+			pageTurnVisualPageIndex = normalized
+			pageTurnVisualLocationReason = reason
+			pageTurnFoliateSessionId = currentFoliateSessionId
+			pageTurnSettlementAck = acknowledgement
+			return
+		}
 		if (playLikeCurlController.isPresentationRecoverySnapshotReason(reason)) {
 			if (normalized == null || reason == null ||
 				!playLikeCurlController.stagePresentationRecoveryObservation(
@@ -3704,6 +5690,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun replacePassiveRasterPreparationAdapter(webView: WebView) {
+		if (!legacyLifecycleConsequencesOpen) return
 		if (webView.width <= 0 || webView.height <= 0) return
 		val geometry = ReaderPassiveRasterGeometry(
 			viewportWidth = webView.width,
@@ -3725,12 +5712,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			passiveRasterCaptureEpoch + 1L
 		}
 		val runtimeIdentity = Any()
+		lateinit var originalAdapter: ReaderPassiveRasterPreparationAdapter
 		val runtime = ReaderPassiveRasterWebViewHost(
 			activity = activity,
 			passiveSessionId = UUID.randomUUID().toString(),
 			viewportGeometry = geometry,
 			onRuntimeReady = {
 				post {
+					originalAdapter.onOriginalRuntimeReady()
 					if (
 						!passiveRasterRendererLossFence.isCurrent(runtimeIdentity) ||
 						passiveRasterPreparationAdapter?.isAvailable != true
@@ -3756,7 +5745,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				bitmap.takeUnless { it.isRecycled }?.recycle()
 			}
 		)
-		passiveRasterPreparationAdapter = ReaderPassiveRasterPreparationAdapter(
+		originalAdapter = ReaderPassiveRasterPreparationAdapter(
 			session = session,
 			liveManifestPort = ReaderPageLivePassiveRasterManifestPort {
 				viewerContentContainer.findDescendantWebView()
@@ -3775,13 +5764,59 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				}
 			}
 		)
+		passiveRasterPreparationAdapter = originalAdapter
 		passiveRasterRendererLossFence.replace(runtimeIdentity)
 		passiveRasterPreparationGeometry = geometry
-		if (observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) {
+		val hostResumed = observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
+		// The external lifecycle getter may install the shared snapshot after
+		// adapter assignment; the caller's later fence cannot undo a real pause.
+		if (!legacyLifecycleConsequencesOpen) return
+		if (!hostResumed) {
 			passiveRasterPreparationAdapter?.pause()
-		} else if (passiveRasterPreparationAdapter?.isAvailable == true) {
+		} else {
+			val passiveAvailable = passiveRasterPreparationAdapter?.isAvailable == true
+			if (!legacyLifecycleConsequencesOpen || !passiveAvailable) return
 			onPassiveRasterPreparationAvailable()
 		}
+	}
+
+	private fun ensureInstalledPassiveRasterAdapter(webView: WebView, work: ReaderActivatedRasterWork): Boolean {
+		if (!work.isCurrent() || webView.width <= 0 || webView.height <= 0) return false
+		val geometry = ReaderPassiveRasterGeometry(webView.width, webView.height, 0, 0, webView.width, webView.height)
+		if (passiveRasterPreparationGeometry == geometry && passiveRasterPreparationAdapter?.isRetired == false) return true
+		closePassiveRasterPreparationAdapter()
+		val activity = context as? Activity ?: return false
+		passiveRasterCaptureEpoch = if (passiveRasterCaptureEpoch == Long.MAX_VALUE) 0L else passiveRasterCaptureEpoch + 1L
+		val runtimeIdentity = Any()
+		lateinit var originalAdapter: ReaderPassiveRasterPreparationAdapter
+		val runtime = ReaderPassiveRasterWebViewHost(activity = activity,
+			passiveSessionId = UUID.randomUUID().toString(), viewportGeometry = geometry,
+			onRuntimeReady = {
+				// The genuine source edge goes to this ORIGINAL adapter even if Native
+				// has since retired/replaced it. Its exact readiness custody decides
+				// currentness and owes any executing consumer's physical return.
+				post { originalAdapter.onOriginalRuntimeReady() }
+			}, onRendererGone = {
+				post {
+					if (!passiveRasterRendererLossFence.isCurrent(runtimeIdentity)) return@post
+					val invocation = pendingInstalledRaster
+					if (invocation != null && pendingInstalledRaster === invocation) pendingInstalledRaster = null
+					// Adapter close may synchronously forward the old terminal. Its admission
+					// slot is already detached; only original release can return its resources.
+					closePassiveRasterPreparationAdapter()
+					if (invocation?.work?.isCurrent() == true) invocation.callbacks.onFailed(invocation.work.lease,
+						ReaderTransitionFailureReason.PortRejected)
+				}
+			})
+		val session = ReaderPassiveRasterPrototypeSession(runtime = runtime,
+			releaseRaster = { bitmap: Bitmap -> bitmap.takeUnless { it.isRecycled }?.recycle() })
+		originalAdapter = ReaderPassiveRasterPreparationAdapter(session = session,
+			liveManifestPort = ReaderPageLivePassiveRasterManifestPort { viewerContentContainer.findDescendantWebView() },
+			bundleSource = pageTurnBundleSource, initialCaptureEpoch = passiveRasterCaptureEpoch)
+		passiveRasterPreparationAdapter = originalAdapter
+		passiveRasterRendererLossFence.replace(runtimeIdentity)
+		passiveRasterPreparationGeometry = geometry
+		return work.isCurrent()
 	}
 
 	private fun closePassiveRasterPreparationAdapter() {
@@ -3792,11 +5827,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun requestPageTurnPrewarmWhenReady() {
+		if (!legacyLifecycleConsequencesOpen) return
 		if (
 			task4ResourceTeardownStarted ||
 			!pageTurnCanvasEnabled ||
 			!isAttachedToWindow
 		) return
+		if (!legacyLifecycleConsequencesOpen) return
 		if (!coldOwnershipAdmitted) {
 			coldOwnershipAdmission.requestColdBaseline()
 			return
@@ -3808,6 +5845,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		pageTurnPrewarmLayoutSignature = null
 		pageTurnPrewarmStableFrameCount = 0
 		val listener = ViewTreeObserver.OnPreDrawListener {
+			// An accepted listener may outlive installation. Removal is physical
+			// cleanup, not permission to restart/replay legacy preparation.
+			if (!legacyLifecycleConsequencesOpen) {
+				removePageTurnPrewarmLayoutListener()
+				return@OnPreDrawListener true
+			}
 			if (
 				task4ResourceTeardownStarted ||
 				!pageTurnCanvasEnabled ||
@@ -3817,13 +5860,28 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				removePageTurnPrewarmLayoutListener()
 				return@OnPreDrawListener true
 			}
+			if (!legacyLifecycleConsequencesOpen) {
+				removePageTurnPrewarmLayoutListener()
+				return@OnPreDrawListener true
+			}
 			val webView = viewerContentContainer.findDescendantWebView()
-			pageRasterHostEventController.webViewAttachmentChanged(
-				webView?.isAttachedToWindow == true
-			)
+			if (!legacyLifecycleConsequencesOpen) {
+				removePageTurnPrewarmLayoutListener()
+				return@OnPreDrawListener true
+			}
+			val attached = webView?.isAttachedToWindow == true
+			if (!legacyLifecycleConsequencesOpen) {
+				removePageTurnPrewarmLayoutListener()
+				return@OnPreDrawListener true
+			}
+			pageRasterHostEventController.webViewAttachmentChanged(attached)
+			if (!legacyLifecycleConsequencesOpen) {
+				removePageTurnPrewarmLayoutListener()
+				return@OnPreDrawListener true
+			}
 			if (
 				webView == null ||
-				!webView.isAttachedToWindow ||
+				!attached ||
 				width <= 0 ||
 				height <= 0 ||
 				webView.width <= 0 ||
@@ -3831,10 +5889,22 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				isLayoutRequested ||
 				webView.isLayoutRequested
 			) return@OnPreDrawListener true
+			if (!legacyLifecycleConsequencesOpen) {
+				removePageTurnPrewarmLayoutListener()
+				return@OnPreDrawListener true
+			}
 			val profileEpoch = rasterProfileEpoch
 			val signature = pageTurnPrewarmLayoutSignature(webView, profileEpoch ?: 0L)
+			if (!legacyLifecycleConsequencesOpen) {
+				removePageTurnPrewarmLayoutListener()
+				return@OnPreDrawListener true
+			}
 			if (profileEpoch != null) {
 				pageRasterHostEventController.layoutSignatureMeasured(signature)
+				if (!legacyLifecycleConsequencesOpen) {
+					removePageTurnPrewarmLayoutListener()
+					return@OnPreDrawListener true
+				}
 			}
 			if (signature == pageTurnPrewarmLayoutSignature) {
 				pageTurnPrewarmStableFrameCount += 1
@@ -3848,13 +5918,26 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			}
 			if (pageTurnPrewarmStableFrameCount == PageTurnPrewarmRequiredStableFrames) {
 				playLikeCurlController.onHostContentReady()
+				if (!legacyLifecycleConsequencesOpen) {
+					removePageTurnPrewarmLayoutListener()
+					return@OnPreDrawListener true
+				}
 			}
 			replacePassiveRasterPreparationAdapter(webView)
-			if (passiveRasterPreparationAdapter?.isAvailable != true) {
+			if (!legacyLifecycleConsequencesOpen) {
+				removePageTurnPrewarmLayoutListener()
+				return@OnPreDrawListener true
+			}
+			val passiveAvailable = passiveRasterPreparationAdapter?.isAvailable == true
+			if (!legacyLifecycleConsequencesOpen || !passiveAvailable) {
 				removePageTurnPrewarmLayoutListener()
 				return@OnPreDrawListener true
 			}
 			onPassiveRasterPreparationAvailable()
+			if (!legacyLifecycleConsequencesOpen) {
+				removePageTurnPrewarmLayoutListener()
+				return@OnPreDrawListener true
+			}
 			if (profileEpoch != rasterProfileEpoch) {
 				removePageTurnPrewarmLayoutListener()
 				requestPageTurnPrewarmWhenReady()
@@ -3868,13 +5951,22 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				removePageTurnPrewarmLayoutListener()
 				return@OnPreDrawListener true
 			}
-			if (pageRasterPreparationController.prewarmAdjacent()) {
+			if (pageRasterPreparationController.prewarmAdjacent() || !legacyLifecycleConsequencesOpen) {
 				removePageTurnPrewarmLayoutListener()
 			}
 			true
 		}
 		pageTurnPrewarmLayoutListener = listener
-		viewTreeObserver.addOnPreDrawListener(listener)
+		val observer = viewTreeObserver
+		if (!legacyLifecycleConsequencesOpen) {
+			removePageTurnPrewarmLayoutListener()
+			return
+		}
+		observer.addOnPreDrawListener(listener)
+		if (!legacyLifecycleConsequencesOpen) {
+			removePageTurnPrewarmLayoutListener()
+			return
+		}
 		postInvalidateOnAnimation()
 	}
 
@@ -3901,52 +5993,130 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var task4ResourceTeardownStarted = false
 	private var task4Teardown: Deferred<Unit>? = null
 	private var observedHostLifecycle: Lifecycle? = null
+	private var hostLifecycleRegistration: ReaderPresentationLifecycleDelivery.RegisteredRoot? = null
 
 	private val hostLifecycleObserver = object : DefaultLifecycleObserver {
+		override fun onCreate(owner: LifecycleOwner) {
+			hostLifecycleRegistration?.callback { }
+		}
+
+		override fun onStart(owner: LifecycleOwner) {
+			hostLifecycleRegistration?.callback { }
+		}
+
 		override fun onResume(owner: LifecycleOwner) {
-			passiveRasterPreparationAdapter?.resume()
-			pageRasterHostEventController.lifecycleResumedChanged(true)
-			playLikeCurlController.onHostResumedChanged(true)
-			requestPageTurnPrewarmWhenReady()
+			hostLifecycleRegistration?.callback { admission ->
+				if (!legacyLifecycleConsequencesOpen) return@callback
+				passiveRasterPreparationAdapter?.resume()
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				pageRasterHostEventController.lifecycleResumedChanged(true)
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				playLikeCurlController.onHostResumedChanged(true)
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				requestPageTurnPrewarmWhenReady()
+			}
 		}
 
 		override fun onPause(owner: LifecycleOwner) {
-			removePageTurnPrewarmLayoutListener()
-			passiveRasterPreparationAdapter?.pause()
-			pageRasterHostEventController.lifecycleResumedChanged(false)
-			playLikeCurlController.onHostResumedChanged(false)
+			hostLifecycleRegistration?.callback { admission ->
+				if (!legacyLifecycleConsequencesOpen) return@callback
+				removePageTurnPrewarmLayoutListener()
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				passiveRasterPreparationAdapter?.pause()
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				pageRasterHostEventController.lifecycleResumedChanged(false)
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				playLikeCurlController.onHostResumedChanged(false)
+			}
 		}
 
 		override fun onStop(owner: LifecycleOwner) {
-			removePageTurnPrewarmLayoutListener()
-			passiveRasterPreparationAdapter?.pause()
-			pageRasterHostEventController.lifecycleResumedChanged(false)
-			playLikeCurlController.onHostResumedChanged(false)
+			hostLifecycleRegistration?.callback { admission ->
+				if (!legacyLifecycleConsequencesOpen) return@callback
+				removePageTurnPrewarmLayoutListener()
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				passiveRasterPreparationAdapter?.pause()
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				pageRasterHostEventController.lifecycleResumedChanged(false)
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				playLikeCurlController.onHostResumedChanged(false)
+			}
 		}
 
 		override fun onDestroy(owner: LifecycleOwner) {
-			closePassiveRasterPreparationAdapter()
-			pageRasterHostEventController.lifecycleResumedChanged(false)
-			playLikeCurlController.onHostResumedChanged(false)
-			beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.Destroyed)
+			val registration = hostLifecycleRegistration ?: return
+			registration.callback(onPhysicalReturn = {
+				// Framework destruction is physically terminal even while legacy admission
+				// is frozen. Remove before LifecycleRegistry drops its table, retaining
+				// this callback/source return through any reentrant removal callback.
+				presentationLifecycleDelivery.closeRegisteredRoots()
+				registration.remove(permanent = true)
+			}) { admission ->
+				if (!legacyLifecycleConsequencesOpen) {
+					beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.Destroyed)
+					return@callback
+				}
+				closePassiveRasterPreparationAdapter()
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				pageRasterHostEventController.lifecycleResumedChanged(false)
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				playLikeCurlController.onHostResumedChanged(false)
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return@callback
+				beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.Destroyed)
+			}
 		}
 	}
 
 	override fun onAttachedToWindow() {
-		super.onAttachedToWindow()
-		observedHostLifecycle = findViewTreeLifecycleOwner()?.lifecycle
-			?.also { lifecycle ->
-				lifecycle.addObserver(hostLifecycleObserver)
-				val resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
-				pageRasterHostEventController.lifecycleResumedChanged(resumed)
-				playLikeCurlController.onHostResumedChanged(resumed)
+		val sourceReturn = presentationLifecycleDelivery.beginRegisteredRootReturn()
+		val admission = presentationLifecycleDelivery.capturePhysicalAdmission()
+		try {
+			super.onAttachedToWindow()
+			if (!presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+			val lifecycleOwner = findViewTreeLifecycleOwner()
+			if (!presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+			val lifecycle = lifecycleOwner?.lifecycle
+			if (!presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+			if (observedHostLifecycle !== lifecycle) {
+				if (hostLifecycleRegistration?.remove() == false) return
+				if (!presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+				observedHostLifecycle = lifecycle
+				hostLifecycleRegistration = lifecycle?.let { exactLifecycle ->
+					presentationLifecycleDelivery.registeredRoot(
+						registerPhysical = { exactLifecycle.addObserver(hostLifecycleObserver) },
+						unregisterPhysical = { exactLifecycle.removeObserver(hostLifecycleObserver) },
+						isValid = { observedHostLifecycle === exactLifecycle &&
+							finalHostLifecycleEvent == null && !task4ResourceTeardownStarted }
+					)
+				}
 			}
-		pageRasterHostEventController.webViewAttachmentChanged(
-			viewerContentContainer.findDescendantWebView()?.isAttachedToWindow == true
-		)
-		playLikeCurlController.onHostAttached()
-		reportPresentationIdentityIfAvailable()
-		requestPageTurnPrewarmWhenReady()
+			if (lifecycle != null) {
+				if (hostLifecycleRegistration?.register() != true) return
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+				val resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+				pageRasterHostEventController.lifecycleResumedChanged(resumed)
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+				playLikeCurlController.onHostResumedChanged(resumed)
+				if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+			}
+			// Physical registration above is required independently of legacy authority,
+			// including the no-LifecycleOwner path. Every recipient/getter may install.
+			if (!legacyLifecycleConsequencesOpen) return
+			val webView = viewerContentContainer.findDescendantWebView()
+			if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+			val webViewAttached = webView?.isAttachedToWindow == true
+			if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+			pageRasterHostEventController.webViewAttachmentChanged(webViewAttached)
+			if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+			playLikeCurlController.onHostAttached()
+			if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+			reportPresentationIdentityIfAvailable()
+			if (!legacyLifecycleConsequencesOpen || !presentationLifecycleDelivery.registeredRootAdmits(admission)) return
+			requestPageTurnPrewarmWhenReady()
+		} finally {
+			if (sourceReturn != null) presentationLifecycleDelivery.endPhysicalDelivery(sourceReturn)
+		}
 	}
 
 	private fun isChromeToggleTarget(x: Float, y: Float): Boolean {
@@ -4481,6 +6651,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			val originalDown = checkNotNull(retainedContentDown) {
 				"Curl claim has no retained content DOWN"
 			}
+			if (!admitInstalledPointerTurn(event, originalDown, route.gestureId)) {
+				recycleRetainedContentDown()
+				completeHostGesture(route.gestureId, ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable)
+				return true
+			}
 			val downResult = playLikeCurlController.onPageTouchEvent(
 				originalDown,
 				route.gestureId
@@ -4810,18 +6985,21 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		preserveDestinationDeck: Boolean = false,
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	): List<Long> {
+		if (!legacyLifecycleConsequencesOpen) return emptyList()
 		val cancelledGestures = readerDispatchPageHostLifecycleEvent(
 			event = event,
 			preserveDestinationDeck = preserveDestinationDeck ||
 				rendererLossCancellationIdentity != null,
 			clearDestinationDeckPrewarm = ::clearDestinationDeckPrewarm,
 			dispatchInputLifecycle = { lifecycleEvent ->
-				pageInputSettlementHostController.onLifecycleEvent(
-					event = lifecycleEvent,
-					rendererLossCancellationIdentity = rendererLossCancellationIdentity
-				)
+				if (!legacyLifecycleConsequencesOpen) emptyList() else
+					pageInputSettlementHostController.onLifecycleEvent(
+						event = lifecycleEvent,
+						rendererLossCancellationIdentity = rendererLossCancellationIdentity
+					)
 			}
 		)
+		if (!legacyLifecycleConsequencesOpen) return cancelledGestures
 		nativePagePresentationPublisher.update()
 		return cancelledGestures
 	}
@@ -4988,6 +7166,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
 		super.onSizeChanged(w, h, oldw, oldh)
+		// Temporary original event witness: observe this real callback before lifecycle
+		// consequences can reenter admission. Do not retain dimensions or change currentness.
+		if (w != oldw || h != oldh) initialDestinationConstruction?.let { custody ->
+			if (custody.initialGeometryScopeCaptured && custody.active && custody.initialGeometryFirstChange == null)
+				custody.initialGeometryFirstChange = initialGeometryWitnessBoundary
+		}
 		if (w > 0 && h > 0 && (w != oldw || h != oldh)) {
 			presentationViewportGeneration = Math.incrementExact(presentationViewportGeneration)
 			reportPresentationIdentityIfAvailable()
@@ -5005,65 +7189,122 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	override fun onWindowVisibilityChanged(visibility: Int) {
 		super.onWindowVisibilityChanged(visibility)
 		reportPresentationWindowVisibility(visible = visibility == VISIBLE)
-		if (!pageTurnCanvasEnabled) return
+		if (!legacyLifecycleConsequencesOpen || !pageTurnCanvasEnabled) return
 		if (visibility == VISIBLE) {
 			val resumed =
 				observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
+			if (!legacyLifecycleConsequencesOpen) return
 			if (resumed) passiveRasterPreparationAdapter?.resume()
+			if (!legacyLifecycleConsequencesOpen) return
 			pageRasterHostEventController.lifecycleResumedChanged(resumed)
+			if (!legacyLifecycleConsequencesOpen) return
 			playLikeCurlController.onHostResumedChanged(resumed)
+			if (!legacyLifecycleConsequencesOpen) return
 			requestPageTurnPrewarmWhenReady()
 			return
 		}
 		passiveRasterPreparationAdapter?.pause()
+		if (!legacyLifecycleConsequencesOpen) return
 		pageRasterHostEventController.lifecycleResumedChanged(false)
+		if (!legacyLifecycleConsequencesOpen) return
 		playLikeCurlController.onHostResumedChanged(false)
+		if (!legacyLifecycleConsequencesOpen) return
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.WindowHidden
 		)
+		if (!legacyLifecycleConsequencesOpen) return
 		removePageTurnPrewarmLayoutListener()
+		if (!legacyLifecycleConsequencesOpen) return
 		playLikeCurlController.onHostWindowHidden()
+		if (!legacyLifecycleConsequencesOpen) return
 		pageRasterPreparationController.invalidate("window-hidden")
 	}
 
 	override fun onDetachedFromWindow() {
-		closePassiveRasterPreparationAdapter()
-		pageRasterHostEventController.webViewAttachmentChanged(false)
-		pageRasterHostEventController.lifecycleResumedChanged(false)
-		playLikeCurlController.onHostResumedChanged(false)
-		beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.Detached)
-		closePhysicalPointerDelivery()
-		teardownTask4Resources()
-		observedHostLifecycle?.removeObserver(hostLifecycleObserver)
-		observedHostLifecycle = null
-		super.onDetachedFromWindow()
+		val sourceReturn = presentationLifecycleDelivery.beginRegisteredRootReturn()
+		try {
+			reportPresentationLifecycleEvent(ReaderPresentationLifecycleEvent.HostDetached)
+			if (legacyLifecycleConsequencesOpen) closePassiveRasterPreparationAdapter()
+			if (legacyLifecycleConsequencesOpen) pageRasterHostEventController.webViewAttachmentChanged(false)
+			if (legacyLifecycleConsequencesOpen) pageRasterHostEventController.lifecycleResumedChanged(false)
+			if (legacyLifecycleConsequencesOpen) playLikeCurlController.onHostResumedChanged(false)
+			beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.Detached)
+			closePhysicalPointerDelivery()
+			teardownTask4Resources()
+			check(hostLifecycleRegistration?.remove(permanent = true) != false) { "Lifecycle registration removal failed" }
+			observedHostLifecycle = null
+			super.onDetachedFromWindow()
+		} finally {
+			if (sourceReturn != null) presentationLifecycleDelivery.endPhysicalDelivery(sourceReturn)
+		}
 	}
 
-	fun canAcceptNewPointer(): Boolean = playLikeCurlController.isAvailable
+	fun canAcceptNewPointer(): Boolean {
+		if (readInstalledPublication == null) return playLikeCurlController.isAvailable
+		val publication = readInstalledPublication?.invoke() ?: return false
+		if (installedCommandCurrency?.invoke() != true) return false
+		val policy = paige.navic.reader.readerTransitionPresentationInputPolicy(publication.owner,
+			publication.binding, publication.lease)
+		return paige.navic.reader.readerPageNewPointerDecision(policy, localPageSafetyPolicy) == ReaderPageNewPointerDecision.Accept
+	}
 
 	fun closeReader() {
-		beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.ReaderClosed)
-		closePhysicalPointerDelivery()
-		teardownTask4Resources()
+		closeCurrentDestinationQueries()
+		val sourceReturn = presentationLifecycleDelivery.beginRegisteredRootReturn()
+		try {
+			beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.ReaderClosed)
+			closePhysicalPointerDelivery()
+			teardownTask4Resources()
+		} finally {
+			if (sourceReturn != null) presentationLifecycleDelivery.endPhysicalDelivery(sourceReturn)
+		}
 	}
 
 	private fun beginFinalHostLifecycle(event: ReaderPageHostLifecycleEvent) {
-		require(event in readerPageFinalHostLifecycleEvents) {
-			"Non-final host event passed to final lifecycle gate: $event"
+		val sourceReturn = presentationLifecycleDelivery.beginRegisteredRootReturn()
+		val exactCommandMaterial = currentFrameInstallation?.takeIf { it.commandCurrency != null }
+		var failure: Throwable? = null
+		fun captureFailure(next: Throwable) {
+			val first = failure
+			if (first == null) failure = next else if (first !== next) first.addSuppressed(next)
 		}
-		if (finalHostLifecycleEvent != null) {
+		try {
+			require(event in readerPageFinalHostLifecycleEvents) {
+				"Non-final host event passed to final lifecycle gate: $event"
+			}
+			if (finalHostLifecycleEvent != null) {
+				retryPresentationLifecycleDelivery()
+				return
+			}
+			finalHostLifecycleEvent = event
+			closeInitialDestinationConstruction()
+			startupShellHandoff.close()
+			presentationLifecycleDelivery.observe(
+				ReaderPresentationLifecycleEvent.PublicationClosed
+			)
 			retryPresentationLifecycleDelivery()
-			return
+			if (!legacyLifecycleConsequencesOpen) return
+			val reason = event.cancellationReason()
+			dispatchPageHostLifecycleEvent(event)
+			if (!legacyLifecycleConsequencesOpen) return
+			clearLegacyNativeTapState(reason)
+		} catch (next: Throwable) {
+			captureFailure(next)
+		} finally {
+			// Logical already-final/rejected/unknown delivery cannot skip either exact removal.
+			try { foregroundWebViewRegistration?.registration?.remove(permanent = true) }
+			catch (next: Throwable) { captureFailure(next) }
+			try {
+				exactCommandMaterial?.let { lease ->
+					val result = framePhysicalOwnership.retire(lease)
+					if (result.completed && currentFrameInstallation === lease) currentFrameInstallation = null
+					result.failure?.let(::captureFailure)
+				}
+			} catch (next: Throwable) { captureFailure(next) }
+			try { if (sourceReturn != null) presentationLifecycleDelivery.endPhysicalDelivery(sourceReturn) }
+			catch (next: Throwable) { captureFailure(next) }
+			failure?.let { throw it }
 		}
-		finalHostLifecycleEvent = event
-		startupShellHandoff.close()
-		presentationLifecycleDelivery.observe(
-			ReaderPresentationLifecycleEvent.PublicationClosed
-		)
-		retryPresentationLifecycleDelivery()
-		val reason = event.cancellationReason()
-		dispatchPageHostLifecycleEvent(event)
-		clearLegacyNativeTapState(reason)
 	}
 
 	private fun closePhysicalPointerDelivery() {

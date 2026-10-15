@@ -50,7 +50,292 @@ import kotlin.test.assertTrue
 
 class ReaderPresentationLifecycleDeliveryTest {
 	@Test
-	fun lifecycleDeliveryFreezesDrainsAndRestoresItsExactPendingOwner() {
+	fun task398UninstalledHostDetachCreatesNoLegacyDemandAndPreservesLaterClose() {
+		val binding = completeBinding("host-detach-fact-only")
+		val controller = ControllerHarness(controller(binding, readerSessionGeneration = 101L))
+		val delivery = ReaderPresentationLifecycleDelivery()
+		delivery.observe(ReaderPresentationLifecycleEvent.HostDetached)
+		assertEquals(0, delivery.pendingEventCount)
+		assertNull(delivery.retry { error("Unbound Host detach invented a legacy recipient") })
+		delivery.reset(controller.controller.presentationVersion, observedWindowVisible = null)
+		assertTrue(delivery.bindPublication(binding.publicationIdentity))
+		delivery.observe(ReaderPresentationLifecycleEvent.HostDetached)
+		assertEquals(0, delivery.pendingEventCount)
+		assertNull(delivery.retry { error("Bound Host detach invented legacy demand") })
+		assertNull(delivery.acknowledgedLifecycle)
+		assertEquals(ReaderPresentationLifecycleState.Foreground, controller.lifecycle)
+		delivery.observe(ReaderPresentationLifecycleEvent.PublicationClosed)
+		assertEquals(1, delivery.pendingEventCount)
+		val close = assertNotNull(delivery.retry { event ->
+			assertEquals(ReaderPresentationLifecycleEvent.PublicationClosed, event.event)
+			controller.dispatch(event)
+		})
+		assertEquals(ReaderPresentationLifecycleState.Destroyed, close.postState.lifecycle)
+		delivery.observe(ReaderPresentationLifecycleEvent.HostDetached)
+		assertEquals(0, delivery.pendingEventCount)
+		assertNull(delivery.retry { error("Late Host detach reopened closed legacy demand") })
+	}
+
+	@Test
+	fun task398CommonHostDetachHasNoPresentationStateOrEffectsPolicy() {
+		val binding = completeBinding("host-detach-unchanged-state")
+		for (lifecycle in listOf(ReaderPresentationLifecycleState.Foreground, ReaderPresentationLifecycleState.Background)) {
+			val cleanup = ReaderRendererCleanupOwnership(ReaderPresentationToken(90L), binding)
+			val state = settledState(binding, listOf(cleanup)).copy(lifecycle = lifecycle)
+			val result = paige.navic.reader.readerPresentationReduce(state,
+				ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.HostDetached))
+			assertEquals(state, result.state)
+			assertEquals(readerPresentationDecision(state), result.decision)
+			assertTrue(result.effects.isEmpty())
+			assertEquals(ReaderPresentationEventDisposition.Accepted, result.disposition)
+		}
+	}
+
+	@Test
+	fun freezeInsideLifecycleDispatchRetainsOuterReturnUntilDrain() {
+		val binding = completeBinding("fixture")
+		val controller = ControllerHarness(controller(binding, readerSessionGeneration = 101L))
+		val delivery = delivery(controller.controller, binding)
+		val reporter = reporter(controller.controller.presentationVersion, binding)
+		val domain = ReaderLegacyPhysicalDomain(101L, ReaderLegacyFreezeToken(103L))
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		val results = mutableListOf<ReaderPortCommandResult>()
+		var innerCallbackReturned = false
+		var confirmedInsideCallback = false
+		var confirmedBeforeRetryReturn = false
+		var applied = 0
+		var rows = emptyList<ReaderFrozenLegacyResource>()
+		val dispatcher = ReaderPresentationReceiptDispatcher(reporter, delivery) { _, _ -> applied++ }
+		delivery.observe(ReaderPresentationLifecycleEvent.VisibilityLost)
+		delivery.retry { event ->
+			val returned = dispatcher.dispatch(event) { attempted ->
+				results += delivery.freezeForTransitionActivation(domain)
+				rows = delivery.snapshotFrozenOwnership()
+				rows.take(1).forEach { row ->
+					results += delivery.drainFrozenOwnership(row.physicalIdentity) { identity ->
+						confirmedInsideCallback = confirmedInsideCallback || !innerCallbackReturned
+						confirmations += identity
+					}
+				}
+				controller.dispatch(attempted).also { innerCallbackReturned = true }
+			}
+			// A second drain is issued after the actual recipient AND dispatcher returned,
+			// while the enclosing retry callback/outer-return tail still owns all rows.
+			rows.drop(1).forEach { row ->
+				results += delivery.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+			}
+			confirmedBeforeRetryReturn = confirmations.isNotEmpty()
+			returned
+		}
+		assertTrue(innerCallbackReturned)
+		assertTrue(rows.count { it.state == ReaderLegacyResourceState.Running } >= 3,
+			"Recipient, dispatcher and outer retry each need exact physical ownership")
+		assertTrue(results.all { it == ReaderPortCommandResult.Accepted })
+		assertFalse(confirmedInsideCallback)
+		assertFalse(confirmedBeforeRetryReturn)
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+		assertEquals(rows.size, confirmations.size, "Every exact owner confirms once after settlement")
+		assertEquals(0, applied, "External freeze fences authoritative host publication")
+		assertTrue(delivery.snapshotFrozenOwnership().isEmpty())
+		assertEquals(ReaderPortCommandResult.Accepted, delivery.restoreAfterTransitionActivation(domain))
+		assertEquals(0, delivery.pendingEventCount, "Accepted recipient must not replay on restore")
+		assertNull(delivery.retry { error("Consumed recipient replayed") })
+		assertTrue(dispatcher.drainPresentationHostEffects(), "Accepted returned receipt resumes without its recipient")
+		assertEquals(1, applied)
+		assertTrue(dispatcher.drainPresentationHostEffects())
+		assertEquals(1, applied, "Accepted projection must not replay after settlement")
+	}
+
+	@Test
+	fun throwingRecipientAndPartialDrainCannotRestoreAnOnStackTailOrStrandOwners() {
+		val binding = completeBinding("throwing-physical-tail")
+		val controller = ControllerHarness(controller(binding, readerSessionGeneration = 101L))
+		val delivery = delivery(controller.controller, binding)
+		val reporter = reporter(controller.controller.presentationVersion, binding)
+		val domain = ReaderLegacyPhysicalDomain(101L, ReaderLegacyFreezeToken(103L))
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		val results = mutableListOf<ReaderPortCommandResult>()
+		var rows = emptyList<ReaderFrozenLegacyResource>()
+		var early = false
+		var restoreOnStack: ReaderPortCommandResult? = null
+		val dispatcher = ReaderPresentationReceiptDispatcher(reporter, delivery) { _, _ ->
+			error("Must not apply while frozen")
+		}
+		delivery.observe(ReaderPresentationLifecycleEvent.VisibilityLost)
+		assertNull(delivery.retry { event ->
+			val returned = dispatcher.dispatch(event) {
+				results += delivery.freezeForTransitionActivation(domain)
+				results += delivery.freezeForTransitionActivation(domain)
+				rows = delivery.snapshotFrozenOwnership()
+				rows.firstOrNull()?.let { row ->
+					results += delivery.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+					results += delivery.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+					results += delivery.drainFrozenOwnership(row.physicalIdentity.copy(
+						sourceLocalToken = ReaderLegacySourceLocalOpaqueToken(Long.MAX_VALUE)
+					), confirmations::add)
+					results += delivery.drainFrozenOwnership(row.physicalIdentity.copy(
+						domain = domain.copy(freezeToken = ReaderLegacyFreezeToken(104L))
+					), confirmations::add)
+					results += delivery.drainFrozenOwnership(row.physicalIdentity.copy(
+						source = ReaderLegacyInventorySource.Input
+					), confirmations::add)
+				}
+				restoreOnStack = delivery.restoreAfterTransitionActivation(domain)
+				error("Recipient fails after freezing")
+			}
+			early = confirmations.isNotEmpty()
+			returned
+		})
+		assertTrue(rows.size >= 3)
+		assertFalse(early)
+		assertIs<ReaderPortCommandResult.Rejected>(restoreOnStack)
+		assertEquals(listOf(ReaderPortCommandResult.Accepted, ReaderPortCommandResult.Accepted,
+			ReaderPortCommandResult.Accepted), results.take(3))
+		results.drop(3).forEach { assertIs<ReaderPortCommandResult.Rejected>(it) }
+		assertEquals(listOf(rows.first().physicalIdentity), confirmations)
+		val remaining = delivery.snapshotFrozenOwnership()
+		assertEquals(rows.drop(1).map { it.physicalIdentity }.toSet(), remaining.map { it.physicalIdentity }.toSet())
+		assertTrue(remaining.none { it.state == ReaderLegacyResourceState.Running })
+		remaining.forEach { row ->
+			assertEquals(ReaderPortCommandResult.Accepted,
+				delivery.drainFrozenOwnership(row.physicalIdentity) { identity ->
+					confirmations += identity
+					if (identity == remaining.first().physicalIdentity) error("Confirmation throws")
+				})
+		}
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+		assertEquals(rows.size, confirmations.size)
+		assertEquals(ReaderPortCommandResult.Accepted, delivery.restoreAfterTransitionActivation(domain))
+		assertEquals(1, delivery.pendingEventCount, "Throwing recipient leaves legitimate logical demand")
+		assertNotNull(delivery.retry { event -> dispatcher.dispatch(event, controller::dispatch) })
+		assertEquals(0, delivery.pendingEventCount)
+	}
+
+	@Test
+	fun everyHostPrimitiveAndExternalMutationHookFencesItsRemainingEffectTail() {
+		ReaderPresentationHostMutation.entries.forEach { boundary ->
+			listOf(false, true).forEach { freezeInHook ->
+				val binding = completeBinding("host-effect-fence")
+				val controller = ControllerHarness(controller(binding, readerSessionGeneration = 101L))
+				val delivery = delivery(controller.controller, binding)
+				val reporter = reporter(controller.controller.presentationVersion, binding)
+				val domain = ReaderLegacyPhysicalDomain(101L, ReaderLegacyFreezeToken(103L))
+				val mutations = mutableListOf<ReaderPresentationHostMutation>()
+				val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+				val results = mutableListOf<ReaderPortCommandResult>()
+				var rows = emptyList<ReaderFrozenLegacyResource>()
+				var frozen = false
+				var earlyInside = false
+				var earlyHostEffectReturnTail = false
+				var returnTailDrainIssued = false
+				var earlyOuter = false
+				fun freeze() {
+					if (frozen) return
+					frozen = true
+					results += delivery.freezeForTransitionActivation(domain)
+					rows = delivery.snapshotFrozenOwnership()
+					rows.take(1).forEach { row ->
+						results += delivery.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+					}
+					earlyInside = confirmations.isNotEmpty()
+				}
+				fun mutate(mutation: ReaderPresentationHostMutation) {
+					mutations += mutation
+					if (!freezeInHook && mutation == boundary) freeze()
+				}
+				val applier = ReaderPresentationHostEffectApplier(
+					commitHostModel = { mutate(ReaderPresentationHostMutation.Model) },
+					applyViewerDecision = { _, _ -> mutate(ReaderPresentationHostMutation.ViewerDecision) },
+					applyShellCoverLayer = { mutate(ReaderPresentationHostMutation.ShellCoverLayer) },
+					applyViewerCoverVisibility = { mutate(ReaderPresentationHostMutation.ViewerCoverVisibility) },
+					applyNativeCoverVisibility = { mutate(ReaderPresentationHostMutation.NativeCoverVisibility) },
+					afterMutation = { if (freezeInHook && it == boundary) freeze() }
+				)
+				val dispatcher = ReaderPresentationReceiptDispatcher(
+					reporter, delivery, applyHostEffect = { effect ->
+						val applied = runCatching { applier.apply(effect) }
+						if (rows.isNotEmpty() && !returnTailDrainIssued) {
+							returnTailDrainIssued = true
+							rows.drop(1).forEach { row ->
+								results += delivery.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+							}
+							earlyHostEffectReturnTail = confirmations.isNotEmpty()
+						}
+						applied.getOrThrow()
+					}
+				)
+				delivery.observe(ReaderPresentationLifecycleEvent.VisibilityLost)
+				assertNotNull(delivery.retry { event ->
+					val returned = dispatcher.dispatch(event, controller::dispatch)
+					earlyOuter = confirmations.isNotEmpty()
+					returned
+				})
+				assertTrue(frozen)
+				assertTrue(results.all { it == ReaderPortCommandResult.Accepted })
+				assertTrue(rows.count { it.state == ReaderLegacyResourceState.Running } >= 3)
+				assertFalse(earlyInside, "No queue parking may fake physical effect quiescence")
+				assertTrue(returnTailDrainIssued)
+				assertFalse(earlyHostEffectReturnTail, "Applier return does not settle the host-effect callback tail")
+				assertFalse(earlyOuter, "Effect and dispatcher return still belong to outer retry")
+				assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmations.toSet())
+				assertEquals(rows.size, confirmations.size)
+				assertEquals(ReaderPresentationHostMutation.entries.take(boundary.ordinal + 1), mutations)
+				assertFalse(dispatcher.drainPresentationHostEffects())
+				assertEquals(1, dispatcher.pendingHostEffectCount, "Accepted projection remains parked")
+				assertNull(dispatcher.dispatch(ReaderPresentationEvent.Retry) { error("Frozen recipient started") })
+				assertEquals(ReaderPortCommandResult.Accepted, delivery.restoreAfterTransitionActivation(domain))
+				assertNull(delivery.retry { error("Consumed lifecycle recipient replayed") })
+				assertTrue(dispatcher.drainPresentationHostEffects())
+				assertEquals(0, dispatcher.pendingHostEffectCount)
+				assertEquals(ReaderPresentationHostMutation.entries.take(boundary.ordinal + 1) +
+					ReaderPresentationHostMutation.entries, mutations)
+				assertTrue(dispatcher.drainPresentationHostEffects())
+			}
+		}
+	}
+
+	@Test
+	fun failedQueuedEffectParksWithoutStartingWorkAndClosedRecipientNeverReopens() {
+		val binding = completeBinding("closed-queued-projection")
+		val controller = ControllerHarness(controller(binding, readerSessionGeneration = 101L))
+		val delivery = delivery(controller.controller, binding)
+		val reporter = reporter(controller.controller.presentationVersion, binding)
+		val domain = ReaderLegacyPhysicalDomain(101L, ReaderLegacyFreezeToken(103L))
+		var attempts = 0
+		var fail = true
+		val dispatcher = ReaderPresentationReceiptDispatcher(reporter, delivery) { _, _ ->
+			attempts++
+			if (fail) error("Effect remains queued")
+		}
+		delivery.observe(ReaderPresentationLifecycleEvent.PublicationClosed)
+		assertNotNull(delivery.retry { event -> dispatcher.dispatch(event, controller::dispatch) })
+		assertEquals(1, attempts)
+		assertEquals(1, dispatcher.pendingHostEffectCount)
+		assertEquals(ReaderPortCommandResult.Accepted, delivery.freezeForTransitionActivation(domain))
+		val rows = delivery.snapshotFrozenOwnership()
+		assertTrue(rows.isNotEmpty(), "Real pending dispatcher effect must be inventoried")
+		assertTrue(rows.none { it.state == ReaderLegacyResourceState.Running }, "No fictional physical execution")
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		rows.forEach { row ->
+			assertEquals(ReaderPortCommandResult.Accepted,
+				delivery.drainFrozenOwnership(row.physicalIdentity, confirmations::add))
+		}
+		assertEquals(rows.map { it.physicalIdentity }, confirmations)
+		assertEquals(1, dispatcher.pendingHostEffectCount, "Drain parks accepted projection, not discards it")
+		assertFalse(dispatcher.drainPresentationHostEffects())
+		assertEquals(1, attempts)
+		assertEquals(ReaderPortCommandResult.Accepted, delivery.restoreAfterTransitionActivation(domain))
+		delivery.observe(ReaderPresentationLifecycleEvent.VisibilityRestored)
+		assertFalse(delivery.bindPublication(binding.publicationIdentity))
+		assertNull(delivery.retry { error("Closed recipient must never replay") })
+		fail = false
+		assertTrue(dispatcher.drainPresentationHostEffects())
+		assertEquals(2, attempts)
+		assertEquals(0, dispatcher.pendingHostEffectCount)
+	}
+
+	@Test
+	fun lifecycleDeliveryParksDormantLogicalDemandWithoutInventingPhysicalWork() {
 		val delivery = ReaderPresentationLifecycleDelivery()
 		delivery.reset(
 			ReaderPresentationReceiptVersion(101L, null, 1L),
@@ -66,9 +351,7 @@ class ReaderPresentationLifecycleDeliveryTest {
 			ReaderPortCommandResult.Accepted,
 			delivery.freezeForTransitionActivation(domain)
 		)
-		val row = delivery.snapshotFrozenOwnership().single()
-		assertEquals(ReaderLegacyInventorySource.LifecycleDelivery, row.physicalIdentity.source)
-		assertEquals(ReaderTransitionResourceKind.CallbackRegistration, row.kind)
+		assertTrue(delivery.snapshotFrozenOwnership().isEmpty(), "Dormant normalized demand is not a physical producer")
 		delivery.observe(
 			ReaderPresentationLifecycleEvent.RunningMemoryPressure(
 				ReaderPresentationMemoryPressureLevel.Low
@@ -76,13 +359,7 @@ class ReaderPresentationLifecycleDeliveryTest {
 		)
 		assertEquals(1, delivery.pendingEventCount)
 		assertNull(delivery.retry { error("frozen delivery must not dispatch") })
-		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
-		assertEquals(
-			ReaderPortCommandResult.Accepted,
-			delivery.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
-		)
-		assertEquals(listOf(row.physicalIdentity), confirmations)
-		assertEquals(0, delivery.pendingEventCount)
+		assertEquals(1, delivery.pendingEventCount, "Logical parking retains demand without fake drainage")
 		assertTrue(delivery.snapshotFrozenOwnership().isEmpty())
 		assertEquals(
 			ReaderPortCommandResult.Accepted,

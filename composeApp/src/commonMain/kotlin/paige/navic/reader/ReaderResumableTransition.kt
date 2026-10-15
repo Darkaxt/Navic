@@ -189,6 +189,7 @@ enum class ReaderTransitionFactKind {
 	HostAvailable,
 	PaginationProfileReady,
 	RendererGenerationReady,
+	FrameTargetDeclared,
 	FrameTargetPrepared,
 	FrameTargetPreparationRejected,
 	PreparedFrame,
@@ -614,6 +615,59 @@ sealed interface ReaderInitialPresentationInputLease {
 	}
 }
 
+/** Projects an already published physical lease; it cannot select a successor owner. */
+internal fun readerTransitionPresentationInputPolicy(
+	owner: ReaderPresentationFrameOwner,
+	binding: ReaderPresentationBinding?,
+	lease: ReaderTransitionInputLease
+): ReaderPresentationInputPolicy {
+	if (owner == ReaderPresentationFrameOwner.Neutral) return when (lease) {
+		ReaderTransitionInputLease.ChromeOnly -> ReaderPresentationInputPolicy.ChromeOnly
+		else -> ReaderPresentationInputPolicy.RecoveryOnly
+	}
+	if (binding == null || !owner.hasBinding(binding)) return ReaderPresentationInputPolicy.RecoveryOnly
+	return when (lease) {
+		ReaderTransitionInputLease.None -> ReaderPresentationInputPolicy.RecoveryOnly
+		ReaderTransitionInputLease.ChromeOnly -> ReaderPresentationInputPolicy.ChromeOnly
+		ReaderTransitionInputLease.CoverActions -> if (owner is ReaderPresentationFrameOwner.ShellCover)
+			ReaderPresentationInputPolicy.ShellCover else ReaderPresentationInputPolicy.RecoveryOnly
+		is ReaderTransitionInputLease.NativePage -> if (owner is ReaderPresentationFrameOwner.NativePage &&
+			lease.binding == binding && lease.textureGeneration == owner.proof.textureGeneration &&
+			binding.textureGeneration == lease.textureGeneration && binding.rasterGeneration == owner.proof.rasterGeneration
+		) ReaderPresentationInputPolicy.NativePage(ReaderPageOperationPolicy(
+			ReaderPageNewPointerDecision.Accept, continueActivePointer = true, continueSettlement = false
+		)) else ReaderPresentationInputPolicy.RecoveryOnly
+		is ReaderTransitionInputLease.ClaimedGesture -> when {
+			lease.transitionId.operation != ReaderTransitionOperation.CurlClaimAndSettlement ->
+				ReaderPresentationInputPolicy.RecoveryOnly
+			owner is ReaderPresentationFrameOwner.Curl &&
+				lease.transitionId.expectedBinding.acceptsMaterialAllocation(binding) &&
+				owner.frame.token.value == lease.gestureId.value ->
+				ReaderPresentationInputPolicy.ClaimedCurl(owner.frame.token)
+			owner is ReaderPresentationFrameOwner.NativePage &&
+				lease.transitionId.expectedBinding is ReaderExpectedPresentationBinding.SemanticSuccessor &&
+				lease.transitionId.expectedBinding !is ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial &&
+				lease.transitionId.expectedBinding !is ReaderExpectedPresentationBinding.NoCommittedPresentation &&
+				lease.transitionId.expectedBinding.predecessor == binding &&
+				binding.rasterGeneration == owner.proof.rasterGeneration &&
+				binding.textureGeneration == owner.proof.textureGeneration ->
+				// The physical publication still owns its readable predecessor. Keep only
+				// the original claimed stream; no Curl frame or new-pointer authority is minted.
+				ReaderPresentationInputPolicy.NativePage(ReaderPageOperationPolicy(
+					ReaderPageNewPointerDecision.Reject(ReaderPageGestureTerminalOutcome.RejectedSettling),
+					continueActivePointer = true, continueSettlement = true))
+			else -> ReaderPresentationInputPolicy.RecoveryOnly
+		}
+	}
+}
+
+internal fun ReaderInitialPresentationInputLease.asPhysicalInputLease(): ReaderTransitionInputLease = when (this) {
+	ReaderInitialPresentationInputLease.None -> ReaderTransitionInputLease.None
+	ReaderInitialPresentationInputLease.ChromeOnly -> ReaderTransitionInputLease.ChromeOnly
+	ReaderInitialPresentationInputLease.CoverActions -> ReaderTransitionInputLease.CoverActions
+	is ReaderInitialPresentationInputLease.NativePage -> ReaderTransitionInputLease.NativePage(binding, textureGeneration)
+}
+
 sealed interface ReaderInitialCommittedPresentationOrigin {
 	val readerSessionGeneration: Long
 	val coordinatorEpoch: Long
@@ -834,6 +888,8 @@ enum class ReaderReleaseOnlyCancellationStatus {
 }
 
 enum class ReaderReleaseOnlyCleanupDeadlineStatus {
+	Prepared,
+	Committing,
 	Armed,
 	CancelledAfterTerminalAccounting,
 	Elapsed,
@@ -885,9 +941,15 @@ data class ReaderReleaseOnlyCleanupState(
 	val preCloseTransitionId: ReaderTransitionId?,
 	val authoritativeSemanticDestination: ReaderReleaseOnlySemanticAuthority? = null,
 	val cancellationStatus: ReaderReleaseOnlyCancellationStatus,
-	val deadlineStatus: ReaderReleaseOnlyCleanupDeadlineStatus
+	val deadlineStatus: ReaderReleaseOnlyCleanupDeadlineStatus,
+	// Fixed-label provenance of a failed entry timer, not the live cleanup timer's state.
+	val entryTimerBindingFailureOrigin: ReaderReleaseOnlyCleanupDeadlineStatus? = null
 ) {
 	init {
+		require(entryTimerBindingFailureOrigin == null || entryTimerBindingFailureOrigin in setOf(
+			ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected,
+			ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew
+		))
 		require(trigger != ReaderReleaseOnlyCleanupTrigger.PublicationReplacement || closeOperationId == null)
 		require(closeOperationId == null || closeOperationId.operation == ReaderTransitionOperation.PublicationClose)
 		require((preCloseTransitionId == null) ==
@@ -941,8 +1003,39 @@ value class ReaderSemanticRequestHandle(val value: Long) {
 
 internal enum class ReaderSemanticExecutableResult { Accepted, Rejected }
 
+/** Sender retirement is payload-free and belongs to the exact executor-created slot. */
+internal fun interface ReaderSemanticTransportRetirement {
+	fun retire()
+}
+
+internal enum class ReaderSemanticTransportBindingResult {
+	Bound,
+	RetiredAndDisposed,
+	Rejected
+}
+
+internal enum class ReaderSemanticAsyncFailure { Rejected, Threw }
+
 internal fun interface ReaderSemanticMutationStartEvidence {
 	fun mutationStarted()
+
+	/** Observation only: no reservation, registration, transport binding, or successor lookup. */
+	fun isExecutionCurrent(
+		origin: ReaderPresentationEventOrigin.SemanticCommand,
+		requestHandle: ReaderSemanticRequestHandle
+	): Boolean = false
+
+	// Compatibility contexts reject; the real executor binds exact slot custody.
+	// Rejected leaves the supplied retirement owned by the caller.
+	fun bindTransportRetirement(
+		origin: ReaderPresentationEventOrigin.SemanticCommand,
+		retirement: ReaderSemanticTransportRetirement
+	): ReaderSemanticTransportBindingResult = ReaderSemanticTransportBindingResult.Rejected
+
+	fun reportAsyncFailure(
+		origin: ReaderPresentationEventOrigin.SemanticCommand,
+		failure: ReaderSemanticAsyncFailure
+	): Boolean = false
 }
 
 internal typealias ReaderSemanticExecutableRequest = (
@@ -1045,6 +1138,22 @@ data class ReaderPlayLikeCurlDeckTargetIdentity(
 	}
 }
 
+/** Association supplied by the original Curl terminal producer, not by settlement ACK alone.
+ * The source is the retained deck; terminalSequence belongs to that original gesture's terminal. */
+data class ReaderCurlSettlementTerminalIdentity(
+	val sourceDeckKey: ReaderTransitionResourceKey,
+	val sourceDeckTarget: ReaderPlayLikeCurlDeckTargetIdentity,
+	val terminalSequence: Long
+) {
+	init {
+		require(sourceDeckKey.kind == ReaderTransitionResourceKind.Deck)
+		require(terminalSequence > 0L)
+	}
+
+	override fun hashCode(): Int = 0x43544944
+	override fun toString(): String = "ReaderCurlSettlementTerminalIdentity(<redacted>)"
+}
+
 enum class ReaderLiveHandoffDirection { NativeToLive, LiveToNative }
 
 sealed interface ReaderTransitionFrameTargetSpecification {
@@ -1089,7 +1198,8 @@ sealed interface ReaderTransitionFrameTargetSpecification {
 		val settlement: ReaderPageTurnSettlementAck,
 		val deckTarget: ReaderPlayLikeCurlDeckTargetIdentity,
 		override val geometry: ReaderTransitionFrameGeometry,
-		override val requestSequence: Long
+		override val requestSequence: Long,
+		val terminalIdentity: ReaderCurlSettlementTerminalIdentity? = null
 	) : ReaderTransitionFrameTargetSpecification
 
 	data class LiveWebView(
@@ -1175,7 +1285,9 @@ data class ReaderMaterialGenerationAllocation(
 	val allocatedBinding: ReaderPresentationBinding,
 	val preparationGeneration: Long,
 	val rasterGeneration: Long,
-	val textureGeneration: Long
+	val textureGeneration: Long,
+	/** Exact original allocation command binding; only its profile/material generations may change. */
+	val requestedBinding: ReaderPresentationBinding? = null
 ) {
 	init {
 		require(preparationGeneration > 0L)
@@ -1184,6 +1296,13 @@ data class ReaderMaterialGenerationAllocation(
 		require(allocatedBinding.preparationGeneration == preparationGeneration)
 		require(allocatedBinding.rasterGeneration == rasterGeneration)
 		require(allocatedBinding.textureGeneration == textureGeneration)
+		requestedBinding?.let { requested ->
+			require(requested.destinationCommitIdentity != null)
+			require(requested == requested.withoutMaterialGenerations())
+			require(allocatedBinding.withoutMaterialGenerations().copy(
+				profileGeneration = requested.profileGeneration) == requested)
+			require(allocatedBinding.profileGeneration > requested.profileGeneration)
+		}
 	}
 }
 
@@ -1290,6 +1409,16 @@ sealed interface ReaderTransitionFact {
 		init {
 			require(rendererGeneration > 0L)
 		}
+	}
+
+	/** The coordinator supplies the original ledger registration, never the physical producer. */
+	data class FrameTargetDeclared internal constructor(
+		val specification: ReaderTransitionFrameTargetSpecification,
+		val resource: ReaderTransitionResourceRegistration
+	) : ReaderTransitionFact {
+		override val transitionId: ReaderTransitionId get() = specification.transitionId
+		override fun hashCode(): Int = 0x46544443
+		override fun toString(): String = "ReaderTransitionFact.FrameTargetDeclared(<redacted>)"
 	}
 
 	data class FrameTargetPrepared(
@@ -1720,21 +1849,15 @@ object ReaderTransitionLivenessTable {
 		)
 		ReaderTransitionOperation.CurlClaimAndSettlement -> liveness(
 			operation = operation,
-			proofs = setOf(
-				ReaderTransitionProofKind.SettlementAcknowledgement,
-				ReaderTransitionProofKind.PreparedFrame
-			),
+			proofs = materialProofs + ReaderTransitionProofKind.SettlementAcknowledgement,
 			timeout = ReaderTransitionFailureReason.SettlementTimeout,
 			wakes = setOf(
 				ReaderTransitionWakeKind.FoliateDestinationCommitted,
 				ReaderTransitionWakeKind.Retry
 			),
-			sources = setOf(
+			sources = materialCallbackSources + setOf(
 				ReaderTransitionFactKind.FoliateDestinationCommitted,
-				ReaderTransitionFactKind.SettlementAcknowledged,
-				ReaderTransitionFactKind.PreparedFrame,
-				ReaderTransitionFactKind.ResourceLost,
-				ReaderTransitionFactKind.DeadlineExpired
+				ReaderTransitionFactKind.SettlementAcknowledged
 			)
 		)
 		ReaderTransitionOperation.NativeToLiveHandoff -> liveness(
@@ -1823,6 +1946,7 @@ object ReaderTransitionLivenessTable {
 				ReaderTransitionFactKind.DeckOwned,
 				ReaderTransitionFactKind.DeckPrepared,
 				ReaderTransitionFactKind.DeckRejected,
+				ReaderTransitionFactKind.FrameTargetDeclared,
 				ReaderTransitionFactKind.RendererCapacityAvailable,
 				ReaderTransitionFactKind.PreparedFrame,
 				ReaderTransitionFactKind.ResourceLost,
@@ -1951,6 +2075,7 @@ object ReaderTransitionLivenessTable {
 		ReaderTransitionFactKind.DeckOwned,
 		ReaderTransitionFactKind.DeckPrepared,
 		ReaderTransitionFactKind.DeckRejected,
+		ReaderTransitionFactKind.FrameTargetDeclared,
 		ReaderTransitionFactKind.RendererCapacityAvailable,
 		ReaderTransitionFactKind.PreparedFrame,
 		ReaderTransitionFactKind.ResourceLost,
@@ -1958,6 +2083,7 @@ object ReaderTransitionLivenessTable {
 	)
 
 	private val frameCallbackSources = setOf(
+		ReaderTransitionFactKind.FrameTargetDeclared,
 		ReaderTransitionFactKind.PreparedFrame,
 		ReaderTransitionFactKind.ResourceLost,
 		ReaderTransitionFactKind.DeadlineExpired
@@ -2282,6 +2408,7 @@ private fun ReaderTransitionFact.resourceClassificationOrNull(): ReaderTransitio
 			key,
 			ReaderTransitionResourceFactMeaning.RejectedDisposition
 		)
+		is ReaderTransitionFact.FrameTargetDeclared,
 		is ReaderTransitionFact.Intent,
 		is ReaderTransitionFact.FoliateDestinationCommitted,
 		is ReaderTransitionFact.SettlementAcknowledged,
@@ -2337,11 +2464,7 @@ fun readerTransitionJournalReduce(
 		ReaderTransitionProofKind.HostAvailable,
 		factBinding = null
 	)
-	is ReaderTransitionFact.PaginationProfileReady -> journal.reduceProof(
-		fact.transitionId,
-		ReaderTransitionProofKind.PaginationProfile,
-		factBinding = null
-	)
+	is ReaderTransitionFact.PaginationProfileReady -> journal.reducePaginationProfile(fact)
 	is ReaderTransitionFact.RendererGenerationReady -> journal.reduceProof(
 		fact.transitionId,
 		ReaderTransitionProofKind.RendererGeneration,
@@ -2354,6 +2477,7 @@ fun readerTransitionJournalReduce(
 	)
 	is ReaderTransitionFact.DeckOwned -> journal.reduceDeckOwned(fact)
 	is ReaderTransitionFact.DeckPrepared -> journal.reduceDeckPrepared(fact)
+	is ReaderTransitionFact.FrameTargetDeclared -> journal.reduceFrameTargetDeclaration(fact)
 	is ReaderTransitionFact.FrameTargetPrepared -> journal.reduceFrameTargetPrepared(fact)
 	is ReaderTransitionFact.FrameTargetPreparationRejected -> journal.reduceFrameTargetPreparationRejected(fact)
 	is ReaderTransitionFact.PreparedFrame -> journal.reducePreparedFrame(fact)
@@ -2402,6 +2526,40 @@ fun readerTransitionJournalReduce(
 	return reduction.withPendingCommandAuthority()
 }
 
+private fun ReaderActiveTransition.hasProvisionalInitialProfile(): Boolean =
+	id.operation == ReaderTransitionOperation.BootstrapNativePage &&
+		id.expectedBinding is ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial &&
+		authoritativeDestinationCommitted && resolvedSuccessorBinding?.profileGeneration == 0L &&
+		materialAllocation == null
+
+private fun ReaderTransitionJournal.reducePaginationProfile(
+	fact: ReaderTransitionFact.PaginationProfileReady
+): ReaderTransitionReduction {
+	val current = active
+	if (current == null || !current.hasProvisionalInitialProfile()) {
+		return reduceProof(fact.transitionId, ReaderTransitionProofKind.PaginationProfile, factBinding = null)
+	}
+	if (
+		fact.transitionId != current.id ||
+		current.pendingCommandStages != setOf(ReaderTransitionCommandStage.MaterialAllocation) ||
+		ReaderTransitionProofKind.MaterialBindingAllocation !in current.phase.contract.awaitedProofs ||
+		ReaderTransitionFactKind.PaginationProfileReady !in current.phase.contract.callbackSources
+	) return unchanged()
+	// The original Curl profile qualifies only the accepted initial semantic binding.
+	// This is neither a material allocation nor a pagination/display proof.
+	return ReaderTransitionReduction(
+		copy(active = current.copy(
+			resolvedSuccessorBinding = checkNotNull(current.resolvedSuccessorBinding)
+				.copy(profileGeneration = fact.profileGeneration),
+			phase = current.phase.copy(contract = current.phase.contract.copy(
+				callbackSources = current.phase.contract.callbackSources -
+					ReaderTransitionFactKind.PaginationProfileReady
+			))
+		)),
+		emptyList()
+	)
+}
+
 private fun ReaderTransitionReduction.withPendingCommandAuthority(): ReaderTransitionReduction {
 	val stages = commands.mapNotNull(ReaderTransitionCommand::pendingStageOrNull).distinct()
 	if (stages.isEmpty()) return this
@@ -2412,12 +2570,15 @@ private fun ReaderTransitionReduction.withPendingCommandAuthority(): ReaderTrans
 	}
 	val stage = stages.single()
 	val admissibleCommandStages = admissibleStagesFor(stage)
+	val profileCallback = if (
+		stage == ReaderTransitionCommandStage.MaterialAllocation && current.hasProvisionalInitialProfile()
+	) setOf(ReaderTransitionFactKind.PaginationProfileReady) else emptySet()
 	return copy(
 		state = state.copy(
 			active = current.copy(
 				phase = current.phase.copy(
 					contract = current.phase.contract.copy(
-						callbackSources = current.phase.contract.callbackSources +
+						callbackSources = current.phase.contract.callbackSources + profileCallback +
 							ReaderTransitionFactKind.CommandRejected,
 						admissibleCommandStages = admissibleCommandStages
 					)
@@ -2575,7 +2736,16 @@ private fun ReaderTransitionJournal.beginSemanticSynchronization(
 private fun ReaderTransitionJournal.reduceUserCancellation(
 	transitionId: ReaderTransitionId?
 ): ReaderTransitionReduction {
-	val current = active ?: return unchanged()
+	val current = active
+	if (current == null) {
+		val retryable = retryableTransition ?: return unchanged()
+		if (transitionId != null && transitionId != retryable.id) return unchanged()
+		return ReaderTransitionReduction(
+			copy(retryableTransition = null, lastOutcome = ReaderTransitionOutcome.Cancelled(
+				ReaderTransitionCancellationReason.UserCancelled, retryable.retainedOwner)),
+			emptyList()
+		)
+	}
 	if (transitionId != null && transitionId != current.id) return unchanged()
 	return ReaderTransitionReduction(
 		state = copy(
@@ -2613,7 +2783,12 @@ private fun ReaderTransitionJournal.reduceRetry(
 		)
 		authoritativeBinding != null -> retryable.id.copy(
 			sequence = nextSequence,
-			expectedBinding = ReaderExpectedPresentationBinding.Exact(authoritativeBinding),
+			expectedBinding = if (
+				retryable.id.operation == ReaderTransitionOperation.BootstrapNativePage &&
+				retryable.id.expectedBinding is ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial &&
+				authoritativeBinding.profileGeneration == 0L
+			) ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial(nextSequence)
+			else ReaderExpectedPresentationBinding.Exact(authoritativeBinding),
 			parent = immediateParent
 		)
 		else -> retryable.id.copy(
@@ -2799,7 +2974,7 @@ private fun ReaderTransitionJournal.reduceMaterialAllocation(
 		) ||
 		current.pendingCommandStages != setOf(ReaderTransitionCommandStage.MaterialAllocation) ||
 		ReaderTransitionProofKind.MaterialBindingAllocation !in current.phase.contract.awaitedProofs ||
-		current.resolvedSuccessorBinding?.let { !it.matchesAllocation(allocation.allocatedBinding) } == true
+		!current.matchesOriginalAllocation(allocation)
 	) return unchanged()
 	val remaining = current.phase.contract.awaitedProofs - ReaderTransitionProofKind.MaterialBindingAllocation
 	val updated = current.copy(
@@ -2853,6 +3028,15 @@ private fun ReaderTransitionJournal.reduceSettlement(
 		consumedSettlement = key
 	)
 	val withConsumption = copy(active = resolved)
+	if (ReaderTransitionProofKind.MaterialBindingAllocation in remaining) {
+		// Consumption is committed before this command can synchronously return.
+		// Settlement identifies the destination, not its successor material or frame.
+		return ReaderTransitionReduction(
+			withConsumption.copy(active = resolved.withAwaitedProofs(remaining)),
+			listOf(ReaderTransitionCommand.AllocateMaterialBinding(
+				current.id, fact.binding.withoutMaterialGenerations()))
+		)
+	}
 	if (remaining.isEmpty()) {
 		val committedOwner = resolved.preparedFrameOwner ?: return unchanged()
 		val registration = resolved.successorResourceRegistration ?: return unchanged()
@@ -3103,6 +3287,103 @@ private fun ReaderTransitionJournal.reduceDestination(
 	)
 }
 
+/** Intrinsic association checks only. Original Curl resolution and its typed presented
+ * callback remain necessary; this function cannot create terminal or physical proof. */
+internal fun readerCurlSettlementTerminalSpecificationIsValid(
+	specification: ReaderTransitionFrameTargetSpecification.CurlSettlementTerminalFrame,
+	deckKey: ReaderTransitionResourceKey
+): Boolean {
+	val terminal = specification.terminalIdentity ?: return false
+	val expected = specification.transitionId.expectedBinding as? ReaderExpectedPresentationBinding.SemanticSuccessor
+		?: return false
+	if (expected is ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial ||
+		expected is ReaderExpectedPresentationBinding.NoCommittedPresentation) return false
+	val sourceBinding = expected.predecessor
+	val sourceId = terminal.sourceDeckKey.owningTransitionIdOrNull
+	return specification.transitionId.operation == ReaderTransitionOperation.CurlClaimAndSettlement &&
+		specification.publicationGeneration > 0L &&
+		specification.readerSessionGeneration == specification.transitionId.readerSessionGeneration &&
+		specification.publicationGeneration == specification.binding.publicationGeneration &&
+		readerTransitionMaterialBindingIsValid(specification.transitionId, specification.binding, specification.allocation) &&
+		specification.geometry.viewportGeneration == specification.binding.viewportGeneration &&
+		specification.geometry.layoutProfileGeneration == specification.binding.profileGeneration &&
+		specification.requestSequence > 0L && terminal.terminalSequence > 0L &&
+		deckKey.kind == ReaderTransitionResourceKind.Deck && deckKey.owningTransitionIdOrNull == specification.transitionId &&
+		terminal.sourceDeckKey.kind == ReaderTransitionResourceKind.Deck && terminal.sourceDeckKey != deckKey &&
+		terminal.sourceDeckKey.owningTransitionIdOrNull != specification.transitionId &&
+		(sourceId == null || (sourceId.readerSessionGeneration == specification.readerSessionGeneration &&
+			sourceId.coordinatorEpoch == specification.transitionId.coordinatorEpoch &&
+			terminal.sourceDeckTarget.role == sourceId.operation.deckRole())) &&
+		terminal.sourceDeckTarget.deckGeneration == sourceBinding.textureGeneration &&
+		terminal.sourceDeckTarget.rendererGeneration == specification.deckTarget.rendererGeneration &&
+		specification.settlement.foliateSessionId == sourceBinding.foliateSessionId &&
+		specification.settlement.rasterGeneration == sourceBinding.rasterGeneration &&
+		specification.settlement.textureGeneration == sourceBinding.textureGeneration &&
+		specification.deckTarget.deckGeneration == specification.allocation.textureGeneration &&
+		specification.deckTarget.role == ReaderTransitionDeckRole.Settlement
+}
+
+internal fun ReaderActiveTransition.acceptsFrameTargetDeclaration(
+	specification: ReaderTransitionFrameTargetSpecification,
+	deckKey: ReaderTransitionResourceKey
+): Boolean {
+	if (specification.transitionId != id || deckKey.owningTransitionIdOrNull != id ||
+		deckKey.kind != ReaderTransitionResourceKind.Deck ||
+		specification.readerSessionGeneration != id.readerSessionGeneration ||
+		specification.publicationGeneration != specification.binding.publicationGeneration ||
+		specification.binding != resolvedSuccessorBinding || specification.requestSequence <= 0L ||
+		specification.geometry.viewportGeneration != specification.binding.viewportGeneration ||
+		specification.geometry.layoutProfileGeneration != specification.binding.profileGeneration ||
+		ReaderTransitionProofKind.PreparedFrame !in phase.contract.awaitedProofs ||
+		ReaderTransitionFactKind.FrameTargetDeclared !in phase.contract.callbackSources ||
+		frameTarget != null ||
+		pendingCommandStages.any { it != ReaderTransitionCommandStage.DeckReservation } ||
+		admittedDeckKey?.let { it != deckKey } == true ||
+		pendingPreparedDeckKey?.let { it != deckKey } == true ||
+		pendingFrameTargetSpecification?.let { it != specification } == true ||
+		pendingFrameTargetRegistration?.key?.let { it != deckKey } == true
+	) return false
+	val allocation: ReaderMaterialGenerationAllocation
+	val deckTarget: ReaderPlayLikeCurlDeckTargetIdentity
+	when (specification) {
+		is ReaderTransitionFrameTargetSpecification.NativePage -> {
+			if (id.operation == ReaderTransitionOperation.CurlClaimAndSettlement) return false
+			allocation = specification.allocation
+			deckTarget = specification.deckTarget
+		}
+		is ReaderTransitionFrameTargetSpecification.CurlSettlementTerminalFrame -> {
+			if (!readerCurlSettlementTerminalSpecificationIsValid(specification, deckKey) ||
+				specification.terminalIdentity?.sourceDeckKey != predecessorResourceKey ||
+				predecessorResourceRegistration?.key != predecessorResourceKey ||
+				consumedSettlement?.acknowledgement != specification.settlement ||
+				(semanticIntent as? ReaderPageTurnIntent)?.gestureId != specification.gestureId
+			) return false
+			allocation = specification.allocation
+			deckTarget = specification.deckTarget
+		}
+		is ReaderTransitionFrameTargetSpecification.ShellCover,
+		is ReaderTransitionFrameTargetSpecification.LiveWebView -> return false
+	}
+	return allocation == materialAllocation &&
+		readerTransitionMaterialBindingIsValid(id, specification.binding, allocation) &&
+		deckTarget.deckGeneration == allocation.textureGeneration && deckTarget.role == id.operation.deckRole()
+}
+
+private fun ReaderTransitionJournal.reduceFrameTargetDeclaration(
+	fact: ReaderTransitionFact.FrameTargetDeclared
+): ReaderTransitionReduction {
+	val current = active ?: return unchanged()
+	if (!current.acceptsFrameTargetDeclaration(fact.specification, fact.resource.key) ||
+		(fact.resource.key !in current.ownedResourceKeys && current.admittedDeckKey != fact.resource.key) ||
+		fact.resource.retirementOrder.readerSessionGeneration != current.id.readerSessionGeneration ||
+		fact.resource.retirementOrder.coordinatorEpoch != current.id.coordinatorEpoch
+	) return unchanged()
+	return completeOrContinue(current.copy(
+		pendingFrameTargetSpecification = fact.specification,
+		pendingFrameTargetRegistration = fact.resource
+	), current.phase.contract.awaitedProofs)
+}
+
 private fun ReaderTransitionJournal.reduceFrameTargetPrepared(
 	fact: ReaderTransitionFact.FrameTargetPrepared
 ): ReaderTransitionReduction {
@@ -3117,7 +3398,7 @@ private fun ReaderTransitionJournal.reduceFrameTargetPrepared(
 		ReaderTransitionProofKind.FrameTargetPreparation !in current.phase.contract.awaitedProofs ||
 		current.pendingFrameTargetSpecification != fact.target.specification ||
 		current.pendingFrameTargetRegistration != fact.target.resource ||
-		!current.id.expectedBinding.acceptsMaterialAllocation(fact.target.specification.binding)
+		!readerTransitionMaterialBindingIsValid(current.id, fact.target.specification.binding, current.materialAllocation)
 	) return reduceRejectedResourceKey(fact.target.resource.key)
 	val next = current.copy(
 		pendingCommandStages = emptySet(),
@@ -3940,7 +4221,11 @@ private fun ReaderTransitionJournal.reduceReleaseLedgerAdmissionRejected(
 ): ReaderTransitionReduction {
 	val cleanup = releaseOnlyCleanup
 	if (cleanup != null) {
-		if (cleanup.deadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.Armed) {
+		if (cleanup.deadlineStatus !in setOf(
+			ReaderReleaseOnlyCleanupDeadlineStatus.Prepared,
+			ReaderReleaseOnlyCleanupDeadlineStatus.Committing,
+			ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+		)) {
 			return unchanged()
 		}
 		if (fact.cleanupKey != null && fact.cleanupKey != cleanup.key) return unchanged()
@@ -4011,7 +4296,13 @@ private fun ReaderTransitionJournal.terminalizeReleaseOnlyCleanup(
 ): ReaderTransitionJournal {
 	val cleanup = releaseOnlyCleanup ?: return this
 	if (cleanup.key != key) return this
-	if (cleanup.deadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.Armed) return this
+	// Terminal accounting, including rejected/thrown deadline cancellation, has
+	// no later expiry or process-close consequence authority (design sections 9/12).
+	if (cleanup.deadlineStatus !in setOf(
+		ReaderReleaseOnlyCleanupDeadlineStatus.Prepared,
+		ReaderReleaseOnlyCleanupDeadlineStatus.Committing,
+		ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+	)) return this
 	val cancellationStatus = if (
 		processClosed && cleanup.cancellationStatus == ReaderReleaseOnlyCancellationStatus.Pending
 	) {
@@ -4180,7 +4471,7 @@ private fun ReaderTransitionJournal.terminatePublication(
 	closeOperationId: ReaderTransitionId? = null,
 	outcomeOverride: ReaderTransitionOutcome? = null,
 	deadlineStatus: ReaderReleaseOnlyCleanupDeadlineStatus =
-		ReaderReleaseOnlyCleanupDeadlineStatus.Armed,
+		ReaderReleaseOnlyCleanupDeadlineStatus.Prepared,
 	authoritativeSemanticDestination: ReaderReleaseOnlySemanticAuthority? = null,
 	additionalReleaseRequests: List<ReaderTransitionCommand.RequestResourceRelease> = emptyList()
 ): ReaderTransitionReduction {
@@ -4215,7 +4506,11 @@ private fun ReaderTransitionJournal.terminatePublication(
 		} else {
 			ReaderReleaseOnlyCancellationStatus.Pending
 		},
-		deadlineStatus = deadlineStatus
+		deadlineStatus = deadlineStatus,
+		entryTimerBindingFailureOrigin = deadlineStatus.takeIf {
+			it == ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected ||
+				it == ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew
+		}
 	)
 	val resources = knownResourceKeys(current)
 	return ReaderTransitionReduction(
@@ -4290,7 +4585,23 @@ internal fun readerTransitionMaterialBindingIsValid(
 } else {
 	allocation.transitionId == transitionId &&
 		allocation.allocatedBinding == binding &&
-		transitionId.expectedBinding.acceptsMaterialAllocation(binding)
+		transitionId.expectedBinding.acceptsMaterialAllocation(allocation.requestedBinding ?: binding)
+}
+
+private fun ReaderActiveTransition.matchesOriginalAllocation(allocation: ReaderMaterialGenerationAllocation): Boolean {
+	val resolved = resolvedSuccessorBinding ?: return allocation.requestedBinding == null
+	val requested = allocation.requestedBinding
+		?: return resolved.matchesAllocation(allocation.allocatedBinding)
+	// Source-zero bootstrap still needs the original once-only initial profile qualification.
+	// Successor/retry profiles, in contrast, are associated by the exact allocation itself.
+	val initialZeroRequest = id.operation == ReaderTransitionOperation.BootstrapNativePage &&
+		id.expectedBinding is ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial &&
+		requested.profileGeneration == 0L
+	if (!initialZeroRequest) return resolved.withoutMaterialGenerations() == requested
+	return authoritativeDestinationCommitted &&
+		ReaderTransitionFactKind.PaginationProfileReady !in phase.contract.callbackSources &&
+		resolved.profileGeneration == allocation.allocatedBinding.profileGeneration &&
+		resolved.withoutMaterialGenerations() == requested.copy(profileGeneration = resolved.profileGeneration)
 }
 
 private fun ReaderPresentationBinding.matchesAllocation(other: ReaderPresentationBinding): Boolean =

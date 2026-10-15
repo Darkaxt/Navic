@@ -55,7 +55,7 @@ import kotlin.math.sqrt
 
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
 private const val MaxCachedSnapshots = 5
-private val ReaderPageTurnBundleInventorySources = listOf(
+internal val ReaderPageTurnBundleInventorySources = listOf(
 	ReaderLegacyInventorySource.RasterSnapshotCache,
 	ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback,
 	ReaderLegacyInventorySource.RasterHydration,
@@ -1127,6 +1127,7 @@ private data class ReaderPageRasterHydrationRecipient(
 	val exactRasterIdentity: String?,
 	val publicationFence: () -> Boolean,
 	val callback: (ReaderPageSlideSnapshot?) -> Unit,
+	val work: ReaderActivatedRasterWork? = null,
 	var descriptorPhysicalOwner: ReaderExactPhysicalOwnerRegistry.Owner? = null,
 	var hydrationPhysicalOwner: ReaderExactPhysicalOwnerRegistry.Owner? = null
 )
@@ -1138,7 +1139,8 @@ private data class ReaderPageRasterDescriptorIdentity(
 	val kind: ReaderPageTurnTransitionKind,
 	val physicalLayout: ReaderPageRasterPhysicalLayout,
 	val physicalLayoutEpoch: Long,
-	val exactRasterIdentity: String? = null
+	val exactRasterIdentity: String? = null,
+	val work: ReaderActivatedRasterWork? = null
 )
 
 private class ReaderPageRasterDescriptorRequest(
@@ -1146,14 +1148,16 @@ private class ReaderPageRasterDescriptorRequest(
 	val identity: ReaderPageRasterDescriptorIdentity,
 	val webView: WeakReference<WebView>,
 	val recipients: MutableMap<Long, ReaderPageRasterHydrationRecipient>,
-	val physicalOwner: ReaderExactPhysicalOwnerRegistry.Owner
+	val physicalOwner: ReaderExactPhysicalOwnerRegistry.Owner,
+	val onLogicalCancellation: (() -> Unit)? = null
 )
 
 private data class ReaderPageRasterHydrationIdentity(
 	val rasterIdentity: String,
 	val kind: ReaderPageTurnTransitionKind,
 	val physicalLayout: ReaderPageRasterPhysicalLayout,
-	val physicalLayoutEpoch: Long
+	val physicalLayoutEpoch: Long,
+	val work: ReaderActivatedRasterWork? = null
 )
 
 private class InFlightRasterHydration(
@@ -1187,7 +1191,8 @@ private data class ReaderRasterPersistenceRestartContract(
 	val physicalLayoutEpoch: Long,
 	val mutationGeneration: ReaderForegroundWebViewMutationGeneration?,
 	val isStillCurrent: () -> Boolean,
-	val onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit
+	val onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit,
+	val work: ReaderActivatedRasterWork? = null
 )
 
 private class ReaderRasterPersistenceRequest(
@@ -1433,6 +1438,7 @@ internal class ReaderPageTurnBundleSource(
 	private val rasterInitializationDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
 	private var activeGeneration = 0L
+	private var activatedMaterialCommand: paige.navic.reader.ReaderTransitionCommand.AllocateMaterialBinding? = null
 	private var bitmapQuality = ReaderPageBitmapQuality.Balanced
 	private val rasterJob = SupervisorJob()
 	private val rasterScope = CoroutineScope(rasterJob + Dispatchers.Main.immediate)
@@ -1487,12 +1493,18 @@ internal class ReaderPageTurnBundleSource(
 	private val rasterPhysicalLayoutEpoch = AtomicLong()
 	private var physicalLayoutAuthority: ReaderPageRasterPhysicalLayoutAuthority? = null
 	private val snapshotCache = LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)
+	private data class SnapshotCustody(
+		val token: ReaderLegacySourceLocalOpaqueToken,
+		val work: ReaderActivatedRasterWork? = null
+	)
 	private val snapshotCacheTokens =
-		IdentityHashMap<ReaderPageSlideSnapshot, ReaderLegacySourceLocalOpaqueToken>()
+		IdentityHashMap<ReaderPageSlideSnapshot, SnapshotCustody>()
 	private val frozenSnapshotCacheEntries =
 		linkedMapOf<ReaderLegacySourceLocalOpaqueToken, ReaderFrozenSnapshotCacheEntry>()
 	@Volatile
 	private var frozenSnapshotCacheDomain: ReaderLegacyPhysicalDomain? = null
+	@Volatile
+	private var legacyFinalized = false
 	private var restorationProgressDomain: ReaderLegacyPhysicalDomain? = null
 	private val restoredTransitionSteps =
 		linkedSetOf<ReaderPageTurnBundleRestorationStep>()
@@ -1876,6 +1888,73 @@ internal class ReaderPageTurnBundleSource(
 		}
 	}
 
+	/** Current admission-fence proof, distinct from retained inventory during restoration. */
+	/** A current read of every original admission fence, not a cached restoration ACK. */
+	internal val originalLegacyAdmissionsRestored: Boolean
+		get() {
+			if (closed || frozenSnapshotCacheDomain != null || restorationProgressDomain != null ||
+				bitmapSource.connectedFrozenOwnership() != null || liveValidationOwnership.isFrozen ||
+				hydrationOwnership.isFrozen || !hydrationScheduler.originalLegacyAdmissionRestored ||
+				!publicationScheduler.originalLegacyAdmissionRestored || publicationLedger.connectedFrozenOwnership() != null ||
+				rasterGenerationAndPersistenceOwnership.isFrozen || descriptorRequestOwnership.isFrozen ||
+				!pendingDescriptorOwners.originalLegacyAdmissionRestored || teardownOwnership.isFrozen) return false
+			val backends = synchronized(rasterInitializationFenceLock) {
+				synchronized(rasterReferenceLifecycleLock) { Triple(rasterScheduler, persistentStore, rasterCache) }
+			}
+			return backends.first?.originalLegacyAdmissionRestored != false &&
+				backends.second?.originalLegacyAdmissionRestored != false &&
+				backends.third?.originalLegacyAdmissionRestored != false
+		}
+
+	internal fun captureOriginalRestorationCurrency(): () -> Boolean {
+		val captured = synchronized(rasterInitializationFenceLock) {
+			synchronized(rasterReferenceLifecycleLock) { Triple(rasterScheduler, persistentStore, rasterCache) }
+		}
+		return {
+			!closed && synchronized(rasterInitializationFenceLock) {
+				synchronized(rasterReferenceLifecycleLock) {
+					rasterScheduler === captured.first && persistentStore === captured.second && rasterCache === captured.third
+				}
+			}
+		}
+	}
+
+	fun snapshotFullyConnectedFrozenOwnership(): List<ReaderLegacyConnectedSourceInventory>? {
+		val domain = frozenSnapshotCacheDomain ?: return null
+		if (closed || restorationProgressDomain != null) return null
+		val children = mutableListOf(
+			bitmapSource.connectedFrozenOwnership() ?: return null,
+			liveValidationOwnership.connectedFrozenOwnership() ?: return null,
+			hydrationOwnership.connectedFrozenOwnership() ?: return null,
+			hydrationScheduler.connectedFrozenOwnership() ?: return null,
+			publicationScheduler.connectedFrozenOwnership() ?: return null,
+			publicationLedger.connectedFrozenOwnership() ?: return null,
+			rasterGenerationAndPersistenceOwnership.connectedFrozenOwnership() ?: return null,
+			descriptorRequestOwnership.connectedFrozenOwnership() ?: return null,
+			pendingDescriptorOwners.connectedFrozenOwnership() ?: return null,
+			teardownOwnership.connectedFrozenOwnership() ?: return null
+		)
+		// The existing initialization fence prevents a new backend from publishing.
+		// Absence is truthful only alongside that original frozen owner's header.
+		val backends = synchronized(rasterInitializationFenceLock) {
+			synchronized(rasterReferenceLifecycleLock) {
+				Triple(rasterScheduler, persistentStore, rasterCache)
+			}
+		}
+		backends.first?.let { children += it.connectedFrozenOwnership() ?: return null }
+		backends.second?.let { children += it.connectedFrozenOwnership() ?: return null }
+		backends.third?.let { children += it.connectedFrozenOwnership() ?: return null }
+		if (children.any { it.domain != domain }) return null
+		val resources = children.flatMap { it.resources } + snapshotFrozenCacheOwnership()
+		if (closed || frozenSnapshotCacheDomain != domain || restorationProgressDomain != null ||
+			resources.any { it.physicalIdentity.domain != domain } ||
+			resources.distinctBy { it.physicalIdentity }.size != resources.size) return null
+		val resourcesBySource = resources.groupBy { it.physicalIdentity.source }
+		return ReaderPageTurnBundleInventorySources.map { source ->
+			ReaderLegacyConnectedSourceInventory(source, domain, resourcesBySource[source].orEmpty())
+		}
+	}
+
 	fun snapshotConnectedFrozenOwnership(): List<ReaderLegacyConnectedSourceInventory>? {
 		val domain = frozenSnapshotCacheDomain ?: return null
 		val resourcesBySource = snapshotFrozenOwnership().groupBy {
@@ -1892,13 +1971,13 @@ internal class ReaderPageTurnBundleSource(
 
 	private fun snapshotFrozenCacheOwnership(): List<ReaderFrozenLegacyResource> {
 		val domain = frozenSnapshotCacheDomain ?: return emptyList()
-		return snapshotCache.values.map { snapshot ->
+		return snapshotCache.values.filter { checkNotNull(snapshotCacheTokens[it]).work == null }.map { snapshot ->
 			ReaderFrozenLegacyResource(
 				freezeToken = domain.freezeToken,
 				physicalIdentity = ReaderLegacyPhysicalIdentity(
 					domain = domain,
 					source = ReaderLegacyInventorySource.RasterSnapshotCache,
-					sourceLocalToken = checkNotNull(snapshotCacheTokens[snapshot])
+					sourceLocalToken = checkNotNull(snapshotCacheTokens[snapshot]).token
 				),
 				kind = ReaderTransitionResourceKind.Raster,
 				binding = null,
@@ -2006,7 +2085,9 @@ internal class ReaderPageTurnBundleSource(
 			ReaderTransitionFailureReason.InvalidLegacyResource
 		)
 		val snapshot = snapshotCache.values.firstOrNull {
-			snapshotCacheTokens[it] == physicalIdentity.sourceLocalToken
+			snapshotCacheTokens[it]?.let { custody ->
+				custody.work == null && custody.token == physicalIdentity.sourceLocalToken
+			} == true
 		} ?: return ReaderPortCommandResult.Rejected(
 			ReaderTransitionFailureReason.InvalidLegacyResource
 		)
@@ -2055,7 +2136,7 @@ internal class ReaderPageTurnBundleSource(
 			val snapshot = restart.snapshot
 			snapshot.transferRetainToCacheOwnership()
 			snapshotCache[snapshot.key] = snapshot
-			snapshotCacheTokens[snapshot] = restart.token
+			snapshotCacheTokens[snapshot] = SnapshotCustody(restart.token)
 			restart.durability?.let { snapshotDurability[snapshot] = it }
 			restart.exactRasterIdentity?.let {
 				snapshotExactRasterIdentities[snapshot] = it
@@ -2064,21 +2145,57 @@ internal class ReaderPageTurnBundleSource(
 		frozenSnapshotCacheEntries.clear()
 	}
 
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult {
+		if (legacyFinalized || closed || frozenSnapshotCacheDomain != domain || restorationProgressDomain != null ||
+			snapshotFullyConnectedFrozenOwnership()?.any { it.resources.isNotEmpty() } != false)
+			return invalidRestorationResource()
+		legacyFinalized = true // Irreversible original retirement, not a temporary unfreeze.
+		for (finalize in listOf<() -> ReaderPortCommandResult>(
+			{ bitmapSource.finalizeActivatedHandoff(domain) },
+			{ liveValidationOwnership.finalizeActivatedHandoff(domain) },
+			{ synchronized(hydrationOwnershipAdmissionLock) { hydrationScheduler.finalizeActivatedHandoff(domain) } },
+			{ synchronized(hydrationOwnershipAdmissionLock) { hydrationOwnership.finalizeActivatedHandoff(domain) } },
+			{ publicationScheduler.finalizeActivatedHandoff(domain) },
+			{ publicationLedger.finalizeActivatedHandoff(domain) },
+			{ synchronized(descriptorOwnershipAdmissionLock) { pendingDescriptorOwners.finalizeActivatedHandoff(domain) } },
+			{ synchronized(descriptorOwnershipAdmissionLock) { descriptorRequestOwnership.finalizeActivatedHandoff(domain) } },
+			{ persistentStore?.finalizeActivatedHandoff(domain) ?: ReaderPortCommandResult.Accepted },
+			{ rasterCache?.finalizeActivatedHandoff(domain) ?: ReaderPortCommandResult.Accepted },
+			{ rasterScheduler?.finalizeActivatedHandoff(domain) ?: ReaderPortCommandResult.Accepted },
+			{ rasterGenerationAndPersistenceOwnership.finalizeActivatedHandoff(domain) },
+			{ synchronized(teardownOwnershipLock) { teardownOwnership.finalizeActivatedHandoff(domain) } }
+		)) {
+			val result = finalize()
+			if (result != ReaderPortCommandResult.Accepted) return result
+		}
+		val retained = frozenSnapshotCacheEntries.values.toList()
+		frozenSnapshotCacheEntries.clear()
+		for (restart in retained) {
+			snapshotCacheTokens.remove(restart.snapshot)
+			restart.snapshot.release()
+		}
+		synchronized(rasterInitializationFenceLock) {
+			rasterInitializationRestarts.clear()
+			rasterPersistenceRequests.clear()
+		}
+		return ReaderPortCommandResult.Accepted
+	}
+
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult {
-		if (frozenSnapshotCacheDomain != domain || closed) return invalidRestorationResource()
+		if (legacyFinalized || frozenSnapshotCacheDomain != domain || closed) return invalidRestorationResource()
 		val progressDomain = restorationProgressDomain
 		if (progressDomain != null && progressDomain != domain) {
 			return invalidRestorationResource()
 		}
 		val activeTokens = snapshotCache.values.map { snapshot ->
-			snapshotCacheTokens[snapshot] ?: return invalidRestorationResource()
+			snapshotCacheTokens[snapshot]?.takeIf { it.work == null }?.token ?: return invalidRestorationResource()
 		}
 		val restartEntriesAreValid = frozenSnapshotCacheEntries.all { (token, restart) ->
 			restart.token == token &&
 				snapshotCache[restart.snapshot.key] == null &&
-				snapshotCacheTokens[restart.snapshot] == token
+				snapshotCacheTokens[restart.snapshot]?.let { it.work == null && it.token == token } == true
 		}
 		if (
 			activeTokens.toSet().size != activeTokens.size ||
@@ -2218,6 +2335,72 @@ internal class ReaderPageTurnBundleSource(
 		return true
 	}
 
+	internal val activatedMaterialDomain: ReaderLegacyPhysicalDomain?
+		get() = frozenSnapshotCacheDomain.takeIf { legacyFinalized && !closed }
+
+	private fun rasterWorkAdmitted(work: ReaderActivatedRasterWork?): Boolean = !closed &&
+		if (work == null) frozenSnapshotCacheDomain == null else
+			activatedMaterialDomain == work.domain && work.isCurrent()
+
+	private fun admitRasterOwner(
+		ownership: ReaderExactPhysicalOwnerRegistry,
+		descriptor: ReaderExactPhysicalOwnerDescriptor,
+		work: ReaderActivatedRasterWork?,
+		cancelPhysical: (() -> Boolean)? = null
+	): ReaderExactPhysicalOwnerRegistry.Owner? = if (work == null)
+		ownership.admit(descriptor, cancelPhysical) else work.admit(ownership, descriptor, cancelPhysical)
+
+	internal fun releaseInstalled(
+		work: ReaderActivatedRasterWork,
+		onReleased: () -> Unit
+	): ReaderPortCommandResult {
+		if (!legacyFinalized || frozenSnapshotCacheDomain != work.domain) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		}
+		work.retire()
+		return work.bundleReturn.request(
+			actions = listOf(
+				{ returned -> hydrationScheduler.releaseInstalled(work, returned) },
+				{ returned -> publicationScheduler.releaseInstalled(work, returned) },
+				{ returned -> rasterGenerationAndPersistenceOwnership.releaseInstalledPhysicalOwners(work, returned) },
+				{ returned -> hydrationOwnership.releaseInstalledPhysicalOwners(work, returned) },
+				{ returned -> descriptorRequestOwnership.releaseInstalledPhysicalOwners(work, returned) },
+				{ returned -> bitmapSource.releaseInstalledCapture(work, returned) },
+				{ returned -> pendingDescriptorOwners.releaseInstalled(work, returned) },
+				{ returned -> publicationLedger.releaseInstalled(work, returned) }
+			),
+			retryableAggregates = setOf(2, 3, 4)
+		) {
+			val finish = {
+				dispatchToMain {
+					snapshotCache.entries.filter { snapshotCacheTokens[it.value]?.work === work }
+						.map { it.key to it.value }.forEach { (key, snapshot) ->
+							removeCachedSnapshot(key, snapshot)?.releaseCacheOwnership()
+						}
+					onReleased()
+				}
+			}
+			// Persistent store/cache retirement follows the original worker and query returns.
+			val store = persistentStore
+			if (store == null) finish() else store.releaseInstalled(work, finish)
+		}
+	}
+
+	internal fun reserveActivatedRasterGeneration(
+		command: paige.navic.reader.ReaderTransitionCommand.AllocateMaterialBinding,
+		domain: ReaderLegacyPhysicalDomain
+	): Long? {
+		if (Looper.myLooper() != Looper.getMainLooper() || activatedMaterialDomain != domain ||
+			command.transitionId.readerSessionGeneration != domain.readerSessionGeneration ||
+			activatedMaterialCommand?.transitionId == command.transitionId) return null
+		return synchronized(closeFenceLock) {
+			if (closed) return@synchronized null
+			activeGeneration = Math.incrementExact(activeGeneration)
+			activatedMaterialCommand = command
+			activeGeneration
+		}
+	}
+
 	fun currentGeneration(): Long = activeGeneration
 
 	fun resolvePassiveRasterTarget(
@@ -2228,9 +2411,10 @@ internal class ReaderPageTurnBundleSource(
 		rasterDescriptor: ReaderPageRasterDescriptor,
 		persistentOnly: Boolean = false,
 		isStillCurrent: () -> Boolean,
+		work: ReaderActivatedRasterWork? = null,
 		onResolved: (ReaderPageRasterPublicationCompletion?) -> Unit
 	): ReaderPageRasterHydrationRequest {
-		if (closed || frozenSnapshotCacheDomain != null) {
+		if (!rasterWorkAdmitted(work)) {
 			onResolved(null)
 			return ReaderPageRasterHydrationRequest { }
 		}
@@ -2244,7 +2428,7 @@ internal class ReaderPageTurnBundleSource(
 		}
 		val physicalLayout = readerPageRasterPhysicalLayout(reference)
 		val physicalLayoutEpoch = physicalLayout?.let { layout ->
-			admitPhysicalLayout(kind, layout)
+			admitPhysicalLayout(kind, layout, work)
 		}
 		if (
 			physicalLayout == null ||
@@ -2287,7 +2471,8 @@ internal class ReaderPageTurnBundleSource(
 				ensurePersistentSnapshot(
 					snapshot = snapshot,
 					priority = priority,
-					isStillCurrent = isStillCurrent
+					isStillCurrent = isStillCurrent,
+					work = work
 				) { completion ->
 					snapshot.release()
 					onResolved(completion)
@@ -2301,7 +2486,8 @@ internal class ReaderPageTurnBundleSource(
 				kind = kind,
 				physicalLayout = physicalLayout,
 				exactDescriptor = rasterDescriptor,
-				publicationFence = isStillCurrent
+				publicationFence = isStillCurrent,
+				work = work
 			) { snapshot ->
 				onHydrated(
 					snapshot?.let { hydrated ->
@@ -2319,6 +2505,7 @@ internal class ReaderPageTurnBundleSource(
 			kind = kind,
 			reference = reference,
 			publicationFence = isStillCurrent,
+			work = work,
 			onHydrated = onHydrated
 		)
 	}
@@ -2333,6 +2520,7 @@ internal class ReaderPageTurnBundleSource(
 		preparationGeneration: Long = 0L,
 		isPreparationGenerationCurrent: (Long) -> Boolean = { true },
 		isStillCurrent: () -> Boolean,
+		work: ReaderActivatedRasterWork? = null,
 		onRejected: (ReaderPassiveRasterRejection) -> Unit = {},
 		onPublished: (ReaderPageRasterPublicationCompletion) -> Unit
 	) {
@@ -2398,7 +2586,7 @@ internal class ReaderPageTurnBundleSource(
 				)
 		}
 		if (
-			closed ||
+			!rasterWorkAdmitted(work) ||
 			pageIndex != inputs.visualPageOrdinal ||
 			!generationIsCurrent ||
 			!runCatching {
@@ -2457,13 +2645,14 @@ internal class ReaderPageTurnBundleSource(
 			priority = priority,
 			expectedDescriptor = inputs.rasterDescriptor,
 			publicationDescriptor = publicationDescriptor,
-			isStillCurrent = isStillCurrent
+			isStillCurrent = isStillCurrent,
+			work = work
 		) { completion ->
 			val preparationCurrent = runCatching {
 				isPreparationGenerationCurrent(preparationGeneration)
 			}.getOrDefault(false)
 			val publicationCurrent =
-				frozenSnapshotCacheDomain == null &&
+				rasterWorkAdmitted(work) &&
 					generation == activeGeneration &&
 					physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get() &&
 					preparationCurrent &&
@@ -2476,7 +2665,8 @@ internal class ReaderPageTurnBundleSource(
 					snapshot = snapshot,
 					priority = priority,
 					persist = false,
-					exactRasterIdentity = exactRasterIdentity
+					exactRasterIdentity = exactRasterIdentity,
+					work = work
 				)
 				markCachedSnapshotDurable(cached)
 				onPublished(completion)
@@ -2565,12 +2755,15 @@ internal class ReaderPageTurnBundleSource(
 
 	fun retainedReferenceSnapshot(
 		preferredPageIndex: Int,
-		kind: ReaderPageTurnTransitionKind
+		kind: ReaderPageTurnTransitionKind,
+		work: ReaderActivatedRasterWork? = null
 	): ReaderPageSlideSnapshot? {
-		if (closed || frozenSnapshotCacheDomain != null) return null
+		if (!rasterWorkAdmitted(work)) return null
 		return (
-			cachedSnapshot(preferredPageIndex, kind)
-				?: snapshotCache.entries.lastOrNull { (key, _) -> key.kind == kind }?.value
+			cachedSnapshot(preferredPageIndex, kind, work = work)
+				?: snapshotCache.entries.lastOrNull { (key, snapshot) ->
+					key.kind == kind && snapshotCacheTokens[snapshot]?.work === work
+				}?.value
 		).also { snapshot -> snapshot?.retain() }
 	}
 
@@ -2655,8 +2848,9 @@ internal class ReaderPageTurnBundleSource(
 	private fun retainedSnapshot(
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
-		reference: ReaderPageSlideSnapshot
-	): ReaderPageSlideSnapshot? = cachedSnapshot(pageIndex, kind, reference)
+		reference: ReaderPageSlideSnapshot,
+		work: ReaderActivatedRasterWork? = null
+	): ReaderPageSlideSnapshot? = cachedSnapshot(pageIndex, kind, reference, work)
 		?.also { snapshot -> snapshot.retain() }
 
 	fun cachedSnapshotPageIndices(kind: ReaderPageTurnTransitionKind): List<Int> =
@@ -2678,20 +2872,45 @@ internal class ReaderPageTurnBundleSource(
 		captureGeometry: ReaderPageTurnCaptureGeometry?,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
 	) {
+		captureSurfaceOwned(webView, generation, captureGeometry, null, onCaptured)
+	}
+
+	fun captureInstalledSurface(
+		webView: WebView,
+		captureGeometry: ReaderPageTurnCaptureGeometry,
+		work: ReaderActivatedRasterWork,
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
+	): Boolean = captureSurfaceOwned(webView, work.lease.rasterGeneration, captureGeometry, work, onCaptured)
+
+	private fun captureSurfaceOwned(
+		webView: WebView,
+		generation: Long,
+		captureGeometry: ReaderPageTurnCaptureGeometry?,
+		work: ReaderActivatedRasterWork?,
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
+	): Boolean {
+		if (!rasterWorkAdmitted(work)) {
+			onCaptured(null)
+			return false
+		}
 		activeWebView = WeakReference(webView)
 		val publishResult: (ReaderPageTurnCaptureResult?) -> Unit = { result ->
-			if (generation != activeGeneration) {
+			if (generation != activeGeneration || !rasterWorkAdmitted(work)) {
 				result?.bitmap?.takeUnless { it.isRecycled }?.recycle()
 				onCaptured(null)
 			} else {
 				onCaptured(result)
 			}
 		}
+		if (work != null) {
+			return bitmapSource.captureInstalledSurface(webView, checkNotNull(captureGeometry), work, publishResult)
+		}
 		if (captureGeometry == null) {
 			bitmapSource.captureSurface(webView, publishResult)
 		} else {
 			bitmapSource.captureSurface(webView, captureGeometry, publishResult)
 		}
+		return true
 	}
 
 	suspend fun resolveSnapshot(
@@ -2699,10 +2918,11 @@ internal class ReaderPageTurnBundleSource(
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
-		publicationFence: () -> Boolean
+		publicationFence: () -> Boolean,
+		work: ReaderActivatedRasterWork? = null
 	): ReaderPageSlideSnapshot? = withContext(Dispatchers.Main.immediate) {
-		if (!runCatching(publicationFence).getOrDefault(false)) return@withContext null
-		retainedSnapshot(pageIndex, kind, reference)?.let { retained ->
+		if (!rasterWorkAdmitted(work) || !runCatching(publicationFence).getOrDefault(false)) return@withContext null
+		retainedSnapshot(pageIndex, kind, reference, work)?.let { retained ->
 			return@withContext suspendCancellableCoroutine { continuation ->
 				continuation.resume(
 					retained,
@@ -2717,7 +2937,8 @@ internal class ReaderPageTurnBundleSource(
 				pageIndex = pageIndex,
 				kind = kind,
 				reference = reference,
-				publicationFence = publicationFence
+				publicationFence = publicationFence,
+				work = work
 			) { hydrated ->
 				if (continuation.isActive) {
 					continuation.resume(
@@ -2738,13 +2959,15 @@ internal class ReaderPageTurnBundleSource(
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
 		publicationFence: () -> Boolean = { true },
+		work: ReaderActivatedRasterWork? = null,
 		onHydrated: (ReaderPageSlideSnapshot?) -> Unit
 	): ReaderPageRasterHydrationRequest = hydrateSnapshotWithDurability(
 		webView = webView,
 		pageIndex = pageIndex,
 		kind = kind,
 		reference = reference,
-		publicationFence = publicationFence
+		publicationFence = publicationFence,
+		work = work
 	) { result -> onHydrated(result?.snapshot) }
 
 	fun hydrateSnapshotWithDurability(
@@ -2753,14 +2976,15 @@ internal class ReaderPageTurnBundleSource(
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
 		publicationFence: () -> Boolean = { true },
+		work: ReaderActivatedRasterWork? = null,
 		onHydrated: (ReaderPageRasterHydrationResult?) -> Unit
 	): ReaderPageRasterHydrationRequest {
-		if (closed || frozenSnapshotCacheDomain != null) {
+		if (!rasterWorkAdmitted(work)) {
 			onHydrated(null)
 			return ReaderPageRasterHydrationRequest { }
 		}
 		activeWebView = WeakReference(webView)
-		retainedSnapshot(pageIndex, kind, reference)?.let { retained ->
+		retainedSnapshot(pageIndex, kind, reference, work)?.let { retained ->
 			deliverHydrationResult(
 				callback = { snapshot ->
 					onHydrated(
@@ -2793,6 +3017,7 @@ internal class ReaderPageTurnBundleSource(
 				return ReaderPageRasterHydrationRequest { }
 			},
 			publicationFence = publicationFence,
+			work = work,
 			onHydrated = { snapshot ->
 				onHydrated(
 					snapshot?.let { hydrated ->
@@ -2814,23 +3039,30 @@ internal class ReaderPageTurnBundleSource(
 		physicalLayout: ReaderPageRasterPhysicalLayout,
 		exactDescriptor: ReaderPageRasterDescriptor? = null,
 		publicationFence: () -> Boolean,
+		work: ReaderActivatedRasterWork? = null,
 		onHydrated: (ReaderPageSlideSnapshot?) -> Unit
 	): ReaderPageRasterHydrationRequest {
+		if (!rasterWorkAdmitted(work)) {
+			onHydrated(null)
+			return ReaderPageRasterHydrationRequest { }
+		}
 		val recipientToken = Math.incrementExact(nextHydrationToken)
 		nextHydrationToken = recipientToken
 		val recipient = ReaderPageRasterHydrationRecipient(
 			token = recipientToken,
 			exactRasterIdentity = exactDescriptor?.key(bitmapQuality)?.identity,
 			publicationFence = publicationFence,
-			callback = onHydrated
+			callback = onHydrated,
+			work = work
 		)
 		val recipientOwner = synchronized(descriptorOwnershipAdmissionLock) {
-			descriptorRequestOwnership.admit(
+			admitRasterOwner(
+				descriptorRequestOwnership,
 				ReaderExactPhysicalOwnerDescriptor(
 					kind = ReaderTransitionResourceKind.CallbackRegistration,
 					origin = ReaderLegacyResourceOrigin.Pending,
 					state = ReaderLegacyResourceState.Registered
-				),
+				), work,
 				cancelPhysical = {
 					dispatchToMain { cancelHydrationRecipient(recipientToken) }
 					true
@@ -2843,7 +3075,7 @@ internal class ReaderPageTurnBundleSource(
 			onHydrated(null)
 			return ReaderPageRasterHydrationRequest { }
 		}
-		val physicalLayoutEpoch = admitPhysicalLayout(kind, physicalLayout) ?: run {
+		val physicalLayoutEpoch = admitPhysicalLayout(kind, physicalLayout, work) ?: run {
 			completeDescriptorRecipient(recipient)
 			onHydrated(null)
 			return ReaderPageRasterHydrationRequest { }
@@ -2855,7 +3087,8 @@ internal class ReaderPageTurnBundleSource(
 			kind = kind,
 			physicalLayout = physicalLayout,
 			physicalLayoutEpoch = physicalLayoutEpoch,
-			exactRasterIdentity = exactDescriptor?.key(bitmapQuality)?.identity
+			exactRasterIdentity = exactDescriptor?.key(bitmapQuality)?.identity,
+			work = work
 		)
 		val existing = synchronized(descriptorOwnershipAdmissionLock) {
 			if (descriptorPhysicalRecipients[recipientToken] !== recipient) {
@@ -2871,19 +3104,27 @@ internal class ReaderPageTurnBundleSource(
 				}) {
 				return ReaderPageRasterHydrationRequest { }
 			}
+			if (synchronized(descriptorOwnershipAdmissionLock) {
+					descriptorRequests.size >= ReaderPageMaximumPublicationCallbacks
+				}) {
+				completeDescriptorRecipient(recipient)
+				onHydrated(null)
+				return ReaderPageRasterHydrationRequest { }
+			}
 			val descriptorToken = Math.incrementExact(nextHydrationToken)
 			nextHydrationToken = descriptorToken
 			val requestOwner = synchronized(descriptorOwnershipAdmissionLock) {
-				descriptorRequestOwnership.admit(
+				admitRasterOwner(
+					descriptorRequestOwnership,
 					ReaderExactPhysicalOwnerDescriptor(
 						kind = ReaderTransitionResourceKind.Raster,
 						origin = ReaderLegacyResourceOrigin.Pending,
 						state = ReaderLegacyResourceState.Reserved
-					),
-					cancelPhysical = {
+					), work,
+					cancelPhysical = if (work != null) null else { {
 						dispatchToMain { cancelDescriptorRequest(descriptorToken) }
 						true
-					}
+					} }
 				)
 			} ?: run {
 				completeDescriptorRecipient(recipient)
@@ -2948,15 +3189,41 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	private fun cancelDescriptorRequest(requestToken: Long) {
-		val request = synchronized(descriptorOwnershipAdmissionLock) {
-			val removed = descriptorRequests.remove(requestToken) ?: return@synchronized null
-			descriptorRequestTokens[removed.identity]
+		val cancellation = synchronized(descriptorOwnershipAdmissionLock) {
+			val request = descriptorRequests[requestToken] ?: return@synchronized null
+			descriptorRequestTokens[request.identity]
 				?.takeIf { token -> token == requestToken }
-				?.let { descriptorRequestTokens.remove(removed.identity) }
-			removed
+				?.let { descriptorRequestTokens.remove(request.identity) }
+			val recipients = request.recipients.values.toList()
+			request.recipients.clear()
+			request to recipients
 		} ?: return
-		request.recipients.values.forEach(::completeDescriptorRecipient)
-		completeDescriptorRequest(request)
+		cancellation.second.forEach(::completeDescriptorRecipient)
+		cancellation.first.onLogicalCancellation?.invoke()
+		// evaluateJavascript has no physical cancellation acknowledgement. Keep the original
+		// request row until its actual callback or destruction of its exact original Engine.
+	}
+
+	internal fun onOriginalEngineDestroyed(webView: WebView) {
+		check(Looper.myLooper() == Looper.getMainLooper())
+		val destroyed = synchronized(descriptorOwnershipAdmissionLock) {
+			descriptorRequests.values.filter { it.webView.get() === webView }.also { requests ->
+				requests.forEach { request ->
+					descriptorRequests.remove(request.token)
+					if (descriptorRequestTokens[request.identity] == request.token)
+						descriptorRequestTokens.remove(request.identity)
+				}
+			}
+		}
+		destroyed.forEach { request ->
+			try {
+				request.recipients.values.toList().forEach(::completeDescriptorRecipient)
+				request.recipients.clear()
+				request.onLogicalCancellation?.invoke()
+			} finally {
+				completeDescriptorRequest(request)
+			}
+		}
 	}
 
 	private fun takeHydrationRecipientForFinalization(
@@ -3051,7 +3318,7 @@ internal class ReaderPageTurnBundleSource(
 			request.identity.exactRasterIdentity?.let { exact ->
 				key.identity != exact
 			} == true ||
-			closed ||
+			!rasterWorkAdmitted(request.identity.work) ||
 			request.identity.generation != activeGeneration ||
 			request.identity.quality != bitmapQuality ||
 			request.identity.physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get() ||
@@ -3081,7 +3348,8 @@ internal class ReaderPageTurnBundleSource(
 			rasterIdentity = key.identity,
 			kind = request.identity.kind,
 			physicalLayout = request.identity.physicalLayout,
-			physicalLayoutEpoch = request.identity.physicalLayoutEpoch
+			physicalLayoutEpoch = request.identity.physicalLayoutEpoch,
+			work = request.identity.work
 		)
 		val existingHydration = synchronized(hydrationOwnershipAdmissionLock) {
 			inFlightRasterHydrations[hydrationIdentity]
@@ -3093,12 +3361,13 @@ internal class ReaderPageTurnBundleSource(
 		if (existingHydration != null) {
 			val admitted = synchronized(hydrationOwnershipAdmissionLock) {
 				currentRecipients.filter { recipient ->
-					val owner = hydrationOwnership.admit(
+					val owner = admitRasterOwner(
+						hydrationOwnership,
 						ReaderExactPhysicalOwnerDescriptor(
 							kind = ReaderTransitionResourceKind.CallbackRegistration,
 							origin = ReaderLegacyResourceOrigin.Pending,
 							state = ReaderLegacyResourceState.Registered
-						),
+						), recipient.work,
 						cancelPhysical = {
 							dispatchToMain { cancelHydrationRecipient(recipient.token) }
 							true
@@ -3126,11 +3395,12 @@ internal class ReaderPageTurnBundleSource(
 		val hydrationToken = Math.incrementExact(nextHydrationToken)
 		nextHydrationToken = hydrationToken
 		val hydration = synchronized(hydrationOwnershipAdmissionLock) {
-			val hydrationOwner = hydrationOwnership.admit(
+			val hydrationOwner = admitRasterOwner(
+				hydrationOwnership,
 				ReaderExactPhysicalOwnerDescriptor(
 					kind = ReaderTransitionResourceKind.Raster,
 					state = ReaderLegacyResourceState.Running
-				),
+				), request.identity.work,
 				cancelPhysical = {
 					dispatchToMain { cancelHydrationWorker(hydrationToken) }
 					true
@@ -3138,12 +3408,13 @@ internal class ReaderPageTurnBundleSource(
 			) ?: return@synchronized null
 			val admittedRecipients = currentRecipients.map { recipient ->
 				val owner = checkNotNull(
-					hydrationOwnership.admit(
+					admitRasterOwner(
+						hydrationOwnership,
 						ReaderExactPhysicalOwnerDescriptor(
 							kind = ReaderTransitionResourceKind.CallbackRegistration,
 							origin = ReaderLegacyResourceOrigin.Pending,
 							state = ReaderLegacyResourceState.Registered
-						),
+						), recipient.work,
 						cancelPhysical = {
 							dispatchToMain { cancelHydrationRecipient(recipient.token) }
 							true
@@ -3178,7 +3449,11 @@ internal class ReaderPageTurnBundleSource(
 		currentRecipients.forEach(::completeDescriptorRecipient)
 		cacheRasterDescriptor(request.identity, descriptor)
 		stageEncodedWindowProtection(key.profile)
-		val job = hydrationScheduler.schedule { runPersistentHydration(hydration) }
+		val job = hydration.identity.work?.let { work ->
+			hydrationScheduler.scheduleInstalled(work) { runPersistentHydration(hydration) }
+		} ?: if (hydration.identity.work == null) {
+			hydrationScheduler.schedule { runPersistentHydration(hydration) }
+		} else null
 		if (job == null) {
 			val removed = synchronized(hydrationOwnershipAdmissionLock) {
 				if (inFlightRasterHydrations[hydrationIdentity] === hydration) {
@@ -3237,7 +3512,7 @@ internal class ReaderPageTurnBundleSource(
 		try {
 			if (!isHydrationCurrent(hydration)) return
 			val webView = hydration.webView.get() ?: return
-			raster = readPersistentRaster(webView, hydration.key)
+			raster = readPersistentRaster(webView, hydration.key, hydration.identity.work)
 			if (!isHydrationCurrent(hydration)) return
 			val value = raster ?: return
 			if (value.key.identity != hydration.key.identity) return
@@ -3285,8 +3560,7 @@ internal class ReaderPageTurnBundleSource(
 					}
 					hydration.recipients.values.toList()
 				} ?: return@withContext
-				val sourceCurrent = !closed &&
-					frozenSnapshotCacheDomain == null &&
+				val sourceCurrent = rasterWorkAdmitted(hydration.identity.work) &&
 					hydration.generation == activeGeneration &&
 					hydration.quality == bitmapQuality &&
 					hydration.identity.physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get() &&
@@ -3307,7 +3581,7 @@ internal class ReaderPageTurnBundleSource(
 				}
 				if (
 					eligible.isEmpty() ||
-					frozenSnapshotCacheDomain != null ||
+					!rasterWorkAdmitted(hydration.identity.work) ||
 					!isHydrationCurrent(hydration)
 				) {
 					return@withContext
@@ -3342,7 +3616,8 @@ internal class ReaderPageTurnBundleSource(
 						priority = ReaderPageRasterPriority.NextTransition,
 						persist = false,
 						exactRasterIdentity = exactRasterIdentity,
-						recipientRetainCount = eligible.size
+						recipientRetainCount = eligible.size,
+						work = hydration.identity.work
 					)
 				} catch (failure: Throwable) {
 					snapshot.releaseCacheOwnership()
@@ -3401,11 +3676,12 @@ internal class ReaderPageTurnBundleSource(
 
 	private suspend fun readPersistentRaster(
 		webView: WebView,
-		key: ReaderPageRasterKey
+		key: ReaderPageRasterKey,
+		work: ReaderActivatedRasterWork? = null
 	): ReaderPageRaster<Bitmap>? {
 		val injectedStore = hydrationStorePort
 		val productionStore = if (injectedStore == null) {
-			val scheduler = rasterScheduler(webView)
+			val scheduler = rasterScheduler(webView, work = work)
 			scheduler.activateProfile(key.profile)
 			persistentStore
 		} else {
@@ -3418,6 +3694,10 @@ internal class ReaderPageTurnBundleSource(
 				try {
 					result = if (injectedStore != null) {
 						injectedStore.readCopy(key)
+					} else if (work != null) {
+						productionStore?.readInstalledCopy(key, work) { cached ->
+							cached.copy(Bitmap.Config.ARGB_8888, false)
+						}
 					} else {
 						productionStore?.readCopy(key) { cached ->
 							cached.copy(Bitmap.Config.ARGB_8888, false)
@@ -3446,7 +3726,7 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	private fun isHydrationCurrent(hydration: InFlightRasterHydration): Boolean =
-		!closed &&
+		rasterWorkAdmitted(hydration.identity.work) &&
 			hydration.generation == activeGeneration &&
 			hydration.quality == bitmapQuality &&
 			hydration.identity.physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get() &&
@@ -3457,18 +3737,16 @@ internal class ReaderPageTurnBundleSource(
 
 	private fun cancelHydrationRecipient(recipientToken: Long) {
 		var descriptorRecipient: ReaderPageRasterHydrationRecipient? = null
-		var emptyDescriptorRequest: ReaderPageRasterDescriptorRequest? = null
 		synchronized(descriptorOwnershipAdmissionLock) {
 			descriptorRequests.values.firstOrNull { request ->
 				recipientToken in request.recipients
 			}?.let { request ->
 				descriptorRecipient = request.recipients.remove(recipientToken)
 				if (request.recipients.isEmpty()) {
-					descriptorRequests.remove(request.token)
+					// Empty logical demand does not return an outstanding JavaScript query.
 					descriptorRequestTokens[request.identity]
 						?.takeIf { token -> token == request.token }
 						?.let { descriptorRequestTokens.remove(request.identity) }
-					emptyDescriptorRequest = request
 				}
 			}
 			if (descriptorRecipient == null) {
@@ -3476,7 +3754,6 @@ internal class ReaderPageTurnBundleSource(
 			}
 		}
 		descriptorRecipient?.let(::completeDescriptorRecipient)
-		emptyDescriptorRequest?.let(::completeDescriptorRequest)
 		if (descriptorRecipient != null) return
 		var hydrationRecipient: ReaderPageRasterHydrationRecipient? = null
 		var emptyHydration: InFlightRasterHydration? = null
@@ -4153,13 +4430,14 @@ internal class ReaderPageTurnBundleSource(
 		kind: ReaderPageTurnTransitionKind,
 		current: ReaderPageTurnCaptureResult,
 		generation: Long = activeGeneration,
-		persist: Boolean = true
+		persist: Boolean = true,
+		work: ReaderActivatedRasterWork? = null
 	): ReaderPageSlideSnapshot? {
-		if (closed || frozenSnapshotCacheDomain != null) {
+		if (!rasterWorkAdmitted(work)) {
 			current.bitmap.takeUnless { it.isRecycled }?.recycle()
 			return null
 		}
-		return cacheSnapshot(pageIndex, kind, current, generation, persist)
+		return cacheSnapshot(pageIndex, kind, current, generation, persist, work)
 	}
 
 	fun ensurePersistentSnapshot(
@@ -4167,6 +4445,7 @@ internal class ReaderPageTurnBundleSource(
 		priority: ReaderPageRasterPriority,
 		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
+		work: ReaderActivatedRasterWork? = null,
 		onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit
 	) {
 		persistCachedSnapshot(
@@ -4174,6 +4453,7 @@ internal class ReaderPageTurnBundleSource(
 			priority = priority,
 			mutationGeneration = mutationGeneration,
 			isStillCurrent = isStillCurrent,
+			work = work,
 			onPersisted = onPersisted
 		)
 	}
@@ -4183,9 +4463,10 @@ internal class ReaderPageTurnBundleSource(
 		kind: ReaderPageTurnTransitionKind,
 		current: ReaderPageTurnCaptureResult,
 		generation: Long,
-		persist: Boolean = true
+		persist: Boolean = true,
+		work: ReaderActivatedRasterWork? = null
 	): ReaderPageSlideSnapshot? {
-		if (generation != activeGeneration) {
+		if (generation != activeGeneration || !rasterWorkAdmitted(work)) {
 			current.bitmap.takeUnless { it.isRecycled }?.recycle()
 			return null
 		}
@@ -4214,22 +4495,25 @@ internal class ReaderPageTurnBundleSource(
 		return putSnapshot(
 			snapshot = snapshot,
 			priority = ReaderPageRasterPriority.Current,
-			persist = persist
+			persist = persist,
+			work = work
 		)
 	}
 
 	private fun cachedSnapshot(
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
-		reference: ReaderPageSlideSnapshot? = null
+		reference: ReaderPageSlideSnapshot? = null,
+		work: ReaderActivatedRasterWork? = null
 	): ReaderPageSlideSnapshot? {
-		if (closed || frozenSnapshotCacheDomain != null) return null
+		if (!rasterWorkAdmitted(work)) return null
 		val referenceLayout = reference?.let(::readerPageRasterPhysicalLayout)
 		if (reference != null && referenceLayout == null) return null
-		if (referenceLayout != null && admitPhysicalLayout(kind, referenceLayout) == null) return null
+		if (referenceLayout != null && admitPhysicalLayout(kind, referenceLayout, work) == null) return null
 		return snapshotCache.entries
 			.lastOrNull { (key, snapshot) ->
 				key.visualPageIndex == pageIndex &&
+					snapshotCacheTokens[snapshot]?.work === work &&
 					key.kind == kind &&
 					(reference == null || readerPageRasterPhysicalLayoutMatches(snapshot, reference))
 			}
@@ -4241,9 +4525,10 @@ internal class ReaderPageTurnBundleSource(
 
 	private fun admitPhysicalLayout(
 		kind: ReaderPageTurnTransitionKind,
-		layout: ReaderPageRasterPhysicalLayout
+		layout: ReaderPageRasterPhysicalLayout,
+		work: ReaderActivatedRasterWork? = null
 	): Long? {
-		if (closed || frozenSnapshotCacheDomain != null) return null
+		if (!rasterWorkAdmitted(work)) return null
 		physicalLayoutAuthority?.let { authority ->
 			return authority.epoch.takeIf {
 				authority.kind == kind && layout.matches(authority.layout)
@@ -4309,13 +4594,15 @@ internal class ReaderPageTurnBundleSource(
 		priority: ReaderPageRasterPriority,
 		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
+		work: ReaderActivatedRasterWork? = null,
 		onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit
 	) {
 		schedulePersistentSnapshot(
 			snapshot = snapshot,
 			priority = priority,
 			mutationGeneration = mutationGeneration,
-			isStillCurrent = isStillCurrent
+			isStillCurrent = isStillCurrent,
+			work = work
 		) { completion ->
 			if (!runCatching(isStillCurrent).getOrDefault(false)) return@schedulePersistentSnapshot
 			if (completion.result == ReaderPageRasterPublicationResult.Durable) {
@@ -4350,9 +4637,10 @@ internal class ReaderPageTurnBundleSource(
 		recipientRetainCount: Int = 0,
 		mutationGeneration: ReaderForegroundWebViewMutationGeneration? = null,
 		isStillCurrent: () -> Boolean = { true },
+		work: ReaderActivatedRasterWork? = null,
 		onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit = {}
 	): ReaderPageSlideSnapshot {
-		check(!closed && frozenSnapshotCacheDomain == null) {
+		check(rasterWorkAdmitted(work)) {
 			"Cannot admit snapshot cache ownership after lifecycle admission closes"
 		}
 		val physicalLayout = checkNotNull(readerPageRasterPhysicalLayout(snapshot))
@@ -4360,16 +4648,16 @@ internal class ReaderPageTurnBundleSource(
 			"Cannot cache a page snapshot outside the active physical layout"
 		}
 		snapshotCache[snapshot.key]?.let { cached ->
-			val mayReuse = cached === snapshot ||
+			val mayReuse = snapshotCacheTokens[cached]?.work === work && (cached === snapshot ||
 				exactRasterIdentity == null ||
-				snapshotExactRasterIdentities[cached] == exactRasterIdentity
+				snapshotExactRasterIdentities[cached] == exactRasterIdentity)
 			if (mayReuse) {
 				retainSnapshotForRecipients(cached, recipientRetainCount)
 				try {
 					if (cached === snapshot) {
 						snapshotCacheTokens.putIfAbsent(
 							cached,
-							snapshotCacheOwnershipTokenAllocator.allocate()
+							SnapshotCustody(snapshotCacheOwnershipTokenAllocator.allocate(), work)
 						)
 						exactRasterIdentity?.let { identity ->
 							snapshotExactRasterIdentities[cached] = identity
@@ -4383,6 +4671,7 @@ internal class ReaderPageTurnBundleSource(
 							priority = priority,
 							mutationGeneration = mutationGeneration,
 							isStillCurrent = isStillCurrent,
+							work = work,
 							onPersisted = onPersisted
 						)
 					}
@@ -4397,7 +4686,7 @@ internal class ReaderPageTurnBundleSource(
 		retainSnapshotForRecipients(snapshot, recipientRetainCount)
 		try {
 			snapshotCache[snapshot.key] = snapshot
-			snapshotCacheTokens[snapshot] = snapshotCacheOwnershipTokenAllocator.allocate()
+			snapshotCacheTokens[snapshot] = SnapshotCustody(snapshotCacheOwnershipTokenAllocator.allocate(), work)
 			exactRasterIdentity?.let { identity ->
 				snapshotExactRasterIdentities[snapshot] = identity
 			}
@@ -4409,6 +4698,7 @@ internal class ReaderPageTurnBundleSource(
 					priority = priority,
 					mutationGeneration = mutationGeneration,
 					isStillCurrent = isStillCurrent,
+					work = work,
 					onPersisted = onPersisted
 				)
 			}
@@ -4441,12 +4731,13 @@ internal class ReaderPageTurnBundleSource(
 		expectedDescriptor: ReaderPageRasterDescriptor? = null,
 		publicationDescriptor: ReaderPageRasterDescriptor? = null,
 		isStillCurrent: () -> Boolean = { true },
+		work: ReaderActivatedRasterWork? = null,
 		onPersisted: (ReaderPageRasterPublicationCompletion) -> Unit = {}
 	) {
 		val failedCompletion = ReaderPageRasterPublicationCompletion(
 			ReaderPageRasterPublicationResult.Failed
 		)
-		if (!runCatching(isStillCurrent).getOrDefault(false)) {
+		if (!rasterWorkAdmitted(work) || !runCatching(isStillCurrent).getOrDefault(false)) {
 			onPersisted(failedCompletion)
 			return
 		}
@@ -4480,9 +4771,17 @@ internal class ReaderPageTurnBundleSource(
 			onPersisted(failedCompletion)
 			return
 		}
-		val descriptorOwner = pendingDescriptorOwners.acquire(snapshot) {
+		if (synchronized(descriptorOwnershipAdmissionLock) {
+				descriptorRequests.size >= ReaderPageMaximumPublicationCallbacks
+			}) {
+			onPersisted(ReaderPageRasterPublicationCompletion(ReaderPageRasterPublicationResult.CapacityReached))
+			return
+		}
+		val descriptorOwner = (if (work == null) pendingDescriptorOwners.acquire(snapshot) {
 			onPersisted(failedCompletion)
-		} ?: run {
+		} else pendingDescriptorOwners.acquireInstalled(snapshot, work) {
+			onPersisted(failedCompletion)
+		}) ?: run {
 			rasterPersistenceSkipped(
 				pageIndex,
 				"bundle-source-closed",
@@ -4491,6 +4790,26 @@ internal class ReaderPageTurnBundleSource(
 			onPersisted(failedCompletion)
 			return
 		}
+		val queryToken = Math.incrementExact(nextHydrationToken).also { nextHydrationToken = it }
+		val queryOwner = admitRasterOwner(descriptorRequestOwnership, ReaderExactPhysicalOwnerDescriptor(
+			kind = ReaderTransitionResourceKind.CallbackRegistration,
+			origin = ReaderLegacyResourceOrigin.Pending,
+			state = ReaderLegacyResourceState.Registered
+		), work, cancelPhysical = { cancelDescriptorRequest(queryToken); true })
+		if (queryOwner == null) {
+			pendingDescriptorOwners.claim(descriptorOwner)?.let(pendingDescriptorOwners::abandon)
+			return
+		}
+		val query = ReaderPageRasterDescriptorRequest(
+			queryToken,
+			ReaderPageRasterDescriptorIdentity(generation, snapshot.key.bitmapQuality, pageIndex,
+				snapshot.key.kind, physicalLayout, physicalLayoutEpoch, work = work),
+			WeakReference(webView), linkedMapOf(), queryOwner,
+			onLogicalCancellation = {
+				pendingDescriptorOwners.claim(descriptorOwner)?.let(pendingDescriptorOwners::abandon)
+			}
+		)
+		synchronized(descriptorOwnershipAdmissionLock) { descriptorRequests[queryToken] = query }
 		val descriptorMethod = if (expectedDescriptor == null) {
 			"pageTurnRasterDescriptor"
 		} else {
@@ -4500,11 +4819,21 @@ internal class ReaderPageTurnBundleSource(
 			webView.evaluateJavascript(
 				"JSON.stringify(window.NavicReaderBridge?.$descriptorMethod?.($pageIndex) ?? null)"
 			) callback@{ encodedDescriptor ->
+				val physicallyReturned = synchronized(descriptorOwnershipAdmissionLock) {
+					if (descriptorRequests[queryToken] !== query) false else {
+						descriptorRequests.remove(queryToken)
+						true
+					}
+				}
+				if (!physicallyReturned) return@callback
 				val claimedOwner = pendingDescriptorOwners.claim(descriptorOwner)
-					?: return@callback
+					?: run {
+						queryOwner?.let(descriptorRequestOwnership::complete)
+						return@callback
+					}
 				try {
 				if (
-					closed ||
+					closed || work?.isCurrent() == false ||
 					!runCatching(isStillCurrent).getOrDefault(false) ||
 					generation != activeGeneration ||
 					physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get()
@@ -4557,6 +4886,7 @@ internal class ReaderPageTurnBundleSource(
 						physicalLayoutEpoch = physicalLayoutEpoch,
 						mutationGeneration = mutationGeneration,
 						isStillCurrent = isStillCurrent,
+						work = work,
 						onPersisted = onPersisted
 					)
 				)
@@ -4569,10 +4899,13 @@ internal class ReaderPageTurnBundleSource(
 				if (admitted) launchRasterPersistenceRequest(request)
 				else onPersisted(failedCompletion)
 			} finally {
-				pendingDescriptorOwners.complete(claimedOwner)
+				try { pendingDescriptorOwners.complete(claimedOwner) }
+				finally { queryOwner?.let(descriptorRequestOwnership::complete) }
 			}
 		}
 		} catch (failure: Throwable) {
+			synchronized(descriptorOwnershipAdmissionLock) { descriptorRequests.remove(queryToken) }
+			descriptorRequestOwnership.complete(queryOwner)
 			val claimedOwner = pendingDescriptorOwners.claim(descriptorOwner)
 				?: return
 			try {
@@ -4600,7 +4933,8 @@ internal class ReaderPageTurnBundleSource(
 		val deliver = synchronized(rasterInitializationFenceLock) {
 			when {
 				request.completed -> false
-				!closed && (frozenSnapshotCacheDomain != null || rasterGenerationAndPersistenceOwnership.isFrozen) -> {
+				request.contract.work == null && !closed &&
+					(frozenSnapshotCacheDomain != null || rasterGenerationAndPersistenceOwnership.isFrozen) -> {
 					request.restartRequired = true
 					false
 				}
@@ -4625,16 +4959,19 @@ internal class ReaderPageTurnBundleSource(
 		val control = ReaderRasterGenerationPersistenceJobControl()
 		val owner = synchronized(rasterInitializationFenceLock) {
 			if (request.completed || request.attemptActive || closed) return
-			if (frozenSnapshotCacheDomain != null || rasterGenerationAndPersistenceOwnership.isFrozen) {
+			if (request.contract.work == null &&
+				(frozenSnapshotCacheDomain != null || rasterGenerationAndPersistenceOwnership.isFrozen)) {
 				request.restartRequired = true
 				return
 			}
-			rasterGenerationAndPersistenceOwnership.admit(
+			admitRasterOwner(
+				rasterGenerationAndPersistenceOwnership,
 				ReaderExactPhysicalOwnerDescriptor(
 					kind = ReaderTransitionResourceKind.Raster,
 					origin = ReaderLegacyResourceOrigin.Pending,
 					state = ReaderLegacyResourceState.Reserved
 				),
+				request.contract.work,
 				control::cancel
 			)?.also {
 				request.attemptActive = true
@@ -4670,7 +5007,7 @@ internal class ReaderPageTurnBundleSource(
 				settle()
 				return
 			}
-			if (!synchronized(rasterInitializationFenceLock) { rasterInitializationIsOpen() }) {
+			if (!synchronized(rasterInitializationFenceLock) { rasterInitializationIsOpen(request.contract.work) }) {
 				settle()
 				return
 			}
@@ -4680,7 +5017,7 @@ internal class ReaderPageTurnBundleSource(
 			val value = ReaderPageRasterGeneration(contract.metadata, bitmap, contract.captureMillis)
 			val launched = rasterScope.launch(start = CoroutineStart.LAZY) {
 				val entered = synchronized(rasterInitializationFenceLock) {
-					rasterInitializationIsOpen() && rasterGenerationAndPersistenceOwnership
+					rasterInitializationIsOpen(request.contract.work) && rasterGenerationAndPersistenceOwnership
 						.updateState(owner, ReaderLegacyResourceState.Running)
 				}
 				if (!entered) return@launch
@@ -4690,7 +5027,7 @@ internal class ReaderPageTurnBundleSource(
 			trackRasterPersistenceJob(launched) { settle() }
 			control.attach(launched)
 			onOwnershipMutated()
-			if (synchronized(rasterInitializationFenceLock) { rasterInitializationIsOpen() }) {
+			if (synchronized(rasterInitializationFenceLock) { rasterInitializationIsOpen(request.contract.work) }) {
 				launched.start()
 			} else {
 				launched.cancel()
@@ -4722,9 +5059,9 @@ internal class ReaderPageTurnBundleSource(
 		val failedCompletion = ReaderPageRasterPublicationCompletion(ReaderPageRasterPublicationResult.Failed)
 		var publicationValueTransferred = false
 		try {
-			val scheduler = rasterScheduler(webView)
+			val scheduler = rasterScheduler(webView, work = contract.work)
 			if (
-				closed ||
+				!rasterWorkAdmitted(contract.work) ||
 				!runCatching(isStillCurrent).getOrDefault(false) ||
 				generation != activeGeneration ||
 				physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get()
@@ -4766,7 +5103,8 @@ internal class ReaderPageTurnBundleSource(
 			val registration = publicationLedger.begin(
 				digest = key.digest,
 				value = value,
-				mutationGeneration = mutationGeneration
+				mutationGeneration = mutationGeneration,
+				work = contract.work
 			) { persisted ->
 				val publicationCompletion = when {
 					persisted -> ReaderPageRasterPublicationCompletion(
@@ -4825,6 +5163,7 @@ internal class ReaderPageTurnBundleSource(
 						physicalLayoutEpoch = physicalLayoutEpoch,
 						persistenceAttemptId = persistenceAttemptId,
 						isStillCurrent = isStillCurrent,
+						work = contract.work,
 						onQaFaultApplied = { correlation ->
 							publicationQaFaultCorrelation = correlation
 						}
@@ -4864,16 +5203,18 @@ internal class ReaderPageTurnBundleSource(
 		physicalLayoutEpoch: Long,
 		persistenceAttemptId: ReaderPagePersistenceAttemptId,
 		isStillCurrent: () -> Boolean,
+		work: ReaderActivatedRasterWork? = null,
 		onQaFaultApplied: (ReaderPageQaFaultCorrelation) -> Unit
 	) {
-		publicationScheduler.schedule(request) {
+		val worker: suspend () -> Unit = publication@ {
 			fun publicationIsCurrent(): Boolean =
+				rasterWorkAdmitted(work) &&
 				physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get() &&
 					runCatching(isStillCurrent).getOrDefault(false)
 
 			val currentBeforeAcquisition = publicationIsCurrent()
 			val value = publicationLedger.acquireForPersistence(request)
-				?: return@schedule
+				?: return@publication
 			var write = ReaderPageRasterWriteResult(
 				persisted = false,
 				ownership = ReaderPageRasterValueOwnership.Caller
@@ -4882,7 +5223,7 @@ internal class ReaderPageTurnBundleSource(
 			var writeFailure: Throwable? = null
 			var publicationQaFault: ReaderPageQaAppliedFault? = null
 			try {
-				if (!currentBeforeAcquisition) return@schedule
+				if (!currentBeforeAcquisition) return@publication
 				publicationQaFault = qaFaultRegistry?.consumeAndApply(
 					ReaderPageQaFault.FailNextPersistence,
 					ReaderPageQaFaultOperationContext(
@@ -4919,7 +5260,7 @@ internal class ReaderPageTurnBundleSource(
 							}
 							write = when {
 								!publicationIsCurrent() -> write
-								store?.contains(value.key, metadata) == true ->
+								store?.contains(value.key, metadata, work) == true ->
 									ReaderPageRasterWriteResult(
 										persisted = true,
 										ownership = ReaderPageRasterValueOwnership.Caller
@@ -4928,12 +5269,14 @@ internal class ReaderPageTurnBundleSource(
 									key = value.key,
 									metadata = metadata,
 									value = value.generation.value,
-									commitFence = commitFence
+									commitFence = commitFence,
+									work = work
 								) ?: write
 							}
 							if (publicationQaFault != null && write.persisted) {
 								write.receipt?.let { receipt ->
-									store?.rollbackPublication(receipt)
+									if (work == null) store?.rollbackPublication(receipt)
+									else store?.rollbackInstalledPublication(receipt, work)
 								}
 								write = write.copy(persisted = false, receipt = null)
 							}
@@ -4983,7 +5326,8 @@ internal class ReaderPageTurnBundleSource(
 						try {
 							withContext(NonCancellable + Dispatchers.IO) {
 								try {
-									store?.rollbackPublication(receipt)
+									if (work == null) store?.rollbackPublication(receipt)
+									else store?.rollbackInstalledPublication(receipt, work)
 								} catch (failure: Throwable) {
 									rollbackFailure = failure
 								}
@@ -4998,6 +5342,8 @@ internal class ReaderPageTurnBundleSource(
 				}
 			}
 		}
+		if (work == null) publicationScheduler.schedule(request, worker)
+		else publicationScheduler.scheduleInstalled(request, work, worker)
 	}
 
 	private fun rasterPersistenceSkipped(
@@ -5037,17 +5383,19 @@ internal class ReaderPageTurnBundleSource(
 
 	private suspend fun rasterScheduler(
 		webView: WebView,
-		restartInitialization: WeakReference<WebView>? = null
+		restartInitialization: WeakReference<WebView>? = null,
+		work: ReaderActivatedRasterWork? = null
 	): ReaderPageRasterScheduler<Bitmap> {
 		val initializationJob = checkNotNull(currentCoroutineContext()[Job]) {
 			"Raster persistence initialization requires a coroutine job"
 		}
-		val initializationOwner = rasterGenerationAndPersistenceOwnership.admit(
+		val initializationOwner = admitRasterOwner(
+			rasterGenerationAndPersistenceOwnership,
 			ReaderExactPhysicalOwnerDescriptor(
 				kind = ReaderTransitionResourceKind.Raster,
 				origin = ReaderLegacyResourceOrigin.Pending,
 				state = ReaderLegacyResourceState.Reserved
-			),
+			), work,
 			cancelPhysical = {
 				initializationJob.cancel()
 				true
@@ -5055,16 +5403,16 @@ internal class ReaderPageTurnBundleSource(
 		) ?: throw CancellationException("Raster persistence initialization is frozen")
 		return try {
 			rasterInitializationMutex.withLock {
-				requireRasterInitializationOpen()
+				requireRasterInitializationOpen(work)
 				rasterScheduler?.let { return@withLock it }
 				var cache: ReaderPageRasterCache<Bitmap>? = null
 				var store: ReaderPageRasterCacheStore<Bitmap>? = null
 				var scheduler: ReaderPageRasterScheduler<Bitmap>? = null
 				try {
-					requireRasterInitializationOpen()
+					requireRasterInitializationOpen(work)
 					withContext(rasterInitializationDispatcher) {
 						synchronized(rasterInitializationFenceLock) {
-							requireRasterInitializationOpen()
+							requireRasterInitializationOpen(work)
 							check(rasterGenerationAndPersistenceOwnership.updateState(
 								initializationOwner, ReaderLegacyResourceState.Running
 							)) { "Raster persistence initialization lost physical ownership" }
@@ -5079,7 +5427,7 @@ internal class ReaderPageTurnBundleSource(
 							ownershipTokenAllocator = storeAndCacheOwnershipTokenAllocator
 						).also { created -> cache = created }
 					}
-					requireRasterInitializationOpen()
+					requireRasterInitializationOpen(work)
 					val createdCache = checkNotNull(cache)
 					val createdStore = ReaderPageRasterCacheStore(
 						createdCache,
@@ -5094,7 +5442,7 @@ internal class ReaderPageTurnBundleSource(
 						tokenAllocator = rasterGenerationAndPersistenceOwnershipTokenAllocator
 					)
 					scheduler = createdScheduler
-					requireRasterInitializationOpen()
+					requireRasterInitializationOpen(work)
 					createdCache.protectDecodedPageIndices(protectedSnapshotPageIndices)
 					val protectedCenter = protectedEncodedCenterPageIndex
 					val protectedProfile = protectedEncodedProfile
@@ -5109,8 +5457,16 @@ internal class ReaderPageTurnBundleSource(
 							pinnedPageOrdinals = protectedEncodedPageIndices
 						)
 					}
+					if (work != null) {
+						check(createdCache.freezeForTransitionActivation(work.domain) == ReaderPortCommandResult.Accepted)
+						check(createdCache.finalizeActivatedHandoff(work.domain) == ReaderPortCommandResult.Accepted)
+						check(createdStore.freezeForTransitionActivation(work.domain) == ReaderPortCommandResult.Accepted)
+						check(createdStore.finalizeActivatedHandoff(work.domain) == ReaderPortCommandResult.Accepted)
+						check(createdScheduler.freezeForTransitionActivation(work.domain) == ReaderPortCommandResult.Accepted)
+						check(createdScheduler.finalizeActivatedHandoff(work.domain) == ReaderPortCommandResult.Accepted)
+					}
 					val published = synchronized(rasterInitializationFenceLock) {
-						requireRasterInitializationOpen()
+						requireRasterInitializationOpen(work)
 						rasterCache = createdCache
 						persistentStore = createdStore
 						rasterScheduler = createdScheduler
@@ -5130,7 +5486,7 @@ internal class ReaderPageTurnBundleSource(
 			}
 		} finally {
 			synchronized(rasterInitializationFenceLock) {
-				if (!closed && restartInitialization != null && rasterGenerationAndPersistenceOwnership.isFrozen) {
+				if (work == null && !closed && restartInitialization != null && rasterGenerationAndPersistenceOwnership.isFrozen) {
 					rasterInitializationRestarts.add(restartInitialization)
 				}
 			}
@@ -5138,14 +5494,12 @@ internal class ReaderPageTurnBundleSource(
 		}
 	}
 
-	private fun rasterInitializationIsOpen(): Boolean {
-		val fenced = synchronized(closeFenceLock) { closed }
-		return !fenced && frozenSnapshotCacheDomain == null &&
-			!rasterGenerationAndPersistenceOwnership.isFrozen && rasterJob.isActive
-	}
+	private fun rasterInitializationIsOpen(work: ReaderActivatedRasterWork? = null): Boolean =
+		rasterWorkAdmitted(work) && rasterJob.isActive &&
+			(work != null || !rasterGenerationAndPersistenceOwnership.isFrozen)
 
-	private fun requireRasterInitializationOpen() {
-		if (!rasterInitializationIsOpen()) {
+	private fun requireRasterInitializationOpen(work: ReaderActivatedRasterWork? = null) {
+		if (!rasterInitializationIsOpen(work)) {
 			throw CancellationException(
 				"Raster persistence initialization is closed"
 			)
@@ -5341,12 +5695,12 @@ internal class ReaderPageTurnBundleSource(
 				descriptorPhysicalRecipients.values +
 					requests.flatMap { request -> request.recipients.values }
 			).distinctBy(ReaderPageRasterHydrationRecipient::token)
-			descriptorRequests.clear()
+			requests.forEach { it.recipients.clear() }
 			descriptorRequestTokens.clear()
 			rasterDescriptors.clear()
 			requests to recipients
 		}
-		descriptorState.first.forEach(::completeDescriptorRequest)
+		descriptorState.first.forEach { it.onLogicalCancellation?.invoke() }
 		descriptorState.second.forEach { recipient ->
 			try {
 				deliverHydrationResult(recipient.callback, null)
@@ -5375,7 +5729,7 @@ internal class ReaderPageTurnBundleSource(
 		snapshotCacheTokens.clear()
 		frozenSnapshotCacheEntries.values.forEach { it.snapshot.release() }
 		frozenSnapshotCacheEntries.clear()
-		frozenSnapshotCacheDomain = null
+		if (!legacyFinalized) frozenSnapshotCacheDomain = null
 		snapshotDurability.clear()
 		snapshotExactRasterIdentities.clear()
 		Logger.i(ReaderPageTurnBundleSourceTag, "Page-turn snapshot cache cleared reason=$reason")

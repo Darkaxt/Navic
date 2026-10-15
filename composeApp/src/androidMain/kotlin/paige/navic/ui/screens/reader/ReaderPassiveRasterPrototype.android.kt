@@ -587,7 +587,11 @@ internal class ReaderPassiveRasterPrototypeSession<R : Any>(
 			if (lifecycle == ReaderPassiveRasterLifecycle.Destroyed) return
 			lifecycle = ReaderPassiveRasterLifecycle.Destroyed
 			activeCapture?.also { capture ->
-				activeCapture = null
+				// Closing admission is not the return of an accepted cancellation.
+				// Keep its original capture identity while destroy executes (including
+				// synchronous reentry) and until that exact runtime callback returns.
+				if (capture.phase != CapturePhase.DrainingCommit &&
+					capture.phase != CapturePhase.DrainingRaster) activeCapture = null
 				if (!capture.failureDelivered) {
 					capture.failureDelivered = true
 					captureFailures = captureFailures.incrementBounded()

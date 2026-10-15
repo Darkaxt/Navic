@@ -684,14 +684,24 @@ class ReaderPageTurnDestinationSourceTest {
 	fun cancellationRetiresPendingAndUndeliveredWorkWithoutSuccessfulCompletion() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
-		val cancellation = turns
-			.substringAfter("function cancelPendingExactPageTurnSettlement(reason = 'superseded')")
-			.substringBefore("\n}\n")
+		val cancellation = Regex(
+			"""(?m)^function cancelPendingExactPageTurnSettlement\([^\n]*\) \{[\s\S]*?^\}"""
+		).findAll(turns).singleOrNull()?.value.orEmpty()
 
+		assertContains(cancellation, "function cancelPendingExactPageTurnSettlement(")
+		assertContains(cancellation, "expectedToken, expectedCommandId")
 		assertContains(runtime, "retiredExactPageTurnSettlements = new Map()")
 		assertContains(cancellation, "const pending = this.activeExactPageTurnSettlement()")
 		assertContains(cancellation, "const settled = this.nativePageTurnSettledState")
-		assertContains(cancellation, "if (!pending && !settled) return false")
+		assertContains(cancellation, "const retired = pending || settled")
+		assertContains(cancellation, "if (!retired) return false")
+		val mismatch = Regex(
+			"""if\s*\(\s*\(expectedToken !== undefined \|\| expectedCommandId !== undefined\) &&\s*""" +
+				"""\(retired\?\.token !== expectedToken \|\| retired\?\.commandId !== expectedCommandId\)\s*\) return false"""
+		).find(cancellation)
+		assertTrue(mismatch != null, "Cancellation must reject a foreign exact command identity.")
+		val clear = cancellation.indexOf("this.clearPageTurnLivePresentationTarget()")
+		assertTrue(clear > mismatch.range.last, "A foreign cancellation must not clear its successor's presentation.")
 		assertContains(cancellation, "this.pendingExactPageTurnSettlements.delete(pending.token)")
 		assertContains(cancellation, "this.nativePageTurnSettledState = null")
 		assertContains(cancellation, "rememberRetiredExactPageTurnSettlement(this, retired)")
@@ -1362,10 +1372,17 @@ class ReaderPageTurnDestinationSourceTest {
 	fun stagedCaptureRejectsAndRecyclesStaleGenerationsWithoutTimeouts() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 
+		val cacheCurrent = source
+			.substringAfter("fun cacheCurrentSnapshot(", missingDelimiterValue = "")
+			.substringBefore("private fun cachedSnapshot(", missingDelimiterValue = "")
 		assertContains(source, "captureSurface(")
 		assertContains(source, "captureStagedSurface(")
-		assertContains(source, "if (generation != activeGeneration)")
-		assertContains(source, "current.bitmap.takeUnless { it.isRecycled }?.recycle()")
+		val stale = cacheCurrent.indexOf("if (generation != activeGeneration || !rasterWorkAdmitted(work))")
+		val recycle = cacheCurrent.indexOf("current.bitmap.takeUnless { it.isRecycled }?.recycle()", stale.coerceAtLeast(0))
+		val reject = cacheCurrent.indexOf("return null", recycle.coerceAtLeast(0))
+		val snapshot = cacheCurrent.indexOf("val snapshot = ReaderPageSlideSnapshot(")
+		assertTrue(stale >= 0 && recycle > stale && reject > recycle && snapshot > reject,
+			"A stale generation or retired installed work must recycle its pixels and return before creating a snapshot.")
 		assertContains(source, "webView.draw(canvas)")
 		assertFalse(source.contains("postDelayed"))
 		assertFalse(source.contains("setTimeout"))
@@ -1455,8 +1472,11 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("private fun activatePhysicalLayout(")
 			.substringBefore("private fun currentPhysicalLayoutEpoch(")
 		val persistence = source
-			.substringAfter("private fun schedulePersistentSnapshot(")
-			.substringBefore("private fun rasterPersistenceSkipped(")
+			.substringAfter("private fun schedulePersistentSnapshot(", missingDelimiterValue = "")
+			.substringBefore("private fun completeRasterPersistenceRequest(", missingDelimiterValue = "")
+		val worker = source
+			.substringAfter("private fun scheduleRasterPublication(", missingDelimiterValue = "")
+			.substringBefore("private fun rasterPersistenceSkipped(", missingDelimiterValue = "")
 		val removal = source
 			.substringAfter("private suspend fun removePersistentRaster(")
 			.substringBefore("private fun isHydrationCurrent(")
@@ -1466,15 +1486,31 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(authority, "publicationScheduler.cancelBeforeEpoch(")
 		assertContains(persistence, "currentPhysicalLayoutEpoch(snapshot.key.kind, layout)")
 		assertContains(persistence, "physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get()")
-		assertContains(persistence, "store?.contains(value.key, metadata)")
-		assertContains(persistence, "fun publicationIsCurrent(): Boolean =")
-		assertContains(persistence, "runCatching(isStillCurrent).getOrDefault(false)")
-		assertContains(persistence, "val publicationCurrent = publicationIsCurrent()")
+		assertContains(worker, "store?.contains(value.key, metadata, work)")
+		assertContains(worker, "fun publicationIsCurrent(): Boolean =")
+		assertContains(worker, "runCatching(isStillCurrent).getOrDefault(false)")
+		assertContains(worker, "val publicationCurrent = publicationIsCurrent()")
 		assertContains(
-			persistence,
+			worker,
 			"val persistedForCurrentPublication = write.persisted && publicationCurrent"
 		)
-		assertContains(persistence, "if (!accepted || !persistedForCurrentPublication)")
+		assertContains(worker, "if (!accepted || !persistedForCurrentPublication)")
+		val initialization = source
+			.substringAfter("private fun launchRasterPersistenceRequest(", missingDelimiterValue = "")
+			.substringBefore("private fun scheduleRasterPublication(", missingDelimiterValue = "")
+		assertContains(persistence, "launchRasterPersistenceRequest(request)")
+		assertContains(initialization, "runRasterPersistenceRequest(request, value, control)")
+		assertContains(initialization, "scheduleRasterPublication(")
+		assertContains(initialization, "work = contract.work")
+		assertContains(worker, "publicationScheduler.scheduleInstalled(request, work, worker)")
+		val write = worker.indexOf("store?.writePublication(")
+		val currentAfterWrite = worker.indexOf("val publicationCurrent = publicationIsCurrent()")
+		val accepted = worker.indexOf("publicationLedger.complete(")
+		val removalDecision = worker.indexOf("if (!accepted || !persistedForCurrentPublication)")
+		assertTrue(write >= 0 && currentAfterWrite > write && accepted > currentAfterWrite && removalDecision > accepted,
+			"Durable publication must recheck currentness after the write and remove any unaccepted or stale result.")
+		assertContains(worker.substringAfter("if (!accepted || !persistedForCurrentPublication)", missingDelimiterValue = ""),
+			"store?.rollbackInstalledPublication(receipt, work)")
 		assertContains(removal, "store.remove(key, expectedMetadata)")
 	}
 

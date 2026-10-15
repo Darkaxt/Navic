@@ -172,10 +172,21 @@ internal class ReaderExactPhysicalOwnerRegistry(
 	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
 		ReaderLegacySourceLocalTokenAllocator()
 ) {
+	internal class InstalledReleaseAttempt(
+		val onReleased: () -> Unit
+	) {
+		var remaining = 0
+		var issuing = false
+		var accepted = false
+		var physicalReturnObserved = false
+		var confirmationPublished = false
+	}
+
 	internal class Owner internal constructor(
 		internal val token: ReaderLegacySourceLocalOpaqueToken,
 		internal val descriptor: ReaderExactPhysicalOwnerDescriptor,
-		internal val cancelPhysical: (() -> Boolean)?
+		internal val cancelPhysical: (() -> Boolean)?,
+		internal val installedSnapshot: ReaderActivatedSessionSnapshot? = null
 	) {
 		internal var state = descriptor.state
 		internal var completed = false
@@ -183,11 +194,13 @@ internal class ReaderExactPhysicalOwnerRegistry(
 		internal var cancellationIssued = false
 		internal var drainIdentity: ReaderLegacyPhysicalIdentity? = null
 		internal var drainConfirmation: ((ReaderLegacyPhysicalIdentity) -> Unit)? = null
+		internal var installedReleaseAttempt: InstalledReleaseAttempt? = null
 	}
 
 	private val lock = Any()
 	private val owners = linkedSetOf<Owner>()
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var legacyFinalized = false
 
 	val isFrozen: Boolean
 		get() = synchronized(lock) { frozenDomain != null }
@@ -212,8 +225,108 @@ internal class ReaderExactPhysicalOwnerRegistry(
 		descriptor: ReaderExactPhysicalOwnerDescriptor,
 		cancelPhysical: (() -> Boolean)? = null
 	): Owner? = synchronized(lock) {
-		if (frozenDomain != domain) return@synchronized null
+		if (legacyFinalized || frozenDomain != domain) return@synchronized null
 		Owner(tokenAllocator.allocate(), descriptor, cancelPhysical).also(owners::add)
+	}
+
+	/** Installed physical custody shares the original records but never becomes legacy
+	 * inventory or command permission. Even ReleaseOnly must count actual cleanup returns. */
+	fun admitInstalledPhysicalOwner(
+		domain: ReaderLegacyPhysicalDomain,
+		store: ReaderActivatedSessionSnapshotStore,
+		snapshot: ReaderActivatedSessionSnapshot,
+		descriptor: ReaderExactPhysicalOwnerDescriptor,
+		cancelPhysical: (() -> Boolean)? = null
+	): Owner? = admitInstalledPhysicalOwners(domain, store, snapshot, listOf(descriptor), cancelPhysical)?.single()
+
+	fun admitInstalledPhysicalOwners(
+		domain: ReaderLegacyPhysicalDomain,
+		store: ReaderActivatedSessionSnapshotStore,
+		snapshot: ReaderActivatedSessionSnapshot,
+		descriptors: List<ReaderExactPhysicalOwnerDescriptor>,
+		cancelPhysical: (() -> Boolean)? = null
+	): List<Owner>? = synchronized(lock) {
+		val initial = (snapshot.journal.committed as? ReaderCommittedPresentation.Initial)?.origin
+		if (!legacyFinalized || frozenDomain != domain || store.snapshot !== snapshot ||
+			snapshot.gatewaySemanticEpoch == null || initial?.readerSessionGeneration != domain.readerSessionGeneration
+		) return@synchronized null
+		descriptors.map { descriptor ->
+			Owner(tokenAllocator.allocate(), descriptor, cancelPhysical, snapshot).also(owners::add)
+		}
+	}
+
+	/** Retired installed work keeps its original source custody until each captured
+	 * completion returns. Cancellation acceptance alone is never a release proof. */
+	fun releaseInstalledPhysicalOwners(
+		work: ReaderActivatedRasterWork,
+		onReleased: () -> Unit
+	): ReaderPortCommandResult {
+		val (attempt, selected) = synchronized(lock) {
+			if (!legacyFinalized || frozenDomain != work.domain) return invalidResource()
+			val matches = owners.filter {
+				it.installedSnapshot === work.snapshot && it.descriptor.binding == work.lease.binding
+			}
+			val attempts = matches.mapNotNull { it.installedReleaseAttempt }.distinct()
+			if (attempts.size > 1 || attempts.any { it.issuing }) return invalidResource()
+			val attempt = attempts.singleOrNull() ?: InstalledReleaseAttempt(onReleased)
+			attempt.issuing = true
+			matches.forEach { owner ->
+				if (owner.installedReleaseAttempt == null) {
+					owner.installedReleaseAttempt = attempt
+					owner.drainRequested = true
+					attempt.remaining++
+				}
+			}
+			attempt to matches.filter { !it.completed && !it.cancellationIssued }.also { pending ->
+				pending.forEach { it.cancellationIssued = true }
+			}
+		}
+		var cancellationAccepted = selected.isEmpty()
+		var cancellationFailure: Throwable? = null
+		selected.forEach { owner ->
+			val accepted = try {
+				owner.cancelPhysical?.invoke() ?: true
+			} catch (failure: Throwable) {
+				if (cancellationFailure == null) cancellationFailure = failure
+				// The effect boundary is unknown; keep captured return custody and
+				// let the public release adapter account the ambiguous throw.
+				true
+			}
+			if (accepted) {
+				cancellationAccepted = true
+			} else {
+				synchronized(lock) {
+					if (!owner.completed && owner in owners) owner.cancellationIssued = false
+				}
+			}
+		}
+		var confirmation: (() -> Unit)? = null
+		val accepted = synchronized(lock) {
+			attempt.issuing = false
+			attempt.accepted = attempt.accepted || cancellationAccepted || attempt.physicalReturnObserved
+			val matches = owners.filter { it.installedReleaseAttempt === attempt }
+			if (attempt.accepted) {
+				owners.removeAll { it.installedReleaseAttempt === attempt && it.completed }
+				confirmation = claimInstalledReleaseConfirmation(attempt)
+			} else {
+				matches.forEach { owner ->
+					owner.installedReleaseAttempt = null
+					owner.drainRequested = false
+					owner.cancellationIssued = false
+				}
+			}
+			attempt.accepted
+		}
+		runCatching { confirmation?.invoke() }
+		cancellationFailure?.let { throw it }
+		return if (accepted) ReaderPortCommandResult.Accepted else invalidResource()
+	}
+
+	/** Called under the original registry lock; only actual captured returns decrement remaining. */
+	private fun claimInstalledReleaseConfirmation(attempt: InstalledReleaseAttempt): (() -> Unit)? {
+		if (!attempt.accepted || attempt.issuing || attempt.remaining != 0 || attempt.confirmationPublished) return null
+		attempt.confirmationPublished = true
+		return attempt.onReleased
 	}
 
 	fun updateState(owner: Owner, state: ReaderLegacyResourceState): Boolean =
@@ -230,7 +343,19 @@ internal class ReaderExactPhysicalOwnerRegistry(
 		val completed = synchronized(lock) {
 			if (owner !in owners || owner.completed) return@synchronized false
 			owner.completed = true
-			if (frozenDomain == null) {
+			if (owner.installedSnapshot != null) {
+				val attempt = owner.installedReleaseAttempt
+				if (attempt == null) {
+					owners.remove(owner)
+				} else {
+					attempt.remaining--
+					attempt.physicalReturnObserved = true
+					// Keep returned records through issuance so cancellation reentry still
+					// finds the original attempt, rather than inventing an empty release.
+					if (!attempt.issuing) owners.remove(owner)
+					confirmation = claimInstalledReleaseConfirmation(attempt)
+				}
+			} else if (frozenDomain == null) {
 				owners.remove(owner)
 			} else if (owner.drainRequested) {
 				owners.remove(owner)
@@ -277,7 +402,7 @@ internal class ReaderExactPhysicalOwnerRegistry(
 
 	private fun frozenRowsLocked(
 		domain: ReaderLegacyPhysicalDomain
-	): List<ReaderFrozenLegacyResource> = owners.map { owner ->
+	): List<ReaderFrozenLegacyResource> = owners.filter { it.installedSnapshot == null }.map { owner ->
 		ReaderFrozenLegacyResource(
 			freezeToken = domain.freezeToken,
 			physicalIdentity = ReaderLegacyPhysicalIdentity(domain, source, owner.token),
@@ -307,7 +432,7 @@ internal class ReaderExactPhysicalOwnerRegistry(
 				physicalIdentity.domain != domain ||
 				physicalIdentity.source != source
 			) return@synchronized null
-			val matched = owners.firstOrNull { it.token == physicalIdentity.sourceLocalToken }
+			val matched = owners.firstOrNull { it.installedSnapshot == null && it.token == physicalIdentity.sourceLocalToken }
 				?: return@synchronized null
 			if (matched.drainRequested) return@synchronized null
 			matched.drainRequested = true
@@ -346,11 +471,18 @@ internal class ReaderExactPhysicalOwnerRegistry(
 		return if (rolledBack) invalidResource() else ReaderPortCommandResult.Accepted
 	}
 
+	/** Irreversible original custody retirement; never clears the legacy admission fence. */
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult = synchronized(lock) {
+		if (legacyFinalized || frozenDomain != domain || owners.isNotEmpty()) return@synchronized invalidResource()
+		legacyFinalized = true
+		ReaderPortCommandResult.Accepted
+	}
+
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult = synchronized(lock) {
 		if (
-			frozenDomain != domain ||
+			legacyFinalized || frozenDomain != domain ||
 			owners.any { owner -> owner.drainRequested && !owner.completed }
 		) return@synchronized invalidResource()
 		owners.removeAll { owner -> owner.completed }
@@ -623,7 +755,14 @@ internal sealed interface ReaderSemanticCommandResult {
 }
 
 internal fun interface ReaderSemanticCommandRegistration {
+	/** Terminal retirement disposes exact slot AND its still-current request custody. */
 	fun retire()
+
+	/** Only an owner with proven pre-mutation failure may retain bounded Retry custody. */
+	fun retireForRetry() = retire()
+
+	/** Bind this exact invocation before executable admission; compatibility ports reject. */
+	fun bindAsyncOutcome(onOutcome: (ReaderSemanticCommandResult) -> Unit): Boolean = false
 }
 
 internal fun interface ReaderSemanticCommandPort {
@@ -632,6 +771,9 @@ internal fun interface ReaderSemanticCommandPort {
 		onRegistration: (ReaderSemanticCommandRegistration) -> Unit,
 		onReceipt: (ReaderPresentationEventReceipt) -> Unit
 	): ReaderSemanticCommandResult
+
+	/** Dispose registered request custody even if retained publication prevented invocation. */
+	fun retireRequest(handle: ReaderSemanticRequestHandle, readerSessionGeneration: Long): Boolean = false
 }
 
 internal fun interface ReaderMaterialGenerationAllocationPort {
@@ -669,6 +811,12 @@ internal interface ReaderFramePresentationPort {
 
 internal fun interface ReaderInputLeasePort {
 	fun narrowOrVeto(lease: ReaderTransitionInputLease): ReaderTransitionInputLease
+
+	/** Same physical veto port; legacy implementations retain their local veto. */
+	fun narrowOrVeto(
+		command: ReaderTransitionCommand,
+		lease: ReaderTransitionInputLease
+	): ReaderTransitionInputLease = narrowOrVeto(lease)
 }
 
 internal interface ReaderTransitionResourcePort {
@@ -920,7 +1068,8 @@ internal data class ReaderActivatedSessionSnapshot(
 	val releaseLedger: ReaderTransitionReleaseLedger,
 	val releaseOnlyPortAuthority: ReaderActivatedReleaseOnlyPortAuthority? = null,
 	val state: ReaderSessionActivationState = ReaderSessionActivationState.Activated,
-	val commandEgressOpen: Boolean = true
+	val commandEgressOpen: Boolean = true,
+	val gatewaySemanticEpoch: ReaderTransitionGatewaySemanticEpoch? = null
 ) {
 	init {
 		when (state) {
@@ -983,11 +1132,67 @@ internal class ReaderActivatedSessionSnapshotStore(
 	private val postFinalizationCleanupToMain: ((() -> Unit) -> Boolean) = { action ->
 		Handler(Looper.getMainLooper()).post(action)
 	}
-) {
+) : ReaderTransitionGatewayInstallationSource {
+	override val awaitingInstallation: Boolean get() = installedSnapshot == null
+	override fun ownsInstalledCandidate(
+		epoch: ReaderTransitionGatewaySemanticEpoch,
+		readerSessionGeneration: Long,
+		coordinatorEpoch: Long
+	): Boolean {
+		val snapshot = installedSnapshot ?: return false
+		val initial = snapshot.initialDecision?.origin ?: return false
+		return snapshot.state == ReaderSessionActivationState.Activated && snapshot.commandEgressOpen &&
+			snapshot.gatewaySemanticEpoch === epoch &&
+			initial.readerSessionGeneration == readerSessionGeneration && initial.coordinatorEpoch == coordinatorEpoch
+	}
+	override fun hasTransferredCandidate(epoch: ReaderTransitionGatewaySemanticEpoch): Boolean =
+		installedSnapshot?.gatewaySemanticEpoch === epoch
+
 	private var installedSnapshot: ReaderActivatedSessionSnapshot? = null
+	// Physical restoration may reopen individual original owners, never their
+	// consequence routes. Only the exact Root checkpoint consumer releases this hold.
+	private var legacyConsequenceHold: Any? = null
+	internal var legacyRouteGeneration: Long = 1L
+		private set
+	internal val legacyConsequencesOpen: Boolean
+		get() = installedSnapshot == null && legacyConsequenceHold == null
+	internal fun holdLegacyConsequences(owner: Any): Boolean {
+		if (installedSnapshot != null || (legacyConsequenceHold != null && legacyConsequenceHold !== owner)) return false
+		if (legacyConsequenceHold === owner) return true
+		if (legacyRouteGeneration == Long.MAX_VALUE) return false
+		legacyConsequenceHold = owner
+		legacyRouteGeneration++
+		return true
+	}
+	internal fun ownsLegacyConsequenceHold(owner: Any): Boolean =
+		installedSnapshot == null && legacyConsequenceHold === owner
+	/** Original retirement remains authenticated across the one installation write;
+	 * restoration still requires ownsLegacyConsequenceHold and can never reopen here. */
+	internal fun ownsOriginalFinalizationCustody(owner: Any, domain: ReaderLegacyPhysicalDomain, expectedGeneration: Long): Boolean {
+		if (legacyConsequenceHold !== owner || legacyRouteGeneration != expectedGeneration) return false
+		val installed = installedSnapshot ?: return true
+		val gateway = (installed.portAuthority as? ReaderActivatedSessionPortAuthority.Production)?.ports?.gateway
+			as? ReaderSnapshotBackedActivatedGatewayPort ?: return false
+		return installed.initialDecision?.origin?.readerSessionGeneration == domain.readerSessionGeneration &&
+			gateway.candidate.installationSource === this && gateway.candidate.isSelected &&
+			ownsInstalledCandidate(gateway.candidate.epoch, domain.readerSessionGeneration, gateway.candidate.coordinatorEpoch)
+	}
+	internal fun canCommitRestoredLegacyConsequences(owner: Any, expectedGeneration: Long): Boolean =
+		ownsLegacyConsequenceHold(owner) && legacyRouteGeneration == expectedGeneration && legacyRouteGeneration < Long.MAX_VALUE
+	internal fun commitRestoredLegacyConsequences(owner: Any, expectedGeneration: Long): Boolean {
+		if (!canCommitRestoredLegacyConsequences(owner, expectedGeneration)) return false
+		legacyConsequenceHold = null
+		legacyRouteGeneration++
+		return true
+	}
 	private val finalizationPhysicalRelease = ReaderPhysicalReleaseCommandAdapter()
 	private val finalizationCleanupExpiryQueued = AtomicBoolean(false)
-	private var finalizationCleanupTimer: ReaderTask6ReleaseOnlyTimerRegistration? = null
+	private class FinalizationCleanupTimerBinding(
+		val key: paige.navic.reader.ReaderReleaseOnlyCleanupKey,
+		val port: ReaderTask6FactOnlyTimerPort,
+		var registration: ReaderTask6ReleaseOnlyTimerRegistration? = null
+	)
+	private var finalizationCleanupTimer: FinalizationCleanupTimerBinding? = null
 	var atomicWriteCount: Int = 0
 		private set
 
@@ -1014,6 +1219,10 @@ internal class ReaderActivatedSessionSnapshotStore(
 		expectedDecision: ReaderInitialActivationDecision
 	): Boolean {
 		val current = installedSnapshot ?: return false
+		if (current.state == ReaderSessionActivationState.ReleaseOnly) {
+			return (current.journal.committed as? ReaderCommittedPresentation.Initial)?.origin ===
+				expectedDecision.origin
+		}
 		if (
 			current.state != ReaderSessionActivationState.Activated ||
 			current.initialDecision !== expectedDecision
@@ -1050,50 +1259,74 @@ internal class ReaderActivatedSessionSnapshotStore(
 			releaseLedger = current.releaseLedger,
 			releaseOnlyPortAuthority = authority,
 			state = ReaderSessionActivationState.ReleaseOnly,
-			commandEgressOpen = false
+			commandEgressOpen = false,
+			gatewaySemanticEpoch = current.gatewaySemanticEpoch
 		)
 		atomicWriteCount += 1
 		if (cleanupStatus == ReaderReleaseLedgerCleanupStatus.EmptyReleased) return true
 
+		val binding = FinalizationCleanupTimerBinding(cleanup.key, authority.factOnlyTimer)
+		finalizationCleanupTimer = binding
 		val timer = try {
-			authority.factOnlyTimer.bindReleaseOnlyCloseBudget(cleanup.key) { expiredKey ->
+			binding.port.bindReleaseOnlyCloseBudget(cleanup.key) { expiredKey ->
 				if (
 					expiredKey == cleanup.key &&
 					finalizationCleanupExpiryQueued.compareAndSet(false, true)
 				) {
 					enqueueFinalizationCleanup {
-						finalizationCleanupDeadlineElapsed(expiredKey)
+						if (finalizationCleanupTimer === binding) {
+							finalizationCleanupDeadlineElapsed(expiredKey)
+						}
 					}
 				}
 			}
 		} catch (_: Throwable) {
-			finalizationCleanupBindingFailed(
-				cleanup.key,
-				ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew
-			)
-			return true
-		}
-		if (timer == null) {
-			finalizationCleanupBindingFailed(
-				cleanup.key,
-				ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected
-			)
-			return true
-		}
-		finalizationCleanupTimer = timer
-		if (finalizationCleanupExpiryQueued.get()) return true
-		if (
-			installedSnapshot?.journal?.releaseOnlyCleanup?.takeIf { it.key == cleanup.key }
-				?.deadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.Armed
-		) {
-			finalizationCleanupTimer = null
-			try {
-				authority.factOnlyTimer.cancelReleaseOnlyCloseBudget(timer)
-			} catch (_: Throwable) {
+			if (currentFinalizationCleanupBinding(binding)) {
+				finalizationCleanupTimer = null
+				finalizationCleanupBindingFailed(cleanup.key, ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew)
 			}
 			return true
 		}
+		if (!currentFinalizationCleanupBinding(binding)) {
+			try { timer?.let(binding.port::cancelReleaseOnlyCloseBudget) } catch (_: Throwable) { }
+			return true
+		}
+		if (timer == null) {
+			finalizationCleanupTimer = null
+			finalizationCleanupBindingFailed(cleanup.key, ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected)
+			return true
+		}
+		binding.registration = timer
+		if (finalizationCleanupExpiryQueued.get()) return true
+		val prepared = requireNotNull(installedSnapshot)
+		installedSnapshot = prepared.copy(journal = prepared.journal.copy(
+			releaseOnlyCleanup = requireNotNull(prepared.journal.releaseOnlyCleanup).copy(
+				deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.Committing
+			)
+		))
+		atomicWriteCount += 1
+		val result = try {
+			binding.port.commitReleaseOnlyCloseBudget(timer)
+		} catch (_: Throwable) {
+			if (currentFinalizationCleanupBinding(binding) && !finalizationCleanupExpiryQueued.get()) {
+				finalizationCleanupBindingFailed(cleanup.key, ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew)
+			}
+			return true
+		}
+		if (!currentFinalizationCleanupBinding(binding) || finalizationCleanupExpiryQueued.get()) return true
+		if (result != ReaderPortCommandResult.Accepted) {
+			finalizationCleanupBindingFailed(cleanup.key, ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected)
+			return true
+		}
+		val committing = requireNotNull(installedSnapshot)
+		installedSnapshot = committing.copy(journal = committing.journal.copy(
+			releaseOnlyCleanup = requireNotNull(committing.journal.releaseOnlyCleanup).copy(
+				deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+			)
+		))
+		atomicWriteCount += 1
 		releaseCommands.forEach { command ->
+			if (!currentFinalizationCleanupBinding(binding) || finalizationCleanupExpiryQueued.get()) return@forEach
 			val imported = current.releaseLedger.importedFor(command.registration)
 				?: return@forEach
 			finalizationPhysicalRelease.dispatchLegacy(
@@ -1114,6 +1347,18 @@ internal class ReaderActivatedSessionSnapshotStore(
 		}
 		return true
 	}
+
+	private fun currentFinalizationCleanupBinding(binding: FinalizationCleanupTimerBinding): Boolean =
+		finalizationCleanupTimer === binding && installedSnapshot?.let { snapshot ->
+			snapshot.state == ReaderSessionActivationState.ReleaseOnly && !snapshot.commandEgressOpen &&
+				snapshot.journal.releaseOnlyCleanup?.let { cleanup ->
+					cleanup.key == binding.key && cleanup.deadlineStatus in setOf(
+						ReaderReleaseOnlyCleanupDeadlineStatus.Prepared,
+						ReaderReleaseOnlyCleanupDeadlineStatus.Committing,
+						ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+					)
+				} == true
+		} == true
 
 	private fun enqueueFinalizationCleanup(action: () -> Unit) {
 		try {
@@ -1153,19 +1398,14 @@ internal class ReaderActivatedSessionSnapshotStore(
 		cleanupKey: paige.navic.reader.ReaderReleaseOnlyCleanupKey
 	) {
 		val snapshot = installedSnapshot ?: return
-		val cleanup = snapshot.journal.releaseOnlyCleanup?.takeIf { it.key == cleanupKey }
-			?: return
-		if (
-			cleanup.deadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.Armed &&
-			cleanup.deadlineStatus !=
-				ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected &&
-			cleanup.deadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew
-		) return
+		if (snapshot.journal.releaseOnlyCleanup?.key != cleanupKey) return
+		// The captured exact callback retires even after failed terminal cancellation;
+		// the terminal journal and release ledger have no later expiry authority.
 		finalizationCleanupTimer = null
+		val elapsedJournal = snapshot.journal.markReleaseOnlyCleanupDeadlineElapsed(cleanupKey)
+		if (elapsedJournal === snapshot.journal) return
 		snapshot.releaseLedger.markCleanupDeadlineElapsed(cleanupKey)
-		installedSnapshot = snapshot.copy(
-			journal = snapshot.journal.markReleaseOnlyCleanupDeadlineElapsed(cleanupKey)
-		)
+		installedSnapshot = snapshot.copy(journal = elapsedJournal)
 		atomicWriteCount += 1
 	}
 
@@ -1202,10 +1442,10 @@ internal class ReaderActivatedSessionSnapshotStore(
 		val cleanup = snapshot.journal.releaseOnlyCleanup?.takeIf { it.key == cleanupKey }
 			?: return
 		if (cleanup.deadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.Armed) return
-		val timer = finalizationCleanupTimer ?: return
-		val authority = requireNotNull(snapshot.releaseOnlyPortAuthority)
+		val binding = finalizationCleanupTimer ?: return
+		val timer = binding.registration ?: return
 		val disposition = try {
-			when (authority.factOnlyTimer.cancelReleaseOnlyCloseBudget(timer)) {
+			when (binding.port.cancelReleaseOnlyCloseBudget(timer)) {
 				ReaderPortCommandResult.Accepted -> null
 				is ReaderPortCommandResult.Rejected ->
 					ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected
@@ -1213,6 +1453,7 @@ internal class ReaderActivatedSessionSnapshotStore(
 		} catch (_: Throwable) {
 			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew
 		}
+		if (finalizationCleanupTimer !== binding) return
 		val latest = installedSnapshot ?: return
 		val latestCleanup = latest.journal.releaseOnlyCleanup?.takeIf { it.key == cleanupKey }
 			?: return
@@ -1248,13 +1489,21 @@ internal class ReaderActivatedSessionInstallationBarrier(
 	private val store: ReaderActivatedSessionSnapshotStore
 ) {
 	fun installActivatedSession(installation: ReaderActivatedSessionInstallation): ReaderActivationInstallResult {
+		val gateway = installation.ports.gateway as? ReaderSnapshotBackedActivatedGatewayPort
+			?: return missingPrerequisite()
+		val semantic = installation.ports.semantic as? ReaderSemanticCommandExecutor
+			?: return missingPrerequisite()
+		if (!semantic.validatesCandidateInstallation(gateway.candidate, store, installation.initialDecision)) {
+			return missingPrerequisite()
+		}
 		val journal = initialJournal(installation.initialDecision)
 		val snapshot = ReaderActivatedSessionSnapshot(
 			portAuthority = ReaderActivatedSessionPortAuthority.Production(installation.ports),
 			initialDecision = installation.initialDecision,
 			reservedNeutralBootstrap = installation.initialDecision.neutralBootstrapReservation,
 			journal = journal,
-			releaseLedger = installation.releaseLedger
+			releaseLedger = installation.releaseLedger,
+			gatewaySemanticEpoch = gateway.candidate.epoch
 		)
 		return installResult(store.install(snapshot))
 	}
@@ -1269,13 +1518,19 @@ internal class ReaderActivatedSessionInstallationBarrier(
 				ReaderTransitionFailureReason.ActivationPrerequisiteMissing
 			)
 		}
+		val gateway = ports.gateway as? ReaderSnapshotBackedActivatedGatewayPort
+		if (gateway != null) {
+			val semantic = ports.semantic as? ReaderSemanticCommandExecutor ?: return missingPrerequisite()
+			if (!semantic.validatesCandidateInstallation(gateway.candidate, store, initialDecision)) return missingPrerequisite()
+		}
 		val journal = initialJournal(initialDecision)
 		val snapshot = ReaderActivatedSessionSnapshot(
 			portAuthority = ReaderActivatedSessionPortAuthority.Test(ports),
 			initialDecision = initialDecision,
 			reservedNeutralBootstrap = initialDecision.neutralBootstrapReservation,
 			journal = journal,
-			releaseLedger = releaseLedger
+			releaseLedger = releaseLedger,
+			gatewaySemanticEpoch = gateway?.candidate?.epoch
 		)
 		return installResult(store.install(snapshot))
 	}
@@ -1283,6 +1538,10 @@ internal class ReaderActivatedSessionInstallationBarrier(
 	fun failClosedAfterFinalizationRejection(
 		expectedDecision: ReaderInitialActivationDecision
 	): Boolean = store.failClosedAfterFinalizationRejection(expectedDecision)
+
+	private fun missingPrerequisite() = ReaderActivationInstallResult.Rejected(
+		ReaderTransitionFailureReason.ActivationPrerequisiteMissing
+	)
 
 	private fun initialJournal(decision: ReaderInitialActivationDecision) = ReaderTransitionJournal(
 		committed = ReaderCommittedPresentation.Initial(decision.origin),
@@ -1334,7 +1593,11 @@ internal class ReaderSessionActivationCoordinator(
 	private val restorationDeadline: ReaderActivationRestorationDeadlinePort =
 		ReaderInertActivationRestorationDeadlinePort,
 	private val cancelPhysicalWork: () -> Unit = {},
-	private val releaseLedger: ReaderTransitionReleaseLedger = ReaderTransitionReleaseLedger()
+	private val releaseLedger: ReaderTransitionReleaseLedger = ReaderTransitionReleaseLedger(),
+	private val onInstalledBeforeFinalization: () -> ReaderPortCommandResult = {
+		ReaderPortCommandResult.Accepted
+	},
+	private val onActivated: () -> Unit = {}
 ) {
 	private var nextSeedId = 1L
 	private var freezeToken: ReaderLegacyFreezeToken? = null
@@ -1719,6 +1982,17 @@ internal class ReaderSessionActivationCoordinator(
 		val result = requireNotNull(installActivatedSession)(decision, releaseLedger)
 		terminalResult = result
 		if (result == ReaderActivationInstallResult.Installed) {
+			val initialization = try {
+				onInstalledBeforeFinalization()
+			} catch (_: Throwable) {
+				ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.ActivationPrerequisiteMissing)
+			}
+			if (initialization is ReaderPortCommandResult.Rejected) {
+				return failInstalledActivation(decision, initialization.reason)
+			}
+			if (state != ReaderSessionActivationState.ReadyToCommit) {
+				return failInstalledActivation(decision, ReaderTransitionFailureReason.ActivationPrerequisiteMissing)
+			}
 			val finalization = try {
 				legacy.finalizeActivatedHandoff(
 					token = requireNotNull(freezeToken),
@@ -1729,25 +2003,18 @@ internal class ReaderSessionActivationCoordinator(
 				ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.LegacyDrainFailed)
 			}
 			if (finalization is ReaderPortCommandResult.Rejected) {
-				check(
-					installationBarrier.failClosedAfterFinalizationRejection(decision)
-				) { "Installed activation changed before fail-closed finalization" }
-				state = ReaderSessionActivationState.ReleaseOnly
-				try {
-					discardReservedNeutralBootstrap()
-				} catch (_: Throwable) {
-					neutralBootstrapReservation = null
-				}
-				try {
-					cancelPhysicalWork()
-				} catch (_: Throwable) {
-				}
-				return ReaderActivationInstallResult.Rejected(finalization.reason).also {
-					terminalResult = it
-				}
+				return failInstalledActivation(decision, finalization.reason)
+			}
+			if (state != ReaderSessionActivationState.ReadyToCommit) {
+				return failInstalledActivation(decision, ReaderTransitionFailureReason.ActivationPrerequisiteMissing)
 			}
 			neutralBootstrapReservation = null
 			state = ReaderSessionActivationState.Activated
+			try {
+				onActivated()
+			} catch (_: Throwable) {
+				return failInstalledActivation(decision, ReaderTransitionFailureReason.ActivationPrerequisiteMissing)
+			}
 		} else {
 			val rejected = result as ReaderActivationInstallResult.Rejected
 			val imported = decision.adoptedResource
@@ -1759,6 +2026,29 @@ internal class ReaderSessionActivationCoordinator(
 			failAfterDrain(rejected.reason)
 		}
 		return terminalResult ?: result
+	}
+
+	private fun failInstalledActivation(
+		decision: ReaderInitialActivationDecision,
+		reason: ReaderTransitionFailureReason
+	): ReaderActivationInstallResult {
+		check(installationBarrier.failClosedAfterFinalizationRejection(decision)) {
+			"Installed activation changed before fail-closed startup"
+		}
+		val cancellationRequired = state != ReaderSessionActivationState.ReleaseOnly
+		state = ReaderSessionActivationState.ReleaseOnly
+		try {
+			discardReservedNeutralBootstrap()
+		} catch (_: Throwable) {
+			neutralBootstrapReservation = null
+		}
+		if (cancellationRequired) {
+			try {
+				cancelPhysicalWork()
+			} catch (_: Throwable) {
+			}
+		}
+		return ReaderActivationInstallResult.Rejected(reason).also { terminalResult = it }
 	}
 
 	private fun discardReservedNeutralBootstrap() {
@@ -2018,6 +2308,13 @@ internal interface ReaderTask6FactOnlyTimerPort {
 		cleanupKey: paige.navic.reader.ReaderReleaseOnlyCleanupKey,
 		onExpired: (paige.navic.reader.ReaderReleaseOnlyCleanupKey) -> Unit
 	): ReaderTask6ReleaseOnlyTimerRegistration? = null
+
+	/** PREPARE is custody only; callers must fence ordinary egress before COMMIT. */
+	fun commitReleaseOnlyCloseBudget(
+		registration: ReaderTask6ReleaseOnlyTimerRegistration
+	): ReaderPortCommandResult = ReaderPortCommandResult.Rejected(
+		ReaderTransitionFailureReason.PortRejected
+	)
 
 	fun cancelReleaseOnlyCloseBudget(
 		registration: ReaderTask6ReleaseOnlyTimerRegistration
@@ -2409,9 +2706,10 @@ internal data class ReaderOwnerAndInputPublicationSnapshot(
 )
 
 internal class ReaderOwnerAndInputPublicationBarrier(
-	private val narrowOrVeto: (ReaderTransitionInputLease) -> ReaderTransitionInputLease = { it },
+	private val narrowOrVeto: (ReaderTransitionCommand, ReaderTransitionInputLease) -> ReaderTransitionInputLease = { _, lease -> lease },
 	private val publishAtomically: (ReaderOwnerAndInputPublicationSnapshot) -> Boolean = { true }
 ) {
+	private var latestPublicationAttempt: Any? = null
 	var snapshot: ReaderOwnerAndInputPublicationSnapshot? = null
 		private set
 	var atomicCommitCount: Int = 0
@@ -2426,6 +2724,7 @@ internal class ReaderOwnerAndInputPublicationBarrier(
 			command.preparedFrameResource
 		)
 		return publishExact(
+			command = command,
 			transitionId = command.transitionId,
 			subject = subject,
 			owner = command.owner,
@@ -2439,6 +2738,7 @@ internal class ReaderOwnerAndInputPublicationBarrier(
 	fun publish(
 		command: ReaderTransitionCommand.PublishRetainedOwnerAndInputLease
 	): ReaderOwnerAndInputPublicationResult = publishExact(
+		command = command,
 		transitionId = command.transitionId,
 		subject = ReaderOwnerAndInputPublicationSubject.Retained(command.retainedResource),
 		owner = command.retainedOwner,
@@ -2449,6 +2749,7 @@ internal class ReaderOwnerAndInputPublicationBarrier(
 	)
 
 	private fun publishExact(
+		command: ReaderTransitionCommand,
 		transitionId: paige.navic.reader.ReaderTransitionId,
 		subject: ReaderOwnerAndInputPublicationSubject,
 		owner: ReaderPresentationFrameOwner,
@@ -2457,6 +2758,8 @@ internal class ReaderOwnerAndInputPublicationBarrier(
 		requestedLease: ReaderTransitionInputLease,
 		publicationIdentity: paige.navic.reader.ReaderOwnerAndInputPublicationIdentity
 	): ReaderOwnerAndInputPublicationResult {
+		val attempt = Any()
+		latestPublicationAttempt = attempt
 		fun rejected() = ReaderOwnerAndInputPublicationResult.Rejected(
 			transitionId,
 			subject,
@@ -2465,7 +2768,36 @@ internal class ReaderOwnerAndInputPublicationBarrier(
 		)
 		if (!readerOwnerMatchesBinding(owner, binding)) return rejected()
 		if (resource.key.kind != readerAdoptedResourceKindFor(owner)) return rejected()
-		val physicalLease = narrowOrVeto(requestedLease)
+		if (
+			resource.retirementOrder.readerSessionGeneration != transitionId.readerSessionGeneration ||
+			resource.retirementOrder.coordinatorEpoch != transitionId.coordinatorEpoch
+		) return rejected()
+		fun inputLeaseIsCompatible(lease: ReaderTransitionInputLease): Boolean {
+			if (readerInputLeaseIsCompatibleWithOwner(owner, binding, lease, transitionId)) return true
+			// A turn retains the already-published Native material while its exact
+			// gesture continues. This is not a claim on an unpresented successor.
+			if (owner !is ReaderPresentationFrameOwner.NativePage ||
+				subject !is ReaderOwnerAndInputPublicationSubject.Retained ||
+				lease !is ReaderTransitionInputLease.ClaimedGesture
+			) return false
+			val expected = transitionId.expectedBinding as? ReaderExpectedPresentationBinding.SemanticSuccessor
+				?: return false
+			if (expected is ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial ||
+				expected is ReaderExpectedPresentationBinding.NoCommittedPresentation
+			) return false
+			val retained = snapshot ?: return false
+			return transitionId.operation == paige.navic.reader.ReaderTransitionOperation.CurlClaimAndSettlement &&
+				lease.transitionId == transitionId && expected.predecessor == binding &&
+				subject.retainedResource == resource && retained.owner == owner &&
+				retained.binding == binding && retained.resource == resource &&
+				(retained.lease == ReaderTransitionInputLease.NativePage(binding, owner.proof.textureGeneration) ||
+					retained.lease == lease)
+		}
+		if (!inputLeaseIsCompatible(requestedLease)) return rejected()
+		val physicalLease = narrowOrVeto(command, requestedLease)
+		// External narrowing may start a newer publication; its old return cannot regain authority.
+		if (latestPublicationAttempt !== attempt) return rejected()
+		if (!inputLeaseIsCompatible(physicalLease)) return rejected()
 		if (!readerInputLeaseIsNoBroader(physicalLease, requestedLease)) return rejected()
 		val candidate = ReaderOwnerAndInputPublicationSnapshot(
 			owner,
@@ -2501,7 +2833,8 @@ private fun readerOwnerMatchesBinding(
 private fun readerInputLeaseIsCompatibleWithOwner(
 	owner: ReaderPresentationFrameOwner,
 	binding: ReaderPresentationBinding?,
-	lease: ReaderTransitionInputLease
+	lease: ReaderTransitionInputLease,
+	transitionId: paige.navic.reader.ReaderTransitionId
 ): Boolean = when (owner) {
 	ReaderPresentationFrameOwner.Neutral ->
 		binding == null && lease in setOf(ReaderTransitionInputLease.None, ReaderTransitionInputLease.ChromeOnly)
@@ -2524,7 +2857,10 @@ private fun readerInputLeaseIsCompatibleWithOwner(
 		binding == owner.frame.binding && (
 			lease == ReaderTransitionInputLease.None ||
 				lease == ReaderTransitionInputLease.ChromeOnly ||
-				lease is ReaderTransitionInputLease.ClaimedGesture
+				(lease is ReaderTransitionInputLease.ClaimedGesture &&
+					lease.transitionId == transitionId &&
+					transitionId.operation == paige.navic.reader.ReaderTransitionOperation.CurlClaimAndSettlement &&
+					transitionId.expectedBinding == ReaderExpectedPresentationBinding.Exact(binding))
 		)
 	is ReaderPresentationFrameOwner.LiveEngine ->
 		binding == owner.proof.binding && lease in setOf(

@@ -116,7 +116,11 @@ internal fun KomikkuReaderRoot(
 	onRepairWhispersyncMismatch: () -> Unit,
 	onDismissDialog: () -> Unit,
 	onListeningSettingsChange: (ReaderListeningSettings) -> Unit,
-	modifier: Modifier = Modifier
+	modifier: Modifier = Modifier,
+	semanticReceiptIngress: ReaderSemanticReceiptIngress? = null,
+	initialSemanticReceiptIngress: ReaderInitialSemanticReceiptIngress? = null,
+	installedPageTurnModelIngress: ReaderInstalledPageTurnModelIngress? = null,
+	installedPhysicalPublicationIngress: ReaderInstalledPhysicalPublicationIngress? = null
 ) {
 	val viewerSlot = remember { ReaderViewerLifecycleSlot() }
 	val viewer = remember(viewerSlot, viewState) { viewerSlot.update(viewState) }
@@ -165,7 +169,13 @@ internal fun KomikkuReaderRoot(
 					"shellCover=${controllerState.shellCoverVisible} dialog=${controllerState.dialog}"
 			)
 		}
-		CompositionLocalProvider(LocalReaderTransitionGateway provides shadowTransitionGateway) {
+		CompositionLocalProvider(
+			LocalReaderTransitionGateway provides shadowTransitionGateway,
+			LocalReaderSemanticReceiptIngress provides semanticReceiptIngress,
+			LocalReaderInitialSemanticReceiptIngress provides initialSemanticReceiptIngress,
+			LocalReaderInstalledPageTurnModelIngress provides installedPageTurnModelIngress,
+			LocalReaderInstalledPhysicalPublicationIngress provides installedPhysicalPublicationIngress
+		) {
 			KomikkuReaderNativeFrameHost(
 				navigator = navigator,
 				navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true,
@@ -335,7 +345,8 @@ internal fun KomikkuReaderRoot(
 						diagnostic = presentationDecision.diagnosticPresentation,
 						onRetry = {
 							shadowTransitionGateway.dispatchBeforeLegacy(
-								ReaderTransitionFact.Retry(null)
+								ReaderTransitionFact.Retry(null),
+								selectedResult = { null }
 							) {
 								onPresentationEvent(ReaderPresentationEvent.Retry)
 							}
@@ -346,7 +357,7 @@ internal fun KomikkuReaderRoot(
 							onPresentationEvent = onPresentationEvent,
 							dispatchAcceptedCancel = { event, legacyDispatch ->
 								shadowTransitionGateway.dispatchBeforeLegacy(
-									ReaderTransitionFact.Intent(null, ReaderCancelIntent)
+									ReaderTransitionFact.Intent(null, ReaderCancelIntent), selectedResult = { null }
 								) {
 									legacyDispatch(event)
 								}

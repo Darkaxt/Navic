@@ -16,6 +16,15 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import paige.navic.reader.ReaderMaterialGenerationAllocation
+import paige.navic.reader.ReaderNativePageHostTokenState
+import paige.navic.reader.ReaderNativePagePresentationProof
+import paige.navic.reader.ReaderPlayLikeCurlDeckTargetIdentity
+import paige.navic.reader.ReaderTransitionDeckRole
+import paige.navic.reader.ReaderTransitionFrameGeometry
+import paige.navic.reader.ReaderTransitionFrameTarget
+import paige.navic.reader.ReaderTransitionFrameTargetHandle
+import paige.navic.reader.ReaderTransitionFrameTargetSpecification
 import paige.navic.reader.ReaderActiveTransition
 import paige.navic.reader.ReaderCancelIntent
 import paige.navic.reader.ReaderCommittedPresentation
@@ -74,6 +83,104 @@ import paige.navic.reader.withReadyNativePresentationFixture
 
 @RunWith(RobolectricTestRunner::class)
 class ReaderResumableTransitionCoordinatorTest {
+	@Test
+	fun preallocationAuthorityUsesOnlyTheUncancelledOriginalCommand() {
+		val resolved = binding("public-allocation-authority-fixture")
+		listOf("cancel", "supersede", "close", "allocation-return").forEach { ending ->
+			val fixture = semanticCoordinatorFixture(ReaderSemanticCommandPort { command, _, onReceipt ->
+				onReceipt(semanticDestinationReceipt(command, resolved, 1L))
+				ReaderSemanticCommandResult.Accepted
+			})
+			fixture.coordinator.enqueue(bootstrapSemanticIntent())
+			val command = fixture.ports.commands.filterIsInstance<ReaderTransitionCommand.AllocateMaterialBinding>().single()
+			assertTrue(fixture.coordinator.materialCommandIsCurrent(command), ending)
+			assertFalse(fixture.coordinator.materialCommandIsCurrent(command.copy(
+				transitionId = command.transitionId.copy(readerSessionGeneration = 18L))))
+			assertFalse(fixture.coordinator.materialCommandIsCurrent(command.copy(
+				transitionId = command.transitionId.copy(coordinatorEpoch = 20L))))
+			assertFalse(fixture.coordinator.materialCommandIsCurrent(command.copy(
+				binding = resolved.copy(publicationGeneration = resolved.publicationGeneration + 1L))))
+			when (ending) {
+				"cancel" -> fixture.coordinator.enqueue(ReaderTransitionFact.Intent(null, ReaderCancelIntent))
+				"supersede" -> fixture.coordinator.enqueue(ReaderTransitionFact.Intent(null,
+					ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Jump, ReaderSemanticRequestHandle(2L))))
+				"close" -> fixture.coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
+				else -> {
+					val allocated = resolved.copy(preparationGeneration = 17L, rasterGeneration = 19L, textureGeneration = 23L)
+					val allocation = ReaderMaterialGenerationAllocation(command.transitionId, allocated, 17L, 19L, 23L)
+					fixture.coordinator.enqueue(ReaderTransitionFact.MaterialBindingAllocated(command.transitionId, allocation))
+				}
+			}
+			assertFalse(fixture.coordinator.materialCommandIsCurrent(command), ending)
+		}
+	}
+
+	@Test
+	fun authenticInitialProfileCallbackKeepsTheOriginalPreallocationCommandCurrent() {
+		val initial = binding("initial-profile-command").copy(
+			profileGeneration = 0L,
+			preparationGeneration = null,
+			rasterGeneration = null,
+			textureGeneration = null
+		)
+		val fixture = realSemanticCoordinatorFixture { origin, _, callback ->
+			callback(semanticDestinationReceipt(origin, initial, 1L))
+			ReaderSemanticExecutableResult.Accepted
+		}
+		fixture.coordinator.enqueue(bootstrapSemanticIntent(fixture.handle))
+		val command = fixture.ports.commands.filterIsInstance<ReaderTransitionCommand.AllocateMaterialBinding>().single()
+		assertEquals(ReaderTransitionOperation.BootstrapNativePage, command.transitionId.operation)
+		assertIs<ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial>(command.transitionId.expectedBinding)
+		assertEquals(initial, command.binding)
+		assertTrue(fixture.coordinator.materialCommandIsCurrent(command))
+
+		val beforeProfile = coordinatorJournal(fixture.coordinator)
+		fixture.coordinator.enqueue(ReaderTransitionFact.PaginationProfileReady(
+			command.transitionId.copy(coordinatorEpoch = command.transitionId.coordinatorEpoch + 1L), 5L))
+		assertEquals(beforeProfile, coordinatorJournal(fixture.coordinator))
+		fixture.coordinator.enqueue(ReaderTransitionFact.PaginationProfileReady(command.transitionId, 5L))
+		val qualified = coordinatorJournal(fixture.coordinator)
+		assertEquals(initial.copy(profileGeneration = 5L), qualified.active?.resolvedSuccessorBinding)
+		assertEquals(setOf(ReaderTransitionCommandStage.MaterialAllocation), qualified.active?.pendingCommandStages)
+		assertEquals(null, qualified.active?.materialAllocation)
+		assertTrue(fixture.coordinator.materialCommandIsCurrent(command),
+			"The exact issued profile-zero command remains authoritative until actual allocation")
+		assertTrue(command === fixture.ports.commands.filterIsInstance<ReaderTransitionCommand.AllocateMaterialBinding>().single())
+		assertTrue(fixture.ports.commands.none { it is ReaderTransitionCommand.RequestRasterPreparation })
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.PaginationProfileReady(command.transitionId, 7L))
+		assertEquals(qualified, coordinatorJournal(fixture.coordinator), "A second profile callback cannot requalify the command")
+		assertTrue(fixture.coordinator.materialCommandIsCurrent(command))
+		val allocated = initial.copy(profileGeneration = 5L, preparationGeneration = 17L,
+			rasterGeneration = 19L, textureGeneration = 23L)
+		val allocation = ReaderMaterialGenerationAllocation(command.transitionId, allocated, 17L, 19L, 23L)
+		fixture.coordinator.enqueue(ReaderTransitionFact.MaterialBindingAllocated(command.transitionId, allocation))
+		assertFalse(fixture.coordinator.materialCommandIsCurrent(command))
+		val raster = fixture.ports.commands.filterIsInstance<ReaderTransitionCommand.RequestRasterPreparation>().single()
+		assertEquals(allocated, raster.binding)
+		assertEquals(allocation, raster.allocation)
+	}
+
+	@Test
+	fun committedMaterialLeaseLosesCurrentnessOnCloseOrReplacement() {
+		listOf<ReaderTransitionFact>(ReaderTransitionFact.PublicationClosed(null),
+			ReaderTransitionFact.PublicationReplaced(null)).forEach { terminal ->
+			val model = activatedIdleCommittedFixture(ScriptedBindingTimer(TestTimerBindOutcome.Accepted))
+			val fixture = model.fixture
+			val lease = ReaderRasterPreparationLease(fixture.id, model.binding,
+				requireNotNull(model.binding.preparationGeneration), requireNotNull(model.binding.rasterGeneration),
+				ReaderTransitionResourceKey(fixture.id, ReaderTransitionResourceKind.Raster,
+					requireNotNull(model.binding.rasterGeneration)))
+			assertTrue(fixture.coordinator.materialCommandIsCurrent(lease))
+			fixture.coordinator.enqueue(terminal)
+			assertTrue(fixture.coordinator.snapshot().releaseOnlySink)
+			assertFalse(fixture.coordinator.materialCommandIsCurrent(lease),
+				"Retained committed identity is release custody, not material-work authority")
+			fixture.coordinator.enqueue(ReaderTransitionFact.Retry(null))
+			assertFalse(fixture.coordinator.materialCommandIsCurrent(lease))
+		}
+	}
+
 	@Test
 	fun callbackBeforeCommandReturnIsQueuedAfterRegistration() {
 		val trace = mutableListOf<String>()
@@ -1831,18 +1938,40 @@ class ReaderResumableTransitionCoordinatorTest {
 				)
 			}
 
+			val terminalJournal = coordinatorJournal(coordinator)
 			coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
 			assertEquals(1, timer.cancelCount, "A terminal physical cancel must not be retried")
 			timer.fireLastReleaseOnly()
 
 			val afterRace = coordinator.snapshot()
-			if (cancelOutcome == TestTimerCancelOutcome.Accepted) {
-				assertEquals(expectedStatus, afterRace.releaseOnlyDeadlineStatus)
-				assertEquals(ReaderTransitionResourceState.Released, coordinator.releaseStateOf(model.owned))
-			} else {
-				assertEquals(expectedStatus, afterRace.releaseOnlyDeadlineStatus)
-				assertEquals(0, afterRace.scheduledCallbackCount)
-			}
+			// Restore the original assertion: design sections 9/12 reject all timer
+			// consequences after terminal accounting, including failed cancellation.
+			// Physical callback custody ends here without rewriting that terminal journal.
+			assertEquals(expectedStatus, afterRace.releaseOnlyDeadlineStatus)
+			assertEquals(terminalJournal, coordinatorJournal(coordinator))
+			assertEquals(ReaderTransitionResourceState.Released, coordinator.releaseStateOf(model.owned))
+			assertEquals(0, afterRace.scheduledCallbackCount)
+			assertTrue(afterRace.releaseOnlySink)
+			assertEquals(null, afterRace.activeOperation)
+			assertEquals(1, timer.cancelCount)
+			assertEquals(1, timer.releaseOnlyBindCount)
+			val commandCount = model.fixture.ports.commands.size
+			timer.fireLastReleaseOnly()
+			timer.fireLastReleaseOnly()
+			coordinator.enqueue(ReaderTransitionFact.ResourceReleased(release.identity))
+			coordinator.enqueue(ReaderTransitionFact.Retry(null))
+			val afterDuplicate = coordinator.snapshot()
+			assertEquals(afterRace.releaseOnlyDeadlineStatus, afterDuplicate.releaseOnlyDeadlineStatus)
+			assertEquals(afterRace.lastOutcome, afterDuplicate.lastOutcome)
+			assertEquals(afterRace.releasedResourceCount, afterDuplicate.releasedResourceCount)
+			assertEquals(afterRace.releaseCommandIssuedCount, afterDuplicate.releaseCommandIssuedCount)
+			assertEquals(commandCount, model.fixture.ports.commands.size)
+			assertEquals(ReaderTransitionResourceState.Released, coordinator.releaseStateOf(model.owned))
+			assertTrue(afterDuplicate.releaseOnlySink)
+			assertEquals(null, afterDuplicate.activeOperation)
+			assertEquals(0, afterDuplicate.scheduledCallbackCount)
+			assertEquals(1, timer.cancelCount)
+			assertEquals(1, timer.releaseOnlyBindCount)
 		}
 	}
 
@@ -1891,6 +2020,168 @@ class ReaderResumableTransitionCoordinatorTest {
 			setOf(ReaderTransitionCommandKind.ReserveDeck),
 			fixture.coordinator.snapshot().shadowPredictions.single().commandKinds
 		)
+	}
+
+	private fun nativeDeckDeclaration(
+		id: ReaderTransitionId,
+		binding: ReaderPresentationBinding
+	) = ReaderTransitionFrameTargetSpecification.NativePage(
+		transitionId = id,
+		readerSessionGeneration = id.readerSessionGeneration,
+		publicationGeneration = binding.publicationGeneration,
+		binding = binding,
+		allocation = ReaderMaterialGenerationAllocation(id, binding,
+			requireNotNull(binding.preparationGeneration), requireNotNull(binding.rasterGeneration),
+			requireNotNull(binding.textureGeneration)),
+		hostToken = ReaderNativePageHostTokenState.AuthoritativeAbsent,
+		deckTarget = ReaderPlayLikeCurlDeckTargetIdentity(1L,
+			requireNotNull(binding.textureGeneration), ReaderTransitionDeckRole.PageEntry),
+		geometry = ReaderTransitionFrameGeometry(binding.viewportGeneration, binding.profileGeneration,
+			0, 0, 1200, 800),
+		requestSequence = 1L)
+
+	@Test
+	fun admittedDeckDeclarationRegistersBeforePrepareInEitherReadinessOrder() {
+		for (declarationFirst in listOf(true, false)) {
+			val trace = mutableListOf<String>()
+			val ledger = ReaderTransitionReleaseLedger()
+			val binding = binding("declared-original-deck")
+			lateinit var deckCallback: (ReaderTransitionFact) -> Unit
+			lateinit var preparedTarget: ReaderTransitionFrameTarget.NativePage
+			val fixture = coordinatorFixture(bindingValue = binding.foliateSessionId,
+				releaseLedger = ledger,
+				onIssue = { command, onFact ->
+					when (command) {
+						is ReaderTransitionCommand.ReserveDeck -> deckCallback = onFact
+						is ReaderTransitionCommand.PrepareFrameTarget -> {
+							trace += "prepare"
+							assertTrue(ledger.owns(command.registration), "Original ledger must already own registration")
+							assertTrue(command.registration === ledger.register(command.registration.key,
+								command.transitionId.readerSessionGeneration, command.transitionId.coordinatorEpoch))
+							assertEquals(deckKey(command.transitionId), command.registration.key)
+							assertEquals(nativeDeckDeclaration(command.transitionId, binding), command.specification)
+							preparedTarget = ReaderTransitionFrameTarget.NativePage(
+								ReaderTransitionFrameTargetHandle(command.transitionId.readerSessionGeneration,
+									binding.publicationGeneration, 107L),
+								assertIs<ReaderTransitionFrameTargetSpecification.NativePage>(command.specification),
+								command.registration)
+							onFact(ReaderTransitionFact.FrameTargetPrepared(command.transitionId, preparedTarget))
+							trace += "prepare-return"
+						}
+						is ReaderTransitionCommand.RequestFramePresentation -> {
+							trace += "present"
+							assertEquals(preparedTarget, command.target)
+							val owner = ReaderPresentationFrameOwner.NativePage(ReaderNativePagePresentationProof(
+								binding, null, 1L, 1200, 800, requireNotNull(binding.rasterGeneration),
+								requireNotNull(binding.textureGeneration)))
+							onFact(ReaderTransitionFact.PreparedFrame(command.transitionId, command.target,
+								owner, command.target.resource))
+							trace += "present-return"
+						}
+						is ReaderTransitionCommand.CommitOwnerAndInputLease -> {
+							trace += "commit"
+							assertEquals(preparedTarget.resource, command.preparedFrameResource)
+						}
+						else -> error("Unexpected command before publication acknowledgement: $command")
+					}
+				})
+			fixture.coordinator.enqueue(ReaderTransitionFact.RasterProven(fixture.id))
+			val key = deckKey(fixture.id)
+			deckCallback(ReaderTransitionFact.DeckReserved(fixture.id, key))
+			deckCallback(ReaderTransitionFact.DeckOwned(fixture.id, key))
+			assertEquals(ReaderTransitionResourceState.Owned, fixture.coordinator.releaseStateOf(key))
+			assertTrue(trace.isEmpty())
+			if (!declarationFirst) deckCallback(ReaderTransitionFact.DeckPrepared(fixture.id, key))
+			assertEquals(ReaderPortCommandResult.Accepted,
+				fixture.coordinator.enqueueFrameTargetDeclaration(nativeDeckDeclaration(fixture.id, binding), key))
+			if (declarationFirst) {
+				assertTrue(trace.isEmpty(), "A declaration alone must not manufacture deck readiness")
+				deckCallback(ReaderTransitionFact.DeckPrepared(fixture.id, key))
+			}
+			assertEquals(listOf("prepare", "prepare-return", "present", "present-return", "commit"),
+				trace, "declarationFirst=$declarationFirst")
+			assertEquals(ReaderTransitionPhaseKind.Committing, fixture.coordinator.snapshot().activePhase)
+			assertEquals(1, fixture.coordinator.snapshot().maxAdvanceDepth)
+			assertTrue(fixture.ports.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+		}
+	}
+
+	@Test
+	fun synchronousDeckProducerQueuesDeclarationBehindOriginalOwnershipIngress() {
+		val ledger = ReaderTransitionReleaseLedger()
+		val binding = binding("synchronous-original-deck")
+		lateinit var coordinator: ReaderResumableTransitionCoordinator
+		val trace = mutableListOf<String>()
+		val fixture = coordinatorFixture(bindingValue = binding.foliateSessionId, releaseLedger = ledger,
+			onIssue = { command, onFact ->
+				when (command) {
+					is ReaderTransitionCommand.ReserveDeck -> {
+						val key = deckKey(command.transitionId)
+						onFact(ReaderTransitionFact.DeckReserved(command.transitionId, key))
+						onFact(ReaderTransitionFact.DeckOwned(command.transitionId, key))
+						assertEquals(ReaderPortCommandResult.Accepted, coordinator.enqueueFrameTargetDeclaration(
+							nativeDeckDeclaration(command.transitionId, binding), key))
+						onFact(ReaderTransitionFact.DeckPrepared(command.transitionId, key))
+						assertEquals(listOf<String>(), trace)
+						trace += "reserve-return"
+					}
+					is ReaderTransitionCommand.PrepareFrameTarget -> {
+						assertTrue(ledger.owns(command.registration))
+						assertTrue(command.registration === ledger.register(command.registration.key,
+							command.transitionId.readerSessionGeneration, command.transitionId.coordinatorEpoch))
+						trace += "prepare"
+					}
+					else -> Unit
+				}
+			})
+		coordinator = fixture.coordinator
+		coordinator.enqueue(ReaderTransitionFact.RasterProven(fixture.id))
+		assertEquals(listOf("reserve-return", "prepare"), trace)
+		assertEquals(1, coordinator.snapshot().maxAdvanceDepth)
+		assertTrue(fixture.ports.commands.none { it is ReaderTransitionCommand.ReleaseResource })
+	}
+
+	@Test
+	fun declarationRejectsUnknownWrongAndStaleDeckWithoutPreparingOrReleasingPredecessor() {
+		for (invalid in listOf("unknown", "kind", "transition", "allocation", "geometry", "stale")) {
+			val binding = binding("rejected-original-deck")
+			val ledger = ReaderTransitionReleaseLedger()
+			lateinit var deckCallback: (ReaderTransitionFact) -> Unit
+			val fixture = coordinatorFixture(bindingValue = binding.foliateSessionId, releaseLedger = ledger,
+				onIssue = { command, onFact ->
+					if (command is ReaderTransitionCommand.ReserveDeck) deckCallback = onFact
+				})
+			fixture.coordinator.enqueue(ReaderTransitionFact.RasterProven(fixture.id))
+			val admitted = deckKey(fixture.id)
+			deckCallback(ReaderTransitionFact.DeckReserved(fixture.id, admitted))
+			deckCallback(ReaderTransitionFact.DeckOwned(fixture.id, admitted))
+			var specification = nativeDeckDeclaration(fixture.id, binding)
+			val key = when (invalid) {
+				"unknown" -> admitted.copy(opaqueId = admitted.opaqueId + 1L)
+				"kind" -> admitted.copy(kind = ReaderTransitionResourceKind.Raster)
+				"transition" -> deckKey(fixture.id.copy(sequence = 2L, parent = fixture.id.parentIdentity()))
+				else -> admitted
+			}
+			when (invalid) {
+				"allocation" -> {
+					val different = binding.copy(preparationGeneration = 17L)
+					specification = specification.copy(allocation = ReaderMaterialGenerationAllocation(fixture.id,
+						different, 17L, requireNotNull(different.rasterGeneration), requireNotNull(different.textureGeneration)))
+				}
+				"geometry" -> specification = specification.copy(geometry = specification.geometry.copy(
+					viewportGeneration = binding.viewportGeneration + 1L))
+				"stale" -> fixture.coordinator.enqueue(ReaderTransitionFact.FoliateDestinationCommitted(null,
+					binding.copy(destinationCommitIdentity = ReaderDestinationCommitIdentity(binding.foliateSessionId, 2L))))
+			}
+			val commandsBefore = fixture.ports.commands.toList()
+			assertIs<ReaderPortCommandResult.Rejected>(
+				fixture.coordinator.enqueueFrameTargetDeclaration(specification, key), invalid)
+			assertEquals(commandsBefore, fixture.ports.commands, invalid)
+			assertTrue(fixture.ports.commands.none { it is ReaderTransitionCommand.PrepareFrameTarget }, invalid)
+			assertTrue(fixture.ports.commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>()
+				.none { it.key.kind == ReaderTransitionResourceKind.FrameHandoff }, invalid)
+			if (key != admitted) assertEquals(null, ledger.stateOf(key), invalid)
+		}
 	}
 
 	@Test
@@ -1959,6 +2250,39 @@ class ReaderResumableTransitionCoordinatorTest {
 
 		assertEquals(1, fixture.coordinator.snapshot().maxAdvanceDepth)
 		assertEquals(0, fixture.coordinator.snapshot().mailboxSize)
+	}
+
+	@Test
+	fun genericFactProcessedObservationDoesNotAuthenticateIgnoredPublicationFacts() {
+		val observations = mutableListOf<ReaderTransitionFactKind>()
+		val binding = binding("public-ignored-publication-fixture")
+		val fixture = coordinatorFixture(bindingValue = binding.foliateSessionId,
+			onObservation = { observation ->
+				if (observation.kind == ReaderTransitionCoordinatorObservationKind.FactProcessed)
+					observation.factKind?.let(observations::add)
+			})
+		val before = fixture.coordinator.snapshot()
+		val key = ReaderTransitionResourceKey(fixture.id, ReaderTransitionResourceKind.FrameHandoff, 307L)
+		val registration = ReaderTransitionResourceRegistration(key,
+			ReaderResourceRetirementOrder(fixture.id.readerSessionGeneration, fixture.id.coordinatorEpoch, 2L))
+		val fact = ReaderTransitionFact.OwnerAndInputPublicationApplied(fixture.id,
+			paige.navic.reader.ReaderOwnerAndInputPublicationSubject.Successor(
+				ReaderTransitionFrameTargetHandle(fixture.id.readerSessionGeneration, binding.publicationGeneration, 311L),
+				registration), shellOwner(binding), binding, paige.navic.reader.ReaderTransitionInputLease.CoverActions,
+			paige.navic.reader.ReaderOwnerAndInputPublicationIdentity(313L))
+		// Both are ordinary, untrusted ingress: one has the current id but no pending
+		// publication stage, and one has a stale id. Neither came from the original port.
+		fixture.coordinator.enqueue(fact)
+		fixture.coordinator.enqueue(fact.copy(transitionId = fixture.id.copy(
+			coordinatorEpoch = fixture.id.coordinatorEpoch + 1L)))
+		val after = fixture.coordinator.snapshot()
+		assertTrue(observations.size == 2 && observations.all {
+			it == ReaderTransitionFactKind.OwnerAndInputPublicationApplied
+		}, "A407.Observation.IgnoredPublicationStillProcessed")
+		assertTrue(after.activeOperation == before.activeOperation && after.activePhase == before.activePhase &&
+			after.lastOutcome == before.lastOutcome && after.ownedResourceCount == before.ownedResourceCount &&
+			fixture.ports.commands.isEmpty(), "A407.Observation.NotPublicationAcceptance")
+		assertTrue(after.maxAdvanceDepth == 1, "A407.Observation.OriginalSingleDrain")
 	}
 
 	@Test
@@ -2725,7 +3049,7 @@ class ReaderResumableTransitionCoordinatorTest {
 	}
 
 	@Test
-	fun sourceBoundaryKeepsLegacyAsSoleWriterAndGatewayShadowOnly() {
+	fun sourceBoundaryFencesLegacyAndBindsSelectedRoutingToTheInstalledSession() {
 		val commonRoot = source("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt")
 		val commonScreen = source("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt")
 		val platform = source("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt")
@@ -2746,12 +3070,21 @@ class ReaderResumableTransitionCoordinatorTest {
 		assertContains(platform, "class ReaderTransitionGateway")
 		assertContains(platform, "ReaderTransitionGatewayMode.Shadow")
 		assertContains(platform, "fun observePresentationReceipt(")
-		assertContains(androidHost, "attachShadow(")
-		assertContains(androidHost, "enqueue = {}")
-		assertContains(androidHost, "enqueueReceipt = {}")
-		assertContains(androidHost, "currentShadowTransitionGateway.observeLegacyPresentationEvent(event)")
+		// The installed-session phase replaces the historical all-session Shadow prohibition,
+		// not the default-inactive gateway or the legacy consequence fence.
+		assertContains(platform, "private var explicitMode = ReaderTransitionGatewayMode.Shadow")
+		assertContains(platform, "candidate.installationSource.ownsInstalledCandidate(")
+		assertContains(platform, "if (attachment != null || !installationSource.awaitingInstallation")
+		assertContains(platform, "if (mode != ReaderTransitionGatewayMode.Shadow) return false")
+		assertContains(androidHost, "shadowTransitionGateway.reserveActivatedCandidate(")
+		assertContains(androidHost, "installationSource = activatedSessionStore")
+		assertContains(androidHost, "enqueueActivatedFact(fact)")
+		assertContains(androidHost, "enqueueActivatedReceipt(receipt)")
+		assertContains(androidHost, "private object ReaderNativeHostProductionActivatedPortCapability")
+		assertContains(androidHost, "require(productionCapability === ReaderNativeHostProductionActivatedPortCapability)")
+		assertContains(androidHost, "if (currentShadowTransitionGateway.observeLegacyPresentationEvent(event))")
 		assertContains(androidHost, "currentOnPresentationEvent(event)")
-		assertFalse(androidHost.contains("ReaderTransitionMode.Active"))
+		assertContains(coordinator, "if (mode == ReaderTransitionMode.Active)")
 		assertContains(coordinator, "ports.issue(command, ::enqueue)")
 	}
 
@@ -3520,6 +3853,7 @@ class ReaderResumableTransitionCoordinatorTest {
 		bindingValue: String = "synthetic",
 		operation: ReaderTransitionOperation = ReaderTransitionOperation.CoverToPageEntry,
 		clock: RecordingClock = RecordingClock(),
+		releaseLedger: ReaderTransitionReleaseLedger = ReaderTransitionReleaseLedger(),
 		task6FactOnlyTimer: ReaderTask6FactOnlyTimerPort? = null,
 		activationState: () -> ReaderSessionActivationState = { ReaderSessionActivationState.Legacy },
 		onIssue: (ReaderTransitionCommand, (ReaderTransitionFact) -> Unit) -> Unit = { _, _ -> },
@@ -3529,7 +3863,6 @@ class ReaderResumableTransitionCoordinatorTest {
 		val id = transitionId(binding, operation)
 		val owner = shellOwner(binding)
 		val seedId = paige.navic.reader.ReaderAdoptedPredecessorSeedId.fromValidatedImport(1L)
-		val releaseLedger = ReaderTransitionReleaseLedger()
 		val imported = assertNotNull(
 			releaseLedger.importLegacy(
 				physicalIdentity = ReaderLegacyPhysicalIdentity(
@@ -4143,6 +4476,12 @@ private class ScriptedBindingTimer(
 		if (outcome == TestTimerBindOutcome.SynchronousExpiry) onExpired(cleanupKey)
 		return result
 	}
+
+	// Explicit scripted owner adaptation. This does not prove physical COMMIT or root composition.
+	override fun commitReleaseOnlyCloseBudget(
+		registration: ReaderTask6ReleaseOnlyTimerRegistration
+	): ReaderPortCommandResult = if (releaseOnlyRegistration === registration) ReaderPortCommandResult.Accepted
+		else ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
 
 	override fun cancelReleaseOnlyCloseBudget(
 		registration: ReaderTask6ReleaseOnlyTimerRegistration

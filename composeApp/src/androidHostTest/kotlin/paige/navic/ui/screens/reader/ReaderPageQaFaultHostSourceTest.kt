@@ -35,7 +35,7 @@ class ReaderPageQaFaultHostSourceTest {
 			.substringBefore("onRelease = { root ->")
 		val visualLocation = updateBlock.indexOf("root.setPageTurnVisualLocation(")
 		val viewerReplacement = updateBlock.indexOf("root.setViewerContent(viewerKey)")
-		val composeOverlay = updateBlock.indexOf("root.setComposeOverlay(")
+		val composeOverlay = updateBlock.indexOf("root.setComposeOverlay {")
 
 		assertTrue(visualLocation >= 0, "update block must synchronize visual location")
 		assertTrue(viewerReplacement >= 0, "update block must replace viewer content")
@@ -99,7 +99,14 @@ class ReaderPageQaFaultHostSourceTest {
 		assertContains(binding, "preparedDeckAdmitted = preparedDeck?.let(")
 		assertContains(binding, "presentationViewerReplacementFence::admits")
 		assertContains(bindingResolution, "snapshot.preparedDeckAdmitted &&")
-		val invalidateLegacyDeck = viewerReplacement.indexOf("viewerContainer.replaceViewerContent(viewerView)")
+		val invalidateLegacyDeck = viewerReplacement.indexOf("viewerContainer.replaceCapturedViewerContent(capture, viewerView)")
+		assertContains(viewerReplacement, "if (!adopted || !viewerContainer.acceptedViewerReplacement(capture, viewerView)) return")
+		val capturedReplacement = source.substringAfter("fun replaceCapturedViewerContent(")
+			.substringBefore("fun detachViewerContent(")
+		assertContains(capturedReplacement, "playLikeCurlController.invalidate(\"viewer-replaced\"")
+		assertContains(capturedReplacement, "retireCapturedViewerReplacement(capture)")
+		assertTrue(capturedReplacement.indexOf("playLikeCurlController.invalidate(") <
+			capturedReplacement.indexOf("framePhysicalOwnership.mount(lease)"))
 		val clearShadowFence = viewerReplacement.indexOf(
 			"viewerContainer.completePresentationViewerReplacement()"
 		)

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "downstream": "Navic",
+  "apiVersion": 3,
+  "baseCommit": "283f02dda29b0a7da2a11492ff01ca1db5beab71",
+  "baseSourceManifestSha256": "8799328bd8401e5cd804ec62ad3234eba67a4edf41c14ae52a39d4feebbf65a7",
+  "modifiedFiles": [
+    {
+      "mode": "100644",
+      "beforeBlob": "0db0def9556cbefbc7277f56edd9439265cb9038",
+      "blob": "d8de919c0bb0be9d000e0bcf0e97cb9fb81e862f",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceListener.java"
+    },
+    {
+      "mode": "100644",
+      "beforeBlob": "1c87c18ddc643f802f66ecff7e2721da7eadedd5",
+      "blob": "4652d9d62fe74f2e0dee05b34365c06560e30701",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceView.java"
+    },
+    {
+      "mode": "100644",
+      "beforeBlob": "373f1b52b5bd042e51a09c4d46a281f4179d1805",
+      "blob": "2631de670e9bf1eb4f0af05866a9fe59242e35c4",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageRenderer.java"
+    }
+  ],
+  "addedFiles": [
+    {
+      "mode": "100644",
+      "blob": "02fad39fe82332247a024cc32634502902125da4",
+      "path": "karackencurllib/src/test/java/karacken/curl/CurlSettlementCompletionContractTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "297abda04ea24a3d44cfc7535b6420b8bd630935",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageRendererContextGenerationTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "d7d78c756a903ca89b6817fab8c11b4244d24100",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageRendererCurlSettlementDrawTest.java"
+    }
+  ]
+}

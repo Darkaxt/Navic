@@ -123,17 +123,23 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 
 	private inline fun <R> withOpen(
 		closedResult: R,
+		work: ReaderActivatedRasterWork? = null,
+		cleanup: Boolean = false,
 		action: () -> R
 	): R {
+		val descriptor = ReaderExactPhysicalOwnerDescriptor(
+			kind = ReaderTransitionResourceKind.Raster,
+			origin = ReaderLegacyResourceOrigin.Pending,
+			state = ReaderLegacyResourceState.Running
+		)
 		val physicalOwner = synchronized(lock) {
-			if (closed) null
-			else physicalOwnership.admit(
-				ReaderExactPhysicalOwnerDescriptor(
-					kind = ReaderTransitionResourceKind.Raster,
-					origin = ReaderLegacyResourceOrigin.Pending,
-					state = ReaderLegacyResourceState.Running
+			if (closed) null else (when {
+				work == null -> physicalOwnership.admit(descriptor)
+				cleanup -> physicalOwnership.admitInstalledPhysicalOwner(
+					work.domain, work.store, work.snapshot, descriptor.copy(binding = work.lease.binding)
 				)
-			)?.also { activeOperations += 1 }
+				else -> work.admit(physicalOwnership, descriptor)
+			})?.also { activeOperations += 1 }
 		} ?: return closedResult
 		return try {
 			action()
@@ -152,6 +158,9 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 		physicalOwnership.freezeForTransitionActivation(domain)
 	}
 
+	internal val originalLegacyAdmissionRestored: Boolean
+		get() = synchronized(lock) { !closed && !physicalOwnership.isFrozen }
+
 	fun connectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? =
 		physicalOwnership.connectedFrozenOwnership()
 
@@ -164,6 +173,11 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 	): ReaderPortCommandResult =
 		physicalOwnership.drainFrozenOwnership(physicalIdentity, onConfirmed)
 
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult = synchronized(lock) {
+		if (closed) return@synchronized ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		physicalOwnership.finalizeActivatedHandoff(domain)
+	}
+
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult = synchronized(lock) {
@@ -175,8 +189,9 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 
 	fun contains(
 		key: ReaderPageRasterKey,
-		expectedMetadata: ReaderPageRasterMetadata
-	): Boolean = withOpen(false) {
+		expectedMetadata: ReaderPageRasterMetadata,
+		work: ReaderActivatedRasterWork? = null
+	): Boolean = withOpen(false, work) {
 		cache.contains(key, expectedMetadata)
 	}
 
@@ -187,6 +202,17 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 		withOpen<ReaderPageRaster<R>?>(null) {
 			cache.readCopy(key, copy)
 		}
+
+	fun <R : Any> readInstalledCopy(
+		key: ReaderPageRasterKey,
+		work: ReaderActivatedRasterWork,
+		copy: (T) -> R?
+	): ReaderPageRaster<R>? = withOpen<ReaderPageRaster<R>?>(null, work) {
+		cache.readCopy(key, copy)
+	}
+
+	fun releaseInstalled(work: ReaderActivatedRasterWork, onReleased: () -> Unit): ReaderPortCommandResult =
+		physicalOwnership.releaseInstalledPhysicalOwners(work, onReleased)
 
 	override fun write(
 		key: ReaderPageRasterKey,
@@ -210,12 +236,13 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 		key: ReaderPageRasterKey,
 		metadata: ReaderPageRasterMetadata,
 		value: T,
-		commitFence: ReaderPageRasterCommitFence
+		commitFence: ReaderPageRasterCommitFence,
+		work: ReaderActivatedRasterWork? = null
 	): ReaderPageRasterWriteResult = withOpen(
 		ReaderPageRasterWriteResult(
 			persisted = false,
 			ownership = ReaderPageRasterValueOwnership.Caller
-		)
+		), work
 	) {
 		cache.write(
 			key = key,
@@ -224,6 +251,13 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 			mode = ReaderPageRasterWriteMode.PersistOnly,
 			commitFence = commitFence
 		)
+	}
+
+	fun rollbackInstalledPublication(
+		receipt: ReaderPageRasterWriteReceipt,
+		work: ReaderActivatedRasterWork
+	): Boolean = withOpen(false, work, cleanup = true) {
+		cache.rollbackPublication(receipt)
 	}
 
 	override fun rollbackPublication(
@@ -344,6 +378,9 @@ internal class ReaderPageRasterScheduler<T : Any>(
 		mutableMapOf<ReaderLegacySourceLocalOpaqueToken, RestartDescriptor>()
 	private var closed = false
 
+	internal val originalLegacyAdmissionRestored: Boolean
+		get() = synchronized(lock) { !closed && frozenDomain == null && !maintenanceOwnership.isFrozen }
+
 	val isFrozen: Boolean
 		get() = synchronized(lock) { frozenDomain != null }
 
@@ -427,15 +464,25 @@ internal class ReaderPageRasterScheduler<T : Any>(
 		// Closing rejects work and restoration, not inventory of unsettled physical tails.
 		when {
 			frozenDomain == null -> {
-				maintenanceOwnership.freezeForTransitionActivation(domain)
+				val maintenanceResult = maintenanceOwnership.freezeForTransitionActivation(domain)
+				if (maintenanceResult != ReaderPortCommandResult.Accepted) return@synchronized maintenanceResult
 				frozenDomain = domain
 				ReaderPortCommandResult.Accepted
 			}
-			frozenDomain == domain -> ReaderPortCommandResult.Accepted
+			frozenDomain == domain && maintenanceOwnership.connectedFrozenOwnership()?.domain == domain ->
+				ReaderPortCommandResult.Accepted
 			else -> ReaderPortCommandResult.Rejected(
 				ReaderTransitionFailureReason.InvalidLegacyResource
 			)
 		}
+	}
+
+	fun connectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? = synchronized(lock) {
+		val domain = frozenDomain ?: return@synchronized null
+		if (maintenanceOwnership.connectedFrozenOwnership()?.domain != domain) return@synchronized null
+		ReaderLegacyConnectedSourceInventory(
+			ReaderLegacyInventorySource.RasterGenerationAndPersistence, domain, snapshotFrozenOwnership()
+		)
 	}
 
 	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> = synchronized(lock) {
@@ -521,6 +568,19 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			detached?.let { complete(it, ReaderPageRasterScheduleStatus.Stale) }
 		}
 		return ReaderPortCommandResult.Accepted
+	}
+
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult = synchronized(lock) {
+		if (closed || frozenDomain != domain || pending.isNotEmpty() || activeWork != null ||
+			completedFrozen.isNotEmpty() || maintenance.any { !it.settled })
+			return@synchronized ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		val result = maintenanceOwnership.finalizeActivatedHandoff(domain)
+		if (result != ReaderPortCommandResult.Accepted) return@synchronized result
+		restartDescriptors.clear()
+		maintenance.clear()
+		maintenanceQueue.clear()
+		profilePendingRetention = null
+		ReaderPortCommandResult.Accepted
 	}
 
 	fun restoreAfterTransitionActivation(

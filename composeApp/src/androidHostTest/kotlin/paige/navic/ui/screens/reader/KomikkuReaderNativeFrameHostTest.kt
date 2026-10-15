@@ -125,6 +125,3461 @@ import kotlin.test.assertTrue
 @Config(manifest = Config.NONE)
 class KomikkuReaderNativeFrameHostTest {
 	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398FrameMaterialFirstUnboundEmptyMountKeepsOneExactToken() = runTest {
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		try {
+			val wrapper = FrameLayout(fixture.activity.get())
+			fixture.viewerClass.task7Method("replaceViewerContent", View::class.java).invoke(fixture.viewer, wrapper)
+			val source = task398FrameMaterialSource(fixture)
+			fixture.bindSession(); fixture.attach()
+			assertEquals(ReaderPortCommandResult.Accepted, task398FrameFreeze(source, fixture.domain))
+			val row = task398FrameRows(source).single()
+			assertEquals(ReaderTransitionResourceKind.FrameHandoff, row.kind)
+			assertEquals(ReaderLegacyInventorySource.FrameOrHandoff, row.physicalIdentity.source)
+			assertEquals(ReaderLegacyResourceState.Registered, row.state)
+			assertNull(row.visibleOwner); assertNull(row.binding); assertFalse(row.mayBeCommittedPredecessor)
+			assertSame(wrapper.parent, fixture.viewerClass.task7Field("viewerContentContainer").get(fixture.viewer))
+			// Permanent exact Native detach, not reversible activation cancellation.
+			fixture.viewerClass.task7Method("detachViewerContent", View::class.java).invoke(fixture.viewer, wrapper)
+			assertEquals(row.physicalIdentity, task398FrameRows(source).single().physicalIdentity)
+			assertEquals(ReaderLegacyResourceState.Released, task398FrameRows(source).single().state)
+			val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+			assertEquals(ReaderPortCommandResult.Accepted, task398FrameDrain(source, row.physicalIdentity, confirmations::add))
+			assertNull(wrapper.parent); assertEquals(listOf(row.physicalIdentity), confirmations)
+			assertEquals(ReaderPortCommandResult.Accepted, task398FrameRestore(source, fixture.domain))
+			assertNull(wrapper.parent, "T398_CORE_NO_MOUNT_RESURRECTION")
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398FrameMaterialPrefixExceptionRetiresCapturedOldWrapperAndListener() = runTest {
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val replace = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			val outgoing = FrameLayout(fixture.activity.get()); replace.invoke(fixture.viewer, outgoing)
+			val source = task398FrameMaterialSource(fixture)
+			val engine = task398OriginalEngine(fixture.activity.get()); outgoing.addView(engine)
+			val field = fixture.curl.javaClass.task7Field("onProtectedRasterSourcePageIndicesChanged")
+			@Suppress("UNCHECKED_CAST") val original = field.get(fixture.curl) as (Set<Int>) -> Unit
+			val sentinel = IllegalStateException("Synthetic captured-prefix failure")
+			field.set(fixture.curl, { indices: Set<Int> -> original(indices); throw sentinel })
+			val incoming = FrameLayout(fixture.activity.get())
+			var escaped: Throwable? = null
+			try { replace.invoke(fixture.viewer, incoming) }
+			catch (failure: java.lang.reflect.InvocationTargetException) { escaped = failure.targetException }
+			field.set(fixture.curl, original)
+			assertSame(sentinel, escaped); assertNull(incoming.parent)
+			assertNull(outgoing.parent, "T398_CORE_EXCEPTION_EXACT_MATERIAL_CLEANUP")
+			assertFalse(engine.isAttachedToWindow)
+			assertEquals(ReaderPortCommandResult.Accepted, task398FrameFreeze(source, fixture.domain))
+			assertTrue(task398FrameRows(source).isEmpty())
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398FrameMaterialReentrantSuccessorSurvivesCapturedPrefixUnwind() = runTest {
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val replace = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			val outgoing = FrameLayout(fixture.activity.get()); replace.invoke(fixture.viewer, outgoing)
+			val source = task398FrameMaterialSource(fixture)
+			val field = fixture.curl.javaClass.task7Field("onProtectedRasterSourcePageIndicesChanged")
+			@Suppress("UNCHECKED_CAST") val original = field.get(fixture.curl) as (Set<Int>) -> Unit
+			val successor = FrameLayout(fixture.activity.get()); val obsoleteIncoming = FrameLayout(fixture.activity.get())
+			var nested = false
+			field.set(fixture.curl, { indices: Set<Int> ->
+				original(indices)
+				if (!nested) { nested = true; replace.invoke(fixture.viewer, successor) }
+			})
+			replace.invoke(fixture.viewer, obsoleteIncoming); field.set(fixture.curl, original)
+			assertTrue(nested); assertNull(outgoing.parent); assertNull(obsoleteIncoming.parent)
+			assertTrue(successor.isAttachedToWindow, "T398_CORE_SUCCESSOR_MATERIAL_RETAINED")
+			assertEquals(ReaderPortCommandResult.Accepted, task398FrameFreeze(source, fixture.domain))
+			assertEquals(1, task398FrameRows(source).size)
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class])
+	fun task398FrameMaterialActualLiveProducerPromotesSameMountAndListenerDrainPreservesCustody() = runTest {
+		task398ActualMaterialProducer("selected")
+	}
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class])
+	fun task398FrameMaterialExactProducerRejectsSameBindingDifferentEngineOrNewSlot() = runTest {
+		task398ActualMaterialProducer("engine"); task398ActualMaterialProducer("slot")
+	}
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class])
+	fun task398FrameMaterialFrozenLateCallbackCannotPromoteSameMount() = runTest {
+		task398ActualMaterialProducer("frozen")
+	}
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class])
+	fun task398FrameMaterialHiddenWrapperCannotCertifyDisplayedLiveOwner() = runTest {
+		task398ActualMaterialProducer("hidden")
+	}
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class])
+	fun task398PhysicalAdmissionHiddenBoundaryRetainsSemanticPredecessorAndRecovery() = runTest {
+		task398PhysicalAdmissionBoundary("hidden", "T398_ADMISSION_HIDDEN_NO_SEMANTIC_EXPOSURE")
+	}
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class])
+	fun task398PhysicalAdmissionReplacedBoundaryRetainsSemanticPredecessorAndRecovery() = runTest {
+		task398PhysicalAdmissionBoundary("replaced", "T398_ADMISSION_REPLACED_NO_SEMANTIC_EXPOSURE")
+	}
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class])
+	fun task398PhysicalAdmissionFrozenBoundaryRetainsSemanticPredecessorAndRecovery() = runTest {
+		task398PhysicalAdmissionBoundary("frozen", "T398_ADMISSION_FROZEN_NO_SEMANTIC_EXPOSURE")
+	}
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class])
+	fun task398PhysicalAdmissionValidBoundaryUsesSameMaterialToken() = runTest {
+		task398PhysicalAdmissionBoundary("valid", "T398_ADMISSION_VALID")
+	}
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class])
+	fun task398PhysicalAdmissionNullAndRejectedReceiptsNeverSelectBeforeRetry() = runTest {
+		task398PhysicalAdmissionBoundary("null", "T398_ADMISSION_NULL")
+		task398PhysicalAdmissionBoundary("rejected", "T398_ADMISSION_REJECTED")
+	}
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class])
+	fun task398PhysicalAdmissionReentrantCancelCannotDispatchOrResurrectOldProof() = runTest {
+		task398PhysicalAdmissionBoundary("cancel", "T398_ADMISSION_REENTRANT_NO_SEMANTIC_EXPOSURE")
+	}
+	private suspend fun task398PhysicalAdmissionBoundary(mode: String, label: String) {
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		var bridge: ReaderPresentationHostBridge? = null
+		try {
+			fixture.bindSession(); fixture.attach()
+			val wrapper = FrameLayout(fixture.activity.get())
+			fixture.viewerClass.task7Method("replaceViewerContent", View::class.java).invoke(fixture.viewer, wrapper)
+			val engine = task398OriginalEngine(fixture.activity.get()); wrapper.addView(engine)
+			val material = task398FrameMaterialSource(fixture)
+			val lease = fixture.viewerClass.task7Field("currentFrameInstallation").get(fixture.viewer) as ReaderFramePhysicalOwnershipAdapter.Lease
+			val originalToken = lease.token
+			var common = ReaderController(ReaderControllerState(readerSessionGeneration = 1L, presentation = task8SettledCurlSourceState()))
+			val predecessor = readerPresentationDecision(common.state.presentation).frameOwner
+			assertIs<ReaderPresentationFrameOwner.NativePage>(predecessor)
+			val publications = mutableListOf<ReaderPresentationAuthority>()
+			val events = mutableListOf<ReaderPresentationEvent>()
+			val confirmations = mutableListOf<Boolean>()
+			var boundaryEntered = false
+			var rejectReceipt = mode == "null" || mode == "rejected"
+			var attempt: ReaderRequiredTransition.ExposeLiveEngine? = null
+			fun dispatch(event: ReaderPresentationEvent): ReaderPresentationEventReceipt? {
+				events += event
+				if (event is ReaderPresentationEvent.LiveEngineExposureCommitted && rejectReceipt) {
+					return if (mode == "null") null else readerTestPresentationReceipt(event, common.state.presentation)
+						.copy(disposition = ReaderPresentationEventDisposition.Rejected)
+				}
+				val step = common.onPresentationEvent(event); common = step.controller
+				publications += common.state.presentation.authority
+				return step.presentationReceipt
+			}
+			val proxy = java.lang.reflect.Proxy.newProxyInstance(ReaderPresentationCommitHost::class.java.classLoader,
+				arrayOf(ReaderPresentationCommitHost::class.java)) { _, method, args ->
+				when (method.name) {
+					"isAttachedToWindow", "getIsAttachedToWindow" -> fixture.viewer.isAttachedToWindow
+					"getCurrentPresentationBinding" -> common.state.presentation.binding
+					"getCurrentShellCoverGeneration" -> null
+					"getShellCoverSelected" -> false
+					"getMeasuredViewportWidth" -> 800
+					"getMeasuredViewportHeight" -> 600
+					"getLiveMaterialWitnessRequired" -> true
+					"captureLiveFrameInstallation", "completeLiveFramePresentation" -> fixture.viewerClass.declaredMethods.single { it.name == method.name }
+						.apply { isAccessible = true }.invoke(fixture.viewer, *(args ?: emptyArray()))
+					"confirmLiveFramePresentation" -> {
+						assertTrue((args!![1] as ReaderLiveEnginePhysicalWitness).matches(engine), "T398_ADMISSION_GENUINE_REGISTERED_WITNESS")
+						if (!boundaryEntered) {
+							boundaryEntered = true
+							when (mode) {
+								"hidden" -> wrapper.visibility = View.GONE
+								// The actual Native replacement capture invalidates this installation's exact currency.
+								"replaced" -> fixture.viewerClass.task7Method("captureViewerReplacement").invoke(fixture.viewer)
+								"frozen" -> assertEquals(ReaderPortCommandResult.Accepted, task398FrameFreeze(material, fixture.domain))
+								"cancel" -> {
+									dispatch(ReaderPresentationEvent.Cancel)
+									bridge!!.update(readerPresentationDecision(common.state.presentation))
+								}
+							}
+						}
+						(fixture.viewerClass.declaredMethods.single { it.name == method.name }.apply { isAccessible = true }
+							.invoke(fixture.viewer, *args) as Boolean).also(confirmations::add)
+					}
+					"applyPresentationFrameOwner" -> fixture.viewerClass.task7Method(method.name, ReaderPresentationDecision::class.java)
+						.invoke(fixture.viewer, args!![0])
+					else -> Unit
+				}
+			} as ReaderPresentationCommitHost
+			val handoff = ReaderWebViewVisualHandoff(ReaderWebViewVisualHandoffHostAdapter({
+				fixture.viewerClass.task7Method("currentLiveWebView").invoke(fixture.viewer) as WebView?
+			}))
+			val allocator = fixture.viewerClass.task7Field("frameTokenAllocator").get(fixture.viewer) as ReaderLegacySourceLocalTokenAllocator
+			bridge = ReaderPresentationHostBridge(proxy, handoff, { true }, tokenAllocator = allocator, onEvent = ::dispatch)
+			val source = fixture.viewerClass.task7Method("createFrameOrHandoffSource", ReaderPresentationHostBridge::class.java).invoke(fixture.viewer, bridge)
+			bridge.update(readerPresentationDecision(common.state.presentation))
+			attempt = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(readerPresentationDecision(common.state.presentation).requiredTransition)
+			org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(48))
+			if (mode == "valid") {
+				assertEquals(listOf(true), confirmations)
+				assertIs<ReaderPresentationAuthority.LiveEngineExposed>(common.state.presentation.authority)
+				assertEquals(originalToken, lease.token); assertEquals(ReaderLegacyResourceState.Visible, lease.state)
+				assertSame(wrapper, engine.parent); assertTrue(engine.isAttachedToWindow)
+				return
+			}
+			if (mode in listOf("hidden", "replaced", "frozen")) assertEquals(listOf(false), confirmations, "T398_ADMISSION_ACTUAL_ADAPTER_FALSE")
+			assertFalse(publications.any { it is ReaderPresentationAuthority.LiveEngineExposed }, label)
+			assertEquals(predecessor, readerPresentationDecision(common.state.presentation).frameOwner, "T398_ADMISSION_EXACT_READABLE_PREDECESSOR")
+			assertFalse(events.any { it is ReaderPresentationEvent.LiveEngineExposureCommitted } && mode !in listOf("null", "rejected"), "T398_ADMISSION_NO_COMMITTED_EVENT_ON_FALSE")
+			assertEquals(ReaderLegacyResourceState.Registered, lease.state); assertNull(lease.imported)
+			assertEquals(originalToken, lease.token); assertSame(wrapper, engine.parent)
+			if (mode in listOf("hidden", "replaced", "frozen")) {
+				val failed = assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(common.state.presentation.authority)
+				assertEquals(attempt!!.token, failed.token); assertEquals(attempt!!.binding, failed.binding)
+				assertEquals(predecessor, failed.retainedFrame)
+				assertEquals(ReaderDiagnosticPresentation.Failure(ReaderPresentationFailureReason.LiveEngineUnavailable, retryable = true, cancellable = true),
+					readerPresentationDecision(common.state.presentation).diagnosticPresentation)
+			}
+			assertEquals(ReaderPortCommandResult.Accepted, task398FrameFreeze(source, fixture.domain))
+			val row = task398FrameRows(source).single { it.physicalIdentity.sourceLocalToken == originalToken }
+			assertFalse(row.mayBeCommittedPredecessor); assertNull(row.visibleOwner)
+			val imported = ReaderImportedLegacyResourceRegistration(row.physicalIdentity,
+				ReaderTransitionResourceRegistration(ReaderTransitionResourceKey(ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+					ReaderAdoptedPredecessorSeedId.fromValidatedImport(811L)), ReaderTransitionResourceKind.FrameHandoff, 813L), ReaderResourceRetirementOrder(1L, 1L, 1L)))
+			val finalize = source.javaClass.declaredMethods.single { it.name.startsWith("finalizeActivatedHandoff") }
+			assertIs<ReaderPortCommandResult.Rejected>(finalize.invoke(source, fixture.domain.freezeToken.value, imported, emptySet<ReaderLegacyPhysicalIdentity>()),
+				"T398_ADMISSION_NO_IMPORTED_SELECTED_CUSTODY")
+			assertEquals(ReaderPortCommandResult.Accepted, task398FrameRestore(source, fixture.domain))
+			wrapper.visibility = View.VISIBLE
+			if (mode == "null" || mode == "rejected") {
+				rejectReceipt = false
+				bridge.update(readerPresentationDecision(common.state.presentation))
+				assertIs<ReaderPresentationAuthority.LiveEngineHandoffPending>(common.state.presentation.authority,
+					"T398_ADMISSION_REJECTED_RECEIPT_REQUIRES_FRESH_WITNESS_AFTER_FREEZE")
+			} else if (mode != "cancel") {
+				dispatch(ReaderPresentationEvent.Retry)
+				val retry = assertIs<ReaderRequiredTransition.ExposeLiveEngine>(readerPresentationDecision(common.state.presentation).requiredTransition)
+				assertTrue(retry.token != attempt!!.token, "T398_ADMISSION_RETRY_NEW_SEMANTIC_TOKEN")
+				bridge.update(readerPresentationDecision(common.state.presentation))
+			}
+			dispatch(ReaderPresentationEvent.Cancel)
+			bridge.update(readerPresentationDecision(common.state.presentation))
+			bridge.update(readerPresentationDecision(common.state.presentation))
+			org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(48))
+			assertEquals(predecessor, readerPresentationDecision(common.state.presentation).frameOwner, "T398_ADMISSION_CANCEL_EXACT_PREDECESSOR")
+			assertFalse(publications.any { it is ReaderPresentationAuthority.LiveEngineExposed }, "T398_ADMISSION_CANCEL_NO_RESURRECTION")
+			assertEquals(originalToken, lease.token); assertEquals(ReaderLegacyResourceState.Registered, lease.state); assertNull(lease.imported)
+		} finally { bridge?.dispose(); fixture.finish() }
+	}
+
+	private suspend fun task398ActualMaterialProducer(mode: String) {
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		var bridge: ReaderPresentationHostBridge? = null
+		try {
+			fixture.bindSession(); fixture.attach()
+			val wrapper = FrameLayout(fixture.activity.get())
+			val replace = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			replace.invoke(fixture.viewer, wrapper)
+			val source = task398FrameMaterialSource(fixture)
+			val captureMethod = fixture.viewerClass.declaredMethods.singleOrNull { it.name == "captureLiveFrameInstallation" }
+			assertNotNull(captureMethod, "T398_CORE_NATIVE_EXACT_LIVE_INSTALLATION_API"); captureMethod.isAccessible = true
+			val engine = task398OriginalEngine(fixture.activity.get()); wrapper.addView(engine)
+			var common = ReaderController(ReaderControllerState(readerSessionGeneration = 1L, presentation = task8SettledCurlSourceState()))
+			val binding = assertNotNull(common.state.presentation.binding)
+			var capturedInstallation: Any? = null
+			val proxy = java.lang.reflect.Proxy.newProxyInstance(ReaderPresentationCommitHost::class.java.classLoader,
+				arrayOf(ReaderPresentationCommitHost::class.java)) { _, method, args ->
+				when (method.name) {
+					"isAttachedToWindow", "getIsAttachedToWindow" -> fixture.viewer.isAttachedToWindow
+					"getCurrentPresentationBinding" -> common.state.presentation.binding
+					"getCurrentShellCoverGeneration" -> null
+					"getShellCoverSelected" -> false
+					"getMeasuredViewportWidth" -> 800
+					"getMeasuredViewportHeight" -> 600
+					"getLiveMaterialWitnessRequired" -> true
+					"captureLiveFrameInstallation" -> captureMethod.invoke(fixture.viewer).also { capturedInstallation = it }
+					"confirmLiveFramePresentation" -> fixture.viewerClass.declaredMethods.single { it.name == method.name }
+						.apply { isAccessible = true }.invoke(fixture.viewer, *(args ?: emptyArray()))
+					"applyPresentationFrameOwner" -> fixture.viewerClass.task7Method("applyPresentationFrameOwner", ReaderPresentationDecision::class.java)
+						.invoke(fixture.viewer, args!![0])
+					else -> Unit
+				}
+			} as ReaderPresentationCommitHost
+			val handoff = ReaderWebViewVisualHandoff(ReaderWebViewVisualHandoffHostAdapter({
+				fixture.viewerClass.task7Method("currentLiveWebView").invoke(fixture.viewer) as WebView?
+			}))
+			bridge = ReaderPresentationHostBridge(proxy, handoff, { true }) { event ->
+				common.onPresentationEvent(event).also { common = it.controller }.presentationReceipt
+			}
+			bridge.update(readerPresentationDecision(common.state.presentation))
+			assertNotNull(capturedInstallation, "T398_CORE_CAPTURE_BEFORE_ACTUAL_VISUAL_REQUEST")
+			when (mode) {
+				"engine" -> { wrapper.removeView(engine); wrapper.addView(task398OriginalEngine(fixture.activity.get())) }
+				"slot" -> { val successor = FrameLayout(fixture.activity.get()); replace.invoke(fixture.viewer, successor); wrapper.removeView(engine); successor.addView(engine) }
+				"hidden" -> wrapper.visibility = View.GONE
+				"frozen" -> assertEquals(ReaderPortCommandResult.Accepted, task398FrameFreeze(source, fixture.domain))
+			}
+			org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(48))
+			assertEquals(ReaderPortCommandResult.Accepted, task398FrameFreeze(source, fixture.domain))
+			val rows = task398FrameRows(source)
+			if (mode != "selected") {
+				assertEquals(0, rows.count { it.state == ReaderLegacyResourceState.Visible }, "T398_CORE_MISMATCH_NOT_VISIBLE")
+				assertTrue(rows.all { !it.mayBeCommittedPredecessor })
+				return
+			}
+			val row = rows.single()
+			assertEquals(ReaderLegacyResourceState.Visible, row.state, "T398_CORE_ACTUAL_LIVE_PROMOTES_SAME_TOKEN")
+			assertEquals(binding, row.binding); assertIs<ReaderPresentationFrameOwner.LiveEngine>(row.visibleOwner)
+			assertEquals(ReaderTransitionResourceKind.FrameHandoff, row.kind); assertTrue(row.mayBeCommittedPredecessor)
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+			fixture.drainRemaining()
+			assertTrue(wrapper.isAttachedToWindow); assertTrue(engine.isAttachedToWindow)
+			assertSame(wrapper, engine.parent)
+			assertEquals(row, task398FrameRows(source).single(), "T398_CORE_LISTENER_DRAIN_PRESERVES_SELECTED_MATERIAL")
+			val imported = ReaderImportedLegacyResourceRegistration(row.physicalIdentity,
+				ReaderTransitionResourceRegistration(ReaderTransitionResourceKey(ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+					ReaderAdoptedPredecessorSeedId.fromValidatedImport(811L)), ReaderTransitionResourceKind.FrameHandoff, 813L),
+					ReaderResourceRetirementOrder(1L, 1L, 1L)))
+			val finalize = source.javaClass.declaredMethods.single { it.name.startsWith("finalizeActivatedHandoff") }
+			assertEquals(ReaderPortCommandResult.Accepted, finalize.invoke(source, fixture.domain, imported, emptySet<ReaderLegacyPhysicalIdentity>()))
+			assertTrue(wrapper.isAttachedToWindow); assertTrue(engine.isAttachedToWindow)
+			val command = paige.navic.reader.ReaderTransitionCommand.ReleaseResource(paige.navic.reader.ReaderResourceReleaseIssuer.Session(1L, 1L),
+				paige.navic.reader.ReaderReleaseCommandIdentity(paige.navic.reader.ReaderPhysicalReleaseAttemptId.fromLedger(1L), imported.registration))
+			val confirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
+			val release = source.javaClass.getDeclaredMethod("releaseLegacy", paige.navic.reader.ReaderTransitionCommand.ReleaseResource::class.java,
+				ReaderImportedLegacyResourceRegistration::class.java, kotlin.jvm.functions.Function2::class.java)
+			val onConfirmed: (ReaderLegacyPhysicalIdentity, paige.navic.reader.ReaderTransitionFact.ResourceReleased) -> Unit = { identity, fact ->
+				assertEquals(command.identity, fact.identity); confirmed += identity
+			}
+			assertEquals(ReaderPortCommandResult.Accepted, release.invoke(source, command, imported, onConfirmed))
+			assertNull(wrapper.parent); assertFalse(engine.isAttachedToWindow); assertEquals(listOf(row.physicalIdentity), confirmed)
+			assertIs<ReaderPortCommandResult.Rejected>(release.invoke(source, command, imported, onConfirmed))
+			assertEquals(1, confirmed.size)
+		} finally { bridge?.dispose(); fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class,
+			Task398ExactMountRemovalShadow::class, Task398ExactMountRemovalShadow.FrameLayoutShadow::class])
+	fun task398ComposedFrameSharedAllocatorAndSelectedImportedCustody() = runTest {
+		task398ComposedMaterialProducer("selected")
+	}
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class, Task398MaterialVisualStateShadow::class,
+			Task398ExactMountRemovalShadow::class, Task398ExactMountRemovalShadow.FrameLayoutShadow::class])
+	fun task398ComposedFrameFrozenAndReplacementCannotPromoteIncomingCustody() = runTest {
+		task398ComposedMaterialProducer("frozen"); task398ComposedMaterialProducer("slot")
+	}
+	private suspend fun task398ComposedMaterialProducer(mode: String) {
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		var bridge: ReaderPresentationHostBridge? = null
+		try {
+			fixture.bindSession(); fixture.attach()
+			val wrapper = FrameLayout(fixture.activity.get())
+			val replace = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			replace.invoke(fixture.viewer, wrapper)
+			val factory = fixture.viewerClass.declaredMethods.singleOrNull { it.name == "createFrameOrHandoffSource" }
+			assertNotNull(factory, "T398_CORE_COMPOSED_FRAME_SOURCE_API"); factory.isAccessible = true
+			val allocator = fixture.viewerClass.task7Field("frameTokenAllocator").get(fixture.viewer) as ReaderLegacySourceLocalTokenAllocator
+			val captureMethod = fixture.viewerClass.declaredMethods.singleOrNull { it.name == "captureLiveFrameInstallation" }
+			assertNotNull(captureMethod, "T398_CORE_NATIVE_EXACT_LIVE_INSTALLATION_API"); captureMethod.isAccessible = true
+			val engine = task398OriginalEngine(fixture.activity.get()); wrapper.addView(engine)
+			var common = ReaderController(ReaderControllerState(readerSessionGeneration = 1L, presentation = task8SettledCurlSourceState()))
+			val binding = assertNotNull(common.state.presentation.binding)
+			var capturedInstallation: Any? = null
+			val proxy = java.lang.reflect.Proxy.newProxyInstance(ReaderPresentationCommitHost::class.java.classLoader,
+				arrayOf(ReaderPresentationCommitHost::class.java)) { _, method, args ->
+				when (method.name) {
+					"isAttachedToWindow", "getIsAttachedToWindow" -> fixture.viewer.isAttachedToWindow
+					"getCurrentPresentationBinding" -> common.state.presentation.binding
+					"getCurrentShellCoverGeneration" -> null
+					"getShellCoverSelected" -> false
+					"getMeasuredViewportWidth" -> 800
+					"getMeasuredViewportHeight" -> 600
+					"getLiveMaterialWitnessRequired" -> true
+					"captureLiveFrameInstallation" -> captureMethod.invoke(fixture.viewer).also { capturedInstallation = it }
+					"confirmLiveFramePresentation" -> fixture.viewerClass.declaredMethods.single { it.name == method.name }
+						.apply { isAccessible = true }.invoke(fixture.viewer, *(args ?: emptyArray()))
+					"applyPresentationFrameOwner" -> fixture.viewerClass.task7Method("applyPresentationFrameOwner", ReaderPresentationDecision::class.java)
+						.invoke(fixture.viewer, args!![0])
+					else -> Unit
+				}
+			} as ReaderPresentationCommitHost
+			val handoff = ReaderWebViewVisualHandoff(ReaderWebViewVisualHandoffHostAdapter({
+				fixture.viewerClass.task7Method("currentLiveWebView").invoke(fixture.viewer) as WebView?
+			}))
+			bridge = ReaderPresentationHostBridge(proxy, handoff, { true }, tokenAllocator = allocator) { event ->
+				common.onPresentationEvent(event).also { common = it.controller }.presentationReceipt
+			}
+			val source = assertNotNull(factory.invoke(fixture.viewer, bridge))
+			val publisher = fixture.viewerClass.task7Field("nativePagePresentationPublisher\$delegate").get(fixture.viewer) as Lazy<*>
+			assertSame(allocator, publisher.value!!.javaClass.task7Field("tokenAllocator").get(publisher.value), "T398_CORE_SHARED_FRAME_ALLOCATOR")
+			assertSame(allocator, bridge.javaClass.task7Field("tokenAllocator").get(bridge), "T398_CORE_SHARED_FRAME_ALLOCATOR")
+			bridge.update(readerPresentationDecision(common.state.presentation))
+			assertNotNull(capturedInstallation, "T398_CORE_CAPTURE_BEFORE_ACTUAL_VISUAL_REQUEST")
+			when (mode) {
+				"engine" -> { wrapper.removeView(engine); wrapper.addView(task398OriginalEngine(fixture.activity.get())) }
+				"slot" -> { val successor = FrameLayout(fixture.activity.get()); replace.invoke(fixture.viewer, successor); wrapper.removeView(engine); successor.addView(engine) }
+				"hidden" -> wrapper.visibility = View.GONE
+				"frozen" -> assertEquals(ReaderPortCommandResult.Accepted, task398FrameFreeze(source, fixture.domain))
+			}
+			org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(48))
+			assertEquals(ReaderPortCommandResult.Accepted, task398FrameFreeze(source, fixture.domain))
+			val rows = task398FrameRows(source)
+			if (mode != "selected") {
+				assertEquals(0, rows.count { it.state == ReaderLegacyResourceState.Visible }, "T398_CORE_MISMATCH_NOT_VISIBLE")
+				assertTrue(rows.all { !it.mayBeCommittedPredecessor })
+				return
+			}
+			val row = rows.single()
+			assertEquals(ReaderLegacyResourceState.Visible, row.state, "T398_CORE_ACTUAL_LIVE_PROMOTES_SAME_TOKEN")
+			assertEquals(binding, row.binding); assertIs<ReaderPresentationFrameOwner.LiveEngine>(row.visibleOwner)
+			assertEquals(ReaderTransitionResourceKind.FrameHandoff, row.kind); assertTrue(row.mayBeCommittedPredecessor)
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+			fixture.drainRemaining()
+			assertTrue(wrapper.isAttachedToWindow); assertTrue(engine.isAttachedToWindow)
+			assertSame(wrapper, engine.parent)
+			assertEquals(row, task398FrameRows(source).single(), "T398_CORE_LISTENER_DRAIN_PRESERVES_SELECTED_MATERIAL")
+			val imported = ReaderImportedLegacyResourceRegistration(row.physicalIdentity,
+				ReaderTransitionResourceRegistration(ReaderTransitionResourceKey(ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+					ReaderAdoptedPredecessorSeedId.fromValidatedImport(811L)), ReaderTransitionResourceKind.FrameHandoff, 813L),
+					ReaderResourceRetirementOrder(1L, 1L, 1L)))
+			val finalize = source.javaClass.declaredMethods.single { it.name.startsWith("finalizeActivatedHandoff") }
+			assertIs<ReaderPortCommandResult.Rejected>(finalize.invoke(source, fixture.domain.freezeToken.value + 1L, imported, emptySet<ReaderLegacyPhysicalIdentity>()), "T398_CORE_COMPOSED_EXACT_FREEZE_TOKEN")
+			assertIs<ReaderPortCommandResult.Rejected>(finalize.invoke(source, fixture.domain.freezeToken.value, imported, setOf(row.physicalIdentity)), "T398_CORE_COMPOSED_EXACT_SELECTED_CUSTODY")
+			assertEquals(ReaderPortCommandResult.Accepted, finalize.invoke(source, fixture.domain.freezeToken.value, imported, emptySet<ReaderLegacyPhysicalIdentity>()))
+			assertTrue(wrapper.isAttachedToWindow); assertTrue(engine.isAttachedToWindow)
+			val command = paige.navic.reader.ReaderTransitionCommand.ReleaseResource(paige.navic.reader.ReaderResourceReleaseIssuer.Session(1L, 1L),
+				paige.navic.reader.ReaderReleaseCommandIdentity(paige.navic.reader.ReaderPhysicalReleaseAttemptId.fromLedger(1L), imported.registration))
+			val confirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
+			val release = source.javaClass.getDeclaredMethod("releaseLegacy", paige.navic.reader.ReaderTransitionCommand.ReleaseResource::class.java,
+				ReaderImportedLegacyResourceRegistration::class.java, kotlin.jvm.functions.Function2::class.java)
+			val onConfirmed: (ReaderLegacyPhysicalIdentity, paige.navic.reader.ReaderTransitionFact.ResourceReleased) -> Unit = { identity, fact ->
+				assertEquals(command.identity, fact.identity); confirmed += identity
+			}
+			Task398ExactMountRemovalShadow.clear()
+			Task398ExactMountRemovalShadow.target = wrapper.parent as FrameLayout
+			assertEquals(ReaderPortCommandResult.Accepted, release.invoke(source, command, imported, onConfirmed))
+			assertEquals(1, Task398ExactMountRemovalShadow.targetEntries, "T398_CORE_COMPOSED_EXACT_IMPORTED_REMOVAL")
+			assertNull(wrapper.parent); assertFalse(engine.isAttachedToWindow); assertEquals(listOf(row.physicalIdentity), confirmed)
+			assertIs<ReaderPortCommandResult.Rejected>(release.invoke(source, command, imported, onConfirmed))
+			assertEquals(1, confirmed.size)
+			assertEquals(1, Task398ExactMountRemovalShadow.targetEntries, "T398_CORE_COMPOSED_NO_DUPLICATE_IMPORTED_REMOVAL")
+		} finally { Task398ExactMountRemovalShadow.clear(); bridge?.dispose(); fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task398RemovalEntryInstallationShadow::class, Task398RemovalEntryInstallationShadow.FrameLayoutShadow::class])
+	fun task398CoreAuthenticShadowRemovalEntryInstallationControl() {
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val shadow = Task398RemovalEntryInstallationShadow
+		try {
+			shadow.clear()
+			val parent = FrameLayout(activity.get()); val outgoing = FrameLayout(activity.get())
+			val engine = task398OriginalEngine(activity.get()); outgoing.addView(engine)
+			activity.get().setContentView(parent); parent.addView(outgoing)
+			assertTrue(engine.isAttachedToWindow)
+			parent.removeView(outgoing); assertNull(outgoing.parent); assertFalse(engine.isAttachedToWindow)
+			assertEquals(0, shadow.entries)
+			parent.addView(outgoing)
+			shadow.target = parent; shadow.child = outgoing
+			var reached = 0
+			shadow.beforeOriginal = {
+				reached++
+				assertSame(parent, outgoing.parent, "T398_CONTROL_NEW_SHADOW_HOOK_BEFORE_ORIGINAL")
+				assertTrue(engine.isAttachedToWindow)
+				assertNull(shadow.beforeOriginal, "T398_CONTROL_NEW_SHADOW_HOOK_CONSUMED_BEFORE_RECIPIENT")
+			}
+			val untargeted = FrameLayout(activity.get()); val other = View(activity.get())
+			untargeted.addView(other); untargeted.removeView(other)
+			assertNull(other.parent); assertEquals(0, reached); assertEquals(0, shadow.entries)
+			parent.removeView(outgoing)
+			assertEquals(1, reached); assertEquals(1, shadow.hooks); assertEquals(1, shadow.entries)
+			assertNull(outgoing.parent); assertFalse(engine.isAttachedToWindow)
+			parent.addView(outgoing); parent.removeView(outgoing)
+			assertEquals(1, reached); assertEquals(1, shadow.hooks); assertEquals(2, shadow.entries)
+			assertNull(outgoing.parent); assertFalse(engine.isAttachedToWindow)
+		} finally { shadow.clear(); activity.pause().stop().destroy() }
+	}
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398RemovalEntryInstallationShadow::class, Task398RemovalEntryInstallationShadow.FrameLayoutShadow::class])
+	fun task398CoreActivatedAndReleaseOnlyEntryPreserveExactOutgoingMaterial() = runTest {
+		for (releaseOnly in listOf(false, true)) {
+			val store = ReaderActivatedSessionSnapshotStore()
+			val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+			val shadow = Task398RemovalEntryInstallationShadow
+			try {
+				shadow.clear(); fixture.bindSession(); fixture.attach()
+				val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+				val outgoing = FrameLayout(fixture.activity.get()); replacement.invoke(fixture.viewer, outgoing)
+				val engine = task398OriginalEngine(fixture.activity.get()); outgoing.addView(engine)
+				val content = fixture.viewerClass.task7Field("viewerContentContainer").get(fixture.viewer) as FrameLayout
+				val exact = fixture.viewerClass.task7Field("currentFrameInstallation").get(fixture.viewer) as ReaderFramePhysicalOwnershipAdapter.Lease
+				shadow.target = content; shadow.child = outgoing
+				val installed = task398InstallFacts(store) { ReaderPortCommandResult.Accepted }
+				if (releaseOnly) assertTrue(ReaderActivatedSessionInstallationBarrier(store).failClosedAfterFinalizationRejection(installed))
+				val incoming = FrameLayout(fixture.activity.get())
+				assertEquals(false, replacement.invoke(fixture.viewer, incoming), "T398_CORE_INSTALLED_ENTRY_DENIAL")
+				assertSame(content, outgoing.parent); assertTrue(engine.isAttachedToWindow); assertNull(incoming.parent)
+				assertEquals(0, shadow.entries, "T398_CORE_INSTALLED_ENTRY_NO_OLD_REMOVAL")
+				assertSame(exact, fixture.viewerClass.task7Field("currentFrameInstallation").get(fixture.viewer))
+				val material = task398FrameMaterialSource(fixture)
+				assertEquals(ReaderPortCommandResult.Accepted, task398FrameFreeze(material, fixture.domain))
+				val row = task398FrameRows(material).single()
+				assertEquals(exact.token, row.physicalIdentity.sourceLocalToken)
+				assertEquals(ReaderLegacyResourceState.Registered, row.state)
+			} finally { shadow.clear(); fixture.finish() }
+		}
+	}
+	private fun task398FrameMaterialSource(fixture: Task398RegisteredRootsFixture): Any {
+		val field = fixture.viewerClass.declaredFields.singleOrNull { it.name == "framePhysicalOwnership" }
+		assertNotNull(field, "T398_CORE_GENUINE_NATIVE_MATERIAL_SOURCE")
+		field.isAccessible = true
+		return assertNotNull(field.get(fixture.viewer))
+	}
+	private fun task398FrameFreeze(source: Any, domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult =
+		source.javaClass.getDeclaredMethod("freezeForTransitionActivation", ReaderLegacyPhysicalDomain::class.java)
+			.invoke(source, domain) as ReaderPortCommandResult
+	@Suppress("UNCHECKED_CAST")
+	private fun task398FrameRows(source: Any): List<ReaderFrozenLegacyResource> =
+		source.javaClass.getDeclaredMethod("snapshotFrozenOwnership").invoke(source) as List<ReaderFrozenLegacyResource>
+	private fun task398FrameDrain(source: Any, identity: ReaderLegacyPhysicalIdentity,
+		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit): ReaderPortCommandResult =
+		source.javaClass.getDeclaredMethod("drainFrozenOwnership", ReaderLegacyPhysicalIdentity::class.java,
+			kotlin.jvm.functions.Function1::class.java).invoke(source, identity, onConfirmed) as ReaderPortCommandResult
+	private fun task398FrameRestore(source: Any, domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult =
+		source.javaClass.getDeclaredMethod("restoreAfterTransitionActivation", ReaderLegacyPhysicalDomain::class.java)
+			.invoke(source, domain) as ReaderPortCommandResult
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398StandaloneAdmittedCurlRestoreAcceptedButCapturedEpochCannotResumeProtectedOrReadinessTail() = runTest {
+		for (boundary in listOf("protected", "readiness")) {
+			val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+			try {
+				fixture.bindSession(); fixture.attach()
+				val curl = fixture.curl
+				val type = curl.javaClass
+				type.task7Method("updateReadiness", ReaderTextureDeckState::class.java,
+					ReaderTextureDeckState::class.java, ReaderPageInteractionState::class.java, String::class.java)
+					.invoke(curl, ReaderTextureDeckState.Empty, ReaderTextureDeckState.Empty, ReaderPageInteractionState.Ready,
+						"task398-standalone-arrangement")
+				val protectedField = type.task7Field("onProtectedRasterSourcePageIndicesChanged")
+				val readinessField = type.task7Field("onReadinessStateChange")
+				val profileField = type.task7Field("onRasterProfileEpochChanged")
+				@Suppress("UNCHECKED_CAST") val originalProtected = protectedField.get(curl) as (Set<Int>) -> Unit
+				@Suppress("UNCHECKED_CAST") val originalReadiness = readinessField.get(curl) as (ReaderPageRendererReadinessState) -> Unit
+				@Suppress("UNCHECKED_CAST") val originalProfile = profileField.get(curl) as (Long?) -> Unit
+				val admission = fixture.delivery.capturePhysicalAdmission()
+				var reached = false
+				var frozen: ReaderPortCommandResult? = null
+				var restored: ReaderPortCommandResult? = null
+				var inside = emptyList<ReaderFrozenLegacyResource>()
+				var profilesAfter = 0
+				var readinessAfter = 0
+				fun cross() {
+					if (reached) return
+					reached = true
+					curl.surfaceView.alpha = 0.61f
+					frozen = fixture.delivery.freezeForTransitionActivation(fixture.domain)
+					inside = fixture.delivery.snapshotFrozenOwnership()
+					restored = fixture.delivery.restoreAfterTransitionActivation(fixture.domain)
+				}
+				protectedField.set(curl, { indices: Set<Int> -> originalProtected(indices); if (boundary == "protected") cross() })
+				readinessField.set(curl, { state: ReaderPageRendererReadinessState ->
+					if (reached) readinessAfter++
+					originalReadiness(state); if (boundary == "readiness") cross()
+				})
+				profileField.set(curl, { epoch: Long? -> if (reached) profilesAfter++; originalProfile(epoch) })
+				// Genuine controller invocation with the real captured Native admission, but no enclosing Native method return.
+				curl.invalidate("task398-standalone-admitted", legacyConsequencesAdmitted = {
+					fixture.delivery.registeredRootAdmits(admission)
+				})
+				assertTrue(reached)
+				assertEquals(ReaderPortCommandResult.Accepted, frozen)
+				assertEquals(0, inside.count { it.state == ReaderLegacyResourceState.Running })
+				assertEquals(ReaderPortCommandResult.Accepted, restored)
+				assertFalse(fixture.delivery.registeredRootAdmits(admission), "Restoration cannot borrow the captured old epoch")
+				assertTrue(fixture.delivery.registeredRootAdmits(fixture.delivery.capturePhysicalAdmission()))
+				assertEquals(0, profilesAfter); assertEquals(0, readinessAfter)
+				assertEquals(0.61f, curl.surfaceView.alpha)
+				assertNull(type.task7Field("requestedProfile").get(curl)); assertNull(type.task7Field("activePages").get(curl))
+			} finally { fixture.finish() }
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398ForegroundRegistrationWebViewShadow::class, Task398ExactMountRemovalShadow::class,
+			Task398ExactMountRemovalShadow.FrameLayoutShadow::class])
+	fun task398MountFrameworkDisarmedActivitySetupControl() {
+		Task398ExactMountRemovalShadow.clear(); Task398ForegroundRegistrationWebViewShadow.clear()
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		try {
+			val parent = FrameLayout(activity.get())
+			activity.get().setContentView(parent)
+			val child = FrameLayout(activity.get()); parent.addView(child)
+			assertSame(parent, child.parent); assertTrue(child.isAttachedToWindow)
+			parent.removeView(child)
+			assertNull(child.parent); assertFalse(child.isAttachedToWindow)
+		} finally {
+			Task398ExactMountRemovalShadow.clear(); Task398ForegroundRegistrationWebViewShadow.clear()
+			activity.pause().stop().destroy()
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class,
+			Task398ForegroundRegistrationWebViewShadow::class, Task398ExactMountRemovalShadow::class,
+			Task398ExactMountRemovalShadow.FrameLayoutShadow::class])
+	fun task398MountFrameworkDisarmedRealComposeSetupControl() {
+		Task398ExactMountRemovalShadow.clear(); Task398ForegroundRegistrationWebViewShadow.clear()
+		val activity = Robolectric.buildActivity(androidx.activity.ComponentActivity::class.java).setup()
+		val compose = androidx.compose.ui.platform.ComposeView(activity.get())
+		try {
+			compose.setContent { }
+			activity.get().setContentView(compose)
+			assertTrue(compose.isAttachedToWindow, "T398_CONTROL_COMPOSE_REAL_ATTACH")
+			assertTrue(compose.hasComposition, "T398_CONTROL_COMPOSE_REAL_COMPOSITION")
+			compose.disposeComposition()
+			assertFalse(compose.hasComposition, "T398_CONTROL_COMPOSE_REAL_DISPOSAL")
+		} finally {
+			compose.disposeComposition()
+			Task398ExactMountRemovalShadow.clear(); Task398ForegroundRegistrationWebViewShadow.clear()
+			activity.pause().stop().destroy()
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398ForegroundRegistrationWebViewShadow::class, Task398ExactMountRemovalShadow::class,
+			Task398ExactMountRemovalShadow.FrameLayoutShadow::class])
+	fun task398MountFrameworkDisarmedNativeSetupControl() = runTest {
+		Task398ExactMountRemovalShadow.clear(); Task398ForegroundRegistrationWebViewShadow.clear()
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			assertTrue(fixture.viewer.isAttachedToWindow)
+			val outgoing = FrameLayout(fixture.activity.get())
+			fixture.viewerClass.task7Method("replaceViewerContent", View::class.java).invoke(fixture.viewer, outgoing)
+			assertTrue(outgoing.isAttachedToWindow)
+		} finally {
+			Task398ExactMountRemovalShadow.clear(); Task398ForegroundRegistrationWebViewShadow.clear()
+			fixture.finish()
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398ForegroundRegistrationWebViewShadow::class, Task398ExactMountRemovalShadow::class,
+			Task398ExactMountRemovalShadow.FrameLayoutShadow::class])
+	fun task398MountFrameworkUntargetedAndTargetedNormalRemovalControl() {
+		val shadow = Task398ExactMountRemovalShadow
+		shadow.clear(); Task398ForegroundRegistrationWebViewShadow.clear()
+		val context = RuntimeEnvironment.getApplication()
+		try {
+			val parent = FrameLayout(context); val child = FrameLayout(context)
+			parent.addView(child); parent.removeView(child)
+			assertNull(child.parent); assertEquals(0, parent.childCount)
+			parent.addView(child); parent.removeAllViews()
+			assertNull(child.parent); assertEquals(0, parent.childCount)
+			assertEquals(0, shadow.targetEntries); assertEquals(0, shadow.completedOriginalDelegates)
+			shadow.target = parent
+			parent.addView(child); parent.removeView(child)
+			assertNull(child.parent); assertEquals(0, parent.childCount)
+			parent.addView(child); parent.removeAllViews()
+			assertNull(child.parent); assertEquals(0, parent.childCount)
+			assertTrue(shadow.actualPrimitiveEntered); assertTrue(shadow.originalDelegateCompleted)
+			assertEquals(2, shadow.targetEntries); assertEquals(2, shadow.completedOriginalDelegates)
+		} finally { shadow.clear(); Task398ForegroundRegistrationWebViewShadow.clear() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398ForegroundRegistrationWebViewShadow::class, Task398ExactMountRemovalShadow::class,
+			Task398ExactMountRemovalShadow.FrameLayoutShadow::class])
+	fun task398MountFrameworkRealEngineAttachDetachControl() = runTest {
+		val shadow = Task398ExactMountRemovalShadow
+		shadow.clear(); Task398ForegroundRegistrationWebViewShadow.clear()
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val outgoing = FrameLayout(fixture.activity.get())
+			fixture.viewerClass.task7Method("replaceViewerContent", View::class.java).invoke(fixture.viewer, outgoing)
+			val engine = task398OriginalEngine(fixture.activity.get())
+			outgoing.addView(engine)
+			assertSame(outgoing, engine.parent); assertTrue(engine.isAttachedToWindow)
+			assertEquals(1, Task398ForegroundRegistrationWebViewShadow.listeners.size)
+			shadow.target = outgoing
+			outgoing.removeView(engine)
+			assertNull(engine.parent); assertFalse(engine.isAttachedToWindow)
+			assertTrue(shadow.actualPrimitiveEntered); assertTrue(shadow.originalDelegateCompleted)
+			assertEquals(1, shadow.targetEntries); assertEquals(1, shadow.completedOriginalDelegates)
+		} finally {
+			shadow.clear(); Task398ForegroundRegistrationWebViewShadow.clear(); fixture.finish()
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398ForegroundRegistrationWebViewShadow::class, Task398ExactMountRemovalShadow::class,
+			Task398ExactMountRemovalShadow.FrameLayoutShadow::class])
+	fun task398MountFrameworkBeforeAndAfterOriginalOneShotRemovalControls() = runTest {
+		val shadow = Task398ExactMountRemovalShadow
+		val listenerShadow = Task398ForegroundRegistrationWebViewShadow
+		shadow.clear(); listenerShadow.clear()
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			val content = fixture.viewerClass.task7Field("viewerContentContainer").get(fixture.viewer) as FrameLayout
+			for (removeAll in listOf(false, true)) {
+				for (position in Task398ExactMountRemovalShadow.FailurePosition.entries) {
+					shadow.clear()
+					val outgoing = FrameLayout(fixture.activity.get())
+					replacement.invoke(fixture.viewer, outgoing)
+					val engine = task398OriginalEngine(fixture.activity.get()); outgoing.addView(engine)
+					assertSame(content, outgoing.parent); assertTrue(engine.isAttachedToWindow)
+					val sentinel = IllegalStateException("Synthetic exact original removal boundary")
+					var callbackCount = 0
+					var parentAtFailure: android.view.ViewParent? = null
+					var attachedAtFailure: Boolean? = null
+					shadow.target = content; shadow.failure = sentinel; shadow.failurePosition = position
+					shadow.beforeFailure = {
+						callbackCount++; parentAtFailure = outgoing.parent; attachedAtFailure = engine.isAttachedToWindow
+					}
+					var escaped: Throwable? = null
+					try { if (removeAll) content.removeAllViews() else content.removeView(outgoing) }
+					catch (failure: Throwable) { escaped = failure }
+					assertSame(sentinel, escaped, "T398_CONTROL_REMOVAL_SENTINEL_IDENTITY")
+					assertTrue(shadow.actualPrimitiveEntered); assertEquals(1, shadow.targetEntries)
+					assertEquals(1, callbackCount); assertNull(shadow.failure)
+					val before = position == Task398ExactMountRemovalShadow.FailurePosition.BEFORE_ORIGINAL
+					assertEquals(!before, shadow.originalDelegateCompleted)
+					assertEquals(if (before) 0 else 1, shadow.completedOriginalDelegates)
+					if (before) {
+						assertSame(content, parentAtFailure); assertSame(content, outgoing.parent)
+						assertEquals(true, attachedAtFailure); assertTrue(engine.isAttachedToWindow)
+					} else {
+						assertNull(parentAtFailure); assertNull(outgoing.parent)
+						assertEquals(false, attachedAtFailure); assertFalse(engine.isAttachedToWindow)
+					}
+					// The consumed sentinel permits the same real primitive to finish normally.
+					if (removeAll) content.removeAllViews() else content.removeView(outgoing)
+					assertNull(outgoing.parent); assertFalse(engine.isAttachedToWindow)
+					assertTrue(shadow.originalDelegateCompleted); assertEquals(2, shadow.targetEntries)
+					assertEquals(if (before) 1 else 2, shadow.completedOriginalDelegates)
+					assertEquals(1, callbackCount)
+				}
+			}
+		} finally { shadow.clear(); listenerShadow.clear(); fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398ForegroundRegistrationWebViewShadow::class, Task398ExactMountRemovalShadow::class,
+			Task398ExactMountRemovalShadow.FrameLayoutShadow::class])
+	fun task398ReplacementUnknownBeforeMountRemovalMustRetainExactRetryNotConfirmListenerOnly() = runTest {
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		val shadow = Task398ExactMountRemovalShadow
+		val listenerShadow = Task398ForegroundRegistrationWebViewShadow
+		try {
+			listenerShadow.clear(); shadow.clear(); fixture.bindSession(); fixture.attach()
+			val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			val outgoing = FrameLayout(fixture.activity.get())
+			replacement.invoke(fixture.viewer, outgoing)
+			val engine = task398OriginalEngine(fixture.activity.get()); outgoing.addView(engine)
+			val content = fixture.viewerClass.task7Field("viewerContentContainer").get(fixture.viewer) as FrameLayout
+			val listener = listenerShadow.listeners.single()
+			val incoming = FrameLayout(fixture.activity.get())
+			val material = task398FrameMaterialSource(fixture)
+			var materialFrozen: ReaderPortCommandResult? = null
+			var uncertain = emptyList<ReaderFrozenLegacyResource>()
+			val sentinel = IllegalStateException("Synthetic unknown exact mount removal acceptance")
+			var frozen: ReaderPortCommandResult? = null
+			shadow.target = content; shadow.failure = sentinel; shadow.beforeFailure = {
+				frozen = fixture.delivery.freezeForTransitionActivation(fixture.domain)
+				materialFrozen = task398FrameFreeze(material, fixture.domain)
+				uncertain = task398FrameRows(material)
+			}
+			var escaped: Throwable? = null
+			try { replacement.invoke(fixture.viewer, incoming) }
+			catch (failure: java.lang.reflect.InvocationTargetException) { escaped = failure.targetException }
+			assertSame(sentinel, escaped, "T398_VR_UNKNOWN_SENTINEL_IDENTITY")
+			assertTrue(shadow.actualPrimitiveEntered, "T398_VR_UNKNOWN_ACTUAL_PRIMITIVE")
+			assertFalse(shadow.originalDelegateCompleted, "T398_VR_UNKNOWN_BEFORE_ORIGINAL_UNCOMPLETED")
+			assertEquals(1, shadow.targetEntries); assertEquals(0, shadow.completedOriginalDelegates)
+			assertEquals(ReaderPortCommandResult.Accepted, frozen, "T398_VR_UNKNOWN_FREEZE_ACCEPTED")
+			assertSame(content, outgoing.parent, "T398_VR_UNKNOWN_BEFORE_PARENT"); assertTrue(engine.isAttachedToWindow, "T398_VR_UNKNOWN_ENGINE_ATTACHED"); assertNull(incoming.parent, "T398_VR_UNKNOWN_INCOMING_UNMOUNTED")
+			assertFalse(listener in listenerShadow.listeners, "T398_CORE_UNKNOWN_LISTENER_RETIRED_MATERIAL_UNCERTAIN")
+			assertEquals(ReaderPortCommandResult.Accepted, materialFrozen)
+			val exact = uncertain.single()
+			assertEquals(ReaderLegacyResourceState.ReleaseRequested, exact.state)
+			assertEquals(ReaderLegacyInventorySource.FrameOrHandoff, exact.physicalIdentity.source)
+			assertEquals(ReaderTransitionResourceKind.FrameHandoff, exact.kind)
+			// Actual existing frozen ownership cancellation is the required exact retry mechanism.
+			// Retiring only its listener must never be represented as successful mount retirement.
+			fixture.drainRemaining()
+			assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty(), "T398_VR_UNKNOWN_DRAIN_EMPTY")
+			assertSame(content, outgoing.parent, "T398_CORE_DELIVERY_DRAIN_NOT_MATERIAL_CONFIRMATION")
+			assertTrue(engine.isAttachedToWindow)
+			assertEquals(exact.physicalIdentity, task398FrameRows(material).single().physicalIdentity)
+			val materialConfirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+			assertEquals(ReaderPortCommandResult.Accepted, task398FrameDrain(material, exact.physicalIdentity, materialConfirmations::add))
+			assertEquals(listOf(exact.physicalIdentity), materialConfirmations)
+			fixture.drainRemaining() // Exact material primitive introduced real late Delivery returns.
+			assertEquals(2, shadow.targetEntries); assertEquals(1, shadow.completedOriginalDelegates)
+			assertEquals(1, if (outgoing.parent == null && !engine.isAttachedToWindow) 1 else 0,
+				"T398_VR_UNKNOWN_MOUNT_EXACT_RETRY")
+			assertFalse(listener in listenerShadow.listeners)
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+			assertEquals(ReaderPortCommandResult.Accepted, task398FrameRestore(material, fixture.domain))
+			listener.onViewAttachedToWindow(engine)
+			assertNull(outgoing.parent); assertFalse(engine.isAttachedToWindow); assertTrue(listenerShadow.listeners.isEmpty())
+		} finally { shadow.clear(); listenerShadow.clear(); fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ReplacementEntryOwnsOriginalProtectedRecipientReturn() = runTest {
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			replacement.invoke(fixture.viewer, FrameLayout(fixture.activity.get()))
+			val field = fixture.curl.javaClass.task7Field("onProtectedRasterSourcePageIndicesChanged")
+			@Suppress("UNCHECKED_CAST") val original = field.get(fixture.curl) as (Set<Int>) -> Unit
+			var reached = false
+			var frozen: ReaderPortCommandResult? = null
+			var restoredInside: ReaderPortCommandResult? = null
+			var inside = emptyList<ReaderFrozenLegacyResource>()
+			field.set(fixture.curl, { indices: Set<Int> ->
+				original(indices)
+				if (!reached) {
+					reached = true
+					frozen = fixture.delivery.freezeForTransitionActivation(fixture.domain)
+					inside = fixture.delivery.snapshotFrozenOwnership()
+					// Exactly the same pre-drain restore operation used by accepted Q1
+					// freeze/restore recipients, but this actual enclosing method is on stack.
+					restoredInside = fixture.delivery.restoreAfterTransitionActivation(fixture.domain)
+				}
+			})
+			replacement.invoke(fixture.viewer, FrameLayout(fixture.activity.get()))
+			assertTrue(reached, "T398_VR_ENTRY_REAL_RECIPIENT")
+			assertEquals(ReaderPortCommandResult.Accepted, frozen)
+			assertEquals(1, inside.count { it.state == ReaderLegacyResourceState.Running },
+				"T398_VR_ENTRY_METHOD_RETURN")
+			assertIs<ReaderPortCommandResult.Rejected>(restoredInside,
+				"T398_VR_ENTRY_RESTORE_ON_STACK")
+			assertEquals(ReaderPortCommandResult.Accepted,
+				fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398RemovalEntryInstallationShadow::class, Task398RemovalEntryInstallationShadow.FrameLayoutShadow::class])
+	fun task398ReplacementEarlyFactDrainRetainsExactReturnsThroughHierarchyUntilOuterUnwind() = runTest {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+		val shadow = Task398RemovalEntryInstallationShadow
+		try {
+			shadow.clear(); fixture.bindSession(); fixture.attach()
+			val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			val outgoing = FrameLayout(fixture.activity.get())
+			replacement.invoke(fixture.viewer, outgoing)
+			val engine = task398OriginalEngine(fixture.activity.get()); outgoing.addView(engine)
+			val content = fixture.viewerClass.task7Field("viewerContentContainer").get(fixture.viewer) as FrameLayout
+			val incoming = FrameLayout(fixture.activity.get())
+			assertTrue(engine.isAttachedToWindow)
+			val drain = Task398ReplacementDrainObservation(fixture)
+			var frozen: ReaderPortCommandResult? = null
+			var factInside = emptyList<ReaderFrozenLegacyResource>()
+			var factRequested = emptySet<ReaderLegacyPhysicalIdentity>()
+			var factPending = emptyList<ReaderFrozenLegacyResource>()
+			var hierarchyPending = emptyList<ReaderFrozenLegacyResource>()
+			var factReturnsInFlight = false
+			var hierarchyReturnsInFlight = false
+			var hierarchyReached = false
+			var factConfirmations = -1
+			var hierarchyConfirmations = -1
+			var factRestore: ReaderPortCommandResult? = null
+			var hierarchyRestore: ReaderPortCommandResult? = null
+			val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+			content.setOnHierarchyChangeListener(object : android.view.ViewGroup.OnHierarchyChangeListener {
+				override fun onChildViewAdded(parent: View, child: View) = Unit
+				override fun onChildViewRemoved(parent: View, child: View) {
+					if (child === outgoing) {
+						hierarchyReached = true
+						hierarchyPending = fixture.delivery.snapshotFrozenOwnership().filter { it.physicalIdentity in factRequested }
+						hierarchyReturnsInFlight = fixture.delivery.hasPhysicalReturnsInFlight
+						hierarchyConfirmations = fixture.confirmations.size
+						hierarchyRestore = fixture.delivery.restoreAfterTransitionActivation(fixture.domain)
+					}
+				}
+			})
+			shadow.target = content; shadow.child = outgoing
+			shadow.beforeOriginal = { task398InstallFacts(store) { fact ->
+				facts += fact
+				if (fact.kind == ReaderTask6LifecycleSafetyKind.WebViewDetached) {
+					frozen = fixture.delivery.freezeForTransitionActivation(fixture.domain)
+					factInside = fixture.delivery.snapshotFrozenOwnership()
+					factRequested = factInside.filter { it.state == ReaderLegacyResourceState.Running }.map { it.physicalIdentity }.toSet()
+					// Request the real five-return drain at the fact itself. Recipient failures
+					// can be swallowed, so collect observations here and assert after unwind.
+					drain.observe()
+					factPending = fixture.delivery.snapshotFrozenOwnership().filter { it.physicalIdentity in factRequested }
+					factReturnsInFlight = fixture.delivery.hasPhysicalReturnsInFlight
+					factConfirmations = fixture.confirmations.size
+					factRestore = fixture.delivery.restoreAfterTransitionActivation(fixture.domain)
+				}
+				ReaderPortCommandResult.Accepted
+			} }
+			replacement.invoke(fixture.viewer, incoming)
+			content.setOnHierarchyChangeListener(null)
+			assertEquals(1, shadow.entries, "T398_CORE_EARLY_DRAIN_ACTUAL_PRIMITIVE")
+			assertEquals(1, shadow.hooks, "T398_CORE_EARLY_DRAIN_ONESHOT_INSTALLATION")
+			assertEquals(listOf(ReaderTask6LifecycleSafetyKind.WebViewDetached), facts.map { it.kind }, "T398_CORE_EARLY_DRAIN_REAL_DETACH_FACT")
+			assertEquals(ReaderPortCommandResult.Accepted, frozen)
+			assertTrue(hierarchyReached, "T398_CORE_EARLY_DRAIN_REAL_HIERARCHY")
+			assertEquals(5, factInside.count { it.state == ReaderLegacyResourceState.Running }, "T398_CORE_EARLY_DRAIN_FACT_FIVE_RUNNING")
+			assertEquals(5, factRequested.size, "T398_CORE_EARLY_DRAIN_EXACT_FIVE_IDENTITIES")
+			assertEquals(factRequested, factPending.map { it.physicalIdentity }.toSet(), "T398_CORE_EARLY_DRAIN_FACT_EXACT_RETENTION")
+			assertEquals(factRequested, hierarchyPending.map { it.physicalIdentity }.toSet(), "T398_CORE_EARLY_DRAIN_HIERARCHY_EXACT_RETENTION")
+			assertEquals(5, factPending.count { it.state == ReaderLegacyResourceState.ReleaseRequested }, "T398_CORE_EARLY_DRAIN_FACT_REQUESTED_PROJECTION")
+			assertEquals(5, hierarchyPending.count { it.state == ReaderLegacyResourceState.ReleaseRequested }, "T398_CORE_EARLY_DRAIN_HIERARCHY_REQUESTED_PROJECTION")
+			assertTrue(factReturnsInFlight, "T398_CORE_EARLY_DRAIN_FACT_RETURNS_IN_FLIGHT")
+			assertTrue(hierarchyReturnsInFlight, "T398_CORE_EARLY_DRAIN_HIERARCHY_RETURNS_IN_FLIGHT")
+			assertEquals(0, factConfirmations, "T398_CORE_EARLY_DRAIN_NO_FACT_CONFIRMATION")
+			assertEquals(0, hierarchyConfirmations, "T398_CORE_EARLY_DRAIN_NO_HIERARCHY_CONFIRMATION")
+			assertIs<ReaderPortCommandResult.Rejected>(factRestore, "T398_CORE_EARLY_DRAIN_FACT_RESTORE_REJECTED")
+			assertIs<ReaderPortCommandResult.Rejected>(hierarchyRestore, "T398_CORE_EARLY_DRAIN_HIERARCHY_RESTORE_REJECTED")
+			assertFalse(fixture.delivery.hasPhysicalReturnsInFlight, "T398_CORE_EARLY_DRAIN_OUTER_RETURN_SETTLED")
+			assertNull(outgoing.parent); assertFalse(engine.isAttachedToWindow); assertNull(incoming.parent)
+			assertEquals(0, content.childCount, "T398_CORE_EARLY_DRAIN_INSTALLED_DENIES_INCOMING")
+			assertTrue(factRequested.all { identity -> fixture.confirmations.count { it == identity } == 1 }, "T398_CORE_EARLY_DRAIN_FIVE_CONFIRMED_ON_OUTER_UNWIND")
+			drain.observe()
+			assertTrue(drain.results.isNotEmpty() && drain.results.all { it == ReaderPortCommandResult.Accepted })
+			assertTrue(drain.rows.all { it.physicalIdentity.domain == fixture.domain && it.physicalIdentity.source == ReaderLegacyInventorySource.LifecycleDelivery })
+			assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty(), "T398_CORE_EARLY_DRAIN_FINAL_INVENTORY_EMPTY")
+			assertEquals(fixture.seenIdentities, fixture.confirmations.toSet(), "T398_CORE_EARLY_DRAIN_ALL_OBSERVED_IDENTITIES_CONFIRM")
+			assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size, "T398_CORE_EARLY_DRAIN_EXACTLY_ONCE")
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+		} finally { shadow.clear(); fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398RemovalEntryInstallationShadow::class, Task398RemovalEntryInstallationShadow.FrameLayoutShadow::class])
+	fun task398ReplacementRemovalOwnsMethodAndPrimitiveBeyondRealInstalledFactReturn() = runTest {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			val outgoing = FrameLayout(fixture.activity.get())
+			replacement.invoke(fixture.viewer, outgoing)
+			val engine = task398OriginalEngine(fixture.activity.get()); outgoing.addView(engine)
+			val content = fixture.viewerClass.task7Field("viewerContentContainer").get(fixture.viewer) as FrameLayout
+			val incoming = FrameLayout(fixture.activity.get())
+			assertTrue(engine.isAttachedToWindow)
+			val drain = Task398ReplacementDrainObservation(fixture)
+			var frozen: ReaderPortCommandResult? = null
+			var factInside = emptyList<ReaderFrozenLegacyResource>()
+			var hierarchyInside = emptyList<ReaderFrozenLegacyResource>()
+			var hierarchyReached = false
+			var hierarchyConfirmations = -1
+			var hierarchyRestore: ReaderPortCommandResult? = null
+			val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+			content.setOnHierarchyChangeListener(object : android.view.ViewGroup.OnHierarchyChangeListener {
+				override fun onChildViewAdded(parent: View, child: View) = Unit
+				override fun onChildViewRemoved(parent: View, child: View) {
+					if (child === outgoing) {
+						hierarchyReached = true
+						hierarchyInside = fixture.delivery.snapshotFrozenOwnership()
+						drain.observe()
+						hierarchyConfirmations = fixture.confirmations.size
+						hierarchyRestore = fixture.delivery.restoreAfterTransitionActivation(fixture.domain)
+					}
+				}
+			})
+			Task398RemovalEntryInstallationShadow.target = content
+			Task398RemovalEntryInstallationShadow.child = outgoing
+			Task398RemovalEntryInstallationShadow.beforeOriginal = { task398InstallFacts(store) { fact ->
+				facts += fact
+				if (fact.kind == ReaderTask6LifecycleSafetyKind.WebViewDetached) {
+					frozen = fixture.delivery.freezeForTransitionActivation(fixture.domain)
+					factInside = fixture.delivery.snapshotFrozenOwnership()
+				}
+				ReaderPortCommandResult.Accepted
+			} }
+			replacement.invoke(fixture.viewer, incoming)
+			content.setOnHierarchyChangeListener(null)
+			assertEquals(listOf(ReaderTask6LifecycleSafetyKind.WebViewDetached), facts.map { it.kind })
+			assertEquals(ReaderPortCommandResult.Accepted, frozen)
+			assertTrue(hierarchyReached, "T398_VR_REMOVAL_REAL_HIERARCHY")
+			assertFalse(engine.isAttachedToWindow); assertNull(incoming.parent)
+			assertEquals(0, content.childCount, "T398_CORE_REMOVAL_INSTALLED_DENIES_OBSOLETE_INCOMING")
+			assertEquals(5, factInside.count { it.state == ReaderLegacyResourceState.Running },
+				"T398_VR_REMOVAL_FACT_METHOD_PRIMITIVE_RETURNS")
+			assertEquals(2, hierarchyInside.count { it.state == ReaderLegacyResourceState.Running },
+				"T398_VR_REMOVAL_AFTER_INNER_RETURN")
+			assertEquals(0, hierarchyConfirmations, "T398_VR_REMOVAL_NO_INNER_CONFIRMATION")
+			assertIs<ReaderPortCommandResult.Rejected>(hierarchyRestore)
+			drain.observe()
+			assertTrue(drain.results.all { it == ReaderPortCommandResult.Accepted })
+			assertTrue(drain.rows.all { it.physicalIdentity.domain == fixture.domain &&
+				it.physicalIdentity.source == ReaderLegacyInventorySource.LifecycleDelivery })
+			assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+			assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+			assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+			assertEquals(ReaderPortCommandResult.Accepted,
+				fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+		} finally { Task398RemovalEntryInstallationShadow.clear(); fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ReplacementAdditionOwnsActualMethodAndPrimitiveIncludingLateDrainRows() = runTest {
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			val outgoing = FrameLayout(fixture.activity.get())
+			replacement.invoke(fixture.viewer, outgoing)
+			val content = fixture.viewerClass.task7Field("viewerContentContainer").get(fixture.viewer) as FrameLayout
+			val incoming = FrameLayout(fixture.activity.get())
+			val drain = Task398ReplacementDrainObservation(fixture)
+			var reached = false
+			var inside = emptyList<ReaderFrozenLegacyResource>()
+			var frozen: ReaderPortCommandResult? = null
+			var restoredInside: ReaderPortCommandResult? = null
+			var confirmationsInside = -1
+			content.setOnHierarchyChangeListener(object : android.view.ViewGroup.OnHierarchyChangeListener {
+				override fun onChildViewRemoved(parent: View, child: View) = Unit
+				override fun onChildViewAdded(parent: View, child: View) {
+					if (child === incoming) {
+						reached = true
+						frozen = fixture.delivery.freezeForTransitionActivation(fixture.domain)
+						inside = fixture.delivery.snapshotFrozenOwnership()
+						drain.observe()
+						confirmationsInside = fixture.confirmations.size
+						restoredInside = fixture.delivery.restoreAfterTransitionActivation(fixture.domain)
+					}
+				}
+			})
+			replacement.invoke(fixture.viewer, incoming)
+			content.setOnHierarchyChangeListener(null)
+			assertTrue(reached, "T398_VR_ADD_REAL_HIERARCHY")
+			assertSame(content, incoming.parent); assertNull(outgoing.parent)
+			assertEquals(ReaderPortCommandResult.Accepted, frozen)
+			assertEquals(2, inside.count { it.state == ReaderLegacyResourceState.Running },
+				"T398_VR_ADD_METHOD_PRIMITIVE_RETURNS")
+			assertEquals(0, confirmationsInside, "T398_VR_ADD_NO_ON_STACK_CONFIRMATION")
+			assertIs<ReaderPortCommandResult.Rejected>(restoredInside)
+			drain.observe()
+			assertTrue(drain.results.all { it == ReaderPortCommandResult.Accepted })
+			assertTrue(drain.rows.map { it.physicalIdentity }.toSet().size > inside.size,
+				"T398_VR_ADD_AUTHENTIC_LATE_CANCELLATION_ROWS")
+			assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+			assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+			assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+			assertEquals(ReaderPortCommandResult.Accepted,
+				fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398ForegroundRegistrationWebViewShadow::class])
+	fun task398ReplacementEmptyWrapperRetiresExactOriginalEngineListenerWithoutNextAttach() = runTest {
+		val fixture = Task398RegisteredRootsFixture(activityBacked = true)
+		val shadow = Task398ForegroundRegistrationWebViewShadow
+		try {
+			shadow.clear(); fixture.bindSession(); fixture.attach()
+			val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			val outgoing = FrameLayout(fixture.activity.get())
+			replacement.invoke(fixture.viewer, outgoing)
+			val engine = task398OriginalEngine(fixture.activity.get()); outgoing.addView(engine)
+			val exactListener = shadow.listeners.single()
+			assertTrue(engine.isAttachedToWindow)
+			val incoming = FrameLayout(fixture.activity.get())
+			replacement.invoke(fixture.viewer, incoming)
+			assertFalse(engine.isAttachedToWindow); assertNull(outgoing.parent)
+			assertTrue(incoming.isAttachedToWindow); assertEquals(0, incoming.childCount)
+			assertEquals(0, shadow.listeners.size, "T398_VR_EMPTY_EXACT_LISTENER_RETIREMENT")
+			assertFalse(exactListener in shadow.listeners)
+			assertEquals(1, shadow.removes, "T398_VR_EMPTY_EXACT_UNREGISTER_COUNT")
+			assertEquals(1, shadow.adds)
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+			fixture.drainRemaining()
+			assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+			assertEquals(ReaderPortCommandResult.Accepted,
+				fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+			exactListener.onViewAttachedToWindow(engine)
+			assertEquals(1, shadow.adds, "T398_VR_EMPTY_NO_PERMANENT_ROOT_RESTART")
+			assertTrue(shadow.listeners.isEmpty())
+		} finally { shadow.clear(); fixture.finish() }
+	}
+
+	private inner class Task398ReplacementDrainObservation(val fixture: Task398RegisteredRootsFixture) {
+		val rows = mutableListOf<ReaderFrozenLegacyResource>()
+		val results = mutableListOf<ReaderPortCommandResult>()
+		private val requested = linkedSetOf<ReaderLegacyPhysicalIdentity>()
+		fun observe() {
+			// Never assert from a production observer/recipient catch scope. Only collect
+			// exact actual rows and results; all decisive assertions follow original unwind.
+			repeat(8) {
+				val discovered = fixture.delivery.snapshotFrozenOwnership().filter {
+					it.physicalIdentity !in requested
+				}
+				if (discovered.isEmpty()) return
+				discovered.forEach { row ->
+					rows += row
+					fixture.seenIdentities += row.physicalIdentity
+					requested += row.physicalIdentity
+					results += fixture.delivery.drainFrozenOwnership(row.physicalIdentity, fixture.confirmations::add)
+				}
+			}
+		}
+	}
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1PendingCancellationExceptionLegacy() = runTest { task398ShieldExceptionBoundary("legacy", false) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1PendingCancellationExceptionDefault() = runTest { task398ShieldExceptionBoundary("default", false) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1PendingCancellationExceptionActivated() = runTest { task398ShieldExceptionBoundary("activated", false) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1PendingCancellationExceptionReleaseOnly() = runTest { task398ShieldExceptionBoundary("release-only", false) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1PendingCancellationExceptionFreeze() = runTest { task398ShieldExceptionBoundary("freeze", false) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1PendingCancellationExceptionFreezeRestore() = runTest { task398ShieldExceptionBoundary("freeze-restore", false) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1FadeCancellationExceptionLegacy() = runTest { task398ShieldExceptionBoundary("legacy", true) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1FadeCancellationExceptionDefault() = runTest { task398ShieldExceptionBoundary("default", true) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1FadeCancellationExceptionActivated() = runTest { task398ShieldExceptionBoundary("activated", true) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1FadeCancellationExceptionReleaseOnly() = runTest { task398ShieldExceptionBoundary("release-only", true) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1FadeCancellationExceptionFreeze() = runTest { task398ShieldExceptionBoundary("freeze", true) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1FadeCancellationExceptionFreezeRestore() = runTest { task398ShieldExceptionBoundary("freeze-restore", true) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1PendingExceptionPreservesPublicReentrantSuccessorLegacy() = runTest { task398ShieldExceptionBoundary("legacy", false, successor = true) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1PendingExceptionPreservesPublicReentrantSuccessorActivated() = runTest { task398ShieldExceptionBoundary("activated", false, successor = true) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1FadeExceptionPreservesPublicReentrantSuccessorLegacy() = runTest { task398ShieldExceptionBoundary("legacy", true, successor = true) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1FadeExceptionPreservesPublicReentrantSuccessorActivated() = runTest { task398ShieldExceptionBoundary("activated", true, successor = true) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1PendingAndFadeExceptionsPreserveFirstFailureAndBothCleanupLegacy() = runTest { task398ShieldExceptionBoundary("legacy", false, bothThrow = true) }
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398Q1PendingAndFadeExceptionsPreserveFirstFailureAndBothCleanupActivated() = runTest { task398ShieldExceptionBoundary("activated", false, bothThrow = true) }
+
+	private suspend fun task398ShieldExceptionBoundary(
+		mode: String, fadeThrows: Boolean, successor: Boolean = false, bothThrow: Boolean = false
+	) {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+		val shield = fixture.curl.javaClass.task7Field("inlineRasterShield").get(fixture.curl) as ReaderPageInlineRasterShield
+		val sentinel = IllegalStateException("Synthetic accepted cancellation recipient failure")
+		val laterSentinel = IllegalArgumentException("Synthetic later accepted fade recipient failure")
+		try {
+			fixture.bindSession(); fixture.attach(); fixture.activity.visible()
+			val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			val outgoing = FrameLayout(fixture.activity.get())
+			replacement.invoke(fixture.viewer, outgoing)
+			val engine = task398OriginalEngine(fixture.activity.get())
+			outgoing.addView(engine)
+			fixture.viewer.measure(View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
+				View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY))
+			fixture.viewer.layout(0, 0, 800, 600)
+			val host = shield.javaClass.task7Field("host").get(shield) as android.view.ViewGroup
+			assertTrue(engine.isAttachedToWindow); assertTrue(shield.view.isAttachedToWindow)
+			assertTrue(host.width >= 8 && host.height >= 8)
+			fun snapshot(): ReaderPageSlideSnapshot {
+				val location = IntArray(2); host.getLocationInWindow(location)
+				return ReaderPageSlideSnapshot(
+					ReaderPageSlideSnapshotKey(2, ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+						ReaderPageBitmapQuality.Balanced, 8, 8, 8, 8),
+					Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888),
+					android.graphics.Rect(location[0], location[1], location[0] + 8, location[1] + 8),
+					paige.navic.reader.ReaderPageTurnLeafGeometry(
+						paige.navic.reader.ReaderPageTurnPixelRect(0, 0, 8, 8),
+						paige.navic.reader.ReaderPageTurnPixelRect(0, 0, 3, 8),
+						paige.navic.reader.ReaderPageTurnPixelRect(3, 0, 5, 8),
+						paige.navic.reader.ReaderPageTurnPixelRect(5, 0, 8, 8)), 0xffead9ae.toInt()
+				).also { it.retain(); it.releaseCacheOwnership() }
+			}
+			fun overlayReceipt() = ReaderWhispersyncAnchorReceipt(
+				foliateSessionId = "synthetic-q1", destinationCommitToken = "synthetic-q1",
+				visualPageOrdinal = 2, spineIndex = 1, rasterGeneration = 3L, textureGeneration = 4L,
+				presentationMutationGeneration = 5L, presentationSequence = 6L, anchorGeneration = 7L,
+				boundarySequence = 8L, layoutGeneration = 9L, viewGeneration = 10L, commitSequence = 11L,
+				committedSpineIndex = 1, committedChapterPageIndex = 0, committedChapterPageCount = 2,
+				paginationFingerprint = "synthetic", layoutFingerprint = "synthetic", readerSettingsRasterKey = "synthetic",
+				captureGeometry = paige.navic.reader.ReaderPageTurnCaptureGeometry(8.0, 8.0,
+					paige.navic.reader.ReaderPageTurnLayoutMode.Single,
+					listOf(paige.navic.reader.ReaderPageTurnPageRect(paige.navic.reader.ReaderPageTurnPageRole.Full, 0.0, 0.0, 8.0, 8.0))),
+				pageLocalRects = listOf(paige.navic.reader.ReaderWhispersyncPageLocalRect(
+					paige.navic.reader.ReaderPageTurnPageRole.Full, 2.0, 2.0, 3.0, 2.0)))
+			fun retains(value: ReaderPageSlideSnapshot) = value.javaClass.task7Field("retainCount").getInt(value)
+			fun animationWork(animator: android.view.ViewPropertyAnimator): Int =
+				(animator.javaClass.task7Field("mPendingAnimations").get(animator) as List<*>).size +
+					(animator.javaClass.task7Field("mAnimatorMap").get(animator) as Map<*, *>).size
+			fun shieldField(name: String) = shield.javaClass.task7Field(name).get(shield)
+			val predecessor = snapshot()
+			val presentationResults = mutableListOf<Boolean>()
+			val fadeResults = mutableListOf<Boolean>()
+			val successorResults = mutableListOf<Boolean>()
+			var successorSnapshot: ReaderPageSlideSnapshot? = null
+			var predecessorOverlay: Bitmap? = null
+			var successorOverlay: Bitmap? = null
+			var successorRequest: Any? = null
+			var successorFirstFrame: Any? = null
+			var successorTimeout: Any? = null
+			var boundaryReached = false
+			var overlayAccepted = false
+			var successorOverlayAccepted = false
+			var freezeResult: ReaderPortCommandResult? = null
+			var restoreResult: ReaderPortCommandResult? = null
+			var nativeReturnsInside = emptyList<ReaderFrozenLegacyResource>()
+			var releaseOnly = false
+			fun beforeThrow() {
+				boundaryReached = true
+				if (successor) {
+					successorSnapshot = snapshot().also { shield.present(it, successorResults::add) }
+					successorOverlayAccepted = shield.setWhispersyncOverlay(overlayReceipt(), 0x88ffcc00.toInt())
+					successorOverlay = shieldField("ownedWhispersyncOverlay") as Bitmap?
+					shield.view.alpha = 0.71f
+					successorRequest = shieldField("activeRequest")
+					successorFirstFrame = shieldField("firstFrame")
+					successorTimeout = shieldField("timeout")
+				}
+				when (mode) {
+					"activated", "release-only" -> {
+						val decision = task398InstallFacts(store) { ReaderPortCommandResult.Accepted }
+						if (mode == "release-only") releaseOnly = ReaderActivatedSessionInstallationBarrier(store)
+							.failClosedAfterFinalizationRejection(decision)
+					}
+					"freeze", "freeze-restore" -> {
+						freezeResult = fixture.delivery.freezeForTransitionActivation(fixture.domain)
+						nativeReturnsInside = fixture.delivery.snapshotFrozenOwnership()
+						if (mode == "freeze-restore") restoreResult = fixture.delivery.restoreAfterTransitionActivation(fixture.domain)
+					}
+				}
+				if (!successor) shield.view.alpha = 0.37f
+			}
+			var shieldArmed = false
+			var preparedPending = -1
+			var preparedAnimationWork = -1
+			var animator: android.view.ViewPropertyAnimator? = null
+			val retiredCallbacks = mutableListOf<Runnable>()
+			val protectedField = fixture.curl.javaClass.task7Field("onProtectedRasterSourcePageIndicesChanged")
+			@Suppress("UNCHECKED_CAST") val originalProtected = protectedField.get(fixture.curl) as (Set<Int>) -> Unit
+			protectedField.set(fixture.curl, { indices: Set<Int> ->
+				originalProtected(indices)
+				if (!shieldArmed) {
+					shieldArmed = true
+					// Public operations arm the real shield only on the explicitly owned invalidate,
+					// after preceding Native lifecycle/cancelGesture dispatch has already returned.
+					shield.present(predecessor) { presented ->
+						presentationResults += presented
+						if (!presented && !fadeThrows) { beforeThrow(); throw sentinel }
+					}
+					listOf("firstFrame", "committedFrame", "timeout").mapNotNullTo(retiredCallbacks) { shieldField(it) as Runnable? }
+					overlayAccepted = shield.setWhispersyncOverlay(overlayReceipt(), 0x88ffcc00.toInt())
+					predecessorOverlay = shieldField("ownedWhispersyncOverlay") as Bitmap?
+					shield.fadeOut(10_000L) { committed ->
+						fadeResults += committed
+						if (!committed && fadeThrows) { beforeThrow(); throw sentinel }
+						if (!committed && bothThrow) throw laterSentinel
+					}
+					listOf("firstFrame", "committedFrame", "timeout").mapNotNullTo(retiredCallbacks) { shieldField(it) as Runnable? }
+					animator = shield.view.animate()
+					preparedAnimationWork = animationWork(requireNotNull(animator))
+					preparedPending = shield.pendingCallbackCount()
+					shield.view.alpha = 0.37f
+				}
+			})
+			var escaped: Throwable? = null
+			try {
+				if (mode == "default") fixture.curl.invalidate("task398-q1-default")
+				else replacement.invoke(fixture.viewer, FrameLayout(fixture.activity.get()))
+			} catch (failure: Throwable) {
+				// Catch only at the external test boundary, never inside any original recipient.
+				escaped = if (failure is java.lang.reflect.InvocationTargetException) failure.targetException else failure
+			}
+			assertTrue(shieldArmed, "Original explicitly owned invalidate must arm public shield operations")
+			assertEquals(2, preparedPending); assertTrue(preparedAnimationWork > 0)
+			assertTrue(overlayAccepted, "Actual public overlay path must own a typed mask")
+			assertTrue(boundaryReached, "Original accepted public false recipient must actually execute")
+			assertSame(sentinel, escaped, "Original callback failure must remain externally observable")
+			assertEquals(listOf(false), presentationResults)
+			// Q1 RED must be this post-unwind ownership assertion, not an intentional thrown test error.
+			assertEquals(0, retains(predecessor), "Q1 post-unwind captured predecessor retain must be released exactly once")
+			assertTrue(predecessor.bitmap.isRecycled, "Q1 cache ownership was already released before public presentation")
+			assertTrue(requireNotNull(predecessorOverlay).isRecycled, "Q1 captured public overlay must be recycled after unwinding")
+			assertEquals(listOf(false), fadeResults, "Later actual fade cancellation must still execute after pending recipient failure")
+			assertNull(shieldField("activeFadeRequest")); assertNull(shieldField("fadeCallback"))
+			assertEquals(0, animationWork(requireNotNull(animator)), "Captured old animator work must retire after failure")
+			if (bothThrow) assertTrue(requireNotNull(escaped).suppressed.any { it === laterSentinel },
+				"Later cleanup recipient failure must be retained without replacing the first failure")
+			if (mode.startsWith("freeze")) {
+				assertEquals(ReaderPortCommandResult.Accepted, freezeResult)
+				assertTrue(nativeReturnsInside.any { it.state == ReaderLegacyResourceState.Running },
+                    "T398_VR_COMPAT_SHIELD_EXCEPTION_NATIVE_RETURN")
+                if (mode == "freeze-restore") {
+                    assertEquals(paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource,
+                        assertIs<ReaderPortCommandResult.Rejected>(restoreResult).reason)
+                    assertEquals(ReaderPortCommandResult.Accepted,
+                        fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+                    assertNull(outgoing.parent, "Restoration cannot resurrect the retired Native predecessor")
+                    assertFalse(engine.isAttachedToWindow)
+                }
+			}
+			if (mode == "release-only") { assertTrue(releaseOnly); assertNotNull(store.snapshot) }
+			if (mode == "activated") assertNotNull(store.snapshot)
+			val rasterView = shieldField("rasterView") as android.widget.ImageView
+			val overlayView = shieldField("overlayView") as android.widget.ImageView
+			if (successor) {
+				val retained = requireNotNull(successorSnapshot)
+				assertSame(retained, shieldField("ownedSnapshot")); assertEquals(1, retains(retained))
+				assertFalse(retained.bitmap.isRecycled); assertTrue(successorOverlayAccepted)
+				assertSame(successorOverlay, shieldField("ownedWhispersyncOverlay")); assertFalse(requireNotNull(successorOverlay).isRecycled)
+				assertEquals(successorRequest, shieldField("activeRequest")); assertNotNull(successorRequest)
+				assertSame(successorFirstFrame, shieldField("firstFrame")); assertSame(successorTimeout, shieldField("timeout"))
+				assertEquals(1, shield.pendingCallbackCount()); assertTrue(successorResults.isEmpty())
+				assertSame(retained.bitmap, (rasterView.drawable as android.graphics.drawable.BitmapDrawable).bitmap)
+				assertSame(successorOverlay, (overlayView.drawable as android.graphics.drawable.BitmapDrawable).bitmap)
+				assertEquals(0.71f, shield.view.alpha); assertEquals(View.VISIBLE, shield.view.visibility)
+				assertEquals(View.VISIBLE, overlayView.visibility)
+				// Execute captured real stale callbacks: their existing request guards must not touch the successor.
+				retiredCallbacks.forEach(Runnable::run)
+				assertSame(retained, shieldField("ownedSnapshot")); assertEquals(1, retains(retained))
+				assertEquals(successorRequest, shieldField("activeRequest")); assertEquals(1, shield.pendingCallbackCount())
+				assertTrue(successorResults.isEmpty()); assertEquals(0.71f, shield.view.alpha)
+			} else {
+				assertEquals(0, shield.pendingCallbackCount()); assertNull(shieldField("ownedSnapshot"))
+				assertNull(shieldField("presentationCallback")); assertNull(shieldField("firstFrame"))
+				assertNull(shieldField("committedFrame")); assertNull(shieldField("timeout"))
+				assertNull(rasterView.drawable); assertNull(overlayView.drawable)
+				if (mode in listOf("legacy", "default")) {
+					assertEquals(1f, shield.view.alpha); assertEquals(View.GONE, shield.view.visibility)
+					assertEquals(View.GONE, overlayView.visibility); assertNull(store.snapshot)
+				} else {
+					assertEquals(0.37f, shield.view.alpha); assertEquals(View.VISIBLE, shield.view.visibility)
+					assertEquals(View.VISIBLE, overlayView.visibility)
+				}
+				retiredCallbacks.forEach(Runnable::run)
+				assertEquals(0, shield.pendingCallbackCount())
+			}
+			// Public retry may deliberately retire a current successor, but cannot double-dispose the predecessor.
+			shield.dismiss(); shield.dismiss()
+			org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(12))
+			assertEquals(0, retains(predecessor)); assertTrue(predecessor.bitmap.isRecycled)
+			assertEquals(listOf(false), presentationResults); assertEquals(listOf(false), fadeResults)
+			assertEquals(0, shield.pendingCallbackCount())
+			if (successor) {
+				assertEquals(0, retains(requireNotNull(successorSnapshot))); assertTrue(requireNotNull(successorSnapshot).bitmap.isRecycled)
+				assertTrue(requireNotNull(successorOverlay).isRecycled); assertEquals(listOf(false), successorResults)
+			}
+		} finally {
+			try {
+				// External teardown boundary only: preserve any earlier post-unwind assertion failure.
+				try { shield.dismiss() } catch (failure: Throwable) {
+					if (failure !== sentinel && failure !== laterSentinel) throw failure
+				}
+			} finally { fixture.finish() }
+		}
+	}
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398OriginalReplacementPendingShieldRecipientDeniesVisualTailAndReleasesExactlyOnce() = runTest {
+		for (mode in listOf("legacy", "default", "activated", "release-only", "freeze", "freeze-restore")) {
+			task398ShieldDisposalBoundary(mode, fade = false, successor = false)
+		}
+	}
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398OriginalReplacementFadeCancellationRecipientDeniesResetButRetiresActualFade() = runTest {
+		for (mode in listOf("legacy", "default", "activated", "release-only", "freeze-restore")) {
+			task398ShieldDisposalBoundary(mode, fade = true, successor = false)
+		}
+	}
+
+	@Test
+	@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398OriginalReplacementShieldCancellationPreservesReentrantSuccessorResourceAndPresentation() = runTest {
+		task398ShieldDisposalBoundary("activated", fade = false, successor = true)
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398OriginalReplacementProtectedAndReadinessRecipientsFenceNextSurfaceAndProfileWithControls() = runTest {
+		for (boundary in listOf("protected", "readiness")) for (mode in listOf("legacy", "default", "activated", "release-only", "freeze-restore")) {
+			val store = ReaderActivatedSessionSnapshotStore()
+			val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+			try {
+				fixture.bindSession(); fixture.attach()
+				val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+				val outgoing = FrameLayout(fixture.activity.get())
+				replacement.invoke(fixture.viewer, outgoing)
+				val curl = fixture.curl; val type = curl.javaClass
+				// Arrange a real readiness transition through the original helper, not a replacement producer.
+				type.task7Method("updateReadiness", ReaderTextureDeckState::class.java,
+					ReaderTextureDeckState::class.java, ReaderPageInteractionState::class.java, String::class.java)
+					.invoke(curl, ReaderTextureDeckState.Empty, ReaderTextureDeckState.Empty, ReaderPageInteractionState.Ready, "task398-test-arrangement")
+				curl.surfaceView.alpha = 0.61f
+				val protectedField = type.task7Field("onProtectedRasterSourcePageIndicesChanged")
+				val readinessField = type.task7Field("onReadinessStateChange")
+				val profileField = type.task7Field("onRasterProfileEpochChanged")
+				@Suppress("UNCHECKED_CAST") val originalProtected = protectedField.get(curl) as (Set<Int>) -> Unit
+				@Suppress("UNCHECKED_CAST") val originalReadiness = readinessField.get(curl) as (ReaderPageRendererReadinessState) -> Unit
+				@Suppress("UNCHECKED_CAST") val originalProfile = profileField.get(curl) as (Long?) -> Unit
+				var reached = false; var denied = false; var readinessAfterDenial = 0; var profileAfterDenial = 0
+				var readinessCalls = 0; var profileCalls = 0
+				var helperReturnAlpha: Float? = null
+                var observedBoundary: String? = null
+                var frozenInside: ReaderPortCommandResult? = null
+                var restoredInside: ReaderPortCommandResult? = null
+                var nativeReturnsInside = emptyList<ReaderFrozenLegacyResource>()
+				var helperReturnReadinessAfterDenial = -1
+				var helperReturnProfileAfterDenial = -1
+				val preparationField = fixture.raster.javaClass.task7Field("onPreparationStateChange")
+				@Suppress("UNCHECKED_CAST") val originalPreparation = preparationField.get(fixture.raster) as (ReaderPagePreparationState) -> Unit
+				preparationField.set(fixture.raster, { state: ReaderPagePreparationState ->
+					// This next original Native recipient starts after the owned Curl helper returns.
+					// Delegate it normally; later default Curl cleanup remains a named OPEN Native tail.
+					if (denied && helperReturnAlpha == null) {
+						observedBoundary = "actual-next-Native-recipient"
+						helperReturnAlpha = curl.surfaceView.alpha
+						helperReturnReadinessAfterDenial = readinessAfterDenial
+						helperReturnProfileAfterDenial = profileAfterDenial
+					}
+					originalPreparation(state)
+				})
+				fun cross() {
+					if (reached) return
+					reached = true
+					curl.surfaceView.alpha = 0.61f
+					when (mode) {
+						"activated", "release-only" -> {
+							val decision = task398InstallFacts(store) { ReaderPortCommandResult.Accepted }
+							if (mode == "release-only") check(ReaderActivatedSessionInstallationBarrier(store).failClosedAfterFinalizationRejection(decision))
+							denied = true
+						}
+						"freeze-restore" -> {
+							frozenInside = fixture.delivery.freezeForTransitionActivation(fixture.domain)
+                            nativeReturnsInside = fixture.delivery.snapshotFrozenOwnership()
+                            restoredInside = fixture.delivery.restoreAfterTransitionActivation(fixture.domain)
+							denied = true
+						}
+					}
+				}
+				protectedField.set(curl, { indices: Set<Int> -> originalProtected(indices); if (boundary == "protected") cross() })
+				readinessField.set(curl, { state: ReaderPageRendererReadinessState ->
+					readinessCalls++; if (denied) readinessAfterDenial++
+					originalReadiness(state); if (boundary == "readiness") cross()
+				})
+				profileField.set(curl, { epoch: Long? -> profileCalls++; if (denied) profileAfterDenial++; originalProfile(epoch) })
+				if (mode == "default") curl.invalidate("task398-readiness-default")
+				else replacement.invoke(fixture.viewer, FrameLayout(fixture.activity.get()))
+				// A denied next Native consequence cannot serve as an observation hook.
+                // Sample the genuine external original replacement unwind, without invoking a recipient.
+                if (denied && helperReturnAlpha == null) {
+                    observedBoundary = "external-original-Native-unwind"
+                    helperReturnAlpha = curl.surfaceView.alpha
+                    helperReturnReadinessAfterDenial = readinessAfterDenial
+                    helperReturnProfileAfterDenial = profileAfterDenial
+                }
+                assertTrue(reached, "The original protected/readiness recipient executes before denial")
+                if (mode == "freeze-restore") {
+                    assertEquals(ReaderPortCommandResult.Accepted, frozenInside)
+                    assertTrue(nativeReturnsInside.any { it.state == ReaderLegacyResourceState.Running },
+                        "T398_VR_COMPAT_RECIPIENT_NATIVE_RETURN")
+                    assertEquals(paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource,
+                        assertIs<ReaderPortCommandResult.Rejected>(restoredInside).reason)
+                    assertEquals(ReaderPortCommandResult.Accepted,
+                        fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+                    assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+					assertNull(outgoing.parent, "Restoration cannot resurrect the retired Native predecessor")
+                }
+				if (mode in listOf("legacy", "default")) {
+					assertEquals(1, readinessCalls); assertEquals(1, profileCalls); assertEquals(0f, curl.surfaceView.alpha)
+				} else {
+					assertTrue(denied); assertNotNull(observedBoundary, "Precisely labeled authentic recipient or external Native unwind observation")
+					assertNotNull(helperReturnAlpha, "Authentic observed boundary follows the original helper return")
+					assertEquals(0, helperReturnReadinessAfterDenial, "Next original readiness recipient is denied")
+					assertEquals(0, helperReturnProfileAfterDenial, "Next original profile recipient is denied")
+					assertEquals(0.61f, helperReturnAlpha, "Original hideCurlSurface alpha primitive is denied after recipient return mode=$mode boundary=$boundary")
+				}
+			} finally { fixture.finish() }
+		}
+	}
+
+	private suspend fun task398ShieldDisposalBoundary(mode: String, fade: Boolean, successor: Boolean) {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+		val shield = fixture.curl.javaClass.task7Field("inlineRasterShield").get(fixture.curl) as ReaderPageInlineRasterShield
+		try {
+			fixture.bindSession(); fixture.attach(); fixture.activity.visible()
+			val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			val outgoing = FrameLayout(fixture.activity.get())
+			replacement.invoke(fixture.viewer, outgoing)
+			outgoing.addView(task398OriginalEngine(fixture.activity.get()))
+			fixture.viewer.measure(View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
+				View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY))
+			fixture.viewer.layout(0, 0, 800, 600)
+			val host = shield.javaClass.task7Field("host").get(shield) as android.view.ViewGroup
+			assertTrue(host.isAttachedToWindow); assertTrue(shield.view.isAttachedToWindow)
+			assertTrue(host.width >= 8 && host.height >= 8)
+			fun snapshot(): ReaderPageSlideSnapshot {
+				val location = IntArray(2); host.getLocationInWindow(location)
+				return ReaderPageSlideSnapshot(
+					ReaderPageSlideSnapshotKey(2, ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+						ReaderPageBitmapQuality.Balanced, 8, 8, 8, 8),
+					Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888),
+					android.graphics.Rect(location[0], location[1], location[0] + 8, location[1] + 8),
+					paige.navic.reader.ReaderPageTurnLeafGeometry(
+						paige.navic.reader.ReaderPageTurnPixelRect(0, 0, 8, 8),
+						paige.navic.reader.ReaderPageTurnPixelRect(0, 0, 3, 8),
+						paige.navic.reader.ReaderPageTurnPixelRect(3, 0, 5, 8),
+						paige.navic.reader.ReaderPageTurnPixelRect(5, 0, 8, 8)), 0xffead9ae.toInt()
+				).also { it.retain(); it.releaseCacheOwnership() }
+			}
+			val predecessor = snapshot()
+			var successorSnapshot: ReaderPageSlideSnapshot? = null
+			var disposalObserved = false
+			var disposedAlpha = -1f
+			var disposedVisibility = -1
+			var disposedSnapshot: ReaderPageSlideSnapshot? = null
+			var disposedRetains = -1
+			var disposedPending = -1
+			var disposedDrawableCleared = false
+			var disposedSnapshotRecycled = false
+			var originalFadeAnimator: android.view.ViewPropertyAnimator? = null
+			var disposedAnimationWork = -1
+			fun animationWork(animator: android.view.ViewPropertyAnimator): Int =
+				(animator.javaClass.task7Field("mPendingAnimations").get(animator) as List<*>).size +
+					(animator.javaClass.task7Field("mAnimatorMap").get(animator) as Map<*, *>).size
+			val ownershipField = shield.javaClass.task7Field("onOwnershipMutated")
+			@Suppress("UNCHECKED_CAST") val originalOwnership = ownershipField.get(shield) as () -> Unit
+			ownershipField.set(shield, {
+				originalOwnership()
+				if (!disposalObserved && predecessor.javaClass.task7Field("retainCount").getInt(predecessor) == 0) {
+					disposalObserved = true
+					disposedAlpha = shield.view.alpha; disposedVisibility = shield.view.visibility
+					disposedSnapshot = shield.javaClass.task7Field("ownedSnapshot").get(shield) as ReaderPageSlideSnapshot?
+					disposedRetains = disposedSnapshot?.let { it.javaClass.task7Field("retainCount").getInt(it) } ?: 0
+					disposedPending = shield.pendingCallbackCount()
+					disposedSnapshotRecycled = disposedSnapshot?.bitmap?.isRecycled ?: false
+					disposedAnimationWork = originalFadeAnimator?.let(::animationWork) ?: 0
+					disposedDrawableCleared = (shield.javaClass.task7Field("rasterView").get(shield) as android.widget.ImageView).drawable == null
+				}
+			})
+			val presentationResults = mutableListOf<Boolean>()
+			val fadeResults = mutableListOf<Boolean>()
+			val successorResults = mutableListOf<Boolean>()
+			var boundaryReached = false
+			var freezeResult: ReaderPortCommandResult? = null
+			var restoreResult: ReaderPortCommandResult? = null
+			var nativeReturnsInside = emptyList<ReaderFrozenLegacyResource>()
+			var releaseOnly = false
+			fun boundary() {
+				if (boundaryReached) return
+				boundaryReached = true
+				if (successor) {
+					successorSnapshot = snapshot().also { shield.present(it, successorResults::add) }
+					shield.view.alpha = 0.71f
+				}
+				when (mode) {
+					"activated", "release-only" -> {
+						val decision = task398InstallFacts(store) { ReaderPortCommandResult.Accepted }
+						if (mode == "release-only") releaseOnly = ReaderActivatedSessionInstallationBarrier(store)
+							.failClosedAfterFinalizationRejection(decision)
+					}
+					"freeze", "freeze-restore" -> {
+						freezeResult = fixture.delivery.freezeForTransitionActivation(fixture.domain)
+						nativeReturnsInside = fixture.delivery.snapshotFrozenOwnership()
+						if (mode == "freeze-restore") restoreResult = fixture.delivery.restoreAfterTransitionActivation(fixture.domain)
+					}
+				}
+				if (!successor) shield.view.alpha = 0.37f
+			}
+			var shieldArmed = false
+			var preparedPending = -1
+			var preparedVisibility = -1
+			var preparedAnimationWork = -1
+			fun prepareShield() {
+				shield.present(predecessor) { presented ->
+					presentationResults += presented
+					if (!presented && !fade) boundary()
+				}
+				if (fade) {
+					shield.fadeOut(10_000L) { committed ->
+						fadeResults += committed
+						if (!committed) boundary()
+					}
+					originalFadeAnimator = shield.view.animate()
+					preparedAnimationWork = animationWork(requireNotNull(originalFadeAnimator))
+				}
+				shield.view.alpha = 0.37f
+				preparedVisibility = shield.view.visibility
+				preparedPending = shield.pendingCallbackCount()
+			}
+			val protectedField = fixture.curl.javaClass.task7Field("onProtectedRasterSourcePageIndicesChanged")
+			@Suppress("UNCHECKED_CAST") val originalProtected = protectedField.get(fixture.curl) as (Set<Int>) -> Unit
+			protectedField.set(fixture.curl, { indices: Set<Int> ->
+				originalProtected(indices)
+				if (!shieldArmed) { shieldArmed = true; prepareShield() }
+			})
+			val incoming = FrameLayout(fixture.activity.get())
+			if (mode == "default") fixture.curl.invalidate("task398-shield-unrelated-default")
+			else replacement.invoke(fixture.viewer, incoming)
+			// Original framework calls and original recipients execute; all assertions are outside their catches.
+			assertTrue(shieldArmed, "Original explicit invalidate protected recipient arms shield after earlier Native lifecycle work")
+			assertEquals(if (fade) 2 else 1, preparedPending, "Original public shield operations schedule actual pending work")
+			assertEquals(View.VISIBLE, preparedVisibility)
+			if (fade) assertTrue(preparedAnimationWork > 0, "Original public fade schedules actual animator work")
+			assertTrue(boundaryReached, "The original shield cancellation recipient must actually execute")
+			assertEquals(listOf(false), presentationResults)
+			if (fade) {
+				assertEquals(listOf(false), fadeResults)
+				assertNull(shield.javaClass.task7Field("activeFadeRequest").get(shield))
+				assertEquals(0, disposedAnimationWork, "Original animation cancellation clears captured pending/running work")
+			}
+			assertTrue(disposalObserved, "Observe original captured-release ownership recipient, before unowned Native replacement tails")
+			assertEquals(0, predecessor.javaClass.task7Field("retainCount").getInt(predecessor))
+			assertTrue(predecessor.bitmap.isRecycled, "Only captured obsolete ownership is released")
+			if (mode.startsWith("freeze")) {
+				assertEquals(ReaderPortCommandResult.Accepted, freezeResult)
+				assertTrue(nativeReturnsInside.any { it.state == ReaderLegacyResourceState.Running },
+                    "T398_VR_COMPAT_SHIELD_DISPOSAL_NATIVE_RETURN")
+                if (mode == "freeze-restore") {
+                    assertEquals(paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource,
+                        assertIs<ReaderPortCommandResult.Rejected>(restoreResult).reason)
+                    assertEquals(ReaderPortCommandResult.Accepted,
+                        fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+                    assertNull(outgoing.parent, "Restoration cannot resurrect the retired Native predecessor")
+                }
+			}
+			if (mode == "release-only") { assertTrue(releaseOnly); assertNotNull(store.snapshot) }
+			if (successor) {
+				val retained = requireNotNull(successorSnapshot)
+				assertSame(retained, disposedSnapshot, "Predecessor disposal must not overwrite successor identity")
+				assertEquals(1, disposedRetains, "Predecessor cleanup retains successor ownership")
+				assertFalse(disposedSnapshotRecycled, "Predecessor cleanup cannot recycle the successor bitmap")
+				assertEquals(1, disposedPending, "Predecessor cancellation must not retire successor pending work")
+				assertEquals(0.71f, disposedAlpha); assertEquals(View.VISIBLE, disposedVisibility)
+			} else {
+				assertEquals(0, disposedPending)
+				assertNull(disposedSnapshot)
+				assertTrue(disposedDrawableCleared, "Sever the obsolete bitmap borrowing reference before recycling")
+			}
+			if (mode !in listOf("legacy", "default")) {
+				if (!successor) {
+					assertEquals(0.37f, disposedAlpha, "Original helper next alpha/reset primitive is denied mode=$mode")
+					assertEquals(View.VISIBLE, disposedVisibility, "Original helper next visibility primitive is denied mode=$mode")
+				}
+			} else {
+				assertNull(store.snapshot); assertEquals(1f, disposedAlpha); assertEquals(View.GONE, disposedVisibility)
+			}
+			org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+			assertEquals(listOf(false), presentationResults, "Canceled callbacks cannot resurrect")
+			if (fade) assertEquals(listOf(false), fadeResults)
+			assertEquals(0, predecessor.javaClass.task7Field("retainCount").getInt(predecessor), "Captured release occurs exactly once")
+		} finally {; shield.dismiss(); fixture.finish()
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualReplacementInvalidationRecipientInstallMustFenceHelperInternalLegacyTail() = runTest {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val outgoing = FrameLayout(fixture.activity.get())
+			val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			replacement.invoke(fixture.viewer, outgoing)
+			val oldEngine = task398OriginalEngine(fixture.activity.get())
+			outgoing.addView(oldEngine)
+			assertTrue(oldEngine.isAttachedToWindow); assertTrue(fixture.viewer.isAttachedToWindow)
+			assertFalse(fixture.viewerClass.task7Field("pageTurnCanvasEnabled").getBoolean(fixture.viewer))
+			assertNull(fixture.viewerClass.task7Field("pageTurnPrewarmLayoutListener").get(fixture.viewer))
+			assertNull(store.snapshot)
+			val incoming = FrameLayout(fixture.activity.get())
+			val newEngine = task398OriginalEngine(fixture.activity.get())
+			incoming.addView(newEngine)
+			assertFalse(newEngine.isAttachedToWindow)
+			val protectedField = fixture.curl.javaClass.task7Field("onProtectedRasterSourcePageIndicesChanged")
+			val profileField = fixture.curl.javaClass.task7Field("onRasterProfileEpochChanged")
+			@Suppress("UNCHECKED_CAST")
+			val protectedRecipient = protectedField.get(fixture.curl) as (Set<Int>) -> Unit
+			@Suppress("UNCHECKED_CAST")
+			val profileRecipient = profileField.get(fixture.curl) as (Long?) -> Unit
+			var installs = 0
+			var profileCallsAfterInstall = 0
+			val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+			protectedField.set(fixture.curl, { indices: Set<Int> ->
+				protectedRecipient(indices)
+				if (store.snapshot == null) {
+					installs++
+					task398InstallFacts(store) { facts += it; ReaderPortCommandResult.Accepted }
+				}
+			})
+			profileField.set(fixture.curl, { epoch: Long? ->
+				if (store.snapshot != null) profileCallsAfterInstall++
+				profileRecipient(epoch)
+			})
+			replacement.invoke(fixture.viewer, incoming)
+			// Assertions are outside controller observer catches and fact-port catches.
+			assertEquals(1, installs, "The real replacement must install from the original invalidation recipient")
+			assertNotNull(store.snapshot)
+			assertFalse(oldEngine.isAttachedToWindow); assertTrue(fixture.viewer.isAttachedToWindow)
+			assertEquals(listOf(ReaderTask6LifecycleSafetyKind.WebViewDetached), facts.map { it.kind })
+			assertEquals(0, profileCallsAfterInstall,
+				"A caller-only replacement fence cannot stop the next legacy profile primitive inside invalidate")
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398ForegroundRegistrationWebViewShadow::class])
+	fun task398ActualReleaseOnlyCloseRetriesFailedExactForegroundRemovalWithoutRestart() = runTest {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+		val shadow = Task398ForegroundRegistrationWebViewShadow
+		try {
+			shadow.clear(); fixture.bindSession(); fixture.attach()
+			val wrapper = FrameLayout(fixture.activity.get())
+			fixture.viewerClass.task7Method("replaceViewerContent", View::class.java).invoke(fixture.viewer, wrapper)
+			val engine = task398OriginalEngine(fixture.activity.get())
+			wrapper.addView(engine)
+			val exactListener = shadow.listeners.single()
+			val decision = task398InstallFacts(store) { error("ReleaseOnly cannot deliver ordinary safety facts") }
+			assertTrue(ReaderActivatedSessionInstallationBarrier(store).failClosedAfterFinalizationRejection(decision))
+			var attempted = false
+			var inside = emptyList<ReaderFrozenLegacyResource>()
+			shadow.beforeRemove = {
+				if (!attempted) {
+					attempted = true
+					assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+					inside = fixture.delivery.snapshotFrozenOwnership()
+				}
+			}
+			shadow.failRemoval = true
+			fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+			assertTrue(attempted, "Actual ReleaseOnly terminal close must attempt the exact framework removal")
+			assertEquals(setOf(exactListener), shadow.listeners, "Uncertain removal retains the exact possible installation")
+			assertEquals(3, inside.count { it.state == ReaderLegacyResourceState.Running },
+				"Close, terminal handling and the invoked listener removal have distinct actual returns")
+			assertTrue(fixture.viewerClass.task7Field("physicalPointerDeliveryClosed").getBoolean(fixture.viewer))
+			assertTrue(fixture.viewerClass.task7Field("task4ResourceTeardownStarted").getBoolean(fixture.viewer),
+				"Failed foreground removal must not suppress independent mandatory teardown")
+			val retained = fixture.delivery.snapshotFrozenOwnership().filter { it.state == ReaderLegacyResourceState.Registered }
+			assertEquals(2, retained.size, "The failed exact foreground root and still installed lifecycle root remain")
+			fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+			assertTrue(shadow.listeners.isEmpty(), "Already-final close must retry retained physical removal")
+			assertEquals(1, shadow.removes); assertEquals(1, shadow.adds)
+			assertEquals(1, fixture.delivery.snapshotFrozenOwnership().count { it.state == ReaderLegacyResourceState.Registered })
+			fixture.drainRemaining()
+			assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+			assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+			assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+			wrapper.removeView(engine); wrapper.addView(engine)
+			fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+			assertEquals(1, shadow.adds, "Permanent exact removal cannot be resurrected by restore or natural attachment")
+			assertTrue(shadow.listeners.isEmpty())
+		} finally { shadow.clear(); fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398ForegroundRegistrationWebViewShadow::class])
+	fun task398ActualCloseRecipientDrainAndReentrantRemovalRetainTerminalReturns() = runTest {
+		for (mode in listOf("accepted", "rejected", "unknown")) {
+			val store = ReaderActivatedSessionSnapshotStore()
+			val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+			val shadow = Task398ForegroundRegistrationWebViewShadow
+			try {
+				shadow.clear(); fixture.bindSession(); fixture.attach()
+				val wrapper = FrameLayout(fixture.activity.get())
+				fixture.viewerClass.task7Method("replaceViewerContent", View::class.java).invoke(fixture.viewer, wrapper)
+				val engine = task398OriginalEngine(fixture.activity.get())
+				wrapper.addView(engine)
+				val exactListener = shadow.listeners.single()
+				var reentered = false
+				var removalReentryReturned = false
+				shadow.beforeRemove = {
+					if (!reentered) {
+						reentered = true
+						fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+						assertEquals(setOf(exactListener), shadow.listeners,
+							"Reentrant terminal handling cannot claim that the enclosing remove primitive returned")
+						assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+						removalReentryReturned = true
+					}
+				}
+				val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+				var inside = emptyList<ReaderFrozenLegacyResource>()
+				var recipientReachedTail = false
+				task398InstallFacts(store) { fact ->
+					facts += fact
+					assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+					inside = fixture.delivery.snapshotFrozenOwnership()
+					fixture.drainRemaining()
+					assertTrue(fixture.confirmations.isEmpty(), "Root/callback removal cannot confirm either enclosing terminal return")
+					assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+					recipientReachedTail = true
+					when (mode) {
+						"unknown" -> error("Synthetic unknown terminal acceptance after physical drain")
+						"rejected" -> ReaderPortCommandResult.Rejected(paige.navic.reader.ReaderTransitionFailureReason.PortRejected)
+						else -> ReaderPortCommandResult.Accepted
+					}
+				}
+				fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+				assertTrue(reentered, "The actual foreground unregister primitive must reenter the real terminal path")
+				assertTrue(removalReentryReturned, "Removal must not swallow an assertion failure from its reentrant callback")
+				assertTrue(recipientReachedTail, "Fact delivery must not swallow an assertion failure before its intentional outcome")
+				assertEquals(4, inside.count { it.state == ReaderLegacyResourceState.Running },
+					"Close and terminal handling join the unchanged ordered retry and fact-recipient owners")
+				assertEquals(listOf(ReaderTask6LifecycleSafetyKind.PublicationClosed), facts.map { it.kind })
+				assertTrue(shadow.listeners.isEmpty()); assertEquals(1, shadow.removes); assertEquals(1, shadow.adds)
+				fixture.drainRemaining()
+				assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+				assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+				assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+			} finally { shadow.clear(); fixture.finish() }
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398ForegroundRegistrationWebViewShadow::class])
+	fun task398ActualEngineRegistrationReentrantInstallationAndFrozenCancellationDoNotRestart() = runTest {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+		val shadow = Task398ForegroundRegistrationWebViewShadow
+		try {
+			shadow.clear(); fixture.bindSession(); fixture.attach()
+			val wrapper = FrameLayout(fixture.activity.get())
+			fixture.viewerClass.task7Method("replaceViewerContent", View::class.java).invoke(fixture.viewer, wrapper)
+			val engine = task398OriginalEngine(fixture.activity.get())
+			var windows = 0
+			engine.javaClass.task7Field("windowVisibilityListener").set(engine, { _: Int -> windows++ })
+			var inside = emptyList<ReaderFrozenLegacyResource>()
+			shadow.afterAdd = {
+				val decision = task398InstallFacts(store) { error("ReleaseOnly cannot deliver ordinary safety facts") }
+				assertTrue(ReaderActivatedSessionInstallationBarrier(store).failClosedAfterFinalizationRejection(decision))
+				assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+				inside = fixture.delivery.snapshotFrozenOwnership()
+				fixture.drainRemaining()
+				assertTrue(fixture.confirmations.isEmpty(), "Invoked add and exact engine attachment source have not returned")
+			}
+			wrapper.addView(engine)
+			assertEquals(1, shadow.adds, "The shadow must count the original framework registration primitive")
+			assertEquals(1, inside.count { it.state == ReaderLegacyResourceState.Reserved })
+			assertEquals(2, inside.count { it.state == ReaderLegacyResourceState.Running })
+			engine.dispatchWindowVisibilityChanged(View.VISIBLE)
+			assertEquals(0, windows)
+			assertTrue(shadow.listeners.isEmpty()); assertTrue(engine.isAttachedToWindow)
+			shadow.afterAdd = null
+			wrapper.removeView(engine); wrapper.addView(engine)
+			assertEquals(1, shadow.adds, "Natural reattachment cannot restart a root canceled during installed freeze")
+			fixture.drainRemaining()
+			assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+			assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+			assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+			assertEquals(2, shadow.adds, "Only explicit valid-root restoration reinstalls the exact safety listener")
+			assertEquals(0, windows)
+			fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+			assertTrue(shadow.listeners.isEmpty(), "ReleaseOnly close still removes the actual restored safety listener")
+		} finally { shadow.clear(); fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualNativeChildRemovalKeepsBothEnclosingReturnsUntilRemoveViewReturns() = runTest {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val wrapper = FrameLayout(fixture.activity.get())
+			fixture.viewerClass.task7Method("replaceViewerContent", View::class.java).invoke(fixture.viewer, wrapper)
+			val engine = task398OriginalEngine(fixture.activity.get())
+			wrapper.addView(engine)
+			var rowsInside = emptyList<ReaderFrozenLegacyResource>()
+			val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+			task398InstallFacts(store) { fact ->
+				facts += fact
+				assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+				rowsInside = fixture.delivery.snapshotFrozenOwnership()
+				fixture.drainRemaining()
+				assertTrue(fixture.confirmations.isEmpty())
+				assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+				ReaderPortCommandResult.Accepted
+			}
+			fixture.viewerClass.task7Method("detachViewerContent", View::class.java).invoke(fixture.viewer, wrapper)
+			assertFalse(engine.isAttachedToWindow); assertTrue(fixture.viewer.isAttachedToWindow)
+			assertEquals(listOf(ReaderTask6LifecycleSafetyKind.WebViewDetached), facts.map { it.kind })
+			assertEquals(5, rowsInside.count { it.state == ReaderLegacyResourceState.Running },
+				"Callback/retry/recipient plus Native method and actual removeView returns are distinct")
+			assertTrue(rowsInside.all { it.physicalIdentity.domain == fixture.domain &&
+				it.physicalIdentity.source == ReaderLegacyInventorySource.LifecycleDelivery })
+			fixture.drainRemaining()
+			assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+			assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+			assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualDelayedForegroundEngineDetachIsFactOnlyAndRepeatable() = runTest {
+		task398ForegroundEngineVariant("repeat")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualForegroundEngineRejectedFactRetriesSameObjectAheadOfLaterDetach() = runTest {
+		task398ForegroundEngineVariant("reject")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualForegroundEngineUnknownAcceptanceCannotReplayOrOvertake() = runTest {
+		task398ForegroundEngineVariant("throw")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualForegroundEngineCloseFirstCannotAppendOrResurrect() = runTest {
+		task398ForegroundEngineVariant("close-first")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualForegroundEngineFreezeDrainInsideRecipientOwnsExactReturns() = runTest {
+		task398ForegroundEngineVariant("freeze")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualForegroundEngineFirstAttachAfterInstalledFreezeLateJoins() = runTest {
+		task398ForegroundEngineVariant("frozen-first")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualForegroundEngineReleaseOnlyFencesWindowListenerAndLegacyControlsRemain() = runTest {
+		task398ForegroundEngineVariant("release-only")
+		task398ForegroundEngineVariant("legacy")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ReplacementHelperActivatedProtectedRecipientDeniesNestedProfile() = runTest {
+		task398ReplacementHelperBoundary("activated", "protected")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ReplacementHelperReleaseOnlyProtectedRecipientStillDrainsRealLiveClaim() = runTest {
+		task398ReplacementHelperBoundary("release-only", "protected")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ReplacementHelperCapturedSourceFreezeCannotPublishProfile() = runTest {
+		task398ReplacementHelperBoundary("freeze", "protected")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ReplacementHelperCapturedSourceFreezeRestoreCannotReadmitOldInvocation() = runTest {
+		task398ReplacementHelperBoundary("freeze-restore", "protected")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ReplacementHelperPreparedRecipientInstallDeniesNestedProfileTailWithLegacyControls() = runTest {
+		task398ReplacementHelperBoundary("legacy", "prepared")
+		task398ReplacementHelperBoundary("default", "prepared")
+		task398ReplacementHelperBoundary("activated", "prepared")
+	}
+
+	private suspend fun task398ReplacementHelperBoundary(mode: String, boundary: String) {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val outgoing = FrameLayout(fixture.activity.get())
+			val replacement = fixture.viewerClass.task7Method("replaceViewerContent", View::class.java)
+			replacement.invoke(fixture.viewer, outgoing)
+			val oldEngine = task398OriginalEngine(fixture.activity.get())
+			outgoing.addView(oldEngine)
+			val incoming = FrameLayout(fixture.activity.get())
+			incoming.addView(task398OriginalEngine(fixture.activity.get()))
+			assertTrue(oldEngine.isAttachedToWindow)
+			val curl = fixture.curl
+			val type = curl.javaClass
+			val ownership = type.task7Field("foregroundWebViewOwnership").get(curl) as ReaderForegroundWebViewOwnership
+			val dispatch = type.task7Field("relocationLiveDispatchCoordinator").get(curl) as ReaderPageRelocationLiveDispatchCoordinator
+			val request = ReaderPageRelocationRequest(
+				paige.navic.reader.ReaderPageRelocationToken("task398-helper-cleanup"), 701L,
+				0L, 301L, 1, 0, ReaderPageTurnDirection.Previous, "task398-helper-session")
+			// Real acquisition and transfer, not a fabricated physical resource row.
+			val claim = ownership.acquireLive(request.gestureId)
+			assertTrue(dispatch.transfer(request, claim))
+			assertEquals(1, ownership.snapshot().liveClaims)
+			val protectedField = type.task7Field("onProtectedRasterSourcePageIndicesChanged")
+			val preparedField = type.task7Field("onPreparedActiveDeckChanged")
+			val profileField = type.task7Field("onRasterProfileEpochChanged")
+			@Suppress("UNCHECKED_CAST")
+			val protectedRecipient = protectedField.get(curl) as (Set<Int>) -> Unit
+			@Suppress("UNCHECKED_CAST")
+			val preparedRecipient = preparedField.get(curl) as (ReaderPagePreparedActiveDeck?) -> Unit
+			@Suppress("UNCHECKED_CAST")
+			val profileRecipient = profileField.get(curl) as (Long?) -> Unit
+			var reachedBoundary = false
+			var claimPresentAtBoundary = false
+			var boundaryDisposition: ReaderPortCommandResult? = null
+			var restored: ReaderPortCommandResult? = null
+			var nativeReturnsInside = emptyList<ReaderFrozenLegacyResource>()
+			var releaseOnly = false
+			var denied = false
+			var profileCalls = 0
+			var profileAfterDenial = 0
+			var protectedAfterDenial = 0
+			fun crossBoundary() {
+				if (reachedBoundary) return
+				reachedBoundary = true
+				claimPresentAtBoundary = ownership.snapshot().liveClaims == 1
+				when (mode) {
+					"activated", "release-only" -> {
+						val decision = task398InstallFacts(store) { ReaderPortCommandResult.Accepted }
+						if (mode == "release-only") releaseOnly =
+							ReaderActivatedSessionInstallationBarrier(store).failClosedAfterFinalizationRejection(decision)
+						denied = true
+					}
+					"freeze", "freeze-restore" -> {
+						boundaryDisposition = fixture.delivery.freezeForTransitionActivation(fixture.domain)
+						nativeReturnsInside = fixture.delivery.snapshotFrozenOwnership()
+						if (mode == "freeze-restore") restored = fixture.delivery.restoreAfterTransitionActivation(fixture.domain)
+						denied = true
+					}
+				}
+			}
+			protectedField.set(curl, { indices: Set<Int> ->
+				if (denied) protectedAfterDenial++
+				protectedRecipient(indices)
+				if (boundary == "protected") crossBoundary()
+			})
+			preparedField.set(curl, { deck: ReaderPagePreparedActiveDeck? ->
+				preparedRecipient(deck)
+				if (boundary == "prepared") crossBoundary()
+			})
+			profileField.set(curl, { epoch: Long? ->
+				profileCalls++
+				if (denied) profileAfterDenial++
+				profileRecipient(epoch)
+			})
+			if (mode == "default") curl.invalidate("task398-unrelated-default-control")
+			else replacement.invoke(fixture.viewer, incoming)
+			// All decisive assertions remain outside production observer/recipient catches.
+			assertTrue(reachedBoundary, "Original recipient must execute on the authentic invocation")
+			if (boundary == "protected") assertTrue(claimPresentAtBoundary,
+				"The actual acquired live claim must still require cleanup after denial")
+			assertEquals(0, ownership.snapshot().liveClaims, "Independent original invalidation must release the real claim")
+			assertTrue((dispatch.javaClass.task7Field("claims").get(dispatch) as Map<*, *>).isEmpty())
+			assertNull(type.task7Field("requestedProfile").get(curl), "Final invalidation cleanup must still run")
+			assertNull(type.task7Field("activePages").get(curl))
+			if (mode == "release-only") { assertTrue(releaseOnly); assertNotNull(store.snapshot) }
+			if (mode.startsWith("freeze")) {
+				assertNull(store.snapshot)
+				assertEquals(ReaderPortCommandResult.Accepted, boundaryDisposition)
+				assertTrue(nativeReturnsInside.any { it.state == ReaderLegacyResourceState.Running },
+                    "T398_VR_COMPAT_HELPER_NATIVE_RETURN")
+                if (mode == "freeze-restore") {
+                    assertEquals(paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource,
+                        assertIs<ReaderPortCommandResult.Rejected>(restored).reason)
+                    assertEquals(ReaderPortCommandResult.Accepted,
+                        fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+                    assertNull(outgoing.parent, "Restoration cannot resurrect the retired Native predecessor")
+                    assertFalse(oldEngine.isAttachedToWindow)
+                }
+			}
+			if (mode == "legacy" || mode == "default") {
+				assertFalse(denied); assertNull(store.snapshot)
+				assertEquals(1, profileCalls, "Valid Legacy and unrelated default callers retain their original profile recipient")
+			} else {
+				assertTrue(denied)
+				assertEquals(0, profileAfterDenial, "The next original legacy profile recipient must be fenced")
+				assertEquals(0, protectedAfterDenial, "The nested null-profile protected recipient must be fenced")
+			}
+		} finally { fixture.finish() }
+	}
+
+	private fun task398OriginalEngine(context: Context): WebView =
+		Class.forName("paige.navic.ui.screens.reader.ReaderEngineWebView")
+			.getDeclaredConstructor(Context::class.java).apply { isAccessible = true }
+			.newInstance(context) as WebView
+
+	private suspend fun task398ForegroundEngineVariant(mode: String) {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val wrapper = FrameLayout(fixture.activity.get())
+			fixture.viewerClass.task7Method("replaceViewerContent", View::class.java).invoke(fixture.viewer, wrapper)
+			assertTrue(wrapper.isAttachedToWindow); assertEquals(0, wrapper.childCount)
+			assertFalse(fixture.viewerClass.task7Field("pageTurnCanvasEnabled").getBoolean(fixture.viewer))
+			assertNull(fixture.viewerClass.task7Field("pageTurnPrewarmLayoutListener").get(fixture.viewer))
+			assertFalse(fixture.raster.javaClass.task7Field("prewarmInProgress").getBoolean(fixture.raster))
+			val engine = task398OriginalEngine(fixture.activity.get())
+			var windowCalls = 0
+			engine.javaClass.task7Field("windowVisibilityListener").set(engine, { _: Int -> windowCalls++ })
+			var legacyRecipients = 0
+			fixture.viewerClass.task7Field("onPresentationEvent").set(fixture.viewer,
+				{ _: ReaderPresentationEvent -> legacyRecipients++; null })
+			val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+			var rowsInside = emptyList<ReaderFrozenLegacyResource>()
+			var pendingInside = false
+			if (mode != "legacy") {
+				val decision = task398InstallFacts(store) { fact ->
+					facts += fact
+					if (mode == "throw") error("Synthetic unknown foreground detach acceptance")
+					if (mode == "reject" && facts.size == 1) return@task398InstallFacts ReaderPortCommandResult.Rejected(
+						paige.navic.reader.ReaderTransitionFailureReason.PortRejected)
+					if (mode == "freeze" && facts.size == 1) {
+						assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+						rowsInside = fixture.delivery.snapshotFrozenOwnership()
+						fixture.drainRemaining()
+						pendingInside = fixture.confirmations.isEmpty()
+						assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+					}
+					ReaderPortCommandResult.Accepted
+				}
+				if (mode == "release-only") assertTrue(ReaderActivatedSessionInstallationBarrier(store)
+					.failClosedAfterFinalizationRejection(decision))
+			}
+			if (mode == "frozen-first") assertEquals(ReaderPortCommandResult.Accepted,
+				fixture.delivery.freezeForTransitionActivation(fixture.domain))
+			// Delayed real factory primitive, not a discovered descendant, prewarm listener, or manual producer callback.
+			wrapper.addView(engine, FrameLayout.LayoutParams(800, 600))
+			assertTrue(engine.isAttachedToWindow)
+			engine.dispatchWindowVisibilityChanged(View.VISIBLE)
+			if (mode != "legacy") assertEquals(0, windowCalls,
+				"The actual engine attachment window tail must not invoke legacy work after installation")
+			if (mode == "close-first") fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+			if (mode == "frozen-first") {
+				val roots = fixture.delivery.snapshotFrozenOwnership()
+				assertEquals(6, roots.size, "Three exact roots plus the actual late source/registration/attach-callback returns remain discoverable")
+				assertEquals(3, roots.count { it.state == ReaderLegacyResourceState.Registered })
+				assertEquals(3, roots.count { it.state == ReaderLegacyResourceState.Released })
+				assertTrue(roots.all { it.physicalIdentity.domain == fixture.domain &&
+					it.physicalIdentity.source == ReaderLegacyInventorySource.LifecycleDelivery })
+				assertEquals(6, roots.map { it.physicalIdentity }.distinct().size)
+				val material = task398FrameMaterialSource(fixture)
+				assertEquals(ReaderPortCommandResult.Accepted, task398FrameFreeze(material, fixture.domain))
+				val frame = task398FrameRows(material).single()
+				assertEquals(ReaderLegacyInventorySource.FrameOrHandoff, frame.physicalIdentity.source)
+				assertEquals(ReaderTransitionResourceKind.FrameHandoff, frame.kind)
+				assertEquals(ReaderLegacyResourceState.Registered, frame.state)
+				assertNull(frame.visibleOwner); assertNull(frame.binding); assertFalse(frame.mayBeCommittedPredecessor)
+				val combined = roots + frame
+				assertEquals(7, combined.size, "T398_CORE_FOREGROUND_SPLIT_SEVEN_TOTAL")
+				assertEquals(4, combined.count { it.state == ReaderLegacyResourceState.Registered })
+				assertEquals(3, combined.count { it.state == ReaderLegacyResourceState.Released })
+				assertEquals(7, combined.map { it.physicalIdentity }.distinct().size)
+			}
+			wrapper.removeView(engine)
+			assertFalse(engine.isAttachedToWindow); assertTrue(fixture.viewer.isAttachedToWindow)
+			assertTrue(wrapper.isAttachedToWindow)
+			if (mode !in listOf("close-first", "release-only", "legacy")) assertEquals(
+				listOf(ReaderTask6LifecycleSafetyKind.WebViewDetached), facts.map { it.kind },
+				"Only the real foreground child was removed; no Host/close/renderer fact may substitute")
+			if (mode == "repeat" || mode == "reject" || mode == "throw") {
+				wrapper.addView(engine); wrapper.removeView(engine)
+				assertEquals(when (mode) { "reject" -> listOf(1L, 1L, 2L); "throw" -> listOf(1L); else -> listOf(1L, 2L) },
+					facts.map { it.deliverySequence })
+				if (mode == "reject") assertSame(facts[0], facts[1])
+				assertTrue(facts.all { it.kind == ReaderTask6LifecycleSafetyKind.WebViewDetached })
+			}
+			if (mode == "close-first") assertEquals(listOf(ReaderTask6LifecycleSafetyKind.PublicationClosed), facts.map { it.kind })
+			if (mode == "legacy" || mode == "release-only") assertTrue(facts.isEmpty())
+			assertEquals(0, legacyRecipients, "Child detach does not invent a legacy lifecycle demand")
+			if (mode == "legacy") assertTrue(windowCalls > 0, "Existing ordinary window callback remains enabled")
+			if (mode == "freeze") {
+				assertTrue(pendingInside)
+				assertTrue(rowsInside.count { it.state == ReaderLegacyResourceState.Running } >= 3,
+					"Actual callback, retry and fact recipient are distinct on-stack returns")
+			}
+			if (mode == "freeze" || mode == "frozen-first") {
+				fixture.drainRemaining()
+				assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+				if (mode == "frozen-first") {
+					assertTrue(wrapper.isAttachedToWindow, "T398_CORE_FOREGROUND_ENGINE_ONLY_REMOVAL_PRESERVES_WRAPPER")
+					val material = task398FrameMaterialSource(fixture)
+					val frame = task398FrameRows(material).single()
+					val confirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
+					assertEquals(ReaderPortCommandResult.Accepted, task398FrameDrain(material, frame.physicalIdentity, confirmed::add))
+					assertNull(wrapper.parent)
+					assertEquals(listOf(frame.physicalIdentity), confirmed)
+					assertIs<ReaderPortCommandResult.Rejected>(task398FrameDrain(material, frame.physicalIdentity, confirmed::add))
+					assertEquals(1, confirmed.size)
+					fixture.drainRemaining() // Settle the separately owned, genuine removal-return rows.
+				}
+				assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+				assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+				assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+				assertFalse(fixture.delivery.physicalDeliveryAdmissionOpen)
+			}
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ConstructorComponentAndActualViewerObserverShareCompleteInventory() = runTest {
+		val fixture = Task398RegisteredRootsFixture()
+		try {
+			assertEquals(1, fixture.application.registrations)
+			assertEquals(1, fixture.application.callbacks.size)
+			assertFalse(fixture.delivery.physicalDeliveryAdmissionOpen,
+				"The component registration genuinely precedes the first delivery reset")
+			fixture.bindSession()
+			fixture.attach()
+			assertEquals(1, fixture.hostLifecycle.registry.observerCount)
+			assertTrue(fixture.curl.javaClass.task7Field("hostResumed").getBoolean(fixture.curl),
+				"The actual LifecycleRegistry must synchronously replay resume")
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+			val rows = fixture.delivery.snapshotFrozenOwnership()
+			assertEquals(2, rows.size, "Only the two genuinely installed roots remain; no dormant demand rows")
+			assertEquals(2, rows.count { it.state == ReaderLegacyResourceState.Registered })
+			assertEquals(2, rows.map { it.physicalIdentity }.distinct().size,
+				"Component and lifecycle roots use the same collision-safe source-local namespace")
+			assertTrue(rows.all { it.physicalIdentity.source == ReaderLegacyInventorySource.LifecycleDelivery })
+			fixture.drainRemaining()
+			assertTrue(fixture.application.callbacks.isEmpty())
+			assertEquals(0, fixture.hostLifecycle.registry.observerCount)
+			assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+			assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398RegisteredReplayAndTrimDrainWaitForActualAttachReturn() = runTest {
+		listOf(false, true).forEach { task398RegisteredReplayAndTrimDrainVariant(it) }
+	}
+
+	private suspend fun task398RegisteredReplayAndTrimDrainVariant(throwingRecipient: Boolean) {
+		val fixture = Task398RegisteredRootsFixture()
+		try {
+			fixture.bindSession()
+			var recipientEntered = false
+			var afterDispatcherPending = false
+			var afterAddPending = false
+			var insideRows = emptyList<ReaderFrozenLegacyResource>()
+			var materialStarts = 0
+			var restoreInside: ReaderPortCommandResult? = null
+			fixture.viewerClass.task7Field("onPresentationEvent").set(fixture.viewer,
+				{ _: ReaderPresentationEvent ->
+					recipientEntered = true
+					fixture.delivery.freezeForTransitionActivation(fixture.domain)
+					insideRows = fixture.delivery.snapshotFrozenOwnership()
+					fixture.drainRemaining()
+					restoreInside = fixture.delivery.restoreAfterTransitionActivation(fixture.domain)
+					if (throwingRecipient) error("Synthetic accepted recipient failure after freeze")
+					null
+				})
+			@Suppress("UNCHECKED_CAST")
+			val originalRecipient = fixture.raster.javaClass.task7Field("onPresentationLifecycleEvent")
+				.get(fixture.raster) as (ReaderPresentationLifecycleEvent) -> Unit
+			fixture.raster.javaClass.task7Field("onPresentationLifecycleEvent").set(fixture.raster,
+				{ event: ReaderPresentationLifecycleEvent ->
+					originalRecipient(event)
+					fixture.drainRemaining()
+					afterDispatcherPending = fixture.confirmations.isEmpty()
+				})
+			fixture.raster.javaClass.task7Field("onPassiveRasterMemoryPressure").set(fixture.raster,
+				{ _: String -> materialStarts++ })
+			val bridge = fixture.viewerClass.task7Field("pageRasterHostEventController").get(fixture.viewer)
+				.let { it.javaClass.task7Field("bridge").get(it) }
+			bridge.javaClass.task7Field("publish").set(bridge, { _: ReaderPageRasterRetryEvent ->
+				fixture.application.callbacks.single().onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+			})
+			fixture.hostLifecycle.afterAdd = {
+				fixture.drainRemaining()
+				afterAddPending = fixture.confirmations.isEmpty()
+			}
+			fixture.attach()
+			assertTrue(recipientEntered, "Actual registered observer replay must reach the real registered component recipient")
+			assertEquals(2, insideRows.count { it.state == ReaderLegacyResourceState.Registered })
+			assertTrue(insideRows.count { it.state == ReaderLegacyResourceState.Running } >= 6,
+				"Attach, registration, replay, trim, dispatcher and recipient are distinct real on-stack owners")
+			assertIs<ReaderPortCommandResult.Rejected>(restoreInside)
+			assertTrue(afterDispatcherPending, "Dispatcher return is not the registered callback/source return")
+			assertTrue(afterAddPending, "addObserver return still belongs to the enclosing attach tail")
+			assertEquals(0, materialStarts, "Freeze in the recipient fences the next unsafe material primitive")
+			assertFalse(fixture.curl.javaClass.task7Field("hostResumed").getBoolean(fixture.curl))
+			assertFalse(fixture.curl.javaClass.task7Field("attached").getBoolean(fixture.curl),
+				"Synchronous replay freeze must fence the rest of the real attachment tail")
+			fixture.drainRemaining()
+			assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+			assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+			assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualUnregisterFailureRetainsExactRootAndReentrantReturnTails() = runTest {
+		val fixture = Task398RegisteredRootsFixture()
+		try {
+			fixture.bindSession()
+			fixture.attach()
+			fixture.delivery.freezeForTransitionActivation(fixture.domain)
+			val rows = fixture.delivery.snapshotFrozenOwnership()
+			assertEquals(2, rows.size)
+			val first = rows.first().physicalIdentity
+			listOf(first.copy(source = ReaderLegacyInventorySource.Input),
+				first.copy(domain = fixture.domain.copy(readerSessionGeneration = 2L)),
+				first.copy(domain = fixture.domain.copy(freezeToken = ReaderLegacyFreezeToken(999L))),
+				first.copy(sourceLocalToken = ReaderLegacySourceLocalOpaqueToken(Long.MAX_VALUE))).forEach {
+				assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.drainFrozenOwnership(it, fixture.confirmations::add))
+			}
+			fixture.application.failNextRemoval = true
+			assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.drainFrozenOwnership(first, fixture.confirmations::add))
+			assertTrue(fixture.application.callbacks.isNotEmpty(), "A failed removal cannot invent physical quiescence")
+			assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.restoreAfterTransitionActivation(fixture.domain),
+				"Partial/failing root removal cannot reopen legacy admission")
+			var removalPending = false
+			var reentrantRecipients = 0
+			fixture.raster.javaClass.task7Field("onPresentationLifecycleEvent").set(fixture.raster,
+				{ _: ReaderPresentationLifecycleEvent -> reentrantRecipients++; error("Synthetic recipient failure") })
+			fixture.application.beforeRemoval = { callback ->
+				callback.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+				fixture.drainRemaining(excluding = first)
+				removalPending = first !in fixture.confirmations
+				assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+			}
+			assertEquals(ReaderPortCommandResult.Accepted,
+				fixture.delivery.drainFrozenOwnership(first, fixture.confirmations::add))
+			assertTrue(removalPending, "Removal/callback return ownership outlives unregister's nested callbacks")
+			assertEquals(0, reentrantRecipients, "Already registered callbacks entering frozen admission cannot mutate")
+			fixture.drainRemaining()
+			assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.drainFrozenOwnership(first, fixture.confirmations::add))
+			assertEquals(fixture.seenIdentities + first, fixture.confirmations.toSet())
+			assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+			fixture.application.beforeRemoval = null
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+			assertEquals(2, fixture.application.registrations)
+			assertEquals(2, fixture.hostLifecycle.additions)
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ExactRootRestoreRefreezeAndPermanentCloseNeverDuplicateRegistration() = runTest {
+		val fixture = Task398RegisteredRootsFixture()
+		try {
+			fixture.bindSession()
+			fixture.attach()
+			fixture.delivery.freezeForTransitionActivation(fixture.domain)
+			assertEquals(2, fixture.delivery.snapshotFrozenOwnership().size)
+			fixture.drainRemaining()
+			fixture.application.afterRegistration = { error("Synthetic accepted registration return failure") }
+			assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+			assertEquals(2, fixture.application.registrations)
+			assertEquals(1, fixture.application.callbacks.size, "A throwing register return retains its exact possible installation")
+			assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.restoreAfterTransitionActivation(fixture.domain),
+				"An uncertain accepted root must be exactly removed, not duplicated or falsely restored")
+			assertEquals(2, fixture.application.registrations)
+			fixture.drainRemaining()
+			assertTrue(fixture.application.callbacks.isEmpty())
+			fixture.application.afterRegistration = { fixture.delivery.freezeForTransitionActivation(fixture.domain) }
+			assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.restoreAfterTransitionActivation(fixture.domain),
+				"Reentrant refreeze must not expose a partially restored epoch")
+			assertFalse(fixture.delivery.physicalDeliveryAdmissionOpen)
+			assertEquals(3, fixture.application.registrations)
+			fixture.application.afterRegistration = null
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+			assertEquals(3, fixture.application.registrations, "The already restored exact component root must not register twice")
+			assertEquals(2, fixture.hostLifecycle.additions)
+			assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+			val closedDomain = fixture.domain.copy(freezeToken = ReaderLegacyFreezeToken(502L))
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(closedDomain))
+			fixture.hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+			fixture.hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+			fixture.hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+			assertEquals(0, fixture.hostLifecycle.registry.observerCount,
+				"Frozen admission suppresses legacy consequences, not truthful physical terminal removal")
+			fixture.drainRemaining()
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.restoreAfterTransitionActivation(closedDomain))
+			assertEquals(3, fixture.application.registrations, "Actual registered destroy/PublicationClosed is terminal")
+			assertEquals(2, fixture.hostLifecycle.additions)
+			assertTrue(fixture.application.callbacks.isEmpty())
+			assertEquals(0, fixture.hostLifecycle.registry.observerCount)
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398InstalledActualNormalizedLifecycleIsOrderedFactOnly() = runTest {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store)
+		try {
+			fixture.bindSession(); fixture.attach()
+			val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+			var legacyReceipts = 0; var legacyEffects = 0
+			fixture.viewerClass.task7Field("onPresentationEvent").set(fixture.viewer,
+				{ _: ReaderPresentationEvent -> legacyReceipts++; null })
+			fixture.viewerClass.task7Field("onAuthoritativePresentationHostEffect").set(fixture.viewer,
+				{ _: ReaderPresentationHostEffect -> legacyEffects++ })
+			val policy = fixture.viewerClass.task7Field("presentationInputPolicy").get(fixture.viewer)
+			task398InstallFacts(store) { facts += it; ReaderPortCommandResult.Accepted }
+			fixture.viewer.dispatchWindowVisibilityChanged(View.INVISIBLE)
+			fixture.viewer.dispatchWindowVisibilityChanged(View.INVISIBLE)
+			fixture.viewer.dispatchWindowVisibilityChanged(View.VISIBLE)
+			fixture.application.callbacks.single().onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+			@Suppress("UNCHECKED_CAST")
+			val rendererCallback = fixture.curl.javaClass.task7Field("onUnsafeLifecycleEvent")
+				.get(fixture.curl) as (ReaderPageHostLifecycleEvent) -> Unit
+			rendererCallback(ReaderPageHostLifecycleEvent.GlFailed)
+			fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+			assertEquals(listOf(ReaderTask6LifecycleSafetyKind.VisibilityLost,
+				ReaderTask6LifecycleSafetyKind.VisibilityLost, ReaderTask6LifecycleSafetyKind.VisibilityLost,
+				ReaderTask6LifecycleSafetyKind.RendererUnavailable, ReaderTask6LifecycleSafetyKind.PublicationClosed),
+				facts.map { it.kind }, "Actual normalized ingress must not coalesce or invent restoration/memory facts")
+			assertEquals((1L..5L).toList(), facts.map { it.deliverySequence })
+			assertEquals(0, legacyReceipts, "Installed normalized ingress never calls the legacy recipient")
+			assertEquals(0, legacyEffects)
+			assertSame(policy, fixture.viewerClass.task7Field("presentationInputPolicy").get(fixture.viewer))
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398InstalledResumeAndMemoryHaveNoLegacyMaterialOrRecovery() = runTest {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store)
+		try {
+			fixture.bindSession(); fixture.attach()
+			var materialRetirements = 0; var publications = 0; var prewarm = 0
+			fixture.raster.javaClass.task7Field("onPassiveRasterMemoryPressure").set(fixture.raster,
+				{ _: String -> materialRetirements++ })
+			fixture.raster.javaClass.task7Field("onPreparationStateChange").set(fixture.raster,
+				{ _: ReaderPagePreparationState -> publications++ })
+			fixture.raster.javaClass.task7Field("onRequestPrewarm").set(fixture.raster, { prewarm++ })
+			val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+			val decision = task398InstallFacts(store) { facts += it; ReaderPortCommandResult.Accepted }
+			fixture.hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+			fixture.hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+			fixture.hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+			fixture.hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+			fixture.viewer.dispatchWindowVisibilityChanged(View.VISIBLE)
+			val callback = fixture.application.callbacks.single()
+			listOf(android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE,
+				android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
+				android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE, 0).forEach(callback::onTrimMemory)
+			callback.onLowMemory()
+			assertEquals(0, materialRetirements, "Installed memory callbacks suppress retirement even without a safety fact")
+			assertEquals(0, publications); assertEquals(0, prewarm)
+			assertFalse(fixture.raster.javaClass.task7Field("passiveSessionRetiredForMemory").getBoolean(fixture.raster))
+			assertTrue(fixture.curl.javaClass.task7Field("hostResumed").getBoolean(fixture.curl),
+				"Installed lifecycle cannot directly mutate the legacy controller")
+			assertTrue(facts.isEmpty(), "Resume/restore/memory do not invent Task6 safety kinds")
+			assertTrue(ReaderActivatedSessionInstallationBarrier(store).failClosedAfterFinalizationRejection(decision))
+			assertNotNull(store.snapshot); assertNull(store.snapshot?.portAuthority)
+			fixture.viewer.dispatchWindowVisibilityChanged(View.INVISIBLE)
+			callback.onLowMemory()
+			assertEquals(0, materialRetirements); assertEquals(0, publications); assertTrue(facts.isEmpty(),
+				"Release-only never falls back to legacy or ordinary safety ingress")
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ReentrantInstallFencesActualMemoryTailAndFactReturnRemainsOwned() = runTest {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store)
+		try {
+			fixture.bindSession(); fixture.attach()
+			var recipients = 0; var retirements = 0; var effects = 0
+			val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+			fixture.raster.javaClass.task7Field("onPassiveRasterMemoryPressure").set(fixture.raster,
+				{ _: String -> retirements++ })
+			fixture.viewerClass.task7Field("onAuthoritativePresentationHostEffect").set(fixture.viewer,
+				{ _: ReaderPresentationHostEffect -> effects++ })
+			fixture.viewerClass.task7Field("onPresentationEvent").set(fixture.viewer,
+				{ event: ReaderPresentationEvent ->
+					recipients++
+					task398InstallFacts(store) { fact ->
+						facts += fact
+						assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+						fixture.drainRemaining()
+						assertTrue(fixture.confirmations.isEmpty(), "Fact recipient is inside real component/source return ownership")
+						ReaderPortCommandResult.Accepted
+					}
+					val state = task8SettledCurlSourceState()
+					val controller = ReaderController(ReaderControllerState(readerSessionGeneration = 1L, presentation = state))
+					controller.onPresentationEvent(event).presentationReceipt
+				})
+			val callback = fixture.application.callbacks.single()
+			callback.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+			assertEquals(1, recipients)
+			assertEquals(0, retirements, "Installation inside accepted recipient fences the next real memory primitive")
+			assertEquals(0, effects, "Accepted receipt accounting is not legacy publication authority")
+			callback.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+			assertEquals(listOf(ReaderTask6LifecycleSafetyKind.VisibilityLost), facts.map { it.kind })
+			fixture.drainRemaining()
+			assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+			assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+			assertFalse(fixture.delivery.physicalDeliveryAdmissionOpen, "Physical restoration cannot reopen installed legacy publication")
+			assertEquals(1, recipients); assertEquals(0, retirements); assertEquals(0, effects)
+		} finally { fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398CallerFenceCanvasWindowActivatedReleaseOnlyAndRecipientInstall() = runTest {
+		for (mode in listOf("activated", "release-only", "recipient", "getter")) {
+			val store = ReaderActivatedSessionSnapshotStore()
+			val fixture = Task398RegisteredRootsFixture(store)
+			try {
+				fixture.bindSession(); fixture.attach()
+				fixture.viewerClass.task7Field("pageTurnCanvasEnabled").setBoolean(fixture.viewer, true)
+				val bridge = fixture.task398RetryBridge()
+				var retries = 0
+				bridge.javaClass.task7Field("publish").set(bridge, { _: ReaderPageRasterRetryEvent -> retries++ })
+				val inputCalls = fixture.task398RecordInputLifecycle()
+				fixture.viewerClass.task7Field("destinationDeckPrewarmPending").setBoolean(fixture.viewer, true)
+				var installed = false
+				val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+				fun install() {
+					if (installed) return
+					installed = true
+					val decision = task398InstallFacts(store) { facts += it; ReaderPortCommandResult.Accepted }
+					if (mode == "release-only") assertTrue(ReaderActivatedSessionInstallationBarrier(store)
+						.failClosedAfterFinalizationRejection(decision))
+				}
+				if (mode == "recipient") {
+					fixture.viewerClass.task7Field("onPresentationEvent").set(fixture.viewer,
+						{ _: ReaderPresentationEvent -> install(); null })
+				} else if (mode != "getter") install()
+				if (mode == "getter") {
+					fixture.curl.javaClass.task7Field("hostResumed").setBoolean(fixture.curl, false)
+					bridge.javaClass.task7Field("readerResumed").setBoolean(bridge, false)
+					fixture.hostLifecycle.beforeStateRead = { install() }
+					fixture.viewer.dispatchWindowVisibilityChanged(View.VISIBLE)
+					assertFalse(fixture.curl.javaClass.task7Field("hostResumed").getBoolean(fixture.curl),
+						"A state getter installing the shared snapshot fences the next actual resume primitive")
+				} else {
+					fixture.viewer.dispatchWindowVisibilityChanged(View.INVISIBLE)
+					assertTrue(fixture.curl.javaClass.task7Field("hostResumed").getBoolean(fixture.curl),
+						"Canvas-enabled installed window loss cannot run the actual legacy pause tail")
+					assertTrue(bridge.javaClass.task7Field("readerResumed").getBoolean(bridge))
+				}
+				assertTrue(installed)
+				assertEquals(0, retries)
+				assertEquals(0, inputCalls())
+				assertTrue(fixture.viewerClass.task7Field("destinationDeckPrewarmPending").getBoolean(fixture.viewer))
+				assertNull(fixture.viewerClass.task7Field("pageTurnPrewarmLayoutListener").get(fixture.viewer))
+				if (mode == "activated") assertEquals(listOf(ReaderTask6LifecycleSafetyKind.VisibilityLost), facts.map { it.kind })
+				if (mode == "release-only") { assertNotNull(store.snapshot); assertNull(store.snapshot?.portAuthority); assertTrue(facts.isEmpty()) }
+			} finally { fixture.hostLifecycle.beforeStateRead = null; fixture.finish() }
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398CallerFenceActualAttachReplayGetterAndMissingOwner() = runTest {
+		for (mode in listOf("missing-owner", "getter", "retry-recipient", "outer-return")) {
+			val store = ReaderActivatedSessionSnapshotStore()
+			val fixture = Task398RegisteredRootsFixture(store)
+			try {
+				fixture.bindSession()
+				val bridge = fixture.task398RetryBridge()
+				var installs = 0; var deniedAttachmentRecipients = 0; var insidePending = false
+				fun install() {
+					if (installs++ == 0) task398InstallFacts(store) { ReaderPortCommandResult.Accepted }
+				}
+				val hostEvents = fixture.viewerClass.task7Field("pageRasterHostEventController").get(fixture.viewer)
+				@Suppress("UNCHECKED_CAST")
+				val attachment = hostEvents.javaClass.task7Field("onWebViewAttachmentChanged").get(hostEvents) as (Boolean) -> Unit
+				hostEvents.javaClass.task7Field("onWebViewAttachmentChanged").set(hostEvents,
+					{ value: Boolean -> deniedAttachmentRecipients++; attachment(value) })
+				if (mode == "missing-owner") install()
+				else fixture.hostLifecycle.afterAdd = {
+					// The real synchronous replay already returned. Create the next actual
+					// readiness edge and install from its external getter/recipient.
+					fixture.curl.javaClass.task7Field("hostResumed").setBoolean(fixture.curl, false)
+					bridge.javaClass.task7Field("readerResumed").setBoolean(bridge, false)
+					if (mode == "getter") fixture.hostLifecycle.beforeStateRead = { install() }
+					else if (mode == "retry-recipient") bridge.javaClass.task7Field("publish").set(bridge,
+						{ _: ReaderPageRasterRetryEvent -> install() })
+					else {
+						install()
+						assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+						fixture.drainRemaining()
+						insidePending = fixture.confirmations.isEmpty()
+					}
+				}
+				fixture.attach(withLifecycleOwner = mode != "missing-owner")
+				assertTrue(installs > 0, "The actual attach boundary must select installation")
+				assertFalse(fixture.curl.javaClass.task7Field("hostResumed").getBoolean(fixture.curl))
+				assertFalse(fixture.curl.javaClass.task7Field("attached").getBoolean(fixture.curl),
+					"Installation does not close physical registration, but denies the adjacent legacy attachment")
+				assertEquals(0, deniedAttachmentRecipients)
+				if (mode == "outer-return") {
+					assertTrue(insidePending, "addObserver return is still inside the actual attach source return")
+					fixture.drainRemaining()
+					assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+					assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+				} else assertEquals(if (mode == "missing-owner") 0 else 1, fixture.hostLifecycle.registry.observerCount,
+					"Required physical observer registration is independent of legacy consequence authority")
+			} finally { fixture.hostLifecycle.beforeStateRead = null; fixture.finish() }
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398CallerFenceAlreadyRegisteredFrameworkPrewarmListener() = runTest {
+		for (mode in listOf("installed", "getter", "retry-recipient")) {
+			val store = ReaderActivatedSessionSnapshotStore()
+			val fixture = Task398RegisteredRootsFixture(store)
+			try {
+				fixture.bindSession(); fixture.attach()
+				val content = fixture.viewerClass.task7Field("viewerContentContainer").get(fixture.viewer) as FrameLayout
+				val webView = WebView(fixture.application)
+				content.addView(webView, FrameLayout.LayoutParams(800, 600))
+				fixture.viewer.measure(View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
+					View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY))
+				fixture.viewer.layout(0, 0, 800, 600)
+				assertTrue(webView.isAttachedToWindow)
+				fixture.viewerClass.task7Field("pageTurnCanvasEnabled").setBoolean(fixture.viewer, true)
+				fixture.viewerClass.task7Field("coldOwnershipAdmitted").setBoolean(fixture.viewer, true)
+				fixture.viewerClass.task7Field("pageTurnVisualPageIndex").set(fixture.viewer, 1)
+				fixture.viewer.dispatchWindowVisibilityChanged(View.VISIBLE)
+				val registered = assertNotNull(fixture.viewerClass.task7Field("pageTurnPrewarmLayoutListener").get(fixture.viewer),
+					"The actual window callback must have registered a real framework listener before installation")
+				val bridge = fixture.task398RetryBridge()
+				bridge.javaClass.task7Field("webViewAttached").setBoolean(bridge, false)
+				var retries = 0; var attachmentRecipients = 0; var installs = 0
+				fun install() { if (installs++ == 0) task398InstallFacts(store) { ReaderPortCommandResult.Accepted } }
+				bridge.javaClass.task7Field("publish").set(bridge, { _: ReaderPageRasterRetryEvent ->
+					retries++
+					if (mode == "retry-recipient") install()
+				})
+				val hostEvents = fixture.viewerClass.task7Field("pageRasterHostEventController").get(fixture.viewer)
+				@Suppress("UNCHECKED_CAST")
+				val original = hostEvents.javaClass.task7Field("onWebViewAttachmentChanged").get(hostEvents) as (Boolean) -> Unit
+				hostEvents.javaClass.task7Field("onWebViewAttachmentChanged").set(hostEvents,
+					{ attached: Boolean -> attachmentRecipients++; original(attached) })
+				if (mode == "installed") install()
+				if (mode == "getter") fixture.hostLifecycle.beforeStateRead = { install() }
+				assertSame(registered, fixture.viewerClass.task7Field("pageTurnPrewarmLayoutListener").get(fixture.viewer))
+				fixture.viewer.viewTreeObserver.dispatchOnPreDraw()
+				assertTrue(installs > 0)
+				assertEquals(if (mode == "retry-recipient") 1 else 0, retries,
+					"A previously accepted framework listener cannot start a new retry after installation")
+				if (mode != "retry-recipient") assertEquals(0, attachmentRecipients)
+				assertNull(fixture.viewerClass.task7Field("passiveRasterPreparationAdapter").get(fixture.viewer))
+				assertFalse(fixture.raster.javaClass.task7Field("prewarmInProgress").getBoolean(fixture.raster))
+				assertNull(fixture.viewerClass.task7Field("pageTurnPrewarmLayoutListener").get(fixture.viewer),
+					"Physical listener removal is allowed and required; denied recovery is not replay demand")
+				fixture.viewer.viewTreeObserver.dispatchOnPreDraw()
+				assertEquals(if (mode == "retry-recipient") 1 else 0, retries)
+			} finally { fixture.hostLifecycle.beforeStateRead = null; fixture.finish() }
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398CallerFenceActualTerminalFactsAndLateIngressNeverReopens() = runTest {
+		for (mode in listOf("destroy", "close", "detach", "destroy-reject", "destroy-throw")) {
+			val store = ReaderActivatedSessionSnapshotStore()
+			val fixture = Task398RegisteredRootsFixture(store)
+			try {
+				fixture.bindSession(); fixture.attach()
+				val inputCalls = fixture.task398RecordInputLifecycle()
+				val nativeCalls = fixture.task398RecordNativePublication()
+				val bridge = fixture.task398RetryBridge()
+				val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+				var closeObservedBeforeLegacyPause = false
+				task398InstallFacts(store) { fact ->
+					facts += fact
+					if (fact.kind == ReaderTask6LifecycleSafetyKind.PublicationClosed) {
+						closeObservedBeforeLegacyPause = fixture.curl.javaClass.task7Field("hostResumed").getBoolean(fixture.curl) &&
+							bridge.javaClass.task7Field("readerResumed").getBoolean(bridge)
+						if (mode == "destroy-throw") error("Synthetic unknown terminal fact acceptance")
+						if (mode == "destroy-reject" && facts.size == 1) return@task398InstallFacts ReaderPortCommandResult.Rejected(
+							paige.navic.reader.ReaderTransitionFailureReason.PortRejected)
+					}
+					ReaderPortCommandResult.Accepted
+				}
+				when (mode) {
+					"destroy", "destroy-reject", "destroy-throw" -> {
+						fixture.hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+						fixture.hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+						fixture.hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+						assertEquals(0, fixture.hostLifecycle.registry.observerCount)
+						assertEquals(1, fixture.application.callbacks.size,
+							"Destroy does not falsely report that its separate component root was physically removed")
+					}
+					"close" -> fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+					else -> fixture.activity.get().setContentView(FrameLayout(fixture.application))
+				}
+				assertTrue(closeObservedBeforeLegacyPause, "Terminal fact ingress precedes and fences legacy detach/material consequences")
+				assertEquals(0, nativeCalls(), "Installed terminal delivery never starts the actual native-publication candidate getter")
+				assertEquals(0, inputCalls(), "Installed terminal delivery never invokes the legacy input lifecycle cancellation port")
+				if (!mode.startsWith("destroy")) {
+					assertTrue(fixture.application.callbacks.isEmpty(), "Actual terminal teardown removes the registered component callback")
+					assertTrue(fixture.viewerClass.task7Field("task4ResourceTeardownStarted").getBoolean(fixture.viewer))
+				}
+				fixture.viewer.dispatchWindowVisibilityChanged(View.INVISIBLE)
+				@Suppress("UNCHECKED_CAST")
+				val renderer = fixture.curl.javaClass.task7Field("onUnsafeLifecycleEvent").get(fixture.curl) as (ReaderPageHostLifecycleEvent) -> Unit
+				renderer(ReaderPageHostLifecycleEvent.GlFailed)
+				fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+				assertEquals(if (mode == "detach") listOf(ReaderTask6LifecycleSafetyKind.HostDetached,
+					ReaderTask6LifecycleSafetyKind.PublicationClosed) else
+					List(if (mode == "destroy-reject") 2 else 1) { ReaderTask6LifecycleSafetyKind.PublicationClosed },
+					facts.map { it.kind }, "Close retry retains the exact head; late ingress cannot append or overtake")
+				if (mode == "destroy-reject") {
+					assertSame(facts[0], facts[1], "Explicit rejection retries the exact close, consumed only on Accepted")
+					assertEquals(listOf(1L, 1L), facts.map { it.deliverySequence })
+				} else assertEquals(if (mode == "detach") listOf(1L, 2L) else listOf(1L), facts.map { it.deliverySequence },
+					"Unknown throwing acceptance is never guessed or replayed")
+			} finally { fixture.finish() }
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398CallerFenceRegisteredComponentFifoRetryUnknownAcceptanceAndReturns() = runTest {
+		for (mode in listOf("reject-retry", "throw", "reentrant", "freeze-restore", "release-only")) {
+			val store = ReaderActivatedSessionSnapshotStore()
+			val fixture = Task398RegisteredRootsFixture(store)
+			try {
+				fixture.bindSession(); fixture.attach()
+				val callback = fixture.application.callbacks.single()
+				val seen = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+				var rejected = false; var insidePending = false
+				val decision = task398InstallFacts(store) { fact ->
+					seen += fact
+					if (mode == "throw") error("Synthetic unknown fact acceptance")
+					if (mode == "reentrant" && seen.size == 1) {
+						callback.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+						assertEquals(1, seen.size, "Reentrant ingress cannot overtake an on-stack recipient")
+					}
+					if (mode == "freeze-restore" && seen.size == 1) {
+						fixture.delivery.freezeForTransitionActivation(fixture.domain)
+						fixture.drainRemaining()
+						insidePending = fixture.confirmations.isEmpty()
+					}
+					if (mode == "reject-retry" && !rejected) {
+						rejected = true
+						ReaderPortCommandResult.Rejected(paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource)
+					} else ReaderPortCommandResult.Accepted
+				}
+				if (mode == "release-only") assertTrue(ReaderActivatedSessionInstallationBarrier(store)
+					.failClosedAfterFinalizationRejection(decision))
+				callback.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+				if (mode == "freeze-restore") {
+					assertTrue(insidePending)
+					fixture.drainRemaining()
+					assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+					assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+					assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+					fixture.application.callbacks.single().onLowMemory()
+				} else {
+					callback.onLowMemory() // retries the exact head without inventing a memory safety kind
+					callback.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+				}
+				when (mode) {
+					"reject-retry" -> {
+						assertEquals(listOf(1L, 1L, 2L), seen.map { it.deliverySequence })
+						assertSame(seen[0], seen[1], "Rejected retry retains the same exact fact")
+					}
+					"throw", "freeze-restore" -> assertEquals(listOf(1L), seen.map { it.deliverySequence })
+					"reentrant" -> assertEquals(listOf(1L, 2L, 3L), seen.map { it.deliverySequence })
+					else -> assertTrue(seen.isEmpty())
+				}
+				assertTrue(seen.all { it.kind == ReaderTask6LifecycleSafetyKind.VisibilityLost })
+			} finally { fixture.finish() }
+		}
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		instrumentedPackages = ["androidx.webkit.internal"],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398OriginalPauseWebViewShadow::class, Task398CanonicalStoragePathShadow::class])
+	fun task398PrewarmHelperGetterInstallationFencesOriginalPassiveWebViewPause() = runTest {
+		task398PrewarmHelperGetterVariant(releaseOnly = false)
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		instrumentedPackages = ["androidx.webkit.internal"],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class,
+			Task398OriginalPauseWebViewShadow::class, Task398CanonicalStoragePathShadow::class])
+	fun task398PrewarmHelperGetterReleaseOnlyFencesOriginalPassiveWebViewPause() = runTest {
+		task398PrewarmHelperGetterVariant(releaseOnly = true)
+	}
+
+	private suspend fun task398PrewarmHelperGetterVariant(releaseOnly: Boolean) {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store, activityBacked = true)
+		try {
+			fixture.bindSession(); fixture.attach()
+			assertSame(fixture.activity.get(), fixture.viewer.context,
+				"The actual helper requires Activity, not a ContextWrapper around an application")
+			val content = fixture.viewerClass.task7Field("viewerContentContainer").get(fixture.viewer) as FrameLayout
+			val liveWebView = Task398MeasuredLiveWebView(fixture.activity.get())
+			content.addView(liveWebView, FrameLayout.LayoutParams(800, 600))
+			fun layout() {
+				fixture.viewer.measure(View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
+					View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY))
+				fixture.viewer.layout(0, 0, 800, 600)
+				liveWebView.measure(View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
+					View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY))
+				liveWebView.layout(0, 0, 800, 600)
+			}
+			layout()
+			assertTrue(liveWebView.isAttachedToWindow)
+			assertEquals(800, liveWebView.width); assertEquals(600, liveWebView.height)
+			fixture.viewerClass.task7Field("pageTurnCanvasEnabled").setBoolean(fixture.viewer, true)
+			fixture.viewerClass.task7Field("coldOwnershipAdmitted").setBoolean(fixture.viewer, true)
+			fixture.viewerClass.task7Field("pageTurnVisualPageIndex").set(fixture.viewer, 1)
+			fixture.viewer.dispatchWindowVisibilityChanged(View.VISIBLE)
+			val listenerField = fixture.viewerClass.task7Field("pageTurnPrewarmLayoutListener")
+			val registered = assertNotNull(listenerField.get(fixture.viewer),
+				"The actual window callback must register the real framework listener")
+			val observer = fixture.viewer.viewTreeObserver
+			fun physicalListeners(): List<*> {
+				val listeners = observer.javaClass.task7Field("mOnPreDrawListeners").get(observer) ?: return emptyList<Any>()
+				return listeners.javaClass.task7Field("mData").get(listeners) as List<*>
+			}
+			assertTrue(registered in physicalListeners())
+			val adapterField = fixture.viewerClass.task7Field("passiveRasterPreparationAdapter")
+			assertNull(adapterField.get(fixture.viewer)); assertNull(store.snapshot)
+			var postInstallAvailabilityReads = 0; var postInstallRecovery = 0; var postInstallRetries = 0
+			val providerField = fixture.raster.javaClass.task7Field("passiveRasterPreparationPortProvider")
+			@Suppress("UNCHECKED_CAST")
+			val provider = providerField.get(fixture.raster) as () -> ReaderPassiveRasterPreparationPort?
+			providerField.set(fixture.raster, {
+				if (store.snapshot != null) postInstallAvailabilityReads++
+				provider()
+			})
+			val prewarmField = fixture.raster.javaClass.task7Field("onRequestPrewarm")
+			@Suppress("UNCHECKED_CAST")
+			val prewarm = prewarmField.get(fixture.raster) as () -> Unit
+			prewarmField.set(fixture.raster, { if (store.snapshot != null) postInstallRecovery++; prewarm() })
+			val bridge = fixture.task398RetryBridge()
+			val retryField = bridge.javaClass.task7Field("publish")
+			@Suppress("UNCHECKED_CAST")
+			val retry = retryField.get(bridge) as (ReaderPageRasterRetryEvent) -> Unit
+			retryField.set(bridge, { event: ReaderPageRasterRetryEvent ->
+				if (store.snapshot != null) postInstallRetries++
+				retry(event)
+			})
+			var installCount = 0; var stateReadsAfterReturn = 0
+			var originalPassiveShadow: Task398OriginalPauseWebViewShadow? = null
+			val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+			fixture.hostLifecycle.beforeStateRead = {
+				stateReadsAfterReturn++
+				val adapter = adapterField.get(fixture.viewer)
+				if (adapter != null && store.snapshot == null) {
+					assertEquals(2, fixture.viewerClass.task7Field("pageTurnPrewarmStableFrameCount").getInt(fixture.viewer),
+						"Installation is armed only after actual stable-frame adapter assignment")
+					val session = adapter.javaClass.task7Field("session").get(adapter)
+					val runtime = session.javaClass.task7Field("runtime").get(session)
+					assertIs<ReaderPassiveRasterWebViewHost>(runtime)
+					val passiveWebView = runtime.javaClass.task7Field("webView").get(runtime) as WebView
+					assertTrue(passiveWebView !== liveWebView)
+					originalPassiveShadow = Shadow.extract<Task398OriginalPauseWebViewShadow>(passiveWebView)
+					assertEquals(0, originalPassiveShadow!!.pauseCalls)
+					installCount++
+					val decision = task398InstallFacts(store) { facts += it; ReaderPortCommandResult.Accepted }
+					if (releaseOnly) assertTrue(ReaderActivatedSessionInstallationBarrier(store)
+						.failClosedAfterFinalizationRejection(decision))
+					fixture.hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+					assertEquals(Lifecycle.State.STARTED, fixture.hostLifecycle.registry.currentState)
+				}
+			}
+			layout()
+			assertFalse(observer.dispatchOnPreDraw(), "The framework dispatch must not cancel drawing")
+			assertEquals(1, fixture.viewerClass.task7Field("pageTurnPrewarmStableFrameCount").getInt(fixture.viewer))
+			assertNull(store.snapshot); assertNull(adapterField.get(fixture.viewer))
+			assertSame(registered, listenerField.get(fixture.viewer))
+			layout()
+			assertFalse(observer.dispatchOnPreDraw(), "The framework dispatch must not cancel drawing")
+			assertEquals(1, installCount, "The real listener must reach the helper's later external lifecycle getter")
+			assertNotNull(store.snapshot)
+			if (releaseOnly) assertNull(store.snapshot?.portAuthority) else assertNotNull(store.snapshot?.portAuthority)
+			val originalPause = assertNotNull(originalPassiveShadow)
+			assertEquals(0, originalPause.pauseCalls,
+				"A shared snapshot installed by the helper getter must fence the original passive WebView.onPause")
+			assertFalse(originalPause.wasOnPauseCalled(), "The original WebView shadow behavior is preserved, not replaced")
+			assertEquals(0, postInstallAvailabilityReads); assertEquals(0, postInstallRecovery); assertEquals(0, postInstallRetries)
+			assertNull(listenerField.get(fixture.viewer))
+			assertFalse(registered in physicalListeners(), "Removal must reach the actual ViewTreeObserver, not only clear a field")
+			assertFalse(fixture.raster.javaClass.task7Field("prewarmInProgress").getBoolean(fixture.raster))
+			assertFalse(fixture.viewerClass.task7Field("task4ResourceTeardownStarted").getBoolean(fixture.viewer),
+				"This is ordinary prewarm, not a mandatory terminal close")
+			val readsAtReturn = stateReadsAfterReturn
+			assertFalse(observer.dispatchOnPreDraw(), "The framework dispatch must not cancel drawing")
+			assertEquals(readsAtReturn, stateReadsAfterReturn)
+			assertEquals(0, originalPause.pauseCalls)
+			assertTrue(facts.isEmpty(), "ON_PAUSE/STARTED does not manufacture a Task6 lifecycle safety kind")
+			fixture.hostLifecycle.beforeStateRead = null
+			assertEquals(1, fixture.hostLifecycle.registry.observerCount,
+				"Installation does not pretend the registered lifecycle root has physically returned/removed")
+			assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+			val roots = fixture.delivery.snapshotFrozenOwnership()
+			assertEquals(2, roots.size)
+			assertTrue(roots.all { it.state == ReaderLegacyResourceState.Registered },
+				"Only existing registered roots are claimed here; no invented pre-draw return owner")
+			fixture.drainRemaining()
+			assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+			assertEquals(0, fixture.hostLifecycle.registry.observerCount)
+			assertTrue(fixture.confirmations.containsAll(roots.map { it.physicalIdentity }))
+			// Actual root removal also admits its existing cancellation-return owners;
+			// retain those truthful identities instead of pretending only roots returned.
+			assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+			assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+		} finally { fixture.hostLifecycle.beforeStateRead = null; fixture.finish() }
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualHostDetachEmitsHostFactBeforeClose() = runTest {
+		task398ActualHostDetachVariant("activated")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualHostDetachReleaseOnlyStillPhysicallyTearsDown() = runTest {
+		task398ActualHostDetachVariant("release-only")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualHostDetachAfterCloseCannotAppendLateHostFact() = runTest {
+		task398ActualHostDetachVariant("close-first")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualHostDetachRejectedHostRetriesSameObjectAheadOfClose() = runTest {
+		task398ActualHostDetachVariant("reject")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualHostDetachUnknownHostAcceptanceCannotReplayOrOvertake() = runTest {
+		task398ActualHostDetachVariant("throw")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualHostDetachFreezeDrainWaitsForEnclosingFrameworkReturn() = runTest {
+		task398ActualHostDetachVariant("freeze")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualHostDetachRecipientReleaseOnlyFencesNextLegacyPrimitive() = runTest {
+		task398ActualHostDetachVariant("recipient-release-only")
+	}
+
+	@Test
+	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
+		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
+	fun task398ActualHostDetachLegacyCloseRecipientInstallationFencesRemainingTail() = runTest {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store)
+		try {
+			fixture.bindSession(); fixture.attach()
+			assertTrue(fixture.viewer.isAttachedToWindow)
+			val inputCalls = fixture.task398RecordInputLifecycle()
+			val nativeCalls = fixture.task398RecordNativePublication()
+			val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+			var recipients = 0; var effects = 0
+			fixture.viewerClass.task7Field("onAuthoritativePresentationHostEffect").set(fixture.viewer,
+				{ _: ReaderPresentationHostEffect -> effects++ })
+			fixture.viewerClass.task7Field("onPresentationEvent").set(fixture.viewer,
+				{ event: ReaderPresentationEvent ->
+					recipients++
+					assertEquals(ReaderPresentationEvent.Lifecycle(ReaderPresentationLifecycleEvent.PublicationClosed), event,
+						"Uninstalled physical Host detach cannot invent a legacy recipient or demand before the existing close")
+					task398InstallFacts(store) { facts += it; ReaderPortCommandResult.Accepted }
+					val controller = ReaderController(ReaderControllerState(readerSessionGeneration = 1L,
+						presentation = task8SettledCurlSourceState()))
+					controller.onPresentationEvent(event).presentationReceipt
+				})
+			fixture.activity.get().setContentView(FrameLayout(fixture.application))
+			assertFalse(fixture.viewer.isAttachedToWindow)
+			assertEquals(1, recipients); assertNotNull(store.snapshot)
+			assertIs<ReaderActivatedSessionPortAuthority.Test>(store.snapshot?.portAuthority)
+			assertEquals(0, effects); assertEquals(0, inputCalls()); assertEquals(0, nativeCalls())
+			assertTrue(facts.isEmpty(), "Installation does not retroactively synthesize Host detach or closed ingress")
+			assertTrue(fixture.viewerClass.task7Field("physicalPointerDeliveryClosed").getBoolean(fixture.viewer))
+			assertTrue(fixture.viewerClass.task7Field("task4ResourceTeardownStarted").getBoolean(fixture.viewer))
+			assertTrue(fixture.application.callbacks.isEmpty()); assertEquals(0, fixture.hostLifecycle.registry.observerCount)
+			fixture.viewer.dispatchWindowVisibilityChanged(View.INVISIBLE)
+			fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+			assertEquals(1, recipients); assertTrue(facts.isEmpty())
+		} finally { fixture.finish() }
+	}
+
+	private suspend fun task398ActualHostDetachVariant(mode: String) {
+		val store = ReaderActivatedSessionSnapshotStore()
+		val fixture = Task398RegisteredRootsFixture(store)
+		try {
+			fixture.bindSession(); fixture.attach()
+			assertTrue(fixture.viewer.isAttachedToWindow, "The real Activity must attach the actual viewer before removal")
+			val inputCalls = fixture.task398RecordInputLifecycle()
+			val nativeCalls = fixture.task398RecordNativePublication()
+			val policy = fixture.viewerClass.task7Field("presentationInputPolicy").get(fixture.viewer)
+			var legacyRecipients = 0; var effects = 0; var retirements = 0; var recovery = 0
+			fixture.viewerClass.task7Field("onPresentationEvent").set(fixture.viewer,
+				{ _: ReaderPresentationEvent -> legacyRecipients++; null })
+			fixture.viewerClass.task7Field("onAuthoritativePresentationHostEffect").set(fixture.viewer,
+				{ _: ReaderPresentationHostEffect -> effects++ })
+			fixture.raster.javaClass.task7Field("onPassiveRasterMemoryPressure").set(fixture.raster,
+				{ _: String -> retirements++ })
+			fixture.raster.javaClass.task7Field("onRequestPrewarm").set(fixture.raster, { recovery++ })
+			val facts = mutableListOf<ReaderTask6LifecycleSafetyFact>()
+			var hostBeforeTerminalTeardown = false
+			var frozenInsideHost = false
+			var sourceStillPendingInsideClose = false
+			var hostRows = emptyList<ReaderFrozenLegacyResource>()
+			var decision: ReaderInitialActivationDecision? = null
+			decision = task398InstallFacts(store) { fact ->
+				facts += fact
+				if (fact.kind == ReaderTask6LifecycleSafetyKind.HostDetached) {
+					hostBeforeTerminalTeardown = !fixture.viewerClass.task7Field("task4ResourceTeardownStarted").getBoolean(fixture.viewer) &&
+						!fixture.viewerClass.task7Field("physicalPointerDeliveryClosed").getBoolean(fixture.viewer) &&
+						fixture.hostLifecycle.registry.observerCount == 1 && fixture.application.callbacks.size == 1
+					if ((mode == "freeze" || mode == "throw") && !frozenInsideHost) {
+						frozenInsideHost = true
+						assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.freezeForTransitionActivation(fixture.domain))
+						hostRows = fixture.delivery.snapshotFrozenOwnership()
+						fixture.drainRemaining()
+						assertTrue(fixture.confirmations.isEmpty(), "Recipient/root-removal returns cannot confirm the enclosing physical detach source")
+						assertIs<ReaderPortCommandResult.Rejected>(fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+					}
+					if (mode == "recipient-release-only") assertTrue(ReaderActivatedSessionInstallationBarrier(store)
+						.failClosedAfterFinalizationRejection(checkNotNull(decision)))
+					if (mode == "throw") error("Synthetic unknown HostDetached acceptance")
+					if (mode == "reject" && facts.size == 1) return@task398InstallFacts ReaderPortCommandResult.Rejected(
+						paige.navic.reader.ReaderTransitionFailureReason.PortRejected)
+				} else if (mode == "freeze" && fact.kind == ReaderTask6LifecycleSafetyKind.PublicationClosed) {
+					fixture.drainRemaining()
+					sourceStillPendingInsideClose = fixture.confirmations.isEmpty()
+				}
+				ReaderPortCommandResult.Accepted
+			}
+			val installed = assertNotNull(store.snapshot)
+			assertIs<ReaderActivatedSessionPortAuthority.Test>(installed.portAuthority)
+			if (mode == "release-only") assertTrue(ReaderActivatedSessionInstallationBarrier(store)
+				.failClosedAfterFinalizationRejection(checkNotNull(decision)))
+			if (mode == "close-first") fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+			// This is the sole detach trigger: no direct callback/helper or terminal-field fabrication.
+			fixture.activity.get().setContentView(FrameLayout(fixture.application))
+			assertFalse(fixture.viewer.isAttachedToWindow)
+			val expectedKinds = when (mode) {
+				"release-only" -> emptyList()
+				"close-first" -> listOf(ReaderTask6LifecycleSafetyKind.PublicationClosed)
+				"throw", "recipient-release-only" -> listOf(ReaderTask6LifecycleSafetyKind.HostDetached)
+				"reject" -> listOf(ReaderTask6LifecycleSafetyKind.HostDetached, ReaderTask6LifecycleSafetyKind.HostDetached,
+					ReaderTask6LifecycleSafetyKind.PublicationClosed)
+				else -> listOf(ReaderTask6LifecycleSafetyKind.HostDetached, ReaderTask6LifecycleSafetyKind.PublicationClosed)
+			}
+			assertEquals(expectedKinds, facts.map { it.kind }, "Actual Activity removal must report HostDetached before the distinct close; mode=$mode")
+			assertEquals(when (mode) {
+				"release-only" -> emptyList()
+				"close-first", "throw", "recipient-release-only" -> listOf(1L)
+				"reject" -> listOf(1L, 1L, 2L)
+				else -> listOf(1L, 2L)
+			}, facts.map { it.deliverySequence })
+			if (mode !in listOf("release-only", "close-first")) assertTrue(hostBeforeTerminalTeardown,
+				"Host fact is encountered before mandatory teardown, not inferred from publication close")
+			if (mode == "reject") assertSame(facts[0], facts[1], "Explicit rejection retries the SAME Host fact ahead of close")
+			assertEquals(0, legacyRecipients); assertEquals(0, effects); assertEquals(0, inputCalls()); assertEquals(0, nativeCalls())
+			assertEquals(0, retirements); assertEquals(0, recovery)
+			assertSame(policy, fixture.viewerClass.task7Field("presentationInputPolicy").get(fixture.viewer))
+			assertTrue(fixture.viewerClass.task7Field("physicalPointerDeliveryClosed").getBoolean(fixture.viewer))
+			assertTrue(fixture.viewerClass.task7Field("task4ResourceTeardownStarted").getBoolean(fixture.viewer))
+			assertTrue(fixture.application.callbacks.isEmpty()); assertEquals(0, fixture.hostLifecycle.registry.observerCount)
+			assertNull(fixture.viewerClass.task7Field("observedHostLifecycle").get(fixture.viewer))
+			if (mode == "freeze" || mode == "throw") {
+				assertTrue(frozenInsideHost)
+				assertTrue(hostRows.count { it.state == ReaderLegacyResourceState.Running } >= 3,
+					"Actual detach, ordered retry and fact recipient retain distinct exact physical-return owners")
+				if (mode == "freeze") assertTrue(sourceStillPendingInsideClose, "Even the later close recipient remains inside the physical detach source")
+				fixture.drainRemaining()
+				assertTrue(fixture.delivery.snapshotFrozenOwnership().isEmpty())
+				assertEquals(fixture.seenIdentities, fixture.confirmations.toSet())
+				assertEquals(fixture.confirmations.size, fixture.confirmations.distinct().size)
+				assertEquals(ReaderPortCommandResult.Accepted, fixture.delivery.restoreAfterTransitionActivation(fixture.domain))
+				assertFalse(fixture.delivery.physicalDeliveryAdmissionOpen, "Physical restoration does not grant legacy work permission")
+			}
+			val atReturn = facts.toList()
+			fixture.viewer.dispatchWindowVisibilityChanged(View.INVISIBLE)
+			fixture.viewerClass.task7Method("closeReader").invoke(fixture.viewer)
+			assertEquals(atReturn, facts, "Accepted once/unknown acceptance cannot replay; late observations cannot overtake the Host head")
+			if (mode in listOf("release-only", "recipient-release-only")) {
+				assertNotNull(store.snapshot); assertNull(store.snapshot?.portAuthority)
+			} else assertSame(installed, store.snapshot, "The immutable installation authority is not rewritten by physical detach")
+		} finally { fixture.finish() }
+	}
+
+	private fun Task398RegisteredRootsFixture.task398RetryBridge(): Any =
+		viewerClass.task7Field("pageRasterHostEventController").get(viewer).let { it.javaClass.task7Field("bridge").get(it) }
+
+	private fun Task398RegisteredRootsFixture.task398RecordInputLifecycle(): () -> Int {
+		val input = viewerClass.task7Field("pageInputSettlementHostController").get(viewer)
+		val field = input.javaClass.task7Field("cancellationPort")
+		val original = field.get(input) as ReaderPageHostCancellationPort
+		var calls = 0
+		field.set(input, object : ReaderPageHostCancellationPort by original {
+			override fun cancelActiveRendererGesture(reason: paige.navic.reader.ReaderPageLifecycleCancellationReason) {
+				calls++; original.cancelActiveRendererGesture(reason)
+			}
+		})
+		return { calls }
+	}
+
+	private fun Task398RegisteredRootsFixture.task398RecordNativePublication(): () -> Int {
+		val publisher = (viewerClass.task7Field("nativePagePresentationPublisher\$delegate").get(viewer) as Lazy<*>).value!!
+		val field = publisher.javaClass.task7Field("currentCandidate")
+		@Suppress("UNCHECKED_CAST")
+		val original = field.get(publisher) as () -> ReaderNativePagePresentationCandidate?
+		var calls = 0
+		field.set(publisher, { calls++; original() })
+		return { calls }
+	}
+
+	private fun task398InstallFacts(
+		store: ReaderActivatedSessionSnapshotStore,
+		enqueue: (ReaderTask6LifecycleSafetyFact) -> ReaderPortCommandResult
+	): ReaderInitialActivationDecision {
+		// Reuse the established Test-authority fixture, never mint a production package.
+		val fixtureType = Class.forName("paige.navic.ui.screens.reader.ReaderTransitionActivationTestKt")
+		val ports = fixtureType.task7Method("completeActivatedSessionPorts").invoke(null) as ReaderTestActivatedSessionPorts
+		val activationFixture = ReaderTransitionActivationTest()
+		val decision = activationFixture.javaClass.task7Method("neutralDecision").invoke(activationFixture) as ReaderInitialActivationDecision
+		assertEquals(ReaderActivationInstallResult.Installed, ReaderActivatedSessionInstallationBarrier(store)
+			.installTestActivatedSession(ports.copy(lifecycleFacts = ReaderTask6LifecycleFactPort(enqueue)), decision))
+		return decision
+	}
+
+	private inner class Task398RegisteredRootsFixture(
+		installationStore: ReaderActivatedSessionSnapshotStore? = null,
+		activityBacked: Boolean = false
+	) {
+		val application = Task398ComponentContext(RuntimeEnvironment.getApplication())
+		val viewerClass: Class<*>
+		val viewer: FrameLayout
+		val delivery: ReaderPresentationLifecycleDelivery
+		val raster: ReaderPageRasterPreparationController
+		val curl: ReaderPlayLikeCurlFoliateController
+		val hostLifecycle = Task398HostLifecycle()
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val domain = ReaderLegacyPhysicalDomain(1L, ReaderLegacyFreezeToken(501L))
+		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
+		val seenIdentities = linkedSetOf<ReaderLegacyPhysicalIdentity>()
+		private val requested = linkedSetOf<ReaderLegacyPhysicalIdentity>()
+		init {
+			Dispatchers.setMain(UnconfinedTestDispatcher())
+			val viewerContext = if (activityBacked) activity.get() else application
+			val pair = if (installationStore == null) task7Viewer(viewerContext) else {
+				val type = Class.forName("paige.navic.ui.screens.reader.KomikkuReaderNativeViewerContainer")
+				// Baseline fallback permits genuine behavioral RED before constructor plumbing exists.
+				val actualViewer = type.declaredConstructors.firstOrNull {
+					it.parameterTypes.contentEquals(arrayOf(Context::class.java, ReaderActivatedSessionSnapshotStore::class.java))
+				}?.apply { isAccessible = true }?.newInstance(viewerContext, installationStore) as? FrameLayout
+					?: task7Viewer(viewerContext).second
+				type to actualViewer
+			}
+			viewerClass = pair.first; viewer = pair.second
+			delivery = viewerClass.task7Field("presentationLifecycleDelivery").get(viewer) as ReaderPresentationLifecycleDelivery
+			raster = viewerClass.task7Field("pageRasterPreparationController").get(viewer) as ReaderPageRasterPreparationController
+			curl = viewerClass.task7Field("playLikeCurlController").get(viewer) as ReaderPlayLikeCurlFoliateController
+		}
+		fun bindSession() {
+			val state = task8SettledCurlSourceState()
+			val controller = ReaderController(ReaderControllerState(readerSessionGeneration = 1L, presentation = state))
+			val binding = requireNotNull(state.binding)
+			val reporter = viewerClass.task7Field("presentationBindingReporter").get(viewer) as ReaderPresentationBindingReporter
+			reporter.reset(1L, controller.presentationVersion, state)
+			check(reporter.bindPublication(binding))
+			delivery.reset(controller.presentationVersion, observedWindowVisible = null)
+			check(delivery.bindPublication(binding.publicationIdentity))
+		}
+		fun attach(withLifecycleOwner: Boolean = true) {
+			if (withLifecycleOwner) Task336ViewTreeLifecycleOwnerShadow.install(viewer, hostLifecycle)
+			hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+			hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+			hostLifecycle.registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+			activity.get().setContentView(viewer)
+		}
+		fun drainRemaining(excluding: ReaderLegacyPhysicalIdentity? = null) {
+			// Bounded fixed-point discovery includes real cancellation-return owners accepted by removal.
+			repeat(8) {
+				val rows = delivery.snapshotFrozenOwnership().filter {
+					it.physicalIdentity != excluding && it.physicalIdentity !in requested
+				}
+				if (rows.isEmpty()) return
+				rows.forEach { row ->
+					seenIdentities += row.physicalIdentity
+					requested += row.physicalIdentity
+					val result = delivery.drainFrozenOwnership(row.physicalIdentity, confirmations::add)
+					if (result != ReaderPortCommandResult.Accepted) requested -= row.physicalIdentity
+					assertEquals(ReaderPortCommandResult.Accepted, result)
+				}
+			}
+			error("Actual root cancellation did not reach a bounded inventory fixed point")
+		}
+		suspend fun finish() {
+			application.failNextRemoval = false
+			application.beforeRemoval = null
+			application.afterRegistration = null
+			hostLifecycle.afterAdd = null
+			try {
+				val closed = raster.destroy()
+				ShadowLooper.runUiThreadTasks()
+				val disposal = runCatching {
+					withContext(Dispatchers.Default) { withTimeout(5_000L) { closed.await() } }
+				}.exceptionOrNull()
+				// This fixture owns no GL material. Robolectric has no holder surface; the real
+				// terminal fallback settles exceptionally, rather than leaving any work pending.
+				if (disposal != null) {
+					check(disposal is ReaderPageTeardownException &&
+						generateSequence(disposal as Throwable?) { it.cause }.any {
+							it.message == "GL surface is unavailable for terminal disposal"
+						}) { "Unexpected registered-roots fixture disposal failure" }
+				}
+				check(closed.isCompleted)
+				activity.pause().stop().destroy()
+			} finally {
+				Task336ViewTreeLifecycleOwnerShadow.clear()
+				Dispatchers.resetMain()
+			}
+		}
+	}
+
+	private class Task398ComponentContext(base: Context) : android.content.ContextWrapper(base) {
+		val callbacks = linkedSetOf<android.content.ComponentCallbacks2>()
+		var registrations = 0
+		var failNextRemoval = false
+		var beforeRemoval: ((android.content.ComponentCallbacks2) -> Unit)? = null
+		var afterRegistration: (() -> Unit)? = null
+		override fun getApplicationContext(): Context = this
+		override fun registerComponentCallbacks(callback: android.content.ComponentCallbacks) {
+			baseContext.registerComponentCallbacks(callback)
+			callbacks += callback as android.content.ComponentCallbacks2
+			registrations++
+			afterRegistration?.invoke()
+		}
+		override fun unregisterComponentCallbacks(callback: android.content.ComponentCallbacks) {
+			if (failNextRemoval) { failNextRemoval = false; error("Synthetic pre-removal failure") }
+			beforeRemoval?.invoke(callback as android.content.ComponentCallbacks2)
+			baseContext.unregisterComponentCallbacks(callback)
+			callbacks.remove(callback as android.content.ComponentCallbacks2)
+		}
+	}
+
+	private class Task398HostLifecycle : Lifecycle(), LifecycleOwner {
+		val registry = LifecycleRegistry(this)
+		var additions = 0
+		var afterAdd: (() -> Unit)? = null
+		var beforeStateRead: (() -> Unit)? = null
+		override val lifecycle: Lifecycle get() = this
+		override val currentState: State get() {
+			beforeStateRead?.invoke()
+			return registry.currentState
+		}
+		override fun addObserver(observer: androidx.lifecycle.LifecycleObserver) {
+			additions++
+			registry.addObserver(observer)
+			afterAdd?.invoke()
+		}
+		override fun removeObserver(observer: androidx.lifecycle.LifecycleObserver) = registry.removeObserver(observer)
+	}
+
+	@Test
 	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [Task8ImmediateGlSurfaceViewShadow::class])
 	fun task397RelocationProviderFreezeDeniesActualJavascript() =
 		task397ActualWebViewFence(initial = false, confirmation = false, authority = false)
@@ -4414,14 +7869,44 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	private fun task336DecodedRefillCompletionAssertion(
-		curl: ReaderPlayLikeCurlFoliateController
+		curl: ReaderPlayLikeCurlFoliateController,
+		pendingGeneration: Long,
+		destinationOrdinal: Int
 	): (List<Job>) -> Unit {
 		fun field(owner: Any, name: String) = owner.javaClass.task7Field(name).get(owner)
-		val generationBefore = field(curl, "activeDeckGenerationId") as Long?
-		val ownerBefore = (field(curl, "generationOwners") as Map<*, *>)[generationBefore]
-		val decodedBefore = field(curl, "activePages")
-		println("TASK336_REFILL_ORDER boundary=BeforeSecondExactAck generationPresent=${generationBefore != null} " +
-			"ownerPresent=${ownerBefore != null} decodedPresent=${decodedBefore != null} ownerIsDecoded=${ownerBefore === decodedBefore}")
+		// Capture after the genuine pending renderer callback, before animator.end():
+		// settlement may finish its lawful refill before the exact ACK is delivered.
+		val generationBefore = pendingGeneration
+		assertEquals(generationBefore, field(curl, "pendingDeckGenerationId"))
+		assertEquals(ReaderDeckSubmissionRole.Pending, (field(curl, "generationRoles") as Map<*, *>)[generationBefore])
+		assertTrue(generationBefore in (field(curl, "preparedDeckGenerations") as Set<*>),
+			"The genuine pending renderer callback must have been accepted before capture")
+		val ownerBefore = assertNotNull((field(curl, "generationOwners") as Map<*, *>)[generationBefore])
+		val decodedBefore = assertNotNull(field(curl, "activePages"))
+		val profileBefore = field(ownerBefore, "profile") as ReaderPlayLikeCurlRasterProfile
+		val sourceOrdinal = field(curl, "currentOrdinal") as Int
+		assertEquals(ReaderPlayLikeCurlOrientation.Portrait, profileBefore.orientation)
+		assertEquals(6, profileBefore.pageCount)
+		assertEquals(0, sourceOrdinal)
+		assertEquals(1, destinationOrdinal)
+		assertEquals(field(curl, "requestedProfile"), profileBefore)
+		assertEquals(profileBefore, field(decodedBefore, "profile"))
+		val sourceWindow = readerPlayLikeCurlPreparedPageIndices(profileBefore.orientation, sourceOrdinal,
+			profileBefore.pageCount, profileBefore.readerDirection, profileBefore.spreadAnchorParity)
+		val destinationWindow = readerPlayLikeCurlPreparedPageIndices(profileBefore.orientation, destinationOrdinal,
+			profileBefore.pageCount, profileBefore.readerDirection, profileBefore.spreadAnchorParity)
+		assertEquals(setOf(0, 1, 2), sourceWindow.toSet())
+		assertEquals(setOf(0, 1, 2, 3), destinationWindow.toSet())
+		val ownerDeck = field(ownerBefore, "deck") as ReaderPlayLikeCurlRasterDeck<*>
+		val decodedDeck = field(decodedBefore, "deck") as ReaderPlayLikeCurlRasterDeck<*>
+		assertTrue(ownerDeck.pageIndices.containsAll(sourceWindow))
+		assertFalse(ownerDeck.pageIndices.containsAll(destinationWindow),
+			"The actual pending-owner source deck must not cover the expanded destination window")
+		assertTrue(decodedDeck.pageIndices.containsAll(sourceWindow))
+		assertFalse(decodedDeck.pageIndices.containsAll(destinationWindow),
+			"The captured decoded source must require real destination refill, not merely a different private center")
+		println("TASK336_REFILL_ORDER boundary=BeforeSecondSettlement pendingPrepared=true " +
+			"ownerCoversDestination=false decodedCoversDestination=false ownerIsDecoded=${ownerBefore === decodedBefore}")
 		return { consumers ->
 			val generation = field(curl, "activeDeckGenerationId") as Long?
 			val owner = (field(curl, "generationOwners") as Map<*, *>)[generation]
@@ -4749,6 +8234,9 @@ class KomikkuReaderNativeFrameHostTest {
 		focusedRelocation: ((Class<*>, View, (Int, String) -> Unit) -> Unit)? = null
 	) = runTest {
 		require(!replaceHostEpochBeforeSuccessorRelease || selectedPredecessorRollback)
+		// Only the mandatory distinct-decoded sequence needs an expanding 0 -> 1 window.
+		// Preserve the original three-page inputs for independent C6/rollback/focused cases.
+		val syntheticPageCount = if (c6Boundary != null || selectedPredecessorRollback || focusedRelocation != null) 3 else 6
 		// Only lifecycle, source, capture, draw and renderer callbacks are test inputs.
 		// No Ready facts, presentation proofs, callback fences or reporter state are assigned.
 		val progress = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
@@ -4764,7 +8252,7 @@ class KomikkuReaderNativeFrameHostTest {
 		})
 		val activity = Robolectric.buildActivity(Activity::class.java).setup()
 		val (viewerClass, viewer) = task7Viewer(activity.get())
-		val webView = Task9RecoveryCommandWebView(activity.get())
+		val webView = Task9RecoveryCommandWebView(activity.get(), syntheticPageCount = syntheticPageCount)
 		val curl = viewerClass.task7Field("playLikeCurlController").get(viewer) as ReaderPlayLikeCurlFoliateController
 		val preparation = viewerClass.task7Field("pageRasterPreparationController").get(viewer) as ReaderPageRasterPreparationController
 		val reporter = viewerClass.task7Field("presentationBindingReporter").get(viewer) as ReaderPresentationBindingReporter
@@ -5311,7 +8799,7 @@ class KomikkuReaderNativeFrameHostTest {
 				sourceSession: String = session): paige.navic.reader.ReaderEngineEvent.Relocated {
 				val destination = ReaderDestinationCommitIdentity(sourceSession, ++destinationSequence)
 				val event = paige.navic.reader.ReaderEngineEvent.Relocated(
-					paige.navic.reader.ReaderLocator(progress = 0.0, pageIndex = ordinal, pageCount = 3, reason = reason),
+					paige.navic.reader.ReaderLocator(progress = 0.0, pageIndex = ordinal, pageCount = syntheticPageCount, reason = reason),
 					sourceSession, pageTurnSettleToken = acknowledgement?.token,
 					pageTurnSettleSessionId = acknowledgement?.foliateSessionId,
 					pageTurnSettleRasterGeneration = acknowledgement?.rasterGeneration,
@@ -5442,12 +8930,12 @@ class KomikkuReaderNativeFrameHostTest {
 			}
 			fun sourcePlan(): String {
 				val ordinal = assertNotNull(common.state.chrome.currentLocator?.pageIndex)
-				val targets = readerPageRasterBlockingWindow(ordinal, 1, 3).joinToString(",") { page ->
+				val targets = readerPageRasterBlockingWindow(ordinal, 1, syntheticPageCount).joinToString(",") { page ->
 					val priority = when (page) { ordinal -> "current"; ordinal + 1 -> "next-transition"; else -> "previous-transition" }
 					val authority = if (page == ordinal) "CurrentLive" else "OffscreenPassive"
 					"""{"pageIndex":$page,"priority":"$priority","authority":"$authority"}"""
 				}
-				return """{"context":{"centerPageIndex":$ordinal,"pageCount":3,"layoutMode":"single","step":1,"currentChapterIndex":0,"currentChapterPageStartIndex":0,"currentChapterPageCount":3},"targets":[$targets]}"""
+				return """{"context":{"centerPageIndex":$ordinal,"pageCount":$syntheticPageCount,"layoutMode":"single","step":1,"currentChapterIndex":0,"currentChapterPageStartIndex":0,"currentChapterPageCount":$syntheticPageCount},"targets":[$targets]}"""
 			}
 			@Suppress("UNCHECKED_CAST")
 			val owners = curl.javaClass.task7Field("generationOwners").get(curl) as Map<Long, Any>
@@ -5745,7 +9233,7 @@ class KomikkuReaderNativeFrameHostTest {
 			}
 			val relocationQueue = curl.javaClass.task7Field("relocationQueue").get(curl) as ReaderPageRelocationQueue
 			val localTerminalCounts = mutableMapOf<Long, Int>()
-			fun turnPage(gesture: Long): ReaderPageRelocationRequest {
+			fun turnPage(gesture: Long, beforeSettlement: ((Long, Int) -> Unit)? = null): ReaderPageRelocationRequest {
 				assertHostResumed()
 				val before = commands.size
 				accept(common.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)))
@@ -5842,6 +9330,7 @@ class KomikkuReaderNativeFrameHostTest {
 				pendingCallbackAccepted = pending in prepared
 				assertLatestTurnAdmission("validated pending callback")
 				gate10Observations += pendingObservation("pending-after-callback")
+				beforeSettlement?.invoke(pending, ordinal + 1)
 				// Finish the owned animation input, not just its downstream listener:
 				// production must also complete the model and promote the surface deck.
 				assertNotNull(surface.javaClass.task7Field("settlementAnimator").get(surface) as android.animation.ValueAnimator?).end()
@@ -5855,12 +9344,11 @@ class KomikkuReaderNativeFrameHostTest {
 					assertEquals(ordinal + 1, it.destinationOrdinal)
 				}
 			}
-			suspend fun completeExactAcknowledgement(request: ReaderPageRelocationRequest, verifyDecodedRefill: Boolean = false) {
-				val assertDecodedRefill = if (verifyDecodedRefill) task336DecodedRefillCompletionAssertion(curl) else null
+			suspend fun completeExactAcknowledgement(request: ReaderPageRelocationRequest, assertDecodedRefill: ((List<Job>) -> Unit)? = null) {
 				val acknowledgement = ReaderPageTurnSettlementAck(request.token.value, request.destinationOrdinal,
 					request.foliateSessionId, request.rasterGeneration, request.textureGeneration)
 				relocate(request.destinationOrdinal, "page-turn:exact", acknowledgement)
-				val consumers = if (verifyDecodedRefill) finiteControllerConsumers() else emptyList()
+				val consumers = if (assertDecodedRefill != null) finiteControllerConsumers() else emptyList()
 				drain("exact-turn")
 				assertDecodedRefill?.invoke(consumers)
 				assertNull(relocationQueue.head())
@@ -6207,7 +9695,7 @@ class KomikkuReaderNativeFrameHostTest {
 					(curl.javaClass.task7Field("generationPreparationGenerations").get(curl)
 						as Map<Long, Long>)[generation]
 				}
-				accept(common.navigateTo(paige.navic.reader.ReaderLocator(progress = 0.0, pageIndex = 0, pageCount = 3)))
+				accept(common.navigateTo(paige.navic.reader.ReaderLocator(progress = 0.0, pageIndex = 0, pageCount = syntheticPageCount)))
 				relocate(0, "toc")
 				if (tocSelectedGeneration != null) {
 					@Suppress("UNCHECKED_CAST")
@@ -6403,7 +9891,11 @@ class KomikkuReaderNativeFrameHostTest {
 				drain("toc-preparation")
 				assertSettled()
 				val turnBoundary = commands.size
-				completeExactAcknowledgement(turnPage(3362L), verifyDecodedRefill = true)
+				lateinit var assertDecodedRefill: (List<Job>) -> Unit
+				val secondTurn = turnPage(3362L) { pendingGeneration, destinationOrdinal ->
+					assertDecodedRefill = task336DecodedRefillCompletionAssertion(curl, pendingGeneration, destinationOrdinal)
+				}
+				completeExactAcknowledgement(secondTurn, assertDecodedRefill)
 				assertEquals(1, commands.drop(turnBoundary).filterIsInstance<paige.navic.reader.ReaderEngineCommand.TurnPage>().size)
 				val destination = assertNotNull(common.state.destinationCommitIdentity)
 				val expectedLocator = assertNotNull(common.state.chrome.currentLocator)
@@ -10254,10 +13746,18 @@ class KomikkuReaderNativeFrameHostTest {
 	fun busyFeedbackClearsOnlyAfterActualRendererPointerAdmission() {
 		val source = hostFile.readText()
 
-		assertContains(
-			source,
-			"fun canAcceptNewPointer(): Boolean = playLikeCurlController.isAvailable"
-		)
+		assertContains(source, "fun canAcceptNewPointer(): Boolean = viewerContainer.canAcceptNewPointer()")
+		val admission = source
+			.substringAfter("fun canAcceptNewPointer(): Boolean {", missingDelimiterValue = "")
+			.substringBefore("\n\tfun closeReader()", missingDelimiterValue = "")
+		assertContains(admission, "if (readInstalledPublication == null) return playLikeCurlController.isAvailable")
+		val publication = admission.indexOf("val publication = readInstalledPublication?.invoke() ?: return false")
+		val current = admission.indexOf("if (installedCommandCurrency?.invoke() != true) return false")
+		val policy = admission.indexOf("readerTransitionPresentationInputPolicy(publication.owner,")
+		val decision = admission.indexOf("readerPageNewPointerDecision(policy, localPageSafetyPolicy) == ReaderPageNewPointerDecision.Accept")
+		assertContains(admission, "publication.binding, publication.lease")
+		assertTrue(publication >= 0 && current > publication && policy > current && decision > policy,
+			"Installed pointer admission must use the exact current publication, its input lease and local renderer safety.")
 		assertContains(source, "currentNativeFrameRoot?.canAcceptNewPointer() == true")
 		assertFalse(
 			source.contains(
@@ -12666,7 +16166,10 @@ private class Task9ControlledPassiveRuntime : ReaderPassiveRasterRuntimePort<Bit
 	}
 }
 
-private class Task9RecoveryCommandWebView(context: Context) : WebView(context) {
+private class Task9RecoveryCommandWebView(
+	context: Context,
+	private val syntheticPageCount: Int = 3
+) : WebView(context) {
 	// Robolectric's stub provider omits Chromium's superclass-frame delegation.
 	// The hidden Android method is absent from public SDK compile stubs.
 	protected fun setFrame(left: Int, top: Int, right: Int, bottom: Int): Boolean =
@@ -12692,11 +16195,11 @@ private class Task9RecoveryCommandWebView(context: Context) : WebView(context) {
 		put("decorationFingerprint", "task9-undecorated")
 		put("viewportWidth", width)
 		put("viewportHeight", height)
-		put("pageCount", 3)
+		put("pageCount", syntheticPageCount)
 		put("spineIndex", 0)
 		put("href", "task9-synthetic-chapter")
 		put("chapterPageIndex", ordinal)
-		put("chapterPageCount", 3)
+		put("chapterPageCount", syntheticPageCount)
 		put("visualPageOrdinal", ordinal)
 	}
 
@@ -12830,8 +16333,157 @@ internal class Task9NoViewTreeLifecycleOwnerShadow {
 	}
 }
 
+private class Task398MeasuredLiveWebView(context: Context) : WebView(context) {
+	// Match the existing Task9 fixture's real View geometry delegation: the
+	// Robolectric stub provider omits Chromium's superclass setFrame call.
+	protected fun setFrame(left: Int, top: Int, right: Int, bottom: Int): Boolean =
+		Shadow.directlyOn<Boolean, View>(
+			this, View::class.java, "setFrame",
+			ClassParameter.from(Int::class.javaPrimitiveType!!, left),
+			ClassParameter.from(Int::class.javaPrimitiveType!!, top),
+			ClassParameter.from(Int::class.javaPrimitiveType!!, right),
+			ClassParameter.from(Int::class.javaPrimitiveType!!, bottom)
+		)
+}
+
+@Implements(className = "androidx.webkit.internal.AssetHelper", isInAndroidSdk = false)
+internal class Task398CanonicalStoragePathShadow {
+	companion object {
+		// AndroidX uses Android's '/' boundary for its real storage allowlist.
+		// Normalize only host canonical separators; retain canonical resolution
+		// and all real InternalStoragePathHandler validation/initialization.
+		@JvmStatic
+		@Implementation
+		fun getCanonicalDirPath(directory: File): String =
+			directory.canonicalPath.replace('\\', '/').trimEnd('/') + "/"
+	}
+}
+
+
+// The concrete mapping invalidates FrameLayout's shadow-creator call site when a method
+// Config changes. ViewGroup alone invalidates removal dispatch but can leave a creator
+// bound to its earlier default shadow in Robolectric's reused sandbox (4.16.1).
+// Both mappings retain ShadowViewGroup compatibility and delegate original ViewGroup work.
+@Implements(android.view.ViewGroup::class)
+internal open class Task398ExactMountRemovalShadow : org.robolectric.shadows.ShadowViewGroup() {
+	@RealObject private lateinit var actual: android.view.ViewGroup
+
+	@Implements(FrameLayout::class)
+	class FrameLayoutShadow : Task398ExactMountRemovalShadow()
+
+	private fun crossFailureBoundary() {
+		val exactFailure = failure ?: return
+		failure = null // Consume before external work; a retry must perform genuine removal.
+		beforeFailure?.invoke()
+		throw exactFailure
+	}
+	private fun removeWithBoundary(original: () -> Unit) {
+		val targeted = actual === target
+		if (targeted) { actualPrimitiveEntered = true; targetEntries++ }
+		if (targeted && failurePosition == FailurePosition.BEFORE_ORIGINAL) crossFailureBoundary()
+		original()
+		if (targeted) { originalDelegateCompleted = true; completedOriginalDelegates++ }
+		if (targeted && failurePosition == FailurePosition.AFTER_ORIGINAL) crossFailureBoundary()
+	}
+	@Implementation
+	fun removeAllViews() = removeWithBoundary {
+		Shadow.directlyOn<Any?, android.view.ViewGroup>(actual, android.view.ViewGroup::class.java, "removeAllViews")
+	}
+	@Implementation
+	fun removeView(child: View) = removeWithBoundary {
+		Shadow.directlyOn<Any?, android.view.ViewGroup>(actual, android.view.ViewGroup::class.java, "removeView",
+			ClassParameter.from(View::class.java, child))
+	}
+	enum class FailurePosition { BEFORE_ORIGINAL, AFTER_ORIGINAL }
+	companion object {
+		var target: FrameLayout? = null
+		var failure: Throwable? = null
+		var failurePosition = FailurePosition.BEFORE_ORIGINAL
+		var beforeFailure: (() -> Unit)? = null
+		var actualPrimitiveEntered = false
+		var originalDelegateCompleted = false
+		var targetEntries = 0
+		var completedOriginalDelegates = 0
+		fun clear() {
+			target = null; failure = null; beforeFailure = null
+			failurePosition = FailurePosition.BEFORE_ORIGINAL
+			actualPrimitiveEntered = false; originalDelegateCompleted = false
+			targetEntries = 0; completedOriginalDelegates = 0
+		}
+	}
+}
+
+
+@Implements(android.view.ViewGroup::class)
+internal open class Task398RemovalEntryInstallationShadow : org.robolectric.shadows.ShadowViewGroup() {
+	@RealObject private lateinit var actual: android.view.ViewGroup
+	@Implements(FrameLayout::class) class FrameLayoutShadow : Task398RemovalEntryInstallationShadow()
+	@Implementation fun removeView(view: View) {
+		if (actual === target && view === child) {
+			entries++
+			val hook = beforeOriginal; beforeOriginal = null
+			if (hook != null) { hooks++; hook() }
+		}
+		Shadow.directlyOn<Any?, android.view.ViewGroup>(actual, android.view.ViewGroup::class.java, "removeView",
+			ClassParameter.from(View::class.java, view))
+	}
+	companion object {
+		var target: FrameLayout? = null
+		var child: View? = null
+		var beforeOriginal: (() -> Unit)? = null
+		var entries = 0; var hooks = 0
+		fun clear() { target = null; child = null; beforeOriginal = null; entries = 0; hooks = 0 }
+	}
+}
+
+@Implements(WebView::class)
+internal class Task398ForegroundRegistrationWebViewShadow : org.robolectric.shadows.ShadowWebView() {
+	@RealObject private lateinit var actual: WebView
+	@Implementation
+	override fun addOnAttachStateChangeListener(listener: View.OnAttachStateChangeListener) {
+		Shadow.directlyOn<Any?, View>(actual, View::class.java, "addOnAttachStateChangeListener",
+			ClassParameter.from(View.OnAttachStateChangeListener::class.java, listener))
+		if (actual.javaClass.simpleName == "ReaderEngineWebView") {
+			adds++
+			listeners += listener
+			afterAdd?.invoke()
+		}
+	}
+	@Implementation
+	override fun removeOnAttachStateChangeListener(listener: View.OnAttachStateChangeListener) {
+		if (actual.javaClass.simpleName == "ReaderEngineWebView") {
+			beforeRemove?.invoke()
+			if (failRemoval) { failRemoval = false; error("Synthetic exact listener removal failure") }
+		}
+		Shadow.directlyOn<Any?, View>(actual, View::class.java, "removeOnAttachStateChangeListener",
+			ClassParameter.from(View.OnAttachStateChangeListener::class.java, listener))
+		if (actual.javaClass.simpleName == "ReaderEngineWebView") { removes++; listeners -= listener }
+	}
+	companion object {
+		var adds = 0
+		var removes = 0
+		var failRemoval = false
+		var afterAdd: (() -> Unit)? = null
+		var beforeRemove: (() -> Unit)? = null
+		val listeners = linkedSetOf<View.OnAttachStateChangeListener>()
+		fun clear() { adds = 0; removes = 0; failRemoval = false; afterAdd = null; beforeRemove = null; listeners.clear() }
+	}
+}
+
+@Implements(WebView::class)
+internal class Task398OriginalPauseWebViewShadow : org.robolectric.shadows.ShadowWebView() {
+	var pauseCalls = 0
+		private set
+
+	@Implementation
+	override fun onPause() {
+		pauseCalls++
+		super.onPause()
+	}
+}
+
 @Implements(GLSurfaceView::class)
-internal class Task8ImmediateGlSurfaceViewShadow : ShadowGLSurfaceView() {
+internal open class Task8ImmediateGlSurfaceViewShadow : ShadowGLSurfaceView() {
 	@RealObject
 	private lateinit var realView: GLSurfaceView
 

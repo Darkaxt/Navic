@@ -541,12 +541,14 @@ class View {
             })
         }
     }
-    expand() {
-        if (this.#destroyed) return false
+    // Share the original expansion measurement, not its writes or completion. A
+    // read-only capture must refuse geometry the original observer has not resolved.
+    #measureExpansion() {
+        if (this.#destroyed) return null
         const doc = this.document
         const documentElement = doc?.documentElement
         const contentRoot = documentStyleRoot(doc)
-        if (!documentElement?.isConnected || !contentRoot?.isConnected) return false
+        if (!documentElement?.isConnected || !contentRoot?.isConnected) return null
         this.#contentRange.selectNodeContents(contentRoot)
 
         const side = this.#column
@@ -598,6 +600,16 @@ class View {
                 rounded(this.#layout.columnWidth),
             ],
         ])
+        return { documentElement, side, otherSide, expandedSize, padding, signature }
+    }
+    hasResolvedLayout() {
+        const measured = this.#measureExpansion()
+        return measured !== null && measured.signature === this.#layoutSignature
+    }
+    expand() {
+        const measured = this.#measureExpansion()
+        if (!measured) return false
+        const { documentElement, side, otherSide, expandedSize, padding, signature } = measured
         if (signature === this.#layoutSignature) return false
         if (this.onBeforeExpand?.(signature) === false || this.#destroyed) return false
 
@@ -1202,6 +1214,50 @@ export class Paginator extends HTMLElement {
             index: this.#index,
             pageIndex: this.page - 1,
             pageCount: this.pages - 2,
+        })
+    }
+    // Read-only layout custody for the exact original Live renderer. This is not a
+    // text-page commit, a pagination profile, a visible-frame receipt or a new
+    // generation owner. Passive/profiler callers cannot donate their capture to a
+    // different renderer: the currentness closure retains this exact view/document.
+    #resolvedLayoutData() {
+        const view = this.#view
+        const doc = view?.document
+        if (this.#destroyed || this.#locked || this.scrolled || !this.isConnected ||
+            !view?.committed || !doc?.documentElement?.isConnected ||
+            !doc.body?.isConnected || doc.fonts?.status !== 'loaded' ||
+            !view.hasResolvedLayout()) return null
+        const position = this.exactTextPagePosition()
+        const rect = this.getBoundingClientRect()
+        if (!position || !Number.isFinite(rect.width) || rect.width <= 0 ||
+            !Number.isFinite(rect.height) || rect.height <= 0 ||
+            !Number.isSafeInteger(this.#layoutGeneration) || this.#layoutGeneration <= 0 ||
+            !Number.isSafeInteger(this.#viewGeneration) || this.#viewGeneration <= 0 ||
+            !Number.isSafeInteger(this.#navigationGeneration) || this.#navigationGeneration < 0 ||
+            this.#currentContainerLayoutSignature() !== this.#containerLayoutSignature) return null
+        return Object.freeze({
+            layoutGeneration: this.#layoutGeneration,
+            viewGeneration: this.#viewGeneration,
+            navigationGeneration: this.#navigationGeneration,
+            sectionIndex: position.index,
+            pageIndex: position.pageIndex,
+            pageCount: position.pageCount,
+            width: rect.width,
+            height: rect.height,
+        })
+    }
+    captureResolvedLayout() {
+        const layout = this.#resolvedLayoutData()
+        if (!layout) return null
+        const view = this.#view
+        const doc = view.document
+        return Object.freeze({
+            layout,
+            isCurrent: () => {
+                if (this.#view !== view || view.document !== doc) return false
+                const current = this.#resolvedLayoutData()
+                return current !== null && Object.keys(layout).every(key => current[key] === layout[key])
+            },
         })
     }
     // this is the current position of the container

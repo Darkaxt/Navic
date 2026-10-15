@@ -22,8 +22,77 @@ internal data class ReaderPresentationLifecycleReceiptAdmission(
 
 internal class ReaderPresentationLifecycleDelivery(
 	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
-		ReaderLegacySourceLocalTokenAllocator()
+		ReaderLegacySourceLocalTokenAllocator(),
+	private val activatedSessionStore: ReaderActivatedSessionSnapshotStore =
+		ReaderActivatedSessionSnapshotStore()
 ) {
+	// Route selection is the existing immutable installation authority, including
+	// ReleaseOnly. Physical callback returns remain owned independently of this gate.
+	internal val legacyConsequencesOpen: Boolean
+		get() = activatedSessionStore.legacyConsequencesOpen
+
+	private class PendingSafetyFact(
+		val snapshot: ReaderActivatedSessionSnapshot,
+		val fact: ReaderTask6LifecycleSafetyFact,
+		var invokedWithoutResult: Boolean = false
+	)
+	private val pendingSafetyFacts = ArrayDeque<PendingSafetyFact>()
+	private var safetyDeliverySequence = 0L
+	private var safetyDeliveryInProgress = false
+	// Logical terminal ingress is distinct from physical registered-root removal.
+	// This monotonic fence does not select installation authority or reopen on restore.
+	private var safetyIngressClosed = false
+
+	private fun observeInstalledSafetyFact(
+		snapshot: ReaderActivatedSessionSnapshot,
+		kind: ReaderTask6LifecycleSafetyKind
+	) {
+		if (!snapshot.commandEgressOpen || snapshot.portAuthority == null) return
+		safetyDeliverySequence = Math.incrementExact(safetyDeliverySequence)
+		pendingSafetyFacts.addLast(PendingSafetyFact(snapshot,
+			ReaderTask6LifecycleSafetyFact(safetyDeliverySequence, kind)))
+	}
+
+	private fun retryInstalledSafetyFacts() {
+		if (safetyDeliveryInProgress) return
+		val invocation = beginRegisteredRootReturn() ?: return
+		safetyDeliveryInProgress = true
+		try {
+			while (pendingSafetyFacts.isNotEmpty()) {
+				val pending = pendingSafetyFacts.first()
+				val current = activatedSessionStore.snapshot
+				if (current !== pending.snapshot || !current.commandEgressOpen) return
+				val port = when (val authority = current.portAuthority) {
+					is ReaderActivatedSessionPortAuthority.Production -> authority.ports.lifecycleFacts
+					is ReaderActivatedSessionPortAuthority.Test -> authority.ports.lifecycleFacts
+					null -> null
+				} ?: return
+				if (pending.invokedWithoutResult) return
+				val recipient = beginRegisteredRootReturn() ?: return
+				pending.invokedWithoutResult = true
+				val result = try {
+					port.enqueueSafetyFact(pending.fact)
+				} catch (_: Throwable) {
+					// Unknown acceptance cannot be guessed or replayed. Keep the exact
+					// unresolved head; later observations cannot overtake it.
+					return
+				} finally { endPhysicalDelivery(recipient) }
+				when (result) {
+					ReaderPortCommandResult.Accepted -> pendingSafetyFacts.removeFirst()
+					is ReaderPortCommandResult.Rejected -> {
+						pending.invokedWithoutResult = false
+						return
+					}
+				}
+				// A recipient/finalization/physical confirmation may reenter installation.
+				if (activatedSessionStore.snapshot !== current) return
+			}
+		} finally {
+			safetyDeliveryInProgress = false
+			endPhysicalDelivery(invocation)
+		}
+	}
+
 	private data class RestartSnapshot(
 		val expectedReaderSessionGeneration: Long?,
 		val expectedPublicationIdentity: ReaderPresentationPublicationIdentity?,
@@ -37,9 +106,7 @@ internal class ReaderPresentationLifecycleDelivery(
 		val pendingMemoryPressure: Set<ReaderPresentationLifecycleEvent>,
 		val rendererLossPending: Boolean,
 		val publicationClosePending: Boolean,
-		val publicationCloseAcknowledged: Boolean,
-		val retryInProgress: Boolean,
-		val activationToken: ReaderLegacySourceLocalOpaqueToken
+		val publicationCloseAcknowledged: Boolean
 	)
 
 	private var expectedReaderSessionGeneration: Long? = null
@@ -58,9 +125,308 @@ internal class ReaderPresentationLifecycleDelivery(
 	private var publicationClosePending = false
 	private var publicationCloseAcknowledged = false
 	private var retryInProgress = false
-	private var activationToken: ReaderLegacySourceLocalOpaqueToken? = null
+	private val physicalOwners = ReaderExactPhysicalOwnerRegistry(
+		ReaderLegacyInventorySource.LifecycleDelivery, tokenAllocator
+	)
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var legacyFinalized = false
 	private var restartSnapshot: RestartSnapshot? = null
+	private var physicalDepth = 0
+	private var settlingReturns = false
+	private val settledReturnTails = linkedSetOf<ReaderExactPhysicalOwnerRegistry.Owner>()
+	private var admissionEpoch = 0L
+	private var registeredRootsClosed = false
+	private var restoringRegisteredRoots = false
+	private var restorationRefrozen = false
+	private var rootDrainDomain: ReaderLegacyPhysicalDomain? = null
+	private val restorationRootTokens = linkedSetOf<ReaderLegacySourceLocalOpaqueToken>()
+	private val registeredRoots = linkedSetOf<RegisteredRoot>()
+
+	// The physical framework producer exists before a reader session can be validated.
+	// Its opaque record joins this SAME registry; only freeze binds a session/domain.
+	internal inner class RegisteredRoot internal constructor(
+		private val registerPhysical: () -> Unit,
+		private val unregisterPhysical: () -> Unit,
+		private val isValid: () -> Boolean
+	) {
+		private var physicalOwner: ReaderExactPhysicalOwnerRegistry.Owner? = null
+		private var registrationInProgress = false
+		private var registrationUncertain = false
+		private var removalInProgress = false
+		private var permanentlyRemoved = false
+		private var removedDomain: ReaderLegacyPhysicalDomain? = null
+
+		fun register(): Boolean {
+			if (!registeredRootAdmissionOpen || !isValid() || permanentlyRemoved) return false
+			return registerInDomain(null)
+		}
+
+		// A removed predecessor cannot restart while activation is reversible. Once its
+		// original legacy custody is permanently retired, this exact producer may obtain
+		// a distinct safety-only installation from the actually selected successor.
+		fun registerInstalledSafetyIngress(): Boolean {
+			if (activatedSessionStore.snapshot == null || registeredRootsClosed ||
+				permanentlyRemoved || !isValid()) return false
+			if (legacyFinalized) {
+				if (currentInstalledSafetySnapshot() == null) return false
+			} else if (removedDomain != null) return false
+			return registerInDomain(null)
+		}
+
+		private fun registerInDomain(domain: ReaderLegacyPhysicalDomain?): Boolean {
+			if (physicalOwner != null) {
+				if (registrationUncertain) return false
+				if (domain != null) removedDomain = null
+				return true
+			}
+			if (registrationInProgress || removalInProgress || permanentlyRemoved ||
+				registeredRootsClosed || !isValid()) return false
+			val invocation = beginRegisteredRootReturn() ?: return false
+			registrationInProgress = true
+			return try {
+				val descriptor = ReaderExactPhysicalOwnerDescriptor(
+					kind = ReaderTransitionResourceKind.CallbackRegistration,
+					state = ReaderLegacyResourceState.Reserved
+				)
+				// Reserved names an invoked registration whose acceptance has not returned,
+				// not a dormant producer. Synchronous delivery proves acceptance earlier.
+				val acceptedOwner = admitRootOwner(descriptor) {
+					rootDrainDomain = frozenDomain
+					remove()
+				} ?: return false
+				physicalOwner = acceptedOwner
+				registerPhysical()
+				// Removal may have reentered from synchronous framework replay. Never
+				// resurrect that registration merely because add/register then returned.
+				if (physicalOwner === acceptedOwner) {
+					physicalOwners.updateState(acceptedOwner, ReaderLegacyResourceState.Registered)
+					if (domain != null) removedDomain = null
+				}
+				true
+			} catch (failure: Throwable) {
+				// A callback proves the registration was accepted. Without callback/return
+				// proof, keep a Reserved possible installation and require exact removal
+				// before retry; never report a successful restore or register it twice.
+				physicalOwner?.let { registrationUncertain = it.state != ReaderLegacyResourceState.Registered }
+				throw failure
+			} finally {
+				registrationInProgress = false
+				endPhysicalDelivery(invocation)
+			}
+		}
+
+		fun callback(
+			onPhysicalReturn: () -> Unit = {},
+			installedSafetyObservation: (() -> Unit)? = null,
+			action: (admission: Long) -> Unit
+		) {
+			// An already accepted framework callback has a real return even if frozen.
+			val invocation = beginRegisteredRootReturn() ?: return
+			val admission = capturePhysicalAdmission()
+			try {
+				physicalOwner?.let { physicalOwners.updateState(it, ReaderLegacyResourceState.Registered) }
+				if (installedSafetyObservation != null && physicalOwner != null &&
+					!permanentlyRemoved && isValid() && activatedSessionStore.snapshot != null) {
+					installedSafetyObservation()
+				} else if (registeredRootAdmits(admission) && !permanentlyRemoved && isValid()) action(admission)
+			} finally {
+				try {
+					onPhysicalReturn()
+				} finally {
+					endPhysicalDelivery(invocation)
+				}
+			}
+		}
+
+		fun remove(permanent: Boolean = false): Boolean {
+			if (permanent) { permanentlyRemoved = true; removedDomain = null }
+			val owner = physicalOwner ?: return true
+			if (removalInProgress) return false
+			val invocation = beginRegisteredRootReturn() ?: return false
+			removalInProgress = true
+			return try {
+				unregisterPhysical()
+				physicalOwner = null
+				registrationUncertain = false
+				if (!permanentlyRemoved && !registeredRootsClosed && isValid()) removedDomain = frozenDomain
+				physicalOwners.updateState(owner, ReaderLegacyResourceState.Released)
+				settlePhysicalOwner(owner)
+				true
+			} catch (_: Throwable) {
+				// Keep the exact possibly-installed record. Registry rejection rolls back
+				// this cancellation request, so a deterministic retry can remove it.
+				false
+			} finally {
+				removalInProgress = false
+				endPhysicalDelivery(invocation)
+			}
+		}
+
+		internal fun restore(domain: ReaderLegacyPhysicalDomain): Boolean {
+			if (removedDomain != domain) return true
+			if (permanentlyRemoved || registeredRootsClosed || !isValid()) {
+				removedDomain = null
+				return true
+			}
+			return registerInDomain(domain)
+		}
+	}
+
+	internal fun registeredRoot(
+		registerPhysical: () -> Unit,
+		unregisterPhysical: () -> Unit,
+		isValid: () -> Boolean
+	): RegisteredRoot = RegisteredRoot(registerPhysical, unregisterPhysical, isValid).also(registeredRoots::add)
+
+	internal fun closeRegisteredRoots() {
+		registeredRootsClosed = true
+	}
+
+	internal val originalLegacyAdmissionRestored: Boolean
+		get() = registeredRootAdmissionOpen && !physicalOwners.isFrozen &&
+			!restoringRegisteredRoots && !hasPhysicalReturnsInFlight
+
+	internal val registeredRootAdmissionOpen: Boolean
+		get() = frozenDomain == null && !registeredRootsClosed
+
+	internal fun registeredRootAdmits(epoch: Long): Boolean =
+		registeredRootAdmissionOpen && admissionEpoch == epoch
+
+	private fun currentInstalledSafetySnapshot(): ReaderActivatedSessionSnapshot? {
+		val snapshot = activatedSessionStore.snapshot ?: return null
+		if (!snapshot.commandEgressOpen) return null
+		val gateway = when (val authority = snapshot.portAuthority) {
+			is ReaderActivatedSessionPortAuthority.Production -> authority.ports.gateway
+			is ReaderActivatedSessionPortAuthority.Test -> authority.ports.gateway
+			null -> null
+		} as? ReaderSnapshotBackedActivatedGatewayPort ?: return null
+		val candidate = gateway.candidate
+		return snapshot.takeIf { candidate.isSelected && candidate.installationSource === activatedSessionStore &&
+			candidate.readerSessionGeneration == frozenDomain?.readerSessionGeneration &&
+			activatedSessionStore.ownsInstalledCandidate(candidate.epoch, candidate.readerSessionGeneration, candidate.coordinatorEpoch) }
+	}
+
+	private fun admitRootOwner(
+		descriptor: ReaderExactPhysicalOwnerDescriptor,
+		cancelPhysical: (() -> Boolean)? = null
+	): ReaderExactPhysicalOwnerRegistry.Owner? {
+		if (legacyFinalized) {
+			val domain = frozenDomain ?: return null
+			val snapshot = activatedSessionStore.snapshot ?: return null
+			return physicalOwners.admitInstalledPhysicalOwner(domain, activatedSessionStore, snapshot, descriptor, cancelPhysical)
+		}
+		val owner = frozenDomain?.let { domain ->
+			physicalOwners.admitLateDiscoveredDuringFrozenEpoch(domain, descriptor, cancelPhysical)
+		} ?: physicalOwners.admit(descriptor, cancelPhysical)
+		if (restoringRegisteredRoots && owner != null) restorationRootTokens += owner.token
+		return owner
+	}
+
+	// Registration/removal/callback and the enclosing source return share depth with
+	// existing dispatcher/effect returns. No inner return can confirm an outer owner.
+	internal fun beginRegisteredRootReturn(): ReaderExactPhysicalOwnerRegistry.Owner? {
+		val owner = admitRootOwner(ReaderExactPhysicalOwnerDescriptor(
+			kind = ReaderTransitionResourceKind.CallbackRegistration,
+			state = ReaderLegacyResourceState.Running
+		)) ?: return null
+		physicalDepth++
+		return owner
+	}
+
+
+	// A real dispatcher queue entry, separate from its reversible logical projection.
+	internal class PendingHostEffectOwner internal constructor() {
+		internal var physicalOwner: ReaderExactPhysicalOwnerRegistry.Owner? = null
+	}
+	private val pendingHostEffectOwners = linkedSetOf<PendingHostEffectOwner>()
+
+	internal val physicalDeliveryAdmissionOpen: Boolean
+		get() = legacyConsequencesOpen && frozenDomain == null && expectedReaderSessionGeneration != null
+
+	// Derived physical return fact only; never a permission or removal confirmation.
+	internal val hasPhysicalReturnsInFlight: Boolean
+		get() = physicalDepth != 0 || settlingReturns
+
+	internal fun capturePhysicalAdmission(): Long = admissionEpoch
+
+	internal fun admitsPhysicalDelivery(epoch: Long): Boolean =
+		physicalDeliveryAdmissionOpen && admissionEpoch == epoch
+
+	internal fun beginPhysicalDelivery(): ReaderExactPhysicalOwnerRegistry.Owner? {
+		if (!physicalDeliveryAdmissionOpen) return null
+		val owner = physicalOwners.admit(ReaderExactPhysicalOwnerDescriptor(
+			kind = ReaderTransitionResourceKind.CallbackRegistration,
+			state = ReaderLegacyResourceState.Running
+		)) ?: return null
+		physicalDepth++
+		return owner
+	}
+
+	internal fun endPhysicalDelivery(owner: ReaderExactPhysicalOwnerRegistry.Owner) {
+		physicalOwners.updateState(owner, ReaderLegacyResourceState.Released)
+		settledReturnTails += owner
+		check(physicalDepth > 0)
+		physicalDepth--
+		if (physicalDepth != 0) return
+		// Accepted callback return tails belong to their enclosing dispatcher/retry.
+		// Detach the batch before confirmations, which can themselves reenter.
+		val settled = settledReturnTails.toList()
+		settledReturnTails.clear()
+		settlingReturns = true
+		try {
+			settled.forEach { physicalOwners.updateState(it, ReaderLegacyResourceState.Released) }
+			physicalOwners.complete(settled)
+		} finally {
+			settlingReturns = false
+		}
+	}
+
+	private fun settlePhysicalOwner(owner: ReaderExactPhysicalOwnerRegistry.Owner) {
+		if (physicalDepth == 0) physicalOwners.complete(owner) else settledReturnTails += owner
+	}
+
+	internal fun registerPendingHostEffect(): PendingHostEffectOwner? {
+		if (!physicalDeliveryAdmissionOpen) return null
+		return PendingHostEffectOwner().also { pending ->
+			pendingHostEffectOwners += pending
+			registerPendingHostEffectPhysicalOwner(pending)
+		}
+	}
+
+	private fun registerPendingHostEffectPhysicalOwner(pending: PendingHostEffectOwner) {
+		pending.physicalOwner = physicalOwners.admit(
+			ReaderExactPhysicalOwnerDescriptor(
+				kind = ReaderTransitionResourceKind.CallbackRegistration,
+				origin = ReaderLegacyResourceOrigin.Pending,
+				state = ReaderLegacyResourceState.Registered
+			),
+			cancelPhysical = {
+				val owner = pending.physicalOwner
+				pending.physicalOwner = null
+				owner?.let(::settlePhysicalOwner)
+				true // Parks unstarted projection demand; never claims a running tail returned.
+			}
+		)
+	}
+
+	internal fun completePendingHostEffect(pending: PendingHostEffectOwner) {
+		pendingHostEffectOwners.remove(pending)
+		val owner = pending.physicalOwner
+		pending.physicalOwner = null
+		owner?.let(::settlePhysicalOwner)
+	}
+
+	// Consumption is logical accounting, not permission to publish the returned receipt.
+	internal fun consumeReturnedLifecycleReceipt(
+		event: ReaderPresentationEvent.Lifecycle,
+		receipt: ReaderPresentationEventReceipt
+	): Boolean {
+		if (acknowledgedVersion == receipt.version && receipt.event == event) return true
+		if (event.event != nextPendingEvent() || !receiptAcknowledges(event, receipt)) return false
+		acknowledge(event.event, receipt)
+		if (frozenDomain != null) restartSnapshot = captureRestartSnapshot()
+		return true
+	}
 
 	val pendingEventCount: Int
 		get() = visibilityPendingEventCount() +
@@ -77,9 +443,11 @@ internal class ReaderPresentationLifecycleDelivery(
 		initialLifecycle: ReaderPresentationLifecycleState =
 			ReaderPresentationLifecycleState.Foreground
 	) {
-		check(frozenDomain == null) { "Lifecycle delivery reset is frozen" }
+		check(frozenDomain == null && !settlingReturns) { "Lifecycle delivery reset is frozen" }
+		// Host replacement may reenter from a recipient/effect. Replace logical state,
+		// fence the old admission epoch, but retain every real on-stack return owner.
+		admissionEpoch++
 		expectedReaderSessionGeneration = version.readerSessionGeneration
-		activationToken = tokenAllocator.allocate()
 		expectedPublicationIdentity = null
 		minimumEventSequence = version.eventSequence
 		acknowledgedVersion = null
@@ -92,7 +460,6 @@ internal class ReaderPresentationLifecycleDelivery(
 		rendererLossPending = false
 		publicationClosePending = false
 		publicationCloseAcknowledged = false
-		retryInProgress = false
 	}
 
 	fun bindPublication(identity: ReaderPresentationPublicationIdentity): Boolean {
@@ -120,6 +487,29 @@ internal class ReaderPresentationLifecycleDelivery(
 	}
 
 	fun observe(event: ReaderPresentationLifecycleEvent) {
+		val safetyIngressWasClosed = safetyIngressClosed
+		if (event == ReaderPresentationLifecycleEvent.PublicationClosed) {
+			closeRegisteredRoots()
+			safetyIngressClosed = true
+		}
+		val installed = activatedSessionStore.snapshot
+		if (installed != null) {
+			// Retain and retry the exact queued close (and its predecessors), but never
+			// append an ordinary fact or duplicate terminal fact after logical close.
+			if (safetyIngressWasClosed) return
+			val kind = when (event) {
+				ReaderPresentationLifecycleEvent.VisibilityLost -> ReaderTask6LifecycleSafetyKind.VisibilityLost
+				ReaderPresentationLifecycleEvent.RendererLost -> ReaderTask6LifecycleSafetyKind.RendererUnavailable
+				ReaderPresentationLifecycleEvent.HostDetached -> ReaderTask6LifecycleSafetyKind.HostDetached
+				ReaderPresentationLifecycleEvent.WebViewDetached -> ReaderTask6LifecycleSafetyKind.WebViewDetached
+				ReaderPresentationLifecycleEvent.PublicationClosed -> ReaderTask6LifecycleSafetyKind.PublicationClosed
+				ReaderPresentationLifecycleEvent.VisibilityRestored,
+				is ReaderPresentationLifecycleEvent.RunningMemoryPressure,
+				is ReaderPresentationLifecycleEvent.BackgroundMemoryPressure -> null
+			}
+			if (kind != null) observeInstalledSafetyFact(installed, kind)
+			return
+		}
 		if (frozenDomain != null || publicationCloseAcknowledged) return
 		if (event == ReaderPresentationLifecycleEvent.PublicationClosed) {
 			publicationClosePending = true
@@ -145,6 +535,8 @@ internal class ReaderPresentationLifecycleDelivery(
 			is ReaderPresentationLifecycleEvent.RunningMemoryPressure,
 			is ReaderPresentationLifecycleEvent.BackgroundMemoryPressure ->
 				pendingMemoryPressure += event
+			ReaderPresentationLifecycleEvent.HostDetached,
+			ReaderPresentationLifecycleEvent.WebViewDetached -> Unit
 			ReaderPresentationLifecycleEvent.RendererLost -> rendererLossPending = true
 			ReaderPresentationLifecycleEvent.PublicationClosed -> error("Handled above")
 		}
@@ -154,21 +546,27 @@ internal class ReaderPresentationLifecycleDelivery(
 	fun retry(
 		dispatch: (ReaderPresentationEvent.Lifecycle) -> ReaderPresentationEventReceipt?
 	): ReaderPresentationEventReceipt? {
+		if (!legacyConsequencesOpen) { retryInstalledSafetyFacts(); return null }
 		if (frozenDomain != null || retryInProgress || expectedPublicationIdentity == null) return null
 		val lifecycleEvent = nextPendingEvent() ?: return null
 		val event = ReaderPresentationEvent.Lifecycle(lifecycleEvent)
+		val owner = beginPhysicalDelivery() ?: return null
 		retryInProgress = true
-		val receipt = try {
-			dispatch(event)
-		} catch (_: Throwable) {
-			null
+		return try {
+			val callbackOwner = beginPhysicalDelivery() ?: return null
+			val receipt = try {
+				dispatch(event)
+			} catch (_: Throwable) {
+				null
+			} finally {
+				endPhysicalDelivery(callbackOwner)
+			} ?: return null
+			if (!consumeReturnedLifecycleReceipt(event, receipt)) return null
+			receipt
 		} finally {
 			retryInProgress = false
-		} ?: return null
-		if (acknowledgedVersion == receipt.version && receipt.event == event) return receipt
-		val admission = classifyReceipt(event, receipt) ?: return null
-		commitReceipt(admission)
-		return receipt
+			endPhysicalDelivery(owner)
+		}
 	}
 
 	fun classifyReceipt(
@@ -188,83 +586,84 @@ internal class ReaderPresentationLifecycleDelivery(
 
 	fun freezeForTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
-	): ReaderPortCommandResult = when {
-		domain.readerSessionGeneration != expectedReaderSessionGeneration ->
-			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
-		frozenDomain == null -> {
-			frozenDomain = domain
-			ReaderPortCommandResult.Accepted
+	): ReaderPortCommandResult {
+		if (domain.readerSessionGeneration != expectedReaderSessionGeneration ||
+			(frozenDomain != null && frozenDomain != domain)) return invalidPhysicalResource()
+		if (frozenDomain == domain) {
+			if (restoringRegisteredRoots) { restorationRefrozen = true; admissionEpoch++ }
+			return ReaderPortCommandResult.Accepted
 		}
-		frozenDomain == domain -> ReaderPortCommandResult.Accepted
-		else -> ReaderPortCommandResult.Rejected(
-			ReaderTransitionFailureReason.InvalidLegacyResource
-		)
+		val result = physicalOwners.freezeForTransitionActivation(domain)
+		if (result != ReaderPortCommandResult.Accepted) return result
+		frozenDomain = domain
+		admissionEpoch++
+		restartSnapshot = captureRestartSnapshot()
+		return ReaderPortCommandResult.Accepted
 	}
 
-	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
-		val domain = frozenDomain ?: return emptyList()
-		val token = activationToken ?: return emptyList()
-		return listOf(
-			ReaderFrozenLegacyResource(
-				freezeToken = domain.freezeToken,
-				physicalIdentity = ReaderLegacyPhysicalIdentity(
-					domain = domain,
-					source = ReaderLegacyInventorySource.LifecycleDelivery,
-					sourceLocalToken = token
-				),
-				kind = ReaderTransitionResourceKind.CallbackRegistration,
-				binding = null,
-				visibleOwner = null,
-				origin = ReaderLegacyResourceOrigin.Owned,
-				state = ReaderLegacyResourceState.Registered,
-				mayBeCommittedPredecessor = false
-			)
-		)
+	fun snapshotConnectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? {
+		if (settlingReturns || restoringRegisteredRoots) return null
+		return physicalOwners.connectedFrozenOwnership()?.takeIf { it.domain == frozenDomain }
 	}
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> =
+		physicalOwners.snapshotFrozenOwnership()
 
 	fun drainFrozenOwnership(
 		physicalIdentity: ReaderLegacyPhysicalIdentity,
 		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
-	): ReaderPortCommandResult {
-		val domain = frozenDomain
-		val token = activationToken
-		if (
-			domain == null ||
-			token == null ||
-			physicalIdentity.domain != domain ||
-			physicalIdentity.source != ReaderLegacyInventorySource.LifecycleDelivery ||
-			physicalIdentity.sourceLocalToken != token ||
-			restartSnapshot != null
-		) return ReaderPortCommandResult.Rejected(
-			ReaderTransitionFailureReason.InvalidLegacyResource
-		)
-		restartSnapshot = captureRestartSnapshot(token)
-		activationToken = null
-		visibilityLossRequired = false
-		visibilityConfirmationRequired = false
-		pendingMemoryPressure.clear()
-		rendererLossPending = false
-		publicationClosePending = false
-		retryInProgress = false
-		onConfirmed(physicalIdentity)
+	): ReaderPortCommandResult = physicalOwners.drainFrozenOwnership(physicalIdentity, onConfirmed)
+
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult {
+		if (legacyFinalized || frozenDomain != domain || physicalDepth != 0 || settlingReturns ||
+			restoringRegisteredRoots || retryInProgress) return invalidPhysicalResource()
+		val result = physicalOwners.finalizeActivatedHandoff(domain)
+		if (result != ReaderPortCommandResult.Accepted) return result
+		legacyFinalized = true
+		restartSnapshot = null
+		pendingHostEffectOwners.clear()
+		restorationRootTokens.clear()
 		return ReaderPortCommandResult.Accepted
 	}
 
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult {
-		if (frozenDomain != domain) return ReaderPortCommandResult.Rejected(
-			ReaderTransitionFailureReason.InvalidLegacyResource
-		)
-		restartSnapshot?.let(::restoreRestartSnapshot)
-		restartSnapshot = null
-		frozenDomain = null
-		return ReaderPortCommandResult.Accepted
+		if (legacyFinalized || frozenDomain != domain || physicalDepth != 0 || settlingReturns || restoringRegisteredRoots) {
+			return invalidPhysicalResource()
+		}
+		// Pre-drain unfreeze is lawful. Once an actual root cancellation starts,
+		// every old physical row must drain before any removed root is restarted.
+		if (rootDrainDomain == domain && snapshotFrozenOwnership().any {
+			it.physicalIdentity.sourceLocalToken !in restorationRootTokens
+		}) return invalidPhysicalResource()
+		restoringRegisteredRoots = true
+		restorationRefrozen = false
+		try {
+			for (root in registeredRoots.toList()) {
+				if (frozenDomain != domain || restorationRefrozen) return invalidPhysicalResource()
+				if (!runCatching { root.restore(domain) }.getOrDefault(false)) return invalidPhysicalResource()
+				if (frozenDomain != domain || restorationRefrozen || physicalDepth != 0) return invalidPhysicalResource()
+			}
+			val result = physicalOwners.restoreAfterTransitionActivation(domain)
+			if (result != ReaderPortCommandResult.Accepted) return result
+			restartSnapshot?.let(::restoreRestartSnapshot)
+			restartSnapshot = null
+			frozenDomain = null
+			rootDrainDomain = null
+			restorationRootTokens.clear()
+			admissionEpoch++
+			pendingHostEffectOwners.forEach(::registerPendingHostEffectPhysicalOwner)
+			return ReaderPortCommandResult.Accepted
+		} finally {
+			restoringRegisteredRoots = false
+		}
 	}
 
-	private fun captureRestartSnapshot(
-		token: ReaderLegacySourceLocalOpaqueToken
-	) = RestartSnapshot(
+	private fun invalidPhysicalResource(): ReaderPortCommandResult =
+		ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+
+	private fun captureRestartSnapshot() = RestartSnapshot(
 		expectedReaderSessionGeneration = expectedReaderSessionGeneration,
 		expectedPublicationIdentity = expectedPublicationIdentity,
 		minimumEventSequence = minimumEventSequence,
@@ -277,9 +676,7 @@ internal class ReaderPresentationLifecycleDelivery(
 		pendingMemoryPressure = pendingMemoryPressure.toSet(),
 		rendererLossPending = rendererLossPending,
 		publicationClosePending = publicationClosePending,
-		publicationCloseAcknowledged = publicationCloseAcknowledged,
-		retryInProgress = retryInProgress,
-		activationToken = token
+		publicationCloseAcknowledged = publicationCloseAcknowledged
 	)
 
 	private fun restoreRestartSnapshot(snapshot: RestartSnapshot) {
@@ -297,8 +694,6 @@ internal class ReaderPresentationLifecycleDelivery(
 		rendererLossPending = snapshot.rendererLossPending
 		publicationClosePending = snapshot.publicationClosePending
 		publicationCloseAcknowledged = snapshot.publicationCloseAcknowledged
-		retryInProgress = snapshot.retryInProgress
-		activationToken = snapshot.activationToken
 	}
 
 	private fun nextPendingEvent(): ReaderPresentationLifecycleEvent? {
@@ -379,6 +774,8 @@ internal class ReaderPresentationLifecycleDelivery(
 		ReaderPresentationLifecycleEvent.PublicationClosed -> ReaderPresentationLifecycleState.Destroyed
 		is ReaderPresentationLifecycleEvent.RunningMemoryPressure,
 		is ReaderPresentationLifecycleEvent.BackgroundMemoryPressure,
+		ReaderPresentationLifecycleEvent.HostDetached,
+		ReaderPresentationLifecycleEvent.WebViewDetached,
 		ReaderPresentationLifecycleEvent.RendererLost ->
 			acknowledgedLifecycle ?: initialLifecycle
 	}
@@ -400,6 +797,8 @@ internal class ReaderPresentationLifecycleDelivery(
 			is ReaderPresentationLifecycleEvent.RunningMemoryPressure,
 			is ReaderPresentationLifecycleEvent.BackgroundMemoryPressure ->
 				pendingMemoryPressure.remove(event)
+			ReaderPresentationLifecycleEvent.HostDetached,
+			ReaderPresentationLifecycleEvent.WebViewDetached -> Unit
 			ReaderPresentationLifecycleEvent.RendererLost -> rendererLossPending = false
 			ReaderPresentationLifecycleEvent.PublicationClosed -> {
 				publicationClosePending = false
@@ -424,7 +823,8 @@ internal data class ReaderPresentationHostEffect(
 	val identity: ReaderPresentationHostEffectIdentity,
 	val event: ReaderPresentationEvent?,
 	val decision: ReaderPresentationDecision,
-	val rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity?
+	val rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity?,
+	val physicalAdmission: (() -> Boolean)? = null
 ) {
 	val terminalPriority: Boolean
 		get() = event is ReaderPresentationEvent.Lifecycle &&
@@ -465,20 +865,21 @@ internal class ReaderPresentationHostEffectApplier(
 			}
 		}
 		if (effect.identity in completed) return
+		fun mutate(mutation: ReaderPresentationHostMutation, action: () -> Unit) {
+			check(effect.physicalAdmission?.invoke() != false) { "Host effect admission is fenced" }
+			action()
+			check(effect.physicalAdmission?.invoke() != false) { "Host effect admission is fenced" }
+			afterMutation(mutation)
+			check(effect.physicalAdmission?.invoke() != false) { "Host effect admission is fenced" }
+		}
 		val application = readerNativePresentationApplication(effect.decision)
-		commitHostModel(application)
-		afterMutation(ReaderPresentationHostMutation.Model)
-		applyViewerDecision(
-			application.decision,
-			effect.rendererLossCancellationIdentity
-		)
-		afterMutation(ReaderPresentationHostMutation.ViewerDecision)
-		applyShellCoverLayer(application)
-		afterMutation(ReaderPresentationHostMutation.ShellCoverLayer)
-		applyViewerCoverVisibility(application)
-		afterMutation(ReaderPresentationHostMutation.ViewerCoverVisibility)
-		applyNativeCoverVisibility(application)
-		afterMutation(ReaderPresentationHostMutation.NativeCoverVisibility)
+		mutate(ReaderPresentationHostMutation.Model) { commitHostModel(application) }
+		mutate(ReaderPresentationHostMutation.ViewerDecision) {
+			applyViewerDecision(application.decision, effect.rendererLossCancellationIdentity)
+		}
+		mutate(ReaderPresentationHostMutation.ShellCoverLayer) { applyShellCoverLayer(application) }
+		mutate(ReaderPresentationHostMutation.ViewerCoverVisibility) { applyViewerCoverVisibility(application) }
+		mutate(ReaderPresentationHostMutation.NativeCoverVisibility) { applyNativeCoverVisibility(application) }
 		completed += effect.identity
 		while (completed.size > ReaderPresentationHostEffectLimit) {
 			completed.remove(completed.first())
@@ -509,6 +910,17 @@ internal class ReaderPresentationReceiptDispatcher(
 	private var dispatchInProgress = false
 	private val pendingHostEffects =
 		linkedMapOf<ReaderPresentationHostEffectIdentity, ReaderPresentationHostEffect>()
+	private val pendingHostEffectOwners = linkedMapOf<
+		ReaderPresentationHostEffectIdentity, ReaderPresentationLifecycleDelivery.PendingHostEffectOwner
+	>()
+	private var hostEffectDrainInProgress = false
+	private data class ParkedReceipt(
+		val epoch: Long,
+		val event: ReaderPresentationEvent,
+		val receipt: ReaderPresentationEventReceipt,
+		val rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity?
+	)
+	private var parkedReceipt: ParkedReceipt? = null
 
 	val pendingHostEffectCount: Int
 		get() = pendingHostEffects.size
@@ -527,14 +939,21 @@ internal class ReaderPresentationReceiptDispatcher(
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity?,
 		onEvent: (ReaderPresentationEvent) -> ReaderPresentationEventReceipt?
 	): ReaderPresentationEventReceipt? {
-		if (dispatchInProgress) return null
+		if (dispatchInProgress || !lifecycleDelivery.physicalDeliveryAdmissionOpen) return null
+		val owner = lifecycleDelivery.beginPhysicalDelivery() ?: return null
 		val epoch = bindingReporter.captureEpoch()
+		val admission = lifecycleDelivery.capturePhysicalAdmission()
 		dispatchInProgress = true
 		return try {
+			resumeParkedReceipt()
+			if (!lifecycleDelivery.admitsPhysicalDelivery(admission)) return null
+			val recipient = lifecycleDelivery.beginPhysicalDelivery() ?: return null
 			val receipt = try {
 				onEvent(event)
 			} catch (_: Throwable) {
 				null
+			} finally {
+				lifecycleDelivery.endPhysicalDelivery(recipient)
 			} ?: return null
 			validateAndCommit(
 				epoch = epoch,
@@ -544,6 +963,7 @@ internal class ReaderPresentationReceiptDispatcher(
 			)
 		} finally {
 			dispatchInProgress = false
+			lifecycleDelivery.endPhysicalDelivery(owner)
 		}
 	}
 
@@ -553,13 +973,16 @@ internal class ReaderPresentationReceiptDispatcher(
 	): ReaderPresentationEventReceipt? {
 		if (
 			dispatchInProgress ||
+				!lifecycleDelivery.physicalDeliveryAdmissionOpen ||
 				receipt == null ||
 				receipt.event is ReaderPresentationEvent.Lifecycle
 		) {
 			return null
 		}
+		val owner = lifecycleDelivery.beginPhysicalDelivery() ?: return null
 		dispatchInProgress = true
 		return try {
+			resumeParkedReceipt()
 			validateAndCommit(
 				epoch = epoch,
 				event = receipt.event,
@@ -568,6 +991,7 @@ internal class ReaderPresentationReceiptDispatcher(
 			)
 		} finally {
 			dispatchInProgress = false
+			lifecycleDelivery.endPhysicalDelivery(owner)
 		}
 	}
 
@@ -582,6 +1006,15 @@ internal class ReaderPresentationReceiptDispatcher(
 			expectedEvent = event,
 			receipt = receipt
 		) ?: return null
+		if (!lifecycleDelivery.physicalDeliveryAdmissionOpen) {
+			if (event is ReaderPresentationEvent.Lifecycle &&
+				!lifecycleDelivery.consumeReturnedLifecycleReceipt(event, receipt)) return null
+			if (!lifecycleDelivery.legacyConsequencesOpen) return receipt
+			// The accepted external recipient is consumed exactly once. Its model/effect
+			// publication waits for restoration; restoration never invokes that recipient.
+			parkedReceipt = ParkedReceipt(epoch, event, receipt, rendererLossCancellationIdentity)
+			return receipt
+		}
 		val lifecycleAdmission = if (event is ReaderPresentationEvent.Lifecycle) {
 			lifecycleDelivery.classifyReceipt(event, receipt) ?: return null
 		} else {
@@ -600,6 +1033,16 @@ internal class ReaderPresentationReceiptDispatcher(
 		)
 		drainPresentationHostEffects()
 		return receipt
+	}
+
+	private fun resumeParkedReceipt() {
+		if (!lifecycleDelivery.physicalDeliveryAdmissionOpen) return
+		val parked = parkedReceipt ?: return
+		parkedReceipt = null
+		val admission = bindingReporter.classifyReceipt(parked.epoch, parked.event, parked.receipt)
+			?: return
+		commitAuthoritativeModel(parked.epoch, parked.event, admission, null,
+			parked.rendererLossCancellationIdentity)
 	}
 
 	private fun commitAuthoritativeModel(
@@ -622,8 +1065,17 @@ internal class ReaderPresentationReceiptDispatcher(
 		)
 	}
 
+	private fun removeHostEffect(identity: ReaderPresentationHostEffectIdentity) {
+		pendingHostEffects.remove(identity)
+		pendingHostEffectOwners.remove(identity)?.let(lifecycleDelivery::completePendingHostEffect)
+	}
+
+	private fun removeHostEffectsWhere(predicate: (ReaderPresentationHostEffect) -> Boolean) {
+		pendingHostEffects.values.filter(predicate).map { it.identity }.forEach(::removeHostEffect)
+	}
+
 	private fun enqueueHostEffect(effect: ReaderPresentationHostEffect) {
-		pendingHostEffects.entries.removeAll { (_, pending) ->
+		removeHostEffectsWhere { pending ->
 			pending.identity.hostEpoch == effect.identity.hostEpoch &&
 				pending.identity.version.eventSequence < effect.identity.version.eventSequence &&
 				(
@@ -641,13 +1093,17 @@ internal class ReaderPresentationReceiptDispatcher(
 				entry.setValue(pending.copy(decision = effect.decision))
 			}
 		}
-		pendingHostEffects.putIfAbsent(effect.identity, effect)
+		if (effect.identity !in pendingHostEffects) {
+			val owner = lifecycleDelivery.registerPendingHostEffect() ?: return
+			pendingHostEffects[effect.identity] = effect
+			pendingHostEffectOwners[effect.identity] = owner
+		}
 		while (pendingHostEffects.size > ReaderPresentationHostEffectLimit) {
 			val superseded = pendingHostEffects.entries.firstOrNull { (_, pending) ->
 				pending.rendererLossCancellationIdentity == null &&
 					pending.identity != effect.identity
 			} ?: pendingHostEffects.entries.first()
-			pendingHostEffects.remove(superseded.key)
+			removeHostEffect(superseded.key)
 		}
 	}
 
@@ -660,65 +1116,94 @@ internal class ReaderPresentationReceiptDispatcher(
 	): Boolean {
 		if (
 			dispatchInProgress ||
+			!lifecycleDelivery.physicalDeliveryAdmissionOpen ||
 			epoch != bindingReporter.captureEpoch()
 		) return false
-		if (bindingReporter.matchesAuthoritativePresentationVersion(version)) {
+		val owner = lifecycleDelivery.beginPhysicalDelivery() ?: return false
+		dispatchInProgress = true
+		try {
+			resumeParkedReceipt()
+			if (bindingReporter.matchesAuthoritativePresentationVersion(version)) {
+				drainPresentationHostEffects()
+				return true
+			}
+			if (decision != readerPresentationDecision(state)) {
+				drainPresentationHostEffects()
+				return false
+			}
+			if (
+				!bindingReporter.consumeComposeModel(
+					version = version,
+					state = state,
+					shellCoverVisible = shellCoverVisible
+				)
+			) {
+				drainPresentationHostEffects()
+				return false
+			}
+			enqueueHostEffect(
+				ReaderPresentationHostEffect(
+					identity = ReaderPresentationHostEffectIdentity(epoch, version),
+					event = null,
+					decision = decision,
+					rendererLossCancellationIdentity = null
+				)
+			)
 			drainPresentationHostEffects()
 			return true
+		} finally {
+			dispatchInProgress = false
+			lifecycleDelivery.endPhysicalDelivery(owner)
 		}
-		if (decision != readerPresentationDecision(state)) {
-			drainPresentationHostEffects()
-			return false
-		}
-		if (
-			!bindingReporter.consumeComposeModel(
-				version = version,
-				state = state,
-				shellCoverVisible = shellCoverVisible
-			)
-		) {
-			drainPresentationHostEffects()
-			return false
-		}
-		enqueueHostEffect(
-			ReaderPresentationHostEffect(
-				identity = ReaderPresentationHostEffectIdentity(epoch, version),
-				event = null,
-				decision = decision,
-				rendererLossCancellationIdentity = null
-			)
-		)
-		drainPresentationHostEffects()
-		return true
 	}
 
 	fun drainPresentationHostEffects(): Boolean {
-		val currentHostEpoch = bindingReporter.captureEpoch()
-		pendingHostEffects.entries.removeAll { (identity, _) ->
-			identity.hostEpoch != currentHostEpoch
-		}
-		var complete = true
-		val attempts = pendingHostEffects.values.sortedByDescending {
-			it.identity.version.eventSequence
-		}
-		attempts.forEach { pending ->
-			if (pendingHostEffects[pending.identity] != pending) return@forEach
-			try {
-				applyHostEffect(pending)
-			} catch (_: Throwable) {
-				complete = false
-				return@forEach
+		if (!lifecycleDelivery.physicalDeliveryAdmissionOpen || hostEffectDrainInProgress) return false
+		val owner = lifecycleDelivery.beginPhysicalDelivery() ?: return false
+		val admission = lifecycleDelivery.capturePhysicalAdmission()
+		hostEffectDrainInProgress = true
+		return try {
+			resumeParkedReceipt()
+			val currentHostEpoch = bindingReporter.captureEpoch()
+			removeHostEffectsWhere { it.identity.hostEpoch != currentHostEpoch }
+			var complete = true
+			val attempts = pendingHostEffects.values.sortedByDescending {
+				it.identity.version.eventSequence
 			}
-			pendingHostEffects.remove(pending.identity)
-			if (pending.terminalPriority) {
-				pendingHostEffects.entries.removeAll { (_, queued) ->
-					queued.rendererLossCancellationIdentity == null &&
-						queued.identity.hostEpoch == pending.identity.hostEpoch &&
-						queued.identity.version.eventSequence <=
-							pending.identity.version.eventSequence
+			for (pending in attempts) {
+				if (!lifecycleDelivery.admitsPhysicalDelivery(admission)) {
+					complete = false
+					break
+				}
+				if (pendingHostEffects[pending.identity] != pending) continue
+				val effectOwner = lifecycleDelivery.beginPhysicalDelivery() ?: break
+				val applied = try {
+					applyHostEffect(pending.copy(physicalAdmission = {
+						lifecycleDelivery.admitsPhysicalDelivery(admission)
+					}))
+					true
+				} catch (_: Throwable) {
+					false
+				} finally {
+					lifecycleDelivery.endPhysicalDelivery(effectOwner)
+				}
+				if (!applied) {
+					complete = false
+					continue
+				}
+				removeHostEffect(pending.identity)
+				if (pending.terminalPriority) {
+					removeHostEffectsWhere { queued ->
+						queued.rendererLossCancellationIdentity == null &&
+							queued.identity.hostEpoch == pending.identity.hostEpoch &&
+							queued.identity.version.eventSequence <= pending.identity.version.eventSequence
+					}
 				}
 			}
+			complete && pendingHostEffects.isEmpty() && lifecycleDelivery.admitsPhysicalDelivery(admission)
+		} finally {
+			hostEffectDrainInProgress = false
+			lifecycleDelivery.endPhysicalDelivery(owner)
 		}
-		return complete && pendingHostEffects.isEmpty()
 	}
 }

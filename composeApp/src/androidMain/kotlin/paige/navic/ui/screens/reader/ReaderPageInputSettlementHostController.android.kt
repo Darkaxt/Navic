@@ -14,6 +14,10 @@ import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationInputPolicy
 import paige.navic.reader.ReaderPresentationToken
 import paige.navic.reader.ReaderTransitionInputLease
+import paige.navic.reader.ReaderInitialCommittedPresentationOrigin
+import paige.navic.reader.ReaderPresentationFrameOwner
+import paige.navic.reader.asPhysicalInputLease
+import paige.navic.reader.readerTransitionPresentationInputPolicy
 import paige.navic.reader.readerPageNewPointerDecision
 
 internal enum class ReaderPageHostLifecycleEvent {
@@ -197,6 +201,102 @@ internal class ReaderPageInputSettlementHostController(
 		ReaderRendererLossCancellationOperation
 	) -> Unit = {}
 ) {
+	private data class InstalledInputReaders(
+		val readPhysicalPublication: () -> ReaderOwnerAndInputPublicationSnapshot?,
+		val readInitialOrigin: () -> ReaderInitialCommittedPresentationOrigin?,
+		val readerSessionGeneration: Long,
+		val coordinatorEpoch: Long
+	)
+
+	private var installedInputReaders: InstalledInputReaders? = null
+	private var refreshingInstalledInput = false
+	private var finalizingInstalledInput = false
+
+	fun activateInstalledInput(
+		readPhysicalPublication: () -> ReaderOwnerAndInputPublicationSnapshot?,
+		readInitialOrigin: () -> ReaderInitialCommittedPresentationOrigin?
+	): ReaderPortCommandResult {
+		val domain = frozenDomain
+		if (domain == null || installedInputReaders != null || pointerAdmissionClosed || pointerDeliveryClosed ||
+			snapshotFrozenOwnership().isNotEmpty() || completedFrozen.isNotEmpty()
+		) return ReaderPortCommandResult.Rejected(paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource)
+		val initial = readInitialOrigin()
+		if (initial == null || initial.readerSessionGeneration != domain.readerSessionGeneration) {
+			return ReaderPortCommandResult.Rejected(paige.navic.reader.ReaderTransitionFailureReason.ActivationPrerequisiteMissing)
+		}
+		// Bind readers of the same installed composition authority, not a second policy writer.
+		installedInputReaders = InstalledInputReaders(readPhysicalPublication, readInitialOrigin,
+			initial.readerSessionGeneration, initial.coordinatorEpoch)
+		return ReaderPortCommandResult.Accepted
+	}
+
+	/** Only live local readiness enters here; neither it nor legacy updates grant an owner. */
+	fun updateInstalledLocalSafety(
+		policy: ReaderPageOperationPolicy,
+		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
+	) {
+		if (installedInputReaders == null) return
+		if (policy != localSafetyPolicy && (!policy.continueActivePointer || policy.cancelForReadinessChange)) {
+			pendingChromeTap = null
+		}
+		localSafetyPolicy = policy
+		refreshInstalledInput()
+		if (rendererLossCancellationIdentity != null && installedInputAdmissionOpen()) {
+			cancelForLifecycle(rendererLossCancellationIdentity.reason, rendererLossCancellationIdentity)
+		}
+	}
+
+	private fun installedInputAdmissionOpen(): Boolean =
+		legacyFinalized && !finalizingInstalledInput && installedInputReaders != null
+	private fun inputFrozen(): Boolean = frozenDomain != null && !installedInputAdmissionOpen()
+
+	private fun refreshInstalledInput() {
+		val readers = installedInputReaders ?: return
+		if (!installedInputAdmissionOpen() || refreshingInstalledInput) return
+		refreshingInstalledInput = true
+		try {
+			val initial = readers.readInitialOrigin()
+			val physical = readers.readPhysicalPublication()
+			val domain = frozenDomain
+			val validDomain = initial != null && initial.readerSessionGeneration == domain?.readerSessionGeneration &&
+				initial.readerSessionGeneration == readers.readerSessionGeneration && initial.coordinatorEpoch == readers.coordinatorEpoch
+			val physicalValid = validDomain && physical != null &&
+				physical.resource.retirementOrder.readerSessionGeneration == initial?.readerSessionGeneration &&
+				physical.resource.retirementOrder.coordinatorEpoch == initial?.coordinatorEpoch &&
+				physical.resource.key.kind == when (physical.owner) {
+					is ReaderPresentationFrameOwner.NativePage, is ReaderPresentationFrameOwner.Curl ->
+						paige.navic.reader.ReaderTransitionResourceKind.Deck
+					else -> paige.navic.reader.ReaderTransitionResourceKind.FrameHandoff
+				}
+			val owner: ReaderPresentationFrameOwner
+			val binding: ReaderPresentationBinding?
+			val lease: ReaderTransitionInputLease
+			when {
+				physical != null && physicalValid -> {
+					owner = physical.owner; binding = physical.binding; lease = physical.lease
+				}
+				physical == null && validDomain && initial is ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor -> {
+					owner = initial.owner; binding = initial.binding; lease = initial.physicalLease.asPhysicalInputLease()
+				}
+				physical == null && validDomain && initial is ReaderInitialCommittedPresentationOrigin.Neutral -> {
+					owner = ReaderPresentationFrameOwner.Neutral; binding = null; lease = initial.physicalLease.asPhysicalInputLease()
+				}
+				else -> {
+					owner = ReaderPresentationFrameOwner.Neutral; binding = null; lease = ReaderTransitionInputLease.None
+				}
+			}
+			val policy = readerTransitionPresentationInputPolicy(owner, binding, lease)
+			val continuation = if (owner is ReaderPresentationFrameOwner.NativePage &&
+				policy is ReaderPresentationInputPolicy.NativePage &&
+				localSafetyPolicy.newPointer == ReaderPageNewPointerDecision.Accept
+			) ReaderNativeTapContinuationIdentity(owner.proof.binding, owner.proof.transitionToken,
+				policy.policy, localSafetyPolicy) else null
+			applyInputPolicies(policy, localSafetyPolicy, continuation, null)
+		} finally {
+			refreshingInstalledInput = false
+		}
+	}
+
 	private data class PendingChromeTap(
 		val downX: Float,
 		val downY: Float,
@@ -262,6 +362,7 @@ internal class ReaderPageInputSettlementHostController(
 	private var physicalStreamActivationToken: ReaderLegacySourceLocalOpaqueToken? = null
 	private var chromeStreamActivationToken: ReaderLegacySourceLocalOpaqueToken? = null
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var legacyFinalized = false
 	private var restartPhysicalStream: RestartPhysicalStream? = null
 	private var restartChromeStream: RestartChromeStream? = null
 	private val restartContentTokens = linkedMapOf<Long, RestartContentToken>()
@@ -282,6 +383,21 @@ internal class ReaderPageInputSettlementHostController(
 		else -> ReaderPortCommandResult.Rejected(
 			paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource
 		)
+	}
+
+	internal val originalLegacyAdmissionRestored: Boolean
+		get() = frozenDomain == null && !pointerAdmissionClosed && !pointerDeliveryClosed
+
+	internal fun originalIdentityFreeInitialLease(): paige.navic.reader.ReaderInitialPresentationInputLease? =
+		when (presentationInputPolicy) {
+			ReaderPresentationInputPolicy.RecoveryOnly -> paige.navic.reader.ReaderInitialPresentationInputLease.None
+			ReaderPresentationInputPolicy.ChromeOnly -> paige.navic.reader.ReaderInitialPresentationInputLease.ChromeOnly
+			else -> null // A bound/claimed policy needs its genuine owner-specific checkpoint.
+		}
+
+	fun snapshotConnectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? {
+		val domain = frozenDomain ?: return null
+		return ReaderLegacyConnectedSourceInventory(ReaderLegacyInventorySource.Input, domain, snapshotFrozenOwnership())
 	}
 
 	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
@@ -375,10 +491,27 @@ internal class ReaderPageInputSettlementHostController(
 		)
 	}
 
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult {
+		if (legacyFinalized || frozenDomain != domain || snapshotFrozenOwnership().isNotEmpty())
+			return ReaderPortCommandResult.Rejected(paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource)
+		legacyFinalized = true // Fence restoration before original terminal cancellation can reenter.
+		finalizingInstalledInput = true
+		val physical = restartPhysicalStream
+		val gestures = restartContentTokens.keys + listOfNotNull(physical?.gestureId)
+		for (gesture in gestures) pointerRouter.cancel(gesture, ReaderPageGestureTerminalOutcome.CancelledLifecycle)
+		physical?.let { cancellationPort.cancelForPointerInterruption(it.gestureId) }
+		restartPhysicalStream = null
+		restartChromeStream = null
+		restartContentTokens.clear()
+		completedFrozen.clear()
+		finalizingInstalledInput = false // An exceptional finalization must keep installed admission fenced.
+		return ReaderPortCommandResult.Accepted
+	}
+
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult {
-		if (frozenDomain != domain) return ReaderPortCommandResult.Rejected(
+		if (legacyFinalized || frozenDomain != domain) return ReaderPortCommandResult.Rejected(
 			paige.navic.reader.ReaderTransitionFailureReason.InvalidLegacyResource
 		)
 		restartPhysicalStream?.let { restart ->
@@ -415,7 +548,7 @@ internal class ReaderPageInputSettlementHostController(
 			if (
 				!pointerAdmissionClosed &&
 				localSafetyPolicy.newPointer == ReaderPageNewPointerDecision.Accept &&
-				continuation?.binding == lease.binding &&
+				(installedInputAdmissionOpen() || continuation?.binding == lease.binding) &&
 				lease.binding.textureGeneration == lease.textureGeneration
 			) lease else ReaderTransitionInputLease.ChromeOnly
 		}
@@ -433,6 +566,16 @@ internal class ReaderPageInputSettlementHostController(
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	) {
 		if (frozenDomain != null) return
+		applyInputPolicies(presentationInputPolicy, localSafetyPolicy,
+			nativeTapContinuationIdentity, rendererLossCancellationIdentity)
+	}
+
+	private fun applyInputPolicies(
+		presentationInputPolicy: ReaderPresentationInputPolicy,
+		localSafetyPolicy: ReaderPageOperationPolicy,
+		nativeTapContinuationIdentity: ReaderNativeTapContinuationIdentity?,
+		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity?
+	) {
 		val incomingCurlToken = (presentationInputPolicy as?
 			ReaderPresentationInputPolicy.ClaimedCurl)?.token
 		val claimedStream = claimedCurlStream?.takeIf {
@@ -467,13 +610,18 @@ internal class ReaderPageInputSettlementHostController(
 					!localSafetyPolicy.continueActivePointer ||
 						localSafetyPolicy.cancelForReadinessChange
 				)
+		val continuationChanged = nativeTapContinuationIdentity != this.nativeTapContinuationIdentity
+		// Publish the narrowed projection before cancellation callbacks can reenter.
+		this.presentationInputPolicy = presentationInputPolicy
+		this.localSafetyPolicy = localSafetyPolicy
+		this.nativeTapContinuationIdentity = nativeTapContinuationIdentity
 		if (
 			presentationInputPolicy != ReaderPresentationInputPolicy.ChromeOnly ||
 			localSafetyVetoedPendingChrome
 		) {
 			pendingChromeTap = null
 		}
-		if (nativeTapContinuationIdentity != this.nativeTapContinuationIdentity) {
+		if (continuationChanged) {
 			revokeContentContinuations()
 		}
 		if (rendererLossCancellationIdentity != null) {
@@ -487,12 +635,13 @@ internal class ReaderPageInputSettlementHostController(
 			)
 			claimedCurlStream = null
 		}
-		this.presentationInputPolicy = presentationInputPolicy
-		this.localSafetyPolicy = localSafetyPolicy
-		this.nativeTapContinuationIdentity = nativeTapContinuationIdentity
 	}
 
 	fun newPointerDecision(): ReaderPageNewPointerDecision {
+		refreshInstalledInput()
+		if (inputFrozen() || refreshingInstalledInput || pointerAdmissionClosed || pointerDeliveryClosed)
+			return ReaderPageNewPointerDecision.Reject(
+			ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable)
 		val policyDecision = readerPageNewPointerDecision(
 			presentationInputPolicy = presentationInputPolicy,
 			localSafetyPolicy = localSafetyPolicy
@@ -511,7 +660,8 @@ internal class ReaderPageInputSettlementHostController(
 	}
 
 	fun dispatchChromeOnlyPointer(event: ReaderPageHostPointerEvent): Boolean {
-		if (frozenDomain != null) return false
+		refreshInstalledInput()
+		if (inputFrozen() || (refreshingInstalledInput && event is ReaderPageHostPointerEvent.Down)) return false
 		val terminalCurlGestureId = physicalStreamGestureId?.takeIf {
 			claimedCurlStream?.let { claim ->
 				claim.gestureId == it && claim.terminalPublished
@@ -617,7 +767,8 @@ internal class ReaderPageInputSettlementHostController(
 	}
 
 	fun dispatchPointer(event: ReaderPageHostPointerEvent): ReaderPageHostPointerDispatchResult {
-		if (frozenDomain != null) {
+		refreshInstalledInput()
+		if (inputFrozen() || (refreshingInstalledInput && event is ReaderPageHostPointerEvent.Down)) {
 			return ReaderPageHostPointerDispatchResult(null, ReaderPagePointerRoute.Ignore)
 		}
 		if (
@@ -727,7 +878,8 @@ internal class ReaderPageInputSettlementHostController(
 	}
 
 	fun claimContentAction(downTimeMillis: Long): ReaderPageHostPointerDispatchResult {
-		if (frozenDomain != null) {
+		refreshInstalledInput()
+		if (inputFrozen() || refreshingInstalledInput) {
 			return ReaderPageHostPointerDispatchResult(null, ReaderPagePointerRoute.Ignore)
 		}
 		contentTokenByGestureId.values
@@ -754,7 +906,8 @@ internal class ReaderPageInputSettlementHostController(
 	private fun takeDelayedTapMatching(
 		matches: (ReaderPageContentGestureToken) -> Boolean
 	): ReaderPageContentGestureToken? {
-		if (frozenDomain != null) return null
+		refreshInstalledInput()
+		if (inputFrozen() || refreshingInstalledInput) return null
 		val entry = contentTokenByGestureId.entries.firstOrNull { (gestureId, token) ->
 			matches(token) && pointerRouter.isDelayedTapPending(gestureId)
 		} ?: return null
@@ -820,7 +973,7 @@ internal class ReaderPageInputSettlementHostController(
 	private fun releaseContentToken(gestureId: Long) {
 		contentTokenByGestureId.remove(gestureId)
 		contentActivationTokenByGestureId.remove(gestureId)?.let { token ->
-			if (frozenDomain != null) completedFrozen += token
+			if (frozenDomain != null && !legacyFinalized) completedFrozen += token
 		}
 	}
 
@@ -848,7 +1001,7 @@ internal class ReaderPageInputSettlementHostController(
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome
 	): Boolean {
-		if (frozenDomain != null) return false
+		if (inputFrozen()) return false
 		val completed = pointerRouter.complete(gestureId, outcome)
 		if (completed) {
 			releaseContentToken(gestureId)
@@ -865,7 +1018,7 @@ internal class ReaderPageInputSettlementHostController(
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome
 	): Boolean {
-		if (frozenDomain != null) return false
+		if (inputFrozen()) return false
 		val completed = pointerRouter.completeDelayedTap(gestureId, outcome)
 		if (completed) releaseContentToken(gestureId)
 		return completed
@@ -875,7 +1028,7 @@ internal class ReaderPageInputSettlementHostController(
 		event: ReaderPageHostLifecycleEvent,
 		rendererLossCancellationIdentity: ReaderRendererLossCancellationIdentity? = null
 	): List<Long> {
-		if (frozenDomain != null) return emptyList()
+		if (inputFrozen()) return emptyList()
 		val reason = event.cancellationReason()
 		require(
 			rendererLossCancellationIdentity == null ||
@@ -1025,7 +1178,7 @@ internal class ReaderPageInputSettlementHostController(
 	}
 
 	fun abandonPhysicalPointerStream(reason: ReaderPageLifecycleCancellationReason) {
-		if (frozenDomain != null) return
+		if (inputFrozen()) return
 		require(
 			reason == ReaderPageLifecycleCancellationReason.HostDetached ||
 				reason == ReaderPageLifecycleCancellationReason.HostDestroyed ||

@@ -508,7 +508,8 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 		Int,
 		ReaderPageQaFaultCorrelation
 	) -> Unit = { pageIndex, _ -> onMissingRaster(pageIndex) },
-	private val copyDispatcher: CoroutineDispatcher = Dispatchers.Default
+	private val copyDispatcher: CoroutineDispatcher = Dispatchers.Default,
+	private val work: ReaderActivatedRasterWork? = null
 ) : ReaderPlayLikeCurlRasterLoader<ReaderPlayLikeCurlRasterImage> {
 	private val transitionKind = when (profile.orientation) {
 		ReaderPlayLikeCurlOrientation.Portrait -> ReaderPageTurnTransitionKind.PortraitSlide
@@ -634,7 +635,8 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 				pageIndex = request.sourcePageIndex,
 				kind = transitionKind,
 				reference = inputs.reference,
-				publicationFence = isStillCurrent
+				publicationFence = isStillCurrent,
+				work = work
 			)
 		} finally {
 			inputs.reference.release()
@@ -646,7 +648,7 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 		isStillCurrent: () -> Boolean
 	): ReaderPlayLikeCurlRasterResolverInputs? =
 		withContext(Dispatchers.Main.immediate) {
-			if (!isStillCurrent()) return@withContext null
+			if (work?.isCurrent() == false || !isStillCurrent()) return@withContext null
 			val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
 				?: return@withContext null
 			val reference = referenceSnapshotProvider(request)

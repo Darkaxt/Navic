@@ -24,6 +24,19 @@ import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
+/** Implementations can only originate in this actual registered WebView producer file. */
+internal sealed interface ReaderLiveEnginePhysicalWitness {
+	fun matches(engine: WebView): Boolean
+}
+private class ActualLiveEnginePhysicalWitness(
+	private val engine: WebView,
+	private val callbackAttempt: Any,
+	private val isCurrent: () -> Boolean
+) : ReaderLiveEnginePhysicalWitness {
+	override fun matches(engine: WebView): Boolean = this.engine === engine && isCurrent()
+	override fun toString(): String = "ReaderLiveEnginePhysicalWitness(<redacted>)"
+}
+
 internal enum class ReaderWebViewVisualHandoffFailure {
 	Detached,
 	TimedOut,
@@ -39,7 +52,8 @@ internal sealed interface ReaderWebViewVisualHandoffResult {
 
 	data class Ready(
 		override val token: String,
-		val presentedFrameSequence: Long
+		val presentedFrameSequence: Long,
+		val physicalWitness: ReaderLiveEnginePhysicalWitness? = null
 	) : ReaderWebViewVisualHandoffResult {
 		init {
 			require(presentedFrameSequence > 0L)
@@ -64,7 +78,8 @@ internal sealed interface ReaderPresentationWebViewVisualHandoffResult {
 	data class Ready(
 		override val token: ReaderPresentationToken,
 		override val binding: ReaderPresentationBinding,
-		val presentedFrameSequence: Long
+		val presentedFrameSequence: Long,
+		val physicalWitness: ReaderLiveEnginePhysicalWitness? = null
 	) : ReaderPresentationWebViewVisualHandoffResult {
 		init {
 			require(presentedFrameSequence > 0L)
@@ -136,6 +151,11 @@ internal class ReaderWebViewVisualDeliveryCell(
 	private val onPhysicalOwnershipReleased: () -> Unit,
 	private val onPhysicalOwnershipReleaseCompleted: () -> Unit = {}
 ) : ReaderWebViewVisualCallbackRegistration {
+	internal var physicalWitness: ReaderLiveEnginePhysicalWitness? = null
+		private set
+	internal fun recordPhysicalWitness(witness: ReaderLiveEnginePhysicalWitness) {
+		if (!physicalOwnershipReleased.get()) physicalWitness = witness
+	}
 	private val action = AtomicReference<(() -> Unit)?>(action)
 	private val transferred = AtomicBoolean()
 	private val physicalOwnershipReleased = AtomicBoolean()
@@ -259,6 +279,7 @@ internal class ReaderWebViewVisualHandoff(
 		var nextFrameToken: Long? = null,
 		var nextFrameAction: (() -> Unit)? = null,
 		var visualStateCompleted: Boolean = false,
+		var physicalWitness: ReaderLiveEnginePhysicalWitness? = null,
 		var nextFrameCompleted: Boolean = false
 	)
 
@@ -412,7 +433,8 @@ internal class ReaderWebViewVisualHandoff(
 						ReaderPresentationWebViewVisualHandoffResult.Ready(
 							token = request.token,
 							binding = request.binding,
-							presentedFrameSequence = result.presentedFrameSequence
+							presentedFrameSequence = result.presentedFrameSequence,
+							physicalWitness = result.physicalWitness
 						)
 					is ReaderWebViewVisualHandoffResult.Failed ->
 						ReaderPresentationWebViewVisualHandoffResult.Failed(
@@ -538,6 +560,7 @@ internal class ReaderWebViewVisualHandoff(
 					)
 					return@visualState
 				}
+				current.physicalWitness = registration.physicalWitness
 				current.visualStateCompleted = true
 				val nextFrameToken = reserveCallback(PendingCallbackKind.NextFrame)
 				lateinit var nextFrameAction: () -> Unit
@@ -566,7 +589,8 @@ internal class ReaderWebViewVisualHandoff(
 								reservePresentedFrameSequence(
 									ready.presentationRequest.request?.binding
 										?: ready.presentationRequest.legacyFrameSequenceBinding
-								)
+								),
+								ready.physicalWitness
 							)
 						} else {
 							ReaderWebViewVisualHandoffResult.Failed(
@@ -906,7 +930,11 @@ internal class ReaderWebViewVisualHandoffHostAdapter(
 			override fun onComplete(requestId: Long) {
 				val posted = postedVisualStates[registration] ?: return
 				if (posted.callback !== callback) return
+				if (requestId != handoffAttemptId) return
 				postedVisualStates.remove(registration)
+				registration.recordPhysicalWitness(ActualLiveEnginePhysicalWitness(webView, callback) {
+					webViewProvider() === webView && visualStateOwner === webView && webView.isAttachedToWindow
+				})
 				registration.deliver()
 			}
 		}

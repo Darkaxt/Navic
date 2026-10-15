@@ -14,7 +14,7 @@
       "assetPaths": [
         "foliate-js"
       ],
-      "localChanges": "Navic reader integration, generation-scoped exact text-page commit receipts, exact-paginator relocation acknowledgement, compositor handoff, and page-composition patches; review Git history after import commit c253f223."
+      "localChanges": "Navic reader integration, generation-scoped exact text-page commit receipts, exact-paginator relocation acknowledgement, read-only resolved Live-layout custody, compositor handoff, and page-composition patches; review Git history after import commit c253f223."
     },
     {
       "id": "pdfjs-dist",
@@ -104,7 +104,7 @@
     {
       "path": "foliate-js/paginator.js",
       "component": "foliate-js",
-      "sha256": "3a880791d6ba5077d46e6aa194233d46bb54ecfdaf853d45d35102839887e37b"
+      "sha256": "c6d764b88d9f22ab4ab8699de155dd0bf023c18727740f468b7370228e48a8c4"
     },
     {
       "path": "foliate-js/pdf.js",

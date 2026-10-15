@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -100,6 +101,150 @@ internal data class ReaderRasterPreparationLease(
 		require(resourceKey.kind == ReaderTransitionResourceKind.Raster)
 		require(resourceKey.opaqueId == rasterGeneration)
 	}
+}
+
+/** Command custody with explicit retirement, passed through the original raster pipeline. It does
+ * not select a transition or retain an independent coordinator journal. */
+internal class ReaderActivatedRasterWork(
+	val domain: ReaderLegacyPhysicalDomain,
+	val store: ReaderActivatedSessionSnapshotStore,
+	val snapshot: ReaderActivatedSessionSnapshot,
+	val lease: ReaderRasterPreparationLease,
+	private val commandIsCurrent: () -> Boolean
+) {
+	@Volatile private var retired = false
+	internal val preparationReturn = ReaderInstalledRasterReturnProgress(2)
+	internal val bundleReturn = ReaderInstalledRasterReturnProgress(8)
+	internal var preparationFacts: paige.navic.reader.ReaderPagePreparationFacts? = null
+		private set
+
+	internal fun recordPreparedTargets(required: Int) {
+		if (!isCurrent() || required <= 0) return
+		preparationFacts = paige.navic.reader.ReaderPagePreparationFacts(
+			phase = ReaderPagePreparationPhase.Ready,
+			generation = lease.preparationGeneration,
+			completedCount = required,
+			requiredCount = required,
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Ready
+			)
+		)
+	}
+
+	fun retire() { retired = true }
+
+	fun installationIsCurrent(): Boolean = store.snapshot === snapshot &&
+		snapshot.commandEgressOpen && snapshot.gatewaySemanticEpoch != null &&
+		snapshot.initialDecision?.origin?.let { origin ->
+			origin.readerSessionGeneration == domain.readerSessionGeneration &&
+			origin.readerSessionGeneration == lease.transitionId.readerSessionGeneration &&
+			origin.coordinatorEpoch == lease.transitionId.coordinatorEpoch
+		} == true
+
+	fun isCurrent(): Boolean = !retired && installationIsCurrent() &&
+		runCatching(commandIsCurrent).getOrDefault(false)
+
+	fun admit(
+		ownership: ReaderExactPhysicalOwnerRegistry,
+		descriptor: ReaderExactPhysicalOwnerDescriptor,
+		cancelPhysical: (() -> Boolean)? = null
+	): ReaderExactPhysicalOwnerRegistry.Owner? = if (!isCurrent()) null else
+		ownership.admitInstalledPhysicalOwner(domain, store, snapshot,
+			descriptor.copy(binding = lease.binding), cancelPhysical)
+
+	fun admit(
+		ownership: ReaderExactPhysicalOwnerRegistry,
+		descriptors: List<ReaderExactPhysicalOwnerDescriptor>,
+		cancelPhysical: (() -> Boolean)? = null
+	): List<ReaderExactPhysicalOwnerRegistry.Owner>? = if (!isCurrent()) null else
+		ownership.admitInstalledPhysicalOwners(domain, store, snapshot,
+			descriptors.map { it.copy(binding = lease.binding) }, cancelPhysical)
+
+	override fun hashCode(): Int = 0x52415257
+	override fun toString(): String = "ReaderActivatedRasterWork(<redacted>)"
+}
+
+/** Bounded return accounting carried by the original work, never a resource registry. Accepted
+ * children retain their exact callback. Only rejected commands or a child's own retryable aggregate
+ * may be revisited; neither command acceptance nor logical completion is a physical return. */
+internal class ReaderInstalledRasterReturnProgress(private val childCount: Int) {
+	private val lock = Any()
+	private val accepted = BooleanArray(childCount)
+	private val ambiguous = BooleanArray(childCount)
+	private val returned = BooleanArray(childCount)
+	private var issuing = false
+	private var completed = false
+	private var confirmation: (() -> Unit)? = null
+	private val callbacks = List(childCount) { index -> { childReturned(index) } }
+
+	fun request(
+		actions: List<(() -> Unit) -> ReaderPortCommandResult>,
+		retryableAggregates: Set<Int> = emptySet(),
+		onReleased: () -> Unit
+	): ReaderPortCommandResult {
+		require(actions.size == childCount)
+		synchronized(lock) {
+			if (issuing || completed) return rejected()
+			issuing = true
+			if (confirmation == null) confirmation = onReleased
+		}
+		var failure: Throwable? = null
+		for (index in actions.indices) {
+			val issue = synchronized(lock) {
+				!returned[index] && ((!accepted[index] && !ambiguous[index]) ||
+					index in retryableAggregates)
+			}
+			if (!issue) continue
+			try {
+				val result = actions[index](callbacks[index])
+				synchronized(lock) {
+					if (result == ReaderPortCommandResult.Accepted || returned[index]) accepted[index] = true
+				}
+			} catch (next: Throwable) {
+				// A throw cannot prove no effect. Keep this child's original callback and
+				// continue settling siblings. Only a bounded aggregate may be revisited
+				// to retry its own proven-no-effect rejected children.
+				synchronized(lock) { ambiguous[index] = true }
+				val first = failure
+				if (first == null) failure = next else if (next !== first) first.addSuppressed(next)
+			}
+		}
+		var notify: (() -> Unit)? = null
+		val result = synchronized(lock) {
+			issuing = false
+			if (accepted.any { it } || ambiguous.any { it }) {
+				notify = takeConfirmationIfReturned()
+				ReaderPortCommandResult.Accepted
+			} else {
+				confirmation = null
+				rejected()
+			}
+		}
+		try {
+			notify?.invoke()
+		} finally {
+			failure?.let { throw it }
+		}
+		return result
+	}
+
+	private fun childReturned(index: Int) {
+		val notify = synchronized(lock) {
+			if (completed || returned[index]) return
+			returned[index] = true
+			accepted[index] = true
+			if (issuing) null else takeConfirmationIfReturned()
+		}
+		notify?.invoke()
+	}
+
+	private fun takeConfirmationIfReturned(): (() -> Unit)? {
+		if (!returned.all { it }) return null
+		completed = true
+		return confirmation.also { confirmation = null }
+	}
+
+	private fun rejected() = ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
 }
 
 internal class ReaderRasterLeaseFactEmitter(
@@ -343,10 +488,28 @@ internal class ReaderRasterPreparationPhysicalOwnership(
 		var acknowledged = false
 	}
 
+	private class InstalledCustody(
+		val domain: ReaderLegacyPhysicalDomain,
+		val store: ReaderActivatedSessionSnapshotStore,
+		val snapshot: ReaderActivatedSessionSnapshot,
+		val lease: ReaderRasterPreparationLease,
+		val isCurrent: () -> Boolean,
+		val work: ReaderActivatedRasterWork? = null
+	) {
+		fun installationIsCurrent(): Boolean = store.snapshot === snapshot &&
+			snapshot.commandEgressOpen && snapshot.gatewaySemanticEpoch != null &&
+			snapshot.initialDecision?.origin?.let { origin ->
+				origin.readerSessionGeneration == domain.readerSessionGeneration &&
+				origin.readerSessionGeneration == lease.transitionId.readerSessionGeneration &&
+				origin.coordinatorEpoch == lease.transitionId.coordinatorEpoch
+			} == true
+	}
+
 	private class StartAttempt(
 		val descriptor: ReaderRasterPreparationPhysicalRestartDescriptor,
 		val releasePhysicalPreparation: ReaderRasterPreparationRelease,
-		val restorePhysicalPreparation: ReaderRasterPreparationStart
+		val restorePhysicalPreparation: ReaderRasterPreparationStart,
+		val installedCustody: InstalledCustody? = null
 	) {
 		var settled = false
 		var lease: Lease? = null
@@ -359,12 +522,15 @@ internal class ReaderRasterPreparationPhysicalOwnership(
 		val callbackToken: ReaderLegacySourceLocalOpaqueToken,
 		val releasePhysicalPreparation: ReaderRasterPreparationRelease,
 		val restorePhysicalPreparation: ReaderRasterPreparationStart,
-		var origin: ReaderLegacyResourceOrigin
+		var origin: ReaderLegacyResourceOrigin,
+		val installedCustody: InstalledCustody? = null
 	) {
 		var ownerState = OwnerState.Active
 		var callbackState = CallbackState.Registered
 		var releaseIdentity: ReaderLegacyPhysicalIdentity? = null
 		var releaseConfirmation: ((ReaderLegacyPhysicalIdentity) -> Unit)? = null
+		var installedReleaseConfirmation: (() -> Unit)? = null
+		var installedCancellationIssued = false
 		var pendingDelivery: (() -> Unit)? = null
 		var terminalObserved = false
 		var restorationInProgress = false
@@ -377,9 +543,14 @@ internal class ReaderRasterPreparationPhysicalOwnership(
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
 	private var unsettledStartAttempts = 0
 	private var restorationAttemptInProgress = false
+	private var legacyFinalized = false
+	private var lastInstalledPreparationGeneration = 0L
 
 	val isFrozen: Boolean
 		get() = synchronized(lock) { frozenDomain != null }
+
+	val activatedDomain: ReaderLegacyPhysicalDomain?
+		get() = synchronized(lock) { frozenDomain.takeIf { legacyFinalized } }
 
 	/**
 	 * Runs the physical acceptance call outside the ownership lock. A row is allocated only when
@@ -408,31 +579,80 @@ internal class ReaderRasterPreparationPhysicalOwnership(
 		releasePhysicalPreparation: ReaderRasterPreparationRelease,
 		restorePhysicalPreparation: ReaderRasterPreparationStart,
 		startPhysicalPreparation: ReaderRasterPreparationStart
+	): ReaderRasterPreparationStartSettlement = startWithAdmission(
+		descriptor, releasePhysicalPreparation, restorePhysicalPreparation, startPhysicalPreparation, null
+	)
+
+	/** Command admission is separate from the irreversible legacy fence. Currentness is
+	 * supplied by the existing coordinator; this record owns only physical completion. */
+	fun startInstalledWithOutcome(
+		domain: ReaderLegacyPhysicalDomain,
+		store: ReaderActivatedSessionSnapshotStore,
+		snapshot: ReaderActivatedSessionSnapshot,
+		lease: ReaderRasterPreparationLease,
+		isCurrent: () -> Boolean,
+		releasePhysicalPreparation: ReaderRasterPreparationRelease,
+		startPhysicalPreparation: ReaderRasterPreparationStart,
+		work: ReaderActivatedRasterWork? = null
+	): ReaderRasterPreparationStartSettlement = startWithAdmission(
+		ReaderRasterPreparationPhysicalRestartDescriptor(
+			lease.binding, ReaderRasterPreparationPhysicalOperation.Prewarm,
+			lease.preparationGeneration, lease.rasterGeneration
+		),
+		releasePhysicalPreparation,
+		{ false },
+		startPhysicalPreparation,
+		InstalledCustody(domain, store, snapshot, lease, isCurrent, work)
+	)
+
+	private fun startWithAdmission(
+		descriptor: ReaderRasterPreparationPhysicalRestartDescriptor,
+		releasePhysicalPreparation: ReaderRasterPreparationRelease,
+		restorePhysicalPreparation: ReaderRasterPreparationStart,
+		startPhysicalPreparation: ReaderRasterPreparationStart,
+		installed: InstalledCustody?
 	): ReaderRasterPreparationStartSettlement {
 		val publication = StartPublication()
+		val commandCurrent = installed == null ||
+			(Looper.myLooper() == Looper.getMainLooper() && runCatching(installed.isCurrent).getOrDefault(false))
 		val attempt = synchronized(lock) {
 			unsettledStartAttempts += 1
-			if (frozenDomain != null) {
+			val admitted = if (installed == null) frozenDomain == null else
+				commandCurrent && legacyFinalized && frozenDomain == installed.domain &&
+				installed.installationIsCurrent() &&
+				installed.work?.let { work -> work.domain == installed.domain &&
+					work.store === installed.store && work.snapshot === installed.snapshot &&
+					work.lease == installed.lease && work.isCurrent() } != false &&
+				installed.lease.preparationGeneration > lastInstalledPreparationGeneration
+			if (!admitted) {
 				null
 			} else {
+				if (installed != null) lastInstalledPreparationGeneration = installed.lease.preparationGeneration
 				StartAttempt(
 					descriptor = descriptor,
 					releasePhysicalPreparation = releasePhysicalPreparation,
-					restorePhysicalPreparation = restorePhysicalPreparation
+					restorePhysicalPreparation = restorePhysicalPreparation,
+					installedCustody = installed
 				)
 			}
 		}
 		if (attempt == null) {
 			return startSettlement(ReaderRasterPreparationStartOutcome.Fenced, publication)
 		}
-		val accepted = runCatching {
+		val accepted = try {
 			startPhysicalPreparation { delivery -> completeStart(attempt, delivery) }
-		}.getOrDefault(false)
+		} catch (_: Throwable) {
+			// Installed dispatch may already have registered readiness or started capture
+			// before a synchronous consumer throws. Retain original cancellation custody;
+			// a throw is not evidence of a proven-no-effect rejection or raster readiness.
+			installed != null
+		}
 		var delivery: (() -> Unit)? = null
 		var fencedAtSettlement = false
 		synchronized(lock) {
 			attempt.settled = true
-			fencedAtSettlement = frozenDomain != null
+			fencedAtSettlement = if (installed == null) frozenDomain != null else
+				!installed.installationIsCurrent() || frozenDomain != installed.domain
 			if (accepted) {
 				val lease = Lease(
 					descriptor = attempt.descriptor,
@@ -444,7 +664,8 @@ internal class ReaderRasterPreparationPhysicalOwnership(
 						ReaderLegacyResourceOrigin.Owned
 					} else {
 						ReaderLegacyResourceOrigin.Discovered
-					}
+					},
+					installedCustody = attempt.installedCustody
 				)
 				attempt.lease = lease
 				leases += lease
@@ -508,6 +729,15 @@ internal class ReaderRasterPreparationPhysicalOwnership(
 		}
 		if (lease.terminalObserved) return null
 		lease.terminalObserved = true
+		val installed = lease.installedCustody
+		if (installed != null) {
+			lease.callbackState = CallbackState.Drained
+			if (lease.ownerState == OwnerState.ReleaseRequested || lease.installedCancellationIssued) return null
+			lease.ownerState = OwnerState.CompletedFrozen
+			return {
+				if (installed.installationIsCurrent() && runCatching(installed.isCurrent).getOrDefault(false)) delivery()
+			}
+		}
 		if (frozenDomain == null) {
 			leases.remove(lease)
 			return delivery
@@ -551,7 +781,7 @@ internal class ReaderRasterPreparationPhysicalOwnership(
 			source = ReaderLegacyInventorySource.RasterPreparation,
 			domain = domain,
 			resources = buildList {
-				leases.forEach { lease ->
+				leases.filter { it.installedCustody == null }.forEach { lease ->
 					when (lease.ownerState) {
 						OwnerState.Active,
 						OwnerState.ReleaseRequested,
@@ -674,9 +904,64 @@ internal class ReaderRasterPreparationPhysicalOwnership(
 		return ReaderPortCommandResult.Accepted
 	}
 
+	fun installedWorkFor(resourceKey: ReaderTransitionResourceKey): ReaderActivatedRasterWork? =
+		synchronized(lock) {
+			leases.singleOrNull { it.installedCustody?.lease?.resourceKey == resourceKey }
+				?.installedCustody?.work
+		}
+
+	fun forgetReturnedInstalled(work: ReaderActivatedRasterWork) = synchronized(lock) {
+		leases.removeAll { it.installedCustody?.work === work && it.ownerState == OwnerState.Drained }
+	}
+
+	fun releaseInstalled(
+		installedLease: ReaderRasterPreparationLease,
+		onReleased: () -> Unit
+	): ReaderPortCommandResult {
+		val lease: Lease
+		var terminal = false
+		synchronized(lock) {
+			lease = leases.firstOrNull { it.installedCustody?.lease == installedLease }
+				?: return invalidResource()
+			when (lease.ownerState) {
+				OwnerState.CompletedFrozen -> {
+					lease.ownerState = OwnerState.Drained
+					if (lease.installedCustody?.work == null) leases.remove(lease)
+					terminal = true
+				}
+				OwnerState.Active -> {
+					lease.ownerState = OwnerState.ReleaseRequested
+					lease.installedCancellationIssued = true
+					lease.installedReleaseConfirmation = onReleased
+				}
+				else -> return invalidResource()
+			}
+		}
+		if (terminal) {
+			runCatching(onReleased)
+			return ReaderPortCommandResult.Accepted
+		}
+		// The original callback remains installed if cancellation throws: physical effect
+		// is unknown, so neither no-effect rollback nor another attempt is justified.
+		val accepted = lease.releasePhysicalPreparation { completeRelease(lease) }
+		if (!accepted) {
+			val returned = synchronized(lock) {
+				if (lease.ownerState == OwnerState.Drained) true else {
+					// Logical terminal delivery during rejected cancellation is not physical return.
+					lease.ownerState = OwnerState.Active
+					lease.installedReleaseConfirmation = null
+					false
+				}
+			}
+			if (!returned) return invalidResource()
+		}
+		return ReaderPortCommandResult.Accepted
+	}
+
 	private fun completeRelease(lease: Lease) {
 		var identity: ReaderLegacyPhysicalIdentity? = null
 		var confirmation: ((ReaderLegacyPhysicalIdentity) -> Unit)? = null
+		var installedConfirmation: (() -> Unit)? = null
 		synchronized(lock) {
 			if (lease !in leases || lease.ownerState != OwnerState.ReleaseRequested) {
 				return@synchronized
@@ -686,11 +971,29 @@ internal class ReaderRasterPreparationPhysicalOwnership(
 			confirmation = lease.releaseConfirmation
 			lease.releaseIdentity = null
 			lease.releaseConfirmation = null
+			if (lease.installedCustody != null) {
+				installedConfirmation = lease.installedReleaseConfirmation
+				lease.installedReleaseConfirmation = null
+				if (lease.installedCustody.work == null) leases.remove(lease)
+			}
 		}
+		runCatching { installedConfirmation?.invoke() }
 		val confirmedIdentity = identity
 		if (confirmedIdentity != null) {
 			runCatching { confirmation?.invoke(confirmedIdentity) }
 		}
+	}
+
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult = synchronized(lock) {
+		if (legacyFinalized || frozenDomain != domain || unsettledStartAttempts != 0 || restorationAttemptInProgress ||
+			leases.any { it.callbackState != CallbackState.Drained ||
+				(it.ownerState != OwnerState.Drained && it.ownerState != OwnerState.CompletedDrained) })
+			return@synchronized invalidResource()
+		// Exact original release callbacks have already confirmed; discard restart and
+		// undelivered legacy outcome custody, never restart it through activated work.
+		leases.clear()
+		legacyFinalized = true
+		ReaderPortCommandResult.Accepted
 	}
 
 	fun restoreAfterTransitionActivation(
@@ -698,7 +1001,7 @@ internal class ReaderRasterPreparationPhysicalOwnership(
 	): ReaderPortCommandResult {
 		val restoreCandidates = synchronized(lock) {
 			if (
-				restorationAttemptInProgress ||
+				legacyFinalized || restorationAttemptInProgress ||
 				unsettledStartAttempts != 0 ||
 				frozenDomain != domain ||
 				leases.any { lease ->
@@ -824,6 +1127,8 @@ internal class ReaderPageRasterPreparationController(
 	) -> Unit = { _, _ -> },
 	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {},
 	private val onPresentationLifecycleEvent: (ReaderPresentationLifecycleEvent) -> Unit = {},
+	private val presentationLifecycleDelivery: ReaderPresentationLifecycleDelivery? = null,
+	private val activatedSessionStore: ReaderActivatedSessionSnapshotStore = ReaderActivatedSessionSnapshotStore(),
 	private val onRasterProofReady: (Long) -> Unit = {},
 	private val onPassiveRasterMemoryPressure: (String) -> Unit = {},
 	private val rasterBackgroundBatchController: ReaderPageRasterBatchPort =
@@ -930,6 +1235,7 @@ internal class ReaderPageRasterPreparationController(
 	private var timedOutBackgroundPrefetchShieldSessionId: Long? = null
 	private var passivePrewarmDeferral: ReaderPageRasterBatchOutcome.Deferred? = null
 	private var preparationGeneration = 0L
+	private var activatedMaterialCommand: paige.navic.reader.ReaderTransitionCommand.AllocateMaterialBinding? = null
 	private var failedPreparationGeneration: Long? = null
 	private var rasterProofPreparationGeneration: Long? = null
 	private var activeDeckPreparationGeneration: Long? = null
@@ -951,6 +1257,9 @@ internal class ReaderPageRasterPreparationController(
 	)
 	private val rasterCacheInitializationJobs = linkedSetOf<Job>()
 
+	internal val originalLegacyPreparationAdmissionRestored: Boolean
+		get() = !destroyed && !physicalRasterPreparationOwnership.isFrozen
+
 	fun freezeRasterPreparationOwnershipForTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult =
@@ -966,6 +1275,133 @@ internal class ReaderPageRasterPreparationController(
 		physicalIdentity = physicalIdentity,
 		onConfirmed = onConfirmed
 	)
+
+	internal val activatedMaterialDomain: ReaderLegacyPhysicalDomain?
+		get() = physicalRasterPreparationOwnership.activatedDomain.takeUnless { destroyed }
+
+	internal fun prepareInstalled(
+		work: ReaderActivatedRasterWork,
+		plan: ReaderPageRasterPreparationPlan,
+		onReady: () -> Unit,
+		onFailed: () -> Unit
+	): ReaderPortCommandResult = prepareInstalled(work, plan) { outcome ->
+		if (outcome == ReaderPageRasterBatchOutcome.Ready) onReady() else onFailed()
+	}
+
+	internal fun installedWorkFor(resourceKey: ReaderTransitionResourceKey): ReaderActivatedRasterWork? =
+		physicalRasterPreparationOwnership.installedWorkFor(resourceKey)
+
+	internal fun installedPreparationFactsFor(
+		work: ReaderActivatedRasterWork
+	): paige.navic.reader.ReaderPagePreparationFacts? = work.preparationFacts.takeIf {
+		installedWorkFor(work.lease.resourceKey) === work && work.isCurrent()
+	}
+
+	internal fun prepareInstalled(
+		work: ReaderActivatedRasterWork,
+		plan: ReaderPageRasterPreparationPlan,
+		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
+	): ReaderPortCommandResult {
+		val lease = work.lease
+		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
+		val passive = passiveRasterPreparationPortProvider() as? ReaderPassiveRasterPreparationAdapter
+		val geometry = plan.captureGeometry
+		val targets = plan.blockingTargetsOrNull()
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed || !work.isCurrent() ||
+			activatedMaterialDomain != work.domain || bundleSource.activatedMaterialDomain != work.domain ||
+			lease.preparationGeneration != preparationGeneration || lease.rasterGeneration != bundleSource.currentGeneration() ||
+			webView == null || passive == null || passive.isRetired || geometry == null || targets.isNullOrEmpty()) {
+			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+		}
+		val kind = if (plan.layoutMode == "spread") ReaderPageTurnTransitionKind.LandscapeSpreadSlide else
+			ReaderPageTurnTransitionKind.PortraitSlide
+		val settlement = physicalRasterPreparationOwnership.startInstalledWithOutcome(
+			domain = work.domain, store = work.store, snapshot = work.snapshot,
+			lease = lease, isCurrent = work::isCurrent, work = work,
+			releasePhysicalPreparation = { returned -> passive.cancelInstalled(work, returned) },
+			startPhysicalPreparation = { completed ->
+				fun finish(outcome: ReaderPageRasterBatchOutcome) {
+					val returned = {
+						completed {
+							if (outcome == ReaderPageRasterBatchOutcome.Ready) work.recordPreparedTargets(targets.size)
+							onComplete(outcome)
+						}
+					}
+					// Terminal delivery waits for an on-stack readiness consumer to return.
+					// Cancellation may already own that return; the owner fences this delivery.
+					if (!passive.cancelInstalledReadiness(work, returned)) returned()
+				}
+				passive.awaitInstalledReadiness(work) {
+					if (!work.isCurrent()) return@awaitInstalledReadiness
+					bundleSource.captureInstalledSurface(webView, geometry, work) captured@{ capture ->
+						if (capture == null || !work.isCurrent()) {
+							capture?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+							finish(if (!work.isCurrent()) ReaderPageRasterBatchOutcome.Cancelled else
+								ReaderPageRasterBatchOutcome.Deferred("current-live-reference", plan.centerPageIndex,
+									"capture-unavailable"))
+							return@captured
+						}
+						val reference = bundleSource.cacheCurrentSnapshot(
+							plan.centerPageIndex, kind, capture, lease.rasterGeneration,
+							persist = false, work = work
+						)
+						if (reference == null) {
+							finish(if (!work.isCurrent()) ReaderPageRasterBatchOutcome.Cancelled else
+								ReaderPageRasterBatchOutcome.Deferred("current-live-reference", plan.centerPageIndex,
+									"capture-unavailable"))
+							return@captured
+						}
+						reference.retain()
+						val started = passive.startInstalled(
+							kind, reference, targets, work, ReaderPageRasterAcquisitionTrigger.InitialPreparation,
+							::finish
+						)
+						if (!started) finish(if (!work.isCurrent()) ReaderPageRasterBatchOutcome.Cancelled else
+							ReaderPageRasterBatchOutcome.Deferred("current-live-reference", plan.centerPageIndex,
+								"capture-unavailable"))
+					}
+				}
+			}
+		)
+		var accepted = false
+		settlement.publishLogicalOutcome { accepted = it == ReaderRasterPreparationStartOutcome.Accepted }
+		return if (accepted) ReaderPortCommandResult.Accepted else
+			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
+	}
+
+	internal fun releaseInstalled(
+		work: ReaderActivatedRasterWork,
+		onReleased: () -> Unit
+	): ReaderPortCommandResult {
+		work.retire()
+		return work.preparationReturn.request(
+			actions = listOf(
+				{ returned -> physicalRasterPreparationOwnership.releaseInstalled(work.lease, returned) },
+				{ returned -> bundleSource.releaseInstalled(work, returned) }
+			),
+			retryableAggregates = setOf(1)
+		) {
+			physicalRasterPreparationOwnership.forgetReturnedInstalled(work)
+			onReleased()
+		}
+	}
+
+	internal fun reserveActivatedPreparationGeneration(
+		command: paige.navic.reader.ReaderTransitionCommand.AllocateMaterialBinding,
+		domain: ReaderLegacyPhysicalDomain
+	): Long? {
+		if (Looper.myLooper() != Looper.getMainLooper() || destroyed || activatedMaterialDomain != domain ||
+			command.transitionId.readerSessionGeneration != domain.readerSessionGeneration ||
+			activatedMaterialCommand?.transitionId == command.transitionId) return null
+		preparationGeneration = Math.incrementExact(preparationGeneration)
+		activatedMaterialCommand = command
+		return preparationGeneration
+	}
+
+	fun finalizeRasterPreparationOwnershipAfterTransitionActivation(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult {
+		if (destroyed) return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		return physicalRasterPreparationOwnership.finalizeActivatedHandoff(domain)
+	}
 
 	fun restoreRasterPreparationOwnershipAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
@@ -1021,11 +1457,20 @@ internal class ReaderPageRasterPreparationController(
 		closeBundleOwners = closeBundleOwners,
 		onFinished = { teardownJob.complete() }
 	)
-	private val memoryCallbacks = object : ComponentCallbacks2 {
-		override fun onConfigurationChanged(newConfig: Configuration) = Unit
+	private fun memoryCallbackAdmits(admission: Long?): Boolean = !destroyed &&
+		activatedSessionStore.legacyConsequencesOpen &&
+		(presentationLifecycleDelivery?.registeredRootAdmits(checkNotNull(admission)) ?: true)
 
-		private fun retirePassiveRasterWork(reason: String) {
-			if (destroyed) return
+	private fun deliverMemoryCallback(action: (Long?) -> Unit) {
+		val registration = memoryCallbackRegistration
+		if (registration == null) action(null) else registration.callback(action = action)
+	}
+
+	private val memoryCallbacks = object : ComponentCallbacks2 {
+		override fun onConfigurationChanged(newConfig: Configuration) = deliverMemoryCallback { }
+
+		private fun retirePassiveRasterWork(reason: String, admission: Long?) {
+			if (!memoryCallbackAdmits(admission)) return
 			val retainsPreparedPresentation = hasPreparedBefore &&
 				readyPreparationGeneration == preparationGeneration
 			if (!retainsPreparedPresentation) {
@@ -1034,10 +1479,15 @@ internal class ReaderPageRasterPreparationController(
 			retryPreparationInProgress = false
 			passiveSessionRetiredForMemory = true
 			cancelPrewarm(reason = reason)
+			if (!memoryCallbackAdmits(admission)) return
 			cancelRasterRepairs(reason)
+			if (!memoryCallbackAdmits(admission)) return
 			cancelBackgroundPrefetch(reason)
+			if (!memoryCallbackAdmits(admission)) return
 			onPassiveRasterMemoryPressure(reason)
+			if (!memoryCallbackAdmits(admission)) return
 			bundleSource.trimMemory(reason)
+			if (!memoryCallbackAdmits(admission)) return
 			if (retainsPreparedPresentation) {
 				publishPreparationState(phase = ReaderPagePreparationPhase.Ready)
 			} else {
@@ -1049,30 +1499,38 @@ internal class ReaderPageRasterPreparationController(
 			}
 		}
 
-		override fun onLowMemory() {
-			retirePassiveRasterWork("on-low-memory")
+		override fun onLowMemory() = deliverMemoryCallback { admission ->
+			retirePassiveRasterWork("on-low-memory", admission)
 		}
 
-		override fun onTrimMemory(level: Int) {
-			val lifecycleEvent = readerPresentationLifecycleEventForTrimMemory(level) ?: return
+		override fun onTrimMemory(level: Int) = deliverMemoryCallback { admission ->
+			val lifecycleEvent = readerPresentationLifecycleEventForTrimMemory(level) ?: return@deliverMemoryCallback
 			onPresentationLifecycleEvent(lifecycleEvent)
+			if (!memoryCallbackAdmits(admission)) return@deliverMemoryCallback
 			when (lifecycleEvent) {
 				ReaderPresentationLifecycleEvent.VisibilityLost -> Unit
 				is ReaderPresentationLifecycleEvent.RunningMemoryPressure -> if (
 					lifecycleEvent.level != ReaderPresentationMemoryPressureLevel.Moderate
 				) {
-					retirePassiveRasterWork("on-trim-memory:$level")
+					retirePassiveRasterWork("on-trim-memory:$level", admission)
 				}
 				is ReaderPresentationLifecycleEvent.BackgroundMemoryPressure ->
-					retirePassiveRasterWork("on-trim-memory:$level")
+					retirePassiveRasterWork("on-trim-memory:$level", admission)
 				else -> Unit
 			}
 		}
 	}
+	private val memoryCallbackRegistration = presentationLifecycleDelivery?.registeredRoot(
+		registerPhysical = { applicationContext.registerComponentCallbacks(memoryCallbacks) },
+		unregisterPhysical = { applicationContext.unregisterComponentCallbacks(memoryCallbacks) },
+		isValid = { !destroyed }
+	)
 
 	init {
 		bundleSource.setPublicationCapacityAvailableListener(onRequestPrewarm)
-		applicationContext.registerComponentCallbacks(memoryCallbacks)
+		val registration = memoryCallbackRegistration
+		if (registration == null) applicationContext.registerComponentCallbacks(memoryCallbacks)
+		else registration.register()
 	}
 
 	private fun publishPreparationState(
@@ -1416,27 +1874,36 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	private fun fenceForDestroy() {
-		var failure: Throwable? = null
-		fun capture(action: () -> Unit) {
-			try {
-				action()
-			} catch (next: Throwable) {
-				val first = failure
-				if (first == null) failure = next
-				else if (next !== first) first.addSuppressed(next)
+		val sourceReturn = presentationLifecycleDelivery?.beginRegisteredRootReturn()
+		try {
+			var failure: Throwable? = null
+			fun capture(action: () -> Unit) {
+				try {
+					action()
+				} catch (next: Throwable) {
+					val first = failure
+					if (first == null) failure = next
+					else if (next !== first) first.addSuppressed(next)
+				}
 			}
+			capture(fenceCallbacks)
+			capture { cancelBackgroundPrefetch("destroy") }
+			capture { cancelRasterRepairs("destroy") }
+			capture { cancelPrewarm(reason = "destroy") }
+			capture(::cancelAllDeferredRetries)
+			capture { currentVisualPageIndex = null }
+			capture {
+				bundleSource.clearPublicationCapacityAvailableListener(onRequestPrewarm)
+			}
+			capture {
+				val registration = memoryCallbackRegistration
+				if (registration == null) applicationContext.unregisterComponentCallbacks(memoryCallbacks)
+				else check(registration.remove(permanent = true)) { "Component registration removal failed" }
+			}
+			failure?.let { throw it }
+		} finally {
+			if (sourceReturn != null) presentationLifecycleDelivery?.endPhysicalDelivery(sourceReturn)
 		}
-		capture(fenceCallbacks)
-		capture { cancelBackgroundPrefetch("destroy") }
-		capture { cancelRasterRepairs("destroy") }
-		capture { cancelPrewarm(reason = "destroy") }
-		capture(::cancelAllDeferredRetries)
-		capture { currentVisualPageIndex = null }
-		capture {
-			bundleSource.clearPublicationCapacityAvailableListener(onRequestPrewarm)
-		}
-		capture { applicationContext.unregisterComponentCallbacks(memoryCallbacks) }
-		failure?.let { throw it }
 	}
 
 	suspend fun destroyAndJoin() {

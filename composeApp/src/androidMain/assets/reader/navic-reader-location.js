@@ -289,6 +289,8 @@ function postCurrentLocationSnapshot(reason = 'snapshot', options = {}) {
 
 
 function postLocationChanged(detail, reason = 'relocate', options = {}) {
+  const sourceView = this.view
+  const sourceSessionId = this.foliateSessionId
   const wordSyncRelocationEpoch = Number(options.wordSyncRelocationEpoch)
   if (this.nativePageDragPreview || this.pendingPageDragPreviewCommand) {
     readerTrace('page-drag-preview:retained-for-location', { reason })
@@ -340,6 +342,9 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     causalSequence: this.pendingUserNavigationCausalSequence,
     destinationFoliateSessionId: this.foliateSessionId,
     destinationCommitSequence,
+    // Only the genuine renderer-receipt-backed settlement contributes correlation.
+    // An ordinary relocation or transport ACK cannot borrow an in-flight command ID.
+    commandId: settlement?.commandId ?? undefined,
     pageTurnSettleToken: settlement?.token,
     pageTurnSettleSessionId: settlement?.foliateSessionId,
     pageTurnSettleRasterGeneration: settlement?.rasterGeneration,
@@ -370,6 +375,8 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     }
     return { posted: false, skipped: 'duplicate', reason }
   }
+  // A later undelivered relocation must not borrow the prior successful identity.
+  this.invalidateCurrentDestinationDelivery?.()
   this.updateSurfacePaperTexture(detail, pagePosition, reason)
   this.committedRelocateDetail = detail
   readerTrace('location:page-model', {
@@ -399,6 +406,7 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
   }
   this.lastPostedLocationKey = locationKey
   this.destinationCommitSequence = destinationCommitSequence
+  this.recordCurrentDestinationDelivery?.(message, sourceView, sourceSessionId)
   if (settlement) this.consumeNativePageTurnSettlement(settlement.token)
   readerTrace('location:post', { reason })
   this.compareCommittedDuplicatePage(detail, message)
@@ -852,6 +860,31 @@ function goToLocator(locator, reason = 'go-to') {
 
 
 export const NavicReaderLocationMethods = {
+  async resolveReaderNavigationTarget(locator) {
+    if (!this.view || locator == null) return null
+    const target = typeof locator === 'string' ? locator.trim() : locator
+    if (typeof target === 'string' && !target) return null
+    let resolved = null
+    try {
+      resolved = await Promise.resolve(
+        this.view.resolveNavigation?.(target) ||
+        this.view.book?.resolveHref?.(target)
+      )
+    } catch (error) {
+      log('go-to:resolve-failed', error?.message || String(error))
+    }
+    const index = Number(resolved?.index)
+    const rendererTarget = Number.isFinite(index)
+      ? { index: Math.floor(index) }
+      : null
+    if (rendererTarget && resolved?.anchor !== undefined) rendererTarget.anchor = resolved.anchor
+    if (rendererTarget && resolved?.select !== undefined) rendererTarget.select = resolved.select
+    return {
+      target,
+      resolved,
+      rendererTarget,
+    }
+  },
   goToLocator,
   currentFixedLayoutLocationDetail,
   postCurrentLocationSnapshot,

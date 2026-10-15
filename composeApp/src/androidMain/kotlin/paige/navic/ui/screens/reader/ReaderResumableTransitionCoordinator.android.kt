@@ -23,6 +23,7 @@ import paige.navic.reader.ReaderReleaseCommandIdentity
 import paige.navic.reader.ReaderReleaseLedgerCleanupStatus
 import paige.navic.reader.ReaderSaturatingCallbackCount
 import paige.navic.reader.ReaderSemanticPortContractViolationReason
+import paige.navic.reader.ReaderSemanticSynchronizationIntent
 import paige.navic.reader.ReaderTransitionCommand
 import paige.navic.reader.ReaderTransitionCommandRejectionReason
 import paige.navic.reader.ReaderTransitionCommandStage
@@ -38,6 +39,7 @@ import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.reader.ReaderTransitionResourceRegistration
 import paige.navic.reader.ReaderResourceRetirementOrder
 import paige.navic.reader.ReaderTransitionResourceOwnerId
+import paige.navic.reader.acceptsFrameTargetDeclaration
 import paige.navic.reader.deadlinePolicy
 import paige.navic.reader.markReleaseOnlyCleanupDeadlineElapsed
 import paige.navic.reader.markReleaseOnlyCleanupProcessClosed
@@ -897,7 +899,8 @@ internal data class ReaderTransitionCoordinatorSnapshot(
 	val consumedSettlementCount: Int,
 	val releaseOnlySink: Boolean,
 	val releaseOnlySemanticAuthorityRetained: Boolean,
-	val releaseOnlyDeadlineStatus: ReaderReleaseOnlyCleanupDeadlineStatus?
+	val releaseOnlyDeadlineStatus: ReaderReleaseOnlyCleanupDeadlineStatus?,
+	val releaseOnlyEntryTimerBindingFailureOrigin: ReaderReleaseOnlyCleanupDeadlineStatus? = null
 ) {
 	companion object {
 		const val MaxShadowPredictions = 32
@@ -907,13 +910,23 @@ internal data class ReaderTransitionCoordinatorSnapshot(
 internal class ReaderResumableTransitionCoordinator(
 	private val ports: ReaderResumableTransitionPorts,
 	private val mode: ReaderTransitionMode,
-	private var journal: ReaderTransitionJournal,
+	@Volatile private var journal: ReaderTransitionJournal,
 	private val releaseLedger: ReaderTransitionReleaseLedger = ReaderTransitionReleaseLedger(),
 	private val activationState: () -> ReaderSessionActivationState = {
 		ReaderSessionActivationState.Legacy
 	},
-	private val onObservation: (ReaderTransitionCoordinatorObservation) -> Unit = {}
+	private val onObservation: (ReaderTransitionCoordinatorObservation) -> Unit = {},
+	private val onAcceptedPublication: (
+		ReaderTransitionCommand, ReaderOwnerAndInputPublicationResult.Applied
+	) -> Unit = { _, _ -> }
 ) {
+	// Only the synchronous original publication port can construct this FIFO provenance.
+	// It is not an independent registry, and expires with this one mailbox entry.
+	private class OriginalPublication(
+		val command: ReaderTransitionCommand,
+		val result: ReaderOwnerAndInputPublicationResult,
+		val awaiting: ReaderActiveTransition?
+	)
 	private data class Task6AuthoritativeExpiry(
 		val fact: ReaderTransitionFact.DeadlineExpired,
 		val registration: ReaderTask6FactOnlyTimerRegistration
@@ -987,11 +1000,16 @@ internal class ReaderResumableTransitionCoordinator(
 	}
 
 	private sealed interface MailboxEntry {
+		data class FrameTargetDeclaration(
+			val specification: paige.navic.reader.ReaderTransitionFrameTargetSpecification,
+			val deckKey: ReaderTransitionResourceKey
+		) : MailboxEntry
 		data class Fact(
 			val fact: ReaderTransitionFact,
 			val trustedSemanticAuthority: ReaderReleaseOnlySemanticAuthority? = null,
 			val trustedSemanticViolation: Boolean = false,
-			val importedLegacyIdentity: ReaderLegacyPhysicalIdentity? = null
+			val importedLegacyIdentity: ReaderLegacyPhysicalIdentity? = null,
+			val originalPublication: OriginalPublication? = null
 		) : MailboxEntry
 		data class SemanticCallbackDrain(
 			val invocation: SemanticInvocation,
@@ -999,7 +1017,8 @@ internal class ReaderResumableTransitionCoordinator(
 		) : MailboxEntry
 		data class SemanticCompletion(
 			val invocation: SemanticInvocation,
-			val outcome: SemanticCompletionOutcome
+			val outcome: SemanticCompletionOutcome,
+			val asynchronous: Boolean
 		) : MailboxEntry
 		data class SemanticAuthorityRefresh(
 			val authority: ReaderReleaseOnlySemanticAuthority
@@ -1058,7 +1077,8 @@ internal class ReaderResumableTransitionCoordinator(
 	}
 
 	private class SemanticInvocation(
-		val transitionId: ReaderTransitionId
+		val transitionId: ReaderTransitionId,
+		val requestHandle: paige.navic.reader.ReaderSemanticRequestHandle
 	) {
 		var latestAuthoritativeReceipt: ReaderPresentationEventReceipt? = null
 		var latestSemanticAuthority: ReaderReleaseOnlySemanticAuthority? = null
@@ -1162,7 +1182,98 @@ internal class ReaderResumableTransitionCoordinator(
 		}
 	}
 
+	/** Reads only the original pending command, including its initial profile qualification. */
+	fun materialCommandIsCurrent(command: ReaderTransitionCommand.AllocateMaterialBinding): Boolean {
+		val current = journal
+		if (current.releaseOnlyCleanup != null) return false
+		val active = current.active ?: return false
+		if (active.id != command.transitionId || active.materialAllocation != null ||
+			active.pendingCommandStages != setOf(ReaderTransitionCommandStage.MaterialAllocation) ||
+			paige.navic.reader.ReaderTransitionProofKind.MaterialBindingAllocation !in active.phase.contract.awaitedProofs
+		) return false
+		val resolved = active.resolvedSuccessorBinding?.copy(
+			preparationGeneration = null, rasterGeneration = null, textureGeneration = null
+		) ?: return false
+		if (resolved == command.binding) return true
+		// PaginationProfileReady qualifies the same authentic bootstrap command before allocation.
+		return active.id.operation == ReaderTransitionOperation.BootstrapNativePage &&
+			active.id.expectedBinding is ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial &&
+			active.authoritativeDestinationCommitted && command.binding.profileGeneration == 0L &&
+			resolved.profileGeneration > 0L &&
+			ReaderTransitionFactKind.PaginationProfileReady !in active.phase.contract.callbackSources &&
+			resolved.copy(profileGeneration = 0L) == command.binding
+	}
+
+	/** Captures the original awaiting publication; narrowing cannot select or advance it. */
+	fun capturePublicationCommandCurrency(command: ReaderTransitionCommand): (() -> Boolean)? {
+		val active = journal.active ?: return null
+		if (mode != ReaderTransitionMode.Active || releaseOnlySink || journal.releaseOnlyCleanup != null ||
+			active.id !== command.transitionId ||
+			paige.navic.reader.ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement !in
+				active.phase.contract.awaitedProofs || !command.matchesAwaitingPublicationCommand(active)
+		) return null
+		return {
+			!releaseOnlySink && journal.releaseOnlyCleanup == null && journal.active === active &&
+				command.matchesAwaitingPublicationCommand(active)
+		}
+	}
+
+	/** Reads the existing immutable authority snapshot; workers never select transitions. */
+	fun materialCommandIsCurrent(lease: ReaderRasterPreparationLease): Boolean {
+		val current = journal
+		if (current.releaseOnlyCleanup != null) return false
+		val active = current.active
+		if (active?.id == lease.transitionId) {
+			return active.resolvedSuccessorBinding == lease.binding && active.materialAllocation == lease.allocation
+		}
+		val committed = (current.committed as? ReaderCommittedPresentation.Transition)?.committed ?: return false
+		return committed.id == lease.transitionId && committed.binding == lease.binding
+	}
+
+	fun enqueueFrameTargetDeclaration(
+		specification: paige.navic.reader.ReaderTransitionFrameTargetSpecification,
+		deckKey: ReaderTransitionResourceKey
+	): ReaderPortCommandResult {
+		check(Looper.myLooper() == Looper.getMainLooper()) {
+			"Reader frame declarations must be enqueued on the main thread"
+		}
+		val active = journal.active
+		if (releaseOnlySink || active == null || !active.acceptsFrameTargetDeclaration(specification, deckKey)) {
+			return ReaderPortCommandResult.Rejected(paige.navic.reader.ReaderTransitionFailureReason.StaleProof)
+		}
+		val queuedAdmission = synchronized(mailboxLock) {
+			mailbox.any { entry ->
+				when (val fact = (entry as? MailboxEntry.Fact)?.fact) {
+					is ReaderTransitionFact.DeckReserved -> fact.transitionId == active.id && fact.key == deckKey
+					is ReaderTransitionFact.DeckOwned -> fact.transitionId == active.id && fact.key == deckKey
+					else -> false
+				}
+			}
+		}
+		if (releaseLedger.stateOf(deckKey) != ReaderTransitionResourceState.Owned && !queuedAdmission) {
+			return ReaderPortCommandResult.Rejected(paige.navic.reader.ReaderTransitionFailureReason.StaleProof)
+		}
+		appendMailboxEntry(MailboxEntry.FrameTargetDeclaration(specification, deckKey))
+		return ReaderPortCommandResult.Accepted
+	}
+
+	private fun normalizeFrameTargetDeclaration(entry: MailboxEntry.FrameTargetDeclaration): MailboxEntry.Fact? {
+		val active = journal.active ?: return null
+		// The preceding ORIGINAL deck ingress must have registered ownership before this row.
+		// Declaration never admits an unknown key or creates a retirement order.
+		if (releaseOnlySink || !active.acceptsFrameTargetDeclaration(entry.specification, entry.deckKey) ||
+			releaseLedger.stateOf(entry.deckKey) != ReaderTransitionResourceState.Owned ||
+			(entry.deckKey !in active.ownedResourceKeys && active.admittedDeckKey != entry.deckKey)
+		) return null
+		val registration = releaseLedger.register(entry.deckKey,
+			active.id.readerSessionGeneration, active.id.coordinatorEpoch) ?: return null
+		return MailboxEntry.Fact(ReaderTransitionFact.FrameTargetDeclared(entry.specification, registration))
+	}
+
 	fun enqueue(fact: ReaderTransitionFact) {
+		check(fact !is ReaderTransitionFact.FrameTargetDeclared) {
+			"Frame declarations must use original-ledger ingress"
+		}
 		check(ports.acceptsFact(fact)) {
 			"Transition ports cannot accept this fact"
 		}
@@ -1218,7 +1329,8 @@ internal class ReaderResumableTransitionCoordinator(
 			releaseOnlySink = releaseOnlySink,
 			releaseOnlySemanticAuthorityRetained =
 				journal.releaseOnlyCleanup?.authoritativeSemanticDestination != null,
-			releaseOnlyDeadlineStatus = journal.releaseOnlyCleanup?.deadlineStatus
+			releaseOnlyDeadlineStatus = journal.releaseOnlyCleanup?.deadlineStatus,
+			releaseOnlyEntryTimerBindingFailureOrigin = journal.releaseOnlyCleanup?.entryTimerBindingFailureOrigin
 		)
 	}
 
@@ -1291,7 +1403,7 @@ internal class ReaderResumableTransitionCoordinator(
 					continue
 				}
 				if (entry is MailboxEntry.SemanticCompletion) {
-					processSemanticCompletion(entry.invocation, entry.outcome)
+					processSemanticCompletion(entry.invocation, entry.outcome, entry.asynchronous)
 					continue
 				}
 				if (entry is MailboxEntry.SemanticAuthorityRefresh) {
@@ -1310,7 +1422,10 @@ internal class ReaderResumableTransitionCoordinator(
 					processReleaseCleanupProcessClosed(entry)
 					continue
 				}
-				val factEntry = entry as MailboxEntry.Fact
+				val factEntry = when (entry) {
+					is MailboxEntry.FrameTargetDeclaration -> normalizeFrameTargetDeclaration(entry) ?: continue
+					else -> entry as MailboxEntry.Fact
+				}
 				val fact = factEntry.fact
 				val authoritativeTask6Expiry = accountAuthoritativeTask6Expiry(fact)
 				val before = journal
@@ -1350,7 +1465,20 @@ internal class ReaderResumableTransitionCoordinator(
 				}
 				classificationCounts[classification] =
 					classificationCounts.getOrElse(classification) { 0 } + 1
+				val originalPublication = factEntry.originalPublication
+				val publicationFact = fact is ReaderTransitionFact.OwnerAndInputPublicationApplied ||
+					fact is ReaderTransitionFact.OwnerAndInputPublicationRejected
+				val publicationAuthorityRejected = publicationFact &&
+					if (originalPublication != null) {
+						!originalPublication.matchesAwaitingPublication(before.active)
+					} else {
+						// Legacy fact-only/model ports remain usable; a dedicated physical port
+						// cannot lend its pending ACK authority to public exact-match facts.
+						ports.ownerAndInputPublication != null
+					}
 				val reduction = when {
+					publicationAuthorityRejected ->
+						paige.navic.reader.ReaderTransitionReduction(before, emptyList())
 					registrationAdmissionRejected ->
 						paige.navic.reader.ReaderTransitionReduction(before, emptyList())
 					exactReleaseConfirmation == false ->
@@ -1376,6 +1504,20 @@ internal class ReaderResumableTransitionCoordinator(
 				// These assignments are the coordinator's publication barrier: callbacks may run
 				// synchronously from either deadline registration or command issuance below.
 				journal = reduction.state
+				val applied = originalPublication?.result as? ReaderOwnerAndInputPublicationResult.Applied
+				val acceptedPublicationFailure = try {
+					if (mode == ReaderTransitionMode.Active && !publicationAuthorityRejected &&
+						applied != null && reduction.state !== before) {
+						// Journal acceptance is visible, but no predecessor release or
+						// cross-domain command has escaped this ORIGINAL FIFO row yet.
+						onAcceptedPublication(requireNotNull(originalPublication).command, applied)
+					}
+					null
+				} catch (failure: Throwable) {
+					// Preserve lawful terminal/release handling below, then propagate the
+					// exact consumer failure. Never convert failed projection into success.
+					failure
+				}
 				val cleanup = journal.releaseOnlyCleanup
 				val cleanupKey = cleanup?.key
 				if (cleanupKey != null && before.releaseOnlyCleanup?.key != cleanupKey) {
@@ -1385,6 +1527,7 @@ internal class ReaderResumableTransitionCoordinator(
 					releaseOnlySink = true
 				}
 				persistActiveRegistration()
+				retireEndedSemanticRequests(before, fact)
 				val commandDispatchAllowed = reconcileDeadline(
 					nowMillis,
 					before,
@@ -1429,7 +1572,10 @@ internal class ReaderResumableTransitionCoordinator(
 					val cleanupDeadlineStatus = journal.releaseOnlyCleanup?.deadlineStatus
 					if (
 						cleanupDeadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected &&
-						cleanupDeadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew
+						cleanupDeadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew &&
+						cleanupDeadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.Prepared &&
+						cleanupDeadlineStatus != ReaderReleaseOnlyCleanupDeadlineStatus.Committing &&
+						activatedReleaseCleanupDeadlineSlot?.expirationObserved != true
 					) {
 						commandsToIssue.forEach(::issueCommandWithPublicationAcknowledgement)
 					}
@@ -1441,6 +1587,7 @@ internal class ReaderResumableTransitionCoordinator(
 					)
 				)
 				retireSemanticInvocationWhenAuthorityEnds()
+				acceptedPublicationFailure?.let { throw it }
 			}
 		} finally {
 			val postDrain = synchronized(mailboxLock) {
@@ -1472,35 +1619,34 @@ internal class ReaderResumableTransitionCoordinator(
 		if (command is ReaderTransitionCommand.RequestSemanticSynchronization) {
 			val semantic = ports.semanticCommand
 			if (semantic != null) {
-				val invocation = SemanticInvocation(command.transitionId)
+				val invocation = SemanticInvocation(command.transitionId, command.requestHandle)
 				activeSemanticInvocation?.let { active ->
-					retireSemanticInvocation(active, SemanticInvocationDisposition.Superseded)
+					if (active.holdsRetryCustody() && active.requestHandle == command.requestHandle) {
+						// Same existing request, new authentic executor slot. Do not dispose the
+						// lease before that owner's lawful retry admission.
+						val registration = active.registration
+						active.registration = null
+						// Preserve historical rejected/thrown completion for generic late receipts.
+						// New Retry custody must not reclassify that old invocation as cancellation.
+						registration?.retireForRetry()
+					} else retireSemanticInvocation(active, SemanticInvocationDisposition.Superseded)
 				}
 				activeSemanticInvocation = invocation
 				val outcome = try {
-					when (
-						semantic.synchronize(
-							command,
-							onRegistration = { registration ->
-								check(invocation.registration == null) {
-									"Semantic invocation registration must be exact and singular"
-								}
-								invocation.registration = registration
+					semantic.synchronize(
+						command,
+						onRegistration = { registration ->
+							check(invocation.registration == null) {
+								"Semantic invocation registration must be exact and singular"
 							}
-						) { receipt ->
-							enqueueSemanticCallback(invocation, receipt)
+							invocation.registration = registration
+							registration.bindAsyncOutcome { result ->
+								enqueueSemanticCompletion(invocation, result.toCompletionOutcome(), asynchronous = true)
+							}
 						}
-					) {
-						ReaderSemanticCommandResult.Accepted -> SemanticCompletionOutcome.Accepted
-						is ReaderSemanticCommandResult.RejectedBeforeMutation ->
-							SemanticCompletionOutcome.RejectedBeforeMutation
-						ReaderSemanticCommandResult.ThrewBeforeMutation ->
-							SemanticCompletionOutcome.ThrewBeforeMutation
-						ReaderSemanticCommandResult.RejectedAfterMutationStarted ->
-							SemanticCompletionOutcome.RejectedAfterMutationStarted
-						ReaderSemanticCommandResult.ThrewAfterMutationStarted ->
-							SemanticCompletionOutcome.ThrewAfterMutationStarted
-					}
+					) { receipt ->
+						enqueueSemanticCallback(invocation, receipt)
+					}.toCompletionOutcome()
 				} catch (_: Throwable) {
 					SemanticCompletionOutcome.ThrewBeforeMutation
 				}
@@ -1509,6 +1655,7 @@ internal class ReaderResumableTransitionCoordinator(
 			}
 		}
 		val publication = ports.ownerAndInputPublication
+		val awaitingPublication = journal.active
 		val result = try {
 			when (command) {
 				is ReaderTransitionCommand.CommitOwnerAndInputLease -> publication?.publish(command)
@@ -1531,9 +1678,38 @@ internal class ReaderResumableTransitionCoordinator(
 				enqueueCommandThrow(command)
 			}
 		} else {
-			enqueue(result.toTransitionFact())
+			val fact = result.toTransitionFact()
+			check(ports.acceptsFact(fact)) { "A407.Accepted.OriginalPublicationFactRequired" }
+			appendMailboxEntry(MailboxEntry.Fact(fact,
+				originalPublication = OriginalPublication(command, result, awaitingPublication)))
 		}
 	}
+
+	private fun OriginalPublication.matchesAwaitingPublication(current: ReaderActiveTransition?): Boolean {
+		val original = awaiting ?: return false
+		if (current == null || current.id !== original.id || command.transitionId !== original.id ||
+			current.pendingPublicationIdentity != original.pendingPublicationIdentity ||
+			current.pendingCommandStages != original.pendingCommandStages ||
+			paige.navic.reader.ReaderTransitionProofKind.OwnerAndInputPublicationAcknowledgement !in
+				current.phase.contract.awaitedProofs) return false
+		return command.matchesAwaitingPublicationCommand(current)
+	}
+
+	private fun ReaderTransitionCommand.matchesAwaitingPublicationCommand(current: ReaderActiveTransition): Boolean =
+		when (val issued = this) {
+			is ReaderTransitionCommand.CommitOwnerAndInputLease ->
+				current.pendingCommandStages == setOf(ReaderTransitionCommandStage.SuccessorPublication) &&
+					current.pendingPublicationIdentity == issued.publicationIdentity &&
+					current.frameTarget?.handle == issued.targetHandle &&
+					current.preparedFrameOwner == issued.owner && current.resolvedSuccessorBinding == issued.binding &&
+					current.successorResourceRegistration == issued.preparedFrameResource
+			is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease ->
+				current.pendingCommandStages == setOf(ReaderTransitionCommandStage.RetainedPublication) &&
+					current.pendingPublicationIdentity == issued.publicationIdentity &&
+					current.phase.contract.retainedOwner == issued.retainedOwner &&
+					current.predecessorResourceRegistration == issued.retainedResource
+			else -> false
+		}
 
 	private fun enqueueSemanticCallback(
 		invocation: SemanticInvocation,
@@ -1550,14 +1726,23 @@ internal class ReaderResumableTransitionCoordinator(
 		if (shouldDispatch) dispatchMainDrain()
 	}
 
+	private fun ReaderSemanticCommandResult.toCompletionOutcome(): SemanticCompletionOutcome = when (this) {
+		ReaderSemanticCommandResult.Accepted -> SemanticCompletionOutcome.Accepted
+		is ReaderSemanticCommandResult.RejectedBeforeMutation -> SemanticCompletionOutcome.RejectedBeforeMutation
+		ReaderSemanticCommandResult.ThrewBeforeMutation -> SemanticCompletionOutcome.ThrewBeforeMutation
+		ReaderSemanticCommandResult.RejectedAfterMutationStarted -> SemanticCompletionOutcome.RejectedAfterMutationStarted
+		ReaderSemanticCommandResult.ThrewAfterMutationStarted -> SemanticCompletionOutcome.ThrewAfterMutationStarted
+	}
+
 	private fun enqueueSemanticCompletion(
 		invocation: SemanticInvocation,
-		outcome: SemanticCompletionOutcome
+		outcome: SemanticCompletionOutcome,
+		asynchronous: Boolean = false
 	) {
 		val shouldDispatch = synchronized(mailboxLock) {
 			// Seal callbacks observed before return; a later callback receives a batch behind completion.
 			invocation.openCallbackBatch = null
-			mailbox.addLast(MailboxEntry.SemanticCompletion(invocation, outcome))
+			mailbox.addLast(MailboxEntry.SemanticCompletion(invocation, outcome, asynchronous))
 			markMainDrainScheduledLocked()
 		}
 		if (shouldDispatch) dispatchMainDrain()
@@ -1638,10 +1823,22 @@ internal class ReaderResumableTransitionCoordinator(
 
 	private fun processSemanticCompletion(
 		invocation: SemanticInvocation,
-		outcome: SemanticCompletionOutcome
+		outcome: SemanticCompletionOutcome,
+		asynchronous: Boolean
 	) {
 		check(Looper.myLooper() == Looper.getMainLooper())
-		if (invocation.completion != SemanticInvocationCompletion.Pending) return
+		if (asynchronous) {
+			// A registration-bound failure may arrive before return or after Accepted.
+			// A competing exact receipt still requires callback/result violation handling.
+			// Pre-mutation failure cannot reacquire canceled/superseded Retry authority,
+			// but an already-admitted mutation failure must fence ordinary work even when
+			// an earlier FIFO cancel/supersession wins before this outcome is reduced.
+			val mutationFailure = outcome == SemanticCompletionOutcome.RejectedAfterMutationStarted ||
+				outcome == SemanticCompletionOutcome.ThrewAfterMutationStarted
+			if (outcome == SemanticCompletionOutcome.Accepted ||
+				(!mutationFailure && invocation.disposition !in setOf(SemanticInvocationDisposition.Active, SemanticInvocationDisposition.ReceiptQueued)) ||
+				invocation.completion !in setOf(SemanticInvocationCompletion.Pending, SemanticInvocationCompletion.Accepted)) return
+		} else if (invocation.completion != SemanticInvocationCompletion.Pending) return
 		when (outcome) {
 			SemanticCompletionOutcome.Accepted -> {
 				invocation.completion = SemanticInvocationCompletion.Accepted
@@ -1678,7 +1875,9 @@ internal class ReaderResumableTransitionCoordinator(
 						}
 					)
 				}
-				retireSemanticInvocation(invocation, SemanticInvocationDisposition.Rejected)
+				if (invocation.callbackCount == ReaderSaturatingCallbackCount.Zero) {
+					retainSemanticInvocationForRetry(invocation, SemanticInvocationDisposition.Rejected)
+				} else retireSemanticInvocation(invocation, SemanticInvocationDisposition.Rejected)
 			}
 			SemanticCompletionOutcome.ThrewBeforeMutation -> {
 				if (invocation.callbackCount == ReaderSaturatingCallbackCount.Zero) {
@@ -1699,7 +1898,9 @@ internal class ReaderResumableTransitionCoordinator(
 						}
 					)
 				}
-				retireSemanticInvocation(invocation, SemanticInvocationDisposition.Threw)
+				if (invocation.callbackCount == ReaderSaturatingCallbackCount.Zero) {
+					retainSemanticInvocationForRetry(invocation, SemanticInvocationDisposition.Threw)
+				} else retireSemanticInvocation(invocation, SemanticInvocationDisposition.Threw)
 			}
 			SemanticCompletionOutcome.RejectedAfterMutationStarted -> {
 				invocation.completion = SemanticInvocationCompletion.RejectedAfterMutationStarted
@@ -1791,9 +1992,42 @@ internal class ReaderResumableTransitionCoordinator(
 		)
 	}
 
+	private fun SemanticInvocation.holdsRetryCustody(): Boolean =
+		callbackCount == ReaderSaturatingCallbackCount.Zero &&
+			completion in setOf(SemanticInvocationCompletion.RejectedWithoutCallback, SemanticInvocationCompletion.ThrewWithoutCallback) &&
+			disposition in setOf(SemanticInvocationDisposition.Rejected, SemanticInvocationDisposition.Threw)
+
+	private fun retainSemanticInvocationForRetry(invocation: SemanticInvocation, disposition: SemanticInvocationDisposition) {
+		invocation.disposition = disposition
+		invocation.registration?.retireForRetry()
+		// Retain this exact registration, not the retired physical slot. Pure common
+		// policy below decides whether its request still has lawful Retry custody.
+	}
+
+	private fun retireEndedSemanticRequests(before: ReaderTransitionJournal, fact: ReaderTransitionFact) {
+		if (mode != ReaderTransitionMode.Active) return
+		val semantic = ports.semanticCommand ?: return
+		val retained = setOfNotNull(journal.active?.semanticIntent?.requestHandle,
+			journal.retryableTransition?.semanticIntent?.requestHandle)
+		val incoming = ((fact as? ReaderTransitionFact.Intent)?.intent as? ReaderSemanticSynchronizationIntent)?.requestHandle
+		val previous = setOfNotNull(before.active?.semanticIntent?.requestHandle,
+			before.retryableTransition?.semanticIntent?.requestHandle, incoming)
+		// Includes never-invoked requests whose retained-owner publication was rejected.
+		// The journal barrier above is already visible; no mailbox lock is held here.
+		(previous - retained).forEach { handle ->
+			try { semantic.retireRequest(handle, before.committed.readerSessionGeneration) }
+			catch (_: Throwable) { /* Disposal failure is not fabricated acceptance. */ }
+		}
+	}
+
 	private fun retireSemanticInvocationWhenAuthorityEnds() {
 		val invocation = activeSemanticInvocation ?: return
 		val current = journal.active
+		if (!releaseOnlySink && invocation.holdsRetryCustody()) {
+			val retryable = journal.retryableTransition
+			if ((retryable != null && retryable.id == invocation.transitionId && retryable.semanticIntent?.requestHandle == invocation.requestHandle) ||
+				(current != null && current.semanticIntent?.requestHandle == invocation.requestHandle && !current.authoritativeDestinationCommitted)) return
+		}
 		val disposition = when {
 			releaseOnlySink || current == null -> SemanticInvocationDisposition.Terminal
 			current.id != invocation.transitionId -> SemanticInvocationDisposition.Superseded
@@ -1811,9 +2045,10 @@ internal class ReaderResumableTransitionCoordinator(
 		if (invocation.disposition == SemanticInvocationDisposition.Active) {
 			invocation.disposition = disposition
 		}
-		invocation.registration?.retire()
+		val registration = invocation.registration
 		invocation.registration = null
 		if (activeSemanticInvocation === invocation) activeSemanticInvocation = null
+		registration?.retire()
 	}
 
 	private fun enqueueCommandThrow(command: ReaderTransitionCommand) {
@@ -2381,8 +2616,11 @@ internal class ReaderResumableTransitionCoordinator(
 				val cancellationFailure = cancelReleaseCleanupDeadline()
 				val currentCleanup = journal.releaseOnlyCleanup?.takeIf { it.key == cleanupKey }
 				if (
-					cancellationFailure == null &&
-					currentCleanup?.deadlineStatus == ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+					cancellationFailure == null && currentCleanup != null &&
+					currentCleanup.deadlineStatus in setOf(
+						ReaderReleaseOnlyCleanupDeadlineStatus.Prepared,
+						ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+					)
 				) {
 					journal = journal.copy(
 						releaseOnlyCleanup = currentCleanup.copy(
@@ -2403,6 +2641,9 @@ internal class ReaderResumableTransitionCoordinator(
 		val atMillis = nowMillis.saturatingAdd(ReleaseCleanupDeadlineMillis)
 		val slot = ReleaseCleanupDeadlineSlot(cleanupKey, token, atMillis)
 		releaseCleanupDeadlineSlot = slot
+		journal = journal.copy(releaseOnlyCleanup = requireNotNull(journal.releaseOnlyCleanup).copy(
+			deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.Committing
+		))
 		val registration = try {
 			ports.clock.schedule(atMillis) {
 				slot.expirationObserved = true
@@ -2415,6 +2656,14 @@ internal class ReaderResumableTransitionCoordinator(
 		}
 		if (releaseCleanupDeadlineSlot?.token == token) {
 			slot.registration = registration
+			val currentCleanup = journal.releaseOnlyCleanup?.takeIf { it.key == cleanupKey }
+			if (registration != null && !slot.expirationObserved &&
+				currentCleanup?.deadlineStatus == ReaderReleaseOnlyCleanupDeadlineStatus.Committing
+			) {
+				journal = journal.copy(releaseOnlyCleanup = currentCleanup.copy(
+					deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+				))
+			}
 			if (registration == null) {
 				slot.expirationObserved = true
 				appendMailboxEntry(
@@ -2459,6 +2708,8 @@ internal class ReaderResumableTransitionCoordinator(
 				}
 				return
 			}
+			ReaderReleaseOnlyCleanupDeadlineStatus.Prepared,
+			ReaderReleaseOnlyCleanupDeadlineStatus.Committing,
 			ReaderReleaseOnlyCleanupDeadlineStatus.Armed -> Unit
 			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected,
 			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew -> return
@@ -2482,57 +2733,97 @@ internal class ReaderResumableTransitionCoordinator(
 			return
 		}
 		if (activatedReleaseCleanupDeadlineSlot?.key == cleanupKey) return
-		if (task6TimerOwnership.count > 0) {
-			task6TimerOwnership.registrations.toList().forEach { registration ->
-				retireTask6TimerForReleaseCleanup(
-					ports.task6FactOnlyTimer,
-					registration
-				)
-			}
-		}
 		bindActivatedReleaseCleanupDeadline(cleanupKey)
 	}
 
 	private fun bindActivatedReleaseCleanupDeadline(cleanupKey: ReaderReleaseOnlyCleanupKey) {
+		val cleanup = journal.releaseOnlyCleanup?.takeIf { it.key == cleanupKey } ?: return
 		val token = nextReleaseCleanupDeadlineToken
 		check(token < Long.MAX_VALUE) { "Release cleanup deadline token exhausted" }
 		nextReleaseCleanupDeadlineToken = token + 1L
-		val slot = ActivatedReleaseCleanupDeadlineSlot(cleanupKey, token)
-		activatedReleaseCleanupDeadlineSlot = slot
 		val port = ports.task6FactOnlyTimer
+		val slot = ActivatedReleaseCleanupDeadlineSlot(cleanupKey, token, port)
+		activatedReleaseCleanupDeadlineSlot = slot
+		journal = journal.copy(releaseOnlyCleanup = cleanup.copy(
+			deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.Prepared
+		))
 		val registration = try {
 			port?.bindReleaseOnlyCloseBudget(cleanupKey) { expiredKey ->
-				if (expiredKey == cleanupKey) {
+				if (expiredKey == cleanupKey && !slot.expirationObserved) {
+					slot.expirationObserved = true
 					appendMailboxEntry(
 						MailboxEntry.ActivatedReleaseCleanupDeadlineElapsed(cleanupKey, token)
 					)
 				}
 			}
 		} catch (_: Throwable) {
+			if (!currentActivatedCleanupSlot(slot)) return
 			activatedReleaseCleanupDeadlineSlot = null
-			failActivatedReleaseCleanupBinding(
-				cleanupKey,
-				ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew
-			)
+			failActivatedReleaseCleanupBinding(cleanupKey, ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew)
+			return
+		}
+		if (!currentActivatedCleanupSlot(slot)) {
+			try { registration?.let { port?.cancelReleaseOnlyCloseBudget(it) } } catch (_: Throwable) { }
 			return
 		}
 		if (registration == null) {
 			activatedReleaseCleanupDeadlineSlot = null
-			failActivatedReleaseCleanupBinding(
-				cleanupKey,
-				ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected
-			)
+			failActivatedReleaseCleanupBinding(cleanupKey, ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected)
 			return
 		}
-		if (activatedReleaseCleanupDeadlineSlot?.token == token) {
-			slot.registration = registration
-		} else {
-			try {
-				port?.cancelReleaseOnlyCloseBudget(registration)
-			} catch (_: Throwable) {
-			}
+		slot.registration = registration
+		if (slot.expirationObserved) {
+			// Exact nonterminal custody was revalidated after the external call. Account
+			// expiry before terminal publication makes its queued consequence inert.
+			releaseLedger.markCleanupDeadlineElapsed(cleanupKey)
+			journal = journal.markReleaseOnlyCleanupDeadlineElapsed(cleanupKey)
+			return
 		}
+		// PREPARE ran while the ordinary attempt still owned its original clock. The
+		// journal/release-only fence is irreversible before cancellation or COMMIT.
+		task6TimerOwnership.registrations.toList().forEach { ordinary ->
+			retireTask6TimerForReleaseCleanup(port, ordinary)
+		}
+		if (!currentActivatedCleanupSlot(slot)) return
+		val preparedCleanup = requireNotNull(journal.releaseOnlyCleanup)
+		journal = journal.copy(releaseOnlyCleanup = preparedCleanup.copy(
+			deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.Committing
+		))
+		val result = try {
+			port?.commitReleaseOnlyCloseBudget(registration)
+		} catch (_: Throwable) {
+			if (currentActivatedCleanupSlot(slot) && !slot.expirationObserved) {
+				failActivatedReleaseCleanupBinding(cleanupKey, ReaderReleaseOnlyCleanupDeadlineStatus.BindingThrew)
+			}
+			return
+		}
+		if (!currentActivatedCleanupSlot(slot)) return
+		if (slot.expirationObserved) {
+			// Exact nonterminal custody was revalidated after the external call. Account
+			// expiry before terminal publication makes its queued consequence inert.
+			releaseLedger.markCleanupDeadlineElapsed(cleanupKey)
+			journal = journal.markReleaseOnlyCleanupDeadlineElapsed(cleanupKey)
+			return
+		}
+		if (result != ReaderPortCommandResult.Accepted) {
+			failActivatedReleaseCleanupBinding(cleanupKey, ReaderReleaseOnlyCleanupDeadlineStatus.BindingRejected)
+			return
+		}
+		val committingCleanup = requireNotNull(journal.releaseOnlyCleanup)
+		journal = journal.copy(releaseOnlyCleanup = committingCleanup.copy(
+			deadlineStatus = ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+		))
 	}
+
+	private fun currentActivatedCleanupSlot(slot: ActivatedReleaseCleanupDeadlineSlot): Boolean =
+		activatedReleaseCleanupDeadlineSlot === slot &&
+			journal.releaseOnlyCleanup?.let { cleanup ->
+				cleanup.key == slot.key && cleanup.deadlineStatus in setOf(
+					ReaderReleaseOnlyCleanupDeadlineStatus.Prepared,
+					ReaderReleaseOnlyCleanupDeadlineStatus.Committing,
+					ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+				)
+			} == true
 
 	private fun failActivatedReleaseCleanupBinding(
 		cleanupKey: ReaderReleaseOnlyCleanupKey,
@@ -2560,8 +2851,11 @@ internal class ReaderResumableTransitionCoordinator(
 		if (slot == null) {
 			val cleanup = journal.releaseOnlyCleanup
 			if (
-				terminalAccounting &&
-				cleanup?.deadlineStatus == ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+				cleanup != null && terminalAccounting &&
+				cleanup.deadlineStatus in setOf(
+					ReaderReleaseOnlyCleanupDeadlineStatus.Prepared,
+					ReaderReleaseOnlyCleanupDeadlineStatus.Armed
+				)
 			) {
 				journal = journal.copy(
 					releaseOnlyCleanup = cleanup.copy(
@@ -2572,8 +2866,9 @@ internal class ReaderResumableTransitionCoordinator(
 			return
 		}
 		val registration = slot.registration ?: return
+		val beforeCancel = journal.releaseOnlyCleanup?.takeIf { it.key == slot.key } ?: return
 		val disposition = try {
-			when (ports.task6FactOnlyTimer?.cancelReleaseOnlyCloseBudget(registration)) {
+			when (slot.port?.cancelReleaseOnlyCloseBudget(registration)) {
 				ReaderPortCommandResult.Accepted -> null
 				is ReaderPortCommandResult.Rejected,
 				null -> ReaderReleaseOnlyCleanupDeadlineStatus.CancellationRejected
@@ -2581,7 +2876,10 @@ internal class ReaderResumableTransitionCoordinator(
 		} catch (_: Throwable) {
 			ReaderReleaseOnlyCleanupDeadlineStatus.CancellationThrew
 		}
-		val cleanup = journal.releaseOnlyCleanup?.takeIf { it.key == slot.key } ?: return
+		if (activatedReleaseCleanupDeadlineSlot !== slot || slot.expirationObserved) return
+		val cleanup = journal.releaseOnlyCleanup?.takeIf {
+			it.key == slot.key && it.deadlineStatus == beforeCancel.deadlineStatus
+		} ?: return
 		if (disposition == null) {
 			activatedReleaseCleanupDeadlineSlot = null
 			if (terminalAccounting && cleanup.deadlineStatus == ReaderReleaseOnlyCleanupDeadlineStatus.Armed) {
@@ -2608,11 +2906,11 @@ internal class ReaderResumableTransitionCoordinator(
 		activatedReleaseCleanupDeadlineSlot?.let { slot ->
 			try {
 				slot.registration?.let { registration ->
-					ports.task6FactOnlyTimer?.cancelReleaseOnlyCloseBudget(registration)
+					slot.port?.cancelReleaseOnlyCloseBudget(registration)
 				}
 			} catch (_: Throwable) {
 			}
-			activatedReleaseCleanupDeadlineSlot = null
+			if (activatedReleaseCleanupDeadlineSlot === slot) activatedReleaseCleanupDeadlineSlot = null
 		}
 		task6TimerOwnership.registrations.toList().forEach { registration ->
 			attemptTask6TimerCancellation(ports.task6FactOnlyTimer, registration)
@@ -2629,8 +2927,11 @@ internal class ReaderResumableTransitionCoordinator(
 		if (slot.key != entry.key || slot.token != entry.token) return
 		activatedReleaseCleanupDeadlineSlot = null
 		if (journal.releaseOnlyCleanup?.key != entry.key) return
+		// Exact callback custody retires without reopening terminal consequence authority.
+		val elapsedJournal = journal.markReleaseOnlyCleanupDeadlineElapsed(entry.key)
+		if (elapsedJournal === journal) return
 		releaseLedger.markCleanupDeadlineElapsed(entry.key)
-		journal = journal.markReleaseOnlyCleanupDeadlineElapsed(entry.key)
+		journal = elapsedJournal
 	}
 
 	private fun processReleaseCleanupDeadlineElapsed(
@@ -2762,7 +3063,9 @@ internal class ReaderResumableTransitionCoordinator(
 	private class ActivatedReleaseCleanupDeadlineSlot(
 		val key: ReaderReleaseOnlyCleanupKey,
 		val token: Long,
-		var registration: ReaderTask6ReleaseOnlyTimerRegistration? = null
+		val port: ReaderTask6FactOnlyTimerPort?,
+		var registration: ReaderTask6ReleaseOnlyTimerRegistration? = null,
+		var expirationObserved: Boolean = false
 	)
 
 	private companion object {
@@ -2853,6 +3156,7 @@ private fun ReaderTransitionFact.registeredResourceKeyOrNull(): ReaderTransition
 	is ReaderTransitionFact.PreparedFrame -> resource.key
 	is ReaderTransitionFact.CoverPostDraw -> resourceKey
 	is ReaderTransitionFact.WebViewExposure -> resourceKey
+	is ReaderTransitionFact.FrameTargetDeclared,
 	is ReaderTransitionFact.Intent,
 	is ReaderTransitionFact.FoliateDestinationCommitted,
 	is ReaderTransitionFact.SettlementAcknowledged,
@@ -2914,6 +3218,7 @@ internal fun ReaderTransitionFact.isTask4CoordinatorFact(): Boolean = when (this
 		key.isTask4ResourceKeyFor(transitionId, ReaderTransitionResourceKind.Deck)
 	is ReaderTransitionFact.ResourceReleased ->
 		key.isTask4ResourceKeyFor(transitionId)
+	is ReaderTransitionFact.FrameTargetDeclared,
 	is ReaderTransitionFact.Intent,
 	is ReaderTransitionFact.SemanticPortContractViolated,
 	is ReaderTransitionFact.FoliateDestinationCommitted,
@@ -3012,6 +3317,7 @@ private fun ReaderTransitionFact.kind(): ReaderTransitionFactKind = when (this) 
 	is ReaderTransitionFact.HostAvailable -> ReaderTransitionFactKind.HostAvailable
 	is ReaderTransitionFact.PaginationProfileReady -> ReaderTransitionFactKind.PaginationProfileReady
 	is ReaderTransitionFact.RendererGenerationReady -> ReaderTransitionFactKind.RendererGenerationReady
+	is ReaderTransitionFact.FrameTargetDeclared -> ReaderTransitionFactKind.FrameTargetDeclared
 	is ReaderTransitionFact.FrameTargetPrepared -> ReaderTransitionFactKind.FrameTargetPrepared
 	is ReaderTransitionFact.FrameTargetPreparationRejected -> ReaderTransitionFactKind.FrameTargetPreparationRejected
 	is ReaderTransitionFact.PreparedFrame -> ReaderTransitionFactKind.PreparedFrame

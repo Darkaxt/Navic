@@ -318,6 +318,53 @@ sealed interface ReaderBridgeCommand {
 		}
 	}
 
+	/** Exact installed visual navigation; never projected from an ordinary command key. */
+	data class GoToVisualPage(
+		val pageIndex: Int,
+		val settleToken: String,
+		val settleGestureId: Long,
+		val settleSessionId: String,
+		val settleRasterGeneration: Long,
+		val settleTextureGeneration: Long,
+		val settleForegroundMutationGeneration: Long,
+		val sourceDestinationCommitSequence: Long = 0L
+	) : ReaderBridgeCommand {
+		init {
+			require(pageIndex >= 0 && settleToken.isNotBlank())
+			require(settleSessionId.isNotBlank() && settleSessionId != ReaderUnboundFoliateSessionId)
+			require(settleGestureId > 0L && settleRasterGeneration > 0L && settleTextureGeneration > 0L)
+			require(settleForegroundMutationGeneration > 0L && sourceDestinationCommitSequence >= 0L)
+		}
+		override val type = "goToVisualPage"
+		override fun toString() = "ReaderBridgeCommand.GoToVisualPage(<redacted>)"
+		override fun toJsonObject(): JsonObject = buildJsonObject {
+			put("type", type); put("pageIndex", pageIndex); put("settleToken", settleToken)
+			put("settleGestureId", settleGestureId); put("settleSessionId", settleSessionId)
+			put("settleRasterGeneration", settleRasterGeneration)
+			put("settleTextureGeneration", settleTextureGeneration)
+			put("settleForegroundMutationGeneration", settleForegroundMutationGeneration)
+		}
+	}
+
+	/** A read-only semantic query; its command ID is supplied by ReaderBridgeDispatchCommand. */
+	data class ResolveCurrentDestination(val foliateSessionId: String) : ReaderBridgeCommand {
+		init {
+			require(foliateSessionId.isNotBlank() && foliateSessionId == foliateSessionId.trim())
+		}
+
+		override val type: String = "resolveCurrentDestination"
+
+		override fun toString(): String = "ReaderBridgeCommand.ResolveCurrentDestination(<redacted>)"
+
+		override fun toJsonObject(): JsonObject {
+			check(foliateSessionId != ReaderUnboundFoliateSessionId)
+			return buildJsonObject {
+				put("type", type)
+				put("foliateSessionId", foliateSessionId)
+			}
+		}
+	}
+
 	data class GoToLocator(
 		val locator: ReaderLocator,
 		val reason: String,
@@ -731,11 +778,29 @@ sealed interface ReaderBridgeEvent {
 		val pageTurnSettleRasterGeneration: Long? = null,
 		val pageTurnSettleTextureGeneration: Long? = null,
 		val causalSequence: Long? = null,
-		val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null,
+		// Optional for legacy relocation producers; correlation is not settlement authority.
+		val commandId: String? = null
 	) : ReaderBridgeEvent {
 		init {
 			require(foliateSessionId.isNotBlank())
 		}
+	}
+	/** Correlated query result, never an ordinary relocation or transport acknowledgement. */
+	data class CurrentDestinationResolved(
+		val commandId: String,
+		val foliateSessionId: String,
+		val destinationCommitIdentity: ReaderDestinationCommitIdentity,
+		val locator: ReaderLocator,
+		val resolvedLayout: ReaderFoliateResolvedLayout? = null
+	) : ReaderBridgeEvent {
+		init {
+			require(commandId.isNotBlank() && commandId == commandId.trim())
+			require(foliateSessionId.isNotBlank() && foliateSessionId == foliateSessionId.trim())
+			require(destinationCommitIdentity.foliateSessionId == foliateSessionId)
+		}
+
+		override fun toString(): String = "ReaderBridgeEvent.CurrentDestinationResolved(<redacted>)"
 	}
 	data class DuplicatePageSuspected(
 		val currentPageOrdinal: Int,
@@ -931,6 +996,7 @@ private val ReaderBridgeEventTypes = setOf(
 	"internalLink",
 	"externalLink",
 	"locationChanged",
+	"currentDestinationResolved",
 	"duplicatePageSuspected",
 	"cfiChanged",
 	"tocItemChanged",
@@ -1017,6 +1083,7 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 				anchorHref = json.stringValue("anchorHref")
 			)
 			"locationChanged" -> json.toLocationChanged()
+			"currentDestinationResolved" -> json.toCurrentDestinationResolved()
 			"duplicatePageSuspected" -> json.toDuplicatePageSuspected()
 			"cfiChanged" -> json.stringValue("cfi")?.let(ReaderBridgeEvent::CfiChanged)
 			"tocItemChanged" -> ReaderBridgeEvent.TocItemChanged(
@@ -1149,6 +1216,68 @@ private fun JsonObject.toDuplicatePageSuspected(): ReaderBridgeEvent.DuplicatePa
 	)
 }
 
+private fun JsonObject.toCurrentDestinationResolved(): ReaderBridgeEvent.CurrentDestinationResolved? {
+	// Do not use stringValue/longValue here: they coerce wire primitives and trim identities.
+	fun identityString(key: String): String? = (get(key) as? JsonPrimitive)
+		?.takeIf { it.isString }
+		?.contentOrNull
+		?.takeIf { it.isNotBlank() && it == it.trim() }
+	val commandId = identityString("commandId") ?: return null
+	val foliateSessionId = identityString("foliateSessionId") ?: return null
+	val destinationSessionId = identityString("destinationFoliateSessionId") ?: return null
+	if (destinationSessionId != foliateSessionId) return null
+	val commitSequence = (get("destinationCommitSequence") as? JsonPrimitive)
+		?.takeUnless { it.isString }
+		?.longOrNull
+		?.takeIf { it > 0L }
+		?: return null
+	return ReaderBridgeEvent.CurrentDestinationResolved(
+		commandId = commandId,
+		foliateSessionId = foliateSessionId,
+		destinationCommitIdentity = ReaderDestinationCommitIdentity(destinationSessionId, commitSequence),
+		locator = toFlatReaderLocator(),
+		resolvedLayout = (get("resolvedLayout") as? JsonObject)?.toFoliateResolvedLayout()
+	)
+}
+
+internal fun JsonObject.toFoliateResolvedLayout(): ReaderFoliateResolvedLayout? {
+	// No coercion, trimming, caller identity, owner, content or diagnostic object crosses
+	// this subordinate channel. Invalid/missing layout cannot erase semantic identity or
+	// authorize allocation by falling back to configuration/pagination readiness.
+	if (keys != setOf("layoutGeneration", "viewGeneration", "navigationGeneration", "sectionIndex",
+		"pageIndex", "pageCount", "width", "height")) return null
+	fun number(key: String): JsonPrimitive? = (get(key) as? JsonPrimitive)?.takeUnless { it.isString }
+	return runCatching {
+		ReaderFoliateResolvedLayout(
+			layoutGeneration = number("layoutGeneration")?.longOrNull ?: return null,
+			viewGeneration = number("viewGeneration")?.longOrNull ?: return null,
+			navigationGeneration = number("navigationGeneration")?.longOrNull ?: return null,
+			sectionIndex = number("sectionIndex")?.intOrNull ?: return null,
+			pageIndex = number("pageIndex")?.intOrNull ?: return null,
+			pageCount = number("pageCount")?.intOrNull ?: return null,
+			width = number("width")?.doubleOrNull ?: return null,
+			height = number("height")?.doubleOrNull ?: return null
+		)
+	}.getOrNull()
+}
+
+private fun JsonObject.toFlatReaderLocator(): ReaderLocator = ReaderLocator(
+	href = stringValue("href"),
+	cfi = stringValue("cfi"),
+	progress = doubleValue("progress"),
+	pageIndex = intValue("pageIndex"),
+	pageCount = intValue("pageCount"),
+	chapterProgress = doubleValue("chapterProgress"),
+	chapterPageIndex = intValue("chapterPageIndex"),
+	chapterPageCount = intValue("chapterPageCount"),
+	rangeCfi = stringValue("rangeCfi"),
+	reason = stringValue("reason"),
+	fraction = doubleValue("fraction"),
+	size = doubleValue("size"),
+	tocItemLabel = stringValue("tocItemLabel"),
+	pageItemLabel = stringValue("pageItemLabel")
+)
+
 private fun JsonObject.toLocationChanged(): ReaderBridgeEvent.LocationChanged? {
 	val foliateSessionId = stringValue("foliateSessionId") ?: return null
 	val settlementToken = stringValue("pageTurnSettleToken")
@@ -1160,22 +1289,7 @@ private fun JsonObject.toLocationChanged(): ReaderBridgeEvent.LocationChanged? {
 		settlementRasterGeneration?.let { it >= 0L } == true &&
 		settlementTextureGeneration?.let { it >= 0L } == true
 	return ReaderBridgeEvent.LocationChanged(
-		locator = ReaderLocator(
-			href = stringValue("href"),
-			cfi = stringValue("cfi"),
-			progress = doubleValue("progress"),
-			pageIndex = intValue("pageIndex"),
-			pageCount = intValue("pageCount"),
-			chapterProgress = doubleValue("chapterProgress"),
-			chapterPageIndex = intValue("chapterPageIndex"),
-			chapterPageCount = intValue("chapterPageCount"),
-			rangeCfi = stringValue("rangeCfi"),
-			reason = stringValue("reason"),
-			fraction = doubleValue("fraction"),
-			size = doubleValue("size"),
-			tocItemLabel = stringValue("tocItemLabel"),
-			pageItemLabel = stringValue("pageItemLabel")
-		),
+		locator = toFlatReaderLocator(),
 		foliateSessionId = foliateSessionId,
 		tocTitle = stringValue("tocTitle"),
 		pageTurnSettleToken = settlementToken.takeIf { settlementIsValid },
@@ -1183,7 +1297,9 @@ private fun JsonObject.toLocationChanged(): ReaderBridgeEvent.LocationChanged? {
 		pageTurnSettleRasterGeneration = settlementRasterGeneration.takeIf { settlementIsValid },
 		pageTurnSettleTextureGeneration = settlementTextureGeneration.takeIf { settlementIsValid },
 		causalSequence = causalSequence(),
-		destinationCommitIdentity = destinationCommitIdentity(foliateSessionId)
+		destinationCommitIdentity = destinationCommitIdentity(foliateSessionId),
+		commandId = (get("commandId") as? JsonPrimitive)?.takeIf { it.isString }
+			?.contentOrNull?.takeIf { it.isNotBlank() && it == it.trim() }
 	)
 }
 

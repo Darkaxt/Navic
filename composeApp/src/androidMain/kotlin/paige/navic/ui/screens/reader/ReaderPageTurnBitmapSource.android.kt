@@ -403,7 +403,8 @@ private class ReaderPageTrackedBitmapCapture(
 private class ReaderPageTrackedBitmapStage(
 	private val ownership: ReaderExactPhysicalOwnerRegistry,
 	private val onCancelled: () -> Unit,
-	private val cancelExternal: (() -> Unit)? = null
+	private val cancelExternal: (() -> Unit)? = null,
+	private val awaitPhysicalReturn: Boolean = false
 ) {
 	private enum class State { Open, Running, Cancelled, Terminal }
 
@@ -421,10 +422,20 @@ private class ReaderPageTrackedBitmapStage(
 	}
 
 	fun run(action: () -> Unit): Boolean {
+		var cancelledReturn = false
 		val admitted = synchronized(lock) {
-			if (state != State.Open) return false
-			state = State.Running
+			if (state == State.Cancelled && awaitPhysicalReturn) {
+				state = State.Terminal
+				cancelledReturn = true
+			} else {
+				if (state != State.Open) return false
+				state = State.Running
+			}
 			owner
+		}
+		if (cancelledReturn) {
+			admitted?.let(ownership::complete)
+			return false
 		}
 		try {
 			action()
@@ -440,8 +451,8 @@ private class ReaderPageTrackedBitmapStage(
 		val accepted = synchronized(lock) {
 			when (state) {
 				State.Open -> {
-					state = State.Terminal
-					completeNow = true
+					state = if (awaitPhysicalReturn) State.Cancelled else State.Terminal
+					completeNow = !awaitPhysicalReturn
 					true
 				}
 				State.Running -> {
@@ -553,9 +564,23 @@ internal class ReaderPageTurnBitmapSource(
 	): ReaderPortCommandResult =
 		physicalOwnership.drainFrozenOwnership(physicalIdentity, onConfirmed)
 
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult =
+		physicalOwnership.finalizeActivatedHandoff(domain)
+
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult = physicalOwnership.restoreAfterTransitionActivation(domain)
+
+	private fun admitOwners(
+		descriptors: List<ReaderExactPhysicalOwnerDescriptor>,
+		cancelPhysical: (() -> Boolean)?,
+		work: ReaderActivatedRasterWork?
+	): List<ReaderExactPhysicalOwnerRegistry.Owner>? = if (work == null)
+		physicalOwnership.admit(descriptors, cancelPhysical)
+	else work.admit(physicalOwnership, descriptors, cancelPhysical)
+
+	fun releaseInstalledCapture(work: ReaderActivatedRasterWork, onReleased: () -> Unit): ReaderPortCommandResult =
+		physicalOwnership.releaseInstalledPhysicalOwners(work, onReleased)
 
 	private fun registerOperation(
 		cancelPhysical: () -> Boolean,
@@ -590,15 +615,17 @@ internal class ReaderPageTurnBitmapSource(
 		kind: ReaderTransitionResourceKind,
 		state: ReaderLegacyResourceState,
 		onCancelled: () -> Unit,
-		cancelExternal: (() -> Unit)? = null
+		cancelExternal: (() -> Unit)? = null,
+		work: ReaderActivatedRasterWork? = null
 	): ReaderPageTrackedBitmapStage? {
 		val stage = ReaderPageTrackedBitmapStage(
 			ownership = physicalOwnership,
 			onCancelled = onCancelled,
-			cancelExternal = cancelExternal
+			cancelExternal = cancelExternal,
+			awaitPhysicalReturn = work != null && kind == ReaderTransitionResourceKind.CallbackRegistration
 		)
-		val owner = physicalOwnership.admit(
-			ReaderExactPhysicalOwnerDescriptor(
+		val owner = admitOwners(
+			listOf(ReaderExactPhysicalOwnerDescriptor(
 				kind = kind,
 				origin = if (kind == ReaderTransitionResourceKind.CallbackRegistration) {
 					ReaderLegacyResourceOrigin.Pending
@@ -606,19 +633,21 @@ internal class ReaderPageTurnBitmapSource(
 					ReaderLegacyResourceOrigin.Owned
 				},
 				state = state
-			),
-			cancelPhysical = stage::cancel
-		) ?: return null
+			)),
+			cancelPhysical = stage::cancel,
+			work = work
+		)?.single() ?: return null
 		stage.attach(owner)
 		return stage
 	}
 
 	private fun captureOwned(
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
+		work: ReaderActivatedRasterWork? = null,
 		start: ((ReaderPageTurnCaptureResult?) -> Unit) -> Unit
-	) {
+	): Boolean {
 		val operation = ReaderPageTrackedBitmapCapture(physicalOwnership, onCaptured)
-		val admitted = physicalOwnership.admit(
+		val admitted = admitOwners(
 			listOf(
 				ReaderExactPhysicalOwnerDescriptor(
 					kind = ReaderTransitionResourceKind.Raster,
@@ -630,11 +659,12 @@ internal class ReaderPageTurnBitmapSource(
 					state = ReaderLegacyResourceState.Registered
 				)
 			),
-			cancelPhysical = operation::cancel
+			cancelPhysical = operation::cancel,
+			work = work
 		)
 		if (admitted == null) {
 			onCaptured(null)
-			return
+			return false
 		}
 		operation.attach(admitted)
 		try {
@@ -642,6 +672,7 @@ internal class ReaderPageTurnBitmapSource(
 		} catch (_: Throwable) {
 			operation.complete(null)
 		}
+		return true
 	}
 
 	fun updateBitmapQuality(quality: ReaderPageBitmapQuality) {
@@ -705,6 +736,21 @@ internal class ReaderPageTurnBitmapSource(
 				webViewWindowTop = location[1],
 				webViewWidth = webView.width,
 				webViewHeight = webView.height
+			)
+		}
+	}
+
+	fun captureInstalledSurface(
+		webView: WebView,
+		geometry: ReaderPageTurnCaptureGeometry,
+		work: ReaderActivatedRasterWork,
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
+	): Boolean = captureOwned(onCaptured, work) { callback ->
+		captureResolvedGeometry(webView, geometry, callback, isStillCurrent = work::isCurrent,
+			work = work) { resolved, location ->
+			resolved.surfaceRectInWindow(
+				webViewWindowLeft = location[0], webViewWindowTop = location[1],
+				webViewWidth = webView.width, webViewHeight = webView.height
 			)
 		}
 	}
@@ -1420,6 +1466,7 @@ internal class ReaderPageTurnBitmapSource(
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
 		allowStableLowContrast: Boolean = false,
 		isStillCurrent: () -> Boolean = { true },
+		work: ReaderActivatedRasterWork? = null,
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
 	) {
 		if (!canCapture(webView) || !runCatching(isStillCurrent).getOrDefault(false)) {
@@ -1433,6 +1480,7 @@ internal class ReaderPageTurnBitmapSource(
 			onCaptured = onCaptured,
 			allowStableLowContrast = allowStableLowContrast,
 			isStillCurrent = isStillCurrent,
+			work = work,
 			resolveRect = resolveRect
 		)
 	}
@@ -1444,6 +1492,7 @@ internal class ReaderPageTurnBitmapSource(
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
 		allowStableLowContrast: Boolean,
 		isStillCurrent: () -> Boolean,
+		work: ReaderActivatedRasterWork? = null,
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
 	) {
 		if (
@@ -1457,7 +1506,8 @@ internal class ReaderPageTurnBitmapSource(
 		val visualStateStage = registerStage(
 			kind = ReaderTransitionResourceKind.CallbackRegistration,
 			state = ReaderLegacyResourceState.Registered,
-			onCancelled = { onCaptured(null) }
+			onCancelled = { onCaptured(null) },
+			work = work
 		) ?: run {
 			onCaptured(null)
 			return
@@ -1476,7 +1526,8 @@ internal class ReaderPageTurnBitmapSource(
 						val animationStage = registerStage(
 							kind = ReaderTransitionResourceKind.CallbackRegistration,
 							state = ReaderLegacyResourceState.Registered,
-							onCancelled = { onCaptured(null) }
+							onCancelled = { onCaptured(null) },
+							work = work
 						) ?: run {
 							onCaptured(null)
 							return@visual
@@ -1494,7 +1545,8 @@ internal class ReaderPageTurnBitmapSource(
 									onCaptured = onCaptured,
 									resolveRect = resolveRect,
 									allowStableLowContrast = allowStableLowContrast,
-									isStillCurrent = isStillCurrent
+									isStillCurrent = isStillCurrent,
+									work = work
 								)
 							}
 						}
@@ -1514,7 +1566,8 @@ internal class ReaderPageTurnBitmapSource(
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?,
 		allowStableLowContrast: Boolean,
 		isStillCurrent: () -> Boolean,
-		previousRejectedSignature: ReaderPageTurnRejectedForegroundSignature? = null
+		previousRejectedSignature: ReaderPageTurnRejectedForegroundSignature? = null,
+		work: ReaderActivatedRasterWork? = null
 	) {
 		if (
 			!webView.isAttachedToWindow ||
@@ -1534,7 +1587,8 @@ internal class ReaderPageTurnBitmapSource(
 		val drawStage = registerStage(
 			kind = ReaderTransitionResourceKind.Raster,
 			state = ReaderLegacyResourceState.Running,
-			onCancelled = { onCaptured(null) }
+			onCancelled = { onCaptured(null) },
+			work = work
 		) ?: run {
 			onCaptured(null)
 			return
@@ -1602,7 +1656,8 @@ internal class ReaderPageTurnBitmapSource(
 			val retryAnimationStage = registerStage(
 				kind = ReaderTransitionResourceKind.CallbackRegistration,
 				state = ReaderLegacyResourceState.Registered,
-				onCancelled = { onCaptured(null) }
+				onCancelled = { onCaptured(null) },
+				work = work
 			) ?: run {
 				onCaptured(null)
 				return
@@ -1621,7 +1676,8 @@ internal class ReaderPageTurnBitmapSource(
 						resolveRect = resolveRect,
 						allowStableLowContrast = allowStableLowContrast,
 						isStillCurrent = isStillCurrent,
-						previousRejectedSignature = rejectedSignature
+						previousRejectedSignature = rejectedSignature,
+						work = work
 					)
 				}
 			}

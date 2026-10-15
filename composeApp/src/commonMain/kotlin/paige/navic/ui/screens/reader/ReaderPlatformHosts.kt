@@ -18,6 +18,7 @@ import paige.navic.reader.ReaderPresentationDecision
 import paige.navic.reader.ReaderPresentationEffectIdentity
 import paige.navic.reader.ReaderPresentationEvent
 import paige.navic.reader.ReaderPresentationEventReceipt
+import paige.navic.reader.ReaderPresentationEventOrigin
 import paige.navic.reader.ReaderPresentationLifecycleEvent
 import paige.navic.reader.ReaderPresentationReceiptVersion
 import paige.navic.reader.ReaderPresentationState
@@ -43,18 +44,91 @@ import paige.navic.reader.ReaderWhispersyncCueMapState
 import paige.navic.reader.WordSyncPublicationVerifier
 import paige.navic.ui.navigation.Screen
 
-internal enum class ReaderTransitionGatewayMode { Shadow, Activated }
+internal enum class ReaderTransitionGatewayMode { Shadow, Preparing, Activated }
 
 internal fun interface ReaderTransitionGatewayRegistration {
 	fun close()
 }
 
+internal class ReaderTransitionGatewaySemanticEpoch internal constructor(internal val attachmentToken: Long)
+
 internal class ReaderTransitionGateway {
-	var mode: ReaderTransitionGatewayMode = ReaderTransitionGatewayMode.Shadow
-		private set
+	private var explicitMode = ReaderTransitionGatewayMode.Shadow
 	private var attachment: Attachment? = null
 	private var nextAttachmentToken = 1L
 	private var nextObservedSemanticRequestHandle = 1L
+	private var retiredNormalSessionGeneration = 0L
+
+	internal fun admitsNormalSession(readerSessionGeneration: Long): Boolean =
+		readerSessionGeneration > retiredNormalSessionGeneration
+
+	/** Normal composition disposal is terminal for that session even when a queued
+	 * ComposeView layout recreates the outer composition with the same model. This
+	 * does not change reversible pre-install protocol cancellation. */
+	internal fun retireNormalProductionCandidate(candidate: ReaderTransitionGatewayCandidate) {
+		if (candidate.gateway !== this || !isSelectedCandidate(candidate)) return
+		retiredNormalSessionGeneration = maxOf(retiredNormalSessionGeneration, candidate.readerSessionGeneration)
+		if (!candidate.installationSource.hasTransferredCandidate(candidate.epoch)) {
+			explicitMode = ReaderTransitionGatewayMode.Preparing
+		}
+		candidate.close()
+	}
+
+	val mode: ReaderTransitionGatewayMode
+		get() {
+			val candidate = attachment?.candidate ?: return explicitMode
+			return if (candidate.installationSource.ownsInstalledCandidate(
+				candidate.epoch, candidate.readerSessionGeneration, candidate.coordinatorEpoch
+			)) ReaderTransitionGatewayMode.Activated else ReaderTransitionGatewayMode.Preparing
+		}
+
+	internal fun reserveActivatedCandidate(
+		readerSessionGeneration: Long,
+		coordinatorEpoch: Long,
+		installationSource: ReaderTransitionGatewayInstallationSource,
+		enqueue: (ReaderTransitionFact) -> Unit,
+		enqueueReceipt: (ReaderPresentationEventReceipt) -> Unit,
+		registerSemanticRequest: (ReaderSemanticExecutableRequest) -> ReaderSemanticRequestHandle,
+		discardSemanticReservation: () -> Unit,
+		retireSemanticRequests: () -> Unit
+	): ReaderTransitionGatewayCandidate? {
+		if (attachment != null || !installationSource.awaitingInstallation ||
+			readerSessionGeneration <= 0L || coordinatorEpoch <= 0L || nextAttachmentToken == Long.MAX_VALUE
+		) return null
+		val token = nextAttachmentToken++
+		val epoch = ReaderTransitionGatewaySemanticEpoch(token)
+		val candidate = ReaderTransitionGatewayCandidate(
+			this, epoch, readerSessionGeneration, coordinatorEpoch, installationSource
+		) {
+			val owned = attachment?.takeIf { it.token == token && it.candidate?.epoch === epoch }
+				?: return@ReaderTransitionGatewayCandidate
+			val transferred = installationSource.hasTransferredCandidate(epoch)
+			// Fence this exact attachment before any external retirement or terminal callback.
+			attachment = null
+			if (transferred) explicitMode = ReaderTransitionGatewayMode.Activated
+			try {
+				if (transferred) owned.enqueue(ReaderTransitionFact.PublicationClosed(null))
+			} finally {
+				try { discardSemanticReservation() }
+				finally { if (transferred) retireSemanticRequests() }
+			}
+		}
+		attachment = Attachment(token, enqueue, enqueueReceipt, registerSemanticRequest, candidate)
+		return candidate
+	}
+
+	internal fun isSelectedCandidate(candidate: ReaderTransitionGatewayCandidate): Boolean =
+		attachment?.candidate === candidate
+
+	internal fun captureSelectedSemanticEpoch(): ReaderTransitionGatewaySemanticEpoch? =
+		attachment?.candidate?.epoch ?: captureActivatedSemanticEpoch()
+
+	internal fun captureActivatedSemanticEpoch(): ReaderTransitionGatewaySemanticEpoch? =
+		attachment?.takeIf { mode == ReaderTransitionGatewayMode.Activated && it.registerSemanticRequest != null }
+			?.let { it.candidate?.epoch ?: ReaderTransitionGatewaySemanticEpoch(it.token) }
+	internal fun isCurrentActivatedSemanticEpoch(epoch: ReaderTransitionGatewaySemanticEpoch): Boolean =
+		mode == ReaderTransitionGatewayMode.Activated && attachment?.token == epoch.attachmentToken &&
+			attachment?.registerSemanticRequest != null
 
 	fun observedSemanticRequestHandle(): ReaderSemanticRequestHandle {
 		check(mode == ReaderTransitionGatewayMode.Shadow) {
@@ -70,8 +144,8 @@ internal class ReaderTransitionGateway {
 		enqueue: (ReaderTransitionFact) -> Unit,
 		enqueueReceipt: (ReaderPresentationEventReceipt) -> Unit = {}
 	): ReaderTransitionGatewayRegistration {
-		check(mode != ReaderTransitionGatewayMode.Activated) {
-			"An activated reader transition gateway cannot reopen legacy routing"
+		check(mode == ReaderTransitionGatewayMode.Shadow) {
+			"A selected reader transition gateway cannot reopen legacy routing"
 		}
 		check(attachment == null) { "Reader transition shadow gateway is already attached" }
 		val token = nextAttachmentToken++
@@ -84,20 +158,26 @@ internal class ReaderTransitionGateway {
 	fun attachActivated(
 		enqueue: (ReaderTransitionFact) -> Unit,
 		enqueueReceipt: (ReaderPresentationEventReceipt) -> Unit = {},
+		retireSemanticRequests: () -> Unit = {},
 		registerSemanticRequest: (ReaderSemanticExecutableRequest) -> ReaderSemanticRequestHandle
 	): ReaderTransitionGatewayRegistration {
 		check(attachment == null) { "Reader transition gateway is already attached" }
 		val token = nextAttachmentToken++
 		val candidate = Attachment(token, enqueue, enqueueReceipt, registerSemanticRequest)
 		attachment = candidate
-		mode = ReaderTransitionGatewayMode.Activated
+		explicitMode = ReaderTransitionGatewayMode.Activated
 		return ReaderTransitionGatewayRegistration {
-			if (attachment?.token == token) attachment = null
+			if (attachment?.token == token) {
+				// Detach first: terminal callbacks cannot admit another request through this owner.
+				attachment = null
+				try { candidate.enqueue(ReaderTransitionFact.PublicationClosed(null)) }
+				finally { retireSemanticRequests() }
+			}
 		}
 	}
 
 	fun enqueue(fact: ReaderTransitionFact) {
-		attachment?.enqueue?.invoke(fact)
+		if (mode != ReaderTransitionGatewayMode.Preparing) attachment?.enqueue?.invoke(fact)
 	}
 
 	fun registerSemanticRequest(request: ReaderSemanticExecutableRequest): ReaderSemanticRequestHandle {
@@ -116,14 +196,15 @@ internal class ReaderTransitionGateway {
 	}
 
 	fun observePresentationReceipt(receipt: ReaderPresentationEventReceipt?) {
-		receipt?.let { attachment?.enqueueReceipt?.invoke(it) }
+		if (mode != ReaderTransitionGatewayMode.Preparing) receipt?.let { attachment?.enqueueReceipt?.invoke(it) }
 	}
 
 	private data class Attachment(
 		val token: Long,
 		val enqueue: (ReaderTransitionFact) -> Unit,
 		val enqueueReceipt: (ReaderPresentationEventReceipt) -> Unit,
-		val registerSemanticRequest: ((ReaderSemanticExecutableRequest) -> ReaderSemanticRequestHandle)?
+		val registerSemanticRequest: ((ReaderSemanticExecutableRequest) -> ReaderSemanticRequestHandle)?,
+		val candidate: ReaderTransitionGatewayCandidate? = null
 	)
 }
 
@@ -131,20 +212,29 @@ internal inline fun <T> ReaderTransitionGateway.dispatchBeforeLegacy(
 	fact: ReaderTransitionFact?,
 	legacyDispatch: () -> T
 ): T {
+	check(mode == ReaderTransitionGatewayMode.Shadow) { "Selected routing requires an explicit inert result" }
 	fact?.let(::enqueue)
 	return legacyDispatch()
+}
+
+internal inline fun <T> ReaderTransitionGateway.dispatchBeforeLegacy(
+	fact: ReaderTransitionFact?,
+	selectedResult: () -> T,
+	legacyDispatch: () -> T
+): T = when (mode) {
+	ReaderTransitionGatewayMode.Shadow -> dispatchBeforeLegacy(fact, legacyDispatch)
+	ReaderTransitionGatewayMode.Preparing -> selectedResult()
+	ReaderTransitionGatewayMode.Activated -> {
+		fact?.let(::enqueue)
+		selectedResult()
+	}
 }
 
 internal inline fun <T> ReaderTransitionGateway.dispatchActivatedOrLegacy(
 	fact: ReaderTransitionFact,
 	activatedResult: () -> T,
 	legacyDispatch: () -> T
-): T = if (mode == ReaderTransitionGatewayMode.Activated) {
-	enqueue(fact)
-	activatedResult()
-} else {
-	dispatchBeforeLegacy(fact, legacyDispatch)
-}
+): T = dispatchBeforeLegacy(fact, activatedResult, legacyDispatch)
 
 internal fun <T> ReaderTransitionGateway.dispatchSemanticActivatedOrLegacy(
 	intent: (ReaderSemanticRequestHandle) -> ReaderSemanticSynchronizationIntent,
@@ -152,6 +242,7 @@ internal fun <T> ReaderTransitionGateway.dispatchSemanticActivatedOrLegacy(
 	activatedResult: () -> T,
 	legacyDispatch: () -> T
 ): T {
+	if (mode == ReaderTransitionGatewayMode.Preparing) return activatedResult()
 	if (mode == ReaderTransitionGatewayMode.Activated) {
 		val handle = registerSemanticRequest(request)
 		enqueue(ReaderTransitionFact.Intent(null, intent(handle)))
@@ -180,18 +271,41 @@ internal inline fun <T> ReaderTransitionGateway.dispatchViewerActionBeforeLegacy
 	return dispatchBeforeLegacy(fact, legacyDispatch)
 }
 
+internal inline fun <T> ReaderTransitionGateway.dispatchViewerActionBeforeLegacy(
+	state: ReaderControllerState,
+	action: ReaderViewerAction,
+	gestureId: ReaderTransitionGestureId,
+	onTransitionIntentRegistered: () -> Unit,
+	selectedResult: () -> T,
+	legacyDispatch: () -> T
+): T {
+	// Chrome has no semantic request and must not borrow a Shadow handle to classify it.
+	if (action == ReaderViewerAction.Menu) return legacyDispatch()
+	if (mode != ReaderTransitionGatewayMode.Shadow) return selectedResult()
+	return dispatchViewerActionBeforeLegacy(state, action, gestureId, onTransitionIntentRegistered, legacyDispatch)
+}
+
 internal inline fun ReaderTransitionGateway.observeReceiptBeforeEffects(
 	receipt: ReaderPresentationEventReceipt?,
 	retainEffects: () -> Unit
 ) {
 	observePresentationReceipt(receipt)
-	retainEffects()
+	if (mode != ReaderTransitionGatewayMode.Preparing) retainEffects()
 }
 
+internal typealias ReaderInstalledPhysicalPublicationIngress = (paige.navic.reader.ReaderTransitionCommand, paige.navic.reader.ReaderOwnerAndInputPublicationResult.Applied) -> Unit
+internal val LocalReaderInstalledPhysicalPublicationIngress = staticCompositionLocalOf<ReaderInstalledPhysicalPublicationIngress?> { null }
+internal typealias ReaderInstalledPageTurnModelIngress = (paige.navic.reader.ReaderBridgeEvent.LocationChanged, paige.navic.reader.ReaderPresentationBinding, ReaderPresentationEventOrigin.SemanticCommand) -> ReaderPresentationEventReceipt?
+internal val LocalReaderInstalledPageTurnModelIngress = staticCompositionLocalOf<ReaderInstalledPageTurnModelIngress?> { null }
+internal typealias ReaderInitialSemanticReceiptIngress = (ReaderPresentationEvent.FoliateRelocated, ReaderPresentationEventOrigin.SemanticCommand) -> ReaderPresentationEventReceipt?
+internal val LocalReaderInitialSemanticReceiptIngress = staticCompositionLocalOf<ReaderInitialSemanticReceiptIngress?> { null }
+internal typealias ReaderSemanticReceiptIngress = (ReaderPresentationEvent.CurrentDestinationConfirmed, ReaderPresentationEventOrigin.SemanticCommand) -> ReaderPresentationEventReceipt?
+internal val LocalReaderSemanticReceiptIngress = staticCompositionLocalOf<ReaderSemanticReceiptIngress?> { null }
 internal val LocalReaderTransitionGateway = staticCompositionLocalOf<ReaderTransitionGateway?> { null }
 
 private fun ReaderPresentationEvent.toShadowTransitionFactOrNull(): ReaderTransitionFact? = when (this) {
-	is ReaderPresentationEvent.FoliateRelocated -> null
+	is ReaderPresentationEvent.FoliateRelocated,
+	is ReaderPresentationEvent.CurrentDestinationConfirmed -> null
 	ReaderPresentationEvent.Retry -> ReaderTransitionFact.Retry(null)
 	ReaderPresentationEvent.Cancel -> ReaderTransitionFact.Intent(null, ReaderCancelIntent)
 	is ReaderPresentationEvent.Lifecycle -> when (event) {
@@ -200,6 +314,8 @@ private fun ReaderPresentationEvent.toShadowTransitionFactOrNull(): ReaderTransi
 		ReaderPresentationLifecycleEvent.RendererLost ->
 			ReaderTransitionFact.ResourceLost(null, ReaderTransitionCapabilityKind.Renderer)
 		ReaderPresentationLifecycleEvent.PublicationClosed -> ReaderTransitionFact.PublicationClosed(null)
+		ReaderPresentationLifecycleEvent.HostDetached,
+		ReaderPresentationLifecycleEvent.WebViewDetached -> null
 		is ReaderPresentationLifecycleEvent.RunningMemoryPressure,
 		is ReaderPresentationLifecycleEvent.BackgroundMemoryPressure -> null
 	}

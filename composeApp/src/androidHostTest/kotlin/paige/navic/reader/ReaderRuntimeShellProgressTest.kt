@@ -787,10 +787,12 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(readerRootText, "KomikkuReaderNativeFrameHost(")
 		assertContains(readerRootText, "viewerContent = {")
 		assertContains(readerRootText, "ReaderViewerHost(")
-		assertContains(nativeFrameHostText, "private val viewerContainer = KomikkuReaderNativeViewerContainer(context)")
+		assertContains(nativeFrameHostText, "private val viewerContainer = KomikkuReaderNativeViewerContainer(context, activatedSessionStore)")
 		assertContains(nativeFrameHostText, "private val shellCoverView = KomikkuReaderNativeShellCoverView(context)")
 		assertContains(nativeFrameHostText, "viewerContainer.setShellCoverView(shellCoverView)")
-		assertContains(nativeFrameHostText, "viewerContainer.replaceViewerContent(viewerView)")
+		assertContains(nativeFrameHostText, "viewerContainer.replaceCapturedViewerContent(capture, viewerView)")
+		assertContains(nativeFrameHostText, "framePhysicalOwnership.reserve(viewerContentContainer, viewerView)")
+		assertContains(nativeFrameHostText, "framePhysicalOwnership.mount(lease)")
 		assertContains(viewerHostText, "ReaderEngineWebViewHost(")
 		assertFalse(
 			webViewHostText.contains("ReaderSurfaceHost") ||

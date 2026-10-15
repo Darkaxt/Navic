@@ -31,8 +31,378 @@ import paige.navic.reader.ReaderPresentationFrameOwner
 import paige.navic.reader.ReaderTransitionCommand
 import paige.navic.reader.ReaderTransitionId
 import paige.navic.reader.ReaderTransitionOperation
+import paige.navic.reader.ReaderTransitionInputLease
+import paige.navic.reader.ReaderTransitionGestureId
+import paige.navic.reader.ReaderTransitionParentIdentity
+import paige.navic.reader.ReaderTransitionResourceOwnerId
+import paige.navic.reader.ReaderTransitionResourceKey
+import paige.navic.reader.ReaderTransitionResourceRegistration
+import paige.navic.reader.ReaderResourceRetirementOrder
+import paige.navic.reader.ReaderOwnerAndInputPublicationIdentity
+import paige.navic.reader.ReaderOwnerAndInputPublicationResult
+import paige.navic.reader.ReaderTransitionFrameTargetHandle
+import paige.navic.reader.ReaderLiveEnginePresentationProof
 
 class ReaderTransitionActivationTest {
+	@Test
+	fun combinedPublicationRejectsOwnerIncompatibleRequestedLeaseBeforeNarrowing() {
+		val binding = batch9Binding()
+		val id = batch9Transition(binding)
+		val native = ReaderPresentationFrameOwner.NativePage(
+			ReaderNativePagePresentationProof(binding, null, 1L, 100, 200, 7L, 11L)
+		)
+		for (fallback in listOf(paige.navic.reader.ReaderTransitionInputLease.None,
+			paige.navic.reader.ReaderTransitionInputLease.ChromeOnly)) {
+			var narrowingCalls = 0
+			var writes = 0
+			val barrier = ReaderOwnerAndInputPublicationBarrier(
+				narrowOrVeto = { _, _ -> narrowingCalls++; fallback },
+				publishAtomically = { writes++; true }
+			)
+			val command = batch9RetainedCommand(id, native, binding,
+				paige.navic.reader.ReaderTransitionInputLease.CoverActions)
+			assertIs<paige.navic.reader.ReaderOwnerAndInputPublicationResult.Rejected>(barrier.publish(command))
+			assertEquals(0, narrowingCalls, "Requested lease must independently validate before narrowing")
+			assertEquals(0, writes)
+			assertNull(barrier.snapshot)
+		}
+	}
+
+	@Test
+	fun claimedGesturePublicationRejectsForeignTransitionIdentity() {
+		val binding = batch9Binding()
+		val id = batch9Transition(binding)
+		val curl = ReaderPresentationFrameOwner.Curl(
+			ReaderCurlPresentationFrame(ReaderPresentationToken(37L), binding, 1L, 100, 200, 7L, 11L)
+		)
+		val foreign = listOf(
+			id.copy(readerSessionGeneration = 41L),
+			id.copy(coordinatorEpoch = 43L),
+			id.copy(sequence = 2L, parent = paige.navic.reader.ReaderTransitionParentIdentity(17L, 19L, 1L)),
+			id.copy(operation = ReaderTransitionOperation.BootstrapNativePage),
+			id.copy(expectedBinding = ReaderExpectedPresentationBinding.Exact(binding.copy(viewportGeneration = 47L)))
+		)
+		for (foreignId in foreign) {
+			var writes = 0
+			val barrier = ReaderOwnerAndInputPublicationBarrier(publishAtomically = { writes++; true })
+			val lease = paige.navic.reader.ReaderTransitionInputLease.ClaimedGesture(
+				foreignId, paige.navic.reader.ReaderTransitionGestureId(37L)
+			)
+			assertIs<paige.navic.reader.ReaderOwnerAndInputPublicationResult.Rejected>(
+				barrier.publish(batch9RetainedCommand(id, curl, binding, lease)))
+			assertEquals(0, writes, "A matching gesture counter cannot authorize a foreign full transition")
+			assertNull(barrier.snapshot)
+		}
+	}
+
+	@Test
+	fun combinedPublicationValidatesRequestedKindsOnBothRoutesBeforePhysicalVeto() {
+		val binding = batch9Binding()
+		val id = batch9Transition(binding)
+		val native = batch9Native(binding)
+		val shell = batch9Shell(binding)
+		val live = batch9Live(binding)
+		val curl = batch9Curl(binding)
+		val wrongNativeBinding = ReaderTransitionInputLease.NativePage(
+			binding.copy(viewportGeneration = 47L), 13L
+		)
+		val wrongNativeGeneration = ReaderTransitionInputLease.NativePage(binding, 59L)
+		val claimed = ReaderTransitionInputLease.ClaimedGesture(id, ReaderTransitionGestureId(61L))
+		val cases = listOf(
+			native to ReaderTransitionInputLease.CoverActions,
+			native to wrongNativeBinding,
+			native to wrongNativeGeneration,
+			native to claimed,
+			shell to ReaderTransitionInputLease.NativePage(binding, 11L),
+			shell to claimed,
+			live to ReaderTransitionInputLease.CoverActions,
+			live to claimed,
+			curl to ReaderTransitionInputLease.CoverActions,
+			curl to ReaderTransitionInputLease.NativePage(binding, 11L)
+		)
+		for (successor in listOf(false, true)) for ((owner, lease) in cases) {
+			for (fallback in listOf(ReaderTransitionInputLease.None, ReaderTransitionInputLease.ChromeOnly)) {
+				var narrowingCalls = 0
+				var writes = 0
+				val barrier = ReaderOwnerAndInputPublicationBarrier(
+					narrowOrVeto = { _, _ -> narrowingCalls++; fallback },
+					publishAtomically = { writes++; true }
+				)
+				assertIs<ReaderOwnerAndInputPublicationResult.Rejected>(
+					batch9Publish(barrier, successor, id, owner, binding, lease)
+				)
+				assertEquals(0, narrowingCalls)
+				assertEquals(0, writes)
+				assertEquals(0, barrier.atomicCommitCount)
+				assertNull(barrier.snapshot)
+			}
+		}
+	}
+
+	@Test
+	fun combinedPublicationChecksFullCurlIdentityAgainstCommandOnBothRoutes() {
+		val binding = batch9Binding()
+		val id = batch9Transition(binding)
+		val foreignIds = listOf(
+			id.copy(readerSessionGeneration = 41L),
+			id.copy(coordinatorEpoch = 43L),
+			id.copy(sequence = 2L, parent = ReaderTransitionParentIdentity(17L, 19L, 1L)),
+			id.copy(operation = ReaderTransitionOperation.BootstrapNativePage),
+			id.copy(expectedBinding = ReaderExpectedPresentationBinding.Exact(binding.copy(viewportGeneration = 47L)))
+		)
+		for (successor in listOf(false, true)) for (foreignId in foreignIds) {
+			var narrowingCalls = 0
+			var writes = 0
+			val barrier = ReaderOwnerAndInputPublicationBarrier(
+				narrowOrVeto = { _, _ -> narrowingCalls++; ReaderTransitionInputLease.None },
+				publishAtomically = { writes++; true }
+			)
+			assertIs<ReaderOwnerAndInputPublicationResult.Rejected>(batch9Publish(
+				barrier, successor, id, batch9Curl(binding), binding,
+				ReaderTransitionInputLease.ClaimedGesture(foreignId, ReaderTransitionGestureId(61L))
+			))
+			assertEquals(0, narrowingCalls)
+			assertEquals(0, writes)
+			assertNull(barrier.snapshot)
+		}
+		// Parent-only mismatches are unconstructible; do not bypass the typed identity invariant.
+		val chained = id.copy(sequence = 2L, parent = ReaderTransitionParentIdentity(17L, 19L, 1L))
+		for (parent in listOf(
+			ReaderTransitionParentIdentity(41L, 19L, 1L),
+			ReaderTransitionParentIdentity(17L, 43L, 1L),
+			ReaderTransitionParentIdentity(17L, 19L, 2L)
+		)) assertFailsWith<IllegalArgumentException> { chained.copy(parent = parent) }
+	}
+
+	@Test
+	fun combinedPublicationRejectsBadActualPhysicalBindingIdentityAndGestureWithoutWrite() {
+		val binding = batch9Binding()
+		val id = batch9Transition(binding)
+		val gesture = ReaderTransitionInputLease.ClaimedGesture(id, ReaderTransitionGestureId(61L))
+		val nativeLease = ReaderTransitionInputLease.NativePage(binding, 11L)
+		val cases = listOf(
+			Triple(batch9Native(binding), nativeLease, nativeLease.copy(binding = binding.copy(viewportGeneration = 47L))),
+			Triple(batch9Native(binding), nativeLease, nativeLease.copy(textureGeneration = 59L)),
+			Triple(batch9Curl(binding), gesture, gesture.copy(transitionId = id.copy(coordinatorEpoch = 43L))),
+			Triple(batch9Curl(binding), gesture, gesture.copy(gestureId = ReaderTransitionGestureId(67L)))
+		)
+		for (successor in listOf(false, true)) for ((owner, requested, actual) in cases) {
+			var narrowingCalls = 0
+			var writes = 0
+			val barrier = ReaderOwnerAndInputPublicationBarrier(
+				narrowOrVeto = { _, _ -> narrowingCalls++; actual },
+				publishAtomically = { writes++; true }
+			)
+			assertIs<ReaderOwnerAndInputPublicationResult.Rejected>(
+				batch9Publish(barrier, successor, id, owner, binding, requested)
+			)
+			assertEquals(1, narrowingCalls)
+			assertEquals(0, writes, "Same-kind physical authority must not substitute a different identity")
+			assertEquals(0, barrier.atomicCommitCount)
+			assertNull(barrier.snapshot)
+		}
+	}
+
+	@Test
+	fun combinedPublicationPreservesValidKindsNarrowingAndAuthenticCurlContext() {
+		for (successor in listOf(false, true)) for (binding in listOf(
+			batch9Binding(), batch9Binding().copy(rasterGeneration = 0L, textureGeneration = 0L)
+		)) {
+			val id = batch9Transition(binding)
+			val cases = listOf(
+				batch9Native(binding) to ReaderTransitionInputLease.NativePage(binding, requireNotNull(binding.textureGeneration)),
+				batch9Shell(binding) to ReaderTransitionInputLease.CoverActions,
+				batch9Live(binding) to ReaderTransitionInputLease.ChromeOnly,
+				// Presentation token and gesture counter deliberately differ: they are not the same authority.
+				batch9Curl(binding) to ReaderTransitionInputLease.ClaimedGesture(id, ReaderTransitionGestureId(61L))
+			)
+			for ((owner, lease) in cases) for (actual in listOf(lease, ReaderTransitionInputLease.None, ReaderTransitionInputLease.ChromeOnly)) {
+				var writes = 0
+				val barrier = ReaderOwnerAndInputPublicationBarrier(
+					narrowOrVeto = { _, _ -> actual }, publishAtomically = { writes++; true }
+				)
+				val applied = assertIs<ReaderOwnerAndInputPublicationResult.Applied>(
+					batch9Publish(barrier, successor, id, owner, binding, lease)
+				)
+				assertEquals(actual, applied.finalPhysicalInputLease)
+				assertEquals(1, writes)
+				assertEquals(1, barrier.atomicCommitCount)
+				assertEquals(owner, barrier.snapshot?.owner)
+			}
+		}
+	}
+
+	@Test
+	fun combinedCurlPublicationCannotSelfAuthorizeWrongOperationOrExpectedBinding() {
+		val binding = batch9Binding()
+		val ids = listOf(
+			batch9Transition(binding).copy(operation = ReaderTransitionOperation.BootstrapNativePage),
+			batch9Transition(binding).copy(expectedBinding = ReaderExpectedPresentationBinding.Exact(binding.copy(viewportGeneration = 47L)))
+		)
+		for (successor in listOf(false, true)) for (id in ids) {
+			var narrowingCalls = 0
+			val barrier = ReaderOwnerAndInputPublicationBarrier(narrowOrVeto = { _, lease -> narrowingCalls++; lease })
+			assertIs<ReaderOwnerAndInputPublicationResult.Rejected>(batch9Publish(
+				barrier, successor, id, batch9Curl(binding), binding,
+				ReaderTransitionInputLease.ClaimedGesture(id, ReaderTransitionGestureId(61L))
+			))
+			assertEquals(0, narrowingCalls)
+			assertEquals(0, barrier.atomicCommitCount)
+		}
+	}
+
+	@Test
+	fun retainedPublicationRejectsForeignResourceDomainBeforeNarrowing() {
+		val binding = batch9Binding()
+		val id = batch9Transition(binding)
+		val owner = batch9Curl(binding)
+		val command = batch9RetainedCommand(id, owner, binding, ReaderTransitionInputLease.ChromeOnly)
+		val resource = command.retainedResource
+		val adoptedKey = resource.key.copy(ownerId = ReaderTransitionResourceOwnerId.AdoptedPredecessor(
+			ReaderAdoptedPredecessorSeedId.fromValidatedImport(71L)
+		))
+		val cases = listOf(
+			resource.copy(
+				key = resource.key.copy(ownerId = ReaderTransitionResourceOwnerId.TransitionOwned(id.copy(coordinatorEpoch = 43L))),
+				retirementOrder = resource.retirementOrder.copy(coordinatorEpoch = 43L)
+			),
+			resource.copy(key = adoptedKey, retirementOrder = resource.retirementOrder.copy(readerSessionGeneration = 41L)),
+			resource.copy(key = adoptedKey, retirementOrder = resource.retirementOrder.copy(coordinatorEpoch = 43L))
+		)
+		for (foreign in cases) {
+			var narrowingCalls = 0
+			val barrier = ReaderOwnerAndInputPublicationBarrier(narrowOrVeto = { _, lease -> narrowingCalls++; lease })
+			assertIs<ReaderOwnerAndInputPublicationResult.Rejected>(barrier.publish(command.copy(retainedResource = foreign)))
+			assertEquals(0, narrowingCalls)
+			assertEquals(0, barrier.atomicCommitCount)
+		}
+	}
+
+	@Test
+	fun successorPublicationRejectsWrongResourceKindBeforeNarrowing() {
+		val binding = batch9Binding()
+		val id = batch9Transition(binding)
+		val retained = batch9RetainedCommand(id, batch9Native(binding), binding, ReaderTransitionInputLease.ChromeOnly)
+		val wrongKind = retained.retainedResource.copy(key = retained.retainedResource.key.copy(kind = ReaderTransitionResourceKind.FrameHandoff))
+		var narrowingCalls = 0
+		val barrier = ReaderOwnerAndInputPublicationBarrier(narrowOrVeto = { _, lease -> narrowingCalls++; lease })
+		assertIs<ReaderOwnerAndInputPublicationResult.Rejected>(barrier.publish(
+			ReaderTransitionCommand.CommitOwnerAndInputLease(
+				id, ReaderTransitionFrameTargetHandle(17L, binding.publicationGeneration, 83L),
+				retained.retainedOwner, binding, wrongKind, retained.requestedLease, retained.publicationIdentity
+			)
+		))
+		assertEquals(0, narrowingCalls)
+		assertEquals(0, barrier.atomicCommitCount)
+	}
+
+	@Test
+	fun retainedPublicationPreservesAdoptedAndOlderCoordinatorProvenance() {
+		val binding = batch9Binding()
+		val previousId = batch9Transition(binding)
+		val id = previousId.copy(sequence = 2L, parent = ReaderTransitionParentIdentity(17L, 19L, 1L))
+		val owner = batch9Curl(binding)
+		val command = batch9RetainedCommand(id, owner, binding, ReaderTransitionInputLease.ChromeOnly)
+		for (ownerId in listOf(
+			ReaderTransitionResourceOwnerId.TransitionOwned(previousId),
+			ReaderTransitionResourceOwnerId.AdoptedPredecessor(ReaderAdoptedPredecessorSeedId.fromValidatedImport(71L))
+		)) {
+			val resource = command.retainedResource.copy(key = command.retainedResource.key.copy(ownerId = ownerId))
+			val barrier = ReaderOwnerAndInputPublicationBarrier()
+			assertIs<ReaderOwnerAndInputPublicationResult.Applied>(barrier.publish(command.copy(retainedResource = resource)))
+			assertEquals(1, barrier.atomicCommitCount)
+		}
+	}
+
+	@Test
+	fun combinedPublicationFencesOldTailAfterReentrantPhysicalNarrowingOnBothRoutes() {
+		val binding = batch9Binding()
+		val id = batch9Transition(binding)
+		for (successor in listOf(false, true)) {
+			var nested = false
+			var writes = 0
+			lateinit var barrier: ReaderOwnerAndInputPublicationBarrier
+			val replacement = batch9Shell(binding)
+			barrier = ReaderOwnerAndInputPublicationBarrier(
+				narrowOrVeto = { _, lease ->
+					if (!nested) {
+						nested = true
+						assertIs<ReaderOwnerAndInputPublicationResult.Applied>(batch9Publish(
+							barrier, successor, id, replacement, binding, ReaderTransitionInputLease.CoverActions
+						))
+					}
+					if (lease is ReaderTransitionInputLease.NativePage) ReaderTransitionInputLease.ChromeOnly else lease
+				},
+				publishAtomically = { writes++; true }
+			)
+			assertIs<ReaderOwnerAndInputPublicationResult.Rejected>(batch9Publish(
+				barrier, successor, id, batch9Native(binding), binding, ReaderTransitionInputLease.NativePage(binding, 11L)
+			))
+			assertEquals(1, writes, "A no-broader physical result cannot revive the superseded publication tail")
+			assertEquals(1, barrier.atomicCommitCount)
+			assertEquals(replacement, barrier.snapshot?.owner)
+		}
+	}
+
+	private fun batch9Native(binding: ReaderPresentationBinding) = ReaderPresentationFrameOwner.NativePage(
+		ReaderNativePagePresentationProof(binding, null, 1L, 100, 200,
+			requireNotNull(binding.rasterGeneration), requireNotNull(binding.textureGeneration))
+	)
+
+	private fun batch9Curl(binding: ReaderPresentationBinding) = ReaderPresentationFrameOwner.Curl(
+		ReaderCurlPresentationFrame(ReaderPresentationToken(37L), binding, 1L, 100, 200,
+			requireNotNull(binding.rasterGeneration), requireNotNull(binding.textureGeneration))
+	)
+
+	private fun batch9Shell(binding: ReaderPresentationBinding) = ReaderPresentationFrameOwner.ShellCover(
+		ReaderShellCoverCommitProof(ReaderPresentationToken(73L), binding, 0L, 1L, 100, 200)
+	)
+
+	private fun batch9Live(binding: ReaderPresentationBinding) = ReaderPresentationFrameOwner.LiveEngine(
+		ReaderLiveEnginePresentationProof(ReaderPresentationToken(79L), binding, 1L)
+	)
+
+	private fun batch9Publish(
+		barrier: ReaderOwnerAndInputPublicationBarrier,
+		successor: Boolean,
+		id: ReaderTransitionId,
+		owner: ReaderPresentationFrameOwner,
+		binding: ReaderPresentationBinding,
+		lease: ReaderTransitionInputLease
+	): ReaderOwnerAndInputPublicationResult {
+		val retained = batch9RetainedCommand(id, owner, binding, lease)
+		return if (!successor) barrier.publish(retained) else barrier.publish(
+			ReaderTransitionCommand.CommitOwnerAndInputLease(
+				id, ReaderTransitionFrameTargetHandle(id.readerSessionGeneration, binding.publicationGeneration, 83L),
+				owner, binding, retained.retainedResource, lease, retained.publicationIdentity
+			)
+		)
+	}
+
+	private fun batch9Binding() = ReaderPresentationBinding(
+		"fixture", 2L, 3L, 5L, ReaderDestinationCommitIdentity("fixture", 1L), 7L, 11L, 13L
+	)
+
+	private fun batch9Transition(binding: ReaderPresentationBinding) = ReaderTransitionId(
+		17L, 19L, 1L, ReaderTransitionOperation.CurlClaimAndSettlement,
+		ReaderExpectedPresentationBinding.Exact(binding)
+	)
+
+	private fun batch9RetainedCommand(
+		id: ReaderTransitionId,
+		owner: ReaderPresentationFrameOwner,
+		binding: ReaderPresentationBinding,
+		lease: paige.navic.reader.ReaderTransitionInputLease
+	) = ReaderTransitionCommand.PublishRetainedOwnerAndInputLease(
+		id, owner, binding,
+		paige.navic.reader.ReaderTransitionResourceRegistration(
+			paige.navic.reader.ReaderTransitionResourceKey(
+				ReaderTransitionResourceOwnerId.TransitionOwned(id),
+				requireNotNull(readerAdoptedResourceKindFor(owner)), 23L
+			), ReaderResourceRetirementOrder(id.readerSessionGeneration, id.coordinatorEpoch, 29L)
+		), lease, paige.navic.reader.ReaderOwnerAndInputPublicationIdentity(31L)
+	)
+
 	@Test
 	fun retainedFactOnlyTimerOwnsExactDeadlineRegistrationAcrossDrainAndRestore() {
 		var now = 100L
@@ -1226,6 +1596,7 @@ class ReaderTransitionActivationTest {
 		var confirmImportedRelease: (() -> Unit)? = null
 		var expireCloseBudget: (() -> Unit)? = null
 		val timer = object : ReaderTask6FactOnlyTimerPort {
+			private var preparedClose: ReaderTask6ReleaseOnlyTimerRegistration? = null
 			override fun bindBeforeWork(
 				transitionId: paige.navic.reader.ReaderTransitionId,
 				onExpired: (paige.navic.reader.ReaderTransitionFact.DeadlineExpired) -> Unit
@@ -1254,8 +1625,13 @@ class ReaderTransitionActivationTest {
 						ReaderLegacySourceLocalOpaqueToken(211L)
 					),
 					2_000L
-				)
+				).also { preparedClose = it }
 			}
+			// Explicit owning fixture adaptation, not a physical timer or production package proof.
+			override fun commitReleaseOnlyCloseBudget(
+				registration: ReaderTask6ReleaseOnlyTimerRegistration
+			): ReaderPortCommandResult = if (preparedClose === registration) ReaderPortCommandResult.Accepted
+				else ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
 			override fun cancelReleaseOnlyCloseBudget(
 				registration: ReaderTask6ReleaseOnlyTimerRegistration
 			): ReaderPortCommandResult {
@@ -2511,7 +2887,7 @@ class ReaderTransitionActivationTest {
 	}
 
 	@Test
-	fun postInstallLegacyConsequenceWriterIsUnreachable() {
+	fun productionCompositionCannotUseFixtureInstallOrDirectActivatedGateway() {
 		val production = runCatching {
 			Class.forName(
 				"paige.navic.ui.screens.reader.ReaderProductionActivatedSessionPorts"
@@ -2529,22 +2905,25 @@ class ReaderTransitionActivationTest {
 		val host = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		).readText()
-		assertTrue(host.contains("attachShadow("))
-		assertTrue(host.contains("observeLegacyPresentationEvent("))
-		assertFalse(host.contains("installActivatedSession("))
+		assertTrue(host.contains("private object ReaderNativeHostProductionActivatedPortCapability"))
+		assertFalse(host.contains("installTestActivatedSession("))
+		assertFalse(host.contains("ReaderTestActivatedSessionPorts("))
+		assertFalse(host.contains("completeActivatedSessionPorts("))
 		assertFalse(host.contains("attachActivated("))
 	}
 
 	@Test
-	fun productionCompositionRemainsShadowWithoutActiveCoordinatorInstallation() {
+	fun productionCompositionRequiresSelectedCandidateAndInitialSemanticIngress() {
 		val host = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		).readText()
-		assertTrue(host.contains("attachShadow("))
-		assertFalse(host.contains("ReaderSessionActivationCoordinator("))
-		assertFalse(host.contains("ReaderActivatedTransitionPorts("))
-		assertFalse(host.contains("ReaderTransitionMode.Active"))
-		assertFalse(host.contains("installActivatedSession("))
+		// The admitted fresh startup replaces the old global shadow-only prohibition.
+		// Actual missing-ingress/default/refresh controls live in the original Root tests;
+		// this source guard checks their private admission boundary, not readable behavior.
+		assertTrue(host.contains("ReaderSessionActivationCoordinator("))
+		assertTrue(host.contains("normalProductionCandidate?.takeIf { it.isSelected }"))
+		assertTrue(host.contains("initialSemanticIngress == null"))
+		assertFalse(host.contains("installTestActivatedSession("))
 	}
 
 	@Test
@@ -3061,7 +3440,8 @@ class ReaderTransitionActivationTest {
 	): ReaderInitialCommittedPresentationOrigin.AdoptedPredecessor = assertIs(decision.origin)
 }
 
-private fun productionActivatedSessionPorts(
+// Shared host scaffolding only; reflective package access does not certify Native composition.
+internal fun productionActivatedSessionPorts(
 	testPorts: ReaderTestActivatedSessionPorts
 ): ReaderProductionActivatedSessionPorts {
 	val capabilityClass = Class.forName(
@@ -3088,7 +3468,7 @@ private fun productionActivatedSessionPorts(
 	)
 }
 
-private fun completeActivatedSessionPorts(): ReaderTestActivatedSessionPorts {
+internal fun completeActivatedSessionPorts(): ReaderTestActivatedSessionPorts {
 	val accepted = ReaderPortCommandResult.Accepted
 	val resources = object : ReaderTransitionResourcePort, ReaderReleaseOnlySinkPort {
 		override fun release(

@@ -11,6 +11,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import paige.navic.reader.parentIdentity
 import paige.navic.reader.ReaderAdoptedPredecessorSeedId
 import paige.navic.reader.ReaderDestinationCommitIdentity
 import paige.navic.reader.ReaderExpectedPresentationBinding
@@ -262,7 +263,7 @@ class ReaderTransitionAtomicCutoverTest {
 		)
 		val published = mutableListOf<ReaderOwnerAndInputPublicationSnapshot>()
 		val barrier = ReaderOwnerAndInputPublicationBarrier(
-			narrowOrVeto = { ReaderTransitionInputLease.ChromeOnly },
+			narrowOrVeto = { _, _ -> ReaderTransitionInputLease.ChromeOnly },
 			publishAtomically = { snapshot -> published += snapshot; true }
 		)
 
@@ -281,6 +282,326 @@ class ReaderTransitionAtomicCutoverTest {
 		assertEquals(ReaderTransitionInputLease.ChromeOnly, published.single().lease)
 		assertEquals(published.single(), barrier.snapshot)
 		assertEquals(1, barrier.atomicCommitCount)
+	}
+
+	@Test
+	fun retainedNativeClaimContinuesOnlyItsExactPublishedPredecessor() {
+		val (barrier, command) = retainedNativeClaimFixture()
+		val predecessor = assertNotNull(barrier.snapshot)
+		val result = assertIs<paige.navic.reader.ReaderOwnerAndInputPublicationResult.Applied>(
+			barrier.publish(command)
+		)
+		assertEquals(command.requestedLease, result.finalPhysicalInputLease)
+		assertEquals(predecessor.copy(lease = command.requestedLease), barrier.snapshot)
+		assertEquals(2, barrier.atomicCommitCount)
+	}
+
+	@Test
+	fun retainedNativeClaimCannotBorrowUnpublishedForeignOrInapplicableAuthority() {
+		val (barrier, command) = retainedNativeClaimFixture()
+		val predecessor = assertNotNull(barrier.snapshot)
+		fun withTransition(id: ReaderTransitionId) = command.copy(
+			transitionId = id,
+			requestedLease = assertIs<ReaderTransitionInputLease.ClaimedGesture>(command.requestedLease)
+				.copy(transitionId = id)
+		)
+		val id = command.transitionId
+		val mismatches = listOf(
+			command.copy(retainedResource = command.retainedResource.copy(
+				key = command.retainedResource.key.copy(opaqueId = 99L))),
+			command.copy(requestedLease = assertIs<ReaderTransitionInputLease.ClaimedGesture>(command.requestedLease)
+				.copy(transitionId = id.copy(expectedBinding = ReaderExpectedPresentationBinding.Exact(command.retainedBinding)))),
+			withTransition(id.copy(operation = ReaderTransitionOperation.ExternalSemanticRelocation)),
+			withTransition(id.copy(expectedBinding = ReaderExpectedPresentationBinding.SemanticSuccessor(
+				command.retainedBinding.copy(profileGeneration = 17L), 2L))),
+			withTransition(id.copy(expectedBinding = ReaderExpectedPresentationBinding.Exact(command.retainedBinding))),
+			withTransition(id.copy(expectedBinding = ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial(2L))),
+			withTransition(id.copy(expectedBinding = ReaderExpectedPresentationBinding.NoCommittedPresentation(2L)))
+		)
+		mismatches.forEach {
+			assertIs<paige.navic.reader.ReaderOwnerAndInputPublicationResult.Rejected>(barrier.publish(it))
+			assertEquals(predecessor, barrier.snapshot)
+			assertEquals(1, barrier.atomicCommitCount)
+		}
+		assertIs<paige.navic.reader.ReaderOwnerAndInputPublicationResult.Rejected>(
+			ReaderOwnerAndInputPublicationBarrier().publish(command)
+		)
+		val (narrowed, narrowedCommand) = retainedNativeClaimFixture(
+			initialLease = ReaderTransitionInputLease.ChromeOnly
+		)
+		assertIs<paige.navic.reader.ReaderOwnerAndInputPublicationResult.Rejected>(narrowed.publish(narrowedCommand))
+		assertEquals(ReaderTransitionInputLease.ChromeOnly, narrowed.snapshot?.lease)
+		assertEquals(1, narrowed.atomicCommitCount)
+	}
+
+	@Test
+	fun nativeClaimNeverAuthorizesSuccessorPublicationOrSafetyBroadening() {
+		val (barrier, command) = retainedNativeClaimFixture()
+		val predecessor = assertNotNull(barrier.snapshot)
+		val successorResource = command.retainedResource.copy(
+			key = command.retainedResource.key.copy(ownerId = ReaderTransitionResourceOwnerId.TransitionOwned(command.transitionId))
+		)
+		assertIs<paige.navic.reader.ReaderOwnerAndInputPublicationResult.Rejected>(barrier.publish(commitCommand(
+			command.transitionId, command.retainedOwner, command.retainedBinding, successorResource, command.requestedLease, 2L
+		)))
+		assertEquals(predecessor, barrier.snapshot)
+		assertEquals(1, barrier.atomicCommitCount)
+		val (unsafe, unsafeCommand) = retainedNativeClaimFixture(narrowOrVeto = {
+			if (it is ReaderTransitionInputLease.ClaimedGesture) ReaderTransitionInputLease.NativePage(
+				command.retainedBinding, assertIs<ReaderPresentationFrameOwner.NativePage>(command.retainedOwner).proof.textureGeneration
+			) else it
+		})
+		assertIs<paige.navic.reader.ReaderOwnerAndInputPublicationResult.Rejected>(unsafe.publish(unsafeCommand))
+		assertEquals(1, unsafe.atomicCommitCount)
+		val (safe, safeCommand) = retainedNativeClaimFixture(narrowOrVeto = {
+			if (it is ReaderTransitionInputLease.ClaimedGesture) ReaderTransitionInputLease.ChromeOnly else it
+		})
+		assertIs<paige.navic.reader.ReaderOwnerAndInputPublicationResult.Applied>(safe.publish(safeCommand))
+		assertEquals(ReaderTransitionInputLease.ChromeOnly, safe.snapshot?.lease)
+		assertEquals(2, safe.atomicCommitCount)
+	}
+
+	/** Public controlled UNIT barrier only, not Root/producer/display acceptance. The
+	 * reflective prerequisite compiles against the old lease-only constructor and fails
+	 * precisely before deeper assertions until the original callback carries its command.
+	 * No installed source, physical ACK or committed Root candidate is fabricated. */
+	@Test
+	fun originalNarrowingReceivesExactCommandBeforeInitialSuccessorAndRetainedPublication() {
+		lateinit var barrier: ReaderOwnerAndInputPublicationBarrier
+		lateinit var expectedCommand: ReaderTransitionCommand
+		lateinit var expectedFinal: ReaderTransitionInputLease
+		var before: ReaderOwnerAndInputPublicationSnapshot? = null
+		var physical: ReaderOwnerAndInputPublicationSnapshot? = null
+		var narrowCalls = 0
+		var publishCalls = 0
+		fun requested(command: ReaderTransitionCommand): ReaderTransitionInputLease = when (command) {
+			is ReaderTransitionCommand.CommitOwnerAndInputLease -> command.requestedLease
+			is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease -> command.requestedLease
+			else -> error("A407.Input.Unit.OriginalPublicationCommandRequired")
+		}
+		fun resource(command: ReaderTransitionCommand): ReaderTransitionResourceRegistration = when (command) {
+			is ReaderTransitionCommand.CommitOwnerAndInputLease -> command.preparedFrameResource
+			is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease -> command.retainedResource
+			else -> error("A407.Input.Unit.OriginalPublicationCommandRequired")
+		}
+		barrier = originalCommandContextBarrier(
+			narrowOrVeto = { command, lease ->
+				assertTrue(command === expectedCommand && lease === requested(expectedCommand) &&
+					resource(command) === resource(expectedCommand),
+					"A407.Input.Unit.SoleNarrowingReceivesExactOriginalCommandLeaseAndResource")
+				assertTrue(barrier.snapshot === before && narrowCalls == publishCalls,
+					"A407.Input.Unit.NarrowingRunsOnceBeforeAnyPhysicalPublication")
+				narrowCalls++
+				expectedFinal
+			},
+			publishAtomically = { candidate ->
+				assertTrue(narrowCalls == publishCalls + 1 && barrier.snapshot === before &&
+					candidate.resource === resource(expectedCommand) && candidate.lease === expectedFinal,
+					"A407.Input.Unit.PhysicalPublicationUsesOriginalResourceAndFinalNarrowedLease")
+				val exactContext = when (val command = expectedCommand) {
+					is ReaderTransitionCommand.CommitOwnerAndInputLease ->
+						candidate.owner === command.owner && candidate.binding === command.binding
+					is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease ->
+						candidate.owner === command.retainedOwner && candidate.binding === command.retainedBinding
+					else -> false
+				}
+				assertTrue(exactContext, "A407.Input.Unit.PhysicalCandidateCarriesExactOriginalOwnerAndBinding")
+				publishCalls++
+				physical = candidate
+				true
+			}
+		)
+		// Reuse the established Native UNIT fixture's actual original command/resource.
+		// Its barrier is independent; do not transplant its snapshot into the new barrier.
+		val (fixtureBarrier, retained) = retainedNativeClaimFixture()
+		val fixtureSnapshot = assertNotNull(fixtureBarrier.snapshot,
+			"A407.Input.Unit.ExistingNativeFixtureRequired")
+		val originalId = (retained.retainedResource.key.ownerId as ReaderTransitionResourceOwnerId.TransitionOwned).transitionId
+		val initial = commitCommand(originalId, retained.retainedOwner, retained.retainedBinding,
+			retained.retainedResource, fixtureSnapshot.lease, 1L)
+		val successorBinding = retained.retainedBinding.copy(
+			destinationCommitIdentity = ReaderDestinationCommitIdentity("fixture", 2L))
+		val successorId = transitionId(successorBinding, sequence = 3L).copy(
+			operation = ReaderTransitionOperation.CurlClaimAndSettlement)
+		val initialOwner = retained.retainedOwner as ReaderPresentationFrameOwner.NativePage
+		val successorOwner = ReaderPresentationFrameOwner.NativePage(initialOwner.proof.copy(binding = successorBinding))
+		val successorResource = retained.retainedResource.copy(
+			key = ReaderTransitionResourceKey(successorId, ReaderTransitionResourceKind.Deck, 43L),
+			retirementOrder = ReaderResourceRetirementOrder(3L, 5L, 2L))
+		val successor = commitCommand(successorId, successorOwner, successorBinding, successorResource,
+			ReaderTransitionInputLease.NativePage(successorBinding, successorOwner.proof.textureGeneration), 3L)
+		fun publishExpected(command: ReaderTransitionCommand, finalLease: ReaderTransitionInputLease) {
+			expectedCommand = command
+			expectedFinal = finalLease
+			before = barrier.snapshot
+			val result = when (command) {
+				is ReaderTransitionCommand.CommitOwnerAndInputLease -> barrier.publish(command)
+				is ReaderTransitionCommand.PublishRetainedOwnerAndInputLease -> barrier.publish(command)
+				else -> error("A407.Input.Unit.OriginalPublicationCommandRequired")
+			}
+			assertTrue(result is paige.navic.reader.ReaderOwnerAndInputPublicationResult.Applied,
+				"A407.Input.Unit.OriginalContextPublicationApplied")
+			val applied = result as paige.navic.reader.ReaderOwnerAndInputPublicationResult.Applied
+			assertTrue(applied.finalPhysicalInputLease === finalLease && barrier.snapshot === physical &&
+				barrier.snapshot?.lease === finalLease && narrowCalls == publishCalls &&
+				barrier.atomicCommitCount == publishCalls && !barrier.observedPartialApplication,
+				"A407.Input.Unit.NoPostAcceptanceLeaseUpgradeOrSecondNarrowing")
+		}
+		assertTrue(barrier.snapshot == null, "A407.Input.Unit.InitialHasNoCommittedPredecessor")
+		publishExpected(initial, initial.requestedLease)
+		publishExpected(retained, retained.requestedLease)
+		assertTrue(barrier.snapshot?.binding != successor.binding,
+			"A407.Input.Unit.SuccessorHasNoAlreadyCommittedMatchingBinding")
+		publishExpected(successor, ReaderTransitionInputLease.ChromeOnly)
+		assertTrue(narrowCalls == 3 && publishCalls == 3,
+			"A407.Input.Unit.OneNarrowingAndOneWritePerOriginalCommand")
+
+		var rejectedPhysicalCalls = 0
+		val incompatible = originalCommandContextBarrier({ command, lease ->
+			assertTrue(command === successor && lease === successor.requestedLease,
+				"A407.Input.Unit.ForeignLeaseControlReceivesOriginalContext")
+			ReaderTransitionInputLease.NativePage(retained.retainedBinding, initialOwner.proof.textureGeneration)
+		}, { rejectedPhysicalCalls++; true })
+		assertTrue(incompatible.publish(successor) is paige.navic.reader.ReaderOwnerAndInputPublicationResult.Rejected &&
+			incompatible.snapshot == null && incompatible.atomicCommitCount == 0 && rejectedPhysicalCalls == 0,
+			"A407.Input.Unit.IncompatibleFinalLeaseRejectedBeforePhysicalPublication")
+		val chromeRequest = successor.copy(requestedLease = ReaderTransitionInputLease.ChromeOnly)
+		val noUpgrade = originalCommandContextBarrier({ command, lease ->
+			assertTrue(command === chromeRequest && lease === chromeRequest.requestedLease,
+				"A407.Input.Unit.BroadeningControlReceivesOriginalContext")
+			successor.requestedLease
+		}, { rejectedPhysicalCalls++; true })
+		assertTrue(noUpgrade.publish(chromeRequest) is paige.navic.reader.ReaderOwnerAndInputPublicationResult.Rejected &&
+			noUpgrade.snapshot == null && noUpgrade.atomicCommitCount == 0 && rejectedPhysicalCalls == 0,
+			"A407.Input.Unit.CompatibleButBroaderFinalLeaseRejectedBeforePhysicalPublication")
+
+		lateinit var reentrant: ReaderOwnerAndInputPublicationBarrier
+		var reentryNarrowCalls = 0
+		var reentryPhysicalCalls = 0
+		reentrant = originalCommandContextBarrier({ command, lease ->
+			reentryNarrowCalls++
+			assertTrue((command === initial || command === successor) && lease === requested(command),
+				"A407.Input.Unit.ReentryKeepsEachExactOriginalCommandContext")
+			if (command === initial) {
+				assertTrue(reentrant.snapshot == null && reentryPhysicalCalls == 0,
+					"A407.Input.Unit.ReentryStartsInsideOriginalPrepublishNarrowing")
+				assertTrue(reentrant.publish(successor) is paige.navic.reader.ReaderOwnerAndInputPublicationResult.Applied,
+					"A407.Input.Unit.NewerReentrantOriginalPublicationApplied")
+			}
+			lease
+		}, { candidate ->
+			assertTrue(candidate.owner === successor.owner && candidate.resource === successor.preparedFrameResource &&
+				candidate.lease === successor.requestedLease,
+				"A407.Input.Unit.OnlyNewerReentrantCandidateReachesPhysicalPublication")
+			reentryPhysicalCalls++
+			true
+		})
+		assertTrue(reentrant.publish(initial) is paige.navic.reader.ReaderOwnerAndInputPublicationResult.Rejected &&
+			reentryNarrowCalls == 2 && reentryPhysicalCalls == 1 && reentrant.atomicCommitCount == 1 &&
+			reentrant.snapshot?.resource === successor.preparedFrameResource &&
+			reentrant.snapshot?.lease === successor.requestedLease,
+			"A407.Input.Unit.StaleNarrowingReturnCannotReplaceNewerPublication")
+	}
+
+	private fun originalCommandContextBarrier(
+		narrowOrVeto: (ReaderTransitionCommand, ReaderTransitionInputLease) -> ReaderTransitionInputLease,
+		publishAtomically: (ReaderOwnerAndInputPublicationSnapshot) -> Boolean
+	): ReaderOwnerAndInputPublicationBarrier {
+		val constructor = ReaderOwnerAndInputPublicationBarrier::class.java.declaredConstructors.singleOrNull {
+			!it.isSynthetic && it.parameterTypes.contentEquals(arrayOf(Function2::class.java, Function1::class.java))
+		}
+		assertTrue(constructor != null,
+			"A407.Input.Prerequisite.OriginalCommandContextNarrowingMissing")
+		val barrier = runCatching {
+			constructor!!.apply { isAccessible = true }.newInstance(narrowOrVeto, publishAtomically)
+		}.getOrNull()
+		assertTrue(barrier is ReaderOwnerAndInputPublicationBarrier,
+			"A407.Input.Prerequisite.OriginalCommandContextNarrowingMissing")
+		return barrier as ReaderOwnerAndInputPublicationBarrier
+	}
+
+	private fun retainedNativeClaimFixture(
+		initialLease: ReaderTransitionInputLease? = null,
+		narrowOrVeto: (ReaderTransitionInputLease) -> ReaderTransitionInputLease = { it }
+	): Pair<ReaderOwnerAndInputPublicationBarrier, ReaderTransitionCommand.PublishRetainedOwnerAndInputLease> {
+		val binding = binding()
+		val initialId = transitionId(binding, sequence = 1L).copy(operation = ReaderTransitionOperation.BootstrapNativePage)
+		val owner = ReaderPresentationFrameOwner.NativePage(paige.navic.reader.ReaderNativePagePresentationProof(
+			binding, ReaderPresentationToken(23L), 29L, 1200, 800, 11L, 13L
+		))
+		val resource = ReaderTransitionResourceRegistration(
+			ReaderTransitionResourceKey(initialId, ReaderTransitionResourceKind.Deck, 31L),
+			ReaderResourceRetirementOrder(3L, 5L, 1L)
+		)
+		val barrier = ReaderOwnerAndInputPublicationBarrier(narrowOrVeto = { _, lease -> narrowOrVeto(lease) })
+		assertIs<paige.navic.reader.ReaderOwnerAndInputPublicationResult.Applied>(barrier.publish(commitCommand(
+			initialId, owner, binding, resource,
+			initialLease ?: ReaderTransitionInputLease.NativePage(binding, owner.proof.textureGeneration), 1L
+		)))
+		val turn = transitionId(binding, sequence = 2L).copy(
+			operation = ReaderTransitionOperation.CurlClaimAndSettlement,
+			expectedBinding = ReaderExpectedPresentationBinding.SemanticSuccessor(binding, 2L)
+		)
+		return barrier to ReaderTransitionCommand.PublishRetainedOwnerAndInputLease(
+			turn, owner, binding, resource,
+			ReaderTransitionInputLease.ClaimedGesture(turn, paige.navic.reader.ReaderTransitionGestureId(37L)),
+			paige.navic.reader.ReaderOwnerAndInputPublicationIdentity(2L)
+		)
+	}
+
+	@Test
+	fun physicalNativePolicyRequiresExactPublishedBindingAndMaterialProof() {
+		val (barrier, _) = retainedNativeClaimFixture()
+		val published = assertNotNull(barrier.snapshot, "A407.Policy.NativePublication")
+		val owner = assertIs<ReaderPresentationFrameOwner.NativePage>(published.owner,
+			"A407.Policy.NativeOwner")
+		val exact = assertIs<paige.navic.reader.ReaderPresentationInputPolicy.NativePage>(
+			paige.navic.reader.readerTransitionPresentationInputPolicy(owner, published.binding, published.lease),
+			"A407.Policy.NativeExact")
+		assertTrue(exact.policy.newPointer == paige.navic.reader.ReaderPageNewPointerDecision.Accept &&
+			exact.policy.continueActivePointer && !exact.policy.continueSettlement,
+			"A407.Policy.NativeNewPointer")
+		val wrongBinding = published.binding.copy(profileGeneration = published.binding.profileGeneration + 1L)
+		val wrongLeases = listOf(
+			ReaderTransitionInputLease.NativePage(wrongBinding, owner.proof.textureGeneration),
+			ReaderTransitionInputLease.NativePage(published.binding, owner.proof.textureGeneration + 1L))
+		for (lease in wrongLeases) assertTrue(
+			paige.navic.reader.readerTransitionPresentationInputPolicy(owner, published.binding, lease) ==
+				paige.navic.reader.ReaderPresentationInputPolicy.RecoveryOnly,
+			"A407.Policy.NativeForeignLease")
+		assertTrue(paige.navic.reader.readerTransitionPresentationInputPolicy(owner, wrongBinding, published.lease) ==
+			paige.navic.reader.ReaderPresentationInputPolicy.RecoveryOnly, "A407.Policy.NativeForeignBinding")
+		assertTrue(paige.navic.reader.readerTransitionPresentationInputPolicy(owner, published.binding,
+			ReaderTransitionInputLease.ChromeOnly) == paige.navic.reader.ReaderPresentationInputPolicy.ChromeOnly,
+			"A407.Policy.PhysicalNarrowing")
+		assertTrue(paige.navic.reader.readerTransitionPresentationInputPolicy(owner, published.binding,
+			ReaderTransitionInputLease.None) == paige.navic.reader.ReaderPresentationInputPolicy.RecoveryOnly,
+			"A407.Policy.PhysicalVeto")
+	}
+
+	@Test
+	fun physicalRetainedClaimPolicyContinuesOnlyOriginalStreamWithoutNewPointerAuthority() {
+		val (barrier, command) = retainedNativeClaimFixture()
+		val applied = assertIs<paige.navic.reader.ReaderOwnerAndInputPublicationResult.Applied>(barrier.publish(command),
+			"A407.Policy.OriginalClaimApplied")
+		val policy = assertIs<paige.navic.reader.ReaderPresentationInputPolicy.NativePage>(
+			paige.navic.reader.readerTransitionPresentationInputPolicy(applied.publishedOwner,
+				applied.publishedBinding, applied.finalPhysicalInputLease), "A407.Policy.OriginalClaim")
+		assertTrue(policy.policy.newPointer is paige.navic.reader.ReaderPageNewPointerDecision.Reject &&
+			policy.policy.continueActivePointer && policy.policy.continueSettlement,
+			"A407.Policy.OriginalStreamOnly")
+		val claim = assertIs<ReaderTransitionInputLease.ClaimedGesture>(applied.finalPhysicalInputLease,
+			"A407.Policy.OriginalClaimLease")
+		val wrong = claim.copy(transitionId = claim.transitionId.copy(
+			operation = ReaderTransitionOperation.ExternalSemanticRelocation))
+		assertTrue(paige.navic.reader.readerTransitionPresentationInputPolicy(applied.publishedOwner,
+			applied.publishedBinding, wrong) == paige.navic.reader.ReaderPresentationInputPolicy.RecoveryOnly,
+			"A407.Policy.ForeignOperationCannotContinue")
+		val initial = claim.copy(transitionId = claim.transitionId.copy(
+			expectedBinding = ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial(2L)))
+		assertTrue(paige.navic.reader.readerTransitionPresentationInputPolicy(applied.publishedOwner,
+			applied.publishedBinding, initial) == paige.navic.reader.ReaderPresentationInputPolicy.RecoveryOnly,
+			"A407.Policy.InitialCannotBorrowClaim")
 	}
 
 	@Test
@@ -356,6 +677,106 @@ class ReaderTransitionAtomicCutoverTest {
 			executor.restoreAfterTransitionActivation(domain)
 		)
 		assertTrue(registry.register { _, _, _ -> ReaderSemanticExecutableResult.Accepted }.value > 0L)
+	}
+
+	@Test
+	fun registrationRetiredReentrantlyBeforeInvocationRejectsWithoutExecutableStart() {
+		val registry = ReaderSemanticExecutableRequestRegistry(readerSessionGeneration = 3L)
+		var executableStarts = 0
+		var receiptCalls = 0
+		val handle = registry.register { _, mutationStart, _ ->
+			executableStarts += 1
+			mutationStart.mutationStarted()
+			ReaderSemanticExecutableResult.Accepted
+		}
+		val executor = ReaderSemanticCommandExecutor(registry)
+		val id = transitionId().copy(operation = ReaderTransitionOperation.ExternalSemanticRelocation)
+		var registrationCalls = 0
+		val result = executor.synchronize(
+			ReaderTransitionCommand.RequestSemanticSynchronization(
+				id,
+				ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, handle),
+				handle
+			),
+			onRegistration = { registration ->
+				registrationCalls += 1
+				assertTrue(registry.activeHandleCount == 1, "Registration follows exact bounded request custody, before any executable start")
+				assertTrue(executor.activeSlotCount == 1, "The real slot must exist before registration delivery")
+				registration.retire()
+				assertTrue(executor.activeSlotCount == 0, "Exact registration retirement must remove its slot")
+			},
+			onReceipt = { receiptCalls += 1 }
+		)
+
+		assertTrue(registrationCalls == 1, "Registration delivery must occur exactly once")
+		assertTrue(executableStarts == 0, "Retirement before invocation must prevent executable side effects")
+		assertTrue(result == ReaderSemanticCommandResult.RejectedBeforeMutation(
+			paige.navic.reader.ReaderTransitionFailureReason.PortRejected
+		), "An unstarted retired command must report rejection before mutation")
+		assertTrue(receiptCalls == 0, "Retired unstarted execution must not deliver a receipt")
+		assertTrue(registry.activeHandleCount == 0, "The actual request handle must be consumed once")
+		assertTrue(executor.activeSlotCount == 0, "No retired slot may remain active")
+	}
+
+	@Test
+	fun realRetryLeaseRejectsWrongSessionFrozenOwnerAndDisposedHandle() {
+		val registry = ReaderSemanticExecutableRequestRegistry(3L)
+		val executor = ReaderSemanticCommandExecutor(registry)
+		var starts = 0
+		val origins = mutableListOf<paige.navic.reader.ReaderPresentationEventOrigin.SemanticCommand>()
+		val handle = registry.register { origin, _, _ ->
+			starts += 1; origins += origin; ReaderSemanticExecutableResult.Rejected
+		}
+		val id = transitionId(sequence = 1L).copy(operation = ReaderTransitionOperation.ExternalSemanticRelocation)
+		fun command(next: ReaderTransitionId) = ReaderTransitionCommand.RequestSemanticSynchronization(next,
+			ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, handle), handle)
+		lateinit var custody: ReaderSemanticCommandRegistration
+		executor.synchronize(command(id), { custody = it }) {}
+		custody.retireForRetry()
+		assertTrue(registry.activeHandleCount == 1 && executor.activeSlotCount == 0,
+			"Retry custody is one real retained request without a physical slot")
+		assertIs<ReaderSemanticCommandResult.RejectedBeforeMutation>(
+			executor.synchronize(command(id.copy(readerSessionGeneration = 7L)), {}) {})
+		assertTrue(starts == 1 && registry.activeHandleCount == 1,
+			"Wrong session cannot execute or consume another session's exact request")
+		val domain = ReaderLegacyPhysicalDomain(3L, ReaderLegacyFreezeToken(71L))
+		assertEquals(ReaderPortCommandResult.Accepted, executor.freezeForTransitionActivation(domain))
+		val rows = executor.snapshotFrozenOwnership()
+		assertTrue(rows.size == 1 && rows.single().origin == ReaderLegacyResourceOrigin.Owned,
+			"Frozen retained retry custody must be inventoried truthfully with its authentic token")
+		assertIs<ReaderSemanticCommandResult.RejectedBeforeMutation>(executor.synchronize(command(id), {}) {})
+		assertTrue(starts == 1, "Frozen owner cannot replay work")
+		assertEquals(ReaderPortCommandResult.Accepted, executor.drainFrozenOwnership(rows.single().physicalIdentity) {})
+		assertEquals(ReaderPortCommandResult.Accepted, executor.restoreAfterTransitionActivation(domain))
+		assertIs<ReaderSemanticCommandResult.RejectedBeforeMutation>(executor.synchronize(command(id), {}) {})
+		assertTrue(starts == 1 && registry.activeHandleCount == 0 && executor.activeSlotCount == 0,
+			"Frozen retired retry work must not be restored or resurrected")
+	}
+
+	@Test
+	fun oldRetryCustodyCannotDisposeNewExecutorSlotForSameRequest() {
+		val registry = ReaderSemanticExecutableRequestRegistry(3L)
+		val executor = ReaderSemanticCommandExecutor(registry)
+		var starts = 0
+		val handle = registry.register { _, _, _ ->
+			starts += 1
+			if (starts == 1) ReaderSemanticExecutableResult.Rejected else ReaderSemanticExecutableResult.Accepted
+		}
+		val id = transitionId(sequence = 1L).copy(operation = ReaderTransitionOperation.ExternalSemanticRelocation)
+		fun command(next: ReaderTransitionId) = ReaderTransitionCommand.RequestSemanticSynchronization(next,
+			ReaderExternalRelocationIntent(ReaderExternalRelocationSource.Toc, handle), handle)
+		lateinit var first: ReaderSemanticCommandRegistration
+		executor.synchronize(command(id), { first = it }) {}
+		first.retireForRetry()
+		lateinit var second: ReaderSemanticCommandRegistration
+		val next = id.copy(sequence = 2L, parent = id.parentIdentity())
+		assertEquals(ReaderSemanticCommandResult.Accepted, executor.synchronize(command(next), { second = it }) {})
+		first.retire(); first.retireForRetry()
+		assertTrue(starts == 2 && executor.activeSlotCount == 1 && registry.activeHandleCount == 1,
+			"Stale retry registration must not retire newer exact slot or its request lease")
+		second.retire()
+		assertTrue(executor.activeSlotCount == 0 && registry.activeHandleCount == 0,
+			"Terminal retirement disposes only the matching current request lease")
 	}
 
 	@Test

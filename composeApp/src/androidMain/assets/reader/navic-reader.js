@@ -7,6 +7,11 @@ import './vendor/foliate-js/view.js'
 import './navic-reader-motion.js'
 import { Overlayer } from './vendor/foliate-js/overlayer.js'
 import {
+  readerCurrentDestinationDeliveryRecord,
+  readerValidateCurrentDestinationQuery,
+  readerPostCurrentDestinationReply,
+} from './navic-reader-current-destination.js'
+import {
   CenterTapMovementSlop,
   CenterTapSyntheticClickDedupeMs,
   FixedLayoutSurfaceSwipeThreshold,
@@ -333,6 +338,9 @@ class NavicReaderRuntime {
   pendingUserNavigationCausalSequence = null
   pendingExplicitCueSelectionCausalSequence = null
   destinationCommitSequence = 0
+  // A private delivery record, not committedRelocateDetail (assigned before delivery).
+  // It belongs only to the exact live source that successfully posted a normal location.
+  #successfulCurrentDestination = null
   whispersyncCueMap = null
   viewportResizeListener = () => {
     this.whispersyncCueMap?.clear()
@@ -354,6 +362,29 @@ class NavicReaderRuntime {
     window.visualViewport?.addEventListener('resize', this.viewportResizeListener)
     window.addEventListener('resize', this.viewportResizeListener)
     requestAnimationFrame(() => this.applyReaderViewportLayout('startup'))
+  }
+
+  invalidateCurrentDestinationDelivery() {
+    this.#successfulCurrentDestination = null
+  }
+
+  recordCurrentDestinationDelivery(message, view, sessionId) {
+    const source = readerCurrentDestinationDeliveryRecord(
+      message, view, sessionId, this.view, this.foliateSessionId,
+    )
+    if (source) this.#successfulCurrentDestination = source
+  }
+
+  validateCurrentDestinationQuery(command) {
+    readerValidateCurrentDestinationQuery(
+      command, this.#successfulCurrentDestination, this.view,
+      this.foliateSessionId, this.destinationCommitSequence,
+    )
+  }
+
+  resolveCurrentDestination(command) {
+    this.validateCurrentDestinationQuery(command)
+    return readerPostCurrentDestinationReply(command, this.#successfulCurrentDestination)
   }
 
   dispatch(command) {
@@ -389,6 +420,8 @@ class NavicReaderRuntime {
         return this.goTo(command.href)
       case 'goToProgress':
         return this.goToProgress(command.progress)
+      case 'resolveCurrentDestination':
+        return this.resolveCurrentDestination(command)
       case 'diagnosticLocationSnapshot':
         return this.postCurrentLocationSnapshot(command.reason || 'diagnostic-snapshot', {
           forceDuplicatePost: true,
@@ -712,6 +745,7 @@ class NavicReaderRuntime {
   }
 
   close() {
+    this.invalidateCurrentDestinationDelivery()
     this.invalidatePaginationProfileTask('reader-close')
     this.destroyPageTurnPreviewRenderer('reader-close')
     this.dropDeferredExactWordSyncOverlayFragment()
@@ -822,32 +856,6 @@ class NavicReaderRuntime {
     this.surfacePaperTextureTurnDirection = null
     this.surfacePaperTextureFallbackDirection = null
     this.lastRelocateDetail = null
-  }
-
-  async resolveReaderNavigationTarget(locator) {
-    if (!this.view || locator == null) return null
-    const target = typeof locator === 'string' ? locator.trim() : locator
-    if (typeof target === 'string' && !target) return null
-    let resolved = null
-    try {
-      resolved = await Promise.resolve(
-        this.view.resolveNavigation?.(target) ||
-        this.view.book?.resolveHref?.(target)
-      )
-    } catch (error) {
-      log('go-to:resolve-failed', error?.message || String(error))
-    }
-    const index = Number(resolved?.index)
-    const rendererTarget = Number.isFinite(index)
-      ? { index: Math.floor(index) }
-      : null
-    if (rendererTarget && resolved?.anchor !== undefined) rendererTarget.anchor = resolved.anchor
-    if (rendererTarget && resolved?.select !== undefined) rendererTarget.select = resolved.select
-    return {
-      target,
-      resolved,
-      rendererTarget,
-    }
   }
 
   async goTo(locator, reason = 'go-to') {
@@ -1512,7 +1520,8 @@ const acknowledgedCommandIds = new Set()
 window.NavicReaderBridge = {
   dispatch: command => {
     const commandId = typeof command?.commandId === 'string' ? command.commandId.trim() : ''
-    if (commandId && acknowledgedCommandIds.has(commandId)) {
+    if (command?.type !== 'resolveCurrentDestination' &&
+        commandId && acknowledgedCommandIds.has(commandId)) {
       post({ type: 'commandAck', commandId })
       return Promise.resolve(null)
     }
@@ -1521,6 +1530,15 @@ window.NavicReaderBridge = {
     if (settleToken) runtime.pendingNativePageTurnSettleToken = null
     let result = null
     try {
+      // Validate queries before the existing duplicate-ACK shortcut; trimming a malformed
+      // query ID must never turn it into an already acknowledged valid request.
+      if (command?.type === 'resolveCurrentDestination') {
+        runtime.validateCurrentDestinationQuery(command)
+      }
+      if (commandId && acknowledgedCommandIds.has(commandId)) {
+        post({ type: 'commandAck', commandId })
+        return Promise.resolve(null)
+      }
       result = runtime.dispatch(command)
     } catch (error) {
       if (commandId) post({ type: 'commandFailed', commandId })

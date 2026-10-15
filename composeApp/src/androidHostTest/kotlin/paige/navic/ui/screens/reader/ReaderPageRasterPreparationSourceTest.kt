@@ -2205,7 +2205,7 @@ class ReaderPageRasterPreparationSourceTest {
 		val publicationOpen = requiredReaderSourceSlice(
 			source = bridge,
 			startDelimiter = "async openPublication(",
-			endDelimiter = "async resolveReaderNavigationTarget("
+			endDelimiter = "async goTo("
 		)
 		val manifestInputs = requiredReaderSourceSlice(
 			source = pageTurns,

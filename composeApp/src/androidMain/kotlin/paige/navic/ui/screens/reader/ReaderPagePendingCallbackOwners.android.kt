@@ -13,7 +13,8 @@ internal class ReaderPagePendingCallbackOwners<T : Any>(
 	internal class Lease<T : Any> internal constructor(
 		internal val value: T,
 		internal val onAbandoned: () -> Unit,
-		internal val activationToken: ReaderLegacySourceLocalOpaqueToken
+		internal val activationToken: ReaderLegacySourceLocalOpaqueToken,
+		internal val work: ReaderActivatedRasterWork? = null
 	) {
 		internal var released = false
 	}
@@ -28,15 +29,23 @@ internal class ReaderPagePendingCallbackOwners<T : Any>(
 	private val closedSignal = CompletableDeferred<Unit>()
 	private var closed = false
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var legacyFinalized = false
 
-	fun acquire(value: T, onAbandoned: () -> Unit): Lease<T>? = synchronized(lock) {
-		if (closed || frozenDomain != null) return@synchronized null
+	fun acquire(value: T, onAbandoned: () -> Unit): Lease<T>? = acquireOwned(value, null, onAbandoned)
+
+	fun acquireInstalled(value: T, work: ReaderActivatedRasterWork, onAbandoned: () -> Unit): Lease<T>? =
+		acquireOwned(value, work, onAbandoned)
+
+	private fun acquireOwned(value: T, work: ReaderActivatedRasterWork?, onAbandoned: () -> Unit): Lease<T>? = synchronized(lock) {
+		val admitted = if (work == null) frozenDomain == null else
+			legacyFinalized && frozenDomain == work.domain && work.isCurrent()
+		if (closed || !admitted) return@synchronized null
 		retain(value)
-		Lease(value, onAbandoned, tokenAllocator.allocate()).also(pending::add)
+		Lease(value, onAbandoned, tokenAllocator.allocate(), work).also(pending::add)
 	}
 
 	fun claim(lease: Lease<T>): Lease<T>? = synchronized(lock) {
-		if (frozenDomain != null) {
+		if (frozenDomain != null && lease.work == null) {
 			null
 		} else if (pending.remove(lease)) {
 			lease.also(claimed::add)
@@ -79,7 +88,7 @@ internal class ReaderPagePendingCallbackOwners<T : Any>(
 			synchronized(lock) {
 				claimed.remove(lease)
 				pendingDrainConfirmations.remove(lease.activationToken).also { pendingConfirmation ->
-					if (pendingConfirmation == null && frozenDomain != null) {
+					if (pendingConfirmation == null && frozenDomain != null && lease.work == null) {
 						releasedFrozenOwnership += lease.activationToken
 					}
 					completeClosed = closed && pending.isEmpty() && claimed.isEmpty()
@@ -91,6 +100,28 @@ internal class ReaderPagePendingCallbackOwners<T : Any>(
 		runCatching { confirmation?.invoke() }
 		if (completeClosed) closedSignal.complete(Unit)
 		failure?.let { throw it }
+	}
+
+	fun releaseInstalled(work: ReaderActivatedRasterWork, onReleased: () -> Unit): ReaderPortCommandResult {
+		var confirmNow = false
+		val abandoned = synchronized(lock) {
+			if (!legacyFinalized || frozenDomain != work.domain) return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+			val selected = (pending + claimed).filter { it.work === work }
+			if (selected.any { it.activationToken in pendingDrainConfirmations }) return ReaderPortCommandResult.Rejected(
+				ReaderTransitionFailureReason.InvalidLegacyResource
+			)
+			confirmNow = selected.isEmpty()
+			val remaining = java.util.concurrent.atomic.AtomicInteger(selected.size)
+			selected.forEach { lease ->
+				pendingDrainConfirmations[lease.activationToken] = { if (remaining.decrementAndGet() == 0) onReleased() }
+			}
+			selected.filter { pending.remove(it) }.also(claimed::addAll)
+		}
+		abandoned.forEach { runCatching { abandon(it) } }
+		if (confirmNow) onReleased()
+		return ReaderPortCommandResult.Accepted
 	}
 
 	fun freezeForTransitionActivation(
@@ -106,6 +137,16 @@ internal class ReaderPagePendingCallbackOwners<T : Any>(
 				ReaderTransitionFailureReason.InvalidLegacyResource
 			)
 		}
+	}
+
+	internal val originalLegacyAdmissionRestored: Boolean
+		get() = synchronized(lock) { !closed && frozenDomain == null }
+
+	fun connectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? = synchronized(lock) {
+		val domain = frozenDomain ?: return@synchronized null
+		ReaderLegacyConnectedSourceInventory(
+			ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback, domain, snapshotFrozenOwnership()
+		)
 	}
 
 	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> = synchronized(lock) {
@@ -137,10 +178,10 @@ internal class ReaderPagePendingCallbackOwners<T : Any>(
 					)
 				)
 			}
-			pending.forEach { lease ->
+			pending.filter { it.work == null }.forEach { lease ->
 				addRow(lease.activationToken, ReaderLegacyResourceState.Registered)
 			}
-			claimed.forEach { lease ->
+			claimed.filter { it.work == null }.forEach { lease ->
 				addRow(lease.activationToken, ReaderLegacyResourceState.Registered)
 			}
 			releasedFrozenOwnership.forEach { token ->
@@ -199,11 +240,19 @@ internal class ReaderPagePendingCallbackOwners<T : Any>(
 		return ReaderPortCommandResult.Accepted
 	}
 
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult = synchronized(lock) {
+		if (closed || legacyFinalized || frozenDomain != domain || pending.isNotEmpty() || claimed.isNotEmpty() ||
+			pendingDrainConfirmations.isNotEmpty() || releasedFrozenOwnership.isNotEmpty())
+			return@synchronized ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		legacyFinalized = true
+		ReaderPortCommandResult.Accepted
+	}
+
 	fun restoreAfterTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
 	): ReaderPortCommandResult = synchronized(lock) {
 		if (
-			frozenDomain != domain ||
+			legacyFinalized || frozenDomain != domain ||
 			closed ||
 			pendingDrainConfirmations.isNotEmpty()
 		) {

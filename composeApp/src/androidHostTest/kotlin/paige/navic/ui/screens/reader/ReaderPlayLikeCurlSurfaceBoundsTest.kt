@@ -113,7 +113,7 @@ class ReaderPlayLikeCurlSurfaceBoundsTest {
 		assertContains(frameRoot, "composeOverlay.elevation = 32f")
 		assertContains(frameRoot, "composeOverlay.translationZ = 32f")
 		assertContains(frameRoot, "composeOverlay.bringToFront()")
-		assertContains(frameHost.substringAfter("update = { root ->"), "root.setComposeOverlay(hostedComposeOverlay)")
+		assertContains(frameHost.substringAfter("update = { root ->"), "root.setComposeOverlay { ReaderNestedContent(hostedComposeOverlay) }")
 		assertContains(transportBody, ".semantics {")
 		assertContains(transportBody, "onClick(label = accessibilityDescription)")
 		assertContains(transportBody, ".pointerInput(Unit)")

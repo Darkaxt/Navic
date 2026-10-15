@@ -63,6 +63,15 @@ before(async () => {
       fs.createReadStream(paginatorPath).pipe(response)
       return
     }
+    if (requestUrl.pathname.endsWith('.js')) {
+      const assetRoot = path.join(repoRoot, 'composeApp/src/androidMain/assets/reader')
+      const asset = path.resolve(assetRoot, '.' + requestUrl.pathname)
+      if (asset.startsWith(assetRoot + path.sep) && fs.existsSync(asset)) {
+        response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' })
+        fs.createReadStream(asset).pipe(response)
+        return
+      }
+    }
     if (requestUrl.pathname === '/delayed-font.ttf') {
       const gate = delayedFontGate
       gate?.requested.resolve()
@@ -181,6 +190,233 @@ afterEach(async () => {
   await context?.close()
   delayedFontGate = null
 })
+
+// Initial allocation needs current Live layout, not construction, configuration or a
+// passive/profiler snapshot. These cases use the original browser paginator, normal
+// opening/navigation and actual fonts/geometry. Only fixed booleans leave the page.
+const requireResolvedLayoutProducer = async () => {
+  const available = await page.evaluate(() =>
+    typeof document.createElement('foliate-paginator').captureResolvedLayout === 'function')
+  assert.equal(available, true, 'Original Live paginator must produce resolved-layout custody')
+}
+
+test('initial resolved layout is absent before genuine committed content', async () => {
+  await requireResolvedLayoutProducer()
+  const absent = await page.evaluate(html => {
+    const { paginator } = window.__createPaginatorFixture({ html: [html] })
+    return paginator.captureResolvedLayout() === null
+  }, sectionHtml())
+  assert.equal(absent, true)
+})
+
+test('normal opening produces immutable resolved layout without navigating or fabricating a text commit', async () => {
+  await requireResolvedLayoutProducer()
+  const actual = await page.evaluate(async html => {
+    const { paginator } = window.__createPaginatorFixture({ html: [html] })
+    await paginator.goTo({ index: 0, anchor: 0 })
+    await paginator.getContents()[0].doc.fonts.ready
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    let relocations = 0
+    paginator.addEventListener('relocate', () => { relocations += 1 })
+    const before = paginator.exactTextPagePosition()
+    const capture = paginator.captureResolvedLayout()
+    return {
+      present: capture !== null,
+      current: capture?.isCurrent() === true,
+      frozen: Object.isFrozen(capture) && Object.isFrozen(capture?.layout),
+      positionUnchanged: JSON.stringify(before) === JSON.stringify(paginator.exactTextPagePosition()),
+      noRelocation: relocations === 0,
+      actualPosition: capture?.layout.sectionIndex === before.index && capture?.layout.pageIndex === before.pageIndex &&
+        capture?.layout.pageCount === before.pageCount,
+      actualGeometry: capture?.layout.width === paginator.getBoundingClientRect().width &&
+        capture?.layout.height === paginator.getBoundingClientRect().height,
+      numericOnly: Object.values(capture?.layout || {}).every(Number.isFinite),
+      boundedFields: JSON.stringify(Object.keys(capture?.layout || {}).sort()) === JSON.stringify([
+        'height', 'layoutGeneration', 'navigationGeneration', 'pageCount', 'pageIndex', 'sectionIndex',
+        'viewGeneration', 'width',
+      ]),
+    }
+  }, sectionHtml())
+  assert.ok(Object.values(actual).every(value => value === true), 'Actual normal-opening layout must supply only current immutable numeric metadata')
+})
+
+for (const mutation of ['attribute', 'style', 'resize-before-observer', 'navigation', 'replacement', 'destroy']) {
+  test(`initial resolved-layout custody rejects ${mutation} without borrowing unchanged configuration`, async () => {
+    await requireResolvedLayoutProducer()
+    const actual = await page.evaluate(async ({ html, mutation }) => {
+      const { paginator } = window.__createPaginatorFixture({ html: [html, html] })
+      await paginator.goTo({ index: 0, anchor: 0 })
+      await paginator.getContents()[0].doc.fonts.ready
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const capture = paginator.captureResolvedLayout()
+      const initiallyCurrent = capture?.isCurrent() === true
+      switch (mutation) {
+        case 'attribute': paginator.setAttribute('gap', '11%'); break
+        case 'style': paginator.setStyles('body { font-size: 22px !important; }'); break
+        case 'resize-before-observer': paginator.style.width = '610px'; break
+        case 'navigation': await paginator.goTo({ index: 0, anchor: 0.5 }); break
+        case 'replacement': await paginator.goTo({ index: 1, anchor: 0 }); break
+        case 'destroy': paginator.destroy(); break
+      }
+      return { initiallyCurrent, rejected: capture?.isCurrent() === false }
+    }, { html: sectionHtml(), mutation })
+    assert.equal(actual.initiallyCurrent, true)
+    assert.equal(actual.rejected, true)
+  })
+}
+
+test('initial resolved layout cannot be captured while real content fonts are loading', async () => {
+  await requireResolvedLayoutProducer()
+  delayedFontGate = { requested: deferred(), release: deferred() }
+  await page.evaluate(async html => {
+    const { paginator } = window.__createPaginatorFixture({ html: [html] })
+    await paginator.goTo({ index: 0, anchor: 0 })
+  }, sectionHtml('initial-layout-font', delayedFontCss))
+  await delayedFontGate.requested.promise
+  const actual = await page.evaluate(() => {
+    const { paginator } = window.__paginatorFixture
+    return { loading: paginator.getContents()[0].doc.fonts.status === 'loading', absent: paginator.captureResolvedLayout() === null }
+  })
+  delayedFontGate.release.resolve()
+  assert.equal(actual.loading, true)
+  assert.equal(actual.absent, true)
+})
+
+test('initial resolved layout excludes unsupported scrolled presentation', async () => {
+  await requireResolvedLayoutProducer()
+  const absent = await page.evaluate(async html => {
+    const { paginator } = window.__createPaginatorFixture({ html: [html], flow: 'scrolled' })
+    await paginator.goTo({ index: 0, anchor: 0 })
+    await paginator.getContents()[0].doc.fonts.ready
+    return paginator.captureResolvedLayout() === null
+  }, sectionHtml())
+  assert.equal(absent, true)
+})
+
+for (const mutation of ['none', 'attribute', 'resize-before-observer', 'navigation', 'destroy']) {
+  test(`command-bound destination reply supplies layout only for its actual current delivery: ${mutation}`, async () => {
+    const actual = await page.evaluate(async ({ html, mutation }) => {
+      const { paginator } = window.__createPaginatorFixture({ html: [html] })
+      await paginator.goTo({ index: 0, anchor: 0 })
+      await paginator.getContents()[0].doc.fonts.ready
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const support = await import('/navic-reader-current-destination.js')
+      // Identity-only test view around the genuine original renderer. This does not
+      // claim full runtime/Android semantic admission or physical presentation.
+      const view = { renderer: paginator }
+      const session = 'public-synthetic-layout-session'
+      const command = { commandId: 'public-synthetic-layout-query', foliateSessionId: session }
+      const source = support.readerCurrentDestinationDeliveryRecord({
+        destinationCommitSequence: 1, pageIndex: 0, chapterPageIndex: 0,
+      }, view, session, view, session)
+      const captured = source?.resolvedLayout !== null && source?.resolvedLayout !== undefined
+      switch (mutation) {
+        case 'attribute': paginator.setAttribute('gap', '11%'); break
+        case 'resize-before-observer': paginator.style.width = '610px'; break
+        case 'navigation': await paginator.goTo({ index: 0, anchor: 0.5 }); break
+        case 'destroy': paginator.destroy(); break
+      }
+      let reply = null
+      window.NavicAndroidBridge = { postMessage: message => { reply = JSON.parse(message) } }
+      support.readerValidateCurrentDestinationQuery(command, source, view, session, 1)
+      support.readerPostCurrentDestinationReply(command, source)
+      const expected = mutation === 'none'
+      return {
+        captured,
+        semanticReplyUnchanged: reply.type === 'currentDestinationResolved' && reply.commandId === command.commandId &&
+          reply.foliateSessionId === session && reply.destinationCommitSequence === 1,
+        layoutApplicability: (reply.resolvedLayout !== null && reply.resolvedLayout !== undefined) === expected,
+        numericOnly: !expected || Object.values(reply.resolvedLayout || {}).every(Number.isFinite),
+        noClosureOrOwnerSerialized: !expected || Object.keys(reply.resolvedLayout || {}).every(key =>
+          ['height', 'layoutGeneration', 'navigationGeneration', 'pageCount', 'pageIndex', 'sectionIndex', 'viewGeneration', 'width'].includes(key)),
+      }
+    }, { html: sectionHtml(), mutation })
+    assert.ok(Object.values(actual).every(value => value === true), 'Only captured/current original Live layout may accompany the consumed query result')
+  })
+}
+
+test('resolved layout refuses unmeasured content expansion before original observer returns', async () => {
+  await requireResolvedLayoutProducer()
+  const actual = await page.evaluate(async html => {
+    const { paginator } = window.__createPaginatorFixture({ html: [html] })
+    await paginator.goTo({ index: 0, anchor: 0 })
+    await paginator.getContents()[0].doc.fonts.ready
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const original = paginator.captureResolvedLayout()
+    // Genuine geometry changes before the original ResizeObserver expansion.
+    paginator.getContents()[0].doc.body.style.setProperty('width', '2000px', 'important')
+    const attempted = paginator.captureResolvedLayout()
+    return { originalPresent: original !== null, refusedUnmeasuredLayout: attempted === null,
+      oldCaptureObsolete: original?.isCurrent() === false }
+  }, sectionHtml())
+  assert.equal(actual.originalPresent, true)
+  assert.equal(actual.refusedUnmeasuredLayout, true)
+  assert.equal(actual.oldCaptureObsolete, true)
+})
+
+test('original query can refresh unchanged Live destination layout without issuing another semantic commit', async () => {
+  const actual = await page.evaluate(async html => {
+    const { paginator } = window.__createPaginatorFixture({ html: [html] })
+    await paginator.goTo({ index: 0, anchor: 0 })
+    await paginator.getContents()[0].doc.fonts.ready
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const support = await import('/navic-reader-current-destination.js')
+    const position = paginator.exactTextPagePosition()
+    const cfi = 'public-synthetic-current-destination'
+    const view = { renderer: paginator, lastLocation: { cfi } }
+    const session = 'public-synthetic-layout-session'
+    const source = support.readerCurrentDestinationDeliveryRecord({ destinationCommitSequence: 1, cfi,
+      chapterPageIndex: position.pageIndex, chapterPageCount: position.pageCount }, view, session, view, session)
+    paginator.render() // Original renderer, no observer/semantic success substitute.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    let reply
+    window.NavicAndroidBridge = { postMessage: message => { reply = JSON.parse(message) } }
+    support.readerPostCurrentDestinationReply({ commandId: 'public-synthetic-layout-query' }, source)
+    const matching = reply.resolvedLayout !== null && reply.resolvedLayout !== undefined
+    view.lastLocation = { cfi: 'public-synthetic-obsolete-destination' }
+    support.readerPostCurrentDestinationReply({ commandId: 'public-synthetic-layout-query' }, source)
+    return { matching, unchangedCommit: reply.destinationCommitSequence === 1,
+      differentDestinationRefused: reply.resolvedLayout === null || reply.resolvedLayout === undefined }
+  }, sectionHtml())
+  assert.equal(actual.matching, true)
+  assert.equal(actual.unchangedCommit, true)
+  assert.equal(actual.differentDestinationRefused, true)
+})
+
+for (const mismatch of ['cfi', 'chapter-index', 'chapter-count', 'renderer', 'navigation', 'section']) {
+  test(`refreshed Live layout cannot borrow a delivered destination with mismatched ${mismatch}`, async () => {
+    const actual = await page.evaluate(async ({ html, mismatch }) => {
+      const { paginator } = window.__createPaginatorFixture({ html: [html, html] })
+      await paginator.goTo({ index: 0, anchor: 0 })
+      await paginator.getContents()[0].doc.fonts.ready
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const support = await import('/navic-reader-current-destination.js')
+      const position = paginator.exactTextPagePosition()
+      const cfi = 'public-synthetic-current-destination'
+      const view = { renderer: paginator, lastLocation: { cfi } }
+      const session = 'public-synthetic-layout-session'
+      const source = support.readerCurrentDestinationDeliveryRecord({ destinationCommitSequence: 1, cfi,
+        chapterPageIndex: position.pageIndex, chapterPageCount: position.pageCount }, view, session, view, session)
+      paginator.render()
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      switch (mismatch) {
+        case 'cfi': view.lastLocation = { cfi: 'public-synthetic-obsolete-destination' }; break
+        case 'chapter-index': source.locator.chapterPageIndex += 1; break
+        case 'chapter-count': source.locator.chapterPageCount += 1; break
+        case 'renderer': view.renderer = window.__createPaginatorFixture({ html: [html] }).paginator; break
+        case 'navigation': await paginator.goTo({ index: 0, anchor: 0 }); break
+        case 'section': await paginator.goTo({ index: 1, anchor: 0 }); break
+      }
+      let reply
+      window.NavicAndroidBridge = { postMessage: message => { reply = JSON.parse(message) } }
+      support.readerPostCurrentDestinationReply({ commandId: 'public-synthetic-layout-query' }, source)
+      return { unchangedCommit: reply.destinationCommitSequence === 1,
+        refused: reply.resolvedLayout === null || reply.resolvedLayout === undefined }
+    }, { html: sectionHtml(), mismatch })
+    assert.equal(actual.unchangedCommit, true)
+    assert.equal(actual.refused, true)
+  })
+}
 
 test('commits a rendered destination without text capability and invalidates structural replacements', async () => {
   const actual = await page.evaluate(async ({ first, second }) => {

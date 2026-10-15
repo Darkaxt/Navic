@@ -1,0 +1,501 @@
+package paige.navic.ui.screens.reader
+
+import android.content.Context
+import android.os.Build
+import android.os.Looper
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
+import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.State
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
+import java.time.Duration
+import kotlin.test.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.*
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import paige.navic.reader.*
+
+/** Original Native allocation-source authentication with actual construction/executor and
+ * synthetic bridge/test installation inputs. Not material generation or display proof. */
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P], shadows = [
+    Task8ImmediateGlSurfaceViewShadow::class, Task398MaterialVisualStateShadow::class,
+    Task398CanonicalStoragePathShadow::class])
+class ReaderNativeInitialAllocationSourceHostTest {
+    @Test fun originalReporterConsumesGenuineInitialReceiptBeforeExecutorForwarding() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertTrue(f.versionsAtReceipt.single() == f.receipts.single().version,
+                "Native must consume the same validated receipt, not await a Compose echo or mint a binding")
+        } finally { f.dispose() }
+    }
+    @Test fun missingLayoutStillConsumesSemanticReceiptWithoutMaterialReadiness() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve(false)
+            assertTrue(f.versionsAtReceipt.single() == f.receipts.single().version,
+                "Absent layout cannot erase the genuine semantic receipt")
+            assertNull(f.capture())
+        } finally { f.dispose() }
+    }
+    @Test fun exactOriginalSourceAuthenticatesAfterSemanticRetirementWithoutClaimingDisplay() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            val physical = assertNotNull(f.material())
+            assertFalse(physical.commandCurrency?.invoke() == true)
+            assertNotNull(f.capture())
+            assertNull(physical.binding); assertNull(physical.owner)
+            assertEquals(ReaderLegacyResourceState.Registered, physical.state)
+        } finally { f.dispose() }
+    }
+    @Test fun wrongTransitionCannotBorrowInitialAllocationSource() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            val command = f.command()
+            assertNull(f.capture(command.copy(transitionId = command.transitionId.copy(sequence = 2L,
+                parent = command.transitionId.parentIdentity()))))
+        } finally { f.dispose() }
+    }
+    @Test fun wrongBindingCannotBorrowInitialAllocationSource() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            val command = f.command()
+            assertNull(f.capture(command.copy(binding = command.binding.copy(viewportGeneration = command.binding.viewportGeneration + 1L))))
+        } finally { f.dispose() }
+    }
+    @Test fun resizedNativePixelsCannotBorrowRetainedCssLayout() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertNotNull(f.capture()); f.resize(); assertNull(f.capture())
+        } finally { f.dispose() }
+    }
+    @Test fun replacedProfileIdentityCannotBorrowRetainedLayout() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertNotNull(f.capture()); f.replaceProfileIdentity(); assertNull(f.capture())
+        } finally { f.dispose() }
+    }
+    @Test fun replacedPublicationIdentityCannotBorrowRetainedLayout() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertNotNull(f.capture()); f.replacePublicationIdentity(); assertNull(f.capture())
+        } finally { f.dispose() }
+    }
+    @Test fun replacedViewportIdentityCannotBorrowRetainedLayout() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertNotNull(f.capture()); f.replaceViewportIdentity(); assertNull(f.capture())
+        } finally { f.dispose() }
+    }
+    @Test fun physicallyDetachedWrapperCannotBorrowOriginalAllocationSource() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertNotNull(f.capture()); f.detachOriginalWrapper(); assertNull(f.capture())
+        } finally { f.dispose() }
+    }
+    @Test fun closedCandidateCannotBorrowOriginalAllocationSource() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertNotNull(f.capture()); f.closeCandidate(); assertNull(f.capture())
+        } finally { f.dispose() }
+    }
+    @Test fun newerLiveSourceBeforeNativeEchoCannotBorrowInitialAllocationSource() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertNotNull(f.capture()); f.postNewDestination(); assertNull(f.capture())
+        } finally { f.dispose() }
+    }
+    @Test fun originalPhysicalRetirementCannotBorrowInitialAllocationSource() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertNotNull(f.capture()); f.call("closeReader"); f.drain(); assertNull(f.capture())
+        } finally { f.dispose() }
+    }
+
+    @Test fun originalInitialAllocationQueriesLivePlanAndDoesNotManufactureReadiness() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertEquals(ReaderPortCommandResult.Accepted, f.allocate())
+            assertTrue(f.materialEvidence.isEmpty(), "Query submission cannot allocate material or publish readiness")
+            f.returnPlan()
+            assertEquals(2, f.materialEvidence.size)
+            val profile = f.materialEvidence[0] as? ReaderTransitionFact.PaginationProfileReady
+            val allocated = f.materialEvidence[1] as? ReaderTransitionFact.MaterialBindingAllocated
+            assertNotNull(profile, "Original Curl profile must precede the strictly typed allocation callback")
+            assertNotNull(allocated, "Exact original plan must allocate through the original material owners")
+            assertEquals(f.command().transitionId, allocated.transitionId)
+            assertTrue(profile.profileGeneration > 0L)
+            assertEquals(profile.profileGeneration, allocated.allocation.allocatedBinding.profileGeneration)
+            assertTrue(allocated.allocation.preparationGeneration > 0L)
+            assertTrue(allocated.allocation.rasterGeneration > 0L)
+            assertTrue(allocated.allocation.textureGeneration > 0L)
+            val semantic = f.command().binding
+            assertTrue(allocated.allocation.allocatedBinding.copy(profileGeneration = semantic.profileGeneration,
+                preparationGeneration = null, rasterGeneration = null, textureGeneration = null) == semantic,
+                "Physical generation allocation cannot replace the authentic semantic destination")
+            val physical = assertNotNull(f.material())
+            assertEquals(ReaderLegacyResourceState.Registered, physical.state)
+            assertNull(physical.binding); assertNull(physical.owner)
+        } finally { f.dispose() }
+    }
+    @Test fun originalInitialAllocationCannotRunBeforeOriginalOwnerFinalization() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertTrue(f.allocate() is ReaderPortCommandResult.Rejected)
+            assertTrue(f.materialEvidence.isEmpty())
+        } finally { f.dispose() }
+    }
+    @Test fun retiredCommandCannotPublishLateOriginalPlanAllocation() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertEquals(ReaderPortCommandResult.Accepted, f.allocate())
+            f.materialCommandCurrent = false
+            f.returnPlan()
+            assertTrue(f.materialEvidence.isEmpty(), "A returned query owns release only after exact command retirement")
+        } finally { f.dispose() }
+    }
+    @Test fun newerLiveDestinationCannotPublishLateOriginalPlanAllocation() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertEquals(ReaderPortCommandResult.Accepted, f.allocate())
+            val returned = f.planCallback()
+            f.postNewDestination()
+            f.returnPlan(callback = returned)
+            assertTrue(f.materialEvidence.isEmpty(), "The actual Engine source, not a retained metadata copy, fences publication")
+        } finally { f.dispose() }
+    }
+    @Test fun chapterLocalInitialLayoutQualifiesItsMappedGlobalRasterPlan() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve(globalPageIndex = 12, sectionIndex = 2)
+            assertEquals(ReaderPortCommandResult.Accepted, f.allocate())
+            f.returnPlan(globalStart = 12, totalPages = 40, sectionIndex = 2)
+            assertTrue(f.materialEvidence.lastOrNull() is ReaderTransitionFact.MaterialBindingAllocated,
+                "Chapter-local layout must use the plan's genuine chapter mapping, not global page-count equality")
+        } finally { f.dispose() }
+    }
+    @Test fun wrongChapterMappingRejectsOriginalInitialMaterialWithoutReadiness() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertEquals(ReaderPortCommandResult.Accepted, f.allocate())
+            f.returnPlan(chapterPageCount = 7)
+            assertTrue(f.materialEvidence.singleOrNull() is ReaderTransitionFact.CommandRejected,
+                "An incompatible original plan must reject the allocation, not synthesize its material")
+        } finally { f.dispose() }
+    }
+
+    @Test fun missingCurrentLiveLayoutCannotQualifyAnOtherwisePlausibleRasterPlan() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertEquals(ReaderPortCommandResult.Accepted, f.allocate())
+            f.returnPlan(layoutGeneration = null)
+            assertTrue(f.materialEvidence.singleOrNull() is ReaderTransitionFact.CommandRejected,
+                "A fallback plan cannot substitute for a still-current original Live layout")
+        } finally { f.dispose() }
+    }
+    @Test fun changedLiveLayoutCannotQualifyRetainedInitialNumericCustody() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain(); f.resolve()
+            assertEquals(ReaderPortCommandResult.Accepted, f.allocate())
+            f.returnPlan(layoutGeneration = 8L)
+            assertTrue(f.materialEvidence.singleOrNull() is ReaderTransitionFact.CommandRejected,
+                "Equal geometry and chapter counts cannot resurrect an obsolete original layout")
+        } finally { f.dispose() }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private class ConstructionFixture(private val scheduler: TestCoroutineScheduler,
+        finalizeMaterialOwners: Boolean = false) {
+        init { Dispatchers.setMain(StandardTestDispatcher(scheduler)) }
+        private val activity = run {
+            val key = "robolectric.areWindowsMarkedVisible"; val old = System.getProperty(key)
+            System.setProperty(key, "true")
+            try { Robolectric.buildActivity(ComponentActivity::class.java).setup() }
+            finally { if (old == null) System.clearProperty(key) else System.setProperty(key, old) }
+        }
+        private val type = Class.forName("paige.navic.ui.screens.reader.KomikkuReaderNativeViewerContainer")
+        private val store = ReaderActivatedSessionSnapshotStore()
+        private val native = type.getDeclaredConstructor(Context::class.java, ReaderActivatedSessionSnapshotStore::class.java)
+            .apply { isAccessible = true }.newInstance(activity.get(), store) as ViewGroup
+        private val opened = ReaderController().open(ReaderEngineOpenRequest(
+            publication = ReaderPublicationIdentity("public-synthetic-native-construction", resourceHref = "fixture.epub"),
+            url = "https://example.invalid/fixture.epub")).controller
+        private var model = ReaderCoordinator(controller = opened)
+        private val session = opened.state.readerSessionGeneration
+        private val domain = ReaderLegacyPhysicalDomain(session, ReaderLegacyFreezeToken(8L))
+        val registry = ReaderSemanticExecutableRequestRegistry(session, activationStore = store)
+        val executor = ReaderSemanticCommandExecutor(registry)
+        private val gateway = ReaderTransitionGateway()
+        private val candidate: ReaderTransitionGatewayCandidate
+        private val reservation: ReaderReservedNeutralBootstrapRequest
+        private var body: ReaderSemanticExecutableRequest? = null
+        private var wrapper: ComposeView? = null
+        var constructions = 0; private set
+        lateinit var registration: ReaderSemanticCommandRegistration
+        val receipts = mutableListOf<ReaderPresentationEventReceipt>()
+        val versionsAtReceipt = mutableListOf<ReaderPresentationReceiptVersion?>()
+        val materialFacts = mutableListOf<ReaderTransitionFact>()
+        val materialEvidence get() = materialFacts.filter {
+            it is ReaderTransitionFact.PaginationProfileReady || it is ReaderTransitionFact.MaterialBindingAllocated ||
+                it is ReaderTransitionFact.CommandRejected
+        }
+        var materialCommandCurrent = true
+        private var allocationPort: ReaderMaterialGenerationAllocationPort? = null
+        private val confirmedMaterialOwners = mutableSetOf<ReaderLegacyPhysicalIdentity>()
+        init {
+            activity.get().setContentView(native); drain()
+            call("preparePresentationEpoch", opened.presentationVersion, opened.state.presentation, false, true, false)
+            call("setPresentationDecision", readerPresentationDecision(opened.state.presentation), opened.state.presentation,
+                opened.presentationVersion, false, null, { _: ReaderPresentationEvent -> null }, { _: ReaderPresentationHostEffect -> Unit })
+            val source = field("framePhysicalOwnership") as ReaderFramePhysicalOwnershipAdapter
+            val parent = field("viewerContentContainer") as ViewGroup
+            val old = checkNotNull(source.reserve(parent, View(parent.context)) { true })
+            check(source.mount(old)); check(source.freezeForTransitionActivation(domain) == ReaderPortCommandResult.Accepted)
+            val identity = source.snapshotFrozenOwnership().single().physicalIdentity
+            check(source.drainFrozenOwnership(identity) {} == ReaderPortCommandResult.Accepted)
+            check(source.finalizeActivatedHandoff(domain, null, setOf(identity)) == ReaderPortCommandResult.Accepted)
+            check(executor.freezeForTransitionActivation(domain) == ReaderPortCommandResult.Accepted)
+            if (finalizeMaterialOwners) {
+                assertEquals(ReaderPortCommandResult.Accepted, call("freezeOriginalPhysicalInventoryOwners", domain, executor))
+                @Suppress("UNCHECKED_CAST")
+                val sources = call("snapshotOriginalPhysicalInventoryOwners", domain, executor) as? List<ReaderLegacyConnectedSourceInventory>
+                assertNotNull(sources, "Actual original Native sources must be connected before finalization")
+                assertEquals(14, sources.size)
+                assertEquals(14, sources.map { it.source }.toSet().size)
+                // Original framework removal discovers additional settled return rows.
+                // Drain each exact identity once, then rediscover before finalization.
+                var inventory = assertNotNull(sources)
+                for (round in 0 until 4) {
+                    val pending = inventory.flatMap { it.resources }.filter {
+                        it.physicalIdentity !in confirmedMaterialOwners
+                    }
+                    if (pending.isEmpty()) break
+                    for (row in pending) {
+                        assertEquals(ReaderPortCommandResult.Accepted,
+                            call("drainOriginalPhysicalInventoryOwner", row.physicalIdentity, executor,
+                                { identity: ReaderLegacyPhysicalIdentity -> confirmedMaterialOwners += identity; Unit }))
+                    }
+                    drain()
+                    @Suppress("UNCHECKED_CAST")
+                    val refreshed = call("snapshotOriginalPhysicalInventoryOwners", domain, executor)
+                        as? List<ReaderLegacyConnectedSourceInventory>
+                    inventory = assertNotNull(refreshed, "All original sources must remain connected during retirement")
+                }
+                assertTrue(inventory.flatMap { it.resources }.all {
+                    it.physicalIdentity in confirmedMaterialOwners && it.state == ReaderLegacyResourceState.Released
+                }, "Original constructor and late physical-return custody must actually retire before finalization")
+            }
+            candidate = checkNotNull(gateway.reserveActivatedCandidate(session, 6L, store, {}, {}, registry::register,
+                registry::discardCandidateReservations, executor::clear))
+            reservation = checkNotNull(registry.reserveNeutralBootstrap(domain, candidate) { o, c, cb ->
+                body?.invoke(o, c, cb) ?: ReaderSemanticExecutableResult.Rejected
+            })
+            val decision = ReaderInitialActivationDecision(ReaderInitialCommittedPresentationOrigin.Neutral(session, 6L,
+                ReaderInitialPresentationInputLease.ChromeOnly, ReaderInitialPresentationInputLease.ChromeOnly), null, null, reservation)
+            if (finalizeMaterialOwners) assertEquals(ReaderPortCommandResult.Accepted,
+                call("finalizeOriginalPhysicalInventoryOwners", domain, executor, null, confirmedMaterialOwners))
+            check(ReaderActivatedSessionInstallationBarrier(store).installTestActivatedSession(
+                completeActivatedSessionPorts().copy(gateway = ReaderSnapshotBackedActivatedGatewayPort(candidate), semantic = executor), decision
+            ) == ReaderActivationInstallResult.Installed)
+        }
+        fun start(foreignReservation: Boolean = false): ReaderSemanticCommandResult {
+            val factory = type.declaredMethods.singleOrNull { it.name == "createInitialDestinationBootstrapRequest" }
+            assertNotNull(factory, "Actual Native bootstrap must own Engine construction and real runtime initialization")
+            val create: () -> View = {
+                check(wrapper == null); constructions += 1
+                ComposeView(activity.get()).apply {
+                    wrapper = this
+                    setContent { ReaderEngineWebViewHost(publicationUrl = "https://example.invalid/fixture.epub", title = "Public synthetic construction",
+                        kind = ReaderPublicationKind.Ebook, mediaOverlayEnabled = false, externalShellCover = false,
+                        suppressWebShellCover = false, nativeShellCoverTint = null, settings = ReaderSettings(), startCfi = null,
+                        startHref = null, startProgress = null, onEvent = {}, modifier = Modifier.fillMaxSize()) }
+                }
+            }
+            val ingress: (ReaderPresentationEvent.FoliateRelocated, ReaderPresentationEventOrigin.SemanticCommand) -> ReaderPresentationEventReceipt? = { event, origin ->
+                val step = model.reduceSemanticDestination(event, origin); model = step.coordinator; step.presentationReceipt
+            }
+            val supplied = if (foreignReservation) ReaderReservedNeutralBootstrapRequest(reservation.handle, session) else reservation
+            @Suppress("UNCHECKED_CAST")
+            body = factory.apply { isAccessible = true }.invoke(native, candidate, supplied, create, ingress) as ReaderSemanticExecutableRequest
+            val id = ReaderTransitionId(session, 6L, 1L, ReaderTransitionOperation.BootstrapNativePage,
+                ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial(1L))
+            return executor.synchronize(ReaderTransitionCommand.RequestSemanticSynchronization(id,
+                ReaderBootstrapNativePageIntent(reservation.handle), reservation.handle),
+                { registration = it; it.bindAsyncOutcome { registration.retire() } }, { receipt ->
+                    receipts += receipt
+                    versionsAtReceipt += (field("presentationBindingReporter") as ReaderPresentationBindingReporter)
+                        .captureSemanticContextVersionOrNull(assertNotNull(receipt.semanticReceipt).binding)
+                })
+        }
+        fun field(name: String): Any? = type.getDeclaredField(name).apply { isAccessible = true }.get(native)
+        fun call(name: String, vararg args: Any?): Any? = type.declaredMethods.single {
+            it.name == name && it.parameterCount == args.size
+        }.apply { isAccessible = true }.invoke(native, *args)
+        fun material() = field("currentFrameInstallation") as? ReaderFramePhysicalOwnershipAdapter.Lease
+        fun drain() {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(48))
+            scheduler.runCurrent()
+        }
+        private fun engine(): WebView {
+            fun visit(v: View): WebView? {
+                if (v is WebView) return v
+                if (v is ViewGroup) for (i in 0 until v.childCount) visit(v.getChildAt(i))?.let { return it }
+                return null
+            }
+            return checkNotNull(visit(checkNotNull(wrapper)))
+        }
+        fun pending(): ReaderWebCommandDispatchState = engine().webViewClient.javaClass.declaredFields.firstNotNullOfOrNull {
+            val value = it.apply { isAccessible = true }.get(engine().webViewClient)
+            (value as? State<*>)?.value as? ReaderWebCommandDispatchState
+        } ?: error("Actual owning Engine ledger required")
+        fun post(message: JsonObject) {
+            (shadowOf(engine()).getJavascriptInterface(ReaderWebRuntime.AndroidBridgeName) as ReaderJavascriptBridge).postMessage(message.toString()); drain()
+        }
+        fun resolve(includeLayout: Boolean = true, globalPageIndex: Int = 0, sectionIndex: Int = 0) {
+            post(buildJsonObject { put("type", "ready") })
+            val opening = pending().pendingCommands.first()
+            assertTrue(opening.dispatch.command is ReaderBridgeCommand.OpenPublication)
+            post(buildJsonObject { put("type", "commandAck"); put("commandId", opening.dispatch.id) })
+            val query = pending().pendingCommands.first().dispatch
+            val command = query.command as ReaderBridgeCommand.ResolveCurrentDestination
+            post(buildJsonObject { put("type", "currentDestinationResolved"); put("commandId", query.id)
+                put("foliateSessionId", command.foliateSessionId); put("destinationFoliateSessionId", command.foliateSessionId)
+                put("destinationCommitSequence", 1L); put("pageIndex", globalPageIndex)
+                if (includeLayout) put("resolvedLayout", buildJsonObject {
+                    put("layoutGeneration", 7L); put("viewGeneration", 3L); put("navigationGeneration", 5L)
+                    put("sectionIndex", sectionIndex); put("pageIndex", 0); put("pageCount", 8)
+                    put("width", 560.0); put("height", 420.0)
+                }) })
+        }
+        fun command(): ReaderTransitionCommand.AllocateMaterialBinding {
+            val receipt = receipts.single()
+            val semantic = assertNotNull(receipt.semanticReceipt)
+            return ReaderTransitionCommand.AllocateMaterialBinding(assertNotNull(semantic.transitionId), semantic.binding)
+        }
+        fun capture(command: ReaderTransitionCommand.AllocateMaterialBinding = command()): Any? {
+            val method = type.declaredMethods.singleOrNull {
+                it.name == "captureInitialResolvedLayoutForAllocation" && it.parameterCount == 2
+            }
+            assertNotNull(method, "Original Native must authenticate exact physical/layout source before material allocation")
+            return method.apply { isAccessible = true }.invoke(native, candidate, command)
+        }
+        fun allocate(): ReaderPortCommandResult {
+            val port = allocationPort ?: run {
+                val factory = type.declaredMethods.singleOrNull {
+                    it.name == "createOriginalInitialMaterialAllocationPort" && it.parameterCount == 3
+                }
+                assertNotNull(factory, "Actual Native allocation must use the original Curl, preparation, and bundle owners")
+                val currency: (ReaderTransitionCommand.AllocateMaterialBinding) -> Boolean = {
+                    materialCommandCurrent && it == command()
+                }
+                val enqueue: (ReaderTransitionFact) -> Unit = { materialFacts += it }
+                (factory.apply { isAccessible = true }.invoke(native, candidate, currency, enqueue)
+                    as ReaderMaterialGenerationAllocationPort).also { allocationPort = it }
+            }
+            return port.allocate(command()) { materialFacts += it }
+        }
+        fun planCallback(): android.webkit.ValueCallback<String> {
+            val source = shadowOf(engine())
+            assertTrue(source.lastEvaluatedJavascript?.contains("pageTurnRasterPreparationPlan") == true,
+                "Original material producer must query the actual retained Engine")
+            return assertNotNull(source.lastEvaluatedJavascriptCallback)
+        }
+        fun returnPlan(globalStart: Int = 0, totalPages: Int = 8, chapterPageCount: Int = 8,
+            sectionIndex: Int = 0, layoutGeneration: Long? = 7L,
+            callback: android.webkit.ValueCallback<String> = planCallback()) {
+            val plan = buildJsonObject {
+                if (layoutGeneration != null) put("resolvedLayout", buildJsonObject {
+                    put("layoutGeneration", layoutGeneration); put("viewGeneration", 3L); put("navigationGeneration", 5L)
+                    put("sectionIndex", sectionIndex); put("pageIndex", 0); put("pageCount", 8)
+                    put("width", 560.0); put("height", 420.0)
+                })
+                put("context", buildJsonObject {
+                    put("centerPageIndex", globalStart); put("pageCount", totalPages); put("layoutMode", "single")
+                    put("readerDirection", "ltr"); put("step", 1); put("currentChapterIndex", sectionIndex)
+                    put("currentChapterPageStartIndex", globalStart); put("currentChapterPageCount", chapterPageCount)
+                })
+                // Match the original JS producer's single-page priority order: the
+                // complete clipped blocking window, then unseen current-chapter pages.
+                val targets = buildList {
+                    add(globalStart to "current")
+                    add(globalStart + 1 to "next-transition")
+                    add(globalStart - 1 to "previous-transition")
+                    for (offset in 2..5) add(globalStart + offset to "next-lookahead")
+                    for (offset in 2..5) add(globalStart - offset to "previous-lookahead")
+                    for (page in globalStart until globalStart + chapterPageCount) add(page to "current-chapter")
+                }.filter { (page, _) -> page in 0 until totalPages }.distinctBy { (page, _) -> page }
+                put("targets", buildJsonArray {
+                    for ((page, priority) in targets) add(buildJsonObject {
+                        put("pageIndex", page)
+                        put("authority", if (page == globalStart) "CurrentLive" else "OffscreenPassive")
+                        put("priority", priority)
+                    })
+                })
+            }
+            callback.onReceiveValue(JsonPrimitive(plan.toString()).toString()); drain()
+        }
+        fun resize() { native.layout(0, 0, native.width + 1, native.height) }
+        fun detachOriginalWrapper() {
+            val lease = assertNotNull(material()); (lease.wrapper.parent as ViewGroup).removeView(lease.wrapper)
+        }
+        fun replaceProfileIdentity() { type.getDeclaredField("rasterProfileEpoch").apply { isAccessible = true }.set(native, 9L) }
+        fun replacePublicationIdentity() { type.getDeclaredField("presentationPublicationGeneration").apply { isAccessible = true }
+            .let { it.setLong(native, it.getLong(native) + 1L) } }
+        fun replaceViewportIdentity() { type.getDeclaredField("presentationViewportGeneration").apply { isAccessible = true }
+            .let { it.setLong(native, it.getLong(native) + 1L) } }
+        fun closeCandidate() { candidate.close() }
+        fun postNewDestination() {
+            val sessionId = command().binding.foliateSessionId
+            post(buildJsonObject { put("type", "locationChanged"); put("foliateSessionId", sessionId)
+                put("destinationFoliateSessionId", sessionId); put("destinationCommitSequence", 2L); put("pageIndex", 1) })
+        }
+        suspend fun dispose() {
+            try {
+                candidate.close(); executor.clear(); registry.clear()
+                val closed = (field("pageRasterPreparationController") as ReaderPageRasterPreparationController).destroy()
+                scheduler.runCurrent()
+                call("closeReader"); wrapper?.disposeComposition(); shadowOf(Looper.getMainLooper()).idle()
+                val failure = runCatching { withContext(Dispatchers.Default) { withTimeout(5_000L) { closed.await() } } }.exceptionOrNull()
+                if (failure != null) check(failure is ReaderPageTeardownException && generateSequence(failure as Throwable?) { it.cause }
+                    .any { it.message == "GL surface is unavailable for terminal disposal" }) { "Unexpected Native construction fixture terminal disposition: completed=${closed.isCompleted} timedOut=${failure is kotlinx.coroutines.TimeoutCancellationException} teardown=${failure is ReaderPageTeardownException}" }
+                check(closed.isCompleted)
+            } finally {
+                try { activity.pause().stop().destroy(); shadowOf(Looper.getMainLooper()).idle(); scheduler.runCurrent() }
+                finally { Dispatchers.resetMain() }
+            }
+        }
+    }
+}

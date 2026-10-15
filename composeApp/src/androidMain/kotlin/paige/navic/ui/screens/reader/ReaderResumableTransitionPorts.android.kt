@@ -3,8 +3,13 @@ package paige.navic.ui.screens.reader
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
+import paige.navic.reader.ReaderSemanticAsyncFailure
+import paige.navic.reader.ReaderSemanticTransportBindingResult
+import paige.navic.reader.ReaderSemanticTransportRetirement
 import paige.navic.reader.acceptsMaterialAllocation
+import paige.navic.reader.parentIdentity
 import paige.navic.reader.readerTransitionMaterialBindingIsValid
 import paige.navic.reader.ReaderMaterialGenerationAllocation
 import paige.navic.reader.ReaderOwnedWorkCancellationOutcome
@@ -32,6 +37,107 @@ import paige.navic.reader.ReaderTransitionId
 import paige.navic.reader.ReaderTransitionResourceKey
 import paige.navic.reader.ReaderTransitionResourceKind
 import paige.navic.reader.ReaderTransitionResourceProvenance
+
+
+/** One existing FrameOrHandoff source; partitions route frozen protocol identities,
+ * never own material or substitute a presentation authority. */
+internal class ReaderFrameOrHandoffPhysicalSource(
+	private val material: ReaderFramePhysicalOwnershipAdapter,
+	private val publisher: ReaderNativePagePresentationPublisher,
+	private val bridge: ReaderPresentationHostBridge
+) {
+	private var domain: ReaderLegacyPhysicalDomain? = null
+	// A domain reservation is not proof that every original owner accepted freezing.
+	private var freezeCompleted = false
+	private var finalized = false
+	private var materialIdentities = emptySet<ReaderLegacyPhysicalIdentity>()
+	private var publisherIdentities = emptySet<ReaderLegacyPhysicalIdentity>()
+	private var bridgeIdentities = emptySet<ReaderLegacyPhysicalIdentity>()
+	internal fun usesBridge(other: ReaderPresentationHostBridge): Boolean = bridge === other
+	fun freezeForTransitionActivation(next: ReaderLegacyPhysicalDomain): ReaderPortCommandResult {
+		if (finalized || (domain != null && domain != next)) return invalid()
+		if (domain == next && freezeCompleted) return ReaderPortCommandResult.Accepted
+		domain = next
+		for (freeze in listOf(material::freezeForTransitionActivation, publisher::freezeForTransitionActivation, bridge::freezeForTransitionActivation)) {
+			val result = freeze(next); if (result != ReaderPortCommandResult.Accepted) return result
+		}
+		materialIdentities = material.frozenIdentities(next)
+		publisherIdentities = publisher.snapshotFrozenOwnership().map { it.physicalIdentity }.toSet()
+		bridgeIdentities = bridge.snapshotFrozenOwnership().filter { it.physicalIdentity.source == ReaderLegacyInventorySource.FrameOrHandoff }
+			.map { it.physicalIdentity }.toSet()
+		if ((materialIdentities + publisherIdentities + bridgeIdentities).size != materialIdentities.size + publisherIdentities.size + bridgeIdentities.size) return invalid()
+		freezeCompleted = true
+		return ReaderPortCommandResult.Accepted
+	}
+	fun snapshotConnectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? {
+		val exact = domain ?: return null
+		if (!freezeCompleted || finalized) return null
+		val parts = listOf(material.snapshotConnectedFrozenOwnership() ?: return null,
+			publisher.snapshotConnectedFrozenFrameOwnership() ?: return null,
+			bridge.snapshotConnectedFrozenFrameOwnership() ?: return null)
+		if (parts.any { it.domain != exact }) return null
+		val resources = parts.flatMap { it.resources }
+		if (resources.map { it.physicalIdentity }.distinct().size != resources.size) return null
+		// A frozen original can discover a callback/material return after the first
+		// capture. Preserve its ORIGINAL routing partition through exact retirement.
+		val nextMaterial = materialIdentities + parts[0].resources.map { it.physicalIdentity }
+		val nextPublisher = publisherIdentities + parts[1].resources.map { it.physicalIdentity }
+		val nextBridge = bridgeIdentities + parts[2].resources.map { it.physicalIdentity }
+		if ((nextMaterial + nextPublisher + nextBridge).size != nextMaterial.size + nextPublisher.size + nextBridge.size) return null
+		materialIdentities = nextMaterial
+		publisherIdentities = nextPublisher
+		bridgeIdentities = nextBridge
+		return ReaderLegacyConnectedSourceInventory(ReaderLegacyInventorySource.FrameOrHandoff, exact, resources)
+	}
+
+	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> {
+		if (domain == null || finalized) return emptyList()
+		return material.snapshotFrozenOwnership() + publisher.snapshotFrozenOwnership() +
+			bridge.snapshotFrozenOwnership().filter { it.physicalIdentity.source == ReaderLegacyInventorySource.FrameOrHandoff }
+	}
+	fun drainFrozenOwnership(identity: ReaderLegacyPhysicalIdentity, onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit): ReaderPortCommandResult {
+		if (finalized || identity.domain != domain || identity.source != ReaderLegacyInventorySource.FrameOrHandoff ||
+			snapshotConnectedFrozenOwnership() == null) return invalid()
+		return when (identity) {
+			in materialIdentities -> material.drainFrozenOwnership(identity, onConfirmed)
+			in publisherIdentities -> publisher.drainFrozenOwnership(identity, onConfirmed)
+			in bridgeIdentities -> bridge.drainFrozenOwnership(identity, onConfirmed)
+			else -> invalid()
+		}
+	}
+	internal val originalLegacyAdmissionsRestored: Boolean
+		get() = !finalized && domain == null && material.admissionOpen &&
+			publisher.originalLegacyFrameAdmissionRestored && bridge.originalLegacyAdmissionsRestored
+
+	fun restoreAfterTransitionActivation(next: ReaderLegacyPhysicalDomain): ReaderPortCommandResult {
+		if (finalized || domain != next) return invalid()
+		for (restore in listOf(material::restoreAfterTransitionActivation, publisher::restoreAfterTransitionActivation, bridge::restoreAfterTransitionActivation)) {
+			val result = restore(next); if (result != ReaderPortCommandResult.Accepted) return result
+		}
+		domain = null
+		freezeCompleted = false
+		materialIdentities = emptySet(); publisherIdentities = emptySet(); bridgeIdentities = emptySet()
+		return ReaderPortCommandResult.Accepted
+	}
+	fun finalizeActivatedHandoff(token: ReaderLegacyFreezeToken, selected: ReaderImportedLegacyResourceRegistration?,
+		confirmedRetirements: Set<ReaderLegacyPhysicalIdentity>): ReaderPortCommandResult {
+		val exact = domain ?: return invalid()
+		if (finalized || token != exact.freezeToken || snapshotConnectedFrozenOwnership() == null ||
+			(selected != null && selected.physicalIdentity !in materialIdentities)) return invalid()
+		val expected = materialIdentities + publisherIdentities + bridgeIdentities - setOfNotNull(selected?.physicalIdentity)
+		if (confirmedRetirements != expected || !publisher.frozenFrameRetirementComplete(exact) || !bridge.frozenFrameRetirementComplete(exact)) return invalid()
+		val result = material.finalizeActivatedHandoff(exact, selected, confirmedRetirements.intersect(materialIdentities))
+		if (result != ReaderPortCommandResult.Accepted) return result
+		publisher.completeFrozenFrameRetirement(exact); bridge.completeFrozenFrameRetirement(exact)
+		finalized = true
+		materialIdentities = emptySet(); publisherIdentities = emptySet(); bridgeIdentities = emptySet()
+		return ReaderPortCommandResult.Accepted
+	}
+	fun releaseLegacy(command: ReaderTransitionCommand.ReleaseResource, imported: ReaderImportedLegacyResourceRegistration,
+		onConfirmed: (ReaderLegacyPhysicalIdentity, ReaderTransitionFact.ResourceReleased) -> Unit): ReaderPortCommandResult =
+		if (finalized) material.releaseLegacy(command, imported, onConfirmed) else invalid()
+	private fun invalid() = ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+}
 
 internal enum class ReaderTransitionMode { Shadow, Active }
 
@@ -325,12 +431,78 @@ internal data class ReaderSemanticCommandSlotFenceSnapshot(
 internal class ReaderSemanticExecutableRequestRegistry(
 	val readerSessionGeneration: Long,
 	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator =
-		ReaderLegacySourceLocalTokenAllocator()
+		ReaderLegacySourceLocalTokenAllocator(),
+	private val activationStore: ReaderActivatedSessionSnapshotStore? = null
 ) {
-	private data class OwnedRequest(
+	fun reserveNeutralBootstrap(
+		domain: ReaderLegacyPhysicalDomain,
+		candidate: ReaderTransitionGatewayCandidate,
+		request: ReaderSemanticExecutableRequest
+	): ReaderReservedNeutralBootstrapRequest? = synchronized(lock) {
+		if (frozenDomain != domain || domain.readerSessionGeneration != readerSessionGeneration ||
+			activationStore == null || candidate.installationSource !== activationStore ||
+			!activationStore.awaitingInstallation || !candidate.isSelected ||
+			candidate.readerSessionGeneration != readerSessionGeneration ||
+			requests.size >= ReaderMaximumPendingSemanticRequestHandles || nextHandleValue == Long.MAX_VALUE ||
+			requests.values.any { it.candidate === candidate }
+		) return@synchronized null
+		val handle = ReaderSemanticRequestHandle(nextHandleValue++)
+		val reservation = ReaderReservedNeutralBootstrapRequest(handle, readerSessionGeneration)
+		requests[handle] = OwnedRequest(request, tokenAllocator.allocate(), candidate, reservation, domain)
+		reservation
+	}
+
+	fun discardNeutralBootstrap(reservation: ReaderReservedNeutralBootstrapRequest): Boolean = synchronized(lock) {
+		val owned = requests[reservation.handle] ?: return@synchronized false
+		if (owned.neutralBootstrapReservation !== reservation || owned.everTaken) false
+		else { requests.remove(reservation.handle); true }
+	}
+
+	fun discardCandidateReservations() = synchronized(lock) {
+		requests.entries.removeAll { it.value.candidate != null && !it.value.everTaken }
+	}
+
+	internal fun validatesCandidateInstallation(
+		candidate: ReaderTransitionGatewayCandidate,
+		store: ReaderActivatedSessionSnapshotStore,
+		decision: ReaderInitialActivationDecision,
+		domain: ReaderLegacyPhysicalDomain
+	): Boolean = synchronized(lock) {
+		if (frozenDomain != domain || activationStore !== store || candidate.installationSource !== store || !store.awaitingInstallation ||
+			!candidate.isSelected || frozenDomain?.readerSessionGeneration != readerSessionGeneration ||
+			candidate.readerSessionGeneration != readerSessionGeneration ||
+			decision.origin.readerSessionGeneration != readerSessionGeneration ||
+			decision.origin.coordinatorEpoch != candidate.coordinatorEpoch
+		) return@synchronized false
+		val reservation = decision.neutralBootstrapReservation
+		if (reservation == null) return@synchronized requests.values.none { it.candidate === candidate }
+		val owned = requests[reservation.handle] ?: return@synchronized false
+		owned.candidate === candidate && owned.neutralBootstrapReservation === reservation &&
+			owned.bootstrapDomain == frozenDomain && !owned.everTaken && owned.lease == null
+	}
+
+	internal class RequestLease internal constructor(
 		val executable: ReaderSemanticExecutableRequest,
-		val activationToken: ReaderLegacySourceLocalOpaqueToken
-	)
+		val slotId: ReaderSemanticCommandSlotId,
+		val transitionId: ReaderTransitionId,
+		val candidate: ReaderTransitionGatewayCandidate?
+	) {
+		val mutationStarted = AtomicBoolean(false)
+		val receiptObserved = AtomicBoolean(false)
+		internal var retryPermitted = false
+	}
+
+	private class OwnedRequest(
+		val executable: ReaderSemanticExecutableRequest,
+		val activationToken: ReaderLegacySourceLocalOpaqueToken,
+		val candidate: ReaderTransitionGatewayCandidate? = null,
+		val neutralBootstrapReservation: ReaderReservedNeutralBootstrapRequest? = null,
+		val bootstrapDomain: ReaderLegacyPhysicalDomain? = null
+	) {
+		var lease: RequestLease? = null
+		var everTaken = false
+		var slotOwned = false
+	}
 
 	// Owns every request/freeze mutation; callbacks are invoked only after leaving it.
 	private val lock = Any()
@@ -338,14 +510,31 @@ internal class ReaderSemanticExecutableRequestRegistry(
 	private val restartRequests = linkedMapOf<ReaderSemanticRequestHandle, OwnedRequest>()
 	private var nextHandleValue = 1L
 	private var frozenDomain: ReaderLegacyPhysicalDomain? = null
+	private var legacyFinalized = false
 
 	val activeHandleCount: Int get() = synchronized(lock) { requests.size }
 
 	init { require(readerSessionGeneration > 0L) }
 
+	private fun installedCandidateLocked(): ReaderTransitionGatewayCandidate? {
+		val store = activationStore ?: return null
+		val authority = store.snapshot?.portAuthority ?: return null
+		val gateway = when (authority) {
+			is ReaderActivatedSessionPortAuthority.Production -> authority.ports.gateway
+			is ReaderActivatedSessionPortAuthority.Test -> authority.ports.gateway
+		} as? ReaderSnapshotBackedActivatedGatewayPort ?: return null
+		return gateway.candidate.takeIf { candidate ->
+			candidate.isSelected && candidate.installationSource === store &&
+				store.ownsInstalledCandidate(candidate.epoch, readerSessionGeneration, candidate.coordinatorEpoch)
+		}
+	}
+
 	fun register(request: ReaderSemanticExecutableRequest): ReaderSemanticRequestHandle =
 		synchronized(lock) {
-			check(frozenDomain == null) { "Semantic request registration is frozen" }
+			val candidate = installedCandidateLocked()
+			check((frozenDomain == null && activationStore?.legacyConsequencesOpen != false) || candidate != null) {
+				"Semantic request registration is frozen"
+			}
 			check(requests.size < ReaderMaximumPendingSemanticRequestHandles) {
 				"Semantic request handle capacity exceeded"
 			}
@@ -353,23 +542,92 @@ internal class ReaderSemanticExecutableRequestRegistry(
 			check(value < Long.MAX_VALUE) { "Semantic request handle sequence exhausted" }
 			nextHandleValue += 1L
 			ReaderSemanticRequestHandle(value).also { handle ->
-				requests[handle] = OwnedRequest(request, tokenAllocator.allocate())
+				requests[handle] = OwnedRequest(request, tokenAllocator.allocate(), candidate)
 			}
 		}
 
+	private fun ownsAdmissionLocked(request: OwnedRequest): Boolean {
+		val candidate = request.candidate ?: return frozenDomain == null && activationStore?.legacyConsequencesOpen != false
+		return installedCandidateLocked() === candidate
+	}
+
+	private fun admitsCommandLocked(
+		request: OwnedRequest,
+		command: ReaderTransitionCommand.RequestSemanticSynchronization
+	): Boolean {
+		if (!ownsAdmissionLocked(request) || command.transitionId.readerSessionGeneration != readerSessionGeneration) return false
+		val candidate = request.candidate ?: return true
+		val id = command.transitionId
+		if (id.coordinatorEpoch != candidate.coordinatorEpoch) return false
+		val reservation = request.neutralBootstrapReservation ?: return true
+		if (request.bootstrapDomain != frozenDomain ||
+			activationStore?.snapshot?.reservedNeutralBootstrap !== reservation ||
+			command.intent !is paige.navic.reader.ReaderBootstrapNativePageIntent ||
+			id.operation != paige.navic.reader.ReaderTransitionOperation.BootstrapNativePage
+		) return false
+		if (!request.everTaken) return id.sequence == 1L && id.parent == null
+		val previous = request.lease ?: return false
+		return previous.retryPermitted && id.sequence > previous.transitionId.sequence &&
+			id.parent == previous.transitionId.parentIdentity()
+	}
+
+	internal fun hasActivationOwnership(handle: ReaderSemanticRequestHandle): Boolean = synchronized(lock) {
+		requests[handle]?.candidate != null
+	}
+
+	internal fun admitsCommand(command: ReaderTransitionCommand.RequestSemanticSynchronization): Boolean = synchronized(lock) {
+		requests[command.requestHandle]?.let { admitsCommandLocked(it, command) } == true
+	}
+
 	fun take(
-		handle: ReaderSemanticRequestHandle,
-		commandSessionGeneration: Long
-	): ReaderSemanticExecutableRequest? = synchronized(lock) {
-		if (commandSessionGeneration != readerSessionGeneration || frozenDomain != null) {
-			null
-		} else {
-			requests.remove(handle)?.executable
+		command: ReaderTransitionCommand.RequestSemanticSynchronization,
+		slotId: ReaderSemanticCommandSlotId
+	): RequestLease? = synchronized(lock) {
+		val request = requests[command.requestHandle] ?: return@synchronized null
+		if (!admitsCommandLocked(request, command)) return@synchronized null
+		val previous = request.lease
+		if (previous != null && (!previous.retryPermitted || previous.mutationStarted.get() || previous.receiptObserved.get())) {
+			return@synchronized null
+		}
+		RequestLease(request.executable, slotId, command.transitionId, request.candidate).also {
+			request.lease = it
+			request.everTaken = true
+			request.slotOwned = true
 		}
 	}
 
+	internal fun owns(handle: ReaderSemanticRequestHandle, lease: RequestLease): Boolean =
+		synchronized(lock) {
+			requests[handle]?.let { it.lease === lease && ownsAdmissionLocked(it) } == true
+		}
+
+	internal fun completeAttempt(handle: ReaderSemanticRequestHandle, lease: RequestLease, preMutationFailure: Boolean) =
+		synchronized(lock) {
+			if (requests[handle]?.lease === lease) {
+				lease.retryPermitted = preMutationFailure && ownsAdmissionLocked(requireNotNull(requests[handle])) &&
+					!lease.mutationStarted.get() && !lease.receiptObserved.get()
+			}
+		}
+
+	internal fun retainForRetry(handle: ReaderSemanticRequestHandle, lease: RequestLease): Boolean =
+		synchronized(lock) {
+			val request = requests[handle] ?: return@synchronized false
+			if (!ownsAdmissionLocked(request) || request.lease !== lease || !lease.retryPermitted ||
+				lease.mutationStarted.get() || lease.receiptObserved.get()) false
+			else { request.slotOwned = false; true }
+		}
+
+	internal fun retireLease(handle: ReaderSemanticRequestHandle, lease: RequestLease): Boolean = synchronized(lock) {
+		if (requests[handle]?.lease !== lease) false else { requests.remove(handle); true }
+	}
+
 	fun retire(handle: ReaderSemanticRequestHandle): Boolean = synchronized(lock) {
-		requests.remove(handle) != null
+		(requests.remove(handle) ?: restartRequests.remove(handle)) != null
+	}
+
+	internal fun retireRequest(handle: ReaderSemanticRequestHandle, session: Long): Boolean = synchronized(lock) {
+		if (session != readerSessionGeneration || (frozenDomain != null && requests[handle]?.candidate == null)) false
+		else (requests.remove(handle) ?: restartRequests.remove(handle)) != null
 	}
 
 	fun clear() = synchronized(lock) {
@@ -389,6 +647,9 @@ internal class ReaderSemanticExecutableRequestRegistry(
 				ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
 			frozenDomain == null -> {
 				frozenDomain = domain
+				// Freeze revokes attempted-work replay; only never-started legacy requests
+				// may return through the existing restoration checkpoint.
+				requests.values.forEach { it.lease?.retryPermitted = false }
 				ReaderPortCommandResult.Accepted
 			}
 			frozenDomain == domain -> ReaderPortCommandResult.Accepted
@@ -398,9 +659,19 @@ internal class ReaderSemanticExecutableRequestRegistry(
 		}
 	}
 
+	internal val originalLegacyAdmissionRestored: Boolean
+		get() = synchronized(lock) { frozenDomain == null }
+
+	fun snapshotConnectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? = synchronized(lock) {
+		val domain = frozenDomain ?: return@synchronized null
+		ReaderLegacyConnectedSourceInventory(ReaderLegacyInventorySource.SemanticCommandSlot, domain, snapshotFrozenOwnership())
+	}
+
 	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> = synchronized(lock) {
 		val domain = frozenDomain ?: return@synchronized emptyList()
-		requests.values.map { request ->
+		// A leased request is covered by its executor slot row. Retriable custody has
+		// no slot and therefore keeps its own original physical request row.
+		requests.values.filterNot { it.slotOwned || it.candidate != null }.map { request ->
 			ReaderFrozenLegacyResource(
 				freezeToken = domain.freezeToken,
 				physicalIdentity = ReaderLegacyPhysicalIdentity(
@@ -411,7 +682,7 @@ internal class ReaderSemanticExecutableRequestRegistry(
 				kind = ReaderTransitionResourceKind.CallbackRegistration,
 				binding = null,
 				visibleOwner = null,
-				origin = ReaderLegacyResourceOrigin.Pending,
+				origin = if (request.everTaken) ReaderLegacyResourceOrigin.Owned else ReaderLegacyResourceOrigin.Pending,
 				state = ReaderLegacyResourceState.Registered,
 				mayBeCommittedPredecessor = false
 			)
@@ -439,21 +710,30 @@ internal class ReaderSemanticExecutableRequestRegistry(
 			false
 		} else {
 			val entry = requests.entries.firstOrNull {
-				it.value.activationToken == physicalIdentity.sourceLocalToken
+				it.value.candidate == null && it.value.activationToken == physicalIdentity.sourceLocalToken
 			}
 			if (entry == null) {
 				false
 			} else {
 				requests.remove(entry.key)
-				restartRequests[entry.key] = entry.value
+				if (!entry.value.everTaken) restartRequests[entry.key] = entry.value
 				true
 			}
 		}
 	}
 
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): Boolean = synchronized(lock) {
+		if (legacyFinalized || frozenDomain != domain || requests.values.any { it.candidate == null }) false
+		else {
+			restartRequests.clear()
+			legacyFinalized = true
+			true
+		}
+	}
+
 	fun restoreAfterTransitionActivation(domain: ReaderLegacyPhysicalDomain): Boolean =
 		synchronized(lock) {
-			if (frozenDomain != domain) {
+			if (legacyFinalized || frozenDomain != domain) {
 				false
 			} else {
 				frozenDomain = null
@@ -467,17 +747,38 @@ internal class ReaderSemanticExecutableRequestRegistry(
 internal class ReaderSemanticCommandExecutor(
 	private val registry: ReaderSemanticExecutableRequestRegistry,
 	private val tokenAllocator: ReaderLegacySourceLocalTokenAllocator? = null
-) {
-	private data class Slot(
+) : ReaderSemanticCommandPort {
+	internal fun validatesCandidateInstallation(
+		candidate: ReaderTransitionGatewayCandidate,
+		store: ReaderActivatedSessionSnapshotStore,
+		decision: ReaderInitialActivationDecision
+	): Boolean = synchronized(lock) {
+		val domain = frozenDomain ?: return@synchronized false
+		registry.validatesCandidateInstallation(candidate, store, decision, domain)
+	}
+
+	private class Slot(
 		val transitionId: ReaderTransitionId,
 		val handle: ReaderSemanticRequestHandle,
-		val activationToken: ReaderLegacySourceLocalOpaqueToken
-	)
+		val activationToken: ReaderLegacySourceLocalOpaqueToken,
+		val activationOwned: Boolean
+	) {
+		var requestLease: ReaderSemanticExecutableRequestRegistry.RequestLease? = null
+		var executionStarted = false
+		var admissionRetired = false
+		var asyncOutcomeConsumed = false
+		var asyncOutcomeBound = false
+		var onAsyncOutcome: ((ReaderSemanticCommandResult) -> Unit)? = null
+		var transportBound = false
+		var transportRetirement: ReaderSemanticTransportRetirement? = null
+		var retiredTransport: WeakReference<ReaderSemanticTransportRetirement>? = null
+		var lateTransportConsumed = false
+	}
 
 	private data class PreparedExecution(
 		val slotId: ReaderSemanticCommandSlotId,
 		val slot: Slot,
-		val executable: ReaderSemanticExecutableRequest
+		val lease: ReaderSemanticExecutableRequestRegistry.RequestLease
 	)
 
 	// Owns slots, capacity, freeze inventory, and retirement fences. No executable or external
@@ -500,14 +801,33 @@ internal class ReaderSemanticCommandExecutor(
 		)
 	}
 
-	fun synchronize(
+	override fun retireRequest(handle: ReaderSemanticRequestHandle, readerSessionGeneration: Long): Boolean {
+		val retirements = mutableListOf<ReaderSemanticTransportRetirement>()
+		val retired = synchronized(lock) {
+			if (!registry.retireRequest(handle, readerSessionGeneration)) false
+			else {
+				activeSlots.filterValues { it.handle == handle }.toList().forEach { (id, slot) ->
+					retireSlotLocked(id, slot)?.let(retirements::add)
+				}
+				true
+			}
+		}
+		retirements.forEach(::disposeTransport)
+		return retired
+	}
+
+	override fun synchronize(
 		command: ReaderTransitionCommand.RequestSemanticSynchronization,
 		onRegistration: (ReaderSemanticCommandRegistration) -> Unit,
 		onReceipt: (ReaderPresentationEventReceipt) -> Unit
 	): ReaderSemanticCommandResult {
 		val handle = command.requestHandle
 		val prepared = synchronized(lock) {
-			if (frozenDomain != null) {
+			val activationOwned = registry.hasActivationOwnership(handle)
+			if ((frozenDomain != null && !activationOwned) ||
+				(activationOwned && !registry.admitsCommand(command)) ||
+				command.transitionId.readerSessionGeneration != registry.readerSessionGeneration
+			) {
 				return ReaderSemanticCommandResult.RejectedBeforeMutation(
 					ReaderTransitionFailureReason.PortRejected
 				)
@@ -533,20 +853,45 @@ internal class ReaderSemanticCommandExecutor(
 			val slot = Slot(
 				command.transitionId,
 				handle,
-				tokenAllocator?.allocate() ?: registry.allocateActivationToken()
+				tokenAllocator?.allocate() ?: registry.allocateActivationToken(),
+				activationOwned
 			)
 			activeSlots[slotId] = slot
-			val executable = registry.take(handle, command.transitionId.readerSessionGeneration)
-			if (executable == null) {
+			val lease = registry.take(command, slotId)
+			if (lease == null) {
 				retireSlotLocked(slotId, slot)
 				return ReaderSemanticCommandResult.RejectedBeforeMutation(
 					ReaderTransitionFailureReason.PortRejected
 				)
 			}
-			PreparedExecution(slotId, slot, executable)
+			slot.requestLease = lease
+			PreparedExecution(slotId, slot, lease)
 		}
-		val registration = ReaderSemanticCommandRegistration {
-			retireSlot(prepared.slotId, prepared.slot)
+		val registration = object : ReaderSemanticCommandRegistration {
+			override fun retire() {
+				val retirement = synchronized(lock) {
+					registry.retireLease(handle, prepared.lease)
+					retireSlotLocked(prepared.slotId, prepared.slot)
+				}
+				disposeTransport(retirement)
+			}
+			override fun retireForRetry() {
+				val retirement = synchronized(lock) {
+					if (!registry.retainForRetry(handle, prepared.lease)) {
+						registry.retireLease(handle, prepared.lease)
+					}
+					retireSlotLocked(prepared.slotId, prepared.slot)
+				}
+				disposeTransport(retirement)
+			}
+			override fun bindAsyncOutcome(onOutcome: (ReaderSemanticCommandResult) -> Unit): Boolean = synchronized(lock) {
+				if (!ownsExecutionLocked(prepared) || prepared.slot.executionStarted || prepared.slot.asyncOutcomeBound) false
+				else {
+					prepared.slot.asyncOutcomeBound = true
+					prepared.slot.onAsyncOutcome = onOutcome
+					true
+				}
+			}
 		}
 		try {
 			onRegistration(registration)
@@ -554,19 +899,114 @@ internal class ReaderSemanticCommandExecutor(
 			registration.retire()
 			return ReaderSemanticCommandResult.ThrewBeforeMutation
 		}
+		// Registration is external and may synchronously retire this exact slot or freeze
+		// its owner. Recheck only admission here; already-started executable callbacks
+		// remain observable so the coordinator can classify late/duplicate violations.
+		var admissionRetirement: ReaderSemanticTransportRetirement? = null
+		val mayStart = synchronized(lock) {
+			if (!ownsExecutionLocked(prepared)) {
+				registry.retireLease(handle, prepared.lease)
+				admissionRetirement = retireSlotLocked(prepared.slotId, prepared.slot)
+				false
+			} else {
+				prepared.slot.executionStarted = true
+				true
+			}
+		}
+		disposeTransport(admissionRetirement)
+		if (!mayStart) return ReaderSemanticCommandResult.RejectedBeforeMutation(
+			ReaderTransitionFailureReason.PortRejected
+		)
 		val origin = ReaderPresentationEventOrigin.SemanticCommand(
 			command.transitionId,
 			prepared.slotId
 		)
-		val mutationStarted = AtomicBoolean(false)
-		val mutationStartEvidence = ReaderSemanticMutationStartEvidence {
-			mutationStarted.set(true)
+		val mutationStarted = prepared.lease.mutationStarted
+		val mutationStartEvidence = object : ReaderSemanticMutationStartEvidence {
+			override fun isExecutionCurrent(
+				origin: ReaderPresentationEventOrigin.SemanticCommand,
+				requestHandle: ReaderSemanticRequestHandle
+			): Boolean = synchronized(lock) {
+				requestHandle == handle && origin.transitionId == command.transitionId &&
+					origin.slotId == prepared.slotId && prepared.slot.executionStarted &&
+					ownsExecutionLocked(prepared)
+			}
+
+			override fun mutationStarted() {
+				synchronized(lock) {
+					if (ownsExecutionLocked(prepared)) mutationStarted.set(true)
+				}
+			}
+
+			override fun bindTransportRetirement(
+				origin: ReaderPresentationEventOrigin.SemanticCommand,
+				retirement: ReaderSemanticTransportRetirement
+			): ReaderSemanticTransportBindingResult {
+				if (origin != ReaderPresentationEventOrigin.SemanticCommand(command.transitionId, prepared.slotId)) {
+					return ReaderSemanticTransportBindingResult.Rejected
+				}
+				val result = synchronized(lock) {
+					val slot = prepared.slot
+					if (ownsExecutionLocked(prepared)) {
+						if (slot.transportBound) ReaderSemanticTransportBindingResult.Rejected
+						else {
+							slot.transportBound = true
+							slot.transportRetirement = retirement
+							ReaderSemanticTransportBindingResult.Bound
+						}
+					} else if (slot.lateTransportConsumed || slot.retiredTransport?.get() === retirement) {
+						ReaderSemanticTransportBindingResult.Rejected
+					} else {
+						// One late exact handoff is cleanup, never reactivation. Consume it before
+						// external code so duplicate/reentrant binding remains caller-owned.
+						slot.lateTransportConsumed = true
+						slot.retiredTransport = WeakReference(retirement)
+						ReaderSemanticTransportBindingResult.RetiredAndDisposed
+					}
+				}
+				if (result == ReaderSemanticTransportBindingResult.RetiredAndDisposed) disposeTransport(retirement)
+				return result
+			}
+
+			override fun reportAsyncFailure(
+				origin: ReaderPresentationEventOrigin.SemanticCommand,
+				failure: ReaderSemanticAsyncFailure
+			): Boolean {
+				if (origin != ReaderPresentationEventOrigin.SemanticCommand(command.transitionId, prepared.slotId)) return false
+				val publication = synchronized(lock) {
+					if (!ownsExecutionLocked(prepared) || !prepared.slot.executionStarted) return@synchronized null
+					val onOutcome = prepared.slot.onAsyncOutcome ?: return@synchronized null
+					prepared.slot.asyncOutcomeConsumed = true
+					val started = mutationStarted.get()
+					val outcome = when (failure) {
+						ReaderSemanticAsyncFailure.Rejected -> if (started) ReaderSemanticCommandResult.RejectedAfterMutationStarted
+							else ReaderSemanticCommandResult.RejectedBeforeMutation(ReaderTransitionFailureReason.PortRejected)
+						ReaderSemanticAsyncFailure.Threw -> if (started) ReaderSemanticCommandResult.ThrewAfterMutationStarted
+							else ReaderSemanticCommandResult.ThrewBeforeMutation
+					}
+					registry.completeAttempt(handle, prepared.lease, preMutationFailure = !started)
+					if (!registry.retainForRetry(handle, prepared.lease)) registry.retireLease(handle, prepared.lease)
+					Triple(onOutcome, outcome, retireSlotLocked(prepared.slotId, prepared.slot))
+				} ?: return false
+				// All custody, including exact Retry eligibility, precedes either reentrant effect.
+				try { publication.first(publication.second) } catch (_: Throwable) { /* No fabricated receipt or acceptance. */ }
+				disposeTransport(publication.third)
+				return true
+			}
 		}
-		return try {
-			val result = prepared.executable(origin, mutationStartEvidence) { receipt ->
+		val completion = try {
+			val result = prepared.lease.executable(origin, mutationStartEvidence) { receipt ->
 				if (receipt.origin != origin) return@executable
-				registration.retire()
-				onReceipt(receipt)
+				prepared.lease.receiptObserved.set(true)
+				val retirement = synchronized(lock) {
+					registry.retireLease(handle, prepared.lease)
+					retireSlotLocked(prepared.slotId, prepared.slot)
+				}
+				try {
+					onReceipt(receipt)
+				} finally {
+					disposeTransport(retirement)
+				}
 			}
 			when (result) {
 				ReaderSemanticExecutableResult.Accepted -> ReaderSemanticCommandResult.Accepted
@@ -587,30 +1027,64 @@ internal class ReaderSemanticCommandExecutor(
 				ReaderSemanticCommandResult.ThrewBeforeMutation
 			}
 		}
+		val completionRetirement = synchronized(lock) {
+			// A real asynchronous failure may have completed before this authentic return.
+			// It already owns the outcome and Retry decision; do not revoke that custody.
+			if (prepared.slot.asyncOutcomeConsumed) null else {
+				registry.completeAttempt(handle, prepared.lease,
+					completion is ReaderSemanticCommandResult.RejectedBeforeMutation ||
+						completion == ReaderSemanticCommandResult.ThrewBeforeMutation)
+				if (completion == ReaderSemanticCommandResult.Accepted) null else {
+					prepared.slot.admissionRetired = true
+					prepared.slot.onAsyncOutcome = null
+					consumeTransportLocked(prepared.slot)
+				}
+			}
+		}
+		disposeTransport(completionRetirement)
+		return completion
 	}
 
 	fun freezeForTransitionActivation(
 		domain: ReaderLegacyPhysicalDomain
-	): ReaderPortCommandResult = synchronized(lock) {
-		if (
-			domain.readerSessionGeneration != registry.readerSessionGeneration ||
-			(frozenDomain != null && frozenDomain != domain)
-		) {
-			return@synchronized ReaderPortCommandResult.Rejected(
-				ReaderTransitionFailureReason.InvalidLegacyResource
-			)
+	): ReaderPortCommandResult {
+		val retirements = mutableListOf<ReaderSemanticTransportRetirement>()
+		val result = synchronized(lock) {
+			if (
+				domain.readerSessionGeneration != registry.readerSessionGeneration ||
+				(frozenDomain != null && frozenDomain != domain)
+			) {
+				return@synchronized ReaderPortCommandResult.Rejected(
+					ReaderTransitionFailureReason.InvalidLegacyResource
+				)
+			}
+			val registryResult = registry.freezeForTransitionActivation(domain)
+			if (registryResult is ReaderPortCommandResult.Rejected) return@synchronized registryResult
+			frozenDomain = domain
+			activeSlots.values.forEach { slot ->
+				// Restore never resurrects an attempted executable or its retired sender.
+				slot.admissionRetired = true
+				slot.onAsyncOutcome = null
+				consumeTransportLocked(slot)?.let(retirements::add)
+			}
+			ReaderPortCommandResult.Accepted
 		}
-		val registryResult = registry.freezeForTransitionActivation(domain)
-		if (registryResult is ReaderPortCommandResult.Rejected) {
-			return@synchronized registryResult
-		}
-		frozenDomain = domain
-		ReaderPortCommandResult.Accepted
+		retirements.forEach(::disposeTransport)
+		return result
+	}
+
+	internal val originalLegacyAdmissionRestored: Boolean
+		get() = synchronized(lock) { frozenDomain == null && registry.originalLegacyAdmissionRestored }
+
+	fun snapshotConnectedFrozenOwnership(): ReaderLegacyConnectedSourceInventory? = synchronized(lock) {
+		val domain = frozenDomain ?: return@synchronized null
+		if (registry.snapshotConnectedFrozenOwnership()?.domain != domain) return@synchronized null
+		ReaderLegacyConnectedSourceInventory(ReaderLegacyInventorySource.SemanticCommandSlot, domain, snapshotFrozenOwnership())
 	}
 
 	fun snapshotFrozenOwnership(): List<ReaderFrozenLegacyResource> = synchronized(lock) {
 		val domain = frozenDomain ?: return@synchronized emptyList()
-		registry.snapshotFrozenOwnership() + activeSlots.values.map { slot ->
+		registry.snapshotFrozenOwnership() + activeSlots.values.filterNot { it.activationOwned }.map { slot ->
 			ReaderFrozenLegacyResource(
 				freezeToken = domain.freezeToken,
 				physicalIdentity = ReaderLegacyPhysicalIdentity(
@@ -632,6 +1106,7 @@ internal class ReaderSemanticCommandExecutor(
 		physicalIdentity: ReaderLegacyPhysicalIdentity,
 		onConfirmed: (ReaderLegacyPhysicalIdentity) -> Unit
 	): ReaderPortCommandResult {
+		var retirement: ReaderSemanticTransportRetirement? = null
 		val confirmed = synchronized(lock) {
 			val domain = frozenDomain
 			if (
@@ -643,11 +1118,15 @@ internal class ReaderSemanticCommandExecutor(
 			} else {
 				val token = physicalIdentity.sourceLocalToken
 				val slotEntry = activeSlots.entries.firstOrNull {
-					it.value.activationToken == token
+					!it.value.activationOwned && it.value.activationToken == token
 				}
 				when {
 					slotEntry != null -> {
 						activeSlots.remove(slotEntry.key)
+						slotEntry.value.admissionRetired = true
+						slotEntry.value.onAsyncOutcome = null
+						retirement = consumeTransportLocked(slotEntry.value)
+						slotEntry.value.requestLease?.let { registry.retireLease(slotEntry.value.handle, it) }
 						retireSlotValueLocked(slotEntry.key.value)
 						true
 					}
@@ -656,6 +1135,7 @@ internal class ReaderSemanticCommandExecutor(
 				}
 			}
 		}
+		disposeTransport(retirement)
 		if (!confirmed) {
 			return ReaderPortCommandResult.Rejected(
 				ReaderTransitionFailureReason.InvalidLegacyResource
@@ -663,6 +1143,13 @@ internal class ReaderSemanticCommandExecutor(
 		}
 		onConfirmed(physicalIdentity)
 		return ReaderPortCommandResult.Accepted
+	}
+
+	fun finalizeActivatedHandoff(domain: ReaderLegacyPhysicalDomain): ReaderPortCommandResult = synchronized(lock) {
+		if (frozenDomain != domain || activeSlots.values.any { !it.activationOwned } || !registry.finalizeActivatedHandoff(domain))
+			return@synchronized ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource)
+		completedFrozenSlots.clear()
+		ReaderPortCommandResult.Accepted
 	}
 
 	fun restoreAfterTransitionActivation(
@@ -678,37 +1165,55 @@ internal class ReaderSemanticCommandExecutor(
 		ReaderPortCommandResult.Accepted
 	}
 
-	fun retireTransition(transitionId: ReaderTransitionId) = synchronized(lock) {
-		activeSlots.filterValues { it.transitionId == transitionId }.keys.toList().forEach {
-			retireSlotLocked(it)
+	fun retireTransition(transitionId: ReaderTransitionId) {
+		val retirements = synchronized(lock) {
+			activeSlots.filterValues { it.transitionId == transitionId }.toList().mapNotNull { (id, slot) ->
+				slot.requestLease?.let { lease -> registry.retireLease(slot.handle, lease) }
+				retireSlotLocked(id, slot)
+			}
 		}
+		retirements.forEach(::disposeTransport)
 	}
 
-	fun clear() = synchronized(lock) {
-		activeSlots.keys.toList().forEach(::retireSlotLocked)
-		registry.clear()
+	fun clear() {
+		val retirements = synchronized(lock) {
+			val retired = activeSlots.toList().mapNotNull { (id, slot) -> retireSlotLocked(id, slot) }
+			registry.clear()
+			retired
+		}
+		retirements.forEach(::disposeTransport)
 	}
 
-	private fun retireSlotLocked(slotId: ReaderSemanticCommandSlotId) {
-		val slot = activeSlots[slotId] ?: return
-		retireSlotLocked(slotId, slot)
+	private fun ownsExecutionLocked(prepared: PreparedExecution): Boolean =
+		(frozenDomain == null || prepared.slot.activationOwned) && !prepared.slot.admissionRetired && !prepared.slot.asyncOutcomeConsumed &&
+			!prepared.lease.receiptObserved.get() && activeSlots[prepared.slotId] === prepared.slot &&
+			registry.owns(prepared.slot.handle, prepared.lease)
+
+	private fun consumeTransportLocked(slot: Slot): ReaderSemanticTransportRetirement? {
+		val retirement = slot.transportRetirement ?: return null
+		slot.transportRetirement = null
+		slot.retiredTransport = WeakReference(retirement)
+		return retirement
 	}
 
-	private fun retireSlot(
-		slotId: ReaderSemanticCommandSlotId,
-		expected: Slot
-	) = synchronized(lock) {
-		retireSlotLocked(slotId, expected)
+	private fun disposeTransport(retirement: ReaderSemanticTransportRetirement?) {
+		try { retirement?.retire() } catch (_: Throwable) {
+			// Custody is already consumed. A throwing sender cannot manufacture a receipt,
+			// revoke a fence, or trigger repeated disposal under either ownership lock.
+		}
 	}
 
 	private fun retireSlotLocked(
 		slotId: ReaderSemanticCommandSlotId,
 		expected: Slot
-	) {
-		if (activeSlots[slotId] !== expected) return
+	): ReaderSemanticTransportRetirement? {
+		if (activeSlots[slotId] !== expected) return null
 		activeSlots.remove(slotId)
-		if (frozenDomain != null) completedFrozenSlots += expected.activationToken
+		expected.admissionRetired = true
+		expected.onAsyncOutcome = null
+		if (frozenDomain != null && !expected.activationOwned) completedFrozenSlots += expected.activationToken
 		retireSlotValueLocked(slotId.value)
+		return consumeTransportLocked(expected)
 	}
 
 	private fun retireSlotValueLocked(value: Long) {

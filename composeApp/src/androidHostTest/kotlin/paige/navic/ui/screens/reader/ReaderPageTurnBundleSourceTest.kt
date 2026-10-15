@@ -678,8 +678,9 @@ class ReaderPageTurnBundleSourceTest {
 				source.drainFrozenOwnership(row.physicalIdentity, confirmed::add)
 			)
 		}
-		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmed.toSet())
+		assertEquals(1, confirmed.size, "Logical recipient drain must not return the outstanding JavaScript query")
 		descriptorPort.respond(1)
+		assertEquals(rows.map { it.physicalIdentity }.toSet(), confirmed.toSet())
 		assertEquals(listOf<ReaderPageSlideSnapshot?>(null), results)
 		assertEquals(
 			ReaderPortCommandResult.Accepted,
@@ -690,7 +691,7 @@ class ReaderPageTurnBundleSourceTest {
 	}
 
 	@Test
-	fun invalidationCompletesPendingDescriptorRequestAndRecipientOwners() = runTest {
+	fun invalidationRetainsPhysicalDescriptorQueryUntilItsActualCallback() = runTest {
 		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
 		val webView = WebView(activity)
 		activity.setContentView(webView)
@@ -716,16 +717,60 @@ class ReaderPageTurnBundleSourceTest {
 				ReaderPortCommandResult.Accepted,
 				source.freezeForTransitionActivation(domain)
 			)
-			assertTrue(source.snapshotFrozenOwnership().none {
-				it.physicalIdentity.source ==
-					ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback
-			})
+			val query = source.snapshotFrozenOwnership().single {
+				it.physicalIdentity.source == ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback
+			}
+			val confirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
+			assertEquals(ReaderPortCommandResult.Accepted,
+				source.drainFrozenOwnership(query.physicalIdentity, confirmed::add))
+			assertTrue(confirmed.isEmpty(), "Cache invalidation is not a JavaScript physical return")
+			descriptorPort.respond(1)
+			assertEquals(listOf(query.physicalIdentity), confirmed)
 			assertEquals(
 				ReaderPortCommandResult.Accepted,
 				source.restoreAfterTransitionActivation(domain)
 			)
-			descriptorPort.respond(1)
 			assertEquals(listOf<ReaderPageSlideSnapshot?>(null), results)
+		} finally {
+			reference.releaseCacheOwnership()
+			source.closeAndJoin()
+		}
+	}
+
+	@Test
+	fun exactOriginalEngineDestructionReturnsAbandonedQueryOnce() = runTest {
+		val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+		val webView = WebView(activity)
+		val foreign = WebView(activity)
+		activity.setContentView(webView)
+		layoutForCapture(webView)
+		val descriptorPort = HeldDescriptorPort()
+		val source = ReaderPageTurnBundleSource(descriptorPort = descriptorPort)
+		val reference = slideSnapshot()
+		val results = mutableListOf<ReaderPageSlideSnapshot?>()
+		try {
+			val request = source.hydrateSnapshot(webView, 1,
+				ReaderPageTurnTransitionKind.PortraitSlide, reference, onHydrated = results::add)
+			request.cancel()
+			val domain = ReaderLegacyPhysicalDomain(159L, ReaderLegacyFreezeToken(160L))
+			assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain))
+			val query = source.snapshotFrozenOwnership().single {
+				it.physicalIdentity.source == ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback
+			}
+			val confirmed = mutableListOf<ReaderLegacyPhysicalIdentity>()
+			assertEquals(ReaderPortCommandResult.Accepted,
+				source.drainFrozenOwnership(query.physicalIdentity, confirmed::add))
+			foreign.destroy()
+			source.onOriginalEngineDestroyed(foreign)
+			assertTrue(confirmed.isEmpty())
+			webView.destroy()
+			source.onOriginalEngineDestroyed(webView)
+			source.onOriginalEngineDestroyed(webView)
+			assertEquals(listOf(query.physicalIdentity), confirmed)
+			descriptorPort.respond(1)
+			assertEquals(listOf(query.physicalIdentity), confirmed)
+			assertTrue(results.isEmpty(), "Cancelled/destructed query cannot publish a logical result")
+			assertEquals(ReaderPortCommandResult.Accepted, source.restoreAfterTransitionActivation(domain))
 		} finally {
 			reference.releaseCacheOwnership()
 			source.closeAndJoin()
@@ -1389,7 +1434,10 @@ class ReaderPageTurnBundleSourceTest {
 						it.physicalIdentity.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence ||
 							it.physicalIdentity.source == ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback
 					}
-					assertEquals(2, rows.size)
+					assertEquals(3, rows.size, "Launcher, claimed snapshot callback and original JavaScript query are distinct owners")
+					assertEquals(1, rows.count { it.physicalIdentity.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence })
+					assertEquals(2, rows.count { it.physicalIdentity.source == ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback })
+					assertEquals(rows.size, rows.map { it.physicalIdentity }.toSet().size)
 					assertNull(ownedPersistenceBitmap(source))
 					rows.forEach { assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(it.physicalIdentity, confirmations::add)) }
 					assertTrue(confirmations.isEmpty(), "Launcher/descriptor tail confirmed on the third eligibility stack")
@@ -1402,7 +1450,10 @@ class ReaderPageTurnBundleSourceTest {
 			}
 			webView.completeNextJavascript(persistenceDescriptorJson(2))
 			assertEquals(3, eligibilityCalls)
-			assertEquals(2, confirmations.size)
+			assertEquals(3, confirmations.size)
+			assertEquals(confirmations.size, confirmations.toSet().size)
+			assertEquals(1, confirmations.count { it.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence })
+			assertEquals(2, confirmations.count { it.source == ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback })
 			assertTrue(completions.isEmpty())
 			assertEquals(0, bundlePersistenceJobCount(source))
 			assertNull(ownedPersistenceBitmap(source))
@@ -1693,19 +1744,24 @@ class ReaderPageTurnBundleSourceTest {
 		val completions = mutableListOf<ReaderPageRasterPublicationCompletion>()
 		val completed = CompletableDeferred<Unit>()
 		var eligibilityCalls = 0
-		var descriptorConfirmed = false
+		var descriptorRows = emptyList<ReaderFrozenLegacyResource>()
+		val descriptorConfirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
 		try {
 			source.hydrateSnapshotWithDurability(webView, 2, snapshot.key.kind, snapshot) { it?.snapshot?.release() }
 			source.ensurePersistentSnapshot(snapshot, paige.navic.reader.ReaderPageRasterPriority.Current, isStillCurrent = {
 				eligibilityCalls += 1
 				if (eligibilityCalls == 2) {
 					assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain))
-					val descriptorRow = source.snapshotFrozenOwnership().single {
+					descriptorRows = source.snapshotFrozenOwnership().filter {
 						it.physicalIdentity.source == ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback
 					}
-					assertEquals(ReaderLegacyResourceState.Registered, descriptorRow.state)
-					assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(descriptorRow.physicalIdentity) { descriptorConfirmed = true })
-					assertFalse(descriptorConfirmed, "Descriptor handoff confirmed before callback returned")
+					assertEquals(2, descriptorRows.size, "Claimed snapshot callback does not replace physical JavaScript-query custody")
+					assertEquals(2, descriptorRows.map { it.physicalIdentity }.toSet().size)
+					descriptorRows.forEach { row ->
+						assertEquals(ReaderLegacyResourceState.Registered, row.state)
+						assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(row.physicalIdentity, descriptorConfirmations::add))
+					}
+					assertTrue(descriptorConfirmations.isEmpty(), "Neither descriptor owner can confirm before callback returned")
 					assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.restoreAfterTransitionActivation(domain))
 					assertEquals(0, bundlePersistenceJobCount(source), "Partial handoff restoration started persistence")
 				}
@@ -1717,7 +1773,8 @@ class ReaderPageTurnBundleSourceTest {
 			webView.completeNextJavascript(persistenceDescriptorJson(2))
 			assertTrue(completions.isEmpty(), "Descriptor handoff delivered Failure while frozen")
 			assertEquals(2, eligibilityCalls)
-			assertTrue(descriptorConfirmed)
+			assertEquals(descriptorRows.map { it.physicalIdentity }.toSet(), descriptorConfirmations.toSet())
+			assertEquals(2, descriptorConfirmations.size)
 			assertEquals(0, bundlePersistenceJobCount(source))
 			assertNull(ownedPersistenceBitmap(source), "Frozen handoff retained copied pixels")
 			assertTrue(source.snapshotFrozenOwnership().none {
@@ -1858,7 +1915,8 @@ class ReaderPageTurnBundleSourceTest {
 		val confirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
 		var beforeStartRows = emptyList<ReaderFrozenLegacyResource>()
 		var copiedBitmap: Bitmap? = null
-		var descriptorConfirmed = false
+		var descriptorRows = emptyList<ReaderFrozenLegacyResource>()
+		val descriptorConfirmations = mutableListOf<ReaderLegacyPhysicalIdentity>()
 		lateinit var source: ReaderPageTurnBundleSource
 		source = ReaderPageTurnBundleSource(onOwnershipMutated = {
 			if (copiedBitmap == null) copiedBitmap = ownedPersistenceBitmap(source)
@@ -1868,15 +1926,21 @@ class ReaderPageTurnBundleSourceTest {
 					it.physicalIdentity.source == ReaderLegacyInventorySource.RasterGenerationAndPersistence
 				}
 				assertEquals(ReaderLegacyResourceState.Reserved, beforeStartRows.single().state)
-				source.drainFrozenOwnership(beforeStartRows.single().physicalIdentity) {
-					assertTrue(checkNotNull(copiedBitmap).isRecycled)
-					confirmations += it
-				}
-				val descriptorRow = source.snapshotFrozenOwnership().single {
+				assertEquals(ReaderPortCommandResult.Accepted,
+					source.drainFrozenOwnership(beforeStartRows.single().physicalIdentity) {
+						assertTrue(checkNotNull(copiedBitmap).isRecycled)
+						confirmations += it
+					})
+				descriptorRows = source.snapshotFrozenOwnership().filter {
 					it.physicalIdentity.source == ReaderLegacyInventorySource.RasterDescriptorAndPendingCallback
 				}
-				assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(descriptorRow.physicalIdentity) { descriptorConfirmed = true })
-				assertFalse(descriptorConfirmed, "Descriptor callback tail confirmed while still on-stack")
+				assertEquals(2, descriptorRows.size, "Copied pixels do not replace the two original descriptor owners")
+				assertEquals(2, descriptorRows.map { it.physicalIdentity }.toSet().size)
+				descriptorRows.forEach { row ->
+					assertEquals(ReaderLegacyResourceState.Registered, row.state)
+					assertEquals(ReaderPortCommandResult.Accepted, source.drainFrozenOwnership(row.physicalIdentity, descriptorConfirmations::add))
+				}
+				assertTrue(descriptorConfirmations.isEmpty(), "Descriptor callback tails confirmed while still on-stack")
 				assertEquals(ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.InvalidLegacyResource), source.restoreAfterTransitionActivation(domain))
 				assertEquals(0, bundlePersistenceJobCount(source), "Partial restoration started persistence")
 				assertNull(bundleRasterScheduler(source))
@@ -1903,7 +1967,10 @@ class ReaderPageTurnBundleSourceTest {
 			}
 			assertEquals(1, webView.pendingJavascriptCount)
 			webView.completeNextJavascript(persistenceDescriptorJson(2))
-			if (cancelBeforeStart) assertTrue(descriptorConfirmed)
+			if (cancelBeforeStart) {
+				assertEquals(descriptorRows.map { it.physicalIdentity }.toSet(), descriptorConfirmations.toSet())
+				assertEquals(2, descriptorConfirmations.size)
+			}
 			if (startInitialization) runCurrent()
 			assertNotNull(copiedBitmap)
 			assertEquals(ReaderPortCommandResult.Accepted, source.freezeForTransitionActivation(domain))

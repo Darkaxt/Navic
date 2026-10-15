@@ -23,6 +23,115 @@ class ReaderWebCommandDispatchTest {
 	)
 
 	@Test
+	fun currentDestinationQueryRemainsInExistingPendingLedgerAfterTransportAck() {
+		val query = dispatchedCurrentDestinationQuery()
+		val dispatch = query.commands.single()
+		val pending = query.state.pendingCommands.single()
+		assertTrue(dispatch == pending.dispatch, "Pending query must retain the exact dispatch")
+		assertEquals(0, pending.lastDispatchedGeneration)
+		assertTrue(query.state.foliateSessionId ==
+			(dispatch.command as ReaderBridgeCommand.ResolveCurrentDestination).foliateSessionId,
+			"Query must use the actual runtime session")
+
+		val acknowledged = query.state.acknowledge(dispatch.id)
+
+		assertTrue(listOf(dispatch.id) == acknowledged.pendingCommands.map { it.dispatch.id },
+			"Transport ACK must retain the actual dispatched query until its semantic outcome")
+		assertTrue(pending.dispatch == acknowledged.pendingCommands.single().dispatch,
+			"Transport ACK must preserve the exact query dispatch")
+		assertEquals(pending.lastDispatchedGeneration,
+			acknowledged.pendingCommands.single().lastDispatchedGeneration)
+	}
+
+	@Test
+	fun currentDestinationQueryAckThenDuplicateReadyDoesNotReplayOrLoseRequest() {
+		val query = dispatchedCurrentDestinationQuery()
+		val dispatch = query.commands.single()
+		val acknowledged = query.state.acknowledge(dispatch.id)
+		val duplicateReady = acknowledged.commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = dispatch.command,
+			commandKey = 7L
+		)
+
+		assertTrue(duplicateReady.commands.isEmpty(), "ACK is not permission to redispatch")
+		assertTrue(listOf(dispatch.id) == duplicateReady.state.pendingCommands.map { it.dispatch.id },
+			"The same pending request must survive ACK and readiness without semantic proof")
+		assertTrue(duplicateReady.state == duplicateReady.state.acknowledge("unknown-query"),
+			"Unknown ACK must leave the query state unchanged")
+	}
+
+	@Test
+	fun queuedUndispatchedCurrentDestinationQueryCannotBeRetiredByAck() {
+		val opened = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L
+		)
+		val queryCommand = ReaderBridgeCommand.ResolveCurrentDestination(
+			checkNotNull(opened.state.foliateSessionId)
+		)
+		val queued = opened.state.commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = queryCommand,
+			commandKey = 7L
+		)
+		assertTrue(queued.commands.isEmpty(), "Query must remain queued behind the open")
+		val pendingQuery = queued.state.pendingCommands.single { it.dispatch.command == queryCommand }
+		assertEquals(null, pendingQuery.lastDispatchedGeneration)
+		assertTrue(queued.state == queued.state.acknowledge(pendingQuery.dispatch.id),
+			"An ACK for an undispatched query is not a semantic outcome or dispatch proof")
+	}
+
+	@Test
+	fun ordinaryCommandStillRetiresAfterTransportAck() {
+		val open = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L
+		)
+		val ready = open.state.acknowledge(open.commands.single().id)
+		val ordinary = ready.commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = ReaderBridgeCommand.ClearOverlay,
+			commandKey = 7L
+		)
+		val dispatch = ordinary.commands.single()
+		assertEquals(ReaderBridgeCommand.ClearOverlay, dispatch.command)
+		val acknowledged = ordinary.state.acknowledge(dispatch.id)
+		assertTrue(acknowledged.pendingCommands.isEmpty(), "Ordinary ACK must retire its command")
+		assertTrue(acknowledged == acknowledged.acknowledge(dispatch.id), "Duplicate ordinary ACK must be inert")
+	}
+
+	private fun dispatchedCurrentDestinationQuery(): ReaderWebCommandDispatchStep {
+		val opened = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L
+		)
+		val ready = opened.state.acknowledge(opened.commands.single().id)
+		return ready.commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = ReaderBridgeCommand.ResolveCurrentDestination(checkNotNull(ready.foliateSessionId)),
+			commandKey = 7L
+		)
+	}
+
+	@Test
 	fun runtimeSessionIsMonotonicAcrossRuntimeAndPublicationChanges() {
 		val initial = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
 			runtimeGeneration = 0,

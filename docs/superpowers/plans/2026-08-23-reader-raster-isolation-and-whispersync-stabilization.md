@@ -14,6 +14,25 @@ presentation visually atomic without changing Foliate or PlayLikeCurl authority.
 **Active Stage 6 corrective implementation plan:**
 `docs/superpowers/plans/2026-09-13-reader-resumable-transition-coordinator.md`
 
+**Current execution entry point (2026-10-14, IN_PROGRESS):**
+[Task407 current status and next action](2026-09-13-reader-resumable-transition-coordinator.md#current-execution--task407-2026-10-14-in_progress).
+Use that one section for current implementation/evidence status. Retain this staged
+ledger and the fresh-session plan for their acceptance criteria and historical evidence;
+passing adapter tests is not completed startup or emulator acceptance.
+
+
+**Next-checkpoint evidence-first planning revision (2026-10-03):**
+`docs/superpowers/plans/2026-10-03-reader-fresh-session-evidence-first.md`
+— bounded genuine fresh-session startup, six reader behaviors including WordSync,
+separate layout/visual/captured-decoration evidence, and highlight progress under
+repeated turns. Retain the complete production migration/release ledger below;
+experiment acceptance is not Stage 6 or release acceptance. The user's 2026-10-04
+`continue` resumes the approved plan and admits the scoped design supplement
+`docs/superpowers/specs/2026-10-04-reader-fresh-session-checkpoint-amendment.md`.
+EF-02 is verified **NOT_CHEAP**: the bounded core continues while experimental
+startup remains blocked on actual adapter scope. No Task 7/Stage 7, device,
+signing, complete production composition, or release gate is bypassed.
+
 **Active Task389 initial-origin and fifth-review release blocker:** the coordinator may not
 fabricate a legacy predecessor operation. Semantic callback ingress must retain only the latest
 authoritative receipt plus saturating bounded metadata for arbitrarily many synchronous callbacks,

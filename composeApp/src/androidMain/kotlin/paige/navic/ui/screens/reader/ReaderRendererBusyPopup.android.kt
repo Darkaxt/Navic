@@ -73,8 +73,8 @@ internal fun ReaderRendererBusyPopup(
 		}
 	}
 
+	val shouldShow = visibleState.currentState || visibleState.targetState
 	SideEffect {
-		val shouldShow = visibleState.currentState || visibleState.targetState
 		if (shouldShow && !popup.isShowing && anchor.isAttachedToWindow) {
 			popup.showAtLocation(
 				anchor.rootView,

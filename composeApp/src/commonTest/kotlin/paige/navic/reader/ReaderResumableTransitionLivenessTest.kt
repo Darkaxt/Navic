@@ -66,6 +66,7 @@ class ReaderResumableTransitionLivenessTest {
 			ReaderTransitionFactKind.DeckOwned,
 			ReaderTransitionFactKind.DeckPrepared,
 			ReaderTransitionFactKind.DeckRejected,
+			ReaderTransitionFactKind.FrameTargetDeclared,
 			ReaderTransitionFactKind.RendererCapacityAvailable,
 			ReaderTransitionFactKind.PreparedFrame,
 			ReaderTransitionFactKind.ResourceLost,
@@ -92,16 +93,11 @@ class ReaderResumableTransitionLivenessTest {
 			),
 			ReaderTransitionOperation.CoverToPageEntry to (materialProofs to materialSources),
 			ReaderTransitionOperation.CurlClaimAndSettlement to (
-				setOf(
-					ReaderTransitionProofKind.SettlementAcknowledgement,
-					ReaderTransitionProofKind.PreparedFrame
-				) to setOf(
-					ReaderTransitionFactKind.FoliateDestinationCommitted,
-					ReaderTransitionFactKind.SettlementAcknowledged,
-					ReaderTransitionFactKind.PreparedFrame,
-					ReaderTransitionFactKind.ResourceLost,
-					ReaderTransitionFactKind.DeadlineExpired
-				)
+				(materialProofs + ReaderTransitionProofKind.SettlementAcknowledgement) to
+					(materialSources + setOf(
+						ReaderTransitionFactKind.FoliateDestinationCommitted,
+						ReaderTransitionFactKind.SettlementAcknowledged
+					))
 			),
 			ReaderTransitionOperation.NativeToLiveHandoff to (
 				setOf(ReaderTransitionProofKind.WebViewExposure) to setOf(
@@ -112,6 +108,7 @@ class ReaderResumableTransitionLivenessTest {
 			),
 			ReaderTransitionOperation.LiveToNativeHandback to (
 				setOf(ReaderTransitionProofKind.PreparedFrame) to setOf(
+					ReaderTransitionFactKind.FrameTargetDeclared,
 					ReaderTransitionFactKind.PreparedFrame,
 					ReaderTransitionFactKind.ResourceLost,
 					ReaderTransitionFactKind.DeadlineExpired
@@ -149,6 +146,7 @@ class ReaderResumableTransitionLivenessTest {
 					ReaderTransitionFactKind.DeckOwned,
 					ReaderTransitionFactKind.DeckPrepared,
 					ReaderTransitionFactKind.DeckRejected,
+					ReaderTransitionFactKind.FrameTargetDeclared,
 					ReaderTransitionFactKind.RendererCapacityAvailable,
 					ReaderTransitionFactKind.PreparedFrame,
 					ReaderTransitionFactKind.ResourceLost,

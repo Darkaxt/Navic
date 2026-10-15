@@ -704,6 +704,7 @@ function pageTurnTextPageCommitIdentity() {
 
 function exactPageTurnPendingState({
   token,
+  commandId = null,
   gestureId,
   foliateSessionId,
   rasterGeneration,
@@ -716,6 +717,7 @@ function exactPageTurnPendingState({
 }) {
   return Object.freeze({
     token,
+    commandId,
     gestureId,
     foliateSessionId,
     rasterGeneration,
@@ -927,6 +929,11 @@ async function commitPendingExactPageTurnSettlement(token) {
 
 async function goToVisualPage(command = {}) {
   const pageIndex = command.pageIndex
+  // Dispatch correlation is immutable transport metadata, never destination authority.
+  // Legacy exact-navigation calls without a dispatch ID retain their uncorrelated behavior.
+  const commandId = typeof command.commandId === 'string' && command.commandId.trim()
+    ? command.commandId.trim()
+    : null
   const token = typeof command.settleToken === 'string' ? command.settleToken.trim() : ''
   const settleGestureId = Number(command.settleGestureId)
   const settleSessionId = typeof command.settleSessionId === 'string'
@@ -978,6 +985,7 @@ async function goToVisualPage(command = {}) {
     retiredSettlement
   if (existing) {
     if (
+      existing.commandId !== commandId ||
       !exactPageTurnSettlementIdentityMatches(
         existing,
         locator,
@@ -1012,6 +1020,7 @@ async function goToVisualPage(command = {}) {
   this.clearPageTurnLivePresentationTarget()
   const pending = exactPageTurnPendingState({
     token,
+    commandId,
     gestureId: settleGestureId,
     foliateSessionId: settleSessionId,
     rasterGeneration: settleRasterGeneration,
@@ -1127,6 +1136,7 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
   const settledPageIndex = Math.floor(pageIndex)
   const settlement = Object.freeze({
     token: pending.token,
+    commandId: pending.commandId,
     gestureId: pending.gestureId,
     foliateSessionId: pending.foliateSessionId,
     rasterGeneration: pending.rasterGeneration,
@@ -1247,13 +1257,17 @@ function consumeNativePageTurnSettlement(token) {
   return true
 }
 
-function cancelPendingExactPageTurnSettlement(reason = 'superseded') {
-  this.clearPageTurnLivePresentationTarget()
-  this.dropDeferredExactWordSyncOverlayFragment?.()
+function cancelPendingExactPageTurnSettlement(reason = 'superseded', expectedToken, expectedCommandId) {
   const pending = this.activeExactPageTurnSettlement()
   const settled = this.nativePageTurnSettledState
-  if (!pending && !settled) return false
   const retired = pending || settled
+  if (
+    (expectedToken !== undefined || expectedCommandId !== undefined) &&
+    (retired?.token !== expectedToken || retired?.commandId !== expectedCommandId)
+  ) return false
+  this.clearPageTurnLivePresentationTarget()
+  this.dropDeferredExactWordSyncOverlayFragment?.()
+  if (!retired) return false
   if (pending) {
     if (this.pendingExactPageTurnSettlements.get(pending.token) === pending) {
       this.pendingExactPageTurnSettlements.delete(pending.token)

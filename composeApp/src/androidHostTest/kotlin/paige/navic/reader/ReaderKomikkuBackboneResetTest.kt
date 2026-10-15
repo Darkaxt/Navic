@@ -1430,11 +1430,12 @@ class ReaderKomikkuBackboneResetTest {
 			"The synthetic shell cover must be mounted inside the native viewer container so the Komikku gesture owner receives cover touches."
 		)
 		assertTrue(
-			viewerContainerBody.contains("fun replaceViewerContent(viewerView: View)") &&
-				viewerContainerBody.contains("viewerContentContainer.removeAllViews()") &&
-				viewerContainerBody.contains("viewerContentContainer.addView(") &&
-				setViewerContentBody.contains("viewerContainer.replaceViewerContent(viewerView)"),
-			"Viewer swaps must replace only renderer content; removing viewerContainer children would detach the shell-cover input layer."
+			viewerContainerBody.contains("fun replaceCapturedViewerContent(") &&
+				viewerContainerBody.contains("retireCapturedViewerReplacement(capture)") &&
+				viewerContainerBody.contains("framePhysicalOwnership.reserve(viewerContentContainer, viewerView)") &&
+				viewerContainerBody.contains("framePhysicalOwnership.mount(lease)") &&
+				setViewerContentBody.contains("viewerContainer.replaceCapturedViewerContent(capture, viewerView)"),
+			"Viewer swaps must replace only captured renderer content; shell-cover input stays in the gesture owner."
 		)
 		assertFalse(
 			setViewerContentBody.contains("viewerContainer.removeAllViews()") ||
@@ -1797,12 +1798,22 @@ class ReaderKomikkuBackboneResetTest {
 			androidHostText.contains("fun setViewerContent(viewerKey: ReaderViewerKey"),
 			"Android native frame must key viewer content updates by ReaderViewerKey."
 		)
+		val replacement = androidHostText.substringAfter("fun replaceCapturedViewerContent(")
+			.substringBefore("fun detachViewerContent(")
+		val materialSource = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderFramePhysicalOwnership.android.kt"
+		).readText()
 		assertTrue(
-			androidHostText.contains("viewerContainer.replaceViewerContent(viewerView)") &&
-				androidHostText.contains("viewerContentContainer.removeAllViews()") &&
-				androidHostText.contains("viewerContentContainer.addView("),
-			"Android native frame must replace the renderer child inside the viewer container when the viewer key changes."
+			androidHostText.contains("viewerContainer.replaceCapturedViewerContent(capture, viewerView)") &&
+				replacement.contains("retireCapturedViewerReplacement(capture)") &&
+				replacement.contains("framePhysicalOwnership.reserve(viewerContentContainer, viewerView)") &&
+				replacement.contains("framePhysicalOwnership.mount(lease)") &&
+				materialSource.contains("lease.container.removeView(lease.wrapper)") &&
+				materialSource.contains("lease.container.addView(lease.wrapper,"),
+			"Android native frame must replace the exact renderer child inside the viewer container when the viewer key changes."
 		)
+		assertTrue(replacement.indexOf("retireCapturedViewerReplacement(capture)") in
+			0 until replacement.indexOf("framePhysicalOwnership.mount(lease)"))
 		assertFalse(
 			androidHostText.contains("viewerContainer.removeAllViews()"),
 			"Android native frame must not remove all viewer-container children because shell-cover input lives there too."
@@ -1880,10 +1891,17 @@ class ReaderKomikkuBackboneResetTest {
 				nestedDetach.contains("(composeOverlay.parent as? ViewGroup)?.removeView(composeOverlay)"),
 			"Both nested Compose roots must leave the outer native hierarchy before its holder is removed."
 		)
+		val capturedRetirement = androidHostText.substringAfter("fun retireCapturedViewerReplacement(")
+			.substringBefore("fun replaceViewerContent(")
+		val materialSource = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderFramePhysicalOwnership.android.kt"
+		).readText()
 		assertTrue(
-			viewerDetach.contains("viewerView?.parent === viewerContentContainer") &&
-				viewerDetach.contains("viewerContentContainer.removeView(viewerView)"),
-			"Viewer detach must remove only the currently owned nested ComposeView."
+			viewerDetach.contains("currentFrameInstallation?.takeIf { it.wrapper === viewerView }") &&
+				viewerDetach.contains("retireCapturedViewerReplacement(capture)") &&
+				capturedRetirement.contains("framePhysicalOwnership.retire(lease)") &&
+				materialSource.contains("lease.container.removeView(lease.wrapper)"),
+			"Viewer detach must retire only the exact captured currently owned nested ComposeView."
 		)
 		assertFalse(
 			rootClose.contains(".disposeComposition()"),

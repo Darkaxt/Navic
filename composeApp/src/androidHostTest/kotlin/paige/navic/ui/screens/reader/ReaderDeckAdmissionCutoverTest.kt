@@ -233,6 +233,34 @@ class ReaderDeckAdmissionCutoverTest {
 	}
 
 	@Test
+	fun finalizedOriginalDeckCannotAdmitOrRestartOrdinaryLegacyCustody() {
+		val adapter = ReaderDeckPhysicalOwnershipAdapter(
+			releasePhysicalDeck = { _, _ -> error("Empty original source has no physical release") },
+			restorePhysicalDeck = { error("Finalized original source cannot restart") }
+		)
+		val domain = ReaderLegacyPhysicalDomain(7L, ReaderLegacyFreezeToken(31L))
+		assertEquals(ReaderPortCommandResult.Accepted, adapter.freezeForTransitionActivation(domain))
+		assertEquals(ReaderPortCommandResult.Accepted,
+			adapter.finalizeActivatedHandoff(domain, null, emptySet()) { selected, retired ->
+				assertNull(selected)
+				assertTrue(retired.isEmpty())
+				true
+			})
+		assertTrue(adapter.register(ReaderDeckPhysicalRestartDescriptor(
+			binding = binding(textureGeneration = 463L),
+			role = ReaderDeckSubmissionRole.Active,
+			preparationGeneration = 11L,
+			rasterGeneration = 31L,
+			textureGeneration = 463L
+		)) == null, "Finalization must permanently close ordinary original deck admission")
+		assertIs<ReaderPortCommandResult.Rejected>(adapter.restoreAfterTransitionActivation(domain))
+		assertIs<ReaderPortCommandResult.Rejected>(adapter.freezeForTransitionActivation(domain))
+		assertIs<ReaderPortCommandResult.Rejected>(adapter.freezeForTransitionActivation(
+			domain.copy(freezeToken = ReaderLegacyFreezeToken(37L))))
+		assertNull(adapter.snapshotConnectedFrozenOwnership())
+	}
+
+	@Test
 	fun rendererCallbackBeforeDrainIsTombstonedAndRestoredWithoutDispatch() {
 		val releaseCallbacks = mutableListOf<() -> Unit>()
 		val adapter = ReaderDeckPhysicalOwnershipAdapter(
