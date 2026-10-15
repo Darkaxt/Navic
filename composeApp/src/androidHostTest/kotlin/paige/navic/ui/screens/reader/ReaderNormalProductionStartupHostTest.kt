@@ -801,6 +801,211 @@ class ReaderNormalProductionStartupHostTest {
         } finally { fixture.close() }
     }
 
+    /** The live reader's opening path can project ordinary same-session bridge facts before
+     * the opening ACK advances the retained query. This intentionally stops before its
+     * CurrentDestinationResolved result: no layout, material, display or input success is
+     * manufactured here. */
+    @Test
+    fun originalReactiveOpeningProjectionRetainsOriginalQueryUntilMatchingOpeningAck() {
+        val fixture = NormalRootFixture(provideInitialIngress = true,
+            owningProfile = OwningProfile.ReactiveOwningCoordinator)
+        try {
+            fixture.mount()
+            val root = assertNotNull(fixture.nativeRoot(), "E407.OpeningProjection.OriginalRoot")
+            val installed = assertNotNull(fixture.store().snapshot, "E407.OpeningProjection.OriginalInstallation")
+            val runtime = assertNotNull(fixture.runtime(), "E407.OpeningProjection.OriginalCoordinator")
+            val material = assertNotNull(fixture.material(), "E407.OpeningProjection.OriginalMaterial")
+            val engine = assertNotNull(fixture.engine(), "E407.OpeningProjection.OriginalEngine")
+            val reservation = assertNotNull(installed.reservedNeutralBootstrap,
+                "E407.OpeningProjection.OriginalReservation")
+            fixture.dispatchOriginalOpeningAfterReady()
+            val opening = assertNotNull(fixture.engineCommands().pendingCommands.singleOrNull {
+                it.dispatch.command is ReaderBridgeCommand.OpenPublication
+            }, "E407.OpeningProjection.OriginalOpeningDispatched")
+            val query = assertNotNull(fixture.engineCommands().pendingCommands.singleOrNull {
+                it.dispatch.command is ReaderBridgeCommand.ResolveCurrentDestination
+            }, "E407.OpeningProjection.OriginalQueryQueued")
+            val token = assertNotNull(query.currentDestinationContinuation as? ReaderEngineCurrentDestinationContinuation,
+                "E407.OpeningProjection.OriginalQueryToken")
+            fixture.postOriginalOpeningProjection(opening)
+            fixture.refresh() // Existing bounded normal recomposition/layout only.
+            assertTrue(root === fixture.nativeRoot(), "E407.OpeningProjection.OriginalRootAfterProjection")
+            assertTrue(installed === fixture.store().snapshot, "E407.OpeningProjection.OriginalInstallationAfterProjection")
+            assertTrue(runtime === fixture.runtime(), "E407.OpeningProjection.OriginalCoordinatorAfterProjection")
+            assertTrue(material === fixture.material(), "E407.OpeningProjection.OriginalMaterialAfterProjection")
+            assertTrue(engine === fixture.engine(), "E407.OpeningProjection.OriginalEngineAfterProjection")
+            assertTrue(reservation === fixture.store().reservedNeutralBootstrap,
+                "E407.OpeningProjection.OriginalReservationAfterProjection")
+            val beforeAck = fixture.engineCommands()
+            assertTrue(query === beforeAck.pendingCommands.singleOrNull {
+                it.dispatch.id == query.dispatch.id
+            }, "E407.OpeningProjection.OriginalQuerySurvivesOrdinaryProjection")
+            assertTrue(token === query.currentDestinationContinuation,
+                "E407.OpeningProjection.OriginalTokenSurvivesOrdinaryProjection")
+            assertNull(query.lastDispatchedGeneration,
+                "E407.OpeningProjection.QueryCannotDispatchBeforeMatchingOpeningAck")
+            assertEquals("ready", fixture.owningController.state.paginationProfile.status,
+                "E407.OpeningProjection.ActualBridgeReachesReactiveOwner")
+            assertEquals(0, fixture.initialIngressCount,
+                "E407.OpeningProjection.NoResolvedSemanticResultBeforeQueryReply")
+            assertTrue(fixture.viewerField("pendingInstalledRaster") == null,
+                "E407.OpeningProjection.NoMaterialSuccessBeforeQueryReply")
+            fixture.postOriginalEngine(buildJsonObject {
+                put("type", "commandAck"); put("commandId", opening.dispatch.id)
+            })
+            val afterAck = fixture.engineCommands()
+            val dispatchedQuery = assertNotNull(afterAck.pendingCommands.singleOrNull {
+                it.dispatch.id == query.dispatch.id
+            }, "E407.OpeningProjection.OriginalQueryAfterMatchingAck")
+            assertTrue(query.dispatch.id == dispatchedQuery.dispatch.id,
+                "E407.OpeningProjection.SameOriginalQueryDispatched")
+            assertTrue(token === dispatchedQuery.currentDestinationContinuation,
+                "E407.OpeningProjection.SameOriginalTokenDispatched")
+            assertEquals(afterAck.runtimeGeneration, dispatchedQuery.lastDispatchedGeneration,
+                "E407.OpeningProjection.OriginalQueryDispatchGeneration")
+            assertEquals(0, fixture.initialIngressCount,
+                "E407.OpeningProjection.AckAloneCannotResolveSemanticResult")
+        } finally { fixture.close() }
+    }
+
+    @Test
+    fun originalReactiveOpeningPrematureQueryAckCannotAdvanceUndispatchedQuery() {
+        val fixture = NormalRootFixture(provideInitialIngress = true,
+            owningProfile = OwningProfile.ReactiveOwningCoordinator)
+        try {
+            fixture.mount()
+            fixture.dispatchOriginalOpeningAfterReady()
+            val opening = assertNotNull(fixture.engineCommands().pendingCommands.singleOrNull {
+                it.dispatch.command is ReaderBridgeCommand.OpenPublication
+            }, "E407.OpeningWrongAck.OriginalOpening")
+            val query = assertNotNull(fixture.engineCommands().pendingCommands.singleOrNull {
+                it.dispatch.command is ReaderBridgeCommand.ResolveCurrentDestination
+            }, "E407.OpeningWrongAck.OriginalQuery")
+            val token = assertNotNull(query.currentDestinationContinuation as? ReaderEngineCurrentDestinationContinuation,
+                "E407.OpeningWrongAck.OriginalToken")
+            // Use the original queued query ID, never a synthetic identifier, while it is not dispatched.
+            fixture.postOriginalEngine(buildJsonObject {
+                put("type", "commandAck"); put("commandId", query.dispatch.id)
+            })
+            val afterWrongAck = fixture.engineCommands()
+            assertTrue(opening === afterWrongAck.pendingCommands.singleOrNull {
+                it.dispatch.id == opening.dispatch.id
+            }, "E407.OpeningWrongAck.OpeningRetained")
+            val retainedQuery = assertNotNull(afterWrongAck.pendingCommands.singleOrNull {
+                it.dispatch.id == query.dispatch.id
+            }, "E407.OpeningWrongAck.QueryRetained")
+            assertTrue(token === retainedQuery.currentDestinationContinuation,
+                "E407.OpeningWrongAck.TokenRetained")
+            assertNull(retainedQuery.lastDispatchedGeneration,
+                "E407.OpeningWrongAck.QueryCannotAdvanceFromItsOwnPrematureAck")
+            assertEquals(0, fixture.initialIngressCount, "E407.OpeningWrongAck.NoSemanticReplay")
+        } finally { fixture.close() }
+    }
+
+    /** Duplicate ACK coverage observes original query dispatch-marker stability only; it does not
+     * assert a JavaScript evaluation count. */
+    @Test
+    fun originalReactiveOpeningDuplicateAckPreservesOriginalQueryDispatchMarker() {
+        val fixture = NormalRootFixture(provideInitialIngress = true,
+            owningProfile = OwningProfile.ReactiveOwningCoordinator)
+        try {
+            fixture.mount()
+            fixture.dispatchOriginalOpeningAfterReady()
+            val opening = assertNotNull(fixture.engineCommands().pendingCommands.singleOrNull {
+                it.dispatch.command is ReaderBridgeCommand.OpenPublication
+            }, "E407.OpeningDuplicateAck.OriginalOpening")
+            val query = assertNotNull(fixture.engineCommands().pendingCommands.singleOrNull {
+                it.dispatch.command is ReaderBridgeCommand.ResolveCurrentDestination
+            }, "E407.OpeningDuplicateAck.OriginalQuery")
+            val token = assertNotNull(query.currentDestinationContinuation as? ReaderEngineCurrentDestinationContinuation,
+                "E407.OpeningDuplicateAck.OriginalToken")
+            fixture.postOriginalEngine(buildJsonObject {
+                put("type", "commandAck"); put("commandId", opening.dispatch.id)
+            })
+            val firstAck = fixture.engineCommands()
+            val dispatched = assertNotNull(firstAck.pendingCommands.singleOrNull {
+                it.dispatch.id == query.dispatch.id
+            }, "E407.OpeningDuplicateAck.QueryAfterFirstAck")
+            assertEquals(firstAck.runtimeGeneration, dispatched.lastDispatchedGeneration,
+                "E407.OpeningDuplicateAck.OriginalQueryDispatchMarkerAfterFirstAck")
+            fixture.postOriginalEngine(buildJsonObject {
+                put("type", "commandAck"); put("commandId", opening.dispatch.id)
+            })
+            val duplicateAck = fixture.engineCommands()
+            val retained = assertNotNull(duplicateAck.pendingCommands.singleOrNull {
+                it.dispatch.id == query.dispatch.id
+            }, "E407.OpeningDuplicateAck.QueryAfterDuplicateAck")
+            assertTrue(dispatched.dispatch.id == retained.dispatch.id,
+                "E407.OpeningDuplicateAck.ExactQueryNotReplaced")
+            assertTrue(token === retained.currentDestinationContinuation,
+                "E407.OpeningDuplicateAck.ExactTokenNotReplaced")
+            assertEquals(duplicateAck.runtimeGeneration, retained.lastDispatchedGeneration,
+                "E407.OpeningDuplicateAck.DuplicateAckPreservesQueryDispatchMarker")
+        } finally { fixture.close() }
+    }
+
+    @Test
+    fun originalReactiveOpeningCancellationFencesLateMatchingAck() {
+        val fixture = NormalRootFixture(provideInitialIngress = true,
+            owningProfile = OwningProfile.ReactiveOwningCoordinator)
+        try {
+            fixture.mount()
+            fixture.dispatchOriginalOpeningAfterReady()
+            val opening = assertNotNull(fixture.engineCommands().pendingCommands.singleOrNull {
+                it.dispatch.command is ReaderBridgeCommand.OpenPublication
+            }, "E407.OpeningCancellation.OriginalOpening")
+            val id = assertNotNull(fixture.originalJournal().active,
+                "E407.OpeningCancellation.OriginalActiveCommand").id
+            assertEquals(ReaderPortCommandResult.Accepted,
+                fixture.originalResourcePort().cancelOwnedWork(ReaderTransitionCommand.CancelOwnedWork(id)),
+                "E407.OpeningCancellation.OriginalCancellationAccepted")
+            val beforeLateAck = assertNotNull(fixture.runtime(),
+                "E407.OpeningCancellation.OriginalCoordinatorBeforeLateAck").snapshot()
+            fixture.postOriginalEngine(buildJsonObject {
+                put("type", "commandAck"); put("commandId", opening.dispatch.id)
+            })
+            assertTrue(beforeLateAck == fixture.runtime()?.snapshot(),
+                "E407.OpeningCancellation.SnapshotUnchangedAfterResourceCancel")
+            assertEquals(0, fixture.executor().activeSlotCount,
+                "E407.OpeningCancellation.LateAckCannotRestoreExecution")
+            assertEquals(0, fixture.requests().activeHandleCount,
+                "E407.OpeningCancellation.LateAckCannotRestoreRequest")
+            assertEquals(0, fixture.initialIngressCount,
+                "E407.OpeningCancellation.LateAckCannotManufactureSemanticResult")
+        } finally { fixture.close() }
+    }
+
+    @Test
+    fun originalReactiveOpeningWithoutBridgeNotificationRetainsUndispatchedQuery() {
+        val fixture = NormalRootFixture(provideInitialIngress = true,
+            owningProfile = OwningProfile.ReactiveOwningCoordinator)
+        try {
+            fixture.mount()
+            val installed = assertNotNull(fixture.store().snapshot, "E407.OpeningSilence.OriginalInstallation")
+            val material = assertNotNull(fixture.material(), "E407.OpeningSilence.OriginalMaterial")
+            fixture.dispatchOriginalOpeningAfterReady()
+            val query = assertNotNull(fixture.engineCommands().pendingCommands.singleOrNull {
+                it.dispatch.command is ReaderBridgeCommand.ResolveCurrentDestination
+            }, "E407.OpeningSilence.OriginalQuery")
+            val token = assertNotNull(query.currentDestinationContinuation as? ReaderEngineCurrentDestinationContinuation,
+                "E407.OpeningSilence.OriginalToken")
+            fixture.refresh() // Existing bounded normal recomposition/layout with no bridge delivery.
+            val silent = fixture.engineCommands()
+            val retainedQuery = assertNotNull(silent.pendingCommands.singleOrNull {
+                it.dispatch.id == query.dispatch.id
+            }, "E407.OpeningSilence.QueryRetained")
+            assertTrue(query === retainedQuery, "E407.OpeningSilence.ExactQueryRetained")
+            assertTrue(token === retainedQuery.currentDestinationContinuation,
+                "E407.OpeningSilence.ExactTokenRetained")
+            assertNull(retainedQuery.lastDispatchedGeneration,
+                "E407.OpeningSilence.QueryStaysUndispatchedWithoutOpeningAck")
+            assertTrue(installed === fixture.store().snapshot,
+                "E407.OpeningSilence.OriginalInstallationRetained")
+            assertTrue(material === fixture.material(), "E407.OpeningSilence.OriginalMaterialRetained")
+            assertEquals(0, fixture.initialIngressCount, "E407.OpeningSilence.NoSemanticReplay")
+        } finally { fixture.close() }
+    }
+
     @Test
     fun originalReactiveRootCloseFencesItsDelayedOriginalPlanWithoutLegacyReplay() {
         val fixture = NormalRootFixture(provideInitialIngress = true,
@@ -1577,11 +1782,63 @@ class ReaderNormalProductionStartupHostTest {
             return publication
         }
 
-        private fun postOriginalEngine(message: JsonObject) {
+        fun postOriginalEngine(message: JsonObject) {
             val engine = assertNotNull(engine(), "E407.ContinuousRoot.OriginalWireEngine")
             val bridge = shadowOf(engine).getJavascriptInterface(ReaderWebRuntime.AndroidBridgeName) as ReaderJavascriptBridge
             bridge.postMessage(message.toString())
             shadowOf(Looper.getMainLooper()).idle()
+        }
+
+        /** Uses the already-finished original entrypoint and its installed bridge to open the
+         * same queued publication. No command ID, session or Engine is synthesized. */
+        fun dispatchOriginalOpeningAfterReady() {
+            val engine = assertNotNull(engine(), "E407.OpeningTransport.OriginalEngine")
+            assertTrue((engine as? ReaderEngineWebView)?.runtimeInitializationCompleted == true,
+                "E407.OpeningTransport.OriginalEntrypointFinished")
+            val beforeReady = engineCommands()
+            assertEquals(1, beforeReady.pendingCommands.count {
+                it.dispatch.command is ReaderBridgeCommand.OpenPublication
+            }, "E407.OpeningTransport.OneOriginalOpeningBeforeReady")
+            assertEquals(1, beforeReady.pendingCommands.count {
+                it.dispatch.command is ReaderBridgeCommand.ResolveCurrentDestination
+            }, "E407.OpeningTransport.OneOriginalQueryBeforeReady")
+            assertFalse(beforeReady.pendingCommands.any { it.lastDispatchedGeneration != null },
+                "E407.OpeningTransport.NoDispatchBeforeOriginalReady")
+            deliverOriginalUnitInteropPlacement()
+            postOriginalEngine(buildJsonObject { put("type", "ready") })
+            val afterReady = engineCommands()
+            val opening = assertNotNull(afterReady.pendingCommands.firstOrNull(),
+                "E407.OpeningTransport.OriginalOpeningAfterReady")
+            assertTrue(opening.dispatch.command is ReaderBridgeCommand.OpenPublication &&
+                opening.lastDispatchedGeneration == afterReady.runtimeGeneration,
+                "E407.OpeningTransport.OriginalOpeningActuallyDispatched")
+        }
+
+        /** navic-reader.js emits ordinary relocation/profile work before its terminal
+         * publicationReady post. Feed only those public opening facts through the actual
+         * installed bridge, in that order; neither a query result nor a presentation result is
+         * supplied. The session comes solely from the original dispatched opening command. */
+        fun postOriginalOpeningProjection(opening: ReaderWebPendingCommand) {
+            val command = opening.dispatch.command as? ReaderBridgeCommand.OpenPublication
+                ?: error("E407.OpeningProjection.OriginalOpeningCommandRequired")
+            val session = command.foliateSessionId
+            val ledger = engineCommands()
+            assertTrue(ledger.pendingCommands.any {
+                it.dispatch.id == opening.dispatch.id &&
+                    it.lastDispatchedGeneration == ledger.runtimeGeneration
+            }, "E407.OpeningProjection.OriginalOpeningStillDispatched")
+            postOriginalEngine(buildJsonObject {
+                put("type", "locationChanged")
+                put("foliateSessionId", session)
+                put("destinationFoliateSessionId", session)
+                put("destinationCommitSequence", 1L)
+                put("pageIndex", 0)
+            })
+            postOriginalEngine(buildJsonObject {
+                put("type", "paginationProfileStatus")
+                put("status", "ready")
+            })
+            postOriginalEngine(buildJsonObject { put("type", "publicationReady") })
         }
 
         /** Only a command actually dispatched by the ORIGINAL installed source may supply

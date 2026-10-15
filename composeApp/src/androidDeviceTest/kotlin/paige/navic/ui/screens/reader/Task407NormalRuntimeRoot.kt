@@ -92,6 +92,9 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
     private var observedStartupConstructionStarting = false
     private var observedStartupConstructionQuery = false
     private var observedStartupConstructionRetired = false
+    private var observedMaterialTimeoutBeforeAnyEngineAck = false
+    private var observedMaterialTimeoutBeforeEngineOpenDispatch = false
+    private var observedMaterialTimeoutBeforeEngineReady = false
     private var startupObservationUnavailable = false
 
     /** The existing local is called ONLY by the authenticated original FIFO publication closure,
@@ -331,6 +334,20 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
         try {
             task407Require(Looper.myLooper() == Looper.getMainLooper(), "A407.Runtime.RealMainLooper")
             if (rootOrNull() == null || runtime() == null) return
+            // Failure-only sampling: the synchronous observer can affect timing. A positive label
+            // means only this current observer recorded MaterialTimeout before any generic ACK;
+            // it neither matches an ACK identity nor reconstructs earlier r105 chronology.
+            if (!observedMaterialTimeoutBeforeAnyEngineAck &&
+                (journal().lastOutcome as? ReaderTransitionOutcome.Failed)?.reason ==
+                    ReaderTransitionFailureReason.MaterialTimeout &&
+                loggerObservation?.commandAcknowledgementSeenOrNull() == false) {
+                observedMaterialTimeoutBeforeAnyEngineAck = true
+                val labels = loggerObservation.labels()
+                if ("E407.Observation.EngineOpenPublicationDispatched" !in labels)
+                    observedMaterialTimeoutBeforeEngineOpenDispatch = true
+                if ("E407.Observation.EngineBridgeReady" !in labels)
+                    observedMaterialTimeoutBeforeEngineReady = true
+            }
             registeredActiveWork()?.let { observedStartupWork = it }
             engine()?.let { original ->
                 observedStartupEngineRuntimeInitializationCompleted =
@@ -409,6 +426,12 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
         if (material()?.initialResolvedLayout != null) add("E407.Observation.InitialResolvedLayoutPresent")
         if (viewer().context is android.app.Activity) add("E407.Observation.ViewerContextIsActivity")
         if (startupObservationUnavailable) add("E407.Observation.EarlyObservationUnavailable")
+        if (observedMaterialTimeoutBeforeAnyEngineAck)
+            add("E407.Observation.MaterialTimeoutObservedBeforeAnyEngineAck")
+        if (observedMaterialTimeoutBeforeEngineOpenDispatch)
+            add("E407.Observation.MaterialTimeoutObservedBeforeEngineOpenDispatch")
+        if (observedMaterialTimeoutBeforeEngineReady)
+            add("E407.Observation.MaterialTimeoutObservedBeforeEngineReady")
         if (observedStartupEngineRuntimeInitializationCompleted)
             add("E407.Observation.EngineRuntimeInitializationCompletedObserved")
         if (observedStartupEngineAtEntrypoint) add("E407.Observation.EngineEntrypointUrlObserved")

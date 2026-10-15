@@ -235,6 +235,15 @@ internal class Task407LoggerStartupObservation {
         }
         addAll(readerEngineStartupObservationLabels)
     } }
+
+    /** Returns null unless this exact observer is currently installed; historical sink continuity
+     * is not established. Exposes only a fixed ACK marker, retaining no event, identifier or message. */
+    fun commandAcknowledgementSeenOrNull(): Boolean? = synchronized(lock) {
+        if (!installed) return@synchronized null
+        val field = issueLogSinkField ?: return@synchronized null
+        if (field.get(Logger) !== sink) return@synchronized null
+        "E407.Observation.EngineBridgeCommandAcknowledged" in readerEngineStartupObservationLabels
+    }
 }
 
 /** Integrated, unexecuted Android runtime candidate. Authentic typed terminal DRAW is joined through
