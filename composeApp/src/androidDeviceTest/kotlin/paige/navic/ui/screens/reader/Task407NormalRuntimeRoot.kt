@@ -80,6 +80,18 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
     private var observedStartupSessionCaptureAttempt = false
     private var observedStartupSessionCaptureFailure = false
     private var observedStartupSessionActiveCapture = false
+    private var observedStartupEngineRuntimeInitializationCompleted = false
+    private var observedStartupEngineAtEntrypoint = false
+    private var observedStartupEngineAttached = false
+    private var observedStartupEngineSized = false
+    private var observedStartupEngineProgressComplete = false
+    private var observedStartupEngineRuntimeRetired = false
+    private var observedStartupConstructionMounted = false
+    private var observedStartupConstructionExecutorBound = false
+    private var observedStartupConstructionWaiting = false
+    private var observedStartupConstructionStarting = false
+    private var observedStartupConstructionQuery = false
+    private var observedStartupConstructionRetired = false
     private var startupObservationUnavailable = false
 
     /** The existing local is called ONLY by the authenticated original FIFO publication closure,
@@ -320,6 +332,16 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
             task407Require(Looper.myLooper() == Looper.getMainLooper(), "A407.Runtime.RealMainLooper")
             if (rootOrNull() == null || runtime() == null) return
             registeredActiveWork()?.let { observedStartupWork = it }
+            engine()?.let { original ->
+                observedStartupEngineRuntimeInitializationCompleted =
+                    observedStartupEngineRuntimeInitializationCompleted || original.runtimeInitializationCompleted
+                observedStartupEngineAtEntrypoint = observedStartupEngineAtEntrypoint ||
+                    original.url == ReaderWebRuntime.entrypointUrl
+                observedStartupEngineAttached = observedStartupEngineAttached || original.isAttachedToWindow
+                observedStartupEngineSized = observedStartupEngineSized || original.width > 0 && original.height > 0
+                observedStartupEngineProgressComplete = observedStartupEngineProgressComplete || original.progress == 100
+                observedStartupEngineRuntimeRetired = observedStartupEngineRuntimeRetired || original.runtimeRetired
+            }
             val adapter = passive()
             passiveRuntime()?.let { original ->
                 observedStartupRuntime = original
@@ -355,6 +377,20 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
                 observedStartupSessionCaptureFailure = observedStartupSessionCaptureFailure || metrics.captureFailures > 0
                 observedStartupSessionActiveCapture = observedStartupSessionActiveCapture || metrics.activeCaptures > 0
             }
+            val construction = viewerField("initialDestinationConstruction")
+            if (construction != null) {
+                val type = construction.javaClass
+                observedStartupConstructionMounted = observedStartupConstructionMounted ||
+                    type.getDeclaredField("mounted").apply { isAccessible = true }.get(construction) == true
+                observedStartupConstructionExecutorBound = observedStartupConstructionExecutorBound ||
+                    type.getDeclaredField("executorBound").apply { isAccessible = true }.get(construction) == true
+                when (type.getDeclaredField("phase").apply { isAccessible = true }.get(construction).javaClass.simpleName) {
+                    "Waiting" -> observedStartupConstructionWaiting = true
+                    "Starting" -> observedStartupConstructionStarting = true
+                    "Query" -> observedStartupConstructionQuery = true
+                    "Retired" -> observedStartupConstructionRetired = true
+                }
+            }
         } catch (_: Throwable) { startupObservationUnavailable = true }
     }
 
@@ -373,6 +409,19 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
         if (material()?.initialResolvedLayout != null) add("E407.Observation.InitialResolvedLayoutPresent")
         if (viewer().context is android.app.Activity) add("E407.Observation.ViewerContextIsActivity")
         if (startupObservationUnavailable) add("E407.Observation.EarlyObservationUnavailable")
+        if (observedStartupEngineRuntimeInitializationCompleted)
+            add("E407.Observation.EngineRuntimeInitializationCompletedObserved")
+        if (observedStartupEngineAtEntrypoint) add("E407.Observation.EngineEntrypointUrlObserved")
+        if (observedStartupEngineAttached) add("E407.Observation.EngineAttachmentObserved")
+        if (observedStartupEngineSized) add("E407.Observation.EngineSizedObserved")
+        if (observedStartupEngineProgressComplete) add("E407.Observation.EngineProgressCompleteObserved")
+        if (observedStartupEngineRuntimeRetired) add("E407.Observation.EngineRuntimeRetiredObserved")
+        if (observedStartupConstructionMounted) add("E407.Observation.InitialConstructionMountedObserved")
+        if (observedStartupConstructionExecutorBound) add("E407.Observation.InitialConstructionExecutorBoundObserved")
+        if (observedStartupConstructionWaiting) add("E407.Observation.InitialConstructionWaitingObserved")
+        if (observedStartupConstructionStarting) add("E407.Observation.InitialConstructionStartingObserved")
+        if (observedStartupConstructionQuery) add("E407.Observation.InitialConstructionQueryObserved")
+        if (observedStartupConstructionRetired) add("E407.Observation.InitialConstructionRetiredObserved")
         if (observedStartupRuntimeReady) add("E407.Observation.PassiveRuntimeReadyObserved")
         if (observedStartupJavascriptReady) add("E407.Observation.PassiveJavascriptReadyObserved")
         if (observedStartupAttachment) add("E407.Observation.PassiveAttachmentObserved")

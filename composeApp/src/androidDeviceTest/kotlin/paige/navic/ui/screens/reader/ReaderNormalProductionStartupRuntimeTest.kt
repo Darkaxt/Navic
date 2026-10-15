@@ -47,6 +47,28 @@ internal class Task407LoggerStartupObservation {
         "publication-activationfrozen" to 0,
         "publication-initialization-failed" to 0
     )
+    // Static, source-qualified ReaderEngineWebViewHost.android.kt projections only. No event
+    // message, payload, throwable, command ID, URL, location, identity or arbitrary key is retained.
+    private val readerEngineStartupObservationLabels = linkedSetOf<String>()
+
+    private companion object {
+        private val moduleLoadedConsoleMessages = setOf(
+            "Reader console TIP: module-loaded",
+            "Reader console LOG: module-loaded",
+            "Reader console WARNING: module-loaded",
+            "Reader console ERROR: module-loaded",
+            "Reader console DEBUG: module-loaded"
+        )
+        private val redactedConsoleErrorMessages = setOf(
+            "Reader console ERROR: module-loaded",
+            "Reader console ERROR: dispatch",
+            "Reader console ERROR: post",
+            "Reader console ERROR: bridge-unavailable",
+            "Reader console ERROR: post-failed",
+            "Reader console ERROR: reportError",
+            "Reader console ERROR: [redacted-reader-console]"
+        )
+    }
 
     private val sink: (LoggerEvent) -> Unit = { event ->
         try { observe(event) } catch (_: Throwable) { }
@@ -70,12 +92,14 @@ internal class Task407LoggerStartupObservation {
         installed = false
     }
 
-    /** Tags are source-qualified to ReaderPageTurnBitmapSource.android.kt and
-     * ReaderPageTurnBundleSource.android.kt; message data is compared but never retained. */
+    /** Tags are source-qualified to ReaderPageTurnBitmapSource.android.kt,
+     * ReaderPageTurnBundleSource.android.kt and ReaderEngineWebViewHost.android.kt; message data
+     * is compared but never retained. */
     private fun observe(event: LoggerEvent) = synchronized(lock) {
         when (event.tag) {
             "ReaderPageTurnBitmapSource" -> observeBitmapSource(event)
             "ReaderPageTurnBundleSource" -> observeBundleSource(event)
+            "ReaderEngineWebViewHost" -> observeReaderEngineHost(event)
         }
     }
 
@@ -122,6 +146,65 @@ internal class Task407LoggerStartupObservation {
         }
     }
 
+    /** Each input is a complete source-static projection from ReaderEngineLogProjector or a
+     * source-sanctioned scalar error prefix. The set receives only these fixed labels. */
+    private fun observeReaderEngineHost(event: LoggerEvent) {
+        when {
+            event.level == AppLogLevel.Info && event.message in moduleLoadedConsoleMessages ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineConsoleModuleLoaded"
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: ready" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeReady"
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: publicationReady" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineBridgePublicationReady"
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: commandAck" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeCommandAcknowledged"
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: commandFailed" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeCommandFailed"
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: locationChanged" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeLocationChanged"
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: currentDestinationResolved" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeCurrentDestinationResolved"
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: paginationProfileStatus" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineBridgePaginationProfileStatus"
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: error" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeError"
+            event.level == AppLogLevel.Info && event.message == "Dispatching reader engine command: openPublication" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineOpenPublicationDispatched"
+            event.level == AppLogLevel.Info && event.message == "Dispatching reader engine command: resolveCurrentDestination" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineResolveCurrentDestinationDispatched"
+            event.level == AppLogLevel.Info &&
+                event.message == "Skipping reader command dispatch: ready=false entrypoint=false" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineDispatchSkippedNotReadyNotEntrypoint"
+            event.level == AppLogLevel.Info &&
+                event.message == "Skipping reader command dispatch: ready=false entrypoint=true" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineDispatchSkippedNotReadyEntrypoint"
+            event.level == AppLogLevel.Info &&
+                event.message == "Skipping reader command dispatch: ready=true entrypoint=false" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineDispatchSkippedReadyNotEntrypoint"
+            event.level == AppLogLevel.Info &&
+                event.message == "Skipping reader command dispatch: ready=true entrypoint=true" ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineDispatchSkippedReadyEntrypoint"
+            event.level == AppLogLevel.Error &&
+                event.message.startsWith("Reader engine WebView error main=true code=") ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineMainFrameWebViewError"
+            event.level == AppLogLevel.Warning &&
+                event.message.startsWith("Reader engine WebView HTTP error main=true status=") ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineMainFrameWebViewError"
+            event.level == AppLogLevel.Error &&
+                event.message.startsWith("Reader engine WebView error main=false code=") ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineResourceWebViewError"
+            event.level == AppLogLevel.Warning &&
+                event.message.startsWith("Reader engine WebView HTTP error main=false status=") ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineResourceWebViewError"
+            event.level == AppLogLevel.Error &&
+                event.message.startsWith("Reader engine WebView render process gone didCrash=") ->
+                readerEngineStartupObservationLabels += "E407.Observation.EngineRendererRetired"
+        }
+        if (event.level == AppLogLevel.Error && event.message in redactedConsoleErrorMessages) {
+            readerEngineStartupObservationLabels += "E407.Observation.EngineConsoleErrorObserved"
+        }
+    }
+
     fun labels(): List<String> = synchronized(lock) { buildList {
         if (bitmapGeometryUnavailable) add("E407.Observation.BitmapGeometryUnavailable")
         if (bitmapAllocationFailed) add("E407.Observation.BitmapAllocationFailed")
@@ -150,6 +233,7 @@ internal class Task407LoggerStartupObservation {
                 else -> "E407.Observation.PersistenceInitializationFailed"
             })
         }
+        addAll(readerEngineStartupObservationLabels)
     } }
 }
 
