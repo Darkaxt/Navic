@@ -16,15 +16,20 @@ Integration contract (not Android authority):
   start must publish ownership before doing external work. A late returned Command
   is cancelled too; a hidden/unpublished child cannot be supervised by any API.
 * Create Observer(package) explicitly UNARMED, then Supervisor(..., instrument=None)
-  immediately after ownership, BEFORE boot/readiness/install or blocking work. No
-  guest clock is required yet. Preparation has one fixed original host deadline.
+  immediately after ownership, BEFORE boot/readiness/install or blocking work.
+  The real caller supplies launch_started captured before owned spawn; omitted
+  anchors preserve construction-time behavior for generic host integrations.
+  With a declared postboot reserve, complete_boot() admits exactly one successful
+  readiness handoff before boot expiry into a launch-ceiling-bounded second phase.
+  Generic zero-reserve host fixtures retain one original preparation deadline.
 * MAIN obtains a REAL observed device cursor plus corresponding live source and
   calls observer.arm(epoch=..., after_ns=..., source=...) once. Device clock/cursor
   acquisition, event command/framing and source provenance belong in the caller;
   never substitute host time, sentinels or retained events with a new timestamp.
   This fence is operational freshness, not a perfect-currentness/reader oracle.
-  Arming cannot reset preparation. Only armed, live-source admission before the
-  original deadline permits attach_instrumentation. Initial/unadmitted/late work
+  Arming cannot reset preparation or replace the configured boot handoff. Only
+  armed, live-source admission before the active preparation deadline permits
+  attach_instrumentation. Initial/unadmitted/late work
   is rejected/stopped. The separate host instrumentation cap starts on admission;
   reader production deadlines/oracles remain unchanged.
 * Command.spawn(on_line=decoder) streams bounded live lines without retaining
@@ -72,11 +77,34 @@ class Caps:
     settle: float
     snapshot_budget: float
     preparation: float = 60.0
+    postboot_preparation: float = 0.0
 
     def __post_init__(self):
-        if any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0
-               for v in self.__dict__.values()):
+        if (any(type(v) not in (int, float) or not math.isfinite(v)
+                or (v < 0 if name == 'postboot_preparation' else v <= 0)
+                for name, v in self.__dict__.items())
+                or not math.isfinite(self.session_budget)):
             raise Blocked()
+
+    @property
+    def teardown_budget(self):
+        """Sequential _teardown upper bound, including _command's finally tails.
+
+        Four standalone command budgets: identity, console stop, disconnect and
+        strict absence (all its retries share one deadline). Snapshot operations
+        share their own transaction deadline; only its last command can overrun
+        into cancellation. Instrument/source stop and both original-root waits
+        are independent obligations. No arbitrary scheduling cushion is added.
+        """
+        return (2 * self.settle + 4 * (self.command + self.settle)
+                + self.snapshot_budget + self.settle
+                + 2 * self.process_wait + self.stop)
+
+    @property
+    def session_budget(self):
+        """Launch -> guardian terminal; excludes selected-absence/caller cleanup."""
+        return (self.preparation + self.postboot_preparation
+                + self.instrumentation + self.teardown_budget)
 
 
 @dataclass(frozen=True)
@@ -691,7 +719,14 @@ def _console_stop_ack(raw):
 
 class Supervisor:
     """Independent single guardian; no Android command defaults or normal CLI."""
-    def __init__(self, *, owned, commands, observer, avd, serial, contract, caps, instrument=None):
+    def __init__(self, *, owned, commands, observer, avd, serial, contract, caps, instrument=None,
+                 launch_started=None):
+        now = time.monotonic()
+        if launch_started is None:
+            launch_started = now  # Generic host users retain their construction anchor.
+        if (type(launch_started) not in (int, float) or not math.isfinite(launch_started)
+                or launch_started > now):
+            raise Blocked()
         self._owned, self._commands, self._instrument = owned, commands, instrument
         self._observer, self._avd, self._serial = observer, avd, serial
         self._contract, self._caps = contract, caps
@@ -699,10 +734,15 @@ class Supervisor:
         self._finished = threading.Event()
         self._aborted = False
         self._accepting = True
-        self._phase_started = time.monotonic()
-        self._preparation_deadline = self._phase_started + caps.preparation
+        # The real caller captures this BEFORE owned spawn. Construction/adapter
+        # latency may consume boot time, never restart its launch-bounded ceiling.
+        self._phase_started = self._preparation_started = launch_started
+        self._preparation_deadline = self._preparation_started + caps.preparation
+        self._preparation_ceiling = self._preparation_deadline + caps.postboot_preparation
+        self._boot_completed_at = None
         with self._observer._lock:
-            self._initial_not_admitted = instrument is not None and not self._observer._admitted_locked()
+            self._initial_not_admitted = instrument is not None and (
+                caps.postboot_preparation > 0 or not self._observer._admitted_locked())
         self._report = None
         self._output_taken = False
         if self._instrument is not None:
@@ -711,12 +751,47 @@ class Supervisor:
         threading.Thread(target=self._guard, daemon=True).start()
 
     def preparation_remaining(self):
-        """Caller admission uses this guardian's ORIGINAL deadline, never a new cap."""
-        with self._condition:
+        """Admission clips to the active launch-bounded phase, never renews it."""
+        with self._condition, self._observer._lock:
+            source = self._observer.source
             if (not self._accepting or self._aborted or self._instrument is not None
-                    or self._observer.own_anr or self._observer.unavailable):
+                    or self._observer.own_anr or self._observer.unavailable
+                    or source is not None and (source.done.is_set() or source.feed_lost.is_set()
+                                              or source.cancelled or source.failure)):
                 return 0
             return max(0, self._preparation_deadline - time.monotonic())
+
+    def complete_boot(self):
+        """One successful readiness handoff; expiry wins even before guard scheduling.
+
+        The reserve is declared at launch. Only this transition may replace the
+        active boot deadline; it cannot move the original total ceiling.
+        """
+        with self._condition, self._observer._lock:
+            if (self._caps.postboot_preparation <= 0 or self._boot_completed_at is not None
+                    or self.preparation_remaining() <= 0):
+                return False
+            now = time.monotonic()
+            if now >= self._preparation_deadline:
+                return False
+            self._boot_completed_at = now
+            self._preparation_deadline = min(self._preparation_ceiling,
+                                             now + self._caps.postboot_preparation)
+            self._condition.notify_all()
+            return True
+
+    def preparation_observation(self):
+        """Fixed duration metadata only; never admission, native/guest liveness or proof."""
+        with self._condition:
+            now = time.monotonic()
+            postboot = self._boot_completed_at is not None
+            start = self._boot_completed_at if postboot else self._preparation_started
+            budget = self._caps.postboot_preparation if postboot else self._caps.preparation
+            return {'phase': 'POSTBOOT' if postboot else 'BOOT',
+                    'phase_budget_ms': int(budget * 1000),
+                    'phase_elapsed_ms': max(0, int((now - start) * 1000)),
+                    'phase_remaining_ms': max(0, int((self._preparation_deadline - now) * 1000)),
+                    'total_budget_ms': int((self._caps.preparation + self._caps.postboot_preparation) * 1000)}
 
     def wait_preparation(self, timeout, command=None):
         """Interruptible bounded command/condition wait inside original preparation.
@@ -746,12 +821,14 @@ class Supervisor:
         Create the Command with its own runtime bound before handing it over.
         """
         with self._condition, self._observer._lock:
+            now = time.monotonic()
             accepted = (self._accepting and self._instrument is None and not self._aborted
-                        and time.monotonic() < self._preparation_deadline
+                        and (self._caps.postboot_preparation == 0 or self._boot_completed_at is not None)
+                        and now < self._preparation_deadline
                         and self._observer._admitted_locked())
             if accepted:
                 self._instrument = command
-                self._phase_started = time.monotonic()
+                self._phase_started = now
                 command.subscribe(self._notify)
                 self._condition.notify_all()
         if not accepted:

@@ -32,7 +32,7 @@ COMPONENT = PACKAGE + '/paige.navic.ui.screens.reader.Task407RuntimeRunner'
 _READINESS_STEPS = frozenset(('WAIT_FOR_DEVICE', 'OWNED_AVD_IDENTITY', 'SYS_BOOT_COMPLETED'))
 _FIXED_PREFLIGHT_REASONS = frozenset((
     'SELECTED_ABSENCE_UNCONFIRMED', 'DEVICE_WAIT_UNCONFIRMED', 'OWNED_AVD_UNCONFIRMED',
-    'UI_READY_UNCONFIRMED', 'INSTALL_UNCONFIRMED', 'CURSOR_COMMAND_UNCONFIRMED',
+    'UI_READY_UNCONFIRMED', 'BOOT_HANDOFF_REJECTED', 'INSTALL_UNCONFIRMED', 'CURSOR_COMMAND_UNCONFIRMED',
     'OBSERVER_ADMISSION_REJECTED', 'INSTRUMENTATION_ADMISSION_REJECTED',
     'GUARDIAN_ALREADY_TERMINAL', 'PREFLIGHT_COMMAND_INCOMPLETE', 'PREFLIGHT_CLIENT_UNSETTLED',
     'UNEXPECTED_EXECUTION',
@@ -242,6 +242,8 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     separate mandatory installed transactional-cleanup step after terminal return.
     """
     validate_session(record, watchdog_id)
+    if caps.postboot_preparation <= 0:
+        raise ValueError('POSTBOOT_RESERVATION_REQUIRED')
     if not pins_match(pins):
         raise ValueError('SOURCE_PINS_CHANGED')
     s, adb = supervision, record['adb']
@@ -266,6 +268,8 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
               'production_release_accepted': False, 'anr_cause_proven': False,
               'fixed_readiness_step': None, 'fixed_preflight_failure_reason': None,
               'preflight_diagnostics_profile': 'PREFLIGHT_COMMAND_BOUNDARY_V1',
+              'operational_phase_profile': 'BOOT_THEN_POSTBOOT_RESERVATION_V1',
+              'boot_handoff_observation': None, 'install_observation': None,
               'failed_preflight_command': None}
 
     def require_preparation():
@@ -290,7 +294,20 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         boundary, wait_result, settlement = 'ADMISSION', 'NOT_REACHED', 'NOT_REACHED'
         preparation = 'NOT_APPLICABLE' if guardian is None else 'NOT_CHECKED'
         budget_ms = elapsed_ms = None
+        dispatched_at = None
         deadline_reached = 'NOT_CHECKED'
+
+        def observe_install():
+            if role == 'INSTALL':
+                # Prospective independent clock read; never backfill V1's short-
+                # circuited predicates or interpret this duration as liveness.
+                result['install_observation'] = {
+                    'elapsed_ms': (max(0, int((time.monotonic() - dispatched_at) * 1000))
+                                   if dispatched_at is not None else None),
+                    'returncode_class': _code_class(child.returncode) if child is not None else 'UNSET',
+                    'reply_check': 'NOT_REACHED', 'stderr_nonempty': None,
+                    'exact_success_line': None,
+                    'preparation': guardian.preparation_observation()}
 
         def prepare():
             nonlocal preparation
@@ -355,10 +372,12 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             reply = child.returncode, *child.take_output()
             if role == 'INSTALL':
                 install_boundary = snapshot()
+                observe_install()
             return reply
         except BaseException:
             # Freeze BEFORE finally may cancel the child or discard its bytes.
             failed_boundary, failed_child = snapshot(), child
+            observe_install()
             failed_cleanup = {'cleanup_cancel_requested': False,
                               'cleanup_cancel_settlement': 'NOT_REQUESTED'}
             raise
@@ -376,16 +395,19 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             return s.Command.spawn(lifecycle_argv(adb, action, argument),
                                    timeout=timeout, max_bytes=max_bytes, tree_owned=False)
 
-    cleanup_budget = (2 * caps.settle + 4 * caps.command + caps.snapshot_budget
-                      + 2 * caps.process_wait + caps.stop + 5)
-    session_budget = caps.preparation + caps.instrumentation + cleanup_budget
-    started = time.monotonic()
+    # Only launch -> guardian terminal belongs to the original owned Command.
+    # Selected absence precedes ownership: <=command including successful settle,
+    # or <=command+settle for its failed-command cancellation tail. It must never
+    # be subtracted from the guardian's independent launch-based wait.
+    session_budget = caps.session_budget
     try:
         code, out, err = command('SELECTED_ABSENCE', ['get-state'], caps.command)
         if not (code != 0 and not out.strip() and
                 err.strip() == ("error: device '" + SERIAL + "' not found").encode('ascii')):
             raise ValueError('SELECTED_ABSENCE_UNCONFIRMED')
         phase = 'OWNED_LAUNCH'
+        launch_started = time.monotonic()
+        guardian_deadline = launch_started + session_budget
         owned = s.Command.spawn([record['emulator'], '-avd', AVD, '-port', '5554',
                                  '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader',
                                  '-delay-adb'], timeout=session_budget,
@@ -396,7 +418,8 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             lambda same, timeout: same is original and owned.stop_tree(timeout))
         guardian = s.Supervisor(owned=anchor, commands=LifecycleCommands(),
             observer=observer, avd=AVD, serial=SERIAL,
-            contract=s.LaunchContract(watchdog_id=watchdog_id, no_snapshot_save=True), caps=caps)
+            contract=s.LaunchContract(watchdog_id=watchdog_id, no_snapshot_save=True),
+            caps=caps, launch_started=launch_started)
         phase = 'UI_READY'
         readiness_step = 'WAIT_FOR_DEVICE'
         code, out, err = command('WAIT_FOR_DEVICE', ['wait-for-device'], caps.preparation)
@@ -419,10 +442,19 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             # condition backoff inside the guardian's unchanged original cap.
             if not guardian.wait_preparation(.25):
                 raise ValueError('UI_READY_UNCONFIRMED')
+        handoff = guardian.complete_boot()
+        result['boot_handoff_observation'] = {
+            'accepted': handoff, **guardian.preparation_observation()}
+        if not handoff:
+            raise ValueError('BOOT_HANDOFF_REJECTED')
         readiness_step = None
         phase = 'INSTALL'
         code, out, err = command('INSTALL', ['install', '-r', '-t', record['apk_path']], caps.command)
-        if code != 0 or err or b'Success' not in out.splitlines():
+        install_ok = code == 0 and not err and b'Success' in out.splitlines()
+        result['install_observation'].update({
+            'reply_check': 'PASSED' if install_ok else 'REJECTED',
+            'stderr_nonempty': bool(err), 'exact_success_line': b'Success' in out.splitlines()})
+        if not install_ok:
             # Classify only the reply already in memory; this is not a specific
             # package-manager verdict. Never project its code or stream contents.
             failed_boundary = replace(install_boundary, boundary='INSTALL_CHECK_REJECTED',
@@ -462,6 +494,18 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         if guardian is not None and guardian.preparation_remaining() > 0:
             guardian.abort()
     finally:
+        # Caller-only obligations are NOT another owned/guardian lifetime: at
+        # most two unadmitted clients cancel here (2*settle), then fallback stop
+        # (stop), N retained preflight cancellations (N*settle), and the final
+        # aggregate settlement (<=N*settle, short-circuiting on failure). N is the
+        # actual clients list, including selected absence and every boot probe.
+        # Thus this finally/final-settlement tail is <=2*settle+stop+2*N*settle.
+        # Before finally there can also be one failed command cancellation
+        # (settle), a rejected observer arm (.5, its existing fixed bound), or a
+        # rejected instrument attachment (settle). Conservatively summing those
+        # actual call sites gives caller-only <=4*settle+.5+stop+2*N*settle,
+        # separately from the initial selected command and launch session. None
+        # renews a phase or the owned timeout, or steals time from guardian.wait.
         if source is not None and (observer is None or observer.source is not source):
             source.cancel(caps.settle)
             source.discard()
@@ -469,7 +513,10 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             instrument.cancel(caps.settle)
             instrument.discard()
         if guardian is not None:
-            report = guardian.wait(max(0, session_budget - (time.monotonic() - started)))
+            # Same pre-spawn anchor as the guardian. Command._reap starts its
+            # unchanged timeout later, so it cannot expire before this envelope;
+            # neither a nonzero prefix nor repeated waits renew this deadline.
+            report = guardian.wait(max(0, guardian_deadline - time.monotonic()))
         if owned is not None and (report is None or not report.shutdown_verified):
             # Original retained job only. This fallback cannot relabel a failed
             # guardian report or manufacture snapshot/disconnect/absence proof.
@@ -594,10 +641,12 @@ def main(argv=None):
         supervision = importlib.util.module_from_spec(module_spec)
         sys.modules[module_spec.name] = supervision
         module_spec.loader.exec_module(supervision)
-        # Independent operational caps only. Protected reader/test waits are not
-        # edited or renewed. -delay-adb + explicit boot property is a new readiness
-        # profile, not an equivalence claim about r108's boot-log wait.
-        caps = supervision.Caps(preparation=180, instrumentation=420, command=15,
+        # New prospective operational profile: boot180 then one reserved postboot45
+        # (install15 + cursor15 + finite admission envelope15), total ceiling225.
+        # This is allocation, not measured install latency or historical equivalence.
+        # Protected reader/test waits and instrumentation420 are unchanged.
+        caps = supervision.Caps(preparation=180, postboot_preparation=45,
+                                instrumentation=420, command=15,
                                 process_wait=5, stop=5, settle=2, snapshot_budget=15)
         with Path(args.output).open('x', encoding='utf-8') as output:
             result = run_session(supervision, record, labels, pins=pins,

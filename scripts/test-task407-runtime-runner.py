@@ -209,7 +209,8 @@ class HostDevice:
     """Real guardian/owned Windows job, synthetic selected-device replies only."""
     def __init__(self, *, boot=b'1\n', prearm_event=False, hang_install=False,
                  clean_absence=True, readiness=None, boot_replies=None, before_reply=None,
-                 install_reply=None, preparation_wait=None):
+                 install_reply=None, preparation_wait=None, synthetic_owned=False,
+                 guardian_gate=None):
         self.real = load_supervisor()
         self.calls = []
         self.call_times = []
@@ -258,6 +259,22 @@ class HostDevice:
                 if outer.before_reply is not None:
                     outer.before_reply(outer, argv)
                 if argv[0] == 'fixture-emulator.exe':
+                    if synthetic_owned:
+                        outer.launch = real.Command.pending()
+                        stopped = threading.Event()
+                        def wait(timeout):
+                            if not stopped.is_set():
+                                raise real.subprocess.TimeoutExpired('HOST_FIXTURE', timeout)
+                            return 0
+                        outer.launch.process = SimpleNamespace(wait=wait,
+                            poll=lambda: 0 if stopped.is_set() else None)
+                        def stop_tree(timeout):
+                            stopped.set()
+                            outer.launch.returncode = 0
+                            outer.launch._finish()
+                            return True
+                        outer.launch.stop_tree = stop_tree
+                        return outer.launch
                     outer.launch = real.Command.spawn(
                         [sys.executable, '-B', '-c',
                          'import threading; threading.Event().wait(10)'],
@@ -325,6 +342,18 @@ class HostDevice:
                 raise AssertionError('Unexpected fixture command')
 
         class Guardian(real.Supervisor):
+            def _guard(self):
+                if guardian_gate is not None:
+                    guardian_gate.wait(3)
+                super()._guard()
+
+            def wait(self, timeout):
+                if not hasattr(outer, 'final_wait_budget'):
+                    outer.final_wait_budget = timeout
+                if guardian_gate is not None:
+                    guardian_gate.set()
+                return super().wait(timeout)
+
             def __init__(self, **kwargs):
                 super().__init__(**kwargs)
                 outer.supervisor_created = True
@@ -345,7 +374,8 @@ class HostDevice:
             Observer=real.Observer, OwnedProcess=real.OwnedProcess,
             LaunchContract=real.LaunchContract, is_own_am_anr=real.is_own_am_anr)
         self.caps = real.Caps(instrumentation=.5, command=.1, process_wait=.05,
-                             stop=.7, settle=.5, snapshot_budget=.2, preparation=.5)
+                             stop=.7, settle=.5, snapshot_budget=.2, preparation=.5,
+                             postboot_preparation=.5)
 
     def cleanup(self):
         # Exact fixture-owned handle/job only; never SDK/ADB/process-name cleanup.
@@ -596,9 +626,12 @@ class PipelineTests(unittest.TestCase):
                 clock[0] += device.caps.command + .01
         device = HostDevice(before_reply=late)
         self.addCleanup(device.cleanup)
-        # Only caller command duration advances; the real guardian still has its
-        # original preparation time. This isolates the per-command deadline.
-        with mock.patch.object(runner, 'time', SimpleNamespace(monotonic=lambda: clock[0])):
+        # Advance only the caller's command hook, but share the launch anchor
+        # with the real guardian. The per-command expiry (.11) stays strictly
+        # inside the original preparation (.5), isolating that protected cap.
+        clock_api = SimpleNamespace(monotonic=lambda: clock[0])
+        with mock.patch.object(runner, 'time', clock_api), \
+             mock.patch.object(device.real, 'time', clock_api):
             result = self.execute(device)
         self.assert_no_reader_work(device, result)
         self.assertEqual(result['fixed_preflight_failure_reason'], 'PREFLIGHT_COMMAND_INCOMPLETE')
@@ -662,7 +695,11 @@ class PreflightBoundaryTests(unittest.TestCase):
         if clock is None:
             result = self.execute(device)
         else:
-            with mock.patch.object(runner, 'time', SimpleNamespace(monotonic=lambda: clock[0])):
+            # The caller now passes its original launch anchor to the guardian;
+            # both must observe this same explicit clock in boundary fixtures.
+            clock_api = SimpleNamespace(monotonic=lambda: clock[0])
+            with mock.patch.object(runner, 'time', clock_api), \
+                 mock.patch.object(device.real, 'time', clock_api):
                 result = self.execute(device)
         return device, result
 
@@ -858,7 +895,7 @@ class PreflightBoundaryTests(unittest.TestCase):
         result = self.execute(device)
         self.assertIsNone(result['failed_preflight_command'])
 
-    def test_r119_snapshot_is_frozen_and_production_caps_unchanged(self):
+    def test_r119_snapshot_frozen_with_r121_prospective_operational_caps(self):
         snapshot_type = getattr(runner, '_PreflightBoundary', None)
         self.assertTrue(dataclasses.is_dataclass(snapshot_type), 'R119_IMMUTABLE_SNAPSHOT_MISSING')
         self.assertTrue(snapshot_type.__dataclass_params__.frozen)
@@ -882,9 +919,10 @@ class PreflightBoundaryTests(unittest.TestCase):
                                                SimpleNamespace(returncode=0, stdout=b'')]
             runner.main(['--contract', 'fixture', '--contract-sha256', 'c' * 64,
                          '--output', 'fixture-never-created'])
+        # R121 prospectively reserves postboot45; V1 snapshots and protected caps stay fixed.
         self.assertEqual(captured, [{'command': 15, 'preparation': 180, 'instrumentation': 420,
                                     'process_wait': 5, 'stop': 5, 'settle': 2,
-                                    'snapshot_budget': 15}])
+                                    'snapshot_budget': 15, 'postboot_preparation': 45}])
         def clip_original_remainder(device, argv):
             if argv[3:5] == ['shell', '-T'] and shlex.split(argv[5]) == ['getprop', 'sys.boot_completed']:
                 original = device.guardian.preparation_remaining
@@ -895,6 +933,453 @@ class PreflightBoundaryTests(unittest.TestCase):
         install_options = next(options for argv, options in device.calls if argv[3:4] == ('install',))
         self.assertLessEqual(install_options['timeout'], .031)
         self.assertEqual(before['effective_budget_ms'], int(install_options['timeout'] * 1000))
+
+
+class ReservedPreparationTests(unittest.TestCase):
+    """R121 prospective profile; one explicit clock shared by caller and guardian."""
+    api = PipelineTests.api
+    execute = PipelineTests.execute
+
+    def device(self, **kwargs):
+        clock = [100.0]
+        device = HostDevice(synthetic_owned=True, guardian_gate=threading.Event(), **kwargs)
+        values = dict(preparation=180, command=15, instrumentation=420,
+                      process_wait=5, stop=5, settle=2, snapshot_budget=15)
+        # The starvation assertion also executes on the original production source.
+        if 'postboot_preparation' in device.real.Caps.__dataclass_fields__:
+            values['postboot_preparation'] = 45
+        device.caps = device.real.Caps(**values)
+        self.addCleanup(device.cleanup)
+        return device, clock
+
+    def run_clocked(self, device, clock):
+        clock_api = SimpleNamespace(monotonic=lambda: clock[0])
+        with mock.patch.object(runner, 'time', clock_api), \
+             mock.patch.object(device.real, 'time', clock_api):
+            return self.execute(device)
+
+    def install_calls(self, device):
+        return [(argv, opts) for argv, opts in device.calls if argv[3:4] == ('install',)]
+
+    def test_r121_slow_valid_boot_reserves_full_install_then_original_oracle(self):
+        def boot(device, argv):
+            if argv[3:] == ['wait-for-device']:
+                clock[0] = 265.655
+        def install(device):
+            clock[0] += 14.8
+            return device.real.Command.completed(0, b'Success\nR121_PRIVATE_CANARY')
+        device, clock = self.device(before_reply=boot, install_reply=install)
+        result = self.run_clocked(device, clock)
+        calls = self.install_calls(device)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1]['timeout'], 15, 'Cold boot must not consume install reserve')
+        self.assertEqual(calls[0][0][3:], ('install', '-r', '-t', 'fixture-only.apk'))
+        self.assertFalse(calls[0][1]['tree_owned'])
+        self.assertTrue(result['all_three_original_runtime_cases_passed'])
+        self.assertEqual((result['completed_test_count'], result['passed_test_count']), (3, 3))
+        self.assertEqual(result.get('operational_phase_profile'), 'BOOT_THEN_POSTBOOT_RESERVATION_V1')
+        observation = result.get('install_observation')
+        self.assertIsInstance(observation, dict, 'Actual safe successful install observation required')
+        self.assertIn(observation['elapsed_ms'], (14799, 14800))
+        self.assertEqual(observation['returncode_class'], 'ZERO')
+        self.assertEqual(observation['reply_check'], 'PASSED')
+        self.assertFalse(observation['stderr_nonempty'])
+        self.assertTrue(observation['exact_success_line'])
+        self.assertEqual(observation['preparation']['phase'], 'POSTBOOT')
+        self.assertNotIn('R121_PRIVATE_CANARY', json.dumps(result))
+        self.assertEqual(device.guardian._preparation_ceiling, 325)
+        self.assertAlmostEqual(device.guardian._preparation_deadline, 310.655)
+
+    def test_r121_owned_and_final_wait_include_only_finite_reserve(self):
+        device, clock = self.device()
+        result = self.run_clocked(device, clock)
+        launch = next(opts for argv, opts in device.calls if argv[0] == 'fixture-emulator.exe')
+        # Prospective correction of the obsolete +5 cushion: include each
+        # standalone command's cancellation and the final snapshot cancellation.
+        cleanup = 2 * 2 + 4 * (15 + 2) + (15 + 2) + 2 * 5 + 5
+        self.assertEqual(launch['timeout'], 180 + 45 + 420 + cleanup)
+        self.assertEqual(device.final_wait_budget, launch['timeout'])
+        self.assertTrue(result['all_three_original_runtime_cases_passed'])
+        instrument = next(opts for argv, opts in device.calls if argv[3:5] == ('shell', '-T')
+                          and shlex.split(argv[5])[:2] == ['am', 'instrument'])
+        self.assertEqual(instrument['timeout'], 420)
+
+    def test_r121_install_at_or_after_own_fifteen_never_admits(self):
+        for elapsed in (15, 15.001):
+            with self.subTest(elapsed=elapsed):
+                def install(device):
+                    clock[0] += elapsed
+                    return device.real.Command.completed(0, b'Success\n')
+                device, clock = self.device(install_reply=install)
+                result = self.run_clocked(device, clock)
+                self.assertFalse(device.instrument_seen)
+                self.assertFalse(result['runtime_result_analysis_performed'])
+                before = result['failed_preflight_command']['before_cleanup']
+                self.assertTrue(before['deadline_reached'])
+                self.assertEqual(before['boundary'], 'WAIT_REJECTED')
+                self.assertEqual(len(self.install_calls(device)), 1)
+                observation = result.get('install_observation')
+                self.assertIsInstance(observation, dict, 'New elapsed observation must not rewrite V1')
+                self.assertGreaterEqual(observation['elapsed_ms'], 15000)
+                self.assertEqual(observation['reply_check'], 'NOT_REACHED')
+
+    def test_r121_spawn_and_settle_share_install_deadline(self):
+        for settle_elapsed, passes in ((.999, True), (1, False), (1.001, False)):
+            with self.subTest(settle_elapsed=settle_elapsed):
+                def install(device):
+                    clock[0] += 14
+                    child = device.real.Command.completed(0, b'Success\n')
+                    first = [True]
+                    def settle(timeout):
+                        if first[0]:
+                            first[0] = False
+                            self.assertLessEqual(timeout, 1)
+                            clock[0] += settle_elapsed
+                        return True
+                    child.settle = settle
+                    return child
+                device, clock = self.device(install_reply=install)
+                result = self.run_clocked(device, clock)
+                self.assertEqual(result['all_three_original_runtime_cases_passed'], passes)
+                self.assertEqual(len(self.install_calls(device)), 1)
+                if not passes:
+                    before = result['failed_preflight_command']['before_cleanup']
+                    self.assertEqual(before['boundary'], 'POST_SETTLE_DEADLINE')
+                    self.assertEqual(before['settlement'], 'PASSED')
+
+    def test_r121_failed_wait_adds_elapsed_without_backfilling_v1(self):
+        def install(device):
+            return device.real.Command.pending()
+        def wait(device, timeout, child, original):
+            if child is device.install:
+                clock[0] += 3
+                device.guardian.abort()
+                return False
+            return original(timeout, child)
+        device, clock = self.device(install_reply=install, preparation_wait=wait)
+        result = self.run_clocked(device, clock)
+        before = result['failed_preflight_command']['before_cleanup']
+        self.assertIsNone(before['elapsed_ms'])
+        self.assertEqual(before['deadline_reached'], 'NOT_CHECKED')
+        self.assertFalse(before['child_done'])
+        self.assertFalse(before['child_cancelled'])
+        observation = result.get('install_observation')
+        self.assertIsInstance(observation, dict, 'Separate prospective failed-wait timing required')
+        self.assertEqual(observation['elapsed_ms'], 3000)
+        self.assertEqual(observation['returncode_class'], 'UNSET')
+        self.assertEqual(observation['reply_check'], 'NOT_REACHED')
+        self.assertIsNone(observation['stderr_nonempty'])
+        self.assertIsNone(observation['exact_success_line'])
+        self.assertTrue(result['failed_preflight_command']['cleanup_cancel_requested'])
+        self.assertFalse(result['runtime_result_analysis_performed'])
+
+    def test_r121_postboot_remainder_clips_install_without_renewal(self):
+        device, clock = self.device()
+        self.assertTrue(hasattr(device.real.Supervisor, 'complete_boot'), 'Readiness handoff required')
+        original = device.module.Supervisor.complete_boot
+        def handoff(guardian):
+            accepted = original(guardian)
+            clock[0] += 44
+            return accepted
+        device.module.Supervisor.complete_boot = handoff
+        result = self.run_clocked(device, clock)
+        self.assertEqual(self.install_calls(device)[0][1]['timeout'], 1)
+        self.assertEqual(device.guardian._preparation_deadline, 145)
+        self.assertTrue(result['all_three_original_runtime_cases_passed'])
+
+    def test_r121_session_requires_explicit_reservation_before_dispatch(self):
+        device = HostDevice(synthetic_owned=True)
+        device.caps = dataclasses.replace(device.caps, postboot_preparation=0)
+        self.addCleanup(device.cleanup)
+        with self.assertRaises(ValueError):
+            self.execute(device)
+        self.assertEqual(device.calls, [])
+
+
+class AccountingDevice:
+    """Virtual timed commands around REAL caller, guardian, work and teardown.
+
+    No process/thread runs. The guardian's timed wait evaluates its actual terminal
+    publication time against the supplied deadline, rather than granting a mock
+    success. Only clocks, blocking primitives and external command adapters change.
+    """
+    def __init__(self, *, prefix=14.9, hung=False, launch_gap=0, final_settle=0,
+                 unsettled_prefix=False):
+        self.real = load_supervisor()
+        self.unsettled_prefix = unsettled_prefix
+        self.now = 0.0
+        self.prefix, self.hung = prefix, hung
+        self.launch_gap, self.final_settle = launch_gap, final_settle
+        self.calls, self.clients, self.cancel_calls, self.settle_calls = [], [], [], []
+        self.guardian = self.launch = None
+        self.guarding = False
+        self.guard_finished_at = self.final_wait_at = self.final_wait_budget = None
+        self.caps = self.real.Caps(preparation=180, postboot_preparation=45,
+            instrumentation=420, command=15, process_wait=5, stop=5, settle=2, snapshot_budget=15)
+        outer, real = self, self.real
+
+        class Done:
+            def __init__(self, at):
+                self.at = at
+            def is_set(self):
+                return self.at is not None and outer.now >= self.at
+            def set(self):
+                self.at = outer.now
+            def wait(self, timeout):
+                if self.is_set():
+                    return True
+                if self.at is not None and self.at <= outer.now + timeout:
+                    outer.now = self.at
+                    return True
+                outer.now += timeout
+                return False
+
+        self.Done = Done
+
+        class NoThread:
+            def __init__(self, **kwargs):
+                pass
+            def start(self):
+                pass
+
+        self.threads = SimpleNamespace(Thread=NoThread, Event=threading.Event,
+            Condition=threading.Condition, Lock=threading.Lock, RLock=threading.RLock)
+
+        def bounded(call, timeout, late=None):
+            before = outer.now
+            try:
+                value = call()
+            except BaseException:
+                return False, None
+            return (True, value) if outer.now - before <= timeout + 1e-9 else (False, None)
+        self.bounded = bounded
+
+        class Commands:
+            @staticmethod
+            def spawn(argv, **kwargs):
+                args = argv[3:]
+                outer.calls.append((tuple(argv), kwargs, outer.now))
+                if argv[0] == 'fixture-emulator.exe':
+                    outer.launch_at = outer.now
+                    outer.now += outer.launch_gap
+                    child = outer.child('owned', at=None)
+                    # Command._reap starts its original timeout AFTER spawn; this
+                    # is no earlier than the caller's conservative launch anchor.
+                    child.timeout_anchor = outer.now
+                    child.deadline = outer.now + kwargs['timeout']
+                    stops = [0]
+                    def wait(timeout):
+                        if not child.done.wait(timeout):
+                            raise real.subprocess.TimeoutExpired('HOST_FIXTURE', timeout)
+                        return 0
+                    def stop_tree(timeout):
+                        stops[0] += 1
+                        outer.now += timeout if outer.hung else 4.9
+                        if outer.hung and stops[0] == 1:
+                            return False
+                        child.done.set()
+                        return True
+                    child.process = SimpleNamespace(wait=wait, poll=lambda: 0 if child.done.is_set() else None)
+                    child.stop_tree = stop_tree
+                    outer.launch = child
+                    return child
+                if args == ['get-state'] and outer.guardian is None:
+                    return outer.child('prefix', reply=(1, b'', b"error: device 'emulator-5554' not found"),
+                                       at=None if outer.unsettled_prefix else outer.now + outer.prefix,
+                                       preflight=True)
+                if not outer.guarding:
+                    if args == ['wait-for-device']:
+                        outer.now = outer.launch_at + 179.9
+                        return outer.child('wait', preflight=True)
+                    if args == ['emu', 'avd', 'name']:
+                        return outer.child('preflight_identity', reply=(0, b'NavicReaderLab\nOK\n', b''), preflight=True)
+                    if args[:1] == ['install']:
+                        return outer.child('install', reply=(0, b'Success\n', b''), at=outer.now + 14.9, preflight=True)
+                    if args[:2] == ['shell', '-T']:
+                        remote = shlex.split(args[2])
+                        if remote == ['getprop', 'sys.boot_completed']:
+                            return outer.child('boot', reply=(0, b'1\n', b''), preflight=True)
+                        if remote == ['toybox', 'date', '+%s.%N']:
+                            return outer.child('cursor', reply=(0, b'1760000000.123456789\n', b''),
+                                               at=outer.now + 14.9, preflight=True)
+                        if remote[0] == 'logcat':
+                            outer.now += 15.1
+                            return outer.child('observer', at=None)
+                        if remote[:2] == ['am', 'instrument']:
+                            outer.instrument = outer.child('instrument', reply=(0, transcript().encode(), b''),
+                                at=None if outer.hung else outer.now + 419.9)
+                            return outer.instrument
+                if args == ['emu', 'avd', 'name']:
+                    return outer.child('identity', reply=(0, b'NavicReaderLab\nOK\n', b''), at=outer.now + 14.9)
+                if args == ['emu', 'avd', 'snapshot', 'list']:
+                    kind, reply, delay = 'snapshot', (0, b'There are no snapshots available.\nOK\n', b''), 7.45
+                elif args == ['emu', 'kill']:
+                    kind, reply, delay = 'console', (0, b'OK: killing emulator, bye bye\n', b''), 14.9
+                elif args == ['wait-for-disconnect']:
+                    kind, reply, delay = 'disconnect', (0, b'', b''), 14.9
+                elif args == ['get-state']:
+                    kind, reply, delay = 'absence', (1, b'', b"error: device 'emulator-5554' not found"), 14.9
+                else:
+                    raise AssertionError('Unexpected accounting fixture command')
+                return outer.child(kind, reply=reply, at=None if outer.hung else outer.now + delay)
+
+        class Guardian(real.Supervisor):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                outer.guardian = self
+                self._condition.wait = lambda timeout: outer.advance_work(timeout)
+            def wait(self, timeout):
+                if self._finished.is_set():
+                    return super().wait(0)
+                outer.final_wait_at, outer.final_wait_budget = outer.now, timeout
+                deadline = outer.now + timeout
+                outer.guarding = True
+                self._guard()
+                outer.guard_finished_at = outer.now
+                return self._report if outer.now <= deadline else None
+
+        self.module = SimpleNamespace(Command=Commands, Supervisor=Guardian,
+            Observer=real.Observer, OwnedProcess=real.OwnedProcess,
+            LaunchContract=real.LaunchContract, is_own_am_anr=real.is_own_am_anr)
+
+    def advance_work(self, timeout):
+        child = (getattr(self, 'instrument', None) if self.guarding
+                 else getattr(self, 'waiting_preflight', None))
+        if child is not None and child.done.at is not None:
+            self.now = min(self.now + timeout, child.done.at)
+        else:
+            self.now += timeout
+
+    def child(self, kind, *, reply=(0, b'', b''), at='now', preflight=False):
+        child = self.real.Command.completed(*reply)
+        child.done = self.Done(self.now if at == 'now' else at)
+        def settle(timeout):
+            self.settle_calls.append((kind, timeout, self.now))
+            if preflight and self.guarding:
+                self.now += min(timeout, self.final_settle)
+            return child.done.wait(timeout)
+        def cancel(timeout):
+            self.cancel_calls.append((kind, timeout, self.now))
+            self.now += timeout if kind == 'prefix' and self.unsettled_prefix else min(timeout, 1.9)
+            child.cancelled = True
+            child.failure = child.failure or 'CANCELLED'
+            child.discard()
+            if kind == 'prefix' and self.unsettled_prefix:
+                return False
+            child.done.set()
+            return True
+        child.settle, child.cancel = settle, cancel
+        if preflight:
+            self.clients.append(child)
+            self.waiting_preflight = child
+        return child
+
+    def execute(self):
+        clock = SimpleNamespace(monotonic=lambda: self.now)
+        pins = [{'path': __file__, 'sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}]
+        with mock.patch.object(runner, 'time', clock), mock.patch.object(self.real, 'time', clock), \
+             mock.patch.object(self.real, 'threading', self.threads), \
+             mock.patch.object(self.real, '_bounded', self.bounded):
+            return runner.run_session(self.module, host_record(), {LABEL}, pins=pins,
+                                      caps=self.caps, watchdog_id='host-fixture')
+
+
+class AccountingClockTests(unittest.TestCase):
+    def assert_local_caps(self, device):
+        launches = [options for argv, options, _ in device.calls if argv[0] == 'fixture-emulator.exe']
+        self.assertEqual(len(launches), 1)
+        self.assertEqual(launches[0]['timeout'], 749)
+        installs, instruments = [], []
+        for argv, options, _ in device.calls:
+            if argv[0] == 'fixture-emulator.exe':
+                continue
+            self.assertFalse(options['tree_owned'])
+            args = list(argv[3:])
+            if args[:1] == ['install']:
+                installs.append(options)
+                self.assertEqual(args, ['install', '-r', '-t', 'fixture-only.apk'])
+            elif args[:2] == ['shell', '-T'] and shlex.split(args[2])[:2] == ['am', 'instrument']:
+                instruments.append(options)
+            elif args == ['wait-for-device']:
+                self.assertLessEqual(options['timeout'], 180)
+            elif args[:2] != ['shell', '-T'] or shlex.split(args[2])[0] != 'logcat':
+                self.assertLessEqual(options['timeout'], 15)
+        self.assertEqual(len(installs), 1)
+        self.assertEqual(installs[0]['timeout'], 15)
+        self.assertEqual(len(instruments), 1)
+        self.assertEqual(instruments[0]['timeout'], 420)
+        self.assertTrue(all(cap == 2 for _, cap, _ in device.cancel_calls))
+
+    def test_r121_spec1_nonzero_prefix_near_limit_clean_terminal_keeps_original_output(self):
+        device = AccountingDevice()
+        result = device.execute()
+        self.assertAlmostEqual(device.guard_finished_at, 745.9)
+        self.assert_local_caps(device)
+        self.assertTrue(result['all_three_original_runtime_cases_passed'], 'R121_SPEC1_PREFIX_TRUNCATED_TERMINAL')
+        self.assertEqual(result['supervisor']['status'], 'NATURAL_COMPLETION')
+        self.assertEqual(result['passed_test_count'], 3)
+        self.assertLess(device.guard_finished_at, device.launch.deadline)
+        self.assertAlmostEqual(device.final_wait_at + device.final_wait_budget,
+                               device.launch_at + 749)
+        self.assertEqual(device.guardian._preparation_ceiling, device.launch_at + 225)
+
+    def test_r121_spec2_hung_lifecycle_cancellation_tails_reach_truthful_terminal(self):
+        device = AccountingDevice(prefix=0, hung=True)
+        result = device.execute()
+        self.assertAlmostEqual(device.guard_finished_at, 746.1)
+        self.assert_local_caps(device)
+        self.assertIsNotNone(result['supervisor'], 'R121_SPEC2_CANCELLATION_TAILS_TRUNCATED')
+        self.assertEqual(result['supervisor']['status'], 'BLOCKED')
+        self.assertEqual(result['supervisor']['cause'], 'INSTRUMENTATION_CAP')
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertFalse(result['automatic_emulator_teardown_verified'])
+        self.assertNotIn('passed_test_count', result)
+        self.assertEqual([kind for kind, _, _ in device.cancel_calls],
+                         ['instrument', 'observer', 'snapshot', 'console', 'disconnect', 'absence'])
+        self.assertEqual(result['supervisor']['cleanup_failures'],
+            ('SNAPSHOTS_UNCONFIRMED', 'CONSOLE_STOP_UNCONFIRMED', 'ORIGINAL_TREE_STOP',
+             'ORIGINAL_TERMINAL_UNCONFIRMED', 'DISCONNECT_UNCONFIRMED', 'ABSENCE_UNCONFIRMED'))
+        self.assertLess(device.guard_finished_at, device.launch.deadline)
+        with self.assertRaises(device.real.Blocked):
+            device.guardian.take_instrumentation_output()
+
+    def test_r121_owned_guardian_final_wait_share_launch_not_prefix_or_constructor(self):
+        device = AccountingDevice(launch_gap=2)
+        result = device.execute()
+        self.assertEqual(device.guardian._preparation_started, device.launch_at,
+                         'Guardian must not restart the boot clock after owned spawn')
+        self.assertEqual(device.guardian._preparation_ceiling, device.launch_at + 225)
+        self.assertAlmostEqual(device.final_wait_at + device.final_wait_budget, device.launch_at + 749)
+        self.assertEqual(device.launch.deadline, device.launch_at + 2 + 749)
+        self.assertTrue(result['all_three_original_runtime_cases_passed'])
+        self.assertFalse(device.guardian.complete_boot())
+
+    def test_r121_caller_fallback_and_actual_client_settlement_are_separate_finite_tail(self):
+        device = AccountingDevice(prefix=14.9, hung=True, final_settle=2)
+        result = device.execute()
+        self.assertIsNotNone(result['supervisor'], 'Caller needs the truthful blocked guardian report')
+        final_calls = [(kind, cap, at) for kind, cap, at in device.settle_calls if at >= device.guard_finished_at]
+        self.assertEqual(len(final_calls), len(device.clients))
+        self.assertTrue(all(cap == 2 for _, cap, _ in final_calls))
+        self.assertAlmostEqual(device.now - device.guard_finished_at, 5 + 2 * len(device.clients))
+        self.assertLessEqual(device.now, device.launch_at + 749 + 5 + 4 * len(device.clients))
+        self.assertTrue(result['preflight_clients_settled'])
+        self.assertFalse(result['runtime_result_analysis_performed'])
+
+
+    def test_r121_failed_prefix_has_only_original_cancel_and_final_client_obligations(self):
+        device = AccountingDevice(unsettled_prefix=True)
+        result = device.execute()
+        self.assertEqual(device.now, 15 + 2 + 2 + 2)
+        self.assertIsNone(device.launch)
+        self.assertIsNone(device.guardian)
+        self.assertEqual(len(device.calls), 1)
+        self.assertEqual(device.cancel_calls, [('prefix', 2, 15), ('prefix', 2, 17)])
+        self.assertEqual(device.settle_calls, [('prefix', 2, 19)])
+        self.assertFalse(result['preflight_clients_settled'])
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertEqual(result['fixed_preflight_failure'], 'SELECTED_ABSENCE_BLOCKED')
+        self.assertEqual(result['failed_preflight_command']['cleanup_cancel_settlement'], 'FAILED')
 
 
 class ProvenanceTests(unittest.TestCase):

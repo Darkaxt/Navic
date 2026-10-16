@@ -8,6 +8,9 @@ import sys
 import threading
 import time
 import unittest
+from unittest import mock
+from contextlib import contextmanager
+from types import SimpleNamespace
 
 SOURCE = Path(__file__).with_name('task407-runtime-supervisor.py')
 SPEC = importlib.util.spec_from_file_location('task407_runtime_supervisor', SOURCE)
@@ -849,6 +852,214 @@ class SupervisorTests(unittest.TestCase):
         self.assertFalse(report.original_terminal)
         self.assertIn(('disconnect', None), adapter.calls)
         self.assertIn(('absence', None), adapter.calls)
+
+
+class ReservedPhaseTests(unittest.TestCase):
+    """R121 phase races use explicit clocks and synchronization, not timed luck."""
+    @contextmanager
+    def preparing(self, *, initial=False):
+        clock = [100.0]
+        release = threading.Event()
+        sleeping = threading.Event()
+        owned = FakeOwned()
+        adapter = FixtureAdapter(owned)
+        observer = S.Observer(PACKAGE)
+        if initial:
+            self.assertTrue(observer.arm(epoch='host', after_ns=100, source=S.Command.pending()))
+        class HeldSupervisor(S.Supervisor):
+            def _guard(self):
+                release.wait(3)
+                super()._guard()
+        values = dict(preparation=180, instrumentation=420, command=15,
+                      process_wait=.01, stop=5, settle=2, snapshot_budget=15)
+        if 'postboot_preparation' in S.Caps.__dataclass_fields__:
+            values['postboot_preparation'] = 45
+        with mock.patch.object(S, 'time', SimpleNamespace(monotonic=lambda: clock[0])):
+            guardian = HeldSupervisor(owned=owned, commands=adapter, observer=observer,
+                avd=AVD, serial=SERIAL, contract=S.LaunchContract('host', True),
+                caps=S.Caps(**values), instrument=S.Command.completed(0) if initial else None)
+            original_wait = guardian._condition.wait
+            def condition_wait(timeout):
+                sleeping.set()
+                return original_wait(timeout)
+            guardian._condition.wait = condition_wait
+            try:
+                yield guardian, owned, observer, clock, release, sleeping
+            finally:
+                guardian.abort()
+                release.set()
+                self.assertTrue(guardian._finished.wait(3), 'Synchronized guardian fixture must settle')
+
+    def handoff(self, guardian):
+        value = getattr(guardian, 'complete_boot', None)
+        self.assertTrue(callable(value), 'Atomic one-shot boot handoff is required')
+        return value
+
+    def test_r121_handoff_is_one_shot_launch_fixed_and_observations_do_not_renew(self):
+        with self.preparing() as (guardian, _, observer, clock, _, _):
+            self.assertEqual(guardian._preparation_deadline, 280)
+            clock[0] = 265.655
+            self.assertTrue(self.handoff(guardian)())
+            self.assertAlmostEqual(guardian._preparation_deadline, 310.655)
+            self.assertEqual(guardian._preparation_ceiling, 325)
+            clock[0] += 1
+            self.assertFalse(self.handoff(guardian)())
+            self.assertAlmostEqual(guardian.preparation_remaining(), 44)
+            self.assertTrue(guardian.wait_preparation(1, S.Command.completed(0)))
+            self.assertTrue(observer.arm(epoch='host', after_ns=100, source=S.Command.pending()))
+            observe = getattr(guardian, 'preparation_observation', None)
+            self.assertTrue(callable(observe), 'Fixed operational timing observation required')
+            row = observe()
+            self.assertEqual(row['phase'], 'POSTBOOT')
+            self.assertEqual(row['phase_budget_ms'], 45000)
+            self.assertEqual(row['phase_elapsed_ms'], 1000)
+            self.assertEqual(row['phase_remaining_ms'], 44000)
+            self.assertEqual(row['total_budget_ms'], 225000)
+            self.assertAlmostEqual(guardian._preparation_deadline, 310.655)
+            self.assertEqual(guardian._preparation_ceiling, 325)
+
+    def test_r121_at_or_after_boot_expiry_rejects_even_before_guardian_runs(self):
+        for at in (280, 280.001):
+            with self.subTest(at=at), self.preparing() as (guardian, _, _, clock, _, _):
+                clock[0] = at
+                self.assertFalse(self.handoff(guardian)())
+                self.assertEqual(guardian._preparation_deadline, 280)
+                self.assertEqual(guardian.preparation_remaining(), 0)
+
+    def test_r121_abort_observer_terminal_and_stopped_guardian_cannot_handoff(self):
+        for state in ('abort', 'observer_failed', 'own_anr', 'source_failed', 'terminal'):
+            with self.subTest(state=state), self.preparing() as (guardian, _, observer, _, _, _):
+                if state == 'abort':
+                    guardian.abort()
+                elif state == 'observer_failed':
+                    observer.failed()
+                elif state in ('own_anr', 'source_failed'):
+                    source = S.Command.pending()
+                    self.assertTrue(observer.arm(epoch='host', after_ns=100, source=source))
+                    if state == 'own_anr':
+                        observer.am_anr('am_anr', '[0,42,' + PACKAGE + ',0,opaque]',
+                                        timestamp_ns=101, epoch='host')
+                    else:
+                        source.failure = 'STREAM_FAILED'
+                else:
+                    with guardian._condition:
+                        guardian._accepting = False
+                self.assertFalse(self.handoff(guardian)())
+                self.assertEqual(guardian._preparation_deadline, 280)
+
+    def test_r121_configured_attachment_requires_handoff_even_with_live_observer(self):
+        with self.preparing() as (guardian, _, observer, _, _, _):
+            self.assertTrue(observer.arm(epoch='host', after_ns=100, source=S.Command.pending()))
+            child = S.Command.pending()
+            self.assertFalse(guardian.attach_instrumentation(child), 'Arming must not bypass boot handoff')
+            self.assertTrue(child.cancelled)
+            self.assertEqual(guardian._preparation_deadline, 280)
+
+    def test_r121_configured_initial_instrument_cannot_bypass_handoff(self):
+        with self.preparing(initial=True) as (guardian, _, _, _, release, _):
+            release.set()
+            self.assertTrue(guardian._finished.wait(3))
+            report = guardian.wait(0)
+            self.assertFalse(report.eligible_for_oracle, 'Initial instrument must not bypass phase admission')
+            self.assertEqual(report.cause, 'OBSERVER_NOT_ADMITTED')
+
+    def test_r121_guardian_autonomously_enforces_boot_and_postboot(self):
+        for phase in ('BOOT', 'POSTBOOT'):
+            with self.subTest(phase=phase), self.preparing() as (guardian, owned, _, clock, release, sleeping):
+                if phase == 'POSTBOOT':
+                    clock[0] = 265.655
+                    self.assertTrue(self.handoff(guardian)())
+                else:
+                    self.assertTrue(hasattr(guardian, 'complete_boot'), 'Explicit phase contract required')
+                release.set()
+                self.assertTrue(sleeping.wait(2), 'Guardian must independently wait on active deadline')
+                with guardian._condition:
+                    clock[0] = guardian._preparation_deadline
+                    guardian._condition.notify_all()
+                # No caller wait_preparation/wait is used to drive expiry or teardown.
+                self.assertTrue(guardian._finished.wait(3))
+                self.assertTrue(owned.stopped.is_set())
+                report = guardian.wait(0)
+                self.assertEqual(report.cause, 'PREPARATION_CAP')
+                self.assertTrue(report.shutdown_verified)
+                self.assertFalse(report.eligible_for_oracle)
+                self.assertFalse(self.handoff(guardian)())
+
+    def test_r121_postboot_expiry_rejects_attachment_and_duplicate_without_scheduling(self):
+        with self.preparing() as (guardian, _, observer, clock, _, _):
+            clock[0] = 279.999
+            self.assertTrue(self.handoff(guardian)())
+            self.assertLessEqual(guardian._preparation_deadline, 325)
+            self.assertTrue(observer.arm(epoch='host', after_ns=100, source=S.Command.pending()))
+            clock[0] = guardian._preparation_deadline
+            child = S.Command.pending()
+            self.assertFalse(self.handoff(guardian)())
+            self.assertFalse(guardian.attach_instrumentation(child))
+            self.assertTrue(child.cancelled)
+            self.assertEqual(guardian.preparation_remaining(), 0)
+
+    def test_r121_handoff_does_not_change_instrumentation_or_terminal_precedence(self):
+        for terminal, expected in (('natural', 'NATURAL_COMPLETION'), ('anr', 'OWN_ANR'),
+                                   ('lost', 'OBSERVER_FAILED'), ('abort', 'ABORTED')):
+            with self.subTest(terminal=terminal), self.preparing() as (guardian, _, observer, clock, release, _):
+                self.assertTrue(self.handoff(guardian)())
+                self.assertTrue(observer.arm(epoch='host', after_ns=100, source=S.Command.pending()))
+                child = S.Command.completed(0, b'HOST_FIXED')
+                clock[0] = 144.999
+                self.assertTrue(guardian.attach_instrumentation(child))
+                self.assertEqual(guardian._caps.instrumentation, 420)
+                self.assertFalse(self.handoff(guardian)())
+                if terminal == 'anr':
+                    observer.am_anr('am_anr', '[0,42,' + PACKAGE + ',0,opaque]', timestamp_ns=101, epoch='host')
+                elif terminal == 'lost':
+                    observer.failed()
+                elif terminal == 'abort':
+                    guardian.abort()
+                release.set()
+                self.assertTrue(guardian._finished.wait(3))
+                report = guardian.wait(0)
+                self.assertEqual(report.cause, expected)
+                self.assertEqual(report.eligible_for_oracle, terminal == 'natural')
+                if terminal != 'natural':
+                    with self.assertRaises(S.Blocked):
+                        guardian.take_instrumentation_output()
+
+    def test_r121_reservation_is_finite_and_generic_zero_default_is_preserved(self):
+        self.assertIn('postboot_preparation', S.Caps.__dataclass_fields__, 'Finite declared reserve missing')
+        self.assertEqual(S.Caps(420, 15, 5, 5, 2, 15).postboot_preparation, 0)
+        for invalid in (-1, float('inf'), float('nan'), True, '45'):
+            with self.subTest(kind=type(invalid).__name__), self.assertRaises(S.Blocked):
+                S.Caps(420, 15, 5, 5, 2, 15, preparation=180, postboot_preparation=invalid)
+
+
+class AccountingEnvelopeTests(unittest.TestCase):
+    def test_r121_outer_envelope_counts_each_existing_cancellation_tail(self):
+        caps = S.Caps(420, 15, 5, 5, 2, 15, preparation=180, postboot_preparation=45)
+        self.assertTrue(hasattr(caps, 'teardown_budget'), 'Explicit actual-path teardown envelope required')
+        # instrument + observer; identity/console/disconnect/absence, each with
+        # timeout+finally cancellation; one snapshot transaction+last cancellation;
+        # original wait + tree stop + independent terminal wait. No cushion.
+        self.assertEqual(caps.teardown_budget, 2 * 2 + 4 * (15 + 2) + (15 + 2) + 2 * 5 + 5)
+        self.assertEqual(caps.session_budget, 180 + 45 + 420 + caps.teardown_budget)
+        self.assertEqual(caps.session_budget, 749)
+        self.assertEqual(dataclasses.asdict(caps), dict(instrumentation=420, command=15,
+            process_wait=5, stop=5, settle=2, snapshot_budget=15,
+            preparation=180, postboot_preparation=45))
+
+    def test_r121_explicit_launch_anchor_rejects_unusable_clocks_before_guardian_start(self):
+        caps = S.Caps(420, 15, 5, 5, 2, 15, preparation=180, postboot_preparation=45)
+        with mock.patch.object(S, 'time', SimpleNamespace(monotonic=lambda: 100)), \
+             mock.patch.object(S.threading, 'Thread') as thread:
+            for invalid in (101, float('inf'), float('nan'), True, '99'):
+                with self.subTest(kind=type(invalid).__name__), self.assertRaises(S.Blocked):
+                    S.Supervisor(owned=FakeOwned(), commands=None, observer=S.Observer(PACKAGE),
+                        avd=AVD, serial=SERIAL, contract=S.LaunchContract('host', True),
+                        caps=caps, launch_started=invalid)
+            thread.assert_not_called()
+
+    def test_r121_derived_envelope_must_be_finite_without_relaxing_local_caps(self):
+        with self.assertRaises(S.Blocked):
+            S.Caps(1e308, 1e308, 5, 5, 2, 15, preparation=180, postboot_preparation=45)
 
 
 if __name__ == '__main__':
