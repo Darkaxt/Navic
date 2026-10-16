@@ -710,6 +710,35 @@ class Supervisor:
         self._observer.subscribe(self._notify)
         threading.Thread(target=self._guard, daemon=True).start()
 
+    def preparation_remaining(self):
+        """Caller admission uses this guardian's ORIGINAL deadline, never a new cap."""
+        with self._condition:
+            if (not self._accepting or self._aborted or self._instrument is not None
+                    or self._observer.own_anr or self._observer.unavailable):
+                return 0
+            return max(0, self._preparation_deadline - time.monotonic())
+
+    def wait_preparation(self, timeout, command=None):
+        """Interruptible bounded command/condition wait inside original preparation.
+
+        A command publishes its completion notification before the wait. With no
+        command this is finite readiness backoff, not another lifecycle clock.
+        Abort, observer loss, terminal guardian or original cap interrupts either.
+        """
+        deadline = min(self._preparation_deadline, time.monotonic() + timeout)
+        if command is not None:
+            command.subscribe(self._notify)
+        with self._condition:
+            while self.preparation_remaining() > 0:
+                if command is not None and command.done.is_set():
+                    return True
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return command is None
+                self._condition.wait(remaining)
+            self._condition.notify_all()
+            return False
+
     def attach_instrumentation(self, command):
         """Transition preparation -> instrumentation exactly once.
 
@@ -754,7 +783,10 @@ class Supervisor:
         try:
             if not command.done.wait(max(0, deadline - time.monotonic())):
                 raise Blocked()
-            if command.failure or command.buffered_bytes > 65536:
+            if command.failure or command.cancelled or command.buffered_bytes > 65536:
+                raise Blocked()
+            if (not command.settle(min(self._caps.settle, max(0, deadline - time.monotonic())))
+                    or time.monotonic() >= deadline):
                 raise Blocked()
             return command.returncode, *command.take_output()
         finally:
@@ -866,10 +898,23 @@ class Supervisor:
             pass
         if not disconnect:
             failures.append('DISCONNECT_UNCONFIRMED')
+        # Disconnect can describe an offline transport. Observe the independent
+        # strict condition within ONE existing absence-command budget; retries and
+        # settlement never renew it. Nonstrict replies are pending, never proof.
+        deadline = time.monotonic() + caps.command
+        retry = threading.Event()
         try:
-            code, out, err = self._command('absence')
-            absence = (code != 0 and not out.strip() and
-                       err.strip() == ("error: device '" + self._serial + "' not found").encode('ascii'))
+            while time.monotonic() < deadline:
+                code, out, err = self._command('absence', timeout=deadline - time.monotonic())
+                absence = (code != 0 and not out.strip() and
+                           err.strip() == ("error: device '" + self._serial + "' not found").encode('ascii'))
+                if time.monotonic() >= deadline:
+                    absence = False
+                    break
+                if absence:
+                    break
+                # Fixed finite condition backoff, bounded by the SAME budget.
+                retry.wait(min(.25, max(0, deadline - time.monotonic())))
         except BaseException:
             pass
         if not absence:

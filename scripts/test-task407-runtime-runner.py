@@ -6,6 +6,10 @@ import shlex
 import hashlib
 import sys
 import io
+import dataclasses
+import threading
+import time
+from unittest import mock
 from contextlib import redirect_stdout
 from types import SimpleNamespace
 import unittest
@@ -204,9 +208,13 @@ def host_record():
 class HostDevice:
     """Real guardian/owned Windows job, synthetic selected-device replies only."""
     def __init__(self, *, boot=b'1\n', prearm_event=False, hang_install=False,
-                 clean_absence=True, readiness=None):
+                 clean_absence=True, readiness=None, boot_replies=None, before_reply=None):
         self.real = load_supervisor()
         self.calls = []
+        self.call_times = []
+        self.boot_replies = iter(boot_replies) if boot_replies is not None else None
+        self.boot_clients = []
+        self.before_reply = before_reply
         self.boot = boot
         self.prearm_event = prearm_event
         self.hang_install = hang_install
@@ -222,7 +230,8 @@ class HostDevice:
         real = self.real
 
         def readiness_reply(step, default):
-            if step in outer.readiness_used or step not in outer.readiness:
+            if ((step in outer.readiness_used and step != 'SYS_BOOT_COMPLETED')
+                    or step not in outer.readiness):
                 return default
             outer.readiness_used.add(step)
             value = outer.readiness[step]
@@ -242,6 +251,9 @@ class HostDevice:
             @staticmethod
             def spawn(argv, **kwargs):
                 outer.calls.append((tuple(argv), kwargs))
+                outer.call_times.append(time.monotonic())
+                if outer.before_reply is not None:
+                    outer.before_reply(outer, argv)
                 if argv[0] == 'fixture-emulator.exe':
                     outer.launch = real.Command.spawn(
                         [sys.executable, '-B', '-c',
@@ -276,7 +288,17 @@ class HostDevice:
                 if args[:2] == ['shell', '-T']:
                     remote = shlex.split(args[2])
                     if remote == ['getprop', 'sys.boot_completed']:
-                        return readiness_reply('SYS_BOOT_COMPLETED', real.Command.completed(0, outer.boot))
+                        reply = (next(outer.boot_replies) if outer.boot_replies is not None
+                                 else outer.boot)
+                        if isinstance(reply, BaseException):
+                            raise reply
+                        if callable(reply):
+                            reply = reply(outer)
+                        child = (real.Command.completed(0, reply) if isinstance(reply, bytes)
+                                 else reply)
+                        child = readiness_reply('SYS_BOOT_COMPLETED', child)
+                        outer.boot_clients.append(child)
+                        return child
                     if remote == ['toybox', 'date', '+%s.%N']:
                         return real.Command.completed(0, b'1760000000.123456789\n')
                     if remote[0] == 'logcat':
@@ -454,6 +476,155 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(result['all_three_original_runtime_cases_passed'])
         self.assertFalse(device.taken_after_shutdown)
         self.assertNotIn('passed_test_count', result)
+
+
+    def boot_calls(self, device):
+        return [(at, options) for (argv, options), at in zip(device.calls, device.call_times)
+                if argv[3:5] == ('shell', '-T')
+                and shlex.split(argv[5]) == ['getprop', 'sys.boot_completed']]
+
+    def assert_no_reader_work(self, device, result):
+        self.assertIsNone(device.install)
+        self.assertFalse(device.instrument_seen)
+        self.assertFalse(device.guardian._observer.armed)
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertNotIn('passed_test_count', result)
+
+    def test_r117_pending_boot_property_reaches_exact_ready_with_finite_backoff(self):
+        device = HostDevice(boot_replies=[b'\n', b'0\r\n', b'1\n'])
+        device.caps = dataclasses.replace(device.caps, preparation=1)
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        self.assertTrue(result['all_three_original_runtime_cases_passed'])
+        probes = self.boot_calls(device)
+        self.assertEqual(len(probes), 3)
+        self.assertTrue(all(later[0] - earlier[0] >= .20
+                            for earlier, later in zip(probes, probes[1:])))
+        self.assertTrue(all(client.settle(.1) and client.buffered_bytes == 0
+                            for client in device.boot_clients))
+
+    def test_r117_perpetual_pending_uses_original_preparation_deadline(self):
+        device = HostDevice(boot=b'0\n')
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        self.assert_no_reader_work(device, result)
+        self.assertEqual(result['supervisor']['cause'], 'PREPARATION_CAP')
+        self.assertTrue(result['automatic_emulator_teardown_verified'])
+        probes = self.boot_calls(device)
+        self.assertGreaterEqual(len(probes), 2)
+        self.assertLessEqual(len(probes), 3)
+        self.assertTrue(all(at < device.guardian._preparation_deadline for at, _ in probes))
+        self.assertTrue(all(options['timeout'] <= min(device.caps.command,
+            device.guardian._preparation_deadline - at) + .01 for at, options in probes))
+
+    def test_r117_property_error_private_payload_and_unexpected_framing_fail_closed(self):
+        for reply in (b'PRIVATE_READINESS_CANARY\n', b' 1\n', b'1\nextra\n', b'2\n',
+                      b'0\n0\n', RuntimeError('PRIVATE_READINESS_CANARY'),
+                      ValueError(['PRIVATE_READINESS_CANARY'])):
+            with self.subTest(reply=type(reply).__name__):
+                device = HostDevice(boot_replies=[reply, b'1\n'])
+                self.addCleanup(device.cleanup)
+                result = self.execute(device)
+                self.assert_no_reader_work(device, result)
+                self.assertEqual(len(self.boot_calls(device)), 1)
+                self.assertNotIn('PRIVATE_READINESS_CANARY', json.dumps(result))
+        for code, out, err in ((1, b'0\n', b''), (0, b'0\n', b'private')):
+            device = HostDevice(readiness={'SYS_BOOT_COMPLETED': (code, out, err)})
+            self.addCleanup(device.cleanup)
+            result = self.execute(device)
+            self.assert_no_reader_work(device, result)
+            self.assertEqual(len(self.boot_calls(device)), 1)
+
+    def test_r117_abort_during_pending_property_interrupts_before_next_probe(self):
+        def abort(device):
+            device.guardian.abort()
+            return b'0\n'
+        device = HostDevice(boot_replies=[abort, b'1\n'])
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        self.assert_no_reader_work(device, result)
+        self.assertEqual(result['supervisor']['cause'], 'ABORTED')
+        self.assertEqual(len(self.boot_calls(device)), 1)
+        self.assertTrue(result['automatic_emulator_teardown_verified'])
+
+    def test_r117_expired_original_preparation_blocks_each_remaining_dispatch(self):
+        # Force the real admission deadline past, without waiting for guardian
+        # scheduling. No new deadline may be synthesized at phase boundaries.
+        for target in ('wait-for-device', 'identity', 'boot', 'install', 'cursor'):
+            with self.subTest(target=target):
+                def expire(device, argv):
+                    args = argv[3:]
+                    remote = shlex.split(args[2]) if args[:2] == ['shell', '-T'] else []
+                    matched = ((target == 'wait-for-device' and args == ['wait-for-device'])
+                        or (target == 'identity' and args == ['emu', 'avd', 'name'])
+                        or (target == 'boot' and remote == ['getprop', 'sys.boot_completed'])
+                        or (target == 'install' and args[:1] == ['install'])
+                        or (target == 'cursor' and remote == ['toybox', 'date', '+%s.%N']))
+                    if matched:
+                        device.guardian._preparation_deadline = time.monotonic() - .01
+                        device.guardian._notify()
+                device = HostDevice(before_reply=expire)
+                self.addCleanup(device.cleanup)
+                result = self.execute(device)
+                self.assertFalse(device.instrument_seen)
+                self.assertFalse(device.guardian._observer.armed)
+                self.assertFalse(result['runtime_result_analysis_performed'])
+                if target in ('wait-for-device', 'identity', 'boot'):
+                    self.assertIsNone(device.install)
+                self.assertEqual(result['supervisor']['cause'], 'PREPARATION_CAP')
+
+    def test_r117_late_completed_command_cannot_reset_its_own_cap(self):
+        clock = [100.0]
+        def late(device, argv):
+            if argv[3:5] == ['shell', '-T'] and shlex.split(argv[5]) == ['getprop', 'sys.boot_completed']:
+                clock[0] += device.caps.command + .01
+        device = HostDevice(before_reply=late)
+        self.addCleanup(device.cleanup)
+        # Only caller command duration advances; the real guardian still has its
+        # original preparation time. This isolates the per-command deadline.
+        with mock.patch.object(runner, 'time', SimpleNamespace(monotonic=lambda: clock[0])):
+            result = self.execute(device)
+        self.assert_no_reader_work(device, result)
+        self.assertEqual(result['fixed_preflight_failure_reason'], 'PREFLIGHT_COMMAND_INCOMPLETE')
+
+    def test_r117_external_abort_interrupts_live_pending_boot_command(self):
+        timers = []
+        def pending(device):
+            child = device.real.Command.pending()
+            timer = threading.Timer(.03, device.guardian.abort)
+            timers.append(timer)
+            timer.start()
+            return child
+        device = HostDevice(boot_replies=[pending])
+        device.caps = dataclasses.replace(device.caps, command=.4, preparation=1)
+        self.addCleanup(device.cleanup)
+        started = time.monotonic()
+        result = self.execute(device)
+        for timer in timers:
+            timer.join(.5)
+            self.assertFalse(timer.is_alive())
+        self.assert_no_reader_work(device, result)
+        self.assertEqual(result['supervisor']['cause'], 'ABORTED')
+        self.assertTrue(device.boot_clients[0].cancelled)
+        self.assertLess(time.monotonic() - started, .4)
+
+    def test_r117_unsettled_or_cancelled_property_client_never_retries_or_admits(self):
+        for kind in ('unsettled', 'cancelled', 'failed'):
+            with self.subTest(kind=kind):
+                device = HostDevice()
+                child = device.real.Command.completed(0, b'0\n')
+                if kind == 'unsettled':
+                    child.settle = lambda timeout: False
+                elif kind == 'cancelled':
+                    child.cancelled = True
+                else:
+                    child.failure = 'OUTPUT_CAP'
+                device.boot_replies = iter([child, b'1\n'])
+                self.addCleanup(device.cleanup)
+                result = self.execute(device)
+                self.assert_no_reader_work(device, result)
+                self.assertEqual(len(self.boot_calls(device)), 1)
+                self.assertFalse(result['all_three_original_runtime_cases_passed'])
 
 
 class ProvenanceTests(unittest.TestCase):

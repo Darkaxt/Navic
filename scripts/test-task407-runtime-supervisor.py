@@ -708,6 +708,132 @@ class SupervisorTests(unittest.TestCase):
                 original.kill()
                 original.wait(timeout=1)
 
+    def test_r117_absence_offline_then_not_found_within_one_original_budget(self):
+        calls = []
+        def absence(timeout, max_bytes):
+            calls.append((time.monotonic(), timeout))
+            return S.Command.completed(1, b'',
+                b'error: device offline\n' if len(calls) == 1 else
+                ("error: device '" + SERIAL + "' not found\n").encode())
+        supervisor, _, _, _, _ = self.context(S.Command.completed(0), {'absence': absence},
+            caps=S.Caps(.15, .4, .02, .1, .3, .2))
+        report = self.report(supervisor)
+        self.assertTrue(report.eligible_for_oracle)
+        self.assertTrue(report.strict_absence)
+        self.assertEqual(len(calls), 2)
+        self.assertGreaterEqual(calls[1][0] - calls[0][0], .20)
+        self.assertLess(calls[1][1], calls[0][1] - .20)
+        self.assertLess(calls[-1][0] - calls[0][0], .4)
+
+    def test_r117_perpetual_nonstrict_absence_is_bounded_not_busy_and_ineligible(self):
+        for reply in ((1, b'', b'error: device offline\n'), (0, b'device\n', b'')):
+            with self.subTest(code=reply[0]):
+                calls = []
+                def absence(timeout, max_bytes):
+                    calls.append((time.monotonic(), timeout))
+                    return S.Command.completed(*reply)
+                supervisor, _, _, _, _ = self.context(S.Command.completed(0), {'absence': absence},
+                    caps=S.Caps(.15, .4, .02, .1, .3, .2))
+                report = self.report(supervisor)
+                self.assertFalse(report.strict_absence)
+                self.assertFalse(report.eligible_for_oracle)
+                self.assertEqual(report.cleanup_failures, ('ABSENCE_UNCONFIRMED',))
+                self.assertEqual(len(calls), 2)
+                self.assertGreaterEqual(calls[1][0] - calls[0][0], .20)
+                self.assertLess(calls[1][1], calls[0][1])
+                with self.assertRaises(S.Blocked):
+                    supervisor.take_instrumentation_output()
+
+    def test_r117_failed_cancelled_or_unsettled_absence_cannot_become_natural(self):
+        for kind in ('failed', 'cancelled', 'unsettled'):
+            with self.subTest(kind=kind):
+                children = []
+                def absence(timeout, max_bytes):
+                    child = S.Command.completed(1, b'',
+                        ("error: device '" + SERIAL + "' not found").encode())
+                    if kind == 'failed':
+                        child.failure = 'OUTPUT_CAP'
+                    elif kind == 'cancelled':
+                        child.cancelled = True
+                    else:
+                        child.settle = lambda timeout: False
+                    children.append(child)
+                    return child
+                supervisor, _, _, _, _ = self.context(S.Command.completed(0), {'absence': absence})
+                report = self.report(supervisor)
+                self.assertFalse(report.shutdown_verified)
+                self.assertFalse(report.eligible_for_oracle)
+                self.assertFalse(report.strict_absence)
+                self.assertEqual(len(children), 1)
+                self.assertEqual(children[0].buffered_bytes, 0)
+
+    def test_r117_absence_deadline_cannot_be_reset_by_late_not_found_reply(self):
+        release = threading.Event()
+        returned = threading.Event()
+        children = []
+        def absence(timeout, max_bytes):
+            release.wait(1)
+            child = S.Command.completed(1, b'',
+                ("error: device '" + SERIAL + "' not found").encode())
+            children.append(child)
+            returned.set()
+            return child
+        supervisor, _, _, _, _ = self.context(S.Command.completed(0), {'absence': absence})
+        try:
+            report = self.report(supervisor)
+            self.assertFalse(report.strict_absence)
+            self.assertFalse(report.eligible_for_oracle)
+        finally:
+            release.set()
+            self.assertTrue(returned.wait(1))
+        self.assertEqual(len(children), 1)
+
+    def test_r117_later_strict_absence_never_waives_original_cleanup_conjuncts(self):
+        for failed in ('snapshot_list', 'console_stop', 'disconnect', 'private_tree'):
+            with self.subTest(failed=failed):
+                owned = FakeOwned()
+                if failed == 'private_tree':
+                    owned.stop_tree = lambda timeout: False
+                count = [0]
+                def absence(timeout, max_bytes):
+                    count[0] += 1
+                    return S.Command.completed(1, b'', b'error: device offline' if count[0] == 1 else
+                        ("error: device '" + SERIAL + "' not found").encode())
+                changes = {'absence': absence}
+                if failed != 'private_tree':
+                    changes[failed] = RuntimeError(PRIVATE)
+                adapter = FixtureAdapter(owned, changes)
+                supervisor = S.Supervisor(owned=owned, commands=adapter, instrument=S.Command.completed(0),
+                    observer=self.observer(), avd=AVD, serial=SERIAL,
+                    contract=S.LaunchContract('6cca814c', True),
+                    caps=S.Caps(.15, .4, .02, .1, .3, .2))
+                report = self.report(supervisor)
+                self.assertTrue(report.strict_absence)
+                self.assertFalse(report.shutdown_verified)
+                self.assertFalse(report.eligible_for_oracle)
+                self.assertEqual(report.status, 'BLOCKED')
+
+    def test_r117_abort_still_withholds_oracle_after_pending_absence_converges(self):
+        release = threading.Event()
+        entered = threading.Event()
+        count = [0]
+        def absence(timeout, max_bytes):
+            count[0] += 1
+            if count[0] == 1:
+                entered.set()
+                release.wait(.5)
+                return S.Command.completed(1, b'', b'error: device offline')
+            return S.Command.completed(1, b'', ("error: device '" + SERIAL + "' not found").encode())
+        supervisor, _, _, _, _ = self.context(S.Command.completed(0), {'absence': absence},
+            caps=S.Caps(.15, .5, .02, .1, .3, .2))
+        self.assertTrue(entered.wait(1))
+        supervisor.abort()
+        release.set()
+        report = self.report(supervisor)
+        self.assertTrue(report.shutdown_verified)
+        self.assertEqual(report.cause, 'ABORTED')
+        self.assertFalse(report.eligible_for_oracle)
+
     def test_failed_original_tree_stop_still_disconnects_and_checks_absence(self):
         owned = FakeOwned()
         owned.stop_tree = lambda timeout: False

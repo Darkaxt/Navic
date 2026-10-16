@@ -219,17 +219,35 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
               'production_release_accepted': False, 'anr_cause_proven': False,
               'fixed_readiness_step': None, 'fixed_preflight_failure_reason': None}
 
-    def command(arguments, timeout):
-        if guardian is not None and guardian.wait(0) is not None:
+    def require_preparation():
+        remaining = guardian.preparation_remaining()
+        if remaining <= 0:
             raise ValueError('GUARDIAN_ALREADY_TERMINAL')
+        return remaining
+
+    def command(arguments, timeout):
+        if guardian is not None:
+            timeout = min(timeout, require_preparation())
+        deadline = time.monotonic() + timeout
         child = s.Command.spawn([adb, '-s', SERIAL, *arguments],
                                 timeout=timeout, max_bytes=65536, tree_owned=False)
         clients.append(child)
         try:
-            if not child.done.wait(timeout) or child.failure or child.cancelled:
+            remaining = max(0, deadline - time.monotonic())
+            completed = (child.done.wait(remaining) if guardian is None else
+                         guardian.wait_preparation(remaining, child))
+            if (not completed or child.failure or child.cancelled
+                    or time.monotonic() >= deadline):
                 raise ValueError('PREFLIGHT_COMMAND_INCOMPLETE')
-            if not child.settle(caps.settle):
+            settle = min(caps.settle, max(0, deadline - time.monotonic()))
+            if guardian is not None:
+                settle = min(settle, require_preparation())
+            if not child.settle(settle):
                 raise ValueError('PREFLIGHT_CLIENT_UNSETTLED')
+            if time.monotonic() >= deadline:
+                raise ValueError('PREFLIGHT_COMMAND_INCOMPLETE')
+            if guardian is not None:
+                require_preparation()
             return child.returncode, *child.take_output()
         finally:
             if not child.done.is_set():
@@ -275,9 +293,18 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         if code != 0 or err or [v for v in out.splitlines() if v] != [AVD.encode(), b'OK']:
             raise ValueError('OWNED_AVD_UNCONFIRMED')
         readiness_step = 'SYS_BOOT_COMPLETED'
-        code, out, err = shell(['getprop', 'sys.boot_completed'], caps.command)
-        if code != 0 or err or out.strip() != b'1':
-            raise ValueError('UI_READY_UNCONFIRMED')
+        while True:
+            code, out, err = shell(['getprop', 'sys.boot_completed'], caps.command)
+            if code != 0 or err or type(out) is not bytes:
+                raise ValueError('UI_READY_UNCONFIRMED')
+            if out in (b'1', b'1\n', b'1\r\n'):
+                break
+            if out not in (b'', b'\n', b'\r\n', b'0', b'0\n', b'0\r\n'):
+                raise ValueError('UI_READY_UNCONFIRMED')
+            # Known pending values alone admit another observation, with finite
+            # condition backoff inside the guardian's unchanged original cap.
+            if not guardian.wait_preparation(.25):
+                raise ValueError('UI_READY_UNCONFIRMED')
         readiness_step = None
         phase = 'INSTALL'
         code, out, err = command(['install', '-r', '-t', record['apk_path']], caps.command)
@@ -289,15 +316,16 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             raise ValueError('CURSOR_COMMAND_UNCONFIRMED')
         cursor = parse_cursor(out)
         epoch = watchdog_id  # Attempt identity only; never used as a guest clock.
+        require_preparation()
         source = s.Command.spawn(observer_argv(adb, cursor), timeout=session_budget,
             max_bytes=65536, tree_owned=False,
             on_line=lambda line: consume_event(observer, line, epoch=epoch,
                                                after_ns=cursor, is_own=s.is_own_am_anr))
+        require_preparation()
         if not observer.arm(epoch=epoch, after_ns=cursor, source=source):
             raise ValueError('OBSERVER_ADMISSION_REJECTED')
         phase = 'INSTRUMENTATION'
-        if guardian.wait(0) is not None:
-            raise ValueError('GUARDIAN_ALREADY_TERMINAL')
+        require_preparation()
         instrument = s.Command.spawn(shell_argv(adb,
             ['am', 'instrument', '-w', '-r', '-e', 'class', CLASS, COMPONENT]),
             timeout=caps.instrumentation, max_bytes=4 * 1024 * 1024, tree_owned=False)
@@ -309,7 +337,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         failure_reason = fixed_preflight_reason(error)
         if readiness_step not in _READINESS_STEPS:
             readiness_step = None
-        if guardian is not None:
+        if guardian is not None and guardian.preparation_remaining() > 0:
             guardian.abort()
     finally:
         if source is not None and (observer is None or observer.source is not source):
