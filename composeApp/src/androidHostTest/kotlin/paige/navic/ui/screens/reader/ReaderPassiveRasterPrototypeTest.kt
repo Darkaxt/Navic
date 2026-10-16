@@ -1936,8 +1936,9 @@ class ReaderPassiveRasterPrototypeTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
 		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore().also { it.delayReads() }
 		val source = ReaderPageTurnBundleSource(
-			hydrationStorePort = AlwaysMissPassiveHydrationStore
+			hydrationStorePort = store
 		)
 		val commit = canonicalCommit().copy(
 			viewportAndCaptureGeometry = productionGeometry(),
@@ -2032,6 +2033,7 @@ class ReaderPassiveRasterPrototypeTest {
 					onComplete = completed::complete
 				)
 			)
+			store.awaitReadStarted()
 			assertEquals(listOf(centerPage, offscreenPage), activeTargets)
 			assertEquals(listOf(centerPage), durableTargets)
 			assertSame(reference, livePublicationReference)
@@ -2041,6 +2043,7 @@ class ReaderPassiveRasterPrototypeTest {
 			adapter.cancel()
 			assertEquals(ReaderPageRasterBatchOutcome.Cancelled, completed.await())
 		} finally {
+			store.releaseReads()
 			adapter.close()
 			source.closeAndJoin()
 			activityController.destroy()

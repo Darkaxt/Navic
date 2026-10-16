@@ -208,13 +208,16 @@ def host_record():
 class HostDevice:
     """Real guardian/owned Windows job, synthetic selected-device replies only."""
     def __init__(self, *, boot=b'1\n', prearm_event=False, hang_install=False,
-                 clean_absence=True, readiness=None, boot_replies=None, before_reply=None):
+                 clean_absence=True, readiness=None, boot_replies=None, before_reply=None,
+                 install_reply=None, preparation_wait=None):
         self.real = load_supervisor()
         self.calls = []
         self.call_times = []
         self.boot_replies = iter(boot_replies) if boot_replies is not None else None
         self.boot_clients = []
         self.before_reply = before_reply
+        self.install_reply = install_reply
+        self.preparation_wait = preparation_wait
         self.boot = boot
         self.prearm_event = prearm_event
         self.hang_install = hang_install
@@ -282,8 +285,15 @@ class HostDevice:
                 if args == ['emu', 'kill']:
                     return real.Command.completed(0, b'OK: killing emulator, bye bye\n')
                 if args[:3] == ['install', '-r', '-t']:
-                    outer.install = (real.Command.pending() if outer.hang_install else
-                                     real.Command.completed(0, b'Success\n'))
+                    reply = outer.install_reply
+                    if callable(reply):
+                        reply = reply(outer)
+                    if isinstance(reply, BaseException):
+                        raise reply
+                    outer.install = (real.Command.completed(*reply) if isinstance(reply, tuple)
+                        else reply if reply is not None else
+                        real.Command.pending() if outer.hang_install else
+                        real.Command.completed(0, b'Success\n'))
                     return outer.install
                 if args[:2] == ['shell', '-T']:
                     remote = shlex.split(args[2])
@@ -319,6 +329,12 @@ class HostDevice:
                 super().__init__(**kwargs)
                 outer.supervisor_created = True
                 outer.guardian = self
+
+            def wait_preparation(self, timeout, command=None):
+                original = super().wait_preparation
+                if outer.preparation_wait is not None:
+                    return outer.preparation_wait(outer, timeout, command, original)
+                return original(timeout, command)
 
             def take_instrumentation_output(self):
                 outer.taken_after_shutdown = bool(self.wait(0).shutdown_verified
@@ -625,6 +641,260 @@ class PipelineTests(unittest.TestCase):
                 self.assert_no_reader_work(device, result)
                 self.assertEqual(len(self.boot_calls(device)), 1)
                 self.assertFalse(result['all_three_original_runtime_cases_passed'])
+
+
+class PreflightBoundaryTests(unittest.TestCase):
+    """Prospective V1 metadata; caller clock/hooks only, no new timed races."""
+    api = PipelineTests.api
+    execute = PipelineTests.execute
+    def boundary(self, result):
+        value = result.get('failed_preflight_command')
+        self.assertIsInstance(value, dict, 'R119_BOUNDARY_MISSING')
+        self.assertEqual(result.get('preflight_diagnostics_profile'),
+                         'PREFLIGHT_COMMAND_BOUNDARY_V1')
+        self.assertEqual(set(value), {'before_cleanup', 'cleanup_cancel_requested',
+                                     'cleanup_cancel_settlement'})
+        return value, value['before_cleanup']
+
+    def run_install(self, reply=None, *, wait=None, before=None, clock=None):
+        device = HostDevice(install_reply=reply, preparation_wait=wait, before_reply=before)
+        self.addCleanup(device.cleanup)
+        if clock is None:
+            result = self.execute(device)
+        else:
+            with mock.patch.object(runner, 'time', SimpleNamespace(monotonic=lambda: clock[0])):
+                result = self.execute(device)
+        return device, result
+
+    def rejected(self, device, result, reason='PREFLIGHT_COMMAND_INCOMPLETE', *, clean=True):
+        self.assertEqual(result['fixed_preflight_failure'], 'INSTALL_BLOCKED')
+        self.assertEqual(result['fixed_preflight_failure_reason'], reason)
+        self.assertFalse(device.instrument_seen)
+        self.assertFalse(device.guardian._observer.armed)
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertNotIn('completed_test_count', result)
+        self.assertEqual(result['automatic_emulator_teardown_verified'], clean)
+        self.assertEqual(result['preflight_clients_settled'], clean)
+        installs = [(argv, options) for argv, options in device.calls if argv[3:4] == ('install',)]
+        self.assertEqual(len(installs), 1)
+        self.assertEqual(installs[0][0], ('fixture-adb.exe', '-s', 'emulator-5554',
+                                         'install', '-r', '-t', 'fixture-only.apk'))
+        self.assertEqual(installs[0][1]['max_bytes'], 65536)
+        self.assertFalse(installs[0][1]['tree_owned'])
+        self.assertGreater(installs[0][1]['timeout'], 0)
+        self.assertLessEqual(installs[0][1]['timeout'], device.caps.command)
+        self.assertEqual(len([argv for argv, _ in device.calls if argv[3:5] == ('shell', '-T')
+                              and shlex.split(argv[5])[0] in ('logcat', 'am')]), 0)
+
+    def test_r119_pending_wait_freezes_original_state_before_existing_cancel(self):
+        def pending(device):
+            return device.real.Command.pending()
+        def wait(device, timeout, child, original):
+            return False if child is device.install else original(timeout, child)
+        device, result = self.run_install(pending, wait=wait)
+        row, before = self.boundary(result)
+        self.rejected(device, result)
+        self.assertEqual(before['role'], 'INSTALL')
+        self.assertEqual(before['boundary'], 'WAIT_REJECTED')
+        self.assertEqual(before['wait_result'], 'INTERRUPTED_OR_EXPIRED')
+        self.assertFalse(before['child_done'])
+        self.assertEqual(before['child_failure'], 'NONE')
+        self.assertFalse(before['child_cancelled'])
+        self.assertEqual(before['returncode_class'], 'UNSET')
+        self.assertEqual(before['settlement'], 'NOT_REACHED')
+        self.assertTrue(row['cleanup_cancel_requested'])
+        self.assertEqual(row['cleanup_cancel_settlement'], 'PASSED')
+        self.assertTrue(device.install.cancelled)
+        self.assertEqual(device.install.failure, 'CANCELLED')
+        self.assertEqual(device.install.buffered_bytes, 0)
+        retained = json.dumps(row, sort_keys=True)
+        device.install.failure = {'private': 'R119_PRIVATE_CANARY'}
+        device.install.returncode = 912345
+        self.assertEqual(json.dumps(row, sort_keys=True), retained)
+
+    def test_r119_fixed_failed_cancelled_and_untrusted_failure_states(self):
+        failures = ('OUTPUT_CAP', 'STREAM_FAILED', 'COMMAND_CAP', 'CHILD_UNCONFIRMED',
+                    'TREE_UNCONFIRMED', 'STREAM_UNCONFIRMED', 'CANCELLED', 'FEED_EOF')
+        cases = [(value, False, value) for value in failures]
+        cases += [(None, True, 'NONE'), ('R119_PRIVATE_CANARY', False, 'OTHER'),
+                  (['R119_PRIVATE_CANARY'], False, 'OTHER'),
+                  ({'private': 'R119_PRIVATE_CANARY'}, False, 'OTHER')]
+        for failure, cancelled, expected in cases:
+            with self.subTest(failure_class=expected, cancelled=cancelled):
+                def reply(device):
+                    child = device.real.Command.completed(0, b'R119_PRIVATE_CANARY\n')
+                    child.failure, child.cancelled = failure, cancelled
+                    return child
+                device, result = self.run_install(reply)
+                row, before = self.boundary(result)
+                self.rejected(device, result,
+                              clean=expected not in ('CHILD_UNCONFIRMED', 'TREE_UNCONFIRMED'))
+                self.assertTrue(before['child_done'])
+                self.assertEqual(before['child_failure'], expected)
+                self.assertEqual(before['child_cancelled'], cancelled)
+                self.assertEqual(before['returncode_class'], 'ZERO')
+                self.assertEqual(before['wait_result'], 'COMPLETED')
+                self.assertFalse(row['cleanup_cancel_requested'])
+                self.assertEqual(row['cleanup_cancel_settlement'], 'NOT_REQUESTED')
+                self.assertNotIn('R119_PRIVATE_CANARY', json.dumps(result))
+                self.assertEqual(device.install.buffered_bytes, 0)
+
+    def test_r119_late_natural_completion_and_late_settlement_are_distinct(self):
+        for stage, expected in (('completion', 'WAIT_REJECTED'),
+                                ('settlement', 'POST_SETTLE_DEADLINE')):
+            with self.subTest(stage=stage):
+                clock = [100.0]
+                def reply(device):
+                    child = device.real.Command.completed(0, b'Success\n')
+                    if stage == 'completion':
+                        clock[0] += device.caps.command + .01
+                    else:
+                        def settle(timeout):
+                            clock[0] += device.caps.command + .01
+                            return True
+                        child.settle = settle
+                    return child
+                device, result = self.run_install(reply, clock=clock)
+                _, before = self.boundary(result)
+                self.rejected(device, result)
+                self.assertEqual(before['boundary'], expected)
+                self.assertTrue(before['deadline_reached'])
+                self.assertTrue(before['child_done'])
+                self.assertEqual(before['child_failure'], 'NONE')
+                self.assertFalse(before['child_cancelled'])
+                self.assertEqual(before['settlement'],
+                                 'NOT_REACHED' if stage == 'completion' else 'PASSED')
+                self.assertGreaterEqual(before['elapsed_ms'], 100)
+                self.assertLessEqual(before['effective_budget_ms'], 100)
+
+    def test_r119_false_settlement_then_finally_settled_does_not_erase_rejection(self):
+        observed = []
+        def reply(device):
+            child = device.real.Command.completed(0, b'Success\n')
+            def settle(timeout):
+                observed.append(timeout)
+                return len(observed) != 1
+            child.settle = settle
+            return child
+        device, result = self.run_install(reply)
+        _, before = self.boundary(result)
+        self.rejected(device, result, 'PREFLIGHT_CLIENT_UNSETTLED')
+        self.assertEqual(before['boundary'], 'SETTLE_REJECTED')
+        self.assertEqual(before['settlement'], 'FAILED')
+        self.assertTrue(result['preflight_clients_settled'])
+        self.assertEqual(len(observed), 2, 'Only original command/final aggregate settlement calls')
+
+    def test_r119_preparation_interruption_and_post_settle_unavailable(self):
+        for stage in ('wait', 'post_settle'):
+            with self.subTest(stage=stage):
+                def reply(device):
+                    child = device.real.Command.completed(0, b'Success\n')
+                    if stage == 'post_settle':
+                        def settle(timeout):
+                            device.guardian.preparation_remaining = lambda: 0
+                            return True
+                        child.settle = settle
+                    return child
+                def wait(device, timeout, child, original):
+                    if child is device.install and stage == 'wait':
+                        device.guardian.abort()
+                        return False
+                    return original(timeout, child)
+                device, result = self.run_install(reply, wait=wait)
+                _, before = self.boundary(result)
+                self.rejected(device, result, 'PREFLIGHT_COMMAND_INCOMPLETE' if stage == 'wait'
+                              else 'GUARDIAN_ALREADY_TERMINAL')
+                self.assertEqual(before['boundary'], 'WAIT_REJECTED' if stage == 'wait'
+                                 else 'POST_SETTLE_PREPARATION')
+                if stage == 'post_settle':
+                    self.assertEqual(before['preparation'], 'UNAVAILABLE')
+                else:
+                    self.assertEqual(before['wait_result'], 'INTERRUPTED_OR_EXPIRED')
+                    self.assertEqual(result['supervisor']['cause'], 'ABORTED')
+
+    def test_r119_logical_install_rejections_project_only_reply_flags(self):
+        cases = ((912345, b'Success\nR119_PRIVATE_CANARY', b'', 'NONZERO', False, True),
+                 (0, b'Success\n', b'R119_PRIVATE_CANARY', 'ZERO', True, True),
+                 (0, b' Success\nR119_PRIVATE_CANARY', b'', 'ZERO', False, False),
+                 (None, b'Success\n', b'', 'UNSET', False, True),
+                 (['R119_PRIVATE_CANARY'], b'Success\n', b'', 'INVALID', False, True))
+        for code, out, err, code_class, stderr, success in cases:
+            with self.subTest(code_class=code_class, stderr=stderr, success=success):
+                device, result = self.run_install((code, out, err))
+                row, before = self.boundary(result)
+                self.rejected(device, result, 'INSTALL_UNCONFIRMED')
+                self.assertEqual(before['boundary'], 'INSTALL_CHECK_REJECTED')
+                self.assertEqual(before['install_reply_check'], 'REJECTED')
+                self.assertEqual(before['returncode_class'], code_class)
+                self.assertEqual(before['install_stderr_nonempty'], stderr)
+                self.assertEqual(before['install_exact_success_line'], success)
+                self.assertEqual(before['child_failure'], 'NONE')
+                self.assertFalse(row['cleanup_cancel_requested'])
+                serialized = json.dumps(result)
+                self.assertNotIn('R119_PRIVATE_CANARY', serialized)
+                self.assertNotIn('912345', serialized)
+                self.assertEqual(device.install.buffered_bytes, 0)
+
+    def test_r119_success_and_outer_failure_never_retain_prior_successful_command(self):
+        device, result = self.run_install((0, b'Success\n', b''))
+        self.assertTrue(result['all_three_original_runtime_cases_passed'])
+        self.assertIn('failed_preflight_command', result, 'R119_SUCCESS_PROJECTION_MISSING')
+        self.assertIsNone(result['failed_preflight_command'])
+        self.assertEqual(result['completed_test_count'], 3)
+        self.assertEqual(result['passed_test_count'], 3)
+        def fail_after_boot(device, argv):
+            if argv[3:4] == ['install']:
+                raise RuntimeError('R119_PRIVATE_CANARY')
+        device, result = self.run_install(before=fail_after_boot)
+        _, before = self.boundary(result)
+        self.assertEqual(before['role'], 'INSTALL')
+        self.assertEqual(before['boundary'], 'SPAWN')
+        self.assertEqual(before['wait_result'], 'NOT_REACHED')
+        self.assertEqual(before['child_failure'], 'NOT_OBSERVED')
+        self.assertNotIn('R119_PRIVATE_CANARY', json.dumps(result))
+        # A logical non-install rejection must not inherit the earlier command's snapshot.
+        device = HostDevice(readiness={'OWNED_AVD_IDENTITY': (0, b'wrong', b'')})
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        self.assertIsNone(result['failed_preflight_command'])
+
+    def test_r119_snapshot_is_frozen_and_production_caps_unchanged(self):
+        snapshot_type = getattr(runner, '_PreflightBoundary', None)
+        self.assertTrue(dataclasses.is_dataclass(snapshot_type), 'R119_IMMUTABLE_SNAPSHOT_MISSING')
+        self.assertTrue(snapshot_type.__dataclass_params__.frozen)
+        captured = []
+        root, seal, reviews = ProvenanceTests().metadata()
+        record = host_record()
+        record.update(seal_path='fixture-seal', seal_sha256='a' * 64,
+                      reviews_path='fixture-reviews', reviews_sha256='b' * 64)
+        def run(supervision, contract, labels, **kwargs):
+            captured.append(dataclasses.asdict(kwargs['caps']))
+            raise ValueError('fixture stop before dispatch')
+        # CLI import is real and inert. All external execution/output creation blocked.
+        with mock.patch.object(runner, 'read_checked_json', side_effect=[record, seal, reviews]), \
+             mock.patch.object(runner, 'validate_candidate'), \
+             mock.patch.object(runner, 'pins_match', return_value=True), \
+             mock.patch.object(runner, 'subprocess') as subprocess_mock, \
+             mock.patch.object(runner.os, 'environ', {'WATCHDOG_ID': 'host-fixture'}), \
+             mock.patch.object(runner.Path, 'open', mock.mock_open()), \
+             mock.patch.object(runner, 'run_session', side_effect=run), redirect_stdout(io.StringIO()):
+            subprocess_mock.run.side_effect = [SimpleNamespace(returncode=0, stdout=b'a' * 40),
+                                               SimpleNamespace(returncode=0, stdout=b'')]
+            runner.main(['--contract', 'fixture', '--contract-sha256', 'c' * 64,
+                         '--output', 'fixture-never-created'])
+        self.assertEqual(captured, [{'command': 15, 'preparation': 180, 'instrumentation': 420,
+                                    'process_wait': 5, 'stop': 5, 'settle': 2,
+                                    'snapshot_budget': 15}])
+        def clip_original_remainder(device, argv):
+            if argv[3:5] == ['shell', '-T'] and shlex.split(argv[5]) == ['getprop', 'sys.boot_completed']:
+                original = device.guardian.preparation_remaining
+                device.guardian.preparation_remaining = lambda: min(.031, original())
+        device, result = self.run_install((1, b'', b''), before=clip_original_remainder)
+        _, before = self.boundary(result)
+        self.rejected(device, result, 'INSTALL_UNCONFIRMED')
+        install_options = next(options for argv, options in device.calls if argv[3:4] == ('install',))
+        self.assertLessEqual(install_options['timeout'], .031)
+        self.assertEqual(before['effective_budget_ms'], int(install_options['timeout'] * 1000))
 
 
 class ProvenanceTests(unittest.TestCase):

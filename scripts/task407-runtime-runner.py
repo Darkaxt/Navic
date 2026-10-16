@@ -9,7 +9,7 @@ import re
 import shlex
 import hashlib
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 import argparse
 import importlib.util
@@ -37,6 +37,51 @@ _FIXED_PREFLIGHT_REASONS = frozenset((
     'GUARDIAN_ALREADY_TERMINAL', 'PREFLIGHT_COMMAND_INCOMPLETE', 'PREFLIGHT_CLIENT_UNSETTLED',
     'UNEXPECTED_EXECUTION',
 ))
+
+
+_FIXED_COMMAND_FAILURES = frozenset((
+    'OUTPUT_CAP', 'STREAM_FAILED', 'COMMAND_CAP', 'CHILD_UNCONFIRMED',
+    'TREE_UNCONFIRMED', 'STREAM_UNCONFIRMED', 'CANCELLED', 'FEED_EOF',
+))
+
+
+def _command_failure(value):
+    if value is None:
+        return 'NONE'
+    return value if type(value) is str and value in _FIXED_COMMAND_FAILURES else 'OTHER'
+
+
+def _code_class(value):
+    if value is None:
+        return 'UNSET'
+    if type(value) is not int:
+        return 'INVALID'
+    return 'ZERO' if value == 0 else 'NONZERO'
+
+
+@dataclass(frozen=True)
+class _PreflightBoundary:
+    """Independent observations, not process liveness or a first-cause history.
+
+    Only fixed literals, booleans and bounded duration counts enter this snapshot.
+    A missing duration/deadline observation means the original predicate short-
+    circuited; diagnostics never add a clock/admission call to fill that gap.
+    """
+    role: str
+    boundary: str
+    wait_result: str
+    child_done: object
+    child_failure: str
+    child_cancelled: object
+    returncode_class: str
+    deadline_reached: object
+    preparation: str
+    settlement: str
+    effective_budget_ms: object
+    elapsed_ms: object
+    install_reply_check: str = 'NOT_REACHED'
+    install_stderr_nonempty: object = None
+    install_exact_success_line: object = None
 
 
 def fixed_preflight_reason(error):
@@ -208,6 +253,8 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     failure = None
     failure_reason = None
     report = None
+    failed_boundary = failed_child = install_boundary = None
+    failed_cleanup = None
     result = {'kind': 'original-three-supervised-runtime-not-pair-or-performance-acceptance',
               'parent_status': 'IN_PROGRESS', 'watchdog_id': watchdog_id,
               'automatic_emulator_teardown_verified': False,
@@ -217,7 +264,9 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
               'raw_stdout_stderr_retained': False,
               'configured_pair_wordsync_accepted': False, 'performance_accepted': False,
               'production_release_accepted': False, 'anr_cause_proven': False,
-              'fixed_readiness_step': None, 'fixed_preflight_failure_reason': None}
+              'fixed_readiness_step': None, 'fixed_preflight_failure_reason': None,
+              'preflight_diagnostics_profile': 'PREFLIGHT_COMMAND_BOUNDARY_V1',
+              'failed_preflight_command': None}
 
     def require_preparation():
         remaining = guardian.preparation_remaining()
@@ -225,37 +274,102 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             raise ValueError('GUARDIAN_ALREADY_TERMINAL')
         return remaining
 
-    def command(arguments, timeout):
-        if guardian is not None:
-            timeout = min(timeout, require_preparation())
-        deadline = time.monotonic() + timeout
-        child = s.Command.spawn([adb, '-s', SERIAL, *arguments],
-                                timeout=timeout, max_bytes=65536, tree_owned=False)
-        clients.append(child)
+    def cancel_client(client):
+        # Observe only the cancellation already required by the original finally.
+        cleanup = failed_cleanup if client is failed_child else None
+        if cleanup is not None:
+            cleanup['cleanup_cancel_requested'] = True
+            cleanup['cleanup_cancel_settlement'] = 'NOT_RETURNED'
+        settled = client.cancel(caps.settle)
+        if cleanup is not None:
+            cleanup['cleanup_cancel_settlement'] = 'PASSED' if settled else 'FAILED'
+
+    def command(role, arguments, timeout):
+        nonlocal failed_boundary, failed_child, failed_cleanup, install_boundary
+        child = None
+        boundary, wait_result, settlement = 'ADMISSION', 'NOT_REACHED', 'NOT_REACHED'
+        preparation = 'NOT_APPLICABLE' if guardian is None else 'NOT_CHECKED'
+        budget_ms = elapsed_ms = None
+        deadline_reached = 'NOT_CHECKED'
+
+        def prepare():
+            nonlocal preparation
+            try:
+                remaining = require_preparation()
+            except BaseException:
+                preparation = 'UNAVAILABLE'
+                raise
+            preparation = 'AVAILABLE'
+            return remaining
+
+        def snapshot():
+            return _PreflightBoundary(role, boundary, wait_result,
+                bool(child.done.is_set()) if child is not None else 'NOT_OBSERVED',
+                _command_failure(child.failure) if child is not None else 'NOT_OBSERVED',
+                bool(child.cancelled) if child is not None else 'NOT_OBSERVED',
+                _code_class(child.returncode) if child is not None else 'UNSET',
+                deadline_reached, preparation, settlement, budget_ms, elapsed_ms)
+
         try:
+            if guardian is not None:
+                timeout = min(timeout, prepare())
+            dispatched_at = time.monotonic()
+            deadline = dispatched_at + timeout
+            budget_ms = max(0, int(timeout * 1000))
+            boundary = 'SPAWN'
+            child = s.Command.spawn([adb, '-s', SERIAL, *arguments],
+                                    timeout=timeout, max_bytes=65536, tree_owned=False)
+            clients.append(child)
+            boundary = 'WAIT_REJECTED'
             remaining = max(0, deadline - time.monotonic())
             completed = (child.done.wait(remaining) if guardian is None else
                          guardian.wait_preparation(remaining, child))
-            if (not completed or child.failure or child.cancelled
-                    or time.monotonic() >= deadline):
+            wait_result = 'COMPLETED' if completed else 'INTERRUPTED_OR_EXPIRED'
+            # Preserve the original short circuit and its existing clock reads.
+            if not completed or child.failure or child.cancelled:
+                raise ValueError('PREFLIGHT_COMMAND_INCOMPLETE')
+            observed_at = time.monotonic()
+            deadline_reached = observed_at >= deadline
+            elapsed_ms = max(0, int((observed_at - dispatched_at) * 1000))
+            if deadline_reached:
                 raise ValueError('PREFLIGHT_COMMAND_INCOMPLETE')
             settle = min(caps.settle, max(0, deadline - time.monotonic()))
+            boundary = 'SETTLE_PREPARATION'
             if guardian is not None:
-                settle = min(settle, require_preparation())
-            if not child.settle(settle):
+                settle = min(settle, prepare())
+            boundary = 'SETTLE_REJECTED'
+            settled = child.settle(settle)
+            settlement = 'PASSED' if settled else 'FAILED'
+            if not settled:
                 raise ValueError('PREFLIGHT_CLIENT_UNSETTLED')
-            if time.monotonic() >= deadline:
+            boundary = 'POST_SETTLE_DEADLINE'
+            observed_at = time.monotonic()
+            deadline_reached = observed_at >= deadline
+            elapsed_ms = max(0, int((observed_at - dispatched_at) * 1000))
+            if deadline_reached:
                 raise ValueError('PREFLIGHT_COMMAND_INCOMPLETE')
+            boundary = 'POST_SETTLE_PREPARATION'
             if guardian is not None:
-                require_preparation()
-            return child.returncode, *child.take_output()
+                prepare()
+            boundary = 'REPLY'
+            reply = child.returncode, *child.take_output()
+            if role == 'INSTALL':
+                install_boundary = snapshot()
+            return reply
+        except BaseException:
+            # Freeze BEFORE finally may cancel the child or discard its bytes.
+            failed_boundary, failed_child = snapshot(), child
+            failed_cleanup = {'cleanup_cancel_requested': False,
+                              'cleanup_cancel_settlement': 'NOT_REQUESTED'}
+            raise
         finally:
-            if not child.done.is_set():
-                child.cancel(caps.settle)
-            child.discard()
+            if child is not None:
+                if not child.done.is_set():
+                    cancel_client(child)
+                child.discard()
 
-    def shell(arguments, timeout):
-        return command(shell_argv(adb, arguments)[3:], timeout)
+    def shell(role, arguments, timeout):
+        return command(role, shell_argv(adb, arguments)[3:], timeout)
 
     class LifecycleCommands:
         def start(self, action, argument, timeout, max_bytes):
@@ -267,7 +381,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     session_budget = caps.preparation + caps.instrumentation + cleanup_budget
     started = time.monotonic()
     try:
-        code, out, err = command(['get-state'], caps.command)
+        code, out, err = command('SELECTED_ABSENCE', ['get-state'], caps.command)
         if not (code != 0 and not out.strip() and
                 err.strip() == ("error: device '" + SERIAL + "' not found").encode('ascii')):
             raise ValueError('SELECTED_ABSENCE_UNCONFIRMED')
@@ -285,16 +399,16 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             contract=s.LaunchContract(watchdog_id=watchdog_id, no_snapshot_save=True), caps=caps)
         phase = 'UI_READY'
         readiness_step = 'WAIT_FOR_DEVICE'
-        code, out, err = command(['wait-for-device'], caps.preparation)
+        code, out, err = command('WAIT_FOR_DEVICE', ['wait-for-device'], caps.preparation)
         if code != 0 or err:
             raise ValueError('DEVICE_WAIT_UNCONFIRMED')
         readiness_step = 'OWNED_AVD_IDENTITY'
-        code, out, err = command(['emu', 'avd', 'name'], caps.command)
+        code, out, err = command('OWNED_AVD_IDENTITY', ['emu', 'avd', 'name'], caps.command)
         if code != 0 or err or [v for v in out.splitlines() if v] != [AVD.encode(), b'OK']:
             raise ValueError('OWNED_AVD_UNCONFIRMED')
         readiness_step = 'SYS_BOOT_COMPLETED'
         while True:
-            code, out, err = shell(['getprop', 'sys.boot_completed'], caps.command)
+            code, out, err = shell('SYS_BOOT_COMPLETED', ['getprop', 'sys.boot_completed'], caps.command)
             if code != 0 or err or type(out) is not bytes:
                 raise ValueError('UI_READY_UNCONFIRMED')
             if out in (b'1', b'1\n', b'1\r\n'):
@@ -307,11 +421,19 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
                 raise ValueError('UI_READY_UNCONFIRMED')
         readiness_step = None
         phase = 'INSTALL'
-        code, out, err = command(['install', '-r', '-t', record['apk_path']], caps.command)
+        code, out, err = command('INSTALL', ['install', '-r', '-t', record['apk_path']], caps.command)
         if code != 0 or err or b'Success' not in out.splitlines():
+            # Classify only the reply already in memory; this is not a specific
+            # package-manager verdict. Never project its code or stream contents.
+            failed_boundary = replace(install_boundary, boundary='INSTALL_CHECK_REJECTED',
+                returncode_class=_code_class(code), install_reply_check='REJECTED',
+                install_stderr_nonempty=bool(err),
+                install_exact_success_line=b'Success' in out.splitlines())
+            failed_cleanup = {'cleanup_cancel_requested': False,
+                              'cleanup_cancel_settlement': 'NOT_REQUESTED'}
             raise ValueError('INSTALL_UNCONFIRMED')
         phase = 'OBSERVER_ADMISSION'
-        code, out, err = shell(['toybox', 'date', '+%s.%N'], caps.command)
+        code, out, err = shell('CURSOR', ['toybox', 'date', '+%s.%N'], caps.command)
         if code != 0 or err:
             raise ValueError('CURSOR_COMMAND_UNCONFIRMED')
         cursor = parse_cursor(out)
@@ -355,10 +477,13 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             owned.discard()
         for client in clients:
             if not client.done.is_set():
-                client.cancel(caps.settle)
+                cancel_client(client)
             client.discard()
     clients_settled = all(client.settle(caps.settle) for client in clients)
     clean = bool(report is not None and report.shutdown_verified and clients_settled)
+    if failed_boundary is not None:
+        result['failed_preflight_command'] = {'before_cleanup': asdict(failed_boundary),
+                                               **failed_cleanup}
     result.update({'fixed_preflight_failure': failure,
                    'fixed_readiness_step': readiness_step,
                    'fixed_preflight_failure_reason': failure_reason,
