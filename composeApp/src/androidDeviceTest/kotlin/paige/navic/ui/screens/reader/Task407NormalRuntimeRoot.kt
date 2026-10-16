@@ -131,6 +131,7 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
     }
 
     fun mount() {
+        startupEvent(Task407StartupPhaseEvent.FIXTURE_MOUNT_ENTERED)
         task407Require(Looper.myLooper() == Looper.getMainLooper(), "A407.Runtime.RealMainLooper")
         task407Require(activity.window.decorView.isHardwareAccelerated, "A407.Runtime.HardwareWindowRequired")
         compose.setContent {
@@ -327,13 +328,28 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
 
     fun requireNoObservationFailure() { observationFailure?.let { throw it.sanitizedCopy() } }
     fun loggerObservationLabels(): List<String> = loggerObservation?.labels().orEmpty()
+    fun startupWitnessJson(): String? = loggerObservation?.startupWitnessJson()
+    private fun startupEvent(event: Task407StartupPhaseEvent) { loggerObservation?.recordStartupObservation(event) }
 
     /** Sample only bounded original references/booleans before a producer can lawfully retire.
      * Diagnostic retention never delays close/release and cannot establish a successful boundary. */
     fun observeStartupBoundary() {
         try {
             task407Require(Looper.myLooper() == Looper.getMainLooper(), "A407.Runtime.RealMainLooper")
-            if (rootOrNull() == null || runtime() == null) return
+            loggerObservation?.observeSinkContinuity()
+            if (rootOrNull() == null) return
+            startupEvent(Task407StartupPhaseEvent.SAMPLE_ROOT_PRESENT)
+            val coordinator = runtime() ?: return
+            startupEvent(Task407StartupPhaseEvent.SAMPLE_COORDINATOR_PRESENT)
+            if (material() != null) startupEvent(Task407StartupPhaseEvent.SAMPLE_MATERIAL_PRESENT)
+            if (initialIngressCount > 0) startupEvent(Task407StartupPhaseEvent.SAMPLE_INITIAL_SEMANTIC_INGRESS)
+            if (coordinator.snapshot().activeTransitionsRegistered > 0)
+                startupEvent(Task407StartupPhaseEvent.SAMPLE_TRANSITION_REGISTERED)
+            val journalSample = journal()
+            if (journalSample.active != null) startupEvent(Task407StartupPhaseEvent.SAMPLE_TRANSITION_ACTIVE)
+            if ((journalSample.lastOutcome as? ReaderTransitionOutcome.Failed)?.reason ==
+                ReaderTransitionFailureReason.MaterialTimeout)
+                startupEvent(Task407StartupPhaseEvent.SAMPLE_TERMINAL_MATERIAL_TIMEOUT)
             // Failure-only sampling: the synchronous observer can affect timing. A positive label
             // means only this current observer recorded MaterialTimeout before any generic ACK;
             // it neither matches an ACK identity nor reconstructs earlier r105 chronology.
@@ -348,21 +364,44 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
                 if ("E407.Observation.EngineBridgeReady" !in labels)
                     observedMaterialTimeoutBeforeEngineReady = true
             }
-            registeredActiveWork()?.let { observedStartupWork = it }
+            registeredActiveWork()?.let { work ->
+                observedStartupWork = work
+                startupEvent(Task407StartupPhaseEvent.SAMPLE_RASTER_WORK_REGISTERED)
+                when (work.preparationFacts?.phase) {
+                    ReaderPagePreparationPhase.Preparing -> startupEvent(Task407StartupPhaseEvent.SAMPLE_RASTER_PREPARING)
+                    ReaderPagePreparationPhase.Ready -> startupEvent(Task407StartupPhaseEvent.SAMPLE_RASTER_READY)
+                    ReaderPagePreparationPhase.Failed -> startupEvent(Task407StartupPhaseEvent.SAMPLE_RASTER_FAILED)
+                    else -> Unit
+                }
+            }
             engine()?.let { original ->
+                startupEvent(Task407StartupPhaseEvent.SAMPLE_ENGINE_PRESENT)
+                val initialized = original.runtimeInitializationCompleted
+                if (initialized) startupEvent(Task407StartupPhaseEvent.SAMPLE_ENGINE_INITIALIZATION_COMPLETED)
+                val entrypoint = original.url == ReaderWebRuntime.entrypointUrl
+                if (entrypoint) startupEvent(Task407StartupPhaseEvent.SAMPLE_ENGINE_ENTRYPOINT)
+                val attached = original.isAttachedToWindow
+                if (attached) startupEvent(Task407StartupPhaseEvent.SAMPLE_ENGINE_ATTACHED)
+                val sized = original.width > 0 && original.height > 0
+                if (sized) startupEvent(Task407StartupPhaseEvent.SAMPLE_ENGINE_SIZED)
+                val complete = original.progress == 100
+                if (complete) startupEvent(Task407StartupPhaseEvent.SAMPLE_ENGINE_PROGRESS_COMPLETE)
+                val retired = original.runtimeRetired
+                if (retired) startupEvent(Task407StartupPhaseEvent.SAMPLE_ENGINE_RETIRED)
                 observedStartupEngineRuntimeInitializationCompleted =
-                    observedStartupEngineRuntimeInitializationCompleted || original.runtimeInitializationCompleted
-                observedStartupEngineAtEntrypoint = observedStartupEngineAtEntrypoint ||
-                    original.url == ReaderWebRuntime.entrypointUrl
-                observedStartupEngineAttached = observedStartupEngineAttached || original.isAttachedToWindow
-                observedStartupEngineSized = observedStartupEngineSized || original.width > 0 && original.height > 0
-                observedStartupEngineProgressComplete = observedStartupEngineProgressComplete || original.progress == 100
-                observedStartupEngineRuntimeRetired = observedStartupEngineRuntimeRetired || original.runtimeRetired
+                    observedStartupEngineRuntimeInitializationCompleted || initialized
+                observedStartupEngineAtEntrypoint = observedStartupEngineAtEntrypoint || entrypoint
+                observedStartupEngineAttached = observedStartupEngineAttached || attached
+                observedStartupEngineSized = observedStartupEngineSized || sized
+                observedStartupEngineProgressComplete = observedStartupEngineProgressComplete || complete
+                observedStartupEngineRuntimeRetired = observedStartupEngineRuntimeRetired || retired
             }
             val adapter = passive()
             passiveRuntime()?.let { original ->
                 observedStartupRuntime = original
-                observedStartupRuntimeReady = observedStartupRuntimeReady || original.isReady
+                val ready = original.isReady
+                if (ready) startupEvent(Task407StartupPhaseEvent.SAMPLE_PASSIVE_RUNTIME_READY)
+                observedStartupRuntimeReady = observedStartupRuntimeReady || ready
                 val type = original.javaClass
                 observedStartupJavascriptReady = observedStartupJavascriptReady ||
                     type.getDeclaredField("runtimeReady").apply { isAccessible = true }.get(original) == true
@@ -397,18 +436,35 @@ internal class Task407NormalRuntimeRoot(private val activity: Task407RuntimeActi
             val construction = viewerField("initialDestinationConstruction")
             if (construction != null) {
                 val type = construction.javaClass
-                observedStartupConstructionMounted = observedStartupConstructionMounted ||
-                    type.getDeclaredField("mounted").apply { isAccessible = true }.get(construction) == true
-                observedStartupConstructionExecutorBound = observedStartupConstructionExecutorBound ||
-                    type.getDeclaredField("executorBound").apply { isAccessible = true }.get(construction) == true
+                val mounted = type.getDeclaredField("mounted").apply { isAccessible = true }.get(construction) == true
+                if (mounted) startupEvent(Task407StartupPhaseEvent.SAMPLE_CONSTRUCTION_MOUNTED)
+                observedStartupConstructionMounted = observedStartupConstructionMounted || mounted
+                val bound = type.getDeclaredField("executorBound").apply { isAccessible = true }.get(construction) == true
+                if (bound) startupEvent(Task407StartupPhaseEvent.SAMPLE_CONSTRUCTION_EXECUTOR_BOUND)
+                observedStartupConstructionExecutorBound = observedStartupConstructionExecutorBound || bound
                 when (type.getDeclaredField("phase").apply { isAccessible = true }.get(construction).javaClass.simpleName) {
-                    "Waiting" -> observedStartupConstructionWaiting = true
-                    "Starting" -> observedStartupConstructionStarting = true
-                    "Query" -> observedStartupConstructionQuery = true
-                    "Retired" -> observedStartupConstructionRetired = true
+                    "Waiting" -> {
+                        startupEvent(Task407StartupPhaseEvent.SAMPLE_CONSTRUCTION_WAITING)
+                        observedStartupConstructionWaiting = true
+                    }
+                    "Starting" -> {
+                        startupEvent(Task407StartupPhaseEvent.SAMPLE_CONSTRUCTION_STARTING)
+                        observedStartupConstructionStarting = true
+                    }
+                    "Query" -> {
+                        startupEvent(Task407StartupPhaseEvent.SAMPLE_CONSTRUCTION_QUERY)
+                        observedStartupConstructionQuery = true
+                    }
+                    "Retired" -> {
+                        startupEvent(Task407StartupPhaseEvent.SAMPLE_CONSTRUCTION_RETIRED)
+                        observedStartupConstructionRetired = true
+                    }
                 }
             }
-        } catch (_: Throwable) { startupObservationUnavailable = true }
+        } catch (_: Throwable) {
+            startupObservationUnavailable = true
+            loggerObservation?.observationGap()
+        }
     }
 
     /** Failure-only, read-only boundary observations. Presence labels grant no readiness, identity,

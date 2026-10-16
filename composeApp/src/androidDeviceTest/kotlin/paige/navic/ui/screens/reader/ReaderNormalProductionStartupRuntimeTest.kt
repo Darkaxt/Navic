@@ -3,6 +3,7 @@ package paige.navic.ui.screens.reader
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -11,15 +12,24 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestRule
 import org.junit.runner.RunWith
+import org.json.JSONArray
+import org.json.JSONObject
 import paige.navic.reader.*
 import paige.navic.util.core.AppLogLevel
 import paige.navic.util.core.Logger
 import paige.navic.util.core.LoggerEvent
 
+internal enum class Task407OriginalStartupMethod(val wireName: String) {
+    Passive("originalRootRequiresExecutableOriginalPassiveProducerBeforeBootstrapDisplay"),
+    Turns("originalRootPublishesBootstrapThenTwoImmediateSettledTurns"),
+    Cancel("cancelOriginalPendingBootstrapThenCloseReturnsExactPhysicalOwners")
+}
+
 /** Per-fixture, failure-only projection of source-static logger markers. It preserves a preexisting
  * sink through the exact Android Logger field and never retains a message, payload or throwable. */
-internal class Task407LoggerStartupObservation {
+internal class Task407LoggerStartupObservation(private val method: Task407OriginalStartupMethod) {
     private val lock = Any()
+    @Volatile private var startupWitness: Task407StartupPhaseWitness? = null
     private var priorSink: ((LoggerEvent) -> Unit)? = null
     private var issueLogSinkField: java.lang.reflect.Field? = null
     private var installed = false
@@ -71,18 +81,59 @@ internal class Task407LoggerStartupObservation {
     }
 
     private val sink: (LoggerEvent) -> Unit = { event ->
-        try { observe(event) } catch (_: Throwable) { }
+        try { observe(event) } catch (_: Throwable) { startupWitness?.observerGapObserved() }
         try { priorSink?.invoke(event) } catch (_: Throwable) { }
     }
 
     @Suppress("UNCHECKED_CAST")
     fun install() {
         if (installed) return
-        val field = Logger::class.java.getDeclaredField("issueLogSink").apply { isAccessible = true }
-        priorSink = field.get(Logger) as? ((LoggerEvent) -> Unit)
-        issueLogSinkField = field
-        Logger.configureIssueLogSink(sink)
-        installed = true
+        // Observation anchor only. The exact production timer-bind boundary is NOT hooked.
+        startupWitness = Task407StartupPhaseWitness({ SystemClock.uptimeMillis() })
+        try {
+            val field = Logger::class.java.getDeclaredField("issueLogSink").apply { isAccessible = true }
+            priorSink = field.get(Logger) as? ((LoggerEvent) -> Unit)
+            issueLogSinkField = field
+            Logger.configureIssueLogSink(sink)
+            installed = true
+        } catch (failure: Throwable) {
+            startupWitness?.observerGapObserved()
+            throw failure
+        }
+    }
+
+    fun recordStartupObservation(event: Task407StartupPhaseEvent) {
+        try { startupWitness?.recordFirst(event) }
+        catch (_: Throwable) { startupWitness?.observerGapObserved() }
+    }
+
+    fun observeSinkContinuity() = synchronized(lock) {
+        try {
+            if (!installed || issueLogSinkField?.get(Logger) !== sink) startupWitness?.observerGapObserved()
+        } catch (_: Throwable) { startupWitness?.observerGapObserved() }
+    }
+
+    fun observationGap() { startupWitness?.observerGapObserved() }
+
+    /** Closed fixture-local wire format only; no raw event or identity is a serialization input. */
+    fun startupWitnessJson(): String? {
+        observeSinkContinuity()
+        val snapshot = startupWitness?.snapshot() ?: return null
+        return JSONObject().apply {
+            put("version", 1)
+            put("method", method.wireName)
+            put("anchor", Task407StartupPhaseEvent.OBSERVATION_INSTALL_ATTEMPT.name)
+            put("records", JSONArray().apply {
+                snapshot.records.forEach { record -> put(JSONObject().apply {
+                    put("sequence", record.sequence)
+                    put("elapsed_ms", record.elapsedMillis)
+                    put("event", record.event.name)
+                }) }
+            })
+            put("dropped_records", snapshot.droppedRecords)
+            put("clock_clamped", snapshot.clockClamped)
+            put("observer_continuity", snapshot.observerContinuity.name)
+        }.toString()
     }
 
     fun restore() {
@@ -150,28 +201,44 @@ internal class Task407LoggerStartupObservation {
      * source-sanctioned scalar error prefix. The set receives only these fixed labels. */
     private fun observeReaderEngineHost(event: LoggerEvent) {
         when {
-            event.level == AppLogLevel.Info && event.message in moduleLoadedConsoleMessages ->
+            event.level == AppLogLevel.Info && event.message in moduleLoadedConsoleMessages -> {
+                recordStartupObservation(Task407StartupPhaseEvent.LOGGER_CONSOLE_MODULE_LOADED)
                 readerEngineStartupObservationLabels += "E407.Observation.EngineConsoleModuleLoaded"
-            event.level == AppLogLevel.Info && event.message == "Reader bridge event: ready" ->
+            }
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: ready" -> {
+                recordStartupObservation(Task407StartupPhaseEvent.LOGGER_BRIDGE_READY)
                 readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeReady"
-            event.level == AppLogLevel.Info && event.message == "Reader bridge event: publicationReady" ->
+            }
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: publicationReady" -> {
+                recordStartupObservation(Task407StartupPhaseEvent.LOGGER_BRIDGE_PUBLICATION_READY)
                 readerEngineStartupObservationLabels += "E407.Observation.EngineBridgePublicationReady"
-            event.level == AppLogLevel.Info && event.message == "Reader bridge event: commandAck" ->
+            }
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: commandAck" -> {
+                recordStartupObservation(Task407StartupPhaseEvent.LOGGER_BRIDGE_COMMAND_ACK)
                 readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeCommandAcknowledged"
-            event.level == AppLogLevel.Info && event.message == "Reader bridge event: commandFailed" ->
+            }
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: commandFailed" -> {
+                recordStartupObservation(Task407StartupPhaseEvent.LOGGER_BRIDGE_COMMAND_FAILED)
                 readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeCommandFailed"
+            }
             event.level == AppLogLevel.Info && event.message == "Reader bridge event: locationChanged" ->
                 readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeLocationChanged"
-            event.level == AppLogLevel.Info && event.message == "Reader bridge event: currentDestinationResolved" ->
+            event.level == AppLogLevel.Info && event.message == "Reader bridge event: currentDestinationResolved" -> {
+                recordStartupObservation(Task407StartupPhaseEvent.LOGGER_CURRENT_DESTINATION_RESOLVED)
                 readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeCurrentDestinationResolved"
+            }
             event.level == AppLogLevel.Info && event.message == "Reader bridge event: paginationProfileStatus" ->
                 readerEngineStartupObservationLabels += "E407.Observation.EngineBridgePaginationProfileStatus"
             event.level == AppLogLevel.Info && event.message == "Reader bridge event: error" ->
                 readerEngineStartupObservationLabels += "E407.Observation.EngineBridgeError"
-            event.level == AppLogLevel.Info && event.message == "Dispatching reader engine command: openPublication" ->
+            event.level == AppLogLevel.Info && event.message == "Dispatching reader engine command: openPublication" -> {
+                recordStartupObservation(Task407StartupPhaseEvent.LOGGER_OPEN_PUBLICATION_DISPATCHED)
                 readerEngineStartupObservationLabels += "E407.Observation.EngineOpenPublicationDispatched"
-            event.level == AppLogLevel.Info && event.message == "Dispatching reader engine command: resolveCurrentDestination" ->
+            }
+            event.level == AppLogLevel.Info && event.message == "Dispatching reader engine command: resolveCurrentDestination" -> {
+                recordStartupObservation(Task407StartupPhaseEvent.LOGGER_CURRENT_DESTINATION_QUERY_DISPATCHED)
                 readerEngineStartupObservationLabels += "E407.Observation.EngineResolveCurrentDestinationDispatched"
+            }
             event.level == AppLogLevel.Info &&
                 event.message == "Skipping reader command dispatch: ready=false entrypoint=false" ->
                 readerEngineStartupObservationLabels += "E407.Observation.EngineDispatchSkippedNotReadyNotEntrypoint"
@@ -258,7 +325,7 @@ class ReaderNormalProductionStartupRuntimeTest {
     @get:Rule val fixedDiagnostics: TestRule = Task407FixedDiagnosticsRule()
 
     @Test
-    fun originalRootRequiresExecutableOriginalPassiveProducerBeforeBootstrapDisplay() = withOriginalRoot { fixture ->
+    fun originalRootRequiresExecutableOriginalPassiveProducerBeforeBootstrapDisplay() = withOriginalRoot(Task407OriginalStartupMethod.Passive) { fixture ->
         val startup = awaitBootstrap(fixture)
         task407OnMain {
             fixture.requireSameOwners(startup.owners)
@@ -282,7 +349,7 @@ class ReaderNormalProductionStartupRuntimeTest {
     }
 
     @Test
-    fun originalRootPublishesBootstrapThenTwoImmediateSettledTurns() = withOriginalRoot { fixture ->
+    fun originalRootPublishesBootstrapThenTwoImmediateSettledTurns() = withOriginalRoot(Task407OriginalStartupMethod.Turns) { fixture ->
         val startup = awaitBootstrap(fixture)
         task407OnMain { fixture.requireAuthenticatedPublicationObservationBinding() }
         val works = mutableListOf(startup.work)
@@ -407,7 +474,7 @@ class ReaderNormalProductionStartupRuntimeTest {
     }
 
     @Test
-    fun cancelOriginalPendingBootstrapThenCloseReturnsExactPhysicalOwners() = withOriginalRoot { fixture ->
+    fun cancelOriginalPendingBootstrapThenCloseReturnsExactPhysicalOwners() = withOriginalRoot(Task407OriginalStartupMethod.Cancel) { fixture ->
         // Prospective bounded profile: an ACTUAL registered Raster owner, not a pending request,
         // is captured and canceled in this SAME main-looper callback. A missed fast interval FAILS;
         // no producer/release is delayed and no sampled declaration is treated as an ACK.
@@ -476,8 +543,12 @@ class ReaderNormalProductionStartupRuntimeTest {
                 try { addAll(fixture.loggerObservationLabels()) } catch (_: Throwable) { }
             }.distinct()
             try {
+                val witness = try { fixture.startupWitnessJson() } catch (_: Throwable) { null }
                 InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
                     putString("stream", labels.joinToString("\n"))
+                    // Explicit field only; never embed JSON in stream/stack text. Its own closed
+                    // method must match the framework's currently started original test.
+                    if (witness != null) putString("E407.StartupWitness.V1", witness)
                 })
             } catch (_: Throwable) { /* Diagnostic transport cannot replace the primary failure. */ }
             throw failure
@@ -544,7 +615,7 @@ class ReaderNormalProductionStartupRuntimeTest {
         }
     }
 
-    private fun withOriginalRoot(body: (Task407NormalRuntimeRoot) -> Unit) {
+    private fun withOriginalRoot(method: Task407OriginalStartupMethod, body: (Task407NormalRuntimeRoot) -> Unit) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         task407Require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O, "A407.Runtime.RealPixelCopyPlatformRequired")
         task407Require(context.packageName == Task407RuntimePackage, "A407.Runtime.SelfInstrumentedDisposablePackage")
@@ -552,7 +623,7 @@ class ReaderNormalProductionStartupRuntimeTest {
         var epub: Task407PublicEpub? = null
         var scenario: ActivityScenario<Task407RuntimeActivity>? = null
         val root = AtomicReference<Task407NormalRuntimeRoot?>()
-        val loggerObservation = Task407LoggerStartupObservation()
+        val loggerObservation = Task407LoggerStartupObservation(method)
         var cleanupCustody: Task407OriginalCleanupCustody? = null
         var custodyCaptured = false
         var compositionDisposed = false

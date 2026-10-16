@@ -185,6 +185,169 @@ class CallerTests(unittest.TestCase):
                 self.assertEqual(fixed(error), expected)
 
 
+WITNESS_KEY = 'E407.StartupWitness.V1'
+
+
+def startup_witness(method=METHODS[0]):
+    return {'version': 1, 'method': method,
+            'anchor': 'OBSERVATION_INSTALL_ATTEMPT',
+            'records': [
+                {'sequence': 0, 'elapsed_ms': 0, 'event': 'OBSERVATION_INSTALL_ATTEMPT'},
+                {'sequence': 1, 'elapsed_ms': 10, 'event': 'LOGGER_BRIDGE_READY'},
+                {'sequence': 2, 'elapsed_ms': 10, 'event': 'SAMPLE_ENGINE_INITIALIZATION_COMPLETED'},
+                {'sequence': 3, 'elapsed_ms': 10001, 'event': 'SAMPLE_TERMINAL_MATERIAL_TIMEOUT'},
+                {'sequence': 4, 'elapsed_ms': 10002, 'event': 'LOGGER_OPEN_PUBLICATION_DISPATCHED'}],
+            'dropped_records': 0, 'clock_clamped': False,
+            'observer_continuity': 'UNPROVEN'}
+
+
+def witness_status(value, *, duplicate=False, code=2, extra=()):
+    wire = json.dumps(value, separators=(',', ':')) if isinstance(value, dict) else value
+    lines = ['INSTRUMENTATION_STATUS: ' + WITNESS_KEY + '=' + wire]
+    if duplicate:
+        lines += lines[:]
+    return '\n'.join(lines + list(extra) + ['INSTRUMENTATION_STATUS_CODE: ' + str(code)])
+
+
+def with_witness(value, method=METHODS[0], **kwargs):
+    return '\n'.join(('INSTRUMENTATION_STATUS: class=' + CLASS,
+                      'INSTRUMENTATION_STATUS: test=' + method,
+                      'INSTRUMENTATION_STATUS_CODE: 1', witness_status(value, **kwargs)))
+
+
+class StartupWitnessProjectionTests(unittest.TestCase):
+    """Real projector, RAM-only closed fixtures; diagnostics are never test oracles."""
+    def project(self, text, *, qualified=True):
+        return runner.project_instrumentation(text, {LABEL, WITNESS_KEY} if qualified else {LABEL})
+
+    def retained(self, result):
+        return result.get('startup_witness_by_original_method', {})
+
+    def rejected(self, text, *, qualified=True):
+        result = self.project(text, qualified=qualified)
+        self.assertEqual(self.retained(result), {})
+        self.assertGreater(result.get('startup_witness_rejection_count', 0), 0)
+        self.assertNotIn('R123_PRIVATE_CANARY', json.dumps(result))
+        return result
+
+    def test_valid_source_qualified_timeline_retains_arrival_order_and_sample_distinction(self):
+        value = startup_witness()
+        result = self.project(with_witness(value))
+        self.assertEqual(self.retained(result), {METHODS[0]: value})
+        self.assertEqual(result['startup_witness_rejection_count'], 0)
+        self.assertEqual(len(result['events']), 1, 'Diagnostic status is not a test terminal')
+        self.assertEqual(result['fixed_labels'], [], 'Witness key is not a legacy cumulative label')
+
+    def test_valid_fixture_timelines_are_attributed_separately_without_sorting(self):
+        first, second = startup_witness(), startup_witness(METHODS[1])
+        second['records'][1]['event'] = 'LOGGER_CURRENT_DESTINATION_QUERY_DISPATCHED'
+        result = self.project(with_witness(first) + '\n' + with_witness(second, METHODS[1]))
+        self.assertEqual(self.retained(result), {METHODS[0]: first, METHODS[1]: second})
+
+    def test_unqualified_wrong_class_wrong_method_and_unstarted_timeline_rejected(self):
+        value = startup_witness()
+        self.rejected(with_witness(value), qualified=False)
+        self.rejected(with_witness(value).replace('class=' + CLASS, 'class=other.class'))
+        self.rejected(with_witness(startup_witness(METHODS[1])))
+        self.rejected(witness_status(value))
+        self.rejected(with_witness(value, extra=('INSTRUMENTATION_STATUS: class=other.class',)))
+        self.rejected(with_witness(value, extra=('INSTRUMENTATION_STATUS: test=' + METHODS[1],)))
+        # A foreign framework start must not inherit the previously active fixture.
+        started = with_witness(value).split('INSTRUMENTATION_STATUS: ' + WITNESS_KEY, 1)[0]
+        foreign_start = '\n'.join(('INSTRUMENTATION_STATUS: class=other.class',
+                                   'INSTRUMENTATION_STATUS: test=' + METHODS[1],
+                                   'INSTRUMENTATION_STATUS_CODE: 1'))
+        self.rejected(started + foreign_start + '\n' + witness_status(value))
+        # Even fixed names cannot qualify a status-less/free-text JSON projection.
+        unparsed = self.project(started + 'INSTRUMENTATION_STATUS: stream=' + json.dumps(value))
+        self.assertEqual(self.retained(unparsed), {})
+        self.rejected(with_witness(value, extra=('INSTRUMENTATION_STATUS: private=R123_PRIVATE_CANARY',)))
+
+    def test_duplicate_json_keys_status_keys_and_per_method_timeline_invalidate_history(self):
+        value = startup_witness()
+        self.rejected(with_witness(value, duplicate=True))
+        wire = json.dumps(value).replace('"version": 1', '"version": 1, "version": 1')
+        self.rejected(with_witness(wire))
+        self.rejected(with_witness(value) + '\n' + witness_status(value))
+        self.rejected(with_witness(value, extra=('INSTRUMENTATION_STATUS: class=' + CLASS,
+                                                'INSTRUMENTATION_STATUS: class=' + CLASS)))
+        self.rejected(with_witness(value).rsplit('INSTRUMENTATION_STATUS_CODE: 2', 1)[0])
+        duplicate_event = startup_witness()
+        duplicate_event['records'][2]['event'] = duplicate_event['records'][1]['event']
+        self.rejected(with_witness(duplicate_event))
+
+    def test_malformed_private_extra_fields_and_unbounded_scalars_are_rejected(self):
+        base = startup_witness()
+        cases = []
+        for key, bad in (('version', True), ('version', 2), ('method', 'R123_PRIVATE_CANARY'),
+                         ('anchor', 'R123_PRIVATE_CANARY'), ('dropped_records', -1),
+                         ('dropped_records', 65536), ('dropped_records', True),
+                         ('clock_clamped', 0), ('observer_continuity', 'CONTINUOUS'),
+                         ('records', []), ('records', 'R123_PRIVATE_CANARY')):
+            value = json.loads(json.dumps(base))
+            value[key] = bad
+            cases.append(value)
+        value = dict(base, private='R123_PRIVATE_CANARY')
+        cases.append(value)
+        for bad in (dict(sequence=1, elapsed_ms=0, event='OBSERVATION_INSTALL_ATTEMPT'),
+                    dict(sequence=0, elapsed_ms=1, event='OBSERVATION_INSTALL_ATTEMPT'),
+                    dict(sequence=0, elapsed_ms=0, event='R123_PRIVATE_CANARY')):
+            value = json.loads(json.dumps(base))
+            value['records'][0] = bad
+            cases.append(value)
+        for field, bad in (('sequence', True), ('elapsed_ms', -1), ('elapsed_ms', 180001),
+                           ('elapsed_ms', 1.5), ('event', 'R123_PRIVATE_CANARY'),
+                           ('private', 'R123_PRIVATE_CANARY')):
+            value = json.loads(json.dumps(base))
+            value['records'][1][field] = bad
+            cases.append(value)
+        for value in cases:
+            with self.subTest(case=cases.index(value)):
+                self.rejected(with_witness(value))
+        for wire in ('{', '[]', 'null', 'R123_PRIVATE_CANARY', ' ' * 16385):
+            self.rejected(with_witness(wire))
+
+    def test_sequence_elapsed_regression_and_record_overflow_rejected(self):
+        for field, bad in (('sequence', 8), ('elapsed_ms', 9)):
+            value = startup_witness()
+            value['records'][2][field] = bad
+            self.rejected(with_witness(value))
+        value = startup_witness()
+        value['records'] = [value['records'][0]] + [
+            dict(sequence=index, elapsed_ms=index, event='LOGGER_BRIDGE_READY')
+            for index in range(1, 65)]
+        self.rejected(with_witness(value))
+
+    def test_bounded_truncation_gap_and_clamped_clock_are_retained_not_hidden(self):
+        value = startup_witness()
+        value.update(dropped_records=65535, clock_clamped=True, observer_continuity='GAP_OBSERVED')
+        # Every source-closed event can occur once; the recorder retains first occurrences only.
+        value['records'] = [value['records'][0]] + [
+            dict(sequence=index, elapsed_ms=180000, event=event)
+            for index, event in enumerate(sorted(runner._STARTUP_WITNESS_EVENTS -
+                {'OBSERVATION_INSTALL_ATTEMPT'}), start=1)]
+        result = self.project(with_witness(value))
+        self.assertEqual(self.retained(result), {METHODS[0]: value})
+
+    def test_diagnostics_preserve_original_failure_and_pass_oracles_and_legacy_labels(self):
+        for failure in (False, True):
+            text = transcript()
+            if failure:
+                text = text.replace('STATUS_CODE: 0', 'STATUS_CODE: -2', 1)
+            marker = 'INSTRUMENTATION_STATUS_CODE: 1'
+            # Real sendStatus(2) is emitted inside the currently started original method.
+            augmented = text.replace(marker, marker + '\n' + witness_status(startup_witness(),
+                extra=('INSTRUMENTATION_STATUS: stream=' + LABEL,)), 1)
+            before, after = self.project(text), self.project(augmented)
+            self.assertEqual(before['events'], after['events'])
+            self.assertEqual(before['terminal_codes'], after['terminal_codes'])
+            self.assertEqual(after['fixed_labels_by_original_method'][METHODS[0]], [LABEL])
+            self.assertEqual(runner.original_three_passed(after, exit_code=0, source_drift=False), not failure)
+            self.assertEqual(self.retained(after), {METHODS[0]: startup_witness()})
+        self.assertFalse(runner.original_three_passed(self.project(with_witness(startup_witness())),
+                                                    exit_code=0, source_drift=False))
+
+
 def load_supervisor():
     spec = importlib.util.spec_from_file_location('caller_host_supervisor',
         Path(__file__).with_name('task407-runtime-supervisor.py'))

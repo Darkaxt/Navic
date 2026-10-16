@@ -159,14 +159,102 @@ def lifecycle_argv(adb, action, argument=None):
     return [adb, '-s', SERIAL, *arguments]
 
 
+_STARTUP_WITNESS_KEY = 'E407.StartupWitness.V1'
+_STARTUP_WITNESS_EVENTS = frozenset((
+    'OBSERVATION_INSTALL_ATTEMPT', 'FIXTURE_MOUNT_ENTERED',
+    'LOGGER_CONSOLE_MODULE_LOADED', 'LOGGER_BRIDGE_READY', 'LOGGER_BRIDGE_PUBLICATION_READY',
+    'LOGGER_BRIDGE_COMMAND_ACK', 'LOGGER_BRIDGE_COMMAND_FAILED',
+    'LOGGER_CURRENT_DESTINATION_RESOLVED', 'LOGGER_OPEN_PUBLICATION_DISPATCHED',
+    'LOGGER_CURRENT_DESTINATION_QUERY_DISPATCHED',
+    'SAMPLE_ROOT_PRESENT', 'SAMPLE_COORDINATOR_PRESENT', 'SAMPLE_MATERIAL_PRESENT',
+    'SAMPLE_ENGINE_PRESENT', 'SAMPLE_ENGINE_INITIALIZATION_COMPLETED', 'SAMPLE_ENGINE_ENTRYPOINT',
+    'SAMPLE_ENGINE_ATTACHED', 'SAMPLE_ENGINE_SIZED', 'SAMPLE_ENGINE_PROGRESS_COMPLETE',
+    'SAMPLE_ENGINE_RETIRED', 'SAMPLE_CONSTRUCTION_MOUNTED', 'SAMPLE_CONSTRUCTION_EXECUTOR_BOUND',
+    'SAMPLE_CONSTRUCTION_WAITING', 'SAMPLE_CONSTRUCTION_STARTING', 'SAMPLE_CONSTRUCTION_QUERY',
+    'SAMPLE_CONSTRUCTION_RETIRED', 'SAMPLE_INITIAL_SEMANTIC_INGRESS',
+    'SAMPLE_TRANSITION_REGISTERED', 'SAMPLE_TRANSITION_ACTIVE', 'SAMPLE_RASTER_WORK_REGISTERED',
+    'SAMPLE_RASTER_PREPARING', 'SAMPLE_RASTER_READY', 'SAMPLE_RASTER_FAILED',
+    'SAMPLE_PASSIVE_RUNTIME_READY', 'SAMPLE_TERMINAL_MATERIAL_TIMEOUT',
+))
+
+
+def _project_startup_witness(wire, active):
+    """Only this explicit Bundle field is decoded; arbitrary streams are not JSON sources."""
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError()
+            result[key] = value
+        return result
+
+    def bounded_integer(value, maximum):
+        return type(value) is int and 0 <= value <= maximum
+
+    if len(wire) > 16384:
+        raise ValueError()
+    value = json.loads(wire, object_pairs_hook=unique_object)
+    if (type(value) is not dict or set(value) != {
+            'version', 'method', 'anchor', 'records', 'dropped_records',
+            'clock_clamped', 'observer_continuity'}
+            or type(value['version']) is not int or value['version'] != 1
+            or type(value['method']) is not str or value['method'] != active
+            or active not in METHODS or value['anchor'] != 'OBSERVATION_INSTALL_ATTEMPT'
+            or not bounded_integer(value['dropped_records'], 65535)
+            or type(value['clock_clamped']) is not bool
+            or value['observer_continuity'] not in ('UNPROVEN', 'GAP_OBSERVED')
+            or type(value['records']) is not list or not 1 <= len(value['records']) <= 64):
+        raise ValueError()
+    previous_ms = 0
+    seen_events = set()
+    for sequence, record in enumerate(value['records']):
+        if (type(record) is not dict or set(record) != {'sequence', 'elapsed_ms', 'event'}
+                or not bounded_integer(record['sequence'], 63) or record['sequence'] != sequence
+                or not bounded_integer(record['elapsed_ms'], 180000)
+                or record['elapsed_ms'] < previous_ms
+                or type(record['event']) is not str or record['event'] not in _STARTUP_WITNESS_EVENTS
+                or record['event'] in seen_events):
+            raise ValueError()
+        seen_events.add(record['event'])
+        previous_ms = record['elapsed_ms']
+    if value['records'][0] != {
+            'sequence': 0, 'elapsed_ms': 0, 'event': 'OBSERVATION_INSTALL_ATTEMPT'}:
+        raise ValueError()
+    return value
+
+
 def project_instrumentation(text, labels):
-    """Original fixed-label projection, without raw stack/stream/private fields."""
+    """Closed failure diagnostics are independent of unchanged original status/pass oracles.
+
+    Arrival order is retained, never sorted into an asserted first-cause history. The
+    explicit source-literal key must be qualified by the caller's Kotlin-source scan.
+    An invalid/duplicate history invalidates that active fixture's entire projection.
+    """
     pending, events, fixed, terminal, by_method = {}, [], [], [], {}
-    active = None
+    witnesses, invalid_witness_methods = {}, set()
+    witness_values = []
+    witness_rejections = 0
+    witness_prefix = 'INSTRUMENTATION_STATUS: ' + _STARTUP_WITNESS_KEY + '='
+    active = witness_active = None
+    witness_status_keys = set()
+    witness_block_invalid = False
     framework_failure = False
     for line in text.splitlines():
+        if line.startswith('INSTRUMENTATION_STATUS: '):
+            key, separator, _ = line[len('INSTRUMENTATION_STATUS: '):].partition('=')
+            if not separator or key not in ('class', 'test', 'stream', _STARTUP_WITNESS_KEY):
+                witness_block_invalid = True
+            elif key in witness_status_keys:
+                witness_block_invalid = True
+            else:
+                witness_status_keys.add(key)
+        if line.startswith(witness_prefix):
+            # Retain at most one bounded in-memory value, plus a duplicate sentinel.
+            if len(witness_values) < 2:
+                witness_values.append(line[len(witness_prefix):] if len(line) <= 16450 else None)
+            continue
         for value in re.findall(r'\b[ACE]407\.[A-Za-z0-9.]+\b', line):
-            if value not in labels:
+            if value == _STARTUP_WITNESS_KEY or value not in labels:
                 continue
             if value not in fixed:
                 fixed.append(value)
@@ -179,7 +267,22 @@ def project_instrumentation(text, labels):
             pending['method'] = name if name in METHODS else 'UNRECOGNIZED_TEST'
         elif re.fullmatch(r'INSTRUMENTATION_STATUS_CODE: -?\d+', line):
             code = int(line.rsplit(' ', 1)[1])
-            if 'method' in pending:
+            diagnostic_status = bool(witness_values) and code == 2
+            if witness_values:
+                try:
+                    if (code != 2 or _STARTUP_WITNESS_KEY not in labels or witness_block_invalid
+                            or len(witness_values) != 1 or witness_values[0] is None
+                            or witness_active is None or witness_active in witnesses or witness_active in invalid_witness_methods
+                            or ('class_valid' in pending and not pending['class_valid'])
+                            or ('method' in pending and pending['method'] != witness_active)):
+                        raise ValueError()
+                    witnesses[witness_active] = _project_startup_witness(witness_values[0], witness_active)
+                except (ValueError, TypeError, RecursionError):
+                    witness_rejections = min(65535, witness_rejections + 1)
+                    if witness_active is not None:
+                        witnesses.pop(witness_active, None)
+                        invalid_witness_methods.add(witness_active)
+            if 'method' in pending and not diagnostic_status:
                 events.append({'method': pending['method'],
                                'class_valid': pending.get('class_valid', False),
                                'status_code': code})
@@ -188,14 +291,28 @@ def project_instrumentation(text, labels):
                     by_method.setdefault(active, [])
                 elif code != 1:
                     active = None
+            if code == 1:
+                witness_active = (pending.get('method') if pending.get('class_valid')
+                                  and pending.get('method') in METHODS else None)
+            elif not diagnostic_status and ('method' in pending or code in (-2, -1, 0)):
+                witness_active = None
             pending = {}
+            witness_values = []
+            witness_status_keys = set()
+            witness_block_invalid = False
         elif re.fullmatch(r'INSTRUMENTATION_CODE: -?\d+', line):
             terminal.append(int(line.rsplit(' ', 1)[1]))
         if line.startswith(('INSTRUMENTATION_FAILED:', 'INSTRUMENTATION_ABORTED:')):
             framework_failure = True
+    if witness_values:
+        witness_rejections = min(65535, witness_rejections + 1)
+        if witness_active is not None:
+            witnesses.pop(witness_active, None)
     return {'events': events, 'fixed_labels': fixed,
             'fixed_labels_by_original_method': by_method, 'terminal_codes': terminal,
-            'framework_failure_reported': framework_failure}
+            'framework_failure_reported': framework_failure,
+            'startup_witness_by_original_method': witnesses,
+            'startup_witness_rejection_count': witness_rejections}
 
 
 def original_three_passed(projected, *, exit_code, source_drift):
