@@ -169,6 +169,17 @@ class CallerTests(unittest.TestCase):
         self.assertEqual(result['fixed_labels_by_original_method'][METHODS[0]], [LABEL])
         self.assertEqual(result['events'][-1]['method'], 'UNRECOGNIZED_TEST')
 
+    def test_fixed_preflight_reason_is_type_safe_and_allowlisted(self):
+        fixed = self.api('fixed_preflight_reason')
+        cases = ((ValueError(), 'UNEXPECTED_EXECUTION'),
+                 (ValueError('PRIVATE_READINESS_CANARY'), 'UNEXPECTED_EXECUTION'),
+                 (ValueError(['PRIVATE_READINESS_CANARY']), 'UNEXPECTED_EXECUTION'),
+                 (ValueError({'private': 'PRIVATE_READINESS_CANARY'}), 'UNEXPECTED_EXECUTION'),
+                 (ValueError('PREFLIGHT_COMMAND_INCOMPLETE'), 'PREFLIGHT_COMMAND_INCOMPLETE'))
+        for error, expected in cases:
+            with self.subTest(payload=type(error.args[0]).__name__ if error.args else 'none'):
+                self.assertEqual(fixed(error), expected)
+
 
 def load_supervisor():
     spec = importlib.util.spec_from_file_location('caller_host_supervisor',
@@ -193,13 +204,15 @@ def host_record():
 class HostDevice:
     """Real guardian/owned Windows job, synthetic selected-device replies only."""
     def __init__(self, *, boot=b'1\n', prearm_event=False, hang_install=False,
-                 clean_absence=True):
+                 clean_absence=True, readiness=None):
         self.real = load_supervisor()
         self.calls = []
         self.boot = boot
         self.prearm_event = prearm_event
         self.hang_install = hang_install
         self.clean_absence = clean_absence
+        self.readiness = readiness or {}
+        self.readiness_used = set()
         self.install = self.launch = None
         self.supervisor_created = False
         self.instrument_seen = False
@@ -207,6 +220,23 @@ class HostDevice:
         self.taken_after_shutdown = False
         outer = self
         real = self.real
+
+        def readiness_reply(step, default):
+            if step in outer.readiness_used or step not in outer.readiness:
+                return default
+            outer.readiness_used.add(step)
+            value = outer.readiness[step]
+            if isinstance(value, BaseException):
+                raise value
+            if value == 'pending':
+                return real.Command.pending()
+            if value == 'unsettled':
+                child = real.Command.completed(0)
+                child.settle = lambda timeout: False
+                return child
+            if isinstance(value, tuple):
+                return real.Command.completed(*value)
+            return value
 
         class Commands:
             @staticmethod
@@ -228,14 +258,17 @@ class HostDevice:
                     return real.Command.completed(1, b'', b'offline\n')
                 if not outer.supervisor_created:
                     raise AssertionError('Preflight began before guardian ownership')
-                if args in (['wait-for-device'], ['wait-for-disconnect']):
+                if args == ['wait-for-device']:
+                    return readiness_reply('WAIT_FOR_DEVICE', real.Command.completed(0))
+                if args == ['wait-for-disconnect']:
                     return real.Command.completed(0)
                 if args == ['emu', 'avd', 'name']:
-                    return real.Command.completed(0, b'NavicReaderLab\r\r\nOK\r\r\n')
+                    return readiness_reply('OWNED_AVD_IDENTITY',
+                                           real.Command.completed(0, b'NavicReaderLab\r\r\nOK\r\r\n'))
                 if args == ['emu', 'avd', 'snapshot', 'list']:
                     return real.Command.completed(0, b'There are no snapshots available.\nOK\n')
                 if args == ['emu', 'kill']:
-                    return real.Command.completed(0, b'OK\n')
+                    return real.Command.completed(0, b'OK: killing emulator, bye bye\n')
                 if args[:3] == ['install', '-r', '-t']:
                     outer.install = (real.Command.pending() if outer.hang_install else
                                      real.Command.completed(0, b'Success\n'))
@@ -243,7 +276,7 @@ class HostDevice:
                 if args[:2] == ['shell', '-T']:
                     remote = shlex.split(args[2])
                     if remote == ['getprop', 'sys.boot_completed']:
-                        return real.Command.completed(0, outer.boot)
+                        return readiness_reply('SYS_BOOT_COMPLETED', real.Command.completed(0, outer.boot))
                     if remote == ['toybox', 'date', '+%s.%N']:
                         return real.Command.completed(0, b'1760000000.123456789\n')
                     if remote[0] == 'logcat':
@@ -343,6 +376,56 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(result['runtime_result_analysis_performed'])
         self.assertNotIn('passed_test_count', result)
 
+    def test_each_readiness_step_reports_only_fixed_metadata_and_stops_before_install(self):
+        cases = (
+            ('WAIT_FOR_DEVICE', (1, b'', b''), 'DEVICE_WAIT_UNCONFIRMED'),
+            ('OWNED_AVD_IDENTITY', (0, b'OtherLab\nOK\n', b''), 'OWNED_AVD_UNCONFIRMED'),
+            ('SYS_BOOT_COMPLETED', (0, b'0\n', b''), 'UI_READY_UNCONFIRMED'),
+            ('WAIT_FOR_DEVICE', 'pending', 'PREFLIGHT_COMMAND_INCOMPLETE'),
+            ('OWNED_AVD_IDENTITY', 'pending', 'PREFLIGHT_COMMAND_INCOMPLETE'),
+            ('SYS_BOOT_COMPLETED', 'pending', 'PREFLIGHT_COMMAND_INCOMPLETE'),
+            ('WAIT_FOR_DEVICE', RuntimeError('PRIVATE_READINESS_CANARY'), 'UNEXPECTED_EXECUTION'),
+            ('OWNED_AVD_IDENTITY', RuntimeError('PRIVATE_READINESS_CANARY'), 'UNEXPECTED_EXECUTION'),
+            ('SYS_BOOT_COMPLETED', RuntimeError('PRIVATE_READINESS_CANARY'), 'UNEXPECTED_EXECUTION'),
+        )
+        for step, reply, reason in cases:
+            with self.subTest(step=step, reply=type(reply).__name__):
+                device = HostDevice(readiness={step: reply})
+                self.addCleanup(device.cleanup)
+                result = self.execute(device)
+                self.assertEqual(result['fixed_preflight_failure'], 'UI_READY_BLOCKED')
+                self.assertEqual(result['fixed_readiness_step'], step)
+                self.assertEqual(result['fixed_preflight_failure_reason'], reason)
+                self.assertTrue(result['automatic_emulator_teardown_verified'])
+                self.assertFalse(device.instrument_seen)
+                self.assertIsNone(device.install)
+                self.assertNotIn('PRIVATE_READINESS_CANARY', json.dumps(result))
+
+    def test_unhashable_readiness_exception_still_aborts_and_returns_fixed_metadata(self):
+        device = HostDevice(readiness={'WAIT_FOR_DEVICE': ValueError(['PRIVATE_READINESS_CANARY'])})
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        self.assertEqual(result['fixed_preflight_failure'], 'UI_READY_BLOCKED')
+        self.assertEqual(result['fixed_readiness_step'], 'WAIT_FOR_DEVICE')
+        self.assertEqual(result['fixed_preflight_failure_reason'], 'UNEXPECTED_EXECUTION')
+        self.assertTrue(result['automatic_emulator_teardown_verified'])
+        self.assertFalse(device.instrument_seen)
+        self.assertIsNone(device.install)
+        self.assertNotIn('PRIVATE_READINESS_CANARY', json.dumps(result))
+
+    def test_unsettled_readiness_client_is_diagnostic_and_never_clean(self):
+        device = HostDevice(readiness={'OWNED_AVD_IDENTITY': 'unsettled'})
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        self.assertEqual(result['fixed_preflight_failure'], 'UI_READY_BLOCKED')
+        self.assertEqual(result['fixed_readiness_step'], 'OWNED_AVD_IDENTITY')
+        self.assertEqual(result['fixed_preflight_failure_reason'], 'PREFLIGHT_CLIENT_UNSETTLED')
+        self.assertFalse(result['preflight_clients_settled'])
+        self.assertFalse(result['automatic_emulator_teardown_verified'])
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertFalse(device.instrument_seen)
+        self.assertIsNone(device.install)
+
     def test_prearm_candidate_cannot_be_lost_or_admit_instrumentation(self):
         device = HostDevice(prearm_event=True)
         self.addCleanup(device.cleanup)
@@ -365,6 +448,8 @@ class PipelineTests(unittest.TestCase):
         self.addCleanup(device.cleanup)
         result = self.execute(device)
         self.assertFalse(result['automatic_emulator_teardown_verified'])
+        self.assertEqual(result['supervisor']['status'], 'BLOCKED')
+        self.assertTrue(device.launch.settle(.1), 'Fallback may stop only the owned tree, never relabel the report')
         self.assertFalse(result['runtime_result_analysis_performed'])
         self.assertFalse(result['all_three_original_runtime_cases_passed'])
         self.assertFalse(device.taken_after_shutdown)

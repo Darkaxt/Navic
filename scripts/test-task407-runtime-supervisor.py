@@ -68,7 +68,7 @@ class FixtureAdapter:
             return S.Command.completed(0, b'OK\n')
         if action == 'console_stop':
             self.owned.stopped.set()
-            return S.Command.completed(0, b'OK\n')
+            return S.Command.completed(0, b'OK: killing emulator, bye bye\n')
         if action == 'disconnect':
             return S.Command.completed(0)
         if action == 'absence':
@@ -227,6 +227,25 @@ class SupervisorTests(unittest.TestCase):
                 self.assertIn(('disconnect', None), adapter.calls)
                 self.assertNotIn('PRIVATE', json.dumps(dataclasses.asdict(report)))
 
+    def test_console_stop_accepts_only_documented_kill_reply_grammar(self):
+        accepted = (b'OK: killing emulator, bye bye\n',
+                    b'OK: killing emulator, bye bye\r\nOK\r\n')
+        rejected = ((0, b'OK\n'), (0, b''), (0, b'KO\n'),
+                    (0, b'OK: killing emulator, bye bye\nextra\n'),
+                    (1, b'OK: killing emulator, bye bye\n'),
+                    (0, b'OK: killing emulator, bye bye\n', b'private canary'))
+        for reply in accepted:
+            with self.subTest(reply=reply):
+                supervisor, _, _, _, _ = self.context(
+                    S.Command.completed(0), {'console_stop': (0, reply)})
+                self.assertTrue(self.report(supervisor).shutdown_verified)
+        for reply in rejected:
+            with self.subTest(reply=reply):
+                supervisor, _, _, _, _ = self.context(S.Command.completed(0), {'console_stop': reply})
+                report = self.report(supervisor)
+                self.assertFalse(report.shutdown_verified)
+                self.assertIn('CONSOLE_STOP_UNCONFIRMED', report.cleanup_failures)
+
     def test_hung_cleanup_command_has_its_own_cap(self):
         def hanging(timeout, max_bytes):
             child = self.command('import threading; threading.Event().wait()', timeout=timeout, max_bytes=max_bytes)
@@ -267,7 +286,11 @@ class SupervisorTests(unittest.TestCase):
     def test_generic_offline_or_transport_error_is_not_strict_absence(self):
         for error in (b'error: device offline', b'error: no devices/emulators found', b'PRIVATE'):
             supervisor, _, _, _, _ = self.context(S.Command.completed(0), {'absence': (1, b'', error)})
-            self.assertEqual(self.report(supervisor).status, 'BLOCKED')
+            report = self.report(supervisor)
+            self.assertTrue(report.selected_disconnect)
+            self.assertFalse(report.strict_absence)
+            self.assertFalse(report.eligible_for_oracle)
+            self.assertEqual(report.status, 'BLOCKED')
 
     def test_clean_natural_completion_does_not_replace_three_method_oracle(self):
         # Deliberately not a reader verdict: method oracle belongs in the caller.
@@ -595,6 +618,21 @@ class SupervisorTests(unittest.TestCase):
         self.assertTrue(self.report(supervisor).shutdown_verified)
         self.assertEqual(owned.kills, 1, 'Root termination is not owned-tree settlement')
 
+    def test_root_terminal_without_tree_settlement_stays_blocked_after_strict_absence(self):
+        owned = FakeOwned()
+        owned.stopped.set()
+        owned.stop_tree = lambda timeout: False
+        adapter = FixtureAdapter(owned)
+        supervisor = S.Supervisor(owned=owned, commands=adapter, instrument=S.Command.completed(0),
+                                  observer=self.observer(epoch='fresh'), avd=AVD, serial=SERIAL,
+                                  contract=S.LaunchContract('6cca814c', True),
+                                  caps=S.Caps(.2, .06, .02, .2, .5, .2))
+        report = self.report(supervisor)
+        self.assertTrue(report.original_terminal)
+        self.assertTrue(report.strict_absence)
+        self.assertIn('ORIGINAL_TREE_STOP', report.cleanup_failures)
+        self.assertEqual(report.status, 'BLOCKED')
+
     def test_am_anr_scalar_abi_accepts_signed_flags_and_opaque_reason(self):
         for user, pid, flags, reason in ((0, 1, -1, PRIVATE),
                                          (2147483647, 2147483647, -2147483648, 'reason,[nested]\n' + PRIVATE),
@@ -650,7 +688,7 @@ class SupervisorTests(unittest.TestCase):
             original.wait(timeout=2)
             self.assertGreater(job.active_count(), 0, 'Fixture must have a live owned descendant after root exit')
             owned = S.OwnedProcess(original, lambda same_original, timeout: job.stop_and_settle(timeout))
-            adapter = FixtureAdapter(FakeOwned(), {'console_stop': (0, b'OK\n')})
+            adapter = FixtureAdapter(FakeOwned(), {'console_stop': (0, b'OK: killing emulator, bye bye\n')})
             supervisor = S.Supervisor(owned=owned, commands=adapter,
                                       observer=self.observer(epoch='fresh'),
                                       instrument=S.Command.completed(0), avd=AVD, serial=SERIAL,

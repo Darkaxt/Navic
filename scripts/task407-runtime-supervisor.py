@@ -683,6 +683,12 @@ def _snapshots(raw):
     return names
 
 
+def _console_stop_ack(raw):
+    lines = [line for line in raw.splitlines() if line]
+    return lines in ([b'OK: killing emulator, bye bye'],
+                     [b'OK: killing emulator, bye bye', b'OK'])
+
+
 class Supervisor:
     """Independent single guardian; no Android command defaults or normal CLI."""
     def __init__(self, *, owned, commands, observer, avd, serial, contract, caps, instrument=None):
@@ -838,7 +844,7 @@ class Supervisor:
                 failures.append('SNAPSHOTS_UNCONFIRMED')
             try:
                 code, out, err = self._command('console_stop')
-                if code != 0 or err or [v for v in out.splitlines() if v] != [b'OK']:
+                if code != 0 or err or not _console_stop_ack(out):
                     raise Blocked()
             except BaseException:
                 failures.append('CONSOLE_STOP_UNCONFIRMED')

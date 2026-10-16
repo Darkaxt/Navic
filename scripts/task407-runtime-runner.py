@@ -29,6 +29,21 @@ METHODS = (
 )
 COMPONENT = PACKAGE + '/paige.navic.ui.screens.reader.Task407RuntimeRunner'
 
+_READINESS_STEPS = frozenset(('WAIT_FOR_DEVICE', 'OWNED_AVD_IDENTITY', 'SYS_BOOT_COMPLETED'))
+_FIXED_PREFLIGHT_REASONS = frozenset((
+    'SELECTED_ABSENCE_UNCONFIRMED', 'DEVICE_WAIT_UNCONFIRMED', 'OWNED_AVD_UNCONFIRMED',
+    'UI_READY_UNCONFIRMED', 'INSTALL_UNCONFIRMED', 'CURSOR_COMMAND_UNCONFIRMED',
+    'OBSERVER_ADMISSION_REJECTED', 'INSTRUMENTATION_ADMISSION_REJECTED',
+    'GUARDIAN_ALREADY_TERMINAL', 'PREFLIGHT_COMMAND_INCOMPLETE', 'PREFLIGHT_CLIENT_UNSETTLED',
+    'UNEXPECTED_EXECUTION',
+))
+
+
+def fixed_preflight_reason(error):
+    value = error.args[0] if type(error) is ValueError and len(error.args) == 1 else None
+    return value if type(value) is str and value in _FIXED_PREFLIGHT_REASONS else 'UNEXPECTED_EXECUTION'
+
+
 
 def parse_cursor(raw):
     match = re.fullmatch(rb'([1-9][0-9]{0,9})\.([0-9]{9})(?:\r?\n)?', raw)
@@ -189,7 +204,9 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     owned = guardian = observer = source = instrument = None
     attached = False
     phase = 'SELECTED_ABSENCE'
+    readiness_step = None
     failure = None
+    failure_reason = None
     report = None
     result = {'kind': 'original-three-supervised-runtime-not-pair-or-performance-acceptance',
               'parent_status': 'IN_PROGRESS', 'watchdog_id': watchdog_id,
@@ -199,7 +216,8 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
               'host_snapshot_residue_cleanup_required': True,
               'raw_stdout_stderr_retained': False,
               'configured_pair_wordsync_accepted': False, 'performance_accepted': False,
-              'production_release_accepted': False, 'anr_cause_proven': False}
+              'production_release_accepted': False, 'anr_cause_proven': False,
+              'fixed_readiness_step': None, 'fixed_preflight_failure_reason': None}
 
     def command(arguments, timeout):
         if guardian is not None and guardian.wait(0) is not None:
@@ -248,15 +266,19 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             observer=observer, avd=AVD, serial=SERIAL,
             contract=s.LaunchContract(watchdog_id=watchdog_id, no_snapshot_save=True), caps=caps)
         phase = 'UI_READY'
+        readiness_step = 'WAIT_FOR_DEVICE'
         code, out, err = command(['wait-for-device'], caps.preparation)
         if code != 0 or err:
             raise ValueError('DEVICE_WAIT_UNCONFIRMED')
+        readiness_step = 'OWNED_AVD_IDENTITY'
         code, out, err = command(['emu', 'avd', 'name'], caps.command)
         if code != 0 or err or [v for v in out.splitlines() if v] != [AVD.encode(), b'OK']:
             raise ValueError('OWNED_AVD_UNCONFIRMED')
+        readiness_step = 'SYS_BOOT_COMPLETED'
         code, out, err = shell(['getprop', 'sys.boot_completed'], caps.command)
         if code != 0 or err or out.strip() != b'1':
             raise ValueError('UI_READY_UNCONFIRMED')
+        readiness_step = None
         phase = 'INSTALL'
         code, out, err = command(['install', '-r', '-t', record['apk_path']], caps.command)
         if code != 0 or err or b'Success' not in out.splitlines():
@@ -282,8 +304,11 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         attached = guardian.attach_instrumentation(instrument)
         if not attached:
             raise ValueError('INSTRUMENTATION_ADMISSION_REJECTED')
-    except BaseException:
+    except BaseException as error:
         failure = phase + '_BLOCKED'
+        failure_reason = fixed_preflight_reason(error)
+        if readiness_step not in _READINESS_STEPS:
+            readiness_step = None
         if guardian is not None:
             guardian.abort()
     finally:
@@ -307,6 +332,8 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     clients_settled = all(client.settle(caps.settle) for client in clients)
     clean = bool(report is not None and report.shutdown_verified and clients_settled)
     result.update({'fixed_preflight_failure': failure,
+                   'fixed_readiness_step': readiness_step,
+                   'fixed_preflight_failure_reason': failure_reason,
                    'automatic_emulator_teardown_verified': clean,
                    'preflight_clients_settled': clients_settled,
                    'supervisor': asdict(report) if report is not None else None})
