@@ -4492,8 +4492,9 @@ private class KomikkuReaderNativeViewerContainer(
 			while (ancestor !== installation.wrapper) ancestor = ancestor.parent as? View ?: return false
 			return original.sourceIsCurrent()
 		}
-		val work = ReaderActivatedRasterWork(domain, activatedSessionStore, installed, lease, resolved?.captureBasis) {
-			commandIsCurrent(lease) && sourceCurrent() && commandIsCurrent(lease)
+		val work = ReaderActivatedRasterWork(domain, activatedSessionStore, installed, lease, resolved?.captureBasis,
+			mainThreadSourceIsCurrent = if (initial) ::sourceCurrent else null) {
+			commandIsCurrent(lease)
 		}
 		val plan = playLikeCurlController.activatedPreparationPlan(work) ?: return installedRejected()
 		val engine = currentLiveWebView() ?: return installedRejected()

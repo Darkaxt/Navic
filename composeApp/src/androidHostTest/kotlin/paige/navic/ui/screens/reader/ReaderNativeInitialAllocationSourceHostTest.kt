@@ -1,6 +1,24 @@
 package paige.navic.ui.screens.reader
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.webkit.ValueCallback
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+import org.robolectric.annotation.Implements
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.RealObject
+import org.robolectric.shadows.ShadowWebView
+import org.robolectric.util.reflector.Direct
+import org.robolectric.util.reflector.ForType
+import org.robolectric.util.reflector.Reflector.reflector
 import android.os.Build
 import android.os.Looper
 import android.view.View
@@ -215,6 +233,145 @@ class ReaderNativeInitialAllocationSourceHostTest {
         }
     }
 
+    @Config(shadows = [Task407InitialPersistenceWebViewShadow::class])
+    @Test fun originalInitialCurrentLiveDurabilityCrossesIoWithoutLosingItsLiveSource() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain()
+            f.layoutOriginalRasterMaterial(); f.resolve()
+            val basis = assertNotNull(assertIs<ReaderNativeInitialResolvedLayout>(f.capture()).captureBasis)
+            assertEquals(ReaderPortCommandResult.Accepted, f.allocate()); f.returnPlan()
+            val work = f.prepareRaster()
+            assertSame(basis, work.initialCaptureBasis)
+            assertTrue(work.isCurrent())
+            f.startOriginalCurrentLivePersistence()
+            val progressed = withContext(Dispatchers.Default) {
+                withTimeout(5_000L) { f.currentLiveEndpoint.await() }
+            }
+            assertTrue(progressed, "R118.CurrentLive.RealDurableMustAdvanceToFirstOffscreen")
+            assertEquals(1, f.persistenceShadow().manifestRequests)
+            assertTrue(work.isCurrent())
+            assertSame(basis, work.initialCaptureBasis)
+            assertFalse(f.materialFacts.any { it is ReaderTransitionFact.RasterProven || it is ReaderTransitionFact.RasterFailed })
+        } finally { f.dispose() }
+    }
+
+    @Config(shadows = [Task407InitialPersistenceWebViewShadow::class])
+    @Test fun originalInitialCurrentLiveWarmStorePersistsBeforeOneOffscreenRequest() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            val work = f.prepareOriginalInitialWork()
+            f.warmOriginalPersistence(work)
+            f.startOriginalCurrentLivePersistence()
+            assertTrue(withContext(Dispatchers.Default) { withTimeout(5_000L) { f.currentLiveEndpoint.await() } },
+                "R118.CurrentLive.WarmRealDurableMustAdvance")
+            assertEquals(1, f.persistenceShadow().manifestRequests)
+            assertTrue(f.bundle().rasterCacheMetrics().diskEntries > 0)
+            assertTrue(work.isCurrent())
+            assertFalse(f.materialFacts.any { it is ReaderTransitionFact.RasterProven || it is ReaderTransitionFact.RasterFailed })
+        } finally { f.dispose() }
+    }
+
+    @Config(shadows = [Task407InitialPersistenceWebViewShadow::class])
+    @Test fun originalInitialWorkerRejectsRevokedSourceAndExactStaleCommandBeforeIo() = runTest {
+        for (change in listOf("destination", "dimensions", "profile", "publication", "viewport", "detach", "candidate", "retire", "command")) {
+            val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+            val io = Task407OriginalInitializationWorker()
+            try {
+                f.controlOriginalInitialization(io)
+                val work = f.prepareOriginalInitialWork()
+                val originalShadow = f.persistenceShadow()
+                f.startOriginalCurrentLivePersistence()
+                withContext(Dispatchers.Default) { withTimeout(5_000L) { io.queued.await() } }
+                when (change) {
+                    "destination" -> f.postNewDestination()
+                    "dimensions" -> f.resize()
+                    "profile" -> f.replaceProfileIdentity()
+                    "publication" -> f.replacePublicationIdentity()
+                    "viewport" -> f.replaceViewportIdentity()
+                    "detach" -> f.detachOriginalWrapper()
+                    "candidate" -> f.closeCandidate()
+                    "retire" -> work.retire()
+                    "command" -> f.materialCommandCurrent = false
+                }
+                assertFalse(work.isCurrent(), "R118.MainSourceRevoked.$change")
+                val workerCurrent = withContext(Dispatchers.IO) { work.isCurrent() }
+                assertFalse(workerCurrent, "R118.WorkerCannotReviveRevokedSource.$change")
+                io.returnOriginalWorker()
+                f.drain()
+                assertTrue(io.returnedOffMain)
+                assertEquals(0, originalShadow.manifestRequests)
+                assertFalse(f.materialFacts.any { it is ReaderTransitionFact.RasterProven })
+                assertEquals(0, f.bundle().ownershipMetrics().stagedPublications)
+            } finally {
+                io.returnIfQueued()
+                f.dispose()
+            }
+        }
+    }
+
+    @Config(shadows = [Task407InitialPersistenceWebViewShadow::class])
+    @Test fun originalInitialOutstandingWorkerCancellationAndCloseDoNotFabricatePhysicalReturn() = runTest {
+        for (close in listOf(false, true)) {
+            val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+            val io = Task407OriginalInitializationWorker()
+            try {
+                f.controlOriginalInitialization(io)
+                val work = f.prepareOriginalInitialWork()
+                val originalShadow = f.persistenceShadow()
+                f.startOriginalCurrentLivePersistence()
+                withContext(Dispatchers.Default) { withTimeout(5_000L) { io.queued.await() } }
+                var returns = 0
+                assertEquals(ReaderPortCommandResult.Accepted, f.releaseOriginal(work) { returns++ })
+                if (close) f.call("closeReader")
+                f.drain()
+                assertEquals(0, returns, "R118.LogicalCancelIsNotOriginalWorkerReturn")
+                assertFalse(withContext(Dispatchers.IO) { work.isCurrent() })
+                io.returnOriginalWorker()
+                f.drain()
+                assertTrue(io.returnedOffMain)
+                assertEquals(1, returns, "R118.ExactOriginalWorkerReturnsOnce")
+                f.drain(); assertEquals(1, returns)
+                assertEquals(0, originalShadow.manifestRequests)
+                assertFalse(f.materialFacts.any { it is ReaderTransitionFact.RasterProven })
+            } finally {
+                io.returnIfQueued()
+                f.dispose()
+            }
+        }
+    }
+
+    @Config(shadows = [Task407InitialPersistenceWebViewShadow::class])
+    @Test fun originalInitialPostWriteSourceInvalidationRollsBackBeforeDurable() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            val work = f.prepareOriginalInitialWork()
+            f.warmOriginalPersistence(work)
+            val baseline = f.bundle().rasterCacheMetrics().diskEntries
+            val paused = f.pauseOriginalPublication()
+            f.startOriginalCurrentLivePersistence()
+            withContext(Dispatchers.Default) { withTimeout(5_000L) { paused.await() } }
+            assertTrue(f.bundle().rasterCacheMetrics().diskEntries > baseline,
+                "R118.OriginalIoWritePrecedesHeldPublicationCompletion")
+            f.postNewDestination()
+            // Do not sample work.isCurrent here: the original main publication
+            // completion must itself discover the stale physical/semantic source.
+            assertTrue(work.installationIsCurrent())
+            assertTrue(f.releaseOriginalPublication())
+            f.drain()
+            assertFalse(withContext(Dispatchers.IO) { work.isCurrent() },
+                "R118.MainPublicationRevokesOriginalSourceWithoutTestSampling")
+            assertFalse(work.isCurrent(), "R118.MainPublicationRevalidatesOriginalSource")
+            val returned = CompletableDeferred<Unit>()
+            assertEquals(ReaderPortCommandResult.Accepted, f.releaseOriginal(work) { returned.complete(Unit) })
+            withContext(Dispatchers.Default) { withTimeout(5_000L) { returned.await() } }
+            assertEquals(baseline, f.bundle().rasterCacheMetrics().diskEntries,
+                "R118.StaleOriginalReceiptRolledBackBeforePhysicalReturn")
+            assertEquals(0, f.persistenceShadow().manifestRequests)
+            assertFalse(f.materialFacts.any { it is ReaderTransitionFact.RasterProven })
+        } finally { f.dispose() }
+    }
+
     @Test fun originalInitialAllocationCannotRunBeforeOriginalOwnerFinalization() = runTest {
         val f = ConstructionFixture(testScheduler)
         try {
@@ -318,6 +475,8 @@ class ReaderNativeInitialAllocationSourceHostTest {
         val receipts = mutableListOf<ReaderPresentationEventReceipt>()
         val versionsAtReceipt = mutableListOf<ReaderPresentationReceiptVersion?>()
         val materialFacts = mutableListOf<ReaderTransitionFact>()
+        val currentLiveEndpoint = CompletableDeferred<Boolean>()
+        private val syntheticDescriptorIdentity = java.util.UUID.randomUUID().toString()
         val materialEvidence get() = materialFacts.filter {
             it is ReaderTransitionFact.PaginationProfileReady || it is ReaderTransitionFact.MaterialBindingAllocated ||
                 it is ReaderTransitionFact.CommandRejected
@@ -465,8 +624,12 @@ class ReaderNativeInitialAllocationSourceHostTest {
             assertTrue(target.isAttachedToWindow, "R407.Layout.OriginalEngineAttached")
             assertTrue(holder.width > 0 && holder.height > 0 && holder.width == holder.measuredWidth &&
                 holder.height == holder.measuredHeight, "R407.Layout.OriginalHolderMeasuredAndPlaced")
-            assertTrue((shadowOf(target) as Task407UnitWebViewMeasureBoundary).originalExactSpecsObserved,
-                "R407.Layout.OriginalExactMeasureSpecs")
+            val measured = shadowOf(target)
+            assertTrue(when (measured) {
+                is Task407UnitWebViewMeasureBoundary -> measured.originalExactSpecsObserved
+                is Task407InitialPersistenceWebViewShadow -> measured.originalExactSpecsObserved
+                else -> false
+            }, "R407.Layout.OriginalExactMeasureSpecs")
             assertTrue(target.measuredWidth == holder.measuredWidth && target.measuredHeight == holder.measuredHeight,
                 "R407.Layout.OriginalEngineMeasuredByHolder")
             val originalHolder = holder.javaClass.superclass
@@ -538,7 +701,10 @@ class ReaderNativeInitialAllocationSourceHostTest {
             val currency: (ReaderRasterPreparationLease) -> Boolean = { lease ->
                 current() && lease.transitionId == command.transitionId && lease.binding == command.binding && lease.allocation == allocation
             }
-            val facts: (ReaderTransitionFact) -> Unit = { materialFacts += it }
+            val facts: (ReaderTransitionFact) -> Unit = {
+                materialFacts += it
+                if (it is ReaderTransitionFact.RasterFailed) currentLiveEndpoint.complete(false)
+            }
             val original = assertNotNull(material()?.initialResolvedLayout, "R407.Raster.InitialLayoutPresent")
             assertTrue(original === capture(), "R407.Raster.ExactSourceCurrentBeforePreparation")
             assertTrue(original.scope.installedSnapshot === store.snapshot, "R407.Raster.ExactInstalledSnapshotBeforePreparation")
@@ -613,6 +779,74 @@ class ReaderNativeInitialAllocationSourceHostTest {
             }
             callback.onReceiveValue(JsonPrimitive(plan.toString()).toString()); drain()
         }
+        fun bundle() = field("pageTurnBundleSource") as ReaderPageTurnBundleSource
+        fun prepareOriginalInitialWork(): ReaderActivatedRasterWork {
+            assertEquals(ReaderSemanticCommandResult.Accepted, start()); drain()
+            layoutOriginalRasterMaterial(); resolve()
+            assertEquals(ReaderPortCommandResult.Accepted, allocate()); returnPlan()
+            return prepareRaster().also { assertTrue(it.isCurrent()) }
+        }
+        fun controlOriginalInitialization(dispatcher: CoroutineDispatcher) {
+            ReaderPageTurnBundleSource::class.java.getDeclaredField("rasterInitializationDispatcher")
+                .apply { isAccessible = true }.set(bundle(), dispatcher)
+        }
+        suspend fun warmOriginalPersistence(work: ReaderActivatedRasterWork) {
+            // Invoke the original installed initializer, never install a cache/store or Durable.
+            suspendCoroutine<Any> { continuation ->
+                val method = ReaderPageTurnBundleSource::class.java.declaredMethods.single {
+                    it.name == "rasterScheduler" && it.parameterCount == 4
+                }.apply { isAccessible = true }
+                val result = method.invoke(bundle(), engine(), null, work, continuation)
+                if (result !== COROUTINE_SUSPENDED) continuation.resume(result)
+            }
+        }
+        fun releaseOriginal(work: ReaderActivatedRasterWork, returned: () -> Unit) =
+            (field("pageRasterPreparationController") as ReaderPageRasterPreparationController).releaseInstalled(work, returned)
+        fun pauseOriginalPublication(): CompletableDeferred<Unit> {
+            val paused = CompletableDeferred<Unit>()
+            val registry = field("qaFaultRegistry") as ReaderPageQaFaultRegistry
+            val sink = ReaderPageQaFaultRegistry::class.java.getDeclaredField("eventSink").apply { isAccessible = true }
+            val original = sink.get(registry) as ReaderPageQaFaultEventSink
+            sink.set(registry, ReaderPageQaFaultEventSink { event ->
+                original.emit(event)
+                if (event.ticket.fault == ReaderPageQaFault.PauseNextPublication && event.state == ReaderPageQaFaultState.Applied)
+                    paused.complete(Unit)
+            })
+            assertTrue(registry.enqueue("r118-publication-pause", ReaderPageQaFault.PauseNextPublication))
+            return paused
+        }
+        fun releaseOriginalPublication() = (field("qaFaultRegistry") as ReaderPageQaFaultRegistry)
+            .releasePublication("r118-publication-return")
+        fun persistenceShadow() = shadowOf(engine()) as Task407InitialPersistenceWebViewShadow
+        fun startOriginalCurrentLivePersistence() {
+            val shadow = persistenceShadow()
+            shadow.onFirstManifest = { currentLiveEndpoint.complete(true) }
+            val adapter = field("passiveRasterPreparationAdapter") as ReaderPassiveRasterPreparationAdapter
+            fun member(owner: Any, name: String): Any = owner.javaClass.getDeclaredField(name)
+                .apply { isAccessible = true }.get(owner)
+            val runtime = member(member(adapter, "session"), "runtime")
+            val passive = member(runtime, "webView") as WebView
+            passive.webViewClient.onPageFinished(passive, passive.url)
+            val passiveShadow = shadowOf(passive)
+            assertTrue(passiveShadow.lastEvaluatedJavascript?.contains("NavicPassiveRasterPrototype?.ready") == true)
+            assertNotNull(passiveShadow.lastEvaluatedJavascriptCallback).onReceiveValue("true")
+            drain()
+            assertEquals(1, shadow.visualReturns, "R118.CurrentLive.OriginalVisualStateReturned")
+            assertTrue(shadow.syntheticDraws > 0, "R118.CurrentLive.OriginalDrawCaptured")
+            assertTrue(shadow.lastEvaluatedJavascript?.contains("pageTurnRasterDescriptor") == true,
+                "R118.CurrentLive.OriginalDescriptorRequested")
+            assertEquals(0, shadow.manifestRequests, "CurrentLive must precede every offscreen request")
+            val descriptor = buildJsonObject {
+                put("publicationUrl", "public-synthetic-r118-$syntheticDescriptorIdentity")
+                put("paginationFingerprint", "pagination-r118"); put("layoutFingerprint", "layout-r118")
+                put("decorationFingerprint", "decoration-r118")
+                put("viewportWidth", 560); put("viewportHeight", 420); put("pageCount", 8)
+                put("spineIndex", 0); put("href", "fixture-r118"); put("chapterPageIndex", 0)
+                put("chapterPageCount", 8); put("visualPageOrdinal", 0)
+            }
+            assertNotNull(shadow.lastEvaluatedJavascriptCallback).onReceiveValue(descriptor.toString())
+            drain()
+        }
         fun resize() { native.layout(0, 0, native.width + 1, native.height) }
         fun detachOriginalWrapper() {
             val lease = assertNotNull(material()); (lease.wrapper.parent as ViewGroup).removeView(lease.wrapper)
@@ -643,5 +877,76 @@ class ReaderNativeInitialAllocationSourceHostTest {
                 finally { Dispatchers.resetMain() }
             }
         }
+    }
+}
+
+/** Hold the original queued initializer without running IO on main or blocking a worker
+ * on main. Returning it executes that exact dispatched Runnable on real Dispatchers.IO. */
+internal class Task407OriginalInitializationWorker : CoroutineDispatcher() {
+    private val gateNext = AtomicBoolean(true)
+    private val pending = CompletableDeferred<Pair<CoroutineContext, Runnable>>()
+    val queued = CompletableDeferred<Unit>()
+    var returnedOffMain = false; private set
+    private var returned = false
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        if (gateNext.compareAndSet(true, false)) {
+            check(pending.complete(context to block))
+            queued.complete(Unit)
+        } else Dispatchers.IO.dispatch(context, block)
+    }
+    suspend fun returnOriginalWorker() {
+        check(!returned)
+        returned = true
+        val (_, block) = pending.await()
+        withContext(Dispatchers.IO) {
+            check(Looper.myLooper() != Looper.getMainLooper())
+            returnedOffMain = true
+            block.run()
+        }
+    }
+    suspend fun returnIfQueued() {
+        if (queued.isCompleted && !returned) returnOriginalWorker()
+    }
+}
+
+/** Framework-only unit inputs. The real Native work, capture, cache, descriptor owner,
+ * CurrentLive adapter and IO store remain in the call chain. No Durable/ACK is supplied. */
+@Implements(WebView::class)
+internal class Task407InitialPersistenceWebViewShadow : ShadowWebView() {
+    @RealObject private lateinit var original: WebView
+    var originalExactSpecsObserved = false; private set
+    var visualReturns = 0; private set
+    var syntheticDraws = 0; private set
+    var manifestRequests = 0; private set
+    var onFirstManifest: (() -> Unit)? = null
+
+    @Implementation protected fun onMeasure(width: Int, height: Int) {
+        originalExactSpecsObserved = View.MeasureSpec.getMode(width) == View.MeasureSpec.EXACTLY &&
+            View.MeasureSpec.getMode(height) == View.MeasureSpec.EXACTLY
+        reflector(OriginalViewPlatform::class.java, original).onMeasure(width, height)
+    }
+    @Implementation(minSdk = Build.VERSION_CODES.P, maxSdk = Build.VERSION_CODES.P)
+    protected fun setFrame(left: Int, top: Int, right: Int, bottom: Int): Boolean =
+        reflector(OriginalViewPlatform::class.java, original).setFrame(left, top, right, bottom)
+    @Implementation fun postVisualStateCallback(requestId: Long, callback: WebView.VisualStateCallback) {
+        original.post { visualReturns++; callback.onComplete(requestId) }
+    }
+    @Implementation override fun draw(canvas: Canvas) {
+        syntheticDraws++
+        canvas.drawColor(Color.WHITE)
+        val paint = Paint().apply { color = Color.BLACK }
+        for (row in 0..12) canvas.drawRect(8f, 8f + row * 24f, original.width * .8f, 20f + row * 24f, paint)
+    }
+    @Implementation override fun evaluateJavascript(script: String, callback: ValueCallback<String>?) {
+        super.evaluateJavascript(script, callback)
+        if (script.contains("pageTurnPassiveRasterManifestInputs")) {
+            manifestRequests++
+            onFirstManifest?.invoke()
+            // The first offscreen request remains unresolved; this is not RasterProven.
+        }
+    }
+    @ForType(View::class) interface OriginalViewPlatform {
+        @Direct fun onMeasure(width: Int, height: Int)
+        @Direct fun setFrame(left: Int, top: Int, right: Int, bottom: Int): Boolean
     }
 }

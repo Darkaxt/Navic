@@ -111,6 +111,7 @@ internal class ReaderActivatedRasterWork(
 	val snapshot: ReaderActivatedSessionSnapshot,
 	val lease: ReaderRasterPreparationLease,
 	val initialCaptureBasis: ReaderInitialCurrentDestinationCaptureBasis? = null,
+	private val mainThreadSourceIsCurrent: (() -> Boolean)? = null,
 	private val commandIsCurrent: () -> Boolean
 ) {
 	init {
@@ -121,6 +122,7 @@ internal class ReaderActivatedRasterWork(
 			lease.binding.destinationCommitIdentity == initialCaptureBasis.destinationCommitIdentity))
 	}
 	@Volatile private var retired = false
+	@Volatile private var sourceAdmitted = mainThreadSourceIsCurrent == null
 	internal val preparationReturn = ReaderInstalledRasterReturnProgress(2)
 	internal val bundleReturn = ReaderInstalledRasterReturnProgress(8)
 	internal var preparationFacts: paige.navic.reader.ReaderPagePreparationFacts? = null
@@ -149,8 +151,26 @@ internal class ReaderActivatedRasterWork(
 			origin.coordinatorEpoch == lease.transitionId.coordinatorEpoch
 		} == true
 
-	fun isCurrent(): Boolean = !retired && installationIsCurrent() &&
+	private fun commandCustodyIsCurrent(): Boolean = !retired && installationIsCurrent() &&
 		runCatching(commandIsCurrent).getOrDefault(false)
+
+	fun isCurrent(): Boolean {
+		if (!commandCustodyIsCurrent()) return false
+		val source = mainThreadSourceIsCurrent
+		if (source != null && Looper.myLooper() == Looper.getMainLooper()) {
+			// Physical admission and completion traverse the original views on main only.
+			// IO retains command custody, not a sampled claim of physical/display authority.
+			if (!runCatching(source).getOrDefault(false)) {
+				retire()
+				return false
+			}
+			sourceAdmitted = true
+		}
+		// No worker may precede main admission, survive exact retirement, or revive an
+		// obsolete command. Main publication must revalidate the full physical source;
+		// the existing publication ledger/receipt rollback owns any provisional IO write.
+		return sourceAdmitted && commandCustodyIsCurrent()
+	}
 
 	fun admit(
 		ownership: ReaderExactPhysicalOwnerRegistry,
