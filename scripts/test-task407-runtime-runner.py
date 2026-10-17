@@ -2267,6 +2267,65 @@ class FailedWaitHostDiagnosticTests(unittest.TestCase):
             self.assertTrue(device.guardian._owned.stop_tree(device.caps.stop))
             self.sample(result, 'SNAPSHOT_GAP')
 
+    def test_r136_profile_is_fixed_and_other_paths_remain_not_sampled(self):
+        device = HostDevice(synthetic_owned=True, guardian_gate=threading.Event())
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        self.assertEqual(result.get('owned_job_engine_path_observation_profile'), 'OWNED_JOB_ENGINE_PATH_V1')
+        self.assertEqual(result['owned_job_engine_path_observation'], 'NOT_SAMPLED')
+        self.assertTrue(result['all_three_original_runtime_cases_passed'])
+
+    def test_r136_failing_wait_samples_once_from_admitted_emulator_path_without_readiness_shortcut(self):
+        device, child = self.device(live=False)
+        record = host_record()
+        record['emulator'] = r'D:\r136-host\fixture-emulator.exe'
+        original_spawn = device.module.Command.spawn
+        def spawn(argv, **kwargs):
+            if argv[0] == record['emulator']:
+                argv = ['fixture-emulator.exe', *argv[1:]]
+            return original_spawn(argv, **kwargs)
+        device.module.Command.spawn = staticmethod(spawn)
+        observed = []
+        def sample(path):
+            observed.append(path)
+            return 'PATH_MATCH_OBSERVED'
+        def before(host, argv):
+            if argv[3:] == ['wait-for-device']:
+                host.launch._buffers = [bytearray(b'Boot completed in '), bytearray()]
+                host.launch.snapshot_expected_image = sample
+        device.before_reply = before
+        result = self.execute(device, record)
+        self.assertEqual(observed, [r'D:\r136-host\qemu\windows-x86_64\qemu-system-x86_64.exe'])
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(result.get('owned_job_engine_path_observation_profile'), 'OWNED_JOB_ENGINE_PATH_V1')
+        self.assertEqual(result['owned_job_engine_path_observation'], 'PATH_MATCH_OBSERVED')
+        self.assertEqual(result['fixed_readiness_step'], 'WAIT_FOR_DEVICE')
+        self.assertEqual(result['owned_launch_diagnostics']['text_hits'], ['BOOT_COMPLETED_IN_TEXT_HIT'])
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertFalse(result['all_three_original_runtime_cases_passed'])
+        self.assertIsNone(device.install)
+        self.assertTrue(child.cancelled)
+
+    def test_r136_snapshot_error_is_unavailable_and_cannot_suppress_primary_failure_or_cleanup(self):
+        device, child = self.device(live=False, clean=False)
+        calls = []
+        def fail(path):
+            calls.append(path)
+            raise RuntimeError('R136_PRIVATE_CANARY')
+        def before(host, argv):
+            if argv[3:] == ['wait-for-device']:
+                host.launch.snapshot_expected_image = fail
+        device.before_reply = before
+        result = self.execute(device)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result['owned_job_engine_path_observation'], 'UNAVAILABLE')
+        self.assertEqual(result['fixed_preflight_failure_reason'], 'PREFLIGHT_COMMAND_INCOMPLETE')
+        self.assertTrue(child.cancelled)
+        self.assertTrue(child._discarded)
+        self.assertTrue(device.launch.done.is_set())
+        self.assertFalse(result['automatic_emulator_teardown_verified'])
+        self.assertNotIn('R136_PRIVATE_CANARY', json.dumps(result))
+
 
 class ProvenanceTests(unittest.TestCase):
     def api(self, name):

@@ -1104,6 +1104,134 @@ class RetainedHostStateTests(unittest.TestCase):
             self.assertTrue(child.cancel(2))
 
 
+class OwnedJobExpectedImageTests(unittest.TestCase):
+    """Bounded private-job image observations; never identity/readiness proof."""
+    RESULTS = {'PATH_MATCH_OBSERVED', 'NO_PATH_MATCH_IN_COMPLETE_LIST', 'UNAVAILABLE'}
+
+    def api(self, job):
+        value = getattr(job, 'snapshot_expected_image', None)
+        self.assertTrue(callable(value), 'R136_EXPECTED_IMAGE_API_MISSING')
+        return value
+
+    def fake_job(self, *, assigned=1, listed=1, pids=(41,), images=None, memberships=None, image_ok=True):
+        import ctypes
+        closed = []
+        images = images or {41: r'C:\\fixture\\engine.exe'}
+        memberships = iter(memberships if memberships is not None else (True,) * (2 * len(pids)))
+        def query_job(handle, info_class, info_ptr, size, unused):
+            info = info_ptr._obj
+            info.NumberOfAssignedProcesses = assigned
+            info.NumberOfProcessIdsInList = listed
+            for index, pid in enumerate(pids[:16]):
+                info.ProcessIdList[index] = pid
+            return True
+        def open_process(access, inherit, pid):
+            self.assertEqual(access, 0x1000)
+            self.assertFalse(inherit)
+            return pid + 1000
+        def in_job(handle, original_job, result_ptr):
+            result_ptr._obj.value = int(next(memberships))
+            return True
+        def image(handle, flags, buffer, size_ptr):
+            pid = handle - 1000
+            if not image_ok:
+                return False
+            buffer.value = images[pid]
+            size_ptr._obj.value = len(images[pid])
+            return True
+        kernel = SimpleNamespace(QueryInformationJobObject=query_job, OpenProcess=open_process,
+                                 IsProcessInJob=in_job, QueryFullProcessImageNameW=image,
+                                 CloseHandle=lambda handle: closed.append(handle) or True)
+        job = object.__new__(S._WindowsJob)
+        job._ctypes, job._lock, job._handle, job._kernel = ctypes, threading.RLock(), 73, kernel
+        return job, closed
+
+    def test_r136_api_is_closed_fixed_enum_and_no_raw_exports(self):
+        job, closed = self.fake_job()
+        result = self.api(job)(r'C:\\fixture\\engine.exe')
+        self.assertEqual(result, 'PATH_MATCH_OBSERVED')
+        self.assertIn(result, self.RESULTS)
+        self.assertEqual(closed, [1041])
+        self.assertNotIn('fixture', result)
+        self.assertNotIn('41', result)
+
+    def test_r136_complete_inspected_nonmatch_is_distinct_from_invalid_or_incomplete_samples(self):
+        job, _ = self.fake_job()
+        self.assertEqual(self.api(job)(r'D:\\other\\engine.exe'), 'NO_PATH_MATCH_IN_COMPLETE_LIST')
+        for assigned, listed, pids in ((17, 17, (41,)), (1, 2, (41,)), (2, 2, (41, 41)),
+                                       (1, 1, (0,)), (1, 1, (-1,))):
+            with self.subTest(assigned=assigned, listed=listed, pids=pids):
+                invalid, closed = self.fake_job(assigned=assigned, listed=listed, pids=pids)
+                self.assertEqual(self.api(invalid)(r'C:\\fixture\\engine.exe'), 'UNAVAILABLE')
+                self.assertEqual(closed, [])
+        for path in ('relative.exe', r'\\relative', 'C:\\bad\x00path'):
+            self.assertEqual(self.api(job)(path), 'UNAVAILABLE')
+
+    def test_r136_membership_and_image_failures_fail_closed_and_close_every_opened_handle(self):
+        foreign, closed = self.fake_job(memberships=(False,))
+        self.assertEqual(self.api(foreign)(r'C:\\fixture\\engine.exe'), 'UNAVAILABLE')
+        self.assertEqual(closed, [1041])
+        image_failure, closed = self.fake_job(image_ok=False)
+        self.assertEqual(self.api(image_failure)(r'C:\\fixture\\engine.exe'), 'UNAVAILABLE')
+        self.assertEqual(closed, [1041])
+        job, closed = self.fake_job()
+        held, release = threading.Event(), threading.Event()
+        def holder():
+            with job._lock:
+                held.set()
+                release.wait(2)
+        thread = threading.Thread(target=holder)
+        thread.start()
+        try:
+            self.assertTrue(held.wait(1))
+            self.assertEqual(self.api(job)(r'C:\\fixture\\engine.exe'), 'UNAVAILABLE')
+            self.assertEqual(closed, [])
+        finally:
+            release.set()
+            thread.join(2)
+
+    def test_r136_command_delegates_only_genuine_retained_owned_job(self):
+        value = S.Command.pending()
+        self.assertTrue(callable(getattr(value, 'snapshot_expected_image', None)),
+                        'R136_COMMAND_EXPECTED_IMAGE_API_MISSING')
+        self.assertEqual(value.snapshot_expected_image(r'C:\\fixture\\engine.exe'), 'UNAVAILABLE')
+        value._tree_owned, value._job = True, object()
+        self.assertEqual(value.snapshot_expected_image(r'C:\\fixture\\engine.exe'), 'UNAVAILABLE')
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows private-job image control')
+    def test_r136_actual_owned_python_image_match_nonmatch_closed_and_cleanup(self):
+        import ctypes
+        from ctypes import wintypes
+        original = subprocess.Popen([sys.executable, '-B', '-c',
+            'import threading; threading.Event().wait(4)'], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x00000004)
+        job = None
+        try:
+            job = S._WindowsJob(original)
+            job.resume(original)
+            # The child is launched from sys.executable. Capture its native spelling
+            # only in this control's RAM: app aliases can differ lexically from
+            # sys.executable, and production deliberately never resolves either.
+            image = ctypes.create_unicode_buffer(32768)
+            length = wintypes.DWORD(32768)
+            self.assertTrue(job._kernel.QueryFullProcessImageNameW(
+                original._handle, 0, image, ctypes.byref(length)))
+            self.assertEqual(self.api(job)(image.value), 'PATH_MATCH_OBSERVED')
+            self.assertEqual(self.api(job)(r'C:\\r136\\different-image.exe'),
+                             'NO_PATH_MATCH_IN_COMPLETE_LIST')
+            self.assertTrue(job.stop_and_settle(2))
+            self.assertTrue(job.close())
+            self.assertEqual(self.api(job)(image.value), 'UNAVAILABLE')
+            original.wait(timeout=2)
+        finally:
+            if job is not None:
+                job.stop_and_settle(2)
+                job.close()
+            if original.poll() is None:
+                original.kill()
+                original.wait(timeout=2)
+
+
 class ReservedPhaseTests(unittest.TestCase):
     """R121 phase races use explicit clocks and synchronization, not timed luck."""
     @contextmanager

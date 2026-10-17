@@ -50,6 +50,7 @@ UNKNOWN aborts and BLOCKED cleanup are not 0/3 failures. No raw files are writte
 """
 from dataclasses import dataclass
 import math
+import ntpath
 import os
 import re
 import subprocess
@@ -300,6 +301,14 @@ class _WindowsJob:
         kernel.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
                                                       wintypes.DWORD, ctypes.c_void_p]
         kernel.QueryInformationJobObject.restype = wintypes.BOOL
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE,
+                                          ctypes.POINTER(wintypes.BOOL)]
+        kernel.IsProcessInJob.restype = wintypes.BOOL
+        kernel.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD,
+                                                       wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+        kernel.QueryFullProcessImageNameW.restype = wintypes.BOOL
         self._port = kernel.CreateIoCompletionPort(wintypes.HANDLE(-1), None, 0, 1)
 
         class CompletionPort(ctypes.Structure):
@@ -357,6 +366,94 @@ class _WindowsJob:
             return 'UNAVAILABLE'
         finally:
             self._lock.release()
+
+    def snapshot_expected_image(self, expected_path):
+        """One nonblocking, job-scoped image sample, not readiness or history proof.
+
+        The fixed list is deliberately neither resized nor retried. A no-match is
+        meaningful only when every returned member was completely revalidated and
+        inspected; it says nothing about membership before or after this sample.
+        """
+        expected = self._normalize_absolute_path(expected_path)
+        if expected is None or not self._lock.acquire(blocking=False):
+            return 'UNAVAILABLE'
+        try:
+            if not self._handle:
+                return 'UNAVAILABLE'
+            ctypes = self._ctypes
+            from ctypes import wintypes
+
+            class BasicProcessIdList(ctypes.Structure):
+                # Native ULONG_PTR alignment is supplied by c_size_t: after the
+                # two DWORD counts, ProcessIdList begins at its pointer boundary.
+                _fields_ = [('NumberOfAssignedProcesses', wintypes.DWORD),
+                            ('NumberOfProcessIdsInList', wintypes.DWORD),
+                            ('ProcessIdList', ctypes.c_size_t * 16)]
+
+            members = BasicProcessIdList()
+            if not self._kernel.QueryInformationJobObject(
+                    self._handle, 3, ctypes.byref(members), ctypes.sizeof(members), None):
+                return 'UNAVAILABLE'
+            assigned, listed = int(members.NumberOfAssignedProcesses), int(members.NumberOfProcessIdsInList)
+            if not (0 <= assigned <= 16 and 0 <= listed <= 16 and assigned == listed):
+                return 'UNAVAILABLE'
+            pids = tuple(int(members.ProcessIdList[index]) for index in range(listed))
+            if (any(pid <= 0 or pid > 0xffffffff for pid in pids)
+                    or len(set(pids)) != len(pids)):
+                return 'UNAVAILABLE'
+            matched = False
+            for pid in pids:
+                query_handle = self._kernel.OpenProcess(0x1000, False, pid)
+                if not query_handle:
+                    return 'UNAVAILABLE'
+                inspected = False
+                try:
+                    before = wintypes.BOOL()
+                    member_before = bool(self._kernel.IsProcessInJob(
+                        query_handle, self._handle, ctypes.byref(before)) and before.value)
+                    if member_before:
+                        image = ctypes.create_unicode_buffer(32768)
+                        length = wintypes.DWORD(32768)
+                        image_read = bool(self._kernel.QueryFullProcessImageNameW(
+                            query_handle, 0, image, ctypes.byref(length)))
+                        if image_read and 0 < int(length.value) < 32768:
+                            actual = self._normalize_absolute_path(image.value)
+                            after = wintypes.BOOL()
+                            member_after = bool(self._kernel.IsProcessInJob(
+                                query_handle, self._handle, ctypes.byref(after)) and after.value)
+                            if actual is not None and member_after:
+                                matched = matched or actual == expected
+                                inspected = True
+                except BaseException:
+                    pass
+                finally:
+                    try:
+                        closed = bool(self._kernel.CloseHandle(query_handle))
+                    except BaseException:
+                        closed = False
+                if not inspected or not closed:
+                    return 'UNAVAILABLE'
+            return 'PATH_MATCH_OBSERVED' if matched else 'NO_PATH_MATCH_IN_COMPLETE_LIST'
+        except BaseException:
+            return 'UNAVAILABLE'
+        finally:
+            self._lock.release()
+
+    @staticmethod
+    def _normalize_absolute_path(value):
+        if type(value) is not str or not value or '\x00' in value:
+            return None
+        # QueryFullProcessImageNameW may use an extended Win32 prefix. Strip only
+        # this lexical spelling; no filesystem lookup, resolution or search occurs.
+        if value.startswith(('\\\\?\\', '\\??\\')):
+            value = value[4:]
+            if value.upper().startswith('UNC\\'):
+                value = '\\\\' + value[4:]
+        drive, tail = ntpath.splitdrive(value)
+        if not drive or not tail.startswith(('\\', '/')):
+            return None
+        normalized = ntpath.normcase(ntpath.normpath(value))
+        return normalized if normalized and '\x00' not in normalized else None
 
     def stop_and_settle(self, timeout):
         """Terminate only this private job, then prove zero contained processes.
@@ -681,6 +778,16 @@ class Command:
             job = self._job.active_count_class() if isinstance(self._job, _WindowsJob) else 'UNAVAILABLE'
         return {'native_root_state': native, 'job_active_class': job,
                 'stdout_reader_alive': readers[0], 'stderr_reader_alive': readers[1]}
+
+    def snapshot_expected_image(self, expected_path):
+        """Delegate only to this Command's still-retained original owned job."""
+        if not self._tree_owned or not isinstance(self._job, _WindowsJob):
+            return 'UNAVAILABLE'
+        try:
+            result = self._job.snapshot_expected_image(expected_path)
+        except BaseException:
+            return 'UNAVAILABLE'
+        return result if result in ('PATH_MATCH_OBSERVED', 'NO_PATH_MATCH_IN_COMPLETE_LIST') else 'UNAVAILABLE'
 
     def snapshot_output(self):
         """Non-draining immutable copies plus explicit discard state, under one lock.

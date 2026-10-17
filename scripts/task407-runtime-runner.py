@@ -488,6 +488,8 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
               'failed_preflight_command': None,
               'failed_wait_host_diagnostics_profile': 'FAILED_WAIT_HOST_DIAGNOSTICS_V1',
               'failed_wait_host_diagnostics': _empty_failed_wait_host_diagnostic('NOT_REACHED'),
+              'owned_job_engine_path_observation_profile': 'OWNED_JOB_ENGINE_PATH_V1',
+              'owned_job_engine_path_observation': 'NOT_SAMPLED',
               'owned_launch_diagnostics_profile': 'OWNED_LAUNCH_DIAGNOSTICS_V4',
               'owned_launch_diagnostics': _empty_owned_launch_diagnostic('OWNED_LAUNCH_ABSENT')}
 
@@ -602,6 +604,17 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             if (role == 'WAIT_FOR_DEVICE' and not failed_wait_host_sampled
                     and isinstance(owned, s.Command) and isinstance(child, s.Command)):
                 failed_wait_host_sampled = True
+                # One job-scoped path observation is diagnostic-only: it neither
+                # admits readiness nor proves image history, byte identity or progress.
+                try:
+                    observed = owned.snapshot_expected_image(str(
+                        Path(record['emulator']).parent / 'qemu' / 'windows-x86_64' /
+                        'qemu-system-x86_64.exe'))
+                    result['owned_job_engine_path_observation'] = (
+                        observed if observed in ('PATH_MATCH_OBSERVED',
+                                                'NO_PATH_MATCH_IN_COMPLETE_LIST') else 'UNAVAILABLE')
+                except BaseException:
+                    result['owned_job_engine_path_observation'] = 'UNAVAILABLE'
                 result['failed_wait_host_diagnostics'] = _empty_failed_wait_host_diagnostic('SNAPSHOT_GAP')
                 try:
                     result['failed_wait_host_diagnostics'] = project_failed_wait_host(owned, child)
