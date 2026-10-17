@@ -445,7 +445,7 @@ class HostDevice:
                     outer.launch = real.Command.spawn(
                         [sys.executable, '-B', '-c',
                          'import threading; threading.Event().wait(10)'],
-                        timeout=5, max_bytes=65536, tree_owned=True)
+                        timeout=5, max_bytes=kwargs['max_bytes'], tree_owned=True)
                     return outer.launch
                 if argv[:3] != ['fixture-adb.exe', '-s', 'emulator-5554']:
                     raise AssertionError('Fixture received an unselected command')
@@ -601,18 +601,24 @@ class PipelineTests(unittest.TestCase):
             self.assertLessEqual(options['max_bytes'], 4 * 1024 * 1024)
         self.assertNotIn('private', json.dumps(result))
 
-    def test_run_session_uses_exact_no_delay_adb_launch_profile(self):
+    def test_run_session_uses_exact_show_kernel_no_delay_adb_launch_profile(self):
         device = HostDevice()
         self.addCleanup(device.cleanup)
-        result = self.execute(device)
+        with mock.patch.object(device.real.subprocess, 'Popen', wraps=device.real.subprocess.Popen) as popen:
+            result = self.execute(device)
+        popen.assert_called_once()
+        self.assertEqual(popen.call_args.kwargs, {
+            'stdin': device.real.subprocess.DEVNULL,
+            'stdout': device.real.subprocess.PIPE, 'stderr': device.real.subprocess.PIPE,
+            'start_new_session': False, 'bufsize': 0, 'creationflags': 0x00000004})
         launches = [(argv, options) for argv, options in device.calls
                     if argv[0] == 'fixture-emulator.exe']
         self.assertEqual((launches, result.get('launch_transport_profile')), ([
             (('fixture-emulator.exe', '-avd', 'NavicReaderLab', '-port', '5554',
-              '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader'),
+              '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader', '-show-kernel'),
              {'timeout': device.caps.session_budget, 'max_bytes': 4 * 1024 * 1024,
               'tree_owned': True})
-        ], 'NO_DELAY_ADB_ARGV_V1'))
+        ], 'SHOW_KERNEL_NO_DELAY_ADB_ARGV_V1'))
 
     def test_ui_not_ready_aborts_without_install_or_tests_and_still_stops(self):
         device = HostDevice(boot=b'0\n')
@@ -1587,6 +1593,9 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
         (b'Failed to initialize', 'FAILED_TO_INITIALIZE_TEXT_HIT'),
         (b'Boot completed in ', 'BOOT_COMPLETED_IN_TEXT_HIT'),
         (b'Increasing screen off timeout, logcat buffer size to 2M.', 'POST_BOOT_SETTINGS_TEXT_HIT'),
+        (b'Linux version ', 'LINUX_VERSION_TEXT_HIT'),
+        (b'Kernel panic - not syncing:', 'KERNEL_PANIC_NOT_SYNCING_TEXT_HIT'),
+        (b'init first stage started!', 'ANDROID_INIT_FIRST_STAGE_TEXT_HIT'),
     )
     KEYS = {'sample_state', 'command_done', 'command_failure', 'command_cancelled',
             'returncode_class', 'stdout_bytes', 'stderr_bytes', 'buffer_discarded',
@@ -1594,7 +1603,7 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
 
     def sample(self, result):
         self.assertEqual(result.get('owned_launch_diagnostics_profile'),
-                         'OWNED_LAUNCH_DIAGNOSTICS_V2', 'R125_LAUNCH_DIAGNOSTICS_MISSING')
+                         'OWNED_LAUNCH_DIAGNOSTICS_V3', 'R127_LAUNCH_DIAGNOSTICS_MISSING')
         row = result.get('owned_launch_diagnostics')
         self.assertIsInstance(row, dict)
         self.assertEqual(set(row), self.KEYS)
@@ -1619,7 +1628,7 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
                 safe = json.dumps(row)
                 for private in ('R124_PRIVATE_CANARY', 'private.invalid', 'C:/private', '987654', '912345'):
                     self.assertNotIn(private, safe)
-                child._buffers = [bytearray(literal.lower()), bytearray()]
+                child._buffers = [bytearray(literal.swapcase()), bytearray()]
                 self.assertEqual(project(child)['text_hits'], [])
         child = real.Command.completed(0, b'PAN', b'IC:')
         self.assertEqual(project(child)['text_hits'], [], 'Streams must not be concatenated into artificial hits')
@@ -1786,7 +1795,7 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
     def test_r125_two_new_hits_each_stream_fragments_dedup_and_fixed_ten_order(self):
         project = self.api('project_owned_launch')
         real = load_supervisor()
-        for literal, label in self.HITS[-2:]:
+        for literal, label in self.HITS[8:10]:
             for stream in (0, 1):
                 child = real.Command.pending()
                 for fragment in (literal[:7], literal[7:]):
@@ -1797,11 +1806,171 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
                 child._buffers = [bytearray(literal.lower()), bytearray(literal.swapcase())]
                 self.assertEqual(project(child)['text_hits'], [])
         child = real.Command.completed(0,
-            b'|'.join(literal * 2 for literal, _ in reversed(self.HITS)),
-            b'|'.join(literal for literal, _ in self.HITS))
-        self.assertEqual(project(child)['text_hits'], [label for _, label in self.HITS])
+            b'|'.join(literal * 2 for literal, _ in reversed(self.HITS[:10])),
+            b'|'.join(literal for literal, _ in self.HITS[:10]))
+        self.assertEqual(project(child)['text_hits'], [label for _, label in self.HITS[:10]])
         self.assertEqual(len(project(child)['text_hits']), 10)
         self.assertEqual(child.buffered_bytes, sum(len(v) for v in child._buffers))
+
+    def test_r127_guest_hits_each_stream_and_fragmented_same_stream(self):
+        project = self.api('project_owned_launch')
+        real = load_supervisor()
+        for literal, label in self.HITS[10:]:
+            for stream in (0, 1):
+                with self.subTest(hit=label, stream=stream):
+                    child = real.Command.pending()
+                    child._read(stream, io.BytesIO(literal))
+                    self.assertEqual(project(child)['text_hits'], [label])
+                    child = real.Command.pending()
+                    split = len(literal) // 2
+                    child._read(stream, io.BytesIO(literal[:split]))
+                    self.assertEqual(project(child)['text_hit_class'], 'UNKNOWN')
+                    child._read(stream, io.BytesIO(literal[split:]))
+                    self.assertEqual(project(child)['text_hits'], [label])
+                    self.assertEqual(child.buffered_bytes, len(literal))
+
+    def test_r127_guest_case_near_misses_and_cross_stream_fragments_stay_unknown(self):
+        project = self.api('project_owned_launch')
+        real = load_supervisor()
+        for literal, label in self.HITS[10:]:
+            with self.subTest(hit=label):
+                split = len(literal) // 2
+                child = real.Command.completed(0, literal[:split], literal[split:])
+                self.assertEqual(project(child)['text_hits'], [])
+                for near in (literal.swapcase(), literal[:-1], literal.replace(b' ', b'  ', 1)):
+                    child = real.Command.completed(0, near, near)
+                    row = project(child)
+                    self.assertEqual(row['text_hits'], [])
+                    self.assertEqual(row['text_hit_class'], 'UNKNOWN')
+
+    def test_r127_all_thirteen_hits_deduplicate_in_old_ten_then_guest_order(self):
+        project = self.api('project_owned_launch')
+        child = load_supervisor().Command.completed(0,
+            b'|'.join(literal * 2 for literal, _ in reversed(self.HITS)),
+            b'|'.join(literal * 3 for literal, _ in self.HITS))
+        row = project(child)
+        self.assertEqual(row['text_hits'], [label for _, label in self.HITS])
+        self.assertEqual(len(row['text_hits']), 13)
+        self.assertEqual(set(row), self.KEYS)
+        self.assertEqual(child.buffered_bytes, row['stdout_bytes'] + row['stderr_bytes'])
+
+    def test_r127_guest_version_panic_reason_stack_and_private_canary_never_exported(self):
+        project = self.api('project_owned_launch')
+        private = (b'R127_PRIVATE_CANARY', b'private-version-build-user-host',
+                   b'private-panic-reason', b'private_stack_frame', b'0xffff123456789abc',
+                   b'https://private.invalid/guest', b'C:/private/guest')
+        payload = (b'Linux version ' + private[1] + b'\nKernel panic - not syncing: '
+                   + private[2] + b'\nCall Trace:\n ' + private[3] + b' ' + private[4]
+                   + b'\ninit first stage started!\n' + b' '.join(private))
+        for stream in (0, 1):
+            with self.subTest(stream=stream):
+                child = load_supervisor().Command.pending()
+                child._read(stream, io.BytesIO(payload))
+                row = project(child)
+                self.assertEqual(row['text_hits'], [label for _, label in self.HITS[10:]])
+                self.assertEqual(set(row), self.KEYS)
+                safe = json.dumps(row).encode()
+                for value in private + (b'Call Trace:',):
+                    self.assertNotIn(value, safe)
+                child.discard()
+                discarded = project(child)
+                self.assertEqual(discarded['text_hits'], [])
+                self.assertTrue(discarded['diagnostic_gap'])
+
+    def test_r127_any_markers_cannot_bypass_actual_pending_property_one(self):
+        # Already-green safety coverage: bytes do not hand off boot, regardless
+        # of whether the prospective projector yet recognizes the three new bits.
+        payload = b'|'.join(literal for literal, _ in self.HITS)
+        def before(device, argv):
+            if argv[3:] == ['wait-for-device']:
+                device.launch._read(0, io.BytesIO(payload))
+        def pending(device):
+            self.assertIsNone(device.install)
+            self.assertFalse(device.instrument_seen)
+            self.assertFalse(device.guardian._observer.armed)
+            self.assertIsNone(device.guardian._boot_completed_at)
+            self.assertEqual(device.launch.buffered_bytes, len(payload))
+            return b'0\n'
+        device = HostDevice(synthetic_owned=True, guardian_gate=threading.Event(),
+                            before_reply=before, boot_replies=[pending, pending, b'1\n'])
+        device.caps = dataclasses.replace(device.caps, preparation=1)
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        self.assertEqual(len(PipelineTests.boot_calls(self, device)), 3)
+        self.assertTrue(result['all_three_original_runtime_cases_passed'])
+        self.assertTrue(result['boot_handoff_observation']['accepted'])
+
+    def test_r127_early_owned_output_cap_stops_exact_tree_without_readiness_or_analysis(self):
+        # Real Command._read/Windows job stop plus the existing real guardian.
+        # Ordered RAM streams isolate whole-chunk loss, without racing a flood
+        # child or introducing another timer, callback, reader or supervisor.
+        for discarded_before_sample in (False, True):
+            with self.subTest(discarded_before_sample=discarded_before_sample):
+                cap = 4 * 1024 * 1024
+                def overflow(device, argv):
+                    if argv[3:] != ['wait-for-device']:
+                        return
+                    child = device.launch
+                    self.assertEqual(child._max_bytes, cap)
+                    self.assertTrue(child._tree_owned)
+                    old_hits = b'|'.join(literal for literal, _ in self.HITS[:10])
+                    child._read(0, io.BytesIO(old_hits + b'x' * (cap - 2 - len(old_hits))))
+                    child._read(1, io.BytesIO(b'xy'))
+                    row = runner.project_owned_launch(child)
+                    self.assertEqual(row['stdout_bytes'], cap - 2)
+                    self.assertEqual(row['stderr_bytes'], 2)
+                    self.assertEqual(row['text_hits'], [label for _, label in self.HITS[:10]])
+                    self.assertEqual(child.buffered_bytes, cap, 'Snapshot must not drain or renew the cap')
+                    with mock.patch.object(child, '_stop', wraps=child._stop) as stop:
+                        child._read(1, io.BytesIO(b'Linux version lost-after-cap'))
+                        stop.assert_called_once_with()
+                    self.assertTrue(child.settle(2))
+                    self.assertIsNotNone(child.process.returncode)
+                    self.assertTrue(child._tree_settled)
+                    self.assertEqual(child.failure, 'OUTPUT_CAP')
+                    self.assertEqual(child.buffered_bytes, cap, 'Over-budget chunk must not be appended')
+                    self.assertEqual(child._max_bytes, cap)
+                    self.assertIsNone(device.guardian._boot_completed_at)
+                    self.assertIsNone(device.install)
+                    if discarded_before_sample:
+                        child.discard()
+                device = HostDevice(before_reply=overflow, clean_absence=False)
+                waiting = device.real.Command.pending()
+                device.readiness = {'WAIT_FOR_DEVICE': waiting}
+                self.addCleanup(device.cleanup)
+                result = self.execute(device)
+                # Deliberately failed strict absence forces original-only fallback
+                # discard; do not manufacture clean automatic guardian evidence.
+                self.assertFalse(result['automatic_emulator_teardown_verified'])
+                self.assertEqual(result['supervisor']['cause'], 'PREPARATION_CAP')
+                self.assertEqual(result['supervisor']['status'], 'BLOCKED')
+                self.assertIn('ABSENCE_UNCONFIRMED', result['supervisor']['cleanup_failures'])
+                self.assertEqual(result['fixed_readiness_step'], 'WAIT_FOR_DEVICE')
+                self.assertIsNone(result['boot_handoff_observation'])
+                PipelineTests.assert_no_reader_work(self, device, result)
+                self.assertFalse(result['all_three_original_runtime_cases_passed'])
+                row = result['owned_launch_diagnostics']
+                self.assertEqual(set(row), self.KEYS)
+                self.assertEqual(row['command_failure'], 'OUTPUT_CAP')
+                self.assertTrue(row['diagnostic_gap'])
+                self.assertEqual(row['buffer_discarded'], discarded_before_sample)
+                self.assertEqual(row['text_hits'], [] if discarded_before_sample
+                                 else [label for _, label in self.HITS[:10]])
+                self.assertEqual(row['text_hit_class'], 'UNKNOWN' if discarded_before_sample else 'TEXT_HITS')
+                self.assertEqual(row['stdout_bytes'] + row['stderr_bytes'],
+                                 0 if discarded_before_sample else cap)
+                self.assertEqual(device.launch.buffered_bytes, 0)
+                self.assertTrue(device.launch._discarded)
+                self.assertTrue(device.launch.settle(.1))
+                self.assertTrue(result['preflight_clients_settled'])
+                self.assertTrue(waiting.cancelled)
+                self.assertTrue(waiting.done.is_set())
+                self.assertEqual(waiting.buffered_bytes, 0)
+                self.assertTrue(waiting._discarded)
+                launch = next(options for argv, options in device.calls
+                              if argv[0] == 'fixture-emulator.exe')
+                self.assertEqual(launch, {'timeout': device.caps.session_budget,
+                                         'max_bytes': cap, 'tree_owned': True})
 
 
 class FailedWaitHostDiagnosticTests(unittest.TestCase):

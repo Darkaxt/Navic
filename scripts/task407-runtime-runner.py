@@ -73,6 +73,9 @@ _OWNED_LAUNCH_TEXT_HITS = (
     (b'Failed to initialize', 'FAILED_TO_INITIALIZE_TEXT_HIT'),
     (b'Boot completed in ', 'BOOT_COMPLETED_IN_TEXT_HIT'),
     (b'Increasing screen off timeout, logcat buffer size to 2M.', 'POST_BOOT_SETTINGS_TEXT_HIT'),
+    (b'Linux version ', 'LINUX_VERSION_TEXT_HIT'),
+    (b'Kernel panic - not syncing:', 'KERNEL_PANIC_NOT_SYNCING_TEXT_HIT'),
+    (b'init first stage started!', 'ANDROID_INIT_FIRST_STAGE_TEXT_HIT'),
 )
 
 
@@ -85,13 +88,18 @@ def _empty_owned_launch_diagnostic(state):
 
 
 def project_owned_launch(command):
-    """OWNED_LAUNCH_DIAGNOSTICS_V2: bounded RAM -> closed observational metadata.
+    """OWNED_LAUNCH_DIAGNOSTICS_V3: bounded RAM -> closed observational metadata.
 
     At most the existing combined 4MiB buffer cap is searched, without decoding or
-    exporting raw bytes, paths, PIDs or payloads. Fixed-order unique labels describe
-    only literal substring hits; zero hits mean UNKNOWN. State reads are independent
-    observations, not an atomic process history. Even diagnostic_gap=False makes no
-    stdout/stderr ordering, chronology, completeness, cause or readiness claim.
+    exporting raw bytes, paths, PIDs, versions, panic reasons, stacks or payloads.
+    Fixed-order unique labels are unauthenticated text hits, not emitter/identity
+    proof; zero hits mean UNKNOWN. State reads are independent observations, not
+    an atomic process history. Even diagnostic_gap=False makes no stdout/stderr
+    ordering, chronology, completeness, cause, continuing progress or readiness
+    claim. The original stopper-entry sample is not proof of occurrence within
+    the boot cap. The changed show-kernel profile can perturb boot/timing and
+    exhaust the shared cap; installed launcher/engine/guest source equivalence
+    remains UNKNOWN.
     """
     out, err, discarded = command.snapshot_output()
     if (type(out) is not bytes or type(err) is not bytes or type(discarded) is not bool
@@ -458,7 +466,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     failed_wait_host_sampled = False
     result = {'kind': 'original-three-supervised-runtime-not-pair-or-performance-acceptance',
               'parent_status': 'IN_PROGRESS', 'watchdog_id': watchdog_id,
-              'launch_transport_profile': 'NO_DELAY_ADB_ARGV_V1',
+              'launch_transport_profile': 'SHOW_KERNEL_NO_DELAY_ADB_ARGV_V1',
               'automatic_emulator_teardown_verified': False,
               'all_three_original_runtime_cases_passed': False,
               'runtime_result_analysis_performed': False,
@@ -473,7 +481,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
               'failed_preflight_command': None,
               'failed_wait_host_diagnostics_profile': 'FAILED_WAIT_HOST_DIAGNOSTICS_V1',
               'failed_wait_host_diagnostics': _empty_failed_wait_host_diagnostic('NOT_REACHED'),
-              'owned_launch_diagnostics_profile': 'OWNED_LAUNCH_DIAGNOSTICS_V2',
+              'owned_launch_diagnostics_profile': 'OWNED_LAUNCH_DIAGNOSTICS_V3',
               'owned_launch_diagnostics': _empty_owned_launch_diagnostic('OWNED_LAUNCH_ABSENT')}
 
     def require_preparation():
@@ -621,8 +629,8 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         launch_started = time.monotonic()
         guardian_deadline = launch_started + session_budget
         owned = s.Command.spawn([record['emulator'], '-avd', AVD, '-port', '5554',
-                                 '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader'], timeout=session_budget,
-                                max_bytes=4 * 1024 * 1024, tree_owned=True)
+                                 '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader', '-show-kernel'],
+                                timeout=session_budget, max_bytes=4 * 1024 * 1024, tree_owned=True)
         result['owned_launch_diagnostics'] = _empty_owned_launch_diagnostic('STOPPER_NOT_REACHED')
         original = owned.process
         observer = s.Observer(PACKAGE)

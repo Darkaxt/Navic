@@ -16,6 +16,7 @@ import androidx.lifecycle.LifecycleRegistry
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
@@ -124,6 +125,87 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
 class KomikkuReaderNativeFrameHostTest {
+	// Share the driver's pending decision and exact join registration with its race controls.
+	private fun task407InputWaitJobs(jobs: () -> List<Job>, workPending: (List<Job>) -> Boolean): List<Job>? {
+		val pendingJobs = jobs()
+		// A job completing after this observation must remain an immediately joinable wake source.
+		return pendingJobs.takeIf(workPending)
+	}
+
+	private fun kotlinx.coroutines.selects.SelectBuilder<() -> Unit>.task407RegisterInputJobJoins(jobs: List<Job>) {
+		jobs.forEach { job -> job.onJoin { { } } }
+	}
+
+	@Test
+	fun task407FiniteJobCompletionBetweenPendingAndWaitKeepsReachableJoin() = runTest {
+		val finiteJob = Job()
+		try {
+			var observations = 0
+			var observedPending = false
+			val pendingJobs = assertNotNull(task407InputWaitJobs(
+				jobs = { observations++; listOf(finiteJob).filter { !it.isCompleted } },
+				workPending = { jobs ->
+					observedPending = jobs.isNotEmpty()
+					assertTrue(finiteJob.complete()) // Finish after the positive decision, before waiter observation.
+					observedPending
+				}
+			))
+			assertTrue(observedPending)
+			assertTrue(finiteJob.isCompleted)
+			val action = withContext(Dispatchers.Default) {
+				kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+					kotlinx.coroutines.selects.select<() -> Unit> { task407RegisterInputJobJoins(pendingJobs) }
+				}
+			}
+			assertNotNull(action, "Completed finite work must retain a reachable exact join").invoke()
+			assertSame(finiteJob, pendingJobs.single())
+			assertEquals(1, observations)
+		} finally { finiteJob.cancel() }
+	}
+
+	@Test
+	fun task407FiniteJobCompletionAfterRegistrationWakesExactJoin() = runTest {
+		val finiteJob = Job()
+		try {
+			val pendingJobs = assertNotNull(task407InputWaitJobs({ listOf(finiteJob) }, { it.isNotEmpty() }))
+			val registered = kotlinx.coroutines.CompletableDeferred<Unit>()
+			val waiter = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+				kotlinx.coroutines.selects.select<() -> Unit> {
+					task407RegisterInputJobJoins(pendingJobs)
+					registered.complete(Unit)
+				}
+			}
+			registered.await()
+			assertFalse(waiter.isCompleted)
+			assertSame(finiteJob, pendingJobs.single())
+			assertTrue(finiteJob.complete())
+			withTimeout(5_000L) { waiter.await() }.invoke()
+			assertTrue(finiteJob.isCompleted)
+		} finally { finiteJob.cancel() }
+	}
+
+	@Test
+	fun task407NonJobPendingInputCannotBecomeFalseQuiescence() = runTest {
+		var nonJobPending = true
+		val progress = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+		try {
+			val pendingJobs = assertNotNull(task407InputWaitJobs({ emptyList() }, { nonJobPending }))
+			assertTrue(pendingJobs.isEmpty())
+			val waiter = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+				kotlinx.coroutines.selects.select<() -> Unit> {
+					progress.onReceive { { nonJobPending = false } }
+					task407RegisterInputJobJoins(pendingJobs)
+				}
+			}
+			assertFalse(waiter.isCompleted, "An empty job set cannot complete a genuinely pending non-job lane")
+			assertTrue(nonJobPending)
+			assertTrue(progress.trySend(Unit).isSuccess)
+			withTimeout(5_000L) { waiter.await() }.invoke()
+			assertFalse(nonJobPending)
+			assertNull(task407InputWaitJobs({ emptyList() }, { nonJobPending }))
+		} finally { progress.close() }
+	}
+
 	@Test
 	@Config(manifest = Config.NONE, sdk = [Build.VERSION_CODES.P],
 		shadows = [Task8ImmediateGlSurfaceViewShadow::class, Task336ViewTreeLifecycleOwnerShadow::class])
@@ -9016,8 +9098,8 @@ class KomikkuReaderNativeFrameHostTest {
 				if (prewarmLayoutPending()) viewer.viewTreeObserver.dispatchOnPreDraw()
 				if (observe) observeCanonical("pre-draw-after")
 			}
-			fun workPending() = initialLivePending() || webView.planCallbacks.isNotEmpty() || runtime.pendingCallbackCount != 0 || preparing() ||
-				jobs().isNotEmpty() || mainTerminalExecutor.pendingActionCount() != 0 || unprepared().isNotEmpty() || framePending() || effects.pendingEffects().isNotEmpty() ||
+			fun workPending(pendingJobs: List<Job> = jobs()) = initialLivePending() || webView.planCallbacks.isNotEmpty() || runtime.pendingCallbackCount != 0 || preparing() ||
+				pendingJobs.isNotEmpty() || mainTerminalExecutor.pendingActionCount() != 0 || unprepared().isNotEmpty() || framePending() || effects.pendingEffects().isNotEmpty() ||
 				surface.pendingCallbackCount != 0 || bundle.ownershipMetrics().pendingPublicationCallbacks != 0 || prewarmLayoutPending()
 			// A bounded causal input driver: it never advances a presentation deadline or
 			// waits for all jobs while one of their own source/capture callbacks is held.
@@ -9059,9 +9141,9 @@ class KomikkuReaderNativeFrameHostTest {
 					handler.deliver(effects.pendingEffects(), common.state.presentationDecision) { assertTrue(effects.acknowledge(it)) }
 					testScheduler.runCurrent()
 					ShadowLooper.runUiThreadTasks()
-					if (workPending() && !prewarmLayoutPending() && initialLiveCommands.isEmpty() && initialLiveReceipts.isEmpty() &&
+					val pendingJobs = task407InputWaitJobs(::jobs, ::workPending)
+					if (pendingJobs != null && !prewarmLayoutPending() && initialLiveCommands.isEmpty() && initialLiveReceipts.isEmpty() &&
 						webView.planCallbacks.isEmpty() && unprepared().isEmpty() && (!framePending() || c6HoldNativeFrames)) {
-						val pendingJobs = jobs()
 						fun requireRetiredRuntimeInputs() {
 							assertTrue(runtime.isRetired, "Only actual runtime retirement can close passive input lanes")
 							assertEquals(0, runtime.pendingCallbackCount)
@@ -9089,7 +9171,7 @@ class KomikkuReaderNativeFrameHostTest {
 										} }
 									}
 									progress.onReceive { { } }
-									pendingJobs.forEach { job -> job.onJoin { { } } }
+									task407RegisterInputJobJoins(pendingJobs)
 								}
 							}
 						}
