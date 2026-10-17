@@ -9,6 +9,8 @@ import re
 import shlex
 import hashlib
 import time
+import threading
+from collections import deque
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 import argparse
@@ -318,6 +320,190 @@ def _project_startup_witness(wire, active):
     return value
 
 
+_READER_PHASE_KEY = 'E407.ReaderPhases.V1'
+_READER_PHASE_PATTERN = re.compile(
+    r'reader-webview-phase source=(Engine|PassiveRaster) '
+    r'phase=(RuntimeLoad|Initialization|Ready|Query|Commit|PixelCopy|Retirement|Cleanup) '
+    r'state=(Started|Completed|Rejected|Failed|Cancelled|Retired) '
+    r'reason=(None|RendererGone|RuntimeReadyPollBudget|CommitPollBudget|WebViewError|HttpError|'
+    r'Cancelled|CleanupThrew|PixelCopyResult|PixelCopySubmissionThrew|CommitUnavailable|'
+    r'JavascriptSubmissionThrew|OperationIdInvalid|OperationFailed|ReceiptRejected|Destroyed|'
+    r'Paused|NotReady|GeometryMismatch|UnsupportedPlatform|StaleVisualState|ViewSizeMismatch|'
+    r'WindowBounds|BitmapAllocation|QueryRejected|QueryFailed|RuntimeRetired|SubmissionThrew|'
+    r'RuntimeLoadThrew|PublicationReplaced|Closed|SubmissionRejected) '
+    r'elapsedMs=([0-9]{1,19})(?: code=(-?[0-9]{1,10}))?'
+    r'(?: mainFrame=(true|false))?(?: didCrash=(true|false))?'
+    r'(?: priorityAtExit=(-?[0-9]{1,10}))?')
+
+
+def _valid_reader_phase(message):
+    match = (_READER_PHASE_PATTERN.fullmatch(message)
+             if type(message) is str and len(message) <= 512 else None)
+    return (match is not None and int(match[5]) <= 2**63 - 1
+            and all(number is None or -2**31 <= int(number) < 2**31
+                    for number in (match[6], match[9])))
+
+
+class _ReaderPhaseStream:
+    """Diagnostic-only source-declared method, NOT framework continuity or an oracle.
+
+    Original instrument stdout reader only. First128/latest128 records, <=1024
+    partial bytes and 4MiB input. Whole overlong lines are omitted, never suffix
+    parsed. Only the explicit fixed-field transport and closed formatter grammar
+    survive. No worker, timer, control, raw output or exception is retained.
+    """
+    INPUT_CAP = 4 * 1024 * 1024
+    PARTIAL_CAP = 1024
+    PREFIX = b'INSTRUMENTATION_STATUS: E407.ReaderPhase.V1='
+
+    def __init__(self, *, qualified, clock=time.monotonic):
+        self._lock = threading.Lock()
+        self._qualified = qualified is True
+        self._clock = clock
+        self._anchor = clock()
+        self._elapsed = 0
+        self._clock_clamped = False
+        self._first = []
+        self._latest = deque(maxlen=128)
+        self._partial = bytearray()
+        self._overlong = False
+        self._counts = dict(received_bytes=0, ignored_stderr_bytes=0,
+            accepted_records=0, rejected_phase_lines=0, omitted_overlong_lines=0,
+            ignored_lines=0, omitted_cap_bytes=0)
+
+    def feed(self, index, chunk):
+        if type(index) is not int or index not in (0, 1) or type(chunk) is not bytes:
+            raise ValueError('READER_PHASE_INPUT_INVALID')
+        with self._lock:
+            previous = self._counts['received_bytes']
+            self._counts['received_bytes'] += len(chunk)
+            if index == 1:
+                self._counts['ignored_stderr_bytes'] += len(chunk)
+                if previous + len(chunk) >= self.INPUT_CAP:
+                    self._partial.clear()
+                    self._overlong = False
+                return
+            limit = min(len(chunk), max(0, self.INPUT_CAP - previous))
+            self._counts['omitted_cap_bytes'] += len(chunk) - limit
+            if not self._qualified or not limit:
+                return
+            arrival = max(0, int((self._clock() - self._anchor) * 1000))
+            if arrival < self._elapsed:
+                arrival = self._elapsed
+                self._clock_clamped = True
+            self._elapsed = arrival
+            cursor = 0
+            while cursor < limit:
+                newline = chunk.find(b'\n', cursor, limit)
+                end = limit if newline < 0 else newline
+                if not self._overlong:
+                    if len(self._partial) + end - cursor > self.PARTIAL_CAP:
+                        self._partial.clear()
+                        self._overlong = True
+                    else:
+                        self._partial.extend(chunk[cursor:end])
+                if newline < 0:
+                    break
+                if self._overlong:
+                    self._counts['omitted_overlong_lines'] += 1
+                else:
+                    self._retain(bytes(self._partial).rstrip(b'\r'), arrival)
+                self._partial.clear()
+                self._overlong = False
+                cursor = newline + 1
+            if previous + limit >= self.INPUT_CAP:
+                self._partial.clear()
+                self._overlong = False
+
+    def _retain(self, line, arrival):
+        if not line.startswith(self.PREFIX):
+            self._counts['ignored_lines'] += 1
+            return
+        try:
+            method, separator, message = line[len(self.PREFIX):].decode('ascii').partition('|')
+            valid = separator and method in METHODS and _valid_reader_phase(message)
+        except UnicodeError:
+            valid = False
+        if not valid:
+            self._counts['rejected_phase_lines'] += 1
+            return
+        sequence = self._counts['accepted_records']
+        self._counts['accepted_records'] += 1
+        row = dict(sequence=sequence, elapsed_ms=arrival, method=method, message=message)
+        if len(self._first) < 128:
+            self._first.append(row)
+        else:
+            self._latest.append(row)
+
+    def snapshot(self):
+        with self._lock:
+            records = [dict(row) for row in self._first]
+            records.extend(dict(row) for row in self._latest)
+            return dict(profile='FAILURE_INDEPENDENT_READER_PHASE_V1',
+                attribution='SOURCE_DECLARED_METHOD_NOT_FRAMEWORK_CONTINUITY',
+                time_basis='HOST_OBSERVED_LINE_ARRIVAL', source_qualified=self._qualified,
+                records=records, counts=dict(self._counts),
+                dropped_records=self._counts['accepted_records'] - len(records),
+                partial_bytes=len(self._partial),
+                input_cap_reached=self._counts['received_bytes'] >= self.INPUT_CAP,
+                clock_clamped=self._clock_clamped, acceptance_evidence=False)
+
+
+def _project_reader_phases(text, labels):
+    """A bounded explicit fixture field; no raw logcat or stream is a message source."""
+    active, block, duplicate = None, {}, False
+    retained, invalid, rejections = {}, set(), 0
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError()
+            result[key] = value
+        return result
+
+    for line in text.splitlines():
+        if line.startswith('INSTRUMENTATION_STATUS: '):
+            key, sep, value = line[len('INSTRUMENTATION_STATUS: '):].partition('=')
+            duplicate |= not sep or key in block
+            block[key] = value if len(value) <= 65536 else None
+        elif re.fullmatch(r'INSTRUMENTATION_STATUS_CODE: -?\d+', line):
+            code = int(line.rsplit(' ', 1)[1])
+            if _READER_PHASE_KEY in block:
+                try:
+                    if (duplicate or code != 2 or _READER_PHASE_KEY not in labels or active is None
+                            or active in retained or active in invalid
+                            or set(block) - {'class', 'test', 'stream', _READER_PHASE_KEY}
+                            or ('class' in block and block['class'] != CLASS)
+                            or ('test' in block and block['test'] != active)):
+                        raise ValueError()
+                    value = json.loads(block[_READER_PHASE_KEY], object_pairs_hook=unique)
+                    if (type(value) is not dict or set(value) != {'version', 'method', 'records', 'dropped_records'}
+                            or type(value['version']) is not int or value['version'] != 1
+                            or value['method'] != active or type(value['records']) is not list
+                            or len(value['records']) > 128 or type(value['dropped_records']) is not int
+                            or not 0 <= value['dropped_records'] <= 65535):
+                        raise ValueError()
+                    for message in value['records']:
+                        if not _valid_reader_phase(message):
+                            raise ValueError()
+                    retained[active] = value
+                except (ValueError, TypeError, RecursionError):
+                    rejections = min(65535, rejections + 1)
+                    if active is not None:
+                        retained.pop(active, None)
+                        invalid.add(active)
+            if code == 1:
+                active = block.get('test') if block.get('class') == CLASS and block.get('test') in METHODS else None
+            elif code != 2:
+                active = None
+            block, duplicate = {}, False
+    if _READER_PHASE_KEY in block:
+        rejections = min(65535, rejections + 1)
+        retained.pop(active, None)
+    return {'reader_phases_by_original_method': retained, 'reader_phase_rejection_count': rejections}
+
+
 def project_instrumentation(text, labels):
     """Closed failure diagnostics are independent of unchanged original status/pass oracles.
 
@@ -349,7 +535,7 @@ def project_instrumentation(text, labels):
                 witness_values.append(line[len(witness_prefix):] if len(line) <= 16450 else None)
             continue
         for value in re.findall(r'\b[ACE]407\.[A-Za-z0-9.]+\b', line):
-            if value == _STARTUP_WITNESS_KEY or value not in labels:
+            if value in (_STARTUP_WITNESS_KEY, _READER_PHASE_KEY, 'E407.ReaderPhase.V1') or value not in labels:
                 continue
             if value not in fixed:
                 fixed.append(value)
@@ -407,7 +593,8 @@ def project_instrumentation(text, labels):
             'fixed_labels_by_original_method': by_method, 'terminal_codes': terminal,
             'framework_failure_reported': framework_failure,
             'startup_witness_by_original_method': witnesses,
-            'startup_witness_rejection_count': witness_rejections}
+            'startup_witness_rejection_count': witness_rejections,
+            **_project_reader_phases(text, labels)}
 
 
 def original_three_passed(projected, *, exit_code, source_drift):
@@ -445,6 +632,21 @@ def pins_match(pins):
         for row in pins)
 
 
+_DIAGNOSTICS = None
+
+
+def _runtime_diagnostics():
+    global _DIAGNOSTICS
+    if _DIAGNOSTICS is None:
+        spec = importlib.util.spec_from_file_location('task407_runtime_diagnostics',
+            Path(__file__).with_name('task407-runtime-diagnostics.py'))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _DIAGNOSTICS = module
+    return _DIAGNOSTICS
+
+
 def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     """One guarded attempt; SDK dispatch is explicit, selected and bounded.
 
@@ -471,9 +673,47 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     failed_cleanup = None
     owned_launch_sampled = False
     failed_wait_host_sampled = False
+    diagnostic_errors = 0
+    startup_log = phase_trace = reader_live = None
+    try:
+        reader_live = _ReaderPhaseStream(qualified='E407.ReaderPhase.V1' in labels)
+    except BaseException:
+        diagnostic_errors += 1
+    try:
+        diagnostics = _runtime_diagnostics()
+        startup_log = diagnostics.EmulatorStartupLog()
+        phase_trace = diagnostics.PhaseTrace()
+    except BaseException:
+        diagnostic_errors += 1
+
+    def trace(name, event, outcome='NONE'):
+        nonlocal diagnostic_errors
+        if phase_trace is None:
+            return
+        try:
+            metrics = {}
+            if owned is not None and name in ('OWNED_LAUNCH', 'WAIT_FOR_DEVICE',
+                    'SYS_BOOT_COMPLETED', 'BOOT_HANDOFF', 'TEARDOWN'):
+                usage = owned.snapshot_resource_usage()
+                if usage.get('state') == 'SAMPLED':
+                    metrics = {key: value for key, value in usage.items() if key != 'state'}
+            phase_trace.record(name, event, outcome=outcome, metrics=metrics)
+        except BaseException:
+            diagnostic_errors += 1
+
+    def close_startup_log():
+        nonlocal diagnostic_errors
+        if startup_log is not None:
+            try:
+                startup_log.close()
+            except BaseException:
+                diagnostic_errors += 1
+
+    trace('SESSION', 'START')
     result = {'kind': 'original-three-supervised-runtime-not-pair-or-performance-acceptance',
               'parent_status': 'IN_PROGRESS', 'watchdog_id': watchdog_id,
-              'launch_transport_profile': 'SHOW_KERNEL_NO_DELAY_ADB_ARGV_V1',
+              'launch_transport_profile': 'VERBOSE_HOST_STARTUP_V1',
+              'phase_trace_scope': 'HOST_CALLER_ENVELOPES_TEARDOWN_INCLUDES_GUARDIAN_WAIT',
               'automatic_emulator_teardown_verified': False,
               'all_three_original_runtime_cases_passed': False,
               'runtime_result_analysis_performed': False,
@@ -550,6 +790,8 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
                 _code_class(child.returncode) if child is not None else 'UNSET',
                 deadline_reached, preparation, settlement, budget_ms, elapsed_ms)
 
+        if role != 'SYS_BOOT_COMPLETED':
+            trace(role, 'START')
         try:
             if guardian is not None:
                 timeout = min(timeout, prepare())
@@ -596,8 +838,12 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             if role == 'INSTALL':
                 install_boundary = snapshot()
                 observe_install()
+            if role != 'SYS_BOOT_COMPLETED':
+                trace(role, 'END')
             return reply
-        except BaseException:
+        except BaseException as command_error:
+            if role != 'SYS_BOOT_COMPLETED':
+                trace(role, 'FAIL', fixed_preflight_reason(command_error))
             # Freeze BEFORE finally may cancel the child or discard its bytes.
             failed_boundary, failed_child = snapshot(), child
             observe_install()
@@ -661,11 +907,15 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
                 err.strip() == ("error: device '" + SERIAL + "' not found").encode('ascii')):
             raise ValueError('SELECTED_ABSENCE_UNCONFIRMED')
         phase = 'OWNED_LAUNCH'
+        trace('OWNED_LAUNCH', 'START')
         launch_started = time.monotonic()
         guardian_deadline = launch_started + session_budget
         owned = s.Command.spawn([record['emulator'], '-avd', AVD, '-port', '5554',
-                                 '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader', '-show-kernel'],
-                                timeout=session_budget, max_bytes=4 * 1024 * 1024, tree_owned=True)
+                                 '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader',
+                                 '-show-kernel', '-verbose'],
+                                timeout=session_budget, max_bytes=4 * 1024 * 1024, tree_owned=True,
+                                observe_output=startup_log.feed if startup_log is not None else None)
+        trace('OWNED_LAUNCH', 'END')
         result['owned_launch_diagnostics'] = _empty_owned_launch_diagnostic('STOPPER_NOT_REACHED')
         original = owned.process
         observer = s.Observer(PACKAGE)
@@ -699,6 +949,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         if code != 0 or err or [v for v in out.splitlines() if v] != [AVD.encode(), b'OK']:
             raise ValueError('OWNED_AVD_UNCONFIRMED')
         readiness_step = 'SYS_BOOT_COMPLETED'
+        trace('SYS_BOOT_COMPLETED', 'START')
         while True:
             code, out, err = shell('SYS_BOOT_COMPLETED', ['getprop', 'sys.boot_completed'], caps.command)
             if code != 0 or err or type(out) is not bytes:
@@ -711,12 +962,17 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             # condition backoff inside the guardian's unchanged original cap.
             if not guardian.wait_preparation(.25):
                 raise ValueError('UI_READY_UNCONFIRMED')
+        trace('SYS_BOOT_COMPLETED', 'END')
+        trace('BOOT_HANDOFF', 'START')
         handoff = guardian.complete_boot()
+        trace('BOOT_HANDOFF', 'END' if handoff else 'FAIL')
         result['boot_handoff_observation'] = {
             'accepted': handoff, **guardian.preparation_observation()}
         if not handoff:
             raise ValueError('BOOT_HANDOFF_REJECTED')
         readiness_step = None
+        # Host SDK source boundary ends before any app installation or execution.
+        close_startup_log()
         phase = 'INSTALL'
         code, out, err = command('INSTALL', ['install', '-r', '-t', record['apk_path']], caps.command)
         install_ok = code == 0 and not err and b'Success' in out.splitlines()
@@ -734,6 +990,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
                               'cleanup_cancel_settlement': 'NOT_REQUESTED'}
             raise ValueError('INSTALL_UNCONFIRMED')
         phase = 'OBSERVER_ADMISSION'
+        trace('OBSERVER_ADMISSION', 'START')
         code, out, err = shell('CURSOR', ['toybox', 'date', '+%s.%N'], caps.command)
         if code != 0 or err:
             raise ValueError('CURSOR_COMMAND_UNCONFIRMED')
@@ -747,22 +1004,31 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         require_preparation()
         if not observer.arm(epoch=epoch, after_ns=cursor, source=source):
             raise ValueError('OBSERVER_ADMISSION_REJECTED')
+        trace('OBSERVER_ADMISSION', 'END')
         phase = 'INSTRUMENTATION'
+        trace('INSTRUMENTATION', 'START')
         require_preparation()
         instrument = s.Command.spawn(shell_argv(adb,
             ['am', 'instrument', '-w', '-r', '-e', 'class', CLASS, COMPONENT]),
-            timeout=caps.instrumentation, max_bytes=4 * 1024 * 1024, tree_owned=False)
+            timeout=caps.instrumentation, max_bytes=4 * 1024 * 1024, tree_owned=False,
+            observe_output=reader_live.feed if reader_live is not None else None)
         attached = guardian.attach_instrumentation(instrument)
         if not attached:
             raise ValueError('INSTRUMENTATION_ADMISSION_REJECTED')
     except BaseException as error:
         failure = phase + '_BLOCKED'
         failure_reason = fixed_preflight_reason(error)
+        if readiness_step == 'SYS_BOOT_COMPLETED':
+            trace('SYS_BOOT_COMPLETED', 'FAIL', failure_reason)
+        elif phase in ('OWNED_LAUNCH', 'INSTALL', 'OBSERVER_ADMISSION', 'INSTRUMENTATION'):
+            trace(phase, 'FAIL', failure_reason)
         if readiness_step not in _READINESS_STEPS:
             readiness_step = None
         if guardian is not None and guardian.preparation_remaining() > 0:
             guardian.abort()
     finally:
+        close_startup_log()
+        trace('TEARDOWN', 'START')
         # Caller-only obligations are NOT another owned/guardian lifetime: at
         # most two unadmitted clients cancel here (2*settle), then fallback stop
         # (stop), N retained preflight cancellations (N*settle), and the final
@@ -797,6 +1063,20 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             client.discard()
     clients_settled = all(client.settle(caps.settle) for client in clients)
     clean = bool(report is not None and report.shutdown_verified and clients_settled)
+    trace('TEARDOWN', 'END' if clean else 'FAIL')
+    if attached:
+        trace('INSTRUMENTATION', 'END' if report is not None and report.eligible_for_oracle else 'FAIL')
+    trace('SESSION', 'END' if clean and failure is None else 'FAIL')
+    for key, collector in (('emulator_startup_log', startup_log),
+                           ('phase_trace', phase_trace), ('reader_live_phases', reader_live)):
+        try:
+            result[key] = collector.snapshot() if collector is not None else None
+        except BaseException:
+            result[key] = None
+            diagnostic_errors += 1
+    result['diagnostic_errors'] = diagnostic_errors + sum(
+        getattr(child, 'diagnostic_output_errors', 0) for child in (owned, instrument)
+        if child is not None)
     if failed_boundary is not None:
         result['failed_preflight_command'] = {'before_cleanup': asdict(failed_boundary),
                                                **failed_cleanup}
@@ -841,7 +1121,8 @@ def validate_candidate(seal, reviews, root):
 
     MAIN creates the seal only from actual current full gates. Its recorded hash
     is admitted independently in the reviewed session contract, not generated by
-    this caller. Historical r108 pins alone cannot cover these four new inputs.
+    this caller. The optional diagnostic implementation is qualified alongside
+    the original supervisor/runner and their tests, not just the original four inputs.
     """
     if (seal.get('kind') != 'full-lower-qualified-pushed-source-emulator-only-apk-seal'
             or seal.get('original_timeout_and_acceptance_oracles_changed') is not False
@@ -858,7 +1139,8 @@ def validate_candidate(seal, reviews, root):
     root = Path(root).resolve()
     required = {root / 'scripts' / name for name in (
         'task407-runtime-supervisor.py', 'test-task407-runtime-supervisor.py',
-        'task407-runtime-runner.py', 'test-task407-runtime-runner.py')}
+        'task407-runtime-runner.py', 'test-task407-runtime-runner.py',
+        'task407-runtime-diagnostics.py', 'test-task407-runtime-diagnostics.py')}
 
     def indexed(rows):
         result = {}

@@ -3,6 +3,7 @@ package paige.navic.ui.screens.reader
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.View
 import android.webkit.ConsoleMessage
 import android.webkit.RenderProcessGoneDetail
@@ -489,6 +490,19 @@ actual fun ReaderEngineWebViewHost(
 	}
 	var readerRuntimeReady by remember { mutableStateOf(false) }
 	val runtimeRecovery = remember { ReaderEngineRuntimeRecovery() }
+	val runtimeLoadStartedAtMillis = remember { AtomicLong(0L) }
+	fun phaseDiagnostic(
+		phase: ReaderWebViewDiagnosticPhase,
+		state: ReaderWebViewDiagnosticState,
+		reason: ReaderWebViewDiagnosticReason = ReaderWebViewDiagnosticReason.None,
+		startedAtMillis: Long = runtimeLoadStartedAtMillis.get()
+	) {
+		runCatching {
+			Logger.i(ReaderEngineWebViewHostTag, ReaderWebViewPhaseDiagnostic.format(
+				ReaderWebViewDiagnosticSource.Engine, phase, state, reason,
+				SystemClock.elapsedRealtime() - startedAtMillis))
+		}
+	}
 	// Only a local linearization fence: dispatch custody remains in the existing ledger.
 	val queryCallbackDepth = remember { AtomicInteger(0) }
 	// One dynamically scoped delivery on the original callback path, not a result
@@ -799,6 +813,7 @@ actual fun ReaderEngineWebViewHost(
 			ReaderBridgeEvent.Ready -> {
 				runtimeRecovery.onRuntimeReady()
 				readerRuntimeReady = true
+				phaseDiagnostic(ReaderWebViewDiagnosticPhase.Ready, ReaderWebViewDiagnosticState.Completed)
 				webView?.dispatchReadyReaderCommands()
 			}
 			is ReaderBridgeEvent.CommandAcknowledged -> {
@@ -908,11 +923,19 @@ actual fun ReaderEngineWebViewHost(
 				!runtimeStartGate.startIfVisible(windowVisibility == View.VISIBLE)
 			) return
 			runtimeRecovery.onRuntimeLoadStarted()
-			ReaderWebRuntime.configure(
-				this,
-				bridge,
-				enableDebugging = settings.webContentsDebuggingEnabled == true
-			)
+			runtimeLoadStartedAtMillis.set(SystemClock.elapsedRealtime())
+			phaseDiagnostic(ReaderWebViewDiagnosticPhase.RuntimeLoad, ReaderWebViewDiagnosticState.Started)
+			try {
+				ReaderWebRuntime.configure(
+					this,
+					bridge,
+					enableDebugging = settings.webContentsDebuggingEnabled == true
+				)
+			} catch (failure: Throwable) {
+				phaseDiagnostic(ReaderWebViewDiagnosticPhase.RuntimeLoad, ReaderWebViewDiagnosticState.Failed,
+					ReaderWebViewDiagnosticReason.RuntimeLoadThrew)
+				throw failure
+			}
 		}
 
 		DisposableEffect(bridge, generation) {
@@ -1042,23 +1065,64 @@ actual fun ReaderEngineWebViewHost(
 							initialBootstrap: Boolean,
 							constructionCustody: ReaderEngineInitialDestinationConstructionCustody? = null
 						): ReaderSemanticExecutableResult {
-							if (!querySourceIsCurrent(initialBootstrap)) return ReaderSemanticExecutableResult.Rejected
+							if (!querySourceIsCurrent(initialBootstrap)) {
+								phaseDiagnostic(ReaderWebViewDiagnosticPhase.Query, ReaderWebViewDiagnosticState.Rejected,
+									ReaderWebViewDiagnosticReason.QueryRejected, SystemClock.elapsedRealtime())
+								return ReaderSemanticExecutableResult.Rejected
+							}
 							val session = checkNotNull(commandDispatchState.foliateSessionId)
 							val id = "reader-query-${commandDispatchState.publicationSequence}-$generation-${origin.transitionId.readerSessionGeneration}-${origin.transitionId.coordinatorEpoch}-${origin.transitionId.sequence}-${origin.slotId.value}"
+							val queryStartedAtMillis = SystemClock.elapsedRealtime()
+							phaseDiagnostic(ReaderWebViewDiagnosticPhase.Query, ReaderWebViewDiagnosticState.Started,
+								startedAtMillis = queryStartedAtMillis)
 							val token = ReaderEngineCurrentDestinationContinuation(queryView, id, generation, currentPublicationKey, session,
-								isAdmissionCurrent, onOutcome, initialBootstrap)
+								isAdmissionCurrent, { outcome ->
+									val reason = when (outcome) {
+										is ReaderCurrentDestinationQueryOutcome.Resolved -> ReaderWebViewDiagnosticReason.None
+										is ReaderCurrentDestinationQueryOutcome.Failed -> when (outcome.reason) {
+											ReaderCurrentDestinationQueryFailure.QueryCommandFailed -> ReaderWebViewDiagnosticReason.QueryFailed
+											ReaderCurrentDestinationQueryFailure.RuntimeRetired -> ReaderWebViewDiagnosticReason.RuntimeRetired
+											ReaderCurrentDestinationQueryFailure.PublicationReplaced -> ReaderWebViewDiagnosticReason.PublicationReplaced
+											ReaderCurrentDestinationQueryFailure.Closed -> ReaderWebViewDiagnosticReason.Closed
+											ReaderCurrentDestinationQueryFailure.SubmissionRejected -> ReaderWebViewDiagnosticReason.SubmissionRejected
+											ReaderCurrentDestinationQueryFailure.SubmissionThrew -> ReaderWebViewDiagnosticReason.SubmissionThrew
+										}
+									}
+									phaseDiagnostic(ReaderWebViewDiagnosticPhase.Query,
+										if (outcome is ReaderCurrentDestinationQueryOutcome.Resolved) ReaderWebViewDiagnosticState.Completed
+										else ReaderWebViewDiagnosticState.Failed,
+										reason, queryStartedAtMillis)
+									onOutcome(outcome)
+								}, initialBootstrap)
 							val binding = try {
 								constructionCustody?.adoptQuery(origin, context, token) ?: context.bindTransportRetirement(origin, token)
 							}
-							catch (failure: Throwable) { token.retire(); throw failure }
+							catch (failure: Throwable) {
+								phaseDiagnostic(ReaderWebViewDiagnosticPhase.Query, ReaderWebViewDiagnosticState.Failed,
+									ReaderWebViewDiagnosticReason.SubmissionThrew, queryStartedAtMillis)
+								token.retire(); throw failure
+							}
 							when (binding) {
-								ReaderSemanticTransportBindingResult.Rejected -> { token.retire(); return ReaderSemanticExecutableResult.Rejected }
-								ReaderSemanticTransportBindingResult.RetiredAndDisposed -> return ReaderSemanticExecutableResult.Rejected
+								ReaderSemanticTransportBindingResult.Rejected -> {
+									token.retire()
+									phaseDiagnostic(ReaderWebViewDiagnosticPhase.Query, ReaderWebViewDiagnosticState.Rejected,
+										ReaderWebViewDiagnosticReason.SubmissionRejected, queryStartedAtMillis)
+									return ReaderSemanticExecutableResult.Rejected
+								}
+								ReaderSemanticTransportBindingResult.RetiredAndDisposed -> {
+									phaseDiagnostic(ReaderWebViewDiagnosticPhase.Query, ReaderWebViewDiagnosticState.Cancelled,
+										ReaderWebViewDiagnosticReason.RuntimeRetired, queryStartedAtMillis)
+									return ReaderSemanticExecutableResult.Rejected
+								}
 								ReaderSemanticTransportBindingResult.Bound -> Unit
 							}
 							// Binding and external admission can reenter; the exact original context/token remains authoritative.
 							return if (enqueueDestinationQuery(token)) ReaderSemanticExecutableResult.Accepted
-								else ReaderSemanticExecutableResult.Rejected
+								else {
+									phaseDiagnostic(ReaderWebViewDiagnosticPhase.Query, ReaderWebViewDiagnosticState.Rejected,
+										ReaderWebViewDiagnosticReason.SubmissionRejected, queryStartedAtMillis)
+									ReaderSemanticExecutableResult.Rejected
+								}
 						}
 
 						private fun enqueueDestinationQuery(token: ReaderEngineCurrentDestinationContinuation): Boolean {
@@ -1144,7 +1208,11 @@ actual fun ReaderEngineWebViewHost(
 								webView !== view || generationWebView.get() !== view || engineView.runtimeRetired ||
 								url != ReaderWebRuntime.entrypointUrl || view.url != ReaderWebRuntime.entrypointUrl) return
 							// Native synchronously queues the authentic opening/query before Ready dispatch.
+							val initializedBefore = engineView.runtimeInitializationCompleted
 							engineView.completeRuntimeInitialization()
+							if (!initializedBefore && engineView.runtimeInitializationCompleted) {
+								phaseDiagnostic(ReaderWebViewDiagnosticPhase.Initialization, ReaderWebViewDiagnosticState.Completed)
+							}
 							view.dispatchReadyReaderCommands()
 						}
 

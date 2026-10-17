@@ -112,6 +112,79 @@ class HostSignal:
         self.kernel.CloseHandle(self.handle)
 
 
+class RuntimeDiagnosticTests(unittest.TestCase):
+    def test_r139_output_observer_sees_both_streams_without_consuming_original_output(self):
+        chunks = []
+        try:
+            child = S.Command.spawn([sys.executable, '-B', '-c',
+                'import os; os.write(1,b"INFO | boot-start\\n"); os.write(2,b"ERROR | boot-failed\\n")'],
+                timeout=3, max_bytes=4096, tree_owned=True,
+                observe_output=lambda index, chunk: chunks.append((index, chunk)))
+        except TypeError:
+            self.fail('Bounded diagnostic output observer is missing')
+        try:
+            self.assertTrue(child.settle(3))
+            self.assertEqual(child.returncode, 0)
+            self.assertIsNone(child.failure)
+            self.assertEqual(child.take_output(), (b'INFO | boot-start\n', b'ERROR | boot-failed\n'))
+            self.assertEqual(b''.join(data for index, data in chunks if index == 0), b'INFO | boot-start\n')
+            self.assertEqual(b''.join(data for index, data in chunks if index == 1), b'ERROR | boot-failed\n')
+            self.assertEqual(child.diagnostic_output_errors, 0)
+        finally:
+            child.cancel(.5)
+
+    def test_r139_diagnostic_callback_failure_cannot_change_command_outcome(self):
+        def broken(index, chunk):
+            raise RuntimeError('PRIVATE_DIAGNOSTIC_CANARY')
+        try:
+            child = S.Command.spawn([sys.executable, '-B', '-c', 'print("HOST_LOG",flush=True)'],
+                timeout=3, max_bytes=4096, tree_owned=True, observe_output=broken)
+        except TypeError:
+            self.fail('Non-authoritative diagnostic output observer is missing')
+        try:
+            self.assertTrue(child.settle(3))
+            self.assertEqual(child.returncode, 0)
+            self.assertIsNone(child.failure)
+            self.assertEqual(child.take_output(), (b'HOST_LOG\r\n', b''))
+            self.assertEqual(child.diagnostic_output_errors, 1)
+        finally:
+            child.cancel(.5)
+
+    def test_r139_original_owned_job_reports_cpu_memory_and_process_counts(self):
+        self.assertTrue(callable(getattr(S.Command, 'snapshot_resource_usage', None)),
+                        'Owned job resource observation is missing')
+        with HostSignal() as gate:
+            child = S.Command.spawn([sys.executable, '-B', '-c', gate.child_wait],
+                timeout=3, max_bytes=4096, tree_owned=True)
+            try:
+                usage = child.snapshot_resource_usage()
+                self.assertEqual(usage['state'], 'SAMPLED')
+                self.assertEqual(set(usage), {'state', 'user_cpu_ms', 'kernel_cpu_ms',
+                    'active_processes', 'total_processes', 'page_faults', 'peak_job_memory_bytes'})
+                for name, value in usage.items():
+                    if name != 'state':
+                        self.assertIs(type(value), int)
+                        self.assertGreaterEqual(value, 0)
+                self.assertGreaterEqual(usage['active_processes'], 1)
+                self.assertGreaterEqual(usage['total_processes'], usage['active_processes'])
+                self.assertGreater(usage['peak_job_memory_bytes'], 0)
+            finally:
+                gate.release()
+                child.cancel(.5)
+
+    def test_r139_synthetic_and_closed_resource_samples_are_explicit_unknown(self):
+        self.assertTrue(callable(getattr(S.Command, 'snapshot_resource_usage', None)),
+                        'Explicit unknown resource observation is missing')
+        self.assertEqual(S.Command.pending().snapshot_resource_usage(), {'state': 'UNAVAILABLE'})
+        child = S.Command.spawn([sys.executable, '-B', '-c', 'pass'],
+            timeout=3, max_bytes=4096, tree_owned=True)
+        try:
+            self.assertTrue(child.settle(3))
+            self.assertEqual(child.snapshot_resource_usage(), {'state': 'UNAVAILABLE'})
+        finally:
+            child.cancel(.5)
+
+
 class SupervisorTests(unittest.TestCase):
     def setUp(self):
         self.assertIsNotNone(S, 'Missing bounded runtime supervision API')

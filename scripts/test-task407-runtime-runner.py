@@ -348,6 +348,68 @@ class StartupWitnessProjectionTests(unittest.TestCase):
                                                     exit_code=0, source_drift=False))
 
 
+PHASE_KEY = 'E407.ReaderPhases.V1'
+PHASE_MESSAGE = ('reader-webview-phase source=PassiveRaster phase=Retirement state=Retired '
+                 'reason=RuntimeReadyPollBudget elapsedMs=10003')
+
+
+def phase_status(records=None, method=METHODS[0]):
+    value = {'version': 1, 'method': method, 'records': records if records is not None else [PHASE_MESSAGE],
+             'dropped_records': 0}
+    return ('INSTRUMENTATION_STATUS: ' + PHASE_KEY + '=' + json.dumps(value) +
+            '\nINSTRUMENTATION_STATUS_CODE: 2')
+
+
+class ReaderPhaseProjectionTests(unittest.TestCase):
+    def project(self, status, qualified=True):
+        started = '\n'.join(('INSTRUMENTATION_STATUS: class=' + CLASS,
+                             'INSTRUMENTATION_STATUS: test=' + METHODS[0],
+                             'INSTRUMENTATION_STATUS_CODE: 1'))
+        return runner.project_instrumentation(started + '\n' + status,
+            {PHASE_KEY, WITNESS_KEY} if qualified else set())
+
+    def test_r139_phase_transport_retains_exact_fixed_numeric_messages(self):
+        result = self.project(phase_status())
+        self.assertEqual(result.get('reader_phases_by_original_method'), {
+            METHODS[0]: {'version': 1, 'method': METHODS[0], 'records': [PHASE_MESSAGE], 'dropped_records': 0}})
+        self.assertEqual(result.get('reader_phase_rejection_count'), 0)
+        self.assertNotIn(PHASE_KEY, result['fixed_labels'])
+
+    def test_r139_phase_transport_rejects_private_messages_and_unqualified_sources(self):
+        for status, qualified in ((phase_status(['PRIVATE_PHASE_CANARY']), True),
+                                  (phase_status([PHASE_MESSAGE + ' https://private.invalid']), True),
+                                  (phase_status(method=METHODS[1]), True),
+                                  (phase_status(), False),
+                                  (phase_status([PHASE_MESSAGE] * 129), True),
+                                  (phase_status([PHASE_MESSAGE.replace('10003', '9223372036854775808')]), True)):
+            with self.subTest(qualified=qualified):
+                result = self.project(status, qualified)
+                self.assertEqual(result.get('reader_phases_by_original_method'), {})
+                self.assertGreater(result.get('reader_phase_rejection_count', 0), 0)
+                self.assertNotIn('PRIVATE_PHASE_CANARY', json.dumps(result))
+                self.assertNotIn('private.invalid', json.dumps(result))
+
+    def test_r139_phase_transport_does_not_change_original_oracles(self):
+        original = transcript()
+        text = original.replace('INSTRUMENTATION_STATUS_CODE: 1',
+            'INSTRUMENTATION_STATUS_CODE: 1\n' + phase_status(), 1)
+        before = runner.project_instrumentation(original, {PHASE_KEY})
+        after = runner.project_instrumentation(text, {PHASE_KEY})
+        self.assertEqual(before['events'], after['events'])
+        self.assertEqual(before['terminal_codes'], after['terminal_codes'])
+        self.assertTrue(runner.original_three_passed(after, exit_code=0, source_drift=False))
+        self.assertIn(METHODS[0], after.get('reader_phases_by_original_method', {}))
+
+    def test_r139_fixture_collects_bounded_source_qualified_phases_through_existing_sink(self):
+        fixture = PATH.parent.parent / 'composeApp/src/androidDeviceTest/kotlin/paige/navic/ui/screens/reader/ReaderNormalProductionStartupRuntimeTest.kt'
+        source = fixture.read_text(encoding='utf-8')
+        self.assertIn('fun readerPhasesJson()', source)
+        self.assertIn('readerPhaseRecords.size < 128', source)
+        self.assertIn('readerPhasePattern.matches(event.message)', source)
+        self.assertIn('putString("E407.ReaderPhases.V1", loggerObservation.readerPhasesJson())', source)
+        self.assertIn('"ReaderPassiveRasterWebViewHost"', source)
+
+
 def load_supervisor():
     spec = importlib.util.spec_from_file_location('caller_host_supervisor',
         Path(__file__).with_name('task407-runtime-supervisor.py'))
@@ -565,6 +627,47 @@ class PipelineTests(unittest.TestCase):
         return self.api('run_session')(device.module, record, {LABEL}, pins=pins,
                                       caps=device.caps, watchdog_id='host-fixture')
 
+    def test_r139_failed_wait_has_timed_phase_and_owned_resource_evidence(self):
+        device = HostDevice(readiness={'WAIT_FOR_DEVICE': 'pending'})
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        trace = result.get('phase_trace', {})
+        records = trace.get('records', [])
+        waits = [row for row in records if row['phase'] == 'WAIT_FOR_DEVICE']
+        self.assertEqual([row['event'] for row in waits], ['START', 'FAIL'])
+        self.assertGreater(waits[-1]['elapsed_ms'], waits[0]['elapsed_ms'])
+        samples = [row['metrics'] for row in waits if row['metrics']]
+        self.assertTrue(samples, 'The live original job must be sampled before its deadline')
+        self.assertTrue(all(sample['user_cpu_ms'] >= 0 and sample['peak_job_memory_bytes'] > 0
+                            for sample in samples))
+        self.assertEqual(result['fixed_readiness_step'], 'WAIT_FOR_DEVICE')
+        self.assertFalse(device.instrument_seen)
+        self.assertEqual(result.get('launch_transport_profile'), 'VERBOSE_HOST_STARTUP_V1')
+        launch = next((argv, opts) for argv, opts in device.calls if argv[0] == 'fixture-emulator.exe')
+        self.assertIn('-verbose', launch[0])
+        self.assertTrue(callable(launch[1].get('observe_output')))
+
+    def test_r139_host_sdk_log_is_sanitized_and_closed_before_install(self):
+        callback = []
+        def before(device, argv):
+            if argv[0] == 'fixture-emulator.exe':
+                observe = device.calls[-1][1].get('observe_output')
+                if observe is not None:
+                    callback.append(observe)
+                    observe(0, b'INFO | emulator boot started\n')
+                    observe(1, b'ERROR | Failed to initialize graphics backend\n')
+            if argv[3:6] == ['install', '-r', '-t'] and callback:
+                callback[0](0, b'INFO | PRIVATE_POSTINSTALL_CANARY\n')
+        device = HostDevice(before_reply=before)
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        log = result.get('emulator_startup_log', {})
+        self.assertTrue(log.get('closed'))
+        retained = json.dumps(log)
+        self.assertIn('Failed to initialize graphics backend', retained)
+        self.assertNotIn('PRIVATE_POSTINSTALL_CANARY', json.dumps(result))
+        self.assertTrue(result['all_three_original_runtime_cases_passed'])
+
     def test_missing_session_authority_blocks_before_any_selected_command(self):
         validate = self.api('validate_session')
         for field, value in (('user_session_authorized', False),
@@ -601,7 +704,7 @@ class PipelineTests(unittest.TestCase):
             self.assertLessEqual(options['max_bytes'], 4 * 1024 * 1024)
         self.assertNotIn('private', json.dumps(result))
 
-    def test_run_session_uses_exact_show_kernel_no_delay_adb_launch_profile(self):
+    def test_run_session_uses_exact_verbose_show_kernel_no_delay_adb_launch_profile(self):
         device = HostDevice()
         self.addCleanup(device.cleanup)
         with mock.patch.object(device.real.subprocess, 'Popen', wraps=device.real.subprocess.Popen) as popen:
@@ -613,12 +716,16 @@ class PipelineTests(unittest.TestCase):
             'start_new_session': False, 'bufsize': 0, 'creationflags': 0x00000004})
         launches = [(argv, options) for argv, options in device.calls
                     if argv[0] == 'fixture-emulator.exe']
-        self.assertEqual((launches, result.get('launch_transport_profile')), ([
+        self.assertEqual(len(launches), 1)
+        self.assertTrue(callable(launches[0][1]['observe_output']))
+        observed = [(argv, {key: value for key, value in options.items() if key != 'observe_output'})
+                    for argv, options in launches]
+        self.assertEqual((observed, result.get('launch_transport_profile')), ([
             (('fixture-emulator.exe', '-avd', 'NavicReaderLab', '-port', '5554',
-              '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader', '-show-kernel'),
+              '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader', '-show-kernel', '-verbose'),
              {'timeout': device.caps.session_budget, 'max_bytes': 4 * 1024 * 1024,
               'tree_owned': True})
-        ], 'SHOW_KERNEL_NO_DELAY_ADB_ARGV_V1'))
+        ], 'VERBOSE_HOST_STARTUP_V1'))
 
     def test_ui_not_ready_aborts_without_install_or_tests_and_still_stops(self):
         device = HostDevice(boot=b'0\n')
@@ -1977,8 +2084,10 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
                 self.assertTrue(waiting._discarded)
                 launch = next(options for argv, options in device.calls
                               if argv[0] == 'fixture-emulator.exe')
-                self.assertEqual(launch, {'timeout': device.caps.session_budget,
-                                         'max_bytes': cap, 'tree_owned': True})
+                self.assertTrue(callable(launch['observe_output']))
+                self.assertEqual({key: value for key, value in launch.items() if key != 'observe_output'},
+                                 {'timeout': device.caps.session_budget,
+                                  'max_bytes': cap, 'tree_owned': True})
 
     def test_r134_vocabulary_is_exact_original_thirteen_then_four_host_literals(self):
         self.assertEqual(runner._OWNED_LAUNCH_TEXT_HITS, self.HITS + self.HOST_HITS,
@@ -2440,7 +2549,8 @@ class ProvenanceTests(unittest.TestCase):
     def metadata(self):
         root = Path(__file__).resolve().parents[1]
         files = ('scripts/task407-runtime-supervisor.py', 'scripts/test-task407-runtime-supervisor.py',
-                 'scripts/task407-runtime-runner.py', 'scripts/test-task407-runtime-runner.py')
+                 'scripts/task407-runtime-runner.py', 'scripts/test-task407-runtime-runner.py',
+                 'scripts/task407-runtime-diagnostics.py', 'scripts/test-task407-runtime-diagnostics.py')
         rows = [{'path': str(root / name), 'sha256': 'a' * 64} for name in files]
         seal = {'kind': 'full-lower-qualified-pushed-source-emulator-only-apk-seal',
                 'base_source_commit': 'a' * 40, 'source_pins': rows,
@@ -2451,10 +2561,14 @@ class ProvenanceTests(unittest.TestCase):
                    'ordered': True, 'spec': 'PASS', 'quality': 'PASS', 'pins': rows.copy()}
         return root, seal, reviews
 
-    def test_current_qualification_must_cover_all_four_exact_host_scripts(self):
+    def test_r139_current_qualification_must_cover_all_six_exact_host_scripts(self):
         validate = self.api('validate_candidate')
         root, seal, reviews = self.metadata()
-        self.assertIsNone(validate(seal, reviews, root))
+        try:
+            accepted = validate(seal, reviews, root)
+        except ValueError:
+            self.fail('Complete current six-source qualification must be accepted')
+        self.assertIsNone(accepted)
         seal['source_pins'] = seal['source_pins'][:-1]
         with self.assertRaises(ValueError):
             validate(seal, reviews, root)
@@ -2498,6 +2612,219 @@ class ProvenanceTests(unittest.TestCase):
         manifest = Path(__file__).resolve().parents[1] / 'composeApp/src/androidMain/assets/reader/vendor/manifest.json'
         digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
         self.assertIsInstance(read(manifest, digest), dict)
+
+
+class ReviewRegressionTests(unittest.TestCase):
+    def test_r139_review_failed_close_irrevocably_disables_preinstall_retention(self):
+        state = {'fail': False}
+        def clock():
+            if state['fail']:
+                raise RuntimeError('SYNTHETIC_CLOCK_FAILURE')
+            return 10.0
+        log = runner._runtime_diagnostics().EmulatorStartupLog(clock=clock)
+        log.feed(0, b'INFO | Original partial')
+        state['fail'] = True
+        with self.assertRaises(RuntimeError):
+            log.close()
+        state['fail'] = False
+        log.feed(0, b'\nINFO | POSTINSTALL_CANARY\n')
+        snapshot = log.snapshot()
+        self.assertTrue(snapshot['closed'])
+        self.assertEqual(snapshot['partial_bytes'], [0, 0])
+        self.assertNotIn('POSTINSTALL_CANARY', json.dumps(snapshot))
+
+    def test_r139_review_explicit_non_environment_accounts_are_omitted(self):
+        log = runner._runtime_diagnostics().EmulatorStartupLog()
+        for field in ('account=NON_ENV_ACCOUNT_CANARY', 'accountName: NON_ENV_ACCOUNT_CANARY',
+                      'user=NON_ENV_ACCOUNT_CANARY', 'username=NON_ENV_ACCOUNT_CANARY'):
+            log.feed(0, ('INFO | ' + field + '\n').encode())
+        self.assertEqual(log.snapshot()['records'], [])
+        self.assertNotIn('NON_ENV_ACCOUNT_CANARY', json.dumps(log.snapshot()))
+
+    def test_r139_review_every_actual_kotlin_reason_survives_closed_host_projection(self):
+        source = (PATH.parent.parent / 'composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderWebViewPhaseDiagnostic.android.kt').read_text()
+        reasons = source.split('enum class ReaderWebViewDiagnosticReason {', 1)[1].split('}', 1)[0]
+        for reason in reasons.replace('\n', '').replace('\t', '').split(','):
+            reason = reason.strip()
+            if not reason:
+                continue
+            with self.subTest(reason=reason):
+                message = ('reader-webview-phase source=Engine phase=Query state=Failed reason=' +
+                           reason + ' elapsedMs=2')
+                text = '\n'.join(('INSTRUMENTATION_STATUS: class=' + CLASS,
+                    'INSTRUMENTATION_STATUS: test=' + METHODS[0], 'INSTRUMENTATION_STATUS_CODE: 1',
+                    phase_status([message])))
+                result = runner.project_instrumentation(text, {PHASE_KEY})
+                self.assertEqual(result.get('reader_phases_by_original_method', {}).get(METHODS[0], {}).get('records'), [message])
+
+    def stream(self):
+        factory = getattr(runner, '_ReaderPhaseStream', None)
+        self.assertTrue(callable(factory), 'Missing failure-independent diagnostic stream')
+        return factory(qualified=True, clock=lambda: 10.0)
+
+    def line(self, message=PHASE_MESSAGE):
+        return ('INSTRUMENTATION_STATUS: E407.ReaderPhase.V1=' + METHODS[0] + '|' + message + '\n').encode()
+
+    def test_r139_review_live_phase_decoder_is_fixed_fragment_safe_and_bounded(self):
+        stream = self.stream()
+        line = self.line()
+        for part in (line[:15], line[15:70], line[70:]):
+            stream.feed(0, part)
+        stream.feed(1, self.line('PRIVATE_PHASE_CANARY'))
+        stream.feed(0, self.line(PHASE_MESSAGE + ' https://private.invalid'))
+        stream.feed(0, b'x' * 1100 + self.line())
+        stream.feed(0, self.line())
+        snapshot = stream.snapshot()
+        self.assertEqual([row['message'] for row in snapshot['records']], [PHASE_MESSAGE, PHASE_MESSAGE])
+        self.assertEqual([row['method'] for row in snapshot['records']], [METHODS[0], METHODS[0]])
+        self.assertNotIn('private.invalid', json.dumps(snapshot))
+        self.assertNotIn('PRIVATE_PHASE_CANARY', json.dumps(snapshot))
+        for _ in range(600):
+            stream.feed(0, self.line())
+        snapshot = stream.snapshot()
+        self.assertEqual(len(snapshot['records']), 256)
+        self.assertEqual(snapshot['dropped_records'], 346)
+
+    def test_r139_review_live_phase_survives_original_ineligible_guard_without_acceptance(self):
+        device = HostDevice()
+        self.addCleanup(device.cleanup)
+        def before(host, argv):
+            if argv[3:5] == ['shell', '-T'] and shlex.split(argv[5])[:2] == ['am', 'instrument']:
+                callback = host.calls[-1][1].get('observe_output')
+                self.assertTrue(callable(callback), 'Original instrumentation pipe must observe safe phases')
+                callback(0, self.line())
+                host.guardian._observer.failed()
+        device.before_reply = before
+        pins = [{'path': str(PATH), 'sha256': hashlib.sha256(PATH.read_bytes()).hexdigest()}]
+        result = runner.run_session(device.module, host_record(), {LABEL, 'E407.ReaderPhase.V1'},
+            pins=pins, caps=device.caps, watchdog_id='host-fixture')
+        self.assertEqual([row['message'] for row in result.get('reader_live_phases', {}).get('records', [])], [PHASE_MESSAGE])
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertFalse(result['all_three_original_runtime_cases_passed'])
+        self.assertFalse(result['supervisor']['eligible_for_oracle'])
+
+    def test_r139_review_fixture_streams_safe_phases_before_finally(self):
+        source = (PATH.parent.parent / 'composeApp/src/androidDeviceTest/kotlin/paige/navic/ui/screens/reader/ReaderNormalProductionStartupRuntimeTest.kt').read_text()
+        sink = source.split('private val sink:', 1)[1].split('@Suppress', 1)[0]
+        self.assertIn('putString("E407.ReaderPhase.V1"', sink)
+        self.assertIn('method.wireName', sink)
+        self.assertIn('event.message', sink)
+
+
+
+# Prospective host-only tests. Execute in test-task407-runtime-runner.py globals
+# AFTER _ReaderPhaseStream and original instrument observe_output integration exist.
+# No Android/ANR runtime proof; no changed acceptance predicates or guardian logic.
+
+class OwnAnrExtraTests(unittest.TestCase):
+    def _own_anr_session(self, *, callback_failure=None):
+        self.assertTrue(callable(getattr(runner, '_ReaderPhaseStream', None)),
+                        'FAILURE_INDEPENDENT_READER_PHASE_STREAM_REQUIRED')
+        device = HostDevice()  # Keep real Windows owned launch job and guardian.
+        self.addCleanup(device.cleanup)
+        spawn = device.module.Command.spawn
+        attach = device.module.Supervisor.attach_instrumentation
+        instrument = []
+        wire = ('INSTRUMENTATION_STATUS: E407.ReaderPhase.V1=' + METHODS[0] +
+                '|' + PHASE_MESSAGE + '\n').encode('ascii')
+
+        def pending_instrument(argv, **options):
+            if not (argv[3:5] == ['shell', '-T'] and
+                    shlex.split(argv[5])[:2] == ['am', 'instrument']):
+                return spawn(argv, **options)
+            # Narrow replacement for HostDevice's completed-instrument reply.
+            # Preserve its exact original-call accounting/admission checks.
+            device.calls.append((tuple(argv), options))
+            device.call_times.append(time.monotonic())
+            self.assertTrue(device.guardian._observer.armed)
+            device.instrument_seen = True
+            callback = options.get('observe_output')
+            self.assertTrue(callable(callback), 'ORIGINAL_INSTRUMENT_OBSERVER_REQUIRED')
+            child = device.real.Command.pending()
+            child._max_bytes = options['max_bytes']
+            child._observe_output = (callback if callback_failure is None else
+                                     mock.Mock(side_effect=callback_failure))
+            instrument.append(child)
+            return child
+
+        def attach_then_observe_and_anr(guardian, child):
+            accepted = attach(guardian, child)
+            self.assertTrue(accepted, 'ORIGINAL_INSTRUMENT_MUST_BE_ADMITTED')
+            self.assertIs(guardian._instrument, child)
+            self.assertFalse(child.done.is_set())
+            # Exercise the real original Command reader, including its callback
+            # exception containment and separate ordinary output retention.
+            child._read(0, io.BytesIO(wire))
+            self.assertGreater(child.buffered_bytes, 0)
+            self.assertFalse(child.done.is_set())
+            observer = guardian._observer
+            self.assertTrue(observer.armed)
+            self.assertIsNotNone(observer.source)
+            self.assertFalse(observer.source.done.is_set())
+            # Use the already-admitted original attempt epoch/cursor, not a new
+            # observer, mocked classifier, guessed timestamp, or failed() shortcut.
+            observer.am_anr('am_anr', '[0,123,' + PACKAGE + ',0,HOST_OWN_ANR_FIXTURE]',
+                            timestamp_ns=observer._after_ns + 1, epoch=observer._epoch)
+            self.assertTrue(observer.own_anr)
+            return accepted
+
+        pins = [{'path': str(PATH),
+                 'sha256': hashlib.sha256(PATH.read_bytes()).hexdigest()}]
+        with mock.patch.object(device.module.Command, 'spawn', side_effect=pending_instrument), \
+             mock.patch.object(device.module.Supervisor, 'attach_instrumentation',
+                               attach_then_observe_and_anr):
+            result = runner.run_session(device.module, host_record(),
+                {LABEL, 'E407.ReaderPhase.V1'}, pins=pins, caps=device.caps,
+                watchdog_id='host-fixture')
+        self.assertEqual(len(instrument), 1)
+        child = instrument[0]
+        self.assertIs(device.guardian._instrument, child)
+        self.assertEqual(result['supervisor']['cause'], 'OWN_ANR')
+        self.assertFalse(result['supervisor']['eligible_for_oracle'])
+        self.assertTrue(result['automatic_emulator_teardown_verified'])
+        self.assertTrue(result['preflight_clients_settled'])
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertFalse(result['all_three_original_runtime_cases_passed'])
+        self.assertNotIn('passed_test_count', result)
+        self.assertTrue(child.cancelled)
+        self.assertEqual(child.failure, 'CANCELLED')
+        self.assertTrue(child.done.is_set())
+        self.assertTrue(child.settle(device.caps.settle))
+        self.assertEqual(child.buffered_bytes, 0)
+        self.assertEqual(child.snapshot_output(), (b'', b'', True))
+        with self.assertRaises(device.real.Blocked):
+            device.guardian.take_instrumentation_output()
+        return result, child
+
+    def test_r139_live_phase_survives_real_own_anr_original_cancel_and_discard(self):
+        result, child = self._own_anr_session()
+        records = result.get('reader_live_phases', {}).get('records', [])
+        self.assertEqual([row['message'] for row in records], [PHASE_MESSAGE])
+        self.assertEqual([row['method'] for row in records], [METHODS[0]])
+        self.assertEqual(child.diagnostic_output_errors, 0)
+        self.assertFalse(result['anr_cause_proven'])
+        self.assertFalse(result['configured_pair_wordsync_accepted'])
+        self.assertFalse(result['performance_accepted'])
+        self.assertFalse(result['production_release_accepted'])
+        self.assertNotIn('HOST_OWN_ANR_FIXTURE', json.dumps(result))
+
+    def test_r139_live_phase_callback_failure_preserves_original_own_anr_and_teardown(self):
+        before, _ = self._own_anr_session()
+        # Preserve the exact exception value. Only the real Command reader catches
+        # it; no replacement reader, sanitizer, cancellation or terminal oracle.
+        error = RuntimeError({'private': 'OWN_ANR_OBSERVER_EXCEPTION_CANARY'})
+        original_args = error.args
+        after, child = self._own_anr_session(callback_failure=error)
+        self.assertEqual(error.args, original_args)
+        self.assertEqual(child.diagnostic_output_errors, 1)
+        self.assertEqual(before['supervisor'], after['supervisor'])
+        for key in ('automatic_emulator_teardown_verified', 'preflight_clients_settled',
+                    'runtime_result_analysis_performed', 'all_three_original_runtime_cases_passed',
+                    'fixed_preflight_failure', 'fixed_preflight_failure_reason',
+                    'anr_cause_proven', 'configured_pair_wordsync_accepted',
+                    'performance_accepted', 'production_release_accepted'):
+            self.assertEqual(before[key], after[key], key)
+        self.assertNotIn('OWN_ANR_OBSERVER_EXCEPTION_CANARY', json.dumps(after))
 
 
 if __name__ == '__main__':

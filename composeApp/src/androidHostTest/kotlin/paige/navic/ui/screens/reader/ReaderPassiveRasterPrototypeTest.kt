@@ -1240,15 +1240,17 @@ class ReaderPassiveRasterPrototypeTest {
 			.substringAfter("if (pollCount >= ReaderPassiveRasterMaximumResultPolls) {")
 			.substringBefore("val operationId")
 		val retirement = host
-			.substringAfter("private fun retireAfterRendererLoss()")
+			.substringAfter("private fun retireAfterRendererLoss(")
 			.substringBefore("private fun requestPixelCopy")
 
-		assertContains(cancellationFailure, "retireAfterRendererLoss()")
-		assertFalse(cancellationFailure.contains("finishCommit(commit, null)"))
-		assertContains(timeout, "retireAfterRendererLoss()")
-		assertFalse(timeout.contains("finishCommit(commit, null)"))
+		assertContains(cancellationFailure, "retireAfterRendererLoss(ReaderWebViewDiagnosticReason.JavascriptSubmissionThrew)")
+		assertFalse(cancellationFailure.contains("finishCommit(commit, null"))
+		assertContains(timeout, "retireAfterRendererLoss(ReaderWebViewDiagnosticReason.CommitPollBudget)")
+		assertFalse(timeout.contains("finishCommit(commit, null"))
+		assertContains(retirement, "webView.destroy()")
+		assertContains(retirement, "retireActiveCommit(reason)")
 		assertTrue(
-			retirement.indexOf("webView.destroy()") < retirement.indexOf("retireActiveCommit()"),
+			retirement.indexOf("webView.destroy()") < retirement.indexOf("retireActiveCommit(reason)"),
 			"The unhealthy WebView must be destroyed before cancellation drain callbacks run."
 		)
 	}
@@ -1271,7 +1273,7 @@ class ReaderPassiveRasterPrototypeTest {
 			readinessPoll.indexOf(staleGenerationCheck) < readinessPoll.indexOf(timeoutCheck),
 			"A stale readiness callback must not retire its replacement runtime."
 		)
-		assertContains(timeout, "retireAfterRendererLoss()")
+		assertContains(timeout, "retireAfterRendererLoss(ReaderWebViewDiagnosticReason.RuntimeReadyPollBudget)")
 	}
 
 	@Test

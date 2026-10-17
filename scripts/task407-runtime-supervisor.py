@@ -296,6 +296,7 @@ class _WindowsJob:
         kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int,
                                                    ctypes.c_void_p, wintypes.DWORD]
         kernel.SetInformationJobObject.restype = wintypes.BOOL
+        self._extended_limits_type = ExtendedLimits
         limits = ExtendedLimits()
         limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, owned trees only.
         configured = kernel.SetInformationJobObject(self._handle, 9, ctypes.byref(limits), ctypes.sizeof(limits))
@@ -373,6 +374,38 @@ class _WindowsJob:
             return 'ZERO' if count == 0 else 'ONE' if count == 1 else 'MULTIPLE'
         except BaseException:
             return 'UNAVAILABLE'
+        finally:
+            self._lock.release()
+
+    def snapshot_resource_usage(self):
+        """Two native accounting queries on the retained job, never a process scan."""
+        if not self._lock.acquire(blocking=False):
+            return {'state': 'UNAVAILABLE'}
+        try:
+            ctypes = self._ctypes
+            from ctypes import wintypes
+
+            class Accounting(ctypes.Structure):
+                _fields_ = [('user', ctypes.c_longlong), ('kernel', ctypes.c_longlong),
+                            ('period_user', ctypes.c_longlong), ('period_kernel', ctypes.c_longlong),
+                            ('page_faults', wintypes.DWORD), ('total', wintypes.DWORD),
+                            ('active', wintypes.DWORD), ('terminated', wintypes.DWORD)]
+
+            accounting = Accounting()
+            limits = self._extended_limits_type()
+            if (not self._handle or not self._kernel.QueryInformationJobObject(
+                    self._handle, 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None)
+                    or not self._kernel.QueryInformationJobObject(
+                        self._handle, 9, ctypes.byref(limits), ctypes.sizeof(limits), None)):
+                return {'state': 'UNAVAILABLE'}
+            return {'state': 'SAMPLED', 'user_cpu_ms': max(0, accounting.user // 10000),
+                    'kernel_cpu_ms': max(0, accounting.kernel // 10000),
+                    'active_processes': int(accounting.active),
+                    'total_processes': int(accounting.total),
+                    'page_faults': int(accounting.page_faults),
+                    'peak_job_memory_bytes': int(limits.peak_job)}
+        except BaseException:
+            return {'state': 'UNAVAILABLE'}
         finally:
             self._lock.release()
 
@@ -721,6 +754,8 @@ class Command:
         self._max_bytes = 65536
         self._discarded = False
         self._on_line = None
+        self._observe_output = None
+        self.diagnostic_output_errors = 0
         self._tree_owned = False
         self._tree_settled = True
 
@@ -740,16 +775,19 @@ class Command:
         return value
 
     @classmethod
-    def spawn(cls, argv, *, timeout, max_bytes, on_line=None, tree_owned=False):
+    def spawn(cls, argv, *, timeout, max_bytes, on_line=None, tree_owned=False,
+              observe_output=None):
         if (not argv or isinstance(argv, (str, bytes)) or not all(isinstance(v, str) for v in argv)
                 or type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0
                 or type(max_bytes) is not int or not 0 < max_bytes <= 4 * 1024 * 1024
                 or (on_line is not None and not callable(on_line)) or type(tree_owned) is not bool
+                or (observe_output is not None and not callable(observe_output))
                 or (tree_owned and os.name != 'nt')):
             raise Blocked()
         value = cls()
         value._max_bytes = max_bytes
         value._on_line = on_line
+        value._observe_output = observe_output
         value._tree_owned = tree_owned
         value._tree_settled = not tree_owned
         try:
@@ -847,6 +885,14 @@ class Command:
                     if index == 0 and self._on_line is not None:
                         self._lose_feed()  # Immediate loss, even if process remains live.
                     break
+                if self._observe_output is not None:
+                    try:
+                        # Caller supplies a bounded, nonblocking diagnostic decoder.
+                        # Its failure cannot cancel a command or alter the oracle.
+                        self._observe_output(index, chunk)
+                    except BaseException:
+                        self.diagnostic_output_errors += 1
+                        self._observe_output = None
                 if index == 0 and self._on_line is not None:
                     # Stream callbacks are pure bounded decoders; no raw stdout
                     # is retained. Callback failure/EOF fails the bound source.
@@ -938,6 +984,12 @@ class Command:
                 and not any(reader.is_alive() for reader in self._readers)
                 and self._tree_settled
                 and self.failure not in ('CHILD_UNCONFIRMED', 'TREE_UNCONFIRMED'))
+
+    def snapshot_resource_usage(self):
+        """Aggregate CPU/peak committed memory for the original private job only."""
+        if not self._tree_owned or not isinstance(self._job, _WindowsJob):
+            return {'state': 'UNAVAILABLE'}
+        return self._job.snapshot_resource_usage()
 
     def snapshot_host_state(self):
         """Independent read-only scalars, not history, guest liveness or readiness.

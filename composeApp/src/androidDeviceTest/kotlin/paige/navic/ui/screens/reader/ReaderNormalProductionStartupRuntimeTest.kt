@@ -25,8 +25,8 @@ internal enum class Task407OriginalStartupMethod(val wireName: String) {
     Cancel("cancelOriginalPendingBootstrapThenCloseReturnsExactPhysicalOwners")
 }
 
-/** Per-fixture, failure-only projection of source-static logger markers. It preserves a preexisting
- * sink through the exact Android Logger field and never retains a message, payload or throwable. */
+/** Per-fixture projection of source-static logger markers and closed numeric phase messages.
+ * Preserves the preexisting sink; never retains arbitrary messages, payloads or throwables. */
 internal class Task407LoggerStartupObservation(private val method: Task407OriginalStartupMethod) {
     private val lock = Any()
     @Volatile private var startupWitness: Task407StartupPhaseWitness? = null
@@ -60,8 +60,18 @@ internal class Task407LoggerStartupObservation(private val method: Task407Origin
     // Static, source-qualified ReaderEngineWebViewHost.android.kt projections only. No event
     // message, payload, throwable, command ID, URL, location, identity or arbitrary key is retained.
     private val readerEngineStartupObservationLabels = linkedSetOf<String>()
+    private val readerPhaseRecords = ArrayList<String>(128)
+    private var readerPhaseDropped = 0
 
     private companion object {
+        private val readerPhasePattern = Regex(
+            "reader-webview-phase source=(Engine|PassiveRaster) " +
+                "phase=(${ReaderWebViewDiagnosticPhase.entries.joinToString("|") { it.name }}) " +
+                "state=(${ReaderWebViewDiagnosticState.entries.joinToString("|") { it.name }}) " +
+                "reason=(${ReaderWebViewDiagnosticReason.entries.joinToString("|") { it.name }}) " +
+                "elapsedMs=[0-9]{1,19}( code=-?[0-9]{1,10})?( mainFrame=(true|false))?" +
+                "( didCrash=(true|false))?( priorityAtExit=-?[0-9]{1,10})?"
+        )
         private val moduleLoadedConsoleMessages = setOf(
             "Reader console TIP: module-loaded",
             "Reader console LOG: module-loaded",
@@ -81,7 +91,15 @@ internal class Task407LoggerStartupObservation(private val method: Task407Origin
     }
 
     private val sink: (LoggerEvent) -> Unit = { event ->
-        try { observe(event) } catch (_: Throwable) { startupWitness?.observerGapObserved() }
+        val readerPhase = try { observe(event) } catch (_: Throwable) {
+            startupWitness?.observerGapObserved()
+            false
+        }
+        if (readerPhase) try {
+            InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
+                putString("E407.ReaderPhase.V1", "${method.wireName}|${event.message}")
+            })
+        } catch (_: Throwable) { startupWitness?.observerGapObserved() }
         try { priorSink?.invoke(event) } catch (_: Throwable) { }
     }
 
@@ -136,6 +154,16 @@ internal class Task407LoggerStartupObservation(private val method: Task407Origin
         }.toString()
     }
 
+    /** Only fixed formatter vocabulary reaches this bounded fixture transport. */
+    fun readerPhasesJson(): String = synchronized(lock) {
+        JSONObject().apply {
+            put("version", 1)
+            put("method", method.wireName)
+            put("records", JSONArray(readerPhaseRecords.toList()))
+            put("dropped_records", readerPhaseDropped)
+        }.toString()
+    }
+
     fun restore() {
         if (!installed) return
         val field = issueLogSinkField ?: return
@@ -147,11 +175,24 @@ internal class Task407LoggerStartupObservation(private val method: Task407Origin
      * ReaderPageTurnBundleSource.android.kt and ReaderEngineWebViewHost.android.kt; message data
      * is compared but never retained. */
     private fun observe(event: LoggerEvent) = synchronized(lock) {
+        val phaseSource = when (event.tag) {
+            "ReaderEngineWebViewHost" -> "Engine"
+            "ReaderPassiveRasterWebViewHost" -> "PassiveRaster"
+            else -> null
+        }
+        val readerPhase = phaseSource != null && event.message.length <= 512 &&
+            event.message.startsWith("reader-webview-phase source=$phaseSource ") &&
+            readerPhasePattern.matches(event.message)
+        if (readerPhase) {
+            if (readerPhaseRecords.size < 128) readerPhaseRecords += event.message
+            else readerPhaseDropped = (readerPhaseDropped + 1).coerceAtMost(65535)
+        }
         when (event.tag) {
             "ReaderPageTurnBitmapSource" -> observeBitmapSource(event)
             "ReaderPageTurnBundleSource" -> observeBundleSource(event)
             "ReaderEngineWebViewHost" -> observeReaderEngineHost(event)
         }
+        readerPhase
     }
 
     private fun observeBitmapSource(event: LoggerEvent) {
@@ -701,6 +742,11 @@ class ReaderNormalProductionStartupRuntimeTest {
                 failures.record(Task407FixedFailure("C407.Cleanup.EpubRetainedForUnreturnedPhysicalOwners"),
                     "C407.Cleanup.EpubRetainedForUnreturnedPhysicalOwners")
             }
+            try {
+                InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
+                    putString("E407.ReaderPhases.V1", loggerObservation.readerPhasesJson())
+                })
+            } catch (_: Throwable) { /* Observation cannot replace success, failure or cleanup. */ }
             try { loggerObservation.restore() } catch (_: Throwable) { }
         }
         failures.throwIfAny()

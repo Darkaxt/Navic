@@ -20,6 +20,7 @@ import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -32,7 +33,9 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.readerManagedStorageRoot
+import paige.navic.util.core.Logger
 
+private const val ReaderPassiveRasterWebViewHostTag = "ReaderPassiveRasterWebViewHost"
 private const val ReaderPassiveRasterAssetDomain = "appassets.androidplatform.net"
 private const val ReaderPassiveRasterAssetsPathPrefix = "/assets/"
 private const val ReaderPassiveRasterAssetPath =
@@ -241,6 +244,7 @@ internal class ReaderPassiveRasterWebViewHost(
 	private class ActiveCommit(
 		val generation: Long,
 		val onCommitted: (ReaderPassiveRasterCaptureReceipt?) -> Unit,
+		val startedAtMillis: Long = SystemClock.elapsedRealtime(),
 		var operationId: String? = null,
 		var cancellationRequested: Boolean = false,
 		val onDrained: MutableList<() -> Unit> = mutableListOf()
@@ -285,7 +289,30 @@ internal class ReaderPassiveRasterWebViewHost(
 	private var lastPreconditionFailure: ReaderPassiveRasterWebViewPreconditionFailure? = null
 	private var lastGeometryWidthDelta = 0
 	private var lastGeometryHeightDelta = 0
+	private var runtimeLoadStartedAtMillis = 0L
 	private val webView: WebView
+
+	private fun diagnostic(
+		phase: ReaderWebViewDiagnosticPhase,
+		state: ReaderWebViewDiagnosticState,
+		reason: ReaderWebViewDiagnosticReason = ReaderWebViewDiagnosticReason.None,
+		startedAtMillis: Long = runtimeLoadStartedAtMillis,
+		code: Int? = null,
+		mainFrame: Boolean? = null,
+		didCrash: Boolean? = null,
+		priorityAtExit: Int? = null
+	) {
+		runCatching {
+			Logger.i(
+				ReaderPassiveRasterWebViewHostTag,
+				ReaderWebViewPhaseDiagnostic.format(
+					ReaderWebViewDiagnosticSource.PassiveRaster, phase, state, reason,
+					SystemClock.elapsedRealtime() - startedAtMillis,
+					code, mainFrame, didCrash, priorityAtExit
+				)
+			)
+		}
+	}
 
 	override val isReady: Boolean
 		get() = runtimeReady && !destroyed && webView.isAttachedToWindow
@@ -324,11 +351,34 @@ internal class ReaderPassiveRasterWebViewHost(
 					pollRuntimeReady(callbackGeneration, 0)
 				}
 
+				override fun onReceivedError(
+					view: WebView,
+					request: WebResourceRequest,
+					error: WebResourceError
+				) {
+					diagnostic(ReaderWebViewDiagnosticPhase.RuntimeLoad, ReaderWebViewDiagnosticState.Failed,
+						ReaderWebViewDiagnosticReason.WebViewError, code = error.errorCode,
+						mainFrame = request.isForMainFrame)
+					super.onReceivedError(view, request, error)
+				}
+
+				override fun onReceivedHttpError(
+					view: WebView,
+					request: WebResourceRequest,
+					errorResponse: WebResourceResponse
+				) {
+					diagnostic(ReaderWebViewDiagnosticPhase.RuntimeLoad, ReaderWebViewDiagnosticState.Failed,
+						ReaderWebViewDiagnosticReason.HttpError, code = errorResponse.statusCode,
+						mainFrame = request.isForMainFrame)
+					super.onReceivedHttpError(view, request, errorResponse)
+				}
+
 				override fun onRenderProcessGone(
 					view: WebView,
 					detail: RenderProcessGoneDetail
 				): Boolean {
-					retireAfterRendererLoss()
+					retireAfterRendererLoss(ReaderWebViewDiagnosticReason.RendererGone,
+						didCrash = detail.didCrash(), priorityAtExit = detail.rendererPriorityAtExit())
 					return true
 				}
 			}
@@ -340,7 +390,15 @@ internal class ReaderPassiveRasterWebViewHost(
 				viewportGeometry.viewportHeight
 			)
 		)
-		webView.loadUrl(ReaderPassiveRasterAssetUrl)
+		runtimeLoadStartedAtMillis = SystemClock.elapsedRealtime()
+		diagnostic(ReaderWebViewDiagnosticPhase.RuntimeLoad, ReaderWebViewDiagnosticState.Started)
+		try {
+			webView.loadUrl(ReaderPassiveRasterAssetUrl)
+		} catch (failure: Throwable) {
+			diagnostic(ReaderWebViewDiagnosticPhase.RuntimeLoad, ReaderWebViewDiagnosticState.Failed,
+				ReaderWebViewDiagnosticReason.RuntimeLoadThrew)
+			throw failure
+		}
 	}
 
 	override fun commit(
@@ -350,6 +408,8 @@ internal class ReaderPassiveRasterWebViewHost(
 		onCommitted: (ReaderPassiveRasterCaptureReceipt?) -> Unit
 	) {
 		if (!isReady || activeCommit != null) {
+			diagnostic(ReaderWebViewDiagnosticPhase.Commit, ReaderWebViewDiagnosticState.Rejected,
+				ReaderWebViewDiagnosticReason.CommitUnavailable, SystemClock.elapsedRealtime())
 			onCommitted(null)
 			return
 		}
@@ -358,6 +418,8 @@ internal class ReaderPassiveRasterWebViewHost(
 			onCommitted = onCommitted
 		)
 		activeCommit = commit
+		diagnostic(ReaderWebViewDiagnosticPhase.Commit, ReaderWebViewDiagnosticState.Started,
+			startedAtMillis = commit.startedAtMillis)
 		val payload = readerPassiveRasterCommitJson(
 			manifest = manifest,
 			captureTarget = captureTarget,
@@ -371,7 +433,7 @@ internal class ReaderPassiveRasterWebViewHost(
 				if (!commitIsCurrent(commit)) return@evaluateJavascript
 				val operationId = readerPassiveRasterOperationId(encoded)
 				if (operationId == null) {
-					finishCommit(commit, null)
+					finishCommit(commit, null, ReaderWebViewDiagnosticReason.OperationIdInvalid)
 					return@evaluateJavascript
 				}
 				commit.operationId = operationId
@@ -379,7 +441,7 @@ internal class ReaderPassiveRasterWebViewHost(
 				pollCommitResult(commit, pollCount = 0)
 			}
 		} catch (_: Throwable) {
-			finishCommit(commit, null)
+			finishCommit(commit, null, ReaderWebViewDiagnosticReason.JavascriptSubmissionThrew)
 		}
 	}
 
@@ -404,70 +466,84 @@ internal class ReaderPassiveRasterWebViewHost(
 				"window.NavicPassiveRasterPrototype?.cancelOperation?.($quotedOperationId) === true"
 			) { }
 		} catch (_: Throwable) {
-			retireAfterRendererLoss()
+			retireAfterRendererLoss(ReaderWebViewDiagnosticReason.JavascriptSubmissionThrew)
 		}
 	}
 
 	private fun pollRuntimeReady(generation: Long, pollCount: Int) {
 		if (!callbackIsCurrent(generation)) return
 		if (pollCount >= ReaderPassiveRasterMaximumResultPolls) {
-			retireAfterRendererLoss()
+			retireAfterRendererLoss(ReaderWebViewDiagnosticReason.RuntimeReadyPollBudget)
 			return
 		}
-		webView.evaluateJavascript(
-			"window.NavicPassiveRasterPrototype?.ready === true"
-		) { encoded ->
-			if (!callbackIsCurrent(generation)) return@evaluateJavascript
-			if (encoded == "true") {
-				if (!runtimeReady) {
-					runtimeReady = true
-					onRuntimeReady()
-				}
-			} else {
-				webView.postOnAnimation {
-					pollRuntimeReady(generation, pollCount + 1)
+		try {
+			webView.evaluateJavascript(
+				"window.NavicPassiveRasterPrototype?.ready === true"
+			) { encoded ->
+				if (!callbackIsCurrent(generation)) return@evaluateJavascript
+				if (encoded == "true") {
+					if (!runtimeReady) {
+						runtimeReady = true
+						diagnostic(ReaderWebViewDiagnosticPhase.RuntimeLoad, ReaderWebViewDiagnosticState.Completed)
+						onRuntimeReady()
+					}
+				} else {
+					webView.postOnAnimation {
+						pollRuntimeReady(generation, pollCount + 1)
+					}
 				}
 			}
+		} catch (failure: Throwable) {
+			diagnostic(ReaderWebViewDiagnosticPhase.RuntimeLoad, ReaderWebViewDiagnosticState.Failed,
+				ReaderWebViewDiagnosticReason.JavascriptSubmissionThrew)
+			throw failure
 		}
 	}
 
 	private fun pollCommitResult(commit: ActiveCommit, pollCount: Int) {
 		if (!commitIsCurrent(commit)) return
 		if (pollCount >= ReaderPassiveRasterMaximumResultPolls) {
-			retireAfterRendererLoss()
+			retireAfterRendererLoss(ReaderWebViewDiagnosticReason.CommitPollBudget)
 			return
 		}
 		val operationId = commit.operationId ?: return
 		val quotedOperationId = JSONObject.quote(operationId)
-		webView.evaluateJavascript(
-			"JSON.stringify(window.NavicPassiveRasterPrototype?.readOperationResult?.(" +
-				"$quotedOperationId, true) ?? null)"
-		) { encoded ->
-			if (!commitIsCurrent(commit)) return@evaluateJavascript
-			when (val result = readerPassiveRasterOperationResult(encoded)) {
-				ReaderPassiveRasterOperationResult.Pending -> webView.postOnAnimation {
-					pollCommitResult(commit, pollCount + 1)
-				}
-				is ReaderPassiveRasterOperationResult.Complete -> {
-					val runtimeObservedGeometry =
-						readerPassiveRasterObservedGeometry(result.value)
-					val captureGeometry = runtimeObservedGeometry?.let { observedGeometry ->
-						readerPassiveRasterCanonicalCaptureGeometry(
-							configuredGeometry = viewportGeometry,
-							measuredWidth = webView.width,
-							measuredHeight = webView.height,
-							runtimeObservedGeometry = observedGeometry
+		try {
+			webView.evaluateJavascript(
+				"JSON.stringify(window.NavicPassiveRasterPrototype?.readOperationResult?.(" +
+					"$quotedOperationId, true) ?? null)"
+			) { encoded ->
+				if (!commitIsCurrent(commit)) return@evaluateJavascript
+				when (val result = readerPassiveRasterOperationResult(encoded)) {
+					ReaderPassiveRasterOperationResult.Pending -> webView.postOnAnimation {
+						pollCommitResult(commit, pollCount + 1)
+					}
+					is ReaderPassiveRasterOperationResult.Complete -> {
+						val runtimeObservedGeometry =
+							readerPassiveRasterObservedGeometry(result.value)
+						val captureGeometry = runtimeObservedGeometry?.let { observedGeometry ->
+							readerPassiveRasterCanonicalCaptureGeometry(
+								configuredGeometry = viewportGeometry,
+								measuredWidth = webView.width,
+								measuredHeight = webView.height,
+								runtimeObservedGeometry = observedGeometry
+							)
+						}
+						finishCommit(
+							commit,
+							captureGeometry?.let { geometry ->
+								readerPassiveRasterReceipt(result.value, geometry)
+							}
 						)
 					}
-					finishCommit(
-						commit,
-						captureGeometry?.let { geometry ->
-							readerPassiveRasterReceipt(result.value, geometry)
-						}
-					)
+					ReaderPassiveRasterOperationResult.Failed ->
+						finishCommit(commit, null, ReaderWebViewDiagnosticReason.OperationFailed)
 				}
-				ReaderPassiveRasterOperationResult.Failed -> finishCommit(commit, null)
 			}
+		} catch (failure: Throwable) {
+			diagnostic(ReaderWebViewDiagnosticPhase.Commit, ReaderWebViewDiagnosticState.Failed,
+				ReaderWebViewDiagnosticReason.JavascriptSubmissionThrew, commit.startedAtMillis)
+			throw failure
 		}
 	}
 
@@ -476,10 +552,22 @@ internal class ReaderPassiveRasterWebViewHost(
 
 	private fun finishCommit(
 		commit: ActiveCommit,
-		receipt: ReaderPassiveRasterCaptureReceipt?
+		receipt: ReaderPassiveRasterCaptureReceipt?,
+		reason: ReaderWebViewDiagnosticReason = if (receipt == null)
+			ReaderWebViewDiagnosticReason.ReceiptRejected else ReaderWebViewDiagnosticReason.None
 	) {
 		if (activeCommit !== commit) return
 		activeCommit = null
+		diagnostic(
+			ReaderWebViewDiagnosticPhase.Commit,
+			when {
+				commit.cancellationRequested -> ReaderWebViewDiagnosticState.Cancelled
+				receipt != null -> ReaderWebViewDiagnosticState.Completed
+				else -> ReaderWebViewDiagnosticState.Failed
+			},
+			if (commit.cancellationRequested) ReaderWebViewDiagnosticReason.Cancelled else reason,
+			commit.startedAtMillis
+		)
 		if (commit.cancellationRequested) {
 			val callbacks = commit.onDrained.toList()
 			commit.onDrained.clear()
@@ -489,9 +577,9 @@ internal class ReaderPassiveRasterWebViewHost(
 		}
 	}
 
-	private fun retireActiveCommit() {
+	private fun retireActiveCommit(reason: ReaderWebViewDiagnosticReason) {
 		val commit = activeCommit ?: return
-		finishCommit(commit, null)
+		finishCommit(commit, null, reason)
 	}
 
 	fun captureMetrics(): ReaderPassiveRasterWebViewCaptureMetrics =
@@ -554,7 +642,7 @@ internal class ReaderPassiveRasterWebViewHost(
 
 	override fun pause() {
 		if (destroyed) return
-		retireActiveCommit()
+		retireActiveCommit(ReaderWebViewDiagnosticReason.Paused)
 		callbackGeneration += 1L
 		runtimeReady = false
 		webView.onPause()
@@ -570,31 +658,60 @@ internal class ReaderPassiveRasterWebViewHost(
 
 	override fun destroy() {
 		if (destroyed) return
-		retireActiveCommit()
+		retireActiveCommit(ReaderWebViewDiagnosticReason.Destroyed)
 		destroyed = true
 		callbackGeneration += 1L
 		runtimeReady = false
-		container.removeView(webView)
-		webView.stopLoading()
-		webView.onPause()
-		webView.removeAllViews()
-		webView.destroy()
-		offscreenWindow.close()
+		diagnostic(ReaderWebViewDiagnosticPhase.Retirement, ReaderWebViewDiagnosticState.Retired,
+			ReaderWebViewDiagnosticReason.Destroyed)
+		val cleanupStartedAtMillis = SystemClock.elapsedRealtime()
+		diagnostic(ReaderWebViewDiagnosticPhase.Cleanup, ReaderWebViewDiagnosticState.Started,
+			startedAtMillis = cleanupStartedAtMillis)
+		try {
+			container.removeView(webView)
+			webView.stopLoading()
+			webView.onPause()
+			webView.removeAllViews()
+			webView.destroy()
+			offscreenWindow.close()
+		} catch (failure: Throwable) {
+			diagnostic(ReaderWebViewDiagnosticPhase.Cleanup, ReaderWebViewDiagnosticState.Failed,
+				ReaderWebViewDiagnosticReason.CleanupThrew, cleanupStartedAtMillis)
+			throw failure
+		}
+		diagnostic(ReaderWebViewDiagnosticPhase.Cleanup, ReaderWebViewDiagnosticState.Completed,
+			startedAtMillis = cleanupStartedAtMillis)
 	}
 
-	private fun retireAfterRendererLoss() {
+	private fun retireAfterRendererLoss(
+		reason: ReaderWebViewDiagnosticReason,
+		didCrash: Boolean? = null,
+		priorityAtExit: Int? = null
+	) {
 		if (destroyed) return
+		diagnostic(ReaderWebViewDiagnosticPhase.Retirement, ReaderWebViewDiagnosticState.Retired,
+			reason, didCrash = didCrash, priorityAtExit = priorityAtExit)
 		uncertainCommitRetirement.retireBeforeCompletion(
 			retireRuntime = {
 				destroyed = true
 				callbackGeneration += 1L
 				runtimeReady = false
-				runCatching { container.removeView(webView) }
-				runCatching { webView.destroy() }
-				runCatching { offscreenWindow.close() }
+				val cleanupStartedAtMillis = SystemClock.elapsedRealtime()
+				diagnostic(ReaderWebViewDiagnosticPhase.Cleanup, ReaderWebViewDiagnosticState.Started,
+					startedAtMillis = cleanupStartedAtMillis)
+				val removal = runCatching { container.removeView(webView) }
+				val destruction = runCatching { webView.destroy() }
+				val close = runCatching { offscreenWindow.close() }
+				if (removal.isFailure || destruction.isFailure || close.isFailure) {
+					diagnostic(ReaderWebViewDiagnosticPhase.Cleanup, ReaderWebViewDiagnosticState.Failed,
+						ReaderWebViewDiagnosticReason.CleanupThrew, cleanupStartedAtMillis)
+				} else {
+					diagnostic(ReaderWebViewDiagnosticPhase.Cleanup, ReaderWebViewDiagnosticState.Completed,
+						startedAtMillis = cleanupStartedAtMillis)
+				}
 			},
 			reportCompletion = {
-				retireActiveCommit()
+				retireActiveCommit(reason)
 				onRendererGone()
 			}
 		)
@@ -650,6 +767,8 @@ internal class ReaderPassiveRasterWebViewHost(
 			return
 		}
 		pixelCopyAttempts = pixelCopyAttempts.incrementPassiveRasterCounter()
+		diagnostic(ReaderWebViewDiagnosticPhase.PixelCopy, ReaderWebViewDiagnosticState.Started,
+			startedAtMillis = startedAtMillis)
 		try {
 			PixelCopy.request(
 				captureWindow,
@@ -658,6 +777,10 @@ internal class ReaderPassiveRasterWebViewHost(
 				{ result ->
 					recordCaptureLatency(startedAtMillis)
 					lastPixelCopyResult = result
+					diagnostic(ReaderWebViewDiagnosticPhase.PixelCopy,
+						if (result == PixelCopy.SUCCESS) ReaderWebViewDiagnosticState.Completed
+						else ReaderWebViewDiagnosticState.Failed,
+						ReaderWebViewDiagnosticReason.PixelCopyResult, startedAtMillis, code = result)
 					if (result == PixelCopy.SUCCESS) {
 						pixelCopySuccesses = pixelCopySuccesses.incrementPassiveRasterCounter()
 						if (callbackIsCurrent(generation)) {
@@ -681,6 +804,8 @@ internal class ReaderPassiveRasterWebViewHost(
 			recordCaptureLatency(startedAtMillis)
 			lastPixelCopyResult = null
 			pixelCopyFailures = pixelCopyFailures.incrementPassiveRasterCounter()
+			diagnostic(ReaderWebViewDiagnosticPhase.PixelCopy, ReaderWebViewDiagnosticState.Failed,
+				ReaderWebViewDiagnosticReason.PixelCopySubmissionThrew, startedAtMillis)
 			bitmap.recycle()
 			onCaptured(null)
 		}
@@ -697,6 +822,17 @@ internal class ReaderPassiveRasterWebViewHost(
 	) {
 		preconditionFailures = preconditionFailures.incrementPassiveRasterCounter()
 		lastPreconditionFailure = failure
+		val reason = when (failure) {
+			ReaderPassiveRasterWebViewPreconditionFailure.NotReady -> ReaderWebViewDiagnosticReason.NotReady
+			ReaderPassiveRasterWebViewPreconditionFailure.GeometryMismatch -> ReaderWebViewDiagnosticReason.GeometryMismatch
+			ReaderPassiveRasterWebViewPreconditionFailure.UnsupportedPlatform -> ReaderWebViewDiagnosticReason.UnsupportedPlatform
+			ReaderPassiveRasterWebViewPreconditionFailure.StaleVisualState -> ReaderWebViewDiagnosticReason.StaleVisualState
+			ReaderPassiveRasterWebViewPreconditionFailure.ViewSizeMismatch -> ReaderWebViewDiagnosticReason.ViewSizeMismatch
+			ReaderPassiveRasterWebViewPreconditionFailure.WindowBounds -> ReaderWebViewDiagnosticReason.WindowBounds
+			ReaderPassiveRasterWebViewPreconditionFailure.BitmapAllocation -> ReaderWebViewDiagnosticReason.BitmapAllocation
+		}
+		diagnostic(ReaderWebViewDiagnosticPhase.PixelCopy, ReaderWebViewDiagnosticState.Rejected,
+			reason, SystemClock.elapsedRealtime())
 	}
 
 	private fun callbackIsCurrent(generation: Long): Boolean =
