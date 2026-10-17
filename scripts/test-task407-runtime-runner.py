@@ -601,6 +601,19 @@ class PipelineTests(unittest.TestCase):
             self.assertLessEqual(options['max_bytes'], 4 * 1024 * 1024)
         self.assertNotIn('private', json.dumps(result))
 
+    def test_run_session_uses_exact_no_delay_adb_launch_profile(self):
+        device = HostDevice()
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        launches = [(argv, options) for argv, options in device.calls
+                    if argv[0] == 'fixture-emulator.exe']
+        self.assertEqual((launches, result.get('launch_transport_profile')), ([
+            (('fixture-emulator.exe', '-avd', 'NavicReaderLab', '-port', '5554',
+              '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader'),
+             {'timeout': device.caps.session_budget, 'max_bytes': 4 * 1024 * 1024,
+              'tree_owned': True})
+        ], 'NO_DELAY_ADB_ARGV_V1'))
+
     def test_ui_not_ready_aborts_without_install_or_tests_and_still_stops(self):
         device = HostDevice(boot=b'0\n')
         self.addCleanup(device.cleanup)
@@ -704,7 +717,16 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn('passed_test_count', result)
 
     def test_r117_pending_boot_property_reaches_exact_ready_with_finite_backoff(self):
-        device = HostDevice(boot_replies=[b'\n', b'0\r\n', b'1\n'])
+        def pending(reply):
+            def assert_pre_one_boundary(device):
+                self.assertIsNone(device.install)
+                self.assertFalse(device.instrument_seen)
+                self.assertFalse(device.guardian._observer.armed)
+                self.assertIsNone(device.guardian._boot_completed_at)
+                return reply
+            return assert_pre_one_boundary
+
+        device = HostDevice(boot_replies=[pending(b'\n'), pending(b'0\r\n'), b'1\n'])
         device.caps = dataclasses.replace(device.caps, preparation=1)
         self.addCleanup(device.cleanup)
         result = self.execute(device)

@@ -458,6 +458,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     failed_wait_host_sampled = False
     result = {'kind': 'original-three-supervised-runtime-not-pair-or-performance-acceptance',
               'parent_status': 'IN_PROGRESS', 'watchdog_id': watchdog_id,
+              'launch_transport_profile': 'NO_DELAY_ADB_ARGV_V1',
               'automatic_emulator_teardown_verified': False,
               'all_three_original_runtime_cases_passed': False,
               'runtime_result_analysis_performed': False,
@@ -620,8 +621,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         launch_started = time.monotonic()
         guardian_deadline = launch_started + session_budget
         owned = s.Command.spawn([record['emulator'], '-avd', AVD, '-port', '5554',
-                                 '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader',
-                                 '-delay-adb'], timeout=session_budget,
+                                 '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader'], timeout=session_budget,
                                 max_bytes=4 * 1024 * 1024, tree_owned=True)
         result['owned_launch_diagnostics'] = _empty_owned_launch_diagnostic('STOPPER_NOT_REACHED')
         original = owned.process
