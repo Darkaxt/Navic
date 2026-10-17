@@ -2327,6 +2327,110 @@ class FailedWaitHostDiagnosticTests(unittest.TestCase):
         self.assertNotIn('R136_PRIVATE_CANARY', json.dumps(result))
 
 
+    def test_r138_topology_profile_defaults_not_sampled_outside_existing_failed_wait(self):
+        for readiness in ({}, {'WAIT_FOR_DEVICE': (1, b'', b'')},
+                          {'WAIT_FOR_DEVICE': RuntimeError('R138_PRIVATE_CANARY')},
+                          {'OWNED_AVD_IDENTITY': 'pending'}, {'SYS_BOOT_COMPLETED': 'pending'}):
+            device = HostDevice(synthetic_owned=True, guardian_gate=threading.Event(), readiness=readiness)
+            self.addCleanup(device.cleanup)
+            with mock.patch.object(device.real.Command, 'snapshot_owned_engine_window_topology',
+                                   create=True, side_effect=AssertionError('R138_UNEXPECTED_SAMPLE')) as sample:
+                result = self.execute(device)
+            self.assertEqual(result.get('owned_engine_window_topology_profile'),
+                             'OWNED_ENGINE_WINDOW_TOPOLOGY_V1', 'R138_PROFILE_MISSING')
+            self.assertEqual(result.get('owned_engine_window_topology'), 'NOT_SAMPLED')
+            sample.assert_not_called()
+            self.assertEqual(result['owned_job_engine_path_observation'], 'NOT_SAMPLED')
+        device = AccountingDevice(unsettled_prefix=True)
+        result = device.execute()
+        self.assertEqual(result.get('owned_engine_window_topology'), 'NOT_SAMPLED')
+
+    def test_r138_failed_wait_samples_once_before_cancel_with_exact_path_and_no_readiness_shortcut(self):
+        device, child = self.device(live=False, clean=False)
+        record = host_record()
+        record['emulator'] = r'D:\r138-host\fixture-emulator.exe'
+        original_spawn = device.module.Command.spawn
+        def spawn(argv, **kwargs):
+            if argv[0] == record['emulator']:
+                argv = ['fixture-emulator.exe', *argv[1:]]
+            return original_spawn(argv, **kwargs)
+        device.module.Command.spawn = staticmethod(spawn)
+        calls = []
+        def observe(path):
+            self.assertFalse(child.cancelled)
+            self.assertFalse(child._discarded)
+            self.assertFalse(device.launch.cancelled)
+            calls.append(path)
+            return 'MODAL_COMPATIBLE_TOPOLOGY'
+        def before(host, argv):
+            if argv[3:] == ['wait-for-device']:
+                host.launch.snapshot_owned_engine_window_topology = observe
+                host.launch.snapshot_expected_image = lambda path: 'PATH_MATCH_OBSERVED'
+        device.before_reply = before
+        result = self.execute(device, record)
+        self.assertEqual(result.get('owned_engine_window_topology_profile'), 'OWNED_ENGINE_WINDOW_TOPOLOGY_V1')
+        self.assertEqual(result.get('owned_engine_window_topology'), 'MODAL_COMPATIBLE_TOPOLOGY',
+                         'R138_FAILED_WAIT_SAMPLE_MISSING')
+        self.assertEqual(calls, [r'D:\r138-host\qemu\windows-x86_64\qemu-system-x86_64.exe'])
+        self.assertEqual(result['owned_job_engine_path_observation_profile'], 'OWNED_JOB_ENGINE_PATH_V1')
+        self.assertEqual(result['owned_job_engine_path_observation'], 'PATH_MATCH_OBSERVED')
+        self.assertEqual(result['fixed_preflight_failure_reason'], 'PREFLIGHT_COMMAND_INCOMPLETE')
+        self.assertEqual(result['fixed_readiness_step'], 'WAIT_FOR_DEVICE')
+        self.assertIsNone(result['boot_handoff_observation'])
+        PipelineTests.assert_no_reader_work(self, device, result)
+        self.assertTrue(child.cancelled)
+        self.assertTrue(child._discarded)
+        self.assertTrue(device.launch.done.is_set())
+        frozen = result['owned_engine_window_topology']
+        self.assertTrue(device.guardian._owned.stop_tree(device.caps.stop))
+        self.assertEqual(result['owned_engine_window_topology'], frozen)
+        self.assertEqual(len(calls), 1)
+
+    def test_r138_topology_enum_whitelist_rejects_untrusted_values_without_raw_exports(self):
+        outcomes = ('MODAL_COMPATIBLE_TOPOLOGY', 'VISIBLE_OWNED_WINDOW_NO_MODAL_TOPOLOGY',
+                    'ONLY_HIDDEN_OWNED_WINDOWS',
+                    'NO_OWNED_TOP_LEVEL_WINDOW_IN_COMPLETE_DESKTOP_SCAN', 'UNAVAILABLE')
+        for value in outcomes + ('NOT_SAMPLED', 'R138_PRIVATE_CANARY hwnd=987654', None, [], {}):
+            device, child = self.device(live=False)
+            def before(host, argv):
+                if argv[3:] == ['wait-for-device']:
+                    host.launch.snapshot_owned_engine_window_topology = lambda path: value
+            device.before_reply = before
+            result = self.execute(device)
+            expected = value if type(value) is str and value in outcomes else 'UNAVAILABLE'
+            self.assertEqual(result.get('owned_engine_window_topology'), expected,
+                             'R138_ENUM_PROJECTION_MISSING')
+            self.assertNotIn('R138_PRIVATE_CANARY', json.dumps(result))
+            self.assertNotIn('987654', json.dumps(result))
+            self.assertTrue(child.cancelled)
+            self.assertFalse(result['runtime_result_analysis_performed'])
+
+    def test_r138_topology_exception_never_masks_primary_path_diagnostic_or_original_cleanup(self):
+        for error in (RuntimeError('R138_PRIVATE_CANARY'), KeyboardInterrupt(), SystemExit()):
+            device, child = self.device(live=False, clean=False)
+            calls = []
+            def observe(path):
+                calls.append(path)
+                raise error
+            def before(host, argv):
+                if argv[3:] == ['wait-for-device']:
+                    host.launch.snapshot_owned_engine_window_topology = observe
+                    host.launch.snapshot_expected_image = lambda path: 'NO_PATH_MATCH_IN_COMPLETE_LIST'
+            device.before_reply = before
+            result = self.execute(device)
+            self.assertEqual(result.get('owned_engine_window_topology'), 'UNAVAILABLE',
+                             'R138_EXCEPTION_PROJECTION_MISSING')
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(result['owned_job_engine_path_observation'], 'NO_PATH_MATCH_IN_COMPLETE_LIST')
+            self.assertEqual(result['fixed_preflight_failure_reason'], 'PREFLIGHT_COMMAND_INCOMPLETE')
+            self.assertTrue(child.cancelled)
+            self.assertTrue(child._discarded)
+            self.assertTrue(device.launch.done.is_set())
+            self.assertFalse(result['automatic_emulator_teardown_verified'])
+            self.assertFalse(result['runtime_result_analysis_performed'])
+            self.assertNotIn('R138_PRIVATE_CANARY', json.dumps(result))
+
+
 class ProvenanceTests(unittest.TestCase):
     def api(self, name):
         value = getattr(runner, name, None)

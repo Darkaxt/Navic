@@ -252,6 +252,13 @@ class Observer:
         self.failed()
 
 
+_OWNED_ENGINE_WINDOW_TOPOLOGIES = (
+    'MODAL_COMPATIBLE_TOPOLOGY', 'VISIBLE_OWNED_WINDOW_NO_MODAL_TOPOLOGY',
+    'ONLY_HIDDEN_OWNED_WINDOWS',
+    'NO_OWNED_TOP_LEVEL_WINDOW_IN_COMPLETE_DESKTOP_SCAN',
+)
+
+
 class _WindowsJob:
     """Private per-command job; no image-name or PID-based termination."""
     def __init__(self, process):
@@ -303,6 +310,8 @@ class _WindowsJob:
         kernel.QueryInformationJobObject.restype = wintypes.BOOL
         kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
         kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
         kernel.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE,
                                           ctypes.POINTER(wintypes.BOOL)]
         kernel.IsProcessInJob.restype = wintypes.BOOL
@@ -367,6 +376,50 @@ class _WindowsJob:
         finally:
             self._lock.release()
 
+    def _member_pids_locked(self):
+        """One fixed native list, with complete counts and valid unique DWORD PIDs."""
+        ctypes = self._ctypes
+        from ctypes import wintypes
+
+        class BasicProcessIdList(ctypes.Structure):
+            # ULONG_PTR alignment follows the two DWORD counts; never resize/retry.
+            _fields_ = [('NumberOfAssignedProcesses', wintypes.DWORD),
+                        ('NumberOfProcessIdsInList', wintypes.DWORD),
+                        ('ProcessIdList', ctypes.c_size_t * 16)]
+
+        members = BasicProcessIdList()
+        if not self._handle or not self._kernel.QueryInformationJobObject(
+                self._handle, 3, ctypes.byref(members), ctypes.sizeof(members), None):
+            raise Blocked()
+        assigned, listed = int(members.NumberOfAssignedProcesses), int(members.NumberOfProcessIdsInList)
+        if not (0 <= assigned <= 16 and 0 <= listed <= 16 and assigned == listed):
+            raise Blocked()
+        pids = tuple(int(members.ProcessIdList[index]) for index in range(listed))
+        if any(pid <= 0 or pid > 0xffffffff for pid in pids) or len(set(pids)) != len(pids):
+            raise Blocked()
+        return pids
+
+    def _member_image_locked(self, query_handle):
+        """Inspect this query handle only; membership brackets lexical image read."""
+        ctypes = self._ctypes
+        from ctypes import wintypes
+        before = wintypes.BOOL()
+        if not self._handle or not (self._kernel.IsProcessInJob(
+                query_handle, self._handle, ctypes.byref(before)) and before.value):
+            raise Blocked()
+        image = ctypes.create_unicode_buffer(32768)
+        length = wintypes.DWORD(32768)
+        if not self._kernel.QueryFullProcessImageNameW(query_handle, 0, image, ctypes.byref(length)):
+            raise Blocked()
+        if not 0 < int(length.value) < 32768:
+            raise Blocked()
+        actual = self._normalize_absolute_path(image.value)
+        after = wintypes.BOOL()
+        if actual is None or not (self._kernel.IsProcessInJob(
+                query_handle, self._handle, ctypes.byref(after)) and after.value):
+            raise Blocked()
+        return actual
+
     def snapshot_expected_image(self, expected_path):
         """One nonblocking, job-scoped image sample, not readiness or history proof.
 
@@ -378,29 +431,7 @@ class _WindowsJob:
         if expected is None or not self._lock.acquire(blocking=False):
             return 'UNAVAILABLE'
         try:
-            if not self._handle:
-                return 'UNAVAILABLE'
-            ctypes = self._ctypes
-            from ctypes import wintypes
-
-            class BasicProcessIdList(ctypes.Structure):
-                # Native ULONG_PTR alignment is supplied by c_size_t: after the
-                # two DWORD counts, ProcessIdList begins at its pointer boundary.
-                _fields_ = [('NumberOfAssignedProcesses', wintypes.DWORD),
-                            ('NumberOfProcessIdsInList', wintypes.DWORD),
-                            ('ProcessIdList', ctypes.c_size_t * 16)]
-
-            members = BasicProcessIdList()
-            if not self._kernel.QueryInformationJobObject(
-                    self._handle, 3, ctypes.byref(members), ctypes.sizeof(members), None):
-                return 'UNAVAILABLE'
-            assigned, listed = int(members.NumberOfAssignedProcesses), int(members.NumberOfProcessIdsInList)
-            if not (0 <= assigned <= 16 and 0 <= listed <= 16 and assigned == listed):
-                return 'UNAVAILABLE'
-            pids = tuple(int(members.ProcessIdList[index]) for index in range(listed))
-            if (any(pid <= 0 or pid > 0xffffffff for pid in pids)
-                    or len(set(pids)) != len(pids)):
-                return 'UNAVAILABLE'
+            pids = self._member_pids_locked()
             matched = False
             for pid in pids:
                 query_handle = self._kernel.OpenProcess(0x1000, False, pid)
@@ -408,22 +439,9 @@ class _WindowsJob:
                     return 'UNAVAILABLE'
                 inspected = False
                 try:
-                    before = wintypes.BOOL()
-                    member_before = bool(self._kernel.IsProcessInJob(
-                        query_handle, self._handle, ctypes.byref(before)) and before.value)
-                    if member_before:
-                        image = ctypes.create_unicode_buffer(32768)
-                        length = wintypes.DWORD(32768)
-                        image_read = bool(self._kernel.QueryFullProcessImageNameW(
-                            query_handle, 0, image, ctypes.byref(length)))
-                        if image_read and 0 < int(length.value) < 32768:
-                            actual = self._normalize_absolute_path(image.value)
-                            after = wintypes.BOOL()
-                            member_after = bool(self._kernel.IsProcessInJob(
-                                query_handle, self._handle, ctypes.byref(after)) and after.value)
-                            if actual is not None and member_after:
-                                matched = matched or actual == expected
-                                inspected = True
+                    actual = self._member_image_locked(query_handle)
+                    matched = matched or actual == expected
+                    inspected = True
                 except BaseException:
                     pass
                 finally:
@@ -438,6 +456,176 @@ class _WindowsJob:
             return 'UNAVAILABLE'
         finally:
             self._lock.release()
+
+    def _live_member_image_locked(self, query_handle):
+        # Only a zero-time query on a query-limited/synchronize handle. No wait,
+        # reap, termination/suspend right, PID authority, or filesystem lookup.
+        if self._kernel.WaitForSingleObject(query_handle, 0) != 258:
+            raise Blocked()
+        image = self._member_image_locked(query_handle)
+        if self._kernel.WaitForSingleObject(query_handle, 0) != 258:
+            raise Blocked()
+        return image
+
+    def snapshot_owned_engine_window_topology(self, expected_path):
+        """One passive calling-desktop scan, not consent/cause/readiness proof.
+
+        The local 50ms continuation bound never renews a guardian budget. Native
+        API scheduling is not hard-preemptible; no worker, retry or blocking wait
+        is added. Busy/partial/terminal/racy samples have no inference.
+        """
+        expected = self._normalize_absolute_path(expected_path)
+        if expected is None or not self._lock.acquire(blocking=False):
+            return 'UNAVAILABLE'
+        retained = None
+        outcome = 'UNAVAILABLE'
+        try:
+            deadline = time.monotonic() + .050
+            original_job = self._handle
+            pids = self._member_pids_locked()
+            engine_pid = None
+            for pid in pids:
+                if time.monotonic() >= deadline:
+                    raise Blocked()
+                query_handle = self._kernel.OpenProcess(0x101000, False, pid)
+                if not query_handle:
+                    raise Blocked()
+                keep = False
+                try:
+                    actual = self._live_member_image_locked(query_handle)
+                    if time.monotonic() >= deadline:
+                        raise Blocked()
+                    if actual == expected:
+                        if retained is not None:
+                            raise Blocked()
+                        retained, engine_pid, keep = query_handle, pid, True
+                finally:
+                    if not keep and not self._kernel.CloseHandle(query_handle):
+                        raise Blocked()
+            if retained is None or self._live_member_image_locked(retained) != expected:
+                raise Blocked()
+            if time.monotonic() >= deadline or self._handle != original_job:
+                raise Blocked()
+            sampled = self._engine_window_topology_locked(engine_pid, deadline)
+            if (self._handle != original_job or self._live_member_image_locked(retained) != expected
+                    or set(self._member_pids_locked()) != set(pids)
+                    or time.monotonic() >= deadline):
+                raise Blocked()
+            outcome = sampled
+        except BaseException:
+            pass
+        finally:
+            if retained is not None:
+                try:
+                    closed = bool(self._kernel.CloseHandle(retained))
+                    if time.monotonic() >= deadline:
+                        closed = False
+                except BaseException:
+                    closed = False
+                if not closed:
+                    outcome = 'UNAVAILABLE'
+            self._lock.release()
+        return outcome
+
+    def _engine_window_topology_locked(self, engine_pid, deadline):
+        """Bounded private HWND metadata; only the closed topology enum escapes."""
+        ctypes = self._ctypes
+        from ctypes import wintypes
+        user = ctypes.WinDLL('user32', use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        user.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+        user.EnumWindows.restype = wintypes.BOOL
+        user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        user.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user.IsWindowVisible.argtypes = [wintypes.HWND]
+        user.IsWindowVisible.restype = wintypes.BOOL
+        user.IsWindowEnabled.argtypes = [wintypes.HWND]
+        user.IsWindowEnabled.restype = wintypes.BOOL
+        user.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+        user.GetWindow.restype = wintypes.HWND
+
+        def check_deadline():
+            if time.monotonic() >= deadline:
+                raise Blocked()
+
+        def window_pid(hwnd):
+            check_deadline()
+            pid = wintypes.DWORD()
+            ctypes.set_last_error(0)
+            thread = user.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if not thread or not pid.value or ctypes.get_last_error():
+                raise Blocked()
+            check_deadline()
+            return int(pid.value)
+
+        def window_state_call(function, *args):
+            check_deadline()
+            ctypes.set_last_error(0)
+            value = function(*args)
+            if ctypes.get_last_error():
+                raise Blocked()
+            check_deadline()
+            return value
+
+        def read_owned_window(hwnd):
+            if window_pid(hwnd) != engine_pid:
+                raise Blocked()
+            visible = bool(window_state_call(user.IsWindowVisible, hwnd))
+            enabled = bool(window_state_call(user.IsWindowEnabled, hwnd))
+            owner = window_state_call(user.GetWindow, hwnd, 4)  # GW_OWNER, not a class/title query.
+            owner_pid = owner_enabled = None
+            if owner:
+                if owner == hwnd:
+                    raise Blocked()
+                owner_pid = window_pid(owner)
+                if owner_pid == engine_pid:
+                    owner_enabled = bool(window_state_call(user.IsWindowEnabled, owner))
+                # A foreign owner gets ONLY the PID filter, never a state query.
+                if window_pid(owner) != owner_pid:
+                    raise Blocked()
+            if window_pid(hwnd) != engine_pid:
+                raise Blocked()
+            return visible, enabled, owner, owner_pid, owner_enabled
+
+        windows = []  # At most 16 private records, discarded on return; never exported.
+        callbacks, failed = 0, False
+
+        @callback_type
+        def visit(hwnd, unused):
+            nonlocal callbacks, failed
+            try:
+                callbacks += 1
+                check_deadline()
+                # Stop ON the cap, not on a 4097th callback. Reaching it is an
+                # incomplete scan even if this happened to be the last HWND.
+                if callbacks >= 4096:
+                    raise Blocked()
+                if window_pid(hwnd) == engine_pid:
+                    if len(windows) >= 16 or any(previous == hwnd for previous, _ in windows):
+                        raise Blocked()
+                    windows.append((hwnd, read_owned_window(hwnd)))
+                return True
+            except BaseException:
+                failed = True
+                return False
+
+        check_deadline()
+        ctypes.set_last_error(0)
+        enumerated = user.EnumWindows(visit, 0)
+        if not enumerated or failed or ctypes.get_last_error():
+            raise Blocked()
+        check_deadline()
+        for hwnd, state in windows:
+            if read_owned_window(hwnd) != state:
+                raise Blocked()
+        check_deadline()
+        if any(visible and enabled and owner_pid == engine_pid and owner_enabled is False
+               for _, (visible, enabled, owner, owner_pid, owner_enabled) in windows):
+            return 'MODAL_COMPATIBLE_TOPOLOGY'
+        if any(state[0] for _, state in windows):
+            return 'VISIBLE_OWNED_WINDOW_NO_MODAL_TOPOLOGY'
+        return ('ONLY_HIDDEN_OWNED_WINDOWS' if windows else
+                'NO_OWNED_TOP_LEVEL_WINDOW_IN_COMPLETE_DESKTOP_SCAN')
 
     @staticmethod
     def _normalize_absolute_path(value):
@@ -788,6 +976,16 @@ class Command:
         except BaseException:
             return 'UNAVAILABLE'
         return result if result in ('PATH_MATCH_OBSERVED', 'NO_PATH_MATCH_IN_COMPLETE_LIST') else 'UNAVAILABLE'
+
+    def snapshot_owned_engine_window_topology(self, expected_path):
+        """Observation only, delegated to the retained original private job."""
+        if not self._tree_owned or not isinstance(self._job, _WindowsJob):
+            return 'UNAVAILABLE'
+        try:
+            value = self._job.snapshot_owned_engine_window_topology(expected_path)
+        except BaseException:
+            return 'UNAVAILABLE'
+        return value if type(value) is str and value in _OWNED_ENGINE_WINDOW_TOPOLOGIES else 'UNAVAILABLE'
 
     def snapshot_output(self):
         """Non-draining immutable copies plus explicit discard state, under one lock.

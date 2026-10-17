@@ -490,6 +490,8 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
               'failed_wait_host_diagnostics': _empty_failed_wait_host_diagnostic('NOT_REACHED'),
               'owned_job_engine_path_observation_profile': 'OWNED_JOB_ENGINE_PATH_V1',
               'owned_job_engine_path_observation': 'NOT_SAMPLED',
+              'owned_engine_window_topology_profile': 'OWNED_ENGINE_WINDOW_TOPOLOGY_V1',
+              'owned_engine_window_topology': 'NOT_SAMPLED',
               'owned_launch_diagnostics_profile': 'OWNED_LAUNCH_DIAGNOSTICS_V4',
               'owned_launch_diagnostics': _empty_owned_launch_diagnostic('OWNED_LAUNCH_ABSENT')}
 
@@ -615,6 +617,19 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
                                                 'NO_PATH_MATCH_IN_COMPLETE_LIST') else 'UNAVAILABLE')
                 except BaseException:
                     result['owned_job_engine_path_observation'] = 'UNAVAILABLE'
+                # Payload-free calling-desktop topology only; no consent identity,
+                # root cause, responsiveness, engine progress or readiness follows.
+                try:
+                    topology = owned.snapshot_owned_engine_window_topology(str(
+                        Path(record['emulator']).parent / 'qemu' / 'windows-x86_64' /
+                        'qemu-system-x86_64.exe'))
+                    result['owned_engine_window_topology'] = (
+                        topology if type(topology) is str and topology in (
+                            'MODAL_COMPATIBLE_TOPOLOGY', 'VISIBLE_OWNED_WINDOW_NO_MODAL_TOPOLOGY',
+                            'ONLY_HIDDEN_OWNED_WINDOWS',
+                            'NO_OWNED_TOP_LEVEL_WINDOW_IN_COMPLETE_DESKTOP_SCAN') else 'UNAVAILABLE')
+                except BaseException:
+                    result['owned_engine_window_topology'] = 'UNAVAILABLE'
                 result['failed_wait_host_diagnostics'] = _empty_failed_wait_host_diagnostic('SNAPSHOT_GAP')
                 try:
                     result['failed_wait_host_diagnostics'] = project_failed_wait_host(owned, child)
