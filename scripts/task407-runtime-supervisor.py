@@ -638,6 +638,15 @@ class Command:
                 and self._tree_settled
                 and self.failure not in ('CHILD_UNCONFIRMED', 'TREE_UNCONFIRMED'))
 
+    def snapshot_output(self):
+        """Non-draining immutable copies plus explicit discard state, under one lock.
+
+        This observes only the currently retained bounded buffers. It neither
+        resets their shared output cap nor proves stream completeness/chronology.
+        """
+        with self._lock:
+            return bytes(self._buffers[0]), bytes(self._buffers[1]), self._discarded
+
     def take_output(self):
         with self._lock:
             result = tuple(bytes(v) for v in self._buffers)

@@ -1545,6 +1545,216 @@ class AccountingClockTests(unittest.TestCase):
         self.assertEqual(result['failed_preflight_command']['cleanup_cancel_settlement'], 'FAILED')
 
 
+class OwnedLaunchDiagnosticTests(unittest.TestCase):
+    """Prospective stop-entry diagnostics, not emulator or reader evidence."""
+    api = PipelineTests.api
+    execute = PipelineTests.execute
+    HITS = (
+        (b'PANIC:', 'PANIC_COLON_TEXT_HIT'),
+        (b'ERROR', 'ERROR_TEXT_HIT'),
+        (b'FATAL', 'FATAL_TEXT_HIT'),
+        (b'Not enough disk space', 'NOT_ENOUGH_DISK_SPACE_TEXT_HIT'),
+        (b'Not enough memory', 'NOT_ENOUGH_MEMORY_TEXT_HIT'),
+        (b'Running multiple emulators with the same AVD',
+         'RUNNING_MULTIPLE_EMULATORS_WITH_THE_SAME_AVD_TEXT_HIT'),
+        (b'WHPX', 'WHPX_TEXT_HIT'),
+        (b'Failed to initialize', 'FAILED_TO_INITIALIZE_TEXT_HIT'),
+    )
+    KEYS = {'sample_state', 'command_done', 'command_failure', 'command_cancelled',
+            'returncode_class', 'stdout_bytes', 'stderr_bytes', 'buffer_discarded',
+            'diagnostic_gap', 'text_hits', 'text_hit_class'}
+
+    def sample(self, result):
+        self.assertEqual(result.get('owned_launch_diagnostics_profile'),
+                         'OWNED_LAUNCH_DIAGNOSTICS_V1', 'R124_LAUNCH_DIAGNOSTICS_MISSING')
+        row = result.get('owned_launch_diagnostics')
+        self.assertIsInstance(row, dict)
+        self.assertEqual(set(row), self.KEYS)
+        self.assertNotIn('R124_PRIVATE_CANARY', json.dumps(result))
+        return row
+
+    def test_r124_projection_has_only_exact_case_sensitive_substring_hit_enums(self):
+        project = self.api('project_owned_launch')
+        real = load_supervisor()
+        for literal, label in self.HITS:
+            with self.subTest(hit=label):
+                child = real.Command.completed(912345,
+                    b'R124_PRIVATE_CANARY C:/private/path pid=987654 ' + literal + literal,
+                    b'R124_PRIVATE_CANARY https://private.invalid ' + literal)
+                row = project(child)
+                self.assertEqual(set(row), self.KEYS)
+                self.assertEqual(row['sample_state'], 'SAMPLED')
+                self.assertEqual(row['text_hits'], [label])
+                self.assertEqual(row['text_hit_class'], 'TEXT_HITS')
+                self.assertEqual(row['returncode_class'], 'NONZERO')
+                self.assertEqual(row['stdout_bytes'] + row['stderr_bytes'], child.buffered_bytes)
+                safe = json.dumps(row)
+                for private in ('R124_PRIVATE_CANARY', 'private.invalid', 'C:/private', '987654', '912345'):
+                    self.assertNotIn(private, safe)
+                child._buffers = [bytearray(literal.lower()), bytearray()]
+                self.assertEqual(project(child)['text_hits'], [])
+        child = real.Command.completed(0, b'PAN', b'IC:')
+        self.assertEqual(project(child)['text_hits'], [], 'Streams must not be concatenated into artificial hits')
+
+    def test_r124_projection_unknown_empty_and_full_bounded_buffers_never_mean_ready(self):
+        project = self.api('project_owned_launch')
+        child = load_supervisor().Command.pending()
+        child._buffers = [bytearray(b'R124_PRIVATE_CANARY' + b'x' *
+            (4 * 1024 * 1024 - len(b'R124_PRIVATE_CANARY') - len(b'ERROR')) + b'ERROR'), bytearray()]
+        row = project(child)
+        self.assertEqual(row['text_hits'], ['ERROR_TEXT_HIT'])
+        self.assertEqual(row['stdout_bytes'], 4 * 1024 * 1024)
+        self.assertFalse(row['command_done'])
+        self.assertEqual(row['returncode_class'], 'UNSET')
+        self.assertEqual(child.buffered_bytes, 4 * 1024 * 1024)
+        self.assertNotIn('R124_PRIVATE_CANARY', json.dumps(row))
+        child._buffers = [bytearray(b'R124_PRIVATE_CANARY ready success'), bytearray()]
+        row = project(child)
+        self.assertEqual(row['text_hits'], [])
+        self.assertEqual(row['text_hit_class'], 'UNKNOWN')
+        child.discard()
+        row = project(child)
+        self.assertEqual(row['text_hits'], [])
+        self.assertTrue(row['buffer_discarded'])
+        self.assertTrue(row['diagnostic_gap'])
+        self.assertEqual(row['text_hit_class'], 'UNKNOWN')
+
+    def test_r124_projection_rejects_unbounded_or_invalid_snapshots(self):
+        project = self.api('project_owned_launch')
+        child = load_supervisor().Command.pending()
+        for snapshot in ((b'x' * (4 * 1024 * 1024 + 1), b'', False),
+                         (b'', bytearray(), False), (b'', b'', 'R124_PRIVATE_CANARY'),
+                         (b'', b'')):
+            with self.subTest(shape=len(snapshot)):
+                child.snapshot_output = lambda: snapshot
+                with self.assertRaises(ValueError):
+                    project(child)
+
+    def test_r124_projection_closes_failure_and_returncode_classes_without_payloads(self):
+        project = self.api('project_owned_launch')
+        child = load_supervisor().Command.pending()
+        for failure, code, expected_failure, expected_code in (
+                (None, None, 'NONE', 'UNSET'), ('OUTPUT_CAP', 0, 'OUTPUT_CAP', 'ZERO'),
+                ('STREAM_FAILED', 1, 'STREAM_FAILED', 'NONZERO'),
+                (['R124_PRIVATE_CANARY'], ['R124_PRIVATE_CANARY'], 'OTHER', 'INVALID')):
+            child.failure, child.returncode = failure, code
+            row = project(child)
+            self.assertEqual(row['command_failure'], expected_failure)
+            self.assertEqual(row['returncode_class'], expected_code)
+            self.assertEqual(row['diagnostic_gap'], failure is not None)
+            self.assertNotIn('R124_PRIVATE_CANARY', json.dumps(row))
+        child.cancelled = True
+        self.assertTrue(project(child)['command_cancelled'])
+        self.assertTrue(project(child)['diagnostic_gap'])
+
+    def device(self, *, clean=True, snapshot_failure=False):
+        retained, observations = [], []
+        def before(device, argv):
+            if argv[3:] != ['wait-for-device']:
+                return
+            child = device.launch
+            child._buffers = [bytearray(b'R124_PRIVATE_CANARY ERROR'), bytearray(b'WHPX')]
+            fixture_stop = child.stop_tree
+            child._stop = lambda: fixture_stop(device.caps.stop)
+            def stop(timeout):
+                observations.append((child.cancelled, child._discarded, child.buffered_bytes, timeout))
+                return child.cancel(timeout)
+            child.stop_tree = stop
+            def snapshot():
+                observations.append('SNAPSHOT')
+                if snapshot_failure:
+                    raise RuntimeError('R124_PRIVATE_CANARY')
+                return device.real.Command.snapshot_output(child)
+            child.snapshot_output = snapshot
+        device = HostDevice(synthetic_owned=True, guardian_gate=threading.Event(),
+                            before_reply=before, clean_absence=clean,
+                            readiness={'WAIT_FOR_DEVICE': (1, b'', b'')})
+        def adapter(original, callback):
+            value = device.real.OwnedProcess(original, callback)
+            retained.append(value)
+            return value
+        device.module.OwnedProcess = adapter
+        self.addCleanup(device.cleanup)
+        return device, retained, observations
+
+    def test_r124_real_stopper_samples_before_same_original_cancel_and_retains_first(self):
+        device, retained, observations = self.device(clean=False)
+        result = self.execute(device)
+        row = self.sample(result)
+        self.assertEqual(row['sample_state'], 'SAMPLED')
+        self.assertEqual(row['command_failure'], 'NONE')
+        self.assertFalse(row['command_done'])
+        self.assertFalse(row['command_cancelled'])
+        self.assertFalse(row['buffer_discarded'])
+        self.assertEqual(row['text_hits'], ['ERROR_TEXT_HIT', 'WHPX_TEXT_HIT'])
+        self.assertEqual(observations[0], 'SNAPSHOT')
+        self.assertEqual(observations[1], (False, False, 29, device.caps.stop))
+        self.assertEqual(observations.count('SNAPSHOT'), 1)
+        self.assertGreaterEqual(len(observations), 3, 'Original unclean fallback must still call stop')
+        self.assertTrue(device.launch.cancelled)
+        self.assertEqual(device.launch.buffered_bytes, 0)
+        frozen = json.dumps(row, sort_keys=True)
+        self.assertFalse(retained[0]._stop_original_tree(object(), device.caps.stop))
+        self.assertTrue(retained[0].stop_tree(device.caps.stop))
+        self.assertEqual(observations.count('SNAPSHOT'), 1)
+        self.assertEqual(json.dumps(self.sample(result), sort_keys=True), frozen)
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertFalse(result['all_three_original_runtime_cases_passed'])
+        self.assertNotIn('passed_test_count', result)
+
+    def test_r124_snapshot_or_projection_failure_cannot_skip_stop_or_retry_sample(self):
+        for kind in ('snapshot', 'projection'):
+            with self.subTest(kind=kind):
+                device, retained, observations = self.device(snapshot_failure=kind == 'snapshot')
+                patch = (mock.patch.object(runner, 'project_owned_launch', create=True,
+                         side_effect=RuntimeError('R124_PRIVATE_CANARY')) if kind == 'projection'
+                         else mock.patch.object(runner, 'PACKAGE', runner.PACKAGE))
+                with patch:
+                    result = self.execute(device)
+                    row = self.sample(result)
+                    self.assertEqual(row['sample_state'], 'SNAPSHOT_GAP')
+                    self.assertTrue(row['diagnostic_gap'])
+                    self.assertEqual(row['text_hits'], [])
+                    self.assertTrue(device.launch.cancelled)
+                    self.assertTrue(result['automatic_emulator_teardown_verified'])
+                    first_count = len(observations)
+                    self.assertTrue(retained[0].stop_tree(device.caps.stop))
+                    self.assertEqual(len(observations), first_count + 1)
+                self.assertFalse(result['runtime_result_analysis_performed'])
+
+    def test_r124_absent_launch_and_unreached_stopper_are_not_snapshot_failures(self):
+        device = AccountingDevice(unsettled_prefix=True)
+        row = self.sample(device.execute())
+        self.assertEqual(row['sample_state'], 'OWNED_LAUNCH_ABSENT')
+        self.assertIsNone(row['stdout_bytes'])
+        device = HostDevice(synthetic_owned=True)
+        self.addCleanup(device.cleanup)
+        def no_guardian(**kwargs):
+            raise RuntimeError('R124_PRIVATE_CANARY')
+        device.module.Supervisor = no_guardian
+        result = self.execute(device)
+        row = self.sample(result)
+        self.assertEqual(row['sample_state'], 'STOPPER_NOT_REACHED')
+        self.assertIsNone(row['buffer_discarded'])
+        self.assertFalse(result['runtime_result_analysis_performed'])
+
+    def test_r124_diagnostics_never_change_original_three_gate_or_command_dispatch(self):
+        device = HostDevice(synthetic_owned=True, guardian_gate=threading.Event())
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        self.assertEqual(self.sample(result)['sample_state'], 'SAMPLED')
+        self.assertTrue(result['all_three_original_runtime_cases_passed'])
+        self.assertEqual((result['completed_test_count'], result['passed_test_count']), (3, 3))
+        self.assertEqual(result['supervisor']['status'], 'NATURAL_COMPLETION')
+        self.assertEqual(result['parent_status'], 'IN_PROGRESS')
+        launch = [options for argv, options in device.calls if argv[0] == 'fixture-emulator.exe']
+        self.assertEqual(len(launch), 1)
+        self.assertEqual(launch[0]['max_bytes'], 4 * 1024 * 1024)
+        self.assertEqual(launch[0]['timeout'], device.caps.session_budget)
+        for argv, _ in device.calls:
+            self.assertNotIn('diagnostics', argv)
+
+
 class ProvenanceTests(unittest.TestCase):
     def api(self, name):
         value = getattr(runner, name, None)

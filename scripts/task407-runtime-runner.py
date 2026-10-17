@@ -59,6 +59,55 @@ def _code_class(value):
     return 'ZERO' if value == 0 else 'NONZERO'
 
 
+# Exact case-sensitive byte substrings, independently searched in each retained
+# stream. Enum names mean TEXT HIT ONLY, not root cause, readiness or proof.
+_OWNED_LAUNCH_TEXT_HITS = (
+    (b'PANIC:', 'PANIC_COLON_TEXT_HIT'),
+    (b'ERROR', 'ERROR_TEXT_HIT'),
+    (b'FATAL', 'FATAL_TEXT_HIT'),
+    (b'Not enough disk space', 'NOT_ENOUGH_DISK_SPACE_TEXT_HIT'),
+    (b'Not enough memory', 'NOT_ENOUGH_MEMORY_TEXT_HIT'),
+    (b'Running multiple emulators with the same AVD',
+     'RUNNING_MULTIPLE_EMULATORS_WITH_THE_SAME_AVD_TEXT_HIT'),
+    (b'WHPX', 'WHPX_TEXT_HIT'),
+    (b'Failed to initialize', 'FAILED_TO_INITIALIZE_TEXT_HIT'),
+)
+
+
+def _empty_owned_launch_diagnostic(state):
+    return {'sample_state': state, 'command_done': None,
+            'command_failure': 'NOT_OBSERVED', 'command_cancelled': None,
+            'returncode_class': 'UNSET', 'stdout_bytes': None, 'stderr_bytes': None,
+            'buffer_discarded': None, 'diagnostic_gap': True,
+            'text_hits': [], 'text_hit_class': 'UNKNOWN'}
+
+
+def project_owned_launch(command):
+    """OWNED_LAUNCH_DIAGNOSTICS_V1: bounded RAM -> closed observational metadata.
+
+    At most the existing combined 4MiB buffer cap is searched, without decoding or
+    exporting raw bytes, paths, PIDs or payloads. Fixed-order unique labels describe
+    only literal substring hits; zero hits mean UNKNOWN. State reads are independent
+    observations, not an atomic process history. Even diagnostic_gap=False makes no
+    stdout/stderr ordering, chronology, completeness, cause or readiness claim.
+    """
+    out, err, discarded = command.snapshot_output()
+    if (type(out) is not bytes or type(err) is not bytes or type(discarded) is not bool
+            or len(out) + len(err) > 4 * 1024 * 1024):
+        raise ValueError('OWNED_LAUNCH_SNAPSHOT_INVALID')
+    failure = _command_failure(command.failure)
+    cancelled = bool(command.cancelled)
+    hits = [label for literal, label in _OWNED_LAUNCH_TEXT_HITS
+            if literal in out or literal in err]
+    return {'sample_state': 'SAMPLED', 'command_done': bool(command.done.is_set()),
+            'command_failure': failure, 'command_cancelled': cancelled,
+            'returncode_class': _code_class(command.returncode),
+            'stdout_bytes': len(out), 'stderr_bytes': len(err),
+            'buffer_discarded': discarded,
+            'diagnostic_gap': discarded or cancelled or failure != 'NONE',
+            'text_hits': hits, 'text_hit_class': 'TEXT_HITS' if hits else 'UNKNOWN'}
+
+
 @dataclass(frozen=True)
 class _PreflightBoundary:
     """Independent observations, not process liveness or a first-cause history.
@@ -374,6 +423,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     report = None
     failed_boundary = failed_child = install_boundary = None
     failed_cleanup = None
+    owned_launch_sampled = False
     result = {'kind': 'original-three-supervised-runtime-not-pair-or-performance-acceptance',
               'parent_status': 'IN_PROGRESS', 'watchdog_id': watchdog_id,
               'automatic_emulator_teardown_verified': False,
@@ -387,7 +437,9 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
               'preflight_diagnostics_profile': 'PREFLIGHT_COMMAND_BOUNDARY_V1',
               'operational_phase_profile': 'BOOT_THEN_POSTBOOT_RESERVATION_V1',
               'boot_handoff_observation': None, 'install_observation': None,
-              'failed_preflight_command': None}
+              'failed_preflight_command': None,
+              'owned_launch_diagnostics_profile': 'OWNED_LAUNCH_DIAGNOSTICS_V1',
+              'owned_launch_diagnostics': _empty_owned_launch_diagnostic('OWNED_LAUNCH_ABSENT')}
 
     def require_preparation():
         remaining = guardian.preparation_remaining()
@@ -529,10 +581,25 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
                                  '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader',
                                  '-delay-adb'], timeout=session_budget,
                                 max_bytes=4 * 1024 * 1024, tree_owned=True)
+        result['owned_launch_diagnostics'] = _empty_owned_launch_diagnostic('STOPPER_NOT_REACHED')
         original = owned.process
         observer = s.Observer(PACKAGE)
-        anchor = s.OwnedProcess(original,
-            lambda same, timeout: same is original and owned.stop_tree(timeout))
+
+        def stop_original_tree(same, timeout):
+            nonlocal owned_launch_sampled
+            if same is original and not owned_launch_sampled:
+                # Only the first entry to the existing retained-original stopper;
+                # freeze before its original cancel can discard the launch bytes.
+                # The caller's direct fallback remains unchanged and never resamples.
+                owned_launch_sampled = True
+                try:
+                    result['owned_launch_diagnostics'] = _empty_owned_launch_diagnostic('SNAPSHOT_GAP')
+                    result['owned_launch_diagnostics'] = project_owned_launch(owned)
+                except BaseException:
+                    pass  # Diagnostic failure cannot skip the original owned stop.
+            return same is original and owned.stop_tree(timeout)
+
+        anchor = s.OwnedProcess(original, stop_original_tree)
         guardian = s.Supervisor(owned=anchor, commands=LifecycleCommands(),
             observer=observer, avd=AVD, serial=SERIAL,
             contract=s.LaunchContract(watchdog_id=watchdog_id, no_snapshot_save=True),

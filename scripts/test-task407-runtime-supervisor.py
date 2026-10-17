@@ -854,6 +854,64 @@ class SupervisorTests(unittest.TestCase):
         self.assertIn(('absence', None), adapter.calls)
 
 
+class OutputSnapshotTests(unittest.TestCase):
+    """Read-only RAM snapshots; no SDK or host child is needed for this API."""
+    def snapshot(self, command):
+        method = getattr(command, 'snapshot_output', None)
+        self.assertTrue(callable(method), 'R124_SNAPSHOT_API_MISSING')
+        return method()
+
+    def test_r124_snapshot_is_immutable_copy_non_draining_and_uses_buffer_lock(self):
+        child = S.Command.completed(0, b'first', b'second')
+        lock = mock.MagicMock(wraps=child._lock)
+        child._lock = lock
+        observed = self.snapshot(child)
+        self.assertEqual(observed, (b'first', b'second', False))
+        self.assertIs(type(observed), tuple)
+        self.assertTrue(all(type(value) is bytes for value in observed[:2]))
+        lock.__enter__.assert_called_once()
+        lock.__exit__.assert_called_once()
+        child._buffers[0].extend(b'-later')
+        self.assertEqual(observed, (b'first', b'second', False))
+        self.assertEqual(child.buffered_bytes, 17)
+        self.assertEqual(child.take_output(), (b'first-later', b'second'))
+
+    def test_r124_empty_taken_and_discarded_buffers_are_explicitly_distinct(self):
+        child = S.Command.pending()
+        self.assertEqual(self.snapshot(child), (b'', b'', False))
+        child._buffers[0].extend(b'private')
+        original = self.snapshot(child)
+        self.assertEqual(child.take_output(), (b'private', b''))
+        self.assertEqual(self.snapshot(child), (b'', b'', False))
+        child.discard()
+        self.assertEqual(self.snapshot(child), (b'', b'', True))
+        self.assertEqual(original, (b'private', b'', False))
+
+    def test_r124_snapshot_does_not_reset_shared_output_cap_or_command_state(self):
+        import io
+        child = S.Command.pending()
+        child._max_bytes = 8
+        child._read(0, io.BytesIO(b'123456'))
+        self.assertEqual(self.snapshot(child), (b'123456', b'', False))
+        self.assertFalse(child.done.is_set())
+        self.assertFalse(child.cancelled)
+        child._read(1, io.BytesIO(b'abc'))
+        self.assertEqual(child.failure, 'OUTPUT_CAP')
+        self.assertEqual(child._max_bytes, 8)
+        self.assertEqual(child.buffered_bytes, 6)
+        self.assertEqual(self.snapshot(child), (b'123456', b'', False))
+
+    def test_r124_original_cancel_still_discards_after_a_retained_snapshot(self):
+        child = S.Command.pending()
+        child._buffers = [bytearray(b'launch'), bytearray(b'error')]
+        observed = self.snapshot(child)
+        self.assertTrue(child.cancel(.1))
+        self.assertEqual(observed, (b'launch', b'error', False))
+        self.assertEqual(self.snapshot(child), (b'', b'', True))
+        self.assertTrue(child.cancelled)
+        self.assertEqual(child.failure, 'CANCELLED')
+
+
 class ReservedPhaseTests(unittest.TestCase):
     """R121 phase races use explicit clocks and synchronization, not timed luck."""
     @contextmanager
