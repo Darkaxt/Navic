@@ -342,6 +342,22 @@ class _WindowsJob:
                 raise Blocked()
             return int(info.active)
 
+    def active_count_class(self):
+        """Best-effort scalar only; never wait behind concurrent job teardown."""
+        if not self._lock.acquire(blocking=False):
+            return 'UNAVAILABLE'
+        try:
+            if not self._handle:
+                return 'UNAVAILABLE'
+            count = self.active_count()
+            if type(count) is not int or count < 0:
+                return 'UNAVAILABLE'
+            return 'ZERO' if count == 0 else 'ONE' if count == 1 else 'MULTIPLE'
+        except BaseException:
+            return 'UNAVAILABLE'
+        finally:
+            self._lock.release()
+
     def stop_and_settle(self, timeout):
         """Terminate only this private job, then prove zero contained processes.
 
@@ -637,6 +653,34 @@ class Command:
                 and not any(reader.is_alive() for reader in self._readers)
                 and self._tree_settled
                 and self.failure not in ('CHILD_UNCONFIRMED', 'TREE_UNCONFIRMED'))
+
+    def snapshot_host_state(self):
+        """Independent read-only scalars, not history, guest liveness or readiness.
+
+        Query only retained original handles. Busy/closed/unavailable state stays
+        unknown; this cannot renew any phase or repair concurrent guardian teardown.
+        """
+        native = 'UNAVAILABLE'
+        readers = (None, None)
+        real_process = isinstance(self.process, subprocess.Popen)
+        if os.name == 'nt' and real_process:
+            try:
+                import _winapi
+                handle = self.process._handle
+                if handle is not None:
+                    state = _winapi.WaitForSingleObject(int(handle), 0)
+                    if type(state) is int:
+                        native = 'TERMINAL' if state == 0 else 'RUNNING' if state == 258 else 'UNAVAILABLE'
+            except BaseException:
+                pass
+        if real_process and len(self._readers) == 2 and all(
+                isinstance(reader, threading.Thread) for reader in self._readers):
+            readers = tuple(reader.is_alive() for reader in self._readers)
+        job = 'NOT_OWNED'
+        if self._tree_owned:
+            job = self._job.active_count_class() if isinstance(self._job, _WindowsJob) else 'UNAVAILABLE'
+        return {'native_root_state': native, 'job_active_class': job,
+                'stdout_reader_alive': readers[0], 'stderr_reader_alive': readers[1]}
 
     def snapshot_output(self):
         """Non-draining immutable copies plus explicit discard state, under one lock.

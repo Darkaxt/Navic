@@ -71,6 +71,8 @@ _OWNED_LAUNCH_TEXT_HITS = (
      'RUNNING_MULTIPLE_EMULATORS_WITH_THE_SAME_AVD_TEXT_HIT'),
     (b'WHPX', 'WHPX_TEXT_HIT'),
     (b'Failed to initialize', 'FAILED_TO_INITIALIZE_TEXT_HIT'),
+    (b'Boot completed in ', 'BOOT_COMPLETED_IN_TEXT_HIT'),
+    (b'Increasing screen off timeout, logcat buffer size to 2M.', 'POST_BOOT_SETTINGS_TEXT_HIT'),
 )
 
 
@@ -83,7 +85,7 @@ def _empty_owned_launch_diagnostic(state):
 
 
 def project_owned_launch(command):
-    """OWNED_LAUNCH_DIAGNOSTICS_V1: bounded RAM -> closed observational metadata.
+    """OWNED_LAUNCH_DIAGNOSTICS_V2: bounded RAM -> closed observational metadata.
 
     At most the existing combined 4MiB buffer cap is searched, without decoding or
     exporting raw bytes, paths, PIDs or payloads. Fixed-order unique labels describe
@@ -106,6 +108,35 @@ def project_owned_launch(command):
             'buffer_discarded': discarded,
             'diagnostic_gap': discarded or cancelled or failure != 'NONE',
             'text_hits': hits, 'text_hit_class': 'TEXT_HITS' if hits else 'UNKNOWN'}
+
+
+def _empty_failed_wait_host_diagnostic(state):
+    return {'sample_state': state, 'owned': None, 'failed_client': None}
+
+
+def project_failed_wait_host(owned, failed_client):
+    """FAILED_WAIT_HOST_DIAGNOSTICS_V1: independent scalars, never an oracle.
+
+    Native/job/reader observations are neither atomic history nor proof of guest
+    liveness, complete containment history or stream visibility. No raw data leaves
+    the retained Commands; unavailable/busy/closed state is valid unknown.
+    """
+    def project(command):
+        state = command.snapshot_host_state()
+        if (type(state) is not dict or set(state) != {
+                'native_root_state', 'job_active_class', 'stdout_reader_alive', 'stderr_reader_alive'}
+                or type(state['native_root_state']) is not str
+                or state['native_root_state'] not in ('RUNNING', 'TERMINAL', 'UNAVAILABLE')
+                or type(state['job_active_class']) is not str
+                or state['job_active_class'] not in ('ZERO', 'ONE', 'MULTIPLE', 'UNAVAILABLE', 'NOT_OWNED')
+                or any(value is not None and type(value) is not bool
+                       for value in (state['stdout_reader_alive'], state['stderr_reader_alive']))):
+            raise ValueError('FAILED_WAIT_HOST_SNAPSHOT_INVALID')
+        return {'command_done': bool(command.done.is_set()),
+                'command_failure': _command_failure(command.failure),
+                'command_cancelled': bool(command.cancelled),
+                'returncode_class': _code_class(command.returncode), **state}
+    return {'sample_state': 'SAMPLED', 'owned': project(owned), 'failed_client': project(failed_client)}
 
 
 @dataclass(frozen=True)
@@ -424,6 +455,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     failed_boundary = failed_child = install_boundary = None
     failed_cleanup = None
     owned_launch_sampled = False
+    failed_wait_host_sampled = False
     result = {'kind': 'original-three-supervised-runtime-not-pair-or-performance-acceptance',
               'parent_status': 'IN_PROGRESS', 'watchdog_id': watchdog_id,
               'automatic_emulator_teardown_verified': False,
@@ -438,7 +470,9 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
               'operational_phase_profile': 'BOOT_THEN_POSTBOOT_RESERVATION_V1',
               'boot_handoff_observation': None, 'install_observation': None,
               'failed_preflight_command': None,
-              'owned_launch_diagnostics_profile': 'OWNED_LAUNCH_DIAGNOSTICS_V1',
+              'failed_wait_host_diagnostics_profile': 'FAILED_WAIT_HOST_DIAGNOSTICS_V1',
+              'failed_wait_host_diagnostics': _empty_failed_wait_host_diagnostic('NOT_REACHED'),
+              'owned_launch_diagnostics_profile': 'OWNED_LAUNCH_DIAGNOSTICS_V2',
               'owned_launch_diagnostics': _empty_owned_launch_diagnostic('OWNED_LAUNCH_ABSENT')}
 
     def require_preparation():
@@ -458,7 +492,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             cleanup['cleanup_cancel_settlement'] = 'PASSED' if settled else 'FAILED'
 
     def command(role, arguments, timeout):
-        nonlocal failed_boundary, failed_child, failed_cleanup, install_boundary
+        nonlocal failed_boundary, failed_child, failed_cleanup, install_boundary, failed_wait_host_sampled
         child = None
         boundary, wait_result, settlement = 'ADMISSION', 'NOT_REACHED', 'NOT_REACHED'
         preparation = 'NOT_APPLICABLE' if guardian is None else 'NOT_CHECKED'
@@ -549,6 +583,14 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             observe_install()
             failed_cleanup = {'cleanup_cancel_requested': False,
                               'cleanup_cancel_settlement': 'NOT_REQUESTED'}
+            if (role == 'WAIT_FOR_DEVICE' and not failed_wait_host_sampled
+                    and isinstance(owned, s.Command) and isinstance(child, s.Command)):
+                failed_wait_host_sampled = True
+                result['failed_wait_host_diagnostics'] = _empty_failed_wait_host_diagnostic('SNAPSHOT_GAP')
+                try:
+                    result['failed_wait_host_diagnostics'] = project_failed_wait_host(owned, child)
+                except BaseException:
+                    pass  # Never replace the primary failure or skip original cleanup.
             raise
         finally:
             if child is not None:

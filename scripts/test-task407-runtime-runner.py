@@ -414,7 +414,11 @@ class HostDevice:
                 return real.Command.completed(*value)
             return value
 
-        class Commands:
+        class CommandType(type):
+            def __instancecheck__(cls, value):
+                return isinstance(value, real.Command)
+
+        class Commands(metaclass=CommandType):
             @staticmethod
             def spawn(argv, **kwargs):
                 outer.calls.append((tuple(argv), kwargs))
@@ -1559,6 +1563,8 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
          'RUNNING_MULTIPLE_EMULATORS_WITH_THE_SAME_AVD_TEXT_HIT'),
         (b'WHPX', 'WHPX_TEXT_HIT'),
         (b'Failed to initialize', 'FAILED_TO_INITIALIZE_TEXT_HIT'),
+        (b'Boot completed in ', 'BOOT_COMPLETED_IN_TEXT_HIT'),
+        (b'Increasing screen off timeout, logcat buffer size to 2M.', 'POST_BOOT_SETTINGS_TEXT_HIT'),
     )
     KEYS = {'sample_state', 'command_done', 'command_failure', 'command_cancelled',
             'returncode_class', 'stdout_bytes', 'stderr_bytes', 'buffer_discarded',
@@ -1566,7 +1572,7 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
 
     def sample(self, result):
         self.assertEqual(result.get('owned_launch_diagnostics_profile'),
-                         'OWNED_LAUNCH_DIAGNOSTICS_V1', 'R124_LAUNCH_DIAGNOSTICS_MISSING')
+                         'OWNED_LAUNCH_DIAGNOSTICS_V2', 'R125_LAUNCH_DIAGNOSTICS_MISSING')
         row = result.get('owned_launch_diagnostics')
         self.assertIsInstance(row, dict)
         self.assertEqual(set(row), self.KEYS)
@@ -1753,6 +1759,186 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
         self.assertEqual(launch[0]['timeout'], device.caps.session_budget)
         for argv, _ in device.calls:
             self.assertNotIn('diagnostics', argv)
+
+
+    def test_r125_two_new_hits_each_stream_fragments_dedup_and_fixed_ten_order(self):
+        project = self.api('project_owned_launch')
+        real = load_supervisor()
+        for literal, label in self.HITS[-2:]:
+            for stream in (0, 1):
+                child = real.Command.pending()
+                for fragment in (literal[:7], literal[7:]):
+                    child._buffers[stream].extend(fragment)
+                self.assertEqual(project(child)['text_hits'], [label], 'R125_NEW_TEXT_HIT_MISSING')
+                child._buffers = [bytearray(literal[:7]), bytearray(literal[7:])]
+                self.assertEqual(project(child)['text_hits'], [])
+                child._buffers = [bytearray(literal.lower()), bytearray(literal.swapcase())]
+                self.assertEqual(project(child)['text_hits'], [])
+        child = real.Command.completed(0,
+            b'|'.join(literal * 2 for literal, _ in reversed(self.HITS)),
+            b'|'.join(literal for literal, _ in self.HITS))
+        self.assertEqual(project(child)['text_hits'], [label for _, label in self.HITS])
+        self.assertEqual(len(project(child)['text_hits']), 10)
+        self.assertEqual(child.buffered_bytes, sum(len(v) for v in child._buffers))
+
+
+class FailedWaitHostDiagnosticTests(unittest.TestCase):
+    api = PipelineTests.api
+    execute = PipelineTests.execute
+    COMMAND_KEYS = {'command_done', 'command_failure', 'command_cancelled', 'returncode_class',
+                    'native_root_state', 'job_active_class', 'stdout_reader_alive', 'stderr_reader_alive'}
+
+    def sample(self, result, state):
+        self.assertEqual(result.get('failed_wait_host_diagnostics_profile'),
+                         'FAILED_WAIT_HOST_DIAGNOSTICS_V1', 'R125_FAILED_WAIT_PROFILE_MISSING')
+        row = result.get('failed_wait_host_diagnostics')
+        self.assertIsInstance(row, dict)
+        self.assertEqual(set(row), {'sample_state', 'owned', 'failed_client'})
+        self.assertEqual(row['sample_state'], state)
+        if state != 'SAMPLED':
+            self.assertIsNone(row['owned'])
+            self.assertIsNone(row['failed_client'])
+        else:
+            self.assertEqual(set(row['owned']), self.COMMAND_KEYS)
+            self.assertEqual(set(row['failed_client']), self.COMMAND_KEYS)
+        self.assertNotIn('R125_PRIVATE_CANARY', json.dumps(result))
+        return row
+
+    def device(self, *, live=False, clean=True):
+        device = HostDevice(synthetic_owned=not live, guardian_gate=threading.Event(),
+                            clean_absence=clean)
+        child = (device.real.Command.spawn([sys.executable, '-B', '-c',
+                 'import threading; threading.Event().wait(4)'], timeout=5, max_bytes=1024)
+                 if live else device.real.Command.pending())
+        self.addCleanup(lambda: child.cancel(2))
+        device.readiness = {'WAIT_FOR_DEVICE': child}
+        self.addCleanup(device.cleanup)
+        def wait(device, timeout, command, original):
+            return False if command is child else original(timeout, command)
+        device.preparation_wait = wait
+        return device, child
+
+    def test_r125_real_failed_wait_samples_both_commands_before_original_cancel(self):
+        device, child = self.device(live=True)
+        device.caps = dataclasses.replace(device.caps, preparation=2)
+        observed = []
+        project = self.api('project_failed_wait_host')
+        original_cancel = child.cancel
+        def cancel(timeout):
+            observed.append('CANCEL')
+            return original_cancel(timeout)
+        child.cancel = cancel
+        def sample(owned, failed):
+            observed.append('SAMPLE')
+            self.assertIs(owned, device.launch)
+            self.assertIs(failed, child)
+            self.assertFalse(failed.cancelled)
+            self.assertFalse(failed._discarded)
+            return project(owned, failed)
+        with mock.patch.object(runner, 'project_failed_wait_host', side_effect=sample) as projection:
+            result = self.execute(device)
+        row = self.sample(result, 'SAMPLED')
+        self.assertEqual(observed, ['SAMPLE', 'CANCEL'])
+        projection.assert_called_once_with(device.launch, child)
+        self.assertEqual(row['owned']['native_root_state'], 'RUNNING')
+        self.assertEqual(row['owned']['job_active_class'], 'ONE')
+        self.assertEqual(row['failed_client']['native_root_state'], 'RUNNING')
+        self.assertEqual(row['failed_client']['job_active_class'], 'NOT_OWNED')
+        for value in (row['owned'], row['failed_client']):
+            self.assertFalse(value['command_done'])
+            self.assertEqual(value['command_failure'], 'NONE')
+            self.assertFalse(value['command_cancelled'])
+            self.assertEqual(value['returncode_class'], 'UNSET')
+            self.assertIs(value['stdout_reader_alive'], True)
+            self.assertIs(value['stderr_reader_alive'], True)
+        before = result['failed_preflight_command']['before_cleanup']
+        self.assertFalse(before['child_cancelled'])
+        self.assertEqual(before['child_failure'], 'NONE')
+        self.assertTrue(result['failed_preflight_command']['cleanup_cancel_requested'])
+        self.assertTrue(child.cancelled)
+        self.assertTrue(child._discarded)
+        self.assertTrue(result['automatic_emulator_teardown_verified'])
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertEqual(result['owned_launch_diagnostics']['sample_state'], 'SAMPLED')
+
+    def test_r125_projection_has_fixed_keys_and_closed_classes_without_raw_state(self):
+        project = self.api('project_failed_wait_host')
+        real = load_supervisor()
+        owned, child = real.Command.pending(), real.Command.completed(912345, b'R125_PRIVATE_CANARY')
+        child.failure = ['R125_PRIVATE_CANARY']
+        child.cancelled = True
+        row = project(owned, child)
+        self.assertEqual(set(row), {'sample_state', 'owned', 'failed_client'})
+        for value in (row['owned'], row['failed_client']):
+            self.assertEqual(set(value), self.COMMAND_KEYS)
+            self.assertEqual(value['native_root_state'], 'UNAVAILABLE')
+            self.assertEqual(value['job_active_class'], 'NOT_OWNED')
+            self.assertIsNone(value['stdout_reader_alive'])
+            self.assertIsNone(value['stderr_reader_alive'])
+        self.assertEqual(row['failed_client']['command_failure'], 'OTHER')
+        self.assertEqual(row['failed_client']['returncode_class'], 'NONZERO')
+        self.assertTrue(row['failed_client']['command_done'])
+        self.assertTrue(row['failed_client']['command_cancelled'])
+        self.assertNotIn('R125_PRIVATE_CANARY', json.dumps(row))
+        self.assertNotIn('912345', json.dumps(row))
+        for bad in ({}, dict(native_root_state='R125_PRIVATE_CANARY'),
+                    dict(native_root_state='RUNNING', job_active_class='ONE',
+                         stdout_reader_alive=1, stderr_reader_alive=False),
+                    dict(native_root_state='RUNNING', job_active_class='ONE',
+                         stdout_reader_alive=True, stderr_reader_alive=False, private='R125_PRIVATE_CANARY')):
+            child.snapshot_host_state = lambda: bad
+            with self.assertRaises(ValueError):
+                project(owned, child)
+
+    def test_r125_no_sample_on_success_other_roles_reply_rejection_or_spawn_failure(self):
+        self.api('project_failed_wait_host')
+        for readiness in ({}, {'WAIT_FOR_DEVICE': (1, b'', b'')},
+                          {'WAIT_FOR_DEVICE': RuntimeError('R125_PRIVATE_CANARY')},
+                          {'OWNED_AVD_IDENTITY': 'pending'}, {'SYS_BOOT_COMPLETED': 'pending'}):
+            device = HostDevice(synthetic_owned=True, guardian_gate=threading.Event(), readiness=readiness)
+            self.addCleanup(device.cleanup)
+            with mock.patch.object(runner, 'project_failed_wait_host',
+                                   side_effect=AssertionError('R125_UNEXPECTED_SAMPLE')) as projection:
+                result = self.execute(device)
+            projection.assert_not_called()
+            self.sample(result, 'NOT_REACHED')
+        device = AccountingDevice(unsettled_prefix=True)
+        self.sample(device.execute(), 'NOT_REACHED')
+
+    def test_r125_admission_before_wait_child_does_not_sample(self):
+        self.api('project_failed_wait_host')
+        device = HostDevice(synthetic_owned=True, guardian_gate=threading.Event())
+        self.addCleanup(device.cleanup)
+        original = device.module.Supervisor.__init__
+        def init(guardian, **kwargs):
+            original(guardian, **kwargs)
+            guardian.preparation_remaining = lambda: 0
+        with mock.patch.object(device.module.Supervisor, '__init__', init), \
+             mock.patch.object(runner, 'project_failed_wait_host') as projection:
+            result = self.execute(device)
+        projection.assert_not_called()
+        self.sample(result, 'NOT_REACHED')
+        self.assertFalse(any(argv[3:] == ('wait-for-device',) for argv, _ in device.calls))
+        self.assertEqual(result['failed_preflight_command']['before_cleanup']['boundary'], 'ADMISSION')
+
+    def test_r125_snapshot_gap_is_sticky_and_baseexception_cannot_skip_cleanup_or_fallback(self):
+        self.api('project_failed_wait_host')
+        for error in (RuntimeError('R125_PRIVATE_CANARY'), KeyboardInterrupt(), SystemExit()):
+            device, child = self.device(clean=False)
+            with mock.patch.object(runner, 'project_failed_wait_host', side_effect=error) as projection:
+                result = self.execute(device)
+            projection.assert_called_once_with(device.launch, child)
+            self.sample(result, 'SNAPSHOT_GAP')
+            self.assertTrue(child.cancelled)
+            self.assertTrue(child._discarded)
+            self.assertTrue(device.launch.done.is_set(), 'Original fallback still stops owned root')
+            self.assertFalse(result['automatic_emulator_teardown_verified'])
+            self.assertFalse(result['runtime_result_analysis_performed'])
+            self.assertEqual(result['fixed_preflight_failure_reason'], 'PREFLIGHT_COMMAND_INCOMPLETE')
+            self.assertEqual(result['failed_preflight_command']['before_cleanup']['child_failure'], 'NONE')
+            self.assertEqual(result['owned_launch_diagnostics']['sample_state'], 'SAMPLED')
+            self.assertTrue(device.guardian._owned.stop_tree(device.caps.stop))
+            self.sample(result, 'SNAPSHOT_GAP')
 
 
 class ProvenanceTests(unittest.TestCase):

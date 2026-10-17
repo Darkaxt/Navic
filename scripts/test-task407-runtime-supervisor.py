@@ -912,6 +912,198 @@ class OutputSnapshotTests(unittest.TestCase):
         self.assertEqual(child.failure, 'CANCELLED')
 
 
+class RetainedHostStateTests(unittest.TestCase):
+    """Closed independent scalars from original Windows handles, never readiness."""
+    KEYS = {'native_root_state', 'job_active_class',
+            'stdout_reader_alive', 'stderr_reader_alive'}
+
+    def snapshot(self, child):
+        api = getattr(child, 'snapshot_host_state', None)
+        self.assertTrue(callable(api), 'R125_HOST_STATE_API_MISSING')
+        row = api()
+        self.assertEqual(set(row), self.KEYS)
+        self.assertIn(row['native_root_state'], ('RUNNING', 'TERMINAL', 'UNAVAILABLE'))
+        self.assertIn(row['job_active_class'], ('ZERO', 'ONE', 'MULTIPLE', 'UNAVAILABLE', 'NOT_OWNED'))
+        for key in ('stdout_reader_alive', 'stderr_reader_alive'):
+            self.assertTrue(row[key] is None or type(row[key]) is bool)
+        return row
+
+    def job_class(self, job):
+        api = getattr(job, 'active_count_class', None)
+        self.assertTrue(callable(api), 'R125_JOB_CLASS_API_MISSING')
+        return api()
+
+    def test_r125_original_native_handle_query_zero_does_not_poll_or_write_bookkeeping(self):
+        self.assertTrue(callable(getattr(S.Command, 'snapshot_host_state', None)),
+                        'R125_HOST_STATE_API_MISSING')
+        import _winapi
+        original = subprocess.Popen([sys.executable, '-B', '-c',
+            'import threading; threading.Event().wait(4)'],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=0x00000004)
+        child = S.Command.pending()
+        child.process = original
+        try:
+            state = dict(child.__dict__)
+            with mock.patch.object(original, 'poll', side_effect=AssertionError('R125_NO_POLL')), \
+                 mock.patch.object(_winapi, 'WaitForSingleObject', wraps=_winapi.WaitForSingleObject) as query:
+                self.assertEqual(self.snapshot(child)['native_root_state'], 'RUNNING')
+                query.assert_called_once_with(int(original._handle), 0)
+            self.assertEqual(child.__dict__, state)
+            self.assertIsNone(original.returncode)
+            original.kill()
+            self.assertEqual(_winapi.WaitForSingleObject(int(original._handle), 2000), 0)
+            with mock.patch.object(original, 'poll', side_effect=AssertionError('R125_NO_POLL')):
+                self.assertEqual(self.snapshot(child)['native_root_state'], 'TERMINAL')
+            self.assertIsNone(original.returncode, 'Native observation must not reap the original')
+            self.assertEqual(child.__dict__, state)
+        finally:
+            original.kill()
+            original.wait(timeout=2)
+
+    def test_r125_native_unknown_failures_nonwindows_and_synthetic_stay_closed(self):
+        self.assertTrue(callable(getattr(S.Command, 'snapshot_host_state', None)),
+                        'R125_HOST_STATE_API_MISSING')
+        import _winapi
+        original = subprocess.Popen([sys.executable, '-B', '-c', 'pass'],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=0x00000004)
+        child = S.Command.pending()
+        child.process = original
+        try:
+            for value in (0xffffffff, 1, None, True, 'R125_PRIVATE_CANARY'):
+                with mock.patch.object(_winapi, 'WaitForSingleObject', return_value=value):
+                    self.assertEqual(self.snapshot(child)['native_root_state'], 'UNAVAILABLE')
+            for error in (OSError('R125_PRIVATE_CANARY'), KeyboardInterrupt()):
+                with mock.patch.object(_winapi, 'WaitForSingleObject', side_effect=error):
+                    self.assertEqual(self.snapshot(child)['native_root_state'], 'UNAVAILABLE')
+            with mock.patch.object(S, 'os', SimpleNamespace(name='posix')), \
+                 mock.patch.object(_winapi, 'WaitForSingleObject') as query:
+                self.assertEqual(self.snapshot(child)['native_root_state'], 'UNAVAILABLE')
+                query.assert_not_called()
+            retained = original._handle
+            try:
+                original._handle = None
+                self.assertEqual(self.snapshot(child)['native_root_state'], 'UNAVAILABLE')
+            finally:
+                original._handle = retained
+            child.process = SimpleNamespace(_handle=123456, poll=lambda: 0)
+            self.assertEqual(self.snapshot(child)['native_root_state'], 'UNAVAILABLE')
+            self.assertNotIn('123456', json.dumps(self.snapshot(child)))
+            for synthetic in (S.Command.pending(), S.Command.completed(0)):
+                self.assertEqual(self.snapshot(synthetic), dict(native_root_state='UNAVAILABLE',
+                    job_active_class='NOT_OWNED', stdout_reader_alive=None, stderr_reader_alive=None))
+        finally:
+            original.kill()
+            original.wait(timeout=2)
+
+    def test_r125_private_job_nonblocking_busy_closed_errors_and_count_classes(self):
+        job = object.__new__(S._WindowsJob)
+        job._lock = threading.RLock()
+        job._handle = object()
+        for count, expected in ((0, 'ZERO'), (1, 'ONE'), (2, 'MULTIPLE'), (999, 'MULTIPLE'),
+                                (True, 'UNAVAILABLE'), (-1, 'UNAVAILABLE'),
+                                (1.0, 'UNAVAILABLE'), (None, 'UNAVAILABLE'),
+                                ('R125_PRIVATE_CANARY', 'UNAVAILABLE')):
+            with mock.patch.object(job, 'active_count', return_value=count):
+                self.assertEqual(self.job_class(job), expected)
+        for error in (OSError('R125_PRIVATE_CANARY'), KeyboardInterrupt()):
+            with mock.patch.object(job, 'active_count', side_effect=error):
+                self.assertEqual(self.job_class(job), 'UNAVAILABLE')
+            self.assertTrue(job._lock.acquire(blocking=False))
+            job._lock.release()
+        job._handle = None
+        with mock.patch.object(job, 'active_count') as query:
+            self.assertEqual(self.job_class(job), 'UNAVAILABLE')
+            query.assert_not_called()
+        job._handle = object()
+        held, release = threading.Event(), threading.Event()
+        def hold():
+            with job._lock:
+                held.set()
+                release.wait(2)
+        owner = threading.Thread(target=hold)
+        owner.start()
+        try:
+            self.assertTrue(held.wait(1))
+            with mock.patch.object(job, 'active_count') as query:
+                self.assertEqual(self.job_class(job), 'UNAVAILABLE')
+                query.assert_not_called()
+        finally:
+            release.set()
+            owner.join(2)
+            self.assertFalse(owner.is_alive())
+        lock = mock.Mock()
+        lock.acquire.return_value = False
+        job._lock = lock
+        self.assertEqual(self.job_class(job), 'UNAVAILABLE')
+        lock.acquire.assert_called_once_with(blocking=False)
+        lock.release.assert_not_called()
+
+    def test_r125_real_owned_job_one_multiple_zero_and_live_reader_pair(self):
+        self.assertTrue(callable(getattr(S.Command, 'snapshot_host_state', None)),
+                        'R125_HOST_STATE_API_MISSING')
+        ready = threading.Event()
+        source = ('import subprocess, sys, threading; '
+                  'subprocess.Popen([sys.executable,"-B","-c",'
+                  '"import threading; threading.Event().wait(4)"], '
+                  'stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); '
+                  'print("HOST_READY",flush=True); threading.Event().wait(4)')
+        child = S.Command.spawn([sys.executable, '-B', '-c', source], timeout=5,
+            max_bytes=1024, tree_owned=True, on_line=lambda line: ready.set() if line == b'HOST_READY' else None)
+        try:
+            self.assertTrue(ready.wait(2))
+            row = self.snapshot(child)
+            self.assertEqual(row, dict(native_root_state='RUNNING', job_active_class='MULTIPLE',
+                                      stdout_reader_alive=True, stderr_reader_alive=True))
+            self.assertTrue(child.cancel(2))
+            self.assertTrue(child.settle(1))
+            row = self.snapshot(child)
+            self.assertEqual(row['native_root_state'], 'TERMINAL')
+            self.assertEqual(row['job_active_class'], 'UNAVAILABLE', 'Closed job is not historical zero proof')
+            self.assertIs(row['stdout_reader_alive'], False)
+            self.assertIs(row['stderr_reader_alive'], False)
+        finally:
+            self.assertTrue(child.cancel(2))
+        original = subprocess.Popen([sys.executable, '-B', '-c', 'pass'],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=0x00000004)
+        job = None
+        try:
+            job = S._WindowsJob(original)
+            self.assertEqual(self.job_class(job), 'ONE')
+            self.assertTrue(job.stop_and_settle(2))
+            self.assertEqual(self.job_class(job), 'ZERO')
+        finally:
+            if job is not None:
+                job.stop_and_settle(2)
+                job.close()
+            original.kill()
+            original.wait(timeout=2)
+
+    def test_r125_reader_pair_requires_actual_process_and_two_real_threads(self):
+        self.assertTrue(callable(getattr(S.Command, 'snapshot_host_state', None)),
+                        'R125_HOST_STATE_API_MISSING')
+        child = S.Command.spawn([sys.executable, '-B', '-c',
+            'import threading; threading.Event().wait(4)'], timeout=5, max_bytes=1024)
+        try:
+            self.assertEqual(self.snapshot(child)['job_active_class'], 'NOT_OWNED')
+            pair = child._readers
+            for readers in ([], pair[:1], pair + pair[:1], [object(), object()]):
+                child._readers = readers
+                row = self.snapshot(child)
+                self.assertIsNone(row['stdout_reader_alive'])
+                self.assertIsNone(row['stderr_reader_alive'])
+            child._readers = pair
+            child._tree_owned = True
+            self.assertEqual(self.snapshot(child)['job_active_class'], 'UNAVAILABLE')
+            child._tree_owned = False
+        finally:
+            child._readers = pair
+            child._tree_owned = False
+            self.assertTrue(child.cancel(2))
+
+
 class ReservedPhaseTests(unittest.TestCase):
     """R121 phase races use explicit clocks and synchronization, not timed luck."""
     @contextmanager
