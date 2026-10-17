@@ -642,7 +642,8 @@ class PipelineTests(unittest.TestCase):
                             for sample in samples))
         self.assertEqual(result['fixed_readiness_step'], 'WAIT_FOR_DEVICE')
         self.assertFalse(device.instrument_seen)
-        self.assertEqual(result.get('launch_transport_profile'), 'VERBOSE_HOST_STARTUP_V1')
+        self.assertEqual(result.get('launch_transport_profile'),
+                         'CRASH_REPORTING_DISABLED_STARTUP_ISOLATION_V1')
         launch = next((argv, opts) for argv, opts in device.calls if argv[0] == 'fixture-emulator.exe')
         self.assertIn('-verbose', launch[0])
         self.assertTrue(callable(launch[1].get('observe_output')))
@@ -722,10 +723,35 @@ class PipelineTests(unittest.TestCase):
                     for argv, options in launches]
         self.assertEqual((observed, result.get('launch_transport_profile')), ([
             (('fixture-emulator.exe', '-avd', 'NavicReaderLab', '-port', '5554',
-              '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader', '-show-kernel', '-verbose'),
+              '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader', '-show-kernel', '-verbose',
+              '-crash-report-mode', 'disabled'),
              {'timeout': device.caps.session_budget, 'max_bytes': 4 * 1024 * 1024,
               'tree_owned': True})
-        ], 'VERBOSE_HOST_STARTUP_V1'))
+        ], 'CRASH_REPORTING_DISABLED_STARTUP_ISOLATION_V1'))
+
+    def test_r141_disabled_crash_reporting_isolates_only_this_diagnostic_startup(self):
+        device = HostDevice()
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        launches = [(argv, options) for argv, options in device.calls
+                    if argv[0] == 'fixture-emulator.exe']
+        self.assertEqual(len(launches), 1)
+        argv, options = launches[0]
+        self.assertEqual(argv, ('fixture-emulator.exe', '-avd', 'NavicReaderLab', '-port', '5554',
+                                '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader',
+                                '-show-kernel', '-verbose', '-crash-report-mode', 'disabled'))
+        self.assertEqual(argv.count('-crash-report-mode'), 1)
+        self.assertEqual(argv[argv.index('-crash-report-mode') + 1], 'disabled')
+        self.assertNotIn('always', argv)
+        self.assertNotIn('never', argv)
+        self.assertTrue(callable(options['observe_output']))
+        self.assertTrue(result['automatic_emulator_teardown_verified'])
+        self.assertEqual(result['launch_transport_profile'],
+                         'CRASH_REPORTING_DISABLED_STARTUP_ISOLATION_V1')
+        self.assertEqual(result['host_crash_reporting'],
+                         'DISABLED_FOR_THIS_DIAGNOSTIC_PROCESS')
+        self.assertEqual(result['existing_crash_reports_action'],
+                         'NO_UPLOAD_OR_DELETION_REQUESTED')
 
     def test_ui_not_ready_aborts_without_install_or_tests_and_still_stops(self):
         device = HostDevice(boot=b'0\n')

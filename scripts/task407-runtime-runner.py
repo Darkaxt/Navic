@@ -712,7 +712,10 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     trace('SESSION', 'START')
     result = {'kind': 'original-three-supervised-runtime-not-pair-or-performance-acceptance',
               'parent_status': 'IN_PROGRESS', 'watchdog_id': watchdog_id,
-              'launch_transport_profile': 'VERBOSE_HOST_STARTUP_V1',
+              # Per-process diagnostic request; this does not establish filesystem report state.
+              'launch_transport_profile': 'CRASH_REPORTING_DISABLED_STARTUP_ISOLATION_V1',
+              'host_crash_reporting': 'DISABLED_FOR_THIS_DIAGNOSTIC_PROCESS',
+              'existing_crash_reports_action': 'NO_UPLOAD_OR_DELETION_REQUESTED',
               'phase_trace_scope': 'HOST_CALLER_ENVELOPES_TEARDOWN_INCLUDES_GUARDIAN_WAIT',
               'automatic_emulator_teardown_verified': False,
               'all_three_original_runtime_cases_passed': False,
@@ -912,7 +915,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         guardian_deadline = launch_started + session_budget
         owned = s.Command.spawn([record['emulator'], '-avd', AVD, '-port', '5554',
                                  '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader',
-                                 '-show-kernel', '-verbose'],
+                                 '-show-kernel', '-verbose', '-crash-report-mode', 'disabled'],
                                 timeout=session_budget, max_bytes=4 * 1024 * 1024, tree_owned=True,
                                 observe_output=startup_log.feed if startup_log is not None else None)
         trace('OWNED_LAUNCH', 'END')
