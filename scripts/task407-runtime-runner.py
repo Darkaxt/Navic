@@ -76,6 +76,10 @@ _OWNED_LAUNCH_TEXT_HITS = (
     (b'Linux version ', 'LINUX_VERSION_TEXT_HIT'),
     (b'Kernel panic - not syncing:', 'KERNEL_PANIC_NOT_SYNCING_TEXT_HIT'),
     (b'init first stage started!', 'ANDROID_INIT_FIRST_STAGE_TEXT_HIT'),
+    (b'Guest Driver: Auto (ext controls)', 'GUEST_DRIVER_AUTO_TEXT_HIT'),
+    (b'Initializing gfxstream backend', 'GFXSTREAM_INIT_TEXT_HIT'),
+    (b'GPU Vendor=[', 'GPU_VENDOR_TEXT_HIT'),
+    (b'Windows Hypervisor Platform accelerator is operational', 'WHPX_OPERATIONAL_TEXT_HIT'),
 )
 
 
@@ -88,7 +92,7 @@ def _empty_owned_launch_diagnostic(state):
 
 
 def project_owned_launch(command):
-    """OWNED_LAUNCH_DIAGNOSTICS_V3: bounded RAM -> closed observational metadata.
+    """OWNED_LAUNCH_DIAGNOSTICS_V4: bounded RAM -> closed observational metadata.
 
     At most the existing combined 4MiB buffer cap is searched, without decoding or
     exporting raw bytes, paths, PIDs, versions, panic reasons, stacks or payloads.
@@ -99,7 +103,10 @@ def project_owned_launch(command):
     claim. The original stopper-entry sample is not proof of occurrence within
     the boot cap. The changed show-kernel profile can perturb boot/timing and
     exhaust the shared cap; installed launcher/engine/guest source equivalence
-    remains UNKNOWN.
+    remains UNKNOWN. The host additions are default/conditional source-backed
+    installed vocabulary only, not installed-source equivalence, emitter identity,
+    stage-order or success/readiness proof. Vendor suffixes are never exported;
+    coexisting hits are independent and every nonhit remains UNKNOWN.
     """
     out, err, discarded = command.snapshot_output()
     if (type(out) is not bytes or type(err) is not bytes or type(discarded) is not bool
@@ -481,7 +488,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
               'failed_preflight_command': None,
               'failed_wait_host_diagnostics_profile': 'FAILED_WAIT_HOST_DIAGNOSTICS_V1',
               'failed_wait_host_diagnostics': _empty_failed_wait_host_diagnostic('NOT_REACHED'),
-              'owned_launch_diagnostics_profile': 'OWNED_LAUNCH_DIAGNOSTICS_V3',
+              'owned_launch_diagnostics_profile': 'OWNED_LAUNCH_DIAGNOSTICS_V4',
               'owned_launch_diagnostics': _empty_owned_launch_diagnostic('OWNED_LAUNCH_ABSENT')}
 
     def require_preparation():

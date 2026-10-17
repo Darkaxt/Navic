@@ -1597,13 +1597,19 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
         (b'Kernel panic - not syncing:', 'KERNEL_PANIC_NOT_SYNCING_TEXT_HIT'),
         (b'init first stage started!', 'ANDROID_INIT_FIRST_STAGE_TEXT_HIT'),
     )
+    HOST_HITS = (
+        (b'Guest Driver: Auto (ext controls)', 'GUEST_DRIVER_AUTO_TEXT_HIT'),
+        (b'Initializing gfxstream backend', 'GFXSTREAM_INIT_TEXT_HIT'),
+        (b'GPU Vendor=[', 'GPU_VENDOR_TEXT_HIT'),
+        (b'Windows Hypervisor Platform accelerator is operational', 'WHPX_OPERATIONAL_TEXT_HIT'),
+    )
     KEYS = {'sample_state', 'command_done', 'command_failure', 'command_cancelled',
             'returncode_class', 'stdout_bytes', 'stderr_bytes', 'buffer_discarded',
             'diagnostic_gap', 'text_hits', 'text_hit_class'}
 
     def sample(self, result):
         self.assertEqual(result.get('owned_launch_diagnostics_profile'),
-                         'OWNED_LAUNCH_DIAGNOSTICS_V3', 'R127_LAUNCH_DIAGNOSTICS_MISSING')
+                         'OWNED_LAUNCH_DIAGNOSTICS_V4', 'R127_LAUNCH_DIAGNOSTICS_MISSING')
         row = result.get('owned_launch_diagnostics')
         self.assertIsInstance(row, dict)
         self.assertEqual(set(row), self.KEYS)
@@ -1684,13 +1690,15 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
         self.assertTrue(project(child)['command_cancelled'])
         self.assertTrue(project(child)['diagnostic_gap'])
 
-    def device(self, *, clean=True, snapshot_failure=False):
+    def device(self, *, clean=True, snapshot_failure=False, launch_streams=None):
         retained, observations = [], []
         def before(device, argv):
             if argv[3:] != ['wait-for-device']:
                 return
             child = device.launch
-            child._buffers = [bytearray(b'R124_PRIVATE_CANARY ERROR'), bytearray(b'WHPX')]
+            child._buffers = [bytearray(value) for value in
+                              (launch_streams if launch_streams is not None else
+                               (b'R124_PRIVATE_CANARY ERROR', b'WHPX'))]
             fixture_stop = child.stop_tree
             child._stop = lambda: fixture_stop(device.caps.stop)
             def stop(timeout):
@@ -1879,8 +1887,8 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
 
     def test_r127_any_markers_cannot_bypass_actual_pending_property_one(self):
         # Already-green safety coverage: bytes do not hand off boot, regardless
-        # of whether the prospective projector yet recognizes the three new bits.
-        payload = b'|'.join(literal for literal, _ in self.HITS)
+        # of whether the prospective projector recognizes the finite vocabulary.
+        payload = b'|'.join(literal for literal, _ in self.HITS + self.HOST_HITS)
         def before(device, argv):
             if argv[3:] == ['wait-for-device']:
                 device.launch._read(0, io.BytesIO(payload))
@@ -1971,6 +1979,134 @@ class OwnedLaunchDiagnosticTests(unittest.TestCase):
                               if argv[0] == 'fixture-emulator.exe')
                 self.assertEqual(launch, {'timeout': device.caps.session_budget,
                                          'max_bytes': cap, 'tree_owned': True})
+
+    def test_r134_vocabulary_is_exact_original_thirteen_then_four_host_literals(self):
+        self.assertEqual(runner._OWNED_LAUNCH_TEXT_HITS, self.HITS + self.HOST_HITS,
+                         'R134_FINITE_VOCABULARY_MISSING')
+
+    def test_r134_host_hits_either_stream_and_fragmented_retained_stream(self):
+        project = self.api('project_owned_launch')
+        real = load_supervisor()
+        for literal, label in self.HOST_HITS:
+            for stream in (0, 1):
+                with self.subTest(hit=label, stream=stream):
+                    child = real.Command.pending()
+                    child._read(stream, io.BytesIO(literal))
+                    self.assertEqual(project(child)['text_hits'], [label], 'R134_HOST_TEXT_HIT_MISSING')
+                    child = real.Command.pending()
+                    split = len(literal) // 2
+                    child._read(stream, io.BytesIO(literal[:split]))
+                    self.assertEqual(project(child)['text_hit_class'], 'UNKNOWN')
+                    child._read(stream, io.BytesIO(literal[split:]))
+                    self.assertEqual(project(child)['text_hits'], [label], 'R134_FRAGMENTED_TEXT_HIT_MISSING')
+                    self.assertEqual(child.buffered_bytes, len(literal))
+
+    def test_r134_host_case_malformed_and_cross_stream_fragments_stay_unknown(self):
+        project = self.api('project_owned_launch')
+        real = load_supervisor()
+        for literal, label in self.HOST_HITS:
+            with self.subTest(hit=label):
+                split = len(literal) // 2
+                child = real.Command.completed(0, literal[:split], literal[split:])
+                self.assertEqual(project(child)['text_hits'], [])
+                self.assertEqual(project(child)['text_hit_class'], 'UNKNOWN')
+                for near in (literal.swapcase(), literal.lower(), literal[:-1],
+                             literal.replace(b' ', b'  ', 1)):
+                    child = real.Command.completed(0, near, near)
+                    row = project(child)
+                    self.assertEqual(row['text_hits'], [])
+                    self.assertEqual(row['text_hit_class'], 'UNKNOWN')
+
+    def test_r134_all_seventeen_independent_coexisting_hits_deduplicate_in_fixed_order(self):
+        hits = self.HITS + self.HOST_HITS
+        child = load_supervisor().Command.completed(0,
+            b'|'.join(literal * 2 for literal, _ in reversed(hits)),
+            b'|'.join(literal * 3 for literal, _ in hits))
+        row = self.api('project_owned_launch')(child)
+        self.assertEqual(row['text_hits'], [label for _, label in hits], 'R134_COEXISTING_HOST_HITS_MISSING')
+        self.assertEqual(len(row['text_hits']), 17)
+        self.assertEqual(set(row), self.KEYS)
+        self.assertFalse(row['diagnostic_gap'])
+        self.assertEqual(child.buffered_bytes, row['stdout_bytes'] + row['stderr_bytes'])
+
+    def test_r134_host_vendor_suffix_and_private_canaries_never_exported(self):
+        private = (b'R134_PRIVATE_CANARY', b'private-vendor-device-driver-suffix',
+                   b'C:/private/host', b'https://private.invalid/host', b'pid=987654')
+        payload = (b'|'.join(literal for literal, _ in self.HOST_HITS[:2])
+                   + b'\nGPU Vendor=[' + private[1] + b']\n'
+                   + self.HOST_HITS[3][0] + b'\n' + b' '.join(private))
+        for stream in (0, 1):
+            with self.subTest(stream=stream):
+                child = load_supervisor().Command.pending()
+                child._read(stream, io.BytesIO(payload))
+                row = self.api('project_owned_launch')(child)
+                self.assertEqual(row['text_hits'], [label for _, label in self.HOST_HITS],
+                                 'R134_PRIVATE_FIXTURE_HOST_HITS_MISSING')
+                self.assertEqual(set(row), self.KEYS)
+                safe = json.dumps(row).encode()
+                for value in private + (b'GPU Vendor=[',):
+                    self.assertNotIn(value, safe)
+
+    def test_r134_host_hits_keep_shared_cap_discard_and_gap_semantics(self):
+        cap = 4 * 1024 * 1024
+        project = self.api('project_owned_launch')
+        for stream in (0, 1):
+            with self.subTest(stream=stream):
+                child = load_supervisor().Command.pending()
+                child._max_bytes = cap
+                payload = b'|'.join(literal for literal, _ in self.HOST_HITS[:3])
+                child._read(stream, io.BytesIO(payload + b'x' * (cap - len(payload) - 2)))
+                child._read(1 - stream, io.BytesIO(b'xy'))
+                row = project(child)
+                self.assertEqual(row['text_hits'], [label for _, label in self.HOST_HITS[:3]],
+                                 'R134_RETAINED_CAP_HOST_HITS_MISSING')
+                self.assertFalse(row['diagnostic_gap'])
+                self.assertEqual(child.buffered_bytes, cap)
+                with mock.patch.object(child, '_stop') as stop:
+                    child._read(1 - stream, io.BytesIO(self.HOST_HITS[3][0]))
+                stop.assert_called_once_with()
+                row = project(child)
+                self.assertEqual(child.buffered_bytes, cap)
+                self.assertEqual(row['stdout_bytes'] + row['stderr_bytes'], cap)
+                self.assertEqual(row['command_failure'], 'OUTPUT_CAP')
+                self.assertTrue(row['diagnostic_gap'])
+                self.assertEqual(row['text_hits'], [label for _, label in self.HOST_HITS[:3]])
+                child.discard()
+                child._read(stream, io.BytesIO(payload))
+                row = project(child)
+                self.assertEqual(row['text_hits'], [])
+                self.assertEqual(row['text_hit_class'], 'UNKNOWN')
+                self.assertTrue(row['buffer_discarded'])
+                self.assertTrue(row['diagnostic_gap'])
+                self.assertEqual(child.buffered_bytes, 0)
+
+    def test_r134_host_hits_sample_once_before_original_stop_without_readiness_shortcut(self):
+        hits = self.HITS + self.HOST_HITS
+        payload = b'|'.join(literal for literal, _ in reversed(hits))
+        device, retained, observations = self.device(clean=False, launch_streams=(payload, b''))
+        result = self.execute(device)
+        # Check behavior before the prospective version assertion, so original
+        # source must fail for absent host hits, not merely a profile mismatch.
+        row = result['owned_launch_diagnostics']
+        self.assertEqual(row['text_hits'], [label for _, label in hits], 'R134_STOP_SAMPLE_HOST_HITS_MISSING')
+        self.sample(result)
+        self.assertEqual(observations[0], 'SNAPSHOT')
+        self.assertEqual(observations[1], (False, False, len(payload), device.caps.stop))
+        self.assertEqual(observations.count('SNAPSHOT'), 1)
+        self.assertFalse(row['command_done'])
+        self.assertFalse(row['command_cancelled'])
+        self.assertFalse(row['buffer_discarded'])
+        frozen = json.dumps(row, sort_keys=True)
+        self.assertTrue(retained[0].stop_tree(device.caps.stop))
+        self.assertEqual(observations.count('SNAPSHOT'), 1)
+        self.assertEqual(json.dumps(self.sample(result), sort_keys=True), frozen)
+        self.assertEqual(result['fixed_readiness_step'], 'WAIT_FOR_DEVICE')
+        self.assertIsNone(result['boot_handoff_observation'])
+        PipelineTests.assert_no_reader_work(self, device, result)
+        self.assertFalse(result['automatic_emulator_teardown_verified'])
+        self.assertFalse(result['all_three_original_runtime_cases_passed'])
+        self.assertTrue(device.launch.cancelled)
+        self.assertEqual(device.launch.buffered_bytes, 0)
 
 
 class FailedWaitHostDiagnosticTests(unittest.TestCase):
