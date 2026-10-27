@@ -15,8 +15,10 @@ class PlaybackServiceLifecycleSourceTest {
 			onTaskRemovedBody.contains("onDestroy()"),
 			"PlaybackService.onTaskRemoved must not call onDestroy() directly because Android/Media3 owns service destruction."
 		)
-		assertContains(onTaskRemovedBody, "exoPlayer?.isPlaying != true")
-		assertContains(onTaskRemovedBody, "stopSelf()")
+		assertContains(onTaskRemovedBody, "shouldKeepMusicService(")
+		assertContains(onTaskRemovedBody, "hasNativePlaybackForeground(this)")
+		assertContains(onTaskRemovedBody, "pauseAllPlayersAndStopSelf()")
+		assertFalse(onTaskRemovedBody.contains("isPlaying"), "Buffering is not a terminal playback intent")
 	}
 
 	@Test

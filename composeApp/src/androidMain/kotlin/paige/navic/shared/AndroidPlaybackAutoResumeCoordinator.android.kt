@@ -18,12 +18,14 @@ internal class AndroidPlaybackAutoResumeCoordinator(
 	private val currentSession: () -> Any?,
 	private val gapSeconds: () -> Int,
 	private val pauseOnVolumeZero: () -> Boolean,
-	private val diagnostic: (String, String, Long) -> Unit = { _, _, _ -> }
+	private val diagnostic: (String, String, Long) -> Unit = { _, _, _ -> },
+	private val resumePlayback: () -> Unit = { player.play() }
 ) : Player.Listener {
 	private val intent = PlaybackAutoResumeIntent()
 	private var gapJob: Job? = null
 	private var zeroVolumeResume: PlaybackAutoResumeIntent.Token? = null
 	private var refreshingUpcomingSources = false
+	val hasPendingResume: Boolean get() = gapJob?.isActive == true || zeroVolumeResume != null
 
 	fun refreshUpcomingSources(refresh: () -> Unit) {
 		val previous = refreshingUpcomingSources
@@ -68,7 +70,7 @@ internal class AndroidPlaybackAutoResumeCoordinator(
 			delay(delayMs)
 			if (player.mediaItemCount > 0 && player.playbackState != Player.STATE_ENDED && consume(token)) {
 				diagnostic("pause-between-songs-resumed", "delayMs", delayMs)
-				player.play()
+				resumePlayback()
 			}
 		}
 	}
@@ -85,7 +87,7 @@ internal class AndroidPlaybackAutoResumeCoordinator(
 			zeroVolumeResume = null
 			if (player.mediaItemCount > 0 && player.playbackState != Player.STATE_ENDED && consume(token)) {
 				diagnostic("volume-restored-resumed", "volume", volume.toLong())
-				player.play()
+				resumePlayback()
 			}
 		}
 	}

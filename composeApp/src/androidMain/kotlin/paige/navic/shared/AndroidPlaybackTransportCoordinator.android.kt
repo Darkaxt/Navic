@@ -26,14 +26,18 @@ internal class AndroidPlaybackTransportCoordinator<P : Player>(
 	private val restore: suspend (PlayerUiState) -> Boolean,
 	private val claimPlayback: () -> Unit,
 	private val isPlaybackLoading: () -> Boolean,
-	private val onFailure: () -> Unit
+	private val onFailure: () -> Unit,
+	private val beginForegroundPreparation: (String, PlayerUiState) -> AutoCloseable? = { _, _ -> null }
 ) {
 	private var job: Job? = null
 	private var generation = 0L
+	private var foregroundPreparation: AutoCloseable? = null
 	val isPending: Boolean get() = job?.isActive == true
 
 	fun cancel() {
 		generation++
+		foregroundPreparation?.close()
+		foregroundPreparation = null
 		if (isPending) state.update { it.copy(isLoading = false) }
 		job?.cancel()
 		job = null
@@ -45,6 +49,12 @@ internal class AndroidPlaybackTransportCoordinator<P : Player>(
 		val account = accountBoundary.capture()
 		if (account.ownerId == null) return
 		beforeWait()
+		val foreground = try { beginForegroundPreparation(reason, state.value) } catch (error: Exception) {
+			Logger.w("PlaybackLifecycle", "User playback admission failed", error)
+			onFailure()
+			return
+		}
+		foregroundPreparation = foreground
 		job = scope.launch {
 			try {
 				awaitInitialState()
@@ -76,6 +86,9 @@ internal class AndroidPlaybackTransportCoordinator<P : Player>(
 			} finally {
 				if (revision == generation) state.update { it.copy(isLoading = isPlaybackLoading()) }
 			}
-		}
+		}.also { task -> task.invokeOnCompletion {
+			if (foregroundPreparation === foreground) foregroundPreparation = null
+			foreground?.close()
+		} }
 	}
 }

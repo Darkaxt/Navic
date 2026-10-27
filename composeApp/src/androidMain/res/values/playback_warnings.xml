@@ -1,0 +1,13 @@
+<resources>
+    <string name="playback_preparing_title">Preparing playback</string>
+    <string name="playback_preparing_message">Preparing your music in the background</string>
+    <string name="playback_preparing_channel">Playback preparation</string>
+    <string name="playback_warning_channel">Playback warnings</string>
+    <string name="playback_balance_left_title">Audio balance is shifted left</string>
+    <string name="playback_balance_right_title">Audio balance is shifted right</string>
+    <string name="playback_balance_left_message">Android is reducing the right channel for connected headphones. Check the left/right balance in accessibility settings.</string>
+    <string name="playback_balance_right_message">Android is reducing the left channel for connected headphones. Check the left/right balance in accessibility settings.</string>
+    <string name="playback_audio_settings">Audio settings</string>
+    <string name="playback_resume_title">Tap to resume your music</string>
+    <string name="playback_resume_message">Android requires a new user action to resume background audio. Your queue is still available in Navic.</string>
+</resources>

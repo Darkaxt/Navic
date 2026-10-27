@@ -14,7 +14,8 @@ import paige.navic.domain.models.CONNECTION_LOST_OFFLINE_MESSAGE
 @OptIn(UnstableApi::class)
 internal class OfflineAwareMediaNotificationProvider(
 	private val context: Context,
-	private val delegate: MediaNotification.Provider
+	private val delegate: MediaNotification.Provider,
+	private val shouldDispatchUpdate: () -> Boolean = { true }
 ) : MediaNotification.Provider {
 	private var connectionLost = false
 	private var latestBase: MediaNotification? = null
@@ -25,7 +26,7 @@ internal class OfflineAwareMediaNotificationProvider(
 		connectionLost = value
 		val base = latestBase ?: return
 		val callback = latestCallback ?: return
-		callback.onNotificationChanged(decorate(base))
+		if (shouldDispatchUpdate()) callback.onNotificationChanged(decorate(base))
 	}
 
 	override fun createNotification(
@@ -42,7 +43,7 @@ internal class OfflineAwareMediaNotificationProvider(
 			object : MediaNotification.Provider.Callback {
 				override fun onNotificationChanged(notification: MediaNotification) {
 					latestBase = notification
-					callback.onNotificationChanged(decorate(notification))
+					if (shouldDispatchUpdate()) callback.onNotificationChanged(decorate(notification))
 				}
 			}
 		)

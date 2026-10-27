@@ -58,6 +58,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -139,6 +140,9 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
 class PlaybackService : MediaSessionService(), KoinComponent {
+	private lateinit var foregroundPreparation: AndroidPlaybackForeground
+	private lateinit var audioSettingsWarnings: AndroidAudioSettingsWarnings
+	private var mediaButtonPreparation: AutoCloseable? = null
 	private var mediaSession: MediaSession? = null
 	private val serviceScope = MainScope()
 	private var scrobbleManager: AndroidScrobbleManager? = null
@@ -175,6 +179,12 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	@OptIn(UnstableApi::class)
 	override fun onCreate() {
 		super.onCreate()
+		foregroundPreparation = AndroidPlaybackForeground(this, resourceProvider.icNavic,
+			{ exoPlayer?.let { it.playWhenReady && it.playbackState != Player.STATE_ENDED && it.playerError == null } == true },
+			::triggerNotificationUpdate)
+		serviceScope.launch {
+			PlaybackForegroundRequests.requests.collect { foregroundPreparation.onRequestsChanged() }
+		}
 		val loadControl = DefaultLoadControl.Builder()
 			.setBufferDurationsMs(
 				/* minBufferMs = */ 32_000,
@@ -191,7 +201,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		}
 		val notificationProvider = OfflineAwareMediaNotificationProvider(
 			context = this,
-			delegate = defaultNotificationProvider
+			delegate = defaultNotificationProvider,
+			shouldDispatchUpdate = { !foregroundPreparation.blocksProviderUpdates }
 		)
 		serviceScope.launch {
 			navidromeAvailabilityManager.state.collectLatest { availability ->
@@ -238,6 +249,26 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 					).build()
 			}
 		exoPlayer = player
+		audioSettingsWarnings = AndroidAudioSettingsWarnings(this, resourceProvider.icNavic) { player.playWhenReady }
+		setListener(object : MediaSessionService.Listener {
+			override fun onForegroundServiceStartNotAllowedException() {
+				player.pause()
+				audioSettingsWarnings.showResumeRequired()
+				Logger.w("PlaybackLifecycle", "Foreground playback start denied; retained queue paused")
+			}
+		})
+		player.addListener(object : Player.Listener {
+			override fun onEvents(player: Player, events: Player.Events) {
+				if (player.playWhenReady && player.playbackState in listOf(Player.STATE_BUFFERING, Player.STATE_READY) ||
+					player.playerError != null || player.playbackState == Player.STATE_ENDED) finishMediaButtonPreparation()
+				foregroundPreparation.onRequestsChanged()
+				audioSettingsWarnings.refresh()
+			}
+			override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+				if (!playWhenReady && reason != Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM)
+					finishMediaButtonPreparation()
+			}
+		})
 		unregisterPlaybackAccount = bindPlaybackAccount(playbackAccountBoundary, player, ::invalidateAutomaticResume)
 
 		registerAudioEffectsListener(player)
@@ -274,7 +305,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			}, itemFactory::toMediaItem)
 		playbackResumption = resumption
 		mediaSession = MediaSession.Builder(this, stablePlaybackSessionPlayer(player,
-			resumption::allowsFrameworkPlaybackMutation, resumption::onPlaylistInstalled))
+			resumption::allowsFrameworkPlaybackMutation, resumption::onPlaylistInstalled, ::allowsPlaybackStart))
 			.setSessionActivity(sessionPendingIntent)
 			.setCallback(PlaybackSessionCallback(player))
 			.build()
@@ -288,8 +319,21 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		return mediaSession
 	}
 
+	@Suppress("DEPRECATION")
 	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
 		when (intent?.action) {
+			PrepareUserPlaybackAction -> foregroundPreparation.onStartRequested()
+			Intent.ACTION_MEDIA_BUTTON -> {
+				val key = intent.getParcelableExtra<android.view.KeyEvent>(Intent.EXTRA_KEY_EVENT)
+				if (key?.action == android.view.KeyEvent.ACTION_DOWN &&
+					(key.keyCode == android.view.KeyEvent.KEYCODE_MEDIA_PLAY ||
+						(key.keyCode in setOf(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+							android.view.KeyEvent.KEYCODE_HEADSETHOOK) && exoPlayer?.playWhenReady != true))) {
+					finishMediaButtonPreparation()
+					mediaButtonPreparation = PlaybackForegroundRequests.acquire {}
+					foregroundPreparation.onStartRequested()
+				}
+			}
 			ACTION_REFRESH_AUDIO_EFFECTS -> applyAudioEffects()
 			ACTION_SET_REPLAY_GAIN_LOUDNESS_BOOST -> {
 				replayGainLoudnessTargetGainMillibels = if (
@@ -305,13 +349,52 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		return super.onStartCommand(intent, flags, startId)
 	}
 
+	@OptIn(UnstableApi::class)
 	override fun onTaskRemoved(rootIntent: Intent?) {
-		if (exoPlayer?.isPlaying != true) {
-			stopSelf()
+		val player = exoPlayer
+		if (!shouldKeepMusicService(PlaybackForegroundRequests.isPending, hasNativePlaybackForeground(this),
+			player?.playWhenReady == true, player?.playbackState == Player.STATE_ENDED,
+			automaticResume?.hasPendingResume == true)) pauseAllPlayersAndStopSelf()
+	}
+
+	@OptIn(UnstableApi::class)
+	override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+		foregroundPreparation.updateNotification(startInForegroundRequired) {
+			super.onUpdateNotification(session, startInForegroundRequired)
 		}
 	}
 
+	private fun finishMediaButtonPreparation() {
+		mediaButtonPreparation?.close()
+		mediaButtonPreparation = null
+	}
+
+	private fun resumeWithForegroundOwnership(player: Player) {
+		if (!isPlaybackApplicationVisible() && !hasNativePlaybackForeground(this)) {
+			player.pause()
+			audioSettingsWarnings.showResumeRequired()
+			Logger.w("PlaybackLifecycle", "Automatic resume deferred: a new user action is required")
+			return
+		}
+		val preparation = if (isPlaybackApplicationVisible()) PlaybackForegroundRequests.acquire(this) else null
+		try {
+			if (player.playbackState == Player.STATE_IDLE || player.playerError != null) player.prepare()
+			player.play()
+			audioSettingsWarnings.dismissResumeRequired()
+		} finally { preparation?.close() }
+	}
+
+	private fun allowsPlaybackStart(): Boolean {
+		if (isPlaybackApplicationVisible() || hasNativePlaybackForeground(this) || PlaybackForegroundRequests.isPending) return true
+		audioSettingsWarnings.showResumeRequired()
+		Logger.w("PlaybackLifecycle", "Background play rejected: no foreground playback ownership")
+		return false
+	}
+
 	override fun onDestroy() {
+		finishMediaButtonPreparation()
+		if (::audioSettingsWarnings.isInitialized) audioSettingsWarnings.close()
+		if (::foregroundPreparation.isInitialized) foregroundPreparation.close()
 		playbackResumption?.close()
 		playbackResumption = null
 		unregisterPlaybackAccount?.invoke()
@@ -476,7 +559,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 						hasPlayableDevice = addedDevices.any { it.canPlayMusic() }
 					)
 				) {
-					player.play()
+					resumeWithForegroundOwnership(player)
 				}
 			}
 		}
@@ -501,7 +584,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			currentSession = sessionLifetime::currentScope,
 			gapSeconds = { preferenceManager.pauseBetweenSongsSeconds },
 			pauseOnVolumeZero = { preferenceManager.pausePlaybackOnVolumeZero },
-			diagnostic = { event, key, value -> logPlaybackServiceDiagnostic(event, player, key to value) }
+			diagnostic = { event, key, value -> logPlaybackServiceDiagnostic(event, player, key to value) },
+			resumePlayback = { resumeWithForegroundOwnership(player) }
 		)
 		automaticResume = coordinator
 		player.addListener(coordinator)
@@ -629,8 +713,29 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			session: MediaSession,
 			controller: MediaSession.ControllerInfo,
 			isForPlayback: Boolean
-		): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
-			checkNotNull(playbackResumption).request(isForPlayback)
+		): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+			if (isForPlayback) {
+				finishMediaButtonPreparation()
+				// The platform grants a user-initiated media-session callback a start exemption.
+				mediaButtonPreparation = PlaybackForegroundRequests.acquire {
+					androidx.core.content.ContextCompat.startForegroundService(this@PlaybackService,
+						Intent(this@PlaybackService, PlaybackService::class.java).setAction(PrepareUserPlaybackAction))
+				}
+				foregroundPreparation.onStartRequested()
+			}
+			val future = checkNotNull(playbackResumption).request(isForPlayback)
+			if (isForPlayback) {
+				val preparation = mediaButtonPreparation
+				Futures.addCallback(future, object : com.google.common.util.concurrent.FutureCallback<MediaSession.MediaItemsWithStartPosition> {
+					override fun onSuccess(result: MediaSession.MediaItemsWithStartPosition?) = Unit
+					override fun onFailure(error: Throwable) {
+						preparation?.close()
+						if (mediaButtonPreparation === preparation) mediaButtonPreparation = null
+					}
+				}, androidx.core.content.ContextCompat.getMainExecutor(this@PlaybackService))
+			}
+			return future
+		}
 
 		@Suppress("OVERRIDE_DEPRECATION")
 		override fun onPlayerCommandRequest(

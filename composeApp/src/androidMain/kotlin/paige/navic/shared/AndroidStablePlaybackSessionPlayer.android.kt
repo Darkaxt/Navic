@@ -10,10 +10,20 @@ import androidx.media3.exoplayer.ExoPlayer
 internal fun stablePlaybackSessionPlayer(
     player: ExoPlayer,
     allowsResumptionMutation: () -> Boolean = { true },
-    onPlaylistInstalled: (List<MediaItem>) -> Unit = {}
+    onPlaylistInstalled: (List<MediaItem>) -> Unit = {},
+    allowsPlaybackStart: () -> Boolean = { true }
 ): Player =
     object : ForwardingPlayer(player) {
-        override fun play() { if (allowsResumptionMutation()) super.play() }
+        override fun play() {
+            if (allowsResumptionMutation()) {
+                if (allowsPlaybackStart()) super.play() else super.pause()
+            }
+        }
+        override fun setPlayWhenReady(playWhenReady: Boolean) {
+            if (!playWhenReady || allowsResumptionMutation()) {
+                super.setPlayWhenReady(playWhenReady && allowsPlaybackStart())
+            }
+        }
         override fun prepare() { if (allowsResumptionMutation()) super.prepare() }
         override fun seekToDefaultPosition() { if (allowsResumptionMutation()) super.seekToDefaultPosition() }
         override fun seekToDefaultPosition(mediaItemIndex: Int) {

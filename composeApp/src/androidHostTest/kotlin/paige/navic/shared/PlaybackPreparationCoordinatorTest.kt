@@ -14,6 +14,38 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PlaybackPreparationCoordinatorTest {
 	@Test
+	fun foregroundCleanupRunsWhenCancelledBeforeDispatch() = runTest {
+		val coordinator = PlaybackPreparationCoordinator(this, PlaybackStartFeedback())
+		var finished = 0
+		coordinator.launch(onFinished = { finished++ }) { error("Cancelled request ran") }
+		coordinator.cancel()
+		runCurrent()
+		assertEquals(1, finished)
+	}
+
+	@Test
+	fun foregroundCleanupDoesNotWaitForNonCooperativeWorkOrReleaseItsReplacement() = runTest {
+		val coordinator = PlaybackPreparationCoordinator(this, PlaybackStartFeedback())
+		val pending = CompletableDeferred<Unit>()
+		var oldFinished = 0
+		var newFinished = 0
+		coordinator.launch(bulk = true, onFinished = { oldFinished++ }) {
+			withContext(NonCancellable) { pending.await() }
+		}
+		runCurrent()
+		coordinator.cancel()
+		assertEquals(1, oldFinished)
+		coordinator.launch(bulk = true, onFinished = { newFinished++ }) { CompletableDeferred<Unit>().await() }
+		pending.complete(Unit)
+		runCurrent()
+		assertEquals(1, oldFinished)
+		assertEquals(0, newFinished)
+		coordinator.cancel()
+		runCurrent()
+		assertEquals(1, newFinished)
+	}
+
+	@Test
 	fun backCancellationPreservesPreviousPlaybackAndRejectsLatePreparation() = runTest {
 		val feedback = PlaybackStartFeedback()
 		val coordinator = PlaybackPreparationCoordinator(this, feedback)

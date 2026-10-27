@@ -27,10 +27,10 @@ class PlaybackStartFeedback {
 		val settled = CompletableDeferred<Unit>()
 	}
 
-	internal fun launch(scope: CoroutineScope, block: suspend () -> Unit) {
+	internal fun launch(scope: CoroutineScope, block: suspend () -> Unit): Job {
 		if (active != null) {
 			_state.value = _state.value?.copy(visible = true)
-			return
+			return checkNotNull(active).job
 		}
 		val request = Request()
 		active = request
@@ -45,6 +45,7 @@ class PlaybackStartFeedback {
 			}
 		}
 		request.job.start()
+		return request.job
 	}
 
 	internal fun starting() {

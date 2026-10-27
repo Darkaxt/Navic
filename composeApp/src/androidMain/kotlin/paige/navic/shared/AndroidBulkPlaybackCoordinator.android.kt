@@ -33,7 +33,8 @@ internal class AndroidBulkPlaybackCoordinator(
 	private val currentSession: () -> Any?,
 	private val onStartAccepted: () -> Unit,
 	private val loadSongRadio: suspend (DomainSong) -> List<DomainSong>,
-	private val clearPlaybackOrigin: () -> Unit
+	private val clearPlaybackOrigin: () -> Unit,
+	private val beginForegroundPreparation: () -> AutoCloseable = { AutoCloseable {} }
 ) {
 	private val connectedController = MutableStateFlow<MediaController?>(null)
 	private val preparation = PlaybackPreparationCoordinator(scope, feedback)
@@ -79,27 +80,35 @@ internal class AndroidBulkPlaybackCoordinator(
 	) {
 		val session = currentSession()
 		val initialController = controller()
-		preparation.launch(
-			bulk = bulk,
-			isOwnerCurrent = {
-				session != null && currentSession() === session &&
-					(initialController == null || controller() === initialController)
-			},
-			onAccepted = {
-				cancelPendingRestore()
-				clearPlaybackRecovery(reason)
-				clearPendingQueueSelection()
-				cancelQueueAutoFill()
-				onStartAccepted()
+		var foreground: AutoCloseable? = null
+		try {
+			preparation.launch(
+				bulk = bulk,
+				isOwnerCurrent = {
+					session != null && currentSession() === session &&
+						(initialController == null || controller() === initialController)
+				},
+				onAccepted = {
+					foreground = beginForegroundPreparation()
+					cancelPendingRestore()
+					clearPlaybackRecovery(reason)
+					clearPendingQueueSelection()
+					cancelQueueAutoFill()
+					onStartAccepted()
+				},
+				onFinished = { foreground?.close() }
+			) {
+				try {
+					block()
+				} catch (cancelled: CancellationException) {
+					throw cancelled
+				} catch (error: Exception) {
+					commit { onFailure(error) }
+				}
 			}
-		) {
-			try {
-				block()
-			} catch (cancelled: CancellationException) {
-				throw cancelled
-			} catch (error: Exception) {
-				commit { onFailure(error) }
-			}
+		} catch (error: Exception) {
+			foreground?.close()
+			onFailure(error)
 		}
 	}
 

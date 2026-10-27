@@ -31,6 +31,7 @@ import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.shared.ResumeUserPlaybackAction
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.reader.ReaderPageQaFaultCommand
 import paige.navic.ui.screens.reader.ReaderPageQaFaultCommandDecoder
@@ -66,6 +67,14 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		val directReaderLaunch = applyReaderDevIntentSeed(intent)
 		if (BuildConfig.NAVIC_READER_DEV && directReaderLaunch) {
 			readerDevNavigationGeneration += 1
+		}
+	}
+
+	override fun onPostResume() {
+		super.onPostResume()
+		if (intent?.action == ResumeUserPlaybackAction) {
+			intent.action = null
+			player.resume()
 		}
 	}
 

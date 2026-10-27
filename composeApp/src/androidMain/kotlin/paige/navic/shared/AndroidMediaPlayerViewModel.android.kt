@@ -200,7 +200,9 @@ class AndroidMediaPlayerViewModel(
 			checkNotNull(playbackAccountBoundary), { awaitInitialStateRestore() },
 			playbackStateSynchronizer::restoreForCommand, ::claimMusicPlayback,
 			{ controller?.playbackState == Player.STATE_BUFFERING || playbackRecovery.pendingSongId != null },
-			{ snackBarManager.notify(Res.string.notice_failed_to_play_song) })
+			{ snackBarManager.notify(Res.string.notice_failed_to_play_song) },
+			{ reason, state -> if (reason == "resume" || pendingQueueSelection?.playWhenReady == true ||
+				!state.isPaused) PlaybackForegroundRequests.acquire(application) else null })
 	}
 	private val nowPlayingBroadcaster = AndroidNowPlayingBroadcaster(
 		application = application,
@@ -267,7 +269,8 @@ class AndroidMediaPlayerViewModel(
 		loadSongRadio = { song ->
 			playbackQueueInteractor.songRadio(song, SongRadioQueueDefaultSize, ::isAvailable)
 		},
-		clearPlaybackOrigin = { playbackOriginRecorder.setOriginNow(null) }
+		clearPlaybackOrigin = { playbackOriginRecorder.setOriginNow(null) },
+		beginForegroundPreparation = { PlaybackForegroundRequests.acquire(application) }
 	)
 
 	private fun onBulkPlaybackConnectionLost() {

@@ -13,6 +13,7 @@ internal class PlaybackPreparationCoordinator(
 ) {
 	private var generation = 0L
 	private var job: Job? = null
+	private var finishRequest: (() -> Unit)? = null
 
 	fun cancelFromUser(onStartingCancelled: () -> Unit) {
 		if (!feedback.isPending) return
@@ -23,15 +24,19 @@ internal class PlaybackPreparationCoordinator(
 
 	fun cancel() {
 		generation++
+		val finish = finishRequest
+		finishRequest = null
 		job?.cancel()
 		job = null
 		feedback.cancel()
+		finish?.invoke()
 	}
 
 	fun launch(
 		bulk: Boolean = false,
 		isOwnerCurrent: () -> Boolean = { true },
 		onAccepted: () -> Unit = {},
+		onFinished: () -> Unit = {},
 		block: suspend Request.() -> Unit
 	) {
 		if (bulk && feedback.isPending) {
@@ -41,8 +46,17 @@ internal class PlaybackPreparationCoordinator(
 		cancel()
 		val request = Request(generation, isOwnerCurrent)
 		onAccepted()
-		if (bulk) feedback.launch(scope) { request.block() }
-		else job = scope.launch { request.block() }
+		var finished = false
+		val finish = {
+			if (!finished) { finished = true; onFinished() }
+		}
+		finishRequest = finish
+		val task = if (bulk) feedback.launch(scope) { request.block() }
+			else scope.launch { request.block() }.also { job = it }
+		task.invokeOnCompletion {
+			if (finishRequest === finish) finishRequest = null
+			finish()
+		}
 	}
 
 	inner class Request internal constructor(
