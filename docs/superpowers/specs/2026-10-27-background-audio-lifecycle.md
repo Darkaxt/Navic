@@ -108,13 +108,16 @@ permission for alternative transport or further phone control.
 
 ### Stage 2: Verified Public Delivery
 
-Status: ACTIVE
+Status: COMPLETE
 Requirements: R6. Depends on Stage 1.
-Acceptance satisfied: local music, signing and packaged governance prerequisites
-passed; fork/master was fetched and remains the unchanged implementation base.
-Advancement blockers (internal): final commit/push/tag, successful release CI,
-public package proof and reviewed scratch cleanup remain required.
-Tracked deferrals: none.
+Acceptance satisfied: verified implementation committed and synchronized, normal
+iota72 release published, CI music/signing/governance checks passed, public APK
+independently downloaded and checked against the actual CI APK and asset digest,
+and exact task-owned scratch removed through reviewed cleanup tickets.
+Remaining acceptance criteria: none. Blockers: none. Tracked deferrals: none.
+Final reconciliation: R1-R6 satisfied under the recorded user-revised physical
+testing boundary; no acoustic Bluetooth claim is made. The closure assessment
+remains applicable; no runtime code changed after verification.
 
 ## Storage And Verification
 
@@ -132,4 +135,28 @@ profile and daemon-exit evidence, not requested settings alone.
 
 The candidate version is assigned iota72 (599) during Stage 1 so the signed
 device-validation package has its intended release identity. This is not public
-publication; Stage 2 remains gated on the complete Stage 1 workflow.
+publication; Stage 2 was gated on the complete Stage 1 workflow.
+
+## Public Delivery Evidence
+
+- Release: https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-iota72
+- Published normally, not draft/prerelease, 2026-10-27 22:31:53 UTC.
+- Source/tag commit: fe37938024bff7c07a185cb3a099da5bafe783da.
+- Release workflow: https://github.com/Darkaxt/Navic/actions/runs/40593980528
+  passed; the matching wrapper validation passed. iOS jobs were skipped.
+- Independently retrieved public Navic.apk: 47,562,426 bytes, code599,
+  darkaxt.navic, target37, not debuggable. Its SHA-256 is
+  289888fc58848357f88689c731db72b25ae325bfad7c1db23f4981648d75e227,
+  equal to both GitHub's asset digest and the downloaded CI artifact.
+- Production signing certificate SHA-256:
+  ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7.
+- Downloaded CI XML independently parsed: 1,178 tests, zero failures/errors/skips,
+  including the new foreground ownership and audio warning suites. Public APK
+  warning resources and SDK were inspected; CI packaged governance passed.
+- Cleanup 83e4f66f3c469ca22ab4b2d89ee231aa removed finished build/cache output
+  (1,480,654,504 recorded bytes). Cleanup a1879b50c5288b8d2ca764c40a43c7df removed
+  verification copies, captures and scripts (98,852,148 recorded bytes). Both
+  applied without errors, warnings or residuals; scratch-root absence checked.
+  These are helper-accounted deleted payload bytes, not a physical free-space
+  measurement. Maintained source, shared caches, signing and private evidence
+  remain preserved. No device interaction occurred after the user's stop.
