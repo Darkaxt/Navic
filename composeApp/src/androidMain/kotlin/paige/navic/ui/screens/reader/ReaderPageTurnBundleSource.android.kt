@@ -5216,6 +5216,15 @@ internal class ReaderPageTurnBundleSource(
 			val currentBeforeAcquisition = publicationIsCurrent()
 			val value = publicationLedger.acquireForPersistence(request)
 				?: return@publication
+			val writeStartedAtMillis = SystemClock.uptimeMillis()
+			ReaderStageDiagnostic.emit(
+				phase = ReaderStageDiagnosticPhase.PublicationWrite,
+				state = ReaderWebViewDiagnosticState.Started,
+				reason = ReaderStageDiagnosticReason.None,
+				elapsedMs = 0L,
+				current = currentBeforeAcquisition,
+				persisted = false
+			)
 			var write = ReaderPageRasterWriteResult(
 				persisted = false,
 				ownership = ReaderPageRasterValueOwnership.Caller
@@ -5306,6 +5315,25 @@ internal class ReaderPageTurnBundleSource(
 					}
 			} finally {
 				val publicationCurrent = publicationIsCurrent()
+				val publicationCancelled = currentCoroutineContext()[Job]?.isCancelled == true
+				val diagnosticReason = when {
+					write.failureReason == ReaderPageRasterWriteFailureReason.DiskCapacity -> ReaderStageDiagnosticReason.DiskCapacity
+					write.failureReason == ReaderPageRasterWriteFailureReason.EncodeIdentityReleasing -> ReaderStageDiagnosticReason.EncodeIdentityReleasing
+					closed -> ReaderStageDiagnosticReason.Closed
+					publicationCancelled -> ReaderStageDiagnosticReason.Cancelled
+					!publicationCurrent -> ReaderStageDiagnosticReason.Stale
+					writeFailure != null -> ReaderStageDiagnosticReason.CommandThrew
+					!write.persisted -> ReaderStageDiagnosticReason.NotReady
+					else -> ReaderStageDiagnosticReason.None
+				}
+				ReaderStageDiagnostic.emit(
+					phase = ReaderStageDiagnosticPhase.PublicationWrite,
+					state = if (write.persisted) ReaderWebViewDiagnosticState.Completed else ReaderWebViewDiagnosticState.Failed,
+					reason = diagnosticReason,
+					elapsedMs = SystemClock.uptimeMillis() - writeStartedAtMillis,
+					current = publicationCurrent,
+					persisted = write.persisted
+				)
 				val persistedForCurrentPublication = write.persisted && publicationCurrent
 				val publicationCompletion = readerPageRasterPublicationCompletion(
 					persistedForCurrentPublication = persistedForCurrentPublication,
@@ -5318,9 +5346,29 @@ internal class ReaderPageTurnBundleSource(
 						request = request,
 						persisted = persistedForCurrentPublication
 					)
+				} catch (failure: Throwable) {
+					ReaderStageDiagnostic.emit(
+						phase = ReaderStageDiagnosticPhase.PublicationAcceptance,
+						state = ReaderWebViewDiagnosticState.Failed,
+						reason = ReaderStageDiagnosticReason.CommandThrew,
+						elapsedMs = SystemClock.uptimeMillis() - writeStartedAtMillis,
+						applied = false
+					)
+					throw failure
 				} finally {
 					publicationCompletionResults.remove(request)
 				}
+				ReaderStageDiagnostic.emit(
+					phase = ReaderStageDiagnosticPhase.PublicationAcceptance,
+					state = if (accepted && persistedForCurrentPublication) ReaderWebViewDiagnosticState.Completed else ReaderWebViewDiagnosticState.Rejected,
+					reason = when {
+						publicationCompletion.result == ReaderPageRasterPublicationResult.CapacityReached -> ReaderStageDiagnosticReason.CapacityReached
+						!accepted && diagnosticReason == ReaderStageDiagnosticReason.None -> ReaderStageDiagnosticReason.Stale
+						else -> diagnosticReason
+					},
+					elapsedMs = SystemClock.uptimeMillis() - writeStartedAtMillis,
+					applied = accepted && persistedForCurrentPublication
+				)
 				if (!accepted || !persistedForCurrentPublication) {
 					write.receipt?.let { receipt ->
 						var rollbackFailure: Throwable? = null

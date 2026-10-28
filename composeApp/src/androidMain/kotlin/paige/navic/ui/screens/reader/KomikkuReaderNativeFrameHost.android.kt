@@ -1532,6 +1532,47 @@ private class KomikkuReaderNativeFrameRoot(
 				activatedTransitionCoordinator = ReaderResumableTransitionCoordinator(
 					ReaderActivatedTransitionPorts(ports), ReaderTransitionMode.Active, installed.journal,
 					installed.releaseLedger, activationState = { checkNotNull(normalActivationCoordinator).state },
+					onObservation = { observation ->
+						when (observation.kind) {
+							ReaderTransitionCoordinatorObservationKind.FactProcessed -> {
+								val state = when (observation.outcome) {
+									ReaderTransitionOutcomeKind.Failed -> ReaderWebViewDiagnosticState.Failed
+									ReaderTransitionOutcomeKind.Cancelled -> ReaderWebViewDiagnosticState.Cancelled
+									else -> ReaderWebViewDiagnosticState.Completed
+								}
+								val reason = when {
+									observation.classification == ReaderTransitionFactClassification.StaleTransition -> ReaderStageDiagnosticReason.Stale
+									observation.outcome == ReaderTransitionOutcomeKind.Cancelled -> ReaderStageDiagnosticReason.Cancelled
+									observation.outcome == ReaderTransitionOutcomeKind.Failed -> ReaderStageDiagnosticReason.NotReady
+									else -> ReaderStageDiagnosticReason.None
+								}
+								ReaderStageDiagnostic.emit(
+									phase = ReaderStageDiagnosticPhase.CoordinatorFact,
+									state = state, reason = reason, elapsedMs = observation.elapsedMs,
+									factKind = observation.factKind, classification = observation.classification,
+									applied = observation.applied, outcome = observation.outcome,
+									failure = observation.failure, cancellation = observation.cancellation
+								)
+								if (observation.outcome != null && observation.operation ==
+									paige.navic.reader.ReaderTransitionOperation.CurlClaimAndSettlement) {
+									ReaderStageDiagnostic.emit(ReaderStageDiagnosticPhase.TurnTerminal,
+										state, reason, observation.elapsedMs)
+								}
+							}
+							ReaderTransitionCoordinatorObservationKind.DeadlineProgress ->
+								ReaderStageDiagnostic.emit(
+									phase = ReaderStageDiagnosticPhase.DeadlineProgress,
+									state = if (observation.applied == true) ReaderWebViewDiagnosticState.Completed else ReaderWebViewDiagnosticState.Rejected,
+									reason = when (observation.rejection) {
+										paige.navic.reader.ReaderTransitionCommandRejectionReason.CommandThrew -> ReaderStageDiagnosticReason.CommandThrew
+										null -> if (observation.applied == true) ReaderStageDiagnosticReason.None else ReaderStageDiagnosticReason.Stale
+										else -> ReaderStageDiagnosticReason.PortRejected
+									},
+									elapsedMs = observation.elapsedMs
+								)
+							else -> Unit
+						}
+					},
 					onAcceptedPublication = { command, applied ->
 						if (viewerContainer.refreshInstalledPresentationConsumers(command, applied)) {
 							viewerContainer.installedPhysicalPublicationIngress?.invoke(command, applied)
@@ -4333,9 +4374,17 @@ private class KomikkuReaderNativeViewerContainer(
 	 * and generic observations may refresh decoration, never borrow an unaccepted barrier. */
 	fun refreshInstalledPresentationConsumers(command: ReaderTransitionCommand,
 		applied: ReaderOwnerAndInputPublicationResult.Applied): Boolean {
+		val diagnosticStartedAtMillis = SystemClock.uptimeMillis()
+		val diagnosticPhase = if (applied.publishedOwner is ReaderPresentationFrameOwner.ShellCover)
+			ReaderStageDiagnosticPhase.ShellPublication else ReaderStageDiagnosticPhase.DisplayPublication
+		ReaderStageDiagnostic.emit(diagnosticPhase, ReaderWebViewDiagnosticState.Started,
+			ReaderStageDiagnosticReason.None, 0L)
 		fun rejected(): Boolean {
 			presentationInputPolicy = ReaderPresentationInputPolicy.RecoveryOnly
 			pageInputSettlementHostController.updateInstalledLocalSafety(readerPageOperationPolicy(ReaderPageReadinessState()))
+			ReaderStageDiagnostic.emit(diagnosticPhase, ReaderWebViewDiagnosticState.Rejected,
+				if (finalHostLifecycleEvent != null || task4ResourceTeardownStarted) ReaderStageDiagnosticReason.Closed else ReaderStageDiagnosticReason.Stale,
+				SystemClock.uptimeMillis() - diagnosticStartedAtMillis)
 			return false
 		}
 		val readers = readInstalledPublication ?: return rejected()
@@ -4391,6 +4440,8 @@ private class KomikkuReaderNativeViewerContainer(
 		if (readers() !== publication || installedCommandCurrency?.invoke() != true ||
 			finalHostLifecycleEvent != null || task4ResourceTeardownStarted || !isAttachedToWindow || windowVisibility != VISIBLE)
 			return rejected()
+		ReaderStageDiagnostic.emit(diagnosticPhase, ReaderWebViewDiagnosticState.Completed,
+			ReaderStageDiagnosticReason.None, SystemClock.uptimeMillis() - diagnosticStartedAtMillis)
 		return true
 	}
 
@@ -4507,7 +4558,20 @@ private class KomikkuReaderNativeViewerContainer(
 		// Call exactly once, even before availability. The original preparation controller
 		// registers this same work before awaitInstalledReadiness in its physical-start
 		// closure; the genuine adapter-ready edge resumes it, not Native polling/retry.
+		val progressStartedAtMillis = SystemClock.uptimeMillis()
 		val result = pageRasterPreparationController.prepareInstalled(work, plan,
+			onProgress = {
+				if (pendingInstalledRaster === invocation && work.isCurrent()) {
+					invocation.callbacks.onProgress(lease)
+					ReaderStageDiagnostic.emit(ReaderStageDiagnosticPhase.InstalledProgress,
+						ReaderWebViewDiagnosticState.Completed, ReaderStageDiagnosticReason.None,
+						SystemClock.uptimeMillis() - progressStartedAtMillis)
+				} else {
+					ReaderStageDiagnostic.emit(ReaderStageDiagnosticPhase.InstalledProgress,
+						ReaderWebViewDiagnosticState.Rejected, ReaderStageDiagnosticReason.Stale,
+						SystemClock.uptimeMillis() - progressStartedAtMillis)
+				}
+			},
 			onReady = {
 				if (pendingInstalledRaster === invocation) pendingInstalledRaster = null
 				// Detach invocation admission only. The keyed work remains readable and
@@ -4618,12 +4682,22 @@ private class KomikkuReaderNativeViewerContainer(
 		isCommandCurrent: (paige.navic.reader.ReaderTransitionCommand.AllocateMaterialBinding) -> Boolean,
 		enqueue: (ReaderTransitionFact) -> Unit
 	): ReaderMaterialGenerationAllocationPort = ReaderMaterialGenerationAllocationPort allocate@{ command, onFact ->
-		if (pendingInstalledMaterialAllocation != null) return@allocate installedRejected()
-		val domain = pageRasterPreparationController.activatedMaterialDomain ?: return@allocate installedRejected()
-		val installed = activatedSessionStore.snapshot ?: return@allocate installedRejected()
-		val installation = currentFrameInstallation ?: return@allocate installedRejected()
-		val engine = currentLiveWebView() ?: return@allocate installedRejected()
-		val source = engine as? ReaderEngineCurrentDestinationQuerySource ?: return@allocate installedRejected()
+		val diagnosticStartedAtMillis = SystemClock.uptimeMillis()
+		fun observe(state: ReaderWebViewDiagnosticState, reason: ReaderStageDiagnosticReason) {
+			ReaderStageDiagnostic.emit(ReaderStageDiagnosticPhase.MaterialAllocation, state, reason,
+				SystemClock.uptimeMillis() - diagnosticStartedAtMillis)
+		}
+		fun rejectedAdmission(): ReaderPortCommandResult {
+			observe(ReaderWebViewDiagnosticState.Rejected, ReaderStageDiagnosticReason.Stale)
+			return installedRejected()
+		}
+		observe(ReaderWebViewDiagnosticState.Started, ReaderStageDiagnosticReason.None)
+		if (pendingInstalledMaterialAllocation != null) return@allocate rejectedAdmission()
+		val domain = pageRasterPreparationController.activatedMaterialDomain ?: return@allocate rejectedAdmission()
+		val installed = activatedSessionStore.snapshot ?: return@allocate rejectedAdmission()
+		val installation = currentFrameInstallation ?: return@allocate rejectedAdmission()
+		val engine = currentLiveWebView() ?: return@allocate rejectedAdmission()
+		val source = engine as? ReaderEngineCurrentDestinationQuerySource ?: return@allocate rejectedAdmission()
 		val epoch = presentationBindingReporter.captureEpoch()
 		val measuredWidth = width
 		val measuredHeight = height
@@ -4654,32 +4728,41 @@ private class KomikkuReaderNativeViewerContainer(
 			while (ancestor !== installation.wrapper) ancestor = ancestor.parent as? View ?: return false
 			return isCommandCurrent(command)
 		}
-		if (!physicalCurrent()) return@allocate installedRejected()
+		if (!physicalCurrent()) return@allocate rejectedAdmission()
 		val initialCommand = command.transitionId.operation == paige.navic.reader.ReaderTransitionOperation.BootstrapNativePage &&
 			command.transitionId.expectedBinding is paige.navic.reader.ReaderExpectedPresentationBinding.FoliateAuthoritativeInitial
 		val resolved = if (initialCommand) captureInitialResolvedLayoutForAllocation(candidate, command) else null
-		if (initialCommand && resolved == null) return@allocate installedRejected()
+		if (initialCommand && resolved == null) return@allocate rejectedAdmission()
 		val invocation = InstalledMaterialAllocationInvocation(command)
 		pendingInstalledMaterialAllocation = invocation // Retain BEFORE query or Javascript may reenter cancel/close.
 		fun current(): Boolean = pendingInstalledMaterialAllocation === invocation && physicalCurrent() &&
 			pendingInstalledMaterialAllocation === invocation
 		fun reject(reason: paige.navic.reader.ReaderTransitionCommandRejectionReason =
 			paige.navic.reader.ReaderTransitionCommandRejectionReason.MaterialAllocationRejected) {
+			observe(ReaderWebViewDiagnosticState.Rejected,
+				if (reason == paige.navic.reader.ReaderTransitionCommandRejectionReason.CommandThrew)
+					ReaderStageDiagnosticReason.CommandThrew else ReaderStageDiagnosticReason.PortRejected)
 			if (!current()) { retireInstalledMaterialAllocation(invocation); return }
 			retireInstalledMaterialAllocation(invocation)
 			if (physicalCurrent()) enqueue(ReaderTransitionFact.CommandRejected(command.transitionId,
 				paige.navic.reader.ReaderTransitionCommandStage.MaterialAllocation, reason))
 		}
+		fun retireStale() {
+			observe(ReaderWebViewDiagnosticState.Rejected,
+				if (finalHostLifecycleEvent != null || task4ResourceTeardownStarted)
+					ReaderStageDiagnosticReason.Closed else ReaderStageDiagnosticReason.Stale)
+			retireInstalledMaterialAllocation(invocation)
+		}
 		fun requestPlan(layout: paige.navic.reader.ReaderFoliateResolvedLayout, layoutCurrent: () -> Boolean) {
 			fun planCurrent(): Boolean = current() && layoutCurrent() && current()
-			if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return }
+			if (!planCurrent()) { retireStale(); return }
 			engine.evaluateJavascript(
 				"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterPreparationPlan?.(null) ?? null)"
 			) callback@{ encoded ->
 				if (invocation.planHandled) return@callback
 				invocation.planHandled = true
 				try {
-					if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return@callback }
+					if (!planCurrent()) { retireStale(); return@callback }
 					val plan = runCatching { readerPageRasterPreparationPlan(encoded) }.getOrNull()
 					if (plan == null || plan.resolvedLayout != layout || plan.currentChapterIndex != layout.sectionIndex ||
 						plan.currentChapterPageStartIndex < 0 || plan.currentChapterPageCount != layout.pageCount ||
@@ -4690,22 +4773,28 @@ private class KomikkuReaderNativeViewerContainer(
 					}
 					// Same complete initial/successor validation, same original counter owners and order.
 					// Reservations never manufacture readiness, presentation, a deck or an ACK.
-					if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return@callback }
+					if (!planCurrent()) { retireStale(); return@callback }
 					val preparation = pageRasterPreparationController.reserveActivatedPreparationGeneration(command, domain)
-					if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return@callback }
+					if (!planCurrent()) { retireStale(); return@callback }
 					val raster = preparation?.let { pageTurnBundleSource.reserveActivatedRasterGeneration(command, domain) }
-					if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return@callback }
+					if (!planCurrent()) { retireStale(); return@callback }
 					val allocation = if (preparation != null && raster != null)
 						playLikeCurlController.reserveActivatedMaterialBinding(command, domain, engine, plan, preparation, raster) else null
 					if (allocation == null) { reject(); return@callback }
-					if (!planCurrent()) { retireInstalledMaterialAllocation(invocation); return@callback }
+					if (!planCurrent()) { retireStale(); return@callback }
 					retireInstalledMaterialAllocation(invocation) // Consumed before outward coordinator callbacks.
-					if (!physicalCurrent() || !layoutCurrent()) return@callback
+					if (!physicalCurrent() || !layoutCurrent()) {
+						observe(ReaderWebViewDiagnosticState.Rejected, ReaderStageDiagnosticReason.Stale)
+						return@callback
+					}
 					// Scalar qualification belongs only to initial bootstrap. Successor/retry
 					// profile association is carried by this same original allocation.
 					if (initialCommand) enqueue(ReaderTransitionFact.PaginationProfileReady(command.transitionId,
 						allocation.allocatedBinding.profileGeneration))
-					if (physicalCurrent() && layoutCurrent()) onFact(ReaderTransitionFact.MaterialBindingAllocated(command.transitionId, allocation))
+					if (physicalCurrent() && layoutCurrent()) {
+						observe(ReaderWebViewDiagnosticState.Completed, ReaderStageDiagnosticReason.None)
+						onFact(ReaderTransitionFact.MaterialBindingAllocated(command.transitionId, allocation))
+					} else observe(ReaderWebViewDiagnosticState.Rejected, ReaderStageDiagnosticReason.Stale)
 				} catch (_: Throwable) {
 					reject(paige.navic.reader.ReaderTransitionCommandRejectionReason.CommandThrew)
 				}
@@ -4716,10 +4805,10 @@ private class KomikkuReaderNativeViewerContainer(
 				// This remains genuinely initial-only; never reuse its retired query for a successor.
 				requestPlan(resolved.layout) { captureInitialResolvedLayoutForAllocation(candidate, command) === resolved }
 			} else {
-				if (!current()) { retireInstalledMaterialAllocation(invocation); return@allocate installedRejected() }
+				if (!current()) { retireInstalledMaterialAllocation(invocation); return@allocate rejectedAdmission() }
 				val retirement = source.queryAllocationLayout(command, ::current) outcome@{ outcome ->
 					if (invocation.queryDelivered) return@outcome
-					if (!current()) { retireInstalledMaterialAllocation(invocation); return@outcome }
+					if (!current()) { retireStale(); return@outcome }
 					invocation.queryDelivered = true
 					try {
 						val event = (outcome as? ReaderCurrentDestinationQueryOutcome.Resolved)?.event
@@ -4741,10 +4830,11 @@ private class KomikkuReaderNativeViewerContainer(
 					retireInstalledMaterialAllocation(invocation)
 					retirement?.retire()
 				}
-				else if (retirement == null) { retireInstalledMaterialAllocation(invocation); return@allocate installedRejected() }
+				else if (retirement == null) { retireInstalledMaterialAllocation(invocation); return@allocate rejectedAdmission() }
 				else invocation.query = retirement
 			}
 		} catch (failure: Throwable) {
+			observe(ReaderWebViewDiagnosticState.Failed, ReaderStageDiagnosticReason.CommandThrew)
 			retireInstalledMaterialAllocation(invocation)
 			throw failure // Original command adapter accounts the actual throw; no invented return.
 		}

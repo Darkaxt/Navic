@@ -1,6 +1,7 @@
 """Host-only caller contracts; no SDK, emulator, ADB or Android process is run."""
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shlex
 import hashlib
@@ -410,6 +411,296 @@ class ReaderPhaseProjectionTests(unittest.TestCase):
         self.assertIn('"ReaderPassiveRasterWebViewHost"', source)
 
 
+STAGE_MESSAGES = (
+    'reader-stage phase=PublicationWrite state=Completed reason=None elapsedMs=12 current=true persisted=true',
+    'reader-stage phase=PublicationWrite state=Rejected reason=Stale elapsedMs=12 current=false persisted=true',
+    'reader-stage phase=TargetProgress state=Completed reason=None elapsedMs=12 completedCount=1 requiredCount=3',
+    'reader-stage phase=CoordinatorFact state=Completed reason=None elapsedMs=12 fact=RasterProven classification=CurrentTransition',
+    'reader-stage phase=DeadlineProgress state=Completed reason=None elapsedMs=12',
+    'reader-stage phase=DisplayPublication state=Rejected reason=Stale elapsedMs=12',
+)
+
+
+FULL_STAGE_MESSAGES = STAGE_MESSAGES + (
+    'reader-stage phase=MaterialAllocation state=Started reason=None elapsedMs=12',
+    'reader-stage phase=InstalledPreparation state=Completed reason=None elapsedMs=12',
+    'reader-stage phase=PublicationAcceptance state=Completed reason=None elapsedMs=12 applied=true',
+    'reader-stage phase=InstalledProgress state=Completed reason=None elapsedMs=12',
+    'reader-stage phase=RasterReady state=Completed reason=None elapsedMs=12 completedCount=1 requiredCount=3',
+    'reader-stage phase=ShellPublication state=Completed reason=None elapsedMs=12',
+    'reader-stage phase=TurnTerminal state=Completed reason=None elapsedMs=12',
+    'reader-stage phase=CoordinatorFact state=Failed reason=NotReady elapsedMs=12 fact=DeadlineExpired classification=CurrentTransition applied=true outcome=Failed failure=MaterialTimeout',
+    'reader-stage phase=CoordinatorFact state=Cancelled reason=Cancelled elapsedMs=12 fact=Intent classification=CurrentTransition applied=true outcome=Cancelled cancellation=UserCancelled',
+)
+
+
+def kotlin_enum_entries(path, name):
+    source = path.read_text(encoding='utf-8')
+    match = re.search(r'\benum\s+class\s+' + re.escape(name) + r'\s*\{(?P<body>.*?)\}',
+                      source, re.DOTALL)
+    if match is None:
+        raise AssertionError('missing enum declaration: ' + name)
+    entries = [entry.strip() for entry in match.group('body').split(',')]
+    if not entries or any(re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', entry) is None for entry in entries):
+        raise AssertionError('unsupported enum declaration: ' + name)
+    return frozenset(entries)
+
+
+class ReaderStageTransportTests(unittest.TestCase):
+    """Closed outcome transport only; a retained stage never supplies acceptance."""
+    def line(self, message, method=METHODS[0]):
+        return ('INSTRUMENTATION_STATUS: E407.ReaderPhase.V1=' + method + '|' + message + '\n').encode('ascii')
+
+    def test_r142_kotlin_stage_formatter_and_fixture_retention_are_connected(self):
+        root = PATH.parent.parent
+        source = (root / 'composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderWebViewPhaseDiagnostic.android.kt').read_text(encoding='utf-8')
+        self.assertIn('internal object ReaderStageDiagnostic', source)
+        self.assertIn('fun isSafeMessage(', source)
+        fixture = (root / 'composeApp/src/androidDeviceTest/kotlin/paige/navic/ui/screens/reader/ReaderNormalProductionStartupRuntimeTest.kt').read_text(encoding='utf-8')
+        self.assertIn('ReaderStageDiagnostic.isSafeMessage(event.message)', fixture)
+        self.assertIn('ReaderStageDiagnosticTag', fixture)
+
+    def test_r142_python_closed_vocabulary_matches_kotlin_enum_declarations(self):
+        root = PATH.parent.parent
+        stage_source = root / 'composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderWebViewPhaseDiagnostic.android.kt'
+        coordinator_source = root / 'composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderResumableTransitionCoordinator.android.kt'
+        transition_source = root / 'composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderResumableTransition.kt'
+        self.assertEqual(frozenset(runner._READER_STAGE_FIELDS),
+                         kotlin_enum_entries(stage_source, 'ReaderStageDiagnosticPhase'))
+        self.assertEqual(getattr(runner, '_READER_STAGE_STATES', frozenset()),
+                         kotlin_enum_entries(stage_source, 'ReaderWebViewDiagnosticState'))
+        self.assertEqual(getattr(runner, '_READER_STAGE_REASONS', frozenset()),
+                         kotlin_enum_entries(stage_source, 'ReaderStageDiagnosticReason'))
+        self.assertEqual(runner._READER_STAGE_FACTS,
+                         kotlin_enum_entries(transition_source, 'ReaderTransitionFactKind'))
+        self.assertEqual(runner._READER_STAGE_CLASSIFICATIONS,
+                         kotlin_enum_entries(coordinator_source, 'ReaderTransitionFactClassification'))
+        self.assertEqual(getattr(runner, '_READER_STAGE_OUTCOMES', frozenset()),
+                         kotlin_enum_entries(coordinator_source, 'ReaderTransitionOutcomeKind'))
+        self.assertEqual(getattr(runner, '_READER_STAGE_FAILURES', frozenset()),
+                         kotlin_enum_entries(transition_source, 'ReaderTransitionFailureReason'))
+        self.assertEqual(getattr(runner, '_READER_STAGE_CANCELLATIONS', frozenset()),
+                         kotlin_enum_entries(transition_source, 'ReaderTransitionCancellationReason'))
+
+    def test_r142_original_production_handoffs_have_closed_stage_emission(self):
+        root = PATH.parent.parent / 'composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader'
+        required = {
+            'ReaderPageTurnBundleSource.android.kt': ('PublicationWrite', 'PublicationAcceptance'),
+            'ReaderPassiveRasterPreparationAdapter.android.kt': ('TargetProgress', 'RasterReady'),
+            'ReaderPageRasterPreparationController.android.kt': ('InstalledPreparation',),
+            'KomikkuReaderNativeFrameHost.android.kt': ('MaterialAllocation', 'InstalledProgress', 'DisplayPublication', 'CoordinatorFact'),
+        }
+        for name, phases in required.items():
+            source = (root / name).read_text(encoding='utf-8')
+            for phase in phases:
+                with self.subTest(source=name, phase=phase):
+                    self.assertIn('ReaderStageDiagnosticPhase.' + phase, source)
+
+    def test_r142_coordinator_projection_carries_processed_classification_and_terminal_outcome(self):
+        source = (PATH.parent.parent / 'composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderResumableTransitionCoordinator.android.kt').read_text(encoding='utf-8')
+        observation = source.split('internal data class ReaderTransitionCoordinatorObservation(', 1)[1].split('\n)', 1)[0]
+        self.assertIn('val classification:', observation)
+        self.assertIn('val applied:', observation)
+        self.assertIn('val outcome:', observation)
+        self.assertIn('val failure:', observation)
+        self.assertIn('DeadlineProgress', source)
+
+    def test_r142_all_twelve_stage_forms_and_existing_six_positives_are_closed(self):
+        phases = {message.split(' phase=', 1)[1].split(' ', 1)[0] for message in FULL_STAGE_MESSAGES}
+        self.assertEqual(phases, {
+            'MaterialAllocation', 'InstalledPreparation', 'PublicationWrite', 'PublicationAcceptance',
+            'TargetProgress', 'InstalledProgress', 'RasterReady', 'CoordinatorFact', 'DeadlineProgress',
+            'DisplayPublication', 'ShellPublication', 'TurnTerminal',
+        })
+        for message in FULL_STAGE_MESSAGES:
+            with self.subTest(message=message):
+                self.assertTrue(runner._valid_reader_phase(message))
+        for reason in ('DiskCapacity', 'EncodeIdentityReleasing', 'Cancelled', 'Closed'):
+            self.assertTrue(runner._valid_reader_phase(STAGE_MESSAGES[0].replace(
+                'state=Completed reason=None', 'state=Failed reason=' + reason)))
+
+    def test_r142_coordinator_terminal_forms_are_closed_and_outcome_consistent(self):
+        prefix = ('reader-stage phase=CoordinatorFact state=Completed reason=None elapsedMs=12 '
+                  'fact=RasterProven classification=CurrentTransition')
+        for message in (
+            prefix,
+            prefix + ' applied=true',
+            prefix + ' outcome=Succeeded',
+            prefix + ' applied=false outcome=Deferred',
+            prefix + ' outcome=Failed failure=MaterialTimeout',
+            prefix + ' applied=true outcome=Cancelled cancellation=Superseded',
+        ):
+            with self.subTest(message=message):
+                self.assertTrue(runner._valid_reader_phase(message))
+
+    def test_r142_stage_extensions_unknown_vocabulary_and_invalid_scalars_are_rejected(self):
+        messages = [message + ' bookId=R142_PRIVATE_CANARY' for message in STAGE_MESSAGES]
+        messages += [message.replace('reason=None', 'reason=R142_PRIVATE_CANARY')
+                     for message in STAGE_MESSAGES if 'reason=None' in message]
+        messages += [STAGE_MESSAGES[0].replace('current=true', 'current=1'),
+                     STAGE_MESSAGES[0].replace('elapsedMs=12', 'elapsedMs=-1'),
+                     STAGE_MESSAGES[0].replace('elapsedMs=12', 'elapsedMs=9223372036854775808'),
+                     STAGE_MESSAGES[2].replace('completedCount=1', 'completedCount=4'),
+                     STAGE_MESSAGES[2].replace('requiredCount=3', 'requiredCount=2147483648'),
+                     STAGE_MESSAGES[2].replace('completedCount=1 ', ''),
+                     STAGE_MESSAGES[3].replace('RasterProven', 'R142_PRIVATE_CANARY'),
+                     STAGE_MESSAGES[3].replace('CurrentTransition', 'R142_PRIVATE_CANARY'),
+                     STAGE_MESSAGES[3].replace(' classification=CurrentTransition', ''),
+                     STAGE_MESSAGES[4].replace('DeadlineProgress', 'R142_PRIVATE_CANARY'),
+                     STAGE_MESSAGES[4] + ' current=true persisted=true',
+                     STAGE_MESSAGES[0].replace(' current=true persisted=true', ''),
+                     STAGE_MESSAGES[0] + '\n', None, 1, True, {}]
+        for message in messages:
+            with self.subTest(message_type=type(message).__name__):
+                self.assertFalse(runner._valid_reader_phase(message))
+
+    def test_r142_stage_optional_layouts_scalar_bounds_and_terminal_pairings_fail_closed(self):
+        coordinator = ('reader-stage phase=CoordinatorFact state=Completed reason=None elapsedMs=12 '
+                       'fact=RasterProven classification=CurrentTransition')
+        messages = (
+            # Exact optional layouts and field order only.
+            STAGE_MESSAGES[0].replace(' current=true persisted=true', ' current=true'),
+            STAGE_MESSAGES[0].replace(' current=true persisted=true', ' persisted=true'),
+            STAGE_MESSAGES[0].replace(' current=true persisted=true', ' persisted=true current=true'),
+            FULL_STAGE_MESSAGES[8] + ' applied=true',
+            STAGE_MESSAGES[2].replace(' completedCount=1 requiredCount=3', ' completedCount=1'),
+            STAGE_MESSAGES[2].replace(' completedCount=1 requiredCount=3', ' requiredCount=3'),
+            STAGE_MESSAGES[2].replace(' completedCount=1 requiredCount=3', ' requiredCount=3 completedCount=1'),
+            coordinator + ' failure=MaterialTimeout',
+            coordinator + ' outcome=Succeeded failure=MaterialTimeout',
+            coordinator + ' outcome=Deferred cancellation=Superseded',
+            coordinator + ' outcome=Failed cancellation=Superseded',
+            coordinator + ' outcome=Cancelled failure=MaterialTimeout',
+            coordinator + ' outcome=Failed failure=MaterialTimeout cancellation=Superseded',
+            coordinator + ' outcome=Failed outcome=Failed',
+            coordinator + ' applied=true failure=MaterialTimeout',
+            coordinator + ' current=true',
+            coordinator + ' extra=R142_PRIVATE_CANARY',
+        )
+        for message in messages:
+            with self.subTest(message=message):
+                self.assertFalse(runner._valid_reader_phase(message))
+        for message in (
+            STAGE_MESSAGES[0].replace('elapsedMs=12', 'elapsedMs=0009223372036854775807'),
+            STAGE_MESSAGES[2].replace('completedCount=1 requiredCount=3',
+                                      'completedCount=0000000000 requiredCount=0002147483647'),
+        ):
+            with self.subTest(boundary=message):
+                self.assertTrue(runner._valid_reader_phase(message))
+        for message in (
+            STAGE_MESSAGES[0].replace('elapsedMs=12', 'elapsedMs=0009223372036854775808'),
+            STAGE_MESSAGES[2].replace('completedCount=1 requiredCount=3',
+                                      'completedCount=0002147483648 requiredCount=0002147483648'),
+            STAGE_MESSAGES[2].replace('completedCount=1 requiredCount=3',
+                                      'completedCount=0000000001 requiredCount=0002147483648'),
+        ):
+            with self.subTest(out_of_range=message):
+                self.assertFalse(runner._valid_reader_phase(message))
+
+        text = transcript().replace('STATUS_CODE: 0', 'STATUS_CODE: -2')
+        for method in METHODS:
+            marker = 'INSTRUMENTATION_STATUS: test=' + method + '\nINSTRUMENTATION_STATUS_CODE: 1'
+            text = text.replace(marker, marker + '\n' + phase_status(list(FULL_STAGE_MESSAGES), method))
+        result = runner.project_instrumentation(text, {PHASE_KEY})
+        self.assertEqual({name: value['records'] for name, value in
+            result['reader_phases_by_original_method'].items()},
+            {name: list(FULL_STAGE_MESSAGES) for name in METHODS})
+        self.assertFalse(runner.original_three_passed(result, exit_code=0, source_drift=False))
+        self.assertEqual(result['reader_phase_rejection_count'], 0)
+
+    def test_r142_live_transport_is_fragment_safe_and_retains_failed_method_declarations(self):
+        stream = runner._ReaderPhaseStream(qualified=True, clock=lambda: 10.0)
+        for method in METHODS:
+            for message in FULL_STAGE_MESSAGES:
+                line = self.line(message, method)
+                for part in (line[:31], line[31:-1], line[-1:]):
+                    stream.feed(0, part)
+        snapshot = stream.snapshot()
+        self.assertEqual([(row['method'], row['message']) for row in snapshot['records']],
+                         [(method, message) for method in METHODS for message in FULL_STAGE_MESSAGES])
+        self.assertFalse(snapshot['acceptance_evidence'])
+        self.assertEqual(snapshot['counts']['rejected_phase_lines'], 0)
+
+    def test_r144_framework_process_crash_is_exact_fragment_safe_and_stdout_only(self):
+        stream = runner._ReaderPhaseStream(qualified=False, clock=lambda: 10.0)
+        exact = b'INSTRUMENTATION_RESULT: shortMsg=Process crashed.\n'
+        for part in (exact[:19], exact[19:37], exact[37:]):
+            stream.feed(0, part)
+        for index, data in (
+                (1, exact),
+                (0, b'INSTRUMENTATION_RESULT: shortMsg=Process crashed. private\n'),
+                (0, b'INSTRUMENTATION_STATUS: Error=Process crashed.\n'),
+                (0, b'x' * (stream.PARTIAL_CAP + 1) + exact)):
+            rejected = runner._ReaderPhaseStream(qualified=False, clock=lambda: 10.0)
+            rejected.feed(index, data)
+            rejected_snapshot = rejected.snapshot()
+            self.assertEqual(rejected_snapshot['framework_process_crash'], 'UNKNOWN')
+            self.assertEqual(rejected_snapshot['records'], [])
+            self.assertNotIn('private', json.dumps(rejected_snapshot))
+        snapshot = stream.snapshot()
+        self.assertEqual(snapshot['framework_process_crash'], 'FRAMEWORK_REPORTED_PROCESS_CRASH')
+        self.assertEqual(snapshot['records'], [])
+        self.assertNotIn('private', json.dumps(snapshot))
+
+    def test_r142_live_transport_rejects_private_unknown_stderr_and_unqualified_records(self):
+        stream = runner._ReaderPhaseStream(qualified=True, clock=lambda: 10.0)
+        for message in STAGE_MESSAGES:
+            stream.feed(0, self.line(message + ' href=R142_PRIVATE_CANARY'))
+            stream.feed(1, self.line(message))
+            stream.feed(0, self.line(message, 'R142_PRIVATE_CANARY'))
+        stream.feed(0, self.line(STAGE_MESSAGES[0]).replace(b'elapsedMs=12', b'elapsedMs=\xff'))
+        snapshot = stream.snapshot()
+        self.assertEqual(snapshot['records'], [])
+        self.assertEqual(snapshot['counts']['rejected_phase_lines'], 2 * len(STAGE_MESSAGES) + 1)
+        self.assertNotIn('R142_PRIVATE_CANARY', json.dumps(snapshot))
+        unqualified = runner._ReaderPhaseStream(qualified=False, clock=lambda: 10.0)
+        unqualified.feed(0, self.line(STAGE_MESSAGES[0]))
+        self.assertEqual(unqualified.snapshot()['records'], [])
+
+    def test_r142_stage_retention_caps_gaps_partial_and_overlong_lines_remain_explicit(self):
+        stream = runner._ReaderPhaseStream(qualified=True, clock=lambda: 10.0)
+        line = self.line(STAGE_MESSAGES[2])
+        stream.feed(0, b'x' * (stream.PARTIAL_CAP + 1) + line)
+        for _ in range(600):
+            stream.feed(0, line)
+        stream.feed(0, line[:20])
+        snapshot = stream.snapshot()
+        self.assertEqual(len(snapshot['records']), 256)
+        self.assertEqual(snapshot['dropped_records'], 344)
+        self.assertEqual(snapshot['counts']['omitted_overlong_lines'], 1)
+        self.assertEqual(snapshot['partial_bytes'], 20)
+        stream.feed(0, b'x' * stream.INPUT_CAP)
+        stream.feed(0, line)
+        capped = stream.snapshot()
+        self.assertTrue(capped['input_cap_reached'])
+        self.assertEqual(capped['partial_bytes'], 0)
+        self.assertGreater(capped['counts']['omitted_cap_bytes'], 0)
+        self.assertEqual(capped['counts']['accepted_records'], 600)
+
+    def test_r142_final_rejects_entire_malformed_history_without_changing_original_oracles(self):
+        for failure in (False, True):
+            original = transcript()
+            if failure:
+                original = original.replace('STATUS_CODE: 0', 'STATUS_CODE: -2', 1)
+            for records in (list(FULL_STAGE_MESSAGES),
+                            [STAGE_MESSAGES[0], STAGE_MESSAGES[1] + ' token=R142_PRIVATE_CANARY'],
+                            [STAGE_MESSAGES[2]] * 129):
+                text = original.replace('INSTRUMENTATION_STATUS_CODE: 1',
+                    'INSTRUMENTATION_STATUS_CODE: 1\n' + phase_status(records), 1)
+                before = runner.project_instrumentation(original, {PHASE_KEY})
+                after = runner.project_instrumentation(text, {PHASE_KEY})
+                self.assertEqual(before['events'], after['events'])
+                self.assertEqual(before['terminal_codes'], after['terminal_codes'])
+                self.assertEqual(runner.original_three_passed(after, exit_code=0, source_drift=False),
+                                 not failure)
+                if records == list(FULL_STAGE_MESSAGES):
+                    self.assertEqual(after['reader_phases_by_original_method'].get(METHODS[0], {}).get('records'), records)
+                else:
+                    self.assertEqual(after['reader_phases_by_original_method'], {})
+                    self.assertGreater(after['reader_phase_rejection_count'], 0)
+                self.assertNotIn('R142_PRIVATE_CANARY', json.dumps(after))
+
+
 def load_supervisor():
     spec = importlib.util.spec_from_file_location('caller_host_supervisor',
         Path(__file__).with_name('task407-runtime-supervisor.py'))
@@ -647,6 +938,21 @@ class PipelineTests(unittest.TestCase):
         launch = next((argv, opts) for argv, opts in device.calls if argv[0] == 'fixture-emulator.exe')
         self.assertIn('-verbose', launch[0])
         self.assertTrue(callable(launch[1].get('observe_output')))
+
+    def test_r144_host_memory_samples_initial_and_pre_teardown_without_control_effect(self):
+        device = HostDevice()
+        self.addCleanup(device.cleanup)
+        diagnostics = runner._runtime_diagnostics()
+        sample = {'sample_state': 'SAMPLED', 'available_physical_bytes': 30_708_391_936,
+                  'available_commit_bytes': 41_764_872_192}
+        with mock.patch.object(diagnostics, 'host_memory_snapshot', return_value=sample,
+                               create=True) as probe:
+            result = self.execute(device)
+        self.assertEqual(result.get('host_memory_observations_profile'), 'HOST_MEMORY_HEADROOM_V1')
+        self.assertEqual(result.get('host_memory_observations'),
+                         {'initial_session': sample, 'pre_teardown': sample})
+        self.assertEqual(probe.call_count, 2)
+        self.assertTrue(result['automatic_emulator_teardown_verified'])
 
     def test_r139_host_sdk_log_is_sanitized_and_closed_before_install(self):
         callback = []
@@ -2566,6 +2872,47 @@ class FailedWaitHostDiagnosticTests(unittest.TestCase):
             self.assertNotIn('R138_PRIVATE_CANARY', json.dumps(result))
 
 
+class PreTeardownHostDiagnosticTests(unittest.TestCase):
+    api = PipelineTests.api
+    execute = PipelineTests.execute
+    COMMAND_KEYS = FailedWaitHostDiagnosticTests.COMMAND_KEYS
+
+    def test_r144_pre_teardown_snapshot_is_before_controlled_cleanup(self):
+        project = self.api('project_pre_teardown_host')
+        device = HostDevice()
+        self.addCleanup(device.cleanup)
+        observed = []
+        def capture(owned, instrument):
+            observed.append((owned.cancelled, owned._discarded,
+                             instrument.cancelled, instrument._discarded))
+            return project(owned, instrument)
+        with mock.patch.object(runner, 'project_pre_teardown_host', side_effect=capture):
+            result = self.execute(device)
+        row = result.get('pre_teardown_host_diagnostics')
+        self.assertEqual(result.get('pre_teardown_host_diagnostics_profile'),
+                         'PRE_TEARDOWN_OWNED_HOST_DIAGNOSTICS_V1')
+        self.assertEqual(observed, [(False, False, False, False)])
+        self.assertEqual(row.get('sample_state'), 'SAMPLED')
+        self.assertEqual(set(row), {'sample_state', 'owned', 'instrumentation'})
+        self.assertEqual(set(row['owned']), self.COMMAND_KEYS)
+        self.assertEqual(set(row['instrumentation']), self.COMMAND_KEYS)
+        self.assertTrue(result['automatic_emulator_teardown_verified'])
+
+    def test_r144_failed_guardian_construction_fallback_does_not_resample(self):
+        device = HostDevice()
+        self.addCleanup(device.cleanup)
+        def reject(*args, **kwargs):
+            raise RuntimeError('R144_PRIVATE_GUARDIAN_CONSTRUCTION')
+        device.module.Supervisor = reject
+        with mock.patch.object(runner, 'project_pre_teardown_host') as projection:
+            result = self.execute(device)
+        projection.assert_not_called()
+        self.assertEqual(result.get('pre_teardown_host_diagnostics', {}).get('sample_state'),
+                         'NOT_REACHED')
+        self.assertFalse(result['automatic_emulator_teardown_verified'])
+        self.assertNotIn('R144_PRIVATE_GUARDIAN_CONSTRUCTION', json.dumps(result))
+
+
 class ProvenanceTests(unittest.TestCase):
     def api(self, name):
         value = getattr(runner, name, None)
@@ -2729,6 +3076,29 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertFalse(result['all_three_original_runtime_cases_passed'])
         self.assertFalse(result['supervisor']['eligible_for_oracle'])
 
+    def test_r144_framework_process_crash_survives_ineligible_guardian_without_acceptance(self):
+        device = HostDevice()
+        self.addCleanup(device.cleanup)
+        exact = b'INSTRUMENTATION_RESULT: shortMsg=Process crashed.\n'
+        def before(host, argv):
+            if argv[3:5] == ['shell', '-T'] and shlex.split(argv[5])[:2] == ['am', 'instrument']:
+                callback = host.calls[-1][1].get('observe_output')
+                for part in (exact[:17], exact[17:]):
+                    callback(0, part)
+                callback(1, exact)
+                callback(0, b'INSTRUMENTATION_RESULT: shortMsg=Process crashed. private\n')
+                host.guardian._observer.failed()
+        device.before_reply = before
+        pins = [{'path': str(PATH), 'sha256': hashlib.sha256(PATH.read_bytes()).hexdigest()}]
+        result = runner.run_session(device.module, host_record(), {LABEL}, pins=pins,
+            caps=device.caps, watchdog_id='host-fixture')
+        snapshot = result.get('reader_live_phases', {})
+        self.assertEqual(snapshot.get('framework_process_crash'), 'FRAMEWORK_REPORTED_PROCESS_CRASH')
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertFalse(result['all_three_original_runtime_cases_passed'])
+        self.assertFalse(result['supervisor']['eligible_for_oracle'])
+        self.assertNotIn('private', json.dumps(result))
+
     def test_r139_review_fixture_streams_safe_phases_before_finally(self):
         source = (PATH.parent.parent / 'composeApp/src/androidDeviceTest/kotlin/paige/navic/ui/screens/reader/ReaderNormalProductionStartupRuntimeTest.kt').read_text()
         sink = source.split('private val sink:', 1)[1].split('@Suppress', 1)[0]
@@ -2853,5 +3223,29 @@ class OwnAnrExtraTests(unittest.TestCase):
         self.assertNotIn('OWN_ANR_OBSERVER_EXCEPTION_CANARY', json.dumps(after))
 
 
+class SafeResult(unittest.TestResult):
+    """Finite test projection; never format raw assertion payloads or tracebacks."""
+    def __init__(self):
+        super().__init__()
+        self.safe_failures, self.safe_errors, self.passed = [], [], []
+    def addSuccess(self, test):
+        self.passed.append(test.id())
+    def addFailure(self, test, error):
+        self.safe_failures.append({'id': test.id(), 'exception_type': error[0].__name__})
+    def addError(self, test, error):
+        self.safe_errors.append({'id': test.id(), 'exception_type': error[0].__name__})
+    def addSubTest(self, test, subtest, error):
+        if error is not None:
+            self.safe_failures.append({'id': test.id(), 'exception_type': error[0].__name__})
+    def wasSuccessful(self):
+        return not self.safe_failures and not self.safe_errors
+
+
 if __name__ == '__main__':
-    unittest.main()
+    result = SafeResult()
+    unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__]).run(result)
+    report = {'tests_run': result.testsRun, 'passed': result.passed,
+              'failures': result.safe_failures, 'errors': result.safe_errors,
+              'success': result.wasSuccessful()}
+    sys.stdout.write(json.dumps(report, sort_keys=True) + '\n')
+    sys.exit(0 if result.wasSuccessful() else 1)

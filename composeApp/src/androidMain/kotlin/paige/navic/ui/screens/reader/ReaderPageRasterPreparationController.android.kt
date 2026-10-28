@@ -1310,9 +1310,10 @@ internal class ReaderPageRasterPreparationController(
 	internal fun prepareInstalled(
 		work: ReaderActivatedRasterWork,
 		plan: ReaderPageRasterPreparationPlan,
+		onProgress: () -> Unit = {},
 		onReady: () -> Unit,
 		onFailed: () -> Unit
-	): ReaderPortCommandResult = prepareInstalled(work, plan) { outcome ->
+	): ReaderPortCommandResult = prepareInstalled(work, plan, onProgress) { outcome ->
 		if (outcome == ReaderPageRasterBatchOutcome.Ready) onReady() else onFailed()
 	}
 
@@ -1328,8 +1329,19 @@ internal class ReaderPageRasterPreparationController(
 	internal fun prepareInstalled(
 		work: ReaderActivatedRasterWork,
 		plan: ReaderPageRasterPreparationPlan,
+		onProgress: () -> Unit = {},
 		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
 	): ReaderPortCommandResult {
+		val diagnosticStartedAtMillis = android.os.SystemClock.uptimeMillis()
+		fun observe(state: ReaderWebViewDiagnosticState, reason: ReaderStageDiagnosticReason) {
+			ReaderStageDiagnostic.emit(
+				phase = ReaderStageDiagnosticPhase.InstalledPreparation,
+				state = state,
+				reason = reason,
+				elapsedMs = android.os.SystemClock.uptimeMillis() - diagnosticStartedAtMillis
+			)
+		}
+		observe(ReaderWebViewDiagnosticState.Started, ReaderStageDiagnosticReason.None)
 		val lease = work.lease
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
 		val passive = passiveRasterPreparationPortProvider() as? ReaderPassiveRasterPreparationAdapter
@@ -1339,6 +1351,8 @@ internal class ReaderPageRasterPreparationController(
 			activatedMaterialDomain != work.domain || bundleSource.activatedMaterialDomain != work.domain ||
 			lease.preparationGeneration != preparationGeneration || lease.rasterGeneration != bundleSource.currentGeneration() ||
 			webView == null || passive == null || passive.isRetired || geometry == null || targets.isNullOrEmpty()) {
+			observe(ReaderWebViewDiagnosticState.Rejected,
+				if (destroyed) ReaderStageDiagnosticReason.Closed else ReaderStageDiagnosticReason.PortRejected)
 			return ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
 		}
 		val kind = if (plan.layoutMode == "spread") ReaderPageTurnTransitionKind.LandscapeSpreadSlide else
@@ -1352,6 +1366,19 @@ internal class ReaderPageRasterPreparationController(
 					val returned = {
 						completed {
 							if (outcome == ReaderPageRasterBatchOutcome.Ready) work.recordPreparedTargets(targets.size)
+							observe(
+								when (outcome) {
+									ReaderPageRasterBatchOutcome.Ready -> ReaderWebViewDiagnosticState.Completed
+									ReaderPageRasterBatchOutcome.Cancelled -> ReaderWebViewDiagnosticState.Cancelled
+									else -> ReaderWebViewDiagnosticState.Failed
+								},
+								when (outcome) {
+									ReaderPageRasterBatchOutcome.Ready -> ReaderStageDiagnosticReason.None
+									ReaderPageRasterBatchOutcome.Cancelled -> ReaderStageDiagnosticReason.Cancelled
+									is ReaderPageRasterBatchOutcome.CapacityReached -> ReaderStageDiagnosticReason.CapacityReached
+									else -> ReaderStageDiagnosticReason.NotReady
+								}
+							)
 							onComplete(outcome)
 						}
 					}
@@ -1382,7 +1409,8 @@ internal class ReaderPageRasterPreparationController(
 						reference.retain()
 						val started = passive.startInstalled(
 							kind, reference, targets, work, ReaderPageRasterAcquisitionTrigger.InitialPreparation,
-							::finish
+							onProgress = { if (work.isCurrent()) onProgress() },
+							onComplete = ::finish
 						)
 						if (!started) finish(if (!work.isCurrent()) ReaderPageRasterBatchOutcome.Cancelled else
 							ReaderPageRasterBatchOutcome.Deferred("current-live-reference", plan.centerPageIndex,
@@ -1393,6 +1421,7 @@ internal class ReaderPageRasterPreparationController(
 		)
 		var accepted = false
 		settlement.publishLogicalOutcome { accepted = it == ReaderRasterPreparationStartOutcome.Accepted }
+		if (!accepted) observe(ReaderWebViewDiagnosticState.Rejected, ReaderStageDiagnosticReason.PortRejected)
 		return if (accepted) ReaderPortCommandResult.Accepted else
 			ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.PortRejected)
 	}

@@ -182,6 +182,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		val onProgress: (Int, Int) -> Unit,
 		val onComplete: (ReaderPageRasterBatchOutcome) -> Unit,
 		val work: ReaderActivatedRasterWork? = null,
+		val diagnosticStartedAtMillis: Long = android.os.SystemClock.uptimeMillis(),
 		var targetIndex: Int = 0,
 		var hydration: ReaderPageRasterHydrationRequest? = null,
 		var committedCapture: ReaderPassiveRasterCommittedCapture<Bitmap>? = null,
@@ -244,12 +245,13 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		targets: List<ReaderPageRasterBatchTarget>,
 		work: ReaderActivatedRasterWork,
 		trigger: ReaderPageRasterAcquisitionTrigger,
+		onProgress: () -> Unit,
 		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
 	): Boolean = startOwned(
 		kind, reference, targets, work.lease.rasterGeneration, work.lease.preparationGeneration,
 		{ it == work.lease.preparationGeneration && work.isCurrent() }, work::isCurrent,
 		trigger, ReaderPageRasterCapacityPolicy.FailClosed,
-		{}, {}, {}, { _, _ -> }, onComplete, work
+		{}, {}, {}, { completed, _ -> if (completed > 0) onProgress() }, onComplete, work
 	)
 
 	private fun startOwned(
@@ -1045,9 +1047,17 @@ internal class ReaderPassiveRasterPreparationAdapter(
 	}
 
 	private fun completeTarget(batch: Batch, target: ReaderPageRasterBatchTarget) {
-		if (!batchIsCurrent(batch)) return
+		if (!batchIsCurrent(batch) || batch.targets.getOrNull(batch.targetIndex) !== target) return
 		batch.onTargetDurable(target)
 		batch.targetIndex += 1
+		ReaderStageDiagnostic.emit(
+			phase = ReaderStageDiagnosticPhase.TargetProgress,
+			state = ReaderWebViewDiagnosticState.Completed,
+			reason = ReaderStageDiagnosticReason.None,
+			elapsedMs = android.os.SystemClock.uptimeMillis() - batch.diagnosticStartedAtMillis,
+			completedCount = batch.targetIndex,
+			requiredCount = batch.targets.size
+		)
 		batch.onProgress(batch.targetIndex, batch.targets.size)
 		prepareTarget(batch)
 	}
@@ -1061,6 +1071,24 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		batch.releasePendingCapture()
 		manifestIssuer.clearCanonicalCommit()
 		batch.reference.release()
+		ReaderStageDiagnostic.emit(
+			phase = ReaderStageDiagnosticPhase.RasterReady,
+			state = when (outcome) {
+				ReaderPageRasterBatchOutcome.Ready -> ReaderWebViewDiagnosticState.Completed
+				ReaderPageRasterBatchOutcome.Cancelled -> ReaderWebViewDiagnosticState.Cancelled
+				is ReaderPageRasterBatchOutcome.Deferred -> ReaderWebViewDiagnosticState.Rejected
+				else -> ReaderWebViewDiagnosticState.Failed
+			},
+			reason = when (outcome) {
+				ReaderPageRasterBatchOutcome.Ready -> ReaderStageDiagnosticReason.None
+				ReaderPageRasterBatchOutcome.Cancelled -> ReaderStageDiagnosticReason.Cancelled
+				is ReaderPageRasterBatchOutcome.CapacityReached -> ReaderStageDiagnosticReason.CapacityReached
+				else -> ReaderStageDiagnosticReason.NotReady
+			},
+			elapsedMs = android.os.SystemClock.uptimeMillis() - batch.diagnosticStartedAtMillis,
+			completedCount = batch.targetIndex,
+			requiredCount = batch.targets.size
+		)
 		batch.onComplete(outcome)
 	}
 

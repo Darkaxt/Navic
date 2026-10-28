@@ -73,12 +73,22 @@ internal enum class ReaderTransitionCoordinatorObservationKind {
 	TransitionRegistered,
 	FactProcessed,
 	DeadlineScheduled,
-	DeadlineCancelled
+	DeadlineCancelled,
+	DeadlineProgress
 }
 
 internal data class ReaderTransitionCoordinatorObservation(
 	val kind: ReaderTransitionCoordinatorObservationKind,
-	val factKind: ReaderTransitionFactKind? = null
+	val factKind: ReaderTransitionFactKind? = null,
+	val classification: ReaderTransitionFactClassification? = null,
+	// Describes this reduction's journal change, not merely a current-looking fact.
+	val applied: Boolean? = null,
+	val outcome: ReaderTransitionOutcomeKind? = null,
+	val failure: paige.navic.reader.ReaderTransitionFailureReason? = null,
+	val cancellation: paige.navic.reader.ReaderTransitionCancellationReason? = null,
+	val rejection: ReaderTransitionCommandRejectionReason? = null,
+	val operation: ReaderTransitionOperation? = null,
+	val elapsedMs: Long = 0L
 )
 
 internal data class ReaderTransitionShadowPrediction(
@@ -1427,6 +1437,7 @@ internal class ReaderResumableTransitionCoordinator(
 					else -> entry as MailboxEntry.Fact
 				}
 				val fact = factEntry.fact
+				val observationStartedAtMillis = android.os.SystemClock.uptimeMillis()
 				val authoritativeTask6Expiry = accountAuthoritativeTask6Expiry(fact)
 				val before = journal
 				val nowMillis = ports.clock.nowMillis()
@@ -1580,10 +1591,20 @@ internal class ReaderResumableTransitionCoordinator(
 						commandsToIssue.forEach(::issueCommandWithPublicationAcknowledgement)
 					}
 				}
+				val observedOutcome = reduction.state.lastOutcome.takeIf {
+					it !== before.lastOutcome
+				}
 				onObservation(
 					ReaderTransitionCoordinatorObservation(
 						ReaderTransitionCoordinatorObservationKind.FactProcessed,
-						fact.kind()
+						fact.kind(),
+						classification = classification,
+						applied = reduction.state !== before,
+						outcome = observedOutcome?.kind(),
+						failure = (observedOutcome as? ReaderTransitionOutcome.Failed)?.reason,
+						cancellation = (observedOutcome as? ReaderTransitionOutcome.Cancelled)?.reason,
+						operation = before.active?.id?.operation ?: reduction.state.active?.id?.operation,
+						elapsedMs = android.os.SystemClock.uptimeMillis() - observationStartedAtMillis
 					)
 				)
 				retireSemanticInvocationWhenAuthorityEnds()
@@ -2318,9 +2339,23 @@ internal class ReaderResumableTransitionCoordinator(
 						pendingCommandStages = setOf(ReaderTransitionCommandStage.TimerBinding)
 					)
 				)
+				val progressStartedAtMillis = android.os.SystemClock.uptimeMillis()
+				fun observeProgress(applied: Boolean, rejection: ReaderTransitionCommandRejectionReason? = null) {
+					runCatching {
+						onObservation(ReaderTransitionCoordinatorObservation(
+							kind = ReaderTransitionCoordinatorObservationKind.DeadlineProgress,
+							factKind = fact.kind(),
+							classification = classification,
+							applied = applied,
+							rejection = rejection,
+							elapsedMs = android.os.SystemClock.uptimeMillis() - progressStartedAtMillis
+						))
+					}
+				}
 				val result = try {
 					port?.matchingProgress(existing, nowMillis)
 				} catch (_: Throwable) {
+					observeProgress(false, ReaderTransitionCommandRejectionReason.CommandThrew)
 					enqueueTimerBindingRejection(
 						active.id,
 						ReaderTransitionCommandRejectionReason.CommandThrew
@@ -2328,14 +2363,19 @@ internal class ReaderResumableTransitionCoordinator(
 					return false
 				}
 				if (result != ReaderPortCommandResult.Accepted) {
+					observeProgress(false, ReaderTransitionCommandRejectionReason.TimerBindingRejected)
 					enqueueTimerBindingRejection(
 						active.id,
 						ReaderTransitionCommandRejectionReason.TimerBindingRejected
 					)
 					return false
 				}
-				if (hasPendingAuthoritativeTask6Expiry(existing)) return false
+				if (hasPendingAuthoritativeTask6Expiry(existing)) {
+					observeProgress(false)
+					return false
+				}
 				restorePhysicalCommandStage(active.id, pendingPhysicalStage)
+				observeProgress(true)
 			}
 			return true
 		}

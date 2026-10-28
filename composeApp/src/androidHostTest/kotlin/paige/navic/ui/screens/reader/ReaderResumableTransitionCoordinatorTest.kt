@@ -59,6 +59,7 @@ import paige.navic.reader.ReaderSemanticExecutableResult
 import paige.navic.reader.ReaderSemanticPortContractViolationReason
 import paige.navic.reader.ReaderSemanticRequestHandle
 import paige.navic.reader.ReaderShellCoverCommitProof
+import paige.navic.reader.ReaderTransitionCancellationReason
 import paige.navic.reader.ReaderTransitionCommand
 import paige.navic.reader.ReaderTransitionCommandRejectionReason
 import paige.navic.reader.ReaderTransitionCommandStage
@@ -2332,6 +2333,121 @@ class ReaderResumableTransitionCoordinatorTest {
 	}
 
 	@Test
+	fun actualBootstrapTimerRearmsOnlyCurrentProgressWithinOriginalHardCap() {
+		val clock = RecordingClock()
+		val timer = ReaderRetainedFactOnlyTimer(
+			domain = ReaderLegacyPhysicalDomain(17L, ReaderLegacyFreezeToken(407L)),
+			nowMillis = clock::nowMillis,
+			schedule = clock::schedule
+		)
+		val facts = mutableListOf<ReaderTransitionCoordinatorObservation>()
+		val deadlineProgress = mutableListOf<ReaderTransitionCoordinatorObservation>()
+		val fixture = coordinatorFixture(
+			operation = ReaderTransitionOperation.BootstrapNativePage,
+			clock = clock,
+			task6FactOnlyTimer = timer,
+			activationState = { ReaderSessionActivationState.Activated },
+			onObservation = { observation ->
+				if (observation.kind == ReaderTransitionCoordinatorObservationKind.DeadlineProgress) {
+					deadlineProgress += observation
+					error("A407 test-only DeadlineProgress observer failure")
+				}
+				facts += observation
+			}
+		)
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+		assertEquals(listOf(11_000L), clock.scheduledAtMillis,
+			"A407.TimerIntegration.BootstrapInitialInactivity")
+
+		clock.advanceTo(6_000L)
+		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id.copy(
+			operation = ReaderTransitionOperation.CoverToPageEntry
+		)))
+		assertEquals(listOf(11_000L), clock.scheduledAtMillis,
+			"A407.TimerIntegration.StaleProgressDoesNotRearm")
+		val stale = facts.last { observation ->
+			observation.kind == ReaderTransitionCoordinatorObservationKind.FactProcessed &&
+				observation.factKind == ReaderTransitionFactKind.RasterProgress
+		}
+		assertEquals(ReaderTransitionFactClassification.StaleTransition, stale.classification)
+		assertEquals(false, stale.applied, "A stale fact is processed without a journal reduction")
+		assertEquals(null, stale.outcome, "A stale fact cannot report a retained prior outcome")
+		assertEquals(null, stale.rejection)
+		assertEquals(ReaderTransitionOperation.BootstrapNativePage, stale.operation)
+		assertTrue(deadlineProgress.isEmpty(), "Stale progress has no timer-progress result")
+
+		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+		assertEquals(listOf(11_000L, 16_000L), clock.scheduledAtMillis,
+			"A407.TimerIntegration.CurrentProgressRearmsInactivity")
+		val successfulRearm = deadlineProgress.single()
+		assertEquals(ReaderTransitionFactKind.RasterProgress, successfulRearm.factKind)
+		assertEquals(ReaderTransitionFactClassification.CurrentTransition, successfulRearm.classification)
+		assertEquals(true, successfulRearm.applied)
+		assertEquals(null, successfulRearm.rejection)
+		assertEquals(null, successfulRearm.outcome)
+		assertEquals(null, successfulRearm.failure)
+		assertEquals(null, successfulRearm.cancellation)
+		assertEquals(null, successfulRearm.operation)
+		assertTrue(successfulRearm.elapsedMs >= 0L)
+
+		clock.advanceTo(28_000L)
+		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
+		assertEquals(listOf(11_000L, 16_000L, 31_000L), clock.scheduledAtMillis,
+			"A407.TimerIntegration.HardCapRemainsThirtySeconds")
+		assertEquals(2, deadlineProgress.size,
+			"A throwing diagnostic observer must not prevent either original timer rearm")
+		assertEquals(2, clock.cancelCount, "A407.TimerIntegration.RearmsCancelOnlyPriorTimer")
+		assertEquals(1, clock.activeRegistrationCount, "A407.TimerIntegration.OneOriginalTimerRemains")
+	}
+
+	@Test
+	fun factProcessedObservationReportsOnlyNewTypedFailureAndCancellationOutcomes() {
+		val failedObservations = mutableListOf<ReaderTransitionCoordinatorObservation>()
+		val failed = coordinatorFixture(onObservation = { observation ->
+			if (observation.kind == ReaderTransitionCoordinatorObservationKind.FactProcessed) {
+				failedObservations += observation
+			}
+		})
+		failed.coordinator.enqueue(ReaderTransitionFact.RasterFailed(
+			failed.id,
+			ReaderTransitionFailureReason.PortRejected
+		))
+		val failure = failedObservations.single { it.factKind == ReaderTransitionFactKind.RasterFailed }
+		assertEquals(ReaderTransitionFactClassification.CurrentTransition, failure.classification)
+		assertEquals(true, failure.applied)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, failure.outcome)
+		assertEquals(ReaderTransitionFailureReason.PortRejected, failure.failure)
+		assertEquals(null, failure.cancellation)
+		assertEquals(null, failure.rejection)
+		assertEquals(ReaderTransitionOperation.CoverToPageEntry, failure.operation)
+		assertTrue(failure.elapsedMs >= 0L)
+
+		val cancelledObservations = mutableListOf<ReaderTransitionCoordinatorObservation>()
+		val cancelled = activatedPublicationCloseFixture(
+			timer = ScriptedBindingTimer(TestTimerBindOutcome.Accepted),
+			onObservation = { observation ->
+				if (observation.kind == ReaderTransitionCoordinatorObservationKind.FactProcessed) {
+					cancelledObservations += observation
+				}
+			}
+		)
+		cancelled.coordinator.enqueue(ReaderTransitionFact.HostAvailable(cancelled.id))
+		cancelled.coordinator.enqueue(ReaderTransitionFact.PublicationClosed(cancelled.id))
+		val cancellation = cancelledObservations.single {
+			it.factKind == ReaderTransitionFactKind.PublicationClosed
+		}
+		assertEquals(ReaderTransitionFactClassification.CurrentTransition, cancellation.classification)
+		assertEquals(true, cancellation.applied)
+		assertEquals(ReaderTransitionOutcomeKind.Cancelled, cancellation.outcome)
+		assertEquals(null, cancellation.failure)
+		assertEquals(ReaderTransitionCancellationReason.PublicationClosed, cancellation.cancellation)
+		assertEquals(null, cancellation.rejection)
+		assertEquals(ReaderTransitionOperation.PublicationClose, cancellation.operation)
+		assertTrue(cancellation.elapsedMs >= 0L)
+	}
+
+	@Test
 	fun matchingProgressMovesOnlyTheNoProgressExpiry() {
 		val fixture = coordinatorFixture()
 		fixture.coordinator.enqueue(ReaderTransitionFact.RasterProgress(fixture.id))
@@ -3789,7 +3905,8 @@ class ReaderResumableTransitionCoordinatorTest {
 	}
 
 	private fun activatedPublicationCloseFixture(
-		timer: ReaderTask6FactOnlyTimerPort?
+		timer: ReaderTask6FactOnlyTimerPort?,
+		onObservation: (ReaderTransitionCoordinatorObservation) -> Unit = {}
 	): CoordinatorFixture {
 		val binding = binding("activated-publication-close")
 		val id = transitionId(binding, ReaderTransitionOperation.PublicationClose)
@@ -3843,7 +3960,8 @@ class ReaderResumableTransitionCoordinatorTest {
 				mode = ReaderTransitionMode.Active,
 				journal = journal,
 				releaseLedger = releaseLedger,
-				activationState = { ReaderSessionActivationState.Activated }
+				activationState = { ReaderSessionActivationState.Activated },
+				onObservation = onObservation
 			)
 		)
 	}

@@ -46,6 +46,8 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import paige.navic.reader.*
+import paige.navic.util.core.Logger
+import paige.navic.util.core.LoggerEvent
 
 /** Original Native allocation-source authentication with actual construction/executor and
  * synthetic bridge/test installation inputs. Not material generation or display proof. */
@@ -54,6 +56,64 @@ import paige.navic.reader.*
     Task8ImmediateGlSurfaceViewShadow::class, Task398MaterialVisualStateShadow::class,
     Task398CanonicalStoragePathShadow::class])
 class ReaderNativeInitialAllocationSourceHostTest {
+    private class StageDiagnosticCapture {
+        private val lock = Any()
+        private val messages = mutableListOf<String>()
+        private val waiters = mutableListOf<Pair<(String) -> Boolean, CompletableDeferred<Unit>>>()
+
+        fun observe(event: LoggerEvent) {
+            if (event.tag != ReaderStageDiagnosticTag || !ReaderStageDiagnostic.isSafeMessage(event.message)) return
+            val matched = synchronized(lock) {
+                if (messages.size < 128) messages += event.message
+                waiters.filter { (predicate, _) -> predicate(event.message) }.also { matched ->
+                    waiters.removeAll(matched.toSet())
+                }.map { it.second }
+            }
+            matched.forEach { it.complete(Unit) }
+        }
+
+        fun messages() = synchronized(lock) { messages.toList() }
+
+        suspend fun awaitMessage(predicate: (String) -> Boolean) {
+            val signal = CompletableDeferred<Unit>()
+            synchronized(lock) {
+                if (messages.any(predicate)) signal.complete(Unit)
+                else waiters += predicate to signal
+            }
+            try {
+                signal.await()
+            } finally {
+                synchronized(lock) { waiters.removeAll { it.second === signal } }
+            }
+        }
+    }
+
+    private suspend fun <T> captureStageDiagnostics(block: suspend (StageDiagnosticCapture) -> T): T {
+        val field = Logger::class.java.getDeclaredField("issueLogSink").apply { isAccessible = true }
+        val priorIdentity = field.get(Logger)
+        @Suppress("UNCHECKED_CAST")
+        val priorSink = priorIdentity as? ((LoggerEvent) -> Unit)
+        val capture = StageDiagnosticCapture()
+        val sink: (LoggerEvent) -> Unit = capture::observe
+        Logger.configureIssueLogSink(sink)
+        try {
+            return block(capture)
+        } finally {
+            val installed = field.get(Logger)
+            Logger.configureIssueLogSink(priorSink)
+            assertSame(sink, installed, "The test-local stage sink must remain installed for its exact scope")
+            assertSame(priorIdentity, field.get(Logger), "The exact prior Logger sink identity must be restored")
+        }
+    }
+
+    private fun stageMessage(
+        message: String,
+        phase: ReaderStageDiagnosticPhase,
+        state: ReaderWebViewDiagnosticState,
+        vararg fields: String
+    ): Boolean = message.startsWith("reader-stage phase=${phase.name} state=${state.name} ") &&
+        fields.all { " $it" in message }
+
     @Test fun originalQueryBasisRetainsExactCommandBindingLayoutAndDiesWithPhysicalInstallation() = runTest {
         val f = ConstructionFixture(testScheduler)
         try {
@@ -257,6 +317,344 @@ class ReaderNativeInitialAllocationSourceHostTest {
     }
 
     @Config(shadows = [Task407InitialPersistenceWebViewShadow::class])
+    @Test fun originalInstalledCurrentDurabilityEmitsProgressBeforeAllTargetsAreReady() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            captureStageDiagnostics { diagnostics ->
+                val work = f.prepareOriginalInitialWork()
+                f.startOriginalCurrentLivePersistence()
+                assertTrue(withContext(Dispatchers.Default) {
+                    withTimeout(5_000L) { f.currentLiveEndpoint.await() }
+                }, "A407.InstalledProgress.CurrentDurableMustAdvance")
+                withContext(Dispatchers.Default) {
+                    withTimeout(5_000L) {
+                        diagnostics.awaitMessage { message ->
+                            stageMessage(message, ReaderStageDiagnosticPhase.InstalledProgress,
+                                ReaderWebViewDiagnosticState.Completed)
+                        }
+                    }
+                }
+                val messages = diagnostics.messages()
+                assertTrue(messages.any { message ->
+                    stageMessage(message, ReaderStageDiagnosticPhase.PublicationWrite,
+                        ReaderWebViewDiagnosticState.Completed, "current=true", "persisted=true")
+                }, "A407.Diagnostics.CurrentDurableWritePersisted")
+                assertTrue(messages.any { message ->
+                    stageMessage(message, ReaderStageDiagnosticPhase.PublicationAcceptance,
+                        ReaderWebViewDiagnosticState.Completed, "applied=true")
+                }, "A407.Diagnostics.CurrentDurablePublicationAccepted")
+                assertTrue(messages.any { message ->
+                    stageMessage(message, ReaderStageDiagnosticPhase.TargetProgress,
+                        ReaderWebViewDiagnosticState.Completed, "completedCount=1", "requiredCount=8")
+                }, "A407.Diagnostics.CurrentDurableFirstTarget")
+                assertTrue(messages.any { message ->
+                    stageMessage(message, ReaderStageDiagnosticPhase.InstalledProgress,
+                        ReaderWebViewDiagnosticState.Completed)
+                }, "A407.Diagnostics.CurrentDurableInstalledProgress")
+                assertFalse(messages.any { message ->
+                    stageMessage(message, ReaderStageDiagnosticPhase.RasterReady,
+                        ReaderWebViewDiagnosticState.Completed)
+                }, "A407.Diagnostics.CurrentDurabilityIsNotAllTargetReady")
+                assertTrue(f.materialFacts.any { it is ReaderTransitionFact.RasterProgress },
+                    "A407.InstalledProgress.CurrentDurableMustReachOriginalLeaseEmitter")
+                assertFalse(f.materialFacts.any { it is ReaderTransitionFact.RasterProven },
+                    "A407.InstalledProgress.CurrentDurabilityIsNotAllTargetReady")
+                assertTrue(work.isCurrent(), "A407.InstalledProgress.ExactWorkRemainsCurrent")
+            }
+        } finally { f.dispose() }
+    }
+
+    @Config(shadows = [Task407InitialPersistenceWebViewShadow::class])
+    @Test fun originalInitialPersistenceFailureDoesNotAdvanceOrRequestOffscreenWork() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            captureStageDiagnostics { diagnostics ->
+                f.prepareOriginalInitialWork()
+                val failureApplied = f.failNextOriginalPersistence()
+                f.startOriginalCurrentLivePersistence()
+                withContext(Dispatchers.Default) {
+                    withTimeout(5_000L) { failureApplied.await() }
+                    withTimeout(5_000L) {
+                        diagnostics.awaitMessage { message ->
+                            stageMessage(message, ReaderStageDiagnosticPhase.PublicationAcceptance,
+                                ReaderWebViewDiagnosticState.Rejected, "applied=false")
+                        }
+                    }
+                }
+                val messages = diagnostics.messages()
+                assertTrue(messages.any { message ->
+                    stageMessage(message, ReaderStageDiagnosticPhase.PublicationWrite,
+                        ReaderWebViewDiagnosticState.Failed, "current=true", "persisted=false")
+                }, "A407.Diagnostics.PersistenceFailureWasObservedFromOriginalStorePath")
+                assertTrue(messages.any { message ->
+                    stageMessage(message, ReaderStageDiagnosticPhase.PublicationAcceptance,
+                        ReaderWebViewDiagnosticState.Rejected, "applied=false")
+                }, "A407.Diagnostics.PersistenceFailureWasNotAccepted")
+                assertEquals(0, f.persistenceShadow().manifestRequests,
+                    "A407.PersistenceFailure.MustNotRequestOffscreenTarget")
+                assertFalse(f.materialFacts.any {
+                    it is ReaderTransitionFact.RasterProgress || it is ReaderTransitionFact.RasterProven
+                }, "A407.PersistenceFailure.MustNotAdvanceOrProveRaster")
+            }
+        } finally { f.dispose() }
+    }
+
+    @Config(shadows = [Task407InitialPersistenceWebViewShadow::class])
+    @Test fun originalInstalledProgressRearmsOriginalCoordinatorTimer() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain()
+            f.layoutOriginalRasterMaterial(); f.resolve()
+            assertEquals(ReaderPortCommandResult.Accepted, f.allocate()); f.returnPlan()
+            val allocation = assertIs<ReaderTransitionFact.MaterialBindingAllocated>(
+                f.materialFacts.last { it is ReaderTransitionFact.MaterialBindingAllocated }
+            ).allocation
+            var nowMillis = 1_000L
+            val scheduled = mutableListOf<Long>()
+            val clock = object : ReaderTransitionClock {
+                override fun nowMillis() = nowMillis
+                override fun schedule(atMillis: Long, action: () -> Unit): ReaderTransitionClockRegistration {
+                    scheduled += atMillis
+                    return ReaderTransitionClockRegistration {}
+                }
+            }
+            val timer = ReaderRetainedFactOnlyTimer(
+                domain = ReaderLegacyPhysicalDomain(
+                    allocation.transitionId.readerSessionGeneration,
+                    ReaderLegacyFreezeToken(407L)
+                ),
+                nowMillis = clock::nowMillis,
+                schedule = clock::schedule
+            )
+            var journal = readerAndroidHostTestJournal(
+                committed = readerAndroidHostTestNeutralInitial(
+                    allocation.transitionId.readerSessionGeneration,
+                    allocation.transitionId.coordinatorEpoch
+                ),
+                lastTransitionSequence = allocation.transitionId.sequence,
+                lastIssuedTransitionIdentity = allocation.transitionId.parentIdentity(),
+                active = ReaderActiveTransition(
+                    id = allocation.transitionId,
+                    phase = ReaderTransitionLivenessTable.phase(
+                        id = allocation.transitionId,
+                        kind = ReaderTransitionPhaseKind.AwaitingPrerequisites,
+                        retainedOwner = ReaderPresentationFrameOwner.Neutral,
+                        satisfiedProofs = setOf(ReaderTransitionProofKind.SemanticDestination)
+                    ),
+                    pendingCommandStages = setOf(ReaderTransitionCommandStage.MaterialAllocation),
+                    resolvedSuccessorBinding = allocation.allocatedBinding,
+                    authoritativeDestinationCommitted = true
+                )
+            )
+            if (ReaderTransitionProofKind.MaterialBindingAllocation in journal.active!!.phase.contract.awaitedProofs) {
+                journal = journal.reduce(
+                    ReaderTransitionFact.MaterialBindingAllocated(allocation.transitionId, allocation)
+                ).state
+            }
+            val coordinator = ReaderResumableTransitionCoordinator(
+                ports = object : ReaderResumableTransitionPorts {
+                    override val clock = clock
+                    override val task6FactOnlyTimer = timer
+                    override fun issue(command: ReaderTransitionCommand, onFact: (ReaderTransitionFact) -> Unit) = Unit
+                },
+                mode = ReaderTransitionMode.Active,
+                journal = journal,
+                activationState = { ReaderSessionActivationState.Activated }
+            )
+            f.materialFactConsumer = coordinator::enqueue
+            val work = f.prepareRaster()
+            assertEquals(listOf(11_000L), scheduled,
+                "A407.InstalledProgress.ResourceObservationBindsOriginalTimer")
+
+            nowMillis = 6_000L
+            f.startOriginalCurrentLivePersistence()
+            assertTrue(withContext(Dispatchers.Default) {
+                withTimeout(5_000L) { f.currentLiveEndpoint.await() }
+            }, "A407.InstalledProgress.CurrentDurableMustAdvanceCoordinator")
+            assertEquals(listOf(11_000L, 16_000L), scheduled,
+                "A407.InstalledProgress.CurrentDurableRearmsOriginalTimer")
+            assertEquals(1, f.materialFacts.count { it is ReaderTransitionFact.RasterProgress })
+            val repeatOriginalTargetCompletion = f.retainOriginalTargetCompletion()
+            nowMillis = 8_000L
+            repeatOriginalTargetCompletion()
+            assertEquals(1, f.materialFacts.count { it is ReaderTransitionFact.RasterProgress },
+                "A407.InstalledProgress.DuplicateOriginalTargetDoesNotAdvance")
+            assertEquals(listOf(11_000L, 16_000L), scheduled,
+                "A407.InstalledProgress.DuplicateOriginalTargetDoesNotRearm")
+            assertFalse(f.materialFacts.any { it is ReaderTransitionFact.RasterProven },
+                "A407.InstalledProgress.CurrentDurabilityRemainsBeforeAllTargetReady")
+            assertTrue(work.isCurrent(), "A407.InstalledProgress.ExactWorkRemainsCurrentDuringRearm")
+        } finally { f.dispose() }
+    }
+
+    @Config(shadows = [Task407InitialPersistenceWebViewShadow::class])
+    @Test fun originalInstalledPublicationAfterOriginalCoordinatorTimeoutRollsBackAndReturnsOnce() = runTest {
+        val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
+        try {
+            captureStageDiagnostics { diagnostics ->
+                assertEquals(ReaderSemanticCommandResult.Accepted, f.start()); f.drain()
+                f.layoutOriginalRasterMaterial(); f.resolve()
+                assertEquals(ReaderPortCommandResult.Accepted, f.allocate()); f.returnPlan()
+                val allocation = assertIs<ReaderTransitionFact.MaterialBindingAllocated>(
+                    f.materialFacts.last { it is ReaderTransitionFact.MaterialBindingAllocated }
+                ).allocation
+                var nowMillis = 1_000L
+                val scheduled = mutableListOf<Pair<Long, () -> Unit>>()
+                val clock = object : ReaderTransitionClock {
+                    override fun nowMillis() = nowMillis
+                    override fun schedule(atMillis: Long, action: () -> Unit): ReaderTransitionClockRegistration {
+                        scheduled += atMillis to action
+                        return ReaderTransitionClockRegistration {}
+                    }
+                }
+                val timer = ReaderRetainedFactOnlyTimer(
+                    domain = ReaderLegacyPhysicalDomain(
+                        allocation.transitionId.readerSessionGeneration,
+                        ReaderLegacyFreezeToken(407L)
+                    ),
+                    nowMillis = clock::nowMillis,
+                    schedule = clock::schedule
+                )
+                var journal = readerAndroidHostTestJournal(
+                    committed = readerAndroidHostTestNeutralInitial(
+                        allocation.transitionId.readerSessionGeneration,
+                        allocation.transitionId.coordinatorEpoch
+                    ),
+                    lastTransitionSequence = allocation.transitionId.sequence,
+                    lastIssuedTransitionIdentity = allocation.transitionId.parentIdentity(),
+                    active = ReaderActiveTransition(
+                        id = allocation.transitionId,
+                        phase = ReaderTransitionLivenessTable.phase(
+                            id = allocation.transitionId,
+                            kind = ReaderTransitionPhaseKind.AwaitingPrerequisites,
+                            retainedOwner = ReaderPresentationFrameOwner.Neutral,
+                            satisfiedProofs = setOf(ReaderTransitionProofKind.SemanticDestination)
+                        ),
+                        pendingCommandStages = setOf(ReaderTransitionCommandStage.MaterialAllocation),
+                        resolvedSuccessorBinding = allocation.allocatedBinding,
+                        authoritativeDestinationCommitted = true
+                    )
+                )
+                if (ReaderTransitionProofKind.MaterialBindingAllocation in journal.active!!.phase.contract.awaitedProofs) {
+                    journal = journal.reduce(
+                        ReaderTransitionFact.MaterialBindingAllocated(allocation.transitionId, allocation)
+                    ).state
+                }
+                val controller = f.field("pageRasterPreparationController") as ReaderPageRasterPreparationController
+                val physicalRelease = ReaderPhysicalReleaseCommandAdapter()
+                val commands = mutableListOf<ReaderTransitionCommand>()
+                val observations = mutableListOf<ReaderTransitionCoordinatorObservation>()
+                val returned = CompletableDeferred<Unit>()
+                var physicalReturns = 0
+                val coordinator = ReaderResumableTransitionCoordinator(
+                    ports = object : ReaderResumableTransitionPorts {
+                        override val clock = clock
+                        override val task6FactOnlyTimer = timer
+                        override fun issue(command: ReaderTransitionCommand, onFact: (ReaderTransitionFact) -> Unit) {
+                            commands += command
+                            when (command) {
+                                is ReaderTransitionCommand.CancelOwnedWork -> f.executor.retireTransition(command.transitionId)
+                                is ReaderTransitionCommand.ReleaseResource -> physicalRelease.dispatchGeneric(
+                                    command,
+                                    invoke = { confirmed ->
+                                        val original = controller.installedWorkFor(command.key)
+                                        if (original == null) ReaderPortCommandResult.Rejected(ReaderTransitionFailureReason.StaleProof)
+                                        else f.releaseOriginal(original) {
+                                            physicalReturns++
+                                            confirmed(ReaderTransitionFact.ResourceReleased(command.identity))
+                                            returned.complete(Unit)
+                                        }
+                                    },
+                                    onFact = onFact
+                                )
+                                else -> Unit
+                            }
+                        }
+                    },
+                    mode = ReaderTransitionMode.Active,
+                    journal = journal,
+                    activationState = { ReaderSessionActivationState.Activated },
+                    onObservation = { observations += it }
+                )
+                f.materialFactConsumer = coordinator::enqueue
+                // Use the production coordinator's lease currency, not a test cancellation flag.
+                // Its terminal release command reaches the original controller/worker return path.
+                val work = f.prepareRaster(coordinator::materialCommandIsCurrent)
+                assertSame(allocation, work.lease.allocation)
+                assertSame(work, controller.installedWorkFor(work.lease.resourceKey))
+                assertEquals(listOf(11_000L), scheduled.map { it.first })
+                f.warmOriginalPersistence(work)
+                val baselineDiskEntries = f.bundle().rasterCacheMetrics().diskEntries
+                val paused = f.pauseOriginalPublication()
+                try {
+                    f.startOriginalCurrentLivePersistence()
+                    withContext(Dispatchers.Default) { withTimeout(5_000L) { paused.await() } }
+                    assertTrue(f.bundle().rasterCacheMetrics().diskEntries > baselineDiskEntries,
+                        "A407.Timeout.OriginalWritePrecedesHeldPublicationReturn")
+                    assertTrue(work.isCurrent())
+                    assertTrue(f.materialFacts.none { it is ReaderTransitionFact.RasterProgress })
+                    val (expiresAtMillis, originalTimerCallback) = scheduled.single()
+                    nowMillis = expiresAtMillis
+                    assertTrue(coordinator.materialCommandIsCurrent(work.lease),
+                        "A407.Timeout.LocalTimeAloneDoesNotRetireOriginalCommand")
+                    originalTimerCallback()
+                    f.drain()
+                    assertTrue(observations.any {
+                        it.kind == ReaderTransitionCoordinatorObservationKind.FactProcessed &&
+                            it.factKind == ReaderTransitionFactKind.DeadlineExpired &&
+                            it.applied == true && it.failure == ReaderTransitionFailureReason.MaterialTimeout
+                    }, "A407.Timeout.OriginalTimerExpiryIsAuthoritative")
+                    assertNull(coordinator.snapshot().activeOperation)
+                    assertFalse(coordinator.materialCommandIsCurrent(work.lease),
+                        "A407.Timeout.SameCoordinatorRetiresExactLeaseCurrency")
+                    assertFalse(work.isCurrent())
+                    assertEquals(allocation.transitionId,
+                        commands.filterIsInstance<ReaderTransitionCommand.CancelOwnedWork>().single().transitionId)
+                    assertEquals(work.lease.resourceKey,
+                        commands.filterIsInstance<ReaderTransitionCommand.ReleaseResource>().single().key)
+                    assertTrue(commands.all {
+                        it is ReaderTransitionCommand.CancelOwnedWork || it is ReaderTransitionCommand.ReleaseResource
+                    }, "A407.Timeout.NoReplacementWorkIsIssued")
+                    assertEquals(0, physicalReturns,
+                        "A407.Timeout.AuthoritativeCancellationIsNotHeldWorkerReturn")
+                    assertFalse(returned.isCompleted)
+                    assertTrue(f.releaseOriginalPublication(), "A407.Timeout.ReturnExactHeldPublication")
+                    f.drain()
+                    withContext(Dispatchers.Default) { withTimeout(5_000L) { returned.await() } }
+                    assertEquals(1, physicalReturns, "A407.Timeout.ExactOriginalPhysicalReturnOnce")
+                    assertNull(controller.installedWorkFor(work.lease.resourceKey))
+                    assertEquals(baselineDiskEntries, f.bundle().rasterCacheMetrics().diskEntries,
+                        "A407.Timeout.LateOriginalWriteRolledBackBeforePhysicalReturn")
+                    assertEquals(0, f.bundle().ownershipMetrics().stagedPublications)
+                    val messages = diagnostics.messages()
+                    assertTrue(messages.any { message ->
+                        stageMessage(message, ReaderStageDiagnosticPhase.PublicationWrite,
+                            ReaderWebViewDiagnosticState.Completed, "current=false", "persisted=true")
+                    }, "A407.Timeout.RealLateWriteIsNotCurrent")
+                    assertTrue(messages.any { message ->
+                        stageMessage(message, ReaderStageDiagnosticPhase.PublicationAcceptance,
+                            ReaderWebViewDiagnosticState.Rejected, "applied=false")
+                    }, "A407.Timeout.LateOriginalPublicationRejected")
+                    assertFalse(messages.any { message ->
+                        stageMessage(message, ReaderStageDiagnosticPhase.PublicationAcceptance,
+                            ReaderWebViewDiagnosticState.Completed, "applied=true")
+                    }, "A407.Timeout.NoAcceptedPublicationAfterExpiry")
+                    assertFalse(f.materialFacts.any {
+                        it is ReaderTransitionFact.RasterProgress || it is ReaderTransitionFact.RasterProven
+                    }, "A407.Timeout.LateOriginalCompletionCannotAdvanceOrProveRaster")
+                    assertEquals(0, f.persistenceShadow().manifestRequests)
+                    originalTimerCallback(); f.drain()
+                    assertEquals(1, physicalReturns, "A407.Timeout.RepeatedOriginalCallbackCannotReturnTwice")
+                    assertEquals(listOf(11_000L), scheduled.map { it.first },
+                        "A407.Timeout.LateCompletionCannotRearmOriginalTimer")
+                } finally {
+                    f.releaseOriginalPublication()
+                }
+            }
+        } finally { f.dispose() }
+    }
+
+    @Config(shadows = [Task407InitialPersistenceWebViewShadow::class])
     @Test fun originalInitialCurrentLiveWarmStorePersistsBeforeOneOffscreenRequest() = runTest {
         val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
         try {
@@ -301,7 +699,9 @@ class ReaderNativeInitialAllocationSourceHostTest {
                 f.drain()
                 assertTrue(io.returnedOffMain)
                 assertEquals(0, originalShadow.manifestRequests)
-                assertFalse(f.materialFacts.any { it is ReaderTransitionFact.RasterProven })
+                assertFalse(f.materialFacts.any {
+                    it is ReaderTransitionFact.RasterProgress || it is ReaderTransitionFact.RasterProven
+                })
                 assertEquals(0, f.bundle().ownershipMetrics().stagedPublications)
             } finally {
                 io.returnIfQueued()
@@ -333,7 +733,9 @@ class ReaderNativeInitialAllocationSourceHostTest {
                 assertEquals(1, returns, "R118.ExactOriginalWorkerReturnsOnce")
                 f.drain(); assertEquals(1, returns)
                 assertEquals(0, originalShadow.manifestRequests)
-                assertFalse(f.materialFacts.any { it is ReaderTransitionFact.RasterProven })
+                assertFalse(f.materialFacts.any {
+                    it is ReaderTransitionFact.RasterProgress || it is ReaderTransitionFact.RasterProven
+                })
             } finally {
                 io.returnIfQueued()
                 f.dispose()
@@ -345,30 +747,51 @@ class ReaderNativeInitialAllocationSourceHostTest {
     @Test fun originalInitialPostWriteSourceInvalidationRollsBackBeforeDurable() = runTest {
         val f = ConstructionFixture(testScheduler, finalizeMaterialOwners = true)
         try {
-            val work = f.prepareOriginalInitialWork()
-            f.warmOriginalPersistence(work)
-            val baseline = f.bundle().rasterCacheMetrics().diskEntries
-            val paused = f.pauseOriginalPublication()
-            f.startOriginalCurrentLivePersistence()
-            withContext(Dispatchers.Default) { withTimeout(5_000L) { paused.await() } }
-            assertTrue(f.bundle().rasterCacheMetrics().diskEntries > baseline,
-                "R118.OriginalIoWritePrecedesHeldPublicationCompletion")
-            f.postNewDestination()
-            // Do not sample work.isCurrent here: the original main publication
-            // completion must itself discover the stale physical/semantic source.
-            assertTrue(work.installationIsCurrent())
-            assertTrue(f.releaseOriginalPublication())
-            f.drain()
-            assertFalse(withContext(Dispatchers.IO) { work.isCurrent() },
-                "R118.MainPublicationRevokesOriginalSourceWithoutTestSampling")
-            assertFalse(work.isCurrent(), "R118.MainPublicationRevalidatesOriginalSource")
-            val returned = CompletableDeferred<Unit>()
-            assertEquals(ReaderPortCommandResult.Accepted, f.releaseOriginal(work) { returned.complete(Unit) })
-            withContext(Dispatchers.Default) { withTimeout(5_000L) { returned.await() } }
-            assertEquals(baseline, f.bundle().rasterCacheMetrics().diskEntries,
-                "R118.StaleOriginalReceiptRolledBackBeforePhysicalReturn")
-            assertEquals(0, f.persistenceShadow().manifestRequests)
-            assertFalse(f.materialFacts.any { it is ReaderTransitionFact.RasterProven })
+            captureStageDiagnostics { diagnostics ->
+                val work = f.prepareOriginalInitialWork()
+                f.warmOriginalPersistence(work)
+                val baseline = f.bundle().rasterCacheMetrics().diskEntries
+                val paused = f.pauseOriginalPublication()
+                f.startOriginalCurrentLivePersistence()
+                withContext(Dispatchers.Default) { withTimeout(5_000L) { paused.await() } }
+                assertTrue(f.bundle().rasterCacheMetrics().diskEntries > baseline,
+                    "R118.OriginalIoWritePrecedesHeldPublicationCompletion")
+                f.postNewDestination()
+                // Do not sample work.isCurrent here: the original main publication
+                // completion must itself discover the stale physical/semantic source.
+                assertTrue(work.installationIsCurrent())
+                assertTrue(f.releaseOriginalPublication())
+                f.drain()
+                withContext(Dispatchers.Default) {
+                    withTimeout(5_000L) {
+                        diagnostics.awaitMessage { message ->
+                            stageMessage(message, ReaderStageDiagnosticPhase.PublicationAcceptance,
+                                ReaderWebViewDiagnosticState.Rejected, "applied=false")
+                        }
+                    }
+                }
+                val messages = diagnostics.messages()
+                assertTrue(messages.any { message ->
+                    stageMessage(message, ReaderStageDiagnosticPhase.PublicationWrite,
+                        ReaderWebViewDiagnosticState.Completed, "current=false", "persisted=true")
+                }, "A407.Diagnostics.StaleWriteWasPersistedBeforeRejection")
+                assertTrue(messages.any { message ->
+                    stageMessage(message, ReaderStageDiagnosticPhase.PublicationAcceptance,
+                        ReaderWebViewDiagnosticState.Rejected, "applied=false")
+                }, "A407.Diagnostics.StaleWriteWasNotAccepted")
+                assertFalse(withContext(Dispatchers.IO) { work.isCurrent() },
+                    "R118.MainPublicationRevokesOriginalSourceWithoutTestSampling")
+                assertFalse(work.isCurrent(), "R118.MainPublicationRevalidatesOriginalSource")
+                val returned = CompletableDeferred<Unit>()
+                assertEquals(ReaderPortCommandResult.Accepted, f.releaseOriginal(work) { returned.complete(Unit) })
+                withContext(Dispatchers.Default) { withTimeout(5_000L) { returned.await() } }
+                assertEquals(baseline, f.bundle().rasterCacheMetrics().diskEntries,
+                    "R118.StaleOriginalReceiptRolledBackBeforePhysicalReturn")
+                assertEquals(0, f.persistenceShadow().manifestRequests)
+                assertFalse(f.materialFacts.any {
+                    it is ReaderTransitionFact.RasterProgress || it is ReaderTransitionFact.RasterProven
+                })
+            }
         } finally { f.dispose() }
     }
 
@@ -475,6 +898,7 @@ class ReaderNativeInitialAllocationSourceHostTest {
         val receipts = mutableListOf<ReaderPresentationEventReceipt>()
         val versionsAtReceipt = mutableListOf<ReaderPresentationReceiptVersion?>()
         val materialFacts = mutableListOf<ReaderTransitionFact>()
+        var materialFactConsumer: ((ReaderTransitionFact) -> Unit)? = null
         val currentLiveEndpoint = CompletableDeferred<Boolean>()
         private val syntheticDescriptorIdentity = java.util.UUID.randomUUID().toString()
         val materialEvidence get() = materialFacts.filter {
@@ -691,18 +1115,21 @@ class ReaderNativeInitialAllocationSourceHostTest {
             }
             return port.allocate(command()) { materialFacts += it }
         }
-        fun prepareRaster(): ReaderActivatedRasterWork {
+        fun prepareRaster(
+            commandIsCurrent: ((ReaderRasterPreparationLease) -> Boolean)? = null
+        ): ReaderActivatedRasterWork {
             val allocation = (materialEvidence.last() as ReaderTransitionFact.MaterialBindingAllocated).allocation
             val command = ReaderTransitionCommand.RequestRasterPreparation(allocation.transitionId,
                 allocation.allocatedBinding, allocation)
             val readPublication: () -> ReaderOwnerAndInputPublicationSnapshot? = { null }
             val current = { candidate.isSelected && store.snapshot?.commandEgressOpen == true && materialCommandCurrent }
             assertEquals(ReaderPortCommandResult.Accepted, call("bindInstalledPublicationReaders", readPublication, current))
-            val currency: (ReaderRasterPreparationLease) -> Boolean = { lease ->
+            val currency: (ReaderRasterPreparationLease) -> Boolean = commandIsCurrent ?: { lease ->
                 current() && lease.transitionId == command.transitionId && lease.binding == command.binding && lease.allocation == allocation
             }
             val facts: (ReaderTransitionFact) -> Unit = {
                 materialFacts += it
+                materialFactConsumer?.invoke(it)
                 if (it is ReaderTransitionFact.RasterFailed) currentLiveEndpoint.complete(false)
             }
             val original = assertNotNull(material()?.initialResolvedLayout, "R407.Raster.InitialLayoutPresent")
@@ -802,6 +1229,19 @@ class ReaderNativeInitialAllocationSourceHostTest {
         }
         fun releaseOriginal(work: ReaderActivatedRasterWork, returned: () -> Unit) =
             (field("pageRasterPreparationController") as ReaderPageRasterPreparationController).releaseInstalled(work, returned)
+        fun failNextOriginalPersistence(): CompletableDeferred<Unit> {
+            val applied = CompletableDeferred<Unit>()
+            val registry = field("qaFaultRegistry") as ReaderPageQaFaultRegistry
+            val sink = ReaderPageQaFaultRegistry::class.java.getDeclaredField("eventSink").apply { isAccessible = true }
+            val original = sink.get(registry) as ReaderPageQaFaultEventSink
+            sink.set(registry, ReaderPageQaFaultEventSink { event ->
+                original.emit(event)
+                if (event.ticket.fault == ReaderPageQaFault.FailNextPersistence && event.state == ReaderPageQaFaultState.Applied)
+                    applied.complete(Unit)
+            })
+            assertTrue(registry.enqueue("r407-persistence-failure", ReaderPageQaFault.FailNextPersistence))
+            return applied
+        }
         fun pauseOriginalPublication(): CompletableDeferred<Unit> {
             val paused = CompletableDeferred<Unit>()
             val registry = field("qaFaultRegistry") as ReaderPageQaFaultRegistry
@@ -818,6 +1258,20 @@ class ReaderNativeInitialAllocationSourceHostTest {
         fun releaseOriginalPublication() = (field("qaFaultRegistry") as ReaderPageQaFaultRegistry)
             .releasePublication("r118-publication-return")
         fun persistenceShadow() = shadowOf(engine()) as Task407InitialPersistenceWebViewShadow
+        fun retainOriginalTargetCompletion(): () -> Unit {
+            val adapter = field("passiveRasterPreparationAdapter") as ReaderPassiveRasterPreparationAdapter
+            val batch = assertNotNull(ReaderPassiveRasterPreparationAdapter::class.java
+                .getDeclaredField("activeBatch").apply { isAccessible = true }.get(adapter))
+            val targets = batch.javaClass.getDeclaredField("targets").apply { isAccessible = true }
+                .get(batch) as List<*>
+            val target = assertNotNull(targets.firstOrNull())
+            val completion = ReaderPassiveRasterPreparationAdapter::class.java.getDeclaredMethod(
+                "completeTarget", batch.javaClass, ReaderPageRasterBatchTarget::class.java
+            ).apply { isAccessible = true }
+            // Replay only this authentic target after its original durable completion;
+            // never fabricate a target identity, durable receipt or progress fact.
+            return { completion.invoke(adapter, batch, target); drain() }
+        }
         fun startOriginalCurrentLivePersistence() {
             val shadow = persistenceShadow()
             shadow.onFirstManifest = { currentLiveEndpoint.complete(true) }

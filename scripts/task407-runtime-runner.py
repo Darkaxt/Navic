@@ -131,6 +131,23 @@ def _empty_failed_wait_host_diagnostic(state):
     return {'sample_state': state, 'owned': None, 'failed_client': None}
 
 
+def _project_host_command(command):
+    state = command.snapshot_host_state()
+    if (type(state) is not dict or set(state) != {
+            'native_root_state', 'job_active_class', 'stdout_reader_alive', 'stderr_reader_alive'}
+            or type(state['native_root_state']) is not str
+            or state['native_root_state'] not in ('RUNNING', 'TERMINAL', 'UNAVAILABLE')
+            or type(state['job_active_class']) is not str
+            or state['job_active_class'] not in ('ZERO', 'ONE', 'MULTIPLE', 'UNAVAILABLE', 'NOT_OWNED')
+            or any(value is not None and type(value) is not bool
+                   for value in (state['stdout_reader_alive'], state['stderr_reader_alive']))):
+        raise ValueError('FAILED_WAIT_HOST_SNAPSHOT_INVALID')
+    return {'command_done': bool(command.done.is_set()),
+            'command_failure': _command_failure(command.failure),
+            'command_cancelled': bool(command.cancelled),
+            'returncode_class': _code_class(command.returncode), **state}
+
+
 def project_failed_wait_host(owned, failed_client):
     """FAILED_WAIT_HOST_DIAGNOSTICS_V1: independent scalars, never an oracle.
 
@@ -138,22 +155,19 @@ def project_failed_wait_host(owned, failed_client):
     liveness, complete containment history or stream visibility. No raw data leaves
     the retained Commands; unavailable/busy/closed state is valid unknown.
     """
-    def project(command):
-        state = command.snapshot_host_state()
-        if (type(state) is not dict or set(state) != {
-                'native_root_state', 'job_active_class', 'stdout_reader_alive', 'stderr_reader_alive'}
-                or type(state['native_root_state']) is not str
-                or state['native_root_state'] not in ('RUNNING', 'TERMINAL', 'UNAVAILABLE')
-                or type(state['job_active_class']) is not str
-                or state['job_active_class'] not in ('ZERO', 'ONE', 'MULTIPLE', 'UNAVAILABLE', 'NOT_OWNED')
-                or any(value is not None and type(value) is not bool
-                       for value in (state['stdout_reader_alive'], state['stderr_reader_alive']))):
-            raise ValueError('FAILED_WAIT_HOST_SNAPSHOT_INVALID')
-        return {'command_done': bool(command.done.is_set()),
-                'command_failure': _command_failure(command.failure),
-                'command_cancelled': bool(command.cancelled),
-                'returncode_class': _code_class(command.returncode), **state}
-    return {'sample_state': 'SAMPLED', 'owned': project(owned), 'failed_client': project(failed_client)}
+    return {'sample_state': 'SAMPLED', 'owned': _project_host_command(owned),
+            'failed_client': _project_host_command(failed_client)}
+
+
+def _empty_pre_teardown_host_diagnostic(state):
+    return {'sample_state': state, 'owned': None, 'instrumentation': None}
+
+
+def project_pre_teardown_host(owned, instrumentation):
+    """PRE_TEARDOWN_OWNED_HOST_DIAGNOSTICS_V1: one retained-command snapshot only."""
+    return {'sample_state': 'SAMPLED', 'owned': _project_host_command(owned),
+            'instrumentation': (_project_host_command(instrumentation)
+                                if instrumentation is not None else None)}
 
 
 @dataclass(frozen=True)
@@ -336,9 +350,119 @@ _READER_PHASE_PATTERN = re.compile(
     r'(?: priorityAtExit=(-?[0-9]{1,10}))?')
 
 
+_READER_STAGE_FACTS = frozenset((
+    'Intent', 'FoliateDestinationCommitted', 'SettlementAcknowledged', 'MaterialBindingAllocated',
+    'ViewportProfileReplaced', 'RasterProgress', 'RasterProven', 'RasterDeferred', 'RasterFailed',
+    'ResourceObserved', 'DeckReserved', 'DeckOwned', 'DeckPrepared', 'DeckRejected', 'ResourceReleased',
+    'RendererCapacityAvailable', 'HostAvailable', 'PaginationProfileReady', 'RendererGenerationReady',
+    'FrameTargetDeclared', 'FrameTargetPrepared', 'FrameTargetPreparationRejected', 'PreparedFrame',
+    'OwnerAndInputPublicationApplied', 'OwnerAndInputPublicationRejected', 'CoverPostDraw',
+    'WebViewExposure', 'VisibilityChanged', 'ResourceLost', 'DeadlineExpired', 'CommandRejected',
+    'SemanticPortContractViolated', 'ReleaseCommandRejected', 'ReleaseCommandThrew',
+    'ReleasePortContractViolated', 'OwnedWorkCancellationCompleted', 'ReleaseLedgerAdmissionRejected',
+    'Retry', 'PublicationReplaced', 'PublicationClosed',
+))
+_READER_STAGE_CLASSIFICATIONS = frozenset((
+    'CurrentTransition', 'Untagged', 'StaleTransition', 'NoActiveTransition',
+))
+_READER_STAGE_OUTCOMES = frozenset(('Succeeded', 'Failed', 'Cancelled', 'Deferred'))
+_READER_STAGE_FAILURES = frozenset((
+    'MaterialTimeout', 'CoverCommitTimeout', 'PageEntryTimeout', 'SettlementTimeout',
+    'LiveExposureTimeout', 'NativeHandbackTimeout', 'ExternalRelocationTimeout',
+    'ReflowTimeout', 'RestoreTimeout', 'RendererRecoveryTimeout', 'CloseDrainTimeout',
+    'ActivationPrerequisiteMissing', 'InventoryIncomplete', 'InvalidLegacyResource',
+    'LegacyDrainFailed', 'AmbiguousPredecessor', 'MaterialAllocationRejected',
+    'AtomicPublicationRejected', 'PortRejected', 'StaleProof',
+))
+_READER_STAGE_CANCELLATIONS = frozenset((
+    'Superseded', 'VisibilityLost', 'ReflowStarted', 'RendererLost',
+    'PublicationReplaced', 'PublicationClosed', 'UserCancelled',
+))
+_READER_STAGE_STATES = frozenset((
+    'Started', 'Completed', 'Rejected', 'Failed', 'Cancelled', 'Retired',
+))
+_READER_STAGE_REASONS = frozenset((
+    'None', 'Stale', 'Closed', 'Cancelled', 'DiskCapacity', 'EncodeIdentityReleasing',
+    'CapacityReached', 'PortRejected', 'CommandThrew', 'NotReady',
+))
+_READER_STAGE_FIELDS = {
+    'MaterialAllocation': (),
+    'InstalledPreparation': (),
+    'PublicationWrite': ('current', 'persisted'),
+    'PublicationAcceptance': ('applied',),
+    'TargetProgress': ('completedCount', 'requiredCount'),
+    'InstalledProgress': (),
+    'RasterReady': ('completedCount', 'requiredCount'),
+    'CoordinatorFact': ('fact', 'classification'),
+    'DeadlineProgress': (),
+    'DisplayPublication': (),
+    'ShellPublication': (),
+    'TurnTerminal': (),
+}
+
+
+def _valid_reader_stage(message):
+    if not message.isascii():
+        return False
+    words = message.split(' ')
+    if len(words) < 5 or words[0] != 'reader-stage':
+        return False
+    pairs = []
+    for word in words[1:]:
+        key, separator, value = word.partition('=')
+        if not separator or not key or not value or '=' in value:
+            return False
+        pairs.append((key, value))
+    required = ('phase', 'state', 'reason', 'elapsedMs')
+    if tuple(key for key, _ in pairs[:4]) != required:
+        return False
+    phase, state, reason, elapsed = (value for _, value in pairs[:4])
+    if (phase not in _READER_STAGE_FIELDS or state not in _READER_STAGE_STATES
+            or reason not in _READER_STAGE_REASONS or not elapsed.isdecimal()
+            or int(elapsed) > 2**63 - 1):
+        return False
+    extra = pairs[4:]
+    expected = _READER_STAGE_FIELDS[phase]
+    if phase not in ('CoordinatorFact',) and tuple(key for key, _ in extra) != expected:
+        return False
+    if phase in ('TargetProgress', 'RasterReady'):
+        completed, required_count = (value for _, value in extra)
+        return (completed.isdecimal() and required_count.isdecimal()
+                and 0 <= int(completed) <= int(required_count) <= 2**31 - 1)
+    if phase != 'CoordinatorFact':
+        return all(value in ('true', 'false') for _, value in extra)
+    if len(extra) < 2 or tuple(key for key, _ in extra[:2]) != expected:
+        return False
+    if (extra[0][1] not in _READER_STAGE_FACTS
+            or extra[1][1] not in _READER_STAGE_CLASSIFICATIONS):
+        return False
+    index, outcome = 2, None
+    if index < len(extra) and extra[index][0] == 'applied':
+        if extra[index][1] not in ('true', 'false'):
+            return False
+        index += 1
+    if index < len(extra) and extra[index][0] == 'outcome':
+        outcome = extra[index][1]
+        if outcome not in _READER_STAGE_OUTCOMES:
+            return False
+        index += 1
+    if index < len(extra) and extra[index][0] == 'failure':
+        if outcome != 'Failed' or extra[index][1] not in _READER_STAGE_FAILURES:
+            return False
+        index += 1
+    if index < len(extra) and extra[index][0] == 'cancellation':
+        if outcome != 'Cancelled' or extra[index][1] not in _READER_STAGE_CANCELLATIONS:
+            return False
+        index += 1
+    return index == len(extra)
+
+
 def _valid_reader_phase(message):
-    match = (_READER_PHASE_PATTERN.fullmatch(message)
-             if type(message) is str and len(message) <= 512 else None)
+    if type(message) is not str or len(message) > 512:
+        return False
+    if message.startswith('reader-stage'):
+        return _valid_reader_stage(message)
+    match = _READER_PHASE_PATTERN.fullmatch(message)
     return (match is not None and int(match[5]) <= 2**63 - 1
             and all(number is None or -2**31 <= int(number) < 2**31
                     for number in (match[6], match[9])))
@@ -355,6 +479,7 @@ class _ReaderPhaseStream:
     INPUT_CAP = 4 * 1024 * 1024
     PARTIAL_CAP = 1024
     PREFIX = b'INSTRUMENTATION_STATUS: E407.ReaderPhase.V1='
+    PROCESS_CRASH_LINE = b'INSTRUMENTATION_RESULT: shortMsg=Process crashed.'
 
     def __init__(self, *, qualified, clock=time.monotonic):
         self._lock = threading.Lock()
@@ -367,6 +492,7 @@ class _ReaderPhaseStream:
         self._latest = deque(maxlen=128)
         self._partial = bytearray()
         self._overlong = False
+        self._framework_process_crash = False
         self._counts = dict(received_bytes=0, ignored_stderr_bytes=0,
             accepted_records=0, rejected_phase_lines=0, omitted_overlong_lines=0,
             ignored_lines=0, omitted_cap_bytes=0)
@@ -385,7 +511,7 @@ class _ReaderPhaseStream:
                 return
             limit = min(len(chunk), max(0, self.INPUT_CAP - previous))
             self._counts['omitted_cap_bytes'] += len(chunk) - limit
-            if not self._qualified or not limit:
+            if not limit:
                 return
             arrival = max(0, int((self._clock() - self._anchor) * 1000))
             if arrival < self._elapsed:
@@ -416,6 +542,12 @@ class _ReaderPhaseStream:
                 self._overlong = False
 
     def _retain(self, line, arrival):
+        if line == self.PROCESS_CRASH_LINE:
+            self._framework_process_crash = True
+            return
+        if not self._qualified:
+            self._counts['ignored_lines'] += 1
+            return
         if not line.startswith(self.PREFIX):
             self._counts['ignored_lines'] += 1
             return
@@ -446,6 +578,8 @@ class _ReaderPhaseStream:
                 dropped_records=self._counts['accepted_records'] - len(records),
                 partial_bytes=len(self._partial),
                 input_cap_reached=self._counts['received_bytes'] >= self.INPUT_CAP,
+                framework_process_crash=('FRAMEWORK_REPORTED_PROCESS_CRASH'
+                                         if self._framework_process_crash else 'UNKNOWN'),
                 clock_clamped=self._clock_clamped, acceptance_evidence=False)
 
 
@@ -674,7 +808,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     owned_launch_sampled = False
     failed_wait_host_sampled = False
     diagnostic_errors = 0
-    startup_log = phase_trace = reader_live = None
+    startup_log = phase_trace = reader_live = diagnostics = None
     try:
         reader_live = _ReaderPhaseStream(qualified='E407.ReaderPhase.V1' in labels)
     except BaseException:
@@ -709,6 +843,22 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             except BaseException:
                 diagnostic_errors += 1
 
+    def sample_host_memory():
+        nonlocal diagnostic_errors
+        try:
+            sample = diagnostics.host_memory_snapshot() if diagnostics is not None else None
+            if (type(sample) is not dict or set(sample) not in ({'sample_state'},
+                    {'sample_state', 'available_physical_bytes', 'available_commit_bytes'})
+                    or sample.get('sample_state') not in ('SAMPLED', 'UNAVAILABLE')
+                    or (sample.get('sample_state') == 'SAMPLED' and
+                        any(type(sample[key]) is not int or not 0 <= sample[key] <= 2 ** 63 - 1
+                            for key in ('available_physical_bytes', 'available_commit_bytes')))):
+                raise ValueError('HOST_MEMORY_SAMPLE_INVALID')
+            return dict(sample)
+        except BaseException:
+            diagnostic_errors += 1
+            return {'sample_state': 'UNAVAILABLE'}
+
     trace('SESSION', 'START')
     result = {'kind': 'original-three-supervised-runtime-not-pair-or-performance-acceptance',
               'parent_status': 'IN_PROGRESS', 'watchdog_id': watchdog_id,
@@ -731,12 +881,18 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
               'failed_preflight_command': None,
               'failed_wait_host_diagnostics_profile': 'FAILED_WAIT_HOST_DIAGNOSTICS_V1',
               'failed_wait_host_diagnostics': _empty_failed_wait_host_diagnostic('NOT_REACHED'),
+              'pre_teardown_host_diagnostics_profile': 'PRE_TEARDOWN_OWNED_HOST_DIAGNOSTICS_V1',
+              'pre_teardown_host_diagnostics': _empty_pre_teardown_host_diagnostic('NOT_REACHED'),
+              'host_memory_observations_profile': 'HOST_MEMORY_HEADROOM_V1',
+              'host_memory_observations': {'initial_session': {'sample_state': 'UNAVAILABLE'},
+                                           'pre_teardown': {'sample_state': 'NOT_REACHED'}},
               'owned_job_engine_path_observation_profile': 'OWNED_JOB_ENGINE_PATH_V1',
               'owned_job_engine_path_observation': 'NOT_SAMPLED',
               'owned_engine_window_topology_profile': 'OWNED_ENGINE_WINDOW_TOPOLOGY_V1',
               'owned_engine_window_topology': 'NOT_SAMPLED',
               'owned_launch_diagnostics_profile': 'OWNED_LAUNCH_DIAGNOSTICS_V4',
               'owned_launch_diagnostics': _empty_owned_launch_diagnostic('OWNED_LAUNCH_ABSENT')}
+    result['host_memory_observations']['initial_session'] = sample_host_memory()
 
     def require_preparation():
         remaining = guardian.preparation_remaining()
@@ -937,11 +1093,21 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
                     pass  # Diagnostic failure cannot skip the original owned stop.
             return same is original and owned.stop_tree(timeout)
 
+        def observe_pre_teardown():
+            # Guardian calls this after its original terminal decision and before any
+            # instrument/observer/console/tree teardown action. It never retries.
+            result['host_memory_observations']['pre_teardown'] = sample_host_memory()
+            result['pre_teardown_host_diagnostics'] = _empty_pre_teardown_host_diagnostic('SNAPSHOT_GAP')
+            try:
+                result['pre_teardown_host_diagnostics'] = project_pre_teardown_host(owned, instrument)
+            except BaseException:
+                pass
+
         anchor = s.OwnedProcess(original, stop_original_tree)
         guardian = s.Supervisor(owned=anchor, commands=LifecycleCommands(),
             observer=observer, avd=AVD, serial=SERIAL,
             contract=s.LaunchContract(watchdog_id=watchdog_id, no_snapshot_save=True),
-            caps=caps, launch_started=launch_started)
+            caps=caps, launch_started=launch_started, pre_teardown_observation=observe_pre_teardown)
         phase = 'UI_READY'
         readiness_step = 'WAIT_FOR_DEVICE'
         code, out, err = command('WAIT_FOR_DEVICE', ['wait-for-device'], caps.preparation)

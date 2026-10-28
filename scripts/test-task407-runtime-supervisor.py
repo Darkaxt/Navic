@@ -221,7 +221,8 @@ class SupervisorTests(unittest.TestCase):
         self.assertTrue(ready.wait(2), 'Host event source did not become ready')
         return source
 
-    def context(self, instrument=None, adapter_changes=None, caps=None, contract=None, observer=None):
+    def context(self, instrument=None, adapter_changes=None, caps=None, contract=None, observer=None,
+                pre_teardown_observation=None):
         owned = FakeOwned()
         adapter = FixtureAdapter(owned, adapter_changes)
         observer = observer if observer is not None else self.observer()
@@ -230,13 +231,38 @@ class SupervisorTests(unittest.TestCase):
                                   observer=observer, avd=AVD, serial=SERIAL,
                                   contract=contract or S.LaunchContract(watchdog_id='6cca814c', no_snapshot_save=True),
                                   caps=caps or S.Caps(instrumentation=.15, command=.06, process_wait=.02,
-                                                      stop=.1, settle=.3, snapshot_budget=.2))
+                                                      stop=.1, settle=.3, snapshot_budget=.2),
+                                  pre_teardown_observation=pre_teardown_observation)
         return supervisor, owned, adapter, observer, instrument
 
     def report(self, supervisor):
         result = supervisor.wait(3)
         self.assertIsNotNone(result, 'Supervisor exceeded host fixture bound')
         return result
+
+    def test_r144_pre_teardown_observation_runs_before_original_cleanup(self):
+        observed = []
+        instrument = S.Command.pending()
+        def capture():
+            observed.append((owned.stopped.is_set(), instrument.cancelled, list(adapter.calls)))
+        supervisor, owned, adapter, _, _ = self.context(
+            instrument, pre_teardown_observation=capture)
+        instrument._finish()
+        report = self.report(supervisor)
+        self.assertEqual(observed, [(False, False, [])])
+        self.assertTrue(report.shutdown_verified)
+        self.assertTrue(owned.stopped.is_set())
+        self.assertIn(('console_stop', None), adapter.calls)
+
+    def test_r144_pre_teardown_observation_exception_keeps_full_cleanup(self):
+        supervisor, owned, adapter, _, _ = self.context(
+            S.Command.completed(0),
+            pre_teardown_observation=lambda: (_ for _ in ()).throw(RuntimeError(PRIVATE)))
+        report = self.report(supervisor)
+        self.assertTrue(owned.stopped.is_set())
+        self.assertIn(('console_stop', None), adapter.calls)
+        self.assertIn(('disconnect', None), adapter.calls)
+        self.assertTrue(report.shutdown_verified)
 
     def test_real_never_returning_host_child_is_cancelled(self):
         child = self.command('import threading; threading.Event().wait()')
@@ -2077,5 +2103,29 @@ class AccountingEnvelopeTests(unittest.TestCase):
             S.Caps(1e308, 1e308, 5, 5, 2, 15, preparation=180, postboot_preparation=45)
 
 
+class SafeResult(unittest.TestResult):
+    """Finite test projection; never format raw assertion payloads or tracebacks."""
+    def __init__(self):
+        super().__init__()
+        self.safe_failures, self.safe_errors, self.passed = [], [], []
+    def addSuccess(self, test):
+        self.passed.append(test.id())
+    def addFailure(self, test, error):
+        self.safe_failures.append({'id': test.id(), 'exception_type': error[0].__name__})
+    def addError(self, test, error):
+        self.safe_errors.append({'id': test.id(), 'exception_type': error[0].__name__})
+    def addSubTest(self, test, subtest, error):
+        if error is not None:
+            self.safe_failures.append({'id': test.id(), 'exception_type': error[0].__name__})
+    def wasSuccessful(self):
+        return not self.safe_failures and not self.safe_errors
+
+
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    result = SafeResult()
+    unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__]).run(result)
+    report = {'tests_run': result.testsRun, 'passed': result.passed,
+              'failures': result.safe_failures, 'errors': result.safe_errors,
+              'success': result.wasSuccessful()}
+    sys.stdout.write(json.dumps(report, sort_keys=True) + '\n')
+    sys.exit(0 if result.wasSuccessful() else 1)

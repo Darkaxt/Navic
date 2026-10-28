@@ -209,6 +209,44 @@ class EmulatorStartupLog:
                 clock_clamped=self._elapsed.clamped)
 
 
+def _windows_memory_status():
+    """Return available physical/commit bytes, or None outside a usable Windows API."""
+    if os.name != 'nt':
+        return None
+    import ctypes
+
+    class MemoryStatusEx(ctypes.Structure):
+        _fields_ = [('dwLength', ctypes.c_ulong), ('dwMemoryLoad', ctypes.c_ulong),
+                    ('ullTotalPhys', ctypes.c_ulonglong), ('ullAvailPhys', ctypes.c_ulonglong),
+                    ('ullTotalPageFile', ctypes.c_ulonglong), ('ullAvailPageFile', ctypes.c_ulonglong),
+                    ('ullTotalVirtual', ctypes.c_ulonglong), ('ullAvailVirtual', ctypes.c_ulonglong),
+                    ('ullAvailExtendedVirtual', ctypes.c_ulonglong)]
+
+    status = MemoryStatusEx()
+    status.dwLength = ctypes.sizeof(status)
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    query = kernel.GlobalMemoryStatusEx
+    query.argtypes = [ctypes.POINTER(MemoryStatusEx)]
+    query.restype = ctypes.c_bool
+    if not query(ctypes.byref(status)):
+        return None
+    return status.ullAvailPhys, status.ullAvailPageFile
+
+
+def host_memory_snapshot():
+    """Closed one-shot system headroom sample; never an admission or cause oracle."""
+    try:
+        sample = _windows_memory_status()
+        if (type(sample) is not tuple or len(sample) != 2
+                or any(type(value) is not int or not 0 <= value <= 2 ** 63 - 1
+                       for value in sample)):
+            raise ValueError()
+    except BaseException:
+        return {'sample_state': 'UNAVAILABLE'}
+    return {'sample_state': 'SAMPLED', 'available_physical_bytes': sample[0],
+            'available_commit_bytes': sample[1]}
+
+
 PHASES = frozenset(('SELECTED_ABSENCE', 'OWNED_LAUNCH', 'WAIT_FOR_DEVICE',
     'OWNED_AVD_IDENTITY', 'SYS_BOOT_COMPLETED', 'BOOT_HANDOFF', 'INSTALL', 'CURSOR',
     'OBSERVER_ADMISSION', 'INSTRUMENTATION', 'TEARDOWN', 'SESSION'))

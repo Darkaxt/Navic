@@ -227,6 +227,29 @@ class StartupLogTests(unittest.TestCase):
             log.close()
 
 
+class HostMemoryTests(unittest.TestCase):
+    def sample(self):
+        value = getattr(diagnostics, 'host_memory_snapshot', None)
+        self.assertTrue(callable(value), 'API_MISSING')
+        return value
+
+    def test_r144_returns_only_bounded_available_physical_and_commit_scalars(self):
+        with mock.patch.object(diagnostics, '_windows_memory_status',
+                               return_value=(30708391936, 41764872192)):
+            self.assertEqual(self.sample()(), {
+                'sample_state': 'SAMPLED', 'available_physical_bytes': 30708391936,
+                'available_commit_bytes': 41764872192})
+
+    def test_r144_native_failure_or_non_windows_is_explicitly_unavailable(self):
+        for response in (None, RuntimeError('PRIVATE_MEMORY_FAILURE'),
+                         (-1, 1), (1, 2 ** 64)):
+            with self.subTest(response=type(response).__name__), \
+                 mock.patch.object(diagnostics, '_windows_memory_status',
+                                   side_effect=response if isinstance(response, BaseException) else None,
+                                   return_value=None if isinstance(response, BaseException) else response):
+                self.assertEqual(self.sample()(), {'sample_state': 'UNAVAILABLE'})
+
+
 class PhaseTraceTests(unittest.TestCase):
     def create(self):
         cls = getattr(diagnostics, 'PhaseTrace', None)

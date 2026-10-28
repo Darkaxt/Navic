@@ -180,9 +180,10 @@ internal class Task407LoggerStartupObservation(private val method: Task407Origin
             "ReaderPassiveRasterWebViewHost" -> "PassiveRaster"
             else -> null
         }
-        val readerPhase = phaseSource != null && event.message.length <= 512 &&
+        val readerPhase = (phaseSource != null && event.message.length <= 512 &&
             event.message.startsWith("reader-webview-phase source=$phaseSource ") &&
-            readerPhasePattern.matches(event.message)
+            readerPhasePattern.matches(event.message)) ||
+            (event.tag == ReaderStageDiagnosticTag && ReaderStageDiagnostic.isSafeMessage(event.message))
         if (readerPhase) {
             if (readerPhaseRecords.size < 128) readerPhaseRecords += event.message
             else readerPhaseDropped = (readerPhaseDropped + 1).coerceAtMost(65535)

@@ -1130,7 +1130,7 @@ def _console_stop_ack(raw):
 class Supervisor:
     """Independent single guardian; no Android command defaults or normal CLI."""
     def __init__(self, *, owned, commands, observer, avd, serial, contract, caps, instrument=None,
-                 launch_started=None):
+                 launch_started=None, pre_teardown_observation=None):
         now = time.monotonic()
         if launch_started is None:
             launch_started = now  # Generic host users retain their construction anchor.
@@ -1140,6 +1140,8 @@ class Supervisor:
         self._owned, self._commands, self._instrument = owned, commands, instrument
         self._observer, self._avd, self._serial = observer, avd, serial
         self._contract, self._caps = contract, caps
+        self._pre_teardown_observation = (pre_teardown_observation
+                                          if callable(pre_teardown_observation) else None)
         self._condition = threading.Condition()
         self._finished = threading.Event()
         self._aborted = False
@@ -1416,6 +1418,14 @@ class Supervisor:
             pass
         with self._condition:
             self._accepting = False
+        # Optional diagnostic seam: terminal work is decided, but no teardown
+        # action (including instrument/observer stop or console/tree stop) has run.
+        # It cannot change the original terminal decision or cleanup path.
+        if self._pre_teardown_observation is not None:
+            try:
+                self._pre_teardown_observation()
+            except BaseException:
+                pass
         try:
             terminal, snapshots, disconnect, absence, failures = self._teardown()
         except BaseException:
