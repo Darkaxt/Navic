@@ -919,7 +919,7 @@ def validate_live_session(record, watchdog_id):
         raise ValueError('SESSION_AUTHORITY_UNCONFIRMED')
     gate = record.get('gate')
     runtime = _runtime_gate()
-    fields = {'helper': runtime.HELPER, 'release': runtime.RELEASE, 'version': '0.16.5',
+    fields = {'helper': runtime.HELPER, 'release': runtime.RELEASE, 'version': '0.16.8',
         'emulator_profile': 'reader-diagnostics', 'component_version': '37.2.12',
         'scratch_root': runtime.SCRATCH, 'owner_task': 'Validate original reader runtime cases',
         'thread_name': 'Navic'}
@@ -1122,6 +1122,9 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
               'transport_first_failure_diagnostics_profile': 'FIRST_FAILURE_TRANSPORT_DIAGNOSTICS_V3',
               'transport_first_failure_diagnostics_scope': 'PRE_TEARDOWN_AFTER_TERMINAL_DECISION',
               'transport_first_failure_diagnostics': _empty_transport_first_failure_diagnostics('NOT_REACHED'),
+              'coordinator_failure_diagnostics_profile': 'COORDINATOR_PRIMARY_SECONDARY_FAILURE_V1',
+              'coordinator_failure_diagnostics_scope': 'FIRST_MATCHED_REJECTION_ONLY_IF_FIRST_OVERALL_FAILURE',
+              'coordinator_failure_diagnostics': dict(sample_state='NOT_REACHED', failure_diagnostics=None),
               'host_memory_observations_profile': 'HOST_MEMORY_HEADROOM_V1',
               'host_memory_observations': {'initial_session': {'sample_state': 'UNAVAILABLE'},
                                            'pre_teardown': {'sample_state': 'NOT_REACHED'}},
@@ -1358,6 +1361,12 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
             except BaseException:
                 pass
             if gated:
+                result['coordinator_failure_diagnostics'] = dict(sample_state='SNAPSHOT_GAP', failure_diagnostics=None)
+                try:
+                    result['coordinator_failure_diagnostics'] = runtime_gate.copy_failure_diagnostic_snapshot(
+                        gate.transport.failure_diagnostic_snapshot())
+                except BaseException:
+                    pass  # Diagnostics never replace the terminal decision or original cleanup.
                 try:
                     snapshot = owned.snapshot_transport_diagnostics()
                     if _valid_transport_first_failure_diagnostics(snapshot):
@@ -1380,7 +1389,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
             caps=caps, launch_started=launch_started, pre_teardown_observation=observe_pre_teardown,
             **guardian_options)
         if gated:
-            result.update(launch_transport_profile='COORDINATOR_0_16_5_READER_DIAGNOSTICS_37_2_12_EOF_V1',
+            result.update(launch_transport_profile='COORDINATOR_0_16_8_READER_DIAGNOSTICS_37_2_12_EOF_V1',
                 launch_anchor_profile='ACQUIRED_NATIVE_CREATION_FILETIME_TO_MONOTONIC_V1',
                 environment_equivalence='CHANGED_HOST_PROFILE_NOT_OLD_ENVIRONMENT_QUALIFICATION',
                 phase_trace_scope='HOST_CALLER_ENVELOPES_INCLUDE_GATE_QUEUE_NOT_VM_EXECUTION',
@@ -1682,7 +1691,7 @@ def main(argv=None):
         active_path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/active.json')
         active_bytes = active_path.read_bytes()
         active = json.loads(active_bytes)
-        if active.get('release') != runtime.RELEASE or active.get('version') != '0.16.5':
+        if active.get('release') != runtime.RELEASE or active.get('version') != '0.16.8':
             raise ValueError('GATE_ACTIVE_RELEASE_CHANGED')
         component = json.loads((Path(runtime.RELEASE_ROOT) / 'integration/emulator-components.json').read_bytes())
         selected = component['profiles']['reader-diagnostics']

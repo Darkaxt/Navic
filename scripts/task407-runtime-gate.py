@@ -19,10 +19,10 @@ import threading
 import time
 
 HELPER = 'C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py'
-RELEASE = '77a9616d05187aee'
+RELEASE = '79bd02266382f266'
 RELEASE_ROOT = 'C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/' + RELEASE
 SCRATCH = 'D:/Temp/navic-task407-gated-runtime/r146'
-MODULES = ('tools_cli.py', 'workflows.py', 'native_process.py', 'android_emulator.py',
+MODULES = ('tools_cli.py', 'workflows.py', 'workflow_failures.py', 'native_process.py', 'android_emulator.py',
            'emulator_adb.py', 'android_cli.py', 'android_cli_worker.py', 'emulator_state.py',
            'workflow_pipe.py', 'cua_mcp.py')
 QUEUE_SOURCE = RELEASE_ROOT + '/engines/agent_toolbelt_gradle_build_gate/queue.py'
@@ -140,6 +140,71 @@ def _first_outer_method(method):
     }.get(method, 'OTHER')
 
 
+def _project_failure_diagnostics(value, expected_method):
+    """Validate the closed remote receipt; omit clock/reference, infer no guest outcome."""
+    def keys(item, expected):
+        return type(item) is dict and all(type(k) is str for k in item) and set(item) == set(expected)
+
+    def error(item):
+        if (not keys(item, ('kind', 'errno', 'winerror')) or type(item['kind']) is not str
+                or item['kind'] not in ('OS_ERROR', 'VALUE_ERROR', 'TYPE_ERROR', 'KEY_ERROR',
+                                        'RUNTIME_ERROR', 'OTHER_ERROR')
+                or any(n is not None and (type(n) is not int or not -(2**31) <= n < 2**32)
+                       for n in (item['errno'], item['winerror']))):
+            raise blocked()
+        return dict(item)
+
+    names = ('schema', 'reference', 'observed_at', 'tool', 'method', 'phase',
+             'journal_operation', 'engine_dispatched', 'engine_returned', 'primary', 'secondary', 'persisted')
+    if type(value) is not dict or type(value.get('persisted')) is not bool:
+        raise blocked()
+    if not value['persisted']:
+        names += ('record_error',)
+    if (not keys(value, names) or type(value['schema']) is not int or value['schema'] != 1
+            or type(value['reference']) is not str or re.fullmatch('[0-9a-f]{32}', value['reference']) is None
+            or type(value['observed_at']) not in (int, float) or not math.isfinite(value['observed_at'])
+            or type(value['tool']) is not str or value['tool'] != 'android-emulator'
+            or type(value['method']) is not str or value['method'] != expected_method
+            or value['method'] not in ('ADB_START', 'ADB_READ', 'ADB_STATUS', 'ADB_CANCEL',
+                                       'ADB_CLOSE', 'SDK_OUTPUT_READ', 'OTHER')
+            or type(value['phase']) is not str or value['phase'] not in (
+                'PRE_SAVE', 'ENGINE_CALL', 'ENGINE_STATE_SAVE', 'POST_SAVE')
+            or type(value['journal_operation']) is not str or value['journal_operation'] not in (
+                'READ', 'WRITE', 'NOT_JOURNAL')
+            or any(type(value[k]) is not bool for k in ('engine_dispatched', 'engine_returned'))):
+        raise blocked()
+    projected = {k: value[k] for k in names if k not in ('observed_at', 'reference', 'primary', 'secondary', 'record_error')}
+    projected['primary'] = error(value['primary'])
+    projected['secondary'] = None
+    if value['secondary'] is not None:
+        secondary = value['secondary']
+        if (not keys(secondary, ('phase', 'journal_operation', 'error'))
+                or type(secondary['phase']) is not str or secondary['phase'] != 'ERROR_SAVE'
+                or type(secondary['journal_operation']) is not str
+                or secondary['journal_operation'] not in ('READ', 'WRITE', 'NOT_JOURNAL')):
+            raise blocked()
+        projected['secondary'] = dict(phase='ERROR_SAVE', journal_operation=secondary['journal_operation'],
+                                      error=error(secondary['error']))
+    if not value['persisted']:
+        projected['record_error'] = error(value['record_error'])
+    return projected
+
+
+def copy_failure_diagnostic_snapshot(value):
+    """Strict detached local projection; unavailable/malformed never become evidence."""
+    if (type(value) is not dict or any(type(k) is not str for k in value)
+            or set(value) != {'sample_state', 'failure_diagnostics'} or type(value['sample_state']) is not str):
+        raise blocked()
+    if value['sample_state'] in ('UNAVAILABLE', 'MALFORMED') and value['failure_diagnostics'] is None:
+        return dict(value)
+    receipt = value['failure_diagnostics']
+    if (value['sample_state'] != 'SAMPLED' or type(receipt) is not dict
+            or 'observed_at' in receipt or 'reference' in receipt):
+        raise blocked()
+    projected = _project_failure_diagnostics(dict(receipt, observed_at=0.0, reference='0' * 32), receipt.get('method'))
+    return dict(sample_state='SAMPLED', failure_diagnostics=projected)
+
+
 def _transport_role(value, method):
     if value is not None:
         return value if type(value) is str and value in _TRANSPORT_DIAGNOSTIC_ROLES else 'OTHER'
@@ -183,6 +248,7 @@ class JsonLineTransport:
         self._diagnostic_sequence_saturated = False
         self._diagnostic_first = None
         self._diagnostic_first_outer = ('UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE')
+        self._failure_diagnostics = dict(sample_state='UNAVAILABLE', failure_diagnostics=None)
         self._diagnostic_source = None
         self._diagnostic_event_first = None
         self._diagnostic_receive_side = 'UNAVAILABLE'
@@ -258,6 +324,10 @@ class JsonLineTransport:
                 event_source_first_phase=event[0] if event is not None else 'UNAVAILABLE',
                 event_source_request_admission_sequence=event[1] if event is not None else None,
                 event_source_failure_observation_sequence=event[2] if event is not None else None)
+
+    def failure_diagnostic_snapshot(self):
+        with self._condition:
+            return copy_failure_diagnostic_snapshot(self._failure_diagnostics)
 
     def _read(self):
         receive_side = 'EOF'
@@ -383,7 +453,7 @@ class JsonLineTransport:
         role = _transport_role(diagnostic_role, method)
         deadline = time.monotonic() + timeout
         request_sequence = None
-        outer = None
+        outer = coordinator_failure = None
         # Split only the original short-circuit guards, preserving reads/check order.
         phase = 'OTHER'
         if self.uncertain:
@@ -423,6 +493,13 @@ class JsonLineTransport:
                 return value  # Terminal frame is not the normal result wrapper.
             phase = 'OUTER_REPLY_VALIDATION'
             if value.get('ok') is not True or type(value.get('result')) is not dict:
+                coordinator_failure = dict(sample_state='UNAVAILABLE', failure_diagnostics=None)
+                if value.get('ok') is False and 'failure_diagnostics' in value:
+                    try:
+                        receipt = _project_failure_diagnostics(value['failure_diagnostics'], _first_outer_method(method))
+                        coordinator_failure = dict(sample_state='SAMPLED', failure_diagnostics=receipt)
+                    except BaseException:
+                        coordinator_failure = dict(sample_state='MALFORMED', failure_diagnostics=None)
                 try:
                     reply = _classify_first_outer_reply(value)
                     outer = (*reply, _first_outer_method(method),
@@ -433,6 +510,8 @@ class JsonLineTransport:
             return value['result']
         except BaseException:
             with self._condition:
+                if self._diagnostic_first is None and coordinator_failure is not None:
+                    self._failure_diagnostics = coordinator_failure
                 self._record_diagnostic_failure(role, phase, request_sequence, outer)
             self.uncertain = True
             raise blocked() from None

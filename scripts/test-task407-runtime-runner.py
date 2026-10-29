@@ -2017,7 +2017,7 @@ class PreflightBoundaryTests(unittest.TestCase):
             raise ValueError('fixture stop before dispatch')
         record.update(host_qualification_path='fixture-reviews', host_qualification_sha256='b' * 64,
                       gate={'pins': [], 'binding': {'emulator_root': 'D:/Components/37.2.12'}})
-        runtime = SimpleNamespace(RELEASE='77a9616d05187aee', RUNTIME_PATHS=(),
+        runtime = SimpleNamespace(RELEASE='79bd02266382f266', RUNTIME_PATHS=(),
                                   RELEASE_ROOT='D:/fixture-release')
         # Live CLI is gate-only; isolate new receipt/active-release boundaries in
         # this original cap assertion, not historical peer-based admission.
@@ -2026,7 +2026,7 @@ class PreflightBoundaryTests(unittest.TestCase):
              mock.patch.object(runner, 'validate_host_qualification', return_value=([], 'a' * 40)), \
              mock.patch.object(runner, '_runtime_gate', return_value=runtime), \
              mock.patch.object(runner.Path, 'read_bytes', side_effect=[
-                 b'{"release":"77a9616d05187aee","version":"0.16.5"}',
+                 b'{"release":"79bd02266382f266","version":"0.16.8"}',
                  b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
              mock.patch.object(runner, 'pins_match', return_value=True), \
              mock.patch.object(runner, 'subprocess') as subprocess_mock, \
@@ -2053,11 +2053,12 @@ class PreflightBoundaryTests(unittest.TestCase):
         self.assertEqual(before['effective_budget_ms'], int(install_options['timeout'] * 1000))
 
     def test_r158_main_rejects_old_root_full_coverage_and_digest_drift(self):
-        new_release = '77a9616d05187aee'
+        new_release = '79bd02266382f266'
         old_release = 'a84522cf993339ea'
         helper = 'C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py'
         suffixes = (
             'src/llm_coordinator/tools_cli.py', 'src/llm_coordinator/workflows.py',
+            'src/llm_coordinator/workflow_failures.py',
             'src/llm_coordinator/native_process.py', 'src/llm_coordinator/android_emulator.py',
             'src/llm_coordinator/emulator_adb.py', 'src/llm_coordinator/android_cli.py',
             'src/llm_coordinator/android_cli_worker.py', 'src/llm_coordinator/emulator_state.py',
@@ -2067,12 +2068,11 @@ class PreflightBoundaryTests(unittest.TestCase):
         new_paths = [helper] + [
             'C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/' + new_release + '/' + suffix
             for suffix in suffixes]
-        old_paths = [helper] + [path.replace(new_release, old_release) for path in new_paths[1:]]
-        self.assertEqual(len(new_paths), 14)
-        self.assertEqual(len(set(new_paths)), 14)
-        self.assertTrue(all(hashlib.sha256(Path(old).read_bytes()).hexdigest() ==
-                            hashlib.sha256(Path(new).read_bytes()).hexdigest()
-                            for old, new in zip(old_paths, new_paths)))
+        old_paths = [helper] + [path.replace(new_release, old_release) for path in new_paths[1:]
+                                if not path.endswith('/workflow_failures.py')]
+        self.assertEqual(len(new_paths), 15)
+        self.assertEqual(len(set(new_paths)), 15)
+        # This is a new runtime qualification, not byte-equivalence with the old package.
         runtime = SimpleNamespace(HELPER=helper, RELEASE=new_release, RUNTIME_PATHS=tuple(new_paths),
                                   RELEASE_ROOT='D:/fixture-release', SCRATCH='D:/fixture-scratch')
         seal = dict(base_source_commit='a' * 40, apk=dict(path='fixture-only.apk', sha256='c' * 64))
@@ -2102,7 +2102,7 @@ class PreflightBoundaryTests(unittest.TestCase):
                  mock.patch.object(runner, '_runtime_gate', return_value=runtime), \
                  mock.patch.object(runner, 'pins_match', side_effect=pins_spy), \
                  mock.patch.object(runner.Path, 'read_bytes', side_effect=[
-                     b'{"release":"77a9616d05187aee","version":"0.16.5"}',
+                     b'{"release":"79bd02266382f266","version":"0.16.8"}',
                      b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
                  mock.patch.object(runner.subprocess, 'run', side_effect=stop_at_first_git_read), \
                  mock.patch.object(runner, 'run_gated_session') as gated_session, \
@@ -2115,7 +2115,7 @@ class PreflightBoundaryTests(unittest.TestCase):
             return pins_calls, git_calls
 
         old_pins, old_git = invoke(old_paths, match=True)
-        missing_pins, missing_git = invoke(new_paths[:-1], match=True)
+        missing_pins, missing_git = invoke([path for path in new_paths if not path.endswith('/workflow_failures.py')], match=True)
         drift_pins, drift_git = invoke(new_paths, match=False)
         valid_pins, valid_git = invoke(new_paths, match=True)
         self.assertEqual(old_pins, [])

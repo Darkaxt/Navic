@@ -62,7 +62,7 @@ def record():
         user_session_authorized=True, no_snapshot_save=True, preserve_app_data=True, clear_logcat=False,
         watchdog_id='host-fixture', apk_path='fixture-only.apk',
         gate=dict(helper='C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py',
-            release='77a9616d05187aee', version='0.16.5', emulator_profile='reader-diagnostics',
+            release='79bd02266382f266', version='0.16.8', emulator_profile='reader-diagnostics',
             component_version='37.2.12', scratch_root='D:/Temp/navic-task407-gated-runtime/r146',
             owner_task='Validate original reader runtime cases', thread_name='Navic',
             expected_owner=dict(system='claude', session_sha256=hashlib.sha256(b'host-chat').hexdigest(), thread_name='Navic'),
@@ -719,7 +719,7 @@ class BoundaryTests(unittest.TestCase):
         value.update(seal_path='seal', seal_sha256='a' * 64,
             host_qualification_path='receipt', host_qualification_sha256='b' * 64)
         value['gate']['pins'] = []
-        runtime = SimpleNamespace(RELEASE='77a9616d05187aee', RELEASE_ROOT='D:/fixture', RUNTIME_PATHS=())
+        runtime = SimpleNamespace(RELEASE='79bd02266382f266', RELEASE_ROOT='D:/fixture', RUNTIME_PATHS=())
         seal = dict(base_source_commit='a' * 40, apk=dict(path='fixture-only.apk', sha256='c' * 64))
         result = dict(automatic_emulator_teardown_verified=True, all_three_original_runtime_cases_passed=True,
             supervisor=dict(native_exit_code=3221226505, workflow_exit_code=3221226505,
@@ -730,7 +730,7 @@ class BoundaryTests(unittest.TestCase):
              mock.patch.object(r, '_runtime_gate', return_value=runtime), \
              mock.patch.object(r, 'pins_match', return_value=True), \
              mock.patch.object(r.Path, 'read_bytes', side_effect=[
-                 b'{"release":"77a9616d05187aee","version":"0.16.5"}',
+                 b'{"release":"79bd02266382f266","version":"0.16.8"}',
                  b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
              mock.patch.object(r.Path, 'open', mock.mock_open()), \
              mock.patch.object(r.os, 'environ', dict(WATCHDOG_ID='host-fixture')), \
@@ -1516,7 +1516,7 @@ class R149EOFTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                    '77a9616d05187aee/src/llm_coordinator/emulator_adb.py')
+                    '79bd02266382f266/src/llm_coordinator/emulator_adb.py')
         if hashlib.sha256(path.read_bytes()).hexdigest() != (
                 '3789b278e21892e745b4b89ad06a86b8dc3a740a8ce545c3b6a3762c7d122f0e'):
             raise AssertionError('INSTALLED_CAPTURE_PIN_CHANGED')
@@ -1811,14 +1811,14 @@ class R149EOFTests(unittest.TestCase):
         result = self.execute(session, cleanup=lambda: True)
         self.assertTrue(result['all_three_original_runtime_cases_passed'])
         self.assertEqual(result['launch_transport_profile'],
-            'COORDINATOR_0_16_5_READER_DIAGNOSTICS_37_2_12_EOF_V1')
+            'COORDINATOR_0_16_8_READER_DIAGNOSTICS_37_2_12_EOF_V1')
 
     test_delivered_active_release_reaches_cli_without_old_version_block = (
         BoundaryTests.test_cli_preserves_sdk_shutdown_failure_even_when_original_oracle_passes)
 
     def test_current_live_admission_accepts_active_release_and_rejects_old_delivery(self):
         current = record()
-        current['gate'].update(release='77a9616d05187aee', version='0.16.5')
+        current['gate'].update(release='79bd02266382f266', version='0.16.8')
         try:
             self.assertIsNone(r.validate_live_session(current, 'host-fixture'))
         except ValueError:
@@ -1826,11 +1826,11 @@ class R149EOFTests(unittest.TestCase):
         old = record()
         old['gate'].update(release='df52528334e1391b', version='0.16.4')
         with self.assertRaises(ValueError): r.validate_live_session(old, 'host-fixture')
-        self.assertTrue(all('77a9616d05187aee' in path for path in g.RUNTIME_PATHS[1:]))
+        self.assertTrue(all('79bd02266382f266' in path for path in g.RUNTIME_PATHS[1:]))
 
     def test_r162_current_admission_accepts_exact_0_16_5_and_rejects_prior_or_mixed_pairs(self):
         current = record()
-        current['gate'].update(release='77a9616d05187aee', version='0.16.5')
+        current['gate'].update(release='79bd02266382f266', version='0.16.8')
         try:
             self.assertIsNone(r.validate_live_session(current, 'host-fixture'))
         except ValueError:
@@ -1838,16 +1838,16 @@ class R149EOFTests(unittest.TestCase):
         for release, version in (
                 ('a0eb32e6e700bb9e', '0.16.3'), ('a84522cf993339ea', '0.16.2'),
                 ('5fc7390b4f9b73d3', '0.16.1'), ('e501a86cc7460fa2', '0.16.0'),
-                ('df52528334e1391b', '0.16.4'), ('77a9616d05187aee', '0.16.4'),
-                ('a0eb32e6e700bb9e', '0.16.5'), ('a84522cf993339ea', '0.16.5')):
+                ('df52528334e1391b', '0.16.4'), ('79bd02266382f266', '0.16.4'),
+                ('a0eb32e6e700bb9e', '0.16.8'), ('a84522cf993339ea', '0.16.8')):
             with self.subTest(release=release, version=version):
                 rejected = record()
                 rejected['gate'].update(release=release, version=version)
                 with self.assertRaises(ValueError):
                     r.validate_live_session(rejected, 'host-fixture')
-        self.assertEqual(len(g.RUNTIME_PATHS), 14)
-        self.assertEqual(len(set(g.RUNTIME_PATHS)), 14)
-        self.assertTrue(all('77a9616d05187aee' in path for path in g.RUNTIME_PATHS[1:]))
+        self.assertEqual(len(g.RUNTIME_PATHS), 15)
+        self.assertEqual(len(set(g.RUNTIME_PATHS)), 15)
+        self.assertTrue(all('79bd02266382f266' in path for path in g.RUNTIME_PATHS[1:]))
 
 
 class R150VMExitTests(unittest.TestCase):
@@ -1865,7 +1865,7 @@ class R150VMExitTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                    '77a9616d05187aee/src/llm_coordinator/emulator_adb.py')
+                    '79bd02266382f266/src/llm_coordinator/emulator_adb.py')
         if hashlib.sha256(path.read_bytes()).hexdigest() != (
                 '3789b278e21892e745b4b89ad06a86b8dc3a740a8ce545c3b6a3762c7d122f0e'):
             raise AssertionError('INSTALLED_CAPTURE_PIN_CHANGED')
@@ -2189,7 +2189,7 @@ class TransportTests(unittest.TestCase):
 class R152FifoNoticeTests(unittest.TestCase):
     """Installed FIFO queue notices are diagnostic-only, never RPC authority."""
     queue_source = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                        '77a9616d05187aee/engines/agent_toolbelt_gradle_build_gate/queue.py')
+                        '79bd02266382f266/engines/agent_toolbelt_gradle_build_gate/queue.py')
 
     @classmethod
     def setUpClass(cls):
@@ -2411,17 +2411,17 @@ class R156CompletionTests(unittest.TestCase):
                 self.assertEqual(len(writes), 1)
                 self.assertNotIn('R165_PRIVATE', json.dumps(snapshot))
 
-    def test_r165_current_admission_accepts_only_exact_0_16_5_pair(self):
+    def test_r165_current_admission_accepts_only_exact_0_16_8_pair(self):
         current = record()
-        current['gate'].update(release='77a9616d05187aee', version='0.16.5')
+        current['gate'].update(release='79bd02266382f266', version='0.16.8')
         try:
             accepted = r.validate_live_session(current, 'host-fixture')
         except ValueError:
             accepted = 'REJECTED'
         self.assertIsNone(accepted)
         for release, version in (('df52528334e1391b', '0.16.4'),
-                                 ('77a9616d05187aee', '0.16.4'),
-                                 ('df52528334e1391b', '0.16.5')):
+                                 ('79bd02266382f266', '0.16.4'),
+                                 ('df52528334e1391b', '0.16.8')):
             rejected = record()
             rejected['gate'].update(release=release, version=version)
             with self.subTest(release=release, version=version), self.assertRaises(ValueError):
@@ -3043,6 +3043,163 @@ def closed_run(files, evidence=None, only=None):
         Path(evidence).write_text(json.dumps(value, indent=2), encoding='utf-8')
     print(json.dumps(value))
     return value
+
+
+class R167FailureDiagnosticsTests(unittest.TestCase):
+    """Catch lost/misattributed Coordinator receipts without changing rejection oracles."""
+    transport = R156CompletionTests.transport
+    session = MigrationTests.session
+    api = MigrationTests.api
+
+    @staticmethod
+    def diagnostic():
+        return dict(schema=1, reference='a' * 32, observed_at=1793232000.0,
+            tool='android-emulator', method='ADB_READ', phase='ENGINE_CALL',
+            journal_operation='NOT_JOURNAL', engine_dispatched=True, engine_returned=False,
+            primary=dict(kind='OS_ERROR', errno=13, winerror=5),
+            secondary=dict(phase='ERROR_SAVE', journal_operation='WRITE',
+                error=dict(kind='OS_ERROR', errno=13, winerror=32)), persisted=True)
+
+    def rejected(self, diagnostic):
+        fields = {} if diagnostic is None else {'failure_diagnostics': diagnostic}
+        transport, writes, _, _ = self.transport(lambda request: dict(
+            id=request['id'], ok=False, error='PRIVATE_R167_ERROR_PATH', **fields))
+        with self.assertRaises(ValueError):
+            transport.request('emulator.adb.read', {}, .2, diagnostic_role='EVENT_SOURCE')
+        return transport, writes
+
+    def test_r167b_malformed_success_envelope_cannot_supply_a_failure_receipt(self):
+        for fields in ({'ok': True}, {'ok': True, 'result': None}, {'ok': None}, {}, {'ok': 0}):
+            transport, writes, _, _ = self.transport(lambda request: dict(id=request['id'],
+                failure_diagnostics=self.diagnostic(), **fields))
+            with self.assertRaises(ValueError):
+                transport.request('emulator.adb.read', {}, .2)
+            self.assertEqual(transport.failure_diagnostic_snapshot(),
+                dict(sample_state='UNAVAILABLE', failure_diagnostics=None))
+            self.assertTrue(transport.uncertain)
+            self.assertEqual(len(writes), 1)
+
+    def test_r167_current_admission_and_complete_dependency_set(self):
+        current = record()
+        current['gate'].update(release='79bd02266382f266', version='0.16.8')
+        try:
+            accepted = r.validate_live_session(current, 'host-fixture')
+        except ValueError:
+            accepted = 'REJECTED'
+        self.assertIsNone(accepted)
+        for release, version in (('77a9616d05187aee', '0.16.5'),
+                ('79bd02266382f266', '0.16.5'), ('77a9616d05187aee', '0.16.8')):
+            bad = copy.deepcopy(current)
+            bad['gate'].update(release=release, version=version)
+            with self.assertRaises(ValueError):
+                r.validate_live_session(bad, 'host-fixture')
+        self.assertIn(g.RELEASE_ROOT + '/src/llm_coordinator/workflow_failures.py', g.RUNTIME_PATHS)
+        self.assertEqual(len(set(g.RUNTIME_PATHS)), 15)
+
+    def test_r167_rejected_reply_preserves_primary_secondary_and_persistence_failure(self):
+        for phase, dispatched, returned, operation in (
+                ('PRE_SAVE', False, False, 'WRITE'),
+                ('ENGINE_CALL', True, False, 'NOT_JOURNAL'),
+                ('ENGINE_STATE_SAVE', True, False, 'READ'),
+                ('POST_SAVE', True, True, 'WRITE')):
+            for persisted in (True, False):
+                diagnostic = self.diagnostic()
+                diagnostic.update(phase=phase, engine_dispatched=dispatched,
+                    engine_returned=returned, journal_operation=operation, persisted=persisted)
+                if not persisted:
+                    diagnostic['record_error'] = dict(kind='VALUE_ERROR', errno=None, winerror=None)
+                transport, writes = self.rejected(diagnostic)
+                snapshot = getattr(transport, 'failure_diagnostic_snapshot', lambda: None)()
+                self.assertIsNotNone(snapshot, 'MATCHED_REJECTION_RECEIPT_LOST')
+                self.assertEqual(snapshot['sample_state'], 'SAMPLED')
+                captured = snapshot['failure_diagnostics']
+                self.assertEqual(captured, {k: v for k, v in diagnostic.items() if k not in ('observed_at', 'reference')})
+                snapshot['failure_diagnostics']['primary']['winerror'] = 999
+                self.assertEqual(transport.failure_diagnostic_snapshot()['failure_diagnostics']['primary']['winerror'], 5)
+                transport.record_source_failure('SOURCE_PUMP_EXCEPTION', 'PUMP_CALLBACK_FAILURE')
+                with self.assertRaises(ValueError):
+                    transport.request('emulator.adb.read', {}, .2)
+                self.assertTrue(transport.uncertain)
+                self.assertEqual(len(writes), 1, 'UNCERTAIN_RPC_REPLAYED')
+                self.assertNotIn('PRIVATE_R167', json.dumps(transport.failure_diagnostic_snapshot()))
+
+    def test_r167_missing_malformed_and_extra_private_fields_never_escape(self):
+        cases = [None, {}, {'secret': 'PRIVATE_R167'}, True]
+        template = self.diagnostic()
+        for key in template:
+            missing = copy.deepcopy(template)
+            del missing[key]
+            cases.append(missing)
+        for key, value in (('schema', True), ('reference', 'PRIVATE_R167'),
+                ('observed_at', True), ('observed_at', float('inf')), ('observed_at', float('nan')),
+                ('tool', 'OTHER'), ('method', 'ADB_STATUS'), ('phase', 'ERROR_SAVE'),
+                ('journal_operation', 'OTHER'), ('engine_dispatched', 1), ('engine_returned', 0),
+                ('persisted', 1), ('record_error', None), ('private', 'PRIVATE_R167')):
+            cases.append(dict(copy.deepcopy(template), **{key: value}))
+        for path in ('primary', 'secondary', 'secondary.error'):
+            for key, value in (('kind', 'PRIVATE_R167'), ('errno', True), ('errno', 2**32),
+                    ('winerror', -(2**31)-1), ('private', 'PRIVATE_R167')):
+                bad = copy.deepcopy(template)
+                target = bad['primary'] if path == 'primary' else bad['secondary']
+                if path.endswith('.error'):
+                    target = target['error']
+                target[key] = value
+                cases.append(bad)
+        for diagnostic in cases:
+            transport, writes = self.rejected(diagnostic)
+            expected = 'UNAVAILABLE' if diagnostic is None else 'MALFORMED'
+            captured = getattr(transport, 'failure_diagnostic_snapshot', lambda: None)()
+            self.assertEqual(captured, dict(sample_state=expected, failure_diagnostics=None))
+            self.assertTrue(transport.uncertain)
+            self.assertEqual(len(writes), 1)
+
+    def test_r167_success_and_prior_nonouter_failure_do_not_capture_later_receipt(self):
+        rejected = [False]
+        transport, writes, _, _ = self.transport(lambda request: dict(id=request['id'],
+            ok=not rejected[0], result={}, failure_diagnostics=self.diagnostic()))
+        self.assertEqual(transport.request('emulator.adb.read', {}, .2), {})
+        self.assertEqual(getattr(transport, 'failure_diagnostic_snapshot', lambda: None)(),
+            dict(sample_state='UNAVAILABLE', failure_diagnostics=None))
+        transport.record_local_failure('CONTROL', 'OTHER')
+        # A matched rejection after that first failure cannot become the first cause.
+        rejected[0] = True
+        with self.assertRaises(ValueError):
+            transport.request('emulator.adb.read', {}, .2)
+        self.assertEqual(transport.failure_diagnostic_snapshot(),
+            dict(sample_state='UNAVAILABLE', failure_diagnostics=None))
+
+    def test_r167_real_receipt_reaches_owning_pre_teardown_boundary_without_affecting_outcome(self):
+        transport, _ = self.rejected(self.diagnostic())
+        expected = getattr(transport, 'failure_diagnostic_snapshot', lambda: None)()
+        self.assertIsNotNone(expected)
+        pins = [dict(path=__file__, sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())]
+        for broken_source in (False, True):
+            for defect in ('NONE', 'THROW', 'PRIVATE_EXTRA'):
+                session, wire = self.session()
+                original = wire.request
+                def request(method, params=None, timeout=15):
+                    value = original(method, params, timeout)
+                    if broken_source and method == 'emulator.adb.start' and wire.instrument.is_set():
+                        next(client for client in session.clients if client.is_event_source)._lose_feed()
+                    return value
+                wire.request = request
+                def snapshot():
+                    if defect == 'THROW':
+                        raise ValueError('PRIVATE_R167')
+                    value = copy.deepcopy(expected)
+                    if defect == 'PRIVATE_EXTRA':
+                        value['failure_diagnostics']['private'] = 'PRIVATE_R167'
+                    return value
+                wire.failure_diagnostic_snapshot = snapshot
+                result = r.run_gated_session(s, record(), set(), pins=pins,
+                    caps=s.Caps(.8, .5, .2, .2, .2, .5, 1, 1), watchdog_id='host-fixture',
+                    gate=session, cleanup=lambda: True)
+                captured = result.get('coordinator_failure_diagnostics')
+                self.assertEqual(captured, expected if defect == 'NONE' else
+                    dict(sample_state='SNAPSHOT_GAP', failure_diagnostics=None))
+                self.assertEqual(result['supervisor']['cause'], 'OBSERVER_FAILED' if broken_source else 'NATURAL_COMPLETION')
+                self.assertEqual(result['all_three_original_runtime_cases_passed'], not broken_source)
+                self.assertNotIn('PRIVATE_R167', json.dumps(result))
 
 
 if __name__ == '__main__':
