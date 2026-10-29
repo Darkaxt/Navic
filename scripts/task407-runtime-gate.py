@@ -72,6 +72,43 @@ def validate_lease(proof, record, ticket):
         raise blocked()
 
 
+_TRANSPORT_DIAGNOSTIC_ROLES = frozenset((
+    'SDK_OUTPUT', 'EVENT_SOURCE', 'INSTRUMENTATION', 'OTHER_ADB', 'CONTROL', 'OTHER'))
+_TRANSPORT_DIAGNOSTIC_PHASES = frozenset((
+    'PRE_EXISTING_UNCERTAINTY', 'INVALID_EXHAUSTED_BUDGET', 'SERIAL_ACQUISITION',
+    'PRE_WRITE_DEADLINE', 'WRITE', 'FLUSH', 'RESPONSE_WAIT', 'RESPONSE_IDENTITY',
+    'OUTER_REPLY_VALIDATION', 'PRODUCER_REPLY_VALIDATION', 'PUMP_CALLBACK_FAILURE', 'OTHER'))
+_TRANSPORT_RECEIVE_SIDES = frozenset((
+    'EOF', 'FRAME_VIOLATION', 'JSON_OR_ENVELOPE', 'REPEATED_FRAME',
+    'STDERR_SCHEMA_OR_LIMIT', 'STDERR_READ_FAILURE', 'OTHER'))
+_TRANSPORT_SOURCE_BRANCHES = frozenset((
+    'UNKNOWN_TERMINAL_REASON', 'SOURCE_PUMP_EXCEPTION'))
+_TRANSPORT_DIAGNOSTIC_CAP = 2 ** 31 - 1
+
+
+def _transport_role(value, method):
+    if value is not None:
+        return value if type(value) is str and value in _TRANSPORT_DIAGNOSTIC_ROLES else 'OTHER'
+    if type(method) is not str:
+        return 'OTHER'
+    # Exact internal wire operations only; ADB client roles require caller context.
+    if method == 'emulator.output.read':
+        return 'SDK_OUTPUT'
+    if method in ('emulator.status', 'emulator.request-stop', 'emulator.wait-exit', 'workflow.end'):
+        return 'CONTROL'
+    return 'OTHER'
+
+
+def _diagnostic_call(target, name, *args):
+    """Optional evidence must never suppress the original action or exception."""
+    try:
+        method = getattr(target, name, None)
+        if callable(method):
+            return method(*args)
+    except BaseException:
+        pass
+
+
 class JsonLineTransport:
     """One original helper process, one serialized RPC, bounded RAM, no replay.
 
@@ -87,40 +124,122 @@ class JsonLineTransport:
         self._eof = False
         self._counter = 0
         self.uncertain = False
+        self._diagnostic_request_sequence = 0
+        self._diagnostic_failure_sequence = 0
+        self._diagnostic_sequence_saturated = False
+        self._diagnostic_first = None
+        self._diagnostic_source = None
+        self._diagnostic_event_first = None
+        self._diagnostic_receive_side = 'UNAVAILABLE'
+        self._diagnostic_rejection_receive_side = 'UNAVAILABLE'
         self._readers = [threading.Thread(target=self._read, daemon=True),
                          threading.Thread(target=self._drain_errors, daemon=True)]
         for reader in self._readers:
             reader.start()
 
+    def _next_diagnostic_sequence(self):
+        if self._diagnostic_request_sequence >= _TRANSPORT_DIAGNOSTIC_CAP:
+            self._diagnostic_sequence_saturated = True
+            return _TRANSPORT_DIAGNOSTIC_CAP
+        self._diagnostic_request_sequence += 1
+        return self._diagnostic_request_sequence
+
+    def _record_diagnostic_failure(self, role, phase, request_sequence=None):
+        if self._diagnostic_failure_sequence >= _TRANSPORT_DIAGNOSTIC_CAP:
+            self._diagnostic_sequence_saturated = True
+            observation_sequence = _TRANSPORT_DIAGNOSTIC_CAP
+        else:
+            self._diagnostic_failure_sequence += 1
+            observation_sequence = self._diagnostic_failure_sequence
+        if self._diagnostic_first is None:
+            self._diagnostic_first = (role, phase, request_sequence, observation_sequence,
+                self._diagnostic_rejection_receive_side if phase == 'RESPONSE_WAIT' else 'UNAVAILABLE')
+        if role == 'EVENT_SOURCE' and self._diagnostic_event_first is None:
+            # Earliest event-ROLE failure, distinct from a later source-branch notification.
+            self._diagnostic_event_first = (phase, request_sequence, observation_sequence)
+        return observation_sequence
+
+    def record_local_failure(self, role, phase):
+        if (type(role) is not str or role not in _TRANSPORT_DIAGNOSTIC_ROLES
+                or type(phase) is not str or phase not in _TRANSPORT_DIAGNOSTIC_PHASES):
+            return
+        with self._condition:
+            # Local validation/pump failures cannot safely borrow the last wire admission.
+            self._record_diagnostic_failure(role, phase)
+
+    def record_source_failure(self, branch, phase, request_sequence=None):
+        if (type(branch) is not str or branch not in _TRANSPORT_SOURCE_BRANCHES
+                or type(phase) is not str or phase not in _TRANSPORT_DIAGNOSTIC_PHASES
+                or request_sequence is not None and (type(request_sequence) is not int
+                    or not 0 < request_sequence <= _TRANSPORT_DIAGNOSTIC_CAP)):
+            return
+        with self._condition:
+            # No shared latest-event request: overlapping clients make that attribution false.
+            observation_sequence = self._record_diagnostic_failure('EVENT_SOURCE', phase, request_sequence)
+            if self._diagnostic_source is None:
+                self._diagnostic_source = (branch, request_sequence, observation_sequence)
+
+    def diagnostic_snapshot(self):
+        with self._condition:
+            first = self._diagnostic_first
+            source = self._diagnostic_source
+            event = self._diagnostic_event_first
+            return dict(sample_state='SAMPLED',
+                first_role=first[0] if first is not None else 'UNAVAILABLE',
+                first_phase=first[1] if first is not None else 'UNAVAILABLE',
+                request_admission_sequence=first[2] if first is not None else None,
+                failure_observation_sequence=first[3] if first is not None else None,
+                sequence_saturated=bool(self._diagnostic_sequence_saturated),
+                source_branch=source[0] if source is not None else 'UNAVAILABLE',
+                source_failure='CHILD_UNCONFIRMED' if source is not None else 'UNAVAILABLE',
+                source_request_admission_sequence=source[1] if source is not None else None,
+                source_failure_observation_sequence=source[2] if source is not None else None,
+                receive_side=first[4] if first is not None else 'UNAVAILABLE',
+                event_source_first_phase=event[0] if event is not None else 'UNAVAILABLE',
+                event_source_request_admission_sequence=event[1] if event is not None else None,
+                event_source_failure_observation_sequence=event[2] if event is not None else None)
+
     def _read(self):
+        receive_side = 'EOF'
         try:
             while True:
                 raw = self.process.stdout.readline(1024 * 1024 + 1)
                 if not raw:
                     break
                 if len(raw) > 1024 * 1024 or not raw.endswith(b'\n'):
+                    receive_side = 'FRAME_VIOLATION'
                     raise blocked()
-                def unique(pairs):
-                    result = {}
-                    for key, value in pairs:
-                        if key in result:
-                            raise blocked()
-                        result[key] = value
-                    return result
-                value = json.loads(raw, object_pairs_hook=unique)
-                if type(value) is not dict:
-                    raise blocked()
+                try:
+                    def unique(pairs):
+                        result = {}
+                        for key, value in pairs:
+                            if key in result:
+                                raise blocked()
+                            result[key] = value
+                        return result
+                    value = json.loads(raw, object_pairs_hook=unique)
+                    if type(value) is not dict:
+                        raise blocked()
+                except BaseException:
+                    receive_side = 'JSON_OR_ENVELOPE'
+                    raise
                 with self._condition:
                     if self._frames:
+                        receive_side = 'REPEATED_FRAME'
                         raise blocked()
                     self._frames.append(value)
                     self._condition.notify_all()
         except BaseException:
             with self._condition:
                 self._failed = True
+                if receive_side == 'EOF':
+                    receive_side = 'OTHER'
+                self._diagnostic_receive_side = receive_side if receive_side in _TRANSPORT_RECEIVE_SIDES else 'OTHER'
         finally:
             with self._condition:
                 self._eof = True
+                if self._diagnostic_receive_side == 'UNAVAILABLE':
+                    self._diagnostic_receive_side = 'EOF'
                 self._condition.notify_all()
             self.process.stdout.close()
 
@@ -143,12 +262,17 @@ class JsonLineTransport:
             return False
 
     def _drain_errors(self):
+        receive_side = 'STDERR_SCHEMA_OR_LIMIT'
         try:
             # Only the installed FIFO queue's exact diagnostic schema is nonfatal.
             # All bytes remain bounded and in RAM; queued never becomes authority.
             partial = bytearray()
             while True:
-                fragment = self.process.stderr.read(4096)
+                try:
+                    fragment = self.process.stderr.read(4096)
+                except BaseException:
+                    receive_side = 'STDERR_READ_FAILURE'
+                    raise
                 if not fragment:
                     if partial:
                         raise blocked()
@@ -166,6 +290,7 @@ class JsonLineTransport:
         except BaseException:
             with self._condition:
                 self._failed = True
+                self._diagnostic_receive_side = receive_side
                 self._condition.notify_all()
         finally:
             self.process.stderr.close()
@@ -175,9 +300,11 @@ class JsonLineTransport:
             while not self._frames and not self._failed and not self._eof:
                 remaining = None if deadline is None else deadline - time.monotonic()
                 if remaining is not None and remaining <= 0:
+                    self._diagnostic_rejection_receive_side = 'UNAVAILABLE'
                     raise blocked()
                 self._condition.wait(remaining)
             if self._failed or not self._frames:
+                self._diagnostic_rejection_receive_side = self._diagnostic_receive_side
                 raise blocked()
             return self._frames.pop(0)
 
@@ -192,28 +319,54 @@ class JsonLineTransport:
             self.uncertain = True
             raise blocked() from None
 
-    def request(self, method, params=None, timeout=15):
+    def request(self, method, params=None, timeout=15, diagnostic_role=None):
+        role = _transport_role(diagnostic_role, method)
         deadline = time.monotonic() + timeout
-        if self.uncertain or timeout <= 0 or not self._serial.acquire(timeout=timeout):
+        request_sequence = None
+        # Split only the original short-circuit guards, preserving reads/check order.
+        phase = 'OTHER'
+        if self.uncertain:
+            phase = 'PRE_EXISTING_UNCERTAINTY'
+        elif timeout <= 0:
+            phase = 'INVALID_EXHAUSTED_BUDGET'
+        elif not self._serial.acquire(timeout=timeout):
+            phase = 'SERIAL_ACQUISITION'
+        if phase != 'OTHER':
+            with self._condition:
+                self._record_diagnostic_failure(role, phase)
             self.uncertain = True
             raise blocked()
         try:
-            if self.uncertain or time.monotonic() >= deadline:
+            if self.uncertain:
+                phase = 'PRE_EXISTING_UNCERTAINTY'
                 raise blocked()
+            if time.monotonic() >= deadline:
+                phase = 'PRE_WRITE_DEADLINE'
+                raise blocked()
+            with self._condition:
+                request_sequence = self._next_diagnostic_sequence()
+                self._diagnostic_rejection_receive_side = 'UNAVAILABLE'
             self._counter += 1
             identity = str(self._counter)
             payload = dict(id=identity, method=method, params=params or {})
+            phase = 'WRITE'
             self.process.stdin.write((json.dumps(payload) + '\n').encode('utf-8'))
+            phase = 'FLUSH'
             self.process.stdin.flush()
+            phase = 'RESPONSE_WAIT'
             value = self._next(deadline)
+            phase = 'RESPONSE_IDENTITY'
             if value.get('id') != identity:
                 raise blocked()
             if method == 'workflow.end':
                 return value  # Terminal frame is not the normal result wrapper.
+            phase = 'OUTER_REPLY_VALIDATION'
             if value.get('ok') is not True or type(value.get('result')) is not dict:
                 raise blocked()
             return value['result']
         except BaseException:
+            with self._condition:
+                self._record_diagnostic_failure(role, phase, request_sequence)
             self.uncertain = True
             raise blocked() from None
         finally:
@@ -458,15 +611,38 @@ class GateSession:
                       verify=verify, wrapper_settle=transport.settle_wrapper)
         return session
 
-    def request(self, method, params=None, timeout=15):
-        if (self.uncertain or type(timeout) not in (int, float)
-                or not math.isfinite(timeout) or timeout <= 0):
+    def request(self, method, params=None, timeout=15, diagnostic_role=None):
+        role = _transport_role(diagnostic_role, method)
+        if self.uncertain:
+            _diagnostic_call(self.transport, 'record_local_failure', role, 'PRE_EXISTING_UNCERTAINTY')
+            raise blocked()
+        if (type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0):
+            _diagnostic_call(self.transport, 'record_local_failure', role, 'INVALID_EXHAUSTED_BUDGET')
             raise blocked()
         try:
+            # Preserve optional-role compatibility with original injected transports.
+            try:
+                supports_role = callable(getattr(self.transport, 'diagnostic_snapshot', None))
+            except BaseException:
+                supports_role = False
+            if supports_role:
+                return self.transport.request(method, params or {}, timeout, diagnostic_role=role)
             return self.transport.request(method, params or {}, timeout)
         except BaseException:
             self.uncertain = True
             raise blocked() from None
+
+    def record_local_failure(self, role, phase):
+        _diagnostic_call(self.transport, 'record_local_failure', role, phase)
+
+    def record_source_failure(self, branch, phase, request_sequence=None):
+        _diagnostic_call(self.transport, 'record_source_failure', branch, phase, request_sequence)
+
+    def transport_diagnostic_snapshot(self):
+        snapshot = getattr(self.transport, 'diagnostic_snapshot', None)
+        if not callable(snapshot):
+            raise blocked()
+        return snapshot()
 
     def verify_live(self, timeout):
         # Helper enforces current original-chat identity. Its finite read-only
@@ -487,6 +663,7 @@ class GateSession:
                 or type(state.get('native_processes')) is not list
                 or any(type(pid) is not int or pid <= 0 for pid in state['native_processes'])
                 or type(state.get('console_owned')) is not bool):
+            _diagnostic_call(self, 'record_local_failure', 'CONTROL', 'PRODUCER_REPLY_VALIDATION')
             raise blocked()
 
     def console_ready(self, timeout):
@@ -516,9 +693,11 @@ class GateSession:
             self._sdk_gap = True
             raise blocked()
         try:
+            phase = 'OTHER'
             try:
                 value = self.request('emulator.output.read', dict(max_bytes=65536),
-                                     max(0, deadline - time.monotonic()))
+                                     max(0, deadline - time.monotonic()), diagnostic_role='SDK_OUTPUT')
+                phase = 'PRODUCER_REPLY_VALIDATION'
                 for index, name in enumerate(('stdout', 'stderr')):
                     data, remaining = decode_stream(value[name], 65536)
                     self._sdk_received[index] += len(data)
@@ -538,6 +717,8 @@ class GateSession:
                             self._sdk_observer = None
                 return any(value[name]['buffered_bytes'] for name in ('stdout', 'stderr'))
             except BaseException:
+                if phase == 'PRODUCER_REPLY_VALIDATION':
+                    _diagnostic_call(self, 'record_local_failure', 'SDK_OUTPUT', phase)
                 self._sdk_gap = True
                 raise blocked() from None
         finally:
@@ -896,10 +1077,12 @@ def cleanup_runtime_scratch(record, *, invoke=_cleanup_invoke, absent=exact_scra
 def command_type(supervision, session):
     class GateCommand(supervision.Command):
         """Existing Command protocol, with installed client/output-complete fences."""
-        def __init__(self, gate, command_id, *, max_bytes, on_line=None, observe_output=None):
+        def __init__(self, gate, command_id, *, max_bytes, on_line=None, observe_output=None,
+                     diagnostic_role='OTHER_ADB'):
             super().__init__()
             self.gate, self.command_id = gate, command_id
             self._max_bytes, self._on_line, self._observe_output = max_bytes, on_line, observe_output
+            self._diagnostic_role = _transport_role(diagnostic_role, 'emulator.adb.read')
             self._pending = bytearray()
             self._stdout_eof_before_cancel = False
             self._stdout_eof_settled = False
@@ -918,22 +1101,30 @@ def command_type(supervision, session):
             return self._on_line is not None
 
         @classmethod
-        def spawn(cls, argv, *, timeout, max_bytes, on_line=None, tree_owned=False, observe_output=None):
+        def spawn(cls, argv, *, timeout, max_bytes, on_line=None, tree_owned=False, observe_output=None,
+                  diagnostic_role='OTHER_ADB'):
             if (tree_owned or argv[:3] != ['gate-adb', '-s', 'emulator-5554']
                     or len(argv) < 4 or timeout <= 0 or not 0 < max_bytes <= 4 * 1024 * 1024):
                 raise blocked()
+            role = _transport_role(diagnostic_role, 'emulator.adb.start')
             result = session.request('emulator.adb.start', dict(arguments=argv[3:], max_bytes=max_bytes,
-                timeout_seconds=timeout, timeout_reason='Original Task407 command budget'), timeout=min(15, timeout))
-            if (result.get('not_dispatched') or type(result.get('command_id')) is not str
-                    or not result['command_id'] or result.get('state') not in ('running', 'draining', 'complete')):
-                raise blocked()  # Explicit non-dispatch never becomes an automatic replay.
+                timeout_seconds=timeout, timeout_reason='Original Task407 command budget'),
+                timeout=min(15, timeout), diagnostic_role=role)
+            try:
+                if (result.get('not_dispatched') or type(result.get('command_id')) is not str
+                        or not result['command_id'] or result.get('state') not in ('running', 'draining', 'complete')):
+                    raise blocked()  # Explicit non-dispatch never becomes an automatic replay.
+            except BaseException:
+                _diagnostic_call(session, 'record_local_failure', role, 'PRODUCER_REPLY_VALIDATION')
+                raise
             value = cls(session, result['command_id'], max_bytes=max_bytes,
-                        on_line=on_line, observe_output=observe_output)
+                        on_line=on_line, observe_output=observe_output, diagnostic_role=role)
             value._worker = threading.Thread(target=value._observe, daemon=True)
             value._worker.start()
             return value
 
         def ingest(self, value):
+            phase = 'PRODUCER_REPLY_VALIDATION'
             try:
                 if (value.get('command_id') != self.command_id
                         or value.get('state') not in ('running', 'draining', 'complete')
@@ -969,7 +1160,9 @@ def command_type(supervision, session):
                             if self._pending.endswith(b'\n'):
                                 line = bytes(self._pending[:-1]).rstrip(b'\r')
                                 self._pending.clear()
+                                phase = 'PUMP_CALLBACK_FAILURE'
                                 self._on_line(line)
+                                phase = 'PRODUCER_REPLY_VALIDATION'
                     elif not self._discarded:
                         with self._lock:
                             self._buffers[index].extend(data)
@@ -1006,12 +1199,16 @@ def command_type(supervision, session):
                         self.failure = self.failure or 'VM_EXITED'
                     elif reason not in ('completed', 'failed'):
                         self.failure = self.failure or 'CHILD_UNCONFIRMED'
+                        if self._on_line is not None:
+                            _diagnostic_call(session, 'record_source_failure', 'UNKNOWN_TERMINAL_REASON',
+                                             'PRODUCER_REPLY_VALIDATION')
                     if self._on_line is not None and not self.cancelled:
                         if self._pending:
                             self.failure = self.failure or 'STREAM_FAILED'
                         self._lose_feed()
                     self._finish()
             except BaseException:
+                _diagnostic_call(session, 'record_local_failure', self._diagnostic_role, phase)
                 # Intentional cancellation cannot erase a genuine failed drain,
                 # including one after stdout EOF was already observed buffered.
                 if self.failure in (None, 'CANCELLED'):
@@ -1039,7 +1236,8 @@ def command_type(supervision, session):
         def _observe(self):
             try:
                 while not self.done.is_set():
-                    value = session.request('emulator.adb.read', dict(command_id=self.command_id, max_bytes=65536), 15)
+                    value = session.request('emulator.adb.read', dict(command_id=self.command_id, max_bytes=65536),
+                                            15, diagnostic_role=self._diagnostic_role)
                     self.ingest(value)
                     # Cadence observes transport only; it cannot renew any cap.
                     if not self.done.is_set():
@@ -1047,6 +1245,8 @@ def command_type(supervision, session):
                         self._wake.clear()
             except BaseException:
                 self.failure = self.failure or 'CHILD_UNCONFIRMED'
+                if self._on_line is not None:
+                    _diagnostic_call(session, 'record_source_failure', 'SOURCE_PUMP_EXCEPTION', 'PUMP_CALLBACK_FAILURE')
                 self._lose_feed() if self._on_line is not None else None
                 with self._lock:
                     callbacks = tuple(self._listeners)
@@ -1067,7 +1267,8 @@ def command_type(supervision, session):
                 if not self._closed:
                     try:
                         value = session.request('emulator.adb.close', dict(command_id=self.command_id),
-                                                max(0, deadline - time.monotonic()))
+                                                max(0, deadline - time.monotonic()),
+                                                diagnostic_role=self._diagnostic_role)
                         self._closed = value.get('command_id') == self.command_id and value.get('closed') is True
                     except BaseException:
                         return False
@@ -1087,7 +1288,8 @@ def command_type(supervision, session):
                     self.discard()
                     try:
                         session.request('emulator.adb.cancel', dict(command_id=self.command_id),
-                                        max(0, deadline - time.monotonic()))
+                                        max(0, deadline - time.monotonic()),
+                                        diagnostic_role=self._diagnostic_role)
                         self._wake.set()
                     except BaseException:
                         return False
@@ -1139,6 +1341,9 @@ class OwnedGate:
 
     def snapshot_resource_usage(self):
         return {'state': 'UNAVAILABLE'}
+
+    def snapshot_transport_diagnostics(self):
+        return self.session.transport_diagnostic_snapshot()
 
     def snapshot_host_state(self):
         return dict(native_root_state='UNAVAILABLE', job_active_class='UNAVAILABLE',

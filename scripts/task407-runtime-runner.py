@@ -178,6 +178,58 @@ def _empty_terminal_observer_diagnostics(state):
             'source_cancelled': 'UNAVAILABLE', 'source_failure': 'UNAVAILABLE'}
 
 
+def _empty_transport_first_failure_diagnostics(state):
+    return {'sample_state': state, 'first_role': 'UNAVAILABLE', 'first_phase': 'UNAVAILABLE',
+            'request_admission_sequence': None, 'failure_observation_sequence': None,
+            'sequence_saturated': False, 'source_branch': 'UNAVAILABLE',
+            'source_failure': 'UNAVAILABLE', 'source_request_admission_sequence': None,
+            'source_failure_observation_sequence': None, 'receive_side': 'UNAVAILABLE',
+            'event_source_first_phase': 'UNAVAILABLE', 'event_source_request_admission_sequence': None,
+            'event_source_failure_observation_sequence': None}
+
+
+def _valid_transport_first_failure_diagnostics(value):
+    expected = _empty_transport_first_failure_diagnostics('SAMPLED')
+    phases = ('PRE_EXISTING_UNCERTAINTY', 'INVALID_EXHAUSTED_BUDGET', 'SERIAL_ACQUISITION',
+              'PRE_WRITE_DEADLINE', 'WRITE', 'FLUSH', 'RESPONSE_WAIT', 'RESPONSE_IDENTITY',
+              'OUTER_REPLY_VALIDATION', 'PRODUCER_REPLY_VALIDATION', 'PUMP_CALLBACK_FAILURE',
+              'OTHER', 'UNAVAILABLE')
+    if (type(value) is not dict or any(type(key) is not str for key in value)
+            or set(value) != set(expected)
+            or type(value.get('sample_state')) is not str or value['sample_state'] != 'SAMPLED'
+            or type(value.get('first_role')) is not str or value['first_role'] not in (
+                'SDK_OUTPUT', 'EVENT_SOURCE', 'INSTRUMENTATION', 'OTHER_ADB', 'CONTROL',
+                'OTHER', 'UNAVAILABLE')
+            or type(value.get('first_phase')) is not str or value['first_phase'] not in phases
+            or type(value.get('event_source_first_phase')) is not str or value['event_source_first_phase'] not in phases
+            or type(value.get('sequence_saturated')) is not bool
+            or type(value.get('source_branch')) is not str or value['source_branch'] not in (
+                'UNKNOWN_TERMINAL_REASON', 'SOURCE_PUMP_EXCEPTION', 'UNAVAILABLE')
+            or type(value.get('source_failure')) is not str or value['source_failure'] not in (
+                'CHILD_UNCONFIRMED', 'UNAVAILABLE')
+            or type(value.get('receive_side')) is not str or value['receive_side'] not in (
+                'EOF', 'FRAME_VIOLATION', 'JSON_OR_ENVELOPE', 'REPEATED_FRAME',
+                'STDERR_SCHEMA_OR_LIMIT', 'STDERR_READ_FAILURE', 'OTHER', 'UNAVAILABLE')):
+        return False
+    for name in ('request_admission_sequence', 'failure_observation_sequence',
+                 'source_request_admission_sequence', 'source_failure_observation_sequence',
+                 'event_source_request_admission_sequence', 'event_source_failure_observation_sequence'):
+        if value[name] is not None and (type(value[name]) is not int or not 0 < value[name] <= 2 ** 31 - 1):
+            return False
+    first_present = value['first_role'] != 'UNAVAILABLE'
+    source_present = value['source_branch'] != 'UNAVAILABLE'
+    event_present = value['event_source_first_phase'] != 'UNAVAILABLE'
+    return ((first_present == (value['first_phase'] != 'UNAVAILABLE'))
+            and (first_present == (value['failure_observation_sequence'] is not None))
+            and (first_present or value['request_admission_sequence'] is None)
+            and (source_present == (value['source_failure'] != 'UNAVAILABLE'))
+            and (source_present == (value['source_failure_observation_sequence'] is not None))
+            and (source_present or value['source_request_admission_sequence'] is None)
+            and (event_present == (value['event_source_failure_observation_sequence'] is not None))
+            and (event_present or value['event_source_request_admission_sequence'] is None)
+            and (value['receive_side'] == 'UNAVAILABLE' or value['first_phase'] == 'RESPONSE_WAIT'))
+
+
 def _valid_terminal_observer_diagnostics(value):
     if (type(value) is not dict or any(type(key) is not str for key in value)
             or set(value) != set(_empty_terminal_observer_diagnostics('SAMPLED'))):
@@ -1036,6 +1088,9 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
               'terminal_observer_diagnostics_profile': 'TERMINAL_OBSERVER_SOURCE_STATE_V1',
               'terminal_observer_diagnostics_scope': 'PRE_TEARDOWN_AFTER_TERMINAL_DECISION',
               'terminal_observer_diagnostics': _empty_terminal_observer_diagnostics('NOT_REACHED'),
+              'transport_first_failure_diagnostics_profile': 'FIRST_FAILURE_TRANSPORT_DIAGNOSTICS_V1',
+              'transport_first_failure_diagnostics_scope': 'PRE_TEARDOWN_AFTER_TERMINAL_DECISION',
+              'transport_first_failure_diagnostics': _empty_transport_first_failure_diagnostics('NOT_REACHED'),
               'host_memory_observations_profile': 'HOST_MEMORY_HEADROOM_V1',
               'host_memory_observations': {'initial_session': {'sample_state': 'UNAVAILABLE'},
                                            'pre_teardown': {'sample_state': 'NOT_REACHED'}},
@@ -1111,8 +1166,11 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
             deadline = dispatched_at + timeout
             budget_ms = max(0, int(timeout * 1000))
             boundary = 'SPAWN'
-            child = command_class.spawn([adb, '-s', SERIAL, *arguments],
-                                    timeout=timeout, max_bytes=65536, tree_owned=False)
+            spawn_options = dict(timeout=timeout, max_bytes=65536, tree_owned=False)
+            if gated:
+                spawn_options['diagnostic_role'] = ('INSTRUMENTATION' if role == 'INSTRUMENTATION'
+                                                     else 'OTHER_ADB')
+            child = command_class.spawn([adb, '-s', SERIAL, *arguments], **spawn_options)
             clients.append(child)
             boundary = 'WAIT_REJECTED'
             remaining = max(0, deadline - time.monotonic())
@@ -1260,6 +1318,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
             result['host_memory_observations']['pre_teardown'] = sample_host_memory()
             result['pre_teardown_host_diagnostics'] = _empty_pre_teardown_host_diagnostic('SNAPSHOT_GAP')
             result['terminal_observer_diagnostics'] = _empty_terminal_observer_diagnostics('SNAPSHOT_GAP')
+            result['transport_first_failure_diagnostics'] = _empty_transport_first_failure_diagnostics('SNAPSHOT_GAP')
             try:
                 snapshot = observer.diagnostic_snapshot()
                 if _valid_terminal_observer_diagnostics(snapshot):
@@ -1267,6 +1326,14 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
                     result['terminal_observer_diagnostics'] = dict(snapshot)
             except BaseException:
                 pass
+            if gated:
+                try:
+                    snapshot = owned.snapshot_transport_diagnostics()
+                    if _valid_transport_first_failure_diagnostics(snapshot):
+                        # Detached fixed values preserve this seam against later teardown mutation.
+                        result['transport_first_failure_diagnostics'] = dict(snapshot)
+                except BaseException:
+                    pass
             try:
                 result['pre_teardown_host_diagnostics'] = project_pre_teardown_host(owned, instrument)
                 if gated:
@@ -1365,10 +1432,12 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
         cursor = parse_cursor(out)
         epoch = watchdog_id  # Attempt identity only; never used as a guest clock.
         require_preparation()
-        source = command_class.spawn(observer_argv(adb, cursor), timeout=session_budget,
-            max_bytes=65536, tree_owned=False,
+        source_options = dict(timeout=session_budget, max_bytes=65536, tree_owned=False,
             on_line=lambda line: consume_event(observer, line, epoch=epoch,
                                                after_ns=cursor, is_own=s.is_own_am_anr))
+        if gated:
+            source_options['diagnostic_role'] = 'EVENT_SOURCE'
+        source = command_class.spawn(observer_argv(adb, cursor), **source_options)
         require_preparation()
         if not observer.arm(epoch=epoch, after_ns=cursor, source=source):
             raise ValueError('OBSERVER_ADMISSION_REJECTED')
@@ -1376,10 +1445,12 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
         phase = 'INSTRUMENTATION'
         trace('INSTRUMENTATION', 'START')
         require_preparation()
+        instrument_options = dict(timeout=caps.instrumentation, max_bytes=4 * 1024 * 1024,
+            tree_owned=False, observe_output=reader_live.feed if reader_live is not None else None)
+        if gated:
+            instrument_options['diagnostic_role'] = 'INSTRUMENTATION'
         instrument = command_class.spawn(shell_argv(adb,
-            ['am', 'instrument', '-w', '-r', '-e', 'class', CLASS, COMPONENT]),
-            timeout=caps.instrumentation, max_bytes=4 * 1024 * 1024, tree_owned=False,
-            observe_output=reader_live.feed if reader_live is not None else None)
+            ['am', 'instrument', '-w', '-r', '-e', 'class', CLASS, COMPONENT]), **instrument_options)
         attached = guardian.attach_instrumentation(instrument)
         if not attached:
             raise ValueError('INSTRUMENTATION_ADMISSION_REJECTED')

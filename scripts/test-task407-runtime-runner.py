@@ -267,6 +267,155 @@ def with_witness(value, method=METHODS[0], **kwargs):
                       'INSTRUMENTATION_STATUS_CODE: 1', witness_status(value, **kwargs)))
 
 
+class R156TransportRunnerTests(unittest.TestCase):
+    """Actual owning gated run_session; only the original wire/host I/O is injected."""
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location('r156_runner_gate_fixtures',
+            PATH.with_name('test-task407-runtime-gate.py'))
+        cls.fixtures = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = cls.fixtures
+        spec.loader.exec_module(cls.fixtures)
+
+    def api(self, module, name):
+        value = getattr(module, name, None)
+        self.assertTrue(callable(value), 'MISSING_DIAGNOSTIC_API')
+        return value
+
+    @staticmethod
+    def sample():
+        return {'sample_state': 'SAMPLED', 'first_role': 'UNAVAILABLE', 'first_phase': 'UNAVAILABLE',
+                'request_admission_sequence': None, 'failure_observation_sequence': None,
+                'sequence_saturated': False, 'source_branch': 'UNAVAILABLE', 'source_failure': 'UNAVAILABLE',
+                'source_request_admission_sequence': None, 'source_failure_observation_sequence': None,
+                'receive_side': 'UNAVAILABLE', 'event_source_first_phase': 'UNAVAILABLE',
+                'event_source_request_admission_sequence': None,
+                'event_source_failure_observation_sequence': None}
+
+    def execute(self, failed_source=False, defect='VALID', supplied=None):
+        f = self.fixtures
+        session, wire = f.MigrationTests.session(self)
+        original = wire.request
+        order, samples = [], []
+        shared = self.sample() if supplied is None else supplied
+        def request(method, params=None, timeout=15):
+            value = original(method, params, timeout)
+            if method == 'emulator.adb.start' and wire.instrument.is_set() and failed_source:
+                next(cmd for cmd in session.clients if cmd.is_event_source)._lose_feed()
+            if method in ('emulator.request-stop', 'emulator.wait-exit', 'workflow.end'):
+                order.append(method)
+            if method == 'workflow.end':
+                shared['first_role'] = 'R156_PRIVATE'  # Mutate producer AFTER capture.
+            return value
+        wire.request = request
+        runtime = runner._runtime_gate()
+        original_snapshot = runtime.OwnedGate.snapshot_transport_diagnostics
+        def snapshot(owned):
+            self.assertIs(owned.session, session)
+            self.assertIsNone(session._finished, 'MUST_CAPTURE_BEFORE_TEARDOWN')
+            order.append('snapshot')
+            samples.append(True)
+            if defect == 'THROWING': raise RuntimeError('R156_PRIVATE')
+            return shared
+        def cleanup():
+            self.assertTrue(session._finished['lease_released'])
+            self.assertTrue(session._finished['native_tree_exit_verified'])
+            self.assertEqual(set(wire.clients), wire.closed)
+            order.append('cleanup')
+            return True
+        original_take = f.s.Supervisor.take_instrumentation_output
+        original_project, original_pass = runner.project_instrumentation, runner.original_three_passed
+        def take(guardian):
+            self.assertTrue(guardian.wait(0).shutdown_verified)
+            order.append('take')
+            return original_take(guardian)
+        def project(*args, **kwargs):
+            order.append('projection')
+            return original_project(*args, **kwargs)
+        def passed(*args, **kwargs):
+            order.append('oracle')
+            return original_pass(*args, **kwargs)
+        with mock.patch.object(runtime.OwnedGate, 'snapshot_transport_diagnostics',
+                None if defect == 'MISSING' else snapshot), \
+             mock.patch.object(f.s.Supervisor, 'take_instrumentation_output', take), \
+             mock.patch.object(runner, 'project_instrumentation', project), \
+             mock.patch.object(runner, 'original_three_passed', passed):
+            if defect == 'MISSING':
+                del runtime.OwnedGate.snapshot_transport_diagnostics
+            result = runner.run_session(f.s, f.record(), set(),
+                pins=[dict(path=__file__, sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())],
+                caps=f.s.Caps(.8, .5, .2, .2, .1, .5, 1, 1), watchdog_id='host-fixture',
+                gate=session, gated=True, cleanup=cleanup)
+        self.assertEqual(runtime.OwnedGate.snapshot_transport_diagnostics, original_snapshot)
+        self.assertEqual(len(samples), 0 if defect == 'MISSING' else 1)
+        expected_order = ([] if defect == 'MISSING' else ['snapshot']) + [
+            'emulator.request-stop', 'emulator.wait-exit', 'workflow.end', 'cleanup']
+        if not failed_source: expected_order += ['take', 'projection', 'oracle']
+        self.assertEqual(order, expected_order)
+        self.assertEqual(set(wire.clients), wire.closed)
+        self.assertTrue(all(cmd._worker is None or not cmd._worker.is_alive() for cmd in session.clients))
+        self.assertTrue(session._sdk_worker is None or not session._sdk_worker.is_alive())
+        self.assertTrue(result['automatic_emulator_teardown_verified'])
+        self.assertEqual(result['supervisor']['cause'], 'OBSERVER_FAILED' if failed_source else 'NATURAL_COMPLETION')
+        self.assertEqual(result['supervisor']['eligible_for_oracle'], not failed_source)
+        self.assertEqual(result['all_three_original_runtime_cases_passed'], not failed_source)
+        self.assertNotIn('R156_PRIVATE', json.dumps(result))
+        roles = {cmd._diagnostic_role for cmd in session.clients}
+        self.assertTrue({'EVENT_SOURCE', 'INSTRUMENTATION', 'OTHER_ADB'} <= roles)
+        return result
+
+    def test_r156_run_session_missing_throwing_and_returned_malformed_are_non_authoritative(self):
+        class EqualityAlias:
+            def __eq__(self, other): raise AssertionError('HOSTILE_EQUALITY')
+            def __hash__(self): raise AssertionError('HOSTILE_HASH')
+            def __str__(self): raise AssertionError('HOSTILE_STR')
+            def __repr__(self): raise AssertionError('HOSTILE_REPR')
+        class StringAlias(str): pass
+        class IntAlias(int): pass
+        malformed = [dict(self.sample(), R156_PRIVATE='R156_PRIVATE'),
+                     {'sample_state': 'SAMPLED'}]
+        for field in ('sample_state', 'first_role', 'first_phase', 'source_branch', 'source_failure',
+                      'receive_side', 'event_source_first_phase'):
+            for value in (EqualityAlias(), StringAlias(self.sample()[field]), 'R156_PRIVATE'):
+                malformed.append(dict(self.sample(), **{field: value}))
+        for field in ('request_admission_sequence', 'failure_observation_sequence',
+                      'source_request_admission_sequence', 'source_failure_observation_sequence',
+                      'event_source_request_admission_sequence', 'event_source_failure_observation_sequence'):
+            for value in (True, 0, -1, 2 ** 31, 1.0, IntAlias(1), EqualityAlias()):
+                malformed.append(dict(self.sample(), **{field: value}))
+        for value in (0, 1, EqualityAlias()):
+            malformed.append(dict(self.sample(), sequence_saturated=value))
+        aliased_key = self.sample()
+        aliased_key[StringAlias('sample_state')] = aliased_key.pop('sample_state')
+        malformed.append(aliased_key)
+        # Individually well-typed fields must not make contradictory evidence valid.
+        malformed.extend((dict(self.sample(), first_role='SDK_OUTPUT', first_phase='WRITE'),
+                          dict(self.sample(), receive_side='EOF'),
+                          dict(self.sample(), source_request_admission_sequence=1),
+                          dict(self.sample(), failure_observation_sequence=1)))
+        gap = dict(self.sample(), sample_state='SNAPSHOT_GAP')
+        for failed_source in (False, True):
+            baseline = self.execute(failed_source)
+            for defect, supplied in [('MISSING', None), ('THROWING', None)] + [('MALFORMED', row) for row in malformed]:
+                with self.subTest(failed_source=failed_source, defect=defect):
+                    result = self.execute(failed_source, defect, dict(supplied) if supplied is not None else None)
+                    self.assertEqual(result['transport_first_failure_diagnostics'], gap, 'RETURNED_DIAGNOSTIC_MUST_FAIL_CLOSED')
+                    for field in ('cause', 'eligible_for_oracle', 'shutdown_verified', 'cleanup_failures'):
+                        self.assertEqual(result['supervisor'][field], baseline['supervisor'][field])
+                    for field in ('automatic_emulator_teardown_verified', 'host_snapshot_residue_cleanup_required',
+                                  'host_cleanup_status', 'runtime_result_analysis_performed',
+                                  'all_three_original_runtime_cases_passed', 'completed_test_count', 'passed_test_count',
+                                  'events', 'terminal_codes', 'terminal_observer_diagnostics'):
+                        self.assertEqual(result.get(field), baseline.get(field))
+
+    def test_r156_run_session_captures_detached_fixed_snapshot_once_at_original_seam(self):
+        for failed_source in (False, True):
+            result = self.execute(failed_source)
+            self.assertEqual(result['transport_first_failure_diagnostics'], self.sample())
+            self.assertEqual(result['transport_first_failure_diagnostics_profile'], 'FIRST_FAILURE_TRANSPORT_DIAGNOSTICS_V1')
+            self.assertEqual(result['transport_first_failure_diagnostics_scope'], 'PRE_TEARDOWN_AFTER_TERMINAL_DECISION')
+
+
 class StartupWitnessProjectionTests(unittest.TestCase):
     """Real projector, RAM-only closed fixtures; diagnostics are never test oracles."""
     def project(self, text, *, qualified=True):

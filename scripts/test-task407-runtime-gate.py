@@ -395,6 +395,34 @@ class MigrationTests(unittest.TestCase):
         self.assertLess(methods.index('emulator.request-stop'), methods.index('emulator.wait-exit'))
         self.assertLess(methods.index('emulator.wait-exit'), methods.index('workflow.end'))
 
+    def test_r156_transport_snapshot_gap_never_changes_natural_gated_run(self):
+        execute = self.api(r, 'run_gated_session')
+        caps = s.Caps(.8, .5, .2, .2, .2, .5, 1, 1)
+        pins = [dict(path=__file__, sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())]
+        gap = {'sample_state': 'SNAPSHOT_GAP', 'first_role': 'UNAVAILABLE',
+               'first_phase': 'UNAVAILABLE', 'request_admission_sequence': None,
+               'failure_observation_sequence': None, 'sequence_saturated': False,
+               'source_branch': 'UNAVAILABLE', 'source_failure': 'UNAVAILABLE',
+               'source_request_admission_sequence': None,
+               'source_failure_observation_sequence': None, 'receive_side': 'UNAVAILABLE',
+               'event_source_first_phase': 'UNAVAILABLE', 'event_source_request_admission_sequence': None,
+               'event_source_failure_observation_sequence': None}
+        for defect in ('MISSING', 'THROWING', 'MALFORMED'):
+            with self.subTest(defect=defect):
+                session, wire = self.session()
+                if defect == 'THROWING':
+                    session.transport_diagnostic_snapshot = lambda: (_ for _ in ()).throw(
+                        RuntimeError('R156_PRIVATE_CANARY'))
+                elif defect == 'MALFORMED':
+                    session.transport_diagnostic_snapshot = lambda: {'sample_state': 'SAMPLED'}
+                result = execute(s, record(), set(), pins=pins, caps=caps,
+                    watchdog_id='host-fixture', gate=session, cleanup=lambda: True)
+                self.assertEqual(result['transport_first_failure_diagnostics'], gap)
+                self.assertEqual(result['supervisor']['cause'], 'NATURAL_COMPLETION')
+                self.assertTrue(result['supervisor']['eligible_for_oracle'])
+                self.assertTrue(result['automatic_emulator_teardown_verified'])
+                self.assertNotIn('R156_PRIVATE_CANARY', json.dumps(result))
+
     def test_gated_cli_receipt_links_old_seal_without_exempting_android_drift(self):
         validate = self.api(r, 'validate_host_qualification')
         host = ['scripts/task407-runtime-runner.py', 'scripts/task407-runtime-supervisor.py',
@@ -2108,6 +2136,28 @@ class TransportTests(unittest.TestCase):
         for reader in transport._readers:
             reader.join(.5)
 
+    def test_r156_response_wait_records_fixed_sdk_first_failure_without_rpc_identity(self):
+        process, writes = self.process(reply=False)
+        transport = g.JsonLineTransport(process)
+        transport.acquire()
+        with self.assertRaises(ValueError):
+            transport.request('emulator.output.read', {}, .02)
+        snapshot = getattr(transport, 'diagnostic_snapshot', lambda: None)()
+        self.assertEqual(snapshot, {
+            'sample_state': 'SAMPLED', 'first_role': 'SDK_OUTPUT',
+            'first_phase': 'RESPONSE_WAIT', 'request_admission_sequence': 1,
+            'failure_observation_sequence': 1, 'sequence_saturated': False,
+            'source_branch': 'UNAVAILABLE', 'source_failure': 'UNAVAILABLE',
+            'source_request_admission_sequence': None,
+            'source_failure_observation_sequence': None,
+            'receive_side': 'UNAVAILABLE', 'event_source_first_phase': 'UNAVAILABLE',
+            'event_source_request_admission_sequence': None,
+            'event_source_failure_observation_sequence': None})
+        self.assertEqual(len(writes), 1)
+        process.wait(.1)
+        for reader in transport._readers:
+            reader.join(.5)
+
 
 class R152FifoNoticeTests(unittest.TestCase):
     """Installed FIFO queue notices are diagnostic-only, never RPC authority."""
@@ -2206,6 +2256,521 @@ class R152FifoNoticeTests(unittest.TestCase):
     def test_runtime_paths_pin_actual_installed_queue_producer(self):
         self.assertIn(str(self.queue_source).replace('\\', '/'),
                       tuple(path.replace('\\', '/') for path in g.RUNTIME_PATHS))
+
+
+class R156CompletionTests(unittest.TestCase):
+    """Catch diagnostic misattribution/noninterference at actual production seams."""
+    session = MigrationTests.session
+    api = MigrationTests.api
+
+    def transport(self, response=None):
+        import queue
+        out, err = queue.Queue(), queue.Queue()
+        writes = []
+        class Pipe:
+            def __init__(pipe, values):
+                pipe.values, pipe.closed = values, threading.Event()
+            def read(pipe, cap):
+                value = pipe.values.get()
+                if isinstance(value, BaseException):
+                    raise value
+                return value
+            readline = read
+            def close(pipe):
+                pipe.closed.set()
+        def write(raw):
+            value = json.loads(raw)
+            writes.append(value)
+            if response is not None:
+                reply = response(value)
+                if reply is not None:
+                    out.put(json.dumps(reply).encode() + b'\n')
+        process = SimpleNamespace(stdout=Pipe(out), stderr=Pipe(err),
+            stdin=SimpleNamespace(write=write, flush=lambda: None))
+        transport = g.JsonLineTransport(process)
+        def close():
+            out.put(b'')
+            err.put(b'')
+            for reader in transport._readers:
+                reader.join(1)
+            self.assertFalse(any(reader.is_alive() for reader in transport._readers), 'FIXTURE_READER_LEAK')
+        self.addCleanup(close)
+        return transport, writes, out, err
+
+    @staticmethod
+    def reply(value):
+        return dict(id=value['id'], ok=True, result=dict(state='running'))
+
+    def test_r156_late_receive_teardown_cannot_rewrite_first_wait_failure(self):
+        transport, writes, out, err = self.transport()
+        with self.assertRaises(ValueError):
+            transport.request('emulator.output.read', {}, .001)
+        before = transport.diagnostic_snapshot()
+        out.put(b'')
+        self.assertTrue(transport.process.stdout.closed.wait(1))
+        err.put(b'private-invalid-stderr\n')
+        self.assertTrue(transport.process.stderr.closed.wait(1))
+        self.assertEqual(transport.diagnostic_snapshot(), before, 'FIRST_RECEIVE_FACT_MUTATED')
+        self.assertEqual(before['receive_side'], 'UNAVAILABLE')
+        self.assertEqual(len(writes), 1)
+
+    def test_r156c_timeout_rejection_freezes_receive_classification_before_outer_recording(self):
+        for name, injected, closed in (
+                ('EOF', lambda out, err: out.put(b''), 'stdout'),
+                ('STDERR', lambda out, err: err.put(b'private-invalid-stderr\n'), 'stderr')):
+            with self.subTest(interval=name):
+                transport, writes, out, err = self.transport()
+                rejected, release = threading.Event(), threading.Event()
+                original_next = transport._next
+                def next_with_barrier(deadline):
+                    try:
+                        return original_next(deadline)
+                    except ValueError:
+                        rejected.set()
+                        self.assertTrue(release.wait(1), 'OUTER_RECORD_RELEASE')
+                        raise
+                transport._next = next_with_barrier
+                outcome = []
+                def request():
+                    try:
+                        transport.request('emulator.output.read', {}, .02)
+                    except ValueError:
+                        outcome.append('REJECTED')
+                worker = threading.Thread(target=request)
+                worker.start()
+                try:
+                    self.assertTrue(rejected.wait(1), 'NEXT_TIMEOUT_REJECTED')
+                    injected(out, err)
+                    pipe = transport.process.stdout if closed == 'stdout' else transport.process.stderr
+                    self.assertTrue(pipe.closed.wait(1), 'RECEIVE_READER_CONSUMED_INJECTED_FAILURE')
+                finally:
+                    release.set()
+                    worker.join(1)
+                self.assertFalse(worker.is_alive(), 'OUTER_REQUEST_STILL_RUNNING')
+                self.assertEqual(outcome, ['REJECTED'])
+                snapshot = transport.diagnostic_snapshot()
+                self.assertEqual((snapshot['first_role'], snapshot['first_phase'], snapshot['receive_side']),
+                                 ('SDK_OUTPUT', 'RESPONSE_WAIT', 'UNAVAILABLE'))
+                self.assertEqual(len(writes), 1)
+
+    def test_r156c_verify_live_status_validation_records_control_without_wire_change(self):
+        transport, writes, _, _ = self.transport(lambda value: dict(id=value['id'], ok=True, result={}))
+        session, _ = self.session(transport)
+        with self.assertRaises(ValueError):
+            session.verify_live(.2)
+        snapshot = transport.diagnostic_snapshot()
+        self.assertEqual((snapshot['first_role'], snapshot['first_phase'],
+                          snapshot['request_admission_sequence'], snapshot['failure_observation_sequence']),
+                         ('CONTROL', 'PRODUCER_REPLY_VALIDATION', None, 1))
+        self.assertEqual(writes, [dict(id='1', method='emulator.status', params={})])
+        self.assertFalse(session.uncertain or transport.uncertain)
+
+    def test_r156c_malformed_status_run_session_preserves_terminal_outcome_when_diagnostics_fail(self):
+        def execute(diagnostic):
+            session, wire = self.session()
+            original_request, methods = wire.request, []
+            def request(method, params=None, timeout=15, diagnostic_role=None):
+                methods.append(method)
+                if method == 'emulator.status':
+                    return {}
+                return original_request(method, params, timeout)
+            wire.request = request
+            valid = {'sample_state': 'SAMPLED', 'first_role': 'CONTROL',
+                'first_phase': 'PRODUCER_REPLY_VALIDATION', 'request_admission_sequence': None,
+                'failure_observation_sequence': 1, 'sequence_saturated': False,
+                'source_branch': 'UNAVAILABLE', 'source_failure': 'UNAVAILABLE',
+                'source_request_admission_sequence': None, 'source_failure_observation_sequence': None,
+                'receive_side': 'UNAVAILABLE', 'event_source_first_phase': 'UNAVAILABLE',
+                'event_source_request_admission_sequence': None,
+                'event_source_failure_observation_sequence': None}
+            if diagnostic == 'WORKING':
+                wire.record_local_failure = mock.Mock()
+                wire.diagnostic_snapshot = mock.Mock(return_value=valid)
+            elif diagnostic == 'THROWING':
+                wire.record_local_failure = mock.Mock(side_effect=RuntimeError('R156_PRIVATE'))
+                wire.diagnostic_snapshot = mock.Mock(side_effect=RuntimeError('R156_PRIVATE'))
+            def cleanup():
+                self.assertTrue(session._finished['lease_released'])
+                self.assertTrue(session._finished['native_tree_exit_verified'])
+                return True
+            result = r.run_session(s, record(), set(),
+                pins=[dict(path=__file__, sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())],
+                caps=s.Caps(.8, .5, .2, .2, .1, .5, 1, 1), watchdog_id='host-fixture',
+                gate=session, gated=True, cleanup=cleanup)
+            self.assertEqual(methods.count('emulator.status'), 1)
+            self.assertEqual(methods[:1], ['emulator.status'])
+            self.assertTrue(result['automatic_emulator_teardown_verified'])
+            self.assertEqual(set(wire.clients), wire.closed)
+            return result
+        baseline = execute('WORKING')
+        self.assertEqual(baseline['transport_first_failure_diagnostics']['first_role'], 'CONTROL')
+        self.assertEqual(baseline['transport_first_failure_diagnostics']['first_phase'],
+                         'PRODUCER_REPLY_VALIDATION')
+        for diagnostic in ('MISSING', 'THROWING'):
+            with self.subTest(diagnostic=diagnostic):
+                result = execute(diagnostic)
+                self.assertEqual(result['transport_first_failure_diagnostics']['sample_state'], 'SNAPSHOT_GAP')
+                for field in ('cause', 'eligible_for_oracle', 'shutdown_verified', 'cleanup_failures'):
+                    self.assertEqual(result['supervisor'][field], baseline['supervisor'][field])
+                for field in ('automatic_emulator_teardown_verified', 'all_three_original_runtime_cases_passed',
+                              'host_cleanup_status', 'runtime_result_analysis_performed'):
+                    self.assertEqual(result.get(field), baseline.get(field))
+
+    def test_r156c_close_and_cancel_keep_retained_adb_roles_at_response_identity(self):
+        for action, method in (('settle', 'emulator.adb.close'), ('cancel', 'emulator.adb.cancel')):
+            for role in ('OTHER_ADB', 'EVENT_SOURCE', 'INSTRUMENTATION'):
+                with self.subTest(action=action, role=role):
+                    transport, writes, _, _ = self.transport(
+                        lambda value: dict(id='foreign', ok=True, result={}))
+                    session, _ = self.session(transport)
+                    command = g.command_type(s, session)(session, 'manual', max_bytes=65536,
+                        on_line=(lambda line: None) if role == 'EVENT_SOURCE' else None,
+                        diagnostic_role=role)
+                    if action == 'settle':
+                        command.done.set()
+                        self.assertFalse(command.settle(.2))
+                    else:
+                        self.assertFalse(command.cancel(.2))
+                    snapshot = transport.diagnostic_snapshot()
+                    self.assertEqual((snapshot['first_role'], snapshot['first_phase'],
+                                      snapshot['request_admission_sequence'], snapshot['failure_observation_sequence']),
+                                     (role, 'RESPONSE_IDENTITY', 1, 1))
+                    self.assertEqual(writes, [dict(id='1', method=method, params={'command_id': 'manual'})])
+                    self.assertTrue(session.uncertain and transport.uncertain)
+                    self.assertEqual(command.cancelled, action == 'cancel')
+
+    def test_r156_actual_receive_rejection_categories(self):
+        cases = ((b'', 'EOF'), (b'x', 'FRAME_VIOLATION'),
+                 (b'x' * (1024 * 1024 + 1), 'FRAME_VIOLATION'),
+                 (b'not-json\n', 'JSON_OR_ENVELOPE'), (b'[]\n', 'JSON_OR_ENVELOPE'),
+                 (b'{"x":1,"x":2}\n', 'JSON_OR_ENVELOPE'),
+                 (OSError('R156_PRIVATE'), 'OTHER'))
+        for raw, expected in cases:
+            with self.subTest(category=expected):
+                transport, writes, out, _ = self.transport()
+                out.put(raw)
+                self.assertTrue(transport.process.stdout.closed.wait(1))
+                with self.assertRaises(ValueError):
+                    transport.request('emulator.adb.read', {}, .1, diagnostic_role='EVENT_SOURCE')
+                snap = transport.diagnostic_snapshot()
+                self.assertEqual((snap['first_phase'], snap['receive_side']), ('RESPONSE_WAIT', expected))
+                self.assertEqual(len(writes), 1)
+        transport, _, out, _ = self.transport()
+        out.put(b'{}\n')
+        out.put(b'{}\n')
+        self.assertTrue(transport.process.stdout.closed.wait(1))
+        with self.assertRaises(ValueError):
+            transport.request('emulator.status', {}, .1)
+        self.assertEqual(transport.diagnostic_snapshot()['receive_side'], 'REPEATED_FRAME')
+        for raw, expected in ((b'private\n', 'STDERR_SCHEMA_OR_LIMIT'),
+                              (b'x' * 4097, 'STDERR_SCHEMA_OR_LIMIT'),
+                              (OSError('R156_PRIVATE'), 'STDERR_READ_FAILURE')):
+            transport, _, _, err = self.transport()
+            err.put(raw)
+            self.assertTrue(transport.process.stderr.closed.wait(1))
+            with self.assertRaises(ValueError):
+                transport.request('emulator.status', {}, .1)
+            self.assertEqual(transport.diagnostic_snapshot()['receive_side'], expected)
+
+    def test_r156_first_roles_and_propagation_keep_original_wire(self):
+        for role, method in (('SDK_OUTPUT', 'emulator.output.read'),
+                             ('EVENT_SOURCE', 'emulator.adb.read'),
+                             ('INSTRUMENTATION', 'emulator.adb.read')):
+            transport, writes, _, _ = self.transport(lambda value: dict(id='foreign', ok=True, result={}))
+            session, _ = self.session(transport)
+            with self.assertRaises(ValueError):
+                session.request(method, {'fixed': 7}, .2, diagnostic_role=role)
+            first = transport.diagnostic_snapshot()
+            with self.assertRaises(ValueError):
+                session.request('emulator.status', {}, .2)
+            self.assertEqual(transport.diagnostic_snapshot(), first)
+            self.assertEqual((first['first_role'], first['first_phase'],
+                              first['request_admission_sequence'], first['failure_observation_sequence']),
+                             (role, 'RESPONSE_IDENTITY', 1, 1))
+            self.assertEqual(writes, [dict(id='1', method=method, params={'fixed': 7})])
+            self.assertTrue(session.uncertain and transport.uncertain)
+
+    def test_r156_original_request_rejection_phases(self):
+        for phase in ('PRE_EXISTING_UNCERTAINTY', 'INVALID_EXHAUSTED_BUDGET',
+                      'SERIAL_ACQUISITION', 'PRE_WRITE_DEADLINE', 'WRITE', 'FLUSH',
+                      'RESPONSE_WAIT', 'RESPONSE_IDENTITY', 'OUTER_REPLY_VALIDATION'):
+            with self.subTest(phase=phase):
+                reply = (lambda value: dict(id='foreign', ok=True, result={})) if phase == 'RESPONSE_IDENTITY' else (
+                    lambda value: dict(id=value['id'], ok=False, result={})) if phase == 'OUTER_REPLY_VALIDATION' else None
+                transport, writes, _, _ = self.transport(reply)
+                timeout = .001
+                if phase == 'PRE_EXISTING_UNCERTAINTY': transport.uncertain = True
+                if phase == 'INVALID_EXHAUSTED_BUDGET': timeout = 0
+                if phase == 'SERIAL_ACQUISITION':
+                    # Original failed acquisition may race another request poisoning the channel.
+                    def acquire(**kwargs):
+                        transport.uncertain = True
+                        return False
+                    transport._serial = SimpleNamespace(acquire=acquire)
+                if phase == 'WRITE': transport.process.stdin.write = mock.Mock(side_effect=OSError('R156_PRIVATE'))
+                if phase == 'FLUSH': transport.process.stdin.flush = mock.Mock(side_effect=OSError('R156_PRIVATE'))
+                with contextlib.ExitStack() as stack:
+                    if phase == 'PRE_WRITE_DEADLINE':
+                        stack.enter_context(mock.patch.object(g.time, 'monotonic', side_effect=[0, 1]))
+                    with self.assertRaises(ValueError):
+                        transport.request('emulator.status', {}, timeout)
+                snap = transport.diagnostic_snapshot()
+                self.assertEqual((snap['first_role'], snap['first_phase']), ('CONTROL', phase))
+                self.assertEqual(snap['request_admission_sequence'],
+                                 None if phase in ('PRE_EXISTING_UNCERTAINTY', 'INVALID_EXHAUSTED_BUDGET',
+                                                   'SERIAL_ACQUISITION', 'PRE_WRITE_DEADLINE') else 1)
+                self.assertEqual(len(writes), 0 if snap['request_admission_sequence'] is None or phase == 'WRITE' else 1)
+                self.assertTrue(transport.uncertain)
+
+    def test_r156_session_original_guard_rejections_are_observed_without_dispatch(self):
+        for timeout, uncertain, expected in ((1, True, 'PRE_EXISTING_UNCERTAINTY'),
+                                             (True, False, 'INVALID_EXHAUSTED_BUDGET'),
+                                             (float('nan'), False, 'INVALID_EXHAUSTED_BUDGET'),
+                                             (0, False, 'INVALID_EXHAUSTED_BUDGET')):
+            transport, writes, _, _ = self.transport(self.reply)
+            session, _ = self.session(transport)
+            session.uncertain = uncertain
+            with self.assertRaises(ValueError):
+                session.request('emulator.status', timeout=timeout)
+            snap = transport.diagnostic_snapshot()
+            self.assertEqual((snap['first_role'], snap['first_phase'], snap['request_admission_sequence']),
+                             ('CONTROL', expected, None))
+            self.assertEqual(writes, [])
+            self.assertEqual(session.uncertain, uncertain)
+            self.assertFalse(transport.uncertain)
+
+    def test_r156_synchronized_admission_and_failure_order_are_not_conflated(self):
+        transport, writes, out, _ = self.transport()
+        entered, release, rejected = threading.Event(), threading.Event(), threading.Event()
+        original = transport.process.stdin.write
+        def write(raw):
+            original(raw)
+            entered.set()
+            self.assertTrue(release.wait(1))
+        transport.process.stdin.write = write
+        errors = []
+        def first():
+            try: transport.request('emulator.output.read', {}, 2)
+            except ValueError: errors.append('FIRST_REJECTED')
+        worker = threading.Thread(target=first)
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(1))
+            with self.assertRaises(ValueError):
+                transport.request('emulator.adb.read', {}, 0, diagnostic_role='EVENT_SOURCE')
+            rejected.set()
+            snap = transport.diagnostic_snapshot()
+            self.assertEqual((snap['first_role'], snap['first_phase'], snap['request_admission_sequence'],
+                              snap['failure_observation_sequence']),
+                             ('EVENT_SOURCE', 'INVALID_EXHAUSTED_BUDGET', None, 1))
+        finally:
+            release.set()
+            out.put(b'')
+            worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, ['FIRST_REJECTED'])
+        self.assertEqual(transport.diagnostic_snapshot(), snap)
+        self.assertEqual(len(writes), 1)
+
+    def test_r156_source_association_does_not_guess_latest_overlapping_event(self):
+        transport, _, _, _ = self.transport(self.reply)
+        transport.request('emulator.adb.read', {}, .2, diagnostic_role='EVENT_SOURCE')
+        transport.request('emulator.adb.read', {}, .2, diagnostic_role='EVENT_SOURCE')
+        transport.record_source_failure('SOURCE_PUMP_EXCEPTION', 'PUMP_CALLBACK_FAILURE')
+        snap = transport.diagnostic_snapshot()
+        self.assertIsNone(snap['source_request_admission_sequence'], 'SHARED_LATEST_IS_NOT_EXACT_SOURCE_ASSOCIATION')
+        self.assertIsNone(snap['request_admission_sequence'])
+
+    def test_r156_source_branches_keep_feed_listener_done_order_even_with_broken_hooks(self):
+        for branch in ('UNKNOWN_TERMINAL_REASON', 'SOURCE_PUMP_EXCEPTION'):
+            for hook in ('WORKING', 'MISSING', 'THROWING'):
+                with self.subTest(branch=branch, hook=hook):
+                    transport, _, _, _ = self.transport(self.reply)
+                    session, _ = self.session(transport)
+                    if hook == 'MISSING': session.record_source_failure = None
+                    elif hook == 'THROWING':
+                        session.record_source_failure = mock.Mock(side_effect=RuntimeError('R156_PRIVATE'))
+                    source = g.command_type(s, session)(session, 'manual', max_bytes=65536,
+                        on_line=lambda line: None, diagnostic_role='EVENT_SOURCE')
+                    order = []
+                    source.subscribe_feed_loss(lambda: order.append(('FEED', source.failure, source.done.is_set())))
+                    source.subscribe(lambda: order.append(('LISTENER', source.failure, source.done.is_set())))
+                    escaped = False
+                    try:
+                        if branch == 'UNKNOWN_TERMINAL_REASON':
+                            value = dict(command_id='manual', **frame(reason='R156_PRIVATE'))
+                            value['stdout']['eof'] = False  # Isolate terminal branch from earlier EOF route.
+                            source.ingest(value)
+                        else:
+                            session.request = mock.Mock(side_effect=ValueError('R156_PRIVATE'))
+                            source._observe()
+                    except BaseException:
+                        escaped = True
+                    self.assertFalse(escaped, 'DIAGNOSTIC_SUPPRESSED_ORIGINAL_PUMP')
+                    self.assertEqual(order, [('FEED', 'CHILD_UNCONFIRMED', False),
+                        ('LISTENER', 'CHILD_UNCONFIRMED', branch == 'UNKNOWN_TERMINAL_REASON')])
+                    self.assertTrue(source.feed_lost.is_set())
+                    self.assertEqual(source.done.is_set(), branch == 'UNKNOWN_TERMINAL_REASON')
+                    if branch == 'UNKNOWN_TERMINAL_REASON':
+                        self.assertFalse(source._discarded, 'DIAGNOSTIC_HOOK_MUST_NOT_FORCE_ERROR_DRAIN')
+                    if hook == 'WORKING':
+                        snap = transport.diagnostic_snapshot()
+                        self.assertEqual((snap['source_branch'], snap['source_failure']), (branch, 'CHILD_UNCONFIRMED'))
+                        self.assertEqual(snap['first_phase'], 'PRODUCER_REPLY_VALIDATION' if branch == 'UNKNOWN_TERMINAL_REASON'
+                                         else 'PUMP_CALLBACK_FAILURE')
+
+    def test_r156_source_branch_survives_prior_sdk_failure_and_is_immutable(self):
+        transport, _, _, _ = self.transport(lambda value: dict(id='wrong', ok=True, result={}))
+        with self.assertRaises(ValueError): transport.request('emulator.output.read', {}, .2)
+        first = transport.diagnostic_snapshot()
+        session, _ = self.session(transport)
+        source = g.command_type(s, session)(session, 'manual', max_bytes=65536,
+            on_line=lambda line: None, diagnostic_role='EVENT_SOURCE')
+        source._observe()
+        snap = transport.diagnostic_snapshot()
+        self.assertEqual((snap['first_role'], snap['first_phase']), ('SDK_OUTPUT', 'RESPONSE_IDENTITY'))
+        self.assertEqual(snap['source_branch'], 'SOURCE_PUMP_EXCEPTION')
+        self.assertGreater(snap['source_failure_observation_sequence'], first['failure_observation_sequence'])
+        self.assertIsNone(snap['source_request_admission_sequence'])
+        transport.record_source_failure('UNKNOWN_TERMINAL_REASON', 'PRODUCER_REPLY_VALIDATION')
+        self.assertEqual(transport.diagnostic_snapshot(), snap)
+
+    def test_r156_local_sdk_and_producer_decode_origins_precede_later_propagation(self):
+        for role in ('SDK_OUTPUT', 'EVENT_SOURCE', 'INSTRUMENTATION'):
+            with self.subTest(role=role):
+                transport, writes, _, _ = self.transport(lambda value: dict(id=value['id'], ok=True, result={}))
+                session, _ = self.session(transport)
+                if role == 'SDK_OUTPUT':
+                    with self.assertRaises(ValueError): session.drain_sdk(.2)
+                    self.assertTrue(session._sdk_gap)
+                else:
+                    value = session.request('emulator.adb.read', {}, .2, diagnostic_role=role)
+                    cmd = g.command_type(s, session)(session, 'manual', max_bytes=65536,
+                        on_line=(lambda line: None) if role == 'EVENT_SOURCE' else None, diagnostic_role=role)
+                    cmd.ingest(value)
+                    self.assertEqual(cmd.failure, 'STREAM_FAILED')
+                    self.assertFalse(cmd.done.is_set())
+                first = transport.diagnostic_snapshot()
+                self.assertEqual((first['first_role'], first['first_phase']), (role, 'PRODUCER_REPLY_VALIDATION'))
+                self.assertIsNone(first['request_admission_sequence'])
+                self.assertFalse(session.uncertain or transport.uncertain, 'LOCAL_DECODE_MUST_NOT_CHANGE_UNCERTAINTY_POLICY')
+                session.uncertain = True
+                with self.assertRaises(ValueError): session.request('emulator.status', timeout=.2)
+                self.assertEqual(transport.diagnostic_snapshot(), first)
+                self.assertEqual(len(writes), 1)
+
+    def test_r156_first_event_role_origin_survives_earlier_sdk_and_later_pump_branch(self):
+        responses = [dict(stdout=stream(error=True), stderr=stream())]
+        def reply(value):
+            if responses: return dict(id=value['id'], ok=True, result=responses.pop())
+            return dict(id='wrong', ok=True, result={})
+        transport, writes, _, _ = self.transport(reply)
+        session, _ = self.session(transport)
+        with self.assertRaises(ValueError): session.drain_sdk(.2)
+        source = g.command_type(s, session)(session, 'manual', max_bytes=65536,
+            on_line=lambda line: None, diagnostic_role='EVENT_SOURCE')
+        source._observe()
+        snap = transport.diagnostic_snapshot()
+        self.assertEqual((snap['first_role'], snap['first_phase']), ('SDK_OUTPUT', 'PRODUCER_REPLY_VALIDATION'))
+        self.assertEqual((snap.get('event_source_first_phase'),
+                          snap.get('event_source_request_admission_sequence'),
+                          snap.get('event_source_failure_observation_sequence')),
+                         ('RESPONSE_IDENTITY', 2, 2), 'FIRST_EVENT_ROLE_ORIGIN_MISSING')
+        self.assertEqual(snap['source_branch'], 'SOURCE_PUMP_EXCEPTION')
+        self.assertIsNone(snap['source_request_admission_sequence'])
+        self.assertEqual(snap['source_failure_observation_sequence'], 3)
+        self.assertEqual(len(writes), 2)
+        self.assertFalse(source.done.is_set())
+        self.assertTrue(source.feed_lost.is_set())
+
+    def test_r156_spawn_producer_rejection_keeps_role_without_poisoning_successful_wire(self):
+        for role in ('EVENT_SOURCE', 'INSTRUMENTATION', 'OTHER_ADB'):
+            with self.subTest(role=role):
+                transport, writes, _, _ = self.transport(lambda value: dict(id=value['id'], ok=True,
+                    result=dict(not_dispatched=True, state='complete')))
+                session, _ = self.session(transport)
+                with self.assertRaises(ValueError):
+                    g.command_type(s, session).spawn(['gate-adb', '-s', r.SERIAL, 'get-state'],
+                        timeout=.2, max_bytes=65536, diagnostic_role=role)
+                snap = transport.diagnostic_snapshot()
+                self.assertEqual((snap['first_role'], snap['first_phase']), (role, 'PRODUCER_REPLY_VALIDATION'))
+                self.assertFalse(session.uncertain or transport.uncertain)
+                self.assertEqual(len(writes), 1)
+                self.assertEqual(session.clients, [])
+
+    def test_r156_callback_origin_is_not_mislabelled_as_producer_or_later_uncertainty(self):
+        transport, _, _, _ = self.transport(self.reply)
+        session, _ = self.session(transport)
+        def callback(line): raise RuntimeError('R156_PRIVATE')
+        source = g.command_type(s, session)(session, 'manual', max_bytes=65536,
+            on_line=callback, diagnostic_role='EVENT_SOURCE')
+        source.ingest(dict(command_id='manual', **frame('running', b'line\n')))
+        self.assertEqual(source.failure, 'STREAM_FAILED')
+        self.assertTrue(source.feed_lost.is_set())
+        self.assertFalse(source.done.is_set())
+        snap = transport.diagnostic_snapshot()
+        self.assertEqual((snap['first_role'], snap['first_phase']), ('EVENT_SOURCE', 'PUMP_CALLBACK_FAILURE'))
+        self.assertEqual(snap['source_branch'], 'UNAVAILABLE')  # ingest caught it; not the pump CHILD branch.
+
+    def test_r156_unknown_terminal_hostile_reason_keeps_original_failure_decisions(self):
+        class Reason:
+            def __eq__(self, other): raise ValueError('R156_PRIVATE')
+            def __str__(self): raise AssertionError('HOSTILE_STR')
+            def __repr__(self): raise AssertionError('HOSTILE_REPR')
+        class Alias(str): pass
+        for reason, expected in (([], 'CHILD_UNCONFIRMED'), (True, 'CHILD_UNCONFIRMED'),
+                                 (Reason(), 'STREAM_FAILED'), (Alias('completed'), None)):
+            transport, _, _, _ = self.transport(self.reply)
+            session, _ = self.session(transport)
+            cmd = g.command_type(s, session)(session, 'manual', max_bytes=65536,
+                on_line=lambda line: None, diagnostic_role='EVENT_SOURCE')
+            value = dict(command_id='manual', **frame(reason=reason))
+            value['stdout']['eof'] = False
+            # Cancel suppresses later normal feed EOF only for the completed alias.
+            if expected is None: cmd.cancelled = True
+            cmd.ingest(value)
+            self.assertEqual(cmd.failure, expected)
+            self.assertTrue(cmd.done.is_set())
+            self.assertNotIn('R156_PRIVATE', json.dumps(transport.diagnostic_snapshot()))
+
+    def test_r156_control_and_unknown_roles_never_invoke_hostile_conversion(self):
+        class Hostile:
+            def __eq__(self, other): raise AssertionError('HOSTILE_EQUALITY')
+            def __hash__(self): raise AssertionError('HOSTILE_HASH')
+            def __str__(self): raise AssertionError('HOSTILE_STR')
+            def __repr__(self): raise AssertionError('HOSTILE_REPR')
+        class Alias(str): pass
+        for role in (Hostile(), Alias('EVENT_SOURCE'), True, [], 'R156_PRIVATE'):
+            transport, writes, _, _ = self.transport(lambda value: dict(id='wrong', ok=True, result={}))
+            with self.assertRaises(ValueError):
+                transport.request('emulator.status', {}, .2, diagnostic_role=role)
+            self.assertEqual(transport.diagnostic_snapshot()['first_role'], 'OTHER')
+            self.assertEqual(writes[0]['method'], 'emulator.status')
+        transport, writes, _, _ = self.transport(self.reply)
+        for branch, phase, seq in ((Hostile(), 'OTHER', None),
+                (Alias('SOURCE_PUMP_EXCEPTION'), 'OTHER', None),
+                ('SOURCE_PUMP_EXCEPTION', Hostile(), None),
+                ('SOURCE_PUMP_EXCEPTION', 'PUMP_CALLBACK_FAILURE', True),
+                ('SOURCE_PUMP_EXCEPTION', 'PUMP_CALLBACK_FAILURE', 2 ** 31)):
+            escaped = False
+            try: transport.record_source_failure(branch, phase, seq)
+            except BaseException: escaped = True
+            self.assertFalse(escaped, 'HOSTILE_DIAGNOSTIC_ESCAPED')
+            self.assertEqual(transport.diagnostic_snapshot()['source_branch'], 'UNAVAILABLE')
+        self.assertFalse(transport.uncertain)
+        self.assertEqual(writes, [])
+
+    def test_r156_saturation_and_detached_snapshot_do_not_wrap_or_mutate(self):
+        transport, _, _, _ = self.transport(lambda value: dict(id='wrong', ok=True, result={}))
+        transport._diagnostic_request_sequence = 2 ** 31 - 1
+        transport._diagnostic_failure_sequence = 2 ** 31 - 1
+        with self.assertRaises(ValueError):
+            transport.request('emulator.adb.read', {}, .2, diagnostic_role='INSTRUMENTATION')
+        snap = transport.diagnostic_snapshot()
+        self.assertEqual((snap['request_admission_sequence'], snap['failure_observation_sequence'],
+                          snap['sequence_saturated']), (2 ** 31 - 1, 2 ** 31 - 1, True))
+        snap['first_role'] = 'R156_PRIVATE'
+        self.assertEqual(transport.diagnostic_snapshot()['first_role'], 'INSTRUMENTATION')
 
 
 def closed_run(files, evidence=None, only=None):
