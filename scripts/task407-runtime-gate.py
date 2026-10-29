@@ -19,7 +19,7 @@ import threading
 import time
 
 HELPER = 'C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py'
-RELEASE = 'df52528334e1391b'
+RELEASE = '77a9616d05187aee'
 RELEASE_ROOT = 'C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/' + RELEASE
 SCRATCH = 'D:/Temp/navic-task407-gated-runtime/r146'
 MODULES = ('tools_cli.py', 'workflows.py', 'native_process.py', 'android_emulator.py',
@@ -112,6 +112,34 @@ def _classify_first_outer_reply(value):
     return ok_class, result_class, error_class
 
 
+def _classify_first_outer_error_shape(error):
+    """Return a bounded lexical WinError5 rename hint, never decoded path data."""
+    if type(error) is not str or not error.startswith('[WinError 5] '):
+        return 'NOT_WIN32_5'
+    if len(error) > 4096 or '\n' in error or '\r' in error:
+        return 'WIN32_5_NO_RECOGNIZED_RENAME_PAIR'
+    literal = r'''(?:'(?:[^'\\\r\n]|\\.)*'|"(?:[^"\\\r\n]|\\.)*")'''
+    pair = re.compile(r'\[WinError 5\] [^\'"\r\n]*?: (' + literal + r') -> (' + literal + r')')
+    match = pair.fullmatch(error)
+    if match is None:
+        return 'WIN32_5_NO_RECOGNIZED_RENAME_PAIR'
+    source, target = match.groups()
+    source_match = re.fullmatch(r'(?P<parent>.*(?:\\\\|/))(?P<leaf>[0-9a-f]{32}\.pending)', source[1:-1])
+    target_match = re.fullmatch(r'(?P<parent>.*(?:\\\\|/))activity\.json', target[1:-1], re.IGNORECASE)
+    if (source_match is not None and target_match is not None
+            and source_match['parent'].casefold() == target_match['parent'].casefold()):
+        return 'WIN32_5_JOURNAL_REPLACE_SHAPE'
+    return 'WIN32_5_OTHER_RENAME_PAIR'
+
+
+def _first_outer_method(method):
+    return {
+        'emulator.adb.start': 'ADB_START', 'emulator.adb.read': 'ADB_READ',
+        'emulator.adb.status': 'ADB_STATUS', 'emulator.adb.cancel': 'ADB_CANCEL',
+        'emulator.adb.close': 'ADB_CLOSE', 'emulator.output.read': 'SDK_OUTPUT_READ',
+    }.get(method, 'OTHER')
+
+
 def _transport_role(value, method):
     if value is not None:
         return value if type(value) is str and value in _TRANSPORT_DIAGNOSTIC_ROLES else 'OTHER'
@@ -154,7 +182,7 @@ class JsonLineTransport:
         self._diagnostic_failure_sequence = 0
         self._diagnostic_sequence_saturated = False
         self._diagnostic_first = None
-        self._diagnostic_first_outer = ('UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE')
+        self._diagnostic_first_outer = ('UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE')
         self._diagnostic_source = None
         self._diagnostic_event_first = None
         self._diagnostic_receive_side = 'UNAVAILABLE'
@@ -181,7 +209,7 @@ class JsonLineTransport:
         if self._diagnostic_first is None:
             self._diagnostic_first = (role, phase, request_sequence, observation_sequence,
                 self._diagnostic_rejection_receive_side if phase == 'RESPONSE_WAIT' else 'UNAVAILABLE')
-            if phase == 'OUTER_REPLY_VALIDATION' and type(outer) is tuple and len(outer) == 3:
+            if phase == 'OUTER_REPLY_VALIDATION' and type(outer) is tuple and len(outer) == 5:
                 self._diagnostic_first_outer = outer
         if role == 'EVENT_SOURCE' and self._diagnostic_event_first is None:
             # Earliest event-ROLE failure, distinct from a later source-branch notification.
@@ -221,6 +249,7 @@ class JsonLineTransport:
                 failure_observation_sequence=first[3] if first is not None else None,
                 sequence_saturated=bool(self._diagnostic_sequence_saturated),
                 first_outer_ok=outer[0], first_outer_result=outer[1], first_outer_error=outer[2],
+                first_outer_method=outer[3], first_outer_error_shape=outer[4],
                 source_branch=source[0] if source is not None else 'UNAVAILABLE',
                 source_failure='CHILD_UNCONFIRMED' if source is not None else 'UNAVAILABLE',
                 source_request_admission_sequence=source[1] if source is not None else None,
@@ -395,7 +424,9 @@ class JsonLineTransport:
             phase = 'OUTER_REPLY_VALIDATION'
             if value.get('ok') is not True or type(value.get('result')) is not dict:
                 try:
-                    outer = _classify_first_outer_reply(value)
+                    reply = _classify_first_outer_reply(value)
+                    outer = (*reply, _first_outer_method(method),
+                             _classify_first_outer_error_shape(value.get('error', object())))
                 except BaseException:
                     pass
                 raise blocked()

@@ -292,7 +292,8 @@ class R156TransportRunnerTests(unittest.TestCase):
                 'event_source_request_admission_sequence': None,
                 'event_source_failure_observation_sequence': None,
                 'first_outer_ok': 'UNAVAILABLE', 'first_outer_result': 'UNAVAILABLE',
-                'first_outer_error': 'UNAVAILABLE'}
+                'first_outer_error': 'UNAVAILABLE', 'first_outer_method': 'UNAVAILABLE',
+                'first_outer_error_shape': 'UNAVAILABLE'}
 
     def execute(self, failed_source=False, defect='VALID', supplied=None):
         f = self.fixtures
@@ -389,7 +390,8 @@ class R156TransportRunnerTests(unittest.TestCase):
             malformed.append(dict(self.sample(), sequence_saturated=value))
         outer = dict(self.sample(), first_role='SDK_OUTPUT', first_phase='OUTER_REPLY_VALIDATION',
                      request_admission_sequence=1, failure_observation_sequence=1,
-                     first_outer_ok='FALSE', first_outer_result='DICT', first_outer_error='REMOTE_OTHER')
+                     first_outer_ok='FALSE', first_outer_result='DICT', first_outer_error='REMOTE_OTHER',
+                     first_outer_method='SDK_OUTPUT_READ', first_outer_error_shape='NOT_WIN32_5')
         for field in ('first_outer_ok', 'first_outer_result', 'first_outer_error'):
             for value in (StringAlias(self.sample()[field]), EqualityAlias(), 1, 'R160B_PRIVATE_UNKNOWN'):
                 malformed.append(dict(self.sample(), **{field: value}))
@@ -426,13 +428,14 @@ class R156TransportRunnerTests(unittest.TestCase):
         for failed_source in (False, True):
             result = self.execute(failed_source)
             self.assertEqual(result['transport_first_failure_diagnostics'], self.sample())
-            self.assertEqual(result['transport_first_failure_diagnostics_profile'], 'FIRST_FAILURE_TRANSPORT_DIAGNOSTICS_V2')
+            self.assertEqual(result['transport_first_failure_diagnostics_profile'], 'FIRST_FAILURE_TRANSPORT_DIAGNOSTICS_V3')
             self.assertEqual(result['transport_first_failure_diagnostics_scope'], 'PRE_TEARDOWN_AFTER_TERMINAL_DECISION')
 
     def test_r160_runner_requires_exact_outer_reply_coherence_without_changing_cleanup(self):
         valid = dict(self.sample(), first_role='SDK_OUTPUT', first_phase='OUTER_REPLY_VALIDATION',
                      request_admission_sequence=1, failure_observation_sequence=1,
-                     first_outer_ok='FALSE', first_outer_result='DICT', first_outer_error='REMOTE_OTHER')
+                     first_outer_ok='FALSE', first_outer_result='DICT', first_outer_error='REMOTE_OTHER',
+                     first_outer_method='SDK_OUTPUT_READ', first_outer_error_shape='NOT_WIN32_5')
         self.assertTrue(runner._valid_transport_first_failure_diagnostics(valid))
         for invalid in (
                 dict(valid, first_outer_ok='TRUE', first_outer_result='DICT'),
@@ -446,6 +449,102 @@ class R156TransportRunnerTests(unittest.TestCase):
         self.assertEqual(result['transport_first_failure_diagnostics'],
                          dict(self.sample(), sample_state='SNAPSHOT_GAP'))
         self.assertTrue(result['automatic_emulator_teardown_verified'])
+
+    def test_r165_strict_v3_schema_and_owning_seam_fail_closed_without_changing_outcome(self):
+        class Hostile:
+            def __eq__(self, other): raise AssertionError('R165B_HOSTILE_EQUALITY')
+            def __hash__(self): raise AssertionError('R165B_HOSTILE_HASH')
+            def __repr__(self): raise AssertionError('R165B_HOSTILE_REPR')
+            def __str__(self): raise AssertionError('R165B_HOSTILE_STR')
+        class Alias(str): pass
+        sample = dict(self.sample(), first_outer_method='UNAVAILABLE',
+                      first_outer_error_shape='UNAVAILABLE')
+        self.assertTrue(runner._valid_transport_first_failure_diagnostics(sample))
+        outer = dict(sample, first_role='SDK_OUTPUT', first_phase='OUTER_REPLY_VALIDATION',
+                     request_admission_sequence=1, failure_observation_sequence=1,
+                     first_outer_ok='FALSE', first_outer_result='DICT',
+                     first_outer_error='REMOTE_WIN32_5', first_outer_method='SDK_OUTPUT_READ',
+                     first_outer_error_shape='WIN32_5_JOURNAL_REPLACE_SHAPE')
+        self.assertTrue(runner._valid_transport_first_failure_diagnostics(outer))
+        malformed = [
+            dict(sample, first_outer_method='ADB_READ'),
+            dict(sample, first_outer_error_shape='NOT_WIN32_5'),
+            dict(outer, first_outer_method='FOREIGN'),
+            dict(outer, first_outer_error_shape='NOT_WIN32_5'),
+            dict(outer, first_outer_error='REMOTE_OTHER', first_outer_error_shape='WIN32_5_OTHER_RENAME_PAIR'),
+        ]
+        for field in ('first_outer_method', 'first_outer_error_shape'):
+            malformed.append({key: value for key, value in outer.items() if key != field})
+            for value in (None, 1, True, Alias(outer[field]), Hostile()):
+                malformed.append(dict(outer, **{field: value}))
+        for row in malformed:
+            with self.subTest(malformed=tuple(sorted(row))):
+                self.assertFalse(runner._valid_transport_first_failure_diagnostics(row))
+        for failed_source in (False, True):
+            baseline = self.execute(failed_source)
+            for row in malformed:
+                with self.subTest(injected_owning_seam=True, failed_source=failed_source,
+                                  malformed=tuple(sorted(row))):
+                    result = self.execute(failed_source, 'MALFORMED', dict(row))
+                    self.assertEqual(result['transport_first_failure_diagnostics'],
+                                     dict(sample, sample_state='SNAPSHOT_GAP'))
+                    for field in ('cause', 'eligible_for_oracle', 'shutdown_verified', 'cleanup_failures'):
+                        self.assertEqual(result['supervisor'][field], baseline['supervisor'][field])
+                    for field in ('automatic_emulator_teardown_verified', 'host_snapshot_residue_cleanup_required',
+                                  'host_cleanup_status', 'runtime_result_analysis_performed',
+                                  'all_three_original_runtime_cases_passed', 'completed_test_count', 'passed_test_count',
+                                  'events', 'terminal_codes', 'terminal_observer_diagnostics'):
+                        self.assertEqual(result.get(field), baseline.get(field))
+
+    def test_r165_real_transport_snapshot_is_detached_at_natural_and_failed_source_injection_seams(self):
+        token = 'R165_PRIVATE_SENTINEL'
+        source = 'C:\\' + token + '\\' + '1' * 32 + '.pending'
+        target = 'C:\\' + token + '\\ACTIVITY.JSON'
+        transport, _, _, _ = self.fixtures.R156CompletionTests.transport(self, lambda value: dict(
+            id=value['id'], ok=False, result={}, error='[WinError 5] denied: ' + repr(source) + ' -> ' + repr(target)))
+        with self.assertRaises(ValueError):
+            transport.request('emulator.adb.read', {}, .2, diagnostic_role='EVENT_SOURCE')
+        snapshot = transport.diagnostic_snapshot()
+        self.assertEqual((snapshot.get('first_outer_method'), snapshot.get('first_outer_error_shape')),
+                         ('ADB_READ', 'WIN32_5_JOURNAL_REPLACE_SHAPE'))
+        for failed_source in (False, True):
+            with self.subTest(injected_owning_seam=True, failed_source=failed_source):
+                result = self.execute(failed_source, supplied=dict(snapshot))
+                self.assertEqual(result['transport_first_failure_diagnostics'], snapshot)
+                self.assertEqual(result['transport_first_failure_diagnostics_profile'],
+                                 'FIRST_FAILURE_TRANSPORT_DIAGNOSTICS_V3')
+                self.assertNotIn(token, json.dumps(result))
+
+    def test_r165b_new_classifier_throw_snapshots_are_injected_at_both_owning_seams(self):
+        for classifier in ('_first_outer_method', '_classify_first_outer_error_shape'):
+            with self.subTest(classifier=classifier):
+                transport, writes, _, _ = self.fixtures.R156CompletionTests.transport(self, lambda value: dict(
+                    id=value['id'], ok=False, result={}))
+                with mock.patch.object(self.fixtures.g, classifier,
+                                       side_effect=RuntimeError('R165B_PRIVATE'), create=True):
+                    with self.assertRaises(ValueError):
+                        transport.request('emulator.adb.status', {}, .2, diagnostic_role='EVENT_SOURCE')
+                snapshot = transport.diagnostic_snapshot()
+                self.assertEqual((snapshot['first_role'], snapshot['first_phase']),
+                                 ('EVENT_SOURCE', 'OUTER_REPLY_VALIDATION'))
+                self.assertEqual((snapshot['first_outer_method'], snapshot['first_outer_error_shape']),
+                                 ('UNAVAILABLE', 'UNAVAILABLE'))
+                self.assertEqual(len(writes), 1)
+                self.assertNotIn('R165B_PRIVATE', json.dumps(snapshot))
+                for failed_source in (False, True):
+                    with self.subTest(injected_owning_seam=True, failed_source=failed_source):
+                        baseline = self.execute(failed_source)
+                        result = self.execute(failed_source, supplied=dict(snapshot))
+                        self.assertEqual(result['transport_first_failure_diagnostics'],
+                                         dict(self.sample(), sample_state='SNAPSHOT_GAP'))
+                        for field in ('cause', 'eligible_for_oracle', 'shutdown_verified', 'cleanup_failures'):
+                            self.assertEqual(result['supervisor'][field], baseline['supervisor'][field])
+                        for field in ('automatic_emulator_teardown_verified', 'host_snapshot_residue_cleanup_required',
+                                      'host_cleanup_status', 'runtime_result_analysis_performed',
+                                      'all_three_original_runtime_cases_passed', 'completed_test_count', 'passed_test_count',
+                                      'events', 'terminal_codes', 'terminal_observer_diagnostics'):
+                            self.assertEqual(result.get(field), baseline.get(field))
+                        self.assertNotIn('R165B_PRIVATE', json.dumps(result))
 
     def test_r160b_real_transport_outer_projection_persists_at_owning_pre_teardown_seam(self):
         sentinels = ('R160B_PRIVATE_ERROR', 'R160B_PRIVATE_PATH', 'R160B_PRIVATE_URL',
@@ -470,7 +569,7 @@ class R156TransportRunnerTests(unittest.TestCase):
                 result = self.execute(failed_source, supplied=supplied)
                 self.assertEqual(result['transport_first_failure_diagnostics'], expected)
                 self.assertEqual(result['transport_first_failure_diagnostics_profile'],
-                                 'FIRST_FAILURE_TRANSPORT_DIAGNOSTICS_V2')
+                                 'FIRST_FAILURE_TRANSPORT_DIAGNOSTICS_V3')
                 self.assertEqual(result['transport_first_failure_diagnostics_scope'],
                                  'PRE_TEARDOWN_AFTER_TERMINAL_DECISION')
                 self.assertEqual(supplied['first_role'], 'R156_PRIVATE')
@@ -1918,7 +2017,7 @@ class PreflightBoundaryTests(unittest.TestCase):
             raise ValueError('fixture stop before dispatch')
         record.update(host_qualification_path='fixture-reviews', host_qualification_sha256='b' * 64,
                       gate={'pins': [], 'binding': {'emulator_root': 'D:/Components/37.2.12'}})
-        runtime = SimpleNamespace(RELEASE='df52528334e1391b', RUNTIME_PATHS=(),
+        runtime = SimpleNamespace(RELEASE='77a9616d05187aee', RUNTIME_PATHS=(),
                                   RELEASE_ROOT='D:/fixture-release')
         # Live CLI is gate-only; isolate new receipt/active-release boundaries in
         # this original cap assertion, not historical peer-based admission.
@@ -1927,7 +2026,7 @@ class PreflightBoundaryTests(unittest.TestCase):
              mock.patch.object(runner, 'validate_host_qualification', return_value=([], 'a' * 40)), \
              mock.patch.object(runner, '_runtime_gate', return_value=runtime), \
              mock.patch.object(runner.Path, 'read_bytes', side_effect=[
-                 b'{"release":"df52528334e1391b","version":"0.16.4"}',
+                 b'{"release":"77a9616d05187aee","version":"0.16.5"}',
                  b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
              mock.patch.object(runner, 'pins_match', return_value=True), \
              mock.patch.object(runner, 'subprocess') as subprocess_mock, \
@@ -1954,7 +2053,7 @@ class PreflightBoundaryTests(unittest.TestCase):
         self.assertEqual(before['effective_budget_ms'], int(install_options['timeout'] * 1000))
 
     def test_r158_main_rejects_old_root_full_coverage_and_digest_drift(self):
-        new_release = 'df52528334e1391b'
+        new_release = '77a9616d05187aee'
         old_release = 'a84522cf993339ea'
         helper = 'C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py'
         suffixes = (
@@ -2003,7 +2102,7 @@ class PreflightBoundaryTests(unittest.TestCase):
                  mock.patch.object(runner, '_runtime_gate', return_value=runtime), \
                  mock.patch.object(runner, 'pins_match', side_effect=pins_spy), \
                  mock.patch.object(runner.Path, 'read_bytes', side_effect=[
-                     b'{"release":"df52528334e1391b","version":"0.16.4"}',
+                     b'{"release":"77a9616d05187aee","version":"0.16.5"}',
                      b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
                  mock.patch.object(runner.subprocess, 'run', side_effect=stop_at_first_git_read), \
                  mock.patch.object(runner, 'run_gated_session') as gated_session, \
@@ -2028,7 +2127,8 @@ class PreflightBoundaryTests(unittest.TestCase):
         self.assertEqual(len(valid_pins), 1)
         self.assertEqual(valid_git, [(
             (['git', '-C', str(Path(runner.__file__).resolve().parents[1]), 'rev-parse', 'HEAD'],),
-            {'capture_output': True, 'timeout': 15, 'check': False})])
+            {'capture_output': True, 'timeout': 15, 'check': False,
+             'env': {'WATCHDOG_ID': 'host-fixture', 'GIT_OPTIONAL_LOCKS': '0'}})])
 
 
 class ReservedPreparationTests(unittest.TestCase):

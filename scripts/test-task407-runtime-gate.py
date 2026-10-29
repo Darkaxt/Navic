@@ -62,7 +62,7 @@ def record():
         user_session_authorized=True, no_snapshot_save=True, preserve_app_data=True, clear_logcat=False,
         watchdog_id='host-fixture', apk_path='fixture-only.apk',
         gate=dict(helper='C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py',
-            release='df52528334e1391b', version='0.16.4', emulator_profile='reader-diagnostics',
+            release='77a9616d05187aee', version='0.16.5', emulator_profile='reader-diagnostics',
             component_version='37.2.12', scratch_root='D:/Temp/navic-task407-gated-runtime/r146',
             owner_task='Validate original reader runtime cases', thread_name='Navic',
             expected_owner=dict(system='claude', session_sha256=hashlib.sha256(b'host-chat').hexdigest(), thread_name='Navic'),
@@ -408,7 +408,8 @@ class MigrationTests(unittest.TestCase):
                'event_source_first_phase': 'UNAVAILABLE', 'event_source_request_admission_sequence': None,
                'event_source_failure_observation_sequence': None,
                'first_outer_ok': 'UNAVAILABLE', 'first_outer_result': 'UNAVAILABLE',
-               'first_outer_error': 'UNAVAILABLE'}
+               'first_outer_error': 'UNAVAILABLE', 'first_outer_method': 'UNAVAILABLE',
+               'first_outer_error_shape': 'UNAVAILABLE'}
         for defect in ('MISSING', 'THROWING', 'MALFORMED'):
             with self.subTest(defect=defect):
                 session, wire = self.session()
@@ -718,7 +719,7 @@ class BoundaryTests(unittest.TestCase):
         value.update(seal_path='seal', seal_sha256='a' * 64,
             host_qualification_path='receipt', host_qualification_sha256='b' * 64)
         value['gate']['pins'] = []
-        runtime = SimpleNamespace(RELEASE='df52528334e1391b', RELEASE_ROOT='D:/fixture', RUNTIME_PATHS=())
+        runtime = SimpleNamespace(RELEASE='77a9616d05187aee', RELEASE_ROOT='D:/fixture', RUNTIME_PATHS=())
         seal = dict(base_source_commit='a' * 40, apk=dict(path='fixture-only.apk', sha256='c' * 64))
         result = dict(automatic_emulator_teardown_verified=True, all_three_original_runtime_cases_passed=True,
             supervisor=dict(native_exit_code=3221226505, workflow_exit_code=3221226505,
@@ -729,7 +730,7 @@ class BoundaryTests(unittest.TestCase):
              mock.patch.object(r, '_runtime_gate', return_value=runtime), \
              mock.patch.object(r, 'pins_match', return_value=True), \
              mock.patch.object(r.Path, 'read_bytes', side_effect=[
-                 b'{"release":"df52528334e1391b","version":"0.16.4"}',
+                 b'{"release":"77a9616d05187aee","version":"0.16.5"}',
                  b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
              mock.patch.object(r.Path, 'open', mock.mock_open()), \
              mock.patch.object(r.os, 'environ', dict(WATCHDOG_ID='host-fixture')), \
@@ -1515,7 +1516,7 @@ class R149EOFTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                    'df52528334e1391b/src/llm_coordinator/emulator_adb.py')
+                    '77a9616d05187aee/src/llm_coordinator/emulator_adb.py')
         if hashlib.sha256(path.read_bytes()).hexdigest() != (
                 '3789b278e21892e745b4b89ad06a86b8dc3a740a8ce545c3b6a3762c7d122f0e'):
             raise AssertionError('INSTALLED_CAPTURE_PIN_CHANGED')
@@ -1810,35 +1811,35 @@ class R149EOFTests(unittest.TestCase):
         result = self.execute(session, cleanup=lambda: True)
         self.assertTrue(result['all_three_original_runtime_cases_passed'])
         self.assertEqual(result['launch_transport_profile'],
-            'COORDINATOR_0_16_4_READER_DIAGNOSTICS_37_2_12_EOF_V1')
+            'COORDINATOR_0_16_5_READER_DIAGNOSTICS_37_2_12_EOF_V1')
 
     test_delivered_active_release_reaches_cli_without_old_version_block = (
         BoundaryTests.test_cli_preserves_sdk_shutdown_failure_even_when_original_oracle_passes)
 
-    def test_current_live_admission_accepts_delivered_release_and_rejects_old_delivery(self):
+    def test_current_live_admission_accepts_active_release_and_rejects_old_delivery(self):
         current = record()
-        current['gate'].update(release='df52528334e1391b', version='0.16.4')
+        current['gate'].update(release='77a9616d05187aee', version='0.16.5')
         try:
             self.assertIsNone(r.validate_live_session(current, 'host-fixture'))
         except ValueError:
-            self.fail('DELIVERED_EOF_RELEASE_NOT_ADMITTED')
+            self.fail('ACTIVE_RELEASE_NOT_ADMITTED')
         old = record()
-        old['gate'].update(release='e501a86cc7460fa2', version='0.16.0')
+        old['gate'].update(release='df52528334e1391b', version='0.16.4')
         with self.assertRaises(ValueError): r.validate_live_session(old, 'host-fixture')
-        self.assertTrue(all('df52528334e1391b' in path for path in g.RUNTIME_PATHS[1:]))
+        self.assertTrue(all('77a9616d05187aee' in path for path in g.RUNTIME_PATHS[1:]))
 
-    def test_r162_current_admission_accepts_exact_0_16_4_and_rejects_prior_or_mixed_pairs(self):
+    def test_r162_current_admission_accepts_exact_0_16_5_and_rejects_prior_or_mixed_pairs(self):
         current = record()
-        current['gate'].update(release='df52528334e1391b', version='0.16.4')
+        current['gate'].update(release='77a9616d05187aee', version='0.16.5')
         try:
             self.assertIsNone(r.validate_live_session(current, 'host-fixture'))
         except ValueError:
-            self.fail('R162_CURRENT_RELEASE_NOT_ADMITTED')
+            self.fail('R165_CURRENT_RELEASE_NOT_ADMITTED')
         for release, version in (
                 ('a0eb32e6e700bb9e', '0.16.3'), ('a84522cf993339ea', '0.16.2'),
                 ('5fc7390b4f9b73d3', '0.16.1'), ('e501a86cc7460fa2', '0.16.0'),
-                ('df52528334e1391b', '0.16.3'), ('a0eb32e6e700bb9e', '0.16.4'),
-                ('a84522cf993339ea', '0.16.4'), ('df52528334e1391b', '0.16.2')):
+                ('df52528334e1391b', '0.16.4'), ('77a9616d05187aee', '0.16.4'),
+                ('a0eb32e6e700bb9e', '0.16.5'), ('a84522cf993339ea', '0.16.5')):
             with self.subTest(release=release, version=version):
                 rejected = record()
                 rejected['gate'].update(release=release, version=version)
@@ -1846,7 +1847,7 @@ class R149EOFTests(unittest.TestCase):
                     r.validate_live_session(rejected, 'host-fixture')
         self.assertEqual(len(g.RUNTIME_PATHS), 14)
         self.assertEqual(len(set(g.RUNTIME_PATHS)), 14)
-        self.assertTrue(all('df52528334e1391b' in path for path in g.RUNTIME_PATHS[1:]))
+        self.assertTrue(all('77a9616d05187aee' in path for path in g.RUNTIME_PATHS[1:]))
 
 
 class R150VMExitTests(unittest.TestCase):
@@ -1864,7 +1865,7 @@ class R150VMExitTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                    'df52528334e1391b/src/llm_coordinator/emulator_adb.py')
+                    '77a9616d05187aee/src/llm_coordinator/emulator_adb.py')
         if hashlib.sha256(path.read_bytes()).hexdigest() != (
                 '3789b278e21892e745b4b89ad06a86b8dc3a740a8ce545c3b6a3762c7d122f0e'):
             raise AssertionError('INSTALLED_CAPTURE_PIN_CHANGED')
@@ -2177,7 +2178,8 @@ class TransportTests(unittest.TestCase):
             'event_source_request_admission_sequence': None,
             'event_source_failure_observation_sequence': None,
                'first_outer_ok': 'UNAVAILABLE', 'first_outer_result': 'UNAVAILABLE',
-               'first_outer_error': 'UNAVAILABLE'})
+               'first_outer_error': 'UNAVAILABLE', 'first_outer_method': 'UNAVAILABLE',
+               'first_outer_error_shape': 'UNAVAILABLE'})
         self.assertEqual(len(writes), 1)
         process.wait(.1)
         for reader in transport._readers:
@@ -2187,7 +2189,7 @@ class TransportTests(unittest.TestCase):
 class R152FifoNoticeTests(unittest.TestCase):
     """Installed FIFO queue notices are diagnostic-only, never RPC authority."""
     queue_source = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                        'df52528334e1391b/engines/agent_toolbelt_gradle_build_gate/queue.py')
+                        '77a9616d05187aee/engines/agent_toolbelt_gradle_build_gate/queue.py')
 
     @classmethod
     def setUpClass(cls):
@@ -2326,6 +2328,105 @@ class R156CompletionTests(unittest.TestCase):
     def reply(value):
         return dict(id=value['id'], ok=True, result=dict(state='running'))
 
+    def test_r165_real_transport_projects_method_and_bounded_rename_shape_without_retaining_private_values(self):
+        token = 'R165_PRIVATE_SENTINEL'
+        source = 'C:\\' + token + '\\' + '0' * 32 + '.pending'
+        target = 'C:\\' + token + '\\activity.json'
+        journal = '[WinError 5] Access is denied: ' + repr(source) + ' -> ' + repr(target)
+        cases = (
+            ('emulator.adb.start', journal, 'ADB_START', 'WIN32_5_JOURNAL_REPLACE_SHAPE'),
+            ('emulator.adb.read', journal, 'ADB_READ', 'WIN32_5_JOURNAL_REPLACE_SHAPE'),
+            ('emulator.adb.status', journal, 'ADB_STATUS', 'WIN32_5_JOURNAL_REPLACE_SHAPE'),
+            ('emulator.adb.cancel', journal, 'ADB_CANCEL', 'WIN32_5_JOURNAL_REPLACE_SHAPE'),
+            ('emulator.adb.close', journal, 'ADB_CLOSE', 'WIN32_5_JOURNAL_REPLACE_SHAPE'),
+            ('emulator.output.read', journal, 'SDK_OUTPUT_READ', 'WIN32_5_JOURNAL_REPLACE_SHAPE'),
+            ('emulator.status', journal, 'OTHER', 'WIN32_5_JOURNAL_REPLACE_SHAPE'),
+            ('other.method', journal, 'OTHER', 'WIN32_5_JOURNAL_REPLACE_SHAPE'),
+            ('emulator.adb.status', '[WinError 5] denied: ' + repr(source) + ' -> ' + repr('D:\\elsewhere\\activity.json'),
+             'ADB_STATUS', 'WIN32_5_OTHER_RENAME_PAIR'),
+            ('emulator.adb.status', '[WinError 5] denied: malformed', 'ADB_STATUS',
+             'WIN32_5_NO_RECOGNIZED_RENAME_PAIR'),
+            ('emulator.adb.status', '[WinError 5] denied: ' + repr(source) + ' -> ' + repr(target) + '\n',
+             'ADB_STATUS', 'WIN32_5_NO_RECOGNIZED_RENAME_PAIR'),
+            ('emulator.adb.status', '[WinError 5] ' + 'x' * 4097, 'ADB_STATUS',
+             'WIN32_5_NO_RECOGNIZED_RENAME_PAIR'),
+            ('emulator.adb.status', '[WinError 32] denied', 'ADB_STATUS', 'NOT_WIN32_5'),
+            ('emulator.adb.status', '[WinError 5] denied: ' + json.dumps(
+                'C:\\folder space\\λ -> segment\\' + '2' * 32 + '.pending') + ' -> ' + json.dumps(
+                'C:\\folder space\\λ -> segment\\ACTIVITY.JSON'),
+             'ADB_STATUS', 'WIN32_5_JOURNAL_REPLACE_SHAPE'),
+            ('emulator.adb.status', '[WinError 5] denied: ' + json.dumps(
+                'C:\\quoted\\"parent"\\' + '3' * 32 + '.pending') + ' -> ' + json.dumps(
+                'C:\\quoted\\"parent"\\activity.json'),
+             'ADB_STATUS', 'WIN32_5_JOURNAL_REPLACE_SHAPE'),
+            ('emulator.adb.status', '[WinError 5] denied: ' + repr(source) + ' -> ' + repr(
+                'C:\\' + token + '\\renamed.json'), 'ADB_STATUS', 'WIN32_5_OTHER_RENAME_PAIR'),
+            ('emulator.adb.status', '[WinError 5] denied: ' + repr(source) + ' -> ' + repr(target)
+             + ' and ' + repr(source) + ' -> ' + repr(target), 'ADB_STATUS',
+             'WIN32_5_NO_RECOGNIZED_RENAME_PAIR'),
+            ('emulator.adb.status', '[WinError 5] denied: ' + repr(source) + ' -> ' + repr(target)
+             + ': ' + repr(source) + ' -> ' + repr(target), 'ADB_STATUS',
+             'WIN32_5_NO_RECOGNIZED_RENAME_PAIR'),
+            ('emulator.adb.status', '[WinError 5] denied: ' + repr(source) + ' -> ' + repr(target)
+             + ' / ' + repr(source) + ' -> ' + repr(target), 'ADB_STATUS',
+             'WIN32_5_NO_RECOGNIZED_RENAME_PAIR'),
+        )
+        for method, error, expected_method, expected_shape in cases:
+            with self.subTest(method=method, shape=expected_shape):
+                transport, _, _, _ = self.transport(lambda value: dict(
+                    id=value['id'], ok=False, result={}, error=error))
+                with self.assertRaises(ValueError):
+                    transport.request(method, {}, .2)
+                snapshot = transport.diagnostic_snapshot()
+                self.assertEqual((snapshot.get('first_outer_method'), snapshot.get('first_outer_error_shape')),
+                                 (expected_method, expected_shape))
+                self.assertNotIn(token, json.dumps(snapshot))
+        for value in (None, 5):
+            transport, _, _, _ = self.transport(lambda request: dict(
+                id=request['id'], ok=False, result={}, error=value))
+            with self.assertRaises(ValueError):
+                transport.request('emulator.status', {}, .2)
+            self.assertEqual(transport.diagnostic_snapshot().get('first_outer_error_shape'), 'NOT_WIN32_5')
+        self.assertEqual(g._classify_first_outer_error_shape(
+            type('StrAlias', (str,), {})('[WinError 5] denied')), 'NOT_WIN32_5')
+
+    def test_r165_success_never_invokes_new_classifiers_and_classifier_throw_stays_rejected(self):
+        transport, _, _, _ = self.transport(self.reply)
+        with mock.patch.object(g, '_classify_first_outer_reply', side_effect=AssertionError('R165_PRIVATE')), \
+             mock.patch.object(g, '_first_outer_method', side_effect=AssertionError('R165_PRIVATE')), \
+             mock.patch.object(g, '_classify_first_outer_error_shape', side_effect=AssertionError('R165_PRIVATE'), create=True):
+            self.assertEqual(transport.request('emulator.status', {}, .2), dict(state='running'))
+        self.assertEqual(transport.diagnostic_snapshot().get('first_outer_method'), 'UNAVAILABLE')
+        for classifier in ('_first_outer_method', '_classify_first_outer_error_shape'):
+            with self.subTest(classifier=classifier):
+                transport, writes, _, _ = self.transport(lambda value: dict(id=value['id'], ok=False, result={}))
+                with mock.patch.object(g, classifier, side_effect=RuntimeError('R165_PRIVATE'), create=True):
+                    with self.assertRaises(ValueError):
+                        transport.request('emulator.adb.status', {}, .2)
+                snapshot = transport.diagnostic_snapshot()
+                self.assertEqual((snapshot['first_role'], snapshot['first_phase']),
+                                 ('OTHER', 'OUTER_REPLY_VALIDATION'))
+                self.assertEqual((snapshot['first_outer_method'], snapshot['first_outer_error_shape']),
+                                 ('UNAVAILABLE', 'UNAVAILABLE'))
+                self.assertEqual(len(writes), 1)
+                self.assertNotIn('R165_PRIVATE', json.dumps(snapshot))
+
+    def test_r165_current_admission_accepts_only_exact_0_16_5_pair(self):
+        current = record()
+        current['gate'].update(release='77a9616d05187aee', version='0.16.5')
+        try:
+            accepted = r.validate_live_session(current, 'host-fixture')
+        except ValueError:
+            accepted = 'REJECTED'
+        self.assertIsNone(accepted)
+        for release, version in (('df52528334e1391b', '0.16.4'),
+                                 ('77a9616d05187aee', '0.16.4'),
+                                 ('df52528334e1391b', '0.16.5')):
+            rejected = record()
+            rejected['gate'].update(release=release, version=version)
+            with self.subTest(release=release, version=version), self.assertRaises(ValueError):
+                r.validate_live_session(rejected, 'host-fixture')
+
     def test_r160_matching_outer_reply_classifies_only_detached_fixed_scalars(self):
         cases = (
             ({}, 'MISSING', 'MISSING', 'MISSING'),
@@ -2396,6 +2497,8 @@ class R156CompletionTests(unittest.TestCase):
         second = transport.diagnostic_snapshot()
         self.assertEqual((second['first_outer_ok'], second['first_outer_result'], second['first_outer_error']),
                          ('UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE'))
+        self.assertEqual((second['first_outer_method'], second['first_outer_error_shape']),
+                         ('UNAVAILABLE', 'UNAVAILABLE'))
         first['first_outer_ok'] = 'OTHER'
         self.assertEqual(transport.diagnostic_snapshot(), second)
 
@@ -2413,6 +2516,8 @@ class R156CompletionTests(unittest.TestCase):
         expected_sequences = (first['request_admission_sequence'], first['failure_observation_sequence'])
         self.assertEqual((first['first_outer_ok'], first['first_outer_result'], first['first_outer_error']),
                          expected_outer)
+        self.assertEqual((first['first_outer_method'], first['first_outer_error_shape']),
+                         ('SDK_OUTPUT_READ', 'WIN32_5_NO_RECOGNIZED_RENAME_PAIR'))
         first['first_outer_ok'] = 'OTHER'
         with self.assertRaises(ValueError):
             transport.request('emulator.output.read', {}, .2)
@@ -2420,6 +2525,8 @@ class R156CompletionTests(unittest.TestCase):
         retained = transport.diagnostic_snapshot()
         self.assertEqual((retained['first_outer_ok'], retained['first_outer_result'], retained['first_outer_error']),
                          expected_outer)
+        self.assertEqual((retained['first_outer_method'], retained['first_outer_error_shape']),
+                         ('SDK_OUTPUT_READ', 'WIN32_5_NO_RECOGNIZED_RENAME_PAIR'))
         self.assertEqual((retained['request_admission_sequence'], retained['failure_observation_sequence']),
                          expected_sequences)
         self.assertEqual(retained['source_branch'], 'SOURCE_PUMP_EXCEPTION')
@@ -2524,7 +2631,8 @@ class R156CompletionTests(unittest.TestCase):
                 'event_source_request_admission_sequence': None,
                 'event_source_failure_observation_sequence': None,
                'first_outer_ok': 'UNAVAILABLE', 'first_outer_result': 'UNAVAILABLE',
-               'first_outer_error': 'UNAVAILABLE'}
+               'first_outer_error': 'UNAVAILABLE', 'first_outer_method': 'UNAVAILABLE',
+               'first_outer_error_shape': 'UNAVAILABLE'}
             if diagnostic == 'WORKING':
                 wire.record_local_failure = mock.Mock()
                 wire.diagnostic_snapshot = mock.Mock(return_value=valid)
