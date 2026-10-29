@@ -25,9 +25,10 @@ SCRATCH = 'D:/Temp/navic-task407-gated-runtime/r146'
 MODULES = ('tools_cli.py', 'workflows.py', 'native_process.py', 'android_emulator.py',
            'emulator_adb.py', 'android_cli.py', 'android_cli_worker.py', 'emulator_state.py',
            'workflow_pipe.py', 'cua_mcp.py')
+QUEUE_SOURCE = RELEASE_ROOT + '/engines/agent_toolbelt_gradle_build_gate/queue.py'
 RUNTIME_PATHS = (HELPER, *(RELEASE_ROOT + '/src/llm_coordinator/' + name for name in MODULES),
                  RELEASE_ROOT + '/integration/android-cli.json',
-                 RELEASE_ROOT + '/integration/emulator-components.json')
+                 RELEASE_ROOT + '/integration/emulator-components.json', QUEUE_SOURCE)
 PROFILE = 'reader-diagnostics'
 PROOF = 'GATE_NATIVE_TREE_LEASE_HOST_STORAGE_V1'
 
@@ -123,13 +124,45 @@ class JsonLineTransport:
                 self._condition.notify_all()
             self.process.stdout.close()
 
+    @staticmethod
+    def _queued_notice(raw):
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise blocked()
+                result[key] = value
+            return result
+        try:
+            value = json.loads(raw, object_pairs_hook=unique)
+            return (type(value) is dict and set(value) == {'state', 'ticket', 'ticket_id'}
+                    and value['state'] == 'queued' and type(value['ticket']) is int
+                    and value['ticket'] > 0 and type(value['ticket_id']) is str
+                    and re.fullmatch('[0-9a-f]{32}', value['ticket_id']) is not None)
+        except BaseException:
+            return False
+
     def _drain_errors(self):
         try:
-            # Never retain/forward helper diagnostics or Python tracebacks.
-            while self.process.stderr.read(65536):
-                with self._condition:
-                    self._failed = True
-                    self._condition.notify_all()
+            # Only the installed FIFO queue's exact diagnostic schema is nonfatal.
+            # All bytes remain bounded and in RAM; queued never becomes authority.
+            partial = bytearray()
+            while True:
+                fragment = self.process.stderr.read(4096)
+                if not fragment:
+                    if partial:
+                        raise blocked()
+                    break
+                if type(fragment) is not bytes:
+                    raise blocked()
+                partial.extend(fragment)
+                while b'\n' in partial:
+                    end = partial.index(b'\n')
+                    if end > 4096 or not self._queued_notice(bytes(partial[:end])):
+                        raise blocked()
+                    del partial[:end + 1]
+                if len(partial) > 4096:
+                    raise blocked()
         except BaseException:
             with self._condition:
                 self._failed = True

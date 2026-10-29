@@ -1,5 +1,6 @@
 """Host-only gate protocol tests. All native I/O is injected; raw results stay RAM-only."""
 import ast
+import contextlib
 import base64
 import copy
 import dataclasses
@@ -2106,6 +2107,105 @@ class TransportTests(unittest.TestCase):
         process.wait(.1)  # Exact injected host fixture only, no gate operation.
         for reader in transport._readers:
             reader.join(.5)
+
+
+class R152FifoNoticeTests(unittest.TestCase):
+    """Installed FIFO queue notices are diagnostic-only, never RPC authority."""
+    queue_source = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
+                        '5fc7390b4f9b73d3/engines/agent_toolbelt_gradle_build_gate/queue.py')
+
+    @classmethod
+    def setUpClass(cls):
+        helper = load('r152_installed_gate_helper',
+            'C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py')
+        helper.bootstrap()
+        import llm_coordinator  # Initializes the installed pinned engine search path.
+        import agent_toolbelt_gradle_build_gate.queue as queue
+        cls.queue = queue
+        cls.assertEqual = unittest.TestCase().assertEqual
+        cls.assertEqual(hashlib.sha256(cls.queue_source.read_bytes()).hexdigest(),
+                        '94a81e5320b5160ec34aeff3058eb8da67ee8355f43f14db0cfa61eccc163451')
+
+    def installed_notice(self):
+        state = dict(schema=1, next_number=1, tickets=[])
+        queue = self.queue.TicketQueue.__new__(self.queue.TicketQueue)
+        queue.native = SimpleNamespace(process=lambda pid: (1, 1), event=lambda name: 1,
+            signal=lambda handle: None, k=SimpleNamespace(CloseHandle=lambda handle: None))
+        queue.root = Path('E:/Temp/navic-task407-fifo-r152/in-memory-only-never-created')
+        queue.namespace = 'R152FixtureInMemoryOnly'
+        queue.ticket = queue.event = None
+        queue.on_registered = None
+        queue.save = lambda value: None
+        queue.prune = lambda value: False
+        captured = io.StringIO()
+        with mock.patch.object(self.queue, 'NamedMutex', lambda name: contextlib.nullcontext()), \
+                mock.patch.object(self.queue, 'read_state', lambda root: state), \
+                contextlib.redirect_stderr(captured):
+            queue.register()
+        return captured.getvalue().encode('utf-8')
+
+    @staticmethod
+    def transport(stderr, frames=()):
+        transport = g.JsonLineTransport.__new__(g.JsonLineTransport)
+        transport.process = SimpleNamespace(stderr=stderr)
+        transport._condition = threading.Condition()
+        transport._frames = list(frames)
+        transport._failed = transport._eof = transport.uncertain = False
+        return transport
+
+    def test_actual_installed_queued_notices_preserve_pending_then_acquired_stdout(self):
+        class ChunkedReader:
+            def __init__(self, chunks):
+                self.chunks = list(chunks)
+            def read(self, cap):
+                return self.chunks.pop(0) if self.chunks else b''
+            def close(self):
+                pass
+        first, second = self.installed_notice(), self.installed_notice()
+        self.assertEqual(set(json.loads(first)), {'state', 'ticket', 'ticket_id'})
+        self.assertEqual(set(json.loads(second)), {'state', 'ticket', 'ticket_id'})
+        transport = self.transport(ChunkedReader((first[:7], first[7:] + second[:3], second[3:])))
+        transport._drain_errors()
+        self.assertFalse(transport._failed)
+        self.assertEqual(transport._frames, [])
+        self.assertFalse(transport.uncertain)
+        acquired = dict(state='acquired', ticket_id='fixture-only')
+        transport._frames.append(acquired)
+        self.assertIs(transport.acquire(), acquired)
+        after_acquired = self.transport(ChunkedReader((first, second)), (acquired,))
+        self.assertIs(after_acquired.acquire(), acquired)
+        after_acquired._drain_errors()
+        self.assertFalse(after_acquired._failed)
+        self.assertFalse(after_acquired.uncertain)
+
+    def test_only_exact_complete_queued_lines_are_nonfatal(self):
+        valid = b'{"state":"queued","ticket":1,"ticket_id":"0123456789abcdef0123456789abcdef"}\n'
+        invalid = (
+            b'{"state":"queued","ticket":true,"ticket_id":"0123456789abcdef0123456789abcdef"}\n',
+            b'{"state":"queued","ticket":1,"ticket_id":"0123456789abcdef0123456789abcdef","extra":0}\n',
+            b'{"state":"queued","state":"queued","ticket":1,"ticket_id":"0123456789abcdef0123456789abcdef"}\n',
+            b'{"state":"queued","ticket":1,"ticket_id":"0123456789ABCDEF0123456789ABCDEF"}\n',
+            valid[:-1], b'x' * 4097 + b'\n')
+        transport = self.transport(io.BytesIO(valid))
+        transport._drain_errors()
+        self.assertFalse(transport._failed)
+        for raw in invalid:
+            with self.subTest(raw_size=len(raw)):
+                transport = self.transport(io.BytesIO(raw))
+                transport._drain_errors()
+                self.assertTrue(transport._failed)
+        class BrokenReader:
+            def read(self, cap):
+                raise OSError('fixture read failure')
+            def close(self):
+                pass
+        transport = self.transport(BrokenReader())
+        transport._drain_errors()
+        self.assertTrue(transport._failed)
+
+    def test_runtime_paths_pin_actual_installed_queue_producer(self):
+        self.assertIn(str(self.queue_source).replace('\\', '/'),
+                      tuple(path.replace('\\', '/') for path in g.RUNTIME_PATHS))
 
 
 def closed_run(files, evidence=None, only=None):
