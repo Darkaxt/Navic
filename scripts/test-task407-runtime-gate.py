@@ -62,7 +62,7 @@ def record():
         user_session_authorized=True, no_snapshot_save=True, preserve_app_data=True, clear_logcat=False,
         watchdog_id='host-fixture', apk_path='fixture-only.apk',
         gate=dict(helper='C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py',
-            release='5fc7390b4f9b73d3', version='0.16.1', emulator_profile='reader-diagnostics',
+            release='a84522cf993339ea', version='0.16.2', emulator_profile='reader-diagnostics',
             component_version='37.2.12', scratch_root='D:/Temp/navic-task407-gated-runtime/r146',
             owner_task='Validate original reader runtime cases', thread_name='Navic',
             expected_owner=dict(system='claude', session_sha256=hashlib.sha256(b'host-chat').hexdigest(), thread_name='Navic'),
@@ -716,7 +716,7 @@ class BoundaryTests(unittest.TestCase):
         value.update(seal_path='seal', seal_sha256='a' * 64,
             host_qualification_path='receipt', host_qualification_sha256='b' * 64)
         value['gate']['pins'] = []
-        runtime = SimpleNamespace(RELEASE='5fc7390b4f9b73d3', RELEASE_ROOT='D:/fixture', RUNTIME_PATHS=())
+        runtime = SimpleNamespace(RELEASE='a84522cf993339ea', RELEASE_ROOT='D:/fixture', RUNTIME_PATHS=())
         seal = dict(base_source_commit='a' * 40, apk=dict(path='fixture-only.apk', sha256='c' * 64))
         result = dict(automatic_emulator_teardown_verified=True, all_three_original_runtime_cases_passed=True,
             supervisor=dict(native_exit_code=3221226505, workflow_exit_code=3221226505,
@@ -727,7 +727,7 @@ class BoundaryTests(unittest.TestCase):
              mock.patch.object(r, '_runtime_gate', return_value=runtime), \
              mock.patch.object(r, 'pins_match', return_value=True), \
              mock.patch.object(r.Path, 'read_bytes', side_effect=[
-                 b'{"release":"5fc7390b4f9b73d3","version":"0.16.1"}',
+                 b'{"release":"a84522cf993339ea","version":"0.16.2"}',
                  b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
              mock.patch.object(r.Path, 'open', mock.mock_open()), \
              mock.patch.object(r.os, 'environ', dict(WATCHDOG_ID='host-fixture')), \
@@ -1513,7 +1513,7 @@ class R149EOFTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                    '5fc7390b4f9b73d3/src/llm_coordinator/emulator_adb.py')
+                    'a84522cf993339ea/src/llm_coordinator/emulator_adb.py')
         if hashlib.sha256(path.read_bytes()).hexdigest() != (
                 '3789b278e21892e745b4b89ad06a86b8dc3a740a8ce545c3b6a3762c7d122f0e'):
             raise AssertionError('INSTALLED_CAPTURE_PIN_CHANGED')
@@ -1808,14 +1808,14 @@ class R149EOFTests(unittest.TestCase):
         result = self.execute(session, cleanup=lambda: True)
         self.assertTrue(result['all_three_original_runtime_cases_passed'])
         self.assertEqual(result['launch_transport_profile'],
-            'COORDINATOR_0_16_1_READER_DIAGNOSTICS_37_2_12_EOF_V1')
+            'COORDINATOR_0_16_2_READER_DIAGNOSTICS_37_2_12_EOF_V1')
 
     test_delivered_active_release_reaches_cli_without_old_version_block = (
         BoundaryTests.test_cli_preserves_sdk_shutdown_failure_even_when_original_oracle_passes)
 
     def test_current_live_admission_accepts_delivered_release_and_rejects_old_delivery(self):
         current = record()
-        current['gate'].update(release='5fc7390b4f9b73d3', version='0.16.1')
+        current['gate'].update(release='a84522cf993339ea', version='0.16.2')
         try:
             self.assertIsNone(r.validate_live_session(current, 'host-fixture'))
         except ValueError:
@@ -1823,7 +1823,26 @@ class R149EOFTests(unittest.TestCase):
         old = record()
         old['gate'].update(release='e501a86cc7460fa2', version='0.16.0')
         with self.assertRaises(ValueError): r.validate_live_session(old, 'host-fixture')
-        self.assertTrue(all('5fc7390b4f9b73d3' in path for path in g.RUNTIME_PATHS[1:]))
+        self.assertTrue(all('a84522cf993339ea' in path for path in g.RUNTIME_PATHS[1:]))
+
+    def test_r158_current_admission_rejects_prior_and_mixed_release_pairs(self):
+        current = record()
+        current['gate'].update(release='a84522cf993339ea', version='0.16.2')
+        try:
+            self.assertIsNone(r.validate_live_session(current, 'host-fixture'))
+        except ValueError:
+            self.fail('R158_CURRENT_RELEASE_NOT_ADMITTED')
+        for release, version in (
+                ('5fc7390b4f9b73d3', '0.16.1'), ('e501a86cc7460fa2', '0.16.0'),
+                ('a84522cf993339ea', '0.16.1'), ('5fc7390b4f9b73d3', '0.16.2')):
+            with self.subTest(release=release, version=version):
+                rejected = record()
+                rejected['gate'].update(release=release, version=version)
+                with self.assertRaises(ValueError):
+                    r.validate_live_session(rejected, 'host-fixture')
+        self.assertEqual(len(g.RUNTIME_PATHS), 14)
+        self.assertEqual(len(set(g.RUNTIME_PATHS)), 14)
+        self.assertTrue(all('a84522cf993339ea' in path for path in g.RUNTIME_PATHS[1:]))
 
 
 class R150VMExitTests(unittest.TestCase):
@@ -1841,7 +1860,7 @@ class R150VMExitTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                    '5fc7390b4f9b73d3/src/llm_coordinator/emulator_adb.py')
+                    'a84522cf993339ea/src/llm_coordinator/emulator_adb.py')
         if hashlib.sha256(path.read_bytes()).hexdigest() != (
                 '3789b278e21892e745b4b89ad06a86b8dc3a740a8ce545c3b6a3762c7d122f0e'):
             raise AssertionError('INSTALLED_CAPTURE_PIN_CHANGED')
@@ -2162,7 +2181,7 @@ class TransportTests(unittest.TestCase):
 class R152FifoNoticeTests(unittest.TestCase):
     """Installed FIFO queue notices are diagnostic-only, never RPC authority."""
     queue_source = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                        '5fc7390b4f9b73d3/engines/agent_toolbelt_gradle_build_gate/queue.py')
+                        'a84522cf993339ea/engines/agent_toolbelt_gradle_build_gate/queue.py')
 
     @classmethod
     def setUpClass(cls):

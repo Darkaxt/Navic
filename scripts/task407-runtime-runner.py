@@ -888,7 +888,7 @@ def validate_live_session(record, watchdog_id):
         raise ValueError('SESSION_AUTHORITY_UNCONFIRMED')
     gate = record.get('gate')
     runtime = _runtime_gate()
-    fields = {'helper': runtime.HELPER, 'release': runtime.RELEASE, 'version': '0.16.1',
+    fields = {'helper': runtime.HELPER, 'release': runtime.RELEASE, 'version': '0.16.2',
         'emulator_profile': 'reader-diagnostics', 'component_version': '37.2.12',
         'scratch_root': runtime.SCRATCH, 'owner_task': 'Validate original reader runtime cases',
         'thread_name': 'Navic'}
@@ -1349,7 +1349,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
             caps=caps, launch_started=launch_started, pre_teardown_observation=observe_pre_teardown,
             **guardian_options)
         if gated:
-            result.update(launch_transport_profile='COORDINATOR_0_16_1_READER_DIAGNOSTICS_37_2_12_EOF_V1',
+            result.update(launch_transport_profile='COORDINATOR_0_16_2_READER_DIAGNOSTICS_37_2_12_EOF_V1',
                 launch_anchor_profile='ACQUIRED_NATIVE_CREATION_FILETIME_TO_MONOTONIC_V1',
                 environment_equivalence='CHANGED_HOST_PROFILE_NOT_OLD_ENVIRONMENT_QUALIFICATION',
                 phase_trace_scope='HOST_CALLER_ENVELOPES_INCLUDE_GATE_QUEUE_NOT_VM_EXECUTION',
@@ -1651,7 +1651,7 @@ def main(argv=None):
         active_path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/active.json')
         active_bytes = active_path.read_bytes()
         active = json.loads(active_bytes)
-        if active.get('release') != runtime.RELEASE or active.get('version') != '0.16.1':
+        if active.get('release') != runtime.RELEASE or active.get('version') != '0.16.2':
             raise ValueError('GATE_ACTIVE_RELEASE_CHANGED')
         component = json.loads((Path(runtime.RELEASE_ROOT) / 'integration/emulator-components.json').read_bytes())
         selected = component['profiles']['reader-diagnostics']
