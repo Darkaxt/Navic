@@ -50,8 +50,9 @@ class Observer:
         self.failed_count = 0
         self.events = []
 
-    def failed(self):
+    def failed(self, reason='SOURCE_SIGNAL'):
         self.failed_count += 1
+        self.failure_reasons = getattr(self, 'failure_reasons', []) + [reason]
 
     def am_anr(self, tag, payload, **context):
         self.events.append((tag, payload, context))
@@ -130,6 +131,56 @@ class CallerTests(unittest.TestCase):
                                   epoch='host-fixture', after_ns=1, is_own=lambda *args: False)
         self.assertEqual(observer.failed_count, 0)
         self.assertEqual(observer.events, [])
+
+    def test_r154_consume_event_preserves_rejections_and_labels_fixed_first_route(self):
+        consume = self.api('consume_event')
+        cases = (
+            (b'\xff', True, 'EVENT_DECODE_REJECTED'),
+            (b'not an event', True, 'EVENT_FRAME_REJECTED'),
+            (b'1760000000.123456789 1000 1001 I am_anr: [0,123,x,0,private]',
+             True, 'EVENT_ASSIGNMENT_REJECTED'),
+        )
+        for line, own, route in cases:
+            with self.subTest(route=route):
+                observer = Observer()
+                consume(observer, line, epoch='host-fixture',
+                        after_ns=1760000000123456789, is_own=lambda *args, own=own: own)
+                self.assertEqual((observer.failed_count, observer.events, observer.failure_reasons),
+                                 (1, [], [route]))
+        observer = Observer()
+        consume(observer,
+                b'1760000000.123456790 1000 1001 I am_anr: [0,123,own,0,private]',
+                epoch='host-fixture', after_ns=1760000000123456789, is_own=lambda *args: True)
+        self.assertEqual((observer.failed_count, observer.events), (0, [
+            ('am_anr', '[0,123,own,0,private]',
+             {'timestamp_ns': 1760000000123456790, 'epoch': 'host-fixture'})]))
+
+    def test_r154_terminal_snapshot_rejects_equality_aliases_outside_closed_types(self):
+        validate = self.api('_valid_terminal_observer_diagnostics')
+        valid = {'sample_state': 'SAMPLED', 'first_route': 'NOT_OBSERVED',
+                 'armed': True, 'unavailable': False, 'own_anr': False,
+                 'source_present': True, 'source_is_event_source': True,
+                 'source_done': False, 'source_feed_lost': False,
+                 'source_cancelled': False, 'source_failure': 'NONE'}
+        self.assertTrue(validate(valid))
+        class EqualityAlias:
+            def __eq__(self, other):
+                return True
+        class StringAlias(str):
+            pass
+        for name in ('source_is_event_source', 'source_done', 'source_feed_lost', 'source_cancelled'):
+            for value in (0, 1, 0.0, 1.0, EqualityAlias(), StringAlias('UNAVAILABLE')):
+                with self.subTest(field=name, value_type=type(value).__name__):
+                    self.assertFalse(validate(dict(valid, **{name: value})))
+            for value in (True, False, None, 'UNAVAILABLE'):
+                self.assertTrue(validate(dict(valid, **{name: value})))
+        for name in ('sample_state', 'first_route', 'source_failure'):
+            for value in (EqualityAlias(), StringAlias(valid[name])):
+                with self.subTest(field=name, value_type=type(value).__name__):
+                    self.assertFalse(validate(dict(valid, **{name: value})))
+        aliased_key = dict(valid)
+        aliased_key[StringAlias('sample_state')] = aliased_key.pop('sample_state')
+        self.assertFalse(validate(aliased_key))
 
     def test_lifecycle_adapter_has_only_selected_owned_console_operations(self):
         argv = self.api('lifecycle_argv')
@@ -953,6 +1004,94 @@ class PipelineTests(unittest.TestCase):
                          {'initial_session': sample, 'pre_teardown': sample})
         self.assertEqual(probe.call_count, 2)
         self.assertTrue(result['automatic_emulator_teardown_verified'])
+
+    def test_r154_runner_captures_immutable_observer_snapshot_before_teardown(self):
+        def fail_source(device, argv):
+            if argv[3:5] == ['shell', '-T'] and 'am instrument' in argv[5]:
+                device.guardian._observer.source._lose_feed()
+        device = HostDevice(before_reply=fail_source)
+        self.addCleanup(device.cleanup)
+        result = self.execute(device)
+        self.assertEqual(result.get('terminal_observer_diagnostics_profile'),
+                         'TERMINAL_OBSERVER_SOURCE_STATE_V1')
+        snapshot = result.get('terminal_observer_diagnostics')
+        self.assertEqual(snapshot, {
+            'sample_state': 'SAMPLED', 'first_route': 'SOURCE_SIGNAL',
+            'armed': True, 'unavailable': True, 'own_anr': False,
+            'source_present': True, 'source_is_event_source': True,
+            'source_done': False, 'source_feed_lost': True,
+            'source_cancelled': False, 'source_failure': 'FEED_EOF'})
+        self.assertEqual(result['supervisor']['cause'], 'OBSERVER_FAILED')
+        self.assertFalse(result['supervisor']['eligible_for_oracle'])
+        device.guardian._observer.failed('EVENT_ASSIGNMENT_REJECTED')
+        self.assertEqual(result['terminal_observer_diagnostics'], snapshot)
+
+    def test_r154_unavailable_observer_snapshot_does_not_change_terminal_control_plane(self):
+        device = HostDevice()
+        self.addCleanup(device.cleanup)
+        class BrokenObserver(device.real.Observer):
+            def diagnostic_snapshot(self):
+                raise RuntimeError('R154_PRIVATE_CANARY')
+        device.module.Observer = BrokenObserver
+        result = self.execute(device)
+        self.assertEqual(result.get('terminal_observer_diagnostics_profile'),
+                         'TERMINAL_OBSERVER_SOURCE_STATE_V1')
+        self.assertEqual(result.get('terminal_observer_diagnostics'),
+                         {'sample_state': 'SNAPSHOT_GAP', 'first_route': 'UNAVAILABLE',
+                          'armed': None, 'unavailable': None, 'own_anr': None,
+                          'source_present': None, 'source_is_event_source': 'UNAVAILABLE',
+                          'source_done': 'UNAVAILABLE', 'source_feed_lost': 'UNAVAILABLE',
+                          'source_cancelled': 'UNAVAILABLE', 'source_failure': 'UNAVAILABLE'})
+        self.assertEqual(result['supervisor']['cause'], 'NATURAL_COMPLETION')
+        self.assertTrue(result['supervisor']['eligible_for_oracle'])
+        self.assertTrue(result['automatic_emulator_teardown_verified'])
+
+    def test_r154_malformed_snapshots_preserve_runner_gap_cleanup_and_oracle(self):
+        gap = {'sample_state': 'SNAPSHOT_GAP', 'first_route': 'UNAVAILABLE',
+               'armed': None, 'unavailable': None, 'own_anr': None,
+               'source_present': None, 'source_is_event_source': 'UNAVAILABLE',
+               'source_done': 'UNAVAILABLE', 'source_feed_lost': 'UNAVAILABLE',
+               'source_cancelled': 'UNAVAILABLE', 'source_failure': 'UNAVAILABLE'}
+        def fail_source(device, argv):
+            if argv[3:5] == ['shell', '-T'] and 'am instrument' in argv[5]:
+                device.guardian._observer.source._lose_feed()
+        for failed_source in (False, True):
+            before_reply = fail_source if failed_source else None
+            baseline_device = HostDevice(before_reply=before_reply)
+            self.addCleanup(baseline_device.cleanup)
+            baseline = self.execute(baseline_device)
+            self.assertEqual(baseline['supervisor']['cause'],
+                             'OBSERVER_FAILED' if failed_source else 'NATURAL_COMPLETION')
+            for malformed in ('MISSING', 'EXTRA_KEY', 'UNKNOWN_ROUTE', 'NUMERIC_BOOLEAN'):
+                with self.subTest(failed_source=failed_source, malformed=malformed):
+                    device = HostDevice(before_reply=before_reply)
+                    self.addCleanup(device.cleanup)
+                    class MalformedObserver(device.real.Observer):
+                        def diagnostic_snapshot(self):
+                            if malformed == 'MISSING':
+                                return None
+                            snapshot = super().diagnostic_snapshot()
+                            if malformed == 'EXTRA_KEY':
+                                snapshot['R154_PRIVATE_CANARY'] = 'R154_PRIVATE_CANARY'
+                            elif malformed == 'UNKNOWN_ROUTE':
+                                snapshot['first_route'] = 'R154_PRIVATE_CANARY'
+                            else:
+                                snapshot['source_done'] = 0
+                            return snapshot
+                    device.module.Observer = MalformedObserver
+                    result = self.execute(device)
+                    self.assertEqual(result['terminal_observer_diagnostics'], gap)
+                    for name in ('cause', 'eligible_for_oracle', 'shutdown_verified', 'cleanup_failures'):
+                        self.assertEqual(result['supervisor'][name], baseline['supervisor'][name])
+                    for name in ('automatic_emulator_teardown_verified',
+                                 'host_snapshot_residue_cleanup_required',
+                                 'runtime_result_analysis_performed', 'all_three_original_runtime_cases_passed',
+                                 'completed_test_count', 'passed_test_count', 'events', 'terminal_codes'):
+                        self.assertEqual(result.get(name), baseline.get(name))
+                    self.assertTrue(result['automatic_emulator_teardown_verified'])
+                    self.assertFalse(result['supervisor']['cleanup_failures'])
+                    self.assertEqual(device.taken_after_shutdown, baseline_device.taken_after_shutdown)
+                    self.assertNotIn('R154_PRIVATE_CANARY', json.dumps(result))
 
     def test_r139_host_sdk_log_is_sanitized_and_closed_before_install(self):
         callback = []

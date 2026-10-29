@@ -170,6 +170,36 @@ def project_pre_teardown_host(owned, instrumentation):
                                 if instrumentation is not None else None)}
 
 
+def _empty_terminal_observer_diagnostics(state):
+    return {'sample_state': state, 'first_route': 'UNAVAILABLE',
+            'armed': None, 'unavailable': None, 'own_anr': None,
+            'source_present': None, 'source_is_event_source': 'UNAVAILABLE',
+            'source_done': 'UNAVAILABLE', 'source_feed_lost': 'UNAVAILABLE',
+            'source_cancelled': 'UNAVAILABLE', 'source_failure': 'UNAVAILABLE'}
+
+
+def _valid_terminal_observer_diagnostics(value):
+    if (type(value) is not dict or any(type(key) is not str for key in value)
+            or set(value) != set(_empty_terminal_observer_diagnostics('SAMPLED'))):
+        return False
+    if (type(value['sample_state']) is not str or value['sample_state'] != 'SAMPLED'
+            or type(value['first_route']) is not str or value['first_route'] not in (
+                'NOT_OBSERVED', 'SOURCE_SIGNAL', 'EVENT_DECODE_REJECTED',
+                'EVENT_FRAME_REJECTED', 'EVENT_ASSIGNMENT_REJECTED', 'OTHER_UNAVAILABLE')):
+        return False
+    if any(type(value[name]) is not bool for name in ('armed', 'unavailable', 'own_anr', 'source_present')):
+        return False
+    for name in ('source_is_event_source', 'source_done', 'source_feed_lost', 'source_cancelled'):
+        field = value[name]
+        if not (field is None or type(field) is bool or type(field) is str and field == 'UNAVAILABLE'):
+            return False
+    failure = value['source_failure']
+    return failure is None or type(failure) is str and failure in (
+        'NONE', 'OTHER', 'UNAVAILABLE', 'OUTPUT_CAP', 'FEED_EOF', 'STREAM_FAILED',
+        'COMMAND_CAP', 'CHILD_UNCONFIRMED', 'TREE_UNCONFIRMED', 'STREAM_UNCONFIRMED',
+        'CANCELLED', 'VM_EXITED')
+
+
 @dataclass(frozen=True)
 class _PreflightBoundary:
     """Independent observations, not process liveness or a first-cause history.
@@ -232,13 +262,16 @@ def consume_event(observer, line, *, epoch, after_ns, is_own):
     """
     if line == b'--------- beginning of events':
         return
+    stage = 'EVENT_DECODE_REJECTED'
     try:
         text = line.decode('utf-8', errors='strict')
+        stage = 'EVENT_FRAME_REJECTED'
         match = re.fullmatch(r'([1-9][0-9]{0,9})\.([0-9]{9})\s+'
                             r'[1-9][0-9]{0,9}\s+[1-9][0-9]{0,9}\s+'
                             r'I\s+am_anr\s*: (.*)', text, re.DOTALL)
         if match is None:
             raise ValueError()
+        stage = 'EVENT_ASSIGNMENT_REJECTED'
         timestamp = int(match[1]) * 1_000_000_000 + int(match[2])
         payload = match[3]
         if (timestamp <= after_ns or not is_own('am_anr', payload, PACKAGE)
@@ -246,7 +279,7 @@ def consume_event(observer, line, *, epoch, after_ns, is_own):
             raise ValueError()
         observer.am_anr('am_anr', payload, timestamp_ns=timestamp, epoch=epoch)
     except (ValueError, UnicodeError):
-        observer.failed()
+        observer.failed(stage)
 
 
 def lifecycle_argv(adb, action, argument=None):
@@ -1000,6 +1033,9 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
               'failed_wait_host_diagnostics': _empty_failed_wait_host_diagnostic('NOT_REACHED'),
               'pre_teardown_host_diagnostics_profile': 'PRE_TEARDOWN_OWNED_HOST_DIAGNOSTICS_V1',
               'pre_teardown_host_diagnostics': _empty_pre_teardown_host_diagnostic('NOT_REACHED'),
+              'terminal_observer_diagnostics_profile': 'TERMINAL_OBSERVER_SOURCE_STATE_V1',
+              'terminal_observer_diagnostics_scope': 'PRE_TEARDOWN_AFTER_TERMINAL_DECISION',
+              'terminal_observer_diagnostics': _empty_terminal_observer_diagnostics('NOT_REACHED'),
               'host_memory_observations_profile': 'HOST_MEMORY_HEADROOM_V1',
               'host_memory_observations': {'initial_session': {'sample_state': 'UNAVAILABLE'},
                                            'pre_teardown': {'sample_state': 'NOT_REACHED'}},
@@ -1223,6 +1259,14 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
             # instrument/observer/console/tree teardown action. It never retries.
             result['host_memory_observations']['pre_teardown'] = sample_host_memory()
             result['pre_teardown_host_diagnostics'] = _empty_pre_teardown_host_diagnostic('SNAPSHOT_GAP')
+            result['terminal_observer_diagnostics'] = _empty_terminal_observer_diagnostics('SNAPSHOT_GAP')
+            try:
+                snapshot = observer.diagnostic_snapshot()
+                if _valid_terminal_observer_diagnostics(snapshot):
+                    # Detached fixed values preserve this seam against later teardown mutation.
+                    result['terminal_observer_diagnostics'] = dict(snapshot)
+            except BaseException:
+                pass
             try:
                 result['pre_teardown_host_diagnostics'] = project_pre_teardown_host(owned, instrument)
                 if gated:

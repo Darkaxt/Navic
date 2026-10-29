@@ -166,6 +166,16 @@ class OwnedProcess:
         return self._stop_original_tree(self.anchor, timeout)
 
 
+_OBSERVER_FAILURE_ROUTES = frozenset((
+    'SOURCE_SIGNAL', 'EVENT_DECODE_REJECTED', 'EVENT_FRAME_REJECTED',
+    'EVENT_ASSIGNMENT_REJECTED',
+))
+_SOURCE_FAILURES = frozenset((
+    'OUTPUT_CAP', 'FEED_EOF', 'STREAM_FAILED', 'COMMAND_CAP', 'CHILD_UNCONFIRMED',
+    'TREE_UNCONFIRMED', 'STREAM_UNCONFIRMED', 'CANCELLED', 'VM_EXITED',
+))
+
+
 class Observer:
     """UNARMED during preflight; MAIN arms once from an observed guest cursor."""
     def __init__(self, package):
@@ -179,6 +189,7 @@ class Observer:
         self.armed = False
         self.own_anr = False
         self.unavailable = False
+        self._first_failure_route = 'NOT_OBSERVED'
         self.source = None
         self._stopping = False
 
@@ -234,10 +245,70 @@ class Observer:
         if own:
             self._notify()
 
-    def failed(self):
+    @staticmethod
+    def _source_boolean(source, name):
+        if source is None:
+            return None
+        try:
+            value = getattr(source, name)
+            if name in ('done', 'feed_lost'):
+                value = value.is_set()
+            return value if type(value) is bool else 'UNAVAILABLE'
+        except BaseException:
+            return 'UNAVAILABLE'
+
+    @staticmethod
+    def _source_failure(source):
+        if source is None:
+            return None
+        try:
+            value = source.failure
+        except BaseException:
+            return 'UNAVAILABLE'
+        if value is None:
+            return 'NONE'
+        return value if type(value) is str and value in _SOURCE_FAILURES else 'OTHER'
+
+    def diagnostic_snapshot(self):
+        """Fixed non-raw pre-teardown observation, never a guard or stop oracle."""
+        try:
+            with self._lock:
+                source = self.source
+                armed = self.armed if type(self.armed) is bool else None
+                unavailable = self.unavailable if type(self.unavailable) is bool else None
+                own_anr = self.own_anr if type(self.own_anr) is bool else None
+                route = (self._first_failure_route if self._first_failure_route in _OBSERVER_FAILURE_ROUTES
+                         or self._first_failure_route == 'NOT_OBSERVED' else 'OTHER_UNAVAILABLE')
+            try:
+                if source is None:
+                    event_source = None
+                else:
+                    event_source = source.is_event_source
+                    event_source = event_source if type(event_source) is bool else 'UNAVAILABLE'
+            except BaseException:
+                event_source = 'UNAVAILABLE'
+            return {'sample_state': 'SAMPLED', 'first_route': route,
+                    'armed': armed, 'unavailable': unavailable, 'own_anr': own_anr,
+                    'source_present': source is not None, 'source_is_event_source': event_source,
+                    'source_done': self._source_boolean(source, 'done'),
+                    'source_feed_lost': self._source_boolean(source, 'feed_lost'),
+                    'source_cancelled': self._source_boolean(source, 'cancelled'),
+                    'source_failure': self._source_failure(source)}
+        except BaseException:
+            return {'sample_state': 'UNAVAILABLE', 'first_route': 'UNAVAILABLE',
+                    'armed': None, 'unavailable': None, 'own_anr': None,
+                    'source_present': None, 'source_is_event_source': 'UNAVAILABLE',
+                    'source_done': 'UNAVAILABLE', 'source_feed_lost': 'UNAVAILABLE',
+                    'source_cancelled': 'UNAVAILABLE', 'source_failure': 'UNAVAILABLE'}
+
+    def failed(self, reason='SOURCE_SIGNAL'):
         with self._lock:
             if not self._stopping:
                 self.unavailable = True
+                if self._first_failure_route == 'NOT_OBSERVED':
+                    self._first_failure_route = (reason if type(reason) is str
+                                                 and reason in _OBSERVER_FAILURE_ROUTES
+                                                 else 'OTHER_UNAVAILABLE')
         self._notify()
 
     def stop(self, timeout):

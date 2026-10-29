@@ -264,6 +264,78 @@ class SupervisorTests(unittest.TestCase):
         self.assertIn(('disconnect', None), adapter.calls)
         self.assertTrue(report.shutdown_verified)
 
+    def test_r154_observer_snapshot_production_method_reports_fixed_source_state(self):
+        observer = self.observer()
+        snapshot = getattr(observer, 'diagnostic_snapshot', None)
+        self.assertTrue(callable(snapshot), 'Production edit: Observer.diagnostic_snapshot is required')
+        self.assertEqual(snapshot(), {
+            'sample_state': 'SAMPLED', 'first_route': 'NOT_OBSERVED',
+            'armed': True, 'unavailable': False, 'own_anr': False,
+            'source_present': True, 'source_is_event_source': True,
+            'source_done': False, 'source_feed_lost': False,
+            'source_cancelled': False, 'source_failure': 'NONE'})
+        source = observer.source
+        source._finish()
+        self.assertEqual((snapshot()['source_done'], snapshot()['source_failure']), (True, 'NONE'))
+        source.done.clear()
+        source.feed_lost.set()
+        self.assertEqual(snapshot()['source_feed_lost'], True)
+        source.feed_lost.clear()
+        source.cancelled = True
+        self.assertEqual(snapshot()['source_cancelled'], True)
+        source.cancelled = False
+        source.failure = 'VM_EXITED'
+        self.assertEqual(snapshot()['source_failure'], 'VM_EXITED')
+        observer.source = None
+        self.assertEqual((snapshot()['source_present'], snapshot()['source_is_event_source'],
+                          snapshot()['source_done'], snapshot()['source_failure']),
+                         (False, None, None, None))
+
+    def test_r154_observer_first_route_latches_across_stop_and_never_serializes_canary(self):
+        canary = 'R154_PRIVATE_CANARY'
+        source = S.Command.pending()
+        observer = self.observer(source)
+        snapshot = getattr(observer, 'diagnostic_snapshot', None)
+        self.assertTrue(callable(snapshot), 'Production edit: Observer.diagnostic_snapshot must latch first route')
+        failed = getattr(observer, 'failed', None)
+        self.assertTrue(callable(failed), 'Production edit: Observer.failed must retain a diagnostic reason')
+        failed('EVENT_FRAME_REJECTED')
+        failed(canary)
+        observer.stop(.1)
+        snapshot = observer.diagnostic_snapshot()
+        self.assertEqual((snapshot['first_route'], snapshot['unavailable']),
+                         ('EVENT_FRAME_REJECTED', True))
+        self.assertNotIn(canary, json.dumps(snapshot))
+        self.assertEqual(set(snapshot), {
+            'sample_state', 'first_route', 'armed', 'unavailable', 'own_anr',
+            'source_present', 'source_is_event_source', 'source_done',
+            'source_feed_lost', 'source_cancelled', 'source_failure'})
+        self.assertEqual(snapshot['source_failure'], 'CANCELLED')
+        hostile = type('Hostile', (), {'__str__': lambda self: canary,
+                                       '__repr__': lambda self: canary})()
+        unknown = self.observer()
+        unknown.failed(hostile)
+        unknown_snapshot = unknown.diagnostic_snapshot()
+        self.assertEqual(unknown_snapshot['first_route'], 'OTHER_UNAVAILABLE')
+        self.assertNotIn(canary, json.dumps(unknown_snapshot))
+
+    def test_r154_observer_snapshot_closes_unknown_failures_and_unreadable_source_state(self):
+        canary = 'R154_PRIVATE_CANARY'
+        observer = self.observer()
+        observer.source.failure = canary
+        snapshot = getattr(observer, 'diagnostic_snapshot', None)
+        self.assertTrue(callable(snapshot), 'Production edit: Observer.diagnostic_snapshot closes source failures')
+        self.assertEqual(snapshot()['source_failure'], 'OTHER')
+        observer.source = object()
+        unreadable = snapshot()
+        self.assertEqual(unreadable['source_present'], True)
+        self.assertEqual(unreadable['source_is_event_source'], 'UNAVAILABLE')
+        self.assertEqual(unreadable['source_done'], 'UNAVAILABLE')
+        self.assertEqual(unreadable['source_feed_lost'], 'UNAVAILABLE')
+        self.assertEqual(unreadable['source_cancelled'], 'UNAVAILABLE')
+        self.assertEqual(unreadable['source_failure'], 'UNAVAILABLE')
+        self.assertNotIn(canary, json.dumps((snapshot(), unreadable)))
+
     def test_real_never_returning_host_child_is_cancelled(self):
         child = self.command('import threading; threading.Event().wait()')
         before = time.monotonic()
