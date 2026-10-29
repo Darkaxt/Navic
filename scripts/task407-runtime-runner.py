@@ -185,7 +185,9 @@ def _empty_transport_first_failure_diagnostics(state):
             'source_failure': 'UNAVAILABLE', 'source_request_admission_sequence': None,
             'source_failure_observation_sequence': None, 'receive_side': 'UNAVAILABLE',
             'event_source_first_phase': 'UNAVAILABLE', 'event_source_request_admission_sequence': None,
-            'event_source_failure_observation_sequence': None}
+            'event_source_failure_observation_sequence': None,
+            'first_outer_ok': 'UNAVAILABLE', 'first_outer_result': 'UNAVAILABLE',
+            'first_outer_error': 'UNAVAILABLE'}
 
 
 def _valid_transport_first_failure_diagnostics(value):
@@ -209,7 +211,15 @@ def _valid_transport_first_failure_diagnostics(value):
                 'CHILD_UNCONFIRMED', 'UNAVAILABLE')
             or type(value.get('receive_side')) is not str or value['receive_side'] not in (
                 'EOF', 'FRAME_VIOLATION', 'JSON_OR_ENVELOPE', 'REPEATED_FRAME',
-                'STDERR_SCHEMA_OR_LIMIT', 'STDERR_READ_FAILURE', 'OTHER', 'UNAVAILABLE')):
+                'STDERR_SCHEMA_OR_LIMIT', 'STDERR_READ_FAILURE', 'OTHER', 'UNAVAILABLE')
+            or type(value.get('first_outer_ok')) is not str or value['first_outer_ok'] not in (
+                'UNAVAILABLE', 'MISSING', 'TRUE', 'FALSE', 'OTHER')
+            or type(value.get('first_outer_result')) is not str or value['first_outer_result'] not in (
+                'UNAVAILABLE', 'MISSING', 'DICT', 'OTHER')
+            or type(value.get('first_outer_error')) is not str or value['first_outer_error'] not in (
+                'UNAVAILABLE', 'MISSING', 'NONSTRING', 'REMOTE_WIN32_5', 'REMOTE_WIN32_32',
+                'REMOTE_ERRNO_13', 'REMOTE_READ_CAP_REJECTED', 'REMOTE_REQUEST_SCHEMA_REJECTED',
+                'REMOTE_OTHER')):
         return False
     for name in ('request_admission_sequence', 'failure_observation_sequence',
                  'source_request_admission_sequence', 'source_failure_observation_sequence',
@@ -227,7 +237,12 @@ def _valid_transport_first_failure_diagnostics(value):
             and (source_present or value['source_request_admission_sequence'] is None)
             and (event_present == (value['event_source_failure_observation_sequence'] is not None))
             and (event_present or value['event_source_request_admission_sequence'] is None)
-            and (value['receive_side'] == 'UNAVAILABLE' or value['first_phase'] == 'RESPONSE_WAIT'))
+            and (value['receive_side'] == 'UNAVAILABLE' or value['first_phase'] == 'RESPONSE_WAIT')
+            and ((value['first_outer_ok'] == value['first_outer_result'] == value['first_outer_error'] == 'UNAVAILABLE')
+                 if value['first_phase'] != 'OUTER_REPLY_VALIDATION' else
+                 (value['first_outer_ok'] != 'UNAVAILABLE' and value['first_outer_result'] != 'UNAVAILABLE'
+                  and value['first_outer_error'] != 'UNAVAILABLE'
+                  and (value['first_outer_ok'] != 'TRUE' or value['first_outer_result'] != 'DICT'))))
 
 
 def _valid_terminal_observer_diagnostics(value):
@@ -888,7 +903,7 @@ def validate_live_session(record, watchdog_id):
         raise ValueError('SESSION_AUTHORITY_UNCONFIRMED')
     gate = record.get('gate')
     runtime = _runtime_gate()
-    fields = {'helper': runtime.HELPER, 'release': runtime.RELEASE, 'version': '0.16.2',
+    fields = {'helper': runtime.HELPER, 'release': runtime.RELEASE, 'version': '0.16.4',
         'emulator_profile': 'reader-diagnostics', 'component_version': '37.2.12',
         'scratch_root': runtime.SCRATCH, 'owner_task': 'Validate original reader runtime cases',
         'thread_name': 'Navic'}
@@ -1088,7 +1103,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
               'terminal_observer_diagnostics_profile': 'TERMINAL_OBSERVER_SOURCE_STATE_V1',
               'terminal_observer_diagnostics_scope': 'PRE_TEARDOWN_AFTER_TERMINAL_DECISION',
               'terminal_observer_diagnostics': _empty_terminal_observer_diagnostics('NOT_REACHED'),
-              'transport_first_failure_diagnostics_profile': 'FIRST_FAILURE_TRANSPORT_DIAGNOSTICS_V1',
+              'transport_first_failure_diagnostics_profile': 'FIRST_FAILURE_TRANSPORT_DIAGNOSTICS_V2',
               'transport_first_failure_diagnostics_scope': 'PRE_TEARDOWN_AFTER_TERMINAL_DECISION',
               'transport_first_failure_diagnostics': _empty_transport_first_failure_diagnostics('NOT_REACHED'),
               'host_memory_observations_profile': 'HOST_MEMORY_HEADROOM_V1',
@@ -1349,7 +1364,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
             caps=caps, launch_started=launch_started, pre_teardown_observation=observe_pre_teardown,
             **guardian_options)
         if gated:
-            result.update(launch_transport_profile='COORDINATOR_0_16_2_READER_DIAGNOSTICS_37_2_12_EOF_V1',
+            result.update(launch_transport_profile='COORDINATOR_0_16_4_READER_DIAGNOSTICS_37_2_12_EOF_V1',
                 launch_anchor_profile='ACQUIRED_NATIVE_CREATION_FILETIME_TO_MONOTONIC_V1',
                 environment_equivalence='CHANGED_HOST_PROFILE_NOT_OLD_ENVIRONMENT_QUALIFICATION',
                 phase_trace_scope='HOST_CALLER_ENVELOPES_INCLUDE_GATE_QUEUE_NOT_VM_EXECUTION',
@@ -1651,7 +1666,7 @@ def main(argv=None):
         active_path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/active.json')
         active_bytes = active_path.read_bytes()
         active = json.loads(active_bytes)
-        if active.get('release') != runtime.RELEASE or active.get('version') != '0.16.2':
+        if active.get('release') != runtime.RELEASE or active.get('version') != '0.16.4':
             raise ValueError('GATE_ACTIVE_RELEASE_CHANGED')
         component = json.loads((Path(runtime.RELEASE_ROOT) / 'integration/emulator-components.json').read_bytes())
         selected = component['profiles']['reader-diagnostics']

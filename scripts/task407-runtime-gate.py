@@ -19,7 +19,7 @@ import threading
 import time
 
 HELPER = 'C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py'
-RELEASE = 'a84522cf993339ea'
+RELEASE = 'df52528334e1391b'
 RELEASE_ROOT = 'C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/' + RELEASE
 SCRATCH = 'D:/Temp/navic-task407-gated-runtime/r146'
 MODULES = ('tools_cli.py', 'workflows.py', 'native_process.py', 'android_emulator.py',
@@ -86,6 +86,32 @@ _TRANSPORT_SOURCE_BRANCHES = frozenset((
 _TRANSPORT_DIAGNOSTIC_CAP = 2 ** 31 - 1
 
 
+def _classify_first_outer_reply(value):
+    """Return only the closed, privacy-safe structural reply projection."""
+    missing = object()
+    ok, result, error = (value.get(name, missing) for name in ('ok', 'result', 'error'))
+    ok_class = ('MISSING' if ok is missing else 'TRUE' if ok is True else
+                'FALSE' if ok is False else 'OTHER')
+    result_class = 'MISSING' if result is missing else 'DICT' if type(result) is dict else 'OTHER'
+    if error is missing:
+        error_class = 'MISSING'
+    elif type(error) is not str:
+        error_class = 'NONSTRING'
+    elif error.startswith('[WinError 5] '):
+        error_class = 'REMOTE_WIN32_5'
+    elif error.startswith('[WinError 32] '):
+        error_class = 'REMOTE_WIN32_32'
+    elif error.startswith('[Errno 13] '):
+        error_class = 'REMOTE_ERRNO_13'
+    elif error == 'Read cap must be 1 to 1048576 bytes per stream':
+        error_class = 'REMOTE_READ_CAP_REJECTED'
+    elif error == 'Native requests require a method and parameter object':
+        error_class = 'REMOTE_REQUEST_SCHEMA_REJECTED'
+    else:
+        error_class = 'REMOTE_OTHER'
+    return ok_class, result_class, error_class
+
+
 def _transport_role(value, method):
     if value is not None:
         return value if type(value) is str and value in _TRANSPORT_DIAGNOSTIC_ROLES else 'OTHER'
@@ -128,6 +154,7 @@ class JsonLineTransport:
         self._diagnostic_failure_sequence = 0
         self._diagnostic_sequence_saturated = False
         self._diagnostic_first = None
+        self._diagnostic_first_outer = ('UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE')
         self._diagnostic_source = None
         self._diagnostic_event_first = None
         self._diagnostic_receive_side = 'UNAVAILABLE'
@@ -144,7 +171,7 @@ class JsonLineTransport:
         self._diagnostic_request_sequence += 1
         return self._diagnostic_request_sequence
 
-    def _record_diagnostic_failure(self, role, phase, request_sequence=None):
+    def _record_diagnostic_failure(self, role, phase, request_sequence=None, outer=None):
         if self._diagnostic_failure_sequence >= _TRANSPORT_DIAGNOSTIC_CAP:
             self._diagnostic_sequence_saturated = True
             observation_sequence = _TRANSPORT_DIAGNOSTIC_CAP
@@ -154,6 +181,8 @@ class JsonLineTransport:
         if self._diagnostic_first is None:
             self._diagnostic_first = (role, phase, request_sequence, observation_sequence,
                 self._diagnostic_rejection_receive_side if phase == 'RESPONSE_WAIT' else 'UNAVAILABLE')
+            if phase == 'OUTER_REPLY_VALIDATION' and type(outer) is tuple and len(outer) == 3:
+                self._diagnostic_first_outer = outer
         if role == 'EVENT_SOURCE' and self._diagnostic_event_first is None:
             # Earliest event-ROLE failure, distinct from a later source-branch notification.
             self._diagnostic_event_first = (phase, request_sequence, observation_sequence)
@@ -182,6 +211,7 @@ class JsonLineTransport:
     def diagnostic_snapshot(self):
         with self._condition:
             first = self._diagnostic_first
+            outer = self._diagnostic_first_outer
             source = self._diagnostic_source
             event = self._diagnostic_event_first
             return dict(sample_state='SAMPLED',
@@ -190,6 +220,7 @@ class JsonLineTransport:
                 request_admission_sequence=first[2] if first is not None else None,
                 failure_observation_sequence=first[3] if first is not None else None,
                 sequence_saturated=bool(self._diagnostic_sequence_saturated),
+                first_outer_ok=outer[0], first_outer_result=outer[1], first_outer_error=outer[2],
                 source_branch=source[0] if source is not None else 'UNAVAILABLE',
                 source_failure='CHILD_UNCONFIRMED' if source is not None else 'UNAVAILABLE',
                 source_request_admission_sequence=source[1] if source is not None else None,
@@ -323,6 +354,7 @@ class JsonLineTransport:
         role = _transport_role(diagnostic_role, method)
         deadline = time.monotonic() + timeout
         request_sequence = None
+        outer = None
         # Split only the original short-circuit guards, preserving reads/check order.
         phase = 'OTHER'
         if self.uncertain:
@@ -362,11 +394,15 @@ class JsonLineTransport:
                 return value  # Terminal frame is not the normal result wrapper.
             phase = 'OUTER_REPLY_VALIDATION'
             if value.get('ok') is not True or type(value.get('result')) is not dict:
+                try:
+                    outer = _classify_first_outer_reply(value)
+                except BaseException:
+                    pass
                 raise blocked()
             return value['result']
         except BaseException:
             with self._condition:
-                self._record_diagnostic_failure(role, phase, request_sequence)
+                self._record_diagnostic_failure(role, phase, request_sequence, outer)
             self.uncertain = True
             raise blocked() from None
         finally:
