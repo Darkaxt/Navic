@@ -766,6 +766,120 @@ def pins_match(pins):
         for row in pins)
 
 
+_GATE = None
+IMMUTABLE_APK_SHA256 = '65cc8d619c03aba32043eb77603c6254fc61aac792e9581b8993bd9b00a8c517'
+IMMUTABLE_SEAL_SHA256 = '93dc372cde3d0acaf51e0908f595443306f024be9ba6406774d0ad7d8bcdfa0a'
+HOST_MIGRATION_PATHS = frozenset({
+    'scripts/task407-runtime-runner.py', 'scripts/task407-runtime-supervisor.py',
+    'scripts/test-task407-runtime-runner.py', 'scripts/test-task407-runtime-supervisor.py',
+    'scripts/task407-runtime-gate.py', 'scripts/test-task407-runtime-gate.py',
+    'docs/superpowers/specs/2026-10-04-reader-fresh-session-checkpoint-amendment.md',
+})
+
+
+def _runtime_gate():
+    global _GATE
+    if _GATE is None:
+        spec = importlib.util.spec_from_file_location('task407_runtime_gate',
+            Path(__file__).with_name('task407-runtime-gate.py'))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _GATE = module
+    return _GATE
+
+
+def validate_live_session(record, watchdog_id):
+    """Prospective gate contract; historical peer-ACK contracts are test-only."""
+    expected = {'kind': 'task407-gated-emulator-runtime-session-v1',
+        'serial': SERIAL, 'avd': AVD, 'scope': 'original-three-with-independent-supervision',
+        'user_session_authorized': True, 'no_snapshot_save': True,
+        'preserve_app_data': True, 'clear_logcat': False}
+    if (type(record) is not dict or any(type(record.get(k)) is not type(v) or record[k] != v
+            for k, v in expected.items()) or 'peer_coordination_complete' in record
+            or type(watchdog_id) is not str or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', watchdog_id)
+            or record.get('watchdog_id') != watchdog_id
+            or type(record.get('apk_path')) is not str or not record['apk_path']):
+        raise ValueError('SESSION_AUTHORITY_UNCONFIRMED')
+    gate = record.get('gate')
+    runtime = _runtime_gate()
+    fields = {'helper': runtime.HELPER, 'release': runtime.RELEASE, 'version': '0.16.1',
+        'emulator_profile': 'reader-diagnostics', 'component_version': '37.2.12',
+        'scratch_root': runtime.SCRATCH, 'owner_task': 'Validate original reader runtime cases',
+        'thread_name': 'Navic'}
+    if (type(gate) is not dict or any(gate.get(k) != v for k, v in fields.items())
+            or type(gate.get('expected_owner')) is not dict
+            or set(gate['expected_owner']) != {'system', 'session_sha256', 'thread_name'}
+            or any(type(v) is not str or not v for v in gate['expected_owner'].values())
+            or not re.fullmatch(r'[0-9a-f]{64}', gate['expected_owner']['session_sha256'])
+            or gate['expected_owner']['thread_name'] != 'Navic'
+            or type(gate.get('binding')) is not dict):
+        raise ValueError('GATE_PROFILE_UNCONFIRMED')
+    binding = gate['binding']
+    if (set(binding) != {'avd', 'serial', 'port', 'avd_directory', 'avd_home', 'sdk_root', 'emulator_root'}
+            or binding['avd'] != AVD or binding['serial'] != SERIAL
+            or type(binding['port']) is not int or binding['port'] != 5554
+            or any(type(binding[k]) is not str or not Path(binding[k]).is_absolute()
+                   for k in ('avd_directory', 'avd_home', 'sdk_root', 'emulator_root'))
+            or not isinstance(gate.get('pins'), list) or not gate['pins']):
+        raise ValueError('GATE_BINDING_UNCONFIRMED')
+
+
+def validate_host_qualification(seal, receipt, root, seal_sha256):
+    """Immutable Android qualification + narrowly admitted NEW host qualification.
+
+    MAIN supplies the actual ordered SPEC→MAIN→QUALITY→MAIN receipt after review
+    and publication. Changed host/doc pins never rewrite historical seal evidence.
+    All other original pins (including diagnostics) remain mandatory unchanged.
+    """
+    if (seal_sha256 != IMMUTABLE_SEAL_SHA256
+            or seal.get('kind') != 'full-lower-qualified-pushed-source-emulator-only-apk-seal'
+            or seal.get('original_timeout_and_acceptance_oracles_changed') is not False
+            or seal.get('runtime_accepted') is not False
+            or not re.fullmatch(r'[0-9a-f]{40}', seal.get('base_source_commit', ''))
+            or seal.get('apk', {}).get('sha256') != IMMUTABLE_APK_SHA256
+            or seal['apk'].get('package') != PACKAGE or seal['apk'].get('production_signed') is not False
+            or receipt.get('kind') != 'task407-gate-host-qualification-v1'
+            or receipt.get('seal_sha256') != seal_sha256
+            or receipt.get('apk_sha256') != IMMUTABLE_APK_SHA256
+            or receipt.get('ordered') is not True or receipt.get('runtime_accepted') is not False
+            or any(receipt.get(key) != 'PASS' for key in (
+                'spec', 'main_after_spec', 'quality', 'main_after_quality', 'host_tests'))
+            or not re.fullmatch(r'[0-9a-f]{40}', receipt.get('source_commit', ''))):
+        raise ValueError('HOST_QUALIFICATION_UNCONFIRMED')
+    root = Path(root).resolve()
+    def indexed(rows):
+        result = {}
+        for row in rows:
+            path = Path(row['path'])
+            path = (path if path.is_absolute() else root / path).resolve()
+            if path in result or not re.fullmatch(r'[0-9a-f]{64}', row['sha256']):
+                raise ValueError('CANDIDATE_PIN_INVALID')
+            result[path] = row['sha256']
+        return result
+    original, overrides = indexed(seal['source_pins']), indexed(receipt['pins'])
+    admitted = {root / name for name in HOST_MIGRATION_PATHS}
+    unaffected = {root / 'scripts' / name for name in (
+        'task407-runtime-diagnostics.py', 'test-task407-runtime-diagnostics.py')}
+    if (set(overrides) != admitted or not unaffected <= original.keys()
+            or not {root / 'scripts' / name for name in (
+                'task407-runtime-runner.py', 'task407-runtime-supervisor.py',
+                'test-task407-runtime-runner.py', 'test-task407-runtime-supervisor.py')} <= original.keys()):
+        raise ValueError('HOST_OVERRIDE_SCOPE_INVALID')
+    original.update(overrides)
+    return [dict(path=str(path), sha256=digest) for path, digest in original.items()], receipt['source_commit']
+
+
+def run_gated_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=None, cleanup=None):
+    validate_live_session(record, watchdog_id)
+    runtime = _runtime_gate()
+    if cleanup is None:
+        cleanup = (runtime.prepare_runtime_cleanup(record) if gate is None
+                   else lambda: runtime.cleanup_runtime_scratch(record))
+    return run_session(supervision, record, labels, pins=pins, caps=caps,
+                       watchdog_id=watchdog_id, gate=gate, gated=True, cleanup=cleanup)
+
+
 _DIAGNOSTICS = None
 
 
@@ -781,20 +895,23 @@ def _runtime_diagnostics():
     return _DIAGNOSTICS
 
 
-def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
+def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=None, gated=False, cleanup=None):
     """One guarded attempt; SDK dispatch is explicit, selected and bounded.
 
     The normal CLI supplies the real supervision module. Host orchestration tests
     inject SDK replies, retaining real guardian/job behavior; those replies never
-    constitute Android or authority evidence. Host RAM residue cleanup remains a
-    separate mandatory installed transactional-cleanup step after terminal return.
+    constitute Android or authority evidence. The gated path consumes verified
+    transactional scratch cleanup after VM supervision, before taking outcome bytes.
+    Historical direct host fixtures retain their non-live API only.
     """
-    validate_session(record, watchdog_id)
+    (validate_live_session if gated else validate_session)(record, watchdog_id)
     if caps.postboot_preparation <= 0:
         raise ValueError('POSTBOOT_RESERVATION_REQUIRED')
     if not pins_match(pins):
         raise ValueError('SOURCE_PINS_CHANGED')
-    s, adb = supervision, record['adb']
+    s, adb = supervision, 'gate-adb' if gated else record['adb']
+    command_class = s.Command
+    runtime_gate = _runtime_gate() if gated else None
     clients = []
     owned = guardian = observer = source = instrument = None
     attached = False
@@ -958,7 +1075,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             deadline = dispatched_at + timeout
             budget_ms = max(0, int(timeout * 1000))
             boundary = 'SPAWN'
-            child = s.Command.spawn([adb, '-s', SERIAL, *arguments],
+            child = command_class.spawn([adb, '-s', SERIAL, *arguments],
                                     timeout=timeout, max_bytes=65536, tree_owned=False)
             clients.append(child)
             boundary = 'WAIT_REJECTED'
@@ -1061,19 +1178,27 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
     # be subtracted from the guardian's independent launch-based wait.
     session_budget = caps.session_budget
     try:
-        code, out, err = command('SELECTED_ABSENCE', ['get-state'], caps.command)
-        if not (code != 0 and not out.strip() and
-                err.strip() == ("error: device '" + SERIAL + "' not found").encode('ascii')):
-            raise ValueError('SELECTED_ABSENCE_UNCONFIRMED')
+        if not gated:
+            code, out, err = command('SELECTED_ABSENCE', ['get-state'], caps.command)
+            if not (code != 0 and not out.strip() and
+                    err.strip() == ("error: device '" + SERIAL + "' not found").encode('ascii')):
+                raise ValueError('SELECTED_ABSENCE_UNCONFIRMED')
         phase = 'OWNED_LAUNCH'
         trace('OWNED_LAUNCH', 'START')
-        launch_started = time.monotonic()
+        if gated:
+            gate = gate if gate is not None else runtime_gate.GateSession.launch(record)
+            launch_started = gate.launch_started
+            owned = runtime_gate.OwnedGate(gate)
+            command_class = runtime_gate.command_type(s, gate)
+            gate._sdk_observer = startup_log.feed if startup_log is not None else None
+        else:
+            launch_started = time.monotonic()
+            owned = s.Command.spawn([record['emulator'], '-avd', AVD, '-port', '5554',
+                                     '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader',
+                                     '-show-kernel', '-verbose', '-crash-report-mode', 'disabled'],
+                                    timeout=session_budget, max_bytes=4 * 1024 * 1024, tree_owned=True,
+                                    observe_output=startup_log.feed if startup_log is not None else None)
         guardian_deadline = launch_started + session_budget
-        owned = s.Command.spawn([record['emulator'], '-avd', AVD, '-port', '5554',
-                                 '-no-snapshot', '-no-boot-anim', '-gpu', 'swiftshader',
-                                 '-show-kernel', '-verbose', '-crash-report-mode', 'disabled'],
-                                timeout=session_budget, max_bytes=4 * 1024 * 1024, tree_owned=True,
-                                observe_output=startup_log.feed if startup_log is not None else None)
         trace('OWNED_LAUNCH', 'END')
         result['owned_launch_diagnostics'] = _empty_owned_launch_diagnostic('STOPPER_NOT_REACHED')
         original = owned.process
@@ -1100,23 +1225,47 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             result['pre_teardown_host_diagnostics'] = _empty_pre_teardown_host_diagnostic('SNAPSHOT_GAP')
             try:
                 result['pre_teardown_host_diagnostics'] = project_pre_teardown_host(owned, instrument)
+                if gated:
+                    result['owned_launch_diagnostics'] = project_owned_launch(owned)
             except BaseException:
                 pass
 
-        anchor = s.OwnedProcess(original, stop_original_tree)
+        anchor = owned if gated else s.OwnedProcess(original, stop_original_tree)
+        guardian_options = {'gate_lifecycle': gate} if gated else {}
         guardian = s.Supervisor(owned=anchor, commands=LifecycleCommands(),
             observer=observer, avd=AVD, serial=SERIAL,
             contract=s.LaunchContract(watchdog_id=watchdog_id, no_snapshot_save=True),
-            caps=caps, launch_started=launch_started, pre_teardown_observation=observe_pre_teardown)
+            caps=caps, launch_started=launch_started, pre_teardown_observation=observe_pre_teardown,
+            **guardian_options)
+        if gated:
+            result.update(launch_transport_profile='COORDINATOR_0_16_1_READER_DIAGNOSTICS_37_2_12_EOF_V1',
+                launch_anchor_profile='ACQUIRED_NATIVE_CREATION_FILETIME_TO_MONOTONIC_V1',
+                environment_equivalence='CHANGED_HOST_PROFILE_NOT_OLD_ENVIRONMENT_QUALIFICATION',
+                phase_trace_scope='HOST_CALLER_ENVELOPES_INCLUDE_GATE_QUEUE_NOT_VM_EXECUTION',
+                lifecycle_proof='GATE_NATIVE_TREE_LEASE_HOST_STORAGE_V1',
+                peer_coordination='NOT_ASSERTED_LIVE_ORIGINAL_CHAT_LEASE_INSTEAD')
+            gate.verify_live(min(caps.command, require_preparation()))
+            gate.start_sdk_observation(caps.command)
+            while not gate.console_ready(min(caps.command, require_preparation())):
+                gate.drain_sdk(min(caps.command, require_preparation()))
+                if not guardian.wait_preparation(.25):
+                    raise ValueError('UI_READY_UNCONFIRMED')
+            gate.drain_sdk(min(caps.command, require_preparation()))
         phase = 'UI_READY'
         readiness_step = 'WAIT_FOR_DEVICE'
         code, out, err = command('WAIT_FOR_DEVICE', ['wait-for-device'], caps.preparation)
         if code != 0 or err:
             raise ValueError('DEVICE_WAIT_UNCONFIRMED')
         readiness_step = 'OWNED_AVD_IDENTITY'
-        code, out, err = command('OWNED_AVD_IDENTITY', ['emu', 'avd', 'name'], caps.command)
-        if code != 0 or err or [v for v in out.splitlines() if v] != [AVD.encode(), b'OK']:
-            raise ValueError('OWNED_AVD_UNCONFIRMED')
+        if gated:
+            # Live gate target/native-job proof replaces forbidden ADB emu identity;
+            # this never manufactures the historical console response.
+            if not gate.console_ready(min(caps.command, require_preparation())):
+                raise ValueError('OWNED_AVD_UNCONFIRMED')
+        else:
+            code, out, err = command('OWNED_AVD_IDENTITY', ['emu', 'avd', 'name'], caps.command)
+            if code != 0 or err or [v for v in out.splitlines() if v] != [AVD.encode(), b'OK']:
+                raise ValueError('OWNED_AVD_UNCONFIRMED')
         readiness_step = 'SYS_BOOT_COMPLETED'
         trace('SYS_BOOT_COMPLETED', 'START')
         while True:
@@ -1141,6 +1290,12 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
             raise ValueError('BOOT_HANDOFF_REJECTED')
         readiness_step = None
         # Host SDK source boundary ends before any app installation or execution.
+        if gated:
+            drain_deadline = time.monotonic() + min(caps.command, require_preparation())
+            while gate.drain_sdk(max(0, drain_deadline - time.monotonic())):
+                require_preparation()
+                if time.monotonic() >= drain_deadline:
+                    raise ValueError('PREFLIGHT_COMMAND_INCOMPLETE')
         close_startup_log()
         phase = 'INSTALL'
         code, out, err = command('INSTALL', ['install', '-r', '-t', record['apk_path']], caps.command)
@@ -1166,7 +1321,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         cursor = parse_cursor(out)
         epoch = watchdog_id  # Attempt identity only; never used as a guest clock.
         require_preparation()
-        source = s.Command.spawn(observer_argv(adb, cursor), timeout=session_budget,
+        source = command_class.spawn(observer_argv(adb, cursor), timeout=session_budget,
             max_bytes=65536, tree_owned=False,
             on_line=lambda line: consume_event(observer, line, epoch=epoch,
                                                after_ns=cursor, is_own=s.is_own_am_anr))
@@ -1177,7 +1332,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
         phase = 'INSTRUMENTATION'
         trace('INSTRUMENTATION', 'START')
         require_preparation()
-        instrument = s.Command.spawn(shell_argv(adb,
+        instrument = command_class.spawn(shell_argv(adb,
             ['am', 'instrument', '-w', '-r', '-e', 'class', CLASS, COMPONENT]),
             timeout=caps.instrumentation, max_bytes=4 * 1024 * 1024, tree_owned=False,
             observe_output=reader_live.feed if reader_live is not None else None)
@@ -1255,7 +1410,36 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id):
                    'automatic_emulator_teardown_verified': clean,
                    'preflight_clients_settled': clients_settled,
                    'supervisor': asdict(report) if report is not None else None})
-    if clean and report.eligible_for_oracle:
+    if gated and gate is not None:
+        result['gate_transport_observations'] = {
+            'proof_scope': 'LIVE_LOCAL_OWNERSHIP_NOT_USER_AUTHORIZATION',
+            'sdk_output_bytes': gate._sdk_total, 'sdk_output_gap': gate._sdk_gap,
+            'sdk_diagnostic_error_count': gate.diagnostic_output_errors,
+            'sdk_diagnostic_gap': gate.diagnostic_output_errors != 0,
+            'observer_intentionally_cancelled': bool(source is not None and source.cancelled),
+            'uncertain_rpc': bool(gate.uncertain),
+            'original_keeper_recovery_required': not bool(report is not None and report.lease_released),
+            'native_sdk_exit_success': (report.native_exit_code == 0
+                                        if report is not None and report.native_exit_code is not None else None),
+        }
+        if owned is not None:
+            owned.discard()
+    cleanup_complete = not gated  # Historical direct fixtures are not the live CLI.
+    if gated:
+        result['host_cleanup_status'] = 'NOT_ATTEMPTED'
+        if clean:
+            # The original guardian/native/lease/wrapper consumers have finished.
+            # Keep original bounded instrument bytes in RAM, untouched, while the
+            # separately managed installed cleanup consumes its genuine transaction.
+            try:
+                cleanup_complete = cleanup is not None and cleanup() is True
+            except BaseException:
+                cleanup_complete = False
+            result['host_snapshot_residue_cleanup_required'] = not cleanup_complete
+            result['host_cleanup_status'] = 'VERIFIED' if cleanup_complete else 'UNCONFIRMED'
+        if not cleanup_complete and instrument is not None:
+            instrument.discard()  # No persistent bytes or deferred oracle replay.
+    if clean and report.eligible_for_oracle and cleanup_complete:
         out, err = guardian.take_instrumentation_output()
         projected = project_instrumentation(out.decode('utf-8', errors='replace'), labels)
         del out, err
@@ -1337,17 +1521,34 @@ def main(argv=None):
     try:
         record = read_checked_json(args.contract, args.contract_sha256)
         watchdog = os.environ.get('WATCHDOG_ID')
-        validate_session(record, watchdog)
+        validate_live_session(record, watchdog)
         root = Path(__file__).resolve().parents[1]
         seal = read_checked_json(record['seal_path'], record['seal_sha256'])
-        reviews = read_checked_json(record['reviews_path'], record['reviews_sha256'])
-        validate_candidate(seal, reviews, root)
+        receipt = read_checked_json(record['host_qualification_path'], record['host_qualification_sha256'])
+        pins, source_commit = validate_host_qualification(seal, receipt, root, record['seal_sha256'])
         if Path(record['apk_path']).resolve() != Path(seal['apk']['path']).resolve():
             raise ValueError('CANDIDATE_APK_PATH_CHANGED')
-        pins = seal['source_pins'] + [{'path': seal['apk']['path'], 'sha256': seal['apk']['sha256']}]
+        runtime = _runtime_gate()
+        runtime_paths = {Path(row['path']).resolve() for row in record['gate']['pins']}
+        if (len(runtime_paths) != len(record['gate']['pins'])
+                or runtime_paths != {Path(path).resolve() for path in runtime.RUNTIME_PATHS}):
+            raise ValueError('GATE_RUNTIME_PINS_INCOMPLETE')
+        active_path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/active.json')
+        active_bytes = active_path.read_bytes()
+        active = json.loads(active_bytes)
+        if active.get('release') != runtime.RELEASE or active.get('version') != '0.16.1':
+            raise ValueError('GATE_ACTIVE_RELEASE_CHANGED')
+        component = json.loads((Path(runtime.RELEASE_ROOT) / 'integration/emulator-components.json').read_bytes())
+        selected = component['profiles']['reader-diagnostics']
+        if (selected.get('version') != '37.2.12'
+                or Path(selected['root']).resolve() != Path(record['gate']['binding']['emulator_root']).resolve()):
+            raise ValueError('GATE_COMPONENT_CHANGED')
+        pins += record['gate']['pins'] + [
+            {'path': str(active_path), 'sha256': hashlib.sha256(active_bytes).hexdigest()},
+            {'path': seal['apk']['path'], 'sha256': seal['apk']['sha256']}]
         if not pins_match(pins):
             raise ValueError('CANDIDATE_BYTES_CHANGED')
-        for command, expected in ((['rev-parse', 'HEAD'], seal['base_source_commit']),
+        for command, expected in ((['rev-parse', 'HEAD'], source_commit),
                                   (['status', '--porcelain', '--untracked-files=no'], '')):
             checked = subprocess.run(['git', '-C', str(root), *command],
                                      capture_output=True, timeout=15, check=False)
@@ -1369,20 +1570,28 @@ def main(argv=None):
                                 instrumentation=420, command=15,
                                 process_wait=5, stop=5, settle=2, snapshot_budget=15)
         with Path(args.output).open('x', encoding='utf-8') as output:
-            result = run_session(supervision, record, labels, pins=pins,
-                                 caps=caps, watchdog_id=watchdog)
-            result.update({'source_commit': seal['base_source_commit'],
+            result = run_gated_session(supervision, record, labels, pins=pins,
+                                       caps=caps, watchdog_id=watchdog)
+            result.update({'source_commit': source_commit,
+                           'android_qualification_source_commit': seal['base_source_commit'],
                            'apk_sha256': seal['apk']['sha256'], 'profile': asdict(caps),
                            'seal_sha256': record['seal_sha256'],
-                           'reviews_sha256': record['reviews_sha256']})
+                           'host_qualification_sha256': record['host_qualification_sha256']})
             json.dump(result, output, indent=2)
-        print(json.dumps({'status': 'HOST_SNAPSHOT_CLEANUP_REQUIRED',
+        shutdown = result.get('supervisor') or {}
+        native_code, workflow_code = shutdown.get('native_exit_code'), shutdown.get('workflow_exit_code')
+        sdk_ok = native_code == 0 and workflow_code == 0 and shutdown.get('command_failures') is False
+        cleanup_ok = result.get('host_snapshot_residue_cleanup_required') is False
+        print(json.dumps({'status': ('HOST_RUNTIME_CLOSED' if sdk_ok and cleanup_ok
+                                    else 'SDK_WORKFLOW_FAILED' if not sdk_ok else 'HOST_CLEANUP_UNCONFIRMED'),
                           'automatic_emulator_teardown_verified': result['automatic_emulator_teardown_verified'],
                           'all_three_original_runtime_cases_passed': result['all_three_original_runtime_cases_passed'],
+                          'native_exit_code': native_code, 'workflow_exit_code': workflow_code,
+                          'shutdown_disposition': shutdown.get('shutdown_disposition', 'UNAVAILABLE'),
                           'parent_status': 'IN_PROGRESS'}))
-        # Even a passing Android oracle is not final acceptance until MAIN performs
-        # installed transactional host-residue cleanup and verifies empty snapshots.
-        return 0 if result['all_three_original_runtime_cases_passed'] else 1
+        # Independent app results cannot erase a nonzero SDK/workflow outcome.
+        # Missing/failed cleanup cannot permit an oracle or successful CLI outcome.
+        return 0 if result['all_three_original_runtime_cases_passed'] and sdk_ok and cleanup_ok else 1
     except Exception:
         print(json.dumps({'status': 'BLOCKED', 'failure': 'CALLER_INPUT_OR_EXECUTION_BLOCKED',
                           'parent_status': 'IN_PROGRESS'}))

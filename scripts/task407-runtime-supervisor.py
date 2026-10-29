@@ -120,6 +120,13 @@ class Report:
     strict_absence: bool
     cleanup_failures: tuple
     instrumentation_exit_code: int | None
+    lifecycle_proof: str = 'SELECTED_ADB_CONSOLE_V1'
+    native_tree_exit_verified: bool = False
+    lease_released: bool = False
+    native_exit_code: int | None = None
+    workflow_exit_code: int | None = None
+    shutdown_disposition: str = 'UNAVAILABLE'
+    command_failures: bool | None = None
 
 
 def is_own_am_anr(tag, payload, package):
@@ -1130,7 +1137,7 @@ def _console_stop_ack(raw):
 class Supervisor:
     """Independent single guardian; no Android command defaults or normal CLI."""
     def __init__(self, *, owned, commands, observer, avd, serial, contract, caps, instrument=None,
-                 launch_started=None, pre_teardown_observation=None):
+                 launch_started=None, pre_teardown_observation=None, gate_lifecycle=None):
         now = time.monotonic()
         if launch_started is None:
             launch_started = now  # Generic host users retain their construction anchor.
@@ -1140,6 +1147,8 @@ class Supervisor:
         self._owned, self._commands, self._instrument = owned, commands, instrument
         self._observer, self._avd, self._serial = observer, avd, serial
         self._contract, self._caps = contract, caps
+        self._gate_lifecycle = gate_lifecycle
+        self._gate_closure = None
         self._pre_teardown_observation = (pre_teardown_observation
                                           if callable(pre_teardown_observation) else None)
         self._condition = threading.Condition()
@@ -1336,6 +1345,26 @@ class Supervisor:
                  if not self._instrument.done.is_set() else self._instrument.settle(caps.settle), caps.settle)
         step('OBSERVER_STOP', lambda: self._observer.stop(caps.settle), caps.settle)
 
+        if self._gate_lifecycle is not None:
+            # Same guardian/terminal policy, explicitly different physical proof.
+            # No console/ADB disconnect/absence replies are synthesized. The real
+            # retained gate closes clients, proves native-tree exit and release,
+            # then inspects exact owned host snapshot/RAM paths without deletion.
+            ok, closure = _bounded(lambda: self._gate_lifecycle.finish(caps),
+                                    max(0, caps.teardown_budget - 2 * caps.settle))
+            if not ok or type(closure) is not dict:
+                failures.append('GATE_CLOSURE_UNCONFIRMED')
+            else:
+                self._gate_closure = dict(closure)
+                failures.extend(closure['cleanup_failures'])
+                terminal = closure.get('native_tree_exit_verified') is True
+                snapshots_empty = closure.get('snapshots_empty') is True
+                if not all(closure.get(key) is True for key in (
+                        'native_tree_exit_verified', 'lease_released', 'snapshots_empty',
+                        'sdk_output_complete', 'wrapper_settled')):
+                    failures.append('GATE_CLOSURE_UNCONFIRMED')
+            return terminal, snapshots_empty, False, False, tuple(failures)
+
         owned_identity = False
         try:
             code, out, err = self._command('identity')
@@ -1431,7 +1460,8 @@ class Supervisor:
         except BaseException:
             terminal = snapshots = disconnect = absence = False
             failures = ('TEARDOWN_FAILED',)
-        clean = all((terminal, snapshots, disconnect, absence)) and not failures
+        clean = (all((terminal, snapshots)) and not failures if self._gate_lifecycle is not None
+                 else all((terminal, snapshots, disconnect, absence)) and not failures)
         if cause == 'NATURAL_COMPLETION':
             if self._observer.own_anr:
                 cause = 'OWN_ANR'
@@ -1448,8 +1478,16 @@ class Supervisor:
         eligible = clean and natural
         if not eligible and self._instrument is not None:
             self._instrument.discard()
+        gate = self._gate_closure or {}
         self._report = Report(status, cause, clean, eligible, terminal, snapshots, disconnect, absence,
-                              failures, self._instrument.returncode if eligible else None)
+            failures, self._instrument.returncode if eligible else None,
+            lifecycle_proof=('GATE_NATIVE_TREE_LEASE_HOST_STORAGE_V1' if self._gate_lifecycle is not None
+                             else 'SELECTED_ADB_CONSOLE_V1'),
+            native_tree_exit_verified=gate.get('native_tree_exit_verified', False),
+            lease_released=gate.get('lease_released', False),
+            native_exit_code=gate.get('native_exit_code'), workflow_exit_code=gate.get('workflow_exit_code'),
+            shutdown_disposition=gate.get('shutdown_disposition', 'UNAVAILABLE'),
+            command_failures=gate.get('command_failures'))
         self._finished.set()
 
     def take_instrumentation_output(self):

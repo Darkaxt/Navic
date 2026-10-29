@@ -1541,14 +1541,24 @@ class PreflightBoundaryTests(unittest.TestCase):
         def run(supervision, contract, labels, **kwargs):
             captured.append(dataclasses.asdict(kwargs['caps']))
             raise ValueError('fixture stop before dispatch')
-        # CLI import is real and inert. All external execution/output creation blocked.
+        record.update(host_qualification_path='fixture-reviews', host_qualification_sha256='b' * 64,
+                      gate={'pins': [], 'binding': {'emulator_root': 'D:/Components/37.2.12'}})
+        runtime = SimpleNamespace(RELEASE='5fc7390b4f9b73d3', RUNTIME_PATHS=(),
+                                  RELEASE_ROOT='D:/fixture-release')
+        # Live CLI is gate-only; isolate new receipt/active-release boundaries in
+        # this original cap assertion, not historical peer-based admission.
         with mock.patch.object(runner, 'read_checked_json', side_effect=[record, seal, reviews]), \
-             mock.patch.object(runner, 'validate_candidate'), \
+             mock.patch.object(runner, 'validate_live_session'), \
+             mock.patch.object(runner, 'validate_host_qualification', return_value=([], 'a' * 40)), \
+             mock.patch.object(runner, '_runtime_gate', return_value=runtime), \
+             mock.patch.object(runner.Path, 'read_bytes', side_effect=[
+                 b'{"release":"5fc7390b4f9b73d3","version":"0.16.1"}',
+                 b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
              mock.patch.object(runner, 'pins_match', return_value=True), \
              mock.patch.object(runner, 'subprocess') as subprocess_mock, \
              mock.patch.object(runner.os, 'environ', {'WATCHDOG_ID': 'host-fixture'}), \
              mock.patch.object(runner.Path, 'open', mock.mock_open()), \
-             mock.patch.object(runner, 'run_session', side_effect=run), redirect_stdout(io.StringIO()):
+             mock.patch.object(runner, 'run_gated_session', side_effect=run), redirect_stdout(io.StringIO()):
             subprocess_mock.run.side_effect = [SimpleNamespace(returncode=0, stdout=b'a' * 40),
                                                SimpleNamespace(returncode=0, stdout=b'')]
             runner.main(['--contract', 'fixture', '--contract-sha256', 'c' * 64,
