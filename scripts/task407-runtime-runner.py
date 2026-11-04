@@ -1617,6 +1617,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
             'sdk_diagnostic_gap': gate.diagnostic_output_errors != 0,
             'observer_intentionally_cancelled': bool(source is not None and source.cancelled),
             'uncertain_rpc': bool(gate.uncertain),
+            'exact_owner_force_stop_verified': gate.exact_owner_force_stop_verified,
             'original_keeper_recovery_required': not bool(report is not None and report.lease_released),
             'native_sdk_exit_success': (report.native_exit_code == 0
                                         if report is not None and report.native_exit_code is not None else None),

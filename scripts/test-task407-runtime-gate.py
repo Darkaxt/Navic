@@ -1007,6 +1007,8 @@ class R147Tests(unittest.TestCase):
                  mock.patch.object(g.subprocess, 'Popen', side_effect=[SimpleNamespace(), process]):
                 session = g.GateSession.launch(record())
                 session.storage_check = lambda path, timeout: True
+                session.force_stop = lambda timeout: dict(ticket_id=session.ticket,
+                    state='resource_stopped', resource_exit_verified=True, replay=False)
                 with self.assertRaises(ValueError):
                     session.verify(.01)
             # Same real Supervisor/runner: verify failure aborts preflight; independent
@@ -1420,6 +1422,8 @@ class R148PublicationTests(unittest.TestCase):
                  mock.patch.object(threading.Thread, 'start', start):
                 session = g.GateSession.launch(record())
                 session.storage_check = lambda path, timeout: True
+                session.force_stop = lambda timeout: dict(ticket_id=session.ticket,
+                    state='resource_stopped', resource_exit_verified=True, replay=False)
                 finish = session.finish
                 def closing_finish(caps):
                     closing.set()
@@ -3331,6 +3335,58 @@ class R168RetestTests(unittest.TestCase):
         value['gate']['thread_name'] = 'Different chat'
         with self.assertRaises(ValueError):
             r.validate_live_session(value, 'host-fixture')
+
+    def test_post_test_stop_uses_exact_owned_force_stop_before_unbounded_wait(self):
+        session, wire = self.session()
+        original = wire.request
+        stopped = threading.Event()
+        forced = []
+        def request(method, params=None, timeout=15):
+            if method == 'emulator.request-stop':
+                # Console acknowledgement does not establish native exit.
+                wire.calls.append((method, params or {}, timeout))
+                return dict(state='stop_requested')
+            if method == 'emulator.status' and not stopped.is_set():
+                return dict(emulator=record()['gate']['binding'], no_snapshot=True,
+                    native_processes=[123], console_owned=True, launch_profile=g.PROFILE)
+            if method == 'emulator.wait-exit':
+                self.assertTrue(stopped.is_set(), 'BLOCKING_WAIT_BEFORE_OWNED_STOP')
+            return original(method, params, timeout)
+        wire.request = request
+        def force_stop(timeout):
+            forced.append(timeout)
+            wire.status.update(stop_requested=True, console_owned=False, native_processes=[])
+            stopped.set()
+            return dict(ticket_id=session.ticket, state='resource_stopped',
+                resource_exit_verified=True, native_processes=[], replay=False)
+        session.force_stop = force_stop
+        closed = session.finish(s.Caps(420, 15, 5, 5, 2, 15, 180, 45))
+        self.assertTrue(closed['native_tree_exit_verified'])
+        self.assertTrue(closed['lease_released'])
+        self.assertTrue(closed.get('exact_owner_force_stop_verified'))
+        self.assertEqual(forced, [5])
+
+    def test_post_test_stop_rejects_unproven_or_foreign_receipt_without_wait_or_replay(self):
+        for defect in ('foreign', 'unproven', 'replay', 'unknown'):
+            session, wire = self.session()
+            calls = []
+            def force_stop(timeout):
+                calls.append(timeout)
+                value = dict(ticket_id=session.ticket, state='resource_stopped',
+                    resource_exit_verified=True, replay=False)
+                if defect == 'foreign': value['ticket_id'] = 'different-ticket'
+                if defect == 'unproven': value['resource_exit_verified'] = False
+                if defect == 'replay': value['replay'] = True
+                if defect == 'unknown': raise ValueError('PRIVATE_STOP_ERROR')
+                return value
+            session.force_stop = force_stop
+            caps = s.Caps(420, 15, 5, 5, 2, 15, 180, 45)
+            closed = session.finish(caps)
+            self.assertIs(session.finish(caps), closed)
+            self.assertEqual(calls, [5])
+            self.assertFalse(closed['lease_released'])
+            self.assertFalse(session.exact_owner_force_stop_verified)
+            self.assertNotIn('emulator.wait-exit', [method for method, _, _ in wire.calls])
 
 
 if __name__ == '__main__':

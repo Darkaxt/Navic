@@ -663,9 +663,12 @@ class _CapturedClient:
 
 class GateSession:
     def __init__(self, record, *, transport, acquired, verify, wrapper_settle,
-                 storage_check=inspect_snapshot_storage, launch_started=None):
+                 storage_check=inspect_snapshot_storage, launch_started=None, force_stop=None):
         self.record, self.transport = record, transport
         self.verify, self.wrapper_settle, self.storage_check = verify, wrapper_settle, storage_check
+        self.force_stop = force_stop
+        self.stop_clients = []
+        self.exact_owner_force_stop_verified = False
         self.clients = []
         self.uncertain = False
         self._finished = None
@@ -759,8 +762,23 @@ class GateSession:
                 with session._verification_condition:
                     session._verification_active -= 1
                     session._verification_condition.notify_all()
+        def force_stop(timeout):
+            # Supported same-chat exact-ticket control, independent of the
+            # keeper channel. Never kill/retry this potentially consumed action.
+            deadline = time.monotonic() + timeout
+            command = [sys.executable, '-B', HELPER, 'stop', '--tool', 'android-emulator',
+                       '--resume-ticket', acquired['ticket_id']]
+            client = _CapturedClient(None, session.stop_clients, cap=65536)
+            client.process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment, bufsize=0)
+            client.start_readers()
+            if (not client.settle(max(0, deadline - time.monotonic())) or client.process.returncode != 0
+                    or client.outputs[1] or client.failed.is_set()):
+                raise blocked()
+            return json.loads(client.outputs[0])
+
         session = cls(record, transport=transport, acquired=acquired,
-                      verify=verify, wrapper_settle=transport.settle_wrapper)
+                      verify=verify, wrapper_settle=transport.settle_wrapper, force_stop=force_stop)
         return session
 
     def request(self, method, params=None, timeout=15, diagnostic_role=None):
@@ -924,6 +942,23 @@ class GateSession:
                 stopped = self.request('emulator.request-stop', timeout=caps.stop)
                 if stopped.get('state') not in ('stop_requested', 'native_exited') or stopped.get('not_dispatched'):
                     raise blocked()
+                # A console acknowledgement is not an exit event. The old
+                # unbounded wait-exit RPC poisoned this channel when its caller's
+                # five-second process-wait budget expired during SDK shutdown.
+                # After all test clients are settled, use the existing exact-job
+                # stop while the original channel is still certain. Only then
+                # ask the keeper to observe its already-exited native tree.
+                # launch() always supplies this native control. Injected host
+                # fixtures can finish their already-complete synthetic resource.
+                if callable(self.force_stop):
+                    receipt = self.force_stop(caps.stop)
+                    if (type(receipt) is not dict or receipt.get('ticket_id') != self.ticket
+                            or receipt.get('state') not in ('resource_stopped', 'already_complete')
+                            or receipt.get('resource_exit_verified') is not True
+                            or receipt.get('replay') is not False):
+                        raise blocked()
+                    self.exact_owner_force_stop_verified = True
+                result['exact_owner_force_stop_verified'] = self.exact_owner_force_stop_verified
                 exited = self.request('emulator.wait-exit', timeout=caps.process_wait)
                 if (exited.get('state') != 'native_exited' or exited.get('exit_verified') is not True
                         or type(exited.get('exit_code')) is not int

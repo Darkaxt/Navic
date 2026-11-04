@@ -21,6 +21,17 @@ verification still enforces the expected original owner and canonical AVD/serial
 The earlier r168 result remains immutable. A corrected host readiness path is not
 Navic acceptance until the unchanged original runtime assertions actually pass.
 
+For this bounded disposable test workflow, settle the original instrumentation
+and independent observer clients, request authenticated console stop, then use
+the supported same-chat exact-ticket `stop` control before the keeper's blocking
+`wait-exit` observation. Console acknowledgement alone never proves SDK exit.
+The native stop helper retains its own process and must settle within the
+existing stop budget; no failed or uncertain stop is retried. Require its matching
+ticket, verified resource exit and replay=false before reading final SDK output
+and releasing the original lease. Preserve actual native/workflow exit codes and
+record `exact_owner_force_stop_verified`; a deliberate post-test exit130 is not
+an APK crash. No time budget or reader assertion is increased or weakened.
+
 The 2026-09-13 resumable-coordinator design remains the production contract. Preserve Foliate semantic authority, passive raster isolation, PlayLikeCurl deformation/resource execution, canonical WordSync, the existing coordinator, complete real production capability, all sixteen truthful physical sources, exact resource release, and lawful existing Task 6 fact-only timer/error ownership. Do not start Task 7, project Task9 or Stage 7.
 
 The revised development sequence is: real cold-route feasibility, bounded current core closure, genuine fresh-session bootstrap/bench on proven feasibility, decoration/handoff/progress evidence, owned-emulator experiment, then remaining release migration. Direct-start is a hypothesis, not current production wiring.
